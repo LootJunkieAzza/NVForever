@@ -13,12 +13,15 @@ animations. Continued from Layer 1 in the same architecture (schema as data, tol
 parsers, parity lab).
 
 Decisions taken with the owner (2026-10-07):
-- nv-rs (https://github.com/slaterain/nv-rs) is a source of **format facts only**: its
+- nv-rs (https://github.com/slaterain/nv-rs) was a source of **format facts only**: its
   2026-10-05 policy admits leaked Xbox 360 debug symbols and translated decompiled code,
-  which our charter excludes. Its code is not copied. Every layout came from nif.xml and
-  was confirmed by the data; the animation schema's facts were also cross-checked
-  against nv-rs `crates/nif` (recorded in `schemas/nif/anim.json`), without taking any
-  layout or code from it.
+  which our charter excludes. Its code was never copied. Every layout came from nif.xml
+  and was confirmed by the data; the animation schema's facts were also cross-checked
+  against nv-rs `crates/nif`, without taking any layout or code from it.
+  Since 2026-10-30 nv-rs is not opened at all. That cross-check was replaced by the data
+  alone: `fnvtool nif coverage --filter .kf` over the base game's and every DLC's main
+  archive decodes all 4,989 animation files (371,613 blocks of 21 types) exactly, with
+  nothing left over, and re-encodes every block byte for byte [observed 2026-10-30].
 - niftools nif.xml (GPL-3.0 repository) is used **as documentation**; layouts are
   re-expressed in our own JSON (as Layer 1 did with xEdit). No code is generated from it.
   The project has since chosen GPL-3.0-or-later (LEGAL.md).

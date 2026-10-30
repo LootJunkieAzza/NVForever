@@ -1,7 +1,7 @@
 {
  "format": "fnv.capture.steps/1",
  "name": "jip_records",
- "title": "JIP records, runtime-compiled (read-only)",
+ "title": "jip-records, runtime-compiled (read-only)",
  "start": "any save (read-only)",
  "steps": [
   {

@@ -118,19 +118,20 @@ pub const NOTE_LINES: usize = 16;
 pub const RESULT_GAP: f32 = 30.0;
 pub const RESULT_X: f32 = 34.0;
 
-/// The words on the screens that are not in the plugins: exe defaults read off the
-/// owner's screenshots [observed], or NVForever's until the original's are seen
-/// [hypothesis, hacking.md §8].
+/// The words on the screens that are not in the plugins (hacking.md §8). Plain phrases
+/// match the owner's screenshots [observed]; the header lines that name the game's
+/// fictional maker are NVForever's own wording, not the original's (LEGAL.md), and so
+/// are the lines the original has not been seen showing [hypothesis].
 pub mod words {
-    pub const HACK_TITLE: &str = "ROBCO INDUSTRIES (TM) TERMLINK PROTOCOL";
+    pub const HACK_TITLE: &str = "TERMINAL ACCESS PROTOCOL";
     pub const HACK_PROMPT: &str = "ENTER PASSWORD NOW";
     /// [hypothesis] The warning on the last attempt.
     pub const HACK_WARNING: &str = "!!! WARNING: LOCKOUT IMMINENT !!!";
     /// `sHackingLockout3` and `sHackingLockout4` [hypothesis: their texts].
     pub const LOCKOUT_1: &str = "TERMINAL LOCKED";
     pub const LOCKOUT_2: &str = "PLEASE CONTACT AN ADMINISTRATOR";
-    pub const MENU_TITLE: &str = "ROBCO INDUSTRIES UNIFIED OPERATING SYSTEM";
-    pub const MENU_COPYRIGHT: &str = "COPYRIGHT 2075-2077 ROBCO INDUSTRIES";
+    pub const MENU_TITLE: &str = "TERMINAL OPERATING SYSTEM";
+    pub const MENU_COPYRIGHT: &str = "VERSION 1.0";
 
     pub fn attempts(n: u8) -> String {
         format!("{n} ATTEMPT(S) LEFT:")

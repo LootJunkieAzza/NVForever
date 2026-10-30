@@ -1,0 +1,504 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "lu_leveled",
+ "title": "lu-leveled, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetPluginVersion \"ShowOffNVSE Plugin\")\nEnd\n",
+   "label": "plugin.version.ShowOffNVSE Plugin",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetPluginVersion \"ShowOff NVSE Plugin\")\nEnd\n",
+   "label": "plugin.version.ShowOff NVSE Plugin",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetPluginVersion \"ShowOffNVSE\")\nEnd\n",
+   "label": "plugin.version.ShowOffNVSE",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetPluginVersion \"kNVSE\")\nEnd\n",
+   "label": "plugin.version.kNVSE",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetPluginVersion \"kNVSE Plugin\")\nEnd\n",
+   "label": "plugin.version.kNVSE Plugin",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetPluginVersion \"JIP LN NVSE\")\nEnd\n",
+   "label": "plugin.version.JIP LN NVSE",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetPluginVersion \"JohnnyGuitarNVSE\")\nEnd\n",
+   "label": "plugin.version.JohnnyGuitarNVSE",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (IsPluginInstalled \"ShowOffNVSE Plugin\")\nEnd\n",
+   "label": "plugin.installed.ShowOffNVSE Plugin",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (IsPluginInstalled \"ShowOff NVSE Plugin\")\nEnd\n",
+   "label": "plugin.installed.ShowOff NVSE Plugin",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (IsPluginInstalled \"ShowOffNVSE\")\nEnd\n",
+   "label": "plugin.installed.ShowOffNVSE",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (IsPluginInstalled \"kNVSE\")\nEnd\n",
+   "label": "plugin.installed.kNVSE",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (IsPluginInstalled \"kNVSE Plugin\")\nEnd\n",
+   "label": "plugin.installed.kNVSE Plugin",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (IsPluginInstalled \"JIP LN NVSE\")\nEnd\n",
+   "label": "plugin.installed.JIP LN NVSE",
+   "field": "value"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (IsPluginInstalled \"JohnnyGuitarNVSE\")\nEnd\n",
+   "label": "plugin.installed.JohnnyGuitarNVSE",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nSetFunctionValue (GetNumLevItems rLst)\nEnd\n",
+   "label": "lvli.num",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nSetFunctionValue (GetLeveledListFlags rLst)\nEnd\n",
+   "label": "lvli.flags",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nSetFunctionValue (GetChanceNone rLst)\nEnd\n",
+   "label": "lvli.chancenone",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nSetFunctionValue (GetFormIDString (GetChanceNoneGlobal rLst))\nEnd\n",
+   "label": "lvli.chancenoneglobal",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nSetFunctionValue (GetFormIDString (GetNthLevItem rLst 0))\nEnd\n",
+   "label": "lvli.nth0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nSetFunctionValue (GetNthLevItemLevel rLst 0)\nEnd\n",
+   "label": "lvli.nth0.level",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nSetFunctionValue (GetNthLevItemCount rLst 0)\nEnd\n",
+   "label": "lvli.nth0.count",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nSetFunctionValue (GetFormIDString (GetNthLevItem rLst 99))\nEnd\n",
+   "label": "lvli.nth.past",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nSetFunctionValue (GetNthLevItemLevel rLst 99)\nEnd\n",
+   "label": "lvli.nth.past.level",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nSetFunctionValue (GetLevItemIndexByLevel rLst 1)\nEnd\n",
+   "label": "lvli.index.level1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nSetFunctionValue (GetLevItemIndexByLevel rLst 100)\nEnd\n",
+   "label": "lvli.index.level100",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"17A2FE\"\nSetFunctionValue (GetNumLevItems rLst)\nEnd\n",
+   "label": "lvln.num",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"17A2FE\"\nSetFunctionValue (GetLeveledListFlags rLst)\nEnd\n",
+   "label": "lvln.flags",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"17A2FE\"\nSetFunctionValue (GetChanceNone rLst)\nEnd\n",
+   "label": "lvln.chancenone",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"17A2FE\"\nSetFunctionValue (GetFormIDString (GetChanceNoneGlobal rLst))\nEnd\n",
+   "label": "lvln.chancenoneglobal",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"17A2FE\"\nSetFunctionValue (GetFormIDString (GetNthLevItem rLst 0))\nEnd\n",
+   "label": "lvln.nth0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"17A2FE\"\nSetFunctionValue (GetNthLevItemLevel rLst 0)\nEnd\n",
+   "label": "lvln.nth0.level",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"17A2FE\"\nSetFunctionValue (GetNthLevItemCount rLst 0)\nEnd\n",
+   "label": "lvln.nth0.count",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"17A2FE\"\nSetFunctionValue (GetFormIDString (GetNthLevItem rLst 99))\nEnd\n",
+   "label": "lvln.nth.past",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"17A2FE\"\nSetFunctionValue (GetNthLevItemLevel rLst 99)\nEnd\n",
+   "label": "lvln.nth.past.level",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"17A2FE\"\nSetFunctionValue (GetLevItemIndexByLevel rLst 1)\nEnd\n",
+   "label": "lvln.index.level1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"17A2FE\"\nSetFunctionValue (GetLevItemIndexByLevel rLst 100)\nEnd\n",
+   "label": "lvln.index.level100",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"174435\"\nSetFunctionValue (GetNumLevItems rLst)\nEnd\n",
+   "label": "lvlc.num",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"174435\"\nSetFunctionValue (GetLeveledListFlags rLst)\nEnd\n",
+   "label": "lvlc.flags",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"174435\"\nSetFunctionValue (GetChanceNone rLst)\nEnd\n",
+   "label": "lvlc.chancenone",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"174435\"\nSetFunctionValue (GetFormIDString (GetChanceNoneGlobal rLst))\nEnd\n",
+   "label": "lvlc.chancenoneglobal",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"174435\"\nSetFunctionValue (GetFormIDString (GetNthLevItem rLst 0))\nEnd\n",
+   "label": "lvlc.nth0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"174435\"\nSetFunctionValue (GetNthLevItemLevel rLst 0)\nEnd\n",
+   "label": "lvlc.nth0.level",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"174435\"\nSetFunctionValue (GetNthLevItemCount rLst 0)\nEnd\n",
+   "label": "lvlc.nth0.count",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"174435\"\nSetFunctionValue (GetFormIDString (GetNthLevItem rLst 99))\nEnd\n",
+   "label": "lvlc.nth.past",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"174435\"\nSetFunctionValue (GetNthLevItemLevel rLst 99)\nEnd\n",
+   "label": "lvlc.nth.past.level",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"174435\"\nSetFunctionValue (GetLevItemIndexByLevel rLst 1)\nEnd\n",
+   "label": "lvlc.index.level1",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"174435\"\nSetFunctionValue (GetLevItemIndexByLevel rLst 100)\nEnd\n",
+   "label": "lvlc.index.level100",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nlet rObj := GetNthLevItem rLst 0\nSetFunctionValue (GetLevItemIndexByForm rLst rObj)\nEnd\n",
+   "label": "lvli.index.form0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"F\"\nSetFunctionValue (GetLevItemIndexByForm rLst rObj)\nEnd\n",
+   "label": "lvli.index.missing",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nlet rObj := GetNthLevItem rLst 0\nSetFunctionValue (LeveledListHasFormDeep rLst rObj)\nEnd\n",
+   "label": "lvli.hasdeep.nth0",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"F\"\nSetFunctionValue (LeveledListHasFormDeep rLst rObj)\nEnd\n",
+   "label": "lvli.hasdeep.missing",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"F\"\nLeveledListAddForm rLst rObj 7 25 1.0\nSetFunctionValue (GetNumLevItems rLst)\nEnd\n",
+   "label": "lvli.add",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"F\"\nSetFunctionValue (GetLevItemIndexByForm rLst rObj)\nEnd\n",
+   "label": "lvli.add.index",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"F\"\nSetFunctionValue (GetNthLevItemLevel rLst (GetLevItemIndexByForm rLst rObj))\nEnd\n",
+   "label": "lvli.add.level",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"F\"\nSetFunctionValue (GetNthLevItemCount rLst (GetLevItemIndexByForm rLst rObj))\nEnd\n",
+   "label": "lvli.add.count",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nSetFunctionValue (GetLevItemIndexByLevel rLst 7)\nEnd\n",
+   "label": "lvli.add.index.level7",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"F\"\nSetFunctionValue (LeveledListHasFormDeep rLst rObj)\nEnd\n",
+   "label": "lvli.add.hasdeep",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"F\"\nLeveledListAddForm rLst rObj 3 5 1.0\nSetFunctionValue (GetNumLevItems rLst)\nEnd\n",
+   "label": "lvli.add.twice",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"F\"\nSetFunctionValue (GetLevItemIndexByForm rLst rObj)\nEnd\n",
+   "label": "lvli.add.twice.index",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"F\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nLeveledListReplaceForm rLst rObj rOther\nSetFunctionValue (GetLevItemIndexByForm rLst rOther)\nEnd\n",
+   "label": "lvli.replace",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"F\"\nSetFunctionValue (GetLevItemIndexByForm rLst rObj)\nEnd\n",
+   "label": "lvli.replace.old",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nSetFunctionValue (LeveledListRemoveForm rLst rObj)\nEnd\n",
+   "label": "lvli.remove",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nSetFunctionValue (GetNumLevItems rLst)\nEnd\n",
+   "label": "lvli.remove.num",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nSetFunctionValue (LeveledListRemoveForm rLst rObj)\nEnd\n",
+   "label": "lvli.remove.again",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nSetNthLevItemCount rLst 0 42\nSetFunctionValue (GetNthLevItemCount rLst 0)\nEnd\n",
+   "label": "lvli.setcount",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nSetNthLevItemLevel rLst 0 9\nSetFunctionValue (GetNthLevItemLevel rLst 0)\nEnd\n",
+   "label": "lvli.setlevel",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nSetFunctionValue (GetFormIDString (GetNthLevItem rLst 0))\nEnd\n",
+   "label": "lvli.setlevel.nth0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nSetNthLevItem rLst 0 rObj\nSetFunctionValue (GetLevItemIndexByForm rLst rObj)\nEnd\n",
+   "label": "lvli.setitem",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nSetChanceNone rLst 35\nSetFunctionValue (GetChanceNone rLst)\nEnd\n",
+   "label": "lvli.chancenone.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nSetChanceNone rLst 250\nSetFunctionValue (GetChanceNone rLst)\nEnd\n",
+   "label": "lvli.chancenone.big",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nSetLeveledListFlags rLst 5\nSetFunctionValue (GetLeveledListFlags rLst)\nEnd\n",
+   "label": "lvli.flags.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nSetLeveledListFlags rLst 15\nSetFunctionValue (GetLeveledListFlags rLst)\nEnd\n",
+   "label": "lvli.flags.set8",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nlet fRes := GetNumLevItems rLst\nRemoveNthLevItem rLst 0\nSetFunctionValue (fRes * 100 + (GetNumLevItems rLst))\nEnd\n",
+   "label": "lvli.removenth",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nlet fRes := GetNumLevItems rLst\nRemoveNthLevItem rLst 99\nSetFunctionValue (fRes * 100 + (GetNumLevItems rLst))\nEnd\n",
+   "label": "lvli.removenth.past",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nlet rObj := GetNthLevItem rLst 0\nSetFunctionValue (RemoveFormFromLeveledList rLst rObj)\nEnd\n",
+   "label": "lvli.showoff.remove",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nLeveledListClear rLst\nSetFunctionValue (GetNumLevItems rLst)\nEnd\n",
+   "label": "lvli.clear",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"2935E\"\nSetFunctionValue (GetFormIDString (GetNthLevItem rLst 0))\nEnd\n",
+   "label": "lvli.clear.nth0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"645D4\"\nSetFunctionValue (GetNumLevItems rLst)\nEnd\n",
+   "label": "fortune.num.before",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"645D4\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nLeveledListClear rLst\nSetChanceNone rLst 0\nSetLeveledListFlags rLst 0\nLeveledListAddForm rLst rObj 1 3 1.0\nSetFunctionValue (GetNumLevItems rLst)\nEnd\n",
+   "label": "fortune.rebuild",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"645D4\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nSetFunctionValue (rPlayer.GetItemCount rObj)\nEnd\n",
+   "label": "fortune.stim.before",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"645D4\"\nrPlayer.AddItem rLst 1 1\nSetFunctionValue 1\nEnd\n",
+   "label": "fortune.additem",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"645D4\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nSetFunctionValue (rPlayer.GetItemCount rObj)\nEnd\n",
+   "label": "fortune.stim.after",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"645D4\"\nSetFunctionValue (rPlayer.GetItemCount rLst)\nEnd\n",
+   "label": "fortune.list.carried",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"645D4\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nrPlayer.RemoveItem rObj 3 1\nSetFunctionValue 1\nEnd\n",
+   "label": "fortune.cleanup",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"645D4\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nSetFunctionValue (rPlayer.GetItemCount rObj)\nEnd\n",
+   "label": "fortune.stim.cleaned",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"17A2FE\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nLeveledListAddForm rLst rObj 1 1 0\nSetFunctionValue (GetNumLevItems rLst)\nEnd\n",
+   "label": "lvln.add",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"17A2FE\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetLevItemIndexByForm rLst rObj)\nEnd\n",
+   "label": "lvln.add.index",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"17A2FE\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetNthLevItemCount rLst (GetLevItemIndexByForm rLst rObj))\nEnd\n",
+   "label": "lvln.add.count",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"17A2FE\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (LeveledListRemoveForm rLst rObj)\nEnd\n",
+   "label": "lvln.remove",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"17A2FE\"\nSetFunctionValue (GetNumLevItems rLst)\nEnd\n",
+   "label": "lvln.remove.num",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"174435\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174434\"\nLeveledListAddForm rLst rObj 2 1 0\nSetFunctionValue (GetNumLevItems rLst)\nEnd\n",
+   "label": "lvlc.add.list",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"174435\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174434\"\nSetFunctionValue (GetLevItemIndexByForm rLst rObj)\nEnd\n",
+   "label": "lvlc.add.list.index",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"174435\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"174434\"\nlet rOther := GetNthLevItem rObj 0\nSetFunctionValue (LeveledListHasFormDeep rLst rOther)\nEnd\n",
+   "label": "lvlc.hasdeep.sub",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"174435\"\nlet fRes := GetLeveledListFlags rLst\nSetLeveledListFlags rLst 4\nlet fRes := fRes * 10 + (GetLeveledListFlags rLst)\nSetFunctionValue fRes\nEnd\n",
+   "label": "lvlc.flags.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"174435\"\nLeveledListClear rLst\nSetFunctionValue (GetNumLevItems rLst)\nEnd\n",
+   "label": "lvlc.clear",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"645D4\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nSetFunctionValue (GetNumLevItems rObj)\nEnd\n",
+   "label": "notlist.num",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rLst\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rLst := GetFormFromMod \"FalloutNV.esm\" \"645D4\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nSetFunctionValue (GetLeveledListFlags rObj)\nEnd\n",
+   "label": "notlist.flags",
+   "field": "value"
+  }
+ ]
+}

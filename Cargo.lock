@@ -521,6 +521,7 @@ dependencies = [
  "fnv-ui",
  "fnv-util",
  "fnv-vfs",
+ "fnv-world",
  "rand_chacha",
  "rand_core",
  "rayon",

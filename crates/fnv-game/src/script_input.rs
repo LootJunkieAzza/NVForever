@@ -44,9 +44,46 @@ pub struct ScriptInput {
     /// Taps asked for this frame (TapKey, TapControl as its key); the engine presses each
     /// for one frame [documented: TapKey].
     pub taps: Vec<u16>,
+    /// HoldControl's and ReleaseControl's keys, held (true) or let go from the next frame
+    /// ([`ScriptInput::next_frame`]) [observed: controls1, IsControlPressed reads 0 in
+    /// HoldControl's frame and 1 two frames on, and 1 in ReleaseControl's frame and 0
+    /// ten frames on].
+    pub control_holds: Vec<(u16, bool)>,
+    /// SetControl's changes for the engine to take: (control, mouse, the new code).
+    pub rebinds: Vec<(usize, bool, Option<u16>)>,
 }
 
 impl ScriptInput {
+    /// Each frame (`Game::tick`): last frame's HoldControl and ReleaseControl take effect.
+    pub fn next_frame(&mut self) {
+        for (code, hold) in std::mem::take(&mut self.control_holds) {
+            if hold {
+                self.script_held.insert(code);
+            } else {
+                self.script_held.remove(&code);
+            }
+        }
+    }
+
+    /// `SetControl control code [type]`: the key (type 0) or mouse button (type 1, as
+    /// GetControl gives it, 256 + n, or the bare n) [documented: SetControl; observed:
+    /// controls1, 48 reads back in its frame and the next]. The engine takes the change;
+    /// the original writes it to its INI on exit [documented], ours to nothing of the
+    /// game's.
+    fn set_control(&mut self, control: i64, code: i64, mouse: bool) {
+        let Some(c) = usize::try_from(control).ok().filter(|&c| c < CONTROLS) else { return };
+        if self.bindings.len() < CONTROLS {
+            self.bindings = (0..CONTROLS).map(|c| self.bindings.get(c).copied().unwrap_or_else(|| default_binding(c))).collect();
+        }
+        let code = u16::try_from(code).ok().map(|n| if mouse && n < MOUSE_BASE { MOUSE_BASE + n } else { n });
+        if mouse {
+            self.bindings[c].1 = code;
+        } else {
+            self.bindings[c].0 = code;
+        }
+        self.rebinds.push((c, mouse, code));
+    }
+
     fn binding(&self, control: i64) -> (Option<u16>, Option<u16>) {
         let Some(c) = usize::try_from(control).ok().filter(|&c| c < CONTROLS) else { return (None, None) };
         self.bindings.get(c).copied().unwrap_or_else(|| default_binding(c))
@@ -167,6 +204,19 @@ pub(crate) fn call(input: &mut ScriptInput, name: &str, args: &[XVal]) -> Option
         "tapcontrol" => {
             let (k, m) = input.binding(int(args, 0, -1));
             input.taps.extend(k.or(m));
+            XVal::Num(0.0)
+        }
+        "setcontrol" => {
+            input.set_control(int(args, 0, -1), int(args, 1, -1), int(args, 2, 0) == 1);
+            XVal::Num(0.0)
+        }
+        // [documented: HoldControl, until ReleaseControl] the control's key, else its
+        // mouse button, from the next frame.
+        "holdcontrol" | "releasecontrol" => {
+            let (k, m) = input.binding(int(args, 0, -1));
+            if let Some(c) = k.or(m) {
+                input.control_holds.push((c, name == "holdcontrol"));
+            }
             XVal::Num(0.0)
         }
         "holdkey" => {
@@ -327,4 +377,37 @@ const KEY_NAMES: [(u16, &str); 136] = [
 /// [documented: GetKeyName] the name of a key or mouse button code.
 pub fn key_name(code: i64) -> &'static str {
     u16::try_from(code).ok().and_then(|c| KEY_NAMES.iter().find(|(k, _)| *k == c)).map_or("<no key>", |(_, n)| n)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pressed(input: &mut ScriptInput, control: f64) -> bool {
+        call(input, "iscontrolpressed", &[XVal::Num(control)]) == Some(XVal::Num(1.0))
+    }
+
+    #[test]
+    fn held_and_released_controls_change_from_the_next_frame() {
+        let mut input = ScriptInput::default();
+        call(&mut input, "holdcontrol", &[XVal::Num(0.0)]);
+        assert!(!pressed(&mut input, 0.0), "not in HoldControl's own frame");
+        input.next_frame();
+        assert!(pressed(&mut input, 0.0));
+        call(&mut input, "releasecontrol", &[XVal::Num(0.0)]);
+        assert!(pressed(&mut input, 0.0), "still held in ReleaseControl's frame");
+        input.next_frame();
+        assert!(!pressed(&mut input, 0.0));
+    }
+
+    #[test]
+    fn set_control_reads_back_and_goes_to_the_engine() {
+        let mut input = ScriptInput::default();
+        call(&mut input, "setcontrol", &[XVal::Num(7.0), XVal::Num(48.0), XVal::Num(0.0)]);
+        assert_eq!(call(&mut input, "getcontrol", &[XVal::Num(7.0), XVal::Num(0.0)]), Some(XVal::Num(48.0)));
+        assert_eq!(call(&mut input, "getcontrol", &[XVal::Num(0.0), XVal::Num(0.0)]), Some(XVal::Num(17.0)), "the others keep their defaults");
+        call(&mut input, "setcontrol", &[XVal::Num(4.0), XVal::Num(1.0), XVal::Num(1.0)]);
+        assert_eq!(call(&mut input, "getcontrol", &[XVal::Num(4.0), XVal::Num(1.0)]), Some(XVal::Num(257.0)));
+        assert_eq!(input.rebinds, vec![(7, false, Some(48)), (4, true, Some(257))]);
+    }
 }

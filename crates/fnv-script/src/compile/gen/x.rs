@@ -241,8 +241,10 @@ impl Gen<'_> {
             XKind::Str => Some(XExpr::Str { s: t.text.clone() }),
             XKind::Open => {
                 let was = std::mem::replace(&mut self.in_args, false);
+                let was_paren = std::mem::replace(&mut self.in_paren, true);
                 let e = self.xexpr(p, 0);
                 self.in_args = was;
+                self.in_paren = was_paren;
                 let e = e?;
                 if p.next().map(|c| c.kind) != Some(XKind::Close) {
                     return self.xerr("syntax", "missing )");
@@ -333,6 +335,15 @@ impl Gen<'_> {
                 }
             }
         }
+        // `Quest.refVar.Function`: the function on the reference a quest variable holds
+        // [observed: JustAssortedMods.esp, `JLM.rContainer.LNGetName`].
+        if let Some((target, fname)) = w.rsplit_once('.').filter(|(t, _)| t.contains('.')) {
+            if let (Some(f), Some((q, v))) = (self.xfunction(fname), target.split_once('.')) {
+                let on = self.remote(q, v)?;
+                let args = self.xargs(p, &f)?;
+                return Some(XExpr::Call { call: XCall { on: Some(Box::new(val_expr(on))), func: f.func, args } });
+            }
+        }
         let (head, name) = match w.split_once('.') {
             Some((h, n)) if !h.is_empty() => (Some(h), n),
             Some((_, n)) => (None, n),
@@ -378,8 +389,40 @@ impl Gen<'_> {
                 self.diag("unquoted_argument", false, name.to_string());
                 Some(XExpr::Str { s: name.to_string() })
             }
+            // A call line starting with an unknown name, in a mod's source compiled by the
+            // engine: a call of that name, reporting "not built" when it runs
+            // ([`super::super::Seed::unknown_calls`]) [observed: TaleOfTwoWastelands.esm
+            // SCPT 001880 calls TTW_EnableRadioFix and InitRockItLauncher, plugin functions
+            // the wiki does not document].
+            None if self.unknown_calls && self.call_line && !self.in_args && head.is_none() => {
+                self.diag("unknown_function", false, name.to_string());
+                let f = XFn { func: FuncId::Name(name.to_string()), params: None, opcode: None, aware: false };
+                let args = self.xargs(p, &f)?;
+                Some(XExpr::Call { call: XCall { on: None, func: f.func, args } })
+            }
             None => self.xerr("unresolved_name", name.to_string()),
         }
+    }
+
+    /// The function is xNVSE's (or FOSE's) and its parameter `k` is a plain string, not a
+    /// format string.
+    fn plain_string_param(&self, f: &XFn, k: usize) -> bool {
+        let FuncId::Name(n) = &f.func else { return false };
+        let Some(u) = self.table.unnumbered.get(&n.to_ascii_lowercase()) else { return false };
+        let formatted = u.params.iter().any(|p| p.name.starts_with("...") || p.name.to_ascii_lowercase().contains("format"));
+        // The wiki's type is "string", not "string_var" (Sv_Erase takes the variable).
+        matches!(u.origin.as_str(), "NVSE" | "FOSE1") && !formatted && u.params.get(k).is_some_and(|p| p.kind == "string" && p.wiki_type.as_deref().is_some_and(|t| t.eq_ignore_ascii_case("string")))
+    }
+
+    /// The function's parameter `k` takes a form, or is named for a global (the base
+    /// game's GetGlobalValue included).
+    fn form_param(&self, f: &XFn, k: usize) -> bool {
+        let params = match (&f.func, f.opcode) {
+            (_, Some(op)) => self.table.get(op).map(|d| &d.params),
+            (FuncId::Name(n), None) => self.table.unnumbered.get(&n.to_ascii_lowercase()).map(|u| &u.params),
+            _ => None,
+        };
+        params.and_then(|ps| ps.get(k)).is_some_and(|p| matches!(p.kind.as_str(), "form" | "reference") || p.name.to_ascii_lowercase().contains("global"))
     }
 
     fn xargs(&mut self, p: &mut P<'_>, f: &XFn) -> Option<Vec<XExpr>> {
@@ -399,6 +442,38 @@ impl Gen<'_> {
             let minus_first = f.params != Some(0) && minus && (comma || args.is_empty() || p.peek().is_some_and(|t| t.sign));
             if !starts_operand(p.peek()) && !minus_first {
                 break;
+            }
+            // A string variable given by name to an xNVSE function's plain string
+            // parameter, on a line that is that call alone, is its name as text [observed: nvse-sixth,
+            // `SetStringIniSetting "sLanguage:General" sText` set the text "sText";
+            // documented: SetNameEx, "does not accept string variables directly … must be
+            // converted", `$sv`; hypothesis: JIP's and the other plugins' functions differ].
+            if self.call_line && !self.in_args && !f.aware && !self.in_paren && self.plain_string_param(f, args.len()) {
+                if let Some(t) = p.peek().filter(|t| t.kind == XKind::Word && !t.text.contains('.')).cloned() {
+                    let string_var = self.var(&t.text).is_some_and(|v| matches!(&v.ty, crate::unit::VarType::Other(s) if s == "string_var"));
+                    let alone = !p.peek2().is_some_and(|n| matches!(n.kind, XKind::LBracket | XKind::Op));
+                    if string_var && alone {
+                        p.next();
+                        args.push(XExpr::Str { s: t.text.clone() });
+                        continue;
+                    }
+                }
+            }
+            // A global's name given alone to a plugin function's form parameter (or one
+            // named for a global) is the global, not its value [observed: plugins3,
+            // `GetGlobalValue TimeScale` reads 30 and `SetGlobalValue TimeScale 31` sets
+            // it in the original].
+            if self.form_param(f, args.len()) {
+                if let Some(t) = p.peek().filter(|t| t.kind == XKind::Word && !t.text.contains('.')).cloned() {
+                    let alone = !p.peek2().is_some_and(|n| matches!(n.kind, XKind::LBracket | XKind::Op));
+                    let global = self.var(&t.text).is_none().then(|| self.form(&t.text)).flatten().filter(|fi| &fi.sig == b"GLOB");
+                    if let (true, Some(fi)) = (alone, global) {
+                        p.next();
+                        let r = self.ref_index(crate::unit::RefSlot::Form(fi.form), &t.text);
+                        args.push(XExpr::Ref { r: RefIndex(r) });
+                        continue;
+                    }
+                }
             }
             let enc = f.opcode.map(|o| self.table.param_enc(o, args.len())).unwrap_or(ParamEnc::Value);
             let min = if f.aware {

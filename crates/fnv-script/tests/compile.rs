@@ -150,7 +150,7 @@ fn a_seed_keeps_the_units_indices() {
     let t = table();
     let vars = vec![VarDecl { index: 7, name: "a".into(), ty: VarType::Int }];
     let refs = vec![RefSlot::Form(CAPS)];
-    let c = compile("short a\nbegin GameMode\nset a to 1\nplayer.AddItem Caps001 a\nend", &t, &World, Some(Seed { variables: &vars, refs: &refs }));
+    let c = compile("short a\nbegin GameMode\nset a to 1\nplayer.AddItem Caps001 a\nend", &t, &World, Some(Seed { variables: &vars, refs: &refs, unknown_calls: false }));
     assert_eq!(c.variables, vars);
     assert_eq!(c.refs, [RefSlot::Form(CAPS), RefSlot::Form(PLAYER)]);
     assert!(c.diags.iter().any(|d| d.kind == "reference_added"));
@@ -369,7 +369,7 @@ fn if_eval_tests_an_extended_condition() {
 #[test]
 fn not_built_yet_stops_the_statement() {
     let t = table();
-    // GetPluginHeaderVersion is not built yet.
+    // GetPluginHeaderVersion is not built in the VM (the game answers it).
     let (_, p) = build("ref r\nbegin GameMode\nGetPluginHeaderVersion \"FalloutNV.esm\"\nend");
     let mut h = Locals::default();
     let r = Vm::new(&t, &mut h, RunOpts { strict: true, ..RunOpts::default() }).run(&p.blocks[0].body);
@@ -944,4 +944,19 @@ fn string_edits_from_the_probes() {
     assert_eq!(h.text(2), "adef");
     assert_eq!(h.text(3), "bcd");
     assert_eq!(h.0[&4], Value::Num(1.0));
+}
+
+#[test]
+fn let_macro_assigns_to_a_subscript() {
+    // [observed: JustAssortedMods.esp's handlers, `aEvent["Count"] = …`, compile in the
+    // original]
+    let h = run("array_var a\nfloat n\nbegin GameMode\nlet a := Ar_List 10, 20\na[1] = 7\na[0] += 1\nlet n := a[0] + a[1]\nend");
+    assert_eq!(h.0[&2], Value::Num(18.0));
+}
+
+#[test]
+fn ignore_crippled_limbs_is_an_actor_value() {
+    // [documented: xEdit ActorValue 72; observed: JustAssortedMods.esp names it]
+    let (c, _) = build("float f\nbegin GameMode\nlet f := player.GetAV IgnoreCrippledLimbs\nend");
+    assert!(c.diags.iter().all(|d| !d.error), "{:?}", c.diags);
 }

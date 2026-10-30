@@ -21,11 +21,23 @@ fn field(g: &Game, form: FormId, sub: &str, path: &str) -> Option<XVal> {
         return Some(v.clone());
     }
     Some(match g.data.record_field(form, sub, path)? {
-        Json::Number(n) => XVal::Num(n.as_f64()?),
+        Json::Number(n) => XVal::Num(record_float(n.as_f64()?)),
         Json::String(s) if s.starts_with("0x") => XVal::Ref(u32::from_str_radix(&s[2..], 16).ok()?),
         Json::String(s) => XVal::Str(s.clone()),
         _ => return None,
     })
+}
+
+/// A record's number as the game reads it: a float32 field by its shortest decimal (1.3,
+/// not 1.29999995), so that `x * 1000` floors to 1300 [observed: gaps9, Floor of
+/// GetWeaponAnimAttackMult × 1000 on the machete (1.3 in the record) reads 1300].
+pub(crate) fn record_float(x: f64) -> f64 {
+    let f = x as f32;
+    if x.fract() != 0.0 && f64::from(f) == x {
+        format!("{f}").parse().unwrap_or(x)
+    } else {
+        x
+    }
 }
 
 /// [`field`] for the sibling files.
@@ -159,6 +171,60 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
     if let Some(r) = crate::nvse_other::call(g, ctx, name, subject, args) {
         return Some(r);
     }
+    if let Some(r) = crate::nvse_console::call(g, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_lists::call(g, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_leveled::call(g, name, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::mod_files::call(g, name, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_proj::call(g, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_sound::call(g, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_traits::call(g, name, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_anim::call(g, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nif_blocks::call(g, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jip2::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::anims::call_ext(g, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_showoff::call(g, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_hud::call(g, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jip3::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_gaps::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_plugins::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    // The UI functions, over the menus' tile tree (docs/design/ui-tile-tree.md §5.1);
+    // before the `set…` setters below, which would read SetUIFloat as a record field's
+    // setter.
+    if let Some(r) = crate::ui_functions::call(g, name, args) {
+        return Some(r);
+    }
     if let Some(r) = crate::nvse_settings::call(g, name, args) {
         return Some(r);
     }
@@ -169,11 +235,6 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
         return Some(r);
     }
     if let Some(r) = crate::nvse_debug::call(g, name, args) {
-        return Some(r);
-    }
-    // The menus' tile tree (docs/design/ui-tile-tree.md §5.1); before the `set…`
-    // setters below, which would read SetUIFloat as a record field's setter.
-    if let Some(r) = crate::ui_functions::call(g, name, args) {
         return Some(r);
     }
     // The item a getter reads: its argument, else the calling reference's base form.
@@ -197,6 +258,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
             "getammoconsumedpercent" => Some(("DAT2", "consumed_percentage")),
             // [observed: nvse-setters, SetObjectHealth 123 then GetBaseHealth 123].
             "getobjecthealth" => Some(("DATA", "health")),
+            // A creature's attack damage is not set [observed: atk1, SetAttackDamage 50 on
+            // VStreetCrBrahmin2 still reads 0, though the page names creatures].
+            "getattackdamage" if g.data.sig(f) == Some(*b"CREA") => return Some(Ok(XVal::Num(0.0))),
             g2 => weapon_field(g2),
         };
         if let (Some((sub, path)), Some(v)) = (target, value) {
@@ -230,6 +294,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
     }
     if let Some((sub, path)) = weapon_field(name) {
         let w = item(g, 0).unwrap_or(FormId(0));
+        // A creature reads 0 [observed: atk1, VStreetCrBrahmin2; the page says it works on
+        // creatures].
+        if name == "getattackdamage" && g.data.sig(w) == Some(*b"CREA") {
+            return Some(Ok(XVal::Num(0.0)));
+        }
         let v = field(g, w, sub, path);
         return Some(Ok(match name {
             "getweaponammo" | "getweaponprojectile" | "getweaponcriteffect" => form_of(v),
@@ -302,11 +371,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
                 _ => form_of(field(g, a, "DAT2", "consumed_ammo")),
             }
         }
-        // [documented: GetName] the full name of a reference's base or a form; "" none.
+        // [documented: GetName] the full name of a form; on a reference always its
+        // base's, neither the reference's own FULL nor SetRefName's name; a static
+        // without one reads "<no name>" [observed: plugins3, the Goodsprings map marker
+        // and the 605 references round the player; gaps4, Doc after SetRefName].
         "getname" => {
             let f = as_form(args.first()).or(subject).unwrap_or(FormId(0));
             let named = |x: FormId| g.name_overrides.get(&x).or_else(|| g.data.full_names.get(&g.unclone(x))).cloned();
-            let n = named(f).or_else(|| crate::functions::base_of(g, f).and_then(named));
+            let b = crate::functions::base_of(g, f).filter(|&b| b != f).unwrap_or(f);
+            let n = named(b).or_else(|| (g.data.sig(b) == Some(*b"STAT")).then(|| "<no name>".to_string()));
             XVal::Str(n.unwrap_or_default())
         }
         // [documented: GetParentCell] the cell the reference is in.

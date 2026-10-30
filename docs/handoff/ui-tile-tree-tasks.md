@@ -23,7 +23,9 @@ owner to add to its pull request or issue (owner, 2026-10-29).
   - `fnvtool ui menus|tree`, smoke `ui-menus`.
   - The spec note.
 - **T2. The UI functions wired into the extender.** Done 2026-10-28
-  (claude/ui-functions-extender).
+  (claude/ui-functions-extender). Upstream wired the same call on 2026-10-26
+  (dc19c50e, claude/ext-compiler); the merge of 2026-10-30 keeps one call, at upstream's
+  place, and the VM's one formatting path (`format_at`).
   - `nvse::call` hands the names no other family takes to `ui_functions::call`, before
     the `Set…` record setters, which would take SetUIFloat for one.
   - The VM formats the format string of SetUIStringEx, SetUIStringAlt,
@@ -257,9 +259,12 @@ owner to add to its pull request or issue (owner, 2026-10-29).
    AttachUIXML, AttachUIComponent, AddTraitToTile, GetUIValueType, GetUIElementType,
    SortUIListBox, GetStringUIDimensions (fnv-font metrics), the CacheUI family, the
    HudBar family, the DumpTileInfo family. Each with a headless test.
-6. **T10. The game strings table.** The 145 `&-sName;` names of the vanilla files:
-   NVForever's English text for each from the owner's screenshots or an observer dump
-   (`GetGameSetting`/`con_GetGameSetting` in the original), the load order's GMST first.
+6. **T10. The game strings table.** The 145 `&-sName;` names of the vanilla files: the
+   load order's GMST first; where the plugins have none, an English label NVForever
+   writes itself from the setting's name and the menu's purpose (`sCloseButton` →
+   "Close"). Not transcribed from screenshots or read out of the original with
+   `GetGameSetting` (LEGAL.md; owner decision 2026-10-30). An observer dump may still
+   say *which* names the original fills in, not their text.
 7. **T11. MCM drawn.** MCM's page from tiles inside NVForever's pause menu (design §7,
     after the owner's ruling), mouse and keys through T8. Done when an MCM mod's
     settings change in game.

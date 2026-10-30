@@ -1,0 +1,2153 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "ray1",
+ "title": "ray1",
+ "start": "nvftest (read-only), travels to Goodsprings",
+ "steps": [
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nConsole \"cow WastelandNV -17 1\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.travel",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w0",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w1",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w2",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w3",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w4",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w5",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w6",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w7",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w8",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w9",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w10",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w11",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w12",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w13",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w14",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w15",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w16",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w17",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w18",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w19",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w20",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w21",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w22",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w23",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w24",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w25",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w26",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w27",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w28",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w29",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w30",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w31",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w32",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w33",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w34",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w35",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w36",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w37",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w38",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w39",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w40",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w41",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w42",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w43",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w44",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w45",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w46",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w47",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w48",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w49",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w50",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w51",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w52",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w53",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w54",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w55",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w56",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w57",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w58",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w59",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w60",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w61",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w62",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w63",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w64",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w65",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w66",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w67",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w68",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w69",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w70",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w71",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w72",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w73",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w74",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w75",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w76",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w77",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w78",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w79",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w80",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w81",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w82",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w83",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w84",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w85",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w86",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w87",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w88",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w89",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w90",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w91",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w92",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w93",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w94",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w95",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w96",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w97",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w98",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w99",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w100",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w101",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w102",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w103",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w104",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w105",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w106",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w107",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w108",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w109",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w110",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w111",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w112",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w113",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w114",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w115",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w116",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w117",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w118",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w119",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w120",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w121",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w122",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w123",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w124",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w125",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w126",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w127",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w128",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w129",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w130",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w131",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w132",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w133",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w134",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w135",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w136",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w137",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w138",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w139",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w140",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w141",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w142",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w143",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w144",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w145",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w146",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w147",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w148",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w149",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w150",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w151",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w152",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w153",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w154",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w155",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w156",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w157",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w158",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w159",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w160",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w161",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w162",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w163",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w164",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w165",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w166",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w167",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w168",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w169",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w170",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w171",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w172",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w173",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w174",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w175",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w176",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w177",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w178",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w179",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w180",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w181",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w182",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w183",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w184",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w185",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w186",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w187",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w188",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w189",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w190",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w191",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w192",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w193",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w194",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w195",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w196",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w197",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w198",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w199",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w200",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w201",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w202",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w203",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w204",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w205",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w206",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w207",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w208",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w209",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w210",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w211",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w212",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w213",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w214",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w215",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w216",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w217",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w218",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w219",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w220",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w221",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w222",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w223",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w224",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w225",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w226",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w227",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w228",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w229",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w230",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w231",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w232",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w233",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w234",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w235",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w236",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w237",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w238",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w239",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w240",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w241",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w242",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w243",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w244",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w245",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w246",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w247",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w248",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w249",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w250",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w251",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w252",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w253",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w254",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w255",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w256",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w257",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w258",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w259",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w260",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w261",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w262",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w263",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w264",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w265",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w266",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w267",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w268",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w269",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w270",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w271",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w272",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w273",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w274",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w275",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w276",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w277",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w278",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w279",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w280",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w281",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w282",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w283",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w284",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w285",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w286",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w287",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w288",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w289",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w290",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w291",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w292",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w293",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w294",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w295",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w296",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w297",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w298",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w299",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w300",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w301",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w302",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w303",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w304",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w305",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w306",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w307",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w308",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w309",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w310",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w311",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w312",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w313",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w314",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w315",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w316",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w317",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w318",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w319",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w320",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w321",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w322",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w323",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w324",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w325",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w326",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w327",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w328",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w329",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w330",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w331",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w332",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w333",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w334",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w335",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w336",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w337",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w338",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w339",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w340",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w341",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w342",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w343",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w344",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w345",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w346",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w347",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w348",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w349",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w350",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w351",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w352",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w353",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w354",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w355",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w356",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w357",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w358",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w359",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w360",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w361",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w362",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w363",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w364",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w365",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w366",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w367",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w368",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w369",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w370",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w371",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w372",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w373",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w374",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w375",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w376",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w377",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w378",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w379",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w380",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w381",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w382",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w383",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w384",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w385",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w386",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w387",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w388",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w389",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w390",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w391",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w392",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w393",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w394",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w395",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w396",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w397",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w398",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.w399",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nGetAnglesBetweenPoints 0 0 0 100 0 0 fA fB\nSetFunctionValue fA\nEnd\n",
+   "label": "ray1.between.east.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nGetAnglesBetweenPoints 0 0 0 100 0 0 fA fB\nSetFunctionValue fB\nEnd\n",
+   "label": "ray1.between.east.z",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nGetAnglesBetweenPoints 0 0 0 0 100 0 fA fB\nSetFunctionValue fA\nEnd\n",
+   "label": "ray1.between.north.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nGetAnglesBetweenPoints 0 0 0 0 100 0 fA fB\nSetFunctionValue fB\nEnd\n",
+   "label": "ray1.between.north.z",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nGetAnglesBetweenPoints 0 0 0 0 0 100 fA fB\nSetFunctionValue fA\nEnd\n",
+   "label": "ray1.between.up.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nGetAnglesBetweenPoints 0 0 0 0 0 100 fA fB\nSetFunctionValue fB\nEnd\n",
+   "label": "ray1.between.up.z",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nGetAnglesBetweenPoints 0 0 0 0 0 -100 fA fB\nSetFunctionValue fA\nEnd\n",
+   "label": "ray1.between.down.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nGetAnglesBetweenPoints 0 0 0 0 0 -100 fA fB\nSetFunctionValue fB\nEnd\n",
+   "label": "ray1.between.down.z",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nGetAnglesBetweenPoints 0 0 0 100 100 100 fA fB\nSetFunctionValue fA\nEnd\n",
+   "label": "ray1.between.diag.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nGetAnglesBetweenPoints 0 0 0 100 100 100 fA fB\nSetFunctionValue fB\nEnd\n",
+   "label": "ray1.between.diag.z",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nGetAnglesBetweenPoints 0 0 0 -100 0 0 fA fB\nSetFunctionValue fA\nEnd\n",
+   "label": "ray1.between.west.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nGetAnglesBetweenPoints 0 0 0 -100 0 0 fA fB\nSetFunctionValue fB\nEnd\n",
+   "label": "ray1.between.west.z",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.SetAngle Z 45\nSetFunctionValue (rP.GetAngle Z)\nEnd\n",
+   "label": "ray1.angle.set",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.angle.w",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.GetAngleEx fA fB fC\nSetFunctionValue fA\nEnd\n",
+   "label": "ray1.angleex.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.GetAngleEx fA fB fC\nSetFunctionValue fB\nEnd\n",
+   "label": "ray1.angleex.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nrP.GetAngleEx fA fB fC\nSetFunctionValue fC\nEnd\n",
+   "label": "ray1.angleex.z",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.GetPos Z)\nEnd\n",
+   "label": "ray1.pc.z",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fA := GetPointRayCastPos (rP.GetPos X) (rP.GetPos Y) ((rP.GetPos Z) + 100) 90 0 fX fY fZ\nSetFunctionValue fX\nEnd\n",
+   "label": "ray1.pointdown.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fA := GetPointRayCastPos (rP.GetPos X) (rP.GetPos Y) ((rP.GetPos Z) + 100) 90 0 fX fY fZ\nSetFunctionValue fY\nEnd\n",
+   "label": "ray1.pointdown.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fA := GetPointRayCastPos (rP.GetPos X) (rP.GetPos Y) ((rP.GetPos Z) + 100) 90 0 fX fY fZ\nSetFunctionValue fZ\nEnd\n",
+   "label": "ray1.pointdown.z",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fA := GetPointRayCastPos (rP.GetPos X) (rP.GetPos Y) ((rP.GetPos Z) + 100) 90 0 fX fY fZ\nSetFunctionValue fA\nEnd\n",
+   "label": "ray1.pointdown.ok",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fA := GetPointRayCastPos (rP.GetPos X) (rP.GetPos Y) ((rP.GetPos Z) + 100) 0 0 fX fY fZ 6 3000\nSetFunctionValue fX\nEnd\n",
+   "label": "ray1.pointnorth.x",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fA := GetPointRayCastPos (rP.GetPos X) (rP.GetPos Y) ((rP.GetPos Z) + 100) 0 0 fX fY fZ 6 3000\nSetFunctionValue fY\nEnd\n",
+   "label": "ray1.pointnorth.y",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fA := GetPointRayCastPos (rP.GetPos X) (rP.GetPos Y) ((rP.GetPos Z) + 100) 0 0 fX fY fZ 6 3000\nSetFunctionValue fZ\nEnd\n",
+   "label": "ray1.pointnorth.z",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fA := GetPointRayCastPos (rP.GetPos X) (rP.GetPos Y) ((rP.GetPos Z) + 100) 0 0 fX fY fZ 6 3000\nSetFunctionValue fA\nEnd\n",
+   "label": "ray1.pointnorth.ok",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.GetRayCastRef)\nEnd\n",
+   "label": "ray1.rayref",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue 1\nEnd\n",
+   "label": "ray1.tgm",
+   "field": "value"
+  }
+ ]
+}

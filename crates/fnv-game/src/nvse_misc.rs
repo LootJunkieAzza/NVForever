@@ -59,6 +59,14 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             let n = text(args, 0);
             yes(g.data.load_order.iter().any(|p| p.eq_ignore_ascii_case(&n)))
         }
+        // [documented: GetPluginHeaderVersion] "the header version number of the specified
+        // plugin as a float": the TES4 HEDR version (1.34 for FalloutNV.esm [observed:
+        // jip-getters headerversion.fnv]); 0 for a plugin not loaded [hypothesis].
+        "getpluginheaderversion" => {
+            let n = text(args, 0);
+            let i = g.data.load_order.iter().position(|p| p.eq_ignore_ascii_case(&n));
+            XVal::Num(i.and_then(|i| g.data.plugin_versions.get(i)).map_or(0.0, |&v| f64::from(v)))
+        }
         // [documented: GetRawFormIDString] eight hex digits, valid form or not.
         "getrawformidstring" => XVal::Str(format!(
             "{:08X}",

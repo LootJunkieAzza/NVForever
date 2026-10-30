@@ -95,6 +95,10 @@ pub enum ScriptCmd {
         /// …), in order, later ones overriding earlier ones; only read.
         #[arg(long)]
         ini: Vec<PathBuf>,
+        /// A folder that stands for Data\Config: the INI files mods read with LU,
+        /// ShowOff and MCM functions (fnv_game::mod_files). Writes stay in memory.
+        #[arg(long)]
+        config: Option<PathBuf>,
         /// Also write what the run reached of the scripts (quest stages set, script
         /// blocks run, dialogue lines said, result scripts run) to this file, a
         /// fnv.script.coverage-log/1 document (docs/handoff/mq-walkthrough-2026-10-27.md §5).
@@ -222,7 +226,19 @@ pub fn run(cmd: ScriptCmd) -> anyhow::Result<Value> {
             let fjson = functions_json(&a)?;
             with_load_order(&a, |l, lo, schema| Ok(uses(l, lo, schema, &fjson)))
         }
-        ScriptCmd::Run { a, actions, no_voice_lengths, ini, coverage } => {
+        ScriptCmd::Run { a, actions, no_voice_lengths, ini, config, coverage } => {
+            // Mods' files: the Data folder (and its archives) read-only, `--config` before
+            // it; nothing is written to disk.
+            let vfs = std::sync::Arc::new(fnv_vfs::Vfs::open_for_plugins(&a.lo.data_dir, &a.lo.plugins).ok());
+            let v2 = vfs.clone();
+            let lookup: fnv_game::mod_files::Lookup = std::sync::Arc::new(move |p: &str| match vfs.as_ref() {
+                Some(v) if v.loose_path(p).is_some() => 1,
+                Some(v) if v.exists(p) => 2,
+                _ => 0,
+            });
+            let reader: fnv_game::mod_files::Reader = std::sync::Arc::new(move |p: &str| v2.as_ref().as_ref().and_then(|v| v.read(p)).and_then(Result::ok));
+            fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: vec![a.lo.data_dir.clone()], config: config.clone(), write: None, lookup: Some(lookup), reader: Some(reader) });
+            weather_hook(&a);
             run_actions(&a, &actions, !no_voice_lengths, &ini, coverage.as_deref())
         }
         ScriptCmd::Roundtrip { a, actions } => roundtrip(&a, &actions),
@@ -664,7 +680,7 @@ fn compile_all(
         .map(|u| {
             let pi = ix.plugin_index(&u.plugin).unwrap_or(0);
             let env = ix.env(pi);
-            let seed = (!fresh).then_some(Seed { variables: &u.variables, refs: &u.refs });
+            let seed = (!fresh).then_some(Seed { variables: &u.variables, refs: &u.refs, unknown_calls: false });
             let c = compile(u.source.as_deref().unwrap_or(""), &l.table, &env, seed);
             let ours_unit = ScriptUnit { variables: c.variables.clone(), refs: c.refs.clone(), bytes: c.bytes.clone(), ..u.clone() };
             let ours = decode(&c.bytes, &l.table);
@@ -1281,4 +1297,20 @@ pub fn voice_lengths_hook(a: &ScriptArgs, lo: &LoadOrder<'_>, wanted: bool) -> O
             None
         }
     }
+}
+
+/// The headless run's first weather in an exterior (fnv_game::weather::settle_start_weather):
+/// the region or climate choice the engine's sky starts with (fnv_world::sky::start_weather).
+fn weather_hook(a: &ScriptArgs) {
+    let Ok(plugins) = open_load_order(&a.lo) else { return };
+    let Ok(lo) = LoadOrder::new(&plugins) else { return };
+    let Ok(schema) = Schema::load_dir(&a.schema) else { return };
+    let regions = fnv_world::sky::region_weathers(&lo, &schema);
+    let ix = fnv_world::WorldIndex::build(&lo, &schema);
+    let climates: std::collections::HashMap<u32, fnv_world::sky::Climate> =
+        ix.worldspaces.values().filter_map(|w| Some((w.form_id, fnv_world::sky::climate(&lo, &schema, w.climate?)?))).collect();
+    let hook: fnv_game::weather::StartWeather = std::sync::Arc::new(move |ws: fnv_sim::FormId, p: [f32; 3]| {
+        fnv_world::sky::start_weather(&regions, climates.get(&ws.0), ws.0, p[0], p[1], |_| None).map(fnv_sim::FormId)
+    });
+    fnv_game::weather::set_start_weather(hook);
 }

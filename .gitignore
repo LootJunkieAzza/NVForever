@@ -27,8 +27,16 @@ baseline.json
 *.wav
 *.mp3
 *.fos
+*.esl
+*.spt
+# Videos, bitmap fonts, shader packages and DLC marker files.
+*.bik
+*.fnt
+*.sdp
+*.nam
 # Built programs copied around for checks (never commit binaries).
 *.exe
+*.dll
 # Screenshots and frames rendered from game data (F12, --screenshot, --timelapse).
 nvforever-*.png
 nvf-screenshot-*.png

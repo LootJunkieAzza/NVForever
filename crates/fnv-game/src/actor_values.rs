@@ -66,6 +66,8 @@ pub const MELEE_WEAPONS: u16 = 38;
 pub const REPAIR: u16 = 39;
 pub const SCIENCE: u16 = 40;
 pub const GUNS: u16 = 41;
+/// Experience points (the player's, `Game::player`).
+pub const XP: u16 = 24;
 pub const SNEAK: u16 = 42;
 pub const SPEECH: u16 = 43;
 pub const SURVIVAL: u16 = 44;
@@ -258,7 +260,7 @@ impl<'a> Game<'a> {
     }
 
     /// A skill from the actor's attribute and Luck.
-    fn derived_skill(&mut self, r: FormId, skill: u16) -> f64 {
+    pub(crate) fn derived_skill(&mut self, r: FormId, skill: u16) -> f64 {
         let attribute = self.formula_input(r, GOVERNING[(skill - BARTER) as usize]);
         let luck = self.formula_input(r, LUCK);
         self.skill_formula(skill, attribute, luck)
