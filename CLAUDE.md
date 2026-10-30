@@ -108,12 +108,18 @@ python tools/smoke run --exe <engine target>/release/nvforever.exe --data <Data>
 - **Before starting, look for the same work**: open pull requests (drafts too) and open
   issues on the topic (`gh pr list --search <words>`, `gh issue list --search <words>`).
   If someone else has it, don't start a second copy: build on theirs or pick other work.
-- **Open a draft pull request as soon as the branch has its first commit**, not when it is
-  finished: `gh pr create --draft`, a title saying what it changes, `Fixes #n` for an
-  issue it settles. Mark it ready (`gh pr ready`) when the push checks pass. A pushed
-  branch with no pull request is invisible to contributors.
-- If an issue covers the work, comment on it that a pull request is under way (link it).
-  Leaving work unfinished: say so in the draft's description, or close it.
+- **Open an issue first** (owner decision 2026-10-30, #919): before any pull request,
+  an issue saying what will be added or fixed and what done looks like (`gh issue create`).
+  If an open issue already covers it, use that one and comment that you are taking it.
+  No pull request comes from nothing, except: a release (version bump, notes), a fix that
+  turns a red check on main green again, and a typo or broken link in docs. Those say
+  in their description which exception they are.
+- **Then open a draft pull request as soon as the branch has its first commit**, not when
+  it is finished: `gh pr create --draft`, a title saying what it changes, `Fixes #n` (or
+  `Part of #n`) naming the issue. Mark it ready (`gh pr ready`) when the push checks pass.
+  A pushed branch with no pull request is invisible to contributors.
+- Comment on the issue that a pull request is under way (link it). Leaving work
+  unfinished: say so in the draft's description and on the issue, or close it.
 
 ## Commits
 
