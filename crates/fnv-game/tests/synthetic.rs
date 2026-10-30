@@ -2308,3 +2308,69 @@ End
     assert_eq!(r["summary"]["quests"]["completed"], json!(1));
     assert!(r["untouched"].as_array().unwrap().iter().all(|u| u["quest"] != "Q"));
 }
+
+/// Script coverage reports which missing stages the data can set (`fnvtool script
+/// cover`): a SetStage call with a literal stage in any unit (a script, a stage result)
+/// makes that stage settable; a stage set only from its own result script is not; a
+/// stage given by a variable makes the quest's other stages settable "by variable".
+#[test]
+fn coverage_reports_which_missing_stages_the_data_can_set() {
+    const Q2: u32 = 0xA00;
+    const Q3: u32 = 0xA01;
+    const SCPT: u32 = 0xA02;
+    const GLOB: u32 = 0xA03;
+    let stage = |s: i16, unit_: Vec<Subrecord>| [vec![sub(b"INDX", s.to_le_bytes().to_vec()), sub(b"QSDT", vec![0])], unit_].concat();
+    let data = sub(b"DATA", [vec![0u8, 0, 0, 0], 0f32.to_le_bytes().to_vec()].concat());
+    // Q2 stage 10: SetStage Q2 10 (itself) ; SetStage Q2 20. Stage 20: SetStage Q3
+    // TestGlobal. Stage 30: nothing.
+    let q2 = [
+        vec![sub(b"EDID", z("Q2")), data.clone()],
+        stage(10, unit(0, &[call(SET_STAGE, &[r(1), n(10)]), call(SET_STAGE, &[r(1), n(20)])].concat(), &[], &[Q2])),
+        stage(20, unit(0, &call(SET_STAGE, &[r(1), [vec![b'G'], le16(2)].concat()]), &[], &[Q3, GLOB])),
+        stage(30, vec![]),
+    ]
+    .concat();
+    let q3 = [vec![sub(b"EDID", z("Q3")), data], stage(5, vec![]), stage(6, vec![])].concat();
+    // A script: begin GameMode / SetStage Q2 30 / end.
+    let scpt = [vec![sub(b"EDID", z("SetterScript"))], unit(0, &script(&[(0, None, call(SET_STAGE, &[r(1), n(30)]))]), &[], &[Q2])].concat();
+    let glob = record(b"GLOB", 0, GLOB, &[sub(b"EDID", z("TestGlobal")), sub(b"FNAM", vec![b's']), sub(b"FLTV", 5f32.to_le_bytes().to_vec())]);
+    let bytes = [
+        tes4(),
+        top(b"GLOB", &glob),
+        top(b"SCPT", &record(b"SCPT", 0, SCPT, &scpt)),
+        top(b"QUST", &[record(b"QUST", 0, Q2, &q2), record(b"QUST", 0, Q3, &q3)].concat()),
+    ]
+    .concat();
+    let plugins = vec![Plugin::parse(&bytes, "Test.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = schema();
+    let (table, j) = catalogue();
+    let refs = RefTable::build(&lo, &schema);
+    let d = GameData::build(&lo, &schema, table, &j, &refs);
+    assert_eq!(d.quests[&FormId(Q2)].stages.len(), 3);
+
+    let mut cov = fnv_game::coverage::Coverage::default();
+    cov.stages.insert((FormId(Q2), 20));
+    let r = fnv_game::coverage::report(&d, &[cov.log(&d, "t")], 10).unwrap();
+    let s = &r["summary"]["stages"];
+    assert_eq!(s["total"], json!(5));
+    assert_eq!(s["reached"], json!(1));
+    assert_eq!(s["settable"], json!(2), "Q2 20 and 30; not 10, set only by its own result");
+    assert_eq!(s["by_variable"], json!(2), "Q3 5 and 6");
+    assert_eq!(s["missing_settable"], json!(1));
+    assert_eq!(s["missing_by_variable"], json!(2));
+    let quests = r["detail"]["quests"].as_array().unwrap();
+    let q2 = quests.iter().find(|q| q["quest"] == "Q2").unwrap();
+    assert_eq!(q2["missing_settable"], json!([30]));
+    assert_eq!(q2["missing_unsettable"], json!([10]));
+    assert_eq!(q2["setters"]["30"], json!([{"kind": "script", "form": "Test.esm:000A02", "edid": "SetterScript"}]));
+    assert!(q2.get("missing_by_variable").is_none());
+    let q3 = quests.iter().find(|q| q["quest"] == "Q3").unwrap();
+    assert_eq!(q3["missing_settable"], json!([]));
+    assert_eq!(q3["missing_by_variable"], json!([5, 6]));
+    assert_eq!(q3["by_variable_setters"], json!([{"kind": "stage", "form": "Test.esm:000A00", "edid": "Q2", "stage": 20}]));
+    // The setter scan: stage 20 is set by Q2's stage 10 result.
+    let set = fnv_game::coverage::stage_setters(&d);
+    assert_eq!(set.literal[&(FormId(Q2), 20)][0].stage, Some(10));
+    assert!(!set.literal.contains_key(&(FormId(Q2), 10)));
+}

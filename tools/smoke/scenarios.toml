@@ -13735,3 +13735,265 @@ expect = [
   { json = "given_errors.*", count = 0, label = "yesman-vault-destroyed: no given fails" },
 ]
 manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the main-quest stage-coverage report (issue #940)"
+[[scenario]]
+name = "mq-fail-old-world-blues-think-tank"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/fail-old-world-blues-think-tank.actions.json (OldWorldBlues.esm): the main chain with the Think Tank side quests begun and left, Mobius fought (NVDLC03MQ05 35) and killed (40), the Think Tank attacked at the confrontation (60: NVDLC03ThinkTankQuest and the six doctors' quests 255) and killed (70), the end slides to NVDLC03MQ05 100"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-old-world-blues-think-tank.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "OldWorldBlues.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-old-world-blues-think-tank.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: MQ05 35 (Mobius fought).stage", equals = 35, label = "fail-old-world-blues-think-tank milestone: MQ05 35: stage = 35" },
+  { json = "observations.?label=MQ05 40 (Mobius dead).stage", equals = 40, label = "fail-old-world-blues-think-tank MQ05 40: stage = 40" },
+  { json = "observations.?label=milestone: MQ05 60 (the Think Tank attacked).stage", equals = 60, label = "fail-old-world-blues-think-tank milestone: MQ05 60: stage = 60" },
+  { json = "observations.?label=NVDLC03ThinkTankQuest after 60.stage", equals = 255, label = "fail-old-world-blues-think-tank NVDLC03ThinkTankQuest after 60: stage = 255" },
+  { json = "observations.?label=NVDLC03ThinkTankDoctor0a after 60.stage", equals = 255, label = "fail-old-world-blues-think-tank NVDLC03ThinkTankDoctor0a after 60: stage = 255" },
+  { json = "observations.?label=NVDLC03ThinkTankDoctor0b after 60.stage", equals = 255, label = "fail-old-world-blues-think-tank NVDLC03ThinkTankDoctor0b after 60: stage = 255" },
+  { json = "observations.?label=NVDLC03ThinkTankDoctor8 after 60.stage", equals = 255, label = "fail-old-world-blues-think-tank NVDLC03ThinkTankDoctor8 after 60: stage = 255" },
+  { json = "observations.?label=NVDLC03ThinkTankDoctorBorous after 60.stage", equals = 255, label = "fail-old-world-blues-think-tank NVDLC03ThinkTankDoctorBorous after 60: stage = 255" },
+  { json = "observations.?label=NVDLC03ThinkTankDoctorDala after 60.stage", equals = 255, label = "fail-old-world-blues-think-tank NVDLC03ThinkTankDoctorDala after 60: stage = 255" },
+  { json = "observations.?label=NVDLC03ThinkTankDoctorKlein after 60.stage", equals = 255, label = "fail-old-world-blues-think-tank NVDLC03ThinkTankDoctorKlein after 60: stage = 255" },
+  { json = "observations.?label=milestone: MQ05 70 (the Think Tank killed).stage", equals = 70, label = "fail-old-world-blues-think-tank milestone: MQ05 70: stage = 70" },
+  { json = "observations.?label=final: MQ05 100 (Old World Blues complete).completed", equals = true, label = "fail-old-world-blues-think-tank final: MQ05 100: completed = true" },
+  { json = "steps.*.error", count = 0, label = "fail-old-world-blues-think-tank: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-old-world-blues-think-tank: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-honest-hearts-pine-creek"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/honest-hearts-pine-creek.actions.json (HonestHearts.esm): Daniel's path with Waking Cloud taken along through White Bird's wish (NVDLC02MS01 5), Civilized Man's Burden and A Family Affair begun and left (Flight from Zion 20 fails them: MS03, MS04 255), Sanctity of the Dead begun by Dancing Flame (MQ05b 20), Retake the Bridge left (MQ05c 255), Salt-Upon-Wounds talked into leaving at Pine Creek (MQ05 35), the end slides and Departing Paradise"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/honest-hearts-pine-creek.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "HonestHearts.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/honest-hearts-pine-creek.actions.json"]]
+expect = [
+  { json = "observations.?label=Rite of Passage 5 (White Bird asks for the player).stage", equals = 5, label = "honest-hearts-pine-creek Rite of Passage 5: stage = 5" },
+  { json = "observations.?label=Civilized Man's Burden after Flight from Zion 20.stage", equals = 255, label = "honest-hearts-pine-creek Civilized Man's Burden after Flight from Zion 20: stage = 255" },
+  { json = "observations.?label=A Family Affair after Flight from Zion 20.stage", equals = 255, label = "honest-hearts-pine-creek A Family Affair after Flight from Zion 20: stage = 255" },
+  { json = "observations.?label=milestone: Sanctity of the Dead 20 (the Sorrows fight).stage", equals = 20, label = "honest-hearts-pine-creek milestone: Sanctity of the Dead 20: stage = 20" },
+  { json = "observations.?label=milestone: MQ05 35 (Salt-Upon-Wounds leaves).done.35", equals = true, label = "honest-hearts-pine-creek milestone: MQ05 35: done.35 = true" },
+  { json = "observations.?label=Sanctity of the Dead at the end.completed", equals = true, label = "honest-hearts-pine-creek Sanctity of the Dead at the end: completed = true" },
+  { json = "observations.?label=Retake the Bridge failed (255).stage", equals = 255, label = "honest-hearts-pine-creek Retake the Bridge failed: stage = 255" },
+  { json = "observations.?label=milestone: Flight from Zion done.completed", equals = true, label = "honest-hearts-pine-creek milestone: Flight from Zion done: completed = true" },
+  { json = "observations.?label=final: Departing Paradise done (door to the Mojave).completed", equals = true, label = "honest-hearts-pine-creek final: Departing Paradise done: completed = true" },
+  { json = "steps.*.error", count = 0, label = "honest-hearts-pine-creek: no step fails" },
+  { json = "given_errors.*", count = 0, label = "honest-hearts-pine-creek: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-fail-honest-hearts-arrival"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/fail-honest-hearts-arrival.actions.json (HonestHearts.esm): Daniel killed during Arrival at Zion (NVDLC02MQ01 255), Chaos in Zion (NVDLC02MQ06 10 to 100), the door to the Mojave and the end slides"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-honest-hearts-arrival.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "HonestHearts.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-honest-hearts-arrival.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Chaos in Zion started (10).stage", equals = 10, label = "fail-honest-hearts-arrival milestone: Chaos in Zion started: stage = 10" },
+  { json = "observations.?label=NVDLC02MQ01 failed (255).stage", equals = 255, label = "fail-honest-hearts-arrival NVDLC02MQ01 failed: stage = 255" },
+  { json = "observations.?label=final: Chaos in Zion.completed", equals = true, label = "fail-honest-hearts-arrival final: Chaos in Zion: completed = true" },
+  { json = "steps.*.error", count = 0, label = "fail-honest-hearts-arrival: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-honest-hearts-arrival: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-fail-honest-hearts-supply"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/fail-honest-hearts-supply.actions.json (HonestHearts.esm): Daniel killed with Supply Train's errands begun (NVDLC02MQ02a/b/c 255), Chaos in Zion (NVDLC02MQ06 10 to 100), the door to the Mojave and the end slides"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-honest-hearts-supply.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "HonestHearts.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-honest-hearts-supply.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Chaos in Zion started (10).stage", equals = 10, label = "fail-honest-hearts-supply milestone: Chaos in Zion started: stage = 10" },
+  { json = "observations.?label=NVDLC02MQ02a failed (255).stage", equals = 255, label = "fail-honest-hearts-supply NVDLC02MQ02a failed: stage = 255" },
+  { json = "observations.?label=NVDLC02MQ02b failed (255).stage", equals = 255, label = "fail-honest-hearts-supply NVDLC02MQ02b failed: stage = 255" },
+  { json = "observations.?label=NVDLC02MQ02c failed (255).stage", equals = 255, label = "fail-honest-hearts-supply NVDLC02MQ02c failed: stage = 255" },
+  { json = "observations.?label=final: Chaos in Zion.completed", equals = true, label = "fail-honest-hearts-supply final: Chaos in Zion: completed = true" },
+  { json = "steps.*.error", count = 0, label = "fail-honest-hearts-supply: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-honest-hearts-supply: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-fail-honest-hearts-deliverer"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/fail-honest-hearts-deliverer.actions.json (HonestHearts.esm): Daniel killed before the supplies reach him (NVDLC02MQ02d 255), Chaos in Zion (NVDLC02MQ06 10 to 100), the door to the Mojave and the end slides"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-honest-hearts-deliverer.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "HonestHearts.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-honest-hearts-deliverer.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Chaos in Zion started (10).stage", equals = 10, label = "fail-honest-hearts-deliverer milestone: Chaos in Zion started: stage = 10" },
+  { json = "observations.?label=NVDLC02MQ02d failed (255).stage", equals = 255, label = "fail-honest-hearts-deliverer NVDLC02MQ02d failed: stage = 255" },
+  { json = "observations.?label=final: Chaos in Zion.completed", equals = true, label = "fail-honest-hearts-deliverer final: Chaos in Zion: completed = true" },
+  { json = "steps.*.error", count = 0, label = "fail-honest-hearts-deliverer: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-honest-hearts-deliverer: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-fail-honest-hearts-gathering-storms"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/fail-honest-hearts-gathering-storms.actions.json (HonestHearts.esm): Daniel killed before Gathering Storms' choice (NVDLC02MQ03d 255), Chaos in Zion (NVDLC02MQ06 10 to 100), the door to the Mojave and the end slides"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-honest-hearts-gathering-storms.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "HonestHearts.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-honest-hearts-gathering-storms.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Chaos in Zion started (10).stage", equals = 10, label = "fail-honest-hearts-gathering-storms milestone: Chaos in Zion started: stage = 10" },
+  { json = "observations.?label=NVDLC02MQ03d failed (255).stage", equals = 255, label = "fail-honest-hearts-gathering-storms NVDLC02MQ03d failed: stage = 255" },
+  { json = "observations.?label=final: Chaos in Zion.completed", equals = true, label = "fail-honest-hearts-gathering-storms final: Chaos in Zion: completed = true" },
+  { json = "steps.*.error", count = 0, label = "fail-honest-hearts-gathering-storms: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-honest-hearts-gathering-storms: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-fail-honest-hearts-crush"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/fail-honest-hearts-crush.actions.json (HonestHearts.esm): Joshua's path, Daniel killed during Crush the White Legs (NVDLC02MQ04 255), Chaos in Zion (NVDLC02MQ06 10 to 100), the door to the Mojave and the end slides"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-honest-hearts-crush.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "HonestHearts.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-honest-hearts-crush.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Chaos in Zion started (10).stage", equals = 10, label = "fail-honest-hearts-crush milestone: Chaos in Zion started: stage = 10" },
+  { json = "observations.?label=NVDLC02MQ04 failed (255).stage", equals = 255, label = "fail-honest-hearts-crush NVDLC02MQ04 failed: stage = 255" },
+  { json = "observations.?label=final: Chaos in Zion.completed", equals = true, label = "fail-honest-hearts-crush final: Chaos in Zion: completed = true" },
+  { json = "steps.*.error", count = 0, label = "fail-honest-hearts-crush: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-honest-hearts-crush: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-honest-hearts-happy-trails"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/honest-hearts-happy-trails.actions.json (HonestHearts.esm): Happy Trails Expedition from the start, as the other Honest Hearts chains give it: the broadcast (NVDLC02MQ00 10), Jed met at the Northern Passage (20), the caravan's terms (30), the departure and the intro slides (100)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/honest-hearts-happy-trails.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "HonestHearts.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/honest-hearts-happy-trails.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Happy Trails Expedition 10 (the broadcast).stage", equals = 10, label = "honest-hearts-happy-trails milestone: Happy Trails Expedition 10: stage = 10" },
+  { json = "observations.?label=milestone: Happy Trails Expedition 20 (Jed met).stage", equals = 20, label = "honest-hearts-happy-trails milestone: Happy Trails Expedition 20: stage = 20" },
+  { json = "observations.?label=milestone: Happy Trails Expedition 30 (the terms).stage", equals = 30, label = "honest-hearts-happy-trails milestone: Happy Trails Expedition 30: stage = 30" },
+  { json = "observations.?label=final: Happy Trails Expedition done.completed", equals = true, label = "honest-hearts-happy-trails final: Happy Trails Expedition done: completed = true" },
+  { json = "steps.*.error", count = 0, label = "honest-hearts-happy-trails: no step fails" },
+  { json = "given_errors.*", count = 0, label = "honest-hearts-happy-trails: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-fail-dead-money-act3"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/fail-dead-money-act3.actions.json (DeadMoney.esm): the heist chain with Dog killed in the kitchen (NVDLC01MQ03a 60), Curtain Call as the heist chain walks it, and Christine killed in the suites (NVDLC01MQ03c 30)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-dead-money-act3.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "DeadMoney.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-dead-money-act3.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Put the Beast Down 60 (Dog killed).stage", equals = 60, label = "fail-dead-money-act3 milestone: Put the Beast Down 60: stage = 60" },
+  { json = "observations.?label=player alive after Dog's death.dead", equals = false, label = "fail-dead-money-act3 player alive after Dog's death: dead = false" },
+  { json = "observations.?label=milestone: Last Luxuries 30 (Christine killed).stage", equals = 30, label = "fail-dead-money-act3 milestone: Last Luxuries 30: stage = 30" },
+  { json = "steps.*.error", count = 0, label = "fail-dead-money-act3: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-dead-money-act3: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-fail-dead-money-dog"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/fail-dead-money-dog.actions.json (DeadMoney.esm): part 1 to Dog found at the police station, then Dog killed: Find Collar 8 fails (NVDLC01MQ01a 255)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-dead-money-dog.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "DeadMoney.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-dead-money-dog.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Find Collar 8 failed (Dog dead, 255).stage", equals = 255, label = "fail-dead-money-dog milestone: Find Collar 8 failed: stage = 255" },
+  { json = "observations.?label=final: player after Dog's death.dead", equals = false, label = "fail-dead-money-dog final: player after Dog's death: dead = false" },
+  { json = "steps.*.error", count = 0, label = "fail-dead-money-dog: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-dead-money-dog: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-fail-dead-money-gala"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/fail-dead-money-gala.actions.json (DeadMoney.esm): part 1 to the three Act 2 jobs, then Dog killed (Fires in the Sky, NVDLC01MQ02a 255) and Dean killed (Trigger the Gala Event, NVDLC01MQ02 255)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-dead-money-gala.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "DeadMoney.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-dead-money-gala.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Fires in the Sky failed (Dog dead, 255).stage", equals = 255, label = "fail-dead-money-gala milestone: Fires in the Sky failed: stage = 255" },
+  { json = "observations.?label=milestone: Trigger the Gala Event failed (Dean dead, 255).stage", equals = 255, label = "fail-dead-money-gala milestone: Trigger the Gala Event failed: stage = 255" },
+  { json = "observations.?label=final: player after the deaths.dead", equals = false, label = "fail-dead-money-gala final: player after the deaths: dead = false" },
+  { json = "steps.*.error", count = 0, label = "fail-dead-money-gala: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-dead-money-gala: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-lonesome-road-camarader-e"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/lonesome-road-camarader-e.actions.json (LonesomeRoad.esm): the main chain to ED-E following, then two Eyebot Upgrade Circuit Boards taken from destroyed eyebots: Camarader-E ranks 1 and 2 (NVDLC04GenericPerkQUEST 10, 12)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/lonesome-road-camarader-e.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs", "crates/fnv-game/src/perks.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "LonesomeRoad.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/lonesome-road-camarader-e.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Camarader-E rank 1.stage", equals = 10, label = "lonesome-road-camarader-e milestone: Camarader-E rank 1: stage = 10" },
+  { json = "observations.?label=milestone: Camarader-E rank 1.var.nCamaradeRERank", equals = 1.0, label = "lonesome-road-camarader-e milestone: Camarader-E rank 1: var.nCamaradeRERank = 1.0" },
+  { json = "observations.?label=milestone: Camarader-E rank 2.stage", equals = 12, label = "lonesome-road-camarader-e milestone: Camarader-E rank 2: stage = 12" },
+  { json = "observations.?label=final: Camarader-E.value", equals = 1.0, label = "lonesome-road-camarader-e final: Camarader-E: value = 1.0" },
+  { json = "steps.*.error", count = 0, label = "lonesome-road-camarader-e: no step fails" },
+  { json = "given_errors.*", count = 0, label = "lonesome-road-camarader-e: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-lonesome-road-launch-ncr"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/lonesome-road-launch-ncr.actions.json (LonesomeRoad.esm): the main chain to the Temple of the Union, the missiles launched at the NCR only, the end slides and the completion (NVDLC04MQ04 100), NVDLC04BearSlayerPerk (NVDLC04GenericPerkQUEST 70)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/lonesome-road-launch-ncr.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs", "crates/fnv-game/src/perks.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "LonesomeRoad.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/lonesome-road-launch-ncr.actions.json"]]
+expect = [
+  { json = "observations.?label=MQ03b 255, target 1.var.nMissileTarget", equals = 1.0, label = "lonesome-road-launch-ncr MQ03b 255, target 1: var.nMissileTarget = 1.0" },
+  { json = "observations.?label=final: MQ04 100 (Lonesome Road complete, missiles launched at the NCR).completed", equals = true, label = "lonesome-road-launch-ncr final: MQ04 100: completed = true" },
+  { json = "observations.?label=NVDLC04BearSlayerPerk.value", equals = 1.0, label = "lonesome-road-launch-ncr NVDLC04BearSlayerPerk: value = 1.0" },
+  { json = "observations.?label=milestone: GenericPerkQUEST 70 (the target's perk).stage", equals = 70, label = "lonesome-road-launch-ncr milestone: GenericPerkQUEST 70: stage = 70" },
+  { json = "steps.*.error", count = 0, label = "lonesome-road-launch-ncr: no step fails" },
+  { json = "given_errors.*", count = 0, label = "lonesome-road-launch-ncr: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-lonesome-road-launch-legion"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/lonesome-road-launch-legion.actions.json (LonesomeRoad.esm): the main chain to the Temple of the Union, the missiles launched at the Legion only, the end slides and the completion (NVDLC04MQ04 100), NVDLC04ScourgeOfTheEastPerk (NVDLC04GenericPerkQUEST 80)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/lonesome-road-launch-legion.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs", "crates/fnv-game/src/perks.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "LonesomeRoad.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/lonesome-road-launch-legion.actions.json"]]
+expect = [
+  { json = "observations.?label=MQ03b 255, target 2.var.nMissileTarget", equals = 2.0, label = "lonesome-road-launch-legion MQ03b 255, target 2: var.nMissileTarget = 2.0" },
+  { json = "observations.?label=final: MQ04 100 (Lonesome Road complete, missiles launched at the Legion).completed", equals = true, label = "lonesome-road-launch-legion final: MQ04 100: completed = true" },
+  { json = "observations.?label=NVDLC04ScourgeOfTheEastPerk.value", equals = 1.0, label = "lonesome-road-launch-legion NVDLC04ScourgeOfTheEastPerk: value = 1.0" },
+  { json = "observations.?label=milestone: GenericPerkQUEST 80 (the target's perk).stage", equals = 80, label = "lonesome-road-launch-legion milestone: GenericPerkQUEST 80: stage = 80" },
+  { json = "steps.*.error", count = 0, label = "lonesome-road-launch-legion: no step fails" },
+  { json = "given_errors.*", count = 0, label = "lonesome-road-launch-legion: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
+
+[[scenario]]
+name = "mq-fail-honest-hearts-flight"
+kind = "tool"
+source = "the headless add-on walkthrough crates/fnv-game/walkthrough/fail-honest-hearts-flight.actions.json (HonestHearts.esm): Daniel's path, the player starts a fight with Daniel during Flight from Zion (StartCombat stand-in; NVDLC02MQ05 and its three errands 255), Chaos in Zion, the door to the Mojave and the end slides"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/fail-honest-hearts-flight.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs", "crates/fnv-game/src/awareness.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "HonestHearts.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/fail-honest-hearts-flight.actions.json"]]
+expect = [
+  { json = "observations.?label=milestone: Chaos in Zion started (10).stage", equals = 10, label = "fail-honest-hearts-flight milestone: Chaos in Zion started: stage = 10" },
+  { json = "observations.?label=NVDLC02MQ05 failed (255).stage", equals = 255, label = "fail-honest-hearts-flight NVDLC02MQ05 failed: stage = 255" },
+  { json = "observations.?label=NVDLC02MQ05a failed (255).stage", equals = 255, label = "fail-honest-hearts-flight NVDLC02MQ05a failed: stage = 255" },
+  { json = "observations.?label=NVDLC02MQ05b failed (255).stage", equals = 255, label = "fail-honest-hearts-flight NVDLC02MQ05b failed: stage = 255" },
+  { json = "observations.?label=NVDLC02MQ05c failed (255).stage", equals = 255, label = "fail-honest-hearts-flight NVDLC02MQ05c failed: stage = 255" },
+  { json = "observations.?label=final: Chaos in Zion.completed", equals = true, label = "fail-honest-hearts-flight final: Chaos in Zion: completed = true" },
+  { json = "steps.*.error", count = 0, label = "fail-honest-hearts-flight: no step fails" },
+  { json = "given_errors.*", count = 0, label = "fail-honest-hearts-flight: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; stand-ins and stalls are in the stage-coverage report of issue #940 (w6-scan)"
