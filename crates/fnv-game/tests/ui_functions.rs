@@ -173,11 +173,14 @@ SetFunctionValue (GetUIString \"HUDMenu/Label/string\")");
 fn mcm_functions_stand_for_start_menu_traits() {
     let f = fixture();
     let mut g = game(&f);
+    // `*:N` counts from zero from the last child (menu-xml.md §3, "name:N / *:N
+    // counting" [observed]): `*:1/*:1` is the second-last child's second-last child, so
+    // the mod's rect and its option stand before their siblings here.
     let src = MemSource::default().with(
         "menus\\start.xml",
-        r#"<menu name="StartMenu"> <rect name="MCM"> <rect name="Mods"/>
-           <rect name="Mod"> <rect name="Title"/> <rect name="Option"> <_enable> 1 </_enable> <string> off </string> </rect> </rect>
-           </rect> </menu>"#,
+        r#"<menu name="StartMenu"> <rect name="MCM">
+           <rect name="Mod"> <rect name="Option"> <_enable> 1 </_enable> <string> off </string> </rect> <rect name="Title"/> </rect>
+           <rect name="Mods"/> </rect> </menu>"#,
     );
     g.ui_tree.load_menu(&src, "menus\\start.xml").unwrap();
     g.ui_tree.update();
