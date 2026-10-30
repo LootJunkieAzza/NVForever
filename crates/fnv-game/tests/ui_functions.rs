@@ -253,9 +253,11 @@ fn click_functions_click_as_a_press_does() {
     let f = fixture();
     let mut g = game(&f);
     let menu = pointer_menu(&mut g);
-    // ClickMenuButton by `Menu#id` and by path [documented: ClickMenuButton].
+    // ClickMenuButton by `Menu#id` and by path [documented: ClickMenuButton]. The traits
+    // are read from the tree, not through GetUIFloat, so only the click functions could
+    // start the HUD's writes.
     assert_eq!(n(run(&mut g, "ClickMenuButton", &[s("TestMenu#1")])), 1.0);
-    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("TestMenu/Main/OkButton/clicked")])), 1.0);
+    assert_eq!(g.ui_tree.get_float("TestMenu/Main/OkButton/clicked").unwrap(), 1.0);
     assert_eq!(n(run(&mut g, "ClickMenuButton", &[s("TestMenu\\Main\\CancelButton"), XVal::Num(3.0)])), 1.0);
     assert_eq!(n(run(&mut g, "ClickMenuButton", &[s("TestMenu#2"), XVal::Num(0.0)])), 0.0);
     // It needs a target with an id: not the hidden image (no id), not the plain one (no
@@ -272,8 +274,8 @@ fn click_functions_click_as_a_press_does() {
     let names: Vec<String> = report.clicks.iter().map(|c| g.ui_tree.tile(c.tile).name.clone()).collect();
     assert_eq!(names, ["OkButton", "CancelButton", "CancelButton", "CancelButton", "Arrow"]);
     assert!(report.clicks.iter().all(|c| c.by == By::Script));
-    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("TestMenu/Main/OkButton/clicked")])), 0.0);
-    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("TestMenu/Main/CancelButton/clicked")])), 0.0);
+    assert_eq!(g.ui_tree.get_float("TestMenu/Main/OkButton/clicked").unwrap(), 0.0);
+    assert_eq!(g.ui_tree.get_float("TestMenu/Main/CancelButton/clicked").unwrap(), 0.0);
 }
 
 #[test]
