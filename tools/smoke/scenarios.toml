@@ -10080,6 +10080,24 @@ expect = [
 ]
 
 [[scenario]]
+name = "ui-gradual-in-game"
+source = "[documented: GECK wiki SetUIFloatGradual, GetUIFloatGradualMode] T9: a gradual change started from the console steps on real time in the running game (fnv_game::ui_gradients, the engine's tiles update) and ends at its end value; [design] HUDMainMenu/depth as ui-tree-in-game uses it"
+areas = ["ui", "scripts", "console"]
+paths = [
+  "crates/fnv-game/src/ui_gradients.rs", "crates/fnv-game/src/ui_more.rs",
+  "crates/fnv-game/src/nvse.rs", "crates/fnv-game/tests/ui_more.rs",
+  "engine/nvf-play/src/tiles/mod.rs",
+]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:SetUIFloatGradual \"HUDMainMenu/depth\" 0 100 2;10.5:PrintC \"nvf gradual mode %g\", (GetUIFloatGradualMode \"HUDMainMenu/depth\");13:PrintC \"nvf gradual %g %g\", (GetUIFloat \"HUDMainMenu/depth\"), (GetUIFloatGradualMode \"HUDMainMenu/depth\")" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 16
+expect = [
+  { re = 'console: SetUIFloatGradual "HUDMainMenu/depth" 0 100 2 >> ran', label = "the console compiles and runs SetUIFloatGradual" },
+  { re = 'script: print "nvf gradual mode 0"', label = "the change runs half a second in (mode 0)" },
+  { re = 'script: print "nvf gradual 100 -1"', label = "after its two seconds the depth is 100 and nothing changes it" },
+]
+
+[[scenario]]
 name = "ui-hud-code-traits"
 source = "[observed: hud.md §14] T4a: HUD places at 16:10 (visibility is in the unit tests: the console line runs with the console open, a PlayState::Menu that hides NVForever's HUD); [design] GetUIFloat through the console beside the current drawing"
 areas = ["ui", "scripts", "console"]

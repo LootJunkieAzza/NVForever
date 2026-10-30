@@ -218,6 +218,10 @@ From the UI category of functions.json, the ones that need tiles:
 - the cursor and screen traits;
 - the menu events `SetOnMenuClickEventHandler` and `SetOnMouseoverChangeEventHandler`.
 
+Built (T9) and left open, function by function: menu-xml.md §9. The gradual changes'
+state is `Game::ui_gradients`, stepped by the engine on real time; CacheUI's caches, the
+HUD bars and the attached components are `Game::ui_extra`.
+
 ### 5.3 For modders writing for NVForever
 
 The same as for the original: the menu files, includes, UIO lists, the functions.

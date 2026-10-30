@@ -259,6 +259,12 @@ owner to add to its pull request or issue (owner, 2026-10-29).
    AttachUIXML, AttachUIComponent, AddTraitToTile, GetUIValueType, GetUIElementType,
    SortUIListBox, GetStringUIDimensions (fnv-font metrics), the CacheUI family, the
    HudBar family, the DumpTileInfo family. Each with a headless test.
+   - **Built** 2026-10-30 (claude/t9-tile-functions): `fnv_game::ui_more`,
+     `ui_gradients`, `ui_cache`, `ui_hudbar`, tests `crates/fnv-game/tests/ui_more.rs`;
+     the engine steps the gradients in `tiles::update`. What each page leaves open and
+     what is not built (SetUITexOffset, SetUIAlphaMap, SetUITypewriter, the HUD bars'
+     script-variable values and visibility conditions, the attached components'
+     placing, the engine's text measure): menu-xml.md §9.
 6. **T10. The game strings table.** The 145 `&-sName;` names of the vanilla files: the
    load order's GMST first; where the plugins have none, an English label NVForever
    writes itself from the setting's name and the menu's purpose (`sCloseButton` →
