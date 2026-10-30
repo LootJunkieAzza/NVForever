@@ -314,21 +314,10 @@ The numbers above stay put so links to them hold; each item here gives its own p
       a heavy hit.
     Read dialogue events in the observer timeline, with audio or subtitles.
     ([combat-dialogue §5](../spec-notes/combat-dialogue.md))
-23. **Actor Effect spells in NPC and creature spell lists** (P2; decides whether we
-    build it). About 110 actors carry SPEL records of type 0 "Actor Effect" (not
-    Ability) in their NPC_/CREA SPLO lists, all duration 0 on Self. Ours applies only
-    the Ability ones. Examples:
-    - Ruthless on 21 Hoover Dam legionaries (+25 melee damage);
-    - the Tunnelers' Increase Damage Threshold 2 and 5 (23 creatures);
-    - SporeCarrierRegen (7);
-    - NVDLC02QuietWatersPerkEffect (57).
-
-    The GECK wiki's AddSpell page says the vanilla game uses only addictions and
-    abilities. To check: does the original apply these type-0 entries? Read a Tunneler's
-    DamageThreshold with GetActorValue against its base record's, and GetIsSpellTarget /
-    IsSpellTarget for the SPEL on the actor. The earlier captures esmfx2 and esmfx3
-    placed a spore carrier and a Ruthless legionary but did not ask.
-    ([area-effects §3](../spec-notes/area-effects.md))
+23. **Actor Effect spells in NPC and creature spell lists** — answered 2026-10-30 (issue
+    #916): the original does not apply the type-0 entries (Tunnelers' DT, Ruthless,
+    SporeCarrierRegen read IsSpellTarget 0 and base values; the Ability beside them 1), as
+    ours. ([area-effects §3](../spec-notes/area-effects.md))
 24. **A patrol after a load** (P3). Ours: an NPC on a non-repeating Patrol package
     goes on to its next point after a reload.
     To check: save while it is half-way along its route, reload, and see whether it
@@ -401,10 +390,9 @@ The numbers above stay put so links to them hold; each item here gives its own p
     mainframe repeats the Tops Yes Man's first-meeting greeting (0x001164F1, Say Once,
     GetIsID YesManMainframe OR VMQTopsYesMan) once, because ours keeps Say Once per actor.
     To check: meet Yes Man at the Tops, then talk to the mainframe in the penthouse.
-32. **An expression that leaves extra values** (`GetStage Q N == 1`, compiled with two
-    arguments for GetStage): three begin scripts (e.g. INFO 0x00160731) stop with "2 values
-    left on the stack" in ours. To check: what Side Bets' report line does in the original
-    (it sets nothing on the canonical path).
+32. **An expression that leaves extra values** — answered 2026-10-30 (issue #908): the
+    original stops the script at `if GetStage Q N == 1` and runs neither arm, as ours.
+    ([scripts §4.2](../spec-notes/scripts.md))
 
 ## Added 2026-10-29 (radiation falloff, issue #894; HUD states capture)
 
@@ -428,6 +416,21 @@ The numbers above stay put so links to them hold; each item here gives its own p
     `ActionPoints/meter:1` [hypothesis: as the enemy meter's read 175]. To check:
     GetUIFloat `HUDMainMenu/HitPoints/*:2/brightness` and `ActionPoints/*:5/brightness`
     (the paths §14.3 read the widths by) while the bars show.
+
+## Added 2026-10-30 (issues #907, #915)
+
+35. **A condition with a null form parameter** (GetQuestVariable on INFO 0x0014B595-7,
+    GetIsID on 0x000FF5BA) — answered 2026-10-30 (issue #907): the original reads 0 for
+    both; ours now does without a failed call. Open: other functions given a null form
+    in a condition (ours: a failed call, also 0). ([dialogue §4](../spec-notes/dialogue.md))
+36. **Which of a creature's turn rates applies when** (P3; issue #915). Steady turns are
+    TNAM × 1.25, × 3 or × 0.075 °/s on every skeleton tried, whatever the base scale
+    (actors.md §8.10 "TNAM"); × 0.075 is aim tracking within about 6°, but × 1.25 and × 3
+    both came on big turns towards a target. To check: GetAnimAction, the movement
+    speed, IsInCombat and the combat target's distance against the rate, with more turns
+    per creature (e.g. a mongrel set on the player again and again from behind), and
+    whether a standing turn without combat (a Travel package to a marker behind it)
+    takes × 1.25 or × 3. ([actors §8.10](../spec-notes/actors.md))
 
 ## Added 2026-10-30 (add-on walkthroughs, issue #918)
 

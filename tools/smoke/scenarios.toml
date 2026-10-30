@@ -596,6 +596,8 @@ expect = [
   { json = "verdicts.never chosen: needs a linked reference the actor lacks", schema = "fnv.ai.reach/1", equals = 2810, known_failing = "main 2026-10-11: 3,185" },
   { json = "verdicts.nowhere to go: the location is the player, who is nowhere yet", schema = "fnv.ai.reach/1", equals = 177, known_failing = "main 2026-10-11: 182" },
   { json = "verdicts.talks: goes up to its target from where it is", schema = "fnv.ai.reach/1", equals = 126 },
+  # issue #909 item 9 (2026-10-30): pairs unreachable from the editor placement but reached from a place a script MoveTo's the actor to (Yes Man's penthouse marker 0x00166304)
+  { json = "verdicts.reachable from where a script moves it (MoveTo)", schema = "fnv.ai.reach/1", equals = 120, label = "reached from a script's MoveTo target: 120 pairs" },
   # main on 2026-10-11, so any change shows here and gets explained
   { json = "actor_package_pairs", schema = "fnv.ai.reach/1", equals = 16935, label = "pairs as on main 2026-10-11: 16,935" },
   { json = "verdicts.reachable", schema = "fnv.ai.reach/1", equals = 10258, label = "reachable as on main 2026-10-11: 10,258", known_failing = "main 2026-10-17 (6a53e8e7): 10,403; with every package type carried out (Escort, Find, Use Item At, Ambush, Flee, actor-behaviour.md §5.10): 10,620" },
@@ -1689,6 +1691,21 @@ expect = [
   { re = 'dialogue look: the view turns to REPCONMidToTopDoorIntercom \(the talking activator itself\)', min = 2, label = "the view turns to the intercom, not above it, in both conversations" },
   { re = '000CECFA', count = 0, label = "no \"Stop messing around with the intercom\"" },
   { re = 'script: REPCONMidToTopDoor activated by .*"result":"teleported".*"cell":"0x00081CFA"', label = "third: the door is unlocked and leads up to RocketLabTop" },
+]
+
+[[scenario]]
+name = "intercom-trigger-activate"
+source = "issue #906 (docs/spec-notes/talking-activators.md §2): the REPCONN intercom's trigger (SCPT 0x000CD04E, OnTriggerEnter player) sets Chris as the intercom's talking actor and runs `<intercom>.Activate player`; the player is the activator, the default action is Talk, and the conversation opens through the intercom with no hand activation [observed: fnvtool script decompile FalloutNV.esm]"
+note = "The player stands by the intercom 0x000CD67C (RocketLabMid) and is put in its trigger 0x000CD051 at 8 s; Chris's Say Once greeting \"Hey! Over here!\" (INFO 000CD87D) is said through the intercom"
+areas = ["dialogue", "scripts", "activation"]
+paths = ["crates/fnv-game/src/talking_activators.rs", "engine/nvf-play/src/script_trigger.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "000CD67C", NVF_PLAY_TEST_SCRIPT = "8:walk:0x000CD051" }
+args = ["--cell", "RocketLabMid", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { re = 'script: \S+ activated by .*"result":"talk"', label = "the trigger's script has the player activate the intercom: Talk" },
+  { re = 'dialogue: .* says \[GREETING\] .*000CD87D', label = "Chris's \"Hey! Over here!\" through the intercom, in a conversation" },
+  { re = 'dialogue look: the view turns to .*\(the talking activator itself\)', label = "the view turns to the intercom" },
 ]
 
 [[scenario]]
@@ -3587,7 +3604,7 @@ expect = [
 name = "lantern-display-light"
 source = "docs/spec-notes/world.md §8 \"Light on surfaces in display values\": Dead Money's Puesta del Sol wall lantern (light NVDLC01ExtSconceKeyWT) at 22:00; the display-value lighting sum and the clipped display are patched into Bevy's shaders (a Bevy upgrade that moves the patched lines fails here); a frame in target/smoke (lantern_display_light.png) to compare with the original's dm_lamp_front.png"
 areas = ["renderer", "lights"]
-paths = ["engine/nvforever/src/lights.rs", "engine/nvforever/src/sky.rs", "engine/nvforever/src/sky.wgsl", "engine/nvf-assets/src/nif_material.wgsl"]
+paths = ["engine/nvforever/src/lights.rs", "engine/nvforever/src/fog.rs", "engine/nvforever/src/sky.rs", "engine/nvforever/src/sky.wgsl", "engine/nvf-assets/src/nif_material.wgsl", "engine/vendor/bevy_pbr/"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "8:lantern_display_light.png" }
 args = ["--world", "NVDLC01WestTownN", "--play", "--pos=3177,592,1028", "--heading", "270", "--pitch", "15", "--hour", "22", "--no-voice", "--no-messages"]
 run_seconds = 10
@@ -3595,7 +3612,8 @@ expect = [
   { re = 'lights: display-value lighting sum installed', label = "apply_pbr_lighting sums the light in display values" },
   { re = 'lights: display values shown clipped', label = "the main view clips in Tony McMapface's place" },
   { re = 'lights: game attenuation installed', label = "lights fall off as the game's" },
-  { re = 'light colour lines not found|apply_pbr_lighting not as expected|Tony McMapface not found', count = 0, label = "no patch missed its Bevy lines" },
+  { re = 'light colour lines not found|apply_pbr_lighting not as expected|Tony McMapface not found|atmospheric fog not found', count = 0, label = "no patch missed its Bevy lines (a CRLF checkout once broke them all, #946)" },
+  { re = 'failed to process shader', count = 0, label = "every shader builds (grass.wgsl needs the patched pbr_functions)" },
 ]
 
 [[scenario]]

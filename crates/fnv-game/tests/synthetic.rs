@@ -2254,6 +2254,29 @@ fn the_runner_names_a_reference_made_at_run_time_by_its_base() {
     assert_eq!(fnv_game::runner::resolve(&g, "placed:TestActivator"), Ok(FormId(ACT_REF)));
 }
 
+/// A condition's null form (FormID 0) reads 0 for GetIsID and GetQuestVariable, without a
+/// failed call [observed 2026-10-30, capture o4_00_probe: Papa Khan's goodbye with
+/// `GetQuestVariable <null> 1 == 0` was chosen and Cass's greeting with only `GetIsID
+/// <null> == 1` passed over; observer-checks.md check 35].
+#[test]
+fn a_null_form_in_a_condition_reads_zero_without_a_failed_call() {
+    use fnv_game::cond::{Cmp, Condition, Operand, RunOn};
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let index = |name: &str| f.data.table.by_name(name).unwrap() - 0x1000;
+    let null = ArgValue::Value(Value::NONE);
+    let cond = |function: u16, params: Vec<ArgValue>, cmp: Cmp, rhs: f64| Condition { cmp, or: false, run_on: RunOn::Subject, function, params, rhs: Operand::Value(rhs) };
+    let is_id = cond(index("GetIsID"), vec![null.clone()], Cmp::Eq, 1.0);
+    let qvar_0 = cond(index("GetQuestVariable"), vec![null.clone(), ArgValue::Value(Value::Num(1.0))], Cmp::Eq, 0.0);
+    let qvar_1 = cond(index("GetQuestVariable"), vec![null, ArgValue::Value(Value::Num(1.0))], Cmp::Eq, 1.0);
+    let player = Some(FormId::PLAYER_REF);
+    assert!(!g.conditions_pass(&[is_id], player, None, "null GetIsID"));
+    assert!(g.conditions_pass(&[qvar_0], player, None, "null GetQuestVariable == 0"));
+    assert!(!g.conditions_pass(&[qvar_1], player, None, "null GetQuestVariable == 1"));
+    assert!(!g.events.iter().any(|e| matches!(&e.kind, EventKind::CallFailed { .. })));
+}
+
 #[test]
 fn a_string_variable_named_in_a_plain_string_parameter_is_its_name() {
     // [observed: nvse-sixth, `SetStringIniSetting "sLanguage:General" sText` set the text
