@@ -60,8 +60,13 @@ impl Game<'_> {
     }
 
     /// The abilities among a list of actor effects: type Ability only. An SPLO entry of
-    /// type Actor Effect (the 26 in FalloutNV.esm: Ruthless, auras with an area) is a
-    /// spell the actor could cast, not a constant effect [hypothesis].
+    /// type Actor Effect (Ruthless, the Tunnelers' DT spells, SporeCarrierRegen, auras
+    /// with an area) is not on the actor [observed 2026-10-30, capture o4_00_probe:
+    /// placed copies of a Tunneler, a Hulking Tunneler, a spore carrier and a Hoover Dam
+    /// legionary read IsSpellTarget 0 for their Actor Effect spells and their DT, Heal Rate
+    /// and Melee Damage at the base value, while the spore carrier's Ability
+    /// SporeCarrierPoisonResist read IsSpellTarget 1 and Poison Resistance base 20 + 100;
+    /// docs/spec-notes/area-effects.md §3].
     fn abilities_of<'s>(&'s self, spells: &'s [FormId]) -> impl Iterator<Item = FormId> + 's {
         spells.iter().copied().filter(|s| self.data.spell_types.get(s) == Some(&SPELL_ABILITY))
     }

@@ -366,6 +366,23 @@ fn malformed_expressions_are_errors() {
     assert!(matches!(run(&[set(short(1), vec![])], &mut h), Err(VmError::Expression(_))));
 }
 
+/// An `if` whose expression leaves two values (`GetStage Q 100 == 1`, GetStage given an
+/// extra argument, as three INFO begin scripts of FalloutNV.esm are compiled) stops the
+/// script: neither arm runs and nothing after it [observed 2026-10-30, capture
+/// o4_00_probe: in the original such an `if` failed the script call, the statement before
+/// it had run and neither arm's ran; docs/handoff/observer-checks.md check 32].
+#[test]
+fn an_if_leaving_two_values_stops_the_script() {
+    let mut h = TestHost::default();
+    let body = [
+        set(short(1), vec![num(7.0)]),
+        if_(vec![(vec![num(5.0), num(100.0), num(1.0), op(Op::Eq)], vec![set(short(1), vec![num(1.0)])])], Some(vec![set(short(1), vec![num(2.0)])])),
+        set(short(1), vec![num(3.0)]),
+    ];
+    assert!(matches!(run(&body, &mut h), Err(VmError::Expression(_))));
+    assert_eq!(h.locals[&1], Value::Num(7.0));
+}
+
 #[test]
 fn decoded_bytecode_runs() {
     // set fTimer (float 2) to fTimer - 0.5 ; if fTimer < 1, Disable ; endif
