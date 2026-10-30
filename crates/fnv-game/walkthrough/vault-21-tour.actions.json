@@ -1,0 +1,137 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Vault 21 tour (VVault21Tour): Sarah Weintraub's tour from her offer (10) to its end (20)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: Sarah Weintraub at Vault 21 offers the tour (10: OnVaultTour, her StartTour package); her tour packages run in turn and the last one's end script sets 20 (tour over). Stages 30-80 are set by nothing in FalloutNV.esm; the quest has no stage flagged Complete Quest."
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the walk into Vault 21."
+  },
+  {
+   "op": "move_player",
+   "to": "SarahWeintraubREF"
+  },
+  {
+   "op": "talk",
+   "actor": "SarahWeintraubREF",
+   "label": "sarah tour"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformTheStreet01SarahWeintraubTopic001",
+   "label": "sarah tour 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformTheStreet01SarahWeintraubTopic037",
+   "label": "sarah tour 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformTheStreet01SarahWeintraubTopic045",
+   "label": "sarah tour 3"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VVault21Tour",
+   "fields": [
+    "running",
+    "stage",
+    "done.10"
+   ],
+   "label": "milestone: VVault21Tour 10"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VFreeformTheStreet01",
+   "fields": [
+    "var.OnVaultTour"
+   ],
+   "label": "on tour"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the tour's walk: Sarah's tour packages (AddScriptPackage, a stub headless) finish in turn, start to end; each package's own end script runs."
+  },
+  {
+   "op": "package",
+   "actor": "SarahWeintraubREF",
+   "package": "VVault21SarahStartTour",
+   "event": "done"
+  },
+  {
+   "op": "package",
+   "actor": "SarahWeintraubREF",
+   "package": "VVault21SarahTourTo00",
+   "event": "done"
+  },
+  {
+   "op": "package",
+   "actor": "SarahWeintraubREF",
+   "package": "VVault21SarahTourTo01",
+   "event": "done"
+  },
+  {
+   "op": "package",
+   "actor": "SarahWeintraubREF",
+   "package": "VVault21SarahTourTo02",
+   "event": "done"
+  },
+  {
+   "op": "package",
+   "actor": "SarahWeintraubREF",
+   "package": "VVault21SarahTourTo03",
+   "event": "done"
+  },
+  {
+   "op": "package",
+   "actor": "SarahWeintraubREF",
+   "package": "VVault21SarahTourTo04",
+   "event": "done"
+  },
+  {
+   "op": "package",
+   "actor": "SarahWeintraubREF",
+   "package": "VVault21SarahTourTo05",
+   "event": "done"
+  },
+  {
+   "op": "package",
+   "actor": "SarahWeintraubREF",
+   "package": "VVault21SarahEndTour",
+   "event": "done"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "VVault21Tour",
+   "fields": [
+    "stage",
+    "done.20"
+   ],
+   "label": "final: VVault21Tour 20"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VFreeformTheStreet01",
+   "fields": [
+    "var.OnVaultTour"
+   ],
+   "label": "tour over"
+  }
+ ]
+}

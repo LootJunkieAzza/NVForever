@@ -1,0 +1,30 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless Pressing Matters (VMS51): Alice McLafferty's counterfeit caps, the bottle cap press under the Sunset Sarsaparilla Headquarters disabled, Alice pays (stage 100)",
+  "given": [
+    {"kind": "quest", "quest": "VMS05", "completed": true, "stage": 100, "done": [100]}
+  ],
+  "actions": [
+    {"op": "note", "text": "Path: after Crimson Caravan (VMS05 100, given) Alice McLafferty asks the player to find who is making counterfeit caps (stage 10: the press made working, the Sunset Sarsaparilla Headquarters marker shown); the press is switched off (its message box, button 1: 20, three Scrap Metal); Alice pays (100: 500 caps, NCR fame). Fail: Alice dead (110)."},
+    {"op": "move_player", "to": "AliceMcLaffertyREF"},
+    {"op": "talk", "actor": "AliceMcLaffertyREF", "label": "alice greeting"},
+    {"op": "choose", "topic": "VDialogueCrimsonCaravanAliceMcLaffertyTopic030", "label": "counterfeit caps"},
+    {"op": "wait_talk"},
+    {"op": "end_talk"},
+    {"op": "get_quest", "quest": "VMS51", "fields": ["running", "stage", "objective.10.displayed"], "label": "milestone: VMS51 10"},
+    {"op": "get_ref", "ref": "BottleCapPressRef", "fields": ["destroyed"], "label": "press working"},
+    {"op": "note", "text": "Stand-in for the trip to the press in the Sunset Sarsaparilla Headquarters; activated, it asks whether to disable it (button 1)."},
+    {"op": "move_player", "to": "BottleCapPressRef"},
+    {"op": "player_activate", "target": "BottleCapPressRef", "label": "press"},
+    {"op": "press_button", "button": 1},
+    {"op": "get_quest", "quest": "VMS51", "fields": ["stage", "objective.20.displayed"], "label": "milestone: VMS51 20"},
+    {"op": "move_player", "to": "AliceMcLaffertyREF"},
+    {"op": "talk", "actor": "AliceMcLaffertyREF", "label": "alice again"},
+    {"op": "choose", "topic": "VDialogueCrimsonCaravanAliceMcLaffertyTopic032", "label": "press disabled"},
+    {"op": "wait_talk"},
+    {"op": "end_talk"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "VMS51", "fields": ["stage", "done.100", "completed"], "label": "final: VMS51 100"},
+    {"op": "get_item_count", "of": "player", "item": "Caps001", "label": "caps"}
+  ]
+}

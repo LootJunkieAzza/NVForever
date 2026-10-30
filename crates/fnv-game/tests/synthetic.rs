@@ -216,6 +216,9 @@ fn plugin_bytes() -> Vec<u8> {
     //   begin OnHitWith
     //     set nHit to nHit + 1
     //   end
+    //   begin OnHitWith Q (the quest's form id standing in for a form list in the test)
+    //     set nHit to nHit + 100
+    //   end
     //   begin GameMode
     //     set nFrames to nFrames + 1
     //   end
@@ -239,6 +242,7 @@ fn plugin_bytes() -> Vec<u8> {
                 (2, Some([le16(1), r(1)].concat()), body),
                 (0x08, Some([le16(1), r(1)].concat()), set(var(b's', 2), ex(&[var(b's', 2), a("10"), a("+")]))),
                 (0x09, None, set(var(b's', 2), ex(&[var(b's', 2), a("1"), a("+")]))),
+                (0x09, Some([le16(1), r(2)].concat()), set(var(b's', 2), ex(&[var(b's', 2), a("100"), a("+")]))),
                 (0, None, set(var(b's', 3), ex(&[var(b's', 3), a("1"), a("+")]))),
                 (1, Some([le16(1), n(1)].concat()), set(var(b's', 4), ex(&[var(b's', 4), a("1"), a("+")]))),
                 (1, Some([le16(1), n(1007)].concat()), set(var(b's', 5), ex(&[var(b's', 5), a("1"), a("+")]))),
@@ -901,6 +905,25 @@ fn only_the_script_that_showed_a_message_box_gets_its_button() {
 }
 
 #[test]
+fn a_hidden_button_cannot_be_pressed() {
+    // A button whose conditions failed is not on screen (`Game::hidden_buttons`); the
+    // runner once pressed it anyway (the Lucky 38 mainframe's bug button,
+    // walkthrough moon-over-the-tower).
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.activate(FormId::PLAYER_REF, FormId(ACT_REF), ActMode::Hand).unwrap();
+    g.message_box.as_mut().unwrap().hidden = vec![1];
+    assert!(g.press_button(1).unwrap_err().contains("not shown"));
+    assert_eq!(g.message_box.as_ref().unwrap().pressed, None, "the box still waits");
+    g.press_button(0).unwrap();
+    assert_eq!(g.message_box.as_ref().unwrap().pressed, Some(0));
+    // The runner's press_button checks the same (`MessageBox::can_press`).
+    let m = g.message_box.as_ref().unwrap();
+    assert!(m.can_press(1).is_err() && m.can_press(0).is_ok() && m.can_press(-1).is_ok());
+}
+
+#[test]
 fn actors_choose_the_first_package_whose_conditions_pass() {
     let f = fixture();
     let mut g = game(&f);
@@ -1539,6 +1562,13 @@ fn a_hit_on_an_object_runs_its_hit_blocks() {
     assert_eq!(hits(&g), 22.0);
     // The object takes no damage and remembers no hit.
     assert!(g.extra.get(&target).is_none_or(|e| e.last_hit.is_none() && e.damage.is_none()));
+    // A block whose parameter is a form list runs for a weapon in the list (Old World
+    // Blues' force fields: `Begin OnHitWith NVDLC03SonicWeaponList`), not for another.
+    g.form_lists.insert(FormId(QUEST), vec![FormId(NPC_REF)]);
+    assert!(g.hit_object(target, HitInfo { weapon: Some(FormId(NPC_REF)), ..by_player }));
+    assert_eq!(hits(&g), 133.0);
+    assert!(g.hit_object(target, HitInfo { weapon: Some(FormId(MESSAGE)), ..by_player }));
+    assert_eq!(hits(&g), 144.0);
     // A reference whose script has no hit block.
     assert!(!g.hit_object(FormId(NPC_REF), by_player));
 }
@@ -2207,6 +2237,46 @@ fn player_control_locks_are_kept_per_plugin() {
     assert_eq!(g.controls_locked(), [true, false, false, false, false, false, false], "the other plugin's lock stays");
 }
 
+/// The runner's `created:<base>` names the newest reference made at run time from a
+/// base form (PlaceAtMe, a drop), as the sim runner's actions do: a chain can then
+/// activate a container a quest script placed (Emergency Radio's supply cache).
+#[test]
+fn the_runner_names_a_reference_made_at_run_time_by_its_base() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    assert!(fnv_game::runner::resolve(&g, "created:TestActivator").is_err(), "nothing made yet");
+    let first = g.world.place(FormId(ACTIVATOR), None, [0.0; 3], [0.0; 3], 1).unwrap();
+    assert_eq!(fnv_game::runner::resolve(&g, "created:TestActivator"), Ok(first));
+    let second = g.world.place(FormId(ACTIVATOR), None, [0.0; 3], [0.0; 3], 1).unwrap();
+    assert_eq!(fnv_game::runner::resolve(&g, "created:TestActivator"), Ok(second), "the newest");
+    // A placed reference of the same base is not one made at run time.
+    assert_eq!(fnv_game::runner::resolve(&g, "placed:TestActivator"), Ok(FormId(ACT_REF)));
+}
+
+/// A condition's null form (FormID 0) reads 0 for GetIsID and GetQuestVariable, without a
+/// failed call [observed 2026-10-30, capture o4_00_probe: Papa Khan's goodbye with
+/// `GetQuestVariable <null> 1 == 0` was chosen and Cass's greeting with only `GetIsID
+/// <null> == 1` passed over; observer-checks.md check 35].
+#[test]
+fn a_null_form_in_a_condition_reads_zero_without_a_failed_call() {
+    use fnv_game::cond::{Cmp, Condition, Operand, RunOn};
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let index = |name: &str| f.data.table.by_name(name).unwrap() - 0x1000;
+    let null = ArgValue::Value(Value::NONE);
+    let cond = |function: u16, params: Vec<ArgValue>, cmp: Cmp, rhs: f64| Condition { cmp, or: false, run_on: RunOn::Subject, function, params, rhs: Operand::Value(rhs) };
+    let is_id = cond(index("GetIsID"), vec![null.clone()], Cmp::Eq, 1.0);
+    let qvar_0 = cond(index("GetQuestVariable"), vec![null.clone(), ArgValue::Value(Value::Num(1.0))], Cmp::Eq, 0.0);
+    let qvar_1 = cond(index("GetQuestVariable"), vec![null, ArgValue::Value(Value::Num(1.0))], Cmp::Eq, 1.0);
+    let player = Some(FormId::PLAYER_REF);
+    assert!(!g.conditions_pass(&[is_id], player, None, "null GetIsID"));
+    assert!(g.conditions_pass(&[qvar_0], player, None, "null GetQuestVariable == 0"));
+    assert!(!g.conditions_pass(&[qvar_1], player, None, "null GetQuestVariable == 1"));
+    assert!(!g.events.iter().any(|e| matches!(&e.kind, EventKind::CallFailed { .. })));
+}
+
 #[test]
 fn a_string_variable_named_in_a_plain_string_parameter_is_its_name() {
     // [observed: nvse-sixth, `SetStringIniSetting "sLanguage:General" sText` set the text
@@ -2235,4 +2305,272 @@ fn main_loop_callbacks_of_function_scripts_outlive_a_load_unless_flag_8() {
         let v = g2.world.global(FormId(0x0000_0800)).unwrap();
         assert_eq!(v == 0.0, ran, "flags {flags}: the callback {} after the load", if ran { "runs" } else { "is gone" });
     }
+}
+
+#[test]
+fn console_functions_run_their_commands() {
+    // #913 [documented: the Con_ pages, "Runs the console command … via a script"].
+    use fnv_game::functions::console::ConsoleRequest;
+    use fnv_game::functions::toggles::Toggle;
+    use fnv_script::vm::XVal;
+    let mut f = udf_fixture();
+    f.data.ini_texts = vec!["[Display]\nfDefaultFOV=75.0000\n".into()];
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), ctx());
+    assert_eq!(q(&mut g, "Con_TFC\nSetFunctionValue GetTFC"), Ok(XVal::Num(1.0)), "Con_TFC is ToggleFlyCam");
+    q(&mut g, "con_SetCameraFOV 90 60").unwrap();
+    assert_eq!(g.ui.camera.fov, Some((Some(90.0), Some(60.0))));
+    q(&mut g, "Con_TFIK\nCon_TCL").unwrap();
+    assert_eq!(g.toggles.asked, [Toggle::FootIk, Toggle::Collision]);
+    q(&mut g, "con_QuitGame\ncon_Save \"nvfq\" 1").unwrap();
+    assert_eq!(g.console_requests, [ConsoleRequest::Quit, ConsoleRequest::Save("nvfq".into())]);
+    // The INI the extender reads: con_SetINISetting changes it, con_RefreshINI reads the
+    // files again.
+    let num = |g: &mut fnv_game::Game| q(g, "SetFunctionValue (GetNumericINISetting \"fDefaultFOV:Display\")");
+    q(&mut g, "con_SetINISetting \"fDefaultFOV:Display\" \"80\"").unwrap();
+    assert_eq!(num(&mut g), Ok(XVal::Num(80.0)));
+    // Lines only with the echo on [documented: Con_SQV, Con_Inv "Requires Console Echo"].
+    q(&mut g, "con_GetINISetting \"fDefaultFOV:Display\"").unwrap();
+    assert!(g.console_out.is_empty(), "no echo");
+    q(&mut g, "SetConsoleEcho 1\ncon_GetINISetting \"fDefaultFOV:Display\"").unwrap();
+    assert_eq!(g.console_out, ["fDefaultFOV:Display = 80"]);
+    q(&mut g, "con_RefreshINI\ncon_SaveINI").unwrap();
+    assert_eq!(num(&mut g), Ok(XVal::Num(75.0)), "the files' value again");
+}
+
+#[test]
+fn generic_form_lists_and_animation_lists_change_for_the_session() {
+    // #914 [documented: GenericAddForm "-2 will add to the end", GenericDeleteForm and
+    // GenericReplaceForm return the form taken out; AddAnimation, DelAnimation,
+    // DelAnimations, GetNthAnimation].
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), ctx()).unwrap();
+    let glob = XVal::Ref(0x0000_0901);
+    let player = XVal::Ref(FormId::PLAYER_REF.0);
+    q(&mut g, "GenericAddForm 7, PlayerREF, TestAdd, -2\nGenericAddForm 7, PlayerREF, PlayerREF, 0");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 7, PlayerREF, 0)"), player, "index 0 put first");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 7, PlayerREF, 1)"), glob);
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 7, PlayerREF, 2)"), XVal::Ref(0), "outside the list");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericReplaceForm 7, PlayerREF, TestAdd, 0)"), player);
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 7, PlayerREF, 1)"), glob);
+    assert_eq!(q(&mut g, "SetFunctionValue (ar_Size (GetBaseSpellListLevSpells PlayerREF))"), XVal::Num(1.0), "the getter sees it");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericGetForm 99, PlayerREF, 0)"), XVal::Ref(0), "no such list");
+
+    q(&mut g, "AddAnimation \"a.kf\" PlayerREF\nAddAnimation \"B.kf\" PlayerREF\nAddAnimation \"A.KF\" PlayerREF");
+    let nth = |g: &mut fnv_game::Game, i: u32| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue (PlayerREF.GetNthAnimation {i})\nEnd\n"), ctx()).unwrap();
+    assert_eq!((nth(&mut g, 0), nth(&mut g, 1), nth(&mut g, 2)), (XVal::Str("a.kf".into()), XVal::Str("B.kf".into()), XVal::Str(String::new())));
+    q(&mut g, "PlayerREF.DelAnimation \"b.kf\"");
+    assert_eq!(nth(&mut g, 1), XVal::Str(String::new()));
+    q(&mut g, "PlayerREF.DelAnimations");
+    assert_eq!(nth(&mut g, 0), XVal::Str(String::new()));
+}
+
+#[test]
+fn compile_script_reads_a_udf_file_and_print_var_names_variables() {
+    // [documented: CompileScript, a text file under data/nvse/user_defined_functions, used
+    // with Call, cached; PrintVar, "fMyVariable: 2.5", "aMyVariable: [2, 4]"].
+    use fnv_script::vm::XVal;
+    let reader: fnv_game::mod_files::Reader = std::sync::Arc::new(|p: &str| {
+        (p.eq_ignore_ascii_case("nvse\\user_defined_functions\\sub\\add.txt")).then(|| b"begin Function { int iA, int iB }\nSetFunctionValue iA + iB\nend\n".to_vec())
+    });
+    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: Vec::new(), config: None, write: None, lookup: None, reader: Some(reader) });
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("ref rF\nref rG\nfloat fRes\narray_var aA\nBegin Function {{ }}\n{body}\nEnd\n"), ctx());
+    assert_eq!(q(&mut g, "let rF := CompileScript \"Sub/Add.txt\"\nSetFunctionValue (Call rF 2 3)"), Ok(XVal::Num(5.0)));
+    assert_eq!(q(&mut g, "let rF := CompileScript \"sub\\add.txt\"\nlet rG := GetUDFFromFile \"Sub/Add.txt\"\nSetFunctionValue (rF == rG)"), Ok(XVal::Num(1.0)), "cached by path");
+    assert_eq!(q(&mut g, "SetFunctionValue (CompileScript \"Sub/None.txt\")"), Ok(XVal::Ref(0)), "no file");
+    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: Vec::new(), config: None, write: None, lookup: None, reader: None });
+
+    g.console_out.clear();
+    q(&mut g, "let fRes := 2.5\nlet aA := ar_List 2, 4\nPrintVar fRes, aA").unwrap();
+    assert_eq!(g.console_out, ["fRes: 2.5", "aA: [2, 4]"]);
+    g.console_out.clear();
+    q(&mut g, "DebugPrintVar fRes").unwrap();
+    assert!(g.console_out.is_empty(), "debug mode off");
+}
+
+#[test]
+fn last_core_setters_change_what_their_getters_read() {
+    // [documented: SetHairLength; SetNPCWeight; SetActorBaseFlagsHigh; SetEyes;
+    // SetCurrentQuest, as ForceActiveQuest].
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), ctx()).unwrap();
+    q(&mut g, "SetActorBaseFlagsHigh 5 PlayerREF");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetActorBaseFlagsHigh PlayerREF)"), XVal::Num(5.0));
+    q(&mut g, "SetNPCWeight 42 PlayerREF");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetNPCWeight PlayerREF)"), XVal::Num(42.0));
+    q(&mut g, "SetHairLength 0.5 PlayerREF");
+    assert_eq!(q(&mut g, "SetFunctionValue (GetHairLength PlayerREF)"), XVal::Num(0.5));
+}
+
+/// The extender functions a script call still finds unbuilt ("not built yet"), by plugin,
+/// from the catalogue: `cargo test --release -p fnv-game --test synthetic -- --ignored
+/// extender_census --nocapture`; the list goes to `target/tmp/extender-census.txt`. Each
+/// is called once with placeholder arguments (0, PlayerREF, "a"); a name that does not
+/// compile so is counted apart.
+#[test]
+#[ignore]
+fn extender_census() {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+    let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{root}/schemas/script/functions.json")).unwrap()).unwrap();
+    let fs = doc.as_array().or_else(|| doc["functions"].as_array()).unwrap();
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let mut unbuilt: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+    let mut nocompile = Vec::new();
+    for x in fs.iter().filter(|x| x["family"] == "extender") {
+        let n = x["name"].as_str().unwrap_or_default();
+        if n.is_empty() || !n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            continue;
+        }
+        let args: Vec<&str> = x["params"].as_array().into_iter().flatten().map(|p| match p["kind"].as_str() {
+            Some("form" | "reference") => "PlayerREF",
+            Some("string") => "\"a\"",
+            Some("actor_value") => "Luck",
+            Some("axis") => "X",
+            _ => "0",
+        }).collect();
+        let before = g.events.len();
+        let r = g.run_query(&format!("Begin Function {{ }}
+{n} {}
+End
+", args.join(" ")), fnv_game::game::RunCtx::default());
+        let said = g.events[before..].iter().any(|e| format!("{e:?}").contains("not built"));
+        if r.as_ref().is_err_and(|e| e.contains("did not compile")) {
+            nocompile.push(n.to_string());
+        } else if said || r.as_ref().is_err_and(|e| e.contains("not built")) {
+            unbuilt.entry(x["origin"].as_str().unwrap_or("?").to_string()).or_default().push(n.to_string());
+        }
+    }
+    let mut out = String::new();
+    for (o, v) in &unbuilt {
+        out += &format!("{o} {}: {}
+", v.len(), v.join(", "));
+    }
+    out += &format!("did not compile with placeholders {}: {}
+", nocompile.len(), nocompile.join(", "));
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/tmp");
+    std::fs::create_dir_all(dir).unwrap();
+    std::fs::write(format!("{dir}/extender-census.txt"), &out).unwrap();
+    println!("unbuilt: {}", unbuilt.values().map(Vec::len).sum::<usize>());
+}
+
+/// A plugin with one class, light, climate, grass, texture set and global for the fourth
+/// JIP batch (`nvse_jip4`).
+fn jip4_fixture() -> Fixture {
+    let le32 = |v: u32| v.to_le_bytes().to_vec();
+    let f32b = |v: f32| v.to_le_bytes().to_vec();
+    // CLAS DATA: four tag skills (i32), flags, services, teaches, max training, 2 unused.
+    let clas_data = [le32(42), le32(41), le32(33), le32(44), le32(0b01), le32((1 << 2) | (1 << 17)), vec![0, 50, 0, 0]].concat();
+    let clas = record(b"CLAS", 0, 0x0000_0A01, &[sub(b"EDID", z("TestClass")), sub(b"DATA", clas_data), sub(b"ATTR", vec![5, 6, 7, 4, 3, 8, 9])]);
+    // LIGH DATA: time, radius, colour, flags (Flicker Slow, bit 6), falloff, FOV, value,
+    // weight; FNAM fade.
+    let ligh_data = [le32(0), le32(200), vec![177, 120, 60, 0], le32(1 << 6), f32b(1.0), f32b(90.0), le32(0), f32b(0.0)].concat();
+    let ligh = record(b"LIGH", 0, 0x0000_0A02, &[sub(b"EDID", z("TestLight")), sub(b"DATA", ligh_data), sub(b"FNAM", f32b(1.25))]);
+    // CLMT TNAM: sunrise 30/42, sunset 96/108 (10-minute units), volatility 20, moons
+    // byte 0x83 (bit 7, phase length 3).
+    let clmt = record(b"CLMT", 0, 0x0000_0A03, &[sub(b"EDID", z("TestClimate")), sub(b"TNAM", vec![30, 42, 96, 108, 20, 0x83])]);
+    let gras_data = [vec![30, 0, 90, 0], 50u16.to_le_bytes().to_vec(), vec![0, 0], le32(4), f32b(22.0), f32b(16.0), f32b(0.5), f32b(4.0), vec![0b101, 0, 0, 0]].concat();
+    let gras = record(b"GRAS", 0, 0x0000_0A04, &[sub(b"EDID", z("TestGrass")), sub(b"MODL", z("Landscape\\Grass\\Test.nif")), sub(b"DATA", gras_data)]);
+    let txst = record(b"TXST", 0, 0x0000_0A05, &[sub(b"EDID", z("TestTextures")), sub(b"TX00", z("a_d.dds")), sub(b"TX02", z("a_m.dds"))]);
+    let glob = record(b"GLOB", 0, 0x0000_0A06, &[sub(b"EDID", z("TestRefGlobal")), sub(b"FNAM", vec![b'f']), sub(b"FLTV", 0f32.to_le_bytes().to_vec())]);
+    let plugin = [tes4(), top(b"GLOB", &glob), top(b"CLAS", &clas), top(b"LIGH", &ligh), top(b"CLMT", &clmt), top(b"GRAS", &gras), top(b"TXST", &txst)].concat();
+    let plugins = vec![Plugin::parse(&plugin, "Jip4.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = schema();
+    let (table, j) = catalogue();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    Fixture { data, forms, refs }
+}
+
+#[test]
+fn jip_batch_four_reads_and_sets_record_traits() {
+    use fnv_script::vm::XVal;
+    let f = jip4_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), ctx()).unwrap();
+    let n = |g: &mut fnv_game::Game, e: &str| q(g, &format!("SetFunctionValue ({e})"));
+    let num = XVal::Num;
+    // Classes: the tag skills, then the attributes; flags 0-1 and the services from 2.
+    assert_eq!(n(&mut g, "GetClassTraitNumeric TestClass 2"), num(33.0));
+    assert_eq!(n(&mut g, "GetClassTraitNumeric TestClass 4"), num(5.0), "strength");
+    assert_eq!(n(&mut g, "GetClassTraitNumeric TestClass 10"), num(9.0), "luck");
+    assert_eq!(n(&mut g, "GetClassTraitNumeric TestClass 11"), num(0.0), "out of range");
+    assert_eq!(n(&mut g, "GetClassFlag TestClass 0"), num(1.0), "playable");
+    assert_eq!(n(&mut g, "GetClassFlag TestClass 1"), num(0.0));
+    assert_eq!(n(&mut g, "GetClassFlag TestClass 4"), num(1.0), "service bit 2, alcohol");
+    assert_eq!(n(&mut g, "GetClassFlag TestClass 19"), num(1.0), "service bit 17, repair");
+    assert_eq!(n(&mut g, "SetClassTraitNumeric TestClass 2 34"), num(34.0));
+    assert_eq!(n(&mut g, "GetClassTraitNumeric TestClass 2"), num(34.0));
+    q(&mut g, "SetClassFlag TestClass 19 0\nSetClassFlag TestClass 1 1");
+    assert_eq!((n(&mut g, "GetClassFlag TestClass 19"), n(&mut g, "GetClassFlag TestClass 1"), n(&mut g, "GetClassFlag TestClass 4")), (num(0.0), num(1.0), num(1.0)));
+    // Lights.
+    assert_eq!(n(&mut g, "GetLightTraitNumeric TestLight 0"), num(200.0));
+    assert_eq!(n(&mut g, "GetLightTraitNumeric TestLight 2"), num(120.0), "green");
+    assert_eq!(n(&mut g, "GetLightTraitNumeric TestLight 5"), num(90.0));
+    assert_eq!(n(&mut g, "GetLightTraitNumeric TestLight 6"), num(1.25), "fade");
+    assert_eq!((n(&mut g, "GetLightFlag TestLight 6"), n(&mut g, "GetLightFlag TestLight 3")), (num(1.0), num(0.0)));
+    q(&mut g, "SetLightTraitNumeric TestLight 0 512\nSetLightFlag TestLight 3 1");
+    assert_eq!((n(&mut g, "GetLightTraitNumeric TestLight 0"), n(&mut g, "GetLightFlag TestLight 3")), (num(512.0), num(1.0)));
+    // Climates: minutes from the 10-minute units, the moons byte split.
+    assert_eq!(n(&mut g, "GetClimateTraitNumeric TestClimate 0"), num(300.0));
+    assert_eq!(n(&mut g, "GetClimateTraitNumeric TestClimate 2"), num(960.0));
+    assert_eq!(n(&mut g, "GetClimateTraitNumeric TestClimate 4"), num(20.0));
+    assert_eq!((n(&mut g, "GetClimateTraitNumeric TestClimate 5"), n(&mut g, "GetClimateTraitNumeric TestClimate 6")), (num(2.0), num(3.0)));
+    q(&mut g, "SetClimateTraitNumeric TestClimate 2 1000\nSetClimateTraitNumeric TestClimate 6 7");
+    assert_eq!(n(&mut g, "GetClimateTraitNumeric TestClimate 2"), num(1000.0));
+    assert_eq!((n(&mut g, "GetClimateTraitNumeric TestClimate 5"), n(&mut g, "GetClimateTraitNumeric TestClimate 6")), (num(2.0), num(7.0)), "the moons kept");
+    // Grass and texture sets.
+    assert_eq!(n(&mut g, "GetGrassTraitNumeric TestGrass 0"), num(30.0));
+    assert_eq!(n(&mut g, "GetGrassTraitNumeric TestGrass 3"), num(50.0));
+    assert_eq!(n(&mut g, "GetGrassTraitNumeric TestGrass 5"), num(22.0));
+    assert_eq!(n(&mut g, "GetGrassTraitNumeric TestGrass 9"), num(5.0), "flags bitmask");
+    assert_eq!(n(&mut g, "GetGrassModel TestGrass"), XVal::Str("Landscape\\Grass\\Test.nif".into()));
+    q(&mut g, "SetGrassTraitNumeric TestGrass 5 30\nSetGrassModel TestGrass \"x.nif\"");
+    assert_eq!((n(&mut g, "GetGrassTraitNumeric TestGrass 5"), n(&mut g, "GetGrassModel TestGrass")), (num(30.0), XVal::Str("x.nif".into())));
+    assert_eq!(n(&mut g, "GetTextureSetTexture TestTextures 2"), XVal::Str("a_m.dds".into()));
+    assert_eq!(n(&mut g, "GetTextureSetTexture TestTextures 1"), XVal::Str(String::new()), "no TX01");
+    q(&mut g, "SetTextureSetTexture TestTextures 1 \"n.dds\"");
+    assert_eq!(n(&mut g, "GetTextureSetTexture TestTextures 1"), XVal::Str("n.dds".into()));
+}
+
+#[test]
+fn jip_batch_four_reads_the_game_state() {
+    use fnv_script::vm::XVal;
+    let f = jip4_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), ctx()).unwrap();
+    let n = |g: &mut fnv_game::Game, e: &str| q(g, &format!("SetFunctionValue ({e})"));
+    assert_eq!(n(&mut g, "GetGameDifficulty"), XVal::Num(2.0), "normal");
+    q(&mut g, "SetGameDifficulty 4");
+    assert_eq!(n(&mut g, "GetGameDifficulty"), XVal::Num(4.0));
+    q(&mut g, "SetGameDifficulty 9");
+    assert_eq!(n(&mut g, "GetGameDifficulty"), XVal::Num(4.0), "out of range: unchanged");
+    assert_eq!(n(&mut g, "GetGlobalRef TestRefGlobal"), XVal::Ref(0));
+    q(&mut g, "SetGlobalRef TestRefGlobal TestClass");
+    assert_eq!(n(&mut g, "GetGlobalRef TestRefGlobal"), XVal::Ref(0x0000_0A01));
+    q(&mut g, "PlayerREF.SetGlobalRef TestRefGlobal");
+    assert_eq!(n(&mut g, "GetGlobalRef TestRefGlobal"), XVal::Ref(FormId::PLAYER_REF.0), "the calling reference");
+    let achr = f64::from(fnv_script::vm::form_type_code(b"ACHR").unwrap());
+    assert_eq!(n(&mut g, "PlayerREF.GetRefType"), XVal::Num(achr), "the reference's own type");
+    assert_eq!(n(&mut g, "GetPCDetectionState"), XVal::Num(0.0), "no one measured");
+    assert_eq!(n(&mut g, "PlayerREF.GetIsPoisoned"), XVal::Num(0.0));
+    assert_eq!(n(&mut g, "PlayerREF.GetTeleportDoor"), XVal::Ref(0));
+    let before = n(&mut g, "GetSessionTime");
+    g.tick();
+    let after = n(&mut g, "GetSessionTime");
+    assert!(matches!((before, after), (XVal::Num(a), XVal::Num(b)) if b > a), "time goes on");
 }

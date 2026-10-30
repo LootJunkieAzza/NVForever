@@ -314,21 +314,10 @@ The numbers above stay put so links to them hold; each item here gives its own p
       a heavy hit.
     Read dialogue events in the observer timeline, with audio or subtitles.
     ([combat-dialogue §5](../spec-notes/combat-dialogue.md))
-23. **Actor Effect spells in NPC and creature spell lists** (P2; decides whether we
-    build it). About 110 actors carry SPEL records of type 0 "Actor Effect" (not
-    Ability) in their NPC_/CREA SPLO lists, all duration 0 on Self. Ours applies only
-    the Ability ones. Examples:
-    - Ruthless on 21 Hoover Dam legionaries (+25 melee damage);
-    - the Tunnelers' Increase Damage Threshold 2 and 5 (23 creatures);
-    - SporeCarrierRegen (7);
-    - NVDLC02QuietWatersPerkEffect (57).
-
-    The GECK wiki's AddSpell page says the vanilla game uses only addictions and
-    abilities. To check: does the original apply these type-0 entries? Read a Tunneler's
-    DamageThreshold with GetActorValue against its base record's, and GetIsSpellTarget /
-    IsSpellTarget for the SPEL on the actor. The earlier captures esmfx2 and esmfx3
-    placed a spore carrier and a Ruthless legionary but did not ask.
-    ([area-effects §3](../spec-notes/area-effects.md))
+23. **Actor Effect spells in NPC and creature spell lists** — answered 2026-10-30 (issue
+    #916): the original does not apply the type-0 entries (Tunnelers' DT, Ruthless,
+    SporeCarrierRegen read IsSpellTarget 0 and base values; the Ability beside them 1), as
+    ours. ([area-effects §3](../spec-notes/area-effects.md))
 24. **A patrol after a load** (P3). Ours: an NPC on a non-repeating Patrol package
     goes on to its next point after a reload.
     To check: save while it is half-way along its route, reload, and see whether it
@@ -401,10 +390,9 @@ The numbers above stay put so links to them hold; each item here gives its own p
     mainframe repeats the Tops Yes Man's first-meeting greeting (0x001164F1, Say Once,
     GetIsID YesManMainframe OR VMQTopsYesMan) once, because ours keeps Say Once per actor.
     To check: meet Yes Man at the Tops, then talk to the mainframe in the penthouse.
-32. **An expression that leaves extra values** (`GetStage Q N == 1`, compiled with two
-    arguments for GetStage): three begin scripts (e.g. INFO 0x00160731) stop with "2 values
-    left on the stack" in ours. To check: what Side Bets' report line does in the original
-    (it sets nothing on the canonical path).
+32. **An expression that leaves extra values** — answered 2026-10-30 (issue #908): the
+    original stops the script at `if GetStage Q N == 1` and runs neither arm, as ours.
+    ([scripts §4.2](../spec-notes/scripts.md))
 
 ## Added 2026-10-29 (radiation falloff, issue #894; HUD states capture)
 
@@ -429,9 +417,58 @@ The numbers above stay put so links to them hold; each item here gives its own p
     GetUIFloat `HUDMainMenu/HitPoints/*:2/brightness` and `ActionPoints/*:5/brightness`
     (the paths §14.3 read the widths by) while the bars show.
 
+## Added 2026-10-30 (issues #907, #915)
+
+35. **A condition with a null form parameter** (GetQuestVariable on INFO 0x0014B595-7,
+    GetIsID on 0x000FF5BA) — answered 2026-10-30 (issue #907): the original reads 0 for
+    both; ours now does without a failed call. Open: other functions given a null form
+    in a condition (ours: a failed call, also 0). ([dialogue §4](../spec-notes/dialogue.md))
+36. **Which of a creature's turn rates applies when** (P3; issue #915). Steady turns are
+    TNAM × 1.25, × 3 or × 0.075 °/s on every skeleton tried, whatever the base scale
+    (actors.md §8.10 "TNAM"); × 0.075 is aim tracking within about 6°, but × 1.25 and × 3
+    both came on big turns towards a target. To check: GetAnimAction, the movement
+    speed, IsInCombat and the combat target's distance against the rate, with more turns
+    per creature (e.g. a mongrel set on the player again and again from behind), and
+    whether a standing turn without combat (a Travel package to a marker behind it)
+    takes × 1.25 or × 3. ([actors §8.10](../spec-notes/actors.md))
+
+## Added 2026-10-30 (add-on walkthroughs, issue #918)
+
+37. **Is a line that another line names as its follow-up (TCFU) said when its topic is
+    chosen?** (P2: Old World Blues' Sink.) Six topics of the ten masters store a
+    follow-up line first and another line after it, e.g. the Think Tank's "Topic001"
+    (`NVDLC03DialogueKleinNVDLC03DoctorOLVLTopic001`): 0x01013555 (the five-line
+    technologies chain that Topic000's line 0x0101432E leads into) and 0x01013559
+    ("FINE. SO... YES."), whose choice Topic002 is the only way to the Sink's chip.
+    Ours now passes over follow-up lines of a topic the player chooses while another line
+    of it can be said (greetings and SayTo not: [dialogue §3.4](../spec-notes/dialogue.md))
+    [hypothesis]. To check: in the first
+    Think Tank talk, after agreeing to help, pick the technologies question and see which
+    line answers, and whether "a place to stay" is offered next. The others: Doc
+    Mitchell's VCG01DocMitchellTopic076 (never chosen), Mr. House's MrHouseTopic154,
+    VMS46 Diane's VRRCDianeTopic003, the Think Tank's OLVLTopic006 (Dala's 0x01011333 now
+    leads into Klein's 0x01011335) and Dr. O's OLVLTopic036.
+
+38. **Does a block whose parameter is a form list run for any member?** (P3: Old World
+    Blues' force fields.) `Begin OnHitWith NVDLC03SonicWeaponList` (SCPT 0x01016AB4,
+    0x01016953, 0x0101571D) names a FLST of the five Sonic Emitters; ours runs the block
+    when the hitting weapon is in the list (game.rs `block_accepts`) [hypothesis, fit to
+    the data]. To check: with the EM pulse module downloaded (X-8), shoot a Big MT force
+    field with the Sonic Emitter: Sonic Emitter Upgrade completes and the field drops.
+
+39. **Can a Goodbye line's end script start a new conversation?** (P2: 8 lines, e.g. Anders'
+    thanks in VMS46, INFO 0x00142A9C.) Ours refuses StartConversation while the old
+    conversation is still open. In the original, after the line, does the new speaker
+    force-greet? (mq-walkthrough §9 stall 1.)
+40. **Does re-displaying a completed objective un-complete it?** (P1 if yes: G.I. Blues can
+    stall.) Leave Fort Freeside right after the King completes objective 65 and let Roy's
+    line 0x0015C410 play: is 65 shown open again? (§9 stall 2.)
+41. **Does ResetQuest keep a SetQuestDelay?** (P3.) Use the NCR emergency radio and close
+    the Pip-Boy at once: does the supply drop still come? (§9 stall 3.)
+
 ## Added 2026-10-30 (the enemy bar's show rule, issue #935)
 
-35. **How long a neutral's enemy bar lingers, and what ends it** (P3: every hurt actor
+42. **How long a neutral's enemy bar lingers, and what ends it** (P3: every hurt actor
     looked at.) The hurt settler's bar was still up 16-18 s after the player turned away
     in hud_enemy5 a1-a3a, where the watch ended; a restrained hostile gecko's went after
     about 5.5 s (b2). Ours lingers 5.5 s for every actor (`hud_target::LINGER_SECONDS`)
@@ -441,7 +478,7 @@ The numbers above stay put so links to them hold; each item here gives its own p
     for 40-60 s with no MoveTo; then the same on a hurt restrained gecko, and on each
     after showing the bar 1 s against 10 s before the turn (hostility or the time shown
     are the candidates). ([hud §8](../spec-notes/hud.md))
-36. **Does the player's own hit show the enemy bar, and for how long?** (P2: every fight
+43. **Does the player's own hit show the enemy bar, and for how long?** (P2: every fight
     the player starts.) No capture had the weapon out (IsWeaponOut read 0 after the
     script's Ready taps), so no shot hit. Ours keeps its earlier guess: 5 s after the
     player hits an actor it has the bar, aimed at or not and prompt or not, while it is

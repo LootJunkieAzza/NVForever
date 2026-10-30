@@ -6,6 +6,19 @@ use crate::game::Game;
 use fnv_script::vm::{ArrayKind, XKey, XVal};
 use fnv_sim::FormId;
 
+/// Fonts 1-8 as Fallout_default.ini names them [documented: Fallout_default.ini, [Fonts]
+/// sFontFile_1 … sFontFile_8].
+const DEFAULT_FONTS: [&str; 8] = [
+    "Textures\\Fonts\\Glow_Monofonto_Large.fnt",
+    "Textures\\Fonts\\Monofonto_Large.fnt",
+    "Textures\\Fonts\\Glow_Monofonto_Medium.fnt",
+    "Textures\\Fonts\\Monofonto_VeryLarge02_Dialogs2.fnt",
+    "Textures\\Fonts\\Fixedsys_Comp_uniform_width.fnt",
+    "Textures\\Fonts\\Glow_Monofonto_VL_dialogs.fnt",
+    "Textures\\Fonts\\Baked-in_Monofonto_Large.fnt",
+    "Textures\\Fonts\\Glow_Futura_Caps_Large.fnt",
+];
+
 fn form(args: &[XVal], k: usize) -> Option<FormId> {
     match args.get(k)? {
         XVal::Ref(0) => None,
@@ -66,6 +79,24 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             let n = text(args, 0);
             let i = g.data.load_order.iter().position(|p| p.eq_ignore_ascii_case(&n));
             XVal::Num(i.and_then(|i| g.data.plugin_versions.get(i)).map_or(0.0, |&v| f64::from(v)))
+        }
+        // `fontType`: the font's .fnt path, for fonts 1-8 and 10-89 [documented:
+        // GetFontFile], the INI's `sFontFile_N` (category Fonts), Fallout_default.ini's
+        // when no INI has it [documented: Fallout_default.ini; hypothesis: the game's
+        // defaults are the file's]; 9 and fonts no INI names give "" [observed: jip-forms,
+        // fontfile.2 "Textures\Fonts\Monofonto_Large.fnt", fontfile.9 ""].
+        "getfontfile" => {
+            let n = int(args, 0, 0);
+            let from_ini = match crate::nvse_settings::call(g, "getstringinisetting", &[XVal::Str(format!("sFontFile_{n}:Fonts"))]) {
+                Some(Ok(XVal::Str(s))) if !s.is_empty() => Some(s),
+                _ => None,
+            };
+            let path = match n {
+                1..=8 => from_ini.unwrap_or_else(|| DEFAULT_FONTS[(n - 1) as usize].to_string()),
+                10..=89 => from_ini.unwrap_or_default(),
+                _ => String::new(),
+            };
+            XVal::Str(path)
         }
         // [documented: GetRawFormIDString] eight hex digits, valid form or not.
         "getrawformidstring" => XVal::Str(format!(

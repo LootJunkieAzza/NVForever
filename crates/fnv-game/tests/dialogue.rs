@@ -87,6 +87,14 @@ const P_PING: u32 = 0xF5A;
 const P_PONG: u32 = 0xF5B;
 const P_RPING: u32 = 0xF5C;
 const P_RPONG: u32 = 0xF5D;
+// Follow-up lines stored under a topic of their own (dialogue.md §3.4).
+const T_FU_LEAD: u32 = 0x95D;
+const T_FU: u32 = 0x95E;
+const T_FU_ONLY: u32 = 0x95F;
+const U_LEAD: u32 = 0xF5E;
+const U_TARGET: u32 = 0xF5F;
+const U_PLAIN: u32 = 0xF60;
+const U_ONLY: u32 = 0xF61;
 const A_OFF: u32 = 0xA01;
 const A_FIRST: u32 = 0xA02;
 const A_HIGH: u32 = 0xA03;
@@ -328,6 +336,30 @@ fn plugin_bytes() -> Vec<u8> {
                 L { id: B_FOLLOW, quest: QA, speaker: me, responses: one("And more"), end: Some("7"), ..L::default() },
             ],
         ),
+        // A line whose follow-ups are stored under other topics: T_FU's first line is
+        // one of them, its second is not; T_FU_ONLY has only a follow-up line.
+        topic(
+            T_FU_LEAD,
+            "TopicFollowLead",
+            "Lead",
+            topic_type::TOPIC,
+            0,
+            50.0,
+            vec![L { id: U_LEAD, quest: QA, speaker: me, responses: one("Listen"), follow: vec![U_TARGET, U_ONLY], ..L::default() }],
+        ),
+        topic(
+            T_FU,
+            "TopicFollowed",
+            "Followed",
+            topic_type::TOPIC,
+            0,
+            50.0,
+            vec![
+                L { id: U_TARGET, quest: QA, speaker: me, responses: one("As I was saying"), ..L::default() },
+                L { id: U_PLAIN, quest: QA, speaker: me, responses: one("Fine, then"), ..L::default() },
+            ],
+        ),
+        topic(T_FU_ONLY, "TopicFollowOnly", "Only", topic_type::TOPIC, 0, 50.0, vec![L { id: U_ONLY, quest: QA, speaker: me, responses: one("Only this"), ..L::default() }]),
         topic(
             T_BYE,
             "TopicBye",
@@ -698,6 +730,25 @@ fn the_greeting_is_the_first_line_the_actor_can_say() {
     assert!(h.start_dialogue(actor(), None).is_err());
     assert!(h.dialogue.is_none());
     assert!(h.events.iter().any(|e| matches!(e.kind, EventKind::NoLine { .. })));
+}
+
+#[test]
+fn a_topic_chosen_passes_over_its_follow_up_lines_while_another_line_can_be_said() {
+    let f = fixture();
+    assert!(f.data.follow_up_targets.contains(&FormId(U_TARGET)) && !f.data.follow_up_targets.contains(&FormId(U_PLAIN)));
+    let mut g = game(&f);
+    g.player.topics.extend([FormId(T_FU), FormId(T_FU_ONLY)]);
+    g.said.insert((actor(), FormId(A_FIRST)));
+    assert_eq!(g.start_dialogue(actor(), None), Ok(FormId(A_LATER)));
+    listen(&mut g);
+    let info = |g: &Game, t: u32| g.dialogue_choices().iter().find(|c| c.topic.0 == t).map(|c| c.info);
+    // T_FU's first line is a follow-up of U_LEAD: the topic offered says its other line.
+    assert_eq!(info(&g, T_FU), Some(FormId(U_PLAIN)));
+    // A topic with nothing but a follow-up line still says it.
+    assert_eq!(info(&g, T_FU_ONLY), Some(FormId(U_ONLY)));
+    assert_eq!(pick(&mut g, T_FU), FormId(U_PLAIN));
+    // Said other than as a choice (a greeting, SayTo), the stored first line is taken.
+    assert_eq!(g.select_line(actor(), Some(FormId::PLAYER_REF), FormId(T_FU)), Some(FormId(U_TARGET)));
 }
 
 #[test]

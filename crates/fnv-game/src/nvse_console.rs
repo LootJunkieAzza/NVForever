@@ -62,11 +62,16 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // INI settings: the peer's store (`nvse_settings`); GetINISetting prints the
         // value. RefreshINI and SaveINI do nothing [decision: NVForever never writes the
         // game's INI files].
-        "con_getinisetting" => match crate::nvse_settings::call(g, "getstringinisetting", args) {
-            Some(Ok(XVal::Str(v))) => Ok(vec![v]),
-            Some(Ok(XVal::Num(v))) => Ok(vec![format!("{v}")]),
-            _ => Ok(Vec::new()),
-        },
+        // GetINISetting prints `name = value` [design: the console's line is not
+        // documented].
+        "con_getinisetting" => {
+            let n = text(args, 0).unwrap_or_default();
+            match crate::nvse_settings::call(g, "getstringinisetting", args) {
+                Some(Ok(XVal::Str(v))) if !v.is_empty() => Ok(vec![format!("{n} = {v}")]),
+                Some(Ok(XVal::Num(v))) => Ok(vec![format!("{n} = {v}")]),
+                _ => Ok(vec![format!("No INI setting {n}")]),
+            }
+        }
         "con_setinisetting" => {
             // A number goes in as one; any other value as text.
             let numeric = matches!(args.get(1), Some(XVal::Num(_))) || text(args, 1).is_some_and(|t| t.trim().parse::<f64>().is_ok());
@@ -78,16 +83,28 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             let _ = crate::nvse_settings::call(g, f, &vals);
             Ok(Vec::new())
         }
-        "con_refreshini" | "con_saveini" => Ok(Vec::new()),
+        // RefreshINI reads the files again, so the session's changes go [documented:
+        // Con RefreshINI, "Refresh INI settings from files"]; SaveINI writes nothing [decision: NVForever
+        // never writes the game's INI files].
+        "con_refreshini" => {
+            g.ini.reload();
+            Ok(Vec::new())
+        }
+        "con_saveini" => Ok(Vec::new()),
         // [documented: Con_SCOF] console output to a file: kept as the name only (GetConsoleOutputFilename)
         // [decision: NVForever writes nothing beside the game].
         "con_scof" => {
             g.other.scof = text(args, 0).filter(|s| !s.is_empty());
             Ok(Vec::new())
         }
-        // ToggleDebugText, ToggleFootIK and SetVel have no NVForever command
-        // [hypothesis: nothing to switch; SetVel's physics hook is not built].
-        "con_tdt" | "con_tfik" | "con_setvel" => Ok(Vec::new()),
+        // ToggleFootIK: the engine switches the feet's placing as the settings page does.
+        "con_tfik" => {
+            g.toggles.asked.push(crate::functions::toggles::Toggle::FootIk);
+            Ok(Vec::new())
+        }
+        // ToggleDebugText and SetVel have no NVForever command [hypothesis: no debug
+        // text to switch; SetVel's physics hook is not built].
+        "con_tdt" | "con_setvel" => Ok(Vec::new()),
         _ => return None,
     };
     match run {

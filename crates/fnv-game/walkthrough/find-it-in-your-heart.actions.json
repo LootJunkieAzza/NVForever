@@ -1,0 +1,31 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless Can You Find it in Your Heart? (vMojave): Ranger Jackson at the Mojave Outpost asks the road to Ivanpah cleared; the radscorpions and bloatflies die; Jackson pays (stage 40)",
+  "given": [],
+  "actions": [
+    {"op": "note", "text": "Path: at the Mojave Outpost Ranger Jackson asks the player to clear the critters off the road to Ivanpah Lake (stage 25: three radscorpions and four bloatflies enabled); the seven die (vMojaveSCRIPT: 35, JacksonInt); his next greeting pays the player (40: NCR fame). Fail: Jackson dead (66)."},
+    {"op": "move_player", "to": "vMORRangerJacksonREF"},
+    {"op": "talk", "actor": "vMORRangerJacksonREF", "label": "jackson greeting"},
+    {"op": "choose", "topic": "vMojavevMORangerJacksonTopic000", "label": "any work"},
+    {"op": "choose", "topic": "vMojavevMORangerJacksonTopic002", "label": "road job taken"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "vMojave", "fields": ["running", "stage", "objective.25.displayed", "var.bCrittersReady"], "label": "milestone: vMojave 25"},
+    {"op": "note", "text": "Stand-in for the walk down the road and the fight: the seven critters die by the player's hand."},
+    {"op": "kill", "actor": "CrRadScorpIvanpahREF", "killer": "player"},
+    {"op": "kill", "actor": "CrRadScorpIvanpah02REF", "killer": "player"},
+    {"op": "kill", "actor": "CrRadScorpIvanpah03REF", "killer": "player"},
+    {"op": "kill", "actor": "CrBloatIvanpah01REF", "killer": "player"},
+    {"op": "kill", "actor": "CrBloatIvanpah02REF", "killer": "player"},
+    {"op": "kill", "actor": "CrBloatIvanpah03REF", "killer": "player"},
+    {"op": "kill", "actor": "CrBloatIvanpah04REF", "killer": "player"},
+    {"op": "advance_seconds", "seconds": 6},
+    {"op": "get_quest", "quest": "vMojave", "fields": ["stage", "objective.25.completed", "objective.35.displayed"], "label": "milestone: vMojave 35"},
+    {"op": "move_player", "to": "vMORRangerJacksonREF"},
+    {"op": "talk", "actor": "vMORRangerJacksonREF", "label": "jackson pays"},
+    {"op": "wait_talk"},
+    {"op": "end_talk"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "vMojave", "fields": ["stage", "done.40", "completed"], "label": "final: vMojave 40"},
+    {"op": "get_reputation", "rep": "RepNVNCR", "fields": ["fame"], "label": "ncr fame"}
+  ]
+}

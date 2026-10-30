@@ -1,0 +1,31 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless Team Spirit (vFreeformForlornHope03): Sergeant Sexton at Camp Forlorn Hope pays for Legion ears to lift morale; thirty ears handed in (stage 100)",
+  "given": [],
+  "actions": [
+    {"op": "note", "text": "Path: at Camp Forlorn Hope Sergeant James Sexton is asked about morale until he offers the ear bounty (stage 10: his note); thirty Legion ears are brought in (stand-in: added; a dead legionary's death script gives an ear while stage 10 runs); Sexton counts them (LegionEar1, LegionEarPreTotal 30) and pays (100: NCR fame, caps, beer)."},
+    {"op": "note", "text": "Stand-in for the trip to Camp Forlorn Hope."},
+    {"op": "move_player", "to": "CFHJamesSextonREF"},
+    {"op": "talk", "actor": "CFHJamesSextonREF", "label": "sexton greeting"},
+    {"op": "choose", "topic": "vFreeformCampForlornHope03VCFHJamesSextonTopic000", "label": "sexton 000"},
+    {"op": "choose", "topic": "vFreeformForlornHope03VCFHJamesSextonTopic000", "label": "sexton 000b"},
+    {"op": "choose", "topic": "vFreeformForlornHope03VCFHJamesSextonTopic001", "label": "sexton 001"},
+    {"op": "choose", "topic": "vFreeformForlornHope03VCFHJamesSextonTopic002", "label": "sexton 002"},
+    {"op": "choose", "topic": "vFreeformForlornHope03VCFHJamesSextonTopic022", "label": "sexton 022"},
+    {"op": "choose", "topic": "vFreeformForlornHope03VCFHJamesSextonTopic029", "label": "bounty taken"},
+    {"op": "wait_talk"},
+    {"op": "end_talk"},
+    {"op": "get_quest", "quest": "vFreeformForlornHope03", "fields": ["running", "stage"], "label": "milestone: vFreeformForlornHope03 10"},
+    {"op": "get_item_count", "of": "player", "item": "CFHNCRSextonNote1", "label": "sexton's note"},
+    {"op": "note", "text": "Stand-in for thirty legionaries killed across the Mojave and their ears taken."},
+    {"op": "add_item", "to": "player", "item": "LegionEar", "count": 30},
+    {"op": "talk", "actor": "CFHJamesSextonREF", "label": "sexton counts the ears"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "vFreeformForlornHope03", "fields": ["var.LegionEar1", "var.LegionEarPreTotal", "var.CashMoney"], "label": "ears counted"},
+    {"op": "choose", "topic": "vFreeformForlornHope03VCFHJamesSextonTopic004", "label": "ears handed in"},
+    {"op": "wait_talk"},
+    {"op": "advance_seconds", "seconds": 1},
+    {"op": "get_quest", "quest": "vFreeformForlornHope03", "fields": ["stage", "done.100", "var.LegionEarTotal"], "label": "final: vFreeformForlornHope03 100"},
+    {"op": "get_item_count", "of": "player", "item": "LegionEar", "label": "ears left"}
+  ]
+}

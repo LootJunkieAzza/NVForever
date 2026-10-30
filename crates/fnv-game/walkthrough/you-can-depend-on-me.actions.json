@@ -1,0 +1,422 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless You Can Depend on Me (VMS05): Alice McLafferty's invoice and her three jobs, Cassidy Caravans bought out, Henry Jamison dismissed, the Gun Runners' specifications (100)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: Alice McLafferty at the Crimson Caravan sends the invoice to Doctor Hildern at Camp McCarran (10); Hildern takes it (15); Alice offers bigger jobs (20) and gives three (30): buy out Cassidy Caravans, get rid of Henry Jamison, take the Gun Runners' specifications. Cass sells (objective 35), Henry is told he is through (45), the Gun Runners' terminal gives the specifications (55); each is reported to Alice (nJobsCompleted), and the third report sets 100 (CompleteQuest; stage 100 carries no Complete Quest flag in the data)."
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the skills: Barter and Speech 100."
+  },
+  {
+   "op": "set_av",
+   "name": "Barter",
+   "value": 100
+  },
+  {
+   "op": "set_av",
+   "name": "Speech",
+   "value": 100
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the travel between Freeside's Crimson Caravan, Camp McCarran, Cass and the Gun Runners."
+  },
+  {
+   "op": "move_player",
+   "to": "AliceMcLaffertyREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AliceMcLaffertyREF",
+   "label": "alice invoice"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueCrimsonCaravanAliceMcLaffertyTopic001",
+   "label": "alice invoice 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueCrimsonCaravanAliceMcLaffertyTopic002",
+   "label": "alice invoice 2"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS05",
+   "fields": [
+    "running",
+    "stage",
+    "done.10"
+   ],
+   "label": "milestone: VMS05 10"
+  },
+  {
+   "op": "move_player",
+   "to": "ThomasHildernREF"
+  },
+  {
+   "op": "talk",
+   "actor": "ThomasHildernREF",
+   "label": "hildern"
+  },
+  {
+   "op": "choose",
+   "topic": "VFreeformVault22ThomasHildernTopic017",
+   "label": "hildern 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS05",
+   "fields": [
+    "stage",
+    "done.15"
+   ],
+   "label": "milestone: VMS05 15"
+  },
+  {
+   "op": "move_player",
+   "to": "AliceMcLaffertyREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AliceMcLaffertyREF",
+   "label": "alice more jobs"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueCrimsonCaravanAliceMcLaffertyTopic004",
+   "label": "alice more jobs 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS05",
+   "fields": [
+    "stage",
+    "done.20"
+   ],
+   "label": "milestone: VMS05 20"
+  },
+  {
+   "op": "move_player",
+   "to": "AliceMcLaffertyREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AliceMcLaffertyREF",
+   "label": "alice three jobs"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueCrimsonCaravanAliceMcLaffertyTopic005",
+   "label": "alice three jobs 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS05",
+   "fields": [
+    "stage",
+    "done.30"
+   ],
+   "label": "milestone: VMS05 30"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the caps the buyout costs: 750."
+  },
+  {
+   "op": "add_item",
+   "to": "player",
+   "item": "Caps001",
+   "count": 750
+  },
+  {
+   "op": "move_player",
+   "to": "RoseofSharonCassidyREF"
+  },
+  {
+   "op": "talk",
+   "actor": "RoseofSharonCassidyREF",
+   "label": "cass first words"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueCassCassTopic001",
+   "label": "cass first words 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "move_player",
+   "to": "RoseofSharonCassidyREF"
+  },
+  {
+   "op": "talk",
+   "actor": "RoseofSharonCassidyREF",
+   "label": "cass sells"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueCassRoseofSharonCassidyTopic003",
+   "label": "cass sells 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueCassRoseofSharonCassidyTopic006",
+   "label": "cass sells 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueCassRoseofSharonCassidyTopic008",
+   "label": "cass sells 3"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueCassRoseofSharonCassidyTopic025",
+   "label": "cass sells 4"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueCassRoseofSharonCassidyTopic009",
+   "label": "cass sells 5"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueCassRoseofSharonCassidyTopic013",
+   "label": "cass sells 6"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS05",
+   "fields": [
+    "objective.35.displayed"
+   ],
+   "label": "cassidy bought"
+  },
+  {
+   "op": "move_player",
+   "to": "AliceMcLaffertyREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AliceMcLaffertyREF",
+   "label": "alice cassidy"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueCrimsonCaravanAliceMcLaffertyTopic012",
+   "label": "alice cassidy 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS05",
+   "fields": [
+    "var.nJobsCompleted"
+   ],
+   "label": "job 1"
+  },
+  {
+   "op": "move_player",
+   "to": "HenryJamisonRef"
+  },
+  {
+   "op": "talk",
+   "actor": "HenryJamisonRef",
+   "label": "henry"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueCrimsonCaravanHenryJamisonTopic000",
+   "label": "henry 1"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueCrimsonCaravanHenryJamisonTopic005",
+   "label": "henry 2"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueCrimsonCaravanHenryJamisonTopic009",
+   "label": "henry 3"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS05",
+   "fields": [
+    "objective.45.displayed"
+   ],
+   "label": "henry gone"
+  },
+  {
+   "op": "move_player",
+   "to": "AliceMcLaffertyREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AliceMcLaffertyREF",
+   "label": "alice henry"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueCrimsonCaravanAliceMcLaffertyTopic011",
+   "label": "alice henry 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS05",
+   "fields": [
+    "var.nJobsCompleted"
+   ],
+   "label": "job 2"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for getting at the Gun Runners' terminal (locked: the hacking minigame's result)."
+  },
+  {
+   "op": "move_player",
+   "to": "1EGunRunnerTerminalRef"
+  },
+  {
+   "op": "call",
+   "line": "1EGunRunnerTerminalRef.Unlock"
+  },
+  {
+   "op": "terminal",
+   "target": "1EGunRunnerTerminalRef",
+   "item": 0,
+   "label": "specifications"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS05",
+   "fields": [
+    "objective.55.displayed"
+   ],
+   "label": "specs taken"
+  },
+  {
+   "op": "move_player",
+   "to": "AliceMcLaffertyREF"
+  },
+  {
+   "op": "talk",
+   "actor": "AliceMcLaffertyREF",
+   "label": "alice specs"
+  },
+  {
+   "op": "choose",
+   "topic": "VDialogueCrimsonCaravanAliceMcLaffertyTopic013",
+   "label": "alice specs 1"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 5
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VMS05",
+   "fields": [
+    "stage",
+    "done.100",
+    "completed",
+    "var.nJobsCompleted"
+   ],
+   "label": "final: VMS05 100"
+  }
+ ]
+}
