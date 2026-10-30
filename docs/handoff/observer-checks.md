@@ -421,3 +421,27 @@ The numbers above stay put so links to them hold; each item here gives its own p
     crater's three markers (5/10000, 10/6000, 18/2000 on one point) 1000 units from their
     point (ours 9 × 0.92 = 8.28; summed 21.83 × 0.92 = 20.09); and a Fat Man's zone read
     at its centre and 300 units out (ours flat). ([radiation §2, §4](../spec-notes/radiation.md))
+
+## Added 2026-10-30 (add-on walkthroughs, issue #918)
+
+34. **Is a line that another line names as its follow-up (TCFU) said when its topic is
+    chosen?** (P2: Old World Blues' Sink.) Six topics of the ten masters store a
+    follow-up line first and another line after it, e.g. the Think Tank's "Topic001"
+    (`NVDLC03DialogueKleinNVDLC03DoctorOLVLTopic001`): 0x01013555 (the five-line
+    technologies chain that Topic000's line 0x0101432E leads into) and 0x01013559
+    ("FINE. SO... YES."), whose choice Topic002 is the only way to the Sink's chip.
+    Ours now passes over follow-up lines of a topic the player chooses while another line
+    of it can be said (greetings and SayTo not: [dialogue §3.4](../spec-notes/dialogue.md))
+    [hypothesis]. To check: in the first
+    Think Tank talk, after agreeing to help, pick the technologies question and see which
+    line answers, and whether "a place to stay" is offered next. The others: Doc
+    Mitchell's VCG01DocMitchellTopic076 (never chosen), Mr. House's MrHouseTopic154,
+    VMS46 Diane's VRRCDianeTopic003, the Think Tank's OLVLTopic006 (Dala's 0x01011333 now
+    leads into Klein's 0x01011335) and Dr. O's OLVLTopic036.
+
+35. **Does a block whose parameter is a form list run for any member?** (P3: Old World
+    Blues' force fields.) `Begin OnHitWith NVDLC03SonicWeaponList` (SCPT 0x01016AB4,
+    0x01016953, 0x0101571D) names a FLST of the five Sonic Emitters; ours runs the block
+    when the hitting weapon is in the list (game.rs `block_accepts`) [hypothesis, fit to
+    the data]. To check: with the EM pulse module downloaded (X-8), shoot a Big MT force
+    field with the Sonic Emitter: Sonic Emitter Upgrade completes and the field drops.

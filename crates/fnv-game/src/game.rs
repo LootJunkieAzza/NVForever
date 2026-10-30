@@ -2509,7 +2509,11 @@ impl<'a> Game<'a> {
             return menus::answers(want.num() as u16, subject.num() as u16);
         }
         match (want.as_form(), subject.as_form()) {
-            (Some(a), Some(b)) => a == b,
+            // A form list as the parameter accepts any of its members [hypothesis, fit
+            // to the data: Old World Blues' force fields (e.g. SCPT 0x01016AB4) run
+            // `Begin OnHitWith NVDLC03SonicWeaponList`, a list of the five Sonic
+            // Emitters, and no weapon is a list itself; observer check 35].
+            (Some(a), Some(b)) => a == b || crate::functions::refs::list_members(self, FormId(a)).contains(&FormId(b)),
             _ => want.num() == subject.num(),
         }
     }
