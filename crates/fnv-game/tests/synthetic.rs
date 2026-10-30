@@ -2617,6 +2617,8 @@ fn jip_batch_four_reads_the_game_state() {
     assert_eq!(n(&mut g, "GetGlobalRef TestRefGlobal"), XVal::Ref(0));
     q(&mut g, "SetGlobalRef TestRefGlobal TestClass");
     assert_eq!(n(&mut g, "GetGlobalRef TestRefGlobal"), XVal::Ref(0x0000_0A01));
+    // The form is the global's own value: its float's bits are the form ID [observed: jip4].
+    assert_eq!(n(&mut g, "GetGlobalValue TestRefGlobal"), XVal::Num(f64::from(f32::from_bits(0x0000_0A01))));
     q(&mut g, "PlayerREF.SetGlobalRef TestRefGlobal");
     assert_eq!(n(&mut g, "GetGlobalRef TestRefGlobal"), XVal::Ref(FormId::PLAYER_REF.0), "the calling reference");
     let achr = f64::from(fnv_script::vm::form_type_code(b"ACHR").unwrap());

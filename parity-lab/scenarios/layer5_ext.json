@@ -832,6 +832,20 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "jip", "probes", "plugins3"]
+  },
+  {
+   "id": "L5.ext.jip4",
+   "layer": 5,
+   "description": "jip4: JIP batch 4 record traits and flags (classes, combat styles, lights, grass, texture sets, climates, quests, sounds), cell and water forms, SetGlobalRef on GameYear, GetDelayElapsed, GetStartingPos/Angle",
+   "oracle": {"golden": "jip/jip4.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/jip4.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jip", "probes", "jip4"]
   }
  ]
 }
