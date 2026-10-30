@@ -98,8 +98,13 @@ impl<'a> Game<'a> {
         Some(Clock { hour: (c.hour as f64).rem_euclid(24.0), today, yesterday })
     }
 
-    fn linked_ref(&self, actor: FormId) -> Option<FormId> {
-        self.world.placed.get(actor).and_then(|p| p.linked)
+    /// A reference's linked reference, SetLinkedReference's first [observed: jip-n7;
+    /// no target puts back the record's].
+    pub fn linked_ref(&self, actor: FormId) -> Option<FormId> {
+        match self.jip2.links.get(&actor) {
+            Some(l) => Some(*l),
+            None => self.world.placed.get(actor).and_then(|p| p.linked),
+        }
     }
 
     /// The reference a package's conditions run on with "Run on Target": the

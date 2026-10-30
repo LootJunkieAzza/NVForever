@@ -1,0 +1,146 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "nvse_third",
+ "title": "nvse-third, runtime-compiled (read-only)",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (ar_Size (GetBasePackages rObj))\nEnd\n",
+   "label": "basepackages.doc.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (ar_Size (GetBasePackages rObj))\nEnd\n",
+   "label": "basepackages.sunny.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFormIDString ((GetBasePackages rObj)[0]))\nEnd\n",
+   "label": "basepackages.doc.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (GetFormIDString ((GetBasePackages rObj)[0]))\nEnd\n",
+   "label": "basepackages.sunny.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (ar_Size (GetBaseSpellListSpells rObj))\nEnd\n",
+   "label": "basespells.doc.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (ar_Size (GetBaseSpellListSpells rObj))\nEnd\n",
+   "label": "basespells.sunny.size",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFormIDString ((GetBaseSpellListSpells rObj)[0]))\nEnd\n",
+   "label": "basespells.doc.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (GetFormIDString ((GetBaseSpellListSpells rObj)[0]))\nEnd\n",
+   "label": "basespells.sunny.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nSetFunctionValue (GetEquipmentSlotsMask rObj)\nEnd\n",
+   "label": "slotsmask.leather",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"3307F\"\nSetFunctionValue (GetEquipmentSlotsMask rObj)\nEnd\n",
+   "label": "slotsmask.metal",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4443E\"\nSetFunctionValue (GetEquipmentSlotsMask rObj)\nEnd\n",
+   "label": "slotsmask.t45d",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetEquipmentSlotsMask rObj)\nEnd\n",
+   "label": "slotsmask.pistol10",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nSetFunctionValue (GetEquipmentBipedMask rObj)\nEnd\n",
+   "label": "bipedmask.leather",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"3307F\"\nSetFunctionValue (GetEquipmentBipedMask rObj)\nEnd\n",
+   "label": "bipedmask.metal",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4443E\"\nSetFunctionValue (GetEquipmentBipedMask rObj)\nEnd\n",
+   "label": "bipedmask.t45d",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4333\"\nSetFunctionValue (GetFormIDString (GetObjectEffect rObj))\nEnd\n",
+   "label": "objecteffect.hunting",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (GetFormIDString (GetObjectEffect rObj))\nEnd\n",
+   "label": "objecteffect.pistol10",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"4443E\"\nSetFunctionValue (GetFormIDString (GetObjectEffect rObj))\nEnd\n",
+   "label": "objecteffect.t45d",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetNameOfClass rObj)\nEnd\n",
+   "label": "classname.doc",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104E84\"\nSetFunctionValue (GetNameOfClass rObj)\nEnd\n",
+   "label": "classname.sunny",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (GetNameOfClass rObj)\nEnd\n",
+   "label": "classname.docref",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (IsPlayerSwimming)\nEnd\n",
+   "label": "swimming",
+   "field": "value"
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFormIDString (rPlayer.GetDialogueTarget))\nEnd\n",
+   "label": "dialogue.target",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFormIDString (rPlayer.GetDialogueSubject))\nEnd\n",
+   "label": "dialogue.subject",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rPlayer\nref rObj\nref rOther\nfloat fRes\nBegin Function { }\nlet rPlayer := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFormIDString (rPlayer.GetDialogueSpeaker))\nEnd\n",
+   "label": "dialogue.speaker",
+   "field": "value",
+   "text": true
+  }
+ ]
+}

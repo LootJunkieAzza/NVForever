@@ -213,6 +213,28 @@ impl ClipSet {
         self.clips.get(&m).map(|c| c.info)
     }
 
+    /// This set with script replacements (kNVSE's SetActorAnimationPath): a file whose
+    /// stem is the standing stance's name of a move (`mtidle.kf` for Idle) takes that
+    /// move [hypothesis: the move by the file's name; observed: `h2hidle.kf`, group
+    /// H2HIdle, did not change Idle]. Paths are under meshes. Also returns how many moves
+    /// were replaced.
+    pub fn with_replacements(&self, ctx: &mut impl ClipSource, skel: &PreparedSkeleton, paths: &[String]) -> (ClipSet, usize) {
+        let mut set = self.clone();
+        let mut n = 0;
+        for p in paths {
+            let p = p.replace('/', "\\");
+            let stem = p.rsplit('\\').next().unwrap_or("").to_ascii_lowercase();
+            let stem = stem.strip_suffix(".kf").unwrap_or(&stem).to_string();
+            let Some(m) = Move::ALL.into_iter().find(|m| stem == format!("{STANCE}{}", m.group().to_ascii_lowercase())) else { continue };
+            let path = format!("meshes\\{p}");
+            let Some(clip) = ctx.clip(&path) else { continue };
+            let info = ClipInfo::from_parts(clip.start, clip.stop, &clip.text_keys, clip.accum_track());
+            set.clips.insert(m, SetClip { bound: Arc::new(bind_clip(skel, clip)), info, path });
+            n += 1;
+        }
+        (set, n)
+    }
+
     /// The alert stance's set: the `h2h` clips of `stance` (loaded as a set of their
     /// own), the moves they lack taken from `calm` (the cazador has `h2hforward`,
     /// `h2hfastforward` and `h2hidle`, the dog only the two movement clips [observed: the
@@ -511,6 +533,17 @@ fn drives_more(idle: &BoundClip, other: &BoundClip) -> bool {
 impl Locomotion {
     pub fn new(set: Arc<ClipSet>, phase: f32) -> Locomotion {
         Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), prev_set: None, velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, hurt_alert: None, sneaking: false, limping: false, swim: None, swimming: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0, in_air: false, jump: Default::default(), armed: None, armed_on: false, armed_logged: Vec::new(), idle_under: false, under: Under::default() }
+    }
+
+    /// The standing set now (kNVSE's SetActorAnimationPath swaps it, anim_paths.rs).
+    pub fn stand_set(&self) -> Arc<ClipSet> {
+        self.stand.clone()
+    }
+
+    /// Take `set` as the standing set and play from it now if it is the one in use.
+    pub fn replace_stand(&mut self, set: Arc<ClipSet>) {
+        self.stand = set;
+        self.switch_set(self.posture_set());
     }
 
     /// The upright set: the alert stance's while alerted, else the standing one.

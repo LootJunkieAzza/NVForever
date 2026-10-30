@@ -117,6 +117,8 @@ pub struct EventManagerInterface {
 pub union ElementData {
     pub text: *const c_char,
     pub num: f64,
+    /// A form element's form, an array element's array (passed back unchanged).
+    pub handle: *mut c_void,
 }
 
 #[repr(C)]

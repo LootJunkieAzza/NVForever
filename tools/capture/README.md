@@ -642,6 +642,54 @@ parameter refuses a literal string; wrap it in `sv_Construct "..."`, or declare 
 lab's `L5.ext.jip.*` scenarios run those files through `fnvtool ext queries`, the same
 steps as headless runner queries, and compare with the goldens.
 
+## HUD trait jobs (`hud_traits.py`)
+
+[design] Generate the T4 observer job from a private `fnvtool ui tree` export. The
+generator reads JSON only; it never starts fnvtool or the game. For example (PowerShell):
+
+```powershell
+fnvtool ui tree --data "<Data>" --menu 'menus\main\hud_main_menu.xml' > C:/fnv-private/hud-tree.json
+python tools/capture/hud_traits.py C:/fnv-private/hud-tree.json --list
+python tools/capture/hud_traits.py C:/fnv-private/hud-tree.json --start "Load <save> in <location>, HUD visible" --out C:/fnv-private/capture/jobs/hud_traits.steps.json
+```
+
+[documented: nvf_capture/README.md] Put the job in the configured capture directory's
+`jobs/`, load the save named by `--start`, then press End. Results go to `out/`,
+screenshots to `shots/`. [design] Keep all exports, generated jobs and outputs private,
+outside the repository. Specify `--out`; its default is `hud_traits.steps.json` in the
+current directory. The basename `NAME.steps.json` determines the job name.
+
+[design] One observe step follows a gameplay wait and 300 settle loops. Every 30 loops
+it reads each eligible file trait with both GetUIFloat and GetUIFloatAlt, plus seven
+traits of 12 children of nine pieces (756 child reads). `--tiles`, `--children` and
+`--traits` change this plan; `--every`, `--max-samples` and `--settle-frames` change
+timing. Screenshots keep the HUD visible at samples 0, 30 and 60 (`--shots`,
+`--shot-gap`). Start with the HUD enabled; no HUD toggle is sent.
+
+[documented: nvf_capture/README.md, Observing] Sample index `n` is outside the header;
+no loop-counter substitution is provided. [design] `fields.clock` describes relative
+loops as `n * every`. The header reads Health, ActionPoints, heading and four controls
+(both readers on a file trait and an absent menu path). `--list` prints paths, trait
+names and counts per tile; `fields` records the layout and counts. No per-sample probe
+limit is stated in the README. Groups hold at most 64 trait reads per subject plus
+a constant presence probe to retain zeros; all groups run every sample.
+
+[documented: crates/fnvtool/src/ui_cmd.rs] Tree exports contain evaluated scalars,
+without expressions. [design] Numeric values and optional `{"value": ..., "expr": ...}`
+entries with non-null `expr` are probed. Strings and symbols are listed only. Only
+names enter the job. Backslashes become slashes and quotes use `%q`; control
+characters and percent substitutions in input names are rejected.
+
+[documented: GECK wiki snapshot 2024-09-23, GetUIFloat, GetUIFloatAlt, String Formatting]
+Missing traits return -999; `*` matches a child, `:N` selects its index, `%q` quotes.
+[documented: same snapshot, GetScreenTrait] The screen-size query found is SUP only;
+no baseline xNVSE screen-size query is included. [documented: GECK wiki snapshot 2026-10-28,
+GetUIFloatInherited rev 41244] GetUIFloatInherited (xNVSE 6.4.8; `ExcludeMenuRoot` 6.4.9)
+reads `x`, `y` and `depth` through every parent with an active `locus`; the job reads
+those three both from the top-level root and from the menu's root, and checks the
+page's own example (`RadiationMeter/radiation_text/depth`: -50, then 0) when the tree has
+that tile. `--no-inherited` leaves them out.
+
 ## Tests
 
 ```

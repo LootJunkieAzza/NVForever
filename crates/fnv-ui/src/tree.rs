@@ -6,7 +6,7 @@
 use crate::expr::{self, Arg, Op, OpKind, Src};
 use crate::value::Value;
 use crate::xml::{self, Element, Node};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// The tile kinds, the tags that make a tile [observed: the tags with a `name`
 /// attribute in the vanilla files; `window` is in no vanilla file but in older Gamebryo
@@ -24,9 +24,18 @@ const MAX_PASSES: usize = 32;
 /// Where the menu files come from: the game's archives and loose files under `Data`
 /// (the engine passes its VFS), or files in memory for tests.
 pub trait Source {
+    /// [design] Files recursively below a Data-relative directory, as full Data-relative
+    /// paths; comparisons ignore case and slash style. Sources may omit discovery.
+    fn list(&self, _dir: &str) -> Vec<String> {
+        Vec::new()
+    }
     /// A file by its path under `Data`, e.g. `menus\prefabs\meter.xml`; any case, `\`
     /// or `/`.
     fn read(&self, path: &str) -> Option<Vec<u8>>;
+    /// [design] Whether the winning file is loose; sources without provenance return false.
+    fn is_loose(&self, _path: &str) -> bool {
+        false
+    }
     /// A game setting's string, for `&-sName;` (the GMST `sName`).
     fn game_string(&self, _name: &str) -> Option<String> {
         None
@@ -38,6 +47,8 @@ pub trait Source {
 pub struct MemSource {
     pub files: HashMap<String, Vec<u8>>,
     pub strings: HashMap<String, String>,
+    /// [design] Loose-file provenance for synthetic sources, using normalized paths.
+    pub loose_files: HashSet<String>,
 }
 
 impl MemSource {
@@ -45,9 +56,26 @@ impl MemSource {
         self.files.insert(norm(path), text.as_bytes().to_vec());
         self
     }
+
+    /// [design] Add a synthetic loose file.
+    pub fn with_loose(mut self, path: &str, text: &str) -> MemSource {
+        self.loose_files.insert(norm(path));
+        self.files.insert(norm(path), text.as_bytes().to_vec());
+        self
+    }
 }
 
 impl Source for MemSource {
+    fn list(&self, dir: &str) -> Vec<String> {
+        let prefix = format!("{}\\", norm(dir).trim_end_matches('\\'));
+        let mut paths: Vec<_> = self.files.keys().filter(|p| p.starts_with(&prefix)).cloned().collect();
+        paths.sort();
+        paths
+    }
+    fn is_loose(&self, path: &str) -> bool {
+        self.loose_files.contains(&norm(path))
+    }
+
     fn read(&self, path: &str) -> Option<Vec<u8>> {
         self.files.get(&norm(path)).cloned()
     }
@@ -63,6 +91,29 @@ fn norm(path: &str) -> String {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TileId(pub u32);
+
+/// [design] Creator of a tile; descendants retain that creator across includes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Origin {
+    /// [design] Path passed to Source, and its loose-file status when loaded.
+    File {
+        path: String,
+        loose: bool,
+    },
+    Injected,
+    Template,
+    Code,
+}
+
+impl Origin {
+    fn file(src: &dyn Source, path: &str) -> Self {
+        Self::File { path: path.to_string(), loose: src.is_loose(path) }
+    }
+
+    fn mod_added(&self) -> bool {
+        matches!(self, Self::Injected | Self::Template | Self::File { loose: true, .. })
+    }
+}
 
 /// One trait of a tile.
 #[derive(Clone, Debug)]
@@ -88,6 +139,8 @@ pub struct Template {
 
 #[derive(Clone, Debug)]
 pub struct Tile {
+    /// [design] Provenance of this tile, independent of later trait writes.
+    pub origin: Origin,
     /// The tag in lower case: one of [`TILE_KINDS`].
     pub kind: String,
     pub name: String,
@@ -113,6 +166,9 @@ impl Tile {
 /// The menus' tile tree.
 #[derive(Default)]
 pub struct Ui {
+    /// [design] Evaluated list entries and cumulative outcomes for this tree's lifetime.
+    pub uio: crate::uio::Report,
+    uio_tiles: HashSet<TileId>,
     tiles: Vec<Tile>,
     /// The loaded menus (and `globals()`, `screen()`, `strings()`), in load order.
     roots: Vec<TileId>,
@@ -122,6 +178,10 @@ pub struct Ui {
     /// Counts value changes: a trait whose sources changed after it was last worked out
     /// is worked out again.
     gen: u64,
+    /// A tile, a file trait or a value changed since [`Ui::update`] last finished: with
+    /// none, it has nothing to work out [design: writes of the same value, as the
+    /// engine's every frame, leave the tree clean].
+    dirty: bool,
     /// What loading mended or left out, one line each.
     pub warnings: Vec<String>,
 }
@@ -131,9 +191,9 @@ impl Ui {
     /// [`Ui::load_globals`]) an empty `globals()`.
     pub fn new() -> Ui {
         let mut ui = Ui::default();
-        let screen = ui.new_tile("rect", "screen()", None);
-        let strings = ui.new_tile("rect", "strings()", None);
-        let globals = ui.new_tile("rect", "globals()", None);
+        let screen = ui.new_tile("rect", "screen()", None, Origin::Code);
+        let strings = ui.new_tile("rect", "strings()", None, Origin::Code);
+        let globals = ui.new_tile("rect", "globals()", None, Origin::Code);
         ui.roots.extend([screen, strings, globals]);
         ui.screen = Some(screen);
         ui.strings = Some(strings);
@@ -145,7 +205,10 @@ impl Ui {
         &self.tiles[id.0 as usize]
     }
 
+    /// A tile to change (made, unloaded, renamed, its file traits or templates): the tree
+    /// is worked out again at the next [`Ui::update`]. Value writes go through `set_at`.
     fn tile_mut(&mut self, id: TileId) -> &mut Tile {
+        self.dirty = true;
         &mut self.tiles[id.0 as usize]
     }
 
@@ -171,9 +234,11 @@ impl Ui {
         self.menus().find(|&r| self.tile(r).name.eq_ignore_ascii_case(name))
     }
 
-    fn new_tile(&mut self, kind: &str, name: &str, parent: Option<TileId>) -> TileId {
+    fn new_tile(&mut self, kind: &str, name: &str, parent: Option<TileId>, origin: Origin) -> TileId {
+        self.dirty = true;
         let id = TileId(self.tiles.len() as u32);
         self.tiles.push(Tile {
+            origin,
             kind: kind.to_ascii_lowercase(),
             name: name.to_string(),
             parent,
@@ -190,17 +255,28 @@ impl Ui {
 
     // ---- loading --------------------------------------------------------------------
 
+    /// [design] Discover and evaluate UIO once before loading menus; the caller supplies
+    /// active plugins. Rebuilt menus reuse these entries (menu-xml.md §7 item 3).
+    pub fn configure_uio(&mut self, src: &dyn Source, plugin: impl Fn(&str) -> bool) {
+        self.uio = crate::uio::Report::read(src, &plugin);
+        self.uio_tiles.clear();
+    }
+
     /// Reads `menus\globals.xml` into `globals()`.
     pub fn load_globals(&mut self, src: &dyn Source) -> bool {
-        let Some(doc) = self.read_doc(src, "menus\\globals.xml") else { return false };
+        let Some(doc) = self.read_doc(src, "menus\\globals.xml") else {
+            return false;
+        };
         let g = self.globals();
+        let origin = Origin::file(src, "menus\\globals.xml");
+        self.tile_mut(g).origin = origin.clone();
         // The file is one `<rect name="Strings">` [observed]; its content is globals()'.
         for n in &doc.nodes {
             if let Node::Element(e) = n {
                 if is_tile(e) {
-                    self.fill(src, g, &e.children, 0);
+                    self.fill(src, g, &e.children, 0, &origin);
                 } else {
-                    self.fill(src, g, std::slice::from_ref(n), 0);
+                    self.fill(src, g, std::slice::from_ref(n), 0, &origin);
                 }
             }
         }
@@ -223,29 +299,79 @@ impl Ui {
         if let Some(old) = self.menu(&name) {
             self.unload_tile(old);
         }
-        let id = self.new_tile("menu", &name, None);
+        let origin = Origin::file(src, path);
+        let id = self.new_tile("menu", &name, None, origin.clone());
         self.roots.push(id);
-        self.fill(src, id, &menu.children, 0);
+        self.fill(src, id, &menu.children, 0, &origin);
+        let entries: Vec<_> = self
+            .uio
+            .decisions
+            .iter()
+            .enumerate()
+            .filter(|(_, d)| d.enabled && matches!(&d.entry.target, crate::uio::Target::Menu(n) if n.eq_ignore_ascii_case(&name)))
+            .map(|(i, d)| (i, d.entry.clone()))
+            .collect();
+        for (i, entry) in entries {
+            let target = match entry.tile {
+                Some(ref name) => self.descendant_named(id, name),
+                None => Some(id),
+            };
+            if let Some(target) = target {
+                // [hypothesis] Append after existing content: preserves file order and
+                // lets list traits override earlier traits; UIO's position is unmeasured.
+                let node = uio_include(&entry.include);
+                self.fill(src, target, &[node], 0, &origin);
+                self.uio.decisions[i].applied += 1;
+                self.uio.decisions[i].reason = "applied".into();
+            }
+        }
         Ok(id)
+    }
+
+    fn descendant_named(&self, root: TileId, name: &str) -> Option<TileId> {
+        let mut stack = vec![root];
+        while let Some(id) = stack.pop() {
+            if self.tile(id).name.eq_ignore_ascii_case(name) {
+                return Some(id);
+            }
+            stack.extend(self.tile(id).children.iter().rev().copied());
+        }
+        None
     }
 
     fn read_doc(&mut self, src: &dyn Source, path: &str) -> Option<xml::Doc> {
         let bytes = src.read(path)?;
-        let doc = xml::parse(&xml::decode(&bytes));
+        let mut doc = xml::parse(&xml::decode(&bytes));
         for w in &doc.warnings {
             self.warnings.push(format!("{path}: {w}"));
+        }
+        // [design] Patch prefab syntax before fill/expansion, including named tiles in
+        // template bodies that have no TileId until a template is instantiated.
+        for decision in &mut self.uio.decisions {
+            if !decision.enabled || !matches!(&decision.entry.target, crate::uio::Target::Prefab(p) if *p == norm(path)) {
+                continue;
+            }
+            let target = match &decision.entry.tile {
+                Some(name) => named_nodes(&mut doc.nodes, name),
+                None => Some(&mut doc.nodes),
+            };
+            if let Some(nodes) = target {
+                nodes.push(uio_include(&decision.entry.include));
+                decision.applied += 1;
+                decision.reason = "applied".into();
+            }
         }
         Some(doc)
     }
 
     /// Puts content into a tile: child tiles, templates, traits, and the content of
     /// included files where they are included.
-    fn fill(&mut self, src: &dyn Source, tile: TileId, nodes: &[Node], depth: usize) {
+    fn fill(&mut self, src: &dyn Source, tile: TileId, nodes: &[Node], depth: usize, origin: &Origin) {
         for n in nodes {
             let Node::Element(e) = n else { continue };
             if is_tile(e) {
-                let child = self.new_tile(&e.name, e.attr("name").unwrap_or(""), Some(tile));
-                self.fill(src, child, &e.children, depth);
+                let child = self.new_tile(&e.name, e.attr("name").unwrap_or(""), Some(tile), origin.clone());
+                self.fill(src, child, &e.children, depth, origin);
             } else if e.is("template") {
                 let name = e.attr("name").unwrap_or("").to_string();
                 let body = self.expand_includes(src, &e.children, depth);
@@ -256,8 +382,21 @@ impl Ui {
                     self.warnings.push(format!("include {file}: nested too deep; left out"));
                     continue;
                 }
-                match self.read_doc(src, &prefab_path(file)) {
-                    Some(doc) => self.fill(src, tile, &doc.nodes, depth + 1),
+                let path = prefab_path(file);
+                let included_origin = match origin {
+                    Origin::File { .. } => Origin::file(src, &path),
+                    other => other.clone(),
+                };
+                match self.read_doc(src, &path) {
+                    Some(doc) => {
+                        let start = self.tiles.len();
+                        self.fill(src, tile, &doc.nodes, depth + 1, &included_origin);
+                        // [design] Track this inclusion's tiles, rather than all uses of
+                        // its filename: the same prefab may also occur in vanilla content.
+                        if e.attr("nvf_uio") == Some("true") && src.is_loose(&path) {
+                            self.uio_tiles.extend((start..self.tiles.len()).map(|i| TileId(i as u32)));
+                        }
+                    }
                     None => self.warnings.push(format!("include {file}: not found")),
                 }
             } else {
@@ -333,7 +472,9 @@ impl Ui {
 
     /// The tile a path names: `Menu/Tile/…/Tile`, with `/` or `\`, names in any case, `*`
     /// for any child and `name:N` (or `*:N`) for the N-th (from 0) of the children that
-    /// match [documented: GetUIFloat notes].
+    /// match, counting from the last child [observed: private jobs hud_hardcore hc0,
+    /// hud_xp_limbs all, hud_prompt2 p0-p8; menu-xml.md §5]. Unindexed lookup keeps
+    /// file order [hypothesis: menu-xml.md §5].
     pub fn find_tile(&self, path: &str) -> Option<TileId> {
         let segs = split(path);
         let (first, rest) = segs.split_first()?;
@@ -364,7 +505,7 @@ impl Ui {
         let all = self.tile(at).children.iter().copied();
         let named: Vec<TileId> = all.filter(|&c| name == "*" || self.tile(c).name.eq_ignore_ascii_case(name)).collect();
         match index {
-            Some(k) => named.get(k).copied().into_iter().collect(),
+            Some(k) => named.iter().rev().nth(k).copied().into_iter().collect(),
             None => named,
         }
     }
@@ -459,9 +600,10 @@ impl Ui {
     fn set_at(&mut self, t: TileId, k: usize, v: Value) {
         self.gen += 1;
         let gen = self.gen;
-        let tr = &mut self.tile_mut(t).traits[k];
+        let tr = &mut self.tiles[t.0 as usize].traits[k];
         if v.differs(&tr.value) {
             tr.changed = gen;
+            self.dirty = true;
         }
         tr.value = v;
         // A trait set from outside keeps its value until a source changes again.
@@ -484,7 +626,7 @@ impl Ui {
         for w in &doc.warnings {
             self.warnings.push(format!("injected into {at}: {w}"));
         }
-        self.fill(src, tile, &doc.nodes, 0);
+        self.fill(src, tile, &doc.nodes, 0, &Origin::Injected);
         true
     }
 
@@ -505,6 +647,16 @@ impl Ui {
     /// (`AddTileFromTemplate`): the template is looked for on that tile and then on the
     /// tiles above it [hypothesis], the new tile named `name` when given. Returns it.
     pub fn add_from_template(&mut self, src: &dyn Source, at: &str, template: &str, name: Option<&str>) -> Option<TileId> {
+        self.add_template(src, at, template, name, Origin::Template)
+    }
+
+    /// [design] Make engine-owned template copies, including every top-level tile and
+    /// descendant in the template body. These copies are excluded from mod tile roots.
+    pub fn add_code_tile_from_template(&mut self, src: &dyn Source, at: &str, template: &str, name: Option<&str>) -> Option<TileId> {
+        self.add_template(src, at, template, name, Origin::Code)
+    }
+
+    fn add_template(&mut self, src: &dyn Source, at: &str, template: &str, name: Option<&str>, origin: Origin) -> Option<TileId> {
         let parent = self.find_tile(at)?;
         let mut look = Some(parent);
         let body = loop {
@@ -515,7 +667,7 @@ impl Ui {
             look = self.tile(t).parent;
         };
         let before = self.tile(parent).children.len();
-        self.fill(src, parent, &body, 0);
+        self.fill(src, parent, &body, 0, &origin);
         let made = *self.tile(parent).children.get(before)?;
         if let Some(n) = name {
             self.tile_mut(made).name = n.to_string();
@@ -523,12 +675,82 @@ impl Ui {
         Some(made)
     }
 
+    /// [design] Top-most live mod-added roots in file order, including the menu itself
+    /// when loaded loose. Loose provenance is captured at load; code tiles are not roots.
+    pub fn mod_added_tiles(&self, menu: TileId) -> Vec<TileId> {
+        if !self.tile(menu).live || self.tile(menu).kind != "menu" {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        let mut stack = vec![menu];
+        while let Some(id) = stack.pop() {
+            let tile = self.tile(id);
+            if !tile.live {
+                continue;
+            }
+            if tile.origin.mod_added() || self.uio_tiles.contains(&id) {
+                out.push(id);
+            } else {
+                stack.extend(tile.children.iter().rev().copied());
+            }
+        }
+        out
+    }
+
+    /// [design] The name paths ([`Ui::path_of`], lower case) of every live tile under
+    /// `root`, itself included: what a menu file's tiles are called when one source builds
+    /// them, to tell a loose replacement's own tiles from the archived file's
+    /// (menu-xml.md §7).
+    pub fn name_paths(&self, root: TileId) -> HashSet<String> {
+        let mut out = HashSet::new();
+        let mut stack = vec![root];
+        while let Some(id) = stack.pop() {
+            let tile = self.tile(id);
+            if tile.live {
+                out.insert(self.path_of(id).to_ascii_lowercase());
+                stack.extend(tile.children.iter().copied());
+            }
+        }
+        out
+    }
+
+    /// [design] [`Ui::name_paths`] of the menu file at `path` as `src` builds it alone, in
+    /// a tree of its own (`None` when the file cannot be read): the vanilla names a loose
+    /// replacement is compared against.
+    pub fn file_name_paths(src: &dyn Source, path: &str) -> Option<HashSet<String>> {
+        let mut ui = Ui::new();
+        let root = ui.load_menu(src, path).ok()?;
+        Some(ui.name_paths(root))
+    }
+
+    /// [design] Whether a tile inside a root of [`Ui::mod_added_tiles`] is the mod's own,
+    /// to draw over NVForever's HUD: never a `Code` tile; always an `Injected` or
+    /// `Template` one; a `File` tile (a loose replacement's, or an archived prefab's it
+    /// includes) only when `vanilla` holds the archived file's names
+    /// ([`Ui::file_name_paths`]) and not this tile's name path. Without the vanilla names no
+    /// `File` tile is drawn, except a loose UIO include and its file descendants [design].
+    pub fn mod_tile_drawn(&self, id: TileId, vanilla: Option<&HashSet<String>>) -> bool {
+        match &self.tile(id).origin {
+            Origin::Code => false,
+            Origin::Injected | Origin::Template => true,
+            Origin::File { .. } => {
+                // [design] A loose UIO file is an explicit addition, even when no
+                // archived comparison exists or a vanilla tile has the same name.
+                self.uio_tiles.contains(&id) || vanilla.is_some_and(|names| !names.contains(&self.path_of(id).to_ascii_lowercase()))
+            }
+        }
+    }
+
     // ---- working traits out -----------------------------------------------------------
 
     /// Works out every trait with an expression whose sources changed since it was last
     /// worked out (all of them the first time), again and again until nothing changes.
-    /// Returns how many trait values changed.
+    /// Returns how many trait values changed. Nothing to do when nothing changed since it
+    /// last finished.
     pub fn update(&mut self) -> usize {
+        if !self.dirty {
+            return 0;
+        }
         let mut changed = 0;
         for _ in 0..MAX_PASSES {
             let mut this_pass = 0;
@@ -560,11 +782,18 @@ impl Ui {
             }
             changed += this_pass;
             if this_pass == 0 {
+                self.dirty = false;
                 return changed;
             }
         }
         self.warnings.push(format!("update: traits still changing after {MAX_PASSES} passes (a loop?)"));
         changed
+    }
+
+    /// Whether [`Ui::update`] has something to work out.
+    #[cfg(test)]
+    pub(crate) fn dirty(&self) -> bool {
+        self.dirty
     }
 
     /// The tile a source names, seen from `me`.
@@ -661,6 +890,28 @@ impl Ui {
 
 fn is_tile(e: &Element) -> bool {
     TILE_KINDS.iter().any(|k| e.is(k))
+}
+
+fn uio_include(file: &str) -> Node {
+    Node::Element(Element {
+        name: "include".into(),
+        attrs: vec![("src".into(), file.into()), ("nvf_uio".into(), "true".into())],
+        ..Element::default()
+    })
+}
+
+fn named_nodes<'a>(nodes: &'a mut [Node], name: &str) -> Option<&'a mut Vec<Node>> {
+    for node in nodes {
+        if let Node::Element(e) = node {
+            if is_tile(e) && e.attr("name").is_some_and(|n| n.eq_ignore_ascii_case(name)) {
+                return Some(&mut e.children);
+            }
+            if let Some(found) = named_nodes(&mut e.children, name) {
+                return Some(found);
+            }
+        }
+    }
+    None
 }
 
 /// An include's file: under `menus\prefabs\` [observed: every vanilla include names a

@@ -83,9 +83,47 @@ pub enum ExtCmd {
         /// Function catalogue (default: ../script/functions.json next to --schema).
         #[arg(long)]
         functions: Option<PathBuf>,
-        /// The job file (tools/capture/jip-probes/<set>.steps.json).
+        /// The job file (tools/capture/jip-probes/<job>.steps.json).
         #[arg(long)]
         steps: PathBuf,
+        /// Move the player to this cell (FormID or Editor ID) before the first step, to
+        /// start where the oracle's save stands.
+        #[arg(long)]
+        start_cell: Option<String>,
+        /// Also write the run's whole trace (fnv.script.trace) to this file, for debugging
+        /// a row.
+        #[arg(long)]
+        trace: Option<PathBuf>,
+        /// The game's INI files the extender's INI functions read, in order (only read).
+        #[arg(long)]
+        ini: Vec<PathBuf>,
+        /// A folder that stands for Data\Config (the INI files mods read with LU, ShowOff
+        /// and MCM functions), as `script run --config`. Writes stay in memory.
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
+    /// Write the compiled script units that have no source text (route 1 input) to a
+    /// directory: each unit's bytes as `<n>.scda`, and `units.json` with its plugin, owner,
+    /// header, variables, references and whether its bytes call extender opcodes. Keep the
+    /// directory private: it holds a plugin's compiled scripts.
+    Units {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        /// Layer 1 schema directory (schemas/fnv).
+        #[arg(long)]
+        schema: PathBuf,
+        /// Function catalogue (default: ../script/functions.json next to --schema).
+        #[arg(long)]
+        functions: Option<PathBuf>,
+        /// Output directory (created).
+        #[arg(long)]
+        dump: PathBuf,
+        /// Only units of this plugin (file name, any case).
+        #[arg(long)]
+        plugin: Option<String>,
+        /// Also write units that do have source text.
+        #[arg(long)]
+        all: bool,
     },
 }
 
@@ -127,11 +165,22 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             doc["runs"] = json!(runs);
             Ok(doc)
         }
-        ExtCmd::Queries { lo, schema, functions, steps } => {
+        ExtCmd::Queries { lo, schema, functions, steps, start_cell, trace, ini, config } => {
+            // Mods' files as `script run` sees them: the Data folder (and its archives)
+            // read-only, `--config` for Data\Config; nothing is written to disk.
+            let vfs = std::sync::Arc::new(fnv_vfs::Vfs::open_for_plugins(&lo.data_dir, &lo.plugins).ok());
+            let v2 = vfs.clone();
+            let lookup: fnv_game::mod_files::Lookup = std::sync::Arc::new(move |p: &str| match vfs.as_ref() {
+                Some(v) if v.loose_path(p).is_some() => 1,
+                Some(v) if v.exists(p) => 2,
+                _ => 0,
+            });
+            let reader: fnv_game::mod_files::Reader = std::sync::Arc::new(move |p: &str| v2.as_ref().as_ref().and_then(|v| v.read(p)).and_then(Result::ok));
+            fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: vec![lo.data_dir.clone()], config, write: None, lookup: Some(lookup), reader: Some(reader) });
             let fp = functions.unwrap_or_else(|| schema.join("..").join("script").join("functions.json"));
             let jtext = std::fs::read_to_string(&steps).with_context(|| steps.display().to_string())?;
             let job: Value = serde_json::from_str(&jtext).with_context(|| steps.display().to_string())?;
-            let (set, input) = query_input(&job)?;
+            let (set, input) = query_input(&job, start_cell.as_deref())?;
             let ftext = std::fs::read_to_string(&fp).with_context(|| fp.display().to_string())?;
             let fjson: Value = serde_json::from_str(&ftext).with_context(|| fp.display().to_string())?;
             let table = FunctionTable::load(&fp).with_context(|| fp.display().to_string())?;
@@ -140,21 +189,72 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             let schema = Schema::load_dir(&schema)?;
             let forms = fnv_sim::FormStore::build(&order, &schema);
             let refs = fnv_sim::RefTable::build(&order, &schema);
-            let data = fnv_game::GameData::build(&order, &schema, table, &fjson, &refs);
+            let mut data = fnv_game::GameData::build(&order, &schema, table, &fjson, &refs);
+            for p in &ini {
+                data.ini_texts.push(std::fs::read_to_string(p).with_context(|| p.display().to_string())?);
+            }
             let input: fnv_game::runner::Input = serde_json::from_value(input).context("query actions")?;
-            let trace = fnv_game::runner::run(&data, &forms, &refs, &input).map_err(anyhow::Error::msg)?;
-            Ok(queries_doc(&set, &trace))
+            let run = fnv_game::runner::run(&data, &forms, &refs, &input).map_err(anyhow::Error::msg)?;
+            if let Some(path) = trace {
+                std::fs::write(&path, serde_json::to_string(&run)?).with_context(|| path.display().to_string())?;
+            }
+            Ok(queries_doc(&set, &run))
+        }
+        ExtCmd::Units { lo, schema, functions, dump, plugin, all } => {
+            let fp = functions.unwrap_or_else(|| schema.join("..").join("script").join("functions.json"));
+            let table = FunctionTable::load(&fp).with_context(|| fp.display().to_string())?;
+            let plugins = open_load_order(&lo)?;
+            let order = LoadOrder::new(&plugins)?;
+            let schema = Schema::load_dir(&schema)?;
+            let (units, _) = read_load_order(&order, &schema);
+            dump_units(&units, &table, plugin.as_deref(), all, &dump)
         }
     }
 }
 
+/// The units `ext units` writes: with compiled bytes, without source unless `all`, of
+/// `plugin` when given.
+pub(crate) fn units_to_dump<'a>(units: &'a [ScriptUnit], plugin: Option<&str>, all: bool) -> Vec<&'a ScriptUnit> {
+    units
+        .iter()
+        .filter(|u| u.has_scda && (all || u.source.is_none()))
+        .filter(|u| plugin.is_none_or(|p| u.plugin.eq_ignore_ascii_case(p)))
+        .collect()
+}
+
+fn dump_units(units: &[ScriptUnit], table: &FunctionTable, plugin: Option<&str>, all: bool, dir: &Path) -> anyhow::Result<Value> {
+    std::fs::create_dir_all(dir).with_context(|| dir.display().to_string())?;
+    let mut index = Vec::new();
+    for (n, u) in units_to_dump(units, plugin, all).into_iter().enumerate() {
+        let file = format!("{n:04}.scda");
+        std::fs::write(dir.join(&file), &u.bytes).with_context(|| file.clone())?;
+        index.push(json!({
+            "file": file,
+            "key": u.key(),
+            "plugin": u.plugin,
+            "owner": u.owner.label(),
+            "has_source": u.source.is_some(),
+            "bytes": u.bytes.len(),
+            "uses_extender": bytecode_uses_extender(&u.bytes, table),
+            "unit": u,
+        }));
+    }
+    let doc = json!({"format": "fnv.ext.units/1", "units": index});
+    std::fs::write(dir.join("units.json"), serde_json::to_string_pretty(&doc)?).context("units.json")?;
+    Ok(json!({"dir": dir.display().to_string(), "units": doc["units"].as_array().map_or(0, |a| a.len())}))
+}
+
 /// The probe set of a query job (its name with `_` as `-`, as jip_probes.py names the
 /// golden) and the runner input: one `query` action per step, in order, each followed by
-/// one frame, as nvf_capture runs one step per game loop (xnvse-capture.md §4).
-pub(crate) fn query_input(job: &Value) -> anyhow::Result<(String, Value)> {
+/// one frame, as nvf_capture runs one step per game loop (xnvse-capture.md §4); first a
+/// move to `start_cell` when given.
+pub(crate) fn query_input(job: &Value, start_cell: Option<&str>) -> anyhow::Result<(String, Value)> {
     anyhow::ensure!(job["format"] == "fnv.capture.steps/1", "not a fnv.capture.steps/1 job");
     let set = job["name"].as_str().context("job without a name")?.replace('_', "-");
     let mut actions = Vec::new();
+    if let Some(cell) = start_cell {
+        actions.push(json!({"op": "go_to_cell", "cell": cell}));
+    }
     for s in job["steps"].as_array().context("job without steps")? {
         let script = s["query"].as_str().context("a step without a query (only query jobs run here)")?;
         let label = s["label"].as_str().context("a step without a label")?;
@@ -653,6 +753,29 @@ End
     }
 
     #[test]
+    fn units_dump_writes_the_units_without_source() {
+        let fp = root().join("schemas/script/functions.json");
+        let table = FunctionTable::load(&fp).unwrap();
+        let schema = Schema::load_dir(root().join("schemas/fnv")).unwrap();
+        let plugins = vec![Plugin::parse(&plugin(), "ExtScan.esm".into()).unwrap()];
+        let lo = LoadOrder::new(&plugins).unwrap();
+        let (units, _) = read_load_order(&lo, &schema);
+        assert_eq!(units_to_dump(&units, None, false).len(), 2);
+        assert_eq!(units_to_dump(&units, None, true).len(), 3);
+        assert_eq!(units_to_dump(&units, Some("other.esp"), false).len(), 0);
+        let dir = std::env::temp_dir().join(format!("nvf-ext-units-{}", std::process::id()));
+        let out = dump_units(&units, &table, Some("extscan.esm"), false, &dir).unwrap();
+        assert_eq!(out["units"], 2);
+        let doc: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("units.json")).unwrap()).unwrap();
+        assert_eq!(doc["format"], "fnv.ext.units/1");
+        let first = &doc["units"][0];
+        let bytes = std::fs::read(dir.join(first["file"].as_str().unwrap())).unwrap();
+        assert_eq!(bytes.len() as u64, first["bytes"].as_u64().unwrap());
+        assert_eq!(doc["units"].as_array().unwrap().iter().filter(|u| u["uses_extender"] == true).count(), 1);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn probe_plans_follow_the_probe_folder() {
         let dir = std::env::temp_dir().join(format!("ext_probe_plans_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -697,13 +820,16 @@ End
             {"query": "Begin Function { }\nSetFunctionValue 1\nEnd\n", "label": "a", "field": "value"},
             {"query": "Begin Function { }\nSetFunctionValue (GetModName 0)\nEnd\n", "label": "b", "field": "value", "text": true},
         ]});
-        let (set, input) = query_input(&job).unwrap();
+        let (set, input) = query_input(&job, None).unwrap();
         assert_eq!(set, "jip-forms");
         assert_eq!(input["actions"][1], json!({"op": "wait_frames", "frames": 1}));
         assert_eq!(input["actions"][2]["op"], "query");
         assert_eq!(input["actions"][2]["text"], true);
         let _: fnv_game::runner::Input = serde_json::from_value(input).expect("a valid actions document");
-        assert!(query_input(&json!({"format": "fnv.capture.steps/1", "name": "x", "steps": [{"console": "tgm"}]})).is_err());
+        assert!(query_input(&json!({"format": "fnv.capture.steps/1", "name": "x", "steps": [{"console": "tgm"}]}), None).is_err());
+        let (_, moved) = query_input(&job, Some("0x000DEB16")).unwrap();
+        assert_eq!(moved["actions"][0], json!({"op": "go_to_cell", "cell": "0x000DEB16"}));
+        let _: fnv_game::runner::Input = serde_json::from_value(moved).expect("a valid actions document");
 
         let trace = json!({"observations": [
             {"label": "a", "step": 0, "value": 44.99977},

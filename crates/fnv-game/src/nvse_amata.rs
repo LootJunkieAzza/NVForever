@@ -96,10 +96,11 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             let ok = usize::try_from(i).ok().filter(|&i| i < traits.len()).zip(usize::try_from(t).ok().filter(|&t| t < 3));
             match (ok, name) {
                 (Some((i, t)), "getntheffecttraitnumeric") => XVal::Num(traits[i][t]),
+                // Returns 0 [observed: gaps6, setting 77].
                 (Some((i, t)), _) => {
                     let v = num(args, 3, 0.0).trunc();
                     g.effect_overrides.insert((f, i, t), v);
-                    XVal::Num(v)
+                    XVal::Num(0.0)
                 }
                 _ => XVal::Num(0.0),
             }
