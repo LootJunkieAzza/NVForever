@@ -165,7 +165,7 @@ fn show(
             Camera { order: -4, clear_color: ClearColorConfig::Custom(Color::NONE), ..default() },
             RenderTarget::Image(ImageRenderTarget::from(image.clone())),
             Projection::Perspective(PerspectiveProjection { fov: FOV, near: 1.0, far: 200.0, ..default() }),
-            Tonemapping::None,
+            Tonemapping::Linear,
             Msaa::Sample4,
             AmbientLight { color: Color::WHITE, brightness: 150.0, ..default() },
             Transform::from_translation(to(eye)).looking_at(to(aim), Vec3::Y),

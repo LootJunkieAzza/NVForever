@@ -662,7 +662,7 @@ fn build(commands: &mut Commands, models: &mut ModelCtx, casino: Casino, window:
             Camera { order: -4, clear_color: ClearColorConfig::Custom(Color::srgb(0.01, 0.01, 0.012)), ..default() },
             RenderTarget::Image(ImageRenderTarget::from(image.clone())),
             Projection::Perspective(PerspectiveProjection { fov: FOV_DEG.to_radians(), near: 1.0, far: 3000.0, ..default() }),
-            Tonemapping::None,
+            Tonemapping::Linear,
             Msaa::Sample4,
             AmbientLight { color: Color::srgb(1.0, 0.95, 0.85), brightness: AMBIENT * crate::sky::light_unit(), ..default() },
             Transform::from_translation(to(EYE)).looking_at(to(AIM), Vec3::Y),

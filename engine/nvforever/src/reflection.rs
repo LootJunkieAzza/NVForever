@@ -88,7 +88,7 @@ fn setup_reflection(mut commands: Commands, mut images: ResMut<Assets<Image>>, w
         Camera { order: -1, invert_culling: true, is_active: false, ..default() },
         RenderTarget::Image(image.clone().into()),
         Hdr,
-        Tonemapping::None,
+        Tonemapping::Linear,
         Msaa::Off,
         Projection::Perspective(PerspectiveProjection::default()),
         crate::sky::initial_fog(),
