@@ -472,8 +472,8 @@ pub(crate) struct TileStrip(StripNode);
 /// A node that takes its piece's colour (recoloured in place, [`Change::InPlace`]), and
 /// where: a box's fill, or what a picture or a glyph draws. Every UI node carries a
 /// background too, transparent unless it is a box's, so only [`Ink::Fill`] colours one.
-#[derive(Component, Clone, Copy, PartialEq, Eq)]
-enum Ink {
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Ink {
     Fill,
     Drawn,
 }
@@ -531,10 +531,12 @@ type Baked = (Handle<Image>, f32, f32);
 pub enum Change {
     Same,
     /// Moved or recoloured only: the same look, box and clip sizes. Its nodes are moved
-    /// and recoloured in place [design: the compass marks move every frame while the
-    /// player turns or the actors walk (T12d); the fades and flashes change alpha].
+    /// and recoloured in place ([`recolour`]) [design: the compass marks move every frame
+    /// while the player turns or the actors walk (T12d); the fades and flashes change
+    /// alpha].
     InPlace,
-    /// Another look or size: its nodes are spawned again, in its slot alone.
+    /// Another look or size, or a model's colour (its parts take no [`Ink`]): its nodes
+    /// are spawned again, in its slot alone.
     Spawn,
 }
 
@@ -543,9 +545,41 @@ pub fn change(old: &Piece, new: &Piece) -> Change {
     if old == new {
         Change::Same
     } else if old.look == new.look && size(&old.rect) == size(&new.rect) && old.clip.map(|c| size(&c)) == new.clip.map(|c| size(&c)) {
-        Change::InPlace
+        // A model's parts take no Ink: spawned again in its new colour.
+        if old.colour != new.colour && matches!(new.look, Look::Model { .. }) {
+            Change::Spawn
+        } else {
+            Change::InPlace
+        }
     } else {
         Change::Spawn
+    }
+}
+
+/// Recolour one node of a piece changed in place: only the colour its [`Ink`] names, the
+/// box's fill or what a picture or a glyph draws; a drawn node's background stays
+/// transparent [design: the review of #902, where every node's background took the
+/// colour and drew a box behind each glyph].
+pub(crate) fn recolour<I, B, T>(ink: Ink, image: Option<I>, fill: Option<B>, text: Option<T>, colour: Color)
+where
+    I: std::ops::DerefMut<Target = ImageNode>,
+    B: std::ops::DerefMut<Target = BackgroundColor>,
+    T: std::ops::DerefMut<Target = TextColor>,
+{
+    match ink {
+        Ink::Fill => {
+            if let Some(mut fill) = fill {
+                fill.0 = colour;
+            }
+        }
+        Ink::Drawn => {
+            if let Some(mut image) = image {
+                image.color = colour;
+            }
+            if let Some(mut text) = text {
+                text.0 = colour;
+            }
+        }
     }
 }
 
@@ -754,8 +788,6 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
         }
         match change(was, piece) {
             Change::Same => {}
-            // A model's parts take no Ink: spawned again in its new colour.
-            Change::InPlace if was.colour != piece.colour && matches!(piece.look, Look::Model { .. }) => spawn.push(i),
             Change::Spawn => spawn.push(i),
             Change::InPlace => {
                 if was.rect != piece.rect || was.clip != piece.clip {
@@ -778,21 +810,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
                     let colour = Color::srgba(r, g, b, a);
                     for e in nodes.children.iter_descendants(slot.node) {
                         let Ok((ink, (image, fill, text))) = nodes.ink.get_mut(e) else { continue };
-                        match ink {
-                            Ink::Fill => {
-                                if let Some(mut fill) = fill {
-                                    fill.0 = colour;
-                                }
-                            }
-                            Ink::Drawn => {
-                                if let Some(mut image) = image {
-                                    image.color = colour;
-                                }
-                                if let Some(mut text) = text {
-                                    text.0 = colour;
-                                }
-                            }
-                        }
+                        recolour(*ink, image, fill, text, colour);
                     }
                 }
             }
@@ -1238,6 +1256,45 @@ mod tests {
             string.push('!');
         }
         assert_eq!(change(text, &other), Change::Spawn);
+    }
+
+    /// The review of #952: #902's bug was every node's background taking the piece's
+    /// colour, a box behind each glyph. A recolour writes only what the node's Ink names.
+    #[test]
+    fn a_recolour_writes_only_the_colour_its_ink_names() {
+        let (was, now) = (Color::srgba(1.0, 0.7, 0.3, 1.0), Color::srgba(0.2, 0.9, 0.4, 0.5));
+        // A picture or glyph (Drawn), its background transparent as spawned.
+        let (mut image, mut text, mut back) = (ImageNode { color: was, ..default() }, TextColor(was), BackgroundColor(Color::NONE));
+        recolour(Ink::Drawn, Some(&mut image), Some(&mut back), Some(&mut text), now);
+        assert_eq!((image.color, text.0), (now, now));
+        assert_eq!(back.0, Color::NONE, "a drawn node's background stays transparent");
+        // A box (Fill): its background takes the colour; nothing else it carries does.
+        let (mut image, mut text, mut fill) = (ImageNode { color: was, ..default() }, TextColor(was), BackgroundColor(was));
+        recolour(Ink::Fill, Some(&mut image), Some(&mut fill), Some(&mut text), now);
+        assert_eq!(fill.0, now);
+        assert_eq!((image.color, text.0), (was, was));
+        // A node with none of the colours a recolour writes is left alone.
+        recolour::<&mut ImageNode, &mut BackgroundColor, &mut TextColor>(Ink::Drawn, None, None, None, now);
+    }
+
+    /// A model's parts take no Ink, so its colour changing spawns it again; only moved, it
+    /// is changed in place.
+    #[test]
+    fn a_models_colour_change_is_answered_by_a_respawn() {
+        let model = Piece {
+            tile: TileId(0),
+            look: Look::Model { filename: r"Interface\HUD\AirTimer01.NIF".into(), animation: Some("Forward".into()) },
+            rect: TileRect { left: 10.0, top: 20.0, width: 64.0, height: 64.0 },
+            clip: None,
+            colour: [1.0, 0.7, 0.3, 1.0],
+            depth: 0.0,
+        };
+        let mut dimmer = model.clone();
+        dimmer.colour[3] = 0.5;
+        assert_eq!(change(&model, &dimmer), Change::Spawn);
+        let mut moved = model.clone();
+        moved.rect.left += 4.0;
+        assert_eq!(change(&model, &moved), Change::InPlace);
     }
 
     #[test]
