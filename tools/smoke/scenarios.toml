@@ -14106,3 +14106,20 @@ expect = [
   { json = "given_errors.*", count = 0, label = "white-wash-boyd-killed: no given fails" },
 ]
 manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the stage-coverage walkthrough report (issue #940)"
+
+[[scenario]]
+name = "mq-why-cant-we-be-friends-lem"
+kind = "tool"
+source = "headless walkthrough crates/fnv-game/walkthrough/why-cant-we-be-friends-lem.actions.json: Why Can't We Be Friends? (VMS42), Philip Lem's side: the player takes his job to blow up the sulfur (11)"
+areas = ["quests", "scripts", "dialogue"]
+paths = ["crates/fnv-game/walkthrough/why-cant-we-be-friends-lem.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/why-cant-we-be-friends-lem.actions.json"]]
+expect = [
+  { json = "observations.?label=final: VMS42 11.running", equals = true, label = "why-cant-we-be-friends-lem, final: VMS42 11: running = true" },
+  { json = "observations.?label=final: VMS42 11.stage", equals = 11, label = "why-cant-we-be-friends-lem, final: VMS42 11: stage = 11" },
+  { json = "observations.?label=final: VMS42 11.done.11", equals = true, label = "why-cant-we-be-friends-lem, final: VMS42 11: done.11 = true" },
+  { json = "observations.?label=final: VMS42 11.var.LemGoDestroySulfur", equals = 1, label = "why-cant-we-be-friends-lem, final: VMS42 11: var.LemGoDestroySulfur = 1" },
+  { json = "steps.*.error", count = 0, label = "why-cant-we-be-friends-lem: no step fails" },
+  { json = "given_errors.*", count = 0, label = "why-cant-we-be-friends-lem: no given fails" },
+]
+manual = "on a failure, the chain's notes say what each step stands for; the stalls are in the stage-coverage walkthrough report (issue #940)"
