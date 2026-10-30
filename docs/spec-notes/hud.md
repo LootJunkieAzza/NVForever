@@ -267,13 +267,63 @@ screenshot, `iSystemColorHUDAlt*` 255, 67, 42 (`reticle.md`).
 [owner, playtest list 5, item 32] The bar empties from both ends towards its middle:
 the lit ticks are the middle `ceil(value × 31)`, an odd one gone from the right first.
 
-Whose health [hypothesis; the original's rule is not documented]: the living actor under
-the crosshair (a ray along the crosshair's line through the collision world, up to 8192
-units, to the first actor hit volume or capsule) when it is hostile to the player
-(`Game::would_attack`) or in combat with the player, or when the player hit it within
-5 seconds; and for 5 seconds after the player hits an actor, aimed at or not. Logged as
-`hud: enemy health <name> 0x<ref> <percent> %` and `hud: enemy health off`. The
+**When it shows** [observed: private jobs hud_enemy4 (run 1793322469) and hud_enemy5
+(run 1793323493), with hud_enemy2/3, in the unmodded original through xNVSE and JIP;
+"shown" means `EnemyHealth`'s three code-made children (the name, the meter, the
+bracket) read visible, which they always did together. "Under the crosshair" is the
+crosshair's ray on the actor; "the activation target" is the reference GetCrosshairRef
+returns, the one the prompt is for, within activation reach only [documented: GECK wiki
+GetCrosshairRef]]:
+
+1. **Never at full health.** No bar for an actor whose Health is at its base value,
+   neutral or hostile, aimed at, the activation target or in combat (hud_enemy4 s1, x1,
+   g1, g3, g5; hud_enemy5 a0, b1, c1; hud_enemy3 h1). Health below base was necessary
+   in every sample of every run.
+2. **Out of combat, a hurt actor under the crosshair** gets the bar, hostile or not, the
+   weapon need not be drawn: a hurt neutral settler at 350 units and at 150 aimed at the
+   chest, neither the activation target nor with a prompt up (hud_enemy5 a1, a2, a3). It
+   appears 0.1-0.25 s after the crosshair comes on it. Every shown case had IsWeaponOut
+   0; none was captured with the weapon drawn.
+3. **Out of combat, not while it is the activation target, nor while any activation
+   prompt is up**: the hurt settler as the target with his Talk prompt (hud_enemy4 s2,
+   s3; hud_enemy5 a3a), a hurt restrained gecko as the target with no prompt (hud_enemy5
+   b2), the same gecko under the crosshair while a prompt for something else was up
+   (hud_enemy5 b2). Prompt up and bar shown together: no sample in hud_enemy4 or 5. When
+   the target dropped with the crosshair still on the actor, the bar showed at once
+   (hud_enemy4 s2h, s2a, s3; hud_enemy5 a3a, b2).
+4. **In combat with the player** (its combat target is the player), a hurt actor keeps
+   the bar aimed at or not, the activation target or not, the meter following its
+   health, until it dies (hud_enemy4 g4; hud_enemy3 g2; hud_enemy5 b4). A dead actor has
+   none (hud_enemy5 b4).
+5. **After the crosshair leaves it**, out of combat, the bar stays on that actor for a
+   while: a restrained gecko's about 5.5 s (hud_enemy5 b2), a neutral settler's at least
+   16-18 s (hud_enemy5 a1, a2, a3, a3a: the watch ended first). An actor that was the
+   activation target as the crosshair left had its bar for one frame only (hud_enemy4
+   s2, s2h, s2a, s3), which fits the linger applying only to a bar that was shown
+   [hypothesis].
+
+[design] NVForever (`hud_target::why_shown`, a pure function of the case, tested point
+by point): hurt is Health below its full value (the meter not full); "in combat" is the
+actor's combat target being the player; the activation target is
+`crate::activate::Target`, and a prompt is up whenever there is one (unless a script has
+the rollover text off). The linger is `LINGER_SECONDS` = 5.5 s for every actor
+[observed for the hostile; hypothesis for a neutral], and the activation target or a
+prompt coming up ends it. The player's own hit keeps the earlier rule [hypothesis]: for 5
+seconds after the player hits an actor it has the bar, aimed at or not, prompt or not,
+while it is hurt. One actor at a time: the one under the crosshair (a ray along the
+crosshair's line through the collision world, up to 8192 units, to the first actor hit
+volume or capsule), else the one the player hit last, else a hurt actor fighting the
+player (the one the bar holds, else the nearest), else the one it lingers on. Logged as
+`hud: enemy health <name> 0x<ref> <percent> %`, `hud: enemy health <name> 0x<ref> held
+by the linger (…)` when only the linger holds it, and `hud: enemy health off`. The
 developer's stand-in (a line of `|` characters over the crosshair, `combat.rs`) is gone.
+
+Still open (docs/handoff/observer-checks.md): the player's own hit (no capture had the
+weapon out, so no shot hit); aiming down the sights; why the bar comes about 1 s after a
+hurt in combat (hud_enemy4 g4, hud_enemy3 g2) but within 0.25 s out of it (not built:
+NVForever shows it at once); how long a neutral's bar lingers, and what ends it; what
+`EnemyHealth`'s own visible value 8 means (it read 1, then 8 after a held Ready or right
+mouse button, and stayed 8 with nothing pressed).
 
 ## 9. The sneak word
 

@@ -421,3 +421,26 @@ The numbers above stay put so links to them hold; each item here gives its own p
     crater's three markers (5/10000, 10/6000, 18/2000 on one point) 1000 units from their
     point (ours 9 × 0.92 = 8.28; summed 21.83 × 0.92 = 20.09); and a Fat Man's zone read
     at its centre and 300 units out (ours flat). ([radiation §2, §4](../spec-notes/radiation.md))
+
+## Added 2026-10-30 (the enemy bar's show rule, issue #935)
+
+34. **How long a neutral's enemy bar lingers, and what ends it** (P3: every hurt actor
+    looked at.) The hurt settler's bar was still up 16-18 s after the player turned away
+    in hud_enemy5 a1-a3a, where the watch ended; a restrained hostile gecko's went after
+    about 5.5 s (b2). Ours lingers 5.5 s for every actor (`hud_target::LINGER_SECONDS`)
+    [hypothesis for a neutral]. To check: hurt a neutral settler by script (DamageAV
+    Health), turn the player onto him from 350 units (not the activation target, no
+    prompt), then 180 degrees away, and read `EnemyHealth`'s three children every 50 ms
+    for 40-60 s with no MoveTo; then the same on a hurt restrained gecko, and on each
+    after showing the bar 1 s against 10 s before the turn (hostility or the time shown
+    are the candidates). ([hud §8](../spec-notes/hud.md))
+35. **Does the player's own hit show the enemy bar, and for how long?** (P2: every fight
+    the player starts.) No capture had the weapon out (IsWeaponOut read 0 after the
+    script's Ready taps), so no shot hit. Ours keeps its earlier guess: 5 s after the
+    player hits an actor it has the bar, aimed at or not and prompt or not, while it is
+    hurt (`hud_target::HIT_SECONDS`) [hypothesis]. To check: with a weapon drawn (EquipItem
+    and a Ready tap confirmed by IsWeaponOut 1), shoot a neutral settler once from 350
+    units with the crosshair on him, turn away at once, and read the three children every
+    50 ms for 20 s; then the same with the crosshair off him at the moment of the hit (a
+    shot from a script, or a grenade), and at 120 units where he is the activation target.
+    ([hud §8](../spec-notes/hud.md))
