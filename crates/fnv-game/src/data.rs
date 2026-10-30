@@ -808,6 +808,8 @@ pub struct GameData {
     pub table: FunctionTable,
     pub param_types: ParamTypes,
     pub load_order: Vec<String>,
+    /// Each plugin's TES4 HEDR version, in load order (GetPluginHeaderVersion).
+    pub plugin_versions: Vec<f32>,
     pub units: Vec<Compiled>,
     /// SCPT FormID → unit.
     pub scripts: HashMap<FormId, UnitId>,
@@ -1550,6 +1552,7 @@ impl GameData {
             table,
             param_types,
             load_order: lo.plugins.iter().map(|p| p.name.clone()).collect(),
+            plugin_versions: lo.plugins.iter().map(|p| p.header.version).collect(),
             units: Vec::new(),
             scripts: HashMap::new(),
             quests: BTreeMap::new(),

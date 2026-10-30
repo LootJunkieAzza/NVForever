@@ -369,7 +369,7 @@ fn if_eval_tests_an_extended_condition() {
 #[test]
 fn not_built_yet_stops_the_statement() {
     let t = table();
-    // GetPluginHeaderVersion is not built yet.
+    // GetPluginHeaderVersion is not built in the VM (the game answers it).
     let (_, p) = build("ref r\nbegin GameMode\nGetPluginHeaderVersion \"FalloutNV.esm\"\nend");
     let mut h = Locals::default();
     let r = Vm::new(&t, &mut h, RunOpts { strict: true, ..RunOpts::default() }).run(&p.blocks[0].body);

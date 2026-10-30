@@ -121,3 +121,24 @@ left is functions not built, ranked by calls at run time:
 | N5 slice 2 | Done for locomotion (anim_paths.rs); smoke knvse-anim-replace. Idles, script-played sequences and first person open. |
 | Engine events | Smoke nvse-engine-events: OnLoad (unscripted references too), OnHit/OnHitWith, OnMagicEffectHit (a used stimpak counts, observed), OnPackageStart, OnCombatEnd reach the handlers in the running game. |
 | 2026-10-27 batch | Sound (sound1, `crate::nvse_sound`), live projectiles (proj1, `crate::nvse_proj`), PushObject / GetAvailableRadios (phys1–3, radio1), GetFallTimeElapsed, GetMineArmed, the peer's HUD/controls (hud1, controls1, `crate::nvse_hud`). A run of every flagged name in fnvtool found 118 not built (the rest matched by prefix or alias); the third JIP batch (`crate::nvse_jip3`, jip3a/jip3b captured here) built GetAshPileSource, GetIsRagdolled, IsCompassHostile, IsHostilesNearby, FailQuest, GetPCLastExteriorDoor, GetPCMovedCell, HasEffectShader, IsCrimeOrEnemy, RemoveMeIRAlt, DropMeAlt, MoveToContainer, GetActorTemplateFlag, GetIsImmobile, IsRaceInList, GetMenuTargetRef (1009), SetDelayElapsed, RefreshItemsList, GetDebugModeState: jip3a 33/35 headless. The two left read GetDebugModeState 1 across `tai`: the catalogue has no ToggleAI (TAI) because the wiki export has no page for it. |
+
+## 7. Lab run of every set (2026-10-30, claude/nvse-integration)
+
+ext-compiler and jip-lab merged with main (231 commits behind); `python -m fnvlab run
+--scenario 'L5.ext.*'`: 18 of 60 scenarios match in full, and the merge changed no row
+(the pre-merge tip 8e369ace gave the same 60 stats). The nine sets that had never been run
+in the lab (gaps1, gaps7-11, plugins1-3) now have counts in probe-sets.md. Fixed from the
+run: GetPluginHeaderVersion (built: the TES4 HEDR version), ActorHasBaseFlag through the
+actor's base-data template, GetFilesInFolder on a missing folder (an empty array),
+GenericAddForm's result (the index, -2 the last before it), ClearArmorAltTexture's result.
+
+What is left, by cause [observed: runs/latest.md of that run]:
+
+| Cause | Sets (rows) | What closes it |
+|---|---|---|
+| **The owner's save** (`nvfairport`): the player's inventory (27 kinds, ammo), skills (Guns 17, Melee 34, Unarmed 17, Luck 10) and through them every DPS, crit and damage row; game hour, days passed, active quest, factions, heading, Doc's position and packages, always-run, difficulty, known radios, the talked-to bit 0x40 | gaps2-7, gaps9-11, jip.fifth, n7, leveled2, loops, fourth, second, misc, plugins1, plugins3, flags, eighth, seventh, leftovers (~150) | the lab starting from the save: a reader of the original `.fos` (its layout is mapped, docs/spec-notes/save-files.md) feeding `ext queries --save`; the owner allowed the lab to read the save (owner-review) |
+| **Engine rows**: hits, projectiles, NIF blocks, kNVSE animation, event firing order in a fight, ray casts, reticle range, cursor, run speed, ragdoll and crippling events | hits, projectile, nifblocks, knvse.anim, nvse.events, jip.events2, gaps8, gaps10 (~140) | a lab twin on the running engine (the smoke runner with nvf_capture-style steps) instead of `ext queries` |
+| **HUD tile values** (-999: no HUD menu loaded headless): GetUIFloat/SetUIString on HUDMainMenu | gaps1, rgbui, eighth (~21) | UI task T3 (the HUD menu loaded in the headless tile tree) |
+| **Steps the game did not run** (rows we give and the golden lacks: the Ex quaternion forms, a hex BuildRef, RemovePackageAt under GetFormIDString, SetBaseKarma with a fraction, two ITR calls, INI and setting misses) | math, arrays, sixth, strings, fourth, seventh, n7, leveled, plugin.odds (~20) | nothing in NVForever (the compiler is kinder than the game's runtime one, owner-review GECK cases 24-25); seventh's pkg.* rows after it follow from the skipped step |
+| **Small rules still open** | GetFontFile (the INI's sFontFile_N, empty when the file is missing: the forms scenario passes no INI); GetNthPerkEntryString on a non-string entry ('' not 0); FATan/FATan2 (the game's 44.9998: an approximation, rule unknown); GetRunSpeed (338 for the player: no documented formula); ref walk counts one apart in Doc's cell (refs) | per row |
+

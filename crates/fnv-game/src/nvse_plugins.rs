@@ -322,9 +322,14 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             zero
         }
-        // `flag actor`: a bit of the base's ACBS flags [documented: ActorHasBaseFlag].
+        // `flag actor`: a bit of the base's ACBS flags [documented: ActorHasBaseFlag], from
+        // the template when the base takes its base data from one [observed: plugin-odds
+        // so.baseflags.acre, VSpawnTier2RadscorpionMed's own flags are 576 (bits 6, 9),
+        // with Use Base Data and a template the game reads bits 3 6 9 22 24 25].
         "actorhasbaseflag" => {
-            let b = form(args, 1).or(subject).map(|f| base(g, f)).unwrap_or(FormId(0));
+            let r = form(args, 1).or(subject).unwrap_or(FormId(0));
+            let b = base(g, r);
+            let b = g.template_source(b, r, |d| d.template_base).map_or(b, |(s, _)| s);
             let flags = crate::nvse::record_value(g, b, "ACBS", "flags").and_then(|v| v.num().ok()).unwrap_or(0.0) as u64;
             let k = num(args, 0, -1.0);
             yes((0.0..32.0).contains(&k) && flags >> (k as u64) & 1 != 0)
@@ -354,8 +359,14 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             g.field_overrides.insert((w, sub), XVal::Ref(m.0));
             zero
         }
-        // NVForever keeps no alternate textures on armour models [hypothesis].
-        "cleararmoralttexture" => zero,
+        // `armor modelID(1-4) index3D`, success(0/1) [documented: ClearArmorAltTexture].
+        // NVForever keeps no alternate textures on armour models [hypothesis], so there is
+        // nothing at any index to clear (0), while clearing them all (-1) succeeds
+        // [observed: plugin-odds, armour 00020423 model 1: index -1 gave 1, index 0 gave
+        // 0]; no form or a model ID outside 1-4 gives 0 [hypothesis].
+        "cleararmoralttexture" => {
+            yes(form(args, 0).is_some() && (1.0..=4.0).contains(&num(args, 1, 0.0)) && num(args, 2, 0.0) == -1.0)
+        }
         // `set|remove function flag [quest]` [documented: SetJohnnyOnStartQuestEventHandler].
         "setjohnnyonstartquesteventhandler" | "setjohnnyonstopquesteventhandler" => {
             let start = name == "setjohnnyonstartquesteventhandler";

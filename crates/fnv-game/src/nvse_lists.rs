@@ -151,9 +151,17 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 "genericgetform" => return Some(Ok(XVal::Ref(at.map_or(0, |i| list[i].0)))),
                 "genericaddform" => {
                     let Some(f) = form(args, 2) else { return Some(Ok(zero)) };
-                    let at = if i == -2 { list.len() } else { usize::try_from(i).ok().filter(|&i| i <= list.len()).unwrap_or(list.len()) };
+                    // The wiki gives no result, but the game gives the index it went in at,
+                    // and for -2 the index of the last entry before it, as AddPackageAt -1
+                    // does [observed: nvse-eighth, Doc's 9 packages: index 0 gave 0, -2
+                    // gave 8 and the count became 10].
+                    let n = list.len();
+                    let (at, out) = match usize::try_from(i).ok().filter(|&i| i <= n) {
+                        Some(at) => (at, at as f64),
+                        _ => (n, n as f64 - 1.0),
+                    };
                     list.insert(at, f);
-                    zero
+                    XVal::Num(out)
                 }
                 "genericdeleteform" => match at {
                     Some(i) => XVal::Ref(list.remove(i).0),

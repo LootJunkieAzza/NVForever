@@ -12,14 +12,15 @@ step files are `tools/capture/jip-probes/<set>.steps.json` (`jip_probes.py steps
 
 ## The sets
 
-Lab: rows matching on claude/ext-compiler e02b071f (merged into claude/jip-lab).
+Lab: rows matching on claude/nvse-integration (ext-compiler and jip-lab merged with main,
+2026-10-30; the merge changed no row). Where the remaining rows stand: nvse-next-batch.md §7.
 "Engine" rows need 3D, AI, combat or animation ticks that `ext queries` does not run;
 "save" rows depend on state in the owner's save; neither can match in the lab, and
 nothing is marked or loosened for them.
 
 | Set | Rows | Scenario | Lab | Covers; rows the lab cannot match |
 |---|---|---|---|---|
-| jip-getters | 42 | L5.ext.jip.getters | 38/42 | JIP base-form getters |
+| jip-getters | 42 | L5.ext.jip.getters | 39/42 | JIP base-form getters |
 | jip-forms | 24 | L5.ext.jip.forms | 21/24 | JIP form utilities |
 | jip-stores | 32 | L5.ext.jip.stores | 32/32 | aux variables, ref maps |
 | jip-events | 17 | L5.ext.jip.events | 17/17 | health-damage handler, main-loop callback |
@@ -35,7 +36,7 @@ nothing is marked or loosened for them.
 | nvse-math | 15 | L5.ext.nvse.math | 15/15 | math |
 | nvse-data | 20 | L5.ext.nvse.data | 20/20 | data |
 | nvse-inv | 21 | L5.ext.nvse.inv | 21/21 | inventory |
-| nvse-second … nvse-eighth | 89, 25, 77, 77, 41, 44, 59 | L5.ext.nvse.second … eighth | 87, 25, 72, 76, 41, 38, 54 | the xNVSE core families (xnvse-remaining.md §3); a few save rows (player's name, inventory counts, Doc's talked-to flag) |
+| nvse-second … nvse-eighth | 89, 25, 77, 77, 41, 44, 59 | L5.ext.nvse.second … eighth | 87, 25, 72, 76, 41, 38, 55 | the xNVSE core families (xnvse-remaining.md §3); a few save rows (player's name, inventory counts, Doc's talked-to flag) |
 | nvse-keynames | 266 | L5.ext.nvse.keynames | 266/266 | key names |
 | jip-fifth | 70 | L5.ext.jip.fifth | 62/70 | JIP fifth batch |
 | lu-leveled, lu-leveled2 | 94, 40 | L5.ext.lu.leveled, …leveled2 | 91, 33 | N1 leveled lists: entry kinds, the player-level rule, containers, AddItem |
@@ -44,7 +45,7 @@ nothing is marked or loosened for them.
 | jip-n7 | 89 | L5.ext.jip.n7 | 84/89 | N7 JIP actor and game odds |
 | player-state | 31 | L5.ext.jip.playerstate | 31/31 | sweep-ranked getters, N8 pad |
 | mcm | 13 | L5.ext.mcm | 12/13 | N2 outside the pause menu (load order + MCM's ESP); in-menu rows not probed |
-| plugin-odds | 42 | L5.ext.plugin.odds | 37/42 | N9 JohnnyGuitar / ShowOff / ITR leftovers |
+| plugin-odds | 42 | L5.ext.plugin.odds | 42/42 (+2 ITR rows the game could not run) | N9 JohnnyGuitar / ShowOff / ITR leftovers |
 | projectile | 33 | L5.ext.jip.projectile | 14/33 | impact handlers on a fired round; engine rows |
 | sky-sound | 193 | L5.ext.jip.skysound | 191/193 | N4 sound, weather (00171285 by name), image space; 2 save rows (current weather) |
 | knvse-anim | 32 | L5.ext.knvse.anim | 18/32 | N5 kNVSE; engine rows (what an actor plays) |
@@ -54,16 +55,16 @@ nothing is marked or loosened for them.
 | nvse-leftovers | 16 | L5.ext.nvse.leftovers | 13/16 | N13 leftovers |
 | save-set, save-read | 46, 33 | none | – | N12 state across a save (one save `nvfprobe`, removed after; owner-review) |
 | rgb-ui | 34 | L5.ext.jip.rgbui | 24/34 | SetWeatherRGBColor overflow rule; HUD traits wait on UI T3 |
-| gaps1 | 25 | L5.ext.gaps1 | not run yet | the scan's most used functions no other set called |
-| gaps2-gaps6 | – | L5.ext.gaps2-6 | – | the counts' next functions; the extender core's questions; DPS on the skill curve |
-| gaps7 | 110 | L5.ext.gaps7 | not run yet | DPS critical part; explosion, perk and package flags; dimensions, terrain, item kinds |
-| gaps8 | 48 | L5.ext.gaps8 | not run yet | worldspace climate and flags, climate textures, armour audio and model paths, setters read back |
-| gaps9 | 103 | L5.ext.gaps9 | not run yet | melee and unarmed DPS: five weapons' record fields, crit damage 0, CritChance +10, skill +16 |
-| gaps10 | 57 | L5.ext.gaps10 | not run yet | ref map strings, RunScriptSnippet, array files (written in the game folder, removed after), impact data, ray casts, SetPosEx, sneaking, first person |
-| gaps11 | 47 | L5.ext.gaps11 | not run yet | SetPosEx translate frame (Doc, the player at heading 90 and 0); item-ref health, mod flags, ammo rounds |
-| plugins1 | 71 | L5.ext.plugins1 | not run yet | the most used unprobed LU, JohnnyGuitar and ShowOff functions (idles, recipes, ingestible and race flags, easing, DLL checks) |
-| plugins2 | 67 | L5.ext.plugins2 | not run yet | ingestible flags on food, drink and poison; ApplyEasing's other curves; IsDLLLoaded names; map markers, pickup sounds, recipe subcategory, RemoveFormFromFormList |
-| plugins3 | 21 | L5.ext.plugins3 | not run yet | GetName on 521 references near the player (none reads its own name); JohnnyGuitar perk events; SetGlobalValue; GetAvailableRadios |
+| gaps1 | 25 | L5.ext.gaps1 | 14/25 | the scan's most used functions no other set called |
+| gaps2-gaps6 | 53, 57, 42, 100, 55 | L5.ext.gaps2-6 | 44, 53, 39, 93, 40 | the counts' next functions; the extender core's questions; DPS on the skill curve |
+| gaps7 | 110 | L5.ext.gaps7 | 83/110 | DPS critical part; explosion, perk and package flags; dimensions, terrain, item kinds |
+| gaps8 | 48 | L5.ext.gaps8 | 47/48 | worldspace climate and flags, climate textures, armour audio and model paths, setters read back |
+| gaps9 | 103 | L5.ext.gaps9 | 62/103 | melee and unarmed DPS: five weapons' record fields, crit damage 0, CritChance +10, skill +16 |
+| gaps10 | 57 | L5.ext.gaps10 | 52/57 | ref map strings, RunScriptSnippet, array files (written in the game folder, removed after), impact data, ray casts, SetPosEx, sneaking, first person |
+| gaps11 | 47 | L5.ext.gaps11 | 36/47 | SetPosEx translate frame (Doc, the player at heading 90 and 0); item-ref health, mod flags, ammo rounds |
+| plugins1 | 71 | L5.ext.plugins1 | 67/71 | the most used unprobed LU, JohnnyGuitar and ShowOff functions (idles, recipes, ingestible and race flags, easing, DLL checks) |
+| plugins2 | 67 | L5.ext.plugins2 | 67/67 | ingestible flags on food, drink and poison; ApplyEasing's other curves; IsDLLLoaded names; map markers, pickup sounds, recipe subcategory, RemoveFormFromFormList |
+| plugins3 | 21 | L5.ext.plugins3 | 19/21 | GetName on 521 references near the player (none reads its own name); JohnnyGuitar perk events; SetGlobalValue; GetAvailableRadios |
 | engine1 | 58 | none (engine side) | – | goldens for engine-built functions: P2P ray casts from the player, PushObject on a placed stimpak, toggle timing per frame, GetAvailableRadios forms |
 | engine2 | 30 | none (engine side) | – | P2P ray cast collision flags 0-4 down and north; PlayMusic and IsMusicPlaying |
 | engine3 | 10 | none (engine side) | – | straight-down ray casts 200 units from the player, with terrain height |
