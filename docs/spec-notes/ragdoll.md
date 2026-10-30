@@ -146,6 +146,20 @@ only when no constraint joins them and their shapes are more than 1 unit apart i
 bind pose (an arm lies on the chest, not in it; neighbours that overlap by construction
 do not fight their joints). Explosions push ragdoll bodies like other loose bodies.
 
+**Corpse against corpse** (#910). Two *small* ragdolls of different actors pass
+through each other [design; hypothesis: whether the original lets corpses pass through
+each other is not known]. Small means the bind-pose shapes, actor scale included, fit
+in a 64-unit box (`fnv_phys::ragdoll::SMALL_RAGDOLL_SPAN`): rats, geckos, radroaches,
+bloatflies, mantis nymphs [hypothesis: sizes not measured creature by creature]. A small
+corpse still meets the terrain, references, loose objects and every bigger corpse, and
+two big corpses (people, dogs and up) still pile up, so no visible sinking where the eye
+would notice it. Why: a heap of 20+ small corpses in one spot made the solver work on
+their contacts for the 3 s before they are held at rest. Measured (test
+`small_corpses_pass_through_each_other_big_ones_pile_up`, 25 three-ball chains dropped
+on one spot, 3 s): 61 touching pairs between corpses at the peak and 0.38 ms a step
+before, 0 pairs and 0.09 ms a step after; the same chains at 3× size (84 units) keep
+colliding (57 pairs at the peak).
+
 **Hits.** A shot or melee blow on an actor sends a shove (`nvf_play::combat::ActorPush`):
 the ragdoll body nearest the hit point gets an impulse there along the shot (140 units
 per second for a shot, 220 for a blow, × 1.6 for a power attack). The killing hit's shove
