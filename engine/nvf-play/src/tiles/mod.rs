@@ -182,11 +182,8 @@ impl HudTiles<'_> {
         let prompt = self.target.as_ref().and_then(|t| t.0.as_ref()).filter(|_| shown.info).map(|t| crate::reticle::Prompt::bound(t, &self.sim, self.bindings.as_deref()));
         // Reuse the latest drawing snapshot before scripts [design: ui-tile-tree.md §4.1].
         let weapon = self.combat.as_ref().map(|c| c.hud_weapon(&self.sim)).unwrap_or_default();
-        let enemy = self.enemy.as_ref().and_then(|e| e.0.as_ref()).map(|e| {
-            let actor = fnv_sim::FormId(e.form_id);
-            let fighting = game.awareness.get(actor).and_then(|a| a.combat_target()).is_some_and(|(t, _)| t == fnv_sim::FormId::PLAYER_REF);
-            fnv_game::ui_hud::Enemy { name: e.name.clone(), health: f64::from(e.health), hostile: fighting || game.would_attack(actor, fnv_sim::FormId::PLAYER_REF) }
-        });
+        // Hostility as `hud_target::aim` worked it out this frame, so both HUDs agree.
+        let enemy = self.enemy.as_ref().and_then(|e| e.0.as_ref()).map(|e| fnv_game::ui_hud::Enemy { name: e.name.clone(), health: f64::from(e.health), hostile: e.hostile });
         use fnv_game::aid::{DEHYDRATION, HUNGER, SLEEP_DEPRIVATION, RAD_LEVEL};
         let need_stages = [DEHYDRATION, HUNGER, SLEEP_DEPRIVATION, RAD_LEVEL].map(|code| {
             game.player.need_stages.get(&code).and_then(|held| game.data.need_stages.get(&code)?.iter().position(|s| s.stage == *held)).map_or(0, |i| i + 1)
