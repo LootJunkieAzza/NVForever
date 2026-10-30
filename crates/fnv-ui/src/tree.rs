@@ -7,7 +7,10 @@ use crate::expr::{self, Arg, Op, OpKind, Src};
 use crate::value::Value;
 use crate::xml::{self, Element, Node};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
+use std::panic::Location;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 /// The tile kinds, the tags that make a tile [observed: the tags with a `name`
 /// attribute in the vanilla files; `window` is in no vanilla file but in older Gamebryo
@@ -92,15 +95,25 @@ fn norm(path: &str) -> String {
     path.replace('/', "\\").to_ascii_lowercase()
 }
 
-/// A tile: its slot in the tree and the slot's generation when the tile was made. An
-/// unloaded tile's slot is used again for a later tile with the next generation, so an id
-/// kept past its tile's unloading names no tile ([`Ui::tile`] answers a dead, empty tile)
-/// and never the slot's new tile [design: #1039].
+/// A tile: its tree, its slot in the tree and the slot's generation when the tile was
+/// made. An unloaded tile's slot is used again for a later tile with the next generation,
+/// so an id kept past its tile's unloading names no tile ([`Ui::tile`] answers a dead,
+/// empty tile) and never the slot's new tile; nor does an id kept from a tree since
+/// replaced (a load builds a new one) name a tile of the new tree [design: #1039, #1061].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TileId {
+    tree: u32,
     index: u32,
     gen: u32,
 }
+
+/// The number the next [`Ui::new`] takes, so each tree's ids are its own.
+static NEXT_TREE: AtomicU32 = AtomicU32::new(1);
+
+/// Updates in a row that each followed a change of the tree's shape (so worked every
+/// expression out) before [`Ui::take_reshape_warning`] answers [design: #1061, about two
+/// seconds of frames; loading a menu takes a few].
+const RESHAPED_RUN_WARNING: u32 = 120;
 
 impl TileId {
     /// The tile's slot: the same for a later tile made there, so not an identity.
@@ -219,12 +232,25 @@ pub struct Ui {
     /// Each slot's generation, one up each time its tile is unloaded.
     slot_gens: Vec<u32>,
     /// The slots of unloaded tiles, to use again [design: #1039, so opening and closing a
-    /// menu leaves the tree its size].
-    free: Vec<u32>,
+    /// menu leaves the tree its size], the lowest first: a menu's tiles then take slots in
+    /// the order they are made, parents before children, as [`Ui::update`] walks the
+    /// slots, so a reopened menu settles in as few passes as when first opened.
+    free: BinaryHeap<Reverse<u32>>,
     /// One up whenever tiles are made, unloaded or changed other than in a value (renamed,
     /// given a trait or a template): what a source names may have changed, so the sources
     /// a trait read last are no longer known.
     shape: u64,
+    /// This tree's number, in every [`TileId`] it makes ([`Ui::new`]).
+    tree: u32,
+    /// The shape when [`Ui::update`] last ran, the updates in a row that found it changed,
+    /// whether that was told ([`Ui::take_reshape_warning`]), and the last change of shape
+    /// made from outside the tree: what did it and from where.
+    shape_at_update: u64,
+    reshaped_run: u32,
+    reshape_told: bool,
+    reshaped_by: Option<(&'static str, &'static Location<'static>)>,
+    /// The public call under way and where it was called from, for `reshaped_by`.
+    op: Option<(&'static str, &'static Location<'static>)>,
     /// The loaded menus (and `globals()`, `screen()`, `strings()`), in load order.
     roots: Vec<TileId>,
     globals: Option<TileId>,
@@ -256,13 +282,16 @@ pub struct Ui {
     /// Work every expression out at every pass as before #1039, for the tests to compare.
     #[cfg(test)]
     pub(crate) never_skip: bool,
+    /// Passes the last [`Ui::update`] made, for the tests.
+    #[cfg(test)]
+    pub(crate) passes: usize,
 }
 
 impl Ui {
     /// An empty tree with the three pseudo-tiles `screen()`, `strings()` and (until
     /// [`Ui::load_globals`]) an empty `globals()`.
     pub fn new() -> Ui {
-        let mut ui = Ui::default();
+        let mut ui = Ui { tree: NEXT_TREE.fetch_add(1, Ordering::Relaxed), ..Ui::default() };
         let screen = ui.new_tile("rect", "screen()", None, Origin::Code);
         let strings = ui.new_tile("rect", "strings()", None, Origin::Code);
         let globals = ui.new_tile("rect", "globals()", None, Origin::Code);
@@ -275,7 +304,9 @@ impl Ui {
 
     /// Sets a trait as the game's code does for a value it writes only when the value
     /// changes: nothing when `v` is what the code wrote last, whatever a script set since.
+    #[track_caller]
     pub fn write_changed(&mut self, tile: TileId, name: &str, v: Value) {
+        self.entered("write_changed");
         if !self.is_live(tile) {
             return;
         }
@@ -298,16 +329,20 @@ impl Ui {
 
     /// Whether `id` names a loaded tile of this tree: false for one unloaded (even when
     /// a later tile has its slot), and for an id kept from a tree since replaced (a load
-    /// builds a new one) when the new tree has fewer slots or that slot's generation moved
-    /// on [design].
+    /// builds a new one) [design].
     pub fn is_live(&self, id: TileId) -> bool {
         self.slot(id).is_some()
+    }
+
+    /// The id of the tile in slot `i` now.
+    fn id_at(&self, i: usize) -> TileId {
+        TileId { tree: self.tree, index: i as u32, gen: self.slot_gens[i] }
     }
 
     /// The id's slot, when its tile is loaded.
     fn slot(&self, id: TileId) -> Option<usize> {
         let i = id.index as usize;
-        (self.slot_gens.get(i) == Some(&id.gen) && self.tiles[i].live).then_some(i)
+        (id.tree == self.tree && self.slot_gens.get(i) == Some(&id.gen) && self.tiles[i].live).then_some(i)
     }
 
     /// How many slots the tree holds: the most tiles loaded at once, the pseudo-tiles
@@ -326,9 +361,39 @@ impl Ui {
     /// (the shape changed). Value writes go through `set_at`.
     fn tile_mut(&mut self, id: TileId) -> &mut Tile {
         self.dirty = true;
-        self.shape += 1;
+        self.reshape();
         let i = self.slot(id).expect("a loaded tile");
         &mut self.tiles[i]
+    }
+
+    /// A public call that may change the shape starts: what it is and where it was called
+    /// from, kept for [`Ui::take_reshape_warning`].
+    #[track_caller]
+    fn entered(&mut self, what: &'static str) {
+        self.op = Some((what, Location::caller()));
+    }
+
+    /// The shape changes: what a source names may have changed, so every expression is
+    /// worked out at the next update.
+    fn reshape(&mut self) {
+        self.shape += 1;
+        self.reshaped_by = self.op;
+    }
+
+    /// [design: #1061] Once, when the shape changed before each of the last
+    /// [`RESHAPED_RUN_WARNING`] updates, so that every update worked every expression out
+    /// (the skip of #1039 lost): a line naming the last call that changed it and where
+    /// from. The engine asks after each update and logs it.
+    pub fn take_reshape_warning(&mut self) -> Option<String> {
+        if self.reshape_told || self.reshaped_run < RESHAPED_RUN_WARNING {
+            return None;
+        }
+        self.reshape_told = true;
+        let by = match self.reshaped_by {
+            Some((what, at)) => format!("{what} called at {}:{}", at.file(), at.line()),
+            None => "unknown".into(),
+        };
+        Some(format!("ui tree: its shape changed before each of {} updates in a row, so each worked every expression out; last change: {by}", self.reshaped_run))
     }
 
     pub fn screen(&self) -> TileId {
@@ -355,17 +420,17 @@ impl Ui {
 
     fn new_tile(&mut self, kind: &str, name: &str, parent: Option<TileId>, origin: Origin) -> TileId {
         self.dirty = true;
-        self.shape += 1;
+        self.reshape();
         let tile = Tile { origin, kind: kind.to_ascii_lowercase(), name: name.to_string(), parent, live: true, ..Tile::dead() };
         let id = match self.free.pop() {
-            Some(index) => {
+            Some(Reverse(index)) => {
                 self.tiles[index as usize] = tile;
-                TileId { index, gen: self.slot_gens[index as usize] }
+                self.id_at(index as usize)
             }
             None => {
                 self.tiles.push(tile);
                 self.slot_gens.push(0);
-                TileId { index: self.tiles.len() as u32 - 1, gen: 0 }
+                self.id_at(self.tiles.len() - 1)
             }
         };
         if let Some(p) = parent {
@@ -401,7 +466,7 @@ impl Ui {
     fn recount_mod_tiles(&mut self) {
         self.mod_tiles.clear();
         for i in 0..self.tiles.len() {
-            let id = TileId { index: i as u32, gen: self.slot_gens[i] };
+            let id = self.id_at(i);
             if self.tile(id).live && self.is_mod_added(id) {
                 self.count_mod_tile(id, true);
             }
@@ -419,7 +484,9 @@ impl Ui {
     }
 
     /// Reads `menus\globals.xml` into `globals()`.
+    #[track_caller]
     pub fn load_globals(&mut self, src: &dyn Source) -> bool {
+        self.entered("load_globals");
         let Some(doc) = self.read_doc(src, "menus\\globals.xml") else {
             return false;
         };
@@ -445,7 +512,9 @@ impl Ui {
 
     /// Reads a menu file (`menus\…\x_menu.xml`) and builds its menu; a menu of the same
     /// name already loaded is unloaded first. Returns the menu's tile.
+    #[track_caller]
     pub fn load_menu(&mut self, src: &dyn Source, path: &str) -> Result<TileId, String> {
+        self.entered("load_menu");
         let doc = self.read_doc(src, path).ok_or_else(|| format!("{path}: not found"))?;
         let menu = doc
             .nodes
@@ -632,7 +701,9 @@ impl Ui {
 
     /// Unloads a tile and everything in it, and frees their slots for later tiles;
     /// nothing for an id whose tile is already unloaded.
+    #[track_caller]
     pub fn unload_tile(&mut self, id: TileId) {
+        self.entered("unload_tile");
         if !self.is_live(id) {
             return;
         }
@@ -651,12 +722,12 @@ impl Ui {
         }
         self.roots.retain(|&r| r != id);
         self.dirty = true;
-        self.shape += 1;
+        self.reshape();
         for &t in &gone {
             let i = t.index as usize;
             self.tiles[i] = Tile::dead();
             self.slot_gens[i] = self.slot_gens[i].wrapping_add(1);
-            self.free.push(t.index);
+            self.free.push(Reverse(t.index));
         }
         // Forget what was kept by the tiles' ids, so nothing grows as menus open and close.
         if !self.uio_tiles.is_empty() || !self.code_written.is_empty() {
@@ -785,7 +856,9 @@ impl Ui {
     /// Sets a tile's trait by name, making it when it is not there (the engine's own
     /// writes: the game code's `io()` traits, `screen()`'s size).
     /// Nothing for an id whose tile is unloaded.
+    #[track_caller]
     pub fn set_trait(&mut self, tile: TileId, name: &str, v: Value) {
+        self.entered("set_trait");
         if !self.is_live(tile) {
             return;
         }
@@ -826,7 +899,9 @@ impl Ui {
     /// Puts XML text into the tile a path names (`InjectUIComponent`): tiles, templates,
     /// traits and includes, as if the tile's file had them at its end. False when the
     /// path names no tile.
+    #[track_caller]
     pub fn inject_text(&mut self, src: &dyn Source, at: &str, text: &str) -> bool {
+        self.entered("inject_text");
         let Some(tile) = self.find_tile(at) else { return false };
         let doc = xml::parse(text);
         for w in &doc.warnings {
@@ -839,7 +914,9 @@ impl Ui {
     /// Puts a file's XML into the tile a path names (`InjectUIXML`); the file's path is
     /// under the game's folder (`data\menus\…`) [documented: InjectUIXML notes] or under
     /// `Data`. False when the path names no tile or the file is not there.
+    #[track_caller]
     pub fn inject_file(&mut self, src: &dyn Source, at: &str, file: &str) -> bool {
+        self.entered("inject_file");
         let f = file.replace('/', "\\");
         let f = match f.get(..5) {
             Some(head) if head.eq_ignore_ascii_case("data\\") => &f[5..],
@@ -852,13 +929,17 @@ impl Ui {
     /// Makes a tile from a template under the tile a path names
     /// (`AddTileFromTemplate`): the template is looked for on that tile and then on the
     /// tiles above it [hypothesis], the new tile named `name` when given. Returns it.
+    #[track_caller]
     pub fn add_from_template(&mut self, src: &dyn Source, at: &str, template: &str, name: Option<&str>) -> Option<TileId> {
+        self.entered("add_from_template");
         self.add_template(src, at, template, name, Origin::Template)
     }
 
     /// [design] Make engine-owned template copies, including every top-level tile and
     /// descendant in the template body. These copies are excluded from mod tile roots.
+    #[track_caller]
     pub fn add_code_tile_from_template(&mut self, src: &dyn Source, at: &str, template: &str, name: Option<&str>) -> Option<TileId> {
+        self.entered("add_code_tile_from_template");
         self.add_template(src, at, template, name, Origin::Code)
     }
 
@@ -962,18 +1043,32 @@ impl Ui {
     /// Returns how many trait values changed. Nothing to do when nothing changed since it
     /// last finished.
     pub fn update(&mut self) -> usize {
+        if self.shape != self.shape_at_update {
+            self.shape_at_update = self.shape;
+            self.reshaped_run += 1;
+        } else {
+            self.reshaped_run = 0;
+        }
         if !self.dirty {
             return 0;
         }
         let mut changed = 0;
         let mut sources = Vec::new();
+        #[cfg(test)]
+        {
+            self.passes = 0;
+        }
         for _ in 0..MAX_PASSES {
+            #[cfg(test)]
+            {
+                self.passes += 1;
+            }
             let mut this_pass = 0;
             for id in 0..self.tiles.len() {
                 if !self.tiles[id].live {
                     continue;
                 }
-                let tid = TileId { index: id as u32, gen: self.slot_gens[id] };
+                let tid = self.id_at(id);
                 for k in 0..self.tiles[id].traits.len() {
                     let tr = &self.tiles[id].traits[k];
                     let Some(ops) = tr.expr.as_ref() else { continue };

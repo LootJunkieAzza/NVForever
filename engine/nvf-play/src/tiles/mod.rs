@@ -366,6 +366,10 @@ fn update(mut script: ResMut<ScriptState>) {
     let Some(rt) = script.rt.as_mut() else { return };
     if rt.game.ui_files.is_some() {
         rt.game.ui_tree.update();
+        // Once, if something changes the tree's shape every frame (#1061).
+        if let Some(line) = rt.game.ui_tree.take_reshape_warning() {
+            warn!("{line}");
+        }
     }
     // MenuTapKey's keys stay queued unless a menu takes tile input (`input::feed`) [design].
 }

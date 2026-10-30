@@ -52,7 +52,11 @@ the reader, the tree, trait evaluation and the script-facing API (`crates/fnv-ui
 - **Skipping unchanged traits**: an expression remembers the traits it read when last
   worked out; while the tree's shape (tiles made, unloaded, renamed, traits added) is
   unchanged and none of those traits changed since, `Ui::update` skips it without
-  working it out (#1039). A changed shape works every expression out once more.
+  working it out (#1039). A changed shape works every expression out once more. If the
+  shape changed before each of 120 updates in a row (the skip lost), the engine logs one
+  warning naming the last call that changed it and where from (`Ui::take_reshape_warning`,
+  #1061). Each tree also has its own number in its ids, so an id kept from a tree since
+  replaced names no tile of the new one.
 - **Paths**: `Menu/Tile/…/trait`, any case, `/` or `\`, `*` and `name:N` (menu-xml.md
   §5): `Ui::find_tile`, `Ui::find_trait`, `Ui::path_of`.
 
