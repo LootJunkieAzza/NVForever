@@ -128,8 +128,10 @@ or holds no `<menu>` is an error for that menu only.
 
    The HUD's writes (`fnv_game::ui_hud::write`) are made only when something reads
    them: the tile-drawn HUD (`[UI] TileMenus=HUDMainMenu`), mod tiles in the HUD, or a
-   script that has called a UI function. Otherwise the frame keeps them
-   (`ui_hud::defer`), and the first UI function call makes them before it reads
+   script that has called a UI function on the HUD (a path whose menu is `HUDMainMenu`:
+   a trait read or set there, a tile injected, made from a template or unloaded there;
+   calls on other menus and MCM's shorthands do not count, #937). Otherwise the frame
+   keeps them (`ui_hud::defer`), and the first such call makes them before it reads
    (`ui_hud::flush`); from then on they are written every frame [design: maintainer's
    review of #902, so the default game does no tree work a frame]. The measured text
    widths are kept with them as their measure (the engine's fonts, owned, a
