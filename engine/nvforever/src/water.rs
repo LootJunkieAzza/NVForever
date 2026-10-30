@@ -52,7 +52,7 @@ use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError};
 use bevy::shader::ShaderRef;
-use fnv_world::land::{load_land, LandParts};
+use fnv_world::land::{load_land, LandParts, SIDE};
 use fnv_world::sky::{srgb_to_linear, ColorType, Water};
 use fnv_world::{cell_of, CELL_SIZE};
 use nvf_assets::model::ModelCtx;
@@ -226,6 +226,9 @@ pub fn water_material(world: &WorldData, wid: u32, models: &mut ModelCtx, water:
 pub struct DistantWater {
     /// Per cell: its visible water surface (height, water type), or `None`.
     surfaces: HashMap<(i32, i32), Option<(f32, u32)>>,
+    /// Per cell with a visible surface: the part of it where the water stands above the
+    /// land, `[x0, y0, x1, y1]` in game units ([`DistantWater::wet_area`]).
+    wet: HashMap<(i32, i32), [f32; 4]>,
     planes: HashMap<(i32, i32), Entity>,
     /// Camera cell and loaded-cell count the planes were placed for.
     built_for: Option<((i32, i32), usize)>,
@@ -234,7 +237,30 @@ pub struct DistantWater {
 impl DistantWater {
     /// The visible water surface of cell `g` (height, water type), computed on first use.
     pub fn surface(&mut self, world: &WorldData, g: (i32, i32)) -> Option<(f32, u32)> {
-        *self.surfaces.entry(g).or_insert_with(|| visible_surface(world, g))
+        if let Some(s) = self.surfaces.get(&g) {
+            return *s;
+        }
+        let v = visible_surface(world, g);
+        if let Some((_, _, wet)) = v {
+            self.wet.insert(g, wet);
+        }
+        let s = v.map(|(h, w, _)| (h, w));
+        self.surfaces.insert(g, s);
+        s
+    }
+
+    /// The part of cell `g` where its visible water stands above the land, `[x0, y0, x1,
+    /// y1]` in game units: the box round the landscape's vertices under the surface,
+    /// widened by one vertex step (the shore lies between a vertex under it and one
+    /// above), or the whole cell without a landscape. `None` without a visible surface.
+    pub fn wet_area(&mut self, world: &WorldData, g: (i32, i32)) -> Option<[f32; 4]> {
+        self.surface(world, g)?;
+        self.wet.get(&g).copied()
+    }
+
+    /// The cells that have a distant water plane now.
+    pub fn plane_cells(&self) -> impl Iterator<Item = (i32, i32)> + '_ {
+        self.planes.keys().copied()
     }
 
     /// Forget every surface and remove every plane (the worldspace changed).
@@ -243,11 +269,12 @@ impl DistantWater {
             commands.entity(e).despawn();
         }
         self.surfaces.clear();
+        self.wet.clear();
         self.built_for = None;
     }
 }
 
-fn visible_surface(world: &WorldData, g: (i32, i32)) -> Option<(f32, u32)> {
+fn visible_surface(world: &WorldData, g: (i32, i32)) -> Option<(f32, u32, [f32; 4])> {
     let c = world.grid_cell(g)?;
     let ws = &world.index.worldspaces[&world.world];
     // "No LOD Water" on the cell (CELL DATA bit 3) or the worldspace (WRLD DATA bit 4):
@@ -260,16 +287,33 @@ fn visible_surface(world: &WorldData, g: (i32, i32)) -> Option<(f32, u32)> {
     }
     let height = c.water_surface(ws.default_water_height)?;
     let wid = c.water_type.or(ws.water)?;
+    let (x0, y0) = (g.0 as f32 * CELL_SIZE, g.1 as f32 * CELL_SIZE);
+    let mut wet = [x0, y0, x0 + CELL_SIZE, y0 + CELL_SIZE];
     if let Some(land) = c.land {
-        let low = load_land(world.lo, world.schema, land, LandParts::HEIGHTS)?
-            .heights?
-            .into_iter()
-            .fold(f32::INFINITY, f32::min);
-        if low >= height {
-            return None;
-        }
+        let heights = load_land(world.lo, world.schema, land, LandParts::HEIGHTS)?.heights?;
+        let [i0, j0, i1, j1] = wet_vertices(&heights, height)?;
+        let step = CELL_SIZE / (SIDE - 1) as f32;
+        wet = [x0 + i0 as f32 * step, y0 + j0 as f32 * step, x0 + i1 as f32 * step, y0 + j1 as f32 * step];
     }
-    Some((height, wid))
+    Some((height, wid, wet))
+}
+
+/// The box `[col0, row0, col1, row1]` round the vertices of a `SIDE` × `SIDE` height grid
+/// (row-major, rows south to north) that lie under `surface`, one vertex wider on every
+/// side and kept inside the grid; `None` when none lies under it.
+fn wet_vertices(heights: &[f32], surface: f32) -> Option<[usize; 4]> {
+    let mut b: Option<[usize; 4]> = None;
+    for (k, &h) in heights.iter().enumerate() {
+        if h >= surface {
+            continue;
+        }
+        let (col, row) = (k % SIDE, k / SIDE);
+        b = Some(match b {
+            None => [col, row, col, row],
+            Some([c0, r0, c1, r1]) => [c0.min(col), r0.min(row), c1.max(col), r1.max(row)],
+        });
+    }
+    b.map(|[c0, r0, c1, r1]| [c0.saturating_sub(1), r0.saturating_sub(1), (c1 + 1).min(SIDE - 1), (r1 + 1).min(SIDE - 1)])
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -378,5 +422,26 @@ pub fn update_water_sky(sky: Res<SkyState>, cache: Res<WaterCache>, mut material
                 m.params.sky_horizon = horizon;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod wet_tests {
+    use super::*;
+
+    #[test]
+    fn wet_box_is_the_dip_one_vertex_wider() {
+        let mut h = vec![100.0; SIDE * SIDE];
+        // A pond under 50 at columns 10-12, rows 20-21.
+        for row in 20..=21 {
+            for col in 10..=12 {
+                h[row * SIDE + col] = 0.0;
+            }
+        }
+        assert_eq!(wet_vertices(&h, 50.0), Some([9, 19, 13, 22]));
+        assert_eq!(wet_vertices(&h, -1.0), None);
+        // At the grid's edge it stays inside the grid.
+        h[0] = 0.0;
+        assert_eq!(wet_vertices(&h, 50.0), Some([0, 0, 13, 22]));
     }
 }
