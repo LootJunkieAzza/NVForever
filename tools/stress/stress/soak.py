@@ -151,7 +151,7 @@ def run(ctx: lib.Ctx, route: str, points: list[tuple[float, float]], world: str,
     doors = teleport_bases(fnvtool_json(ctx, ["sim", "door-models", "--schema", "schemas/fnv"]))
     cands = candidates(refs, doors, points)
     steps, keys, events = schedule(cands, 20.0, event_every, tour_seconds)
-    ctx.say(f"soak: {len(events)} events ({', '.join(f'{k} {sum(1 for e in events if e['kind'] == k)}' for k in KINDS)}) "
+    ctx.say(f"soak: {len(events)} events ({', '.join(f'{k} {sum(1 for e in events if e["kind"] == k)}' for k in KINDS)}) "
             f"from {', '.join(f'{len(v)} {k} candidates' for k, v in cands.items())}")
     (ctx.out / "events.json").write_text(json.dumps(events, indent=1), encoding="utf-8")
     soak_aids = {"NVF_PLAY_AIDS_FROM_SCRIPTS": "1", "NVF_PLAY_TEST_STRESS": "0"}
