@@ -6351,6 +6351,27 @@ forbid = [
 ]
 
 [[scenario]]
+name = "crosshair-style-arrows"
+source = "owner 2026-10-30: the settings page's Crosshair style row picks the gun cross or the parting arrows (engine/nvf-play/src/reticle.rs, docs/spec-notes/reticle.md §7)"
+note = "The settings page picks Arrows at 6 s, before the 10mm Pistol is drawn; the run of shots parts the arrows and the gun cross never shows"
+areas = ["hud", "settings"]
+paths = ["engine/nvf-play/src/reticle.rs", "engine/nvf-play/src/settings.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_PAUSE = "5:7", NVF_PLAY_TEST_SETTINGS = "6:crosshair-style=Arrows", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "8:weapon,11.00:fire,11.20:fire,11.55:fire,11.75:fire,12.10:fire,12.30:fire,12.65:fire,12.85:fire" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--hour", "12", "--size", "1280x720"]
+run_seconds = 15
+expect = [
+  { re = 'reticle: plain spread [1-9]\d*\.\d \(cone [0-9.]+ deg\)', label = "the arrows part with the weapon drawn" },
+]
+order = [[
+  "reticle: crosshair style Cross",
+  "reticle: crosshair style Arrows",
+  { re = 'combat: kick: shot 1 in a row' },
+]]
+forbid = [
+  { text = "reticle: gun cross (four bars)", label = "no gun cross with the Arrows style" },
+]
+
+[[scenario]]
 name = "compass-reticle"
 source = "owner's playtest list 5, items 15, 57 and 58 (docs/spec-notes/hud.md §11, reticle.md §6): at the bighorner pen with the varmint rifle drawn the crosshair's arrows open with the spread; the bighorners are ticks on the compass, red once shot; the crosshair is red over one that turned on the player"
 areas = ["hud", "combat"]
