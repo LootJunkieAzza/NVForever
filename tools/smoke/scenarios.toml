@@ -4275,7 +4275,7 @@ expect = [
   { re = 'combat: Khan Trick \(Right power attack, unarmed\): clip attackcustom5power', label = "a power attack to the right is Khan Trick, with its own clip" },
   { re = 'combat: Legion Assault \(Forward power attack, unarmed\): clip attackcustom1power', label = "a forward power attack is Legion Assault, with its own clip" },
   { re = 'combat: Fists swing attackcustom1power', label = "the swing plays the Legion Assault clip" },
-  { re = 'combat: Legion Assault: the player lunges 332 units', label = "Legion Assault starts the lunge" },
+  { re = 'combat: Legion Assault: the player lunges with its clip', label = "Legion Assault starts the lunge" },
 ]
 
 manual = "move_ranger_takedown.png, move_khan_trick.png, move_legion_assault.png: the player's body in each move's own clip (h2hattackcustom2power, custom5power, custom1power), not the plain directional power attack"
@@ -9782,10 +9782,10 @@ order = [["menu: One: Opened Keyring", "menu: One: Back to Misc", "menu: One: Op
 [[scenario]]
 name = "death-stops-character"
 source = "owner's playtest list 7 item 14 (docs/spec-notes/physics.md §6.8): a creature killed while it charges glided on along its last walk, and its invisible character pushed the player; on death its character is taken away"
-note = "the crippled-limp-gecko gecko (VERGSGecko2REF 0x00157B3D, god mode) is put 400 units from the player and set on them at 9 s, killed at 11 s while it runs at the player, so the character controller walks it when it dies"
+note = "the crippled-limp-gecko gecko (VERGSGecko2REF 0x00157B3D, god mode) is put 900 units from the player and set on them at 9 s, killed at 11 s while it runs (or lunges) at the player, so the character controller moves it when it dies. From 400 units its forward power attack (374 units, which carries it since #1069) brought it to the player before 11 s, standing"
 areas = ["physics", "combat", "creatures"]
 paths = ["engine/nvforever/src/residents.rs", "engine/nvf-play/src/phys.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:moveto:0x00157B3D:player:400:0:0,9:combat:0x00157B3D:player,11:call:0x00157B3D:KillActor" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:moveto:0x00157B3D:player:900:0:0,9:combat:0x00157B3D:player,11:call:0x00157B3D:KillActor" }
 args = ["--play", "--pos=-69100,-17219,9000", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 18
 expect = [

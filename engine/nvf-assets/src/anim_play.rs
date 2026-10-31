@@ -625,7 +625,7 @@ pub struct BoundClip {
     /// up with no `Bip01 NonAccum` track, which over an idle's pelvis height lifted the
     /// whole body off the ground, docs/spec-notes/floating-actors.md).
     pub root_track: Option<(usize, Vec3, f32)>,
-    /// The clip's travel is its actor's (attack clips, actors.md §8.13): sampling holds
+    /// The clip's travel is its actor's (attack clips that lunge, actors.md §8.13): sampling holds
     /// the root's ground position (x, y) where the track starts, this, so all of the
     /// travel is taken out of the pose (not only the linear accumulation of §8.2), and
     /// whoever plays the clip moves the actor by [`BoundClip::travel`] instead. Set by
@@ -634,8 +634,12 @@ pub struct BoundClip {
 }
 
 /// A clip whose root gets no farther than this from where it starts (game units, along
-/// the ground) does not carry its actor ([`BoundClip::carried`]) [design].
-pub const CARRY_MIN: f32 = 1.0;
+/// the ground) does not carry its actor ([`BoundClip::carried`]): it steps in place by
+/// §8.2's rule [design: the lunges (the forward power attacks, 229 to 1427) carry, the
+/// ordinary blows (13 to 72, a giant ant's 128) mostly not; carrying the dogs' 55-unit
+/// bites brought them to 37 units of their target for the next, against the original's
+/// median 133 (smoke combat-dogs, npc-behaviour-compare.md §3); actors.md §8.13].
+pub const CARRY_MIN: f32 = 100.0;
 
 impl BoundClip {
     /// Bind `clip`'s tracks to node indices by name (`node`).
@@ -1291,11 +1295,11 @@ mod tests {
 
     #[test]
     fn a_carried_clip_leaves_its_travel_out_of_the_pose() {
-        // A lunge: Bip01 80 forward at 0.5 s, back to 60 at its end (actors.md §8.13).
+        // A lunge: Bip01 160 forward at 0.5 s, back to 120 at its end (actors.md §8.13).
         let (mut player, ix) = player();
         let lunge = Keys {
             kind: KeyKind::Linear,
-            keys: [(0.0, [0.0, 0.0, 0.0]), (0.5, [0.0, 80.0, 0.0]), (1.0, [0.0, 60.0, 0.0])].map(|(time, value)| Key { time, value, forward: [0.0; 3], backward: [0.0; 3], tbc: [0.0; 3] }).to_vec(),
+            keys: [(0.0, [0.0, 0.0, 0.0]), (0.5, [0.0, 160.0, 0.0]), (1.0, [0.0, 120.0, 0.0])].map(|(time, value)| Key { time, value, forward: [0.0; 3], backward: [0.0; 3], tbc: [0.0; 3] }).to_vec(),
         };
         let c = clip(1.0, vec![("Bip01", track(Channel::Keys(lunge), Channel::Static(Some([1.0, 0.0, 0.0, 0.0]))))]);
         let plain = Arc::new(BoundClip::bind(c.clone(), &ix));
@@ -1307,16 +1311,20 @@ mod tests {
             player.sample(&mut out);
             out.iter().find(|(i, _)| *i == 1).unwrap().1.translation.y
         };
-        // §8.2's rule leaves 80 less half of 60 in the pose; carried, none of it.
-        assert!((root_y(&mut player, &plain) - 50.0).abs() < 1e-3);
+        // §8.2's rule leaves 160 less half of 120 in the pose; carried, none of it.
+        assert!((root_y(&mut player, &plain) - 100.0).abs() < 1e-3);
         assert!(root_y(&mut player, &carried).abs() < 1e-3);
         // The travel goes to the actor instead, and ends where the clip ends.
-        assert!((carried.travel(0.0, 0.5) - Vec2::new(0.0, 80.0)).length() < 1e-3);
-        assert!((carried.travel(0.5, 2.0) - Vec2::new(0.0, -20.0)).length() < 1e-3);
+        assert!((carried.travel(0.0, 0.5) - Vec2::new(0.0, 160.0)).length() < 1e-3);
+        assert!((carried.travel(0.5, 2.0) - Vec2::new(0.0, -40.0)).length() < 1e-3);
         assert_eq!(plain.travel(0.0, 0.5), Vec2::ZERO);
-        // A clip whose root stays put does not carry.
-        let still = clip(1.0, vec![("Bip01", track(Channel::Static(Some([0.0, 0.5, 0.0])), Channel::Static(Some([1.0, 0.0, 0.0, 0.0]))))]);
-        assert_eq!(BoundClip::bind(still, &ix).carried().carried, None);
+        // A clip whose root stays within CARRY_MIN does not carry (a bite's step).
+        let step = Keys {
+            kind: KeyKind::Linear,
+            keys: [(0.0, [0.0, 0.0, 0.0]), (1.0, [0.0, 55.0, 0.0])].map(|(time, value)| Key { time, value, forward: [0.0; 3], backward: [0.0; 3], tbc: [0.0; 3] }).to_vec(),
+        };
+        let bite = clip(1.0, vec![("Bip01", track(Channel::Keys(step), Channel::Static(Some([1.0, 0.0, 0.0, 0.0]))))]);
+        assert_eq!(BoundClip::bind(bite, &ix).carried().carried, None);
     }
 
     #[test]

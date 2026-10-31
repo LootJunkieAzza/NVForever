@@ -62,8 +62,8 @@
 //! - While an attack clip plays, the actor's body block keeps the place it had when the
 //!   attack began (`nvf_play::blocking::ActorBlocks::attacking`): a dog's lunge shoved
 //!   the player back 40 units each bite before [design; owner 2026-10-11].
-//! - **Attacks that travel** (docs/spec-notes/actors.md §8.13): a blow's clip whose
-//!   accumulation root (`Bip01`) travels (the Deathclaw's `h2hattackforwardpower.kf`
+//! - **Attacks that travel** (docs/spec-notes/actors.md §8.13): a lunge's clip (a forward
+//!   power attack) whose accumulation root (`Bip01`) travels (the Deathclaw's `h2hattackforwardpower.kf`
 //!   goes 572 units forward and ends 523 forward) carries its actor
 //!   (`BoundClip::carried`): the pose keeps the root where its track starts, and the
 //!   root's travel of each frame ([`CombatPose::travel`]), turned by the actor's heading
@@ -71,7 +71,9 @@
 //!   moves it with its character, so walls and actors stop it, and it stays where the clip
 //!   ends). Before, the clip's travel less its average was left in the pose: the model ran
 //!   ahead of its collision and slid back at the end [observed in NVForever: owner
-//!   2026-10-30, #1069]. Shots, reloads and block reactions do not carry [design].
+//!   2026-10-30, #1069]. Other blows, shots, reloads and block reactions do not carry
+//!   [design: carried, the dogs' standing power attack (187 units) left them biting from
+//!   37 units, against the original's median 133 (smoke `combat-dogs`)].
 //! - **Shots take priority over movement** [design: owner 2026-10-19, "shooting should
 //!   always take priority"]: a shot's clip does not fade out at its end but is held at its
 //!   last frame at full weight for [`SHOT_HOLD`] while the fight goes on, then fades out,
@@ -868,8 +870,9 @@ fn start(
             new_pose.held = None;
             clips.stats.followed += usize::from(follows);
             let fade_in = a.kind != Move::ReloadRound && !follows;
-            // A blow's clip whose root travels carries its actor (module notes).
-            let clip = if a.melee && a.kind == Move::Attack { clips.carried(&rig.skeleton, &path, &clip) } else { clip };
+            // A lunge's clip (a forward power attack) whose root travels carries its
+            // actor (module notes).
+            let clip = if a.melee && a.kind == Move::Attack && a.power == Some(Power::Forward) { clips.carried(&rig.skeleton, &path, &clip) } else { clip };
             if let Some(far) = clip.carried.map(|_| clip.travel(0.0, len).length()) {
                 clips.stats.carried += 1;
                 if clips.stats.logged.insert(format!("carries {}", path.to_ascii_lowercase())) {

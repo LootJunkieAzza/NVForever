@@ -86,11 +86,13 @@ the spec it links to.
     below 35 % health, 3 s apart at least; the idle plays on the upper body so it keeps
     moving. All our numbers: should NPCs heal more, less, or not at all?
     ([combat-ai §21](design/combat-ai.md))
-36. **Lunges carry the attacker.** Every melee blow whose clip moves its root carries the
-    actor that far (a Deathclaw's lunge 523 units, a dog's bite about 50, your forward power
-    attacks 240-280), stopped by walls and by whoever it lunges at; a lunging actor pushes
-    nobody aside, as you ruled for bites. Ordinary bites now step forward too. If you rule
-    otherwise: only power attacks carry, or the player is shoved by lunges.
+36. **Lunges carry the attacker.** A forward power attack (a lunge) whose clip moves its
+    root more than 100 units carries the actor that far (a Deathclaw's 523 units, your
+    forward power attacks 240-280, Legion Assault 332), stopped by walls and by whoever it
+    lunges at; a lunging actor pushes nobody aside, as you ruled for bites. Other blows
+    still step in place (carried, the dogs ended up biting from inside the player's
+    reach); the yao guai's standing power attack (305 units) so still slides back. If you
+    rule otherwise: every travelling blow carries, and the AI must step back after it.
     ([actors §8.13](spec-notes/actors.md))
 
 ## Tier 2: movement and controls feel

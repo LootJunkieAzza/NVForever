@@ -1852,9 +1852,15 @@ as their clips.
 
 **Playback** [design; engine rule, the original's not captured]:
 
-- A **melee blow's** clip (an NPC's, a creature's, and the player's body's) whose `Bip01`
-  gets more than 1 unit from its start (`nvf_assets::anim_play::CARRY_MIN`) carries its
-  actor: the pose holds `Bip01`'s ground position where its track starts (all of its
+- A **lunge's** clip whose `Bip01` gets more than 100 units from its start
+  (`nvf_assets::anim_play::CARRY_MIN`) carries its actor: an NPC's or creature's forward
+  power attack (every `…forwardpower` above), and the player's body's melee attack clips
+  (the forward and custom power attacks: Legion Assault, `1hmattackcustom2power` …). The
+  other blows step in place by §8.2's rule, as before: carrying the dogs' 55-unit bites,
+  and then their standing power attack (`h2hattackpower`, 187), brought them to 37 units
+  of their target for the blows that followed, against the original's median 133 (smoke
+  `combat-dogs`, npc-behaviour-compare.md §3); the yao guai's and cazador's standing
+  power attacks (305, 106) still slide back for that reason. A carried clip: the pose holds `Bip01`'s ground position where its track starts (all of its
   travel out of the pose, not only §8.2's linear accumulation; its height stays relative
   as in §8.2), and its travel of each frame (`Clip::root_travel`) is the actor's,
   turned by the actor's heading and scaled with it. Shots, reloads and block reactions
@@ -1876,7 +1882,7 @@ as their clips.
 - Before: the clips' travel less its average stayed in the pose and the actor did not
   move: the Deathclaw's model ran up to 345 units ahead of its collision and slid back to
   where it started [observed in NVForever: owner 2026-10-30; the numbers from the clip].
-- Not carried yet: other clips with root travel (idles such as the deathclaw's
+- Not carried: other clips with root travel (idles such as the deathclaw's
   `specialidle_cageexit`, getting up, furniture) keep §8.2's rule.
 - **Smoke**: `deathclaw-lunge-carries` (a deathclaw set on the player south of
   Goodsprings: the lunge clip carries it 523 units, and each carried blow ends forward);
