@@ -820,10 +820,13 @@ pub struct GameData {
     pub quests: BTreeMap<FormId, QuestDef>,
     pub infos: HashMap<FormId, InfoDef>,
     /// The dialogue lines (INFO) of each topic (DIAL), in topic order: the order of the
-    /// plugin that first defines each line, then its place in that file; lines a later
-    /// plugin adds follow the earlier plugins' [hypothesis: the masters' INFOs carry no
-    /// PNAM ordering, so file order stands for the editor's list order].
+    /// plugin that first defines each line, then its place in that file, then each line a
+    /// later plugin adds moved up behind the line its Previous INFO (PNAM) names
+    /// ([`follow_previous`]) [hypothesis: the masters' INFOs carry no PNAM ordering, so file
+    /// order stands for the editor's list order; dialogue.md §3.1].
     pub topics: HashMap<FormId, Vec<FormId>>,
+    /// How many lines [`follow_previous`] moved out of file order (0 for the ten masters).
+    pub lines_moved_by_previous: usize,
     /// The topics with shared lines (INFC / INFX, [`TopicDef::shared_infos`]): their own
     /// lines with the shared ones put in at their Info Index, the order
     /// [`GameData::lines_tried`] starts from (dialogue.md §1.2).
@@ -1615,6 +1618,7 @@ impl GameData {
             quests: BTreeMap::new(),
             infos: HashMap::new(),
             topics: HashMap::new(),
+            lines_moved_by_previous: 0,
             shared_lines: HashMap::new(),
             linked_from: HashMap::new(),
             follow_up_targets: HashSet::new(),
@@ -1993,7 +1997,10 @@ impl GameData {
             stages.sort_by_key(|s| (s.threshold, s.stage));
         }
         d.idle_children = idle_children(&d.idles);
-        let (lines, order) = topic_lines(lo);
+        let (mut lines, order, first_plugin) = topic_lines(lo);
+        for list in lines.values_mut() {
+            d.lines_moved_by_previous += follow_previous(list, &first_plugin, &d.infos);
+        }
         d.topics = lines;
         for (topic, lines) in &d.topics {
             for i in lines {
@@ -2194,9 +2201,45 @@ fn linked_from(defs: &HashMap<FormId, TopicDef>, infos: &HashMap<FormId, InfoDef
     out
 }
 
-/// Every topic's dialogue lines in topic order ([`GameData::topics`]), and where each
-/// topic (DIAL) is first defined (plugin, record ordinal).
-type TopicLines = (HashMap<FormId, Vec<FormId>>, HashMap<FormId, (usize, usize)>);
+/// Every topic's dialogue lines in file order (first-defining plugin, then place in that
+/// file), where each topic (DIAL) is first defined (plugin, record ordinal), and the
+/// plugin that first defines each line.
+type TopicLines = (HashMap<FormId, Vec<FormId>>, HashMap<FormId, (usize, usize)>, HashMap<FormId, usize>);
+
+/// Puts the lines a later plugin adds to a topic where their Previous INFO (PNAM) says:
+/// walking the file order, a line goes straight behind the line its winning PNAM names
+/// when that line is already placed and is first defined by an earlier plugin, or was
+/// itself moved this way (so a run of added lines chained by PNAM moves together). Every
+/// other line keeps its file-order place: lines of one plugin, overrides (they keep the
+/// place of their first definition), PNAM 0, and PNAM naming a line not in the topic
+/// [documented: PNAM is the line above in the editor's list, Category:Dialogue "Edit
+/// Response Order"; observed: within the add-ons file order agrees with PNAM in 5,677 of
+/// 5,686 lines, dialogue.md §3.1; hypothesis: how the game orders two added lines naming
+/// one previous line (the later one in file order goes first here, as each is put
+/// straight behind it), a PNAM 0 line from a later plugin (left at the end), and broken
+/// chains (left in file order)].
+/// Returns how many lines it moved.
+pub fn follow_previous(list: &mut Vec<FormId>, first_plugin: &HashMap<FormId, usize>, infos: &HashMap<FormId, InfoDef>) -> usize {
+    let plugin = |i: &FormId| first_plugin.get(i).copied().unwrap_or(usize::MAX);
+    let mut out: Vec<FormId> = Vec::with_capacity(list.len());
+    let mut moved: std::collections::HashSet<FormId> = std::collections::HashSet::new();
+    for &line in list.iter() {
+        let at = infos
+            .get(&line)
+            .and_then(|i| i.previous)
+            .filter(|p| *p != line && (plugin(p) < plugin(&line) || moved.contains(p)))
+            .and_then(|p| out.iter().position(|x| *x == p));
+        match at {
+            Some(k) => {
+                out.insert(k + 1, line);
+                moved.insert(line);
+            }
+            None => out.push(line),
+        }
+    }
+    *list = out;
+    moved.len()
+}
 
 fn topic_lines(lo: &LoadOrder) -> TopicLines {
     use fnv_esm::raw::{group_type, visit_records};
@@ -2221,8 +2264,10 @@ fn topic_lines(lo: &LoadOrder) -> TopicLines {
         });
     }
     let mut by_topic: HashMap<FormId, Vec<(usize, usize, FormId)>> = HashMap::new();
+    let mut first_plugin: HashMap<FormId, usize> = HashMap::with_capacity(first.len());
     for (info, (topic, pi, ord)) in first {
         by_topic.entry(FormId(topic)).or_default().push((pi, ord, FormId(info)));
+        first_plugin.insert(FormId(info), pi);
     }
     let lines = by_topic
         .into_iter()
@@ -2231,7 +2276,7 @@ fn topic_lines(lo: &LoadOrder) -> TopicLines {
             (t, v.into_iter().map(|x| x.2).collect())
         })
         .collect();
-    (lines, dial)
+    (lines, dial, first_plugin)
 }
 
 fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usize, r: &Record) -> Read {

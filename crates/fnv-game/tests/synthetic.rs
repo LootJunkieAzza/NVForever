@@ -2844,3 +2844,54 @@ fn the_tutorial_stack_and_next_frame_work_survive_a_save() {
     let h = Game::restore(&f.data, world, g.cfg, &old).unwrap();
     assert!(h.tutorial.is_empty() && h.menu_under.is_none());
 }
+
+/// A topic of three lines in Base.esm (A, B, C) and a patch that adds two lines chained
+/// by Previous INFO behind A (X names A, Y names X) and one with PNAM 0 (Z): the added
+/// run goes behind A, Z stays at the end (issue #968, `data::follow_previous`).
+#[test]
+fn lines_a_later_plugin_adds_follow_their_previous_info() {
+    const TOPIC: u32 = 0x900;
+    let info = |id: u32, pnam: Option<u32>| {
+        let mut subs = vec![sub(b"DATA", vec![0, 0, 0, 0]), sub(b"NAM1", z("line"))];
+        if let Some(p) = pnam {
+            subs.push(sub(b"PNAM", p.to_le_bytes().to_vec()));
+        }
+        record(b"INFO", 0, id, &subs)
+    };
+    let base = [
+        tes4(),
+        top(
+            b"DIAL",
+            &[record(b"DIAL", 0, TOPIC, &[sub(b"EDID", z("TestTopic"))]), group(TOPIC.to_le_bytes(), 7, &[info(0xA01, None), info(0xA02, None), info(0xA03, None)].concat())].concat(),
+        ),
+    ]
+    .concat();
+    let hedr = [1.34f32.to_le_bytes(), 0i32.to_le_bytes(), 0x800u32.to_le_bytes()].concat();
+    let patch_tes4 = record(b"TES4", 0, 0, &[sub(b"HEDR", hedr), sub(b"MAST", z("Base.esm")), sub(b"DATA", vec![0; 8])]);
+    // The patch's own forms carry its index (1) in the top byte; the topic is the base's.
+    let (x, y, zl) = (0x0100_0B01, 0x0100_0B02, 0x0100_0B03);
+    let patch = [
+        patch_tes4,
+        top(
+            b"DIAL",
+            &[record(b"DIAL", 0, TOPIC, &[sub(b"EDID", z("TestTopic"))]), group(TOPIC.to_le_bytes(), 7, &[info(x, Some(0xA01)), info(y, Some(x)), info(zl, Some(0))].concat())].concat(),
+        ),
+    ]
+    .concat();
+    let plugins = vec![Plugin::parse(&base, "Base.esm".into()).unwrap(), Plugin::parse(&patch, "Patch.esp".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = schema();
+    let (table, j) = catalogue();
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let ids: Vec<u32> = data.topics[&FormId(TOPIC)].iter().map(|f| f.0).collect();
+    assert_eq!(ids, vec![0xA01, x, y, 0xA02, 0xA03, zl]);
+    assert_eq!(data.lines_moved_by_previous, 2);
+    // In one plugin a PNAM changes nothing: the base order is its file order.
+    let alone = vec![Plugin::parse(&base, "Base.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&alone).unwrap();
+    let (table, j) = catalogue();
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    assert_eq!(data.topics[&FormId(TOPIC)], [0xA01, 0xA02, 0xA03].map(FormId));
+}

@@ -436,6 +436,22 @@ pub fn resolve(game: &Game, nav: &NavGraph, actor: FormId, def: &PackageDef) -> 
         PackageType::FleeNotCombat => return flee(game, nav, actor, def),
         PackageType::Other(_) => return Goal::NotCarriedOut("an unknown package type"),
     }
+    // Guard with Remain Near Reference to Guard: it stays near the guarded reference (the
+    // package's target), within the location's radius, else the target's distance
+    // [hypothesis: the flag's name; no page documents the Guard tab, packages.md §7.7;
+    // 3 packages of the masters set it].
+    if def.ty == PackageType::Guard && def.remain_near_reference() {
+        if let Ok(guarded) = target_ref(game, actor, def, "") {
+            if guarded != actor {
+                let radius = def.location.map_or(0, |l| l.radius.max(0));
+                let radius = if radius > 0 { radius } else { def.target.map_or(0, |t| t.count_distance.max(0)) };
+                return match place_of_ref(game, guarded) {
+                    Some(place) => Goal::Near { place, radius: radius as f32 },
+                    None => Goal::Missing("the guarded reference is in no cell"),
+                };
+            }
+        }
+    }
     let Some(loc) = def.location else { return Goal::Here };
     let linked = refs.get(actor).and_then(|r| r.linked);
     if def.ty == PackageType::Patrol {
@@ -475,10 +491,47 @@ fn stay_at(game: &Game, nav: &NavGraph, actor: FormId, loc: &Location) -> Goal {
         LocationKind::NearCurrent => Goal::Here,
         LocationKind::NearEditor => near(editor_place(refs, actor), "the actor has no editor location"),
         LocationKind::NearLinked => near(linked.and_then(|l| place_of_ref(game, l)), "the actor has no linked reference"),
-        LocationKind::ObjectId(_) | LocationKind::ObjectType(_) | LocationKind::AtPackageLocation | LocationKind::Other(_) => {
-            Goal::NotCarriedOut("a location given by an object")
-        }
+        LocationKind::ObjectId(Some(b)) => near(nearest_object(game, actor, Wanted::Base(b)), "no reference of the location's object is near the actor"),
+        LocationKind::ObjectId(None) => Goal::Missing("the location's object is not in the load order"),
+        LocationKind::ObjectType(0) => Goal::NotCarriedOut("a location of object type None"),
+        LocationKind::ObjectType(c) => near(nearest_object(game, actor, Wanted::Type(c)), "no reference of the location's object type is near the actor"),
+        // Location 1 is the package's location: as location 1 it names nothing else
+        // (the masters use it as Eat's location 2 only, packages.md §7.7).
+        LocationKind::AtPackageLocation => Goal::Here,
+        LocationKind::Other(_) => Goal::NotCarriedOut("an unknown location type"),
     }
+}
+
+/// Stay-at locations given by an object (Near Object ID, Near Object Type) are looked for
+/// this far round the actor, game units [design: a cell; packages.md §7.7].
+pub const OBJECT_LOCATION_SEARCH: f32 = 4096.0;
+
+/// The place of the nearest reference round `actor` that `wanted` names (a base, the
+/// bases of a form list, or an object type), present and enabled, within
+/// [`OBJECT_LOCATION_SEARCH`]; ties by FormID [hypothesis: no source says how the game
+/// picks the object, issue #961].
+fn nearest_object(game: &Game, actor: FormId, wanted: Wanted) -> Option<Place> {
+    let at = place_of_ref(game, actor)?;
+    let data = game.data;
+    crate::errand::cells_around(game, at, OBJECT_LOCATION_SEARCH)
+        .into_iter()
+        .filter(|&r| r != actor && game.present(r))
+        .filter_map(|r| {
+            let p = place_of_ref(game, r).filter(|p| p.space == at.space)?;
+            let d = dist(p.pos, at.pos);
+            if d > OBJECT_LOCATION_SEARCH {
+                return None;
+            }
+            let base = fnv_game::functions::base_of(game, r)?;
+            let fits = match wanted {
+                Wanted::Base(x) => base == x || fnv_game::functions::list_members(game, x).contains(&base),
+                Wanted::Type(code) => crate::errand::of_type(game, r, base, &data.sig(base).unwrap_or(*b"    "), code),
+                _ => false,
+            };
+            fits.then_some((d, r, p))
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)))
+        .map(|(_, _, p)| p)
 }
 
 /// The goal of a Follow or Accompany package: its target, a reference or the actor's
