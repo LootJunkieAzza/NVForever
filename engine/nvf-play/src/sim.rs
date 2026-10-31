@@ -22,6 +22,22 @@ impl SimState {
         SimState { forms, refs, world: World::new(forms, refs, SimConfig::default()) }
     }
 
+    /// The level `r` reads leveled lists at: fixed when its cell loaded, else what it would
+    /// be fixed at now (`fnv_game::Game::leveled_at`). Read from this world, the one played:
+    /// outside a game turn `game.world` is an empty stand-in (`script::with_world`), so
+    /// `game.leveled_at` there would miss every fixed level.
+    pub fn leveled_at(&self, game: &fnv_game::Game<'_>, r: FormId) -> fnv_sim::zones::LevelAt {
+        let player = game.player.level.map_or(self.world.config().player_level, |l| l.clamp(1, i32::from(u16::MAX)) as u16);
+        self.world.level_at(r, player)
+    }
+
+    /// The seed and level `r`'s leveled picks are made with, as the game makes them in a
+    /// turn ([`fnv_game::Game::pick_seed`], [`SimState::leveled_at`]): for the data's
+    /// template lookups outside a turn (docs/spec-notes/actors.md §1.3).
+    pub fn pick(&self, game: &fnv_game::Game<'_>, r: FormId) -> (FormId, fnv_sim::zones::LevelAt) {
+        (game.pick_seed(r), self.leveled_at(game, r))
+    }
+
     /// The base form of a reference as the simulation sees it now.
     pub fn base_of(&self, form_id: u32) -> Option<FormId> {
         let id = FormId(form_id);

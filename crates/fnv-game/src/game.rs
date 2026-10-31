@@ -1693,7 +1693,8 @@ impl<'a> Game<'a> {
         // Placed actors carry their template's items (template flag "Inventory").
         // Each at the level it would be fixed at now (`crate::zones`); a cell load fixes it.
         let player_level = world.config().player_level;
-        let sources = data.inventory_sources_at(world.placed, |r| world.level_at(r, player_level));
+        // A new game: nothing rolled again yet, every pick seeded by its reference.
+        let sources = data.inventory_sources_at(world.placed, |r| (r, world.level_at(r, player_level)));
         world.set_inventory_sources(sources);
         Game {
             data,
@@ -4349,6 +4350,12 @@ impl<'a> Game<'a> {
         if crate::vats::is_area_function(c.function) {
             return crate::vats::area_value(self, c.function);
         }
+        // A null form parameter (FormID 0 in the CTDA) reads 0 without calling the
+        // function, so no failed call is logged (#966) [observed for GetIsID and
+        // GetQuestVariable, dialogue.md "A null form parameter"; hypothesis for the rest].
+        if c.params.iter().any(|p| matches!(p, ArgValue::Value(Value::Ref(0)))) {
+            return 0.0;
+        }
         self.call_function(&ctx, &c.params).num()
     }
 
@@ -4457,7 +4464,7 @@ impl<'a> Game<'a> {
         for l in &s.lambdas {
             // A lambda whose unit is gone (a plugin removed, a console line) keeps its place,
             // so the later ones keep their names; calling it fails.
-            let unit = data.units.iter().find(|u| u.key() == l.unit);
+            let unit = data.unit_by_key.get(&l.unit).map(|&i| &data.units[i]);
             g.lambdas.push(LambdaDef { unit, key: l.unit.clone(), lambda: l.lambda.clone(), inst: l.inst, captured: None });
         }
         g.quests = s.quests.clone();

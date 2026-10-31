@@ -2695,6 +2695,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "traps-bear-moved"
+source = "#1091: a trigger a script moves keeps testing at its new pose, not the one its volumes were first built at (engine/nvf-play/src/script_trigger.rs)"
+note = "South of Goodsprings, as traps-bear. The untouched bear trap 0x0015834C is moved by script 400 units from the player at 12 s; at 17 s the player is put on it: its trigger box, built at the old place when the cell loaded, must be built again where the trap now is, and its OnTriggerEnter fires there"
+areas = ["traps", "scripts"]
+paths = ["engine/nvf-play/src/script_trigger.rs"]
+env = { NVF_PLAY_TEST_SCRIPT = "12:moveto:0x0015834C:player:0:400:0,17:moveto:player:0x0015834C" }
+args = ["--play", "--pos=-68124,-17000,9100", "--hour", "12", "--no-voice"]
+run_seconds = 22
+order = [[
+  { re = 'script: trigger 0x0015834C has 1 trigger volume\(s\) in its model', label = "the trap's box is built where it was placed" },
+  { text = "script: trigger 0x0015834C moved: its volumes follow", label = "moved by script, its volumes are built again" },
+  { text = "script: player entered trigger 0x0015834C", label = "the player steps into the trap at its new place" },
+]]
+
+[[scenario]]
 name = "traps-bear"
 source = "queue item 25 (traps): a bear trap's model holds a Trigger-layer box that sets off its OnTriggerEnter; another is disarmed by hand (docs/spec-notes/traps.md)"
 note = "South of Goodsprings, by three bear traps (0x00165495, 0x0015834D, 0x0015834C). trapbearskillreq01 set to 0; the player activates 0x00165495 at 15 s and picks Disarm; at 17 s the player is put on 0x0015834D, whose trigger box the player's capsule enters: its OnTriggerEnter plays Forward, damages the player 45 and a leg"

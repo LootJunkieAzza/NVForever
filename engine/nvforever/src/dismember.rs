@@ -417,6 +417,7 @@ fn throw_gore(
     mut phys: ResMut<PhysState>,
     (mut explosions, mut impacts, mut sounds): (MessageWriter<ExplosionFx>, MessageWriter<ImpactFx>, MessageWriter<PlaySound>),
     mut gore: ResMut<Gore>,
+    script: Option<Res<ScriptState>>,
 ) {
     let mut due: Vec<(Dismembered, u8)> = std::mem::take(&mut gore.waiting);
     due.extend(events.read().map(|e| (*e, 0)));
@@ -488,7 +489,11 @@ fn throw_gore(
             }
         }
         if let (Some(set), Some(s)) = (set, sfx.as_deref()) {
-            let material = sim.base_of(e.form_id).and_then(|b| s.forms.actor_material(b)).unwrap_or("organic");
+            // The impact material of the actor's Model/Animation source, not the placed
+            // base's (docs/spec-notes/actors.md §1.3).
+            let r = FormId(e.form_id);
+            let base = sim.base_of(e.form_id).map(|b| script.as_deref().and_then(|s| s.rt.as_ref()).map_or(b, |rt| { let (seed, at) = sim.pick(&rt.game, r); rt.game.data.model_base_at(b, seed, at) }));
+            let material = base.and_then(|b| s.forms.actor_material(b)).unwrap_or("organic");
             if let Some(impact) = s.forms.impact_id(set, material) {
                 for k in 0..decals.min(MAX_BLOOD) {
                     let d = (random_dir(&mut gore.rng) + Vec3::from(e.dir) * 0.5).normalize_or_zero();
