@@ -118,7 +118,7 @@ fn plugin_bytes() -> Vec<u8> {
     let misc = record(b"MISC", 0, MISC, &[sub(b"EDID", z("Junk")), sub(b"DATA", [1i32.to_le_bytes().to_vec(), f32b(1.0)].concat())]);
     let weap_data = [10i32.to_le_bytes().to_vec(), 100i32.to_le_bytes().to_vec(), f32b(2.0), 5i16.to_le_bytes().to_vec(), vec![6]].concat();
     let weap = record(b"WEAP", 0, WEAP, &[sub(b"EDID", z("Gun")), sub(b"DATA", weap_data), sub(b"REPL", FLST.to_le_bytes().to_vec())]);
-    let note = record(b"NOTE", 0, NOTE, &[sub(b"EDID", z("TestHolotape"))]);
+    let note = record(b"NOTE", 0, NOTE, &[sub(b"EDID", z("TestHolotape")), sub(b"FULL", z("Test Holotape"))]);
     let flst = record(b"FLST", 0, FLST, &[sub(b"EDID", z("GunList")), sub(b"LNAM", WEAP.to_le_bytes().to_vec())]);
     // The base effect: archetype 1 (Script), its script 0x851 (scripts.md §7.6).
     let mgef_data = [u32s(&[0]), f32b(0.0), u32s(&[EFFECT_SCRIPT]), vec![0xFF; 8], vec![0; 4], vec![0; 4], f32b(1.0), vec![0; 24], vec![0; 8], u32s(&[1]), vec![0xFF; 4]].concat();
@@ -1457,6 +1457,16 @@ fn script_function_audit_fixes() {
     g.tick();
     assert!(g.player.notes.contains(&FormId(NOTE)));
     assert_eq!(g.world.item_count(FormId(PLAYER), FormId(NOTE)).unwrap(), 0);
+    // Its corner notice (#1163), by its FULL name; AddNote of a note the player has
+    // shows no second one.
+    assert_eq!(g.take_note_notices(), vec![FormId(NOTE)]);
+    assert_eq!(g.note_notice_text(FormId(NOTE)), "Note: Test Holotape");
+    call(&mut g, 0x117C, None, &[r(NOTE)]);
+    assert!(g.take_note_notices().is_empty());
+    call(&mut g, 0x117D, None, &[r(NOTE)]);
+    // AddNote of a new note: its notice too [hypothesis: the original's, observer-checks].
+    call(&mut g, 0x117C, None, &[r(NOTE)]);
+    assert_eq!(g.take_note_notices(), vec![FormId(NOTE)]);
     call(&mut g, 0x117D, None, &[r(NOTE)]);
     // KillActor's cause of death; ResurrectActor brings the actor back unharmed.
     call(&mut g, 0x1181, Some(ADULT_REF), &[av(16), n(5.0)]);
