@@ -11169,6 +11169,16 @@ expect = [
 manual = "on a failure, the chain's notes say what each step stands for; docs/handoff/mq-walkthrough-2026-10-27.md item 10 and observer check 30"
 
 [[scenario]]
+name = "esm-coverage"
+kind = "tool"
+source = "issue #1000: the ten masters' schema coverage (fnvtool esm coverage over all of them together) is pinned, so a schema edit that changes what decodes, or makes a layout read wrong, is seen"
+areas = ["esm"]
+paths = ["schemas/fnv/", "crates/fnv-esm/", "crates/fnvtool/src/esm_cmd.rs", "tools/smoke/expected/esm-coverage.toml"]
+commands = [["esm", "coverage", "--schema", "schemas/fnv", "--max-rows", "0", "{data}/FalloutNV.esm", "{data}/DeadMoney.esm", "{data}/HonestHearts.esm", "{data}/OldWorldBlues.esm", "{data}/LonesomeRoad.esm", "{data}/GunRunnersArsenal.esm", "{data}/ClassicPack.esm", "{data}/MercenaryPack.esm", "{data}/TribalPack.esm", "{data}/CaravanPack.esm"]]
+expect_file = "expected/esm-coverage.toml"
+manual = "a change: run the command with --max-rows 200 and read the work queue against main's; then write the new summary into expected/esm-coverage.toml"
+
+[[scenario]]
 name = "walkthrough-coverage"
 kind = "tool"
 # It runs every chain: minutes on a busy machine.
