@@ -16,7 +16,7 @@ use super::{AmountMeter, CmdButton, RowButton};
 use crate::interface::{amber, at, face, plain_font, set_line, texture, Face, Picture, Pictures};
 use bevy::ui::{FocusPolicy, RelativeCursorPosition};
 use bevy::prelude::*;
-use crate::ui_compat::{Button, Interaction};
+use crate::ui_pointer::{Button, PointerState};
 use fnv_font::{Font, Line};
 use fnv_sim::forms::ItemKind;
 use nvf_assets::GameData;
@@ -591,11 +591,25 @@ pub fn quantity_ticks(part: f32) -> usize {
 
 /// Spawn the prompt under `root` (a node centring its children on the screen). A sheet
 /// behind it takes the pointer, so nothing under the prompt does.
-pub fn spawn_quantity(root: &mut ChildSpawnerCommands, q: &Quantity, kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) {
+/// The settings naming the "How many?" prompt's two buttons (quantity_menu.xml's sOK and
+/// sCancel), read through `fnv_game::ui_loading::game_string`: the load order's GMST,
+/// else NVForever's own label (`fnv_ui::strings::BUILT_IN`; LEGAL.md) [design, #1183].
+pub const QUANTITY_BUTTONS: [&str; 2] = ["sOK", "sCancel"];
+
+/// The prompt's button words from the running game's strings, or NVForever's labels
+/// alone without one.
+pub fn quantity_words(game: Option<&fnv_game::Game<'_>>) -> [String; 2] {
+    QUANTITY_BUTTONS.map(|name| match game {
+        Some(g) => fnv_game::ui_loading::game_string(g, name),
+        None => fnv_ui::strings::built_in(name).unwrap_or_default().to_owned(),
+    })
+}
+
+pub fn spawn_quantity(root: &mut ChildSpawnerCommands, q: &Quantity, words: &[String; 2], kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) {
     let mut c = Ctx { kit, data, images, bc };
     let bright = amber(255.0);
     let sheet = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
-    root.spawn((sheet, FocusPolicy::Block, Interaction::default()));
+    root.spawn((sheet, FocusPolicy::Block, PointerState::default()));
     let boxed = Node { width: crate::interface::u(Q_BOX.x), height: crate::interface::u(Q_BOX.y), ..default() };
     root.spawn((boxed, FocusPolicy::Block)).with_children(|b| {
         let shade = Color::srgba(0.0, 0.0, 0.0, SHADE);
@@ -636,7 +650,7 @@ pub fn spawn_quantity(root: &mut ChildSpawnerCommands, q: &Quantity, kit: &mut K
             }
             c.text(p, true, &q.amount.to_string(), Q_CENTRE, Q_AMOUNT_Y, Align::Centre, bright);
             let h = 31.0 + BUTTON_PAD;
-            for ((label, hint, cmd), y) in [("Ok", "A)", Command::AmountOk), ("Cancel", "E)", Command::AmountCancel)].into_iter().zip(Q_BUTTONS_Y) {
+            for ((label, hint, cmd), y) in [(words[0].as_str(), "A)", Command::AmountOk), (words[1].as_str(), "E)", Command::AmountCancel)].into_iter().zip(Q_BUTTONS_Y) {
                 let w = c.text(p, false, label, Q_BUTTONS_RIGHT, y + BUTTON_PAD, Align::Right, bright);
                 c.text(p, false, hint, Q_BUTTONS_RIGHT + HINT_GAP, y + BUTTON_PAD, Align::Left, bright);
                 p.spawn((Button, CmdButton(cmd), at(Q_BUTTONS_RIGHT - w - 10.0, y, w + 20.0 + HINT_GAP + 30.0, h)));

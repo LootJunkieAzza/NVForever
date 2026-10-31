@@ -63,7 +63,24 @@ The texture of `monofonto_large` is 256 x 256, 16 bits a texel with 4 of them al
   The space at the break is not set [design]. What the game does with a word wider
   than the wrap width is not known; NVForever leaves it whole on its own line.
 - How far apart the lines are, and where a text's first line stands under its top, is
-  with the menu that was measured (`message-menu.md` §3).
+  with the menu that was measured (`message-menu.md` §3). The interface files' text
+  tiles: menu-xml.md §3.1.2, hud.md §14.10 (a line per font, #979).
+- [observed: hud_textbase capture 2026-10-31] A text tile's `height`, read in the
+  original, is its font's tallest glyph picture: 36 for font 1, 42 for font 7, 64 for
+  font 8, the largest number 10 of their files (menu-xml.md §3.1.2).
+- [observed: the textures of fonts 1, 7 and 8, 2026-10-31, decoded and measured row by
+  row in alpha] Where the ink of a capital or a digit stands against the line (a
+  picture set with its top number 13 over it): font 7 (`baked-in_monofonto_large`, a
+  capital 30 over, 36 high) from 29 over to 5 under at alpha 16, 25 over to 1 under at
+  128, 23 over to 1 over at 192; font 8 (`glow_futura_caps_large`, a capital 47 over,
+  58 high) 44 over to 8 under at 16, 39 over to 3 under at 128, 37 over to 1 under at
+  240; font 1 (`glow_monofonto_large`, a capital 25 over, 30 high) 24 over to 4 under
+  at 16, 22 over to 2 under at 128, 21 over to 1 under at 192. The glow fades as far
+  under the letters as over them, so the middle of the ink is the same at every alpha:
+  12 over the line in font 7, 18 in font 8 (17.5 for its digits), 10 in font 1.
+- For comparison [observed: the files]: the size less the deepest glyph's reach under
+  the line (number 10 less number 13) is 21, 24 and 37 for fonts 1, 7 and 8 (31 - 10,
+  36 - 12, 52 - 15); the tallest reach over it 29, 34, 50.
 
 ## 4. Font numbers
 

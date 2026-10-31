@@ -25,7 +25,7 @@ use crate::interface::{amber, at, u};
 use crate::lockpick::screen::{Ctx, FontKind, Kit};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
-use crate::ui_compat::Button;
+use crate::ui_pointer::Button;
 use bevy::window::PrimaryWindow;
 use nvf_assets::GameData;
 

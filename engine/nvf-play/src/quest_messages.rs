@@ -330,7 +330,7 @@ fn draw(
     mut texts: Query<(&mut TextColor, &Part)>,
     mut fills: Query<(&mut BackgroundColor, &Fill)>,
     mut kit: Local<Option<Kit>>,
-    (state, script, driven): (Option<Res<State<crate::PlayState>>>, Option<Res<crate::script::ScriptState>>, Option<Res<crate::player::ViewDriven>>),
+    (state, script, driven, kill_cam): (Option<Res<State<crate::PlayState>>>, Option<Res<crate::script::ScriptState>>, Option<Res<crate::player::ViewDriven>>, Option<Res<crate::kill_cam::KillCam>>),
     mut sound_forms: Local<HashMap<&'static str, Option<FormId>>>,
 ) {
     let hold = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.player.auto_objectives);
@@ -343,7 +343,8 @@ fn draw(
     // the line comes back when the conversation ends. So too while an idle holds the
     // camera (the opening's wake-up, `crate::player::ViewDriven`): only subtitles then
     // [owner 2026-10-24].
-    let held = panel.view.is_some() || state.is_some_and(|s| *s.get() == crate::PlayState::Dialogue) || driven.is_some_and(|d| d.0);
+    // And while a kill camera plays (`crate::kill_cam`) [owner's playtest request #1034].
+    let held = panel.view.is_some() || state.is_some_and(|s| *s.get() == crate::PlayState::Dialogue) || driven.is_some_and(|d| d.0) || kill_cam.is_some_and(|k| k.active());
     for (_, mut v) in &mut roots {
         v.set_if_neq(if held { Visibility::Hidden } else { Visibility::Inherited });
     }

@@ -1921,3 +1921,59 @@ fn snapshot_carries_run_time_state_and_leaves_session_edits() {
     let back = World::restore(&f.forms, &f.refs, &old).unwrap();
     assert!(!back.power_armor_training());
 }
+
+// ---- a second plugin moving and deleting the master's references (#999) -----------
+
+/// A plugin over Test.esm (master index 0) that moves STIM_REF from CELL_A to CELL_B,
+/// the persistent KEY_REF from CELL_A's persistent children to CELL_B's, GUN_REF out of
+/// CELL_A into the exterior cell WORLD_CELL, and marks CHAIR_REF Deleted (record flag 0x20).
+fn mover_bytes() -> Vec<u8> {
+    let hedr = cat(&[&1.34f32.to_le_bytes(), &0i32.to_le_bytes(), &0x800u32.to_le_bytes()]);
+    let tes4 = record(b"TES4", 0, 0, &[sub(b"HEDR", hedr), sub(b"MAST", z("Test.esm")), sub(b"DATA", vec![0; 8])]);
+    let cell_a = record(b"CELL", 0, CELL_A, &[sub(b"EDID", z("TestCellA"))]);
+    let cell_b = record(b"CELL", 0, CELL_B, &[sub(b"EDID", z("TestCellB"))]);
+    let temp_a = refr(CHAIR_REF, 0x20, CHAIR, [0.0; 3], vec![]);
+    let temp_b = refr(STIM_REF, 0, STIMPAK, [40.0, 50.0, 60.0], vec![sub(b"XCNT", 3i32.to_le_bytes().to_vec())]);
+    let pers_b = refr(KEY_REF, 0x400 | 0x800, KEY, [70.0, 80.0, 90.0], vec![sub(b"EDID", z("TestKeyRef"))]);
+    let cells = top(
+        b"CELL",
+        &group(
+            0i32.to_le_bytes(),
+            2,
+            &group(0i32.to_le_bytes(), 3, &cat(&[&cell_a, &cell_children(CELL_A, &temp_a, &[]), &cell_b, &cell_children(CELL_B, &temp_b, &pers_b)])),
+        ),
+    );
+    let wrld = {
+        let wrec = record(b"WRLD", 0, WORLD, &[sub(b"EDID", z("TestWorld"))]);
+        let xclc = cat(&[&(-18i32).to_le_bytes(), &0i32.to_le_bytes()]);
+        let ecell = record(b"CELL", 0, WORLD_CELL, &[sub(b"EDID", z("TestGrid")), sub(b"DATA", vec![0]), sub(b"XCLC", xclc)]);
+        let gun = refr(GUN_REF, 0, PISTOL, [-73000.0, 1200.0, 8600.0], vec![]);
+        let block = group(0i32.to_le_bytes(), 4, &group(0i32.to_le_bytes(), 5, &cat(&[&ecell, &cell_children(WORLD_CELL, &gun, &[])])));
+        top(b"WRLD", &cat(&[&wrec, &group(WORLD.to_le_bytes(), 1, &block)]))
+    };
+    cat(&[&tes4, &cells, &wrld])
+}
+
+/// Each reference a later plugin moves is in its new cell only, with its new place, and
+/// one it marks Deleted is in no cell (#999: per-cell child lists must not bring back a
+/// moved reference in its old cell too).
+#[test]
+fn a_later_plugin_moves_and_deletes_references_into_one_cell_each() {
+    let plugins = vec![Plugin::parse(&plugin_bytes(), "Test.esm".into()).unwrap(), Plugin::parse(&mover_bytes(), "Mover.esp".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let refs = RefTable::build(&lo, &schema());
+    let cells_of = |r: u32| refs.by_cell.iter().filter(|(_, v)| v.contains(&id(r))).map(|(c, v)| (*c, v.iter().filter(|x| **x == id(r)).count())).collect::<Vec<_>>();
+    // Moved inside: CELL_B only, at the new place.
+    assert_eq!(cells_of(STIM_REF), vec![(id(CELL_B), 1)]);
+    assert_eq!((refs.get(id(STIM_REF)).unwrap().cell, refs.get(id(STIM_REF)).unwrap().pos), (Some(id(CELL_B)), [40.0, 50.0, 60.0]));
+    // Moved persistent: CELL_B only.
+    assert_eq!(cells_of(KEY_REF), vec![(id(CELL_B), 1)]);
+    assert_eq!(refs.get(id(KEY_REF)).unwrap().pos, [70.0, 80.0, 90.0]);
+    // Moved out to the exterior: WORLD_CELL only.
+    assert_eq!(cells_of(GUN_REF), vec![(id(WORLD_CELL), 1)]);
+    assert_eq!(refs.get(id(GUN_REF)).unwrap().cell, Some(id(WORLD_CELL)));
+    // Deleted by the later plugin: in no cell.
+    assert!(cells_of(CHAIR_REF).is_empty(), "{:?}", cells_of(CHAIR_REF));
+    // Untouched references stay where the master put them.
+    assert_eq!(cells_of(SAFE_REF), vec![(id(CELL_A), 1)]);
+}

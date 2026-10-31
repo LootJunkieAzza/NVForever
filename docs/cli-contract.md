@@ -102,10 +102,12 @@ decoded (decompressed) contents and are omitted with `--no-content-hash`. Lab co
 - `fnv.bsa.verify/1`: `archive`, `files`, `roundtrip_identical` (bool), `original_size`,
   `rewritten_size`, `first_difference` (byte offset or null), `decode_errors` [string],
   `warnings` [{code, detail}] (includes `zlib_trailer_missing`, `zlib_checksum_mismatch`,
+  `zlib_bytes_after_trailer`,
   `data_not_contiguous`, `trailing_bytes`, `noncanonical_folder_name`, hash mismatches).
 - `fnv.esm.verify/1`: `plugin`, `roundtrip_identical`, `first_difference`, `records`,
   `compressed_records`, `extended_size_subrecords`, `decompress_errors` [string],
-  `zlib_trailer_anomalies` [string], `subrecord_errors` [string] (max 50),
+  `zlib_trailer_anomalies` [string] (a missing or wrong Adler-32, or `Extra { bytes }` after
+  a correct one), `subrecord_errors` [string] (max 50),
   `payload_roundtrip_mismatches` [string] (max 50).
 - `fnv.esm.coverage/1`: `plugin`; `summary` {subrecords, ok, unknown, trailing, error,
   ok_percent, opaque_bytes, distinct_pairs, pairs_fully_decoded}; `work_queue` [{record,

@@ -78,17 +78,34 @@ const RAD_AVOID_LEVEL: f32 = 50.0;
 const RADIATION_SEARCH: f32 = 20000.0;
 
 /// The radiation markers of `space` within [`RADIATION_SEARCH`] of `at`, as circles (centre,
-/// radius) for the path parameters; disabled ones left out.
+/// radius) for the path parameters, disabled ones left out; then the explosion zones there
+/// that have not faded ([`zones_near`]).
 fn radiated_near(game: &Game, space: fnv_nav::Space, at: [f32; 3]) -> Vec<([f32; 3], f32)> {
     let key = match space {
         fnv_nav::Space::World(w) | fnv_nav::Space::Interior(w) => FormId(w),
     };
-    let Some(markers) = game.data.radiation_markers.get(&key) else { return Vec::new() };
-    markers
-        .iter()
+    let mut out: Vec<([f32; 3], f32)> = game
+        .data
+        .radiation_markers
+        .get(&key)
+        .into_iter()
+        .flatten()
         .filter(|m| m.radius > 0.0 && goal::dist(m.pos, at) <= RADIATION_SEARCH + m.radius && game.world.is_enabled(m.id).unwrap_or(true))
         .map(|m| (m.pos, m.radius))
-        .collect()
+        .collect();
+    out.extend(zones_near(game.radiation_zones(), key, at));
+    out
+}
+
+/// The radiation zones explosions left in `space` (`Game::radiation_zones`) within
+/// [`RADIATION_SEARCH`] of `at` that still give rads, as circles (centre, radius), costed
+/// as a marker's are [design: issue #963; a zone fades in seconds, the Fat Man's over 12,
+/// so a way planned before it went off is not planned again for it].
+fn zones_near(zones: &[fnv_game::radiation::RadZone], space: FormId, at: [f32; 3]) -> impl Iterator<Item = ([f32; 3], f32)> + '_ {
+    zones
+        .iter()
+        .filter(move |z| z.space == space && z.radius > 0.0 && z.level_now() > 0.0 && goal::dist(z.pos, at) <= RADIATION_SEARCH + z.radius)
+        .map(|z| (z.pos, z.radius))
 }
 
 /// A person's walk, game units per second: the root motion of the people's walk clip
@@ -2312,6 +2329,17 @@ fn nearest_point(route: &Route, feet: Place) -> usize {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn explosion_zones_that_still_give_rads_are_ways_to_avoid() {
+        use fnv_game::radiation::RadZone;
+        let zone = |space: u32, x: f32, age: f64| RadZone { serial: 1, explosion: FormId(0x10), space: FormId(space), pos: [x, 0.0, 0.0], level: 10.0, radius: 616.0, duration: 12.0, age };
+        // A Fat Man's zone across the way in this world; a faded one, one in another
+        // space and one past the search are left out.
+        let zones = [zone(0x3C, 500.0, 2.0), zone(0x3C, 500.0, 12.5), zone(0x99, 500.0, 2.0), zone(0x3C, RADIATION_SEARCH + 1000.0, 2.0)];
+        let got: Vec<([f32; 3], f32)> = super::zones_near(&zones, FormId(0x3C), [0.0, 0.0, 0.0]).collect();
+        assert_eq!(got, vec![([500.0, 0.0, 0.0], 616.0)]);
+    }
+
     use super::*;
 
     /// In step: at its distance a follower goes at its target's pace, a little faster

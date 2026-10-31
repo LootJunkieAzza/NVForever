@@ -321,8 +321,9 @@ fn play_sound(sfx: Option<&Sfx>, cache: &mut HashMap<&'static str, Option<FormId
 /// For an earned level: the level-up sound once the pointer fills (or at once when
 /// no bar is up, as for the second of two levels earned together), then the level-up menu
 /// [`LEVEL_UP_DELAY`] seconds later once the player can take it: in the world, out of
-/// every menu, and nobody fighting or searching for them ([`experience::hunters`], the
-/// owner's rule). The wait counts only while the HUD is up.
+/// every menu, nobody fighting or searching for them ([`experience::hunters`], the
+/// owner's rule), and the last fight over for a while (`crate::after_combat`, #1050).
+/// The wait counts only while the HUD is up.
 #[allow(clippy::too_many_arguments)]
 fn level_up(
     time: Res<Time>,
@@ -333,7 +334,9 @@ fn level_up(
     mut sim: ResMut<SimState>,
     sfx: Option<Res<Sfx>>,
     mut sounds: MessageWriter<PlaySound>,
+    mut music: Option<ResMut<crate::music::MusicCues>>,
     mut sound_forms: Local<HashMap<&'static str, Option<FormId>>>,
+    after: Option<Res<crate::after_combat::AfterCombat>>,
     mut since_sound: Local<Option<f32>>,
     mut waiting: Local<usize>,
 ) {
@@ -351,6 +354,10 @@ fn level_up(
     let Some(since) = since_sound.as_mut() else {
         if meter.level_up_filled() || meter.idle() {
             play_sound(sfx.as_deref(), &mut sound_forms, &mut sounds, LEVEL_UP_SOUND);
+            // And the default objects' Level Up Music, when it has a file (#991).
+            if let Some(m) = music.as_deref_mut() {
+                m.level_up = true;
+            }
             *since_sound = Some(0.0);
         }
         return;
@@ -370,7 +377,7 @@ fn level_up(
         }
         *waiting = hunters;
     }
-    if hunters > 0 {
+    if hunters > 0 || after.is_some_and(|a| !a.settled()) {
         return;
     }
     *since_sound = None;

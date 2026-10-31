@@ -469,6 +469,8 @@ impl ActorParts {
         &mut self,
         parts: &mut crate::release::Unused<String>,
         materials: &mut crate::release::Unused<(String, usize, String)>,
+        hints: &mut crate::release::ImageHints,
+        stores: &Assets<NifMaterial>,
         now: f64,
     ) -> (usize, usize) {
         use crate::release::{Holders, KEEP_UNUSED_MAX, KEEP_UNUSED_SECS};
@@ -485,9 +487,11 @@ impl ActorParts {
                 (k.clone(), h.held_elsewhere())
             })
             .collect();
-        let gone = materials.sweep(now, entries, KEEP_UNUSED_SECS, KEEP_UNUSED_MAX);
-        for k in &gone {
-            self.materials.remove(k);
+        let gone = materials.sweep_timed(now, entries, KEEP_UNUSED_SECS, KEEP_UNUSED_MAX, |_| None);
+        for (k, since) in &gone {
+            if let Some(m) = self.materials.remove(k) {
+                hints.note(stores, &m, *since, now);
+            }
         }
         let entries: Vec<_> = self
             .parts
@@ -513,9 +517,13 @@ impl ActorParts {
                 (k.clone(), h.held_elsewhere())
             })
             .collect();
-        let drop = parts.sweep(now, entries, KEEP_UNUSED_SECS, KEEP_UNUSED_MAX);
-        for k in &drop {
-            self.parts.remove(k);
+        let drop = parts.sweep_timed(now, entries, KEEP_UNUSED_SECS, KEEP_UNUSED_MAX, |_| None);
+        for (k, since) in &drop {
+            if let Some(Some(p)) = self.parts.remove(k) {
+                for s in &p.shapes {
+                    hints.note(stores, &s.material, *since, now);
+                }
+            }
         }
         (drop.len(), gone.len())
     }

@@ -17,7 +17,7 @@ use crate::interface::{amber, at, bc_supported, face, plain_font, set_text, text
 use crate::script_hud::BoxButton;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
-use crate::ui_compat::{Button, Interaction};
+use crate::ui_pointer::{Button, PointerState};
 use fnv_font::{Font, Line};
 use nvf_assets::GameData;
 
@@ -302,9 +302,9 @@ fn spawn_box(commands: &mut Commands, view: &PanelView, faces: &Faces, selected:
 }
 
 /// The pointer chooses the button it comes onto.
-fn point(buttons: Query<(&Interaction, &BoxButton), Changed<Interaction>>, mut panel: ResMut<MessagePanel>) {
+fn point(buttons: Query<(&PointerState, &BoxButton), Changed<PointerState>>, mut panel: ResMut<MessagePanel>) {
     for (interaction, b) in &buttons {
-        if *interaction == Interaction::Hovered && panel.selected != b.0 {
+        if *interaction == PointerState::Hovered && panel.selected != b.0 {
             panel.selected = b.0;
         }
     }
