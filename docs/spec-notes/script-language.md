@@ -66,6 +66,12 @@ Where the documentation and a capture disagree, the capture wins; every differen
   its own, so every reference function in it must name one: `SomeRef.Func` [documented:
   Non-reference scripts; Quest scripts]. Runtime: stage results and quest scripts run with
   no self reference (`RunCtx::self_ref` None): agrees.
+- **But a stage result's reference-less call acts on the player**: VDoctors stage 20
+  (`RemoveSpell WithdrawalJet` … with no reference, the doctors' addiction cure) cleared
+  the player's Jet withdrawal within 10 frames of `SetStage VDoctors 20` [observed: o5_03,
+  2026-10-31, nvfairport, IsSpellTarget 1 then 0; observer-checks.md check 42]. Which
+  other functions do so, and in quest scripts, is not captured [hypothesis: the player is
+  the default reference]. The runtime fails these calls (issue #1110).
 - When a script runs with a calling reference, every call written without a reference
   goes to it, and GetSelf returns it [documented: Calling reference]. A dialogue result
   script runs on the speaker [documented: Reference scripts, as a reference script;
@@ -253,10 +259,11 @@ Where the documentation and a capture disagree, the capture wins; every differen
   [observed: scripts.md §2.3]. The vanilla pages give no precedence table; the masters
   show `||` binding tighter than `&&` (scripts.md §3.3), which is the reverse of the
   extender's expressions (§6).
-- **Short-circuit**: the Eval page says short-circuiting `&&`/`||` came with xNVSE 6 for
-  `eval` [documented: Eval]; we read this as the plain `if` evaluating both operands
-  [hypothesis]. The runtime evaluates the whole postfix expression: agrees with that
-  reading.
+- **No short-circuit**: the Eval page says short-circuiting `&&`/`||` came with xNVSE 6
+  for `eval` [documented: Eval]. A plain `if` evaluates both operands [observed: o5_01,
+  2026-10-31: `if 0 && player.ModAV Variable09 10`, `if 1 || …`, `if 0 == 1 && … == 0`
+  and five more forms all ran the ModAV; observer-checks.md check 51]. The runtime
+  evaluates the whole postfix expression: agrees.
 - **Calls**: `[ref.]Function arg arg …`; arguments are separated by spaces and/or commas;
   omitted optional arguments take their defaults [documented: Scripting for Beginners;
   Function syntax]. The compiler reads commas like spaces [observed: scripts.md §3.4]:
@@ -354,7 +361,7 @@ function results as arguments.
 
 | # | Documented | Runtime |
 |---|---|---|
-| 1 | A reference function on an unset `ref`, a failed `set` or a failed call in an `if` stops the script silently (Ref Variable; Let; Eval) | the call is skipped (`call_failed`), reads 0, and the script continues |
+| 1 | A reference function on an unset `ref`, a failed `set` or a failed call in an `if` stops the script silently (Ref Variable; Let; Eval) | the call is skipped (`call_failed`), reads 0, and the script continues. In the original with xNVSE 6.4.9 a function script run through CallFunction went on after such a call, alone and in an `if` [observed: o5_00, 2026-10-31]; not yet captured in a quest or object script. Failed calls that are not on an empty ref did stop it: SetReputation axis 2 (o5_00), an `if` leaving two values (#908) |
 | 2 | Return ends the script for this frame (Adding an Options Menu) | ends the current block only. 12 SCPT units have a Return in an earlier block of an event that has a later block of the same event [observed: `fnvtool script decode`]. Both blocks can run in one frame in five: LonesomeRoad 0x0400DEBA and 0x0400DEBB (two GameMode blocks), FalloutNV 0x00143E27 (two OnActivate blocks), 0x001347D1 (OnHit for one reference, then OnHit for any) and 0x00125AEF (OnDeath for any, then for one killer). In the other seven the blocks' parameters differ (MenuMode 1 and 1056 in 0x00104C01 and 0x00059C86; OnTriggerEnter for two different references in 0x00154219–0x0015421C and 0x00127467) |
 | 3 | Result-script locals overwrite the quest script's variable of the same index (Category:Dialogue) | fresh temporary locals; 150 embedded units of the masters declare locals (§2.5) |
 | 4 | Constant globals reset on load; plugin values apply only on first load (Globals) | not modelled (Layer 7) |

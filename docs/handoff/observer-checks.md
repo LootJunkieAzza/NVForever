@@ -121,7 +121,9 @@ engine if needed, and delete the item here.
    - Chemist doubles the Stealth Boy.
    - Skill books give 3 points (4 with Comprehension).
    - Worn bonuses (Vault Jumpsuit Speech +2) are not in actor values.
-   - GetBaseActorValue includes ModActorValue.
+   - GetBaseActorValue includes ModActorValue — answered 2026-10-31: in the original it
+     does not (Strength base 5, ModAV 2: GetBaseAV 5, GetAV 7), and neither does ours
+     (`get_base_actor_value`, actor-values.md §1); the note here was stale.
    - Calm Heart's +50 Health goes to every teammate.
    - Four Eyes ignores "PER > 1".
    To check: read actor values in scripts around each use.
@@ -184,7 +186,11 @@ engine if needed, and delete the item here.
     ground and a cleared area: the `nvfairport` save (campaign `creature_runs`).
     ([actors §8.9–§8.10](../spec-notes/actors.md), [physics §6.4.2](../spec-notes/physics.md))
 14. **Script rules that differ from the wiki.**
-    - A call on an empty ref is skipped.
+    - A call on an empty ref is skipped — partly answered 2026-10-31 (o5_00): in a
+      function script run through xNVSE's CallFunction, `rE.GetDisabled` on an unset
+      `ref`, alone or as an `if` condition, let the script go on (the next line ran). Ours
+      stops the script (game.rs `stop_run`, scripts.md §4.2). Still open: the same in a
+      quest or object script run by the game itself, before ours changes.
     - Return ends one block only.
     - Scripted items in other inventories don't run.
     - Message boxes don't freeze the player, and MenuMode 1002 is our guess.
@@ -379,13 +385,12 @@ The numbers above stay put so links to them hold; each item here gives its own p
     finished game say the Boomers' slide; for a non-ending case, talk to Victor at the
     Lucky 38 door (0x00165102, speaker the entrance Victor, GetIsID the elevator).
     ([mq-walkthrough](mq-walkthrough-2026-10-27.md) §2)
-30. **Reputation axes outside 0-2.** Scripts call SetReputation RepNVNCR with axis 2
-    (Crocker's messenger, Vulpes's greeting) and conditions use GetReputationThreshold
-    axis 3 (VDialogueBenny) and GetReputation axis 2 (VMS36); the wiki documents 0/1
-    (fame/infamy) and 0-2 (mixed/good/bad). Ours does nothing and reads 0 (reputation.rs
-    `axis`), so Benny's greeting for a player liked on the Strip (axis 3 >= 3) is never
-    chosen. To check: GetReputation and GetReputationThreshold
-    with those axes after SetReputation X 2 5 on a fresh save.
+30. **Reputation axes outside 0-2** — answered 2026-10-31 (o5_00-02, RepNVNCR, scale 80):
+    GetReputation axes 2 and 3 read 0; GetReputationThreshold axis 3 read 0 at every value
+    tried (so Benny's "axis 3 >= 3" greeting is never chosen in the original either), and
+    axes 0-2 matched ours (`reputation::tiers`) at all ten infamy/fame pairs. SetReputation
+    with axis 2 or 3 is a failed call that **stops the script** (the line after it did not
+    run); ours does nothing and goes on (reputation.rs `axis`). (scripts.md §7.6)
 31. **Say Once on a line two actors share** (dialogue.md question 13): the Yes Man
     mainframe repeats the Tops Yes Man's first-meeting greeting (0x001164F1, Say Once,
     GetIsID YesManMainframe OR VMQTopsYesMan) once, because ours keeps Say Once per actor.
@@ -410,12 +415,11 @@ The numbers above stay put so links to them hold; each item here gives its own p
     crater's three markers (5/10000, 10/6000, 18/2000 on one point) 1000 units from their
     point (ours 9 × 0.92 = 8.28; summed 21.83 × 0.92 = 20.09); and a Fat Man's zone read
     at its centre and 300 units out (ours flat). ([radiation §2, §4](../spec-notes/radiation.md))
-34. **The corner bars' ticks' brightness.** The original's health and action points ticks
-    read about 0.7 of the bracket line's colour at their full rows (`hud_corners2.007`,
-    hud.md §14.9); the tile HUD writes `brightness` 175 to `HitPoints/meter` and
-    `ActionPoints/meter:1` [hypothesis: as the enemy meter's read 175]. To check:
-    GetUIFloat `HUDMainMenu/HitPoints/*:2/brightness` and `ActionPoints/*:5/brightness`
-    (the paths §14.3 read the widths by) while the bars show.
+34. **The corner bars' ticks' brightness** — answered 2026-10-31 (o5_00-01): the full-row
+    meters read `brightness` 175 in both bars (`HUDMainMenu/HitPoints/*:2` and
+    `ActionPoints/*:2`, each 296 wide and visible; the bars' other visible children 255),
+    as the tile HUD writes. Read with a dialogue open over the HUD (the nvfstrip save loads
+    into one). (hud.md §14.9)
 
 ## Added 2026-10-30 (issues #907, #915)
 
@@ -460,20 +464,27 @@ The numbers above stay put so links to them hold; each item here gives its own p
     thanks in VMS46, INFO 0x00142A9C.) Ours refuses StartConversation while the old
     conversation is still open. In the original, after the line, does the new speaker
     force-greet? (mq-walkthrough §9 stall 1.)
-40. **Does re-displaying a completed objective un-complete it?** (P1 if yes: G.I. Blues can
-    stall.) Leave Fort Freeside right after the King completes objective 65 and let Roy's
-    line 0x0015C410 play: is 65 shown open again? (§9 stall 2.)
+40. **Does re-displaying a completed objective un-complete it?** — answered 2026-10-31
+    (o5_00, issue #1108): no. VMS19 65 and VFSAtomicPimp 34: displayed, completed, then
+    SetObjectiveDisplayed 1 again: still completed. Only showing a **hidden** objective
+    clears the flag (displayed 0, then 1: not completed), which is what the VMS16 capture
+    of layer5-captures.md §5.2 saw. Ours clears it on every display, so G.I. Blues can
+    stall. (scripts.md §5)
 41. **Does ResetQuest keep a SetQuestDelay?** (P3.) Use the NCR emergency radio and close
-    the Pip-Boy at once: does the supply drop still come? (§9 stall 3.)
-42. **Does a stage result script's reference-less RemoveSpell act on the player?** (P1 if
-    yes: the doctors' addiction cure does nothing headless.) Get addicted to Jet, have Ada
-    Straus cure it (VDoctors 20): is the withdrawal gone from the player's effects? (§10
-    stall 1.)
+    the Pip-Boy at once: does the supply drop still come? (§9 stall 3.) No script function
+    reads a quest's delay, so this needs a timed watch of the quest's effect.
+42. **Does a stage result script's reference-less RemoveSpell act on the player?** —
+    answered 2026-10-31 (o5_03 on nvfairport, issue #1110): yes. Addicted to Jet (10 doses;
+    IsSpellTarget WithdrawalJet 1 over a game hour), `SetStage VDoctors 20` made it 0 within
+    10 frames. The doctors' cure works in the original; ours does nothing.
+    (script-language.md §1.2) Traps for the next capture: the first addiction opens a
+    message box (menu 1001) and the nvfstrip save loads into a dialogue (menu 1009); both
+    pause the game, and effects do not change while it is paused.
 43. **Does a newly started quest's script run before its first delay?** (P2.) Old World
     Blues: wake in the Think Tank and talk to Dr. Klein at once. Do the Big Empty's random
     encounters (NVDLC03Enc 10) start? (§10 stall 2.)
-44. **What does `RemoveItem <item> 0` do?** (P3.) Fix Nellis' arrays by hand, then take
-    Loyal's Sunshine Boogie reward: any error, anything removed? (§10 stall 3.)
+44. **What does `RemoveItem <item> 0` do?** — answered 2026-10-31 (o5_00, issue #1113):
+    nothing, and the script goes on (12 Stimpaks and 21 caps stayed; the next line ran).
 45. **Does a second Nelson explorer stop the player right after the first?** (P3; §10
     stall 4.)
 46. **Does the HELIOS One west-terminal password go to the player from Fantastic's line?**
@@ -490,9 +501,11 @@ The numbers above stay put so links to them hold; each item here gives its own p
     unconscious, and does Happy Trails fail? (§11 stall 3.)
 50. **Does walking behind Stone on his night route set VMS31 60 as soon as he is in view?**
     (P3; no line of sight headless.) (§11 stall 3.)
-51. **Does the script language short-circuit `&&`?** (P2.) EDEScript checks
-    `rLogBlocker.GetInSameCell` inside an `&&`; ours evaluates both sides and logs an
-    empty-reference error each frame near ED-E in Primm. (§11 stall 4.)
+51. **Does the script language short-circuit `&&`?** — answered 2026-10-31 (o5_01, issue
+    #1112): no. `if 0 && player.ModAV Variable09 10`, `if 1 || …`, `if 0 == 1 && … == 0`,
+    `if 0 && 1 && …` and four more forms all ran the ModAV (+10 each time). EDEScript's
+    empty-reference call each frame is the original's too; check 14 asks whether it stops
+    the script there. (script-language.md §4)
 
 ## Added 2026-10-30 (the enemy bar's show rule, issue #935)
 
