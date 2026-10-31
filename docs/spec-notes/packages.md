@@ -1036,10 +1036,13 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
 - **XIBS Ignored By Sandbox**: "Appears not to work in New Vegas" [documented: GECK wiki
   Reference Data Flags]; left alone on purpose.
 - **Header bit 25 No AI Acquire** ("AI will not attempt to pick up containers or objects
-  marked with this flag" [documented: Reference Data Flags]): NVForever's actors pick up
-  nothing on their own yet (a Find package's search is the nearest thing, and it finds
-  reference targets it is given), so there is nothing to keep them from. 67 REFR and 12
-  actor references carry it [observed].
+  marked with this flag" [documented: Reference Data Flags]): honoured (#962,
+  `fnv_sim::refs::FLAG_NO_AI_ACQUIRE`). Re-arming (`fnv_ai::rearm`, combat-ai.md §22)
+  takes no weapon or ammunition from a flagged reference, body or container; a Find
+  package's search leaves flagged objects, containers and bodies out unless the package
+  names that one reference. A living actor so flagged stays a target for Allow Killing and
+  Allow Buying, since the flag speaks of picking up [hypothesis for both exceptions]. 67
+  REFR and 12 actor references carry it [observed].
 - **DOOR Minimal Use**: the wiki says only that SetMinimalUse sets the flag; no source
   says what it changes.
 - **AIDT Responsibility in crime reactions**: the wiki documents Responsibility in the
