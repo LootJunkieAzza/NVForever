@@ -310,7 +310,7 @@ fn typing(
     mut commands: Commands,
     roots: Query<Entity, With<ConsoleRoot>>,
     mut clicks: Local<Vec<Vec2>>,
-    (mut index, play, mut poker): (ResMut<SearchIndex>, Res<PlayWorld>, MessageWriter<crate::poker::OpenPoker>),
+    (mut index, play, mut poker, location): (ResMut<SearchIndex>, Res<PlayWorld>, MessageWriter<crate::poker::OpenPoker>, Option<Res<crate::Location>>),
     (mut saves, mut loads, save_cfg, mut save_log): (MessageWriter<crate::save::SaveRequest>, MessageWriter<crate::save::LoadRequest>, Res<crate::save::SaveConfig>, ResMut<crate::save::SaveLog>),
     pipboy: Option<Res<crate::pipboy::data::DataState>>,
 ) {
@@ -393,7 +393,7 @@ fn typing(
                 if terms.is_empty() {
                     c.print("A line is a script function: [reference.]Function argument ...  e.g. player.additem 0000000F 100");
                     c.print("help <text>: records and functions whose name or Editor ID contains it (not case sensitive); \"two words\" for a phrase, several words must all match");
-                    c.print("prid <ref>, coc <cell>, tgm, cls, save <name>, load [name], saves, set <var> to <value>. Click something to select it; calls without a reference run on it.");
+                    c.print("prid <ref>, coc <cell>, cow <world> <x> <y>, coe <x> <y>, tgm, cls, save <name>, load [name], saves, set <var> to <value>. Click something to select it; calls without a reference run on it.");
                     c.print("Quests and info: sq, sqt, movetoqt [n], sqs <quest>, sqv <quest>, sv, caqs, inv, getavinfo <av>, setgs <setting> <value>, cam, qqq, advlevel (level up), poker [casino] (a poker table)");
                     c.print("Toggles: tcl (collision), tai (actors' AI), tdetect, tgm, tscr (scripts), tg (grass), ts (sky), tws (water), tt (trees), ToggleLODLand, ToggleNavmesh");
                 } else {
@@ -474,6 +474,23 @@ fn typing(
                 }
                 Err(e) => c.print(e),
             },
+            "cow" | "centeronworld" | "coe" | "centeronexterior" => {
+                let words: Vec<&str> = rest.split_whitespace().collect();
+                let here = location.as_deref().map_or(play.0.world, |l| l.world);
+                let asked = match (matches!(head.to_ascii_lowercase().as_str(), "cow" | "centeronworld"), &words[..]) {
+                    (true, [w, x, y]) => world_word(&play.0, w).map(|w| (w, *x, *y)),
+                    (true, _) => Err("cow <worldspace> <x> <y>: an exterior cell by its grid square".to_string()),
+                    (false, [x, y]) => Ok((here, *x, *y)),
+                    (false, _) => Err("coe <x> <y>: an exterior cell of the current worldspace by its grid square".to_string()),
+                };
+                match asked.and_then(|(w, x, y)| center_on(&play.0, w, x, y)) {
+                    Ok((t, name)) => {
+                        c.print(format!("Travelling to {name}"));
+                        travel.write(crate::loading::TravelRequest(t));
+                    }
+                    Err(e) => c.print(e),
+                }
+            }
             _ => match script.as_deref_mut() {
                 Some(st) if st.rt.is_some() => st.console.push(ConsoleCall { line, selected: c.selected, active_quest: pipboy.as_ref().and_then(|p| p.active_quest()) }),
                 _ => c.print("Scripts are not running: only cls, tgm and coc work"),
@@ -685,6 +702,50 @@ fn coc(sim: &SimState, name: &str) -> Result<(Travel, String), String> {
     let world = refs.cell_world.get(&cell).map(|w| w.0);
     let t = Travel { world, interior: if world.is_some() { None } else { Some(cell.0) }, feet: spot.feet, heading_deg: spot.heading.to_degrees() };
     Ok((t, name.to_string()))
+}
+
+/// A worldspace by Editor ID (not case sensitive) or FormID.
+fn world_word(d: &PlayData, word: &str) -> Result<u32, String> {
+    let worlds = &d.index.worldspaces;
+    worlds
+        .iter()
+        .find(|(_, w)| w.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(word)))
+        .map(|(&id, _)| id)
+        .or_else(|| parse_form_id(word).map(|f| f.0).filter(|f| worlds.contains_key(f)))
+        .ok_or_else(|| format!("No worldspace named {word}"))
+}
+
+/// `cow <world> <x> <y>` (CenterOnWorld) and `coe <x> <y>` (CenterOnExterior, the current
+/// worldspace, the one last walked in from an interior): the player goes to the exterior
+/// cell at grid square (x, y) ("moves the player to given exterior grid coordinates"
+/// [documented: GECK wiki CenterOnWorld, CenterOnExterior]). Where in the cell is not
+/// documented: its centre, on the landscape there [hypothesis], which the arrival rule
+/// (physics.md §6.2) then settles as for any travel.
+fn center_on(d: &PlayData, world: u32, x: &str, y: &str) -> Result<(Travel, String), String> {
+    let grid = |w: &str| w.parse::<i32>().map_err(|_| format!("{w:?} is not a grid number"));
+    let g = (grid(x)?, grid(y)?);
+    let ws = d.index.worldspaces.get(&world).ok_or_else(|| format!("No worldspace {}", FormId(world)))?;
+    let name = format!("{} ({}, {})", ws.edid.clone().unwrap_or_else(|| FormId(world).to_string()), g.0, g.1);
+    let height_in = |w: u32| {
+        let land = d.index.cells.get(d.index.worldspaces.get(&w)?.grid.get(&g)?)?.land?;
+        let heights = fnv_world::land::load_land(d.lo, d.schema, land, fnv_world::land::LandParts::HEIGHTS)?.heights?;
+        fnv_phys::terrain::height_at(&heights, CELL_CENTRE, CELL_CENTRE)
+    };
+    if !ws.grid.contains_key(&g) && ws.parent.is_none_or(|p| d.index.worldspaces.get(&p).is_none_or(|p| !p.grid.contains_key(&g))) {
+        return Err(format!("No exterior cell at {name}"));
+    }
+    // A child worldspace without its own landscape there (the Strip's) stands on its
+    // parent's [hypothesis], else on the worldspace's default land height.
+    let z = height_in(world).or_else(|| ws.parent.and_then(height_in)).or(ws.default_land_height).unwrap_or(0.0);
+    Ok((Travel { world: Some(world), interior: None, feet: grid_centre(g, z), heading_deg: 0.0 }, name))
+}
+
+/// Half a cell's width: an exterior cell's centre from its corner.
+const CELL_CENTRE: f32 = fnv_world::CELL_SIZE / 2.0;
+
+/// The centre of exterior grid square `g` at height `z`, game space.
+fn grid_centre(g: (i32, i32), z: f32) -> [f32; 3] {
+    [g.0 as f32 * fnv_world::CELL_SIZE + CELL_CENTRE, g.1 as f32 * fnv_world::CELL_SIZE + CELL_CENTRE, z]
 }
 
 /// A FormID as the console takes it: hex with or without `0x`, up to eight digits.
@@ -1229,6 +1290,12 @@ mod tests {
         assert_eq!(parse_form_id("f"), Some(FormId(0xF)));
         assert_eq!(parse_form_id("player"), None);
         assert_eq!(parse_form_id("123456789"), None);
+    }
+
+    #[test]
+    fn cow_goes_to_the_middle_of_the_grid_square() {
+        assert_eq!(grid_centre((0, 0), 5.0), [2048.0, 2048.0, 5.0]);
+        assert_eq!(grid_centre((-17, 1), 0.0), [-17.0 * 4096.0 + 2048.0, 4096.0 + 2048.0, 0.0]);
     }
 
     #[test]

@@ -63,6 +63,7 @@ Console commands of its own:
 | `help <text>` | search every record: functions, then records (FormID, record type, Editor ID, name) whose name or Editor ID contains the text; see below |
 | `prid <reference>` | select the reference |
 | `coc <cell>` | travel to the cell's COC spot (`player::safe::cell_spot`: COCMarkerHeading, else XMarker, else a door arrival); interior or exterior cell by Editor ID or FormID |
+| `cow <world> <x> <y>` (`CenterOnWorld`), `coe <x> <y>` (`CenterOnExterior`) | travel to the exterior cell at grid square (x, y) of the worldspace named (Editor ID or FormID), or of the current one for `coe` (inside an interior, the one last walked in) [documented: GECK wiki]; arriving at the cell's centre on its landscape (a child worldspace without landscape there: its parent's, else the default land height) [hypothesis: where in the cell is undocumented], settled by the arrival rule |
 | `tgm` | god mode on or off while no script runs (with scripts running it is ToggleGodMode, below) |
 | `cls`, `clear` | empty the scrollback |
 
@@ -113,14 +114,15 @@ The stub audit (`fnvtool script stubs`, `tools/smoke/expected/script-stubs.toml`
 only functions the masters' scripts call. A function typed at the console that no script
 calls is outside it, so `killall` did nothing unnoticed (#1046). The vanilla functions of
 the catalogue that nothing handles (not in `functions::registry`, the console registries,
-or the engine's own words `console::ENGINE_WORDS`: `coc`, `help`, `AdvLevel`) and that no
+or the engine's own words `console::ENGINE_WORDS`: `coc`, `cow`, `coe`, `help`,
+`AdvLevel`) and that no
 master script calls are counted by `console::unhandled_unused`. The test
-`registered_names_are_catalogue_console_commands` pins the two numbers: **57** in the
+`registered_names_are_catalogue_console_commands` pins the two numbers: **55** in the
 wiki's "Console Functions" category, **124** others. Implementing one lowers a number
 there; a catalogue update that adds one raises it. Sorted (2026-10-31):
 
-**Console functions players use, to build next**: `CenterOnWorld` (`cow <world> <x> <y>`,
-used by the capture campaigns), `CenterOnExterior` (`coe <x> <y>`), `StartAllQuests`
+**Console functions players use, to build next** (`CenterOnWorld`, `cow <world> <x> <y>`,
+and `CenterOnExterior`, `coe <x> <y>`, are built: in the table above): `StartAllQuests`
 (`saq`), `PlaceLocationMarker` / `ClearLocationMarkers` (`plm` / `clm`),
 `ShowLockPickMenu` (`slpm`), `DeleteReference` (`zap`), `bat` (run a batch file of
 console lines), `ToggleFogOfWar` (`tfow`), `ToggleEmotions` (`temo`), `ToggleLookIK`
