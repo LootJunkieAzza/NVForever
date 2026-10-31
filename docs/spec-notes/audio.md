@@ -801,6 +801,21 @@ creature_sound_survey` (FalloutNV.esm alone; `--show <CREA edid>`, `--near x,y,r
   An actor stepping off a ledge (actor-jumps.md §3) leaves at vertical speed 0, so only
   its landing sounds.
   `FSTDirtJump` names `fx\xxx_placeholder_silence.wav` [observed].
+- **Hard landings** (issue #1104): FalloutNV.esm has `FSTLandHardLight` (0x0005A724) and
+  `FSTLandHardHeavy` (0x0005A725), both the folder `fx\fst\landhard\` (one file in
+  `Fallout - Sound.bsa`, `fst_landhard_01.wav`), Random Frequency Shift, static
+  attenuation 1762 and 1410 (hundredths of a dB); no record of FalloutNV.esm names either
+  [observed: a scan of every record's fields for the two form ids]. Built: a landing that
+  does fall damage (physics.md §6.12) plays the Heavy one for an actor in heavy body
+  armour, else the Light one [hypothesis: the exe picks them, by their names, the way the
+  data names armour footsteps `FSTArmorLightSneak` / `FSTArmorHeavySneak`], the player's
+  at the listener, an NPC's at its feet, besides the ground's `FST…Land`; in god mode too
+  [design]. Falls without damage play only `FST…Land`. The player's hurt voice is the
+  combat lines' (combat-dialogue.md §3: `GenericPlayer` Hit lines), which every hit, a
+  fall's too, may say by `fCombatSpeakHitThreshold` / `…Chance`; no SOUN of FalloutNV.esm
+  is named for a player's pain [observed: no `Pain`/`Hurt` edid outside creatures and
+  `UISurgeryPain01`–`03`], so no separate issue. Log: `falls: <actor> hard landing,
+  sound FSTLandHard…`.
 - **Wading** [design]: feet more than 2 units under a water surface (the cell's water or
   a placed water volume) step on Water (`FSTWaterWalkL`…, files `fx\fst\water\…`).
 - **Stairs on the landscape** do not exist in the data: the 89 landscape textures' Havok

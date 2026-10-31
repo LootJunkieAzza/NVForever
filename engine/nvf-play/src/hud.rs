@@ -36,7 +36,6 @@ use fnv_sim::FormId;
 use fnv_font::Font;
 use fnv_game::actor_values::ACTION_POINTS;
 use fnv_game::awareness::State as Awake;
-use fnv_game::detection::Band;
 use nvf_assets::GameData;
 
 // ---- the interface files' numbers [documented: hud.md §2, §3] -------------------------
@@ -295,6 +294,9 @@ impl Sneak {
 
 /// The sneak word from the game's detection states (`fnv_game::awareness`) and the
 /// latest detection values (`Game::detection`) [design: shared by drawing and tree].
+/// Teammates and actors following the player (`Game::with_player`) count for neither
+/// `[CAUTION]` nor `[DETECTED]` (#1159); one in Combat with the player still means
+/// `[DANGER]` [design: a fight is a fight].
 pub(crate) fn sneak_now(g: &fnv_game::Game) -> Sneak {
     let me = FormId::PLAYER_REF;
     let (mut fighting, mut searching) = (false, false);
@@ -304,12 +306,11 @@ pub(crate) fn sneak_now(g: &fnv_game::Game) -> Sneak {
         }
         match a.state {
             Awake::Combat => fighting |= a.combat_target().is_some_and(|(t, _)| t == me),
-            Awake::Alert | Awake::Lost => searching |= a.targets.contains_key(&me) || a.alarms.iter().any(|x| x.owner == me),
+            Awake::Alert | Awake::Lost => searching |= !g.with_player(*id) && (a.targets.contains_key(&me) || a.alarms.iter().any(|x| x.owner == me)),
             Awake::Normal => {}
         }
     }
-    let detected = g.detection.highest(me).is_some_and(|(_, d)| d.band == Band::Detected);
-    Sneak::of(fighting, searching, detected)
+    Sneak::of(fighting, searching, g.player_detected_for_sneak())
 }
 
 // ---- layout --------------------------------------------------------------------------

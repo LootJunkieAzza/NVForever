@@ -40,8 +40,14 @@ pub fn add_spell(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// [observed: capture abilities-1, Victor's SecuritronDT gone (DT 20 to 0) and his
 /// RadImmunity kept; AddSpell put it back]. A worn item's enchantment is no spell of
 /// the actor and stays while the item is worn [hypothesis; aid-items.md §13].
+///
+/// Called with no reference in a script that has none (a quest stage result), it acts on
+/// the player: the doctors' addiction cure (VDoctors / Doctors stage 20) cleared the
+/// player's Jet withdrawal [observed: o5_03, 2026-10-31, observer check 42; issue
+/// #1110]. The same in a quest script [hypothesis: the player is the default reference,
+/// script-language.md §1.2].
 pub fn remove_spell(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    let r = ctx.subject()?;
+    let r = ctx.subject_or_player();
     let s = a.form(0)?;
     g.sync_actor_effects(r);
     if let Some(e) = g.extra.get_mut(&r) {

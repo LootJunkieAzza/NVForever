@@ -124,6 +124,10 @@ pub struct LimbHit {
     pub health_percent: f64,
     /// Limb damage: the hit's damage times the weapon's Limb Dmg Mult.
     pub damage: f64,
+    /// `damage` is condition points taken straight off the part's condition, not a share
+    /// of its pool, and no limb damage multiplier applies (a fall's leg,
+    /// docs/spec-notes/physics.md §6.12).
+    pub points: bool,
 }
 
 /// A hit's circumstances.
@@ -617,13 +621,22 @@ impl Game<'_> {
     /// Lower a limb's condition by a hit (see the module notes): its condition after, and
     /// whether this hit crippled it.
     pub fn damage_limb(&mut self, target: FormId, l: LimbHit, max_health: f64) -> (f64, bool) {
-        let pool = max_health * l.health_percent / 100.0;
         let before = actor::actor_value(self, target, l.condition).unwrap_or(100.0);
-        let damage = self.limb_damage(target, l.damage);
-        if pool <= 0.0 || damage <= 0.0 || before <= 0.0 {
+        let loss = if l.points {
+            l.damage.max(0.0)
+        } else {
+            let pool = max_health * l.health_percent / 100.0;
+            let damage = self.limb_damage(target, l.damage);
+            if pool <= 0.0 {
+                0.0
+            } else {
+                damage / pool * 100.0
+            }
+        };
+        if loss <= 0.0 || before <= 0.0 {
             return (before, false);
         }
-        let loss = (damage / pool * 100.0).min(before);
+        let loss = loss.min(before);
         actor::add_damage(self, target, l.condition, loss);
         let after = before - loss;
         (after, after <= 0.0)

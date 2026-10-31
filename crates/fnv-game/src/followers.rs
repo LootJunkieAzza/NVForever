@@ -82,6 +82,15 @@ impl Game<'_> {
         })
     }
 
+    /// Whether `actor` is with the player: a teammate, or an actor whose package already
+    /// chosen follows the player (`Game::package_follows_player`). Such an
+    /// actor seeing the player does not count for the sneak word (#1159, owner's playtest
+    /// 2026-10-31: a following companion set `[DETECTED]`) [hypothesis: that the original
+    /// leaves companions out; observer-checks.md P3 16].
+    pub fn with_player(&self, actor: FormId) -> bool {
+        self.is_teammate(actor) || self.package_follows_player(actor)
+    }
+
     /// Whether a teammate was told to wait: its current package is a Guard package (the
     /// companions' Wait packages are, chosen by their `Waiting` variable) [hypothesis].
     pub fn told_to_wait(&mut self, actor: FormId) -> bool {
