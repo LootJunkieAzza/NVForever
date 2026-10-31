@@ -141,7 +141,7 @@ cmd = ["python", "-m", "unittest", "discover", "-s", "tools/stress/tests"]
 
 [[scenario]]
 name = "memory-budget-capped"
-source = "#1170: the asset caches' keep limits follow the machine's RAM and the GPU's memory budget (VK_EXT_memory_budget); with the test aids capping the GPU budget at 512 MB, the limits go to their least (30 s, 128 per cache) and the flight over Goodsprings uses over 85 % of it (this process's use of the device-local heaps, VK_EXT_memory_budget), which presses the caches (10 s, 32)"
+source = "#1170: the asset caches' keep limits follow the machine's RAM and the GPU's memory budget (VK_EXT_memory_budget); with the test aids capping the GPU budget at 512 MB, the limits go to their least (30 s, 128 per cache) and the flight over Goodsprings uses over 85 % of it (this process's use of the device-local heaps, VK_EXT_memory_budget), which presses the caches (they keep the least, 30 s and 128)"
 areas = ["renderer"]
 paths = ["engine/nvforever/src/memory_budget.rs", "engine/nvf-assets/src/release.rs"]
 env = { NVF_PLAY_TEST_VRAM_MB = "512" }

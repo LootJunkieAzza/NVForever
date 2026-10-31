@@ -463,8 +463,8 @@ memory is the RAM.
 Every 2 s the GPU budget is read again (other programs change it) with this process's
 use of the same heaps (`heapUsage`: what the driver gave the process, blocks the
 allocator keeps empty included, #898), and the machine's free RAM. Over 85 % of the GPU
-budget used, or under 10 % of the RAM free, presses the caches: 10 s and 32 entries,
-until the GPU use is under 75 % and over 20 % of the RAM is free [design for every
+budget used, or under 10 % of the RAM free, presses the caches: 30 s and 128 entries
+(the least the budgets scale to), until the GPU use is under 75 % and over 20 % of the RAM is free [design for every
 number]. The RAM check follows what the machine has free, not the game's own commit: a
 soak commits about 5 GB, which on an 8 GB machine still leaves about a quarter free. The
 start logs `memory budget: RAM …, GPU budget …`; each change logs `near a budget, caches
@@ -474,3 +474,16 @@ Test aids: `NVF_PLAY_TEST_VRAM_MB` and `NVF_PLAY_TEST_RAM_MB` cap what was read 
 cap takes its difference off the free RAM). Smoke: `memory-budget-capped` (512 MB: least
 limits, pressed at once during the Goodsprings flight, 1,157 of 512 MB). [observed
 2026-10-31, this machine: RAM 48,927 MB, GPU budget 11,242 MB, full limits.]
+
+Tour slice 0:40 of the towns route, one lap, a 2 GB cap against none [observed
+2026-10-31, the machine busy with smoke games, so both runs are noisy]: pressed at 10 s
+and 32 entries (the first choice), the press came at 77 s (1,826 of 2,048 MB) and never
+let go, because the vendored allocator keeps emptied blocks (#898) and the process's use
+does not fall when assets go. Meshes kept fell from about 8,070 to 3,430, and
+re-preparing what was dropped cost frame time: 1 % low 94.6 ms against 35.3 ms, worst
+250 ms against 89, actors drawn 2.4 s against 0.8 s. Pressed now keeps 30 s and 128
+entries instead. The same slice again with that (the machine was not reported busy, but a
+smoke game ran beside it for part of the lap): pressed at 77 s again and held, meshes
+kept about 3,990 at the end; mean 17.5 ms against 17.2, 1 % low 43.7 ms against 35.3,
+one 432 ms frame, actors drawn 1.4 s against 0.8 s. Still not measured on an idle
+machine, or with a real 2 GB card, which pages rather than pressing.

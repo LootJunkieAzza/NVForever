@@ -20,7 +20,7 @@
 //! **Pressed** ([`pressed`], checked every 2 s, the GPU budget read again each time so other
 //! programs' use counts): when the process uses over 85 % of the GPU budget, or the machine
 //! has under 10 % of its RAM free, the sweep keeps [`PRESSED`] (unused entries go after
-//! 10 s, at most 32 per cache, the longest unused first) until the GPU use is under 75 % and
+//! 30 s, at most 128 per cache, the longest unused first) until the GPU use is under 75 % and
 //! over 20 % of the RAM is free. Each change is logged.
 //!
 //! Test aids, since there is no small machine to test on: `NVF_PLAY_TEST_VRAM_MB=<MB>` and
@@ -45,9 +45,12 @@ pub const GPU_PRESSURE: (f64, f64) = (0.85, 0.75);
 /// the game's own commit (about 5 GB in a soak) on an 8 GB machine leaves about a quarter
 /// free, which is not pressed].
 pub const RAM_PRESSURE: (f64, f64) = (0.90, 0.80);
-/// The keep limits while pressed [design: a cell's own models stay in use while drawn; ten
-/// seconds keeps a door's other side for a quick return].
-pub const PRESSED: KeepLimits = KeepLimits { secs: 10.0, max: 32 };
+/// The keep limits while pressed: the least the budgets scale to [design: 10 s and 32
+/// entries were tried first; on a tour slice capped at a 2 GB card they pressed at 77 s
+/// and never let go (the allocator keeps emptied blocks, #898, so dropping assets does not
+/// lower the process's use), and re-preparing what was dropped took the 1 % low from 35 to
+/// 95 ms; streaming-hitches.md §5].
+pub const PRESSED: KeepLimits = MIN_LIMITS;
 /// The least the scaled limits go to [design].
 const MIN_LIMITS: KeepLimits = KeepLimits { secs: 30.0, max: 128 };
 
