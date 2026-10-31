@@ -299,9 +299,9 @@ pub struct NoteDef {
     pub texture: Option<String>,
     /// SNAM: a Sound note's sound (SOUN), a Voice note's speaker (NPC_ or CREA)
     /// [documented: xEdit wbDefinitionsFNV.pas NOTE, a union by note type; GECK wiki
-    /// GetNoteSound, GetNoteSpeaker]. docs/spec-notes/holotapes.md §1.
-    pub sound: Option<FormId>,
-    pub speaker: Option<FormId>,
+    /// GetNoteSound, GetNoteSpeaker]. One value, read by the type ([`NoteDef::sound`],
+    /// [`NoteDef::speaker`]), so SetNoteType changes what it is. docs/spec-notes/holotapes.md §1.
+    pub snam: Option<FormId>,
     /// TNAM of a Voice note: the topic (DIAL) whose line it plays [documented: xEdit
     /// NOTE TNAM union; GECK wiki GetNoteTopic].
     pub topic: Option<FormId>,
@@ -309,6 +309,18 @@ pub struct NoteDef {
     /// GetNoteQuestList, "all quests associated with a Note"; hypothesis: one ONAM per
     /// quest].
     pub quests: Vec<FormId>,
+}
+
+impl NoteDef {
+    /// A Sound note's sound (SNAM).
+    pub fn sound(&self) -> Option<FormId> {
+        self.snam.filter(|_| self.kind == 0)
+    }
+
+    /// A Voice note's speaker (SNAM).
+    pub fn speaker(&self) -> Option<FormId> {
+        self.snam.filter(|_| self.kind == 3)
+    }
 }
 
 /// A terminal (TERM) [documented: xEdit wbDefinitionsFNV.pas TERM; schema
@@ -2814,13 +2826,10 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 .filter(|s| &s.sig == b"ONAM")
                 .filter_map(|s| s.data.get(..4).and_then(|b| map(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))).filter(|f| *f != 0).map(FormId))
                 .collect();
+            n.snam = form_of(b"SNAM");
             match n.kind {
-                0 => n.sound = form_of(b"SNAM"),
                 1 => n.text = subs.iter().find(|s| &s.sig == b"TNAM").map(|s| fnv_util::cp1252::decode_z(&s.data)),
-                3 => {
-                    n.speaker = form_of(b"SNAM");
-                    n.topic = form_of(b"TNAM");
-                }
+                3 => n.topic = form_of(b"TNAM"),
                 _ => {}
             }
             out.note = Some(n);

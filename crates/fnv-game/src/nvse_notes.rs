@@ -84,7 +84,7 @@ pub(crate) fn call(g: &mut Game, name: &str, _subject: Option<FormId>, args: &[X
         "getnotetype" => XVal::Num(def.map_or(0.0, |d| f64::from(d.kind))),
         // SNAM, one field for both [documented: xEdit, a union by type; hypothesis: each
         // getter reads it whatever the type, as the field is one].
-        "getnotesound" | "getnotespeaker" => reff(def.and_then(|d| d.sound.or(d.speaker))),
+        "getnotesound" | "getnotespeaker" => reff(def.and_then(|d| d.snam)),
         // TNAM of a Voice note [documented: GetNoteTopic; a Text note's TNAM is its text].
         "getnotetopic" => reff(def.and_then(|d| d.topic)),
         // XNAM [documented: GetNoteImage]; "" without one.
@@ -102,23 +102,10 @@ pub(crate) fn call(g: &mut Game, name: &str, _subject: Option<FormId>, args: &[X
             let ok = (0.0..=3.0).contains(&k) && note.is_some_and(|n| g.edit_note(n, |d| d.kind = k as u8));
             yes(ok)
         }
-        "setnotesound" => {
+        // Both set the one SNAM; the type says which it is (`NoteDef::sound`, `speaker`).
+        "setnotesound" | "setnotespeaker" => {
             let s = form(args, 1);
-            yes(note.is_some_and(|n| {
-                g.edit_note(n, |d| {
-                    d.sound = s;
-                    d.speaker = None;
-                })
-            }))
-        }
-        "setnotespeaker" => {
-            let s = form(args, 1);
-            yes(note.is_some_and(|n| {
-                g.edit_note(n, |d| {
-                    d.speaker = s;
-                    d.sound = None;
-                })
-            }))
+            yes(note.is_some_and(|n| g.edit_note(n, |d| d.snam = s)))
         }
         "setnotetopic" => {
             let t = form(args, 1);

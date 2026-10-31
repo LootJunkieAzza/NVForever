@@ -1588,6 +1588,13 @@ fn a_voice_note_runs_its_lines_result_scripts() {
     assert_eq!(out(&g), 6.0, "the begin script");
     assert_eq!(g.holotape_script(FormId(NOTE_TAPE), 1), Some(FormId(S_TAPE)));
     assert_eq!(out(&g), 7.0, "the end script");
+    // A topic changed while the tape plays: it ends with the line it began.
+    assert_eq!(g.holotape_script(FormId(NOTE_TAPE), 0), Some(FormId(S_TAPE)));
+    g.run_query("Begin Function { }
+SetNoteTopic TestTapeNote TestPing
+End
+", Default::default()).unwrap();
+    assert_eq!(g.holotape_script(FormId(NOTE_TAPE), 1), Some(FormId(S_TAPE)));
     // Not a voice note: nothing runs.
     assert_eq!(g.holotape_script(FormId(G_OUT), 0), None);
     let input: fnv_game::runner::Input = serde_json::from_value(json!({
@@ -1658,6 +1665,11 @@ SetFunctionValue (Ar_Size aQ) * 10 + (aQ[0] == QHi)"), n(11.0));
     assert!(snap.player.notes_read.contains(&FormId(NOTE_TAPE)), "the session change is not in the save");
     q(&mut g, "SetNoteRead TestTapeNote 0 1").unwrap();
     assert!(!g.snapshot().player.notes_read.contains(&FormId(NOTE_TAPE)));
+    // The note's one SNAM is read by its type: made a Sound note, the speaker is its
+    // sound, for the getter and the tape alike.
+    assert_eq!(q(&mut g, "SetFunctionValue (SetNoteType TestTapeNote 0)"), n(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetNoteSound TestTapeNote)"), Ok(XVal::Ref(NPC1)));
+    assert_eq!(g.note_tape(FormId(NOTE_TAPE)), Some(fnv_game::holotapes::Tape::Sound(FormId(NPC1))));
 }
 
 /// Known topics are kept newest first: one line's Add Topics go to the front together in

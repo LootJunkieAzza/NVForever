@@ -488,6 +488,7 @@ pub fn draw(
     let Some((body, b)) = body else {
         st.was_open = false;
         st.popup = None;
+        st.note_shown = None;
         input.wheel.clear();
         input.menu.clear();
         return;
@@ -507,6 +508,9 @@ pub fn draw(
     take_input(st, tab, &lists, &mut game, &mut input, pointer);
     if tab == NOTES && lists.challenges.is_none() {
         mark_read(st, &lists, &mut game);
+    } else {
+        // Left the notes: the next note shown comes up again.
+        st.note_shown = None;
     }
     if tab == LOCAL {
         advance_outline(st, &mut game, &mut tools.images);
@@ -699,14 +703,20 @@ fn lists(st: &mut DataState, game: &Game) -> Lists {
 
 /// The note whose page is shown is read, once each time it comes up (GetNoteRead,
 /// `fnv_game::game::Game::mark_note_read`), so a script's SetNoteRead 0 holds while it stays.
+/// It comes up again after the player leaves the notes or closes the Pip-Boy; a frame
+/// with no scripts' game marks nothing and tries again on the next.
 fn mark_read(st: &mut DataState, l: &Lists, game: &mut Game) {
     let shown = l.notes.get(st.sel[NOTES]).map(|n| n.form);
     if shown == st.note_shown {
         return;
     }
-    st.note_shown = shown;
-    let (Some(f), Some(rt)) = (shown, game.script.as_mut().and_then(|s| s.rt.as_mut())) else { return };
+    let Some(f) = shown else {
+        st.note_shown = None;
+        return;
+    };
+    let Some(rt) = game.script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
     rt.game.mark_note_read(FormId(f));
+    st.note_shown = shown;
 }
 
 fn list_len(tab: usize, l: &Lists) -> usize {

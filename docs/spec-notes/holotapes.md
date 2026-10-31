@@ -109,9 +109,9 @@ JIP's GetNoteRead and JohnnyGuitar's note getters and setters, in
 | GetNoteTopic `note` | a Voice note's TNAM |
 | GetNoteImage `note` | XNAM; "" without one |
 | GetNoteQuestList `note` | an array of the ONAM quests, in record order [hypothesis: one ONAM per quest] |
-| SetNoteType, SetNoteSound, SetNoteSpeaker, SetNoteTopic, SetNoteImage | change the note for the session; 1 for a note, 0 otherwise [hypothesis: "int" on each page]. SetNoteType takes 0-3 in DATA's order [hypothesis: its page lists 1 Image, 2 Text, the reverse of GetNoteType's; not probed]. A Voice note played afterwards plays the new speaker and topic |
+| SetNoteType, SetNoteSound, SetNoteSpeaker, SetNoteTopic, SetNoteImage | change the note for the session; 1 for a note, 0 otherwise [hypothesis: "int" on each page]. SetNoteType takes 0-3 in DATA's order [hypothesis: its page lists 1 Image, 2 Text, the reverse of GetNoteType's; not probed]. SetNoteSound and SetNoteSpeaker both set the one SNAM, and the type says what it is: a note made a Sound note plays its SNAM as a sound, one made a Voice note as the speaker [hypothesis: the field is one union, §1]. A Voice note played afterwards plays the new speaker and topic; a tape playing ends with the end script of the line it began with [hypothesis] |
 | AddNoteQuest, RemoveNoteQuest `note quest` | the session's quest list; a quest is not added twice [hypothesis]; Remove returns whether it was there |
-| GetNoteRead `note` | whether the note was read: saved, set when its page is shown in the Pip-Boy (DATA, Notes) [documented: "read in the Pip-Boy"; hypothesis: shown counts as read] |
+| GetNoteRead `note` | whether the note was read: saved, set when its page is shown in the Pip-Boy (DATA, Notes), again each time it comes up after the player leaves the notes or closes the Pip-Boy [documented: "read in the Pip-Boy"; hypothesis: shown counts as read] |
 | SetNoteRead `note isRead [serialize]` | with `serialize` 1 the saved flag, otherwise a change for the session over it [documented: "the change will persist in the save" with 1] |
 
 The setters' edits are not saved [hypothesis: the pages do not say; JohnnyGuitar marks
