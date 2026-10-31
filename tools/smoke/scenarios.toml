@@ -8062,11 +8062,11 @@ expect = [
 [[scenario]]
 name = "package-flee"
 source = "Flee Not Combat packages (fnv-ai errand.rs; docs/spec-notes/packages.md §3.1): VTerrifyingPresencePackage and EasyPeteHideInSaloonPackage"
-note = "GoodspringsSettler03Ref, put 200 units from the player, is given VTerrifyingPresencePackage (flee the player to 768); the player is no enemy of his, so he stays and the package is done, as the original's settler did (packages.md §4: 0.4 game hours in procedure FLEE without moving); Easy Pete is given EasyPeteHideInSaloonPackage (no target) with nothing threatening him: he stays, the package done (the original: procedure DONE). Running from an enemy is the unit tests' (crates/fnv-ai/tests/errands.rs)"
+note = "GoodspringsSettler03Ref, put 200 units from the player, is given VTerrifyingPresencePackage (flee the player to 768); the player is no enemy of his, so he stays and the package is done, as the original's settler did (packages.md §4: 0.4 game hours in procedure FLEE without moving); Easy Pete is given EasyPeteHideInSaloonPackage (no target) with nothing threatening him: he stays, the package done (the original: procedure DONE). Running from an enemy is the unit tests' (crates/fnv-ai/tests/errands.rs). 15:00, not 12:00 (#1222): from 12 to 14 Pete's package is EasyPeteEat12x2 (fnvtool ai day), which walks him into GSProspectorSaloonInterior, out of the loaded area when the aid adds the hide package; from 14 EasyPeteChairPackage14x4 keeps him on his porch chair outdoors (the settler's GSSettlerSandbox holds all day)"
 areas = ["ai", "packages"]
 paths = ["crates/fnv-ai/src/errand.rs", "crates/fnv-ai/src/goal.rs", "crates/fnv-ai/src/carry.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:GoodspringsSettler03Ref:player:200:0:0,4:call:GoodspringsSettler03Ref:AddScriptPackage:VTerrifyingPresencePackage,4:call:EasyPeteRef:AddScriptPackage:EasyPeteHideInSaloonPackage" }
-args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler03Ref,EasyPeteRef"]
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "15", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler03Ref,EasyPeteRef"]
 run_seconds = 40
 expect = [
   "GoodspringsSettler03Ref: package VTerrifyingPresencePackage",
