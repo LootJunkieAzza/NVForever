@@ -196,7 +196,7 @@ impl Game<'_> {
 /// load-order FormID [hypothesis: right for FalloutNV.esm's records, whose local and
 /// load-order FormIDs agree].
 fn param_form(a: &Args) -> Option<FormId> {
-    a.opt_form(1).or_else(|| match a.get(1)? {
+    a.peek_form(1).or_else(|| match a.get(1)? {
         ArgValue::Value(v) => Some(FormId(v.num() as i64 as u32)).filter(|f| f.0 != 0),
         ArgValue::Enum(c) => Some(FormId(*c as u32)),
         _ => None,
@@ -423,6 +423,10 @@ mod tests {
         let none = [ArgValue::Enum(0), ArgValue::Value(Value::Num(0.0))];
         assert_eq!(param_form(&Args(&none)), None);
         assert_eq!(param_form(&Args(&[ArgValue::Enum(5)])), None);
+        // A code is a parameter of its own kind here, not a misread form (#1122).
+        let outer = crate::functions::begin_unread();
+        let _ = param_form(&Args(&[ArgValue::Enum(6), ArgValue::Enum(0x14)]));
+        assert_eq!(crate::functions::end_unread(outer), []);
     }
 
     #[test]
