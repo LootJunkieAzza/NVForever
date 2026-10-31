@@ -327,9 +327,28 @@ pub fn check_separation(home: &EngineHome, game: &GameInstall, exe: Option<&Path
     v
 }
 
-/// Gatekeeper for every file NVForever writes.
+/// The game install this process reads, set once at start-up ([`remember_game`]).
+static GAME_IN_USE: std::sync::OnceLock<GameInstall> = std::sync::OnceLock::new();
+
+/// Remember the game install this process reads, so that [`guard_write`] refuses writes
+/// into it even where the caller has no [`GameInstall`] at hand (a save, a test aid's
+/// output). The first call wins; later ones are ignored.
+pub fn remember_game(game: &GameInstall) {
+    let _ = GAME_IN_USE.set(game.clone());
+}
+
+/// [`remember_game`] for the install whose `Data` folder (or root) is `data`, when it
+/// opens; a folder that is not a game install is ignored.
+pub fn remember_game_at(data: &Path) {
+    if let Ok(g) = GameInstall::open(data) {
+        remember_game(&g);
+    }
+}
+
+/// Gatekeeper for every file NVForever writes: never into `game`, the remembered game
+/// install ([`remember_game`]) or the original game's user folder.
 pub fn guard_write(path: &Path, game: Option<&GameInstall>) -> Result<(), InstallError> {
-    if let Some(g) = game {
+    for g in [game, GAME_IN_USE.get()].into_iter().flatten() {
         if g.contains(path) {
             return Err(InstallError::WriteDenied {
                 path: path.to_path_buf(),
@@ -577,6 +596,19 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    /// A write with no game at hand is still refused inside the remembered install
+    /// (#994); outside it, it is allowed.
+    #[test]
+    fn remembered_game_refuses_writes_without_a_game_at_hand() {
+        let root = tmp("remembered");
+        let g = fake_game(&root.join("game"));
+        remember_game_at(&g.data);
+        let inside = root.join("game").join("Data").join("out").join("trace.jsonl");
+        assert!(matches!(guard_write(&inside, None), Err(InstallError::WriteDenied { .. })));
+        assert!(matches!(guard_write(&root.join("game").join("shot.png"), None), Err(InstallError::WriteDenied { .. })));
+        assert!(guard_write(&root.join("elsewhere").join("trace.jsonl"), None).is_ok());
     }
 
     fn fake_game(root: &Path) -> GameInstall {

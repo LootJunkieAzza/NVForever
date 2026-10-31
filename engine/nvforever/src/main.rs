@@ -806,6 +806,9 @@ fn main() -> AppExit {
         }
     };
     args.data = Some(install.data.clone());
+    // Every `fnv_install::guard_write` from here on refuses writes into this install,
+    // also where the writer has none at hand (saves, test aids; #994).
+    fnv_install::remember_game(&install);
     let default_plugins = args.plugins.iter().map(String::as_str).eq(MASTERS);
     // A player's start (no --data, no --plugins): the home's own plugins.txt (setup.rs).
     // Developer and smoke runs keep the fixed masters below, whatever the list says.
@@ -995,6 +998,16 @@ fn main() -> AppExit {
     };
     sky_state.time_scale = args.time_scale.max(0.0);
     sky_state.days_passed = args.day.or_else(|| sky::find_global(&world, "GameDaysPassed")).unwrap_or(0.0).floor();
+    if let Some(dir) = &args.timelapse {
+        if let Err(e) = fnv_install::guard_write(dir, None) {
+            return fail(format!("--timelapse {}: {e}", dir.display()));
+        }
+    }
+    for (flag, path) in [("--screenshot", &args.screenshot), ("--frame-json", &args.frame_json)] {
+        if let Some(Err(e)) = path.as_deref().map(|p| fnv_install::guard_write(p, None)) {
+            return fail(format!("{flag}: {e}"));
+        }
+    }
     if let Some(dir) = &args.timelapse {
         if let Err(e) = std::fs::create_dir_all(dir) {
             return fail(format!("--timelapse {}: {e}", dir.display()));
@@ -1823,6 +1836,7 @@ fn write_frame_json(out: &std::path::Path, image: &std::path::Path, args: &Args,
         "hour": sky.hour,
         "weather": sky.weather.edid,
     });
+    fnv_install::guard_write(out, None).map_err(std::io::Error::other)?;
     if let Some(dir) = out.parent() {
         std::fs::create_dir_all(dir)?;
     }
