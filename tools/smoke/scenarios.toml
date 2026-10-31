@@ -158,7 +158,9 @@ run_seconds = 40
 expect = [
   { re = 'distant LOD blocks over the run: (\d+) new', range = [50, 100000], label = "object blocks spawned for new squares along the flight" },
   { re = 'distant LOD blocks over the run: .*slowest update [\d.]+ ms \(blocks ([\d.]+) ms\)', range = [0, 20], label = "the block loop keeps near its 4 ms budget: models come from worker threads, so no block loads on the main thread (34 ms idle before #1048, 1187 ms before #1038; it counted blocks per frame then, up to 216)" },
-  { re = 'distant LOD at the end: .* blocks (\d+) trees', range = [1, 100000], label = "squares put off by the budget still get their blocks" },
+  { re = 'distant LOD at the end: .* blocks (\d+) trees', range = [40, 100000], label = "squares put off by the budget still get their blocks (81 drawn at the end on 2026-10-31; the check asked for 1 before #1058)" },
+  { re = 'distant LOD blocks over the run: .*a square put off up to (\d+) frames in a row', range = [0, 30], label = "terrain rebuilds no longer starve new object blocks: the first block of each frame goes through whatever terrain spent (up to 12 frames in a row on 2026-10-31, #1058)" },
+  { re = 'distant LOD blocks over the run: .*, (\d+) squares still waiting for their block at the end', range = [0, 10], label = "the put-off squares catch up while flying (0 at the end on 2026-10-31; a sample of the last frame, so a few may still be waiting for their model)" },
   { re = 'distant LOD blocks over the run: .*, (\d+) waited for their model', range = [1, 100000], label = "block models are prepared on worker threads; squares wait for them (#1048)" },
 ]
 
