@@ -817,8 +817,9 @@ fn draw(
         });
     }
     if let Some(q) = &m.quantity {
+        let words = look::quantity_words(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game));
         commands.spawn((MenuRoot, screen, GlobalZIndex(101))).with_children(|root| {
-            look::spawn_quantity(root, q, kit, data.as_deref(), &mut images, bc);
+            look::spawn_quantity(root, q, &words, kit, data.as_deref(), &mut images, bc);
         });
     }
 }

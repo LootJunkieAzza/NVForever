@@ -841,7 +841,8 @@ pub fn base_of(g: &Game, r: FormId) -> Option<FormId> {
     match g.world.peek(r) {
         Some(s) => Some(s.base),
         None if r == FormId::PLAYER_REF => Some(FormId::PLAYER_BASE),
-        None => g.world.placed.get(r).map(|p| p.base).or_else(|| (g.data.sig(r) == Some(*b"WEAP")).then_some(r)),
+        // A created reference deleted before the last load keeps its base (#1002).
+        None => g.world.placed.get(r).map(|p| p.base).or_else(|| g.world.deleted_base(r)).or_else(|| (g.data.sig(r) == Some(*b"WEAP")).then_some(r)),
     }
 }
 

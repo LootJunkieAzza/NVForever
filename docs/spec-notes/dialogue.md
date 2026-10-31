@@ -384,7 +384,11 @@ A speaker **can say** a line when:
   Yes Man mainframe skipped the greeting 0x001164F1 the Tops Yes Man had said
   [observed 2026-10-31, observer check 31; one case]. The clock is GameDaysPassed × 24 + GameHour
   [hypothesis];
-- it is the line's fixed speaker, if the line has one [documented: Category:Dialogue];
+- it is the line's fixed speaker, if the line has one [documented: Category:Dialogue] —
+  unless the line has its own GetIsID condition on the speaker, which then decides
+  [observed 2026-10-31: the Lucky 38 elevator Victor said 0x00165102, whose fixed
+  speaker is the entrance Victor and whose condition is GetIsID the elevator Victor;
+  observer check 29];
 - the line's quest is running **and the quest's own conditions pass**
   [owner statement 2026-10-10: "every actor has the line as long as the quest is active
   and the conditions are met on both the topic and the quest itself"; not yet captured;
