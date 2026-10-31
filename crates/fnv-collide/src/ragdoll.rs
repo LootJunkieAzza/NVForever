@@ -9,7 +9,7 @@
 //! The angle conventions ([`RagdollJoint::rest`]) are the readings under which the
 //! skeletons' bind poses lie inside their own limits (ragdoll.md §3).
 
-use crate::nif::{extract, HAVOK_SCALE};
+use crate::nif::{extract_collision, HAVOK_SCALE};
 use crate::shape::{CollisionObject, Iso};
 use fnv_nif::file::NifFile;
 use fnv_nif::scene::Decoded;
@@ -181,7 +181,7 @@ fn wrapped(w: &Struct) -> Option<(i64, &Struct, Option<f32>)> {
 /// The jointed bodies of a decoded mesh: every solid collision object, and every
 /// constraint listed by a body whose two entities are among them.
 pub fn ragdoll(file: &NifFile, dec: &Decoded) -> Ragdoll {
-    let ex = extract(file, dec);
+    let ex = extract_collision(file, dec);
     let mut out = Ragdoll { problems: ex.problems.clone(), ..Default::default() };
     let index: HashMap<usize, usize> = ex.objects.iter().enumerate().map(|(i, o)| (o.body_block, i)).collect();
     let mut scales = Vec::with_capacity(ex.objects.len());

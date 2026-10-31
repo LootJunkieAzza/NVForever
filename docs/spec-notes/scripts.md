@@ -526,7 +526,11 @@ function does. Tests run the VM in strict mode; the game runs it in lenient mode
   Ref Variable, Eval and Let pages, owner export 2026-10-09; docs/spec-notes/script-language.md §7.3 row
   1]; here it is traced as `call_failed`. A `Set` whose expression stopped the script
   leaves its variable unchanged [documented: Let, "a failed set stops the script"].
-  Until round 4 the call read 0 and the script went on.
+  Until round 4 the call read 0 and the script went on. In the original with xNVSE 6.4.9,
+  a function script run through CallFunction **went on** after `rE.GetDisabled` on an
+  unset `ref`, alone and as an `if` condition (the arm not taken) [observed: o5_00,
+  2026-10-31; observer-checks.md check 14]; whether a quest or object script run by the
+  game does the same is not captured.
 - **Return ends the script for this run**, not just its block: a later block of the same
   event does not run [documented: GECK wiki Adding an Options Menu, owner export 2026-10-09; script-language.md
   §7.3 row 2, which lists the five shipped units where this can matter].
@@ -574,8 +578,12 @@ in the 5C captures (layer5-captures.md §5) unless tagged:
   Fail flag is applied after its script [hypothesis on the order].
 - **Complete and Fail Quest flags both set completed** (GetQuestCompleted 1) and do not
   stop the quest; only a script's StopQuest does (VMS22, VMS16 stage 110).
-- **SetObjectiveDisplayed 1 clears the objective's completed flag; SetObjectiveCompleted
-  does not display** (VMS16 objectives 5 and 10). Only objectives the quest defines
+- **SetObjectiveDisplayed 1 on a hidden objective clears its completed flag;
+  SetObjectiveCompleted does not display** (VMS16 objectives 5 and 10). On an objective
+  already displayed it **keeps** the flag [observed: o5_00, 2026-10-31, VMS19 65 and
+  VFSAtomicPimp 34 displayed, completed, displayed again: still completed; hidden with 0
+  and shown again: not completed; layer5-captures.md §5.2]. The runtime clears it on every
+  display (issue #1108). Only objectives the quest defines
   change; displaying one starts a stopped quest [documented: GECK wiki
   SetObjectiveDisplayed; also Quest scripts and Quest Data Tab, owner export 2026-10-09: SetStage, StartQuest
   and SetObjectiveDisplayed start a quest].
@@ -900,6 +908,11 @@ argument for all six functions [documented: GECK wiki GetReputation; observed]. 
 `DATA` is its scale [documented: GECK wiki GetReputationPct; observed: scales 10–100 in
 FalloutNV.esm; the limits and levels below are fractions of it on five reputations,
 scales 10–70].
+- **Axes 2 and 3** (FalloutNV.esm uses them, reputation.rs `axis`): GetReputation reads 0
+  and GetReputationThreshold axis 3 reads 0 at every value; SetReputation with axis 2 or
+  3 is a failed call that stops the script, the next line not run [observed: o5_00-02,
+  2026-10-31, RepNVNCR at ten infamy/fame pairs from 0/0 to 100/100; the threshold
+  axes 0-2 matched `reputation::tiers` at all ten]. The runtime's SetReputation goes on.
 - AddReputation / RemoveReputation sizes 1–5 add or take 1, 2, 4, 7, 12 points, the
   settings fReputationBumpVeryMinor … VeryMajor (no master defines them; their defaults)
   [documented: GECK wiki AddReputation; observed: the same points on scales 10 and 70,

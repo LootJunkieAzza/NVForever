@@ -173,7 +173,9 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
 - A tick is the picture `hud_tick_mark.dds`: a block 6 texels wide (2 clear after it),
   its opacity rising from about an eighth at the top to full at the bottom [observed:
   the texture, §3], so the ticks look darker than the lines over the world; drawn at
-  brightness 175 since T12d [hypothesis, §14.9]. Each tick is set on whole pixels — the
+  brightness 175 since T12d [observed: o5_00-01, 2026-10-31, the original's full-row meters
+  `HitPoints/*:2` and `ActionPoints/*:2` (296 wide) read `brightness` 175, the bars' other
+  visible children 255; §14.9]. Each tick is set on whole pixels — the
   step `round(8 × scale)`, the width `round(6 × scale)` — so all ticks are as wide as
   each other at any view size [design: the owner's "clean straight lines, not some
   bigger than others"; at 720 lines a 6-of-8 tick is 4.5 pixels and rounded unevenly
@@ -595,7 +597,7 @@ menu's (`dialogue_menu.rs`).
   "HP", their right ends at x 145, 186, 226, 266, 308; the widths the capture read (45,
   44, 43, 46, 43) are font 7's at 100 ("H20" 45, "LMB" 43, "HP" 30). T12b drew them at
   0.75 (13 pixels, their starts right of the original's) [design, corrected T12e]: both
-  drawings draw them at the font's size, the first line `TEXT_BASE` (24) under the
+  drawings draw them at the font's size, the first line font 7's 24 (§14.10) under the
   piece's top (the capitals' top a pixel under it, as the original's) [hypothesis].
 - **Looks** [design: owner 2026-10-23]: faded (dim), normal amber, red, flashing red.
   [observed: private job hud_hardcore2, hc2, hc6; hud_radiation2, r_in_200, r_in_300]
@@ -1272,7 +1274,7 @@ the hand-built HUD (the default) keeps:
 | Quest marker under the compass (§11) | no quest in the scenes; off-band targets now held at the end | the same, through `CompassView` |
 | The strip's right end fades (§4) | fixed: one baked window image (`compass_strip`) | fixed: the same image |
 | Condition bar 175, ground 100 (§4) | fixed | fixed |
-| LEVEL UP 16 units low | fixed: 16 above the amount's line (`xp_meter::LEVEL_UP_BASE`) | needs a capture (below) |
+| LEVEL UP 16 units low | fixed: 16 above the amount's line (`xp_meter::LEVEL_UP_BASE`) | fixed (#979): font 8's line 29.5 under the text's top, a line per font (below) |
 | Compass pattern, end caps, health underline (§3) | fixed: the atlas pieces | already the pieces |
 | Radiation ruler 40 units long, ticks 16.7 pixels | fixed: the bracket at its texels' size, the owner's place and texts kept on the screen (radiation.md §6) | already |
 | The strip 4 pixels left (§4) | fixed: `STRIP_HEADING` 154 | fixed: shared `strip_left` |
@@ -1288,15 +1290,37 @@ the hand-built HUD (the default) keeps:
   0.68 of the colour at x 266 pixels, 0.38 at 280, 0.21 at 290, 0.05 at 298: from full at
   about 250 to nothing at about 300.5 (window x 273 to 341). The quest marker at SE
   (x 255-264) is drawn full where the line beside it is at about 0.8.
-- **Needs a capture: LEVEL UP on the tile HUD (5 pixels high).** The original's font-8
-  texts stand 30.7 units under their tiles' read `y` (`XPAmount` y 90: "+54" ends at y
-  578 pixels; `XPLevelUp` y 70: ends at 563), the radiation value 29.3 under the file's
-  y 65; its font-7 texts 22-24 (`XPLabel` y 80 ends at 564, the enemy's name, the need
-  words) but `radiation_text`, set at the same y as the value, also 29.3 [observed:
-  xp_meter, xp_levelup_menu, environment-radiation, perk-meltdown-anatomy]. A rule by
-  font (`TEXT_BASE` 24 for font 7, about 31 for font 8) would put "+9" under "RAD/SEC"'s
-  line, where the original shows them on one: read `radiation_text`'s and
-  `radiation_text_value`'s `y` (and `height`) in radiation before changing `TEXT_BASE`.
+- **LEVEL UP on the tile HUD (5 pixels high): a line per font (#979).** Until #979
+  every font's first line stood 24 under a text tile's top, which drew the font-8 texts
+  about 5 pixels high. [observed: hud_textbase capture 2026-10-31, 1280 x 720, 0.75
+  pixels a unit; the text tiles' traits read in every state, no `y` or `height` moved;
+  private, not shipped] `radiation_text` (font 7, height 42) and `radiation_text_value`
+  (font 8, height 64) both stand at y 65; `XPAmount` (font 8, 64) at y 90, `XPLabel`
+  (font 7, 42) at 80, `XPLevelUp` (font 8, 64) at 70, `XPLastLevel` and `XPNextLevel`
+  (no `font`, 36) at 30. A text tile's `height` is its font's tallest glyph picture
+  (fonts.md §3). Where the capitals' ink ends under the tile's `y`, and where it starts:
+  "RAD/SEC" 25.0 (1.0), "XP" about 24 (about 1.7), "+9" 31.7 (-5.7), "+54" about 31.7,
+  "LEVEL UP" 32.0 (-6.7), the level digits "1" and "2" (font 1) about 21 (about 1.3).
+  So "+9" and "RAD/SEC" do not stand on one line: the 29.3 this note gave
+  `radiation_text` before, like its value's, was a mis-measurement (menu-xml.md §3.1.2's
+  23.7 agrees with the other font-7 readings), and a line per font fits every reading.
+  [observed: the font textures, fonts.md §3] NVForever sets a glyph's picture with its
+  top `ascent` over the line (fonts.md §2); the glows are as deep under the letters as
+  over them, so the middle of a text's ink stands where it does whatever edge the eye
+  takes: 12 units over the line for font 7's capitals, 18 for "LEVEL UP", 17.5 for "9",
+  10 for font 1's digits. Measured so, the capture's lines stand 24.9 (font 7), 30.5
+  (font 8) and 21.0 (font 1) under the tops. `tiles::draw::text_base` keeps font 7's 24
+  (this capture's 24.9 is within its pixel of it; the earlier readings 23.7 and the
+  prompt's 24.5-25.5, menu-xml.md §3.1.2) and stands fonts 8 and 1 as far from it as
+  this capture shows: font 8 29.5, font 1 20; the fonts no capture measured take 24
+  [hypothesis: needs a capture of a text in each]. No single font measure gives the
+  three (the size less the deepest glyph's reach under the line: 21, 24, 37, fonts.md
+  §3) [hypothesis: the rule behind them is not known]. The tile texts take it
+  (`draw::text_lines`), the quest notices' tops (§14.11: the name's top 29.5 over the
+  hand-built line), the need words (`hud_needs::WORD_BASE`, font 7) and the corner
+  labels (font 7). Tests: `tiles::draw::{fonts_7_and_8_at_one_y_stand_on_their_own_lines,
+  the_default_font_stands_higher_and_unmeasured_fonts_take_font_7s_line,
+  a_text_tiles_font_trait_sets_the_line_it_is_drawn_on}`.
 - Tests: `hud::{the_last_action_point_tick_stands_clear_of_the_upright,
   the_compass_keeps_the_heading_at_the_triangle, the_pieces_stand_inside_their_brackets}`,
   `compass_strip::{the_window_fades_out_at_its_right_end,
@@ -1350,7 +1374,8 @@ width, height, alpha, visible, depth); hud_jip for the strings, §14.2]
   `QuestStages` (y 40) or `QuestAdded` (y 80) is not read; the first objective's top,
   39, is next to `QuestStages`' 40]. Places are the hand-built HUD's (quest-messages.md
   §4, measured on the owner's screenshots) less the piece's place (45, 200) and a text's
-  `TEXT_BASE` 24: the label at (0, 23), the name in font 8 at (-1.5, 87), the first
+  line in its font (`tiles::draw::text_base`, §14.10: 24 in font 7, 29.5 in font 8):
+  the label at (0, 23), the name in font 8 at (-1.5, 81.5), the first
   objective at (0, 39), each next one under the lines before it (the font's size + 2 a
   line), wrapped at 570. Each objective has a box copy of its kind (`template_checkbox`,
   `template_filled_checkbox`) at x -16, 3 under its text's top, 26 x 26 (the screenshots'
@@ -1364,11 +1389,11 @@ width, height, alpha, visible, depth); hud_jip for the strings, §14.2]
   no bracket: the hand-built HUD draws a discovery as the label and the name only) are
   made under `Region_Location` (45, 728), at the quest banner's places moved to its top
   left, so they stand where the hand-built HUD draws a discovery: the label at (0, -505),
-  the name in font 8 at (-1.5, -441). Their strings and alpha follow the queue as
+  the name in font 8 at (-1.5, -446.5). Their strings and alpha follow the queue as
   `QuestReminder`'s banner (alpha 0 with the last discovery held while another notice or
   none shows); their `visible` stays 0 [design]: the same notice is drawn once, from
   `QuestReminder`'s copies, because the hand-built drawing's place (the label's top 223,
-  the name's 287) lies inside `QuestReminder`'s rect (45, 200, 400 x 200) and far outside
+  the name's 281.5) lies inside `QuestReminder`'s rect (45, 200, 400 x 200) and far outside
   `Region_Location`'s (45, 728, 100 x 100). What the original draws under
   `Region_Location` on entering a named place (a region or location name) is still not
   known.

@@ -3,7 +3,7 @@
 use super::{none, yes, Args, Ctx};
 use crate::game::{menus, Game, LineLook, MessageBox};
 use crate::trace::EventKind;
-use fnv_script::vm::Value;
+use fnv_script::vm::{ArgValue, Value};
 use fnv_sim::clock;
 use rand_core::RngCore;
 
@@ -17,7 +17,7 @@ pub fn show_message(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
     let (text, buttons, is_box) = (def.text.clone(), def.buttons.clone(), def.message_box);
     // Too few variables for the text: the message does not show [documented: GECK wiki
     // ShowMessage notes]. Button texts take no variables [documented: same notes].
-    let vars: Vec<f64> = (1..a.len()).map(|i| a.num_or(i, 0.0)).collect();
+    let vars = message_vars(a);
     let text = match text {
         Some(t) => Some(format_message(&t, &vars).ok_or_else(|| format!("{} needs more variables than given", g.data.name(m)))?),
         None => None,
@@ -39,6 +39,24 @@ pub fn show_message(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
         g.queue_corner_message();
     }
     none()
+}
+
+/// The numbers for a message's format specifiers: the arguments after the message. A
+/// compiled script passes them as one list (its `format_vars` trailer, `ArgValue::Vars`)
+/// followed by the duration (`Int32`), which is not a variable; source run as text passes
+/// plain values. Before, the list read as one 0, so every compiled ShowMessage printed 0
+/// for its numbers (the concealed mine's "Explosives 0 or higher required", owner's
+/// playtest 2026-10-31; the requirement it tests was 28).
+fn message_vars(a: &Args) -> Vec<f64> {
+    let mut out = Vec::new();
+    for v in a.0.iter().skip(1) {
+        match v {
+            ArgValue::Vars(xs) => out.extend(xs.iter().map(|x| x.num())),
+            ArgValue::Int32(_) => {}
+            other => out.push(other.value().map_or(0.0, |x| x.num())),
+        }
+    }
+    out
 }
 
 /// The chosen button once, then −1 [documented: GECK wiki GetButtonPressed]. Only the
@@ -808,6 +826,12 @@ pub fn reset_3d_state(g: &mut Game, ctx: &Ctx, _: &Args) -> Result<Value, String
     none()
 }
 
+/// The widest field and the most digits a message's specifier writes: a larger width or
+/// precision is cut to this, so a broken plugin's `%.4000000000f` cannot build a huge
+/// string [design: #1134; the same limit as the extender's formatter, `fnv_script`'s
+/// `MAX_FORMAT_FIELD`]. Base-game messages use far smaller values [observed: `%.0f`, `%.2f`].
+pub const MAX_MESSAGE_FIELD: usize = 512;
+
 /// A message text with its format specifiers filled from `vars` in order, or None when
 /// there are fewer variables than specifiers [documented: GECK wiki ShowMessage,
 /// "Formatting messages"]: `%[flags][width][.precision]` then `f`, `e` or `g`, flags `+`
@@ -815,7 +839,8 @@ pub fn reset_3d_state(g: &mut Game, ctx: &Ctx, _: &Args) -> Result<Value, String
 /// (zero fill); `%%` is a percent sign. The rules follow C's printf, which the page's
 /// examples match [hypothesis]; `e` writes a three-digit exponent (`1.23e+005`) as the
 /// page shows [documented], its letter case following the specifier [hypothesis]. A `%`
-/// not starting a specifier is kept as written [hypothesis].
+/// not starting a specifier is kept as written [hypothesis]. Width and precision are cut
+/// to [`MAX_MESSAGE_FIELD`].
 pub fn format_message(text: &str, vars: &[f64]) -> Option<String> {
     let mut out = String::with_capacity(text.len());
     let mut next = vars.iter();
@@ -832,12 +857,13 @@ pub fn format_message(text: &str, vars: &[f64]) -> Option<String> {
         let flags = &spec[..flags_len];
         let after_flags = &spec[flags_len..];
         let width_len = after_flags.find(|c: char| !c.is_ascii_digit()).unwrap_or(after_flags.len());
-        let width: usize = after_flags[..width_len].parse().unwrap_or(0);
+        // Digits past usize parse as the cap, not as no width.
+        let width: usize = after_flags[..width_len].parse().unwrap_or(if width_len > 0 { MAX_MESSAGE_FIELD } else { 0 }).min(MAX_MESSAGE_FIELD);
         let mut tail = &after_flags[width_len..];
         let mut precision = None;
         if let Some(p) = tail.strip_prefix('.') {
             let n = p.find(|c: char| !c.is_ascii_digit()).unwrap_or(p.len());
-            precision = Some(p[..n].parse().unwrap_or(0));
+            precision = Some(p[..n].parse().unwrap_or(if n > 0 { MAX_MESSAGE_FIELD } else { 0 }).min(MAX_MESSAGE_FIELD));
             tail = &p[n..];
         }
         let Some(conv) = tail.chars().next().filter(|c| "feEgG".contains(*c)) else {
@@ -913,7 +939,34 @@ fn general_form(v: f64, precision: usize, upper: bool) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::format_message;
+    use super::{format_message, message_vars, Args, MAX_MESSAGE_FIELD};
+    use fnv_script::vm::{ArgValue, Value};
+
+    #[test]
+    fn huge_widths_and_precisions_are_cut() {
+        // #1134: a broken plugin's specifier must not build a gigabyte string.
+        let t = std::time::Instant::now();
+        for spec in ["%.4000000000f", "%4000000000f", "%099999999999999999999999.3e", "%-4000000000g"] {
+            let s = format_message(spec, &[1.5]).unwrap();
+            assert!(s.len() <= MAX_MESSAGE_FIELD + 16, "{spec}: {}", s.len());
+        }
+        assert_eq!(format_message("%.4000000000f", &[1.5]).unwrap().len(), 2 + MAX_MESSAGE_FIELD);
+        assert_eq!(format_message("%4000000000f", &[1.5]).unwrap().len(), MAX_MESSAGE_FIELD);
+        assert!(t.elapsed().as_secs() < 2);
+        // Ordinary specifiers are unchanged.
+        assert_eq!(format_message("%5.1f|%.0f", &[2.25, 28.0]).as_deref(), Some("  2.2|28"));
+    }
+
+    #[test]
+    fn compiled_format_variables_are_unpacked_and_the_duration_skipped() {
+        // ShowMessage TrapLowSkillExplosivesMsg NQlvl.TRAPMineSkillReq, as compiled.
+        let compiled = [ArgValue::Value(Value::Ref(0x38888)), ArgValue::Vars(vec![Value::Num(28.0)]), ArgValue::Int32(0)];
+        assert_eq!(message_vars(&Args(&compiled)), [28.0]);
+        let text = [ArgValue::Value(Value::Ref(0x38888)), ArgValue::Value(Value::Num(3.0)), ArgValue::Value(Value::Num(5.0))];
+        assert_eq!(message_vars(&Args(&text)), [3.0, 5.0]);
+        let msg = "(Explosives %.0f or higher required)";
+        assert_eq!(format_message(msg, &message_vars(&Args(&compiled))).as_deref(), Some("(Explosives 28 or higher required)"));
+    }
 
     #[test]
     fn fills_specifiers_in_order() {

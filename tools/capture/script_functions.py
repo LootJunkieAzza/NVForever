@@ -240,6 +240,9 @@ PARAM_FIXES = {
     # lists the zone only].
     "SetZoneMinLevel": [{"name": "encounterZone", "type": "form", "kind": "form"},
                         {"name": "level", "type": "int", "kind": "int"}],
+    # [documented: SetMusicTypeDB's example "SetMusicTypeDB DefaultSuccess -100"].
+    "SetMusicTypeDB": [{"name": "musicType", "type": "ref", "kind": "reference"},
+                       {"name": "dB", "type": "float", "kind": "float"}],
 }
 
 

@@ -702,10 +702,12 @@ fn mouse_look(
     mut seat: ResMut<crate::furniture::PlayerSeat>,
     driven: Option<Res<ViewDriven>>,
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
+    kill_cam: Option<Res<crate::kill_cam::KillCam>>,
 ) {
     // The console's free camera takes the mouse (`crate::free_cam`), and so does the
-    // weapon wheel while it is open (`crate::weapon_wheel`).
-    if driven.is_some_and(|d| d.0) || free_cam.is_some_and(|f| f.on) || control.wheel {
+    // weapon wheel while it is open (`crate::weapon_wheel`); a playing kill camera holds
+    // it (`crate::kill_cam`).
+    if driven.is_some_and(|d| d.0) || free_cam.is_some_and(|f| f.on) || control.wheel || kill_cam.is_some_and(|k| k.active()) {
         return;
     }
     let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);

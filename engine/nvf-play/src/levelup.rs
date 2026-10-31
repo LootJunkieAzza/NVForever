@@ -39,7 +39,7 @@ use bevy::image::CompressedImageFormatSupport;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
-use crate::ui_compat::Interaction;
+use crate::ui_pointer::PointerState;
 use fnv_game::game::menus;
 use fnv_game::levelup as rules;
 use fnv_game::Game;
@@ -174,8 +174,8 @@ fn input(
     keys: Res<ButtonInput<KeyCode>>,
     mut typed: MessageReader<KeyboardInput>,
     mut wheel: MessageReader<MouseWheel>,
-    rows: Query<(&Interaction, &Row), Changed<Interaction>>,
-    parts: Query<(&Interaction, &Part), Changed<Interaction>>,
+    rows: Query<(&PointerState, &Row), Changed<PointerState>>,
+    parts: Query<(&PointerState, &Part), Changed<PointerState>>,
     console: Res<crate::console::Console>,
     script: Option<ResMut<ScriptState>>,
     sim: Option<ResMut<SimState>>,
@@ -226,17 +226,17 @@ fn input(
         }
         for (i, r) in &rows {
             match i {
-                Interaction::Hovered => ops.push((Op::Select(r.0), "pointer")),
-                Interaction::Pressed => {
+                PointerState::Hovered => ops.push((Op::Select(r.0), "pointer")),
+                PointerState::Pressed => {
                     ops.push((Op::Select(r.0), "pointer"));
                     ops.push((Op::Click(r.0), "click"));
                 }
-                Interaction::None => {}
+                PointerState::None => {}
             }
         }
         for (i, p) in &parts {
-            hover = Some((*p, *i != Interaction::None));
-            if *i == Interaction::Pressed {
+            hover = Some((*p, *i != PointerState::None));
+            if *i == PointerState::Pressed {
                 let op = match *p {
                     Part::Reset => Op::Reset,
                     Part::Continue => Op::Continue,

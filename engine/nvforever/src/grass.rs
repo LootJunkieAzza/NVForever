@@ -136,6 +136,11 @@ pub struct GrassCache {
 }
 
 impl GrassCache {
+    /// Grass models made (the stress census).
+    pub fn models(&self) -> usize {
+        self.models.values().flatten().count()
+    }
+
     pub fn describe(&self) -> String {
         format!("grass {} plants ({} in range, {} types)", self.plants, self.plants_in_range, self.models.values().flatten().count())
     }

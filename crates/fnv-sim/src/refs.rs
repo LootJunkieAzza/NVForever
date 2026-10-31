@@ -31,6 +31,11 @@ pub const FLAG_PERSISTENT: u32 = 0x0000_0400;
 /// GetReferenceFlag, flag 2048; GECK wiki Reference: the reference starts inactive and
 /// unseen until a script or enable parent enables it; xEdit record flag 11].
 pub const FLAG_INITIALLY_DISABLED: u32 = 0x0000_0800;
+/// Record flag 0x0200_0000 (bit 25) on references: "No AI Acquire", "AI will not
+/// attempt to pick up containers or objects marked with this flag" [documented: GECK
+/// wiki Reference, "Reference Data Flags"]. 67 REFR and 12 actor references in the
+/// masters carry it [observed].
+pub const FLAG_NO_AI_ACQUIRE: u32 = 0x0200_0000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Lock {
@@ -203,6 +208,11 @@ pub struct PlacedRef {
 impl PlacedRef {
     pub fn initially_disabled(&self) -> bool {
         self.flags & FLAG_INITIALLY_DISABLED != 0
+    }
+
+    /// [`FLAG_NO_AI_ACQUIRE`]: actors pick nothing up from it on their own.
+    pub fn no_ai_acquire(&self) -> bool {
+        self.flags & FLAG_NO_AI_ACQUIRE != 0
     }
 }
 

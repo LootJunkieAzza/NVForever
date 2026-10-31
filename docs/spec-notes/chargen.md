@@ -204,10 +204,13 @@ the view's height, from the top left of a 1024 × 800 rectangle centred on the s
   S.P.E.C.I.A.L. + the tag bonus of the current tags + the points spent at level-ups
   (`fnv_game::actor_values`), so the spent points stay and the new S.P.E.C.I.A.L. and
   tags re-derive the rest. SetActorValue of an attribute on the player does nothing
-  too, and the script's `SetSPECIALPoints 40` gives the Vigor Tester the points the
-  player's attributes add up to (40 or more), so it opens on the player's
-  S.P.E.C.I.A.L. to move points around [design: owner, 2026-10-26, the rebuild still
-  showed 5 in each]. The tag-skill menu starts with the old three tagged (the
+  too, and the script's `SetSPECIALPoints 40` opens the character menu's attributes
+  page (menu 1048, the one Intense Training's AddSPECIALPoints opens, levelup.md §8)
+  with the points the player's attributes add up to (40 or more), so the player moves
+  points around on the S.P.E.C.I.A.L. they have [design: owner, 2026-10-26, the rebuild
+  still showed 5 in each; owner's playtest, #1031: the attributes page, not the Vigor
+  Tester]. The Vigor Tester stays for Doc Mitchell's first visit
+  (`ShowLoveTesterMenuParams`). The tag-skill menu starts with the old three tagged (the
   SetTagSkills rule of §1). Each kept call is logged `revision: keeps …`.
 - The script is known by its record (SCPT 001164A4) whichever plugin edited it last:
   OldWorldBlues.esm overrides it with the same calls [observed: `fnvtool script

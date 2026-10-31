@@ -34,7 +34,7 @@ use crate::bindings::{Bindings, Control, GAME_CONTROLS};
 use crate::interface::{amber, at, u};
 use bevy::input::mouse::{AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::prelude::*;
-use crate::ui_compat::{Button, Interaction};
+use crate::ui_pointer::{Button, PointerState};
 use bevy::ui::RelativeCursorPosition;
 
 const BOX_PART: f32 = 0.8;
@@ -109,7 +109,7 @@ pub fn scroll(
     mut texts: Query<(&mut Node, &mut HelpScroll)>,
     mut lines: Query<(&mut Visibility, &ParagraphLine)>,
     mut thumbs: Query<(&mut Node, &HelpThumb), Without<HelpScroll>>,
-    tracks: Query<(&Interaction, &RelativeCursorPosition), With<HelpTrack>>,
+    tracks: Query<(&PointerState, &RelativeCursorPosition), With<HelpTrack>>,
     mut spill: Local<f32>,
 ) {
     let Ok((mut node, mut s)) = texts.single_mut() else {
@@ -137,7 +137,7 @@ pub fn scroll(
     }
     // The bar held: the thumb's middle goes to the pointer.
     for (i, at) in &tracks {
-        if let (Interaction::Pressed, Some(p)) = (i, at.normalized) {
+        if let (PointerState::Pressed, Some(p)) = (i, at.normalized) {
             first = ((p.y + 0.5) * s.lines as f32 - s.shown as f32 / 2.0).round();
         }
     }
@@ -337,7 +337,7 @@ pub fn spawn(r: &mut ChildSpawnerCommands, c: &mut Ctx, help: &Help, view_w: f32
             let bar_x = text_x + wrap + BAR_GAP;
             b.spawn((at(bar_x + (BAR_W - THICK) / 2.0, window_top, THICK, room), BackgroundColor(amber(BUTTON_DIM))));
             b.spawn((HelpThumb { top: window_top }, at(bar_x, window_top, BAR_W, room * shown as f32 / lines as f32), BackgroundColor(bright)));
-            b.spawn((HelpTrack, Interaction::default(), RelativeCursorPosition::default(), at(bar_x - BAR_GAP / 2.0, window_top, BAR_W + BAR_GAP, room)));
+            b.spawn((HelpTrack, PointerState::default(), RelativeCursorPosition::default(), at(bar_x - BAR_GAP / 2.0, window_top, BAR_W + BAR_GAP, room)));
         }
         // The bottom: corners, the VDSG symbol and the manual's words, the line on.
         c.image(b, up, at(SIDE, bottom - FADE, THICK, FADE), bright);

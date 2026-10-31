@@ -104,6 +104,7 @@ mod particles;
 mod shot_fx;
 mod ragdoll;
 mod swing_traps;
+mod talk_clips;
 mod readahead;
 mod reflection;
 mod refraction;
@@ -812,6 +813,9 @@ fn main() -> AppExit {
         }
     };
     args.data = Some(install.data.clone());
+    // Every `fnv_install::guard_write` from here on refuses writes into this install,
+    // also where the writer has none at hand (saves, test aids; #994).
+    fnv_install::remember_game(&install);
     let default_plugins = args.plugins.iter().map(String::as_str).eq(MASTERS);
     // A player's start (no --data, no --plugins): the home's own plugins.txt (setup.rs).
     // Developer and smoke runs keep the fixed masters below, whatever the list says.
@@ -1001,6 +1005,16 @@ fn main() -> AppExit {
     };
     sky_state.time_scale = args.time_scale.max(0.0);
     sky_state.days_passed = args.day.or_else(|| sky::find_global(&world, "GameDaysPassed")).unwrap_or(0.0).floor();
+    if let Some(dir) = &args.timelapse {
+        if let Err(e) = fnv_install::guard_write(dir, None) {
+            return fail(format!("--timelapse {}: {e}", dir.display()));
+        }
+    }
+    for (flag, path) in [("--screenshot", &args.screenshot), ("--frame-json", &args.frame_json)] {
+        if let Some(Err(e)) = path.as_deref().map(|p| fnv_install::guard_write(p, None)) {
+            return fail(format!("{flag}: {e}"));
+        }
+    }
     if let Some(dir) = &args.timelapse {
         if let Err(e) = std::fs::create_dir_all(dir) {
             return fail(format!("--timelapse {}: {e}", dir.display()));
@@ -1431,6 +1445,8 @@ fn main() -> AppExit {
             app.add_plugins(combat_face::CombatFacePlugin);
             // Alerted creatures raise their claws and hands (creature_stance.rs).
             app.add_plugins(creature_stance::CreatureStancePlugin);
+            // Robots and Mr. House light up as they talk (talk_clips.rs).
+            app.add_plugins(talk_clips::TalkClipsPlugin);
             // Actors sneaking by script or package (sneaking.rs).
             app.add_plugins(sneaking::SneakingPlugin);
             // Actors swimming in water (swimming.rs).
@@ -1474,6 +1490,7 @@ fn main() -> AppExit {
         // dialogue lines), before the actors are posed. The player's body, posed earlier
         // in the frame, takes them up in the next one.
         app.init_resource::<idles::Idles>()
+            .init_resource::<idles::IdleHolds>()
             .add_systems(Update, idles::drive.after(nvf_play::PlaySet::Scripts).after(residents::drive).before(locomotion::walk_test))
             .add_systems(Last, idles::report);
         // The props idles hold (anim_objects.rs): after the idles started and ended.
@@ -1585,6 +1602,7 @@ fn main() -> AppExit {
                     );
                     info!("actor turns: {} actor frames playing a turn-on-the-spot clip", c.turn_frames);
                     info!("actor idle under movement: {} actor frames with the idle laid under another clip", c.under_frames);
+                    info!("actor moves without a clip: {} actor frames moving with no movement clip showing; {} actor frames of a creature's blow on its head and neck over its run", c.clipless_frames, c.head_blow_frames);
                 }
                 if let Some(a) = actors {
                     let fg = a.facegen.lock().expect("facegen cache");
@@ -1830,6 +1848,7 @@ fn write_frame_json(out: &std::path::Path, image: &std::path::Path, args: &Args,
         "hour": sky.hour,
         "weather": sky.weather.edid,
     });
+    fnv_install::guard_write(out, None).map_err(std::io::Error::other)?;
     if let Some(dir) = out.parent() {
         std::fs::create_dir_all(dir)?;
     }

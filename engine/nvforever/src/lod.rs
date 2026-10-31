@@ -233,6 +233,9 @@ pub struct LodState {
     meshes: HashMap<Chunk, Vec<Option<Handle<Mesh>>>>,
     /// Object blocks split by cell, for squares with loaded cells.
     pieces: HashMap<Grid, Pieces>,
+    /// Frames in a row each square still waiting for its new or changed block was put off
+    /// by the budget (cleared when its block goes in or it leaves the range).
+    put_off_runs: HashMap<Grid, usize>,
     /// Generated terrain near the camera (docs/design/generated-lod.md); `None`: off.
     pub gen: Option<GenState>,
     /// Distant tree billboards (treelod.rs).
@@ -260,6 +263,11 @@ pub struct BlockStats {
     /// Squares put off to a later frame because the frame's budget was spent (one per
     /// square and frame).
     pub put_off: usize,
+    /// The most frames in a row one square was put off (#1058).
+    pub longest_put_off: usize,
+    /// Squares in range still without their new or changed block after the last frame
+    /// (put off, or waiting for their model).
+    pub waiting_now: usize,
     /// Squares that waited a frame for their block's model, prepared on a worker thread
     /// (one per square and frame).
     pub waited: usize,
@@ -282,8 +290,8 @@ const SLOW_UPDATE_MS: f32 = 2.0 * REBUILD_BUDGET_MS;
 impl BlockStats {
     pub fn describe(&self) -> String {
         format!(
-            "{} new, {} rebuilt, up to {} in one frame, {} put off to a later frame, {} waited for their model; slowest update {:.1} ms (blocks {:.1} ms), {} updates over {:.0} ms; terrain chunks waited {} times for their model, outgoing chunks kept drawn in {} frames (up to {} at once)",
-            self.spawned, self.rebuilt, self.most_in_frame, self.put_off, self.waited, self.update_slowest_ms, self.blocks_slowest_ms, self.slow_updates, SLOW_UPDATE_MS, self.terrain_waited, self.outgoing_frames, self.outgoing_most
+            "{} new, {} rebuilt, up to {} in one frame, {} put off to a later frame, {} waited for their model; slowest update {:.1} ms (blocks {:.1} ms), {} updates over {:.0} ms; terrain chunks waited {} times for their model, outgoing chunks kept drawn in {} frames (up to {} at once); a square put off up to {} frames in a row, {} squares still waiting for their block at the end",
+            self.spawned, self.rebuilt, self.most_in_frame, self.put_off, self.waited, self.update_slowest_ms, self.blocks_slowest_ms, self.slow_updates, SLOW_UPDATE_MS, self.terrain_waited, self.outgoing_frames, self.outgoing_most, self.longest_put_off, self.waiting_now
         )
     }
 }
@@ -306,7 +314,10 @@ const BAKES_PER_FRAME: usize = 2;
 /// LOD terrain sits behind loaded terrain by its depth bias). Crossing a cell rebuilt every
 /// changed chunk in one frame, 60–71 ms (`lod::update_lod` in `profile hitch` lines,
 /// tools/stress tour Goodsprings–Primm, 2026-10-27) [observed]; the budget is an
-/// engineering choice, at least one rebuild a frame so the work always moves on.
+/// engineering choice. At least one terrain chunk and at least one object block go through
+/// each frame (when one is waiting with its model ready), whatever the other spent, so both
+/// always move on: blocks come after terrain, and terrain alone used to spend the budget
+/// for them while flying fast (#1058).
 const REBUILD_BUDGET_MS: f32 = 4.0;
 
 /// Generated terrain chunks: bakes in flight, chunks ready to draw.
@@ -360,6 +371,7 @@ impl LodState {
             block_entities: HashMap::new(),
             meshes: HashMap::new(),
             pieces: HashMap::new(),
+            put_off_runs: HashMap::new(),
             gen,
             trees: Default::default(),
             chunks: 0,
@@ -569,6 +581,7 @@ pub fn update_lod(
         let squares: HashSet<Grid> = lod.squares.iter().copied().collect();
         lod.meshes.retain(|ch, _| chosen.contains(ch));
         lod.pieces.retain(|sq, _| squares.contains(sq));
+        lod.put_off_runs.retain(|sq, _| squares.contains(sq));
         let gone: Vec<Chunk> = lod.terrain.keys().filter(|ch| !chosen.contains(ch)).copied().collect();
         for ch in gone {
             if let Some(t) = lod.terrain.remove(&ch) {
@@ -655,6 +668,7 @@ pub fn update_lod(
     let squares = std::mem::take(&mut lod.squares);
     let blocks_started = std::time::Instant::now();
     let mut blocks_this_frame = 0usize;
+    let mut waiting = 0usize;
     for &sq in &squares {
         let (full_mask, present) = masks.get(&sq).copied().unwrap_or_default();
         let key = BlockKey { full: full_mask, present };
@@ -671,6 +685,9 @@ pub fn update_lod(
                     }
                 }
                 b.steps = steps;
+                if !lod.put_off_runs.is_empty() {
+                    lod.put_off_runs.remove(&sq);
+                }
             }
             b => {
                 let had = b.is_some();
@@ -683,12 +700,19 @@ pub fn update_lod(
                 // Over the budget: only ask for the model (taking a finished one in costs
                 // main-thread time too), and wait for a later frame. New squares used to
                 // skip the budget (#1038); waiting costs a little more pop-in at the
-                // view's edge, nearest squares first (`squares` is sorted).
-                if over_budget(rebuilt) {
+                // view's edge, nearest squares first (`squares` is sorted). The first
+                // block of the frame goes through whatever terrain spent above (#1058).
+                if blocks_this_frame > 0 && over_budget(rebuilt) {
                     if models.data.vfs.exists(&bp) {
                         models.request_model_with_cpu(&bp);
                     }
-                    lod.block_stats.put_off += 1;
+                    let run = lod.put_off_runs.entry(sq).or_default();
+                    *run += 1;
+                    let run = *run;
+                    let st = &mut lod.block_stats;
+                    st.put_off += 1;
+                    st.longest_put_off = st.longest_put_off.max(run);
+                    waiting += 1;
                     continue;
                 }
                 let model = match models.data.vfs.exists(&bp).then(|| models.model_with_cpu_ready(&bp)) {
@@ -696,9 +720,11 @@ pub fn update_lod(
                     Some(Some(m)) => m,
                     Some(None) => {
                         lod.block_stats.waited += 1;
+                        waiting += 1;
                         continue;
                     }
                 };
+                lod.put_off_runs.remove(&sq);
                 if had {
                     lod.block_stats.rebuilt += 1;
                 } else {
@@ -720,6 +746,7 @@ pub fn update_lod(
     let (blocks_ms, update_ms) = (ms(blocks_started), ms(update_started));
     let st = &mut lod.block_stats;
     st.most_in_frame = st.most_in_frame.max(blocks_this_frame);
+    st.waiting_now = waiting;
     st.blocks_slowest_ms = st.blocks_slowest_ms.max(blocks_ms);
     st.update_slowest_ms = st.update_slowest_ms.max(update_ms);
     st.slow_updates += usize::from(update_ms > SLOW_UPDATE_MS);

@@ -362,7 +362,9 @@ Rules (`crates/fnv-game/src/needs.rs`):
   deprivation 2.4 an hour (Minor after 83 hours). Dehydration: `fHCDehydrationRate` if a
   plugin sets it [hypothesis: the name], else 10 s a point, 12 an hour [documented: the
   owner's Hardcore table, 2026-10-23, "~12/h (1 every 10s)"; it gives hunger ~4.75/h and
-  sleep ~2.4/h as the settings do; before, a guess of 12.5].
+  sleep ~2.4/h as the settings do; before, a guess of 12.5]. Seen in the original
+  2026-10-31 (save nvfHardcore): Dehydration about 11.8, Hunger 4.7 and Sleep Deprivation
+  2.2 an hour at TimeScale 30 [observed; observer check 4].
 - An hour waited raises them by an hour's worth (120 s of play at TimeScale 30); an hour
   slept does the same for dehydration and hunger and lowers sleep deprivation by 60
   [documented: the owner's Hardcore table, "~ -60/h Sleep"; before, a guess of 100] (§6).

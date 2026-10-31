@@ -115,6 +115,10 @@ Subrecords [documented][observed]:
 
 ## Data irregularities in the user's files
 
+- No compressed record of the ten masters has bytes after its Adler-32: `fnvtool esm
+  verify` reported no `Extra` trailer among their 46,696 compressed records; the one
+  anomaly is the LAND below [observed 2026-10-31, #998].
+
 - FalloutNV.esm, LAND 0x00150FC0 (file offset 0xB0CFF04): the zlib stream decodes
   completely to exactly the declared 4,385 bytes and parses into valid subrecords, but the
   stored Adler-32 is wrong (stored 0x6E704ECC, computed 0x6C404EC4). Python's zlib

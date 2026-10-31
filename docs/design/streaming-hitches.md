@@ -201,7 +201,9 @@ uGridsToLoad=5).
     them finished [observed: per-bake timing in a build of f28edbaa,
     target/stress/tour/diag-52, private]. The archive lock (`fnv_vfs::Vfs::read` holds an
     archive's mutex while it inflates) was ruled out: 12 waits over 5 ms in that lap
-    [observed].
+    [observed]. Since #997 the mutex covers only the seek and read of the stored bytes
+    and the inflate runs after it is let go (`Archive::read_stored`, `StoredBlock::decode`);
+    the waits were not measured again.
   - **What changed.** Bakes run on two threads of their own at the lowest thread priority
     (`lodgen::Baker`, `lod.rs` `BAKE_THREADS`), off the async compute pool, so pipeline
     compiles, FaceGen tints and actor part reads never queue behind them, and they only
@@ -241,7 +243,12 @@ uGridsToLoad=5).
 - Done (same branch): `lod::update_lod` rebuilt every terrain chunk and object block
   whose loaded cells changed in one frame, 60–71 ms three times on that tour [observed].
   The rebuilds now stop at 4 ms a frame (`REBUILD_BUDGET_MS`, at least one a frame); the
-  old meshes stay drawn until theirs come round.
+  old meshes stay drawn until theirs come round. Terrain runs first and could spend the
+  whole budget, putting off every new object block while flying fast; since #1058 the
+  first block of each frame goes through whatever terrain spent. On the `auto-fly` smoke
+  run (Goodsprings, 4000 units/s, 40 s) a square was then put off at most 12 frames in a
+  row and none was still waiting at the end [observed, 2026-10-31; not measured before
+  the change].
 
 ## 3.1 Slower at night, and the longer the session (2026-10-28, 7c96203d)
 
@@ -272,12 +279,14 @@ evening and night, the tours start at noon) [observed, target/stress/tour/*, pri
   512-entry keep held 40 % fewer meshes and images and lap 2 still slowed), video memory
   (it levels off at 5.4-6 GB walking; it climbed to 7-9 GB only with the soak's events).
 - Left to do, patches kept outside the repository (`F:/nvf-wt/perf-hitch-patches-2026-10-28`):
-  - `emittance.rs` never lets its driven material copies go (`EmittanceState::driven`
-    only grows; each copy holds its material and textures for the session) and writes
+  - `emittance.rs` never let its driven material copies go (`EmittanceState::driven`
+    only grew; each copy held its material and textures for the session) and wrote
     them all at every game minute and fade step whether the colour changed or not. Pruning
     them and writing only changes is right in itself, but a two-lap tour with it had 27
-    frames of 100-470 ms material writes (none without it): freeing copies churns the
-    slabs. Needs a way to free them that does not.
+    frames of 100-470 ms material writes (none without it): freeing copies churned the
+    slabs. **Done** in #1169 (issue #904), after #898 kept emptied GPU memory blocks:
+    copies no entity holds go every 2 s, and only changed colours are written. Frame
+    times against main: #1169 gives the tours, their dates and the machine's load.
   - Per-frame work over every actor the AI ever took in (`Core::list` and `Ai::agents`
     only grow): `Game::sync_loaded_actor_effects` syncs every actor that ever ran a
     package (`package_actors`), against its own comment (loaded actors only);
