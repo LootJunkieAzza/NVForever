@@ -647,6 +647,9 @@ impl Runtime {
         self.game.put_session(session);
         // The world's session edits (game settings, leveled lists, base containers changed
         // by script) last for the run, not in the save (`fnv_sim::world::WorldSession`).
+        // Empty here as the game's session is: a load while playing starts a new run
+        // (`crate::save` module notes), where GetGameRestarted is true again and scripts
+        // make their session edits anew; kept for a restore within a run.
         let mut world = world;
         world.put_session(sim.world.take_session());
         sim.world = world;

@@ -1803,8 +1803,8 @@ fn a_book_that_cant_be_taken_stays_unless_a_script_activates_it() {
     assert!(matches!(w.activate_scripted(p, id(STIM_REF)).unwrap().outcome, Outcome::PickedUp { .. }));
 }
 
-/// The run-time state a snapshot carries since #1084 (an inventory source changed at
-/// run time, the power armour flag, carry bonuses and weight rules), and what it leaves
+/// The run-time state a snapshot carries since #1084 (a created reference's inventory
+/// source, the power armour flag, carry bonuses and weight rules), and what it leaves
 /// to the session: game settings, leveled lists and base containers edited by script are
 /// documented as not save baked but lasting for the session, so a load in the same run
 /// keeps them (`World::take_session`) and a fresh run's load goes without them.
@@ -1815,8 +1815,15 @@ fn snapshot_carries_run_time_state_and_leaves_session_edits() {
     let f = fixture();
     let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
     let p = FormId::PLAYER_REF;
-    // Saved: a source changed at run time, over the authored map the game layer sets.
+    // Saved: a created reference's source, which no recompute gives back. Not saved: a
+    // placed one's (the game layer works it out again on a load), nor its own base's.
+    let made = w.place(id(SAFE), Some(id(CELL_A)), [0.0; 3], [0.0; 3], 1).unwrap();
+    w.give_items_of(made, id(LOCKER)).unwrap();
+    let taken = w.place(id(SAFE), Some(id(CELL_A)), [0.0; 3], [0.0; 3], 1).unwrap();
+    w.give_items_of(taken, id(LOCKER)).unwrap();
+    w.get(taken).unwrap().deleted = true;
     w.set_inventory_source(id(SAFE_REF), Some(id(LOCKER)));
+    w.set_inventory_source(id(SAFE_REF), None);
     w.set_power_armor_training(true);
     w.set_carry_bonus(p, 25.0);
     let rules = WeightRules { light: Some((2.0, 0.5)), heavy_weapons: None };
@@ -1830,14 +1837,15 @@ fn snapshot_carries_run_time_state_and_leaves_session_edits() {
         assert!(!text.contains(absent), "{absent} is not saved");
     }
     let snap: fnv_sim::Snapshot = serde_json::from_str(&text).unwrap();
+    assert_eq!(snap.created_inventory_sources, [(made, id(LOCKER))].into_iter().collect(), "neither the placed nor the deleted one");
     // A fresh run's load: the saved state is back, the session edits are not.
     let mut back = World::restore(&f.forms, &f.refs, &snap).unwrap();
     back.set_inventory_sources(Default::default());
     assert!(back.power_armor_training());
     assert_eq!(back.weight_rules(p), rules);
     assert_eq!(back.snapshot(), w.snapshot());
-    assert!(back.reset_inventory(id(SAFE_REF)).unwrap());
-    assert_eq!(back.item_count(id(SAFE_REF), id(PISTOL)).unwrap(), 1, "LOCKER's items, the changed source");
+    assert!(back.reset_inventory(made).unwrap());
+    assert_eq!(back.item_count(made, id(PISTOL)).unwrap(), 1, "LOCKER's items, the created reference's source");
     assert_eq!(back.setting_f32("fAVDCarryWeightsBase"), Some(150.0));
     assert_ne!(back.leveled_list(id(LL_LOOT)).unwrap().chance_none, 100);
     assert!(back.base_entries(id(SAFE)).unwrap().iter().all(|e| e.item != id(KEY)));
@@ -1848,7 +1856,7 @@ fn snapshot_carries_run_time_state_and_leaves_session_edits() {
     assert!(back.base_entries(id(SAFE)).unwrap().iter().any(|e| e.item == id(KEY)));
     // Older snapshots, without the new fields, still load.
     let mut old: serde_json::Value = serde_json::from_str(&text).unwrap();
-    for k in ["inventory_source_changes", "power_armor_training", "carry_bonus", "weight_rules"] {
+    for k in ["created_inventory_sources", "power_armor_training", "carry_bonus", "weight_rules"] {
         assert!(old.as_object_mut().unwrap().remove(k).is_some(), "{k} is written");
     }
     let old: fnv_sim::Snapshot = serde_json::from_value(old).unwrap();
