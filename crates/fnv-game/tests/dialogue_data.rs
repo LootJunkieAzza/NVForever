@@ -133,6 +133,8 @@ fn counts(d: &GameData) {
     let greeting = d.greeting.expect("GREETING");
     assert_eq!((d.edid_of[&greeting].as_str(), d.topics[&greeting].len()), ("GREETING", 5_579));
     assert_eq!(d.edid_of[&d.goodbye.expect("GOODBYE")], "GOODBYE");
+    // Previous INFO (PNAM) moves no line of the ten masters out of file order (#968).
+    assert_eq!(d.lines_moved_by_previous, 0);
     assert_eq!(d.top_level.len(), 2_536);
     assert_eq!(d.topic_defs.values().filter(|t| t.topic_type == topic_type::TOPIC).count(), 19_285);
     // Every line sits under a topic and names a quest; every topic of a line is read.
