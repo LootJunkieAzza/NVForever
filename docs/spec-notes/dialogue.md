@@ -212,10 +212,16 @@ Order"].
 
 So file order agrees with the previous-info links in 5,677 of 5,686 cases, and is the
 only order FalloutNV.esm has. **The runtime's stored order of a topic** is: the lines in
-the file order of the plugin that first defines each, plugins in load order
-(`GameData::topics`) [observed as above for one quest's lines; hypothesis for the 9
-exceptions and for how lines of different quests interleave in the editor's list,
-which §4 makes mostly irrelevant].
+the file order of the plugin that first defines each, plugins in load order, then each
+line a later plugin adds put straight behind the line its winning PNAM names, when that
+line comes from an earlier plugin or was itself moved so (`GameData::topics`,
+`data::follow_previous`) [observed as above for one quest's lines; hypothesis for the 9
+exceptions, for how lines of different quests interleave in the editor's list, which §4
+makes mostly irrelevant, and for added lines with PNAM 0 (left at the end), two added
+lines naming one line (the later in file order first) and broken chains (file order)].
+In the ten masters this moves no line [observed: `lines_moved_by_previous` is 0,
+crates/fnv-game/tests/dialogue_data.rs]; it matters for mods that add lines to a
+master's topic.
 
 ### 3.2 Lines of several quests in one topic
 
@@ -502,16 +508,28 @@ All of it is in `GameSnapshot`.
   shared lines, e.g. Red Lucy's greeting.) Topics whose lines name the line's topic in
   their Link From join either list (§3.5) [documented; hypothesis on how]. Order: topic priority (DIAL PNAM), highest first
   [documented]; then, for a line's choices, their order in the record [documented:
-  "Sorting order of links"], and for the topic list the topics' record order
-  [hypothesis]. Quest priority plays no part in the order of the list.
+  "Sorting order of links"], and for the topic list the known topics newest first, one
+  line's Add Topics keeping their record order and a line's topic already known moving
+  to the front again (`AddTopic` on a known topic leaves it in place: scripts may call
+  it every frame), then the others in record order, the top-level topics among them
+  even when the player also learned one [owner's choice 2026-10-31 and design;
+  `KnownTopics`, `dialogue::ListKey`]. The original follows no rule we can copy [observed
+  2026-10-31: Boone's list after learning C8, CA, then CC and CB from one line read C8,
+  CC, CB, CA; Manny Vargas with topics given by `AddTopic` (captures `dlg_topic_order_*`
+  and owner screenshots): learned CEDEE, B15FC, 137A62, B15FB, B15FA, then 96BCF from
+  the greeting gave 96BCF, B15FB, 137A62, B15FC, top-level 15F503, CEDEE, B15FA; CEDEE,
+  B15FC, 96BCF gave 96BCF, B15FC, 15F503, CEDEE; 96BCF, B15FC, CEDEE, then 96BCF again
+  gave 96BCF, 15F503, B15FC, CEDEE. The same set in two orders rules out record order
+  or any fixed index; each run gave the same list twice. Hypothesis: equal priorities
+  come out of a sort that does not keep their order.] Quest priority plays no part in the order of the list.
 - **The text of a choice** is the line's prompt, else the topic's name [documented].
   It is shaded when the actor has said that line before, unless the line has Info
   Refusal; always with Always Darken [documented: Category:Dialogue flags].
 - **GOODBYE.** When the topic list holds no Goodbye line, the actor's line of the
   GOODBYE topic is offered last, if it has one [documented: Quest and Dialogue Tutorial;
   Conversation Tab].
-- **Known topics.** `AddTopic` and lines' Add Topics lists fill one set, kept for the
-  whole game; every actor that can say a line of a known topic offers it [owner
+- **Known topics.** `AddTopic` and lines' Add Topics lists fill one list, newest first
+  (above), kept for the whole game; every actor that can say a line of a known topic offers it [owner
   statement 2026-10-10: every actor has the line while its quest is active and the
   conditions are met; not yet captured]. When an Add Topics list is applied (here: when
   the line ends) stays a [hypothesis].

@@ -103,7 +103,9 @@ impl HudTiles<'_> {
             && !files.paused.as_ref().is_some_and(|p| p.0)
             && !files.main_menu.as_ref().is_some_and(|m| m.open)
             && !self.loading.as_ref().is_some_and(|l| l.active());
-        let driven = self.driven.as_ref().is_some_and(|d| d.0);
+        // A playing kill camera hides all of it, as an idle holding the camera does
+        // (`crate::kill_cam`) [owner's playtest request #1034].
+        let driven = self.driven.as_ref().is_some_and(|d| d.0) || self.bars.as_ref().is_some_and(|b| b.kill_cam);
         let wheel = self.wheel.as_ref().is_some_and(|w| w.is_open());
         let creating = self.creator.as_ref().is_some_and(|c| c.is_open());
         let locks = self.locks.as_deref().copied().unwrap_or_default();

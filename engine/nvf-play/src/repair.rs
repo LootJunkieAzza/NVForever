@@ -41,7 +41,7 @@ use crate::{PlaySet, PlayState};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
-use crate::ui_compat::{Button, Interaction};
+use crate::ui_pointer::{Button, PointerState};
 use fnv_game::repair::{gain_percent, vendor_lists, vendor_quote, Gear, Quote, RepairSettings, CAPS, REPAIR_SERVICES_MENU};
 use fnv_sim::forms::{BaseData, ItemKind};
 use fnv_sim::inventory::Extra;
@@ -299,7 +299,7 @@ fn keys(
     script: Option<ResMut<ScriptState>>,
     mut sim: ResMut<SimState>,
     combat: Option<Res<crate::combat::Combat>>,
-    buttons: Query<(&Interaction, &RepairButton), Changed<Interaction>>,
+    buttons: Query<(&PointerState, &RepairButton), Changed<PointerState>>,
     scroll: Option<Res<AccumulatedMouseScroll>>,
     mut next: ResMut<NextState<PlayState>>,
     mut sounds: MessageWriter<UiSound>,
@@ -330,8 +330,8 @@ fn keys(
     let mut clicked = None;
     for (i, b) in &buttons {
         match (i, b) {
-            (Interaction::Pressed, b) => clicked = Some(*b),
-            (Interaction::Hovered, RepairButton::Row(r)) if pointer_moved => open.selected = *r,
+            (PointerState::Pressed, b) => clicked = Some(*b),
+            (PointerState::Hovered, RepairButton::Row(r)) if pointer_moved => open.selected = *r,
             _ => {}
         }
     }

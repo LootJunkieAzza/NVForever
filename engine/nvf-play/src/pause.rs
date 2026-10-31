@@ -122,7 +122,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
-use crate::ui_compat::{Button, Interaction};
+use crate::ui_pointer::{Button, PointerState};
 use bevy::ui::RelativeCursorPosition;
 use fnv_save::{SaveHeader, SaveKind};
 use nvf_assets::GameData;
@@ -1482,7 +1482,7 @@ fn choose(
     mut page: ResMut<Page>,
     mut view: ResMut<PauseView>,
     settings: Res<Settings>,
-    buttons: Query<(&Interaction, &PauseButton), Changed<Interaction>>,
+    buttons: Query<(&PointerState, &PauseButton), Changed<PointerState>>,
     mut next: ResMut<NextState<PlayState>>,
     mut exit: MessageWriter<AppExit>,
     mut commands: Commands,
@@ -1707,25 +1707,25 @@ fn choose(
     };
     for (interaction, b) in &buttons {
         match (interaction, b, &mut *page) {
-            (Interaction::Hovered, b, _) if !in_window(b) => {}
-            (Interaction::Hovered, PauseButton::Choice(r, k), _) if moved => {
+            (PointerState::Hovered, b, _) if !in_window(b) => {}
+            (PointerState::Hovered, PauseButton::Choice(r, k), _) if moved => {
                 if let Some(o) = view.dropdown.as_mut().filter(|o| o.row == *r && (o.first..o.first + DROP_ROWS).contains(k)) {
                     o.at = *k;
                 }
             }
-            (Interaction::Hovered, PauseButton::Keep(k), _) if moved => view.keep_selected = *k,
-            (Interaction::Hovered, ..) if over => {}
-            (Interaction::Pressed, PauseButton::Meter(i), Page::Settings { selected }) => {
+            (PointerState::Hovered, PauseButton::Keep(k), _) if moved => view.keep_selected = *k,
+            (PointerState::Hovered, ..) if over => {}
+            (PointerState::Pressed, PauseButton::Meter(i), Page::Settings { selected }) => {
                 *selected = *i;
                 view.dragging = Some(*i);
             }
-            (Interaction::Pressed, PauseButton::ScrollTrack, _) => view.bar_dragging = true,
-            (Interaction::Pressed, ..) => clicked = Some(*b),
-            (Interaction::Hovered, PauseButton::Switch(i), Page::Settings { selected }) if moved => *selected = *i,
-            (Interaction::Hovered, PauseButton::ControlRow(i), Page::Controls { selected, .. }) if moved => *selected = *i,
-            (Interaction::Hovered, PauseButton::LoadRow(i), Page::Load { selected }) if moved => *selected = *i,
-            (Interaction::Hovered, PauseButton::Column(i), Page::Main) if moved && view.confirm.is_none() && !under_main => view.main_selected = *i,
-            (Interaction::Hovered, PauseButton::Confirm(i), Page::Main) if moved && view.confirm.is_some() => view.confirm = Some(*i),
+            (PointerState::Pressed, PauseButton::ScrollTrack, _) => view.bar_dragging = true,
+            (PointerState::Pressed, ..) => clicked = Some(*b),
+            (PointerState::Hovered, PauseButton::Switch(i), Page::Settings { selected }) if moved => *selected = *i,
+            (PointerState::Hovered, PauseButton::ControlRow(i), Page::Controls { selected, .. }) if moved => *selected = *i,
+            (PointerState::Hovered, PauseButton::LoadRow(i), Page::Load { selected }) if moved => *selected = *i,
+            (PointerState::Hovered, PauseButton::Column(i), Page::Main) if moved && view.confirm.is_none() && !under_main => view.main_selected = *i,
+            (PointerState::Hovered, PauseButton::Confirm(i), Page::Main) if moved && view.confirm.is_some() => view.confirm = Some(*i),
             _ => {}
         }
     }

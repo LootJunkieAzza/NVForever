@@ -55,7 +55,7 @@ use crate::{PlaySet, PlayState};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
-use crate::ui_compat::{Button, Interaction};
+use crate::ui_pointer::{Button, PointerState};
 use fnv_game::crafting::{missing, skill_name, RecipeDef, RECIPE_MENU};
 use fnv_sim::FormId;
 use nvf_assets::GameData;
@@ -296,8 +296,8 @@ fn scripts_open(
 }
 
 /// The "How many?" prompt's buttons and its meter (`crate::menu`).
-type AmountButton = (&'static Interaction, &'static crate::menu::CmdButton);
-type AmountPress = (&'static Interaction, &'static bevy::ui::RelativeCursorPosition);
+type AmountButton = (&'static PointerState, &'static crate::menu::CmdButton);
+type AmountPress = (&'static PointerState, &'static bevy::ui::RelativeCursorPosition);
 /// The records the effects line is read from.
 type EffectForms = crate::pipboy::stats::read::Forms;
 
@@ -309,8 +309,8 @@ fn keys(
     mut menu: ResMut<RecipeMenu>,
     script: Option<ResMut<ScriptState>>,
     mut sim: ResMut<SimState>,
-    buttons: Query<(&Interaction, &RecipeButton), Changed<Interaction>>,
-    (amount_buttons, meter): (Query<AmountButton, Changed<Interaction>>, Query<AmountPress, With<crate::menu::AmountMeter>>),
+    buttons: Query<(&PointerState, &RecipeButton), Changed<PointerState>>,
+    (amount_buttons, meter): (Query<AmountButton, Changed<PointerState>>, Query<AmountPress, With<crate::menu::AmountMeter>>),
     scroll: Option<Res<AccumulatedMouseScroll>>,
     mut next: ResMut<NextState<PlayState>>,
     mut sounds: MessageWriter<UiSound>,
@@ -343,7 +343,7 @@ fn keys(
         let mut to = amount;
         let (mut make, mut back) = (false, false);
         for (i, b) in &amount_buttons {
-            if *i == Interaction::Pressed {
+            if *i == PointerState::Pressed {
                 match b.0 {
                     Command::AmountStep(d) => to += d,
                     Command::AmountOk => make = true,
@@ -353,7 +353,7 @@ fn keys(
             }
         }
         for (i, at) in &meter {
-            if let (Interaction::Pressed, Some(p)) = (i, at.normalized) {
+            if let (PointerState::Pressed, Some(p)) = (i, at.normalized) {
                 to = crate::menu::model::amount_at(p.x + 0.5, most);
             }
         }
@@ -391,8 +391,8 @@ fn keys(
     let mut clicked = None;
     for (i, b) in &buttons {
         match (i, b) {
-            (Interaction::Pressed, b) => clicked = Some(*b),
-            (Interaction::Hovered, RecipeButton::Row(r)) if pointer_moved => open.selected = *r,
+            (PointerState::Pressed, b) => clicked = Some(*b),
+            (PointerState::Hovered, RecipeButton::Row(r)) if pointer_moved => open.selected = *r,
             _ => {}
         }
     }

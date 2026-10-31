@@ -241,11 +241,13 @@ pub struct HudView {
     pub weapon: HudWeapon,
     /// The sneak word, while the player sneaks (§9).
     pub sneak: Option<Sneak>,
+    /// A kill camera has the view, which hides the HUD (`crate::kill_cam`).
+    pub kill_cam: bool,
 }
 
 impl Default for HudView {
     fn default() -> Self {
-        HudView { shown: false, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default(), sneak: None }
+        HudView { shown: false, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default(), sneak: None, kill_cam: false }
     }
 }
 
@@ -484,6 +486,7 @@ fn gather(
     mut view: ResMut<HudView>,
     (vats, wheel): (Option<Res<crate::vats_mode::VatsMode>>, Option<Res<crate::weapon_wheel::WeaponWheel>>),
     driven: Option<Res<crate::player::ViewDriven>>,
+    kill_cam: Option<Res<crate::kill_cam::KillCam>>,
 ) {
     // [documented: GECK wiki DisablePlayerControls, the movement flag: "HUD is partially
     // disabled: Action Points, Health, Crosshair".]
@@ -497,7 +500,12 @@ fn gather(
     // wheel is open (docs/design/weapon-wheel.md §7) [design].
     let posed = driven.is_some_and(|d| d.0);
     let wheel_open = wheel.is_some_and(|w| w.is_open());
-    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open, ..view.clone() };
+    // Nor while a kill camera plays (`crate::kill_cam`) [owner's playtest request #1034].
+    let killcam = kill_cam.is_some_and(|k| k.active());
+    if killcam != view.kill_cam {
+        info!("hud: {}", if killcam { "hidden: the kill camera has the view" } else { "back after the kill camera" });
+    }
+    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open && !killcam, kill_cam: killcam, ..view.clone() };
     if let Some(p) = &player {
         // Where the camera looks, not where the character faces (third person).
         now.heading = control.as_deref().map_or(p.heading, |c| c.view_heading(p.heading)).to_degrees();

@@ -59,7 +59,7 @@ use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
 use crate::{PlaySet, PlayState};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
-use crate::ui_compat::Interaction;
+use crate::ui_pointer::PointerState;
 use bevy::window::PrimaryWindow;
 use fnv_game::lockpick::{self as rules, Opening, Phase, Picking, Refusal, Settings, PIN_RANGE};
 use fnv_sim::FormId;
@@ -493,7 +493,7 @@ fn keys(
     motion: Option<Res<AccumulatedMouseMotion>>,
     time: AidTime,
     screen: Res<LockpickScreen>,
-    over_button: Query<&Interaction, With<screen::LockButton>>,
+    over_button: Query<&PointerState, With<screen::LockButton>>,
     mut out: MessageWriter<LockpickInput>,
 ) {
     let Some(s) = screen.0.as_ref() else { return };
@@ -524,7 +524,7 @@ fn keys(
     }
     // The pointer on a button moves no pin [design: the original hides the pointer over
     // the lock only, `LPM_DetectArea`].
-    let on_button = over_button.iter().any(|i| *i != Interaction::None);
+    let on_button = over_button.iter().any(|i| *i != PointerState::None);
     if let Some(m) = motion.filter(|_| !on_button) {
         turn += m.delta.x * MOUSE_DEGREES;
     }
@@ -539,12 +539,12 @@ fn torque_held(input: &ControlInput) -> bool {
     [Control::Forward, Control::Back, Control::SlideLeft, Control::SlideRight].into_iter().any(|c| input.pressed(c))
 }
 
-fn buttons(screen: Res<LockpickScreen>, pressed: Query<(&Interaction, &screen::LockButton), Changed<Interaction>>, mut out: MessageWriter<LockpickInput>) {
+fn buttons(screen: Res<LockpickScreen>, pressed: Query<(&PointerState, &screen::LockButton), Changed<PointerState>>, mut out: MessageWriter<LockpickInput>) {
     if screen.0.is_none() {
         return;
     }
     for (i, b) in &pressed {
-        if *i == Interaction::Pressed {
+        if *i == PointerState::Pressed {
             out.write(b.0);
         }
     }

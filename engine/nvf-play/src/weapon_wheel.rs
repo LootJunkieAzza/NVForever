@@ -406,7 +406,7 @@ fn read(
     }
     f.click = input.mouse.just_pressed(MouseButton::Left) || aid.click;
     f.cancel = input.mouse.just_pressed(MouseButton::Right) || input.keys.just_pressed(KeyCode::Escape) || aid.cancel;
-    f.blocked = *state.get() != PlayState::Playing || vats.is_some_and(|v| v.holds_input());
+    f.blocked = *state.get() != PlayState::Playing || vats.is_some_and(|v| v.holds_input()) || input.kill_cam.as_ref().is_some_and(|k| k.active());
     let was_open = wheel.is_open();
     for o in wheel.step(&f) {
         match o {

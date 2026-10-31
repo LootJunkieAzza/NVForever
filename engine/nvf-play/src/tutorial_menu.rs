@@ -26,7 +26,7 @@ use crate::PlaySet;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
-use crate::ui_compat::{Button, Interaction};
+use crate::ui_pointer::{Button, PointerState};
 use bevy::window::PrimaryWindow;
 use fnv_game::game::menus;
 use fnv_sim::FormId;
@@ -248,7 +248,7 @@ impl Plugin for TutorialMenuPlugin {
 pub fn keys(
     keys: Res<ButtonInput<KeyCode>>,
     mut wheel: MessageReader<MouseWheel>,
-    clicks: Query<(&Interaction, &TmButton), Changed<Interaction>>,
+    clicks: Query<(&PointerState, &TmButton), Changed<PointerState>>,
     mut view: ResMut<TutorialView>,
     mut script: ResMut<ScriptState>,
 ) {
@@ -266,10 +266,10 @@ pub fn keys(
     let mut clicked = None;
     for (i, b) in &clicks {
         match i {
-            Interaction::Pressed => clicked = Some(*b),
-            Interaction::Hovered => hover = Some(Some(*b)),
-            Interaction::None if view.hover == Some(*b) => hover = hover.or(Some(None)),
-            Interaction::None => {}
+            PointerState::Pressed => clicked = Some(*b),
+            PointerState::Hovered => hover = Some(Some(*b)),
+            PointerState::None if view.hover == Some(*b) => hover = hover.or(Some(None)),
+            PointerState::None => {}
         }
     }
     if let Some(h) = hover.filter(|h| *h != view.hover) {

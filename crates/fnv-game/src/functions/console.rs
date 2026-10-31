@@ -1,7 +1,9 @@
 //! Console-only commands that print (docs/design/console.md): the catalogue lists them
 //! without an opcode, so the function table numbers them from
 //! `fnv_script::table::CONSOLE_OPCODE_BASE`; the console runs the ones registered here
-//! by catalogue name ([`registry`], checked by a test) with the line's words.
+//! by catalogue name ([`registry`], checked by a test) with the line's words. Vanilla
+//! functions the catalogue gives no opcode and no console category (KillAllActors) are
+//! found by name and alias in the table's unnumbered functions ([`lookup_word`]).
 //!
 //! A command takes the console line's words after its name and returns the lines to print.
 //! What only the engine can do (travel, quit, menus, saving) is asked through
@@ -59,7 +61,44 @@ pub fn registry() -> &'static [(&'static str, ConsoleImpl)] {
         ("CloseAllMenus", close_all_menus),
         ("SaveGame", save_game),
         ("LoadGame", load_game),
+        ("KillAllActors", kill_all_actors),
     ]
+}
+
+/// Vanilla functions the engine's console handles itself by name, outside both
+/// registries (engine/nvf-play/src/console.rs): `coc` travels, `help` searches records,
+/// `AdvLevel` levels up.
+pub const ENGINE_WORDS: &[&str] = &["CenterOnCell", "Help", "AdvancePCLevel"];
+
+/// The vanilla functions of the catalogue that nothing handles and no script of the
+/// masters calls (so the stub audit, `fnvtool script stubs`, never counts them): those
+/// in the wiki's "Console Functions" category, then the others. Typed at the console
+/// they print "unknown" or do nothing (docs/design/console.md, "What the console does not handle").
+pub fn unhandled_unused(table_json: &serde_json::Value) -> (Vec<String>, Vec<String>) {
+    let (mut console, mut other) = (Vec::new(), Vec::new());
+    for f in table_json["functions"].as_array().into_iter().flatten() {
+        let Some(name) = f["name"].as_str() else { continue };
+        if f["family"] != "vanilla" || f["script_calls"].as_u64().unwrap_or(0) > 0 {
+            continue;
+        }
+        if super::lookup_name(name).is_some() || lookup(name).is_some() || ENGINE_WORDS.iter().any(|w| w.eq_ignore_ascii_case(name)) {
+            continue;
+        }
+        let in_console = f["categories"].as_array().into_iter().flatten().any(|c| c == "Console Functions");
+        if in_console { console.push(name.to_string()) } else { other.push(name.to_string()) }
+    }
+    console.sort();
+    other.sort();
+    (console, other)
+}
+
+/// The command a console word names: a console-only command numbered from
+/// `CONSOLE_OPCODE_BASE`, or a vanilla function without an opcode (by name or alias, the
+/// table's unnumbered functions), when one is registered here. Its catalogue name too.
+pub fn lookup_word(table: &fnv_script::table::FunctionTable, word: &str) -> Option<(String, ConsoleImpl)> {
+    let numbered = table.by_name(word).filter(|&op| op >= fnv_script::table::CONSOLE_OPCODE_BASE).and_then(|op| table.get(op)).map(|f| f.name.clone());
+    let name = numbered.or_else(|| table.unnumbered.get(&word.to_ascii_lowercase()).map(|u| u.name.clone()))?;
+    lookup(&name).map(|run| (name, run))
 }
 
 /// The implementation registered under a catalogue name (case-insensitive).
@@ -406,6 +445,38 @@ pub fn quit_game(g: &mut Game, _ctx: &ConsoleCtx, _a: &[String]) -> Result<Vec<S
     Ok(vec!["Quitting".into()])
 }
 
+/// `KillAllActors [killer]` (`killall`): every actor of the loaded area dies (the cells
+/// around the player outdoors, the player's cell indoors), the player never; an essential
+/// one is knocked out instead; the killer given (a reference) takes the kill as its own
+/// [documented: GECK wiki KillAllActors, the catalogue's summary and notes: "Kills every
+/// actor in the loaded area", "Essential actors are put into their usual temporary
+/// unconscious state rather than being killed"; hypothesis: the dead and the disabled are
+/// left alone]. Each death is `Game::kill`'s, as KillActor's.
+pub fn kill_all_actors(g: &mut Game, _ctx: &ConsoleCtx, a: &[String]) -> Result<Vec<String>, String> {
+    let killer = a.first().map(|w| form(g, w)).transpose()?;
+    let placed = g.world.placed;
+    let is_actor = |r: &FormId| placed.get(*r).is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE"));
+    let mut actors: std::collections::BTreeSet<FormId> = std::collections::BTreeSet::new();
+    for c in &g.loaded_cells {
+        actors.extend(placed.by_cell.get(c).into_iter().flatten().filter(|r| is_actor(r)));
+    }
+    actors.extend(g.moved.iter().filter(|r| is_actor(r)));
+    actors.extend(g.created_actors());
+    let loaded = g.loaded_cells.clone();
+    actors.retain(|&r| r != FormId::PLAYER_REF && g.cell_of(r).is_some_and(|c| loaded.contains(&c)) && g.present(r) && !g.is_dead(r));
+    let (mut killed, mut knocked) = (0, 0);
+    for r in actors {
+        if super::actor::essential(g, r) {
+            if g.knock_out(r, crate::unconscious::Cause::Essential, killer) {
+                knocked += 1;
+            }
+        } else if g.kill(r, killer) {
+            killed += 1;
+        }
+    }
+    Ok(vec![format!("KillAllActors >> {killed} killed, {knocked} essential knocked out")])
+}
+
 /// `CloseAllMenus` (`cam`): every open menu closes, the console too.
 pub fn close_all_menus(g: &mut Game, _ctx: &ConsoleCtx, _a: &[String]) -> Result<Vec<String>, String> {
     g.console_requests.push(ConsoleRequest::CloseMenus);
@@ -618,10 +689,27 @@ mod tests {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/script/functions.json");
         let t = fnv_script::FunctionTable::load(std::path::Path::new(path)).expect("functions.json");
         for (name, _) in registry() {
+            // A vanilla function without an opcode outside the console category.
+            if t.by_name(name).is_none() {
+                let u = t.unnumbered.get(&name.to_ascii_lowercase()).unwrap_or_else(|| panic!("{name} is not in the catalogue"));
+                assert_eq!(&u.name, name);
+                continue;
+            }
             let op = t.by_name(name).unwrap_or_else(|| panic!("{name} is not in the catalogue"));
             assert!(op >= fnv_script::table::CONSOLE_OPCODE_BASE, "{name} has a catalogue opcode: register it in functions::registry");
             assert_eq!(&t.get(op).unwrap().name, name);
         }
+        // The functions nothing handles (docs/design/console.md): a number to keep
+        // going down. Implementing one lowers it here; a catalogue update that adds one
+        // raises it.
+        let j: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let (console, other) = unhandled_unused(&j);
+        eprintln!("unhandled console functions: {console:?}
+unhandled other vanilla functions: {other:?}");
+        assert_eq!((console.len(), other.len()), (57, 124), "docs/design/console.md, What the console does not handle, sorts them");
+        // `killall` reaches KillAllActors by its alias.
+        assert_eq!(lookup_word(&t, "killall").map(|r| r.0).as_deref(), Some("KillAllActors"));
+        assert_eq!(lookup_word(&t, "cam").map(|r| r.0).as_deref(), Some("CloseAllMenus"));
         // Aliases find them too.
         for alias in ["sqt", "MoveToQT", "sqs", "sqv", "sv", "caqs", "inv", "getavinfo", "prid", "setgs", "qqq", "cam"] {
             let f = t.by_name(alias).and_then(|op| t.get(op)).unwrap_or_else(|| panic!("{alias}"));
