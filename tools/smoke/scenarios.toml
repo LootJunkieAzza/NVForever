@@ -2958,6 +2958,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "hacking-notice-held"
+source = "issue #1239: a quest line pushed while the hacking terminal is open is not drawn under it and its time does not run there; it is shown once after the power button closes the terminal (as the rest of the HUD, hud.md §14.3)"
+areas = ["hacking", "terminal", "quest-messages", "corner-messages", "hud"]
+paths = ["engine/nvf-play/src/corner_messages.rs", "engine/nvf-play/src/quest_messages.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TERMINAL = "30:science:25,31:open:000D74D5,33:wrong,34:brackets,35:symbol,36:wrong,37:right,41:item:0,43:power", NVF_PLAY_TEST_SCRIPT = "35:objective:VCG02:3" }
+args = ["--cell", "BisonSteve01", "--play", "--no-voice"]
+run_seconds = 52
+order = [[
+  { text = "quest message: Talk to Sunny Smiles in the Prospector Saloon.", label = "the line pushed while the terminal is open" },
+  "terminal: the power button pressed",
+  { text = "quest message on screen: Talk to Sunny Smiles in the Prospector Saloon.", label = "drawn only after the terminal closes" },
+]]
+expect = [{ text = "quest message on screen: Talk to Sunny Smiles in the Prospector Saloon.", count = 1, label = "shown once" }]
+
+[[scenario]]
 name = "hacking-owned"
 source = "the owner 2026-10-22: a terminal still to hack shows its difficulty on the activate prompt as a lock does, an owned one in the crime colour, and hacking it is the crime of picking an owned lock (karma, the owner's side that sees it hostile): the Easy terminal in the Prospector Saloon (0010872F, cell owned)"
 areas = ["hacking", "terminal", "crime"]
