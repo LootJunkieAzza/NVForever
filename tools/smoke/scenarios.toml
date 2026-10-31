@@ -6533,6 +6533,26 @@ expect = [
 ]
 
 [[scenario]]
+name = "reputation-after-combat"
+source = "owner request 2026-10-30 (#1050): the reputation box and the level-up menu wait until the fight has been over for a short while (engine/nvf-play/src/after_combat.rs, 2 s of play [design])"
+note = "beside Violet's camp (as music-battle), god mode: Goodsprings fame is added at 12 s while the fight is on, the five fighters are killed at 15 s; the box waits for the fight to end and then 2 s more"
+areas = ["hud"]
+paths = ["engine/nvf-play/src/after_combat.rs", "engine/nvf-play/src/reputation.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "12:player.addreputation 00104C22 1 5;12.3:close", NVF_PLAY_TEST_SCRIPT = "15:kill:0x000F570B,15:kill:0x0013E5BB,15:kill:0x000F573B,15:kill:0x000F5741,15:kill:0x0013F85F" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-46800,65000,4600", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 26
+order = [[
+  "after combat: in a fight, boxes wait",
+  "after combat: the fight is over",
+  { re = 'after combat: settled, boxes may come up \(2\.0 s' },
+  "reputation: Goodsprings Neutral -> Liked (fame 12, infamy 0)",
+]]
+expect = [
+  { gap = ["after combat: the fight is over", "reputation: Goodsprings Neutral -> Liked"], range = [1.9, 4.0], label = "the box comes about 2 s after the fight ends, not at once" },
+]
+forbid = [{ re = 'the player died', label = "the player dies" }]
+
+[[scenario]]
 name = "reputation-disguise"
 source = "owner request 2026-10-22: faction armour's scripts set every reputation to 0 while it is worn and back after; only the player's real reputation opens boxes, so putting on and taking off a Powder Gang outfit (000A472F, script 00134B71) shows none"
 areas = ["hud"]
