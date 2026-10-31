@@ -656,7 +656,7 @@ The numbers above stay put so links to them hold; each item here gives its own p
 
 ## Added 2026-10-31 (robots' talking lights, issue #1081)
 
-58. **What sets a robot's `Talking` sequence while it speaks** (P3: Victor, Yes Man, Mr.
+59. **What sets a robot's `Talking` sequence while it speaks** (P3: Victor, Yes Man, Mr.
     House's screen, protectrons). NVForever plays `talking.kf` while a line is said with
     the sequence's time taken from the line's `.lip` (the widest mouth shape now, 0 to 1
     of the 0.17 s), so Victor's chest light (`##VoiceBox_talk:0`) flickers with the

@@ -554,7 +554,7 @@ emotions) or about other heads (female, old, child, ghoul).
 loops: Mr. House's rises steadily, the others are ramps, and five are as short as five
 frames. The game would set the sequence's time from how loud the speaker is at the
 moment. What it reads (the sound's amplitude, or the `.lip`) is not known
-(observer-checks.md 58).
+(observer-checks.md 59).
 
 **Built** (`engine/nvforever/src/talk_clips.rs`) [engine choices where marked]:
 
@@ -564,7 +564,9 @@ moment. What it reads (the sound's amplitude, or the `.lip`) is not known
 - The sequence's time is the line's level now, 0 to 1 of the sequence: the largest of
   the sixteen mouth-shape weights of the line's `.lip` at the sound's time (§2.4)
   [engine choice: the `.lip` stands for the loudness]. Victor's lines all have one
-  (487 `.lip` files under `robotvictor`); a line without holds 0.5.
+  (487 `.lip` files under `robotvictor`); a line whose sound has no `.lip` holds 0.5.
+  A response with no sound file at all (none in the voice archives for that speaker)
+  does not light the speaker: only a sound being said drives the sequence.
 - The bone tracks play too, except the accumulation root and `Bip01 NonAccum` [design:
   a talking robot that walks keeps its walk].
 - Material values: of two layers of the same weight, the track of the higher priority

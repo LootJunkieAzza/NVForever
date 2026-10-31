@@ -17,7 +17,9 @@
 //!   than a loop. So the sequence's time is the line's loudness now, taken from its
 //!   `.lip`: the largest mouth-shape weight of the frame (0 to 1 of the sequence)
 //!   [engine choice: the `.lip` stands for the sound's loudness; observer-checks.md asks
-//!   what the game reads]. A line without a `.lip` holds the middle ([`NO_LIP_LEVEL`]).
+//!   what the game reads]. A line whose sound has no `.lip` holds the middle
+//!   ([`NO_LIP_LEVEL`]); a response with no sound file does not light the speaker
+//!   (`nvf_play::voice` reports no sound path for it).
 //! - **What plays**: the sequence's material tracks and its bone tracks, without the
 //!   accumulation root and `Bip01 NonAccum` (where a walking body is carried)
 //!   [design], on blend layer [`TALK_LAYER`] over everything else; `locomotion::drive`
@@ -43,7 +45,8 @@ use crate::locomotion::Locomotion;
 /// The blend layer of the `Talking` sequence (`anim_play::MAX_LAYERS`).
 pub const TALK_LAYER: usize = 7;
 
-/// The level a line without a `.lip` holds (0 to 1 of the sequence) [engine choice].
+/// The level a line whose sound has no `.lip` holds (0 to 1 of the sequence) [engine
+/// choice]. A response without a sound file plays nothing.
 pub const NO_LIP_LEVEL: f32 = 0.5;
 
 pub struct TalkClipsPlugin;
