@@ -4334,6 +4334,19 @@ order = [[
 ]]
 
 [[scenario]]
+name = "perk-spotter-unaware-far"
+source = "#1094 (owner's playtest: Spotter did not mark enemies not yet aware of the player): Spotter marks hostile actors that have not noticed the player, out to the detection reach, not only within the compass's (Perception x 300) range (engine/nvf-play/src/perk_marks.rs)"
+note = "as perk-spotter, but nobody is set on the player and the player stands about 3,000 units south of where the dogs and fiends are (beyond the compass's 1,500 at Perception 5, within the 5,000 outdoor detection reach); the perk by test aid; the player aims from 9 to 12 s"
+areas = ["perks", "effects"]
+paths = ["engine/nvf-play/src/perk_marks.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_SCRIPT = "3:perk:Spotting", NVF_PLAY_TEST_CONTROL = "2:weapon", NVF_PLAY_TEST_KEYS = "9:mouse-right:3" }
+args = ["--cell", "Goodsprings", "--pos=-45600,62000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 16
+order = [[
+  { re = 'perk marks: Spotter marks [1-9]\d* hostile actors while the player aims', label = "Spotter marks hostiles that have not noticed the player, beyond the compass's range" },
+]]
+
+[[scenario]]
 name = "perk-search-and-mark"
 source = "perk audit 2026-10-23 §3.8, owner 2026-10-24 (the rest of the perks): Search and Mark, Rex's companion perk, highlights chems, guns and ammunition nearby while the player aims (docs/spec-notes/perk-entry-points.md §13)"
 note = "Doc Mitchell's house (quiet: outdoors the Goodsprings fiend dogs set on the player got in the way of the view), the 10mm Pistol drawn; the perk SearchAndMark at 3 s; a Stimpak (00015169) and a second 10mm Pistol given and dropped at 6 and 8 s (run-time references); the player looks down at them and aims from 11 to 14 s: both play fxSearchAndMark. Frames before and while aiming for the owner"
