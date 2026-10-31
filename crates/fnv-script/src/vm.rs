@@ -1075,8 +1075,10 @@ const MAX_FORMAT_FIELD: usize = 512;
 /// digits, 6 by default, scientific below 1e-4 or from 10^Y, trailing zeros dropped),
 /// `%.Ye`/`%.YE`; switches `+`, space, `-` (left-aligned), `0` (zero padding). The wiki's
 /// "%g as an integer, 1E+006" (String Formatting, Vanilla Game Options) differs [hypothesis:
-/// the older runtime's form]. The sign is written apart from the digits, so -0 writes
-/// `-0` and `+` never doubles one; infinity and NaN write `inf` and `nan` (`INF`, `NAN`
+/// the older runtime's form]. The sign is written apart from the digits, so `+` never
+/// doubles one; -0 writes as 0, as NVForever wrote it before (the C library writes `-0`;
+/// what the game writes is not probed, and an angle of -0 reads "0" in the smoke runs)
+/// [hypothesis]; infinity and NaN write `inf` and `nan` (`INF`, `NAN`
 /// for an upper-case code) and are padded with spaces, as the C library does
 /// [hypothesis: not probed].
 fn printf_number(spec: &str, code: char, x: f64) -> String {
@@ -1088,7 +1090,7 @@ fn printf_number(spec: &str, code: char, x: f64) -> String {
     };
     let width: usize = w.parse::<usize>().unwrap_or(0).min(MAX_FORMAT_FIELD);
     let upper = code.is_ascii_uppercase();
-    let negative = x.is_sign_negative() && !x.is_nan();
+    let negative = x < 0.0;
     let a = x.abs();
     // The C library's scientific form of a value at or above 0: the mantissa, then e (or
     // E), a sign and at least two digits.
