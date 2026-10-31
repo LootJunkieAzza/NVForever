@@ -497,6 +497,13 @@ function does. Tests run the VM in strict mode; the game runs it in lenient mode
 - Comparisons give 1 or 0; `&&` and `||` test for non-zero; arithmetic is in double
   precision; `/` by 0 gives 0; `%` is the remainder of both operands truncated to
   integers, 0 for a zero divisor [hypothesis, all of this line].
+- **`&&` and `||` do not short-circuit**: both operands are evaluated, calls included
+  [observed: o5_01, 2026-10-31, issue #1112: `if 0 && player.ModAV Variable09 10`,
+  `if 1 || …`, `if 0 == 1 && … == 0` and five more forms all ran the ModAV;
+  observer-checks.md check 51; script-language.md §4]. Only the extender's `eval`
+  expressions short-circuit [documented: Eval]. So a script that guards a call on a
+  reference with `&&` (EDEScript) makes the call on an empty reference every frame in the
+  original too.
 - `If`/`ElseIf`/`Else`: the first true arm runs, else the `Else` body.
 - `Return` ends the whole run (block or result script), from any depth.
 - **Stray markers** (§2.6). An `EndIf` with nothing open does nothing [observed]. An
@@ -524,7 +531,9 @@ function does. Tests run the VM in strict mode; the game runs it in lenient mode
   entries read the local variable), then `Host::call`. **A call on an empty reference
   variable stops the script for this run**, silently in the game [documented: GECK wiki
   Ref Variable, Eval and Let pages, owner export 2026-10-09; docs/spec-notes/script-language.md §7.3 row
-  1]; here it is traced as `call_failed`. A `Set` whose expression stopped the script
+  1]; here it is traced as `call_failed`, once per (script record, function): a record's
+  script runs every frame, so a repeated failure would trace every frame (#1112); result,
+  stage and console scripts trace every time [design]. A `Set` whose expression stopped the script
   leaves its variable unchanged [documented: Let, "a failed set stops the script"].
   Until round 4 the call read 0 and the script went on. In the original with xNVSE 6.4.9,
   a function script run through CallFunction **went on** after `rE.GetDisabled` on an

@@ -269,6 +269,26 @@ fn stray_markers_start_a_new_chain() {
 }
 
 #[test]
+fn classic_and_and_or_evaluate_both_sides() {
+    // `if 0 && GetStage …` and `if 1 || GetStage …` still make the call: classic
+    // expressions do not short-circuit [observed: o5_01, observer-checks.md check 51;
+    // script-language.md §4], only `eval` does [documented: Eval].
+    let get = || Token::Call { call: Call { on: None, opcode: GET_STAGE, has_params: true, args: vec![Arg::Ref(RefIndex(1))] } };
+    let cases = [
+        (vec![num(0.0), get(), op(Op::And)], 0.0),
+        (vec![num(1.0), get(), op(Op::Or)], 1.0),
+        // `0 == 1 && GetStage … == 0`: the left comparison is false, the call still runs.
+        (vec![num(0.0), num(1.0), op(Op::Eq), get(), num(0.0), op(Op::Eq), op(Op::And)], 0.0),
+    ];
+    for (i, (e, want)) in cases.into_iter().enumerate() {
+        let mut h = TestHost { refs: vec![0x0010_4C1C], ..Default::default() };
+        run(&[if_(vec![(e, vec![set(short(1), vec![num(1.0)])])], None)], &mut h).unwrap();
+        assert_eq!(h.calls.len(), 1, "case {i}: the right side's call runs");
+        assert_eq!(h.locals.get(&1).copied().unwrap_or_default(), Value::Num(want), "case {i}");
+    }
+}
+
+#[test]
 fn a_host_return_request_ends_the_run() {
     // RemoveMe "acts like a return": the host asks the VM to stop after the call.
     struct Stopper(TestHost, bool);
