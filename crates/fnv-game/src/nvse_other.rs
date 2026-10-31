@@ -63,6 +63,8 @@ pub struct OtherState {
     /// reference and by cell (`nvse_jg2`).
     pub ref_zones: HashMap<FormId, Option<FormId>>,
     pub cell_zones: HashMap<FormId, Option<FormId>>,
+    /// LandTextureAddGrass's and LandTextureRemoveGrass's grass lists (`nvse_jip5`).
+    pub ltex_grasses: HashMap<FormId, Vec<FormId>>,
 }
 
 /// The bit of DisablePlayerControlsAltEx's flags for each control group, in the order of

@@ -23,7 +23,7 @@ engine if needed, and delete the item here.
 - **A save from the owner** (quest or character state no save has yet):
   - Hardcore on (4; the Hardcore Stimpak in 9): SetHardcore does not work from scripts.
   - Boone, Rex and ED-E hired (19, 22's complaints, 18's wheel).
-  - Lucky 38 opened, the Tops Yes Man met (31); Benny's invitation to the Tops taken (47).
+  - Benny's invitation to the Tops taken (47).
   - Old World Blues just started in the Think Tank (43, 37); X-8 done, EM pulse module
     (38). Honest Hearts at Flight from Zion with Daniel (49).
   - VMS46 at Anders' thanks (39); Stone on his night route, VMS31 (50); HELIOS One before
@@ -421,10 +421,15 @@ The numbers above stay put so links to them hold; each item here gives its own p
     axes 0-2 matched ours (`reputation::tiers`) at all ten infamy/fame pairs. SetReputation
     with axis 2 or 3 is a failed call that **stops the script** (the line after it did not
     run); ours does nothing and goes on (reputation.rs `axis`). (scripts.md §7.6)
-31. **Say Once on a line two actors share** (dialogue.md question 13): the Yes Man
-    mainframe repeats the Tops Yes Man's first-meeting greeting (0x001164F1, Say Once,
-    GetIsID YesManMainframe OR VMQTopsYesMan) once, because ours keeps Say Once per actor.
-    To check: meet Yes Man at the Tops, then talk to the mainframe in the penthouse.
+31. **Say Once on a line two actors share** — answered 2026-10-31 (owner, save
+    nvf31mainframe, issue #1113): **no repeat**. After the upload and the Mark II upgrade
+    the Yes Man mainframe greeted with 0x001164F2 (GREETING position 2424, conditions
+    GetIsID YesManMainframe OR VMQTopsYesMan, VMQTops variable 32 < 1), not the Tops
+    first-meeting greeting 0x001164F1 (position 2398, Say Once, only the same GetIsID OR)
+    that the Tops Yes Man had said [observed]. So Say Once holds per line across speakers
+    in the original [hypothesis: one case; the mainframe and the Tops Yes Man may also
+    count as one speaker]. Ours keeps it per (speaker, line) (dialogue.rs `said`) and
+    would say 0x001164F1 again. (dialogue.md question 13)
 32. **An expression that leaves extra values** — answered 2026-10-30 (issue #908): the
     original stops the script at `if GetStage Q N == 1` and runs neither arm, as ours.
     ([scripts §4.2](../spec-notes/scripts.md))
@@ -572,6 +577,15 @@ The numbers above stay put so links to them hold; each item here gives its own p
     a text_box button's hotrect, text and parent `mouseover` with the cursor on the text;
     the three functions in game mode and over a target without an `<id>`.
     ([menu-xml §3.2, §8 items 7-10](../spec-notes/menu-xml.md))
+
+## Added 2026-10-31 (the Pip-Boy Glove and outfit gloves, issue #1067)
+
+55. **Which left hand the player shows in an outfit with gloves** (P3: the player's own
+    hand in every outfit with glove addons). NVForever lets the Pip-Boy Glove give way to
+    an outfit's glove addon (leather, metal, raider, ranger armour, power armour) and a
+    vault suit's bare-hand addon give way to the Pip-Boy Glove. To check: the player in
+    Leather Armor and in T-45d Power Armor, first and third person: is the left hand the
+    outfit's glove or the Pip-Boy Glove's hand? ([actors §2.3](../spec-notes/actors.md))
 
 ## Added 2026-10-31 (radio loudness, issue #1077)
 
