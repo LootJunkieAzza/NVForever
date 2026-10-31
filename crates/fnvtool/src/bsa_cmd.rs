@@ -45,6 +45,7 @@ fn trailer_warning(path: &str, t: Trailer) -> Option<(String, String)> {
             "zlib_checksum_mismatch".into(),
             format!("{path}: stored {stored:08x}, computed {computed:08x}"),
         )),
+        Trailer::Extra { bytes } => Some(("zlib_bytes_after_trailer".into(), format!("{path}: {bytes} bytes after the Adler-32"))),
     }
 }
 

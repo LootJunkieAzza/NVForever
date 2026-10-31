@@ -63,6 +63,10 @@ A u32 uncompressed size, then a zlib stream [observed]. Two tolerated irregulari
   hypothesis].
 - `menus\do_not_delete.txt`: compressed, declared size 0, no zlib data at all (block is
   just the 4-byte size) [observed].
+- **Bytes after the Adler-32**: none in any shipped archive. `fnvtool bsa verify` over the
+  22 archives of the base game, the add-ons and the packs (about 181,000 files) reported
+  no `zlib_bytes_after_trailer` [observed 2026-10-31, #998]. The reader accepts such
+  bytes (`fnv_inflate::Trailer::Extra`) and the verify command reports them.
 
 ## Name hash
 
