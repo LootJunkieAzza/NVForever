@@ -2363,6 +2363,38 @@ PlayerREF.NX_SetEVFl \"Count\" 2").unwrap();
 }
 
 #[test]
+fn menu_getters_read_what_the_engine_reports() {
+    // #983: GetMenuTargetRef and GetSelectedItemRef answer the picks the engine reports
+    // for an open menu (Game::set_menu_picks), an item as an inventory reference.
+    use fnv_game::game::{menus, MenuPick, MenuPicks, TEMP_REF_BASE};
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}
+{body}
+End
+"), Default::default());
+    let chest = FormId(0x0000_0A00);
+    let item = FormId(0x0000_0A01);
+    g.set_menu_picks(1008, MenuPicks { target: Some(MenuPick::Form(chest)), selected: Some(MenuPick::Item { owner: chest, item }) });
+    // Closed: nothing.
+    assert_eq!(q(&mut g, "SetFunctionValue (GetMenuTargetRef 1008)"), Ok(XVal::Ref(0)));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetSelectedItemRef)"), Ok(XVal::Ref(0)));
+    g.menu = Some(1008);
+    assert_eq!(q(&mut g, "SetFunctionValue (GetMenuTargetRef 1008)"), Ok(XVal::Ref(chest.0)));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetMenuTargetRef 1053)"), Ok(XVal::Ref(0)));
+    match q(&mut g, "SetFunctionValue (GetSelectedItemRef)") {
+        Ok(XVal::Ref(r)) => assert!(r >= TEMP_REF_BASE, "an inventory reference, not {r:08X}"),
+        other => panic!("{other:?}"),
+    }
+    // The menu on top answers GetSelectedItemRef.
+    g.set_menu_picks(menus::ITEM_MOD, MenuPicks { target: None, selected: Some(MenuPick::Form(item)) });
+    g.menu_under = g.menu;
+    g.menu = Some(menus::ITEM_MOD);
+    assert_eq!(q(&mut g, "SetFunctionValue (GetSelectedItemRef)"), Ok(XVal::Ref(item.0)));
+}
+
+#[test]
 fn queries_run_function_scripts_and_keep_what_they_change() {
     // The runner's `query` action (Game::run_query): JIP's auxiliary variables set by one
     // query are read by the next, and the saved ones are in the snapshot.
@@ -2417,6 +2449,84 @@ fn message_ex_box_ex_and_debug_print() {
         _ => None,
     }).collect();
     assert_eq!(printed, ["shown"]);
+}
+
+#[test]
+fn each_queued_box_keeps_its_own_button_count() {
+    // `--no-messages` (nvf-play) closes the front box when it declared one button or none,
+    // and leaves it when its count is not known.
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let buttons = |g: &Game| g.front_box().and_then(|b| b.buttons);
+    // A form-less Yes/No box A: two buttons, though no Message form says so.
+    g.run_source("MessageBoxEx \"A|Yes|No\"", Default::default()).expect("compiles");
+    assert_eq!((g.boxes.clone(), buttons(&g)), (vec![FormId(0)], Some(2)));
+    // A form box B of two buttons shown behind it overwrites the last-shown record, as
+    // ShowMessage does; A on screen still counts its own two.
+    g.message_box = Some(fnv_game::game::MessageBox { message: FormId(0x810), buttons: 2, pressed: None, owner: None, hidden: Vec::new() });
+    g.show_box_buttons(FormId(0x810), 2);
+    // Two more form-less boxes, the same ID 0 and the same words, of other counts: each
+    // its own count and its own showing.
+    g.run_source("MessageBoxEx \"C|Ok\"", Default::default()).expect("compiles");
+    g.run_source("MessageBoxEx \"C|Ok\"", Default::default()).expect("compiles");
+    assert_eq!((g.boxes.len(), buttons(&g)), (4, Some(2)));
+    let serials: Vec<u64> = g.queued.iter().map(|q| q.serial).collect();
+    assert!(serials.windows(2).all(|w| w[0] < w[1]), "every box its own showing: {serials:?}");
+    // Through a snapshot and back: the counts and showings kept.
+    let text = serde_json::to_string(&g.snapshot()).unwrap();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&text).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let mut g = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!((g.boxes.len(), buttons(&g)), (4, Some(2)));
+    assert_eq!(g.queued.iter().map(|q| q.serial).collect::<Vec<_>>(), serials);
+    // A scenario's box put in front: its count not known; the rest keep theirs.
+    g.put_box_in_front(FormId(0));
+    assert_eq!(g.front_box().map(|b| b.buttons), Some(None));
+    g.menu = Some(fnv_game::game::menus::MESSAGE);
+    g.close_menu();
+    assert_eq!(buttons(&g), Some(2), "A again, after the scenario's box closed");
+    g.close_menu();
+    assert_eq!((g.boxes.clone(), buttons(&g)), (vec![FormId(0x810), FormId(0), FormId(0)], Some(2)));
+    g.close_menu();
+    assert_eq!(buttons(&g), Some(1));
+    // Code that changes the queue alone puts it out of step: nothing read, not a 0;
+    // the next box shown puts it back in step, the others' counts not known.
+    g.boxes.push(FormId(0));
+    assert_eq!(g.front_box(), None);
+    g.show_box_buttons(FormId(0), 2);
+    assert_eq!(g.queued.len(), g.boxes.len());
+    // The two boxes left, the one pushed out of step, then the box shown.
+    assert_eq!(g.queued.iter().map(|q| q.buttons).collect::<Vec<_>>(), vec![None, None, None, Some(2)]);
+}
+
+#[test]
+fn an_older_snapshots_boxes_restore_as_showings_of_unknown_count() {
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.run_source("MessageBoxEx \"A|Yes|No\"", Default::default()).expect("compiles");
+    g.run_source("MessageBoxEx \"A|Yes|No\"", Default::default()).expect("compiles");
+    // A snapshot from before `queued`: the boxes alone.
+    let mut s = g.snapshot();
+    s.queued.clear();
+    let text = serde_json::to_string(&s).unwrap();
+    assert!(!text.contains("\"queued\""));
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&text).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let mut g = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    // In step, each box its own showing, its buttons not known (left open by
+    // --no-messages, never counted 0).
+    assert_eq!(g.queued.len(), 2);
+    assert!(g.queued.iter().all(|q| q.buttons.is_none()));
+    let (first, second) = (g.queued[0].serial, g.queued[1].serial);
+    assert_ne!(first, second, "two boxes alike are two showings");
+    // An identical box shown after them is another showing again.
+    g.run_source("MessageBoxEx \"A|Yes|No\"", Default::default()).expect("compiles");
+    assert_eq!(g.queued.len(), 3);
+    assert!(g.queued[2].serial > second && g.queued[2].buttons == Some(2));
+    // Closing the front brings the second, still its own showing.
+    g.menu = Some(fnv_game::game::menus::MESSAGE);
+    g.close_menu();
+    assert_eq!(g.front_box().map(|b| b.serial), Some(second));
 }
 
 #[test]

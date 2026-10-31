@@ -381,7 +381,7 @@ sample; `ResetQuest`, read; set the timer again, sample; StartQuest, sample.
   quest's own script (the Emergency Radio, VEFR01NCRGood2EmergencyRadio, resets itself in
   its MenuMode and goes on); whether a self-reset also stops it is not observed. The
   runtime stops the quest on a reset from any other script and keeps it running on a
-  self-reset [hypothesis for the self-reset; issue #1232, observer check 63].
+  self-reset [hypothesis for the self-reset; issue #1232, observer check 66].
 
 ## 6. Scenarios and goldens
 

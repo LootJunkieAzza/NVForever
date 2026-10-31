@@ -911,6 +911,11 @@ pub mod menus {
     /// The tutorial menu (ShowTutorialMenu, `Game::show_tutorial`) [observed: MenuMode 1059
     /// was 1, and 1001 and 1060 were 0, with it open, capture mh1_tutorial, save nvfstrip, 2026-10-18]. Not a message box.
     pub const TUTORIAL: u16 = 1059;
+    /// The "How many?" prompt [documented: Hardcoded UI Shortcuts, the `QuantityMenu`
+    /// class constant, `fnv_ui::value`]. The engine shows it over a container, barter or
+    /// inventory menu without making it [`Game::menu`] (MenuMode does not report it); it
+    /// stands in [`Game::ui_prompt`] for the tile tree (T15a).
+    pub const QUANTITY: u16 = 1016;
     /// The companion wheel (`crate::companion_wheel`) [hypothesis: the code, see there].
     pub const COMPANION_WHEEL: u16 = crate::companion_wheel::MENU_CODE;
 
@@ -932,6 +937,24 @@ pub mod menus {
     pub fn same_menu(a: u16, b: u16) -> bool {
         a == b || (is_pipboy(a) && is_pipboy(b))
     }
+}
+
+/// What an open menu is about or has highlighted, for the extender's menu getters
+/// (GetMenuTargetRef, GetSelectedItemRef; #983): an item in a container's inventory (an
+/// inventory reference to scripts) or a form [documented: GetSelectedItemRef, "either a
+/// temporary Inventory Reference, or a Base Form, depending on the menu type"].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuPick {
+    Item { owner: FormId, item: FormId },
+    Form(FormId),
+}
+
+/// A menu's [`MenuPick`]s: what it is derived from and its highlighted row. The engine
+/// sets them each frame ([`Game::set_menu_picks`]); not saved.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MenuPicks {
+    pub target: Option<MenuPick>,
+    pub selected: Option<MenuPick>,
 }
 
 /// `merchant.ShowBarterMenu [discount]`: trade with this actor. `discount` is a percentage
@@ -1086,6 +1109,8 @@ pub struct Game<'a> {
     pub(crate) name_overrides: std::collections::HashMap<FormId, String>,
     /// xNVSE's mod local data: lower-cased key -> (key as given, value); the session's.
     pub(crate) mod_data: BTreeMap<String, (String, fnv_script::vm::XVal)>,
+    /// What each open menu is about and has highlighted, by menu code ([`MenuPicks`]).
+    pub(crate) menu_picks: BTreeMap<u16, MenuPicks>,
     /// NX NVSE's variables on references (`crate::nvse_nx`), saved.
     pub(crate) nx: crate::nvse_nx::NxVars,
     /// TempCloneForm's clones and their originals (`crate::nvse_data`).
@@ -1376,6 +1401,12 @@ pub struct Game<'a> {
     /// under CGTutorial's crippled-limb tutorial): it is the open menu again once the
     /// tutorial closes [hypothesis]. Saved.
     pub menu_under: Option<u16>,
+    /// A menu the engine shows over the open one without it being [`Game::menu`] (the
+    /// "How many?" prompt, [`menus::QUANTITY`]): the tile tree builds its file while set
+    /// (`crate::ui_loading::sync`), so it can be drawn from it (task T15a) [design:
+    /// MenuMode does not report it; whether the original's MenuMode 1016 holds over a
+    /// container is not captured]. Set by the engine each frame. Not saved.
+    pub ui_prompt: Option<u16>,
     /// The messages of the open tutorial menu (ShowTutorialMenu), its pages in the order
     /// shown [hypothesis: further calls while it is open add pages]. Saved.
     pub tutorial: Vec<FormId>,
@@ -1389,6 +1420,16 @@ pub struct Game<'a> {
     /// [hypothesis: one box at a time, the next when the open one closes]. `FormId(0)`:
     /// a box whose message is not known (a scenario's `given`).
     pub boxes: Vec<FormId>,
+    /// What each box in [`Game::boxes`] was when shown, in step with it (`queued[i]` is
+    /// `boxes[i]`'s): how many buttons it declared (a form-less box, MessageBoxEx, every
+    /// one `FormId(0)`, has no Message form to count them from, and [`Game::message_box`]
+    /// is the last box shown, not the one on screen) and which showing it is. Kept in the
+    /// snapshot. Out of step (code that changed `boxes` alone) it is not read
+    /// ([`Game::front_box`]) until the queue next changes, which puts it back in step
+    /// with every count unknown ([`Game::align_queued`]).
+    pub queued: Vec<QueuedBox>,
+    /// The last [`QueuedBox::serial`] given.
+    pub box_serial: u64,
     /// Dialogue lines being said (SayTo, Say), one per speaker.
     pub speech: Vec<Speech>,
     /// SayTo calls that found no line the speaker could say, (speaker, topic): their
@@ -1495,6 +1536,17 @@ pub struct SavedLambda {
     pub inst: Option<InstKey>,
 }
 
+/// A message box in [`Game::boxes`], as it was shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueuedBox {
+    /// The buttons it declared, whatever their conditions; `None` when not known (a
+    /// scenario's box of a message it does not name).
+    pub buttons: Option<usize>,
+    /// Which showing it is, counted up for every box shown: two boxes alike (the same
+    /// message, or two form-less boxes of the same words) are two showings.
+    pub serial: u64,
+}
+
 /// Snapshot of the Layer 5 state plus the world's (`fnv.game.state/1`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GameSnapshot {
@@ -1525,6 +1577,8 @@ pub struct GameSnapshot {
     pub message_box: Option<MessageBox>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub boxes: Vec<FormId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub queued: Vec<QueuedBox>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub speech: Vec<Speech>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
@@ -1819,6 +1873,7 @@ impl<'a> Game<'a> {
             field_overrides: std::collections::HashMap::new(),
             name_overrides: std::collections::HashMap::new(),
             mod_data: BTreeMap::new(),
+            menu_picks: BTreeMap::new(),
             nx: Default::default(),
             clones: std::collections::HashMap::new(),
             clone_seq: 0,
@@ -1925,10 +1980,13 @@ impl<'a> Game<'a> {
             menu: None,
             race_menu: RaceMenu::Creator,
             menu_under: None,
+            ui_prompt: None,
             tutorial: Vec::new(),
             loading: false,
             message_box: None,
             boxes: Vec::new(),
+            queued: Vec::new(),
+            box_serial: 0,
             speech: Vec::new(),
             say_to_unsaid: Vec::new(),
             moving_talkers: BTreeSet::new(),
@@ -3251,6 +3309,27 @@ impl<'a> Game<'a> {
     /// [hypothesis, as the dialogue's]. `MenuMode 1` is the Pip-Boy by any of its codes
     /// ([`menus::answers`]); a loading screen is 1007 and NVForever's VATS marking 1056
     /// ([`Game::side_menu`]).
+    /// The engine tells what the menu `code` is about and has highlighted ([`MenuPicks`];
+    /// the default when it is closed).
+    pub fn set_menu_picks(&mut self, code: u16, picks: MenuPicks) {
+        if picks == MenuPicks::default() {
+            self.menu_picks.remove(&code);
+        } else {
+            self.menu_picks.insert(code, picks);
+        }
+    }
+
+    /// The picks of the menu `code` while it is open.
+    pub fn menu_picks(&self, code: u16) -> MenuPicks {
+        self.menu_picks.get(&code).copied().filter(|_| self.menu_open(code)).unwrap_or_default()
+    }
+
+    /// The open menu on top: the one given ([`Game::menu`]), else the one under it, else
+    /// the conversation.
+    pub fn top_menu(&self) -> Option<u16> {
+        self.menu.or(self.menu_under).or(self.dialogue.as_ref().map(|_| menus::DIALOGUE))
+    }
+
     pub fn menu_open(&self, code: u16) -> bool {
         let open = |m: Option<u16>| m.is_some_and(|m| menus::answers(code, m));
         open(self.menu) || open(self.menu_under) || open(self.side_menu()) || (code == menus::DIALOGUE && self.dialogue.is_some())
@@ -3293,13 +3372,54 @@ impl<'a> Game<'a> {
     /// the pack plugins' boxes held GameMode, VCG00's countdown and the world clock,
     /// layer5-captures.md §10.1].
     pub fn show_box(&mut self, message: FormId) {
+        let buttons = self.data.messages.get(&message).map_or(0, |m| m.buttons.len());
+        self.show_box_buttons(message, buttons);
+    }
+
+    /// [`Game::show_box`] of a box that declared `buttons` buttons, all of them whatever
+    /// their conditions (a form-less MessageBoxEx box counts its own): kept with the box
+    /// while it waits and is on screen ([`Game::front_box`]).
+    pub fn show_box_buttons(&mut self, message: FormId, buttons: usize) {
         if !self.cfg.modal_message_boxes {
             return;
         }
+        self.align_queued();
+        let entry = self.next_queued(Some(buttons));
+        self.queued.push(entry);
         self.boxes.push(message);
         if self.menu.is_none() {
             self.open_menu(menus::MESSAGE);
         }
+    }
+
+    /// A box of a message not known, put in front of the others (a scenario's `given`
+    /// menu): its buttons not known.
+    pub fn put_box_in_front(&mut self, message: FormId) {
+        self.align_queued();
+        let entry = self.next_queued(None);
+        self.queued.insert(0, entry);
+        self.boxes.insert(0, message);
+    }
+
+    /// Put [`Game::queued`] back in step with [`Game::boxes`] when code changed the queue
+    /// alone (or an older snapshot had no `queued`): every box then its own showing and
+    /// its buttons not known, so nothing is closed on a made-up count and no two boxes
+    /// count as one [design].
+    pub fn align_queued(&mut self) {
+        if self.queued.len() != self.boxes.len() {
+            self.queued = (0..self.boxes.len()).map(|_| self.next_queued(None)).collect();
+        }
+    }
+
+    fn next_queued(&mut self, buttons: Option<usize>) -> QueuedBox {
+        self.box_serial += 1;
+        QueuedBox { buttons, serial: self.box_serial }
+    }
+
+    /// What the box on screen (or first in line) was when shown; `None` without a box, or
+    /// when [`Game::queued`] is out of step with [`Game::boxes`].
+    pub fn front_box(&self) -> Option<QueuedBox> {
+        (self.queued.len() == self.boxes.len()).then(|| self.queued.first().copied()).flatten()
     }
 
     /// `ShowTutorialMenu message`: the tutorial menu shows the message, a page of the
@@ -3365,6 +3485,8 @@ impl<'a> Game<'a> {
             return Some(m);
         }
         if m == menus::MESSAGE && !self.boxes.is_empty() {
+            self.align_queued();
+            self.queued.remove(0);
             let b = self.boxes.remove(0);
             if let Some(mb) = self.message_box.as_mut().filter(|mb| mb.message == b && mb.pressed.is_none()) {
                 mb.pressed = Some(0);
@@ -4573,6 +4695,7 @@ impl<'a> Game<'a> {
             loading: self.loading,
             message_box: self.message_box.clone(),
             boxes: self.boxes.clone(),
+            queued: self.queued.clone(),
             speech: self.speech.clone(),
             said: self.said.clone(),
             said_day: self.said_day.clone(),
@@ -4633,6 +4756,10 @@ impl<'a> Game<'a> {
         g.loading = s.loading;
         g.message_box = s.message_box.clone();
         g.boxes = s.boxes.clone();
+        g.queued = s.queued.clone();
+        g.box_serial = g.queued.iter().map(|q| q.serial).max().unwrap_or(0);
+        // An older snapshot has no `queued`: each box its own showing, buttons not known.
+        g.align_queued();
         g.speech = s.speech.clone();
         g.said = s.said.clone();
         g.said_day = s.said_day.clone();
@@ -4929,10 +5056,11 @@ impl Host for Exec<'_, '_> {
             let owner = Some(MessageBox::owner_of(self.inst_key(), &self.unit.key()));
             self.game.message_box = Some(MessageBox { message: none, buttons: buttons.len(), pressed: None, owner, hidden: Vec::new() });
         }
-        let is_box = !buttons.is_empty();
+        let (is_box, count) = (!buttons.is_empty(), buttons.len());
         self.game.emit(EventKind::MessageShown { message: none, text: Some(text.to_string()), buttons, hidden: Vec::new() });
         if is_box {
-            self.game.show_box(none);
+            // Its own buttons: no Message form to count them from (`Game::queued`).
+            self.game.show_box_buttons(none, count);
         } else {
             self.game.queue_corner_message();
         }

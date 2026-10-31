@@ -113,11 +113,12 @@ struct Context {
     alpha: f64,
     visible: bool,
     clip: Option<Rect>,
+    t15: bool,
 }
 
 impl Default for Context {
     fn default() -> Self {
-        Self { rect: Rect::default(), depth: 0.0, alpha: 255.0, visible: true, clip: None }
+        Self { rect: Rect::default(), depth: 0.0, alpha: 255.0, visible: true, clip: None, t15: false }
     }
 }
 
@@ -197,9 +198,24 @@ fn place(tile: &Tile, kind: &Kind, parent: Context, measure: &Measure<'_>) -> Co
     Context {
         rect,
         depth: parent.depth + number(tile, "depth", 0.0),
-        alpha: parent.alpha * number(tile, "alpha", 255.0).clamp(0.0, 255.0) / 255.0,
+        alpha: match kind {
+            // A hotrect's own `alpha` is not passed to its children [hypothesis: every
+            // vanilla text button is a hotrect of alpha 0 (text_box.xml) whose text sets
+            // its own alpha, 128 or 255 by `target`, and the original shows those texts
+            // (the message box's OK, the prompt's Ok and Cancel, the HUD prompt's verb on
+            // the owner's screenshots); the list rows (list_box_template.xml) and the
+            // list itself are alpha-0 hotrects over shown texts; the highlight box, alpha
+            // 40, draws its lines at full strength (message-menu.md §2); T15a,
+            // menu-xml.md §3.1.1].
+            // [design] Gate this hypothesis with `tiles::interface_screen`: default
+            // play, including mod HUD tiles, retains its pre-T15 alpha products.
+            // Applying it unconditionally is a candidate for a separate PR.
+            Kind::Hotrect if parent.t15 => parent.alpha,
+            _ => parent.alpha * number(tile, "alpha", 255.0).clamp(0.0, 255.0) / 255.0,
+        },
         visible: parent.visible && tile.get("visible").is_none_or(Value::truthy),
         clip: parent.clip,
+        t15: parent.t15,
     }
 }
 
@@ -213,14 +229,15 @@ fn children_context(tile: &Tile, mut context: Context) -> Context {
 /// [design] Lay out a live subtree in parent-first order, siblings stably sorted by
 /// local depth. Ancestors outside root still contribute place, alpha, depth and clips.
 /// Hidden items retain visible=false; menu/hotrect containers emit no item.
-pub fn layout(ui: &Ui, root: TileId, measure: &Measure<'_>) -> Vec<DrawItem> {
+/// `t15` is `tiles::interface_screen`'s switch gate for the hotrect-alpha hypothesis.
+pub fn layout(ui: &Ui, root: TileId, measure: &Measure<'_>, t15: bool) -> Vec<DrawItem> {
     let mut ancestors = Vec::new();
     let mut at = ui.tile(root).parent;
     while let Some(id) = at {
         ancestors.push(id);
         at = ui.tile(id).parent;
     }
-    let mut context = Context::default();
+    let mut context = Context { t15, ..Default::default() };
     for id in ancestors.into_iter().rev() {
         let tile = ui.tile(id);
         if !tile.live {
@@ -282,6 +299,32 @@ mod tests {
     }
 
     #[test]
+    fn a_hotrects_alpha_is_not_passed_to_its_children() {
+        // [design] A text button's shape (text_box.xml): an alpha-0 hotrect over its text,
+        // under a rect at half strength.
+        let (ui, root) = tree(
+            r#"<menu name="M"><rect name="R"><alpha>128</alpha>
+          <hotrect name="H"><alpha>0</alpha><text name="T"><string>OK</string><width>20</width><height>10</height><alpha>255</alpha></text></hotrect>
+          </rect></menu>"#,
+        );
+        let items = layout(&ui, root, &unmeasured, true);
+        let text = items.iter().find(|i| matches!(i.kind, Kind::Text(_))).unwrap();
+        assert_eq!(text.alpha, 128.0);
+        // [design] With T15 off, the same alpha-0 ancestor still hides the text.
+        assert_eq!(layout(&ui, root, &unmeasured, false)[1].alpha, 0.0);
+        let child = ui.find_tile("M/R/H/T").unwrap();
+        assert_eq!(layout(&ui, child, &unmeasured, false)[0].alpha, 0.0);
+        assert_eq!(layout(&ui, child, &unmeasured, true)[0].alpha, 128.0);
+        // An alpha-0 hotrect alone over its text: the text drawn at full strength, shown.
+        let (ui, root) = tree(
+            r#"<menu name="M"><hotrect name="H"><alpha>0</alpha><text name="T"><string>OK</string><width>20</width><height>10</height></text></hotrect></menu>"#,
+        );
+        let items = layout(&ui, root, &unmeasured, true);
+        assert_eq!(items.len(), 1, "the hotrect itself draws nothing");
+        assert_eq!((items[0].alpha, items[0].visible), (255.0, true));
+    }
+
+    #[test]
     fn places_and_depth_add_through_containers_and_subtree_roots() {
         let (ui, root) = tree(
             r#"<menu name="M"><x>10</x><y>20</y><depth>-50</depth>
@@ -289,12 +332,12 @@ mod tests {
             <rect name="R"><x>5</x><y>6</y><width>30</width><height>40</height><depth>1</depth></rect>
           </hotrect></menu>"#,
         );
-        let items = layout(&ui, root, &unmeasured);
+        let items = layout(&ui, root, &unmeasured, false);
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].kind, Kind::Rect);
         assert_eq!(items[0].rect, Rect { left: 18.0, top: 30.0, width: 30.0, height: 40.0 });
         assert_eq!(items[0].depth, -47.0);
-        assert_eq!(layout(&ui, items[0].tile, &unmeasured), items);
+        assert_eq!(layout(&ui, items[0].tile, &unmeasured, false), items);
     }
 
     #[test]
@@ -306,7 +349,7 @@ mod tests {
           <rect name="Tie1"/><rect name="Tie2"/>
         </menu>"#,
         );
-        let items = layout(&ui, root, &unmeasured);
+        let items = layout(&ui, root, &unmeasured, false);
         let names: Vec<_> = items.iter().map(|i| ui.tile(i.tile).name.as_str()).collect();
         assert_eq!(names, ["First", "Child", "Tie1", "Tie2", "Later"]);
         assert_eq!(items[1].depth, 99.0);
@@ -320,11 +363,11 @@ mod tests {
             <image name="I"><alpha>128</alpha></image>
           </rect></menu>"#,
         );
-        let items = layout(&ui, root, &unmeasured);
+        let items = layout(&ui, root, &unmeasured, false);
         assert!((items[0].alpha - 128.0 * 128.0 / 255.0).abs() < 1e-10);
         assert!((items[1].alpha - 128.0_f64.powi(3) / 255.0_f64.powi(2)).abs() < 1e-10);
         assert!(items.iter().all(|i| !i.visible));
-        assert_eq!(layout(&ui, items[1].tile, &unmeasured), items[1..]);
+        assert_eq!(layout(&ui, items[1].tile, &unmeasured, false), items[1..]);
     }
 
     #[test]
@@ -337,12 +380,12 @@ mod tests {
           <rect name="Outside"><x>200</x><width>10</width><height>10</height><clips>1</clips><rect name="Empty"/></rect>
         </menu>"#,
         );
-        let items = layout(&ui, root, &unmeasured);
+        let items = layout(&ui, root, &unmeasured, false);
         assert_eq!(items[0].clip, Some(Rect { left: 10.0, top: 20.0, width: 100.0, height: 80.0 }));
         assert_eq!(items[1].clip, Some(Rect { left: 60.0, top: 20.0, width: 50.0, height: 30.0 }));
         assert_eq!(items[1].rect.width, 200.0);
         assert_eq!(items[3].clip.unwrap().width, 0.0);
-        assert_eq!(layout(&ui, items[1].tile, &unmeasured), items[1..2]);
+        assert_eq!(layout(&ui, items[1].tile, &unmeasured, false), items[1..2]);
     }
 
     #[test]
@@ -355,7 +398,7 @@ mod tests {
           <nif name="N"/><radial name="R"/><window name="W"><systemcolor>&hudmain;</systemcolor></window>
         </menu>"#,
         );
-        let items = layout(&ui, root, &unmeasured);
+        let items = layout(&ui, root, &unmeasured, false);
         let item = &items[0];
         assert_eq!(item.rect, Rect::default());
         assert_eq!((item.depth, item.alpha, item.visible, item.clip), (0.0, 255.0, true, None));
@@ -387,7 +430,7 @@ mod tests {
             calls.borrow_mut().push((font, text.to_string(), wrap));
             (30.0, 10.0)
         };
-        let items = layout(&ui, root, &measure);
+        let items = layout(&ui, root, &measure, false);
         assert_eq!(*calls.borrow(), [(3.0, "abc".into(), Some(60.0)), (0.0, "abc".into(), None), (0.0, "abc".into(), None)]);
         assert_eq!(items[0].rect, Rect { left: 100.0, top: 20.0, width: 30.0, height: 10.0 });
         assert_eq!(items[1].rect, Rect { left: 80.0, top: 20.0, width: 40.0, height: 10.0 });
@@ -402,7 +445,7 @@ mod tests {
         let (mut ui, root) = tree(r#"<menu name="M"><rect name="R"><image name="I"/></rect></menu>"#);
         let rect = ui.find_tile("M/R").unwrap();
         ui.unload_tile(rect);
-        assert!(layout(&ui, root, &unmeasured).is_empty());
-        assert!(layout(&ui, rect, &unmeasured).is_empty());
+        assert!(layout(&ui, root, &unmeasured, false).is_empty());
+        assert!(layout(&ui, rect, &unmeasured, false).is_empty());
     }
 }

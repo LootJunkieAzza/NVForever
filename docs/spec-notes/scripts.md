@@ -617,7 +617,7 @@ in the 5C captures (layer5-captures.md §5) unless tagged:
   layer5-captures.md §5.7]; `reset_quest` stops it (issue #1232). A reset from the
   quest's own script or stage result leaves it running [hypothesis, not observed: the
   Emergency Radio, VEFR01NCRGood2EmergencyRadio, resets itself in its MenuMode and goes
-  on to set up the supply drop; observer check 63].
+  on to set up the supply drop; observer check 66].
 - **GetSecondsPassed** returns the game time between the start of the instance's
   previous per-frame run (GameMode, ScriptEffectUpdate) and the start of this one, read
   from a clock with 1/64 s resolution [observed: every drop is a multiple of 0.015625 s;
