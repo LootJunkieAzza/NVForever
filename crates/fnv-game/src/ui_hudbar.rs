@@ -10,7 +10,9 @@
 //! the bars' making, values, look and debug output. Not built (menu-xml.md §9): the
 //! visibility conditions and their gradual vanishing (bar traits 0 and 21-64 are kept and
 //! read back, not acted on), the script-variable and UDF values, the texture sizes read
-//! from the files.
+//! from the files. The rotation traits are written into the tiles but the tile renderer
+//! turns no tile yet (`engine/nvf-play/src/tiles/layout.rs`), so HudBarSetRotation shows
+//! nothing until it does.
 
 use crate::game::Game;
 use crate::ui_more::{num, opt, text};
@@ -223,8 +225,15 @@ pub fn apply(g: &mut Game, i: usize) -> bool {
         let set = |ui: &mut fnv_ui::Ui, n: &str, v: Value| ui.set_trait(t, n, v);
         set(ui, "x", Value::Num(e.x));
         set(ui, "y", Value::Num(e.y));
-        set(ui, "width", Value::Num(e.width));
-        set(ui, "height", Value::Num(e.height));
+        // The Text's size is its string's unless one was set (the layout measures a text
+        // without a `width` or `height`, `engine/nvf-play/src/tiles/layout.rs`); the
+        // pictures take theirs, 0 until set [design].
+        if k != 2 || e.width > 0.0 {
+            set(ui, "width", Value::Num(e.width));
+        }
+        if k != 2 || e.height > 0.0 {
+            set(ui, "height", Value::Num(e.height));
+        }
         set(ui, "alpha", Value::Num(e.alpha));
         set(ui, "depth", Value::Num(e.depth));
         set(ui, "visible", Value::from_bool(e.visible));
@@ -511,10 +520,10 @@ pub(crate) fn call(g: &mut Game, lname: &str, args: &[XVal]) -> Option<Result<XV
         },
         // The value against the max [documented: HudBarSetValueFloat, "Value/<MaxValue>";
         // type 3 shows the raw value].
-        "hudbarsetvaluefloat" | "hudbarsetvaluemax" => match found {
-            Some(i) => {
+        "hudbarsetvaluefloat" | "hudbarsetvaluemax" => match (found, num(args, 1)) {
+            // A value that is no number (a script's bad arithmetic) is refused [design].
+            (Some(i), v) if v.is_finite() => {
                 let b = &mut g.ui_extra.bars.list[i];
-                let v = num(args, 1);
                 if lname == "hudbarsetvaluefloat" {
                     b.value = v;
                 } else {
@@ -524,15 +533,15 @@ pub(crate) fn call(g: &mut Game, lname: &str, args: &[XVal]) -> Option<Result<XV
                 apply(g, i);
                 ok(true)
             }
-            None => ok(false),
+            _ => ok(false),
         },
         // 0.00-1.00, "normalized" when outside; not for type 3 [documented:
         // HudBarSetValuePercentage]. The value follows as that share of the max
-        // [hypothesis].
-        "hudbarsetvaluepercentage" => match found {
-            Some(i) if g.ui_extra.bars.list[i].kind != 3 => {
+        // [hypothesis]. A share that is no number is refused [design].
+        "hudbarsetvaluepercentage" => match (found, num(args, 1)) {
+            (Some(i), v) if g.ui_extra.bars.list[i].kind != 3 && v.is_finite() => {
                 let b = &mut g.ui_extra.bars.list[i];
-                b.share = num(args, 1).clamp(0.0, 1.0);
+                b.share = v.clamp(0.0, 1.0);
                 b.value = b.share * b.max;
                 apply(g, i);
                 ok(true)

@@ -52,6 +52,14 @@ impl Cache {
     fn indices(&self, key: &str) -> Vec<i64> {
         self.entries.keys().filter(|(c, _)| c == key).map(|(_, i)| *i).collect()
     }
+
+    /// The cached indices of a cache from `start` to `end` inclusive [documented:
+    /// CacheUIRange, "Index 0 to 10"]: only the entries there, so a script's huge range
+    /// costs no more than the cache holds [design].
+    fn indices_in(&self, key: &str, start: f64, end: f64) -> Vec<i64> {
+        let (s, e) = (start as i64, end as i64);
+        self.indices(key).into_iter().filter(|i| (s..=e).contains(i)).collect()
+    }
 }
 
 /// The calling script's own cache.
@@ -67,12 +75,6 @@ fn target(g: &mut Game, key: &str, index: i64, name: &str) -> Option<(TileId, St
     Some((t, trait_name(&g.ui_tree, t, k)))
 }
 
-/// The indices `start..=end` of a range function [documented: CacheUIRange, "Index 0 to
-/// 10"].
-fn range(start: f64, end: f64) -> std::ops::RangeInclusive<i64> {
-    (start as i64)..=(end as i64)
-}
-
 /// A CacheUI function by lower-case name; `None` for any other.
 pub(crate) fn call(g: &mut Game, lname: &str, args: &[XVal]) -> Option<Result<XVal, String>> {
     if lname.starts_with("cui") {
@@ -81,7 +83,8 @@ pub(crate) fn call(g: &mut Game, lname: &str, args: &[XVal]) -> Option<Result<XV
     if !lname.starts_with("cacheui") {
         return None;
     }
-    // The Alt forms take the cache's name first.
+    // The Alt forms take the cache's name first [hypothesis: a name without case, as the
+    // tree's names and the functions' own; the page says only "key"].
     let (base, key, a) = match lname.strip_suffix("alt") {
         Some(base) => (base, format!("key:{}", text(args, 0).to_ascii_lowercase()), args.get(1..).unwrap_or(&[])),
         None => (lname, own(g), args),
@@ -125,7 +128,7 @@ pub(crate) fn call(g: &mut Game, lname: &str, args: &[XVal]) -> Option<Result<XV
                 _ => (text(a, 2), num(a, 0), num(a, 1), num(a, 3)),
             };
             let mut n = 0;
-            for i in range(s, e) {
+            for i in g.ui_extra.cache.indices_in(&key, s, e) {
                 if let Some((t, tr)) = target(g, &key, i, &name) {
                     let v = if base == "cacheuirangemod" { g.ui_tree.tile(t).get(&tr).map_or(0.0, Value::num) + v } else { v };
                     g.ui_tree.set_trait(t, &tr, Value::Num(v));
@@ -165,7 +168,7 @@ pub(crate) fn call(g: &mut Game, lname: &str, args: &[XVal]) -> Option<Result<XV
             let name = text(a, 2);
             let rest = a.get(3..).unwrap_or(&[]);
             let mut n = 0;
-            for i in range(num(a, 0), num(a, 1)) {
+            for i in g.ui_extra.cache.indices_in(&key, num(a, 0), num(a, 1)) {
                 if let Some((t, tr)) = target(g, &key, i, &name) {
                     let ok = if base == "cacheuirangegradual" { gradual(g, Owner::CacheUi, t, &tr, rest) } else { gradual_delay(g, t, &tr, rest) };
                     n += i32::from(ok);

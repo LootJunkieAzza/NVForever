@@ -390,6 +390,62 @@ fn cache_ui_gradual_delay_lock_and_reveal() {
 }
 
 #[test]
+fn cache_ui_ranges_visit_only_the_cached_indices() {
+    // Review of T9: a script's range is bounded by the cache, not by its numbers.
+    let f = fixture();
+    let mut g = game(&f);
+    run(&mut g, "CacheUI", &[x(0.0), s("TestMenu/Box")]);
+    run(&mut g, "CacheUI", &[x(7.0), s("TestMenu/Box/Pic")]);
+    assert_eq!(n(run(&mut g, "CacheUIRange", &[s("alpha"), x(0.0), x(1e15), x(50.0)])), 2.0);
+    assert_eq!((float(&g, "TestMenu/Box/alpha"), float(&g, "TestMenu/Box/Pic/alpha")), (50.0, 50.0));
+    // Only the indices in the range; a reversed range reaches nothing.
+    assert_eq!(n(run(&mut g, "CacheUIRange", &[s("alpha"), x(1.0), x(1e15), x(60.0)])), 1.0);
+    assert_eq!((float(&g, "TestMenu/Box/alpha"), float(&g, "TestMenu/Box/Pic/alpha")), (50.0, 60.0));
+    assert_eq!(n(run(&mut g, "CacheUIRange", &[s("alpha"), x(7.0), x(0.0), x(70.0)])), 0.0);
+    assert_eq!(n(run(&mut g, "CacheUIRangeGradual", &[x(-1e15), x(1e15), s("alpha"), x(0.0), x(10.0), x(1.0)])), 2.0);
+}
+
+#[test]
+fn a_delayed_change_meets_the_running_one_when_its_delay_ends() {
+    // Review of T9: the flag is read when the delay ends too; a finished immediate change
+    // is not kept; a NaN time is no time.
+    let f = fixture();
+    let mut g = game(&f);
+    run(&mut g, "CacheUI", &[x(0.0), s("TestMenu/Box")]);
+    // Flag 1: after 1 s the delayed change replaces the one running then.
+    run(&mut g, "CacheUIGradualDelay", &[x(0.0), s("width"), x(1.0), x(300.0), x(1.0), x(1.0)]);
+    run(&mut g, "CacheUIGradual", &[x(0.0), s("width"), x(0.0), x(10.0), x(10.0)]);
+    frame(&mut g, 1.5);
+    // At the delay's end the running change goes and the delayed one starts from the value
+    // then (0 or 1, by the order the two are stepped in that frame): half a second later it
+    // is half way from there to 300.
+    let w = float(&g, "TestMenu/Box/width");
+    assert!((150.0..=150.5).contains(&w), "{w}");
+    assert_eq!(g.ui_gradients.list.len(), 1);
+    frame(&mut g, 1.0);
+    assert_eq!(float(&g, "TestMenu/Box/width"), 300.0);
+    // Flag 0: the delayed change gives way to the one running when its delay ends.
+    run(&mut g, "CacheUIGradual", &[x(0.0), s("width"), x(0.0), x(10.0), x(10.0)]);
+    run(&mut g, "CacheUIGradualDelay", &[x(0.0), s("width"), x(1.0), x(300.0), x(1.0), x(0.0)]);
+    frame(&mut g, 1.5);
+    assert_eq!(float(&g, "TestMenu/Box/width"), 1.5);
+    assert_eq!(g.ui_gradients.list.len(), 1);
+    run(&mut g, "CacheUIGradual", &[x(0.0), s("width"), x(5.0)]);
+    assert!(g.ui_gradients.is_empty());
+    // A locked change with no time to run is done as written and locks nothing.
+    run(&mut g, "CacheUIGradualDelay", &[x(0.0), s("width"), x(0.0), x(7.0), x(0.0), x(2.0)]);
+    assert_eq!(float(&g, "TestMenu/Box/width"), 7.0);
+    assert!(g.ui_gradients.is_empty());
+    assert_eq!(n(run(&mut g, "CacheUIGradual", &[x(0.0), s("width"), x(0.0), x(1.0), x(1.0)])), 1.0);
+    // A NaN duration or value: no time, 0 as a value; the trait never holds a NaN.
+    run(&mut g, "CacheUIGradual", &[x(0.0), s("width"), x(0.0), x(9.0), x(f64::NAN)]);
+    assert_eq!(float(&g, "TestMenu/Box/width"), 9.0);
+    assert!(g.ui_gradients.is_empty());
+    run(&mut g, "SetUIFloatGradual", &[s("TestMenu/Box/width"), x(f64::NAN)]);
+    assert_eq!(float(&g, "TestMenu/Box/width"), 0.0);
+}
+
+#[test]
 fn cache_ui_queues() {
     let f = fixture();
     let mut g = game(&f);

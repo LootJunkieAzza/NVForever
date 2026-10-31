@@ -67,6 +67,17 @@ pub(crate) fn num(args: &[XVal], k: usize) -> f64 {
     opt(args, k).unwrap_or(0.0)
 }
 
+/// A number argument that must be a real number: a NaN or an infinity (a script's bad
+/// arithmetic) reads as 0, so it never gets into a trait or a change's time [design].
+pub(crate) fn finite(args: &[XVal], k: usize) -> f64 {
+    let v = num(args, k);
+    if v.is_finite() {
+        v
+    } else {
+        0.0
+    }
+}
+
 pub(crate) fn yes(b: bool) -> XVal {
     XVal::Num(if b { 1.0 } else { 0.0 })
 }
@@ -87,7 +98,7 @@ pub(crate) fn gradual(g: &mut Game, owner: Owner, tile: TileId, name: &str, rest
         0 => g.ui_gradients.stop(owner, tile, name),
         1 => {
             g.ui_gradients.stop(owner, tile, name);
-            g.ui_tree.set_trait(tile, name, Value::Num(num(rest, 0)));
+            g.ui_tree.set_trait(tile, name, Value::Num(finite(rest, 0)));
         }
         _ => {
             let mode = num(rest, 3).max(0.0) as u8;
@@ -96,8 +107,8 @@ pub(crate) fn gradual(g: &mut Game, owner: Owner, tile: TileId, name: &str, rest
             if !mode_built(mode) || g.ui_gradients.locked(owner, tile, name) {
                 return false;
             }
-            let kind = Kind::Float { start: Some(num(rest, 0)), end: num(rest, 1), mode };
-            let gr = Gradient { owner, tile, name: name.to_string(), kind, duration: num(rest, 2), elapsed: 0.0, delay: 0.0, lock: false, watch: None };
+            let kind = Kind::Float { start: Some(finite(rest, 0)), end: finite(rest, 1), mode };
+            let gr = Gradient { owner, tile, name: name.to_string(), kind, duration: finite(rest, 2), elapsed: 0.0, delay: 0.0, lock: false, watch: None, yields: false };
             g.ui_gradients.start(&mut g.ui_tree, gr);
         }
     }
@@ -129,8 +140,8 @@ pub(crate) fn gradual_delay(g: &mut Game, tile: TileId, name: &str, rest: &[XVal
         let v = g.ui_tree.tile(tile).get(&m).cloned().unwrap_or_default();
         (m, v)
     });
-    let kind = Kind::Float { start: None, end: num(rest, 1), mode };
-    let gr = Gradient { owner, tile, name: name.to_string(), kind, duration: num(rest, 2), elapsed: 0.0, delay: num(rest, 0).max(0.0), lock: flag == 2, watch };
+    let kind = Kind::Float { start: None, end: finite(rest, 1), mode };
+    let gr = Gradient { owner, tile, name: name.to_string(), kind, duration: finite(rest, 2), elapsed: 0.0, delay: finite(rest, 0).max(0.0), lock: flag == 2, watch, yields: flag == 0 };
     g.ui_gradients.start(&mut g.ui_tree, gr);
     true
 }
@@ -148,7 +159,7 @@ pub(crate) fn reveal(g: &mut Game, tile: TileId, name: &str, rest: &[XVal]) -> b
         }
         _ => {
             let kind = Kind::Reveal { text: text(rest, 0), mode: (num(rest, 2).max(0.0) as u8).min(3), invert: num(rest, 3) != 0.0 };
-            let gr = Gradient { owner, tile, name: name.to_string(), kind, duration: num(rest, 1), elapsed: 0.0, delay: 0.0, lock: false, watch: None };
+            let gr = Gradient { owner, tile, name: name.to_string(), kind, duration: finite(rest, 1), elapsed: 0.0, delay: 0.0, lock: false, watch: None, yields: false };
             g.ui_gradients.start(&mut g.ui_tree, gr);
         }
     }
@@ -436,7 +447,15 @@ const TREE_FUNCTIONS: [&str; 16] = [
 /// The function `name` (any case) with its arguments; `None` when it is not one of these.
 pub fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
     let lname = name.to_ascii_lowercase();
-    if TREE_FUNCTIONS.contains(&lname.as_str()) || lname.starts_with("cacheui") || lname.starts_with("hudbar") {
+    // The HUD's kept-back writes are made first when the function touches the HUD (as
+    // `crate::ui_functions` does): the HUD bars and the attachments always, a cached tile
+    // (any menu's, the HUD's as a rule) [design], the path functions by their path; a
+    // function on another menu leaves the HUD's writes kept back.
+    let on_hud = lname.starts_with("hudbar")
+        || lname.starts_with("cacheui")
+        || matches!(lname.as_str(), "attachuixml" | "attachuicomponent" | "dumptileinfoall")
+        || (TREE_FUNCTIONS.contains(&lname.as_str()) && crate::ui_functions::on_hud(&text(args, 0)));
+    if on_hud {
         g.ui_used = true;
         crate::ui_hud::flush(g);
     }

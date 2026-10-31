@@ -61,7 +61,7 @@ const HUD_MENU: &str = "HUDMainMenu";
 /// segments split on `/` or `\` as `fnv_ui` splits them). A call on another menu neither
 /// reads nor changes the HUD's traits, so it leaves the HUD's writes waiting [design:
 /// maintainer's review of #902, #937].
-fn on_hud(path: &str) -> bool {
+pub(crate) fn on_hud(path: &str) -> bool {
     path.split(['/', '\\']).map(str::trim).find(|s| !s.is_empty()).is_some_and(|menu| menu.eq_ignore_ascii_case(HUD_MENU))
 }
 

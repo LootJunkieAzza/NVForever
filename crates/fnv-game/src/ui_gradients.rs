@@ -52,6 +52,11 @@ pub struct Gradient {
     /// A trait of the same tile and its value when the delay started: a change of it
     /// during the delay ends this change [documented: CacheUIGradualDelay, 8th argument].
     pub watch: Option<(String, Value)>,
+    /// When its delay ends and another change of the trait is running: gives way to it
+    /// (CacheUIGradualDelay's flag 0) rather than replacing it (flags 1 and 2)
+    /// [documented: CacheUIGradualDelay; hypothesis: the flag is read when the delay ends,
+    /// as well as when the call is made]. An undelayed change never yields.
+    pub yields: bool,
 }
 
 impl Gradient {
@@ -81,6 +86,11 @@ pub fn mode_built(mode: u8) -> bool {
     matches!(mode, 0..=3 | 5 | 6)
 }
 
+/// A duration that gives a change no time to run: none, negative, or not a number.
+fn no_time(duration: f64) -> bool {
+    !duration.is_finite() || duration <= 0.0
+}
+
 fn lerp(a: f64, b: f64, p: f64) -> f64 {
     a + (b - a) * p
 }
@@ -91,8 +101,9 @@ fn lerp(a: f64, b: f64, p: f64) -> f64 {
 /// page gives no curve; mode 6, "similar to mode 2 but only runs for duration", is one
 /// up-and-down that ends at the start].
 pub fn float_at(start: f64, end: f64, mode: u8, duration: f64, t: f64) -> (f64, bool) {
-    if duration <= 0.0 {
-        // [hypothesis] No time: the end value at once, for every mode.
+    if no_time(duration) {
+        // [hypothesis] No time (none, negative, or not a number): the end value at once,
+        // for every mode.
         return (end, true);
     }
     let share = (t / duration).clamp(0.0, 1.0);
@@ -137,7 +148,7 @@ fn there_and_back(start: f64, end: f64, share: f64) -> f64 {
 pub fn reveal_at(text: &str, mode: u8, invert: bool, duration: f64, t: f64) -> (String, bool) {
     let chars: Vec<char> = text.chars().collect();
     let len = chars.len();
-    let mut share = if duration <= 0.0 { 1.0 } else { (t / duration).clamp(0.0, 1.0) };
+    let mut share = if no_time(duration) { 1.0 } else { (t / duration).clamp(0.0, 1.0) };
     if mode >= 2 {
         share *= share;
     }
@@ -194,7 +205,8 @@ impl Gradients {
     /// "first setting it to startValue"]. It replaces the owner's running change of the
     /// trait; a delayed change replaces delayed ones too, an undelayed one leaves them, as
     /// a delay "is invisible" to CacheUIGradual until it has run [documented:
-    /// CacheUIGradualDelay notes].
+    /// CacheUIGradualDelay notes]. A change with no time to run is finished as written
+    /// and not kept (so a zero-length locked change locks nothing) [design].
     pub fn start(&mut self, ui: &mut Ui, mut g: Gradient) {
         let delayed = g.delay > 0.0;
         self.list.retain(|x| !(x.on(g.owner, g.tile, &g.name) && (delayed || x.delay <= 0.0)));
@@ -202,7 +214,9 @@ impl Gradients {
             if let Kind::Float { start: start @ None, .. } = &mut g.kind {
                 *start = Some(ui.tile(g.tile).get(&g.name).map_or(0.0, Value::num));
             }
-            write(ui, &g, 0.0);
+            if write(ui, &g, 0.0) && !g.repeats() {
+                return;
+            }
         }
         self.list.push(g);
     }
@@ -214,15 +228,36 @@ impl Gradients {
         if self.list.is_empty() {
             return;
         }
-        let dt = dt.max(0.0);
+        let dt = if dt.is_finite() { dt.max(0.0) } else { 0.0 };
         let mut i = 0;
         while i < self.list.len() {
-            let keep = step_one(ui, &mut self.list[i], dt);
-            if keep {
-                i += 1;
-            } else {
+            let was_delayed = self.list[i].delay > 0.0;
+            if !step_one(ui, &mut self.list[i], dt) {
                 self.list.remove(i);
+                continue;
             }
+            // Its delay ended this frame: it meets the trait's running change now
+            // (`Gradient::yields`): it gives way, or that change goes.
+            if was_delayed && self.list[i].delay <= 0.0 {
+                let (owner, tile, name, yields) = (self.list[i].owner, self.list[i].tile, self.list[i].name.clone(), self.list[i].yields);
+                let other = |x: &Gradient| x.on(owner, tile, &name) && x.delay <= 0.0;
+                if yields && self.list.iter().enumerate().any(|(k, x)| k != i && other(x)) {
+                    self.list.remove(i);
+                    continue;
+                }
+                let mut k = 0;
+                while k < self.list.len() {
+                    if k != i && other(&self.list[k]) {
+                        self.list.remove(k);
+                        if k < i {
+                            i -= 1;
+                        }
+                    } else {
+                        k += 1;
+                    }
+                }
+            }
+            i += 1;
         }
     }
 }
