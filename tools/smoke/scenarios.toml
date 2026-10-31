@@ -16614,6 +16614,72 @@ order = [[
 ]]
 
 [[scenario]]
+name = "tiles-message-box"
+source = "[design] ui-tile-tree.md §6.2 step 3 (T15a, docs/handoff/ui-tile-tree-tasks.md): with [UI] TileMenus=MessageMenu a message box is drawn from the game's MessageMenu tiles (the model writes its text and one MM_ButtonTemplate row per button; screen() in interface units centres it), the hand-built box is not spawned, and a pointer click on the second row answers the box with button 1"
+note = "the console opens the box at 24 s and closes at 24.3 s (the open console would stand over the box); the shot at 25 s; the pointer at 26 s and its click at 26.5 s fall on the second row at 1280 x 800 (across: the rows stand at W/2 less half the list's width plus 22, the list the widest button's text and 80; down: the text at 43 under the box's top, the list 95, rows 52 high, the box 219 high centred in 960, so the second row spans y 517.5-569.5; docs/spec-notes/message-menu.md §5a); NVF_PLAY_TEST_SCRIPT_MENUS closes the box at 30 s if the click missed"
+areas = ["ui", "scripts", "console"]
+paths = [
+  "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs",
+  "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs",
+  "engine/nvf-play/src/message_menu.rs", "engine/nvf-play/src/script_hud.rs", "engine/nvf-play/src/script.rs",
+  "crates/fnv-game/src/game.rs",
+  "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs",
+]
+env = { NVF_PLAY_TEST_TILE_MENUS = "MessageMenu", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "6", NVF_PLAY_TEST_CONSOLE = "24:MessageBoxEx \"nvf tiles box|Yes|No\";24.3:close", NVF_PLAY_TEST_SHOTS = "25:tiles_message_box.png", NVF_PLAY_TEST_POINTER = "26:770:540,26.5:770:540:click,28:off" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x800"]
+run_seconds = 31
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=MessageMenu \(from test aid NVF_PLAY_TEST_TILE_MENUS\): MessageMenu drawn from tiles', label = "the switch is read from the test aid" },
+  { re = 'tiles: MessageMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', label = "the box's tree draws, with code-made rows for its buttons" },
+  { re = 'tiles: MessageMenu drawn from tiles: "nvf tiles box", 2 button row\(s\), width \d+', label = "the model writes the text and two rows" },
+  { re = 'tiles: pointer over MessageMenu/.*MM_Button', label = "the pointer finds a row" },
+  { re = 'tiles: MessageMenu button 1 picked on its tiles', count = 1, label = "a click on the second row picks button 1" },
+  { re = 'script: menu 1001 .*answered \(button 1\)', label = "the box is answered with button 1" },
+  { re = 'ui: dropped MessageMenu', label = "the answered box drops its tiles" },
+]
+order = [[
+  { re = 'console: MessageBoxEx "nvf tiles box\|Yes\|No" >> ran' },
+  { re = 'tiles: MessageMenu drawn from tiles: "nvf tiles box"' },
+  { re = 'tiles: MessageMenu button 1 picked on its tiles' },
+  { re = 'script: menu 1001 .*answered \(button 1\)' },
+  "ui: dropped MessageMenu",
+]]
+
+[[scenario]]
+name = "tiles-quantity"
+source = "[design] ui-tile-tree.md §6.2 step 3 (T15a, docs/handoff/ui-tile-tree-tasks.md): with [UI] TileMenus=QuantityMenu the \"How many?\" prompt over the Pip-Boy is drawn from the game's QuantityMenu tiles (Game::ui_prompt builds it; the model writes the meter's user0 and user2, the file works out the tiled fill and the amount), the hand-built prompt is not spawned, and pointer clicks on the decrease arrow and on OK drop one fewer than the stack"
+note = "the drop aid asks at 21 s for the 20 rounds given (the prompt opens at the whole stack, and `ask` holds it open until answered); the shot at 23 s; at 1280 x 800 the decrease arrow stands at 550-567 x 452-487 and OK ends at x 1085, y 492-543 (QM_Background centred by screen(), QM_MainRect 22, 42 in; quantity_menu.xml)"
+areas = ["ui", "menu", "items"]
+paths = [
+  "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs",
+  "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs",
+  "engine/nvf-play/src/menu.rs", "engine/nvf-play/src/menu/**",
+  "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs",
+]
+env = { NVF_PLAY_TEST_TILE_MENUS = "QuantityMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "0008ED03:20", NVF_PLAY_TEST_DROP = "21:0008ED03:ask", NVF_PLAY_TEST_SHOTS = "23:tiles_quantity.png", NVF_PLAY_TEST_POINTER = "24:558:470,24.5:558:470:click,25.5:1070:515,26:1070:515:click,27:off" }
+args = ["--cell", "GSGasStation", "--play", "--no-voice", "--no-messages", "--size", "1280x800"]
+run_seconds = 29
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=QuantityMenu \(from test aid NVF_PLAY_TEST_TILE_MENUS\): QuantityMenu drawn from tiles', label = "the switch is read from the test aid" },
+  { re = 'ui: built QuantityMenu \(menus\\[^,]+\.xml, [1-9]\d* tiles\)', label = "the prompt builds its file while it shows (Game::ui_prompt)" },
+  { re = 'tiles: QuantityMenu drawn from tiles \(\d+ file tiles, 0 code tiles\)', label = "the prompt's tree draws" },
+  "tiles: QuantityMenu drawn from tiles: amount 20 of 20",
+  { text = "tiles: QuantityMenu AmountStep(-1) on its tiles", count = 1, label = "a click on the decrease arrow steps the amount down" },
+  "tiles: QuantityMenu drawn from tiles: amount 19 of 20",
+  { text = "tiles: QuantityMenu AmountOk on its tiles", count = 1, label = "a click on OK" },
+  { text = "menu: AmountOk: Dropped 9mm Round x19", label = "OK drops the amount chosen" },
+  { re = 'ui: dropped QuantityMenu', label = "the closed prompt drops its tiles" },
+]
+order = [[
+  "menu: Drop: how many? (20 of 20)",
+  "tiles: QuantityMenu drawn from tiles: amount 20 of 20",
+  "tiles: QuantityMenu AmountStep(-1) on its tiles",
+  "tiles: QuantityMenu drawn from tiles: amount 19 of 20",
+  "tiles: QuantityMenu AmountOk on its tiles",
+  "menu: AmountOk: Dropped 9mm Round x19",
+]]
+
+[[scenario]]
 name = "nvse-engine-events"
 source = "The extender's events that only the running engine raises (docs/handoff/nvse-next-batch.md §6): OnLoad of a placed unscripted item, OnHit/OnHitWith of a hit, OnMagicEffectHit of a stimpak, OnPackageStart, OnCombatEnd; handlers set from the console as one-line lambdas"
 areas = ["scripts", "actors"]
