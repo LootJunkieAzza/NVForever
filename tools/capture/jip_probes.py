@@ -4955,6 +4955,98 @@ JG2_PROBES = (
             'SetFunctionValue (sv_Construct "%g %g" fRes (GetWeaponVATSTraitNumeric rObj 3))', True)]
 )
 
+
+# jip5 (writes, session only, each change put back; #1006): JIP batch 5
+# (docs/spec-notes/jip-records-5.md) on FalloutNV.esm forms [observed: fnvtool esm
+# inventory]: NVGecko (body-part data), LScrubDirtCanyon01Grass (a land texture with three
+# grasses), DecalOrganicBallisticBB and LandscapeDirtNV (texture sets, with and without
+# decal data), FreesideWorld and WastelandNV.
+J5 = {"gecko": "10CD74", "ltex": "63A8D", "decal": "1A32C", "dirt": "11673A", "freeside": "10BEEA",
+      "wasteland": "DA726", "grass": "17753"}
+
+
+def _j5(pid, body, text=False):
+    return (f"jip5.{pid}", "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\n"
+            + _form("rP", NF["player"]) + body, text, None, "")
+
+
+def _j5v(pid, key, expr, text=False):
+    rd = f"SetFunctionValue (GetFormIDString ({expr}))" if text == "form" else f"SetFunctionValue ({expr})"
+    return _j5(pid, _form("rObj", J5[key]) + rd, bool(text))
+
+
+JIP5_PROBES = (
+    [_j5v(f"bpd.has.{n}", "gecko", f"GetBodyPartDataHasPart rObj {n}") for n in range(0, 16)]
+    + [_j5v("bpd.ragdoll", "gecko", "GetBodyPartDataRagdoll rObj", "form"),
+       _j5v("bpd.skeleton", "gecko", "GetBodyPartDataSkeleton rObj", True)]
+    + [_j5v(f"bpd.head.num.{t}", "gecko", f"GetBodyPartTraitNumeric rObj 1 {t}") for t in range(0, 20)]
+    + [_j5v(f"bpd.head.form.{t}", "gecko", f"GetBodyPartTraitForm rObj 1 {t}", "form") for t in range(0, 7)]
+    + [_j5v(f"bpd.head.flag.{t}", "gecko", f"GetBodyPartFlag rObj 1 {t}") for t in range(0, 8)]
+    + [_j5v("bpd.torso.num.2", "gecko", "GetBodyPartTraitNumeric rObj 0 2"),
+       _j5("bpd.setnum", _form("rObj", J5["gecko"]) + "let fRes := GetBodyPartTraitNumeric rObj 1 1\nSetBodyPartTraitNumeric rObj 1 1 7\n"
+           "let sText := sv_Construct \"%g\" (GetBodyPartTraitNumeric rObj 1 1)\nSetBodyPartTraitNumeric rObj 1 1 fRes\nSetFunctionValue sText", True),
+       # The flag saved and written back in the same step (#1145 review).
+       _j5("bpd.setflag", _form("rObj", J5["gecko"]) + "let fSave := GetBodyPartFlag rObj 1 2\nSetBodyPartFlag rObj 1 2 1\n"
+           "let fRes := GetBodyPartFlag rObj 1 2\nSetBodyPartFlag rObj 1 2 fSave\n"
+           'SetFunctionValue (sv_Construct "%g %g %g" fSave fRes (GetBodyPartFlag rObj 1 2))', True),
+       # What the setters give back (#1145 review): each result, its value put back after.
+       _j5("bpd.setflag.result", _form("rObj", J5["gecko"]) + "let fSave := GetBodyPartFlag rObj 1 2\n"
+           "let fRes := SetBodyPartFlag rObj 1 2 1\nSetBodyPartFlag rObj 1 2 fSave\n"
+           'SetFunctionValue (sv_Construct "%g %g" fRes (GetBodyPartFlag rObj 1 2))', True),
+       _j5("bpd.setnum.result", _form("rObj", J5["gecko"]) + "let fSave := GetBodyPartTraitNumeric rObj 1 1\n"
+           "let fRes := SetBodyPartTraitNumeric rObj 1 1 7\nSetBodyPartTraitNumeric rObj 1 1 fSave\n"
+           'SetFunctionValue (sv_Construct "%g %g" fRes (GetBodyPartTraitNumeric rObj 1 1))', True)]
+    + [_j5v("ltex.num", "ltex", "GetLandTextureNumGrasses rObj")]
+    + [_j5v(f"ltex.grass.{i}", "ltex", f"GetLandTextureNthGrass rObj {i}", "form") for i in range(0, 4)]
+    + [_j5v("ltex.txst", "ltex", "GetLandTextureTextureSet rObj", "form")]
+    + [_j5v(f"ltex.trait.{t}", "ltex", f"GetLandTextureTraitNumeric rObj {t}") for t in range(0, 5)]
+    + [_j5("ltex.addgrass", _form("rObj", J5["ltex"]) + _form("rOther", J5["grass"])
+           + "LandTextureAddGrass rObj rOther\nlet fRes := GetLandTextureNumGrasses rObj\nLandTextureRemoveGrass rObj rOther\n"
+           'SetFunctionValue (sv_Construct "%g %g" fRes (GetLandTextureNumGrasses rObj))', True),
+       _j5("ltex.addgrass.result", _form("rObj", J5["ltex"]) + _form("rOther", J5["grass"])
+           + "let fRes := LandTextureAddGrass rObj rOther\nlet fSave := LandTextureAddGrass rObj rOther\n"
+           "let sText := sv_Construct \"%g %g\" fRes fSave\nlet fRes := LandTextureRemoveGrass rObj rOther\n"
+           "let fSave := LandTextureRemoveGrass rObj rOther\n"
+           'SetFunctionValue (sv_Construct "%z %g %g %g" sText fRes fSave (GetLandTextureNumGrasses rObj))', True),
+       _j5("ltex.settrait.result", _form("rObj", J5["ltex"]) + "let fSave := GetLandTextureTraitNumeric rObj 1\n"
+           "let fRes := SetLandTextureTraitNumeric rObj 1 55\nSetLandTextureTraitNumeric rObj 1 fSave\n"
+           'SetFunctionValue (sv_Construct "%g %g" fRes (GetLandTextureTraitNumeric rObj 1))', True)]
+    + [_j5v(f"txst.decal.{t}", "decal", f"GetTextureSetTraitNumeric rObj {t}") for t in range(0, 10)]
+    + [_j5v(f"txst.dirt.{t}", "dirt", f"GetTextureSetTraitNumeric rObj {t}") for t in (0, 5, 8)]
+    + [_j5v(f"txst.decal.flag.{t}", "decal", f"GetTextureSetFlag rObj {t}") for t in range(0, 5)]
+    + [_j5v(f"txst.dirt.flag.{t}", "dirt", f"GetTextureSetFlag rObj {t}") for t in range(0, 4)]
+    + [_j5("txst.setcolor", _form("rObj", J5["decal"]) + "let fRes := GetTextureSetTraitNumeric rObj 8\nSetTextureSetTraitNumeric rObj 8 10020030\n"
+           "let sText := sv_Construct \"%g\" (GetTextureSetTraitNumeric rObj 8)\nSetTextureSetTraitNumeric rObj 8 fRes\nSetFunctionValue sText", True),
+       _j5("txst.settrait.result", _form("rObj", J5["decal"]) + "let fSave := GetTextureSetTraitNumeric rObj 4\n"
+           "let fRes := SetTextureSetTraitNumeric rObj 4 33\nSetTextureSetTraitNumeric rObj 4 fSave\n"
+           'SetFunctionValue (sv_Construct "%g %g" fRes (GetTextureSetTraitNumeric rObj 4))', True)]
+    + [_j5v(f"world.{k}.noise", k, "GetWorldspaceNoiseTexture rObj", True) for k in ("freeside", "wasteland")]
+    + [_j5v(f"world.{k}.water", k, "GetWorldspaceWaterType rObj", "form") for k in ("freeside", "wasteland")]
+)
+
+
+# format1 (read-only; #1006): how sv_Construct writes %g, %G and %e in the game (the wiki's
+# "%g as an integer, 1E+006" is the older runtime's; ext-format.md §2), and two texture
+# sets' flags (jip5's open row).
+_F1_G = (0.5, 2.5, 1000000, 123.456789, None, 1234567, 0.1, 100000, 42, None, 3.14159265)
+
+
+def _f1(pid, body):
+    return (pid, "ref rObj\nfloat fRes\nBegin Function { }\n" + body, True, None, "")
+
+
+FORMAT1_PROBES = (
+    [_f1(f"format.g.{i}", f'SetFunctionValue (sv_Construct "%g" {v!r})') for i, v in enumerate(_F1_G) if v is not None]
+    + [_f1("format.e.0", 'SetFunctionValue (sv_Construct "%.3e" 123000)'),
+       _f1("format.e.1", 'SetFunctionValue (sv_Construct "%e" 0.5)'),
+       _f1("format.G", 'SetFunctionValue (sv_Construct "%G" 1234567)'),
+       _f1("format.g2", 'SetFunctionValue (sv_Construct "%.2g" 123.456)'),
+       _f1("txst.dirt.dnam", 'let rObj := GetFormFromMod "FalloutNV.esm" "11673A"\nSetFunctionValue (sv_Construct "%g %g %g %g" '
+           '(GetTextureSetFlag rObj 0) (GetTextureSetFlag rObj 1) (GetTextureSetFlag rObj 2) (GetTextureSetFlag rObj 3))'),
+       _f1("txst.other", 'let rObj := GetFormFromMod "FalloutNV.esm" "782D2"\nSetFunctionValue (sv_Construct "%g %g" '
+           '(GetTextureSetFlag rObj 0) (GetTextureSetFlag rObj 1))')]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -5017,11 +5109,13 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "rules2": RULES2_PROBES,
         "showoff2": SHOWOFF2_PROBES,
         "jg1": JG1_PROBES,
-        "jg2": JG2_PROBES}
+        "jg2": JG2_PROBES,
+        "jip5": JIP5_PROBES,
+        "format1": FORMAT1_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1", "atk1", "jip4", "rules1", "rules2", "showoff2", "jg1", "jg2"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1", "atk1", "jip4", "rules1", "rules2", "showoff2", "jg1", "jg2", "jip5"}
 
 
 def script(body):
