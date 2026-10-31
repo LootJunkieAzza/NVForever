@@ -27,7 +27,7 @@ engine if needed, and delete the item here.
     (38). Honest Hearts at Flight from Zion with Daniel (49).
   - VMS46 at Anders' thanks (39); Stone on his night route, VMS31 (50); HELIOS One before
     the west terminal (46, 25 at Intelligence 1); Oliver on House's path (48); a finished
-    game at the end slides (29's Boomers slide; 28 is answered).
+    game at the end slides (28 and 29 answered).
 - **A save made inside the capture** (allowed, probe-saves rule): 24 (save half-way along
   a patrol, reload), 41 (the emergency radio, timed).
 - **Screenshots or video** (window in front, both locks): 7 (casino menus by key taps),
@@ -440,8 +440,10 @@ The numbers above stay put so links to them hold; each item here gives its own p
     High-Roller Suite", whose fixed speaker is the entrance Victor (Lucky38VictorEntrance)
     [observed]; later talks to him open with his usual elevator greeting, as a Say
     Once line should. Ours does the same (dialogue.rs `can_say_as`). Still open: lines with a
-    fixed speaker and no GetIsID condition (the Dead Money end slides, #965), and the
-    Boomers' end slide of a finished game. Also: the penthouse elevator can only be
+    fixed speaker and no GetIsID condition (the Dead Money end slides, #965). The
+    Boomers' end slide (VEndingBoomers, ANAM NellisPete, GetIsID Narrator) plays in the
+    child Pete's voice, not the narrator's (owner, nvfSlides) [observed]; ours says it
+    as the narrator with the fixed speaker's file (voice.rs), which matches. Also: the penthouse elevator can only be
     taken through this Victor's dialogue until House is dead (owner).
     ([mq-walkthrough](mq-walkthrough-2026-10-27.md) §2)
 30. **Reputation axes outside 0-2** — answered 2026-10-31 (o5_00-02, RepNVNCR, scale 80):
