@@ -350,6 +350,8 @@ struct Playing {
     level: Arc<AtomicU32>,
     meter: Arc<AtomicU32>,
     track: Track,
+    /// A song (a response with a sound form), not talk or a loop.
+    song: bool,
 }
 
 #[derive(Component)]
@@ -415,6 +417,9 @@ pub struct Radio {
     logged_pipboy: Option<(bool, Option<FormId>, bool)>,
     aids: VecDeque<(f32, RadioAid)>,
     static_sound: Option<Option<Sound>>,
+    /// The Pip-Boy's played loudness (RMS after its gain), summed per frame, and the
+    /// frames counted: songs, then talk (#1077).
+    loudness: [(f64, u64); 2],
     pub heard: BTreeSet<u32>,
     pub npc_heard: BTreeSet<u32>,
     pub songs: u32,
@@ -505,6 +510,16 @@ fn name(places: &RadioPlaces, station: u32) -> String {
     places.forms.stations.get(&station).and_then(|s| s.edid.clone()).unwrap_or_else(|| format!("{station:08X}"))
 }
 
+/// The level a song a line plays (a response's sound form) is played at: full, its sound
+/// record's static attenuation left out (#1077). [hypothesis, from the data: the radio
+/// songs' records take 12.33 dB off, but four (MUSNVStreetsOfNewReno, New Vegas Valley,
+/// Home on the Wastes, Cobwebs and Rainbows) take none, while every song file is about as
+/// loud as the others (-30 to -34 dB mean, ffmpeg volumedetect); applied, those four would
+/// play 12 dB above the rest. Applied, the music also sat about 26 dB under the DJ lines
+/// on the Pip-Boy (RMS 0.004 against 0.080), the owner's "too quiet"; without it, about 13
+/// dB under, which is the files' own difference.]
+pub const SONG_GAIN: f32 = 1.0;
+
 /// The parts of a line: per response in the order said, its files and length.
 #[allow(clippy::too_many_arguments)]
 fn parts(radio: &mut Radio, g: &fnv_game::Game, sfx: &Sfx, bank: &fnv_voice::VoiceBank, vfs: &fnv_vfs::Vfs, base: u32, info: FormId) -> Vec<Part> {
@@ -519,7 +534,7 @@ fn parts(radio: &mut Radio, g: &fnv_game::Game, sfx: &Sfx, bank: &fnv_voice::Voi
             match (path, seconds) {
                 (Some(p), Some(secs)) => {
                     let stereo = named.filter(|n| vfs.exists(n)).or_else(|| Some(p.clone()));
-                    out.push(Part { response: r, path: Some(p), stereo, seconds: secs, song: true, gain: static_gain(s) });
+                    out.push(Part { response: r, path: Some(p), stereo, seconds: secs, song: true, gain: SONG_GAIN });
                     continue;
                 }
                 (p, _) => {
@@ -1057,7 +1072,13 @@ fn play(
         if looping {
             radio.loops += 1;
         }
-        radio.playing.insert(w.key, Playing { entity, level, meter, track: w.track.clone() });
+        radio.playing.insert(w.key, Playing { entity, level, meter, track: w.track.clone(), song: w.response.is_some_and(|(_, _, song)| song) });
+    }
+    // The Pip-Boy station's loudness as played, for the exit summary (#1077).
+    if let Some((song, loud)) = radio.playing.get(&PIPBOY).map(|p| (p.song, f32::from_bits(p.meter.load(Ordering::Relaxed)) * f32::from_bits(p.level.load(Ordering::Relaxed)))).filter(|(_, l)| *l > 0.0) {
+        let slot = &mut radio.loudness[usize::from(!song)];
+        slot.0 += f64::from(loud);
+        slot.1 += 1;
     }
     radio.playing.retain(|r, p| {
         let keep = sounding.contains(r);
@@ -1097,6 +1118,8 @@ fn report(mut exit: MessageReader<AppExit>, radio: Res<Radio>, script: Res<Scrip
             }
             (script_calls, npc_radios, forced) = (p.script_calls, rt.game.radio.npc_radios.len(), rt.game.radio.force_updates);
         }
+        let mean = |(sum, n): (f64, u64)| if n > 0 { format!("{:.3}", sum / n as f64) } else { "-".into() };
+        info!("pipboy radio loudness (RMS as played, before the Radio and master volumes): songs {}, talk {}", mean(radio.loudness[0]), mean(radio.loudness[1]));
         info!(
             "radio summary: {} receivers heard, {} songs started, {} DJ lines, {} lines without a file; receivers switched {switches} times, {on} on at exit ({start_on} more start on); {} sound files missing",
             radio.heard.len(),
@@ -1146,6 +1169,14 @@ impl Plugin for RadioPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A radio song plays at full level whatever its record's static attenuation (#1077).
+    #[test]
+    fn songs_play_at_full_level() {
+        assert_eq!(SONG_GAIN, 1.0);
+        let song = Sound { static_attenuation_db: 12.33, ..Default::default() };
+        assert!(static_gain(&song) < 0.25, "what the record alone would give");
+    }
 
     #[test]
     fn a_song_plays_its_mono_file() {

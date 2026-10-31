@@ -1266,10 +1266,10 @@ forbid = [{ re = 'npc combat: FiendVioletRef \S+ holds fire: the player is beyon
 [[scenario]]
 name = "combat-wall-hold"
 source = "owner 2026-10-23: NPCs in combat shoot at walls; a gun fires only with a clear line from the eyes and muzzle to the target's chest, else its head (combat_tactics module notes: a wall in the way; docs/design/combat-ai.md §12.6)"
-note = "Chet (GSChetRef) in the general store is given a .357 and set on the player (GOD), who is put in the back room behind the wall west of his counter at 2 s and out in the store at 20 s on the aids' clock. NVF_PLAY_TEST_SEE_THROUGH_WALLS has him count the player as seen through the wall (as stale detection would): he holds fire, closes in, and fires once the line is clear (first run 2026-10-23: held 7.8 s, 12 shots, all 12 hit the player, 0 world hits). The player fires nothing, so the combat summary's world hits are his shots that hit no actor"
+note = "Chet (GSChetRef) in the general store is given a .357 and set on the player (GOD), who is put in the back room behind the wall west of his counter at 2 s and out in the store at 10 s on the aids' clock (at 20 s Chet had gone Lost first, 10 s without seeing the player by detection, and his fight began afresh with no wall to clear; #1156). NVF_PLAY_TEST_SEE_THROUGH_WALLS has him count the player as seen through the wall (as stale detection would): he holds fire, closes in, and fires once the line is clear (first run 2026-10-23: held 7.8 s, 12 shots, all 12 hit the player, 0 world hits). The player fires nothing, so the combat summary's world hits are his shots that hit no actor"
 areas = ["combat"]
 paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/combat_tactics.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SEE_THROUGH_WALLS = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOTO = "2:-830:520:600,20:-320:600:600", NVF_PLAY_TEST_SCRIPT = "3:call:GSChetRef:AddItem:WeapNV357Revolver:1,3.5:call:GSChetRef:EquipItem:WeapNV357Revolver,4:combat:GSChetRef:player" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SEE_THROUGH_WALLS = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOTO = "2:-830:520:600,10:-320:600:600", NVF_PLAY_TEST_SCRIPT = "3:call:GSChetRef:AddItem:WeapNV357Revolver:1,3.5:call:GSChetRef:EquipItem:WeapNV357Revolver,4:combat:GSChetRef:player" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 35
 expect = [
@@ -1591,6 +1591,7 @@ expect = [
   "ends its conversation: silent",
   "ui_radio_static_lp.wav (loop",
   "pipboy radio summary: off at exit",
+  { re = 'pipboy radio loudness \(RMS as played, before the Radio and master volumes\): songs (?P<n>[\d.]+)', range = [0.01, 1], label = "songs play at full level, not 12 dB down (#1077)" },
   { re = '(?P<n>\d+) conversations started by scripts', range = [2, 1e9], label = "2 or more conversations started by scripts" },
 ]
 
@@ -4581,10 +4582,10 @@ expect = [
 [[scenario]]
 name = "combat-flamer-reach"
 source = "owner request 2026-10-18: NPCs fired out of range; Cook-Cook fired his flamer from cover as soon as the player was in sight (docs/design/combat-ai.md §16)"
-note = "Cook-Cook (FiendCookCookRef 000F5704, WeapFlamer: max range 650, its flame 640) is set on the player about 1,700 units away at 3 s, god mode, run on his packages: he holds fire beyond 640 units, runs at the player (out of reach a gunman takes no flank place) and fires once within it. The AI's lines name him by FormID (ai [..] 000F5704: …). The other Fiends of the camp are not run on their packages; any gunman among them holds fire beyond its reach too (the summary counts every fighter). He draws his Incinerator by the weapon choice (actors.md §9.3), so EquipItem gives him the Flamer he also carries at 2 s"
+note = "Cook-Cook (FiendCookCookRef 000F5704, WeapFlamer: max range 650, its flame 640) loses his Incinerator at once (he carries one, and since NPC re-arming takes the better weapon he fought with it, reach 1500; #1156) and is set on the player about 1,700 units away at 3 s, god mode, run on his packages: he holds fire beyond 640 units, runs at the player (out of reach a gunman takes no flank place) and fires once within it. The AI's lines name him by FormID (ai [..] 000F5704: …). The other Fiends of the camp are not run on their packages; any gunman among them holds fire beyond its reach too (the summary counts every fighter). He draws his Incinerator by the weapon choice (actors.md §9.3), so EquipItem gives him the Flamer he also carries at 2 s"
 areas = ["combat"]
 paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/combat_tactics.rs", "crates/fnv-ai/src/alert.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2:call:FiendCookCookRef:EquipItem:WeapFlamer,3:combat:0x000F5704:player" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "0.05:call:FiendCookCookRef:RemoveItem:WeapNVIncinerator:1,0.1:call:FiendCookCookRef:EquipItem:WeapFlamer,3:combat:0x000F5704:player" }
 args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F5704"]
 run_seconds = 45
 expect = [
@@ -6998,7 +6999,7 @@ env = { NVFOREVER_HOME = "controls-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 63 of 63 line\(s\) read from .*NVForever\.ini, 3 changed: Activate E -> F, Jump Space -> J, Toggle POV F, Middle Mouse -> E, Middle Mouse; input device Keyboard and Mouse', label = "the stored keys are bound at the start (the INI also lists the input device and the controller's buttons)" },
+  { re = 'controls: 65 of 65 line\(s\) read from .*NVForever\.ini, 3 changed: Activate E -> F, Jump Space -> J, Toggle POV F, Middle Mouse -> E, Middle Mouse; input device Keyboard and Mouse', label = "the stored keys are bound at the start (the INI also lists the input device and the controller's buttons)" },
 ]
 
 [[scenario]]
@@ -7041,7 +7042,7 @@ env = { NVFOREVER_HOME = "controller-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 63 of 63 line\(s\) read from .*NVForever\.ini, 4 changed: Input Device Controller, \[Controller\] Jump Y -> RB, \[Controller\] Vats RB -> Y, \[Controller\] Rumble 0; input device Controller', label = "the stored device, buttons and Rumble off are taken at the start" },
+  { re = 'controls: 65 of 65 line\(s\) read from .*NVForever\.ini, 4 changed: Input Device Controller, \[Controller\] Jump Y -> RB, \[Controller\] Vats RB -> Y, \[Controller\] Rumble 0; input device Controller', label = "the stored device, buttons and Rumble off are taken at the start" },
 ]
 
 [[scenario]]
@@ -7602,12 +7603,12 @@ source = "docs/spec-notes/grab.md §1 (quests have the player carry corpses with
 areas = ["grab", "physics", "ragdoll"]
 paths = ["engine/nvf-play/src/grab.rs", "crates/fnv-phys/src/grab.rs", "crates/fnv-phys/src/ragdoll.rs", "engine/nvforever/src/ragdoll.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C7D", NVF_PLAY_TEST_CONSOLE = "1:00104C7D.killactor;10:player.moveto 00104C7D 80 0 0;10.5:close", NVF_PLAY_TEST_GRAB = "13:z:6:180:at=00104C7D" }
-args = ["--cell", "GSGasStation", "--play", "--no-voice", "--no-messages"]
+args = ["--cell", "GSGasStation", "--play", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm"]
 run_seconds = 24
 expect = [
   { re = 'grab: picked up corpse .*00104C7D\) by Aid', label = "Z picks up Ringo's corpse" },
   { re = 'grab: carrying .*00104C7D\) at .*, (?P<n>[\d.]+) units from where it is held', range = [0, 40], label = "held where it is wanted" },
-  { re = 'grab: dropped .*00104C7D\) after 6\.\d s \(let go\) at .*, (?P<n>[\d.]+) units from where it was picked up', range = [120, 260], label = "carried the whole 6 s, half way round the player with the view (held ~90 units from the eye: 180 apart), dropped when Z comes up" },
+  { re = 'grab: dropped .*00104C7D\) after 6\.\d s \(let go\) at .*, (?P<n>[\d.]+) units from where it was picked up', range = [120, 260], label = "carried the whole 6 s, half way round the player with the view (held ~90 units from the eye: 180 apart), dropped when Z comes up", known_failing = "#1154: the gas station's back room is too small for the swing: the carried body ends 41-118 units from where it was picked up by run (a wall or the counter in the way), not the ~210 a free half turn gives; needs a roomier place or a smaller turn, then this mark goes" },
   { re = 'grab: .*00104C7D\) came to rest at .*, (?P<n>[\d.]+) units from where it was picked up', range = [100, 300], label = "it rests where it was carried to" },
 ]
 forbid = [{ re = 'grab: .*\(it caught on something\)', label = "never held at rest while carried (it would stay put and catch)" }]
@@ -16109,6 +16110,21 @@ expect = [
   { re = 'radiation: level 9\.8 rads/s \(marker 0x00154611 9\.8\), taking 9\.0\d/s \(Rad Resistance 8 %\)', label = "in radiation (the marker's level falling off with distance, issue #894), so the meter's tiles show" },
 ]
 manual = "tiles_radiation_meter.png: the radiation meter at the top right from its tiles: the bracket, +9 and RAD/SEC under it, the pointer; red-orange (the alt colour); compare with radiation_meter.png"
+
+[[scenario]]
+name = "tiles-xp-level-up"
+source = "#979 (docs/spec-notes/hud.md §14.10) [observed: private job hud_textbase, 2026-10-31]: xp-meter with [UI] TileMenus=HUDMainMenu: the XP meter's texts drawn from their tiles, each on its font's line under its top (font 8 \"+54\" and LEVEL UP 29.5, font 7 XP 24, font 1 level digits 20)"
+note = "as xp-meter: two RewardXP at the console in Doc Mitchell's house, the shots at xp-meter's times so the two compare"
+areas = ["ui", "hud", "levelup"]
+paths = ["engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/xp_meter.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "14:rewardxp 54;14.3:close;22:rewardxp 150;22.3:close", NVF_PLAY_TEST_SHOTS = "18.5:tiles_xp_meter.png,30.3:tiles_xp_level_up.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 32
+expect = [
+  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden\s*$', label = "the whole HUD tree draws" },
+  { text = "xp meter: LEVEL UP (1 -> 2)", label = "the second reward reaches level 2, so XPLevelUp shows" },
+]
+manual = "tiles_xp_meter.png: \"+54\" (font 8) under the bar's right end, XP beside it, 1 and 2 at the bar's ends; tiles_xp_level_up.png: LEVEL UP alone, its capitals ending 31-32 units under XPLevelUp's top (y 720 of 960 at the XP meter's y 650), as the original's (hud.md §14.10), not 5 pixels higher as before #979"
 
 [[scenario]]
 name = "tiles-hud-pointer"

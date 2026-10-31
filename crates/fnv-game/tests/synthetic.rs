@@ -2586,6 +2586,54 @@ fn last_core_setters_change_what_their_getters_read() {
     assert_eq!(q(&mut g, "SetFunctionValue (GetHairLength PlayerREF)"), XVal::Num(0.5));
 }
 
+#[test]
+fn arrays_that_hold_themselves_do_not_crash() {
+    // #1089: Ar_DeepCopy, Ar_DeepEquals and PrintVar on an array that holds itself, and on
+    // two arrays that hold each other, end instead of overflowing the stack.
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("array_var aA
+array_var aB
+array_var aC
+array_var aD
+float fRes
+Begin Function {{ }}
+{body}
+End
+"), ctx());
+    let make = "let aA := ar_List 1, 2
+let aA[2] := aA
+let aB := ar_List 3
+let aC := ar_List aB
+let aB[1] := aC
+";
+    // The copy keeps the shape: its third element is the copy itself, not the original, so
+    // writing through it changes the copy and leaves the original alone.
+    assert_eq!(q(&mut g, &format!("{make}let aC := Ar_DeepCopy aA
+let aD := aC[2]
+let aD[0] := 9
+SetFunctionValue (aC[0] * 100 + aA[0])")), Ok(XVal::Num(901.0)));
+    // An array held twice is copied twice: the two copies stay apart.
+    assert_eq!(q(&mut g, "let aB := ar_List 5
+let aA := ar_List aB, aB
+let aC := Ar_DeepCopy aA
+let aD := aC[0]
+let aD[0] := 7
+SetFunctionValue ((aC[1])[0] * 100 + aB[0])"), Ok(XVal::Num(505.0)));
+    assert_eq!(q(&mut g, &format!("{make}let aC := Ar_DeepCopy aA
+SetFunctionValue (Ar_DeepEquals aC aA)")), Ok(XVal::Num(1.0)));
+    assert_eq!(q(&mut g, &format!("{make}SetFunctionValue (Ar_DeepEquals aA aA)")), Ok(XVal::Num(1.0)));
+    assert_eq!(q(&mut g, &format!("{make}let aC := ar_List 1, 2, 3
+SetFunctionValue (Ar_DeepEquals aC aA)")), Ok(XVal::Num(0.0)));
+    g.console_out.clear();
+    q(&mut g, &format!("{make}PrintVar aA, aB")).unwrap();
+    assert_eq!(g.console_out.len(), 2, "{:?}", g.console_out);
+    assert!(g.console_out[0].starts_with("aA: [1, 2, array #"), "{:?}", g.console_out);
+    assert!(g.console_out[1].starts_with("aB: [3, [array #"), "{:?}", g.console_out);
+}
+
 /// The extender functions a script call still finds unbuilt ("not built yet"), by plugin,
 /// from the catalogue: `cargo test --release -p fnv-game --test synthetic -- --ignored
 /// extender_census --nocapture`; the list goes to `target/tmp/extender-census.txt`. Each

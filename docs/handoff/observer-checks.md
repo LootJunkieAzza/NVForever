@@ -21,14 +21,13 @@ engine if needed, and delete the item here.
   TimeScale), 13, 15, 20, 21, 22 (dialogue events), the rest of 33, 35, 36, 52, 53, and
   #1076 (melee reach).
 - **A save from the owner** (quest or character state no save has yet):
-  - Hardcore on: done (nvfHardcore); waits and sleeps still need the window.
+  - Hardcore on: done (nvfHardcore).
   - Boone, Rex and ED-E hired (19, 22's complaints, 18's wheel): Boone done (nvfBoone).
-  - Benny's own invitation to the suite taken, not talked in with Speech (47).
   - Old World Blues just started in the Think Tank (43, 37); X-8 done, EM pulse module
     (38). Honest Hearts at Flight from Zion with Daniel (49).
   - VMS46 at Anders' thanks (39); Stone on his night route, VMS31 (50); HELIOS One before
     the west terminal (46, 25 at Intelligence 1); Oliver on House's path (48); a finished
-    game at the end slides (28, 29).
+    game at the end slides (29's Boomers slide; 28 is answered).
 - **A save made inside the capture** (allowed, probe-saves rule): 24 (save half-way along
   a patrol, reload), 41 (the emergency radio, timed).
 - **Screenshots or video** (window in front, both locks): 7 (casino menus by key taps),
@@ -92,7 +91,13 @@ engine if needed, and delete the item here.
    - Beer and Nuka-Cola, drunk by EquipItem, raised Dehydration by no more than the
      normal rate over 11 s (14, 14, 15 and 15, 15, 16) [observed]. Ours raises it
      (their "Damage Dehydration" read literally, aid-items §3).
-   - Still open: waits and sleeps (the wait menu needs the window), Buffout.
+   - Waits and sleeps (owner, 2026-10-31, from all needs at 0, Pip-Boy values)
+     [observed]: 3 hours waited give H2O 36, FOD 12, SLP 6; 3 hours slept give H2O 36,
+     FOD 12, SLP 2. So 12, 4 and 2 an hour, whole points, where ours gives 12, 4.8 and
+     2.4; sleep did not bring SLP below 2. In Hardcore, sleep heals neither Health nor
+     crippled limbs; outside it heals both. Ours heals no Health on a plain sleep (#1177).
+     Outside Hardcore a sleep restores Health and every limb in full (owner).
+   - Still open: Buffout.
    ([aid-items §2, §6, §11](../spec-notes/aid-items.md),
    [wait-menu](../spec-notes/wait-menu.md))
 5. **Weapon wear.** Ours:
@@ -419,21 +424,25 @@ The numbers above stay put so links to them hold; each item here gives its own p
 
 ## Added 2026-10-27 (main-quest walkthroughs)
 
-28. **Does a SayTo that finds no line still end with SayToDone?** (P1: every ending.)
-    Ours now runs the speaker's SayToDone blocks for the topic in the next frame
-    [hypothesis]: the narrator's end-slide chain (SCPT 0x00161EB4) calls topics that have
-    no line for some endings (VEndingBrotherhood for the NCR ending with the Brotherhood
-    never met) and must still reach VEndingConclusion. To check: a query script that
-    SayTos a topic whose lines all fail, and a SayToDone block that sets a variable; read
-    it one and ten frames later. ([mq-walkthrough](mq-walkthrough-2026-10-27.md) §2)
-29. **Does a line's fixed speaker (INFO ANAM) gate who says it?** (P2.) 262 lines name a
-    fixed speaker other than the actor of their own GetIsID condition (167 end slides:
-    a Boomer, Nolan McNamara ... as speaker, GetIsID Narrator). Ours now lets that
-    condition decide when the line has one [hypothesis]. To check: the end slides of a
-    finished game say the Boomers' slide; for a non-ending case, talk to Victor at the
-    Lucky 38 door (0x00165102, speaker the entrance Victor, GetIsID the elevator). The
-    line is only heard after first meeting House (owner; its condition is VDialogueMrHouse
-    variable 3); from nvf38door, meet House, then pass both Victors again.
+28. **Does a SayTo that finds no line still end with SayToDone?** — answered 2026-10-31
+    (o10_00, o10_01, a third party's 100% save nvfSlides at the end slides, VStoryState
+    65): **yes**. The narrator's chain (SCPT 0x00161EB4) ends with VEndingConclusion's
+    SayToDone starting FadeToCreditsTimer (0x0017A17C). As loaded, it started about 6.7
+    minutes in. With VStoryEventKhans set to 9, which none of VEndingGreatKhans' seven
+    lines accepts (they need 0 to 4), the chain still reached FadeToCreditsTimer
+    [observed]. Every path of the chain passes through the Khans topic, so its SayTo found
+    no line and its SayToDone still ran. Ours runs the SayToDone blocks the next frame, which
+    matches. ([mq-walkthrough](mq-walkthrough-2026-10-27.md) §2)
+29. **Does a line's fixed speaker (INFO ANAM) gate who says it?** — answered for the
+    non-ending case 2026-10-31 (owner, from nvf38door): **no, the GetIsID condition
+    decides**. After the first meeting with House, the elevator Victor in the penthouse
+    (Lucky38VictorElevator, the line's GetIsID) greeted with 0x00165102, "comp you to the
+    High-Roller Suite", whose fixed speaker is the entrance Victor (Lucky38VictorEntrance)
+    [observed]; later talks to him open with his usual elevator greeting, as a Say
+    Once line should. Ours does the same (dialogue.rs `can_say_as`). Still open: lines with a
+    fixed speaker and no GetIsID condition (the Dead Money end slides, #965), and the
+    Boomers' end slide of a finished game. Also: the penthouse elevator can only be
+    taken through this Victor's dialogue until House is dead (owner).
     ([mq-walkthrough](mq-walkthrough-2026-10-27.md) §2)
 30. **Reputation axes outside 0-2** — answered 2026-10-31 (o5_00-02, RepNVNCR, scale 80):
     GetReputation axes 2 and 3 read 0; GetReputationThreshold axis 3 read 0 at every value
@@ -539,14 +548,17 @@ The numbers above stay put so links to them hold; each item here gives its own p
     stall 4.)
 46. **Does the HELIOS One west-terminal password go to the player from Fantastic's line?**
     (P3; §10 stall 5.)
-47. **Does a talking activator's scripted `Activate player` start its conversation?** (P1:
-    Ring-a-Ding-Ding's ambush at the Tops, and the REPCONN intercom, #906.) Take Benny's
-    cash-up-front invitation and enter the presidential suite: does the intercom start
-    Benny's conversation by itself about 15 s later? (§11 stall 1.) Not answered by the
-    owner's save nvf47suite (2026-10-31): Benny was talked into the suite with Speech, so
-    he waits there for the player to come up and his forced dialogue starts it, with no
-    intercom (owner). Sixty seconds in the suite and in VTopsAmbushTrigger started no
-    conversation (o7_04). Needs a save that takes Benny's own invitation instead.
+47. **Does a talking activator's scripted `Activate player` start its conversation?** —
+    answered 2026-10-31 (o9_02, owner save nvfTopsAmbush: Benny's own invitation taken,
+    VMQTops 20, BennyAmbush 2, BennyGoToPresidential 0): **yes**. The trigger's script
+    (SCPT 0x0006919D) sets bElevatorDisabled and a 15 s timer on entry; once it runs out
+    and the player is within 250 units of the intercom (0x00129556), it calls
+    `SetTalkingActivatorActor Benny` and `<intercom>.Activate player`. With the player
+    walked through the trigger and then standing 144 units from the intercom, the
+    dialogue menu (1009) opened by itself about 14 s after the trigger (GameHour 4.80 to
+    4.91 at TimeScale 30) [observed]. Ours opens nothing (#1111). An earlier try with a
+    Speech-persuaded Benny (nvf47suite) had no intercom at all: Benny waits in the suite
+    for the player instead (owner). (§11 stall 1.)
 48. **Can Oliver be talked into retreating on House's path?** (P3.) After "You will because
     the alternative is worse", which reply does he give (Topic065 has two lines with the same
     conditions, 0x00159932 and 0x001596BD)? (§11 stall 2.)
@@ -610,6 +622,22 @@ The numbers above stay put so links to them hold; each item here gives its own p
     vault suit's bare-hand addon give way to the Pip-Boy Glove. To check: the player in
     Leather Armor and in T-45d Power Armor, first and third person: is the left hand the
     outfit's glove or the Pip-Boy Glove's hand? ([actors §2.3](../spec-notes/actors.md))
+
+## Added 2026-10-31 (radio loudness, issue #1077)
+
+56. **Pip-Boy radio music against the DJ** (owner: the music was too quiet). Ours
+    (`engine/nvf-play/src/radio.rs` `SONG_GAIN`): a song a station's line plays is at full
+    level, its SOUN static attenuation left out. Most radio songs' records take 12.33 dB
+    off, four take none, and all the song files are about equally loud (−30 to −34 dB
+    mean), so applying it would make those four 12 dB louder than the rest [hypothesis].
+    The files themselves still sit about 13 dB under the voice files (RMS as played 0.019
+    against 0.080).
+
+    To check: on Radio New Vegas, record the original's output across a song by Mr. New
+    Vegas's line and across MUS_StreetsOfNewReno (0 dB) and MUS_Big_Iron (12.33 dB), at
+    100% master and Radio volume; compare the songs' loudness with each other and with
+    the DJ line.
+    ([audio.md](../spec-notes/audio.md); radio.md)
 
 ## Added 2026-10-31 (coyotes' warning and charge, issue #1073)
 
