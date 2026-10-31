@@ -208,15 +208,19 @@ faction given) on the player and makes it say Assault [documented].
   its size (major from `fKarmaModKillingEvilActor`, 100, up) [hypothesis: the split], and
   `UIKarmaUp` or `UIKarmaDown` [hypothesis: by their names]; RewardKarma does the same
   [documented: "A corner message is shown in game indicating the change"].
-- Killing [documented for evil: the setting's name; hypothesis: the amount]: a Very Evil
-  NPC +`fKarmaModKillingEvilActor` (+100), an Evil one nothing [observed: §4.1; HelpKarma
-  names only saintly or terrible enemies]; a Good or Very
-  Good one −100 [design: the same setting]; a Neutral NPC murdered (§3.4) −25, a quarter
-  [design: the owner asked that killing innocents cost karma; HelpKarma says only
-  saintly or terrible enemies count]; a Neutral actor in a fight it started 0. Only kills
-  by the player count; the share of damage (kill XP's rule) is not asked [design].
-  Creatures give none [design: their karma values include plain animals, a dead radroach
-  placed in FalloutNV.esm is Evil, observed].
+- Killing [documented for evil: the setting's name]: an Evil NPC
+  +`fKarmaModKillingEvilActor` (+100) [observed: §4.1, capture o6_02], a Very Evil one
+  the same [hypothesis: the setting's name; not observed]; a Very Good one −100
+  [observed: §4.1], a Good one −100 [hypothesis: the same setting]; a Neutral NPC
+  murdered (§3.4) −25, a quarter [design: the owner asked that killing innocents cost
+  karma; HelpKarma says only saintly or terrible enemies count]; a Neutral actor in a
+  fight it started 0. The alignment the karma reads is the **placed base's own ACBS
+  karma** (a levelled base as drawn for the reference), not a template's whose traits it
+  takes (`Game::kill_alignment`) [hypothesis, §4.1: the NCRCF convict]; whether it was
+  a murder is judged by the alignment scripts read (GetIsAlignment, the template's)
+  [design]. Only kills by the player count; the share of damage (kill XP's rule) is not
+  asked [design]. Creatures give none [design: their karma values include plain
+  animals, a dead radroach placed in FalloutNV.esm is Evil, observed].
 - Stealing and opening owned locks: §3.1, §3.2.
 
 ### 4.1 Killing an Evil convict in the original (2026-10-19) [observed]
@@ -232,9 +236,10 @@ highway patrol station; "should be good"). AI observer campaigns `functions_roun
   OnDeath named the player as the killer, no OnMurder, and the player's GetAV Karma read
   **0 before and for the 15 s after**: no karma either way.
 - Killed by `KillActor player` (twice): OnDeath with the player as killer, no karma.
-- NVForever took karma for it before item 22's fix (it read the convict as Neutral) and
-  gave +100 after it (Evil); it now gives none for an Evil NPC. A Very Evil kill keeps
-  +100 and a Good kill −100 [hypothesis, not observed].
+- NVForever took karma for it before item 22's fix (it read the convict as Neutral),
+  gave +100 after it (Evil), then none for any Evil NPC (2026-10-19 to 2026-10-31).
+  Since #1131 an Evil kill gives +100 again, judged by the placed base's own karma, so
+  the convict (0 of its own) gives none.
 - **2026-10-31 (capture o6_02, nvfairport, karma 0, god mode)**: copies placed with
   PlaceAtMe and killed at once by `KillActor player`: NorthVegasFiendCF (GetAV Karma −500)
   **+100**; a copy of GSSunnySmiles (900) **−100**; VESNCRTrooperCMa (0) **0**;

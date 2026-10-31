@@ -25,6 +25,11 @@ const STRANGER: u32 = 0x833;
 /// own.
 const CONVICT: u32 = 0x834;
 const CONVICT_REF: u32 = 0x324;
+/// A Very Evil NPC (−900) and a Very Good one (900), unseen, in no faction.
+const BOSS: u32 = 0x835;
+const BOSS_REF: u32 = 0x325;
+const SAINT: u32 = 0x836;
+const SAINT_REF: u32 = 0x326;
 const TRINKET: u32 = 0x850;
 const SHOP: u32 = 0x200;
 const SHOPKEEPER_REF: u32 = 0x320;
@@ -125,6 +130,8 @@ fn plugin_bytes() -> Vec<u8> {
         record(b"NPC_", 0, FIEND, &[sub(b"EDID", z("Fiend")), acbs(-500.0), snam(GANG), aidt(0)]),
         record(b"NPC_", 0, STRANGER, &[sub(b"EDID", z("Stranger")), acbs(0.0), aidt(0)]),
         record(b"NPC_", 0, CONVICT, &[sub(b"EDID", z("Convict")), acbs_templated(0.0, 0x01), sub(b"TPLT", FIEND.to_le_bytes().to_vec()), aidt(0)]),
+        record(b"NPC_", 0, BOSS, &[sub(b"EDID", z("Boss")), acbs(-900.0), aidt(0)]),
+        record(b"NPC_", 0, SAINT, &[sub(b"EDID", z("Saint")), acbs(900.0), aidt(0)]),
     ]
     .concat();
     let misc = record(b"MISC", 0, TRINKET, &[sub(b"EDID", z("Trinket")), sub(b"DATA", [5i32.to_le_bytes(), 1f32.to_le_bytes()].concat())]);
@@ -139,6 +146,8 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", FIEND_REF, FIEND, vec![]),
         placed(b"ACHR", STRANGER_REF, STRANGER, vec![]),
         placed(b"ACHR", CONVICT_REF, CONVICT, vec![]),
+        placed(b"ACHR", BOSS_REF, BOSS, vec![]),
+        placed(b"ACHR", SAINT_REF, SAINT, vec![]),
         placed(b"REFR", TRINKET_REF, TRINKET, vec![]),
         placed(b"REFR", GANG_TRINKET_REF, TRINKET, vec![sub(b"XOWN", GANG.to_le_bytes().to_vec()), sub(b"XRNK", 1i32.to_le_bytes().to_vec())]),
         placed(b"REFR", QUIET_DOOR_REF, SHOP_DOOR, vec![xtel(LOUD_DOOR_REF, 1)]),
@@ -279,17 +288,17 @@ fn killing_by_alignment_and_murder() {
     let mut g = game(&f);
     assert_eq!(g.alignment(FormId(FIEND_REF)), Alignment::Evil);
     assert_eq!(g.alignment(FormId(TOWNSMAN_REF)), Alignment::Good);
-    // An Evil actor: no karma (observed: an Evil NCRCF convict shot dead in the
-    // original, crime-karma.md §4.1), no murder.
+    // An Evil actor (−500 of its own): +fKarmaModKillingEvilActor, no murder (observed:
+    // a Fiend and a Powder Ganger at −500 gave +100, capture o6_02, crime-karma.md §4.1).
     assert!(g.kill(FormId(FIEND_REF), Some(FormId::PLAYER_REF)));
-    assert_eq!(karma(&mut g), 0.0);
+    assert_eq!(karma(&mut g), 100.0);
     assert_eq!(call(&mut g, IS_PC_A_MURDERER, None, &[]), 0.0);
     // A Good townsman, seen by the shopkeeper of the same crime-tracking faction: karma
     // lost, murder, the shopkeeper turns and the town becomes the player's enemy.
     sees(&mut g, SHOPKEEPER_REF);
     g.crimes.take_notes();
     assert!(g.kill(FormId(TOWNSMAN_REF), Some(FormId::PLAYER_REF)));
-    assert_eq!(karma(&mut g), -100.0);
+    assert_eq!(karma(&mut g), 0.0);
     assert_eq!(call(&mut g, IS_PC_A_MURDERER, None, &[]), 1.0);
     let notes = g.crimes.take_notes();
     assert!(notes.iter().any(|n| matches!(n, Note::FactionEnemy { faction } if *faction == FormId(TOWN))));
@@ -297,14 +306,41 @@ fn killing_by_alignment_and_murder() {
     assert!(g.would_attack(FormId(SHOPKEEPER_REF), FormId::PLAYER_REF));
     // A Neutral stranger murdered unseen: a quarter of the setting.
     assert!(g.kill(FormId(STRANGER_REF), Some(FormId::PLAYER_REF)));
-    assert_eq!(karma(&mut g), -125.0);
-    // A convict made from the Fiend's template is as Evil as the Fiend: killing it costs
-    // no karma (the owner's playtest list 5 item 22: it took karma before; the original
-    // gives none).
+    assert_eq!(karma(&mut g), -25.0);
+    // A convict made from the Fiend's template is as Evil as the Fiend to scripts, but
+    // holds 0 itself: killing it gives no karma (the NCRCF convict of 2026-10-19 gave
+    // none), and is no murder.
     assert_eq!(g.alignment(FormId(CONVICT_REF)), Alignment::Evil);
     assert_eq!(g.alignment(FormId(CONVICT)), Alignment::Evil);
+    assert_eq!(g.kill_alignment(FormId(CONVICT_REF)), Alignment::Neutral);
     assert!(g.kill(FormId(CONVICT_REF), Some(FormId::PLAYER_REF)));
-    assert_eq!(karma(&mut g), -125.0);
+    assert_eq!(karma(&mut g), -25.0);
+    assert_eq!(g.crimes.take_notes().iter().filter(|n| matches!(n, Note::Crime { kind: Kind::Murder, .. })).count(), 1);
+    // Very Evil: + the setting; Very Good: − the setting (observed: a Sunny copy, 900).
+    assert_eq!(g.alignment(FormId(BOSS_REF)), Alignment::VeryEvil);
+    assert!(g.kill(FormId(BOSS_REF), Some(FormId::PLAYER_REF)));
+    assert_eq!(karma(&mut g), 75.0);
+    assert_eq!(g.alignment(FormId(SAINT_REF)), Alignment::VeryGood);
+    assert!(g.kill(FormId(SAINT_REF), Some(FormId::PLAYER_REF)));
+    assert_eq!(karma(&mut g), -25.0);
+}
+
+#[test]
+fn kill_karma_by_alignment() {
+    use fnv_game::crime::{kill_karma, Settings};
+    let s = Settings::default();
+    for (a, fight, murder) in [
+        (Alignment::VeryEvil, 100.0, 100.0),
+        (Alignment::Evil, 100.0, 100.0),
+        (Alignment::Neutral, 0.0, -25.0),
+        (Alignment::Good, -100.0, -100.0),
+        (Alignment::VeryGood, -100.0, -100.0),
+    ] {
+        assert_eq!(kill_karma(a, false, true, &s), fight, "{a:?} in a fight");
+        assert_eq!(kill_karma(a, true, true, &s), murder, "{a:?} murdered");
+        // Creatures give none.
+        assert_eq!(kill_karma(a, true, false, &s), 0.0, "{a:?} creature");
+    }
 }
 
 #[test]

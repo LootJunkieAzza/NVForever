@@ -4,7 +4,7 @@
 //! karma a kill gives, for named cells what is owned in them (fnv.actor.karma/1).
 
 use fnv_esm::{LoadOrder, Schema};
-use fnv_game::crime::{faction_flags as ff, Alignment, Settings, NEUTRAL_MURDER_SHARE};
+use fnv_game::crime::{faction_flags as ff, kill_karma, Alignment, Settings, NEUTRAL_MURDER_SHARE};
 use fnv_game::game::{Game, GameConfig};
 use fnv_game::GameData;
 use fnv_script::vm::ArgValue;
@@ -40,7 +40,7 @@ pub fn run(lo: &LoadOrder, schema: &Schema, data: &GameData, refs: &RefTable, ac
         "rules": {
             "stealing": s.stealing,
             "killing_very_evil": s.killing_evil,
-            "killing_evil": 0.0,
+            "killing_evil": s.killing_evil,
             "killing_good": -s.killing_evil,
             "murdering_neutral": -s.killing_evil * NEUTRAL_MURDER_SHARE,
             "guard_warnings": s.guard_warnings,
@@ -89,26 +89,15 @@ fn settings(g: &Game, forms: &FormStore) -> Value {
     Value::Object(m)
 }
 
-fn kill_karma(a: Alignment, s: &Settings, npc: bool) -> (f64, f64) {
-    // (as a kill in a fight the actor started, as a murder)
-    match a {
-        _ if !npc => (0.0, 0.0),
-        // An Evil kill gives nothing (crime-karma.md §4.1), a Very Evil one the setting.
-        Alignment::VeryEvil => (s.killing_evil, s.killing_evil),
-        Alignment::Evil => (0.0, 0.0),
-        a if a.good() => (-s.killing_evil, -s.killing_evil),
-        _ if npc => (0.0, -s.killing_evil * NEUTRAL_MURDER_SHARE),
-        _ => (0.0, 0.0),
-    }
-}
-
 fn actor(g: &mut Game, refs: &RefTable, name: &str, s: &Settings) -> anyhow::Result<Value> {
     let r = crate::actor_factions::resolve(g, refs, name)?;
     let base = if r == FormId::PLAYER_REF { FormId::PLAYER_BASE } else { refs.get(r).map_or(r, |p| p.base) };
     let karma = fnv_game::functions::actor_value(g, r, fnv_game::actor_values::KARMA).unwrap_or(0.0);
     let a = g.alignment(r);
+    let judged = g.kill_alignment(r);
     let npc = g.data.actors.get(&base).is_some_and(|d| &d.sig == b"NPC_");
-    let (fight, murder) = kill_karma(a, s, npc);
+    // As a kill in a fight the actor started, and as a murder (crime-karma.md §4).
+    let (fight, murder) = (kill_karma(judged, false, npc, s), kill_karma(judged, !a.evil(), npc, s));
     Ok(json!({
         "actor": name,
         "reference": r.to_string(),
@@ -116,6 +105,7 @@ fn actor(g: &mut Game, refs: &RefTable, name: &str, s: &Settings) -> anyhow::Res
         "record": if npc { "NPC_" } else { "CREA" },
         "karma": karma,
         "alignment": a.name(),
+        "kill_alignment": judged.name(),
         "kill_karma_in_a_fight_it_started": fight,
         "kill_karma_as_murder": murder,
         "murder_if_killed_unprovoked": npc && !a.evil(),
