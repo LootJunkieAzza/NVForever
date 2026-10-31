@@ -8,7 +8,7 @@
 //! `super_text_box.xml`, `text_box.xml`, `box.xml`, `line.xml`,
 //! `vertical_fade_line.xml`, `menus\globals.xml`] unless marked otherwise.
 
-use super::{Clickable, Frame, Page, PageBody, PipBoy, PipBoyInput, PipBoyRoot, PipBoyScreen, CANVAS, SCREEN_CROP, SCREEN_HEADER_H, SCREEN_IMAGE_H};
+use super::{Clickable, Frame, Page, PageBody, PipBoy, PipBoyInput, PipBoyRoot, PipBoyScreen, CANVAS};
 use crate::interface::{pipboy_amber as amber, at, face, plain_font, set_line, Face, Picture, Pictures};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
@@ -88,6 +88,9 @@ pub struct Kit {
     pictures: Option<Pictures>,
     /// The scanlines: a column of black whose alpha is the band's darkening.
     scanlines: Option<Handle<Image>>,
+    /// The menus are the screen menu: the pages leave out their title, the header of page
+    /// names stands in its place ([`heading_title`], [`header`]).
+    pub screen: bool,
 }
 
 impl Kit {
@@ -247,11 +250,9 @@ impl Card {
 pub fn heading(p: &mut ChildSpawnerCommands, c: &mut Ctx, title: &str, cards: &[Card]) {
     let (x0, y0) = (MAIN.min.x, MAIN.min.y);
     let line = amber(LINE);
-    let bright = amber(TEXT);
     c.fade(p, x0, y0, FADE, false, line);
     c.line(p, x0, y0, LEAD_LINE, THICK, line);
-    let w = c.text(p, 4, title, x0 + TITLE_X, y0 - base(&c.kit.face(4).font) + THICK, Align::Left, bright);
-    let after = x0 + TITLE_X + w + TITLE_GAP;
+    let after = heading_title(p, c, title);
     let first = cards.first().map_or(MAIN.width(), |k| k.x);
     if x0 + first > after {
         c.line(p, after, y0, x0 + first - after, THICK, line);
@@ -259,6 +260,19 @@ pub fn heading(p: &mut ChildSpawnerCommands, c: &mut Ctx, title: &str, cards: &[
     for k in cards {
         card(p, c, x0 + k.x, y0, k.width, &k.title, &k.value);
     }
+}
+
+/// A page's title in its heading (font 4, 70 in, on the heading's line); where the line
+/// goes on after it. In the screen menu the title is left out, the header of page names
+/// standing on the line in its place ([`header`]), and the line runs on from the lead line
+/// [design: the owner, 2026-10-31, not the page's name twice].
+pub fn heading_title(p: &mut ChildSpawnerCommands, c: &mut Ctx, title: &str) -> f32 {
+    let (x0, y0) = (MAIN.min.x, MAIN.min.y);
+    if c.kit.screen {
+        return x0 + LEAD_LINE;
+    }
+    let w = c.text(p, 4, title, x0 + TITLE_X, y0 - base(&c.kit.face(4).font) + THICK, Align::Left, amber(TEXT));
+    x0 + TITLE_X + w + TITLE_GAP
 }
 
 /// The heading with a name (font 4) right-aligned `right_in` short of the menus' right
@@ -271,8 +285,7 @@ pub fn heading_named(p: &mut ChildSpawnerCommands, c: &mut Ctx, title: &str, nam
     c.fade(p, x0, y0, FADE, false, line);
     c.line(p, x0, y0, LEAD_LINE, THICK, line);
     let top = y0 - base(&c.kit.face(4).font) + THICK;
-    let w = c.text(p, 4, title, x0 + TITLE_X, top, Align::Left, bright);
-    let after = x0 + TITLE_X + w + TITLE_GAP;
+    let after = heading_title(p, c, title);
     let right = MAIN.max.x - right_in;
     let name_w = c.text(p, 4, name, right, top, Align::Right, bright);
     let stop = right - name_w - TITLE_GAP;
@@ -439,8 +452,12 @@ pub fn draw(
     // scanlines (docs/design/screen-menu.md §2).
     let device = frame == Frame::Device;
     let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref());
+    c.kit.screen = !device;
     let root = Node { overflow: Overflow::clip(), ..at(0.0, 0.0, CANVAS.x, CANVAS.y) };
     commands.spawn((PipBoyRoot, root, UiTargetCamera(screen.camera), Name::new("Pip-Boy menus"))).with_children(|r| {
+        if !device {
+            header(r, &mut c, page);
+        }
         if device && c.image(r, BACKGROUND, at(0.0, 0.0, CANVAS.x, CANVAS.y), amber(BACKGROUND_BRIGHTNESS)).is_none() {
             r.spawn((at(0.0, 0.0, CANVAS.x, CANVAS.y), BackgroundColor(amber(BACKGROUND_BRIGHTNESS).with_alpha(0.1))));
         }
@@ -460,91 +477,59 @@ pub fn draw(
 
 // ---- The screen menu's header (docs/design/screen-menu.md §3.1) ---------------------
 
-/// The strip above the screen menu's image that holds the header, in the window.
-#[derive(Component)]
-pub struct ScreenHeader;
-
 /// The box shown round a page's name in the header while the pointer is on it.
 #[derive(Component)]
 struct HeaderHover;
 
-/// The header's lengths are the canvas's, drawn at the image's size in the window.
-const HEADER_K: f32 = SCREEN_IMAGE_H / SCREEN_CROP.y;
 /// The names are in the title's font, their boxes spaced as far apart as the title is
 /// from its line [design].
 const HEADER_FONT: usize = 4;
 const HEADER_GAP: f32 = TITLE_GAP * 2.0;
 
-/// Where the header puts the three names' boxes, in the strip's units (interface units
-/// from its top left): from the title's place along the canvas, as wide as each name and
-/// a tab's padding, as high as a tab, centred in the strip.
+/// Where the header puts the three names' boxes on the canvas: from the title's place,
+/// standing on the heading's line (their foot on it), each as wide as its name and a
+/// tab's padding and as high as a tab.
 pub fn header_boxes(widths: [f32; 3], text_h: f32) -> [Rect; 3] {
     let h = text_h + TAB_VERBUF;
-    let top = (SCREEN_HEADER_H - h) / 2.0;
-    let mut x = (MAIN.min.x + TITLE_X - TAB_HORBUF / 2.0) * HEADER_K;
+    let foot = MAIN.min.y + THICK;
+    let mut x = MAIN.min.x + TITLE_X - TAB_HORBUF / 2.0;
     widths.map(|w| {
-        let r = Rect::new(x, top, x + w + TAB_HORBUF, top + h);
+        let r = Rect::new(x, foot - h, x + w + TAB_HORBUF, foot);
         x = r.max.x + HEADER_GAP;
         r
     })
 }
 
-/// Build the header in the screen menu's strip when it appears, or the page shown changed:
-/// STATS, ITEMS and DATA, the page shown boxed and filled as the tab shown is, the others
+/// The screen menu's header, in place of the page's title: STATS, ITEMS and DATA on the
+/// heading's line, the page shown boxed and filled as the tab shown is, the others
 /// dimmed; a name under the pointer boxed; a click shows its page.
-#[allow(clippy::too_many_arguments)]
-pub fn screen_header(
-    mut commands: Commands,
-    pip: Res<PipBoy>,
-    strips: Query<Entity, With<ScreenHeader>>,
-    added: Query<(), Added<ScreenHeader>>,
-    mut kit: ResMut<Kit>,
-    data: Option<Res<GameData>>,
-    mut images: ResMut<Assets<Image>>,
-    formats: Option<Res<CompressedImageFormatSupport>>,
-    mut shown: Local<Option<Page>>,
-) {
-    let Ok(strip) = strips.single() else {
-        *shown = None;
-        return;
-    };
-    let want = Some(pip.page);
-    if want == *shown && added.is_empty() {
-        return;
-    }
-    *shown = want;
-    let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref());
+fn header(r: &mut ChildSpawnerCommands, c: &mut Ctx, page: Page) {
     let line = amber(LINE);
     let text_h = c.line_height(HEADER_FONT);
     let widths = Page::ALL.map(|p| c.width(HEADER_FONT, p.title()));
-    let boxes = header_boxes(widths, text_h);
-    let mut e = commands.entity(strip);
-    e.despawn_related::<Children>();
-    e.with_children(|s| {
-        for (p, r) in Page::ALL.into_iter().zip(boxes) {
-            let selected = p == pip.page;
-            let local = Rect::new(0.0, 0.0, r.width(), r.height());
-            // Centred in its box by the letters themselves: across by the line's width,
-            // down by its tallest letter's rise (capitals, no descenders) [design: the
-            // owner, 2026-10-31; the font's own baseline left the names high].
-            let name = c.first_line(HEADER_FONT, p.title());
-            let face = c.kit.face(HEADER_FONT);
-            let rise = name.glyphs.iter().map(|g| face.font.glyph(g.code).ascent).fold(0.0, f32::max);
-            let (x, base) = ((r.width() - name.width) / 2.0, (r.height() + rise) / 2.0);
-            s.spawn((at(r.min.x, r.min.y, r.width(), r.height()), Clickable(PipBoyInput::Page(p)), Pickable::default()))
-                .with_children(|b| {
-                    if selected {
-                        c.boxed(b, local, line, Some(amber(FILL.0).with_alpha(FILL.1 / 255.0)));
-                    } else {
-                        b.spawn((at(0.0, 0.0, r.width(), r.height()), HeaderHover, Visibility::Hidden, Pickable::IGNORE)).with_children(|h| c.boxed(h, local, line, None));
-                    }
-                    set_line(b, c.kit.face(HEADER_FONT), &name, x, base, amber(if selected { TEXT } else { DIMMED }));
-                })
-                .observe(super::on_click)
-                .observe(on_header_over)
-                .observe(on_header_out);
-        }
-    });
+    for (p, b) in Page::ALL.into_iter().zip(header_boxes(widths, text_h)) {
+        let selected = p == page;
+        let local = Rect::new(0.0, 0.0, b.width(), b.height());
+        // Centred in its box by the letters themselves: across by the line's width, down
+        // by its tallest letter's rise (capitals, no descenders) [design: the owner,
+        // 2026-10-31; the font's own baseline left the names high].
+        let name = c.first_line(HEADER_FONT, p.title());
+        let face = c.kit.face(HEADER_FONT);
+        let rise = name.glyphs.iter().map(|g| face.font.glyph(g.code).ascent).fold(0.0, f32::max);
+        let (x, base) = ((b.width() - name.width) / 2.0, (b.height() + rise) / 2.0);
+        r.spawn((at(b.min.x, b.min.y, b.width(), b.height()), Clickable(PipBoyInput::Page(p)), Pickable::default()))
+            .with_children(|n| {
+                if selected {
+                    c.boxed(n, local, line, Some(amber(FILL.0).with_alpha(FILL.1 / 255.0)));
+                } else {
+                    n.spawn((at(0.0, 0.0, b.width(), b.height()), HeaderHover, Visibility::Hidden, Pickable::IGNORE)).with_children(|h| c.boxed(h, local, line, None));
+                }
+                set_line(n, c.kit.face(HEADER_FONT), &name, x, base, amber(if selected { TEXT } else { DIMMED }));
+            })
+            .observe(super::on_click)
+            .observe(on_header_over)
+            .observe(on_header_out);
+    }
 }
 
 fn header_hover(entity: Entity, on: bool, children: &Query<&Children>, boxes: &mut Query<&mut Visibility, With<HeaderHover>>) {
@@ -626,18 +611,19 @@ mod tests {
     }
 
     #[test]
-    fn the_header_names_sit_apart_in_the_strip() {
+    fn the_header_names_stand_on_the_heading_line() {
         // Widths about the title font's for the three names.
         let boxes = header_boxes([110.0, 110.0, 90.0], 34.0);
         for w in boxes.windows(2) {
             assert!(w[1].min.x - w[0].max.x >= HEADER_GAP - 1e-3, "{boxes:?}");
         }
         for r in boxes {
-            assert!(r.min.y >= 0.0 && r.max.y <= SCREEN_HEADER_H, "{r:?}");
-            assert!((r.width() - TAB_HORBUF) > 0.0);
+            // On the line, inside the canvas's top margin (shown by the screen menu).
+            assert!((r.max.y - (MAIN.min.y + THICK)).abs() < 1e-3 && r.min.y >= 0.0, "{r:?}");
         }
-        // They start where the title stands on the canvas.
-        assert!((boxes[0].min.x - (MAIN.min.x + TITLE_X - TAB_HORBUF / 2.0) * HEADER_K).abs() < 1e-3);
+        // From where the title stands, ending before the right half of the menus.
+        assert!((boxes[0].min.x - (MAIN.min.x + TITLE_X - TAB_HORBUF / 2.0)).abs() < 1e-3);
+        assert!(boxes[2].max.x < MAIN.min.x + MAIN.width() * 0.75);
     }
 
     #[test]

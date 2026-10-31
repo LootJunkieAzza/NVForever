@@ -48,7 +48,7 @@ reuses, unchanged:
 | View | forced to first person, given back after (`saved_pov`) | untouched; third person stays third person |
 | Body | left arm and device drawn, screen textured with the image | nothing drawn; the arm never moves |
 | Behind the menu | the world, through the device's glass | the whole screen blacked out evenly, 0.98, square to its edges (§3.3) |
-| Page choice | three buttons on the device (`PipBoyInput::Page` from the body's hit test) | a header strip above the canvas (§3.1) |
+| Page choice | three buttons on the device (`PipBoyInput::Page` from the body's hit test) | a header on the heading's line, in place of the page's title (§3.1) |
 | Size | the device's screen, about half the view [observed: the owner's screenshots] | the header and the canvas 92% of the view's height, centred (§3.3) |
 | Background picture | `Interface\Shared\Background\pipboy.dds` at brightness 90, scanlines over it (`frame.rs`) | neither: the shade shows through, as behind the barter menu; scanlines off [design: they belong to the device's glass] |
 | Raise/lower sounds | the Pip-Boy's own (`pipboy/sounds.rs`) | the sounds the container and barter menus play on opening and closing (`ui_sounds.rs`); tab, page and hover sounds unchanged |
@@ -83,31 +83,34 @@ The inventory, and every other page, must not depend on a Pip-Boy being equipped
 
 ### 3.1 The header
 
-The device's three buttons become a header: **STATS  ITEMS  DATA** in a strip of their own
-above the canvas's image, in the window (not drawn into the image).
+The device's three buttons become a header: **STATS  ITEMS  DATA** standing on the page
+heading's top line, in place of the page's title, so the page's name is not shown twice
+(owner, 2026-10-31; a first build had the names in a strip above the image and the title
+under them).
 
-- Why a strip and not the title's place: the page heading inside the canvas (the title at
-  x 70, the cards of figures from x 215 on ITEMS, 270 on STATS; `frame.rs`, `items.rs`,
-  `stats/mod.rs`) [documented: `inventory_menu.xml`, `card_info.xml`] leaves about 145 units
-  for the title, too few for three names in the title's font. Moving the canvas's drawing
-  down instead would shift every point the pages read from the pointer (the map drag, the
-  STATS hovers). So the pages are untouched; each still shows its own title, under the
-  header.
-- The names are in the title's font (font 4), left to right in the device's order, the
-  first starting where the canvas's title starts (`frame::header_boxes`). Each sits in a
-  box as wide as a tab's (its text and 35) and as high (its text and 15), the boxes 40 apart.
+- The title is left out by `frame::heading_title`, which every page heading draws its title
+  through (ITEMS and STATS by `frame::heading`, the repair list and the mod menu by
+  `heading_named`, DATA by its own heading); in the screen menu (`Kit::screen`) it draws
+  nothing and the line runs on from the lead line to the first card.
+- The names stand above the line, their boxes' feet on it (`frame::header_boxes`), from
+  where the title starts (x 70). The cards of figures hang below the line (from x 215 on
+  ITEMS, 270 on STATS) [documented: `inventory_menu.xml`, `card_info.xml`], so the names,
+  about 485 across, pass over them without touching. They lie in the canvas's top margin of
+  50, which the screen menu shows.
+- The names are in the title's font (font 4), left to right in the device's order. Each
+  sits in a box as wide as a tab's (its text and 35) and as high (its text and 15), the
+  boxes 40 apart; each is centred in its box by its letters: across by the line's width,
+  down by the tallest letter's rise (the font's own baseline left them high; owner,
+  2026-10-31).
 - The page shown is boxed and filled as the tab shown is, its name at `TEXT` (255); the
   other two at `DIMMED` (128). A name under the pointer is boxed, unfilled, and plays the
   tab hover sound (`sounds::TabHovered`).
 - A click on a name writes `PipBoyInput::Page(p)`, the same message the device's buttons
-  write (`Clickable`, `on_click`). The strip is window interface, so the window's pointer
-  picks it directly.
+  write (`Clickable`, `on_click`); the names are drawn into the image with the rest, so the
+  image's pointer picks them as it picks the tabs.
 - No key hint in the header: the switch is a setting, not a key in the menus (owner,
   2026-10-31).
-- The names are centred in their boxes by their letters: across by the line's width, down
-  by the tallest letter's rise (the font's own baseline left them high; owner, 2026-10-31).
-- The header is built by `frame::screen_header` when the strip appears and again when the
-  page shown changes.
+- The header is drawn by `frame::draw` with the frame, again whenever the page changes.
 
 ### 3.2 The tab line
 
@@ -117,14 +120,11 @@ as on the device.
 
 ### 3.3 Size and sharpness
 
-- The canvas's image (1024 × 768, 4:3) is drawn 820 interface units high (85% of the
-  view), with the header's strip of 64 above it, the two centred together: 92% of the
-  view's height [design: about the barter menu's footprint, its 800 of 960 is 83%, plus
-  the Pip-Boy canvas's own empty margins of 50 round `MAIN`] (`pipboy::SCREEN_IMAGE_H`,
-  `SCREEN_HEADER_H`). On a 16:9 window that leaves bars at the sides, the same black shade
+- The canvas's image is drawn 884 interface units high, 92% of the view's height, centred
+  [design: about the barter menu's footprint, its 800 of 960 is 83%, plus the Pip-Boy
+  canvas's own empty margins of 50 round `MAIN`] (`pipboy::SCREEN_IMAGE_H`). On a 16:9 window that leaves bars at the sides, the same black shade
   as the rest of the world behind the menu.
-- The shade is a full-window node (`pipboy::ScreenShade`) that holds the header strip and
-  the image, spawned and despawned with them. It blacks out the whole screen evenly,
+- The shade is a full-window node (`pipboy::ScreenShade`) that holds the image, spawned and despawned with them. It blacks out the whole screen evenly,
   0.98 black square to its edges (`pipboy::SHADE`) [design: the owner, 2026-10-31: "black
   out the entire background screen", then "black should extend the entire screen" and
   "square up against the edge of the screen" after an oval fade; the barter menu's 0.93
@@ -137,7 +137,7 @@ as on the device.
 - **Sharpness.** The image is 1280 × 960 (`pipboy::TARGET`, one pixel per interface unit
   at 960 units per view height). Drawn at 85% of a 1440-line window it would be magnified
   1.6×. In the screen menu the image is made again larger (`pipboy::image_scale`): by the
-  window's physical height × 820 / 960 / 768, in steps of an eighth, from 1 up to 3, and
+  window's physical height × 884 / 960 / 750, in steps of an eighth, from 1 up to 3, and
   the screen camera's render target is given the same scale factor, so the menus still
   lay out in the canvas's units and the pointer (logical units) is unchanged. It goes back
   to 1 on the device. The game's bitmap fonts are still magnified when the window is high,
@@ -168,8 +168,8 @@ would need a widened layout. Left open (§7); the first build keeps 4:3 with sid
   glows) and the blur behind it (`imagespace.rs`) follow in place of `shown`. So in the
   screen menu none of them moves, and `PipBoyScreen::on_model` stays false.
 - **`flat_screen`** is the screen menu's presenter: wanted when `phase == Up` and (the
-  frame is `Screen` or nothing shows the model's screen); it spawns the shade with the
-  header strip and the image, maps the window's pointer onto the canvas as before, and
+  frame is `Screen` or nothing shows the model's screen); it spawns the shade and the
+  image, maps the window's pointer onto the canvas as before, and
   spawns them again when the image's scale changed (its crop is in the image's pixels).
 - **`frame::draw`** leaves out the device's background picture and scanlines in the
   screen menu; the page modules do not branch.
@@ -188,7 +188,8 @@ would need a widened layout. Left open (§7); the first build keeps 4:3 with sid
   menu `raise` reaches `Up` and `lower` reaches `Down` in one step and nothing is on the
   arm; the page and tab survive closing and a frame change.
 - **Header layout test** in `frame.rs` (`header_boxes`, pure): the names' boxes are apart,
-  inside the strip, start where the canvas's title does and leave room for the hint.
+  stand on the heading's line inside the canvas's top margin, start where the title does
+  and end before the right quarter of the menus.
 - **Smoke scenarios** (`tools/smoke/scenarios.toml`): `pipboy-screen-menu` turns Use
   Pip-Boy off (the Pip-Boy and glove taken off), opens the screen menu at 1920 × 1080 (the
   image made larger), changes page and tab, clicks a tab through the flat image, then turns

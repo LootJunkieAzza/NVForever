@@ -37,7 +37,7 @@
 //!   the flat image this module finds it.
 //! - **The screen menu** (docs/design/screen-menu.md): the same menus without the arm,
 //!   the image drawn full screen over the world blacked out, as the barter menu is, with
-//!   the device's three buttons as a header above it ([`frame::screen_header`]). It is the
+//!   the device's three buttons as a header in place of the page's title. It is the
 //!   frame in use ([`Frame`]) whenever the player wears no Pip-Boy, so the inventory never
 //!   needs one, and when the Gameplay setting Use Pip-Boy is off, which also takes the
 //!   Pip-Boy and its glove off (on puts them back on) [design: owner, 2026-10-31].
@@ -90,10 +90,8 @@ pub const CANVAS: Vec2 = Vec2::new(1024.0, 768.0);
 pub const TARGET: UVec2 = UVec2::new(1280, 960);
 
 /// The screen menu: how high the image of the canvas is drawn, interface units (960 to
-/// the view's height), and the header's strip above it [design: with the strip, 92% of
-/// the view, about the barter menu's footprint; docs/design/screen-menu.md §3.3].
-pub const SCREEN_IMAGE_H: f32 = 820.0;
-pub const SCREEN_HEADER_H: f32 = 64.0;
+/// the view's height) [design: 92% of the view; docs/design/screen-menu.md §3.3].
+pub const SCREEN_IMAGE_H: f32 = 884.0;
 /// The part of the canvas the screen menu shows: the menus' rectangle (`frame::MAIN`, 50
 /// in from the top left) and as much again right and below, so the menus sit centred and
 /// the canvas's empty right and bottom are left out [design].
@@ -431,7 +429,7 @@ impl Plugin for PipBoyPlugin {
                     advance,
                     camera_on,
                     (image_scale, flat_screen),
-                    (frame::draw, frame::screen_header),
+                    frame::draw,
                     (stats::draw, items::draw, data::draw),
                     data::wave_moves,
                     stats::use_hints,
@@ -720,7 +718,7 @@ struct FlatCrop(f32);
 fn image_scale(pip: Res<PipBoy>, screen: Option<ResMut<PipBoyScreen>>, windows: Query<&Window, With<PrimaryWindow>>, mut images: ResMut<Assets<Image>>, mut targets: Query<&mut RenderTarget>) {
     let Some(mut screen) = screen else { return };
     let want = match (pip.shown() && pip.frame == Frame::Screen, windows.single()) {
-        (true, Ok(w)) => (w.physical_height() as f32 * SCREEN_IMAGE_H / 960.0 / CANVAS.y).clamp(1.0, MAX_SCALE),
+        (true, Ok(w)) => (w.physical_height() as f32 * SCREEN_IMAGE_H / 960.0 / SCREEN_CROP.y).clamp(1.0, MAX_SCALE),
         _ => 1.0,
     };
     // Steps of an eighth, so a window dragged a pixel does not remake the image.
@@ -763,8 +761,7 @@ fn flat_screen(
             for e in &shades {
                 commands.entity(e).despawn();
             }
-            // The world blacked out as behind the barter menu; in it, a column: the
-            // header's strip, then the canvas's image, centred.
+            // The world blacked out; in it, the canvas's image, centred.
             let shade = Node {
                 position_type: PositionType::Absolute,
                 width: Val::Percent(100.0),
@@ -777,7 +774,6 @@ fn flat_screen(
             let width = SCREEN_IMAGE_H * SCREEN_CROP.x / SCREEN_CROP.y;
             let crop = Rect::new(0.0, 0.0, SCREEN_CROP.x * screen.scale, SCREEN_CROP.y * screen.scale);
             commands.spawn((ScreenShade, shade, BackgroundColor(Color::BLACK.with_alpha(SHADE)), GlobalZIndex(90), Pickable::IGNORE, Name::new("Pip-Boy screen menu"))).with_children(|s| {
-                s.spawn((frame::ScreenHeader, Node { width: u(width), height: u(SCREEN_HEADER_H), flex_shrink: 0.0, ..default() }, Pickable::IGNORE));
                 s.spawn((FlatScreen, FlatCrop(screen.scale), Node { width: u(width), height: u(SCREEN_IMAGE_H), flex_shrink: 0.0, ..default() }, ImageNode { rect: Some(crop), ..ImageNode::new(screen.image.clone()) }));
             });
         }
