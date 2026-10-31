@@ -41,7 +41,7 @@ use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
 use crate::{PlaySet, PlayState};
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
-use crate::ui_compat::Interaction;
+use crate::ui_pointer::PointerState;
 use fnv_game::caravan::{self as rules, Bet, Card, CaravanRequest, End, Event, Game, Move, Phase, Record, CAPS, MIN_DECK, OPPONENT, PLAYER};
 use fnv_sim::FormId;
 use rand_chacha::ChaCha8Rng;
@@ -695,16 +695,16 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, wheel: Res<AccumulatedMouseScroll>, scr
     }
 }
 
-type Clicked<'a> = (&'a Interaction, AnyOf<(&'a screen::CaravanButton, &'a crate::lockpick::screen::LockButton)>);
+type Clicked<'a> = (&'a PointerState, AnyOf<(&'a screen::CaravanButton, &'a crate::lockpick::screen::LockButton)>);
 
-fn buttons(screen: Res<CaravanScreen>, pressed: Query<Clicked, Changed<Interaction>>, mouse: Res<ButtonInput<MouseButton>>, mut out: MessageWriter<CaravanInput>) {
+fn buttons(screen: Res<CaravanScreen>, pressed: Query<Clicked, Changed<PointerState>>, mouse: Res<ButtonInput<MouseButton>>, mut out: MessageWriter<CaravanInput>) {
     let Some(s) = screen.0.as_ref() else { return };
     if s.stage == Stage::Results && s.help.is_none() && mouse.just_pressed(MouseButton::Left) {
         out.write(CaravanInput::Continue);
         return;
     }
     for (i, (b, help)) in &pressed {
-        if *i != Interaction::Pressed {
+        if *i != PointerState::Pressed {
             continue;
         }
         if let Some(b) = b {

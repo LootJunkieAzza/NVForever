@@ -16,7 +16,7 @@ use super::{AmountMeter, CmdButton, RowButton};
 use crate::interface::{amber, at, face, plain_font, set_line, texture, Face, Picture, Pictures};
 use bevy::ui::{FocusPolicy, RelativeCursorPosition};
 use bevy::prelude::*;
-use crate::ui_compat::{Button, Interaction};
+use crate::ui_pointer::{Button, PointerState};
 use fnv_font::{Font, Line};
 use fnv_sim::forms::ItemKind;
 use nvf_assets::GameData;
@@ -609,7 +609,7 @@ pub fn spawn_quantity(root: &mut ChildSpawnerCommands, q: &Quantity, words: &[St
     let mut c = Ctx { kit, data, images, bc };
     let bright = amber(255.0);
     let sheet = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
-    root.spawn((sheet, FocusPolicy::Block, Interaction::default()));
+    root.spawn((sheet, FocusPolicy::Block, PointerState::default()));
     let boxed = Node { width: crate::interface::u(Q_BOX.x), height: crate::interface::u(Q_BOX.y), ..default() };
     root.spawn((boxed, FocusPolicy::Block)).with_children(|b| {
         let shade = Color::srgba(0.0, 0.0, 0.0, SHADE);
