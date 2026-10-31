@@ -788,6 +788,8 @@ fn a_trait_name_ending_in_an_underscore_after_a_constant_reads_its_number() {
     <filename> <copy src="me()" trait="_flag"/> <copy src="me()" trait="_pic_"/> </filename> </image>
   <image name="On"> <_flag> &true; </_flag> <_pic_0> off.dds </_pic_0> <_pic_1> on.dds </_pic_1>
     <filename> <copy src="me()" trait="_flag"/> <copy src="me()" trait="_pic_"/> </filename> </image>
+  <image name="Unknown"> <_flag> &nvfunknown; </_flag> <_pic_0> off.dds </_pic_0>
+    <filename> <copy src="me()" trait="_flag"/> <copy src="me()" trait="_pic_"/> </filename> </image>
 </menu>"#,
     );
     let mut ui = Ui::new();
@@ -795,4 +797,6 @@ fn a_trait_name_ending_in_an_underscore_after_a_constant_reads_its_number() {
     ui.update();
     assert_eq!(ui.get_string("Flags/Off/filename").as_deref(), Some("off.dds"));
     assert_eq!(ui.get_string("Flags/On/filename").as_deref(), Some("on.dds"));
+    // A constant without a known number names no suffix: `_pic_` itself is read (absent).
+    assert_ne!(ui.get_string("Flags/Unknown/filename").as_deref(), Some("off.dds"));
 }
