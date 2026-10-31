@@ -141,16 +141,16 @@ cmd = ["python", "-m", "unittest", "discover", "-s", "tools/stress/tests"]
 
 [[scenario]]
 name = "memory-budget-capped"
-source = "#1170: the asset caches' keep limits follow the machine's RAM and the GPU's memory budget (VK_EXT_memory_budget); with the test aids capping them at 6 GB of RAM and a 512 MB card, the limits go to their least (30 s, 128 per cache) and the flight over Goodsprings goes over 85 % of the GPU budget, which presses the caches (10 s, 32)"
+source = "#1170: the asset caches' keep limits follow the machine's RAM and the GPU's memory budget (VK_EXT_memory_budget); with the test aids capping the GPU budget at 512 MB, the limits go to their least (30 s, 128 per cache) and the flight over Goodsprings uses over 85 % of it (this process's use of the device-local heaps, VK_EXT_memory_budget), which presses the caches (10 s, 32)"
 areas = ["renderer"]
 paths = ["engine/nvforever/src/memory_budget.rs", "engine/nvf-assets/src/release.rs"]
-env = { NVF_PLAY_TEST_VRAM_MB = "512", NVF_PLAY_TEST_RAM_MB = "6144" }
+env = { NVF_PLAY_TEST_VRAM_MB = "512" }
 args = ["--cell", "Goodsprings", "--auto-fly", "4000"]
 run_seconds = 40
 expect = [
-  { re = 'memory budget: RAM 6144 MB \(test aid; .*GPU budget 512 MB \(test aid; the device.s \d+ MB, VK_EXT_memory_budget', label = "both budgets read, then capped by the test aids" },
+  { re = 'memory budget: RAM \d+ MB .*GPU budget 512 MB \(test aid; the device.s \d+ MB, VK_EXT_memory_budget, device-local heaps; this process uses \d+ MB', label = "the GPU budget read, then capped by the test aid" },
   "caches keep unused models and textures 30 s, at most 128 per cache",
-  { re = 'memory budget: near a budget, caches pressed \(GPU allocated \d+ of 512 MB', label = "the flight's GPU allocations near the 512 MB budget press the caches" },
+  { re = 'memory budget: near a budget, caches pressed \(GPU: this process uses \d+ of 512 MB', label = "the flight's use of the device-local heaps near the 512 MB budget presses the caches" },
 ]
 
 [[scenario]]

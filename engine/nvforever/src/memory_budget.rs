@@ -5,25 +5,30 @@
 //! GPU budget could not be read). The GPU budget is `VK_EXT_memory_budget`'s, read through
 //! wgpu's Vulkan device (`Device::as_hal`): wgpu-hal 30 enables that extension whenever the
 //! adapter offers it (except on Mesa's RADV) [documented: wgpu-hal 30.0.1
-//! `vulkan/adapter.rs`, "Optional `VK_EXT_memory_budget`"], so no wgpu patch is needed. The
-//! budget is the sum of the device-local heaps' `heapBudget` [documented: Vulkan
-//! `VkPhysicalDeviceMemoryBudgetPropertiesEXT`: "an estimate of how much memory the process
-//! can allocate from that heap before allocations may fail or cause performance
-//! degradation"].
+//! `vulkan/adapter.rs`, "Optional `VK_EXT_memory_budget`"], so no wgpu patch is needed. Of
+//! the device-local heaps ([`device_local`]) it sums `heapBudget`, "an estimate of how much
+//! memory the process can allocate from that heap before allocations may fail or cause
+//! performance degradation", and `heapUsage`, "the estimated heap usage of the process"
+//! [documented: Vulkan `VkPhysicalDeviceMemoryBudgetPropertiesEXT`]. Budget and use are the
+//! same memory, measured by the driver: what the process holds of it, blocks the allocator
+//! keeps empty included (#898). An integrated GPU's memory is the machine's RAM: it has no
+//! GPU budget here, and the RAM check covers it.
 //!
 //! **Keep limits** ([`nvf_assets::KeepLimits`], read by the release sweep each 2 s) scale
 //! down from five minutes and 2048 unused entries per cache on a machine with less than
 //! [`FULL_RAM_MB`] of RAM or [`FULL_VRAM_MB`] of GPU budget, by the smaller share ([`limits_for`]).
-//! **Near the GPU budget** (what wgpu's allocator holds over [`PRESSURE_ON`] of it, or the
-//! process's committed memory over [`PRESSURE_ON`] of its RAM share) the sweep keeps
-//! [`PRESSED`]: unused entries go after 10 s and at most 32 stay per cache, the longest
-//! unused first, until use is back under [`PRESSURE_OFF`]. Each change is logged.
+//! **Pressed** ([`pressed`], checked every 2 s, the GPU budget read again each time so other
+//! programs' use counts): when the process uses over 85 % of the GPU budget, or the machine
+//! has under 10 % of its RAM free, the sweep keeps [`PRESSED`] (unused entries go after
+//! 10 s, at most 32 per cache, the longest unused first) until the GPU use is under 75 % and
+//! over 20 % of the RAM is free. Each change is logged.
 //!
 //! Test aids, since there is no small machine to test on: `NVF_PLAY_TEST_VRAM_MB=<MB>` and
-//! `NVF_PLAY_TEST_RAM_MB=<MB>` take the GPU budget and the RAM as at most that.
+//! `NVF_PLAY_TEST_RAM_MB=<MB>` take the GPU budget and the RAM as at most that (the RAM's
+//! free part shrinks by what was taken off).
 
 use bevy::prelude::*;
-use bevy::render::renderer::RenderDevice;
+use bevy::render::renderer::{RenderAdapterInfo, RenderDevice};
 use nvf_assets::KeepLimits;
 
 /// RAM at which the caches keep their full limits [design: the stress tour's process
@@ -33,12 +38,13 @@ pub const FULL_RAM_MB: u64 = 16 * 1024;
 /// GPU budget at which the caches keep their full limits [design: an 8 GB card; the tour's
 /// GPU allocations peak around 3-4 GB].
 pub const FULL_VRAM_MB: u64 = 8 * 1024;
-/// The share of the RAM the game's committed memory may take before the caches are pressed
-/// [design].
-pub const RAM_SHARE: f64 = 0.6;
-/// Use over this share of a budget presses the caches; under [`PRESSURE_OFF`] lets go [design].
-pub const PRESSURE_ON: f64 = 0.85;
-pub const PRESSURE_OFF: f64 = 0.75;
+/// A share of the GPU budget used: over `.0` presses the caches, under `.1` lets go [design].
+pub const GPU_PRESSURE: (f64, f64) = (0.85, 0.75);
+/// A share of the RAM in use by the whole machine: over `.0` (under 10 % free) presses the
+/// caches, under `.1` lets go [design: what the machine has free is what paging follows;
+/// the game's own commit (about 5 GB in a soak) on an 8 GB machine leaves about a quarter
+/// free, which is not pressed].
+pub const RAM_PRESSURE: (f64, f64) = (0.90, 0.80);
 /// The keep limits while pressed [design: a cell's own models stay in use while drawn; ten
 /// seconds keeps a door's other side for a quick return].
 pub const PRESSED: KeepLimits = KeepLimits { secs: 10.0, max: 32 };
@@ -49,7 +55,11 @@ const MIN_LIMITS: KeepLimits = KeepLimits { secs: 30.0, max: 128 };
 #[derive(Resource, Clone, Debug, Default)]
 pub struct MemoryBudget {
     pub ram_mb: Option<u64>,
+    /// The GPU budget, `None` when not read (not Vulkan, no extension, an integrated GPU).
     pub vram_mb: Option<u64>,
+    /// The test aids' caps (MB), applied again at each check.
+    aid_vram: Option<u64>,
+    aid_ram: Option<u64>,
     /// The limits the budgets give, when not pressed.
     pub base: KeepLimits,
     pub pressed: bool,
@@ -73,16 +83,39 @@ pub fn limits_for(ram_mb: Option<u64>, vram_mb: Option<u64>) -> KeepLimits {
     KeepLimits { secs: (full.secs * s).round().max(MIN_LIMITS.secs), max: ((full.max as f64 * s).round() as usize).max(MIN_LIMITS.max) }
 }
 
-/// Whether the caches are pressed now: over [`PRESSURE_ON`] of a budget presses them,
-/// under [`PRESSURE_OFF`] of every budget lets go, between keeps `was`.
-pub fn pressed(was: bool, shares: &[f64]) -> bool {
-    if shares.iter().any(|&s| s > PRESSURE_ON) {
+/// Whether the caches are pressed now, from each budget's share used with its
+/// (press, let go) thresholds: over a press threshold presses them, under every let-go
+/// threshold lets go, between keeps `was`.
+pub fn pressed(was: bool, shares: &[(f64, (f64, f64))]) -> bool {
+    if shares.iter().any(|&(s, (on, _))| s > on) {
         true
-    } else if shares.iter().all(|&s| s < PRESSURE_OFF) {
+    } else if shares.iter().all(|&(s, (_, off))| s < off) {
         false
     } else {
         was
     }
+}
+
+/// One memory heap from `VK_EXT_memory_budget`: device-local or not, its budget and this
+/// process's use, bytes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Heap {
+    pub device_local: bool,
+    pub budget: u64,
+    pub usage: u64,
+}
+
+/// The GPU's own memory, (budget, this process's use) in bytes: the device-local heaps'
+/// sums. `None` for an integrated GPU (its "device-local" heap is a carve-out of the RAM,
+/// and what spills goes to the RAM, which [`RAM_PRESSURE`] watches) and without a
+/// device-local budget.
+pub fn device_local(heaps: &[Heap], integrated: bool) -> Option<(u64, u64)> {
+    if integrated {
+        return None;
+    }
+    let local = heaps.iter().filter(|h| h.device_local);
+    let (budget, usage) = local.fold((0, 0), |(b, u), h| (b + h.budget, u + h.usage));
+    (budget > 0).then_some((budget, usage))
 }
 
 /// A test aid's MB (`NVF_PLAY_TEST_VRAM_MB` / `_RAM_MB`), when set and a number.
@@ -124,24 +157,16 @@ fn read_ram() -> Option<(u64, u64)> {
     None
 }
 
-/// This process's committed (private) memory in MB.
-#[cfg(windows)]
-fn process_commit_mb() -> Option<u64> {
-    use windows_sys::Win32::System::ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
-    use windows_sys::Win32::System::Threading::GetCurrentProcess;
-    let mut c: PROCESS_MEMORY_COUNTERS = unsafe { std::mem::zeroed() };
-    c.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
-    // SAFETY: the current process's pseudo handle and a counters struct of the size given.
-    (unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut c, c.cb) } != 0).then_some(c.PagefileUsage as u64 / MB)
+/// The RAM's share in use, a test aid's cap taken as RAM the machine does not have.
+fn ram_share(ram: (u64, u64), aid: Option<u64>) -> f64 {
+    let (total, free) = ram;
+    let cap = aid.map_or(total, |a| a.min(total));
+    let free = free.saturating_sub(total - cap);
+    1.0 - free as f64 / cap.max(1) as f64
 }
 
-#[cfg(not(windows))]
-fn process_commit_mb() -> Option<u64> {
-    None
-}
-
-/// The device-local heaps' budget and use in MB from `VK_EXT_memory_budget`, or why not.
-fn read_vram(device: &RenderDevice) -> Result<(u64, u64), String> {
+/// The GPU's heaps from `VK_EXT_memory_budget` and whether it is integrated, or why not.
+fn read_heaps(device: &RenderDevice) -> Result<Vec<Heap>, String> {
     use ash::vk;
     let wgpu_device = device.wgpu_device();
     // SAFETY: only reads through the hal device, which stays alive in the guard.
@@ -157,33 +182,38 @@ fn read_vram(device: &RenderDevice) -> Result<(u64, u64), String> {
     // SAFETY: the physical device belongs to this instance; the budget struct is chained
     // as the extension (enabled, checked above) asks. Vulkan 1.1 core, which wgpu requires.
     unsafe { instance.get_physical_device_memory_properties2(hal.raw_physical_device(), &mut props) };
-    let heaps = props.memory_properties.memory_heap_count as usize;
-    let local = props.memory_properties.memory_heaps[..heaps].iter().map(|h| h.flags.contains(vk::MemoryHeapFlags::DEVICE_LOCAL));
-    let (mut total, mut used) = (0u64, 0u64);
-    for (i, is_local) in local.enumerate() {
-        if is_local {
-            total += budget.heap_budget[i];
-            used += budget.heap_usage[i];
-        }
+    let n = props.memory_properties.memory_heap_count as usize;
+    let heaps = props.memory_properties.memory_heaps[..n].iter().enumerate();
+    Ok(heaps.map(|(i, h)| Heap { device_local: h.flags.contains(vk::MemoryHeapFlags::DEVICE_LOCAL), budget: budget.heap_budget[i], usage: budget.heap_usage[i] }).collect())
+}
+
+/// The GPU budget and this process's use of it, MB, or why not.
+fn read_vram(device: Option<&RenderDevice>, integrated: bool) -> Result<(u64, u64), String> {
+    let heaps = read_heaps(device.ok_or("no render device")?)?;
+    if integrated {
+        return Err("an integrated GPU: its memory is the RAM".into());
     }
-    if total == 0 {
-        return Err("no device-local heap budget".into());
-    }
-    Ok((total / MB, used / MB))
+    device_local(&heaps, false).map(|(b, u)| (b / MB, u / MB)).ok_or_else(|| "no device-local heap budget".into())
+}
+
+fn integrated(adapter: Option<&RenderAdapterInfo>) -> bool {
+    adapter.is_some_and(|a| a.device_type == wgpu::DeviceType::IntegratedGpu)
 }
 
 /// Read the budgets, log them and set the keep limits.
-fn read_budgets(mut commands: Commands, device: Option<Res<RenderDevice>>, mut budget: ResMut<MemoryBudget>) {
+fn read_budgets(mut commands: Commands, device: Option<Res<RenderDevice>>, adapter: Option<Res<RenderAdapterInfo>>, mut budget: ResMut<MemoryBudget>) {
     let ram = read_ram();
-    let ram_mb = capped(ram.map(|r| r.0), aid_mb("NVF_PLAY_TEST_RAM_MB"));
-    let vram = match device.as_deref() {
-        Some(d) => read_vram(d),
-        None => Err("no render device".into()),
+    let aid_ram = aid_mb("NVF_PLAY_TEST_RAM_MB");
+    let ram_mb = capped(ram.map(|r| r.0), aid_ram);
+    let vram = read_vram(device.as_deref(), integrated(adapter.as_deref()));
+    let aid_vram = aid_mb("NVF_PLAY_TEST_VRAM_MB");
+    let vram_mb = match &vram {
+        Ok((b, _)) => capped(Some(*b), aid_vram),
+        Err(_) => aid_vram,
     };
-    let vram_aid = aid_mb("NVF_PLAY_TEST_VRAM_MB");
-    let (vram_mb, source) = match &vram {
-        Ok((b, used)) => (capped(Some(*b), vram_aid), format!("VK_EXT_memory_budget, device-local heaps, {used} MB in use by the machine")),
-        Err(e) => (vram_aid, format!("not read: {e}")),
+    let source = match &vram {
+        Ok((_, used)) => format!("VK_EXT_memory_budget, device-local heaps; this process uses {used} MB"),
+        Err(e) => format!("not read: {e}"),
     };
     let base = limits_for(ram_mb, vram_mb);
     let ram_text = match (ram, ram_mb) {
@@ -198,26 +228,33 @@ fn read_budgets(mut commands: Commands, device: Option<Res<RenderDevice>>, mut b
         (_, None) => format!("GPU budget {source}"),
     };
     info!("memory budget: {ram_text}, {vram_text}; caches keep unused models and textures {:.0} s, at most {} per cache", base.secs, base.max);
-    *budget = MemoryBudget { ram_mb, vram_mb, base, pressed: false };
+    *budget = MemoryBudget { ram_mb, vram_mb, aid_vram, aid_ram, base, pressed: false };
     commands.insert_resource(base);
 }
 
-/// Every 2 s: what wgpu's allocator holds against the GPU budget and the process's
-/// committed memory against its share of the RAM; press the caches near either.
-fn watch_use(real: Res<Time<Real>>, device: Option<Res<RenderDevice>>, mut budget: ResMut<MemoryBudget>, mut limits: ResMut<KeepLimits>, mut last: Local<f64>) {
+/// Every 2 s: this process's use of the GPU budget (both read again: other programs change
+/// the budget) and the machine's free RAM; press the caches near either.
+fn watch_use(
+    real: Res<Time<Real>>,
+    device: Option<Res<RenderDevice>>,
+    adapter: Option<Res<RenderAdapterInfo>>,
+    mut budget: ResMut<MemoryBudget>,
+    mut limits: ResMut<KeepLimits>,
+    mut last: Local<f64>,
+) {
     let now = real.elapsed_secs_f64();
     if now - *last < f64::from(nvf_assets::release::SWEEP_SECS) {
         return;
     }
     *last = now;
-    let gpu_mb = device.as_deref().and_then(|d| d.wgpu_device().generate_allocator_report()).map(|r| r.total_allocated_bytes / MB);
-    let ram_mb = process_commit_mb();
+    let gpu = budget.vram_mb.and_then(|_| read_vram(device.as_deref(), integrated(adapter.as_deref())).ok()).map(|(b, used)| (capped(Some(b), budget.aid_vram).unwrap_or(b), used));
+    let ram = read_ram();
     let mut shares = Vec::new();
-    if let (Some(used), Some(b)) = (gpu_mb, budget.vram_mb) {
-        shares.push(used as f64 / b as f64);
+    if let Some((b, used)) = gpu {
+        shares.push((used as f64 / b.max(1) as f64, GPU_PRESSURE));
     }
-    if let (Some(used), Some(r)) = (ram_mb, budget.ram_mb) {
-        shares.push(used as f64 / (r as f64 * RAM_SHARE));
+    if let Some(r) = ram {
+        shares.push((ram_share(r, budget.aid_ram), RAM_PRESSURE));
     }
     let now_pressed = pressed(budget.pressed, &shares);
     if now_pressed == budget.pressed {
@@ -225,17 +262,11 @@ fn watch_use(real: Res<Time<Real>>, device: Option<Res<RenderDevice>>, mut budge
     }
     budget.pressed = now_pressed;
     *limits = if now_pressed { PRESSED } else { budget.base };
-    let text = |u: Option<u64>, b: Option<u64>| match (u, b) {
-        (Some(u), Some(b)) => format!("{u} of {b} MB"),
-        (Some(u), None) => format!("{u} MB"),
-        _ => "?".to_string(),
-    };
-    let ram_cap = budget.ram_mb.map(|r| (r as f64 * RAM_SHARE) as u64);
+    let gpu_text = gpu.map_or("?".to_string(), |(b, used)| format!("{used} of {b} MB"));
+    let ram_text = ram.map_or("?".to_string(), |r| format!("{:.0} % in use", ram_share(r, budget.aid_ram) * 100.0));
     info!(
-        "memory budget: {} (GPU allocated {}, process committed {}); caches keep unused {:.0} s, at most {} per cache",
+        "memory budget: {} (GPU: this process uses {gpu_text}; RAM: {ram_text}); caches keep unused {:.0} s, at most {} per cache",
         if now_pressed { "near a budget, caches pressed" } else { "back under the budgets" },
-        text(gpu_mb, budget.vram_mb),
-        text(ram_mb, ram_cap),
         limits.secs,
         limits.max
     );
@@ -259,10 +290,41 @@ mod tests {
     #[test]
     fn caches_are_pressed_near_a_budget_and_let_go_well_under() {
         assert!(!pressed(false, &[]));
-        assert!(pressed(false, &[0.5, 0.9]), "one budget over 85 %");
-        assert!(pressed(true, &[0.8, 0.2]), "between: stays pressed");
-        assert!(!pressed(false, &[0.8]), "between: stays let go");
-        assert!(!pressed(true, &[0.7, 0.74]), "every budget under 75 %");
+        assert!(pressed(false, &[(0.5, GPU_PRESSURE), (0.9, GPU_PRESSURE)]), "one budget over 85 %");
+        assert!(pressed(true, &[(0.8, GPU_PRESSURE), (0.2, RAM_PRESSURE)]), "between: stays pressed");
+        assert!(!pressed(false, &[(0.8, GPU_PRESSURE)]), "between: stays let go");
+        assert!(!pressed(true, &[(0.7, GPU_PRESSURE), (0.74, RAM_PRESSURE)]), "every budget under its let-go share");
+        assert!(!pressed(false, &[(0.88, RAM_PRESSURE)]), "RAM 88 % in use: not yet");
+        assert!(pressed(false, &[(0.92, RAM_PRESSURE)]), "under 10 % of the RAM free");
+    }
+
+    /// The GPU budget is the device-local heaps' only, and the use compared with it is
+    /// those heaps' too; an integrated GPU, or none device-local, has none.
+    #[test]
+    fn the_gpu_budget_is_the_device_local_heaps() {
+        const G: u64 = 1 << 30;
+        // A discrete card: 12 GB of its own, 32 GB of the machine's seen through it.
+        let discrete = [Heap { device_local: true, budget: 11 * G, usage: 3 * G }, Heap { device_local: false, budget: 30 * G, usage: 5 * G }];
+        assert_eq!(device_local(&discrete, false), Some((11 * G, 3 * G)), "the host heap's use does not count against the card");
+        // A card with a second, small device-local heap (the host-visible BAR window).
+        let bar = [Heap { device_local: true, budget: 7 * G, usage: G }, Heap { device_local: true, budget: G / 4, usage: G / 8 }, Heap { device_local: false, budget: 16 * G, usage: G }];
+        assert_eq!(device_local(&bar, false), Some((7 * G + G / 4, G + G / 8)));
+        // An APU: a 512 MB carve-out marked device-local, the rest in the RAM's heap.
+        let apu = [Heap { device_local: true, budget: G / 2, usage: G / 2 }, Heap { device_local: false, budget: 14 * G, usage: 2 * G }];
+        assert_eq!(device_local(&apu, true), None, "an integrated GPU: the RAM check covers it");
+        // No device-local budget reported.
+        assert_eq!(device_local(&[Heap { device_local: false, budget: 8 * G, usage: G }], false), None);
+        assert_eq!(device_local(&[], false), None, "no extension: no heaps");
+    }
+
+    #[test]
+    fn the_ram_aid_takes_ram_away_from_whats_free() {
+        // 48 GB, 32 GB free: 33 % in use.
+        assert!((ram_share((48_000, 32_000), None) - 1.0 / 3.0).abs() < 1e-9);
+        // Capped at 6 GB: the 16 GB in use leave nothing free.
+        assert_eq!(ram_share((48_000, 32_000), Some(6_000)), 1.0);
+        // Capped at 24 GB: 8 of them free.
+        assert!((ram_share((48_000, 32_000), Some(24_000)) - (1.0 - 8.0 / 24.0)).abs() < 1e-9);
     }
 
     #[test]
