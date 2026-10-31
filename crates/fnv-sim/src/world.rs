@@ -159,6 +159,11 @@ pub struct RefState {
     /// UnequipItem's NoEquipFlag), by base form ([`World::lock_equip`]).
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub equip_locks: BTreeMap<FormId, EquipLock>,
+    /// A created item reference that an actor dropped as it died (its weapon): that
+    /// actor. The corpse's loot menu lists it beside the body's inventory, and taking it
+    /// there picks this reference up ([`World::dropped_beside`]).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub dropped_by: Option<FormId>,
 }
 
 /// A script's lock on an item of an actor [documented: GECK wiki EquipItem, "If
@@ -517,6 +522,7 @@ impl<'a> World<'a> {
             last_restock: None,
             scale: None,
             equip_locks: BTreeMap::new(),
+            dropped_by: None,
             outfitted: false,
         })
     }
@@ -1071,6 +1077,7 @@ impl<'a> World<'a> {
                     outfitted: false,
                     scale: None,
                     equip_locks: BTreeMap::new(),
+                    dropped_by: None,
                 },
             );
             out.push(id);
@@ -1590,6 +1597,7 @@ impl<'a> World<'a> {
                 outfitted,
                 scale: None,
                 equip_locks: BTreeMap::new(),
+                dropped_by: None,
             },
         );
         Ok(id)
@@ -1651,6 +1659,12 @@ impl<'a> World<'a> {
     /// (`RefState::deleted`).
     pub fn created(&self) -> impl Iterator<Item = (FormId, &RefState)> {
         self.refs.range(FormId::FIRST_DYNAMIC..).map(|(&k, v)| (k, v))
+    }
+
+    /// The created references `holder` dropped as it died ([`RefState::dropped_by`]) that
+    /// are still present (not taken, enabled), in FormID order.
+    pub fn dropped_beside(&self, holder: FormId) -> Vec<FormId> {
+        self.created().filter(|(_, s)| s.dropped_by == Some(holder) && !s.deleted && s.enabled).map(|(id, _)| id).collect()
     }
 
     /// The newest reference created at run time (a drop) whose base is `base` and that

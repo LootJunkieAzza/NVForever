@@ -239,9 +239,9 @@ fn sever_groups(rig: &ActorRig, shape: &LimbShape, sides: &[(u16, HashSet<String
     } else {
         let locations: Vec<u16> = sides.iter().map(|s| s.0).collect();
         for p in shape.partitions.iter() {
-            match piece_of(p.body_part, shape.cap, &locations).filter(|&k| fallback[k as usize].is_some()) {
+            match piece_of(p.body_part, p.cap, &locations).filter(|&k| fallback[k as usize].is_some()) {
                 Some(k) => groups[k as usize].1.extend_from_slice(&p.indices),
-                None if partition_drawn(p.body_part, shape.cap, exploded, severed) => groups[0].1.extend_from_slice(&p.indices),
+                None if partition_drawn(p.body_part, p.cap, exploded, severed) => groups[0].1.extend_from_slice(&p.indices),
                 None => {}
             }
         }
@@ -336,8 +336,10 @@ fn apply_skins(
                 }
                 dismember_mesh(&shape.cpu, &[], |_| false)
             } else {
-                let keep = |bp: u16| partition_drawn(bp, shape.cap, &exploded, &severed);
-                if !shape.cap && shape.partitions.iter().all(|p| keep(p.body_part)) {
+                // By each partition's own flag: a cap partition may share a shape with
+                // drawn ones (dismemberment.md §2.5).
+                let keep = |p: &nvf_assets::actor::Partition| partition_drawn(p.body_part, p.cap, &exploded, &severed);
+                if !shape.partitions.iter().any(|p| p.cap) && shape.partitions.iter().all(keep) {
                     continue;
                 }
                 dismember_mesh(&shape.cpu, &shape.partitions, keep)

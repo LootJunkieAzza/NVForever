@@ -143,7 +143,13 @@ All three favour A. Rule used by `crates/fnv-vfs` (lowest precedence first):
    the shipped data: the six share no path, observed];
 2. `Update.bsa` — **overrides the base archives** [observed, two objects above];
 3. each active plugin's own archives (`<plugin stem> - *.bsa`, `<plugin stem>.bsa`) in
-   load order — a **DLC archive overrides the base archives** [observed, Nellis hangar];
+   load order — a **DLC archive overrides the base archives** [observed, Nellis hangar].
+   An archive that two loaded plugins' stems both match (`Foo - Bar.bsa` for `Foo.esp`
+   and `Foo - Bar.esp`) goes with the longer stem, so it takes `Foo - Bar.esp`'s place
+   in the load order (#996) [hypothesis: no source says how the original picks; the
+   shipped data has no such pair (every archive matches one plugin), so the rule changes
+   nothing for an unmodded install, `vfs-order-shipped`; chosen because the longer name
+   is the more specific claim];
 4. loose files [hypothesis: no loose mesh or texture exists in the owner's `Data`
    (only music, radio songs, shader packages and the intro video), and the project never
    writes into the game folder, so this stays untested; `bInvalidateOlderFiles=1` is
