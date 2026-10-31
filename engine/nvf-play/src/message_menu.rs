@@ -88,12 +88,23 @@ pub struct MessagePanel {
     /// opens [observed: hud_menus capture 2026-10-31, `_highlight_y` -1 and the highlight
     /// hidden at open]. The hand-built box frames `selected` from the start (§4).
     pub chosen: bool,
+    /// Which showing of a box `view` is (`fnv_game::Game::front_box`'s serial), so a box
+    /// replaced by one alike in every word is a new box too.
+    pub showing: Option<u64>,
 }
 
 impl MessagePanel {
+    /// A box (or none) to show, the same showing as before.
     pub fn set(&mut self, view: Option<PanelView>) {
-        if self.view != view {
+        self.show(view, self.showing);
+    }
+
+    /// A box (or none) to show, and which showing it is: another view or another showing
+    /// starts at the first button with no row chosen (§4; T15a).
+    pub fn show(&mut self, view: Option<PanelView>, showing: Option<u64>) {
+        if self.view != view || self.showing != showing {
             self.view = view;
+            self.showing = showing;
             self.selected = 0;
             self.chosen = false;
         }
@@ -497,6 +508,17 @@ People like you.", &["Ok"]);
         assert_eq!(p.framed(), Some(2));
         p.set(Some(view(None, "y", &["a"])));
         assert_eq!(p.framed(), None);
+        // A box replaced by one alike in every word (the next showing): no row chosen, and
+        // the first Down picks the first row again.
+        let a = view(None, "same", &["a", "b"]);
+        p.show(Some(a.clone()), Some(1));
+        p.choose(1);
+        p.show(Some(a.clone()), Some(1));
+        assert_eq!(p.framed(), Some(1), "the same showing keeps its choice");
+        p.show(Some(a), Some(2));
+        assert_eq!(p.framed(), None);
+        p.key(1, true);
+        assert_eq!(p.framed(), Some(0));
         // The hand-built box's keys move from the first row at once.
         p.set(Some(view(None, "z", &["a", "b"])));
         p.key(1, false);

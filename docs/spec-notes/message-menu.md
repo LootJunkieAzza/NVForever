@@ -162,10 +162,13 @@ default, §4 stands. The panels of the other script menus (§4's placeholder) st
     chooses the first row [design: Up as Down]; Enter with none chosen answers the first
     button, as §4's box [design: not captured]. §4's box keeps its first row chosen.
   - **An empty title is 14 x 38** (`visible` 0), so the text stands at y 43 and the box
-    keeps the title's room (167 high for one line and one button): written as an empty
-    string measured one space wide (font 6's space advances 14) and one line high (its
-    tallest glyph, 38) (`draw::measure_written`) [hypothesis: the rule; the values
-    observed].
+    keeps the title's room (167 high for one line and one button): the title, empty,
+    written one space wide (font 6's space advances 14) and one line high (its tallest
+    glyph, 38) (`draw::measure_written`) [observed: the title's values; hypothesis: the
+    rule]. Other empty texts of the tiled menus (the files', mods') are written 0 x 0, as
+    before [design: not captured].
+  - A box replaced by one alike in every word is a new box: it opens with no row chosen
+    (`MessagePanel::showing`, the queued box's serial).
   - **Font 2's texts** (the message, the rows' "Ok") stand 16 under their tile's top, a
     line 35 below the last, one line 32 high, so a row is 52 high: the tile renderer's
     per-font lines and pitches (`draw::text_base`, `draw::line_pitch`, `draw::measure`;

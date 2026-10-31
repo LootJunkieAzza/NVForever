@@ -309,8 +309,10 @@ fn draw(
     if hud.wheel_line != subs.wheel {
         hud.wheel_line = subs.wheel.clone();
     }
-    if panel.view != p {
-        panel.set(p);
+    // Which showing of a message box this is: a box replaced by one alike starts afresh.
+    let showing = script.rt.as_ref().filter(|rt| rt.game.menu == Some(MENU_MESSAGE)).and_then(|rt| rt.game.front_box()).map(|b| b.serial);
+    if panel.view != p || panel.showing != showing {
+        panel.show(p, showing);
     }
     if subs != *shown {
         if subs.logged != shown.logged && !subs.logged.is_empty() {

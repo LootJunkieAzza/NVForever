@@ -483,6 +483,7 @@ pub fn write_text_sizes(ui: &mut Ui, menu: TileId, last: &mut SizesWritten, size
 /// for the fonts and the sizes both).
 pub fn write_text_sizes_of(ui: &mut Ui, tiles: &[TileId], last: &mut SizesWritten, size: &Size<'_>) -> usize {
     last.retain(|t, _| tiles.contains(t));
+    let title = ui.find_tile(&format!("{MAIN}/MM_Title"));
     let mut written = 0;
     for &t in tiles {
         let tile = ui.tile(t);
@@ -501,8 +502,10 @@ pub fn write_text_sizes_of(ui: &mut Ui, tiles: &[TileId], last: &mut SizesWritte
                 continue;
             }
         }
-        // An empty string is measured too (the empty title keeps its room, `size`).
-        let measured = size(font, &string, wrap);
+        // The box's empty title is measured (one space wide, one line high: it keeps its
+        // room) [observed: hud_menus capture 2026-10-31, 14 x 38]; another empty text
+        // (the files', a mod's) measures nothing, as before [design: not captured].
+        let measured = if string.is_empty() && Some(t) != title { (0.0, 0.0) } else { size(font, &string, wrap) };
         if own_width {
             ui.set_trait(t, "width", Value::Num(measured.0));
         }
@@ -814,6 +817,10 @@ mod tests {
         write_text_sizes(&mut ui, menu, &mut SizesWritten::new(), &sized);
         ui.update();
         assert_eq!((f(&ui, "MM_Title/width"), f(&ui, "MM_Title/height"), f(&ui, "MM_Title/visible")), (14.0, 38.0, 0.0));
+        // Another empty text (here the message's own, emptied) measures nothing.
+        ui.set_string("MessageMenu/NOGLOW_BRANCH/MM_MainRect/MM_MessageText/string", "");
+        write_text_sizes(&mut ui, menu, &mut SizesWritten::new(), &sized);
+        assert_eq!((f(&ui, "MM_MessageText/width"), f(&ui, "MM_MessageText/height")), (0.0, 0.0));
         // The row's text, font 2: set out on font 2's line, 16 under its tile's top
         // [observed: hud_menus capture 2026-10-31, "Ok" 16.5 under ListItemText's y].
         let (set, _) = pieces(&ui, menu, &sized, Select::Whole { kept: &[], strip: None });
