@@ -332,17 +332,25 @@ NVForever's own HUD, from the layout of §3.1.1. What it takes the traits to mea
   `button_text` has 0 and measured one line). [hypothesis] A text's height is its lines
   times the font's line height; each line is set left, centred or right inside the box by
   `justify`, one line height under the last.
-- [hypothesis, T12c] A text's first line stands `draw::TEXT_BASE`, 24 units, under its
-  top whatever its font. On the original's screenshots texts set at one `y` stand on one
-  line: `RadiationMeter`'s `radiation_text` (font 7) and `radiation_text_value` (font 8),
-  both at y 65, stand on one line 23.7 under it; the sneak word (font 1, `SneakMeter` y
-  30) 22 under its top; the prompt's verb, name and figures (font 7) 24.5-25.5 under the
-  places the captures read for their tiles, against the hand-built prompt's lines
-  measured on the owner's screenshots (`reticle.rs`) [observed: private shots
-  `hud_corners` rad_coc_spot, `hud_jip` s4_sneak_drawn; hud.md §14.8's places]. Until
-  T12c each font's tallest glyph set the line (`interface::line_base`: 28, 33, 48 for
-  fonts 1, 7, 8), which put `+14` 15 units under `RAD/SEC`. What the original's distance
-  is made of is not known; 24 is the font-7 readings' middle.
+- [observed: hud_textbase capture 2026-10-31, hud.md §14.10] A text's first line
+  stands under its top by its font (`draw::text_base`): 24 units in font 7, 29.5 in
+  font 8, 20 in font 1 (a tile with no `font`), measured from the capitals' ink in the
+  original against where NVForever's glyph pictures put it (fonts.md §3), font 7's kept
+  at the earlier readings' 24 and fonts 8 and 1 as far from it as the capture shows; the
+  fonts no capture measured take 24 [hypothesis]. Texts of fonts 7 and 8 set at one `y` do not
+  stand on one line: `radiation_text` ("RAD/SEC", font 7) and `radiation_text_value`
+  ("+9", font 8), both at y 65, end 25.0 and 31.7 under it. T12c (2026-10-29) stood
+  every font's line 24 under the top [hypothesis then: the two radiation texts read on
+  one line 23.7 under their `y`, the sneak word (font 1, `SneakMeter` y 30) 22, the
+  prompt's lines (font 7) 24.5-25.5 under the captures' places, private shots
+  `hud_corners` rad_coc_spot, `hud_jip` s4_sneak_drawn, hud.md §14.8]; the font-8
+  reading was wrong (#979). Until T12c each font's tallest glyph set the line
+  (`interface::line_base`: 28, 33, 48 for fonts 1, 7, 8).
+- [observed: hud_textbase capture 2026-10-31] A text tile's `height`, read in the
+  original, is its font's tallest glyph picture whatever its string: 36 for font 1, 42
+  for font 7, 64 for font 8 (fonts.md §3). NVForever's `measure` gives lines times the
+  font's size (31, 36, 52 for one line) and writes no text tile's `height` [design: a
+  difference kept, not yet needed].
 - [hypothesis] Colour: a tile's own `systemcolor`; else its own `red`/`green`/`blue`
   when it sets any; else the nearest tile above's `systemcolor`; else system colour 1, the
   HUD's [documented: GECK wiki Color UI directives, "Systemcolor is by default 1 and always

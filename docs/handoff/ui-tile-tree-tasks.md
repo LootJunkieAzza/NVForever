@@ -523,7 +523,8 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       the tile HUD's [observed]. **Maintainer's choices kept:** the ammo abbreviation
       right of the divider (owner 2026-10-25), LMB's looks (owner 2026-10-23/24), and
       those T12b listed. **Needs a capture:** the tile HUD's LEVEL UP (font 8's line
-      under its `y` against `radiation_text`'s, §14.10); the side a target to the right
+      under its `y` against `radiation_text`'s, §14.10; captured 2026-10-31, a line per
+      font since #979); the side a target to the right
       is held at. Smoke: `tiles-hud-ammo-label` (new); `hud-compass-north` logs the
       strip's place. Only `cargo check -p nvf-play --tests` and `cargo check -p fnv-game
       --tests` were run, and `python tools/smoke verify` (644 scenarios, fine).

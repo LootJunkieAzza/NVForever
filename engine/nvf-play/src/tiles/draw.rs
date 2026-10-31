@@ -113,13 +113,13 @@ impl FontKit<'_> {
 
     /// The hand-built HUD's corner label places (`crate::hud::label_places`) in font 7, the
     /// HUD's [documented: hudtemplates.xml's text templates], and how far a text tile's
-    /// first line stands below its top ([`TEXT_BASE`]): what a text tile's `y` is above
-    /// the line.
+    /// first line stands below its top in font 7 ([`text_base`]): what a text tile's `y`
+    /// is above the line.
     pub(crate) fn hud_labels(&mut self) -> ([(f32, f32); 4], f32) {
         self.load(7.0);
         match self.face(7.0) {
-            Some(face) => (crate::hud::label_places(&face.font), TEXT_BASE),
-            None => (crate::hud::label_places(&plain_font(31.0, 15.0)), TEXT_BASE),
+            Some(face) => (crate::hud::label_places(&face.font), text_base(7)),
+            None => (crate::hud::label_places(&plain_font(31.0, 15.0)), text_base(7)),
         }
     }
 
@@ -286,19 +286,36 @@ pub fn placed(fit: Fit, piece: bool, texels: (f64, f64)) -> Placed {
     }
 }
 
-/// How far a text tile's first line stands under its top, the same for every font: the
-/// next lines one line height apart [hypothesis: on the original's screenshots texts set
-/// at one `y` stand on one line whatever their font, `radiation_text` (font 7) and
-/// `radiation_text_value` (font 8) 23.7 under their `y`, the sneak word (font 1) 22, the
-/// prompt's lines (font 7) 24.5-25.5 under the places the captures read for them against
-/// the hand-built prompt's measured lines; the fonts' tallest glyphs (`line_base`: 28, 33
-/// and 48) put them 15 units apart; menu-xml.md §3.1.2].
-pub const TEXT_BASE: f32 = 24.0;
+/// How far a text tile's first line stands under its top in font number `font`
+/// ([`font_number`]), the line a glyph's `ascent` is measured from
+/// (`interface::set_marked`); the next lines one line height apart [hypothesis]. One
+/// number per font [observed: hud_textbase capture 2026-10-31, hud.md §14.10: the
+/// capitals' ink ends 24-25 units under the tile's `y` in font 7 ("RAD/SEC", "XP"),
+/// 31.7-32 in font 8 ("+9", "LEVEL UP"), about 21 in font 1 (the level digits); "+9"
+/// and "RAD/SEC", both at y 65, are not on one line]. The fonts' glows are as deep under
+/// the letters as over them, so the middle of a text's ink is where it is whatever edge
+/// the eye takes; the glyph pictures put that middle 12 units over this line in font 7,
+/// 17.5-18 in font 8 and 10 in font 1 [observed: the font textures, fonts.md §3].
+/// Measured so, the capture's lines stand 24.9, 30.5 and 21.0 under the tops; font 7
+/// keeps 24, the earlier captures' 23.7-25.5 (menu-xml.md §3.1.2), and fonts 8 and 1
+/// stand as far from it as the capture shows, 5.5 below and 4 above. No single font
+/// measure gives all three (the size less the deepest glyph's reach under the line: 21,
+/// 24, 37; fonts.md §3).
+pub const fn text_base(font: u8) -> f32 {
+    match font {
+        1 => 20.0,
+        8 => 29.5,
+        // Font 7, and the fonts no capture has measured yet, which take font 7's line
+        // [hypothesis: needs a capture of a text in each].
+        _ => 24.0,
+    }
+}
 
 /// The lines of a text tile as they are set in its box (`width` wide before the text's
-/// zoom): each line, its x by the tile's justification [hypothesis] and its baseline
-/// ([`TEXT_BASE`]).
-pub fn text_lines(font: &Font, string: &str, wrap: Option<f64>, alignment: Alignment, width: f64) -> Vec<(fnv_font::Line, f32, f32)> {
+/// zoom): each line, its x by the tile's justification [hypothesis] and its baseline in
+/// font number `number` ([`text_base`]).
+pub fn text_lines(font: &Font, number: u8, string: &str, wrap: Option<f64>, alignment: Alignment, width: f64) -> Vec<(fnv_font::Line, f32, f32)> {
+    let base = text_base(number);
     let width = width as f32;
     font.lines(string, wrap.map(|w| w as f32))
         .into_iter()
@@ -309,7 +326,7 @@ pub fn text_lines(font: &Font, string: &str, wrap: Option<f64>, alignment: Align
                 Alignment::Center => (width - line.width) / 2.0,
                 Alignment::Right => width - line.width,
             };
-            (line, x, TEXT_BASE + i as f32 * font.size)
+            (line, x, base + i as f32 * font.size)
         })
         .collect()
 }
@@ -694,7 +711,7 @@ fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pictu
             let id = p
                 .spawn((node, Pickable::IGNORE))
                 .with_children(|t| {
-                    for (line, x, base) in text_lines(&face.font, string, *wrap, *alignment, r.width) {
+                    for (line, x, base) in text_lines(&face.font, *font, string, *wrap, *alignment, r.width) {
                         set_marked(t, face, &line, x, base, colour, Ink::Drawn);
                     }
                 })
@@ -1226,17 +1243,34 @@ mod tests {
         assert_eq!(drawn[2].colour[..3], [1.0, 1.0, 1.0]);
     }
 
-    /// T12c: texts of two fonts set at one `y` stand on one line, `TEXT_BASE` under it,
-    /// the next lines a line height apart; justification sets each line in the box.
+    /// #979: texts of fonts 7 and 8 set at one `y` do not stand on one line: "RAD/SEC"
+    /// (font 7) 24 under it, "+9" (font 8) 5.5 lower, as the original's ink (hud.md
+    /// §14.10); the next lines a line height apart; justification sets each line in the
+    /// box.
     #[test]
-    fn texts_of_two_fonts_at_one_y_share_a_line() {
+    fn fonts_7_and_8_at_one_y_stand_on_their_own_lines() {
         let (small, large) = (plain_font(36.0, 15.0), plain_font(52.0, 20.0));
-        let a = text_lines(&small, "RAD/SEC", None, Alignment::Left, 105.0);
-        let b = text_lines(&large, "+14", None, Alignment::Right, 100.0);
-        assert_eq!((a[0].2, b[0].2), (TEXT_BASE, TEXT_BASE));
-        assert_eq!((a[0].1, b[0].1), (0.0, 40.0));
-        let two = text_lines(&small, "ab cd", Some(40.0), Alignment::Center, 40.0);
-        assert_eq!(two.iter().map(|(_, x, base)| (*x, *base)).collect::<Vec<_>>(), [(5.0, TEXT_BASE), (5.0, TEXT_BASE + 36.0)]);
+        let a = text_lines(&small, 7, "RAD/SEC", None, Alignment::Left, 105.0);
+        let b = text_lines(&large, 8, "+9", None, Alignment::Right, 100.0);
+        assert_eq!((a[0].2, b[0].2), (24.0, 29.5));
+        assert_eq!((a[0].1, b[0].1), (0.0, 60.0));
+        let two = text_lines(&small, 7, "ab cd", Some(40.0), Alignment::Center, 40.0);
+        assert_eq!(two.iter().map(|(_, x, base)| (*x, *base)).collect::<Vec<_>>(), [(5.0, 24.0), (5.0, 24.0 + 36.0)]);
+        // A font-8 text's second line one font-8 line height under its first.
+        let lines = text_lines(&large, 8, "ab cd", Some(40.0), Alignment::Left, 40.0);
+        assert_eq!(lines.iter().map(|(_, _, base)| *base).collect::<Vec<_>>(), [29.5, 29.5 + 52.0]);
+    }
+
+    /// #979: a text with no `font` is font 1 ([`font_number`]), whose line stands 20 under
+    /// its top (the level digits' ink, hud.md §14.10); the fonts no capture measured take
+    /// font 7's 24 [hypothesis].
+    #[test]
+    fn the_default_font_stands_higher_and_unmeasured_fonts_take_font_7s_line() {
+        assert_eq!(text_base(font_number(0.0)), 20.0);
+        let digit = text_lines(&plain_font(31.0, 15.0), font_number(0.0), "2", None, Alignment::Left, 15.0);
+        assert_eq!(digit[0].2, 20.0);
+        assert_eq!([2, 3, 4, 5, 6, 9].map(text_base), [24.0; 6]);
+        assert_eq!(text_base(7), 24.0);
     }
 
     /// T12d: a `tile` picture is one image of its repeats at its texels' resolution,
