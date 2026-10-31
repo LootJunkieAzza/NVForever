@@ -679,8 +679,7 @@ fn goto_and_look(
     mut player: ResMut<Player>,
     locks: Res<crate::control::ControlLocks>,
     mut stats: ResMut<crate::control::LockStats>,
-    driven: Option<Res<crate::player::ViewDriven>>,
-    kill_cam: Option<Res<crate::kill_cam::KillCam>>,
+    (driven, kill_cam): (Option<Res<crate::player::ViewDriven>>, Option<Res<crate::kill_cam::KillCam>>),
 ) {
     let now = time.elapsed_secs();
     if phys.player.is_some() {
