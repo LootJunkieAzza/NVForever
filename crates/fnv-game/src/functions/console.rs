@@ -66,9 +66,9 @@ pub fn registry() -> &'static [(&'static str, ConsoleImpl)] {
 }
 
 /// Vanilla functions the engine's console handles itself by name, outside both
-/// registries (engine/nvf-play/src/console.rs): `coc` travels, `help` searches records,
-/// `AdvLevel` levels up.
-pub const ENGINE_WORDS: &[&str] = &["CenterOnCell", "Help", "AdvancePCLevel"];
+/// registries (engine/nvf-play/src/console.rs): `coc`, `cow` and `coe` travel, `help`
+/// searches records, `AdvLevel` levels up.
+pub const ENGINE_WORDS: &[&str] = &["CenterOnCell", "CenterOnWorld", "CenterOnExterior", "Help", "AdvancePCLevel"];
 
 /// The vanilla functions of the catalogue that nothing handles and no script of the
 /// masters calls (so the stub audit, `fnvtool script stubs`, never counts them): those
@@ -706,7 +706,7 @@ mod tests {
         let (console, other) = unhandled_unused(&j);
         eprintln!("unhandled console functions: {console:?}
 unhandled other vanilla functions: {other:?}");
-        assert_eq!((console.len(), other.len()), (57, 124), "docs/design/console.md, What the console does not handle, sorts them");
+        assert_eq!((console.len(), other.len()), (55, 124), "docs/design/console.md, What the console does not handle, sorts them");
         // `killall` reaches KillAllActors by its alias.
         assert_eq!(lookup_word(&t, "killall").map(|r| r.0).as_deref(), Some("KillAllActors"));
         assert_eq!(lookup_word(&t, "cam").map(|r| r.0).as_deref(), Some("CloseAllMenus"));
