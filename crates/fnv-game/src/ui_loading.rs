@@ -272,6 +272,7 @@ pub fn load(game: &mut Game<'_>, files: Box<dyn Source + Send + Sync>, paths: im
         }
     }
     game.ui_tree = ui;
+    crate::ui_more::tree_rebuilt(game);
     // The old tree's tiles are gone with it [design].
     game.ui_pointer = fnv_ui::input::Pointer::default();
     game.ui_menus = index;

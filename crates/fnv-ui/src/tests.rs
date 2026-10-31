@@ -776,3 +776,17 @@ fn a_reopened_deep_menu_settles_in_as_few_passes_as_the_first_time() {
     assert_eq!(ui.passes, first);
     assert_eq!(ui.get_float(&path), Some(20.0));
 }
+
+#[test]
+fn a_trait_by_a_path_under_a_tile() {
+    let src = MemSource::default().with("menus/m9.xml", r#"<menu name="M"> <rect name="Item"> <_y> 4 </_y> <text name="Label"> <string> a </string> </text> </rect> </menu>"#);
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus/m9.xml").unwrap();
+    let item = ui.find_tile("M/Item").unwrap();
+    let (t, k) = ui.find_trait_in(item, "_y").unwrap();
+    assert_eq!((t, ui.tile(t).traits[k].value.num()), (item, 4.0));
+    let (t, k) = ui.find_trait_in(item, "Label/string").unwrap();
+    assert_eq!(ui.tile(t).traits[k].value.text(), "a");
+    assert!(ui.find_trait_in(item, "Label/nope").is_none());
+    assert!(ui.find_trait_in(item, "").is_none());
+}

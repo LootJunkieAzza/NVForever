@@ -246,6 +246,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
     if let Some(r) = crate::ui_functions::call(g, name, args) {
         return Some(r);
     }
+    // The rest of the tile functions (task T9; docs/spec-notes/menu-xml.md §9).
+    if let Some(r) = crate::ui_more::call(g, name, subject, args) {
+        return Some(r);
+    }
     if let Some(r) = crate::nvse_settings::call(g, name, args) {
         return Some(r);
     }

@@ -366,9 +366,11 @@ fn write(
 }
 
 /// Works the tree out after the scripts; nothing to do on a frame where nothing changed
-/// it (`fnv_ui::Ui::update`).
-fn update(mut script: ResMut<ScriptState>) {
+/// it (`fnv_ui::Ui::update`). The scripts' gradual changes step first, on real time
+/// (`fnv_game::ui_gradients`, task T9).
+fn update(mut script: ResMut<ScriptState>, time: Res<Time<Real>>) {
     let Some(rt) = script.rt.as_mut() else { return };
+    rt.game.ui_gradients.step(&mut rt.game.ui_tree, f64::from(time.delta_secs()));
     if rt.game.ui_files.is_some() {
         rt.game.ui_tree.update();
         // Once, if something changes the tree's shape every frame (#1061).
@@ -376,6 +378,7 @@ fn update(mut script: ResMut<ScriptState>) {
             warn!("{line}");
         }
     }
+    fnv_game::ui_more::prune_attachments(&mut rt.game);
     // MenuTapKey's keys stay queued unless a menu takes tile input (`input::feed`) [design].
 }
 

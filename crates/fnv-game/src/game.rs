@@ -1163,6 +1163,12 @@ pub struct Game<'a> {
     /// Keys MenuTapKey pressed (DirectInput scan codes), for the engine to take as one
     /// frame's presses in the open menu.
     pub ui_taps: Vec<u32>,
+    /// The trait changes over real time (SetUIFloatGradual, CacheUI's gradual and reveal
+    /// functions): the engine steps them each frame (`ui_gradients::Gradients::step`).
+    pub ui_gradients: crate::ui_gradients::Gradients,
+    /// The other tile functions' session state (`crate::ui_more`): CacheUI's caches and
+    /// queues, SUP's HUD bars, the attached components, the text measure.
+    pub ui_extra: crate::ui_more::UiExtra,
     /// The pointer on the menus drawn from tiles: the tile with `mouseover`, the `clicked`
     /// pulses to end (`crate::ui_input`, `fnv_ui::input`). Reset with the tree.
     pub ui_pointer: fnv_ui::input::Pointer,
@@ -1839,6 +1845,8 @@ impl<'a> Game<'a> {
             ui_hud_pending: None,
             ui_used: false,
             ui_taps: Vec::new(),
+            ui_gradients: Default::default(),
+            ui_extra: Default::default(),
             ui_pointer: fnv_ui::input::Pointer::default(),
             difficulty: Default::default(),
             combat_requests: Vec::new(),
