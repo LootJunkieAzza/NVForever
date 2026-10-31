@@ -1342,12 +1342,12 @@ mod tests {
         assert!(lo.set_sneaking(false));
         assert!(Arc::ptr_eq(&lo.set, &stand) && lo.prev_set.as_ref().is_some_and(|s| Arc::ptr_eq(s, &sneak)));
         assert_eq!(lo.blend.prev.map(|p| p.mv), Some(Move::Idle));
-        // A move asked for during the fade waits for it to end, then fades within the set.
+        // Setting off during that fade starts the walk at once (it would slide on the idle
+        // otherwise, issue #1073), fading from the standing set's idle.
         lo.velocity = [0.0, 85.26];
         lo.step(0.1);
-        assert_eq!(lo.blend.cur.mv, Move::Idle);
-        lo.step(0.15);
         assert_eq!(lo.blend.cur.mv, Move::Forward);
+        assert_eq!(lo.blend.prev.map(|p| p.mv), Some(Move::Idle));
         assert!(lo.prev_set.is_none(), "the idle fading out now is the standing set's");
     }
 
