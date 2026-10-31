@@ -86,6 +86,15 @@ the spec it links to.
     below 35 % health, 3 s apart at least; the idle plays on the upper body so it keeps
     moving. All our numbers: should NPCs heal more, less, or not at all?
     ([combat-ai §21](design/combat-ai.md))
+36. **Lunges carry the attacker.** A forward power attack (a lunge) whose clip moves its
+    root more than 100 units carries the actor that far (a Deathclaw's 523 units, your
+    forward power attacks 240-280, Legion Assault 332), stopped by walls and by whoever it
+    lunges at; a lunging actor pushes nobody aside, as you ruled for bites. Other blows
+    still step in place (carried, the dogs ended up biting from inside the player's
+    reach); the yao guai's standing power attack (305 units) so still slides back. If you
+    rule otherwise: every travelling blow carries, and the AI must step back after it.
+    NPCs start their lunges once they touch their target, so an NPC's lunge carries it
+    little or nothing until the AI lunges from farther out. ([actors §8.13](spec-notes/actors.md))
 
 ## Tier 2: movement and controls feel
 
@@ -114,6 +123,11 @@ the spec it links to.
     (Cook-Cook, Speed Mult 110) ran at the people's speed without his Speed Mult. Keep the
     matched feet, take the sliding feet, or have people ignore Speed Mult?
     ([actor-flags §3](spec-notes/actor-flags.md), [actors §8.10](spec-notes/actors.md))
+36. **Variable refresh on your screen.** Display sync has a new "Variable refresh" choice
+    for G-Sync: vsync stays on and the frame rate is held under your monitor's refresh rate
+    (138 at 144 Hz). Does G-SYNC engage in borderless and in exclusive full screen (the
+    NVIDIA G-SYNC indicator), and does Primm feel smoother than plain vsync? Should it be
+    the default? ([display-sync](spec-notes/display-sync.md))
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 

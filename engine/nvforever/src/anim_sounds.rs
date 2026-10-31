@@ -35,15 +35,20 @@
 //!   moves its Movement Loop, as `nvf_play::sfx::SoundSource`s (played by
 //!   `nvf_play::ambient`); the loop's chance is rolled once per creature [design]. A
 //!   creature without sounds steps like a person.
-//! - **The player's jumps and landings**: leaving the ground going up plays the ground's
-//!   `FST<family>Jump`, coming down after [`LAND_AIR`] seconds in the air its
-//!   `FST<family>Land` (Dirt's when the family has none) [hypothesis: by the names].
+//! - **Jumps and landings**: leaving the ground going up faster than [`JUMP_SPEED`]
+//!   plays the ground's `FST<family>Jump`, coming down after [`LAND_AIR`] seconds in
+//!   the air its `FST<family>Land` (Dirt's when the family has none) [hypothesis: by the
+//!   names]: the player's, and those of the actors that step like a person (people, and
+//!   creatures without a sound list), told by `actor_jumps.rs` ([`ActorAir`]). A
+//!   creature with sounds plays none: no creature lists a Jump sound (CSDT type 20)
+//!   [observed: audio.md §14] [design].
 //! - **Wading**: feet under the surface of water step as `FSTWater…` [design].
 //!
 //! The player's own sounds play at the listener, the others where the actor or door
 //! is. Actors more than [`ACTOR_RANGE`] from the player are not heard [design].
 //! At exit: `anim sounds summary: …`.
 
+use crate::actor_jumps::{ActorAir, AirChange};
 use crate::doors::DoorRig;
 use crate::limbs::ActorRig;
 use crate::player_body::PlayerBody;
@@ -130,9 +135,11 @@ struct Counts {
     creature_unlisted: u32,
     creature_hits: u32,
     creature_deaths: u32,
-    /// The player's jumps and landings with a sound.
+    /// The player's jumps and landings with a sound, and the actors'.
     jumps: u32,
     landings: u32,
+    actor_jumps: u32,
+    actor_landings: u32,
 }
 
 #[derive(Resource)]
@@ -600,25 +607,85 @@ fn jumps_and_landings(s: &mut AnimSounds, out: &mut MessageWriter<PlaySound>, ph
     let Some((grounded, vz, air, swimming, key)) = p.player.as_ref().map(|c| (c.grounded, c.vertical_speed, c.air_time, c.swimming, c.key())) else { return };
     let was = s.air.replace((grounded, air));
     let Some((was_grounded, was_air)) = was else { return };
-    let what = if was_grounded && !grounded && vz > JUMP_SPEED {
-        "Jump"
+    let landing = if was_grounded && !grounded && vz > JUMP_SPEED {
+        false
     } else if !was_grounded && grounded && was_air >= LAND_AIR {
-        "Land"
+        true
     } else {
         return;
     };
     if swimming {
         return;
     }
-    let (family, _) = ground(s, p, d, world, player.feet, vec![key]);
-    let Some(sound) = s.first_of(&[format!("FST{family}{what}"), format!("FSTDirt{what}")]) else { return };
-    if what == "Jump" {
-        s.counts.jumps += 1;
-    } else {
+    let Some(family) = jump_sound(s, out, p, d, world, player.feet, vec![key], landing, None) else { return };
+    if landing {
         s.counts.landings += 1;
+    } else {
+        s.counts.jumps += 1;
     }
-    debug!("anim sounds: the player {} on {family}", if what == "Jump" { "jumps" } else { "lands" });
-    out.write(PlaySound { sound, at: None });
+    debug!("anim sounds: the player {} on {family}", if landing { "lands" } else { "jumps" });
+}
+
+/// The ground's `FST…Jump` (`landing` false) or `FST…Land` sound under `feet`, played
+/// `at` (`None`: at the listener); the ground's family, `None` when no record is found.
+#[allow(clippy::too_many_arguments)]
+fn jump_sound(s: &mut AnimSounds, out: &mut MessageWriter<PlaySound>, p: &mut PhysState, d: &PlayWorld, world: u32, feet: [f32; 3], exclude: Vec<Key>, landing: bool, at: Option<[f32; 3]>) -> Option<&'static str> {
+    let what = if landing { "Land" } else { "Jump" };
+    let (family, _) = ground(s, p, d, world, feet, exclude);
+    let sound = s.first_of(&[format!("FST{family}{what}"), format!("FSTDirt{what}")])?;
+    out.write(PlaySound { sound, at });
+    Some(family)
+}
+
+/// Actors leaving the ground going up or coming down after a while in the air
+/// (`actor_jumps.rs`), by the player's rules: their ground's jump or landing sound,
+/// where they are. Only actors that step like a person (see the module notes).
+#[allow(clippy::too_many_arguments)]
+fn actor_jumps(
+    mut s: ResMut<AnimSounds>,
+    sfx: Option<Res<Sfx>>,
+    mut air: MessageReader<ActorAir>,
+    player: Option<Res<Player>>,
+    mut phys: Option<ResMut<PhysState>>,
+    d: Res<PlayWorld>,
+    location: Res<Location>,
+    actor_world: Option<Res<crate::actors::ActorWorld>>,
+    rigs: Query<&ActorRig>,
+    mut out: MessageWriter<PlaySound>,
+) {
+    let (Some(sfx), Some(player), Some(p)) = (sfx, player, phys.as_deref_mut()) else {
+        air.clear();
+        return;
+    };
+    let s = &mut *s;
+    build(s, &sfx);
+    let listener = Vec3::from_array(player.feet);
+    for m in air.read() {
+        let landing = match m.change {
+            AirChange::TakeOff { rising } if rising > JUMP_SPEED => false,
+            AirChange::Landed { air } if air >= LAND_AIR => true,
+            _ => continue,
+        };
+        if Vec3::from_array(m.feet).distance(listener) > ACTOR_RANGE {
+            continue;
+        }
+        // Coming up out of water or falling into it is no jump on the ground.
+        if p.npcs.get(&m.reference).is_some_and(|n| n.ch.swimming) {
+            continue;
+        }
+        let Ok(rig) = rigs.get(m.actor) else { continue };
+        if creature_list(s, &d, actor_world.as_deref(), rig).is_some_and(|l| !l.is_empty()) {
+            continue;
+        }
+        let exclude = vec![Key::Actor(m.reference), Key::Character(m.reference)];
+        let Some(family) = jump_sound(s, &mut out, p, &d, location.world, m.feet, exclude, landing, Some(m.feet)) else { continue };
+        if landing {
+            s.counts.actor_landings += 1;
+        } else {
+            s.counts.actor_jumps += 1;
+        }
+        info!("anim sounds: actor {:08X} {} on {family}", m.reference, if landing { "lands" } else { "jumps" });
+    }
 }
 
 /// Doors' sounds, where the door is drawn.
@@ -698,7 +765,7 @@ fn report(mut exit: MessageReader<AppExit>, s: Res<AnimSounds>) {
     let mut unknown: Vec<&String> = s.unknown.iter().collect();
     unknown.sort();
     info!(
-        "anim sounds summary: {} footsteps ({} by the player, {} by actors; ground: {}), {} armour rustles, {} reload keys, {} other sound keys, {} door sounds ({} from door records), {} object group sounds, {} keys without a SOUN{}; creatures: {} sounds ({}), {} hits, {} deaths, {} keys of a type not listed; the player jumped {} and landed {} times",
+        "anim sounds summary: {} footsteps ({} by the player, {} by actors; ground: {}), {} armour rustles, {} reload keys, {} other sound keys, {} door sounds ({} from door records), {} object group sounds, {} keys without a SOUN{}; creatures: {} sounds ({}), {} hits, {} deaths, {} keys of a type not listed; the player jumped {} and landed {} times; actors jumped {} and landed {} times",
         c.footsteps_player + c.footsteps_actors,
         c.footsteps_player,
         c.footsteps_actors,
@@ -717,7 +784,9 @@ fn report(mut exit: MessageReader<AppExit>, s: Res<AnimSounds>) {
         c.creature_deaths,
         c.creature_unlisted,
         c.jumps,
-        c.landings
+        c.landings,
+        c.actor_jumps,
+        c.actor_landings
     );
 }
 
@@ -729,7 +798,7 @@ impl Plugin for AnimSoundsPlugin {
         app.init_resource::<AnimSounds>()
             .add_systems(
                 Update,
-                (player_keys.after(BodySet), actor_keys.after(crate::locomotion::drive), door_sounds.after(nvf_play::doors::DoorSystems), creature_hits).chain(),
+                (player_keys.after(BodySet), actor_keys.after(crate::locomotion::drive), actor_jumps, door_sounds.after(nvf_play::doors::DoorSystems), creature_hits).chain(),
             )
             .add_systems(
                 Update,

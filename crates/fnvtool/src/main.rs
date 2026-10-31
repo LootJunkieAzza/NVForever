@@ -491,6 +491,10 @@ pub enum ActorCmd {
         /// clip.
         #[arg(long, default_value_t = 0)]
         samples: usize,
+        /// Also every attack clip in the folder and below it (file name containing
+        /// `attack`), for the travel of attack clips (actors.md §8.13).
+        #[arg(long)]
+        attacks: bool,
     },
     /// The FaceGen `.tri` files (morph targets of head parts): morph labels, and whether
     /// each has the vertices of the model beside it (fnv.actor.tri/1).
