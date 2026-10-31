@@ -89,10 +89,64 @@ impl Ctx {
     }
 }
 
-/// Evaluated arguments with typed accessors.
+/// An argument an accessor could not read although the call passed one: the parameter
+/// (from 0), the kind it held and the kind the accessor wanted. A function that then goes
+/// on with a default (`num_or`, `opt_form`, `unwrap_or`) has read the call wrong without
+/// failing (#1122: ShowMessage's compiled variables, one `Vars` list, read as numbers
+/// became 0); [`Game::call_function`] traces it as `EventKind::ArgUnread`. An absent
+/// argument (an optional parameter) is not one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unread {
+    pub param: usize,
+    pub got: &'static str,
+    pub wanted: &'static str,
+}
+
+thread_local! {
+    static UNREAD: std::cell::RefCell<Vec<Unread>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Start recording unread arguments for one call; returns what an outer call had
+/// recorded, to hand back to [`end_unread`].
+pub fn begin_unread() -> Vec<Unread> {
+    UNREAD.with(|u| std::mem::take(&mut *u.borrow_mut()))
+}
+
+/// The unread arguments recorded since [`begin_unread`], the outer call's put back.
+pub fn end_unread(outer: Vec<Unread>) -> Vec<Unread> {
+    UNREAD.with(|u| std::mem::replace(&mut *u.borrow_mut(), outer))
+}
+
+/// The name of an argument's kind in the report.
+pub fn arg_kind(a: &ArgValue) -> &'static str {
+    match a {
+        ArgValue::Value(Value::Ref(_)) => "ref",
+        ArgValue::Value(Value::Num(_)) => "number",
+        ArgValue::Enum(_) => "code",
+        ArgValue::Axis(_) => "axis",
+        ArgValue::Str(_) => "string",
+        ArgValue::Vars(_) => "message variables",
+        ArgValue::Int32(_) => "int32",
+    }
+}
+
+/// Evaluated arguments with typed accessors. An accessor given an argument of a kind it
+/// cannot read records it ([`Unread`]); one given none records nothing.
 pub struct Args<'a>(pub &'a [ArgValue]);
 
 impl Args<'_> {
+    fn unread(&self, i: usize, wanted: &'static str) {
+        if let Some(a) = self.0.get(i) {
+            let u = Unread { param: i, got: arg_kind(a), wanted };
+            UNREAD.with(|r| {
+                let mut r = r.borrow_mut();
+                if !r.contains(&u) {
+                    r.push(u);
+                }
+            });
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.0.len()
     }
@@ -115,15 +169,44 @@ impl Args<'_> {
         matches!(self.0.get(i), Some(ArgValue::Value(Value::Ref(0))))
     }
 
+    /// A form; none for an absent argument or an empty reference (a value that is no
+    /// form is the script's state, not a misread). Other kinds are recorded as unread.
     pub fn opt_form(&self, i: usize) -> Option<FormId> {
+        match self.0.get(i)? {
+            ArgValue::Value(v) => v.as_form().map(FormId),
+            _ => {
+                self.unread(i, "form");
+                None
+            }
+        }
+    }
+
+    /// Parameter `i` as a form, without recording anything: for a parameter that takes
+    /// another kind as well, read next (GetVATSValue's parameter).
+    pub fn peek_form(&self, i: usize) -> Option<FormId> {
         match self.0.get(i)? {
             ArgValue::Value(v) => v.as_form().map(FormId),
             _ => None,
         }
     }
 
+    /// Parameter `i` as a string, without recording anything: for a parameter that
+    /// takes another kind as well, read next (GetIsUsedItemType's name or code).
+    pub fn peek_str(&self, i: usize) -> Option<&str> {
+        match self.0.get(i)? {
+            ArgValue::Str(s) => Some(s),
+            _ => None,
+        }
+    }
+
     pub fn num(&self, i: usize) -> Result<f64, String> {
-        self.0.get(i).and_then(ArgValue::value).map(Value::num).ok_or_else(|| format!("parameter {} is missing", i + 1))
+        match self.0.get(i) {
+            Some(a) => a.value().map(Value::num).ok_or_else(|| {
+                self.unread(i, "number");
+                format!("parameter {} is missing", i + 1)
+            }),
+            None => Err(format!("parameter {} is missing", i + 1)),
+        }
     }
 
     pub fn num_or(&self, i: usize, d: f64) -> f64 {
@@ -139,7 +222,10 @@ impl Args<'_> {
         match self.0.get(i) {
             Some(ArgValue::Enum(c)) => Ok(*c),
             Some(ArgValue::Value(v)) => Ok(v.num() as u16),
-            _ => Err(format!("parameter {} is not a code", i + 1)),
+            _ => {
+                self.unread(i, "code");
+                Err(format!("parameter {} is not a code", i + 1))
+            }
         }
     }
 
@@ -154,14 +240,20 @@ impl Args<'_> {
             'X' => Ok(0),
             'Y' => Ok(1),
             'Z' => Ok(2),
-            _ => Err(format!("parameter {} is not an axis", i + 1)),
+            _ => {
+                self.unread(i, "axis");
+                Err(format!("parameter {} is not an axis", i + 1))
+            }
         }
     }
 
     pub fn str(&self, i: usize) -> Result<&str, String> {
         match self.0.get(i) {
             Some(ArgValue::Str(s)) => Ok(s),
-            _ => Err(format!("parameter {} is not a string", i + 1)),
+            _ => {
+                self.unread(i, "string");
+                Err(format!("parameter {} is not a string", i + 1))
+            }
         }
     }
 }
@@ -750,5 +842,69 @@ pub fn base_of(g: &Game, r: FormId) -> Option<FormId> {
         Some(s) => Some(s.base),
         None if r == FormId::PLAYER_REF => Some(FormId::PLAYER_BASE),
         None => g.world.placed.get(r).map(|p| p.base).or_else(|| (g.data.sig(r) == Some(*b"WEAP")).then_some(r)),
+    }
+}
+
+#[cfg(test)]
+mod unread_tests {
+    use super::{begin_unread, end_unread, Args, Unread};
+    use fnv_script::vm::{ArgValue, Value};
+
+    fn recorded(f: impl FnOnce()) -> Vec<Unread> {
+        let outer = begin_unread();
+        f();
+        end_unread(outer)
+    }
+
+    #[test]
+    fn a_present_argument_of_the_wrong_kind_is_recorded_and_an_absent_one_is_not() {
+        // ShowMessage's compiled variables (#1117): one list, read as a number.
+        let args = [ArgValue::Value(Value::Ref(0x38888)), ArgValue::Vars(vec![Value::Num(28.0)]), ArgValue::Int32(0)];
+        let a = Args(&args);
+        let u = recorded(|| {
+            assert_eq!(a.num_or(1, 0.0), 0.0);
+            assert_eq!(a.num_or(5, 0.0), 0.0); // absent: an optional parameter
+            assert_eq!(a.num(2).ok(), Some(0.0)); // Int32 reads as a number
+            assert_eq!(a.form(0).ok().map(|f| f.0), Some(0x38888));
+        });
+        assert_eq!(u, [Unread { param: 1, got: "message variables", wanted: "number" }]);
+    }
+
+    #[test]
+    fn each_accessor_records_the_kinds_it_cannot_read() {
+        let args = [ArgValue::Str("x".into()), ArgValue::Axis('Z'), ArgValue::Enum(3), ArgValue::Value(Value::Num(1.0))];
+        let a = Args(&args);
+        let u = recorded(|| {
+            assert!(a.opt_form(1).is_none());
+            assert!(a.code(0).is_err());
+            assert!(a.axis(3).is_err());
+            assert!(a.str(2).is_err());
+            // Readable: a code as a number, an axis as an axis, a value as a form.
+            assert!(a.num(2).is_ok() && a.axis(1).is_ok() && a.opt_form(3).is_some());
+            assert!(a.str(0).is_ok());
+            assert!(a.opt_form(9).is_none() && a.str(9).is_err()); // absent
+        });
+        let peeked = recorded(|| {
+            assert!(a.peek_form(0).is_none() && a.peek_str(1).is_none());
+            assert_eq!(a.peek_str(0), Some("x"));
+            assert_eq!(a.peek_form(3).map(|f| f.0), Some(1));
+        });
+        assert_eq!(peeked, [], "a peek records nothing");
+        let got: Vec<_> = u.iter().map(|u| (u.param, u.got, u.wanted)).collect();
+        assert_eq!(got, [(1, "axis", "form"), (0, "string", "code"), (3, "number", "axis"), (2, "code", "string")]);
+    }
+
+    #[test]
+    fn a_nested_call_keeps_its_own_record() {
+        let args = [ArgValue::Str("x".into())];
+        let a = Args(&args);
+        let outer = begin_unread();
+        let _ = a.num(0);
+        let inner = recorded(|| {
+            let _ = a.code(0);
+        });
+        let mine = end_unread(outer);
+        assert_eq!(inner.iter().map(|u| u.wanted).collect::<Vec<_>>(), ["code"]);
+        assert_eq!(mine.iter().map(|u| u.wanted).collect::<Vec<_>>(), ["number"]);
     }
 }

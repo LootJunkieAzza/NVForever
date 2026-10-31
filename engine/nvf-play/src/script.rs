@@ -2120,6 +2120,9 @@ fn log_event(data: &GameData, e: &Event) {
         EventKind::ScriptError { unit, error } => warn!("script error in {unit}: {error}"),
         EventKind::ScriptPrint { unit, text } => info!("script: print {text:?} ({unit})"),
         EventKind::CallFailed { name, unit, error, .. } => debug!("script: {name} failed in {unit}: {error}"),
+        EventKind::ArgUnread { name, unit, param, got, wanted, .. } => {
+            debug!("script: {name} in {unit} could not read parameter {} ({got} as {wanted}) and went on with a default", param + 1)
+        }
         _ => crate::dialogue::log_event(data, e),
     }
 }
