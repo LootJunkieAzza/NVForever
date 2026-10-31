@@ -278,7 +278,7 @@ pub fn set_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
     if crate::actor_values::SKILLS.contains(&code) && crate::revision::keeps(ctx, r, || format!("the skill {} (points spent stay)", AV_NAMES[code as usize])) {
         return none();
     }
-    if crate::actor_values::SPECIALS.contains(&code) && crate::revision::keeps(ctx, r, || format!("the attribute {} (the Vigor Tester moves points)", AV_NAMES[code as usize])) {
+    if crate::actor_values::SPECIALS.contains(&code) && crate::revision::keeps(ctx, r, || format!("the attribute {} (points are moved on the attributes page)", AV_NAMES[code as usize])) {
         return none();
     }
     // The player's skill keeps its part from the attributes: SetActorValue sets the rest
