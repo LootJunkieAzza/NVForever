@@ -185,6 +185,7 @@ impl Plugin for MenuPlugin {
                     open_menus,
                     keep_menu_state,
                     sync_cards,
+                    publish_menu_picks,
                     wheel_hold,
                     (quantity_keys, menu_keys, menu_mouse, quantity_mouse, apply_input).chain().run_if(menu_open),
                     draw,
@@ -644,6 +645,56 @@ fn sync_cards(mut active: ResMut<ActiveMenu>, mut sim: ResMut<SimState>, script:
         if let Err(e) = m.set_cards(&mut sim.world, cards) {
             warn!("menu: the Caravan cards: {e}");
         }
+    }
+}
+
+/// Tell the scripts' game what the open item menus are about and have highlighted, for
+/// GetMenuTargetRef and GetSelectedItemRef (`fnv_game::game::MenuPicks`, #983): the
+/// container or merchant and the focused column's row (container 1008, inventory 1002,
+/// barter 1053), the item being repaired and the part (1035), the weapon being modded and
+/// the mod (1061). A closed menu's picks are cleared.
+fn publish_menu_picks(
+    active: Res<ActiveMenu>,
+    modding: Option<Res<crate::pipboy::item_mod::PipItemMod>>,
+    repairing: Option<Res<crate::pipboy::repair::PipRepair>>,
+    script: Option<ResMut<crate::script::ScriptState>>,
+) {
+    use fnv_game::game::{MenuPick, MenuPicks};
+    let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
+    let player = FormId::PLAYER_REF;
+    let item = |owner, item| Some(MenuPick::Item { owner, item });
+    let mut picks: Vec<(u16, MenuPicks)> = [crate::script::MENU_CONTAINER, crate::script::MENU_INVENTORY, crate::script::MENU_BARTER, fnv_game::game::menus::REPAIR, fnv_game::game::menus::ITEM_MOD]
+        .into_iter()
+        .map(|c| (c, MenuPicks::default()))
+        .collect();
+    let mut put = |code: u16, p: MenuPicks| {
+        if let Some(e) = picks.iter_mut().find(|(c, _)| *c == code) {
+            e.1 = p;
+        }
+    };
+    if let Some(m) = active.0.as_ref() {
+        let other = match m.mode {
+            Mode::Container(c) | Mode::Barter(c) => Some(c),
+            Mode::Inventory => None,
+        };
+        // The merchant's column is what its merchant container holds (`Trade::stock`), not
+        // the merchant: the item reference names that container; the target stays the
+        // merchant.
+        let column = m.trade.as_ref().map(|t| t.stock).or(other);
+        let owner = if m.focus == Side::Player { Some(player) } else { column };
+        let selected = m.selected_row(m.focus).zip(owner).and_then(|(r, o)| item(o, r.item));
+        put(crate::script::menu_code(m.mode), MenuPicks { target: other.map(MenuPick::Form), selected });
+    }
+    if let Some(s) = modding.as_ref().and_then(|r| r.0.as_ref()) {
+        let chosen = s.selected.checked_sub(1).and_then(|i| s.offer.choices.get(i)).map_or(s.offer.item, |c| c.item);
+        put(fnv_game::game::menus::ITEM_MOD, MenuPicks { target: item(player, s.offer.item), selected: item(player, chosen) });
+    }
+    if let Some(s) = repairing.as_ref().and_then(|r| r.0.as_ref()) {
+        let chosen = s.selected.checked_sub(1).and_then(|i| s.offer.parts.get(i)).map_or(s.offer.item, |p| p.item);
+        put(fnv_game::game::menus::REPAIR, MenuPicks { target: item(player, s.offer.item), selected: item(player, chosen) });
+    }
+    for (code, p) in picks {
+        rt.game.set_menu_picks(code, p);
     }
 }
 

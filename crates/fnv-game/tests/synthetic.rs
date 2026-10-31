@@ -2344,6 +2344,38 @@ PlayerREF.NX_SetEVFl \"Count\" 2").unwrap();
 }
 
 #[test]
+fn menu_getters_read_what_the_engine_reports() {
+    // #983: GetMenuTargetRef and GetSelectedItemRef answer the picks the engine reports
+    // for an open menu (Game::set_menu_picks), an item as an inventory reference.
+    use fnv_game::game::{menus, MenuPick, MenuPicks, TEMP_REF_BASE};
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}
+{body}
+End
+"), Default::default());
+    let chest = FormId(0x0000_0A00);
+    let item = FormId(0x0000_0A01);
+    g.set_menu_picks(1008, MenuPicks { target: Some(MenuPick::Form(chest)), selected: Some(MenuPick::Item { owner: chest, item }) });
+    // Closed: nothing.
+    assert_eq!(q(&mut g, "SetFunctionValue (GetMenuTargetRef 1008)"), Ok(XVal::Ref(0)));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetSelectedItemRef)"), Ok(XVal::Ref(0)));
+    g.menu = Some(1008);
+    assert_eq!(q(&mut g, "SetFunctionValue (GetMenuTargetRef 1008)"), Ok(XVal::Ref(chest.0)));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetMenuTargetRef 1053)"), Ok(XVal::Ref(0)));
+    match q(&mut g, "SetFunctionValue (GetSelectedItemRef)") {
+        Ok(XVal::Ref(r)) => assert!(r >= TEMP_REF_BASE, "an inventory reference, not {r:08X}"),
+        other => panic!("{other:?}"),
+    }
+    // The menu on top answers GetSelectedItemRef.
+    g.set_menu_picks(menus::ITEM_MOD, MenuPicks { target: None, selected: Some(MenuPick::Form(item)) });
+    g.menu_under = g.menu;
+    g.menu = Some(menus::ITEM_MOD);
+    assert_eq!(q(&mut g, "SetFunctionValue (GetSelectedItemRef)"), Ok(XVal::Ref(item.0)));
+}
+
+#[test]
 fn queries_run_function_scripts_and_keep_what_they_change() {
     // The runner's `query` action (Game::run_query): JIP's auxiliary variables set by one
     // query are read by the next, and the saved ones are in the snapshot.
