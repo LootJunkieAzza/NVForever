@@ -88,7 +88,9 @@ over a frame or two only (setups).
   axes alike), TT_SCALE_U 0.22-0.61 and TT_SCALE_V −0.70 to −1.07 slowly, TT_ROTATE
   −0.11 → 0.40: the noise drifts, stretches and turns over the face all the time.
 
-`talking.kf` (0.17 s) wavers `Screen01:0` SELF_ILLUM around 0.041 ± 0.007, and
+`talking.kf` (0.17 s) wavers `Screen01:0` SELF_ILLUM around 0.041 ± 0.007 and lights
+the chest piece `##VoiceBox_talk:0` (`nvsecuritronvoicebox.nif`, glow map `VoiceMask.dds`,
+held dark by the idle; lipsync.md §6.1, `talk_clips.rs` plays it while a line is said), and
 `specialidle_screentransition1.kf` (2 s, the face change) flashes it 0.99, 0.09, 0.85,
 0.17, then settles to 0.58 [observed].
 

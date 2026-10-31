@@ -654,63 +654,26 @@ The numbers above stay put so links to them hold; each item here gives its own p
     1 s with the cheer cut short, or slide with it playing? And `IsIdlePlaying` at the
     moment he sets off. ([idles §15](../spec-notes/idles.md))
 
-## Added 2026-10-31 (dialogue topic order)
+## Added 2026-10-31 (coyotes' warning and charge, issue #1073)
 
-58. **The order of topics of equal priority in the topic list** (P2: every conversation
-    with learned topics). Ours ([dialogue.rs `build_choices`](../../crates/fnv-game/src/dialogue.rs),
-    [dialogue §3.5](../spec-notes/dialogue.md)): priority, highest first, then the topics'
-    record order [hypothesis]; the known topics are a set, so the order they were learned
-    in is not kept.
+58. **What a warning coyote plays, and how it bites on the run** (P3: every coyote and
+    dog fight). NVForever plays the dog folder's `h2hequip.kf` then holds `h2haim.kf`
+    while a coyote warns the player, puts it away when it attacks, and shows a blow
+    begun on the run on the head and neck only, over the run. To check: VERGSCoyote6REF
+    (0x00157B38) at its warning spot, the player 600-700 units off: `GetAnimAction` and
+    `IsWeaponOut` sampled every game loop through its two warnings and the charge; does
+    it stand with its head down (a frame), and do its legs keep running through a blow
+    begun on the run or does it stop to bite? ([actors §8.10](../spec-notes/actors.md))
 
-    Seen in the original [observed: owner screenshots 2026-10-31, Boone at the Novac
-    nest]: after learning `CraigBooneWantMeToDo` (`0x964C8`, with `…OnlyTrustStrangers`),
-    then `…TrackDownWife` (`0x964CA`), then `…WhatIfIFindThisPerson` (`0x964CC`) and
-    `…HowDoYouKnowShesDead` (`0x964CB`) from one line (that order in its Add Topics),
-    all priority 50, the list read C8, CC, CB, CA, Goodbye. Ours reads C8, CA, CB, CC.
-    That fits "the first topics learned stay on top, then the newest first, the topics one
-    line adds in its own order", but one conversation cannot tell it from other rules.
+## Added 2026-10-31 (robots' talking lights, issue #1081)
 
-    To check: from a save before meeting Manny Vargas (Novac), talk to him and choose
-    `MannyVargasWhoAreYou`, then `MannyVargasWhosBoone`, then `MannyVargasWhyOnBadTerms`
-    (all priority 50). They add, in this order: `…WhoAreYou` (`0x96BCF`, at the greeting);
-    `…ProtectTownFrom` (`0xCEDEE`) and `…WhosBoone`; `VDialogueNovacMannyVargasTopic001`
-    (`0x137A62`) and `…WhyOnBadTerms` (`0xB15FB`); `…WhatArgueWithBoonesWife` (`0xB15FC`).
-    Screenshot the whole list (scroll). The rules predict, by topic:
-    - ours (record order): 96BCF, B15FB, B15FC, CEDEE, 137A62;
-    - first on top, then newest first: 96BCF, B15FC, 137A62, B15FB, CEDEE;
-    - newest first: B15FC, 137A62, B15FB, CEDEE, 96BCF;
-    - learned order: 96BCF, CEDEE, 137A62, B15FB, B15FC.
-
-    Where the top-level `MannyVargasVMQ01` (`0x15F503`, also priority 50) lands shows how
-    top-level topics mix with learned ones. If a topic is missing (conditions), the rest
-    still decide. Then fix `build_choices` (keep the learned order in `PlayerState::topics`
-    and in saves) and write the rule into dialogue §3.5.
-
-    Runs of 2026-10-31 [observed: capture jobs `dlg_topic_order_*` from `nvftest`, private
-    shots]: topics given by `AddTopic`, one per step 10 frames apart, then Manny moved to
-    the player and talked to. The menu shows three rows at 1280×720 and neither `TapKey`
-    265 nor 208 scrolls it, so only the top three are known. The greeting adds 96BCF.
-    | Run | Added before the talk | Top three |
-    |---|---|---|
-    | full (twice) | CEDEE, B15FC, 137A62, B15FB, B15FA | 96BCF, B15FB, 137A62 |
-    | R1 (twice) | CEDEE, B15FC | 96BCF, B15FC, 15F503 |
-    | R2 | B15FA | 96BCF, B15FA, 15F503 |
-    | R3 | 96BCF, B15FC, CEDEE | 96BCF, 15F503, B15FC |
-    | R4 | CEDEE | 96BCF, CEDEE, 15F503 |
-    So: record order is out; the order is repeatable and depends on the order of
-    learning (R1 against R3: same set, B15FC and the top-level 15F503 swap); the topic
-    the greeting adds came first every time, also when it was known before (R3); none of
-    learned order, newest first or "first on top" fits all five. Still open: a way to see
-    the whole list (scrolling, or reading the list's tiles), then the rule.
-
-    Whole list of the full run [observed: owner screenshots 2026-10-31, the same console
-    steps by hand]: 96BCF (learned 6th, by the greeting), B15FB (4th), 137A62 (3rd),
-    B15FC (2nd), 15F503 (top-level), CEDEE (1st), B15FA (5th), Goodbye. R1 by hand:
-    96BCF, B15FC, 15F503, CEDEE, Goodbye. R3 by hand: 96BCF, 15F503, B15FC, CEDEE,
-    Goodbye (CEDEE after B15FC although learned after it here). Newest first
-    holds for five of the six learned topics; B15FA falls to the end and the top-level
-    topic sits among them. With R1–R4 this looks like an order that is fixed for a
-    given history but follows no learning rule [hypothesis: equal priorities come out
-    of a sort that does not keep their order]. Matching it exactly would mean
-    reproducing that sort, which we do not do (clean room); the rule to use is an owner
-    decision (owner-review).
+59. **What sets a robot's `Talking` sequence while it speaks** (P3: Victor, Yes Man, Mr.
+    House's screen, protectrons). NVForever plays `talking.kf` while a line is said with
+    the sequence's time taken from the line's `.lip` (the widest mouth shape now, 0 to 1
+    of the 0.17 s), so Victor's chest light (`##VoiceBox_talk:0`) flickers with the
+    words and goes dark between lines (lipsync.md §6.1). To check: Goodsprings, talk to
+    Victor (VictorREF 0x00103DFE) and record his chest light frame by frame over one
+    line; compare its brightness with the `.lip`'s mouth weights and with the sound's
+    loudness over the same frames (a pause between words, a long vowel). Does it go
+    dark in pauses, follow the loudness or the mouth shapes, or loop by itself? Same on
+    Mr. House's screen (`##TalkButtons:0`). ([lipsync §6.1](../spec-notes/lipsync.md))

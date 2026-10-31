@@ -212,10 +212,16 @@ Order"].
 
 So file order agrees with the previous-info links in 5,677 of 5,686 cases, and is the
 only order FalloutNV.esm has. **The runtime's stored order of a topic** is: the lines in
-the file order of the plugin that first defines each, plugins in load order
-(`GameData::topics`) [observed as above for one quest's lines; hypothesis for the 9
-exceptions and for how lines of different quests interleave in the editor's list,
-which §4 makes mostly irrelevant].
+the file order of the plugin that first defines each, plugins in load order, then each
+line a later plugin adds put straight behind the line its winning PNAM names, when that
+line comes from an earlier plugin or was itself moved so (`GameData::topics`,
+`data::follow_previous`) [observed as above for one quest's lines; hypothesis for the 9
+exceptions, for how lines of different quests interleave in the editor's list, which §4
+makes mostly irrelevant, and for added lines with PNAM 0 (left at the end), two added
+lines naming one line (the later in file order first) and broken chains (file order)].
+In the ten masters this moves no line [observed: `lines_moved_by_previous` is 0,
+crates/fnv-game/tests/dialogue_data.rs]; it matters for mods that add lines to a
+master's topic.
 
 ### 3.2 Lines of several quests in one topic
 

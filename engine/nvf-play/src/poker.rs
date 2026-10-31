@@ -29,7 +29,7 @@ use crate::sim::SimState;
 use crate::{PlaySet, PlayState};
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
-use crate::ui_compat::Interaction;
+use crate::ui_pointer::PointerState;
 use fnv_game::poker::{self as rules, Action, Event, Seat, Street, Style, Table};
 use fnv_sim::FormId;
 use rand_chacha::ChaCha8Rng;
@@ -486,12 +486,12 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, scroll: Option<Res<AccumulatedMouseScro
     }
 }
 
-fn buttons(screen: Res<PokerScreen>, pressed: Query<(&Interaction, &screen::PokerButton), Changed<Interaction>>, mut out: MessageWriter<PokerInput>) {
+fn buttons(screen: Res<PokerScreen>, pressed: Query<(&PointerState, &screen::PokerButton), Changed<PointerState>>, mut out: MessageWriter<PokerInput>) {
     if screen.0.is_none() {
         return;
     }
     for (i, b) in &pressed {
-        if *i == Interaction::Pressed {
+        if *i == PointerState::Pressed {
             out.write(b.0);
         }
     }

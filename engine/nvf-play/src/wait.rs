@@ -58,7 +58,7 @@ use crate::sim::SimState;
 use crate::{PlaySet, PlayState};
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
-use crate::ui_compat::{Button, Interaction};
+use crate::ui_pointer::{Button, PointerState};
 use bevy::ui::RelativeCursorPosition;
 use fnv_game::rest::RestRequest;
 use fnv_sim::FormId;
@@ -610,8 +610,8 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, input: ControlInput, menu: Res<WaitMenu
 
 fn mouse(
     menu: Res<WaitMenu>,
-    track: Query<(&Interaction, &RelativeCursorPosition), With<SliderTrack>>,
-    buttons: Query<(&Interaction, &WaitButton), Changed<Interaction>>,
+    track: Query<(&PointerState, &RelativeCursorPosition), With<SliderTrack>>,
+    buttons: Query<(&PointerState, &WaitButton), Changed<PointerState>>,
     mut wheel: MessageReader<MouseWheel>,
     mut lines: Local<f32>,
     mut out: MessageWriter<WaitInput>,
@@ -619,7 +619,7 @@ fn mouse(
     let Some(m) = menu.0.as_ref() else { return };
     // A press on the slider, and the drag after it, put the marker under the pointer.
     for (i, at) in &track {
-        if let (Interaction::Pressed, Some(p)) = (i, at.normalized) {
+        if let (PointerState::Pressed, Some(p)) = (i, at.normalized) {
             let hours = model::hours_at(p.x + 0.5);
             if hours != m.hours {
                 out.write(WaitInput(Command::Hours(hours)));
@@ -627,7 +627,7 @@ fn mouse(
         }
     }
     for (i, b) in &buttons {
-        if *i == Interaction::Pressed {
+        if *i == PointerState::Pressed {
             out.write(WaitInput(b.0));
         }
     }
@@ -954,7 +954,7 @@ fn draw(
         Query<&mut Glyphs, With<TitleText>>,
         Query<&mut Glyphs, With<HoursText>>,
         Query<&mut Glyphs, With<DateText>>,
-        Query<(&mut Glyphs, &WaitButton, &Interaction)>,
+        Query<(&mut Glyphs, &WaitButton, &PointerState)>,
     )>,
     mut marker: Query<&mut Node, With<Marker>>,
 ) {
@@ -994,7 +994,7 @@ fn draw(
         set(&mut g, label);
         let part = match (live, interaction) {
             (false, _) => FAINT,
-            (true, Interaction::None) => NORMAL,
+            (true, PointerState::None) => NORMAL,
             (true, _) => BRIGHT,
         };
         if g.color != shade(part) {

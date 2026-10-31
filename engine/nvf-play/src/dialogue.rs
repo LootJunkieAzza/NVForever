@@ -90,7 +90,7 @@ use crate::sim::SimState;
 use crate::{PlaySet, PlayState, PlayWorld};
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
-use crate::ui_compat::Interaction;
+use crate::ui_pointer::PointerState;
 use fnv_game::dialogue::{Challenge, Choice};
 use fnv_game::trace::{Event, EventKind};
 use fnv_game::{Game, GameData};
@@ -571,7 +571,7 @@ fn input(
     state: Res<State<PlayState>>,
     paused: Res<Paused>,
     phys: Res<PhysState>,
-    clicks: Query<(&Interaction, &ChoiceButton), Changed<Interaction>>,
+    clicks: Query<(&PointerState, &ChoiceButton), Changed<PointerState>>,
     mut screen: ResMut<DialogueScreen>,
     mut script: ResMut<ScriptState>,
     mut sim: ResMut<SimState>,
@@ -746,9 +746,9 @@ fn input(
             let mut clicked = None;
             for (i, b) in &clicks {
                 match i {
-                    Interaction::Pressed => clicked = Some(b.0),
-                    Interaction::Hovered => selected = b.0.min(len - 1),
-                    Interaction::None => {}
+                    PointerState::Pressed => clicked = Some(b.0),
+                    PointerState::Hovered => selected = b.0.min(len - 1),
+                    PointerState::None => {}
                 }
             }
             sc.selected = selected;
