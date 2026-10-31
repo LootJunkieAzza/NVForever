@@ -4830,7 +4830,8 @@ JG1 = {"skillbook": "160227", "guidebook": "C5634", "lucky38": "1267AB", "ncr": 
 
 
 def _jg1(pid, body, text=False):
-    return (f"jg1.{pid}", "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\n"
+    return (f"jg1.{pid}", "ref rP\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\n"
+            "Begin Function { }\n"
             + _form("rP", NF["player"]) + body, text, None, "")
 
 
@@ -4841,9 +4842,10 @@ def _jg1v(pid, key, expr, text=False):
 JG1_PROBES = (
     [_jg1v(f"book.{k}.flags", k, "GetBookFlags rObj") for k in ("skillbook", "guidebook")]
     + [_jg1v(f"book.{k}.skill", k, "GetBookSkill rObj") for k in ("skillbook", "guidebook")]
-    + [_jg1("book.setskill", _form("rObj", JG1["guidebook"]) + "SetBookSkill rObj 33\nSetFunctionValue (GetBookSkill rObj)"),
-       _jg1("book.setskill.bad", _form("rObj", JG1["guidebook"]) + "SetBookSkill rObj 5\nSetFunctionValue (GetBookSkill rObj)"),
-       _jg1("book.setskill.restore", _form("rObj", JG1["guidebook"]) + "SetBookSkill rObj 45\nSetFunctionValue (GetBookSkill rObj)"),
+    # Each setter step puts the record back as it found it, in the same step (#1064 review).
+    + [_jg1("book.setskill", _form("rObj", JG1["guidebook"]) + "let fSave := GetBookSkill rObj\nSetBookSkill rObj 33\n"
+            "let fRes := GetBookSkill rObj\nSetBookSkill rObj 5\nlet sText := sv_Construct \"%g %g\" fRes (GetBookSkill rObj)\n"
+            "SetBookSkill rObj fSave\nSetFunctionValue (sv_Construct \"%z %g\" sText (GetBookSkill rObj))", True),
        _jg1("book.setflags", _form("rObj", JG1["guidebook"]) + "SetBookFlags rObj 2\nlet fRes := GetBookFlags rObj\nSetBookFlags rObj 0\nSetFunctionValue fRes")]
     + [_jg1v(f"faction.{k}.flags", k, "GetFactionFlags rObj") for k in ("lucky38", "ncr")]
     + [_jg1("faction.setflags", _form("rObj", JG1["lucky38"]) + "SetFactionFlags rObj 257\nlet fRes := GetFactionFlags rObj\n"
@@ -4860,19 +4862,23 @@ JG1_PROBES = (
        for part in (0, 2) for sex in (0, 1)]
     + [_jg1v(f"weapon.worldmodel.{k}", k, "GetWeaponWorldModelPath rObj", True) for k in ("shishkebab", "knife", "nailboard")]
     + [_jg1v("weapon.worldmodel", "pistol", "GetWeaponWorldModelPath rObj", True),
-       _jg1("weapon.worldmodel.set", _form("rObj", JG1["pistol"]) + 'let sText := GetWeaponWorldModelPath rObj\n'
+       _jg1("weapon.worldmodel.set", _form("rObj", JG1["shishkebab"]) + 'let sSave := GetWeaponWorldModelPath rObj\n'
             'SetWeaponWorldModelPath rObj "nvf\\test.nif"\nlet sText := GetWeaponWorldModelPath rObj\n'
-            'SetWeaponWorldModelPath rObj "Weapons\\1HandPistol\\10mmPistol.NIF"\nSetFunctionValue sText', True)]
+            # Back as a literal: a string_var here reaches the game as its name (ext-showoff.md §5).
+            'SetWeaponWorldModelPath rObj "Weapons\\1HandMelee\\ShishkebabGO.NIF"\n'
+            'SetFunctionValue (sv_Construct "%z|%z" sText (GetWeaponWorldModelPath rObj))', True)]
     + [_jg1v(f"music.{k}.path", k, "GetMusicTypePath rObj", True) for k in ("success", "stinger")]
     + [_jg1v(f"music.{k}.db", k, "GetMusicTypeDB rObj") for k in ("success", "stinger")]
     + [_jg1("music.setdb", _form("rObj", JG1["success"]) + "let fRes := GetMusicTypeDB rObj\nSetMusicTypeDB rObj -20\n"
             'SetFunctionValue (sv_Construct "%g" (GetMusicTypeDB rObj))\nSetMusicTypeDB rObj fRes', True)]
     + [_jg1v(f"container.sound.{w}", "dresser", f"GetFormIDString (GetContainerSound rObj {w})", True) for w in (0, 1, 2, 3)]
-    + [_jg1("container.setsound", _form("rObj", JG1["dresser"]) + "let rOther := GetContainerSound rObj 1\n"
-            "SetContainerSound rObj 2 rOther\nlet rOther := GetContainerSound rObj 2\n"
-            "SetFunctionValue (GetFormIDString rOther)", True),
-       _jg1("container.setsound.restore", _form("rObj", JG1["dresser"]) + "let rOther := GetContainerSound rObj 3\n"
-            "SetContainerSound rObj 2 rOther\nlet rOther := GetContainerSound rObj 2\nSetFunctionValue (GetFormIDString rOther)", True)]
+    # Slot 0 has a sound to put back (slot 2 is empty, and setting none leaves a slot as it is).
+    + [_jg1("container.setsound", _form("rObj", JG1["dresser"]) + "let rSave := GetContainerSound rObj 0\n"
+            "let rOther := GetContainerSound rObj 1\nSetContainerSound rObj 0 rOther\nlet rOther := GetContainerSound rObj 0\n"
+            "let sText := GetFormIDString rOther\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"0\"\nSetContainerSound rObj 0 rOther\n"
+            "let rOther := GetContainerSound rObj 0\nlet sText := sv_Construct \"%z %z\" sText (GetFormIDString rOther)\n"
+            "SetContainerSound rObj 0 rSave\nlet rOther := GetContainerSound rObj 0\n"
+            "SetFunctionValue (sv_Construct \"%z %z\" sText (GetFormIDString rOther))", True)]
     + [_jg1v(f"lgtm.{n}", "hiddenvalley", f"GetLightingTemplateTraitNumeric rObj {n}") for n in range(0, 18)]
     + [_jg1("lgtm.set", _form("rObj", JG1["hiddenvalley"]) + "let fRes := GetLightingTemplateTraitNumeric rObj 10\n"
             "SetLightingTemplateTraitNumeric rObj 10 99\nlet sText := sv_Construct \"%g\" (GetLightingTemplateTraitNumeric rObj 10)\n"

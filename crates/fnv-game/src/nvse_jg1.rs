@@ -99,7 +99,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getbookflags" => XVal::Num(of_sig(g, form(args, 0), b"BOOK").and_then(|b| field(g, b, "DATA", "flags")).and_then(|v| v.num().ok()).unwrap_or(0.0)),
         "setbookflags" => {
             if let Some(b) = of_sig(g, form(args, 0), b"BOOK") {
-                g.field_overrides.insert((b, "DATA/flags".into()), XVal::Num(num(args, 1, 0.0).max(0.0).trunc()));
+                // DATA's flags are one byte [documented: xEdit BOOK DATA].
+                g.field_overrides.insert((b, "DATA/flags".into()), XVal::Num(f64::from(num(args, 1, 0.0).max(0.0) as u32 & 0xFF)));
             }
             zero
         }
@@ -116,7 +117,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             XVal::Num(if i < 0.0 { -1.0 } else { i + 32.0 })
         }
         "setbookskill" => {
-            let code = num(args, 1, -2.0);
+            let code = num(args, 1, -2.0).trunc();
             if let Some(b) = of_sig(g, form(args, 0), b"BOOK").filter(|_| code == -1.0 || (32.0..=46.0).contains(&code)) {
                 g.field_overrides.insert((b, "DATA/skill_code".into()), XVal::Num(code));
             }
@@ -201,7 +202,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let (Some(c), Some(sub)) = (of_sig(g, form(args, 0).map(|f| base(g, f)), b"CONT"), container_sound_sub(num(args, 1, -1.0))) else { return Some(Ok(XVal::Ref(0))) };
             // No form leaves the sound as it was [observed: jg1, container.setsound.restore].
             if name == "setcontainersound" {
-                if let Some(s) = form(args, 2) {
+                // A sound form only [documented: SetContainerSound, "Sets a Sound form"].
+                if let Some(s) = form(args, 2).filter(|&s| g.data.sig(s) == Some(*b"SOUN")) {
                     g.field_overrides.insert((c, format!("{sub}/")), XVal::Ref(s.0));
                 }
                 zero

@@ -79,4 +79,6 @@ The one row that differs is not ShowOff's: a `string_var` given to SetAmmoName's
 reached it as the variable's name, "sText", in the game [observed: showoff2
 ammoname.restore], as SetUIStringAlt's `%z` did in gaps1. The game's runtime compiler
 seems to pass a string variable's name where a parameter takes literal text [hypothesis];
-NVForever passes the value.
+NVForever passes the value. A third case: SetWeaponWorldModelPath given a `string_var` set
+the path to the variable's name, "sSave" [observed: jg1, before the step was changed to a
+literal].
