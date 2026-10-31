@@ -6596,6 +6596,28 @@ order = [[
 ]]
 
 [[scenario]]
+name = "console-cow-coe"
+source = "issue #1046 step 2: `cow <world> <x> <y>` (CenterOnWorld) and `coe <x> <y>` (CenterOnExterior, GECK wiki: move the player to exterior grid coordinates) did nothing; the capture campaigns use cow. coe from an interior uses the worldspace last walked in; a square with no cell is an error. The player arrives at the grid square's centre (docs/design/console.md)"
+areas = ["console"]
+paths = ["engine/nvf-play/src/console.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_CONSOLE = "12:cow WastelandNV -17 1;22:player.getpos x;22.3:player.getpos y;22.6:coe -16 1;32:player.getpos x;32.3:player.getpos y;32.6:cow WastelandNV 900 900;33:coc GSProspectorSaloonInterior;43:coe -17 1;53:player.getpos x;53.3:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 57
+order = [[
+  { re = 'console: Travelling to WastelandNV \(-17, 1\)', label = "cow names the square" },
+  { re = 'loading screen up: .* for worldspace 000DA726 \(-17, 1\)', label = "travel into that square" },
+  { re = 'console: GetPos on player >> -675\d\d\.\d\d', label = "x at the square's centre (-67584)" },
+  { re = 'console: GetPos on player >> 6\d\d\d\.\d\d', label = "y at the square's centre (6144)" },
+  { re = 'console: Travelling to WastelandNV \(-16, 1\)', label = "coe stays in the current worldspace" },
+  { re = 'console: GetPos on player >> -634\d\d\.\d\d', label = "x at the next square's centre (-63488)" },
+  { re = 'console: GetPos on player >> 6\d\d\d\.\d\d', label = "y still at the row's centre (6144)" },
+  "console: No exterior cell at WastelandNV (900, 900)",
+  { re = 'loading screen up: .* for interior', label = "into the saloon" },
+  { re = 'console: Travelling to WastelandNV \(-17, 1\)', label = "coe indoors goes to the worldspace last walked in" },
+  { re = 'console: GetPos on player >> -675\d\d\.\d\d', label = "back at (-17, 1)'s centre" },
+]]
+
+[[scenario]]
 name = "reputation-disguise"
 source = "owner request 2026-10-22: faction armour's scripts set every reputation to 0 while it is worn and back after; only the player's real reputation opens boxes, so putting on and taking off a Powder Gang outfit (000A472F, script 00134B71) shows none"
 areas = ["hud"]
