@@ -6567,6 +6567,19 @@ expect = [
 forbid = [{ re = 'the player died', label = "the player dies" }]
 
 [[scenario]]
+name = "console-killall"
+source = "issue #1046: `killall` (KillAllActors, GECK wiki: kills every actor in the loaded area, essential ones knocked out) did nothing; the console now finds vanilla functions without an opcode by name and alias (docs/design/console.md)"
+areas = ["console"]
+paths = ["crates/fnv-game/src/functions/console.rs", "engine/nvf-play/src/console.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_CONSOLE = "12:killall;12.3:player.getdead;12.6:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 18
+order = [[
+  { re = 'KillAllActors >> [1-9]\d* killed, \d+ essential knocked out', label = "the town's actors die, essential ones are knocked out" },
+  { re = 'console: GetDead on player >> 0\.00', label = "never the player" },
+]]
+
+[[scenario]]
 name = "reputation-disguise"
 source = "owner request 2026-10-22: faction armour's scripts set every reputation to 0 while it is worn and back after; only the player's real reputation opens boxes, so putting on and taking off a Powder Gang outfit (000A472F, script 00134B71) shows none"
 areas = ["hud"]
@@ -16686,6 +16699,25 @@ args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "
 run_seconds = 9
 expect = [
   { re = 'actor parts: meshes.creatures.radscorpion.radscorpion[.]nif: shape "meatcapbody" hides 11 cap partitions beside 1 drawn', label = "the intact radscorpion's torso caps are hidden, partition by partition" },
+]
+
+[[scenario]]
+name = "radio-dial-onoff"
+source = "#1080 (docs/spec-notes/activators.md §2-§3): a vintage radio (vintageradio01.nif) switched off and on again: Close darkens its dial, Open flickers it on (the tuning) and leaves it lit; Open and Close drive the NiMaterialProperty that the body, the needle and the glass dial share"
+note = "Goodsprings general store's radio 0x0014E8BB (VintageRadioNVStartONCountry, switched on by its OnLoad); E at 10 s (off) and 18 s (on); frames at 8 s (on), 13 s (off), 18.3 s (in Open's flicker) and 21 s (on again) in target/smoke"
+areas = ["activators"]
+paths = ["engine/nvforever/src/activators.rs", "engine/nvf-assets/src/material_anim.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0014E8BB", NVF_PLAY_TEST_ACTIVATE = "10,18", NVF_PLAY_TEST_SHOTS = "8:radio_on.png,13:radio_off.png,18.3:radio_tuning.png,21:radio_on_again.png" }
+args = ["--cell", "GSGeneralStore", "--play", "--no-voice", "--hour", "12", "--plugins", "FalloutNV.esm"]
+run_seconds = 24
+order = [[
+  "0014E8BB (VintageRadioNVStartONCountry) on: plays Open (0.67 s)",
+  "0014E8BB (VintageRadioNVStartONCountry) off: plays Close (0.37 s)",
+  "0014E8BB (VintageRadioNVStartONCountry) on: plays Open (0.67 s)",
+]]
+expect = [
+  { re = 'vintageradio01[.]nif: shapes sharing a driven material are driven with it: .*VintageRadioGlassDial:0', label = "Open and Close drive the glass dial, which wears the body's material" },
+  { re = 'test aid: screenshot .*radio_on_again[.]png', label = "the frames are saved" },
 ]
 
 [[scenario]]
