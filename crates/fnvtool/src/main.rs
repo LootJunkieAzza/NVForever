@@ -491,6 +491,10 @@ pub enum ActorCmd {
         /// clip.
         #[arg(long, default_value_t = 0)]
         samples: usize,
+        /// Also every attack clip in the folder and below it (file name containing
+        /// `attack`), for the travel of attack clips (actors.md §8.13).
+        #[arg(long)]
+        attacks: bool,
     },
     /// The FaceGen `.tri` files (morph targets of head parts): morph labels, and whether
     /// each has the vertices of the model beside it (fnv.actor.tri/1).
@@ -941,6 +945,10 @@ pub enum VfsCmd {
         data_dir: PathBuf,
         /// Plugins in load order (default: the base game and its add-on masters).
         plugins: Vec<String>,
+        /// A base archive list in place of the shipped `SArchiveList` (comma-separated,
+        /// lowest precedence first), as NVForever.ini's `[Archive] SArchiveList` sets it.
+        #[arg(long)]
+        archive_list: Option<String>,
     },
 }
 

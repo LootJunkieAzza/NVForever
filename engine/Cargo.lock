@@ -4595,6 +4595,7 @@ dependencies = [
  "rfd",
  "serde_json",
  "texpresso",
+ "wgpu",
  "windows-sys 0.61.2",
  "winit",
  "winresource",
