@@ -4818,6 +4818,33 @@ SHOWOFF2_PROBES = (
      _so2v("debugmode", "GetShowOffDebugMode")]
 )
 
+
+# tmpl1 (read-only; #1057): what the base-form getters answer for templated NPCs, against
+# their records' own fields [observed: fnvtool esm decode]. Three take their template from
+# another NPC (VHDLegionODeckHeavyTroopers, use Traits and Factions; VHDNCRRanger6Veteran,
+# use Traits and Factions, its own PKID, SNAM and CNAM; VHDNCRTrooper7aHeavy, use Factions,
+# not Traits), three from a leveled list (VSpawnSpecialJackalFem01Primm, VViperGangSpawnNRGunD,
+# VSpawnJackalFemale01NR, using Traits, Factions and the Actor Effect List). Doc Mitchell
+# untemplated beside them.
+TM1 = {"legion": "17B58D", "ranger": "17A2EE", "trooper": "17A2DC", "jackalprimm": "1689BD", "viper": "167DFB",
+       "jackal": "167DDD", "doc": "104C0C"}
+
+
+def _tm1(pid, key, expr, text=False):
+    rd = f"SetFunctionValue (GetFormIDString ({expr}))" if text == "form" else f"SetFunctionValue ({expr})"
+    return (f"tmpl1.{pid}", "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\n" + _form("rObj", TM1[key]) + rd,
+            bool(text), None, "")
+
+
+TMPL1_PROBES = [p for k in TM1 for p in (
+    _tm1(f"{k}.factions", k, "GetBaseNumFactions rObj"),
+    _tm1(f"{k}.faction0", k, "GetBaseNthFaction 0 rObj", "form"),
+    _tm1(f"{k}.rank0", k, "GetBaseNthRank 0 rObj"),
+    _tm1(f"{k}.class", k, "GetClass rObj", "form"),
+    _tm1(f"{k}.spells", k, "ar_Size (GetBaseSpellListSpells rObj)"),
+    _tm1(f"{k}.race", k, "GetRace rObj", "form"),
+)]
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -4878,7 +4905,8 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "jip4": JIP4_PROBES,
         "rules1": RULES1_PROBES,
         "rules2": RULES2_PROBES,
-        "showoff2": SHOWOFF2_PROBES}
+        "showoff2": SHOWOFF2_PROBES,
+        "tmpl1": TMPL1_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
