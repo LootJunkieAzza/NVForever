@@ -516,6 +516,7 @@ fn objects(
         *ws.stats.impacts.entry(i.material).or_default() += 1;
         ws.stats.impacts_no_material += i.no_material as u32;
     }
+    let in_container = menu.as_ref().and_then(|m| m.0.as_ref()).is_some_and(|m| matches!(m.mode, Mode::Container(_)));
     for &RefChanged { form_id: id } in changed.read() {
         let Some(s) = sim.world.peek(FormId(id)) else { continue };
         if !ws.forms.items.contains_key(&s.base) {
@@ -523,6 +524,12 @@ fn objects(
         }
         let (base, pos) = (s.base, s.pos);
         if s.deleted {
+            // Taken from a container menu (a corpse's dropped weapon, `menu::model::Row::
+            // reference`): the menu's own take sound below plays instead.
+            if in_container && s.dropped_by.is_some() {
+                ws.picked.insert(id);
+                continue;
+            }
             if ws.picked.insert(id) {
                 ws.stats.pickups += 1;
                 let sound = item_sound(ws, sfx, base, true);
@@ -544,7 +551,6 @@ fn objects(
     // Items moved between the player and an open container: what the player gains is
     // taken (its pick-up sound), what the player loses is put in (its drop sound), heard
     // at the listener [hypothesis: the same sounds as in the world].
-    let in_container = menu.as_ref().and_then(|m| m.0.as_ref()).is_some_and(|m| matches!(m.mode, Mode::Container(_)));
     let now_carried: Option<BTreeMap<FormId, i32>> =
         in_container.then(|| sim.world.peek(FormId::PLAYER_REF).and_then(|p| p.inventory.as_ref()).map(|i| i.iter().collect()).unwrap_or_default());
     if let (Some(before), Some(now)) = (ws.carried.as_ref(), now_carried.as_ref()) {

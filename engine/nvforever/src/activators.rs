@@ -92,7 +92,7 @@ pub fn drive(
                 (Some(c), false) if rig.on.is_some() => format!("plays {} ({:.2} s)", c.close.name, c.close.length()),
                 (Some(_), false) => "keeps its stored look".to_string(),
                 (None, true) => "plays its idle".to_string(),
-                (None, false) => "holds its idle, lights dark".to_string(),
+                (None, false) => "holds its idle, lights dark, unlit shapes black".to_string(),
             };
             info!("activator: {:08X} ({name}) {}: {how}", rig.form_id, if on { "on" } else { "off" });
             if rig.on.is_some() {

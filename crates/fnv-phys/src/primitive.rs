@@ -114,7 +114,7 @@ pub fn primitive_object(p: &Primitive, meaning: BoundsMeaning) -> Option<Collisi
         mass: 0.0,
         friction: 0.5,
         restitution: 0.0,
-        shape,
+        shape: shape.into(),
         // No Havok radius is known for placed primitives [hypothesis: 0].
         shell: 0.0,
         material: None,
@@ -139,12 +139,12 @@ mod tests {
     fn objects_follow_the_bounds_meaning() {
         let p = Primitive { bounds: [10.0, 20.0, 30.0], kind: PrimitiveKind::Box, layer: Some(27) };
         let o = primitive_object(&p, BoundsMeaning::HalfExtents).unwrap();
-        assert_eq!(o.shape, Shape::Box { half_extents: [10.0, 20.0, 30.0] });
+        assert_eq!(*o.shape, Shape::Box { half_extents: [10.0, 20.0, 30.0] });
         assert_eq!(o.layer, 27);
         let o = primitive_object(&p, BoundsMeaning::FullExtents).unwrap();
-        assert_eq!(o.shape, Shape::Box { half_extents: [5.0, 10.0, 15.0] });
+        assert_eq!(*o.shape, Shape::Box { half_extents: [5.0, 10.0, 15.0] });
         let s = Primitive { bounds: [8.0, 8.0, 8.0], kind: PrimitiveKind::Sphere, layer: None };
-        assert_eq!(primitive_object(&s, BoundsMeaning::HalfExtents).unwrap().shape, Shape::Sphere { radius: 8.0 });
+        assert_eq!(*primitive_object(&s, BoundsMeaning::HalfExtents).unwrap().shape, Shape::Sphere { radius: 8.0 });
         let none = Primitive { bounds: [1.0; 3], kind: PrimitiveKind::None, layer: None };
         assert!(primitive_object(&none, BoundsMeaning::HalfExtents).is_none());
     }

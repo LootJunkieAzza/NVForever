@@ -372,7 +372,8 @@ fn owned_by_other(game: Option<&fnv_game::Game>, sim: &SimState, form_id: u32, a
 /// nothing the container menu would list (`menu::model::listing`: non-playable items are
 /// not) [owner 2026-10-27: such a prompt says "[Empty]"]. A container's contents are
 /// rolled here if it has not been touched yet, as opening it would roll them; a locked
-/// one is not looked into.
+/// one is not looked into. A body's weapon lying beside it (`World::dropped_beside`) is
+/// listed in its loot menu, so it counts too (#1032).
 pub(crate) fn holds_nothing(game: Option<&fnv_game::Game>, sim: &mut SimState, form_id: u32, action: &Action) -> bool {
     let holder = match action {
         Action::Search => game.and_then(|g| g.ash_pile_source(FormId(form_id))).unwrap_or(FormId(form_id)),
@@ -380,8 +381,12 @@ pub(crate) fn holds_nothing(game: Option<&fnv_game::Game>, sim: &mut SimState, f
         _ => return false,
     };
     let forms = sim.forms;
+    let unlisted = |item: FormId| forms.item(item).is_some_and(|i| !i.listed(false));
     let Ok(s) = sim.world.get(holder) else { return false };
-    s.inventory.as_ref().is_none_or(|inv| inv.iter().all(|(item, _)| forms.item(item).is_some_and(|i| !i.listed(false))))
+    if !s.inventory.as_ref().is_none_or(|inv| inv.iter().all(|(item, _)| unlisted(item))) {
+        return false;
+    }
+    sim.world.dropped_beside(holder).into_iter().all(|r| sim.world.peek(r).is_none_or(|d| unlisted(d.base)))
 }
 
 /// Test aid: times (seconds on the world aids' clock, `crate::pause::WorldAidClock`) at

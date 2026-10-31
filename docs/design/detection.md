@@ -36,6 +36,12 @@ leaves open:
   page gives 0.21 for running, §9].
 - The distance falloff is 0 at and beyond the reach, so only the base and the target's
   skill remain there: a target out of reach is hidden (−35 or lower).
+- The target's Sneak (TargetSkill) counts only against a detector that sees the target
+  or hears it (Sound above 0): an unseen, silent target reads the same sneaking or
+  standing, by distance alone [observed: jip_detection, observer-jip-audit-2026-10-25.md
+  §3.2: −12 to −14 within 500 units, −32 to −33 at 3,000–4,000, −34 to −35 beyond, day
+  or night, standing or sneaking; #969]. Kept when the target is heard [hypothesis: no
+  unseen, noisy case was captured].
 
 ## 3. What the engine measures
 

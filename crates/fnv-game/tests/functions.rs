@@ -1975,3 +1975,28 @@ fn forced_reactions_vats_targets_and_water_objects() {
     g.time += fnv_game::functions::senses::ACTIVATING_SECONDS + 1.0;
     assert_eq!(g.activating(FormId::PLAYER_REF), None);
 }
+
+/// A call that succeeds although its function could not read an argument it passed is
+/// traced as `ArgUnread` (#1122), once per opcode, unit and parameter; a failed call and
+/// an absent argument are not.
+#[test]
+fn an_argument_read_wrong_without_failing_is_traced_once() {
+    let f = fixture();
+    let mut g = game(&f);
+    let unread = |g: &Game| g.events.iter().filter(|e| matches!(e.kind, EventKind::ArgUnread { .. })).count();
+    // ShowBarterMenu [discount]: a string where the number goes, the discount defaults to 0.
+    call(&mut g, 0x1173, Some(ADULT_REF), &[ArgValue::Str("ten".into())]);
+    let e = g.events.iter().find_map(|e| match &e.kind {
+        EventKind::ArgUnread { name, param, got, wanted, .. } => Some((name.clone(), *param, got.clone(), wanted.clone())),
+        _ => None,
+    });
+    assert_eq!(e, Some(("ShowBarterMenu".into(), 0, "string".into(), "number".into())));
+    call(&mut g, 0x1173, Some(ADULT_REF), &[ArgValue::Str("ten".into())]);
+    assert_eq!(unread(&g), 1, "traced once per opcode, unit and parameter");
+    call(&mut g, 0x1173, Some(ADULT_REF), &[]);
+    assert_eq!(unread(&g), 1, "an absent optional argument is not a misread");
+    // No calling reference: the call fails, which CallFailed already reports.
+    let ctx = Ctx { unit: "other".into(), opcode: 0x1173, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    g.call_function(&ctx, &[ArgValue::Str("ten".into())]);
+    assert_eq!(unread(&g), 1);
+}

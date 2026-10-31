@@ -45,6 +45,25 @@ fn trailer_warning(path: &str, t: Trailer) -> Option<(String, String)> {
             "zlib_checksum_mismatch".into(),
             format!("{path}: stored {stored:08x}, computed {computed:08x}"),
         )),
+        Trailer::Extra { bytes } => Some(("zlib_bytes_after_trailer".into(), format!("{path}: {bytes} bytes after the Adler-32"))),
+    }
+}
+
+/// `fnvtool vfs …`.
+pub fn run_vfs(cmd: crate::VfsCmd) -> anyhow::Result<Value> {
+    match cmd {
+        crate::VfsCmd::Order { data_dir, plugins } => {
+            let plugins: Vec<String> = if plugins.is_empty() { fnv_vfs::DEFAULT_PLUGINS.iter().map(|p| p.to_string()).collect() } else { plugins };
+            let (archives, from_env) = fnv_vfs::Vfs::order_for_plugins(&data_dir, &plugins);
+            Ok(json!({
+                "schema": "fnv.vfs.order/1",
+                "data": data_dir.display().to_string(),
+                "plugins": plugins,
+                "source": if from_env { fnv_vfs::ARCHIVE_ORDER_ENV } else { "SArchiveList default, Update.bsa, then each plugin's archives" },
+                "archives": archives,
+                "loose": "above every archive",
+            }))
+        }
     }
 }
 

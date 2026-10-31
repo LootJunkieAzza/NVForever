@@ -551,28 +551,43 @@ pub struct Sfx {
     /// Sounds with the 2D flag played at a place, not panned.
     pub flat_2d: u32,
     /// One-shot sounds playing now (counted each frame by [`play`], and as they start),
-    /// those of each SOUN, the most at once, and how many were not started because
-    /// [`MAX_VOICES`] or [`MAX_SAME`] were playing.
+    /// those of each SOUN (when each started, its entity), the most at once, and how many
+    /// were not started because [`MAX_VOICES`] or [`MAX_SAME`] were playing.
     voices: usize,
-    same: HashMap<FormId, usize>,
+    same: HashMap<FormId, Vec<(u64, Entity)>>,
+    /// The start number of the next one-shot ([`OneShot`]), so the oldest is known.
+    next_voice: u64,
     pub most_voices: usize,
     pub voice_limited: u32,
+    /// One-shots that took over the oldest voice of their SOUN at [`MAX_SAME`].
+    pub voice_stolen: u32,
+    /// Per SOUN: one-shots started, those started over its oldest voice, refused.
+    per_sound: HashMap<FormId, [u32; 3]>,
 }
 
 #[derive(Component)]
 struct SfxSound;
 
-/// A one-shot sound effect playing, of this SOUN ([`MAX_VOICES`]).
+/// A one-shot sound effect playing, of this SOUN, started as the n-th ([`MAX_VOICES`]).
 #[derive(Component)]
-struct OneShot(FormId);
+struct OneShot(FormId, u64);
 
 /// One-shot sound effects playing at once, at most; one asked for beyond it is not played
+/// (unless its own SOUN is at [`MAX_SAME`], whose oldest voice it then takes)
 /// [engineering choice: the game's own limit is not known. Two dozen mantis nymphs walking
 /// started about 130 footsteps a second; each mixed through its own reverb, the mixer fell
 /// behind real time, sounds stopped ending and 1,800 piled up (docs/design/
 /// frame-rate-audit.md §2)]. Interface sounds are not limited.
 pub const MAX_VOICES: usize = 64;
-/// The same SOUN playing at once, at most (a crowd's footsteps) [engineering choice].
+/// The same SOUN playing at once, at most (a crowd's footsteps, a burst of shots)
+/// [engineering choice]. One more of it stops the oldest playing voice of that SOUN and
+/// starts in its place, instead of not being played: an automatic weapon fires 9 to 20
+/// shots a second, each shot's sound with its tail longer than 8 shots apart, so
+/// refusing the newest left gaps in a burst (#1098, owner 2026-10-30) [engineering
+/// choice: the usual rule of a voice limit; whether the game cuts the previous shot's
+/// sound is not known]. The voices stay within [`MAX_VOICES`] and this either way, which
+/// is what kept the mantis crowd's mixer real-time (frame-rate-audit.md §2): with the
+/// stealing, mantis-egg-spawn mixed 66.1 s in 66.1 s with 64 one-shots at most.
 pub const MAX_SAME: usize = 8;
 
 /// Whether one more one-shot of `sound` may start with `voices` playing, `same` of them
@@ -592,7 +607,7 @@ fn init(mut commands: Commands, d: Res<PlayWorld>) {
         forms.addons.len(),
         t.elapsed().as_secs_f64() * 1000.0
     );
-    commands.insert_resource(Sfx { forms, files: HashMap::new(), folders: HashMap::new(), reported: HashSet::new(), rng: SplitMix(0x5f37_59df), played: 0, silent: 0, failed: 0, room_reverb: None, reverbed: 0, reverb_kept_out: 0, reverb_send_sum: 0.0, own_curve: 0, submerged: false, muted_submerged: 0, deepest: 0.0, flat_2d: 0, voices: 0, same: HashMap::new(), most_voices: 0, voice_limited: 0 });
+    commands.insert_resource(Sfx { forms, files: HashMap::new(), folders: HashMap::new(), reported: HashSet::new(), rng: SplitMix(0x5f37_59df), played: 0, silent: 0, failed: 0, room_reverb: None, reverbed: 0, reverb_kept_out: 0, reverb_send_sum: 0.0, own_curve: 0, submerged: false, muted_submerged: 0, deepest: 0.0, flat_2d: 0, voices: 0, same: HashMap::new(), next_voice: 0, most_voices: 0, voice_limited: 0, voice_stolen: 0, per_sound: HashMap::new() });
 }
 
 /// The archive path of the file a SOUN plays this time: the file it names, or the Ogg
@@ -676,7 +691,7 @@ fn play(
     mut requests: MessageReader<PlaySound>,
     mut loops: MessageReader<LoopSound>,
     looping: Query<(Entity, &Looping)>,
-    playing: Query<&OneShot>,
+    playing: Query<(Entity, &OneShot)>,
     scripted: Query<(Entity, &ScriptPlayed)>,
     mut script_sounds: ResMut<ScriptSounds>,
     sfx: Option<ResMut<Sfx>>,
@@ -692,8 +707,8 @@ fn play(
     };
     let sfx = &mut *sfx;
     sfx.same.clear();
-    for o in &playing {
-        *sfx.same.entry(o.0).or_default() += 1;
+    for (e, o) in &playing {
+        sfx.same.entry(o.0).or_default().push((o.1, e));
     }
     sfx.voices = playing.iter().count();
     for l in loops.read() {
@@ -879,13 +894,22 @@ fn one_shot_spawn(
     }
     let interface = is_interface(s.edid.as_deref());
     if !interface {
-        let same = sfx.same.get(&sound).copied().unwrap_or(0);
-        if !voice_free(sfx.voices, same) {
+        let same = sfx.same.get(&sound).map_or(0, Vec::len);
+        if same >= MAX_SAME {
+            // The oldest voice of this SOUN stops; the new one takes its place.
+            let list = sfx.same.get_mut(&sound).expect("counted above");
+            let oldest = (0..list.len()).min_by_key(|&i| list[i].0).expect("not empty");
+            let (_, e) = list.swap_remove(oldest);
+            commands.entity(e).try_despawn();
+            sfx.voices = sfx.voices.saturating_sub(1);
+            sfx.voice_stolen += 1;
+            sfx.per_sound.entry(sound).or_default()[1] += 1;
+        } else if !voice_free(sfx.voices, same) {
             sfx.voice_limited += 1;
+            sfx.per_sound.entry(sound).or_default()[2] += 1;
             return Some((seconds, None));
         }
         sfx.voices += 1;
-        sfx.same.insert(sound, same + 1);
         sfx.most_voices = sfx.most_voices.max(sfx.voices);
     }
     sfx.played += 1;
@@ -913,7 +937,12 @@ fn one_shot_spawn(
     if interface {
         e.insert(KeepsSpeed);
     } else {
-        e.insert(OneShot(sound));
+        let n = sfx.next_voice;
+        sfx.next_voice += 1;
+        e.insert(OneShot(sound, n));
+        let id = e.id();
+        sfx.same.entry(sound).or_default().push((n, id));
+        sfx.per_sound.entry(sound).or_default()[0] += 1;
     }
     Some((seconds, Some(e.id())))
 }
@@ -932,6 +961,16 @@ fn report(mut exit: MessageReader<AppExit>, sfx: Option<Res<Sfx>>) {
                 "sfx: {} sounds played, {} too quiet or switched off, {} without a file we can play; {} silenced under water (at most {:.0} under a surface), {} 2D sounds not panned; {} not started at the voice limit, at most {} one-shots at once; {} placed by a curve of their own",
                 s.played, s.silent, s.failed, s.muted_submerged, s.deepest, s.flat_2d, s.voice_limited, s.most_voices, s.own_curve
             );
+            if s.voice_stolen > 0 {
+                info!("sfx: {} one-shots took over the oldest voice of their sound at {MAX_SAME} playing", s.voice_stolen);
+            }
+            // The sounds that met a limit (#1098: which shots of a burst went unheard).
+            let mut limited: Vec<_> = s.per_sound.iter().filter(|(_, c)| c[1] + c[2] > 0).collect();
+            limited.sort_by_key(|(sound, _)| **sound);
+            for (sound, [started, stolen, refused]) in limited {
+                let name = s.forms.sounds.get(sound).and_then(|x| x.edid.clone()).unwrap_or_else(|| sound.to_string());
+                info!("sfx: {name}: {started} started, {stolen} of them over its oldest voice, {refused} refused at the voice limit");
+            }
         }
     }
 }

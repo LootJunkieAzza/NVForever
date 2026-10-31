@@ -96,10 +96,56 @@ it asks through `Game::console_requests`, which the console carries out. Wording
 | `SaveGame <name>` (`save`), `LoadGame [name]` (`load`) | as the console's own `save` / `load` |
 | `set <var> to <value>` | `set quest.var to 5`, `set ref.var to 5`, `set Global to 5`, or `set var to 5` on the selected reference's script; a number or a form; stored as a script's `set` stores it |
 
+| `KillAllActors [killer]` (`killall`) | every actor of the loaded area dies (the cells around the player outdoors, the player's cell indoors), never the player; an essential one is knocked out; the killer given takes the kills [documented: GECK wiki KillAllActors; hypothesis: the dead and the disabled are left alone] |
+
+KillAllActors is a vanilla function the catalogue gives neither an opcode nor the console
+category, so the table does not number it; the console finds such a function by name or
+alias among the table's unnumbered functions (`console::lookup_word`).
+
 Not built: `GetINISetting` / `SetINISetting` (the engine keeps no store of the original's
 INI values; they are constants in the code that uses them: the commands say so), the
-other console-only functions not listed here or in the camera/toggle tables,
-several statements on a line.
+other console-only functions not listed here or in the camera/toggle tables (see "What
+the console does not handle"), several statements on a line.
+
+## What the console does not handle
+
+The stub audit (`fnvtool script stubs`, `tools/smoke/expected/script-stubs.toml`) counts
+only functions the masters' scripts call. A function typed at the console that no script
+calls is outside it, so `killall` did nothing unnoticed (#1046). The vanilla functions of
+the catalogue that nothing handles (not in `functions::registry`, the console registries,
+or the engine's own words `console::ENGINE_WORDS`: `coc`, `help`, `AdvLevel`) and that no
+master script calls are counted by `console::unhandled_unused`. The test
+`registered_names_are_catalogue_console_commands` pins the two numbers: **57** in the
+wiki's "Console Functions" category, **124** others. Implementing one lowers a number
+there; a catalogue update that adds one raises it. Sorted (2026-10-31):
+
+**Console functions players use, to build next**: `CenterOnWorld` (`cow <world> <x> <y>`,
+used by the capture campaigns), `CenterOnExterior` (`coe <x> <y>`), `StartAllQuests`
+(`saq`), `PlaceLocationMarker` / `ClearLocationMarkers` (`plm` / `clm`),
+`ShowLockPickMenu` (`slpm`), `DeleteReference` (`zap`), `bat` (run a batch file of
+console lines), `ToggleFogOfWar` (`tfow`), `ToggleEmotions` (`temo`), `ToggleLookIK`
+(`tlik`), `Show1stPerson` (`s1st`), `ResetDialogueFlags` (`rdf`), `ResetAllTerminals`
+(`rat`), `SetVel`, `MFG` (face morphs).
+
+**Console functions not applicable to NVForever**, as they inspect or drive the original
+engine's own renderer, scene graph, tools or files, which NVForever does not have:
+`AddOcclusionPlane`, `CalcLowPathToPoint`, `DrawSkeleton`, `DumpModelMap`,
+`OutputLocalMapPictures`, `PersistentRefCount`, `RenderTestCell`, `ShowScenegraph`,
+`TestAllCells`, `TestCode`, `TestRaceSexTerimnal`, `ToggleCellNode`, `ToggleLiteBrite`,
+`ToggleMaterialGeometry`, `TogglePrimitives`, `ToggleMagicStats`, `Verbose`,
+`SetConsoleOuputFile`, `SetClipDist`, `SetHUDGlowConstants`, `ShowAnim`, `Show`,
+`ForceGroupStrategy`, `SetCombatActionCost`, `PlayVATSCameras`, `HighlightBodyPart`,
+`DeactivateAllHighlights`, `MovePipboyKnob`, `ClearScreenBlood`, and the console's
+selection words `clr`, `delete`, `depth`, `front`, `iso`, `rbat`, `reload`, `stack`,
+`use`, `usz`, `visible` [hypothesis for each: from its catalogue summary; revisit one
+when a player or a capture campaign asks for it].
+
+**The other 124** are script functions no master calls, many listed by the wiki as
+unused in New Vegas (`ModPCSkill`, `SetPCYoung`, …) or as conditions with an opcode
+(`GetGold`, `SameFaction`, `IsSnowing`, …). They matter for mods: a mod that calls one
+brings it into the stub audit's count, which then has to handle or stub it. The full
+list is what the test prints (`cargo test -p fnv-game --lib registered_names --
+--nocapture`).
 
 ## World and render toggles
 

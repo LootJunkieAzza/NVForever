@@ -992,32 +992,62 @@ fn same(a: &XVal, b: &XVal) -> bool {
 
 /// A copy of an array; nested arrays shared (Ar_Copy) or copied all the way down
 /// (Ar_DeepCopy) [documented: Ar Copy; Ar DeepCopy].
+/// An array that holds itself, directly or through others, is copied with the same shape:
+/// an entry that leads back to an array still being copied gets that array's copy (#1089).
+/// An array met twice on separate paths (`[b, b]`) is copied twice, so the copies stay
+/// apart, as before #1089 [documented: Ar DeepCopy, "all the way down"; hypothesis: the
+/// original also copies each entry apart, not probed].
 fn copy_array(store: &mut ExtStore, id: u32, deep: bool) -> u32 {
+    if !deep {
+        let Some(a) = store.array(id).cloned() else { return 0 };
+        return store.new_array(a.kind, a.entries);
+    }
+    deep_copy(store, id, &mut std::collections::HashMap::new())
+}
+
+fn deep_copy(store: &mut ExtStore, id: u32, copies: &mut std::collections::HashMap<u32, u32>) -> u32 {
+    if let Some(&c) = copies.get(&id) {
+        return c;
+    }
     let Some(a) = store.array(id).cloned() else { return 0 };
+    // The copy exists before its entries, so an entry leading back here finds it.
+    let new = store.new_array(a.kind, Vec::new());
+    copies.insert(id, new);
     let mut es = Vec::with_capacity(a.entries.len());
     for (k, v) in a.entries {
         let v = match v {
-            XVal::Array(c) if deep => {
-                let n = copy_array(store, c, true);
-                XVal::Array(n)
-            }
+            XVal::Array(c) => XVal::Array(deep_copy(store, c, copies)),
             other => other,
         };
+        store.retain(&v);
         es.push((k, v));
     }
-    store.new_array(a.kind, es)
+    if let Some(n) = store.array_mut(new) {
+        n.entries = es;
+        n.renumber();
+    }
+    // Only the arrays on the path being copied stand for themselves.
+    copies.remove(&id);
+    new
 }
 
 /// Same key-element pairs in the same order, nested arrays included; two nulls are equal
 /// [documented: Ar DeepEquals].
+/// A pair of arrays met again on the way down is taken as equal, so arrays that hold
+/// themselves compare without end (#1089).
 fn deep_equal(store: &ExtStore, a: &XVal, b: &XVal) -> bool {
+    deep_equal_in(store, a, b, &mut std::collections::HashSet::new())
+}
+
+fn deep_equal_in(store: &ExtStore, a: &XVal, b: &XVal, seen: &mut std::collections::HashSet<(u32, u32)>) -> bool {
     match (a, b) {
         (XVal::Array(x), XVal::Array(y)) => match (store.array(*x), store.array(*y)) {
             (None, None) => true,
+            (Some(_), Some(_)) if !seen.insert((*x, *y)) => true,
             (Some(p), Some(q)) => {
                 p.kind == q.kind
                     && p.entries.len() == q.entries.len()
-                    && p.entries.iter().zip(&q.entries).all(|(e, f)| e.0 == f.0 && deep_equal(store, &e.1, &f.1))
+                    && p.entries.iter().zip(&q.entries).all(|(e, f)| e.0 == f.0 && deep_equal_in(store, &e.1, &f.1, seen))
             }
             _ => false,
         },
@@ -1062,62 +1092,98 @@ fn hex_prefix(h: &str) -> f64 {
     i64::from_str_radix(&h[..n], 16).map_or(0.0, |v| v as f64)
 }
 
-/// A number by a printf-style code of the base game [documented: String Formatting,
-/// "Vanilla Game Options"]: `%X.Yf` (width X, Y decimals), `%g` (an integer; 1,000,000 and
-/// above in scientific form), `%.Ne` (scientific, `1.23E+005`); switches `+`, space, `-`
-/// (left-aligned), `0` (zero padding). How `%g` rounds is open; it rounds half away from
-/// zero here [hypothesis].
+/// The widest field and the most digits a format code writes; a larger width or precision
+/// is cut to this, so a mod's `%.4000000000f` cannot build a huge string [design: as #1134
+/// asks of the message formatter].
+const MAX_FORMAT_FIELD: usize = 512;
+
+/// A number by a printf-style code, as the C library writes it [observed: the game's
+/// sv_Construct, probe format1 and jip5 (#1006): `%g` 0.5 "0.5", 2.5 "2.5", 1000000
+/// "1e+06", 123.456789 "123.457", 1234567 "1.23457e+06", 10020030 "1.002e+07"; `%G`
+/// 1234567 "1.23457E+06"; `%.2g` 123.456 "1.2e+02"; `%.3e` 123000 "1.230e+05"; rules1, a
+/// denormal "7.09985e-318"]: `%X.Yf` (width X, Y decimals), `%g`/`%G` (Y significant
+/// digits, 6 by default, scientific below 1e-4 or from 10^Y, trailing zeros dropped),
+/// `%.Ye`/`%.YE`; switches `+`, space, `-` (left-aligned), `0` (zero padding). The wiki's
+/// "%g as an integer, 1E+006" (String Formatting, Vanilla Game Options) differs [hypothesis:
+/// the older runtime's form]. The sign is written apart from the digits, so `+` never
+/// doubles one; -0 writes as 0, as NVForever wrote it before (the C library writes `-0`;
+/// what the game writes is not probed, and an angle of -0 reads "0" in the smoke runs)
+/// [hypothesis]; infinity and NaN write `inf` and `nan` (`INF`, `NAN`
+/// for an upper-case code) and are padded with spaces, as the C library does
+/// [hypothesis: not probed].
 fn printf_number(spec: &str, code: char, x: f64) -> String {
     let flags: String = spec.chars().take_while(|c| "+- 0".contains(*c)).collect();
     let rest = &spec[flags.len()..];
     let (w, p) = match rest.split_once('.') {
-        Some((w, p)) => (w, Some(p.parse::<usize>().unwrap_or(0))),
+        Some((w, p)) => (w, Some(p.parse::<usize>().unwrap_or(0).min(MAX_FORMAT_FIELD))),
         None => (rest, None),
     };
-    let width: usize = w.parse().unwrap_or(0);
-    let sci = |x: f64, digits: usize| {
-        let s = format!("{:.*E}", digits, x);
-        match s.split_once('E') {
+    let width: usize = w.parse::<usize>().unwrap_or(0).min(MAX_FORMAT_FIELD);
+    let upper = code.is_ascii_uppercase();
+    let negative = x < 0.0;
+    let a = x.abs();
+    // The C library's scientific form of a value at or above 0: the mantissa, then e (or
+    // E), a sign and at least two digits.
+    let sci = |a: f64, digits: usize| {
+        let s = format!("{:.*e}", digits, a);
+        match s.split_once('e') {
             Some((m, e)) => {
                 let e: i32 = e.parse().unwrap_or(0);
-                format!("{m}E{}{:03}", if e < 0 { '-' } else { '+' }, e.abs())
+                format!("{m}{}{}{:02}", if upper { 'E' } else { 'e' }, if e < 0 { '-' } else { '+' }, e.abs())
             }
             None => s,
         }
     };
-    let mut body = match code {
-        'f' => format!("{:.*}", p.unwrap_or(6), x),
-        'e' => sci(x, p.unwrap_or(6)),
-        _ if x.abs() >= 1_000_000.0 => {
-            let s = sci(x, 5);
-            // `1E+006`: no trailing zeros in the mantissa.
-            match s.split_once('E') {
-                Some((m, e)) => format!("{}E{e}", m.trim_end_matches('0').trim_end_matches('.')),
-                None => s,
+    let trim = |s: String| if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_string() } else { s };
+    let finite = a.is_finite();
+    let mut body = if !finite {
+        let t = if a.is_nan() { "nan" } else { "inf" };
+        if upper { t.to_ascii_uppercase() } else { t.to_string() }
+    } else {
+        match code.to_ascii_lowercase() {
+            'f' => format!("{:.*}", p.unwrap_or(6), a),
+            'e' => sci(a, p.unwrap_or(6)),
+            _ => {
+                let p = p.unwrap_or(6).max(1);
+                if a == 0.0 {
+                    "0".to_string()
+                } else {
+                    // The exponent the scientific form would have, after rounding to p digits.
+                    let e: i64 = format!("{:.*e}", p - 1, a).split_once('e').and_then(|(_, e)| e.parse().ok()).unwrap_or(0);
+                    if e < -4 || e >= p as i64 {
+                        let s = sci(a, p - 1);
+                        match s.split_once(if upper { 'E' } else { 'e' }) {
+                            Some((m, rest)) => format!("{}{}{rest}", trim(m.to_string()), if upper { 'E' } else { 'e' }),
+                            None => s,
+                        }
+                    } else {
+                        trim(format!("{:.*}", (p as i64 - 1 - e).max(0) as usize, a))
+                    }
+                }
             }
         }
-        _ => format!("{}", x.round() as i64),
     };
-    if x >= 0.0 {
-        if flags.contains('+') {
-            body.insert(0, '+');
-        } else if flags.contains(' ') {
-            body.insert(0, ' ');
-        }
-    }
-    if body.chars().count() < width {
-        let pad = width - body.chars().count();
+    let sign = if negative {
+        "-"
+    } else if flags.contains('+') {
+        "+"
+    } else if flags.contains(' ') {
+        " "
+    } else {
+        ""
+    };
+    let len = sign.chars().count() + body.chars().count();
+    if len < width {
+        let pad = width - len;
         if flags.contains('-') {
             body.push_str(&" ".repeat(pad));
-        } else if flags.contains('0') {
-            let sign = body.starts_with(['-', '+', ' ']);
-            let at = usize::from(sign);
-            body.insert_str(at, &"0".repeat(pad));
+        } else if flags.contains('0') && finite {
+            body.insert_str(0, &"0".repeat(pad));
         } else {
-            body.insert_str(0, &" ".repeat(pad));
+            return format!("{}{sign}{body}", " ".repeat(pad));
         }
     }
-    body
+    format!("{sign}{body}")
 }
 
 /// `%q`, `%r` and a bare `%e` in a string literal: a double quote, a line break, nothing
@@ -1398,13 +1464,21 @@ impl Vm<'_, '_> {
 
     /// A value as text (`$`, ToString): a number's text, a form's name or, without one, its
     /// FormID in hex [documented: ToString].
-    /// An array on one line, as PrintVar shows it: `[2, 4]`, a map's pairs `[k: v, …]`.
+    /// An array on one line, as PrintVar shows it: `[2, 4]`, a map's pairs `[k: v, …]`. An
+    /// array already being written further out is written `array #n`, as Ar_Dump writes a
+    /// nested one, so an array holding itself ends (#1089).
     fn brief_array(&mut self, id: u32) -> Result<String, VmError> {
+        self.brief_array_in(id, &mut Vec::new())
+    }
+
+    fn brief_array_in(&mut self, id: u32, path: &mut Vec<u32>) -> Result<String, VmError> {
         let Some(arr) = self.store()?.array(id).cloned() else { return Ok("(no array)".into()) };
+        path.push(id);
         let mut parts = Vec::new();
         for (k, v) in &arr.entries {
             let vt = match v {
-                XVal::Array(inner) => self.brief_array(*inner)?,
+                XVal::Array(inner) if path.contains(inner) => format!("array #{inner}"),
+                XVal::Array(inner) => self.brief_array_in(*inner, path)?,
                 other => self.text_of(other)?,
             };
             parts.push(match (arr.kind, k) {
@@ -1413,6 +1487,7 @@ impl Vm<'_, '_> {
                 (_, XKey::Str(s)) => format!("{s}: {vt}"),
             });
         }
+        path.pop();
         Ok(format!("[{}]", parts.join(", ")))
     }
 
@@ -2079,13 +2154,13 @@ impl Vm<'_, '_> {
                 i += 1;
             }
             match cs.get(i) {
-                Some('f' | 'g' | 'a' | 'i' | 'k' | 'n' | 'v' | 'x' | 'z' | '{') => n += 1,
+                Some('f' | 'g' | 'G' | 'a' | 'i' | 'k' | 'n' | 'v' | 'x' | 'z' | '{') => n += 1,
                 Some('c') => n += 2,
                 Some('p') => {
                     n += 1;
                     i += 1;
                 }
-                Some('e') if cs[i - 1] != '%' => n += 1,
+                Some('e' | 'E') if cs[i - 1] != '%' => n += 1,
                 _ => {}
             }
             i += 1;
@@ -2129,8 +2204,8 @@ impl Vm<'_, '_> {
                 'q' => "\"".to_string(),
                 'r' => "\n".to_string(),
                 'B' | 'b' => String::new(),
-                'e' if spec.is_empty() => String::new(),
-                'f' | 'g' | 'e' => printf_number(&spec, code, next("number")?.num()?),
+                'e' | 'E' if spec.is_empty() => String::new(),
+                'f' | 'g' | 'e' | 'G' | 'E' => printf_number(&spec, code, next("number")?.num()?),
                 'a' => char::from_u32(next("character")?.num()? as u32).map(String::from).unwrap_or_default(),
                 'i' => {
                     let v = next("form")?;

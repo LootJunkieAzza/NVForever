@@ -15,6 +15,7 @@ use rapier3d::math::{Pose, Vector};
 use rapier3d::parry::query::ShapeCastOptions;
 use rapier3d::prelude::*;
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 /// World parameters. The defaults are engineering choices or [hypothesis] values to be
 /// replaced by captured ones (physics.md §6 lists the capture questions).
@@ -235,7 +236,7 @@ impl PreparedRef {
                 }
             };
             let mut leaves = Vec::new();
-            convert::leaves(&o.shape, &Iso::IDENTITY, pose.scale * k, &mut leaves, &mut out.errors);
+            convert::shared_leaves(&o.shape, pose.scale * k, &mut leaves, &mut out.errors);
             if leaves.is_empty() {
                 continue;
             }
@@ -303,7 +304,7 @@ pub struct PhysWorld {
     pub(crate) gore: BTreeMap<u32, RigidBodyHandle>,
     /// Per-triangle material codes of triangle-mesh colliders; one code for a convex
     /// collider.
-    pub(crate) materials: HashMap<ColliderHandle, Vec<u32>>,
+    pub(crate) materials: HashMap<ColliderHandle, Arc<[u32]>>,
     /// Contact shells (game units) of reference colliders that have one
     /// (`CollisionObject::shell` times the reference's scale).
     shells: HashMap<ColliderHandle, f32>,
@@ -451,7 +452,7 @@ impl PhysWorld {
                 self.materials.insert(h, leaf.materials);
             } else if let Some(code) = o.code {
                 // A convex leaf: one material for the whole of it.
-                self.materials.insert(h, vec![code]);
+                self.materials.insert(h, Arc::new([code]));
             }
             if shell.is_finite() && shell > 0.0 {
                 self.shells.insert(h, shell);

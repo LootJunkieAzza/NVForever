@@ -7,9 +7,13 @@
 //! - **Which creatures**: every creature skeleton folder with an `h2haim.kf` at its root
 //!   (deathclaw, ghoul, gecko, radscorpion, mantis, yao guai … 25 folders in the base
 //!   meshes archive) [observed: `fnv.bsa.listing/1` of `Fallout - Meshes.bsa`, 2026-10-16].
-//!   No `Weapon` node is needed: the clips move the body only. Left out: creatures that
-//!   move on `h2h` clips when alert (`creature_pace.rs`, `Locomotion::alert`: cazador,
-//!   dog, mirelurk king), whose alert look is that set [design]. With the stance a dog
+//!   No `Weapon` node is needed: the clips move the body only. Creatures that move on
+//!   `h2h` clips when alert (`creature_pace.rs`, `Locomotion::alert`: cazador, dog and
+//!   coyote, mirelurk king) have that set as their alert look while they fight, and draw
+//!   the stance only while they warn the player ([`CreatureStance::warn_only`]; issue
+//!   #1073: the coyote's head-down warning; the dog's `h2haim.kf` keys every bone at 25,
+//!   over its idle's 20 and under its walk's 30 and run's 31, so it shows while it stands
+//!   and its run shows as it charges) [design]. Drawn while fighting, a dog
 //!   that stopped at the player (body gap 5–17 units, `npc_combat` measures it from the
 //!   posed torso) was 27–42 away moments later, past the hit gap, and ran in again: 7
 //!   blows instead of 15 in smoke `combat-dogs` [observed in NVForever, 2026-10-16;
@@ -71,6 +75,9 @@ pub struct CreatureStance {
     logged: Stage,
     /// What the creature does with its stance, last logged.
     mode: Mode,
+    /// Drawn only while it warns the player: a creature with an `h2h` movement set
+    /// (module notes).
+    pub warn_only: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,7 +92,7 @@ impl CreatureStance {
     /// The stance `clips`, at rest, to be drawn when `drawn` (a creature taking up its
     /// own attack again after a body weapon, `body_weapons.rs`).
     pub fn new(clips: Arc<CreatureClips>, drawn: bool) -> CreatureStance {
-        CreatureStance { clips, anim: WeaponAnim::new(false), drawn, logged: Stage::Holstered, mode: Mode::Calm }
+        CreatureStance { clips, anim: WeaponAnim::new(false), drawn, logged: Stage::Holstered, mode: Mode::Calm, warn_only: false }
     }
 
     /// Advance the draw cycle by `dt`.
@@ -155,8 +162,10 @@ fn attach(
     let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
     for (e, rig, lo) in &fresh {
         let folder = folder_of(&rig.skeleton);
-        // A creature with an `h2h` movement set has its alert look in that (module notes).
-        let found = (folder.starts_with("meshes\\creatures\\") && lo.alert.is_none()).then(|| {
+        // A creature with an `h2h` movement set has its alert look in that, and draws the
+        // stance only to warn (module notes).
+        let warn_only = lo.alert.is_some();
+        let found = folder.starts_with("meshes\\creatures\\").then(|| {
             stances
                 .0
                 .entry(folder.clone())
@@ -171,7 +180,7 @@ fn attach(
         });
         match found.flatten() {
             Some(clips) => {
-                commands.entity(e).insert(CreatureStance { clips, anim: WeaponAnim::new(false), drawn: false, logged: Stage::Holstered, mode: Mode::Calm });
+                commands.entity(e).insert(CreatureStance { clips, anim: WeaponAnim::new(false), drawn: false, logged: Stage::Holstered, mode: Mode::Calm, warn_only });
             }
             None => {
                 commands.entity(e).insert(NoStance);
@@ -203,7 +212,7 @@ fn alerted(script: Option<Res<ScriptState>>, mut q: Query<(&ActorRig, &mut Creat
                 Mode::Calm => "puts away (calm)",
             });
         }
-        s.drawn = mode != Mode::Calm;
+        s.drawn = if s.warn_only { mode == Mode::Warning } else { mode != Mode::Calm };
         if s.anim.stage != s.logged {
             s.logged = s.anim.stage;
             info!("creature stance: {} {:?}", label(), s.logged);
@@ -228,7 +237,7 @@ mod tests {
         let f = |duration: f32| ClipFacts { duration, blend_time: 0.2, prn: Vec::new(), switch: None };
         let facts = StanceFacts::from([(EquipClip::Equip, f(1.0)), (EquipClip::Aim, f(2.0)), (EquipClip::Unequip, f(1.0))]);
         let clips = Arc::new(CreatureClips { clips: BTreeMap::new(), facts });
-        let mut s = CreatureStance { clips, anim: WeaponAnim::new(false), drawn: true, logged: Stage::Holstered, mode: Mode::Calm };
+        let mut s = CreatureStance { clips, anim: WeaponAnim::new(false), drawn: true, logged: Stage::Holstered, mode: Mode::Calm, warn_only: false };
         let mut stages = vec![s.anim.stage];
         for i in 0..300 {
             s.drawn = i < 150;

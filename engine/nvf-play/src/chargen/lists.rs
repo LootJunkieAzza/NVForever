@@ -13,7 +13,7 @@
 use super::draw::{Align, Ctx, Which, BODY_H, THICK};
 use crate::interface::{amber, at, u};
 use bevy::prelude::*;
-use crate::ui_compat::Button;
+use crate::ui_pointer::Button;
 use fnv_game::actor_values::SPECIALS;
 use fnv_game::chargen::{self, SpecialSheet, TagSheet, TraitSheet};
 use fnv_game::functions::ui::SpecialMenu;
@@ -188,9 +188,10 @@ pub struct ListView {
 
 impl ListMenu {
     /// The menu for `code` (1048 or 1084), from the player as the game holds them; 1048
-    /// is the attributes page when AddSPECIALPoints opened it.
+    /// is the attributes page when AddSPECIALPoints opened it, or the character
+    /// revision's SetSPECIALPoints (#1031).
     pub fn open(code: u16, g: &mut Game) -> ListMenu {
-        let sheet = if code == menus::TAG_SKILLS && matches!(g.ui.special, Some(SpecialMenu::Add(_))) {
+        let sheet = if code == menus::TAG_SKILLS && matches!(g.ui.special, Some(SpecialMenu::Add(_) | SpecialMenu::Set(_))) {
             let s = SpecialSheet::for_menu(g);
             Sheet::Special { now: s, start: s }
         } else if code == menus::TAG_SKILLS {

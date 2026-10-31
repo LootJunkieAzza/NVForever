@@ -100,6 +100,9 @@ pub struct Ragdolls {
     pub held: usize,
     /// Ragdolls that came to rest in water (floating).
     pub floated: usize,
+    /// `PhysWorld::steps` when [`pose`] last ran: the calm and awake timers count the
+    /// physics time stepped since, not the frame's time (#1049).
+    last_steps: Option<u64>,
     /// Per live ragdoll: its fastest bone's speed and spin over the last calm window, and the
     /// longest it has been calm ([`CALM_TIME`] sets it at rest), for the exit report of
     /// ragdolls that never came to rest.
@@ -439,6 +442,11 @@ pub(crate) fn pose(
     globals: Query<&GlobalTransform>,
     mut transforms: Query<&mut Transform>,
 ) {
+    // The physics time stepped since the last frame: none while a menu or a message box
+    // holds the world. Counting the frame's time instead, a body killed just before a
+    // box opened stood still under it, read as calm and was set at rest standing (#1049).
+    let steps = phys.world.steps();
+    let dt = ragdolls.last_steps.replace(steps).map_or(time.delta_secs(), |last| steps.saturating_sub(last) as f32 * phys.world.params.dt);
     let mut seen = HashSet::new();
     for (rig, mut c, vis) in &mut corpses {
         let rig = rig_of(rig);
@@ -504,8 +512,8 @@ pub(crate) fn pose(
             c.since.clear();
             c.awake = 0.0;
         }
-        c.awake += time.delta_secs();
-        c.window += time.delta_secs();
+        c.awake += dt;
+        c.window += dt;
         if c.since.len() != now.len() {
             (c.since, c.window) = (now, 0.0);
         } else if c.window >= CALM_WINDOW {
@@ -541,7 +549,10 @@ pub(crate) fn pose(
         if asleep {
             ragdolls.rested += 1;
             ragdolls.rest.insert(id, rest());
-            debug!("ragdoll: actor {id:08X} at rest at ({:.0}, {:.0}, {:.0})", first[0], first[1], first[2]);
+            // How high its trunk lies over its lowest bone: a corpse lying down is low, one
+            // set at rest standing (#1049) about a body's height.
+            let trunk = phys.world.ragdoll_center(id).unwrap_or(first);
+            info!("ragdoll: actor {id:08X} at rest at ({:.0}, {:.0}, {:.0}), trunk {:.0} units over its lowest bone, after {:.1} s of physics", first[0], first[1], first[2], trunk[2] - lowest, c.awake);
             if phys.world.ragdoll_in_water(id) {
                 ragdolls.floated += 1;
                 let at = phys.world.ragdoll_center(id).unwrap_or(first);
