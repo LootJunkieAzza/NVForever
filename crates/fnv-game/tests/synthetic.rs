@@ -2070,6 +2070,8 @@ fn udf_fixture() -> Fixture {
             "TestMap",
             "scn TestMap\narray_var m\nBegin Function {m}\n  let TestGlobal := Sv_Length (m[\"eventName\"]) * 10 + Sv_Length (m[\"eventSender\"])\nEnd\n".to_string(),
         ),
+        // A call on an empty reference behind a classic `&&` (EDEScript's shape, #1112).
+        (0x0000_0905u32, "TestEmpty", "scn TestEmpty\nref r\nint n\nBegin Function {n}\n  if n == 1 && r.GetDisabled == 0\n  endif\nEnd\n".to_string()),
     ] {
         // TestFact calls itself: its own name resolves through a seed reference list.
         let c = if edid != "TestAdd" {
@@ -2106,6 +2108,18 @@ fn udf_fixture() -> Fixture {
         let vars: Vec<(u32, &str, u8)> = vars.iter().map(|(i, n, t)| (*i, n.as_str(), *t)).collect();
         let refs: Vec<u32> = c.refs.iter().filter_map(|r| if let fnv_script::unit::RefSlot::Form(f) = r { Some(*f) } else { None }).collect();
         let mut subs = unit(0, &c.bytes, &vars, &refs);
+        // A local `ref` variable's slot is an SCRV (TestEmpty); the list keeps its order.
+        if refs.len() < c.refs.len() {
+            subs.retain(|s| &s.sig != b"SCRO");
+            subs[0].data[4..8].copy_from_slice(&(c.refs.len() as u32).to_le_bytes());
+            for r in &c.refs {
+                subs.push(match r {
+                    fnv_script::unit::RefSlot::Form(f) => sub(b"SCRO", f.to_le_bytes().to_vec()),
+                    fnv_script::unit::RefSlot::Local(v) => sub(b"SCRV", v.to_le_bytes().to_vec()),
+                    fnv_script::unit::RefSlot::Unmapped(f) => sub(b"SCRO", f.to_le_bytes().to_vec()),
+                });
+            }
+        }
         subs.push(sub(b"SCTX", src.as_bytes().to_vec()));
         scripts.push(record(b"SCPT", 0, fid, &[vec![sub(b"EDID", z(edid))], subs].concat()));
     }
@@ -2137,6 +2151,26 @@ fn call_runs_a_function_script_with_its_parameters() {
     assert_eq!(global_after(&f, "let TestGlobal := Call TestAdd 2, 3"), 5.0);
     // Recursion: each call has its own variables [documented: User Defined Function].
     assert_eq!(global_after(&f, "let TestGlobal := Call TestFact 5"), 120.0);
+}
+
+#[test]
+fn a_scripts_call_on_an_empty_reference_is_traced_once() {
+    // Classic `&&` evaluates both sides, so the call is made on every run, in the
+    // original too [observed: o5_01, observer-checks.md check 51]; a script record traces
+    // the failure once per function, not every frame (#1112). Console lines are traced
+    // each time.
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.cfg.strict = false;
+    let failed = |g: &Game<'_>| g.events.iter().filter(|e| matches!(&e.kind, EventKind::CallFailed { error, .. } if error.contains("empty reference"))).count();
+    for _ in 0..3 {
+        g.run_source("let TestGlobal := Call TestEmpty 0", Default::default()).expect("compiles");
+    }
+    assert_eq!(failed(&g), 1);
+    for _ in 0..2 {
+        g.run_source("ref r\nr.Disable", Default::default()).expect("compiles");
+    }
+    assert_eq!(failed(&g), 3);
 }
 
 #[test]

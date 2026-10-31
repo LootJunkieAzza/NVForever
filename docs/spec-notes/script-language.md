@@ -388,7 +388,8 @@ compiled by the game, so plain `set`/`if` statements in a job behave as vanilla.
    or per item (scripts.md §10).
 3. **Calls on an unset `ref`**: a job line `set m to 1`, then a reference function on an
    empty `ref`, then `set m to 2`; read `m`. Repeat with the failing call inside an `if`
-   and in an `&&` whose left side is 0 (also short-circuit) (§7.3 row 1).
+   and in an `&&` whose left side is 0 (§7.3 row 1; that `&&` does not short-circuit is
+   settled, §4).
 4. **Return across blocks**: drive one of the five units of §7.3 row 2 whose two blocks
    can run in one frame (FalloutNV 0x00143E27 with `Activate player 1`, or 0x00125AEF
    with a kill) in a state where the first block returns, and read what the second block

@@ -1471,6 +1471,10 @@ pub struct Game<'a> {
     depth: u32,
     /// A function asked the running script to stop as `Return` does (RemoveMe).
     stop_run: bool,
+    /// The (script record, opcode) pairs whose call on an empty reference was already
+    /// traced: a record's script runs every frame, so the failure is traced the first
+    /// time only (`Exec::call`). Not part of the saved state.
+    empty_ref_traced: BTreeSet<(u32, u16)>,
     /// Game time of the next scan for actors whose package choice is due (`crate::ai`).
     pub(crate) package_scan_due: f64,
 }
@@ -1947,6 +1951,7 @@ impl<'a> Game<'a> {
             effect_elapsed: 0.0,
             depth: 0,
             stop_run: false,
+            empty_ref_traced: BTreeSet::new(),
             package_scan_due: 0.0,
         }
     }
@@ -4837,8 +4842,17 @@ impl Host for Exec<'_, '_> {
                     // A call on an empty reference variable stops the script silently
                     // for this run [documented: GECK wiki Ref Variable, Eval and Let
                     // pages, owner export; docs/spec-notes/script-language.md §7.3 row
-                    // 1]; traced as `call_failed`.
+                    // 1]; traced as `call_failed`. Classic `&&` and `||` evaluate both
+                    // sides, so a reference guarded by `&&` (EDEScript) still makes this
+                    // call every frame, in the original too [observed: o5_01,
+                    // observer-checks.md check 51; script-language.md §4]. A script
+                    // record's failure is traced once per function, not every frame.
                     self.game.stop_run = true;
+                    if let fnv_script::UnitOwner::Script { form } = self.unit.unit.owner {
+                        if !self.game.empty_ref_traced.insert((form, opcode)) {
+                            return Ok(Value::ZERO);
+                        }
+                    }
                     let name = self.game.data.table.get(opcode).map(|f| f.name.clone()).unwrap_or_default();
                     let unit = self.unit.key();
                     self.game.emit(EventKind::CallFailed {

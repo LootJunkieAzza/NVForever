@@ -574,8 +574,9 @@ chains using the op still pass.
    (VMS31 60, check 50); Jed and the caravan guards are essential until stage 100, so
    NVDLC02MQ00 255 cannot be reached; CGTutorial 214 counts only markers play discovers.
 4. **Soft:** Oliver's Topic065 has two lines with the same conditions; ours always says
-   0x00159932, so his retreat lines are never offered (check 48). EDEScript logs an
-   empty-reference error every frame because ours does not short-circuit `&&` (check 51).
+   0x00159932, so his retreat lines are never offered (check 48). EDEScript calls on an
+   empty reference every frame: the original does not short-circuit `&&` either (check 51);
+   since #1112 the failure is traced once.
 
 **Settable, not walked (116 left):** VMS29's nine Kings' Gambit alternatives; VMS20, VMS21,
 VMS23, VMS55 branches; VMQ02 40, VMQ03a 110, VMQ03b 110/115/200, VMQHouse3/4/6 report lines;
