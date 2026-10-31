@@ -817,10 +817,20 @@ fn draw(
             look::spawn(root, m, note.as_deref(), info.as_ref(), kit, data.as_deref(), &mut images, bc);
         });
     }
-    if let Some(q) = m.quantity.as_ref().filter(|_| !tiled) {
-        commands.spawn((MenuRoot, screen, GlobalZIndex(101))).with_children(|root| {
-            look::spawn_quantity(root, q, kit, data.as_deref(), &mut images, bc);
-        });
+    // Drawn from tiles, the prompt still keeps the pointer from the menu under it (a sheet
+    // alone, `crate::tiles::menus::modal_sheet`); it goes with the prompt.
+    match (crate::tiles::menus::modal(m.quantity.is_some(), tiled), &m.quantity) {
+        (crate::tiles::menus::Modal::HandBuilt, Some(q)) => {
+            commands.spawn((MenuRoot, screen, GlobalZIndex(101))).with_children(|root| {
+                look::spawn_quantity(root, q, kit, data.as_deref(), &mut images, bc);
+            });
+        }
+        (crate::tiles::menus::Modal::Sheet, _) => {
+            commands.spawn((MenuRoot, screen, GlobalZIndex(101))).with_children(|root| {
+                root.spawn(crate::tiles::menus::modal_sheet());
+            });
+        }
+        _ => {}
     }
 }
 

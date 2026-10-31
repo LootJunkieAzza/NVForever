@@ -70,6 +70,41 @@ pub fn quantity_tiled(on: bool, game: &fnv_game::Game<'_>, open: bool) -> bool {
     on && open && game.ui_files.is_some() && game.ui_tree.menu(QUANTITY_MENU).is_some()
 }
 
+/// What a prompt or box puts under the pointer: nothing (not shown), its hand-built
+/// drawing (whose own sheet and buttons take the pointer), or, drawn from tiles, a
+/// [`modal_sheet`] alone (the tile renderer's nodes take no pointer).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Modal {
+    None,
+    HandBuilt,
+    Sheet,
+}
+
+/// [`Modal`] for a prompt or box `shown`, drawn from its tiles when `tiled`.
+pub fn modal(shown: bool, tiled: bool) -> Modal {
+    match (shown, tiled) {
+        (false, _) => Modal::None,
+        (true, false) => Modal::HandBuilt,
+        (true, true) => Modal::Sheet,
+    }
+}
+
+/// Marks [`modal_sheet`]'s node.
+#[derive(bevy::prelude::Component)]
+pub struct ModalSheet;
+
+/// A node over the whole view that takes the pointer while a prompt or box drawn from its
+/// tiles is up, so nothing under it is clicked (the container menu's Exit, the dialogue's
+/// topics): both files say no click goes past them [documented: message_menu.xml and
+/// quantity_menu.xml, `stackingtype` `&no_click_past;`], as the hand-built prompt's own
+/// sheet does (`crate::menu::look::spawn_quantity`). The tile pointer
+/// (`super::input`) reads the cursor itself, so the sheet does not stop it.
+pub fn modal_sheet() -> impl bevy::prelude::Bundle {
+    use bevy::prelude::{Node, PositionType, Val};
+    let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..Default::default() };
+    (ModalSheet, full, bevy::ui::FocusPolicy::Block, crate::ui_compat::Interaction::default())
+}
+
 /// The keys a menu's hand-built handler acts on itself, by the names the tile input gives
 /// them (`super::input`): the prompt's A, E, Left, Right (`crate::menu`'s prompt keys) and
 /// the controller buttons that stand in for its Enter, Esc, Page Up and Page Down
@@ -650,6 +685,23 @@ mod tests {
         assert_eq!(panel.selected, 1);
         // A script's tapped Down is no hand-built press: the highlight's row is taken.
         assert_eq!(chosen_row(&ui, &keyed, nav_by_hand(&[])), Some(1));
+    }
+
+    #[test]
+    fn a_tiled_prompt_or_box_keeps_a_sheet_under_the_pointer_while_shown() {
+        use bevy::prelude::*;
+        // Shown and drawn from tiles: the sheet; by hand: the hand-built drawing's own;
+        // gone with it.
+        assert_eq!(modal(true, true), Modal::Sheet);
+        assert_eq!(modal(true, false), Modal::HandBuilt);
+        assert_eq!((modal(false, true), modal(false, false)), (Modal::None, Modal::None));
+        // The sheet covers the view and takes the pointer.
+        let mut world = World::new();
+        let e = world.spawn(modal_sheet()).id();
+        let node = world.get::<Node>(e).unwrap();
+        assert_eq!((node.width, node.height, node.position_type), (Val::Percent(100.0), Val::Percent(100.0), PositionType::Absolute));
+        assert_eq!(world.get::<bevy::ui::FocusPolicy>(e), Some(&bevy::ui::FocusPolicy::Block));
+        assert!(world.get::<crate::ui_compat::Interaction>(e).is_some() && world.get::<ModalSheet>(e).is_some());
     }
 
     #[test]

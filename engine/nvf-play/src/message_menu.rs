@@ -333,6 +333,14 @@ fn draw(
         for e in &roots {
             commands.entity(e).despawn();
         }
+        // Drawn from tiles, the box keeps the pointer from what is under it with a sheet
+        // alone (`crate::tiles::menus::modal_sheet`; the hand-built box's rows take it
+        // where they stand); it goes with the box.
+        if crate::tiles::menus::modal(panel.view.is_some(), tiled) == crate::tiles::menus::Modal::Sheet {
+            commands.spawn((BoxRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, GlobalZIndex(108))).with_children(|root| {
+                root.spawn(crate::tiles::menus::modal_sheet());
+            });
+        }
         if let Some(view) = panel.view.as_ref().filter(|_| !tiled) {
             let faces = faces.get_or_insert_with(|| {
                 load_faces(data.as_deref(), &mut images, bc_supported(formats.as_deref()))
