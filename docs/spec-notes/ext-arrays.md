@@ -181,7 +181,10 @@ success, 0 on failure [documented: Ar Resize].
 original's (shared) [documented: Ar Copy].
 
 **Ar_DeepCopy** `let b := Ar_DeepCopy a`: a copy with every nested array copied too,
-all the way down [documented: Ar DeepCopy].
+all the way down [documented: Ar DeepCopy]. An array met twice (`[b, b]`) is copied twice,
+so the two copies stay apart; an array that holds itself is copied with the same shape,
+the entry leading back standing for the copy (#1089) [hypothesis: not probed in the
+original].
 
 **Ar_DeepEquals** (alias **Ar_DeepCompare**) `Ar_DeepEquals a, b` (xNVSE 6.2.1 and
 later): 1 when both hold the same key–element pairs in the same order, nested arrays
