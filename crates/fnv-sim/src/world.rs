@@ -312,7 +312,10 @@ pub struct Snapshot {
     /// References created at run time and since deleted (picked up, a shot that is over),
     /// by FormID, with their base form: the save keeps only this of them, not their whole
     /// state ([`World::deleted_base`]); absent when none (and in older snapshots, which
-    /// keep the whole entries in `refs`).
+    /// keep the whole entries in `refs`). It still grows by one small entry (about 26
+    /// bytes of JSON against about 148 for a whole entry) per created reference deleted
+    /// over a playthrough: the FormIDs are never given again, and a script variable may
+    /// still hold one [decision: kept rather than forgotten, #1002].
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub deleted_created: BTreeMap<FormId, FormId>,
     /// The inventory sources of references created at run time ([`World::give_items_of`]:
@@ -1923,11 +1926,12 @@ impl<'a> World<'a> {
             zone_levels: self.zone_levels.clone(),
             ref_levels: self.ref_levels.iter().filter(|(id, _)| kept(id)).map(|(&k, &v)| (k, v)).collect(),
             death_items: self.death_items.iter().filter(|(id, _)| kept(id)).map(|(&k, &v)| (k, v)).collect(),
-            deleted_created,
-            created_inventory_sources: self.created_inventory_sources.iter().filter(|(id, _)| self.refs.get(id).is_some_and(|s| !s.deleted)).map(|(&k, &v)| (k, v)).collect(),
+            // The same `kept` set as the references: a pruned one keeps no source.
+            created_inventory_sources: self.created_inventory_sources.iter().filter(|(id, _)| kept(id) && self.refs.contains_key(id)).map(|(&k, &v)| (k, v)).collect(),
             power_armor_training: self.power_armor_training,
             carry_bonus: self.carry_bonus.clone(),
             weight_rules: self.weight_rules.clone(),
+            deleted_created,
         }
     }
 
