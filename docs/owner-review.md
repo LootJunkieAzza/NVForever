@@ -95,6 +95,13 @@ the spec it links to.
     rule otherwise: every travelling blow carries, and the AI must step back after it.
     NPCs start their lunges once they touch their target, so an NPC's lunge carries it
     little or nothing until the AI lunges from farther out. ([actors §8.13](spec-notes/actors.md))
+37. **Melee knockback distance.** A melee blow that leaves its target standing pushes it
+    back through its collision: the knockback formula's force read as a speed falling to
+    rest over 1 s, so force / 2 units (a Sledgehammer hit about 57, a punch 24, a
+    deathclaw swipe up to 256). A blocked or 0-damage blow still pushes 15 units (the
+    formula's base force). Our reading of the formula, not measured in the original:
+    more, less, only on power attacks, and should a block take the push too?
+    ([combat-rules, Knockback](spec-notes/combat-rules.md))
 
 ## Tier 2: movement and controls feel
 

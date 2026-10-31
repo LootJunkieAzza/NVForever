@@ -6598,6 +6598,28 @@ order = [[
 ]]
 
 [[scenario]]
+name = "console-cow-coe"
+source = "issue #1046 step 2: `cow <world> <x> <y>` (CenterOnWorld) and `coe <x> <y>` (CenterOnExterior, GECK wiki: move the player to exterior grid coordinates) did nothing; the capture campaigns use cow. coe from an interior uses the worldspace last walked in; a square with no cell is an error. The player arrives at the grid square's centre (docs/design/console.md)"
+areas = ["console"]
+paths = ["engine/nvf-play/src/console.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_CONSOLE = "12:cow WastelandNV -17 1;22:player.getpos x;22.3:player.getpos y;22.6:coe -16 1;32:player.getpos x;32.3:player.getpos y;32.6:cow WastelandNV 900 900;33:coc GSProspectorSaloonInterior;43:coe -17 1;53:player.getpos x;53.3:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 57
+order = [[
+  { re = 'console: Travelling to WastelandNV \(-17, 1\)', label = "cow names the square" },
+  { re = 'loading screen up: .* for worldspace 000DA726 \(-17, 1\)', label = "travel into that square" },
+  { re = 'console: GetPos on player >> -675\d\d\.\d\d', label = "x at the square's centre (-67584)" },
+  { re = 'console: GetPos on player >> 6\d\d\d\.\d\d', label = "y at the square's centre (6144)" },
+  { re = 'console: Travelling to WastelandNV \(-16, 1\)', label = "coe stays in the current worldspace" },
+  { re = 'console: GetPos on player >> -634\d\d\.\d\d', label = "x at the next square's centre (-63488)" },
+  { re = 'console: GetPos on player >> 6\d\d\d\.\d\d', label = "y still at the row's centre (6144)" },
+  "console: No exterior cell at WastelandNV (900, 900)",
+  { re = 'loading screen up: .* for interior', label = "into the saloon" },
+  { re = 'console: Travelling to WastelandNV \(-17, 1\)', label = "coe indoors goes to the worldspace last walked in" },
+  { re = 'console: GetPos on player >> -675\d\d\.\d\d', label = "back at (-17, 1)'s centre" },
+]]
+
+[[scenario]]
 name = "reputation-disguise"
 source = "owner request 2026-10-22: faction armour's scripts set every reputation to 0 while it is worn and back after; only the player's real reputation opens boxes, so putting on and taking off a Powder Gang outfit (000A472F, script 00134B71) shows none"
 areas = ["hud"]
@@ -16785,4 +16807,32 @@ expect = [
   { re = 'talk clip: .*001073E8 says .*robotvictor.*: Talking from its [.]lip [(]\d+ frames[)]', label = "Victor's line drives his Talking sequence from its .lip" },
   { re = 'talk clip: .*001073E8 line over: \d+ frames, level mean 0[.](1\d|[2-9]\d), peak (0[.][5-9]\d|1[.]00)', label = "the chest's level moves with the words (mean above 0.1, peak above 0.5)" },
   { re = 'test aid: screenshot .*victor_talking[.]png', label = "the frames are saved" },
+]
+[[scenario]]
+name = "melee-knockback"
+source = "#1070 (docs/spec-notes/combat-rules.md, Knockback): a melee blow pushes the living actor it hits back through its character, by the Melee Knockback Formula's force (a speed falling to rest over fKnockbackTime)"
+note = "the combat-block-break NCR trooper 0x000F36F5 (no weapon drawn, --actor-weapons none) put 90 units north of the god-mode player at 6 s and 9 s, not set on the player; 0.8 s later the player, fists drawn, turns to it and holds Use 1.5 s (a power attack); each blow that lands pushes it back"
+areas = ["combat", "melee"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/player.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "6:moveto:0x000F36F5:player:0:90:0,9:moveto:0x000F36F5:player:0:90:0", NVF_PLAY_TEST_CONTROL = "3:weapon,6.8:aimnpc,6.9:fire,8.4:fire,9.8:aimnpc,9.9:fire,11.4:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "none", "--plugins", "FalloutNV.esm"]
+run_seconds = 15
+expect = [
+  { re = 'knockback: 000F36F5 knocked back at \d+ units/s for 1[.]00 s', label = "the blow's knockback starts on the trooper" },
+  { re = 'knockback: .*000F36F5 pushed back \d+ units of \d+ \((\d+) %\)', range = [60, 140], label = "the trooper is pushed back about the distance its knockback asked (its own push, not a walk: it stands, not set on anyone yet)" },
+  { re = 'knockback summary: ([1-9]\d*) knockbacks on actors', label = "knockbacks in the summary" },
+]
+
+[[scenario]]
+name = "melee-knockback-player"
+source = "#1070 review of #1219: an NPC's melee blow pushes the player back the same way (not in god mode: tgm keeps the player in place)"
+note = "the unarmed NCR trooper 0x000F36F5 (--actor-weapons none) put 150 units north of the player on the open ground south of Goodsprings at 3 s and set on the player; its punches push the player (no god mode: a trooper's fists do little)"
+areas = ["combat", "melee"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/player.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:0:150:0,3.5:combat:0x000F36F5:player" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "none", "--plugins", "FalloutNV.esm"]
+run_seconds = 20
+expect = [
+  { re = 'player: knocked back at \d+ units/s for 1[.]00 s', label = "the trooper's punch knocks the player back" },
+  { re = 'player: knockback done: (\d+) units of (\d+)', range = [3, 300], label = "the player is pushed back through its character" },
 ]
