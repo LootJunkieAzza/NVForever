@@ -12763,7 +12763,7 @@ name = "mq-old-world-blues-sink"
 kind = "tool"
 source = "the headless add-on walkthrough crates/fnv-game/walkthrough/old-world-blues-sink.actions.json (OldWorldBlues.esm): the Think Tank's chip line (Topic001 answered with its line that is no follow-up, dialogue.md 3.4), All My Friends Have Off Switches (nine personality modules), Influencing People (the upgrades) and Field Research (seeds and sound samples), each to 100"
 areas = ["quests", "scripts", "dialogue"]
-paths = ["crates/fnv-game/walkthrough/old-world-blues-sink.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+paths = ["crates/fnv-game/walkthrough/old-world-blues-sink.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs", "crates/fnv-game/src/functions/refs.rs"]
 commands = [["script", "run", "{data}", "FalloutNV.esm", "OldWorldBlues.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/old-world-blues-sink.actions.json"]]
 expect = [
   { json = "observations.?label=milestone: MQ00 done (the satellite takes the player to Big MT).stage", equals = 100, label = "old-world-blues-sink milestone: MQ00 done (the satellite takes the player to Big MT): stage = 100" },
@@ -12776,6 +12776,9 @@ expect = [
   { json = "observations.?label=milestone: Influencing People done.completed", equals = true, label = "old-world-blues-sink milestone: Influencing People done: completed = true" },
   { json = "observations.?label=milestone: Field Research done.stage", equals = 100, label = "old-world-blues-sink milestone: Field Research done: stage = 100" },
   { json = "observations.?label=milestone: Field Research done.completed", equals = true, label = "old-world-blues-sink milestone: Field Research done: completed = true" },
+  { json = "observations.?label=Biological Research Station talks after the install.state", equals = "choosing", label = "old-world-blues-sink: the station's bare Activate in GameMode opens its conversation (#1111)" },
+  { json = "observations.?label=Biological Research Station talks after the install.actor", equals = "0x0100F05B", label = "old-world-blues-sink: the station speaks for its talking actor (#1111)" },
+  { json = "observations.?label=Jukebox talks after the install.state", equals = "choosing", label = "old-world-blues-sink: the Jukebox's install opens its conversation (#1111)" },
   { json = "steps.*.error", count = 0, label = "old-world-blues-sink: no step fails" },
   { json = "given_errors.*", count = 0, label = "old-world-blues-sink: no given fails" },
 ]

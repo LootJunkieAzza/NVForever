@@ -433,9 +433,11 @@ World Blues X-8/X-13 setups and Lonesome Road's launch-at-both ending (NVDLC04MQ
 3. ResetQuest drops a SetQuestDelay override (`reset_quest` replaces the QuestState): the
    Emergency Radio's drop then waits 5 s of menu mode instead of 0.1 s. Fixed (#1109):
    the delay is kept, as the original does (observer check 41).
-4. Still open from §8: a talking activator's bare `Activate` in GameMode opens no
-   conversation; all of the Sink's appliances (SCPT 0x0100F075, 0x0100F071, 0x0100F05D,
-   0x0100F05A, ...) hit it, in play too.
+4. **Done** (#1111): a talking activator's bare `Activate` in GameMode opened no
+   conversation (no action reference); it now uses the reference's last activator, and
+   the runner opens a talk a script starts in the frames an activation op waits. All of
+   the Sink's appliances talk after their install; the old-world-blues-sink chain no
+   longer stands in `talk` for the station and the Jukebox.
 
 **Soft** (headless only, stood in): `wait_talk` returns before a Goodbye greeting's line
 ends, so a following conversation cuts it and its end script never runs (Carlitos INFO
@@ -568,10 +570,10 @@ chains using the op still pass.
 
 ### Stalls
 
-1. **Possibly hard: a talking activator's scripted `Activate player` opens no conversation**
-   (the Tops intercom in Benny's voice; same as the REPCONN intercom, #906). Not fixed here: a
-   change in `default_activation` would double-start conversations with the runner's
-   `talk_since` and play's `talk_after`. Observer check 47.
+1. **Done** (#1111): a talking activator's scripted `Activate player` (the Tops intercom in
+   Benny's voice) opens the conversation since #906 (runner `scripted_talk`, play
+   `talk_after`); the tops-ambush chain waits for it with no stand-in. Observer check 47
+   confirmed the original opens it.
 2. **Possibly hard (check 40 again):** VFSAtomicPimpSCRIPT re-displays objective 34 after
    completing it on every pass, so a recruit killed after the quest starts leaves 24/34 open
    and Garret's short-handed line unoffered. The chain kills them before the quest starts.
