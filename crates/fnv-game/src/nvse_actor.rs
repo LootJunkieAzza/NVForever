@@ -155,15 +155,12 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 _ => 0.0,
             })
         }
-        // [documented: GetBasePackages] GetNthPackage's list as an array.
+        // [documented: GetBasePackages; observed: tmpl2 (#1057)] GetNthPackage's list as an
+        // array.
         "getbasepackages" => {
             let b = item(g, 0);
-            let def = g.data.actors.get(&b);
-            let own = def.map(|d| d.packages.clone()).unwrap_or_default();
-            let ps = match def.and_then(|d| d.template.filter(|_| d.template_packages)) {
-                Some(t) if own.is_empty() => g.data.actors.get(&t).map(|d| d.packages.clone()).unwrap_or_default(),
-                _ => own,
-            };
+            let src = g.data.base_template_source(b, |d| d.template_packages);
+            let ps = g.data.actors.get(&src).map(|d| d.packages.clone()).unwrap_or_default();
             // AddPackageAt's and RemovePackageAt's list first.
             let ps = g.other.package_lists.get(&b).cloned().unwrap_or(ps);
             let items = ps.into_iter().map(|p| XVal::Ref(p.0)).collect();
