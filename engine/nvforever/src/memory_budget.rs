@@ -51,10 +51,9 @@ pub const PRESSED: KeepLimits = KeepLimits { secs: 10.0, max: 32 };
 /// The least the scaled limits go to [design].
 const MIN_LIMITS: KeepLimits = KeepLimits { secs: 30.0, max: 128 };
 
-/// What was read at the start, in MB, test aids applied.
+/// What was read at the start (MB, test aids applied), and whether the caches are pressed.
 #[derive(Resource, Clone, Debug, Default)]
 pub struct MemoryBudget {
-    pub ram_mb: Option<u64>,
     /// The GPU budget, `None` when not read (not Vulkan, no extension, an integrated GPU).
     pub vram_mb: Option<u64>,
     /// The test aids' caps (MB), applied again at each check.
@@ -228,7 +227,7 @@ fn read_budgets(mut commands: Commands, device: Option<Res<RenderDevice>>, adapt
         (_, None) => format!("GPU budget {source}"),
     };
     info!("memory budget: {ram_text}, {vram_text}; caches keep unused models and textures {:.0} s, at most {} per cache", base.secs, base.max);
-    *budget = MemoryBudget { ram_mb, vram_mb, aid_vram, aid_ram, base, pressed: false };
+    *budget = MemoryBudget { vram_mb, aid_vram, aid_ram, base, pressed: false };
     commands.insert_resource(base);
 }
 
