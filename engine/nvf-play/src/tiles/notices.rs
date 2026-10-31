@@ -109,7 +109,7 @@ pub fn location_place((x, y): (f64, f64)) -> (f64, f64) {
 /// The label ("Quest added"), the name (font 8, [observed: quest-messages.md §4]) and the
 /// first objective, from `QuestReminder`'s top left: each tile's top its font's line
 /// (`super::draw::text_base`) over the hand-built HUD's line, so the tiles draw the texts
-/// where it does (#979: the name's top 29.5 over its line, the label's and the
+/// where it does (#979: the name's top 30 over its line, the label's and the
 /// objectives' 24).
 pub fn label_place() -> (f64, f64) {
     (quest_x(0.0), quest_y(crate::quest_messages::LABEL_BASE, TEXT_FONT))
@@ -555,11 +555,11 @@ mod tests {
         let label = copies(&ui, "QuestReminder", "label")[0];
         let title = copies(&ui, "QuestReminder", "title")[0];
         // "Quest added" on 247, the name in font 8 on 311, from x 45 (quest-messages.md §4):
-        // the label's top 24 over its line (font 7), the name's 29.5 (font 8).
+        // the label's top 24 over its line (font 7), the name's 30 (font 8).
         fn at(ui: &Ui, t: TileId) -> (f64, f64) {
             (ui.tile(t).get("x").unwrap().num(), ui.tile(t).get("y").unwrap().num())
         }
-        assert_eq!((at(&ui, label), at(&ui, title)), ((0.0, 23.0), (-1.5, 81.5)));
+        assert_eq!((at(&ui, label), at(&ui, title)), ((0.0, 23.0), (-1.5, 81.0)));
         assert_eq!(ui.tile(title).get("font").unwrap().num(), 8.0);
         assert_eq!(ui.tile(title).get("string").unwrap().text(), "BACK IN THE SADDLE");
         assert_eq!(ui.tile(label).get("alpha").unwrap().num(), 255.0);
@@ -614,9 +614,9 @@ mod tests {
             ["x", "y", "alpha", "visible"].map(|n| ui.tile(t).get(n).unwrap().num())
         }
         // The quest banner's places from Region_Location's (45, 728): the label's top on
-        // 223, the name's on 281.5, as QuestReminder's (45, 200) + (0, 23) and (-1.5, 81.5).
+        // 223, the name's on 281, as QuestReminder's (45, 200) + (0, 23) and (-1.5, 81).
         assert_eq!(traits(&ui, label), [0.0, -505.0, 127.5, 0.0]);
-        assert_eq!(traits(&ui, title), [-1.5, -446.5, 127.5, 0.0]);
+        assert_eq!(traits(&ui, title), [-1.5, -447.0, 127.5, 0.0]);
         assert_eq!(ui.tile(label).get("string").unwrap().text(), "You have discovered");
         assert_eq!((ui.tile(title).get("string").unwrap().text(), ui.tile(title).get("font").unwrap().num()), ("GOODSPRINGS".into(), 8.0));
         // QuestReminder's banner holds the same and is the one shown.
