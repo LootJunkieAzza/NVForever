@@ -4334,6 +4334,20 @@ order = [[
 ]]
 
 [[scenario]]
+name = "perk-spotter-boone-hired"
+source = "#1094 (owner's playtest): with Boone hired, Spotter highlights hostile actors while the player aims. Boone joins by his own hire line (VNPCFollowers INFO 0x000B16C8: SetPlayerTeammate, the follower variables, then player.AddPerk Spotting in its end script), not a test-aid perk (docs/spec-notes/perk-entry-points.md §13)"
+note = "as perk-spotter, but Boone (CraigBooneREF 0x00096BCE) is moved 200 units behind the player at 1.5 s and his hire line run at 2 s; then the Goodsprings dogs are set on the player (god mode) at 3 s and the player aims from 9 to 12 s"
+areas = ["perks", "effects", "companions"]
+paths = ["engine/nvf-play/src/perk_marks.rs", "crates/fnv-game/src/perks.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_SCRIPT = "1.5:moveto:0x00096BCE:player:0:-200:0,2:info:0x000B16C8:0x00096BCE,3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_CONTROL = "2:weapon,8.2:aimactor,8.95:aimactor", NVF_PLAY_TEST_KEYS = "9:mouse-right:3", NVF_PLAY_TEST_SHOTS = "10.5:spotter_boone_aiming.png" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 16
+order = [[
+  { re = 'perk marks: Spotter marks [1-9]\d* hostile actors while the player aims', label = "Spotter marks the dogs while the player aims, Boone hired" },
+  { re = 'effect shader: fxSpotterShader on .* while the player aims', label = "they play the Spotter Effect" },
+]]
+
+[[scenario]]
 name = "perk-search-and-mark"
 source = "perk audit 2026-10-23 §3.8, owner 2026-10-24 (the rest of the perks): Search and Mark, Rex's companion perk, highlights chems, guns and ammunition nearby while the player aims (docs/spec-notes/perk-entry-points.md §13)"
 note = "Doc Mitchell's house (quiet: outdoors the Goodsprings fiend dogs set on the player got in the way of the view), the 10mm Pistol drawn; the perk SearchAndMark at 3 s; a Stimpak (00015169) and a second 10mm Pistol given and dropped at 6 and 8 s (run-time references); the player looks down at them and aims from 11 to 14 s: both play fxSearchAndMark. Frames before and while aiming for the owner"
