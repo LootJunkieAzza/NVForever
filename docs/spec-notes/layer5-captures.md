@@ -379,7 +379,9 @@ sample; `ResetQuest`, read; set the timer again, sample; StartQuest, sample.
 - **ResetQuest stopped the running quest** [observed]: GetQuestRunning 0 after it, and
   its GameMode did not run until StartQuest. Called here from a job script, not from the
   quest's own script (the Emergency Radio, VEFR01NCRGood2EmergencyRadio, resets itself in
-  its MenuMode and goes on); whether a self-reset also stops it is not observed.
+  its MenuMode and goes on); whether a self-reset also stops it is not observed. The
+  runtime stops the quest on a reset from any other script and keeps it running on a
+  self-reset [hypothesis for the self-reset; issue #1232, observer check 62].
 
 ## 6. Scenarios and goldens
 

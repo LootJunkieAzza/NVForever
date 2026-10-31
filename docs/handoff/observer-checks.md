@@ -709,3 +709,8 @@ The numbers above stay put so links to them hold; each item here gives its own p
     the front; sample its position every game loop for 1.5 s after the hit: the distance,
     how long it moves, and whether the speed falls off. The same with a deathclaw's
     swipe on the player (god mode). ([combat-rules, Knockback](../spec-notes/combat-rules.md))
+62. **Does a quest's ResetQuest on itself stop it?** (P2, issue #1232.) o41 reset VMQ03aTimer
+    from a job script. The Emergency Radio (VEFR01NCRGood2EmergencyRadio) calls ResetQuest
+    on itself in its MenuMode and then sets iSpawnSupplyDelay; if that stopped it, the
+    drop would not come. Use the radio (button 1) and read GetQuestRunning right after,
+    and whether the drop arrives. Ours keeps a self-reset running. (scripts.md §5)

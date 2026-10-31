@@ -650,6 +650,25 @@ fn reset_quest_keeps_the_set_quest_delay() {
     assert!(s.stages_done.is_empty());
 }
 
+/// ResetQuest from another script stops the quest (o41, issue #1232); from the quest's
+/// own script it keeps running (the Emergency Radio's self-reset, not observed).
+#[test]
+fn reset_quest_stops_the_quest_unless_its_own_script() {
+    const RESET_QUEST: u16 = 0x11DB;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let reset = |g: &mut Game, from: Option<FormId>| {
+        let ctx = Ctx { unit: "test".into(), opcode: RESET_QUEST, on: None, self_ref: None, action_ref: None, quest: from, inst: None, in_condition: false };
+        g.call_function(&ctx, &[ArgValue::Value(Value::Ref(QUEST))]);
+    };
+    g.quest(q()).running = true;
+    reset(&mut g, Some(q()));
+    assert!(g.quest(q()).running, "a self-reset keeps the quest running");
+    reset(&mut g, None);
+    assert!(!g.quest(q()).running, "a reset from another script stops it");
+}
+
 #[test]
 fn snapshots_round_trip() {
     let f = fixture();
