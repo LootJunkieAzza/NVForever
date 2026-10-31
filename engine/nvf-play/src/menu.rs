@@ -768,6 +768,7 @@ fn draw(
     mut kit: Local<Option<look::Kit>>,
     (combat, play, mut script): DrawSources,
     mut forms: Local<Option<crate::pipboy::stats::read::Forms>>,
+    tiles: Option<Res<crate::tiles::vanilla::TileMenus>>,
 ) {
     if !active.is_changed() && !roots.is_empty() {
         return;
@@ -810,7 +811,10 @@ fn draw(
             look::spawn(root, m, note.as_deref(), info.as_ref(), kit, data.as_deref(), &mut images, bc);
         });
     }
-    if let Some(q) = &m.quantity {
+    // T15a: with `[UI] TileMenus=QuantityMenu` the prompt is drawn from its tiles
+    // (`crate::tiles::menus`).
+    let tiled = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| crate::tiles::menus::quantity_tiled(tiles.as_ref().is_some_and(|t| t.quantity), &rt.game));
+    if let Some(q) = m.quantity.as_ref().filter(|_| !tiled) {
         commands.spawn((MenuRoot, screen, GlobalZIndex(101))).with_children(|root| {
             look::spawn_quantity(root, q, kit, data.as_deref(), &mut images, bc);
         });

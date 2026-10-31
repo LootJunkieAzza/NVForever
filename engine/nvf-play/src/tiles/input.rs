@@ -2,14 +2,24 @@
 //! (`fnv_game::ui_input`, `fnv_ui::input`), each frame before scripts [design:
 //! ui-tile-tree.md §4.1 step 1].
 //!
-//! - **Which menus take input**: a menu drawn from its file that the player works. None
-//!   does yet: the HUD (`[UI] TileMenus=HUDMainMenu`) is drawn from tiles but has no
-//!   pointer in play [hypothesis: the original's HUD takes no clicks]. So nothing is fed
-//!   and the frame does no tree work [design: the maintainer's review of #902], until a
-//!   menu moves to the tile renderer, or the test aid below makes the HUD take input; but
-//!   a script's ClickMenuButton or ClickMenuTile still ends (`clicked` back to 0) and
-//!   fires its event the next frame (`fnv_game::ui_input::idle`) [design: the
-//!   maintainer's review of #957].
+//! - **Which menus take input**: a menu drawn from its file that the player works: since
+//!   T15a the message box and the "How many?" prompt while drawn from tiles
+//!   (`[UI] TileMenus=MessageMenu,QuantityMenu`, `super::menus`), the prompt under the
+//!   box. The HUD (`[UI] TileMenus=HUDMainMenu`) is drawn from tiles but has no pointer in
+//!   play [hypothesis: the original's HUD takes no clicks]. With none, nothing is fed and
+//!   the frame does no tree work [design: the maintainer's review of #902], unless the test
+//!   aid below makes the HUD take input; but a script's ClickMenuButton or ClickMenuTile
+//!   still ends (`clicked` back to 0) and fires its event the next frame
+//!   (`fnv_game::ui_input::idle`) [design: the maintainer's review of #957].
+//! - **What the clicks do** (T15a, [`MenuInputs`]): a pointer's or a script's click on a
+//!   message box row answers the box with that button ([`MessageClick`], read by
+//!   `crate::script_hud::menu_keys`), and the pointer over a row frames it (the hand-built
+//!   box's rule, `crate::message_menu`); on the prompt OK, Cancel and the two arrows send
+//!   their commands (`crate::menu::MenuInput`) and a press on the meter, held as it drags,
+//!   sets the amount under the pointer (`crate::menu::model::amount_at`). A click a key made
+//!   through the files' `_PCButton_*` or `x…` refs does nothing more: the hand-built keys
+//!   (`crate::menu`'s prompt keys, `crate::script_hud::menu_keys`) stay the menus' keys,
+//!   so a key does not act twice [design].
 //! - **Units**: the cursor's logical pixels to interface units, 960 to the view's height,
 //!   as the tile renderer draws (`super::draw`, `crate::interface::u`) [design].
 //! - **Keys**: A to Z as `_PCButton_<letter>` [documented: the vanilla files' letters;
@@ -124,7 +134,102 @@ pub(crate) struct Devices<'w, 's> {
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
 }
 
-pub(crate) fn feed(mut script: ResMut<ScriptState>, menus: Res<super::vanilla::TileMenus>, aid: Option<ResMut<PointerAid>>, time: crate::pause::AidTime, devices: Devices) {
+/// T15a: the message box button the pointer or a script clicked on its tiles this frame,
+/// for `crate::script_hud::menu_keys` to answer the box with (taken there).
+#[derive(Resource, Default)]
+pub struct MessageClick(pub Option<usize>);
+
+/// T15a: what the clicks on the message box and the prompt drawn from tiles act on.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct MenuInputs<'w, 's> {
+    panel: Option<ResMut<'w, crate::message_menu::MessagePanel>>,
+    click: ResMut<'w, MessageClick>,
+    active: Option<Res<'w, crate::menu::ActiveMenu>>,
+    commands: MessageWriter<'w, crate::menu::MenuInput>,
+    /// A press on the prompt's meter, held: the amount follows the pointer.
+    dragging: Local<'s, bool>,
+}
+
+impl MenuInputs<'_, '_> {
+    fn quantity(&self) -> Option<crate::menu::model::Quantity> {
+        self.active.as_ref().and_then(|a| a.0.as_ref()).and_then(|m| m.quantity)
+    }
+
+    /// The menus drawn from tiles that take input this frame, back to front: the prompt,
+    /// then the message box over it.
+    fn taking(&self, menus: super::vanilla::TileMenus, game: &fnv_game::Game<'_>) -> Vec<fnv_ui::TileId> {
+        use super::menus::{message_tiled, quantity_tiled, MESSAGE_MENU, QUANTITY_MENU};
+        let mut out = Vec::new();
+        if self.quantity().is_some() && quantity_tiled(menus.quantity, game) {
+            out.extend(game.ui_tree.menu(QUANTITY_MENU));
+        }
+        if message_tiled(menus.message, game) {
+            out.extend(game.ui_tree.menu(MESSAGE_MENU));
+        }
+        out
+    }
+
+    /// Act on a frame's report (see the module doc): `at` the pointer, `held` the left
+    /// button down.
+    fn follow(&mut self, ui: &fnv_ui::Ui, report: &fnv_ui::input::Report, at: Option<(f64, f64)>, held: bool) {
+        use super::menus::{quantity_tile, row_button, QuantityTile};
+        use crate::menu::{model::Command, MenuInput};
+        if let Some((_, Some(to))) = report.over {
+            if let (Some(i), Some(panel)) = (row_button(ui, to), self.panel.as_mut()) {
+                if panel.selected != i {
+                    panel.selected = i;
+                }
+            }
+        }
+        let q = self.quantity();
+        if q.is_none() || !held {
+            *self.dragging = false;
+        }
+        let mut clicked = false;
+        for c in report.clicks.iter().filter(|c| matches!(c.by, fnv_ui::input::By::Pointer | fnv_ui::input::By::Script) && ui.is_live(c.tile)) {
+            if let Some(i) = row_button(ui, c.tile) {
+                info!("tiles: {} button {i} picked on its tiles", super::menus::MESSAGE_MENU);
+                self.click.0 = Some(i);
+                continue;
+            }
+            let Some(q) = q else { continue };
+            let cmd = match quantity_tile(ui, c.tile) {
+                Some(QuantityTile::Ok) => Command::AmountOk,
+                Some(QuantityTile::Cancel) => Command::AmountCancel,
+                Some(QuantityTile::Decrease) => Command::AmountStep(-1),
+                Some(QuantityTile::Increase) => Command::AmountStep(1),
+                Some(QuantityTile::Meter) => {
+                    *self.dragging = held && matches!(c.by, fnv_ui::input::By::Pointer);
+                    match amount_under(ui, at, q.max) {
+                        Some(n) => Command::Amount(n),
+                        None => continue,
+                    }
+                }
+                None => continue,
+            };
+            clicked = true;
+            info!("tiles: {} {cmd:?} on its tiles", super::menus::QUANTITY_MENU);
+            self.commands.write(MenuInput(cmd));
+        }
+        // A drag: the amount under the pointer while the press holds.
+        if let (true, false, Some(q)) = (*self.dragging, clicked, q) {
+            if let Some(n) = amount_under(ui, at, q.max).filter(|&n| n != q.amount) {
+                self.commands.write(MenuInput(Command::Amount(n)));
+            }
+        }
+    }
+}
+
+/// The amount under the pointer on the prompt's meter: the part of the meter's length left
+/// of it, of the stack (`crate::menu::model::amount_at`, as the hand-built meter) [design:
+/// the file's own drag value reads a `dragx` whose units are not known].
+fn amount_under(ui: &fnv_ui::Ui, at: Option<(f64, f64)>, most: i32) -> Option<i32> {
+    let (x, _) = at?;
+    let b = super::menus::meter_box(ui).filter(|b| b.width > 0.0)?;
+    Some(crate::menu::model::amount_at(((x - b.left) / b.width) as f32, most))
+}
+
+pub(crate) fn feed(mut script: ResMut<ScriptState>, menus: Res<super::vanilla::TileMenus>, aid: Option<ResMut<PointerAid>>, time: crate::pause::AidTime, devices: Devices, mut inputs: MenuInputs) {
     let Some(rt) = script.rt.as_mut() else { return };
     if rt.game.ui_files.is_none() {
         return;
@@ -152,11 +257,13 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, menus: Res<super::vanilla::T
         }
         aid_at = aid.now;
     }
-    // The menus that take input, back to front: none in play yet (see the module doc).
+    // The menus that take input, back to front (see the module doc): the HUD only under
+    // the test aid.
     let mut taking = Vec::new();
     if aid_at.is_some() && menus.hud {
         taking.extend(rt.game.ui_tree.menu(super::draw::HUD_MENU));
     }
+    taking.extend(inputs.taking(*menus, &rt.game));
     if taking.is_empty() {
         // A highlight left from the last menu that took input goes (mouseover back to 0),
         // and the scripts' clicks end and fire their events; otherwise nothing to do
@@ -191,6 +298,7 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, menus: Res<super::vanilla::T
     }
     let report = fnv_game::ui_input::step(&mut rt.game, &taking, &input, &no_measure);
     let ui = &rt.game.ui_tree;
+    inputs.follow(ui, &report, at, aid_click || devices.mouse.pressed(MouseButton::Left));
     if let Some((_, to)) = report.over {
         match to.filter(|&t| ui.is_live(t)) {
             Some(t) => {
@@ -214,6 +322,7 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, menus: Res<super::vanilla::T
 
 /// Read the test aid at start.
 pub(crate) fn setup(app: &mut App) {
+    app.init_resource::<MessageClick>();
     let Ok(v) = std::env::var(AID) else { return };
     match crate::test_aid::timed(&v).and_then(|items| items.into_iter().map(|(s, r)| aid_pointer(r).map(|p| (s, p))).collect::<Result<Vec<_>, _>>()) {
         Ok(due) => {

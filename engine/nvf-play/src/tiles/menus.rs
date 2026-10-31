@@ -1,0 +1,554 @@
+//! T15a: the message box and the "How many?" prompt drawn from their files, behind
+//! `[UI] TileMenus=MessageMenu,QuantityMenu` [design: ui-tile-tree.md §6.2 step 3;
+//! plan: docs/handoff/ui-tile-tree-tasks.md, T15a].
+//!
+//! - **The switch** (`super::vanilla::TileMenus`): with a menu on and the game's menu files
+//!   read, its hand-built drawing is not spawned ([`message_tiled`], [`quantity_tiled`];
+//!   `crate::message_menu`, `crate::menu::look::spawn_quantity`) and `super::draw` draws
+//!   the menu's whole tree. Off (the default), none of this runs.
+//! - **What the model writes** (before scripts, only when what the menu shows changed):
+//!   [`write_message`] the box's strings, its icon, one `MM_ButtonTemplate` row per button
+//!   and the list's and the box's sizes the file leaves "set in code"; [`write_quantity`]
+//!   the meter's stack and amount, from which the file works out the fill and the amount
+//!   text. The rules the box follows (what it holds, which button is chosen, the keys) stay
+//!   the hand-built menus' (`crate::message_menu::MessagePanel`, `crate::script_hud`,
+//!   `crate::menu::model::Quantity`) [design].
+//! - **Text sizes**: every text tile of a drawn menu gets its measured `width` and `height`
+//!   ([`write_text_sizes`]), as the HUD's measured texts get their width (hud.md §14.1):
+//!   the files place the buttons and the list by them [hypothesis: the original's code
+//!   writes them; menu-xml.md §3.1.2].
+//! - None of the hand-built drawings' copied numbers (`message_menu.rs`'s layout constants,
+//!   `look.rs`'s `Q_*`) is read here: the places come from the files. The few numbers this
+//!   module keeps are each tagged where they stand.
+
+use crate::message_menu::PanelView;
+use fnv_ui::{Origin, TileId, Ui, Value};
+use std::collections::HashMap;
+
+/// The menus' names [documented: message_menu.xml, quantity_menu.xml].
+pub const MESSAGE_MENU: &str = "MessageMenu";
+pub const QUANTITY_MENU: &str = "QuantityMenu";
+
+/// The tiles the model writes, under their menus [documented: the menu files].
+const MAIN: &str = "MessageMenu/NOGLOW_BRANCH/MM_MainRect";
+const LIST: &str = "MessageMenu/NOGLOW_BRANCH/MM_MainRect/MM_ButtonList";
+const ROW_TEMPLATE: &str = "MM_ButtonTemplate";
+const ROW: &str = "MM_Button";
+const METER: &str = "QuantityMenu/NOGLOW_BRANCH/QM_MainRect/QM_AmountMeter";
+
+/// How far the message box's button list grows before it would scroll [documented:
+/// message_menu.xml, the list's `height` "set by code" under a `min` of 420; the list's
+/// scrolling is not built, as in the hand-built box, message-menu.md §4].
+pub const LIST_MOST: f64 = 420.0;
+
+/// The backgrounds' opacity, which both files leave "set in code" (their `alpha` copies
+/// `globals()`'s `_background_fill_alpha`, 32): the hand-built box's (`message_menu::SHADE`)
+/// [hypothesis: on the owner's screenshot the room behind the box can hardly be made out,
+/// message-menu.md §3; wait-menu.md §2].
+pub fn background_alpha() -> f64 {
+    (f64::from(crate::message_menu::SHADE) * 255.0).round()
+}
+
+/// A text's width and height in interface units: font number, string, wrap width.
+pub type Size<'a> = dyn Fn(f64, &str, Option<f64>) -> (f64, f64) + 'a;
+
+/// Whether the open message box is drawn from `MessageMenu`'s tiles: the switch on, the
+/// menu files read and a message box the open menu (the panels other script menus show in
+/// the same box keep the hand-built one: the tree has no `MessageMenu` for them) [design].
+pub fn message_tiled(on: bool, game: &fnv_game::Game<'_>) -> bool {
+    on && game.ui_files.is_some() && game.menu == Some(fnv_game::game::menus::MESSAGE)
+}
+
+/// Whether the "How many?" prompt of the container, barter and inventory menus is drawn
+/// from `QuantityMenu`'s tiles: the switch on and the menu files read [design]. The
+/// crafting menu's prompt (`crate::crafting`) stays hand-built.
+pub fn quantity_tiled(on: bool, game: &fnv_game::Game<'_>) -> bool {
+    on && game.ui_files.is_some()
+}
+
+fn set(ui: &mut Ui, tile: TileId, name: &str, v: Value) {
+    ui.set_trait(tile, name, v);
+}
+
+fn num(ui: &Ui, tile: TileId, name: &str) -> f64 {
+    ui.tile(tile).get(name).map_or(0.0, Value::num)
+}
+
+fn child(ui: &Ui, tile: TileId, name: &str) -> Option<TileId> {
+    ui.tile(tile).children.iter().copied().find(|&c| ui.is_live(c) && ui.tile(c).name.eq_ignore_ascii_case(name))
+}
+
+/// The button rows the code made under the list, in the order made (the first button
+/// first).
+pub fn rows(ui: &Ui) -> Vec<TileId> {
+    let Some(list) = ui.find_tile(LIST) else { return Vec::new() };
+    ui.tile(list).children.iter().copied().filter(|&c| ui.is_live(c) && ui.tile(c).origin == Origin::Code && ui.tile(c).name.eq_ignore_ascii_case(ROW)).collect()
+}
+
+/// The button a row stands for: its `listindex`, when `tile` is a row or in one.
+pub fn row_button(ui: &Ui, tile: TileId) -> Option<usize> {
+    let rows = rows(ui);
+    let mut at = Some(tile);
+    while let Some(t) = at {
+        if rows.contains(&t) {
+            let i = num(ui, t, "listindex");
+            return (i >= 0.0).then_some(i as usize);
+        }
+        at = ui.tile(t).parent;
+    }
+    None
+}
+
+/// Write what `MessageMenu` shows of `view` with button `selected` chosen [design: the
+/// traits the file says the code sets; its own expressions place the rest]:
+/// - `MM_Title`'s `string`, and its `visible` 0 without a title [hypothesis: the file
+///   starts the top line's right piece at 0 and hides its left piece by the title's
+///   `visible`; a box without a title has a whole top line, message-menu.md §2-§3];
+/// - `MM_MessageText`'s `string`; `MM_MessageIcon`'s `filename` and `visible` for a box
+///   with a picture (the file makes room for it while it is visible) [documented];
+/// - one row from `MM_ButtonTemplate` per button under `MM_ButtonList`, made or unloaded
+///   to match, each with its `string`, `listindex` (the file shows a row with an index of 0
+///   or more), `height` (its text's and the template's `_VerticalSpacing`, which the
+///   template's comment says is added when `height` is 0) and `_y` (the rows one under the
+///   other) [documented: list_box_template.xml's comments; observed: the button's row is
+///   its text and 20, message-menu.md §3];
+/// - the list's `height` (the rows', at most [`LIST_MOST`]), its `width` (the widest
+///   button's text and the menu's two `_horbuf`, at most the text's room) [hypothesis:
+///   fitted to the screenshot: the frame, 72 outside around "OK" 29 wide, is the list less
+///   37 by list_box.xml's highlight box], `_highlight_y` and `_selected_height` (the chosen
+///   row's), the scroll bar's `_number_of_items` and `_number_of_visible_items` (the rows'
+///   height and the list's in `_scroll_delta` steps, so the bar shows only when the rows
+///   overflow) [documented: list_box.xml's comments; design: unrounded];
+/// - `MM_MainRect`'s `width` ("set in code"): the widest of the text's place, widest line
+///   and `_horbuf` (the file's place moves the text right for the icon), the title's room, and the list's width and two
+///   `_horbuf`, within `_MinMenuWidth` and `_MaxMenuWidth` [hypothesis: the file's
+///   comments; design: the title's and the list's room, as the hand-built box makes room
+///   for its title and its frame];
+/// - the background's `alpha` ([`background_alpha`]).
+///
+/// `size` measures a text. The tree is worked out once in between, so the rows' texts
+/// read their strings before they are measured.
+pub fn write_message(ui: &mut Ui, view: &PanelView, selected: usize, size: &Size<'_>) {
+    let Some(menu) = ui.menu(MESSAGE_MENU) else { return };
+    let (Some(main), Some(list)) = (ui.find_tile(MAIN), ui.find_tile(LIST)) else { return };
+    let path = |name: &str| format!("{MAIN}/{name}");
+    let title = view.title.as_deref().map(str::trim).filter(|t| !t.is_empty()).unwrap_or_default().to_string();
+    if let Some(t) = ui.find_tile(&path("MM_Title")) {
+        set(ui, t, "visible", Value::Num(f64::from(!title.is_empty())));
+        set(ui, t, "string", Value::Str(title.clone()));
+    }
+    if let Some(t) = ui.find_tile(&path("MM_MessageText")) {
+        set(ui, t, "string", Value::Str(view.text.trim_end().to_string()));
+    }
+    if let Some(t) = ui.find_tile(&path("MM_MessageIcon")) {
+        set(ui, t, "visible", Value::Num(f64::from(view.icon.is_some())));
+        set(ui, t, "filename", Value::Str(view.icon.clone().unwrap_or_default()));
+    }
+    // The rows: as many as the buttons, the made ones kept.
+    let mut made = rows(ui);
+    while made.len() > view.buttons.len() {
+        if let Some(t) = made.pop() {
+            ui.unload_tile(t);
+        }
+    }
+    while made.len() < view.buttons.len() {
+        // The template's includes were spliced in when the file was read (menu-xml.md
+        // §2.2), so no files are needed to make a row.
+        match ui.add_code_tile_from_template(&fnv_ui::MemSource::default(), LIST, ROW_TEMPLATE, None) {
+            Some(t) => made.push(t),
+            None => break,
+        }
+    }
+    for (i, (&row, label)) in made.iter().zip(&view.buttons).enumerate() {
+        set(ui, row, "string", Value::Str(label.trim().to_string()));
+        set(ui, row, "listindex", Value::Num(i as f64));
+    }
+    ui.update();
+    // The rows' heights from their texts, one under the other.
+    let mut y = 0.0;
+    let mut widest: f64 = 0.0;
+    let mut chosen = None;
+    for (i, &row) in made.iter().enumerate() {
+        let text = child(ui, row, "ListItemText");
+        let (w, h) = text.map_or((0.0, 0.0), |t| measure_tile(ui, t, size));
+        widest = widest.max(w);
+        let height = h + num(ui, row, "_VerticalSpacing");
+        set(ui, row, "height", Value::Num(height));
+        set(ui, row, "_y", Value::Num(y));
+        if i == selected {
+            chosen = Some((y, height));
+        }
+        y += height;
+    }
+    let total = y;
+    let horbuf = num(ui, menu, "_horbuf");
+    let room = num(ui, menu, "_MaxMenuWidth") - 2.0 * horbuf;
+    let list_width = (widest + 2.0 * horbuf).min(room);
+    let list_height = total.min(LIST_MOST);
+    set(ui, list, "width", Value::Num(list_width));
+    set(ui, list, "height", Value::Num(list_height));
+    let (hy, hh) = chosen.unwrap_or((-1.0, 0.0));
+    set(ui, list, "_highlight_y", Value::Num(hy));
+    set(ui, list, "_selected_height", Value::Num(hh));
+    if let Some(bar) = child(ui, list, "lb_scrollbar") {
+        let delta = num(ui, list, "_scroll_delta").max(1.0);
+        set(ui, bar, "_number_of_items", Value::Num(total / delta));
+        set(ui, bar, "_number_of_visible_items", Value::Num(list_height / delta));
+    }
+    // The box's width from its texts.
+    // The text's place (the file moves it right for the icon), its widest line and the
+    // buffer on its right.
+    let text_need = match ui.find_tile(&path("MM_MessageText")) {
+        Some(t) if !view.text.trim().is_empty() => num(ui, t, "x") + measure_tile(ui, t, size).0 + horbuf,
+        _ => 0.0,
+    };
+    let title_need = match ui.find_tile(&path("MM_Title")) {
+        Some(t) if !title.is_empty() => {
+            let x = num(ui, t, "x");
+            // The title's left room again on its right, past the line's gap [design].
+            x + measure_tile(ui, t, size).0 + TITLE_GAP + x
+        }
+        _ => 0.0,
+    };
+    let least = num(ui, menu, "_MinMenuWidth");
+    let most = num(ui, menu, "_MaxMenuWidth").max(least);
+    let width = [text_need, title_need, list_width + 2.0 * horbuf].into_iter().fold(least, f64::max).min(most);
+    set(ui, main, "width", Value::Num(width));
+    if let Some(bg) = ui.find_tile("MessageMenu/NOGLOW_BRANCH/MM_Background") {
+        set(ui, bg, "alpha", Value::Num(background_alpha()));
+    }
+}
+
+/// The gap between the title and the top line's right piece [documented: message_menu.xml,
+/// `MM_headline_h2` starts 10 past the title].
+const TITLE_GAP: f64 = 10.0;
+
+/// A text tile's size by its string, font and wrap width as the tree holds them.
+fn measure_tile(ui: &Ui, t: TileId, size: &Size<'_>) -> (f64, f64) {
+    let tile = ui.tile(t);
+    let string = tile.get("string").map(Value::text).unwrap_or_default();
+    if string.is_empty() {
+        return (0.0, 0.0);
+    }
+    let wrap = tile.get("wrapwidth").map(Value::num).filter(|w| *w > 0.0);
+    size(tile.get("font").map_or(0.0, Value::num), &string, wrap)
+}
+
+/// What the prompt shows: the amount chosen of the stack (`crate::menu::model::Quantity`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Amount {
+    pub amount: i32,
+    pub most: i32,
+}
+
+/// The step sizes the file leaves to the code (`user3`, `user4`): NVForever's arrows and
+/// Page Up/Down [design: `crate::menu::model::QUANTITY_JUMP`; the original's are not read].
+const STEPS: (f64, f64) = (1.0, crate::menu::model::QUANTITY_JUMP as f64);
+
+/// Write what `QuantityMenu` shows [documented: quantity_menu.xml's comments on the
+/// meter's traits]: `user0` the stack ("Max amount"), `user2` the amount ("Code value …
+/// set in code"), `user3` and `user4` the step sizes ([`STEPS`]); the file works the
+/// meter's `_Value` (the amount over the stack), its tiled fill and the amount's text out
+/// of them. The background's `alpha` ([`background_alpha`]).
+pub fn write_quantity(ui: &mut Ui, q: Amount) {
+    let Some(meter) = ui.find_tile(METER) else { return };
+    set(ui, meter, "user0", Value::Num(f64::from(q.most.max(1))));
+    set(ui, meter, "user2", Value::Num(f64::from(q.amount)));
+    set(ui, meter, "user3", Value::Num(STEPS.0));
+    set(ui, meter, "user4", Value::Num(STEPS.1));
+    if let Some(bg) = ui.find_tile("QuantityMenu/NOGLOW_BRANCH/QM_Background") {
+        set(ui, bg, "alpha", Value::Num(background_alpha()));
+    }
+}
+
+/// What the prompt's tiles stand for, by name [documented: quantity_menu.xml].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QuantityTile {
+    Ok,
+    Cancel,
+    Decrease,
+    Increase,
+    /// The meter or a piece of it.
+    Meter,
+}
+
+/// The prompt's tile `tile` stands for, by its name or a parent's.
+pub fn quantity_tile(ui: &Ui, tile: TileId) -> Option<QuantityTile> {
+    let mut at = Some(tile);
+    while let Some(t) = at {
+        let name = ui.tile(t).name.to_ascii_lowercase();
+        match name.as_str() {
+            "qm_okbutton" => return Some(QuantityTile::Ok),
+            "qm_cancelbutton" => return Some(QuantityTile::Cancel),
+            "qm_decreasearrow" => return Some(QuantityTile::Decrease),
+            "qm_increasearrow" => return Some(QuantityTile::Increase),
+            "qm_amountmeter" => return Some(QuantityTile::Meter),
+            _ => {}
+        }
+        at = ui.tile(t).parent;
+    }
+    None
+}
+
+/// The meter's box in interface units, for a press or a drag on it.
+pub fn meter_box(ui: &Ui) -> Option<super::layout::Rect> {
+    let meter = ui.find_tile(METER)?;
+    super::layout::layout(ui, meter, &|_, _, _| (0.0, 0.0)).into_iter().find(|i| i.tile == meter).map(|i| i.rect)
+}
+
+/// What a text tile's size was last measured from, and the size written.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Measured {
+    string: String,
+    font: f64,
+    wrap: Option<f64>,
+    size: (f64, f64),
+}
+
+pub type SizesWritten = HashMap<TileId, Measured>;
+
+/// The live text tiles under `menu`.
+pub fn texts(ui: &Ui, menu: TileId) -> Vec<TileId> {
+    let mut out = Vec::new();
+    let mut stack = vec![menu];
+    while let Some(t) = stack.pop() {
+        let tile = ui.tile(t);
+        if !tile.live {
+            continue;
+        }
+        if tile.kind == "text" {
+            out.push(t);
+        }
+        stack.extend(tile.children.iter().copied());
+    }
+    out
+}
+
+/// The fonts of the text tiles under `menu`, each once (the renderer reads them before
+/// measuring, `super::draw::FontKit::menu_measure`).
+pub fn fonts(ui: &Ui, menu: TileId) -> Vec<f64> {
+    let mut out: Vec<f64> = Vec::new();
+    for t in texts(ui, menu) {
+        let f = ui.tile(t).get("font").map_or(0.0, Value::num);
+        if !out.contains(&f) {
+            out.push(f);
+        }
+    }
+    out
+}
+
+/// Write each text tile's `width` and `height` under `menu` from its string, font and
+/// wrap width, a wrapped text as wide as its widest line [hypothesis: as the HUD's text
+/// widths, hud.md §14.1; the original's code is taken to write the heights too, which the
+/// message box's list and text places read]. A tile whose size the file works out (an
+/// expression) is left to it; a tile measured from the same string, font and wrap is not
+/// measured again (`last`, as `super::notices::write_widths`). Returns how many were
+/// written.
+pub fn write_text_sizes(ui: &mut Ui, menu: TileId, last: &mut SizesWritten, size: &Size<'_>) -> usize {
+    let tiles = texts(ui, menu);
+    last.retain(|t, _| tiles.contains(t));
+    let mut written = 0;
+    for t in tiles {
+        let tile = ui.tile(t);
+        let computed = |name: &str| tile.trait_index(name).is_some_and(|k| tile.traits[k].expr.is_some());
+        if computed("width") || computed("height") {
+            continue;
+        }
+        let string = tile.get("string").map(Value::text).unwrap_or_default();
+        let font = tile.get("font").map_or(0.0, Value::num);
+        let wrap = tile.get("wrapwidth").map(Value::num).filter(|w| *w > 0.0);
+        let now = (tile.get("width").map(Value::num), tile.get("height").map(Value::num));
+        if let Some(m) = last.get(&t) {
+            if m.string == string && m.font == font && m.wrap == wrap && now == (Some(m.size.0), Some(m.size.1)) {
+                continue;
+            }
+        }
+        let measured = if string.is_empty() { (0.0, 0.0) } else { size(font, &string, wrap) };
+        ui.set_trait(t, "width", Value::Num(measured.0));
+        ui.set_trait(t, "height", Value::Num(measured.1));
+        last.insert(t, Measured { string, font, wrap, size: measured });
+        written += 1;
+    }
+    written
+}
+
+/// A line for the log when what the box shows changes (smoke reads these).
+pub fn describe_message(ui: &Ui, view: &PanelView) -> String {
+    let width = ui.find_tile(MAIN).map_or(0.0, |m| num(ui, m, "width"));
+    let rows = rows(ui).len();
+    format!("tiles: {MESSAGE_MENU} drawn from tiles: \"{}\", {rows} button row(s), width {}", view.text.trim().replace('\n', " / "), Value::Num(width).text())
+}
+
+/// A line for the log when the prompt's amount changes.
+pub fn describe_quantity(ui: &Ui) -> String {
+    let shown = ui.get_string(&format!("{}/QM_AmountChosen/string", METER.rsplit_once('/').map_or("", |(p, _)| p))).unwrap_or_default();
+    let most = ui.get_float(&format!("{METER}/user0")).unwrap_or(0.0);
+    format!("tiles: {QUANTITY_MENU} drawn from tiles: amount {shown} of {}", Value::Num(most).text())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fnv_ui::MemSource;
+
+    /// Every character 10 wide, lines 30 high, wrapped by whole characters [design].
+    fn size(_: f64, text: &str, wrap: Option<f64>) -> (f64, f64) {
+        let n = text.chars().count() as f64;
+        let per = wrap.map_or(n, |w| (w / 10.0).floor().max(1.0));
+        let lines = (n / per).ceil().max(1.0);
+        (10.0 * n.min(per), 30.0 * lines)
+    }
+
+    /// [design] A message menu in the vanilla file's shape (the names, the `io()` traits,
+    /// the list and its template), its expressions cut down to what these tests read.
+    fn message() -> Ui {
+        let src = MemSource::default().with(
+            "message.xml",
+            r#"<menu name="MessageMenu"><_MinMenuWidth>200</_MinMenuWidth><_MaxMenuWidth>700</_MaxMenuWidth><_horbuf>40</_horbuf><_verbuf>20</_verbuf>
+  <rect name="NOGLOW_BRANCH">
+    <image name="MM_Background"><alpha>32</alpha></image>
+    <rect name="MM_MainRect"><width></width>
+      <text name="MM_Title"><font>6</font><string></string><x>60</x><y>-10</y></text>
+      <image name="MM_MessageIcon"><x>40</x><visible>&false;</visible></image>
+      <text name="MM_MessageText"><font>2</font><wrapwidth>620</wrapwidth>
+        <x><copy>40</copy><add><copy>120</copy><onlyif src="sibling(MM_MessageIcon)" trait="visible"/></add></x></text>
+      <hotrect name="MM_ButtonList"><_scroll_delta>26</_scroll_delta><_highlight_y>-1</_highlight_y>
+        <hotrect name="lb_highlight_box"/>
+        <image name="lb_scrollbar"><_number_of_items>1</_number_of_items></image>
+      </hotrect>
+    </rect>
+  </rect>
+  <template name="MM_ButtonTemplate"><hotrect name="MM_Button"><_VerticalSpacing>20</_VerticalSpacing><_y></_y>
+    <text name="ListItemText"><font>2</font><string><copy src="parent()" trait="string"/></string><wrapwidth>560</wrapwidth></text>
+  </hotrect></template>
+</menu>"#,
+        );
+        let mut ui = Ui::new();
+        ui.load_menu(&src, "message.xml").unwrap();
+        ui.update();
+        ui
+    }
+
+    fn view(title: Option<&str>, text: &str, buttons: &[&str]) -> PanelView {
+        PanelView { title: title.map(str::to_string), text: text.into(), buttons: buttons.iter().map(|b| b.to_string()).collect(), icon: None }
+    }
+
+    fn f(ui: &Ui, path: &str) -> f64 {
+        ui.get_float(&format!("MessageMenu/NOGLOW_BRANCH/MM_MainRect/{path}")).unwrap()
+    }
+
+    #[test]
+    fn the_box_writes_its_strings_rows_and_sizes() {
+        let mut ui = message();
+        write_message(&mut ui, &view(Some("Title"), "Hello there", &["Yes", "No thanks"]), 1, &size);
+        let main = "MessageMenu/NOGLOW_BRANCH/MM_MainRect";
+        assert_eq!(ui.get_string(&format!("{main}/MM_Title/string")).as_deref(), Some("Title"));
+        assert_eq!(f(&ui, "MM_Title/visible"), 1.0);
+        assert_eq!(ui.get_string(&format!("{main}/MM_MessageText/string")).as_deref(), Some("Hello there"));
+        // Two rows in the order of the buttons, each its text's height and 20.
+        let r = rows(&ui);
+        assert_eq!(r.len(), 2);
+        let row = |i: usize, t: &str| ui.tile(r[i]).get(t).map(Value::num).unwrap();
+        assert_eq!((row(0, "listindex"), row(0, "_y"), row(0, "height")), (0.0, 0.0, 50.0));
+        assert_eq!((row(1, "listindex"), row(1, "_y"), row(1, "height")), (1.0, 50.0, 50.0));
+        assert_eq!(ui.tile(r[1]).get("string").map(Value::text).as_deref(), Some("No thanks"));
+        // The list: the widest button ("No thanks", 90) and two _horbuf; the rows' height;
+        // the chosen (second) row framed.
+        assert_eq!((f(&ui, "MM_ButtonList/width"), f(&ui, "MM_ButtonList/height")), (170.0, 100.0));
+        assert_eq!((f(&ui, "MM_ButtonList/_highlight_y"), f(&ui, "MM_ButtonList/_selected_height")), (50.0, 50.0));
+        // No overflow: the bar's counts equal, so the file hides it.
+        assert_eq!(f(&ui, "MM_ButtonList/lb_scrollbar/_number_of_items"), f(&ui, "MM_ButtonList/lb_scrollbar/_number_of_visible_items"));
+        // The box: the list's 170 and 80 is 250, over the text's 110 + 80 and the
+        // title's 60 + 50 + 10 + 60.
+        assert_eq!(ui.get_float(&format!("{main}/width")), Some(250.0));
+        assert_eq!(ui.get_float("MessageMenu/NOGLOW_BRANCH/MM_Background/alpha"), Some(background_alpha()));
+        assert_eq!(row_button(&ui, child(&ui, r[1], "ListItemText").unwrap()), Some(1));
+    }
+
+    #[test]
+    fn rows_follow_the_buttons_and_the_box_stays_within_its_widths() {
+        let mut ui = message();
+        write_message(&mut ui, &view(None, "x", &["a", "b", "c"]), 0, &size);
+        assert_eq!(rows(&ui).len(), 3);
+        // No title: hidden, so the file draws the top line whole; the least width.
+        assert_eq!(f(&ui, "MM_Title/visible"), 0.0);
+        assert_eq!(ui.get_float("MessageMenu/NOGLOW_BRANCH/MM_MainRect/width"), Some(200.0));
+        // Fewer buttons unload the extra rows; the kept ones are the same tiles.
+        let before = rows(&ui);
+        write_message(&mut ui, &view(None, "x", &["only"]), 0, &size);
+        assert_eq!(rows(&ui), before[..1].to_vec());
+        // A long text: as wide as the box allows.
+        write_message(&mut ui, &view(None, &"w".repeat(200), &["OK"]), 0, &size);
+        assert_eq!(ui.get_float("MessageMenu/NOGLOW_BRANCH/MM_MainRect/width"), Some(700.0));
+        // Many tall rows: the list stops at its most, and the bar's counts say it overflows.
+        let many: Vec<String> = (0..12).map(|i| format!("button {i}")).collect();
+        let v = PanelView { buttons: many, ..view(None, "x", &[]) };
+        write_message(&mut ui, &v, 11, &size);
+        assert_eq!(f(&ui, "MM_ButtonList/height"), LIST_MOST);
+        assert!(f(&ui, "MM_ButtonList/lb_scrollbar/_number_of_items") > f(&ui, "MM_ButtonList/lb_scrollbar/_number_of_visible_items"));
+    }
+
+    #[test]
+    fn an_icon_shows_and_makes_room() {
+        let mut ui = message();
+        let mut v = view(None, "Liked", &["OK"]);
+        v.icon = Some(r"textures\interface\icons\message icons\glow_message_vaultboy_very_happy.dds".into());
+        write_message(&mut ui, &v, 0, &size);
+        assert_eq!(f(&ui, "MM_MessageIcon/visible"), 1.0);
+        assert_eq!(ui.get_string("MessageMenu/NOGLOW_BRANCH/MM_MainRect/MM_MessageIcon/filename").as_deref(), v.icon.as_deref());
+        // The file moves the text 120 right while the icon shows; the box keeps that room.
+        assert_eq!(f(&ui, "MM_MessageText/x"), 160.0);
+        assert_eq!(ui.get_float("MessageMenu/NOGLOW_BRANCH/MM_MainRect/width"), Some(50.0 + 80.0 + 120.0));
+    }
+
+    #[test]
+    fn text_sizes_are_written_once_per_change() {
+        let mut ui = message();
+        write_message(&mut ui, &view(Some("T"), "Hi", &["OK"]), 0, &size);
+        ui.update();
+        let menu = ui.menu(MESSAGE_MENU).unwrap();
+        let mut last = SizesWritten::new();
+        // The title, the text and the row's text.
+        assert_eq!(write_text_sizes(&mut ui, menu, &mut last, &size), 3);
+        assert_eq!((f(&ui, "MM_MessageText/width"), f(&ui, "MM_MessageText/height")), (20.0, 30.0));
+        assert_eq!(write_text_sizes(&mut ui, menu, &mut last, &size), 0, "nothing changed");
+        ui.set_string("MessageMenu/NOGLOW_BRANCH/MM_MainRect/MM_MessageText/string", "Hello");
+        assert_eq!(write_text_sizes(&mut ui, menu, &mut last, &size), 1);
+        assert_eq!(f(&ui, "MM_MessageText/width"), 50.0);
+    }
+
+    #[test]
+    fn the_prompt_writes_the_stack_and_the_amount() {
+        // [design] The quantity file's meter, its `_Value` and the amount text as the file
+        // works them out.
+        let src = MemSource::default().with(
+            "quantity.xml",
+            r#"<menu name="QuantityMenu"><rect name="NOGLOW_BRANCH"><image name="QM_Background"><alpha>32</alpha></image>
+  <hotrect name="QM_MainRect"><x>22</x><y>42</y>
+    <rect name="QM_AmountMeter"><x>149.5</x><y>115</y><width>391</width><height>24</height>
+      <_Value><copy>0</copy><add><copy src="me()" trait="user2"/><div src="me()" trait="user0"/></add></_Value>
+      <user0>1</user0><user2></user2>
+      <image name="MeterImage"><width><copy src="parent()" trait="width"/><mul src="parent()" trait="_Value"/></width></image></rect>
+    <text name="QM_AmountChosen"><string><copy src="sibling(QM_AmountMeter)" trait="_Value"/><mul src="sibling(QM_AmountMeter)" trait="user0"/><round>1</round></string></text>
+    <hotrect name="QM_OKButton"><text name="button_text"/></hotrect>
+    <image name="QM_DecreaseArrow"/>
+  </hotrect></rect></menu>"#,
+        );
+        let mut ui = Ui::new();
+        ui.load_menu(&src, "quantity.xml").unwrap();
+        write_quantity(&mut ui, Amount { amount: 5, most: 20 });
+        ui.update();
+        assert_eq!(ui.get_float(&format!("{METER}/MeterImage/width")), Some(391.0 * 0.25));
+        assert_eq!(ui.get_string("QuantityMenu/NOGLOW_BRANCH/QM_MainRect/QM_AmountChosen/string").as_deref(), Some("5"));
+        assert_eq!(describe_quantity(&ui), "tiles: QuantityMenu drawn from tiles: amount 5 of 20");
+        assert_eq!(ui.get_float("QuantityMenu/NOGLOW_BRANCH/QM_Background/alpha"), Some(background_alpha()));
+        // The meter's box from the places down the tree; the tiles by what they stand for.
+        let b = meter_box(&ui).unwrap();
+        assert_eq!((b.left, b.top, b.width, b.height), (171.5, 157.0, 391.0, 24.0));
+        let tile = |p: &str| ui.find_tile(&format!("QuantityMenu/NOGLOW_BRANCH/QM_MainRect/{p}")).unwrap();
+        assert_eq!(quantity_tile(&ui, tile("QM_OKButton/button_text")), Some(QuantityTile::Ok));
+        assert_eq!(quantity_tile(&ui, tile("QM_AmountMeter/MeterImage")), Some(QuantityTile::Meter));
+        assert_eq!(quantity_tile(&ui, tile("QM_DecreaseArrow")), Some(QuantityTile::Decrease));
+        assert_eq!(quantity_tile(&ui, tile("QM_AmountChosen")), None);
+    }
+}

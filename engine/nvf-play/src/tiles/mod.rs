@@ -3,6 +3,7 @@
 pub mod draw;
 pub mod input;
 pub mod layout;
+pub mod menus;
 pub mod model;
 pub mod notices;
 pub mod vanilla;
@@ -55,12 +56,35 @@ impl MenuFiles<'_, '_> {
 }
 
 fn screen(game: &mut fnv_game::Game<'_>, window: &Window) {
-    // Window dimensions, as fnvtool's --screen [hypothesis: menu-xml.md §4.2, screen() row].
-    // cropx, cropy and resolutionconverter stay unset until their units are known [design].
+    let (width, height) = screen_size(window.width(), window.height());
     let id = game.ui_tree.screen();
-    game.ui_tree.set_trait(id, "width", Value::Num(f64::from(window.width())));
-    game.ui_tree.set_trait(id, "height", Value::Num(f64::from(window.height())));
+    game.ui_tree.set_trait(id, "width", Value::Num(width));
+    game.ui_tree.set_trait(id, "height", Value::Num(height));
+    game.ui_tree.set_trait(id, "resolutionconverter", Value::Num(RESOLUTION_CONVERTER));
 }
+
+/// `screen()`'s width and height for a window: the view in interface units, 960 high and
+/// as wide as the window's shape makes it [documented: hud.md §14, the right-hand pieces
+/// at W - 386 with W = 960 × width/height; hypothesis: the message box's and the prompt's
+/// files centre their boxes, whose sizes are in those units, by `screen()`'s width and
+/// height, menu-xml.md §3.1.2]. Until T15a the window's pixels, as fnvtool's `--screen`
+/// [hypothesis, then]; the HUD's places, worked out from the shape alone
+/// (`fnv_game::ui_hud::write`), are the same either way. `cropx` and `cropy` stay unset
+/// until their units are known [design].
+pub fn screen_size(window_width: f32, window_height: f32) -> (f64, f64) {
+    let (w, h) = (f64::from(window_width), f64::from(window_height));
+    if w > 0.0 && h > 0.0 {
+        (960.0 * w / h, 960.0)
+    } else {
+        (0.0, 0.0)
+    }
+}
+
+/// `screen()`'s `resolutionconverter`: 1, a line of `globals()`'s `_line_thickness` (2 ×
+/// the converter on a PC) 2 units thick [hypothesis: the original's message box lines
+/// measured 2 units thick, message-menu.md §3; the units are already the interface's,
+/// 960 high, so nothing is left to convert]. Unset until T15a, which drew no line.
+pub const RESOLUTION_CONVERTER: f64 = 1.0;
 
 /// Read the same inputs as the current HUD, before scripts [design]. Timed pieces
 /// use the current target/queue/meter state; their clocks remain with the drawing.
@@ -297,6 +321,82 @@ impl HudTiles<'_> {
     }
 }
 
+/// What the message box and the prompt drawn from tiles were last written from (T15a,
+/// `menus`): the menu's tile (a new one when it is built again) and what it showed, so a
+/// frame with nothing changed writes nothing [design: the maintainer's review of #902].
+#[derive(Default)]
+struct MenusWritten {
+    message: Option<(fnv_ui::TileId, crate::message_menu::PanelView, usize)>,
+    quantity: Option<(fnv_ui::TileId, menus::Amount)>,
+    /// The text sizes written, the message box's and the prompt's.
+    sizes: [menus::SizesWritten; 2],
+}
+
+/// T15a: what the message box and the prompt show, from their hand-built models.
+#[derive(SystemParam)]
+struct MenuTiles<'w, 's> {
+    panel: Option<Res<'w, crate::message_menu::MessagePanel>>,
+    active: Option<Res<'w, crate::menu::ActiveMenu>>,
+    written: Local<'s, MenusWritten>,
+}
+
+impl MenuTiles<'_, '_> {
+    /// The "How many?" prompt of the container, barter and inventory menus, when open.
+    fn quantity(&self) -> Option<crate::menu::model::Quantity> {
+        self.active.as_ref().and_then(|a| a.0.as_ref()).and_then(|m| m.quantity)
+    }
+
+    /// Write the switched-on menus' traits (`menus::write_message`, `menus::write_quantity`)
+    /// when what they show changed, and their text tiles' sizes every frame they are drawn
+    /// (each measured again only when its string changed), before scripts [design:
+    /// ui-tile-tree.md §4.1]. Off, or without the menu files, nothing.
+    fn write(&mut self, game: &mut fnv_game::Game<'_>, switch: vanilla::TileMenus, fonts: &mut draw::FontKit) {
+        if !(switch.message || switch.quantity) || game.ui_files.is_none() {
+            return;
+        }
+        let message = menus::message_tiled(switch.message, game).then(|| game.ui_tree.menu(menus::MESSAGE_MENU)).flatten();
+        let quantity = self.quantity().filter(|_| menus::quantity_tiled(switch.quantity, game));
+        let prompt = quantity.and_then(|q| game.ui_tree.menu(menus::QUANTITY_MENU).map(|m| (m, q)));
+        let written = &mut *self.written;
+        let ui = &mut game.ui_tree;
+        match (message, self.panel.as_ref().and_then(|p| p.view.as_ref().map(|v| (v, p.selected)))) {
+            (Some(menu), Some((view, selected))) => {
+                let size = fonts.menu_measure(&menus::fonts(ui, menu));
+                let was = written.message.as_ref();
+                if was.is_none_or(|(m, v, s)| *m != menu || v != view || *s != selected) {
+                    let new_view = was.is_none_or(|(m, v, _)| *m != menu || v != view);
+                    menus::write_message(ui, view, selected, &size);
+                    menus::write_text_sizes(ui, menu, &mut written.sizes[0], &size);
+                    if new_view {
+                        info!("{}", menus::describe_message(ui, view));
+                    }
+                    written.message = Some((menu, view.clone(), selected));
+                } else {
+                    menus::write_text_sizes(ui, menu, &mut written.sizes[0], &size);
+                }
+            }
+            _ => written.message = None,
+        }
+        match prompt {
+            Some((menu, q)) => {
+                let amount = menus::Amount { amount: q.amount, most: q.max };
+                let size = fonts.menu_measure(&menus::fonts(ui, menu));
+                if written.quantity != Some((menu, amount)) {
+                    menus::write_quantity(ui, amount);
+                    // The amount's text follows from the meter: worked out before its size.
+                    ui.update();
+                    menus::write_text_sizes(ui, menu, &mut written.sizes[1], &size);
+                    info!("{}", menus::describe_quantity(ui));
+                    written.quantity = Some((menu, amount));
+                } else {
+                    menus::write_text_sizes(ui, menu, &mut written.sizes[1], &size);
+                }
+            }
+            None => written.quantity = None,
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn write(
     mut script: ResMut<ScriptState>,
@@ -307,9 +407,15 @@ fn write(
     time: Res<Time>,
     mut animation: Local<fnv_game::ui_hud::Animation>,
     mut told: Local<[Option<String>; 4]>,
+    mut menu_tiles: MenuTiles,
 ) {
     let Some(rt) = script.rt.as_mut() else { return };
+    // T15a: the prompt over the container, barter and inventory menus builds `QuantityMenu`
+    // while it shows (`Game::ui_prompt`), whether or not it is drawn from it, as the open
+    // menus build (T3b).
+    rt.game.ui_prompt = menu_tiles.quantity().map(|_| fnv_game::game::menus::QUANTITY);
     files.write(&mut rt.game);
+    menu_tiles.write(&mut rt.game, *menus, &mut fonts);
     let shown = hud.shown(&rt.game, &files);
     let mut texts = hud.texts(&mut rt.game, shown);
     if let Some(root) = rt.game.ui_tree.find_tile("HUDMainMenu") {

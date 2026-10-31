@@ -12,6 +12,9 @@
 //!   layout is drawn with Bevy's font and plain lines.
 //! - Fonts, textures and units are `crate::interface`'s, shared with the other parts of
 //!   the interface.
+//! - With `[UI] TileMenus=MessageMenu` (T15a) a message box is drawn from the game's
+//!   `MessageMenu` tiles instead (`crate::tiles::menus`) and this module spawns nothing for
+//!   it; the panels of the other script menus it shows stay drawn here.
 
 use crate::interface::{amber, at, bc_supported, face, plain_font, set_text, texture, u, Face, Set};
 use crate::script_hud::BoxButton;
@@ -62,7 +65,7 @@ const LEADING: f32 = 4.0;
 const FRAME_PAD: f32 = 42.0;
 const FRAME_SHIFT: f32 = 2.5;
 /// How dark the box makes what is behind it (as the Wait menu's, wait-menu.md §2).
-const SHADE: f32 = 0.93;
+pub(crate) const SHADE: f32 = 0.93;
 
 /// What a box holds. `buttons` are the labels as drawn ("OK" for a box without any).
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -320,13 +323,17 @@ fn draw(
     roots: Query<Entity, With<BoxRoot>>,
     mut frames: Query<(&Frame, &mut Visibility)>,
     mut faces: Local<Option<Faces>>,
-    mut shown: Local<Option<PanelView>>,
+    (mut shown, mut was_tiled): (Local<Option<PanelView>>, Local<bool>),
+    (menus, script): (Option<Res<crate::tiles::vanilla::TileMenus>>, Option<Res<crate::script::ScriptState>>),
 ) {
-    if panel.view != *shown {
+    // T15a: the box drawn from its tiles spawns nothing here.
+    let tiled = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| crate::tiles::menus::message_tiled(menus.as_ref().is_some_and(|m| m.message), &rt.game));
+    if panel.view != *shown || tiled != *was_tiled {
+        *was_tiled = tiled;
         for e in &roots {
             commands.entity(e).despawn();
         }
-        if let Some(view) = &panel.view {
+        if let Some(view) = panel.view.as_ref().filter(|_| !tiled) {
             let faces = faces.get_or_insert_with(|| {
                 load_faces(data.as_deref(), &mut images, bc_supported(formats.as_deref()))
             });

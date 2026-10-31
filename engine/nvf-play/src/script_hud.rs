@@ -336,6 +336,7 @@ fn draw(
 /// and Enter picks the framed button; Space also presses the OK of a box without
 /// buttons; Enter or a click on Done closes a character-creation menu. All go through
 /// `ScriptState::answer`.
+#[allow(clippy::too_many_arguments)]
 pub fn menu_keys(
     keys: Res<ButtonInput<KeyCode>>,
     clicks: Query<(&Interaction, &BoxButton), Changed<Interaction>>,
@@ -343,13 +344,16 @@ pub fn menu_keys(
     mut panel: ResMut<MessagePanel>,
     mut script: ResMut<ScriptState>,
     creator: Option<Res<crate::creator::CreatorData>>,
+    tile_click: Option<ResMut<crate::tiles::input::MessageClick>>,
 ) {
     use KeyCode::*;
+    // A click on the box drawn from its tiles (T15a, `crate::tiles::input`), taken.
+    let tile_click = tile_click.and_then(|mut c| c.0.take());
     let Some(code) = script.rt.as_ref().and_then(|rt| rt.game.menu) else { return };
     if !crate::script::is_script_menu(code) {
         return;
     }
-    let clicked = clicks.iter().find(|(i, _)| **i == Interaction::Pressed).map(|(_, b)| b.0);
+    let clicked = clicks.iter().find(|(i, _)| **i == Interaction::Pressed).map(|(_, b)| b.0).or(tile_click);
     let enter = keys.any_just_pressed([Enter, NumpadEnter]);
     if code == menus::TUTORIAL || crate::chargen::has_own_menu(code) || crate::levelup::draws(code) || crate::creator::draws(code, creator.is_some()) {
         return;

@@ -174,6 +174,25 @@ impl FontKit<'_> {
         self.fonts.notice_widths = last;
     }
 
+    /// Load the fonts of a menu's text tiles (T15a's menus, drawn whole).
+    fn load_fonts(&mut self, ui: &Ui, menu: TileId) {
+        for font in super::menus::fonts(ui, menu) {
+            self.load(font);
+        }
+    }
+
+    /// The measure of a menu's texts drawn from tiles (T15a, `super::menus`), its text
+    /// tiles' `fonts` (`super::menus::fonts`) loaded first: a text's width and height as
+    /// the renderer sets it ([`measure`]). A font not read measures by its stand-in, as it is drawn [design:
+    /// the menu's places follow from these sizes, so a box is still laid out].
+    pub(crate) fn menu_measure(&mut self, fonts: &[f64]) -> impl Fn(f64, &str, Option<f64>) -> (f64, f64) + '_ {
+        for &font in fonts {
+            self.load(font);
+        }
+        let faces = &self.fonts.faces;
+        move |font: f64, text: &str, wrap: Option<f64>| faces.get(&font_number(font)).map_or((0.0, 0.0), |face| measure(&face.font, text, wrap))
+    }
+
     /// Whether the fonts of `tiles` are all the game's own (read, not stand-ins), loading
     /// them; false without game data or without tiles.
     fn game_fonts(&mut self, ui: &Ui, tiles: &[TileId]) -> bool {
@@ -552,6 +571,8 @@ pub(crate) struct Drawn {
     strip_told: bool,
     /// The `nif` tiles' models read so far (`super::model`).
     models: model::Models,
+    /// The menu tile whose start line is written (T15a's menus, told at each build).
+    told_menu: Option<TileId>,
 }
 
 /// A `tile` picture baked into one image ([`crate::repeat`]): the image and its node's
@@ -741,8 +762,56 @@ pub(crate) struct Nodes<'w, 's> {
     ink: Query<'w, 's, (&'static Ink, InkNodes)>,
 }
 
-pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View, mut kit: FontKit, mut drawn: Local<Drawn>, mut nodes: Nodes) {
-    let drawn = &mut *drawn;
+/// The menus drawn from tiles besides the HUD (T15a, `super::menus`), each in its own
+/// [`Drawn`].
+#[derive(Default)]
+pub(crate) struct MenusDrawn {
+    message: Drawn,
+    quantity: Drawn,
+}
+
+/// The stacking levels of the menus drawn from tiles besides the HUD: their hand-built
+/// drawings' (the message box's 108, `crate::message_menu`; the prompt's 101 over the
+/// container menu's 100, `crate::menu`) [design].
+pub const MESSAGE_Z: i32 = 108;
+pub const QUANTITY_Z: i32 = 101;
+
+pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View, mut kit: FontKit, (mut drawn, mut others): (Local<Drawn>, Local<MenusDrawn>), mut nodes: Nodes) {
+    let scale = view.windows.single().map_or(1.0, |w| w.height() / 960.0);
+    let heading = view.hud.as_ref().map_or(0.0, |h| h.heading);
+    // T15a: the message box and the prompt, when switched on and in the tree (their
+    // hand-built drawings are then not spawned, `super::menus`).
+    let switch = view.menus.as_deref().copied().unwrap_or_default();
+    let game = script.rt.as_ref().map(|rt| &rt.game);
+    let others = &mut *others;
+    for (name, on, z, drawn) in [
+        (super::menus::MESSAGE_MENU, game.is_some_and(|g| super::menus::message_tiled(switch.message, g)), MESSAGE_Z, &mut others.message),
+        (super::menus::QUANTITY_MENU, game.is_some_and(|g| super::menus::quantity_tiled(switch.quantity, g)), QUANTITY_Z, &mut others.quantity),
+    ] {
+        let ui = game.map(|g| &g.ui_tree);
+        let menu = ui.filter(|_| on).and_then(|ui| ui.menu(name).map(|m| (ui, m)));
+        let pieces = match menu {
+            Some((ui, menu)) => {
+                if drawn.told_menu != Some(menu) {
+                    let (file, code) = origins(ui, menu);
+                    info!("tiles: {name} drawn from tiles ({file} file tiles, {code} code tiles)");
+                    drawn.told_menu = Some(menu);
+                }
+                kit.load_fonts(ui, menu);
+                let measured = |font: f64, text: &str, wrap: Option<f64>| kit.face(font).map_or((0.0, 0.0), |face| measure(&face.font, text, wrap));
+                pieces(ui, menu, &measured, Select::Whole { kept: &[], strip: None }).0
+            }
+            None => Vec::new(),
+        };
+        paint(&mut commands, drawn, pieces, scale, z, heading, ui, &mut kit, &mut nodes);
+    }
+    hud(&mut commands, &script, &view, &mut kit, &mut drawn, &mut nodes, scale, heading);
+}
+
+/// The HUD's pieces (T5's mods' tiles, or with `[UI] TileMenus=HUDMainMenu` the whole menu)
+/// drawn ([`paint`]).
+#[allow(clippy::too_many_arguments)]
+fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut FontKit, drawn: &mut Drawn, nodes: &mut Nodes, scale: f32, heading: f32) {
     let whole = view.menus.as_ref().is_some_and(|m| m.hud);
     let ui = script.rt.as_ref().filter(|rt| rt.game.ui_files.is_some()).map(|rt| &rt.game.ui_tree);
     let menu = ui.and_then(|ui| ui.menu(HUD_MENU).map(|m| (ui, m)));
@@ -785,13 +854,25 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
         }
         drawn.counts = counts;
     }
-    let scale = view.windows.single().map_or(1.0, |w| w.height() / 960.0);
+    paint(commands, drawn, pieces, scale, TILES_Z, heading, ui, kit, nodes);
+}
+
+/// Bring one menu's drawn nodes in line with its `pieces`, at stacking level `z`: nothing
+/// when they and the scale are as last drawn; otherwise each piece's slot kept, moved and
+/// recoloured in place, spawned again or removed ([`change`]).
+#[allow(clippy::too_many_arguments)]
+fn paint(commands: &mut Commands, drawn: &mut Drawn, pieces: Vec<Piece>, scale: f32, z: i32, heading: f32, ui: Option<&Ui>, kit: &mut FontKit, nodes: &mut Nodes) {
     if pieces == drawn.pieces && scale == drawn.scale {
+        return;
+    }
+    // Nothing drawn yet and nothing to draw (a menu switched off): no root node either.
+    if pieces.is_empty() && drawn.root.is_none() {
+        drawn.scale = scale;
         return;
     }
     let root = *drawn.root.get_or_insert_with(|| {
         let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
-        commands.spawn((TileRoot, full, GlobalZIndex(TILES_Z), Pickable::IGNORE)).id()
+        commands.spawn((TileRoot, full, GlobalZIndex(z), Pickable::IGNORE)).id()
     });
     // A new size: the tiled pictures are set for the old one, so every piece again.
     if scale != drawn.scale {
@@ -855,7 +936,6 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
         let bc = bc_supported(kit.formats.as_deref());
         let data = kit.data.as_deref();
         let pictures = drawn.pictures.get_or_insert_with(|| Pictures::load(data));
-        let heading = view.hud.as_ref().map_or(0.0, |h| h.heading);
         let mut made = Vec::with_capacity(spawn.len());
         for &i in &spawn {
             let piece = &pieces[i];
@@ -906,8 +986,8 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
                 _ => None,
             };
             // A `nif` tile's model and its pieces' textures (`super::model`).
-            let model = match (&piece.look, data, menu) {
-                (Look::Model { filename, animation }, Some(data), Some((ui, _))) => drawn.models.get(filename, animation.as_deref(), data).map(|m| {
+            let model = match (&piece.look, data, ui) {
+                (Look::Model { filename, animation }, Some(data), Some(ui)) => drawn.models.get(filename, animation.as_deref(), data).map(|m| {
                     let textures = m.pieces.iter().map(|p| (p.texture.clone(), pictures.file(&p.texture, data, &mut kit.images, bc))).collect();
                     model::Prepared { fraction: model::fraction(ui, piece.tile), textures, model: m }
                 }),
