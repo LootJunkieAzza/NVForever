@@ -278,12 +278,16 @@ pub struct Particles {
 }
 
 impl Particles {
-    /// The systems held (placed models' and shared ones), for the stress census.
+    /// The systems held (placed models' and shared ones), for the stress census. A
+    /// system's entity always holds its materials, so an entry counts as idle when none of
+    /// its systems has a particle alive (a shared explosion or flash between uses, a
+    /// placed one whose emitter has stopped), or it has no systems we can read.
     pub fn share(&self, materials: &Assets<nvf_assets::NifMaterial>) -> [nvf_assets::release::CacheShare; 2] {
         let mut out: [nvf_assets::release::CacheShare; 2] = Default::default();
         for (k, live) in &self.systems {
             let s = &mut out[usize::from(k.instance.is_none())];
             s.entries += 1;
+            s.idle += usize::from(live.iter().flatten().all(|l| l.particles.is_empty()));
             for l in live.iter().flatten() {
                 s.images_of(materials, &l.def.material);
             }

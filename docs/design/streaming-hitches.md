@@ -285,8 +285,8 @@ evening and night, the tours start at noon) [observed, target/stress/tour/*, pri
     them and writing only changes is right in itself, but a two-lap tour with it had 27
     frames of 100-470 ms material writes (none without it): freeing copies churned the
     slabs. **Done** in #1169 (issue #904), after #898 kept emptied GPU memory blocks:
-    copies no entity holds go every 2 s, and only changed colours are written; measured
-    on two-lap tours there (the PR gives the hitch counts before and after).
+    copies no entity holds go every 2 s, and only changed colours are written. Frame
+    times against main: #1169 gives the tours, their dates and the machine's load.
   - Per-frame work over every actor the AI ever took in (`Core::list` and `Ai::agents`
     only grow): `Game::sync_loaded_actor_effects` syncs every actor that ever ran a
     package (`package_actors`), against its own comment (loaded actors only);
