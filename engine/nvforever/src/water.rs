@@ -50,7 +50,8 @@ use bevy::ecs::system::SystemParam;
 use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError};
+use bevy::render::render_resource::{AsBindGroup, BufferUsages, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError};
+use bevy::render::storage::ShaderBuffer;
 use bevy::shader::ShaderRef;
 use fnv_world::land::{load_land, LandParts, SIDE};
 use fnv_world::sky::{srgb_to_linear, ColorType, Water};
@@ -99,6 +100,9 @@ pub struct WaterParams {
     /// Shore fade: the depth falloff's start and end in units of water crossed, and 1
     /// when the type has one (`fnv_world::sky::Water::edge_falloff`).
     pub edge: Vec4,
+    /// Bevy y of the water whose drawn pixels are counted ([`WaterMaterial::seen`]), and 1
+    /// while counting (`crate::reflection`, #1060).
+    pub seen_plane: Vec4,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
@@ -114,6 +118,13 @@ pub struct WaterMaterial {
     /// R32Float ripple heights (not filterable: the shader interpolates).
     #[texture(5, sample_type = "float", filterable = false)]
     pub ripples: Option<Handle<Image>>,
+    /// One u32 the shader adds to for drawn water pixels at `seen_plane`'s height that no
+    /// opaque surface hides (one pixel in 16), shared by every water material and read back
+    /// by `crate::reflection` (#1060). It only grows (wrapping): water was drawn between
+    /// two readbacks when the value changed. A storage buffer in the fragment stage: the
+    /// desktop adapters NVForever runs on have them; WebGL2 does not [design].
+    #[storage(6, visibility(fragment))]
+    pub seen: Handle<ShaderBuffer>,
 }
 
 impl Material for WaterMaterial {
@@ -156,6 +167,8 @@ impl Material for WaterMaterial {
 pub struct WaterCache {
     materials: HashMap<u32, Handle<WaterMaterial>>,
     plane: Option<Handle<Mesh>>,
+    /// The water-pixel counter ([`WaterMaterial::seen`]), made with the first material.
+    seen: Option<Handle<ShaderBuffer>>,
 }
 
 impl WaterCache {
@@ -168,6 +181,22 @@ impl WaterCache {
                 }
             }
         }
+    }
+
+    /// Tell every water material which water's drawn pixels to count ([`WaterParams::seen_plane`]).
+    pub fn set_seen_plane(&self, materials: &mut Assets<WaterMaterial>, plane: Vec4) {
+        for h in self.materials.values() {
+            if materials.get(h).is_some_and(|m| m.params.seen_plane != plane) {
+                if let Some(mut m) = materials.get_mut(h) {
+                    m.params.seen_plane = plane;
+                }
+            }
+        }
+    }
+
+    /// The water-pixel counter, once a water material exists.
+    pub fn seen_counter(&self) -> Option<&Handle<ShaderBuffer>> {
+        self.seen.as_ref()
     }
 
     /// Tell every water material where the ripple grid lies.
@@ -189,6 +218,7 @@ pub struct WaterCtx<'w> {
     cache: ResMut<'w, WaterCache>,
     reflection: Option<Res<'w, Reflection>>,
     ripples: Option<Res<'w, Ripples>>,
+    buffers: ResMut<'w, Assets<ShaderBuffer>>,
 }
 
 impl WaterCtx<'_> {
@@ -214,7 +244,17 @@ pub fn water_material(world: &WorldData, wid: u32, models: &mut ModelCtx, water:
     });
     let reflection = water.reflection.as_ref().map(|r| r.image.clone());
     let ripples = water.ripples.as_ref().map(|r| r.image.clone());
-    let m = water.materials.add(WaterMaterial { params: water_params(&w), noise, reflection, ripples });
+    let buffers = &mut water.buffers;
+    let seen = water
+        .cache
+        .seen
+        .get_or_insert_with(|| {
+            let mut b = ShaderBuffer::from(vec![0u32]);
+            b.buffer_usage |= BufferUsages::COPY_SRC;
+            buffers.add(b)
+        })
+        .clone();
+    let m = water.materials.add(WaterMaterial { params: water_params(&w), noise, reflection, ripples, seen });
     water.cache.materials.insert(wid, m.clone());
     Some(m)
 }
@@ -399,6 +439,7 @@ pub fn water_params(w: &Water) -> WaterParams {
         reflection_plane: Vec4::ZERO,
         ripple: Vec4::ZERO,
         edge: w.edge_falloff().map_or(Vec4::ZERO, |(a, b)| Vec4::new(a, b, 1.0, 0.0)),
+        seen_plane: Vec4::ZERO,
     }
 }
 
