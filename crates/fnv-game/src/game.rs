@@ -1693,7 +1693,8 @@ impl<'a> Game<'a> {
         // Placed actors carry their template's items (template flag "Inventory").
         // Each at the level it would be fixed at now (`crate::zones`); a cell load fixes it.
         let player_level = world.config().player_level;
-        let sources = data.inventory_sources_at(world.placed, |r| world.level_at(r, player_level));
+        // A new game: nothing rolled again yet, every pick seeded by its reference.
+        let sources = data.inventory_sources_at(world.placed, |r| (r, world.level_at(r, player_level)));
         world.set_inventory_sources(sources);
         Game {
             data,
