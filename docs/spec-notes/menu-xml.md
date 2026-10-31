@@ -266,6 +266,15 @@ docs/handoff/ui-tile-tree-tasks.md]: `x` `y` `width` `height` `depth` `alpha` `v
 - [hypothesis] `depth` adds down the tree, with zero when absent. Parents precede
   children; siblings sort by increasing depth, preserving file order for ties. Neither
   this note's earlier sections nor hud.md establish cumulative depth or traversal order.
+- [hypothesis, T15a] A `hotrect`'s own `alpha` is not passed to its children: every
+  vanilla text button is a hotrect of alpha 0 (`text_box.xml`) whose text sets its own
+  alpha (128, or 255 while it is a target), the message box's list and its rows
+  (`list_box.xml`, `list_box_template.xml`) are alpha-0 hotrects over texts the original
+  shows (the message box's OK, the prompt's Ok and Cancel on the owner's screenshots,
+  message-menu.md §3, barter-menu.md §7), and the list's highlight box, alpha 40, draws
+  its lines at full strength. Until T15a it multiplied through as the other tiles' does,
+  which hid those texts (and the tile HUD prompt's verb and key under
+  `Info/justify_center_hotrect`).
 - [hypothesis] `alpha` is 0–255, defaults to 255, and multiplies through ancestors as
   fractions of 255. [design] Clamp each local alpha to that range and retain fractional
   results without rounding.
@@ -575,7 +584,7 @@ marked]:
 | `me()` | 1798 | the tile itself |
 | `sibling(name)` | 1660 | the tile of that name under the same parent |
 | `sibling()` | 2 | the tile just before it under the same parent |
-| `screen()` | 451 | the view: traits `width`, `height`, `cropx`, `cropy`, `resolutionconverter`, set by the engine |
+| `screen()` | 451 | the view: traits `width`, `height`, `cropx`, `cropy`, `resolutionconverter`, set by the engine (since T15a the running game writes the view in interface units, 960 high and 960 × width/height wide, and `resolutionconverter` 1; `fnvtool ui tree --screen` still writes the size it is given) |
 | `globals()` | 244 | `globals.xml`'s tile (`gloabls()`, once, read the same) |
 | `io()` | 242 | the menu the tile is in, whose traits the game's code reads and writes (barter reads `io()`'s `_IsContainerListSelected`, which its `<menu>` declares) |
 | `child(name)` | 148 | the child of that name; `child()` the first child |
@@ -604,7 +613,12 @@ use found:
 
 `<copy src="me()" trait="_filename_"/>` after the value is a number n reads the trait
 `_filename_n` [hypothesis: the meter and barter files pick a picture that way; 15
-names end in `_` in the vanilla files, all after a numeric value].
+names end in `_` in the vanilla files, all after a numeric value]. After a constant it
+reads the constant's number (§2.3; `&false;` 0, `&true;` 1) [hypothesis, T15a: the meter
+prefab copies `_SolidMeter` and `vertical_fade_line.xml` copies `_bottom_to_top`, both
+`&false;` or `&true;`, before the copy, and their `_filename_0`/`_Filename_1` are the two
+pictures; until T15a the name was read without a number, and the message box's corner
+lines and the prompt's meter had no picture].
 
 ## 5. Paths
 

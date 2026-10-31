@@ -264,3 +264,17 @@ stack without asking [design]. Over the Pip-Boy the prompt is drawn centred on t
 centred over it]. Smoke scenario `item-stacks`; `NVF_PLAY_TEST_DROP=<s>:<item>:ask`
 leaves it open for a screenshot.
 
+**Drawn from its file (T15a).** With `[UI] TileMenus=QuantityMenu` the prompt of the
+container, barter and inventory menus is drawn from the game's `QuantityMenu` tiles
+(`engine/nvf-play/src/tiles/menus.rs`), the code above not spawned; the crafting menu's
+prompt stays drawn by it. The tree builds the file while the prompt shows
+(`Game::ui_prompt`; MenuMode does not report it). The code writes the meter's `user0`
+(the stack) and `user2` (the amount) and the step sizes `user3`/`user4` (1 and 10, ours)
+[documented: the file's comments on them]; the file works out the meter's value, its
+fill (the tick picture tiled over the value's part of the meter: one picture, no piece
+per tick) and the amount's text. The words are the game strings `sHowMany`, `sOK`,
+`sCancel` and the key hints `sPCMenuHintA`/`E` (menu-xml.md §2.4; NVForever's own labels
+when the load order has none). A pointer click on OK, Cancel or an arrow does what the
+keys do; a press on the meter, held as it drags, sets the amount under the pointer; the
+keys stay the ones above. Smoke `tiles-quantity`.
+

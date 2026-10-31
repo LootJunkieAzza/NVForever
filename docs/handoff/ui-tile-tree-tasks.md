@@ -645,3 +645,14 @@ owner to add to its pull request or issue (owner, 2026-10-29).
         (`_name_` after a constant), `fnv-game` `ui_loading` (the prompt builds and
         drops). Smoke: `tiles-message-box`, `tiles-quantity` (new). The model's own
         tests (`message_menu`, `menu::model`) unchanged.
+    - **T15a built** 2026-10-31 (`claude/t15-menus-a`), awaiting the screenshot
+      comparison and the maintainer: as planned above (`tiles/menus.rs`,
+      message-menu.md §5a, barter-menu.md §7, menu-xml.md §3.1.1, §4.2, §4.4).
+      **Also changes the tile HUD**: `screen()` is now in interface units (the HUD's
+      places are worked out from the shape and do not move) and the hotrect alpha rule
+      lets `Info/justify_center_hotrect`'s verb and key draw; check `tiles-hud-*`.
+      **Open, for the comparison:** font 2's line spacing and first-line place in the
+      renderer (31 and 24 against the screenshot's 35 and 15), the empty title's height,
+      the highlight box's fill (hotrects draw nothing), the crafting menu's prompt (still
+      hand-built). Only `cargo check` (`fnv-ui`, `fnv-game`, `nvf-play`, with tests) and
+      `python tools/smoke verify` were run.

@@ -118,6 +118,44 @@ Not built: the icon beside the text, the list's scrolling (ten long buttons unde
 long text would run off the screen), the two sounds, the blur of the world behind
 (the Wait menu note has the same gap), the player's own font and colour settings.
 
+## 5a. Drawn from its file (T15a)
+
+With `[UI] TileMenus=MessageMenu` (NVForever.ini, or the test aid
+`NVF_PLAY_TEST_TILE_MENUS`) a message box is drawn from the game's `MessageMenu` tiles,
+not by §4's code (`engine/nvf-play/src/tiles/menus.rs`; ui-tile-tree.md §6.2). Off, the
+default, §4 stands. The panels of the other script menus (§4's placeholder) stay §4's.
+
+- What the code writes, the file leaving it "set in code" [documented: the file's
+  comments]: the title's and the text's strings (the title's `visible` 0 without one, so
+  the file draws the top line whole), the icon's file and `visible` for a box with a
+  picture, one row of the file's button template per button (its string, its index, its
+  height: the text's and the template's 20; its place under the last), the list's width
+  and height, the chosen row's place and height for the highlight box, the scroll bar's
+  counts, the box's width, the background's opacity (0.93, as §3). Every text tile gets its
+  measured width and height. The file's own expressions place everything else: the box
+  centred on the screen, the title, the text under it, the list under the text, the
+  bottom line under the list.
+- [hypothesis, fitted to §3's screenshot] The list is as wide as the widest button's text
+  and the menu's two `_horbuf` (80): its highlight box, the list less 37 by
+  `list_box.xml`, is then 72 outside around "OK" (29 wide), as measured. A row stands at
+  W/2 less half the list's width plus 22, so the frame's middle is 3.5 right of the box's
+  (3.7 measured; §4's code uses 2.5).
+- [design] The box's width: the widest of the text's place, widest line and `_horbuf`,
+  the title's room (its place, width, the line's gap of 10 and its place again) and the
+  list's width with two `_horbuf`, within the file's 200 and 700. The list's height stops
+  at the file's 420; the list does not scroll yet.
+- Input: the pointer over a row chooses it, a click (or a script's ClickMenuButton)
+  answers the box with that button; the keys stay §4's.
+- **Differences from §4 to settle on screenshots** (the old drawing stays the default
+  until then): the tile renderer sets a text's lines a font size apart (31 for font 2)
+  and its first line 24 under its top (menu-xml.md §3.1.2), where §3 measured 35 and 15;
+  the text's top follows the title's height as the font file gives it (34 for font 6, §3
+  measured 38); the highlight box's faint fill is not drawn (a hotrect draws nothing);
+  the corner lines are the shared atlas's pieces; a box without a title has an empty
+  title 0 high, so its text stands 38 higher than §4 sets it (§4 keeps the title's room
+  either way; what the original's code writes for an empty title is not known). A long
+  message therefore stands shorter than §4's box and the original's.
+
 ## 5. Looking at one
 
 `NVF_PLAY_TEST_SCRIPT=<seconds>:message:<MESG Editor ID or FormID>` shows a message as
