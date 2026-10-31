@@ -677,7 +677,11 @@ fn publish_menu_picks(
             Mode::Container(c) | Mode::Barter(c) => Some(c),
             Mode::Inventory => None,
         };
-        let owner = if m.focus == Side::Player { Some(player) } else { other };
+        // The merchant's column is what its merchant container holds (`Trade::stock`), not
+        // the merchant: the item reference names that container; the target stays the
+        // merchant.
+        let column = m.trade.as_ref().map(|t| t.stock).or(other);
+        let owner = if m.focus == Side::Player { Some(player) } else { column };
         let selected = m.selected_row(m.focus).zip(owner).and_then(|(r, o)| item(o, r.item));
         put(crate::script::menu_code(m.mode), MenuPicks { target: other.map(MenuPick::Form), selected });
     }

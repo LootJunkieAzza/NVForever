@@ -28,8 +28,13 @@ highlighted. Code: `crates/fnv-game/src/nvse_jip3.rs` (the functions),
   focused column), the inventory (no target, the player's row), barter (the merchant),
   the Pip-Boy repair list (the item repaired; the part highlighted, or the item for the
   first row) and the mod menu (the weapon; the mod highlighted, or the weapon). An item
-  is given to scripts as an inventory reference of its owner (the player, or the
-  container or merchant for that column) [documented: §1].
+  is given to scripts as an inventory reference of what holds it: the player, the
+  container, or in barter the merchant's container (its stock, as VendorContainerChet
+  holds Chet's goods; the target is still the merchant) [documented: §1].
+- An inventory reference names the item's base form and its holder only, so two of
+  one weapon at different condition, or the weapon being modded and another of it, are
+  one reference to scripts [hypothesis: the original's reference is to the one stack;
+  NVForever's inventory references have no stack of their own yet].
 - A pick counts only while its menu is open (`Game::menu_open`); GetSelectedItemRef
   reads the menu on top (`Game::top_menu`: the menu given, else the one under it, else
   the conversation).
