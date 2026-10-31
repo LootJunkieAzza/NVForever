@@ -122,6 +122,9 @@ walks round them, `fnv_ai::apart`). Actors on the navmesh surface meet no obstac
   own `1hpjumploopforward.kf` when drawn, the crouched ones while sneaking), for the way
   the actor moves (the plain clip below 10 units/s), cross-faded over 0.1 s on top of its
   movement clip. Creatures keep their movement clip in the air (§2).
+- **Sounds**: an actor that steps like a person plays its ground's `FST<family>Jump` and
+  `Land` by the player's rules (audio.md §14.2); actors' take-offs and landings are told
+  as `ActorAir` messages, clips or not.
 - **GetAnimAction**: an NPC landing reads 12 as the player's landing does [observed for
   the player: anim-state.md §1; hypothesis for NPCs, none was seen landing].
 - **IsPlayerActionActive** has no jumping index to wire: the player's jumps read 0 on all

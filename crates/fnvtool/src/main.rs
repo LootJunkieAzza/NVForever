@@ -945,6 +945,10 @@ pub enum VfsCmd {
         data_dir: PathBuf,
         /// Plugins in load order (default: the base game and its add-on masters).
         plugins: Vec<String>,
+        /// A base archive list in place of the shipped `SArchiveList` (comma-separated,
+        /// lowest precedence first), as NVForever.ini's `[Archive] SArchiveList` sets it.
+        #[arg(long)]
+        archive_list: Option<String>,
     },
 }
 

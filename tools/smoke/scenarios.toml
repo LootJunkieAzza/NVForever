@@ -3696,6 +3696,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "vfs-order-archive-list"
+kind = "tool"
+source = "#1142: an SArchiveList given (NVForever.ini [Archive] SArchiveList, here fnvtool's --archive-list) replaces the shipped base list; Update.bsa and the add-ons' archives still follow it"
+areas = ["assets"]
+paths = ["crates/fnv-vfs/", "crates/fnvtool/src/bsa_cmd.rs", "engine/nvf-play/src/game_start.rs"]
+commands = [["vfs", "order", "{data}", "--archive-list", "Fallout - Meshes.bsa, Fallout - Textures.bsa"]]
+expect = [
+  { json = "archives.0", schema = "fnv.vfs.order/1", equals = "Fallout - Meshes.bsa", label = "the given list, in its order" },
+  { json = "archives.1", schema = "fnv.vfs.order/1", equals = "Fallout - Textures.bsa" },
+  { json = "archives.2", schema = "fnv.vfs.order/1", equals = "Update.bsa", label = "then Update.bsa" },
+  { json = "archives.3", schema = "fnv.vfs.order/1", equals = "DeadMoney - Main.bsa", label = "then the first add-on's" },
+  { json = "source", schema = "fnv.vfs.order/1", equals = "SArchiveList given, Update.bsa, then each plugin's archives" },
+]
+
+[[scenario]]
 name = "visibility-arcs-vault22"
 source = "docs/spec-notes/nif.md §6 \"Visibility controllers\": placed models play the NiVisController tracks of their Idle sequence on every playing clip (anim_play::Playing::show), not only where a script runtime drives object groups; Vault 22's common area (Vault22d) has 14 electric arcs (fxelectricarc01/02.nif, refs 000F27A2-000F27AF) whose Idle shows their BrightSpots node about one frame in ten; the exit line counts the switches (no frames: the arcs sit behind a wall from the cell's start point)"
 areas = ["effects", "animation"]
@@ -9506,6 +9521,21 @@ expect = [
   { re = 'actor jumps: [0-9A-F]{8} is in the air on JumpLoop', label = "his body plays a jump loop" },
   { re = 'actor jumps: [0-9A-F]{8} lands on JumpLand', label = "and a landing" },
   "nav summary: 1 of 1 travellers arrived",
+]
+
+[[scenario]]
+name = "actor-jump-sounds"
+source = "docs/spec-notes/audio.md §14.2: an actor that steps like a person coming down after 0.4 s or more in the air plays its ground's FST<family>Land, as the player does [hypothesis: by the names; the thresholds design]"
+note = "actor-jumps in play: the player stands by the drop at (-63042, -18384) and Easy Pete, walked by the character controller near him, drops off the ledge link (a step off: no rising take-off, so no Jump sound) and lands about 127 units down"
+areas = ["nav", "actors", "sound"]
+paths = ["engine/nvforever/src/actor_jumps.rs", "engine/nvforever/src/anim_sounds.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-63300,-18600,6800", "--npc-travel", "EasyPeteRef@-63600,-18250,6700=-62800,-18480,6560", "--npc-ledges", "--no-voice", "--no-messages"]
+run_seconds = 70
+expect = [
+  { re = 'nav: EasyPeteRef drops off a ledge', count = 1, label = "Pete drops off the ledge once" },
+  { re = 'anim sounds: actor 00104C80 lands on \w+', label = "his landing plays a landing sound (Easy Pete's own line, review of #1215)" },
+  { re = 'anim sounds: actor 00104C80 jumps on', count = 0, label = "a drop: no jump sound for Pete" },
 ]
 
 [[scenario]]
