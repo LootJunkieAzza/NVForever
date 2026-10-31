@@ -653,3 +653,35 @@ The numbers above stay put so links to them hold; each item here gives its own p
     every game loop from the marker: does he stand until the cheer ends, walk off after
     1 s with the cheer cut short, or slide with it playing? And `IsIdlePlaying` at the
     moment he sets off. ([idles §15](../spec-notes/idles.md))
+
+## Added 2026-10-31 (dialogue topic order)
+
+58. **The order of topics of equal priority in the topic list** (P2: every conversation
+    with learned topics). Ours ([dialogue.rs `build_choices`](../../crates/fnv-game/src/dialogue.rs),
+    [dialogue §3.5](../spec-notes/dialogue.md)): priority, highest first, then the topics'
+    record order [hypothesis]; the known topics are a set, so the order they were learned
+    in is not kept.
+
+    Seen in the original [observed: owner screenshots 2026-10-31, Boone at the Novac
+    nest]: after learning `CraigBooneWantMeToDo` (`0x964C8`, with `…OnlyTrustStrangers`),
+    then `…TrackDownWife` (`0x964CA`), then `…WhatIfIFindThisPerson` (`0x964CC`) and
+    `…HowDoYouKnowShesDead` (`0x964CB`) from one line (that order in its Add Topics),
+    all priority 50, the list read C8, CC, CB, CA, Goodbye. Ours reads C8, CA, CB, CC.
+    That fits "the first topics learned stay on top, then the newest first, the topics one
+    line adds in its own order", but one conversation cannot tell it from other rules.
+
+    To check: from a save before meeting Manny Vargas (Novac), talk to him and choose
+    `MannyVargasWhoAreYou`, then `MannyVargasWhosBoone`, then `MannyVargasWhyOnBadTerms`
+    (all priority 50). They add, in this order: `…WhoAreYou` (`0x96BCF`, at the greeting);
+    `…ProtectTownFrom` (`0xCEDEE`) and `…WhosBoone`; `VDialogueNovacMannyVargasTopic001`
+    (`0x137A62`) and `…WhyOnBadTerms` (`0xB15FB`); `…WhatArgueWithBoonesWife` (`0xB15FC`).
+    Screenshot the whole list (scroll). The rules predict, by topic:
+    - ours (record order): 96BCF, B15FB, B15FC, CEDEE, 137A62;
+    - first on top, then newest first: 96BCF, B15FC, 137A62, B15FB, CEDEE;
+    - newest first: B15FC, 137A62, B15FB, CEDEE, 96BCF;
+    - learned order: 96BCF, CEDEE, 137A62, B15FB, B15FC.
+
+    Where the top-level `MannyVargasVMQ01` (`0x15F503`, also priority 50) lands shows how
+    top-level topics mix with learned ones. If a topic is missing (conditions), the rest
+    still decide. Then fix `build_choices` (keep the learned order in `PlayerState::topics`
+    and in saves) and write the rule into dialogue §3.5.

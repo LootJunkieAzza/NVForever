@@ -503,7 +503,8 @@ All of it is in `GameSnapshot`.
   their Link From join either list (§3.5) [documented; hypothesis on how]. Order: topic priority (DIAL PNAM), highest first
   [documented]; then, for a line's choices, their order in the record [documented:
   "Sorting order of links"], and for the topic list the topics' record order
-  [hypothesis]. Quest priority plays no part in the order of the list.
+  [hypothesis; contradicted for learned topics by Boone's list in the original, which
+  seems to follow the order they were learned: observer-checks item 58]. Quest priority plays no part in the order of the list.
 - **The text of a choice** is the line's prompt, else the topic's name [documented].
   It is shaded when the actor has said that line before, unless the line has Info
   Refusal; always with Always Darken [documented: Category:Dialogue flags].
