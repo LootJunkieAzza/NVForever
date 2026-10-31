@@ -455,16 +455,22 @@ The release sweep (`nvf_assets::release`) keeps unused models, actor parts and t
 for five minutes, at most 2048 per cache. Those numbers were set on the owner's machine
 (48 GB of RAM, a 12 GB card). They are now the `KeepLimits` resource, set at the start by
 nvforever `memory_budget.rs` from the machine's RAM (`GlobalMemoryStatusEx`) and the GPU's
-memory budget (`VK_EXT_memory_budget`: the device-local heaps' `heapBudget`, read through
-wgpu's Vulkan device). Under 16 GB of RAM or an 8 GB budget they scale down by the smaller
-share, to no less than 30 s and 128 entries. Every 2 s, when wgpu's allocator holds over
-85 % of the GPU budget, or the process's committed memory over 85 % of 60 % of the RAM,
-the caches are pressed: 10 s and 32 entries, until every share is back under 75 %
-[design for every number]. The start logs `memory budget: RAM …, GPU budget …`; each
-change logs `near a budget, caches pressed` or `back under the budgets`.
+memory budget (`VK_EXT_memory_budget`, read through wgpu's Vulkan device: the device-local
+heaps' `heapBudget`). Under 16 GB of RAM or an 8 GB budget they scale down by the smaller
+share, to no less than 30 s and 128 entries. An integrated GPU has no GPU budget: its
+memory is the RAM.
 
-Test aids: `NVF_PLAY_TEST_VRAM_MB` and `NVF_PLAY_TEST_RAM_MB` cap what was read. Smoke:
-`memory-budget-capped` (512 MB and 6 GB: least limits, pressed during the Goodsprings
-flight at 664 of 512 MB). [observed 2026-10-31, this machine: RAM 48,927 MB, GPU budget
-11,242 MB, full limits.] Not done: a stress tour with a capped budget, to measure what
-the pressed caches cost in hitches.
+Every 2 s the GPU budget is read again (other programs change it) with this process's
+use of the same heaps (`heapUsage`: what the driver gave the process, blocks the
+allocator keeps empty included, #898), and the machine's free RAM. Over 85 % of the GPU
+budget used, or under 10 % of the RAM free, presses the caches: 10 s and 32 entries,
+until the GPU use is under 75 % and over 20 % of the RAM is free [design for every
+number]. The RAM check follows what the machine has free, not the game's own commit: a
+soak commits about 5 GB, which on an 8 GB machine still leaves about a quarter free. The
+start logs `memory budget: RAM …, GPU budget …`; each change logs `near a budget, caches
+pressed` or `back under the budgets`, with both uses.
+
+Test aids: `NVF_PLAY_TEST_VRAM_MB` and `NVF_PLAY_TEST_RAM_MB` cap what was read (the RAM
+cap takes its difference off the free RAM). Smoke: `memory-budget-capped` (512 MB: least
+limits, pressed at once during the Goodsprings flight, 1,157 of 512 MB). [observed
+2026-10-31, this machine: RAM 48,927 MB, GPU budget 11,242 MB, full limits.]
