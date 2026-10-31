@@ -223,7 +223,7 @@ fn geometry(world: &World, root: Entity, scale: f32) -> (Entity, Vec<Entity>, Ve
 }
 
 #[test]
-fn bitmap_glyph_line_keeps_fractional_quads_on_one_pixel_baseline_after_resize() {
+fn bitmap_glyph_line_keeps_fractional_quads_on_one_sample_phase_after_resize() {
     let (mut app, camera) = app(720);
     let root = draw(&mut app, camera);
     update_layout(&mut app);
@@ -231,8 +231,14 @@ fn bitmap_glyph_line_keeps_fractional_quads_on_one_pixel_baseline_after_resize()
     let world = app.world();
     let (anchor, glyphs, sizes, bases) = geometry(world, root, 0.75);
     let ancestor_top = top_of(world, root);
-    near(y_of(world, anchor), ancestor_top + (BASE * 0.75).round());
-    near(y_of(world, anchor), y_of(world, anchor).round());
+    near(
+        y_of(world, anchor),
+        ancestor_top + (BASE * 0.75).round() + 0.25,
+    );
+    near(
+        y_of(world, anchor) - 0.25,
+        (y_of(world, anchor) - 0.25).round(),
+    );
     near(sizes[0].x, 9.75);
     near(sizes[0].y, 11.25);
     near(sizes[1].x, sizes[0].x);
@@ -266,8 +272,14 @@ fn bitmap_glyph_line_keeps_fractional_quads_on_one_pixel_baseline_after_resize()
     let world = app.world();
     let (anchor, glyphs, sizes, bases) = geometry(world, root, 1.125);
     let ancestor_top = top_of(world, root);
-    near(y_of(world, anchor), ancestor_top + (BASE * 1.125).round());
-    near(y_of(world, anchor), y_of(world, anchor).round());
+    near(
+        y_of(world, anchor),
+        ancestor_top + (BASE * 1.125).round() + 0.25,
+    );
+    near(
+        y_of(world, anchor) - 0.25,
+        (y_of(world, anchor) - 0.25).round(),
+    );
     near(sizes[0].x, 14.625);
     near(sizes[0].y, 16.875);
     near(sizes[1].x, sizes[0].x);

@@ -250,7 +250,7 @@ fn text_colored(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32, 
         set_line(p, face, line, x, base, color(None));
         return;
     };
-    p.spawn((line_anchor(base), LayoutConfig { use_rounding: true })).with_children(|p| {
+    p.spawn(line_anchor(base)).with_children(|p| {
         for placed in &line.glyphs {
             let k = (placed.x / CHAR).round() as usize;
             let g = face.font.glyph(placed.code);

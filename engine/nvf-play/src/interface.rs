@@ -113,10 +113,15 @@ pub fn at(left: f32, top: f32, width: f32, height: f32) -> Node {
     Node { position_type: PositionType::Absolute, left: u(left), top: u(top), width: u(width), height: u(height), ..default() }
 }
 
-/// [design: fonts.md §3.1, #1221] A zero-size anchor at a text line's baseline. Its layout may round to
-/// a physical pixel while the glyph children keep their fractional positions and sizes.
-pub fn line_anchor(base: f32) -> Node {
-    at(0.0, base, 0.0, 0.0)
+/// [design: fonts.md §3.1, #1221] A zero-size anchor at a text line's baseline. Its
+/// layout rounds to a physical pixel, then its 0.25-pixel sampling phase places the
+/// fractional glyph children consistently.
+pub fn line_anchor(base: f32) -> (Node, LayoutConfig, UiTransform) {
+    (
+        at(0.0, base, 0.0, 0.0),
+        LayoutConfig { use_rounding: true },
+        UiTransform::from_translation(Val2::px(0.0, 0.25)),
+    )
 }
 
 /// Whether the device can sample the block-compressed textures the game ships.
@@ -225,7 +230,7 @@ pub fn set_marked(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32
     };
     // [observed: #1221] Snap the shared baseline once, but keep each texture cut-out's
     // fractional box. Aspect fitting and per-glyph layout rounding made identical glyphs differ.
-    p.spawn((line_anchor(base), LayoutConfig { use_rounding: true })).with_children(|p| {
+    p.spawn(line_anchor(base)).with_children(|p| {
         for placed in &line.glyphs {
             let g = face.font.glyph(placed.code);
             if !g.drawn() {

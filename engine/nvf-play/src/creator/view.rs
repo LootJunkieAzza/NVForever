@@ -152,7 +152,7 @@ pub fn text(p: &mut ChildSpawnerCommands, face: &Face, s: &str, x: f32, top: f32
         });
         return w;
     };
-    p.spawn((line_anchor(base), LayoutConfig { use_rounding: true })).with_children(|p| {
+    p.spawn(line_anchor(base)).with_children(|p| {
         for placed in &line.glyphs {
             let g = face.font.glyph(placed.code);
             if !g.drawn() {
