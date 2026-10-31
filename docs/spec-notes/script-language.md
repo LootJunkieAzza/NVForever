@@ -71,7 +71,9 @@ Where the documentation and a capture disagree, the capture wins; every differen
   the player's Jet withdrawal within 10 frames of `SetStage VDoctors 20` [observed: o5_03,
   2026-10-31, nvfairport, IsSpellTarget 1 then 0; observer-checks.md check 42]. Which
   other functions do so, and in quest scripts, is not captured [hypothesis: the player is
-  the default reference]. The runtime fails these calls (issue #1110).
+  the default reference]. Runtime: RemoveSpell with no reference in a script that has none
+  acts on the player (`magic::remove_spell`, `Ctx::subject_or_player`; #1110); other
+  reference functions still fail such a call.
 - When a script runs with a calling reference, every call written without a reference
   goes to it, and GetSelf returns it [documented: Calling reference]. A dialogue result
   script runs on the speaker [documented: Reference scripts, as a reference script;

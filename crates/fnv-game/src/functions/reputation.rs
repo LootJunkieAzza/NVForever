@@ -41,15 +41,32 @@ pub const LEVEL_FRACTIONS: [f64; 3] = [0.15, 0.5, 1.0];
 /// axis 3 in Severus's tag trades and axis 2 in one of Boulder City Showdown's endings,
 /// GetReputation axis 2 and GetReputationThreshold axis 3 in conditions (VMS36,
 /// vFreeformTheStreet02, VDialogueBenny) [observed: the decompiled scripts and INFO
-/// conditions]. Such a call does nothing and reads 0, without a call error [hypothesis:
-/// the wiki documents only 0 and 1; observer check 30]. A refused call did the same (it
-/// reads 0 and the script goes on), so this changes only the trace.
+/// conditions]. A reading function reads 0 for such an axis, without a call error
+/// [observed: GetReputation axes 2/3 and GetReputationThreshold axis 3 read 0, captures
+/// o5_00/o5_01, observer check 30]; a writing one fails and stops the script
+/// ([`write_axis`]).
 pub fn axis(a: &Args, i: usize) -> Result<Option<usize>, String> {
     Ok(match a.int(i)? {
         0 => Some(0),
         1 => Some(1),
         _ => None,
     })
+}
+
+/// The axis argument of a function that changes a reputation. Any axis but 0 or 1 fails
+/// the call and stops the script for this run, as a failed call does: `SetReputation
+/// <rep> 2 5` and `3 7` changed nothing and the line after them did not run, while axes
+/// 0 and 1 set the value and the script went on [observed: captures o5_00 and o5_01,
+/// 2026-10-31, RepNVNCR; issue #1127]. AddReputation, RemoveReputation and
+/// AddReputationExact do the same [hypothesis: not captured, read as SetReputation's].
+pub fn write_axis(g: &mut Game, a: &Args, i: usize) -> Result<usize, String> {
+    match axis(a, i)? {
+        Some(x) => Ok(x),
+        None => {
+            g.request_return();
+            Err(format!("reputation axis {} is not 0 (infamy) or 1 (fame)", a.int(i)?))
+        }
+    }
 }
 
 fn reputation(g: &Game, a: &Args) -> Result<FormId, String> {
@@ -149,7 +166,7 @@ fn bump(g: &Game, size: i32) -> Option<f64> {
 /// the scale [documented: GECK wiki AddReputation; observed: [`change`]].
 pub fn add_reputation(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = reputation(g, a)?;
-    let Some(axis) = axis(a, 1)? else { return none() };
+    let axis = write_axis(g, a, 1)?;
     if let Some(p) = bump(g, a.int(2)?) {
         change(g, r, axis, p);
     }
@@ -160,7 +177,7 @@ pub fn add_reputation(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Strin
 /// [documented: GECK wiki RemoveReputation; observed: [`change`]].
 pub fn remove_reputation(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = reputation(g, a)?;
-    let Some(axis) = axis(a, 1)? else { return none() };
+    let axis = write_axis(g, a, 1)?;
     if let Some(p) = bump(g, a.int(2)?) {
         change(g, r, axis, -p);
     }
@@ -172,7 +189,7 @@ pub fn remove_reputation(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, St
 /// captured].
 pub fn add_reputation_exact(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = reputation(g, a)?;
-    let Some(axis) = axis(a, 1)? else { return none() };
+    let axis = write_axis(g, a, 1)?;
     let p = a.num(2)?;
     change(g, r, axis, p);
     none()

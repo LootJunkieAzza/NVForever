@@ -912,7 +912,10 @@ scales 10–70].
   and GetReputationThreshold axis 3 reads 0 at every value; SetReputation with axis 2 or
   3 is a failed call that stops the script, the next line not run [observed: o5_00-02,
   2026-10-31, RepNVNCR at ten infamy/fame pairs from 0/0 to 100/100; the threshold
-  axes 0-2 matched `reputation::tiers` at all ten]. The runtime's SetReputation goes on.
+  axes 0-2 matched `reputation::tiers` at all ten]. Runtime: SetReputation, AddReputation,
+  RemoveReputation and AddReputationExact with such an axis fail (`call_failed`) and stop
+  the script for this run (`reputation::write_axis`; #1127) [hypothesis for the three
+  that were not captured: as SetReputation].
 - AddReputation / RemoveReputation sizes 1–5 add or take 1, 2, 4, 7, 12 points, the
   settings fReputationBumpVeryMinor … VeryMajor (no master defines them; their defaults)
   [documented: GECK wiki AddReputation; observed: the same points on scales 10 and 70,

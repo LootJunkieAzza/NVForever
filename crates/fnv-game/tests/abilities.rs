@@ -383,6 +383,29 @@ fn remove_spell_takes_an_authored_ability() {
     assert_eq!(av(&mut g, robot, DAMAGE_THRESHOLD), 15.0);
 }
 
+/// A RemoveSpell with no reference in a script that has none (the doctors' cure in a
+/// quest stage result, VDoctors / Doctors stage 20) acts on the player (o5_03, observer
+/// check 42, #1110).
+#[test]
+fn remove_spell_with_no_reference_acts_on_the_player() {
+    let f = fixture();
+    let mut g = game(&f);
+    call(&mut g, P, ADD_SPELL, &[form(DT_ABILITY)]);
+    assert_eq!(target(&mut g, P, DT_ABILITY), 1.0);
+    let ctx = Ctx { unit: "stage".into(), opcode: REMOVE_SPELL, on: None, self_ref: None, action_ref: None, quest: Some(FormId(0x999)), inst: None, in_condition: false };
+    let before = g.events.len();
+    g.call_function(&ctx, &[form(DT_ABILITY)]);
+    assert!(!g.events[before..].iter().any(|e| matches!(e.kind, EventKind::CallFailed { .. })), "no call error");
+    assert_eq!(target(&mut g, P, DT_ABILITY), 0.0);
+    assert_eq!(av(&mut g, P, DAMAGE_THRESHOLD), 0.0);
+    // A script with its own reference still removes the spell from that reference.
+    let robot = FormId(ROBOT_REF);
+    let ctx = Ctx { self_ref: Some(robot), quest: None, ..ctx };
+    g.call_function(&ctx, &[form(RAD_IMMUNITY)]);
+    assert_eq!(target(&mut g, robot, RAD_IMMUNITY), 0.0);
+    assert_eq!(target(&mut g, robot, DT_ABILITY), 1.0);
+}
+
 /// A worn item's enchantment is active while it is equipped, in the temporary pool,
 /// and ends when it is unequipped or leaves the inventory.
 #[test]
