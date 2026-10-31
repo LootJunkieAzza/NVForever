@@ -602,3 +602,46 @@ owner to add to its pull request or issue (owner, 2026-10-29).
     - Pip-Boy STATS, ITEMS, DATA (into the screen texture);
     - dialogue, level-up, character creation, casino games, terminals, lockpick,
       hacking, VATS.
+    - **T15a plan: the message box and "How many?" from their files** (2026-10-31,
+      `claude/t15-menus-a`, issue #978; T15b, sleep/wait and the tutorial menu, follows
+      the same shape). One switch per menu, the hand-built drawing stays the default.
+      - **Switch**: `[UI] TileMenus=` takes `MessageMenu` and `QuantityMenu` beside
+        `HUDMainMenu` (`tiles::vanilla::TileMenus`, its test aid
+        `NVF_PLAY_TEST_TILE_MENUS`). On, and with the game's menu files read, the
+        hand-built box (`message_menu.rs`) or prompt (`menu/look.rs::spawn_quantity`)
+        is not spawned and the tile renderer draws the menu's whole tree at the
+        hand-built box's stacking level. Off, nothing new runs.
+      - **The tree has the menu**: `MessageMenu` builds while a message box is the open
+        menu (T3b). The prompt is no `Game::menu` (MenuMode does not report it), so
+        `Game::ui_prompt` (new, set by the engine each frame from `ActiveMenu`) builds
+        `QuantityMenu` (1016) while the prompt shows.
+      - **What the model writes** (`tiles::menus`, only while its switch is on, before
+        scripts): MessageMenu: the title and text strings, the icon's file and
+        `visible`, one `MM_ButtonTemplate` row per button under `MM_ButtonList` (its
+        `string`, `listindex`, `_y`, `height`), the list's `width`, `height`,
+        `_highlight_y`, `_selected_height` and the scroll bar's item counts, and
+        `MM_MainRect`'s `width` ("set in code" in the file); QuantityMenu: the meter's
+        `user0` (the stack) and `user2` (the amount), from which the file works out the
+        meter's fill and the amount text. Both: the background's opacity (set in code).
+        Every text tile of a drawn menu gets its measured `width` and `height` (as the
+        HUD's measured texts), only when its string, font or wrap changed.
+      - **Tree rules the files need** (menu-xml.md): `screen()` in interface units (960
+        high; both files centre their boxes by it), `resolutionconverter` 1 (lines 2
+        units), a hotrect's own `alpha` not passed to its children (every text button
+        is an alpha-0 hotrect over a visible text), and `copy … trait="_name_"` after a
+        constant (`&false;`) reading `_name_0` (the fade lines' and the meter's picture).
+      - **Input** (T8): the menus take tile input while drawn from tiles. A pointer or
+        script click on a button row answers the box (`script_hud::menu_keys`), the
+        pointer over a row frames it; on the prompt OK, Cancel and the arrows send their
+        commands (`menu::MenuInput`) and a press or drag on the meter sets the amount.
+        Clicks the keys make through the files' `_PCButton_*` and `x…` refs are not
+        acted on: the hand-built keys stay the prompt's and the box's.
+      - **Hand-copied numbers**: the tile path reads none of `message_menu.rs`'s layout
+        constants or `look.rs`'s `Q_*`, and draws the meter as one tiled picture (no node
+        per tick). They stay for the hand-built drawing, the default, and go when the
+        maintainer makes tiles the default.
+      - **Tests**: `tiles::menus` (the writes on trees written for the tests),
+        `tiles::layout` (hotrect alpha), `tiles::vanilla` (the switch), `fnv-ui`
+        (`_name_` after a constant), `fnv-game` `ui_loading` (the prompt builds and
+        drops). Smoke: `tiles-message-box`, `tiles-quantity` (new). The model's own
+        tests (`message_menu`, `menu::model`) unchanged.
