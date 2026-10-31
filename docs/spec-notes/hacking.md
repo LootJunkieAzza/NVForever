@@ -73,8 +73,16 @@ blinks every 400 ms.
   accessed.": log lines are 12 characters after the ">", broken between words.
 - One blank row between the newest log line and the prompt.
 - Then the terminal's menu (§6).
-- Colours on the screen (the monitor's light added): blocks and lit cells 63, 255, 152;
+- Final displayed colours on the screen: blocks and lit cells 63, 255, 152;
   text strokes up to 88, 255, 160; the screen behind 16–23, 38–52, 15–32.
+
+[design] NVForever uses the measured glass colour (19, 45, 26) alone and the measured
+block colour (63, 255, 152) for opaque foregrounds. `screen::compose_screen` composes
+foreground coverage over that glass in linear light, yielding an opaque screen in both
+monitor and flat modes. These are final screen measurements: adding the tinted Pip-Boy
+image or the model's glare sheet over them counts the glass effects again [hypothesis:
+brightness defect, §7]. The unit test checks the composite against the ranges above;
+the upper text-stroke measurement is not a separate text tint [design].
 
 ## 3. The words
 
@@ -174,10 +182,18 @@ in the data looks like a word list.
   0.38 below the model's origin [hypothesis: the INI's VPos in model units; observed: the
   owner's screenshot puts the origin 0.37 above the middle] from 38.5 units away
   [observed: fitted, the glass 0.735 of the view's height; the INI's zoom 36 is not that
-  distance]. The glare sheet `glare:0` stays over the glass; scanlines and the screen
+  distance]. [design] The glare sheet `glare:0` is omitted so it cannot brighten the
+  measured screen colours again. The original's lighter streak at the top right
+  [observed: owner's screenshots] is not separately drawn; scanlines and the screen
   light are not drawn. Without the model the picture is drawn flat over the darkened
   world, its top 83 down [observed: the screen's scale on the owner's screenshots is 0.99
-  of the interface's]. The colours are the measured ones of §2.
+  of the interface's]. [design] World shade alpha is 0.4 with the monitor and 0.88 in
+  flat mode; both stay behind the opaque screen, whose colours compose as in §2.
+- [observed: code at main 53fd575b] The previous canvas drew the measured glass then a
+  Pip-Boy image tinted with the block colour at alpha 0.4; the monitor retained
+  `glare:0` above the screen. [hypothesis] Those extra layers caused the bright glass
+  and washed-out blocks. [design] Both overlays are now omitted; the monitor's case,
+  camera, power button and world shading retain their existing rendering.
 - The monitor's power button (`PowerButton:0`, lower right under the screen) leaves the
   terminal when clicked [the owner, 2026-10-16].
 - Keys [hypothesis]: arrows or W A S D move the hacking cursor a character or a row (a

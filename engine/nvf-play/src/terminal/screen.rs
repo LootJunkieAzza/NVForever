@@ -1,7 +1,8 @@
 //! The terminal's screen drawn as the original sets it out (docs/spec-notes/hacking.md
 //! §2, §7): the hacking game by `menus\hacking_menu.xml`, the terminal's own menu by
 //! `menus\computers_menu.xml`, both in the game's font 5 (`fixedsys_comp_uniform_width`,
-//! 17 units a character) on the Pip-Boy background, in the terminal colour.
+//! 17 units a character). [design] The opaque glass and foreground use the final screen
+//! measurements of §2; no Pip-Boy image or monitor glare is added over those colours.
 //!
 //! The original draws this into a texture shown on a monitor model
 //! (`meshes\terminals\terminalinterface01.nif`, `[RenderedTerminal]` in
@@ -13,7 +14,7 @@
 //! show the screen at almost that scale (0.99).
 
 use super::{Hacking, MenuView, Page, Session};
-use crate::interface::{at, face, plain_font, set_line, texture, u, Face};
+use crate::interface::{at, face, plain_font, set_line, u, Face};
 use bevy::prelude::*;
 use fnv_font::Line;
 use fnv_game::data::NoteDef;
@@ -32,21 +33,35 @@ pub const CANVAS_TOP: f32 = 83.0;
 
 /// The text and the lit cells. The menus' colour is the terminal colour
 /// [documented: Fallout_default.ini `iSystemColorTerminal*` 33, 231, 121; `systemcolor`
-/// `&terminal;`], but the monitor's screen light and glare make it brighter on the
-/// screen: the attempt blocks measure 63, 255, 152 on the owner's screenshots
-/// [observed], and that is what is drawn until the monitor is.
+/// `&terminal;`]. [observed: hacking.md §2, owner's seven screenshots, 2026-10-11]
+/// The displayed attempt blocks measure 63, 255, 152. [design] Use that final colour
+/// directly, without another brightening layer in either display mode.
 pub fn bright() -> Color {
-    Color::srgb_u8(63, 255, 152)
+    compose_screen(Color::srgb_u8(63, 255, 152))
 }
 
-/// The screen behind the text [observed: 16 to 23, 38 to 52, 15 to 32 in the middle of
-/// the owner's screenshots; the Pip-Boy background over it gives the shading].
+/// The opaque screen behind the text [observed: hacking.md §2, 16 to 23, 38 to 52,
+/// 15 to 32 in the middle of the owner's screenshots]. [design] This is a final
+/// displayed colour, including the original's glass effects, not an undercoat.
 pub fn screen_color() -> Color {
-    Color::srgb_u8(19, 45, 26)
+    compose_screen(Color::NONE)
 }
 
-/// How much of the Pip-Boy background shows over [`screen_color`] [design].
-const BACKGROUND_ALPHA: f32 = 0.4;
+/// [design] Foreground coverage over the measured glass, in linear light as on the
+/// sRGB render targets. The result is opaque: the world shade stays behind it. The
+/// Pip-Boy image and the monitor's glare sheet are omitted because the measurements
+/// already include the original's glass effects (hacking.md §2, §7).
+pub fn compose_screen(foreground: Color) -> Color {
+    over(foreground, Color::srgb_u8(19, 45, 26))
+}
+
+/// [design] Source-over onto an opaque destination, without a second colour transform.
+fn over(foreground: Color, background: Color) -> Color {
+    let f = foreground.to_linear();
+    let b = background.to_linear();
+    let behind = 1.0 - f.alpha;
+    Color::linear_rgba(f.red * f.alpha + b.red * behind, f.green * f.alpha + b.green * behind, f.blue * f.alpha + b.blue * behind, 1.0)
+}
 
 /// Text on a lit-up cell [documented: the files' "local colour" 0, 5, 0 for it].
 pub fn lit_text() -> Color {
@@ -180,14 +195,12 @@ pub fn shown_log(log: &[String]) -> &[String] {
 /// What the screens are drawn with.
 pub struct Faces {
     pub text: Face,
-    pub background: Option<Handle<Image>>,
 }
 
 const FONT: &str = "textures\\fonts\\fixedsys_comp_uniform_width.fnt";
-const BACKGROUND: &str = "textures\\interface\\shared\\background\\pipboy.dds";
 
 pub fn load_faces(data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Faces {
-    Faces { text: face(FONT, plain_font(25.0, CHAR), data, images, bc), background: data.and_then(|d| texture(BACKGROUND, d, images, bc)).map(|t| t.0) }
+    Faces { text: face(FONT, plain_font(25.0, CHAR), data, images, bc) }
 }
 
 #[derive(Component)]
@@ -273,12 +286,10 @@ pub fn spawn(commands: &mut Commands, camera: Entity, faces: &Faces, session: &S
     let mut rows = Vec::new();
     let root = Node { overflow: Overflow::clip(), ..at(0.0, 0.0, CANVAS.x, CANVAS.y) };
     commands.spawn((ScreenRoot, root, UiTargetCamera(camera), Name::new("Terminal screen"))).with_children(|c| {
-        // [documented] The Pip-Boy background (at brightness 90 in the file; here over
-        // the screen's measured colour).
+        // [design] The measured glass alone. The XML names a Pip-Boy background
+        // [documented: hacking_menu.xml], but tinting it over this final colour
+        // counts the glass effects twice [hypothesis: hacking.md §7].
         c.spawn((at(0.0, 0.0, CANVAS.x, CANVAS.y), BackgroundColor(screen_color())));
-        if let Some(image) = &faces.background {
-            c.spawn((at(0.0, 0.0, CANVAS.x, CANVAS.y), ImageNode { color: bright().with_alpha(BACKGROUND_ALPHA), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) }));
-        }
         match &session.page {
             Page::Hacking(h) => hacking_page(c, &faces.text, h, cursor_on),
             Page::LockedOut => lockout_page(c, &faces.text),
@@ -441,6 +452,32 @@ pub fn lit(p: &Puzzle, cursor: usize, index: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn composed_layers_match_the_measured_screen_in_both_modes() {
+        // [observed: hacking.md §2] Final displayed glass ranges and block colour.
+        let ranges = [(16..=23), (38..=52), (15..=32)];
+        let glass = screen_color();
+        let block = bright();
+        assert_eq!(glass.to_srgba().to_u8_array(), [19, 45, 26, 255]);
+        assert_eq!(block.to_srgba().to_u8_array(), [63, 255, 152, 255]);
+        // [design] Exercise source-over at partial glyph coverage as well as the
+        // empty glass and solid blocks; blending must happen in linear light.
+        assert_eq!(compose_screen(block.with_alpha(0.5)).to_srgba().to_u8_array(), [47, 190, 112, 255]);
+        for shade in [SHADE, SHADE_FLAT] {
+            for world in [Color::BLACK, Color::WHITE] {
+                let backdrop = over(Color::BLACK.with_alpha(shade), world);
+                let shown_glass = over(glass, backdrop).to_srgba().to_u8_array();
+                let shown_block = over(block, backdrop).to_srgba().to_u8_array();
+                for channel in 0..3 {
+                    assert!(ranges[channel].contains(&shown_glass[channel]), "glass {shown_glass:?}, shade {shade}");
+                    assert!(shown_block[channel].abs_diff([63, 255, 152][channel]) <= 3, "block {shown_block:?}, shade {shade}");
+                }
+                assert_eq!(shown_glass[3], 255);
+                assert_eq!(shown_block[3], 255);
+            }
+        }
+    }
 
     #[test]
     fn the_file_fits_the_depth_area() {

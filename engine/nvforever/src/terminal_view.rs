@@ -9,9 +9,10 @@
 //!   blended); the power button `PowerButton:0` and its glow `Plane01:0`, under the screen
 //!   on the right; three point lights (`Omni02`, `03`, `05`), not read.
 //! - The screen's picture (`nvf_play::terminal::TerminalImage`) goes on `screen:0` unlit,
-//!   as a lit display [hypothesis], spanning `screen::TEXTURE_UNITS` of the canvas; the
-//!   glare stays over it [observed: a lighter streak at the top right on the owner's
-//!   screenshot].
+//!   as a lit display [hypothesis], spanning `screen::TEXTURE_UNITS` of the canvas.
+//!   [design] Omit `glare:0`: the screen uses final displayed colours (hacking.md §2),
+//!   so another overlay would brighten them again. [observed: owner's screenshots]
+//!   The original has a lighter streak at the top right; it is not separately drawn.
 //! - The camera looks at the front (along +Y) with the field of view
 //!   `fRenderedTerminalFOV` 0.15 [documented: Fallout_default.ini `[RenderedTerminal]`;
 //!   hypothesis: radians, vertical], looking `fRenderedTerminalVPos` 0.38 below the
@@ -129,13 +130,21 @@ fn show(
     let mut entities = Vec::new();
     for s in &model.shapes {
         let name = s.name.as_deref().unwrap_or("");
+        // [design] The measured glass already includes the original's effects.
+        // Do not lay the model's glare over the measured text and blocks (§7).
+        if name.eq_ignore_ascii_case("glare:0") {
+            continue;
+        }
         let world = place * model.root * s.transform;
         let mut material = s.material.clone();
         if is_glass(name) {
             let mut m = models.materials.get(&s.material).cloned().unwrap_or_default();
             m.base.base_color = Color::WHITE;
             m.base.base_color_texture = Some(picture.image.clone());
+            // [design] Preserve the measured texels instead of applying the model's
+            // emissive colour to an already lit display (nif_material.wesl).
             m.base.emissive_texture = None;
+            m.base.emissive = LinearRgba::BLACK;
             m.base.normal_map_texture = None;
             m.base.unlit = true;
             m.base.alpha_mode = AlphaMode::Opaque;
@@ -155,6 +164,7 @@ fn show(
         drawn.warned = true;
         return;
     };
+    let shapes = entities.len();
     let to = |p: Vec3| place.transform_point3(p);
     let eye = Vec3::new(0.0, -DISTANCE, -DROP);
     let aim = Vec3::new(0.0, 0.0, -DROP);
@@ -181,7 +191,7 @@ fn show(
         .spawn((DirectionalLight { illuminance: 600.0, ..default() }, Transform::from_translation(to(Vec3::new(30.0, -20.0, -5.0))).looking_at(to(Vec3::ZERO), Vec3::Y), layer.clone()))
         .id();
     entities.extend([camera, key, fill]);
-    info!("terminal view: the monitor drawn ({} shapes, power button {}), the camera {DISTANCE} in front", model.shapes.len(), if drawn.button.is_some() { "found" } else { "missing" });
+    info!("terminal view: the monitor drawn ({shapes} shapes, power button {}), the camera {DISTANCE} in front", if drawn.button.is_some() { "found" } else { "missing" });
     commands.insert_resource(Monitor { camera, glass, button: drawn.button.take() });
     commands.insert_resource(MonitorView { image });
     drawn.entities = entities;
