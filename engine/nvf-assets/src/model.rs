@@ -523,7 +523,7 @@ fn material_tracks_of_own(file: &NifFile, dec: &Decoded, inactive: bool) -> Vec<
         }
         let values = Arc::new(values);
         for shape in users.get(&prop).into_iter().flatten() {
-            out.push(MaterialTrack { shape: shape.clone(), target: what, values: values.clone(), cycle: Some(cycle) });
+            out.push(MaterialTrack { shape: shape.clone(), target: what, values: values.clone(), cycle: Some(cycle), priority: 0 });
         }
     }
     out

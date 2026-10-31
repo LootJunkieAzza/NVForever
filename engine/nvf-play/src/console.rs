@@ -61,7 +61,7 @@ use bevy::camera::primitives::Aabb;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
-use crate::ui_compat::Interaction;
+use crate::ui_pointer::PointerState;
 use bevy::window::PrimaryWindow;
 use fnv_game::functions::console::{ConsoleCtx, ConsoleRequest};
 use fnv_phys::{layers, Filter, Owner};
@@ -707,7 +707,7 @@ fn click(
     sim: Res<SimState>,
     play: Res<PlayWorld>,
     mut script: Option<ResMut<ScriptState>>,
-    panel: Query<&Interaction, With<ConsoleRoot>>,
+    panel: Query<&PointerState, With<ConsoleRoot>>,
     free_cam: Res<crate::free_cam::FreeCam>,
     (mut wheel, mut wheel_px): (MessageReader<MouseWheel>, Local<f32>),
 ) {
@@ -729,7 +729,7 @@ fn click(
     }
     let Ok(window) = windows.single() else { return };
     // A click on the console's own panel is not a pick, nor is the wheel turned over it.
-    let over_panel = panel.iter().any(|i| *i != Interaction::None);
+    let over_panel = panel.iter().any(|i| *i != PointerState::None);
     if over_panel {
         steps = 0;
     }
@@ -861,7 +861,7 @@ fn spawn(commands: &mut Commands) {
     let green = Color::srgb(0.75, 1.0, 0.75);
     commands.spawn((
         ConsoleRoot,
-        Interaction::None,
+        PointerState::None,
         Node {
             position_type: PositionType::Absolute,
             left: Val::Px(0.0),
