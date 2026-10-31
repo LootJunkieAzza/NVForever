@@ -581,6 +581,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "auto-fire-burst-sound"
+source = "#1098: an automatic weapon's shots cut out in sustained fire; the sound voice limit (sfx.rs MAX_SAME, 8 of one SOUN) refused the newest shots. Now a sound at its limit takes over the oldest voice of the same SOUN"
+note = "the 10mm SMG (00004321, automatic, 9 shots a second, 30 rounds) fired into the sky above Goodsprings for 3 s (each `fire` press toggles the trigger: held, then let go): about 27 shots of WPN10mmSMGFire2D"
+areas = ["audio", "combat"]
+paths = ["engine/nvf-play/src/sfx.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "00004321", NVF_PLAY_TEST_GIVE = "00004241:60", NVF_PLAY_TEST_CONTROL = "4:weapon,8:fire,11:fire" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--pitch", "60", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'sfx: WPN10mmSMGFire2D: (?P<n>\d+) started', range = [20, 40], label = "every shot of the 3 s burst starts its sound" },
+  { re = 'sfx: WPN10mmSMGFire2D: .* (?P<n>\d+) refused at the voice limit', range = [0, 0], label = "none of the burst's shots is refused (#1098: some were)" },
+  { re = 'not started at the voice limit, at most (?P<n>\d+) one-shots at once', range = [1, 64], label = "the voices stay within the limit" },
+]
+
+[[scenario]]
 name = "observe-combat-comment"
 source = "GECK wiki Misc Tab: ObserveCombat is said by \"actors in 'spectator' mode -- watching a combat but not joining in\"; the package's Fallout behaviour Observe Combat allows it (fnv-ai social.rs, packages.md §7.7): a cazador fights the player (god mode) beside Easy Pete, who says one of his ObserveCombat lines (\"Look at 'em go!\" or \"Get 'em! Yeah!\")"
 areas = ["ai", "dialogue"]
