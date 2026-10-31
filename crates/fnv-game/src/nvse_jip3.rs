@@ -235,16 +235,25 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let race = g.actor_race(a);
             yes(race.is_some_and(|r| crate::functions::list_members(g, l).contains(&r)))
         }
-        // `menu`: the reference the open menu is about; the dialogue menu's speaker (1009)
-        // [documented: GetMenuTargetRef; hypothesis: the other menus' targets are not kept
-        // by the rules and read 0].
+        // `menu`: the reference the open menu is about [documented: GetMenuTargetRef]: the
+        // dialogue menu's speaker (1009); the container (1008), the merchant (1053), the
+        // item being repaired (1035) and the weapon being modded (1061, an inventory
+        // reference), as the engine reports them (`Game::set_menu_picks`). The other codes
+        // read 0 [hypothesis: not kept yet].
         "getmenutargetref" => {
             let code = num(args, 0, 0.0) as u16;
-            let r = match code {
-                crate::game::menus::DIALOGUE => g.dialogue.as_ref().map(|d| d.actor),
-                _ => None,
-            };
-            XVal::Ref(r.filter(|_| g.menu_open(code)).map_or(0, |r| r.0))
+            match code {
+                crate::game::menus::DIALOGUE => XVal::Ref(g.dialogue.as_ref().map(|d| d.actor).filter(|_| g.menu_open(code)).map_or(0, |r| r.0)),
+                _ => pick_val(g, g.menu_picks(code).target),
+            }
+        }
+        // The form highlighted in the menu on top [documented: GetSelectedItemRef]: an
+        // inventory reference in the inventory (1002), container (1008), repair (1035),
+        // barter (1053) and mod (1061) menus; 0 in any other [hypothesis: the DATA and
+        // STATS pages' base forms are not reported yet].
+        "getselecteditemref" => {
+            let p = g.top_menu().and_then(|c| g.menu_picks(c).selected);
+            pick_val(g, p)
         }
         // `quest seconds`: the quest's script runs after `seconds` more (0: next frame)
         // [documented: SetDelayElapsed; hypothesis: it returns the seconds given].
@@ -410,4 +419,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         _ => return None,
     };
     Some(Ok(v))
+}
+
+/// A menu's pick as a script sees it: an inventory reference for an item in a container,
+/// else the form.
+fn pick_val(g: &mut Game, p: Option<crate::game::MenuPick>) -> XVal {
+    match p {
+        Some(crate::game::MenuPick::Item { owner, item }) => XVal::Ref(g.temp_ref(owner, item).0),
+        Some(crate::game::MenuPick::Form(f)) => XVal::Ref(f.0),
+        None => XVal::Ref(0),
+    }
 }
