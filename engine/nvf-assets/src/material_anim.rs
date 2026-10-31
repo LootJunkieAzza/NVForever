@@ -54,11 +54,15 @@ pub struct MaterialSlot {
     /// What was last written, before the rig's fade, and the fade it was written with.
     last: Option<Look>,
     faded: f32,
+    /// An unlit shape's stored base colour (read the first time the slot is posed), and
+    /// whether it was last drawn black for a dark idle ([`RigMaterials::apply`]).
+    unlit_base: Option<LinearRgba>,
+    unlit_dark: bool,
 }
 
 impl MaterialSlot {
     pub fn new(shape: String, entity: Entity, handle: Handle<NifMaterial>, emissive: [f32; 3], emissive_mult: f32, alpha: f32) -> MaterialSlot {
-        MaterialSlot { shape, entity, handle, own: false, emissive, emissive_mult, alpha, refraction: 0.0, last: None, faded: 1.0 }
+        MaterialSlot { shape, entity, handle, own: false, emissive, emissive_mult, alpha, refraction: 0.0, last: None, faded: 1.0, unlit_base: None, unlit_dark: false }
     }
 }
 
@@ -218,18 +222,37 @@ pub fn sample(slots: &[MaterialSlot], tracks: &[MaterialTrack], t: f32, clock: f
 
 impl RigMaterials {
     /// Pose the slots' materials with `tracks` at sequence time `t`, after `clock`
-    /// seconds of play (see [`sample`]).
+    /// seconds of play (see [`sample`]). With `dark`, an unlit shape any of the tracks
+    /// drives is drawn black as well (alpha 0 when blended): the unlit shader ignores
+    /// emissive, so the jukebox's light tubes stayed at full brightness while off; the
+    /// original's go dark [observed: owner 2026-10-30, #1079; activators.md §3]. The
+    /// additive notes and bubbles vanish with it.
     pub fn apply(&mut self, tracks: &[MaterialTrack], t: f32, clock: f32, dark: bool, materials: &mut Assets<NifMaterial>) {
         let values = sample(&self.slots, tracks, t, clock, dark);
         let fade = self.fade.clamp(0.0, 1.0);
         for (slot, v) in self.slots.iter_mut().zip(values) {
-            if !slot.own || (slot.last == Some(v) && slot.faded == fade) {
+            let unlit_dark = dark && tracks.iter().any(|tr| tr.shape == slot.shape);
+            if !slot.own || (slot.last == Some(v) && slot.faded == fade && slot.unlit_dark == unlit_dark) {
                 continue;
             }
             let Some(mut m) = materials.get_mut(&slot.handle) else { continue };
+            let unlit = m.base.unlit && !matches!(m.base.alpha_mode, AlphaMode::Multiply);
+            if unlit && slot.unlit_base.is_none() {
+                slot.unlit_base = Some(m.base.base_color.to_linear());
+            }
             pose_material(&mut m, &Look { alpha: v.alpha * fade, ..v }, Driven::ALL, false);
+            if let Some(base) = slot.unlit_base.filter(|_| unlit && (unlit_dark || slot.unlit_dark)) {
+                let a = m.base.base_color.alpha();
+                m.base.base_color = if unlit_dark {
+                    let a = if matches!(m.base.alpha_mode, AlphaMode::Blend) { 0.0 } else { a };
+                    Color::LinearRgba(LinearRgba::new(0.0, 0.0, 0.0, a))
+                } else {
+                    Color::LinearRgba(LinearRgba { alpha: a, ..base })
+                };
+            }
             slot.last = Some(v);
             slot.faded = fade;
+            slot.unlit_dark = unlit_dark;
         }
     }
 }
