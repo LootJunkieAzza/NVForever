@@ -666,8 +666,8 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       Hotrect alpha inheritance uses `tiles::interface_screen`'s T15 gate, preserving
       default mod HUD drawing. Unconditional hotrect alpha is a candidate for its own
       PR. The observed interface `screen()` units stay gated too; their unconditional
-      adoption is a follow-up [observed: hud_menus capture 2026-10-31, three window sizes;
-      design: preserve default play]. The prompt can still draw by hand for its opening
+      adoption is a follow-up (the units [observed: hud_menus capture 2026-10-31, three
+      window sizes]; the gate [design: default play unchanged]). The prompt can still draw by hand for its opening
       frame before the next tree sync; removing that flicker needs a scheduling or
       loading follow-up [design].
       **Also changes, with the T15 menus off:** `copy … _name_` after `&true;`/`&false;`
@@ -691,9 +691,11 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       compiled since. The commits after `bdaad547`/
       `a9c5f151` (the tiled prompt's and box's pointer sheet, the late-font retry through
       `draw::whole_pieces` and its test) were only compiled (`cargo check`). The final
-      run was subsequently reported as `nvf-play` 690 tests and smoke 271 of 273
-      [observed: maintainer's final run report 2026-10-31]. The screenshot comparison
-      and observer-checks.md item 61 remain; item 60 is answered by the capture.
+      run of 2026-10-31 on the merged head: root tests and clippy clean, `nvf-play` 690
+      tests, engine clippy clean, smoke 271 of 273 (the two fails explained in the PR).
+      The screenshot comparison was made against upstream main and the original (the
+      PR's pictures); observer-checks.md item 61 remains, item 60 is answered by the
+      capture.
       - Review fixes (2026-10-31, an independent review): navigation has one owner (a
         highlight a ref moved for a hand-built Up/Down is not the choice); a new box makes
         its rows again (a queued script click on the last box answers nothing); key clicks
