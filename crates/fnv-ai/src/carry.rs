@@ -241,6 +241,9 @@ pub enum AiEvent {
     PlayerAction { topic: &'static str, line: FormId, away: f32 },
     /// It commented on the fight of `fighter`, `away` units from it (`crate::social`).
     ObserveCombat { fighter: FormId, line: FormId, away: f32 },
+    /// A spectator (Observe Combat) runs from the fight of `fighter`, come within `away`
+    /// units of it (`crate::social`); its flee spot follows as [`AiEvent::Flee`].
+    SpectatorFlee { fighter: FormId, away: f32 },
     /// It started a random conversation with `partner`, `away` units from it
     /// (`crate::social`); `line` is its first line.
     Chat { partner: FormId, line: FormId, away: f32 },

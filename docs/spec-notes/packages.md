@@ -1010,8 +1010,24 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
   units of the player and 1500 of a fighter (a resident in Combat, or the player while
   hunted) [stand-ins] says its line, each actor at most once per
   `fCommentOnPlayerActionsTimer` [stand-in]. Log `… comments on the fight of <who>`.
-  Not built: the behaviour's "run away if they get too close" [documented: GECK wiki
-  Packages] (no flee for actors outside a fight).
+  Spectators "run away if they get too close" [documented: GECK wiki Packages; no
+  distance is documented] (#960): an actor whose package allows the behaviour, not in a
+  combat state, not asleep or talking, within 600 units of a fighter
+  (`fnv_ai::social::SPECTATOR_FLEE_DISTANCE`) [design: stand-in, observer-checks.md
+  check 60] runs from the nearest one, wherever the player is, by the combat flee's
+  spot search (`fnv_ai::alert`: a door, cover between the flee cover distances, else
+  fCombatFleeNormalDistance straight away; combat-ai.md §12.2) at its run speed. It
+  does not enter a combat state, draw a weapon or join the fight. At its spot it stands
+  facing the fight; the fight within 600 units again, it runs again (at most once per
+  5 s, `SPECTATOR_REFLEE_SECONDS`); with no fighter within 1,500 units it goes back to
+  its package [design]. Log `… runs from the fight of <who> (<d> units away): too close
+  to watch`, then the flee lines (`flees from …`, `reached its flee spot …`). A fighter
+  is a resident in Combat, or the player while someone in Combat (not Alert or Lost: a
+  search is no fight) fights it within 1,500 units of it. The player's teammates, those
+  following someone (Follow, Accompany) and allies or friends of the fighter by faction
+  take a side and do not run. It runs from the middle of the fighters within 1,500
+  units, not only the nearest, so as not to run into the fight's far side [design for
+  each: review of #1216; tests `spectators_run_only_from_a_real_fight_and_not_the_players_side`].
 - **Avoid Radiation** ("Allow actors to avoid entering radiated areas" [documented:
   Category:Packages]): for an actor whose Rad Resistance is below
   `fRadiationResistanceAvoidLevel` (50) [hypothesis: the setting's name], the radiation
@@ -1021,15 +1037,17 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
   into one. A goal inside stays reachable. The radiation zones explosions leave count as
   well while they still give rads, at their radiation radius [design]; a way planned
   before the zone appeared is not planned again for it (the Fat Man's fades in 12 s).
-- Checks: fnv-ai test `an_actor_next_to_the_player_chatters_now_and_then`; fnv-nav
+- Checks: fnv-ai tests `an_actor_next_to_the_player_chatters_now_and_then`,
+  `a_spectator_runs_from_a_fight_that_comes_too_close`; fnv-nav
   `places_to_avoid_cost_more_and_are_gone_round`; smoke `player-fire-comment` (Easy
   Pete: "What in tarnation?") and `observe-combat-comment` (Easy Pete: "Look at 'em
-  go!" while a cazador fights the player).
+  go!" while a cazador fights the player, then runs from it).
 
 ### 7.7 Not built, and why
 
-- **Observe Combat Behavior**'s running away from a fight that comes too close (§7.6b
-  says its lines).
+- **Observe Combat Behavior**'s running away from a fight that comes too close: built
+  on a stand-in distance (§7.6b, #960); the original's distance, and whether its
+  spectators come back, are for the AI observer (observer-checks.md check 60).
 - **Guard "Remain Near Reference to Guard"**: no page in the wiki export documents the
   Guard package's tab. Built on the flag's name (#961) [hypothesis]: a Guard with it
   stays near its target reference (or linked reference), within the location's radius,

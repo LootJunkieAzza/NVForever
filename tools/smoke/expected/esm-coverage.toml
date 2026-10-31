@@ -1,0 +1,20 @@
+# The totals `fnvtool esm coverage --schema schemas/fnv <the ten masters>` must print (its
+# "summary"): the smoke scenario esm-coverage (tools/smoke/scenarios.toml) expects each
+# value below, by its JSON path, to equal the run's (issue #1000).
+#
+# A branch that adds or changes a schema entry changes these numbers and writes the new
+# ones here in the same branch, saying why in its description: more `ok` and fewer
+# `unknown` is the schema covering more; any rise of `trailing` or `error` is a layout
+# that reads wrong (find why before writing it down). Two branches that both changed a
+# number conflict here when merged: run the command again on the merge and write what it
+# prints, never keep both lines.
+
+[summary]
+subrecords = 3056241
+ok = 2998099
+unknown = 58140
+trailing = 0
+error = 2
+opaque_bytes = 17503
+distinct_pairs = 1168
+pairs_fully_decoded = 1134

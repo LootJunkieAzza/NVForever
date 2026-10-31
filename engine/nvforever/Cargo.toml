@@ -35,13 +35,19 @@ serde_json = "1"
 winit = { version = "0.30", default-features = false }
 # 16-bit floats for the FaceGen offset textures (facegen.rs); the version Bevy already uses.
 half = "2"
+# The window surface's present modes, asked of a surface of our own (frame_pace.rs), and the
+# GPU memory budget (memory_budget.rs): VK_EXT_memory_budget through wgpu's Vulkan device
+# (`Device::as_hal`); the versions Bevy already uses (MIT/Apache-2.0).
+wgpu = { version = "30", default-features = false, features = ["vulkan"] }
+ash = { version = "0.38", default-features = false }
 
 # The first-start dialogs that ask for the game's folder (setup.rs); MIT.
 [target.'cfg(windows)'.dependencies]
 rfd = { version = "0.15", default-features = false }
 # The generated-terrain bake threads' priority (lodgen.rs) and the span profile's processor time
-# (profile.rs); a version already in the build; MIT/Apache-2.0.
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
+# (profile.rs), and the machine's RAM (memory_budget.rs); a version already in the build;
+# MIT/Apache-2.0.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_SystemInformation"] }
 
 [build-dependencies]
 # The program icon in the Windows executable (build.rs); MIT.
