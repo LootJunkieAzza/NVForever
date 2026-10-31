@@ -65,14 +65,45 @@ pub fn font_number(font: f64) -> u8 {
     }
 }
 
-/// A text's width and height in interface units, set as `wrap` allows. A `wrapwidth` of
-/// 0 or less does not wrap [observed: the prompt's `button_text` has `wrapwidth` 0 and the
-/// original measured "Button Text" 156 wide, one line of font 7, hud.md §14.1]. The height
-/// is the lines times the font's line height [hypothesis: fonts.md §2].
-pub fn measure(font: &Font, text: &str, wrap: Option<f64>) -> (f64, f64) {
+/// A text's width and height in interface units in `font`, the face of font number
+/// `number` ([`font_number`]), set as `wrap` allows. A `wrapwidth` of 0 or less does not
+/// wrap [observed: the prompt's `button_text` has `wrapwidth` 0 and the original measured
+/// "Button Text" 156 wide, one line of font 7, hud.md §14.1]. The height is the font's
+/// tallest glyph picture ([`tallest_glyph`]) and one line pitch ([`line_pitch`]) for each
+/// line after the first [observed: hud_menus capture 2026-10-31, the text tiles' `height`
+/// in fonts 1-8 at one to three lines, fonts.md §3.1]; an empty string is one line high.
+pub fn measure(font: &Font, number: u8, text: &str, wrap: Option<f64>) -> (f64, f64) {
     let lines = font.lines(text, wrap.filter(|w| *w > 0.0).map(|w| w as f32));
     let width = lines.iter().map(|l| l.width).fold(0.0, f32::max);
-    (f64::from(width), f64::from(lines.len() as f32 * font.size))
+    let height = tallest_glyph(font) + lines.len().saturating_sub(1) as f32 * line_pitch(number, font);
+    (f64::from(width), f64::from(height))
+}
+
+/// A text tile's size as the code writes it into a tile-drawn menu (T15a,
+/// `super::menus::write_text_sizes`): [`measure`], an empty string one space wide [observed:
+/// hud_menus capture 2026-10-31, the empty `MM_Title` (font 6) 14 x 38 at three sizes, font
+/// 6's space advancing 14 and its tallest glyph 38; hypothesis: the rule]. Only the message
+/// box's title is measured empty (`write_text_sizes` gives other empty texts 0 x 0).
+pub fn measure_written(font: &Font, number: u8, text: &str, wrap: Option<f64>) -> (f64, f64) {
+    let (width, height) = measure(font, number, text, wrap);
+    if text.is_empty() {
+        (f64::from(font.width(" ")), height)
+    } else {
+        (width, height)
+    }
+}
+
+/// The tallest glyph picture of a font (glyph number 10, fonts.md §2): what a one-line
+/// text tile measures high in the original [observed: hud_textbase and hud_menus captures
+/// 2026-10-31: 36, 32, 31, 37, 28, 38, 42, 64 for fonts 1-8, each its file's tallest]. A
+/// font with no pictures (the stand-in, `interface::plain_font`) its size [design].
+pub fn tallest_glyph(font: &Font) -> f32 {
+    let tallest = font.glyphs.iter().map(|g| g.height).fold(0.0, f32::max);
+    if tallest > 0.0 {
+        tallest
+    } else {
+        font.size
+    }
 }
 
 /// The game's fonts by number, read when first asked for (the renderer and the text widths
@@ -126,11 +157,13 @@ impl FontKit<'_> {
     /// A text's width in font 7, as the tile layout measures it ([`measure`]).
     pub(crate) fn hud_width(&mut self, text: &str) -> f32 {
         self.load(7.0);
-        self.face(7.0).map_or(0.0, |face| measure(&face.font, text, None).0 as f32)
+        self.face(7.0).map_or(0.0, |face| measure(&face.font, 7, text, None).0 as f32)
     }
 
-    /// Font 7's lines for a text at a wrap width, and its line height (the HUD's texts,
-    /// `super::notices`), as [`measure`] sets them.
+    /// Font 7's lines for a text at a wrap width, as [`measure`] sets them, and the font's
+    /// size (the HUD's texts, `super::notices`, which stack the quest objectives a size and
+    /// the hand-built HUD's leading apart: 36 + 2, font 7's observed line pitch 38,
+    /// [`line_pitch`]).
     pub(crate) fn hud_lines(&mut self) -> impl Fn(&str, Option<f64>) -> (usize, f64) + '_ {
         self.load(7.0);
         let font = self.face(7.0).map(|f| &f.font);
@@ -150,7 +183,10 @@ impl FontKit<'_> {
         }
         if self.fonts.measure.is_none() {
             let owned: HashMap<u8, Font> = self.fonts.faces.iter().map(|(&n, face)| (n, face.font.clone())).collect();
-            self.fonts.measure = Some(std::sync::Arc::new(move |font: f64, text: &str| owned.get(&font_number(font)).map_or(0.0, |f| measure(f, text, None).0)));
+            self.fonts.measure = Some(std::sync::Arc::new(move |font: f64, text: &str| {
+                let n = font_number(font);
+                owned.get(&n).map_or(0.0, |f| measure(f, n, text, None).0)
+            }));
         }
         self.fonts.measure.clone()
     }
@@ -170,8 +206,20 @@ impl FontKit<'_> {
             return;
         }
         let mut last = std::mem::take(&mut self.fonts.notice_widths);
-        super::notices::write_widths(ui, &mut last, &|font, text, wrap| self.face(font).map_or(0.0, |f| measure(&f.font, text, wrap).0));
+        super::notices::write_widths(ui, &mut last, &|font, text, wrap| self.face(font).map_or(0.0, |f| measure(&f.font, font_number(font), text, wrap).0));
         self.fonts.notice_widths = last;
+    }
+
+    /// The measure of a menu's texts drawn from tiles (T15a, `super::menus`), its text
+    /// tiles' `fonts` (`super::menus::fonts`) loaded first: a text's width and height as
+    /// the renderer sets it ([`measure`]). A font not read measures by its stand-in, as it is drawn [design:
+    /// the menu's places follow from these sizes, so a box is still laid out].
+    pub(crate) fn menu_measure(&mut self, fonts: &[f64]) -> impl Fn(f64, &str, Option<f64>) -> (f64, f64) + '_ {
+        for &font in fonts {
+            self.load(font);
+        }
+        let faces = &self.fonts.faces;
+        move |font: f64, text: &str, wrap: Option<f64>| faces.get(&font_number(font)).map_or((0.0, 0.0), |face| measure_written(&face.font, font_number(font), text, wrap))
     }
 
     /// Whether the fonts of `tiles` are all the game's own (read, not stand-ins), loading
@@ -288,34 +336,63 @@ pub fn placed(fit: Fit, piece: bool, texels: (f64, f64)) -> Placed {
 
 /// How far a text tile's first line stands under its top in font number `font`
 /// ([`font_number`]), the line a glyph's `ascent` is measured from
-/// (`interface::set_marked`); the next lines one line height apart [hypothesis]. One
-/// number per font [observed: hud_textbase capture 2026-10-31, hud.md §14.10: the
-/// capitals' ink ends 24-25 units under the tile's `y` in font 7 ("RAD/SEC", "XP"),
-/// 31.7-32 in font 8 ("+9", "LEVEL UP"), about 21 in font 1 (the level digits); "+9"
-/// and "RAD/SEC", both at y 65, are not on one line]. The fonts' glows are as deep under
-/// the letters as over them, so the middle of a text's ink is where it is whatever edge
-/// the eye takes; the glyph pictures put that middle 12 units over this line in font 7,
-/// 17.5-18 in font 8 and 10 in font 1 [observed: the font textures, fonts.md §3].
-/// Measured so, the capture's lines stand 24.9, 30.5 and 21.0 under the tops; font 7
-/// keeps 24, the earlier captures' 23.7-25.5 (menu-xml.md §3.1.2), and fonts 8 and 1
-/// stand as far from it as the capture shows, 5.5 below and 4 above. No single font
-/// measure gives all three (the size less the deepest glyph's reach under the line: 21,
-/// 24, 37; fonts.md §3).
+/// (`interface::set_marked`); the next lines one [`line_pitch`] apart. One number per
+/// font [observed: the capitals' ink under the tile's `y` in the original, hud_textbase
+/// capture 2026-10-31 (fonts 1, 7, 8: hud.md §14.10) and hud_menus capture 2026-10-31
+/// (fonts 1-8 at three window sizes: fonts.md §3.1); "+9" and "RAD/SEC", both at
+/// y 65, are not on one line]. The fonts' glows are as deep under the letters as over
+/// them, so the middle of a text's ink is where it is whatever edge the eye takes; the
+/// glyph pictures put that middle a known height over this line (fonts.md §3), so each
+/// capture gives each font's line under the top: font 7 24.5-24.9, font 8 30.5, font 1
+/// 20.3-21.0, fonts 2-5 about 16.5, font 6 22.4 (±0.5-0.7).
+///
+/// [design: NVForever's calibration] Font 7 keeps 24, the earlier captures' 23.7-25.5
+/// (menu-xml.md §3.1.2), and every other font stands as far from it as the hud_menus
+/// capture shows (one capture, one font-7 reading for all): font 1 19.8 → 20, fonts 2-5
+/// 16.0 → 16, font 6 21.9 → 22, font 8 30.0. Font 8 was 29.5 from hud_textbase (its 30.5
+/// against that capture's font 7 at 24.9, 5.6 lower); hud_menus measures it 6.0 lower
+/// (font 7 at 24.5). Both captures read font 8 at 30.5 itself; their mean distance, 5.8,
+/// is nearer 30 than 29.5, and 30 keeps the table on one capture's font 7. No font
+/// measure gives the lines (the size less the deepest glyph's reach under the line: 21,
+/// 24, 37 for fonts 1, 7, 8; fonts.md §3).
 pub const fn text_base(font: u8) -> f32 {
     match font {
         1 => 20.0,
-        8 => 29.5,
-        // Font 7, and the fonts no capture has measured yet, which take font 7's line
-        // [hypothesis: needs a capture of a text in each].
+        2..=5 => 16.0,
+        6 => 22.0,
+        8 => 30.0,
+        // Font 7; and font 9, which draws nothing in the original (its texture is not in
+        // the archives [observed: hud_menus capture 2026-10-31, fonts.md §3.1]) and here is
+        // drawn in the stand-in font (`interface::face`), on font 7's line [design].
         _ => 24.0,
+    }
+}
+
+/// How far apart a text's lines stand in font number `number` ([`font_number`]), whose face
+/// is `font`. One number per font [observed: hud_menus capture 2026-10-31: a two-line text
+/// tile's `height` less a one-line one's, the same at three window sizes, and three lines
+/// in fonts 4, 7 and 8; the ink's line-to-line distance agrees, fonts.md §3.1]: 31, 35, 32,
+/// 36, 25, 38, 38, 52 for fonts 1-8. For fonts 2, 3, 6 and 7 that is not the file's size
+/// (31, 26, 34, 36) and no number of the files gives all eight [observed]; why is not
+/// known. Any other number (font 9, no texture) its file's size [hypothesis].
+pub fn line_pitch(number: u8, font: &Font) -> f32 {
+    match number {
+        1 => 31.0,
+        2 => 35.0,
+        3 => 32.0,
+        4 => 36.0,
+        5 => 25.0,
+        6 | 7 => 38.0,
+        8 => 52.0,
+        _ => font.size,
     }
 }
 
 /// The lines of a text tile as they are set in its box (`width` wide before the text's
 /// zoom): each line, its x by the tile's justification [hypothesis] and its baseline in
-/// font number `number` ([`text_base`]).
+/// font number `number` ([`text_base`]), the lines one [`line_pitch`] apart.
 pub fn text_lines(font: &Font, number: u8, string: &str, wrap: Option<f64>, alignment: Alignment, width: f64) -> Vec<(fnv_font::Line, f32, f32)> {
-    let base = text_base(number);
+    let (base, pitch) = (text_base(number), line_pitch(number, font));
     let width = width as f32;
     font.lines(string, wrap.map(|w| w as f32))
         .into_iter()
@@ -326,7 +403,7 @@ pub fn text_lines(font: &Font, number: u8, string: &str, wrap: Option<f64>, alig
                 Alignment::Center => (width - line.width) / 2.0,
                 Alignment::Right => width - line.width,
             };
-            (line, x, base + i as f32 * font.size)
+            (line, x, base + i as f32 * pitch)
         })
         .collect()
 }
@@ -454,12 +531,12 @@ fn under(ui: &Ui, id: TileId, of: &[TileId]) -> bool {
 /// The pieces to draw of `menu`, in drawing order (stable by summed `depth`
 /// [hypothesis: depth is the stacking order, ui-tile-tree.md §6.1]), and how many of the
 /// mod roots ([`fnv_ui::Ui::mod_added_tiles`]) draw at least one. `select` says which
-/// tiles ([`Select`]).
-pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Select<'_>) -> (Vec<Piece>, usize) {
+/// tiles ([`Select`]); `t15` is `tiles::interface_screen`'s hotrect-alpha gate [design].
+pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Select<'_>, t15: bool) -> (Vec<Piece>, usize) {
     let roots = ui.mod_added_tiles(menu);
     let items: Vec<(Option<TileId>, layout::DrawItem)> = match select {
-        Select::Mods { .. } => roots.iter().flat_map(|&r| layout::layout(ui, r, measure).into_iter().map(move |i| (Some(r), i))).collect(),
-        Select::Whole { .. } => layout::layout(ui, menu, measure).into_iter().map(|i| (roots.iter().copied().find(|&r| under(ui, i.tile, &[r])), i)).collect(),
+        Select::Mods { .. } => roots.iter().flat_map(|&r| layout::layout(ui, r, measure, t15).into_iter().map(move |i| (Some(r), i))).collect(),
+        Select::Whole { .. } => layout::layout(ui, menu, measure, t15).into_iter().map(|i| (roots.iter().copied().find(|&r| under(ui, i.tile, &[r])), i)).collect(),
     };
     let whole = matches!(select, Select::Whole { .. });
     let mut out = Vec::new();
@@ -579,6 +656,8 @@ pub(crate) struct Drawn {
     strip_told: bool,
     /// The `nif` tiles' models read so far (`super::model`).
     models: model::Models,
+    /// The menu tile whose start line is written (T15a's menus, told at each build).
+    told_menu: Option<TileId>,
 }
 
 /// A `tile` picture baked into one image ([`crate::repeat`]): the image and its node's
@@ -755,6 +834,8 @@ pub(crate) struct View<'w, 's> {
     menus: Option<Res<'w, TileMenus>>,
     hud: Option<Res<'w, HudView>>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
+    /// The container, barter or inventory menu, for whether its prompt is open (T15a).
+    active: Option<Res<'w, crate::menu::ActiveMenu>>,
 }
 
 /// The colours an [`Ink`] node may carry.
@@ -768,9 +849,111 @@ pub(crate) struct Nodes<'w, 's> {
     ink: Query<'w, 's, (&'static Ink, InkNodes)>,
 }
 
-pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View, mut kit: FontKit, mut drawn: Local<Drawn>, mut nodes: Nodes) {
-    let drawn = &mut *drawn;
+/// The menus drawn from tiles besides the HUD (T15a, `super::menus`), each in its own
+/// [`Drawn`].
+#[derive(Default)]
+pub(crate) struct MenusDrawn {
+    message: Drawn,
+    quantity: Drawn,
+}
+
+/// The stacking levels of the menus drawn from tiles besides the HUD: their hand-built
+/// drawings' (the message box's 108, `crate::message_menu`; the prompt's 101 over the
+/// container menu's 100, `crate::menu`) [design].
+pub const MESSAGE_Z: i32 = 108;
+pub const QUANTITY_Z: i32 = 101;
+
+pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View, mut kit: FontKit, (mut drawn, mut others): (Local<Drawn>, Local<MenusDrawn>), mut nodes: Nodes) {
+    let scale = view.windows.single().map_or(1.0, |w| w.height() / 960.0);
+    let heading = view.hud.as_ref().map_or(0.0, |h| h.heading);
+    // T15a: the message box and the prompt, when switched on and in the tree (their
+    // hand-built drawings are then not spawned, `super::menus`).
+    let switch = view.menus.as_deref().copied().unwrap_or_default();
+    let game = script.rt.as_ref().map(|rt| &rt.game);
+    let others = &mut *others;
+    // The prompt drawn only while open: its tree drops at the next frame's sync.
+    let prompt_open = view.active.as_ref().and_then(|a| a.0.as_ref()).is_some_and(|m| m.quantity.is_some());
+    for (name, on, z, drawn) in [
+        (super::menus::MESSAGE_MENU, game.is_some_and(|g| super::menus::message_tiled(switch.message, g)), MESSAGE_Z, &mut others.message),
+        (super::menus::QUANTITY_MENU, game.is_some_and(|g| super::menus::quantity_tiled(switch.quantity, g, prompt_open)), QUANTITY_Z, &mut others.quantity),
+    ] {
+        let ui = game.map(|g| &g.ui_tree);
+        let menu = ui.filter(|_| on).and_then(|ui| ui.menu(name).map(|m| (ui, m)));
+        let pieces = match menu {
+            Some((ui, menu)) => {
+                if drawn.told_menu != Some(menu) {
+                    let (file, code) = origins(ui, menu);
+                    info!("tiles: {name} drawn from tiles ({file} file tiles, {code} code tiles)");
+                    drawn.told_menu = Some(menu);
+                }
+                whole_pieces(ui, menu, &mut kit, super::interface_screen(switch))
+            }
+            None => Vec::new(),
+        };
+        paint(&mut commands, drawn, pieces, scale, z, heading, ui, &mut kit, &mut nodes);
+    }
+    hud(&mut commands, &script, &view, &mut kit, &mut drawn, &mut nodes, scale, heading);
+}
+
+/// The fonts of `pieces`' texts that are not loaded (`loaded` says which are), each once:
+/// what [`draw`] loads before painting a menu, so a text is never spawned without its face
+/// (a piece spawned without it would stay empty: an unchanged piece is not spawned again).
+pub fn unloaded_fonts(pieces: &[Piece], loaded: impl Fn(u8) -> bool) -> Vec<u8> {
+    let mut out = Vec::new();
+    for p in pieces {
+        if let Look::Text { font, .. } = &p.look {
+            if !loaded(*font) && !out.contains(font) {
+                out.push(*font);
+            }
+        }
+    }
+    out
+}
+
+/// Fonts for [`whole_pieces`]: whether one is loaded, loading it, and a text's size in it
+/// (none, (0, 0), while it is not loaded).
+pub trait MenuFonts {
+    fn loaded(&self, font: u8) -> bool;
+    fn load_font(&mut self, font: u8);
+    fn size(&self, font: f64, text: &str, wrap: Option<f64>) -> (f64, f64);
+}
+
+impl MenuFonts for FontKit<'_> {
+    fn loaded(&self, font: u8) -> bool {
+        self.fonts.faces.contains_key(&font)
+    }
+    fn load_font(&mut self, font: u8) {
+        self.load(f64::from(font));
+    }
+    fn size(&self, font: f64, text: &str, wrap: Option<f64>) -> (f64, f64) {
+        self.face(font).map_or((0.0, 0.0), |face| measure(&face.font, font_number(font), text, wrap))
+    }
+}
+
+/// The pieces of a menu drawn whole (T15a's menus). Its fonts were loaded by this frame's
+/// writes (`super::menus`, before scripts); a text piece in a font not loaded yet (a script
+/// brought it in meanwhile) has it loaded here and the pieces worked out again, so no text
+/// is set out unmeasured or spawned without its face ([`unloaded_fonts`]).
+pub fn whole_pieces(ui: &Ui, menu: TileId, fonts: &mut impl MenuFonts, t15: bool) -> Vec<Piece> {
+    let select = Select::Whole { kept: &[], strip: None };
+    let set_out = |fonts: &dyn MenuFonts| pieces(ui, menu, &|font: f64, text: &str, wrap: Option<f64>| fonts.size(font, text, wrap), select, t15).0;
+    let first = set_out(fonts);
+    let missing = unloaded_fonts(&first, |f| fonts.loaded(f));
+    if missing.is_empty() {
+        return first;
+    }
+    for f in missing {
+        fonts.load_font(f);
+    }
+    set_out(fonts)
+}
+
+/// The HUD's pieces (T5's mods' tiles, or with `[UI] TileMenus=HUDMainMenu` the whole menu)
+/// drawn ([`paint`]).
+#[allow(clippy::too_many_arguments)]
+fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut FontKit, drawn: &mut Drawn, nodes: &mut Nodes, scale: f32, heading: f32) {
     let whole = view.menus.as_ref().is_some_and(|m| m.hud);
+    let t15 = view.menus.as_deref().copied().is_some_and(super::interface_screen);
     let ui = script.rt.as_ref().filter(|rt| rt.game.ui_files.is_some()).map(|rt| &rt.game.ui_tree);
     let menu = ui.and_then(|ui| ui.menu(HUD_MENU).map(|m| (ui, m)));
     // With the tile HUD off and no mod tiles in the HUD (the default game), nothing to
@@ -786,7 +969,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
                 }
                 stack.extend(tile.children.iter().copied());
             }
-            let measured = |font: f64, text: &str, wrap: Option<f64>| kit.face(font).map_or((0.0, 0.0), |face| measure(&face.font, text, wrap));
+            let measured = |font: f64, text: &str, wrap: Option<f64>| kit.face(font).map_or((0.0, 0.0), |face| measure(&face.font, font_number(font), text, wrap));
             if whole {
                 if !drawn.told {
                     let (file, code) = origins(ui, menu);
@@ -794,9 +977,9 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
                     drawn.told = true;
                 }
                 let kept = kept_pieces(ui);
-                pieces(ui, menu, &measured, Select::Whole { kept: &kept, strip: ui.find_tile(STRIP_TILE) })
+                pieces(ui, menu, &measured, Select::Whole { kept: &kept, strip: ui.find_tile(STRIP_TILE) }, t15)
             } else {
-                pieces(ui, menu, &measured, Select::Mods { vanilla: None })
+                pieces(ui, menu, &measured, Select::Mods { vanilla: None }, t15)
             }
         }
         _ => (Vec::new(), 0),
@@ -812,13 +995,25 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
         }
         drawn.counts = counts;
     }
-    let scale = view.windows.single().map_or(1.0, |w| w.height() / 960.0);
+    paint(commands, drawn, pieces, scale, TILES_Z, heading, ui, kit, nodes);
+}
+
+/// Bring one menu's drawn nodes in line with its `pieces`, at stacking level `z`: nothing
+/// when they and the scale are as last drawn; otherwise each piece's slot kept, moved and
+/// recoloured in place, spawned again or removed ([`change`]).
+#[allow(clippy::too_many_arguments)]
+fn paint(commands: &mut Commands, drawn: &mut Drawn, pieces: Vec<Piece>, scale: f32, z: i32, heading: f32, ui: Option<&Ui>, kit: &mut FontKit, nodes: &mut Nodes) {
     if pieces == drawn.pieces && scale == drawn.scale {
+        return;
+    }
+    // Nothing drawn yet and nothing to draw (a menu switched off): no root node either.
+    if pieces.is_empty() && drawn.root.is_none() {
+        drawn.scale = scale;
         return;
     }
     let root = *drawn.root.get_or_insert_with(|| {
         let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
-        commands.spawn((TileRoot, full, GlobalZIndex(TILES_Z), Pickable::IGNORE)).id()
+        commands.spawn((TileRoot, full, GlobalZIndex(z), Pickable::IGNORE)).id()
     });
     // A new size: the tiled pictures are set for the old one, so every piece again.
     if scale != drawn.scale {
@@ -882,7 +1077,6 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
         let bc = bc_supported(kit.formats.as_deref());
         let data = kit.data.as_deref();
         let pictures = drawn.pictures.get_or_insert_with(|| Pictures::load(data));
-        let heading = view.hud.as_ref().map_or(0.0, |h| h.heading);
         let mut made = Vec::with_capacity(spawn.len());
         for &i in &spawn {
             let piece = &pieces[i];
@@ -933,8 +1127,8 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
                 _ => None,
             };
             // A `nif` tile's model and its pieces' textures (`super::model`).
-            let model = match (&piece.look, data, menu) {
-                (Look::Model { filename, animation }, Some(data), Some((ui, _))) => drawn.models.get(filename, animation.as_deref(), data).map(|m| {
+            let model = match (&piece.look, data, ui) {
+                (Look::Model { filename, animation }, Some(data), Some(ui)) => drawn.models.get(filename, animation.as_deref(), data).map(|m| {
                     let textures = m.pieces.iter().map(|p| (p.texture.clone(), pictures.file(&p.texture, data, &mut kit.images, bc))).collect();
                     model::Prepared { fraction: model::fraction(ui, piece.tile), textures, model: m }
                 }),
@@ -1018,10 +1212,53 @@ mod tests {
     }
 
     #[test]
+    fn a_text_whose_font_comes_late_is_set_out_once_its_face_is_there() {
+        // Review of T15a's font dedupe: a script's text in a font the writes did not load.
+        let src = MemSource::default().with(
+            "m.xml",
+            r#"<menu name="M"><text name="A"><font>2</font><string>Hi</string></text><text name="B"><font>8</font><string>Late</string></text></menu>"#,
+        );
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "m.xml").unwrap();
+        ui.update();
+        let (set, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &[], strip: None }, false);
+        // Font 2 loaded, font 8 not: font 8 is to load before painting.
+        let mut loaded = vec![2u8];
+        assert_eq!(unloaded_fonts(&set, |f| loaded.contains(&f)), vec![8]);
+        // Once loaded, nothing is missing: the text piece spawns with its face.
+        loaded.push(8);
+        assert!(unloaded_fonts(&set, |f| loaded.contains(&f)).is_empty());
+        assert!(set.iter().any(|p| matches!(&p.look, Look::Text { font: 8, string, .. } if string == "Late")));
+        // Through the drawing's own path: font 8 not loaded on the first layout, loaded by
+        // it, and the text set out again at its measured size.
+        struct Fonts(Vec<u8>);
+        impl MenuFonts for Fonts {
+            fn loaded(&self, font: u8) -> bool {
+                self.0.contains(&font)
+            }
+            fn load_font(&mut self, font: u8) {
+                self.0.push(font);
+            }
+            fn size(&self, font: f64, text: &str, wrap: Option<f64>) -> (f64, f64) {
+                if self.loaded(font_number(font)) { plain(font, text, wrap) } else { (0.0, 0.0) }
+            }
+        }
+        let mut fonts = Fonts(vec![2]);
+        let drawn = whole_pieces(&ui, menu, &mut fonts, true);
+        assert!(fonts.loaded(8), "the late font is loaded");
+        let late = drawn.iter().find(|p| matches!(&p.look, Look::Text { string, .. } if string == "Late")).unwrap();
+        assert_eq!((late.rect.width, late.rect.height), (40.0, 20.0), "set out with its face, not at (0, 0)");
+        // With every font there, one layout and nothing loaded.
+        let before = fonts.0.len();
+        assert_eq!(whole_pieces(&ui, menu, &mut fonts, true), drawn);
+        assert_eq!(fonts.0.len(), before);
+    }
+
+    #[test]
     fn only_the_mods_tiles_draw_and_code_copies_never() {
         let (mut ui, src) = hud();
         let menu = ui.menu(HUD_MENU).unwrap();
-        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }), (Vec::new(), 0));
+        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false), (Vec::new(), 0));
         ui.add_code_tile_from_template(&src, "HUDMainMenu/Piece", "row", None).unwrap();
         assert!(ui.inject_text(
             &src,
@@ -1032,7 +1269,7 @@ mod tests {
                 <rect name="Empty"/><nif name="Model"/></rect>"#
         ));
         ui.update();
-        let (drawn, roots) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None });
+        let (drawn, roots) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false);
         assert_eq!(roots, 1);
         let names: Vec<_> = drawn.iter().map(|p| ui.tile(p.tile).name.as_str()).collect();
         assert_eq!(names, ["Mod", "Pic", "Words"]);
@@ -1050,10 +1287,10 @@ mod tests {
         // The HUD hidden hides them; a zero alpha too.
         let hidden = ui.find_tile("HUDMainMenu").unwrap();
         ui.set_trait(hidden, "visible", Value::Num(0.0));
-        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }).1, 0);
+        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false).1, 0);
         ui.set_trait(hidden, "visible", Value::Num(1.0));
         ui.set_float("HUDMainMenu/Piece/Mod/alpha", 0.0);
-        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }).1, 0);
+        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false).1, 0);
     }
 
     #[test]
@@ -1069,7 +1306,7 @@ mod tests {
               <text name="Zero"><string>x</string><font>0</font><wrapwidth>0</wrapwidth></text>"#
         ));
         ui.update();
-        let (drawn, roots) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None });
+        let (drawn, roots) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false);
         assert_eq!(roots, 2);
         let names: Vec<_> = drawn.iter().map(|p| ui.tile(p.tile).name.as_str()).collect();
         assert_eq!(names, ["Back", "Clip", "Zero", "Front"]);
@@ -1084,18 +1321,56 @@ mod tests {
         let mut ui = Ui::new();
         let menu = ui.load_menu(&src, "hud.xml").unwrap();
         ui.update();
-        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }).1, 0);
+        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false).1, 0);
         let vanilla: HashSet<String> = ["hudmainmenu".to_string()].into();
-        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: Some(&vanilla) }).1, 1);
+        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: Some(&vanilla) }, false).1, 1);
     }
 
     #[test]
     fn font_numbers_and_measuring() {
         assert_eq!([0.0, 1.0, 7.0, 9.0, 10.0, -3.0, 7.4].map(font_number), [1, 1, 7, 9, 1, 1, 7]);
+        // The stand-in font has no pictures: one line its size, the next lines a pitch.
         let font = plain_font(31.0, 15.0);
-        assert_eq!(measure(&font, "ab cd", None), (75.0, 31.0));
-        assert_eq!(measure(&font, "ab cd", Some(0.0)), (75.0, 31.0));
-        assert_eq!(measure(&font, "ab cd", Some(40.0)), (30.0, 62.0));
+        assert_eq!(measure(&font, 7, "ab cd", None), (75.0, 31.0));
+        assert_eq!(measure(&font, 7, "ab cd", Some(0.0)), (75.0, 31.0));
+        assert_eq!(measure(&font, 7, "ab cd", Some(40.0)), (30.0, 31.0 + 38.0));
+        assert_eq!(measure(&font, 9, "ab cd", Some(40.0)), (30.0, 62.0));
+        assert_eq!(measure(&font, 7, "", None), (0.0, 31.0));
+    }
+
+    /// A stand-in font whose tallest glyph picture is `tallest` high.
+    fn tall_font(size: f32, tallest: f32) -> Font {
+        let mut font = plain_font(size, 15.0);
+        font.glyphs[usize::from(b'A')].width = 10.0;
+        font.glyphs[usize::from(b'A')].height = tallest;
+        font
+    }
+
+    /// The hud_menus capture (2026-10-31, fonts.md §3): a text tile's `height` is its
+    /// font's tallest glyph and one pitch for each further line, as the original read it
+    /// for every drawn font at one, two and (fonts 4, 7, 8) three lines.
+    #[test]
+    fn a_texts_height_is_its_tallest_glyph_and_a_pitch_a_line() {
+        // Font, its file's size, its tallest glyph; the original's heights at 1-3 lines.
+        let fonts: [(u8, f32, f32, [Option<f64>; 3]); 8] = [
+            (1, 31.0, 36.0, [Some(36.0), Some(67.0), None]),
+            (2, 31.0, 32.0, [Some(32.0), Some(67.0), None]),
+            (3, 26.0, 31.0, [Some(31.0), Some(63.0), None]),
+            (4, 36.0, 37.0, [Some(37.0), Some(73.0), Some(109.0)]),
+            (5, 25.0, 28.0, [Some(28.0), Some(53.0), None]),
+            (6, 34.0, 38.0, [Some(38.0), Some(76.0), None]),
+            (7, 36.0, 42.0, [Some(42.0), Some(80.0), Some(118.0)]),
+            (8, 52.0, 64.0, [Some(64.0), Some(116.0), Some(168.0)]),
+        ];
+        for (n, size, tallest, heights) in fonts {
+            let font = tall_font(size, tallest);
+            assert_eq!(tallest_glyph(&font), tallest);
+            for (text, height) in ["A", "A\nA", "A\nA\nA"].into_iter().zip(heights) {
+                if let Some(h) = height {
+                    assert_eq!(measure(&font, n, text, None).1, h, "font {n}, {text:?}");
+                }
+            }
+        }
     }
 
     #[test]
@@ -1106,7 +1381,7 @@ mod tests {
         let mut ui = Ui::new();
         let root = ui.load_menu(&src, "c.xml").unwrap();
         ui.update();
-        let (drawn, _) = pieces(&ui, root, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None });
+        let (drawn, _) = pieces(&ui, root, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None }, false);
         assert_eq!(drawn.len(), 2);
         for (number, name) in [(1.0, "hudmain"), (2.0, "hudalt")] {
             assert_eq!(system_colour(&Value::Num(number)), system_colour(&Value::Sym(name.into())));
@@ -1158,10 +1433,10 @@ mod tests {
     fn with_the_switch_on_the_files_and_the_codes_tiles_draw_but_the_kept_pieces() {
         let (mut ui, src, menu) = vanilla_hud();
         // Off (T5): none of them.
-        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }).0, Vec::new());
+        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false).0, Vec::new());
         let kept = [ui.find_tile("HUDMainMenu/Info").unwrap()];
         let strip = ui.find_tile("HUDMainMenu/HitPoints/compass_window");
-        let whole = |ui: &Ui| pieces(ui, menu, &plain, Select::Whole { kept: &kept, strip });
+        let whole = |ui: &Ui| pieces(ui, menu, &plain, Select::Whole { kept: &kept, strip }, false);
         let (drawn, roots) = whole(&ui);
         assert_eq!(roots, 0);
         assert_eq!(
@@ -1182,7 +1457,7 @@ mod tests {
         let alt = crate::reticle::crime_colour().to_srgba();
         assert_eq!(drawn[3].colour, [alt.red, alt.green, alt.blue, 1.0]);
         // Without the strip named, the compass window is its zoom's.
-        let (plain_strip, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept, strip: None });
+        let (plain_strip, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept, strip: None }, false);
         assert_eq!(plain_strip[0].look, Look::Picture { name: "Interface\\HUD\\strip.dds".into(), source: Source::Index("Interface\\InterfaceShared.tai".into()), fit: Fit::Zoom(100.0) });
         // A mod's tile under a kept piece still draws, and counts as a mod root.
         assert!(ui.inject_text(&src, "HUDMainMenu/Info", r#"<rect name="Outline"><red>1</red><width>4</width><height>4</height></rect>"#));
@@ -1246,7 +1521,7 @@ mod tests {
         let mut ui = Ui::new();
         let menu = ui.load_menu(&src, "c.xml").unwrap();
         ui.update();
-        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &[], strip: None });
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &[], strip: None }, false);
         let hud = interface::hud_rgb().map(|c| f32::from(c) / 255.0);
         assert_eq!(drawn[0].colour[..3], hud);
         assert_eq!(drawn[1].colour[..3], [10.0 / 255.0, 1.0, 1.0]);
@@ -1254,37 +1529,55 @@ mod tests {
     }
 
     /// #979: texts of fonts 7 and 8 set at one `y` do not stand on one line: "RAD/SEC"
-    /// (font 7) 24 under it, "+9" (font 8) 5.5 lower, as the original's ink (hud.md
-    /// §14.10); the next lines a line height apart; justification sets each line in the
-    /// box.
+    /// (font 7) 24 under it, "+9" (font 8) 6 lower, as the original's ink (hud.md
+    /// §14.10, fonts.md §3); the next lines a font's pitch apart; justification sets each
+    /// line in the box.
     #[test]
     fn fonts_7_and_8_at_one_y_stand_on_their_own_lines() {
         let (small, large) = (plain_font(36.0, 15.0), plain_font(52.0, 20.0));
         let a = text_lines(&small, 7, "RAD/SEC", None, Alignment::Left, 105.0);
         let b = text_lines(&large, 8, "+9", None, Alignment::Right, 100.0);
-        assert_eq!((a[0].2, b[0].2), (24.0, 29.5));
+        assert_eq!((a[0].2, b[0].2), (24.0, 30.0));
         assert_eq!((a[0].1, b[0].1), (0.0, 60.0));
+        // Font 7's second line 38 under its first, not its file's size 36.
         let two = text_lines(&small, 7, "ab cd", Some(40.0), Alignment::Center, 40.0);
-        assert_eq!(two.iter().map(|(_, x, base)| (*x, *base)).collect::<Vec<_>>(), [(5.0, 24.0), (5.0, 24.0 + 36.0)]);
-        // A font-8 text's second line one font-8 line height under its first.
+        assert_eq!(two.iter().map(|(_, x, base)| (*x, *base)).collect::<Vec<_>>(), [(5.0, 24.0), (5.0, 24.0 + 38.0)]);
+        // A font-8 text's second line one font-8 pitch under its first.
         let lines = text_lines(&large, 8, "ab cd", Some(40.0), Alignment::Left, 40.0);
-        assert_eq!(lines.iter().map(|(_, _, base)| *base).collect::<Vec<_>>(), [29.5, 29.5 + 52.0]);
+        assert_eq!(lines.iter().map(|(_, _, base)| *base).collect::<Vec<_>>(), [30.0, 30.0 + 52.0]);
     }
 
     /// #979: a text with no `font` is font 1 ([`font_number`]), whose line stands 20 under
-    /// its top (the level digits' ink, hud.md §14.10); the fonts no capture measured take
-    /// font 7's 24 [hypothesis].
+    /// its top (the level digits' ink, hud.md §14.10); font 9, which draws nothing in the
+    /// original (no texture), takes font 7's 24 and its file's size as its pitch [design].
     #[test]
-    fn the_default_font_stands_higher_and_unmeasured_fonts_take_font_7s_line() {
+    fn the_default_font_stands_higher_and_font_9_takes_font_7s_line() {
         assert_eq!(text_base(font_number(0.0)), 20.0);
         let digit = text_lines(&plain_font(31.0, 15.0), font_number(0.0), "2", None, Alignment::Left, 15.0);
         assert_eq!(digit[0].2, 20.0);
-        assert_eq!([2, 3, 4, 5, 6, 9].map(text_base), [24.0; 6]);
-        assert_eq!(text_base(7), 24.0);
+        assert_eq!(text_base(9), text_base(7));
+        assert_eq!(line_pitch(9, &plain_font(29.0, 15.0)), 29.0);
     }
 
-    /// #979: from a tile's `font` trait through the drawn pieces to the line the renderer
-    /// sets the text on: no `font` is font 1 (20), font 7 24, font 8 29.5.
+    /// The hud_menus capture (2026-10-31, fonts.md §3): each font's first line under a text
+    /// tile's top on font 7's 24, and its line pitch, which for fonts 2, 3, 6 and 7 is not
+    /// the file's size; a two-line text's second line one pitch under the first.
+    #[test]
+    fn every_font_has_its_own_line_and_pitch() {
+        // Font, its file's size; the line under the top, the pitch.
+        let fonts: [(u8, f32, f32, f32); 8] =
+            [(1, 31.0, 20.0, 31.0), (2, 31.0, 16.0, 35.0), (3, 26.0, 16.0, 32.0), (4, 36.0, 16.0, 36.0), (5, 25.0, 16.0, 25.0), (6, 34.0, 22.0, 38.0), (7, 36.0, 24.0, 38.0), (8, 52.0, 30.0, 52.0)];
+        for (n, size, base, pitch) in fonts {
+            let font = plain_font(size, 15.0);
+            assert_eq!((text_base(n), line_pitch(n, &font)), (base, pitch), "font {n}");
+            let lines = text_lines(&font, n, "ab cd", Some(40.0), Alignment::Left, 40.0);
+            assert_eq!(lines.iter().map(|(_, _, b)| *b).collect::<Vec<_>>(), [base, base + pitch], "font {n}");
+        }
+    }
+
+    /// #979: from a tile's `font` trait through the drawn pieces to the lines the renderer
+    /// sets the text on: no `font` is font 1 (20), fonts 2-5 16, font 6 22, font 7 24,
+    /// font 8 30; a wrapped text's second line one pitch lower (font 2: 35).
     #[test]
     fn a_text_tiles_font_trait_sets_the_line_it_is_drawn_on() {
         let (mut ui, src) = hud();
@@ -1293,17 +1586,24 @@ mod tests {
             &src,
             "HUDMainMenu",
             r#"<text name="Plain"><string>2</string></text>
+              <text name="Two"><string>ab cd</string><font>2</font><wrapwidth>40</wrapwidth></text>
+              <text name="Three"><string>Ok</string><font>3</font></text>
+              <text name="Four"><string>Ok</string><font>4</font></text>
+              <text name="Five"><string>Ok</string><font>5</font></text>
+              <text name="Six"><string>Ok</string><font>6</font></text>
               <text name="Seven"><string>XP</string><font>7</font></text>
               <text name="Eight"><string>LEVEL UP</string><font>8</font></text>"#
         ));
         ui.update();
-        let (drawn, _) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None });
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false);
         let font = plain_font(36.0, 15.0);
-        let base = |name: &str| {
+        let bases = |name: &str| {
             let piece = drawn.iter().find(|p| ui.tile(p.tile).name == name).expect("a text piece");
-            piece_lines(piece, &font)[0].2
+            piece_lines(piece, &font).into_iter().map(|(_, _, base)| base).collect::<Vec<_>>()
         };
-        assert_eq!([base("Plain"), base("Seven"), base("Eight")], [20.0, 24.0, 29.5]);
+        let firsts = ["Plain", "Three", "Four", "Five", "Six", "Seven", "Eight"].map(|n| bases(n)[0]);
+        assert_eq!(firsts, [20.0, 16.0, 16.0, 16.0, 22.0, 24.0, 30.0]);
+        assert_eq!(bases("Two"), [16.0, 16.0 + 35.0]);
     }
 
     /// T12d: a `tile` picture is one image of its repeats at its texels' resolution,
@@ -1313,7 +1613,7 @@ mod tests {
     fn a_tiled_meter_is_one_image_and_its_ticks_stand_evenly() {
         let (ui, _, menu) = vanilla_hud();
         let kept = [ui.find_tile("HUDMainMenu/Info").unwrap()];
-        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept, strip: None });
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept, strip: None }, false);
         let meter = drawn.iter().find(|p| ui.path_of(p.tile) == "HUDMainMenu/HitPoints/meter").unwrap();
         let Look::Picture { fit, .. } = &meter.look else { panic!("a picture") };
         let Placed::Repeat { width, height } = placed(*fit, false, (8.0, 32.0)) else { panic!("repeated") };
@@ -1338,7 +1638,7 @@ mod tests {
     fn moved_and_recoloured_pieces_change_in_place() {
         let (ui, _, menu) = vanilla_hud();
         let kept = [ui.find_tile("HUDMainMenu/Info").unwrap()];
-        let (old, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept, strip: None });
+        let (old, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept, strip: None }, false);
         assert_eq!(change(&old[0], &old[0]), Change::Same);
         let mut moved = old[0].clone();
         moved.rect.left += 0.25;
@@ -1403,7 +1703,7 @@ mod tests {
     fn a_tiles_pieces_are_kept_apart_by_their_count() {
         let (ui, _, menu) = vanilla_hud();
         let kept = [ui.find_tile("HUDMainMenu/Info").unwrap()];
-        let (mut all, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept, strip: None });
+        let (mut all, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept, strip: None }, false);
         all.push(all[0].clone());
         let keys = keys(&all);
         assert_eq!(keys[0], (all[0].tile, 0));
