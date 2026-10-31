@@ -4044,8 +4044,10 @@ expect = [
   { json = "settings.KarmaEvil", equals = -250.0 },
   { json = "settings.KarmaVeryGood", equals = 750.0 },
   { json = "actors.?actor=FiendVioletRef.alignment", equals = "Evil" },
-  # 0 since 2026-10-19: an Evil kill gives no karma in the original (crime-karma.md §4.1).
-  { json = "actors.?actor=FiendVioletRef.kill_karma_in_a_fight_it_started", equals = 0.0 },
+  # 100 since #1131: a Fiend holding −500 in its own ACBS gave +100 in the original
+  # (capture o6_02, crime-karma.md §4.1).
+  { json = "actors.?actor=FiendVioletRef.kill_alignment", equals = "Evil" },
+  { json = "actors.?actor=FiendVioletRef.kill_karma_in_a_fight_it_started", equals = 100.0 },
   { json = "actors.?actor=SunnyRef.alignment", equals = "Very Good" },
   { json = "actors.?actor=GSChetRef.kill_karma_as_murder", equals = -25.0 },
   { json = "cells.?cell=GSGeneralStore.owner", equals = "GSChet" },
