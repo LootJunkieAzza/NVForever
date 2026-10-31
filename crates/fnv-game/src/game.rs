@@ -1024,6 +1024,8 @@ pub struct Game<'a> {
     pub(crate) name_overrides: std::collections::HashMap<FormId, String>,
     /// xNVSE's mod local data: lower-cased key -> (key as given, value); the session's.
     pub(crate) mod_data: BTreeMap<String, (String, fnv_script::vm::XVal)>,
+    /// NX NVSE's variables on references (`crate::nvse_nx`), saved.
+    pub(crate) nx: crate::nvse_nx::NxVars,
     /// TempCloneForm's clones and their originals (`crate::nvse_data`).
     pub(crate) clones: std::collections::HashMap<FormId, FormId>,
     pub(crate) clone_seq: u32,
@@ -1433,6 +1435,10 @@ pub struct GameSnapshot {
     /// The lambdas scripts made, so variables naming them stay right after a load.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub lambdas: Vec<SavedLambda>,
+    /// NX NVSE's variables on references (`crate::nvse_nx`), saved [documented: they "are
+    /// persistent across game sessions"].
+    #[serde(default, skip_serializing_if = "crate::nvse_nx::NxVars::is_empty")]
+    pub nx: crate::nvse_nx::NxVars,
     pub sim: Snapshot,
     pub quests: BTreeMap<FormId, QuestState>,
     pub instances: Vec<(InstKey, Instance)>,
@@ -1715,6 +1721,7 @@ impl<'a> Game<'a> {
             field_overrides: std::collections::HashMap::new(),
             name_overrides: std::collections::HashMap::new(),
             mod_data: BTreeMap::new(),
+            nx: Default::default(),
             clones: std::collections::HashMap::new(),
             clone_seq: 0,
             playable_overrides: std::collections::HashMap::new(),
@@ -4407,6 +4414,7 @@ impl<'a> Game<'a> {
             format: SNAPSHOT_FORMAT.into(),
             ext: self.ext.clone(),
             lambdas: self.lambdas.iter().map(|d| SavedLambda { unit: d.key.clone(), lambda: d.lambda.clone(), inst: d.inst }).collect(),
+            nx: self.nx.clone(),
             sim: self.world.snapshot(),
             quests: self.quests.clone(),
             instances: self.instances.iter().map(|(k, v)| (*k, v.clone())).collect(),
@@ -4461,6 +4469,7 @@ impl<'a> Game<'a> {
             let unit = data.units.iter().find(|u| u.key() == l.unit);
             g.lambdas.push(LambdaDef { unit, key: l.unit.clone(), lambda: l.lambda.clone(), inst: l.inst, captured: None });
         }
+        g.nx = s.nx.clone();
         g.quests = s.quests.clone();
         g.instances = s.instances.iter().cloned().collect();
         g.extra = s.extra.clone();
