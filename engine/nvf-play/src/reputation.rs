@@ -84,8 +84,9 @@ const GOOD_FACE: &str = "textures\\interface\\icons\\message icons\\glow_message
 const BAD_FACE: &str = "textures\\interface\\icons\\message icons\\glow_message_vaultboy_sad.dds";
 const MIXED_FACE: &str = "textures\\interface\\icons\\message icons\\glow_message_vaultboy_neutral.dds";
 
-/// The box's button [observed: "Ok" on both screenshots].
-const OK: &str = "Ok";
+/// The setting naming the box's button, read through `fnv_game::ui_loading::game_string`
+/// (the load order's GMST, else NVForever's own label; LEGAL.md) [design, #1183].
+const OK_SETTING: &str = "sOk";
 
 const NUMBERS: [&str; 4] = ["Zero", "One", "Two", "Three"];
 
@@ -132,7 +133,7 @@ pub fn panel(g: &fnv_game::Game, sim: &SimState, rep: FormId) -> PanelView {
     PanelView {
         title: Some(name),
         text: format!("{}\n{}", title(fame, infamy), description(fame, infamy, setting)),
-        buttons: vec![OK.into()],
+        buttons: vec![fnv_game::ui_loading::game_string(g, OK_SETTING)],
         icon: Some(face(fame, infamy).into()),
     }
 }
