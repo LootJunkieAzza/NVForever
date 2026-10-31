@@ -166,13 +166,7 @@ fn world_with(s: RefState) -> World<'static> {
         rng_word_pos: "0".into(),
         next_dynamic: DROPPED + 1,
         refs: [(FormId(DROPPED), s)].into_iter().collect(),
-        globals: Default::default(),
-        detached_cells: Default::default(),
-        quest_objects: Default::default(),
-        leveled_added: Default::default(),
-        zone_levels: Default::default(),
-        ref_levels: Default::default(),
-        death_items: Default::default(),
+        ..Default::default()
     };
     World::restore(forms, refs, &snap).unwrap()
 }

@@ -277,7 +277,7 @@ pub struct Encumbrance {
     pub unknown_weight: Vec<FormId>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Snapshot {
     pub format: String,
     pub config: SimConfig,
@@ -309,6 +309,52 @@ pub struct Snapshot {
     /// ([`World::add_death_item`]); absent when none.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub death_items: BTreeMap<FormId, FormId>,
+    /// The inventory sources of references created at run time ([`World::give_items_of`]:
+    /// a created leveled actor's pick, a template's Inventory source), which the game
+    /// layer cannot work out again from the plugins on a load, as it does the placed
+    /// actors' (`set_inventory_sources`, a resurrection's or a zone's reroll); deleted
+    /// ones left out; absent when none (and in older snapshots).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub created_inventory_sources: BTreeMap<FormId, FormId>,
+    /// The player may wear power armour ([`World::set_power_armor_training`]); absent
+    /// when not (and in older snapshots).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub power_armor_training: bool,
+    /// The game layer's carry bonuses ([`World::set_carry_bonus`]); absent when none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub carry_bonus: BTreeMap<FormId, f64>,
+    /// The game layer's weight rules ([`World::set_weight_rules`]); absent when none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub weight_rules: BTreeMap<FormId, crate::inventory::WeightRules>,
+}
+
+/// What a world keeps for the session and not in a save: the edits of functions
+/// documented as not save baked but lasting for the game session, which a load in the
+/// same run keeps and a new run starts without ([`World::take_session`],
+/// [`World::put_session`]). Game settings changed at run time [documented:
+/// SetNumericGameSetting, "not save baked but rather is session based"; hypothesis: the
+/// console's SetGameSetting, which changes the same setting, alike]; leveled lists edited
+/// by script [documented: LU's leveled-list functions, "not savebaked"]; base containers
+/// edited by script [documented: BaseAddItem, "will only persist for the duration of the
+/// game session"; hypothesis: BaseRemoveItem, whose page says nothing, alike].
+///
+/// "The session" is one run of the program. The runner's SaveLoad and any restore within
+/// a run keep them; the engine's load while playing starts NVForever again with `--load`
+/// [design, owner 2026-10-16: nothing of the run before carries over], so there they
+/// start empty, as the scripts' session does (GetGameRestarted is true again in the new
+/// run, so a mod that makes such edits on GetGameRestarted makes them again; saving the
+/// edits as well would make it add its leveled-list entries twice) [decision].
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct WorldSession {
+    setting_changes: BTreeMap<String, crate::settings::Setting>,
+    leveled_edits: BTreeMap<FormId, crate::forms::LeveledList>,
+    base_edits: BTreeMap<FormId, Vec<crate::forms::Entry>>,
+}
+
+impl WorldSession {
+    pub fn is_empty(&self) -> bool {
+        self.setting_changes.is_empty() && self.leveled_edits.is_empty() && self.base_edits.is_empty()
+    }
 }
 
 /// A death item rolled into a body ([`World::add_death_item`]): the level the list was
@@ -339,7 +385,7 @@ pub struct World<'a> {
     /// Leveled item lists edited by script for the session (LeveledListAddForm and its
     /// family): not saved, as "this change is not savebaked" for LU's functions
     /// [documented: RemoveFormFromLeveledList, "Unlike for LeveledListRemoveForm, this
-    /// change is savebaked"].
+    /// change is savebaked"], but kept across a load in the same run ([`WorldSession`]).
     leveled_edits: BTreeMap<FormId, crate::forms::LeveledList>,
     /// Container and actor bases whose carried items scripts edited (BaseAddItem,
     /// BaseRemoveItem): the entries a fresh inventory rolls from, for the session.
@@ -353,8 +399,12 @@ pub struct World<'a> {
     /// Placed actors whose carried items are another base's than their own (an actor
     /// template's, [`World::set_inventory_sources`]).
     inventory_sources: BTreeMap<FormId, FormId>,
+    /// The inventory sources of references created at run time ([`World::give_items_of`]);
+    /// saved.
+    created_inventory_sources: BTreeMap<FormId, FormId>,
     /// Game settings changed at run time (the console's `SetGameSetting`), by lower-case
     /// Editor ID; they replace the record's value for [`World::setting_value`] readers.
+    /// Kept for the session, not saved ([`WorldSession`]).
     setting_changes: BTreeMap<String, crate::settings::Setting>,
     /// The player may wear power armour (SetPCCanUsePowerArmor; the game layer keeps the
     /// flag and sets it here, [`World::set_power_armor_training`]).
@@ -391,6 +441,7 @@ impl<'a> World<'a> {
             carry_bonus: BTreeMap::new(),
             weight_rules: BTreeMap::new(),
             inventory_sources: BTreeMap::new(),
+            created_inventory_sources: BTreeMap::new(),
             setting_changes: BTreeMap::new(),
             power_armor_training: false,
             zone_levels: BTreeMap::new(),
@@ -530,13 +581,15 @@ impl<'a> World<'a> {
     /// The placed actors whose carried items come from another actor base than their
     /// own: the game layer's actor templates (template flag "Inventory") and placed
     /// leveled actor lists, which this layer does not follow (`fnv_game`
-    /// `GameData::inventory_sources`). Set before the references are first read.
+    /// `GameData::inventory_sources`). Set before the references are first read, and
+    /// again on a load (worked out from the plugins, so not saved).
     pub fn set_inventory_sources(&mut self, sources: BTreeMap<FormId, FormId>) {
         self.inventory_sources = sources;
     }
 
-    /// The base whose carried items `id` starts with, in place of its own base's (`None`:
-    /// its own base's), after its leveled choices were rolled again.
+    /// The base whose carried items placed `id` starts with, in place of its own base's
+    /// (`None`: its own base's), after its leveled choices were rolled again. Not saved:
+    /// the game layer works it out again on a load.
     pub fn set_inventory_source(&mut self, id: FormId, source: Option<FormId>) {
         match source {
             Some(s) => self.inventory_sources.insert(id, s),
@@ -546,7 +599,7 @@ impl<'a> World<'a> {
 
     /// The base whose carried items `id` (placed with `base`) starts with.
     fn inventory_base(&self, id: FormId, base: FormId) -> FormId {
-        self.inventory_sources.get(&id).copied().unwrap_or(base)
+        self.created_inventory_sources.get(&id).or_else(|| self.inventory_sources.get(&id)).copied().unwrap_or(base)
     }
 
     /// A fresh inventory for a container or actor base: its carried items with leveled
@@ -1627,7 +1680,11 @@ impl<'a> World<'a> {
     /// LvlNCRTrooper fought with their fists).
     pub fn give_items_of(&mut self, id: FormId, source: FormId) -> Result<(), SimError> {
         self.get(id)?;
-        self.set_inventory_source(id, Some(source));
+        if id.is_dynamic() {
+            self.created_inventory_sources.insert(id, source);
+        } else {
+            self.set_inventory_source(id, Some(source));
+        }
         let mut inv = self.roll_inventory(source, self.item_level(id))?;
         let outfitted = self.equip_default(source, &mut inv);
         let s = self.get(id)?;
@@ -1836,7 +1893,28 @@ impl<'a> World<'a> {
             zone_levels: self.zone_levels.clone(),
             ref_levels: self.ref_levels.clone(),
             death_items: self.death_items.clone(),
+            created_inventory_sources: self.created_inventory_sources.iter().filter(|(id, _)| self.refs.get(id).is_some_and(|s| !s.deleted)).map(|(&k, &v)| (k, v)).collect(),
+            power_armor_training: self.power_armor_training,
+            carry_bonus: self.carry_bonus.clone(),
+            weight_rules: self.weight_rules.clone(),
         }
+    }
+
+    /// Take what lasts for the session and not in a save ([`WorldSession`]), to hand it
+    /// to the world a load in the same run makes ([`World::put_session`]).
+    pub fn take_session(&mut self) -> WorldSession {
+        WorldSession {
+            setting_changes: std::mem::take(&mut self.setting_changes),
+            leveled_edits: std::mem::take(&mut self.leveled_edits),
+            base_edits: std::mem::take(&mut self.base_edits),
+        }
+    }
+
+    /// Take over what lasts for the session ([`World::take_session`]).
+    pub fn put_session(&mut self, s: WorldSession) {
+        self.setting_changes = s.setting_changes;
+        self.leveled_edits = s.leveled_edits;
+        self.base_edits = s.base_edits;
     }
 
     pub fn restore(forms: &'a FormStore, placed: &'a RefTable, s: &Snapshot) -> Result<World<'a>, String> {
@@ -1855,6 +1933,10 @@ impl<'a> World<'a> {
         w.zone_levels = s.zone_levels.clone();
         w.ref_levels = s.ref_levels.clone();
         w.death_items = s.death_items.clone();
+        w.created_inventory_sources = s.created_inventory_sources.clone();
+        w.power_armor_training = s.power_armor_training;
+        w.carry_bonus = s.carry_bonus.clone();
+        w.weight_rules = s.weight_rules.clone();
         Ok(w)
     }
 }
