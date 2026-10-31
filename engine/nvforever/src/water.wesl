@@ -11,6 +11,7 @@ import bevy_pbr::{
     render::view_transformations::{frag_coord_to_ndc, frag_coord_to_uv, ndc_to_uv, position_ndc_to_world},
 };
 @if(DEPTH_PREPASS) import bevy_pbr::prepass::utils as prepass_utils;
+@if(DEPTH_PREPASS) import bevy_pbr::render::mesh_view_bindings::depth_prepass_texture;
 
 struct WaterParams {
     shallow: vec4<f32>,
@@ -33,6 +34,8 @@ struct WaterParams {
     ripple: vec4<f32>,
     // shore fade: depth falloff start, end (units of water crossed), 1 when in use
     edge: vec4<f32>,
+    // x = Bevy y of the water whose drawn pixels are counted, y = 1 while counting
+    seen_plane: vec4<f32>,
 };
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> water: WaterParams;
@@ -41,6 +44,27 @@ struct WaterParams {
 @group(constants::MATERIAL_BIND_GROUP) @binding(3) var reflection_texture: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(4) var reflection_sampler: sampler;
 @group(constants::MATERIAL_BIND_GROUP) @binding(5) var ripple_texture: texture_2d<f32>;
+// Drawn water pixels at seen_plane's height (water.rs WaterMaterial::seen, #1060).
+@group(constants::MATERIAL_BIND_GROUP) @binding(6) var<storage, read_write> water_seen: atomic<u32>;
+
+// Whether opaque surfaces (depth prepass) lie in front of this fragment in every sample
+// of its pixel: the depth test would throw the whole pixel away. Reverse z: nearer is
+// larger. False without a prepass.
+fn hidden_by_scene(fc: vec4<f32>) -> bool {
+    @if(DEPTH_PREPASS && MULTISAMPLED) if true {
+        let n = textureNumSamples(depth_prepass_texture);
+        for (var i = 0u; i < n; i += 1u) {
+            if textureLoad(depth_prepass_texture, vec2<i32>(fc.xy), i32(i)) <= fc.z {
+                return false;
+            }
+        }
+        return true;
+    }
+    @if(DEPTH_PREPASS && !MULTISAMPLED) if true {
+        return textureLoad(depth_prepass_texture, vec2<i32>(fc.xy), 0) > fc.z;
+    }
+    return false;
+}
 
 // Ripple height at grid position `t` (cells), bilinear (the texture is not filterable).
 fn ripple_height(t: vec2<f32>) -> f32 {
@@ -179,6 +203,24 @@ fn sky_colour(y: f32) -> vec3<f32> {
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let pos = in.world_position.xyz;
+    // The counter's writes turn off the GPU's early depth test, so water behind the
+    // scene is thrown away here, before the costly part, as the depth test would. What
+    // is left counts, at the reflected height, one pixel in 16 (#1060).
+    //
+    // Keep the texture sampling below in helper functions (layer_slope and the rest):
+    // naga checks uniform control flow per function, and a textureSample written
+    // directly in fragment() after this discard would fail validation, so water would
+    // stop drawing.
+    if hidden_by_scene(in.position) {
+        discard;
+    }
+    // One pixel in 16 (a 4 x 4 grid): water seen only through a gap narrower than that
+    // may count nothing and show the sky alone in it, an accepted cost for 16 times
+    // fewer atomic adds on one address.
+    let grid = vec2<u32>(in.position.xy) & vec2(3u);
+    if water.seen_plane.y > 0.5 && abs(pos.y - water.seen_plane.x) < 2.0 && grid.x == 0u && grid.y == 0u {
+        atomicAdd(&water_seen, 1u);
+    }
     let to_cam = view.world_position.xyz - pos;
     let dist = max(length(to_cam), 1e-3);
     let V = to_cam / dist;
