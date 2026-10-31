@@ -1625,6 +1625,41 @@ expect = [
   { re = '(?P<n>\d+) conversations started by scripts', range = [2, 1e9], label = "2 or more conversations started by scripts" },
 ]
 
+[[scenario]]
+name = "radio-rnv-voice-off"
+source = "#1077 item 2 (owner: Mr. New Vegas on the Pip-Boy followed the Voice slider): with Voice at 0, Radio New Vegas's DJ talk and news are still heard, on the Radio mixer"
+areas = ["radio", "audio", "pipboy", "settings"]
+paths = ["crates/fnv-world/src/radio.rs", "crates/fnv-game/src/radio.rs", "engine/nvf-play/src/radio.rs", "engine/nvf-play/src/voice.rs", "engine/nvf-play/src/audio_out.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:volume-voice=0", NVF_PLAY_TEST_SCRIPT = "1:enable:RNVTARef", NVF_PLAY_TEST_RADIO = "2:tune=RadioNewVegasTA,48:off" }
+args = ["--cell", "Goodsprings", "--play", "--no-messages"]
+run_seconds = 52
+expect = [
+  "settings: volume-voice 0%",
+  "pipboy radio: on, tuned to RadioNewVegasTA",
+  { re = 'radio: RadioNewVegasTA says RadioHello .*maleuniquemrnewvegas', label = "Mr. New Vegas opens the station" },
+  { re = 'radio: RadioNewVegasTA says RNVNews', label = "and reads the news" },
+  { re = 'radio: RadioNewVegasTA says RNVMusic \S+: sound\\songs', count = 0, label = "no song before the radio is turned off: the Radio mixer holds only his speech" },
+  { re = 'volumes master 100%, music 100%, footstep 100%, voice 0%, effects 100%, radio 100%$' },
+  { re = 'audio categories after volumes: .*radio (?P<n>[\d.]+) s audible', range = [25, 1e9], label = "his speech is heard with Voice at 0 (#1077)" },
+]
+
+[[scenario]]
+name = "radio-rnv-radio-off"
+source = "#1077 item 2: with Radio at 0, Radio New Vegas's DJ talk and news are silent"
+areas = ["radio", "audio", "pipboy", "settings"]
+paths = ["crates/fnv-world/src/radio.rs", "crates/fnv-game/src/radio.rs", "engine/nvf-play/src/radio.rs", "engine/nvf-play/src/voice.rs", "engine/nvf-play/src/audio_out.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:volume-radio=0", NVF_PLAY_TEST_SCRIPT = "1:enable:RNVTARef", NVF_PLAY_TEST_RADIO = "2:tune=RadioNewVegasTA,48:off" }
+args = ["--cell", "Goodsprings", "--play", "--no-messages"]
+run_seconds = 52
+expect = [
+  "settings: volume-radio 0%",
+  "pipboy radio: on, tuned to RadioNewVegasTA",
+  { re = 'radio: RadioNewVegasTA says RNVNews', label = "Mr. New Vegas reads the news" },
+  { re = 'volumes master 100%, music 100%, footstep 100%, voice 100%, effects 100%, radio 0%$' },
+  { re = 'audio categories: .*radio (?P<n>[\d.]+) s heard', range = [25, 1e9], label = "his speech plays on the Radio mixer" },
+  { re = 'audio categories after volumes: .*radio (?P<n>[\d.]+) s audible', range = [0, 0], label = "and is silent with Radio at 0" },
+]
+
 # ------------------------------------------------------------------ controls, pushing, idles
 
 [[scenario]]
