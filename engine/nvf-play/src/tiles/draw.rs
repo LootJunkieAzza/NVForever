@@ -79,6 +79,20 @@ pub fn measure(font: &Font, number: u8, text: &str, wrap: Option<f64>) -> (f64, 
     (f64::from(width), f64::from(height))
 }
 
+/// A text tile's size as the code writes it into a tile-drawn menu (T15a,
+/// `super::menus::write_text_sizes`): [`measure`], an empty string one space wide [observed:
+/// hud_menus capture 2026-10-31, the empty `MM_Title` (font 6) 14 x 38 at three sizes, font
+/// 6's space advancing 14 and its tallest glyph 38; hypothesis: an empty string measures one
+/// space wide and one line high].
+pub fn measure_written(font: &Font, number: u8, text: &str, wrap: Option<f64>) -> (f64, f64) {
+    let (width, height) = measure(font, number, text, wrap);
+    if text.is_empty() {
+        (f64::from(font.width(" ")), height)
+    } else {
+        (width, height)
+    }
+}
+
 /// The tallest glyph picture of a font (glyph number 10, fonts.md §2): what a one-line
 /// text tile measures high in the original [observed: hud_textbase and hud_menus captures
 /// 2026-10-31: 36, 32, 31, 37, 28, 38, 42, 64 for fonts 1-8, each its file's tallest]. A
@@ -205,7 +219,7 @@ impl FontKit<'_> {
             self.load(font);
         }
         let faces = &self.fonts.faces;
-        move |font: f64, text: &str, wrap: Option<f64>| faces.get(&font_number(font)).map_or((0.0, 0.0), |face| measure(&face.font, font_number(font), text, wrap))
+        move |font: f64, text: &str, wrap: Option<f64>| faces.get(&font_number(font)).map_or((0.0, 0.0), |face| measure_written(&face.font, font_number(font), text, wrap))
     }
 
     /// Whether the fonts of `tiles` are all the game's own (read, not stand-ins), loading

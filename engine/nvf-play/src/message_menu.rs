@@ -83,6 +83,11 @@ pub struct PanelView {
 pub struct MessagePanel {
     pub view: Option<PanelView>,
     pub selected: usize,
+    /// A row was chosen since the box opened (the pointer onto it, or a key). The box drawn
+    /// from its tiles frames `selected` only then: the original chooses no row when a box
+    /// opens [observed: hud_menus capture 2026-10-31, `_highlight_y` -1 and the highlight
+    /// hidden at open]. The hand-built box frames `selected` from the start (§4).
+    pub chosen: bool,
 }
 
 impl MessagePanel {
@@ -90,7 +95,30 @@ impl MessagePanel {
         if self.view != view {
             self.view = view;
             self.selected = 0;
+            self.chosen = false;
         }
+    }
+
+    /// The pointer (or a ref) chooses row `i`.
+    pub fn choose(&mut self, i: usize) {
+        self.selected = i;
+        self.chosen = true;
+    }
+
+    /// Up (-1) or Down (1). With `first_picks` (the box drawn from tiles) and no row chosen
+    /// yet, the key chooses the first row without moving [observed: hud_menus capture
+    /// 2026-10-31, a tapped Down chose row 0 of a box with none chosen; design: Up the
+    /// same]; otherwise it moves the choice ([`MessagePanel::step`]).
+    pub fn key(&mut self, by: i32, first_picks: bool) {
+        if !(first_picks && !self.chosen) {
+            self.step(by);
+        }
+        self.chosen = true;
+    }
+
+    /// The row the box frames when drawn from its tiles: `selected` once one was chosen.
+    pub fn framed(&self) -> Option<usize> {
+        self.chosen.then_some(self.selected)
     }
 
     /// Move the choice up (-1) or down (1), stopping at the ends.
@@ -452,5 +480,26 @@ People like you.", &["Ok"]);
         // A new box starts at its first button.
         p.set(Some(view(None, "y", &["a"])));
         assert_eq!(p.selected, 0);
+    }
+
+    #[test]
+    fn a_box_from_tiles_opens_with_no_row_chosen() {
+        let mut p = MessagePanel::default();
+        p.set(Some(view(None, "x", &["a", "b", "c"])));
+        assert_eq!(p.framed(), None, "no row chosen at open");
+        // The first Down chooses the first row; the next moves on.
+        p.key(1, true);
+        assert_eq!(p.framed(), Some(0));
+        p.key(1, true);
+        assert_eq!(p.framed(), Some(1));
+        // The pointer chooses a row; a new box chooses none again.
+        p.choose(2);
+        assert_eq!(p.framed(), Some(2));
+        p.set(Some(view(None, "y", &["a"])));
+        assert_eq!(p.framed(), None);
+        // The hand-built box's keys move from the first row at once.
+        p.set(Some(view(None, "z", &["a", "b"])));
+        p.key(1, false);
+        assert_eq!(p.selected, 1);
     }
 }

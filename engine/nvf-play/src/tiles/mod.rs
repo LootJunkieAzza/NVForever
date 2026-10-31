@@ -355,7 +355,7 @@ impl HudTiles<'_> {
 /// frame with nothing changed writes nothing [design: the maintainer's review of #902].
 #[derive(Default)]
 struct MenusWritten {
-    message: Option<(menus::BoxShown, usize)>,
+    message: Option<(menus::BoxShown, Option<usize>)>,
     quantity: Option<(fnv_ui::TileId, menus::Amount)>,
     /// The text sizes written, the message box's and the prompt's.
     sizes: [menus::SizesWritten; 2],
@@ -391,7 +391,7 @@ impl MenuTiles<'_, '_> {
         let showing = game.front_box().map(|b| b.serial);
         let written = &mut *self.written;
         let ui = &mut game.ui_tree;
-        match (message, self.panel.as_ref().and_then(|p| p.view.as_ref().map(|v| (v, p.selected)))) {
+        match (message, self.panel.as_ref().and_then(|p| p.view.as_ref().map(|v| (v, p.framed())))) {
             (Some(menu), Some((view, selected))) => {
                 let now = menus::BoxShown { menu, showing, view: view.clone() };
                 let was = written.message.as_ref();

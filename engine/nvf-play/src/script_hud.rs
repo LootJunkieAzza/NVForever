@@ -344,7 +344,7 @@ pub fn menu_keys(
     mut panel: ResMut<MessagePanel>,
     mut script: ResMut<ScriptState>,
     creator: Option<Res<crate::creator::CreatorData>>,
-    tile_click: Option<ResMut<crate::tiles::input::MessageClick>>,
+    (tile_click, tiles): (Option<ResMut<crate::tiles::input::MessageClick>>, Option<Res<crate::tiles::vanilla::TileMenus>>),
 ) {
     use KeyCode::*;
     // A click on the box drawn from its tiles (T15a, `crate::tiles::input`), taken.
@@ -364,11 +364,16 @@ pub fn menu_keys(
         }
         return;
     }
+    // The box drawn from its tiles opens with no row chosen: the first Up or Down chooses
+    // the first row (`MessagePanel::key`). Enter with none chosen answers the first button,
+    // as the hand-built box, whose first row is chosen at open [design: what the original's
+    // Enter does with no row chosen was not captured].
+    let first_picks = tiles.as_ref().is_some_and(|m| m.message) && script.rt.as_ref().is_some_and(|rt| crate::tiles::menus::message_tiled(true, &rt.game));
     if keys.just_pressed(ArrowUp) {
-        panel.step(-1);
+        panel.key(-1, first_picks);
     }
     if keys.just_pressed(ArrowDown) {
-        panel.step(1);
+        panel.key(1, first_picks);
     }
     let digits = [Digit1, Digit2, Digit3, Digit4, Digit5, Digit6, Digit7, Digit8, Digit9];
     let pads = [Numpad1, Numpad2, Numpad3, Numpad4, Numpad5, Numpad6, Numpad7, Numpad8, Numpad9];

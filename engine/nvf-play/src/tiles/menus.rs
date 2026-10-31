@@ -194,7 +194,9 @@ pub fn row_button(ui: &Ui, tile: TileId) -> Option<usize> {
     None
 }
 
-/// Write what `MessageMenu` shows of `view` with button `selected` chosen [design: the
+/// Write what `MessageMenu` shows of `view` with button `selected` chosen (none: no row
+/// framed, `_highlight_y` -1 and `_selected_height` 0, as the original's box at open
+/// [observed: hud_menus capture 2026-10-31]) [design: the
 /// traits the file says the code sets; its own expressions place the rest]:
 /// - `MM_Title`'s `string`, and its `visible` 0 without a title [hypothesis: the file
 ///   starts the top line's right piece at 0 and hides its left piece by the title's
@@ -228,7 +230,7 @@ pub fn row_button(ui: &Ui, tile: TileId) -> Option<usize> {
 ///
 /// `size` measures a text. The tree is worked out once in between, so the rows' texts
 /// read their strings before they are measured.
-pub fn write_message(ui: &mut Ui, view: &PanelView, selected: usize, fresh: bool, size: &Size<'_>) {
+pub fn write_message(ui: &mut Ui, view: &PanelView, selected: Option<usize>, fresh: bool, size: &Size<'_>) {
     let Some(menu) = ui.menu(MESSAGE_MENU) else { return };
     let (Some(main), Some(list)) = (ui.find_tile(MAIN), ui.find_tile(LIST)) else { return };
     let path = |name: &str| format!("{MAIN}/{name}");
@@ -280,7 +282,7 @@ pub fn write_message(ui: &mut Ui, view: &PanelView, selected: usize, fresh: bool
         let height = h + num(ui, row, "_VerticalSpacing");
         set(ui, row, "height", Value::Num(height));
         set(ui, row, "_y", Value::Num(y));
-        if i == selected {
+        if Some(i) == selected {
             chosen = Some((y, height));
         }
         y += height;
@@ -499,7 +501,8 @@ pub fn write_text_sizes_of(ui: &mut Ui, tiles: &[TileId], last: &mut SizesWritte
                 continue;
             }
         }
-        let measured = if string.is_empty() { (0.0, 0.0) } else { size(font, &string, wrap) };
+        // An empty string is measured too (the empty title keeps its room, `size`).
+        let measured = size(font, &string, wrap);
         if own_width {
             ui.set_trait(t, "width", Value::Num(measured.0));
         }
@@ -580,7 +583,7 @@ mod tests {
     #[test]
     fn the_box_writes_its_strings_rows_and_sizes() {
         let mut ui = message();
-        write_message(&mut ui, &view(Some("Title"), "Hello there", &["Yes", "No thanks"]), 1, true, &size);
+        write_message(&mut ui, &view(Some("Title"), "Hello there", &["Yes", "No thanks"]), Some(1), true, &size);
         let main = "MessageMenu/NOGLOW_BRANCH/MM_MainRect";
         assert_eq!(ui.get_string(&format!("{main}/MM_Title/string")).as_deref(), Some("Title"));
         assert_eq!(f(&ui, "MM_Title/visible"), 1.0);
@@ -598,6 +601,9 @@ mod tests {
         assert_eq!((f(&ui, "MM_ButtonList/_highlight_y"), f(&ui, "MM_ButtonList/_selected_height")), (50.0, 50.0));
         // No overflow: the bar's counts equal, so the file hides it.
         assert_eq!(f(&ui, "MM_ButtonList/lb_scrollbar/_number_of_items"), f(&ui, "MM_ButtonList/lb_scrollbar/_number_of_visible_items"));
+        // No row chosen (a box at open): no row framed.
+        write_message(&mut ui, &view(Some("Title"), "Hello there", &["Yes", "No thanks"]), None, false, &size);
+        assert_eq!((f(&ui, "MM_ButtonList/_highlight_y"), f(&ui, "MM_ButtonList/_selected_height")), (-1.0, 0.0));
         // The box: the list's 170 and 80 is 250, over the text's 110 + 80 and the
         // title's 60 + 50 + 10 + 60.
         assert_eq!(ui.get_float(&format!("{main}/width")), Some(250.0));
@@ -608,22 +614,22 @@ mod tests {
     #[test]
     fn rows_follow_the_buttons_and_the_box_stays_within_its_widths() {
         let mut ui = message();
-        write_message(&mut ui, &view(None, "x", &["a", "b", "c"]), 0, true, &size);
+        write_message(&mut ui, &view(None, "x", &["a", "b", "c"]), Some(0), true, &size);
         assert_eq!(rows(&ui).len(), 3);
         // No title: hidden, so the file draws the top line whole; the least width.
         assert_eq!(f(&ui, "MM_Title/visible"), 0.0);
         assert_eq!(ui.get_float("MessageMenu/NOGLOW_BRANCH/MM_MainRect/width"), Some(200.0));
         // Fewer buttons unload the extra rows; the kept ones are the same tiles.
         let before = rows(&ui);
-        write_message(&mut ui, &view(None, "x", &["only"]), 0, false, &size);
+        write_message(&mut ui, &view(None, "x", &["only"]), Some(0), false, &size);
         assert_eq!(rows(&ui), before[..1].to_vec());
         // A long text: as wide as the box allows.
-        write_message(&mut ui, &view(None, &"w".repeat(200), &["OK"]), 0, true, &size);
+        write_message(&mut ui, &view(None, &"w".repeat(200), &["OK"]), Some(0), true, &size);
         assert_eq!(ui.get_float("MessageMenu/NOGLOW_BRANCH/MM_MainRect/width"), Some(700.0));
         // Many tall rows: the list stops at its most, and the bar's counts say it overflows.
         let many: Vec<String> = (0..12).map(|i| format!("button {i}")).collect();
         let v = PanelView { buttons: many, ..view(None, "x", &[]) };
-        write_message(&mut ui, &v, 11, true, &size);
+        write_message(&mut ui, &v, Some(11), true, &size);
         assert_eq!(f(&ui, "MM_ButtonList/height"), LIST_MOST);
         assert!(f(&ui, "MM_ButtonList/lb_scrollbar/_number_of_items") > f(&ui, "MM_ButtonList/lb_scrollbar/_number_of_visible_items"));
     }
@@ -633,7 +639,7 @@ mod tests {
         let mut ui = message();
         let mut v = view(None, "Liked", &["OK"]);
         v.icon = Some(r"textures\interface\icons\message icons\glow_message_vaultboy_very_happy.dds".into());
-        write_message(&mut ui, &v, 0, true, &size);
+        write_message(&mut ui, &v, Some(0), true, &size);
         assert_eq!(f(&ui, "MM_MessageIcon/visible"), 1.0);
         assert_eq!(ui.get_string("MessageMenu/NOGLOW_BRANCH/MM_MainRect/MM_MessageIcon/filename").as_deref(), v.icon.as_deref());
         // The file moves the text 120 right while the icon shows; the box keeps that room.
@@ -644,7 +650,7 @@ mod tests {
     #[test]
     fn text_sizes_are_written_once_per_change() {
         let mut ui = message();
-        write_message(&mut ui, &view(Some("T"), "Hi", &["OK"]), 0, true, &size);
+        write_message(&mut ui, &view(Some("T"), "Hi", &["OK"]), Some(0), true, &size);
         ui.update();
         let menu = ui.menu(MESSAGE_MENU).unwrap();
         let mut last = SizesWritten::new();
@@ -664,23 +670,23 @@ mod tests {
         // moved the choice, so one press skipped a button.
         let mut ui = message();
         let v = view(None, "Choose", &["a", "b", "c"]);
-        write_message(&mut ui, &v, 0, true, &size);
+        write_message(&mut ui, &v, Some(0), true, &size);
         let r = rows(&ui);
         let mut panel = crate::message_menu::MessagePanel::default();
         panel.set(Some(v));
         // The pointer over the first row chooses it.
         let hover = fnv_ui::input::Report { over: Some((None, Some(r[0]))), ..Default::default() };
         if let Some(i) = chosen_row(&ui, &hover, nav_by_hand(&[])) {
-            panel.selected = i;
+            panel.choose(i);
         }
-        assert_eq!(panel.selected, 0);
+        assert_eq!(panel.framed(), Some(0));
         // Down, from the keyboard: a ref moves the highlight to the second row and the
         // hand-built handler steps the choice; only the step counts.
         let keyed = fnv_ui::input::Report { over: Some((Some(r[0]), Some(r[1]))), ..Default::default() };
         if let Some(i) = chosen_row(&ui, &keyed, nav_by_hand(&["xdown"])) {
-            panel.selected = i;
+            panel.choose(i);
         }
-        panel.step(1);
+        panel.key(1, true);
         // Enter answers the chosen button: the second.
         assert_eq!(panel.selected, 1);
         // A script's tapped Down is no hand-built press: the highlight's row is taken.
@@ -716,12 +722,12 @@ mod tests {
         // Replaced by a box alike in every word and button (the next showing): another box,
         // so its rows are made again and a click queued on the first's answers nothing.
         let first = shown(Some(1));
-        write_message(&mut ui, &v, 0, another_box(None, &first), &size);
+        write_message(&mut ui, &v, Some(0), another_box(None, &first), &size);
         let row = rows(&ui)[0];
         let mut pointer = fnv_ui::input::Pointer::default();
         pointer.script_click(&mut ui, row);
         let second = shown(Some(2));
-        write_message(&mut ui, &v, 0, another_box(Some(&first), &second), &size);
+        write_message(&mut ui, &v, Some(0), another_box(Some(&first), &second), &size);
         let report = pointer.step(&mut ui, &[menu], &fnv_ui::input::Input::default(), &fnv_ui::input::no_measure);
         assert_eq!(message_pick(&ui, &report.clicks[0], &[]), None);
         // Another menu tile (the menu built again), or other words: another box too.
@@ -734,13 +740,13 @@ mod tests {
     fn a_click_queued_on_a_replaced_box_answers_nothing() {
         use fnv_ui::input::{no_measure, By, Input, Pointer};
         let mut ui = message();
-        write_message(&mut ui, &view(None, "A", &["Yes", "No"]), 0, true, &size);
+        write_message(&mut ui, &view(None, "A", &["Yes", "No"]), Some(0), true, &size);
         let menu = ui.menu(MESSAGE_MENU).unwrap();
         let first = rows(&ui)[0];
         // A script clicks the first row of box A; A closes and B opens before the next step.
         let mut pointer = Pointer::default();
         pointer.script_click(&mut ui, first);
-        write_message(&mut ui, &view(None, "B", &["Fight", "Flee"]), 0, true, &size);
+        write_message(&mut ui, &view(None, "B", &["Fight", "Flee"]), Some(0), true, &size);
         let report = pointer.step(&mut ui, &[menu], &Input::default(), &no_measure);
         assert_eq!(report.clicks.len(), 1);
         assert_eq!(report.clicks[0].by, By::Script);
@@ -748,7 +754,7 @@ mod tests {
         // On the same box, a script's click answers.
         let row = rows(&ui)[1];
         pointer.script_click(&mut ui, row);
-        write_message(&mut ui, &view(None, "B", &["Fight", "Flee"]), 0, false, &size);
+        write_message(&mut ui, &view(None, "B", &["Fight", "Flee"]), Some(0), false, &size);
         let report = pointer.step(&mut ui, &[menu], &Input::default(), &no_measure);
         assert_eq!(message_pick(&ui, &report.clicks[0], &[]), Some(1));
     }
@@ -786,6 +792,36 @@ mod tests {
         assert_eq!((g("W/width"), g("W/height")), (77.0, 30.0));
         assert_eq!((g("H/width"), g("H/height")), (40.0, 66.0));
         assert_eq!(write_text_sizes(&mut ui, menu, &mut last, &size), 0, "nothing changed");
+    }
+
+    #[test]
+    fn an_empty_title_keeps_its_room_and_the_row_text_stands_on_font_2s_line() {
+        use super::super::draw::{piece_lines, pieces, text_base, Look, Select};
+        // The measure as the renderer writes it for the menus (`draw::measure_written`):
+        // an empty string one space wide and one line high; here font 6's space 14 and
+        // tallest glyph 38, the original's empty `MM_Title` [observed: hud_menus capture
+        // 2026-10-31, 14 x 38].
+        fn sized(font: f64, text: &str, wrap: Option<f64>) -> (f64, f64) {
+            match (font as u8, text.is_empty()) {
+                (6, true) => (14.0, 38.0),
+                _ => size(font, text, wrap),
+            }
+        }
+        let mut ui = message();
+        write_message(&mut ui, &view(None, "Hi", &["Ok"]), None, true, &sized);
+        ui.update();
+        let menu = ui.menu(MESSAGE_MENU).unwrap();
+        write_text_sizes(&mut ui, menu, &mut SizesWritten::new(), &sized);
+        ui.update();
+        assert_eq!((f(&ui, "MM_Title/width"), f(&ui, "MM_Title/height"), f(&ui, "MM_Title/visible")), (14.0, 38.0, 0.0));
+        // The row's text, font 2: set out on font 2's line, 16 under its tile's top
+        // [observed: hud_menus capture 2026-10-31, "Ok" 16.5 under ListItemText's y].
+        let (set, _) = pieces(&ui, menu, &sized, Select::Whole { kept: &[], strip: None });
+        let ok = set.iter().find(|p| matches!(&p.look, Look::Text { string, .. } if string == "Ok")).unwrap();
+        let lines = piece_lines(ok, &crate::interface::plain_font(31.0, 10.0));
+        assert!(matches!(&ok.look, Look::Text { font: 2, .. }));
+        assert_eq!(lines[0].2, text_base(2));
+        assert_eq!(text_base(2), 16.0);
     }
 
     #[test]

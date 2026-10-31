@@ -181,8 +181,8 @@ impl MenuInputs<'_, '_> {
         use crate::menu::{model::Command, MenuInput};
         use fnv_ui::input::By;
         if let (Some(i), Some(panel)) = (chosen_row(ui, report, nav_by_hand(physical)), self.panel.as_mut()) {
-            if panel.selected != i {
-                panel.selected = i;
+            if panel.framed() != Some(i) {
+                panel.choose(i);
             }
         }
         let q = self.quantity();
