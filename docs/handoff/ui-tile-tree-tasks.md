@@ -636,8 +636,11 @@ owner to add to its pull request or issue (owner, 2026-10-29).
         script click on a button row answers the box (`script_hud::menu_keys`), the
         pointer over a row frames it; on the prompt OK, Cancel and the arrows send their
         commands (`menu::MenuInput`) and a press or drag on the meter sets the amount.
-        Clicks the keys make through the files' `_PCButton_*` and `x…` refs are not
-        acted on: the hand-built keys stay the prompt's and the box's.
+        The hand-built keys stay the prompt's and the box's: a click a key makes through
+        the files' `_PCButton_*` and `x…` refs acts unless that key came from the
+        keyboard (or a controller standing in for it) and the hand-built handler took it
+        that frame (`tiles::menus::key_click_acts`), so a script's MenuTapKey and a file's
+        own bindings act (changed after review; the plan first ignored every key click).
       - **Hand-copied numbers**: the tile path reads none of `message_menu.rs`'s layout
         constants or `look.rs`'s `Q_*`, and draws the meter as one tiled picture (no node
         per tick). They stay for the hand-built drawing, the default, and go when the
@@ -659,12 +662,16 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       renderer (31 and 24 against the screenshot's 35 and 15), the empty title's height,
       the highlight box's fill (hotrects draw nothing), the crafting menu's prompt (still
       hand-built); the per-frame layout of an open tile menu (the tree has no cheap
-      revision to skip it; to measure with the perf harness). **Where it stands:**
-      implemented; compiled (`cargo check -p fnv-ui -p fnv-game --tests` in the root
-      workspace, `cargo check -p nvf-play --tests` in the engine's, no warnings); the
-      scenario file verified (`python tools/smoke verify`); **not** tested (no `cargo
-      test`, clippy or smoke run yet), **not** compared with the original on
-      screenshots. Captures to do: observer-checks.md items 55, 56.
+      revision to skip it; to measure with the perf harness). **Where it stands
+      (2026-10-31):** implemented. On `d5fc28fa`: root tests no failures, root clippy
+      clean, `nvf-play` tests 670 passed, engine clippy clean. Smoke on `6a95d7e7`: 256
+      of 261 passed; of the fails, one a tool timeout, one #1181 (stale on main), and
+      `tiles-message-box` from #1180 (`--no-messages` closed a form-less Yes/No box; fixed
+      since, `1c16ec8a`, `d5fc28fa`, `3baf8595`). The commits after `d5fc28fa` (the queued
+      boxes' counts and showings, rows made again for each showing, one text walk a frame)
+      were only compiled (`cargo check`); the final smoke run and the screenshot
+      comparison with the original are pending. Captures to do: observer-checks.md items
+      55, 56.
       - Review fixes (2026-10-31, an independent review): navigation has one owner (a
         highlight a ref moved for a hand-built Up/Down is not the choice); a new box makes
         its rows again (a queued script click on the last box answers nothing); key clicks

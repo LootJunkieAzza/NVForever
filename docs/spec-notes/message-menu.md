@@ -148,8 +148,11 @@ default, §4 stands. The panels of the other script menus (§4's placeholder) st
   at the file's 420; the list does not scroll yet.
 - Input: the pointer over a row chooses it, a click (or a script's ClickMenuButton)
   answers the box with that button; the keys stay §4's (a file's own key binding the
-  hand-built keys lack, and a script's MenuTapKey, still act). A new box makes its rows
-  again, so a script's click queued on the last box answers nothing. The tile drawing is
+  hand-built keys lack, and a script's MenuTapKey, still act). The rows are made again
+  for every new showing of a box (a box replaced by one alike in every word included;
+  `Game::front_box`'s serial), so a script's click queued on the last box's rows answers
+  nothing; a click queued on the box still on screen answers it. A panel with no box
+  queued (the perks' choice list) is known by its words alone. The tile drawing is
   chosen only once the tree has built the file; a missing file keeps §4's box.
 - **Differences from §4 to settle on screenshots** (the old drawing stays the default
   until then): the tile renderer sets a text's lines a font size apart (31 for font 2)
