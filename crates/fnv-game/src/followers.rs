@@ -77,9 +77,23 @@ impl Game<'_> {
     /// Whether `actor`'s current package is a Follow or Accompany package with the player
     /// as its target (a companion that is not told to wait).
     pub fn follows_player(&mut self, actor: FormId) -> bool {
-        self.current_package(actor).and_then(|p| self.package_def(&p)).is_some_and(|d| {
+        self.current_package(actor).is_some_and(|p| self.package_follows_player(&p))
+    }
+
+    /// Whether package `p` is a Follow or Accompany package with the player as its target.
+    fn package_follows_player(&self, p: &FormId) -> bool {
+        self.package_def(p).is_some_and(|d| {
             matches!(d.ty, PackageType::Follow | PackageType::Accompany) && matches!(d.target.map(|t| t.kind), Some(TargetKind::Reference(Some(r))) if r == FormId::PLAYER_REF)
         })
+    }
+
+    /// Whether `actor` is with the player: a teammate, or an actor whose package already
+    /// chosen follows the player ([`Game::follows_player`] without choosing one). Such an
+    /// actor seeing the player does not count for the sneak word (#1159, owner's playtest
+    /// 2026-10-31: a following companion set `[DETECTED]`) [hypothesis: that the original
+    /// leaves companions out; observer-checks.md P3 16].
+    pub fn with_player(&self, actor: FormId) -> bool {
+        self.is_teammate(actor) || self.extra.get(&actor).and_then(|e| e.current_package).is_some_and(|p| self.package_follows_player(&p))
     }
 
     /// Whether a teammate was told to wait: its current package is a Guard package (the

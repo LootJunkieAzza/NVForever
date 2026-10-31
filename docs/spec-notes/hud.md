@@ -443,6 +443,15 @@ an actor is in Combat with the player as its target; else `[CAUTION]` when an ac
 Alert or Lost has the player among its threats or an alarm the player caused
 (`fnv_game::awareness`); else `[DETECTED]` when some actor's latest detection of the
 player is in the detected band (`Game::detection`, value above 0); else `[HIDDEN]`.
+Teammates and actors whose current package is a Follow or Accompany package on the
+player (`Game::with_player`) count for neither `[CAUTION]` nor `[DETECTED]`; their
+detection is still measured and kept for their own AI [observed: owner's playtest
+2026-10-31, #1159: a following companion alone set `[DETECTED]`, which the owner
+reports the original does not; hypothesis: the original leaves companions out by the
+same rule, observer-checks.md P3 16]. Other actors, hostile or not, still count
+[hypothesis: a neutral seeing the player is what theft and pickpocketing care about;
+not checked in the original, observer-checks.md P3 16]. An actor with the player that
+is in Combat with the player still gives `[DANGER]` [design].
 Logged as `hud: sneak [WORD]` on each change. (`fnv_game::detection::Band::meter`
 names the bands HIDDEN, CAUTION, DANGER for the detection log; that older mapping is not
 what the HUD shows.)

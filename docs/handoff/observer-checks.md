@@ -263,7 +263,9 @@ engine if needed, and delete the item here.
 16. **HUD and menus.**
     - The enemy health bar and red crosshair show only for hostiles, or for anyone hit in
       the last 5 s.
-    - Sneak-indicator states.
+    - Sneak-indicator states. Does a following companion (or an actor on a Follow
+      package on the player) seeing the player leave the word at [HIDDEN]? Does a
+      neutral (non-hostile) NPC seeing the player give [DETECTED]? (#1159)
     - Compass ticks within PER × 300; markers within PER × 2048.
     - "How many?" asks only above 5 (barter) or above 1 (crafting).
     - The crafting filter arrows.
