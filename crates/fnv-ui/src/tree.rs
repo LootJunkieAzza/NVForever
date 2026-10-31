@@ -1208,9 +1208,13 @@ impl Ui {
                 Arg::Seq(inner) => self.eval_reading(me, inner, deps, sources),
                 Arg::Ref { src, name } => {
                     // `<copy … trait="_filename_"/>` after a number reads `_filename_<n>`
-                    // [hypothesis: the meter and barter files pick a picture so].
+                    // [hypothesis: the meter and barter files pick a picture so]; after a
+                    // constant, by its number (`&false;` 0, menu-xml.md §2.3) [hypothesis:
+                    // the meter prefab's `_SolidMeter` and vertical_fade_line.xml's
+                    // `_bottom_to_top` are `&false;`/`&true;` before the copy, and their
+                    // `_filename_0`/`_Filename_1` are the two pictures; T15a].
                     let name = match (&acc, name.ends_with('_')) {
-                        (Value::Num(n), true) if op.kind == OpKind::Copy => format!("{name}{}", *n as i64),
+                        (Value::Num(_) | Value::Sym(_), true) if op.kind == OpKind::Copy => format!("{name}{}", acc.num() as i64),
                         _ => name.clone(),
                     };
                     self.read_trait(me, src, &name, deps, sources)

@@ -181,6 +181,26 @@ fn underlying_menu_and_dialogue_stay_open() {
 }
 
 #[test]
+fn the_engines_prompt_builds_over_the_open_menu_and_drops_with_it() {
+    use fnv_game::game::menus;
+    let f = fixture();
+    let mut g = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default());
+    let src = lifetime_files().with("menus/added/quantity.xml", r#"<menu name="QuantityMenu"><class>&QuantityMenu;</class></menu>"#);
+    let paths = src.files.keys().cloned().collect::<Vec<_>>();
+    ui_loading::load(&mut g, Box::new(src), paths);
+    // T15a: the prompt is no `Game::menu`, yet its file builds while `ui_prompt` holds it.
+    g.menu = Some(menus::BARTER);
+    g.ui_prompt = Some(menus::QUANTITY);
+    let changes = ui_loading::sync(&mut g, false, false).changes;
+    assert_eq!(changes.len(), 2, "{changes:?}");
+    assert!(g.ui_tree.menu("QuantityMenu").is_some() && g.ui_tree.menu("Trade").is_some());
+    assert!(!g.menu_open(menus::QUANTITY), "MenuMode does not report the prompt");
+    g.ui_prompt = None;
+    assert_eq!(ui_loading::sync(&mut g, false, false).changes, ["dropped QuantityMenu"]);
+    assert!(g.ui_tree.menu("Trade").is_some());
+}
+
+#[test]
 fn missing_class_warns_once_and_side_codes_are_ignored() {
     use fnv_game::game::menus;
     let f = fixture();

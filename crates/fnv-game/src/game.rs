@@ -849,6 +849,11 @@ pub mod menus {
     /// The tutorial menu (ShowTutorialMenu, `Game::show_tutorial`) [observed: MenuMode 1059
     /// was 1, and 1001 and 1060 were 0, with it open, capture mh1_tutorial, save nvfstrip, 2026-10-18]. Not a message box.
     pub const TUTORIAL: u16 = 1059;
+    /// The "How many?" prompt [documented: Hardcoded UI Shortcuts, the `QuantityMenu`
+    /// class constant, `fnv_ui::value`]. The engine shows it over a container, barter or
+    /// inventory menu without making it [`Game::menu`] (MenuMode does not report it); it
+    /// stands in [`Game::ui_prompt`] for the tile tree (T15a).
+    pub const QUANTITY: u16 = 1016;
     /// The companion wheel (`crate::companion_wheel`) [hypothesis: the code, see there].
     pub const COMPANION_WHEEL: u16 = crate::companion_wheel::MENU_CODE;
 
@@ -1312,6 +1317,12 @@ pub struct Game<'a> {
     /// under CGTutorial's crippled-limb tutorial): it is the open menu again once the
     /// tutorial closes [hypothesis]. Not saved.
     pub menu_under: Option<u16>,
+    /// A menu the engine shows over the open one without it being [`Game::menu`] (the
+    /// "How many?" prompt, [`menus::QUANTITY`]): the tile tree builds its file while set
+    /// (`crate::ui_loading::sync`), so it can be drawn from it (task T15a) [design:
+    /// MenuMode does not report it; whether the original's MenuMode 1016 holds over a
+    /// container is not captured]. Set by the engine each frame. Not saved.
+    pub ui_prompt: Option<u16>,
     /// The messages of the open tutorial menu (ShowTutorialMenu), its pages in the order
     /// shown [hypothesis: further calls while it is open add pages]. Not saved.
     pub tutorial: Vec<FormId>,
@@ -1820,6 +1831,7 @@ impl<'a> Game<'a> {
             menu: None,
             race_menu: RaceMenu::Creator,
             menu_under: None,
+            ui_prompt: None,
             tutorial: Vec::new(),
             loading: false,
             message_box: None,
