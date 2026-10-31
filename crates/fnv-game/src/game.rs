@@ -1113,7 +1113,7 @@ pub struct Game<'a> {
     /// references, for the engine to set off as it does a hit's (explosions, model).
     /// Not part of the saved state.
     pub destruction_changes: Vec<(FormId, crate::combat::DestructionChange)>,
-    /// Activate children waiting for their delay (`crate::traps`). Not saved.
+    /// Activate children waiting for their delay (`crate::traps`). Saved.
     pub due_children: Vec<crate::traps::DueChild>,
     /// The swinging traps let go and whom they hit (`crate::swing_traps`). Not saved.
     pub swing_traps: crate::swing_traps::SwingTraps,
@@ -1310,10 +1310,10 @@ pub struct Game<'a> {
     pub race_menu: RaceMenu,
     /// The menu under the one open, when the tutorial menu opened over it (the Pip-Boy
     /// under CGTutorial's crippled-limb tutorial): it is the open menu again once the
-    /// tutorial closes [hypothesis]. Not saved.
+    /// tutorial closes [hypothesis]. Saved.
     pub menu_under: Option<u16>,
     /// The messages of the open tutorial menu (ShowTutorialMenu), its pages in the order
-    /// shown [hypothesis: further calls while it is open add pages]. Not saved.
+    /// shown [hypothesis: further calls while it is open add pages]. Saved.
     pub tutorial: Vec<FormId>,
     /// A loading screen is up: [`Game::tick`] runs no script and game time stops
     /// [observed: GetSecondsPassed did not count a `coc` loading screen,
@@ -1328,7 +1328,8 @@ pub struct Game<'a> {
     /// Dialogue lines being said (SayTo, Say), one per speaker.
     pub speech: Vec<Speech>,
     /// SayTo calls that found no line the speaker could say, (speaker, topic): their
-    /// SayToDone blocks run in the next frame ([`Game::say`]); not saved.
+    /// SayToDone blocks run in the next frame ([`Game::say`]); saved, as a save lands
+    /// between frames (`GameSnapshot::say_to_unsaid`).
     pub say_to_unsaid: Vec<(FormId, FormId)>,
     /// Actors a script's StartConversation with allowMovement 1 lets go on moving while
     /// they talk to each other ([`Game::conversation_moves`]); not saved.
@@ -1370,8 +1371,8 @@ pub struct Game<'a> {
     /// for the outermost script to finish, with their killers ([`Game::kill`]).
     deferred_deaths: Vec<(FormId, Option<FormId>)>,
     /// The open flag last seen on each scripted door with OnOpen or OnClose blocks
-    /// ([`Game::watch_doors`]). Not saved: a door first seen after a load is taken as
-    /// it stands.
+    /// ([`Game::watch_doors`]). Saved only where the door changed since it was seen:
+    /// a door first seen after a load is taken as it stands.
     door_open_seen: BTreeMap<FormId, bool>,
     pub events: Vec<Event>,
     /// What this run reached of the scripts, when recorded (`crate::coverage`).
@@ -1514,6 +1515,28 @@ pub struct GameSnapshot {
     /// Players 2–4 of a co-op game (`crate::coop`); absent in a one-player save.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub coop: Vec<crate::coop::CoopPlayer>,
+    /// Activate children waiting for their delay (`crate::traps`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub due_children: Vec<crate::traps::DueChild>,
+    /// The menu under the tutorial menu and the tutorial's pages (`Game::show_tutorial`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub menu_under: Option<u16>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tutorial: Vec<FormId>,
+    /// What waits for the next frame's start: the engine saves after the frame's
+    /// [`Game::tick`] (`nvf-play` `write_saves` runs after `PlaySet::Sync`, the tick in
+    /// `PlaySet::Scripts`), so a save lands between the frame that filled these and the
+    /// one that runs them. SayToDone of SayTo calls with no line ([`Game::say`]) and
+    /// reference events the engine queued ([`Game::queue_ref_event`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub say_to_unsaid: Vec<(FormId, FormId)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub queued_ref_events: Vec<(FormId, u16, Option<FormId>)>,
+    /// Scripted doors whose open flag changed since [`Game::watch_doors`] last saw them:
+    /// the flag it saw. Doors it saw as they stand are left out (a door first seen after
+    /// a load is taken as it stands, which is the same).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub door_open_seen: BTreeMap<FormId, bool>,
 }
 
 impl GameSnapshot {
@@ -4489,6 +4512,12 @@ impl<'a> Game<'a> {
             securitron_faces: self.texture_swaps.securitron.clone(),
             fade_moves: self.script_looks.fade_moves.clone(),
             coop: self.coop.clone(),
+            due_children: self.due_children.clone(),
+            menu_under: self.menu_under,
+            tutorial: self.tutorial.clone(),
+            say_to_unsaid: self.say_to_unsaid.clone(),
+            queued_ref_events: self.queued_ref_events.clone(),
+            door_open_seen: self.door_open_seen.iter().filter(|&(&r, &seen)| self.world.peek(r).is_some_and(|s| s.open != seen)).map(|(&r, &seen)| (r, seen)).collect(),
         }
     }
 
@@ -4538,7 +4567,13 @@ impl<'a> Game<'a> {
         g.provocations.grudges = s.grudges.iter().copied().collect();
         g.provocations.forgiven = s.forgiven.clone();
         g.nav_switches = s.nav_switches.clone();
-        g.coop = crate::coop::checked(s.coop.clone()).map_err(|e| e.to_string())?;
+        g.due_children = s.due_children.clone();
+        g.menu_under = s.menu_under;
+        g.tutorial = s.tutorial.clone();
+        g.say_to_unsaid = s.say_to_unsaid.clone();
+        g.queued_ref_events = s.queued_ref_events.clone();
+        g.door_open_seen = s.door_open_seen.clone();
+        g.coop =crate::coop::checked(s.coop.clone()).map_err(|e| e.to_string())?;
         for (&on, texture) in &s.securitron_faces {
             g.texture_swaps.set_securitron(on, texture.clone());
         }
