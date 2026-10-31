@@ -720,7 +720,7 @@ mod tests {
             mass: 0.0,
             friction: 0.5,
             restitution: 0.0,
-            shape: Shape::Box { half_extents: half },
+            shape: Shape::Box { half_extents: half }.into(),
             shell: 0.0,
             material: None,
         };

@@ -4347,6 +4347,20 @@ order = [[
 ]]
 
 [[scenario]]
+name = "perk-spotter-boone-hired"
+source = "#1094 (owner's playtest): with Boone hired, Spotter highlights hostile actors while the player aims. Boone joins by his own hire line (VNPCFollowers INFO 0x000B16C8: SetPlayerTeammate, the follower variables, then player.AddPerk Spotting in its end script), not a test-aid perk (docs/spec-notes/perk-entry-points.md §13)"
+note = "as perk-spotter, but Boone (CraigBooneREF 0x00096BCE) is moved 200 units behind the player at 1.5 s and his hire line run at 2 s; then the Goodsprings dogs are set on the player (god mode) at 3 s and the player aims from 9 to 12 s"
+areas = ["perks", "effects", "companions"]
+paths = ["engine/nvf-play/src/perk_marks.rs", "crates/fnv-game/src/perks.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_SCRIPT = "1.5:moveto:0x00096BCE:player:0:-200:0,2:info:0x000B16C8:0x00096BCE,3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_CONTROL = "2:weapon,8.2:aimactor,8.95:aimactor", NVF_PLAY_TEST_KEYS = "9:mouse-right:3", NVF_PLAY_TEST_SHOTS = "10.5:spotter_boone_aiming.png" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 16
+order = [[
+  { re = 'perk marks: Spotter marks [1-9]\d* hostile actors while the player aims', label = "Spotter marks the dogs while the player aims, Boone hired" },
+  { re = 'effect shader: fxSpotterShader on .* while the player aims', label = "they play the Spotter Effect" },
+]]
+
+[[scenario]]
 name = "perk-search-and-mark"
 source = "perk audit 2026-10-23 §3.8, owner 2026-10-24 (the rest of the perks): Search and Mark, Rex's companion perk, highlights chems, guns and ammunition nearby while the player aims (docs/spec-notes/perk-entry-points.md §13)"
 note = "Doc Mitchell's house (quiet: outdoors the Goodsprings fiend dogs set on the player got in the way of the view), the 10mm Pistol drawn; the perk SearchAndMark at 3 s; a Stimpak (00015169) and a second 10mm Pistol given and dropped at 6 and 8 s (run-time references); the player looks down at them and aims from 11 to 14 s: both play fxSearchAndMark. Frames before and while aiming for the owner"
@@ -16449,6 +16463,48 @@ args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 14
 expect = [
   { re = 'script: print "nvf need NVF one"', label = "two seconds of HUD frames later the script's word is still there" },
+]
+
+[[scenario]]
+name = "pipboy-glove-vault-suit"
+source = "#1067 (docs/spec-notes/actors.md §2.3): the vault suits' BIPL list `BaseFemale` holds the bare hands (ARMA `BaseFemaleGloveL` lefthand.nif, `BaseFemaleGloveR` righthand.nif); with the always-worn Pip-Boy Glove (Left Hand) both left hands were drawn, overlapping. A bare-hand addon now gives way to a worn item in its slot"
+note = "the player wears the Vault 21 Jumpsuit (VaultSuit21 0x00104184) in Goodsprings; third person, the camera turned to the player's front at 6 s, a frame at 7 s (one left hand, the Pip-Boy Glove's)"
+areas = ["actors", "player-body"]
+paths = ["crates/fnv-actor/src/resolve.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "00104184", NVF_PLAY_TEST_CONTROL = "5:view,5.4:zoom=120,5.8:orbit=160:5", NVF_PLAY_TEST_SHOTS = "7:pipboy_glove_vault_suit.png" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm"]
+run_seconds = 9
+expect = [
+  { re = 'player body: armour drawn \["PipBoy", "PipBoyGlove", "VaultSuit21", "BaseFemaleGloveR"\]', label = "the suit with its right bare hand and the Pip-Boy Glove" },
+  { re = 'player body: armour drawn \[[^\]]*"BaseFemaleGloveL"', count = 0, label = "the suit's left bare hand is left out under the Pip-Boy Glove" },
+]
+
+[[scenario]]
+name = "pipboy-glove-leather"
+source = "#1067 (docs/spec-notes/actors.md §2.3): an outfit's glove addon (ArmorLeather's ArmorLeatherList: LeatherArmorGloveR, LeatherArmorGloveL) was drawn together with the always-worn Pip-Boy Glove's hand; a worn item whose every slot another item's addons take is now left out"
+note = "the player wears Leather Armor (ArmorLeather 0x00020423) in Goodsprings; third person, the camera turned to the player's front at 6 s, a frame at 7 s (one left hand, the leather glove)"
+areas = ["actors", "player-body"]
+paths = ["crates/fnv-actor/src/resolve.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "00020423", NVF_PLAY_TEST_CONTROL = "5:view,5.4:zoom=120,5.8:orbit=160:5", NVF_PLAY_TEST_SHOTS = "7:pipboy_glove_leather.png" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm"]
+run_seconds = 9
+expect = [
+  { re = 'player body: armour drawn \["PipBoy", "ArmorLeather", "LeatherArmorGloveR", "LeatherArmorGloveL"\]', label = "the leather armour and its gloves; the Pip-Boy Glove gives way to the left one" },
+]
+
+[[scenario]]
+name = "jukebox-tubes-off"
+source = "#1079 (docs/spec-notes/activators.md §3): switched off, the saloon jukebox's light tubes (JukeBox01:1, unlit shader) stayed lit at full texture brightness; the original's go dark [observed: owner 2026-10-30]. While off, every unlit shape the idle drives is drawn black: the opaque tubes go dark, the additive notes and bubbles vanish"
+note = "the jukebox seen from the test spot in front of it (NVF_PLAY_TEST_NEAR), on at 6 s (frame), switched off by E at 7 s, frame at 9 s, on again at 10 s, frame at 12 s"
+areas = ["activators", "rendering"]
+paths = ["engine/nvf-assets/src/material_anim.rs", "engine/nvforever/src/activators.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00107D73", NVF_PLAY_TEST_ACTIVATE = "7,10", NVF_PLAY_TEST_SHOTS = "6:jukebox_on.png,9:jukebox_off.png,12:jukebox_on_again.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages", "--hour", "21", "--size", "1280x720"]
+run_seconds = 14
+manual = "jukebox_off.png: the side tubes and arch dark, no notes or bubbles; jukebox_on.png and jukebox_on_again.png: bright cyan tubes"
+expect = [
+  { re = 'activator: 00107D73 \(JukeBoxDirtyNVCountry\) off: holds its idle, lights dark, unlit shapes black', label = "switched off: the lights and the unlit tubes go dark" },
+  { re = 'test aid: screenshot .*jukebox_on_again\.png', label = "the frames are saved" },
 ]
 
 [[scenario]]

@@ -2763,3 +2763,36 @@ fn jip_batch_four_reads_the_game_state() {
     let after = n(&mut g, "GetSessionTime");
     assert!(matches!((before, after), (XVal::Num(a), XVal::Num(b)) if b > a), "time goes on");
 }
+
+/// A save with the tutorial menu open over the Pip-Boy, a SayToDone and a reference
+/// event waiting for the next frame: all come back, and closing the tutorial after the
+/// load gives the Pip-Boy back (#1090). A save from before these fields still loads.
+#[test]
+fn the_tutorial_stack_and_next_frame_work_survive_a_save() {
+    use fnv_game::game::menus;
+    let f = fixture();
+    let mut g = game(&f);
+    g.open_menu(menus::STATS);
+    g.show_tutorial(FormId(MESSAGE));
+    g.say_to_unsaid.push((FormId(ACT_REF), FormId(MESSAGE)));
+    g.queue_ref_event(FormId(ACT_REF), 7, Some(FormId::PLAYER_REF));
+    let s = g.snapshot();
+    let text = serde_json::to_string(&s).unwrap();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&text).unwrap();
+    assert_eq!(back, s);
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let mut h = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!((h.menu, h.menu_under, h.tutorial.clone()), (Some(menus::TUTORIAL), Some(menus::STATS), vec![FormId(MESSAGE)]));
+    assert_eq!(h.say_to_unsaid, g.say_to_unsaid);
+    assert_eq!(h.queued_ref_events, g.queued_ref_events);
+    assert_eq!(h.close_menu(), Some(menus::TUTORIAL));
+    assert_eq!((h.menu, h.menu_under), (Some(menus::STATS), None), "the Pip-Boy is back");
+    let mut old: serde_json::Value = serde_json::from_str(&text).unwrap();
+    for k in ["menu_under", "tutorial", "say_to_unsaid", "queued_ref_events"] {
+        assert!(old.as_object_mut().unwrap().remove(k).is_some(), "{k} is written");
+    }
+    let old: fnv_game::game::GameSnapshot = serde_json::from_value(old).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &old.sim).unwrap();
+    let h = Game::restore(&f.data, world, g.cfg, &old).unwrap();
+    assert!(h.tutorial.is_empty() && h.menu_under.is_none());
+}

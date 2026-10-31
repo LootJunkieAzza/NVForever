@@ -105,12 +105,20 @@ groups FalloutNV.esm's scripts play on which objects.
   - Idle-only models (the jukeboxes): the idle plays while on; while off it stands
     still and the emissive tracks' shapes are drawn dark [hypothesis: by analogy with the
     radios; the model has no off look, and the owner expects the jukebox to light up
-    when on]. Unlit shapes (the jukebox's tubes, notes, bubbles) keep their texture: the
-    unlit shader ignores emissive (nif.md §6).
+    when on]. The unlit shader ignores emissive (nif.md §6), so every unlit shape the
+    idle drives (the jukebox's light tubes `JukeBox01:1`, opaque; the notes `Music` and
+    `Bubbles`, additive: NiAlphaProperty 4097) is drawn black while off (alpha 0 if
+    blended), and gets its stored colour back when on. The original's tubes go dark when
+    switched off [observed: owner 2026-10-30, #1079]; the notes and bubbles vanishing
+    with them is [hypothesis]. Before, the tubes froze at full texture brightness.
+    Tube crop from the `NVF_PLAY_TEST_NEAR` spot (smoke `jukebox-tubes-off`), mean
+    (R, G, B): off 12.0, 15.9, 9.4 where it was 57.5, 107.3, 81.3; on 37–46, 65–85,
+    49–64 with the flicker [observed in NVForever, 2026-10-31]. `JukeBoxDirtyNVCountry`
+    and `jukeboxclean01.nif` go by the same rule.
   - Without `--play` (no runtime) nothing is driven: idles play, Open/Close models
     keep their stored look.
 - Log: `activator: <ref> (<base>) on|off: plays Open (0.67 s) | plays its idle | holds
-  its idle, lights dark | keeps its stored look`, and at exit `activator summary: N
+  its idle, lights dark, unlit shapes black | keeps its stored look`, and at exit `activator summary: N
   receivers drawn with an on/off look; switched on N times, off N times while drawn`.
 - Smoke test (CLAUDE.md, the radio test): in the Prospector Saloon the jukebox is
   switched on by its OnLoad ("on: plays its idle"), off at 20 s ("holds its idle,
@@ -126,8 +134,9 @@ groups FalloutNV.esm's scripts play on which objects.
   `LoopGroup` (§5); the slot machines' "Off"; `NiAlphaController`, `NiVisController`,
   `SPEC` colour, texture scale and rotate, morph and particle controllers in sequences;
   controllers outside sequences; the Open/Close sound keys (none on the receivers).
-- Capture questions for the owner: the saloon jukebox switched off in game — does it
-  go dark, freeze lit, or keep animating? A vintage radio switched on and off — does
+- Capture questions for the owner: the saloon jukebox switched off in game — answered:
+  its glow tube goes dark (owner 2026-10-30, #1079; §3). Do its notes and bubbles go
+  too? A vintage radio switched on and off — does
   the dial flicker on and off as Open and Close say? Which way the jukebox's music notes
   scroll.
 

@@ -329,6 +329,24 @@ R ForeTwist`) ends at x 43.4 where the base leather armour's (454 vertices, boun
 the glove (`RightGlove`, x 40.9–54.6) covers it [observed: the NIFs' vertex bounds in
 the bind pose].
 
+**One hand model per hand** (#1067, owner 2026-10-30: with the vault suit the player's left
+hand was drawn twice, overlapping). The always-worn Pip-Boy Glove (`PipBoyGlove` 0x00025B83,
+Left Hand, `Characters\_Male\LeftHandPipboyGlove.NIF`) shares its slot with addons
+[observed: FalloutNV.esm]:
+- The vault suits (`VaultSuit21` 0x00104184 and the rest, Upper Body) name the list
+  `BaseFemale` (0x0011AFDB): `BaseFemaleGloveR` (Right Hand, `characters\_male\righthand.nif`)
+  and `BaseFemaleGloveL` (Left Hand, `lefthand.nif`), the race's own bare hand models.
+- The gloved outfits and power armours name glove addons of their own (`LeatherArmorGloveL`,
+  `PowerArmorLeftHand`, `NVRangerGloveL`, … : 50-odd hand ARMA, BMDT general flags 0x10 on
+  most, which tells the two kinds apart in no way).
+
+Rules [hypothesis; owner's report for the vault suit]: an addon whose model is the race's
+own hand for the actor's sex gives way to another worn item taking its slot itself, as the
+race's hand does (the vault suit shows the Pip-Boy Glove's hand); a worn item whose every
+slot other items' addons take is not drawn (the Pip-Boy Glove gives way to an outfit's
+glove or a power armour's gauntlet). The first-person rig takes the same parts. Smoke:
+`pipboy-glove-vault-suit`, `pipboy-glove-leather`.
+
 ### 2.4 Parts
 
 `covered` = the union of the worn items' biped flags. Parts, in this order:
