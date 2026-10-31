@@ -123,30 +123,34 @@ pub fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
     // aiming changed one: ReticleCenter 0, EnemyHealth 8 [observed: hud.md §14.1].
     // The corners, AmmoTypeLabel and CNDArrows were seen shown only [hypothesis: the
     // same]. With the root hidden they read 0 [observed: hud.md §14.3]. Pieces we do
-    // not draw keep the file's visible [design].
+    // not draw keep the file's visible [design]. The corner pieces (the two corners,
+    // the radiation meter, the ammo label and the condition arrows) also read 0 while
+    // `shown.corners` is off (movement lock, portrait, held camera, weapon wheel), as
+    // the hand-built HUD hides them then (#980) [design; not captured in the original].
     let reticle = if shown.reticle && !shown.aiming { 64.0 } else { 0.0 };
     let enemy = if shown.aiming { 8.0 } else { 1.0 };
-    for (name, value) in [
-        ("ActionPoints", 1.0),
-        ("HitPoints", 2.0),
-        ("RadiationMeter", 4.0),
-        ("QuestReminder", 16.0),
-        ("Region_Location", 32.0),
-        ("ReticleCenter", reticle),
-        ("SneakMeter", 128.0),
-        ("Messages", 256.0),
-        ("Info", 512.0),
-        ("Subtitles", 1024.0),
-        ("XPMeter", 4096.0),
-        ("BreathMeter", 8192.0),
-        ("crippled_limb_indicator", 32768.0),
-        ("HardcoreMode", 65536.0),
-        ("EnemyHealth", enemy),
-        ("AmmoTypeLabel", 1.0),
-        ("CNDArrows", 1.0),
+    for (name, value, corner) in [
+        ("ActionPoints", 1.0, true),
+        ("HitPoints", 2.0, true),
+        ("RadiationMeter", 4.0, true),
+        ("QuestReminder", 16.0, false),
+        ("Region_Location", 32.0, false),
+        ("ReticleCenter", reticle, false),
+        ("SneakMeter", 128.0, false),
+        ("Messages", 256.0, false),
+        ("Info", 512.0, false),
+        ("Subtitles", 1024.0, false),
+        ("XPMeter", 4096.0, false),
+        ("BreathMeter", 8192.0, false),
+        ("crippled_limb_indicator", 32768.0, false),
+        ("HardcoreMode", 65536.0, false),
+        ("EnemyHealth", enemy, false),
+        ("AmmoTypeLabel", 1.0, true),
+        ("CNDArrows", 1.0, true),
     ] {
         if let Some(tile) = ui.find_tile(&format!("HUDMainMenu/{name}")) {
-            ui.set_trait(tile, "visible", Value::Num(if shown.root { value } else { 0.0 }));
+            let on = shown.root && (!corner || shown.corners);
+            ui.set_trait(tile, "visible", Value::Num(if on { value } else { 0.0 }));
         }
     }
     // What shows is the children's alpha: the sneak word while sneaking, the radiation
