@@ -91,6 +91,11 @@ nvfairport; goldens private). They read to eight or ten decimals, more than the 
 ## 5. PrintActiveTile
 
 The highlighted tile's name, printed on the console [documented: PrintActiveTile, "Prints
-name of highlighted UI component"]; nothing with none. The highlighted tile is the tile
-tree's pointer's (`Game::ui_pointer`, #957), as GetActiveUIComponentName reads it. The
-console's exact line is not documented: the name alone [hypothesis].
+name of highlighted UI component"]; nothing with none [hypothesis]. The highlighted tile
+is the tile tree's pointer's (`Game::ui_pointer`, #957), as GetActiveUIComponentName reads
+it. The console's exact line is not documented: the name alone [hypothesis].
+
+## 6. Not a function
+
+- `eval` is the if-statement form (ext-syntax.md), built in the compiler; the census
+  counts it only because it calls every catalogue name as a function.
