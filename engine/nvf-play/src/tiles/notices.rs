@@ -372,15 +372,41 @@ pub fn texts(ui: &Ui) -> Vec<TileId> {
 /// wrapped text is as wide as its widest line [hypothesis: hud.md §14.11 read `Messages/*:1`
 /// 281 wide, under the 330 the hand-built HUD wraps at; the width of a copy holding a
 /// wrapped string was not read].
-pub fn write_widths(ui: &mut Ui, measure: &dyn Fn(f64, &str, Option<f64>) -> f64) {
-    for tile in texts(ui) {
+///
+/// `last` keeps what each copy was last measured from: a copy whose string, font, wrap
+/// width and written width are all as they were is not measured again (#1062; seven or
+/// more text layouts a frame otherwise, with nothing changed).
+pub fn write_widths(ui: &mut Ui, last: &mut WidthsWritten, measure: &dyn Fn(f64, &str, Option<f64>) -> f64) {
+    let tiles = texts(ui);
+    last.retain(|id, _| tiles.contains(id));
+    for tile in tiles {
         let t = ui.tile(tile);
         let Some(string) = t.get("string").map(Value::text) else { continue };
         let font = t.get("font").map_or(0.0, Value::num);
         let wrap = t.get("wrapwidth").map(Value::num).filter(|w| *w > 0.0);
-        ui.set_trait(tile, "width", Value::Num(measure(font, &string, wrap)));
+        let width = t.get("width").map(Value::num);
+        if let Some(w) = last.get(&tile) {
+            if w.string == string && w.font == font && w.wrap == wrap && Some(w.width) == width {
+                continue;
+            }
+        }
+        let width = measure(font, &string, wrap);
+        ui.set_trait(tile, "width", Value::Num(width));
+        last.insert(tile, Written { string, font, wrap, width });
     }
 }
+
+/// What a text copy's width was last measured from, and the width written.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Written {
+    string: String,
+    font: f64,
+    wrap: Option<f64>,
+    width: f64,
+}
+
+/// [`Written`] by copy, for [`write_widths`].
+pub type WidthsWritten = std::collections::HashMap<TileId, Written>;
 
 /// A line for the log when what an area shows changes (smoke reads these).
 pub fn describe(n: &Notices) -> [Option<String>; 4] {
@@ -661,7 +687,7 @@ mod tests {
         // The measure echoes what it was given: ten units a character, held to the wrap,
         // plus the font as a hundred.
         let measure = |font: f64, text: &str, wrap: Option<f64>| (10.0 * text.chars().count() as f64).min(wrap.unwrap_or(f64::MAX)) + 100.0 * font;
-        write_widths(&mut ui, &measure);
+        write_widths(&mut ui, &mut WidthsWritten::new(), &measure);
         let width = |t: TileId| ui.tile(t).get("width").map(Value::num);
         assert_eq!(width(copies(&ui, "Messages", "text")[0]), Some(140.0 + 700.0));
         let objectives = copies(&ui, "QuestReminder", "objective");
@@ -674,6 +700,42 @@ mod tests {
         assert!(copies(&ui, "QuestReminder", "label").iter().all(|&t| width(t).is_none()));
         // Pictures are not texts: the boxes, the icon and the bracket get no width written.
         assert!(copies(&ui, "QuestReminder", "open_box").iter().all(|&b| ui.tile(b).get("width").map(Value::num) == Some(26.0)));
+    }
+
+    /// #1062: a copy is measured again only when its string, font or wrap width changed,
+    /// or its width was written over; unchanged copies keep theirs without a layout.
+    #[test]
+    fn widths_are_measured_only_when_a_text_changed() {
+        use std::cell::Cell;
+        let mut ui = hud();
+        write(&mut ui, &Notices { subtitles: vec!["Hi.".into()], ..message("Bomb disarmed.", 1.0) }, &lines);
+        let calls = Cell::new(0);
+        let measure = |_: f64, text: &str, _: Option<f64>| {
+            calls.set(calls.get() + 1);
+            10.0 * text.chars().count() as f64
+        };
+        let mut last = WidthsWritten::new();
+        write_widths(&mut ui, &mut last, &measure);
+        assert_eq!(calls.get(), 2);
+        // Nothing changed: no layout.
+        write(&mut ui, &Notices { subtitles: vec!["Hi.".into()], ..message("Bomb disarmed.", 1.0) }, &lines);
+        write_widths(&mut ui, &mut last, &measure);
+        assert_eq!(calls.get(), 2);
+        // A new subtitle: only it is measured.
+        write(&mut ui, &Notices { subtitles: vec!["Hello.".into()], ..message("Bomb disarmed.", 1.0) }, &lines);
+        write_widths(&mut ui, &mut last, &measure);
+        assert_eq!(calls.get(), 3);
+        let subtitle = copies(&ui, "Subtitles", "text")[0];
+        assert_eq!(ui.tile(subtitle).get("width").map(Value::num), Some(60.0));
+        // A width written over (a script, a reloaded tree): measured again.
+        ui.set_trait(subtitle, "width", Value::Num(1.0));
+        write_widths(&mut ui, &mut last, &measure);
+        assert_eq!((calls.get(), ui.tile(subtitle).get("width").map(Value::num)), (4, Some(60.0)));
+        // A changed font too.
+        let text = copies(&ui, "Messages", "text")[0];
+        ui.set_trait(text, "font", Value::Num(3.0));
+        write_widths(&mut ui, &mut last, &measure);
+        assert_eq!(calls.get(), 5);
     }
 
     #[test]
