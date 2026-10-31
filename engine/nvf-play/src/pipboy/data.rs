@@ -44,7 +44,7 @@ mod outline;
 pub(crate) mod read;
 pub mod travel;
 
-use super::frame::{base, Align, Ctx, Kit, FADE, FILL, LINE, MAIN, TEXT, THICK};
+use super::frame::{Align, Ctx, Kit, FADE, FILL, LINE, MAIN, TEXT, THICK};
 use super::{Page, PageBody, PipBoy, PipBoyAid, PipBoyInput, PipBoyScreen};
 use crate::interface::{pipboy_amber as amber, at, u};
 use crate::menu::model::Command;
@@ -79,7 +79,6 @@ const RADIO: usize = 4;
 /// Heading: the title 70 in after a line of 50; a line from 180, 470 long; the place
 /// right-aligned at 630 and the time at 845, both 20 down in font 2; lines fading down at
 /// 650 and 855, a line from 660 to the end.
-const TITLE_X: f32 = 70.0;
 const LEAD_LINE: f32 = 50.0;
 const LINE2: (f32, f32) = (180.0, 470.0);
 const PLACE_X: f32 = 630.0;
@@ -1540,9 +1539,10 @@ fn heading(p: &mut ChildSpawnerCommands, c: &mut Ctx, place: &str, when: &str) {
     let bright = amber(TEXT);
     c.fade(p, x0, y0, FADE, false, line);
     c.line(p, x0, y0, LEAD_LINE, THICK, line);
-    let title_top = y0 - base(&c.kit.face(4).font) + THICK;
-    let w = c.text(p, 4, Page::Data.title(), x0 + TITLE_X, title_top, Align::Left, bright);
-    let from = LINE2.0.max(TITLE_X + w + 20.0);
+    // The title, or in the screen menu nothing (the header stands there) and the line
+    // runs on from the lead line (`frame::heading_title`).
+    let after = super::frame::heading_title(p, c, Page::Data.title()) - x0;
+    let from = if c.kit.screen { LEAD_LINE } else { LINE2.0.max(after) };
     c.line(p, x0 + from, y0, LINE2.0 + LINE2.1 - from, THICK, line);
     c.text(p, 2, place, x0 + PLACE_X, y0 + HEAD_TEXT_Y, Align::Right, bright);
     c.fade(p, x0 + SPLIT_X, y0, FADE, false, line);
