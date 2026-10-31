@@ -357,6 +357,7 @@ impl Plugin for PlayerPlugin {
             .init_resource::<PerkSpeed>()
             .init_resource::<ReloadPace>()
             .init_resource::<Lunge>()
+            .add_systems(Update, take_knockbacks.after(PlaySet::Input).before(PlaySet::Physics))
             .init_resource::<crate::control::DetachedCamera>()
             .add_systems(
                 Update,
@@ -665,6 +666,40 @@ pub struct Lunge {
     pub carrying: bool,
     /// Where the feet were when it started, for the log at its end.
     from: Option<[f32; 3]>,
+    /// A melee blow's knockback on the player and its seconds left
+    /// (`crate::combat::Knockback`), with where the feet were when it began.
+    knock: Option<(crate::combat::Knockback, f32, Option<[f32; 3]>)>,
+}
+
+impl Lunge {
+    /// Be pushed back by `k`; a new knockback takes over from one still going [design].
+    pub fn knock(&mut self, k: crate::combat::Knockback) {
+        self.knock = Some((k, k.secs, None));
+    }
+
+    /// The knockback's velocity (game x, y) over a step of `dt` seconds at `feet`, using
+    /// that time up; logged when it ends.
+    fn knock_step(&mut self, dt: f32, feet: [f32; 3]) -> [f32; 2] {
+        let Some((k, left, from)) = self.knock.as_mut() else { return [0.0; 2] };
+        let from = *from.get_or_insert(feet);
+        if *left <= 0.0 || dt <= 0.0 {
+            info!("player: knockback done: {:.0} units of {:.0} from where it started", (feet[0] - from[0]).hypot(feet[1] - from[1]), k.distance());
+            self.knock = None;
+            return [0.0; 2];
+        }
+        let v = k.step(*left, dt) / dt;
+        *left -= dt;
+        [k.dir[0] * v, k.dir[1] * v]
+    }
+}
+
+/// Melee blows' knockbacks on the player start here (`Lunge::knock`).
+fn take_knockbacks(knocks: Option<MessageReader<crate::combat::Knockback>>, mut lunge: ResMut<Lunge>) {
+    let Some(mut knocks) = knocks else { return };
+    for k in knocks.read().filter(|k| k.form_id == FormId::PLAYER_REF.0) {
+        info!("player: knocked back at {:.0} units/s for {:.2} s ({:.0} units)", k.speed, k.secs, k.distance());
+        lunge.knock(*k);
+    }
 }
 
 /// Mouse look while the cursor is grabbed, or with a controller working the controls the
@@ -1113,7 +1148,9 @@ fn step(
                 lunge.from = Some(c.feet);
             }
             let l = if lunge.carrying { lunge.carry } else { [0.0; 2] };
-            [x * k + l[0], y * k + l[1], 0.0]
+            // A blow's knockback pushes the player back (`crate::combat::Knockback`).
+            let kb = lunge.knock_step(dt, c.feet);
+            [x * k + l[0] + kb[0], y * k + l[1] + kb[1], 0.0]
         };
         // Turbo slows the world's clock, not the player: its own movement goes faster by
         // the clock's inverse; falling and jumping stay on the clock (magic-archetypes.md

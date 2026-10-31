@@ -495,6 +495,51 @@ pub struct ActorPush {
     pub dv: [f32; 3],
 }
 
+/// A melee blow's knockback on the living actor it struck (docs/spec-notes/
+/// combat-rules.md, "Knockback"): the Melee Knockback Formula's force read as the speed it
+/// pushes the actor at, units per second, falling evenly to rest over fKnockbackTime
+/// (`secs`), so it travels `speed × secs / 2` [design]; `dir` is the way, along the
+/// ground (game x, y, a unit vector). Whoever moves the actor pushes it through its
+/// character, so walls and actors stop it: `crate::player::Lunge::knock` for the player,
+/// nvforever's residents for the others.
+#[derive(Message, Clone, Copy, Debug, PartialEq)]
+pub struct Knockback {
+    pub form_id: u32,
+    pub dir: [f32; 2],
+    pub speed: f32,
+    pub secs: f32,
+}
+
+impl Knockback {
+    /// A knockback on `form_id` by a blow going along `dir` (game space; only its ground
+    /// part counts), with the formula's `force`; `None` for a blow straight down or up
+    /// or no force.
+    pub fn of(form_id: u32, dir: V3, force: f32, secs: f32) -> Option<Knockback> {
+        let len = dir[0].hypot(dir[1]);
+        (len > 1e-3 && force > 0.0 && secs > 0.0).then(|| Knockback { form_id, dir: [dir[0] / len, dir[1] / len], speed: force, secs })
+    }
+
+    /// How far it pushes in all, game units.
+    pub fn distance(&self) -> f32 {
+        self.speed * self.secs / 2.0
+    }
+
+    /// The speed `left` seconds before its end (falling evenly to 0).
+    pub fn speed_at(&self, left: f32) -> f32 {
+        if self.secs <= 0.0 {
+            return 0.0;
+        }
+        self.speed * (left / self.secs).clamp(0.0, 1.0)
+    }
+
+    /// How far it pushes over a step of `dt` seconds from `left` seconds before its end
+    /// (the exact share of the falling speed's ground).
+    pub fn step(&self, left: f32, dt: f32) -> f32 {
+        let to = (left - dt).max(0.0);
+        (self.speed_at(left) + self.speed_at(to)) / 2.0 * (left.max(0.0) - to)
+    }
+}
+
 /// How fast an explosion's knockdown throws the body away from the blast, game units per
 /// second [design: the EXPL force is not converted].
 pub const BLAST_KNOCKDOWN_SPEED: f32 = 300.0;
@@ -1351,6 +1396,7 @@ impl Plugin for CombatPlugin {
             .add_message::<ActorHit>()
             .add_message::<ForcedHitReaction>()
             .add_message::<ActorPush>()
+            .add_message::<Knockback>()
             .add_message::<WeaponBroken>()
             .add_message::<ActorFire>()
             .add_message::<ActorStrike>()
@@ -3227,7 +3273,7 @@ fn melee(
     (mut messages, mut pushes, mut broken, mut forced): (MessageWriter<ActorHit>, MessageWriter<ActorPush>, MessageWriter<WeaponBroken>, MessageWriter<ForcedHitReaction>),
     (parts, limbs): (Res<ActorParts>, Res<PlayerLimbs>),
     (sfx, mut sounds, mut impacts): (Option<Res<Sfx>>, MessageWriter<PlaySound>, MessageWriter<ImpactFx>),
-    (mut vats, mut dm): (Option<ResMut<crate::vats_mode::VatsMode>>, ResMut<crate::dismember::Dismemberment>),
+    (mut vats, mut dm, mut knocks): (Option<ResMut<crate::vats_mode::VatsMode>>, ResMut<crate::dismember::Dismemberment>, MessageWriter<Knockback>),
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -3465,6 +3511,12 @@ fn melee(
                     forced.write(ForcedHitReaction { form_id: target.0, location, by: m.name });
                 }
             }
+            // A living actor struck is pushed back by the knockback (module notes).
+            if r.as_ref().is_some_and(|r| !r.died && !r.immune && !r.knocked_out) {
+                if let Some(k) = Knockback::of(target.0, player.look_dir(), push, c.rules.knockback_time) {
+                    knocks.write(k);
+                }
+            }
             if r.as_ref().is_some_and(|r| !r.died && !r.immune) {
                 // Legion Assault knocks back (no DOBJ spell); the Knockdown Chance perks
                 // (Super Slam, Elijah's Last Words) may knock the target down.
@@ -3620,7 +3672,7 @@ fn actor_attacks(
     (mut shots, mut blows): (MessageReader<ActorFire>, MessageReader<ActorStrike>),
     (mut fired, mut sounds, mut messages, mut pushes): (MessageWriter<ShotFired>, MessageWriter<PlaySound>, MessageWriter<ActorHit>, MessageWriter<ActorPush>),
     sfx: Option<Res<Sfx>>,
-    (mut impacts, mut broken): (MessageWriter<ImpactFx>, MessageWriter<WeaponBroken>),
+    (mut impacts, mut broken, mut knocks): (MessageWriter<ImpactFx>, MessageWriter<WeaponBroken>, MessageWriter<Knockback>),
     (control, anim, player): Guard,
     mut dm: ResMut<crate::dismember::Dismemberment>,
 ) {
@@ -3796,6 +3848,14 @@ fn actor_attacks(
         spread_hit_areas(script.as_deref_mut(), &mut sim, &mut stats, b.target, &items, info.attacker);
         if r.as_ref().is_none_or(|r| !r.immune) {
             wear_armor(c, &mut sim, &mut stats, b.target, Zone::Body, d.raw);
+        }
+        // A living actor struck (the player too) is pushed back by the knockback.
+        if r.as_ref().is_some_and(|r| !r.died && !r.immune && !r.knocked_out) {
+            let agility = actor_av(script.as_deref_mut(), &mut sim, b.target, fnv_game::actor_values::AGILITY).unwrap_or(5.0);
+            let force = damage::knockback_force(&c.rules, d.dealt, agility);
+            if let Some(k) = Knockback::of(b.target.0, b.dir, force, c.rules.knockback_time) {
+                knocks.write(k);
+            }
         }
         if b.target != FormId::PLAYER_REF {
             if let Some(r) = r {
@@ -4585,6 +4645,25 @@ fn sound_edid(sfx: Option<&Sfx>, sound: FormId) -> String {
 mod tests {
     use super::*;
     use crate::phys::NpcBody;
+
+    #[test]
+    fn a_knockback_pushes_half_its_force_over_its_time() {
+        // A Sledgehammer blow of 14 on Agility 5: force 114 (combat-rules.md, Knockback).
+        let r = fnv_combat::tuning::Rules::defaults();
+        let force = damage::knockback_force(&r, 14.0, 5.0);
+        assert!((force - 114.0).abs() < 0.5, "{force}");
+        let k = Knockback::of(7, [0.0, 2.0, -1.0], force, 1.0).unwrap();
+        assert_eq!(k.dir, [0.0, 1.0]);
+        let dt = 1.0 / 60.0;
+        let (mut left, mut far) = (k.secs, 0.0);
+        while left > 0.0 {
+            far += k.step(left, dt);
+            left -= dt;
+        }
+        assert!((far - k.distance()).abs() < 1e-2 && (far - 57.0).abs() < 0.5, "{far}");
+        // Straight down, or with no force: no push.
+        assert!(Knockback::of(7, [0.0, 0.0, -1.0], force, 1.0).is_none() && Knockback::of(7, [1.0, 0.0, 0.0], 0.0, 1.0).is_none());
+    }
 
     /// The laser rifle's beam (BeamLaserProjectile, Fade Duration 0.14 s) is drawn in
     /// full when made, at half strength half way through and not at all at the end; a

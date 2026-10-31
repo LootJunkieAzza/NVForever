@@ -651,3 +651,16 @@ The numbers above stay put so links to them hold; each item here gives its own p
     every game loop from the marker: does he stand until the cheer ends, walk off after
     1 s with the cheer cut short, or slide with it playing? And `IsIdlePlaying` at the
     moment he sets off. ([idles §15](../spec-notes/idles.md))
+
+## Added 2026-10-31 (melee knockback, issue #1070)
+
+58. **How far a melee blow pushes a living actor, and for how long** (P2: every melee
+    fight). NVForever reads the Melee Knockback Formula's force (fKnockbackDamageMult 10,
+    fKnockbackDamageBase 50, fKnockbackAgilMult -0.008, fKnockbackAgilBase 1, at most
+    fKnockbackForceMax 512) as a speed in units/s that falls evenly to rest over
+    fKnockbackTime (1 s), so a blow pushes force / 2 units: a Sledgehammer blow of 14
+    damage on Agility 5 pushes 57 units [design]. To check: in Goodsprings, hit a
+    standing settler (Agility known) with a Sledgehammer, normal and power attack, from
+    the front; sample its position every game loop for 1.5 s after the hit: the distance,
+    how long it moves, and whether the speed falls off. The same with a deathclaw's
+    swipe on the player (god mode). ([combat-rules, Knockback](../spec-notes/combat-rules.md))

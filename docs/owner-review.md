@@ -94,6 +94,11 @@ the spec it links to.
     reach); the yao guai's standing power attack (305 units) so still slides back. If you
     rule otherwise: every travelling blow carries, and the AI must step back after it.
     ([actors §8.13](spec-notes/actors.md))
+37. **Melee knockback distance.** A melee blow that leaves its target standing pushes it
+    back through its collision: the knockback formula's force read as a speed falling to
+    rest over 1 s, so force / 2 units (a Sledgehammer hit about 57, a punch 24, a
+    deathclaw swipe up to 256). Our reading of the formula, not measured in the original:
+    more, less, or only on power attacks? ([combat-rules, Knockback](spec-notes/combat-rules.md))
 
 ## Tier 2: movement and controls feel
 

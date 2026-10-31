@@ -16569,3 +16569,17 @@ expect = [
   { re = 'FF\w{6}: its attack clip carried it (\d+) units of', range = [40, 1000], label = "a carried blow moves the deathclaw's character forward and leaves it there" },
   { re = 'ai: attack clips carried actors in ([1-9]\d*) actor updates', label = "attack clips carried an actor" },
 ]
+[[scenario]]
+name = "melee-knockback"
+source = "#1070 (docs/spec-notes/combat-rules.md, Knockback): a melee blow pushes the living actor it hits back through its character, by the Melee Knockback Formula's force (a speed falling to rest over fKnockbackTime)"
+note = "the combat-block-break NCR trooper 0x000F36F5 (no weapon drawn, --actor-weapons none) put 90 units north of the god-mode player at 6 s and 9 s, not set on the player; 0.8 s later the player, fists drawn, turns to it and holds Use 1.5 s (a power attack); each blow that lands pushes it back"
+areas = ["combat", "melee"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/player.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "6:moveto:0x000F36F5:player:0:90:0,9:moveto:0x000F36F5:player:0:90:0", NVF_PLAY_TEST_CONTROL = "3:weapon,6.8:aimnpc,6.9:fire,8.4:fire,9.8:aimnpc,9.9:fire,11.4:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "none", "--plugins", "FalloutNV.esm"]
+run_seconds = 15
+expect = [
+  { re = 'knockback: 000F36F5 knocked back at \d+ units/s for 1[.]00 s', label = "the blow's knockback starts on the trooper" },
+  { re = 'knockback: .*000F36F5 pushed back (\d+) units of', range = [10, 300], label = "the trooper is pushed back through its character" },
+  { re = 'knockback summary: ([1-9]\d*) knockbacks on actors', label = "knockbacks in the summary" },
+]

@@ -557,8 +557,28 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
   [hypothesis: the game's unarmed weapon form]. The Fists do 0 base damage, so a punch is
   the UnarmedDamage actor value (0.5 + 0.05 × Unarmed) [documented].
 - **Knockback.** The force is computed with the documented Melee Knockback Formula and
-  logged. Living actors are not pushed until they move physically (AI work). A dead
-  actor's ragdoll is shoved by every shot and blow that lands on it (ragdoll.md §4).
+  logged. A dead actor's ragdoll is shoved by every shot and blow that lands on it
+  (ragdoll.md §4). A living actor (the player, an NPC, a creature) struck by a melee or
+  unarmed blow that leaves it alive and on its feet (not knocked down or out) is pushed
+  back (#1070, `nvf_play::combat::Knockback`):
+  - **Force to motion** [design; the original's not measured, observer-checks.md #58]:
+    the force is the speed it is pushed at, units per second, falling evenly to rest over
+    fKnockbackTime (1 s in FalloutNV.esm [documented: GMST]), so it travels force × time
+    / 2: a Sledgehammer blow of 14 damage on Agility 5 (force 114) 57 units, a punch of 3
+    (force 48) 24, the cap (512) 256. A power attack deals more damage and so pushes
+    further; nothing else multiplies it.
+  - **Which way**: the blow's direction along the ground (the player's: the view's; an
+    NPC's: from it to its target).
+  - **How**: through the actor's character, as an attack clip's travel (actors.md §8.13):
+    the player's character controller (`player::Lunge::knock`), an NPC's or creature's
+    character in `residents` (one is made if it has none), so walls and other actors stop
+    it; the pushed actor pushes nobody aside. A new blow's knockback replaces one still
+    going [design]. It goes on through the stagger a blow starts (hit reactions hold the
+    walk, not the push); a knockdown throws the ragdoll instead.
+  - Logged: `knockback: <id> knocked back at <v> units/s for <s> s (<d> units)` and, at
+    its end, `knockback: … pushed back <n> units of <d>, from … to …` (the player:
+    `player: knocked back …`, `player: knockback done: …`); `knockback summary` at exit.
+    Smoke `melee-knockback`.
 - **Blocking.** `damage::blocked` takes `block` (60 %) off a melee hit taken while
   blocking [design]. Nothing attacks the player yet; NPC melee (Layer 6 AI) will use it.
 - **The body.** A power attack plays `{prefix}attackpower.kf` (`1hmattackpower.kf`,

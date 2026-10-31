@@ -709,6 +709,11 @@ struct Core {
     /// Updates in which an attack carried an actor; times it could not be (no
     /// character); for the summary.
     carries: [usize; 2],
+    /// Melee blows' knockbacks pushing actors (`nvf_play::combat::Knockback`): each with
+    /// its seconds left and where the actor's feet were when it began ([`Core::knock`]).
+    knocks: HashMap<u32, (nvf_play::combat::Knockback, f32, [f32; 3])>,
+    /// Knockbacks begun and their distance in all (asked), for the summary.
+    knocked: (usize, f32),
     /// Load doors used since the last frame: actor, door, the door it leads to.
     door_uses: Vec<(FormId, u32, u32)>,
     /// People in Combat (standing, closing in, going to a flank or a step back, in and
@@ -834,6 +839,8 @@ impl Residents {
             travel: HashMap::new(),
             carried: HashMap::new(),
             carries: [0; 2],
+            knocks: HashMap::new(),
+            knocked: (0, 0.0),
             door_uses: Vec::new(),
             aims: HashMap::new(),
         };
@@ -1242,6 +1249,52 @@ impl Core {
         }
     }
 
+    /// Melee blows' knockbacks (docs/spec-notes/combat-rules.md, "Knockback"): each
+    /// pushes its actor over this frame by its falling speed, through the same character
+    /// as an attack clip's travel ([`Core::carry`]), so walls and actors stop it. Logged
+    /// when it ends: how far the actor got of the distance asked.
+    fn knock(&mut self, game: &Game, phys: Option<&PhysState>, dt: f32) {
+        let mut over = Vec::new();
+        for (&id, (k, left, from)) in self.knocks.iter_mut() {
+            let feet = phys.and_then(|p| p.npcs.get(&id)).map(|b| b.ch.feet).or_else(|| self.ai.agents.get(&FormId(id)).map(|a| a.walker.feet)).unwrap_or(*from);
+            if *left <= 0.0 {
+                over.push((id, k.distance(), *from, feet));
+                continue;
+            }
+            let d = k.step(*left, dt);
+            *left -= dt;
+            let t = self.travel.entry(id).or_default();
+            t[0] += k.dir[0] * d;
+            t[1] += k.dir[1] * d;
+        }
+        for (id, asked, from, to) in over {
+            self.knocks.remove(&id);
+            info!(
+                "knockback: {} {id:08X} pushed back {:.0} units of {asked:.0}, from ({:.0}, {:.0}, {:.0}) to ({:.0}, {:.0}, {:.0})",
+                game.data.name(FormId(id)),
+                (to[0] - from[0]).hypot(to[1] - from[1]),
+                from[0],
+                from[1],
+                from[2],
+                to[0],
+                to[1],
+                to[2]
+            );
+        }
+    }
+
+    /// A melee blow's knockback on `k.form_id` begins (one still going is replaced
+    /// [design]); not for the player (`nvf_play::player::Lunge::knock`) nor an actor
+    /// that is not a resident.
+    fn begin_knock(&mut self, k: nvf_play::combat::Knockback) {
+        let Some(a) = self.ai.agents.get(&FormId(k.form_id)) else { return };
+        let from = self.knocks.get(&k.form_id).map_or(a.walker.feet, |(_, _, f)| *f);
+        self.knocks.insert(k.form_id, (k, k.secs, from));
+        self.knocked.0 += 1;
+        self.knocked.1 += k.distance();
+        info!("knockback: {:08X} knocked back at {:.0} units/s for {:.2} s ({:.0} units)", k.form_id, k.speed, k.secs, k.distance());
+    }
+
     /// Attack clips that travel carry their actors (docs/spec-notes/actors.md §8.13):
     /// each one carried gets a character, if it has none, moved at this frame's travel
     /// over the frame, so walls, the player and other actors stop it as they stop a walk
@@ -1412,7 +1465,9 @@ impl Core {
         let mut moved = [0usize; 6];
         let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, hopped: &mut self.hopped, now, stats: &mut moved, held: &held, coasting: &mut self.coasting, fighting: &self.aims };
         self.ai.update_moved(game, &nav.graph, dt, &mut mover);
-        // Attack clips that travel carry their actors, over their walks.
+        // Knockbacks push their actors, and attack clips that travel carry theirs, over
+        // their walks.
+        self.knock(game, phys.as_deref(), dt);
         self.carry(game, phys.as_deref_mut(), dt);
         if let Some(b) = blocks.as_deref_mut().filter(|b| b.carried.len() != self.carried.len() || !b.carried.iter().all(|id| self.carried.contains_key(id))) {
             b.carried = self.carried.keys().copied().collect();
@@ -1472,14 +1527,15 @@ impl Core {
             }
             // Nor does one go on while it staggers, whether or not the AI walked it this
             // frame.
-            for &id in &self.staggering {
+            // (A knockback or an attack clip moving it goes on.)
+            for &id in self.staggering.iter().filter(|id| !self.carried.contains_key(id)) {
                 let was = stop_body(Some(&mut *p), id);
                 if was > 0.0 {
                     info!("ai [{}] {} {id:08X}: its character stops while it staggers (was walking at {was:.0} units/s)", self.clock_text, game.data.name(FormId(id)));
                 }
             }
             // Nor while an idle holds it in place (idles.md §15).
-            for &id in &self.posed {
+            for &id in self.posed.iter().filter(|id| !self.carried.contains_key(id)) {
                 let was = stop_body(Some(&mut *p), id);
                 if was > 0.0 {
                     info!("ai [{}] {} {id:08X}: its character stops while an idle holds it (was walking at {was:.0} units/s)", self.clock_text, game.data.name(FormId(id)));
@@ -1977,7 +2033,12 @@ pub fn drive(
     mut doors: ResMut<nvf_play::doors::Doors>,
     (script, sim, mut phys, mut blocks): PlayState,
     (seated, hours, flinches, fighters, idle_holds): Held,
-    (mut door_fades, mut door_sounds, mut travel): (ResMut<crate::door_fade::DoorFades>, MessageWriter<nvf_play::world_sounds::DoorPassed>, Option<ResMut<crate::attack_anims::AttackTravel>>),
+    (mut door_fades, mut door_sounds, mut travel, mut knocks): (
+        ResMut<crate::door_fade::DoorFades>,
+        MessageWriter<nvf_play::world_sounds::DoorPassed>,
+        Option<ResMut<crate::attack_anims::AttackTravel>>,
+        Option<MessageReader<nvf_play::combat::Knockback>>,
+    ),
 ) {
     // Hours passed in the Wait menu since the last frame (`--play` only: without it
     // there is no menu and no such message).
@@ -2003,6 +2064,10 @@ pub fn drive(
     // How far attack clips carry actors (`attack_anims.rs`), from the frame before.
     if let Some(t) = travel.as_deref_mut() {
         res.core.travel = t.take();
+    }
+    // Melee blows' knockbacks on actors (`nvf_play::combat`).
+    for k in knocks.iter_mut().flat_map(|k| k.read()).filter(|k| k.form_id != FormId::PLAYER_REF.0) {
+        res.core.begin_knock(*k);
     }
     // Who an idle holds in place (`idles.rs`, from the frame before) stands too.
     // and those of them with somewhere to go (the last update's) are told to break out.
@@ -2371,6 +2436,7 @@ pub fn report(
         each.join("; ")
     );
     info!("ai: attack clips carried actors in {} actor updates, {} times there was no character to carry one", core.carries[0], core.carries[1]);
+    info!("knockback summary: {} knockbacks on actors, {:.0} units asked in all", core.knocked.0, core.knocked.1);
     let st = core.ai.social_stats();
     info!(
         "social summary: {} hellos said to the player, {} random conversations started, {} walks up to a partner ({} given up); {} tries next to the player, {} chances won; {:.0} actor-seconds next to the player",
