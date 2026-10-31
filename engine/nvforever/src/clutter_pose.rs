@@ -53,7 +53,7 @@ pub fn body_nodes(data: &GameData, path: &str) -> Option<BodyNodes> {
             let read = nvf_assets::guard::guarded(|| {
                 let Ok(file) = NifFile::parse(&bytes, Some(&data.schema)) else { return Ok(None) };
                 let dec = Decoded::new(&file, &bytes, &data.schema);
-                let ex = fnv_collide::nif::extract(&file, &dec);
+                let ex = fnv_collide::nif::extract_collision(&file, &dec);
                 Ok((!ex.objects.is_empty()).then(|| Arc::new(ex.objects.iter().map(|o| o.node_name.clone()).collect())))
             });
             read.unwrap_or_else(|e| {

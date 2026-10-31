@@ -21,9 +21,9 @@ engine if needed, and delete the item here.
   TimeScale), 13, 15, 20, 21, 22 (dialogue events), the rest of 33, 35, 36, 52, 53, and
   #1076 (melee reach).
 - **A save from the owner** (quest or character state no save has yet):
-  - Hardcore on (4; the Hardcore Stimpak in 9): SetHardcore does not work from scripts.
-  - Boone, Rex and ED-E hired (19, 22's complaints, 18's wheel).
-  - Lucky 38 opened, the Tops Yes Man met (31); Benny's invitation to the Tops taken (47).
+  - Hardcore on: done (nvfHardcore); waits and sleeps still need the window.
+  - Boone, Rex and ED-E hired (19, 22's complaints, 18's wheel): Boone done (nvfBoone).
+  - Benny's own invitation to the suite taken, not talked in with Speech (47).
   - Old World Blues just started in the Think Tank (43, 37); X-8 done, EM pulse module
     (38). Honest Hearts at Flight from Zion with Daniel (49).
   - VMS46 at Anders' thanks (39); Stone on his night route, VMS31 (50); HELIOS One before
@@ -78,18 +78,22 @@ engine if needed, and delete the item here.
    [weapon-data-fields](../spec-notes/weapon-data-fields.md),
    [crippled-limbs](../spec-notes/crippled-limbs.md), [difficulty](../spec-notes/difficulty.md),
    [hit-effects](../spec-notes/hit-effects.md), [physics §6.12](../spec-notes/physics.md))
-4. **Hardcore needs and waiting.** Needs a save with Hardcore already on: SetHardcore 1
-   from a script or the console left IsHardcore 0 in the original (o6_00-01, 2026-10-31),
-   and the needs stay 0 without it. The sleep value's name is `SleepDeprevation`. Ours:
-   - Hunger rises 4.8/h and sleep deprivation 2.4/h. Dehydration is guessed at 9.6/h
-     (Minor at about 21 h).
-   - An hour slept takes 100 off sleep deprivation. Needs rise while asleep.
-   - Beer and Nuka-Cola make you thirstier (their "Damage Dehydration" read literally).
-   - An hour waited counts as 120 s of effect time.
-   - Plain beds don't heal, sleeping heals limbs only outside Hardcore, and waiting is
-     refused while you are being irradiated.
-   To check: read the need actor values over waits and sleeps, after drinks, and with
-   Buffout active. ([aid-items §2, §6, §11](../spec-notes/aid-items.md),
+4. **Hardcore needs and waiting.** Partly answered 2026-10-31 (o7_00, o7_05, owner save
+   nvfHardcore, TimeScale 30, about 59 frames a second):
+   - The needs rise at our rates [observed]: Dehydration 2 every 0.168 game hours
+     (about 11.8 an hour, one point every 10 s of play), Hunger 15 and SleepDeprevation
+     7 over 3.2 hours (4.7 and 2.2 an hour, whole points). The "9.6" once written here was
+     stale; ours uses 10 s, 25 s and 50 s a point (needs.rs).
+   - Dehydration once fell from 27 to 5 between two samples, with nothing done
+     [observed, unexplained; one case].
+   - `IsHardcore` read 0 in this Hardcore save, so it does not tell whether Hardcore is
+     on. SetHardcore 1 on nvfairport still did nothing: the needs stayed 0 for two hours
+     (o6_00-01).
+   - Beer and Nuka-Cola, drunk by EquipItem, raised Dehydration by no more than the
+     normal rate over 11 s (14, 14, 15 and 15, 15, 16) [observed]. Ours raises it
+     (their "Damage Dehydration" read literally, aid-items §3).
+   - Still open: waits and sleeps (the wait menu needs the window), Buffout.
+   ([aid-items §2, §6, §11](../spec-notes/aid-items.md),
    [wait-menu](../spec-notes/wait-menu.md))
 5. **Weapon wear.** Ours:
    - A melee swing wears the weapon only when it lands (once per swing).
@@ -142,6 +146,9 @@ engine if needed, and delete the item here.
      healing.
    - Addiction: +30 usage per use, chance (usage − 70)/100, and it never wears off.
    - The Hardcore Stimpak heals 5/s for 6 s, and a normal Stimpak heals every limb.
+     In Hardcore at Medicine 15 (o7_05, 2026-10-31) [observed]: about 6 Health a second
+     for about 6 s, 36 in all, where ours gives 6.5 a second, 39 (potency 1.3); a
+     crippled leg (LeftMobilityCondition 0) stayed at 0 (o7_00).
    - A second dose doesn't re-run Start.
    - Only the highest rank of a ranked perk applies, and perks are the player's only.
    - Chemist doubles the Stealth Boy.
@@ -413,7 +420,9 @@ The numbers above stay put so links to them hold; each item here gives its own p
     a Boomer, Nolan McNamara ... as speaker, GetIsID Narrator). Ours now lets that
     condition decide when the line has one [hypothesis]. To check: the end slides of a
     finished game say the Boomers' slide; for a non-ending case, talk to Victor at the
-    Lucky 38 door (0x00165102, speaker the entrance Victor, GetIsID the elevator).
+    Lucky 38 door (0x00165102, speaker the entrance Victor, GetIsID the elevator). The
+    line is only heard after first meeting House (owner; its condition is VDialogueMrHouse
+    variable 3); from nvf38door, meet House, then pass both Victors again.
     ([mq-walkthrough](mq-walkthrough-2026-10-27.md) §2)
 30. **Reputation axes outside 0-2** — answered 2026-10-31 (o5_00-02, RepNVNCR, scale 80):
     GetReputation axes 2 and 3 read 0; GetReputationThreshold axis 3 read 0 at every value
@@ -421,10 +430,15 @@ The numbers above stay put so links to them hold; each item here gives its own p
     axes 0-2 matched ours (`reputation::tiers`) at all ten infamy/fame pairs. SetReputation
     with axis 2 or 3 is a failed call that **stops the script** (the line after it did not
     run); ours does nothing and goes on (reputation.rs `axis`). (scripts.md §7.6)
-31. **Say Once on a line two actors share** (dialogue.md question 13): the Yes Man
-    mainframe repeats the Tops Yes Man's first-meeting greeting (0x001164F1, Say Once,
-    GetIsID YesManMainframe OR VMQTopsYesMan) once, because ours keeps Say Once per actor.
-    To check: meet Yes Man at the Tops, then talk to the mainframe in the penthouse.
+31. **Say Once on a line two actors share** — answered 2026-10-31 (owner, save
+    nvf31mainframe, issue #1113): **no repeat**. After the upload and the Mark II upgrade
+    the Yes Man mainframe greeted with 0x001164F2 (GREETING position 2424, conditions
+    GetIsID YesManMainframe OR VMQTopsYesMan, VMQTops variable 32 < 1), not the Tops
+    first-meeting greeting 0x001164F1 (position 2398, Say Once, only the same GetIsID OR)
+    that the Tops Yes Man had said [observed]. So Say Once holds per line across speakers
+    in the original [hypothesis: one case; the mainframe and the Tops Yes Man may also
+    count as one speaker]. Ours keeps it per (speaker, line) (dialogue.rs `said`) and
+    would say 0x001164F1 again. (dialogue.md question 13)
 32. **An expression that leaves extra values** — answered 2026-10-30 (issue #908): the
     original stops the script at `if GetStage Q N == 1` and runs neither arm, as ours.
     ([scripts §4.2](../spec-notes/scripts.md))
@@ -517,7 +531,11 @@ The numbers above stay put so links to them hold; each item here gives its own p
 47. **Does a talking activator's scripted `Activate player` start its conversation?** (P1:
     Ring-a-Ding-Ding's ambush at the Tops, and the REPCONN intercom, #906.) Take Benny's
     cash-up-front invitation and enter the presidential suite: does the intercom start
-    Benny's conversation by itself about 15 s later? (§11 stall 1.)
+    Benny's conversation by itself about 15 s later? (§11 stall 1.) Not answered by the
+    owner's save nvf47suite (2026-10-31): Benny was talked into the suite with Speech, so
+    he waits there for the player to come up and his forced dialogue starts it, with no
+    intercom (owner). Sixty seconds in the suite and in VTopsAmbushTrigger started no
+    conversation (o7_04). Needs a save that takes Benny's own invitation instead.
 48. **Can Oliver be talked into retreating on House's path?** (P3.) After "You will because
     the alternative is worse", which reply does he give (Topic065 has two lines with the same
     conditions, 0x00159932 and 0x001596BD)? (§11 stall 2.)
@@ -572,3 +590,12 @@ The numbers above stay put so links to them hold; each item here gives its own p
     a text_box button's hotrect, text and parent `mouseover` with the cursor on the text;
     the three functions in game mode and over a target without an `<id>`.
     ([menu-xml §3.2, §8 items 7-10](../spec-notes/menu-xml.md))
+
+## Added 2026-10-31 (the Pip-Boy Glove and outfit gloves, issue #1067)
+
+55. **Which left hand the player shows in an outfit with gloves** (P3: the player's own
+    hand in every outfit with glove addons). NVForever lets the Pip-Boy Glove give way to
+    an outfit's glove addon (leather, metal, raider, ranger armour, power armour) and a
+    vault suit's bare-hand addon give way to the Pip-Boy Glove. To check: the player in
+    Leather Armor and in T-45d Power Armor, first and third person: is the left hand the
+    outfit's glove or the Pip-Boy Glove's hand? ([actors §2.3](../spec-notes/actors.md))

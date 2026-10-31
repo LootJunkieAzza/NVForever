@@ -5,6 +5,7 @@
 use crate::ir::*;
 use crate::table::{FunctionTable, ParamEnc, TrailerEnc};
 use serde::Serialize;
+use std::collections::HashSet;
 
 /// Statement opcodes below 0x1000 (docs/spec-notes/scripts.md §2.2).
 pub mod op {
@@ -311,6 +312,11 @@ fn trailer_items(r: &mut Rd<'_>, trailer: &[TrailerEnc], out: &mut Vec<Arg>) -> 
 /// `r` + u16 + `s`/`f` in a value position is either one remote variable or a reference
 /// followed by a local variable; both readings are tried (remote variable first) and the
 /// one that uses the bytes exactly with the stored parameter count wins.
+///
+/// Whether parameters `k..count` can use exactly the bytes from `r.i` to the end depends
+/// only on `(r.i, k)`, so `failed` remembers the states that cannot: without it a block
+/// with many ambiguous spots that never comes out exact would try every combination
+/// (2^spots); with it the work is bounded by block length × count.
 fn params_from(
     r: &mut Rd<'_>,
     table: &FunctionTable,
@@ -318,7 +324,11 @@ fn params_from(
     k: usize,
     count: usize,
     out: &mut Vec<Arg>,
+    failed: &mut HashSet<(usize, usize)>,
 ) -> bool {
+    if failed.contains(&(r.i, k)) {
+        return false;
+    }
     if k == count {
         let save = (r.i, out.len());
         let trailer = opcode.map(|o| table.trailer(o)).unwrap_or(&[]);
@@ -336,17 +346,19 @@ fn params_from(
     } else {
         &[false]
     };
+    let at = r.i;
     for &refvar in tries {
         let save = (r.i, out.len());
         if let Some(a) = one_param(r, &enc, refvar) {
             out.push(a);
-            if params_from(r, table, opcode, k + 1, count, out) {
+            if params_from(r, table, opcode, k + 1, count, out, failed) {
                 return true;
             }
         }
         r.i = save.0;
         out.truncate(save.1);
     }
+    failed.insert((at, k));
     false
 }
 
@@ -363,7 +375,7 @@ fn params(c: &mut Ctx<'_>, blob: &[u8], opcode: Option<u16>) -> Option<Vec<Arg>>
         return Some(vec![Arg::Raw(blob.to_vec())]);
     };
     let mut out = Vec::new();
-    if params_from(&mut r, c.table, opcode, 0, count as usize, &mut out) {
+    if params_from(&mut r, c.table, opcode, 0, count as usize, &mut out, &mut HashSet::new()) {
         return Some(out);
     }
     // No reading uses the bytes exactly: keep what reads greedily, then the rest raw.

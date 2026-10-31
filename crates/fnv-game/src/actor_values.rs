@@ -194,7 +194,7 @@ impl<'a> Game<'a> {
     /// VATS Melee" on its own record, which a template's Base Data does not supply
     /// [documented: GECK wiki Category:NPC] (docs/spec-notes/actor-flags.md §1).
     pub fn no_vats_melee(&self, r: FormId) -> bool {
-        r != FormId::PLAYER_REF && base_of(self, r).is_some_and(|b| self.data.no_vats_melee(b, r))
+        r != FormId::PLAYER_REF && base_of(self, r).is_some_and(|b| self.data.no_vats_melee(b, self.pick_seed(r), self.leveled_at(r)))
     }
 
     /// Whether hits on `r` leave no blood spray and no blood decal (ACBS "No Blood Spray",
@@ -202,7 +202,7 @@ impl<'a> Game<'a> {
     /// Model/Animation includes the Blood … tabs" [documented: GECK wiki Category:NPC];
     /// hypothesis: the two flags go with that tab) (actor-flags.md §2).
     pub fn no_blood(&self, r: FormId) -> (bool, bool) {
-        base_of(self, r).map_or((false, false), |b| self.data.no_blood(b, r))
+        base_of(self, r).map_or((false, false), |b| self.data.no_blood(b, self.pick_seed(r), self.leveled_at(r)))
     }
 
     /// Whether creature `r` may be talked to: CREA ACBS "Allow PC Dialogue", from the

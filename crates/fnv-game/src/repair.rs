@@ -227,6 +227,9 @@ pub fn hint(gear: Gear, condition: f32) -> &'static str {
     }
 }
 
+/// The least condition (a fraction) the menus show as 100 %, rounded to whole percent.
+pub const SHOWN_FULL: f32 = 0.995;
+
 /// What kind of item a row is, for the rules that differ.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Gear {
@@ -236,8 +239,10 @@ pub enum Gear {
 
 /// Whether a vendor lists this item: a weapon or a piece of armour with a full health,
 /// armour with a DT of at least 1, worn below full condition (`condition` a fraction).
+/// Full is what the menu shows as 100 %: AddItem gives weapons and armour 99.9 %
+/// (`functions::items::ADDED_CONDITION`), which the owner's rule counts as full (#951).
 pub fn vendor_lists(gear: Gear, health: Option<i32>, dt: Option<f32>, condition: f32) -> bool {
-    let sound = health.is_some_and(|h| h > 0) && condition < 1.0;
+    let sound = health.is_some_and(|h| h > 0) && condition < SHOWN_FULL;
     sound && (gear == Gear::Weapon || dt.is_some_and(|d| d >= 1.0))
 }
 
@@ -313,6 +318,8 @@ mod tests {
         // Full condition: not listed (owner's rule).
         assert!(!vendor_lists(Gear::Weapon, Some(100), None, 1.0));
         assert!(vendor_lists(Gear::Weapon, Some(100), None, 0.99));
+        // AddItem's 99.9 % shows as 100 %: full, not listed (#951).
+        assert!(!vendor_lists(Gear::Weapon, Some(100), None, crate::functions::items::ADDED_CONDITION));
         // Items without health cannot be worn.
         assert!(!vendor_lists(Gear::Weapon, Some(0), None, 0.5));
         assert!(!vendor_lists(Gear::Weapon, None, None, 0.5));

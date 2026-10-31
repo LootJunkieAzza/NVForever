@@ -528,7 +528,12 @@ impl PhysWorld {
             (n.z < walkable && n.z > -walkable && l > 1e-3).then(|| [n.x / l, n.y / l])
         };
         let mut walls: Vec<[f32; 2]> = collisions.iter().filter_map(|h| wall(h.hit.normal1)).collect();
-        {
+        let mut horizontal = [desired.x, desired.y];
+        // `walls` is read only by `wedged` below, which is not asked in two phases and
+        // answers no for a motion under its own 1e-6 floor: the scan is skipped then, with
+        // the same result [observed: the code; issue #1086].
+        let may_wedge = !two_phase && horizontal[0].hypot(horizontal[1]) >= WEDGE_MIN_SPEED;
+        if may_wedge {
             let q = self.w.query_pipeline_with_filter(filter);
             let reach = (c.gap.max(c.params.skin) + WALL_MARGIN) * k;
             let aabb = c.shape.compute_aabb(&pos).loosened(reach);
@@ -545,8 +550,7 @@ impl PhysWorld {
                 }
             }
         }
-        let mut horizontal = [desired.x, desired.y];
-        if !two_phase && wedged(horizontal, &walls) {
+        if may_wedge && wedged(horizontal, &walls) {
             horizontal = [0.0, 0.0];
             collisions.clear();
             let q = self.w.query_pipeline_with_filter(filter);
@@ -936,6 +940,9 @@ const LEVEL: f32 = 0.99999;
 /// [`wedged`], game units [engineering choice].
 const WALL_MARGIN: f32 = 0.5;
 
+/// Below this horizontal motion (game units x scale) `wedged` answers no.
+const WEDGE_MIN_SPEED: f32 = 1e-6;
+
 /// Whether a horizontal motion `v` is wedged between the walls whose horizontal normals
 /// (unit, pointing out of each wall) are given: every wall it pushes into would, after
 /// sliding along it, push into another. The only motion along both is then up the crease
@@ -946,7 +953,7 @@ const WALL_MARGIN: f32 = 0.5;
 /// 0x000EDE82, physics.md §6.1].
 pub fn wedged(v: [f32; 2], walls: &[[f32; 2]]) -> bool {
     let speed = v[0].hypot(v[1]);
-    if speed < 1e-6 {
+    if speed < WEDGE_MIN_SPEED {
         return false;
     }
     let eps = 1e-3 * speed;
