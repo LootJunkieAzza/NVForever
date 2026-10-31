@@ -154,15 +154,28 @@ default, §4 stands. The panels of the other script menus (§4's placeholder) st
   nothing; a click queued on the box still on screen answers it. A panel with no box
   queued (the perks' choice list) is known by its words alone. The tile drawing is
   chosen only once the tree has built the file; a missing file keeps §4's box.
-- **Differences from §4 to settle on screenshots** (the old drawing stays the default
-  until then): the tile renderer sets a text's lines a font size apart (31 for font 2)
-  and its first line 24 under its top (menu-xml.md §3.1.2), where §3 measured 35 and 15;
-  the text's top follows the title's height as the font file gives it (34 for font 6, §3
-  measured 38); the highlight box's faint fill is not drawn (a hotrect draws nothing);
-  the corner lines are the shared atlas's pieces; a box without a title has an empty
-  title 0 high, so its text stands 38 higher than §4 sets it (§4 keeps the title's room
-  either way; what the original's code writes for an empty title is not known). A long
-  message therefore stands shorter than §4's box and the original's.
+- **Read from the original** [observed: hud_menus capture 2026-10-31, `MessageBoxEx`
+  boxes at 1280 x 720, 1280 x 1024 and 1920 x 1080] and followed since:
+  - **No row is chosen when a box opens**: `_highlight_y` -1, `_selected_height` 0, the
+    highlight hidden; the pointer onto a row, or a key, chooses one (a tapped Down chose
+    row 0). The tile-drawn box opens so (`MessagePanel::chosen`); its first Up or Down
+    chooses the first row [design: Up as Down]; Enter with none chosen answers the first
+    button, as §4's box [design: not captured]. §4's box keeps its first row chosen.
+  - **An empty title is 14 x 38** (`visible` 0), so the text stands at y 43 and the box
+    keeps the title's room (167 high for one line and one button): written as an empty
+    string measured one space wide (font 6's space advances 14) and one line high (its
+    tallest glyph, 38) (`draw::measure_written`) [hypothesis: the rule; the values
+    observed].
+  - **Font 2's texts** (the message, the rows' "Ok") stand 16 under their tile's top, a
+    line 35 below the last, one line 32 high, so a row is 52 high: the tile renderer's
+    per-font lines and pitches (`draw::text_base`, `draw::line_pitch`, `draw::measure`;
+    #979 and its follow-up, fonts.md §3.1).
+- **Still different from the original** (the old drawing stays the default until a
+  screenshot comparison): the highlight box's faint fill is not drawn (a hotrect draws
+  nothing; the capture read hudmain at brightness 128, alpha 40); the title and text of
+  a MessageBoxEx box without a title are centred in the original (`justify` 2) and left
+  here; the background's alpha is 193.8 there (237 here); the scroll bar's counts read 1
+  and 1 for one button (2 and 2 here); the corner lines are the shared atlas's pieces.
 
 ## 5. Looking at one
 

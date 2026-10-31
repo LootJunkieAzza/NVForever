@@ -607,6 +607,9 @@ owner to add to its pull request or issue (owner, 2026-10-29).
     - **T15a plan: the message box and "How many?" from their files** (2026-10-31,
       `claude/t15-menus-a`, issue #978; T15b, sleep/wait and the tutorial menu, follows
       the same shape). One switch per menu, the hand-built drawing stays the default.
+      **Builds on #979** (PR #1166, `claude/tile-text-baseline`) and its per-font
+      follow-up (18088f1e, a text line, pitch and height for every font), merged into
+      the branch: those must merge first.
       - **Switch**: `[UI] TileMenus=` takes `MessageMenu` and `QuantityMenu` beside
         `HUDMainMenu` (`tiles::vanilla::TileMenus`, its test aid
         `NVF_PLAY_TEST_TILE_MENUS`). On, and with the menu's file built into the tree,
@@ -672,7 +675,10 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       since, `1c16ec8a`, `d5fc28fa`, `3baf8595`). Later, 2026-10-31: root tests no
       failures (after `a9c5f151`'s test fix) and root clippy clean; on `bdaad547`
       `nvf-play` tests 672 passed and engine clippy clean; smoke on `947e9c7e` 251 of 253,
-      the two fails explained in the run's report. The commits after `bdaad547`/
+      the two fails explained in the run's report. Then, from the three-way pictures and
+      the hud_menus capture [observed 2026-10-31]: the box opens with no row chosen, the
+      empty title is 14 x 38, and font 2 stands on its own line (the #979 merge); only
+      compiled since. The commits after `bdaad547`/
       `a9c5f151` (the tiled prompt's and box's pointer sheet, the late-font retry through
       `draw::whole_pieces` and its test) were only compiled (`cargo check`). The final
       smoke run and the screenshot comparison with the original are pending. Captures to do: observer-checks.md items
