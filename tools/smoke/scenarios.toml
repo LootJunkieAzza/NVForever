@@ -6738,7 +6738,7 @@ expect = [
   { re = 'creature pace: VSpawnTier1CoyoteMed 0x00157B38 takes its alert stance', label = "it charges on its h2h set" },
   { gap = ["00157B38 draws (warning the player)", "0x00157B38 takes its alert stance"], range = [1, 60], label = "the warning comes before the charge" },
   { re = 'attack anims: 00157B38 plays', label = "it bites" },
-  { re = 'actor moves without a clip: (?P<n>\d+) actor frames moving with no movement clip', range = [0, 0], label = "no actor moves with no movement clip showing" },
+  { re = 'actor moves with no movement clip: .*00157B38', count = 0, label = "the coyote never moves with no movement clip showing (logged once per actor at its first such frame)" },
   { re = '(?P<n>\d+) actor frames of a creature.s blow on its head and neck over its run', range = [1, 100000000], label = "its blows on the run show on its head and neck over the run (on main the whole clip, legs standing in the bite, while it ran on)" },
 ]
 

@@ -1692,11 +1692,15 @@ stopped and started, as Victor's walk had before #258). Code:
     (closing at 503 units/s)", and its blow clips (`h2hattackleft.kf`,
     `h2hattackpower.kf`, `h2hattackforwardpower.kf` …) key every bone, legs included,
     at 55 to 57 over the run's 31: for the blow's length the legs stood in the bite
-    while the body went on at the run's speed. Rule [design]: a creature's blow played
-    while the creature moves shows on its head and neck only (the bones named `Head…`,
+    while the body went on at the run's speed. Rule [design]: a biter's blow begun
+    while it moves shows on its head and neck only for the whole blow (decided in its
+    first frame, so the pose does not snap when it stops or sets off mid-blow). Biters:
+    the creatures with an `h2h` movement set other than the cazador and the mirelurk
+    king (whose stings and claws stay whole, as every other creature's do), so dogs and
+    coyotes; it shows (the bones named `Head…`,
     `Neck…`, `Ponytail…` (ears and tongue), `…Jaw`, `…TungeControler`;
-    `attack_anims::head_only`), over its run; standing, the whole clip. People's blows
-    are unchanged. Not done: blows whose clip travels (the deathclaw's lunge, #1069).
+    `attack_anims::head_only`), over its run; begun standing, the whole clip. People's
+    blows are unchanged. Not done: blows whose clip travels (the deathclaw's lunge, #1069).
   - **Moving with no movement clip** is counted (`actor moves without a clip:` at exit:
     actor frames moving at 5 units/s or more on no movement clip, and frames of a
     creature's blow on its head and neck over its run), and logged once per actor
@@ -1710,9 +1714,10 @@ stopped and started, as Victor's walk had before #258). Code:
     `Idle`, 183 actor frames in 45 s: a walk asked for while the blend faded into a
     standing clip (the idle into a turn on the spot, a turn back into the idle) waited
     for that fade to end (`fnv_actor::locomotion::Blend::step`), and the actor slid on
-    the standing clip meanwhile. Rule [design]: a walk or run asked for while the clip
-    playing is a standing one starts at once, fading from that clip; changes between
-    moves still wait for the fade.
+    the standing clip meanwhile. Rule [design]: for creatures (`Blend::set_off_at_once`, set on
+    every creature's locomotion), a walk or run asked for while the clip playing is a
+    standing one starts at once, fading from that clip; changes between moves still wait
+    for the fade. People keep the eased fade (their movement look is the owner's).
 - **Not done**: the aim's up and down forms for creatures that have them (ghoul,
   protectron, smbehemoth, smspinebreaker: `h2haimup.kf`, `h2haimdown.kf`; people's are
   in `attack_anims.rs`); the creature alert look is not compared with the original game

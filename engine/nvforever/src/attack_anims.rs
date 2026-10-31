@@ -275,9 +275,13 @@ pub struct Attack {
     pub melee: bool,
     /// Seconds into the clip of its `Hit` key (a blow's strike); shots leave at the start.
     pub hit: f32,
-    /// A creature's blow on its head and neck only ([`head_only`]), played while the
-    /// creature moves.
+    /// A biter's blow on its head and neck only ([`head_only`]), played when the blow
+    /// begins while the creature moves.
     pub on_the_move: Option<Arc<BoundClip>>,
+    /// Whether this blow shows head and neck only: decided in its first frame (whether
+    /// the creature moved then) and kept for the whole blow, so the pose does not snap
+    /// when the creature stops or sets off mid-blow.
+    pub head_blow: Option<bool>,
 }
 
 /// Whether a creature's bone is of its head or neck (the jaw, tongue, ears, muzzle and
@@ -290,7 +294,7 @@ fn head_or_neck(name: &str) -> bool {
 }
 
 /// `bound` without the tracks of a creature's body and legs: what of a blow shows over
-/// its run while it moves (actors.md §8.10, "Blows on the move") [design]. `None` when the
+/// its run while it moves (actors.md §8.10, "The slide") [design]. `None` when the
 /// clip keys none of the head or all of the bones are head ones.
 pub fn head_only(bound: &BoundClip, names: &[Option<String>]) -> Option<BoundClip> {
     let head = |i: usize| names.get(i).and_then(|n| n.as_deref()).is_some_and(head_or_neck);
@@ -502,7 +506,9 @@ impl CombatPose {
         // A shot does not fade out at its end: it is held there (module notes).
         let fade = fade_in * if shot { 1.0 } else { ((a.len - a.t) / FADE_OUT).min(1.0) };
         let phase = (a.t / a.len.max(1e-3)).min(0.999);
-        let clip = a.on_the_move.as_ref().filter(|_| self.moving).unwrap_or(&a.clip);
+        let moving = self.moving;
+        let head = *a.head_blow.get_or_insert(a.on_the_move.is_some() && moving);
+        let clip = a.on_the_move.as_ref().filter(|_| head).unwrap_or(&a.clip);
         player.layers[ATTACK_LAYER] = Some(Layer { clip: clip.clone(), phase, weight: fade });
         player.layers[ATTACK_LAYER + 1] = form_of(&a.up, &a.down).filter(|_| w > 1e-3).map(|clip| Layer { clip, phase, weight: w * fade });
     }
@@ -858,8 +864,12 @@ fn start(
             new_pose.held = None;
             clips.stats.followed += usize::from(follows);
             let fade_in = a.kind != Move::ReloadRound && !follows;
-            let on_the_move = if creature && a.melee { head_only(&clip, &rig.skel.names).map(Arc::new) } else { None };
-            new_pose.attack = Some(Attack { clip, up, down, t, len, repeat, since: 0.0, fade_in, reload: reloads, kind: a.kind, opening, melee: a.melee, hit, on_the_move });
+            // Biters only: the creatures with an `h2h` movement set (dogs and coyotes; the
+            // cazador's and mirelurk king's blows are stings and claws, which the rule
+            // leaves whole, as every other creature's) [design].
+            let biter = creature && lo.is_some_and(|l| l.alert.is_some()) && !rig.skeleton.to_ascii_lowercase().contains("cazador") && !rig.skeleton.to_ascii_lowercase().contains("mirelurk");
+            let on_the_move = if biter && a.melee { head_only(&clip, &rig.skel.names).map(Arc::new) } else { None };
+            new_pose.attack = Some(Attack { clip, up, down, t, len, repeat, since: 0.0, fade_in, reload: reloads, kind: a.kind, opening, melee: a.melee, hit, on_the_move, head_blow: None });
         }
         match pose {
             Some(mut p) => *p = new_pose,
@@ -991,7 +1001,7 @@ mod tests {
         let mut clip = nvf_assets::anim_play::Clip::from_controllers(Vec::new(), Vec::new(), Vec::new());
         clip.stop = 0.167;
         let clip = Arc::new(BoundClip::bind(Arc::new(clip), |_| None));
-        let shot = Attack { clip: clip.clone(), up: None, down: None, t: 0.0, len: 0.167, repeat: None, since: 0.0, fade_in: true, reload: false, kind: Move::Attack, opening: false, melee: false, hit: 0.0, on_the_move: None };
+        let shot = Attack { clip: clip.clone(), up: None, down: None, t: 0.0, len: 0.167, repeat: None, since: 0.0, fade_in: true, reload: false, kind: Move::Attack, opening: false, melee: false, hit: 0.0, on_the_move: None, head_blow: None };
         let mut player = BlendPlayer::new(Vec::new(), Arc::new(Vec::new()));
         let mut pose = CombatPose { fighting: true, attack: Some(shot), ..Default::default() };
         let weight = |p: &BlendPlayer| p.layers[ATTACK_LAYER].as_ref().map_or(0.0, |l| l.weight);

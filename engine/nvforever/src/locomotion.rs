@@ -652,7 +652,7 @@ impl Locomotion {
         };
         let fade_time = to.map_or(0.0, |t| t.blend_time);
         let fading = from.is_some() && fade_time > 0.0;
-        self.blend = Blend { cur: Slot { mv, phase, rate: cur.rate }, prev: fading.then_some(cur), fade: 0.0, fade_time };
+        self.blend = Blend { cur: Slot { mv, phase, rate: cur.rate }, prev: fading.then_some(cur), fade: 0.0, fade_time, set_off_at_once: self.blend.set_off_at_once };
         self.prev_set = fading.then_some(old);
     }
 
@@ -974,7 +974,7 @@ pub fn drive(
             p.layers(&mut player, drawn, dt);
             if moving {
                 let blow = p.attack.as_ref().filter(|a| a.melee && player.layers[crate::attack_anims::ATTACK_LAYER].is_some());
-                if blow.is_some_and(|a| a.on_the_move.is_some()) {
+                if blow.is_some_and(|a| a.head_blow == Some(true)) {
                     cost.head_blow_frames += 1;
                 }
             }
@@ -1342,12 +1342,12 @@ mod tests {
         assert!(lo.set_sneaking(false));
         assert!(Arc::ptr_eq(&lo.set, &stand) && lo.prev_set.as_ref().is_some_and(|s| Arc::ptr_eq(s, &sneak)));
         assert_eq!(lo.blend.prev.map(|p| p.mv), Some(Move::Idle));
-        // Setting off during that fade starts the walk at once (it would slide on the idle
-        // otherwise, issue #1073), fading from the standing set's idle.
+        // A move asked for during the fade waits for it to end, then fades within the set.
         lo.velocity = [0.0, 85.26];
         lo.step(0.1);
+        assert_eq!(lo.blend.cur.mv, Move::Idle);
+        lo.step(0.15);
         assert_eq!(lo.blend.cur.mv, Move::Forward);
-        assert_eq!(lo.blend.prev.map(|p| p.mv), Some(Move::Idle));
         assert!(lo.prev_set.is_none(), "the idle fading out now is the standing set's");
     }
 
