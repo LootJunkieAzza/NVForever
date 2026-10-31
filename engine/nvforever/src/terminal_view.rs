@@ -10,9 +10,8 @@
 //!   on the right; three point lights (`Omni02`, `03`, `05`), not read.
 //! - The screen's picture (`nvf_play::terminal::TerminalImage`) goes on `screen:0` unlit,
 //!   as a lit display [hypothesis], spanning `screen::TEXTURE_UNITS` of the canvas.
-//!   [design] Omit `glare:0`: the screen uses final displayed colours (hacking.md §2),
-//!   so another overlay would brighten them again. [observed: owner's screenshots]
-//!   The original has a lighter streak at the top right; it is not separately drawn.
+//!   [design] Keep `glare:0` with reduced material alpha and colour (§7), preserving the
+//!   top-right streak [observed: owner's 2026-10-31 reference] over the textured glass.
 //! - The camera looks at the front (along +Y) with the field of view
 //!   `fRenderedTerminalFOV` 0.15 [documented: Fallout_default.ini `[RenderedTerminal]`;
 //!   hypothesis: radians, vertical], looking `fRenderedTerminalVPos` 0.38 below the
@@ -54,6 +53,20 @@ const DROP: f32 = 0.38;
 /// The camera's distance in front of the model's origin, model units [observed, module
 /// docs].
 pub const DISTANCE: f32 = 38.5;
+
+/// [design] Retain the glare texture/geometry/blend mode, reducing its material alpha.
+/// Keep fixed while tuning GLARE_LIGHT_SCALE; changing both confounds the measurement.
+const GLARE_ALPHA_SCALE: f32 = 0.9;
+/// [design] First estimate, per-channel linear excess ratios:
+/// (linear(100,125,95) - linear(19,41,25)) /
+/// (linear(114,169,147) - linear(38,73,50)) = (0.812,0.554,0.403).
+/// [observed: hacking.md §2/§7] The numerator fits the 2026-10-31 original reference;
+/// the denominator uses main's shot. Those patches do not isolate the glare material,
+/// so its screen-space result can only be checked in a running game [hypothesis].
+/// Recipe: on the hacking smoke shot measure a 10x10 streak peak and adjacent glass;
+/// change R/G/B scale by +0.0181/+0.0108/+0.0098 per unit below (100,125,95), reverse
+/// above; remeasure and check blocks/text outside the streak for a wash (§7).
+const GLARE_LIGHT_SCALE: Vec3 = Vec3::new(0.812, 0.554, 0.403);
 
 pub struct TerminalViewPlugin;
 
@@ -130,11 +143,6 @@ fn show(
     let mut entities = Vec::new();
     for s in &model.shapes {
         let name = s.name.as_deref().unwrap_or("");
-        // [design] The measured glass already includes the original's effects.
-        // Do not lay the model's glare over the measured text and blocks (§7).
-        if name.eq_ignore_ascii_case("glare:0") {
-            continue;
-        }
         let world = place * model.root * s.transform;
         let mut material = s.material.clone();
         if is_glass(name) {
@@ -151,6 +159,17 @@ fn show(
             m.base.uv_transform = bevy::math::Affine2::from_scale(TEXTURE_UNITS / TARGET.as_vec2());
             material = models.materials.add(m);
             drawn.glass = s.cpu.as_deref().and_then(|m| Posed::new(m, None, Mat4::from(world)));
+        } else if name.eq_ignore_ascii_case("glare:0") {
+            let mut m = models.materials.get(&s.material).cloned().unwrap_or_default();
+            // [observed: nif_material.wesl] Base colour also multiplies the emissive
+            // term, so tinting both would apply the reduction twice. Preserve emissive
+            // and the authored alpha mode. Unlit Blend uses alpha^1.5 for source light;
+            // compensate that extra sqrt(alpha) in this relative colour scale [design].
+            let alpha_light = if m.base.unlit && matches!(m.base.alpha_mode, AlphaMode::Blend) { GLARE_ALPHA_SCALE.powf(1.5) } else { GLARE_ALPHA_SCALE };
+            let tint = GLARE_LIGHT_SCALE / alpha_light;
+            let base = m.base.base_color.to_linear();
+            m.base.base_color = Color::linear_rgba(base.red * tint.x, base.green * tint.y, base.blue * tint.z, base.alpha * GLARE_ALPHA_SCALE);
+            material = models.materials.add(m);
         } else if is_button(name) {
             drawn.button = s.cpu.as_deref().and_then(|m| Posed::new(m, None, Mat4::from(world)));
         }

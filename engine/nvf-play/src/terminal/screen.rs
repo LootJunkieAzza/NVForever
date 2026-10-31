@@ -1,8 +1,9 @@
 //! The terminal's screen drawn as the original sets it out (docs/spec-notes/hacking.md
 //! §2, §7): the hacking game by `menus\hacking_menu.xml`, the terminal's own menu by
 //! `menus\computers_menu.xml`, both in the game's font 5 (`fixedsys_comp_uniform_width`,
-//! 17 units a character). [design] The opaque glass and foreground use the final screen
-//! measurements of §2; no Pip-Boy image or monitor glare is added over those colours.
+//! 17 units a character). [design] A derived dark undercoat and tinted Pip-Boy image
+//! retain the glass's texture/vignette beneath the measured foreground colours (§2).
+//! The monitor keeps its glare sheet at reduced strength (`terminal_view.rs`, §7).
 //!
 //! The original draws this into a texture shown on a monitor model
 //! (`meshes\terminals\terminalinterface01.nif`, `[RenderedTerminal]` in
@@ -14,7 +15,7 @@
 //! show the screen at almost that scale (0.99).
 
 use super::{Hacking, MenuView, Page, Session};
-use crate::interface::{at, face, plain_font, set_line, u, Face};
+use crate::interface::{at, face, plain_font, set_line, texture, u, Face};
 use bevy::prelude::*;
 use fnv_font::Line;
 use fnv_game::data::NoteDef;
@@ -35,24 +36,51 @@ pub const CANVAS_TOP: f32 = 83.0;
 /// [documented: Fallout_default.ini `iSystemColorTerminal*` 33, 231, 121; `systemcolor`
 /// `&terminal;`]. [observed: hacking.md §2, owner's seven screenshots, 2026-10-11]
 /// The displayed attempt blocks measure 63, 255, 152. [design] Use that final colour
-/// directly, without another brightening layer in either display mode.
+/// directly; the background stays beneath it. Glare strength is tuned separately (§7).
 pub fn bright() -> Color {
-    compose_screen(Color::srgb_u8(63, 255, 152))
+    compose_screen(Color::srgb_u8(63, 255, 152), None)
 }
 
-/// The opaque screen behind the text [observed: hacking.md §2, 16 to 23, 38 to 52,
-/// 15 to 32 in the middle of the owner's screenshots]. [design] This is a final
-/// displayed colour, including the original's glass effects, not an undercoat.
+/// [design] Middle glass target, fitted to §2 and the 2026-10-31 reference measurements.
+/// Tuning on hacking.png away from ink/glare: add (target - measured) sRGB units to
+/// the corresponding channel; the derived undercoat follows, with the texture intact.
+const GLASS_MIDDLE: Color = Color::srgb_u8(19, 41, 25);
+/// [observed: private background DDS, centre texel (256,256), 2026-10-31]
+/// RGB (76,77,76), alpha 255. A representative sample, not the whole image's colour.
+const BACKGROUND_MIDDLE: Color = Color::srgb_u8(76, 77, 76);
+/// [design] Lower than main's 0.4; tint and undercoat together fit the middle and corner.
+/// Tuning with the middle held fixed: +0.0056 per excess green unit in a dark corner
+/// (near 12) darkens that corner by about one unit; reverse for a corner too dark.
+const BACKGROUND_ALPHA: f32 = 0.3;
+/// [design] Linear-light fit to middle (19,41,25), dark corner about (8,11,5), and the
+/// measured DDS sample above. Independent of the foreground's saturated green tint.
+/// Keep fixed when tuning alpha; per-channel tint tuning is only needed for corner hue:
+/// +1 sRGB tint unit lowers corner R/G/B by about 0.24/0.52/0.35 with middle held fixed.
+const BACKGROUND_TINT: Color = Color::srgb_u8(120, 237, 165);
+
+/// [design] The ImageNode's texture × tint, including both alpha factors, in linear light.
+fn background_layer(texel: Color) -> Color {
+    let p = texel.to_linear();
+    let t = BACKGROUND_TINT.to_linear();
+    Color::linear_rgba(p.red * t.red, p.green * t.green, p.blue * t.blue, p.alpha * BACKGROUND_ALPHA)
+}
+
+/// [design] Solve middle = background × alpha + undercoat × (1-alpha).
+/// Using the measured middle as the undercoat would brighten the glass twice (§2/§7).
 pub fn screen_color() -> Color {
-    compose_screen(Color::NONE)
+    let middle = GLASS_MIDDLE.to_linear();
+    let layer = background_layer(BACKGROUND_MIDDLE).to_linear();
+    let behind = 1.0 - layer.alpha;
+    Color::linear_rgb((middle.red - layer.red * layer.alpha) / behind, (middle.green - layer.green * layer.alpha) / behind, (middle.blue - layer.blue * layer.alpha) / behind)
 }
 
-/// [design] Foreground coverage over the measured glass, in linear light as on the
-/// sRGB render targets. The result is opaque: the world shade stays behind it. The
-/// Pip-Boy image and the monitor's glare sheet are omitted because the measurements
-/// already include the original's glass effects (hacking.md §2, §7).
-pub fn compose_screen(foreground: Color) -> Color {
-    over(foreground, Color::srgb_u8(19, 45, 26))
+/// [design] Pure mirror of the UI layers: undercoat, texture × tint, then foreground
+/// coverage, in linear light on the sRGB render target. No texture: middle-colour fallback.
+/// The result is opaque in both display modes. The monitor glare's screen-space effect
+/// still needs a running-game measurement; it is not predicted here (terminal_view.rs).
+pub fn compose_screen(foreground: Color, background_texel: Option<Color>) -> Color {
+    let glass = background_texel.map_or(GLASS_MIDDLE, |texel| over(background_layer(texel), screen_color()));
+    over(foreground, glass)
 }
 
 /// [design] Source-over onto an opaque destination, without a second colour transform.
@@ -195,12 +223,16 @@ pub fn shown_log(log: &[String]) -> &[String] {
 /// What the screens are drawn with.
 pub struct Faces {
     pub text: Face,
+    pub background: Option<Handle<Image>>,
 }
 
 const FONT: &str = "textures\\fonts\\fixedsys_comp_uniform_width.fnt";
+// [documented: hacking_menu.xml] The hacking menu's own background, not the model's
+// pipboy3000 stand-in; use the same loaded image for the terminal's other pages.
+const BACKGROUND: &str = "textures\\interface\\shared\\background\\pipboy.dds";
 
 pub fn load_faces(data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Faces {
-    Faces { text: face(FONT, plain_font(25.0, CHAR), data, images, bc) }
+    Faces { text: face(FONT, plain_font(25.0, CHAR), data, images, bc), background: data.and_then(|d| texture(BACKGROUND, d, images, bc)).map(|t| t.0) }
 }
 
 #[derive(Component)]
@@ -286,10 +318,13 @@ pub fn spawn(commands: &mut Commands, camera: Entity, faces: &Faces, session: &S
     let mut rows = Vec::new();
     let root = Node { overflow: Overflow::clip(), ..at(0.0, 0.0, CANVAS.x, CANVAS.y) };
     commands.spawn((ScreenRoot, root, UiTargetCamera(camera), Name::new("Terminal screen"))).with_children(|c| {
-        // [design] The measured glass alone. The XML names a Pip-Boy background
-        // [documented: hacking_menu.xml], but tinting it over this final colour
-        // counts the glass effects twice [hypothesis: hacking.md §7].
-        c.spawn((at(0.0, 0.0, CANVAS.x, CANVAS.y), BackgroundColor(screen_color())));
+        // [design] Keep the texture/vignette, accounting for its contribution in the
+        // undercoat. Both layers stay beneath ink; compose_screen mirrors this order.
+        let undercoat = if faces.background.is_some() { screen_color() } else { compose_screen(Color::NONE, None) };
+        c.spawn((at(0.0, 0.0, CANVAS.x, CANVAS.y), BackgroundColor(undercoat)));
+        if let Some(image) = &faces.background {
+            c.spawn((at(0.0, 0.0, CANVAS.x, CANVAS.y), ImageNode { color: BACKGROUND_TINT.with_alpha(BACKGROUND_ALPHA), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) }));
+        }
         match &session.page {
             Page::Hacking(h) => hacking_page(c, &faces.text, h, cursor_on),
             Page::LockedOut => lockout_page(c, &faces.text),
@@ -457,13 +492,31 @@ mod tests {
     fn composed_layers_match_the_measured_screen_in_both_modes() {
         // [observed: hacking.md §2] Final displayed glass ranges and block colour.
         let ranges = [(16..=23), (38..=52), (15..=32)];
-        let glass = screen_color();
+        let glass = compose_screen(Color::NONE, Some(BACKGROUND_MIDDLE));
         let block = bright();
-        assert_eq!(glass.to_srgba().to_u8_array(), [19, 45, 26, 255]);
+        assert_eq!(glass.to_srgba().to_u8_array(), [19, 41, 25, 255]);
         assert_eq!(block.to_srgba().to_u8_array(), [63, 255, 152, 255]);
+        // [design] Verify the actual undercoat + ImageNode source-over, not just the
+        // target constant. Samples cover a dark corner, dim texture and middle;
+        // the brightest texture can exceed the middle's range, as can the glare (§2).
+        assert_eq!(screen_color().to_srgba().to_u8_array(), [11, 15, 7, 255]);
+        let tint = BACKGROUND_TINT.to_linear();
+        for (sample, expected) in [([5, 6, 5], [8, 12, 6, 255]), ([49, 49, 49], [13, 27, 16, 255]), ([76, 77, 76], [19, 41, 25, 255]), ([99, 99, 99], [25, 53, 34, 255])] {
+            let texel = Color::srgb_u8(sample[0], sample[1], sample[2]);
+            let p = texel.to_linear();
+            let layer = Color::linear_rgba(p.red * tint.red, p.green * tint.green, p.blue * tint.blue, BACKGROUND_ALPHA);
+            let ui_glass = over(layer, screen_color());
+            assert_eq!(ui_glass.to_srgba().to_u8_array(), expected);
+            assert_eq!(compose_screen(Color::NONE, Some(texel)), ui_glass);
+            assert_eq!(compose_screen(block, Some(texel)).to_srgba().to_u8_array(), [63, 255, 152, 255]);
+        }
+        // A transparent texture sample leaves the undercoat, and a missing image
+        // uses the middle target; neither may turn the screen transparent [design].
+        assert_eq!(compose_screen(Color::NONE, Some(Color::NONE)), screen_color());
+        assert_eq!(compose_screen(Color::NONE, None).to_srgba().to_u8_array(), [19, 41, 25, 255]);
         // [design] Exercise source-over at partial glyph coverage as well as the
         // empty glass and solid blocks; blending must happen in linear light.
-        assert_eq!(compose_screen(block.with_alpha(0.5)).to_srgba().to_u8_array(), [47, 190, 112, 255]);
+        assert_eq!(compose_screen(block.with_alpha(0.5), Some(BACKGROUND_MIDDLE)).to_srgba().to_u8_array(), [47, 189, 112, 255]);
         for shade in [SHADE, SHADE_FLAT] {
             for world in [Color::BLACK, Color::WHITE] {
                 let backdrop = over(Color::BLACK.with_alpha(shade), world);
