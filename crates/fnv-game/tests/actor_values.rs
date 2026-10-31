@@ -444,8 +444,11 @@ fn the_character_revision_is_kept_from_an_add_on_copy_of_its_script() {
     rev(&mut g, SET, Some(FormId(PLAYER)), &[code(av::BARTER), n(0.0)]);
     assert_eq!(call(&mut g, GET, PLAYER, &[code(av::LUCK)]), 9.0);
     assert_eq!(call(&mut g, GET, PLAYER, &[code(av::BARTER)]), barter);
-    // SetSPECIALPoints 40: the Vigor Tester opens on the kept attributes with all their points.
+    // SetSPECIALPoints 40: the character menu's attributes page (1048, as Intense
+    // Training's), not the Vigor Tester, opens on the kept attributes with all their
+    // points (#1031).
     rev(&mut g, 0x1218, None, &[n(40.0)]);
+    assert_eq!(g.open_menu_code(), Some(fnv_game::game::menus::TAG_SKILLS));
     let sheet = fnv_game::chargen::SpecialSheet::for_menu(&mut g);
     assert_eq!((sheet.values[6], sheet.total, sheet.remaining()), (9, sum.max(40), sum.max(40) - sum));
 }

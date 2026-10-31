@@ -2103,6 +2103,23 @@ order = [[
 ]]
 
 [[scenario]]
+name = "revision-attributes-page"
+source = "#1031 (owner's playtest): the character revision (VCG04, Rebuild Character) moves the player's S.P.E.C.I.A.L. points on the character menu's attributes page, as Intense Training, not on the Vigor Tester (docs/spec-notes/chargen.md §9)"
+note = "The revision activator VCG04ActivatorRef (0x001164A3) is activated at 3 s and its message answered Rebuild Character (button 1) at 3.1 s; menus that scripts open close themselves after 0.3 s (the race menu, then the attributes page)"
+areas = ["chargen", "menus", "scripts"]
+paths = ["crates/fnv-game/src/functions/ui.rs", "crates/fnv-game/src/revision.rs", "engine/nvf-play/src/chargen/lists.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:activate:0x001164A3,3.1:button:1" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 14
+order = [[
+  { re = 'revision: keeps the S\.P\.E\.C\.I\.A\.L\. \(\d+ points, not 40\) on the attributes page', label = "SetSPECIALPoints keeps the player's attributes" },
+  { re = 'chargen: attributes menu open, points: \d+ \(7 rows\)', label = "the attributes page opens on them (the points left: 40 less what they add up to, or 0)" },
+]]
+forbid = [
+  { re = 'vigor tester: open', label = "the Vigor Tester" },
+]
+
+[[scenario]]
 name = "vigor-tester"
 note = "not shared with chargen-menus: moved 18 s later in one launch the Vigor Tester took none of its steps (run 2026-10-12); alone it passes"
 source = "CLAUDE.md: after changes to the Vigor Tester's S.P.E.C.I.A.L. menu (docs/spec-notes/vigor-tester.md §7)"
