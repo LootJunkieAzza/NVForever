@@ -934,6 +934,24 @@ pub mod menus {
     }
 }
 
+/// What an open menu is about or has highlighted, for the extender's menu getters
+/// (GetMenuTargetRef, GetSelectedItemRef; #983): an item in a container's inventory (an
+/// inventory reference to scripts) or a form [documented: GetSelectedItemRef, "either a
+/// temporary Inventory Reference, or a Base Form, depending on the menu type"].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuPick {
+    Item { owner: FormId, item: FormId },
+    Form(FormId),
+}
+
+/// A menu's [`MenuPick`]s: what it is derived from and its highlighted row. The engine
+/// sets them each frame ([`Game::set_menu_picks`]); not saved.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MenuPicks {
+    pub target: Option<MenuPick>,
+    pub selected: Option<MenuPick>,
+}
+
 /// `merchant.ShowBarterMenu [discount]`: trade with this actor. `discount` is a percentage
 /// in -100 to 100 that lowers the prices the merchant sells at and raises those it buys
 /// at; 0 leaves them [documented: GECK wiki ShowBarterMenu, owner export].
@@ -1086,6 +1104,8 @@ pub struct Game<'a> {
     pub(crate) name_overrides: std::collections::HashMap<FormId, String>,
     /// xNVSE's mod local data: lower-cased key -> (key as given, value); the session's.
     pub(crate) mod_data: BTreeMap<String, (String, fnv_script::vm::XVal)>,
+    /// What each open menu is about and has highlighted, by menu code ([`MenuPicks`]).
+    pub(crate) menu_picks: BTreeMap<u16, MenuPicks>,
     /// TempCloneForm's clones and their originals (`crate::nvse_data`).
     pub(crate) clones: std::collections::HashMap<FormId, FormId>,
     pub(crate) clone_seq: u32,
@@ -1808,6 +1828,7 @@ impl<'a> Game<'a> {
             field_overrides: std::collections::HashMap::new(),
             name_overrides: std::collections::HashMap::new(),
             mod_data: BTreeMap::new(),
+            menu_picks: BTreeMap::new(),
             clones: std::collections::HashMap::new(),
             clone_seq: 0,
             playable_overrides: std::collections::HashMap::new(),
@@ -3238,6 +3259,27 @@ impl<'a> Game<'a> {
     /// [hypothesis, as the dialogue's]. `MenuMode 1` is the Pip-Boy by any of its codes
     /// ([`menus::answers`]); a loading screen is 1007 and NVForever's VATS marking 1056
     /// ([`Game::side_menu`]).
+    /// The engine tells what the menu `code` is about and has highlighted ([`MenuPicks`];
+    /// the default when it is closed).
+    pub fn set_menu_picks(&mut self, code: u16, picks: MenuPicks) {
+        if picks == MenuPicks::default() {
+            self.menu_picks.remove(&code);
+        } else {
+            self.menu_picks.insert(code, picks);
+        }
+    }
+
+    /// The picks of the menu `code` while it is open.
+    pub fn menu_picks(&self, code: u16) -> MenuPicks {
+        self.menu_picks.get(&code).copied().filter(|_| self.menu_open(code)).unwrap_or_default()
+    }
+
+    /// The open menu on top: the one given ([`Game::menu`]), else the one under it, else
+    /// the conversation.
+    pub fn top_menu(&self) -> Option<u16> {
+        self.menu.or(self.menu_under).or(self.dialogue.as_ref().map(|_| menus::DIALOGUE))
+    }
+
     pub fn menu_open(&self, code: u16) -> bool {
         let open = |m: Option<u16>| m.is_some_and(|m| menus::answers(code, m));
         open(self.menu) || open(self.menu_under) || open(self.side_menu()) || (code == menus::DIALOGUE && self.dialogue.is_some())
