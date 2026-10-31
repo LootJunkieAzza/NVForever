@@ -651,3 +651,16 @@ The numbers above stay put so links to them hold; each item here gives its own p
     every game loop from the marker: does he stand until the cheer ends, walk off after
     1 s with the cheer cut short, or slide with it playing? And `IsIdlePlaying` at the
     moment he sets off. ([idles §15](../spec-notes/idles.md))
+
+## Added 2026-10-31 (robots' talking lights, issue #1081)
+
+58. **What sets a robot's `Talking` sequence while it speaks** (P3: Victor, Yes Man, Mr.
+    House's screen, protectrons). NVForever plays `talking.kf` while a line is said with
+    the sequence's time taken from the line's `.lip` (the widest mouth shape now, 0 to 1
+    of the 0.17 s), so Victor's chest light (`##VoiceBox_talk:0`) flickers with the
+    words and goes dark between lines (lipsync.md §6.1). To check: Goodsprings, talk to
+    Victor (VictorREF 0x00103DFE) and record his chest light frame by frame over one
+    line; compare its brightness with the `.lip`'s mouth weights and with the sound's
+    loudness over the same frames (a pause between words, a long vowel). Does it go
+    dark in pauses, follow the loudness or the mouth shapes, or loop by itself? Same on
+    Mr. House's screen (`##TalkButtons:0`). ([lipsync §6.1](../spec-notes/lipsync.md))

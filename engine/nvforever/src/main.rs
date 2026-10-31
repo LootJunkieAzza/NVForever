@@ -104,6 +104,7 @@ mod particles;
 mod shot_fx;
 mod ragdoll;
 mod swing_traps;
+mod talk_clips;
 mod readahead;
 mod reflection;
 mod refraction;
@@ -1444,6 +1445,8 @@ fn main() -> AppExit {
             app.add_plugins(combat_face::CombatFacePlugin);
             // Alerted creatures raise their claws and hands (creature_stance.rs).
             app.add_plugins(creature_stance::CreatureStancePlugin);
+            // Robots and Mr. House light up as they talk (talk_clips.rs).
+            app.add_plugins(talk_clips::TalkClipsPlugin);
             // Actors sneaking by script or package (sneaking.rs).
             app.add_plugins(sneaking::SneakingPlugin);
             // Actors swimming in water (swimming.rs).
