@@ -147,7 +147,7 @@ Category:Dialogue for the meanings]:
 |---|---|---|---|
 | 0x0001 | Goodbye | the actor leaves dialogue after the line | 9,828 |
 | 0x0002 | Random | §4 rule 3 | 8,001 |
-| 0x0004 | Say Once | an actor says the line only once; another actor may still say it | 4,434 |
+| 0x0004 | Say Once | the line is said only once; in the one case checked another actor sharing it did not say it again (question 13) | 4,434 |
 | 0x0008 | Run Immediately | the results run when the conversation is put together, not when the line is spoken | 765 |
 | 0x0010 | Info Refusal | the player's prompt is not shaded after use | 80 |
 | 0x0020 | Random End | closes a Random stack | 1,143 |
@@ -380,7 +380,9 @@ said.
 A speaker **can say** a line when:
 - it has not said it, for Say Once; not within the last `fSayOncePerDayInfoTimer` game
   hours (12 when the setting is absent), for Say Once a Day; both per actor
-  [documented: Category:Dialogue]. The clock is GameDaysPassed × 24 + GameHour
+  [documented: Category:Dialogue]. Say Once was seen to hold across actors instead: the
+  Yes Man mainframe skipped the greeting 0x001164F1 the Tops Yes Man had said
+  [observed 2026-10-31, observer check 31; one case]. The clock is GameDaysPassed × 24 + GameHour
   [hypothesis];
 - it is the line's fixed speaker, if the line has one [documented: Category:Dialogue];
 - the line's quest is running **and the quest's own conditions pass**
@@ -803,7 +805,8 @@ up to C and F):
     afterwards; whether its Add Topics list is applied; SayToDone; activating the actor
     again while it speaks (cut and restart, or ignored); and whether a Goodbye line of
     a topic named by StartConversation opens the menu.
-13. Say Once across two actors sharing a line; Say Once a Day's clock; Say Once and
+13. Say Once across two actors sharing a line (one case answered: not said again,
+    observer check 31); Say Once a Day's clock; Say Once and
     Say Once a Day counted from the line's start or end.
 14. Response order where numbers and stored order disagree.
 15. Whether SayTo and Say obey Random stacks like menu dialogue.
