@@ -118,6 +118,14 @@ pub struct Conversation {
     /// Lines said so far.
     #[serde(default)]
     pub lines: u32,
+    /// A force greet (`StartConversation player`) asked for by the end result script of
+    /// the line that just ended, as (speaker, topic): it starts once this conversation
+    /// closes ([`Game::hold_force_greet`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub then: Option<(FormId, Option<FormId>)>,
+    /// A line's end result script is running ([`Game::finish_line`]).
+    #[serde(skip)]
+    pub ending: bool,
 }
 
 /// Whether a line may be said in a conversation between two actors: only Conversation
@@ -560,7 +568,7 @@ impl<'a> Game<'a> {
             self.say_line(actor, listener, topic, info, LineKind::Greeting);
             return Ok(info);
         }
-        self.dialogue = Some(Conversation { actor, through, line: None, choices: Vec::new(), lines: 0 });
+        self.dialogue = Some(Conversation { actor, through, line: None, choices: Vec::new(), lines: 0, then: None, ending: false });
         self.extra.entry(actor).or_default().talked_to_pc = true;
         self.emit(EventKind::DialogueStarted { actor, topic });
         self.speak(actor, topic, info);
@@ -664,11 +672,22 @@ impl<'a> Game<'a> {
     ///    captured; hypothesis: the first sayable of several, dialogue.md §3.4];
     /// 5. otherwise the player is offered choices ([`Game::build_choices`]); with
     ///    nothing to offer the conversation ends [hypothesis].
+    ///
+    /// A line with both follow-ups and choices (15 in FalloutNV.esm, dialogue.md §3.4)
+    /// passes over its follow-ups with the Goodbye flag: they would close the conversation
+    /// and leave its choices unreachable [design, issue #964: the original's order is not
+    /// known (observer check 65); the follow-ups of the 11 others are Say Once or lead to
+    /// choices of their own].
+    ///
+    /// A `StartConversation player` in the end script of a line that ends the
+    /// conversation (Goodbye, or nothing to offer) starts once it has closed
+    /// ([`Game::hold_force_greet`]) [design, issue #1107; observer check 39].
     fn finish_line(&mut self, actor: FormId, topic: FormId, info: FormId) {
         let data = self.data;
         let Some(def) = data.infos.get(&info) else { return };
         if let Some(c) = self.dialogue.as_mut() {
             c.line = None;
+            c.ending = true;
         }
         self.emit(EventKind::LineEnded { speaker: actor, info, cut: false });
         if !def.has(info_flag::RUN_IMMEDIATELY) {
@@ -681,15 +700,19 @@ impl<'a> Game<'a> {
         if !self.dialogue.as_ref().is_some_and(|c| c.actor == actor && c.line.is_none()) {
             return;
         }
+        if let Some(c) = self.dialogue.as_mut() {
+            c.ending = false;
+        }
         if def.goodbye {
             self.end_dialogue_as(ended::GOODBYE);
             return;
         }
         let listener = Some(FormId::PLAYER_REF);
         for &f in &def.follow_ups {
-            if self.can_say(actor, listener, f) {
-                let topic = data.infos.get(&f).and_then(|d| d.topic).unwrap_or(FormId(0));
-                self.speak(actor, topic, f);
+            let Some(fd) = data.infos.get(&f) else { continue };
+            if !(fd.goodbye && !def.choices.is_empty()) && self.can_say(actor, listener, f) {
+                self.drop_held_greet();
+                self.speak(actor, fd.topic.unwrap_or(FormId(0)), f);
                 return;
             }
         }
@@ -698,9 +721,36 @@ impl<'a> Game<'a> {
             self.end_dialogue_as(ended::NO_CHOICES);
             return;
         }
+        self.drop_held_greet();
         self.emit(EventKind::ChoicesOffered { actor, choices: choices.clone() });
         if let Some(c) = self.dialogue.as_mut() {
             c.choices = choices;
+        }
+    }
+
+    /// `StartConversation player` while the player's conversation runs: inside the end
+    /// result script of the line that just ended, the force greet is held and starts
+    /// once the conversation closes, if the line closes it (Goodbye, or nothing to offer
+    /// after it); returns whether it was held. Anywhere else it is refused, as before
+    /// [design, issue #1107: 8 end scripts in FalloutNV.esm call it, 4 of them of Goodbye
+    /// lines, e.g. Anders' thanks in VMS46 (INFO 0x00142A9C); the other 4 lines have no
+    /// choices, so theirs starts when nothing is offered after them [observed]; whether the original
+    /// opens the new conversation is observer check 39 [hypothesis]]. A later call in the
+    /// same script replaces an earlier one [design].
+    pub fn hold_force_greet(&mut self, speaker: FormId, topic: Option<FormId>) -> bool {
+        match self.dialogue.as_mut().filter(|c| c.ending) {
+            Some(c) => {
+                c.then = Some((speaker, topic));
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The conversation goes on: a held force greet is refused after all [design].
+    fn drop_held_greet(&mut self) {
+        if let Some(c) = self.dialogue.as_mut() {
+            c.then = None;
         }
     }
 
@@ -934,6 +984,13 @@ impl<'a> Game<'a> {
             self.emit(EventKind::LineEnded { speaker: c.actor, info: l.info, cut: true });
         }
         self.emit(EventKind::DialogueEnded { actor: c.actor, reason, lines: c.lines });
+        // A force greet held by the last line's end script ([`Game::hold_force_greet`]),
+        // only when that line closed the conversation: not when the end script itself ended
+        // it some other way (a ForceFlee after the StartConversation) [design]. Refusals (the
+        // speaker gone, no line) are not errors, as for StartConversation.
+        if let Some((speaker, topic)) = c.then.filter(|_| reason == ended::GOODBYE || reason == ended::NO_CHOICES) {
+            let _ = self.force_greet(speaker, topic);
+        }
         true
     }
 
