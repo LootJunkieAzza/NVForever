@@ -329,17 +329,23 @@ NVForever's own HUD, from the layout of §3.1.1. What it takes the traits to mea
 - [observed: the font files against hud.md §14.1] A text's width is the sum of its
   glyphs' advances (fonts.md §3): font 7 "Button Text" 156 and "Talk" 54, font 8 "+0" 50
   and "+9" 49, as the original wrote. A `wrapwidth` of 0 does not wrap (the prompt's
-  `button_text` has 0 and measured one line). [hypothesis] In NVForever's implementation
-  (`draw::measure`) a text's height is its lines times the font's line height, not the
-  original's text tile `height` (below); each line is set left, centred or right inside the box by
-  `justify`, one line height under the last.
+  `button_text` has 0 and measured one line). [hypothesis] Each line is set left,
+  centred or right inside the box by `justify`; [observed: hud_menus capture
+  2026-10-31, fonts.md §3.1] the lines stand one pitch of their font apart
+  (`draw::line_pitch`: 31, 35, 32, 36, 25, 38, 38, 52 for fonts 1-8), which for fonts 2,
+  3, 6 and 7 is not the font file's size (until this change NVForever set them the size
+  apart).
 - A text's first line stands under its top by its font. [observed: hud_textbase capture
   2026-10-31, hud.md §14.10] Measured from the capitals' ink in the original against
   where NVForever's glyph pictures put it (fonts.md §3), the lines stand 24.9 units under
   the top in font 7, 30.5 in font 8 and 21.0 in font 1 (a tile with no `font`).
-  [design: NVForever's calibration, anchored on font 7] `draw::text_base` keeps font 7
-  at the earlier readings' 24 and stands fonts 8 and 1 as far from it as the capture
-  shows: 29.5 and 20; the fonts no capture measured take 24 [hypothesis]. Texts of fonts 7 and 8 set at one `y` do not
+  [observed: hud_menus capture 2026-10-31, fonts.md §3.1] Every font, measured the same
+  way at three window sizes: font 1 20.3, fonts 2-5 about 16.5, font 6 22.4, font 7
+  24.5, font 8 30.5. [design: NVForever's calibration, anchored on font 7]
+  `draw::text_base` keeps font 7 at the earlier readings' 24 and stands every other font
+  as far from it as the hud_menus capture shows: font 1 20, fonts 2-5 16, font 6 22,
+  font 8 30 (29.5 from hud_textbase until then; fonts.md §3.1 says why 30); font 9, which
+  draws nothing in the original, takes font 7's 24 [design]. Texts of fonts 7 and 8 set at one `y` do not
   stand on one line: `radiation_text` ("RAD/SEC", font 7) and `radiation_text_value`
   ("+9", font 8), both at y 65, end 25.0 and 31.7 under it. T12c (2026-10-29) stood
   every font's line 24 under the top [hypothesis then: the two radiation texts read on
@@ -348,11 +354,14 @@ NVForever's own HUD, from the layout of §3.1.1. What it takes the traits to mea
   `hud_corners` rad_coc_spot, `hud_jip` s4_sneak_drawn, hud.md §14.8]; the font-8
   reading was wrong (#979). Until T12c each font's tallest glyph set the line
   (`interface::line_base`: 28, 33, 48 for fonts 1, 7, 8).
-- [observed: hud_textbase capture 2026-10-31] A text tile's `height`, read in the
-  original, is its font's tallest glyph picture whatever its string: 36 for font 1, 42
-  for font 7, 64 for font 8 (fonts.md §3). NVForever's `measure` gives lines times the
-  font's size (31, 36, 52 for one line) and writes no text tile's `height` [design: a
-  difference kept, not yet needed].
+- [observed: hud_textbase and hud_menus captures 2026-10-31] A text tile's `height`,
+  read in the original, is its font's tallest glyph picture whatever its string, plus
+  one pitch for each line after the first: one line 36, 32, 31, 37, 28, 38, 42, 64 for
+  fonts 1-8, two lines 67, 67, 63, 73, 53, 76, 80, 116 (fonts.md §3.1). NVForever's
+  `draw::measure` gives that height (`tallest_glyph` + (lines - 1) × `line_pitch`; until
+  this change lines × the font's size); the layout uses it for a text tile without its
+  own `height` (§3.1.1), and the code writes no text tile's `height` into the tree
+  [design: not yet needed].
 - [hypothesis] Colour: a tile's own `systemcolor`; else its own `red`/`green`/`blue`
   when it sets any; else the nearest tile above's `systemcolor`; else system colour 1, the
   HUD's [documented: GECK wiki Color UI directives, "Systemcolor is by default 1 and always
