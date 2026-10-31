@@ -958,7 +958,9 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   (`architecture/repcon/repfxdustmyst.nif`). The shader's texture is drawn and the
   NiTexturingProperty only adds its texture transform [hypothesis: the owner's frames of
   the original show the tubes bright cyan, the clean texture; `nif_spawn.rs`
-  `shape_props`].
+  `shape_props`]. Switched off, the original's tubes go dark [observed: owner
+  2026-10-30, #1079]: NVForever draws them black while off rather than with the dirty
+  texture (activators.md §3).
 - **Controllers outside sequences.** Many effect meshes animate with controllers attached
   straight to a block, with no NiControllerManager or sequence [observed, `fnvtool nif
   decode`]: `effects/ambient/fxsmokewisps01.nif` (180 placed in FalloutNV.esm), `02`,

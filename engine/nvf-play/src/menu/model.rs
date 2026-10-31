@@ -111,6 +111,10 @@ pub struct Row {
     /// The Misc tab's folder rows (the keyring, the caravan cards, and "Back" inside
     /// one): no item of their own ([`Folder`]).
     pub folder: Option<FolderRow>,
+    /// A corpse's weapon lying beside it (`World::dropped_beside`): the created
+    /// reference this row stands for. Taking the row picks that reference up, so the
+    /// weapon on the ground and the row are one item (#1032).
+    pub reference: Option<FormId>,
 }
 
 /// A folder of the inventory's Misc tab: the keys and the Caravan cards are listed in
@@ -159,7 +163,7 @@ impl Row {
             FolderRow::Open(f) => f.name().to_string(),
             FolderRow::Back => BACK.to_string(),
         };
-        Row { item: FormId(0), at: None, name, count, weight: None, value: None, kind: None, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, mods: 0, folder: Some(f) }
+        Row { item: FormId(0), at: None, name, count, weight: None, value: None, kind: None, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, mods: 0, folder: Some(f), reference: None }
     }
 }
 
@@ -289,6 +293,7 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
             bartered: false,
             mods: extra.mods,
             folder: None,
+            reference: None,
         });
     }
     for r in &mut rows {
@@ -297,6 +302,49 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
     sort_rows(&mut rows);
     let value = rows.iter().map(|r| r.value.unwrap_or(0) as i64 * r.count as i64).sum();
     Ok(Listing { rows, weight: totals.weight, value, hidden })
+}
+
+/// Add to a container column the weapons its holder dropped as it died and that still
+/// lie in the world (`World::dropped_beside`): one row per reference, after the
+/// inventory's rows and sorted with them. Their weight and value count in the column's
+/// totals [design: the corpse's loot, as the owner's report asks (#1032)].
+fn add_dropped_beside(world: &World<'_>, holder: FormId, l: &mut Listing) {
+    let forms = world.forms;
+    let mut added = false;
+    for r in world.dropped_beside(holder) {
+        let Some(s) = world.peek(r) else { continue };
+        let it = forms.item(s.base);
+        if it.is_some_and(|i| !i.listed(false)) {
+            continue;
+        }
+        let kind = it.map(|i| i.kind);
+        let at = matches!(kind, Some(ItemKind::Weapon | ItemKind::Armor)).then(|| s.extra.condition_or_whole());
+        let row = Row {
+            item: s.base,
+            at,
+            name: modded_name(display_name(forms, s.base), s.extra.mods),
+            count: s.count.max(1),
+            weight: it.and_then(|i| i.weight),
+            value: it.and_then(|i| i.worth()),
+            kind,
+            equipped: false,
+            quest: world.is_quest_item(s.base),
+            condition: at,
+            icon: it.and_then(|i| i.icon.clone()),
+            price: None,
+            bartered: false,
+            mods: s.extra.mods,
+            folder: None,
+            reference: Some(r),
+        };
+        l.weight += f64::from(row.weight.unwrap_or(0.0)) * f64::from(row.count);
+        l.value += row.value.unwrap_or(0) as i64 * row.count as i64;
+        l.rows.push(row);
+        added = true;
+    }
+    if added {
+        sort_rows(&mut l.rows);
+    }
 }
 
 /// A column of the menu.
@@ -617,6 +665,22 @@ pub struct Applied {
     pub given: Vec<(FormId, i32)>,
     /// Pickpocketing: the roll for this item failed, the victim noticed (the menu closes).
     pub caught: Option<FormId>,
+    /// World references the player picked up from the menu (a corpse's dropped weapon,
+    /// [`Row::reference`]): gone from the world, as a pick-up there would leave them.
+    pub picked: Vec<FormId>,
+}
+
+/// Take a corpse's dropped weapon from its loot menu: the player picks the reference up,
+/// the same as activating it on the ground (`World::activate`), so its condition and mods
+/// come with it and it leaves the world. Returns the units taken.
+fn take_reference(world: &mut World<'_>, r: FormId, picked: &mut Vec<FormId>) -> Result<i32, SimError> {
+    match world.activate(PLAYER, r)?.outcome {
+        fnv_sim::world::Outcome::PickedUp { count, .. } => {
+            picked.push(r);
+            Ok(count)
+        }
+        _ => Ok(0),
+    }
 }
 
 /// The container menu on a living actor's inventory while the player sneaks: each take
@@ -771,6 +835,9 @@ impl MenuModel {
                     _ => PLAYER,
                 };
                 let mut l = listing(world, holder)?;
+                if side == Side::Container && self.steal.is_none() {
+                    add_dropped_beside(world, holder, &mut l);
+                }
                 let forms = world.forms;
                 l.rows.retain(|r| self.category[side as usize].holds_item(r.kind, forms.item(r.item)));
                 if side == Side::Container && self.steal.is_some() {
@@ -898,6 +965,7 @@ impl MenuModel {
                                 bartered: false,
                                 mods: 0,
                                 folder: None,
+                                reference: None,
                             }),
                         }
                     }
@@ -1106,7 +1174,10 @@ impl MenuModel {
                 // The listed stacks only: non-playable items stay hidden in the container.
                 let mut moved = Vec::new();
                 for r in &self.lists[Side::Container as usize].rows {
-                    let n = world.transfer_at(c, PLAYER, r.item, r.count, r.pick())?;
+                    let n = match r.reference {
+                        Some(at) => take_reference(world, at, &mut out.picked)?,
+                        None => world.transfer_at(c, PLAYER, r.item, r.count, r.pick())?,
+                    };
                     if n > 0 {
                         moved.push((r.item, n));
                     }
@@ -1133,7 +1204,10 @@ impl MenuModel {
                         return Ok(format!("Caught! ({} x{want}, {chance}%)", name(&r)));
                     }
                 }
-                let n = world.transfer_at(from, to, r.item, want, r.pick())?;
+                let n = match (r.reference, self.focus) {
+                    (Some(at), Side::Container) => take_reference(world, at, &mut out.picked)?,
+                    _ => world.transfer_at(from, to, r.item, want, r.pick())?,
+                };
                 out.changed = n > 0;
                 if self.focus == Side::Container && n > 0 {
                     out.taken.push((r.item, n));

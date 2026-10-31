@@ -363,6 +363,13 @@ impl Ai {
             let sig = data.sig(base).unwrap_or(*b"    ");
             let is_actor = refs.get(r).is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE"));
             let dead = game.extra.get(&r).is_some_and(|e| e.dead);
+            // No AI Acquire (#962): an object, container or body so flagged is not
+            // searched for, unless the package names that one reference. A living actor
+            // stays a target for Allow Killing / Buying: the flag speaks of picking up.
+            // [hypothesis for the exceptions]
+            if (!is_actor || dead) && !matches!(wanted, Wanted::Reference(_)) && refs.get(r).is_some_and(|p| p.no_ai_acquire()) {
+                return;
+            }
             let matches = |b: FormId, s: &[u8; 4], game: &Game| match wanted {
                 Wanted::Reference(x) => r == x,
                 Wanted::Base(x) => b == x || fnv_game::functions::list_members(game, x).contains(&b),

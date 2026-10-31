@@ -1349,6 +1349,54 @@ fn a_line_said_for_its_fixed_speaker_is_timed_by_the_fixed_speakers_file() {
 }
 
 #[test]
+fn an_actor_whose_traits_come_from_a_leveled_list_speaks_with_the_picked_entrys_voice() {
+    // Issue #1051: generic actors take race, sex and voice type from a leveled list of
+    // male and female entries (template flag "Traits"). The voice is the entry's, the
+    // one `GetIsVoiceType` reads, not the placed base record's own.
+    const LIST: u32 = 0x9F0;
+    struct Sounds;
+    impl fnv_game::voice::VoiceLengths for Sounds {
+        fn response_seconds(&self, info: FormId, response: usize, speaker_base: Option<FormId>) -> Option<f64> {
+            (info == FormId(INFO_A) && response == 0 && speaker_base == Some(FormId(NPC_AUTO))).then_some(0.5)
+        }
+    }
+    let mut f = fixture();
+    f.data.leveled_actors.insert(FormId(LIST), fnv_game::data::LeveledActorDef { entries: vec![(1, FormId(NPC_AUTO))], counts: vec![1], ..Default::default() });
+    let npc = f.data.actors.get_mut(&FormId(NPC)).unwrap();
+    npc.template = Some(FormId(LIST));
+    npc.template_traits = true;
+    let mut g = game(&f);
+    g.new_game();
+    g.voice = Some(std::sync::Arc::new(Sounds));
+    let speaker = FormId(NPC_REF);
+    assert_eq!(g.voice_base(FormId(NPC), speaker), FormId(NPC_AUTO));
+    assert_eq!(g.speaker_voice_base(speaker), Some(FormId(NPC_AUTO)));
+    assert_eq!(g.response_lengths(speaker, FormId(INFO_A)), vec![0.5]);
+    // A fixed speaker (ANAM) that is the placed base itself is no other actor: the
+    // record's own voice does not stand in when the picked voice has no file.
+    struct BaseOnly;
+    impl fnv_game::voice::VoiceLengths for BaseOnly {
+        fn response_seconds(&self, info: FormId, response: usize, speaker_base: Option<FormId>) -> Option<f64> {
+            (info == FormId(INFO_A) && response == 0 && speaker_base == Some(FormId(NPC))).then_some(0.5)
+        }
+    }
+    f.data.infos.get_mut(&FormId(INFO_A)).unwrap().speaker = Some(FormId(NPC));
+    let mut g = game(&f);
+    g.new_game();
+    g.voice = Some(std::sync::Arc::new(BaseOnly));
+    assert_eq!(g.response_lengths(speaker, FormId(INFO_A)), vec![1.7875]);
+    assert_eq!(g.response_seconds(speaker, FormId(INFO_A), 0), 1.7875);
+    // Said by another actor, the fixed speaker's file still stands in.
+    assert_eq!(g.response_lengths_voiced(Some(FormId(NPC_AUTO)), Some(FormId(NPC_AUTO)), FormId(INFO_A)), vec![0.5]);
+    // Without the flag the base keeps its own voice.
+    let mut f = fixture();
+    f.data.leveled_actors.insert(FormId(LIST), fnv_game::data::LeveledActorDef { entries: vec![(1, FormId(NPC_AUTO))], counts: vec![1], ..Default::default() });
+    f.data.actors.get_mut(&FormId(NPC)).unwrap().template = Some(FormId(LIST));
+    let g = game(&f);
+    assert_eq!(g.voice_base(FormId(NPC), speaker), FormId(NPC));
+}
+
+#[test]
 fn a_message_box_is_a_menu_until_closed_and_holds_the_rest_of_the_frame() {
     use fnv_game::game::menus;
     let f = fixture();
@@ -2375,8 +2423,8 @@ fn coverage_reports_which_missing_stages_the_data_can_set() {
     assert!(!set.literal.contains_key(&(FormId(Q2), 10)));
 }
 
-/// A condition's null form (FormID 0) reads 0 for GetIsID and GetQuestVariable, without a
-/// failed call [observed 2026-10-30, capture o4_00_probe: Papa Khan's goodbye with
+/// A condition's null form (FormID 0) reads 0 for GetIsID and GetQuestVariable, and for
+/// any other function (#966, hypothesis), without a failed call [observed 2026-10-30, capture o4_00_probe: Papa Khan's goodbye with
 /// `GetQuestVariable <null> 1 == 0` was chosen and Cass's greeting with only `GetIsID
 /// <null> == 1` passed over; observer-checks.md check 35].
 #[test]
@@ -2395,7 +2443,12 @@ fn a_null_form_in_a_condition_reads_zero_without_a_failed_call() {
     assert!(!g.conditions_pass(&[is_id], player, None, "null GetIsID"));
     assert!(g.conditions_pass(&[qvar_0], player, None, "null GetQuestVariable == 0"));
     assert!(!g.conditions_pass(&[qvar_1], player, None, "null GetQuestVariable == 1"));
-    assert!(!g.events.iter().any(|e| matches!(&e.kind, EventKind::CallFailed { .. })));
+    // Any other function with a null form parameter reads 0 the same way (#966).
+    for name in ["GetInFaction", "GetItemCount", "GetDistance", "GetDead"] {
+        let zero = cond(index(name), vec![ArgValue::Value(Value::NONE)], Cmp::Eq, 0.0);
+        assert!(g.conditions_pass(&[zero], player, None, name), "{name} <null> == 0");
+    }
+    assert!(!g.events.iter().any(|e| matches!(&e.kind, EventKind::CallFailed { .. })), "{:?}", g.events.iter().filter(|e| matches!(&e.kind, EventKind::CallFailed { .. })).collect::<Vec<_>>());
 }
 
 #[test]

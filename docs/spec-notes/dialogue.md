@@ -406,9 +406,10 @@ A speaker **can say** a line when:
   and GREETING chose 0x0014B5A9 (position 1613), passing over 0x000FF5BA (position 1305,
   only `GetIsID <null> == 1`; both quests priority 55 and running)]. So Cass's line
   0x000FF5BA is never said and Papa Khan's 0x0014B596/7 (`== 1`) never either. Ours gives
-  0 for these two functions in a condition without a failed call (`Args::is_null_form`);
-  other functions with a null form still fail their call, which also reads 0
-  [hypothesis that the original gives 0 for them too].
+  0 for these two functions in a condition without a failed call (`Args::is_null_form`),
+  and since #966 any condition with a null form parameter reads 0 without calling its
+  function (`Game::condition_value`), so no `call_failed` is logged for it [hypothesis
+  that the original gives 0 for the other functions too].
 
 Pointer for the AI package work: the owner states that an actor's package is chosen the
 same way, the first eligible one from the top of its list [owner statement 2026-10-10];

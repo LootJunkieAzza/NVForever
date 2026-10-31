@@ -148,6 +148,10 @@ pixels (the font's glyphs start a little after their pen position).
   its solid end the spread of §6 from the middle and never nearer than 4 units. Off, or
   with any other weapon, the arrows as before; the filled crosshair is unchanged.
 - Log: `reticle: gun cross (four bars)` and `reticle: arrows` when it changes.
+- [design: owner 2026-10-30] A row of the settings page's Gameplay group under Dynamic
+  crosshair, "Crosshair style" (`crosshair-style` in `NVForever.ini`), chooses between
+  this cross (`Cross`, the default) and the arrows of §6 parting with the spread
+  (`Arrows`). Log: `reticle: crosshair style Cross|Arrows`.
 
 ## 8. Empty containers and bodies; a key's sound (owner 2026-10-27)
 

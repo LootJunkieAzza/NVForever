@@ -567,6 +567,14 @@ pub fn with_world<R>(rt: &mut Runtime, sim: &mut SimState, f: impl FnOnce(&mut R
     r
 }
 
+/// The placed actors whose carried items are another actor base's (template flag
+/// "Inventory", or a leveled pick), each pick made as the game makes it: at the level the
+/// reference reads leveled lists at in `sim`'s world, with its pick seed (a saved
+/// ResurrectActor roll included; `SimState::pick`, docs/spec-notes/actors.md §1.3).
+fn inventory_sources(data: &GameData, sim: &SimState, game: &Game<'_>) -> std::collections::BTreeMap<FormId, FormId> {
+    data.inventory_sources_at(sim.refs, |r| sim.pick(game, r))
+}
+
 impl Runtime {
     fn new(data: &'static GameData, sim: &mut SimState, new_game: bool, packages: bool) -> Runtime {
         // Message boxes are menus until the player closes them (the default,
@@ -576,8 +584,9 @@ impl Runtime {
         let cfg = GameConfig { frame_seconds: 1.0 / 60.0, package_interval: packages.then_some(PACKAGE_INTERVAL), ..GameConfig::default() };
         let game = Game::new(data, World::new(sim.forms, sim.refs, sim.world.config()), cfg);
         // The simulation's world is the one played (`with_world`): its placed actors carry
-        // their template's items too (template flag "Inventory").
-        sim.world.set_inventory_sources(data.inventory_sources(sim.refs));
+        // their template's items too (template flag "Inventory"), each picked at the
+        // level it reads leveled lists at, as `Game::new` picks them (not level 1).
+        sim.world.set_inventory_sources(inventory_sources(data, sim, &game));
         let mut children: HashMap<FormId, Vec<FormId>> = HashMap::new();
         for (id, p) in &sim.refs.refs {
             if let Some(ep) = p.enable_parent {
@@ -636,8 +645,15 @@ impl Runtime {
         let session = self.game.take_session();
         self.game = Game::restore(data, World::new(sim.forms, sim.refs, world.config()), cfg, &s)?;
         self.game.put_session(session);
+        // The world's session edits (game settings, leveled lists, base containers changed
+        // by script) last for the run, not in the save (`fnv_sim::world::WorldSession`).
+        // Empty here as the game's session is: a load while playing starts a new run
+        // (`crate::save` module notes), where GetGameRestarted is true again and scripts
+        // make their session edits anew; kept for a restore within a run.
+        let mut world = world;
+        world.put_session(sim.world.take_session());
         sim.world = world;
-        sim.world.set_inventory_sources(data.inventory_sources(sim.refs));
+        sim.world.set_inventory_sources(inventory_sources(data, sim, &self.game));
         self.opening_pending = false;
         self.player_cell = None;
         with_world(self, sim, |rt| rt.snapshot_inventory());
@@ -1387,6 +1403,7 @@ struct TraceLog {
 
 impl TraceLog {
     fn create(path: &std::path::Path) -> std::io::Result<TraceLog> {
+        fnv_install::guard_write(path, None).map_err(std::io::Error::other)?;
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
             std::fs::create_dir_all(dir)?;
         }
@@ -2103,6 +2120,9 @@ fn log_event(data: &GameData, e: &Event) {
         EventKind::ScriptError { unit, error } => warn!("script error in {unit}: {error}"),
         EventKind::ScriptPrint { unit, text } => info!("script: print {text:?} ({unit})"),
         EventKind::CallFailed { name, unit, error, .. } => debug!("script: {name} failed in {unit}: {error}"),
+        EventKind::ArgUnread { name, unit, param, got, wanted, .. } => {
+            debug!("script: {name} in {unit} could not read parameter {} ({got} as {wanted}) and went on with a default", param + 1)
+        }
         _ => crate::dialogue::log_event(data, e),
     }
 }

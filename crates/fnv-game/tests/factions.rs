@@ -366,6 +366,28 @@ fn a_leveled_list_stands_for_the_entry_picked() {
 }
 
 #[test]
+fn a_resurrection_roll_moves_every_group_to_the_new_pick() {
+    // ResurrectActor rolls a leveled actor's pick again (seed `roll_seed`), as the engine
+    // draws it and its items come; its factions, AI data and packages follow that pick
+    // too, not the first one (docs/spec-notes/actors.md §1.3).
+    let f = fixture();
+    let mut g = game(&f);
+    let pick = |seed: FormId| f.data.actor_base(FormId(LIST_MIXED), &mut Picks::new(seed));
+    let mut changed = 0;
+    for r in MIXED_REFS {
+        let first = pick(FormId(r));
+        let Some(rolls) = (1..64).find(|&k| pick(fnv_sim::leveled::roll_seed(FormId(r), k)) != first) else { continue };
+        g.extra.entry(FormId(r)).or_default().rolls = rolls;
+        let wolf = pick(fnv_sim::leveled::roll_seed(FormId(r), rolls)) == Some(FormId(WOLF));
+        assert_eq!(rank(&mut g, r, RAIDERS), if wolf { 0.0 } else { -1.0 }, "{r:#x}");
+        assert_eq!(call(&mut g, GET_AV, r, &[ArgValue::Enum(av::AGGRESSION)]), if wolf { 2.0 } else { 0.0 });
+        assert_eq!(g.package_list(FormId(r)), vec![FormId(if wolf { PACK_WOLF } else { PACK_RAT })]);
+        changed += 1;
+    }
+    assert!(changed > 0);
+}
+
+#[test]
 fn the_package_list_comes_from_the_same_source() {
     let f = fixture();
     let g = game(&f);

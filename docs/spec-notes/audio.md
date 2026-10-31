@@ -152,6 +152,16 @@ environment: §14.6.
   is the `FST` records, Effects every other effect [hypothesis]).
 - Smoke test (CLAUDE.md): standing in Goodsprings, expect the desert exploration set
   with three layers, two placed loops (the air conditioners) and one background loop.
+- **Voice limit** (`nvf-play/src/sfx.rs` `MAX_VOICES` 64, `MAX_SAME` 8; interface sounds
+  are not limited) [engineering choice: the original's limits are not known]. A one-shot
+  beyond 8 of its own SOUN stops that SOUN's oldest voice and plays in its place; one
+  beyond 64 in all is not played. Before #1098 the 9th of a SOUN was not played either:
+  the 10mm SMG (9 shots a second) fired for 3 s gave 28 shots of `WPN10mmSMGFire2D` and
+  35 sounds refused, gaps in the burst [observed: smoke `auto-fire-burst-sound` on main
+  2026-10-31]; now 28 started, 20 of them over the oldest, 0 refused [observed]. Whether
+  the original cuts a previous shot's sound is not known (observer check). The exit log
+  names every SOUN that met a limit: `sfx: <EDID>: N started, S of them over its oldest
+  voice, R refused at the voice limit`.
 
 ## 8. Tools
 

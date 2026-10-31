@@ -74,6 +74,10 @@ pub enum EventKind {
     Unhandled { opcode: String, name: String, unit: String },
     /// A function failed (bad argument, missing reference); the script went on with 0.
     CallFailed { opcode: String, name: String, unit: String, error: String },
+    /// A function succeeded although it could not read an argument the call passed (a
+    /// kind its accessor does not take, `functions::Unread`): it went on with a default.
+    /// Traced once per opcode, unit and parameter.
+    ArgUnread { opcode: String, name: String, unit: String, param: usize, got: String, wanted: String },
     /// A script stopped early (budget, malformed expression, nesting depth).
     ScriptError { unit: String, error: String },
     /// Something the VM skipped (an unknown opcode in a lenient run, an extended

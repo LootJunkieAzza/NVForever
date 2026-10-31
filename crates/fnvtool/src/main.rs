@@ -82,6 +82,9 @@ enum Cmd {
     /// BSA archives.
     #[command(subcommand)]
     Bsa(BsaCmd),
+    /// The virtual file system: archives and loose files as the game mounts them.
+    #[command(subcommand)]
+    Vfs(VfsCmd),
     /// ESM/ESP plugins.
     #[command(subcommand)]
     Esm(EsmCmd),
@@ -930,6 +933,18 @@ pub enum BsaCmd {
 }
 
 #[derive(Subcommand)]
+pub enum VfsCmd {
+    /// The archives mounted for a load order, lowest precedence first (loose files go
+    /// above them all), as the game resolves them (fnv.vfs.order/1).
+    Order {
+        /// The game's Data folder.
+        data_dir: PathBuf,
+        /// Plugins in load order (default: the base game and its add-on masters).
+        plugins: Vec<String>,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum EsmCmd {
     /// TES4 header.
     Header { plugin: PathBuf },
@@ -1099,10 +1114,16 @@ fn init_logging() {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     init_logging();
+    // The game folder a command reads (its data-folder argument, wherever the command
+    // takes it): every `fnv_install::guard_write` then refuses outputs inside it (#994).
+    if let Some(a) = std::env::args_os().skip(1).map(PathBuf::from).find(|p| p.is_dir() && fnv_install::GameInstall::open(p).is_ok()) {
+        fnv_install::remember_game_at(&a);
+    }
     let res = match cli.cmd {
         Cmd::Setup { game, home } => install_cmd::setup(&game, &home),
         Cmd::Paths { home } => install_cmd::paths(&home),
         Cmd::Bsa(c) => bsa_cmd::run(c),
+        Cmd::Vfs(c) => bsa_cmd::run_vfs(c),
         Cmd::Esm(c) => esm_cmd::run(c),
         Cmd::Nif(c) => nif_cmd::run(c),
         Cmd::Dds(c) => dds_cmd::run(c),

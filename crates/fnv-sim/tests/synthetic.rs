@@ -976,6 +976,58 @@ fn a_broken_weapon_is_not_equipped() {
     w.equip(p, id(SUIT)).unwrap();
 }
 
+/// A menu row whose units are no longer carried fails before anything is taken off
+/// (#1083): the clashing armour, and the item itself, stay worn.
+#[test]
+fn a_failed_equip_leaves_the_worn_gear_on() {
+    use fnv_sim::inventory::Pick;
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    for it in [HAT, HELMET, SUIT, PISTOL, RIFLE] {
+        w.add_item(p, id(it), 1).unwrap();
+    }
+    for it in [HAT, SUIT, PISTOL] {
+        w.equip(p, id(it)).unwrap();
+    }
+    let worn = |w: &World| w.peek(p).unwrap().inventory.as_ref().unwrap().equipped();
+    let before = worn(&w);
+    let half = Pick::at(Some(0.5));
+    let gone = |item| Err(SimError::NotCarried { actor: p, item: id(item) });
+    // No helmet at half condition is carried: the hat it would replace stays on.
+    assert_eq!(w.equip_at(p, id(HELMET), half).map(|e| e.unequipped), gone(HELMET));
+    // The suit clashes with itself: the worn one stays on.
+    assert_eq!(w.equip_at(p, id(SUIT), half).map(|e| e.unequipped), gone(SUIT));
+    // The same for weapons: another weapon is refused by the sound-unit check (which
+    // reports it as Broken), the equipped one by the new check.
+    assert_eq!(w.equip_at(p, id(RIFLE), half).map(|e| e.unequipped), Err(SimError::Broken(id(RIFLE))));
+    assert_eq!(w.equip_at(p, id(PISTOL), half).map(|e| e.unequipped), gone(PISTOL));
+    assert_eq!(worn(&w), before);
+    // A unit that is carried still replaces the clashing one.
+    assert_eq!(w.equip_at(p, id(HELMET), Pick::ANY).unwrap().unequipped, vec![id(HAT)]);
+}
+
+/// Reading a stat or a lock of a reference nothing has touched rolls none of its
+/// leveled lists, so later rolls don't depend on what was only looked at (#1083).
+#[test]
+fn reading_values_leaves_the_random_stream_alone() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let pos = |w: &World| w.snapshot().rng_word_pos;
+    let start = pos(&w);
+    // The safe holds a leveled list (LL_LOOT).
+    assert_eq!(w.lock_status(id(SAFE_REF)).unwrap(), 1);
+    assert_eq!(w.lock_status(id(CHAIR_REF)).unwrap(), 0);
+    assert!(w.peek(id(SAFE_REF)).is_none(), "not materialised by a read");
+    assert_eq!(w.actor_value(FormId::PLAYER_REF, "strength").unwrap(), 5.0);
+    assert!(w.peek(FormId::PLAYER_REF).is_none());
+    assert_eq!(pos(&w), start);
+    assert!(matches!(w.lock_status(id(0xDEAD)), Err(SimError::UnknownRef(_))));
+    // Once the safe is materialised, the same values come back.
+    w.get(id(SAFE_REF)).unwrap();
+    assert_eq!(w.lock_status(id(SAFE_REF)).unwrap(), 1);
+}
+
 #[test]
 fn equipping_follows_slots() {
     let f = fixture();
@@ -1749,4 +1801,65 @@ fn a_book_that_cant_be_taken_stays_unless_a_script_activates_it() {
     assert!(matches!(w.activate(p, id(STIM_REF)).unwrap().outcome, Outcome::NoDefault { .. }));
     assert_eq!(w.item_count(p, id(STIMPAK)).unwrap(), 0);
     assert!(matches!(w.activate_scripted(p, id(STIM_REF)).unwrap().outcome, Outcome::PickedUp { .. }));
+}
+
+/// The run-time state a snapshot carries since #1084 (a created reference's inventory
+/// source, the power armour flag, carry bonuses and weight rules), and what it leaves
+/// to the session: game settings, leveled lists and base containers edited by script are
+/// documented as not save baked but lasting for the session, so a load in the same run
+/// keeps them (`World::take_session`) and a fresh run's load goes without them.
+#[test]
+fn snapshot_carries_run_time_state_and_leaves_session_edits() {
+    use fnv_sim::inventory::WeightRules;
+    use fnv_sim::settings::Setting;
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    // Saved: a created reference's source, which no recompute gives back. Not saved: a
+    // placed one's (the game layer works it out again on a load), nor its own base's.
+    let made = w.place(id(SAFE), Some(id(CELL_A)), [0.0; 3], [0.0; 3], 1).unwrap();
+    w.give_items_of(made, id(LOCKER)).unwrap();
+    let taken = w.place(id(SAFE), Some(id(CELL_A)), [0.0; 3], [0.0; 3], 1).unwrap();
+    w.give_items_of(taken, id(LOCKER)).unwrap();
+    w.get(taken).unwrap().deleted = true;
+    w.set_inventory_source(id(SAFE_REF), Some(id(LOCKER)));
+    w.set_inventory_source(id(SAFE_REF), None);
+    w.set_power_armor_training(true);
+    w.set_carry_bonus(p, 25.0);
+    let rules = WeightRules { light: Some((2.0, 0.5)), heavy_weapons: None };
+    w.set_weight_rules(p, rules);
+    // Session only.
+    w.change_setting("fAVDCarryWeightsBase", Setting::Float(300.0)).unwrap();
+    assert!(w.edit_leveled(id(LL_LOOT), |l| l.chance_none = 100));
+    assert!(w.edit_base_entries(id(SAFE), |e| e.push(Entry::new(id(KEY), 1))));
+    let text = serde_json::to_string(&w.snapshot()).unwrap();
+    for absent in ["fAVDCarryWeightsBase", "favdcarryweightsbase", "chance_none"] {
+        assert!(!text.contains(absent), "{absent} is not saved");
+    }
+    let snap: fnv_sim::Snapshot = serde_json::from_str(&text).unwrap();
+    assert_eq!(snap.created_inventory_sources, [(made, id(LOCKER))].into_iter().collect(), "neither the placed nor the deleted one");
+    // A fresh run's load: the saved state is back, the session edits are not.
+    let mut back = World::restore(&f.forms, &f.refs, &snap).unwrap();
+    back.set_inventory_sources(Default::default());
+    assert!(back.power_armor_training());
+    assert_eq!(back.weight_rules(p), rules);
+    assert_eq!(back.snapshot(), w.snapshot());
+    assert!(back.reset_inventory(made).unwrap());
+    assert_eq!(back.item_count(made, id(PISTOL)).unwrap(), 1, "LOCKER's items, the created reference's source");
+    assert_eq!(back.setting_f32("fAVDCarryWeightsBase"), Some(150.0));
+    assert_ne!(back.leveled_list(id(LL_LOOT)).unwrap().chance_none, 100);
+    assert!(back.base_entries(id(SAFE)).unwrap().iter().all(|e| e.item != id(KEY)));
+    // A load in the same run: the session edits carry over.
+    back.put_session(w.take_session());
+    assert_eq!(back.setting_f32("fAVDCarryWeightsBase"), Some(300.0));
+    assert_eq!(back.leveled_list(id(LL_LOOT)).unwrap().chance_none, 100);
+    assert!(back.base_entries(id(SAFE)).unwrap().iter().any(|e| e.item == id(KEY)));
+    // Older snapshots, without the new fields, still load.
+    let mut old: serde_json::Value = serde_json::from_str(&text).unwrap();
+    for k in ["created_inventory_sources", "power_armor_training", "carry_bonus", "weight_rules"] {
+        assert!(old.as_object_mut().unwrap().remove(k).is_some(), "{k} is written");
+    }
+    let old: fnv_sim::Snapshot = serde_json::from_value(old).unwrap();
+    let back = World::restore(&f.forms, &f.refs, &old).unwrap();
+    assert!(!back.power_armor_training());
 }

@@ -1032,6 +1032,7 @@ fn run_actions(
     };
     let (trace, c) = fnv_game::runner::run_with_coverage(&data, &forms, &refs, &input, voice).map_err(anyhow::Error::msg)?;
     let title = actions.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    fnv_install::guard_write(path, None)?;
     std::fs::write(path, serde_json::to_string(&c.log(&data, &title))?).with_context(|| path.display().to_string())?;
     Ok(trace)
 }
@@ -1086,6 +1087,7 @@ fn cover(
                 let log = cov.log(c.data, name);
                 if let Some(d) = log_dir {
                     let p = d.join(format!("{}.coverage.json", name.trim_end_matches(".actions.json")));
+                    fnv_install::guard_write(&p, None)?;
                     std::fs::write(&p, serde_json::to_string(&log)?).with_context(|| p.display().to_string())?;
                 }
                 let given = trace["given_errors"].as_array().map_or(0, Vec::len);
@@ -1112,6 +1114,7 @@ fn cover(
     let data = fnv_game::GameData::build(&lo, &schema, table, &fjson, &refs);
     let mut r = fnv_game::coverage::report(&data, &all, untouched).map_err(anyhow::Error::msg)?;
     if let Some(d) = detail {
+        fnv_install::guard_write(d, None)?;
         std::fs::write(d, serde_json::to_string_pretty(&r)?).with_context(|| d.display().to_string())?;
     }
     if let Some(o) = r.as_object_mut() {
@@ -1185,11 +1188,28 @@ fn sweep(a: &ScriptArgs, top: usize, detail: Option<&std::path::Path>, log: Opti
     let refs = fnv_sim::RefTable::build(&lo, &schema);
     let data = fnv_game::GameData::build(&lo, &schema, table, &fjson, &refs);
     let (mut r, cov) = fnv_game::sweep::sweep(&data, &forms, &refs, 5);
+    // Every script's calls, one per argument shape: arguments read wrong without failing.
+    let mut probe = fnv_game::sweep::probe_calls(&data, &forms, &refs, 5);
+    r["summary"]["call_probe"] = json!({"shapes": probe["shapes"], "not_judged": probe["not_judged"].as_array().map_or(0, Vec::len), "causes": probe["causes"], "calls": probe["calls"]});
+    r["call_probe"] = probe["arg_unread"].take();
+    if detail.is_some() {
+        r["call_probe_not_judged"] = probe["not_judged"].take();
+    }
     if let Some(p) = log {
+        fnv_install::guard_write(p, None)?;
         std::fs::write(p, serde_json::to_string(&cov.log(&data, "result-script sweep"))?).with_context(|| p.display().to_string())?;
     }
     if let Some(p) = detail {
+        fnv_install::guard_write(p, None)?;
         std::fs::write(p, serde_json::to_string_pretty(&r)?).with_context(|| p.display().to_string())?;
+    }
+    if let Some(list) = r["call_probe"].as_array_mut() {
+        list.truncate(top);
+        for c in list.iter_mut() {
+            if let Some(e) = c["e.g."].as_array_mut() {
+                e.truncate(2);
+            }
+        }
     }
     if let Some(causes) = r["causes"].as_object_mut() {
         for v in causes.values_mut() {
