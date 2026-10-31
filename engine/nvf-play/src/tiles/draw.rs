@@ -794,25 +794,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
                     info!("tiles: {name} drawn from tiles ({file} file tiles, {code} code tiles)");
                     drawn.told_menu = Some(menu);
                 }
-                // The menu's fonts were loaded by this frame's writes (`super::menus`, before
-                // scripts). A text piece in a font not loaded yet (a script brought it in
-                // meanwhile) has it loaded here and the pieces worked out again, so no text is
-                // set out or spawned without its face (`unloaded_fonts`).
-                let select = Select::Whole { kept: &[], strip: None };
-                let set_out = |kit: &FontKit| {
-                    let measured = |font: f64, text: &str, wrap: Option<f64>| kit.face(font).map_or((0.0, 0.0), |face| measure(&face.font, text, wrap));
-                    pieces(ui, menu, &measured, select).0
-                };
-                let first = set_out(&kit);
-                let missing = unloaded_fonts(&first, |f| kit.fonts.faces.contains_key(&f));
-                if missing.is_empty() {
-                    first
-                } else {
-                    for f in missing {
-                        kit.load(f64::from(f));
-                    }
-                    set_out(&kit)
-                }
+                whole_pieces(ui, menu, &mut kit)
             }
             None => Vec::new(),
         };
@@ -834,6 +816,44 @@ pub fn unloaded_fonts(pieces: &[Piece], loaded: impl Fn(u8) -> bool) -> Vec<u8> 
         }
     }
     out
+}
+
+/// Fonts for [`whole_pieces`]: whether one is loaded, loading it, and a text's size in it
+/// (none, (0, 0), while it is not loaded).
+pub trait MenuFonts {
+    fn loaded(&self, font: u8) -> bool;
+    fn load_font(&mut self, font: u8);
+    fn size(&self, font: f64, text: &str, wrap: Option<f64>) -> (f64, f64);
+}
+
+impl MenuFonts for FontKit<'_> {
+    fn loaded(&self, font: u8) -> bool {
+        self.fonts.faces.contains_key(&font)
+    }
+    fn load_font(&mut self, font: u8) {
+        self.load(f64::from(font));
+    }
+    fn size(&self, font: f64, text: &str, wrap: Option<f64>) -> (f64, f64) {
+        self.face(font).map_or((0.0, 0.0), |face| measure(&face.font, text, wrap))
+    }
+}
+
+/// The pieces of a menu drawn whole (T15a's menus). Its fonts were loaded by this frame's
+/// writes (`super::menus`, before scripts); a text piece in a font not loaded yet (a script
+/// brought it in meanwhile) has it loaded here and the pieces worked out again, so no text
+/// is set out unmeasured or spawned without its face ([`unloaded_fonts`]).
+pub fn whole_pieces(ui: &Ui, menu: TileId, fonts: &mut impl MenuFonts) -> Vec<Piece> {
+    let select = Select::Whole { kept: &[], strip: None };
+    let set_out = |fonts: &dyn MenuFonts| pieces(ui, menu, &|font: f64, text: &str, wrap: Option<f64>| fonts.size(font, text, wrap), select).0;
+    let first = set_out(fonts);
+    let missing = unloaded_fonts(&first, |f| fonts.loaded(f));
+    if missing.is_empty() {
+        return first;
+    }
+    for f in missing {
+        fonts.load_font(f);
+    }
+    set_out(fonts)
 }
 
 /// The HUD's pieces (T5's mods' tiles, or with `[UI] TileMenus=HUDMainMenu` the whole menu)
@@ -1116,6 +1136,29 @@ mod tests {
         loaded.push(8);
         assert!(unloaded_fonts(&set, |f| loaded.contains(&f)).is_empty());
         assert!(set.iter().any(|p| matches!(&p.look, Look::Text { font: 8, string, .. } if string == "Late")));
+        // Through the drawing's own path: font 8 not loaded on the first layout, loaded by
+        // it, and the text set out again at its measured size.
+        struct Fonts(Vec<u8>);
+        impl MenuFonts for Fonts {
+            fn loaded(&self, font: u8) -> bool {
+                self.0.contains(&font)
+            }
+            fn load_font(&mut self, font: u8) {
+                self.0.push(font);
+            }
+            fn size(&self, font: f64, text: &str, wrap: Option<f64>) -> (f64, f64) {
+                if self.loaded(font_number(font)) { plain(font, text, wrap) } else { (0.0, 0.0) }
+            }
+        }
+        let mut fonts = Fonts(vec![2]);
+        let drawn = whole_pieces(&ui, menu, &mut fonts);
+        assert!(fonts.loaded(8), "the late font is loaded");
+        let late = drawn.iter().find(|p| matches!(&p.look, Look::Text { string, .. } if string == "Late")).unwrap();
+        assert_eq!((late.rect.width, late.rect.height), (40.0, 20.0), "set out with its face, not at (0, 0)");
+        // With every font there, one layout and nothing loaded.
+        let before = fonts.0.len();
+        assert_eq!(whole_pieces(&ui, menu, &mut fonts), drawn);
+        assert_eq!(fonts.0.len(), before);
     }
 
     #[test]
