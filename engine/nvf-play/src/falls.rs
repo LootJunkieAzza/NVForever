@@ -134,7 +134,7 @@ pub struct Fell {
 
 /// The leg a fall hurts: Left Mobility Condition when `roll` is even, else Right.
 pub fn fall_leg(roll: u64) -> u16 {
-    if roll % 2 == 0 {
+    if roll.is_multiple_of(2) {
         fnv_game::combat::LEFT_MOBILITY
     } else {
         fnv_game::combat::RIGHT_MOBILITY
@@ -232,7 +232,7 @@ fn hurt(
         let leg = fall_leg(roll);
         let info = fnv_game::combat::HitInfo { attacker: None, weapon: None, location: -1, critical: false, limb: Some(leg_hit(leg, dmg)) };
         let r = apply_hit(script.as_deref_mut(), &mut sim, f.actor, dmg, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &[], false, None);
-        match r {
+        match &r {
             Some(r) => info!(
                 "falls: {} lands from {:.0} units: {dmg:.1} fall damage, {:.1} dealt, health {:.0}/{:.0}{}",
                 f.actor,
