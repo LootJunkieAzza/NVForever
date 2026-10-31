@@ -201,7 +201,7 @@ mod tests {
         assert_eq!(model_path("Interface\\HUD\\AirTimer01.NIF"), crate::hud_breath::MODEL);
         assert_eq!(model_path(" /Interface/HUD/x.nif "), "meshes\\interface\\hud\\x.nif");
         let (ui, menu) = hud();
-        let items = layout::layout(&ui, menu, &plain);
+        let items = layout::layout(&ui, menu, &plain, false);
         let item = items.iter().find(|i| ui.tile(i.tile).name == "BreathMeter").unwrap();
         assert_eq!(item.kind, Kind::Nif(layout::Nif { filename: "Interface\\HUD\\AirTimer01.NIF".into(), animation: Some("Forward".into()) }));
         assert_eq!(item.rect, TileRect { left: 768.0, top: 110.0, width: 64.0, height: 64.0 });
@@ -210,7 +210,7 @@ mod tests {
     #[test]
     fn the_breath_meter_draws_from_its_tile_only_while_written_shown_with_the_switch_on() {
         let (mut ui, menu) = hud();
-        let whole = |ui: &Ui| pieces(ui, menu, &plain, Select::Whole { kept: &kept_pieces(ui), strip: None }).0;
+        let whole = |ui: &Ui| pieces(ui, menu, &plain, Select::Whole { kept: &kept_pieces(ui), strip: None }, false).0;
         // The file's alpha 0: nothing, as before any write.
         assert!(whole(&ui).is_empty());
         write_breath(&mut ui, true, 0.5);
@@ -225,7 +225,7 @@ mod tests {
         // No longer kept hand-built.
         assert!(kept_pieces(&ui).is_empty());
         // With the switch off only the mods' tiles draw, and a nif tile never did.
-        assert!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }).0.is_empty());
+        assert!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false).0.is_empty());
         // Hidden again.
         write_breath(&mut ui, false, 0.0);
         ui.update();

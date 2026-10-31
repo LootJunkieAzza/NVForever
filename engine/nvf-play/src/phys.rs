@@ -524,6 +524,18 @@ impl PhysState {
         self.cells.contains_key(&self.cell_at(feet))
     }
 
+    /// Whether every cell kept around `feet` is loaded (outdoors the squares of
+    /// [`cells::wanted`], indoors the one cell). The start waits for this, not only for
+    /// the cell underfoot: a reference placed in a neighbouring square can reach over the
+    /// start (the Bison Steve rollercoaster track over Primm, #1103), and a start placed
+    /// before it is in finds only the terrain below.
+    pub fn ready_around(&self, feet: [f32; 3]) -> bool {
+        match self.space {
+            Space::Interior(_) => self.ready_at(feet),
+            Space::Exterior => cells::wanted(cell_of(feet[0], feet[1])).into_iter().all(|(x, y)| self.cells.contains_key(&PhysCell::Exterior(x, y))),
+        }
+    }
+
     /// Where an actor's character is drawn this frame: between its feet before and after
     /// the last physics step, by the time accumulated towards the next (as the player's
     /// body), so a walk is as smooth on screen as the frame rate allows. `None` when the
