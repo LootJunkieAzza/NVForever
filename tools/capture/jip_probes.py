@@ -4829,7 +4829,7 @@ J5 = {"gecko": "10CD74", "ltex": "63A8D", "decal": "1A32C", "dirt": "11673A", "f
 
 
 def _j5(pid, body, text=False):
-    return (f"jip5.{pid}", "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\n"
+    return (f"jip5.{pid}", "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\n"
             + _form("rP", NF["player"]) + body, text, None, "")
 
 
@@ -4848,21 +4848,41 @@ JIP5_PROBES = (
     + [_j5v("bpd.torso.num.2", "gecko", "GetBodyPartTraitNumeric rObj 0 2"),
        _j5("bpd.setnum", _form("rObj", J5["gecko"]) + "let fRes := GetBodyPartTraitNumeric rObj 1 1\nSetBodyPartTraitNumeric rObj 1 1 7\n"
            "let sText := sv_Construct \"%g\" (GetBodyPartTraitNumeric rObj 1 1)\nSetBodyPartTraitNumeric rObj 1 1 fRes\nSetFunctionValue sText", True),
-       _j5("bpd.setflag", _form("rObj", J5["gecko"]) + "SetBodyPartFlag rObj 1 2 1\nlet fRes := GetBodyPartFlag rObj 1 2\n"
-           "SetBodyPartFlag rObj 1 2 0\nSetFunctionValue fRes")]
+       # The flag saved and written back in the same step (#1145 review).
+       _j5("bpd.setflag", _form("rObj", J5["gecko"]) + "let fSave := GetBodyPartFlag rObj 1 2\nSetBodyPartFlag rObj 1 2 1\n"
+           "let fRes := GetBodyPartFlag rObj 1 2\nSetBodyPartFlag rObj 1 2 fSave\n"
+           'SetFunctionValue (sv_Construct "%g %g %g" fSave fRes (GetBodyPartFlag rObj 1 2))', True),
+       # What the setters give back (#1145 review): each result, its value put back after.
+       _j5("bpd.setflag.result", _form("rObj", J5["gecko"]) + "let fSave := GetBodyPartFlag rObj 1 2\n"
+           "let fRes := SetBodyPartFlag rObj 1 2 1\nSetBodyPartFlag rObj 1 2 fSave\n"
+           'SetFunctionValue (sv_Construct "%g %g" fRes (GetBodyPartFlag rObj 1 2))', True),
+       _j5("bpd.setnum.result", _form("rObj", J5["gecko"]) + "let fSave := GetBodyPartTraitNumeric rObj 1 1\n"
+           "let fRes := SetBodyPartTraitNumeric rObj 1 1 7\nSetBodyPartTraitNumeric rObj 1 1 fSave\n"
+           'SetFunctionValue (sv_Construct "%g %g" fRes (GetBodyPartTraitNumeric rObj 1 1))', True)]
     + [_j5v("ltex.num", "ltex", "GetLandTextureNumGrasses rObj")]
     + [_j5v(f"ltex.grass.{i}", "ltex", f"GetLandTextureNthGrass rObj {i}", "form") for i in range(0, 4)]
     + [_j5v("ltex.txst", "ltex", "GetLandTextureTextureSet rObj", "form")]
     + [_j5v(f"ltex.trait.{t}", "ltex", f"GetLandTextureTraitNumeric rObj {t}") for t in range(0, 5)]
     + [_j5("ltex.addgrass", _form("rObj", J5["ltex"]) + _form("rOther", J5["grass"])
            + "LandTextureAddGrass rObj rOther\nlet fRes := GetLandTextureNumGrasses rObj\nLandTextureRemoveGrass rObj rOther\n"
-           'SetFunctionValue (sv_Construct "%g %g" fRes (GetLandTextureNumGrasses rObj))', True)]
+           'SetFunctionValue (sv_Construct "%g %g" fRes (GetLandTextureNumGrasses rObj))', True),
+       _j5("ltex.addgrass.result", _form("rObj", J5["ltex"]) + _form("rOther", J5["grass"])
+           + "let fRes := LandTextureAddGrass rObj rOther\nlet fSave := LandTextureAddGrass rObj rOther\n"
+           "let sText := sv_Construct \"%g %g\" fRes fSave\nlet fRes := LandTextureRemoveGrass rObj rOther\n"
+           "let fSave := LandTextureRemoveGrass rObj rOther\n"
+           'SetFunctionValue (sv_Construct "%z %g %g %g" sText fRes fSave (GetLandTextureNumGrasses rObj))', True),
+       _j5("ltex.settrait.result", _form("rObj", J5["ltex"]) + "let fSave := GetLandTextureTraitNumeric rObj 1\n"
+           "let fRes := SetLandTextureTraitNumeric rObj 1 55\nSetLandTextureTraitNumeric rObj 1 fSave\n"
+           'SetFunctionValue (sv_Construct "%g %g" fRes (GetLandTextureTraitNumeric rObj 1))', True)]
     + [_j5v(f"txst.decal.{t}", "decal", f"GetTextureSetTraitNumeric rObj {t}") for t in range(0, 10)]
     + [_j5v(f"txst.dirt.{t}", "dirt", f"GetTextureSetTraitNumeric rObj {t}") for t in (0, 5, 8)]
     + [_j5v(f"txst.decal.flag.{t}", "decal", f"GetTextureSetFlag rObj {t}") for t in range(0, 5)]
     + [_j5v(f"txst.dirt.flag.{t}", "dirt", f"GetTextureSetFlag rObj {t}") for t in range(0, 4)]
     + [_j5("txst.setcolor", _form("rObj", J5["decal"]) + "let fRes := GetTextureSetTraitNumeric rObj 8\nSetTextureSetTraitNumeric rObj 8 10020030\n"
-           "let sText := sv_Construct \"%g\" (GetTextureSetTraitNumeric rObj 8)\nSetTextureSetTraitNumeric rObj 8 fRes\nSetFunctionValue sText", True)]
+           "let sText := sv_Construct \"%g\" (GetTextureSetTraitNumeric rObj 8)\nSetTextureSetTraitNumeric rObj 8 fRes\nSetFunctionValue sText", True),
+       _j5("txst.settrait.result", _form("rObj", J5["decal"]) + "let fSave := GetTextureSetTraitNumeric rObj 4\n"
+           "let fRes := SetTextureSetTraitNumeric rObj 4 33\nSetTextureSetTraitNumeric rObj 4 fSave\n"
+           'SetFunctionValue (sv_Construct "%g %g" fRes (GetTextureSetTraitNumeric rObj 4))', True)]
     + [_j5v(f"world.{k}.noise", k, "GetWorldspaceNoiseTexture rObj", True) for k in ("freeside", "wasteland")]
     + [_j5v(f"world.{k}.water", k, "GetWorldspaceWaterType rObj", "form") for k in ("freeside", "wasteland")]
 )

@@ -5,497 +5,528 @@
  "start": "any save (read-only)",
  "steps": [
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 0)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 0)\nEnd\n",
    "label": "jip5.bpd.has.0",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 1)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 1)\nEnd\n",
    "label": "jip5.bpd.has.1",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 2)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 2)\nEnd\n",
    "label": "jip5.bpd.has.2",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 3)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 3)\nEnd\n",
    "label": "jip5.bpd.has.3",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 4)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 4)\nEnd\n",
    "label": "jip5.bpd.has.4",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 5)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 5)\nEnd\n",
    "label": "jip5.bpd.has.5",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 6)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 6)\nEnd\n",
    "label": "jip5.bpd.has.6",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 7)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 7)\nEnd\n",
    "label": "jip5.bpd.has.7",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 8)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 8)\nEnd\n",
    "label": "jip5.bpd.has.8",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 9)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 9)\nEnd\n",
    "label": "jip5.bpd.has.9",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 10)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 10)\nEnd\n",
    "label": "jip5.bpd.has.10",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 11)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 11)\nEnd\n",
    "label": "jip5.bpd.has.11",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 12)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 12)\nEnd\n",
    "label": "jip5.bpd.has.12",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 13)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 13)\nEnd\n",
    "label": "jip5.bpd.has.13",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 14)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 14)\nEnd\n",
    "label": "jip5.bpd.has.14",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 15)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataHasPart rObj 15)\nEnd\n",
    "label": "jip5.bpd.has.15",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetFormIDString (GetBodyPartDataRagdoll rObj))\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetFormIDString (GetBodyPartDataRagdoll rObj))\nEnd\n",
    "label": "jip5.bpd.ragdoll",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataSkeleton rObj)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartDataSkeleton rObj)\nEnd\n",
    "label": "jip5.bpd.skeleton",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 0)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 0)\nEnd\n",
    "label": "jip5.bpd.head.num.0",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 1)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 1)\nEnd\n",
    "label": "jip5.bpd.head.num.1",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 2)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 2)\nEnd\n",
    "label": "jip5.bpd.head.num.2",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 3)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 3)\nEnd\n",
    "label": "jip5.bpd.head.num.3",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 4)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 4)\nEnd\n",
    "label": "jip5.bpd.head.num.4",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 5)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 5)\nEnd\n",
    "label": "jip5.bpd.head.num.5",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 6)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 6)\nEnd\n",
    "label": "jip5.bpd.head.num.6",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 7)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 7)\nEnd\n",
    "label": "jip5.bpd.head.num.7",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 8)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 8)\nEnd\n",
    "label": "jip5.bpd.head.num.8",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 9)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 9)\nEnd\n",
    "label": "jip5.bpd.head.num.9",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 10)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 10)\nEnd\n",
    "label": "jip5.bpd.head.num.10",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 11)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 11)\nEnd\n",
    "label": "jip5.bpd.head.num.11",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 12)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 12)\nEnd\n",
    "label": "jip5.bpd.head.num.12",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 13)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 13)\nEnd\n",
    "label": "jip5.bpd.head.num.13",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 14)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 14)\nEnd\n",
    "label": "jip5.bpd.head.num.14",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 15)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 15)\nEnd\n",
    "label": "jip5.bpd.head.num.15",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 16)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 16)\nEnd\n",
    "label": "jip5.bpd.head.num.16",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 17)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 17)\nEnd\n",
    "label": "jip5.bpd.head.num.17",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 18)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 18)\nEnd\n",
    "label": "jip5.bpd.head.num.18",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 19)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 1 19)\nEnd\n",
    "label": "jip5.bpd.head.num.19",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetFormIDString (GetBodyPartTraitForm rObj 1 0))\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetFormIDString (GetBodyPartTraitForm rObj 1 0))\nEnd\n",
    "label": "jip5.bpd.head.form.0",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetFormIDString (GetBodyPartTraitForm rObj 1 1))\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetFormIDString (GetBodyPartTraitForm rObj 1 1))\nEnd\n",
    "label": "jip5.bpd.head.form.1",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetFormIDString (GetBodyPartTraitForm rObj 1 2))\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetFormIDString (GetBodyPartTraitForm rObj 1 2))\nEnd\n",
    "label": "jip5.bpd.head.form.2",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetFormIDString (GetBodyPartTraitForm rObj 1 3))\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetFormIDString (GetBodyPartTraitForm rObj 1 3))\nEnd\n",
    "label": "jip5.bpd.head.form.3",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetFormIDString (GetBodyPartTraitForm rObj 1 4))\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetFormIDString (GetBodyPartTraitForm rObj 1 4))\nEnd\n",
    "label": "jip5.bpd.head.form.4",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetFormIDString (GetBodyPartTraitForm rObj 1 5))\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetFormIDString (GetBodyPartTraitForm rObj 1 5))\nEnd\n",
    "label": "jip5.bpd.head.form.5",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetFormIDString (GetBodyPartTraitForm rObj 1 6))\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetFormIDString (GetBodyPartTraitForm rObj 1 6))\nEnd\n",
    "label": "jip5.bpd.head.form.6",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartFlag rObj 1 0)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartFlag rObj 1 0)\nEnd\n",
    "label": "jip5.bpd.head.flag.0",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartFlag rObj 1 1)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartFlag rObj 1 1)\nEnd\n",
    "label": "jip5.bpd.head.flag.1",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartFlag rObj 1 2)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartFlag rObj 1 2)\nEnd\n",
    "label": "jip5.bpd.head.flag.2",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartFlag rObj 1 3)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartFlag rObj 1 3)\nEnd\n",
    "label": "jip5.bpd.head.flag.3",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartFlag rObj 1 4)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartFlag rObj 1 4)\nEnd\n",
    "label": "jip5.bpd.head.flag.4",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartFlag rObj 1 5)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartFlag rObj 1 5)\nEnd\n",
    "label": "jip5.bpd.head.flag.5",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartFlag rObj 1 6)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartFlag rObj 1 6)\nEnd\n",
    "label": "jip5.bpd.head.flag.6",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartFlag rObj 1 7)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartFlag rObj 1 7)\nEnd\n",
    "label": "jip5.bpd.head.flag.7",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 0 2)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetFunctionValue (GetBodyPartTraitNumeric rObj 0 2)\nEnd\n",
    "label": "jip5.bpd.torso.num.2",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nlet fRes := GetBodyPartTraitNumeric rObj 1 1\nSetBodyPartTraitNumeric rObj 1 1 7\nlet sText := sv_Construct \"%g\" (GetBodyPartTraitNumeric rObj 1 1)\nSetBodyPartTraitNumeric rObj 1 1 fRes\nSetFunctionValue sText\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nlet fRes := GetBodyPartTraitNumeric rObj 1 1\nSetBodyPartTraitNumeric rObj 1 1 7\nlet sText := sv_Construct \"%g\" (GetBodyPartTraitNumeric rObj 1 1)\nSetBodyPartTraitNumeric rObj 1 1 fRes\nSetFunctionValue sText\nEnd\n",
    "label": "jip5.bpd.setnum",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nSetBodyPartFlag rObj 1 2 1\nlet fRes := GetBodyPartFlag rObj 1 2\nSetBodyPartFlag rObj 1 2 0\nSetFunctionValue fRes\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nlet fSave := GetBodyPartFlag rObj 1 2\nSetBodyPartFlag rObj 1 2 1\nlet fRes := GetBodyPartFlag rObj 1 2\nSetBodyPartFlag rObj 1 2 fSave\nSetFunctionValue (sv_Construct \"%g %g %g\" fSave fRes (GetBodyPartFlag rObj 1 2))\nEnd\n",
    "label": "jip5.bpd.setflag",
-   "field": "value"
+   "field": "value",
+   "text": true
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nSetFunctionValue (GetLandTextureNumGrasses rObj)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nlet fSave := GetBodyPartFlag rObj 1 2\nlet fRes := SetBodyPartFlag rObj 1 2 1\nSetBodyPartFlag rObj 1 2 fSave\nSetFunctionValue (sv_Construct \"%g %g\" fRes (GetBodyPartFlag rObj 1 2))\nEnd\n",
+   "label": "jip5.bpd.setflag.result",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10CD74\"\nlet fSave := GetBodyPartTraitNumeric rObj 1 1\nlet fRes := SetBodyPartTraitNumeric rObj 1 1 7\nSetBodyPartTraitNumeric rObj 1 1 fSave\nSetFunctionValue (sv_Construct \"%g %g\" fRes (GetBodyPartTraitNumeric rObj 1 1))\nEnd\n",
+   "label": "jip5.bpd.setnum.result",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nSetFunctionValue (GetLandTextureNumGrasses rObj)\nEnd\n",
    "label": "jip5.ltex.num",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nSetFunctionValue (GetFormIDString (GetLandTextureNthGrass rObj 0))\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nSetFunctionValue (GetFormIDString (GetLandTextureNthGrass rObj 0))\nEnd\n",
    "label": "jip5.ltex.grass.0",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nSetFunctionValue (GetFormIDString (GetLandTextureNthGrass rObj 1))\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nSetFunctionValue (GetFormIDString (GetLandTextureNthGrass rObj 1))\nEnd\n",
    "label": "jip5.ltex.grass.1",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nSetFunctionValue (GetFormIDString (GetLandTextureNthGrass rObj 2))\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nSetFunctionValue (GetFormIDString (GetLandTextureNthGrass rObj 2))\nEnd\n",
    "label": "jip5.ltex.grass.2",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nSetFunctionValue (GetFormIDString (GetLandTextureNthGrass rObj 3))\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nSetFunctionValue (GetFormIDString (GetLandTextureNthGrass rObj 3))\nEnd\n",
    "label": "jip5.ltex.grass.3",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nSetFunctionValue (GetFormIDString (GetLandTextureTextureSet rObj))\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nSetFunctionValue (GetFormIDString (GetLandTextureTextureSet rObj))\nEnd\n",
    "label": "jip5.ltex.txst",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nSetFunctionValue (GetLandTextureTraitNumeric rObj 0)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nSetFunctionValue (GetLandTextureTraitNumeric rObj 0)\nEnd\n",
    "label": "jip5.ltex.trait.0",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nSetFunctionValue (GetLandTextureTraitNumeric rObj 1)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nSetFunctionValue (GetLandTextureTraitNumeric rObj 1)\nEnd\n",
    "label": "jip5.ltex.trait.1",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nSetFunctionValue (GetLandTextureTraitNumeric rObj 2)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nSetFunctionValue (GetLandTextureTraitNumeric rObj 2)\nEnd\n",
    "label": "jip5.ltex.trait.2",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nSetFunctionValue (GetLandTextureTraitNumeric rObj 3)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nSetFunctionValue (GetLandTextureTraitNumeric rObj 3)\nEnd\n",
    "label": "jip5.ltex.trait.3",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nSetFunctionValue (GetLandTextureTraitNumeric rObj 4)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nSetFunctionValue (GetLandTextureTraitNumeric rObj 4)\nEnd\n",
    "label": "jip5.ltex.trait.4",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"17753\"\nLandTextureAddGrass rObj rOther\nlet fRes := GetLandTextureNumGrasses rObj\nLandTextureRemoveGrass rObj rOther\nSetFunctionValue (sv_Construct \"%g %g\" fRes (GetLandTextureNumGrasses rObj))\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"17753\"\nLandTextureAddGrass rObj rOther\nlet fRes := GetLandTextureNumGrasses rObj\nLandTextureRemoveGrass rObj rOther\nSetFunctionValue (sv_Construct \"%g %g\" fRes (GetLandTextureNumGrasses rObj))\nEnd\n",
    "label": "jip5.ltex.addgrass",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 0)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"17753\"\nlet fRes := LandTextureAddGrass rObj rOther\nlet fSave := LandTextureAddGrass rObj rOther\nlet sText := sv_Construct \"%g %g\" fRes fSave\nlet fRes := LandTextureRemoveGrass rObj rOther\nlet fSave := LandTextureRemoveGrass rObj rOther\nSetFunctionValue (sv_Construct \"%z %g %g %g\" sText fRes fSave (GetLandTextureNumGrasses rObj))\nEnd\n",
+   "label": "jip5.ltex.addgrass.result",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"63A8D\"\nlet fSave := GetLandTextureTraitNumeric rObj 1\nlet fRes := SetLandTextureTraitNumeric rObj 1 55\nSetLandTextureTraitNumeric rObj 1 fSave\nSetFunctionValue (sv_Construct \"%g %g\" fRes (GetLandTextureTraitNumeric rObj 1))\nEnd\n",
+   "label": "jip5.ltex.settrait.result",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 0)\nEnd\n",
    "label": "jip5.txst.decal.0",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 1)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 1)\nEnd\n",
    "label": "jip5.txst.decal.1",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 2)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 2)\nEnd\n",
    "label": "jip5.txst.decal.2",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 3)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 3)\nEnd\n",
    "label": "jip5.txst.decal.3",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 4)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 4)\nEnd\n",
    "label": "jip5.txst.decal.4",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 5)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 5)\nEnd\n",
    "label": "jip5.txst.decal.5",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 6)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 6)\nEnd\n",
    "label": "jip5.txst.decal.6",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 7)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 7)\nEnd\n",
    "label": "jip5.txst.decal.7",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 8)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 8)\nEnd\n",
    "label": "jip5.txst.decal.8",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 9)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 9)\nEnd\n",
    "label": "jip5.txst.decal.9",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"11673A\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 0)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"11673A\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 0)\nEnd\n",
    "label": "jip5.txst.dirt.0",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"11673A\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 5)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"11673A\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 5)\nEnd\n",
    "label": "jip5.txst.dirt.5",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"11673A\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 8)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"11673A\"\nSetFunctionValue (GetTextureSetTraitNumeric rObj 8)\nEnd\n",
    "label": "jip5.txst.dirt.8",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetFlag rObj 0)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetFlag rObj 0)\nEnd\n",
    "label": "jip5.txst.decal.flag.0",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetFlag rObj 1)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetFlag rObj 1)\nEnd\n",
    "label": "jip5.txst.decal.flag.1",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetFlag rObj 2)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetFlag rObj 2)\nEnd\n",
    "label": "jip5.txst.decal.flag.2",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetFlag rObj 3)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetFlag rObj 3)\nEnd\n",
    "label": "jip5.txst.decal.flag.3",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetFlag rObj 4)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nSetFunctionValue (GetTextureSetFlag rObj 4)\nEnd\n",
    "label": "jip5.txst.decal.flag.4",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"11673A\"\nSetFunctionValue (GetTextureSetFlag rObj 0)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"11673A\"\nSetFunctionValue (GetTextureSetFlag rObj 0)\nEnd\n",
    "label": "jip5.txst.dirt.flag.0",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"11673A\"\nSetFunctionValue (GetTextureSetFlag rObj 1)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"11673A\"\nSetFunctionValue (GetTextureSetFlag rObj 1)\nEnd\n",
    "label": "jip5.txst.dirt.flag.1",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"11673A\"\nSetFunctionValue (GetTextureSetFlag rObj 2)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"11673A\"\nSetFunctionValue (GetTextureSetFlag rObj 2)\nEnd\n",
    "label": "jip5.txst.dirt.flag.2",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"11673A\"\nSetFunctionValue (GetTextureSetFlag rObj 3)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"11673A\"\nSetFunctionValue (GetTextureSetFlag rObj 3)\nEnd\n",
    "label": "jip5.txst.dirt.flag.3",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nlet fRes := GetTextureSetTraitNumeric rObj 8\nSetTextureSetTraitNumeric rObj 8 10020030\nlet sText := sv_Construct \"%g\" (GetTextureSetTraitNumeric rObj 8)\nSetTextureSetTraitNumeric rObj 8 fRes\nSetFunctionValue sText\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nlet fRes := GetTextureSetTraitNumeric rObj 8\nSetTextureSetTraitNumeric rObj 8 10020030\nlet sText := sv_Construct \"%g\" (GetTextureSetTraitNumeric rObj 8)\nSetTextureSetTraitNumeric rObj 8 fRes\nSetFunctionValue sText\nEnd\n",
    "label": "jip5.txst.setcolor",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10BEEA\"\nSetFunctionValue (GetWorldspaceNoiseTexture rObj)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"1A32C\"\nlet fSave := GetTextureSetTraitNumeric rObj 4\nlet fRes := SetTextureSetTraitNumeric rObj 4 33\nSetTextureSetTraitNumeric rObj 4 fSave\nSetFunctionValue (sv_Construct \"%g %g\" fRes (GetTextureSetTraitNumeric rObj 4))\nEnd\n",
+   "label": "jip5.txst.settrait.result",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10BEEA\"\nSetFunctionValue (GetWorldspaceNoiseTexture rObj)\nEnd\n",
    "label": "jip5.world.freeside.noise",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"DA726\"\nSetFunctionValue (GetWorldspaceNoiseTexture rObj)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"DA726\"\nSetFunctionValue (GetWorldspaceNoiseTexture rObj)\nEnd\n",
    "label": "jip5.world.wasteland.noise",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10BEEA\"\nSetFunctionValue (GetFormIDString (GetWorldspaceWaterType rObj))\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"10BEEA\"\nSetFunctionValue (GetFormIDString (GetWorldspaceWaterType rObj))\nEnd\n",
    "label": "jip5.world.freeside.water",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"DA726\"\nSetFunctionValue (GetFormIDString (GetWorldspaceWaterType rObj))\nEnd\n",
+   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"DA726\"\nSetFunctionValue (GetFormIDString (GetWorldspaceWaterType rObj))\nEnd\n",
    "label": "jip5.world.wasteland.water",
    "field": "value",
    "text": true

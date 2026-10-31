@@ -1062,6 +1062,11 @@ fn hex_prefix(h: &str) -> f64 {
     i64::from_str_radix(&h[..n], 16).map_or(0.0, |v| v as f64)
 }
 
+/// The widest field and the most digits a format code writes; a larger width or precision
+/// is cut to this, so a mod's `%.4000000000f` cannot build a huge string [design: as #1134
+/// asks of the message formatter].
+const MAX_FORMAT_FIELD: usize = 512;
+
 /// A number by a printf-style code, as the C library writes it [observed: the game's
 /// sv_Construct, probe format1 and jip5 (#1006): `%g` 0.5 "0.5", 2.5 "2.5", 1000000
 /// "1e+06", 123.456789 "123.457", 1234567 "1.23457e+06", 10020030 "1.002e+07"; `%G`
@@ -1069,21 +1074,26 @@ fn hex_prefix(h: &str) -> f64 {
 /// denormal "7.09985e-318"]: `%X.Yf` (width X, Y decimals), `%g`/`%G` (Y significant
 /// digits, 6 by default, scientific below 1e-4 or from 10^Y, trailing zeros dropped),
 /// `%.Ye`/`%.YE`; switches `+`, space, `-` (left-aligned), `0` (zero padding). The wiki's
-/// "%g as an integer, 1E+006" (String Formatting, Vanilla Game Options) is the older
-/// runtime's form and not what the game writes now.
+/// "%g as an integer, 1E+006" (String Formatting, Vanilla Game Options) differs [hypothesis:
+/// the older runtime's form]. The sign is written apart from the digits, so -0 writes
+/// `-0` and `+` never doubles one; infinity and NaN write `inf` and `nan` (`INF`, `NAN`
+/// for an upper-case code) and are padded with spaces, as the C library does
+/// [hypothesis: not probed].
 fn printf_number(spec: &str, code: char, x: f64) -> String {
     let flags: String = spec.chars().take_while(|c| "+- 0".contains(*c)).collect();
     let rest = &spec[flags.len()..];
     let (w, p) = match rest.split_once('.') {
-        Some((w, p)) => (w, Some(p.parse::<usize>().unwrap_or(0))),
+        Some((w, p)) => (w, Some(p.parse::<usize>().unwrap_or(0).min(MAX_FORMAT_FIELD))),
         None => (rest, None),
     };
-    let width: usize = w.parse().unwrap_or(0);
+    let width: usize = w.parse::<usize>().unwrap_or(0).min(MAX_FORMAT_FIELD);
     let upper = code.is_ascii_uppercase();
-    // The C library's scientific form: the mantissa, then e (or E), a sign and at least
-    // two digits.
-    let sci = |x: f64, digits: usize| {
-        let s = format!("{:.*e}", digits, x);
+    let negative = x.is_sign_negative() && !x.is_nan();
+    let a = x.abs();
+    // The C library's scientific form of a value at or above 0: the mantissa, then e (or
+    // E), a sign and at least two digits.
+    let sci = |a: f64, digits: usize| {
+        let s = format!("{:.*e}", digits, a);
         match s.split_once('e') {
             Some((m, e)) => {
                 let e: i32 = e.parse().unwrap_or(0);
@@ -1093,48 +1103,55 @@ fn printf_number(spec: &str, code: char, x: f64) -> String {
         }
     };
     let trim = |s: String| if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_string() } else { s };
-    let mut body = match code.to_ascii_lowercase() {
-        'f' => format!("{:.*}", p.unwrap_or(6), x),
-        'e' => sci(x, p.unwrap_or(6)),
-        _ => {
-            let p = p.unwrap_or(6).max(1);
-            if x == 0.0 || !x.is_finite() {
-                if x.is_finite() { "0".to_string() } else { format!("{x}") }
-            } else {
-                // The exponent the scientific form would have, after rounding to p digits.
-                let e: i32 = format!("{:.*e}", p - 1, x).split_once('e').and_then(|(_, e)| e.parse().ok()).unwrap_or(0);
-                if e < -4 || e >= p as i32 {
-                    let s = sci(x, p - 1);
-                    match s.split_once(if upper { 'E' } else { 'e' }) {
-                        Some((m, rest)) => format!("{}{}{rest}", trim(m.to_string()), if upper { 'E' } else { 'e' }),
-                        None => s,
-                    }
+    let finite = a.is_finite();
+    let mut body = if !finite {
+        let t = if a.is_nan() { "nan" } else { "inf" };
+        if upper { t.to_ascii_uppercase() } else { t.to_string() }
+    } else {
+        match code.to_ascii_lowercase() {
+            'f' => format!("{:.*}", p.unwrap_or(6), a),
+            'e' => sci(a, p.unwrap_or(6)),
+            _ => {
+                let p = p.unwrap_or(6).max(1);
+                if a == 0.0 {
+                    "0".to_string()
                 } else {
-                    trim(format!("{:.*}", (p as i32 - 1 - e).max(0) as usize, x))
+                    // The exponent the scientific form would have, after rounding to p digits.
+                    let e: i64 = format!("{:.*e}", p - 1, a).split_once('e').and_then(|(_, e)| e.parse().ok()).unwrap_or(0);
+                    if e < -4 || e >= p as i64 {
+                        let s = sci(a, p - 1);
+                        match s.split_once(if upper { 'E' } else { 'e' }) {
+                            Some((m, rest)) => format!("{}{}{rest}", trim(m.to_string()), if upper { 'E' } else { 'e' }),
+                            None => s,
+                        }
+                    } else {
+                        trim(format!("{:.*}", (p as i64 - 1 - e).max(0) as usize, a))
+                    }
                 }
             }
         }
     };
-    if x >= 0.0 {
-        if flags.contains('+') {
-            body.insert(0, '+');
-        } else if flags.contains(' ') {
-            body.insert(0, ' ');
-        }
-    }
-    if body.chars().count() < width {
-        let pad = width - body.chars().count();
+    let sign = if negative {
+        "-"
+    } else if flags.contains('+') {
+        "+"
+    } else if flags.contains(' ') {
+        " "
+    } else {
+        ""
+    };
+    let len = sign.chars().count() + body.chars().count();
+    if len < width {
+        let pad = width - len;
         if flags.contains('-') {
             body.push_str(&" ".repeat(pad));
-        } else if flags.contains('0') {
-            let sign = body.starts_with(['-', '+', ' ']);
-            let at = usize::from(sign);
-            body.insert_str(at, &"0".repeat(pad));
+        } else if flags.contains('0') && finite {
+            body.insert_str(0, &"0".repeat(pad));
         } else {
-            body.insert_str(0, &" ".repeat(pad));
+            return format!("{}{sign}{body}", " ".repeat(pad));
         }
     }
-    body
+    format!("{sign}{body}")
 }
 
 /// `%q`, `%r` and a bare `%e` in a string literal: a double quote, a line break, nothing

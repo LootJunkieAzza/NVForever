@@ -3,8 +3,10 @@
 Body-part data, land textures, texture sets' decal data and flags, and worldspaces' water,
 in `crates/fnv-game/src/nvse_jip5.rs`. Sources: the GECK wiki export [documented: the page
 named]; the probe set `jip5` (`tools/capture/jip_probes.py`, run in the original from the
-owner's save; lab `L5.ext.jip5`) [observed]: 94 of 95 rows match. Setters change the
-record for the session, read by the getters.
+owner's save; lab `L5.ext.jip5`) [observed]: 99 of 100 rows match. Setters change the
+record for the session, read by the getters. SetBodyPartFlag, SetBodyPartTraitNumeric,
+SetLandTextureTraitNumeric and SetTextureSetTraitNumeric return 0, though the catalogue
+names their results "flagValue" and "traitValue" [observed: jip5's `.result` rows].
 
 ## 1. Body-part data (BPTD)
 
@@ -17,7 +19,7 @@ has that part type (0 torso, 1-2 head, 3-6 arms, 7-12 legs, 13 brain, 14 weapon)
 | GetBodyPartDataHasPart `bpd part` | a group of that part type [observed: NVGecko, every ID 0-15] |
 | Get/SetBodyPartDataRagdoll `bpd [ragdoll]` | RAGA |
 | Get/SetBodyPartDataSkeleton `bpd [path]` | MODL |
-| Get/SetBodyPartTraitNumeric `bpd part trait [value]` | BPND: 0 actor value, 1 damage mult, 2 health percent, 3 to-hit chance, 4 tracking max angle, 5-7 severable debris count / scale / decal count, 8 explosion chance, 9 limb replacement scale, 10-12 explodable debris count / scale / decal count, 13-15 the gore effects' translation, 16-18 their rotation [documented: the page's table; observed: NVGecko's head, every trait 0-19] |
+| Get/SetBodyPartTraitNumeric `bpd part trait [value]` | BPND: 0 actor value, 1 damage mult, 2 health percent, 3 to-hit chance, 4 tracking max angle, 5-7 severable debris count / scale / decal count, 8 explosion chance, 9 limb replacement scale, 10-12 explodable debris count / scale / decal count, 13-15 the gore effects' translation, 16-18 their rotation [documented: the page's table; observed: NVGecko's head, traits 0-18, and 19 past the table reading 0] |
 | Get/SetBodyPartTraitForm `bpd part trait [form]` | BPND: 0-1 severable and explodable explosion, 2-3 their debris, 4-5 their impact data set [documented; observed] |
 | Get/SetBodyPartFlag `bpd part flag [value]` | BPND's flag bits 0-6 [documented: the page's table; observed: the head's flags 0-7] |
 
@@ -26,7 +28,7 @@ has that part type (0 torso, 1-2 head, 3-6 arms, 7-12 legs, 13 brain, 14 weapon)
 | Function | NVForever |
 |---|---|
 | GetLandTextureNumGrasses, GetLandTextureNthGrass `ltex [index]` | the GNAM grasses in record order [observed: LScrubDirtCanyon01Grass, three] |
-| LandTextureAddGrass, LandTextureRemoveGrass `ltex grass` | the session's list; a grass already there is not added twice [observed: three, four, three] |
+| LandTextureAddGrass, LandTextureRemoveGrass `ltex grass` | the session's list; a grass already there is not added twice [observed: three, four, three]; 1 when the list changed, else 0 [observed: add twice 1 0, remove twice 1 0] |
 | Get/SetLandTextureTextureSet `ltex [set]` | TNAM |
 | Get/SetLandTextureTraitNumeric `ltex trait [value]` | 0 material type, 1 friction, 2 restitution (HNAM), 3 specular exponent (SNAM) [documented; observed] |
 

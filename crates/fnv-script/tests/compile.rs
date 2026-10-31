@@ -655,6 +655,20 @@ fn big_numbers_in_g_are_scientific() {
 }
 
 #[test]
+fn format_signs_and_huge_fields() {
+    // -0 keeps its sign, + never doubles a minus, and a huge precision or width is cut
+    // (#1145 review, #1134) [hypothesis: the C library's forms].
+    let h = run("string_var s
+string_var t
+begin GameMode
+let s := Sv_Construct \"%g|%+.2f|%+g|%05.1f\", -0, -0, -2.5, -1.5
+let t := Sv_Construct \"%.4000000000f|%4000000000g\", 1, 2
+end");
+    assert_eq!(h.text(1), "-0|-0.00|-2.5|-01.5");
+    assert!(h.text(2).len() < 1200, "{}", h.text(2).len());
+}
+
+#[test]
 fn literal_codes_in_any_string() {
     let h = run("string_var s\nbegin GameMode\nlet s := \"say %qhi%q%rnext%e\"\nend");
     assert_eq!(h.text(1), "say \"hi\"\nnext");

@@ -184,16 +184,19 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         "landtextureaddgrass" | "landtextureremovegrass" => {
             let (Some(l), Some(gr)) = (of_sig(g, form(args, 0), b"LTEX"), form(args, 1)) else { return Some(Ok(zero)) };
+            // 1 when the list changed, 0 for a grass already there or not there [observed:
+            // jip5 ltex.addgrass.result, add twice 1 0, remove twice 1 0].
             let mut list = g.land_grasses(l);
+            let had = list.contains(&gr);
             if name == "landtextureaddgrass" {
-                if !list.contains(&gr) {
+                if !had {
                     list.push(gr);
                 }
             } else {
                 list.retain(|&x| x != gr);
             }
             g.other.ltex_grasses.insert(l, list);
-            zero
+            yes(had == (name == "landtextureremovegrass"))
         }
         // `ltex [set]`: the texture set (TNAM) [documented: Get/SetLandTextureTextureSet].
         "getlandtexturetextureset" => XVal::Ref(match of_sig(g, form(args, 0), b"LTEX").and_then(|l| field(g, l, "TNAM", "")) {
