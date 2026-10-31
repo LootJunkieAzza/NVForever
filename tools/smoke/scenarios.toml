@@ -16437,3 +16437,16 @@ run_seconds = 14
 expect = [
   { re = 'script: print "nvf need NVF one"', label = "two seconds of HUD frames later the script's word is still there" },
 ]
+
+[[scenario]]
+name = "radscorpion-intact-caps"
+source = "#1075 (docs/spec-notes/dismemberment.md §2.5): the radscorpion's `meatcapbody` holds its torso caps (part flag bit 0 clear) and one editor-visible BP_TORSO triangle, so the whole-shape cap rule drew every torso cap on an intact radscorpion; cap partitions are now hidden one by one [observed: fnvtool nif decode]"
+note = "a radscorpion (CrRadscorpion1Small) placed 300 units from the player (GOD, UNSEEN) at 3 s and held (SetRestrained); the view turns to it at 5 s, a frame at 6 s (no caps on its leg roots or stinger)"
+areas = ["dismember", "actors"]
+paths = ["engine/nvf-assets/src/actor.rs", "engine/nvforever/src/dismember.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:CrRadscorpion1Small:1:300:0,3.2:call:0xFF000000:SetRestrained:1", NVF_PLAY_TEST_CONTROL = "5:aimactor", NVF_PLAY_TEST_SHOTS = "6.5:radscorpion_intact.png" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm"]
+run_seconds = 9
+expect = [
+  { re = 'actor parts: meshes.creatures.radscorpion.radscorpion[.]nif: shape "meatcapbody" hides 11 cap partitions beside 1 drawn', label = "the intact radscorpion's torso caps are hidden, partition by partition" },
+]
