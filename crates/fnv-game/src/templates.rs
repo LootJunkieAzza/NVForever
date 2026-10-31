@@ -13,6 +13,7 @@ use fnv_sim::zones::LevelAt;
 use fnv_sim::{leveled, FormId};
 use rand_chacha::ChaCha8Rng;
 use rand_core::SeedableRng;
+use std::collections::HashMap;
 
 /// Template chains and nested lists longer than this are cut off (a cycle).
 const MAX_DEPTH: usize = 16;
@@ -139,21 +140,15 @@ impl GameData {
 
     /// The actor record a base form's NVSE getters read a group from, with no reference
     /// and so no leveled pick: follow `TPLT` from `base` through actor records while the
-    /// group's flag (`from_template`) is set. A chain that reaches a leveled list, or a
-    /// missing template, gives `base` itself (its own record) [observed: tmpl1, tmpl2 in
-    /// #1057; the original's answers through a list match no record, docs/spec-notes/actors.md
-    /// §2.2].
+    /// group's flag (`from_template`) is set [observed: tmpl2 in #1057]. A chain that
+    /// reaches a leveled list or a missing template stops at the last actor record
+    /// reached, as `template_source_at` keeps it for a missing form; for a list named by
+    /// the base itself that is the base's own record, whose factions and spells the
+    /// original answers [observed: tmpl1; its class and race through a list match no
+    /// record, docs/spec-notes/actors.md §2.2]. A list further along the chain is not
+    /// observed [hypothesis]. A cycle gives `base`.
     pub fn base_template_source(&self, base: FormId, from_template: fn(&ActorDef) -> bool) -> FormId {
-        let mut id = base;
-        for _ in 0..MAX_DEPTH {
-            let Some(def) = self.actors.get(&id) else { return base };
-            match def.template.filter(|_| from_template(def)) {
-                None => return id,
-                Some(t) if self.actors.contains_key(&t) => id = t,
-                Some(_) => return base,
-            }
-        }
-        base
+        npc_template_end(&self.actors, base, from_template)
     }
 
     /// Whether `reference`, placed with `base`, is flagged No VATS Melee on its own record
@@ -293,6 +288,57 @@ impl MinorFlags {
             5 | 6 => self.no_right_arm,
             _ => false,
         }
+    }
+}
+
+/// [`GameData::base_template_source`] over the actor records alone.
+fn npc_template_end(actors: &HashMap<FormId, ActorDef>, base: FormId, from_template: fn(&ActorDef) -> bool) -> FormId {
+    let mut id = base;
+    for _ in 0..MAX_DEPTH {
+        let Some(def) = actors.get(&id) else { return base };
+        match def.template.filter(|_| from_template(def)) {
+            Some(t) if actors.contains_key(&t) => id = t,
+            _ => return id,
+        }
+    }
+    base
+}
+
+#[cfg(test)]
+mod base_template_tests {
+    use super::*;
+
+    const LIST: FormId = FormId(0x900);
+
+    fn npc(template: Option<u32>, packages: bool) -> ActorDef {
+        ActorDef { template: template.map(FormId), template_packages: packages, ..ActorDef::default() }
+    }
+
+    fn end(actors: &[(u32, ActorDef)], base: u32) -> FormId {
+        let map = actors.iter().map(|(id, d)| (FormId(*id), d.clone())).collect();
+        npc_template_end(&map, FormId(base), |d| d.template_packages)
+    }
+
+    #[test]
+    fn the_chain_runs_while_the_flag_is_set_and_stops_at_a_clear_flag() {
+        let a = [(1, npc(Some(2), true)), (2, npc(Some(3), true)), (3, npc(Some(4), false)), (4, npc(None, false))];
+        assert_eq!(end(&a, 1), FormId(3));
+        assert_eq!(end(&a, 3), FormId(3));
+    }
+
+    #[test]
+    fn a_list_or_a_missing_template_keeps_the_last_record_reached() {
+        let a = [(1, npc(Some(LIST.0), true)), (2, npc(Some(1), true)), (5, npc(Some(6), true)), (7, npc(Some(5), true))];
+        assert_eq!(end(&a, 1), FormId(1));
+        assert_eq!(end(&a, 2), FormId(1));
+        assert_eq!(end(&a, 7), FormId(5));
+    }
+
+    #[test]
+    fn a_cycle_gives_the_base() {
+        let a = [(1, npc(Some(2), true)), (2, npc(Some(1), true))];
+        assert_eq!(end(&a, 1), FormId(1));
+        assert_eq!(end(&a, 2), FormId(2));
     }
 }
 

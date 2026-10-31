@@ -286,6 +286,15 @@ paths**: trimmed, `/` → `\`, lower case, leading `\` removed, prefixed with `m
     NVDLC04UlyssesClass (load-order 0400A679), neither their own nor a list entry's
     (0x0008D370) [observed; not explained].
   - GetBaseSpellListSpells: an empty array on all five bases tried (none has own SPLO).
+  - Set tmpl1 [observed: 2026-10-31, same versions; 7 NPCs, 42 rows; posted on #1057]:
+    GetBaseNumFactions / GetBaseNthFaction / GetBaseNthRank / GetBaseSpellListSpells read
+    the record's own lists on every templated NPC tried, the template an NPC or a list
+    (e.g. VSpawnJackalFemale01NR: 0 factions, 0 spells). Class and race follow Use Traits
+    through NPC templates; the four whose Traits chain ends at a leveled list read class
+    NVDLC04UlyssesClass (LonesomeRoad.esm 0x0100A679) **and race** MarkedMenGhoul
+    (0x010083D7), neither their own (0x801 / 0x19) nor a list entry's. NVDLC04Ulysses is
+    the last NPC_ in the load order and carries that class; MarkedMenGhoul is the race of
+    the NPC_ before it, so it looks like a leftover of loading [hypothesis], not copied.
   - Second set tmpl2 [observed: 2026-10-31, same versions; lab L5.ext.tmpl2]: with
     Use AI Packages, GetBasePackages answers the template's `PKID` list even when the
     record has one of its own: HVBrotherhoodOfSteelPaladinAAM 0x000E2960 (own 6) and
