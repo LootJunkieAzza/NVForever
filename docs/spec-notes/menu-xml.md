@@ -819,25 +819,25 @@ rule are in the code beside it. Smoke: `ui-gradual-in-game`.
 | GetUIFloatGradualActiveForTile, …ForTileTrait, …Mode, …Timer | the four SUP pages [documented] | read JIP's table; Mode -1 when none [documented] | Timer -1 when none, a repeating change's time left is its round's [hypothesis] |
 | SetUIStringReveal, CacheUIStringReveal(Alt) | SetUIStringReveal, CacheUIStringReveal [documented] | letters by the time's share, from the left or right, inverted, ease in as the square [hypothesis for the rounding, the right and the ease] | none |
 | SetUIFloatMultiple | SetUIFloatMultiple [documented] | every tile inside of the type, that has the trait; the count back [design] | whether it makes the trait [hypothesis: not] |
-| AttachUIXML, AttachUIComponent | AttachUIXML, AttachUIComponent [documented] | a single `rect` into `HUDMainMenu`'s root, kept in `UiExtra::attached` with the reference and node; 1 or 0; the VM formats the component [observed]. Replaces the same (reference, case-sensitive node, rect name), hidden until placed, pruned each frame when the reference is absent, disabled, deleted or outside the loaded cells [hypothesis] | **placing the component at the node on screen** (the engine's 3D projection), and checking the node exists |
-| AddTraitToTile | AddTraitToTile [documented] | makes or sets the trait; empty or whitespace-only names return 0 [hypothesis] | the original's list of trait ids it allows is not known: any nonempty name taken [hypothesis] |
+| AttachUIXML, AttachUIComponent | AttachUIXML, AttachUIComponent [documented] | a single `rect` into `HUDMainMenu`'s root, kept in `UiExtra::attached` with the reference and node; 1 or 0; the VM formats the component. Replaces the one attached before to the same (reference, node, rect name), keeps it hidden until placed, drops it when the reference is deleted, disabled or outside the loaded cells [design] | **placing the component at the node on screen** (the engine's 3D projection), and checking the node exists |
+| AddTraitToTile | AddTraitToTile [documented] | makes or sets the trait; an empty name makes none (0) [design] | the original's list of trait ids it allows is not known: any other name taken [hypothesis] |
 | GetUIValueType, GetUIElementType | the SUP pages [documented] | 1/2/3 and -1; 1-5 by tile kind, `nif` 4 [hypothesis], other kinds 0 [hypothesis] | no path means the cursor's tile: T8, -1 here |
-| SortUIListBox | SortUIListBox [documented] | keys `-`, `#`, `@`; `$destination$increment` (default `_y`, `height`); numeric keys use Rust's `total_cmp`, including NaN [hypothesis] | which children are items (those with the destination), the first value (the smallest), the case [hypothesis each] |
+| SortUIListBox | SortUIListBox [documented] | keys `-`, `#`, `@`; `$destination$increment` (default `_y`, `height`); numeric keys in a total order, NaN keys at the ends (`total_cmp`) [design] | which children are items (those with the destination), the first value (the smallest), the case [hypothesis each] |
 | GetStringUIDimensions | GetStringUIDimensions [documented] | `string_dimensions` over a measure; outputs through the VM's out_call | **the engine does not yet set `UiExtra::measure`** (its fonts are in `tiles::draw::TileFonts`): in game the outputs stay unwritten |
 | DumpTileInfo, DumpTileInfoALL, DumpTileInfoToArray | the three SUP pages [documented] | `[ Tilename ] : name` and `[ trait ] : value` lines (the ToArray page's example output) to the console, or to NVForever's log for DumpToFile (never `SUPNVSE.log` in the game folder); ToArray a string map | no path means the cursor's tile (T8); ALL lists the menus, no cursor tile exists |
 | CacheUI, …Float, …String, …ModFloat, …GetFloat, …GetString, …Range, …RangeMod, …Erase, …Dump, …Gradual, …RangeGradual, …GradualDelay, …RangeGradualDelay, each with its Alt | the CacheUI pages (CacheUIModFloat's is `CacheUIMod`) [documented] | caches per calling plugin, Alt per key; delay pulls the value then, flags 0/1/2 and the lock, `match` ends a delay; modes 0-3, 5, 6 | mode 4 (rumble) refused: its shake and decay are not given; RangeMod's page and example differ in argument order, both taken [design]; the script runners' shared cache |
 | CUICreateQueue, CUIGetQueue, CUIGetQueueSize, CUIQueueCycle, CUIQueueFloat | the five pages [documented] | per plugin; toggle, forced add and remove, duplicates | cycle direction 0 [hypothesis] |
 | HudBar… (35 functions) | SUP HUD Bar Functions and each HudBar page [documented] | a `rect NVFHudBar<n>` with `Meter`, `Frame`, `Text`, `ImageEx` in `HUDMainMenu`, per plugin (console: first of the name), written after each change and after a load; types 0-5, value/max/percentage, text with prefix, postfix and max, alpha, colour, system colour, depth, zoom, rotation, size, indent, alt size, texture, text font and justify, auto position, bar and meter traits, all-bars arrays, element paths, debug lines to the log | **not built**: HudBarSetValueScriptVar and HudBarSetValueUDF (the VM passes a variable's value, not the variable), the visibility conditions and gradual vanishing (bar traits 0, 21-27, 41-64 kept, not acted on), reading a texture's size (`iCalculateSize`), the rotation on screen (the traits are written, the tile renderer turns no tile yet); the meter's width as indent plus the share of the rest, type 4 without a built-in `%`, the default max 100 and which elements show by default [hypothesis] |
 
-[hypothesis] Defensive numeric rules: SetUIFloatMultiple, AddTraitToTile, CacheUIFloat /
-ModFloat / Range / RangeMod (including Alt) and HudBar creation positions and element,
-bar, meter and text setters map NaN and infinities to 0 using `ui_more::finite`.
-CacheUI additions also map non-finite results to 0. HudBar value, max and percentage
-setters instead refuse non-finite inputs with -1. These are NVForever safeguards;
-the pages do not specify non-finite arithmetic.
+[design] Numbers that are not numbers: SetUIFloatMultiple, AddTraitToTile, CacheUIFloat /
+ModFloat / Range / RangeMod (and their Alt forms), a HUD bar's place at creation and its
+element, bar, meter and text setters write 0 for a NaN or an infinity (`ui_more::finite`;
+a CacheUI sum that is one too); HudBarSetValueFloat, …Max and …Percentage refuse one with
+-1. The pages say nothing about such numbers; these are NVForever's own safeguards.
 
-[observed] DumpTileInfo checks argument 1 (`toFile path`) for a HUD path and flushes
-deferred HUD writes before dumping it; calls on another menu leave those writes deferred.
+[design] DumpTileInfo reads its path from the second argument (`toFile path`), so the HUD's
+kept-back writes are made before a dump of a `HUDMainMenu` path; a dump of another menu
+leaves them kept back.
 
 Not built, with why:
 

@@ -1,6 +1,6 @@
 //! The rest of the tile functions (fnv_game::ui_more, ui_cache, ui_hudbar, ui_gradients;
 //! task T9), on a synthetic plugin and menu files written for the test (no game data,
-//! made-up text) [observed]: docs/spec-notes/menu-xml.md §9.
+//! made-up text): docs/spec-notes/menu-xml.md §9.
 
 mod common;
 
@@ -103,7 +103,8 @@ fn string(g: &Game, path: &str) -> String {
     g.ui_tree.get_string(path).unwrap_or_default()
 }
 
-/// The engine's frame: gradients, the tree, then attachment pruning [observed: tiles::update].
+/// The engine's frame as `tiles::update` has it: the gradients stepped, the tree worked
+/// out, the attachments pruned.
 fn frame(g: &mut Game, dt: f64) {
     g.ui_gradients.step(&mut g.ui_tree, dt);
     g.ui_tree.update();
@@ -381,7 +382,7 @@ fn dump_tile_info_flushes_only_when_argument_one_names_the_hud() {
     assert!(g.console_out.iter().any(|line| line == "[ visible ] : 1.000000"));
 }
 
-/// Compiles and runs a query through the VM and `nvse::call` [observed: Game::run_query].
+/// Compiles and runs a query through the VM to the host (`Game::run_query`, `nvse::call`).
 fn query(g: &mut Game, body: &str) -> XVal {
     g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).expect("the query runs")
 }
@@ -398,6 +399,10 @@ fn compiled_scripts_dispatch_each_t9_family_to_the_host() {
     assert_eq!(query(&mut g, "HudBarCreate \"VMBar\" 12 34 0\nHudBarSetAlpha \"VMBar\" 0 77\nSetFunctionValue (HudBarExists \"VMBar\")"), x(1.0));
     let path = g.ui_extra.bars.list[0].path();
     assert_eq!(float(&g, &format!("{path}/Meter/alpha")), 77.0);
+    // [observed: fnv_script::table, vm::xcall] SortUIListBox has no opcode and sits in the
+    // wiki's "Console Functions" category. On the numbered path its string argument
+    // failed to convert before the host was reached. [design] The table now leaves NVSE
+    // extender functions unnumbered so compiled calls reach the extender's dispatch.
     assert_eq!(query(&mut g, "SetFunctionValue (SortUIListBox \"TestMenu/List\" \"#_value\")"), x(1.0));
     assert_eq!(float(&g, "TestMenu/List/item:0/_y"), 0.0);
     assert_eq!(float(&g, "TestMenu/List/item:1/_y"), 20.0);

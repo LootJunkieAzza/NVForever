@@ -247,10 +247,15 @@ impl FunctionTable {
             t.begin_params.insert(code);
         }
         let funcs: Vec<&Value> = f.get("functions").and_then(Value::as_array).into_iter().flatten().collect();
+        // [design] An NVSE script function in the wiki's "Console Functions" category
+        // (SortUIListBox) goes by name like the other extender functions. This numbering
+        // is for console-only commands, including clear (ClearCommand) and search (LU).
         let mut console: Vec<usize> = (0..funcs.len())
             .filter(|&i| {
                 strings(funcs[i].get("opcodes")).is_empty()
                     && strings(funcs[i].get("categories")).iter().any(|c| c == "Console Functions")
+                    && !(funcs[i].get("family").and_then(Value::as_str) == Some("extender")
+                        && funcs[i].get("origin").and_then(Value::as_str) == Some("NVSE"))
             })
             .collect();
         let lower = |i: usize| funcs[i].get("name").and_then(Value::as_str).unwrap_or_default().to_ascii_lowercase();
@@ -425,3 +430,21 @@ pub const AV_NAMES: [&str; 77] = [
     "Variable04", "Variable05", "Variable06", "Variable07", "Variable08", "Variable09", "Variable10",
     "Ignore Crippled Limbs", "Dehydration", "Hunger", "Sleep Deprivation", "Damage Threshold",
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nvse_script_functions_in_console_category_stay_unnumbered() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+        let table = FunctionTable::load(&path).expect("functions.json loads");
+
+        assert_eq!(table.by_name("sortuilistbox"), None);
+        assert!(table.unnumbered.contains_key("sortuilistbox"));
+        for name in ["clear", "search"] {
+            let opcode = table.by_name(name).unwrap_or_else(|| panic!("{name} must keep a console number"));
+            assert!(opcode >= CONSOLE_OPCODE_BASE, "{name}: 0x{opcode:04X} is outside the console range");
+        }
+    }
+}

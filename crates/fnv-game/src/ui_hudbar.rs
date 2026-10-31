@@ -302,8 +302,8 @@ fn debug_lines(b: &Bar) -> Vec<String> {
 
 /// A HudBar function by lower-case name; `None` for any other (and for
 /// HudBarSetValueScriptVar and HudBarSetValueUDF, not built).
-/// Creation positions and element/bar/meter/text setters map non-finite numbers to 0;
-/// value, max and percentage setters refuse them with -1 [hypothesis: defensive rules].
+/// A non-finite number in a place, size, colour or trait writes 0; the value, max and
+/// percentage setters refuse one with -1 [design: `ui_more::finite`].
 pub(crate) fn call(g: &mut Game, lname: &str, args: &[XVal]) -> Option<Result<XVal, String>> {
     if !lname.starts_with("hudbar") {
         return None;

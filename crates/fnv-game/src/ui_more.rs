@@ -68,12 +68,12 @@ pub(crate) fn num(args: &[XVal], k: usize) -> f64 {
 }
 
 /// A number argument that must be a real number: a NaN or an infinity (a script's bad
-/// arithmetic) reads as 0 [hypothesis: defensive rule for numeric trait writes and times].
+/// arithmetic) reads as 0, so it never gets into a trait or a change's time [design].
 pub(crate) fn finite(args: &[XVal], k: usize) -> f64 {
     finite_value(num(args, k))
 }
 
-/// Non-finite numeric inputs and arithmetic results become 0 [hypothesis].
+/// A non-finite number (an input, or a sum) as 0 [design: as `finite`].
 pub(crate) fn finite_value(v: f64) -> f64 {
     if v.is_finite() {
         v
@@ -289,7 +289,8 @@ pub fn bare_item_name(name: &str) -> String {
 /// destination value the items had, so the list stays where it was; alphabetic keys
 /// ignore case; a key an item lacks reads 0 or empty; equal items keep their order; the
 /// children are not reordered (the page names only a trait to change). False when the
-/// path names no tile. Numeric keys use `total_cmp`, including NaN [hypothesis].
+/// path names no tile. Numeric keys compare by `total_cmp`: a total order, NaN keys at
+/// the ends [design: `sort_by` needs one].
 pub fn sort_list_box(ui: &mut Ui, path: &str, spec: &str) -> bool {
     let Some(list) = ui.find_tile(path) else { return false };
     let mut parts = spec.split('$');
@@ -393,8 +394,9 @@ fn read_xml(src: &dyn Source, file: &str) -> Option<String> {
 
 /// AttachUIXML / AttachUIComponent: the XML into `HUDMainMenu`'s root, kept as attached to
 /// the reference's node; 1 on success [documented: AttachUIXML]. Without a calling
-/// reference, the HUD, or a single rect, 0 [observed]. Replaces the same reference, node
-/// and rect name; hidden until node placement exists [hypothesis].
+/// reference, the HUD, or a single rect, 0. Replaces the one attached before to the same
+/// reference, node and rect name (a mod attaching per frame grows nothing), and keeps it
+/// `visible` 0 until placing at the node exists [design: the maintainer's review of #1224].
 fn attach(g: &mut Game, subject: Option<FormId>, node: &str, xml: &str) -> bool {
     const HUD: &str = "HUDMainMenu";
     let Some(reference) = subject else { return false };
@@ -431,9 +433,10 @@ fn attach(g: &mut Game, subject: Option<FormId>, node: &str, xml: &str) -> bool 
     }
 }
 
-/// Drops attachments to absent or unloaded references each frame, using `Game::present`
-/// and the loaded-cell check used by object scripts [observed: Game::active_refs].
-/// Keeps the survivors hidden until node placement exists [hypothesis].
+/// Drops the attachments whose reference is gone (deleted, disabled, or out of the loaded
+/// cells, as `Game::present` and `Game::active_refs` judge it) each frame, and keeps the
+/// rest `visible` 0 until placing at the node exists [design: the maintainer's review of
+/// #1224].
 pub fn prune_attachments(g: &mut Game) {
     let mut attached = std::mem::take(&mut g.ui_extra.attached);
     attached.retain(|a| {
@@ -441,7 +444,10 @@ pub fn prune_attachments(g: &mut Game) {
             g.ui_tree.unload_tile(a.tile);
             false
         } else {
-            g.ui_tree.set_trait(a.tile, "visible", Value::Num(0.0));
+            // Written only when something showed it: a write a frame would stir the tree.
+            if g.ui_tree.tile(a.tile).get("visible").is_none_or(|v| v.num() != 0.0) {
+                g.ui_tree.set_trait(a.tile, "visible", Value::Num(0.0));
+            }
             true
         }
     });
@@ -551,7 +557,7 @@ pub fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XVal]) ->
         // [documented: SetUIFloatMultiple]. [hypothesis] Only tiles that have the trait
         // (as SetUIFloat makes none), not the named tile itself; the count changed is
         // returned [design: no return value is documented].
-        // Non-finite values become 0 [hypothesis: defensive rule, as `finite`].
+        // A non-finite value writes 0 [design: `finite`].
         "setuifloatmultiple" => match g.ui_tree.find_tile(&path) {
             Some(root) => {
                 let trait_ = text(args, 1);
@@ -589,7 +595,7 @@ pub fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XVal]) ->
         // [documented: AddTraitToTile]. The page allows only traits "which already has a
         // ID assign"; the original's trait ids are not known, so any name is taken
         // [hypothesis]. 1 when the tile is there [design: no return value is documented].
-        // Empty names are refused; non-finite values become 0 [hypothesis].
+        // An empty name makes no trait (0); a non-finite value writes 0 [design].
         "addtraittotile" => match g.ui_tree.find_tile(&path) {
             Some(t) if !text(args, 1).trim().is_empty() => {
                 g.ui_tree.set_trait(t, &text(args, 1), Value::Num(finite(args, 2)));

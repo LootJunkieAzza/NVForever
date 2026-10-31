@@ -76,7 +76,8 @@ fn target(g: &mut Game, key: &str, index: i64, name: &str) -> Option<(TileId, St
 }
 
 /// A CacheUI function by lower-case name; `None` for any other.
-/// Float and range writes map non-finite inputs and addition results to 0 [hypothesis].
+/// A float or range write of a non-finite number, or a sum that is one, writes 0
+/// [design: `ui_more::finite`].
 pub(crate) fn call(g: &mut Game, lname: &str, args: &[XVal]) -> Option<Result<XVal, String>> {
     if lname.starts_with("cui") {
         return queue(g, lname, args).map(Ok);
