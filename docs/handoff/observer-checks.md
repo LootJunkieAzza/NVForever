@@ -436,7 +436,8 @@ The numbers above stay put so links to them hold; each item here gives its own p
     (radiation.md §2, §4) Still open (P3): overlapping markers (the Camp Searchlight
     crater's three, 1000 units from their point: ours 8.28, summed 20.09) and a Fat Man's
     zone at its centre and 300 units out. MoveTo a marker with offsets moves the player
-    where SetPos did not, unless the point is outside the room.
+    where SetPos did not; at two of the four points it left the player in place
+    [hypothesis: points it cannot stand the player on].
 34. **The corner bars' ticks' brightness** — answered 2026-10-31 (o5_00-01): the full-row
     meters read `brightness` 175 in both bars (`HUDMainMenu/HitPoints/*:2` and
     `ActionPoints/*:2`, each 296 wide and visible; the bars' other visible children 255),
@@ -507,6 +508,7 @@ The numbers above stay put so links to them hold; each item here gives its own p
     encounters (NVDLC03Enc 10) start? (§10 stall 2.)
 44. **What does `RemoveItem <item> 0` do?** — answered 2026-10-31 (o5_00, issue #1113):
     nothing, and the script goes on (12 Stimpaks and 21 caps stayed; the next line ran).
+    Ours refuses the call (#1113).
 45. **Does a second Nelson explorer stop the player right after the first?** (P3; §10
     stall 4.)
 46. **Does the HELIOS One west-terminal password go to the player from Fantastic's line?**
