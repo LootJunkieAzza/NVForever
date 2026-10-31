@@ -70,7 +70,7 @@ shadows, bloom, sharpening, 16x anisotropic filtering, sun shafts, screen-space 
 reflections` (or `graphics: vanilla (no engine-level improvements)`), again whenever a switch
 changes. Anti-aliasing (`anti-aliasing`: multisampling off/2x/4x/8x, FXAA, SMAA or TAA) and
 shadow filtering (`shadow-filter`) are choices of their own, not part of `enhanced` (§3.6,
-§3.9); the field of view, vertical sync and a frame-rate limit are on the Display page (§3.10).
+§3.9); the field of view, the display sync and a frame-rate limit are on the Display page (§3.10).
 Code: `graphics.rs` (preset, switches, applying them), `ssao.rs`/`ssao.wesl`,
 `post.rs`/`post.wesl`, `taa.rs`/`taa.wesl`, `shafts.rs`/`shafts.wesl`, `water.wesl` (`ssr`),
 `sky.rs` (`shadow_reach`), `nvf_assets::texture::set_anisotropy`, `frame_pace.rs`, the rows in
@@ -248,8 +248,13 @@ Settings rows that are not improvements and do not change the vanilla picture un
   `--fov`, default 75) from 50 to 110 in steps of 5, shown in degrees. It sets the player
   camera's projection at once; aiming down sights zooms from it (aim_zoom.rs takes a changed
   angle as its new base).
-- **Vertical sync** (`vsync`): on as Bevy's default (`PresentMode::AutoVsync`), off is
-  `AutoNoVsync`. Not on the page while `--log-frame-times` measures (which turns it off).
+- **Display sync** (`display-sync`, a dropdown; #1082): Vertical sync, on as Bevy's default
+  (`PresentMode::AutoVsync`); Off is `AutoNoVsync`; Variable refresh (G-Sync, FreeSync) is
+  vsync with the frame rate capped a few frames under the monitor's refresh rate (winit's
+  current video mode; 144 Hz → 138). Kept as `display-sync=off|vsync|variable`; an INI with
+  only the old `vsync=1`/`0` switch still sets it. Not on the page while `--log-frame-times`
+  measures (which turns vsync off). What vendors document about VRR in borderless and
+  exclusive full screen: spec-notes/display-sync.md.
 - **Frame rate limit** (`frame-cap`): Off, 30, 60, 90, 120 or 144 frames a second
   (`frame_pace.rs`): the main world's frame waits at its end until 1/limit s has passed since the
   last (sleep, then spin the last millisecond); a late frame does not catch up. Bevy has no
