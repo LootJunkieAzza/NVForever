@@ -574,7 +574,8 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
     character in `residents` (one is made if it has none), so walls and other actors stop
     it; the pushed actor pushes nobody aside. A new blow's knockback replaces one still
     going [design]. It goes on through the stagger a blow starts (hit reactions hold the
-    walk, not the push); a knockdown throws the ragdoll instead.
+    walk, not the push; they end an attack clip's carry, not a knockback, which
+    `residents` keeps apart for that); a knockdown throws the ragdoll instead.
   - Logged: `knockback: <id> knocked back at <v> units/s for <s> s (<d> units)` and, at
     its end, `knockback: … pushed back <n> units of <d>, from … to …` (the player:
     `player: knocked back …`, `player: knockback done: …`); `knockback summary` at exit.

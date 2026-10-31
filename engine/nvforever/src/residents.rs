@@ -715,6 +715,9 @@ struct Core {
     /// Melee blows' knockbacks pushing actors (`nvf_play::combat::Knockback`): each with
     /// its seconds left and where the actor's feet were when it began ([`Core::knock`]).
     knocks: HashMap<u32, (nvf_play::combat::Knockback, f32, [f32; 3])>,
+    /// This frame's knockback travel (game x, y), kept apart from the attack clips'
+    /// [`Core::travel`]: a hit reaction ends a clip's carry but not a knockback.
+    knock_travel: HashMap<u32, [f32; 2]>,
     /// Knockbacks begun and their distance in all (asked), for the summary.
     knocked: (usize, f32),
     /// Load doors used since the last frame: actor, door, the door it leads to.
@@ -844,6 +847,7 @@ impl Residents {
             carry_broken: HashSet::new(),
             carries: [0; 2],
             knocks: HashMap::new(),
+            knock_travel: HashMap::new(),
             knocked: (0, 0.0),
             door_uses: Vec::new(),
             aims: HashMap::new(),
@@ -1267,7 +1271,7 @@ impl Core {
             }
             let d = k.step(*left, dt);
             *left -= dt;
-            let t = self.travel.entry(id).or_default();
+            let t = self.knock_travel.entry(id).or_default();
             t[0] += k.dir[0] * d;
             t[1] += k.dir[1] * d;
         }
@@ -1307,7 +1311,8 @@ impl Core {
     /// where the clip ended, or was stopped. Its character goes once the clip is over and
     /// it is not on its way.
     fn carry(&mut self, game: &mut Game, phys: Option<&mut PhysState>, dt: f32) {
-        let travel = std::mem::take(&mut self.travel);
+        let mut travel = std::mem::take(&mut self.travel);
+        let pushes = std::mem::take(&mut self.knock_travel);
         let Some(phys) = phys else {
             self.carried.clear();
             return;
@@ -1339,18 +1344,26 @@ impl Core {
             }
         }
         self.carry_broken.retain(|id| travel.contains_key(id));
-        for (id, by) in travel {
-            // A hit reaction (a crippling hit's stagger) stops the lunge where it is and
-            // ends its carry: the stagger's hold would not stop a velocity set here
-            // [design: review of #1209].
-            if self.staggering.contains(&id) || self.carry_broken.contains(&id) {
-                if self.carry_broken.insert(id) {
+        // A hit reaction (a crippling hit's stagger) stops the lunge where it is and ends
+        // its carry: the stagger's hold would not stop a velocity set here [design: review
+        // of #1209]. A knockback still pushes the staggering actor (#1070).
+        let broken: Vec<u32> = travel.keys().copied().filter(|id| self.staggering.contains(id) || self.carry_broken.contains(id)).collect();
+        for id in broken {
+            travel.remove(&id);
+            if self.carry_broken.insert(id) {
+                if !pushes.contains_key(&id) {
                     let _ = stop_body(Some(&mut *phys), id);
-                    info!("ai [{}] {} {id:08X}: a hit reaction ends its attack clip's carry", self.clock_text, game.data.name(FormId(id)));
                 }
-                self.carries[1] += 1;
-                continue;
+                info!("ai [{}] {} {id:08X}: a hit reaction ends its attack clip's carry", self.clock_text, game.data.name(FormId(id)));
             }
+            self.carries[1] += 1;
+        }
+        for (id, p) in pushes {
+            let t = travel.entry(id).or_default();
+            t[0] += p[0];
+            t[1] += p[1];
+        }
+        for (id, by) in travel {
             let carried = self.ai.agents.get(&FormId(id)).filter(|_| !game.extra.get(&FormId(id)).is_some_and(|e| e.dead || e.restrained || e.out_cold())).is_some_and(|a| {
                 in_loaded_space(&a.walker, phys) && phys.ready_at(a.walker.feet) && (phys.npcs.contains_key(&id) || phys.add_npc(id, a.walker.feet))
             });
@@ -2023,6 +2036,14 @@ type PlayState<'w> = (
 
 /// Who is on furniture, the hours passed in the Wait menu, who plays a hit reaction, and
 /// who is locked on its target (`npc_combat`).
+/// What moves actors besides their walk, and the doors they pass: [`drive`]'s.
+type Moves<'w, 's> = (
+    ResMut<'w, crate::door_fade::DoorFades>,
+    MessageWriter<'w, nvf_play::world_sounds::DoorPassed>,
+    Option<ResMut<'w, crate::attack_anims::AttackTravel>>,
+    Option<MessageReader<'w, 's, nvf_play::combat::Knockback>>,
+);
+
 type Held<'w, 's> = (
     Query<'w, 's, &'static RefVisual, With<OnFurniture>>,
     Option<MessageReader<'w, 's, nvf_play::wait::HourPassed>>,
@@ -2049,12 +2070,7 @@ pub fn drive(
     mut doors: ResMut<nvf_play::doors::Doors>,
     (script, sim, mut phys, mut blocks): PlayState,
     (seated, hours, flinches, fighters, idle_holds): Held,
-    (mut door_fades, mut door_sounds, mut travel, mut knocks): (
-        ResMut<crate::door_fade::DoorFades>,
-        MessageWriter<nvf_play::world_sounds::DoorPassed>,
-        Option<ResMut<crate::attack_anims::AttackTravel>>,
-        Option<MessageReader<nvf_play::combat::Knockback>>,
-    ),
+    (mut door_fades, mut door_sounds, mut travel, mut knocks): Moves,
 ) {
     // Hours passed in the Wait menu since the last frame (`--play` only: without it
     // there is no menu and no such message).
