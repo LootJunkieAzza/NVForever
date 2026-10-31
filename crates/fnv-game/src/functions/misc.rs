@@ -3,7 +3,7 @@
 use super::{none, yes, Args, Ctx};
 use crate::game::{menus, Game, LineLook, MessageBox};
 use crate::trace::EventKind;
-use fnv_script::vm::Value;
+use fnv_script::vm::{ArgValue, Value};
 use fnv_sim::clock;
 use rand_core::RngCore;
 
@@ -17,7 +17,7 @@ pub fn show_message(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
     let (text, buttons, is_box) = (def.text.clone(), def.buttons.clone(), def.message_box);
     // Too few variables for the text: the message does not show [documented: GECK wiki
     // ShowMessage notes]. Button texts take no variables [documented: same notes].
-    let vars: Vec<f64> = (1..a.len()).map(|i| a.num_or(i, 0.0)).collect();
+    let vars = message_vars(a);
     let text = match text {
         Some(t) => Some(format_message(&t, &vars).ok_or_else(|| format!("{} needs more variables than given", g.data.name(m)))?),
         None => None,
@@ -39,6 +39,24 @@ pub fn show_message(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
         g.queue_corner_message();
     }
     none()
+}
+
+/// The numbers for a message's format specifiers: the arguments after the message. A
+/// compiled script passes them as one list (its `format_vars` trailer, `ArgValue::Vars`)
+/// followed by the duration (`Int32`), which is not a variable; source run as text passes
+/// plain values. Before, the list read as one 0, so every compiled ShowMessage printed 0
+/// for its numbers (the concealed mine's "Explosives 0 or higher required", owner's
+/// playtest 2026-10-31; the requirement it tests was 28).
+fn message_vars(a: &Args) -> Vec<f64> {
+    let mut out = Vec::new();
+    for v in a.0.iter().skip(1) {
+        match v {
+            ArgValue::Vars(xs) => out.extend(xs.iter().map(|x| x.num())),
+            ArgValue::Int32(_) => {}
+            other => out.push(other.value().map_or(0.0, |x| x.num())),
+        }
+    }
+    out
 }
 
 /// The chosen button once, then −1 [documented: GECK wiki GetButtonPressed]. Only the
@@ -913,7 +931,19 @@ fn general_form(v: f64, precision: usize, upper: bool) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::format_message;
+    use super::{format_message, message_vars, Args};
+    use fnv_script::vm::{ArgValue, Value};
+
+    #[test]
+    fn compiled_format_variables_are_unpacked_and_the_duration_skipped() {
+        // ShowMessage TrapLowSkillExplosivesMsg NQlvl.TRAPMineSkillReq, as compiled.
+        let compiled = [ArgValue::Value(Value::Ref(0x38888)), ArgValue::Vars(vec![Value::Num(28.0)]), ArgValue::Int32(0)];
+        assert_eq!(message_vars(&Args(&compiled)), [28.0]);
+        let text = [ArgValue::Value(Value::Ref(0x38888)), ArgValue::Value(Value::Num(3.0)), ArgValue::Value(Value::Num(5.0))];
+        assert_eq!(message_vars(&Args(&text)), [3.0, 5.0]);
+        let msg = "(Explosives %.0f or higher required)";
+        assert_eq!(format_message(msg, &message_vars(&Args(&compiled))).as_deref(), Some("(Explosives 28 or higher required)"));
+    }
 
     #[test]
     fn fills_specifiers_in_order() {

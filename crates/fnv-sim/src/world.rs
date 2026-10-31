@@ -159,6 +159,11 @@ pub struct RefState {
     /// UnequipItem's NoEquipFlag), by base form ([`World::lock_equip`]).
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub equip_locks: BTreeMap<FormId, EquipLock>,
+    /// A created item reference that an actor dropped as it died (its weapon): that
+    /// actor. The corpse's loot menu lists it beside the body's inventory, and taking it
+    /// there picks this reference up ([`World::dropped_beside`]).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub dropped_by: Option<FormId>,
 }
 
 /// A script's lock on an item of an actor [documented: GECK wiki EquipItem, "If
@@ -272,7 +277,7 @@ pub struct Encumbrance {
     pub unknown_weight: Vec<FormId>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Snapshot {
     pub format: String,
     pub config: SimConfig,
@@ -310,6 +315,52 @@ pub struct Snapshot {
     /// keep the whole entries in `refs`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub deleted_created: BTreeMap<FormId, FormId>,
+    /// The inventory sources of references created at run time ([`World::give_items_of`]:
+    /// a created leveled actor's pick, a template's Inventory source), which the game
+    /// layer cannot work out again from the plugins on a load, as it does the placed
+    /// actors' (`set_inventory_sources`, a resurrection's or a zone's reroll); deleted
+    /// ones left out; absent when none (and in older snapshots).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub created_inventory_sources: BTreeMap<FormId, FormId>,
+    /// The player may wear power armour ([`World::set_power_armor_training`]); absent
+    /// when not (and in older snapshots).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub power_armor_training: bool,
+    /// The game layer's carry bonuses ([`World::set_carry_bonus`]); absent when none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub carry_bonus: BTreeMap<FormId, f64>,
+    /// The game layer's weight rules ([`World::set_weight_rules`]); absent when none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub weight_rules: BTreeMap<FormId, crate::inventory::WeightRules>,
+}
+
+/// What a world keeps for the session and not in a save: the edits of functions
+/// documented as not save baked but lasting for the game session, which a load in the
+/// same run keeps and a new run starts without ([`World::take_session`],
+/// [`World::put_session`]). Game settings changed at run time [documented:
+/// SetNumericGameSetting, "not save baked but rather is session based"; hypothesis: the
+/// console's SetGameSetting, which changes the same setting, alike]; leveled lists edited
+/// by script [documented: LU's leveled-list functions, "not savebaked"]; base containers
+/// edited by script [documented: BaseAddItem, "will only persist for the duration of the
+/// game session"; hypothesis: BaseRemoveItem, whose page says nothing, alike].
+///
+/// "The session" is one run of the program. The runner's SaveLoad and any restore within
+/// a run keep them; the engine's load while playing starts NVForever again with `--load`
+/// [design, owner 2026-10-16: nothing of the run before carries over], so there they
+/// start empty, as the scripts' session does (GetGameRestarted is true again in the new
+/// run, so a mod that makes such edits on GetGameRestarted makes them again; saving the
+/// edits as well would make it add its leveled-list entries twice) [decision].
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct WorldSession {
+    setting_changes: BTreeMap<String, crate::settings::Setting>,
+    leveled_edits: BTreeMap<FormId, crate::forms::LeveledList>,
+    base_edits: BTreeMap<FormId, Vec<crate::forms::Entry>>,
+}
+
+impl WorldSession {
+    pub fn is_empty(&self) -> bool {
+        self.setting_changes.is_empty() && self.leveled_edits.is_empty() && self.base_edits.is_empty()
+    }
 }
 
 /// A death item rolled into a body ([`World::add_death_item`]): the level the list was
@@ -340,7 +391,7 @@ pub struct World<'a> {
     /// Leveled item lists edited by script for the session (LeveledListAddForm and its
     /// family): not saved, as "this change is not savebaked" for LU's functions
     /// [documented: RemoveFormFromLeveledList, "Unlike for LeveledListRemoveForm, this
-    /// change is savebaked"].
+    /// change is savebaked"], but kept across a load in the same run ([`WorldSession`]).
     leveled_edits: BTreeMap<FormId, crate::forms::LeveledList>,
     /// Container and actor bases whose carried items scripts edited (BaseAddItem,
     /// BaseRemoveItem): the entries a fresh inventory rolls from, for the session.
@@ -354,8 +405,12 @@ pub struct World<'a> {
     /// Placed actors whose carried items are another base's than their own (an actor
     /// template's, [`World::set_inventory_sources`]).
     inventory_sources: BTreeMap<FormId, FormId>,
+    /// The inventory sources of references created at run time ([`World::give_items_of`]);
+    /// saved.
+    created_inventory_sources: BTreeMap<FormId, FormId>,
     /// Game settings changed at run time (the console's `SetGameSetting`), by lower-case
     /// Editor ID; they replace the record's value for [`World::setting_value`] readers.
+    /// Kept for the session, not saved ([`WorldSession`]).
     setting_changes: BTreeMap<String, crate::settings::Setting>,
     /// The player may wear power armour (SetPCCanUsePowerArmor; the game layer keeps the
     /// flag and sets it here, [`World::set_power_armor_training`]).
@@ -397,6 +452,7 @@ impl<'a> World<'a> {
             carry_bonus: BTreeMap::new(),
             weight_rules: BTreeMap::new(),
             inventory_sources: BTreeMap::new(),
+            created_inventory_sources: BTreeMap::new(),
             setting_changes: BTreeMap::new(),
             power_armor_training: false,
             zone_levels: BTreeMap::new(),
@@ -465,6 +521,16 @@ impl<'a> World<'a> {
         Ok(self.refs.get_mut(&id).expect("inserted above"))
     }
 
+    /// The base form a reference not yet materialised starts from, as [`World::initial`]
+    /// picks it.
+    fn initial_base(&self, id: FormId) -> Result<FormId, SimError> {
+        match self.placed.get(id) {
+            Some(p) => Ok(p.base),
+            None if id == FormId::PLAYER_REF => Ok(FormId::PLAYER_BASE),
+            None => Err(SimError::UnknownRef(id)),
+        }
+    }
+
     fn initial(&mut self, id: FormId) -> Result<RefState, SimError> {
         let (base, placed): (FormId, Option<&PlacedRef>) = match self.placed.get(id) {
             Some(p) => (p.base, Some(p)),
@@ -522,6 +588,7 @@ impl<'a> World<'a> {
             last_restock: None,
             scale: None,
             equip_locks: BTreeMap::new(),
+            dropped_by: None,
             outfitted: false,
         })
     }
@@ -529,13 +596,15 @@ impl<'a> World<'a> {
     /// The placed actors whose carried items come from another actor base than their
     /// own: the game layer's actor templates (template flag "Inventory") and placed
     /// leveled actor lists, which this layer does not follow (`fnv_game`
-    /// `GameData::inventory_sources`). Set before the references are first read.
+    /// `GameData::inventory_sources`). Set before the references are first read, and
+    /// again on a load (worked out from the plugins, so not saved).
     pub fn set_inventory_sources(&mut self, sources: BTreeMap<FormId, FormId>) {
         self.inventory_sources = sources;
     }
 
-    /// The base whose carried items `id` starts with, in place of its own base's (`None`:
-    /// its own base's), after its leveled choices were rolled again.
+    /// The base whose carried items placed `id` starts with, in place of its own base's
+    /// (`None`: its own base's), after its leveled choices were rolled again. Not saved:
+    /// the game layer works it out again on a load.
     pub fn set_inventory_source(&mut self, id: FormId, source: Option<FormId>) {
         match source {
             Some(s) => self.inventory_sources.insert(id, s),
@@ -545,7 +614,7 @@ impl<'a> World<'a> {
 
     /// The base whose carried items `id` (placed with `base`) starts with.
     fn inventory_base(&self, id: FormId, base: FormId) -> FormId {
-        self.inventory_sources.get(&id).copied().unwrap_or(base)
+        self.created_inventory_sources.get(&id).or_else(|| self.inventory_sources.get(&id)).copied().unwrap_or(base)
     }
 
     /// A fresh inventory for a container or actor base: its carried items with leveled
@@ -1076,6 +1145,7 @@ impl<'a> World<'a> {
                     outfitted: false,
                     scale: None,
                     equip_locks: BTreeMap::new(),
+                    dropped_by: None,
                 },
             );
             out.push(id);
@@ -1177,6 +1247,12 @@ impl<'a> World<'a> {
         if let Some(held) = inv.equipped().into_iter().find(|&o| o != item && clashes(o) && locks.get(&o) == Some(&EquipLock::NoUnequip)) {
             return Err(SimError::EquipLocked { item: held, on: true });
         }
+        // Check a unit `at` names can be put on before taking anything off, so a failed
+        // equip leaves the actor dressed as it was (#1083). The clash loop below frees
+        // the equipped units of `item` itself when it clashes with itself.
+        if !inv.can_equip_at(item, at, clashes(item)) {
+            return Err(SimError::NotCarried { actor, item });
+        }
         let inv = self.inventory(actor)?;
         let mut unequipped = Vec::new();
         for other in inv.equipped() {
@@ -1184,9 +1260,8 @@ impl<'a> World<'a> {
                 unequipped.push(other);
             }
         }
-        if !inv.set_equipped_at(item, at) {
-            return Err(SimError::NotCarried { actor, item });
-        }
+        let equipped = inv.set_equipped_at(item, at);
+        debug_assert!(equipped, "can_equip_at said a unit was free");
         Ok(Equip { consumed: false, unequipped })
     }
 
@@ -1218,14 +1293,20 @@ impl<'a> World<'a> {
 
     /// An actor value: S.P.E.C.I.A.L. from the base NPC_ record unless changed at run
     /// time. (Template NPCs take stats from their template: not followed yet.)
-    pub fn actor_value(&mut self, actor: FormId, name: &str) -> Result<f32, SimError> {
+    /// Reading never materialises the reference, so it rolls no leveled list and leaves
+    /// the random number stream where it was (#1083).
+    pub fn actor_value(&self, actor: FormId, name: &str) -> Result<f32, SimError> {
         let key = name.to_ascii_lowercase();
         let idx = SPECIAL.iter().position(|n| *n == key).ok_or_else(|| SimError::UnknownActorValue(name.into()))?;
-        let s = self.get(actor)?;
-        if let Some(v) = s.actor_values.get(&key) {
-            return Ok(*v);
-        }
-        let base = s.base;
+        let base = match self.peek(actor) {
+            Some(s) => {
+                if let Some(v) = s.actor_values.get(&key) {
+                    return Ok(*v);
+                }
+                s.base
+            }
+            None => self.initial_base(actor)?,
+        };
         match self.forms.get(base).map(|b| &b.data) {
             Some(BaseData::Actor(a)) => a.attributes.map(|a| a[idx] as f32).ok_or(SimError::NoActorValues(actor)),
             _ => Err(SimError::NoActorValues(actor)),
@@ -1540,8 +1621,13 @@ impl<'a> World<'a> {
     /// "locked out" for an impossible level or a broken lock; observed in game,
     /// docs/spec-notes/simulation.md §5: a level-255 lock reads 1, both an authored one
     /// and one set with `Lock 255`. Broken locks (failed lockpicking) are Layer 6.]
-    pub fn lock_status(&mut self, id: FormId) -> Result<u8, SimError> {
-        Ok(match self.get(id)?.lock {
+    /// Read without materialising the reference ([`World::lock_of`]), as
+    /// [`World::actor_value`].
+    pub fn lock_status(&self, id: FormId) -> Result<u8, SimError> {
+        if self.peek(id).is_none() {
+            self.initial_base(id)?;
+        }
+        Ok(match self.lock_of(id) {
             Some(l) if l.locked => 1,
             _ => 0,
         })
@@ -1579,6 +1665,7 @@ impl<'a> World<'a> {
                 outfitted,
                 scale: None,
                 equip_locks: BTreeMap::new(),
+                dropped_by: None,
             },
         );
         Ok(id)
@@ -1608,7 +1695,11 @@ impl<'a> World<'a> {
     /// LvlNCRTrooper fought with their fists).
     pub fn give_items_of(&mut self, id: FormId, source: FormId) -> Result<(), SimError> {
         self.get(id)?;
-        self.set_inventory_source(id, Some(source));
+        if id.is_dynamic() {
+            self.created_inventory_sources.insert(id, source);
+        } else {
+            self.set_inventory_source(id, Some(source));
+        }
         let mut inv = self.roll_inventory(source, self.item_level(id))?;
         let outfitted = self.equip_default(source, &mut inv);
         let s = self.get(id)?;
@@ -1640,6 +1731,12 @@ impl<'a> World<'a> {
     /// (`RefState::deleted`).
     pub fn created(&self) -> impl Iterator<Item = (FormId, &RefState)> {
         self.refs.range(FormId::FIRST_DYNAMIC..).map(|(&k, v)| (k, v))
+    }
+
+    /// The created references `holder` dropped as it died ([`RefState::dropped_by`]) that
+    /// are still present (not taken, enabled), in FormID order.
+    pub fn dropped_beside(&self, holder: FormId) -> Vec<FormId> {
+        self.created().filter(|(_, s)| s.dropped_by == Some(holder) && !s.deleted && s.enabled).map(|(id, _)| id).collect()
     }
 
     /// The newest reference created at run time (a drop) whose base is `base` and that
@@ -1827,7 +1924,28 @@ impl<'a> World<'a> {
             ref_levels: self.ref_levels.iter().filter(|(id, _)| kept(id)).map(|(&k, &v)| (k, v)).collect(),
             death_items: self.death_items.iter().filter(|(id, _)| kept(id)).map(|(&k, &v)| (k, v)).collect(),
             deleted_created,
+            created_inventory_sources: self.created_inventory_sources.iter().filter(|(id, _)| self.refs.get(id).is_some_and(|s| !s.deleted)).map(|(&k, &v)| (k, v)).collect(),
+            power_armor_training: self.power_armor_training,
+            carry_bonus: self.carry_bonus.clone(),
+            weight_rules: self.weight_rules.clone(),
         }
+    }
+
+    /// Take what lasts for the session and not in a save ([`WorldSession`]), to hand it
+    /// to the world a load in the same run makes ([`World::put_session`]).
+    pub fn take_session(&mut self) -> WorldSession {
+        WorldSession {
+            setting_changes: std::mem::take(&mut self.setting_changes),
+            leveled_edits: std::mem::take(&mut self.leveled_edits),
+            base_edits: std::mem::take(&mut self.base_edits),
+        }
+    }
+
+    /// Take over what lasts for the session ([`World::take_session`]).
+    pub fn put_session(&mut self, s: WorldSession) {
+        self.setting_changes = s.setting_changes;
+        self.leveled_edits = s.leveled_edits;
+        self.base_edits = s.base_edits;
     }
 
     pub fn restore(forms: &'a FormStore, placed: &'a RefTable, s: &Snapshot) -> Result<World<'a>, String> {
@@ -1847,6 +1965,10 @@ impl<'a> World<'a> {
         w.ref_levels = s.ref_levels.clone();
         w.death_items = s.death_items.clone();
         w.deleted_created = s.deleted_created.clone();
+        w.created_inventory_sources = s.created_inventory_sources.clone();
+        w.power_armor_training = s.power_armor_training;
+        w.carry_bonus = s.carry_bonus.clone();
+        w.weight_rules = s.weight_rules.clone();
         Ok(w)
     }
 }

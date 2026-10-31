@@ -610,6 +610,7 @@ mod tests {
             bartered: false,
             mods: 0,
             folder: None,
+            reference: None,
         };
         assert_eq!(row_text(&r), "Stimpak (9)");
         r.count = 1;

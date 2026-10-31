@@ -213,7 +213,7 @@ impl From<BTreeMap<FormId, StackRepr>> for Inventory {
 /// Light Items and Adjust Heavy Weapon Weight entry points; docs/spec-notes/perk-entry-points.md
 /// §7): a unit at most `light.0` weighs × `light.1` (Pack Rat), a weapon unit of at least
 /// `heavy_weapons.0` × `heavy_weapons.1` (Heavyweight), each unit's weight with its mods.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct WeightRules {
     pub light: Option<(f32, f32)>,
     pub heavy_weapons: Option<(f32, f32)>,
@@ -327,6 +327,13 @@ impl Inventory {
     /// Whether an unequipped unit of `item` that is not broken is carried.
     pub fn has_sound(&self, item: FormId) -> bool {
         self.has_sound_at(item, Pick::ANY)
+    }
+
+    /// Whether [`Inventory::set_equipped_at`] would find a unit of `item` that `pick`
+    /// names, once the equipped units of `item` are taken off first when `freed` (an
+    /// item that clashes with itself, as [`crate::World::equip_at`] unequips it).
+    pub fn can_equip_at(&self, item: FormId, pick: Pick, freed: bool) -> bool {
+        self.items.get(&item).is_some_and(|s| s.groups.iter().any(|g| (freed || !g.0.equipped) && g.0.picked(pick)))
     }
 
     /// The same among the units `pick` names.

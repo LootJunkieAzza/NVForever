@@ -15,6 +15,7 @@ use fnv_sim::{FormId, RefTable};
 use rayon::prelude::*;
 use serde_json::Value as Json;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::OnceLock;
 
 /// A unit with its decoded program.
 #[derive(Debug, Clone)]
@@ -811,6 +812,9 @@ pub struct GameData {
     /// Each plugin's TES4 HEDR version, in load order (GetPluginHeaderVersion).
     pub plugin_versions: Vec<f32>,
     pub units: Vec<Compiled>,
+    /// [`Compiled::key`] → unit (the first unit with that key), for finding a saved
+    /// lambda's unit on load.
+    pub unit_by_key: HashMap<String, UnitId>,
     /// SCPT FormID → unit.
     pub scripts: HashMap<FormId, UnitId>,
     pub quests: BTreeMap<FormId, QuestDef>,
@@ -885,8 +889,8 @@ pub struct GameData {
     pub full_names: HashMap<FormId, String>,
     pub sigs: HashMap<FormId, [u8; 4]>,
     /// The decoded subrecords of the record types JIP's trait getters read
-    /// ([`FIELD_SIGS`]; jip-records.md), enums as their numbers.
-    pub record_fields: HashMap<FormId, Vec<([u8; 4], Json)>>,
+    /// ([`FIELD_SIGS`]; jip-records.md), enums as their numbers, decoded on first use.
+    pub record_fields: RecordFields,
     /// The game's INI text the extender's INI functions read (GetNumericINISetting …),
     /// later files overriding earlier ones; empty unless the host gives it
     /// (`crate::nvse_settings`).
@@ -1421,12 +1425,48 @@ const BOUNDS_SIGS: [[u8; 4]; 20] = [
 ];
 
 /// The record types whose fields [`GameData::record_fields`] keeps.
-pub const FIELD_SIGS: [[u8; 4]; 41] = [
+pub const FIELD_SIGS: [[u8; 4]; 44] = [
     *b"PROJ", *b"EXPL", *b"AMMO", *b"WEAP", *b"ARMO", *b"LSCR", *b"NOTE", *b"PERK", *b"MESG", *b"TERM", *b"IMOD", *b"CHAL", *b"BOOK", *b"BPTD", *b"MISC", *b"ALCH", *b"KEYM",
     *b"NPC_", *b"CREA", *b"FACT", *b"RACE", *b"HAIR", *b"EYES", *b"SOUN", *b"WTHR", *b"IMGS", *b"IMAD", *b"AMEF", *b"CLMT", *b"CELL", *b"WRLD", *b"IPDS", *b"IPCT", *b"IDLE", *b"ACTI",
     // JIP batch 4 (`crate::nvse_jip4`).
     *b"CLAS", *b"CSTY", *b"LIGH", *b"GRAS", *b"TXST", *b"WATR",
+    // JohnnyGuitar batch 1 (`crate::nvse_jg1`).
+    *b"MUSC", *b"CONT", *b"LGTM",
 ];
+
+/// The winning records of the [`FIELD_SIGS`] types, each decoded by
+/// [`numeric_fields`] the first time a getter asks for it and kept from then on (#1093:
+/// decoding all ~68 000 up front cost 322 MB of the base game's and DLCs' GameData heap).
+/// A record is a cheap handle on the plugin's mapped bytes, which live for the session.
+/// A record's decoded subrecords, in record order.
+pub type Fields = Vec<([u8; 4], Json)>;
+
+pub struct RecordFields {
+    schema: Schema,
+    records: HashMap<FormId, (Record, OnceLock<Fields>)>,
+}
+
+impl RecordFields {
+    fn new(schema: &Schema, records: impl IntoIterator<Item = (FormId, Record)>) -> RecordFields {
+        RecordFields { schema: schema.clone(), records: records.into_iter().map(|(f, r)| (f, (r, OnceLock::new()))).collect() }
+    }
+
+    /// The decoded subrecords of `form`, in record order; `None` when it is not a
+    /// winning record of a [`FIELD_SIGS`] type.
+    pub fn get(&self, form: &FormId) -> Option<&Fields> {
+        let (r, fields) = self.records.get(form)?;
+        Some(fields.get_or_init(|| numeric_fields(&self.schema, r)))
+    }
+
+    /// How many records there are (decoded or not).
+    pub fn len(&self) -> usize {
+        self.records.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.records.is_empty()
+    }
+}
 
 /// The subrecords kept of an actor record, which are many: what xNVSE's actor-base
 /// getters read.
@@ -1560,6 +1600,7 @@ impl GameData {
             load_order: lo.plugins.iter().map(|p| p.name.clone()).collect(),
             plugin_versions: lo.plugins.iter().map(|p| p.header.version).collect(),
             units: Vec::new(),
+            unit_by_key: HashMap::new(),
             scripts: HashMap::new(),
             quests: BTreeMap::new(),
             infos: HashMap::new(),
@@ -1608,11 +1649,10 @@ impl GameData {
             full_names: HashMap::new(),
             sigs: HashMap::new(),
             ini_texts: Vec::new(),
-            record_fields: winners
-                .par_iter()
-                .filter(|(_, _, r)| FIELD_SIGS.contains(&r.header.sig))
-                .map(|&(g, _, r)| (FormId(g), numeric_fields(schema, r)))
-                .collect(),
+            record_fields: RecordFields::new(
+                schema,
+                winners.iter().filter(|(_, _, r)| FIELD_SIGS.contains(&r.header.sig)).map(|&(g, _, r)| (FormId(g), r.clone())),
+            ),
             scripted_by_cell: BTreeMap::new(),
             reputations: HashMap::new(),
             reputation_names: HashMap::new(),
@@ -1686,6 +1726,7 @@ impl GameData {
         let mut unit_of: HashMap<String, UnitId> = HashMap::new();
         for (_, c) in compiled {
             unit_of.insert(c.unit.owner.label(), d.units.len());
+            d.unit_by_key.entry(c.key()).or_insert(d.units.len());
             d.units.push(c);
         }
         let label = |o: UnitOwner| o.label();

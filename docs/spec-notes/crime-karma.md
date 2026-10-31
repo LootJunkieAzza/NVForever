@@ -235,6 +235,16 @@ highway patrol station; "should be good"). AI observer campaigns `functions_roun
 - NVForever took karma for it before item 22's fix (it read the convict as Neutral) and
   gave +100 after it (Evil); it now gives none for an Evil NPC. A Very Evil kill keeps
   +100 and a Good kill −100 [hypothesis, not observed].
+- **2026-10-31 (capture o6_02, nvfairport, karma 0, god mode)**: copies placed with
+  PlaceAtMe and killed at once by `KillActor player`: NorthVegasFiendCF (GetAV Karma −500)
+  **+100**; a copy of GSSunnySmiles (900) **−100**; VESNCRTrooperCMa (0) **0**;
+  GoodspringsPowderGangerHM (−500) **+100** [observed]. So an Evil-range kill can give
+  +100, unlike the convict above. The difference found: both +100 victims hold −500 in
+  their **own** ACBS (an NPC_ template besides), the convict 0 in its own and −500 only
+  from its levelled-list template (VarNCRCFPowderGangerMelee) [hypothesis: the kill's
+  karma reads the placed base's own value, as the extender's base getters ignore
+  levelled templates, actors.md §2.2]. The Neutral trooper's 0 is a KillActor kill
+  without a crime, so the "murder −25" rule is still unobserved.
 - Limits: iKarmaMin/iKarmaMax when a plugin defines them [documented]; FalloutNV.esm does
   not.
 

@@ -1381,6 +1381,7 @@ pub struct Game<'a> {
     /// Calls per opcode that reached a Layer 6 stub.
     pub stubbed: BTreeMap<u16, u64>,
     unhandled_seen: BTreeSet<(u16, String)>,
+    arg_unread_seen: BTreeSet<(u16, String, usize)>,
     stubs_seen: BTreeSet<(u16, String, String)>,
     pub rng: ChaCha8Rng,
     /// The random numbers of the idle tree's talking gestures (`crate::idles`), kept
@@ -1696,7 +1697,8 @@ impl<'a> Game<'a> {
         // Placed actors carry their template's items (template flag "Inventory").
         // Each at the level it would be fixed at now (`crate::zones`); a cell load fixes it.
         let player_level = world.config().player_level;
-        let sources = data.inventory_sources_at(world.placed, |r| world.level_at(r, player_level));
+        // A new game: nothing rolled again yet, every pick seeded by its reference.
+        let sources = data.inventory_sources_at(world.placed, |r| (r, world.level_at(r, player_level)));
         world.set_inventory_sources(sources);
         Game {
             data,
@@ -1847,6 +1849,7 @@ impl<'a> Game<'a> {
             stubbed: BTreeMap::new(),
             coverage: None,
             unhandled_seen: BTreeSet::new(),
+            arg_unread_seen: BTreeSet::new(),
             stubs_seen: BTreeSet::new(),
             rng: ChaCha8Rng::seed_from_u64(cfg.seed ^ 0x5C21_7000),
             idle_rng: ChaCha8Rng::seed_from_u64(cfg.seed ^ 0x1D1E_7A1C),
@@ -2181,6 +2184,13 @@ impl<'a> Game<'a> {
         let c = self.data.unit(unit);
         self.cover_result(|| c.key());
         self.exec(c, &c.program.top, Locals::Temp(BTreeMap::new()), ctx);
+    }
+
+    /// Run `stmts` as statements of `unit` with temporary locals (the sweep's call probe,
+    /// `crate::sweep::probe_calls`).
+    pub(crate) fn run_stmts(&mut self, unit: UnitId, stmts: &'a [Stmt], ctx: RunCtx) {
+        let c = self.data.unit(unit);
+        self.exec(c, stmts, Locals::Temp(BTreeMap::new()), ctx);
     }
 
     /// Compile `src` as a result script (statements without blocks) and run it now: the
@@ -4352,6 +4362,12 @@ impl<'a> Game<'a> {
         if crate::vats::is_area_function(c.function) {
             return crate::vats::area_value(self, c.function);
         }
+        // A null form parameter (FormID 0 in the CTDA) reads 0 without calling the
+        // function, so no failed call is logged (#966) [observed for GetIsID and
+        // GetQuestVariable, dialogue.md "A null form parameter"; hypothesis for the rest].
+        if c.params.iter().any(|p| matches!(p, ArgValue::Value(Value::Ref(0)))) {
+            return 0.0;
+        }
         self.call_function(&ctx, &c.params).num()
     }
 
@@ -4362,14 +4378,11 @@ impl<'a> Game<'a> {
         // A console function (a number of ours, no opcode of the game's) by the function's catalogue name.
         let console = || (ctx.opcode >= fnv_script::table::CONSOLE_OPCODE_BASE).then(|| data.table.get(ctx.opcode)).flatten().and_then(|f| functions::lookup_console(&f.name));
         match functions::lookup(ctx.opcode).or_else(console) {
-            Some(Kind::Impl(f)) => match f(self, ctx, &Args(args)) {
-                Ok(v) => v,
-                Err(e) => {
-                    let n = name();
-                    self.emit(EventKind::CallFailed { opcode: format!("0x{:04X}", ctx.opcode), name: n, unit: ctx.unit.clone(), error: e });
-                    Value::ZERO
-                }
-            },
+            Some(Kind::Impl(f)) => {
+                let outer = functions::begin_unread();
+                let r = f(self, ctx, &Args(args));
+                self.call_result(ctx, r, functions::end_unread(outer))
+            }
             Some(Kind::NoOp(_)) => Value::ZERO,
             Some(Kind::Stub(_)) => {
                 *self.stubbed.entry(ctx.opcode).or_default() += 1;
@@ -4383,6 +4396,37 @@ impl<'a> Game<'a> {
                     tracing::debug!(opcode = ctx.opcode, name = %n, unit = %ctx.unit, "unhandled script function");
                     self.emit(EventKind::Unhandled { opcode: format!("0x{:04X}", ctx.opcode), name: n, unit: ctx.unit.clone() });
                 }
+                Value::ZERO
+            }
+        }
+    }
+
+    /// A function's result: an error traced as `CallFailed`, the arguments it could not
+    /// read in a call that succeeded as `ArgUnread` (`functions::Unread`).
+    fn call_result(&mut self, ctx: &Ctx, r: Result<Value, String>, unread: Vec<functions::Unread>) -> Value {
+        let data = self.data;
+        let name = || data.table.get(ctx.opcode).map(|f| f.name.clone()).unwrap_or_else(|| format!("0x{:04X}", ctx.opcode));
+        match r {
+            Ok(v) => {
+                // Read wrong without failing: the call went on with a default.
+                for u in unread {
+                    if self.arg_unread_seen.insert((ctx.opcode, ctx.unit.clone(), u.param)) {
+                        let n = name();
+                        self.emit(EventKind::ArgUnread {
+                            opcode: format!("0x{:04X}", ctx.opcode),
+                            name: n,
+                            unit: ctx.unit.clone(),
+                            param: u.param,
+                            got: u.got.into(),
+                            wanted: u.wanted.into(),
+                        });
+                    }
+                }
+                v
+            }
+            Err(e) => {
+                let n = name();
+                self.emit(EventKind::CallFailed { opcode: format!("0x{:04X}", ctx.opcode), name: n, unit: ctx.unit.clone(), error: e });
                 Value::ZERO
             }
         }
@@ -4460,7 +4504,7 @@ impl<'a> Game<'a> {
         for l in &s.lambdas {
             // A lambda whose unit is gone (a plugin removed, a console line) keeps its place,
             // so the later ones keep their names; calling it fails.
-            let unit = data.units.iter().find(|u| u.key() == l.unit);
+            let unit = data.unit_by_key.get(&l.unit).map(|&i| &data.units[i]);
             g.lambdas.push(LambdaDef { unit, key: l.unit.clone(), lambda: l.lambda.clone(), inst: l.inst, captured: None });
         }
         g.quests = s.quests.clone();
