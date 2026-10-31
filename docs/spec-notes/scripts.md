@@ -925,7 +925,12 @@ scales 10–70].
   and GetReputationThreshold axis 3 reads 0 at every value; SetReputation with axis 2 or
   3 is a failed call that stops the script, the next line not run [observed: o5_00-02,
   2026-10-31, RepNVNCR at ten infamy/fame pairs from 0/0 to 100/100; the threshold
-  axes 0-2 matched `reputation::tiers` at all ten]. The runtime's SetReputation goes on.
+  axes 0-2 matched `reputation::tiers` at all ten]. Runtime: SetReputation with such an
+  axis fails (`call_failed`) and stops the script for this run (`reputation::write_axis`;
+  #1127). AddReputation, RemoveReputation and AddReputationExact change nothing and go on
+  [hypothesis, not captured: observer check 62]; stopping would skip Boulder City
+  Showdown's completion in stage 100 entry 1 and the tag count of Severus's trades, which
+  follow their axis-2/3 AddReputation [observed: decompiled scripts].
 - AddReputation / RemoveReputation sizes 1–5 add or take 1, 2, 4, 7, 12 points, the
   settings fReputationBumpVeryMinor … VeryMajor (no master defines them; their defaults)
   [documented: GECK wiki AddReputation; observed: the same points on scales 10 and 70,

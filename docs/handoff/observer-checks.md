@@ -451,7 +451,7 @@ The numbers above stay put so links to them hold; each item here gives its own p
     tried (so Benny's "axis 3 >= 3" greeting is never chosen in the original either), and
     axes 0-2 matched ours (`reputation::tiers`) at all ten infamy/fame pairs. SetReputation
     with axis 2 or 3 is a failed call that **stops the script** (the line after it did not
-    run); ours does nothing and goes on (reputation.rs `axis`). (scripts.md §7.6)
+    run); ours does the same since #1127 (reputation.rs `write_axis`). (scripts.md §7.6)
 31. **Say Once on a line two actors share** — answered 2026-10-31 (owner, save
     nvf31mainframe, issue #1113): **no repeat**. After the upload and the Mark II upgrade
     the Yes Man mainframe greeted with 0x001164F2 (GREETING position 2424, conditions
@@ -537,7 +537,7 @@ The numbers above stay put so links to them hold; each item here gives its own p
 42. **Does a stage result script's reference-less RemoveSpell act on the player?** —
     answered 2026-10-31 (o5_03 on nvfairport, issue #1110): yes. Addicted to Jet (10 doses;
     IsSpellTarget WithdrawalJet 1 over a game hour), `SetStage VDoctors 20` made it 0 within
-    10 frames. The doctors' cure works in the original; ours does nothing.
+    10 frames. The doctors' cure works in the original; ours too since #1110.
     (script-language.md §1.2) Traps for the next capture: the first addiction opens a
     message box (menu 1001) and the nvfstrip save loads into a dialogue (menu 1009); both
     pause the game, and effects do not change while it is paused.
@@ -709,3 +709,13 @@ The numbers above stay put so links to them hold; each item here gives its own p
     the front; sample its position every game loop for 1.5 s after the hit: the distance,
     how long it moves, and whether the speed falls off. The same with a deathclaw's
     swipe on the player (god mode). ([combat-rules, Knockback](../spec-notes/combat-rules.md))
+62. **Does AddReputation with axis 2 or 3 stop the script, as SetReputation does?** (P2:
+    Boulder City Showdown, Severus.) SetReputation with axis 2 or 3 stops the script
+    (check 30, o5_00/o5_01); AddReputation's was not captured, and ours changes nothing and
+    goes on [hypothesis]. It matters: VMS20 stage 100 entry 1 calls `AddReputation
+    RepNVGreatKhans 2 5` and then RewardXP, CompleteAllObjectives, CompleteQuest and
+    StopQuest, and Severus's three tag trades (INFO 0x00135115/17/20) count the tags in
+    iAureliusTags after `AddReputation RepNVCaesarsLegion 3 1` [observed: decompiled
+    scripts]. To check: in a function or quest script, `AddReputation RepNVNCR 2 1`, then
+    a line that sets a variable; the same with RemoveReputation and AddReputationExact.
+    (scripts.md §7.6, issue #1127)
