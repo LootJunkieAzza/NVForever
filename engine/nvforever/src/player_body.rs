@@ -2396,7 +2396,7 @@ fn drive_body(
         // The character stays where the scene plays (and collides with nothing there).
         seat.hold = Some(h.feet);
     }
-    let pipboy = pip.shown().then_some(pip.clip_time);
+    let pipboy = pip.on_arm().then_some(pip.clip_time);
     // The arms sway in first person by themselves: not under the Pip-Boy or an idle.
     let sway = body.first.as_ref().map_or(SwayPose::NONE, |f| {
         m.sway.update(SwayInput {
@@ -2479,7 +2479,7 @@ fn drive_body(
         });
         // The console's `fov` can ask for another first-person field of view.
         let first_fov = first_fov.and_then(|f| f.0).unwrap_or(FIRST_PERSON_FOV);
-        let k = match (pip.shown(), vfov) {
+        let k = match (pip.on_arm(), vfov) {
             (true, Some(v)) => {
                 let normal = arms_magnification(v, first_fov);
                 normal + (arms_magnification(v, PIPBOY_FOV) - normal) * pipboy_ease(pip.clip_time)

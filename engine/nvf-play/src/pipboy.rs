@@ -35,6 +35,14 @@
 //!   `pipboy_arm.rs`; Bevy's mesh ray casts see neither the skinning nor meshes kept on
 //!   the GPU only, which is why clicks on the model did nothing until 2026-10-11); for
 //!   the flat image this module finds it.
+//! - **The screen menu** (docs/design/screen-menu.md): the same menus without the arm,
+//!   the image drawn full screen over the world blacked out, as the barter menu is, with
+//!   the device's three buttons as a header above it ([`frame::screen_header`]). It is the
+//!   frame in use ([`Frame`]) whenever the player wears no Pip-Boy, so the inventory never
+//!   needs one, and when the Gameplay setting Use Pip-Boy is off, which also takes the
+//!   Pip-Boy and its glove off (on puts them back on) [design: owner, 2026-10-31].
+//!   Nothing moves the arm, the view or the blur then; the pages do not know which frame
+//!   they are in.
 //! - **Drawing.** [`frame`] draws what every page shares (the background, the tab line)
 //!   and gives the pages their tools; each page module ([`stats`], [`items`], [`data`])
 //!   fills the [`PageBody`] node with its own system, so a page can read what it needs.
@@ -50,6 +58,7 @@ pub mod stats;
 mod test_aid;
 
 use crate::control::{PlayerControl, Pov};
+use crate::interface::u;
 use fnv_game::game::menus;
 use crate::menu::model::Mode;
 use crate::menu::ActiveMenu;
@@ -79,6 +88,23 @@ pub const CANVAS: Vec2 = Vec2::new(1024.0, 768.0);
 
 /// The image the menus are drawn into, pixels (one per interface unit; module docs).
 pub const TARGET: UVec2 = UVec2::new(1280, 960);
+
+/// The screen menu: how high the image of the canvas is drawn, interface units (960 to
+/// the view's height), and the header's strip above it [design: with the strip, 92% of
+/// the view, about the barter menu's footprint; docs/design/screen-menu.md §3.3].
+pub const SCREEN_IMAGE_H: f32 = 820.0;
+pub const SCREEN_HEADER_H: f32 = 64.0;
+/// The part of the canvas the screen menu shows: the menus' rectangle (`frame::MAIN`, 50
+/// in from the top left) and as much again right and below, so the menus sit centred and
+/// the canvas's empty right and bottom are left out [design].
+pub const SCREEN_CROP: Vec2 = Vec2::new(955.0, 750.0);
+/// The image's magnification at most in the screen menu (a very high window).
+const MAX_SCALE: f32 = 3.0;
+/// The screen menu's shade: one even black over the whole window, square to its edges
+/// [design: the owner, 2026-10-31: "black out the entire background", "black should extend
+/// the entire screen", "square up against the edge of the screen"; the barter menu's 0.93
+/// (`interface::TOP_MENU_SHADE`) let the world show through the dimmed hints and the map].
+const SHADE: f32 = 0.98;
 
 /// The pointer on the Pip-Boy's screen, for Bevy's picking.
 pub const PIPBOY_POINTER: PointerId = PointerId::Custom(Uuid::from_u128(0x6e76_665f_7069_7062_6f79_5f70_6f69_6e74));
@@ -118,6 +144,65 @@ impl Page {
     }
 }
 
+/// Where the menus are shown: on the arm's device, or full screen without it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Frame {
+    #[default]
+    Device,
+    Screen,
+}
+
+/// The Gameplay setting Use Pip-Boy: on, the Pip-Boy and its glove are worn and the menus
+/// come up on the arm; off, both are taken off and the menus are on the screen.
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct UsePipBoy {
+    pub on: bool,
+    /// Set by the setting; the player's Pip-Boy and glove are put on or taken off to match
+    /// once there is a player ([`apply_use`]).
+    pub pending: bool,
+}
+
+impl Default for UsePipBoy {
+    fn default() -> UsePipBoy {
+        UsePipBoy { on: true, pending: false }
+    }
+}
+
+impl UsePipBoy {
+    /// The setting changed (the settings page, the INI at start, the test aid).
+    pub fn set(&mut self, on: bool) {
+        self.on = on;
+        self.pending = true;
+    }
+}
+
+/// The setting's key in `NVForever.ini`.
+pub const SETTING_KEY: &str = "UsePipBoy";
+
+/// The player's Pip-Boy Glove, the hand worn with the Pip-Boy [observed: FalloutNV.esm
+/// ARMO 00025B83 `PipBoyGlove`; the Pip-Boy itself is 00015038 `PipBoy`].
+const PIPBOY_GLOVE: u32 = 0x0002_5B83;
+const PIPBOY: u32 = 0x0001_5038;
+
+/// The frame the menus use: the screen when the setting says so or no Pip-Boy is worn.
+pub fn frame_for(on_screen: bool, wears_pipboy: bool) -> Frame {
+    if on_screen || !wears_pipboy {
+        Frame::Screen
+    } else {
+        Frame::Device
+    }
+}
+
+/// The Pip-Boy's body slot among an armour's biped flags [documented: ARMO BMDT; the same
+/// bit as `fnv_actor::resolve::slot::PIPBOY`, which the body draws on the arm].
+const PIPBOY_SLOT: u32 = 1 << 6;
+
+/// Whether the player wears a Pip-Boy: an equipped item in the Pip-Boy's body slot.
+pub fn wears_pipboy(sim: &crate::sim::SimState) -> bool {
+    let Some(inv) = sim.world.peek(fnv_sim::FormId::PLAYER_REF).and_then(|r| r.inventory.as_ref()) else { return false };
+    inv.equipped().into_iter().any(|id| sim.forms.item(id).and_then(|i| i.slots).is_some_and(|s| s & PIPBOY_SLOT != 0))
+}
+
 /// Where the Pip-Boy is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Phase {
@@ -140,6 +225,8 @@ pub struct PipBoy {
     /// on to [`CLIP_SECONDS`] going down.
     pub clip_time: f32,
     pub page: Page,
+    /// Where the menus are shown while up.
+    pub frame: Frame,
     /// Each page's tab (0 to 4).
     pub tabs: [usize; 3],
     /// The view before the Pip-Boy came up, given back when it is down.
@@ -157,6 +244,11 @@ impl PipBoy {
     /// Whether the menus take input (coming up or up).
     pub fn open(&self) -> bool {
         matches!(self.phase, Phase::Raising | Phase::Up)
+    }
+
+    /// Whether the device shows on the arm (any of it; not in the screen menu).
+    pub fn on_arm(&self) -> bool {
+        self.shown() && self.frame == Frame::Device
     }
 
     /// The tab of the page shown.
@@ -191,6 +283,11 @@ impl PipBoy {
     /// Come up. Put back up on the way down, it comes up from as far down as it got
     /// [design: the way down mirrored onto the way up].
     pub fn raise(&mut self) {
+        // The screen menu has no clip: up at once.
+        if self.frame == Frame::Screen {
+            (self.phase, self.clip_time) = (Phase::Up, HOLD_SECONDS);
+            return;
+        }
         match self.phase {
             Phase::Down => (self.phase, self.clip_time) = (Phase::Raising, 0.0),
             Phase::Lowering => (self.phase, self.clip_time) = (Phase::Raising, (2.0 * HOLD_SECONDS - self.clip_time).max(0.0)),
@@ -201,6 +298,10 @@ impl PipBoy {
     /// Go down: on from `Hit` (from where it got to, if it was still coming up
     /// [design]).
     pub fn lower(&mut self) {
+        if self.frame == Frame::Screen && self.shown() {
+            (self.phase, self.clip_time) = (Phase::Down, 0.0);
+            return;
+        }
         if self.open() {
             self.phase = Phase::Lowering;
             self.clip_time = self.clip_time.max(HOLD_SECONDS);
@@ -241,6 +342,16 @@ pub struct PipBoyScreen {
     /// Where the window's pointer lies on the canvas (interface units from its top left),
     /// if on it: set by the body from the model's screen, or here from the flat image.
     pub pointer: Option<Vec2>,
+    /// The image's pixels to a canvas unit: 1 on the device, more in the screen menu so
+    /// the larger picture stays sharp ([`image_scale`]).
+    pub scale: f32,
+}
+
+impl PipBoyScreen {
+    /// The render target the screen camera draws into, and the pointer is located on.
+    pub fn target(&self) -> ImageRenderTarget {
+        ImageRenderTarget { handle: self.image.clone(), scale_factor: self.scale }
+    }
 }
 
 /// Test aid (`NVF_PLAY_TEST_PIPBOY`'s `point=` and `click=`): what the pointer is put on
@@ -281,11 +392,16 @@ pub struct PipBoyRoot;
 #[derive(Component)]
 struct FlatScreen;
 
+/// The screen menu's black shade over the window, which holds the header and the image.
+#[derive(Component)]
+pub struct ScreenShade;
+
 pub struct PipBoyPlugin;
 
 impl Plugin for PipBoyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PipBoy>()
+            .init_resource::<UsePipBoy>()
             .init_resource::<PipBoyAid>()
             .init_resource::<frame::Kit>()
             .init_resource::<repair::PipRepair>()
@@ -304,7 +420,7 @@ impl Plugin for PipBoyPlugin {
             .add_systems(
                 Update,
                 (
-                    follow_menu.after(crate::menu::MenuSystems),
+                    (apply_use, follow_menu.after(crate::menu::MenuSystems), follow_frame).chain(),
                     reset_manager,
                     (keys, apply_input).chain().run_if(pipboy_open).run_if(takes_keys),
                     repair::keys.run_if(takes_keys),
@@ -314,8 +430,8 @@ impl Plugin for PipBoyPlugin {
                     report_menu,
                     advance,
                     camera_on,
-                    flat_screen,
-                    frame::draw,
+                    (image_scale, flat_screen),
+                    (frame::draw, frame::screen_header),
                     (stats::draw, items::draw, data::draw),
                     data::wave_moves,
                     stats::use_hints,
@@ -327,6 +443,18 @@ impl Plugin for PipBoyPlugin {
             )
             .add_systems(First, drive_pointer.in_set(PickingSystems::Input));
         test_aid::setup(app);
+        crate::settings::add_setting(
+            app,
+            crate::settings::Setting {
+                key: SETTING_KEY,
+                group: crate::pause::GROUP_MENUS,
+                label: "Use Pip-Boy",
+                note: "On: the Pip-Boy and its glove are worn and the menus come up on the arm. Off: both are taken off and the menus show full screen. Without a Pip-Boy worn the menus are always full screen.",
+                get: |w| w.resource::<UsePipBoy>().on,
+                set: |w, on| w.resource_mut::<UsePipBoy>().set(on),
+                slider: None,
+            },
+        );
     }
 }
 
@@ -411,23 +539,95 @@ fn setup_screen(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
             RenderTarget::Image(ImageRenderTarget::from(image.clone())),
         ))
         .id();
-    commands.insert_resource(PipBoyScreen { image, camera, on_model: false, pointer: None });
+    commands.insert_resource(PipBoyScreen { image, camera, on_model: false, pointer: None, scale: 1.0 });
 }
 
-/// The Pip-Boy is up while the player's inventory is open, and in first person.
-fn follow_menu(active: Res<ActiveMenu>, mut pip: ResMut<PipBoy>, mut control: ResMut<PlayerControl>) {
+/// The Pip-Boy is up while the player's inventory is open, and in first person (on the
+/// arm; the screen menu leaves the view alone).
+fn follow_menu(active: Res<ActiveMenu>, mut pip: ResMut<PipBoy>, mut control: ResMut<PlayerControl>, use_pipboy: Res<UsePipBoy>, sim: Option<Res<crate::sim::SimState>>) {
     let inventory = active.0.as_ref().is_some_and(|m| m.mode == Mode::Inventory);
     if inventory && !pip.open() {
         if pip.phase == Phase::Down {
-            pip.saved_pov = Some(control.pov);
+            pip.frame = frame_for(!use_pipboy.on, sim.as_deref().is_some_and(wears_pipboy));
+            info!("pipboy: frame {:?}", pip.frame);
+            if pip.frame == Frame::Device {
+                pip.saved_pov = Some(control.pov);
+            }
             info!("pipboy: up, page {} tab {}", pip.page.title(), pip.page.tabs()[pip.tab()]);
         }
         pip.raise();
-        control.pov = Pov::First;
-        control.orbit = default();
+        if pip.frame == Frame::Device {
+            control.pov = Pov::First;
+            control.orbit = default();
+        }
     } else if !inventory && pip.open() {
         info!("pipboy: down");
         pip.lower();
+    }
+}
+
+/// While the menus are up, follow the setting and the Pip-Boy being put on or taken off
+/// (ITEMS > Apparel): to the screen menu, the view goes back to what it was and the arm
+/// is gone; to the device, the arm is up at once (held at `Hit`, no clip from the bottom)
+/// and the view first person [design].
+fn follow_frame(mut pip: ResMut<PipBoy>, mut control: ResMut<PlayerControl>, use_pipboy: Res<UsePipBoy>, sim: Option<Res<crate::sim::SimState>>) {
+    if pip.phase != Phase::Up {
+        return;
+    }
+    let want = frame_for(!use_pipboy.on, sim.as_deref().is_some_and(wears_pipboy));
+    if want == pip.frame {
+        return;
+    }
+    pip.frame = want;
+    info!("pipboy: frame {want:?}");
+    match want {
+        Frame::Screen => {
+            if let Some(p) = pip.saved_pov.take() {
+                control.pov = p;
+            }
+        }
+        Frame::Device => {
+            pip.saved_pov = Some(control.pov);
+            pip.clip_time = HOLD_SECONDS;
+            control.pov = Pov::First;
+            control.orbit = default();
+        }
+    }
+}
+
+/// Once the setting changed and there is a player: off, take off whatever is worn in the
+/// Pip-Boy's slot and the Pip-Boy Glove; on, put on a carried Pip-Boy (the Pip-Boy 3000
+/// first) and the glove if carried [design: owner, 2026-10-31].
+fn apply_use(mut use_pipboy: ResMut<UsePipBoy>, sim: Option<ResMut<crate::sim::SimState>>) {
+    if !use_pipboy.pending {
+        return;
+    }
+    let Some(mut sim) = sim else { return };
+    let player = fnv_sim::FormId::PLAYER_REF;
+    let Some(inv) = sim.world.peek(player).and_then(|r| r.inventory.as_ref()) else { return };
+    use_pipboy.pending = false;
+    let in_slot = |id: fnv_sim::FormId| sim.forms.item(id).and_then(|i| i.slots).is_some_and(|s| s & PIPBOY_SLOT != 0);
+    let glove = fnv_sim::FormId(PIPBOY_GLOVE);
+    let worn = inv.equipped();
+    let mut changes: Vec<(fnv_sim::FormId, bool)> = Vec::new();
+    if use_pipboy.on {
+        if !worn.iter().any(|&id| in_slot(id)) {
+            let mut carried: Vec<fnv_sim::FormId> = inv.iter().filter(|&(id, n)| n > 0 && in_slot(id)).map(|(id, _)| id).collect();
+            carried.sort_by_key(|id| id.0 != PIPBOY);
+            changes.extend(carried.first().map(|&id| (id, true)));
+        }
+        if !worn.contains(&glove) && inv.count(glove) > 0 {
+            changes.push((glove, true));
+        }
+    } else {
+        changes.extend(worn.iter().filter(|&&id| in_slot(id) || id == glove).map(|&id| (id, false)));
+    }
+    for (id, on) in changes {
+        let done = if on { sim.world.equip(player, id).map(|_| true) } else { sim.world.unequip(player, id) };
+        match done {
+            Ok(_) => info!("pipboy: Use Pip-Boy {}: {} {id}", if on { "on" } else { "off" }, if on { "put on" } else { "took off" }),
+            Err(e) => warn!("pipboy: Use Pip-Boy: {id} not changed: {e:?}"),
+        }
     }
 }
 
@@ -442,14 +642,25 @@ fn advance(time: Res<Time>, mut pip: ResMut<PipBoy>, mut control: ResMut<PlayerC
     }
 }
 
-/// The screen camera draws only while the Pip-Boy shows.
+/// The screen camera draws only while the Pip-Boy shows; in the screen menu onto a clear
+/// image, so the menus lie on the shade behind them and not on a black box.
 fn camera_on(pip: Res<PipBoy>, screen: Option<Res<PipBoyScreen>>, mut cams: Query<&mut Camera>) {
     let Some(screen) = screen else { return };
     if let Ok(mut c) = cams.get_mut(screen.camera) {
         if c.is_active != pip.shown() {
             c.is_active = pip.shown();
         }
+        let clear = if pip.frame == Frame::Screen { Color::NONE } else { Color::BLACK };
+        if !matches!(c.clear_color, ClearColorConfig::Custom(now) if now == clear) {
+            c.clear_color = ClearColorConfig::Custom(clear);
+        }
     }
+}
+
+/// Whether the screen menu is up: the HUD's messages go behind it (`corner_messages`,
+/// `quest_messages`), as behind a conversation.
+pub fn screen_menu_up(pip: Option<&PipBoy>) -> bool {
+    pip.is_some_and(|p| p.shown() && p.frame == Frame::Screen)
 }
 
 /// Keys of the Pip-Boy: Tab, Esc and E close it; F1–F3 the pages; A/D and Left/Right
@@ -498,13 +709,44 @@ fn apply_input(mut input: MessageReader<PipBoyInput>, mut pip: ResMut<PipBoy>) {
     }
 }
 
-/// Where nothing shows the model's screen, the image is drawn flat in the middle of the
-/// window, 4:3 and as high as the window allows; the pointer on it is found here.
+/// The image's scale the flat image's crop was made for.
+#[derive(Component, Clone, Copy)]
+struct FlatCrop(f32);
+
+/// The scale of the image for the frame in use: 1 on the device; in the screen menu as
+/// many of the window's pixels as the canvas is drawn over, so the picture is not
+/// magnified, at most [`MAX_SCALE`]. The image is made again at that size, and the
+/// camera told, so the menus still lay out on the canvas's units.
+fn image_scale(pip: Res<PipBoy>, screen: Option<ResMut<PipBoyScreen>>, windows: Query<&Window, With<PrimaryWindow>>, mut images: ResMut<Assets<Image>>, mut targets: Query<&mut RenderTarget>) {
+    let Some(mut screen) = screen else { return };
+    let want = match (pip.shown() && pip.frame == Frame::Screen, windows.single()) {
+        (true, Ok(w)) => (w.physical_height() as f32 * SCREEN_IMAGE_H / 960.0 / CANVAS.y).clamp(1.0, MAX_SCALE),
+        _ => 1.0,
+    };
+    // Steps of an eighth, so a window dragged a pixel does not remake the image.
+    let want = (want * 8.0).round() / 8.0;
+    if want == screen.scale {
+        return;
+    }
+    let size = Extent3d { width: (TARGET.x as f32 * want).round() as u32, height: (TARGET.y as f32 * want).round() as u32, ..default() };
+    let Some(mut image) = images.get_mut(&screen.image) else { return };
+    image.resize(size);
+    screen.scale = want;
+    if let Ok(mut t) = targets.get_mut(screen.camera) {
+        *t = RenderTarget::Image(screen.target());
+    }
+    info!("pipboy: image scale {want}");
+}
+
+/// Where nothing shows the model's screen, and always in the screen menu, the image is
+/// drawn flat in the middle of the window over the world blacked out, under the header's
+/// strip (docs/design/screen-menu.md §3); the pointer on it is found here.
 fn flat_screen(
     mut commands: Commands,
     pip: Res<PipBoy>,
     screen: Option<ResMut<PipBoyScreen>>,
-    flat: Query<(Entity, &ComputedNode, &UiGlobalTransform), With<FlatScreen>>,
+    flat: Query<(Entity, &ComputedNode, &UiGlobalTransform, &FlatCrop), With<FlatScreen>>,
+    shades: Query<Entity, With<ScreenShade>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     aid: Res<PipBoyAid>,
 ) {
@@ -513,25 +755,38 @@ fn flat_screen(
     // the Pip-Boy starts up (later still from third person, the first-person body not yet
     // drawn), and the flat image flashed in the middle of the window until it did (the
     // owner's playtest list 5, item 2).
-    let want = pip.phase == Phase::Up && !screen.on_model;
-    match (want, flat.iter().next()) {
+    let want = pip.phase == Phase::Up && (pip.frame == Frame::Screen || !screen.on_model);
+    // A change of the image's scale needs the image node's crop made again.
+    let stale = flat.iter().next().is_some_and(|(_, _, _, crop)| crop.0 != screen.scale);
+    match (want && !stale, flat.iter().next()) {
         (true, None) => {
-            let node = Node {
+            for e in &shades {
+                commands.entity(e).despawn();
+            }
+            // The world blacked out as behind the barter menu; in it, a column: the
+            // header's strip, then the canvas's image, centred.
+            let shade = Node {
                 position_type: PositionType::Absolute,
-                left: Val::Percent(50.0),
-                top: Val::Percent(50.0),
-                height: Val::Vh(90.0),
-                aspect_ratio: Some(CANVAS.x / CANVAS.y),
-                margin: UiRect { left: Val::Vh(-60.0), top: Val::Vh(-45.0), ..default() },
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
                 ..default()
             };
-            let crop = Rect::new(0.0, 0.0, CANVAS.x, CANVAS.y);
-            commands.spawn((FlatScreen, node, ImageNode { rect: Some(crop), ..ImageNode::new(screen.image.clone()) }, GlobalZIndex(90)));
+            let width = SCREEN_IMAGE_H * SCREEN_CROP.x / SCREEN_CROP.y;
+            let crop = Rect::new(0.0, 0.0, SCREEN_CROP.x * screen.scale, SCREEN_CROP.y * screen.scale);
+            commands.spawn((ScreenShade, shade, BackgroundColor(Color::BLACK.with_alpha(SHADE)), GlobalZIndex(90), Pickable::IGNORE, Name::new("Pip-Boy screen menu"))).with_children(|s| {
+                s.spawn((frame::ScreenHeader, Node { width: u(width), height: u(SCREEN_HEADER_H), flex_shrink: 0.0, ..default() }, Pickable::IGNORE));
+                s.spawn((FlatScreen, FlatCrop(screen.scale), Node { width: u(width), height: u(SCREEN_IMAGE_H), flex_shrink: 0.0, ..default() }, ImageNode { rect: Some(crop), ..ImageNode::new(screen.image.clone()) }));
+            });
         }
-        (false, Some((e, ..))) => {
-            commands.entity(e).despawn();
+        (false, Some(_)) => {
+            for e in &shades {
+                commands.entity(e).despawn();
+            }
         }
-        (true, Some((_, computed, at))) => {
+        (true, Some((_, computed, at, _))) => {
             if let Some(AidTarget::Canvas(p)) = aid.target {
                 screen.pointer = Some(p);
                 return;
@@ -540,8 +795,8 @@ fn flat_screen(
             let size = computed.size();
             screen.pointer = cursor.and_then(|c| {
                 let local = c - (at.translation - size / 2.0);
-                let p = local / size * CANVAS;
-                (p.x >= 0.0 && p.y >= 0.0 && p.x < CANVAS.x && p.y < CANVAS.y).then_some(p)
+                let p = local / size * SCREEN_CROP;
+                (p.x >= 0.0 && p.y >= 0.0 && p.x < SCREEN_CROP.x && p.y < SCREEN_CROP.y).then_some(p)
             });
         }
         (false, None) => {}
@@ -566,7 +821,7 @@ fn drive_pointer(
         commands.spawn(PIPBOY_POINTER);
         *spawned = true;
     }
-    let target = RenderTarget::Image(ImageRenderTarget::from(screen.image.clone()));
+    let target = RenderTarget::Image(screen.target());
     let Some(target) = target.normalize(None) else { return };
     let at = screen.pointer.filter(|_| pip.open());
     // Off the screen the pointer goes to a corner no node is in.
@@ -660,6 +915,33 @@ mod tests {
         p.lower();
         assert!(p.advance(1.0));
         assert_eq!((p.phase, p.clip_time), (Phase::Down, 0.0));
+    }
+
+    #[test]
+    fn the_screen_menu_is_used_without_a_pipboy() {
+        assert_eq!(frame_for(false, true), Frame::Device);
+        assert_eq!(frame_for(true, true), Frame::Screen);
+        assert_eq!(frame_for(false, false), Frame::Screen);
+        assert_eq!(frame_for(true, false), Frame::Screen);
+    }
+
+    #[test]
+    fn the_screen_menu_opens_and_shuts_at_once() {
+        let mut p = PipBoy { frame: Frame::Screen, ..default() };
+        p.raise();
+        assert_eq!(p.phase, Phase::Up);
+        assert!(p.open() && p.shown() && !p.on_arm());
+        p.apply(PipBoyInput::Page(Page::Data));
+        p.apply(PipBoyInput::Tab(2));
+        p.lower();
+        assert_eq!((p.phase, p.clip_time), (Phase::Down, 0.0));
+        assert!(!p.shown());
+        // The page and its tab are kept for the next time, in either frame.
+        p.frame = Frame::Device;
+        p.raise();
+        assert_eq!(p.phase, Phase::Raising);
+        assert!(p.on_arm());
+        assert_eq!((p.page, p.tab()), (Page::Data, 2));
     }
 
     #[test]

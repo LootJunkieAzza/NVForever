@@ -2916,6 +2916,47 @@ expect = [
 ]
 
 [[scenario]]
+name = "pipboy-screen-menu"
+source = "issue #1228 (docs/design/screen-menu.md §6): the Gameplay setting Use Pip-Boy off takes the Pip-Boy and its glove off and the menus show full screen; on puts them back and the menus are on the arm"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy*", "engine/nvforever/src/pipboy_arm.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "10:frame=screen,12:open,14:page=data,15:tab=1,15.5:page=stats,16:click=600:650,18:close,20:frame=device,22:open,25:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1920x1080"]
+run_seconds = 27
+note = "1920x1080 so the image is made larger (scale 1.25); the click at 16 s is on the STATS tab line's fourth tab (Perks) through the flat image; 00015038 is the Pip-Boy 3000, 00025B83 the Pip-Boy Glove (FalloutNV.esm)"
+order = [[
+  "pipboy: Use Pip-Boy off: took off 0x00015038",
+  "pipboy: frame Screen",
+  "pipboy: up, page ITEMS tab Weapons",
+  { re = 'pipboy: image scale \d', label = "pipboy: the image made at the window's size" },
+  "pipboy: DATA Local Map",
+  "pipboy: DATA World Map",
+  "pipboy: STATS Status",
+  "pipboy: STATS Perks",
+  "pipboy: down",
+  "pipboy: Use Pip-Boy on: put on 0x00015038",
+  "pipboy: frame Device",
+  "pipboy: the menus are on the model's screen",
+]]
+
+[[scenario]]
+name = "pipboy-screen-menu-unworn"
+source = "issue #1228 (docs/design/screen-menu.md §2.1): with no Pip-Boy worn the inventory still opens, as the screen menu, with Use Pip-Boy on"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy*"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:player.unequipitem 00015038;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,15:page=stats,17:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1280x720"]
+run_seconds = 19
+note = "00015038 is the player's Pip-Boy 3000 (ARMO PipBoy, FalloutNV.esm)"
+order = [[
+  "pipboy: frame Screen",
+  "pipboy: up, page ITEMS tab Weapons",
+  "pipboy: STATS Status",
+  "pipboy: down",
+]]
+forbid = [{ text = "pipboy: the menus are on the model's screen", label = "the arm raised with no Pip-Boy worn" }]
+
+[[scenario]]
 name = "pipboy-holotape"
 source = "ESM gap audit row 14 (docs/spec-notes/holotapes.md §3, §4): a Voice note (holotape) picked in the Pip-Boy's Notes list plays its line's voice files, one response after another; picked again it pauses, again it goes on, and it keeps playing with the Pip-Boy put away (owner 2026-10-27)"
 areas = ["pipboy", "audio"]

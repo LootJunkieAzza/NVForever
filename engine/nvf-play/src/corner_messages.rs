@@ -220,6 +220,7 @@ fn draw(
     state: Option<Res<State<crate::PlayState>>>,
     driven: Option<Res<crate::player::ViewDriven>>,
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
+    pip: Option<Res<crate::pipboy::PipBoy>>,
 ) {
     // Behind a message box or a script's menu, and in a conversation (every HUD element
     // goes then: the owner's playtest list 5, item 74): hidden, and no time passes, so
@@ -227,7 +228,8 @@ fn draw(
     // camera (the opening's wake-up, `crate::player::ViewDriven`): only subtitles then
     // [owner 2026-10-24].
     // And while a kill camera plays (`crate::kill_cam`) [owner's playtest request #1034].
-    let held = panel.view.is_some() || state.is_some_and(|s| *s.get() == crate::PlayState::Dialogue) || driven.is_some_and(|d| d.0) || kill_cam.is_some_and(|k| k.active());
+    // And behind the Pip-Boy's screen menu (docs/design/screen-menu.md).
+    let held = panel.view.is_some() || state.is_some_and(|s| *s.get() == crate::PlayState::Dialogue) || driven.is_some_and(|d| d.0) || kill_cam.is_some_and(|k| k.active()) || crate::pipboy::screen_menu_up(pip.as_deref());
     for (_, mut v) in &mut roots {
         v.set_if_neq(if held { Visibility::Hidden } else { Visibility::Inherited });
     }
