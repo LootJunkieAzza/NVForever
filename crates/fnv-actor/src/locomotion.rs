@@ -503,6 +503,12 @@ impl Blend {
     /// when the move changes (not while one runs), then advance the phases. Two walk/run
     /// clips are kept in step: the new one starts at the old one's footfall phase, and
     /// both advance at the weight-blended cycle rate while they fade.
+    ///
+    /// A walk or run asked for while a fade into a standing clip runs (the idle into a
+    /// turn on the spot, a turn or a walk into the idle) starts at once, fading from the
+    /// standing clip: an actor that set off within a fade moved on a standing clip until the fade
+    /// ended, and slid (issue #1073: coyotes setting off after turning on the spot)
+    /// [design].
     pub fn step(&mut self, choice: Choice, dt: f32, info: impl Fn(Move) -> Option<ClipInfo>) {
         if self.prev.is_some() {
             self.fade += dt;
@@ -510,7 +516,8 @@ impl Blend {
                 self.prev = None;
             }
         }
-        if self.prev.is_none() && choice.mv != self.cur.mv {
+        let sets_off = choice.mv.is_moving() && !self.cur.mv.is_moving();
+        if (self.prev.is_none() || sets_off) && choice.mv != self.cur.mv {
             if let Some(new) = info(choice.mv) {
                 let phase = match info(self.cur.mv) {
                     Some(old) if self.cur.mv.is_moving() && choice.mv.is_moving() => wrap01(self.cur.phase - old.foot_phase + new.foot_phase),
@@ -888,6 +895,20 @@ mod tests {
         assert_eq!(b.cur.mv, Move::Backward);
         assert_eq!(b.prev.map(|p| p.mv), Some(Move::Forward));
         assert_eq!(b.fade_time, 0.3);
+    }
+
+    #[test]
+    fn setting_off_does_not_wait_for_a_standing_fade() {
+        // Standing, a turn on the spot fades in over the idle (0.1 s).
+        let mut b = Blend::new(Move::Idle, 0.0);
+        b.step(Choice { mv: Move::TurnLeft, rate: 1.0 }, 0.02, info);
+        assert_eq!((b.cur.mv, b.prev.map(|p| p.mv)), (Move::TurnLeft, Some(Move::Idle)));
+        // Asked to walk within that fade: the walk starts now, from the turn.
+        b.step(Choice { mv: Move::Forward, rate: 1.0 }, 0.02, info);
+        assert_eq!((b.cur.mv, b.prev.map(|p| p.mv)), (Move::Forward, Some(Move::TurnLeft)));
+        // A change between moves still waits for the fade (cross_fade_weights).
+        b.step(Choice { mv: Move::Backward, rate: 1.0 }, 0.02, info);
+        assert_eq!(b.cur.mv, Move::Forward);
     }
 
     #[test]

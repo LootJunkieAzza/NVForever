@@ -1598,6 +1598,7 @@ fn main() -> AppExit {
                     );
                     info!("actor turns: {} actor frames playing a turn-on-the-spot clip", c.turn_frames);
                     info!("actor idle under movement: {} actor frames with the idle laid under another clip", c.under_frames);
+                    info!("actor moves without a clip: {} actor frames moving with no movement clip showing; {} actor frames of a creature's blow on its head and neck over its run", c.clipless_frames, c.head_blow_frames);
                 }
                 if let Some(a) = actors {
                     let fg = a.facegen.lock().expect("facegen cache");
