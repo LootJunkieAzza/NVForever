@@ -16439,6 +16439,33 @@ expect = [
 ]
 
 [[scenario]]
+name = "pipboy-glove-vault-suit"
+source = "#1067 (docs/spec-notes/actors.md §2.3): the vault suits' BIPL list `BaseFemale` holds the bare hands (ARMA `BaseFemaleGloveL` lefthand.nif, `BaseFemaleGloveR` righthand.nif); with the always-worn Pip-Boy Glove (Left Hand) both left hands were drawn, overlapping. A bare-hand addon now gives way to a worn item in its slot"
+note = "the player wears the Vault 21 Jumpsuit (VaultSuit21 0x00104184) in Goodsprings; third person, the camera turned to the player's front at 6 s, a frame at 7 s (one left hand, the Pip-Boy Glove's)"
+areas = ["actors", "player-body"]
+paths = ["crates/fnv-actor/src/resolve.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "00104184", NVF_PLAY_TEST_CONTROL = "5:view,5.4:zoom=120,5.8:orbit=160:5", NVF_PLAY_TEST_SHOTS = "7:pipboy_glove_vault_suit.png" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm"]
+run_seconds = 9
+expect = [
+  { re = 'player body: armour drawn \["PipBoy", "PipBoyGlove", "VaultSuit21", "BaseFemaleGloveR"\]', label = "the suit with its right bare hand and the Pip-Boy Glove" },
+  { re = 'player body: armour drawn \[[^\]]*"BaseFemaleGloveL"', count = 0, label = "the suit's left bare hand is left out under the Pip-Boy Glove" },
+]
+
+[[scenario]]
+name = "pipboy-glove-leather"
+source = "#1067 (docs/spec-notes/actors.md §2.3): an outfit's glove addon (ArmorLeather's ArmorLeatherList: LeatherArmorGloveR, LeatherArmorGloveL) was drawn together with the always-worn Pip-Boy Glove's hand; a worn item whose every slot another item's addons take is now left out"
+note = "the player wears Leather Armor (ArmorLeather 0x00020423) in Goodsprings; third person, the camera turned to the player's front at 6 s, a frame at 7 s (one left hand, the leather glove)"
+areas = ["actors", "player-body"]
+paths = ["crates/fnv-actor/src/resolve.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "00020423", NVF_PLAY_TEST_CONTROL = "5:view,5.4:zoom=120,5.8:orbit=160:5", NVF_PLAY_TEST_SHOTS = "7:pipboy_glove_leather.png" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm"]
+run_seconds = 9
+expect = [
+  { re = 'player body: armour drawn \["PipBoy", "ArmorLeather", "LeatherArmorGloveR", "LeatherArmorGloveL"\]', label = "the leather armour and its gloves; the Pip-Boy Glove gives way to the left one" },
+]
+
+[[scenario]]
 name = "jukebox-tubes-off"
 source = "#1079 (docs/spec-notes/activators.md §3): switched off, the saloon jukebox's light tubes (JukeBox01:1, unlit shader) stayed lit at full texture brightness; the original's go dark [observed: owner 2026-10-30]. While off, every unlit shape the idle drives is drawn black: the opaque tubes go dark, the additive notes and bubbles vanish"
 note = "the jukebox seen from the test spot in front of it (NVF_PLAY_TEST_NEAR), on at 6 s (frame), switched off by E at 7 s, frame at 9 s, on again at 10 s, frame at 12 s"

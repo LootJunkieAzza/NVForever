@@ -572,3 +572,12 @@ The numbers above stay put so links to them hold; each item here gives its own p
     a text_box button's hotrect, text and parent `mouseover` with the cursor on the text;
     the three functions in game mode and over a target without an `<id>`.
     ([menu-xml §3.2, §8 items 7-10](../spec-notes/menu-xml.md))
+
+## Added 2026-10-31 (the Pip-Boy Glove and outfit gloves, issue #1067)
+
+55. **Which left hand the player shows in an outfit with gloves** (P3: the player's own
+    hand in every outfit with glove addons). NVForever lets the Pip-Boy Glove give way to
+    an outfit's glove addon (leather, metal, raider, ranger armour, power armour) and a
+    vault suit's bare-hand addon give way to the Pip-Boy Glove. To check: the player in
+    Leather Armor and in T-45d Power Armor, first and third person: is the left hand the
+    outfit's glove or the Pip-Boy Glove's hand? ([actors §2.3](../spec-notes/actors.md))
