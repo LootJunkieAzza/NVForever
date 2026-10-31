@@ -1624,7 +1624,7 @@ mod tests {
     fn shapes_sharing_a_driven_material_get_its_tracks() {
         // vintageradio01.nif: Open names the body; the needle and the glass dial wear
         // the same NiMaterialProperty. A texture scroll is not shared.
-        let glow = MaterialTrack { shape: "VintageRadioBody:0".into(), target: MaterialTarget::SelfIllum, values: Arc::new(ValueTrack::Point3(Channel::Static(Some([1.0; 3])))), cycle: None };
+        let glow = MaterialTrack { shape: "VintageRadioBody:0".into(), target: MaterialTarget::SelfIllum, values: Arc::new(ValueTrack::Point3(Channel::Static(Some([1.0; 3])))), cycle: None, priority: 0 };
         let scroll = MaterialTrack { target: MaterialTarget::UvOffset(0), values: Arc::new(ValueTrack::Float(Channel::Static(Some([0.5])))), ..glow.clone() };
         let mut clip = Clip::from_controllers(vec![glow, scroll], Vec::new(), Vec::new());
         let names: HashMap<String, String> = ["VintageRadioBody:0", "VintageRadioNeedle01", "VintageRadioGlassDial:0"].iter().map(|n| (n.to_ascii_lowercase(), n.to_string())).collect();
