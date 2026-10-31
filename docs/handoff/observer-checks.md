@@ -70,8 +70,8 @@ engine if needed, and delete the item here.
    - Every weapon's Crit Effect applies.
    - Fall damage is 0.0252 × (h − 600)^1.65, with no leg crippling — answered
      2026-10-31 (o6_00): the formula holds within 1 %, but each fall also hurts one leg
-     (+700: 24.9 of 100, half the Health lost; +1000 and +1300: crippled). Ours never
-     does (physics.md §6.6, the falls into and beside the lake).
+     (+700: 24.9 of 100, half the Health lost; +1000 and +1300: crippled). Built since
+     (#1129): one random leg loses half the damage (physics.md §6.12).
    To check: OnHit events plus Health and limb values for each case.
    ([combat-rules §10](../spec-notes/combat-rules.md),
    [weapon-data-fields](../spec-notes/weapon-data-fields.md),
@@ -263,7 +263,9 @@ engine if needed, and delete the item here.
 16. **HUD and menus.**
     - The enemy health bar and red crosshair show only for hostiles, or for anyone hit in
       the last 5 s.
-    - Sneak-indicator states.
+    - Sneak-indicator states. Does a following companion (or an actor on a Follow
+      package on the player) seeing the player leave the word at [HIDDEN]? Does a
+      neutral (non-hostile) NPC seeing the player give [DETECTED]? (#1159)
     - Compass ticks within PER × 300; markers within PER × 2048.
     - "How many?" asks only above 5 (barter) or above 1 (crafting).
     - The crafting filter arrows.
@@ -451,7 +453,7 @@ The numbers above stay put so links to them hold; each item here gives its own p
     tried (so Benny's "axis 3 >= 3" greeting is never chosen in the original either), and
     axes 0-2 matched ours (`reputation::tiers`) at all ten infamy/fame pairs. SetReputation
     with axis 2 or 3 is a failed call that **stops the script** (the line after it did not
-    run); ours does nothing and goes on (reputation.rs `axis`). (scripts.md §7.6)
+    run); ours does the same since #1127 (reputation.rs `write_axis`). (scripts.md §7.6)
 31. **Say Once on a line two actors share** — answered 2026-10-31 (owner, save
     nvf31mainframe, issue #1113): **no repeat**. After the upload and the Mark II upgrade
     the Yes Man mainframe greeted with 0x001164F2 (GREETING position 2424, conditions
@@ -520,9 +522,10 @@ The numbers above stay put so links to them hold; each item here gives its own p
     the data]. To check: with the EM pulse module downloaded (X-8), shoot a Big MT force
     field with the Sonic Emitter: Sonic Emitter Upgrade completes and the field drops.
 
-39. **Can a Goodbye line's end script start a new conversation?** (P2: 8 lines, e.g. Anders'
-    thanks in VMS46, INFO 0x00142A9C.) Ours refuses StartConversation while the old
-    conversation is still open. In the original, after the line, does the new speaker
+39. **Can a Goodbye line's end script start a new conversation?** (P2: 8 end scripts, 4
+    of them of Goodbye lines, e.g. Anders' thanks in VMS46, INFO 0x00142A9C.) Ours now
+    holds the StartConversation and starts it once the line has closed the conversation
+    [design, issue #1107]. In the original, after the line, does the new speaker
     force-greet? (mq-walkthrough §9 stall 1.)
 40. **Does re-displaying a completed objective un-complete it?** — answered 2026-10-31
     (o5_00, issue #1108): no. VMS19 65 and VFSAtomicPimp 34: displayed, completed, then
@@ -537,7 +540,7 @@ The numbers above stay put so links to them hold; each item here gives its own p
 42. **Does a stage result script's reference-less RemoveSpell act on the player?** —
     answered 2026-10-31 (o5_03 on nvfairport, issue #1110): yes. Addicted to Jet (10 doses;
     IsSpellTarget WithdrawalJet 1 over a game hour), `SetStage VDoctors 20` made it 0 within
-    10 frames. The doctors' cure works in the original; ours does nothing.
+    10 frames. The doctors' cure works in the original; ours too since #1110.
     (script-language.md §1.2) Traps for the next capture: the first addiction opens a
     message box (menu 1001) and the nvfstrip save loads into a dialogue (menu 1009); both
     pause the game, and effects do not change while it is paused.
@@ -709,11 +712,21 @@ The numbers above stay put so links to them hold; each item here gives its own p
     the front; sample its position every game loop for 1.5 s after the hit: the distance,
     how long it moves, and whether the speed falls off. The same with a deathclaw's
     swipe on the player (god mode). ([combat-rules, Knockback](../spec-notes/combat-rules.md))
+62. **Does AddReputation with axis 2 or 3 stop the script, as SetReputation does?** (P2:
+    Boulder City Showdown, Severus.) SetReputation with axis 2 or 3 stops the script
+    (check 30, o5_00/o5_01); AddReputation's was not captured, and ours changes nothing and
+    goes on [hypothesis]. It matters: VMS20 stage 100 entry 1 calls `AddReputation
+    RepNVGreatKhans 2 5` and then RewardXP, CompleteAllObjectives, CompleteQuest and
+    StopQuest, and Severus's three tag trades (INFO 0x00135115/17/20) count the tags in
+    iAureliusTags after `AddReputation RepNVCaesarsLegion 3 1` [observed: decompiled
+    scripts]. To check: in a function or quest script, `AddReputation RepNVNCR 2 1`, then
+    a line that sets a variable; the same with RemoveReputation and AddReputationExact.
+    (scripts.md §7.6, issue #1127)
 
 ## Added 2026-10-31 (follow-ups and choices, issue #964)
 
-62. **What a line with both follow-ups and choices offers after its follow-up** (P2: 15
-    lines in the masters, e.g. INFO 0x00158A3D of Topic056, whose choice Topic068 is
+65. **What a line with both follow-ups and choices offers after its follow-up** (P2: 15
+    lines of FalloutNV.esm, e.g. INFO 0x00158A3D of Topic056, whose choice Topic068 is
     otherwise never offered). NVForever passes over a follow-up with the Goodbye flag
     when the line has choices and offers the choices (Topic067, whose line is that
     Goodbye follow-up, and Topic068); other follow-ups are said first [design, issue

@@ -676,7 +676,7 @@ impl<'a> Game<'a> {
     /// A line with both follow-ups and choices (15 in FalloutNV.esm, dialogue.md §3.4)
     /// passes over its follow-ups with the Goodbye flag: they would close the conversation
     /// and leave its choices unreachable [design, issue #964: the original's order is not
-    /// known (observer check 62); the follow-ups of the 11 others are Say Once or lead to
+    /// known (observer check 65); the follow-ups of the 11 others are Say Once or lead to
     /// choices of their own].
     ///
     /// A `StartConversation player` in the end script of a line that ends the
@@ -732,8 +732,9 @@ impl<'a> Game<'a> {
     /// result script of the line that just ended, the force greet is held and starts
     /// once the conversation closes, if the line closes it (Goodbye, or nothing to offer
     /// after it); returns whether it was held. Anywhere else it is refused, as before
-    /// [design, issue #1107: 8 end scripts of Goodbye lines in FalloutNV.esm call it,
-    /// e.g. Anders' thanks in VMS46 (INFO 0x00142A9C) [observed]; whether the original
+    /// [design, issue #1107: 8 end scripts in FalloutNV.esm call it, 4 of them of Goodbye
+    /// lines, e.g. Anders' thanks in VMS46 (INFO 0x00142A9C); the other 4 lines have no
+    /// choices, so theirs starts when nothing is offered after them [observed]; whether the original
     /// opens the new conversation is observer check 39 [hypothesis]]. A later call in the
     /// same script replaces an earlier one [design].
     pub fn hold_force_greet(&mut self, speaker: FormId, topic: Option<FormId>) -> bool {
@@ -983,9 +984,11 @@ impl<'a> Game<'a> {
             self.emit(EventKind::LineEnded { speaker: c.actor, info: l.info, cut: true });
         }
         self.emit(EventKind::DialogueEnded { actor: c.actor, reason, lines: c.lines });
-        // A force greet held by the last line's end script ([`Game::hold_force_greet`]);
-        // refusals (the speaker gone, no line) are not errors, as for StartConversation.
-        if let Some((speaker, topic)) = c.then {
+        // A force greet held by the last line's end script ([`Game::hold_force_greet`]),
+        // only when that line closed the conversation: not when the end script itself ended
+        // it some other way (a ForceFlee after the StartConversation) [design]. Refusals (the
+        // speaker gone, no line) are not errors, as for StartConversation.
+        if let Some((speaker, topic)) = c.then.filter(|_| reason == ended::GOODBYE || reason == ended::NO_CHOICES) {
             let _ = self.force_greet(speaker, topic);
         }
         true

@@ -38,6 +38,16 @@ activator; the actor does not turn). Tests: `crates/fnv-game/tests/perk_talk.rs`
   [observed: `fnvtool script decompile` FalloutNV.esm], so the conversation opens as for
   the player's own activation (nvf-play `talk_after`; the headless runner's
   `scripted_talk`, issue #906; smoke `intercom-trigger-activate`).
+- **A bare `Activate`** (no action reference) uses the reference's own action reference,
+  and outside OnActivate that is whoever activated it last [documented: GECK wiki
+  Activate, "the calling reference's ActionRef will be used; if the calling reference
+  doesn't have an ActionRef, the object won't be activated"; hypothesis: the reference
+  keeps it after its OnActivate; not saved]. Every Sink appliance in OldWorldBlues.esm
+  (SCPT 0x0100F05A, 0x0100F05D, 0x0100F071, the Jukebox talker's 0x0100D36B, ...) shows
+  a message in OnActivate, sets a flag and calls `Activate` (bare, or `Activate player`)
+  in GameMode once the message box is closed [observed: `fnvtool script decompile`], so
+  it talks to the player after the module is installed (issue #1111; smoke
+  `mq-old-world-blues-sink`). A reference never activated still does nothing.
 - **Who speaks**: the activator's talking actor while it lives, else the activator itself
   [documented: SetTalkingActivatorActor "makes a talking activator use the dialogue of a
   given actor; with no actor it reverts to normal behaviour"; hypothesis: a dead actor

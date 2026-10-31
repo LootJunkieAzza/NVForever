@@ -677,6 +677,42 @@ fn an_escort_joins_its_charges_fights() {
 }
 
 #[test]
+fn companions_seeing_the_player_do_not_set_the_sneak_word() {
+    // #1159 (hud.md §9): a teammate, or an actor following the player, detecting the
+    // player is no [DETECTED]; anyone else still is, and the pair stays for the AI.
+    use fnv_game::package::{PackageDef, PackageType, Target, TargetKind};
+    const FOLLOW_PACK: u32 = 0x8F1;
+    let mut f = fixture();
+    let def = PackageDef { ty: PackageType::Follow, target: Some(Target { kind: TargetKind::Reference(Some(FormId::PLAYER_REF)), count_distance: 0 }), ..Default::default() };
+    f.data.package_defs.insert(FormId(FOLLOW_PACK), def);
+    let mut g = game(&f);
+    let (mate, follower, other, player) = (FormId(LOAFER_REF), FormId(HELPER_REF), FormId(WATCHMAN_REF), FormId::PLAYER_REF);
+    let seen = |g: &mut Game, who: FormId| {
+        let t = g.time;
+        g.detection.pairs.insert((who, player), (Detection { value: 30.0, band: Band::Detected, ..Default::default() }, t));
+    };
+    assert!(!g.player_detected_for_sneak(), "no one measured");
+    g.extra.entry(mate).or_default().teammate = true;
+    seen(&mut g, mate);
+    assert!(g.with_player(mate));
+    assert!(!g.player_detected_for_sneak(), "the teammate alone: hidden");
+    assert!(g.detection.get(mate, player).is_some(), "its own detection is kept");
+    g.extra.entry(follower).or_default().current_package = Some(FormId(FOLLOW_PACK));
+    seen(&mut g, follower);
+    assert!(g.with_player(follower));
+    assert!(!g.player_detected_for_sneak(), "a follower too");
+    // A non-hostile actor that is not with the player still counts (hud.md §9).
+    assert!(!g.with_player(other));
+    seen(&mut g, other);
+    assert!(g.player_detected_for_sneak());
+    // A follower on another package is no longer with the player.
+    g.detection.pairs.remove(&(other, player));
+    g.extra.entry(follower).or_default().current_package = None;
+    assert!(!g.with_player(follower));
+    assert!(g.player_detected_for_sneak());
+}
+
+#[test]
 fn open_teammate_container_asks_for_the_teammates_inventory() {
     // [documented: GECK wiki OpenTeammateContainer] only on teammates unless the flag is 1.
     const OPEN_TEAMMATE_CONTAINER: u16 = 0x11C8;

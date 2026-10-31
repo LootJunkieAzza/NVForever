@@ -278,7 +278,7 @@ mq-walkthrough-2026-10-27 §2 item 13]) and Topic064, both leading to Topic067's
 line, which is also one of their choices; Jeannie May's Repcon line (to GOODBYE); the
 King's north bodyguard's Topic002. So a line with choices passes over its Goodbye
 follow-ups and offers its choices; other follow-ups are said first, as above [design,
-issue #964; what the original does is observer check 62].
+issue #964; what the original does is observer check 65].
 
 When the player chooses a topic from a list, its lines that some line names as a
 follow-up are passed over while another line of the topic can be said; only when none
@@ -511,8 +511,10 @@ All of it is in `GameSnapshot`.
   in the end result of the line that ends the conversation (Goodbye, or nothing to offer)
   is held and starts right after the conversation closes; when the conversation goes on
   it is refused, as any StartConversation while one runs (`Game::hold_force_greet`)
-  [design, issue #1107: 8 end scripts of Goodbye lines in FalloutNV.esm do this, e.g.
-  Anders' thanks in VMS46, INFO 0x00142A9C [observed]; observer check 39].
+  [design, issue #1107: 8 end scripts in FalloutNV.esm do this, 4 of them of Goodbye
+  lines, e.g. Anders' thanks in VMS46, INFO 0x00142A9C; the other 4 lines have neither
+  the flag nor choices [observed: `fnvtool dialogue lines --all`]; observer check 39]. A
+  conversation the end script ends some other way does not start it [design].
 - **Choices** (`Game::build_choices`). After a line with choices: those topics and
   nothing else [documented; owner statement 2026-10-11: a line linked by choices offers
   only the topics given as its choices]. Otherwise the top-level topics plus the known

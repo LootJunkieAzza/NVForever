@@ -129,7 +129,7 @@
     {"op": "talk", "actor": "0x0016A21E", "label": "mainframe final report"},
     {"op": "wait_talk", "label": "final report choices"},
     {"op": "choose", "topic": "VMQTopsVMQTopsYesManTopic056", "label": "056"},
-    {"op": "note", "text": "Topic056's line has choices (Topic067, Topic068) and a Goodbye follow-up (Topic067's line); the choices are offered (issue #964, observer check 62). Topic067's line's begin script sets VMQYesMan03 100."},
+    {"op": "note", "text": "Topic056's line has choices (Topic067, Topic068) and a Goodbye follow-up (Topic067's line); the choices are offered (issue #964, observer check 65). Topic067's line's begin script sets VMQYesMan03 100."},
     {"op": "wait_talk", "label": "056 choices"},
     {"op": "choose", "topic": "VMQTopsVMQTopsYesManTopic067", "label": "067"},
     {"op": "wait_talk"},
