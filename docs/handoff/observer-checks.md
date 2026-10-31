@@ -572,3 +572,19 @@ The numbers above stay put so links to them hold; each item here gives its own p
     a text_box button's hotrect, text and parent `mouseover` with the cursor on the text;
     the three functions in game mode and over a target without an `<id>`.
     ([menu-xml §3.2, §8 items 7-10](../spec-notes/menu-xml.md))
+
+## Added 2026-10-31 (radio loudness, issue #1077)
+
+56. **Pip-Boy radio music against the DJ** (owner: the music was too quiet). Ours
+    (`engine/nvf-play/src/radio.rs` `SONG_GAIN`): a song a station's line plays is at full
+    level, its SOUN static attenuation left out. Most radio songs' records take 12.33 dB
+    off, four take none, and all the song files are about equally loud (−30 to −34 dB
+    mean), so applying it would make those four 12 dB louder than the rest [hypothesis].
+    The files themselves still sit about 13 dB under the voice files (RMS as played 0.019
+    against 0.080).
+
+    To check: on Radio New Vegas, record the original's output across a song by Mr. New
+    Vegas's line and across MUS_StreetsOfNewReno (0 dB) and MUS_Big_Iron (12.33 dB), at
+    100% master and Radio volume; compare the songs' loudness with each other and with
+    the DJ line.
+    ([audio.md](../spec-notes/audio.md); radio.md)

@@ -1591,6 +1591,7 @@ expect = [
   "ends its conversation: silent",
   "ui_radio_static_lp.wav (loop",
   "pipboy radio summary: off at exit",
+  { re = 'pipboy radio loudness \(RMS as played, before the Radio and master volumes\): songs (?P<n>[\d.]+)', range = [0.01, 1], label = "songs play at full level, not 12 dB down (#1077)" },
   { re = '(?P<n>\d+) conversations started by scripts', range = [2, 1e9], label = "2 or more conversations started by scripts" },
 ]
 
