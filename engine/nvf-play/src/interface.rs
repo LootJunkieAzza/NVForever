@@ -113,6 +113,17 @@ pub fn at(left: f32, top: f32, width: f32, height: f32) -> Node {
     Node { position_type: PositionType::Absolute, left: u(left), top: u(top), width: u(width), height: u(height), ..default() }
 }
 
+/// [design: fonts.md §3.1, #1221] A zero-size anchor at a text line's baseline. Its
+/// layout rounds to a physical pixel, then its 0.25-pixel sampling phase places the
+/// fractional glyph children consistently.
+pub fn line_anchor(base: f32) -> (Node, LayoutConfig, UiTransform) {
+    (
+        at(0.0, base, 0.0, 0.0),
+        LayoutConfig { use_rounding: true },
+        UiTransform::from_translation(Val2::px(0.0, 0.25)),
+    )
+}
+
 /// Whether the device can sample the block-compressed textures the game ships.
 pub fn bc_supported(formats: Option<&CompressedImageFormatSupport>) -> bool {
     formats.is_none_or(|f| f.0.contains(CompressedImageFormats::BC))
@@ -217,18 +228,23 @@ pub fn set_marked(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32
         });
         return;
     };
-    for placed in &line.glyphs {
-        let g = face.font.glyph(placed.code);
-        if !g.drawn() {
-            continue;
+    // [observed: #1221] Snap the shared baseline once, but keep each texture cut-out's
+    // fractional box. Aspect fitting and per-glyph layout rounding made identical glyphs differ.
+    p.spawn(line_anchor(base)).with_children(|p| {
+        for placed in &line.glyphs {
+            let g = face.font.glyph(placed.code);
+            if !g.drawn() {
+                continue;
+            }
+            let rect = Rect::new(g.uv[0] * size.x, g.uv[1] * size.y, g.uv[2] * size.x, g.uv[3] * size.y);
+            p.spawn((
+                at(x + placed.x + g.before, -g.ascent, g.width, g.height),
+                ImageNode { rect: Some(rect), color, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) },
+                LayoutConfig { use_rounding: false },
+                mark.clone(),
+            ));
         }
-        let rect = Rect::new(g.uv[0] * size.x, g.uv[1] * size.y, g.uv[2] * size.x, g.uv[3] * size.y);
-        p.spawn((
-            at(x + placed.x + g.before, base - g.ascent, g.width, g.height),
-            ImageNode { rect: Some(rect), color, ..ImageNode::new(image.clone()) },
-            mark.clone(),
-        ));
-    }
+    });
 }
 
 /// Where a picture lies in an atlas texture: the atlas's file name and the picture's
@@ -392,6 +408,10 @@ impl Pictures {
 fn own_texture(path: &str) -> String {
     format!("textures\\{}", path.trim().trim_start_matches(['\\', '/']).to_ascii_lowercase())
 }
+
+#[cfg(test)]
+#[path = "interface_layout_tests.rs"]
+mod layout_tests;
 
 #[cfg(test)]
 mod tests {

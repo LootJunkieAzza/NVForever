@@ -16,7 +16,7 @@
 //! panel is rebuilt while a slider is dragged).
 
 use super::model::{Model, RowView, ACTIONS};
-use crate::interface::{amber, at, face, plain_font, u, Face};
+use crate::interface::{amber, at, face, line_anchor, plain_font, u, Face};
 use bevy::prelude::*;
 use fnv_font::Line;
 use nvf_assets::GameData;
@@ -152,17 +152,20 @@ pub fn text(p: &mut ChildSpawnerCommands, face: &Face, s: &str, x: f32, top: f32
         });
         return w;
     };
-    for placed in &line.glyphs {
-        let g = face.font.glyph(placed.code);
-        if !g.drawn() {
-            continue;
+    p.spawn(line_anchor(base)).with_children(|p| {
+        for placed in &line.glyphs {
+            let g = face.font.glyph(placed.code);
+            if !g.drawn() {
+                continue;
+            }
+            let rect = Rect::new(g.uv[0] * size.x, g.uv[1] * size.y, g.uv[2] * size.x, g.uv[3] * size.y);
+            p.spawn((
+                at(x + (placed.x + g.before) * scale, -g.ascent * scale, g.width * scale, g.height * scale),
+                ImageNode { rect: Some(rect), color, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) },
+                LayoutConfig { use_rounding: false },
+            ));
         }
-        let rect = Rect::new(g.uv[0] * size.x, g.uv[1] * size.y, g.uv[2] * size.x, g.uv[3] * size.y);
-        p.spawn((
-            at(x + (placed.x + g.before) * scale, base - g.ascent * scale, g.width * scale, g.height * scale),
-            ImageNode { rect: Some(rect), color, ..ImageNode::new(image.clone()) },
-        ));
-    }
+    });
     w
 }
 
