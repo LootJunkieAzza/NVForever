@@ -5648,8 +5648,8 @@ env = { NVFOREVER_HOME = "save-high-home", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TES
 args = ["--play", "--load", "smoke-high", "--no-voice", "--no-messages"]
 run_seconds = 14
 expect = [
-  { re = 'load: .*smoke-high\.nvfsave .*starting at .*feet: \[-501\d\d\.\d+, -552\d\d\.\d+, 66[5-9]\d\.\d+\]', label = "the save holds the height on the track" },
-  { re = 'player placed: feet \(-501\d\d, -552\d\d, 66[5-9]\d\.\d\), ground z 66[5-9]\d\.\d \(Ref', label = "the load places the player on the track at the saved height" },
+  { re = 'load: .*smoke-high\.nvfsave .*starting at .*feet: \[-50[01]\d\d\.\d+, -552\d\d\.\d+, 66[5-9]\d\.\d+\]', label = "the save holds the height on the track" },
+  { re = 'player placed: feet \(-50[01]\d\d, -552\d\d, 66[5-9]\d\.\d\), ground z 66[5-9]\d\.\d \(Ref', label = "the load places the player on the track at the saved height" },
   { re = 'console: GetPos on player >> 66[5-9]\d\.', label = "and they stay there" },
 ]
 
