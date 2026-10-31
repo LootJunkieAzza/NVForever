@@ -1755,7 +1755,9 @@ pub(crate) fn run_scripts(
     // A reputation's box (`crate::reputation`) is the engine's, not a plugin's message.
     let reputation_box = |st: &ScriptState, f: FormId| st.rt.as_ref().is_some_and(|rt| crate::reputation::is_reputation(&rt.game, f));
     if let (true, Some((MENU_MESSAGE, Some(front), _))) = (st.no_messages, st.on_screen.filter(|o| !o.1.is_some_and(|f| reputation_box(st, f)))) {
-        let buttons = st.rt.as_ref().map_or(0, |rt| shown_buttons(rt.game.message_box.as_ref(), front, rt.game.data.messages.get(&front).map(|m| m.buttons.len())));
+        // The buttons the front box declared, every one whatever its conditions: OK
+        // answers button 0 (`ScriptState::answer`) without asking whether it shows.
+        let buttons = st.rt.as_ref().map_or(0, |rt| rt.game.front_box_buttons().unwrap_or_else(|| rt.game.data.messages.get(&front).map_or(0, |m| m.buttons.len())));
         if asks_nothing(buttons) && st.answer(None, "--no-messages") {
             info!("--no-messages: closed message box {front}");
             st.on_screen = None;
@@ -2172,21 +2174,10 @@ fn write_final(mut exit: MessageReader<AppExit>, mut script: ResMut<ScriptState>
     }
 }
 
-/// How many buttons the message box `front` shows: the box on screen's own
-/// (`Game::message_box`, its buttons less those whose conditions failed), which a box
-/// without a Message form (MessageBoxEx, `front` 0) has too; else its Message form's
-/// (`form_buttons`), for a box waiting behind another one's record [design: until
-/// 2026-10-31 only the form's were counted, so a form-less Yes/No box counted 0 and
-/// `--no-messages` closed it].
-pub fn shown_buttons(on_screen: Option<&fnv_game::game::MessageBox>, front: FormId, form_buttons: Option<usize>) -> usize {
-    match on_screen {
-        Some(b) if b.message == front => b.buttons.saturating_sub(b.hidden.len()),
-        _ => form_buttons.unwrap_or(0),
-    }
-}
-
-/// Whether a box of `buttons` shown buttons asks nothing (none, or an OK alone), so
+/// Whether a box of `buttons` declared buttons asks nothing (none, or an OK alone), so
 /// `--no-messages` closes it ([`NoMessages`]): a box with two or more stays for the player.
+/// The count comes with the box (`fnv_game::Game::front_box_buttons`): a form-less
+/// MessageBoxEx box has no form to count from, and until 2026-10-31 counted 0 and closed.
 pub fn asks_nothing(buttons: usize) -> bool {
     buttons <= 1
 }
@@ -2194,27 +2185,10 @@ pub fn asks_nothing(buttons: usize) -> bool {
 #[cfg(test)]
 mod no_messages_tests {
     use super::*;
-    use fnv_game::game::MessageBox;
-
-    fn shown(message: FormId, buttons: usize, hidden: Vec<usize>) -> MessageBox {
-        MessageBox { message, buttons, pressed: None, owner: None, hidden }
-    }
 
     #[test]
-    fn a_formless_box_counts_its_own_buttons() {
-        let none = FormId(0);
-        // MessageBoxEx "…|Yes|No": no Message form, two buttons on screen: it stays.
-        let yes_no = shown(none, 2, Vec::new());
-        assert_eq!(shown_buttons(Some(&yes_no), none, None), 2);
-        assert!(!asks_nothing(shown_buttons(Some(&yes_no), none, None)));
-        // MessageBoxEx "…|Ok": one button: closed as OK would.
-        let ok = shown(none, 1, Vec::new());
-        assert!(asks_nothing(shown_buttons(Some(&ok), none, None)));
-        // A form's box counts the buttons shown, not those whose conditions failed.
-        let form = FormId(0x0010_0001);
-        assert!(asks_nothing(shown_buttons(Some(&shown(form, 3, vec![1, 2])), form, Some(3))));
-        // A box waiting behind another's record: its form's buttons.
-        assert_eq!(shown_buttons(Some(&yes_no), form, Some(3)), 3);
-        assert_eq!(shown_buttons(None, form, None), 0);
+    fn a_box_of_one_button_asks_nothing() {
+        assert!(asks_nothing(0) && asks_nothing(1));
+        assert!(!asks_nothing(2));
     }
 }

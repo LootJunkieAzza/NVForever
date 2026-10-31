@@ -1336,6 +1336,13 @@ pub struct Game<'a> {
     /// [hypothesis: one box at a time, the next when the open one closes]. `FormId(0)`:
     /// a box whose message is not known (a scenario's `given`).
     pub boxes: Vec<FormId>,
+    /// How many buttons each box in [`Game::boxes`] declared when shown, in step with it
+    /// (`box_buttons[i]` is `boxes[i]`'s): a form-less box (MessageBoxEx, every one
+    /// `FormId(0)`) has no Message form to count them from, and [`Game::message_box`] is
+    /// the last box shown, not the one on screen. Out of step (a snapshot restored, a
+    /// scenario's box put in front) it is not read ([`Game::front_box_buttons`]). Not
+    /// saved.
+    pub box_buttons: Vec<usize>,
     /// Dialogue lines being said (SayTo, Say), one per speaker.
     pub speech: Vec<Speech>,
     /// SayTo calls that found no line the speaker could say, (speaker, topic): their
@@ -1836,6 +1843,7 @@ impl<'a> Game<'a> {
             loading: false,
             message_box: None,
             boxes: Vec::new(),
+            box_buttons: Vec::new(),
             speech: Vec::new(),
             say_to_unsaid: Vec::new(),
             moving_talkers: BTreeSet::new(),
@@ -3188,13 +3196,33 @@ impl<'a> Game<'a> {
     /// the pack plugins' boxes held GameMode, VCG00's countdown and the world clock,
     /// layer5-captures.md §10.1].
     pub fn show_box(&mut self, message: FormId) {
+        let buttons = self.data.messages.get(&message).map_or(0, |m| m.buttons.len());
+        self.show_box_buttons(message, buttons);
+    }
+
+    /// [`Game::show_box`] of a box that declared `buttons` buttons, all of them whatever
+    /// their conditions (a form-less MessageBoxEx box counts its own): kept with the box
+    /// while it waits and is on screen ([`Game::front_box_buttons`]).
+    pub fn show_box_buttons(&mut self, message: FormId, buttons: usize) {
         if !self.cfg.modal_message_boxes {
             return;
         }
+        if self.box_buttons.len() != self.boxes.len() {
+            self.box_buttons.clear();
+        }
         self.boxes.push(message);
+        if self.box_buttons.len() + 1 == self.boxes.len() {
+            self.box_buttons.push(buttons);
+        }
         if self.menu.is_none() {
             self.open_menu(menus::MESSAGE);
         }
+    }
+
+    /// How many buttons the box on screen (or first in line) declared when shown; `None`
+    /// without a box, or when the counts are out of step with [`Game::boxes`].
+    pub fn front_box_buttons(&self) -> Option<usize> {
+        (self.box_buttons.len() == self.boxes.len()).then(|| self.box_buttons.first().copied()).flatten()
     }
 
     /// `ShowTutorialMenu message`: the tutorial menu shows the message, a page of the
@@ -3260,6 +3288,11 @@ impl<'a> Game<'a> {
             return Some(m);
         }
         if m == menus::MESSAGE && !self.boxes.is_empty() {
+            if self.box_buttons.len() == self.boxes.len() {
+                self.box_buttons.remove(0);
+            } else {
+                self.box_buttons.clear();
+            }
             let b = self.boxes.remove(0);
             if let Some(mb) = self.message_box.as_mut().filter(|mb| mb.message == b && mb.pressed.is_none()) {
                 mb.pressed = Some(0);
@@ -4490,6 +4523,8 @@ impl<'a> Game<'a> {
         g.loading = s.loading;
         g.message_box = s.message_box.clone();
         g.boxes = s.boxes.clone();
+        // Not in the snapshot: out of step, so not read (`Game::front_box_buttons`).
+        g.box_buttons.clear();
         g.speech = s.speech.clone();
         g.said = s.said.clone();
         g.said_day = s.said_day.clone();
@@ -4771,10 +4806,11 @@ impl Host for Exec<'_, '_> {
             let owner = Some(MessageBox::owner_of(self.inst_key(), &self.unit.key()));
             self.game.message_box = Some(MessageBox { message: none, buttons: buttons.len(), pressed: None, owner, hidden: Vec::new() });
         }
-        let is_box = !buttons.is_empty();
+        let (is_box, count) = (!buttons.is_empty(), buttons.len());
         self.game.emit(EventKind::MessageShown { message: none, text: Some(text.to_string()), buttons, hidden: Vec::new() });
         if is_box {
-            self.game.show_box(none);
+            // Its own buttons: no Message form to count them from (`Game::box_buttons`).
+            self.game.show_box_buttons(none, count);
         } else {
             self.game.queue_corner_message();
         }
