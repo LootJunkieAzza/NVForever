@@ -285,6 +285,9 @@ stage done:
 - `SetObjectiveCompleted q n 1` on an objective never displayed marks it completed without
   displaying it.
 - `SetObjectiveDisplayed q n 1` **clears the completed flag** (objective 10, then 5: C → not C).
+  These objectives were completed while hidden. On a displayed one it keeps the flag
+  [observed: o5_00, 2026-10-31, VMS19 65 and VFSAtomicPimp 34: display, complete, display
+  again → still completed; display 0 then 1 → not completed].
 
 ### 5.3 Complete and Fail Quest stage flags (`L5.quest.complete_flag`, `.stage_order`)
 

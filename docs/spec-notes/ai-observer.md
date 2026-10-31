@@ -633,15 +633,23 @@ broken-header run: ignore it).
 3. **Repeatable**: far and far_moving gave the same jump positions within about 2 units.
 4. **No new aim at a moving player within 3 hours**: in far_moving the player moved to
    Primm (66,000 units south) at 22.8; his next jumps landed exactly where they did in
-   far, on the old route towards Goodsprings. [hypothesis] The route is planned once,
-   when the package starts; what happens when it runs out was not seen.
+   far, on the old route towards Goodsprings. The route is planned once, when the
+   package starts, and **he re-aims only when it runs out** [observed: campaign
+   `holmes_far_long` (`tools/capture/observe/`), 2026-10-31, part2 14 game hours at
+   Primm (−56752, −52992); the part1 player stood at (−62219, 12673)]: he kept
+   jumping along the old route for ten more game hours (to (−60042, 13968) at 9.01,
+   2,533 units from where the player had stood, 67,041 from the player), and the next
+   jumps turned south towards the player: (−63316, 2761) at 10.01, (−63343, −7400),
+   (−59412, −14342) at 12.01, 38,741 units from the player when the session ended. The
+   turning jumps were full ones (8,000–11,700 units), as on the first route.
 5. **Into the loaded area** (near, the player at Novac, 24,400 units): one full jump,
    then at the next hour a short one of 5,330 units into a loaded cell (00084330), about
    10,450 units from the player [hypothesis: the edge of the 5 × 5 loaded cells]. There
    his package showed as a runtime Dialogue package (FF001312, type 6, procedure 43),
    moving and running, about 320–345 units per sample towards the player.
 6. Not seen: crossing into another worldspace (his package only holds while the player
-   is in WastelandNV), and a moving player past 3 hours.
+   is in WastelandNV), and his arrival at a player who moved (the long run ended
+   38,741 units short).
 
 What NVForever does with it: `fnv_ai::process` (module notes) and
 docs/design/actor-behaviour.md §5.9.

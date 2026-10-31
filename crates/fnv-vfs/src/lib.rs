@@ -143,14 +143,17 @@ impl Vfs {
             push(find(a), &mut order);
         }
         push(find("Update.bsa"), &mut order);
-        for p in plugins {
-            let stem = p.rsplit_once('.').map_or(*p, |(s, _)| s).to_ascii_lowercase();
+        let stems: Vec<String> = plugins.iter().map(|p| p.rsplit_once('.').map_or(*p, |(s, _)| s).to_ascii_lowercase()).collect();
+        let claims = |stem: &str, name: &str| {
+            let l = name.to_ascii_lowercase();
+            l == format!("{stem}.bsa") || l.starts_with(&format!("{stem} - "))
+        };
+        for stem in &stems {
+            // An archive several plugins' stems match belongs to the longest of them:
+            // `Foo - Bar.bsa` is `Foo - Bar.esp`'s, not `Foo.esp`'s (#996).
             let mut own: Vec<String> = present
                 .iter()
-                .filter(|n| {
-                    let l = n.to_ascii_lowercase();
-                    l == format!("{stem}.bsa") || l.starts_with(&format!("{stem} - "))
-                })
+                .filter(|n| claims(stem, n) && !stems.iter().any(|o| o.len() > stem.len() && claims(o, n)))
                 .cloned()
                 .collect();
             own.sort_by_key(|n| n.to_ascii_lowercase());
@@ -218,14 +221,19 @@ impl Vfs {
     /// its plugin loads after them, and loose files stay above every archive. The
     /// [`ARCHIVE_ORDER_ENV`] override applies as there.
     pub fn open_for_plugins<S: AsRef<str>>(data_dir: &Path, plugins: &[S]) -> Result<Vfs, VfsError> {
-        let order = match std::env::var(ARCHIVE_ORDER_ENV) {
-            Ok(list) if !list.trim().is_empty() => parse_archive_list(&list),
+        Vfs::open(data_dir, &Vfs::order_for_plugins(data_dir, plugins).0)
+    }
+
+    /// The archives [`Vfs::open_for_plugins`] mounts, lowest precedence first, and
+    /// whether they came from the [`ARCHIVE_ORDER_ENV`] override (`fnvtool vfs order`).
+    pub fn order_for_plugins<S: AsRef<str>>(data_dir: &Path, plugins: &[S]) -> (Vec<String>, bool) {
+        match std::env::var(ARCHIVE_ORDER_ENV) {
+            Ok(list) if !list.trim().is_empty() => (parse_archive_list(&list), true),
             _ => {
                 let plugins: Vec<&str> = plugins.iter().map(AsRef::as_ref).collect();
-                Vfs::archive_order(data_dir, &DEFAULT_ARCHIVE_LIST, &plugins)
+                (Vfs::archive_order(data_dir, &DEFAULT_ARCHIVE_LIST, &plugins), false)
             }
-        };
-        Vfs::open(data_dir, &order)
+        }
     }
 
     pub fn archives(&self) -> impl Iterator<Item = &str> {
@@ -276,9 +284,15 @@ impl Vfs {
         Some(match *self.index.get(&key)? {
             Location::Loose => std::fs::read(self.data_dir.join(&self.loose[&key])),
             Location::Archive { archive, folder, file } => {
-                let mut a = self.archives[archive].1.lock().unwrap_or_else(|p| p.into_inner());
-                let r = a.folders[folder].files[file].clone();
-                a.extract(&r).map_err(std::io::Error::other)
+                // The lock covers only the seek and read of the stored bytes; inflating
+                // happens after it is let go, so workers reading the same archive do not
+                // queue behind each other's decompression (#997).
+                let stored = {
+                    let mut a = self.archives[archive].1.lock().unwrap_or_else(|p| p.into_inner());
+                    let r = a.folders[folder].files[file].clone();
+                    a.read_stored(&r)
+                };
+                stored.and_then(|b| b.decode()).map_err(std::io::Error::other)
             }
         })
     }
@@ -407,6 +421,53 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// Files read through the VFS from an archive (compressed or not, names embedded or
+    /// not) decode to the bytes stored, also when many threads read one archive at once.
+    #[test]
+    fn archive_reads_decode_the_same_bytes_from_many_threads() {
+        use fnv_bsa::{encode_block, flags, write_archive, WriteFile, WriteFolder, SIZE_COMPRESSION_TOGGLE};
+        let dir = std::env::temp_dir().join(format!("nvf-vfs-bsa-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let contents: Vec<Vec<u8>> = (0..24u32).map(|i| (0..(i * 997 + 3)).map(|j| (j * 31 + i) as u8).collect()).collect();
+        for (n, embed) in [("Plain.bsa", false), ("Named.bsa", true)] {
+            let files = contents
+                .iter()
+                .enumerate()
+                .map(|(i, c)| {
+                    let name = format!("f{i}.nif").into_bytes();
+                    let path = format!("meshes\\t\\f{i}.nif").into_bytes();
+                    // Every other file compressed: the toggle against an uncompressed default.
+                    let compress = i % 2 == 0;
+                    WriteFile {
+                        name,
+                        size_flag_bits: if compress { SIZE_COMPRESSION_TOGGLE } else { 0 },
+                        data: encode_block(c, compress, embed.then_some(&path[..])),
+                    }
+                })
+                .collect();
+            let mut bytes = Vec::new();
+            let archive_flags = flags::DIR_NAMES | flags::FILE_NAMES | if embed { flags::EMBED_FILE_NAMES } else { 0 };
+            write_archive(&mut bytes, archive_flags, 0x1, 0, &[WriteFolder { name: b"meshes\\t".to_vec(), files }]).unwrap();
+            std::fs::write(dir.join(n), &bytes).unwrap();
+        }
+        for n in ["Plain.bsa", "Named.bsa"] {
+            let vfs = Vfs::open(&dir, &[n.to_string()]).unwrap();
+            assert_eq!(vfs.source_of("meshes\\t\\f0.nif"), Some(n));
+            std::thread::scope(|s| {
+                for t in 0..8 {
+                    let (vfs, contents) = (&vfs, &contents);
+                    s.spawn(move || {
+                        for k in 0..contents.len() * 4 {
+                            let i = (k * 7 + t) % contents.len();
+                            assert_eq!(vfs.read(&format!("meshes/t/f{i}.nif")).unwrap().unwrap(), contents[i], "{n} f{i}");
+                        }
+                    });
+                }
+            });
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     fn mod_archives_follow_their_plugins() {
         let dir = std::env::temp_dir().join(format!("nvf-vfs-mods-{}", std::process::id()));
@@ -421,6 +482,24 @@ mod tests {
         // Without the plugin its archives are not read.
         let order = Vfs::archive_order(&dir, &DEFAULT_ARCHIVE_LIST, &DEFAULT_PLUGINS);
         assert!(!order.iter().any(|n| n.starts_with("MyMod")));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// `Foo - Bar.bsa` matches both `Foo.esp` ("Foo - *") and `Foo - Bar.esp`: it takes
+    /// the longer stem's place, after `Foo - Bar.esp`'s other archives load order puts
+    /// later (#996).
+    #[test]
+    fn an_archive_belongs_to_the_longest_plugin_stem() {
+        let dir = std::env::temp_dir().join(format!("nvf-vfs-stems-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for n in ["Foo.bsa", "Foo - Main.bsa", "Foo - Bar.bsa", "Middle.bsa"] {
+            std::fs::write(dir.join(n), b"").unwrap();
+        }
+        let order = Vfs::archive_order(&dir, &[], &["Foo.esp", "Middle.esp", "Foo - Bar.esp"]);
+        assert_eq!(order, ["Foo - Main.bsa", "Foo.bsa", "Middle.bsa", "Foo - Bar.bsa"]);
+        // Without the longer plugin, Foo.esp keeps claiming it.
+        let order = Vfs::archive_order(&dir, &[], &["Foo.esp", "Middle.esp"]);
+        assert_eq!(order, ["Foo - Bar.bsa", "Foo - Main.bsa", "Foo.bsa", "Middle.bsa"]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

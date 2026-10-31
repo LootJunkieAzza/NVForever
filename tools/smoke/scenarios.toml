@@ -158,7 +158,9 @@ run_seconds = 40
 expect = [
   { re = 'distant LOD blocks over the run: (\d+) new', range = [50, 100000], label = "object blocks spawned for new squares along the flight" },
   { re = 'distant LOD blocks over the run: .*slowest update [\d.]+ ms \(blocks ([\d.]+) ms\)', range = [0, 20], label = "the block loop keeps near its 4 ms budget: models come from worker threads, so no block loads on the main thread (34 ms idle before #1048, 1187 ms before #1038; it counted blocks per frame then, up to 216)" },
-  { re = 'distant LOD at the end: .* blocks (\d+) trees', range = [1, 100000], label = "squares put off by the budget still get their blocks" },
+  { re = 'distant LOD at the end: .* blocks (\d+) trees', range = [40, 100000], label = "squares put off by the budget still get their blocks (81 drawn at the end on 2026-10-31; the check asked for 1 before #1058)" },
+  { re = 'distant LOD blocks over the run: .*a square put off up to (\d+) frames in a row', range = [0, 30], label = "terrain rebuilds no longer starve new object blocks: the first block of each frame goes through whatever terrain spent (up to 12 frames in a row on 2026-10-31, #1058)" },
+  { re = 'distant LOD blocks over the run: .*, (\d+) squares still waiting for their block at the end', range = [0, 10], label = "the put-off squares catch up while flying (0 at the end on 2026-10-31; a sample of the last frame, so a few may still be waiting for their model)" },
   { re = 'distant LOD blocks over the run: .*, (\d+) waited for their model', range = [1, 100000], label = "block models are prepared on worker threads; squares wait for them (#1048)" },
 ]
 
@@ -576,6 +578,21 @@ run_seconds = 20
 expect = [
   { re = 'EasyPeteRef: comments on the player \(PLAYERFIREWEAPON, \d+ units away\)', label = "Easy Pete comments on the shot" },
   { re = 'subtitle: Easy Pete: What in (tarnation|blazes)\?', label = "one of his two lines" },
+]
+
+[[scenario]]
+name = "auto-fire-burst-sound"
+source = "#1098: an automatic weapon's shots cut out in sustained fire; the sound voice limit (sfx.rs MAX_SAME, 8 of one SOUN) refused the newest shots. Now a sound at its limit takes over the oldest voice of the same SOUN"
+note = "the 10mm SMG (00004321, automatic, 9 shots a second, 30 rounds) fired into the sky above Goodsprings for 3 s (each `fire` press toggles the trigger: held, then let go): about 27 shots of WPN10mmSMGFire2D"
+areas = ["audio", "combat"]
+paths = ["engine/nvf-play/src/sfx.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "00004321", NVF_PLAY_TEST_GIVE = "00004241:60", NVF_PLAY_TEST_CONTROL = "4:weapon,8:fire,11:fire" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--pitch", "60", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'sfx: WPN10mmSMGFire2D: (?P<n>\d+) started', range = [20, 40], label = "every shot of the 3 s burst starts its sound" },
+  { re = 'sfx: WPN10mmSMGFire2D: .* (?P<n>\d+) refused at the voice limit', range = [0, 0], label = "none of the burst's shots is refused (#1098: some were)" },
+  { re = 'not started at the voice limit, at most (?P<n>\d+) one-shots at once', range = [1, 64], label = "the voices stay within the limit" },
 ]
 
 [[scenario]]
@@ -2101,6 +2118,23 @@ order = [[
 ]]
 
 [[scenario]]
+name = "revision-attributes-page"
+source = "#1031 (owner's playtest): the character revision (VCG04, Rebuild Character) moves the player's S.P.E.C.I.A.L. points on the character menu's attributes page, as Intense Training, not on the Vigor Tester (docs/spec-notes/chargen.md §9)"
+note = "The revision activator VCG04ActivatorRef (0x001164A3) is activated at 3 s and its message answered Rebuild Character (button 1) at 3.1 s; menus that scripts open close themselves after 0.3 s (the race menu, then the attributes page)"
+areas = ["chargen", "menus", "scripts"]
+paths = ["crates/fnv-game/src/functions/ui.rs", "crates/fnv-game/src/revision.rs", "engine/nvf-play/src/chargen/lists.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:activate:0x001164A3,3.1:button:1" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 14
+order = [[
+  { re = 'revision: keeps the S\.P\.E\.C\.I\.A\.L\. \(\d+ points, not 40\) on the attributes page', label = "SetSPECIALPoints keeps the player's attributes" },
+  { re = 'chargen: attributes menu open, points: \d+ \(7 rows\)', label = "the attributes page opens on them (the points left: 40 less what they add up to, or 0)" },
+]]
+forbid = [
+  { re = 'vigor tester: open', label = "the Vigor Tester" },
+]
+
+[[scenario]]
 name = "vigor-tester"
 note = "not shared with chargen-menus: moved 18 s later in one launch the Vigor Tester took none of its steps (run 2026-10-12); alone it passes"
 source = "CLAUDE.md: after changes to the Vigor Tester's S.P.E.C.I.A.L. menu (docs/spec-notes/vigor-tester.md §7)"
@@ -2691,6 +2725,21 @@ expect = [
   { text = "playgroup: 0x00165495 passes the sound key TRPBearFire of Forward at 0.033 s", count = 1 },
   { re = 'anim sounds summary:.*\b1 object group sounds' },
 ]
+
+[[scenario]]
+name = "traps-bear-moved"
+source = "#1091: a trigger a script moves keeps testing at its new pose, not the one its volumes were first built at (engine/nvf-play/src/script_trigger.rs)"
+note = "South of Goodsprings, as traps-bear. The untouched bear trap 0x0015834C is moved by script 400 units from the player at 12 s; at 17 s the player is put on it: its trigger box, built at the old place when the cell loaded, must be built again where the trap now is, and its OnTriggerEnter fires there"
+areas = ["traps", "scripts"]
+paths = ["engine/nvf-play/src/script_trigger.rs"]
+env = { NVF_PLAY_TEST_SCRIPT = "12:moveto:0x0015834C:player:0:400:0,17:moveto:player:0x0015834C" }
+args = ["--play", "--pos=-68124,-17000,9100", "--hour", "12", "--no-voice"]
+run_seconds = 22
+order = [[
+  { re = 'script: trigger 0x0015834C has 1 trigger volume\(s\) in its model', label = "the trap's box is built where it was placed" },
+  { text = "script: trigger 0x0015834C moved: its volumes follow", label = "moved by script, its volumes are built again" },
+  { text = "script: player entered trigger 0x0015834C", label = "the player steps into the trap at its new place" },
+]]
 
 [[scenario]]
 name = "traps-bear"
@@ -3600,6 +3649,19 @@ expect = [
 ]
 
 [[scenario]]
+name = "vfs-order-shipped"
+kind = "tool"
+source = "#996: fnvtool vfs order prints the archives as the game mounts them; on the shipped data the six SArchiveList archives, then Update.bsa, then each add-on's in load order (docs/spec-notes/bsa.md)"
+areas = ["assets"]
+paths = ["crates/fnv-vfs/", "crates/fnvtool/src/bsa_cmd.rs"]
+commands = [["vfs", "order", "{data}"]]
+expect = [
+  { json = "archives.0", schema = "fnv.vfs.order/1", equals = "Fallout - Textures.bsa", label = "the SArchiveList archives first" },
+  { json = "archives.6", schema = "fnv.vfs.order/1", equals = "Update.bsa", label = "then Update.bsa" },
+  { json = "archives.7", schema = "fnv.vfs.order/1", equals = "DeadMoney - Main.bsa", label = "then the first add-on's" },
+]
+
+[[scenario]]
 name = "visibility-arcs-vault22"
 source = "docs/spec-notes/nif.md §6 \"Visibility controllers\": placed models play the NiVisController tracks of their Idle sequence on every playing clip (anim_play::Playing::show), not only where a script runtime drives object groups; Vault 22's common area (Vault22d) has 14 electric arcs (fxelectricarc01/02.nif, refs 000F27A2-000F27AF) whose Idle shows their BrightSpots node about one frame in ten; the exit line counts the switches (no frames: the arcs sit behind a wall from the cell's start point)"
 areas = ["effects", "animation"]
@@ -3848,9 +3910,10 @@ expect = [
 [[scenario]]
 name = "aid-stealth-boy"
 source = "aid leftovers (docs/spec-notes/aid-items.md §2): the sneaking player is noticed by a settler in Goodsprings at noon; a Stealth Boy hides the player (no visual term) and draws the body see-through"
+note = "The settler GoodspringsSettler03Ref is held at (-71477, 4009) (SetRestrained, SetPos) and turned south (SetAngle z 180 at 7.5 s); the sneaking player is put about 1500 units south of it at 8 s, in its sight. Left to its sandbox package it walked behind a building before the Stealth Boy was used, and was already hidden from the player then (#951)"
 areas = ["aid", "detection"]
 paths = ["crates/fnv-game/src/aid.rs", "crates/fnv-game/src/detection.rs", "engine/nvforever/src/stealth_field.rs", "engine/nvforever/src/player_body.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "00043E94:1", NVF_PLAY_TEST_CONTROL = "6:view,10:sneak", NVF_PLAY_TEST_DROP = "21:00043E94:use" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "00043E94:1", NVF_PLAY_TEST_SCRIPT = "0.5:call:0x00104F0A:SetRestrained:1,0.6:call:0x00104F0A:SetPos:x:-71477,0.7:call:0x00104F0A:SetPos:y:4009,7.5:call:0x00104F0A:SetAngle:z:180", NVF_PLAY_TEST_CONTROL = "6:view,7:sneak", NVF_PLAY_TEST_GOTO = "8:-71477:2500:8450", NVF_PLAY_TEST_DROP = "21:00043E94:use" }
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 32
 expect = [
@@ -9948,10 +10011,10 @@ expect = [
 [[scenario]]
 name = "pickpocket-steal"
 source = "ESM full audit gap 6 (docs/spec-notes/pickpocket.md): sneaking, E on an NPC shows Steal and opens its pocket; a take rolls against the chance (GECK wiki Pickpocket) and is either unseen or caught"
-note = "Chet in the general store is given two Stimpaks at 3 s; the player stands at him (NEAR), sneaks at 4 s, is put in front of him again at 7 s (FACE: by then his sandbox package has walked him to his broom, as the aids' clock counts from the end of the loading screen since #703), presses E at 8 s, takes the first row at 10 s (Enter; his .357 rounds are a stack, so a second Enter answers How many?) and presses E again at 12 s (closing the menu, or, when caught, hearing that he has already caught the player)"
+note = "Chet in the general store is held where he stands (SetRestrained 1 at 0.5 s: left to his sandbox package he walked off to his broom and FACE put the player on another floor height than him, with nothing under the crosshair; #951) and given two Stimpaks at 3 s; the player stands at him (NEAR), sneaks at 4 s, is put in front of him again at 7 s (FACE), presses E at 8 s, takes the first row at 10 s (Enter; his .357 rounds are a stack, so a second Enter answers How many?) and presses E again at 12 s (closing the menu, or, when caught, hearing that he has already caught the player)"
 areas = ["activate", "menus", "crime"]
 paths = ["engine/nvf-play/src/pickpocket.rs", "engine/nvf-play/src/activate*", "engine/nvf-play/src/menu*", "crates/fnv-game/src/pickpocket.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C79", NVF_PLAY_TEST_FACE = "7:00104C79", NVF_PLAY_TEST_SCRIPT = "3:call:GSChetRef:AddItem:Stimpak:2", NVF_PLAY_TEST_CONTROL = "4:sneak", NVF_PLAY_TEST_KEYS = "8:e,10:enter,10.5:enter,12:e" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C79", NVF_PLAY_TEST_FACE = "7:00104C79", NVF_PLAY_TEST_SCRIPT = "0.5:call:GSChetRef:SetRestrained:1,3:call:GSChetRef:AddItem:Stimpak:2", NVF_PLAY_TEST_CONTROL = "4:sneak", NVF_PLAY_TEST_KEYS = "8:e,10:enter,10.5:enter,12:e" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 16
 order = [[
@@ -9962,17 +10025,33 @@ order = [[
 ]]
 
 [[scenario]]
+name = "ragdoll-under-a-box"
+source = "#1049 (owner's playtest): a corpse falls even when a message box opens right after the kill (the faction reputation box after a fight's last kill); its calm and awake timers count physics time, which stands still under the box (engine/nvforever/src/ragdoll.rs)"
+note = "Chet in the general store is killed by a test-aid hit at 6 s; a script's message box (VCG04Message) opens at 6.05 s and stays 3 s (longer than the 1.5 s calm that sets a body at rest), then closes; the base game alone, so that no add-on's start-up boxes are held 3 s too"
+areas = ["ragdoll", "combat", "menus"]
+paths = ["engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/deaths.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "3", NVF_PLAY_TEST_HIT = "6:0x00104C79:1000", NVF_PLAY_TEST_SCRIPT = "6.05:call:player:ShowMessage:VCG04Message" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm"]
+run_seconds = 16
+order = [[
+  { re = 'script: menu 1001 \(message VCG04Message\)', label = "the box is up after the kill" },
+  { re = 'ragdoll: actor 00104C79 at rest at .*, trunk (?P<h>-?\d+) units over its lowest bone', range = [-1000, 35], label = "Chet comes to rest lying down, not standing" },
+]]
+
+[[scenario]]
 name = "death-weapon-drop"
 source = "ESM full audit gap 21 (engine/nvf-play/src/combat.rs death_drops): an NPC that dies holding its weapon drops it, with the chance iDeathDropWeaponChance (100 in FalloutNV.esm)"
 note = "Chet is given a .357 and set on the player (GOD) at 3-4 s, then killed by KillActor at 9 s"
 areas = ["combat"]
-paths = ["engine/nvf-play/src/combat.rs"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/dropped.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:call:GSChetRef:AddItem:WeapNV357Revolver:1,3.5:call:GSChetRef:EquipItem:WeapNV357Revolver,4:combat:GSChetRef:player,9:call:GSChetRef:KillActor" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 14
 expect = [
   { re = 'combat: 0x00104C79 died: it drops its .* \(iDeathDropWeaponChance 100\)', label = "Chet drops his revolver as he dies" },
   { re = 'combat summary: (?P<n>\d+) weapons dropped by actors that died holding them', range = [1, 1], label = "one weapon dropped" },
+  { re = 'collision of dropped 0xFF[0-9A-F]{6} added: .*357revolver.*\(dynamic\)', label = "the dropped revolver gets dynamic collision at once (#1033: it hung in the air)" },
+  { re = 'dropped 0xFF[0-9A-F]{6} came to rest at .*, (?P<n>[\d.]+) below where its collision was added', range = [20, 31], label = "it falls the 30 units it was placed above Chet's feet and lies on the floor" },
 ]
 
 [[scenario]]

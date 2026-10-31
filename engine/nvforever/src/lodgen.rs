@@ -348,7 +348,7 @@ pub fn cache_key(params: &GenParams, world: &str, data_dir: &Path, plugins: &[St
         params.res, params.tile
     );
     for p in plugins {
-        let meta = std::fs::metadata(data_dir.join(p)).ok();
+        let meta = std::fs::metadata(fnv_install::child_ci(data_dir, p).unwrap_or_else(|| data_dir.join(p))).ok();
         let size = meta.as_ref().map_or(0, |m| m.len());
         let mtime = meta
             .and_then(|m| m.modified().ok())

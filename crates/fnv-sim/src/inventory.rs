@@ -329,6 +329,13 @@ impl Inventory {
         self.has_sound_at(item, Pick::ANY)
     }
 
+    /// Whether [`Inventory::set_equipped_at`] would find a unit of `item` that `pick`
+    /// names, once the equipped units of `item` are taken off first when `freed` (an
+    /// item that clashes with itself, as [`crate::World::equip_at`] unequips it).
+    pub fn can_equip_at(&self, item: FormId, pick: Pick, freed: bool) -> bool {
+        self.items.get(&item).is_some_and(|s| s.groups.iter().any(|g| (freed || !g.0.equipped) && g.0.picked(pick)))
+    }
+
     /// The same among the units `pick` names.
     pub fn has_sound_at(&self, item: FormId, pick: Pick) -> bool {
         self.items.get(&item).is_some_and(|s| s.groups.iter().any(|g| !g.0.equipped && !g.0.broken() && g.0.picked(pick)))

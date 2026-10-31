@@ -531,17 +531,16 @@ fn creature_list(s: &mut AnimSounds, d: &PlayWorld, w: Option<&crate::actors::Ac
             if !crea {
                 return None;
             }
-            // The creature a leveled list picked, else the one its model and animations
-            // come from (a template-only creature: `LvlFeralGhoul`, Model/Animation from
-            // the leveled list `TPLT` names, lists none itself), else the one placed.
+            // The creature its model and animations come from: "Use Model/Animation
+            // includes the Blood, Sounds, and Destruction tabs" [documented: GECK wiki
+            // Category:NPC, Template Data; hypothesis: creatures alike]. The creature a leveled list picked when it has
+            // no template for them; the template's otherwise (`LvlFeralGhoul` lists none
+            // itself; `FriendshipMetroMetroRoach` lists its own, hidden by the flag, and
+            // takes its template's [observed: docs/spec-notes/actors.md §1.3]). The one
+            // placed when the creature cannot be resolved.
             let picked = w.and_then(|w| w.resolve_creature(rig.base, rig.reference).ok());
-            let mut list = picked.as_ref().map(|c| creature_sounds(d.lo, d.schema, c.creature.0).0).unwrap_or_default();
-            if list.is_empty() {
-                if let Some(c) = picked.as_ref().filter(|c| c.model_source != c.creature) {
-                    list = creature_sounds(d.lo, d.schema, c.model_source.0).0;
-                }
-            }
-            if list.is_empty() {
+            let mut list = picked.as_ref().map(|c| creature_sounds(d.lo, d.schema, c.model_source.0).0).unwrap_or_default();
+            if list.is_empty() && picked.is_none() {
                 list = creature_sounds(d.lo, d.schema, rig.base).0;
             }
             debug!("anim sounds: creature {:08X} lists {} sounds", rig.reference, list.len());
