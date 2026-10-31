@@ -388,6 +388,31 @@ impl Clip {
         (len > 0.0).then(|| Vec2::new(b[0] - a[0], b[1] - a[1]).length() / len)
     }
 
+    /// The accumulation root's ground position (x, y) at `secs` into the clip (clamped to
+    /// its length), from its track; `None` without one.
+    pub fn root_ground(&self, secs: f32) -> Option<Vec2> {
+        let v = self.accum_track()?.translation.sample(self.start + secs.clamp(0.0, self.length()))?;
+        let v = Vec2::new(v[0], v[1]);
+        v.is_finite().then_some(v)
+    }
+
+    /// The farthest the accumulation root gets from where it starts along the ground over
+    /// the clip (sampled at 61 points), game units: a clip whose root travels more than
+    /// [`CARRY_MIN`] carries its actor (docs/spec-notes/actors.md §8.13).
+    pub fn root_reach(&self) -> f32 {
+        let Some(start) = self.root_ground(0.0) else { return 0.0 };
+        (0..=60).filter_map(|i| self.root_ground(self.length() * i as f32 / 60.0)).map(|p| (p - start).length()).fold(0.0, f32::max)
+    }
+
+    /// How far the accumulation root moves along the ground from `from` to `to` seconds
+    /// into the clip (x, y in the actor's axes: +y forward, +x right, actors.md §8.2).
+    pub fn root_travel(&self, from: f32, to: f32) -> Vec2 {
+        match (self.root_ground(from), self.root_ground(to)) {
+            (Some(a), Some(b)) => b - a,
+            _ => Vec2::ZERO,
+        }
+    }
+
     /// The transform track of the accumulation root, if one drives it.
     pub fn accum_track(&self) -> Option<&TransformTrack> {
         let r = self.accum_root.as_deref()?;
@@ -600,7 +625,17 @@ pub struct BoundClip {
     /// up with no `Bip01 NonAccum` track, which over an idle's pelvis height lifted the
     /// whole body off the ground, docs/spec-notes/floating-actors.md).
     pub root_track: Option<(usize, Vec3, f32)>,
+    /// The clip's travel is its actor's (attack clips, actors.md §8.13): sampling holds
+    /// the root's ground position (x, y) where the track starts, this, so all of the
+    /// travel is taken out of the pose (not only the linear accumulation of §8.2), and
+    /// whoever plays the clip moves the actor by [`BoundClip::travel`] instead. Set by
+    /// [`BoundClip::carried`].
+    pub carried: Option<Vec2>,
 }
+
+/// A clip whose root gets no farther than this from where it starts (game units, along
+/// the ground) does not carry its actor ([`BoundClip::carried`]) [design].
+pub const CARRY_MIN: f32 = 1.0;
 
 impl BoundClip {
     /// Bind `clip`'s tracks to node indices by name (`node`).
@@ -618,7 +653,26 @@ impl BoundClip {
             let start = at(clip.start);
             (k, finite_or_zero(at(clip.stop) - start), start.z)
         });
-        BoundClip { clip, tracks, root, root_track }
+        BoundClip { clip, tracks, root, root_track, carried: None }
+    }
+
+    /// This clip carrying its actor ([`BoundClip::carried`]), when its root travels
+    /// (more than [`CARRY_MIN`] from where it starts, at any time); otherwise unchanged.
+    pub fn carried(mut self) -> BoundClip {
+        if self.root_track.is_some() && self.clip.root_reach() > CARRY_MIN {
+            self.carried = self.clip.root_ground(0.0);
+        }
+        self
+    }
+
+    /// How far a carried clip's root moves (x, y in the actor's axes: +y forward, +x
+    /// right, actors.md §8.2) from `from` to `to` seconds into the clip (each clamped to
+    /// its length); zero for a clip that does not carry its actor.
+    pub fn travel(&self, from: f32, to: f32) -> Vec2 {
+        if self.carried.is_none() {
+            return Vec2::ZERO;
+        }
+        self.clip.root_travel(from, to)
     }
 
     /// Sequence time at `phase` (0–1 of the cycle).
@@ -817,7 +871,11 @@ impl BlendPlayer {
                 let mut t = track.translation.sample(time).map_or(b.translation, Vec3::from_array);
                 if let Some((rj, per_cycle, start_z)) = bc.root_track {
                     if rj == j {
-                        t -= per_cycle * phase;
+                        match bc.carried {
+                            // Its travel is the actor's: all of it out of the pose.
+                            Some(at) => (t.x, t.y) = (at.x, at.y),
+                            None => t -= per_cycle * phase,
+                        }
                         t.z -= start_z;
                     }
                 }
@@ -1229,6 +1287,36 @@ mod tests {
         // A track whose node the skeleton lacks is dropped; the idle drives no root.
         assert_eq!((idle.tracks.len(), idle.root, idle.root_track), (1, Some(1), None));
         assert_eq!(walk.time_at(0.25), 0.25);
+    }
+
+    #[test]
+    fn a_carried_clip_leaves_its_travel_out_of_the_pose() {
+        // A lunge: Bip01 80 forward at 0.5 s, back to 60 at its end (actors.md §8.13).
+        let (mut player, ix) = player();
+        let lunge = Keys {
+            kind: KeyKind::Linear,
+            keys: [(0.0, [0.0, 0.0, 0.0]), (0.5, [0.0, 80.0, 0.0]), (1.0, [0.0, 60.0, 0.0])].map(|(time, value)| Key { time, value, forward: [0.0; 3], backward: [0.0; 3], tbc: [0.0; 3] }).to_vec(),
+        };
+        let c = clip(1.0, vec![("Bip01", track(Channel::Keys(lunge), Channel::Static(Some([1.0, 0.0, 0.0, 0.0]))))]);
+        let plain = Arc::new(BoundClip::bind(c.clone(), &ix));
+        let carried = Arc::new(BoundClip::bind(c, &ix).carried());
+        assert_eq!((plain.carried, carried.carried), (None, Some(Vec2::ZERO)));
+        let root_y = |player: &mut BlendPlayer, clip: &Arc<BoundClip>| {
+            player.layers[0] = Some(Layer { clip: clip.clone(), phase: 0.5, weight: 1.0 });
+            let mut out = Vec::new();
+            player.sample(&mut out);
+            out.iter().find(|(i, _)| *i == 1).unwrap().1.translation.y
+        };
+        // §8.2's rule leaves 80 less half of 60 in the pose; carried, none of it.
+        assert!((root_y(&mut player, &plain) - 50.0).abs() < 1e-3);
+        assert!(root_y(&mut player, &carried).abs() < 1e-3);
+        // The travel goes to the actor instead, and ends where the clip ends.
+        assert!((carried.travel(0.0, 0.5) - Vec2::new(0.0, 80.0)).length() < 1e-3);
+        assert!((carried.travel(0.5, 2.0) - Vec2::new(0.0, -20.0)).length() < 1e-3);
+        assert_eq!(plain.travel(0.0, 0.5), Vec2::ZERO);
+        // A clip whose root stays put does not carry.
+        let still = clip(1.0, vec![("Bip01", track(Channel::Static(Some([0.0, 0.5, 0.0])), Channel::Static(Some([1.0, 0.0, 0.0, 0.0]))))]);
+        assert_eq!(BoundClip::bind(still, &ix).carried().carried, None);
     }
 
     #[test]

@@ -4285,13 +4285,14 @@ name = "perk-legion-lunge"
 source = "owner 2026-10-24: move the player forward during Legion Assault's lunge (docs/spec-notes/perk-entry-points.md §11.4)"
 note = "Goodsprings ground, fists and the perk LegionAssault from 3 s; a forward power attack at 8 s (Use held 1.5 s, the forward key held from 7.95 s to 8.6 s). The distance is measured from the swing's start, and the key stays down a little after it, so the range allows up to about 90 walked; without the lunge it would be that walking alone. The swing starts when Use has been held CombatTuning::power_hold (0.4 s): a first run had it 0.53 s after Use (394 units, about 60 walked) with the key up at 8.8 s, but on 2026-10-27 it began on time at 0.41 s and the 0.4 s still walked made 463, so the key now comes up at 8.6 s (about 70 walked on time, 25 when 0.13 s late)"
 areas = ["combat", "perks", "melee"]
-paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/player.rs"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/player.rs", "engine/nvforever/src/player_body.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:perk:LegionAssault", NVF_PLAY_TEST_MOVE = "7.95:1:0,8.6:0:0", NVF_PLAY_TEST_CONTROL = "3:weapon,8:fire,9.5:fire" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "none"]
 run_seconds = 14
 order = [[
   { re = 'combat: Legion Assault \(Forward power attack, unarmed\): clip attackcustom1power', label = "a forward power attack is Legion Assault" },
-  { re = 'combat: Legion Assault: the player lunges 332 units', label = "it starts the lunge" },
+  { re = 'combat: Legion Assault: the player lunges with its clip', label = "it starts the lunge" },
+  { re = "player: the body's attack clip carries the player", label = "the body's clip (h2hattackcustom1power.kf, Bip01 332 units forward) carries the player (actors.md §8.13)" },
   { re = 'player: lunge done: (3\d\d|4[0-2]\d) units', label = "the player ends the lunge's 332 units further on, and what walking adds" },
 ]]
 
@@ -16552,4 +16553,19 @@ args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "
 run_seconds = 9
 expect = [
   { re = 'actor parts: meshes.creatures.radscorpion.radscorpion[.]nif: shape "meatcapbody" hides 11 cap partitions beside 1 drawn', label = "the intact radscorpion's torso caps are hidden, partition by partition" },
+]
+
+[[scenario]]
+name = "deathclaw-lunge-carries"
+source = "#1069 (docs/spec-notes/actors.md §8.13): a blow's clip whose Bip01 travels carries its actor through its character: the Deathclaw's h2hattackforwardpower.kf (572 units forward at 0.65 s, 523 at its end) moves the deathclaw and its collision, and it stays where the clip ends or the player stops it"
+note = "a deathclaw (VCrDeathclawTier1TypeA 0x0015CE17) placed 700 units in front of the player on the open ground south of Goodsprings at 3 s and set on them (god mode); its blows and lunges at the player: every carried blow logs how far its character moved (stopped at the player, not back at its start). At Quarry Junction the wanderers lost sight of the player behind the rocks and never struck"
+areas = ["combat", "creatures", "animation"]
+paths = ["engine/nvf-assets/src/anim_play.rs", "engine/nvforever/src/attack_anims.rs", "engine/nvforever/src/residents.rs", "engine/nvf-play/src/blocking.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:VCrDeathclawTier1TypeA:1:700:0,3.5:combat:0xFF000000:player" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm"]
+run_seconds = 30
+expect = [
+  { re = 'attack anims: meshes.creatures.deathclaw.h2hattackforwardpower[.]kf carries its actor (\d+) units', range = [500, 560], label = "the deathclaw's lunge clip carries it (523 units at its end)" },
+  { re = 'FF\w{6}: its attack clip carried it (\d+) units of', range = [40, 1000], label = "a carried blow moves the deathclaw's character forward and leaves it there" },
+  { re = 'ai: attack clips carried actors in ([1-9]\d*) actor updates', label = "attack clips carried an actor" },
 ]

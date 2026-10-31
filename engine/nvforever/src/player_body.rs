@@ -483,6 +483,10 @@ struct Rig {
     /// has one; and whether its layer passed the key in the last pose.
     attack_eject: Option<(Arc<Clip>, f32)>,
     ejected: bool,
+    /// How far its melee attack clip's root travelled in the last pose (x, y in the
+    /// body's axes, unscaled), while one whose root travels plays: the player is carried
+    /// that far (`nvf_play::player::Lunge`, docs/spec-notes/actors.md §8.13).
+    carry: Option<Vec2>,
 }
 
 /// The node of a weapon model that shots are drawn from, by either of its names
@@ -1324,6 +1328,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         wound_up: None,
         attack_eject: None,
         ejected: false,
+        carry: None,
     })
 }
 
@@ -1411,6 +1416,7 @@ fn land_mine_grip() -> (Quat, Vec3) {
 /// the standing idle, so both cannot play; idles.md §4].
 fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &mut ActorCtx, transforms: &mut Query<&mut Transform>) -> Option<(Vec3, Option<Quat>)> {
     let Posed { root, look_pitch, special, pipboy, sway, sights } = posed;
+    rig.carry = None;
     let pipboy = pipboy.filter(|_| rig.view == View::First).and_then(|t| Some((rig.clip(ctx, ClipKey::PipBoy(f.female))?, t)));
     let draw = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, true));
     let put_away = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, false));
@@ -1668,7 +1674,12 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         a.layers.iter().find(|l| l.tag == TAG_ATTACK && Arc::ptr_eq(&l.clip, clip)).map(|l| l.time)
     };
     let before = attack_time(a);
+    // A melee attack clip whose root travels, and where it was (its travel carries the
+    // player, actors.md §8.13; shots and reloads do not carry [design]).
+    let carried = if matches!(f.prefix, "h2h" | "1hm" | "2hm") { a.layers.iter().rev().find(|l| l.tag == TAG_ATTACK && !l.finished()).map(|l| (l.clip.clone(), l.time)) } else { None };
+    let carried = carried.filter(|(c, _)| c.root_reach() > nvf_assets::anim_play::CARRY_MIN);
     a.advance(f.dt, rate);
+    rig.carry = carried.and_then(|(c, from)| Some(c.root_travel(from, a.layers.iter().find(|l| l.tag == TAG_ATTACK && Arc::ptr_eq(&l.clip, &c))?.time)));
     // The attack clip passing its `Eject` key: the casing leaves now (combat throws it).
     rig.ejected = match (before, attack_time(a), &rig.attack_eject) {
         (Some(from), Some(to), Some((_, key))) => from < *key && to >= *key,
@@ -2051,7 +2062,7 @@ fn drive_body(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     mut anim: ResMut<WeaponAnim>,
-    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d, lens_sway), ahead): (
+    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d, lens_sway), (ahead, mut lunge)): (
         Res<crate::furniture::BodyOverride>,
         ResMut<PlayerIdles>,
         ResMut<nvf_play::furniture::PlayerSeat>,
@@ -2061,12 +2072,15 @@ fn drive_body(
         Option<Res<nvf_play::combat::PlayerLimbs>>,
         (Res<crate::death_cam::DeathCam>, Res<crate::player_knockdown::PlayerKnockdown>),
         (Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::combat::Combat>>, Option<ResMut<nvf_play::aim_zoom::TrueSights>>, Option<Res<nvf_play::aim_zoom::Scope>>, Option<ResMut<nvf_play::aim_zoom::Scope3d>>, Option<Res<nvf_play::aim_zoom::LensSway>>),
-        Res<crate::weapon_lower::Ahead>,
+        (Res<crate::weapon_lower::Ahead>, ResMut<nvf_play::player::Lunge>),
     ),
     mut driven: ResMut<nvf_play::player::ViewDriven>,
 ) {
     let state = &mut *state;
     player.body_view = None;
+    // Set again below while the body's attack clip carries the player.
+    let was_carrying = std::mem::replace(&mut lunge.carrying, false);
+    lunge.carry = [0.0; 2];
     // Set again below when the sights come up; not on the frames that leave early.
     if let Some(t) = true_sights.as_deref_mut() {
         t.0 = false;
@@ -2366,6 +2380,17 @@ fn drive_body(
     let root = Transform { translation: Vec3::from_array(feet) - sink, rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale) };
     let third = Posed { root, look_pitch: player.pitch, special: &idles.third, pipboy: None, sway: SwayPose::NONE, sights: None };
     let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e + sink);
+    // The third-person body's melee attack clip carries the player by its root's travel
+    // (actors.md §8.13), turned by the heading and scaled with the body.
+    if let Some(d) = body.third.carry.filter(|_| dt > 0.0) {
+        let (s, c) = player.heading.sin_cos();
+        let k = body.scale / dt;
+        lunge.carry = [(d.x * c + d.y * s) * k, (-d.x * s + d.y * c) * k];
+        if !was_carrying {
+            info!("player: the body's attack clip carries the player");
+        }
+        lunge.carrying = true;
+    }
     let (held, pitch, at) = idles.held.map_or((player.heading, player.pitch, feet), |h| (h.heading, player.pitch - h.pitch, h.feet));
     if let Some(h) = idles.held {
         // The character stays where the scene plays (and collides with nothing there).

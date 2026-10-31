@@ -349,15 +349,16 @@ forward during Legion Assault's lunge."
   (location <n>, forced: Khan Trick)`). The condition function itself stays a stub: no
   idle picker here asks it.
 - Legion Assault: its clip `h2hattackcustom1power.kf` moves `Bip01` 332 units straight
-  ahead over 1.6 s [observed: 18 keys]. The body holds `Bip01` still, so the swing's start
-  sets `player::Lunge` (`combat::LUNGE`): the player moves forward along their heading at
-  332 / 1.6 units a second for the clip's length, both scaled by the swing's speed (the
-  attack-speed perks), on top of walking; walls and actors stop it as they stop walking
-  [design: an even speed, not the clip's key by key]. Logged `combat: Legion Assault: the
-  player lunges 332 units over <s> s` and, at its end, `player: lunge done: <d> units from
-  where it started`.
+  ahead over 1.6 s [observed: 18 keys]. The body holds `Bip01` still, and the player is
+  moved by the clip's own travel, key by key, as every melee clip whose root travels
+  (actors.md §8.13, #1069; before, a fixed `combat::LUNGE` of 332 units over 1.6 s at an
+  even speed): `player::Lunge` takes the third-person body's attack layer's root travel
+  each frame, at the swing's speed (the attack-speed perks), on top of walking; walls and
+  actors stop it as they stop walking [design]. Logged `combat: Legion Assault: the player
+  lunges with its clip`, `player: the body's attack clip carries the player` and, at its
+  end, `player: lunge done: <d> units from where it started`.
 
-Checks: smoke `perk-unarmed-moves` (with frames of each move; the stun and the lunge), `perk-scribe-counter`, `perk-super-slam`, `perk-and-stay-back`; `player::tests::lunge_*`.
+Checks: smoke `perk-unarmed-moves` (with frames of each move; the stun and the lunge), `perk-scribe-counter`, `perk-super-slam`, `perk-and-stay-back`, `perk-legion-lunge`.
 
 ## 12. The spread perks, the teammates' attack speed (2026-10-25)
 

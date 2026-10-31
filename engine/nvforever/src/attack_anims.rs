@@ -62,6 +62,16 @@
 //! - While an attack clip plays, the actor's body block keeps the place it had when the
 //!   attack began (`nvf_play::blocking::ActorBlocks::attacking`): a dog's lunge shoved
 //!   the player back 40 units each bite before [design; owner 2026-10-11].
+//! - **Attacks that travel** (docs/spec-notes/actors.md §8.13): a blow's clip whose
+//!   accumulation root (`Bip01`) travels (the Deathclaw's `h2hattackforwardpower.kf`
+//!   goes 572 units forward and ends 523 forward) carries its actor
+//!   (`BoundClip::carried`): the pose keeps the root where its track starts, and the
+//!   root's travel of each frame ([`CombatPose::travel`]), turned by the actor's heading
+//!   and scaled with it, goes to whoever moves the actor ([`AttackTravel`]; `residents.rs`
+//!   moves it with its character, so walls and actors stop it, and it stays where the clip
+//!   ends). Before, the clip's travel less its average was left in the pose: the model ran
+//!   ahead of its collision and slid back at the end [observed in NVForever: owner
+//!   2026-10-30, #1069]. Shots, reloads and block reactions do not carry [design].
 //! - **Shots take priority over movement** [design: owner 2026-10-19, "shooting should
 //!   always take priority"]: a shot's clip does not fade out at its end but is held at its
 //!   last frame at full weight for [`SHOT_HOLD`] while the fight goes on, then fades out,
@@ -357,6 +367,9 @@ pub struct CombatPose {
     /// seconds since the change and the fade's length ([`CombatPose::fade_level`]).
     pub level_last: Option<Arc<BoundClip>>,
     pub level_from: Option<(Arc<BoundClip>, f32, f32)>,
+    /// How far the attack's clip has carried the actor since [`carry`] last took it (x,
+    /// y in the actor's axes, unscaled; module notes, "Attacks that travel").
+    pub travel: Vec2,
 }
 
 /// The weight to give the up or down form, played beside its level clip at weight 1,
@@ -463,8 +476,11 @@ impl CombatPose {
             player.layers[ATTACK_LAYER + 1] = form_of(up, down).filter(|_| w > 1e-3).map(|clip| Layer { clip, phase: 0.999, weight: w * fade });
             return;
         };
+        let before = a.t;
         a.t += dt;
         a.since += dt;
+        // Its root's travel is the actor's (a carried clip's, `BoundClip::carried`).
+        self.travel += a.clip.travel(before, a.t);
         if let Some((from, to)) = a.repeat.filter(|_| a.since <= LOOP_HOLD) {
             a.t = loop_time(a.t, from, to);
         }
@@ -498,7 +514,12 @@ impl Plugin for AttackAnimsPlugin {
         // After the systems that ask for attacks, so a shot's clip starts in the frame it
         // is fired: the summaries at exit then agree (a shot fired in the last frame had
         // no clip yet).
-        app.add_message::<PlayAttack>().init_resource::<AttackTimes>().init_resource::<AttackClips>().add_systems(Update, start.after(crate::npc_combat::fight).after(crate::use_weapon::shoot)).add_systems(Last, report);
+        app.add_message::<PlayAttack>()
+            .init_resource::<AttackTimes>()
+            .init_resource::<AttackClips>()
+            .init_resource::<AttackTravel>()
+            .add_systems(Update, (start.after(crate::npc_combat::fight).after(crate::use_weapon::shoot), carry.after(crate::locomotion::drive)))
+            .add_systems(Last, report);
     }
 }
 
@@ -507,6 +528,8 @@ impl Plugin for AttackAnimsPlugin {
 #[derive(Resource, Default)]
 struct AttackClips {
     bound: HashMap<(String, String), Option<Arc<BoundClip>>>,
+    /// The blows' clips that carry their actor, by the same key ([`AttackClips::carried`]).
+    carried: HashMap<(String, String), Arc<BoundClip>>,
     creature: HashMap<String, Vec<String>>,
     /// A body weapon's attack clips by (skeleton folder, stance prefix) ([`body_attack_names`]).
     body: HashMap<(String, String), Vec<String>>,
@@ -533,9 +556,21 @@ struct Stats {
     reloads: usize,
     /// Shots that took over from a shot still shown, without a fade in (module notes).
     followed: usize,
+    /// Blows whose clip carries its actor (module notes).
+    carried: usize,
 }
 
 impl AttackClips {
+    /// `clip` (bound from `path` for `skeleton`) carrying its actor
+    /// ([`BoundClip::carried`]), kept per clip.
+    fn carried(&mut self, skeleton: &str, path: &str, clip: &Arc<BoundClip>) -> Arc<BoundClip> {
+        let key = (skeleton.to_string(), fnv_vfs::normalize(path));
+        self.carried
+            .entry(key)
+            .or_insert_with(|| Arc::new(BoundClip { clip: clip.clip.clone(), tracks: clip.tracks.clone(), root: clip.root, root_track: clip.root_track, carried: None }.carried()))
+            .clone()
+    }
+
     fn bind(&mut self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, path: &str) -> Option<Arc<BoundClip>> {
         let key = (skeleton.to_string(), fnv_vfs::normalize(path));
         // A creature's clips may be in its `specialanims` folder (Mister Handy and Gutsy,
@@ -833,6 +868,14 @@ fn start(
             new_pose.held = None;
             clips.stats.followed += usize::from(follows);
             let fade_in = a.kind != Move::ReloadRound && !follows;
+            // A blow's clip whose root travels carries its actor (module notes).
+            let clip = if a.melee && a.kind == Move::Attack { clips.carried(&rig.skeleton, &path, &clip) } else { clip };
+            if let Some(far) = clip.carried.map(|_| clip.travel(0.0, len).length()) {
+                clips.stats.carried += 1;
+                if clips.stats.logged.insert(format!("carries {}", path.to_ascii_lowercase())) {
+                    info!("attack anims: {path} carries its actor {far:.0} units (its root's travel)");
+                }
+            }
             new_pose.attack = Some(Attack { clip, up, down, t, len, repeat, since: 0.0, fade_in, reload: reloads, kind: a.kind, opening, melee: a.melee, hit });
         }
         match pose {
@@ -897,11 +940,50 @@ fn put_chained_first(names: &mut [String], p: SwingPick) {
 }
 
 /// Whether a weapon hold has its weapon drawn (the aim clip playing).
+/// How far their attack clips carry the actors (module notes, "Attacks that travel"):
+/// filled by [`carry`] each frame, taken by whoever moves the actors (`residents.rs`).
+#[derive(Resource, Default)]
+pub struct AttackTravel {
+    /// Game-space travel (x, y, game units) since it was last taken, by reference; an
+    /// actor whose attack clip carries it is listed every frame it plays, also with
+    /// none, so its other movement waits for the clip.
+    pub moves: HashMap<u32, [f32; 2]>,
+    /// The travel given in all (clip and scale), game units.
+    pub units: f32,
+}
+
+impl AttackTravel {
+    pub fn take(&mut self) -> HashMap<u32, [f32; 2]> {
+        std::mem::take(&mut self.moves)
+    }
+}
+
+/// Each fighter's root travel of this frame ([`CombatPose::travel`], in its axes) turned
+/// to game space by its heading and scaled with it, for [`AttackTravel`]. The actor's
+/// root is in game space: x east, y north, z up (`locomotion::heading_of_rotation`).
+fn carry(mut travel: ResMut<AttackTravel>, mut poses: Query<(&ActorRig, &mut CombatPose, &Transform)>) {
+    for (rig, mut pose, tr) in &mut poses {
+        let d = std::mem::take(&mut pose.travel);
+        let carrying = pose.attack.as_ref().is_some_and(|a| a.clip.carried.is_some());
+        if !carrying && d == Vec2::ZERO {
+            continue;
+        }
+        let (s, c) = crate::locomotion::heading_of_rotation(tr.rotation).sin_cos();
+        let k = tr.scale.x;
+        // Forward is (sin, cos) of the heading, right is (cos, -sin).
+        let w = [(d.x * c + d.y * s) * k, (-d.x * s + d.y * c) * k];
+        travel.units += w[0].hypot(w[1]);
+        let m = travel.moves.entry(rig.reference).or_default();
+        m[0] += w[0];
+        m[1] += w[1];
+    }
+}
+
 pub fn drawn(hold: Option<&WeaponHold>) -> bool {
     hold.is_some_and(|h| h.anim.stage == Stage::Drawn)
 }
 
-fn report(mut exit: MessageReader<AppExit>, clips: Res<AttackClips>) {
+fn report(mut exit: MessageReader<AppExit>, clips: Res<AttackClips>, travel: Res<AttackTravel>) {
     if exit.read().next().is_none() {
         return;
     }
@@ -919,6 +1001,7 @@ fn report(mut exit: MessageReader<AppExit>, clips: Res<AttackClips>) {
         list(&s.clips),
         list(&s.missing)
     );
+    info!("attack anims: {} blows carried their actor with their clip's travel, {:.0} units of travel in all", s.carried, travel.units);
 }
 
 #[cfg(test)]

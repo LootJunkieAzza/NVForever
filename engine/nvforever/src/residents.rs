@@ -700,6 +700,15 @@ struct Core {
     posed: HashSet<u32>,
     /// Of those, the ones whose AI has somewhere to go: they break out of the idle.
     breaking: HashSet<u32>,
+    /// How far their attack clips carry actors this frame (`attack_anims::AttackTravel`,
+    /// game x, y): their characters move them ([`Core::carry`]).
+    travel: HashMap<u32, [f32; 2]>,
+    /// The actors carried in the last update: their characters are kept for it. Each
+    /// with where its feet were when the carry began and the travel asked of it since.
+    carried: HashMap<u32, ([f32; 3], f32)>,
+    /// Updates in which an attack carried an actor; times it could not be (no
+    /// character); for the summary.
+    carries: [usize; 2],
     /// Load doors used since the last frame: actor, door, the door it leads to.
     door_uses: Vec<(FormId, u32, u32)>,
     /// People in Combat (standing, closing in, going to a flank or a step back, in and
@@ -822,6 +831,9 @@ impl Residents {
             staggering: HashSet::new(),
             posed: HashSet::new(),
             breaking: HashSet::new(),
+            travel: HashMap::new(),
+            carried: HashMap::new(),
+            carries: [0; 2],
             door_uses: Vec::new(),
             aims: HashMap::new(),
         };
@@ -1230,6 +1242,60 @@ impl Core {
         }
     }
 
+    /// Attack clips that travel carry their actors (docs/spec-notes/actors.md §8.13):
+    /// each one carried gets a character, if it has none, moved at this frame's travel
+    /// over the frame, so walls, the player and other actors stop it as they stop a walk
+    /// (`nvf_play::player`), and while its clip plays its walk waits. Where its character
+    /// got to is where its walker stands (one walking reads it there itself), so it stays
+    /// where the clip ended, or was stopped. Its character goes once the clip is over and
+    /// it is not on its way.
+    fn carry(&mut self, game: &mut Game, phys: Option<&mut PhysState>, dt: f32) {
+        let travel = std::mem::take(&mut self.travel);
+        let Some(phys) = phys else {
+            self.carried.clear();
+            return;
+        };
+        let last = std::mem::take(&mut self.carried);
+        for (&id, &(from, asked)) in &last {
+            let Some(feet) = phys.npcs.get(&id).map(|b| b.ch.feet) else { continue };
+            if let Some(a) = self.ai.agents.get_mut(&FormId(id)).filter(|a| a.activity != Activity::Travelling) {
+                a.walker.feet = feet;
+                a.walker.tri = fnv_nav::graph::NONE;
+                let place = fnv_nav::path::Place { space: a.walker.space, pos: feet };
+                let cell = fnv_ai::goal::cell_of_place(game.world.placed, &place);
+                let _ = game.set_actor_place(FormId(id), cell, feet, a.walker.heading);
+            }
+            if !travel.contains_key(&id) {
+                let _ = stop_body(Some(&mut *phys), id);
+                info!(
+                    "ai [{}] {} {id:08X}: its attack clip carried it {:.0} units of {asked:.0}, from ({:.0}, {:.0}, {:.0}) to ({:.0}, {:.0}, {:.0})",
+                    self.clock_text,
+                    game.data.name(FormId(id)),
+                    (feet[0] - from[0]).hypot(feet[1] - from[1]),
+                    from[0],
+                    from[1],
+                    from[2],
+                    feet[0],
+                    feet[1],
+                    feet[2]
+                );
+            }
+        }
+        for (id, by) in travel {
+            let carried = self.ai.agents.get(&FormId(id)).filter(|_| !game.extra.get(&FormId(id)).is_some_and(|e| e.dead || e.restrained || e.out_cold())).is_some_and(|a| {
+                in_loaded_space(&a.walker, phys) && phys.ready_at(a.walker.feet) && (phys.npcs.contains_key(&id) || phys.add_npc(id, a.walker.feet))
+            });
+            let Some(b) = phys.npcs.get_mut(&id).filter(|_| carried && dt > 0.0) else {
+                self.carries[1] += 1;
+                continue;
+            };
+            b.velocity = [by[0] / dt, by[1] / dt];
+            let (from, asked) = last.get(&id).copied().unwrap_or((b.ch.feet, 0.0));
+            self.carried.insert(id, (from, asked + by[0].hypot(by[1])));
+            self.carries[0] += 1;
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn think(&mut self, game: &mut Game, own: bool, nav: &NavState, world: &WorldData, doors: &mut nvf_play::doors::Doors, mut phys: Option<&mut PhysState>, mut blocks: Option<&mut ActorBlocks>, dt: f32, now: f32, waited: u32) {
         // Who a walker pushed since the last frame, and (below) who may be pushed in
@@ -1346,6 +1412,11 @@ impl Core {
         let mut moved = [0usize; 6];
         let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, hopped: &mut self.hopped, now, stats: &mut moved, held: &held, coasting: &mut self.coasting, fighting: &self.aims };
         self.ai.update_moved(game, &nav.graph, dt, &mut mover);
+        // Attack clips that travel carry their actors, over their walks.
+        self.carry(game, phys.as_deref_mut(), dt);
+        if let Some(b) = blocks.as_deref_mut().filter(|b| b.carried.len() != self.carried.len() || !b.carried.iter().all(|id| self.carried.contains_key(id))) {
+            b.carried = self.carried.keys().copied().collect();
+        }
         // Walks with the AI off that ended in this update (the AI back on, or nothing
         // left to carry the actor on), for the log.
         let ended: Vec<u32> = self.coasting.iter().filter(|(_, c)| !c.now).map(|(id, _)| *id).collect();
@@ -1394,7 +1465,7 @@ impl Core {
                 let f = b.ch.feet;
                 info!("ai [{}] {} {id:08X}: its character stops (dead, restrained or out cold) at ({:.0}, {:.0}, {:.0}), walking at {:.0} units/s", self.clock_text, game.data.name(FormId(id)), f[0], f[1], f[2], b.velocity[0].hypot(b.velocity[1]));
             }
-            let idle: Vec<u32> = p.npcs.keys().copied().filter(|id| held(FormId(*id)) || self.ai.agents.get(&FormId(*id)).is_none_or(|a| a.activity != Activity::Travelling)).collect();
+            let idle: Vec<u32> = p.npcs.keys().copied().filter(|id| held(FormId(*id)) || (!self.carried.contains_key(id) && self.ai.agents.get(&FormId(*id)).is_none_or(|a| a.activity != Activity::Travelling))).collect();
             for id in idle {
                 p.remove_npc(id);
                 self.unstuck.remove(&id);
@@ -1906,7 +1977,7 @@ pub fn drive(
     mut doors: ResMut<nvf_play::doors::Doors>,
     (script, sim, mut phys, mut blocks): PlayState,
     (seated, hours, flinches, fighters, idle_holds): Held,
-    (mut door_fades, mut door_sounds): (ResMut<crate::door_fade::DoorFades>, MessageWriter<nvf_play::world_sounds::DoorPassed>),
+    (mut door_fades, mut door_sounds, mut travel): (ResMut<crate::door_fade::DoorFades>, MessageWriter<nvf_play::world_sounds::DoorPassed>, Option<ResMut<crate::attack_anims::AttackTravel>>),
 ) {
     // Hours passed in the Wait menu since the last frame (`--play` only: without it
     // there is no menu and no such message).
@@ -1929,6 +2000,10 @@ pub fn drive(
     let all = res.all;
     // Who staggers (a hit reaction playing) stands until it ends.
     res.core.staggering = flinches.iter().filter(|(_, f)| now < f.at + f.clip.clip.length()).map(|(v, _)| v.0).collect();
+    // How far attack clips carry actors (`attack_anims.rs`), from the frame before.
+    if let Some(t) = travel.as_deref_mut() {
+        res.core.travel = t.take();
+    }
     // Who an idle holds in place (`idles.rs`, from the frame before) stands too.
     // and those of them with somewhere to go (the last update's) are told to break out.
     match idle_holds {
@@ -2295,6 +2370,7 @@ pub fn report(
         core.waited[1],
         each.join("; ")
     );
+    info!("ai: attack clips carried actors in {} actor updates, {} times there was no character to carry one", core.carries[0], core.carries[1]);
     let st = core.ai.social_stats();
     info!(
         "social summary: {} hellos said to the player, {} random conversations started, {} walks up to a partner ({} given up); {} tries next to the player, {} chances won; {:.0} actor-seconds next to the player",

@@ -651,37 +651,20 @@ impl Default for PerkSpeed {
     }
 }
 
-/// A lunge the player's attack carries them through: Legion Assault's
-/// (`crate::combat::LUNGE`). `step` moves the character forward along its heading at
-/// `speed` while `left` lasts, as well as where the player walks; walls stop it as they
-/// stop walking.
+/// What the player's attack clip carries them through (docs/spec-notes/actors.md §8.13):
+/// the body's attack clip whose `Bip01` travels (Legion Assault's
+/// `h2hattackcustom1power.kf`, 332 units forward; the forward power attacks) gives the
+/// player its root's travel, set every frame by the body (nvforever `player_body`).
+/// `step` moves the character by it as well as where the player walks; walls and actors
+/// stop it as they stop walking.
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
 pub struct Lunge {
-    /// Units per second.
-    pub speed: f32,
-    /// Seconds left.
-    pub left: f32,
+    /// Game-space velocity (x, y, units per second) the clip carries the player at now.
+    pub carry: [f32; 2],
+    /// An attack clip that carries the player plays now.
+    pub carrying: bool,
     /// Where the feet were when it started, for the log at its end.
     from: Option<[f32; 3]>,
-}
-
-impl Lunge {
-    /// Lunge `far` units forward over `secs` seconds.
-    pub fn start(&mut self, far: f32, secs: f32) {
-        if secs > 0.0 {
-            *self = Lunge { speed: far / secs, left: secs, from: None };
-        }
-    }
-
-    /// The speed for a step of `dt` seconds, using that time up.
-    fn take(&mut self, dt: f32) -> f32 {
-        if self.left <= 0.0 {
-            return 0.0;
-        }
-        let share = (self.left / dt).min(1.0);
-        self.left -= dt;
-        self.speed * share
-    }
 }
 
 /// Mouse look while the cursor is grabbed, or with a controller working the controls the
@@ -1125,13 +1108,12 @@ fn step(
             // Slower while reloading, when the setting is on (`crate::combat::reload_pace`).
             let k = k * reload_pace.as_deref().map_or(1.0, |p| p.0);
             let [x, y] = velocity(&intent, player.heading, *speeds);
-            // An attack's lunge carries the player forward (`Lunge`).
-            if lunge.left > 0.0 && lunge.from.is_none() {
+            // An attack's clip carries the player (`Lunge`).
+            if lunge.carrying && lunge.from.is_none() {
                 lunge.from = Some(c.feet);
             }
-            let l = lunge.take(dt);
-            let (s, co) = player.heading.sin_cos();
-            [x * k + s * l, y * k + co * l, 0.0]
+            let l = if lunge.carrying { lunge.carry } else { [0.0; 2] };
+            [x * k + l[0], y * k + l[1], 0.0]
         };
         // Turbo slows the world's clock, not the player: its own movement goes faster by
         // the clock's inverse; falling and jumping stay on the clock (magic-archetypes.md
@@ -1167,7 +1149,11 @@ fn step(
             let mut stopped = false;
             for (v, n) in walking.iter_mut().zip(p.npcs.values()) {
                 let asked = *v;
-                *v = clip(n.ch.id, asked, n.ch.feet, n.ch.params.radius, n.ch.params.height, dt, &mut all, &mut pushes);
+                *v = if b.carried.contains(&n.ch.id) {
+                    crate::blocking::clip_pushing_nobody(n.ch.id, asked, n.ch.feet, n.ch.params.radius, n.ch.params.height, dt, &mut all)
+                } else {
+                    clip(n.ch.id, asked, n.ch.feet, n.ch.params.radius, n.ch.params.height, dt, &mut all, &mut pushes)
+                };
                 stopped |= *v != asked;
             }
             b.steps_actor_blocked += u64::from(stopped);
@@ -1219,7 +1205,7 @@ fn step(
     if n > 0 {
         intent.jump = false;
     }
-    if let Some(from) = lunge.from.filter(|_| lunge.left <= 0.0) {
+    if let Some(from) = lunge.from.filter(|_| !lunge.carrying) {
         lunge.from = None;
         info!("player: lunge done: {:.0} units from where it started", (c.feet[0] - from[0]).hypot(c.feet[1] - from[1]));
     }
@@ -1298,7 +1284,11 @@ fn step_npcs_alone(
         let mut stopped = false;
         for (v, n) in walking.iter_mut().zip(npcs.values()) {
             let asked = *v;
-            *v = clip(n.ch.id, asked, n.ch.feet, n.ch.params.radius, n.ch.params.height, dt, &mut all, &mut pushes);
+            *v = if b.carried.contains(&n.ch.id) {
+                crate::blocking::clip_pushing_nobody(n.ch.id, asked, n.ch.feet, n.ch.params.radius, n.ch.params.height, dt, &mut all)
+            } else {
+                clip(n.ch.id, asked, n.ch.feet, n.ch.params.radius, n.ch.params.height, dt, &mut all, &mut pushes)
+            };
             stopped |= *v != asked;
         }
         b.steps_actor_blocked += u64::from(stopped);
@@ -1403,28 +1393,6 @@ mod tests {
 
     fn close(a: [f32; 2], b: [f32; 2]) -> bool {
         (a[0] - b[0]).abs() < 1e-3 && (a[1] - b[1]).abs() < 1e-3
-    }
-
-    #[test]
-    fn lunge_covers_its_distance_in_its_time() {
-        let mut l = Lunge::default();
-        l.start(332.0, 1.6);
-        let dt = 1.0 / 60.0;
-        let mut far = 0.0;
-        while l.left > 0.0 {
-            far += l.take(dt) * dt;
-        }
-        assert!((far - 332.0).abs() < 0.01, "{far}");
-        assert_eq!(l.take(dt), 0.0);
-    }
-
-    #[test]
-    fn lunge_ends_part_way_through_a_step() {
-        let mut l = Lunge::default();
-        l.start(100.0, 0.25);
-        let dt = 0.1;
-        let far: f32 = (0..4).map(|_| l.take(dt) * dt).sum();
-        assert!((far - 100.0).abs() < 0.01, "{far}");
     }
 
     #[test]

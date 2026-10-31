@@ -1818,6 +1818,70 @@ skeleton's placed creatures; `fnvtool combat form` of all 49 BPTD records; 2026-
   logged once per actor, move and alert state when the clip played is not the upright
   set's.
 
+### 8.13 Attack clips that travel (#1069)
+
+Survey [observed: `fnvtool actor locomotion <Data> --nif-schema schemas/nif --folder
+<skeleton folder> --attacks` (new `--attacks` option: every `.kf` whose name holds
+`attack`, with `root_peak`, the farthest `Bip01` gets from its start along the ground),
+base `Fallout - Meshes.bsa`, 2026-10-31]. Distances in game units, the clip's own (before
+the actor's scale); "ends" is `Bip01`'s offset at the clip's stop, "peak" the farthest
+and when.
+
+| Skeleton | Clip | Length | Ends | Peak |
+|---|---|---|---|---|
+| deathclaw | `h2hattackforwardpower` | 1.50 s | 523 forward | 572 at 0.65 s |
+| dog | `h2hattackforwardpower` / `h2hattackpower` / `h2hattackleft` / `…right` | 1.37 / 1.83 / 1.03 / 1.03 s | 900 / 187 / 55 / 49 forward | at the end |
+| giantant | `h2hattackforwardpower` / `h2hattackleft` / `…right` | 1.10 / 1.00 / 1.00 s | 1402 / 0 / 0 | 1427 at 0.86 s / 128 / 125 |
+| ghoul (feral) | `h2hattackforwardpower`, `…leftpower`, `…rightpower` | 1.33 s | 350 forward | 387–396 at 0.71 s |
+| mirelurk, mirelurkking | `h2hattackforwardpower` / `h2h_attackforwardpower` | 1.27 / 1.10 s | 512 / 229 | at the end |
+| molerat, nvgiantrat | `h2hattackforwardpower` | 1.00 s | 348 / 350 | 348 / 350 |
+| nightstalker, yaoguai | `h2hattackforwardpower` | 1.33 / 1.17 s | 620 / 600 | at the end |
+| nvcazadores | `h2hattackforwardpower` / `h2hattackpower` | 1.83 / 1.70 s | 479 / 106 | 483 / 106 |
+| nvgecko, nvmantis, nvbighorner | `h2hattackforwardpower` | 1.70 / 1.70 / 1.67 s | 374 / 433 / 236 | at or near the end |
+| nvsecuritron, nvsporecarrier | `h2hattackforwardpower` | 1.10 / 1.00 s | 237 / 384 | 284 / 384 |
+| radscorpion | `h2hattackforwardpower` | 1.27 s | 399 | 399 |
+| smspinebreaker | `2hmattack{forward,left,right}power` | 2.0–2.3 s | 576–697 | 598–697 |
+| `characters\_male` | `h2hattackforwardpower` / `1hmattackforwardpower` / `2hmattackforwardpower` | 1.60 s | 280 / 281 / 238 | 305 / 300 / 265 |
+| `characters\_male` | `h2hattackcustom1power` (Legion Assault) / `1hmattackcustom2power` / `2hmattackcustom4power` | 1.60 / 2.33 / 1.63 s | 332 / 570 / 333 | 373 / 574 / 333 |
+| `characters\_male` | the directional power attacks (back, left, right) | 1.1–1.6 s | 31–71 that way | 31–72 |
+
+Ordinary blows move little (the radscorpion's 13–28, the queen ant's 55 and back), the
+forward power attacks (lunges) a creature's length or more. 2hr/2hh shots move `Bip01`
+by 21 at most (`2hrattack9`) [observed]. `idleanims\vats…` copies carry the same travel
+as their clips.
+
+**Playback** [design; engine rule, the original's not captured]:
+
+- A **melee blow's** clip (an NPC's, a creature's, and the player's body's) whose `Bip01`
+  gets more than 1 unit from its start (`nvf_assets::anim_play::CARRY_MIN`) carries its
+  actor: the pose holds `Bip01`'s ground position where its track starts (all of its
+  travel out of the pose, not only §8.2's linear accumulation; its height stays relative
+  as in §8.2), and its travel of each frame (`Clip::root_travel`) is the actor's,
+  turned by the actor's heading and scaled with it. Shots, reloads and block reactions
+  do not carry.
+- NPCs and creatures (`attack_anims::carry` → `residents::Core::carry`): the travel is
+  the velocity of the actor's character for the frame (a character is made for it if it
+  has none), so walls stop it and the actor blocks of the player and others stop it as
+  they stop a walk (`nvf_play::blocking`); while the clip plays its walk waits (the clip's
+  velocity replaces it). A carried actor pushes nobody aside
+  (`ActorBlocks::carried`, owner 2026-10-11: a bite does not push the player around).
+  Its walker stands where its character got to, so it stays where the clip ends (or where
+  it was stopped); the character goes once the clip is over and it is not on its way.
+  Logged per carried blow: `its attack clip carried it N units of M, from … to …`.
+- The player (`player_body` → `nvf_play::player::Lunge`): the third-person body's melee
+  attack layer gives its root's travel each frame, as the player's velocity on top of the
+  walk; it plays at the swing's rate (the layer's), so a faster swing lunges faster.
+  Legion Assault's lunge (perk-entry-points.md §11.4) is this rule now: its fixed 332
+  units over 1.6 s (`combat::LUNGE`) went, as the clip gives the same.
+- Before: the clips' travel less its average stayed in the pose and the actor did not
+  move: the Deathclaw's model ran up to 345 units ahead of its collision and slid back to
+  where it started [observed in NVForever: owner 2026-10-30; the numbers from the clip].
+- Not carried yet: other clips with root travel (idles such as the deathclaw's
+  `specialidle_cageexit`, getting up, furniture) keep §8.2's rule.
+- **Smoke**: `deathclaw-lunge-carries` (a deathclaw set on the player south of
+  Goodsprings: the lunge clip carries it 523 units, and each carried blow ends forward);
+  `perk-legion-lunge` (the player's Legion Assault).
+
 ## 9. Weapons: holstering and drawing (part H)
 
 An NPC that carries a weapon shows it holstered and can draw and holster it with the
