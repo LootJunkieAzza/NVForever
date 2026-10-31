@@ -136,7 +136,7 @@ fn is_item(sig: &[u8; 4]) -> bool {
 
 /// Whether `r` (a reference with base `base`, `sig` its base's record signature) is of
 /// object type `code` (PTDT object type, `fnv_game::package::object_type_name`).
-fn of_type(game: &Game, r: FormId, base: FormId, sig: &[u8; 4], code: u32) -> bool {
+pub(crate) fn of_type(game: &Game, r: FormId, base: FormId, sig: &[u8; 4], code: u32) -> bool {
     let ref_sig = game.world.placed.get(r).map(|p| p.sig);
     let actor = matches!(ref_sig, Some(s) if &s == b"ACHR" || &s == b"ACRE") || matches!(sig, b"NPC_" | b"CREA");
     let food = || game.data.ingestibles.get(&base).is_some_and(|d| d.flags & 2 != 0 || d.equip_type == 12);
