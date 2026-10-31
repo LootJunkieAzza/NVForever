@@ -653,3 +653,14 @@ The numbers above stay put so links to them hold; each item here gives its own p
     every game loop from the marker: does he stand until the cheer ends, walk off after
     1 s with the cheer cut short, or slide with it playing? And `IsIdlePlaying` at the
     moment he sets off. ([idles §15](../spec-notes/idles.md))
+
+## Added 2026-10-31 (coyotes' warning and charge, issue #1073)
+
+58. **What a warning coyote plays, and how it bites on the run** (P3: every coyote and
+    dog fight). NVForever plays the dog folder's `h2hequip.kf` then holds `h2haim.kf`
+    while a coyote warns the player, puts it away when it attacks, and shows a blow
+    begun on the run on the head and neck only, over the run. To check: VERGSCoyote6REF
+    (0x00157B38) at its warning spot, the player 600-700 units off: `GetAnimAction` and
+    `IsWeaponOut` sampled every game loop through its two warnings and the charge; does
+    it stand with its head down (a frame), and do its legs keep running through a blow
+    begun on the run or does it stop to bite? ([actors §8.10](../spec-notes/actors.md))

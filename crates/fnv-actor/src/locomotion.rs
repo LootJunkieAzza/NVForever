@@ -469,6 +469,10 @@ pub struct Blend {
     /// Seconds since the fade started, and its length.
     pub fade: f32,
     pub fade_time: f32,
+    /// A walk or run asked for while a standing clip plays starts at once instead of
+    /// waiting for a running fade ([`Blend::step`]): creatures only (issue #1073); people
+    /// keep the eased fade [design].
+    pub set_off_at_once: bool,
 }
 
 fn smoothstep(x: f32) -> f32 {
@@ -488,7 +492,7 @@ pub fn wrap01(x: f32) -> f32 {
 
 impl Blend {
     pub fn new(mv: Move, phase: f32) -> Blend {
-        Blend { cur: Slot { mv, phase: wrap01(phase), rate: 1.0 }, prev: None, fade: 0.0, fade_time: 0.0 }
+        Blend { cur: Slot { mv, phase: wrap01(phase), rate: 1.0 }, prev: None, fade: 0.0, fade_time: 0.0, set_off_at_once: false }
     }
 
     /// Weight of `cur`; `prev` has the rest.
@@ -503,6 +507,12 @@ impl Blend {
     /// when the move changes (not while one runs), then advance the phases. Two walk/run
     /// clips are kept in step: the new one starts at the old one's footfall phase, and
     /// both advance at the weight-blended cycle rate while they fade.
+    ///
+    /// With [`Blend::set_off_at_once`] (creatures), a walk or run asked for while a fade into a standing clip runs (the idle into a
+    /// turn on the spot, a turn or a walk into the idle) starts at once, fading from the
+    /// standing clip: an actor that set off within a fade moved on a standing clip until the fade
+    /// ended, and slid (issue #1073: coyotes setting off after turning on the spot)
+    /// [design].
     pub fn step(&mut self, choice: Choice, dt: f32, info: impl Fn(Move) -> Option<ClipInfo>) {
         if self.prev.is_some() {
             self.fade += dt;
@@ -510,7 +520,8 @@ impl Blend {
                 self.prev = None;
             }
         }
-        if self.prev.is_none() && choice.mv != self.cur.mv {
+        let sets_off = self.set_off_at_once && choice.mv.is_moving() && !self.cur.mv.is_moving();
+        if (self.prev.is_none() || sets_off) && choice.mv != self.cur.mv {
             if let Some(new) = info(choice.mv) {
                 let phase = match info(self.cur.mv) {
                     Some(old) if self.cur.mv.is_moving() && choice.mv.is_moving() => wrap01(self.cur.phase - old.foot_phase + new.foot_phase),
@@ -888,6 +899,26 @@ mod tests {
         assert_eq!(b.cur.mv, Move::Backward);
         assert_eq!(b.prev.map(|p| p.mv), Some(Move::Forward));
         assert_eq!(b.fade_time, 0.3);
+    }
+
+    #[test]
+    fn setting_off_does_not_wait_for_a_standing_fade() {
+        // Standing, a turn on the spot fades in over the idle (0.1 s).
+        let mut b = Blend::new(Move::Idle, 0.0);
+        b.set_off_at_once = true;
+        b.step(Choice { mv: Move::TurnLeft, rate: 1.0 }, 0.02, info);
+        assert_eq!((b.cur.mv, b.prev.map(|p| p.mv)), (Move::TurnLeft, Some(Move::Idle)));
+        // Asked to walk within that fade: the walk starts now, from the turn.
+        b.step(Choice { mv: Move::Forward, rate: 1.0 }, 0.02, info);
+        assert_eq!((b.cur.mv, b.prev.map(|p| p.mv)), (Move::Forward, Some(Move::TurnLeft)));
+        // A change between moves still waits for the fade (cross_fade_weights).
+        b.step(Choice { mv: Move::Backward, rate: 1.0 }, 0.02, info);
+        assert_eq!(b.cur.mv, Move::Forward);
+        // People (no set_off_at_once) wait for the standing fade as before.
+        let mut p = Blend::new(Move::Idle, 0.0);
+        p.step(Choice { mv: Move::TurnLeft, rate: 1.0 }, 0.02, info);
+        p.step(Choice { mv: Move::Forward, rate: 1.0 }, 0.02, info);
+        assert_eq!(p.cur.mv, Move::TurnLeft);
     }
 
     #[test]
