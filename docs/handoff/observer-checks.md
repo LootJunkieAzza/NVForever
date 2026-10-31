@@ -759,3 +759,9 @@ The numbers above stay put so links to them hold; each item here gives its own p
     goodbye said with no pick) or Topic067/068 are offered. A second sample: Arcade's
     Topic065 (0x0016338D, non-Goodbye Say Once follow-ups): is 0x00163380 said before
     the choices? ([dialogue §3.4](../spec-notes/dialogue.md))
+
+66. **Does a quest's ResetQuest on itself stop it?** (P2, issue #1232.) o41 reset VMQ03aTimer
+    from a job script. The Emergency Radio (VEFR01NCRGood2EmergencyRadio) calls ResetQuest
+    on itself in its MenuMode and then sets iSpawnSupplyDelay; if that stopped it, the
+    drop would not come. Use the radio (button 1) and read GetQuestRunning right after,
+    and whether the drop arrives. Ours keeps a self-reset running. (scripts.md §5)
