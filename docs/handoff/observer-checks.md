@@ -27,7 +27,7 @@ engine if needed, and delete the item here.
     (38). Honest Hearts at Flight from Zion with Daniel (49).
   - VMS46 at Anders' thanks (39); Stone on his night route, VMS31 (50); HELIOS One before
     the west terminal (46, 25 at Intelligence 1); Oliver on House's path (48); a finished
-    game at the end slides (28, 29).
+    game at the end slides (29's Boomers slide; 28 is answered).
 - **A save made inside the capture** (allowed, probe-saves rule): 24 (save half-way along
   a patrol, reload), 41 (the emergency radio, timed).
 - **Screenshots or video** (window in front, both locks): 7 (casino menus by key taps),
@@ -424,13 +424,15 @@ The numbers above stay put so links to them hold; each item here gives its own p
 
 ## Added 2026-10-27 (main-quest walkthroughs)
 
-28. **Does a SayTo that finds no line still end with SayToDone?** (P1: every ending.)
-    Ours now runs the speaker's SayToDone blocks for the topic in the next frame
-    [hypothesis]: the narrator's end-slide chain (SCPT 0x00161EB4) calls topics that have
-    no line for some endings (VEndingBrotherhood for the NCR ending with the Brotherhood
-    never met) and must still reach VEndingConclusion. To check: a query script that
-    SayTos a topic whose lines all fail, and a SayToDone block that sets a variable; read
-    it one and ten frames later. ([mq-walkthrough](mq-walkthrough-2026-10-27.md) §2)
+28. **Does a SayTo that finds no line still end with SayToDone?** — answered 2026-10-31
+    (o10_00, o10_01, a third party's 100% save nvfSlides at the end slides, VStoryState
+    65): **yes**. The narrator's chain (SCPT 0x00161EB4) ends with VEndingConclusion's
+    SayToDone starting FadeToCreditsTimer (0x0017A17C). As loaded, it started about 6.7
+    minutes in. With VStoryEventKhans set to 9, which none of VEndingGreatKhans' seven
+    lines accepts (they need 0 to 4), the chain still reached FadeToCreditsTimer
+    [observed]. Every path of the chain passes through the Khans topic, so its SayTo found
+    no line and its SayToDone still ran. Ours runs the SayToDone blocks the next frame, which
+    matches. ([mq-walkthrough](mq-walkthrough-2026-10-27.md) §2)
 29. **Does a line's fixed speaker (INFO ANAM) gate who says it?** — answered for the
     non-ending case 2026-10-31 (owner, from nvf38door): **no, the GetIsID condition
     decides**. After the first meeting with House, the elevator Victor in the penthouse
