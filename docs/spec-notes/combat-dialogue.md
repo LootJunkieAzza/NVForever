@@ -119,7 +119,7 @@ Every Combat and Detection topic of FalloutNV.esm and what says it in NVForever
 | Steal, Murder, GuardTrespass | a witness of theft or murder; a trespass or aggro-radius warning | `crime.rs` (`Kind::topic`), `aggro.rs` |
 | KOed | loses all fatigue and falls unconscious | `unconscious.rs` (also an essential actor at 0 health, design) |
 | Wake | wakes from unconsciousness | `unconscious.rs` when it begins to get up (added 2026-10-17; before, never said) |
-| AssaultNoCrime, MurderNoCrime, StealNoCrime, TrespassNoCrime, PickpocketNoCrime | as Assault, Murder … when the actor does not count it a crime | not said: the crime code says the crime topics only for crimes (follow-up) |
+| AssaultNoCrime, MurderNoCrime, StealNoCrime, TrespassNoCrime, PickpocketNoCrime | as Assault, Murder … when the actor does not count it a crime | said (#974, `fnv_game::crime::Kind::no_crime_topic`): a witness that ignores crime (IgnoreCrime) and would otherwise react says the act's NoCrime topic and does not turn: the owner's people for a theft or trespass (TrespassNoCrime once per fAITrespassWarningTimer), the victim's allies and friends for a murder, an assaulted victim itself, a pickpocketed one [documented: GECK wiki Combat Tab; hypothesis: who says them, as the crime topics' own witnesses] |
 | Pickpocket | notices the player picking its pocket | not said: pickpocketing is not built |
 | Yield | yields to whom it fights | not said: NPCs do not yield |
 | AvoidThreat, AvoidThreatResponse | begins avoiding a threat ("It's going to blow!"); per-group timer | AvoidThreat said once per grenade a fighter runs from (combat-ai.md §17.7; no per-group timer); AvoidThreatResponse answers it (below) |
