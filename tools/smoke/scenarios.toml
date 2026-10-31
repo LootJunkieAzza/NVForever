@@ -16765,6 +16765,20 @@ args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", 
 run_seconds = 15
 expect = [
   { re = 'knockback: 000F36F5 knocked back at \d+ units/s for 1[.]00 s', label = "the blow's knockback starts on the trooper" },
-  { re = 'knockback: .*000F36F5 pushed back (\d+) units of', range = [10, 300], label = "the trooper is pushed back through its character" },
+  { re = 'knockback: .*000F36F5 pushed back \d+ units of \d+ \((\d+) %\)', range = [60, 140], label = "the trooper is pushed back about the distance its knockback asked (its own push, not a walk: it stands, not set on anyone yet)" },
   { re = 'knockback summary: ([1-9]\d*) knockbacks on actors', label = "knockbacks in the summary" },
+]
+
+[[scenario]]
+name = "melee-knockback-player"
+source = "#1070 review of #1219: an NPC's melee blow pushes the player back the same way (not in god mode: tgm keeps the player in place)"
+note = "the unarmed NCR trooper 0x000F36F5 (--actor-weapons none) put 150 units north of the player on the open ground south of Goodsprings at 3 s and set on the player; its punches push the player (no god mode: a trooper's fists do little)"
+areas = ["combat", "melee"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/player.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:0:150:0,3.5:combat:0x000F36F5:player" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "none", "--plugins", "FalloutNV.esm"]
+run_seconds = 20
+expect = [
+  { re = 'player: knocked back at \d+ units/s for 1[.]00 s', label = "the trooper's punch knocks the player back" },
+  { re = 'player: knockback done: (\d+) units of (\d+)', range = [3, 300], label = "the player is pushed back through its character" },
 ]

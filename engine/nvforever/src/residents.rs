@@ -718,6 +718,8 @@ struct Core {
     /// This frame's knockback travel (game x, y), kept apart from the attack clips'
     /// [`Core::travel`]: a hit reaction ends a clip's carry but not a knockback.
     knock_travel: HashMap<u32, [f32; 2]>,
+    /// Actors on furniture this frame (their bodies drawn in the seat): no knockback.
+    on_furniture: HashSet<u32>,
     /// Knockbacks begun and their distance in all (asked), for the summary.
     knocked: (usize, f32),
     /// Load doors used since the last frame: actor, door, the door it leads to.
@@ -848,6 +850,7 @@ impl Residents {
             carries: [0; 2],
             knocks: HashMap::new(),
             knock_travel: HashMap::new(),
+            on_furniture: HashSet::new(),
             knocked: (0, 0.0),
             door_uses: Vec::new(),
             aims: HashMap::new(),
@@ -1278,9 +1281,10 @@ impl Core {
         for (id, asked, from, to) in over {
             self.knocks.remove(&id);
             info!(
-                "knockback: {} {id:08X} pushed back {:.0} units of {asked:.0}, from ({:.0}, {:.0}, {:.0}) to ({:.0}, {:.0}, {:.0})",
+                "knockback: {} {id:08X} pushed back {:.0} units of {asked:.0} ({:.0} %), from ({:.0}, {:.0}, {:.0}) to ({:.0}, {:.0}, {:.0})",
                 game.data.name(FormId(id)),
                 (to[0] - from[0]).hypot(to[1] - from[1]),
+                (to[0] - from[0]).hypot(to[1] - from[1]) / asked.max(1e-3) * 100.0,
                 from[0],
                 from[1],
                 from[2],
@@ -1358,7 +1362,21 @@ impl Core {
             }
             self.carries[1] += 1;
         }
+        // A knockback on a walking actor adds to its walk (the walk set the velocity this
+        // frame and follows its character), so a punched actor still closes in or gets
+        // away [design: review of #1219]; on one standing, or carried by a clip, it is
+        // carried as the clip's travel is.
+        let clips: Vec<u32> = travel.keys().copied().collect();
         for (id, p) in pushes {
+            // On furniture its body stays in the seat: not pushed [design: review of #1219].
+            if self.on_furniture.contains(&id) {
+                continue;
+            }
+            let walking = !clips.contains(&id) && self.ai.agents.get(&FormId(id)).is_some_and(|a| a.walker.moving);
+            if let Some(b) = phys.npcs.get_mut(&id).filter(|_| walking && dt > 0.0) {
+                b.velocity = [b.velocity[0] + p[0] / dt, b.velocity[1] + p[1] / dt];
+                continue;
+            }
             let t = travel.entry(id).or_default();
             t[0] += p[0];
             t[1] += p[1];
@@ -2092,6 +2110,7 @@ pub fn drive(
     }
     let all = res.all;
     // Who staggers (a hit reaction playing) stands until it ends.
+    res.core.on_furniture = seated.iter().map(|v| v.0).collect();
     res.core.staggering = flinches.iter().filter(|(_, f)| now < f.at + f.clip.clip.length()).map(|(v, _)| v.0).collect();
     // How far attack clips carry actors (`attack_anims.rs`), from the frame before.
     if let Some(t) = travel.as_deref_mut() {

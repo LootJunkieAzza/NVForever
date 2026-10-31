@@ -1041,7 +1041,9 @@ fn step(
     if let Some(at) = seat.hold.filter(|_| phys.player.is_some()) {
         // Held by furniture (`crate::furniture`): the world steps on, the character
         // stays where the furniture has it and collides with nothing. Movement asked
-        // for by a test aid (the keys are read in `read_input`) asks to get up.
+        // for by a test aid (the keys are read in `read_input`) asks to get up. A
+        // knockback is dropped: not kept to push the player when it gets up.
+        lunge.knock = None;
         if intent.forward != 0.0 || intent.right != 0.0 || intent.jump {
             seat.leave = true;
             intent.jump = false;
@@ -1069,6 +1071,7 @@ fn step(
         return;
     }
     if noclip.0 && phys.player.is_some() {
+        lunge.knock = None;
         // ToggleCollision: moved where the player asks, through everything; the cells
         // ahead load as the camera reaches them.
         let p = &mut *phys;
@@ -1157,10 +1160,12 @@ fn step(
             if lunge.carrying && lunge.from.is_none() {
                 lunge.from = Some(c.feet);
             }
-            // A blow's knockback pushes the player back (`crate::combat::Knockback`).
-            let kb = lunge.knock_step(dt, c.feet);
-            [x * k + carry[0] + kb[0], y * k + carry[1] + kb[1], 0.0]
+            [x * k + carry[0], y * k + carry[1], 0.0]
         };
+        // A blow's knockback pushes the player back (`crate::combat::Knockback`), walking,
+        // swimming or not, so it never waits to push later (review of #1219).
+        let kb = lunge.knock_step(dt, c.feet);
+        let (vx, vy) = (vx + kb[0], vy + kb[1]);
         // Turbo slows the world's clock, not the player: its own movement goes faster by
         // the clock's inverse; falling and jumping stay on the clock (magic-archetypes.md
         // §2) [design].

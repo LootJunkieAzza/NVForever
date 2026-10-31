@@ -575,7 +575,16 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
     it; the pushed actor pushes nobody aside. A new blow's knockback replaces one still
     going [design]. It goes on through the stagger a blow starts (hit reactions hold the
     walk, not the push; they end an attack clip's carry, not a knockback, which
-    `residents` keeps apart for that); a knockdown throws the ragdoll instead.
+    `residents` keeps apart for that); a knockdown throws the ragdoll instead. On an NPC
+    that is walking it adds to the walk, so a punched actor still closes in or gets away;
+    an actor on furniture is not pushed (its body stays in the seat); the player's push
+    counts down walking or swimming alike, and is dropped while seated or flying with no
+    collision [design for each: review of #1219]. The player in god mode (`tgm`) is not
+    pushed: pushed, a god-mode player bitten by dogs kept them chasing it (smoke
+    `combat-dogs`, 93 chase lines).
+  - **Blocked and 0-damage blows** push too: the formula's force with no damage (about 30,
+    15 units) [documented formula; design to apply it to a blocked blow,
+    owner-review item 37].
   - Logged: `knockback: <id> knocked back at <v> units/s for <s> s (<d> units)` and, at
     its end, `knockback: … pushed back <n> units of <d>, from … to …` (the player:
     `player: knocked back …`, `player: knockback done: …`); `knockback summary` at exit.

@@ -3849,7 +3849,8 @@ fn actor_attacks(
         if r.as_ref().is_none_or(|r| !r.immune) {
             wear_armor(c, &mut sim, &mut stats, b.target, Zone::Body, d.raw);
         }
-        // A living actor struck (the player too) is pushed back by the knockback.
+        // A living actor struck (the player too) is pushed back by the knockback; not the
+        // player in god mode (`tgm`), which captures and smoke tests keep in place.
         if r.as_ref().is_some_and(|r| !r.died && !r.immune && !r.knocked_out) {
             let agility = actor_av(script.as_deref_mut(), &mut sim, b.target, fnv_game::actor_values::AGILITY).unwrap_or(5.0);
             let force = damage::knockback_force(&c.rules, d.dealt, agility);
