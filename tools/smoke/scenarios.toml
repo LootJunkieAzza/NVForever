@@ -485,13 +485,13 @@ order = [[
 
 [[scenario]]
 name = "graphics-settings"
-source = "docs/design/graphics-enhanced.md §3.6, §3.9, §3.10: the settings page's anti-aliasing choice (multisampling levels, FXAA, SMAA, TAA), shadow filtering, field of view, vertical sync and frame-rate limit change while the game runs, without a rendering error"
+source = "docs/design/graphics-enhanced.md §3.6, §3.9, §3.10: the settings page's anti-aliasing choice (multisampling levels, FXAA, SMAA, TAA), shadow filtering, field of view, display sync (vsync off) and frame-rate limit change while the game runs, without a rendering error"
 areas = ["renderer", "graphics", "settings"]
 paths = [
   "engine/nvforever/src/graphics.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/settings.rs",
   "engine/nvforever/src/taa*", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs",
 ]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:20", NVF_PLAY_TEST_SETTINGS = "11:anti-aliasing=0.667,12:anti-aliasing=0.833,13:anti-aliasing=1,14:anti-aliasing=0.5,15:shadow-filter=0,16:shadow-filter=1,17:shadow-filter=0.5,17.5:field-of-view=0.667,18:frame-cap=0.4,18.5:vsync,19:frame-cap=0,19.5:field-of-view=0.417" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:20", NVF_PLAY_TEST_SETTINGS = "11:anti-aliasing=0.667,12:anti-aliasing=0.833,13:anti-aliasing=1,14:anti-aliasing=0.5,15:shadow-filter=0,16:shadow-filter=1,17:shadow-filter=0.5,17.5:field-of-view=0.667,18:frame-cap=0.4,18.5:display-sync=Off,19:frame-cap=0,19.5:field-of-view=0.417" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows"]
 run_seconds = 23
 order = [[
@@ -510,7 +510,7 @@ order = [[
   "settings: shadow-filter Smooth",
   "settings: field-of-view 90",
   "settings: frame-cap 60",
-  "settings: vsync off",
+  "settings: display-sync Off",
   "frame pace: vsync off",
   "settings: frame-cap Off",
   "settings: field-of-view 75",
@@ -6997,6 +6997,36 @@ order = [[
   "settings: pipboy-red 51",
   "interface colours: HUD [26, 255, 128], Pip-Boy [51, 207, 255]",
 ]]
+
+[[scenario]]
+name = "display-sync-write"
+source = "#1082: the settings page's Display sync choice Variable refresh keeps vsync on and caps the frame rate a few frames under the monitor's refresh rate (engine/nvforever/src/frame_pace.rs vrr_cap; docs/spec-notes/display-sync.md); the start logs the surface's present modes; the first half of a round trip (display-sync-read starts in the same home)"
+areas = ["renderer", "settings"]
+paths = ["engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs"]
+env = { NVFOREVER_HOME = "display-sync-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:page,12:display-sync=Vertical sync,13:display-sync=Variable refresh" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-68375,4800,8700"]
+run_seconds = 17
+expect = [
+  { re = 'frame pace: the surface \(\w+\) supports present modes \[.*Fifo.*\]; vsync presents as Fifo', label = "the surface's present modes are logged with the one vsync takes" },
+  { text = "settings: display-sync Variable refresh", label = "Variable refresh is chosen" },
+  { re = 'frame pace: variable refresh, at most \d+ fps \(the monitor.s \d+ Hz\), vsync on', label = "the cap under the monitor's refresh rate is named" },
+]
+order = [["settings: display-sync Variable refresh", "frame pace: variable refresh, at most"]]
+forbid = [{ text = "Caught rendering error", label = "no rendering (validation) error from the present-mode probe" }]
+
+[[scenario]]
+name = "display-sync-read"
+source = "#1082: the second half of the display sync round trip: a new start in display-sync-write's home takes Variable refresh from NVForever.ini and sets its cap at the start"
+areas = ["renderer", "settings"]
+paths = ["engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/settings.rs"]
+env = { NVFOREVER_HOME = "display-sync-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-68375,4800,8700"]
+run_seconds = 12
+expect = [
+  { re = 'settings: \d+ of \d+ switch\(es\) read from .*NVForever\.ini, \d+ changed: (.*, )?display-sync Variable refresh', label = "the stored choice is set at the start" },
+  { re = 'frame pace: variable refresh, at most \d+ fps \(the monitor.s \d+ Hz\), vsync on', label = "and its cap" },
+]
+forbid = [{ text = "from the old vsync=", label = "display-sync= is stored, so the old switch is not read" }]
 
 [[scenario]]
 name = "settings-read"

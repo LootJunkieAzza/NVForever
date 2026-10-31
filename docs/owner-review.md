@@ -123,6 +123,11 @@ the spec it links to.
     (Cook-Cook, Speed Mult 110) ran at the people's speed without his Speed Mult. Keep the
     matched feet, take the sliding feet, or have people ignore Speed Mult?
     ([actor-flags §3](spec-notes/actor-flags.md), [actors §8.10](spec-notes/actors.md))
+36. **Variable refresh on your screen.** Display sync has a new "Variable refresh" choice
+    for G-Sync: vsync stays on and the frame rate is held under your monitor's refresh rate
+    (138 at 144 Hz). Does G-SYNC engage in borderless and in exclusive full screen (the
+    NVIDIA G-SYNC indicator), and does Primm feel smoother than plain vsync? Should it be
+    the default? ([display-sync](spec-notes/display-sync.md))
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 

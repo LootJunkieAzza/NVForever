@@ -35,6 +35,9 @@ serde_json = "1"
 winit = { version = "0.30", default-features = false }
 # 16-bit floats for the FaceGen offset textures (facegen.rs); the version Bevy already uses.
 half = "2"
+# The window surface's present modes, asked of a surface of our own (frame_pace.rs); the
+# version Bevy already uses (MIT/Apache-2.0).
+wgpu = { version = "30", default-features = false }
 
 # The first-start dialogs that ask for the game's folder (setup.rs); MIT.
 [target.'cfg(windows)'.dependencies]
