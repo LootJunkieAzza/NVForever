@@ -63,7 +63,7 @@ Console commands of its own:
 | `help <text>` | search every record: functions, then records (FormID, record type, Editor ID, name) whose name or Editor ID contains the text; see below |
 | `prid <reference>` | select the reference |
 | `coc <cell>` | travel to the cell's COC spot (`player::safe::cell_spot`: COCMarkerHeading, else XMarker, else a door arrival); interior or exterior cell by Editor ID or FormID |
-| `cow <world> <x> <y>` (`CenterOnWorld`), `coe <x> <y>` (`CenterOnExterior`) | travel to the exterior cell at grid square (x, y) of the worldspace named (Editor ID or FormID), or of the current one for `coe` (inside an interior, the one last walked in) [documented: GECK wiki]; arriving at the cell's centre on its landscape (a child worldspace without landscape there: its parent's, else the default land height) [hypothesis: where in the cell is undocumented], settled by the arrival rule |
+| `cow <world> <x> <y>` (`CenterOnWorld`), `coe <x> <y>` (`CenterOnExterior`) | travel to the exterior cell at grid square (x, y) of the worldspace named (Editor ID or FormID), or of the current one for `coe` (inside an interior, the one last walked in) [documented: GECK wiki]; arriving at the cell's centre on its landscape (no landscape: the worldspace's default land height; water above it: its surface) [hypothesis: where in the cell is undocumented], settled by the arrival rule; a square the worldspace has no cell at prints `No exterior cell at …` |
 | `tgm` | god mode on or off while no script runs (with scripts running it is ToggleGodMode, below) |
 | `cls`, `clear` | empty the scrollback |
 

@@ -726,17 +726,19 @@ fn center_on(d: &PlayData, world: u32, x: &str, y: &str) -> Result<(Travel, Stri
     let g = (grid(x)?, grid(y)?);
     let ws = d.index.worldspaces.get(&world).ok_or_else(|| format!("No worldspace {}", FormId(world)))?;
     let name = format!("{} ({}, {})", ws.edid.clone().unwrap_or_else(|| FormId(world).to_string()), g.0, g.1);
-    let height_in = |w: u32| {
-        let land = d.index.cells.get(d.index.worldspaces.get(&w)?.grid.get(&g)?)?.land?;
+    // Only a cell the worldspace itself has: physics stands on a worldspace's own land,
+    // not its parent's (`PhysState::set_world`).
+    let cell = ws.grid.get(&g).and_then(|c| d.index.cells.get(c)).ok_or_else(|| format!("No exterior cell at {name}"))?;
+    let land = cell.land.and_then(|land| {
         let heights = fnv_world::land::load_land(d.lo, d.schema, land, fnv_world::land::LandParts::HEIGHTS)?.heights?;
         fnv_phys::terrain::height_at(&heights, CELL_CENTRE, CELL_CENTRE)
-    };
-    if !ws.grid.contains_key(&g) && ws.parent.is_none_or(|p| d.index.worldspaces.get(&p).is_none_or(|p| !p.grid.contains_key(&g))) {
-        return Err(format!("No exterior cell at {name}"));
-    }
-    // A child worldspace without its own landscape there (the Strip's) stands on its
-    // parent's [hypothesis], else on the worldspace's default land height.
-    let z = height_in(world).or_else(|| ws.parent.and_then(height_in)).or(ws.default_land_height).unwrap_or(0.0);
+    });
+    // A cell without landscape: the worldspace's default land height.
+    let land = land.or(ws.default_land_height).unwrap_or(0.0);
+    // Water over the land there: on its surface, not on the bed [hypothesis: where the
+    // original puts the player is undocumented].
+    let water = cell.has_water().then(|| cell.water_height.or(ws.default_water_height)).flatten().filter(|w| w.abs() < 1.0e6);
+    let z = water.map_or(land, |w| land.max(w));
     Ok((Travel { world: Some(world), interior: None, feet: grid_centre(g, z), heading_deg: 0.0 }, name))
 }
 
