@@ -174,13 +174,6 @@ impl FontKit<'_> {
         self.fonts.notice_widths = last;
     }
 
-    /// Load the fonts of a menu's text tiles (T15a's menus, drawn whole).
-    fn load_fonts(&mut self, ui: &Ui, menu: TileId) {
-        for font in super::menus::fonts(ui, menu) {
-            self.load(font);
-        }
-    }
-
     /// The measure of a menu's texts drawn from tiles (T15a, `super::menus`), its text
     /// tiles' `fonts` (`super::menus::fonts`) loaded first: a text's width and height as
     /// the renderer sets it ([`measure`]). A font not read measures by its stand-in, as it is drawn [design:
@@ -801,7 +794,8 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
                     info!("tiles: {name} drawn from tiles ({file} file tiles, {code} code tiles)");
                     drawn.told_menu = Some(menu);
                 }
-                kit.load_fonts(ui, menu);
+                // The menu's fonts were loaded by this frame's writes (`super::menus`, before
+                // scripts); a font a script brings in meanwhile draws from the next frame.
                 let measured = |font: f64, text: &str, wrap: Option<f64>| kit.face(font).map_or((0.0, 0.0), |face| measure(&face.font, text, wrap));
                 pieces(ui, menu, &measured, Select::Whole { kept: &[], strip: None }).0
             }

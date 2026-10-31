@@ -355,7 +355,7 @@ impl HudTiles<'_> {
 /// frame with nothing changed writes nothing [design: the maintainer's review of #902].
 #[derive(Default)]
 struct MenusWritten {
-    message: Option<(fnv_ui::TileId, crate::message_menu::PanelView, usize)>,
+    message: Option<(menus::BoxShown, usize)>,
     quantity: Option<(fnv_ui::TileId, menus::Amount)>,
     /// The text sizes written, the message box's and the prompt's.
     sizes: [menus::SizesWritten; 2],
@@ -386,22 +386,29 @@ impl MenuTiles<'_, '_> {
         let message = menus::message_tiled(switch.message, game).then(|| game.ui_tree.menu(menus::MESSAGE_MENU)).flatten();
         let quantity = self.quantity().filter(|_| menus::quantity_tiled(switch.quantity, game, true));
         let prompt = quantity.and_then(|q| game.ui_tree.menu(menus::QUANTITY_MENU).map(|m| (m, q)));
+        // Which showing the box on screen is (counted up for every box shown, one alike
+        // included): its rows are made again for another (`menus::another_box`).
+        let showing = game.front_box().map(|b| b.serial);
         let written = &mut *self.written;
         let ui = &mut game.ui_tree;
         match (message, self.panel.as_ref().and_then(|p| p.view.as_ref().map(|v| (v, p.selected)))) {
             (Some(menu), Some((view, selected))) => {
-                let size = fonts.menu_measure(&menus::fonts(ui, menu));
+                let now = menus::BoxShown { menu, showing, view: view.clone() };
                 let was = written.message.as_ref();
-                if was.is_none_or(|(m, v, s)| *m != menu || v != view || *s != selected) {
-                    let new_view = was.is_none_or(|(m, v, _)| *m != menu || v != view);
-                    menus::write_message(ui, view, selected, new_view, &size);
+                let another = menus::another_box(was.map(|(b, _)| b), &now);
+                if another || was.is_some_and(|(_, s)| *s != selected) {
+                    let size = fonts.menu_measure(&menus::fonts(ui, menu));
+                    menus::write_message(ui, view, selected, another, &size);
                     menus::write_text_sizes(ui, menu, &mut written.sizes[0], &size);
-                    if new_view {
+                    if another {
                         info!("{}", menus::describe_message(ui, view));
                     }
-                    written.message = Some((menu, view.clone(), selected));
+                    written.message = Some((now, selected));
                 } else {
-                    menus::write_text_sizes(ui, menu, &mut written.sizes[0], &size);
+                    // One walk of the menu's texts a frame, for their fonts and sizes.
+                    let texts = menus::texts(ui, menu);
+                    let size = fonts.menu_measure(&menus::fonts_of(ui, &texts));
+                    menus::write_text_sizes_of(ui, &texts, &mut written.sizes[0], &size);
                 }
             }
             _ => written.message = None,
@@ -409,16 +416,17 @@ impl MenuTiles<'_, '_> {
         match prompt {
             Some((menu, q)) => {
                 let amount = menus::Amount { amount: q.amount, most: q.max };
-                let size = fonts.menu_measure(&menus::fonts(ui, menu));
                 if written.quantity != Some((menu, amount)) {
                     menus::write_quantity(ui, amount);
                     // The amount's text follows from the meter: worked out before its size.
                     ui.update();
-                    menus::write_text_sizes(ui, menu, &mut written.sizes[1], &size);
+                }
+                let texts = menus::texts(ui, menu);
+                let size = fonts.menu_measure(&menus::fonts_of(ui, &texts));
+                menus::write_text_sizes_of(ui, &texts, &mut written.sizes[1], &size);
+                if written.quantity != Some((menu, amount)) {
                     info!("{}", menus::describe_quantity(ui));
                     written.quantity = Some((menu, amount));
-                } else {
-                    menus::write_text_sizes(ui, menu, &mut written.sizes[1], &size);
                 }
             }
             None => written.quantity = None,

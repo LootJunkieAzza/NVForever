@@ -186,11 +186,10 @@ pub fn row_button(ui: &Ui, tile: TileId) -> Option<usize> {
 ///   for its title and its frame];
 /// - the background's `alpha` ([`background_alpha`]).
 ///
-/// `fresh`: another box than the last written (a new or replaced message): its rows are
-/// made again, so a click still queued on the last box's rows (a script's ClickMenuButton,
-/// reported at the next input step) finds its tile gone and answers nothing
-/// ([`message_pick`]) [design]. Two boxes alike in every word and button that follow each
-/// other count as one.
+/// `fresh`: another box than the last written ([`another_box`]: a new or replaced
+/// message, one alike in every word included): its rows are made again, so a click still
+/// queued on the last box's rows (a script's ClickMenuButton, reported at the next input
+/// step) finds its tile gone and answers nothing ([`message_pick`]) [design].
 ///
 /// `size` measures a text. The tree is worked out once in between, so the rows' texts
 /// read their strings before they are measured.
@@ -288,6 +287,24 @@ pub fn write_message(ui: &mut Ui, view: &PanelView, selected: usize, fresh: bool
     if let Some(bg) = ui.find_tile("MessageMenu/NOGLOW_BRANCH/MM_Background") {
         set(ui, bg, "alpha", Value::Num(background_alpha()));
     }
+}
+
+/// The box a [`write_message`] was for: the menu's tile (a new one when the menu was built
+/// again), the box's showing (`fnv_game::Game::front_box`'s serial, counted up for every
+/// box shown; `None` for a panel with no box queued, the perks' choice list) and what it
+/// shows.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BoxShown {
+    pub menu: TileId,
+    pub showing: Option<u64>,
+    pub view: PanelView,
+}
+
+/// Whether `now` is another box than `was` (the rows are made again, `write_message`'s
+/// `fresh`): another menu tile, another showing (a box replaced by one alike in every word
+/// and button is another showing) or other words or buttons.
+pub fn another_box(was: Option<&BoxShown>, now: &BoxShown) -> bool {
+    was != Some(now)
 }
 
 /// The gap between the title and the top line's right piece [documented: message_menu.xml,
@@ -398,8 +415,13 @@ pub fn texts(ui: &Ui, menu: TileId) -> Vec<TileId> {
 /// The fonts of the text tiles under `menu`, each once (the renderer reads them before
 /// measuring, `super::draw::FontKit::menu_measure`).
 pub fn fonts(ui: &Ui, menu: TileId) -> Vec<f64> {
+    fonts_of(ui, &texts(ui, menu))
+}
+
+/// The fonts of `texts` ([`texts`]), each once.
+pub fn fonts_of(ui: &Ui, texts: &[TileId]) -> Vec<f64> {
     let mut out: Vec<f64> = Vec::new();
-    for t in texts(ui, menu) {
+    for &t in texts {
         let f = ui.tile(t).get("font").map_or(0.0, Value::num);
         if !out.contains(&f) {
             out.push(f);
@@ -417,9 +439,15 @@ pub fn fonts(ui: &Ui, menu: TileId) -> Vec<f64> {
 /// `super::notices::write_widths`). Returns how many tiles were written.
 pub fn write_text_sizes(ui: &mut Ui, menu: TileId, last: &mut SizesWritten, size: &Size<'_>) -> usize {
     let tiles = texts(ui, menu);
+    write_text_sizes_of(ui, &tiles, last, size)
+}
+
+/// [`write_text_sizes`] of the text tiles `tiles` ([`texts`] of a menu, walked once a frame
+/// for the fonts and the sizes both).
+pub fn write_text_sizes_of(ui: &mut Ui, tiles: &[TileId], last: &mut SizesWritten, size: &Size<'_>) -> usize {
     last.retain(|t, _| tiles.contains(t));
     let mut written = 0;
-    for t in tiles {
+    for &t in tiles {
         let tile = ui.tile(t);
         let computed = |name: &str| tile.trait_index(name).is_some_and(|k| tile.traits[k].expr.is_some());
         let (own_width, own_height) = (!computed("width"), !computed("height"));
@@ -622,6 +650,32 @@ mod tests {
         assert_eq!(panel.selected, 1);
         // A script's tapped Down is no hand-built press: the highlight's row is taken.
         assert_eq!(chosen_row(&ui, &keyed, nav_by_hand(&[])), Some(1));
+    }
+
+    #[test]
+    fn a_box_replaced_by_one_alike_is_another_box() {
+        let mut ui = message();
+        let menu = ui.menu(MESSAGE_MENU).unwrap();
+        let v = view(None, "Again?", &["Yes", "No"]);
+        let shown = |showing| BoxShown { menu, showing, view: v.clone() };
+        // The first box, then the same box on the next frame: written once.
+        assert!(another_box(None, &shown(Some(1))));
+        assert!(!another_box(Some(&shown(Some(1))), &shown(Some(1))));
+        // Replaced by a box alike in every word and button (the next showing): another box,
+        // so its rows are made again and a click queued on the first's answers nothing.
+        let first = shown(Some(1));
+        write_message(&mut ui, &v, 0, another_box(None, &first), &size);
+        let row = rows(&ui)[0];
+        let mut pointer = fnv_ui::input::Pointer::default();
+        pointer.script_click(&mut ui, row);
+        let second = shown(Some(2));
+        write_message(&mut ui, &v, 0, another_box(Some(&first), &second), &size);
+        let report = pointer.step(&mut ui, &[menu], &fnv_ui::input::Input::default(), &fnv_ui::input::no_measure);
+        assert_eq!(message_pick(&ui, &report.clicks[0], &[]), None);
+        // Another menu tile (the menu built again), or other words: another box too.
+        let mut other = shown(Some(2));
+        other.view.text = "Other".into();
+        assert!(another_box(Some(&second), &other));
     }
 
     #[test]
