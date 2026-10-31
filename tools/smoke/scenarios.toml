@@ -2920,10 +2920,13 @@ name = "pipboy-screen-menu"
 source = "issue #1228 (docs/design/screen-menu.md §6): the Gameplay setting Use Pip-Boy off takes the Pip-Boy and its glove off and the menus show full screen; on puts them back and the menus are on the arm"
 areas = ["pipboy"]
 paths = ["engine/nvf-play/src/pipboy*", "engine/nvforever/src/pipboy_arm.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "10:frame=screen,12:open,14:page=data,15:tab=1,15.5:page=stats,16:click=600:650,18:close,20:frame=device,22:open,25:close" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "10.5:player.equipitem 00015038;10.8:close", NVF_PLAY_TEST_PIPBOY = "10:frame=screen,12:open,14:page=data,15:tab=1,15.5:page=stats,16:click=600:650,18:close,20:frame=device,22:open,25:close" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1920x1080"]
 run_seconds = 27
-note = "1920x1080 so the image is made larger (scale 1.25); the click at 16 s is on the STATS tab line's fourth tab (Perks) through the flat image; 00015038 is the Pip-Boy 3000, 00025B83 the Pip-Boy Glove (FalloutNV.esm)"
+note = "the console's equipitem at 10.5 s, with Use Pip-Boy off, is taken off again (the setting holds, as for a loaded save or Doc Mitchell's script); 1920x1080 so the image is made larger; the click at 16 s is on the STATS tab line's fourth tab (Perks) through the flat image; 00015038 is the Pip-Boy 3000, 00025B83 the Pip-Boy Glove (FalloutNV.esm)"
+expect = [
+  { text = "pipboy: Use Pip-Boy off: took off 0x00015038", count = 2, label = "off takes the Pip-Boy off, and again after a script equips it" },
+]
 order = [[
   "pipboy: Use Pip-Boy off: took off 0x00015038",
   "pipboy: frame Screen",

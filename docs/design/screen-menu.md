@@ -154,11 +154,17 @@ would need a widened layout. Left open (§7); the first build keeps 4:3 with sid
 - **The choice.** The Gameplay setting Use Pip-Boy (`pipboy::UsePipBoy`, key `UsePipBoy`
   in `NVForever.ini` `[Settings]`, `settings::add_setting`, group `pause::GROUP_MENUS`). On
   by default: a new player sees the original's way first [design; owner may flip it, §7].
-  Changing it (the settings page, or the INI read at start) marks it pending, and once
-  there is a player `pipboy::apply_use` makes the player match: off takes off whatever is
-  worn in the Pip-Boy's slot and the Pip-Boy Glove (ARMO 00025B83 `PipBoyGlove`); on puts
-  on a carried Pip-Boy (the Pip-Boy 3000, 00015038 `PipBoy`, first) and the glove if
-  carried [observed: FalloutNV.esm; design: owner, 2026-10-31].
+  `pipboy::apply_use` makes the player follow it (`pipboy::use_changes`):
+  - Off, at all times: whatever is worn in the Pip-Boy's slot and the Pip-Boy Glove (ARMO
+    00025B83 `PipBoyGlove`) are taken off, so a loaded save or a script that equips them
+    (Doc Mitchell's, a console `equipitem`) does not bring them back while it is off.
+  - On, once when it changes (the settings page, or the INI read at start): a carried
+    Pip-Boy is put on if none is worn (the Pip-Boy 3000, 00015038 `PipBoy`, first), and
+    the glove with it if carried; never the glove alone. Afterwards the player may take
+    them off by hand.
+  - A change the game refuses (a script's equip lock) is logged once
+  [observed: the two FormIDs, FalloutNV.esm; design: owner, 2026-10-31, and the merge
+  coordinator's review of #1229].
 - **`PipBoy::frame`** is the frame in use (`pipboy::Frame { Device, Screen }`).
   `follow_menu` sets it when the menus open; `follow_frame` follows the setting and the
   Pip-Boy worn while they are up. With `Frame::Screen`, `raise` and `lower` jump straight to

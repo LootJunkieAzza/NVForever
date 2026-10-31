@@ -593,38 +593,64 @@ fn follow_frame(mut pip: ResMut<PipBoy>, mut control: ResMut<PlayerControl>, use
     }
 }
 
-/// Once the setting changed and there is a player: off, take off whatever is worn in the
-/// Pip-Boy's slot and the Pip-Boy Glove; on, put on a carried Pip-Boy (the Pip-Boy 3000
-/// first) and the glove if carried [design: owner, 2026-10-31].
-fn apply_use(mut use_pipboy: ResMut<UsePipBoy>, sim: Option<ResMut<crate::sim::SimState>>) {
-    if !use_pipboy.pending {
+/// What the setting asks of the player's equipment, as (item, put on) pairs. Off, at any
+/// time: take off whatever is worn in the Pip-Boy's slot and the Pip-Boy Glove, so a loaded
+/// save or a script that equips them (Doc Mitchell's) does not bring them back while the
+/// setting is off. On, only when the setting has just changed (`changed`): put on a carried
+/// Pip-Boy (the Pip-Boy 3000 first) if none is worn, and the glove with it if carried; the
+/// glove never alone [design: owner, 2026-10-31; the coordinator's review of #1229].
+pub fn use_changes(on: bool, changed: bool, worn: &[fnv_sim::FormId], carried: &[fnv_sim::FormId], in_slot: impl Fn(fnv_sim::FormId) -> bool) -> Vec<(fnv_sim::FormId, bool)> {
+    let glove = fnv_sim::FormId(PIPBOY_GLOVE);
+    if !on {
+        return worn.iter().filter(|&&id| in_slot(id) || id == glove).map(|&id| (id, false)).collect();
+    }
+    if !changed {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let mut device = worn.iter().any(|&id| in_slot(id));
+    if !device {
+        let mut pipboys: Vec<fnv_sim::FormId> = carried.iter().copied().filter(|&id| in_slot(id)).collect();
+        pipboys.sort_by_key(|id| id.0 != PIPBOY);
+        if let Some(&id) = pipboys.first() {
+            out.push((id, true));
+            device = true;
+        }
+    }
+    if device && !worn.contains(&glove) && carried.contains(&glove) {
+        out.push((glove, true));
+    }
+    out
+}
+
+/// Make the player's equipment follow the setting ([`use_changes`]): while it is off every
+/// frame, while on only once it changed and there is a player. A change the game refuses
+/// (a script's equip lock) is logged once.
+fn apply_use(mut use_pipboy: ResMut<UsePipBoy>, sim: Option<ResMut<crate::sim::SimState>>, mut refused: Local<Vec<fnv_sim::FormId>>) {
+    if use_pipboy.on && !use_pipboy.pending {
         return;
     }
     let Some(mut sim) = sim else { return };
     let player = fnv_sim::FormId::PLAYER_REF;
     let Some(inv) = sim.world.peek(player).and_then(|r| r.inventory.as_ref()) else { return };
-    use_pipboy.pending = false;
-    let in_slot = |id: fnv_sim::FormId| sim.forms.item(id).and_then(|i| i.slots).is_some_and(|s| s & PIPBOY_SLOT != 0);
-    let glove = fnv_sim::FormId(PIPBOY_GLOVE);
+    let changed = std::mem::take(&mut use_pipboy.pending);
     let worn = inv.equipped();
-    let mut changes: Vec<(fnv_sim::FormId, bool)> = Vec::new();
-    if use_pipboy.on {
-        if !worn.iter().any(|&id| in_slot(id)) {
-            let mut carried: Vec<fnv_sim::FormId> = inv.iter().filter(|&(id, n)| n > 0 && in_slot(id)).map(|(id, _)| id).collect();
-            carried.sort_by_key(|id| id.0 != PIPBOY);
-            changes.extend(carried.first().map(|&id| (id, true)));
-        }
-        if !worn.contains(&glove) && inv.count(glove) > 0 {
-            changes.push((glove, true));
-        }
-    } else {
-        changes.extend(worn.iter().filter(|&&id| in_slot(id) || id == glove).map(|&id| (id, false)));
+    let carried: Vec<fnv_sim::FormId> = if use_pipboy.on { inv.iter().filter(|&(_, n)| n > 0).map(|(id, _)| id).collect() } else { Vec::new() };
+    let changes = use_changes(use_pipboy.on, changed, &worn, &carried, |id| sim.forms.item(id).and_then(|i| i.slots).is_some_and(|s| s & PIPBOY_SLOT != 0));
+    if changed {
+        refused.clear();
     }
     for (id, on) in changes {
+        if refused.contains(&id) {
+            continue;
+        }
         let done = if on { sim.world.equip(player, id).map(|_| true) } else { sim.world.unequip(player, id) };
         match done {
             Ok(_) => info!("pipboy: Use Pip-Boy {}: {} {id}", if on { "on" } else { "off" }, if on { "put on" } else { "took off" }),
-            Err(e) => warn!("pipboy: Use Pip-Boy: {id} not changed: {e:?}"),
+            Err(e) => {
+                warn!("pipboy: Use Pip-Boy: {id} not changed: {e:?}");
+                refused.push(id);
+            }
         }
     }
 }
@@ -905,6 +931,34 @@ mod tests {
         p.lower();
         assert!(p.advance(1.0));
         assert_eq!((p.phase, p.clip_time), (Phase::Down, 0.0));
+    }
+
+    #[test]
+    fn use_pipboy_off_always_takes_the_pipboy_and_glove_off() {
+        use fnv_sim::FormId;
+        let (pip, glove, pimp, shirt) = (FormId(PIPBOY), FormId(PIPBOY_GLOVE), FormId(0x0001_0001), FormId(0x0002_0002));
+        let in_slot = |id: FormId| id == pip || id == pimp;
+        // Off: whatever is worn in the slot and the glove come off, changed or not (a
+        // loaded save, a script's equip); other clothes stay.
+        for changed in [true, false] {
+            assert_eq!(use_changes(false, changed, &[pimp, glove, shirt], &[], in_slot), vec![(pimp, false), (glove, false)]);
+            assert!(use_changes(false, changed, &[shirt], &[pip, glove], in_slot).is_empty());
+        }
+    }
+
+    #[test]
+    fn use_pipboy_on_puts_them_on_once_and_the_glove_only_with_a_pipboy() {
+        use fnv_sim::FormId;
+        let (pip, glove, pimp) = (FormId(PIPBOY), FormId(PIPBOY_GLOVE), FormId(0x0001_0001));
+        let in_slot = |id: FormId| id == pip || id == pimp;
+        // Turned on: the Pip-Boy 3000 before another carried Pip-Boy, then the glove.
+        assert_eq!(use_changes(true, true, &[], &[pimp, glove, pip], in_slot), vec![(pip, true), (glove, true)]);
+        // A Pip-Boy already worn: only the glove.
+        assert_eq!(use_changes(true, true, &[pimp], &[pimp, glove], in_slot), vec![(glove, true)]);
+        // No Pip-Boy carried: not the glove alone either.
+        assert!(use_changes(true, true, &[], &[glove], in_slot).is_empty());
+        // On and unchanged: the player may take them off by hand.
+        assert!(use_changes(true, false, &[], &[pip, glove], in_slot).is_empty());
     }
 
     #[test]
