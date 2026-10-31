@@ -59,6 +59,8 @@ pub struct OtherState {
     pub zone_changes: HashMap<FormId, crate::nvse_anh::ZoneChange>,
     /// SetShowOffDebugMode's switch (nothing more is printed).
     pub showoff_debug: bool,
+    /// LandTextureAddGrass's and LandTextureRemoveGrass's grass lists (`nvse_jip5`).
+    pub ltex_grasses: HashMap<FormId, Vec<FormId>>,
 }
 
 /// The bit of DisablePlayerControlsAltEx's flags for each control group, in the order of
