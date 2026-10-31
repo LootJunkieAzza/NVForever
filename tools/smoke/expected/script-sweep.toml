@@ -32,3 +32,9 @@ scripts = 386
 [summary.problems.script_error]
 causes = 1
 scripts = 3
+
+# The call probe (#1122): every script's calls, once per argument shape; a call that
+# read an argument wrong and went on with a default is a cause. None on main.
+[summary.call_probe]
+causes = 0
+calls = 0

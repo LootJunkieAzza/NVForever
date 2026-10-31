@@ -56,10 +56,11 @@ fn piece_place() -> (f32, f32) {
 /// widths read 45, 44, 43, 46, 43, "H20" as wide as at zoom 100 ("HP" 30), private job
 /// hud_hardcore]. T12b drew them scaled by 0.75 (13 pixels tall), which also left their
 /// starts right of the original's [design, corrected T12e]. Their first line stands
-/// `TEXT_BASE` under the piece's top, as the tile-drawn words [hypothesis: the capitals'
-/// top 1 pixel under the piece's, y 603 on the shot; the font's tallest glyph's top at
-/// 0 stood them 4 pixels lower].
-const WORD_BASE: f32 = crate::tiles::draw::TEXT_BASE;
+/// font 7's line under the piece's top (`tiles::draw::text_base`), as the tile-drawn
+/// words [hypothesis: the capitals' top 1 pixel under the piece's, y 603 on the shot; the
+/// font's tallest glyph's top at 0 stood them 4 pixels lower; the words are font 7,
+/// hud.md §13].
+const WORD_BASE: f32 = crate::tiles::draw::text_base(7);
 /// Word alpha bounds [observed: private job hud_hardcore2, hc5]. Period unresolved;
 /// retain the former 0.6 s cosine [hypothesis], independently of the limb sawtooth.
 fn flash(elapsed: f32) -> Color {
@@ -303,13 +304,13 @@ mod tests {
     }
 
     /// T12e: the words at the font's own size (the original's are as tall as "HP" with
-    /// their zoom 75), right-justified at their x, the line `TEXT_BASE` under the top.
+    /// their zoom 75), right-justified at their x, the line font 7's 24 under the top.
     #[test]
     fn the_words_are_drawn_unscaled_and_end_at_their_x() {
         let font = crate::interface::plain_font(36.0, 15.0);
         let set = word_set(&font, "H20").unwrap();
         assert_eq!(set.line.width, font.width("H20"));
-        assert_eq!((set.x + set.line.width, set.base), (0.0, crate::tiles::draw::TEXT_BASE));
+        assert_eq!((set.x + set.line.width, set.base), (0.0, 24.0));
         assert!(word_set(&font, "").is_none() || word_set(&font, "").unwrap().line.width == 0.0);
     }
 

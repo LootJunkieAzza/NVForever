@@ -765,6 +765,12 @@ fn apply_input(
             info!("menu: dropped reference {id} (count {count}) at ({:.1}, {:.1}, {:.1})", at[0], at[1], at[2]);
             changed.write(RefChanged { form_id: id.0 });
         }
+        // A corpse's dropped weapon taken from its loot menu: picked up from the world,
+        // so its collision and drawing go (`model::Row::reference`).
+        for id in &a.picked {
+            info!("menu: picked up reference {id} lying beside the container");
+            changed.write(RefChanged { form_id: id.0 });
+        }
         if a.close {
             info!("menu: close");
             if *state.get() == PlayState::Menu {
@@ -858,8 +864,9 @@ fn draw(
         });
     }
     if let Some(q) = &m.quantity {
+        let words = look::quantity_words(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game));
         commands.spawn((MenuRoot, screen, GlobalZIndex(101))).with_children(|root| {
-            look::spawn_quantity(root, q, kit, data.as_deref(), &mut images, bc);
+            look::spawn_quantity(root, q, &words, kit, data.as_deref(), &mut images, bc);
         });
     }
 }

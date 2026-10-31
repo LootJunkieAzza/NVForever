@@ -404,3 +404,31 @@ fn console_functions_without_an_opcode_get_one_of_ours() {
     // Functions with a catalogue opcode keep it.
     assert_eq!(t.by_name("Disable"), Some(DISABLE));
 }
+
+#[test]
+fn ambiguous_parameters_never_backtrack_exponentially() {
+    // 40 spots of `r` + u16 + `s` + u16 (each one remote variable or a reference and a
+    // local) and a stray byte at the end: no reading uses the bytes exactly, so every
+    // combination fails. Failed (offset, parameter) states are remembered (#1092), so this
+    // finishes at once instead of trying ~2^40 paths, and falls back to the greedy reading.
+    let t = table();
+    let spots: Vec<u8> = (0..40u16).flat_map(|i| [tag(b'r', i + 1), tag(b's', i + 1)].concat()).collect();
+    let blob = params(60, &[spots, vec![0xEE]].concat());
+    let started = std::time::Instant::now();
+    let d = run(&t, &block(0x1A, &blob, &[]));
+    assert!(started.elapsed() < std::time::Duration::from_secs(2), "took {:?}", started.elapsed());
+    assert_eq!(d.report.raw_args, 1, "{:?}", d.report.issues);
+    let args = d.program.blocks[0].params.as_ref().expect("event parameters");
+    assert_eq!(args.len(), 61); // 60 greedy readings, then the raw tail
+    assert_eq!(args[0], Arg::Ref(RefIndex(1)));
+    assert_eq!(args[1], Arg::Var(VarRef { on: None, var: VarSlot::Local { index: 1, letter: VarLetter::Short } }));
+    assert!(matches!(&args[60], Arg::Raw(_)));
+
+    // The same spots with a count that fits exactly still decode, remote variables first.
+    let spots: Vec<u8> = (0..40u16).flat_map(|i| [tag(b'r', i + 1), tag(b's', i + 1)].concat()).collect();
+    let d = run(&t, &block(0x1A, &params(40, &spots), &[]));
+    assert_eq!(d.report.raw_total(), 0, "{:?}", d.report.issues);
+    let args = d.program.blocks[0].params.as_ref().expect("event parameters");
+    assert_eq!(args.len(), 40);
+    assert!(args.iter().all(|a| matches!(a, Arg::Var(VarRef { on: Some(_), .. }))));
+}

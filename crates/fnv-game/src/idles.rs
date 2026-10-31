@@ -677,6 +677,10 @@ mod tests {
         // form has none.
         assert!(IdleDef::from_raw(None, Some(&[7, 1, 1, 0, 0, 0, 1, 0])).no_attacking);
         assert!(!IdleDef::from_raw(None, Some(&[7, 1, 1, 0, 0, 0])).no_attacking);
+        // The section is the group byte's low six bits: 0x47 Special Idle (loose),
+        // 0x55 Upper Body.
+        assert_eq!(IdleDef::from_raw(None, Some(&[0x47, 1, 2, 0, 0, 0])).section, 7);
+        assert_eq!(IdleDef::from_raw(None, Some(&[0x55, 1, 2, 0, 0, 0])).section, crate::data::IDLE_SECTION_UPPER_BODY);
     }
 
     #[test]

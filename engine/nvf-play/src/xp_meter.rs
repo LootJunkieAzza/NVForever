@@ -333,6 +333,7 @@ fn level_up(
     mut sim: ResMut<SimState>,
     sfx: Option<Res<Sfx>>,
     mut sounds: MessageWriter<PlaySound>,
+    mut music: Option<ResMut<crate::music::MusicCues>>,
     mut sound_forms: Local<HashMap<&'static str, Option<FormId>>>,
     mut since_sound: Local<Option<f32>>,
     mut waiting: Local<usize>,
@@ -351,6 +352,10 @@ fn level_up(
     let Some(since) = since_sound.as_mut() else {
         if meter.level_up_filled() || meter.idle() {
             play_sound(sfx.as_deref(), &mut sound_forms, &mut sounds, LEVEL_UP_SOUND);
+            // And the default objects' Level Up Music, when it has a file (#991).
+            if let Some(m) = music.as_deref_mut() {
+                m.level_up = true;
+            }
             *since_sound = Some(0.0);
         }
         return;

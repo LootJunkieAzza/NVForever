@@ -21,14 +21,13 @@ engine if needed, and delete the item here.
   TimeScale), 13, 15, 20, 21, 22 (dialogue events), the rest of 33, 35, 36, 52, 53, and
   #1076 (melee reach).
 - **A save from the owner** (quest or character state no save has yet):
-  - Hardcore on (4; the Hardcore Stimpak in 9): SetHardcore does not work from scripts.
-  - Boone, Rex and ED-E hired (19, 22's complaints, 18's wheel).
-  - Lucky 38 opened, the Tops Yes Man met (31); Benny's invitation to the Tops taken (47).
+  - Hardcore on: done (nvfHardcore).
+  - Boone, Rex and ED-E hired (19, 22's complaints, 18's wheel): Boone done (nvfBoone).
   - Old World Blues just started in the Think Tank (43, 37); X-8 done, EM pulse module
     (38). Honest Hearts at Flight from Zion with Daniel (49).
   - VMS46 at Anders' thanks (39); Stone on his night route, VMS31 (50); HELIOS One before
     the west terminal (46, 25 at Intelligence 1); Oliver on House's path (48); a finished
-    game at the end slides (28, 29).
+    game at the end slides (28 and 29 answered).
 - **A save made inside the capture** (allowed, probe-saves rule): 24 (save half-way along
   a patrol, reload), 41 (the emergency radio, timed).
 - **Screenshots or video** (window in front, both locks): 7 (casino menus by key taps),
@@ -78,18 +77,28 @@ engine if needed, and delete the item here.
    [weapon-data-fields](../spec-notes/weapon-data-fields.md),
    [crippled-limbs](../spec-notes/crippled-limbs.md), [difficulty](../spec-notes/difficulty.md),
    [hit-effects](../spec-notes/hit-effects.md), [physics §6.12](../spec-notes/physics.md))
-4. **Hardcore needs and waiting.** Needs a save with Hardcore already on: SetHardcore 1
-   from a script or the console left IsHardcore 0 in the original (o6_00-01, 2026-10-31),
-   and the needs stay 0 without it. The sleep value's name is `SleepDeprevation`. Ours:
-   - Hunger rises 4.8/h and sleep deprivation 2.4/h. Dehydration is guessed at 9.6/h
-     (Minor at about 21 h).
-   - An hour slept takes 100 off sleep deprivation. Needs rise while asleep.
-   - Beer and Nuka-Cola make you thirstier (their "Damage Dehydration" read literally).
-   - An hour waited counts as 120 s of effect time.
-   - Plain beds don't heal, sleeping heals limbs only outside Hardcore, and waiting is
-     refused while you are being irradiated.
-   To check: read the need actor values over waits and sleeps, after drinks, and with
-   Buffout active. ([aid-items §2, §6, §11](../spec-notes/aid-items.md),
+4. **Hardcore needs and waiting.** Partly answered 2026-10-31 (o7_00, o7_05, owner save
+   nvfHardcore, TimeScale 30, about 59 frames a second):
+   - The needs rise at our rates [observed]: Dehydration 2 every 0.168 game hours
+     (about 11.8 an hour, one point every 10 s of play), Hunger 15 and SleepDeprevation
+     7 over 3.2 hours (4.7 and 2.2 an hour, whole points). The "9.6" once written here was
+     stale; ours uses 10 s, 25 s and 50 s a point (needs.rs).
+   - Dehydration once fell from 27 to 5 between two samples, with nothing done
+     [observed, unexplained; one case].
+   - `IsHardcore` read 0 in this Hardcore save, so it does not tell whether Hardcore is
+     on. SetHardcore 1 on nvfairport still did nothing: the needs stayed 0 for two hours
+     (o6_00-01).
+   - Beer and Nuka-Cola, drunk by EquipItem, raised Dehydration by no more than the
+     normal rate over 11 s (14, 14, 15 and 15, 15, 16) [observed]. Ours raises it
+     (their "Damage Dehydration" read literally, aid-items §3).
+   - Waits and sleeps (owner, 2026-10-31, from all needs at 0, Pip-Boy values)
+     [observed]: 3 hours waited give H2O 36, FOD 12, SLP 6; 3 hours slept give H2O 36,
+     FOD 12, SLP 2. So 12, 4 and 2 an hour, whole points, where ours gives 12, 4.8 and
+     2.4; sleep did not bring SLP below 2. In Hardcore, sleep heals neither Health nor
+     crippled limbs; outside it heals both. Ours heals no Health on a plain sleep (#1177).
+     Outside Hardcore a sleep restores Health and every limb in full (owner).
+   - Still open: Buffout.
+   ([aid-items §2, §6, §11](../spec-notes/aid-items.md),
    [wait-menu](../spec-notes/wait-menu.md))
 5. **Weapon wear.** Ours:
    - A melee swing wears the weapon only when it lands (once per swing).
@@ -142,6 +151,9 @@ engine if needed, and delete the item here.
      healing.
    - Addiction: +30 usage per use, chance (usage − 70)/100, and it never wears off.
    - The Hardcore Stimpak heals 5/s for 6 s, and a normal Stimpak heals every limb.
+     In Hardcore at Medicine 15 (o7_05, 2026-10-31) [observed]: about 6 Health a second
+     for about 6 s, 36 in all, where ours gives 6.5 a second, 39 (potency 1.3); a
+     crippled leg (LeftMobilityCondition 0) stayed at 0 (o7_00).
    - A second dose doesn't re-run Start.
    - Only the highest rank of a ranked perk applies, and perks are the player's only.
    - Chemist doubles the Stealth Boy.
@@ -305,6 +317,17 @@ engine if needed, and delete the item here.
     frame before and while aiming near hostiles and near dropped items (a Stimpak, a
     pistol, a melee weapon, food) at a few distances; the compass with ED-E at low
     Perception. ([perk-entry-points §13](../spec-notes/perk-entry-points.md))
+    Spotter answered 2026-10-31 by the owner (save nvfBoone) [observed]: the red outline
+    shows only while aiming (none with the weapon drawn and not aiming) and goes when
+    aiming stops; it marks every hostile actor or creature, whether or not it is in
+    combat with the player; and it seems to reach every enemy in render distance. Ours
+    matches the first two; its reach is the detection reach (5,000 units outdoors,
+    perk_marks.rs), shorter than the loaded area (#1171). The owner's screenshot: distant
+    enemies at night look tinted red all over; Boone is not marked. Two more shots show
+    the red pulsing (faint, then strong) [observed], as the record says: edge pulse
+    amplitude 0.5 at 1 a second, edge fall-off 0.5 (EFSH 0x0015FF60), which ours plays
+    through effect-shaders.md's pulse rule. Search and Mark (Rex) and
+    Enhanced Sensors (ED-E) are still open.
 
 ## Added 2026-10-25 (from the ESM-gap work)
 
@@ -401,19 +424,27 @@ The numbers above stay put so links to them hold; each item here gives its own p
 
 ## Added 2026-10-27 (main-quest walkthroughs)
 
-28. **Does a SayTo that finds no line still end with SayToDone?** (P1: every ending.)
-    Ours now runs the speaker's SayToDone blocks for the topic in the next frame
-    [hypothesis]: the narrator's end-slide chain (SCPT 0x00161EB4) calls topics that have
-    no line for some endings (VEndingBrotherhood for the NCR ending with the Brotherhood
-    never met) and must still reach VEndingConclusion. To check: a query script that
-    SayTos a topic whose lines all fail, and a SayToDone block that sets a variable; read
-    it one and ten frames later. ([mq-walkthrough](mq-walkthrough-2026-10-27.md) §2)
-29. **Does a line's fixed speaker (INFO ANAM) gate who says it?** (P2.) 262 lines name a
-    fixed speaker other than the actor of their own GetIsID condition (167 end slides:
-    a Boomer, Nolan McNamara ... as speaker, GetIsID Narrator). Ours now lets that
-    condition decide when the line has one [hypothesis]. To check: the end slides of a
-    finished game say the Boomers' slide; for a non-ending case, talk to Victor at the
-    Lucky 38 door (0x00165102, speaker the entrance Victor, GetIsID the elevator).
+28. **Does a SayTo that finds no line still end with SayToDone?** — answered 2026-10-31
+    (o10_00, o10_01, a third party's 100% save nvfSlides at the end slides, VStoryState
+    65): **yes**. The narrator's chain (SCPT 0x00161EB4) ends with VEndingConclusion's
+    SayToDone starting FadeToCreditsTimer (0x0017A17C). As loaded, it started about 6.7
+    minutes in. With VStoryEventKhans set to 9, which none of VEndingGreatKhans' seven
+    lines accepts (they need 0 to 4), the chain still reached FadeToCreditsTimer
+    [observed]. Every path of the chain passes through the Khans topic, so its SayTo found
+    no line and its SayToDone still ran. Ours runs the SayToDone blocks the next frame, which
+    matches. ([mq-walkthrough](mq-walkthrough-2026-10-27.md) §2)
+29. **Does a line's fixed speaker (INFO ANAM) gate who says it?** — answered for the
+    non-ending case 2026-10-31 (owner, from nvf38door): **no, the GetIsID condition
+    decides**. After the first meeting with House, the elevator Victor in the penthouse
+    (Lucky38VictorElevator, the line's GetIsID) greeted with 0x00165102, "comp you to the
+    High-Roller Suite", whose fixed speaker is the entrance Victor (Lucky38VictorEntrance)
+    [observed]; later talks to him open with his usual elevator greeting, as a Say
+    Once line should. Ours does the same (dialogue.rs `can_say_as`). Still open: lines with a
+    fixed speaker and no GetIsID condition (the Dead Money end slides, #965). The
+    Boomers' end slide (VEndingBoomers, ANAM NellisPete, GetIsID Narrator) plays in the
+    child Pete's voice, not the narrator's (owner, nvfSlides) [observed]; ours says it
+    as the narrator with the fixed speaker's file (voice.rs), which matches. Also: the penthouse elevator can only be
+    taken through this Victor's dialogue until House is dead (owner).
     ([mq-walkthrough](mq-walkthrough-2026-10-27.md) §2)
 30. **Reputation axes outside 0-2** — answered 2026-10-31 (o5_00-02, RepNVNCR, scale 80):
     GetReputation axes 2 and 3 read 0; GetReputationThreshold axis 3 read 0 at every value
@@ -421,10 +452,15 @@ The numbers above stay put so links to them hold; each item here gives its own p
     axes 0-2 matched ours (`reputation::tiers`) at all ten infamy/fame pairs. SetReputation
     with axis 2 or 3 is a failed call that **stops the script** (the line after it did not
     run); ours does nothing and goes on (reputation.rs `axis`). (scripts.md §7.6)
-31. **Say Once on a line two actors share** (dialogue.md question 13): the Yes Man
-    mainframe repeats the Tops Yes Man's first-meeting greeting (0x001164F1, Say Once,
-    GetIsID YesManMainframe OR VMQTopsYesMan) once, because ours keeps Say Once per actor.
-    To check: meet Yes Man at the Tops, then talk to the mainframe in the penthouse.
+31. **Say Once on a line two actors share** — answered 2026-10-31 (owner, save
+    nvf31mainframe, issue #1113): **no repeat**. After the upload and the Mark II upgrade
+    the Yes Man mainframe greeted with 0x001164F2 (GREETING position 2424, conditions
+    GetIsID YesManMainframe OR VMQTopsYesMan, VMQTops variable 32 < 1), not the Tops
+    first-meeting greeting 0x001164F1 (position 2398, Say Once, only the same GetIsID OR)
+    that the Tops Yes Man had said [observed]. So Say Once holds per line across speakers
+    in the original [hypothesis: one case; the mainframe and the Tops Yes Man may also
+    count as one speaker]. Ours keeps it per (speaker, line) (dialogue.rs `said`) and
+    would say 0x001164F1 again. (dialogue.md question 13)
 32. **An expression that leaves extra values** — answered 2026-10-30 (issue #908): the
     original stops the script at `if GetStage Q N == 1` and runs neither arm, as ours.
     ([scripts §4.2](../spec-notes/scripts.md))
@@ -514,10 +550,17 @@ The numbers above stay put so links to them hold; each item here gives its own p
     stall 4.)
 46. **Does the HELIOS One west-terminal password go to the player from Fantastic's line?**
     (P3; §10 stall 5.)
-47. **Does a talking activator's scripted `Activate player` start its conversation?** (P1:
-    Ring-a-Ding-Ding's ambush at the Tops, and the REPCONN intercom, #906.) Take Benny's
-    cash-up-front invitation and enter the presidential suite: does the intercom start
-    Benny's conversation by itself about 15 s later? (§11 stall 1.)
+47. **Does a talking activator's scripted `Activate player` start its conversation?** —
+    answered 2026-10-31 (o9_02, owner save nvfTopsAmbush: Benny's own invitation taken,
+    VMQTops 20, BennyAmbush 2, BennyGoToPresidential 0): **yes**. The trigger's script
+    (SCPT 0x0006919D) sets bElevatorDisabled and a 15 s timer on entry; once it runs out
+    and the player is within 250 units of the intercom (0x00129556), it calls
+    `SetTalkingActivatorActor Benny` and `<intercom>.Activate player`. With the player
+    walked through the trigger and then standing 144 units from the intercom, the
+    dialogue menu (1009) opened by itself about 14 s after the trigger (GameHour 4.80 to
+    4.91 at TimeScale 30) [observed]. Ours opens nothing (#1111). An earlier try with a
+    Speech-persuaded Benny (nvf47suite) had no intercom at all: Benny waits in the suite
+    for the player instead (owner). (§11 stall 1.)
 48. **Can Oliver be talked into retreating on House's path?** (P3.) After "You will because
     the alternative is worse", which reply does he give (Topic065 has two lines with the same
     conditions, 0x00159932 and 0x001596BD)? (§11 stall 2.)
@@ -572,3 +615,41 @@ The numbers above stay put so links to them hold; each item here gives its own p
     a text_box button's hotrect, text and parent `mouseover` with the cursor on the text;
     the three functions in game mode and over a target without an `<id>`.
     ([menu-xml §3.2, §8 items 7-10](../spec-notes/menu-xml.md))
+
+## Added 2026-10-31 (the Pip-Boy Glove and outfit gloves, issue #1067)
+
+55. **Which left hand the player shows in an outfit with gloves** (P3: the player's own
+    hand in every outfit with glove addons). NVForever lets the Pip-Boy Glove give way to
+    an outfit's glove addon (leather, metal, raider, ranger armour, power armour) and a
+    vault suit's bare-hand addon give way to the Pip-Boy Glove. To check: the player in
+    Leather Armor and in T-45d Power Armor, first and third person: is the left hand the
+    outfit's glove or the Pip-Boy Glove's hand? ([actors §2.3](../spec-notes/actors.md))
+
+## Added 2026-10-31 (radio loudness, issue #1077)
+
+56. **Pip-Boy radio music against the DJ** (owner: the music was too quiet). Ours
+    (`engine/nvf-play/src/radio.rs` `SONG_GAIN`): a song a station's line plays is at full
+    level, its SOUN static attenuation left out. Most radio songs' records take 12.33 dB
+    off, four take none, and all the song files are about equally loud (−30 to −34 dB
+    mean), so applying it would make those four 12 dB louder than the rest [hypothesis].
+    The files themselves still sit about 13 dB under the voice files (RMS as played 0.019
+    against 0.080).
+
+    To check: on Radio New Vegas, record the original's output across a song by Mr. New
+    Vegas's line and across MUS_StreetsOfNewReno (0 dB) and MUS_Big_Iron (12.33 dB), at
+    100% master and Radio volume; compare the songs' loudness with each other and with
+    the DJ line.
+    ([audio.md](../spec-notes/audio.md); radio.md)
+
+## Added 2026-10-31 (idles that hold their actor in place, issue #1072)
+
+57. **Whether an idle with leg tracks holds its actor in place** (P2: every scripted
+    idle on a patrol or walk). NVForever holds an NPC still while an idle asked for by a
+    script, a package or a dialogue line shows whose leg tracks outrank the walk clip's
+    (not Upper Body), and breaks out of it (fading it out) as soon as its AI has
+    somewhere to go (owner 2026-10-31). To check: Nipton, Oliver Swanick (vNiptonSurvivorREF 0x001349B6)
+    on his celebrate patrol: at each marker his patrol idle time is 1 s and the marker's
+    script plays `LooseCheeringBothArmsUp` (4.7 s, 1-2 passes). Sample his position
+    every game loop from the marker: does he stand until the cheer ends, walk off after
+    1 s with the cheer cut short, or slide with it playing? And `IsIdlePlaying` at the
+    moment he sets off. ([idles §15](../spec-notes/idles.md))

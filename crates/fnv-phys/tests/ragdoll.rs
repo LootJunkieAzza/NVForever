@@ -40,7 +40,7 @@ fn body(name: &str, shape: Shape, mass: f32, rest: [f32; 3]) -> RagdollBody {
             mass,
             friction: 0.3,
             restitution: 0.8,
-            shape,
+            shape: shape.into(),
             shell: 0.0,
             material: None,
         },

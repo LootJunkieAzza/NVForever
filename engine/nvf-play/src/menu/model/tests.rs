@@ -841,3 +841,39 @@ fn a_list_kept_in_view_moves_only_for_a_choice_out_of_it() {
     // A shorter list (a filter, a deleted row) clamps it.
     assert_eq!(keep_in_view(5, 2, 4, 7), 0);
 }
+
+#[test]
+fn a_weapon_dropped_beside_its_holder_is_one_item_in_the_menu_and_the_world() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    // The box stands in for a corpse that dropped its rifle as it died (#1032).
+    let drop = |w: &mut World<'_>| {
+        let r = w.drop_item(FormId(BOX_REF), FormId(RIFLE), 1).unwrap()[0];
+        w.get(r).unwrap().dropped_by = Some(FormId(BOX_REF));
+        r
+    };
+    let r = drop(&mut w);
+    assert_eq!(count(&mut w, BOX_REF, RIFLE), 0);
+    let mut m = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    assert!(names(m.list(Side::Container)).contains(&("Varmint Rifle", 1)));
+    // Taking the row picks the reference up: the player has it, the world does not.
+    select(&mut m, Side::Container, "Varmint Rifle");
+    let a = m.apply(&mut w, Command::One);
+    assert_eq!(a.picked, vec![r]);
+    assert!(w.peek(r).unwrap().deleted);
+    assert_eq!((count(&mut w, BOX_REF, RIFLE), count(&mut w, 0x14, RIFLE)), (0, 1));
+    assert!(!names(m.list(Side::Container)).contains(&("Varmint Rifle", 1)));
+    // The other way: picked up from the ground, it is no longer listed.
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let r = drop(&mut w);
+    w.activate(FormId(0x14), r).unwrap();
+    let m = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    assert!(!names(m.list(Side::Container)).contains(&("Varmint Rifle", 1)));
+    // Take All takes it too, once.
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let r = drop(&mut w);
+    let mut m = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    let a = m.apply(&mut w, Command::TakeAll);
+    assert_eq!(a.picked, vec![r]);
+    assert_eq!(count(&mut w, 0x14, RIFLE), 1);
+}

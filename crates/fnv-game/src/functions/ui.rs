@@ -262,13 +262,16 @@ pub fn add_special_points(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, S
 pub fn set_special_points(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let mut n = a.int(0)?;
     // The character revision keeps the attributes (`crate::revision`): the menu opens on
-    // them with the points they add up to, so the player moves points around.
+    // them with the points they add up to, so the player moves points around, on the
+    // character menu's attributes page as Intense Training's, not on the Vigor Tester
+    // [design: owner's playtest, #1031].
     let sum: i32 = crate::chargen::SpecialSheet::of_player(g).values.iter().sum();
-    if crate::revision::keeps(ctx, FormId::PLAYER_REF, || format!("the S.P.E.C.I.A.L. ({sum} points, not {n})")) {
+    let revision = crate::revision::keeps(ctx, FormId::PLAYER_REF, || format!("the S.P.E.C.I.A.L. ({sum} points, not {n}) on the attributes page"));
+    if revision {
         n = n.max(sum);
     }
     g.ui.special = Some(SpecialMenu::Set(n));
-    g.open_menu(menus::LOVE_TESTER);
+    g.open_menu(if revision { menus::TAG_SKILLS } else { menus::LOVE_TESTER });
     none()
 }
 

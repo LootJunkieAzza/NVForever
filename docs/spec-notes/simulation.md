@@ -660,6 +660,15 @@ average either way, but 60–140 in the original. A container's CNTO count is ta
     (above the porch floor or the terrain, x/y spread from the drop point) and whether
     it lies on its side. If (3) stays put, `crate::phys::PhysState::add_created` should
     add created references' dynamic objects at rest (or as keyframed) instead.
+- **A dead actor's weapon** (`engine/nvf-play/src/combat.rs` `death_drops`,
+  `iDeathDropWeaponChance` 100 in FalloutNV.esm [observed]): it leaves the body's
+  inventory as a dropped reference (as above) that remembers the actor
+  (`RefState::dropped_by`). The corpse's loot menu lists that reference beside the body's
+  own items while it lies in the world, and taking it there picks the reference up
+  (`World::activate`: condition and mods kept), so the weapon on the ground and the row
+  are one item; picked up from the ground, it is no longer listed (#1032) [hypothesis:
+  the original's corpses list the weapon lying beside them, from the owner's report;
+  not captured]. Such a drop gets its collision at once and falls (#1033).
 - **Crosshair activation in the game** (`engine/nvf-play/src/activate.rs`; values and
   rules to be captured, none observed yet):
   - **Reach**: 150 game units from the eye [hypothesis: placeholder, about two metres at

@@ -34,13 +34,34 @@
 //! - While it plays the view counts as a third-person one (`PlayerControl::cinematic`):
 //!   the player's body is drawn and the first-person arms are not.
 //! - It ends early when the player dies, a menu opens or the game is not playing.
+//! - **Only the last enemy** [owner's playtest request #1035; design: the original plays
+//!   one on any killing VATS shot, hypothesis; combat is not a parity target]: with the
+//!   settings page's Kill camera at Last enemy (the default, [`KillCamSetting`]), a kill
+//!   that leaves another living actor in combat with the player ([`enemies_in_combat`],
+//!   the player's IsInCombat rule: an actor in a combat state, Alert, Combat or Lost, with
+//!   the player on its target or alert list) shows none, and the view stays the player's.
+//!   Every kill shows one whoever is left; Off never shows one (#1037).
+//! - **While it plays** (#1034, #1036) [design]: the HUD, the crosshair and the corner
+//!   and quest notices are hidden (`hud::gather`, `reticle::draw`, the tile HUD,
+//!   `corner_messages`, `quest_messages`; the notices wait, as under a message box), and
+//!   the gameplay controls are held: the keys and buttons read through
+//!   `bindings::ControlInput` other than Menu Mode, Wait, Quick Save and Quick Load (so
+//!   the game can still be paused or a menu opened, which ends the camera), the mouse and
+//!   stick look (`player::mouse_look`, the look test aid), the weapon wheel, and what the
+//!   frame asked of the character: moving, jumping, the trigger, aiming, reload and ammo
+//!   swap ([`hold_input`], which the test aids that stand in for the keys go through). A
+//!   fire button held when it starts must be pressed again after it (the trigger needs a
+//!   fresh press, `control::read_controls`).
 //!
 //! Log lines: `kill camera: <name> <ref> killed by the last mark: path <EDID> (<FormID>),
 //! shots <EDID>, …` when it starts (or `kill camera: <ref> killed by the last mark: no
-//! camera path chosen`), `kill camera: shot <k> of <n> <EDID>: …` for each shot, and
-//! `kill camera: done (…)` when it ends; at exit `kill camera summary: <n> shown`.
+//! camera path chosen`), `kill camera: skipped, <n> enemies still in combat (…)` or `kill
+//! camera: off in the settings` for a kill that shows none, `kill camera: shot <k> of <n>
+//! <EDID>: …` for each shot, and `kill camera: done (…), input held <n> frames` when it
+//! ends; at exit `kill camera summary: <n> shown, <n> skipped, <n> off`.
 
 use crate::control::PlayerControl;
+use crate::player::MoveIntent;
 use crate::phys::PhysState;
 use crate::player::Player;
 use crate::script::ScriptState;
@@ -94,6 +115,8 @@ struct Show {
     next: usize,
     playing: Option<Playing>,
     real: f32,
+    /// Frames in which [`hold_input`] struck something the player asked for.
+    held: u32,
 }
 
 /// The last mark's actor being watched.
@@ -107,8 +130,65 @@ struct Watch {
 pub struct KillCam {
     watch: Option<Watch>,
     show: Option<Show>,
-    /// Kill cameras shown, for the exit report.
+    /// Kill cameras shown, and kills that showed none (others in combat; the setting
+    /// off), for the exit report.
     shown: u32,
+    skipped: u32,
+    off: u32,
+}
+
+/// When kill cameras play: the settings page's Kill camera (`kill-camera` in
+/// NVForever.ini) [owner's playtest requests #1035, #1037].
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum KillCamSetting {
+    /// Only for a kill that leaves no other actor in combat with the player.
+    #[default]
+    LastEnemy,
+    /// For every kill by the last mark.
+    EveryKill,
+    /// Never.
+    Off,
+}
+
+impl KillCamSetting {
+    pub const ALL: [KillCamSetting; 3] = [KillCamSetting::LastEnemy, KillCamSetting::EveryKill, KillCamSetting::Off];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            KillCamSetting::LastEnemy => "Last enemy",
+            KillCamSetting::EveryKill => "Every kill",
+            KillCamSetting::Off => "Off",
+        }
+    }
+
+    /// The setting of this name, any case.
+    pub fn by_name(name: &str) -> Option<KillCamSetting> {
+        KillCamSetting::ALL.into_iter().find(|s| s.name().eq_ignore_ascii_case(name.trim()))
+    }
+}
+
+fn setting_pick(w: &mut World, name: &str) -> bool {
+    match KillCamSetting::by_name(name) {
+        Some(s) => {
+            *w.resource_mut::<KillCamSetting>() = s;
+            true
+        }
+        None => false,
+    }
+}
+
+/// The living actors other than `killed` in combat with the player: in a combat state
+/// (Alert, Combat, Lost) with the player on their target or alert list, as the player's
+/// IsInCombat counts them (`fnv_game::awareness::is_in_combat`).
+pub fn enemies_in_combat(g: &fnv_game::Game, killed: FormId) -> Vec<FormId> {
+    let player = FormId::PLAYER_REF;
+    g.awareness
+        .actors
+        .iter()
+        .filter(|(id, a)| **id != killed && **id != player && a.state.in_combat() && (a.targets.contains_key(&player) || a.alarms.iter().any(|x| x.owner == player)))
+        .map(|(id, _)| *id)
+        .filter(|id| !g.is_dead(*id))
+        .collect()
 }
 
 impl KillCam {
@@ -211,7 +291,9 @@ fn update(
     player: Res<Player>,
     mut control: ResMut<PlayerControl>,
     mut models: ModelCtx,
+    setting: Option<Res<KillCamSetting>>,
 ) {
+    let setting = setting.map_or_else(KillCamSetting::default, |s| *s);
     let cam = &mut *cam;
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let playing = *state.get() == PlayState::Playing;
@@ -232,10 +314,31 @@ fn update(
             cam.watch = None;
         }
     }
-    // A kill: choose the path.
-    if let Some(w) = cam.watch.as_ref().filter(|w| cam.show.is_none() && rt.game.is_dead(w.shot.target)) {
-        let shot = w.shot;
+    // A kill: whether the setting and the fight leave room for a camera.
+    let mut killed = cam.watch.as_ref().filter(|w| cam.show.is_none() && rt.game.is_dead(w.shot.target)).map(|w| w.shot);
+    if let Some(shot) = killed {
         cam.watch = None;
+        let others = enemies_in_combat(&rt.game, shot.target);
+        let skip = match setting {
+            KillCamSetting::Off => {
+                info!("kill camera: off in the settings");
+                cam.off += 1;
+                true
+            }
+            KillCamSetting::LastEnemy if !others.is_empty() => {
+                let names: Vec<String> = others.iter().map(|o| format!("{} {o}", rt.game.data.name(*o))).collect();
+                info!("kill camera: skipped, {} enemies still in combat ({})", others.len(), names.join(", "));
+                cam.skipped += 1;
+                true
+            }
+            _ => false,
+        };
+        if skip {
+            killed = None;
+        }
+    }
+    // Choose the path.
+    if let Some(shot) = killed {
         let name = rt.game.data.name(shot.target);
         let attacker = player_middle(&player);
         let room = match middle(&phys, &player, shot.target) {
@@ -263,7 +366,7 @@ fn update(
                     room.target_visible[3],
                     if outcome.dismember || outcome.explode { ", a part is gone" } else { "" }
                 );
-                cam.show = Some(Show { target: shot.target, shots, next: 0, playing: None, real: 0.0 });
+                cam.show = Some(Show { target: shot.target, shots, next: 0, playing: None, real: 0.0, held: 0 });
                 cam.shown += 1;
             }
             None => info!("kill camera: {} killed by the last mark: no camera path chosen", shot.target),
@@ -334,7 +437,7 @@ fn update(
                 show.playing = Some(Playing { def, model, real: 0.0, length, origin, forward, look, first_turn, imod });
             }
             None => {
-                info!("kill camera: done ({:.1} s{})", show.real, stop.map_or_else(String::new, |w| format!("; {w}")));
+                info!("kill camera: done ({:.1} s{}), input held {} frames", show.real, stop.map_or_else(String::new, |w| format!("; {w}")), show.held);
                 cam.show = None;
             }
         }
@@ -395,11 +498,27 @@ fn place(
     }
 }
 
+/// Strike from what the frame asked of the character (the keys, held already by
+/// `bindings::ControlInput`, and the test aids that stand in for them) what a playing
+/// kill camera holds (module notes): moving, jumping, the trigger, aiming, reload and
+/// ammo swap. After `control::enforce_locks`, before anything acts on it.
+pub fn hold_input(mut cam: ResMut<KillCam>, mut intent: ResMut<MoveIntent>, mut control: ResMut<PlayerControl>) {
+    let Some(show) = cam.show.as_mut() else { return };
+    let (mut i, mut c) = (*intent, *control);
+    (i.forward, i.right, i.jump) = (0.0, 0.0, false);
+    (c.trigger, c.aiming, c.reload, c.ammo_swap, c.ready_held) = (false, false, false, false, None);
+    if (i, c) != (*intent, *control) {
+        show.held += 1;
+    }
+    intent.set_if_neq(i);
+    control.set_if_neq(c);
+}
+
 fn report(mut exit: MessageReader<AppExit>, cam: Res<KillCam>) {
     if exit.read().last().is_none() {
         return;
     }
-    info!("kill camera summary: {} shown", cam.shown);
+    info!("kill camera summary: {} shown, {} skipped, {} off", cam.shown, cam.skipped, cam.off);
 }
 
 pub struct KillCamPlugin;
@@ -407,9 +526,31 @@ pub struct KillCamPlugin;
 impl Plugin for KillCamPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<KillCam>()
+            .init_resource::<KillCamSetting>()
             .add_systems(Update, update.in_set(crate::PlaySet::Activation).after(crate::vats_mode::VatsUpdate).run_if(resource_exists::<PhysState>))
+            .add_systems(Update, hold_input.after(crate::control::enforce_locks).after(crate::PlaySet::Input).before(crate::PlaySet::Physics))
             .add_systems(PostUpdate, place.before(bevy::transform::TransformSystems::Propagate).run_if(resource_exists::<PhysState>))
             .add_systems(Last, report);
+        crate::settings::add_choice_list(
+            app,
+            crate::settings::Setting {
+                key: "kill-camera",
+                group: crate::pause::GROUP_MENUS,
+                label: "Kill camera",
+                note: "When a VATS shot kills its last mark, a cinematic camera can show the kill. Last enemy: only when no other enemy is still fighting you. Every kill: whoever is left. Off: never.",
+                get: |_| false,
+                set: |_, _| {},
+                slider: None,
+            },
+            crate::settings::ChoiceList {
+                names: |_| KillCamSetting::ALL.iter().map(|s| s.name().to_string()).collect(),
+                chosen: |w| w.resource::<KillCamSetting>().name().to_string(),
+                pick: setting_pick,
+                save: |w| w.resource::<KillCamSetting>().name().to_string(),
+                load: setting_pick,
+                ask_keep: false,
+            },
+        );
     }
 }
 
@@ -457,6 +598,41 @@ mod tests {
         assert_eq!(look_point(&def(ShotActor::Target, ShotActor::Target, 0.0), a, t), t);
         assert_eq!(look_point(&def(ShotActor::Target, ShotActor::Target, 50.0), a, t), Vec3::new(50.0, 0.0, 0.0));
         assert_eq!(look_point(&def(ShotActor::Attacker, ShotActor::Attacker, 0.0), a, t), a);
+    }
+
+    #[test]
+    fn kill_camera_settings_are_known_by_their_names() {
+        assert_eq!(KillCamSetting::default(), KillCamSetting::LastEnemy);
+        for s in KillCamSetting::ALL {
+            assert_eq!(KillCamSetting::by_name(s.name()), Some(s));
+        }
+        assert_eq!(KillCamSetting::by_name(" every KILL "), Some(KillCamSetting::EveryKill));
+        assert_eq!(KillCamSetting::by_name("On"), None);
+    }
+
+    #[test]
+    fn a_playing_kill_camera_holds_the_frame_s_requests() {
+        let mut app = App::new();
+        app.init_resource::<KillCam>().init_resource::<MoveIntent>().init_resource::<PlayerControl>().add_systems(Update, hold_input);
+        let ask = |app: &mut App| {
+            *app.world_mut().resource_mut::<MoveIntent>() = MoveIntent { forward: 1.0, right: -1.0, jump: true, ..Default::default() };
+            let mut c = app.world_mut().resource_mut::<PlayerControl>();
+            (c.weapon_out, c.trigger, c.aiming, c.reload) = (true, true, true, true);
+        };
+        // No camera: nothing struck.
+        ask(&mut app);
+        app.update();
+        assert_eq!(app.world().resource::<MoveIntent>().forward, 1.0);
+        assert!(app.world().resource::<PlayerControl>().trigger);
+        app.world_mut().resource_mut::<KillCam>().show = Some(Show { target: FormId(0x1234), shots: Vec::new(), next: 0, playing: None, real: 0.0, held: 0 });
+        ask(&mut app);
+        app.update();
+        let (i, c) = (*app.world().resource::<MoveIntent>(), *app.world().resource::<PlayerControl>());
+        assert_eq!((i.forward, i.right, i.jump), (0.0, 0.0, false));
+        assert!(!c.trigger && !c.aiming && !c.reload && c.weapon_out, "the weapon stays out");
+        // A frame that asks nothing is not counted.
+        app.update();
+        assert_eq!(app.world().resource::<KillCam>().show.as_ref().map(|s| s.held), Some(1));
     }
 
     #[test]

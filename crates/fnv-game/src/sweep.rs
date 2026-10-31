@@ -13,11 +13,16 @@
 //! What a script does to the state is not checked, only whether it runs: a script that
 //! needs the state an earlier scene leaves (a reference variable set, an actor enabled)
 //! may fail here and not in play, so the causes are leads, not stalls.
+//!
+//! `arg_unread` (#1122) lists the calls that succeeded although the function could not
+//! read an argument they passed (`functions::Unread`): it went on with a default, so the
+//! script ran with a value it did not give. They are not counted in `with_problems`.
 
 use crate::coverage::{unit_name, Coverage};
 use crate::data::GameData;
 use crate::game::{Game, GameConfig, RunCtx};
 use crate::trace::EventKind;
+use fnv_script::ir::{Arg, Call, Expr, Program, Stmt, Token};
 use fnv_script::UnitOwner;
 use fnv_sim::{FormId, FormStore, RefTable, SimConfig, World};
 use serde_json::{json, Value as Json};
@@ -33,6 +38,9 @@ fn cause(kind: &EventKind) -> Option<(&'static str, String)> {
         EventKind::ScriptError { error, .. } => ("script_error", generic(error)),
         EventKind::Unhandled { name, .. } => ("unhandled", name.clone()),
         EventKind::Skipped { what, .. } => ("skipped", generic(what)),
+        EventKind::ArgUnread { opcode, name, param, got, wanted, .. } => {
+            ("arg_unread", format!("{name} ({opcode}) parameter {}: {got} read as {wanted}", param + 1))
+        }
         _ => return None,
     })
 }
@@ -117,7 +125,8 @@ pub fn sweep(data: &GameData, forms: &FormStore, refs: &RefTable, samples: usize
         met.dedup();
         let e = by_kind.entry(kind).or_default();
         e.0 += 1;
-        e.1 += usize::from(!met.is_empty());
+        // An unread argument is reported apart: the script ran, maybe with a wrong value.
+        e.1 += usize::from(met.iter().any(|m| m.0 != "arg_unread"));
         for m in met {
             let c = causes.entry(m).or_default();
             c.0 += 1;
@@ -143,4 +152,102 @@ pub fn sweep(data: &GameData, forms: &FormStore, refs: &RefTable, samples: usize
     let totals: serde_json::Map<String, Json> =
         grouped.iter().map(|(k, v)| (k.to_string(), json!({"causes": v.len(), "scripts": v.iter().map(|c| c["scripts"].as_u64().unwrap_or(0)).sum::<u64>()}))).collect();
     (json!({"format": FORMAT, "load_order": lo, "summary": {"scripts": kinds, "problems": totals}, "causes": grouped}), cov)
+}
+
+/// The kind of one compiled argument, for a call's shape.
+fn arg_shape(a: &Arg) -> char {
+    match a {
+        Arg::Int(_) | Arg::Float(_) | Arg::Ref(_) | Arg::Var(_) => 'v',
+        Arg::Enum(_) => 'e',
+        Arg::Axis(_) => 'a',
+        Arg::String(_) => 's',
+        Arg::FormatVars(_) => 'm',
+        Arg::Int32(_) => 'i',
+        Arg::Raw(_) => 'r',
+    }
+}
+
+/// Every call in a program, statements and expressions.
+fn program_calls<'p>(p: &'p Program, out: &mut Vec<&'p Call>) {
+    fn expr<'p>(e: &'p Expr, out: &mut Vec<&'p Call>) {
+        for t in &e.0 {
+            if let Token::Call { call } = t {
+                out.push(call);
+            }
+        }
+    }
+    p.walk(&mut |s| match s {
+        Stmt::Set { expr: e, .. } => expr(e, out),
+        Stmt::If { arms, .. } => arms.iter().for_each(|a| expr(&a.cond, out)),
+        Stmt::Call { call } => out.push(call),
+        Stmt::Unmatched { cond: Some(c), .. } => expr(c, out),
+        _ => {}
+    });
+}
+
+/// One argument shape of a function in the call probe: the unit of its first call site,
+/// that call as a statement, how many call sites have it, a few of their units.
+type Shape = (usize, Stmt, usize, Vec<usize>);
+
+/// The call probe (#1122): every implemented function called by any compiled script of
+/// the load order (object, quest and effect scripts too, which [`sweep`] does not run),
+/// once per distinct shape of its arguments (which parameters are values, codes, axes,
+/// strings, message variables), as a statement by itself in a game of its own, on the
+/// player, with the script's variables at 0. Lists the calls that succeeded although the
+/// function could not read an argument they passed (`EventKind::ArgUnread`): per
+/// function, parameter and kinds, the call sites of those shapes and a few of their
+/// scripts. A shape whose first call fails for want of context is not judged. Only
+/// vanilla call statements and expression tokens are probed: calls inside the
+/// extender's expressions (Let, Eval, While, ForEach: `Token::X`) are not, though they
+/// are traced as `ArgUnread` when a script runs them.
+pub fn probe_calls(data: &GameData, forms: &FormStore, refs: &RefTable, samples: usize) -> Json {
+    let lo = &data.load_order;
+    // Shape (opcode, argument kinds) → the first call site, how many, their scripts.
+    let mut shapes: BTreeMap<(u16, String), Shape> = BTreeMap::new();
+    for (id, u) in data.units.iter().enumerate() {
+        let mut calls = Vec::new();
+        program_calls(&u.program, &mut calls);
+        for c in calls {
+            if !matches!(crate::functions::lookup(c.opcode), Some(crate::functions::Kind::Impl(_))) {
+                continue;
+            }
+            let shape: String = c.args.iter().map(arg_shape).collect();
+            if shape.contains('r') {
+                continue;
+            }
+            let e = shapes.entry((c.opcode, shape)).or_insert_with(|| (id, Stmt::Call { call: c.clone() }, 0, Vec::new()));
+            e.2 += 1;
+            if e.3.len() < samples && !e.3.contains(&id) {
+                e.3.push(id);
+            }
+        }
+    }
+    // Cause → (call sites, scripts).
+    let mut found: BTreeMap<String, (usize, Vec<String>)> = BTreeMap::new();
+    // Shapes not judged: their probe failed (no context), by function and shape.
+    let mut failed: Vec<String> = Vec::new();
+    for ((op, shape), (unit, stmt, sites, units)) in &shapes {
+        let mut g = Game::new(data, World::new(forms, refs, SimConfig::default()), GameConfig::default());
+        let ctx = RunCtx { self_ref: Some(FormId::PLAYER_REF), action_ref: Some(FormId::PLAYER_REF), quest: None };
+        g.run_stmts(*unit, std::slice::from_ref(stmt), ctx);
+        if let Some(EventKind::CallFailed { name, error, .. }) = g.events.iter().map(|e| &e.kind).find(|k| matches!(k, EventKind::CallFailed { .. })) {
+            failed.push(format!("{name} (0x{op:04X}) {shape}: {}", generic(error)));
+        }
+        for e in &g.events {
+            if let Some(("arg_unread", what)) = cause(&e.kind) {
+                let f = found.entry(what).or_default();
+                f.0 += sites;
+                for u in units {
+                    let k = unit_name(lo, &data.unit(*u).key());
+                    if f.1.len() < samples && !f.1.contains(&k) {
+                        f.1.push(k);
+                    }
+                }
+            }
+        }
+    }
+    let mut ranked: Vec<_> = found.into_iter().collect();
+    ranked.sort_by(|a, b| b.1 .0.cmp(&a.1 .0).then(a.0.cmp(&b.0)));
+    let list: Vec<Json> = ranked.into_iter().map(|(what, (n, units))| json!({"cause": what, "calls": n, "e.g.": units})).collect();
+    json!({"shapes": shapes.len(), "not_judged": failed, "causes": list.len(), "calls": list.iter().map(|c| c["calls"].as_u64().unwrap_or(0)).sum::<u64>(), "arg_unread": list})
 }

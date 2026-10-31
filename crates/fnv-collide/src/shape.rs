@@ -7,6 +7,7 @@
 //! composes as parent ∘ child. Physics never sees NIF blocks, only these types.
 
 use serde::Serialize;
+use std::sync::Arc;
 
 /// Rigid placement: `p' = rotation · p + translation` (no scale; scale is baked into the
 /// shape's dimensions).
@@ -162,7 +163,9 @@ pub struct CollisionObject {
     pub mass: f32,
     pub friction: f32,
     pub restitution: f32,
-    pub shape: Shape,
+    /// Shared: the placed copies of a model hold the one shape its file was read into,
+    /// and physics converts it once per scale (`fnv_phys::convert`, issue #1085).
+    pub shape: Arc<Shape>,
     /// Contact shell, game units: the largest `radius` stored on the body's box,
     /// convex-vertices or triangle-mesh shapes (spheres and capsules carry theirs in their
     /// geometry), 0 when none. Havok keeps contacts this far outside the surface, so an

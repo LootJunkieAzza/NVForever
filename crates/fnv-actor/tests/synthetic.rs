@@ -73,6 +73,11 @@ fn acbs(flags: u32, template_flags: u16) -> Subrecord {
 }
 
 fn armo(id: u32, edid: &str, slots: u32, dt: f32, male: &str, female: Option<&str>) -> Vec<u8> {
+    armo_with(b"ARMO", id, edid, slots, dt, male, female, None)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn armo_with(sig: &[u8; 4], id: u32, edid: &str, slots: u32, dt: f32, male: &str, female: Option<&str>, bipl: Option<u32>) -> Vec<u8> {
     let mut subs = vec![
         sub(b"EDID", z(edid)),
         sub(b"BMDT", cat(&[&slots.to_le_bytes(), &[0u8, 0, 0, 0]])),
@@ -81,9 +86,12 @@ fn armo(id: u32, edid: &str, slots: u32, dt: f32, male: &str, female: Option<&st
     if let Some(f) = female {
         subs.push(sub(b"MOD3", z(f)));
     }
+    if let Some(l) = bipl {
+        subs.push(sub(b"BIPL", fid(l)));
+    }
     subs.push(sub(b"DATA", cat(&[&10i32.to_le_bytes(), &50i32.to_le_bytes(), &1f32.to_le_bytes()])));
     subs.push(sub(b"DNAM", cat(&[&0i16.to_le_bytes(), &[0; 2], &dt.to_le_bytes(), &0u16.to_le_bytes(), &[0; 2]])));
-    record(b"ARMO", id, &subs)
+    record(sig, id, &subs)
 }
 
 const RACE: u32 = 0x100;
@@ -98,6 +106,16 @@ const COWBOY_HAT: u32 = 0x112; // hair + headband + hat
 const HELMET: u32 = 0x113; // head + hair + hat
 const WIG: u32 = 0x114; // hair
 const GLOVES: u32 = 0x115; // both hands
+const VAULT_SUIT: u32 = 0x116; // upper body; BIPL BARE_HANDS
+const PIPBOY_GLOVE: u32 = 0x117; // left hand
+const HAND_L: u32 = 0x118; // ARMA, left hand
+const HAND_R: u32 = 0x119; // ARMA, right hand
+const BARE_HANDS: u32 = 0x11A; // FLST: HAND_R, HAND_L
+const DWELLER: u32 = 0x207; // vault suit + Pip-Boy Glove
+const LEATHER: u32 = 0x11B; // upper body; BIPL LEATHER_GLOVES
+const GLOVE_L: u32 = 0x11C; // ARMA, left hand, a glove model
+const LEATHER_GLOVES: u32 = 0x11D; // FLST: GLOVE_L
+const RANGER: u32 = 0x208; // leather + Pip-Boy Glove
 const BASE: u32 = 0x200; // man: outfit + armour + gloves, beard
 const HATTED: u32 = 0x201; // cowboy hat
 const HELMETED: u32 = 0x202;
@@ -160,6 +178,18 @@ fn plugin_bytes() -> Vec<u8> {
         &armo(HELMET, "Helmet", slot::HEAD | slot::HAIR | slot::HAT, 5.0, "armor\\helmet.nif", None),
         &armo(WIG, "Wig", slot::HAIR, 0.0, "armor\\wig.nif", None),
         &armo(GLOVES, "Gloves", slot::LEFT_HAND | slot::RIGHT_HAND, 1.0, "armor\\gloves.nif", None),
+        &armo_with(b"ARMO", VAULT_SUIT, "VaultSuit", slot::UPPER_BODY, 0.0, "armor\\vaultsuit.nif", None, Some(BARE_HANDS)),
+        &armo(PIPBOY_GLOVE, "PipBoyGlove", slot::LEFT_HAND, 0.0, "characters\\_male\\lefthandpipboyglove.nif", None),
+        &armo_with(b"ARMO", LEATHER, "Leather", slot::UPPER_BODY, 3.0, "armor\\leather.nif", None, Some(LEATHER_GLOVES)),
+    ]);
+    let arma = cat(&[
+        &armo_with(b"ARMA", HAND_R, "BaseGloveR", slot::RIGHT_HAND, 0.0, "characters\\_male\\righthand.nif", None, None),
+        &armo_with(b"ARMA", HAND_L, "BaseGloveL", slot::LEFT_HAND, 0.0, "characters\\_male\\lefthand.nif", None, None),
+        &armo_with(b"ARMA", GLOVE_L, "LeatherGloveL", slot::LEFT_HAND, 0.0, "armor\\leather\\glovel.nif", None, None),
+    ]);
+    let flst = cat(&[
+        &record(b"FLST", BARE_HANDS, &[sub(b"EDID", z("BaseHands")), sub(b"LNAM", fid(HAND_R)), sub(b"LNAM", fid(HAND_L))]),
+        &record(b"FLST", LEATHER_GLOVES, &[sub(b"EDID", z("LeatherGloves")), sub(b"LNAM", fid(GLOVE_L))]),
     ]);
     let cnto = |item: u32| sub(b"CNTO", cat(&[&fid(item), &1i32.to_le_bytes()]));
     let npc = |id: u32, edid: &str, flags: u32, tf: u16, extra: Vec<Subrecord>| {
@@ -183,6 +213,8 @@ fn plugin_bytes() -> Vec<u8> {
         &npc(HELMETED, "Helmeted", 0, 0, vec![cnto(HELMET), sub(b"PNAM", fid(BEARD)), sub(b"HNAM", fid(HAIR))]),
         &npc(WIGGED, "Wigged", 0, 0, vec![cnto(WIG), sub(b"HNAM", fid(HAIR))]),
         &npc(WOMAN, "Woman", 1, 0, vec![cnto(OUTFIT)]),
+        &npc(DWELLER, "Dweller", 0, 0, vec![cnto(VAULT_SUIT), cnto(PIPBOY_GLOVE), sub(b"HNAM", fid(HAIR))]),
+        &npc(RANGER, "Ranger", 0, 0, vec![cnto(LEATHER), cnto(PIPBOY_GLOVE), sub(b"HNAM", fid(HAIR))]),
         &npc(
             TEMPLATED,
             "Templated",
@@ -201,6 +233,8 @@ fn plugin_bytes() -> Vec<u8> {
         &top(b"HDPT", &hdpt),
         &top(b"RACE", &race),
         &top(b"ARMO", &armo),
+        &top(b"ARMA", &arma),
+        &top(b"FLST", &flst),
         &top(b"NPC_", &npcs),
         &top(b"LVLN", &lvln),
     ])
@@ -276,6 +310,23 @@ fn best_protection_is_worn_and_covers_race_parts() {
     let shape = a.shape_facegen(true).unwrap();
     assert_eq!((shape.fggs[0], shape.fggs.len(), shape.fgga.len(), shape.fgts.len()), (1.5, 50, 30, 0));
     assert_eq!(a.shape_facegen(false).unwrap().fggs[0], 1.0);
+}
+
+#[test]
+fn an_addon_gives_way_to_a_worn_item_in_its_slot() {
+    // The vault suits' BIPL names the bare hands as addons; the Pip-Boy Glove takes the
+    // left hand itself, so only the right bare hand is drawn with the suit (#1067).
+    let f = fixture();
+    assert!(f.actors.issues.is_empty(), "{:?}", f.actors.issues.to_json());
+    assert_eq!(f.actors.armors[&FormId(VAULT_SUIT)].addons, vec![FormId(HAND_R), FormId(HAND_L)]);
+    let r = Resolver { actors: &f.actors, forms: &f.forms };
+    let a = r.resolve(FormId(DWELLER), FormId(0x904)).unwrap();
+    let armor: Vec<String> = roles(&a).into_iter().filter(|p| !p.starts_with("head") && !p.starts_with("hair")).collect();
+    assert_eq!(armor, vec!["armor vaultsuit.nif", "armor righthand.nif", "armor lefthandpipboyglove.nif"]);
+    // An outfit's glove is no bare hand: the Pip-Boy Glove gives way to it.
+    let a = r.resolve(FormId(RANGER), FormId(0x905)).unwrap();
+    let armor: Vec<String> = roles(&a).into_iter().filter(|p| !p.starts_with("head") && !p.starts_with("hair")).collect();
+    assert_eq!(armor, vec!["body:right_hand righthand.nif", "armor leather.nif", "armor glovel.nif"]);
 }
 
 #[test]

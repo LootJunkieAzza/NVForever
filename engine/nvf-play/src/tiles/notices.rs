@@ -76,15 +76,24 @@ pub const BRACKET_STRENGTH: f64 = crate::corner_messages::BRACKET_STRENGTH as f6
 /// `QuestReminder`'s place [observed: hud.md §14], which the hand-built HUD's places are
 /// taken from: its texts start at its x (`quest_messages::TEXT_X`, 45).
 const QUEST_PIECE: (f64, f64) = (45.0, 200.0);
-/// A text tile's first line stands this far under its top (`super::draw::TEXT_BASE`).
-const BASE: f64 = super::draw::TEXT_BASE as f64;
+/// The label's and the objectives' font, their template's [documented: hud.md §2, the
+/// three text templates all in font 7].
+const TEXT_FONT: u8 = 7;
+
+/// How far a text tile's first line stands under its top in `font`
+/// (`super::draw::text_base`).
+fn base(font: u8) -> f64 {
+    f64::from(super::draw::text_base(font))
+}
 
 fn quest_x(x: f32) -> f64 {
     f64::from(crate::quest_messages::TEXT_X + x) - QUEST_PIECE.0
 }
 
-fn quest_y(base: f32) -> f64 {
-    f64::from(base) - BASE - QUEST_PIECE.1
+/// The top of a text tile in `font` whose first line stands on the hand-built HUD's
+/// `line`, from `QuestReminder`'s top.
+fn quest_y(line: f32, font: u8) -> f64 {
+    f64::from(line) - base(font) - QUEST_PIECE.1
 }
 
 /// `Region_Location`'s place [observed: hud.md §14, 100 x 100 at (45, 728)].
@@ -98,15 +107,18 @@ pub fn location_place((x, y): (f64, f64)) -> (f64, f64) {
 }
 
 /// The label ("Quest added"), the name (font 8, [observed: quest-messages.md §4]) and the
-/// first objective, from `QuestReminder`'s top left.
+/// first objective, from `QuestReminder`'s top left: each tile's top its font's line
+/// (`super::draw::text_base`) over the hand-built HUD's line, so the tiles draw the texts
+/// where it does (#979: the name's top 29.5 over its line, the label's and the
+/// objectives' 24).
 pub fn label_place() -> (f64, f64) {
-    (quest_x(0.0), quest_y(crate::quest_messages::LABEL_BASE))
+    (quest_x(0.0), quest_y(crate::quest_messages::LABEL_BASE, TEXT_FONT))
 }
 pub fn title_place() -> (f64, f64) {
-    (quest_x(crate::quest_messages::TITLE_X), quest_y(crate::quest_messages::TITLE_BASE))
+    (quest_x(crate::quest_messages::TITLE_X), quest_y(crate::quest_messages::TITLE_BASE, super::draw::font_number(TITLE_FONT)))
 }
 pub fn list_place() -> (f64, f64) {
-    (quest_x(0.0), quest_y(crate::quest_messages::LIST_BASE))
+    (quest_x(0.0), quest_y(crate::quest_messages::LIST_BASE, TEXT_FONT))
 }
 pub const TITLE_FONT: f64 = 8.0;
 pub const LIST_WRAP: f64 = crate::quest_messages::WRAP as f64;
@@ -116,7 +128,7 @@ pub const LIST_WRAP: f64 = crate::quest_messages::WRAP as f64;
 /// 26 x 26 filled and 16 x 16 open].
 pub fn box_rect() -> [f64; 4] {
     let [x, y, w, h] = crate::quest_messages::BOX;
-    [f64::from(x), f64::from(y) + BASE, f64::from(w), f64::from(h)]
+    [f64::from(x), f64::from(y) + base(TEXT_FONT), f64::from(w), f64::from(h)]
 }
 
 // ---- Subtitles [observed: hud.md §14.11, `Subtitles/*:0`] --------------------------------
@@ -542,11 +554,12 @@ mod tests {
         write(&mut ui, &Notices { quest: Some(banner), ..Default::default() }, &lines);
         let label = copies(&ui, "QuestReminder", "label")[0];
         let title = copies(&ui, "QuestReminder", "title")[0];
-        // "Quest added" on 247, the name in font 8 on 311, from x 45 (quest-messages.md §4).
+        // "Quest added" on 247, the name in font 8 on 311, from x 45 (quest-messages.md §4):
+        // the label's top 24 over its line (font 7), the name's 29.5 (font 8).
         fn at(ui: &Ui, t: TileId) -> (f64, f64) {
             (ui.tile(t).get("x").unwrap().num(), ui.tile(t).get("y").unwrap().num())
         }
-        assert_eq!((at(&ui, label), at(&ui, title)), ((0.0, 23.0), (-1.5, 87.0)));
+        assert_eq!((at(&ui, label), at(&ui, title)), ((0.0, 23.0), (-1.5, 81.5)));
         assert_eq!(ui.tile(title).get("font").unwrap().num(), 8.0);
         assert_eq!(ui.tile(title).get("string").unwrap().text(), "BACK IN THE SADDLE");
         assert_eq!(ui.tile(label).get("alpha").unwrap().num(), 255.0);
@@ -601,9 +614,9 @@ mod tests {
             ["x", "y", "alpha", "visible"].map(|n| ui.tile(t).get(n).unwrap().num())
         }
         // The quest banner's places from Region_Location's (45, 728): the label's top on
-        // 223, the name's on 287, as QuestReminder's (45, 200) + (0, 23) and (-1.5, 87).
+        // 223, the name's on 281.5, as QuestReminder's (45, 200) + (0, 23) and (-1.5, 81.5).
         assert_eq!(traits(&ui, label), [0.0, -505.0, 127.5, 0.0]);
-        assert_eq!(traits(&ui, title), [-1.5, -441.0, 127.5, 0.0]);
+        assert_eq!(traits(&ui, title), [-1.5, -446.5, 127.5, 0.0]);
         assert_eq!(ui.tile(label).get("string").unwrap().text(), "You have discovered");
         assert_eq!((ui.tile(title).get("string").unwrap().text(), ui.tile(title).get("font").unwrap().num()), ("GOODSPRINGS".into(), 8.0));
         // QuestReminder's banner holds the same and is the one shown.
