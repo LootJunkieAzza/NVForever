@@ -1104,7 +1104,7 @@ fn run_line(rt: &mut Runtime, call: &ConsoleCall) -> Result<ConsoleReply, String
     // A console-only command (numbered from `CONSOLE_OPCODE_BASE`) that prints lines,
     // registered by name in `fnv_game::functions::console`; the others go through
     // `Game::call_function` as every function does.
-    let console_fn = g.data.table.by_name(&func).filter(|&op| op >= fnv_script::table::CONSOLE_OPCODE_BASE).and_then(|op| g.data.table.get(op)).and_then(|f| Some((f.name.clone(), fnv_game::functions::console::lookup(&f.name)?)));
+    let console_fn = fnv_game::functions::console::lookup_word(&g.data.table, &func);
     if let Some((name, run)) = console_fn {
         let r = run(g, &console_ctx, args);
         let requests = std::mem::take(&mut g.console_requests);
