@@ -5073,6 +5073,32 @@ FORMAT1_PROBES = (
            '(GetTextureSetFlag rObj 0) (GetTextureSetFlag rObj 1))')]
 )
 
+
+# tmpl2 (read-only; #1057): the cases tmpl1 left open [observed: FalloutNV.esm NPC_ scan].
+# No NPC_ there takes Traits from an NPC with a class other than its own; one takes them from
+# an NPC with another race: PrimmNCRTrooper3 (own RNAM 0x424A, PrimmNCRTrooper1's 0x19).
+# Packages, each using AI Packages from an NPC with another list: a Brotherhood paladin with
+# no PKID of its own (template 5) and one with 6 of its own (template 5), FortChildHM (1 vs 2),
+# 1ESharecropperCF (5 vs 3); and the template paladin itself.
+TM2 = {"trooper3": "099D05", "paladin0": "0E2966", "paladin6": "0E2960", "child": "11E507",
+       "sharecropper": "0F6403", "paladintmpl": "15E581"}
+
+
+def _tm2(pid, key, expr, text=False):
+    rd = f"SetFunctionValue (GetFormIDString ({expr}))" if text == "form" else f"SetFunctionValue ({expr})"
+    return (f"tmpl2.{pid}", "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\n" + _form("rObj", TM2[key]) + rd,
+            bool(text), None, "")
+
+
+TMPL2_PROBES = [
+    _tm2("trooper3.race", "trooper3", "GetRace rObj", "form"),
+    _tm2("trooper3.class", "trooper3", "GetClass rObj", "form"),
+    *[p for k in ("paladin0", "paladin6", "child", "sharecropper", "paladintmpl") for p in (
+        _tm2(f"{k}.packages", k, "ar_Size (GetBasePackages rObj)"),
+        _tm2(f"{k}.package0", k, "(GetBasePackages rObj)[0]", "form"),
+    )],
+]
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -5138,7 +5164,8 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "jg1": JG1_PROBES,
         "jg2": JG2_PROBES,
         "jip5": JIP5_PROBES,
-        "format1": FORMAT1_PROBES}
+        "format1": FORMAT1_PROBES,
+        "tmpl2": TMPL2_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",

@@ -137,6 +137,25 @@ impl GameData {
         Some((id, def))
     }
 
+    /// The actor record a base form's NVSE getters read a group from, with no reference
+    /// and so no leveled pick: follow `TPLT` from `base` through actor records while the
+    /// group's flag (`from_template`) is set. A chain that reaches a leveled list, or a
+    /// missing template, gives `base` itself (its own record) [observed: tmpl1, tmpl2 in
+    /// #1057; the original's answers through a list match no record, docs/spec-notes/actors.md
+    /// §2.2].
+    pub fn base_template_source(&self, base: FormId, from_template: fn(&ActorDef) -> bool) -> FormId {
+        let mut id = base;
+        for _ in 0..MAX_DEPTH {
+            let Some(def) = self.actors.get(&id) else { return base };
+            match def.template.filter(|_| from_template(def)) {
+                None => return id,
+                Some(t) if self.actors.contains_key(&t) => id = t,
+                Some(_) => return base,
+            }
+        }
+        base
+    }
+
     /// Whether `reference`, placed with `base`, is flagged No VATS Melee on its own record
     /// (docs/spec-notes/actor-flags.md §1; `Game::no_vats_melee`), a leveled base read at
     /// `at` (the reference's level, `Game::leveled_at`: the actor drawn for it).
