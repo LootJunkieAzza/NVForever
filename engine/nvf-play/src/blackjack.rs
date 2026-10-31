@@ -40,7 +40,7 @@ use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
 use crate::PlayState;
 use crate::PlaySet;
 use bevy::prelude::*;
-use crate::ui_compat::Interaction;
+use crate::ui_pointer::PointerState;
 use fnv_game::blackjack::{self as rules, Action, BlackjackRequest, CasinoDef, Card, Closed, Event, Outcome, Phase, Refusal, Rules, Seat, Table};
 use fnv_sim::FormId;
 use rand_chacha::ChaCha8Rng;
@@ -508,14 +508,14 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, screen: Res<BlackjackScreen>, time: Aid
 }
 
 /// A clicked button: the menu's own, or the help box's Close.
-type Clicked<'a> = (&'a Interaction, AnyOf<(&'a screen::BlackjackButton, &'a crate::lockpick::screen::LockButton)>);
+type Clicked<'a> = (&'a PointerState, AnyOf<(&'a screen::BlackjackButton, &'a crate::lockpick::screen::LockButton)>);
 
-fn buttons(screen: Res<BlackjackScreen>, pressed: Query<Clicked, Changed<Interaction>>, mut out: MessageWriter<BlackjackInput>) {
+fn buttons(screen: Res<BlackjackScreen>, pressed: Query<Clicked, Changed<PointerState>>, mut out: MessageWriter<BlackjackInput>) {
     if screen.0.is_none() {
         return;
     }
     for (i, (b, help)) in &pressed {
-        if *i != Interaction::Pressed {
+        if *i != PointerState::Pressed {
             continue;
         }
         if let Some(b) = b {

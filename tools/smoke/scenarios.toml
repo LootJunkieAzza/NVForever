@@ -995,6 +995,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "wait-pointer-press"
+source = "issue #950: the menus' own pointer state (ui_pointer.rs) keeps Bevy 0.20 Interaction's timing: a real left press on the wait menu's slider puts the marker under the pointer, and a press on Accept fires on the press, before the release"
+areas = ["wait", "menus"]
+paths = ["engine/nvf-play/src/ui_pointer.rs", "engine/nvf-play/src/wait.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_WAIT = "10:open,11:point=0.584:0.47,11.5:press,12:release,12.5:point=0.677:0.576,13:press,14:release" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--size", "1280x720"]
+run_seconds = 18
+expect = [
+  "wait menu: open",
+  { re = 'wait menu: waiting (?P<n>\d+) hour', range = [17, 19], label = "the slider press at 72% of its length chose about 18 hours" },
+]
+order = [["test aid NVF_PLAY_TEST_WAIT: Point(0.677, 0.576)", "test aid NVF_PLAY_TEST_WAIT: Press", "wait menu: waiting … hour(s)", "test aid NVF_PLAY_TEST_WAIT: Release"]]
+
+[[scenario]]
 name = "sleep-goodsprings-24h"
 source = "CLAUDE.md: after changes to the wait and sleep menu or to the play clock it advances (fnv_sim::World::advance_hours, sky_follows_game)"
 areas = ["wait", "clock"]
