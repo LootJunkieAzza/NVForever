@@ -826,6 +826,12 @@ pub fn reset_3d_state(g: &mut Game, ctx: &Ctx, _: &Args) -> Result<Value, String
     none()
 }
 
+/// The widest field and the most digits a message's specifier writes: a larger width or
+/// precision is cut to this, so a broken plugin's `%.4000000000f` cannot build a huge
+/// string [design: #1134; the same limit as the extender's formatter, `fnv_script`'s
+/// `MAX_FORMAT_FIELD`]. Base-game messages use far smaller values [observed: `%.0f`, `%.2f`].
+pub const MAX_MESSAGE_FIELD: usize = 512;
+
 /// A message text with its format specifiers filled from `vars` in order, or None when
 /// there are fewer variables than specifiers [documented: GECK wiki ShowMessage,
 /// "Formatting messages"]: `%[flags][width][.precision]` then `f`, `e` or `g`, flags `+`
@@ -833,7 +839,8 @@ pub fn reset_3d_state(g: &mut Game, ctx: &Ctx, _: &Args) -> Result<Value, String
 /// (zero fill); `%%` is a percent sign. The rules follow C's printf, which the page's
 /// examples match [hypothesis]; `e` writes a three-digit exponent (`1.23e+005`) as the
 /// page shows [documented], its letter case following the specifier [hypothesis]. A `%`
-/// not starting a specifier is kept as written [hypothesis].
+/// not starting a specifier is kept as written [hypothesis]. Width and precision are cut
+/// to [`MAX_MESSAGE_FIELD`].
 pub fn format_message(text: &str, vars: &[f64]) -> Option<String> {
     let mut out = String::with_capacity(text.len());
     let mut next = vars.iter();
@@ -850,12 +857,13 @@ pub fn format_message(text: &str, vars: &[f64]) -> Option<String> {
         let flags = &spec[..flags_len];
         let after_flags = &spec[flags_len..];
         let width_len = after_flags.find(|c: char| !c.is_ascii_digit()).unwrap_or(after_flags.len());
-        let width: usize = after_flags[..width_len].parse().unwrap_or(0);
+        // Digits past usize parse as the cap, not as no width.
+        let width: usize = after_flags[..width_len].parse().unwrap_or(if width_len > 0 { MAX_MESSAGE_FIELD } else { 0 }).min(MAX_MESSAGE_FIELD);
         let mut tail = &after_flags[width_len..];
         let mut precision = None;
         if let Some(p) = tail.strip_prefix('.') {
             let n = p.find(|c: char| !c.is_ascii_digit()).unwrap_or(p.len());
-            precision = Some(p[..n].parse().unwrap_or(0));
+            precision = Some(p[..n].parse().unwrap_or(if n > 0 { MAX_MESSAGE_FIELD } else { 0 }).min(MAX_MESSAGE_FIELD));
             tail = &p[n..];
         }
         let Some(conv) = tail.chars().next().filter(|c| "feEgG".contains(*c)) else {
@@ -931,8 +939,23 @@ fn general_form(v: f64, precision: usize, upper: bool) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_message, message_vars, Args};
+    use super::{format_message, message_vars, Args, MAX_MESSAGE_FIELD};
     use fnv_script::vm::{ArgValue, Value};
+
+    #[test]
+    fn huge_widths_and_precisions_are_cut() {
+        // #1134: a broken plugin's specifier must not build a gigabyte string.
+        let t = std::time::Instant::now();
+        for spec in ["%.4000000000f", "%4000000000f", "%099999999999999999999999.3e", "%-4000000000g"] {
+            let s = format_message(spec, &[1.5]).unwrap();
+            assert!(s.len() <= MAX_MESSAGE_FIELD + 16, "{spec}: {}", s.len());
+        }
+        assert_eq!(format_message("%.4000000000f", &[1.5]).unwrap().len(), 2 + MAX_MESSAGE_FIELD);
+        assert_eq!(format_message("%4000000000f", &[1.5]).unwrap().len(), MAX_MESSAGE_FIELD);
+        assert!(t.elapsed().as_secs() < 2);
+        // Ordinary specifiers are unchanged.
+        assert_eq!(format_message("%5.1f|%.0f", &[2.25, 28.0]).as_deref(), Some("  2.2|28"));
+    }
 
     #[test]
     fn compiled_format_variables_are_unpacked_and_the_duration_skipped() {
