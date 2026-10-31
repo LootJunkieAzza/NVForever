@@ -1031,10 +1031,20 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
 - **Observe Combat Behavior**'s running away from a fight that comes too close (§7.6b
   says its lines).
 - **Guard "Remain Near Reference to Guard"**: no page in the wiki export documents the
-  Guard package's tab.
+  Guard package's tab. Built on the flag's name (#961) [hypothesis]: a Guard with it
+  stays near its target reference (or linked reference), within the location's radius,
+  else the target's distance. The masters set it on 3 packages:
+  LilyPsychoticBreakPACKAGE (a reference, 1,500), VHDMPStageGuardPackage (linked
+  reference, 512) and VHDOliverNCRHeavyTrooperFireSupportHuntPlayerPackage (object type
+  None: no reference, so its location stands) [observed: PKDT/PTDT of FalloutNV.esm].
 - **Stay-at locations by Object ID, Object Type, "At package location"**: the Standard
   Location page names only Near Editor Location, Near Current Location, In Cell and Near
-  Reference; how the other kinds choose a place is undocumented.
+  Reference; how the other kinds choose a place is undocumented. Built (#961)
+  [hypothesis]: Object ID / Object Type stay near the nearest present matching reference
+  within 4,096 units of the actor (`goal::OBJECT_LOCATION_SEARCH`, ties by FormID);
+  "At package location" as location 1 is where the actor is. No master package has
+  these as location 1; "At package location" is Eat's location 2 in 47 [observed:
+  `fnvtool ai packages` location_kinds].
 - **XIBS Ignored By Sandbox**: "Appears not to work in New Vegas" [documented: GECK wiki
   Reference Data Flags]; left alone on purpose.
 - **Header bit 25 No AI Acquire** ("AI will not attempt to pick up containers or objects
