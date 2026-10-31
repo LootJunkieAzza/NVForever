@@ -172,6 +172,11 @@ pub struct WaterCache {
 }
 
 impl WaterCache {
+    /// Water materials made (the stress census).
+    pub fn len(&self) -> usize {
+        self.materials.len()
+    }
+
     /// Tell every water material which plane the reflection texture shows.
     pub fn set_reflection_plane(&self, materials: &mut Assets<WaterMaterial>, plane: Vec4) {
         for h in self.materials.values() {

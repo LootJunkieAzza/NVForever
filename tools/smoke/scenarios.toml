@@ -6567,6 +6567,19 @@ expect = [
 forbid = [{ re = 'the player died', label = "the player dies" }]
 
 [[scenario]]
+name = "console-killall"
+source = "issue #1046: `killall` (KillAllActors, GECK wiki: kills every actor in the loaded area, essential ones knocked out) did nothing; the console now finds vanilla functions without an opcode by name and alias (docs/design/console.md)"
+areas = ["console"]
+paths = ["crates/fnv-game/src/functions/console.rs", "engine/nvf-play/src/console.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_CONSOLE = "12:killall;12.3:player.getdead;12.6:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 18
+order = [[
+  { re = 'KillAllActors >> [1-9]\d* killed, \d+ essential knocked out', label = "the town's actors die, essential ones are knocked out" },
+  { re = 'console: GetDead on player >> 0\.00', label = "never the player" },
+]]
+
+[[scenario]]
 name = "reputation-disguise"
 source = "owner request 2026-10-22: faction armour's scripts set every reputation to 0 while it is worn and back after; only the player's real reputation opens boxes, so putting on and taking off a Powder Gang outfit (000A472F, script 00134B71) shows none"
 areas = ["hud"]

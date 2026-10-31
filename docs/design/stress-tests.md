@@ -90,6 +90,13 @@ Every run writes `target/stress/<test>/<run>/results.json` (everything) and `rep
   and the resources held in the NifMaterial bindless slabs. When a label has more
   allocations than live images, something still holds textures the game let go of (#903).
 
+  Every 30 s, `stress caches:` lists the caches the release sweep (`release.rs`) does not
+  own, and the texture cache: per cache its entries, those nothing outside it holds
+  (idle), and the images its materials sample with their GPU bytes (from the images'
+  descriptors; an image two caches share counts in both). Grass models, trees and water
+  materials are counted only (one per GRAS, TREE, WATR form). Interface pictures are
+  read from `stress gpu labels` (`textures\interface`) (#904).
+
   At the exit, `stress frames:` gives the whole run's frame-time mean, 1 % low and worst.
 
 ## 3. cells
@@ -184,7 +191,9 @@ Long play's memory: what the engine holds, sampled along laps of the Mojave.
   and the asset caches (`models cached`, `textures cached`) should end near their
   lap-start counts. One whose mean over the lap's last tenth of samples is above its first
   tenth's by more than 25 % plus 100 is listed. The caches drop what no live entity uses
-  after five minutes, keeping at most 2,048 unused entries each
+  after five minutes, keeping at most 2,048 unused entries each; a texture's five minutes
+  count from when the model or actor part that held it went unused (#904; before, it
+  waited the model's five minutes and then its own)
   (`engine/nvf-assets/src/release.rs`; one minute and 256 before 2026-10-22, when this
   check came back clean). Since then the caches, and the meshes and images they hold,
   end a lap up by the last five minutes' places and are listed here by design [observed:
