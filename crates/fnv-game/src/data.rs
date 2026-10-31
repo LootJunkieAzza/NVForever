@@ -1043,7 +1043,15 @@ pub struct IdleDef {
     /// DATA flags bit 0 "No attacking": no attacking while the idle plays [documented:
     /// xEdit IDLE DATA; GECK wiki Idle Animations Window]. Absent in the 6-byte DATA.
     pub no_attacking: bool,
+    /// DATA "Animation Group Section": the low six bits of byte 0 (7 Special Idle,
+    /// 20 Whole Body, 21 Upper Body, ...) [documented: xEdit IDLE DATA, wbIdleAnam;
+    /// `fnv_actor::idle::SECTIONS`].
+    pub section: u8,
 }
+
+/// The "Upper Body" animation group section ([`IdleDef::section`]) [documented: xEdit
+/// wbIdleAnam].
+pub const IDLE_SECTION_UPPER_BODY: u8 = 21;
 
 impl IdleDef {
     /// From the raw `MODL` (a NUL-terminated name) and `DATA` (animation group section,
@@ -1054,7 +1062,7 @@ impl IdleDef {
             .filter(|s| !s.is_empty());
         let byte = |i: usize| data.and_then(|d| d.get(i)).copied().unwrap_or(0);
         let replay_delay = i16::from_le_bytes([byte(4), byte(5)]);
-        IdleDef { model, loop_min: byte(1), loop_max: byte(2), conditions: Some(Vec::new()), parent: None, previous: None, replay_delay, no_attacking: byte(6) & 1 != 0 }
+        IdleDef { model, loop_min: byte(1), loop_max: byte(2), conditions: Some(Vec::new()), parent: None, previous: None, replay_delay, no_attacking: byte(6) & 1 != 0, section: byte(0) & 0x3F }
     }
 
     /// Whether the record names an animation file.
