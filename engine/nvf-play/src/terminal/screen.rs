@@ -41,22 +41,27 @@ pub fn bright() -> Color {
     compose_screen(Color::srgb_u8(63, 255, 152), None)
 }
 
-/// [design] Middle glass target, fitted to §2 and the 2026-10-31 reference measurements.
-/// Tuning on hacking.png away from ink/glare: add (target - measured) sRGB units to
-/// the corresponding channel; the derived undercoat follows, with the texture intact.
-const GLASS_MIDDLE: Color = Color::srgb_u8(19, 41, 25);
+/// [design] The middle of the glass beneath the monitor's glare: the original's middle
+/// (21, 44, 26) [observed: §2, the 2026-10-31 reference] less what the glare's dark
+/// texels add there in linear light, a few units (`terminal_view.rs`, §7); in game the
+/// glass alone read (13, 35, 17) in the middle and (4, 8, 2) in the corners [observed:
+/// 2026-10-31, the glare switched off]. Tuning on hacking.png away from ink and
+/// streak: add (target - measured) sRGB units to the channel; the derived undercoat
+/// follows, with the texture intact.
+const GLASS_MIDDLE: Color = Color::srgb_u8(12, 38, 20);
 /// [observed: private background DDS, centre texel (256,256), 2026-10-31]
 /// RGB (76,77,76), alpha 255. A representative sample, not the whole image's colour.
 const BACKGROUND_MIDDLE: Color = Color::srgb_u8(76, 77, 76);
-/// [design] Lower than main's 0.4; tint and undercoat together fit the middle and corner.
+/// [design] Main's 0.4 again: the image carries the vignette over a nearly black undercoat.
 /// Tuning with the middle held fixed: +0.0056 per excess green unit in a dark corner
-/// (near 12) darkens that corner by about one unit; reverse for a corner too dark.
-const BACKGROUND_ALPHA: f32 = 0.3;
-/// [design] Linear-light fit to middle (19,41,25), dark corner about (8,11,5), and the
-/// measured DDS sample above. Independent of the foreground's saturated green tint.
-/// Keep fixed when tuning alpha; per-channel tint tuning is only needed for corner hue:
-/// +1 sRGB tint unit lowers corner R/G/B by about 0.24/0.52/0.35 with middle held fixed.
-const BACKGROUND_TINT: Color = Color::srgb_u8(120, 237, 165);
+/// (near 7) darkens that corner by about one unit; reverse for a corner too dark.
+const BACKGROUND_ALPHA: f32 = 0.4;
+/// [design] Fit so that the image carries the vignette: with this tint the derived
+/// undercoat is nearly black (sRGB 4, 10, 2) and the image's corner texel composes to
+/// (3, 8, 2), the original's corner (8, 11, 5) less the glare's few units there.
+/// Independent of the foreground's saturated green tint. Keep fixed when tuning alpha;
+/// per-channel tint tuning is only needed for the corner's hue.
+const BACKGROUND_TINT: Color = Color::srgb_u8(90, 202, 131);
 
 /// [design] The ImageNode's texture × tint, including both alpha factors, in linear light.
 fn background_layer(texel: Color) -> Color {
@@ -490,18 +495,19 @@ mod tests {
 
     #[test]
     fn composed_layers_match_the_measured_screen_in_both_modes() {
-        // [observed: hacking.md §2] Final displayed glass ranges and block colour.
+        // [observed: hacking.md §2] Final displayed glass ranges and block colour; the
+        // glass alone sits under the ranges by the glare's floor (GLASS_MIDDLE).
         let ranges = [(16..=23), (38..=52), (15..=32)];
         let glass = compose_screen(Color::NONE, Some(BACKGROUND_MIDDLE));
         let block = bright();
-        assert_eq!(glass.to_srgba().to_u8_array(), [19, 41, 25, 255]);
+        assert_eq!(glass.to_srgba().to_u8_array(), [12, 38, 20, 255]);
         assert_eq!(block.to_srgba().to_u8_array(), [63, 255, 152, 255]);
         // [design] Verify the actual undercoat + ImageNode source-over, not just the
         // target constant. Samples cover a dark corner, dim texture and middle;
         // the brightest texture can exceed the middle's range, as can the glare (§2).
-        assert_eq!(screen_color().to_srgba().to_u8_array(), [11, 15, 7, 255]);
+        assert_eq!(screen_color().to_srgba().to_u8_array(), [4, 10, 2, 255]);
         let tint = BACKGROUND_TINT.to_linear();
-        for (sample, expected) in [([5, 6, 5], [8, 12, 6, 255]), ([49, 49, 49], [13, 27, 16, 255]), ([76, 77, 76], [19, 41, 25, 255]), ([99, 99, 99], [25, 53, 34, 255])] {
+        for (sample, expected) in [([5, 6, 5], [3, 8, 2, 255]), ([49, 49, 49], [7, 24, 11, 255]), ([76, 77, 76], [12, 38, 20, 255]), ([99, 99, 99], [17, 50, 28, 255])] {
             let texel = Color::srgb_u8(sample[0], sample[1], sample[2]);
             let p = texel.to_linear();
             let layer = Color::linear_rgba(p.red * tint.red, p.green * tint.green, p.blue * tint.blue, BACKGROUND_ALPHA);
@@ -513,17 +519,21 @@ mod tests {
         // A transparent texture sample leaves the undercoat, and a missing image
         // uses the middle target; neither may turn the screen transparent [design].
         assert_eq!(compose_screen(Color::NONE, Some(Color::NONE)), screen_color());
-        assert_eq!(compose_screen(Color::NONE, None).to_srgba().to_u8_array(), [19, 41, 25, 255]);
+        assert_eq!(compose_screen(Color::NONE, None).to_srgba().to_u8_array(), [12, 38, 20, 255]);
         // [design] Exercise source-over at partial glyph coverage as well as the
         // empty glass and solid blocks; blending must happen in linear light.
-        assert_eq!(compose_screen(block.with_alpha(0.5), Some(BACKGROUND_MIDDLE)).to_srgba().to_u8_array(), [47, 189, 112, 255]);
+        assert_eq!(compose_screen(block.with_alpha(0.5), Some(BACKGROUND_MIDDLE)).to_srgba().to_u8_array(), [45, 189, 112, 255]);
         for shade in [SHADE, SHADE_FLAT] {
             for world in [Color::BLACK, Color::WHITE] {
                 let backdrop = over(Color::BLACK.with_alpha(shade), world);
                 let shown_glass = over(glass, backdrop).to_srgba().to_u8_array();
                 let shown_block = over(block, backdrop).to_srgba().to_u8_array();
+                // [design] What the glare's dark texels add over the middle in linear
+                // light, about (8, 6, 8) display units on this glass (terminal_view.rs,
+                // §7), is what puts the glass into the §2 ranges.
+                let glare_floor = [8u8, 6, 8];
                 for channel in 0..3 {
-                    assert!(ranges[channel].contains(&shown_glass[channel]), "glass {shown_glass:?}, shade {shade}");
+                    assert!(ranges[channel].contains(&(shown_glass[channel] + glare_floor[channel])), "glass {shown_glass:?}, shade {shade}");
                     assert!(shown_block[channel].abs_diff([63, 255, 152][channel]) <= 3, "block {shown_block:?}, shade {shade}");
                 }
                 assert_eq!(shown_glass[3], 255);

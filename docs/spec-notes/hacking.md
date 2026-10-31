@@ -99,23 +99,29 @@ the header stroke patch (455–550; 152–180) has median (63, 246.5, 141), mean
 earlier measurements [hypothesis]; retain the §2 block target (63, 255, 152) [design].
 
 [design] Keep the Pip-Boy background beneath the ink and the monitor's glare above the
-screen (§7). Fit middle glass to (19, 41, 25), with the measured corner/middle ratio
-as a guide. The background's alpha is 0.30 (previously 0.4), its independent sRGB tint
-(120, 237, 165). [observed: private `textures/interface/shared/background/pipboy.dds`,
-PIL, 2026-10-31] Its centre texel (256,256) is (76,77,76,255), corner (0,0) is
-(5,6,5,255), and RGB maxima are (99,99,99); it is a dark texture, not white.
-[design] In linear light, solve `undercoat = (middle - tinted_centre × alpha) /
-(1-alpha)`, approximately sRGB (11.43,14.91,7.36), so undercoat + background reaches
-the measured middle instead of brightening it twice. The image retains its texture
+screen (§7). The glare is additive and its dark texels add a little over the whole glass
+(a few display units in linear light; §7), so the glass beneath it is fitted to the
+original's middle less that, (12, 38, 20) [design: from the in-game measurements of
+2026-10-31; the first fit, to (19, 41, 25), with the glare through the engine's
+display-value add read (33, 46, 31) in game]. With the glare switched off the glass
+alone read (13, 35, 17) in the middle, (4, 8, 2) in the corners and the blocks exactly
+(63, 255, 152) [observed: 1280 x 720, 2026-10-31]. The background's alpha is 0.4
+(as on main), its independent sRGB tint (90, 202, 131). [observed: private
+`textures/interface/shared/background/pipboy.dds`, PIL, 2026-10-31] Its centre texel
+(256,256) is (76,77,76,255), corner (0,0) is (5,6,5,255), and RGB maxima are (99,99,99);
+it is a dark texture, not white. [design] In linear light, solve `undercoat = (middle -
+tinted_centre × alpha) / (1-alpha)`, approximately sRGB (4, 10, 2): the image carries the
+vignette, and undercoat + background reaches the middle instead of brightening it twice. The image retains its texture
 and vignette; the same composition is used in monitor and flat modes. If unavailable,
 the image falls back to opaque middle glass.
 
 [design] `screen::compose_screen` mirrors undercoat → texture × tint → foreground
-coverage in linear light. Its test predicts middle (19,41,25), dark texture corner
-(8,12,6), dim texel (49,49,49) → (13,27,16), brightest texel → (25,53,34), opaque
-blocks (63,255,152), and half glyph coverage at the middle (47,189,112). It checks
-undercoat + background, the middle's §2 ranges, blocks within 3 units and opacity over
-both world shades. The upper text-stroke measurement is not a separate text tint.
+coverage in linear light. Its test predicts middle (12,38,20), dark texture corner
+(3,8,2), dim texel (49,49,49) → (7,24,11), brightest texel → (17,50,28), opaque
+blocks (63,255,152), and half glyph coverage at the middle (45,189,112). It checks
+undercoat + background (the §2 ranges hold for the middle with the glare's floor on
+top, not for the glass alone), blocks within 3 units and opacity over both world
+shades. The upper text-stroke measurement is not a separate text tint.
 Glare's final screen-space contribution remains an in-game check (§7).
 
 ## 3. The words
@@ -232,37 +238,43 @@ in the data looks like a word list.
   them lost the original's texture, vignette and streak. [design] Restore both at
   derived strengths. The screen material remains unlit with inherited emissive cleared,
   so its texels are not tinted again. Keep the monitor's case, camera and power button.
-- [design] `terminal_view.rs` scales the glare's material alpha by `GLARE_ALPHA_SCALE`
-  0.90 and estimates its linear light contribution with `GLARE_LIGHT_SCALE`
-  (0.812,0.554,0.403): `(linear(100,125,95) - linear(19,41,25)) /
-  (linear(114,169,147) - linear(38,73,50))`. Scale base RGB by that vector divided by
-  the alpha scale (by alpha^1.5 for unlit Blend, matching `nif_material.wesl`). Preserve
-  the authored alpha mode, textures, mesh and emissive; base RGB already multiplies
-  emissive in that shader [observed: code], so scaling emissive too would double it.
-  [hypothesis] This is an initial material estimate: the shots do not isolate the
-  glare from background, lighting, vertex colour and filtering. A running game must
-  check the streak near (100,125,95), and blocks/text away from it near (63,255,152) /
-  no higher than (88,255,160). No game was run for this revision [observed].
+- [observed: the model's blocks, `fnvtool nif decode`, 2026-10-31] `glare:0` has
+  NiAlphaProperty flags 4109 (blend on, SRC_ALPHA / ONE: additive), a
+  BSShaderNoLightingProperty with `TerminalScreenGlare.dds` (DXT1, alpha 255
+  throughout; texels of 4 to 15 in its dark parts, (90, 110, 112) at the streak's peak)
+  and a black emissive; no vertex colours.
+- [observed: in game, 1280 x 720, 2026-10-31] Through the engine's display-value add
+  for additive shapes (`nif_material.wesl` `add_display`, nif.md §6) those dark texels
+  put a floor over the whole glass: with the glare off and on, the glass read (13, 35,
+  17) and (30-39, 43-62, 26-39) in the middle, (4, 8, 2) and (17, 21, 9) in the corners,
+  the blocks (63, 255, 152) and (93, 255, 177); the display-value add turns a texel of
+  12 into about 20 display units. The original shows no such floor: corners (8, 11, 5)
+  and blocks (59-65, 255, 148-152) under a streak of about +80. Added in linear light,
+  the same texels put 1 to 4 units on the glass and the predicted corner (9, 12, 6),
+  blocks (69, 255, 153) and middle (21, 41, 25) fall on the original's.
+- [design] `terminal_view.rs` therefore draws the glare on Bevy's own unlit additive
+  material with the model's texture, base colour `GLARE_LINEAR_SCALE` (1.19, 1.14,
+  0.64) in linear light: the original's peak (100, 125, 95) less its glass (21, 44, 26)
+  over the texture's peak, per channel. [hypothesis] A counter-example, for this one
+  shape, to the display-value add of nif.md §6; every other additive shape keeps the
+  engine's rule. The monitor's case, camera, lights and power button are unchanged.
 
 [design] One-line tuning recipes on the `hacking` smoke shot (`hacking.png`), using
 10 × 10 medians on empty glass/solid blocks, brightest 40 pixels for ink; remeasure
 after each adjustment:
 
-- `GLASS_MIDDLE`: away from ink/streak, add target (19,41,25) minus measured RGB to
-  its channels, one sRGB unit per unit error; the undercoat is derived automatically.
+- `GLASS_MIDDLE`: away from ink/streak, add the original's (21,44,26) minus measured
+  RGB to its channels, one sRGB unit per unit error (the constant stands below the
+  target by the glare's floor); the undercoat is derived automatically.
 - `BACKGROUND_ALPHA`: with the middle matched, increase by 0.0056 per excess green
-  unit in the dark top-left corner (target about 11–12), decrease for a deficit;
+  unit in the dark top-left corner (target about 11, the original's corner), decrease for a deficit;
   this holds the middle fixed while deepening/lightening the vignette.
 - `BACKGROUND_TINT`: hold fixed unless the corner hue needs correction; increase
   R/G/B by 4.2/1.9/2.8 sRGB tint units per excess corner channel unit, reverse for
   deficits (middle held fixed). Alpha and tint both affect contrast: tune one at a time.
-- `GLARE_ALPHA_SCALE`: hold 0.90 while tuning glare colour, preserving the texture's
-  opacity profile; if changed, base RGB compensation follows automatically.
-- `GLARE_LIGHT_SCALE`: on the streak peak, increase R/G/B by 0.0181/0.0108/0.0098
-  per unit below (100,125,95), decrease above; these are local linear-light estimates.
-  For a larger correction use `scale *= (linear(target)-linear(adjacent_glass)) /
-  (linear(measured)-linear(adjacent_glass))` per channel, then recheck blocks and text
-  outside the streak for a wash; the material estimate cannot guarantee that result.
+- `GLARE_LINEAR_SCALE`: on the streak peak, scale a channel by `(linear(target) -
+  linear(glass beside it)) / (linear(measured) - linear(glass beside it))`; then
+  recheck blocks and text outside the streak (they should move by a few units at most).
 
 - The monitor's power button (`PowerButton:0`, lower right under the screen) leaves the
   terminal when clicked [the owner, 2026-10-16].

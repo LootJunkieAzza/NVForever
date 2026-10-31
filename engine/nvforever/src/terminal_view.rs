@@ -10,8 +10,9 @@
 //!   on the right; three point lights (`Omni02`, `03`, `05`), not read.
 //! - The screen's picture (`nvf_play::terminal::TerminalImage`) goes on `screen:0` unlit,
 //!   as a lit display [hypothesis], spanning `screen::TEXTURE_UNITS` of the canvas.
-//!   [design] Keep `glare:0` with reduced material alpha and colour (§7), preserving the
-//!   top-right streak [observed: owner's 2026-10-31 reference] over the textured glass.
+//!   [design] Keep `glare:0`, added in linear light at a per-channel scale (§7), which
+//!   gives the top-right streak [observed: owner's 2026-10-31 reference] without the
+//!   floor the display-value add puts over the textured glass.
 //! - The camera looks at the front (along +Y) with the field of view
 //!   `fRenderedTerminalFOV` 0.15 [documented: Fallout_default.ini `[RenderedTerminal]`;
 //!   hypothesis: radians, vertical], looking `fRenderedTerminalVPos` 0.38 below the
@@ -54,19 +55,23 @@ const DROP: f32 = 0.38;
 /// docs].
 pub const DISTANCE: f32 = 38.5;
 
-/// [design] Retain the glare texture/geometry/blend mode, reducing its material alpha.
-/// Keep fixed while tuning GLARE_LIGHT_SCALE; changing both confounds the measurement.
-const GLARE_ALPHA_SCALE: f32 = 0.9;
-/// [design] First estimate, per-channel linear excess ratios:
-/// (linear(100,125,95) - linear(19,41,25)) /
-/// (linear(114,169,147) - linear(38,73,50)) = (0.812,0.554,0.403).
-/// [observed: hacking.md §2/§7] The numerator fits the 2026-10-31 original reference;
-/// the denominator uses main's shot. Those patches do not isolate the glare material,
-/// so its screen-space result can only be checked in a running game [hypothesis].
-/// Recipe: on the hacking smoke shot measure a 10x10 streak peak and adjacent glass;
-/// change R/G/B scale by +0.0181/+0.0108/+0.0098 per unit below (100,125,95), reverse
-/// above; remeasure and check blocks/text outside the streak for a wash (§7).
-const GLARE_LIGHT_SCALE: Vec3 = Vec3::new(0.812, 0.554, 0.403);
+/// [design] The glare is added in linear light, as a plain unlit additive material on
+/// the model's own texture, not through `nif_material.wesl`'s display-value add. The
+/// shape is additive in the model (NiAlphaProperty flags 4109: blend on, SRC_ALPHA /
+/// ONE; `TerminalScreenGlare.dds` DXT1, alpha 1 throughout, 4 to 15 in its dark parts
+/// and (90, 110, 112) at the streak's peak [observed: fnvtool nif decode, PIL,
+/// 2026-10-31]). [observed: in game, 1280 x 720, 2026-10-31, hacking.md §7] Through the
+/// display-value add the dark texels put a floor of (13-26, 13-24, 7-22) over the whole
+/// glass and (+30, 0, +25) on the attempt blocks, and the original shows no such floor
+/// (corners (8, 11, 5), blocks (59-65, 255, 148-152) under a streak of +80); added in
+/// linear light the same texels put 1 to 4 units on the glass and the streak where the
+/// original has it. [hypothesis] A counter-example to nif.md §6's display-value add
+/// for this one shape; the engine's rule for every other additive shape is untouched.
+/// The linear scale on the texture, per channel: the original's peak (100, 125, 95)
+/// less its glass (21, 44, 26), over the texture's peak, in linear light.
+/// Recipe: on the hacking smoke shot measure the 10x10 streak peak; scale a channel
+/// by (linear(target) - linear(glass beside it)) / (linear(measured) - linear(glass)).
+const GLARE_LINEAR_SCALE: Vec3 = Vec3::new(1.19, 1.14, 0.64);
 
 pub struct TerminalViewPlugin;
 
@@ -109,6 +114,7 @@ fn show(
     picture: Option<Res<TerminalImage>>,
     view: Option<Res<MonitorView>>,
     mut models: ModelCtx,
+    mut plain: ResMut<Assets<StandardMaterial>>,
     window: Query<&Window, With<PrimaryWindow>>,
     mut drawn: Local<Drawn>,
 ) {
@@ -145,6 +151,7 @@ fn show(
         let name = s.name.as_deref().unwrap_or("");
         let world = place * model.root * s.transform;
         let mut material = s.material.clone();
+        let mut glare = None;
         if is_glass(name) {
             let mut m = models.materials.get(&s.material).cloned().unwrap_or_default();
             m.base.base_color = Color::WHITE;
@@ -160,20 +167,25 @@ fn show(
             material = models.materials.add(m);
             drawn.glass = s.cpu.as_deref().and_then(|m| Posed::new(m, None, Mat4::from(world)));
         } else if name.eq_ignore_ascii_case("glare:0") {
-            let mut m = models.materials.get(&s.material).cloned().unwrap_or_default();
-            // [observed: nif_material.wesl] Base colour also multiplies the emissive
-            // term, so tinting both would apply the reduction twice. Preserve emissive
-            // and the authored alpha mode. Unlit Blend uses alpha^1.5 for source light;
-            // compensate that extra sqrt(alpha) in this relative colour scale [design].
-            let alpha_light = if m.base.unlit && matches!(m.base.alpha_mode, AlphaMode::Blend) { GLARE_ALPHA_SCALE.powf(1.5) } else { GLARE_ALPHA_SCALE };
-            let tint = GLARE_LIGHT_SCALE / alpha_light;
-            let base = m.base.base_color.to_linear();
-            m.base.base_color = Color::linear_rgba(base.red * tint.x, base.green * tint.y, base.blue * tint.z, base.alpha * GLARE_ALPHA_SCALE);
-            material = models.materials.add(m);
+            // [design] The model's texture on Bevy's own additive material: its colour,
+            // texel × GLARE_LINEAR_SCALE, is added in linear light (GLARE_LINEAR_SCALE).
+            let mut m = models.materials.get(&s.material).map(|m| m.base.clone()).unwrap_or_default();
+            m.base_color = Color::linear_rgb(GLARE_LINEAR_SCALE.x, GLARE_LINEAR_SCALE.y, GLARE_LINEAR_SCALE.z);
+            m.emissive = LinearRgba::BLACK;
+            m.emissive_texture = None;
+            m.normal_map_texture = None;
+            m.unlit = true;
+            m.alpha_mode = AlphaMode::Add;
+            glare = Some(plain.add(m));
         } else if is_button(name) {
             drawn.button = s.cpu.as_deref().and_then(|m| Posed::new(m, None, Mat4::from(world)));
         }
-        entities.push(commands.spawn((Name::new(format!("Terminal monitor {name}")), Mesh3d(s.mesh.clone()), MeshMaterial3d(material), Transform::from_matrix(Mat4::from(world)), layer.clone())).id());
+        let mut shape = commands.spawn((Name::new(format!("Terminal monitor {name}")), Mesh3d(s.mesh.clone()), Transform::from_matrix(Mat4::from(world)), layer.clone()));
+        match glare {
+            Some(plain) => shape.insert(MeshMaterial3d(plain)),
+            None => shape.insert(MeshMaterial3d(material)),
+        };
+        entities.push(shape.id());
     }
     let Some(glass) = drawn.glass.take() else {
         warn!("terminal view: {MONITOR_MODEL} has no screen:0 shape; the screen is drawn flat");
