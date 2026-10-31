@@ -684,7 +684,7 @@ fn actor_jumps(
         } else {
             s.counts.actor_jumps += 1;
         }
-        debug!("anim sounds: actor {:08X} {} on {family}", m.reference, if landing { "lands" } else { "jumps" });
+        info!("anim sounds: actor {:08X} {} on {family}", m.reference, if landing { "lands" } else { "jumps" });
     }
 }
 

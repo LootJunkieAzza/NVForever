@@ -70,31 +70,52 @@ pub enum AirChange {
     Landed { air: f32 },
 }
 
-/// Each actor's last frame for [`ActorAir`]: in the air, for how long, its feet's height.
+/// Each actor's last frame for [`ActorAir`]: in the air, for how long, its feet's height;
+/// whether it had a physics character, and whether this time in the air is not told
+/// (`quiet`: its character went away while it was in the air).
 #[derive(Default)]
 struct AirTrack {
     in_air: bool,
     air: f32,
     z: f32,
+    had_character: bool,
+    quiet: bool,
 }
 
 /// Actors leaving the ground and coming down: [`ActorAir`] messages.
+///
+/// The feet are the actor's `Transform` (game space under the world root), which the walkers (`nav::drive`,
+/// `residents::drive`) set this frame; its `GlobalTransform` is propagated only in
+/// PostUpdate, so a walker's take-off would measure the frame before's rise (review of
+/// #1215). An actor whose character goes away while it is in the air (knocked out, moved
+/// by MoveTo, out of the physics range) was not falling all that time: that time in the
+/// air ends without a landing.
 fn air_changes(
     time: Res<Time>,
     phys: Option<Res<PhysState>>,
-    actors: Query<(Entity, &ActorRig, &Locomotion, &GlobalTransform)>,
+    actors: Query<(Entity, &ActorRig, &Locomotion, &Transform)>,
     mut track: Local<HashMap<Entity, AirTrack>>,
     mut out: MessageWriter<ActorAir>,
 ) {
     let dt = time.delta_secs();
     let mut seen = HashMap::with_capacity(track.len());
-    for (e, rig, lo, gt) in &actors {
-        let feet = crate::world::bevy_to_game(gt.translation()).to_array();
+    for (e, rig, lo, tr) in &actors {
+        // Under the world root, whose frame is game space (`nav::show_actor` sets it from
+        // the feet).
+        let feet = tr.translation.to_array();
+        let has_character = phys.as_deref().is_some_and(|p| p.npcs.contains_key(&rig.reference));
         let Some(was) = track.remove(&e) else {
-            seen.insert(e, AirTrack { in_air: lo.in_air, air: 0.0, z: feet[2] });
+            seen.insert(e, AirTrack { in_air: lo.in_air, air: 0.0, z: feet[2], had_character: has_character, quiet: lo.in_air });
             continue;
         };
-        let mut now = AirTrack { in_air: lo.in_air, air: if lo.in_air { was.air + dt } else { 0.0 }, z: feet[2] };
+        let quiet = was.quiet || (was.in_air && was.had_character && !has_character);
+        let mut now = AirTrack {
+            in_air: lo.in_air,
+            air: if lo.in_air && !quiet { was.air + dt } else { 0.0 },
+            z: feet[2],
+            had_character: has_character,
+            quiet: quiet && lo.in_air,
+        };
         let change = match (was.in_air, lo.in_air) {
             (false, true) => {
                 let character = phys.as_deref().and_then(|p| p.npcs.get(&rig.reference)).map(|b| b.ch.vertical_speed);
@@ -102,7 +123,7 @@ fn air_changes(
                 now.air = dt;
                 Some(AirChange::TakeOff { rising })
             }
-            (true, false) => Some(AirChange::Landed { air: was.air }),
+            (true, false) if !quiet => Some(AirChange::Landed { air: was.air }),
             _ => None,
         };
         if let Some(change) = change {

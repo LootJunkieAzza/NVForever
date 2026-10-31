@@ -9518,7 +9518,8 @@ args = ["--cell", "Goodsprings", "--play", "--pos=-63300,-18600,6800", "--npc-tr
 run_seconds = 70
 expect = [
   { re = 'nav: EasyPeteRef drops off a ledge', count = 1, label = "Pete drops off the ledge once" },
-  { re = 'anim sounds summary:.*actors jumped 0 and landed [1-9]\d* times', label = "his landing plays a landing sound (a drop: no jump sound)" },
+  { re = 'anim sounds: actor 00104C80 lands on \w+', label = "his landing plays a landing sound (Easy Pete's own line, review of #1215)" },
+  { re = 'anim sounds: actor 00104C80 jumps on', count = 0, label = "a drop: no jump sound for Pete" },
 ]
 
 [[scenario]]
