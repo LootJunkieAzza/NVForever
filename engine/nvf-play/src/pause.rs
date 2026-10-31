@@ -2307,7 +2307,7 @@ fn show_status(mut done: MessageReader<crate::save::SaveDone>, mut status: ResMu
 
 /// What the page shows now.
 fn drawn_now(world: &mut World) -> Drawn {
-    let view_w = world.query_filtered::<&Window, With<bevy::window::PrimaryWindow>>().iter(world).next().filter(|w| w.height() > 0.0).map_or(VIEW_W, |w| 960.0 * w.width() / w.height()).round() as u32;
+    let view_w = world.query_filtered::<&bevy::window::Window, With<bevy::window::PrimaryWindow>>().iter(world).next().filter(|w| w.height() > 0.0).map_or(VIEW_W, |w| 960.0 * w.width() / w.height()).round() as u32;
     let page = *world.resource::<Page>();
     let list = world.resource::<Settings>().list().to_vec();
     let states: Vec<f32> = world.resource::<Settings>().values(world);
