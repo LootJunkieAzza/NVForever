@@ -459,6 +459,8 @@ pub struct Music {
     pub incidentals: u32,
     pub stingers: u32,
     pub deaths: u32,
+    /// Level-up music started ([`MusicCues::level_up`]).
+    pub level_ups: u32,
 }
 
 impl Default for Music {
@@ -486,6 +488,7 @@ impl Default for Music {
             incidentals: 0,
             stingers: 0,
             deaths: 0,
+            level_ups: 0,
         }
     }
 }
@@ -505,6 +508,9 @@ pub struct MusicCues {
     pub relations: HashMap<u32, i64>,
     /// Some music plays (the place's or a script's), for IsMusicPlaying.
     pub playing: bool,
+    /// A level was just earned (`crate::xp_meter`, as its level-up sound plays): the
+    /// default objects' Level Up Music plays once, if its file is there (#991).
+    pub level_up: bool,
     requests: Vec<FormId>,
     next: f32,
 }
@@ -850,6 +856,32 @@ fn play(
         }
     }
 
+    // A level earned: the default objects' Level Up Music (DOBJ place 13) as a script's
+    // music plays, when its file is there [documented: the slot's name, xEdit DOBJ;
+    // hypothesis: it plays as the level-up notice shows]. FalloutNV.esm's names
+    // `DefaultSuccess`, whose `special\success.mp3` is not shipped, so with the shipped
+    // data nothing plays and the level-up sound alone is heard (default-objects.md).
+    if std::mem::take(&mut cues.level_up) && !music.dead {
+        let dobj = places.forms.default_objects.get(audio::DEFAULT_LEVEL_UP_MUSIC).copied().filter(|&m| m != 0).and_then(|m| places.forms.music.get(&m));
+        match dobj.and_then(|t| Some((t, wanted_type(t)?))).filter(|(_, w)| w.files.iter().flatten().any(|f| music.bytes(&data.vfs, f).is_some())) {
+            Some((ty, mut w)) => {
+                info!("music: level up: the default objects' level-up music {} plays{}", ty.edid.as_deref().unwrap_or("?"), if audible { "" } else { " [silent: music is off]" });
+                if audible {
+                    if let Some(mut old) = music.script.take() {
+                        old.target = [0.0; 3];
+                        old.fade = DEFAULT_FADE;
+                        music.leaving.push(old);
+                    }
+                    w.fade = SCRIPT_FADE;
+                    let t = music.start(&mut commands, &data.vfs, &mut assets, &w, now);
+                    music.script = Some(t);
+                    music.level_ups += 1;
+                }
+            }
+            None => info!("music: level up: the default objects' level-up music {} has no file to play", dobj.and_then(|t| t.edid.as_deref()).unwrap_or("(none)")),
+        }
+    }
+
     // Battle.
     let in_game = *state.get() == PlayState::Playing;
     if cues.combat && in_game && !music.dead {
@@ -1002,7 +1034,7 @@ fn play(
 fn report(mut exit: MessageReader<AppExit>, music: Option<Res<Music>>) {
     if let (Some(_), Some(m)) = (exit.read().last(), music) {
         info!(
-            "music summary: {} started, {} changes of layers, {} files not played, {} battles ({} battle loops started), {} intro and outro sounds, {} script requests, {} incidental phrases, {} death sounds{}",
+            "music summary: {} started, {} changes of layers, {} files not played, {} battles ({} battle loops started), {} intro and outro sounds, {} script requests, {} incidental phrases, {} death sounds, {} level-up music{}",
             m.started,
             m.layer_changes,
             m.failed,
@@ -1012,6 +1044,7 @@ fn report(mut exit: MessageReader<AppExit>, music: Option<Res<Music>>) {
             m.script_requests,
             m.incidentals,
             m.deaths,
+            m.level_ups,
             m.current.as_ref().map_or(String::new(), |t| format!("; playing {}", t.name))
         );
     }
