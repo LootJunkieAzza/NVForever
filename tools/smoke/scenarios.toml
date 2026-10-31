@@ -4084,7 +4084,7 @@ forbid = [{ re = 'the player died', label = "the player dies" }]
 
 [[scenario]]
 name = "karma-fiend"
-source = "owner's playtest list 2 (2026-10-12): killing an evil actor; since 2026-10-19 an Evil kill gives no karma, as the original's NCRCF convict shot dead by the player (docs/spec-notes/crime-karma.md §4.1), and no murder"
+source = "owner's playtest list 2 (2026-10-12): killing an evil actor; since #1131 an Evil NPC holding −500 in its own record gives +100, as the original's NorthVegasFiendCF and GoodspringsPowderGangerHM (capture o6_02, docs/spec-notes/crime-karma.md §4.1), and no murder"
 note = "beside Violet's camp (as music-battle); the script test aid kills Violet as the player at 14 s (Game::kill with the player as the killer): shooting her was not repeatable at the run's frame rate (a hunting rifle's shots were dropped, the 10mm pistol does 8 a hit against her DT)"
 areas = ["crime", "karma"]
 paths = ["crates/fnv-game/src/crime.rs", "crates/fnv-game/src/combat.rs", "engine/nvf-play/src/crime.rs"]
@@ -4093,13 +4093,13 @@ args = ["--cell", "Goodsprings", "--pos=-46800,65000,4600", "--play", "--hour", 
 run_seconds = 24
 expect = [
   { re = 'test aid: the player killed ', label = "the player kills Violet (Game::kill)" },
-  { re = 'crime: karma .* for killing ', count = 0, label = "no karma for killing an Evil NPC (the original's convict)" },
+  { re = 'crime: karma \+100 for killing .*\(Evil\), now 100', label = "+100 for killing an Evil NPC (capture o6_02)" },
   { re = 'crime summary: .* 0 murders', label = "no murder" },
 ]
 
 [[scenario]]
 name = "karma-convict"
-source = "owner's playtest list 5 item 22 (killing a convict near the NCR highway patrol station took karma): in the original the player shooting an NCRCF convict dead (LvlNCRCFPowderGangerMelee, Karma -500, Evil) changed no karma (AI observer campaign player_kills 2026-10-19, docs/spec-notes/crime-karma.md §4.1)"
+source = "owner's playtest list 5 item 22 (killing a convict near the NCR highway patrol station took karma): in the original the player shooting an NCRCF convict dead (LvlNCRCFPowderGangerMelee, Karma -500, Evil) changed no karma (AI observer campaign player_kills 2026-10-19, docs/spec-notes/crime-karma.md §4.1); since #1131 it gives none because the kill reads its own record's karma (0), not its template's"
 note = "a placed convict (0x001543FC, LvlNCRCFPowderGangerMelee) is killed as the player by the script test aid at 14 s, the player standing 600 units away"
 areas = ["crime", "karma"]
 paths = ["crates/fnv-game/src/crime.rs", "engine/nvf-play/src/crime.rs"]
