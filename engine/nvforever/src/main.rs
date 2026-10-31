@@ -69,6 +69,7 @@ mod idles;
 mod lights;
 mod limbs;
 mod lips;
+mod memory_budget;
 mod lockpick_view;
 mod roulette_view;
 mod blackjack_view;
@@ -1296,6 +1297,8 @@ fn main() -> AppExit {
     // Cached models, actor parts and textures no live entity uses go after a grace time
     // (nvf_assets::release): otherwise every visited cell's GPU assets stay.
     .add_plugins(nvf_assets::AssetReleasePlugin)
+    // Their keep limits follow the machine's RAM and GPU memory budget (memory_budget.rs).
+    .add_plugins(memory_budget::MemoryBudgetPlugin)
     .insert_resource(StartPose {
         position: start,
         heading: args.heading,

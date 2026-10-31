@@ -293,6 +293,11 @@
     "done.20"
    ],
    "label": "final: Doctors 20"
+  },
+  {
+   "op": "call",
+   "line": "player.IsSpellTarget WithdrawalJet",
+   "label": "jet withdrawal after argyll's cure"
   }
  ]
 }

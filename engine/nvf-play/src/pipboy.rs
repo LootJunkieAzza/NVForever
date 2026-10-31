@@ -655,12 +655,6 @@ fn camera_on(pip: Res<PipBoy>, screen: Option<Res<PipBoyScreen>>, mut cams: Quer
     }
 }
 
-/// Whether the screen menu is up: the HUD's messages go behind it (`corner_messages`,
-/// `quest_messages`), as behind a conversation.
-pub fn screen_menu_up(pip: Option<&PipBoy>) -> bool {
-    pip.is_some_and(|p| p.shown() && p.frame == Frame::Screen)
-}
-
 /// Keys of the Pip-Boy: Tab, Esc and E close it; F1–F3 the pages; A/D and Left/Right
 /// the tabs; none while the menus' "How many?" prompt is open. The ITEMS page's own keys
 /// are in [`items`].

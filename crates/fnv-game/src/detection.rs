@@ -489,9 +489,14 @@ impl Detections {
     /// The highest band any detector has the target in (the sneak meter's band for the
     /// player), with that detector; `None` when no one measured it.
     pub fn highest(&self, target: FormId) -> Option<(FormId, Detection)> {
+        self.highest_among(target, |_| true)
+    }
+
+    /// [`Detections::highest`] among the detectors `keep` accepts.
+    pub fn highest_among(&self, target: FormId, keep: impl Fn(FormId) -> bool) -> Option<(FormId, Detection)> {
         self.pairs
             .iter()
-            .filter(|((_, t), _)| *t == target)
+            .filter(|((d, t), _)| *t == target && keep(*d))
             .max_by(|a, b| a.1 .0.value.total_cmp(&b.1 .0.value))
             .map(|((d, _), (det, _))| (*d, *det))
     }
@@ -508,6 +513,13 @@ impl Detections {
 }
 
 impl Game<'_> {
+    /// Whether an actor not with the player ([`Game::with_player`]) has the player in the
+    /// detected band at its latest measurement: the sneak word's `[DETECTED]`
+    /// (docs/spec-notes/hud.md §9). A companion's own detection is kept for its AI (#1159).
+    pub fn player_detected_for_sneak(&self) -> bool {
+        self.detection.highest_among(FormId::PLAYER_REF, |d| !self.with_player(d)).is_some_and(|(_, d)| d.band == Band::Detected)
+    }
+
     /// Whether `actor` may force-greet `target` as far as sight goes: nothing solid
     /// (a wall, a closed door) between them at the engine's last measurement of the pair
     /// [owner statement 2026-10-23, playtest list 7 items 41/42: Davison and Harland must

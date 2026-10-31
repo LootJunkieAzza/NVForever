@@ -1700,6 +1700,7 @@ impl Core {
                 | AiEvent::IdleChatter { .. }
                 | AiEvent::PlayerAction { .. }
                 | AiEvent::ObserveCombat { .. }
+                | AiEvent::SpectatorFlee { .. }
                 | AiEvent::Chat { .. }
                 | AiEvent::ChatApproach { .. }
                 | AiEvent::ChatGaveUp { .. }
@@ -1895,6 +1896,10 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         AiEvent::PlayerAction { topic, line, away } => format!("comments on the player ({topic}, {away:.0} units away), line {line}"),
         AiEvent::ObserveCombat { fighter, line, away } => format!(
             "comments on the fight of {} ({away:.0} units away), line {line}",
+            if *fighter == FormId::PLAYER_REF { "the player".to_string() } else { n(fighter) }
+        ),
+        AiEvent::SpectatorFlee { fighter, away } => format!(
+            "runs from the fight of {} ({away:.0} units away): too close to watch",
             if *fighter == FormId::PLAYER_REF { "the player".to_string() } else { n(fighter) }
         ),
         AiEvent::Chat { partner, line, away } => format!("starts a conversation with {} from {away:.0} units, line {line}", n(partner)),

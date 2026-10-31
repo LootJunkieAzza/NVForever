@@ -25,10 +25,11 @@
 //!   actor of Evil alignment) or a faction that does not track crime [documented: GECK
 //!   wiki Category:Factions, Evil and Track Crime; Reference, "karma gain/loss is affected
 //!   by the karma level of the owning actor"; the lock: design]; killing an Evil actor
-//!   gives no karma [observed: crime-karma.md §4.1], a Very Evil one
-//!   `fKarmaModKillingEvilActor` (100) [documented: the setting; hypothesis: that it is
-//!   for Very Evil]; killing a Good or Very Good one takes as much [design];
-//!   murdering a Neutral NPC takes a quarter of it [design]. NPCs only [design].
+//!   gives `fKarmaModKillingEvilActor` (100) and a Very Good one takes as much
+//!   [observed: crime-karma.md §4.1, capture o6_02], a Very Evil one gives it and a Good
+//!   one takes it [hypothesis], judged by the placed base's own ACBS karma, not a
+//!   template's ([`Game::kill_alignment`]) [hypothesis, §4.1]; murdering a Neutral NPC
+//!   takes a quarter of it [design]. NPCs only [design].
 //! - **Trespassing** in a cell (§3.3): in an owned cell without the Public place flag
 //!   that the player does not own [documented: GECK wiki SetCellPublicFlag, "Cells which
 //!   are public cannot have trespassing"]; an owner who sees the player there warns
@@ -304,6 +305,23 @@ impl Settings {
 /// Murdering a Neutral NPC costs this share of `fKarmaModKillingEvilActor` [design].
 pub const NEUTRAL_MURDER_SHARE: f64 = 0.25;
 
+/// The karma for the player's kill of an actor of `alignment` (the kill's,
+/// [`Game::kill_alignment`]): an Evil or Very Evil NPC gives `fKarmaModKillingEvilActor`
+/// [observed: −500 victims gave +100, capture o6_02 2026-10-31, crime-karma.md §4.1;
+/// Very Evil: hypothesis, the setting's name], a Good or Very Good one takes as much
+/// [observed for Very Good (900): −100, o6_02; Good: hypothesis], a `murder`ed Neutral one a
+/// quarter of it [design]. Creatures give none: their karma includes plain animals (a
+/// dead radroach is Evil in FalloutNV.esm) [design].
+pub fn kill_karma(alignment: Alignment, murder: bool, npc: bool, s: &Settings) -> f64 {
+    match alignment {
+        _ if !npc => 0.0,
+        a if a.evil() => s.killing_evil,
+        a if a.good() => -s.killing_evil,
+        _ if murder => -s.killing_evil * NEUTRAL_MURDER_SHARE,
+        _ => 0.0,
+    }
+}
+
 /// The run-time side of crime: notes for the engine, trespass warnings, the latest
 /// victim. What lasts (counts, crime enemies, the murderer flag) is in
 /// `PlayerState`.
@@ -358,6 +376,19 @@ impl Game<'_> {
             actor_value(self, r, KARMA).unwrap_or(0.0)
         };
         Alignment::of(karma, b)
+    }
+
+    /// The alignment a kill of `r` is judged by: its placed base's own ACBS karma (a
+    /// leveled base read as drawn for `r`), not a template's whose traits it takes
+    /// [hypothesis: an NCRCF convict holding 0 itself and −500 only through its template
+    /// gave no karma, a Fiend and a Powder Ganger holding −500 themselves gave +100,
+    /// crime-karma.md §4.1]. [`Game::alignment`] when `r` has no actor base.
+    pub fn kill_alignment(&mut self, r: FormId) -> Alignment {
+        let own = base_of(self, r).filter(|_| r != FormId::PLAYER_REF).and_then(|b| self.data.template_source_at(b, self.pick_seed(r), self.leveled_at(r), |_| false)).map(|(_, d)| d.karma);
+        match own {
+            Some(karma) => Alignment::of(karma, self.crime_settings().bounds),
+            None => self.alignment(r),
+        }
     }
 
     /// Change the player's karma by `change`, within iKarmaMin and iKarmaMax when a
@@ -623,22 +654,12 @@ impl Game<'_> {
         let aggressor = self.awareness.forced.contains(&(victim, FormId::PLAYER_REF)) || (!grudge && (fights_player || self.would_attack(victim, FormId::PLAYER_REF)));
         let murder = npc && !alignment.evil() && (!aggressor || self.player.crime_enemies.contains(&victim));
         let name = self.data.name(victim);
-        // NPCs only: creatures' karma includes plain animals (a dead radroach is Evil in
-        // FalloutNV.esm) [design]. Killing an Evil NPC gives nothing [observed: the player
-        // shot dead an NCRCF convict (LvlNCRCFPowderGangerMelee, Karma -500, GetIsAlignment
-        // Evil 1) that attacked it: GetAV Karma stayed 0 for the 15 s after, AI observer
-        // campaign `player_kills` 2026-10-19, crime-karma.md §4.1]; a Very Evil one
-        // fKarmaModKillingEvilActor [hypothesis: not observed].
-        let change = match alignment {
-            _ if !npc => 0.0,
-            Alignment::VeryEvil => s.killing_evil,
-            Alignment::Evil => 0.0,
-            a if a.good() => -s.killing_evil,
-            _ if murder => -s.killing_evil * NEUTRAL_MURDER_SHARE,
-            _ => 0.0,
-        };
+        // Karma by the victim's own record (§4.1): murder stays judged by its alignment
+        // as scripts read it (GetIsAlignment) [design].
+        let judged = self.kill_alignment(victim);
+        let change = kill_karma(judged, murder, npc, &s);
         if change != 0.0 {
-            self.change_karma(change, format!("killing {name} ({})", alignment.name()));
+            self.change_karma(change, format!("killing {name} ({})", judged.name()));
         }
         // Any kill of a reputation's people while someone (the victim too) sees the
         // player, fighting or not [documented: Fallout wiki "Reputation (Fallout: New

@@ -70,8 +70,8 @@ engine if needed, and delete the item here.
    - Every weapon's Crit Effect applies.
    - Fall damage is 0.0252 × (h − 600)^1.65, with no leg crippling — answered
      2026-10-31 (o6_00): the formula holds within 1 %, but each fall also hurts one leg
-     (+700: 24.9 of 100, half the Health lost; +1000 and +1300: crippled). Ours never
-     does (physics.md §6.6, the falls into and beside the lake).
+     (+700: 24.9 of 100, half the Health lost; +1000 and +1300: crippled). Built since
+     (#1129): one random leg loses half the damage (physics.md §6.12).
    To check: OnHit events plus Health and limb values for each case.
    ([combat-rules §10](../spec-notes/combat-rules.md),
    [weapon-data-fields](../spec-notes/weapon-data-fields.md),
@@ -263,7 +263,9 @@ engine if needed, and delete the item here.
 16. **HUD and menus.**
     - The enemy health bar and red crosshair show only for hostiles, or for anyone hit in
       the last 5 s.
-    - Sneak-indicator states.
+    - Sneak-indicator states. Does a following companion (or an actor on a Follow
+      package on the player) seeing the player leave the word at [HIDDEN]? Does a
+      neutral (non-hostile) NPC seeing the player give [DETECTED]? (#1159)
     - Compass ticks within PER × 300; markers within PER × 2048.
     - "How many?" asks only above 5 (barter) or above 1 (crafting).
     - The crafting filter arrows.
@@ -451,7 +453,7 @@ The numbers above stay put so links to them hold; each item here gives its own p
     tried (so Benny's "axis 3 >= 3" greeting is never chosen in the original either), and
     axes 0-2 matched ours (`reputation::tiers`) at all ten infamy/fame pairs. SetReputation
     with axis 2 or 3 is a failed call that **stops the script** (the line after it did not
-    run); ours does nothing and goes on (reputation.rs `axis`). (scripts.md §7.6)
+    run); ours does the same since #1127 (reputation.rs `write_axis`). (scripts.md §7.6)
 31. **Say Once on a line two actors share** — answered 2026-10-31 (owner, save
     nvf31mainframe, issue #1113): **no repeat**. After the upload and the Mark II upgrade
     the Yes Man mainframe greeted with 0x001164F2 (GREETING position 2424, conditions
@@ -530,13 +532,14 @@ The numbers above stay put so links to them hold; each item here gives its own p
     clears the flag (displayed 0, then 1: not completed), which is what the VMS16 capture
     of layer5-captures.md §5.2 saw. Ours clears it on every display, so G.I. Blues can
     stall. (scripts.md §5)
-41. **Does ResetQuest keep a SetQuestDelay?** (P3.) Use the NCR emergency radio and close
-    the Pip-Boy at once: does the supply drop still come? (§9 stall 3.) No script function
-    reads a quest's delay, so this needs a timed watch of the quest's effect.
+41. **Does ResetQuest keep a SetQuestDelay?** — answered 2026-10-31 (o41 on nvftest, issue
+    #1109): yes. VMQ03aTimer at SetQuestDelay 2, ResetQuest, StartQuest: its timer still
+    dropped every 2.0 s (DATA delay 0.5 s). ResetQuest also zeroed the variables and
+    stopped the running quest (GetQuestRunning 0). (layer5-captures.md §5.7)
 42. **Does a stage result script's reference-less RemoveSpell act on the player?** —
     answered 2026-10-31 (o5_03 on nvfairport, issue #1110): yes. Addicted to Jet (10 doses;
     IsSpellTarget WithdrawalJet 1 over a game hour), `SetStage VDoctors 20` made it 0 within
-    10 frames. The doctors' cure works in the original; ours does nothing.
+    10 frames. The doctors' cure works in the original; ours too since #1110.
     (script-language.md §1.2) Traps for the next capture: the first addiction opens a
     message box (menu 1001) and the nvfstrip save loads into a dialogue (menu 1009); both
     pause the game, and effects do not change while it is paused.
@@ -678,6 +681,24 @@ The numbers above stay put so links to them hold; each item here gives its own p
     dark in pauses, follow the loudness or the mouth shapes, or loop by itself? Same on
     Mr. House's screen (`##TalkButtons:0`). ([lipsync §6.1](../spec-notes/lipsync.md))
 
+## Added 2026-10-31 (Observe Combat spectators running away, issue #960)
+
+60. **How close a fight comes before a spectator runs, and what it does then** (P3: the
+    806 packages with Observe Combat [observed: esm-audit-2026-10-25.md]; the wiki says
+    only "run away if they get too close"). NVForever runs a spectator from the nearest
+    fighter within 600 units [design: stand-in], by the combat flee's spot search, out
+    of a combat state, and brings it back to its package once no fighter is within
+    1,500 (packages.md §7.6b). To check: Goodsprings by day, Easy Pete (EasyPeteRef) on
+    his own package, the player in god mode starting a fight with a placed cazador
+    (`PlaceAtMe NVCrCazador`) at about 1,200 units from Pete, then backing towards Pete
+    in steps of about 100 units every few seconds. Sample every game loop: the distance
+    from Pete to the player and to the cazador, Pete's `GetCurrentAIProcedure`,
+    `GetCurrentAIPackage`, combat state (`IsInCombat`, `GetCombatTarget`) and
+    `IsWeaponOut`, and his position. At what distance does he set off, from whom (the
+    player or the cazador), how far does he go (a door, cover, straight away), does he
+    turn to watch from there, and does he go back to his package when the fight ends or
+    only later? ([packages §7.6b](../spec-notes/packages.md))
+
 ## Added 2026-10-31 (melee knockback, issue #1070)
 
 61. **How far a melee blow pushes a living actor, and for how long** (P2: every melee
@@ -690,3 +711,13 @@ The numbers above stay put so links to them hold; each item here gives its own p
     the front; sample its position every game loop for 1.5 s after the hit: the distance,
     how long it moves, and whether the speed falls off. The same with a deathclaw's
     swipe on the player (god mode). ([combat-rules, Knockback](../spec-notes/combat-rules.md))
+62. **Does AddReputation with axis 2 or 3 stop the script, as SetReputation does?** (P2:
+    Boulder City Showdown, Severus.) SetReputation with axis 2 or 3 stops the script
+    (check 30, o5_00/o5_01); AddReputation's was not captured, and ours changes nothing and
+    goes on [hypothesis]. It matters: VMS20 stage 100 entry 1 calls `AddReputation
+    RepNVGreatKhans 2 5` and then RewardXP, CompleteAllObjectives, CompleteQuest and
+    StopQuest, and Severus's three tag trades (INFO 0x00135115/17/20) count the tags in
+    iAureliusTags after `AddReputation RepNVCaesarsLegion 3 1` [observed: decompiled
+    scripts]. To check: in a function or quest script, `AddReputation RepNVNCR 2 1`, then
+    a line that sets a variable; the same with RemoveReputation and AddReputationExact.
+    (scripts.md §7.6, issue #1127)

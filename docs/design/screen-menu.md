@@ -132,8 +132,8 @@ as on the device.
 - The image itself is cleared to nothing, not black, so the menus lie on the shade and not
   on a box; it shows the canvas's part `pipboy::SCREEN_CROP` (955 × 750: `MAIN` and its
   margin of 50 on every side), so the menus sit centred.
-- The HUD's corner and quest messages are hidden while the screen menu is up, as in a
-  conversation (`pipboy::screen_menu_up`).
+- The HUD's corner and quest messages are hidden while the screen menu is up, as behind
+  any menu (`corner_messages::held`: every state but play, issue #1239).
 - **Sharpness.** The image is 1280 × 960 (`pipboy::TARGET`, one pixel per interface unit
   at 960 units per view height). Drawn at 85% of a 1440-line window it would be magnified
   1.6×. In the screen menu the image is made again larger (`pipboy::image_scale`): by the

@@ -28,6 +28,8 @@ const BENNY_REF: u32 = 0x502;
 const CHRIS_REF: u32 = 0x503;
 const INTERCOM: u32 = 0x600;
 const INTERCOM_REF: u32 = 0x601;
+const SINK: u32 = 0x602;
+const SINK_REF: u32 = 0x603;
 const CANNIBAL: u32 = 0x700;
 const SANDMAN: u32 = 0x701;
 const SHUTDOWN: u32 = 0x702;
@@ -41,6 +43,8 @@ const TRIGGER_REF: u32 = 0xA01;
 const TRIGGER_SCRIPT: u32 = 0xA02;
 const TALK_PACKAGE: u32 = 0xB00;
 const LINE_SETTLER: u32 = 0x913;
+const LINE_SINK: u32 = 0x914;
+const SINK_SCRIPT: u32 = 0xA03;
 
 const P: FormId = FormId::PLAYER_REF;
 const GET_DEAD: u16 = 46;
@@ -129,7 +133,11 @@ fn plugin_bytes() -> Vec<u8> {
         record(b"NPC_", 0, CHRIS, &[sub(b"EDID", z("Chris")), sub(b"FULL", z("Chris"))]),
     ]
     .concat();
-    let tact = record(b"TACT", 0, INTERCOM, &[sub(b"EDID", z("Intercom")), sub(b"FULL", z("Intercom"))]);
+    let tact = [
+        record(b"TACT", 0, INTERCOM, &[sub(b"EDID", z("Intercom")), sub(b"FULL", z("Intercom"))]),
+        record(b"TACT", 0, SINK, &[sub(b"EDID", z("SinkAppliance")), sub(b"FULL", z("Appliance")), sub(b"SCRI", u32b(SINK_SCRIPT))]),
+    ]
+    .concat();
     let quest = record(b"QUST", 0, QUEST, &[sub(b"EDID", z("Q")), sub(b"DATA", [vec![1u8, 50, 0, 0], 0f32.to_le_bytes().to_vec()].concat())]);
     let lines = [
         // Benny's line through an activator.
@@ -140,6 +148,8 @@ fn plugin_bytes() -> Vec<u8> {
         info(LINE_SETTLER, NPC, "Howdy.", vec![ctda(EQ, 1.0, GET_IS_ID, NPC), ctda(EQ, 0.0, TALKING_THROUGH, 0)]),
         // Chris's Goodbye greeting through an activator (the REPCONN intercom's).
         info_flagged(LINE_CHRIS_BYE, CHRIS, 0x01, "I'm letting you in.", vec![ctda(EQ, 1.0, TALKING_THROUGH, 0)]),
+        // The Sink appliance's own line.
+        info(LINE_SINK, SINK, "Hello, master.", vec![ctda(EQ, 1.0, GET_IS_ID, SINK)]),
     ]
     .concat();
     let dial = [
@@ -164,6 +174,22 @@ fn plugin_bytes() -> Vec<u8> {
         ]
         .concat(),
     );
+    // A Sink appliance's script (OldWorldBlues.esm, SCPT 0x0100F05A): OnActivate sets
+    // `bTalk` (variable 1); GameMode clears it and calls a bare `Activate`.
+    let set_talk = set(var(b's', 1), ex(&[a("1")]));
+    let talk = [
+        st(0x16, &[le16(2), le16(ex(&[var(b's', 1)]).len() as u16), ex(&[var(b's', 1)])].concat()),
+        set(var(b's', 1), ex(&[a("0")])),
+        st(0x100D, &le16(0)),
+        st(0x19, &[]),
+    ]
+    .concat();
+    let sink_script = record(
+        b"SCPT",
+        0,
+        SINK_SCRIPT,
+        &[vec![sub(b"EDID", z("SinkApplianceScript"))], unit(0, &script(&[(0x02, None, set_talk), (0x00, None, talk)]), &[(1, "bTalk", 1)], &[])].concat(),
+    );
     // A Dialogue package: talk to the player, no topic (the greeting).
     let pkdd = [0f32.to_le_bytes().to_vec(), u32b(0), u32b(0), vec![0; 4], u32b(0), vec![0; 4]].concat();
     let ptdt = [0i32.to_le_bytes(), 0x14u32.to_le_bytes(), 0i32.to_le_bytes(), 0f32.to_le_bytes()].concat();
@@ -182,13 +208,14 @@ fn plugin_bytes() -> Vec<u8> {
     let trigger = record(b"ACTI", 0, TRIGGER, &[sub(b"EDID", z("IntercomTrigger")), sub(b"SCRI", u32b(TRIGGER_SCRIPT))]);
     let trigger_ref = record(b"REFR", 0, TRIGGER_REF, &[sub(b"EDID", z("IntercomTriggerREF")), sub(b"NAME", u32b(TRIGGER)), sub(b"DATA", vec![0; 24])]);
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
-    let refs = [achr(VICTIM_REF, NPC), achr(SLEEPER_REF, NPC), achr(BENNY_REF, BENNY), achr(CHRIS_REF, CHRIS), refr, trigger_ref].concat();
+    let sink_ref = record(b"REFR", 0, SINK_REF, &[sub(b"EDID", z("SinkApplianceREF")), sub(b"NAME", u32b(SINK)), sub(b"DATA", vec![0; 24])]);
+    let refs = [achr(VICTIM_REF, NPC), achr(SLEEPER_REF, NPC), achr(BENNY_REF, BENNY), achr(CHRIS_REF, CHRIS), refr, trigger_ref, sink_ref].concat();
     let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs));
     [
         tes4(),
         top(b"PERK", &perks),
         top(b"NPC_", &npcs),
-        top(b"SCPT", &trigger_script),
+        top(b"SCPT", &[trigger_script, sink_script].concat()),
         top(b"PACK", &pack),
         top(b"ACTI", &trigger),
         top(b"TACT", &tact),
@@ -445,6 +472,63 @@ fn a_scripted_activate_player_of_a_talking_activator_opens_the_conversation() {
     assert_eq!(activated["by"], P.to_string(), "the player is the activator");
     let said = FormId(LINE_INTERCOM).to_string();
     assert!(events.iter().any(|e| e.to_string().contains(&said)), "the intercom's line is said in a conversation: {events:?}");
+    let talk = t["observations"].as_array().unwrap().iter().find(|o| o["label"] == "talk").cloned().unwrap();
+    assert!(talk["state"].is_string(), "a conversation is open: {talk}");
+}
+
+/// A talking activator's bare `Activate` in its own GameMode, after its OnActivate ran
+/// (the Sink's appliances, OldWorldBlues.esm SCPT 0x0100F05A): the reference keeps the
+/// player as its action reference, so the player activates it and its default action,
+/// Talk, follows (issue #1111). Exactly one activation, by the player.
+#[test]
+fn a_bare_activate_in_gamemode_uses_the_last_activator() {
+    let f = fixture();
+    let mut g = game(&f);
+    let sink = FormId(SINK_REF);
+    g.activate(P, sink, fnv_game::game::ActMode::Hand).unwrap();
+    let from = g.events.len();
+    for _ in 0..3 {
+        g.tick();
+    }
+    no_errors(&g);
+    let talks: Vec<_> = g.events[from..]
+        .iter()
+        .filter_map(|e| match &e.kind {
+            EventKind::Activated { reference, by, outcome: Some(o) } if *reference == sink => Some((*by, o["result"].clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(talks, vec![(P, Json::from("talk"))], "one default activation by the player");
+    // A reference nobody activated has no action reference: a bare Activate does nothing.
+    let mut g = game(&f);
+    let ctx = Ctx { unit: "test".into(), opcode: 0x100D, on: Some(FormId(INTERCOM_REF)), self_ref: Some(FormId(INTERCOM_REF)), action_ref: None, quest: None, inst: None, in_condition: false };
+    g.call_function(&ctx, &[]);
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::Activated { .. })));
+}
+
+/// The runner opens the conversation a talking activator's GameMode starts with a bare
+/// `Activate` in the frames an activation op waits after the player's activation (the
+/// Sink's appliances, issue #1111), once.
+#[test]
+fn the_runner_opens_a_talk_from_a_bare_activate_in_gamemode() {
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(serde_json::json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "move_player", "to": "SinkApplianceREF"},
+            {"op": "activate", "actor": "0x00000014", "target": "SinkApplianceREF", "run_on_activate": true},
+            {"op": "wait_talk", "label": "talk"}
+        ]
+    }))
+    .unwrap();
+    let t = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let steps = t["steps"].as_array().unwrap();
+    assert!(steps.iter().all(|s| s.get("error").is_none()), "{steps:?}");
+    let events = t["events"].as_array().unwrap();
+    let said = FormId(LINE_SINK).to_string();
+    let opened = events.iter().filter(|e| e["kind"] == "dialogue_started").count();
+    assert_eq!(opened, 1, "one conversation: {events:?}");
+    assert!(events.iter().any(|e| e.to_string().contains(&said)), "the appliance's line is said: {events:?}");
     let talk = t["observations"].as_array().unwrap().iter().find(|o| o["label"] == "talk").cloned().unwrap();
     assert!(talk["state"].is_string(), "a conversation is open: {talk}");
 }

@@ -12,8 +12,10 @@
 //! - The bracket and the icons come from the interface's texture atlas where its index
 //!   has them, else from their own files (§2.2). Without the game's files the text is
 //!   drawn with Bevy's font beside a plain bracket.
-//! - While a message box or a script's menu is open the area is hidden and its clock
-//!   stands still [design], so a message is not used up behind a box.
+//! - While a message box or a script's menu is open, and in any state but
+//!   `PlayState::Playing` (a terminal, the Pip-Boy, a container: every HUD piece goes
+//!   then [observed: hud.md §14.3]), the area is hidden and its clock stands still
+//!   [design], so a message is not used up behind a menu ([`held`], issue #1239).
 
 use crate::interface::{amber, at, bc_supported, face, file_name, plain_font, set_text, u, Face, Picture, Pictures, Set};
 use crate::message_menu::MessagePanel;
@@ -203,6 +205,21 @@ fn spawn_area(commands: &mut Commands, note: &Note, kit: &mut Kit, data: Option<
     });
 }
 
+/// Whether the corner messages and the quest lines (`crate::quest_messages`) are hidden
+/// with their clocks stopped, so a line comes back when the hold ends. Behind a message
+/// box or a script's menu (`panel_open`); in any state but `Playing`: a conversation
+/// (every HUD element goes then: the owner's playtest list 5, item 74), a terminal, the
+/// Pip-Boy, a container, barter, lockpicking, a loading screen, as the rest of the HUD
+/// (`crate::hud`) [observed: hud.md §14.3, every HUDMainMenu piece `visible` 0 with a
+/// menu open; for a terminal in particular a hypothesis; that the original's timers stop
+/// there is not observed: decision, issue #1239]; while an idle holds the camera (the
+/// opening's wake-up, `crate::player::ViewDriven`): only subtitles then [owner
+/// 2026-10-24]; and while a kill camera plays (`crate::kill_cam`) [owner's playtest
+/// request #1034].
+pub(crate) fn held(panel_open: bool, state: Option<crate::PlayState>, driven: bool, kill_cam: bool) -> bool {
+    panel_open || state.is_some_and(|s| s != crate::PlayState::Playing) || driven || kill_cam
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn draw(
     mut commands: Commands,
@@ -220,16 +237,8 @@ fn draw(
     state: Option<Res<State<crate::PlayState>>>,
     driven: Option<Res<crate::player::ViewDriven>>,
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
-    pip: Option<Res<crate::pipboy::PipBoy>>,
 ) {
-    // Behind a message box or a script's menu, and in a conversation (every HUD element
-    // goes then: the owner's playtest list 5, item 74): hidden, and no time passes, so
-    // the line comes back when the conversation ends. So too while an idle holds the
-    // camera (the opening's wake-up, `crate::player::ViewDriven`): only subtitles then
-    // [owner 2026-10-24].
-    // And while a kill camera plays (`crate::kill_cam`) [owner's playtest request #1034].
-    // And behind the Pip-Boy's screen menu (docs/design/screen-menu.md).
-    let held = panel.view.is_some() || state.is_some_and(|s| *s.get() == crate::PlayState::Dialogue) || driven.is_some_and(|d| d.0) || kill_cam.is_some_and(|k| k.active()) || crate::pipboy::screen_menu_up(pip.as_deref());
+    let held = held(panel.view.is_some(), state.map(|s| *s.get()), driven.is_some_and(|d| d.0), kill_cam.is_some_and(|k| k.active()));
     for (_, mut v) in &mut roots {
         v.set_if_neq(if held { Visibility::Hidden } else { Visibility::Inherited });
     }
@@ -283,6 +292,21 @@ mod tests {
         let mut f = plain_font(36.0, 17.0);
         f.glyphs[b' ' as usize].after = 13.0;
         f
+    }
+
+    /// Issue #1239: behind a terminal, the Pip-Boy or any menu (`PlayState::Menu`) the
+    /// areas are held as behind a message box; in the world with nothing else open, not.
+    #[test]
+    fn held_outside_play_and_behind_boxes() {
+        use crate::PlayState::*;
+        assert!(!held(false, Some(Playing), false, false));
+        assert!(!held(false, None, false, false));
+        for s in [Menu, Dialogue, Loading] {
+            assert!(held(false, Some(s), false, false), "{s:?}");
+        }
+        assert!(held(true, Some(Playing), false, false));
+        assert!(held(false, Some(Playing), true, false));
+        assert!(held(false, Some(Playing), false, true));
     }
 
     #[test]

@@ -1086,6 +1086,8 @@ pub struct Game<'a> {
     pub(crate) name_overrides: std::collections::HashMap<FormId, String>,
     /// xNVSE's mod local data: lower-cased key -> (key as given, value); the session's.
     pub(crate) mod_data: BTreeMap<String, (String, fnv_script::vm::XVal)>,
+    /// NX NVSE's variables on references (`crate::nvse_nx`), saved.
+    pub(crate) nx: crate::nvse_nx::NxVars,
     /// TempCloneForm's clones and their originals (`crate::nvse_data`).
     pub(crate) clones: std::collections::HashMap<FormId, FormId>,
     pub(crate) clone_seq: u32,
@@ -1429,6 +1431,10 @@ pub struct Game<'a> {
     /// opened or closed: OnOpen, OnClose), run at the start of the next frame with the
     /// world in place ([`Game::queue_ref_event`]).
     pub queued_ref_events: Vec<(FormId, u16, Option<FormId>)>,
+    /// Each activated reference's action reference: who activated it last
+    /// ([`Game::activate`]). A bare `Activate` in the reference's own GameMode uses it
+    /// (`functions::refs::activate`). Not part of the saved state.
+    pub action_refs: std::collections::HashMap<FormId, FormId>,
     /// Deaths during a script run (KillActor, a script's damage) whose OnDeath blocks wait
     /// for the outermost script to finish, with their killers ([`Game::kill`]).
     deferred_deaths: Vec<(FormId, Option<FormId>)>,
@@ -1471,6 +1477,10 @@ pub struct Game<'a> {
     depth: u32,
     /// A function asked the running script to stop as `Return` does (RemoveMe).
     stop_run: bool,
+    /// The (script record, opcode) pairs whose call on an empty reference was already
+    /// traced: a record's script runs every frame, so the failure is traced the first
+    /// time only (`Exec::call`). Not part of the saved state.
+    empty_ref_traced: BTreeSet<(u32, u16)>,
     /// Game time of the next scan for actors whose package choice is due (`crate::ai`).
     pub(crate) package_scan_due: f64,
 }
@@ -1497,6 +1507,10 @@ pub struct GameSnapshot {
     /// The lambdas scripts made, so variables naming them stay right after a load.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub lambdas: Vec<SavedLambda>,
+    /// NX NVSE's variables on references (`crate::nvse_nx`), saved [documented: they "are
+    /// persistent across game sessions"].
+    #[serde(default, skip_serializing_if = "crate::nvse_nx::NxVars::is_empty")]
+    pub nx: crate::nvse_nx::NxVars,
     pub sim: Snapshot,
     pub quests: BTreeMap<FormId, QuestState>,
     pub instances: Vec<(InstKey, Instance)>,
@@ -1608,7 +1622,7 @@ impl GameSnapshot {
     /// or cell is gone (created ones: a plugin's creature placed with PlaceAtMe, its item
     /// dropped), script instances whose key or script is gone, magic effects whose effect,
     /// source, target or script is gone (and their effect scripts; a co-op player's
-    /// likewise), and the radio station
+    /// likewise), NX form variables naming a gone form, and the radio station
     /// or weather shown. Other fields keep the gone ID, which names no form: a lookup of it
     /// fails as one of any form that does not exist [hypothesis: the original's behaviour
     /// with a missing plugin is not documented]. Returns how many were dropped.
@@ -1643,6 +1657,7 @@ impl GameSnapshot {
             !key_gone && !inst.script.is_some_and(&gone)
         });
         n += before - self.instances.len();
+        n += self.nx.drop_gone(&gone);
         for slot in [&mut self.pipboy_station, &mut self.weather_shown] {
             if slot.is_some_and(&gone) {
                 *slot = None;
@@ -1804,6 +1819,7 @@ impl<'a> Game<'a> {
             field_overrides: std::collections::HashMap::new(),
             name_overrides: std::collections::HashMap::new(),
             mod_data: BTreeMap::new(),
+            nx: Default::default(),
             clones: std::collections::HashMap::new(),
             clone_seq: 0,
             playable_overrides: std::collections::HashMap::new(),
@@ -1927,6 +1943,7 @@ impl<'a> Game<'a> {
             door_gates: Default::default(),
             npc_door_run: None,
             queued_ref_events: Vec::new(),
+            action_refs: Default::default(),
             deferred_deaths: Vec::new(),
             door_open_seen: BTreeMap::new(),
             events: Vec::new(),
@@ -1947,6 +1964,7 @@ impl<'a> Game<'a> {
             effect_elapsed: 0.0,
             depth: 0,
             stop_run: false,
+            empty_ref_traced: BTreeSet::new(),
             package_scan_due: 0.0,
         }
     }
@@ -2131,8 +2149,10 @@ impl<'a> Game<'a> {
 
     /// `SetObjectiveDisplayed` / `SetObjectiveCompleted`. Only objectives the quest
     /// defines change; displaying one starts a stopped quest [documented: GECK wiki
-    /// SetObjectiveDisplayed]. Completing does not display; displaying clears the
-    /// completed flag [observed: VMS16 objectives 10 and 5, layer5-captures.md §5.2].
+    /// SetObjectiveDisplayed]. Completing does not display; showing a hidden objective
+    /// clears the completed flag [observed: VMS16 objectives 10 and 5, layer5-captures.md
+    /// §5.2], displaying one already shown keeps it [observed: o5_00, VMS19 65 and
+    /// VFSAtomicPimp 34, observer check 40, issue #1108].
     pub fn set_objective(&mut self, q: FormId, index: i32, displayed: Option<bool>, completed: Option<bool>) -> bool {
         let data = self.data;
         let Some(def) = data.quests.get(&q) else { return false };
@@ -2145,10 +2165,10 @@ impl<'a> Game<'a> {
         let o = self.quest(q).objectives.entry(index).or_default();
         let (d0, c0) = (o.displayed, o.completed);
         if let Some(d) = displayed {
-            o.displayed = d;
-            if d {
+            if d && !o.displayed {
                 o.completed = false;
             }
+            o.displayed = d;
         }
         if let Some(c) = completed {
             o.completed = c;
@@ -3823,6 +3843,7 @@ impl<'a> Game<'a> {
         if self.activation_refused(target) {
             return Ok(serde_json::json!({"result": "destroyed"}));
         }
+        self.action_refs.insert(target, actor);
         // A door's block letting the NPC that walks through it go on (`crate::npc_doors`).
         if mode == ActMode::Default && self.npc_door_activated(actor, target) {
             return Ok(serde_json::json!({"result": "npc door"}));
@@ -4532,11 +4553,15 @@ impl<'a> Game<'a> {
     // ---- snapshots -----------------------------------------------------------------
 
     pub fn snapshot(&self) -> GameSnapshot {
+        let sim = self.world.snapshot();
         GameSnapshot {
             format: SNAPSHOT_FORMAT.into(),
             ext: self.ext.clone(),
             lambdas: self.lambdas.iter().map(|d| SavedLambda { unit: d.key.clone(), lambda: d.lambda.clone(), inst: d.inst }).collect(),
-            sim: self.world.snapshot(),
+            // A created reference deleted since keeps no variables: its FormID is not
+            // used again, so they could never be read.
+            nx: crate::nvse_nx::NxVars(self.nx.0.iter().filter(|(id, _)| !sim.deleted_created.contains_key(id)).map(|(k, v)| (*k, v.clone())).collect()),
+            sim,
             quests: self.quests.clone(),
             instances: self.instances.iter().map(|(k, v)| (*k, v.clone())).collect(),
             extra: self.extra.clone(),
@@ -4596,6 +4621,7 @@ impl<'a> Game<'a> {
             let unit = data.unit_by_key.get(&l.unit).map(|&i| &data.units[i]);
             g.lambdas.push(LambdaDef { unit, key: l.unit.clone(), lambda: l.lambda.clone(), inst: l.inst, captured: None });
         }
+        g.nx = s.nx.clone();
         g.quests = s.quests.clone();
         g.instances = s.instances.iter().cloned().collect();
         g.extra = s.extra.clone();
@@ -4835,8 +4861,17 @@ impl Host for Exec<'_, '_> {
                     // A call on an empty reference variable stops the script silently
                     // for this run [documented: GECK wiki Ref Variable, Eval and Let
                     // pages, owner export; docs/spec-notes/script-language.md §7.3 row
-                    // 1]; traced as `call_failed`.
+                    // 1]; traced as `call_failed`. Classic `&&` and `||` evaluate both
+                    // sides, so a reference guarded by `&&` (EDEScript) still makes this
+                    // call every frame, in the original too [observed: o5_01,
+                    // observer-checks.md check 51; script-language.md §4]. A script
+                    // record's failure is traced once per function, not every frame.
                     self.game.stop_run = true;
+                    if let fnv_script::UnitOwner::Script { form } = self.unit.unit.owner {
+                        if !self.game.empty_ref_traced.insert((form, opcode)) {
+                            return Ok(Value::ZERO);
+                        }
+                    }
                     let name = self.game.data.table.get(opcode).map(|f| f.name.clone()).unwrap_or_default();
                     let unit = self.unit.key();
                     self.game.emit(EventKind::CallFailed {
