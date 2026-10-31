@@ -156,6 +156,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
     if let Some(r) = crate::nvse_data::call(g, name, subject, args) {
         return Some(r);
     }
+    if let Some(r) = crate::nvse_notes::call(g, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_nx::call(g, name, subject, args) {
+        return Some(r);
+    }
     if let Some(r) = crate::nvse_actor::call(g, name, subject, args) {
         return Some(r);
     }
@@ -506,13 +512,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
             if name == "getscript" { XVal::Ref(s.map_or(0, |s| s.0)) } else { XVal::Num(f64::from(u8::from(s.is_some()))) }
         }
         // [documented: GetRace; observed: nvse-forms, Doc Mitchell 0042C3, his RNAM though
-        // he has a template] the actor's own race record, as the character creator or
-        // AgeRace changed it.
+        // he has a template (not using Traits); tmpl2 (#1057), PrimmNCRTrooper3 answers its
+        // "Use Traits" template's race] the actor's race record, as the character creator
+        // or AgeRace changed it.
         "getrace" => {
             // The argument first: `GetRace rF` on a base form [observed: nvse-forms].
             let a = as_form(args.first()).or(subject).unwrap_or(FormId(0));
+            let traits = g.data.base_template_source(crate::functions::base_of(g, a).unwrap_or(a), |d| d.template_traits);
             let own = (a != FormId::PLAYER_REF && g.extra.get(&a).and_then(|e| e.race).is_none())
-                .then(|| match field(g, crate::functions::base_of(g, a).unwrap_or(a), "RNAM", "") {
+                .then(|| match field(g, traits, "RNAM", "") {
                     Some(XVal::Ref(r)) if r != 0 => Some(FormId(r)),
                     _ => None,
                 })
@@ -593,17 +601,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
             };
             XVal::Num(if name.ends_with("low") { (bits & 0xFFFF) as f64 } else { (bits >> 16) as f64 })
         }
-        // AI packages of the reference's base (its template's when the template supplies
-        // them) [documented: GetPackageCount; GetNthPackage; observed: nvse-misc, Doc 9,
-        // 0 = 15ED62].
+        // AI packages of the reference's base: the "AI Packages" template's list whenever
+        // the flag is set, the base's own list beside it unread [documented: GetPackageCount;
+        // GetNthPackage; observed: nvse-misc, Doc 9, 0 = 15ED62; tmpl2 (#1057)].
         "getpackagecount" | "getnthpackage" => {
             let b = item(g, usize::MAX).unwrap_or(FormId(0));
-            let def = g.data.actors.get(&b);
-            let own = def.map(|d| d.packages.clone()).unwrap_or_default();
-            let list = match def.and_then(|d| d.template.filter(|_| d.template_packages)) {
-                Some(t) if own.is_empty() => g.data.actors.get(&t).map(|d| d.packages.clone()).unwrap_or_default(),
-                _ => own,
-            };
+            let src = g.data.base_template_source(b, |d| d.template_packages);
+            let list = g.data.actors.get(&src).map(|d| d.packages.clone()).unwrap_or_default();
             // AddPackageAt's and RemovePackageAt's list first.
             let list = g.other.package_lists.get(&b).cloned().unwrap_or(list);
             if name == "getpackagecount" {

@@ -134,7 +134,7 @@ fn test_hits(
             }
         };
         let limb = match h.limb.as_deref().map(|l| fnv_game::combat::limb_condition(l).ok_or(l)) {
-            Some(Ok(condition)) => Some(fnv_game::combat::LimbHit { condition, health_percent: 1.0, damage: h.damage as f64 }),
+            Some(Ok(condition)) => Some(fnv_game::combat::LimbHit { condition, health_percent: 1.0, damage: h.damage as f64, points: false }),
             Some(Err(l)) => {
                 warn!("test aid: hit {}: no limb condition {l:?}", h.target);
                 continue;

@@ -603,6 +603,67 @@ pub enum RaceMenu {
     Surgeon,
 }
 
+/// The dialogue topics the player knows, newest first: the order that breaks ties of
+/// topic priority in the topic list (`Game::build_choices`).
+///
+/// The topics one line adds go to the front together, in their record order; a line's
+/// topic already known moves to the front again ([`KnownTopics::learn`]). `AddTopic` on a
+/// known topic leaves it where it is ([`KnownTopics::insert`]): a script may call it every
+/// frame, and the list must not depend on how often scripts run [design: review of
+/// #1205]. The original's lists for Boone and Manny Vargas follow no rule of learning
+/// order [observed 2026-10-31, dialogue.md §3.5]; newest first is the owner's choice of
+/// 2026-10-31 [design]. Saves from before kept a sorted set; they load in that order.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct KnownTopics(Vec<FormId>);
+
+impl KnownTopics {
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn contains(&self, topic: &FormId) -> bool {
+        self.0.contains(topic)
+    }
+
+    /// Newest first.
+    pub fn iter(&self) -> std::slice::Iter<'_, FormId> {
+        self.0.iter()
+    }
+
+    /// Learns `topics` (one line's Add Topics): all go to the front, the known ones too,
+    /// and returns those that were not known before, in their order.
+    pub fn learn(&mut self, topics: &[FormId]) -> Vec<FormId> {
+        let mut batch: Vec<FormId> = Vec::with_capacity(topics.len());
+        for &t in topics {
+            if !batch.contains(&t) {
+                batch.push(t);
+            }
+        }
+        let new: Vec<FormId> = batch.iter().copied().filter(|t| !self.0.contains(t)).collect();
+        self.0.retain(|t| !batch.contains(t));
+        self.0.splice(0..0, batch);
+        new
+    }
+
+    /// Learns one topic (`AddTopic`): to the front if it was not known, else it stays
+    /// where it is. True if it was not known before.
+    pub fn insert(&mut self, topic: FormId) -> bool {
+        let new = !self.0.contains(&topic);
+        if new {
+            self.0.insert(0, topic);
+        }
+        new
+    }
+}
+
+impl Extend<FormId> for KnownTopics {
+    fn extend<I: IntoIterator<Item = FormId>>(&mut self, iter: I) {
+        let topics: Vec<FormId> = iter.into_iter().collect();
+        self.learn(&topics);
+    }
+}
+
 /// The player's state outside the world's reference table.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct PlayerState {
@@ -621,6 +682,10 @@ pub struct PlayerState {
     pub teammate_perks: BTreeSet<FormId>,
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub notes: BTreeSet<FormId>,
+    /// Notes read in the Pip-Boy (GetNoteRead, `Game::mark_note_read`), and those
+    /// SetNoteRead marked with `serialize` 1 [documented: SetNoteRead].
+    #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
+    pub notes_read: BTreeSet<FormId>,
     /// Infamy (index 0) and fame (index 1) per reputation, as GetReputation's axis.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub reputation: BTreeMap<FormId, [f64; 2]>,
@@ -712,9 +777,10 @@ pub struct PlayerState {
     /// SetPCCanUsePowerArmor.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub power_armor: bool,
-    /// Dialogue topics added with AddTopic.
-    #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
-    pub topics: BTreeSet<FormId>,
+    /// Dialogue topics added with AddTopic and lines' Add Topics, newest first
+    /// ([`KnownTopics`]).
+    #[serde(skip_serializing_if = "KnownTopics::is_empty", default)]
+    pub topics: KnownTopics,
     /// SetLevel on the player (otherwise the configuration's level).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub level: Option<i32>,
@@ -849,6 +915,11 @@ pub mod menus {
     /// The tutorial menu (ShowTutorialMenu, `Game::show_tutorial`) [observed: MenuMode 1059
     /// was 1, and 1001 and 1060 were 0, with it open, capture mh1_tutorial, save nvfstrip, 2026-10-18]. Not a message box.
     pub const TUTORIAL: u16 = 1059;
+    /// The "How many?" prompt [documented: Hardcoded UI Shortcuts, the `QuantityMenu`
+    /// class constant, `fnv_ui::value`]. The engine shows it over a container, barter or
+    /// inventory menu without making it [`Game::menu`] (MenuMode does not report it); it
+    /// stands in [`Game::ui_prompt`] for the tile tree (T15a).
+    pub const QUANTITY: u16 = 1016;
     /// The companion wheel (`crate::companion_wheel`) [hypothesis: the code, see there].
     pub const COMPANION_WHEEL: u16 = crate::companion_wheel::MENU_CODE;
 
@@ -870,6 +941,24 @@ pub mod menus {
     pub fn same_menu(a: u16, b: u16) -> bool {
         a == b || (is_pipboy(a) && is_pipboy(b))
     }
+}
+
+/// What an open menu is about or has highlighted, for the extender's menu getters
+/// (GetMenuTargetRef, GetSelectedItemRef; #983): an item in a container's inventory (an
+/// inventory reference to scripts) or a form [documented: GetSelectedItemRef, "either a
+/// temporary Inventory Reference, or a Base Form, depending on the menu type"].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuPick {
+    Item { owner: FormId, item: FormId },
+    Form(FormId),
+}
+
+/// A menu's [`MenuPick`]s: what it is derived from and its highlighted row. The engine
+/// sets them each frame ([`Game::set_menu_picks`]); not saved.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MenuPicks {
+    pub target: Option<MenuPick>,
+    pub selected: Option<MenuPick>,
 }
 
 /// `merchant.ShowBarterMenu [discount]`: trade with this actor. `discount` is a percentage
@@ -1024,6 +1113,17 @@ pub struct Game<'a> {
     pub(crate) name_overrides: std::collections::HashMap<FormId, String>,
     /// xNVSE's mod local data: lower-cased key -> (key as given, value); the session's.
     pub(crate) mod_data: BTreeMap<String, (String, fnv_script::vm::XVal)>,
+    /// Notes the extender's setters changed this session (`crate::nvse_notes`), whole.
+    pub(crate) note_edits: BTreeMap<FormId, crate::data::NoteDef>,
+    /// The holotape playing and the line it started with (`Game::holotape_script`): its
+    /// end script is that line's, whatever the start script changed of the note.
+    pub(crate) tape_playing: Option<(FormId, FormId)>,
+    /// SetNoteRead's changes without `serialize`: for the session, over the saved flag.
+    pub(crate) note_read_session: BTreeMap<FormId, bool>,
+    /// What each open menu is about and has highlighted, by menu code ([`MenuPicks`]).
+    pub(crate) menu_picks: BTreeMap<u16, MenuPicks>,
+    /// NX NVSE's variables on references (`crate::nvse_nx`), saved.
+    pub(crate) nx: crate::nvse_nx::NxVars,
     /// TempCloneForm's clones and their originals (`crate::nvse_data`).
     pub(crate) clones: std::collections::HashMap<FormId, FormId>,
     pub(crate) clone_seq: u32,
@@ -1318,6 +1418,12 @@ pub struct Game<'a> {
     /// under CGTutorial's crippled-limb tutorial): it is the open menu again once the
     /// tutorial closes [hypothesis]. Saved.
     pub menu_under: Option<u16>,
+    /// A menu the engine shows over the open one without it being [`Game::menu`] (the
+    /// "How many?" prompt, [`menus::QUANTITY`]): the tile tree builds its file while set
+    /// (`crate::ui_loading::sync`), so it can be drawn from it (task T15a) [design:
+    /// MenuMode does not report it; whether the original's MenuMode 1016 holds over a
+    /// container is not captured]. Set by the engine each frame. Not saved.
+    pub ui_prompt: Option<u16>,
     /// The messages of the open tutorial menu (ShowTutorialMenu), its pages in the order
     /// shown [hypothesis: further calls while it is open add pages]. Saved.
     pub tutorial: Vec<FormId>,
@@ -1331,6 +1437,16 @@ pub struct Game<'a> {
     /// [hypothesis: one box at a time, the next when the open one closes]. `FormId(0)`:
     /// a box whose message is not known (a scenario's `given`).
     pub boxes: Vec<FormId>,
+    /// What each box in [`Game::boxes`] was when shown, in step with it (`queued[i]` is
+    /// `boxes[i]`'s): how many buttons it declared (a form-less box, MessageBoxEx, every
+    /// one `FormId(0)`, has no Message form to count them from, and [`Game::message_box`]
+    /// is the last box shown, not the one on screen) and which showing it is. Kept in the
+    /// snapshot. Out of step (code that changed `boxes` alone) it is not read
+    /// ([`Game::front_box`]) until the queue next changes, which puts it back in step
+    /// with every count unknown ([`Game::align_queued`]).
+    pub queued: Vec<QueuedBox>,
+    /// The last [`QueuedBox::serial`] given.
+    pub box_serial: u64,
     /// Dialogue lines being said (SayTo, Say), one per speaker.
     pub speech: Vec<Speech>,
     /// SayTo calls that found no line the speaker could say, (speaker, topic): their
@@ -1373,6 +1489,10 @@ pub struct Game<'a> {
     /// opened or closed: OnOpen, OnClose), run at the start of the next frame with the
     /// world in place ([`Game::queue_ref_event`]).
     pub queued_ref_events: Vec<(FormId, u16, Option<FormId>)>,
+    /// Each activated reference's action reference: who activated it last
+    /// ([`Game::activate`]). A bare `Activate` in the reference's own GameMode uses it
+    /// (`functions::refs::activate`). Not part of the saved state.
+    pub action_refs: std::collections::HashMap<FormId, FormId>,
     /// Deaths during a script run (KillActor, a script's damage) whose OnDeath blocks wait
     /// for the outermost script to finish, with their killers ([`Game::kill`]).
     deferred_deaths: Vec<(FormId, Option<FormId>)>,
@@ -1415,6 +1535,10 @@ pub struct Game<'a> {
     depth: u32,
     /// A function asked the running script to stop as `Return` does (RemoveMe).
     stop_run: bool,
+    /// The (script record, opcode) pairs whose call on an empty reference was already
+    /// traced: a record's script runs every frame, so the failure is traced the first
+    /// time only (`Exec::call`). Not part of the saved state.
+    empty_ref_traced: BTreeSet<(u32, u16)>,
     /// Game time of the next scan for actors whose package choice is due (`crate::ai`).
     pub(crate) package_scan_due: f64,
 }
@@ -1429,6 +1553,17 @@ pub struct SavedLambda {
     pub inst: Option<InstKey>,
 }
 
+/// A message box in [`Game::boxes`], as it was shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueuedBox {
+    /// The buttons it declared, whatever their conditions; `None` when not known (a
+    /// scenario's box of a message it does not name).
+    pub buttons: Option<usize>,
+    /// Which showing it is, counted up for every box shown: two boxes alike (the same
+    /// message, or two form-less boxes of the same words) are two showings.
+    pub serial: u64,
+}
+
 /// Snapshot of the Layer 5 state plus the world's (`fnv.game.state/1`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GameSnapshot {
@@ -1441,6 +1576,10 @@ pub struct GameSnapshot {
     /// The lambdas scripts made, so variables naming them stay right after a load.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub lambdas: Vec<SavedLambda>,
+    /// NX NVSE's variables on references (`crate::nvse_nx`), saved [documented: they "are
+    /// persistent across game sessions"].
+    #[serde(default, skip_serializing_if = "crate::nvse_nx::NxVars::is_empty")]
+    pub nx: crate::nvse_nx::NxVars,
     pub sim: Snapshot,
     pub quests: BTreeMap<FormId, QuestState>,
     pub instances: Vec<(InstKey, Instance)>,
@@ -1455,6 +1594,8 @@ pub struct GameSnapshot {
     pub message_box: Option<MessageBox>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub boxes: Vec<FormId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub queued: Vec<QueuedBox>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub speech: Vec<Speech>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
@@ -1552,7 +1693,7 @@ impl GameSnapshot {
     /// or cell is gone (created ones: a plugin's creature placed with PlaceAtMe, its item
     /// dropped), script instances whose key or script is gone, magic effects whose effect,
     /// source, target or script is gone (and their effect scripts; a co-op player's
-    /// likewise), and the radio station
+    /// likewise), NX form variables naming a gone form, and the radio station
     /// or weather shown. Other fields keep the gone ID, which names no form: a lookup of it
     /// fails as one of any form that does not exist [hypothesis: the original's behaviour
     /// with a missing plugin is not documented]. Returns how many were dropped.
@@ -1587,6 +1728,7 @@ impl GameSnapshot {
             !key_gone && !inst.script.is_some_and(&gone)
         });
         n += before - self.instances.len();
+        n += self.nx.drop_gone(&gone);
         for slot in [&mut self.pipboy_station, &mut self.weather_shown] {
             if slot.is_some_and(&gone) {
                 *slot = None;
@@ -1748,6 +1890,11 @@ impl<'a> Game<'a> {
             field_overrides: std::collections::HashMap::new(),
             name_overrides: std::collections::HashMap::new(),
             mod_data: BTreeMap::new(),
+            note_edits: BTreeMap::new(),
+            tape_playing: None,
+            note_read_session: BTreeMap::new(),
+            menu_picks: BTreeMap::new(),
+            nx: Default::default(),
             clones: std::collections::HashMap::new(),
             clone_seq: 0,
             playable_overrides: std::collections::HashMap::new(),
@@ -1855,10 +2002,13 @@ impl<'a> Game<'a> {
             menu: None,
             race_menu: RaceMenu::Creator,
             menu_under: None,
+            ui_prompt: None,
             tutorial: Vec::new(),
             loading: false,
             message_box: None,
             boxes: Vec::new(),
+            queued: Vec::new(),
+            box_serial: 0,
             speech: Vec::new(),
             say_to_unsaid: Vec::new(),
             moving_talkers: BTreeSet::new(),
@@ -1873,6 +2023,7 @@ impl<'a> Game<'a> {
             door_gates: Default::default(),
             npc_door_run: None,
             queued_ref_events: Vec::new(),
+            action_refs: Default::default(),
             deferred_deaths: Vec::new(),
             door_open_seen: BTreeMap::new(),
             events: Vec::new(),
@@ -1893,6 +2044,7 @@ impl<'a> Game<'a> {
             effect_elapsed: 0.0,
             depth: 0,
             stop_run: false,
+            empty_ref_traced: BTreeSet::new(),
             package_scan_due: 0.0,
         }
     }
@@ -2077,8 +2229,10 @@ impl<'a> Game<'a> {
 
     /// `SetObjectiveDisplayed` / `SetObjectiveCompleted`. Only objectives the quest
     /// defines change; displaying one starts a stopped quest [documented: GECK wiki
-    /// SetObjectiveDisplayed]. Completing does not display; displaying clears the
-    /// completed flag [observed: VMS16 objectives 10 and 5, layer5-captures.md §5.2].
+    /// SetObjectiveDisplayed]. Completing does not display; showing a hidden objective
+    /// clears the completed flag [observed: VMS16 objectives 10 and 5, layer5-captures.md
+    /// §5.2], displaying one already shown keeps it [observed: o5_00, VMS19 65 and
+    /// VFSAtomicPimp 34, observer check 40, issue #1108].
     pub fn set_objective(&mut self, q: FormId, index: i32, displayed: Option<bool>, completed: Option<bool>) -> bool {
         let data = self.data;
         let Some(def) = data.quests.get(&q) else { return false };
@@ -2091,10 +2245,10 @@ impl<'a> Game<'a> {
         let o = self.quest(q).objectives.entry(index).or_default();
         let (d0, c0) = (o.displayed, o.completed);
         if let Some(d) = displayed {
-            o.displayed = d;
-            if d {
+            if d && !o.displayed {
                 o.completed = false;
             }
+            o.displayed = d;
         }
         if let Some(c) = completed {
             o.completed = c;
@@ -3177,6 +3331,27 @@ impl<'a> Game<'a> {
     /// [hypothesis, as the dialogue's]. `MenuMode 1` is the Pip-Boy by any of its codes
     /// ([`menus::answers`]); a loading screen is 1007 and NVForever's VATS marking 1056
     /// ([`Game::side_menu`]).
+    /// The engine tells what the menu `code` is about and has highlighted ([`MenuPicks`];
+    /// the default when it is closed).
+    pub fn set_menu_picks(&mut self, code: u16, picks: MenuPicks) {
+        if picks == MenuPicks::default() {
+            self.menu_picks.remove(&code);
+        } else {
+            self.menu_picks.insert(code, picks);
+        }
+    }
+
+    /// The picks of the menu `code` while it is open.
+    pub fn menu_picks(&self, code: u16) -> MenuPicks {
+        self.menu_picks.get(&code).copied().filter(|_| self.menu_open(code)).unwrap_or_default()
+    }
+
+    /// The open menu on top: the one given ([`Game::menu`]), else the one under it, else
+    /// the conversation.
+    pub fn top_menu(&self) -> Option<u16> {
+        self.menu.or(self.menu_under).or(self.dialogue.as_ref().map(|_| menus::DIALOGUE))
+    }
+
     pub fn menu_open(&self, code: u16) -> bool {
         let open = |m: Option<u16>| m.is_some_and(|m| menus::answers(code, m));
         open(self.menu) || open(self.menu_under) || open(self.side_menu()) || (code == menus::DIALOGUE && self.dialogue.is_some())
@@ -3219,13 +3394,54 @@ impl<'a> Game<'a> {
     /// the pack plugins' boxes held GameMode, VCG00's countdown and the world clock,
     /// layer5-captures.md §10.1].
     pub fn show_box(&mut self, message: FormId) {
+        let buttons = self.data.messages.get(&message).map_or(0, |m| m.buttons.len());
+        self.show_box_buttons(message, buttons);
+    }
+
+    /// [`Game::show_box`] of a box that declared `buttons` buttons, all of them whatever
+    /// their conditions (a form-less MessageBoxEx box counts its own): kept with the box
+    /// while it waits and is on screen ([`Game::front_box`]).
+    pub fn show_box_buttons(&mut self, message: FormId, buttons: usize) {
         if !self.cfg.modal_message_boxes {
             return;
         }
+        self.align_queued();
+        let entry = self.next_queued(Some(buttons));
+        self.queued.push(entry);
         self.boxes.push(message);
         if self.menu.is_none() {
             self.open_menu(menus::MESSAGE);
         }
+    }
+
+    /// A box of a message not known, put in front of the others (a scenario's `given`
+    /// menu): its buttons not known.
+    pub fn put_box_in_front(&mut self, message: FormId) {
+        self.align_queued();
+        let entry = self.next_queued(None);
+        self.queued.insert(0, entry);
+        self.boxes.insert(0, message);
+    }
+
+    /// Put [`Game::queued`] back in step with [`Game::boxes`] when code changed the queue
+    /// alone (or an older snapshot had no `queued`): every box then its own showing and
+    /// its buttons not known, so nothing is closed on a made-up count and no two boxes
+    /// count as one [design].
+    pub fn align_queued(&mut self) {
+        if self.queued.len() != self.boxes.len() {
+            self.queued = (0..self.boxes.len()).map(|_| self.next_queued(None)).collect();
+        }
+    }
+
+    fn next_queued(&mut self, buttons: Option<usize>) -> QueuedBox {
+        self.box_serial += 1;
+        QueuedBox { buttons, serial: self.box_serial }
+    }
+
+    /// What the box on screen (or first in line) was when shown; `None` without a box, or
+    /// when [`Game::queued`] is out of step with [`Game::boxes`].
+    pub fn front_box(&self) -> Option<QueuedBox> {
+        (self.queued.len() == self.boxes.len()).then(|| self.queued.first().copied()).flatten()
     }
 
     /// `ShowTutorialMenu message`: the tutorial menu shows the message, a page of the
@@ -3291,6 +3507,8 @@ impl<'a> Game<'a> {
             return Some(m);
         }
         if m == menus::MESSAGE && !self.boxes.is_empty() {
+            self.align_queued();
+            self.queued.remove(0);
             let b = self.boxes.remove(0);
             if let Some(mb) = self.message_box.as_mut().filter(|mb| mb.message == b && mb.pressed.is_none()) {
                 mb.pressed = Some(0);
@@ -3573,10 +3791,8 @@ impl<'a> Game<'a> {
             // (`Game::start_dialogue`): its Add Topics join the known topics, and it
             // is no SayTo line [hypothesis for both].
             if s.greeting {
-                for &t in &def.add_topics {
-                    if self.player.topics.insert(t) {
-                        self.emit(EventKind::TopicAdded { topic: t, by: Some(info) });
-                    }
+                for t in self.player.topics.learn(&def.add_topics) {
+                    self.emit(EventKind::TopicAdded { topic: t, by: Some(info) });
                 }
             }
         }
@@ -3771,6 +3987,7 @@ impl<'a> Game<'a> {
         if self.activation_refused(target) {
             return Ok(serde_json::json!({"result": "destroyed"}));
         }
+        self.action_refs.insert(target, actor);
         // A door's block letting the NPC that walks through it go on (`crate::npc_doors`).
         if mode == ActMode::Default && self.npc_door_activated(actor, target) {
             return Ok(serde_json::json!({"result": "npc door"}));
@@ -3937,10 +4154,22 @@ impl<'a> Game<'a> {
     /// command tape (NVDLC01DogCommandNote, line 0x0100DFC7, NVDLC01DogDialogueBackInYourCage)
     /// is its quest's only way to stage 40 of NVDLC01MQ01a, so the original runs the
     /// line's scripts; whom they run on is not known, and the DM lines name every
-    /// reference they touch. docs/spec-notes/holotapes.md §3.]
+    /// reference they touch. docs/spec-notes/holotapes.md §3.] The end script is the one of
+    /// the line the tape started with, though the start script changed the note (SetNoteTopic)
+    /// [hypothesis: the tape plays the line it began].
     pub fn holotape_script(&mut self, note: FormId, which: usize) -> Option<FormId> {
         let data = self.data;
-        let crate::holotapes::Tape::Voice { info, .. } = crate::holotapes::tape(data, note)? else { return None };
+        let started = self.tape_playing.take().filter(|&(n, _)| n == note && which == 1).map(|(_, i)| i);
+        let info = match started {
+            Some(i) => i,
+            None => {
+                let crate::holotapes::Tape::Voice { info, .. } = self.note_tape(note)? else { return None };
+                info
+            }
+        };
+        if which == 0 {
+            self.tape_playing = Some((note, info));
+        }
         let def = data.infos.get(&info)?;
         if let Some(u) = [def.begin, def.end][which.min(1)] {
             self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(FormId::PLAYER_REF) });
@@ -4480,11 +4709,15 @@ impl<'a> Game<'a> {
     // ---- snapshots -----------------------------------------------------------------
 
     pub fn snapshot(&self) -> GameSnapshot {
+        let sim = self.world.snapshot();
         GameSnapshot {
             format: SNAPSHOT_FORMAT.into(),
             ext: self.ext.clone(),
             lambdas: self.lambdas.iter().map(|d| SavedLambda { unit: d.key.clone(), lambda: d.lambda.clone(), inst: d.inst }).collect(),
-            sim: self.world.snapshot(),
+            // A created reference deleted since keeps no variables: its FormID is not
+            // used again, so they could never be read.
+            nx: crate::nvse_nx::NxVars(self.nx.0.iter().filter(|(id, _)| !sim.deleted_created.contains_key(id)).map(|(k, v)| (*k, v.clone())).collect()),
+            sim,
             quests: self.quests.clone(),
             instances: self.instances.iter().map(|(k, v)| (*k, v.clone())).collect(),
             extra: self.extra.clone(),
@@ -4496,6 +4729,7 @@ impl<'a> Game<'a> {
             loading: self.loading,
             message_box: self.message_box.clone(),
             boxes: self.boxes.clone(),
+            queued: self.queued.clone(),
             speech: self.speech.clone(),
             said: self.said.clone(),
             said_day: self.said_day.clone(),
@@ -4544,6 +4778,7 @@ impl<'a> Game<'a> {
             let unit = data.unit_by_key.get(&l.unit).map(|&i| &data.units[i]);
             g.lambdas.push(LambdaDef { unit, key: l.unit.clone(), lambda: l.lambda.clone(), inst: l.inst, captured: None });
         }
+        g.nx = s.nx.clone();
         g.quests = s.quests.clone();
         g.instances = s.instances.iter().cloned().collect();
         g.extra = s.extra.clone();
@@ -4555,6 +4790,10 @@ impl<'a> Game<'a> {
         g.loading = s.loading;
         g.message_box = s.message_box.clone();
         g.boxes = s.boxes.clone();
+        g.queued = s.queued.clone();
+        g.box_serial = g.queued.iter().map(|q| q.serial).max().unwrap_or(0);
+        // An older snapshot has no `queued`: each box its own showing, buttons not known.
+        g.align_queued();
         g.speech = s.speech.clone();
         g.said = s.said.clone();
         g.said_day = s.said_day.clone();
@@ -4783,8 +5022,17 @@ impl Host for Exec<'_, '_> {
                     // A call on an empty reference variable stops the script silently
                     // for this run [documented: GECK wiki Ref Variable, Eval and Let
                     // pages, owner export; docs/spec-notes/script-language.md §7.3 row
-                    // 1]; traced as `call_failed`.
+                    // 1]; traced as `call_failed`. Classic `&&` and `||` evaluate both
+                    // sides, so a reference guarded by `&&` (EDEScript) still makes this
+                    // call every frame, in the original too [observed: o5_01,
+                    // observer-checks.md check 51; script-language.md §4]. A script
+                    // record's failure is traced once per function, not every frame.
                     self.game.stop_run = true;
+                    if let fnv_script::UnitOwner::Script { form } = self.unit.unit.owner {
+                        if !self.game.empty_ref_traced.insert((form, opcode)) {
+                            return Ok(Value::ZERO);
+                        }
+                    }
                     let name = self.game.data.table.get(opcode).map(|f| f.name.clone()).unwrap_or_default();
                     let unit = self.unit.key();
                     self.game.emit(EventKind::CallFailed {
@@ -4842,10 +5090,11 @@ impl Host for Exec<'_, '_> {
             let owner = Some(MessageBox::owner_of(self.inst_key(), &self.unit.key()));
             self.game.message_box = Some(MessageBox { message: none, buttons: buttons.len(), pressed: None, owner, hidden: Vec::new() });
         }
-        let is_box = !buttons.is_empty();
+        let (is_box, count) = (!buttons.is_empty(), buttons.len());
         self.game.emit(EventKind::MessageShown { message: none, text: Some(text.to_string()), buttons, hidden: Vec::new() });
         if is_box {
-            self.game.show_box(none);
+            // Its own buttons: no Message form to count them from (`Game::queued`).
+            self.game.show_box_buttons(none, count);
         } else {
             self.game.queue_corner_message();
         }

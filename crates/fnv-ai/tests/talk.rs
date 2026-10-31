@@ -773,3 +773,103 @@ fn an_actor_next_to_the_player_chatters_now_and_then() {
     let said: Vec<&AiEvent> = s.events().into_iter().filter(|e| matches!(e, AiEvent::IdleChatter { .. })).collect();
     assert!(matches!(said.first(), Some(AiEvent::IdleChatter { line, away }) if line.0 == I_CHATTER && *away <= fnv_ai::social::CHAT_NEAR_PLAYER), "{:?}", s.events());
 }
+
+/// Observe Combat's spectators "run away if they get too close" (fnv-ai social.rs,
+/// packages.md §7.6b): an actor whose package allows the behaviour, within
+/// `SPECTATOR_FLEE_DISTANCE` of a fighter (here the player, hunted), runs from it
+/// without entering a combat state, stays at its spot, and goes back to its package once
+/// the fight is over. A fight farther off sends nobody running.
+#[test]
+fn a_spectator_runs_from_a_fight_that_comes_too_close() {
+    use fnv_ai::social::{OBSERVE_DISTANCE, SPECTATOR_FLEE_DISTANCE};
+    use fnv_game::awareness::Timers;
+    use fnv_game::detection::{Band, Detection};
+    use fnv_game::combat_group::GroupSettings;
+    let f = fixture();
+    let mut s = sim(&f, R_IDLE, [CORNER[0] + 1000.0, CORNER[1] + 1000.0, 0.0]);
+    // The straight-away flee distance shortened to fit the room (1,200 units square).
+    s.game.awareness.tactics.settings = Some(GroupSettings { flee_normal: 700.0, ..GroupSettings::default() });
+    s.run_social(1.0);
+    // Someone (no resident) fights the player.
+    let foe = FormId(0xF00);
+    let (now, t) = (s.game.time, Timers::default());
+    let dist = |a: [f32; 3], b: [f32; 3]| (a[0] - b[0]).hypot(a[1] - b[1]);
+    let a = s.game.awareness.actors.entry(foe).or_default();
+    a.observe(FormId::PLAYER_REF, &Detection { value: 5.0, band: Band::Detected, ..Default::default() }, [0.0; 3], now, &t);
+    a.settle(foe, now, &t, true);
+    assert!(s.game.awareness.hunted(FormId::PLAYER_REF));
+    // Far off: it watches.
+    let feet = s.agent(R_IDLE).walker.feet;
+    let far = [feet[0], (feet[1] + SPECTATOR_FLEE_DISTANCE + 200.0).min(1150.0), 0.0];
+    assert!(dist(far, feet) > SPECTATOR_FLEE_DISTANCE && dist(far, feet) < OBSERVE_DISTANCE);
+    s.player_to(far);
+    s.run_social(2.0);
+    assert!(!s.events().iter().any(|e| matches!(e, AiEvent::SpectatorFlee { .. })), "{:?}", s.events());
+    // Too close: it runs, out of a combat state.
+    // Between it and the room's corner, so there is room to run (it idles near the corner).
+    let close = [10.0, 10.0, 0.0];
+    assert!(dist(close, s.agent(R_IDLE).walker.feet) <= SPECTATOR_FLEE_DISTANCE);
+    s.player_to(close);
+    s.run_social(0.5);
+    let ev = s.events();
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::SpectatorFlee { fighter, away } if *fighter == FormId::PLAYER_REF && *away <= SPECTATOR_FLEE_DISTANCE)), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Flee { from, .. } if *from == FormId::PLAYER_REF)), "{ev:?}");
+    let before = dist(s.agent(R_IDLE).walker.feet, close);
+    s.run_social(6.0);
+    assert!(!s.game.awareness.state(FormId(R_IDLE)).in_combat(), "it does not join in");
+    assert!(s.events().iter().any(|e| matches!(e, AiEvent::FleeArrived { .. })), "{:?}", s.events());
+    let fled = s.agent(R_IDLE).walker.feet;
+    assert!(dist(fled, close) > before + 200.0, "{fled:?} from {close:?}");
+    // The fight over: back to its package.
+    s.game.awareness.actors.remove(&foe);
+    s.run_social(1.0);
+    assert!(s.events().iter().any(|e| matches!(e, AiEvent::SearchOver { why } if why.contains("fight"))), "{:?}", s.events());
+    assert!(s.agent(R_IDLE).search.is_none());
+}
+
+/// Who does not run from a fight (review of #1216): nobody while its foe only searches
+/// (Alert), not the player's teammate, and a fight between residents sends a spectator
+/// running from the resident fighting.
+#[test]
+fn spectators_run_only_from_a_real_fight_and_not_the_players_side() {
+    use fnv_game::awareness::{State, Timers};
+    use fnv_game::detection::{Band, Detection};
+    use fnv_game::combat_group::GroupSettings;
+    let f = fixture();
+    let close = [10.0, 10.0, 0.0];
+    let fights = |s: &Sim| s.events().iter().any(|e| matches!(e, AiEvent::SpectatorFlee { .. }));
+    let hunt = |s: &mut Sim, state: State| {
+        let foe = FormId(0xF00);
+        let (now, t) = (s.game.time, Timers::default());
+        let a = s.game.awareness.actors.entry(foe).or_default();
+        a.observe(FormId::PLAYER_REF, &Detection { value: 5.0, band: Band::Detected, ..Default::default() }, [0.0; 3], now, &t);
+        a.settle(foe, now, &t, true);
+        a.state = state;
+    };
+    // A foe that only searches for the player (Alert): no fight to run from.
+    let mut s = sim(&f, R_IDLE, [CORNER[0] + 1000.0, CORNER[1] + 1000.0, 0.0]);
+    s.game.awareness.tactics.settings = Some(GroupSettings { flee_normal: 700.0, ..GroupSettings::default() });
+    s.run_social(1.0);
+    hunt(&mut s, State::Alert);
+    s.player_to(close);
+    s.run_social(1.0);
+    assert!(!fights(&s), "an Alert hunt is no fight: {:?}", s.events());
+    // In Combat, the player's teammate stays (it joins the fight, it does not watch it).
+    hunt(&mut s, State::Combat);
+    s.game.extra.entry(FormId(R_IDLE)).or_default().teammate = true;
+    s.run_social(1.0);
+    assert!(!fights(&s), "a teammate does not run: {:?}", s.events());
+    // A resident fighting (no player in it) next to a spectator: it runs from that one.
+    let mut s = sim(&f, R_IDLE, [CORNER[0] + 1000.0, CORNER[1] + 1000.0, 0.0]);
+    s.game.awareness.tactics.settings = Some(GroupSettings { flee_normal: 700.0, ..GroupSettings::default() });
+    s.run_social(1.0);
+    let feet = s.agent(R_IDLE).walker.feet;
+    s.game.set_actor_place(FormId(R_GREET), Some(FormId(CELL)), [feet[0] + 150.0, feet[1], 0.0], 0.0).unwrap();
+    s.ai.add(&s.game, FormId(R_GREET)).unwrap();
+    s.game.awareness.actors.entry(FormId(R_GREET)).or_default().state = State::Combat;
+    s.run_social(0.5);
+    let ev = s.events();
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::SpectatorFlee { fighter, .. } if *fighter == FormId(R_GREET))), "{ev:?}");
+    assert!(!ev.iter().any(|e| matches!(e, AiEvent::SpectatorFlee { fighter, .. } if *fighter == FormId::PLAYER_REF)), "the player fights nobody: {ev:?}");
+}
+

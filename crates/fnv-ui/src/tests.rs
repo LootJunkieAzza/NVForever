@@ -790,3 +790,28 @@ fn a_trait_by_a_path_under_a_tile() {
     assert!(ui.find_trait_in(item, "Label/nope").is_none());
     assert!(ui.find_trait_in(item, "").is_none());
 }
+
+#[test]
+fn a_trait_name_ending_in_an_underscore_after_a_constant_reads_its_number() {
+    // [design] The fade-line and meter prefabs' shape: a `&false;`/`&true;` flag copied
+    // before `copy … trait="_pic_"` (menu-xml.md §4.4, T15a).
+    let src = MemSource::default().with(
+        "menus/flag.xml",
+        r#"<menu name="Flags">
+  <image name="Off"> <_flag> &false; </_flag> <_pic_0> off.dds </_pic_0> <_pic_1> on.dds </_pic_1>
+    <filename> <copy src="me()" trait="_flag"/> <copy src="me()" trait="_pic_"/> </filename> </image>
+  <image name="On"> <_flag> &true; </_flag> <_pic_0> off.dds </_pic_0> <_pic_1> on.dds </_pic_1>
+    <filename> <copy src="me()" trait="_flag"/> <copy src="me()" trait="_pic_"/> </filename> </image>
+  <image name="Unknown"> <_flag> &nvfunknown; </_flag> <_pic_0> off.dds </_pic_0>
+    <filename> <copy src="me()" trait="_flag"/> <copy src="me()" trait="_pic_"/> </filename> </image>
+</menu>"#,
+    );
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus/flag.xml").unwrap();
+    ui.update();
+    assert_eq!(ui.get_string("Flags/Off/filename").as_deref(), Some("off.dds"));
+    assert_eq!(ui.get_string("Flags/On/filename").as_deref(), Some("on.dds"));
+    // A constant without a known number names no suffix: `_pic_` itself is read, and it
+    // is absent, so the copy reads the default value (0, as a string "0").
+    assert_eq!(ui.get_string("Flags/Unknown/filename").as_deref(), Some("0"));
+}

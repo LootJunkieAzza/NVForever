@@ -63,6 +63,7 @@ Console commands of its own:
 | `help <text>` | search every record: functions, then records (FormID, record type, Editor ID, name) whose name or Editor ID contains the text; see below |
 | `prid <reference>` | select the reference |
 | `coc <cell>` | travel to the cell's COC spot (`player::safe::cell_spot`: COCMarkerHeading, else XMarker, else a door arrival); interior or exterior cell by Editor ID or FormID |
+| `cow <world> <x> <y>` (`CenterOnWorld`), `coe <x> <y>` (`CenterOnExterior`) | travel to the exterior cell at grid square (x, y) of the worldspace named (Editor ID or FormID), or of the current one for `coe` (inside an interior, the one last walked in) [documented: GECK wiki]; arriving at the cell's centre on its landscape (no landscape: the worldspace's default land height; water above it: its surface) [hypothesis: where in the cell is undocumented], settled by the arrival rule; a square the worldspace has no cell at prints `No exterior cell at …` |
 | `tgm` | god mode on or off while no script runs (with scripts running it is ToggleGodMode, below) |
 | `cls`, `clear` | empty the scrollback |
 
@@ -83,6 +84,10 @@ it asks through `Game::console_requests`, which the console carries out. Wording
 | `ShowQuests` (`sq`) | running quests: FormID, Editor ID, name, stage; a count of finished ones |
 | `ShowQuestTargets` (`sqt`) | each target of the active quest's objectives shown and not done: target reference, cell, position, and for a target indoors the door outdoors leading to it. Active quest: the Pip-Boy's; with none, every running quest with such an objective [hypothesis] |
 | `MoveToQuestTarget [n]` (`movetoqt`) | travel, as `coc` does, to the `n`-th target `sqt` lists (the first without `n`), arriving at the target's position [hypothesis] |
+| `StartAllQuests` (`saq`) | starts every quest not running [documented: GECK wiki] |
+| `ResetDialogueFlags` (`rdf`) | Say Once and Say Once a Day lines may be said again [documented]; the record of lines said to the player goes with them, so choices are no longer shaded [hypothesis: one set holds both] |
+| `ResetAllTerminals` (`rat`) | hacked and locked-out terminals are as if never hacked [documented]; scripts' Lock/Unlock stay |
+| `[ref.]DeleteReference` (`zap`) | removes the reference (else the selection) at once, as MarkForDelete [documented]; never the player |
 | `ShowQuestStages <quest>` (`sqs`) | running/completed, the stage, and every stage the quest defines with done or not |
 | `ShowQuestVars <quest>` (`sqv`) | every variable the quest script declares, with its value |
 | `ShowVars [ref]` (`sv`) | the same for the selected reference's script (or the one named) |
@@ -113,19 +118,18 @@ The stub audit (`fnvtool script stubs`, `tools/smoke/expected/script-stubs.toml`
 only functions the masters' scripts call. A function typed at the console that no script
 calls is outside it, so `killall` did nothing unnoticed (#1046). The vanilla functions of
 the catalogue that nothing handles (not in `functions::registry`, the console registries,
-or the engine's own words `console::ENGINE_WORDS`: `coc`, `help`, `AdvLevel`) and that no
+or the engine's own words `console::ENGINE_WORDS`: `coc`, `cow`, `coe`, `help`,
+`AdvLevel`) and that no
 master script calls are counted by `console::unhandled_unused`. The test
-`registered_names_are_catalogue_console_commands` pins the two numbers: **57** in the
+`registered_names_are_catalogue_console_commands` pins the two numbers: **51** in the
 wiki's "Console Functions" category, **124** others. Implementing one lowers a number
 there; a catalogue update that adds one raises it. Sorted (2026-10-31):
 
-**Console functions players use, to build next**: `CenterOnWorld` (`cow <world> <x> <y>`,
-used by the capture campaigns), `CenterOnExterior` (`coe <x> <y>`), `StartAllQuests`
-(`saq`), `PlaceLocationMarker` / `ClearLocationMarkers` (`plm` / `clm`),
-`ShowLockPickMenu` (`slpm`), `DeleteReference` (`zap`), `bat` (run a batch file of
-console lines), `ToggleFogOfWar` (`tfow`), `ToggleEmotions` (`temo`), `ToggleLookIK`
-(`tlik`), `Show1stPerson` (`s1st`), `ResetDialogueFlags` (`rdf`), `ResetAllTerminals`
-(`rat`), `SetVel`, `MFG` (face morphs).
+**Console functions players use, to build next** (`cow`, `coe`, `saq`, `rdf`, `rat` and
+`zap` are built: in the table above): `PlaceLocationMarker` / `ClearLocationMarkers`
+(`plm` / `clm`), `ShowLockPickMenu` (`slpm`), `bat` (run a batch file of console lines),
+`ToggleFogOfWar` (`tfow`), `ToggleEmotions` (`temo`), `ToggleLookIK` (`tlik`),
+`Show1stPerson` (`s1st`), `SetVel`, `MFG` (face morphs).
 
 **Console functions not applicable to NVForever**, as they inspect or drive the original
 engine's own renderer, scene graph, tools or files, which NVForever does not have:

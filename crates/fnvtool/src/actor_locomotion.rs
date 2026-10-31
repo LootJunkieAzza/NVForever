@@ -7,6 +7,9 @@ use fnv_nif::anim::{Channel, TrackData};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Points sampled for [`report`]'s `root_peak`.
+const PEAK_STEPS: usize = 60;
+
 fn kind<const N: usize>(c: &Channel<N>) -> &'static str {
     match c {
         Channel::Static(Some(_)) => "static",
@@ -32,7 +35,7 @@ pub fn stance_prefix(stem: &str) -> Option<String> {
         .map(|g| stem[..stem.len() - g.len()].to_string())
 }
 
-pub fn report(vfs: &fnv_vfs::Vfs, nif: &fnv_nif::Schema, folder: &str, samples: usize) -> Value {
+pub fn report(vfs: &fnv_vfs::Vfs, nif: &fnv_nif::Schema, folder: &str, samples: usize, attacks: bool) -> Value {
     let folder = anims::normalize(folder).trim_end_matches('\\').to_string();
     let loco = format!("{folder}\\locomotion\\");
     // Also a move's clip kept beside the skeleton (`creatures\blowfly\mtforward.kf`,
@@ -43,7 +46,8 @@ pub fn report(vfs: &fnv_vfs::Vfs, nif: &fnv_nif::Schema, folder: &str, samples: 
         .paths(|p| {
             p.ends_with(".kf")
                 && (p.starts_with(&loco)
-                    || p.strip_prefix(&beside).is_some_and(|rest| !rest.contains('\\') && stance_prefix(rest.trim_end_matches(".kf")).is_some()))
+                    || p.strip_prefix(&beside).is_some_and(|rest| !rest.contains('\\') && stance_prefix(rest.trim_end_matches(".kf")).is_some())
+                    || (attacks && p.starts_with(&beside) && anims::file_name(p).contains("attack")))
         })
         .into_iter()
         .collect();
@@ -51,7 +55,7 @@ pub fn report(vfs: &fnv_vfs::Vfs, nif: &fnv_nif::Schema, folder: &str, samples: 
     let mut prefixes = BTreeSet::new();
     for path in &paths {
         let stem = anims::file_name(path).trim_end_matches(".kf");
-        if let Some(p) = stance_prefix(stem) {
+        if let Some(p) = stance_prefix(stem).filter(|_| !stem.contains("attack")) {
             prefixes.insert(p);
         }
         let data = match vfs.read(path) {
@@ -88,6 +92,18 @@ pub fn report(vfs: &fnv_vfs::Vfs, nif: &fnv_nif::Schema, folder: &str, samples: 
             });
             if let Some(tt) = root_track(&s) {
                 v["root_channels"] = json!({"translation": kind(&tt.translation), "rotation": if tt.euler.is_some() { "euler" } else { kind(&tt.rotation) }, "scale": kind(&tt.scale)});
+                // The farthest the root gets from where it starts, along the ground: a
+                // lunge that comes back ends near its start but travels on the way.
+                let at = |t: f32| tt.translation.sample(t).unwrap_or_default();
+                let a = at(s.start_time);
+                let (peak, peak_t) = (0..=PEAK_STEPS)
+                    .map(|i| {
+                        let t = s.start_time + (s.stop_time - s.start_time) * i as f32 / PEAK_STEPS as f32;
+                        let b = at(t);
+                        (((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2)).sqrt(), t)
+                    })
+                    .fold((0.0f32, s.start_time), |m, x| if x.0 > m.0 { x } else { m });
+                v["root_peak"] = json!({"distance": (f64::from(peak) * 100.0).round() / 100.0, "t": (f64::from(peak_t) * 1000.0).round() / 1000.0});
                 v["root_start"] = json!({
                     "translation": tt.translation.sample(s.start_time).map(r3),
                     "rotation": tt.rotation_at(s.start_time).map(|q| q.map(|x| (f64::from(x) * 1e4).round() / 1e4)),

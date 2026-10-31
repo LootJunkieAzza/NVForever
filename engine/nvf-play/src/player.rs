@@ -357,6 +357,7 @@ impl Plugin for PlayerPlugin {
             .init_resource::<PerkSpeed>()
             .init_resource::<ReloadPace>()
             .init_resource::<Lunge>()
+            .add_systems(Update, take_knockbacks.after(PlaySet::Input).before(PlaySet::Physics))
             .init_resource::<crate::control::DetachedCamera>()
             .add_systems(
                 Update,
@@ -651,36 +652,56 @@ impl Default for PerkSpeed {
     }
 }
 
-/// A lunge the player's attack carries them through: Legion Assault's
-/// (`crate::combat::LUNGE`). `step` moves the character forward along its heading at
-/// `speed` while `left` lasts, as well as where the player walks; walls stop it as they
-/// stop walking.
+/// What the player's attack clip carries them through (docs/spec-notes/actors.md §8.13):
+/// the body's attack clip whose `Bip01` travels (Legion Assault's
+/// `h2hattackcustom1power.kf`, 332 units forward; the forward power attacks) gives the
+/// player its root's travel, added every frame by the body (nvforever `player_body`).
+/// `step` moves the character by the travel owed, spread over its physics steps, as well
+/// as where the player walks; walls and actors stop it as they stop walking. Travel, not
+/// a velocity, so a long frame after a short one moves the player the clip's own travel
+/// (review of #1209).
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
 pub struct Lunge {
-    /// Units per second.
-    pub speed: f32,
-    /// Seconds left.
-    pub left: f32,
+    /// Game-space travel (x, y, units) the clip has carried the player by that the
+    /// physics steps have not moved yet.
+    pub owed: [f32; 2],
+    /// An attack clip that carries the player plays now.
+    pub carrying: bool,
     /// Where the feet were when it started, for the log at its end.
     from: Option<[f32; 3]>,
+    /// A melee blow's knockback on the player and its seconds left
+    /// (`crate::combat::Knockback`), with where the feet were when it began.
+    knock: Option<(crate::combat::Knockback, f32, Option<[f32; 3]>)>,
 }
 
 impl Lunge {
-    /// Lunge `far` units forward over `secs` seconds.
-    pub fn start(&mut self, far: f32, secs: f32) {
-        if secs > 0.0 {
-            *self = Lunge { speed: far / secs, left: secs, from: None };
-        }
+    /// Be pushed back by `k`; a new knockback takes over from one still going [design].
+    pub fn knock(&mut self, k: crate::combat::Knockback) {
+        self.knock = Some((k, k.secs, None));
     }
 
-    /// The speed for a step of `dt` seconds, using that time up.
-    fn take(&mut self, dt: f32) -> f32 {
-        if self.left <= 0.0 {
-            return 0.0;
+    /// The knockback's velocity (game x, y) over a step of `dt` seconds at `feet`, using
+    /// that time up; logged when it ends.
+    fn knock_step(&mut self, dt: f32, feet: [f32; 3]) -> [f32; 2] {
+        let Some((k, left, from)) = self.knock.as_mut() else { return [0.0; 2] };
+        let from = *from.get_or_insert(feet);
+        if *left <= 0.0 || dt <= 0.0 {
+            info!("player: knockback done: {:.0} units of {:.0} from where it started", (feet[0] - from[0]).hypot(feet[1] - from[1]), k.distance());
+            self.knock = None;
+            return [0.0; 2];
         }
-        let share = (self.left / dt).min(1.0);
-        self.left -= dt;
-        self.speed * share
+        let v = k.step(*left, dt) / dt;
+        *left -= dt;
+        [k.dir[0] * v, k.dir[1] * v]
+    }
+}
+
+/// Melee blows' knockbacks on the player start here (`Lunge::knock`).
+fn take_knockbacks(knocks: Option<MessageReader<crate::combat::Knockback>>, mut lunge: ResMut<Lunge>) {
+    let Some(mut knocks) = knocks else { return };
+    for k in knocks.read().filter(|k| k.form_id == FormId::PLAYER_REF.0) {
+        info!("player: knocked back at {:.0} units/s for {:.2} s ({:.0} units)", k.speed, k.secs, k.distance());
+        lunge.knock(*k);
     }
 }
 
@@ -758,13 +779,14 @@ fn mouse_look(
 /// second) [hypothesis, `crate::bindings::LOOK_SPEED_HORIZONTAL`].
 const STICK_LOOK_RADIANS: f32 = 0.001;
 
-/// Put the character on the ground under the start position once its cell is loaded: a
-/// ray down from the start eye, else (outdoors) from far above (a start under the
-/// terrain). Indoors with nothing below, the start moves to the nearest door arrival into
+/// Put the character on the ground under the start position once the cells around it are
+/// loaded ([`PhysState::ready_around`]: a save made on a walkway whose reference lies in
+/// the next square loads on it, #1103): a ray down from the start eye, else (outdoors)
+/// from far above (a start under the terrain). Indoors with nothing below, the start moves to the nearest door arrival into
 /// the cell ([`safe`]). With the `NVF_PLAY_TEST_NEAR` aid, a standing spot next to its
 /// reference replaces the start.
 fn place_initial(mut phys: ResMut<PhysState>, mut player: ResMut<Player>, mut near: ResMut<NearAid>, sim: Res<SimState>) {
-    if phys.player.is_some() || !phys.ready_at(player.feet) {
+    if phys.player.is_some() || !phys.ready_around(player.feet) {
         return;
     }
     if let (Some(id), Some(pos)) = (near.target, near.pos.take()) {
@@ -791,8 +813,8 @@ fn place_initial(mut phys: ResMut<PhysState>, mut player: ResMut<Player>, mut ne
                 let [x, y, z] = near.start;
                 warn!("test aid NVF_PLAY_TEST_NEAR: no standing spot within reach of {id:08X}; the start is kept ({x:.0}, {y:.0}, {z:.0})");
                 player.feet = near.start;
-                if !phys.ready_at(player.feet) {
-                    return; // its cell streams in first
+                if !phys.ready_around(player.feet) {
+                    return; // its cells stream in first
                 }
             }
         }
@@ -1020,7 +1042,9 @@ fn step(
     if let Some(at) = seat.hold.filter(|_| phys.player.is_some()) {
         // Held by furniture (`crate::furniture`): the world steps on, the character
         // stays where the furniture has it and collides with nothing. Movement asked
-        // for by a test aid (the keys are read in `read_input`) asks to get up.
+        // for by a test aid (the keys are read in `read_input`) asks to get up. A
+        // knockback is dropped: not kept to push the player when it gets up.
+        lunge.knock = None;
         if intent.forward != 0.0 || intent.right != 0.0 || intent.jump {
             seat.leave = true;
             intent.jump = false;
@@ -1048,6 +1072,7 @@ fn step(
         return;
     }
     if noclip.0 && phys.player.is_some() {
+        lunge.knock = None;
         // ToggleCollision: moved where the player asks, through everything; the cells
         // ahead load as the camera reaches them.
         let p = &mut *phys;
@@ -1096,6 +1121,11 @@ fn step(
     let dt = p.world.params.dt;
     let n = p.stepper.advance(&p.world.params, time.delta_secs());
     let c = p.player.as_mut().expect("placed");
+    // The clip's travel owed, spread over this frame's steps (none: kept for the next).
+    let carry = if n > 0 { lunge.owed.map(|o| o / (n as f32 * dt)) } else { [0.0; 2] };
+    if n > 0 {
+        lunge.owed = [0.0; 2];
+    }
     for i in 0..n {
         // Swimming or not is the character's state after the last step.
         let [vx, vy, vz] = if d.auto_walk > 0.0 {
@@ -1127,14 +1157,16 @@ fn step(
             // Slower while reloading, when the setting is on (`crate::combat::reload_pace`).
             let k = k * reload_pace.as_deref().map_or(1.0, |p| p.0);
             let [x, y] = velocity(&intent, player.heading, *speeds);
-            // An attack's lunge carries the player forward (`Lunge`).
-            if lunge.left > 0.0 && lunge.from.is_none() {
+            // An attack's clip carries the player (`Lunge`).
+            if lunge.carrying && lunge.from.is_none() {
                 lunge.from = Some(c.feet);
             }
-            let l = lunge.take(dt);
-            let (s, co) = player.heading.sin_cos();
-            [x * k + s * l, y * k + co * l, 0.0]
+            [x * k + carry[0], y * k + carry[1], 0.0]
         };
+        // A blow's knockback pushes the player back (`crate::combat::Knockback`), walking,
+        // swimming or not, so it never waits to push later (review of #1219).
+        let kb = lunge.knock_step(dt, c.feet);
+        let (vx, vy) = (vx + kb[0], vy + kb[1]);
         // Turbo slows the world's clock, not the player: its own movement goes faster by
         // the clock's inverse; falling and jumping stay on the clock (magic-archetypes.md
         // §2) [design].
@@ -1169,7 +1201,11 @@ fn step(
             let mut stopped = false;
             for (v, n) in walking.iter_mut().zip(p.npcs.values()) {
                 let asked = *v;
-                *v = clip(n.ch.id, asked, n.ch.feet, n.ch.params.radius, n.ch.params.height, dt, &mut all, &mut pushes);
+                *v = if b.carried.contains(&n.ch.id) {
+                    crate::blocking::clip_pushing_nobody(n.ch.id, asked, n.ch.feet, n.ch.params.radius, n.ch.params.height, dt, &mut all)
+                } else {
+                    clip(n.ch.id, asked, n.ch.feet, n.ch.params.radius, n.ch.params.height, dt, &mut all, &mut pushes)
+                };
                 stopped |= *v != asked;
             }
             b.steps_actor_blocked += u64::from(stopped);
@@ -1204,7 +1240,7 @@ fn step(
         }
         // A fall's damage (`crate::falls`).
         if let Some(height) = falls.as_deref_mut().and_then(|f| f.step(c.id, p.prev_feet[2], &s)) {
-            fell.write(crate::falls::Fell { actor: FormId::PLAYER_REF, height });
+            fell.write(crate::falls::Fell { actor: FormId::PLAYER_REF, height, feet: s.feet });
         }
         // Pushed and held by something: the actors walk round the player for a while.
         let want = pushed[0].hypot(pushed[1]);
@@ -1221,7 +1257,7 @@ fn step(
     if n > 0 {
         intent.jump = false;
     }
-    if let Some(from) = lunge.from.filter(|_| lunge.left <= 0.0) {
+    if let Some(from) = lunge.from.filter(|_| !lunge.carrying) {
         lunge.from = None;
         info!("player: lunge done: {:.0} units from where it started", (c.feet[0] - from[0]).hypot(c.feet[1] - from[1]));
     }
@@ -1263,7 +1299,7 @@ fn move_npcs(
         let (f, from) = (b.ch.feet, b.prev_feet);
         b.lift.step(f[2] - from[2], (f[0] - from[0]).hypot(f[1] - from[1]), was_on_ground && b.ch.grounded && !b.ch.swimming, dt);
         if let Some(height) = falls.as_deref_mut().and_then(|f| f.step(id, b.prev_feet[2], &s)) {
-            fell.write(crate::falls::Fell { actor: FormId(id), height });
+            fell.write(crate::falls::Fell { actor: FormId(id), height, feet: s.feet });
         }
     }
 }
@@ -1300,7 +1336,11 @@ fn step_npcs_alone(
         let mut stopped = false;
         for (v, n) in walking.iter_mut().zip(npcs.values()) {
             let asked = *v;
-            *v = clip(n.ch.id, asked, n.ch.feet, n.ch.params.radius, n.ch.params.height, dt, &mut all, &mut pushes);
+            *v = if b.carried.contains(&n.ch.id) {
+                crate::blocking::clip_pushing_nobody(n.ch.id, asked, n.ch.feet, n.ch.params.radius, n.ch.params.height, dt, &mut all)
+            } else {
+                clip(n.ch.id, asked, n.ch.feet, n.ch.params.radius, n.ch.params.height, dt, &mut all, &mut pushes)
+            };
             stopped |= *v != asked;
         }
         b.steps_actor_blocked += u64::from(stopped);
@@ -1405,28 +1445,6 @@ mod tests {
 
     fn close(a: [f32; 2], b: [f32; 2]) -> bool {
         (a[0] - b[0]).abs() < 1e-3 && (a[1] - b[1]).abs() < 1e-3
-    }
-
-    #[test]
-    fn lunge_covers_its_distance_in_its_time() {
-        let mut l = Lunge::default();
-        l.start(332.0, 1.6);
-        let dt = 1.0 / 60.0;
-        let mut far = 0.0;
-        while l.left > 0.0 {
-            far += l.take(dt) * dt;
-        }
-        assert!((far - 332.0).abs() < 0.01, "{far}");
-        assert_eq!(l.take(dt), 0.0);
-    }
-
-    #[test]
-    fn lunge_ends_part_way_through_a_step() {
-        let mut l = Lunge::default();
-        l.start(100.0, 0.25);
-        let dt = 0.1;
-        let far: f32 = (0..4).map(|_| l.take(dt) * dt).sum();
-        assert!((far - 100.0).abs() < 0.01, "{far}");
     }
 
     #[test]

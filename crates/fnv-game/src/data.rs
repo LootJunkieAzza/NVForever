@@ -299,12 +299,28 @@ pub struct NoteDef {
     pub texture: Option<String>,
     /// SNAM: a Sound note's sound (SOUN), a Voice note's speaker (NPC_ or CREA)
     /// [documented: xEdit wbDefinitionsFNV.pas NOTE, a union by note type; GECK wiki
-    /// GetNoteSound, GetNoteSpeaker]. docs/spec-notes/holotapes.md §1.
-    pub sound: Option<FormId>,
-    pub speaker: Option<FormId>,
+    /// GetNoteSound, GetNoteSpeaker]. One value, read by the type ([`NoteDef::sound`],
+    /// [`NoteDef::speaker`]), so SetNoteType changes what it is. docs/spec-notes/holotapes.md §1.
+    pub snam: Option<FormId>,
     /// TNAM of a Voice note: the topic (DIAL) whose line it plays [documented: xEdit
     /// NOTE TNAM union; GECK wiki GetNoteTopic].
     pub topic: Option<FormId>,
+    /// ONAM: the note's quests, in record order [documented: xEdit NOTE ONAM; GECK wiki
+    /// GetNoteQuestList, "all quests associated with a Note"; hypothesis: one ONAM per
+    /// quest].
+    pub quests: Vec<FormId>,
+}
+
+impl NoteDef {
+    /// A Sound note's sound (SNAM).
+    pub fn sound(&self) -> Option<FormId> {
+        self.snam.filter(|_| self.kind == 0)
+    }
+
+    /// A Voice note's speaker (SNAM).
+    pub fn speaker(&self) -> Option<FormId> {
+        self.snam.filter(|_| self.kind == 3)
+    }
 }
 
 /// A terminal (TERM) [documented: xEdit wbDefinitionsFNV.pas TERM; schema
@@ -2356,9 +2372,10 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             subs.iter().find(|s| &s.sig == b"DATA").map(|s| s.data.as_slice()),
         ));
     }
-    // A stage of a need: the value from which it holds, and its actor effect [observed:
-    // DATA is 8 bytes, a u32 of 200, 400 … 1000 and a SPEL FormID named for that number
-    // (Water1: 200, Dehydration200), docs/spec-notes/aid-items.md §11].
+    // A stage of a need: the value from which it holds, and its actor effect (DATA,
+    // schema type NeedStage [documented: xEdit RADS/DEHY/HUNG/SLPD]; observed: 200, 400 …
+    // 1000 and a SPEL named for that number, Water1: 200, Dehydration200;
+    // docs/spec-notes/aid-items.md §11).
     let need = match &sig {
         b"RADS" => Some(crate::aid::RAD_LEVEL),
         b"DEHY" => Some(crate::aid::DEHYDRATION),
@@ -2367,10 +2384,11 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
         _ => None,
     };
     if let Some(code) = need {
-        let data = subs.iter().find(|s| &s.sig == b"DATA").map(|s| s.data.as_slice()).unwrap_or_default();
-        let word = |o: usize| data.get(o..o + 4).and_then(|b| <[u8; 4]>::try_from(b).ok()).map(u32::from_le_bytes);
-        if let (Some(threshold), Some(spell)) = (word(0), word(4).and_then(map)) {
-            out.need_stage = Some((code, threshold, FormId(spell)));
+        let data = subs.iter().find(|s| &s.sig == b"DATA").and_then(&mut val);
+        let threshold = data.as_ref().and_then(|v| v.get("trigger_threshold")).and_then(Json::as_u64);
+        let spell = data.as_ref().and_then(|v| v.get("actor_effect")).and_then(hexid).and_then(map);
+        if let (Some(threshold), Some(spell)) = (threshold, spell) {
+            out.need_stage = Some((code, threshold as u32, FormId(spell)));
         }
     }
     // A water type's actor effect: XNAM, a SPEL [documented: xEdit wbDefinitionsFNV.pas
@@ -2803,13 +2821,15 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 let b = s.data.get(..4)?;
                 map(u32::from_le_bytes([b[0], b[1], b[2], b[3]])).filter(|f| *f != 0).map(FormId)
             };
+            n.quests = subs
+                .iter()
+                .filter(|s| &s.sig == b"ONAM")
+                .filter_map(|s| s.data.get(..4).and_then(|b| map(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))).filter(|f| *f != 0).map(FormId))
+                .collect();
+            n.snam = form_of(b"SNAM");
             match n.kind {
-                0 => n.sound = form_of(b"SNAM"),
                 1 => n.text = subs.iter().find(|s| &s.sig == b"TNAM").map(|s| fnv_util::cp1252::decode_z(&s.data)),
-                3 => {
-                    n.speaker = form_of(b"SNAM");
-                    n.topic = form_of(b"TNAM");
-                }
+                3 => n.topic = form_of(b"TNAM"),
                 _ => {}
             }
             out.note = Some(n);

@@ -92,7 +92,8 @@ fn warning_key(warning: &str) -> String {
 pub fn sync(game: &mut Game<'_>, paused: bool, main_menu: bool) -> LifetimeReport {
     let mut report = LifetimeReport::default();
     let Some(files) = game.ui_files.as_deref() else { return report };
-    let mut open: BTreeSet<_> = game.menu.into_iter().chain(game.menu_under).collect();
+    // The engine's prompt over the open menu (`Game::ui_prompt`, T15a) builds as well.
+    let mut open: BTreeSet<_> = game.menu.into_iter().chain(game.menu_under).chain(game.ui_prompt).collect();
     if game.dialogue.is_some() {
         open.insert(menus::DIALOGUE);
     }

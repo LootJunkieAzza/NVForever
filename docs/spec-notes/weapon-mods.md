@@ -220,7 +220,8 @@ being modded (Inventory Reference)"]. NVForever counts it among the Pip-Boy's co
 - Equip time (no master mod has it) and VATS bonus (unused in game). Increase Projectile
   Speed and both Regenerate Ammo effects are built (weapon-data-fields.md, 2026-10-21).
 - Scripts' view: GetWeaponHasMod-style functions are NVSE/JIP (not vanilla) and not
-  built; GetMenuTargetRef 1061 is not answered.
+  built. GetMenuTargetRef 1061 answers the weapon being modded and GetSelectedItemRef
+  the highlighted mod (or the weapon), as inventory references (ext-menus.md).
 
 ## 7. The mod shoot sounds (ESM gap audit row 12)
 

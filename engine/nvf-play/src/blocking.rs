@@ -110,6 +110,11 @@ pub struct ActorBlocks {
     /// they were when the attack began, so a lunge moves nobody [design; owner
     /// 2026-10-11: a dog gets into range and bites, it does not push the player around].
     pub attacking: std::collections::HashSet<u32>,
+    /// Actors their attack clip carries (nvforever `attack_anims`, `residents`): their
+    /// characters are stopped by the blocks as any walk is, but push nobody aside
+    /// ([`clip_pushing_nobody`]) [design: a lunge stops at the player, as a bite does
+    /// not push the player around, owner 2026-10-11].
+    pub carried: std::collections::HashSet<u32>,
     /// Actors that are in nobody's way: no block (perched birds, nvforever `residents`;
     /// docs/design/actor-behaviour.md §5.8).
     pub in_nobodys_way: std::collections::HashSet<u32>,
@@ -234,6 +239,21 @@ pub fn clip(me: u32, velocity: [f32; 2], feet: [f32; 3], radius: f32, height: f3
                 v[1] += n[1] * stop;
             }
         }
+    }
+    v
+}
+
+/// [`clip`] for a walker that pushes nobody aside ([`ActorBlocks::carried`]): every
+/// block stops it.
+#[allow(clippy::too_many_arguments)]
+pub fn clip_pushing_nobody(me: u32, velocity: [f32; 2], feet: [f32; 3], radius: f32, height: f32, dt: f32, blocks: &mut [Block]) -> [f32; 2] {
+    let was: Vec<bool> = blocks.iter().map(|b| b.pushable).collect();
+    for b in blocks.iter_mut() {
+        b.pushable = false;
+    }
+    let v = clip(me, velocity, feet, radius, height, dt, blocks, &mut Vec::new());
+    for (b, p) in blocks.iter_mut().zip(was) {
+        b.pushable = p;
     }
     v
 }

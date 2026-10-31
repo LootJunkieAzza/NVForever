@@ -111,6 +111,9 @@ python tools/smoke run --exe <engine target>/release/nvforever.exe --data <Data>
 - **Before starting, look for the same work**: open pull requests (drafts too) and open
   issues on the topic (`gh pr list --search <words>`, `gh issue list --search <words>`).
   If someone else has it, don't start a second copy: build on theirs or pick other work.
+- **Issues labelled `human contributor` are not for sessions** (owner decision 2026-10-31,
+  #1254): never claim one, comment on it, branch for it or open a pull request against it;
+  leave them out when picking work (`gh issue list --search '-label:"human contributor"'`).
 - **Open an issue first** (owner decision 2026-10-30, #919): before any pull request,
   an issue saying what will be added or fixed and what done looks like (`gh issue create`).
   If an open issue already covers it, use that one and comment that you are taking it.
