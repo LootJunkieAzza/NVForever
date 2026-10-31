@@ -431,7 +431,8 @@ The numbers above stay put so links to them hold; each item here gives its own p
     decides**. After the first meeting with House, the elevator Victor in the penthouse
     (Lucky38VictorElevator, the line's GetIsID) greeted with 0x00165102, "comp you to the
     High-Roller Suite", whose fixed speaker is the entrance Victor (Lucky38VictorEntrance)
-    [observed]. Ours does the same (dialogue.rs `can_say_as`). Still open: lines with a
+    [observed]; later talks to him open with his usual elevator greeting, as a Say
+    Once line should. Ours does the same (dialogue.rs `can_say_as`). Still open: lines with a
     fixed speaker and no GetIsID condition (the Dead Money end slides, #965), and the
     Boomers' end slide of a finished game. Also: the penthouse elevator can only be
     taken through this Victor's dialogue until House is dead (owner).
