@@ -187,6 +187,21 @@ paths**: trimmed, `/` → `\`, lower case, leading `\` removed, prefixed with `m
   §2.1 [hypothesis, following xEdit's field grouping]. `ACBS` "Use Template" is not
   consulted.
 - From the **Traits** source: race (`RNAM`), sex (ACBS bit 0 Female).
+- **The extender's base-form getters** on templated bases [observed: o5_00-01,
+  2026-10-31, xNVSE 6.4.9 + JIP LN; issue #1057]:
+  - GetBaseNumFactions / GetBaseNthFaction follow an NPC_ template when Use Factions is
+    set: GoodspringsPowderGangerHM 0x0015F312 (own 2 SNAM, template
+    GoodspringsPowderGangerAAMTemplate's 3) read 3, in the template's SNAM order
+    reversed (0x00134B6D, 0x00104C7E, 0x00136E0F). Without the flag the base's own
+    (PrimmPowderGangerOutside: 2, reversed). With an LVLN template and no own SNAM
+    (LvlGoodspringsPowderGanger 0x0015F315, Use Factions): 0 and no form.
+  - GetClass: own CNAM when Traits is not templated (0x0008D370, 0x0001945C). With Use
+    Traits and an LVLN template (PrimmPowderGangerOutside → VarPowderGangerGun,
+    LvlGoodspringsPowderGanger → VarGoodspringsPowderGanger; own CNAM VaultDweller
+    0x00000801) both read the **same** unrelated class, LonesomeRoad.esm's
+    NVDLC04UlyssesClass (load-order 0400A679), neither their own nor a list entry's
+    (0x0008D370) [observed; not explained].
+  - GetBaseSpellListSpells: an empty array on all five bases tried (none has own SPLO).
 - From the **Model/Animation** source: skeleton, hair, eyes, head parts, hair colour
   (`HCLR`, first three bytes), FaceGen arrays.
 - From the **Inventory** source: carried items (`CNTO` in record order).
