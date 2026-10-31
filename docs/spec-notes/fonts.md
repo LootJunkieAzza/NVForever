@@ -138,6 +138,38 @@ texture, texture middles decoded from each font's `.dds`)]
   in font 6, one space wide and one line high; NVForever's `measure` gives 0 wide and
   one line high.
 
+### 3.2 Drawing the glyph pictures
+
+- [observed: issue #1221, original and NVForever message-box captures at 1280x720,
+  2026-10-31] In the original, the x-height letters in "NVF box without buttons"
+  share their top and bottom ink rows. In NVForever, even the two occurrences of
+  `u` differ: one is 12 rows high and the other 10. This is a drawing error after
+  the font's measurements have been read, not a different ascent for each occurrence.
+- [documented: Bevy 0.20.1, `bevy_ui_render/src/lib.rs`, `NodeImageMode::Auto`
+  extraction; `bevy_ui/src/layout/mod.rs`, `ui_layout_system`] The default image
+  mode fits a texture rectangle inside its node while preserving its aspect ratio.
+  Layout rounding can give equal glyphs at different x positions different box
+  widths; the fit then changes both their width and height. `Stretch` fills the
+  specified box, and `LayoutConfig { use_rounding: false }` retains its fractional
+  dimensions and position.
+- [observed: issue #1221 temporary Bevy probe, 2026-10-31] The raw font-2 file and
+  texture, at 1280×720, were drawn at physical x 532 with a rounded shared baseline
+  plus each of 0, 0.125, 0.25, 0.375, 0.5, 0.625 and 0.75 pixels. Ink rows at red > 80
+  and green > 30 were: at 0, capitals 17, x-height letters 12 and 11, `t` 14; at
+  0.125, capitals 17, all x-height letters 11, `t` 14; at 0.25, capitals 16, all
+  x-height letters 11, `t` 14; and at 0.375 through 0.75, capitals 17, all x-height
+  letters 12, `t` 15. The 0.25 result is the original capture's row count.
+- [design: #1221] Snap one zero-sized line anchor to physical pixels, then draw
+  its glyphs without layout rounding, at their fractional horizontal positions and
+  their file ascent above the anchor. Give the rounded anchor a fixed quarter-pixel
+  sampling phase. The game uses a 1:1 logical-to-physical pixel scale [documented:
+  `engine/nvforever/src/main.rs`, `WindowResolution::with_scale_factor_override(1.0)`],
+  so the offset is expressed in Bevy's `Px`. Stretch each texture rectangle into its
+  measured box. This retains a common baseline, including after resizing, without
+  changing the per-font baseline offsets measured in #979. The terminal's coloured
+  characters and the character creator's scaled text use the same rule. Stand-in
+  text without a game font texture keeps its existing Bevy text path.
+
 ## 4. Font numbers
 
 [documented: `Fallout_default.ini`] 1 `Glow_Monofonto_Large`, 2 `Monofonto_Large`,

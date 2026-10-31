@@ -17111,3 +17111,17 @@ expect = [
   { re = 'player: knocked back at \d+ units/s for 1[.]00 s', label = "the trooper's punch knocks the player back" },
   { re = 'player: knockback done: (\d+) units of (\d+)', range = [3, 300], label = "the player is pushed back through its character" },
 ]
+
+[[scenario]]
+name = "font-glyph-baseline"
+source = "#1221 (docs/spec-notes/fonts.md §3.2): repeated font-2 glyphs at different fractional x positions keep their dimensions and share one pixel-aligned line baseline"
+areas = ["ui", "menus", "fonts"]
+paths = ["engine/nvf-play/src/interface.rs", "engine/nvf-play/src/terminal/screen.rs", "engine/nvf-play/src/creator/view.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "24:MessageBoxEx \"NVF box without buttons\";24.2:close", NVF_PLAY_TEST_SHOTS = "24.6:font_glyph_baseline.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--size", "1280x720"]
+run_seconds = 27
+expect = [
+  "message box shown: NVF box without buttons",
+  { re = 'test aid: screenshot .*font_glyph_baseline[.]png', label = "the glyph comparison frame is saved" },
+]
+manual = "font_glyph_baseline.png, compared with upstream main and the original at 1280x720: every x-height letter in 'NVF box without buttons' has the same top and bottom ink rows; the two u glyphs have equal heights; capitals and ascenders share their own height. Check the whole box, including its frame and Ok button, for position or size changes. Log expectations only verify the scene and capture; the glyph appearance needs this image review."
