@@ -891,7 +891,18 @@ fn main() -> AppExit {
     // NVForever.ini's `[Archive] SArchiveList`, in place of the shipped base list (#1142).
     if let Some((list, from)) = nvf_play::game_start::archive_list_for_run() {
         if fnv_vfs::set_archive_list(list.clone()).is_ok() {
-            eprintln!("vfs: SArchiveList from {from}: {}", list.join(", "));
+            if std::env::var(fnv_vfs::ARCHIVE_ORDER_ENV).is_ok_and(|v| !v.trim().is_empty()) {
+                eprintln!("vfs: SArchiveList from {from} not used: {} sets the whole order", fnv_vfs::ARCHIVE_ORDER_ENV);
+            } else {
+                eprintln!("vfs: SArchiveList from {from}: {}", list.join(", "));
+                // A name not in Data (a typo) is left out of the order: say so.
+                let present: Vec<String> = std::fs::read_dir(args.data())
+                    .map(|rd| rd.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().to_ascii_lowercase()).collect())
+                    .unwrap_or_default();
+                for a in list.iter().filter(|a| !present.contains(&a.to_ascii_lowercase())) {
+                    eprintln!("vfs: warning: SArchiveList names {a}, which is not in {}: left out", args.data().display());
+                }
+            }
         }
     }
     let game = match GameData::open_for_plugins(args.data(), &args.plugins, &args.nif_schema) {
