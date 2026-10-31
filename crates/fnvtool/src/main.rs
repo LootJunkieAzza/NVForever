@@ -962,9 +962,11 @@ pub enum EsmCmd {
     Inventory { plugin: PathBuf },
     /// Byte-identical rewrite and per-record payload checks.
     Verify { plugin: PathBuf },
-    /// Schema coverage report (work queue of undecoded subrecords).
+    /// Schema coverage report (work queue of undecoded subrecords), over one plugin or
+    /// several together.
     Coverage {
-        plugin: PathBuf,
+        #[arg(required = true, num_args = 1..)]
+        plugins: Vec<PathBuf>,
         #[arg(long)]
         schema: PathBuf,
         #[arg(long, default_value_t = 200)]
