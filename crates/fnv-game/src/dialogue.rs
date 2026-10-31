@@ -1164,7 +1164,7 @@ mod list_order_tests {
     #[test]
     fn priority_then_newest_learned_then_record_order() {
         let k = |priority: f32, learned: Option<usize>, order: usize| ListKey { priority, learned, order: (0, order) };
-        let mut list = vec![
+        let mut list = [
             ("top-level, later record", k(50.0, None, 9)),
             ("known, older", k(50.0, Some(3), 1)),
             ("top-level, earlier record", k(50.0, None, 2)),
