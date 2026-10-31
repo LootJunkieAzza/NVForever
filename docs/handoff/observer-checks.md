@@ -23,7 +23,6 @@ engine if needed, and delete the item here.
 - **A save from the owner** (quest or character state no save has yet):
   - Hardcore on: done (nvfHardcore); waits and sleeps still need the window.
   - Boone, Rex and ED-E hired (19, 22's complaints, 18's wheel): Boone done (nvfBoone).
-  - Benny's own invitation to the suite taken, not talked in with Speech (47).
   - Old World Blues just started in the Think Tank (43, 37); X-8 done, EM pulse module
     (38). Honest Hearts at Flight from Zion with Daniel (49).
   - VMS46 at Anders' thanks (39); Stone on his night route, VMS31 (50); HELIOS One before
@@ -539,14 +538,17 @@ The numbers above stay put so links to them hold; each item here gives its own p
     stall 4.)
 46. **Does the HELIOS One west-terminal password go to the player from Fantastic's line?**
     (P3; §10 stall 5.)
-47. **Does a talking activator's scripted `Activate player` start its conversation?** (P1:
-    Ring-a-Ding-Ding's ambush at the Tops, and the REPCONN intercom, #906.) Take Benny's
-    cash-up-front invitation and enter the presidential suite: does the intercom start
-    Benny's conversation by itself about 15 s later? (§11 stall 1.) Not answered by the
-    owner's save nvf47suite (2026-10-31): Benny was talked into the suite with Speech, so
-    he waits there for the player to come up and his forced dialogue starts it, with no
-    intercom (owner). Sixty seconds in the suite and in VTopsAmbushTrigger started no
-    conversation (o7_04). Needs a save that takes Benny's own invitation instead.
+47. **Does a talking activator's scripted `Activate player` start its conversation?** —
+    answered 2026-10-31 (o9_02, owner save nvfTopsAmbush: Benny's own invitation taken,
+    VMQTops 20, BennyAmbush 2, BennyGoToPresidential 0): **yes**. The trigger's script
+    (SCPT 0x0006919D) sets bElevatorDisabled and a 15 s timer on entry; once it runs out
+    and the player is within 250 units of the intercom (0x00129556), it calls
+    `SetTalkingActivatorActor Benny` and `<intercom>.Activate player`. With the player
+    walked through the trigger and then standing 144 units from the intercom, the
+    dialogue menu (1009) opened by itself about 14 s after the trigger (GameHour 4.80 to
+    4.91 at TimeScale 30) [observed]. Ours opens nothing (#1111). An earlier try with a
+    Speech-persuaded Benny (nvf47suite) had no intercom at all: Benny waits in the suite
+    for the player instead (owner). (§11 stall 1.)
 48. **Can Oliver be talked into retreating on House's path?** (P3.) After "You will because
     the alternative is worse", which reply does he give (Topic065 has two lines with the same
     conditions, 0x00159932 and 0x001596BD)? (§11 stall 2.)
