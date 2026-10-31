@@ -1099,6 +1099,11 @@ fn init_logging() {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     init_logging();
+    // The game folder a command reads (its data-folder argument, wherever the command
+    // takes it): every `fnv_install::guard_write` then refuses outputs inside it (#994).
+    if let Some(a) = std::env::args_os().skip(1).map(PathBuf::from).find(|p| p.is_dir() && fnv_install::GameInstall::open(p).is_ok()) {
+        fnv_install::remember_game_at(&a);
+    }
     let res = match cli.cmd {
         Cmd::Setup { game, home } => install_cmd::setup(&game, &home),
         Cmd::Paths { home } => install_cmd::paths(&home),

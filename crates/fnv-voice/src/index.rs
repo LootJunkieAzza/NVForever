@@ -166,7 +166,9 @@ impl VoiceIndex {
     /// The voice type an actor base or talking activator speaks with: its template's
     /// when the template supplies its traits and is an actor record, else its own. A
     /// template that is a levelled list picks its actor at run time; the record's own
-    /// voice type stands in then [hypothesis, voice.md §7].
+    /// voice type stands in then [hypothesis, voice.md §7]. A game resolves the list first
+    /// and passes the picked entry (`fnv_game::Game::voice_base`), so this fallback is for
+    /// tools that see only a base form.
     pub fn voice_of(&self, base: u32) -> Option<u32> {
         let mut b = base;
         for _ in 0..8 {

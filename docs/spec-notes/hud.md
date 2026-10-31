@@ -173,7 +173,9 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
 - A tick is the picture `hud_tick_mark.dds`: a block 6 texels wide (2 clear after it),
   its opacity rising from about an eighth at the top to full at the bottom [observed:
   the texture, §3], so the ticks look darker than the lines over the world; drawn at
-  brightness 175 since T12d [hypothesis, §14.9]. Each tick is set on whole pixels — the
+  brightness 175 since T12d [observed: o5_00-01, 2026-10-31, the original's full-row meters
+  `HitPoints/*:2` and `ActionPoints/*:2` (296 wide) read `brightness` 175, the bars' other
+  visible children 255; §14.9]. Each tick is set on whole pixels — the
   step `round(8 × scale)`, the width `round(6 × scale)` — so all ticks are as wide as
   each other at any view size [design: the owner's "clean straight lines, not some
   bigger than others"; at 720 lines a 6-of-8 tick is 4.5 pixels and rounded unevenly

@@ -1,6 +1,6 @@
 # The remaining xNVSE functions: tasks
 
-*2026-10-30: core xNVSE is built but for three names (§3); what is left is the plugin
+*2026-10-30: core xNVSE is built in full (§3); what is left is the plugin
 libraries (JIP LN, JohnnyGuitar, ShowOff, SUP, …), counted in §3. The next batch for the
 whole extender integration is docs/handoff/nvse-next-batch.md.*
 
@@ -58,10 +58,8 @@ GetFOSEVersion, GetFOSERevision and GetFOSEBeta are not New Vegas functions: the
 xNVSE 6.4.9 gives them no opcode [observed: schemas/script/command_opcodes.json, from
 GetCommandOpcode in the original], so no script can call them. They are left out.
 
-**Core xNVSE (origins NVSE and FOSE1): 1 of 609 left.** SetNthPackage was built from
-in-game probes (#1021, ext-last-core.md §4).
-- `PrintActiveTile`: the name of the tile under the pointer; the tile tree has no
-  pointer state headless, and the engine's menus do not report one yet.
+**Core xNVSE (origins NVSE and FOSE1): all 609 built.** SetNthPackage from in-game probes
+(#1021, ext-last-core.md §4); PrintActiveTile on the tile tree's pointer (#957, #1021).
 
 Built in the 2026-10-30 batch (`nvse_rest.rs`, the VM, `ui_functions.rs`): SetEyes,
 SetHairLength, SetNPCWeight, SetActorBaseFlagsHigh, SetOwningFactionRequiredRank,
@@ -84,7 +82,8 @@ textures, water traits and the texture sets' decal traits (DODT, not decoded yet
 
 Built since: Anh 31 of 34 (#1015, ext-anh.md; not installed in the probe game, so from the
 pages alone) and ShowOff 28 (#1010, ext-showoff.md §5, probe set showoff2 49/50).
-JohnnyGuitar batch 2: 13 (#1007, ext-jg2.md, probe set jg2 36/36).
+JohnnyGuitar batch 1: 20 (#1007, ext-jg1.md, probe set jg1 71/71). Census after it: 1,441.
+JohnnyGuitar batch 2: 13 (#1007, ext-jg2.md, probe set jg2 37/38).
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,

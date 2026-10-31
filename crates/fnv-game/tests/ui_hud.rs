@@ -159,7 +159,7 @@ fn visible_keeps_its_value_shown_or_not_and_untouched_file_traits() {
         ui.update();
         assert_eq!(ui.get_float("HUDMainMenu/visible"), Some(f64::from(shown.root)));
         for (name, value) in VISIBLE {
-            let shows = shown.root && (*name != "ReticleCenter" || shown.reticle);
+            let shows = shown.root && (*name != "ReticleCenter" || shown.reticle) && (!CORNER_PIECES.contains(name) || shown.corners);
             let expected = if shows { *value } else { 0.0 };
             assert_eq!(ui.get_float(&format!("HUDMainMenu/{name}/visible")), Some(expected), "{name}");
         }
@@ -169,6 +169,27 @@ fn visible_keeps_its_value_shown_or_not_and_untouched_file_traits() {
         for name in ["_CrosshairVisible", "_SneakVisible", "_SneakLevel", "_RadiationLevel", "_TargetType", "_ActionType", "_SpreadPercentage"] {
             assert_eq!(ui.get_float(&format!("HUDMainMenu/{name}")), Some(17.0), "{name}");
         }
+    }
+}
+
+/// The pieces the hand-built HUD hides with its corners (#980).
+const CORNER_PIECES: [&str; 5] = ["ActionPoints", "HitPoints", "RadiationMeter", "AmmoTypeLabel", "CNDArrows"];
+
+/// A movement lock, portrait, held camera or the weapon wheel (`corners` off) hides the
+/// corner pieces and leaves the rest as they were (#980).
+#[test]
+fn the_corner_pieces_hide_with_the_corners() {
+    let mut ui = fixture();
+    ui_hud::write(&mut ui, Shown { corners: false, ..all_shown() }, &texts());
+    ui.update();
+    for (name, value) in VISIBLE {
+        let expected = if CORNER_PIECES.contains(name) { 0.0 } else { *value };
+        assert_eq!(ui.get_float(&format!("HUDMainMenu/{name}/visible")), Some(expected), "{name}");
+    }
+    ui_hud::write(&mut ui, all_shown(), &texts());
+    ui.update();
+    for name in CORNER_PIECES {
+        assert_ne!(ui.get_float(&format!("HUDMainMenu/{name}/visible")), Some(0.0), "{name} back");
     }
 }
 
