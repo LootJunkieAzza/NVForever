@@ -402,6 +402,9 @@ flag.
   rest healing [observed: its GMST records], and the wiki export has no page on it.
   Nothing is built. Proposal for the owner (docs/owner-review.md): leave it so until a
   capture shows the original's health before and after an hour in a plain bed.
+  The owner saw it 2026-10-31 [observed]: outside Hardcore a sleep heals Health and
+  crippled limbs; in Hardcore it heals neither. The amount per hour is still to measure
+  (#1177).
 - **The hardcore sleep need.** The records [observed: FalloutNV.esm]: an actor value
   "Sleep Deprivation" (AVIF 0x000005F9), the setting `fHCSleepDeprivationRate` (50.0),
   five spells for its stages (their names end in 200, 400, 600, 800 and 1000), magic
