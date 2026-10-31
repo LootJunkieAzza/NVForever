@@ -814,6 +814,10 @@ def action_steps(i, a, ctx):
     if op in ("start_quest", "stop_quest"):
         fn = "StartQuest" if op == "start_quest" else "StopQuest"
         return _script(_quest(a, i), ctx, [f"{fn} {{q}}"])
+    if op == "reset_quest":
+        return _script(_quest(a, i), ctx, ["ResetQuest {q}"], cs.SETTLE_FRAMES_LONG)
+    if op == "set_quest_delay":
+        return _script(_quest(a, i), ctx, [f"SetQuestDelay {{q}} {literal(a['delay'])}"])
     if op == "set_quest_var":
         var = cs.plain_name(a.get("var"), f"action {i}: the variable")
         if a.get("stopwatch"):

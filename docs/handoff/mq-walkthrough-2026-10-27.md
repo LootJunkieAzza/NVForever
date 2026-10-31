@@ -424,9 +424,11 @@ World Blues X-8/X-13 setups and Lonesome Road's launch-at-both ending (NVDLC04MQ
    lost (not blocking). Fix: queue the force-greet and start it in `end_dialogue_as`.
 2. Re-displaying a completed objective un-completes it (`Game::set_objective`). In G.I.
    Blues, Roy's chained line 0x0015C410 re-displays objective 65; if it plays after the King
-   completes 65, his greeting 0x00113634 holds and stage 100 cannot be reached.
+   completes 65, his greeting 0x00113634 holds and stage 100 cannot be reached. Fixed
+   (#1108): re-displaying keeps the flag, as the original does (observer check 40).
 3. ResetQuest drops a SetQuestDelay override (`reset_quest` replaces the QuestState): the
-   Emergency Radio's drop then waits 5 s of menu mode instead of 0.1 s.
+   Emergency Radio's drop then waits 5 s of menu mode instead of 0.1 s. Fixed (#1109):
+   the delay is kept, as the original does (observer check 41).
 4. Still open from §8: a talking activator's bare `Activate` in GameMode opens no
    conversation; all of the Sink's appliances (SCPT 0x0100F075, 0x0100F071, 0x0100F05D,
    0x0100F05A, ...) hit it, in play too.
@@ -567,6 +569,7 @@ chains using the op still pass.
 2. **Possibly hard (check 40 again):** VFSAtomicPimpSCRIPT re-displays objective 34 after
    completing it on every pass, so a recruit killed after the quest starts leaves 24/34 open
    and Garret's short-handed line unoffered. The chain kills them before the quest starts.
+   Fixed (#1108): the original keeps the flag (check 40), and so does `set_objective` now.
 3. **Soft, headless only:** a hit starts no AI combat (Daniel, check 49); no line of sight
    (VMS31 60, check 50); Jed and the caravan guards are essential until stage 100, so
    NVDLC02MQ00 255 cannot be reached; CGTutorial 214 counts only markers play discovers.
