@@ -839,4 +839,5 @@ Not built, with why:
 - **SetTileScript, RemoveTileScript** (CacheUI): a script called each frame while a
   trait is non-zero; a per-frame script hook, outside this task.
 - **The cursor's tile** for GetUIElementType and DumpTileInfo without a path, and the
-  menu events: T8's pointer (open pull request #957).
+  menu events: T8's pointer (`Game::ui_pointer`, #957) is on main now; these functions
+  do not read it yet.

@@ -19,6 +19,9 @@ use fnv_ui::{MemSource, Source, TileId, Ui, Value};
 /// units, the engine's font metrics (as `crate::ui_hud::write_text_widths` takes them).
 pub type Measure = Box<dyn Fn(f64, &str, f64) -> (f64, f64, f64) + Send + Sync>;
 
+/// The measure borrowed, as `string_dimensions` takes it.
+pub type MeasureRef<'a> = dyn Fn(f64, &str, f64) -> (f64, f64, f64) + 'a;
+
 /// A component AttachUIXML or AttachUIComponent made: injected into `HUDMainMenu`'s root
 /// [documented: AttachUIXML, "Internally, the components are injected into HUDMainMenu
 /// menu root"], to follow the named NiNode of the reference's model. Placing it at the
@@ -344,7 +347,7 @@ pub fn sort_list_box(ui: &mut Ui, path: &str, spec: &str) -> bool {
 
 /// GetStringUIDimensions' outputs: width, height and lines of `text` in font `font`
 /// wrapped at `wrap` [documented: GetStringUIDimensions], by the engine's measure.
-pub fn string_dimensions(measure: &dyn Fn(f64, &str, f64) -> (f64, f64, f64), text: &str, font: f64, wrap: f64) -> (f64, f64, f64) {
+pub fn string_dimensions(measure: &MeasureRef<'_>, text: &str, font: f64, wrap: f64) -> (f64, f64, f64) {
     measure(font, text, wrap)
 }
 
