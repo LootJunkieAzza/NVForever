@@ -667,10 +667,13 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       clean, `nvf-play` tests 670 passed, engine clippy clean. Smoke on `6a95d7e7`: 256
       of 261 passed; of the fails, one a tool timeout, one #1181 (stale on main), and
       `tiles-message-box` from #1180 (`--no-messages` closed a form-less Yes/No box; fixed
-      since, `1c16ec8a`, `d5fc28fa`, `3baf8595`). The commits after `d5fc28fa` (the queued
-      boxes' counts and showings, rows made again for each showing, one text walk a frame)
-      were only compiled (`cargo check`); the final smoke run and the screenshot
-      comparison with the original are pending. Captures to do: observer-checks.md items
+      since, `1c16ec8a`, `d5fc28fa`, `3baf8595`). Later, 2026-10-31: root tests no
+      failures (after `a9c5f151`'s test fix) and root clippy clean; on `bdaad547`
+      `nvf-play` tests 672 passed and engine clippy clean; smoke on `947e9c7e` 251 of 253,
+      the two fails explained in the run's report. The commits after `bdaad547`/
+      `a9c5f151` (the tiled prompt's and box's pointer sheet, the late-font retry through
+      `draw::whole_pieces` and its test) were only compiled (`cargo check`). The final
+      smoke run and the screenshot comparison with the original are pending. Captures to do: observer-checks.md items
       55, 56.
       - Review fixes (2026-10-31, an independent review): navigation has one owner (a
         highlight a ref moved for a hand-built Up/Down is not the choice); a new box makes
