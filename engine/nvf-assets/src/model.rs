@@ -761,10 +761,10 @@ impl ModelCache {
 
     /// Drop the prepared models and tree billboards nothing else holds, after their grace
     /// time (`crate::release`); the number dropped.
-    pub fn release(&mut self, s: &mut crate::release::ModelSweeps, hints: &mut crate::release::ImageHints, materials: &Assets<NifMaterial>, now: f64) -> usize {
-        use crate::release::{held_beyond, KEEP_UNUSED_MAX, KEEP_UNUSED_SECS};
+    pub fn release(&mut self, s: &mut crate::release::ModelSweeps, hints: &mut crate::release::ImageHints, materials: &Assets<NifMaterial>, now: f64, keep: crate::release::KeepLimits) -> usize {
+        use crate::release::held_beyond;
         let entries = self.map.iter().filter_map(|(k, m)| m.as_ref().map(|m| (k.clone(), model_in_use(m))));
-        let drop = s.models.sweep_timed(now, entries.collect::<Vec<_>>(), KEEP_UNUSED_SECS, KEEP_UNUSED_MAX, |_| None);
+        let drop = s.models.sweep_timed(now, entries.collect::<Vec<_>>(), keep.secs, keep.max, |_| None);
         for (k, since) in &drop {
             if let Some(Some(m)) = self.map.remove(k) {
                 let rig = m.rig.iter().flat_map(|r| &r.shapes).map(|s| &s.material);
@@ -774,7 +774,7 @@ impl ModelCache {
             }
         }
         let entries = self.billboards.iter().filter_map(|(&k, b)| b.as_ref().map(|(m, t)| (k, held_beyond(m, 1) || held_beyond(t, 1))));
-        let gone = s.billboards.sweep_timed(now, entries.collect::<Vec<_>>(), KEEP_UNUSED_SECS, KEEP_UNUSED_MAX, |_| None);
+        let gone = s.billboards.sweep_timed(now, entries.collect::<Vec<_>>(), keep.secs, keep.max, |_| None);
         for (k, since) in &gone {
             if let Some(Some((_, m))) = self.billboards.remove(k) {
                 hints.note(materials, &m, *since, now);
@@ -791,7 +791,7 @@ impl ModelCache {
             }
             Some((k.clone(), Arc::strong_count(p) > 1 || h.held_elsewhere()))
         });
-        let fx = s.particles.sweep_timed(now, entries.collect::<Vec<_>>(), KEEP_UNUSED_SECS, KEEP_UNUSED_MAX, |_| None);
+        let fx = s.particles.sweep_timed(now, entries.collect::<Vec<_>>(), keep.secs, keep.max, |_| None);
         for (k, since) in &fx {
             if let Some(Some(p)) = self.particles.remove(k) {
                 for d in &p.systems {
@@ -1641,17 +1641,17 @@ mod tests {
         drop(shape);
         let (mut sweeps, mut hints) = (crate::release::ModelSweeps::default(), crate::release::ImageHints::default());
         // Drawn: kept however long.
-        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 0.0), 0);
-        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 500.0), 0);
+        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 0.0, Default::default()), 0);
+        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 500.0, Default::default()), 0);
         // A rig holding the Arc keeps it too.
         drop(spawned);
         let rig = cache.map["a.nif"].clone();
-        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 600.0), 0);
+        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 600.0, Default::default()), 0);
         drop(rig);
         // Unused: kept for the grace time, then dropped; the failure stays remembered.
-        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 700.0), 0);
+        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 700.0, Default::default()), 0);
         assert_eq!(cache.held(), 1);
-        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 700.0 + crate::release::KEEP_UNUSED_SECS), 1);
+        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 700.0 + crate::release::KEEP_UNUSED_SECS, Default::default()), 1);
         assert_eq!((cache.held(), cache.len()), (0, 1));
     }
 
