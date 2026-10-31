@@ -103,7 +103,23 @@ Body and armour shapes use `BSDismemberSkinInstance`. Every skin partition names
 - `meatneck01`: BP_TORSOCAP_HEAD. `meathead01`: BP_SECTIONCAP_HEAD.
 
 Cap partitions have part-flag bit 0 (editor visible) clear; the others have it set. Caps are
-not drawn on an intact actor (actors.md §1).
+not drawn on an intact actor (actors.md §1). The rule goes partition by partition, not shape by
+shape: a cap partition is hidden also in a shape whose other partitions are drawn [hypothesis:
+the original shows no caps on an intact radscorpion, owner 2026-10-30, #1075]. Over the 205
+creature meshes of `Fallout - Meshes.bsa` (skeletons and gore left out), the shapes mixing the
+two [observed: `fnvtool nif decode`, 2026-10-31]:
+
+- `creatures\radscorpion\radscorpion.nif` `meatcapbody` and `barkscorpion.nif`
+  `meatcapbody:0`: torso caps 201, 203–212 (bit 0 clear) and one partition of BP_TORSO (0)
+  with bit 0 set, holding a single triangle. Hidden by whole shape, the caps showed on every
+  leg root, claw and the stinger of an intact radscorpion. Its section caps sit alone in
+  `meatcaplimbs` (101, 103–112, all clear).
+- `creatures\mistergutsy\mistergutsy.nif` and `misterhandy.nif` `Object01:0`: BP_TORSO (set)
+  with one torso cap 213 (clear) in the same shape.
+
+Every other creature shape keeps caps and drawn partitions in shapes of their own, and no
+editor-visible partition names a cap (1xx/2xx) or a hidden one a non-cap. Partition flags seen:
+0 or 256 for caps, 1 or 257 for the rest (bit 8's meaning is not known).
 
 Meanings [hypothesis, from the names]:
 - A *torso cap* covers the body's side of the cut. It is drawn on the body once the part is gone.
