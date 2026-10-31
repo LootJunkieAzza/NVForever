@@ -418,7 +418,12 @@ slot 32 Item Detected Effect `fxSearchAndMark` 0015FF61, a green fill (0, 255, 0
   <ref> (…, while the player aims (a companion perk))`). The counts are logged `perk
   marks: <perk> marks <n> <what> while the player aims` when they change.
 - Spotter: the actors the compass would show red (fighting the player or ready to attack
-  it, `compass.rs`), within the compass's actor range, alive and present.
+  it, `compass.rs`, aware of the player or not), alive and present, within the detection
+  reach (fSneakMaxDistance, x the exterior multiplier outdoors: 2,500 / 5,000 units;
+  `perk_marks.rs`, #1094). In the original [observed 2026-10-31, owner, observer check
+  19]: only while aiming, every hostile actor or creature whether or not in combat with
+  the player, and seemingly every one in render distance, which is farther than ours
+  (#1171).
 - Search and Mark: items lying in the loaded cells, placed or dropped at run time
   (`World::created`), within `SEARCH_RANGE` 1500 units [design: "within a short
   distance", the fandom wiki; no setting names it]: ALCH of equip type Chems or Stimpak,

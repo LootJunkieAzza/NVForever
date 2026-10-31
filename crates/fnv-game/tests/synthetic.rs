@@ -1349,6 +1349,54 @@ fn a_line_said_for_its_fixed_speaker_is_timed_by_the_fixed_speakers_file() {
 }
 
 #[test]
+fn an_actor_whose_traits_come_from_a_leveled_list_speaks_with_the_picked_entrys_voice() {
+    // Issue #1051: generic actors take race, sex and voice type from a leveled list of
+    // male and female entries (template flag "Traits"). The voice is the entry's, the
+    // one `GetIsVoiceType` reads, not the placed base record's own.
+    const LIST: u32 = 0x9F0;
+    struct Sounds;
+    impl fnv_game::voice::VoiceLengths for Sounds {
+        fn response_seconds(&self, info: FormId, response: usize, speaker_base: Option<FormId>) -> Option<f64> {
+            (info == FormId(INFO_A) && response == 0 && speaker_base == Some(FormId(NPC_AUTO))).then_some(0.5)
+        }
+    }
+    let mut f = fixture();
+    f.data.leveled_actors.insert(FormId(LIST), fnv_game::data::LeveledActorDef { entries: vec![(1, FormId(NPC_AUTO))], counts: vec![1], ..Default::default() });
+    let npc = f.data.actors.get_mut(&FormId(NPC)).unwrap();
+    npc.template = Some(FormId(LIST));
+    npc.template_traits = true;
+    let mut g = game(&f);
+    g.new_game();
+    g.voice = Some(std::sync::Arc::new(Sounds));
+    let speaker = FormId(NPC_REF);
+    assert_eq!(g.voice_base(FormId(NPC), speaker), FormId(NPC_AUTO));
+    assert_eq!(g.speaker_voice_base(speaker), Some(FormId(NPC_AUTO)));
+    assert_eq!(g.response_lengths(speaker, FormId(INFO_A)), vec![0.5]);
+    // A fixed speaker (ANAM) that is the placed base itself is no other actor: the
+    // record's own voice does not stand in when the picked voice has no file.
+    struct BaseOnly;
+    impl fnv_game::voice::VoiceLengths for BaseOnly {
+        fn response_seconds(&self, info: FormId, response: usize, speaker_base: Option<FormId>) -> Option<f64> {
+            (info == FormId(INFO_A) && response == 0 && speaker_base == Some(FormId(NPC))).then_some(0.5)
+        }
+    }
+    f.data.infos.get_mut(&FormId(INFO_A)).unwrap().speaker = Some(FormId(NPC));
+    let mut g = game(&f);
+    g.new_game();
+    g.voice = Some(std::sync::Arc::new(BaseOnly));
+    assert_eq!(g.response_lengths(speaker, FormId(INFO_A)), vec![1.7875]);
+    assert_eq!(g.response_seconds(speaker, FormId(INFO_A), 0), 1.7875);
+    // Said by another actor, the fixed speaker's file still stands in.
+    assert_eq!(g.response_lengths_voiced(Some(FormId(NPC_AUTO)), Some(FormId(NPC_AUTO)), FormId(INFO_A)), vec![0.5]);
+    // Without the flag the base keeps its own voice.
+    let mut f = fixture();
+    f.data.leveled_actors.insert(FormId(LIST), fnv_game::data::LeveledActorDef { entries: vec![(1, FormId(NPC_AUTO))], counts: vec![1], ..Default::default() });
+    f.data.actors.get_mut(&FormId(NPC)).unwrap().template = Some(FormId(LIST));
+    let g = game(&f);
+    assert_eq!(g.voice_base(FormId(NPC), speaker), FormId(NPC));
+}
+
+#[test]
 fn a_message_box_is_a_menu_until_closed_and_holds_the_rest_of_the_frame() {
     use fnv_game::game::menus;
     let f = fixture();
@@ -2375,8 +2423,8 @@ fn coverage_reports_which_missing_stages_the_data_can_set() {
     assert!(!set.literal.contains_key(&(FormId(Q2), 10)));
 }
 
-/// A condition's null form (FormID 0) reads 0 for GetIsID and GetQuestVariable, without a
-/// failed call [observed 2026-10-30, capture o4_00_probe: Papa Khan's goodbye with
+/// A condition's null form (FormID 0) reads 0 for GetIsID and GetQuestVariable, and for
+/// any other function (#966, hypothesis), without a failed call [observed 2026-10-30, capture o4_00_probe: Papa Khan's goodbye with
 /// `GetQuestVariable <null> 1 == 0` was chosen and Cass's greeting with only `GetIsID
 /// <null> == 1` passed over; observer-checks.md check 35].
 #[test]
@@ -2395,7 +2443,12 @@ fn a_null_form_in_a_condition_reads_zero_without_a_failed_call() {
     assert!(!g.conditions_pass(&[is_id], player, None, "null GetIsID"));
     assert!(g.conditions_pass(&[qvar_0], player, None, "null GetQuestVariable == 0"));
     assert!(!g.conditions_pass(&[qvar_1], player, None, "null GetQuestVariable == 1"));
-    assert!(!g.events.iter().any(|e| matches!(&e.kind, EventKind::CallFailed { .. })));
+    // Any other function with a null form parameter reads 0 the same way (#966).
+    for name in ["GetInFaction", "GetItemCount", "GetDistance", "GetDead"] {
+        let zero = cond(index(name), vec![ArgValue::Value(Value::NONE)], Cmp::Eq, 0.0);
+        assert!(g.conditions_pass(&[zero], player, None, name), "{name} <null> == 0");
+    }
+    assert!(!g.events.iter().any(|e| matches!(&e.kind, EventKind::CallFailed { .. })), "{:?}", g.events.iter().filter(|e| matches!(&e.kind, EventKind::CallFailed { .. })).collect::<Vec<_>>());
 }
 
 #[test]
@@ -2531,6 +2584,54 @@ fn last_core_setters_change_what_their_getters_read() {
     assert_eq!(q(&mut g, "SetFunctionValue (GetNPCWeight PlayerREF)"), XVal::Num(42.0));
     q(&mut g, "SetHairLength 0.5 PlayerREF");
     assert_eq!(q(&mut g, "SetFunctionValue (GetHairLength PlayerREF)"), XVal::Num(0.5));
+}
+
+#[test]
+fn arrays_that_hold_themselves_do_not_crash() {
+    // #1089: Ar_DeepCopy, Ar_DeepEquals and PrintVar on an array that holds itself, and on
+    // two arrays that hold each other, end instead of overflowing the stack.
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("array_var aA
+array_var aB
+array_var aC
+array_var aD
+float fRes
+Begin Function {{ }}
+{body}
+End
+"), ctx());
+    let make = "let aA := ar_List 1, 2
+let aA[2] := aA
+let aB := ar_List 3
+let aC := ar_List aB
+let aB[1] := aC
+";
+    // The copy keeps the shape: its third element is the copy itself, not the original, so
+    // writing through it changes the copy and leaves the original alone.
+    assert_eq!(q(&mut g, &format!("{make}let aC := Ar_DeepCopy aA
+let aD := aC[2]
+let aD[0] := 9
+SetFunctionValue (aC[0] * 100 + aA[0])")), Ok(XVal::Num(901.0)));
+    // An array held twice is copied twice: the two copies stay apart.
+    assert_eq!(q(&mut g, "let aB := ar_List 5
+let aA := ar_List aB, aB
+let aC := Ar_DeepCopy aA
+let aD := aC[0]
+let aD[0] := 7
+SetFunctionValue ((aC[1])[0] * 100 + aB[0])"), Ok(XVal::Num(505.0)));
+    assert_eq!(q(&mut g, &format!("{make}let aC := Ar_DeepCopy aA
+SetFunctionValue (Ar_DeepEquals aC aA)")), Ok(XVal::Num(1.0)));
+    assert_eq!(q(&mut g, &format!("{make}SetFunctionValue (Ar_DeepEquals aA aA)")), Ok(XVal::Num(1.0)));
+    assert_eq!(q(&mut g, &format!("{make}let aC := ar_List 1, 2, 3
+SetFunctionValue (Ar_DeepEquals aC aA)")), Ok(XVal::Num(0.0)));
+    g.console_out.clear();
+    q(&mut g, &format!("{make}PrintVar aA, aB")).unwrap();
+    assert_eq!(g.console_out.len(), 2, "{:?}", g.console_out);
+    assert!(g.console_out[0].starts_with("aA: [1, 2, array #"), "{:?}", g.console_out);
+    assert!(g.console_out[1].starts_with("aB: [3, [array #"), "{:?}", g.console_out);
 }
 
 /// The extender functions a script call still finds unbuilt ("not built yet"), by plugin,
@@ -2709,4 +2810,37 @@ fn jip_batch_four_reads_the_game_state() {
     g.tick();
     let after = n(&mut g, "GetSessionTime");
     assert!(matches!((before, after), (XVal::Num(a), XVal::Num(b)) if b > a), "time goes on");
+}
+
+/// A save with the tutorial menu open over the Pip-Boy, a SayToDone and a reference
+/// event waiting for the next frame: all come back, and closing the tutorial after the
+/// load gives the Pip-Boy back (#1090). A save from before these fields still loads.
+#[test]
+fn the_tutorial_stack_and_next_frame_work_survive_a_save() {
+    use fnv_game::game::menus;
+    let f = fixture();
+    let mut g = game(&f);
+    g.open_menu(menus::STATS);
+    g.show_tutorial(FormId(MESSAGE));
+    g.say_to_unsaid.push((FormId(ACT_REF), FormId(MESSAGE)));
+    g.queue_ref_event(FormId(ACT_REF), 7, Some(FormId::PLAYER_REF));
+    let s = g.snapshot();
+    let text = serde_json::to_string(&s).unwrap();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&text).unwrap();
+    assert_eq!(back, s);
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let mut h = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!((h.menu, h.menu_under, h.tutorial.clone()), (Some(menus::TUTORIAL), Some(menus::STATS), vec![FormId(MESSAGE)]));
+    assert_eq!(h.say_to_unsaid, g.say_to_unsaid);
+    assert_eq!(h.queued_ref_events, g.queued_ref_events);
+    assert_eq!(h.close_menu(), Some(menus::TUTORIAL));
+    assert_eq!((h.menu, h.menu_under), (Some(menus::STATS), None), "the Pip-Boy is back");
+    let mut old: serde_json::Value = serde_json::from_str(&text).unwrap();
+    for k in ["menu_under", "tutorial", "say_to_unsaid", "queued_ref_events"] {
+        assert!(old.as_object_mut().unwrap().remove(k).is_some(), "{k} is written");
+    }
+    let old: fnv_game::game::GameSnapshot = serde_json::from_value(old).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &old.sim).unwrap();
+    let h = Game::restore(&f.data, world, g.cfg, &old).unwrap();
+    assert!(h.tutorial.is_empty() && h.menu_under.is_none());
 }

@@ -123,9 +123,9 @@ pub fn get_is_used_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Stri
 /// or a type name) [documented: GECK wiki GetIsUsedItemType].
 pub fn get_is_used_item_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let Some(sig) = used(g, ctx.subject()?).and_then(|b| g.data.sig(b)) else { return none() };
-    let want = match a.str(0) {
-        Ok(name) => TYPE_NAMES.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).and_then(|(_, s)| used_type_code(s)),
-        Err(_) => a.num(0).ok().map(|c| c as i32),
+    let want = match a.peek_str(0) {
+        Some(name) => TYPE_NAMES.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).and_then(|(_, s)| used_type_code(s)),
+        None => a.num(0).ok().map(|c| c as i32),
     };
     yes(want.is_some() && used_type_code(&sig) == want)
 }

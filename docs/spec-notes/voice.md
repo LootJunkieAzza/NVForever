@@ -216,8 +216,13 @@ Check [observed]: both readers give 125,359 samples (5.223 s) for the first Kimb
 - An actor whose template supplies its Traits (`ACBS` template flags bit 0, with a
   `TPLT`) takes the template's voice type, as it takes race and sex
   [documented: xEdit hides these fields under the flag, actors.md §1]. When the template
-  is a levelled list the actual actor is chosen at run time; the reader then uses the
-  record's own voice type [hypothesis].
+  is a levelled list the actual actor is chosen at run time. The game (`Game::voice_base`,
+  and the engine's playback) uses the voice type of the entry picked for that reference,
+  the same entry whose race and sex it shows and that `GetIsVoiceType` reads
+  [hypothesis: an actor speaks in the voice of the sex it shows; owner's playtest
+  2026-10-30, generic female actors spoke with male voices while the record's own voice
+  type stood in, issue #1051]. Tools that see only a base form (`fnvtool voice`,
+  `VoiceIndex::voice_of`) still use the record's own voice type there.
 - The game chooses the folder from the speaker's voice type at run time. The reader does
   the same and does not fall back to another voice's file (§3.1's 15 responses then have
   no sound) [hypothesis].

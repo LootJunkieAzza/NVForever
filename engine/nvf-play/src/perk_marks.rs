@@ -3,9 +3,14 @@
 //!
 //! - **Spotter** (Boone; entry point 70 Has Improved Spotting, "Enemy highlighting"
 //!   [documented: GECK wiki Perk entry points]): while the player aims, the actors hostile
-//!   to the player within the compass's reach (`crate::compass`'s rule: fighting the player
-//!   or ready to attack it) play the DOBJ's Spotter Effect, `fxSpotterShader` 0015FF60
-//!   [observed: FalloutNV.esm's DOBJ slot 31].
+//!   to the player (`crate::compass`'s rule: fighting the player or ready to attack it,
+//!   aware of the player or not) within the detection reach (fSneakMaxDistance, × the
+//!   exterior multiplier outdoors: 2,500 / 5,000 units in the masters) play the DOBJ's
+//!   Spotter Effect, `fxSpotterShader` 0015FF60 [observed: FalloutNV.esm's DOBJ slot 31].
+//!   The reach is not the compass's (Perception × 300, 1,500 at Perception 5): the
+//!   enemies the player spots before they notice it are mostly farther than that, and
+//!   went unmarked [owner's playtest, #1094; hypothesis: the original's reach is not
+//!   documented, the detection reach is the farthest an actor perceives anything].
 //! - **Search and Mark** (Rex; entry point 71 Has Improved Item Detection, "Item
 //!   highlighting" [documented: the same page]): while the player aims, the chems, guns and
 //!   ammunition lying within [`SEARCH_RANGE`] play the DOBJ's Item Detected Effect,
@@ -69,6 +74,7 @@ fn mark(
     player: Option<Res<Player>>,
     phys: Option<Res<PhysState>>,
     combat: Option<Res<Combat>>,
+    location: Option<Res<crate::Location>>,
     mut script: Option<ResMut<ScriptState>>,
     mut sim: ResMut<SimState>,
     mut marks: ResMut<PerkMarks>,
@@ -89,7 +95,8 @@ fn mark(
             let mut out = Vec::new();
             let dist = |at: [f32; 3]| ((at[0] - feet[0]).powi(2) + (at[1] - feet[1]).powi(2) + (at[2] - feet[2]).powi(2)).sqrt();
             if let Some(shader) = g.data.default_object(DefaultObject::SpotterEffect).filter(|_| g.player_has_entry(fnv_game::perks::HAS_IMPROVED_SPOTTING)) {
-                let range = crate::compass::actor_range(g);
+                let exterior = location.as_deref().is_none_or(|l| l.interior.is_none());
+                let range = fnv_game::detection::Settings::read(g).max_distance(exterior) as f32;
                 for (r, at) in crate::compass::actors_near(g, &bodies) {
                     if dist(at) > range || g.is_dead(r) || !g.present(r) {
                         continue;

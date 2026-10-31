@@ -1802,3 +1802,122 @@ fn a_book_that_cant_be_taken_stays_unless_a_script_activates_it() {
     assert_eq!(w.item_count(p, id(STIMPAK)).unwrap(), 0);
     assert!(matches!(w.activate_scripted(p, id(STIM_REF)).unwrap().outcome, Outcome::PickedUp { .. }));
 }
+
+/// A created reference picked up is saved as its FormID and base only (#1002): after the
+/// load a held reference to it still answers that it is deleted, its base is known, its
+/// FormID is not given again, and saves no longer grow by a whole entry per drop and
+/// pick-up.
+#[test]
+fn deleted_created_references_are_pruned_from_saves() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    let cell = Some(id(CELL_A));
+    let held = w.place(id(STIMPAK), cell, [1.0, 2.0, 3.0], [0.0; 3], 1).unwrap();
+    // Both dropped by the same dead holder (`dropped_beside`); one is then taken.
+    let holder = id(SAFE_REF);
+    w.get(held).unwrap().dropped_by = Some(holder);
+    assert!(matches!(w.activate(p, held).unwrap().outcome, Outcome::PickedUp { .. }));
+    assert!(w.peek(held).unwrap().deleted);
+    let lying = w.place(id(CAPS), cell, [0.0; 3], [0.0; 3], 5).unwrap();
+    w.get(lying).unwrap().dropped_by = Some(holder);
+    let snap: fnv_sim::Snapshot = serde_json::from_str(&serde_json::to_string(&w.snapshot()).unwrap()).unwrap();
+    assert!(!snap.refs.contains_key(&held), "no full entry");
+    assert_eq!(snap.deleted_created.get(&held), Some(&id(STIMPAK)));
+    assert!(snap.refs.contains_key(&lying), "one still in the world stays");
+    let mut back = World::restore(&f.forms, &f.refs, &snap).unwrap();
+    assert!(back.peek(held).is_none());
+    assert_eq!(back.get(held).err(), Some(SimError::Deleted(held)));
+    assert_eq!(back.item_count(held, id(STIMPAK)).err(), Some(SimError::Deleted(held)), "as an inventory lookup answered before");
+    assert_eq!(back.deleted_base(held), Some(id(STIMPAK)));
+    assert_eq!(back.dropped_beside(holder), vec![lying], "the pruned one is skipped, not an error");
+    assert_eq!(back.item_count(p, id(STIMPAK)).unwrap(), 1);
+    let next = back.place(id(STIMPAK), cell, [0.0; 3], [0.0; 3], 1).unwrap();
+    assert!(next.0 > lying.0, "FormIDs are not given again");
+    // Saved again, the tombstone stays.
+    assert_eq!(back.snapshot().deleted_created.get(&held), Some(&id(STIMPAK)));
+    // An older snapshot with the whole deleted entry still loads, and the next save prunes it.
+    let mut old = snap.clone();
+    old.deleted_created.clear();
+    old.refs.insert(held, w.peek(held).unwrap().clone());
+    let mut again = World::restore(&f.forms, &f.refs, &old).unwrap();
+    assert!(again.get(held).unwrap().deleted);
+    assert!(!again.snapshot().refs.contains_key(&held));
+
+    // Size after N drops and pick-ups: the whole entries the save used to keep against
+    // the pruned save.
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    const N: usize = 1000;
+    for _ in 0..N {
+        let r = w.place(id(STIMPAK), cell, [1.0, 2.0, 3.0], [0.0; 3], 1).unwrap();
+        w.activate(p, r).unwrap();
+    }
+    let pruned = serde_json::to_string(&w.snapshot()).unwrap().len();
+    let mut whole = w.snapshot();
+    whole.refs.extend(w.created().map(|(k, v)| (k, v.clone())));
+    whole.deleted_created.clear();
+    let whole = serde_json::to_string(&whole).unwrap().len();
+    println!("snapshot after {N} drop/pick-up cycles: {whole} bytes with whole entries, {pruned} pruned");
+    assert!(pruned * 4 < whole, "{pruned} vs {whole}");
+}
+
+/// The run-time state a snapshot carries since #1084 (a created reference's inventory
+/// source, the power armour flag, carry bonuses and weight rules), and what it leaves
+/// to the session: game settings, leveled lists and base containers edited by script are
+/// documented as not save baked but lasting for the session, so a load in the same run
+/// keeps them (`World::take_session`) and a fresh run's load goes without them.
+#[test]
+fn snapshot_carries_run_time_state_and_leaves_session_edits() {
+    use fnv_sim::inventory::WeightRules;
+    use fnv_sim::settings::Setting;
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    // Saved: a created reference's source, which no recompute gives back. Not saved: a
+    // placed one's (the game layer works it out again on a load), nor its own base's.
+    let made = w.place(id(SAFE), Some(id(CELL_A)), [0.0; 3], [0.0; 3], 1).unwrap();
+    w.give_items_of(made, id(LOCKER)).unwrap();
+    let taken = w.place(id(SAFE), Some(id(CELL_A)), [0.0; 3], [0.0; 3], 1).unwrap();
+    w.give_items_of(taken, id(LOCKER)).unwrap();
+    w.get(taken).unwrap().deleted = true;
+    w.set_inventory_source(id(SAFE_REF), Some(id(LOCKER)));
+    w.set_inventory_source(id(SAFE_REF), None);
+    w.set_power_armor_training(true);
+    w.set_carry_bonus(p, 25.0);
+    let rules = WeightRules { light: Some((2.0, 0.5)), heavy_weapons: None };
+    w.set_weight_rules(p, rules);
+    // Session only.
+    w.change_setting("fAVDCarryWeightsBase", Setting::Float(300.0)).unwrap();
+    assert!(w.edit_leveled(id(LL_LOOT), |l| l.chance_none = 100));
+    assert!(w.edit_base_entries(id(SAFE), |e| e.push(Entry::new(id(KEY), 1))));
+    let text = serde_json::to_string(&w.snapshot()).unwrap();
+    for absent in ["fAVDCarryWeightsBase", "favdcarryweightsbase", "chance_none"] {
+        assert!(!text.contains(absent), "{absent} is not saved");
+    }
+    let snap: fnv_sim::Snapshot = serde_json::from_str(&text).unwrap();
+    assert_eq!(snap.created_inventory_sources, [(made, id(LOCKER))].into_iter().collect(), "neither the placed nor the deleted one");
+    // A fresh run's load: the saved state is back, the session edits are not.
+    let mut back = World::restore(&f.forms, &f.refs, &snap).unwrap();
+    back.set_inventory_sources(Default::default());
+    assert!(back.power_armor_training());
+    assert_eq!(back.weight_rules(p), rules);
+    assert_eq!(back.snapshot(), w.snapshot());
+    assert!(back.reset_inventory(made).unwrap());
+    assert_eq!(back.item_count(made, id(PISTOL)).unwrap(), 1, "LOCKER's items, the created reference's source");
+    assert_eq!(back.setting_f32("fAVDCarryWeightsBase"), Some(150.0));
+    assert_ne!(back.leveled_list(id(LL_LOOT)).unwrap().chance_none, 100);
+    assert!(back.base_entries(id(SAFE)).unwrap().iter().all(|e| e.item != id(KEY)));
+    // A load in the same run: the session edits carry over.
+    back.put_session(w.take_session());
+    assert_eq!(back.setting_f32("fAVDCarryWeightsBase"), Some(300.0));
+    assert_eq!(back.leveled_list(id(LL_LOOT)).unwrap().chance_none, 100);
+    assert!(back.base_entries(id(SAFE)).unwrap().iter().any(|e| e.item == id(KEY)));
+    // Older snapshots, without the new fields, still load.
+    let mut old: serde_json::Value = serde_json::from_str(&text).unwrap();
+    for k in ["created_inventory_sources", "power_armor_training", "carry_bonus", "weight_rules"] {
+        assert!(old.as_object_mut().unwrap().remove(k).is_some(), "{k} is written");
+    }
+    let old: fnv_sim::Snapshot = serde_json::from_value(old).unwrap();
+    let back = World::restore(&f.forms, &f.refs, &old).unwrap();
+    assert!(!back.power_armor_training());
+}
