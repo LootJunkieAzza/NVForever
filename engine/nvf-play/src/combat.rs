@@ -1440,15 +1440,11 @@ struct SpecialMove {
     knock_back: bool,
     /// Khan Trick forces the target's hit reaction ([`ForcedHitReaction`]).
     forces_reaction: bool,
-    /// Legion Assault's clip lunges forward: the player moves with it ([`LUNGE`]).
+    /// Legion Assault's clip lunges forward: the player moves with it, by the clip's own
+    /// travel (`crate::player::Lunge`).
     lunges: bool,
 }
 
-/// Legion Assault's lunge: `h2hattackcustom1power.kf` moves its `Bip01` 332 units
-/// forward over its 1.6 s [observed: the clip's root track, 18 keys; perk-entry-points.md
-/// §11.4]. The body holds `Bip01` still (`nvf_assets::anim_blend`), so the player is moved
-/// that far over that time, at the swing's speed (`crate::player::Lunge`).
-pub const LUNGE: (f32, f32) = (332.0, 1.6);
 
 /// The special move a power attack in `dir` is, when the player has its perk.
 fn special_move(script: Option<&mut ScriptState>, sim: &mut SimState, dir: fnv_combat::melee::PowerDir) -> Option<SpecialMove> {
@@ -3231,7 +3227,7 @@ fn melee(
     (mut messages, mut pushes, mut broken, mut forced): (MessageWriter<ActorHit>, MessageWriter<ActorPush>, MessageWriter<WeaponBroken>, MessageWriter<ForcedHitReaction>),
     (parts, limbs): (Res<ActorParts>, Res<PlayerLimbs>),
     (sfx, mut sounds, mut impacts): (Option<Res<Sfx>>, MessageWriter<PlaySound>, MessageWriter<ImpactFx>),
-    (mut vats, mut dm, mut lunge): (Option<ResMut<crate::vats_mode::VatsMode>>, ResMut<crate::dismember::Dismemberment>, ResMut<crate::player::Lunge>),
+    (mut vats, mut dm): (Option<ResMut<crate::vats_mode::VatsMode>>, ResMut<crate::dismember::Dismemberment>),
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -3295,11 +3291,12 @@ fn melee(
                         }
                         info!("combat: {} ({:?} power attack, unarmed): clip {}", m.name, power.unwrap_or(fnv_combat::melee::PowerDir::Stand), m.stem);
                         if m.lunges {
-                            // At the swing's speed: the clip plays faster, the lunge too.
-                            let (far, secs) = LUNGE;
-                            let rate = if speed > 0.0 { speed } else { 1.0 };
-                            lunge.start(far, secs / rate);
-                            info!("combat: {}: the player lunges {far:.0} units over {:.2} s", m.name, secs / rate);
+                            // Its clip carries the player (`h2hattackcustom1power.kf`
+                            // moves `Bip01` 332 units forward over its 1.6 s,
+                            // perk-entry-points.md §11.4): the body's attack clips move the
+                            // player by their root's travel, at the swing's speed
+                            // (`crate::player::Lunge`, actors.md §8.13).
+                            info!("combat: {}: the player lunges with its clip", m.name);
                         }
                         stem = m.stem.to_string();
                         if let Some(s) = c.swings.swing.as_mut() {
