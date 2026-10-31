@@ -210,6 +210,16 @@ pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, Stri
         "getactiveuicomponentname" => XVal::Str(g.ui_pointer.active(&g.ui_tree).map(|t| g.ui_tree.tile(t).name.clone()).unwrap_or_default()),
         "getactiveuicomponentfullname" => XVal::Str(g.ui_pointer.active(&g.ui_tree).map(|t| g.ui_tree.path_of(t)).unwrap_or_default()),
         "getactiveuicomponentid" => XVal::Num(g.ui_pointer.active(&g.ui_tree).map_or(-1.0, |t| crate::ui_input::tile_id(&g.ui_tree, t))),
+        // [documented: PrintActiveTile, "Prints name of highlighted UI component for debug
+        // purposes"]: the highlighted tile's name on the console; nothing with none
+        // [hypothesis: the console's line is not documented, so the name alone].
+        "printactivetile" => {
+            if let Some(t) = g.ui_pointer.active(&g.ui_tree) {
+                let n = g.ui_tree.tile(t).name.clone();
+                g.console_out.push(n);
+            }
+            XVal::Num(0.0)
+        }
         // `"Menu\Tile\…" [clickTimes]` or `"Menu#<id>"`; the tile must be a target and
         // have an `<id>` [documented: ClickMenuButton, its notes]. Clicks as a press does
         // (`fnv_ui::input::Pointer::script_click`), as many times as asked (1 when not
