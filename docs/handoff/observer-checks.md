@@ -685,3 +685,20 @@ The numbers above stay put so links to them hold; each item here gives its own p
     top-level topics mix with learned ones. If a topic is missing (conditions), the rest
     still decide. Then fix `build_choices` (keep the learned order in `PlayerState::topics`
     and in saves) and write the rule into dialogue §3.5.
+
+    Runs of 2026-10-31 [observed: capture jobs `dlg_topic_order_*` from `nvftest`, private
+    shots]: topics given by `AddTopic`, one per step 10 frames apart, then Manny moved to
+    the player and talked to. The menu shows three rows at 1280×720 and neither `TapKey`
+    265 nor 208 scrolls it, so only the top three are known. The greeting adds 96BCF.
+    | Run | Added before the talk | Top three |
+    |---|---|---|
+    | full (twice) | CEDEE, B15FC, 137A62, B15FB, B15FA | 96BCF, B15FB, 137A62 |
+    | R1 (twice) | CEDEE, B15FC | 96BCF, B15FC, 15F503 |
+    | R2 | B15FA | 96BCF, B15FA, 15F503 |
+    | R3 | 96BCF, B15FC, CEDEE | 96BCF, 15F503, B15FC |
+    | R4 | CEDEE | 96BCF, CEDEE, 15F503 |
+    So: record order is out; the order is repeatable and depends on the order of
+    learning (R1 against R3: same set, B15FC and the top-level 15F503 swap); the topic
+    the greeting adds came first every time, also when it was known before (R3); none of
+    learned order, newest first or "first on top" fits all five. Still open: a way to see
+    the whole list (scrolling, or reading the list's tiles), then the rule.
