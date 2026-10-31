@@ -9524,6 +9524,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "actor-jump-sounds"
+source = "docs/spec-notes/audio.md §14.2: an actor that steps like a person coming down after 0.4 s or more in the air plays its ground's FST<family>Land, as the player does [hypothesis: by the names; the thresholds design]"
+note = "actor-jumps in play: the player stands by the drop at (-63042, -18384) and Easy Pete, walked by the character controller near him, drops off the ledge link (a step off: no rising take-off, so no Jump sound) and lands about 127 units down"
+areas = ["nav", "actors", "sound"]
+paths = ["engine/nvforever/src/actor_jumps.rs", "engine/nvforever/src/anim_sounds.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-63300,-18600,6800", "--npc-travel", "EasyPeteRef@-63600,-18250,6700=-62800,-18480,6560", "--npc-ledges", "--no-voice", "--no-messages"]
+run_seconds = 70
+expect = [
+  { re = 'nav: EasyPeteRef drops off a ledge', count = 1, label = "Pete drops off the ledge once" },
+  { re = 'anim sounds: actor 00104C80 lands on \w+', label = "his landing plays a landing sound (Easy Pete's own line, review of #1215)" },
+  { re = 'anim sounds: actor 00104C80 jumps on', count = 0, label = "a drop: no jump sound for Pete" },
+]
+
+[[scenario]]
 name = "dismember-chet"
 source = "dismemberment (docs/spec-notes/dismemberment.md): a killing head shot with an Explode Only weapon (.308) explodes the head (75 %, the fixed rolls) [observed: dismember_odds], a blade severs a corpse's limb (Dismember Only) [observed: owner; FalloutNV.esm WEAP on_hit], KillActor's limb dismembers a dead actor [documented: GECK wiki KillActor]; an exploded part throws its limb replacement model's pieces and its debris, owned by the corpse [observed: owner]"
 note = "the hit aid kills Chet with a sniper rifle on the head (500 damage, so the overkill passes the head's share: the explode chance is 100 %), then knifes his corpse's left arm four times (50 % each, seeded rolls), then the console has KillActor explode his left leg; screenshots before and after for a look"
