@@ -1436,9 +1436,12 @@ pub const FIELD_SIGS: [[u8; 4]; 41] = [
 /// [`numeric_fields`] the first time a getter asks for it and kept from then on (#1093:
 /// decoding all ~68 000 up front cost 322 MB of the base game's and DLCs' GameData heap).
 /// A record is a cheap handle on the plugin's mapped bytes, which live for the session.
+/// A record's decoded subrecords, in record order.
+pub type Fields = Vec<([u8; 4], Json)>;
+
 pub struct RecordFields {
     schema: Schema,
-    records: HashMap<FormId, (Record, OnceLock<Vec<([u8; 4], Json)>>)>,
+    records: HashMap<FormId, (Record, OnceLock<Fields>)>,
 }
 
 impl RecordFields {
@@ -1448,7 +1451,7 @@ impl RecordFields {
 
     /// The decoded subrecords of `form`, in record order; `None` when it is not a
     /// winning record of a [`FIELD_SIGS`] type.
-    pub fn get(&self, form: &FormId) -> Option<&Vec<([u8; 4], Json)>> {
+    pub fn get(&self, form: &FormId) -> Option<&Fields> {
         let (r, fields) = self.records.get(form)?;
         Some(fields.get_or_init(|| numeric_fields(&self.schema, r)))
     }
