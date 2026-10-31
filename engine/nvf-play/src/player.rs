@@ -779,13 +779,14 @@ fn mouse_look(
 /// second) [hypothesis, `crate::bindings::LOOK_SPEED_HORIZONTAL`].
 const STICK_LOOK_RADIANS: f32 = 0.001;
 
-/// Put the character on the ground under the start position once its cell is loaded: a
-/// ray down from the start eye, else (outdoors) from far above (a start under the
-/// terrain). Indoors with nothing below, the start moves to the nearest door arrival into
+/// Put the character on the ground under the start position once the cells around it are
+/// loaded ([`PhysState::ready_around`]: a save made on a walkway whose reference lies in
+/// the next square loads on it, #1103): a ray down from the start eye, else (outdoors)
+/// from far above (a start under the terrain). Indoors with nothing below, the start moves to the nearest door arrival into
 /// the cell ([`safe`]). With the `NVF_PLAY_TEST_NEAR` aid, a standing spot next to its
 /// reference replaces the start.
 fn place_initial(mut phys: ResMut<PhysState>, mut player: ResMut<Player>, mut near: ResMut<NearAid>, sim: Res<SimState>) {
-    if phys.player.is_some() || !phys.ready_at(player.feet) {
+    if phys.player.is_some() || !phys.ready_around(player.feet) {
         return;
     }
     if let (Some(id), Some(pos)) = (near.target, near.pos.take()) {
@@ -812,8 +813,8 @@ fn place_initial(mut phys: ResMut<PhysState>, mut player: ResMut<Player>, mut ne
                 let [x, y, z] = near.start;
                 warn!("test aid NVF_PLAY_TEST_NEAR: no standing spot within reach of {id:08X}; the start is kept ({x:.0}, {y:.0}, {z:.0})");
                 player.feet = near.start;
-                if !phys.ready_at(player.feet) {
-                    return; // its cell streams in first
+                if !phys.ready_around(player.feet) {
+                    return; // its cells stream in first
                 }
             }
         }

@@ -309,8 +309,10 @@ fn draw(
     if hud.wheel_line != subs.wheel {
         hud.wheel_line = subs.wheel.clone();
     }
-    if panel.view != p {
-        panel.set(p);
+    // Which showing of a message box this is: a box replaced by one alike starts afresh.
+    let showing = script.rt.as_ref().filter(|rt| rt.game.menu == Some(MENU_MESSAGE)).and_then(|rt| rt.game.front_box()).map(|b| b.serial);
+    if panel.view != p || panel.showing != showing {
+        panel.show(p, showing);
     }
     if subs != *shown {
         if subs.logged != shown.logged && !subs.logged.is_empty() {
@@ -336,6 +338,7 @@ fn draw(
 /// and Enter picks the framed button; Space also presses the OK of a box without
 /// buttons; Enter or a click on Done closes a character-creation menu. All go through
 /// `ScriptState::answer`.
+#[allow(clippy::too_many_arguments)]
 pub fn menu_keys(
     keys: Res<ButtonInput<KeyCode>>,
     clicks: Query<(&PointerState, &BoxButton), Changed<PointerState>>,
@@ -343,13 +346,16 @@ pub fn menu_keys(
     mut panel: ResMut<MessagePanel>,
     mut script: ResMut<ScriptState>,
     creator: Option<Res<crate::creator::CreatorData>>,
+    (tile_click, tiles): (Option<ResMut<crate::tiles::input::MessageClick>>, Option<Res<crate::tiles::vanilla::TileMenus>>),
 ) {
     use KeyCode::*;
+    // A click on the box drawn from its tiles (T15a, `crate::tiles::input`), taken.
+    let tile_click = tile_click.and_then(|mut c| c.0.take());
     let Some(code) = script.rt.as_ref().and_then(|rt| rt.game.menu) else { return };
     if !crate::script::is_script_menu(code) {
         return;
     }
-    let clicked = clicks.iter().find(|(i, _)| **i == PointerState::Pressed).map(|(_, b)| b.0);
+    let clicked = clicks.iter().find(|(i, _)| **i == PointerState::Pressed).map(|(_, b)| b.0).or(tile_click);
     let enter = keys.any_just_pressed([Enter, NumpadEnter]);
     if code == menus::TUTORIAL || crate::chargen::has_own_menu(code) || crate::levelup::draws(code) || crate::creator::draws(code, creator.is_some()) {
         return;
@@ -360,11 +366,16 @@ pub fn menu_keys(
         }
         return;
     }
+    // The box drawn from its tiles opens with no row chosen: the first Up or Down chooses
+    // the first row (`MessagePanel::key`). Enter with none chosen answers the first button,
+    // as the hand-built box, whose first row is chosen at open [design: what the original's
+    // Enter does with no row chosen was not captured].
+    let first_picks = tiles.as_ref().is_some_and(|m| m.message) && script.rt.as_ref().is_some_and(|rt| crate::tiles::menus::message_tiled(true, &rt.game));
     if keys.just_pressed(ArrowUp) {
-        panel.step(-1);
+        panel.key(-1, first_picks);
     }
     if keys.just_pressed(ArrowDown) {
-        panel.step(1);
+        panel.key(1, first_picks);
     }
     let digits = [Digit1, Digit2, Digit3, Digit4, Digit5, Digit6, Digit7, Digit8, Digit9];
     let pads = [Numpad1, Numpad2, Numpad3, Numpad4, Numpad5, Numpad6, Numpad7, Numpad8, Numpad9];

@@ -12,6 +12,9 @@
 //!   layout is drawn with Bevy's font and plain lines.
 //! - Fonts, textures and units are `crate::interface`'s, shared with the other parts of
 //!   the interface.
+//! - With `[UI] TileMenus=MessageMenu` (T15a) a message box is drawn from the game's
+//!   `MessageMenu` tiles instead (`crate::tiles::menus`) and this module spawns nothing for
+//!   it; the panels of the other script menus it shows stay drawn here.
 
 use crate::interface::{amber, at, bc_supported, face, plain_font, set_text, texture, u, Face, Set};
 use crate::script_hud::BoxButton;
@@ -62,7 +65,7 @@ const LEADING: f32 = 4.0;
 const FRAME_PAD: f32 = 42.0;
 const FRAME_SHIFT: f32 = 2.5;
 /// How dark the box makes what is behind it (as the Wait menu's, wait-menu.md §2).
-const SHADE: f32 = 0.93;
+pub(crate) const SHADE: f32 = 0.93;
 
 /// What a box holds. `buttons` are the labels as drawn ("OK" for a box without any).
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -80,14 +83,53 @@ pub struct PanelView {
 pub struct MessagePanel {
     pub view: Option<PanelView>,
     pub selected: usize,
+    /// A row was chosen since the box opened (the pointer onto it, or a key). The box drawn
+    /// from its tiles frames `selected` only then: the original chooses no row when a box
+    /// opens [observed: hud_menus capture 2026-10-31, `_highlight_y` -1 and the highlight
+    /// hidden at open]. The hand-built box frames `selected` from the start (§4).
+    pub chosen: bool,
+    /// Which showing of a box `view` is (`fnv_game::Game::front_box`'s serial), so a box
+    /// replaced by one alike in every word is a new box too.
+    pub showing: Option<u64>,
 }
 
 impl MessagePanel {
+    /// A box (or none) to show, the same showing as before.
     pub fn set(&mut self, view: Option<PanelView>) {
-        if self.view != view {
+        self.show(view, self.showing);
+    }
+
+    /// A box (or none) to show, and which showing it is: another view or another showing
+    /// starts at the first button with no row chosen (§4; T15a).
+    pub fn show(&mut self, view: Option<PanelView>, showing: Option<u64>) {
+        if self.view != view || self.showing != showing {
             self.view = view;
+            self.showing = showing;
             self.selected = 0;
+            self.chosen = false;
         }
+    }
+
+    /// The pointer (or a ref) chooses row `i`.
+    pub fn choose(&mut self, i: usize) {
+        self.selected = i;
+        self.chosen = true;
+    }
+
+    /// Up (-1) or Down (1). With `first_picks` (the box drawn from tiles) and no row chosen
+    /// yet, the key chooses the first row without moving [observed: hud_menus capture
+    /// 2026-10-31, a tapped Down chose row 0 of a box with none chosen; design: Up the
+    /// same]; otherwise it moves the choice ([`MessagePanel::step`]).
+    pub fn key(&mut self, by: i32, first_picks: bool) {
+        if !(first_picks && !self.chosen) {
+            self.step(by);
+        }
+        self.chosen = true;
+    }
+
+    /// The row the box frames when drawn from its tiles: `selected` once one was chosen.
+    pub fn framed(&self) -> Option<usize> {
+        self.chosen.then_some(self.selected)
     }
 
     /// Move the choice up (-1) or down (1), stopping at the ends.
@@ -320,13 +362,25 @@ fn draw(
     roots: Query<Entity, With<BoxRoot>>,
     mut frames: Query<(&Frame, &mut Visibility)>,
     mut faces: Local<Option<Faces>>,
-    mut shown: Local<Option<PanelView>>,
+    (mut shown, mut was_tiled): (Local<Option<PanelView>>, Local<bool>),
+    (menus, script): (Option<Res<crate::tiles::vanilla::TileMenus>>, Option<Res<crate::script::ScriptState>>),
 ) {
-    if panel.view != *shown {
+    // T15a: the box drawn from its tiles spawns nothing here.
+    let tiled = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| crate::tiles::menus::message_tiled(menus.as_ref().is_some_and(|m| m.message), &rt.game));
+    if panel.view != *shown || tiled != *was_tiled {
+        *was_tiled = tiled;
         for e in &roots {
             commands.entity(e).despawn();
         }
-        if let Some(view) = &panel.view {
+        // Drawn from tiles, the box keeps the pointer from what is under it with a sheet
+        // alone (`crate::tiles::menus::modal_sheet`; the hand-built box's rows take it
+        // where they stand); it goes with the box.
+        if crate::tiles::menus::modal(panel.view.is_some(), tiled) == crate::tiles::menus::Modal::Sheet {
+            commands.spawn((BoxRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, GlobalZIndex(108))).with_children(|root| {
+                root.spawn(crate::tiles::menus::modal_sheet());
+            });
+        }
+        if let Some(view) = panel.view.as_ref().filter(|_| !tiled) {
             let faces = faces.get_or_insert_with(|| {
                 load_faces(data.as_deref(), &mut images, bc_supported(formats.as_deref()))
             });
@@ -437,5 +491,37 @@ People like you.", &["Ok"]);
         // A new box starts at its first button.
         p.set(Some(view(None, "y", &["a"])));
         assert_eq!(p.selected, 0);
+    }
+
+    #[test]
+    fn a_box_from_tiles_opens_with_no_row_chosen() {
+        let mut p = MessagePanel::default();
+        p.set(Some(view(None, "x", &["a", "b", "c"])));
+        assert_eq!(p.framed(), None, "no row chosen at open");
+        // The first Down chooses the first row; the next moves on.
+        p.key(1, true);
+        assert_eq!(p.framed(), Some(0));
+        p.key(1, true);
+        assert_eq!(p.framed(), Some(1));
+        // The pointer chooses a row; a new box chooses none again.
+        p.choose(2);
+        assert_eq!(p.framed(), Some(2));
+        p.set(Some(view(None, "y", &["a"])));
+        assert_eq!(p.framed(), None);
+        // A box replaced by one alike in every word (the next showing): no row chosen, and
+        // the first Down picks the first row again.
+        let a = view(None, "same", &["a", "b"]);
+        p.show(Some(a.clone()), Some(1));
+        p.choose(1);
+        p.show(Some(a.clone()), Some(1));
+        assert_eq!(p.framed(), Some(1), "the same showing keeps its choice");
+        p.show(Some(a), Some(2));
+        assert_eq!(p.framed(), None);
+        p.key(1, true);
+        assert_eq!(p.framed(), Some(0));
+        // The hand-built box's keys move from the first row at once.
+        p.set(Some(view(None, "z", &["a", "b"])));
+        p.key(1, false);
+        assert_eq!(p.selected, 1);
     }
 }

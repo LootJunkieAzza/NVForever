@@ -721,3 +721,27 @@ The numbers above stay put so links to them hold; each item here gives its own p
     scripts]. To check: in a function or quest script, `AddReputation RepNVNCR 2 1`, then
     a line that sets a variable; the same with RemoveReputation and AddReputationExact.
     (scripts.md §7.6, issue #1127)
+
+## Added 2026-10-31 (UI tile tree T15a: the message box and the prompt from their files)
+
+63. **What `screen()` reports, and `resolutionconverter` — Answered 2026-10-31**.
+    Width is 960 × window width/height, height 960 and `resolutionconverter` 960 /
+    window height [observed: hud_menus capture 2026-10-31, three window sizes:
+    1280 x 720, 1920 x 1080 and 1280 x 1024]. The capture read `screen()` through
+    copied traits. NVForever keeps those units gated on a switched-on T15 menu
+    (`MessageMenu` or `QuantityMenu`); applying them unconditionally is a follow-up
+    [design: preserve default play].
+    ([menu-xml §4.2](../spec-notes/menu-xml.md), [message-menu §5a](../spec-notes/message-menu.md))
+64. **The message box's and the prompt's code-set traits** (P2: every message box and
+    stack prompt drawn from its file). Ours (`tiles::menus`): the list as wide as the
+    widest button's text and 80, each row its text's height and 20, the box's width by
+    its text, title and list, the empty title 0 high, the backgrounds' alpha 237, the
+    meter's `user3`/`user4` 1 and 10 [hypothesis or design each].
+    To check: with a message box of a title, two lines and three buttons open, GetUIFloat
+    `MessageMenu/NOGLOW_BRANCH/MM_MainRect/width`, `…/MM_ButtonList/width`, `height`,
+    `_highlight_y`, `_selected_height`, `…/MM_Title/height` (and again for a box without
+    a title), `…/MM_Background/alpha`, the rows' `_y` and `height`
+    (`…/MM_ButtonList/MM_Button:0` …); with the prompt open over a stack of 20,
+    `QuantityMenu/NOGLOW_BRANCH/QM_MainRect/QM_AmountMeter/user0` … `user4`, and a
+    screenshot of each at 1280 x 720.
+    ([message-menu §5a](../spec-notes/message-menu.md), [barter-menu §7](../spec-notes/barter-menu.md))
