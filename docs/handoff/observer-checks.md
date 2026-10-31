@@ -677,3 +677,21 @@ The numbers above stay put so links to them hold; each item here gives its own p
     loudness over the same frames (a pause between words, a long vowel). Does it go
     dark in pauses, follow the loudness or the mouth shapes, or loop by itself? Same on
     Mr. House's screen (`##TalkButtons:0`). ([lipsync §6.1](../spec-notes/lipsync.md))
+
+## Added 2026-10-31 (Observe Combat spectators running away, issue #960)
+
+60. **How close a fight comes before a spectator runs, and what it does then** (P3: the
+    806 packages with Observe Combat [observed: esm-audit-2026-10-25.md]; the wiki says
+    only "run away if they get too close"). NVForever runs a spectator from the nearest
+    fighter within 600 units [design: stand-in], by the combat flee's spot search, out
+    of a combat state, and brings it back to its package once no fighter is within
+    1,500 (packages.md §7.6b). To check: Goodsprings by day, Easy Pete (EasyPeteRef) on
+    his own package, the player in god mode starting a fight with a placed cazador
+    (`PlaceAtMe NVCrCazador`) at about 1,200 units from Pete, then backing towards Pete
+    in steps of about 100 units every few seconds. Sample every game loop: the distance
+    from Pete to the player and to the cazador, Pete's `GetCurrentAIProcedure`,
+    `GetCurrentAIPackage`, combat state (`IsInCombat`, `GetCombatTarget`) and
+    `IsWeaponOut`, and his position. At what distance does he set off, from whom (the
+    player or the cazador), how far does he go (a door, cover, straight away), does he
+    turn to watch from there, and does he go back to his package when the fight ends or
+    only later? ([packages §7.6b](../spec-notes/packages.md))

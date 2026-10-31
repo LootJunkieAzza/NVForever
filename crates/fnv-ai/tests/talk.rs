@@ -773,3 +773,56 @@ fn an_actor_next_to_the_player_chatters_now_and_then() {
     let said: Vec<&AiEvent> = s.events().into_iter().filter(|e| matches!(e, AiEvent::IdleChatter { .. })).collect();
     assert!(matches!(said.first(), Some(AiEvent::IdleChatter { line, away }) if line.0 == I_CHATTER && *away <= fnv_ai::social::CHAT_NEAR_PLAYER), "{:?}", s.events());
 }
+
+/// Observe Combat's spectators "run away if they get too close" (fnv-ai social.rs,
+/// packages.md §7.6b): an actor whose package allows the behaviour, within
+/// `SPECTATOR_FLEE_DISTANCE` of a fighter (here the player, hunted), runs from it
+/// without entering a combat state, stays at its spot, and goes back to its package once
+/// the fight is over. A fight farther off sends nobody running.
+#[test]
+fn a_spectator_runs_from_a_fight_that_comes_too_close() {
+    use fnv_ai::social::{OBSERVE_DISTANCE, SPECTATOR_FLEE_DISTANCE};
+    use fnv_game::awareness::Timers;
+    use fnv_game::detection::{Band, Detection};
+    use fnv_game::combat_group::GroupSettings;
+    let f = fixture();
+    let mut s = sim(&f, R_IDLE, [CORNER[0] + 1000.0, CORNER[1] + 1000.0, 0.0]);
+    // The straight-away flee distance shortened to fit the room (1,200 units square).
+    s.game.awareness.tactics.settings = Some(GroupSettings { flee_normal: 700.0, ..GroupSettings::default() });
+    s.run_social(1.0);
+    // Someone (no resident) fights the player.
+    let foe = FormId(0xF00);
+    let (now, t) = (s.game.time, Timers::default());
+    let dist = |a: [f32; 3], b: [f32; 3]| (a[0] - b[0]).hypot(a[1] - b[1]);
+    let a = s.game.awareness.actors.entry(foe).or_default();
+    a.observe(FormId::PLAYER_REF, &Detection { value: 5.0, band: Band::Detected, ..Default::default() }, [0.0; 3], now, &t);
+    a.settle(foe, now, &t, true);
+    assert!(s.game.awareness.hunted(FormId::PLAYER_REF));
+    // Far off: it watches.
+    let feet = s.agent(R_IDLE).walker.feet;
+    let far = [feet[0], (feet[1] + SPECTATOR_FLEE_DISTANCE + 200.0).min(1150.0), 0.0];
+    assert!(dist(far, feet) > SPECTATOR_FLEE_DISTANCE && dist(far, feet) < OBSERVE_DISTANCE);
+    s.player_to(far);
+    s.run_social(2.0);
+    assert!(!s.events().iter().any(|e| matches!(e, AiEvent::SpectatorFlee { .. })), "{:?}", s.events());
+    // Too close: it runs, out of a combat state.
+    // Between it and the room's corner, so there is room to run (it idles near the corner).
+    let close = [10.0, 10.0, 0.0];
+    assert!(dist(close, s.agent(R_IDLE).walker.feet) <= SPECTATOR_FLEE_DISTANCE);
+    s.player_to(close);
+    s.run_social(0.5);
+    let ev = s.events();
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::SpectatorFlee { fighter, away } if *fighter == FormId::PLAYER_REF && *away <= SPECTATOR_FLEE_DISTANCE)), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Flee { from, .. } if *from == FormId::PLAYER_REF)), "{ev:?}");
+    let before = dist(s.agent(R_IDLE).walker.feet, close);
+    s.run_social(6.0);
+    assert!(!s.game.awareness.state(FormId(R_IDLE)).in_combat(), "it does not join in");
+    assert!(s.events().iter().any(|e| matches!(e, AiEvent::FleeArrived { .. })), "{:?}", s.events());
+    let fled = s.agent(R_IDLE).walker.feet;
+    assert!(dist(fled, close) > before + 200.0, "{fled:?} from {close:?}");
+    // The fight over: back to its package.
+    s.game.awareness.actors.remove(&foe);
+    s.run_social(1.0);
+    assert!(s.events().iter().any(|e| matches!(e, AiEvent::SearchOver { why } if why.contains("fight"))), "{:?}", s.events());
+    assert!(s.agent(R_IDLE).search.is_none());
+}
