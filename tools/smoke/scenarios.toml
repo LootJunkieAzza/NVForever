@@ -3649,6 +3649,19 @@ expect = [
 ]
 
 [[scenario]]
+name = "vfs-order-shipped"
+kind = "tool"
+source = "#996: fnvtool vfs order prints the archives as the game mounts them; on the shipped data the six SArchiveList archives, then Update.bsa, then each add-on's in load order (docs/spec-notes/bsa.md)"
+areas = ["assets"]
+paths = ["crates/fnv-vfs/", "crates/fnvtool/src/bsa_cmd.rs"]
+commands = [["vfs", "order", "{data}"]]
+expect = [
+  { json = "archives.0", schema = "fnv.vfs.order/1", equals = "Fallout - Textures.bsa", label = "the SArchiveList archives first" },
+  { json = "archives.6", schema = "fnv.vfs.order/1", equals = "Update.bsa", label = "then Update.bsa" },
+  { json = "archives.7", schema = "fnv.vfs.order/1", equals = "DeadMoney - Main.bsa", label = "then the first add-on's" },
+]
+
+[[scenario]]
 name = "visibility-arcs-vault22"
 source = "docs/spec-notes/nif.md §6 \"Visibility controllers\": placed models play the NiVisController tracks of their Idle sequence on every playing clip (anim_play::Playing::show), not only where a script runtime drives object groups; Vault 22's common area (Vault22d) has 14 electric arcs (fxelectricarc01/02.nif, refs 000F27A2-000F27AF) whose Idle shows their BrightSpots node about one frame in ten; the exit line counts the switches (no frames: the arcs sit behind a wall from the cell's start point)"
 areas = ["effects", "animation"]
@@ -10042,6 +10055,24 @@ expect = [
 ]
 
 [[scenario]]
+name = "corpse-loot-dropped-weapon"
+source = "#1032: a weapon an NPC drops as it dies is still listed in its loot menu; taking it there picks the one reference up from the ground (engine/nvf-play/src/menu/model.rs Row::reference, World::dropped_beside)"
+note = "as death-weapon-drop: Chet is given a .357 and killed at 9 s; the container test aid opens his body at 12 s, logs it, takes all (which closes it), opens it again and stores one unit back"
+areas = ["combat", "menus"]
+paths = ["engine/nvf-play/src/menu/model.rs", "engine/nvf-play/src/menu.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:call:GSChetRef:AddItem:WeapNV357Revolver:1,3.5:call:GSChetRef:EquipItem:WeapNV357Revolver,4:combat:GSChetRef:player,9:call:GSChetRef:KillActor", NVF_PLAY_TEST_MENU = "00104C79", NVF_PLAY_TEST_DELAY = "12" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'combat: 0x00104C79 died: it drops its \.357 Magnum Revolver .*: reference 0xFF', label = "Chet drops his revolver as he dies" },
+  { re = 'test aid \[opened\]   Container: .*\.357 Magnum Revolver x1, \.357 Magnum Revolver x1,', label = "his loot menu lists the revolver lying beside him as well as the one he carries (Chet has his own .357; before #1032 one row)" },
+  { re = 'menu: picked up reference 0xFF[0-9A-F]{6} lying beside the container', label = "Take All picks the reference up" },
+  { re = 'reference 0xFF[0-9A-F]{6} gone: [1-9]\d* render entities updated', label = "the revolver on the ground goes" },
+  { re = 'test aid \[after storing one back\]   Container: 1 stacks, .*: \.357 Magnum Revolver x1$', label = "opened again, the body holds only the revolver stored back: the picked-up one is not listed again" },
+  { re = 'test aid \[after storing one back\]   Player: .*: \.357 Magnum Revolver x1, ', label = "the player kept the other: two taken, no copy" },
+]
+
+[[scenario]]
 name = "next-quest-active"
 source = "ESM full audit gap 20 (crates/fnv-game/src/game.rs set_stage): a stage entry that completes its quest makes its Next Quest (QUST NAM0) the active quest (GECK wiki Quest Stages)"
 note = "SetStage VCG01 200 (Ain't That a Kick in the Head; its Next Quest is VMQ01, They Went That-a-Way) at 4 s; the Pip-Boy's data page opens at 10 s"
@@ -16432,4 +16463,17 @@ args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "
 run_seconds = 9
 expect = [
   { re = 'player body: armour drawn \["PipBoy", "ArmorLeather", "LeatherArmorGloveR", "LeatherArmorGloveL"\]', label = "the leather armour and its gloves; the Pip-Boy Glove gives way to the left one" },
+]
+
+[[scenario]]
+name = "radscorpion-intact-caps"
+source = "#1075 (docs/spec-notes/dismemberment.md §2.5): the radscorpion's `meatcapbody` holds its torso caps (part flag bit 0 clear) and one editor-visible BP_TORSO triangle, so the whole-shape cap rule drew every torso cap on an intact radscorpion; cap partitions are now hidden one by one [observed: fnvtool nif decode]"
+note = "a radscorpion (CrRadscorpion1Small) placed 300 units from the player (GOD, UNSEEN) at 3 s and held (SetRestrained); the view turns to it at 5 s, a frame at 6 s (no caps on its leg roots or stinger)"
+areas = ["dismember", "actors"]
+paths = ["engine/nvf-assets/src/actor.rs", "engine/nvforever/src/dismember.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:CrRadscorpion1Small:1:300:0,3.2:call:0xFF000000:SetRestrained:1", NVF_PLAY_TEST_CONTROL = "5:aimactor", NVF_PLAY_TEST_SHOTS = "6.5:radscorpion_intact.png" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm"]
+run_seconds = 9
+expect = [
+  { re = 'actor parts: meshes.creatures.radscorpion.radscorpion[.]nif: shape "meatcapbody" hides 11 cap partitions beside 1 drawn', label = "the intact radscorpion's torso caps are hidden, partition by partition" },
 ]
