@@ -690,3 +690,13 @@ The numbers above stay put so links to them hold; each item here gives its own p
     the front; sample its position every game loop for 1.5 s after the hit: the distance,
     how long it moves, and whether the speed falls off. The same with a deathclaw's
     swipe on the player (god mode). ([combat-rules, Knockback](../spec-notes/combat-rules.md))
+62. **Does AddReputation with axis 2 or 3 stop the script, as SetReputation does?** (P2:
+    Boulder City Showdown, Severus.) SetReputation with axis 2 or 3 stops the script
+    (check 30, o5_00/o5_01); AddReputation's was not captured, and ours changes nothing and
+    goes on [hypothesis]. It matters: VMS20 stage 100 entry 1 calls `AddReputation
+    RepNVGreatKhans 2 5` and then RewardXP, CompleteAllObjectives, CompleteQuest and
+    StopQuest, and Severus's three tag trades (INFO 0x00135115/17/20) count the tags in
+    iAureliusTags after `AddReputation RepNVCaesarsLegion 3 1` [observed: decompiled
+    scripts]. To check: in a function or quest script, `AddReputation RepNVNCR 2 1`, then
+    a line that sets a variable; the same with RemoveReputation and AddReputationExact.
+    (scripts.md §7.6, issue #1127)

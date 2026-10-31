@@ -473,8 +473,9 @@ fn reputation_limits_levels_and_ignored_sizes() {
 }
 
 /// Axes other than 0 and 1 (FalloutNV.esm's scripts use 2 and 3) read 0 with no call
-/// error (observer check 30); a write with one changes nothing, fails and stops the
-/// script: the line after it does not run (captures o5_00/o5_01, #1127).
+/// error (observer check 30); SetReputation with one changes nothing, fails and stops the
+/// script: the line after it does not run (captures o5_00/o5_01, #1127). The other
+/// writers change nothing and go on (not captured, observer check 62).
 #[test]
 fn reputation_other_axes_read_0_and_stop_a_write() {
     use fnv_script::vm::XVal;
@@ -493,10 +494,14 @@ End
     // Axes 0 and 1 set the value and go on.
     assert_eq!(q(&mut g, "SetReputation RepTest 0 5"), Ok(XVal::Num(7.0)));
     assert_eq!(g.player.reputation[&FormId(REP)], [5.0, 12.0]);
-    for line in ["SetReputation RepTest 2 5", "SetReputation RepTest 3 7", "AddReputation RepTest 3 1", "AddReputation RepTest 2 1", "RemoveReputation RepTest 2 1", "AddReputationExact RepTest 2 1"] {
+    for line in ["SetReputation RepTest 2 5", "SetReputation RepTest 3 7"] {
         let before = g.events.len();
         assert_ne!(q(&mut g, line), Ok(XVal::Num(7.0)), "{line}: the line after it does not run");
         assert!(g.events[before..].iter().any(|e| matches!(&e.kind, EventKind::CallFailed { .. })), "{line}: traced as a failed call");
+        assert_eq!(g.player.reputation[&FormId(REP)], [5.0, 12.0], "{line}");
+    }
+    for line in ["AddReputation RepTest 3 1", "AddReputation RepTest 2 1", "RemoveReputation RepTest 2 1", "AddReputationExact RepTest 2 1"] {
+        assert_eq!(q(&mut g, line), Ok(XVal::Num(7.0)), "{line}: goes on");
         assert_eq!(g.player.reputation[&FormId(REP)], [5.0, 12.0], "{line}");
     }
     // The stop lasts for that run only.
