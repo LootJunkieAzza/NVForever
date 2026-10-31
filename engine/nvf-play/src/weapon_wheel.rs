@@ -483,17 +483,27 @@ fn act(n: usize, hotkeys: &Hotkeys, sim: &mut SimState, control: &mut PlayerCont
         Used::UsedUp(item) => {
             used.write(ItemUsed { item: item.0, limb: None });
         }
-        // A weapon taken from the wheel is drawn up, not lowered by hand as the last one
-        // was (`PlayerControl::lowered`).
         Used::Equipped if slot.is_some_and(|s| sim.forms.item(FormId(s.item)).is_some_and(|i| i.kind == fnv_sim::forms::ItemKind::Weapon)) => {
-            control.weapon_out = true;
-            control.lowered = false;
+            let was_out = holster_for_new_weapon(control);
+            info!("hotkeys: slot {}: {name} equipped holstered ({})", n + 1, if was_out { "the weapon in hand put away" } else { "nothing was drawn" });
         }
         _ => {}
     }
     let line = outcome.describe(&name);
     info!("hotkeys: slot {}: {line}", n + 1);
     line
+}
+
+/// A weapon taken from a hotkey or the wheel comes in holstered: one in hand is put
+/// away, and the player draws the new one with Ready Item [design, the owner 2026-10-31,
+/// #1106: may differ from the original]. Returns whether a weapon was out.
+fn holster_for_new_weapon(control: &mut PlayerControl) -> bool {
+    let was_out = control.weapon_out;
+    control.weapon_out = false;
+    control.lowered = false;
+    control.ready_held = None;
+    control.trigger = false;
+    was_out
 }
 
 fn report(mut exit: MessageReader<AppExit>, stats: Res<WheelStats>) {
@@ -507,6 +517,19 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<WheelStats>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_hotkeyed_weapon_comes_in_holstered() {
+        // Holstered: it stays holstered.
+        let mut c = PlayerControl { weapon_out: false, ..default() };
+        assert!(!holster_for_new_weapon(&mut c));
+        assert!(!c.weapon_out, "a holstered player is not made to draw");
+        // Drawn (and lowered, mid hold of Ready Item, trigger down): the weapon in hand is
+        // put away and nothing carries over to the new one.
+        let mut c = PlayerControl { weapon_out: true, lowered: true, ready_held: Some(0.2), trigger: true, ..default() };
+        assert!(holster_for_new_weapon(&mut c));
+        assert!(!c.weapon_out && !c.lowered && !c.trigger && c.ready_held.is_none(), "{c:?}");
+    }
 
     fn frame(dt: f32) -> Frame {
         Frame { dt, ..default() }

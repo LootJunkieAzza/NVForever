@@ -15,6 +15,10 @@
 //!   hand stays in hand [design: no unequip by accident]: equip a weapon, put on or take
 //!   off apparel, use one aid item. A slot whose item is no longer carried stays, drawn at
 //!   half strength on the wheel, and does nothing [design until a capture says].
+//!   A weapon equipped from a slot (a key or the wheel) comes in holstered: one in hand
+//!   is put away first, and the player draws the new one with Ready Item [design, the
+//!   owner 2026-10-31, #1106; it may not match the original]
+//!   (`crate::weapon_wheel`'s `holster_for_new_weapon`).
 //! - **Saved** under `hotkeys` in the engine's part of a save ([`SAVE_HOOK`]).
 //!
 //! Log lines: `hotkeys: slot <n> holds <name> (<form>)`, `hotkeys: slot <n>: <outcome>`.

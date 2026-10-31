@@ -204,6 +204,12 @@ the spec it links to.
    killed in one spot: if corpses lying inside each other look wrong, the size limit can
    come down or the rule go. [ragdoll.md](spec-notes/ragdoll.md), "Corpse against corpse".
 
+36. **Hotkeyed weapons come in holstered (your ruling, #1106).** A weapon picked by a
+   number key or the weapon wheel is equipped holstered; a weapon in hand is put away
+   first, and Ready Item draws the new one. The original may draw it. Kept here only so
+   it is on record as a difference; if you want a drawn weapon to stay drawn on a swap,
+   it is one function (`holster_for_new_weapon`). [weapon-wheel.md §4](design/weapon-wheel.md)
+
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 
 
