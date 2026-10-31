@@ -1869,7 +1869,10 @@ as their clips.
   the velocity of the actor's character for the frame (a character is made for it if it
   has none), so walls stop it and the actor blocks of the player and others stop it as
   they stop a walk (`nvf_play::blocking`); while the clip plays its walk waits (the clip's
-  velocity replaces it). A carried actor pushes nobody aside
+  velocity replaces it). A lunge carries its actor no nearer its target than its walk
+  would stop (`npc_combat::Fighters::lunge_room`, the melee spacing): the dog's
+  `h2hattackforwardpower` goes 900 units, and carried in full it ran a dog past the
+  player and back (smoke `combat-dogs`) [design]. A carried actor pushes nobody aside
   (`ActorBlocks::carried`, owner 2026-10-11: a bite does not push the player around).
   Its walker stands where its character got to, so it stays where the clip ends (or where
   it was stopped); the character goes once the clip is over and it is not on its way.

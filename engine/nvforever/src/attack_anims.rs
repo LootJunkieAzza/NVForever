@@ -964,15 +964,20 @@ impl AttackTravel {
 /// Each fighter's root travel of this frame ([`CombatPose::travel`], in its axes) turned
 /// to game space by its heading and scaled with it, for [`AttackTravel`]. The actor's
 /// root is in game space: x east, y north, z up (`locomotion::heading_of_rotation`).
-fn carry(mut travel: ResMut<AttackTravel>, mut poses: Query<(&ActorRig, &mut CombatPose, &Transform)>) {
+fn carry(mut travel: ResMut<AttackTravel>, fighters: Res<Fighters>, mut poses: Query<(&ActorRig, &mut CombatPose, &Transform)>) {
     for (rig, mut pose, tr) in &mut poses {
-        let d = std::mem::take(&mut pose.travel);
+        let mut d = std::mem::take(&mut pose.travel);
+        // A lunge carries its actor no nearer its target than its walk stops
+        // (`Fighters::lunge_room`): a dog's 900-unit leap ran it past the player before.
+        let k = tr.scale.x.max(1e-3);
+        if let Some(room) = fighters.lunge_room(rig.reference).filter(|_| d.y > 0.0) {
+            d.y = d.y.min(room / k);
+        }
         let carrying = pose.attack.as_ref().is_some_and(|a| a.clip.carried.is_some());
         if !carrying && d == Vec2::ZERO {
             continue;
         }
         let (s, c) = crate::locomotion::heading_of_rotation(tr.rotation).sin_cos();
-        let k = tr.scale.x;
         // Forward is (sin, cos) of the heading, right is (cos, -sin).
         let w = [(d.x * c + d.y * s) * k, (-d.x * s + d.y * c) * k];
         travel.units += w[0].hypot(w[1]);
