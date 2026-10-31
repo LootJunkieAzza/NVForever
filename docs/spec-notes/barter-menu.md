@@ -266,9 +266,12 @@ leaves it open for a screenshot.
 
 **Drawn from its file (T15a).** With `[UI] TileMenus=QuantityMenu` the prompt of the
 container, barter and inventory menus is drawn from the game's `QuantityMenu` tiles
-(`engine/nvf-play/src/tiles/menus.rs`), the code above not spawned; the crafting menu's
-prompt stays drawn by it. The tree builds the file while the prompt shows
-(`Game::ui_prompt`; MenuMode does not report it). The code writes the meter's `user0`
+(`engine/nvf-play/src/tiles/menus.rs`), the code above not spawned once the tree has the
+file (the frame the prompt opens draws it by hand once; a missing file keeps it hand-built);
+the crafting menu's prompt stays drawn by it. The tree builds the file while the prompt
+shows, whatever the switch (`Game::ui_prompt`, as the open menus build; MenuMode does not
+report it): with the switch off its tiles are readable by scripts but nothing writes or
+draws them. The code writes the meter's `user0`
 (the stack) and `user2` (the amount) and the step sizes `user3`/`user4` (1 and 10, ours)
 [documented: the file's comments on them]; the file works out the meter's value, its
 fill (the tick picture tiled over the value's part of the meter: one picture, no piece
@@ -276,5 +279,7 @@ per tick) and the amount's text. The words are the game strings `sHowMany`, `sOK
 `sCancel` and the key hints `sPCMenuHintA`/`E` (menu-xml.md §2.4; NVForever's own labels
 when the load order has none). A pointer click on OK, Cancel or an arrow does what the
 keys do; a press on the meter, held as it drags, sets the amount under the pointer; the
-keys stay the ones above. Smoke `tiles-quantity`.
+keys stay the ones above (the file's bindings act for a script's MenuTapKey and for the
+controller's buttons that stand in for no key). Smoke `tiles-quantity`; the drop aid's
+`ask` now holds the prompt open until it is answered.
 

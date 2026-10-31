@@ -273,8 +273,10 @@ docs/handoff/ui-tile-tree-tasks.md]: `x` `y` `width` `height` `depth` `alpha` `v
   shows (the message box's OK, the prompt's Ok and Cancel on the owner's screenshots,
   message-menu.md §3, barter-menu.md §7), and the list's highlight box, alpha 40, draws
   its lines at full strength. Until T15a it multiplied through as the other tiles' does,
-  which hid those texts (and the tile HUD prompt's verb and key under
-  `Info/justify_center_hotrect`).
+  which hid those texts. The rule holds for every drawn menu, whatever `[UI] TileMenus`
+  says: with the T15 menus off it changes the tile HUD (`Info/justify_center_hotrect`'s
+  verb and key now draw) and the mods' tiles drawn over the HUD (a mod's text under an
+  alpha-0 hotrect now shows) [design: one rule for one tree].
 - [hypothesis] `alpha` is 0–255, defaults to 255, and multiplies through ancestors as
   fractions of 255. [design] Clamp each local alpha to that range and retain fractional
   results without rounding.
@@ -584,7 +586,7 @@ marked]:
 | `me()` | 1798 | the tile itself |
 | `sibling(name)` | 1660 | the tile of that name under the same parent |
 | `sibling()` | 2 | the tile just before it under the same parent |
-| `screen()` | 451 | the view: traits `width`, `height`, `cropx`, `cropy`, `resolutionconverter`, set by the engine (since T15a the running game writes the view in interface units, 960 high and 960 × width/height wide, and `resolutionconverter` 1; `fnvtool ui tree --screen` still writes the size it is given) |
+| `screen()` | 451 | the view: traits `width`, `height`, `cropx`, `cropy`, `resolutionconverter`, set by the engine (the running game writes the window's pixels, and no converter; since T15a, only while `[UI] TileMenus` names `MessageMenu` or `QuantityMenu`, the view in interface units, 960 high and 960 × width/height wide, and `resolutionconverter` 960 / the window's height [design: the default unchanged; hypothesis: the units and the converter, fitted to hud.md §14's line thickness 1.78 at 1920 x 1080; observer-checks.md item 55]; `fnvtool ui tree --screen` writes the size it is given) |
 | `globals()` | 244 | `globals.xml`'s tile (`gloabls()`, once, read the same) |
 | `io()` | 242 | the menu the tile is in, whose traits the game's code reads and writes (barter reads `io()`'s `_IsContainerListSelected`, which its `<menu>` declares) |
 | `child(name)` | 148 | the child of that name; `child()` the first child |

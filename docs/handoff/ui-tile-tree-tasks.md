@@ -607,10 +607,12 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       the same shape). One switch per menu, the hand-built drawing stays the default.
       - **Switch**: `[UI] TileMenus=` takes `MessageMenu` and `QuantityMenu` beside
         `HUDMainMenu` (`tiles::vanilla::TileMenus`, its test aid
-        `NVF_PLAY_TEST_TILE_MENUS`). On, and with the game's menu files read, the
-        hand-built box (`message_menu.rs`) or prompt (`menu/look.rs::spawn_quantity`)
+        `NVF_PLAY_TEST_TILE_MENUS`). On, and with the menu's file built into the tree,
+        the hand-built box (`message_menu.rs`) or prompt (`menu/look.rs::spawn_quantity`)
         is not spawned and the tile renderer draws the menu's whole tree at the
-        hand-built box's stacking level. Off, nothing new runs.
+        hand-built box's stacking level. Off, no writes, drawing or tile input for them;
+        but `QuantityMenu`'s tree builds while the prompt shows (below), and the hotrect
+        alpha and `_name_` rules hold for every menu (below).
       - **The tree has the menu**: `MessageMenu` builds while a message box is the open
         menu (T3b). The prompt is no `Game::menu` (MenuMode does not report it), so
         `Game::ui_prompt` (new, set by the engine each frame from `ActiveMenu`) builds
@@ -626,8 +628,8 @@ owner to add to its pull request or issue (owner, 2026-10-29).
         Every text tile of a drawn menu gets its measured `width` and `height` (as the
         HUD's measured texts), only when its string, font or wrap changed.
       - **Tree rules the files need** (menu-xml.md): `screen()` in interface units (960
-        high; both files centre their boxes by it), `resolutionconverter` 1 (lines 2
-        units), a hotrect's own `alpha` not passed to its children (every text button
+        high; both files centre their boxes by it) and `resolutionconverter` 960 / the
+        window's height (lines 2 pixels), both only while a T15 menu is switched on, a hotrect's own `alpha` not passed to its children (every text button
         is an alpha-0 hotrect over a visible text), and `copy … trait="_name_"` after a
         constant (`&false;`) reading `_name_0` (the fade lines' and the meter's picture).
       - **Input** (T8): the menus take tile input while drawn from tiles. A pointer or
@@ -648,11 +650,26 @@ owner to add to its pull request or issue (owner, 2026-10-29).
     - **T15a built** 2026-10-31 (`claude/t15-menus-a`), awaiting the screenshot
       comparison and the maintainer: as planned above (`tiles/menus.rs`,
       message-menu.md §5a, barter-menu.md §7, menu-xml.md §3.1.1, §4.2, §4.4).
-      **Also changes the tile HUD**: `screen()` is now in interface units (the HUD's
-      places are worked out from the shape and do not move) and the hotrect alpha rule
-      lets `Info/justify_center_hotrect`'s verb and key draw; check `tiles-hud-*`.
+      **Also changes, with the T15 menus off:** the hotrect alpha rule lets
+      `Info/justify_center_hotrect`'s verb and key draw in the tile HUD and a mod's text
+      under an alpha-0 hotrect show; `copy … _name_` after `&true;`/`&false;` reads
+      `_name_1`/`_name_0` in every menu; `QuantityMenu` builds and drops with the prompt.
+      `screen()` stays the window's pixels unless a T15 menu is on (gated after review).
       **Open, for the comparison:** font 2's line spacing and first-line place in the
       renderer (31 and 24 against the screenshot's 35 and 15), the empty title's height,
       the highlight box's fill (hotrects draw nothing), the crafting menu's prompt (still
-      hand-built). Only `cargo check` (`fnv-ui`, `fnv-game`, `nvf-play`, with tests) and
-      `python tools/smoke verify` were run.
+      hand-built); the per-frame layout of an open tile menu (the tree has no cheap
+      revision to skip it; to measure with the perf harness). **Where it stands:**
+      implemented; compiled (`cargo check -p fnv-ui -p fnv-game --tests` in the root
+      workspace, `cargo check -p nvf-play --tests` in the engine's, no warnings); the
+      scenario file verified (`python tools/smoke verify`); **not** tested (no `cargo
+      test`, clippy or smoke run yet), **not** compared with the original on
+      screenshots. Captures to do: observer-checks.md items 55, 56.
+      - Review fixes (2026-10-31, an independent review): navigation has one owner (a
+        highlight a ref moved for a hand-built Up/Down is not the choice); a new box makes
+        its rows again (a queued script click on the last box answers nothing); key clicks
+        act unless the hand-built handler took that key this frame (MenuTapKey and the
+        files' extra bindings act); the tile view only with the menu's file built and the
+        prompt open; text sizes per axis; `screen()` gated; `_name_` only after a constant
+        with a known number; the drop aid's `ask` holds the prompt; the message scenario
+        closes the console.
