@@ -1013,25 +1013,20 @@ impl AttackTravel {
 /// root is in game space: x east, y north, z up (`locomotion::heading_of_rotation`).
 fn carry(mut travel: ResMut<AttackTravel>, fighters: Res<Fighters>, mut poses: Query<(&ActorRig, &mut CombatPose, &Transform)>) {
     for (rig, mut pose, tr) in &mut poses {
-        let mut d = std::mem::take(&mut pose.travel);
-        // A lunge carries its actor no nearer its target than its walk stops
-        // (`Fighters::lunge_room`): a dog's 900-unit leap ran it past the player before.
-        // Stopped there, it stays: the clip's later travel back is not applied either
-        // (the Deathclaw's lunge goes 572 forward, then back to 523) [design].
+        let asked = std::mem::take(&mut pose.travel);
         let k = tr.scale.x.max(1e-3);
-        if pose.lunge_stopped {
-            d = Vec2::ZERO;
-        } else if let Some(room) = fighters.lunge_room(rig.reference).filter(|_| d.y > 0.0) {
-            // The distance is the fight's of the last update: last frame's carry is
-            // not in it yet.
-            let left = (room - pose.lunge_last).max(0.0) / k;
-            if d.y >= left {
-                info!("attack anims: {:08X}'s lunge stopped at its target's body ({room:.0} units of room, {:.0} carried the frame before, {:.1} asked)", rig.reference, pose.lunge_last, d.y * k);
-                d.y = left;
-                pose.lunge_stopped = true;
-            }
+        let room = fighters.lunge_room(rig.reference);
+        let (was, last) = (pose.lunge_stopped, pose.lunge_last);
+        let p = &mut *pose;
+        let d = clamp_lunge(asked, room, k, &mut p.lunge_stopped, &mut p.lunge_last);
+        if pose.lunge_stopped && !was {
+            info!(
+                "attack anims: {:08X}'s lunge stopped at its target's body ({:.0} units of room, {last:.0} carried the frame before, {:.1} asked)",
+                rig.reference,
+                room.unwrap_or(0.0),
+                asked.y * k
+            );
         }
-        pose.lunge_last = d.y.max(0.0) * k;
         let carrying = pose.attack.as_ref().is_some_and(|a| a.clip.carried.is_some());
         if !carrying && d == Vec2::ZERO {
             continue;
@@ -1044,6 +1039,27 @@ fn carry(mut travel: ResMut<AttackTravel>, fighters: Res<Fighters>, mut poses: Q
         m[0] += w[0];
         m[1] += w[1];
     }
+}
+
+/// This frame's root travel `d` of a carried clip (the actor's axes, unscaled) as much as
+/// may carry the actor, its scale `k`: a lunge carries its actor no nearer its target
+/// than `room` (`Fighters::lunge_room`: where their bodies touch) less the forward travel
+/// given the frame before (`last`, which the fight's distance does not count yet). Once
+/// it gets there it is `stopped`, and the rest of that attack carries nothing, the clip's
+/// later travel back included (the Deathclaw's lunge goes 572 forward, then back to 523)
+/// [design]. Without a room (no target) the clip's travel carries in full.
+fn clamp_lunge(mut d: Vec2, room: Option<f32>, k: f32, stopped: &mut bool, last: &mut f32) -> Vec2 {
+    if *stopped {
+        d = Vec2::ZERO;
+    } else if let Some(room) = room.filter(|_| d.y > 0.0) {
+        let left = (room - *last).max(0.0) / k;
+        if d.y >= left {
+            d.y = left;
+            *stopped = true;
+        }
+    }
+    *last = d.y.max(0.0) * k;
+    d
 }
 
 pub fn drawn(hold: Option<&WeaponHold>) -> bool {
@@ -1073,6 +1089,41 @@ fn report(mut exit: MessageReader<AppExit>, clips: Res<AttackClips>, travel: Res
 
 #[cfg(test)]
 mod tests {
+    /// A lunge with room carries the actor by its clip's whole root travel, frame by
+    /// frame; one that reaches its target's body stops there for the rest of the attack,
+    /// its travel back included (`clamp_lunge`, actors.md §8.13).
+    #[test]
+    fn a_lunge_with_room_carries_its_clips_travel_and_stops_at_the_body() {
+        use super::clamp_lunge;
+        use bevy::math::Vec2;
+        // The Deathclaw's clip, in frames: 572 forward, then 49 back (scale 1).
+        let frames: Vec<Vec2> = (0..22).map(|_| Vec2::new(0.0, 26.0)).chain((0..7).map(|_| Vec2::new(0.0, -7.0))).collect();
+        let run = |room: f32| {
+            let (mut stopped, mut last, mut moved) = (false, 0.0f32, 0.0f32);
+            // The fight's distance is a frame old: it has not counted last frame's carry.
+            let (mut actual, mut seen) = (room, room);
+            for &d in &frames {
+                let d = clamp_lunge(d, Some(seen), 1.0, &mut stopped, &mut last);
+                seen = actual;
+                actual -= d.y;
+                moved += d.y;
+            }
+            (moved, stopped)
+        };
+        // Room for all of it: the clip's own travel, 572 out and 523 at its end.
+        let (moved, stopped) = run(2000.0);
+        assert!((moved - 523.0).abs() < 1e-3 && !stopped, "{moved}");
+        // 300 units to the body: carried to it and no further, and not back.
+        let (moved, stopped) = run(300.0);
+        assert!((moved - 300.0).abs() < 1e-3 && stopped, "{moved}");
+        // Already touching: nothing.
+        assert_eq!(run(0.0), (0.0, true));
+        // No target: in full.
+        let (mut s, mut l) = (false, 0.0);
+        assert_eq!(clamp_lunge(Vec2::new(3.0, 40.0), None, 2.0, &mut s, &mut l), Vec2::new(3.0, 40.0));
+        assert_eq!(l, 80.0);
+    }
+
     use super::*;
 
     #[test]

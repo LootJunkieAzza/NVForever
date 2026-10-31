@@ -16685,6 +16685,7 @@ expect = [
   { re = 'attack anims: meshes.creatures.deathclaw.h2hattackforwardpower[.]kf carries its actor (\d+) units', range = [500, 560], label = "the deathclaw's lunge clip carries it (523 units at its end)" },
   { re = 'attack anims: FF\w{6}.s lunge stopped at its target.s body', label = "the lunge carries it no nearer than the player's body (it strikes when it touches them, review of #1209)" },
   { re = 'FF\w{6}: its attack clip carried it \d+ units of', label = "each carried blow leaves the deathclaw's character where the clip took it" },
+  { re = 'FF\w{6}: its attack clip carried it (\d+) units of', range = [40, 1000], label = "a carried blow moves the deathclaw's character forward and leaves it there", known_failing = "2026-10-31 (#1209 review): the deathclaw strikes where it touches the player, so its lunge has little or no room (0-35 units carried); it passed before only through a frame-old distance. A lunge with room carries its full travel: unit test a_lunge_with_room_carries_its_clips_travel_and_stops_at_the_body. Passes again once the AI lunges from farther out (owner-review item 36)" },
   { re = 'ai: attack clips carried actors in ([1-9]\d*) actor updates', label = "attack clips carried an actor" },
 ]
 
