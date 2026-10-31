@@ -1633,10 +1633,11 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
 args = ["--play", "--plugins", "FalloutNV.esm", "--world", "WastelandNV", "--pos=-33500,-96800,6900", "--hour", "12", "--npc-packages", "001349B6", "--no-voice", "--no-messages"]
 run_seconds = 60
 expect = [
-  { re = 'idle: Oliver Swanick plays LooseCheeringBothArmsUp .*\(Script\), holding it in place', label = "the cheer at marker 01 holds him in place" },
-  { re = 'idle hold: Oliver Swanick \(001349B6\) stands until its idle ends', label = "he stands while it plays" },
-  { re = 'idle hold: Oliver Swanick \(001349B6\) may walk again', label = "and walks once it ends" },
-  { re = 'idle: Oliver Swanick plays LooseMiddleFinger', label = "he walks on to marker 02 afterwards" },
+  { re = 'idle: vNiptonSurvivorREF plays LooseCheeringBothArmsUp .*\(Script\), holding it in place', label = "the cheer at marker 01 holds him in place" },
+  { re = 'idle hold: vNiptonSurvivorREF \(001349B6\) stands until its idle ends', label = "he stands while it plays" },
+  { re = 'idle hold: vNiptonSurvivorREF \(001349B6\) may walk again', label = "and walks once it ends" },
+  { re = 'idle: vNiptonSurvivorREF plays LooseMiddleFinger', label = "he walks on to marker 02 afterwards" },
+  { gap = ["plays LooseCheeringBothArmsUp", "plays LooseMiddleFinger"], range = [5, 25], label = "he reaches marker 02 only after the cheer (4.67 s a pass, then 292 units; on main he ran off 1.0 s into it and was there 2.35 s after it began)" },
 ]
 
 [[scenario]]
