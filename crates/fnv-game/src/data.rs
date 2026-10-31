@@ -304,6 +304,10 @@ pub struct NoteDef {
     /// TNAM of a Voice note: the topic (DIAL) whose line it plays [documented: xEdit
     /// NOTE TNAM union; GECK wiki GetNoteTopic].
     pub topic: Option<FormId>,
+    /// ONAM: the note's quests, in record order [documented: xEdit NOTE ONAM; GECK wiki
+    /// GetNoteQuestList, "all quests associated with a Note"; hypothesis: one ONAM per
+    /// quest].
+    pub quests: Vec<FormId>,
 }
 
 /// A terminal (TERM) [documented: xEdit wbDefinitionsFNV.pas TERM; schema
@@ -2707,6 +2711,11 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 let b = s.data.get(..4)?;
                 map(u32::from_le_bytes([b[0], b[1], b[2], b[3]])).filter(|f| *f != 0).map(FormId)
             };
+            n.quests = subs
+                .iter()
+                .filter(|s| &s.sig == b"ONAM")
+                .filter_map(|s| s.data.get(..4).and_then(|b| map(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))).filter(|f| *f != 0).map(FormId))
+                .collect();
             match n.kind {
                 0 => n.sound = form_of(b"SNAM"),
                 1 => n.text = subs.iter().find(|s| &s.sig == b"TNAM").map(|s| fnv_util::cp1252::decode_z(&s.data)),

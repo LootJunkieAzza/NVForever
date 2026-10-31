@@ -29,7 +29,11 @@ pub enum Tape {
 
 /// What `note` plays, if it is a Sound or Voice note that names what it needs.
 pub fn tape(data: &GameData, note: FormId) -> Option<Tape> {
-    let n = data.notes.get(&note)?;
+    tape_of(data, data.notes.get(&note)?)
+}
+
+/// What a note as given plays ([`tape`]; `Game::note_tape` passes the session's edits).
+pub fn tape_of(data: &GameData, n: &crate::data::NoteDef) -> Option<Tape> {
     match n.kind {
         0 => n.sound.map(Tape::Sound),
         3 => {

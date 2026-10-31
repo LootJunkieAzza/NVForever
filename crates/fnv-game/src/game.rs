@@ -621,6 +621,10 @@ pub struct PlayerState {
     pub teammate_perks: BTreeSet<FormId>,
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub notes: BTreeSet<FormId>,
+    /// Notes read in the Pip-Boy (GetNoteRead, `Game::mark_note_read`), and those
+    /// SetNoteRead marked with `serialize` 1 [documented: SetNoteRead].
+    #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
+    pub notes_read: BTreeSet<FormId>,
     /// Infamy (index 0) and fame (index 1) per reputation, as GetReputation's axis.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub reputation: BTreeMap<FormId, [f64; 2]>,
@@ -1024,6 +1028,10 @@ pub struct Game<'a> {
     pub(crate) name_overrides: std::collections::HashMap<FormId, String>,
     /// xNVSE's mod local data: lower-cased key -> (key as given, value); the session's.
     pub(crate) mod_data: BTreeMap<String, (String, fnv_script::vm::XVal)>,
+    /// Notes the extender's setters changed this session (`crate::nvse_notes`), whole.
+    pub(crate) note_edits: BTreeMap<FormId, crate::data::NoteDef>,
+    /// SetNoteRead's changes without `serialize`: for the session, over the saved flag.
+    pub(crate) note_read_session: BTreeMap<FormId, bool>,
     /// TempCloneForm's clones and their originals (`crate::nvse_data`).
     pub(crate) clones: std::collections::HashMap<FormId, FormId>,
     pub(crate) clone_seq: u32,
@@ -1715,6 +1723,8 @@ impl<'a> Game<'a> {
             field_overrides: std::collections::HashMap::new(),
             name_overrides: std::collections::HashMap::new(),
             mod_data: BTreeMap::new(),
+            note_edits: BTreeMap::new(),
+            note_read_session: BTreeMap::new(),
             clones: std::collections::HashMap::new(),
             clone_seq: 0,
             playable_overrides: std::collections::HashMap::new(),
@@ -3897,7 +3907,7 @@ impl<'a> Game<'a> {
     /// reference they touch. docs/spec-notes/holotapes.md §3.]
     pub fn holotape_script(&mut self, note: FormId, which: usize) -> Option<FormId> {
         let data = self.data;
-        let crate::holotapes::Tape::Voice { info, .. } = crate::holotapes::tape(data, note)? else { return None };
+        let crate::holotapes::Tape::Voice { info, .. } = self.note_tape(note)? else { return None };
         let def = data.infos.get(&info)?;
         if let Some(u) = [def.begin, def.end][which.min(1)] {
             self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(FormId::PLAYER_REF) });
