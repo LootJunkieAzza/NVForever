@@ -606,11 +606,13 @@ pub enum RaceMenu {
 /// The dialogue topics the player knows, newest first: the order that breaks ties of
 /// topic priority in the topic list (`Game::build_choices`).
 ///
-/// A topic learned again moves to the front; the topics one line adds go to the front
-/// together, in their record order. [observed: the original's lists for Boone and Manny
-/// Vargas, 2026-10-31, follow no rule of learning order; newest first is the owner's
-/// choice of 2026-10-31, which keeps most of their order; dialogue.md §3.5.] Saves
-/// from before kept a sorted set; they load in that order.
+/// The topics one line adds go to the front together, in their record order; a line's
+/// topic already known moves to the front again ([`KnownTopics::learn`]). `AddTopic` on a
+/// known topic leaves it where it is ([`KnownTopics::insert`]): a script may call it every
+/// frame, and the list must not depend on how often scripts run [design: review of
+/// #1205]. The original's lists for Boone and Manny Vargas follow no rule of learning
+/// order [observed 2026-10-31, dialogue.md §3.5]; newest first is the owner's choice of
+/// 2026-10-31 [design]. Saves from before kept a sorted set; they load in that order.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct KnownTopics(Vec<FormId>);
@@ -629,8 +631,8 @@ impl KnownTopics {
         self.0.iter()
     }
 
-    /// Learns `topics` (one line's Add Topics, or one AddTopic) and returns those that
-    /// were not known before, in their order.
+    /// Learns `topics` (one line's Add Topics): all go to the front, the known ones too,
+    /// and returns those that were not known before, in their order.
     pub fn learn(&mut self, topics: &[FormId]) -> Vec<FormId> {
         let mut batch: Vec<FormId> = Vec::with_capacity(topics.len());
         for &t in topics {
@@ -644,9 +646,14 @@ impl KnownTopics {
         new
     }
 
-    /// Learns one topic; true if it was not known before.
+    /// Learns one topic (`AddTopic`): to the front if it was not known, else it stays
+    /// where it is. True if it was not known before.
     pub fn insert(&mut self, topic: FormId) -> bool {
-        !self.learn(&[topic]).is_empty()
+        let new = !self.0.contains(&topic);
+        if new {
+            self.0.insert(0, topic);
+        }
+        new
     }
 }
 

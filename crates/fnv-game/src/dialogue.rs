@@ -763,15 +763,14 @@ impl<'a> Game<'a> {
         known.append(&mut links);
         if !known.is_empty() {
             listed.append(&mut known);
-            // Ties: known topics newest first, then the rest in record order.
-            let learned = |t: &FormId| self.player.topics.iter().position(|k| k == t).unwrap_or(usize::MAX);
-            let order = |t: &FormId| data.topic_defs.get(t).map_or((usize::MAX, 0), |d| d.order);
-            listed.sort_by(|a, b| {
-                priority(&b.topic)
-                    .total_cmp(&priority(&a.topic))
-                    .then(learned(&a.topic).cmp(&learned(&b.topic)))
-                    .then(order(&a.topic).cmp(&order(&b.topic)))
-            });
+            // Ties: known topics newest first, then the rest (the top-level topics, even
+            // one the player also learned) in record order.
+            let key = |t: &FormId| ListKey {
+                priority: priority(t),
+                learned: (!data.top_level.contains(t)).then(|| self.player.topics.iter().position(|k| k == t)).flatten(),
+                order: data.topic_defs.get(t).map_or((usize::MAX, 0), |d| d.order),
+            };
+            listed.sort_by(|a, b| key(&a.topic).list_cmp(&key(&b.topic)));
         }
         let mut out = self.offer(actor, &listed);
         if !out.iter().any(|c| c.goodbye && data.infos.get(&c.info).is_some_and(|d| d.end.is_none())) {
@@ -1138,5 +1137,42 @@ impl<'a> Game<'a> {
                 order.get(at).or(order.first()).map(|&r| def.responses[r].emotion)
             })
             .unwrap_or(0)
+    }
+}
+
+/// Where a topic goes in the topic list ([`Game::build_choices`]): topic priority,
+/// highest first; then a known topic by when it was learned, newest first (`learned`,
+/// its place in [`crate::game::KnownTopics`]); then the others in record order.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ListKey {
+    priority: f32,
+    learned: Option<usize>,
+    order: (usize, usize),
+}
+
+impl ListKey {
+    fn list_cmp(&self, b: &ListKey) -> std::cmp::Ordering {
+        let learned = |k: &ListKey| k.learned.unwrap_or(usize::MAX);
+        b.priority.total_cmp(&self.priority).then(learned(self).cmp(&learned(b))).then(self.order.cmp(&b.order))
+    }
+}
+
+#[cfg(test)]
+mod list_order_tests {
+    use super::ListKey;
+
+    #[test]
+    fn priority_then_newest_learned_then_record_order() {
+        let k = |priority: f32, learned: Option<usize>, order: usize| ListKey { priority, learned, order: (0, order) };
+        let mut list = vec![
+            ("top-level, later record", k(50.0, None, 9)),
+            ("known, older", k(50.0, Some(3), 1)),
+            ("top-level, earlier record", k(50.0, None, 2)),
+            ("known, newest", k(50.0, Some(0), 8)),
+            ("higher priority, top-level", k(60.0, None, 99)),
+        ];
+        list.sort_by(|a, b| a.1.list_cmp(&b.1));
+        let names: Vec<&str> = list.iter().map(|e| e.0).collect();
+        assert_eq!(names, ["higher priority, top-level", "known, newest", "known, older", "top-level, earlier record", "top-level, later record"]);
     }
 }

@@ -508,10 +508,12 @@ All of it is in `GameSnapshot`.
   shared lines, e.g. Red Lucy's greeting.) Topics whose lines name the line's topic in
   their Link From join either list (§3.5) [documented; hypothesis on how]. Order: topic priority (DIAL PNAM), highest first
   [documented]; then, for a line's choices, their order in the record [documented:
-  "Sorting order of links"], and for the topic list the known topics newest first, a
-  topic learned again moving to the front and one line's Add Topics keeping their
-  record order, then the others (top-level topics) in record order [owner's choice
-  2026-10-31; `KnownTopics`]. The original follows no rule we can copy [observed
+  "Sorting order of links"], and for the topic list the known topics newest first, one
+  line's Add Topics keeping their record order and a line's topic already known moving
+  to the front again (`AddTopic` on a known topic leaves it in place: scripts may call
+  it every frame), then the others in record order, the top-level topics among them
+  even when the player also learned one [owner's choice 2026-10-31 and design;
+  `KnownTopics`, `dialogue::ListKey`]. The original follows no rule we can copy [observed
   2026-10-31: Boone's list after learning C8, CA, then CC and CB from one line read C8,
   CC, CB, CA; Manny Vargas with topics given by `AddTopic` (captures `dlg_topic_order_*`
   and owner screenshots): learned CEDEE, B15FC, 137A62, B15FB, B15FA, then 96BCF from
@@ -526,8 +528,8 @@ All of it is in `GameSnapshot`.
 - **GOODBYE.** When the topic list holds no Goodbye line, the actor's line of the
   GOODBYE topic is offered last, if it has one [documented: Quest and Dialogue Tutorial;
   Conversation Tab].
-- **Known topics.** `AddTopic` and lines' Add Topics lists fill one set, kept for the
-  whole game; every actor that can say a line of a known topic offers it [owner
+- **Known topics.** `AddTopic` and lines' Add Topics lists fill one list, newest first
+  (above), kept for the whole game; every actor that can say a line of a known topic offers it [owner
   statement 2026-10-10: every actor has the line while its quest is active and the
   conditions are met; not yet captured]. When an Add Topics list is applied (here: when
   the line ends) stays a [hypothesis].
