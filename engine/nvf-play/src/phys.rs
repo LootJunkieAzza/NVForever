@@ -1343,14 +1343,22 @@ fn world_name(d: &PlayData, world: u32) -> &str {
     d.index.worldspaces.get(&world).and_then(|w| w.edid.as_deref()).unwrap_or("?")
 }
 
+/// References whose collision should follow the simulation: those named by
+/// `RefChanged`, and the weapons actors drop when they die, are disarmed or break one
+/// (`crate::combat::WeaponBroken`, whose reference would otherwise get no collision and
+/// hang where it was placed until its cell loads again).
 fn ref_changed(
     mut msgs: MessageReader<RefChanged>,
+    (broken, mut broken_seen): (Option<Res<Messages<crate::combat::WeaponBroken>>>, Local<bevy::ecs::message::MessageCursor<crate::combat::WeaponBroken>>),
     d: Res<PlayWorld>,
     sim: Res<SimState>,
     data: Option<Res<GameData>>,
     mut phys: ResMut<PhysState>,
 ) {
-    let ids: Vec<u32> = msgs.read().map(|m| m.form_id).collect();
+    let mut ids: Vec<u32> = msgs.read().map(|m| m.form_id).collect();
+    if let Some(broken) = broken.as_deref() {
+        ids.extend(broken_seen.read(broken).filter_map(|b| b.dropped).map(|r| r.0));
+    }
     if ids.is_empty() {
         return;
     }
