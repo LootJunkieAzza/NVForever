@@ -2272,7 +2272,8 @@ fn each_queued_box_keeps_its_own_button_count() {
     assert_eq!(g.front_box(), None);
     g.show_box_buttons(FormId(0), 2);
     assert_eq!(g.queued.len(), g.boxes.len());
-    assert_eq!(g.queued.iter().map(|q| q.buttons).collect::<Vec<_>>(), vec![None, None, Some(2)]);
+    // The two boxes left, the one pushed out of step, then the box shown.
+    assert_eq!(g.queued.iter().map(|q| q.buttons).collect::<Vec<_>>(), vec![None, None, None, Some(2)]);
 }
 
 #[test]
