@@ -1429,6 +1429,10 @@ pub struct Game<'a> {
     /// opened or closed: OnOpen, OnClose), run at the start of the next frame with the
     /// world in place ([`Game::queue_ref_event`]).
     pub queued_ref_events: Vec<(FormId, u16, Option<FormId>)>,
+    /// Each activated reference's action reference: who activated it last
+    /// ([`Game::activate`]). A bare `Activate` in the reference's own GameMode uses it
+    /// (`functions::refs::activate`). Not part of the saved state.
+    pub action_refs: std::collections::HashMap<FormId, FormId>,
     /// Deaths during a script run (KillActor, a script's damage) whose OnDeath blocks wait
     /// for the outermost script to finish, with their killers ([`Game::kill`]).
     deferred_deaths: Vec<(FormId, Option<FormId>)>,
@@ -1927,6 +1931,7 @@ impl<'a> Game<'a> {
             door_gates: Default::default(),
             npc_door_run: None,
             queued_ref_events: Vec::new(),
+            action_refs: Default::default(),
             deferred_deaths: Vec::new(),
             door_open_seen: BTreeMap::new(),
             events: Vec::new(),
@@ -3825,6 +3830,7 @@ impl<'a> Game<'a> {
         if self.activation_refused(target) {
             return Ok(serde_json::json!({"result": "destroyed"}));
         }
+        self.action_refs.insert(target, actor);
         // A door's block letting the NPC that walks through it go on (`crate::npc_doors`).
         if mode == ActMode::Default && self.npc_door_activated(actor, target) {
             return Ok(serde_json::json!({"result": "npc door"}));
