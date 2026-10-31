@@ -230,6 +230,12 @@ pub(crate) fn menu_keys(
     mk.held = want;
 }
 
+/// The key a controller button stands in for in a menu ([`menu_keys`]'s tables), when the
+/// controller works the controls: what the menus' own key handlers then see.
+pub(crate) fn menu_key(button: GamepadButton) -> Option<KeyCode> {
+    ALWAYS.iter().chain(IN_MENUS.iter()).find(|(b, _)| *b == button).map(|(_, k)| *k)
+}
+
 /// A controller's arrival and departure, in the log.
 fn log_pads(added: Query<(Entity, Option<&Name>), Added<Gamepad>>, mut gone: RemovedComponents<Gamepad>) {
     for (e, name) in &added {

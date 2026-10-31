@@ -16,10 +16,14 @@
 //!   `crate::script_hud::menu_keys`), and the pointer over a row frames it (the hand-built
 //!   box's rule, `crate::message_menu`); on the prompt OK, Cancel and the two arrows send
 //!   their commands (`crate::menu::MenuInput`) and a press on the meter, held as it drags,
-//!   sets the amount under the pointer (`crate::menu::model::amount_at`). A click a key made
-//!   through the files' `_PCButton_*` or `x…` refs does nothing more: the hand-built keys
-//!   (`crate::menu`'s prompt keys, `crate::script_hud::menu_keys`) stay the menus' keys,
-//!   so a key does not act twice [design].
+//!   sets the amount under the pointer (`crate::menu::model::amount_at`). The hand-built
+//!   keys (`crate::menu`'s prompt keys, `crate::script_hud::menu_keys`) stay the menus'
+//!   keys: a click a key made through the files' `_PCButton_*` or `x…` refs acts unless
+//!   that key came from the keyboard (or a controller standing in for it) and the
+//!   hand-built handler took it this frame (`super::menus::key_click_acts`), so a press acts
+//!   once while a script's MenuTapKey and a file's own bindings still act; a highlight a
+//!   ref moved for a hand-built Up or Down is not taken as the box's choice
+//!   (`super::menus::chosen_row`) [design: the T15a review].
 //! - **Units**: the cursor's logical pixels to interface units, 960 to the view's height,
 //!   as the tile renderer draws (`super::draw`, `crate::interface::u`) [design].
 //! - **Keys**: A to Z as `_PCButton_<letter>` [documented: the vanilla files' letters;
@@ -160,7 +164,7 @@ impl MenuInputs<'_, '_> {
     fn taking(&self, menus: super::vanilla::TileMenus, game: &fnv_game::Game<'_>) -> Vec<fnv_ui::TileId> {
         use super::menus::{message_tiled, quantity_tiled, MESSAGE_MENU, QUANTITY_MENU};
         let mut out = Vec::new();
-        if self.quantity().is_some() && quantity_tiled(menus.quantity, game) {
+        if quantity_tiled(menus.quantity, game, self.quantity().is_some()) {
             out.extend(game.ui_tree.menu(QUANTITY_MENU));
         }
         if message_tiled(menus.message, game) {
@@ -170,15 +174,15 @@ impl MenuInputs<'_, '_> {
     }
 
     /// Act on a frame's report (see the module doc): `at` the pointer, `held` the left
-    /// button down.
-    fn follow(&mut self, ui: &fnv_ui::Ui, report: &fnv_ui::input::Report, at: Option<(f64, f64)>, held: bool) {
-        use super::menus::{quantity_tile, row_button, QuantityTile};
+    /// button down, `physical` the keys from the keyboard (or a controller standing in for
+    /// them) this frame.
+    fn follow(&mut self, ui: &fnv_ui::Ui, report: &fnv_ui::input::Report, at: Option<(f64, f64)>, held: bool, physical: &[&str]) {
+        use super::menus::{chosen_row, key_click_acts, message_pick, nav_by_hand, quantity_tile, row_button, QuantityTile, QUANTITY_MENU};
         use crate::menu::{model::Command, MenuInput};
-        if let Some((_, Some(to))) = report.over {
-            if let (Some(i), Some(panel)) = (row_button(ui, to), self.panel.as_mut()) {
-                if panel.selected != i {
-                    panel.selected = i;
-                }
+        use fnv_ui::input::By;
+        if let (Some(i), Some(panel)) = (chosen_row(ui, report, nav_by_hand(physical)), self.panel.as_mut()) {
+            if panel.selected != i {
+                panel.selected = i;
             }
         }
         let q = self.quantity();
@@ -186,11 +190,18 @@ impl MenuInputs<'_, '_> {
             *self.dragging = false;
         }
         let mut clicked = false;
-        for c in report.clicks.iter().filter(|c| matches!(c.by, fnv_ui::input::By::Pointer | fnv_ui::input::By::Script) && ui.is_live(c.tile)) {
-            if let Some(i) = row_button(ui, c.tile) {
-                info!("tiles: {} button {i} picked on its tiles", super::menus::MESSAGE_MENU);
-                self.click.0 = Some(i);
+        for c in report.clicks.iter().filter(|c| ui.is_live(c.tile)) {
+            if row_button(ui, c.tile).is_some() {
+                if let Some(i) = message_pick(ui, c, physical) {
+                    info!("tiles: {} button {i} picked on its tiles", super::menus::MESSAGE_MENU);
+                    self.click.0 = Some(i);
+                }
                 continue;
+            }
+            if let By::Key(k) = &c.by {
+                if !key_click_acts(QUANTITY_MENU, k, physical) {
+                    continue;
+                }
             }
             let Some(q) = q else { continue };
             let cmd = match quantity_tile(ui, c.tile) {
@@ -199,7 +210,7 @@ impl MenuInputs<'_, '_> {
                 Some(QuantityTile::Decrease) => Command::AmountStep(-1),
                 Some(QuantityTile::Increase) => Command::AmountStep(1),
                 Some(QuantityTile::Meter) => {
-                    *self.dragging = held && matches!(c.by, fnv_ui::input::By::Pointer);
+                    *self.dragging = held && matches!(c.by, By::Pointer);
                     match amount_under(ui, at, q.max) {
                         Some(n) => Command::Amount(n),
                         None => continue,
@@ -281,9 +292,13 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, menus: Res<super::vanilla::T
         shift: devices.keys.pressed(KeyCode::ShiftLeft) || devices.keys.pressed(KeyCode::ShiftRight),
         ..Input::default()
     };
+    // The keys from the keyboard, and the controller buttons that stood in for a key this
+    // frame (`crate::pad::menu_key`): what the hand-built handlers saw too.
+    let mut physical: Vec<&'static str> = Vec::new();
     for k in devices.keys.get_just_pressed() {
         if let Some(n) = key_name(*k) {
             push(&mut input, n);
+            physical.push(n.1);
         }
     }
     for code in std::mem::take(&mut rt.game.ui_taps) {
@@ -294,11 +309,14 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, menus: Res<super::vanilla::T
     for (button, name) in PAD {
         if devices.pads.iter().any(|g| g.just_pressed(button)) {
             push(&mut input, (false, name));
+            if crate::pad::menu_key(button).is_some_and(|k| devices.keys.just_pressed(k)) {
+                physical.push(name);
+            }
         }
     }
     let report = fnv_game::ui_input::step(&mut rt.game, &taking, &input, &no_measure);
     let ui = &rt.game.ui_tree;
-    inputs.follow(ui, &report, at, aid_click || devices.mouse.pressed(MouseButton::Left));
+    inputs.follow(ui, &report, at, aid_click || devices.mouse.pressed(MouseButton::Left), &physical);
     if let Some((_, to)) = report.over {
         match to.filter(|&t| ui.is_live(t)) {
             Some(t) => {

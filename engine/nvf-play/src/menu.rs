@@ -768,11 +768,17 @@ fn draw(
     mut kit: Local<Option<look::Kit>>,
     (combat, play, mut script): DrawSources,
     mut forms: Local<Option<crate::pipboy::stats::read::Forms>>,
-    tiles: Option<Res<crate::tiles::vanilla::TileMenus>>,
+    (tiles, mut was_tiled): (Option<Res<crate::tiles::vanilla::TileMenus>>, Local<bool>),
 ) {
-    if !active.is_changed() && !roots.is_empty() {
+    // T15a: with `[UI] TileMenus=QuantityMenu` the prompt is drawn from its tiles
+    // (`crate::tiles::menus`) once the tree has built its file; drawn again here when that
+    // changes (the frame the prompt opens, before the tree builds it, draws it by hand).
+    let prompt = active.0.as_ref().is_some_and(|m| m.quantity.is_some());
+    let tiled = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| crate::tiles::menus::quantity_tiled(tiles.as_ref().is_some_and(|t| t.quantity), &rt.game, prompt));
+    if !active.is_changed() && !roots.is_empty() && tiled == *was_tiled {
         return;
     }
+    *was_tiled = tiled;
     for e in &roots {
         commands.entity(e).despawn();
     }
@@ -811,9 +817,6 @@ fn draw(
             look::spawn(root, m, note.as_deref(), info.as_ref(), kit, data.as_deref(), &mut images, bc);
         });
     }
-    // T15a: with `[UI] TileMenus=QuantityMenu` the prompt is drawn from its tiles
-    // (`crate::tiles::menus`).
-    let tiled = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| crate::tiles::menus::quantity_tiled(tiles.as_ref().is_some_and(|t| t.quantity), &rt.game));
     if let Some(q) = m.quantity.as_ref().filter(|_| !tiled) {
         commands.spawn((MenuRoot, screen, GlobalZIndex(101))).with_children(|root| {
             look::spawn_quantity(root, q, kit, data.as_deref(), &mut images, bc);

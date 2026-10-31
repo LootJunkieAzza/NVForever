@@ -53,17 +53,77 @@ pub fn background_alpha() -> f64 {
 pub type Size<'a> = dyn Fn(f64, &str, Option<f64>) -> (f64, f64) + 'a;
 
 /// Whether the open message box is drawn from `MessageMenu`'s tiles: the switch on, the
-/// menu files read and a message box the open menu (the panels other script menus show in
-/// the same box keep the hand-built one: the tree has no `MessageMenu` for them) [design].
+/// menu files read, a message box the open menu and its file built into the tree (the
+/// panels other script menus show in the same box, and a box whose file is missing or did
+/// not build, keep the hand-built one) [design].
 pub fn message_tiled(on: bool, game: &fnv_game::Game<'_>) -> bool {
-    on && game.ui_files.is_some() && game.menu == Some(fnv_game::game::menus::MESSAGE)
+    on && game.ui_files.is_some() && game.menu == Some(fnv_game::game::menus::MESSAGE) && game.ui_tree.menu(MESSAGE_MENU).is_some()
 }
 
 /// Whether the "How many?" prompt of the container, barter and inventory menus is drawn
-/// from `QuantityMenu`'s tiles: the switch on and the menu files read [design]. The
-/// crafting menu's prompt (`crate::crafting`) stays hand-built.
-pub fn quantity_tiled(on: bool, game: &fnv_game::Game<'_>) -> bool {
-    on && game.ui_files.is_some()
+/// from `QuantityMenu`'s tiles: the switch on, the menu files read, the prompt `open` and
+/// its file built into the tree (`Game::ui_prompt`; a missing or failed file keeps the
+/// hand-built prompt, and the frame the prompt opens, before the tree builds it, draws the
+/// hand-built one once) [design]. The crafting menu's prompt (`crate::crafting`) stays
+/// hand-built.
+pub fn quantity_tiled(on: bool, game: &fnv_game::Game<'_>, open: bool) -> bool {
+    on && open && game.ui_files.is_some() && game.ui_tree.menu(QUANTITY_MENU).is_some()
+}
+
+/// The keys a menu's hand-built handler acts on itself, by the names the tile input gives
+/// them (`super::input`): the prompt's A, E, Left, Right (`crate::menu`'s prompt keys) and
+/// the controller buttons that stand in for its Enter, Esc, Page Up and Page Down
+/// (`crate::pad::menu_key`); the box's Up, Down and the controller's A for its Enter
+/// (`crate::script_hud::menu_keys`). Any other key a file binds is left to the file.
+pub fn hand_built_takes(menu: &str, key: &str) -> bool {
+    let keys: &[&str] = if menu.eq_ignore_ascii_case(QUANTITY_MENU) {
+        &["A", "E", "xleft", "xright", "xbuttona", "xbuttonb", "xbuttonlb", "xbuttonrb"]
+    } else if menu.eq_ignore_ascii_case(MESSAGE_MENU) {
+        &["xup", "xdown", "xbuttona"]
+    } else {
+        &[]
+    };
+    keys.iter().any(|k| k.eq_ignore_ascii_case(key))
+}
+
+/// Whether a click a key made on `menu`'s tiles acts: unless the key came from the keyboard
+/// (or a controller button standing in for a key) this frame, `physical`, and the menu's
+/// hand-built handler took it then ([`hand_built_takes`]), so one press acts once. A
+/// script's MenuTapKey and the files' bindings the hand-built handler lacks act [design].
+pub fn key_click_acts(menu: &str, key: &str, physical: &[&str]) -> bool {
+    !(physical.iter().any(|p| p.eq_ignore_ascii_case(key)) && hand_built_takes(menu, key))
+}
+
+/// Whether the hand-built box moved its choice for a key this frame (Up, Down): the
+/// highlight a file's `mouseover` ref moved for the same key is then not taken as the
+/// choice, so a press moves it once ([`chosen_row`]) [design].
+pub fn nav_by_hand(physical: &[&str]) -> bool {
+    physical.iter().any(|k| ["xup", "xdown"].iter().any(|n| n.eq_ignore_ascii_case(k)) && hand_built_takes(MESSAGE_MENU, k))
+}
+
+/// The box's row the frame's highlight chooses: the row the highlight moved onto, unless
+/// the hand-built handler moved the choice for a key this frame (`by_hand`,
+/// [`nav_by_hand`]): the pointer chooses, the hand-built keys step.
+pub fn chosen_row(ui: &Ui, report: &fnv_ui::input::Report, by_hand: bool) -> Option<usize> {
+    match report.over {
+        Some((_, Some(to))) if !by_hand && ui.is_live(to) => row_button(ui, to),
+        _ => None,
+    }
+}
+
+/// The box's button a click picks: a live row's (a row of a box since replaced was
+/// unloaded, `write_message`'s `fresh`), by the pointer, a script, or a key the
+/// hand-built handler did not take ([`key_click_acts`]).
+pub fn message_pick(ui: &Ui, click: &fnv_ui::input::Click, physical: &[&str]) -> Option<usize> {
+    if !ui.is_live(click.tile) {
+        return None;
+    }
+    if let fnv_ui::input::By::Key(k) = &click.by {
+        if !key_click_acts(MESSAGE_MENU, k, physical) {
+            return None;
+        }
+    }
+    row_button(ui, click.tile)
 }
 
 fn set(ui: &mut Ui, tile: TileId, name: &str, v: Value) {
@@ -126,9 +186,15 @@ pub fn row_button(ui: &Ui, tile: TileId) -> Option<usize> {
 ///   for its title and its frame];
 /// - the background's `alpha` ([`background_alpha`]).
 ///
+/// `fresh`: another box than the last written (a new or replaced message): its rows are
+/// made again, so a click still queued on the last box's rows (a script's ClickMenuButton,
+/// reported at the next input step) finds its tile gone and answers nothing
+/// ([`message_pick`]) [design]. Two boxes alike in every word and button that follow each
+/// other count as one.
+///
 /// `size` measures a text. The tree is worked out once in between, so the rows' texts
 /// read their strings before they are measured.
-pub fn write_message(ui: &mut Ui, view: &PanelView, selected: usize, size: &Size<'_>) {
+pub fn write_message(ui: &mut Ui, view: &PanelView, selected: usize, fresh: bool, size: &Size<'_>) {
     let Some(menu) = ui.menu(MESSAGE_MENU) else { return };
     let (Some(main), Some(list)) = (ui.find_tile(MAIN), ui.find_tile(LIST)) else { return };
     let path = |name: &str| format!("{MAIN}/{name}");
@@ -144,8 +210,13 @@ pub fn write_message(ui: &mut Ui, view: &PanelView, selected: usize, size: &Size
         set(ui, t, "visible", Value::Num(f64::from(view.icon.is_some())));
         set(ui, t, "filename", Value::Str(view.icon.clone().unwrap_or_default()));
     }
-    // The rows: as many as the buttons, the made ones kept.
+    // The rows: as many as the buttons, the made ones kept for the same box.
     let mut made = rows(ui);
+    if fresh {
+        for t in made.drain(..) {
+            ui.unload_tile(t);
+        }
+    }
     while made.len() > view.buttons.len() {
         if let Some(t) = made.pop() {
             ui.unload_tile(t);
@@ -340,10 +411,10 @@ pub fn fonts(ui: &Ui, menu: TileId) -> Vec<f64> {
 /// Write each text tile's `width` and `height` under `menu` from its string, font and
 /// wrap width, a wrapped text as wide as its widest line [hypothesis: as the HUD's text
 /// widths, hud.md §14.1; the original's code is taken to write the heights too, which the
-/// message box's list and text places read]. A tile whose size the file works out (an
-/// expression) is left to it; a tile measured from the same string, font and wrap is not
-/// measured again (`last`, as `super::notices::write_widths`). Returns how many were
-/// written.
+/// message box's list and text places read]. An axis the file (or a mod) works out with an
+/// expression is left to it and the other axis still written; a tile measured from the
+/// same string, font and wrap is not measured again (`last`, as
+/// `super::notices::write_widths`). Returns how many tiles were written.
 pub fn write_text_sizes(ui: &mut Ui, menu: TileId, last: &mut SizesWritten, size: &Size<'_>) -> usize {
     let tiles = texts(ui, menu);
     last.retain(|t, _| tiles.contains(t));
@@ -351,7 +422,8 @@ pub fn write_text_sizes(ui: &mut Ui, menu: TileId, last: &mut SizesWritten, size
     for t in tiles {
         let tile = ui.tile(t);
         let computed = |name: &str| tile.trait_index(name).is_some_and(|k| tile.traits[k].expr.is_some());
-        if computed("width") || computed("height") {
+        let (own_width, own_height) = (!computed("width"), !computed("height"));
+        if !own_width && !own_height {
             continue;
         }
         let string = tile.get("string").map(Value::text).unwrap_or_default();
@@ -359,13 +431,18 @@ pub fn write_text_sizes(ui: &mut Ui, menu: TileId, last: &mut SizesWritten, size
         let wrap = tile.get("wrapwidth").map(Value::num).filter(|w| *w > 0.0);
         let now = (tile.get("width").map(Value::num), tile.get("height").map(Value::num));
         if let Some(m) = last.get(&t) {
-            if m.string == string && m.font == font && m.wrap == wrap && now == (Some(m.size.0), Some(m.size.1)) {
+            let kept = (!own_width || now.0 == Some(m.size.0)) && (!own_height || now.1 == Some(m.size.1));
+            if m.string == string && m.font == font && m.wrap == wrap && kept {
                 continue;
             }
         }
         let measured = if string.is_empty() { (0.0, 0.0) } else { size(font, &string, wrap) };
-        ui.set_trait(t, "width", Value::Num(measured.0));
-        ui.set_trait(t, "height", Value::Num(measured.1));
+        if own_width {
+            ui.set_trait(t, "width", Value::Num(measured.0));
+        }
+        if own_height {
+            ui.set_trait(t, "height", Value::Num(measured.1));
+        }
         last.insert(t, Measured { string, font, wrap, size: measured });
         written += 1;
     }
@@ -440,7 +517,7 @@ mod tests {
     #[test]
     fn the_box_writes_its_strings_rows_and_sizes() {
         let mut ui = message();
-        write_message(&mut ui, &view(Some("Title"), "Hello there", &["Yes", "No thanks"]), 1, &size);
+        write_message(&mut ui, &view(Some("Title"), "Hello there", &["Yes", "No thanks"]), 1, true, &size);
         let main = "MessageMenu/NOGLOW_BRANCH/MM_MainRect";
         assert_eq!(ui.get_string(&format!("{main}/MM_Title/string")).as_deref(), Some("Title"));
         assert_eq!(f(&ui, "MM_Title/visible"), 1.0);
@@ -468,22 +545,22 @@ mod tests {
     #[test]
     fn rows_follow_the_buttons_and_the_box_stays_within_its_widths() {
         let mut ui = message();
-        write_message(&mut ui, &view(None, "x", &["a", "b", "c"]), 0, &size);
+        write_message(&mut ui, &view(None, "x", &["a", "b", "c"]), 0, true, &size);
         assert_eq!(rows(&ui).len(), 3);
         // No title: hidden, so the file draws the top line whole; the least width.
         assert_eq!(f(&ui, "MM_Title/visible"), 0.0);
         assert_eq!(ui.get_float("MessageMenu/NOGLOW_BRANCH/MM_MainRect/width"), Some(200.0));
         // Fewer buttons unload the extra rows; the kept ones are the same tiles.
         let before = rows(&ui);
-        write_message(&mut ui, &view(None, "x", &["only"]), 0, &size);
+        write_message(&mut ui, &view(None, "x", &["only"]), 0, false, &size);
         assert_eq!(rows(&ui), before[..1].to_vec());
         // A long text: as wide as the box allows.
-        write_message(&mut ui, &view(None, &"w".repeat(200), &["OK"]), 0, &size);
+        write_message(&mut ui, &view(None, &"w".repeat(200), &["OK"]), 0, true, &size);
         assert_eq!(ui.get_float("MessageMenu/NOGLOW_BRANCH/MM_MainRect/width"), Some(700.0));
         // Many tall rows: the list stops at its most, and the bar's counts say it overflows.
         let many: Vec<String> = (0..12).map(|i| format!("button {i}")).collect();
         let v = PanelView { buttons: many, ..view(None, "x", &[]) };
-        write_message(&mut ui, &v, 11, &size);
+        write_message(&mut ui, &v, 11, true, &size);
         assert_eq!(f(&ui, "MM_ButtonList/height"), LIST_MOST);
         assert!(f(&ui, "MM_ButtonList/lb_scrollbar/_number_of_items") > f(&ui, "MM_ButtonList/lb_scrollbar/_number_of_visible_items"));
     }
@@ -493,7 +570,7 @@ mod tests {
         let mut ui = message();
         let mut v = view(None, "Liked", &["OK"]);
         v.icon = Some(r"textures\interface\icons\message icons\glow_message_vaultboy_very_happy.dds".into());
-        write_message(&mut ui, &v, 0, &size);
+        write_message(&mut ui, &v, 0, true, &size);
         assert_eq!(f(&ui, "MM_MessageIcon/visible"), 1.0);
         assert_eq!(ui.get_string("MessageMenu/NOGLOW_BRANCH/MM_MainRect/MM_MessageIcon/filename").as_deref(), v.icon.as_deref());
         // The file moves the text 120 right while the icon shows; the box keeps that room.
@@ -504,7 +581,7 @@ mod tests {
     #[test]
     fn text_sizes_are_written_once_per_change() {
         let mut ui = message();
-        write_message(&mut ui, &view(Some("T"), "Hi", &["OK"]), 0, &size);
+        write_message(&mut ui, &view(Some("T"), "Hi", &["OK"]), 0, true, &size);
         ui.update();
         let menu = ui.menu(MESSAGE_MENU).unwrap();
         let mut last = SizesWritten::new();
@@ -515,6 +592,94 @@ mod tests {
         ui.set_string("MessageMenu/NOGLOW_BRANCH/MM_MainRect/MM_MessageText/string", "Hello");
         assert_eq!(write_text_sizes(&mut ui, menu, &mut last, &size), 1);
         assert_eq!(f(&ui, "MM_MessageText/width"), 50.0);
+    }
+
+
+    #[test]
+    fn a_key_moves_the_choice_once() {
+        // Finding of the T15a review: a file's `mouseover` ref and the hand-built Down both
+        // moved the choice, so one press skipped a button.
+        let mut ui = message();
+        let v = view(None, "Choose", &["a", "b", "c"]);
+        write_message(&mut ui, &v, 0, true, &size);
+        let r = rows(&ui);
+        let mut panel = crate::message_menu::MessagePanel::default();
+        panel.set(Some(v));
+        // The pointer over the first row chooses it.
+        let hover = fnv_ui::input::Report { over: Some((None, Some(r[0]))), ..Default::default() };
+        if let Some(i) = chosen_row(&ui, &hover, nav_by_hand(&[])) {
+            panel.selected = i;
+        }
+        assert_eq!(panel.selected, 0);
+        // Down, from the keyboard: a ref moves the highlight to the second row and the
+        // hand-built handler steps the choice; only the step counts.
+        let keyed = fnv_ui::input::Report { over: Some((Some(r[0]), Some(r[1]))), ..Default::default() };
+        if let Some(i) = chosen_row(&ui, &keyed, nav_by_hand(&["xdown"])) {
+            panel.selected = i;
+        }
+        panel.step(1);
+        // Enter answers the chosen button: the second.
+        assert_eq!(panel.selected, 1);
+        // A script's tapped Down is no hand-built press: the highlight's row is taken.
+        assert_eq!(chosen_row(&ui, &keyed, nav_by_hand(&[])), Some(1));
+    }
+
+    #[test]
+    fn a_click_queued_on_a_replaced_box_answers_nothing() {
+        use fnv_ui::input::{no_measure, By, Input, Pointer};
+        let mut ui = message();
+        write_message(&mut ui, &view(None, "A", &["Yes", "No"]), 0, true, &size);
+        let menu = ui.menu(MESSAGE_MENU).unwrap();
+        let first = rows(&ui)[0];
+        // A script clicks the first row of box A; A closes and B opens before the next step.
+        let mut pointer = Pointer::default();
+        pointer.script_click(&mut ui, first);
+        write_message(&mut ui, &view(None, "B", &["Fight", "Flee"]), 0, true, &size);
+        let report = pointer.step(&mut ui, &[menu], &Input::default(), &no_measure);
+        assert_eq!(report.clicks.len(), 1);
+        assert_eq!(report.clicks[0].by, By::Script);
+        assert_eq!(message_pick(&ui, &report.clicks[0], &[]), None, "B is not answered with A's click");
+        // On the same box, a script's click answers.
+        let row = rows(&ui)[1];
+        pointer.script_click(&mut ui, row);
+        write_message(&mut ui, &view(None, "B", &["Fight", "Flee"]), 0, false, &size);
+        let report = pointer.step(&mut ui, &[menu], &Input::default(), &no_measure);
+        assert_eq!(message_pick(&ui, &report.clicks[0], &[]), Some(1));
+    }
+
+    #[test]
+    fn a_key_acts_once_from_the_keyboard_and_through_its_binding_otherwise() {
+        // The keyboard's A on the prompt: the hand-built handler took it (AmountOk).
+        assert!(!key_click_acts(QUANTITY_MENU, "A", &["A"]));
+        // A script's MenuTapKey A reaches only the tiles: its binding acts.
+        assert!(key_click_acts(QUANTITY_MENU, "A", &[]));
+        // The controller's A: acts through the file's xbuttona ref unless it stood in for
+        // Enter this frame (the controller working the controls).
+        assert!(key_click_acts(QUANTITY_MENU, "xbuttona", &[]));
+        assert!(!key_click_acts(QUANTITY_MENU, "xbuttona", &["xbuttona"]));
+        // A key the hand-built handler has no use for, bound by a file, acts.
+        assert!(key_click_acts(MESSAGE_MENU, "Y", &["Y"]));
+        assert!(!key_click_acts(MESSAGE_MENU, "xdown", &["xdown"]));
+        assert!(nav_by_hand(&["xup"]) && !nav_by_hand(&["A"]));
+    }
+
+    #[test]
+    fn a_computed_axis_is_left_and_the_other_written() {
+        let src = MemSource::default().with(
+            "m.xml",
+            r#"<menu name="M"><text name="W"><string>abc</string><width><copy>77</copy></width></text>
+              <text name="H"><string>abcd</string><height><copy>66</copy></height></text></menu>"#,
+        );
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "m.xml").unwrap();
+        ui.update();
+        let mut last = SizesWritten::new();
+        assert_eq!(write_text_sizes(&mut ui, menu, &mut last, &size), 2);
+        let g = |p: &str| ui.get_float(&format!("M/{p}")).unwrap();
+        // The width worked out by the file stays; the height is measured, and vice versa.
+        assert_eq!((g("W/width"), g("W/height")), (77.0, 30.0));
+        assert_eq!((g("H/width"), g("H/height")), (40.0, 66.0));
+        assert_eq!(write_text_sizes(&mut ui, menu, &mut last, &size), 0, "nothing changed");
     }
 
     #[test]

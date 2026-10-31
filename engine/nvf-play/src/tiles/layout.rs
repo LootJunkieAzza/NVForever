@@ -304,6 +304,13 @@ mod tests {
         let items = layout(&ui, root, &unmeasured);
         let text = items.iter().find(|i| matches!(i.kind, Kind::Text(_))).unwrap();
         assert_eq!(text.alpha, 128.0);
+        // An alpha-0 hotrect alone over its text: the text drawn at full strength, shown.
+        let (ui, root) = tree(
+            r#"<menu name="M"><hotrect name="H"><alpha>0</alpha><text name="T"><string>OK</string><width>20</width><height>10</height></text></hotrect></menu>"#,
+        );
+        let items = layout(&ui, root, &unmeasured);
+        assert_eq!(items.len(), 1, "the hotrect itself draws nothing");
+        assert_eq!((items[0].alpha, items[0].visible), (255.0, true));
     }
 
     #[test]

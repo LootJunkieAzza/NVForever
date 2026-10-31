@@ -749,6 +749,8 @@ pub(crate) struct View<'w, 's> {
     menus: Option<Res<'w, TileMenus>>,
     hud: Option<Res<'w, HudView>>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
+    /// The container, barter or inventory menu, for whether its prompt is open (T15a).
+    active: Option<Res<'w, crate::menu::ActiveMenu>>,
 }
 
 /// The colours an [`Ink`] node may carry.
@@ -784,9 +786,11 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
     let switch = view.menus.as_deref().copied().unwrap_or_default();
     let game = script.rt.as_ref().map(|rt| &rt.game);
     let others = &mut *others;
+    // The prompt drawn only while open: its tree drops at the next frame's sync.
+    let prompt_open = view.active.as_ref().and_then(|a| a.0.as_ref()).is_some_and(|m| m.quantity.is_some());
     for (name, on, z, drawn) in [
         (super::menus::MESSAGE_MENU, game.is_some_and(|g| super::menus::message_tiled(switch.message, g)), MESSAGE_Z, &mut others.message),
-        (super::menus::QUANTITY_MENU, game.is_some_and(|g| super::menus::quantity_tiled(switch.quantity, g)), QUANTITY_Z, &mut others.quantity),
+        (super::menus::QUANTITY_MENU, game.is_some_and(|g| super::menus::quantity_tiled(switch.quantity, g, prompt_open)), QUANTITY_Z, &mut others.quantity),
     ] {
         let ui = game.map(|g| &g.ui_tree);
         let menu = ui.filter(|_| on).and_then(|ui| ui.menu(name).map(|m| (ui, m)));
