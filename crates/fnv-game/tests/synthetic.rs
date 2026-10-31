@@ -607,6 +607,49 @@ fn quest_targets_are_marked_while_their_conditions_pass() {
     assert!(g.check_quest_targets(q()).is_empty());
 }
 
+/// Displaying an objective already shown keeps its completed flag; showing a hidden one
+/// clears it (observer check 40, issue #1108; scripts.md §5).
+#[test]
+fn redisplaying_a_completed_objective_keeps_it_completed() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let state = |g: &mut Game| {
+        let o = &g.quest(q()).objectives[&10];
+        (o.displayed, o.completed)
+    };
+    g.set_objective(q(), 10, Some(true), None);
+    g.set_objective(q(), 10, None, Some(true));
+    g.set_objective(q(), 10, Some(true), None);
+    assert_eq!(state(&mut g), (true, true));
+    g.set_objective(q(), 10, Some(false), None);
+    assert_eq!(state(&mut g), (false, true));
+    g.set_objective(q(), 10, Some(true), None);
+    assert_eq!(state(&mut g), (true, false));
+}
+
+/// ResetQuest keeps a SetQuestDelay override and clears the rest (observer check 41,
+/// issue #1109; layer5-captures.md §5.7).
+#[test]
+fn reset_quest_keeps_the_set_quest_delay() {
+    const RESET_QUEST: u16 = 0x11DB;
+    const SET_QUEST_DELAY: u16 = 0x11DC;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let quest_call = |g: &mut Game, op: u16, args: &[ArgValue]| {
+        let ctx = Ctx { unit: "test".into(), opcode: op, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+        g.call_function(&ctx, args);
+    };
+    let quest_arg = ArgValue::Value(Value::Ref(QUEST));
+    quest_call(&mut g, SET_QUEST_DELAY, &[quest_arg.clone(), ArgValue::Value(Value::Num(0.1))]);
+    g.set_stage(q(), 20);
+    quest_call(&mut g, RESET_QUEST, &[quest_arg]);
+    let s = g.quest(q());
+    assert!(s.delay.is_some_and(|d| (d - 0.1).abs() < 1e-6), "{:?}", s.delay);
+    assert!(s.stages_done.is_empty());
+}
+
 #[test]
 fn snapshots_round_trip() {
     let f = fixture();
@@ -2945,4 +2988,36 @@ fn kill_all_actors_kills_the_loaded_cells_actors_but_never_the_player() {
     assert_eq!(g.extra[&FormId(NPC_REF)].killer, Some(FormId::PLAYER_REF));
     // Run again: nobody is left to kill.
     assert_eq!(run(&mut g, &ConsoleCtx::default(), &[]).unwrap(), ["KillAllActors >> 0 killed, 0 essential knocked out"]);
+}
+
+/// `saq`, `rdf`, `rat` and `zap` (#1046 step 2): reached by their aliases; StartAllQuests
+/// starts the quests not running, ResetDialogueFlags forgets the lines said once,
+/// ResetAllTerminals forgets the hacking, DeleteReference removes the selection and never
+/// the player.
+#[test]
+fn console_saq_rdf_rat_and_zap() {
+    use fnv_game::functions::console::{lookup_word, ConsoleCtx};
+    let f = fixture();
+    let mut g = game(&f);
+    let run = |g: &mut Game, word: &str, ctx: &ConsoleCtx| {
+        let (_, run) = lookup_word(&g.data.table, word).unwrap_or_else(|| panic!("{word}"));
+        run(g, ctx, &[])
+    };
+    let none = ConsoleCtx::default();
+    g.stop_quest(FormId(QUEST));
+    assert!(!g.quest_state(FormId(QUEST)).running);
+    let lines = run(&mut g, "saq", &none).unwrap();
+    assert!(lines[0].ends_with(&format!("({} in all)", g.data.quests.len())), "{lines:?}");
+    assert!(g.quest_state(FormId(QUEST)).running);
+    g.said.insert((FormId(NPC_REF), FormId(INFO_A)));
+    g.said_day.entry(FormId(NPC_REF)).or_default().insert(FormId(INFO_B), 1.0);
+    assert_eq!(run(&mut g, "rdf", &none).unwrap(), ["Dialogue flags reset: 1 lines said once, 1 once a day"]);
+    assert!(g.said.is_empty() && g.said_day.is_empty());
+    g.terminals.access.insert(FormId(0x7777), fnv_game::terminal::Access::Hacked);
+    assert_eq!(run(&mut g, "rat", &none).unwrap(), ["1 terminals reset"]);
+    assert!(g.terminals.access.is_empty());
+    assert!(run(&mut g, "zap", &none).is_err(), "nothing selected");
+    assert!(run(&mut g, "zap", &ConsoleCtx { on: Some(FormId::PLAYER_REF), ..Default::default() }).is_err(), "never the player");
+    run(&mut g, "zap", &ConsoleCtx { on: Some(FormId(NPC_REF)), ..Default::default() }).unwrap();
+    assert!(g.extra[&FormId(NPC_REF)].marked_for_delete);
 }

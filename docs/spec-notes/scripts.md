@@ -582,8 +582,8 @@ in the 5C captures (layer5-captures.md §5) unless tagged:
   SetObjectiveCompleted does not display** (VMS16 objectives 5 and 10). On an objective
   already displayed it **keeps** the flag [observed: o5_00, 2026-10-31, VMS19 65 and
   VFSAtomicPimp 34 displayed, completed, displayed again: still completed; hidden with 0
-  and shown again: not completed; layer5-captures.md §5.2]. The runtime clears it on every
-  display (issue #1108). Only objectives the quest defines
+  and shown again: not completed; layer5-captures.md §5.2]; `Game::set_objective` does the
+  same (issue #1108). Only objectives the quest defines
   change; displaying one starts a stopped quest [documented: GECK wiki
   SetObjectiveDisplayed; also Quest scripts and Quest Data Tab, owner export 2026-10-09: SetStage, StartQuest
   and SetObjectiveDisplayed start a quest].
@@ -601,6 +601,10 @@ in the 5C captures (layer5-captures.md §5) unless tagged:
   (docs/spec-notes/quests-dialogue.md §5). A stopped quest's script does not run.
   The first run after StartQuest is not modelled (it was irregular in game; the
   scenarios skip it): the counter starts at 0 on StartQuest.
+- **ResetQuest keeps a SetQuestDelay override** and zeroes the variables [observed: o41,
+  VMQ03aTimer, layer5-captures.md §5.7]; `reset_quest` keeps it (issue #1109). The
+  original also stopped the quest; the runtime leaves it running [hypothesis kept for
+  self-resets such as the Emergency Radio's, not observed].
 - **GetSecondsPassed** returns the game time between the start of the instance's
   previous per-frame run (GameMode, ScriptEffectUpdate) and the start of this one, read
   from a clock with 1/64 s resolution [observed: every drop is a multiple of 0.015625 s;

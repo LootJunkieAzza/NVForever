@@ -69,6 +69,7 @@ mod idles;
 mod lights;
 mod limbs;
 mod lips;
+mod memory_budget;
 mod lockpick_view;
 mod roulette_view;
 mod blackjack_view;
@@ -1234,7 +1235,7 @@ fn main() -> AppExit {
     .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times)))
     .add_plugins(fps_counter::FpsCounterPlugin(args.fps))
     // Vsync as Bevy's default, off while frame times are measured; no frame-rate cap.
-    .add_plugins(frame_pace::FramePacePlugin(frame_pace::FramePace { vsync: args.log_frame_times.is_none(), cap: 0 }))
+    .add_plugins(frame_pace::FramePacePlugin(frame_pace::FramePace { sync: if args.log_frame_times.is_none() { frame_pace::DisplaySync::Vsync } else { frame_pace::DisplaySync::Off }, cap: 0 }))
     .add_plugins(blit_warm::BlitWarmPlugin)
     // Lights clustered on the CPU, Bevy's own fallback: its GPU clustering made about six
     // new GPU buffers a frame (10,235 in 30 s at night against 4,060 on the CPU), GPU
@@ -1296,6 +1297,8 @@ fn main() -> AppExit {
     // Cached models, actor parts and textures no live entity uses go after a grace time
     // (nvf_assets::release): otherwise every visited cell's GPU assets stay.
     .add_plugins(nvf_assets::AssetReleasePlugin)
+    // Their keep limits follow the machine's RAM and GPU memory budget (memory_budget.rs).
+    .add_plugins(memory_budget::MemoryBudgetPlugin)
     .insert_resource(StartPose {
         position: start,
         heading: args.heading,

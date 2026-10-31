@@ -530,9 +530,10 @@ The numbers above stay put so links to them hold; each item here gives its own p
     clears the flag (displayed 0, then 1: not completed), which is what the VMS16 capture
     of layer5-captures.md §5.2 saw. Ours clears it on every display, so G.I. Blues can
     stall. (scripts.md §5)
-41. **Does ResetQuest keep a SetQuestDelay?** (P3.) Use the NCR emergency radio and close
-    the Pip-Boy at once: does the supply drop still come? (§9 stall 3.) No script function
-    reads a quest's delay, so this needs a timed watch of the quest's effect.
+41. **Does ResetQuest keep a SetQuestDelay?** — answered 2026-10-31 (o41 on nvftest, issue
+    #1109): yes. VMQ03aTimer at SetQuestDelay 2, ResetQuest, StartQuest: its timer still
+    dropped every 2.0 s (DATA delay 0.5 s). ResetQuest also zeroed the variables and
+    stopped the running quest (GetQuestRunning 0). (layer5-captures.md §5.7)
 42. **Does a stage result script's reference-less RemoveSpell act on the player?** —
     answered 2026-10-31 (o5_03 on nvfairport, issue #1110): yes. Addicted to Jet (10 doses;
     IsSpellTarget WithdrawalJet 1 over a game hour), `SetStage VDoctors 20` made it 0 within
@@ -677,3 +678,34 @@ The numbers above stay put so links to them hold; each item here gives its own p
     loudness over the same frames (a pause between words, a long vowel). Does it go
     dark in pauses, follow the loudness or the mouth shapes, or loop by itself? Same on
     Mr. House's screen (`##TalkButtons:0`). ([lipsync §6.1](../spec-notes/lipsync.md))
+
+## Added 2026-10-31 (Observe Combat spectators running away, issue #960)
+
+60. **How close a fight comes before a spectator runs, and what it does then** (P3: the
+    806 packages with Observe Combat [observed: esm-audit-2026-10-25.md]; the wiki says
+    only "run away if they get too close"). NVForever runs a spectator from the nearest
+    fighter within 600 units [design: stand-in], by the combat flee's spot search, out
+    of a combat state, and brings it back to its package once no fighter is within
+    1,500 (packages.md §7.6b). To check: Goodsprings by day, Easy Pete (EasyPeteRef) on
+    his own package, the player in god mode starting a fight with a placed cazador
+    (`PlaceAtMe NVCrCazador`) at about 1,200 units from Pete, then backing towards Pete
+    in steps of about 100 units every few seconds. Sample every game loop: the distance
+    from Pete to the player and to the cazador, Pete's `GetCurrentAIProcedure`,
+    `GetCurrentAIPackage`, combat state (`IsInCombat`, `GetCombatTarget`) and
+    `IsWeaponOut`, and his position. At what distance does he set off, from whom (the
+    player or the cazador), how far does he go (a door, cover, straight away), does he
+    turn to watch from there, and does he go back to his package when the fight ends or
+    only later? ([packages §7.6b](../spec-notes/packages.md))
+
+## Added 2026-10-31 (melee knockback, issue #1070)
+
+61. **How far a melee blow pushes a living actor, and for how long** (P2: every melee
+    fight). NVForever reads the Melee Knockback Formula's force (fKnockbackDamageMult 10,
+    fKnockbackDamageBase 50, fKnockbackAgilMult -0.008, fKnockbackAgilBase 1, at most
+    fKnockbackForceMax 512) as a speed in units/s that falls evenly to rest over
+    fKnockbackTime (1 s), so a blow pushes force / 2 units: a Sledgehammer blow of 14
+    damage on Agility 5 pushes 57 units [design]. To check: in Goodsprings, hit a
+    standing settler (Agility known) with a Sledgehammer, normal and power attack, from
+    the front; sample its position every game loop for 1.5 s after the hit: the distance,
+    how long it moves, and whether the speed falls off. The same with a deathclaw's
+    swipe on the player (god mode). ([combat-rules, Knockback](../spec-notes/combat-rules.md))

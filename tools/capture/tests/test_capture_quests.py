@@ -160,6 +160,8 @@ ACTIONS = {
         {"op": "sample_var", "quest": "TestQuest", "var": "fTimer", "frames": 4, "runs": 2, "label": "timer"},
         {"op": "sample_var", "quest": "TestQuest", "var": "fTimer", "frames": 3, "label": "still"},
         {"op": "stop_quest", "quest": "TestQuest"},
+        {"op": "set_quest_delay", "quest": "TestQuest", "delay": 2.5},
+        {"op": "reset_quest", "quest": "TestQuest"},
         {"op": "set_global", "name": "ScroungerOdds", "value": 0},
         {"op": "get_global", "name": "ScroungerOdds", "label": "odds"},
         {"op": "wait_frames", "frames": 5},
@@ -181,6 +183,8 @@ class Job(unittest.TestCase):
         self.assertTrue(any("SetObjectiveDisplayed rF1 5 0" in s for s in scripts))
         self.assertTrue(any("StartQuest rF1" in s for s in scripts))
         self.assertTrue(any("StopQuest rF1" in s for s in scripts))
+        self.assertTrue(any("SetQuestDelay rF1 2.5" in s for s in scripts))
+        self.assertTrue(any("ResetQuest rF1" in s for s in scripts))
         self.assertEqual([s["console"] for s in steps if "console" in s], ["set ScroungerOdds to 0"])
         local = [s for s in steps if s.get("label") == "short"][0]
         self.assertIn("short xV" + chr(10), local["query"])

@@ -62,13 +62,17 @@ pub fn registry() -> &'static [(&'static str, ConsoleImpl)] {
         ("SaveGame", save_game),
         ("LoadGame", load_game),
         ("KillAllActors", kill_all_actors),
+        ("StartAllQuests", start_all_quests),
+        ("ResetDialogueFlags", reset_dialogue_flags),
+        ("ResetAllTerminals", reset_all_terminals),
+        ("DeleteReference", delete_reference),
     ]
 }
 
 /// Vanilla functions the engine's console handles itself by name, outside both
-/// registries (engine/nvf-play/src/console.rs): `coc` travels, `help` searches records,
-/// `AdvLevel` levels up.
-pub const ENGINE_WORDS: &[&str] = &["CenterOnCell", "Help", "AdvancePCLevel"];
+/// registries (engine/nvf-play/src/console.rs): `coc`, `cow` and `coe` travel, `help`
+/// searches records, `AdvLevel` levels up.
+pub const ENGINE_WORDS: &[&str] = &["CenterOnCell", "CenterOnWorld", "CenterOnExterior", "Help", "AdvancePCLevel"];
 
 /// The vanilla functions of the catalogue that nothing handles and no script of the
 /// masters calls (so the stub audit, `fnvtool script stubs`, never counts them): those
@@ -445,6 +449,52 @@ pub fn quit_game(g: &mut Game, _ctx: &ConsoleCtx, _a: &[String]) -> Result<Vec<S
     Ok(vec!["Quitting".into()])
 }
 
+/// `StartAllQuests` (`saq`): every quest of the load order is started ("Starts every quest
+/// in the game" [documented: GECK wiki StartAllQuests]), each as StartQuest starts one;
+/// those running already are left as they are.
+pub fn start_all_quests(g: &mut Game, _ctx: &ConsoleCtx, _a: &[String]) -> Result<Vec<String>, String> {
+    let quests: Vec<FormId> = g.data.quests.keys().copied().collect();
+    let started = quests.iter().filter(|&&q| !g.quest_state(q).running && g.start_quest(q)).count();
+    Ok(vec![format!("{started} quests started ({} in all)", quests.len())])
+}
+
+/// `ResetDialogueFlags` (`rdf`): the Say Once and Say Once a Day lines may be said again
+/// ("Currently resets the say-once and say-once-per-day flags" [documented: GECK wiki
+/// ResetDialogueFlags]). The record of lines said to the player goes with them, so their
+/// choices are no longer shaded [hypothesis: one set holds both here, `Game::said`].
+pub fn reset_dialogue_flags(g: &mut Game, _ctx: &ConsoleCtx, _a: &[String]) -> Result<Vec<String>, String> {
+    let (once, daily) = (g.said.len(), g.said_day.values().map(|m| m.len()).sum::<usize>());
+    g.said.clear();
+    g.said_day.clear();
+    Ok(vec![format!("Dialogue flags reset: {once} lines said once, {daily} once a day")])
+}
+
+/// `ResetAllTerminals` (`rat`): every terminal is as if never hacked: hacked ones must be
+/// hacked again, locked-out ones may be tried again ("Clears all variables changed during
+/// hacking, resetting terminals as if never hacked" [documented: GECK wiki
+/// ResetAllTerminals]). What scripts set with Lock and Unlock stays: no hacking set it.
+pub fn reset_all_terminals(g: &mut Game, _ctx: &ConsoleCtx, _a: &[String]) -> Result<Vec<String>, String> {
+    let n = g.terminals.access.len();
+    g.terminals.access.clear();
+    g.terminals.retried.clear();
+    Ok(vec![format!("{n} terminals reset")])
+}
+
+/// `[ref.]DeleteReference` (`zap`): the reference (else the console's selection) is
+/// removed from the world at once ("immediately removes a reference" [documented: GECK
+/// wiki DeleteReference]); the save keeps it removed, as MarkForDelete's. Never the
+/// player.
+pub fn delete_reference(g: &mut Game, ctx: &ConsoleCtx, _a: &[String]) -> Result<Vec<String>, String> {
+    let r = ctx.on.ok_or("select a reference first, or ref.zap")?;
+    if r == FormId::PLAYER_REF {
+        return Err("not the player".into());
+    }
+    let what = label(g, r);
+    g.extra.entry(r).or_default().marked_for_delete = true;
+    g.world.get(r).map_err(|e| e.to_string())?.deleted = true;
+    Ok(vec![format!("{what} deleted")])
+}
+
 /// `KillAllActors [killer]` (`killall`): every actor of the loaded area dies (the cells
 /// around the player outdoors, the player's cell indoors), the player never; an essential
 /// one is knocked out instead; the killer given (a reference) takes the kill as its own
@@ -706,7 +756,7 @@ mod tests {
         let (console, other) = unhandled_unused(&j);
         eprintln!("unhandled console functions: {console:?}
 unhandled other vanilla functions: {other:?}");
-        assert_eq!((console.len(), other.len()), (57, 124), "docs/design/console.md, What the console does not handle, sorts them");
+        assert_eq!((console.len(), other.len()), (51, 124), "docs/design/console.md, What the console does not handle, sorts them");
         // `killall` reaches KillAllActors by its alias.
         assert_eq!(lookup_word(&t, "killall").map(|r| r.0).as_deref(), Some("KillAllActors"));
         assert_eq!(lookup_word(&t, "cam").map(|r| r.0).as_deref(), Some("CloseAllMenus"));

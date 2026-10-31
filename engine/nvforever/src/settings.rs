@@ -13,7 +13,7 @@
 
 use crate::draw_distance::{self, DrawClass, DrawDistances};
 use crate::fly::FlyCam;
-use crate::frame_pace::{self, FramePace};
+use crate::frame_pace::{self, DisplaySync, FramePace};
 use crate::graphics::{self, Graphics};
 use crate::grass::GrassConfig;
 use crate::foot_ik::FootIkSettings;
@@ -332,18 +332,27 @@ fn register_display(app: &mut App) {
     if app.world().resource::<Args>().log_frame_times.is_some() {
         return;
     }
-    add_setting(
+    add_choice_list(
         app,
         Setting {
-            key: "vsync",
+            key: "display-sync",
             group: GROUP_PICTURE,
-            label: "Vertical sync",
-            note: "On: each frame waits for the display's refresh (no tearing). Off: frames are shown as soon as they are drawn.",
-            get: |w| w.resource::<FramePace>().vsync,
-            set: |w, on| w.resource_mut::<FramePace>().vsync = on,
+            label: "Display sync",
+            note: "Vertical sync: each frame waits for the display's refresh (no tearing). Variable refresh: for a G-Sync or FreeSync screen, vertical sync with the frame rate held a few frames under the screen's refresh rate, so frames are shown as soon as they are drawn without tearing. Off: frames are shown as soon as they are drawn (may tear).",
+            get: |_| false,
+            set: |_, _| {},
             slider: None,
         },
+        ChoiceList {
+            names: |_| DisplaySync::ALL.iter().map(|d| d.name().to_string()).collect(),
+            chosen: |w| w.resource::<FramePace>().sync.name().to_string(),
+            pick: set_display_sync,
+            save: |w| w.resource::<FramePace>().sync.stored().to_string(),
+            load: set_display_sync,
+            ask_keep: false,
+        },
     );
+    app.add_systems(PostStartup, read_old_vsync.after(nvf_play::settings::apply_stored));
     let caps = frame_pace::CAPS.len();
     add_setting(
         app,
@@ -351,7 +360,7 @@ fn register_display(app: &mut App) {
             "frame-cap",
             GROUP_PICTURE,
             "Frame rate limit",
-            "At most this many frames a second (Off: as many as the computer draws, or the display's refresh with vertical sync). A lower limit keeps the computer cooler and quieter.",
+            "At most this many frames a second (Off: as many as the computer draws, or the display's refresh with vertical sync; with variable refresh the lower of this and its own limit). A lower limit keeps the computer cooler and quieter.",
             Slider::choice(
                 caps,
                 |w| {
@@ -366,6 +375,35 @@ fn register_display(app: &mut App) {
             ),
         ),
     );
+}
+
+/// The display sync of this name (or INI text, `DisplaySync::parse`); false: not one.
+fn set_display_sync(world: &mut World, name: &str) -> bool {
+    let Some(d) = DisplaySync::parse(name) else { return false };
+    world.resource_mut::<FramePace>().sync = d;
+    true
+}
+
+/// An INI written before the display-sync row had the `vsync` switch: read it when there is
+/// no `display-sync` (after `nvf_play::settings::apply_stored`, so it counts as stored).
+fn read_old_vsync(world: &mut World) {
+    if world.resource::<Args>().log_frame_times.is_some() {
+        return;
+    }
+    let Some(path) = world.get_resource::<nvf_play::settings::SettingsFile>().and_then(|f| f.0.clone()) else { return };
+    let Ok(text) = std::fs::read_to_string(&path) else { return };
+    let section = nvf_play::settings::SECTION;
+    if fnv_install::ini_get(&text, section, "display-sync").is_some() {
+        return;
+    }
+    let Some(old) = fnv_install::ini_get(&text, section, "vsync") else { return };
+    match DisplaySync::parse(&old) {
+        Some(d) => {
+            world.resource_mut::<FramePace>().sync = d;
+            info!("settings: display-sync {} from the old vsync={} in {}", d.name(), old.trim(), path.display());
+        }
+        None => warn!("settings: [{section}] vsync={old} in {} is not 1 or 0; left as it is", path.display()),
+    }
 }
 
 /// The field of view's degrees for a slider part, whole.

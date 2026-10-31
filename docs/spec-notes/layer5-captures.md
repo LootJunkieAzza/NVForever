@@ -358,6 +358,29 @@ same [hypothesis].
 
 Held out; its result is in the private golden only.
 
+### 5.7 ResetQuest and SetQuestDelay (o41, observer check 41, issue #1109)
+
+Method (2026-10-31, save `nvftest`, job `o41_reset_delay` built with
+`capture_quests.py`'s `set_quest_delay` / `reset_quest` ops; never saved): the §5.4
+countdown on VMQ03aTimer (DATA delay 0.5 s). StartQuest, sample; `SetQuestDelay 2`,
+sample; `ResetQuest`, read; set the timer again, sample; StartQuest, sample.
+
+| Step | running | drops (s) |
+|---|---|---|
+| started, DATA delay | 1 | 0.5 (30 loops) |
+| after SetQuestDelay 2 | 1 | 2.0 (119–120 loops) |
+| after ResetQuest (timer set again) | **0** | none in 500 loops |
+| after StartQuest | 1 | **2.0** (1.994–2.009) |
+
+- **ResetQuest keeps a SetQuestDelay override** [observed]: after the reset and a new
+  StartQuest the script ran every 2.0 s, not at the DATA 0.5 s.
+- **ResetQuest set the script variables to 0** (fTimer 100000 → 0, bRunTimer 1 → 0)
+  [observed], as the catalogue summary says [documented].
+- **ResetQuest stopped the running quest** [observed]: GetQuestRunning 0 after it, and
+  its GameMode did not run until StartQuest. Called here from a job script, not from the
+  quest's own script (the Emergency Radio, VEFR01NCRGood2EmergencyRadio, resets itself in
+  its MenuMode and goes on); whether a self-reset also stops it is not observed.
+
 ## 6. Scenarios and goldens
 
 `parity-lab/scenarios/layer5_quests.json`, comparator keyed on `label` over

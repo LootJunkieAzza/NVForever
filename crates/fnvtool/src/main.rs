@@ -491,6 +491,10 @@ pub enum ActorCmd {
         /// clip.
         #[arg(long, default_value_t = 0)]
         samples: usize,
+        /// Also every attack clip in the folder and below it (file name containing
+        /// `attack`), for the travel of attack clips (actors.md §8.13).
+        #[arg(long)]
+        attacks: bool,
     },
     /// The FaceGen `.tri` files (morph targets of head parts): morph labels, and whether
     /// each has the vertices of the model beside it (fnv.actor.tri/1).
@@ -958,9 +962,11 @@ pub enum EsmCmd {
     Inventory { plugin: PathBuf },
     /// Byte-identical rewrite and per-record payload checks.
     Verify { plugin: PathBuf },
-    /// Schema coverage report (work queue of undecoded subrecords).
+    /// Schema coverage report (work queue of undecoded subrecords), over one plugin or
+    /// several together.
     Coverage {
-        plugin: PathBuf,
+        #[arg(required = true, num_args = 1..)]
+        plugins: Vec<PathBuf>,
         #[arg(long)]
         schema: PathBuf,
         #[arg(long, default_value_t = 200)]
