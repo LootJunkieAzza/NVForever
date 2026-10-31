@@ -16034,6 +16034,21 @@ expect = [
 manual = "tiles_radiation_meter.png: the radiation meter at the top right from its tiles: the bracket, +9 and RAD/SEC under it, the pointer; red-orange (the alt colour); compare with radiation_meter.png"
 
 [[scenario]]
+name = "tiles-xp-level-up"
+source = "#979 (docs/spec-notes/hud.md §14.10) [observed: private job hud_textbase, 2026-10-31]: xp-meter with [UI] TileMenus=HUDMainMenu: the XP meter's texts drawn from their tiles, each on its font's line under its top (font 8 \"+54\" and LEVEL UP 29.5, font 7 XP 24, font 1 level digits 20)"
+note = "as xp-meter: two RewardXP at the console in Doc Mitchell's house, the shots at xp-meter's times so the two compare"
+areas = ["ui", "hud", "levelup"]
+paths = ["engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/xp_meter.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "14:rewardxp 54;14.3:close;22:rewardxp 150;22.3:close", NVF_PLAY_TEST_SHOTS = "18.5:tiles_xp_meter.png,30.3:tiles_xp_level_up.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 32
+expect = [
+  { re = 'tiles: HUDMainMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\); hand-built HUD hidden\s*$', label = "the whole HUD tree draws" },
+  { text = "xp meter: LEVEL UP (1 -> 2)", label = "the second reward reaches level 2, so XPLevelUp shows" },
+]
+manual = "tiles_xp_meter.png: \"+54\" (font 8) under the bar's right end, XP beside it, 1 and 2 at the bar's ends; tiles_xp_level_up.png: LEVEL UP alone, its capitals ending 31-32 units under XPLevelUp's top (y 720 of 960 at the XP meter's y 650), as the original's (hud.md §14.10), not 5 pixels higher as before #979"
+
+[[scenario]]
 name = "tiles-hud-pointer"
 source = "[design] ui-tile-tree.md §4.1 step 1 (T8, menu-xml.md §3.2): with [UI] TileMenus=HUDMainMenu and the test aid NVF_PLAY_TEST_POINTER making the HUD take tile input, a target hotrect injected into it gets mouseover under the pointer and 0 when it leaves, clicked from a press and from the menu's injected _PCButton_O key (a real O press); the tile's own expressions latch what they saw (an or of mouseover, the documented count of clicked)"
 note = "the console injects the button at 10 s and closes at 10.4 s; the pointer at 12 s, a click at 13 s, O at 14 s, the pointer away at 16 s; the console reads the latched traits at 20 s (the open console hides the HUD, so the live mouseover is no longer readable then)"
