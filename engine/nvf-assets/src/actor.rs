@@ -377,10 +377,11 @@ fn hierarchy(objects: &[SceneObject]) -> Vec<usize> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Partition {
     pub body_part: u16,
-    /// A cap partition: part flag bit 0 (editor visible) clear. Not drawn on an intact
-    /// actor, also inside a shape whose other partitions are drawn (the radscorpion's
-    /// `meatcapbody` holds one editor-visible triangle among its torso caps, Mr. Gutsy's
-    /// body one torso cap; dismemberment.md §2.5).
+    /// A cap partition: every partition of a cap shape, and in a shape with drawn
+    /// partitions a cap body part (1xx, 2xx) with part flag bit 0 (editor visible)
+    /// clear. Not drawn on an intact actor (the radscorpion's `meatcapbody` holds one
+    /// editor-visible triangle among its torso caps, Mr. Gutsy's body one torso cap;
+    /// dismemberment.md §2.5).
     pub cap: bool,
     /// Its triangles, as indices into the shape's mesh vertices (3 per triangle).
     pub indices: Vec<u32>,
@@ -432,6 +433,20 @@ fn shape_partitions(dec: &Decoded, shape: &fnv_nif::Struct, vertices: usize) -> 
         out.push(Partition { body_part, cap, indices });
     }
     out
+}
+
+/// Whether a partition is a cap ([`Partition::cap`]): in a cap shape always; else a cap
+/// body part (1xx, 2xx) whose part flag bit 0 is clear (`flag_clear`).
+fn partition_is_cap(cap_shape: bool, flag_clear: bool, body_part: u16) -> bool {
+    cap_shape || (flag_clear && (100..300).contains(&body_part))
+}
+
+/// Whether the mixed-cap shape `block` of `path` is reported for the first time (the line
+/// is written once per model and shape, not each time the part is prepared again after a
+/// release).
+fn first_mixed_report(path: &str, block: usize) -> bool {
+    static SEEN: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<(String, usize)>>> = std::sync::OnceLock::new();
+    SEEN.get_or_init(Default::default).lock().is_ok_and(|mut s| s.insert((path.to_string(), block)))
 }
 
 /// Whether a skinned shape is a dismemberment cap: its skin instance has partitions and
@@ -759,9 +774,16 @@ impl ActorCtx<'_, '_> {
                 self.cache.failures.push(format!("{path}: texture {t} not loaded"));
             }
             let cap = is_cap(&dec, shape);
-            let partitions = Arc::new(shape_partitions(&dec, shape, mesh.count_vertices()));
+            let mut partitions = shape_partitions(&dec, shape, mesh.count_vertices());
+            // In a shape with drawn partitions, only a cap body part (section caps 1xx,
+            // torso caps 2xx) with bit 0 clear counts as a cap, so an outfit's piece
+            // with an odd flag is never hidden; in a cap shape every partition is one.
+            for p in &mut partitions {
+                p.cap = partition_is_cap(cap, p.cap, p.body_part);
+            }
+            let partitions = Arc::new(partitions);
             let caps = partitions.iter().filter(|p| p.cap).count();
-            if !cap && caps > 0 {
+            if !cap && caps > 0 && first_mixed_report(path, o.block) {
                 info!("actor parts: {path}: shape {:?} hides {caps} cap partitions beside {} drawn", o.name.as_deref().unwrap_or(""), partitions.len() - caps);
             }
             let skin = shape_skin(&dec, shape, mesh.count_vertices()).and_then(|skin| {
@@ -1126,6 +1148,11 @@ mod tests {
         // Its left foreleg (3) gone: that leg's torso cap shows too.
         let gone = dismember_mesh(&m, &parts, |p| !p.cap || p.body_part == 203);
         assert_eq!(gone.indices().unwrap().iter().collect::<Vec<_>>(), [3, 4, 5, 6, 7, 8]);
+        // Which partitions count as caps: a flag-clear torso cap beside drawn ones; not
+        // the flag-clear 65535 of `wastelandchild02\outfitf.nif`'s `Arms`; all of a cap shape.
+        assert!(partition_is_cap(false, true, 205) && partition_is_cap(false, true, 101));
+        assert!(!partition_is_cap(false, true, 65535) && !partition_is_cap(false, false, 205));
+        assert!(partition_is_cap(true, true, 0));
     }
 
     #[test]

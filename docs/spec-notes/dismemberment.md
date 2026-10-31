@@ -103,11 +103,13 @@ Body and armour shapes use `BSDismemberSkinInstance`. Every skin partition names
 - `meatneck01`: BP_TORSOCAP_HEAD. `meathead01`: BP_SECTIONCAP_HEAD.
 
 Cap partitions have part-flag bit 0 (editor visible) clear; the others have it set. Caps are
-not drawn on an intact actor (actors.md §1). The rule goes partition by partition, not shape by
-shape: a cap partition is hidden also in a shape whose other partitions are drawn [hypothesis:
-the original shows no caps on an intact radscorpion, owner 2026-10-30, #1075]. Over the 205
-creature meshes of `Fallout - Meshes.bsa` (skeletons and gore left out), the shapes mixing the
-two [observed: `fnvtool nif decode`, 2026-10-31]:
+not drawn on an intact actor (actors.md §1). A shape all of whose partitions clear bit 0 is a
+cap shape, hidden whole. In a shape with drawn partitions, a partition of a cap body part
+(section caps 1xx, torso caps 2xx) with bit 0 clear is hidden by itself; any other partition is
+drawn, whatever its flag [hypothesis: the original shows no caps on an intact radscorpion, owner
+2026-10-30, #1075]. Over the 205 creature meshes and the 845 `characters\` and `armor\`
+meshes of `Fallout - Meshes.bsa` (skeletons and gore left out; the add-ons' archives not
+surveyed), the shapes mixing the two [observed: `fnvtool nif decode`, 2026-10-31]:
 
 - `creatures\radscorpion\radscorpion.nif` `meatcapbody` and `barkscorpion.nif`
   `meatcapbody:0`: torso caps 201, 203–212 (bit 0 clear) and one partition of BP_TORSO (0)
@@ -116,6 +118,13 @@ two [observed: `fnvtool nif decode`, 2026-10-31]:
   `meatcaplimbs` (101, 103–112, all clear).
 - `creatures\mistergutsy\mistergutsy.nif` and `misterhandy.nif` `Object01:0`: BP_TORSO (set)
   with one torso cap 213 (clear) in the same shape.
+- `armor\combatranger\combatranger.nif`, `combatranger_f.nif` and
+  `armor\bigbattle\crangerbattlearmor.nif` `GorecapsBody:0`: BP_TORSO (set) with torso caps
+  203, 205, 207, 210 (clear); `armor\boone\boone02.nif` `Meatcaparms_body:1`: BP_TORSO with
+  torso cap 205. Their caps showed on intact wearers the same way.
+- `armor\wastelandchild02\outfitf.nif` `Arms`: body parts 0–4 (set) and one partition of
+  body part 65535 (clear); `armor\1950stylechild\outfitf.nif` `UpperBody`: 0 (set) and 65533
+  (clear). Not cap body parts: drawn, which is why the rule asks for 1xx/2xx.
 
 Every other creature shape keeps caps and drawn partitions in shapes of their own, and no
 editor-visible partition names a cap (1xx/2xx) or a hidden one a non-cap. Partition flags seen:
