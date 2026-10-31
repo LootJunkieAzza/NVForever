@@ -10156,7 +10156,25 @@ run_seconds = 18
 expect = [
   { re = 'falls: 0x00000014 lands from (?P<n>\d+) units: [\d.]+ fall damage', range = [700, 5000], label = "the player lands from the drop" },
   { re = 'falls: 0x00000014 lands from \d+ units: [1-9][\d.]* fall damage, 0\.0 dealt.*immune', label = "the formula gives damage; god mode deals none" },
+  { re = 'falls: 0x00000014 hard landing, sound FSTLandHard(Light|Heavy)$', label = "the hard landing's sound plays in god mode too (issue #1104)" },
 ]
+forbid = [{ re = 'falls: 0x00000014 (left|right) leg condition', label = "god mode spares the leg" }]
+
+[[scenario]]
+name = "falls-player-leg"
+source = "issues #1129 (a fall hurts one leg by half its damage, crippling it on big falls; capture o6_00) and #1104 (no sound on fall damage): docs/spec-notes/physics.md §6.12, audio.md §14.2"
+note = "No god mode in Goodsprings: at 6 s the console raises the player's health to 6,000, at 8 s it puts the player about 1,850 units up; the landing (about 3,200 damage) plays FSTLandHardLight (the player wears no heavy armour), takes the health and cripples one leg (half the damage, over its 100 points)"
+areas = ["physics", "combat", "audio"]
+paths = ["engine/nvf-play/src/falls.rs", "engine/nvf-play/src/player.rs", "crates/fnv-game/src/combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "6:player.setav health 6000;6.3:close;8:player.setpos z 10200;8.3:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'falls: 0x00000014 hard landing, sound FSTLandHardLight$', label = "the hard landing's sound plays (issue #1104)" },
+  { re = 'falls: 0x00000014 lands from (?P<n>\d+) units: [\d.]+ fall damage, [1-9][\d.]* dealt, health \d+/', range = [700, 5000], label = "the fall takes health" },
+  { re = 'falls: 0x00000014 (left|right) leg condition 0\.0, crippled$', label = "one leg is crippled (issue #1129)" },
+]
+forbid = [{ re = 'combat: the player died', label = "6,000 health outlasts the fall" }]
 
 [[scenario]]
 name = "incinerator-hurts-player"
