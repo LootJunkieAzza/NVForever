@@ -21,7 +21,7 @@ engine if needed, and delete the item here.
   TimeScale), 13, 15, 20, 21, 22 (dialogue events), the rest of 33, 35, 36, 52, 53, and
   #1076 (melee reach).
 - **A save from the owner** (quest or character state no save has yet):
-  - Hardcore on: done (nvfHardcore); waits and sleeps still need the window.
+  - Hardcore on: done (nvfHardcore).
   - Boone, Rex and ED-E hired (19, 22's complaints, 18's wheel): Boone done (nvfBoone).
   - Benny's own invitation to the suite taken, not talked in with Speech (47).
   - Old World Blues just started in the Think Tank (43, 37); X-8 done, EM pulse module
@@ -92,7 +92,13 @@ engine if needed, and delete the item here.
    - Beer and Nuka-Cola, drunk by EquipItem, raised Dehydration by no more than the
      normal rate over 11 s (14, 14, 15 and 15, 15, 16) [observed]. Ours raises it
      (their "Damage Dehydration" read literally, aid-items §3).
-   - Still open: waits and sleeps (the wait menu needs the window), Buffout.
+   - Waits and sleeps (owner, 2026-10-31, from all needs at 0, Pip-Boy values)
+     [observed]: 3 hours waited give H2O 36, FOD 12, SLP 6; 3 hours slept give H2O 36,
+     FOD 12, SLP 2. So 12, 4 and 2 an hour, whole points, where ours gives 12, 4.8 and
+     2.4; sleep did not bring SLP below 2. In Hardcore, sleep heals neither Health nor
+     crippled limbs; outside it heals both. Ours heals no Health on a plain sleep (#1177).
+     Outside Hardcore a sleep restores Health and every limb in full (owner).
+   - Still open: Buffout.
    ([aid-items §2, §6, §11](../spec-notes/aid-items.md),
    [wait-menu](../spec-notes/wait-menu.md))
 5. **Weapon wear.** Ours:
