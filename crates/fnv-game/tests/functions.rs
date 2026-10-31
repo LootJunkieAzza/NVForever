@@ -472,19 +472,41 @@ fn reputation_limits_levels_and_ignored_sizes() {
     }
 }
 
-/// Axes other than 0 and 1 (FalloutNV.esm's scripts use 2 and 3) change nothing and read
-/// 0, with no call error [hypothesis: `reputation::axis`].
+/// Axes other than 0 and 1 (FalloutNV.esm's scripts use 2 and 3) read 0 with no call
+/// error (observer check 30); SetReputation with one changes nothing, fails and stops the
+/// script: the line after it does not run (captures o5_00/o5_01, #1127). The other
+/// writers change nothing and go on (not captured, observer check 62).
 #[test]
-fn reputation_other_axes_do_nothing() {
+fn reputation_other_axes_read_0_and_stop_a_write() {
+    use fnv_script::vm::XVal;
     let f = fixture();
     let mut g = game(&f);
     call(&mut g, 0x1238, None, &[r(REP), n(1.0), n(12.0)]);
-    call(&mut g, 0x1238, None, &[r(REP), n(2.0), n(0.0)]);
-    call(&mut g, 0x1239, None, &[r(REP), n(3.0), n(1.0)]);
-    assert_eq!(g.player.reputation[&FormId(REP)], [0.0, 12.0]);
     assert_eq!(call(&mut g, 0x123D, None, &[r(REP), n(2.0)]), 0.0);
     assert_eq!(call(&mut g, 0x123E, None, &[r(REP), n(2.0)]), 0.0);
     assert_eq!(call(&mut g, 0x123F, None, &[r(REP), n(3.0)]), 0.0);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut Game, body: &str| g.run_query(&format!("Begin Function {{ }}
+{body}
+SetFunctionValue 7
+End
+"), ctx());
+    // Axes 0 and 1 set the value and go on.
+    assert_eq!(q(&mut g, "SetReputation RepTest 0 5"), Ok(XVal::Num(7.0)));
+    assert_eq!(g.player.reputation[&FormId(REP)], [5.0, 12.0]);
+    for line in ["SetReputation RepTest 2 5", "SetReputation RepTest 3 7"] {
+        let before = g.events.len();
+        assert_ne!(q(&mut g, line), Ok(XVal::Num(7.0)), "{line}: the line after it does not run");
+        assert!(g.events[before..].iter().any(|e| matches!(&e.kind, EventKind::CallFailed { .. })), "{line}: traced as a failed call");
+        assert_eq!(g.player.reputation[&FormId(REP)], [5.0, 12.0], "{line}");
+    }
+    for line in ["AddReputation RepTest 3 1", "AddReputation RepTest 2 1", "RemoveReputation RepTest 2 1", "AddReputationExact RepTest 2 1"] {
+        assert_eq!(q(&mut g, line), Ok(XVal::Num(7.0)), "{line}: goes on");
+        assert_eq!(g.player.reputation[&FormId(REP)], [5.0, 12.0], "{line}");
+    }
+    // The stop lasts for that run only.
+    assert_eq!(q(&mut g, "SetReputation RepTest 1 3"), Ok(XVal::Num(7.0)));
+    assert_eq!(g.player.reputation[&FormId(REP)], [5.0, 3.0]);
 }
 
 /// Damage and restore [documented: catalogue; observed: layer5-captures.md §9.3 b].
