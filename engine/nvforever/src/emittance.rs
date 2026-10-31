@@ -108,6 +108,15 @@ impl EmittanceState {
         Some(copy)
     }
 
+    /// The copies held, for the stress census: each is held twice here (`copies`, `driven`).
+    pub fn share(&self, materials: &Assets<NifMaterial>) -> nvf_assets::release::CacheShare {
+        let mut s = nvf_assets::release::CacheShare::default();
+        for h in self.copies.values() {
+            s.material(materials, h, 2);
+        }
+        s
+    }
+
     /// Mark a light as driven by `xemi`, if that resolves.
     pub fn light(&mut self, world: &WorldData, xemi: u32, color: LinearRgba) -> Option<LightEmittance> {
         self.hour = None;

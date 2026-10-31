@@ -265,6 +265,18 @@ pub fn is_first_person_texture(path: &str) -> bool {
 impl TextureCache {
     /// Drop the textures nothing else holds (no live material uses them), after their
     /// grace time (`crate::release`); the number dropped. Keys: (path, sRGB, clamped).
+    /// The textures held, for the stress census: an entry is idle when only the cache
+    /// holds its image (it waits out its keep time).
+    pub fn share(&self) -> crate::release::CacheShare {
+        let mut s = crate::release::CacheShare::default();
+        for h in self.map.values().chain(self.clamped.values()).flatten() {
+            s.entries += 1;
+            s.idle += usize::from(!crate::release::held_beyond(h, 1));
+            s.images.insert(h.id());
+        }
+        s
+    }
+
     pub fn release(&mut self, idle: &mut crate::release::Unused<(String, bool, bool)>, now: f64) -> usize {
         use crate::release::{held_beyond, KEEP_UNUSED_MAX, KEEP_UNUSED_SECS};
         let entries: Vec<_> = [(false, &self.map), (true, &self.clamped)]

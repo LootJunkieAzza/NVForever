@@ -108,6 +108,72 @@ pub fn held_beyond<A: Asset>(h: &Handle<A>, own: usize) -> bool {
     matches!(h, Handle::Strong(a) if Arc::strong_count(a) > own)
 }
 
+/// The images a material samples (the fields the game's materials set; nif_material.rs,
+/// nif_spawn.rs).
+pub fn material_images(m: &crate::NifMaterial) -> impl Iterator<Item = &Handle<Image>> {
+    let b = &m.base;
+    [
+        &b.base_color_texture,
+        &b.emissive_texture,
+        &b.normal_map_texture,
+        &b.metallic_roughness_texture,
+        &b.occlusion_texture,
+        &b.specular_texture,
+        &b.depth_map,
+        &m.extension.holes_texture,
+        &m.extension.facegen_offset,
+    ]
+    .into_iter()
+    .flatten()
+}
+
+/// The GPU bytes of an image with its mip chain, from its descriptor (the pixels may be
+/// gone from the main world once uploaded).
+pub fn image_bytes(i: &Image) -> u64 {
+    let d = &i.texture_descriptor;
+    let (bw, bh) = d.format.block_dimensions();
+    let block = u64::from(d.format.block_copy_size(None).unwrap_or(4));
+    let layers = u64::from(d.size.depth_or_array_layers.max(1));
+    (0..d.mip_level_count.max(1))
+        .map(|level| {
+            let w = (d.size.width >> level).max(1).div_ceil(bw);
+            let h = (d.size.height >> level).max(1).div_ceil(bh);
+            u64::from(w) * u64::from(h) * block * layers
+        })
+        .sum()
+}
+
+/// What one cache holds, for the stress tests' `stress caches:` line: its entries, those
+/// nothing outside it holds, and the images its materials sample.
+#[derive(Default)]
+pub struct CacheShare {
+    pub entries: usize,
+    pub idle: usize,
+    pub images: std::collections::HashSet<AssetId<Image>>,
+}
+
+impl CacheShare {
+    /// One entry: a material the cache holds `own` handles of.
+    pub fn material(&mut self, materials: &Assets<crate::NifMaterial>, h: &Handle<crate::NifMaterial>, own: usize) {
+        self.entries += 1;
+        self.idle += usize::from(!held_beyond(h, own));
+        self.images_of(materials, h);
+    }
+
+    /// The images of a material counted under an entry already counted.
+    pub fn images_of(&mut self, materials: &Assets<crate::NifMaterial>, h: &Handle<crate::NifMaterial>) {
+        if let Some(m) = materials.get(h) {
+            self.images.extend(material_images(m).map(Handle::id));
+        }
+    }
+
+    /// `<entries> (<idle> idle, <n> images <MB> MB)`.
+    pub fn text(&self, images: &Assets<Image>) -> String {
+        let bytes: u64 = self.images.iter().filter_map(|&id| images.get(id)).map(image_bytes).sum();
+        format!("{} ({} idle, {} images {:.0} MB)", self.entries, self.idle, self.images.len(), bytes as f64 / (1024.0 * 1024.0))
+    }
+}
+
 #[derive(Resource, Default)]
 struct Sweeps {
     since: f32,

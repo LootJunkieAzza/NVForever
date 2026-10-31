@@ -49,6 +49,17 @@ pub(crate) struct Swapped {
     generation: u64,
 }
 
+impl Swapped {
+    /// The swapped copies held, for the stress census.
+    pub(crate) fn share(&self, materials: &Assets<NifMaterial>) -> nvf_assets::release::CacheShare {
+        let mut s = nvf_assets::release::CacheShare::default();
+        for h in self.made.values() {
+            s.material(materials, h, 1);
+        }
+        s
+    }
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn apply(
     mut commands: Commands,

@@ -601,6 +601,17 @@ fn actor_alpha(
     }
 }
 
+impl Shaders {
+    /// The see-through copies held, for the stress census.
+    pub(crate) fn share(&self, materials: &Assets<NifMaterial>) -> nvf_assets::release::CacheShare {
+        let mut s = nvf_assets::release::CacheShare::default();
+        for h in self.faded.values() {
+            s.material(materials, h, 1);
+        }
+        s
+    }
+}
+
 fn report(mut exit: MessageReader<AppExit>, st: Res<Shaders>) {
     if exit.read().next().is_none() {
         return;

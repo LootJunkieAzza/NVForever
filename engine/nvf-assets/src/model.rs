@@ -777,6 +777,24 @@ impl ModelCache {
     }
 }
 
+impl ModelCache {
+    /// The particle definitions held, for the stress census (`release::CacheShare`): an
+    /// entry is idle when only the cache holds its `Arc` and its materials.
+    pub fn particle_share(&self, materials: &Assets<NifMaterial>) -> crate::release::CacheShare {
+        let mut s = crate::release::CacheShare::default();
+        for p in self.particles.values().flatten() {
+            s.entries += 1;
+            let mut h = crate::release::Holders::default();
+            for d in &p.systems {
+                h.add(&d.material);
+                s.images_of(materials, &d.material);
+            }
+            s.idle += usize::from(Arc::strong_count(p) == 1 && !h.held_elsewhere());
+        }
+        s
+    }
+}
+
 /// Whether anything besides the cache holds a prepared model: its `Arc` (rigs, other
 /// caches) or a handle of its shapes or rig (spawned entities).
 fn model_in_use(m: &Arc<PreparedModel>) -> bool {

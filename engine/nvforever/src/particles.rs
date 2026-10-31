@@ -277,6 +277,21 @@ pub struct Particles {
     pub most_alive: usize,
 }
 
+impl Particles {
+    /// The systems held (placed models' and shared ones), for the stress census.
+    pub fn share(&self, materials: &Assets<nvf_assets::NifMaterial>) -> [nvf_assets::release::CacheShare; 2] {
+        let mut out: [nvf_assets::release::CacheShare; 2] = Default::default();
+        for (k, live) in &self.systems {
+            let s = &mut out[usize::from(k.instance.is_none())];
+            s.entries += 1;
+            for l in live.iter().flatten() {
+                s.images_of(materials, &l.def.material);
+            }
+        }
+        out
+    }
+}
+
 impl Default for Particles {
     fn default() -> Self {
         Particles {
