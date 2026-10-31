@@ -115,6 +115,11 @@ impl Ai {
             if r == actor || given_up.contains(&r) || !game.present(r) {
                 continue;
             }
+            // No AI Acquire: nothing is taken from it, a weapon, ammunition, a body or a
+            // container alike (#962).
+            if game.world.placed.get(r).is_some_and(|p| p.no_ai_acquire()) {
+                continue;
+            }
             let Some(p) = goal::place_of_ref(game, r).filter(|p| p.space == feet.space) else { continue };
             if flat(p.pos, feet.pos) > reach || (p.pos[2] - feet.pos[2]).abs() > REACH_HEIGHT {
                 continue;

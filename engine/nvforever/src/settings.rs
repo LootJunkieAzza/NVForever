@@ -17,6 +17,7 @@ use crate::frame_pace::{self, FramePace};
 use crate::graphics::{self, Graphics};
 use crate::grass::GrassConfig;
 use crate::foot_ik::FootIkSettings;
+use crate::fps_counter::FpsCounter;
 use crate::head_look::HeadLookSettings;
 use crate::lips::LipState;
 use crate::lod::LodState;
@@ -303,7 +304,7 @@ const FOV_MIN: f32 = 50.0;
 const FOV_MAX: f32 = 110.0;
 const FOV_CHOICES: usize = 13;
 
-/// The field of view (`--fov`) and how fast frames are shown (`frame_pace.rs`; not while
+/// The field of view (`--fov`), the frame rate counter (`fps_counter.rs`) and how fast frames are shown (`frame_pace.rs`; not while
 /// `--log-frame-times` measures, which wants vsync off).
 fn register_display(app: &mut App) {
     add_setting(
@@ -315,6 +316,18 @@ fn register_display(app: &mut App) {
             "The game's field of view in degrees across a 4:3 picture (75 as the original's default); wider screens see more at the sides. (--fov)",
             Slider::choice(FOV_CHOICES, |w| fov_part(w.resource::<Args>().fov), set_fov, |v| format!("{:.0}", fov_degrees(v))),
         ),
+    );
+    add_setting(
+        app,
+        Setting {
+            key: "fps-counter",
+            group: GROUP_PICTURE,
+            label: "Frame rate counter",
+            note: "On: the frames a second, the mean frame time and the slowest frame of the last half second are shown in the top-right corner. Not in the original. (--fps)",
+            get: |w| w.resource::<FpsCounter>().show,
+            set: |w, on| w.resource_mut::<FpsCounter>().show = on,
+            slider: None,
+        },
     );
     if app.world().resource::<Args>().log_frame_times.is_some() {
         return;

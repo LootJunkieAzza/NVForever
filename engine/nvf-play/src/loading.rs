@@ -456,6 +456,10 @@ fn send(mut loading: ResMut<Loading>, mut travel: MessageWriter<Travel>, mut com
             (2.., Some(stem)) => path.with_file_name(format!("{stem}-{shown}.png")),
             _ => path,
         };
+        if let Err(e) = fnv_install::guard_write(&path, None) {
+            warn!("test aid: loading screen screenshot not written: {e}");
+            return;
+        }
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
             let _ = std::fs::create_dir_all(dir);
         }

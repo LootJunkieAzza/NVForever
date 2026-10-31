@@ -1396,6 +1396,7 @@ struct TraceLog {
 
 impl TraceLog {
     fn create(path: &std::path::Path) -> std::io::Result<TraceLog> {
+        fnv_install::guard_write(path, None).map_err(std::io::Error::other)?;
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
             std::fs::create_dir_all(dir)?;
         }
