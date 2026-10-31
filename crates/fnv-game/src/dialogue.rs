@@ -674,10 +674,8 @@ impl<'a> Game<'a> {
         if !def.has(info_flag::RUN_IMMEDIATELY) {
             self.run_line_result(actor, def, true);
         }
-        for &t in &def.add_topics {
-            if self.player.topics.insert(t) {
-                self.emit(EventKind::TopicAdded { topic: t, by: Some(info) });
-            }
+        for t in self.player.topics.learn(&def.add_topics) {
+            self.emit(EventKind::TopicAdded { topic: t, by: Some(info) });
         }
         // The end script may have ended the conversation.
         if !self.dialogue.as_ref().is_some_and(|c| c.actor == actor && c.line.is_none()) {
@@ -737,8 +735,9 @@ impl<'a> Game<'a> {
     ///
     /// Order: topic priority (DIAL PNAM), highest first [documented: Category:Dialogue,
     /// "Priority"], then for a line's choices their order in the record [documented:
-    /// "Sorting order of links"] and for the topic list the topics' record order
-    /// [hypothesis].
+    /// "Sorting order of links"] and for the topic list the known topics newest first
+    /// ([`crate::game::KnownTopics`]; owner's choice 2026-10-31, the original's order
+    /// following no rule we can copy), then the others in record order.
     ///
     /// When the topic list holds no line with the Goodbye flag, the actor's line of the
     /// GOODBYE topic is offered last, if it has one [documented: Quest and Dialogue
@@ -764,8 +763,15 @@ impl<'a> Game<'a> {
         known.append(&mut links);
         if !known.is_empty() {
             listed.append(&mut known);
+            // Ties: known topics newest first, then the rest in record order.
+            let learned = |t: &FormId| self.player.topics.iter().position(|k| k == t).unwrap_or(usize::MAX);
             let order = |t: &FormId| data.topic_defs.get(t).map_or((usize::MAX, 0), |d| d.order);
-            listed.sort_by(|a, b| priority(&b.topic).total_cmp(&priority(&a.topic)).then(order(&a.topic).cmp(&order(&b.topic))));
+            listed.sort_by(|a, b| {
+                priority(&b.topic)
+                    .total_cmp(&priority(&a.topic))
+                    .then(learned(&a.topic).cmp(&learned(&b.topic)))
+                    .then(order(&a.topic).cmp(&order(&b.topic)))
+            });
         }
         let mut out = self.offer(actor, &listed);
         if !out.iter().any(|c| c.goodbye && data.infos.get(&c.info).is_some_and(|d| d.end.is_none())) {

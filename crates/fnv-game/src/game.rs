@@ -603,6 +603,60 @@ pub enum RaceMenu {
     Surgeon,
 }
 
+/// The dialogue topics the player knows, newest first: the order that breaks ties of
+/// topic priority in the topic list (`Game::build_choices`).
+///
+/// A topic learned again moves to the front; the topics one line adds go to the front
+/// together, in their record order. [observed: the original's lists for Boone and Manny
+/// Vargas, 2026-10-31, follow no rule of learning order; newest first is the owner's
+/// choice of 2026-10-31, which keeps most of their order; dialogue.md §3.5.] Saves
+/// from before kept a sorted set; they load in that order.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct KnownTopics(Vec<FormId>);
+
+impl KnownTopics {
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn contains(&self, topic: &FormId) -> bool {
+        self.0.contains(topic)
+    }
+
+    /// Newest first.
+    pub fn iter(&self) -> std::slice::Iter<'_, FormId> {
+        self.0.iter()
+    }
+
+    /// Learns `topics` (one line's Add Topics, or one AddTopic) and returns those that
+    /// were not known before, in their order.
+    pub fn learn(&mut self, topics: &[FormId]) -> Vec<FormId> {
+        let mut batch: Vec<FormId> = Vec::with_capacity(topics.len());
+        for &t in topics {
+            if !batch.contains(&t) {
+                batch.push(t);
+            }
+        }
+        let new: Vec<FormId> = batch.iter().copied().filter(|t| !self.0.contains(t)).collect();
+        self.0.retain(|t| !batch.contains(t));
+        self.0.splice(0..0, batch);
+        new
+    }
+
+    /// Learns one topic; true if it was not known before.
+    pub fn insert(&mut self, topic: FormId) -> bool {
+        !self.learn(&[topic]).is_empty()
+    }
+}
+
+impl Extend<FormId> for KnownTopics {
+    fn extend<I: IntoIterator<Item = FormId>>(&mut self, iter: I) {
+        let topics: Vec<FormId> = iter.into_iter().collect();
+        self.learn(&topics);
+    }
+}
+
 /// The player's state outside the world's reference table.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct PlayerState {
@@ -712,9 +766,10 @@ pub struct PlayerState {
     /// SetPCCanUsePowerArmor.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub power_armor: bool,
-    /// Dialogue topics added with AddTopic.
-    #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
-    pub topics: BTreeSet<FormId>,
+    /// Dialogue topics added with AddTopic and lines' Add Topics, newest first
+    /// ([`KnownTopics`]).
+    #[serde(skip_serializing_if = "KnownTopics::is_empty", default)]
+    pub topics: KnownTopics,
     /// SetLevel on the player (otherwise the configuration's level).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub level: Option<i32>,
@@ -3565,10 +3620,8 @@ impl<'a> Game<'a> {
             // (`Game::start_dialogue`): its Add Topics join the known topics, and it
             // is no SayTo line [hypothesis for both].
             if s.greeting {
-                for &t in &def.add_topics {
-                    if self.player.topics.insert(t) {
-                        self.emit(EventKind::TopicAdded { topic: t, by: Some(info) });
-                    }
+                for t in self.player.topics.learn(&def.add_topics) {
+                    self.emit(EventKind::TopicAdded { topic: t, by: Some(info) });
                 }
             }
         }

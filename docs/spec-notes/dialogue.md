@@ -508,9 +508,18 @@ All of it is in `GameSnapshot`.
   shared lines, e.g. Red Lucy's greeting.) Topics whose lines name the line's topic in
   their Link From join either list (§3.5) [documented; hypothesis on how]. Order: topic priority (DIAL PNAM), highest first
   [documented]; then, for a line's choices, their order in the record [documented:
-  "Sorting order of links"], and for the topic list the topics' record order
-  [hypothesis; contradicted for learned topics by Boone's list in the original, which
-  seems to follow the order they were learned: observer-checks item 58]. Quest priority plays no part in the order of the list.
+  "Sorting order of links"], and for the topic list the known topics newest first, a
+  topic learned again moving to the front and one line's Add Topics keeping their
+  record order, then the others (top-level topics) in record order [owner's choice
+  2026-10-31; `KnownTopics`]. The original follows no rule we can copy [observed
+  2026-10-31: Boone's list after learning C8, CA, then CC and CB from one line read C8,
+  CC, CB, CA; Manny Vargas with topics given by `AddTopic` (captures `dlg_topic_order_*`
+  and owner screenshots): learned CEDEE, B15FC, 137A62, B15FB, B15FA, then 96BCF from
+  the greeting gave 96BCF, B15FB, 137A62, B15FC, top-level 15F503, CEDEE, B15FA; CEDEE,
+  B15FC, 96BCF gave 96BCF, B15FC, 15F503, CEDEE; 96BCF, B15FC, CEDEE, then 96BCF again
+  gave 96BCF, 15F503, B15FC, CEDEE. The same set in two orders rules out record order
+  or any fixed index; each run gave the same list twice. Hypothesis: equal priorities
+  come out of a sort that does not keep their order.] Quest priority plays no part in the order of the list.
 - **The text of a choice** is the line's prompt, else the topic's name [documented].
   It is shaded when the actor has said that line before, unless the line has Info
   Refusal; always with Always Darken [documented: Category:Dialogue flags].
