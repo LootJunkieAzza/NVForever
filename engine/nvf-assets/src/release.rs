@@ -54,12 +54,34 @@ impl<K: Hash + Eq + Clone> Unused<K> {
     /// in use forgets its time; an unused one goes after `keep_secs`, or sooner when more
     /// than `keep_max` are unused (the longest unused first).
     pub fn sweep(&mut self, now: f64, entries: impl IntoIterator<Item = (K, bool)>, keep_secs: f64, keep_max: usize) -> Vec<K> {
+        self.sweep_timed(now, entries, keep_secs, keep_max, |_| None).into_iter().map(|(k, _)| k).collect()
+    }
+
+    /// [`Self::sweep`], with the time each dropped key was first seen unused. `since`
+    /// backdates a key seen unused for the first time: it counts as unused from then
+    /// (no later than `now`), as a texture does from when the model that held it went
+    /// unused ([`ImageHints`]).
+    pub fn sweep_timed(
+        &mut self,
+        now: f64,
+        entries: impl IntoIterator<Item = (K, bool)>,
+        keep_secs: f64,
+        keep_max: usize,
+        mut since: impl FnMut(&K) -> Option<f64>,
+    ) -> Vec<(K, f64)> {
         let mut seen = HashMap::new();
         for (k, used) in entries {
             if used {
                 self.since.remove(&k);
             } else {
-                let t = *self.since.entry(k.clone()).or_insert(now);
+                let t = match self.since.get(&k) {
+                    Some(&t) => t,
+                    None => {
+                        let t = since(&k).map_or(now, |t| t.min(now));
+                        self.since.insert(k.clone(), t);
+                        t
+                    }
+                };
                 seen.insert(k, t);
             }
         }
@@ -68,8 +90,8 @@ impl<K: Hash + Eq + Clone> Unused<K> {
         let mut idle: Vec<(K, f64)> = seen.into_iter().collect();
         idle.sort_by(|a, b| a.1.total_cmp(&b.1));
         let over = idle.len().saturating_sub(keep_max);
-        let drop: Vec<K> = idle.iter().enumerate().filter(|(i, (_, t))| *i < over || now - *t >= keep_secs).map(|(_, (k, _))| k.clone()).collect();
-        for k in &drop {
+        let drop: Vec<(K, f64)> = idle.into_iter().enumerate().filter(|(i, (_, t))| *i < over || now - *t >= keep_secs).map(|(_, e)| e).collect();
+        for (k, _) in &drop {
             self.since.remove(k);
         }
         drop
@@ -81,6 +103,54 @@ impl<K: Hash + Eq + Clone> Unused<K> {
 
     pub fn is_empty(&self) -> bool {
         self.since.is_empty()
+    }
+}
+
+/// When the images of dropped models and actor parts started to go unused: the time the
+/// model (or part) was first seen unused, by image. A texture that the drop leaves unused
+/// counts as unused from that time, not from the sweep that first sees it so: otherwise it
+/// waited out [`KEEP_UNUSED_SECS`] twice, once inside its model and once on its own
+/// (issue #904). A note no texture sweep takes within [`HINT_SECS`] (the texture is still
+/// held elsewhere, or by no cache) is forgotten.
+#[derive(Default)]
+pub struct ImageHints(HashMap<AssetId<Image>, (f64, f64)>);
+
+/// Seconds an [`ImageHints`] note waits for the texture sweep: the dropped materials
+/// let go of their images when Bevy next frees assets, after the sweep that dropped them.
+pub const HINT_SECS: f64 = 10.0 * SWEEP_SECS as f64;
+
+impl ImageHints {
+    /// The images of a dropped material went unused at `since`.
+    pub fn note(&mut self, materials: &Assets<crate::NifMaterial>, h: &Handle<crate::NifMaterial>, since: f64, now: f64) {
+        if let Some(m) = materials.get(h) {
+            for i in material_images(m) {
+                self.note_image(i.id(), since, now);
+            }
+        }
+    }
+
+    pub fn note_image(&mut self, id: AssetId<Image>, since: f64, now: f64) {
+        // Two models let go of one image: it went unused when the later of them did.
+        let e = self.0.entry(id).or_insert((since, now));
+        *e = (e.0.max(since), now);
+    }
+
+    /// When the image went unused, if a dropped model's note says.
+    pub fn since(&self, id: AssetId<Image>) -> Option<f64> {
+        self.0.get(&id).map(|e| e.0)
+    }
+
+    /// Forget the notes older than [`HINT_SECS`].
+    pub fn prune(&mut self, now: f64) {
+        self.0.retain(|_, (_, at)| now - *at < HINT_SECS);
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 
@@ -101,6 +171,17 @@ impl Holders {
     pub fn held_elsewhere(&self) -> bool {
         self.0.values().any(|&(own, all)| all > own)
     }
+}
+
+/// Drop the material copies (or other assets) of a map that nothing holds besides the
+/// map's `own` copies of each handle: the copies made from a material for one look
+/// (emittance, see-through actors, swapped textures). Made again on the next ask, from
+/// the cached original, without reading a file; dropping them lets the textures they
+/// hold go with their models (issue #904). The number dropped.
+pub fn retain_held<K, A: Asset>(map: &mut HashMap<K, Handle<A>>, own: usize) -> usize {
+    let before = map.len();
+    map.retain(|_, h| held_beyond(h, own));
+    before - map.len()
 }
 
 /// Whether a handle has a strong holder besides `own` copies (a weak or UUID handle: no).
@@ -174,11 +255,19 @@ impl CacheShare {
     }
 }
 
+/// The model cache's unused times: models, billboards and particle definitions.
+#[derive(Default)]
+pub struct ModelSweeps {
+    pub models: Unused<String>,
+    pub billboards: Unused<u32>,
+    pub particles: Unused<String>,
+}
+
 #[derive(Resource, Default)]
 struct Sweeps {
     since: f32,
-    models: Unused<String>,
-    billboards: Unused<u32>,
+    models: ModelSweeps,
+    hints: ImageHints,
     parts: Unused<String>,
     part_materials: Unused<(String, usize, String)>,
     textures: Unused<(String, bool, bool)>,
@@ -190,6 +279,7 @@ fn release_unused(
     mut models: Option<ResMut<ModelCache>>,
     mut parts: Option<ResMut<ActorParts>>,
     mut textures: Option<ResMut<TextureCache>>,
+    materials: Option<Res<Assets<crate::NifMaterial>>>,
 ) {
     s.since += time.delta_secs();
     if s.since < SWEEP_SECS {
@@ -198,17 +288,20 @@ fn release_unused(
     s.since = 0.0;
     let now = time.elapsed_secs_f64();
     let s = &mut *s;
+    let none = Assets::default();
+    let materials = materials.as_deref().unwrap_or(&none);
     let mut dropped = [0usize; 4];
     // Models before textures: a dropped model's materials let go of their images, which
-    // the texture sweep sees from the next sweep on.
+    // the texture sweep sees from the next sweep on, as unused since the model was.
+    s.hints.prune(now);
     if let Some(m) = models.as_deref_mut() {
-        dropped[0] = m.release(&mut s.models, &mut s.billboards, now);
+        dropped[0] = m.release(&mut s.models, &mut s.hints, materials, now);
     }
     if let Some(p) = parts.as_deref_mut() {
-        (dropped[1], dropped[2]) = p.release(&mut s.parts, &mut s.part_materials, now);
+        (dropped[1], dropped[2]) = p.release(&mut s.parts, &mut s.part_materials, &mut s.hints, materials, now);
     }
     if let Some(t) = textures.as_deref_mut() {
-        dropped[3] = t.release(&mut s.textures, now);
+        dropped[3] = t.release(&mut s.textures, &s.hints, now);
     }
     if dropped.iter().any(|&n| n > 0) {
         debug!("assets released: {} models, {} actor parts, {} part materials, {} textures", dropped[0], dropped[1], dropped[2], dropped[3]);
@@ -243,11 +336,48 @@ mod tests {
     }
 
     #[test]
+    fn a_backdated_entry_counts_as_unused_from_its_hint() {
+        let mut u = Unused::default();
+        // Its model went unused at 0; the texture is first seen unused at 250.
+        assert!(u.sweep_timed(250.0, [("t", false), ("u", false)], 300.0, 10, |k| (*k == "t").then_some(0.0)).is_empty());
+        assert_eq!(u.sweep_timed(302.0, [("t", false), ("u", false)], 300.0, 10, |_| None), [("t", 0.0)]);
+        // A hint later than now counts from now; one used again starts over.
+        assert!(u.sweep_timed(310.0, [("u", true), ("v", false)], 300.0, 10, |_| Some(900.0)).is_empty());
+        assert_eq!(u.sweep_timed(610.0, [("u", false), ("v", false)], 300.0, 10, |_| None), [("v", 310.0)]);
+    }
+
+    #[test]
+    fn image_hints_keep_the_later_drop_and_are_forgotten() {
+        let mut h = ImageHints::default();
+        let id = AssetId::<Image>::default();
+        h.note_image(id, 5.0, 10.0);
+        h.note_image(id, 2.0, 12.0);
+        assert_eq!(h.since(id), Some(5.0));
+        h.prune(12.0 + HINT_SECS - 1.0);
+        assert_eq!(h.len(), 1);
+        h.prune(12.0 + HINT_SECS);
+        assert!(h.is_empty());
+    }
+
+    #[test]
     fn entries_dropped_elsewhere_are_forgotten() {
         let mut u = Unused::default();
         u.sweep(0.0, [("a", false)], 60.0, 10);
         u.sweep(1.0, std::iter::empty::<(&str, bool)>(), 60.0, 10);
         assert!(u.is_empty());
+    }
+
+    #[test]
+    fn copies_nothing_else_holds_are_dropped() {
+        let mut meshes = Assets::<Mesh>::default();
+        let (a, b) = (meshes.add(Mesh::from(Cuboid::default())), meshes.add(Mesh::from(Cuboid::default())));
+        let drawn = a.clone();
+        let mut map = HashMap::from([(1, a), (2, b)]);
+        assert_eq!(retain_held(&mut map, 1), 1);
+        assert!(map.contains_key(&1));
+        drop(drawn);
+        assert_eq!(retain_held(&mut map, 1), 1);
+        assert!(map.is_empty());
     }
 
     #[test]

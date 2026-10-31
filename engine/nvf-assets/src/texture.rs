@@ -277,16 +277,24 @@ impl TextureCache {
         s
     }
 
-    pub fn release(&mut self, idle: &mut crate::release::Unused<(String, bool, bool)>, now: f64) -> usize {
+    /// Drop the textures nothing has used for [`KEEP_UNUSED_SECS`](crate::release::KEEP_UNUSED_SECS):
+    /// counted from when the model or part that last held one went unused, where `hints`
+    /// says (release.rs [`ImageHints`](crate::release::ImageHints)).
+    pub fn release(&mut self, idle: &mut crate::release::Unused<(String, bool, bool)>, hints: &crate::release::ImageHints, now: f64) -> usize {
         use crate::release::{held_beyond, KEEP_UNUSED_MAX, KEEP_UNUSED_SECS};
+        let mut ids = HashMap::new();
         let entries: Vec<_> = [(false, &self.map), (true, &self.clamped)]
             .into_iter()
-            .flat_map(|(clamp, map)| map.iter().filter_map(move |((p, srgb), h)| h.as_ref().map(|h| ((p.clone(), *srgb, clamp), held_beyond(h, 1)))))
+            .flat_map(|(clamp, map)| map.iter().filter_map(move |((p, srgb), h)| h.as_ref().map(|h| ((p.clone(), *srgb, clamp), h))))
+            .map(|(k, h)| {
+                ids.insert(k.clone(), h.id());
+                (k, held_beyond(h, 1))
+            })
             .collect();
         self.ahead.retain(|_, (_, at)| now - *at < AHEAD_KEEP_SECS);
         self.workers.entries.lock().expect("worker textures").retain(|_, w| w.stored_at.is_none_or(|t| now - t < WORKER_KEEP_SECS));
-        let drop = idle.sweep(now, entries, KEEP_UNUSED_SECS, KEEP_UNUSED_MAX);
-        for (p, srgb, clamp) in &drop {
+        let drop = idle.sweep_timed(now, entries, KEEP_UNUSED_SECS, KEEP_UNUSED_MAX, |k| ids.get(k).and_then(|&id| hints.since(id)));
+        for ((p, srgb, clamp), _) in &drop {
             (if *clamp { &mut self.clamped } else { &mut self.map }).remove(&(p.clone(), *srgb));
         }
         self.generation += u64::from(!drop.is_empty());
