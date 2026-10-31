@@ -10129,7 +10129,7 @@ forbid = [{ re = 'falls: 0x00000014 (left|right) leg condition', label = "god mo
 [[scenario]]
 name = "falls-player-leg"
 source = "issues #1129 (a fall hurts one leg by half its damage, crippling it on big falls; capture o6_00) and #1104 (no sound on fall damage): docs/spec-notes/physics.md §6.12, audio.md §14.2"
-note = "No god mode in Goodsprings: at 6 s the console raises the player's health to 6,000, at 8 s it puts the player about 1,500 units up; the landing (about 1,850 damage) plays FSTLandHardLight (the player wears no heavy armour), takes the health and cripples one leg (half the damage, over its 100 points)"
+note = "No god mode in Goodsprings: at 6 s the console raises the player's health to 6,000, at 8 s it puts the player about 1,850 units up; the landing (about 3,200 damage) plays FSTLandHardLight (the player wears no heavy armour), takes the health and cripples one leg (half the damage, over its 100 points)"
 areas = ["physics", "combat", "audio"]
 paths = ["engine/nvf-play/src/falls.rs", "engine/nvf-play/src/player.rs", "crates/fnv-game/src/combat.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "6:player.setav health 6000;6.3:close;8:player.setpos z 10200;8.3:close" }
