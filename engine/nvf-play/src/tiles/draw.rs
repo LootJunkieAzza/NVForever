@@ -795,15 +795,45 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
                     drawn.told_menu = Some(menu);
                 }
                 // The menu's fonts were loaded by this frame's writes (`super::menus`, before
-                // scripts); a font a script brings in meanwhile draws from the next frame.
-                let measured = |font: f64, text: &str, wrap: Option<f64>| kit.face(font).map_or((0.0, 0.0), |face| measure(&face.font, text, wrap));
-                pieces(ui, menu, &measured, Select::Whole { kept: &[], strip: None }).0
+                // scripts). A text piece in a font not loaded yet (a script brought it in
+                // meanwhile) has it loaded here and the pieces worked out again, so no text is
+                // set out or spawned without its face (`unloaded_fonts`).
+                let select = Select::Whole { kept: &[], strip: None };
+                let set_out = |kit: &FontKit| {
+                    let measured = |font: f64, text: &str, wrap: Option<f64>| kit.face(font).map_or((0.0, 0.0), |face| measure(&face.font, text, wrap));
+                    pieces(ui, menu, &measured, select).0
+                };
+                let first = set_out(&kit);
+                let missing = unloaded_fonts(&first, |f| kit.fonts.faces.contains_key(&f));
+                if missing.is_empty() {
+                    first
+                } else {
+                    for f in missing {
+                        kit.load(f64::from(f));
+                    }
+                    set_out(&kit)
+                }
             }
             None => Vec::new(),
         };
         paint(&mut commands, drawn, pieces, scale, z, heading, ui, &mut kit, &mut nodes);
     }
     hud(&mut commands, &script, &view, &mut kit, &mut drawn, &mut nodes, scale, heading);
+}
+
+/// The fonts of `pieces`' texts that are not loaded (`loaded` says which are), each once:
+/// what [`draw`] loads before painting a menu, so a text is never spawned without its face
+/// (a piece spawned without it would stay empty: an unchanged piece is not spawned again).
+pub fn unloaded_fonts(pieces: &[Piece], loaded: impl Fn(u8) -> bool) -> Vec<u8> {
+    let mut out = Vec::new();
+    for p in pieces {
+        if let Look::Text { font, .. } = &p.look {
+            if !loaded(*font) && !out.contains(font) {
+                out.push(*font);
+            }
+        }
+    }
+    out
 }
 
 /// The HUD's pieces (T5's mods' tiles, or with `[UI] TileMenus=HUDMainMenu` the whole menu)
@@ -1066,6 +1096,26 @@ mod tests {
         ui.load_menu(&src, "hud.xml").unwrap();
         ui.update();
         (ui, src)
+    }
+
+    #[test]
+    fn a_text_whose_font_comes_late_is_set_out_once_its_face_is_there() {
+        // Review of T15a's font dedupe: a script's text in a font the writes did not load.
+        let src = MemSource::default().with(
+            "m.xml",
+            r#"<menu name="M"><text name="A"><font>2</font><string>Hi</string></text><text name="B"><font>8</font><string>Late</string></text></menu>"#,
+        );
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "m.xml").unwrap();
+        ui.update();
+        let (set, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &[], strip: None });
+        // Font 2 loaded, font 8 not: font 8 is to load before painting.
+        let mut loaded = vec![2u8];
+        assert_eq!(unloaded_fonts(&set, |f| loaded.contains(&f)), vec![8]);
+        // Once loaded, nothing is missing: the text piece spawns with its face.
+        loaded.push(8);
+        assert!(unloaded_fonts(&set, |f| loaded.contains(&f)).is_empty());
+        assert!(set.iter().any(|p| matches!(&p.look, Look::Text { font: 8, string, .. } if string == "Late")));
     }
 
     #[test]
