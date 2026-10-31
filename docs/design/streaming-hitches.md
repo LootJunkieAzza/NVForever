@@ -201,7 +201,9 @@ uGridsToLoad=5).
     them finished [observed: per-bake timing in a build of f28edbaa,
     target/stress/tour/diag-52, private]. The archive lock (`fnv_vfs::Vfs::read` holds an
     archive's mutex while it inflates) was ruled out: 12 waits over 5 ms in that lap
-    [observed].
+    [observed]. Since #997 the mutex covers only the seek and read of the stored bytes
+    and the inflate runs after it is let go (`Archive::read_stored`, `StoredBlock::decode`);
+    the waits were not measured again.
   - **What changed.** Bakes run on two threads of their own at the lowest thread priority
     (`lodgen::Baker`, `lod.rs` `BAKE_THREADS`), off the async compute pool, so pipeline
     compiles, FaceGen tints and actor part reads never queue behind them, and they only

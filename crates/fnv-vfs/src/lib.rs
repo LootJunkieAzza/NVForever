@@ -276,9 +276,15 @@ impl Vfs {
         Some(match *self.index.get(&key)? {
             Location::Loose => std::fs::read(self.data_dir.join(&self.loose[&key])),
             Location::Archive { archive, folder, file } => {
-                let mut a = self.archives[archive].1.lock().unwrap_or_else(|p| p.into_inner());
-                let r = a.folders[folder].files[file].clone();
-                a.extract(&r).map_err(std::io::Error::other)
+                // The lock covers only the seek and read of the stored bytes; inflating
+                // happens after it is let go, so workers reading the same archive do not
+                // queue behind each other's decompression (#997).
+                let stored = {
+                    let mut a = self.archives[archive].1.lock().unwrap_or_else(|p| p.into_inner());
+                    let r = a.folders[folder].files[file].clone();
+                    a.read_stored(&r)
+                };
+                stored.and_then(|b| b.decode()).map_err(std::io::Error::other)
             }
         })
     }
@@ -404,6 +410,53 @@ mod tests {
         assert_eq!(broken, ["Broken.bsa", "Missing.bsa"]);
         assert!(vfs.broken_archives()[0].1.contains("0 bytes"), "{:?}", vfs.broken_archives());
         assert!(vfs.exists("meshes/a.nif"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Files read through the VFS from an archive (compressed or not, names embedded or
+    /// not) decode to the bytes stored, also when many threads read one archive at once.
+    #[test]
+    fn archive_reads_decode_the_same_bytes_from_many_threads() {
+        use fnv_bsa::{encode_block, flags, write_archive, WriteFile, WriteFolder, SIZE_COMPRESSION_TOGGLE};
+        let dir = std::env::temp_dir().join(format!("nvf-vfs-bsa-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let contents: Vec<Vec<u8>> = (0..24u32).map(|i| (0..(i * 997 + 3)).map(|j| (j * 31 + i) as u8).collect()).collect();
+        for (n, embed) in [("Plain.bsa", false), ("Named.bsa", true)] {
+            let files = contents
+                .iter()
+                .enumerate()
+                .map(|(i, c)| {
+                    let name = format!("f{i}.nif").into_bytes();
+                    let path = format!("meshes\\t\\f{i}.nif").into_bytes();
+                    // Every other file compressed: the toggle against an uncompressed default.
+                    let compress = i % 2 == 0;
+                    WriteFile {
+                        name,
+                        size_flag_bits: if compress { SIZE_COMPRESSION_TOGGLE } else { 0 },
+                        data: encode_block(c, compress, embed.then_some(&path[..])),
+                    }
+                })
+                .collect();
+            let mut bytes = Vec::new();
+            let archive_flags = flags::DIR_NAMES | flags::FILE_NAMES | if embed { flags::EMBED_FILE_NAMES } else { 0 };
+            write_archive(&mut bytes, archive_flags, 0x1, 0, &[WriteFolder { name: b"meshes\\t".to_vec(), files }]).unwrap();
+            std::fs::write(dir.join(n), &bytes).unwrap();
+        }
+        for n in ["Plain.bsa", "Named.bsa"] {
+            let vfs = Vfs::open(&dir, &[n.to_string()]).unwrap();
+            assert_eq!(vfs.source_of("meshes\\t\\f0.nif"), Some(n));
+            std::thread::scope(|s| {
+                for t in 0..8 {
+                    let (vfs, contents) = (&vfs, &contents);
+                    s.spawn(move || {
+                        for k in 0..contents.len() * 4 {
+                            let i = (k * 7 + t) % contents.len();
+                            assert_eq!(vfs.read(&format!("meshes/t/f{i}.nif")).unwrap().unwrap(), contents[i], "{n} f{i}");
+                        }
+                    });
+                }
+            });
+        }
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
