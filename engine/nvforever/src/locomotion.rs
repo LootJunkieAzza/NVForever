@@ -482,6 +482,8 @@ pub struct Locomotion {
     /// The idle under the movement clips ([`UNDER_LAYER`]): creatures only.
     pub idle_under: bool,
     under: Under,
+    /// Times "moves with no movement clip" was logged for this actor (once).
+    clipless_logged: u8,
 }
 
 /// [`Locomotion::layers`]' slot for the set's idle laid under a movement clip, at a
@@ -533,7 +535,7 @@ fn drives_more(idle: &BoundClip, other: &BoundClip) -> bool {
 
 impl Locomotion {
     pub fn new(set: Arc<ClipSet>, phase: f32) -> Locomotion {
-        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), prev_set: None, velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, hurt_alert: None, sneaking: false, limping: false, swim: None, swimming: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0, in_air: false, jump: Default::default(), armed: None, armed_on: false, armed_logged: Vec::new(), idle_under: false, under: Under::default() }
+        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), prev_set: None, velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, hurt_alert: None, sneaking: false, limping: false, swim: None, swimming: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0, in_air: false, jump: Default::default(), armed: None, armed_on: false, armed_logged: Vec::new(), idle_under: false, under: Under::default(), clipless_logged: 0 }
     }
 
     /// The standing set now (kNVSE's SetActorAnimationPath swaps it, anim_paths.rs).
@@ -651,7 +653,7 @@ impl Locomotion {
         };
         let fade_time = to.map_or(0.0, |t| t.blend_time);
         let fading = from.is_some() && fade_time > 0.0;
-        self.blend = Blend { cur: Slot { mv, phase, rate: cur.rate }, prev: fading.then_some(cur), fade: 0.0, fade_time };
+        self.blend = Blend { cur: Slot { mv, phase, rate: cur.rate }, prev: fading.then_some(cur), fade: 0.0, fade_time, set_off_at_once: self.blend.set_off_at_once };
         self.prev_set = fading.then_some(old);
     }
 
@@ -852,6 +854,12 @@ pub struct ActorAnimCost {
     /// Frames in which an actor's idle was laid under another clip ([`UNDER_LAYER`]),
     /// summed over actors.
     pub under_frames: u64,
+    /// Frames in which an actor moved (at least `STAND_SPEED`) with no movement clip
+    /// showing: drawn on its idle, or under a clip that keys its legs over the walk (a
+    /// creature's whole-body blow), summed over actors (issue #1073: the slide).
+    pub clipless_frames: u64,
+    /// Frames in which a creature's blow showed on its head and neck only, over its run.
+    pub head_blow_frames: u64,
     pub peak: usize,
 }
 
@@ -867,6 +875,7 @@ type ActorAnimParts = (
     Option<&'static mut crate::attack_anims::CombatPose>,
     Option<&'static mut crate::creature_stance::CreatureStance>,
     Option<&'static Name>,
+    Option<&'static crate::talk_clips::TalkClip>,
 );
 
 /// Choose, blend and pose every actor with a [`Locomotion`], with its weapon clips
@@ -881,7 +890,7 @@ pub fn drive(
     let t0 = std::time::Instant::now();
     let (dt, now) = (time.delta_secs(), time.elapsed_secs());
     let mut n = 0;
-    for (mut lo, mut player, weapon, dying, flinch, seated, idle, pose, creature, name) in &mut actors {
+    for (mut lo, mut player, weapon, dying, flinch, seated, idle, pose, creature, name, talk) in &mut actors {
         if let Some(mut d) = dying {
             // Dead: the death pose to its end and held; without one the pose stays.
             let Some(clip) = d.clip.clone() else { continue };
@@ -959,13 +968,33 @@ pub fn drive(
                 player.layers[3] = Some(Layer { clip: f.clip.clone(), phase: t / len, weight: 1.0 });
             }
         }
-        // A fighter's aim and attack (`attack_anims.rs`) over all of it.
+        // A fighter's aim and attack (`attack_anims.rs`) over all of it; a creature's blow
+        // shows on its head and neck while it moves.
+        let moving = lo.velocity[0].hypot(lo.velocity[1]) >= fnv_actor::locomotion::STAND_SPEED;
         if let Some(mut p) = pose {
+            p.moving = moving;
             p.layers(&mut player, drawn, dt);
+            if moving {
+                let blow = p.attack.as_ref().filter(|a| a.melee && player.layers[crate::attack_anims::ATTACK_LAYER].is_some());
+                if blow.is_some_and(|a| a.head_blow == Some(true)) {
+                    cost.head_blow_frames += 1;
+                }
+            }
+        }
+        if moving && !lo.hold && !lo.blend.cur.mv.is_moving() && lo.blend.prev.is_none_or(|p| !p.mv.is_moving()) && lo.jump_clip().is_none() {
+            cost.clipless_frames += 1;
+            if lo.clipless_logged < 1 {
+                lo.clipless_logged += 1;
+                info!("actor moves with no movement clip: {} at {:.0} units/s, {:?} playing", name.map_or("actor", |n| n.as_str()), lo.velocity[0].hypot(lo.velocity[1]), lo.blend.cur.mv);
+            }
         }
         // A stimpak's upper-body idle over the fight's pose too (`npc_stimpaks.rs`).
         if let Some(i) = idle.filter(|i| i.over_pose()) {
             i.layers(&mut player);
+        }
+        // A robot's `Talking` while it says a line (`talk_clips.rs`).
+        if let Some(t) = talk {
+            t.layers(&mut player);
         }
         let layers = player.layers.iter().flatten().count() as u64;
         cost.layer_frames += layers;

@@ -73,7 +73,9 @@
 //!   ahead of its collision and slid back at the end [observed in NVForever: owner
 //!   2026-10-30, #1069]. Other blows, shots, reloads and block reactions do not carry
 //!   [design: carried, the dogs' standing power attack (187 units) left them biting from
-//!   37 units, against the original's median 133 (smoke `combat-dogs`)].
+//!   37 units, against the original's median 133 (smoke `combat-dogs`)]. A biter (dog,
+//!   coyote) never carries: it bites on the move with its head-only clip and its walk
+//!   carries it [design: the walk wins, review of #1209].
 //! - **Shots take priority over movement** [design: owner 2026-10-19, "shooting should
 //!   always take priority"]: a shot's clip does not fade out at its end but is held at its
 //!   last frame at full weight for [`SHOT_HOLD`] while the fight goes on, then fades out,
@@ -287,6 +289,31 @@ pub struct Attack {
     pub melee: bool,
     /// Seconds into the clip of its `Hit` key (a blow's strike); shots leave at the start.
     pub hit: f32,
+    /// A biter's blow on its head and neck only ([`head_only`]), played when the blow
+    /// begins while the creature moves.
+    pub on_the_move: Option<Arc<BoundClip>>,
+    /// Whether this blow shows head and neck only: decided in its first frame (whether
+    /// the creature moved then) and kept for the whole blow, so the pose does not snap
+    /// when the creature stops or sets off mid-blow.
+    pub head_blow: Option<bool>,
+}
+
+/// Whether a creature's bone is of its head or neck (the jaw, tongue, ears, muzzle and
+/// eyelids below the head) [observed: the dog skeleton's names in `h2hattackleft.kf`:
+/// `Bip01 Neck`…`Neck2`, `Bip01 Head`, `Head Muzzle`, `Head1 Jaw`, ` Bip01 Head11
+/// TungeControler`, `Bip01 Ponytail…` (the ears and tongue), `Head2 Eyeleds`].
+fn head_or_neck(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    ["head", "neck", "ponytail", "jaw", "tunge", "tongue"].iter().any(|k| n.contains(k))
+}
+
+/// `bound` without the tracks of a creature's body and legs: what of a blow shows over
+/// its run while it moves (actors.md §8.10, "The slide") [design]. `None` when the
+/// clip keys none of the head or all of the bones are head ones.
+pub fn head_only(bound: &BoundClip, names: &[Option<String>]) -> Option<BoundClip> {
+    let head = |i: usize| names.get(i).and_then(|n| n.as_deref()).is_some_and(head_or_neck);
+    let tracks: Vec<_> = bound.tracks.iter().filter(|(i, _, _)| head(*i)).cloned().collect();
+    (!tracks.is_empty() && tracks.len() < bound.tracks.len()).then(|| BoundClip { clip: bound.clip.clone(), tracks, root: None, root_track: None, carried: None })
 }
 
 impl Attack {
@@ -362,6 +389,9 @@ pub struct CombatPose {
     /// pose after the fight.
     pub fighting: bool,
     pub attack: Option<Attack>,
+    /// The actor moves this frame (`locomotion::drive` sets it before [`CombatPose::layers`]):
+    /// a creature's blow shows on its head and neck only.
+    pub moving: bool,
     /// A shot's clip that has played out, held at its last frame (module notes): with
     /// its up and down forms and the seconds since it ended.
     pub held: Option<HeldShot>,
@@ -496,7 +526,10 @@ impl CombatPose {
         // A shot does not fade out at its end: it is held there (module notes).
         let fade = fade_in * if shot { 1.0 } else { ((a.len - a.t) / FADE_OUT).min(1.0) };
         let phase = (a.t / a.len.max(1e-3)).min(0.999);
-        player.layers[ATTACK_LAYER] = Some(Layer { clip: a.clip.clone(), phase, weight: fade });
+        let moving = self.moving;
+        let head = *a.head_blow.get_or_insert(a.on_the_move.is_some() && moving);
+        let clip = a.on_the_move.as_ref().filter(|_| head).unwrap_or(&a.clip);
+        player.layers[ATTACK_LAYER] = Some(Layer { clip: clip.clone(), phase, weight: fade });
         player.layers[ATTACK_LAYER + 1] = form_of(&a.up, &a.down).filter(|_| w > 1e-3).map(|clip| Layer { clip, phase, weight: w * fade });
     }
 
@@ -870,16 +903,22 @@ fn start(
             new_pose.held = None;
             clips.stats.followed += usize::from(follows);
             let fade_in = a.kind != Move::ReloadRound && !follows;
+            // Biters only: the creatures with an `h2h` movement set (dogs and coyotes; the
+            // cazador's and mirelurk king's blows are stings and claws, which the rule
+            // leaves whole, as every other creature's) [design].
+            let biter = creature && lo.is_some_and(|l| l.alert.is_some()) && !rig.skeleton.to_ascii_lowercase().contains("cazador") && !rig.skeleton.to_ascii_lowercase().contains("mirelurk");
             // A lunge's clip (a forward power attack) whose root travels carries its
-            // actor (module notes).
-            let clip = if a.melee && a.kind == Move::Attack && a.power == Some(Power::Forward) { clips.carried(&rig.skeleton, &path, &clip) } else { clip };
+            // actor (module notes); a biter bites on the move instead, its walk carrying
+            // it [design: the walk wins for dogs and coyotes].
+            let clip = if !biter && a.melee && a.kind == Move::Attack && a.power == Some(Power::Forward) { clips.carried(&rig.skeleton, &path, &clip) } else { clip };
             if let Some(far) = clip.carried.map(|_| clip.travel(0.0, len).length()) {
                 clips.stats.carried += 1;
                 if clips.stats.logged.insert(format!("carries {}", path.to_ascii_lowercase())) {
                     info!("attack anims: {path} carries its actor {far:.0} units (its root's travel)");
                 }
             }
-            new_pose.attack = Some(Attack { clip, up, down, t, len, repeat, since: 0.0, fade_in, reload: reloads, kind: a.kind, opening, melee: a.melee, hit });
+            let on_the_move = if biter && a.melee { head_only(&clip, &rig.skel.names).map(Arc::new) } else { None };
+            new_pose.attack = Some(Attack { clip, up, down, t, len, repeat, since: 0.0, fade_in, reload: reloads, kind: a.kind, opening, melee: a.melee, hit, on_the_move, head_blow: None });
         }
         match pose {
             Some(mut p) => *p = new_pose,
@@ -1056,7 +1095,7 @@ mod tests {
         let mut clip = nvf_assets::anim_play::Clip::from_controllers(Vec::new(), Vec::new(), Vec::new());
         clip.stop = 0.167;
         let clip = Arc::new(BoundClip::bind(Arc::new(clip), |_| None));
-        let shot = Attack { clip: clip.clone(), up: None, down: None, t: 0.0, len: 0.167, repeat: None, since: 0.0, fade_in: true, reload: false, kind: Move::Attack, opening: false, melee: false, hit: 0.0 };
+        let shot = Attack { clip: clip.clone(), up: None, down: None, t: 0.0, len: 0.167, repeat: None, since: 0.0, fade_in: true, reload: false, kind: Move::Attack, opening: false, melee: false, hit: 0.0, on_the_move: None, head_blow: None };
         let mut player = BlendPlayer::new(Vec::new(), Arc::new(Vec::new()));
         let mut pose = CombatPose { fighting: true, attack: Some(shot), ..Default::default() };
         let weight = |p: &BlendPlayer| p.layers[ATTACK_LAYER].as_ref().map_or(0.0, |l| l.weight);

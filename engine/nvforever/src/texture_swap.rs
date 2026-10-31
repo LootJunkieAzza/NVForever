@@ -36,7 +36,7 @@ pub struct TextureSwapPlugin;
 impl Plugin for TextureSwapPlugin {
     fn build(&self, app: &mut App) {
         // Before the fades step, which then copies a swapped material the same frame.
-        app.init_resource::<Swapped>().add_systems(Update, apply.before(nvf_play::PlaySet::Sync));
+        app.init_resource::<Swapped>().add_systems(Update, apply.before(nvf_play::PlaySet::Sync)).add_systems(Last, release_swapped);
     }
 }
 
@@ -47,6 +47,34 @@ pub(crate) struct Swapped {
     made: HashMap<(AssetId<NifMaterial>, String), Handle<NifMaterial>>,
     original: HashMap<AssetId<NifMaterial>, AssetId<NifMaterial>>,
     generation: u64,
+}
+
+impl Swapped {
+    /// The swapped copies held, for the stress census.
+    pub(crate) fn share(&self, materials: &Assets<NifMaterial>) -> nvf_assets::release::CacheShare {
+        let mut s = nvf_assets::release::CacheShare::default();
+        for h in self.made.values() {
+            s.material(materials, h, 1);
+        }
+        s
+    }
+}
+
+/// Every [`SWEEP_SECS`](nvf_assets::release::SWEEP_SECS), drop the swapped copies no mesh
+/// wears (its reference unloaded or was swapped again), with their originals' entries, so
+/// the textures go with their models (issue #904). A reference drawn again is swapped
+/// again from the script's list.
+fn release_swapped(time: Res<Time<Real>>, mut swapped: ResMut<Swapped>, mut since: Local<f32>) {
+    *since += time.delta_secs();
+    if *since < nvf_assets::release::SWEEP_SECS {
+        return;
+    }
+    *since = 0.0;
+    let s = &mut *swapped;
+    if nvf_assets::release::retain_held(&mut s.made, 1) > 0 {
+        let kept: std::collections::HashSet<AssetId<NifMaterial>> = s.made.values().map(Handle::id).collect();
+        s.original.retain(|copy, _| kept.contains(copy));
+    }
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]

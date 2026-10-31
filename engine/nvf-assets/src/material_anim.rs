@@ -291,10 +291,15 @@ pub fn animate_rig_materials(mut rigs: Query<(&Playing, &mut RigMaterials)>, mut
 
 /// The values the playing layers of an actor give the materials of its shapes: for each
 /// (shape, member) the layer with the most weight that drives it [design: a material is
-/// not blended as bones are; the strongest clip's value is the one drawn]. `out` gets
-/// (shape, target, value) and is cleared first; shapes are named as the clips name them.
+/// not blended as bones are; the strongest clip's value is the one drawn], and of layers
+/// as strong the track of the higher priority (a robot's `Talking` at 85 over its idle's
+/// 0 on the chest light, `talk_clips.rs` in nvforever; docs/spec-notes/lipsync.md §6.1).
+/// `out` gets (shape, target, value, weight) and is cleared first; shapes are named as
+/// the clips name them.
 pub fn actor_material_values<'a>(player: &'a BlendPlayer, out: &mut Vec<(&'a str, MaterialTarget, [f32; 3], f32)>) {
     out.clear();
+    // The priority of each entry of `out`, in its order.
+    let mut priorities: Vec<i32> = Vec::new();
     for layer in player.layers.iter().flatten().filter(|l| l.weight > 0.0) {
         let bc = &layer.clip;
         if bc.clip.materials.is_empty() {
@@ -303,10 +308,16 @@ pub fn actor_material_values<'a>(player: &'a BlendPlayer, out: &mut Vec<(&'a str
         let time = cycle_time(bc.time_at(layer.phase), bc.clip.start, bc.clip.stop, bc.clip.cycle_type);
         for tr in &bc.clip.materials {
             let Some(v) = tr.values.at(tr.cycle.map_or(time, |c| c.time(time - bc.clip.start))) else { continue };
-            match out.iter_mut().find(|(s, t, ..)| *t == tr.target && s.eq_ignore_ascii_case(&tr.shape)) {
-                Some(e) if e.3 >= layer.weight => {}
-                Some(e) => *e = (tr.shape.as_str(), tr.target, v, layer.weight),
-                None => out.push((tr.shape.as_str(), tr.target, v, layer.weight)),
+            match out.iter().position(|(s, t, ..)| *t == tr.target && s.eq_ignore_ascii_case(&tr.shape)) {
+                Some(k) if (out[k].3, priorities[k]) >= (layer.weight, tr.priority) => {}
+                Some(k) => {
+                    out[k] = (tr.shape.as_str(), tr.target, v, layer.weight);
+                    priorities[k] = tr.priority;
+                }
+                None => {
+                    out.push((tr.shape.as_str(), tr.target, v, layer.weight));
+                    priorities.push(tr.priority);
+                }
             }
         }
     }
@@ -355,12 +366,14 @@ mod tests {
             target: MaterialTarget::SelfIllum,
             values: Arc::new(ValueTrack::Point3(Channel::Keys(keys(&[(0.0, [0.863; 3]), (2.0, [0.349; 3])])))),
             cycle: None,
+            priority: 0,
         };
         let notes = MaterialTrack {
             shape: "Music".into(),
             target: MaterialTarget::UvOffset(0),
             values: Arc::new(ValueTrack::Float(Channel::Keys(keys(&[(0.0, [2.0]), (8.0, [0.0])])))),
             cycle: None,
+            priority: 0,
         };
         let slots = [slot("JukeBox01:0"), slot("Music"), slot("Other")];
         let tracks = [glow, notes];
@@ -383,6 +396,7 @@ mod tests {
             target: MaterialTarget::Alpha,
             values: Arc::new(ValueTrack::Float(Channel::Keys(keys(&[(0.0, [1.0]), (0.033, [1.0])])))),
             cycle: None,
+            priority: 0,
         };
         let slots = [slot("windowEm01:0")];
         assert_eq!(sample(&slots, &[], 0.0, 0.0, false)[0].alpha, 0.0);
@@ -443,6 +457,7 @@ mod tests {
             target: MaterialTarget::UvOffset(axis),
             values: Arc::new(ValueTrack::Float(Channel::Keys(keys(&[(0.0, [0.0]), (stop, [1.0])])))),
             cycle: Some(crate::anim_play::OwnCycle { start: 0.0, stop, frequency: 1.0, phase: 0.0, cycle_type: 0 }),
+            priority: 0,
         };
         let tracks = [track(1, 36.666668), track(0, 44.1)];
         let clip = crate::anim_play::Clip::from_controllers(tracks.to_vec(), Vec::new(), Vec::new());
@@ -453,5 +468,38 @@ mod tests {
         let v = sample(&slots, &tracks, 5.9, 50.0, false)[0].uv;
         assert!((v[1] - 13.333332 / 36.666668).abs() < 1e-4, "{v:?}");
         assert!((v[0] - 5.9 / 44.1).abs() < 1e-4, "{v:?}");
+    }
+
+    #[test]
+    fn of_layers_as_strong_the_higher_priority_shows() {
+        // The Securitron's chest light `##VoiceBox_talk:0`: its idle holds it at 0 with
+        // priority 0, `Talking` lights it with priority 85 (lipsync.md §6.1).
+        use crate::anim_play::{BoundClip, Layer};
+        let clip = |v: f32, priority: i32| {
+            let track = MaterialTrack {
+                shape: "##VoiceBox_talk:0".into(),
+                target: MaterialTarget::SelfIllum,
+                values: Arc::new(ValueTrack::Point3(Channel::Keys(keys(&[(0.0, [v; 3]), (1.0, [v; 3])])))),
+                cycle: None,
+                priority,
+            };
+            let mut c = crate::anim_play::Clip::from_controllers(vec![track], Vec::new(), Vec::new());
+            c.materials[0].cycle = None;
+            Arc::new(BoundClip::bind(Arc::new(c), |_| None))
+        };
+        let (idle, talk) = (clip(0.0, 0), clip(0.15, 85));
+        let value = |a: &Arc<BoundClip>, wa: f32, b: &Arc<BoundClip>, wb: f32| {
+            let mut player = BlendPlayer::new(Vec::new(), Arc::new(Vec::new()));
+            player.layers[0] = Some(Layer { clip: a.clone(), phase: 0.5, weight: wa });
+            player.layers[1] = Some(Layer { clip: b.clone(), phase: 0.5, weight: wb });
+            let mut out = Vec::new();
+            actor_material_values(&player, &mut out);
+            assert_eq!(out.len(), 1);
+            out[0].2[0]
+        };
+        assert!((value(&idle, 1.0, &talk, 1.0) - 0.15).abs() < 1e-6);
+        assert!((value(&talk, 1.0, &idle, 1.0) - 0.15).abs() < 1e-6);
+        // A stronger layer still wins over a higher priority.
+        assert_eq!(value(&idle, 1.0, &talk, 0.5), 0.0);
     }
 }

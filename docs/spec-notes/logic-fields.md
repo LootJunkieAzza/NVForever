@@ -43,8 +43,8 @@ the ammo`.
   settings are in FalloutNV.esm: `fSpeechChallenge*`, `iSpeechChallengeDifficulty*`
   (Average 55), `fSpeechAutoSuccessThreshold` (0.9) [observed: `fnvtool esm decode`]. The
   lines always pass.
-- **INFO PNAM/TPIC and DIAL INOM/INOA order**: file order matches the masters (it
-  matters for mods only).
+- **INFO TPIC and DIAL INOM/INOA order**: file order matches the masters (it matters
+  for mods only). INFO PNAM is used for lines a later plugin adds (dialogue.md §3.1).
 - **QUST CNAM log entries**: there is no journal page that shows them.
 - **MESG "Auto Display"** (31 messages): the help messages it marks are shown by each
   menu already.
