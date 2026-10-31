@@ -318,7 +318,10 @@ engine if needed, and delete the item here.
     combat with the player; and it seems to reach every enemy in render distance. Ours
     matches the first two; its reach is the detection reach (5,000 units outdoors,
     perk_marks.rs), shorter than the loaded area (#1171). The owner's screenshot: distant
-    enemies at night look tinted red all over; Boone is not marked. Search and Mark (Rex) and
+    enemies at night look tinted red all over; Boone is not marked. Two more shots show
+    the red pulsing (faint, then strong) [observed], as the record says: edge pulse
+    amplitude 0.5 at 1 a second, edge fall-off 0.5 (EFSH 0x0015FF60), which ours plays
+    through effect-shaders.md's pulse rule. Search and Mark (Rex) and
     Enhanced Sensors (ED-E) are still open.
 
 ## Added 2026-10-25 (from the ESM-gap work)
