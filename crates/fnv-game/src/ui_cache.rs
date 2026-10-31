@@ -15,7 +15,7 @@
 use crate::game::Game;
 use crate::ui_functions::NOT_FOUND;
 use crate::ui_gradients::Owner;
-use crate::ui_more::{gradual, gradual_delay, num, opt, reveal, text, trait_name, yes};
+use crate::ui_more::{finite, finite_value, gradual, gradual_delay, num, opt, reveal, text, trait_name, yes};
 use fnv_script::vm::XVal;
 use fnv_ui::{TileId, Value};
 use std::collections::{BTreeMap, HashMap};
@@ -76,6 +76,7 @@ fn target(g: &mut Game, key: &str, index: i64, name: &str) -> Option<(TileId, St
 }
 
 /// A CacheUI function by lower-case name; `None` for any other.
+/// Float and range writes map non-finite inputs and addition results to 0 [hypothesis].
 pub(crate) fn call(g: &mut Game, lname: &str, args: &[XVal]) -> Option<Result<XVal, String>> {
     if lname.starts_with("cui") {
         return queue(g, lname, args).map(Ok);
@@ -107,8 +108,8 @@ pub(crate) fn call(g: &mut Game, lname: &str, args: &[XVal]) -> Option<Result<XV
                 let v = match base {
                     "cacheuistring" => Value::Str(text(a, 2)),
                     // [documented: CacheUIMod, "CUIM 0 "alpha" 10 Add 10 to alpha"]
-                    "cacheuimodfloat" => Value::Num(g.ui_tree.tile(t).get(&name).map_or(0.0, Value::num) + num(a, 2)),
-                    _ => Value::Num(num(a, 2)),
+                    "cacheuimodfloat" => Value::Num(finite_value(g.ui_tree.tile(t).get(&name).map_or(0.0, Value::num) + finite(a, 2))),
+                    _ => Value::Num(finite(a, 2)),
                 };
                 g.ui_tree.set_trait(t, &name, v);
                 yes(true)
@@ -124,13 +125,13 @@ pub(crate) fn call(g: &mut Game, lname: &str, args: &[XVal]) -> Option<Result<XV
         // taken, by whether the first argument is text [design].
         "cacheuirange" | "cacheuirangemod" => {
             let (name, s, e, v) = match a.first() {
-                Some(XVal::Str(_)) => (text(a, 0), num(a, 1), num(a, 2), num(a, 3)),
-                _ => (text(a, 2), num(a, 0), num(a, 1), num(a, 3)),
+                Some(XVal::Str(_)) => (text(a, 0), num(a, 1), num(a, 2), finite(a, 3)),
+                _ => (text(a, 2), num(a, 0), num(a, 1), finite(a, 3)),
             };
             let mut n = 0;
             for i in g.ui_extra.cache.indices_in(&key, s, e) {
                 if let Some((t, tr)) = target(g, &key, i, &name) {
-                    let v = if base == "cacheuirangemod" { g.ui_tree.tile(t).get(&tr).map_or(0.0, Value::num) + v } else { v };
+                    let v = if base == "cacheuirangemod" { finite_value(g.ui_tree.tile(t).get(&tr).map_or(0.0, Value::num) + v) } else { v };
                     g.ui_tree.set_trait(t, &tr, Value::Num(v));
                     n += 1;
                 }

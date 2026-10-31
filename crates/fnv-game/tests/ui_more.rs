@@ -1,6 +1,6 @@
 //! The rest of the tile functions (fnv_game::ui_more, ui_cache, ui_hudbar, ui_gradients;
-//! task T9), on an empty plugin and menu files written for the test (no game data, made-up
-//! text): docs/spec-notes/menu-xml.md §9.
+//! task T9), on a synthetic plugin and menu files written for the test (no game data,
+//! made-up text) [observed]: docs/spec-notes/menu-xml.md §9.
 
 mod common;
 
@@ -15,6 +15,10 @@ use fnv_sim::{FormId, FormStore, RefTable, SimConfig, World};
 use fnv_ui::{MemSource, Value};
 use serde_json::Value as Json;
 
+const BASE: u32 = 0x800;
+const CELL: u32 = 0x801;
+const REFERENCE: u32 = 0x802;
+
 struct Fixture {
     data: GameData,
     forms: FormStore,
@@ -22,7 +26,10 @@ struct Fixture {
 }
 
 fn fixture() -> Fixture {
-    let plugins = vec![Plugin::parse(&tes4(), "Empty.esm".into()).unwrap()];
+    let base = top(b"ACTI", &record(b"ACTI", 0, BASE, &[]));
+    let reference = record(b"REFR", 0, REFERENCE, &[sub(b"NAME", u32s(&[BASE])), sub(b"DATA", vec![0; 24])]);
+    let cell = top(b"CELL", &[record(b"CELL", 0, CELL, &[sub(b"DATA", vec![1, 0])]), group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &reference))].concat());
+    let plugins = vec![Plugin::parse(&[tes4(), base, cell].concat(), "Empty.esm".into()).unwrap()];
     let lo = LoadOrder::new(&plugins).unwrap();
     let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
     let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
@@ -96,10 +103,11 @@ fn string(g: &Game, path: &str) -> String {
     g.ui_tree.get_string(path).unwrap_or_default()
 }
 
-/// The engine's frame: the gradients stepped by `dt` seconds of real time, the tree worked out.
+/// The engine's frame: gradients, the tree, then attachment pruning [observed: tiles::update].
 fn frame(g: &mut Game, dt: f64) {
     g.ui_gradients.step(&mut g.ui_tree, dt);
     g.ui_tree.update();
+    fnv_game::ui_more::prune_attachments(g);
 }
 
 fn array(g: &Game, v: &XVal) -> Vec<(XKey, XVal)> {
@@ -222,12 +230,64 @@ fn attached_components_go_into_the_hud_root() {
 }
 
 #[test]
+fn attachments_replace_by_reference_node_and_rect_and_are_pruned_each_frame() {
+    let f = fixture();
+    let mut g = game(&f);
+    let reference = FormId(REFERENCE);
+    let cell = FormId(CELL);
+    g.loaded_cells.insert(cell);
+    let other = g.world.place(FormId(BASE), Some(cell), [0.0; 3], [0.0; 3], 1).unwrap();
+    let xml = r#"<rect name="Tag"><visible><copy src="parent()" trait="visible"/></visible><x>99</x></rect>"#;
+    run_on(&mut g, "AttachUIXML", Some(reference), &[s("Head"), s("menus/prefabs/mod/attach.xml")]);
+    let old = g.ui_extra.attached[0].tile;
+    run_on(&mut g, "AttachUIComponent", Some(reference), &[s("Head"), s(xml)]);
+    assert_eq!(g.ui_extra.attached.len(), 1);
+    assert!(!g.ui_tree.tile(old).live);
+    let replaced = g.ui_extra.attached[0].tile;
+    assert_eq!(g.ui_tree.tile(replaced).get("visible").unwrap().num(), 0.0);
+    assert_eq!(g.ui_tree.tile(replaced).get("x").unwrap().num(), 99.0);
+    run_on(&mut g, "AttachUIComponent", Some(reference), &[s("Arm"), s(xml)]);
+    run_on(&mut g, "AttachUIComponent", Some(other), &[s("Head"), s(xml)]);
+    run_on(&mut g, "AttachUIComponent", Some(reference), &[s("Head"), s("<rect name=\"Other\"/>")]);
+    assert_eq!(g.ui_extra.attached.len(), 4);
+    let hud = g.ui_tree.menu("HUDMainMenu").unwrap();
+    g.ui_tree.set_trait(hud, "visible", Value::Num(1.0));
+    frame(&mut g, 0.0);
+    assert_eq!(g.ui_extra.attached.len(), 4);
+    for a in &g.ui_extra.attached {
+        assert_eq!(g.ui_tree.tile(a.tile).get("visible").unwrap().num(), 0.0);
+    }
+    let gone: Vec<_> = g.ui_extra.attached.iter().filter(|a| a.reference == reference).map(|a| a.tile).collect();
+    g.world.get(reference).unwrap().deleted = true;
+    frame(&mut g, 0.0);
+    assert_eq!(g.ui_extra.attached.len(), 1);
+    assert!(gone.iter().all(|&t| !g.ui_tree.tile(t).live));
+    g.world.get(reference).unwrap().deleted = false;
+    g.world.get(reference).unwrap().enabled = false;
+    run_on(&mut g, "AttachUIComponent", Some(reference), &[s("Head"), s(xml)]);
+    frame(&mut g, 0.0);
+    assert_eq!(g.ui_extra.attached.len(), 1);
+    assert_eq!(g.ui_extra.attached[0].reference, other);
+    let remaining = g.ui_extra.attached[0].tile;
+    g.loaded_cells.clear();
+    frame(&mut g, 0.0);
+    assert!(g.ui_extra.attached.is_empty());
+    assert!(!g.ui_tree.tile(remaining).live);
+    run_on(&mut g, "AttachUIComponent", Some(FormId(0xdead)), &[s("Head"), s(xml)]);
+    frame(&mut g, 0.0);
+    assert!(g.ui_extra.attached.is_empty());
+}
+
+#[test]
 fn traits_added_and_value_and_element_types() {
     let f = fixture();
     let mut g = game(&f);
     assert_eq!(n(run(&mut g, "AddTraitToTile", &[s("TestMenu/Box"), s("_NewTrait"), x(5.0)])), 1.0);
     assert_eq!(float(&g, "TestMenu/Box/_NewTrait"), 5.0);
     assert_eq!(n(run(&mut g, "AddTraitToTile", &[s("TestMenu/Nope"), s("_t"), x(5.0)])), 0.0);
+    assert_eq!(n(run(&mut g, "AddTraitToTile", &[s("TestMenu/Box"), s(""), x(5.0)])), 0.0);
+    let tile = g.ui_tree.find_tile("TestMenu/Box").unwrap();
+    assert!(g.ui_tree.tile(tile).trait_index("").is_none());
     // 1 a number, 2 a string, 3 an action, -1 none.
     assert_eq!(n(run(&mut g, "GetUIValueType", &[s("TestMenu/Box/width")])), 1.0);
     assert_eq!(n(run(&mut g, "GetUIValueType", &[s("TestMenu/Box/Words/string")])), 2.0);
@@ -297,6 +357,117 @@ fn dump_tile_info_to_the_console_and_an_array() {
     assert!(entries.contains(&(XKey::Str("string".into()), s("abc"))));
     let none = run(&mut g, "DumpTileInfoToArray", &[s("TestMenu/Nope")]);
     assert!(array(&g, &none).is_empty());
+}
+
+#[test]
+fn dump_tile_info_flushes_only_when_argument_one_names_the_hud() {
+    use fnv_game::ui_hud::{self, Shown, Texts};
+    let f = fixture();
+    let mut g = game(&f);
+    let texts = Texts {
+        radiation_word: String::new(), radiation_value: String::new(),
+        xp_label: String::new(), xp_level_up: String::new(),
+        needs: Default::default(), sneak: None, prompt_key: None, prompt_verb: None,
+        frame: Default::default(),
+    };
+    ui_hud::defer(&mut g, Shown { root: true, ..Default::default() }, texts, None);
+    run(&mut g, "DumpTileInfo", &[x(0.0), s("TestMenu/Box")]);
+    assert!(g.ui_hud_pending.is_some());
+    assert!(!g.ui_used);
+    g.console_out.clear();
+    run(&mut g, "DumpTileInfo", &[x(0.0), s("HUDMainMenu")]);
+    assert!(g.ui_hud_pending.is_none());
+    assert!(g.ui_used);
+    assert!(g.console_out.iter().any(|line| line == "[ visible ] : 1.000000"));
+}
+
+/// Compiles and runs a query through the VM and `nvse::call` [observed: Game::run_query].
+fn query(g: &mut Game, body: &str) -> XVal {
+    g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).expect("the query runs")
+}
+
+#[test]
+fn compiled_scripts_dispatch_each_t9_family_to_the_host() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(query(&mut g, "SetUIFloatGradual \"TestMenu/Box/width\" 0 100 2\nSetFunctionValue (GetUIFloatGradualActiveForTileTrait \"TestMenu/Box/width\")"), x(1.0));
+    frame(&mut g, 1.0);
+    assert_eq!(float(&g, "TestMenu/Box/width"), 50.0);
+    assert_eq!(query(&mut g, "CacheUI 0 \"TestMenu/Box\"\nCacheUIFloat 0 \"alpha\" 42\nSetFunctionValue (CacheUIGetFloat 0 \"alpha\")"), x(42.0));
+    assert_eq!(float(&g, "TestMenu/Box/alpha"), 42.0);
+    assert_eq!(query(&mut g, "HudBarCreate \"VMBar\" 12 34 0\nHudBarSetAlpha \"VMBar\" 0 77\nSetFunctionValue (HudBarExists \"VMBar\")"), x(1.0));
+    let path = g.ui_extra.bars.list[0].path();
+    assert_eq!(float(&g, &format!("{path}/Meter/alpha")), 77.0);
+    assert_eq!(query(&mut g, "SetFunctionValue (SortUIListBox \"TestMenu/List\" \"#_value\")"), x(1.0));
+    assert_eq!(float(&g, "TestMenu/List/item:0/_y"), 0.0);
+    assert_eq!(float(&g, "TestMenu/List/item:1/_y"), 20.0);
+    assert_eq!(float(&g, "TestMenu/List/item:2/_y"), 10.0);
+}
+
+#[test]
+fn numeric_trait_writes_sanitize_non_finite_values() {
+    let f = fixture();
+    let mut g = game(&f);
+    run(&mut g, "CacheUI", &[x(0.0), s("TestMenu/Box")]);
+    for bad in [x(f64::NAN), x(f64::INFINITY), x(f64::NEG_INFINITY), s("nan")] {
+        run(&mut g, "SetUIFloatMultiple", &[s("TestMenu/Box"), s("alpha"), bad.clone()]);
+        assert_eq!(float(&g, "TestMenu/Box/Pic/alpha"), 0.0);
+        run(&mut g, "AddTraitToTile", &[s("TestMenu/Box"), s("_finite"), bad.clone()]);
+        assert_eq!(float(&g, "TestMenu/Box/_finite"), 0.0);
+        run(&mut g, "CacheUIFloat", &[x(0.0), s("width"), bad.clone()]);
+        assert_eq!(float(&g, "TestMenu/Box/width"), 0.0);
+        run(&mut g, "CacheUIFloat", &[x(0.0), s("width"), x(10.0)]);
+        run(&mut g, "CacheUIModFloat", &[x(0.0), s("width"), bad.clone()]);
+        assert_eq!(float(&g, "TestMenu/Box/width"), 10.0);
+        run(&mut g, "CacheUIRange", &[s("width"), x(0.0), x(0.0), bad.clone()]);
+        assert_eq!(float(&g, "TestMenu/Box/width"), 0.0);
+        run(&mut g, "CacheUIRangeMod", &[x(0.0), x(0.0), s("width"), bad]);
+        assert_eq!(float(&g, "TestMenu/Box/width"), 0.0);
+    }
+    let tile = g.ui_tree.find_tile("TestMenu/Box").unwrap();
+    g.ui_tree.set_trait(tile, "width", Value::Str("nan".into()));
+    run(&mut g, "CacheUIModFloat", &[x(0.0), s("width"), x(1.0)]);
+    assert_eq!(float(&g, "TestMenu/Box/width"), 0.0);
+    run(&mut g, "CacheUIFloat", &[x(0.0), s("width"), x(f64::MAX)]);
+    run(&mut g, "CacheUIRangeMod", &[s("width"), x(0.0), x(0.0), x(f64::MAX)]);
+    assert_eq!(float(&g, "TestMenu/Box/width"), 0.0);
+}
+
+#[test]
+fn hud_bar_element_setters_sanitize_non_finite_values() {
+    let f = fixture();
+    let mut g = game(&f);
+    run(&mut g, "HudBarCreate", &[s("Finite"), x(f64::NAN), x(f64::INFINITY), x(0.0)]);
+    let path = g.ui_extra.bars.list[0].path();
+    assert_eq!(float(&g, &format!("{path}/x")), 0.0);
+    assert_eq!(float(&g, &format!("{path}/y")), 0.0);
+    for bad in [x(f64::NAN), x(f64::INFINITY), x(f64::NEG_INFINITY), s("nan")] {
+        for name in ["HudBarSetAlpha", "HudBarSetDepth", "HudBarSetIndent", "HudBarSetZoom", "HudBarSetSystemColor", "HudBarSetMeterTrait", "HudBarSetBarTrait"] {
+            assert_eq!(n(run(&mut g, name, &[s("Finite"), x(0.0), bad.clone()])), 1.0, "{name}");
+        }
+        for name in ["HudBarSetSize", "HudBarSetSizeAlt", "HudBarSetPos", "HudBarSetColor"] {
+            assert_eq!(n(run(&mut g, name, &[s("Finite"), x(0.0), bad.clone(), bad.clone(), bad.clone()])), 1.0, "{name}");
+        }
+        run(&mut g, "HudBarSetPos", &[s("Finite"), x(10.0), bad.clone(), bad.clone()]);
+        for k in 0..3 {
+            run(&mut g, "HudBarSetRotation", &[s("Finite"), x(0.0), x(f64::from(k)), x(15.0)]);
+            assert_eq!(n(run(&mut g, "HudBarSetRotation", &[s("Finite"), x(0.0), x(f64::from(k)), bad.clone()])), 1.0);
+        }
+        for k in 0..2 {
+            assert_eq!(n(run(&mut g, "HudBarSetTextTrait", &[s("Finite"), x(0.0), x(f64::from(k)), bad.clone()])), 1.0);
+        }
+        assert_eq!(g.ui_extra.bars.list[0].elements[0].rotate, [0.0; 3]);
+        assert_eq!(g.ui_extra.bars.list[0].elements[2].justify, Some(0.0));
+        for name in ["HudBarSetValueFloat", "HudBarSetValueMax", "HudBarSetValuePercentage"] {
+            assert_eq!(n(run(&mut g, name, &[s("Finite"), bad.clone()])), -1.0, "{name}");
+        }
+        assert_eq!(float(&g, &format!("{path}/Text/font")), 0.0);
+        for name in ["x", "y", "width", "height", "alpha", "depth", "zoom", "systemcolor", "red", "green", "blue"] {
+            assert_eq!(float(&g, &format!("{path}/Meter/{name}")), 0.0, "{name}");
+        }
+        assert_eq!(g.ui_extra.bars.list[0].bar_trait(0), 0.0);
+        assert_eq!(g.ui_extra.bars.list[0].meter[0], 0.0);
+    }
 }
 
 #[test]

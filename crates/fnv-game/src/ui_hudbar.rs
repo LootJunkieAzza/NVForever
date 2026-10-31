@@ -15,7 +15,7 @@
 //! nothing until it does.
 
 use crate::game::Game;
-use crate::ui_more::{num, opt, text};
+use crate::ui_more::{finite, num, opt, text};
 use fnv_script::vm::{ArrayKind, XKey, XVal};
 use fnv_ui::{MemSource, Source, TileId, Value};
 use std::collections::BTreeMap;
@@ -302,6 +302,8 @@ fn debug_lines(b: &Bar) -> Vec<String> {
 
 /// A HudBar function by lower-case name; `None` for any other (and for
 /// HudBarSetValueScriptVar and HudBarSetValueUDF, not built).
+/// Creation positions and element/bar/meter/text setters map non-finite numbers to 0;
+/// value, max and percentage setters refuse them with -1 [hypothesis: defensive rules].
 pub(crate) fn call(g: &mut Game, lname: &str, args: &[XVal]) -> Option<Result<XVal, String>> {
     if !lname.starts_with("hudbar") {
         return None;
@@ -327,7 +329,7 @@ pub(crate) fn call(g: &mut Game, lname: &str, args: &[XVal]) -> Option<Result<XV
     };
     let imgs: &[i64] = &[0, 1, 3, ALL];
     let every: &[i64] = &[0, 1, 2, 3, ALL];
-    let (a2, a3, a4) = (num(args, 2), num(args, 3), num(args, 4));
+    let (a2, a3, a4) = (finite(args, 2), finite(args, 3), finite(args, 4));
     Some(Ok(match lname {
         // `name x y type`; false when the plugin has a bar of the name or the type is
         // not one of 0-5 [hypothesis].
@@ -342,8 +344,8 @@ pub(crate) fn call(g: &mut Game, lname: &str, args: &[XVal]) -> Option<Result<XV
                 name,
                 id: g.ui_extra.bars.seq,
                 kind: kind as u8,
-                x: num(args, 1),
-                y: num(args, 2),
+                x: finite(args, 1),
+                y: finite(args, 2),
                 shown: false,
                 elements: [Element::new(0), Element::new(1), Element::new(2), Element::new(3)],
                 texts: Default::default(),

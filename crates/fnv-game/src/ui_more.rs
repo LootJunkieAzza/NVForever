@@ -68,9 +68,13 @@ pub(crate) fn num(args: &[XVal], k: usize) -> f64 {
 }
 
 /// A number argument that must be a real number: a NaN or an infinity (a script's bad
-/// arithmetic) reads as 0, so it never gets into a trait or a change's time [design].
+/// arithmetic) reads as 0 [hypothesis: defensive rule for numeric trait writes and times].
 pub(crate) fn finite(args: &[XVal], k: usize) -> f64 {
-    let v = num(args, k);
+    finite_value(num(args, k))
+}
+
+/// Non-finite numeric inputs and arithmetic results become 0 [hypothesis].
+pub(crate) fn finite_value(v: f64) -> f64 {
     if v.is_finite() {
         v
     } else {
@@ -243,7 +247,7 @@ pub(crate) fn emit(g: &mut Game, to_file: bool, lines: Vec<String>) {
 }
 
 /// The key SortUIListBox sorts an item by.
-#[derive(Clone, Debug, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, PartialEq)]
 enum SortKey {
     Num(f64),
     Text(String),
@@ -285,7 +289,7 @@ pub fn bare_item_name(name: &str) -> String {
 /// destination value the items had, so the list stays where it was; alphabetic keys
 /// ignore case; a key an item lacks reads 0 or empty; equal items keep their order; the
 /// children are not reordered (the page names only a trait to change). False when the
-/// path names no tile.
+/// path names no tile. Numeric keys use `total_cmp`, including NaN [hypothesis].
 pub fn sort_list_box(ui: &mut Ui, path: &str, spec: &str) -> bool {
     let Some(list) = ui.find_tile(path) else { return false };
     let mut parts = spec.split('$');
@@ -334,7 +338,11 @@ pub fn sort_list_box(ui: &mut Ui, path: &str, spec: &str) -> bool {
     let mut sorted: Vec<(TileId, Vec<SortKey>)> = items.iter().map(|&i| (i, key_of(ui, i))).collect();
     sorted.sort_by(|a, b| {
         for (k, spec) in keys.iter().enumerate() {
-            let o = a.1[k].partial_cmp(&b.1[k]).unwrap_or(std::cmp::Ordering::Equal);
+            let o = match (&a.1[k], &b.1[k]) {
+                (SortKey::Num(a), SortKey::Num(b)) => a.total_cmp(b),
+                (SortKey::Text(a), SortKey::Text(b)) => a.cmp(b),
+                _ => unreachable!("each key has one type"),
+            };
             let o = if spec.reverse { o.reverse() } else { o };
             if o != std::cmp::Ordering::Equal {
                 return o;
@@ -385,7 +393,8 @@ fn read_xml(src: &dyn Source, file: &str) -> Option<String> {
 
 /// AttachUIXML / AttachUIComponent: the XML into `HUDMainMenu`'s root, kept as attached to
 /// the reference's node; 1 on success [documented: AttachUIXML]. Without a calling
-/// reference, the HUD, or a single rect, 0.
+/// reference, the HUD, or a single rect, 0 [observed]. Replaces the same reference, node
+/// and rect name; hidden until node placement exists [hypothesis].
 fn attach(g: &mut Game, subject: Option<FormId>, node: &str, xml: &str) -> bool {
     const HUD: &str = "HUDMainMenu";
     let Some(reference) = subject else { return false };
@@ -405,11 +414,38 @@ fn attach(g: &mut Game, subject: Option<FormId>, node: &str, xml: &str) -> bool 
     let made = g.ui_tree.tile(hud).children.iter().copied().find(|c| !before.contains(c));
     match made {
         Some(tile) => {
+            let name = g.ui_tree.tile(tile).name.clone();
+            g.ui_extra.attached.retain(|a| {
+                if a.reference == reference && a.node == node && g.ui_tree.tile(a.tile).name == name {
+                    g.ui_tree.unload_tile(a.tile);
+                    false
+                } else {
+                    true
+                }
+            });
+            g.ui_tree.set_trait(tile, "visible", Value::Num(0.0));
             g.ui_extra.attached.push(Attachment { reference, node: node.to_string(), tile });
             true
         }
         None => false,
     }
+}
+
+/// Drops attachments to absent or unloaded references each frame, using `Game::present`
+/// and the loaded-cell check used by object scripts [observed: Game::active_refs].
+/// Keeps the survivors hidden until node placement exists [hypothesis].
+pub fn prune_attachments(g: &mut Game) {
+    let mut attached = std::mem::take(&mut g.ui_extra.attached);
+    attached.retain(|a| {
+        if !g.ui_tree.tile(a.tile).live || !g.present(a.reference) || !g.cell_of(a.reference).is_some_and(|c| g.loaded_cells.contains(&c)) {
+            g.ui_tree.unload_tile(a.tile);
+            false
+        } else {
+            g.ui_tree.set_trait(a.tile, "visible", Value::Num(0.0));
+            true
+        }
+    });
+    g.ui_extra.attached = attached;
 }
 
 /// The tree was built again (`crate::ui_loading`): the changes, the cache entries and
@@ -447,6 +483,7 @@ const TREE_FUNCTIONS: [&str; 16] = [
 /// The function `name` (any case) with its arguments; `None` when it is not one of these.
 pub fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
     let lname = name.to_ascii_lowercase();
+    let path_arg = if lname == "dumptileinfo" { 1 } else { 0 };
     // The HUD's kept-back writes are made first when the function touches the HUD (as
     // `crate::ui_functions` does): the HUD bars and the attachments always, a cached tile
     // (any menu's, the HUD's as a rule) [design], the path functions by their path; a
@@ -454,7 +491,7 @@ pub fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XVal]) ->
     let on_hud = lname.starts_with("hudbar")
         || lname.starts_with("cacheui")
         || matches!(lname.as_str(), "attachuixml" | "attachuicomponent" | "dumptileinfoall")
-        || (TREE_FUNCTIONS.contains(&lname.as_str()) && crate::ui_functions::on_hud(&text(args, 0)));
+        || (TREE_FUNCTIONS.contains(&lname.as_str()) && crate::ui_functions::on_hud(&text(args, path_arg)));
     if on_hud {
         g.ui_used = true;
         crate::ui_hud::flush(g);
@@ -514,10 +551,11 @@ pub fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XVal]) ->
         // [documented: SetUIFloatMultiple]. [hypothesis] Only tiles that have the trait
         // (as SetUIFloat makes none), not the named tile itself; the count changed is
         // returned [design: no return value is documented].
+        // Non-finite values become 0 [hypothesis: defensive rule, as `finite`].
         "setuifloatmultiple" => match g.ui_tree.find_tile(&path) {
             Some(root) => {
                 let trait_ = text(args, 1);
-                let v = num(args, 2);
+                let v = finite(args, 2);
                 let filter = opt(args, 3).map(|t| t as i64).filter(|&t| t != 0);
                 let mut stack: Vec<TileId> = g.ui_tree.tile(root).children.clone();
                 let mut n = 0;
@@ -551,12 +589,13 @@ pub fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XVal]) ->
         // [documented: AddTraitToTile]. The page allows only traits "which already has a
         // ID assign"; the original's trait ids are not known, so any name is taken
         // [hypothesis]. 1 when the tile is there [design: no return value is documented].
+        // Empty names are refused; non-finite values become 0 [hypothesis].
         "addtraittotile" => match g.ui_tree.find_tile(&path) {
-            Some(t) => {
-                g.ui_tree.set_trait(t, &text(args, 1), Value::Num(num(args, 2)));
+            Some(t) if !text(args, 1).trim().is_empty() => {
+                g.ui_tree.set_trait(t, &text(args, 1), Value::Num(finite(args, 2)));
                 yes(true)
             }
-            None => zero,
+            _ => zero,
         },
         // -1 when no value is there [documented: GetUIValueType notes].
         "getuivaluetype" => XVal::Num(g.ui_tree.find_trait(&path).map_or(-1.0, |(t, k)| value_type(&g.ui_tree, t, k) as f64)),
@@ -627,5 +666,38 @@ mod tests {
         assert!(single_rect("<rect name=\"A\"> <text name=\"B\"/> </rect>"));
         assert!(!single_rect("<rect name=\"A\"/> <rect name=\"B\"/>"));
         assert!(!single_rect("<image name=\"A\"/>"));
+    }
+
+    #[test]
+    fn numeric_sort_with_nan_keys_has_a_total_order() {
+        let mut xml = String::from("<menu name=\"List\">");
+        for k in 0..128 {
+            let n = 128 - (k * 37) % 128;
+            let key = if n % 4 == 0 { "nan".to_string() } else { n.to_string() };
+            xml.push_str(&format!("<rect name=\"Item{k}\"><_y>{k}</_y><height>1</height><string>{key}</string></rect>"));
+        }
+        xml.push_str("</menu>");
+        let src = MemSource::default().with("list.xml", &xml);
+        let mut ui = Ui::new();
+        let list = ui.load_menu(&src, "list.xml").unwrap();
+        ui.update();
+        let children = ui.tile(list).children.clone();
+        for &t in &children {
+            if ui.tile(t).get("string").unwrap().num().is_nan() {
+                ui.set_trait(t, "string", Value::Str("nan".into()));
+            }
+        }
+        for spec in ["#string", "-#string"] {
+            assert!(sort_list_box(&mut ui, "List", spec));
+            let mut placed = children.clone();
+            placed.sort_by_key(|&t| ui.tile(t).get("_y").unwrap().num() as i64);
+            let mut expected: Vec<String> = (1..128).filter(|n| n % 4 != 0).map(|n| n.to_string()).collect();
+            expected.extend(vec!["nan".to_string(); 32]);
+            if spec.starts_with('-') {
+                expected.reverse();
+            }
+            let keys: Vec<String> = placed.iter().map(|&t| ui.tile(t).get("string").unwrap().text()).collect();
+            assert_eq!(keys, expected);
+        }
     }
 }

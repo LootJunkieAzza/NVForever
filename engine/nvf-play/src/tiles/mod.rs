@@ -378,6 +378,7 @@ fn update(mut script: ResMut<ScriptState>, time: Res<Time<Real>>) {
             warn!("{line}");
         }
     }
+    fnv_game::ui_more::prune_attachments(&mut rt.game);
     // MenuTapKey's keys stay queued unless a menu takes tile input (`input::feed`) [design].
 }
 
