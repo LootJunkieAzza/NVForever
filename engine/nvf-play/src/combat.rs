@@ -1681,7 +1681,10 @@ struct DeathDrops {
 /// them]. The weapon falls as a disarmed one does (`WeaponBroken`): a reference in front
 /// of the body, out of its inventory. A weapon flagged "Can't Drop" stays with the body
 /// [documented: GECK wiki Weapon, "the weapon cannot be shot out from the hands of
-/// actors"; hypothesis: death too]. Only deaths seen in play count: an actor dead when it
+/// actors"; hypothesis: death too]. The dropped weapon stays lootable from the corpse:
+/// its loot menu lists the reference beside the body's own items and taking it there
+/// picks the one reference up (`RefState::dropped_by`; #1032) [hypothesis: the
+/// original's corpses list the weapon lying beside them; owner's report]. Only deaths seen in play count: an actor dead when it
 /// is drawn was never seen holding a weapon, so a corpse laid out by the game keeps its
 /// own (`Game::starts_dead`).
 fn death_drops(
@@ -1730,6 +1733,13 @@ fn death_drops(
         match dropped {
             Ok(refs) => {
                 stats.death_drops += 1;
+                // The corpse's loot menu lists it, and taking it there picks this
+                // reference up (`World::dropped_beside`, #1032).
+                for r in &refs {
+                    if let Ok(s) = sim.world.get(*r) {
+                        s.dropped_by = Some(actor);
+                    }
+                }
                 let dropped = refs.first().copied();
                 info!("combat: {actor} died: it drops its {} ({item}){} (iDeathDropWeaponChance {chance:.0})", item_name(&sim, item), dropped.map_or(String::new(), |r| format!(": reference {r}")));
                 broken.write(WeaponBroken { form_id: actor.0, weapon: item, dropped });

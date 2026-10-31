@@ -718,6 +718,12 @@ fn apply_input(
             info!("menu: dropped reference {id} (count {count}) at ({:.1}, {:.1}, {:.1})", at[0], at[1], at[2]);
             changed.write(RefChanged { form_id: id.0 });
         }
+        // A corpse's dropped weapon taken from its loot menu: picked up from the world,
+        // so its collision and drawing go (`model::Row::reference`).
+        for id in &a.picked {
+            info!("menu: picked up reference {id} lying beside the container");
+            changed.write(RefChanged { form_id: id.0 });
+        }
         if a.close {
             info!("menu: close");
             if *state.get() == PlayState::Menu {
