@@ -12,7 +12,8 @@
 //! caches hold the `Arc`). An unused entry stays for [`KEEP_UNUSED_SECS`] (a quick return
 //! through a door, a reload or the cell buffer's next cell finds it still prepared), and at
 //! most [`KEEP_UNUSED_MAX`] unused entries of each cache stay, the longest unused going
-//! first. Dropping the cache's handles lets Bevy free the assets; asking again prepares the
+//! first; both are the [`KeepLimits`] resource, which the game scales from the machine's
+//! RAM and GPU memory budget. Dropping the cache's handles lets Bevy free the assets; asking again prepares the
 //! file again. Remembered failures (`None`) are kept: they hold nothing.
 
 use crate::actor::ActorParts;
@@ -34,12 +35,28 @@ pub const KEEP_UNUSED_SECS: f64 = 300.0;
 /// around the loaded ones wait unused until those cells load, a few hundred at a time].
 pub const KEEP_UNUSED_MAX: usize = 2048;
 
+/// How long unused entries stay and how many each cache keeps: [`KEEP_UNUSED_SECS`] and
+/// [`KEEP_UNUSED_MAX`] unless the game sets them from the machine's memory (nvforever
+/// `memory_budget.rs`, #1170: less RAM or GPU memory keeps fewer for less long, and near
+/// the GPU budget the longest unused go first).
+#[derive(Resource, Clone, Copy, Debug, PartialEq)]
+pub struct KeepLimits {
+    pub secs: f64,
+    pub max: usize,
+}
+
+impl Default for KeepLimits {
+    fn default() -> Self {
+        KeepLimits { secs: KEEP_UNUSED_SECS, max: KEEP_UNUSED_MAX }
+    }
+}
+
 /// Adds the sweep (the game; the viewer keeps everything it loaded).
 pub struct AssetReleasePlugin;
 
 impl Plugin for AssetReleasePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Sweeps>().add_systems(Last, release_unused);
+        app.init_resource::<Sweeps>().init_resource::<KeepLimits>().add_systems(Last, release_unused);
     }
 }
 
@@ -280,6 +297,7 @@ fn release_unused(
     mut parts: Option<ResMut<ActorParts>>,
     mut textures: Option<ResMut<TextureCache>>,
     materials: Option<Res<Assets<crate::NifMaterial>>>,
+    limits: Option<Res<KeepLimits>>,
 ) {
     s.since += time.delta_secs();
     if s.since < SWEEP_SECS {
@@ -290,18 +308,19 @@ fn release_unused(
     let s = &mut *s;
     let none = Assets::default();
     let materials = materials.as_deref().unwrap_or(&none);
+    let keep = limits.as_deref().copied().unwrap_or_default();
     let mut dropped = [0usize; 4];
     // Models before textures: a dropped model's materials let go of their images, which
     // the texture sweep sees from the next sweep on, as unused since the model was.
     s.hints.prune(now);
     if let Some(m) = models.as_deref_mut() {
-        dropped[0] = m.release(&mut s.models, &mut s.hints, materials, now);
+        dropped[0] = m.release(&mut s.models, &mut s.hints, materials, now, keep);
     }
     if let Some(p) = parts.as_deref_mut() {
-        (dropped[1], dropped[2]) = p.release(&mut s.parts, &mut s.part_materials, &mut s.hints, materials, now);
+        (dropped[1], dropped[2]) = p.release(&mut s.parts, &mut s.part_materials, &mut s.hints, materials, now, keep);
     }
     if let Some(t) = textures.as_deref_mut() {
-        dropped[3] = t.release(&mut s.textures, &s.hints, now);
+        dropped[3] = t.release(&mut s.textures, &s.hints, now, keep);
     }
     if dropped.iter().any(|&n| n > 0) {
         debug!("assets released: {} models, {} actor parts, {} part materials, {} textures", dropped[0], dropped[1], dropped[2], dropped[3]);

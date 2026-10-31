@@ -218,7 +218,7 @@ actor.
 | Factions | `SNAM` list | `GameData::base_factions_at` | right; NVSE GetBaseNthFaction / GetBaseFactions read the record's own (#1057, needs a probe) |
 | Actor Effect List | `SPLO` abilities | `abilities.rs`, `combat.rs` | right; NVSE GetBaseSpellListSpells follows one step and gives nothing for a list template (#1057) |
 | AI Data | aggression, confidence, …, combat style, services, aggro radius | `def_following(template_ai)` | right |
-| AI Packages | `PKID` list | `GameData::base_package_list_at` | right; NVSE GetNthPackage / GetBasePackages follow the template only when the own list is empty, one step (#1057) |
+| AI Packages | `PKID` list | `GameData::base_package_list_at` | right; NVSE GetPackageCount / GetNthPackage / GetBasePackages follow an NPC template chain whenever the flag is set (`GameData::base_template_source`, #1057) |
 | Model/Animation | skeleton, head parts, FaceGen, creature models and animations, No Blood flags, movement flags, impact material, creature impact data set, creature sounds | `fnv_actor::resolve`, `GameData::no_blood`, `movement_def`, `GameData::model_base_at` | was wrong: impact material and impact data set read from the placed base (#1053), creature sounds took the picked creature's own list first (#1054); fixed |
 | Base Data | name, Essential, Respawn, No Low Level Processing, Invulnerable, Is Ghost, Not Pushable, head and limb flags, Can't Open Doors, Allow PC Dialogue | `base_data_def`, `display_base`, `minor_flags` | right; No VATS Melee is read from the record's own flags, as documented |
 | Inventory | `CNTO` | `inventory_sources_at`, `fnv_actor::resolve` | right (the engine's start-up and restore used level 1, #1055; fixed) |
@@ -286,6 +286,27 @@ paths**: trimmed, `/` → `\`, lower case, leading `\` removed, prefixed with `m
     NVDLC04UlyssesClass (load-order 0400A679), neither their own nor a list entry's
     (0x0008D370) [observed; not explained].
   - GetBaseSpellListSpells: an empty array on all five bases tried (none has own SPLO).
+  - Set tmpl1 [observed: 2026-10-31, same versions; 7 NPCs, 42 rows; posted on #1057]:
+    GetBaseNumFactions / GetBaseNthFaction / GetBaseNthRank / GetBaseSpellListSpells read
+    the record's own lists on every templated NPC tried, the template an NPC or a list
+    (e.g. VSpawnJackalFemale01NR: 0 factions, 0 spells). Class and race follow Use Traits
+    through NPC templates; the four whose Traits chain ends at a leveled list read class
+    NVDLC04UlyssesClass (LonesomeRoad.esm 0x0100A679) **and race** MarkedMenGhoul
+    (0x010083D7), neither their own (0x801 / 0x19) nor a list entry's. NVDLC04Ulysses is
+    the last NPC_ in the load order and carries that class; MarkedMenGhoul is the race of
+    the NPC_ before it, so it looks like a leftover of loading [hypothesis], not copied.
+  - Second set tmpl2 [observed: 2026-10-31, same versions; lab L5.ext.tmpl2]: with
+    Use AI Packages, GetBasePackages answers the template's `PKID` list even when the
+    record has one of its own: HVBrotherhoodOfSteelPaladinAAM 0x000E2960 (own 6) and
+    HVBrotherhoodOfSteelPaladinAM 0x000E2966 (own none) read the template's 5 (first
+    0x000E2968), FortChildHM 0x0011E507 (own 1) its template's 2, 1ESharecropperCF
+    0x000F6403 (own 5) its template's 3. GetRace on PrimmNCRTrooper3 0x00099D05 (Use
+    Traits from PrimmNCRTrooper1; own `RNAM` 0x424A) reads the template's 0x00000019.
+    No NPC_ in FalloutNV.esm takes Traits from an NPC with a class other than its own,
+    so GetClass through an NPC template is not observed. NVForever's base getters follow
+    such chains through NPC_ records only and keep the record's own data when the chain
+    reaches a leveled list (the original's list answers above match no record)
+    [hypothesis for the list case].
 - From the **Model/Animation** source: skeleton, hair, eyes, head parts, hair colour
   (`HCLR`, first three bytes), FaceGen arrays.
 - From the **Inventory** source: carried items (`CNTO` in record order).

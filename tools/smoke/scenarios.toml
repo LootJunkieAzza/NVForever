@@ -140,6 +140,20 @@ cmd = ["python", "-m", "unittest", "discover", "-s", "tools/stress/tests"]
 # ------------------------------------------------------------------ renderer, sky, image space
 
 [[scenario]]
+name = "memory-budget-capped"
+source = "#1170: the asset caches' keep limits follow the machine's RAM and the GPU's memory budget (VK_EXT_memory_budget); with the test aids capping the GPU budget at 512 MB, the limits go to their least (30 s, 128 per cache) and the flight over Goodsprings uses over 85 % of it (this process's use of the device-local heaps, VK_EXT_memory_budget), which presses the caches (they keep the least, 30 s and 128)"
+areas = ["renderer"]
+paths = ["engine/nvforever/src/memory_budget.rs", "engine/nvf-assets/src/release.rs"]
+env = { NVF_PLAY_TEST_VRAM_MB = "512" }
+args = ["--cell", "Goodsprings", "--auto-fly", "4000"]
+run_seconds = 40
+expect = [
+  { re = 'memory budget: RAM \d+ MB .*GPU budget 512 MB \(test aid; the device.s \d+ MB, VK_EXT_memory_budget, device-local heaps; this process uses \d+ MB', label = "the GPU budget read, then capped by the test aid" },
+  "caches keep unused models and textures 30 s, at most 128 per cache",
+  { re = 'memory budget: near a budget, caches pressed \(GPU: this process uses \d+ of 512 MB', label = "the flight's use of the device-local heaps near the 512 MB budget presses the caches" },
+]
+
+[[scenario]]
 name = "auto-fly"
 source = "CLAUDE.md: after renderer changes, the moving-camera smoke test (cell streaming and LOD rebuilds)"
 areas = ["renderer"]
@@ -597,7 +611,7 @@ expect = [
 
 [[scenario]]
 name = "observe-combat-comment"
-source = "GECK wiki Misc Tab: ObserveCombat is said by \"actors in 'spectator' mode -- watching a combat but not joining in\"; the package's Fallout behaviour Observe Combat allows it (fnv-ai social.rs, packages.md §7.7): a cazador fights the player (god mode) beside Easy Pete, who says one of his ObserveCombat lines (\"Look at 'em go!\" or \"Get 'em! Yeah!\")"
+source = "GECK wiki Misc Tab: ObserveCombat is said by \"actors in 'spectator' mode -- watching a combat but not joining in\"; the package's Fallout behaviour Observe Combat allows it (fnv-ai social.rs, packages.md §7.7): a cazador fights the player (god mode) beside Easy Pete, who says one of his ObserveCombat lines (\"Look at 'em go!\" or \"Get 'em! Yeah!\"); 300 units from the player in the fight, he runs from it (spectators \"run away if they get too close\" [documented: GECK wiki Packages], #960)"
 areas = ["ai", "dialogue"]
 paths = ["crates/fnv-ai/src/social.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:player:300:0:0,4:call:player:PlaceAtMe:NVCrCazador:1:600:0,4.5:combat:0xFF000000:player" }
@@ -605,6 +619,8 @@ args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--
 run_seconds = 25
 expect = [
   { re = 'EasyPeteRef: comments on the fight of .* \(\d+ units away\)', label = "Easy Pete comments on the fight" },
+  { re = 'EasyPeteRef: runs from the fight of .* \(\d+ units away\): too close to watch', label = "the fight within 600 units (a stand-in, packages.md §7.6b): he runs" },
+  { re = 'EasyPeteRef: flees from ', label = "to a flee spot away from it" },
 ]
 
 [[scenario]]
@@ -6615,6 +6631,22 @@ order = [[
   { re = 'loading screen up: .* for interior', label = "into the saloon" },
   { re = 'console: Travelling to WastelandNV \(-17, 1\)', label = "coe indoors goes to the worldspace last walked in" },
   { re = 'console: GetPos on player >> -675\d\d\.\d\d', label = "back at (-17, 1)'s centre" },
+]]
+
+[[scenario]]
+name = "console-saq-rdf-rat-zap"
+source = "issue #1046 step 2: saq (StartAllQuests), rdf (ResetDialogueFlags), rat (ResetAllTerminals) and zap (DeleteReference) did nothing; saq starts every quest of the load order at once, so the game going on for 15 s after it is part of the check (docs/design/console.md)"
+areas = ["console"]
+paths = ["crates/fnv-game/src/functions/console.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_CONSOLE = "12:saq;12.5:rdf;12.8:rat;13.1:0010A202.zap;13.4:player.zap;13.7:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 30
+order = [[
+  { re = 'console: [1-9]\d* quests started \(\d+ in all\)', label = "saq starts the quests not running" },
+  { re = 'console: Dialogue flags reset: \d+ lines said once', label = "rdf" },
+  { re = 'console: \d+ terminals reset', label = "rat" },
+  { re = 'console: 0x0010A202 .* deleted', label = "zap removes the reference" },
+  { re = 'console: DeleteReference: not the player', label = "never the player" },
 ]]
 
 [[scenario]]

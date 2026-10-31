@@ -4569,6 +4569,7 @@ dependencies = [
 name = "nvforever"
 version = "0.5.1"
 dependencies = [
+ "ash",
  "bevy",
  "clap",
  "fnv-actor",
