@@ -6618,6 +6618,22 @@ order = [[
 ]]
 
 [[scenario]]
+name = "console-saq-rdf-rat-zap"
+source = "issue #1046 step 2: saq (StartAllQuests), rdf (ResetDialogueFlags), rat (ResetAllTerminals) and zap (DeleteReference) did nothing; saq starts every quest of the load order at once, so the game going on for 15 s after it is part of the check (docs/design/console.md)"
+areas = ["console"]
+paths = ["crates/fnv-game/src/functions/console.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_CONSOLE = "12:saq;12.5:rdf;12.8:rat;13.1:0010A202.zap;13.4:player.zap;13.7:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 30
+order = [[
+  { re = 'console: [1-9]\d* quests started \(\d+ in all\)', label = "saq starts the quests not running" },
+  { re = 'console: Dialogue flags reset: \d+ lines said once', label = "rdf" },
+  { re = 'console: \d+ terminals reset', label = "rat" },
+  { re = 'console: 0x0010A202 .* deleted', label = "zap removes the reference" },
+  { re = 'console: DeleteReference: not the player', label = "never the player" },
+]]
+
+[[scenario]]
 name = "reputation-disguise"
 source = "owner request 2026-10-22: faction armour's scripts set every reputation to 0 while it is worn and back after; only the player's real reputation opens boxes, so putting on and taking off a Powder Gang outfit (000A472F, script 00134B71) shows none"
 areas = ["hud"]
