@@ -198,7 +198,7 @@ fn sync(mut st: ResMut<ChargenMenus>, script: Option<ResMut<ScriptState>>, sim: 
     let Some(code) = code else { return };
     st.open = with_game(&mut script, &mut sim, |g| {
         if code == menus::NAME {
-            let m = NameMenu::open(rules::name_offered(g));
+            let m = NameMenu::open(rules::name_offered(g), Some(g));
             info!("chargen: name menu open, offering \"{}\"", m.text);
             OpenMenu::Name(m)
         } else {
