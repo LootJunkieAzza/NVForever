@@ -582,7 +582,7 @@ fn update_grade(
         info!("motion blur: {text}");
         mods.motion_shown = text;
     }
-    let pipboy = pip.filter(|p| p.shown()).map_or(0.0, |p| crate::player_body::pipboy_ease(p.clip_time));
+    let pipboy = pip.filter(|p| p.on_arm()).map_or(0.0, |p| crate::player_body::pipboy_ease(p.clip_time));
     let (pip_blur, sharp) = match near {
         Some(n) if pipboy > 0.0 => (PIPBOY_BLUR * pipboy, n / PIPBOY_SHARP),
         _ => (0.0, 0.0),

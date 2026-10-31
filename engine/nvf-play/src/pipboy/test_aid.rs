@@ -25,6 +25,8 @@
 //!   click on its row would (a holotape plays or stops, `crate::holotape`).
 //! - `hotkey=<1-8>`: hold that hotkey's key on the ITEMS page (its panel shows and a
 //!   click assigns, `super::hotkey_panel`) until `hotkey=off`.
+//! - `frame=screen|device`: the Gameplay setting Use Pip-Boy off or on, as the settings
+//!   page sets it (the Pip-Boy and its glove taken off or put on).
 //!
 //! Each step is logged. Screenshots are `NVF_PLAY_TEST_SHOTS`'.
 
@@ -50,6 +52,8 @@ enum Step {
     Mod(super::item_mod::ModInput),
     /// Hold a hotkey's key (its slot), or let go.
     Hotkey(Option<usize>),
+    /// Use Pip-Boy off (`true`, the screen menu) or on.
+    Frame(bool),
 }
 
 fn page(p: &str) -> Option<Page> {
@@ -96,6 +100,11 @@ fn step(s: &str) -> Option<Step> {
                 "up" => super::item_mod::ModInput::Up,
                 "use" => super::item_mod::ModInput::Use,
                 "cancel" => super::item_mod::ModInput::Cancel,
+                _ => return None,
+            }),
+            ("frame", f) => Step::Frame(match f.trim() {
+                "screen" => true,
+                "device" => false,
                 _ => return None,
             }),
             ("hotkey", "off") => Step::Hotkey(None),
@@ -146,6 +155,7 @@ fn run(
     mut aid: ResMut<PipBoyAid>,
     (mut ask, mut repair, mut modding): (MessageWriter<FastTravelAsk>, MessageWriter<super::repair::RepairInput>, MessageWriter<super::item_mod::ModInput>),
     mut hold: ResMut<super::hotkey_panel::HotkeyHold>,
+    mut use_pipboy: ResMut<super::UsePipBoy>,
 ) {
     let Some(now) = time.world_secs() else { return };
     while let Some(&(t, s)) = script.0.first() {
@@ -200,6 +210,9 @@ fn run(
             Step::Hotkey(n) => {
                 hold.aid = n;
             }
+            Step::Frame(screen) => {
+                use_pipboy.set(!screen);
+            }
         }
     }
 }
@@ -210,7 +223,7 @@ mod tests {
 
     #[test]
     fn steps_are_read_in_time_order() {
-        let s = parse("9:close, 3:open,4:page=stats, 5:tab=2, 6:key=down, 7:tab=9, x:open, 8:click=data, 8.5:click=100:650, 8.7:point=off, 8.8:point=1:2, 8.9:drag=-40:25, 8.95:travel=0x000CDF51, 8.96:note=001618BF, 8.97:repair=use, 8.98:mod=open, 8.99:hotkey=3, 8.995:hotkey=off, 8.996:hotkey=9");
+        let s = parse("9:close, 3:open,4:page=stats, 5:tab=2, 6:key=down, 7:tab=9, x:open, 8:click=data, 8.5:click=100:650, 8.7:point=off, 8.8:point=1:2, 8.9:drag=-40:25, 8.95:travel=0x000CDF51, 8.96:note=001618BF, 8.97:repair=use, 8.98:mod=open, 8.99:hotkey=3, 8.995:hotkey=off, 8.996:hotkey=9, 8.997:frame=screen, 8.998:frame=device, 8.999:frame=up");
         assert_eq!(
             s,
             vec![
@@ -229,6 +242,8 @@ mod tests {
                 (8.98, Step::Mod(super::super::item_mod::ModInput::Open)),
                 (8.99, Step::Hotkey(Some(2))),
                 (8.995, Step::Hotkey(None)),
+                (8.997, Step::Frame(true)),
+                (8.998, Step::Frame(false)),
                 (9.0, Step::Close)
             ]
         );
