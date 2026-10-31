@@ -761,19 +761,63 @@ impl ModelCache {
 
     /// Drop the prepared models and tree billboards nothing else holds, after their grace
     /// time (`crate::release`); the number dropped.
-    pub fn release(&mut self, idle: &mut crate::release::Unused<String>, billboards: &mut crate::release::Unused<u32>, now: f64) -> usize {
+    pub fn release(&mut self, s: &mut crate::release::ModelSweeps, hints: &mut crate::release::ImageHints, materials: &Assets<NifMaterial>, now: f64) -> usize {
         use crate::release::{held_beyond, KEEP_UNUSED_MAX, KEEP_UNUSED_SECS};
         let entries = self.map.iter().filter_map(|(k, m)| m.as_ref().map(|m| (k.clone(), model_in_use(m))));
-        let drop = idle.sweep(now, entries.collect::<Vec<_>>(), KEEP_UNUSED_SECS, KEEP_UNUSED_MAX);
-        for k in &drop {
-            self.map.remove(k);
+        let drop = s.models.sweep_timed(now, entries.collect::<Vec<_>>(), KEEP_UNUSED_SECS, KEEP_UNUSED_MAX, |_| None);
+        for (k, since) in &drop {
+            if let Some(Some(m)) = self.map.remove(k) {
+                let rig = m.rig.iter().flat_map(|r| &r.shapes).map(|s| &s.material);
+                for h in m.shapes.iter().map(|s| &s.material).chain(rig) {
+                    hints.note(materials, h, *since, now);
+                }
+            }
         }
         let entries = self.billboards.iter().filter_map(|(&k, b)| b.as_ref().map(|(m, t)| (k, held_beyond(m, 1) || held_beyond(t, 1))));
-        let gone = billboards.sweep(now, entries.collect::<Vec<_>>(), KEEP_UNUSED_SECS, KEEP_UNUSED_MAX);
-        for k in &gone {
-            self.billboards.remove(k);
+        let gone = s.billboards.sweep_timed(now, entries.collect::<Vec<_>>(), KEEP_UNUSED_SECS, KEEP_UNUSED_MAX, |_| None);
+        for (k, since) in &gone {
+            if let Some(Some((_, m))) = self.billboards.remove(k) {
+                hints.note(materials, &m, *since, now);
+            }
         }
-        drop.len() + gone.len()
+        // Particle definitions (`ModelCtx::particles`): unused when nothing holds the
+        // `Arc` (a live system copies the definitions, its entity the materials) and no
+        // material is held elsewhere. Remembered failures are kept.
+        let entries = self.particles.iter().filter_map(|(k, p)| {
+            let p = p.as_ref()?;
+            let mut h = crate::release::Holders::default();
+            for d in &p.systems {
+                h.add(&d.material);
+            }
+            Some((k.clone(), Arc::strong_count(p) > 1 || h.held_elsewhere()))
+        });
+        let fx = s.particles.sweep_timed(now, entries.collect::<Vec<_>>(), KEEP_UNUSED_SECS, KEEP_UNUSED_MAX, |_| None);
+        for (k, since) in &fx {
+            if let Some(Some(p)) = self.particles.remove(k) {
+                for d in &p.systems {
+                    hints.note(materials, &d.material, *since, now);
+                }
+            }
+        }
+        drop.len() + gone.len() + fx.len()
+    }
+}
+
+impl ModelCache {
+    /// The particle definitions held, for the stress census (`release::CacheShare`): an
+    /// entry is idle when only the cache holds its `Arc` and its materials.
+    pub fn particle_share(&self, materials: &Assets<NifMaterial>) -> crate::release::CacheShare {
+        let mut s = crate::release::CacheShare::default();
+        for p in self.particles.values().flatten() {
+            s.entries += 1;
+            let mut h = crate::release::Holders::default();
+            for d in &p.systems {
+                h.add(&d.material);
+                s.images_of(materials, &d.material);
+            }
+            s.idle += usize::from(Arc::strong_count(p) == 1 && !h.held_elsewhere());
+        }
+        s
     }
 }
 
@@ -1575,7 +1619,6 @@ mod tests {
 
     #[test]
     fn a_cached_model_goes_once_nothing_draws_it() {
-        use crate::release::Unused;
         let mut meshes = Assets::<Mesh>::default();
         let mut materials = Assets::<NifMaterial>::default();
         let shape = PreparedShape {
@@ -1596,19 +1639,19 @@ mod tests {
         cache.map.insert("missing.nif".into(), None);
         let spawned = (shape.mesh.clone(), shape.material.clone());
         drop(shape);
-        let (mut idle, mut boards) = (Unused::default(), Unused::default());
+        let (mut sweeps, mut hints) = (crate::release::ModelSweeps::default(), crate::release::ImageHints::default());
         // Drawn: kept however long.
-        assert_eq!(cache.release(&mut idle, &mut boards, 0.0), 0);
-        assert_eq!(cache.release(&mut idle, &mut boards, 500.0), 0);
+        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 0.0), 0);
+        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 500.0), 0);
         // A rig holding the Arc keeps it too.
         drop(spawned);
         let rig = cache.map["a.nif"].clone();
-        assert_eq!(cache.release(&mut idle, &mut boards, 600.0), 0);
+        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 600.0), 0);
         drop(rig);
         // Unused: kept for the grace time, then dropped; the failure stays remembered.
-        assert_eq!(cache.release(&mut idle, &mut boards, 700.0), 0);
+        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 700.0), 0);
         assert_eq!(cache.held(), 1);
-        assert_eq!(cache.release(&mut idle, &mut boards, 700.0 + crate::release::KEEP_UNUSED_SECS), 1);
+        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 700.0 + crate::release::KEEP_UNUSED_SECS), 1);
         assert_eq!((cache.held(), cache.len()), (0, 1));
     }
 
