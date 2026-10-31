@@ -492,7 +492,7 @@ fn throw_gore(
             // The impact material of the actor's Model/Animation source, not the placed
             // base's (docs/spec-notes/actors.md §1.3).
             let r = FormId(e.form_id);
-            let base = sim.base_of(e.form_id).map(|b| script.as_deref().and_then(|s| s.rt.as_ref()).map_or(b, |rt| rt.game.data.model_base_at(b, rt.game.pick_seed(r), rt.game.leveled_at(r))));
+            let base = sim.base_of(e.form_id).map(|b| script.as_deref().and_then(|s| s.rt.as_ref()).map_or(b, |rt| { let (seed, at) = sim.pick(&rt.game, r); rt.game.data.model_base_at(b, seed, at) }));
             let material = base.and_then(|b| s.forms.actor_material(b)).unwrap_or("organic");
             if let Some(impact) = s.forms.impact_id(set, material) {
                 for k in 0..decals.min(MAX_BLOOD) {

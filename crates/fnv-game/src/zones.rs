@@ -101,9 +101,9 @@ impl<'a> Game<'a> {
             let source = self.data.template_source_at(p.base, self.pick_seed(r), at, |d| d.template_inventory).map(|(s, _)| s).filter(|&s| s != p.base);
             self.world.set_inventory_source(r, source);
         }
-        let (base, list) = self.chain_end(p.base, crate::templates::Picks::at(r, at));
+        let (base, list) = self.chain_end(p.base, crate::templates::Picks::at(self.pick_seed(r), at));
         if let Some(list) = list {
-            let (at_display, _) = self.chain_end(p.base, crate::templates::Picks::new(r));
+            let (at_display, _) = self.chain_end(p.base, crate::templates::Picks::new(self.pick_seed(r)));
             self.push_level_news(LevelNews::Actor { actor: r, list, at, base, at_display, zone: placed.zone_of(r) });
         }
     }

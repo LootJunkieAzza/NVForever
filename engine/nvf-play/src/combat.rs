@@ -1983,7 +1983,7 @@ fn equip_sync(mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut anim: ResMut
 fn model_base(script: Option<&ScriptState>, sim: &SimState, actor: u32) -> Option<FormId> {
     let b = sim.base_of(actor)?;
     let r = FormId(actor);
-    Some(script.and_then(|s| s.rt.as_ref()).map_or(b, |rt| rt.game.data.model_base_at(b, rt.game.pick_seed(r), rt.game.leveled_at(r))))
+    Some(script.and_then(|s| s.rt.as_ref()).map_or(b, |rt| { let (seed, at) = sim.pick(&rt.game, r); rt.game.data.model_base_at(b, seed, at) }))
 }
 
 /// An actor's Impact Material Type (NPC_ / CREA `NAM4`) from its Model/Animation source
@@ -2010,7 +2010,8 @@ fn show_impact(s: &Sfx, script: Option<&ScriptState>, sim: &SimState, mut fx: Im
     // The base from the simulation: the game's world is not attached outside its turn.
     if let (Some(a), Some(rt)) = (fx.actor, script.and_then(|s| s.rt.as_ref())) {
         if let Some(b) = sim.base_of(a) {
-            (fx.no_spray, fx.no_decal) = rt.game.data.no_blood(b, rt.game.pick_seed(FormId(a)), rt.game.leveled_at(FormId(a)));
+            let (seed, at) = sim.pick(&rt.game, FormId(a));
+            (fx.no_spray, fx.no_decal) = rt.game.data.no_blood(b, seed, at);
         }
     }
     impacts.write(fx);

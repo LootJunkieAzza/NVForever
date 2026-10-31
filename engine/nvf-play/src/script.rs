@@ -568,11 +568,11 @@ pub fn with_world<R>(rt: &mut Runtime, sim: &mut SimState, f: impl FnOnce(&mut R
 }
 
 /// The placed actors whose carried items are another actor base's (template flag
-/// "Inventory", or a leveled pick), each pick made at the level the reference reads
-/// leveled lists at in `sim`'s world (docs/spec-notes/actors.md §1.3).
-fn inventory_sources(data: &GameData, sim: &SimState, player_level: f64) -> std::collections::BTreeMap<FormId, FormId> {
-    let level = player_level.clamp(1.0, f64::from(u16::MAX)) as u16;
-    data.inventory_sources_at(sim.refs, |r| sim.world.level_at(r, level))
+/// "Inventory", or a leveled pick), each pick made as the game makes it: at the level the
+/// reference reads leveled lists at in `sim`'s world, with its pick seed (a saved
+/// ResurrectActor roll included; `SimState::pick`, docs/spec-notes/actors.md §1.3).
+fn inventory_sources(data: &GameData, sim: &SimState, game: &Game<'_>) -> std::collections::BTreeMap<FormId, FormId> {
+    data.inventory_sources_at(sim.refs, |r| sim.pick(game, r))
 }
 
 impl Runtime {
@@ -586,7 +586,7 @@ impl Runtime {
         // The simulation's world is the one played (`with_world`): its placed actors carry
         // their template's items too (template flag "Inventory"), each picked at the
         // level it reads leveled lists at, as `Game::new` picks them (not level 1).
-        sim.world.set_inventory_sources(inventory_sources(data, sim, game.player_level()));
+        sim.world.set_inventory_sources(inventory_sources(data, sim, &game));
         let mut children: HashMap<FormId, Vec<FormId>> = HashMap::new();
         for (id, p) in &sim.refs.refs {
             if let Some(ep) = p.enable_parent {
@@ -646,7 +646,7 @@ impl Runtime {
         self.game = Game::restore(data, World::new(sim.forms, sim.refs, world.config()), cfg, &s)?;
         self.game.put_session(session);
         sim.world = world;
-        sim.world.set_inventory_sources(inventory_sources(data, sim, self.game.player_level()));
+        sim.world.set_inventory_sources(inventory_sources(data, sim, &self.game));
         self.opening_pending = false;
         self.player_cell = None;
         with_world(self, sim, |rt| rt.snapshot_inventory());

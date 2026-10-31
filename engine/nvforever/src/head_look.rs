@@ -491,6 +491,7 @@ pub(crate) fn track(
     settings: Res<HeadLookSettings>,
     player: Option<Res<Player>>,
     script: Option<Res<ScriptState>>,
+    sim: Option<Res<nvf_play::sim::SimState>>,
     talk: Option<Res<crate::dialogue_look::Looks>>,
     camera: Query<&GlobalTransform, (With<Camera3d>, Without<ReflectionCamera>)>,
     mut actors: Query<Looker>,
@@ -549,7 +550,12 @@ pub(crate) fn track(
         let package_off = forced.is_none() && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.package_has(FormId(rig.reference), fnv_game::package::flags::HEAD_TRACKING_OFF));
         // ACBS "No Rotating To Head-track" (actor-fields.md §1) [hypothesis: as the
         // package flag; a forced look still turns it].
-        let package_off = package_off || (forced.is_none() && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.data.minor_flags(FormId(rig.base), rt.game.pick_seed(FormId(rig.reference)), rt.game.leveled_at(FormId(rig.reference))).no_head_track));
+        let package_off = package_off || (forced.is_none() && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| {
+            // The level from the world played (`SimState::leveled_at`); without it, the game's.
+            let r = FormId(rig.reference);
+            let (seed, at) = sim.as_deref().map_or((rt.game.pick_seed(r), rt.game.leveled_at(r)), |s| s.pick(&rt.game, r));
+            rt.game.data.minor_flags(FormId(rig.base), seed, at).no_head_track
+        }));
         let active = settings.enabled && !off && !package_off && (forced.is_some() || near(g.translation(), ACTIVE_RADIUS));
         if !active && look.ease.at_rest() && !look.holds_bones() {
             (look.target, look.chosen, look.side) = (None, None, None);

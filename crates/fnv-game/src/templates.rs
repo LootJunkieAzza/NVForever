@@ -202,18 +202,20 @@ impl GameData {
     /// the "Inventory" source of the template chain, or the entry a placed leveled list
     /// stands for ([`GameData::template_source`]), for `fnv_sim::World::set_inventory_sources`.
     pub fn inventory_sources(&self, placed: &fnv_sim::RefTable) -> std::collections::BTreeMap<FormId, FormId> {
-        self.inventory_sources_at(placed, |_| LevelAt::plain(LEVELED_ACTOR_LEVEL))
+        self.inventory_sources_at(placed, |r| (r, LevelAt::plain(LEVELED_ACTOR_LEVEL)))
     }
 
-    /// [`GameData::inventory_sources`] with each reference's leveled lists read at
-    /// `at(reference)`.
-    pub fn inventory_sources_at(&self, placed: &fnv_sim::RefTable, at: impl Fn(FormId) -> LevelAt) -> std::collections::BTreeMap<FormId, FormId> {
+    /// [`GameData::inventory_sources`] with each reference's picks made as `pick(reference)`
+    /// says: the seed (the reference, or its ResurrectActor roll seed, `Game::pick_seed`)
+    /// and the level its leveled lists are read at.
+    pub fn inventory_sources_at(&self, placed: &fnv_sim::RefTable, pick: impl Fn(FormId) -> (FormId, LevelAt)) -> std::collections::BTreeMap<FormId, FormId> {
         let mut out = std::collections::BTreeMap::new();
         for (&r, p) in &placed.refs {
             if !matches!(&p.sig, b"ACHR" | b"ACRE") {
                 continue;
             }
-            if let Some((source, _)) = self.template_source_at(p.base, r, at(r), |d| d.template_inventory) {
+            let (seed, at) = pick(r);
+            if let Some((source, _)) = self.template_source_at(p.base, seed, at, |d| d.template_inventory) {
                 if source != p.base {
                     out.insert(r, source);
                 }

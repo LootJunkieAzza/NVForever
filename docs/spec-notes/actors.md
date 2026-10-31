@@ -229,6 +229,12 @@ actor.
 level 1 rather than at the reference's level; and after a ResurrectActor re-roll only the
 body and the carried items followed the new pick, while sex, voice type, factions, stats
 and the rest kept the first. All now use the reference's level and `Game::pick_seed`.
+Outside a game turn the engine reads the level from the world played
+(`nvf_play::sim::SimState::leveled_at`, `pick`): `Game::world` is then an empty stand-in
+(`with_world`) with no fixed levels, so `Game::leveled_at` there would give the level an
+actor would be fixed at now, not the one it was fixed at. The copy of every placed
+actor's level the drawn actors use (`nvforever::zones::sync_levels`) had the same fault
+and reads it there too; inventory sources set on a restore take the saved roll seeds.
 
 ## 2. Resolution rules (`fnv_actor::resolve`)
 
