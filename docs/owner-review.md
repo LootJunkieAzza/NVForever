@@ -99,6 +99,8 @@ the spec it links to.
     rest over 1 s, so force / 2 units (a Sledgehammer hit about 57, a punch 24, a
     deathclaw swipe up to 256). Our reading of the formula, not measured in the original:
     more, less, or only on power attacks? ([combat-rules, Knockback](spec-notes/combat-rules.md))
+    NPCs start their lunges once they touch their target, so an NPC's lunge carries it
+    little or nothing until the AI lunges from farther out. ([actors §8.13](spec-notes/actors.md))
 
 ## Tier 2: movement and controls feel
 

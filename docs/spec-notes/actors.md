@@ -1676,6 +1676,48 @@ stopped and started, as Victor's walk had before #258). Code:
     its claws over its shoulders and the ghoul hunches with its hands raised; both go
     back after the unequip clip. Deathclaws fighting a feral ghoul play their attacks
     with the stance drawn.
+  - **Dogs and coyotes warn head down** (issue #1073, 2026-10-31) [design]: creatures
+    with an `h2h` movement set (§8.10 Alert stance) now draw the stance too, but only
+    while they warn the player (`Game::warning_to`, not alerted), and put it away when
+    they fight, where their `h2h` set is their alert look. The dog folder's
+    `h2hequip.kf` (0.67 s), `h2haim.kf` (2.0 s) and `h2hunequip.kf` (0.67 s) key every
+    bone at 25 [observed: `fnvtool nif decode`, `Fallout - Meshes.bsa`]: over the dog's
+    `mtidle.kf` (20) and under its `mtforward.kf` (30) and `h2hfastforward.kf` (31), so
+    the warning pose shows while it stands and the charge shows the run. The dog has no
+    IDLE record of its own for a warning (its IDLEs are barks, growl, sit, sniff, look,
+    hit reactions and getting up) [observed: `fnvtool esm inventory`]; whether the
+    original plays `h2haim.kf` while a coyote warns is not measured (observer check 58).
+  - **The slide** (issue #1073) [observed in NVForever, smoke `crippled-limp-creature`
+    on main, 2026-10-31]: the coyote "attacks the player on the run from 247 units
+    (closing at 503 units/s)", and its blow clips (`h2hattackleft.kf`,
+    `h2hattackpower.kf`, `h2hattackforwardpower.kf` …) key every bone, legs included,
+    at 55 to 57 over the run's 31: for the blow's length the legs stood in the bite
+    while the body went on at the run's speed. Rule [design]: a biter's blow begun
+    while it moves shows on its head and neck only for the whole blow (decided in its
+    first frame, so the pose does not snap when it stops or sets off mid-blow). Biters:
+    the creatures with an `h2h` movement set other than the cazador and the mirelurk
+    king (whose stings and claws stay whole, as every other creature's do), so dogs and
+    coyotes; it shows (the bones named `Head…`,
+    `Neck…`, `Ponytail…` (ears and tongue), `…Jaw`, `…TungeControler`;
+    `attack_anims::head_only`), over its run; begun standing, the whole clip. People's
+    blows are unchanged. Not done: blows whose clip travels (the deathclaw's lunge, #1069).
+  - **Moving with no movement clip** is counted (`actor moves without a clip:` at exit:
+    actor frames moving at 5 units/s or more on no movement clip, and frames of a
+    creature's blow on its head and neck over its run), and logged once per actor
+    (`actor moves with no movement clip: …`). The dog skeleton has no side clips and no
+    fast backward clip (`mtbackrward.kf` and `h2hbackward.kf` only) [observed]; creatures
+    are moved facing their way (`nav::show_actor`: no strafing for creatures), so this
+    is not met by turning alone.
+  - **Setting off within a fade** (issue #1073) [observed in NVForever, smoke
+    `coyote-warn-charge` with the count above, 2026-10-31]: eight coyotes around the
+    warning spot were logged moving at 50-85 units/s on `TurnLeft`, `TurnRight` or
+    `Idle`, 183 actor frames in 45 s: a walk asked for while the blend faded into a
+    standing clip (the idle into a turn on the spot, a turn back into the idle) waited
+    for that fade to end (`fnv_actor::locomotion::Blend::step`), and the actor slid on
+    the standing clip meanwhile. Rule [design]: for creatures (`Blend::set_off_at_once`, set on
+    every creature's locomotion), a walk or run asked for while the clip playing is a
+    standing one starts at once, fading from that clip; changes between moves still wait
+    for the fade. People keep the eased fade (their movement look is the owner's).
 - **Not done**: the aim's up and down forms for creatures that have them (ghoul,
   protectron, smbehemoth, smspinebreaker: `h2haimup.kf`, `h2haimdown.kf`; people's are
   in `attack_anims.rs`); the creature alert look is not compared with the original game
@@ -1854,7 +1896,9 @@ as their clips.
 
 - A **lunge's** clip whose `Bip01` gets more than 100 units from its start
   (`nvf_assets::anim_play::CARRY_MIN`) carries its actor: an NPC's or creature's forward
-  power attack (every `…forwardpower` above), and the player's body's melee attack clips
+  power attack (every `…forwardpower` above) except a biter's (dogs and coyotes, which
+  bite on the move with a head-only clip while their walk carries them: the walk wins),
+  and the player's body's melee attack clips
   (the forward and custom power attacks: Legion Assault, `1hmattackcustom2power` …). The
   other blows step in place by §8.2's rule, as before: carrying the dogs' 55-unit bites,
   and then their standing power attack (`h2hattackpower`, 187), brought them to 37 units
@@ -1869,17 +1913,26 @@ as their clips.
   the velocity of the actor's character for the frame (a character is made for it if it
   has none), so walls stop it and the actor blocks of the player and others stop it as
   they stop a walk (`nvf_play::blocking`); while the clip plays its walk waits (the clip's
-  velocity replaces it). A lunge carries its actor no nearer its target than its walk
-  would stop (`npc_combat::Fighters::lunge_room`, the melee spacing): the dog's
+  velocity replaces it). A lunge carries its actor no nearer its target than where
+  their bodies touch (`npc_combat::Fighters::lunge_room`; the melee spacing where the
+  walk stops when the bodies are not known): a deathclaw strikes from where its walk
+  stops, so a clamp at the walk's stop left its lunge nothing to carry. The dog's
   `h2hattackforwardpower` goes 900 units, and carried in full it ran a dog past the
-  player and back (smoke `combat-dogs`) [design]. A carried actor pushes nobody aside
+  player and back (smoke `combat-dogs`); biters no longer carry [design]. The room is the fight's distance less
+  the travel given the frame before (the distance is a frame old); once a lunge reaches
+  it, the rest of that attack carries nothing, its clip's later travel back included (the
+  Deathclaw's goes 572 forward and back to 523) [design]. A hit reaction (a crippling
+  hit's stagger) stops the character and ends the carry for the rest of that attack
+  (`… a hit reaction ends its attack clip's carry`) [design]. A carried actor pushes nobody aside
   (`ActorBlocks::carried`, owner 2026-10-11: a bite does not push the player around).
   Its walker stands where its character got to, so it stays where the clip ends (or where
   it was stopped); the character goes once the clip is over and it is not on its way.
   Logged per carried blow: `its attack clip carried it N units of M, from … to …`.
 - The player (`player_body` → `nvf_play::player::Lunge`): the third-person body's melee
-  attack layer gives its root's travel each frame, as the player's velocity on top of the
-  walk; it plays at the swing's rate (the layer's), so a faster swing lunges faster.
+  attack layer adds its root's travel each frame to the travel owed, which the next
+  physics steps move the player by on top of the walk, spread over them (travel, not a
+  velocity: a long frame after a short one moves the clip's own travel); it plays at the
+  swing's rate (the layer's), so a faster swing lunges faster.
   Legion Assault's lunge (perk-entry-points.md §11.4) is this rule now: its fixed 332
   units over 1.6 s (`combat::LUNGE`) went, as the clip gives the same.
 - Before: the clips' travel less its average stayed in the pose and the actor did not

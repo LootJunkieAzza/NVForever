@@ -41,7 +41,7 @@ use bevy::image::CompressedImageFormatSupport;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
-use crate::ui_compat::Interaction;
+use crate::ui_pointer::PointerState;
 use fnv_game::chargen as rules;
 use fnv_game::game::menus;
 use fnv_game::Game;
@@ -236,9 +236,9 @@ fn input(
     keys: Res<ButtonInput<KeyCode>>,
     mut typed: MessageReader<KeyboardInput>,
     mut wheel: MessageReader<MouseWheel>,
-    rows: Query<(&Interaction, &ListRow), Changed<Interaction>>,
-    buttons: Query<(&Interaction, &ListButton), Changed<Interaction>>,
-    ok: Query<&Interaction, (Changed<Interaction>, With<OkButton>)>,
+    rows: Query<(&PointerState, &ListRow), Changed<PointerState>>,
+    buttons: Query<(&PointerState, &ListButton), Changed<PointerState>>,
+    ok: Query<&PointerState, (Changed<PointerState>, With<OkButton>)>,
     script: Option<ResMut<ScriptState>>,
     sim: Option<ResMut<SimState>>,
     mut sounds: MessageWriter<UiSound>,
@@ -274,8 +274,8 @@ fn input(
                 }
             }
             for i in &ok {
-                hover_ok = Some(*i != Interaction::None);
-                if *i == Interaction::Pressed {
+                hover_ok = Some(*i != PointerState::None);
+                if *i == PointerState::Pressed {
                     ops.push((Op::Done, "click"));
                 }
             }
@@ -310,17 +310,17 @@ fn input(
             }
             for (i, r) in &rows {
                 match i {
-                    Interaction::Hovered => ops.push((Op::Select(r.0), "pointer")),
-                    Interaction::Pressed => {
+                    PointerState::Hovered => ops.push((Op::Select(r.0), "pointer")),
+                    PointerState::Pressed => {
                         ops.push((Op::Select(r.0), "pointer"));
                         ops.push((Op::Click, "click"));
                     }
-                    Interaction::None => {}
+                    PointerState::None => {}
                 }
             }
             for (i, b) in &buttons {
-                hover_button.push((*b, *i != Interaction::None));
-                if *i == Interaction::Pressed {
+                hover_button.push((*b, *i != PointerState::None));
+                if *i == PointerState::Pressed {
                     let op = match b {
                         ListButton::Reset => Op::Reset,
                         ListButton::Done => Op::Done,

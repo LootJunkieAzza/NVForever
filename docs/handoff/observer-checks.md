@@ -27,7 +27,7 @@ engine if needed, and delete the item here.
     (38). Honest Hearts at Flight from Zion with Daniel (49).
   - VMS46 at Anders' thanks (39); Stone on his night route, VMS31 (50); HELIOS One before
     the west terminal (46, 25 at Intelligence 1); Oliver on House's path (48); a finished
-    game at the end slides (29's Boomers slide; 28 is answered).
+    game at the end slides (28 and 29 answered).
 - **A save made inside the capture** (allowed, probe-saves rule): 24 (save half-way along
   a patrol, reload), 41 (the emergency radio, timed).
 - **Screenshots or video** (window in front, both locks): 7 (casino menus by key taps),
@@ -440,8 +440,10 @@ The numbers above stay put so links to them hold; each item here gives its own p
     High-Roller Suite", whose fixed speaker is the entrance Victor (Lucky38VictorEntrance)
     [observed]; later talks to him open with his usual elevator greeting, as a Say
     Once line should. Ours does the same (dialogue.rs `can_say_as`). Still open: lines with a
-    fixed speaker and no GetIsID condition (the Dead Money end slides, #965), and the
-    Boomers' end slide of a finished game. Also: the penthouse elevator can only be
+    fixed speaker and no GetIsID condition (the Dead Money end slides, #965). The
+    Boomers' end slide (VEndingBoomers, ANAM NellisPete, GetIsID Narrator) plays in the
+    child Pete's voice, not the narrator's (owner, nvfSlides) [observed]; ours says it
+    as the narrator with the fixed speaker's file (voice.rs), which matches. Also: the penthouse elevator can only be
     taken through this Victor's dialogue until House is dead (owner).
     ([mq-walkthrough](mq-walkthrough-2026-10-27.md) §2)
 30. **Reputation axes outside 0-2** — answered 2026-10-31 (o5_00-02, RepNVNCR, scale 80):
@@ -652,9 +654,33 @@ The numbers above stay put so links to them hold; each item here gives its own p
     1 s with the cheer cut short, or slide with it playing? And `IsIdlePlaying` at the
     moment he sets off. ([idles §15](../spec-notes/idles.md))
 
+## Added 2026-10-31 (coyotes' warning and charge, issue #1073)
+
+58. **What a warning coyote plays, and how it bites on the run** (P3: every coyote and
+    dog fight). NVForever plays the dog folder's `h2hequip.kf` then holds `h2haim.kf`
+    while a coyote warns the player, puts it away when it attacks, and shows a blow
+    begun on the run on the head and neck only, over the run. To check: VERGSCoyote6REF
+    (0x00157B38) at its warning spot, the player 600-700 units off: `GetAnimAction` and
+    `IsWeaponOut` sampled every game loop through its two warnings and the charge; does
+    it stand with its head down (a frame), and do its legs keep running through a blow
+    begun on the run or does it stop to bite? ([actors §8.10](../spec-notes/actors.md))
+
+## Added 2026-10-31 (robots' talking lights, issue #1081)
+
+59. **What sets a robot's `Talking` sequence while it speaks** (P3: Victor, Yes Man, Mr.
+    House's screen, protectrons). NVForever plays `talking.kf` while a line is said with
+    the sequence's time taken from the line's `.lip` (the widest mouth shape now, 0 to 1
+    of the 0.17 s), so Victor's chest light (`##VoiceBox_talk:0`) flickers with the
+    words and goes dark between lines (lipsync.md §6.1). To check: Goodsprings, talk to
+    Victor (VictorREF 0x00103DFE) and record his chest light frame by frame over one
+    line; compare its brightness with the `.lip`'s mouth weights and with the sound's
+    loudness over the same frames (a pause between words, a long vowel). Does it go
+    dark in pauses, follow the loudness or the mouth shapes, or loop by itself? Same on
+    Mr. House's screen (`##TalkButtons:0`). ([lipsync §6.1](../spec-notes/lipsync.md))
+
 ## Added 2026-10-31 (melee knockback, issue #1070)
 
-58. **How far a melee blow pushes a living actor, and for how long** (P2: every melee
+61. **How far a melee blow pushes a living actor, and for how long** (P2: every melee
     fight). NVForever reads the Melee Knockback Formula's force (fKnockbackDamageMult 10,
     fKnockbackDamageBase 50, fKnockbackAgilMult -0.008, fKnockbackAgilBase 1, at most
     fKnockbackForceMax 512) as a speed in units/s that falls evenly to rest over

@@ -238,6 +238,13 @@ pub struct TreeVisual {
 #[derive(Resource, Default)]
 pub struct TreeCache(HashMap<u32, Option<Arc<TreeVisual>>>);
 
+impl TreeCache {
+    /// Trees generated (the stress census).
+    pub fn len(&self) -> usize {
+        self.0.values().flatten().count()
+    }
+}
+
 #[derive(SystemParam)]
 pub struct TreeCtx<'w> {
     cache: ResMut<'w, TreeCache>,

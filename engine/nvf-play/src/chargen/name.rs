@@ -5,7 +5,7 @@
 use super::draw::{Align, Ctx, Which, BODY_BASE, BODY_H, LINE_PITCH, THICK};
 use crate::interface::{amber, at, set_line, u};
 use bevy::prelude::*;
-use crate::ui_compat::Button;
+use crate::ui_pointer::Button;
 use fnv_game::chargen;
 
 // ---- the menu file's numbers [documented: texteditmenu.xml, §2] ---------------------------

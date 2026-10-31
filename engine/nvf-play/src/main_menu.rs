@@ -53,7 +53,7 @@ use crate::{PlaySet, PlayState, PlayWorld};
 use bevy::asset::RenderAssetUsages;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
-use crate::ui_compat::{Button, Interaction};
+use crate::ui_pointer::{Button, PointerState};
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::window::PrimaryWindow;
 use nvf_assets::{GameData, TextureCache};
@@ -386,7 +386,7 @@ fn choose(
     mut menu: ResMut<MainMenu>,
     page: Res<Page>,
     mut request: ResMut<PageRequest>,
-    entries: Query<(&Interaction, &EntryNode), Changed<Interaction>>,
+    entries: Query<(&PointerState, &EntryNode), Changed<PointerState>>,
     mut loads: MessageWriter<crate::save::LoadRequest>,
     mut intro: MessageWriter<crate::intro::PlayIntro>,
     mut exit: MessageWriter<AppExit>,
@@ -418,8 +418,8 @@ fn choose(
     for (i, e) in &entries {
         let ok = Entry::ALL[e.0].enabled(saves);
         match i {
-            Interaction::Hovered if ok => menu.selected = e.0,
-            Interaction::Pressed if ok => take = Some(Entry::ALL[e.0]),
+            PointerState::Hovered if ok => menu.selected = e.0,
+            PointerState::Pressed if ok => take = Some(Entry::ALL[e.0]),
             _ => {}
         }
     }

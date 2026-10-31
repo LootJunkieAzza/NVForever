@@ -73,7 +73,9 @@
 //!   ahead of its collision and slid back at the end [observed in NVForever: owner
 //!   2026-10-30, #1069]. Other blows, shots, reloads and block reactions do not carry
 //!   [design: carried, the dogs' standing power attack (187 units) left them biting from
-//!   37 units, against the original's median 133 (smoke `combat-dogs`)].
+//!   37 units, against the original's median 133 (smoke `combat-dogs`)]. A biter (dog,
+//!   coyote) never carries: it bites on the move with its head-only clip and its walk
+//!   carries it [design: the walk wins, review of #1209].
 //! - **Shots take priority over movement** [design: owner 2026-10-19, "shooting should
 //!   always take priority"]: a shot's clip does not fade out at its end but is held at its
 //!   last frame at full weight for [`SHOT_HOLD`] while the fight goes on, then fades out,
@@ -287,6 +289,31 @@ pub struct Attack {
     pub melee: bool,
     /// Seconds into the clip of its `Hit` key (a blow's strike); shots leave at the start.
     pub hit: f32,
+    /// A biter's blow on its head and neck only ([`head_only`]), played when the blow
+    /// begins while the creature moves.
+    pub on_the_move: Option<Arc<BoundClip>>,
+    /// Whether this blow shows head and neck only: decided in its first frame (whether
+    /// the creature moved then) and kept for the whole blow, so the pose does not snap
+    /// when the creature stops or sets off mid-blow.
+    pub head_blow: Option<bool>,
+}
+
+/// Whether a creature's bone is of its head or neck (the jaw, tongue, ears, muzzle and
+/// eyelids below the head) [observed: the dog skeleton's names in `h2hattackleft.kf`:
+/// `Bip01 Neck`…`Neck2`, `Bip01 Head`, `Head Muzzle`, `Head1 Jaw`, ` Bip01 Head11
+/// TungeControler`, `Bip01 Ponytail…` (the ears and tongue), `Head2 Eyeleds`].
+fn head_or_neck(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    ["head", "neck", "ponytail", "jaw", "tunge", "tongue"].iter().any(|k| n.contains(k))
+}
+
+/// `bound` without the tracks of a creature's body and legs: what of a blow shows over
+/// its run while it moves (actors.md §8.10, "The slide") [design]. `None` when the
+/// clip keys none of the head or all of the bones are head ones.
+pub fn head_only(bound: &BoundClip, names: &[Option<String>]) -> Option<BoundClip> {
+    let head = |i: usize| names.get(i).and_then(|n| n.as_deref()).is_some_and(head_or_neck);
+    let tracks: Vec<_> = bound.tracks.iter().filter(|(i, _, _)| head(*i)).cloned().collect();
+    (!tracks.is_empty() && tracks.len() < bound.tracks.len()).then(|| BoundClip { clip: bound.clip.clone(), tracks, root: None, root_track: None, carried: None })
 }
 
 impl Attack {
@@ -362,6 +389,9 @@ pub struct CombatPose {
     /// pose after the fight.
     pub fighting: bool,
     pub attack: Option<Attack>,
+    /// The actor moves this frame (`locomotion::drive` sets it before [`CombatPose::layers`]):
+    /// a creature's blow shows on its head and neck only.
+    pub moving: bool,
     /// A shot's clip that has played out, held at its last frame (module notes): with
     /// its up and down forms and the seconds since it ended.
     pub held: Option<HeldShot>,
@@ -372,6 +402,12 @@ pub struct CombatPose {
     /// How far the attack's clip has carried the actor since [`carry`] last took it (x,
     /// y in the actor's axes, unscaled; module notes, "Attacks that travel").
     pub travel: Vec2,
+    /// The lunge reached where its walk would stop ([`carry`]): the rest of this attack's
+    /// travel, its later backward travel too, is not applied.
+    pub lunge_stopped: bool,
+    /// The forward travel [`carry`] gave last frame (game units), which the fight's
+    /// distance to the target ([`Fighters::lunge_room`]) does not count yet.
+    pub lunge_last: f32,
 }
 
 /// The weight to give the up or down form, played beside its level clip at weight 1,
@@ -496,7 +532,10 @@ impl CombatPose {
         // A shot does not fade out at its end: it is held there (module notes).
         let fade = fade_in * if shot { 1.0 } else { ((a.len - a.t) / FADE_OUT).min(1.0) };
         let phase = (a.t / a.len.max(1e-3)).min(0.999);
-        player.layers[ATTACK_LAYER] = Some(Layer { clip: a.clip.clone(), phase, weight: fade });
+        let moving = self.moving;
+        let head = *a.head_blow.get_or_insert(a.on_the_move.is_some() && moving);
+        let clip = a.on_the_move.as_ref().filter(|_| head).unwrap_or(&a.clip);
+        player.layers[ATTACK_LAYER] = Some(Layer { clip: clip.clone(), phase, weight: fade });
         player.layers[ATTACK_LAYER + 1] = form_of(&a.up, &a.down).filter(|_| w > 1e-3).map(|clip| Layer { clip, phase, weight: w * fade });
     }
 
@@ -870,16 +909,24 @@ fn start(
             new_pose.held = None;
             clips.stats.followed += usize::from(follows);
             let fade_in = a.kind != Move::ReloadRound && !follows;
+            // Biters only: the creatures with an `h2h` movement set (dogs and coyotes; the
+            // cazador's and mirelurk king's blows are stings and claws, which the rule
+            // leaves whole, as every other creature's) [design].
+            let biter = creature && lo.is_some_and(|l| l.alert.is_some()) && !rig.skeleton.to_ascii_lowercase().contains("cazador") && !rig.skeleton.to_ascii_lowercase().contains("mirelurk");
             // A lunge's clip (a forward power attack) whose root travels carries its
-            // actor (module notes).
-            let clip = if a.melee && a.kind == Move::Attack && a.power == Some(Power::Forward) { clips.carried(&rig.skeleton, &path, &clip) } else { clip };
+            // actor (module notes); a biter bites on the move instead, its walk carrying
+            // it [design: the walk wins for dogs and coyotes].
+            let clip = if !biter && a.melee && a.kind == Move::Attack && a.power == Some(Power::Forward) { clips.carried(&rig.skeleton, &path, &clip) } else { clip };
             if let Some(far) = clip.carried.map(|_| clip.travel(0.0, len).length()) {
                 clips.stats.carried += 1;
                 if clips.stats.logged.insert(format!("carries {}", path.to_ascii_lowercase())) {
                     info!("attack anims: {path} carries its actor {far:.0} units (its root's travel)");
                 }
             }
-            new_pose.attack = Some(Attack { clip, up, down, t, len, repeat, since: 0.0, fade_in, reload: reloads, kind: a.kind, opening, melee: a.melee, hit });
+            let on_the_move = if biter && a.melee { head_only(&clip, &rig.skel.names).map(Arc::new) } else { None };
+            new_pose.attack = Some(Attack { clip, up, down, t, len, repeat, since: 0.0, fade_in, reload: reloads, kind: a.kind, opening, melee: a.melee, hit, on_the_move, head_blow: None });
+            new_pose.lunge_stopped = false;
+            new_pose.lunge_last = 0.0;
         }
         match pose {
             Some(mut p) => *p = new_pose,
@@ -966,12 +1013,19 @@ impl AttackTravel {
 /// root is in game space: x east, y north, z up (`locomotion::heading_of_rotation`).
 fn carry(mut travel: ResMut<AttackTravel>, fighters: Res<Fighters>, mut poses: Query<(&ActorRig, &mut CombatPose, &Transform)>) {
     for (rig, mut pose, tr) in &mut poses {
-        let mut d = std::mem::take(&mut pose.travel);
-        // A lunge carries its actor no nearer its target than its walk stops
-        // (`Fighters::lunge_room`): a dog's 900-unit leap ran it past the player before.
+        let asked = std::mem::take(&mut pose.travel);
         let k = tr.scale.x.max(1e-3);
-        if let Some(room) = fighters.lunge_room(rig.reference).filter(|_| d.y > 0.0) {
-            d.y = d.y.min(room / k);
+        let room = fighters.lunge_room(rig.reference);
+        let (was, last) = (pose.lunge_stopped, pose.lunge_last);
+        let p = &mut *pose;
+        let d = clamp_lunge(asked, room, k, &mut p.lunge_stopped, &mut p.lunge_last);
+        if pose.lunge_stopped && !was {
+            info!(
+                "attack anims: {:08X}'s lunge stopped at its target's body ({:.0} units of room, {last:.0} carried the frame before, {:.1} asked)",
+                rig.reference,
+                room.unwrap_or(0.0),
+                asked.y * k
+            );
         }
         let carrying = pose.attack.as_ref().is_some_and(|a| a.clip.carried.is_some());
         if !carrying && d == Vec2::ZERO {
@@ -985,6 +1039,27 @@ fn carry(mut travel: ResMut<AttackTravel>, fighters: Res<Fighters>, mut poses: Q
         m[0] += w[0];
         m[1] += w[1];
     }
+}
+
+/// This frame's root travel `d` of a carried clip (the actor's axes, unscaled) as much as
+/// may carry the actor, its scale `k`: a lunge carries its actor no nearer its target
+/// than `room` (`Fighters::lunge_room`: where their bodies touch) less the forward travel
+/// given the frame before (`last`, which the fight's distance does not count yet). Once
+/// it gets there it is `stopped`, and the rest of that attack carries nothing, the clip's
+/// later travel back included (the Deathclaw's lunge goes 572 forward, then back to 523)
+/// [design]. Without a room (no target) the clip's travel carries in full.
+fn clamp_lunge(mut d: Vec2, room: Option<f32>, k: f32, stopped: &mut bool, last: &mut f32) -> Vec2 {
+    if *stopped {
+        d = Vec2::ZERO;
+    } else if let Some(room) = room.filter(|_| d.y > 0.0) {
+        let left = (room - *last).max(0.0) / k;
+        if d.y >= left {
+            d.y = left;
+            *stopped = true;
+        }
+    }
+    *last = d.y.max(0.0) * k;
+    d
 }
 
 pub fn drawn(hold: Option<&WeaponHold>) -> bool {
@@ -1014,6 +1089,41 @@ fn report(mut exit: MessageReader<AppExit>, clips: Res<AttackClips>, travel: Res
 
 #[cfg(test)]
 mod tests {
+    /// A lunge with room carries the actor by its clip's whole root travel, frame by
+    /// frame; one that reaches its target's body stops there for the rest of the attack,
+    /// its travel back included (`clamp_lunge`, actors.md §8.13).
+    #[test]
+    fn a_lunge_with_room_carries_its_clips_travel_and_stops_at_the_body() {
+        use super::clamp_lunge;
+        use bevy::math::Vec2;
+        // The Deathclaw's clip, in frames: 572 forward, then 49 back (scale 1).
+        let frames: Vec<Vec2> = (0..22).map(|_| Vec2::new(0.0, 26.0)).chain((0..7).map(|_| Vec2::new(0.0, -7.0))).collect();
+        let run = |room: f32| {
+            let (mut stopped, mut last, mut moved) = (false, 0.0f32, 0.0f32);
+            // The fight's distance is a frame old: it has not counted last frame's carry.
+            let (mut actual, mut seen) = (room, room);
+            for &d in &frames {
+                let d = clamp_lunge(d, Some(seen), 1.0, &mut stopped, &mut last);
+                seen = actual;
+                actual -= d.y;
+                moved += d.y;
+            }
+            (moved, stopped)
+        };
+        // Room for all of it: the clip's own travel, 572 out and 523 at its end.
+        let (moved, stopped) = run(2000.0);
+        assert!((moved - 523.0).abs() < 1e-3 && !stopped, "{moved}");
+        // 300 units to the body: carried to it and no further, and not back.
+        let (moved, stopped) = run(300.0);
+        assert!((moved - 300.0).abs() < 1e-3 && stopped, "{moved}");
+        // Already touching: nothing.
+        assert_eq!(run(0.0), (0.0, true));
+        // No target: in full.
+        let (mut s, mut l) = (false, 0.0);
+        assert_eq!(clamp_lunge(Vec2::new(3.0, 40.0), None, 2.0, &mut s, &mut l), Vec2::new(3.0, 40.0));
+        assert_eq!(l, 80.0);
+    }
+
     use super::*;
 
     #[test]
@@ -1056,7 +1166,7 @@ mod tests {
         let mut clip = nvf_assets::anim_play::Clip::from_controllers(Vec::new(), Vec::new(), Vec::new());
         clip.stop = 0.167;
         let clip = Arc::new(BoundClip::bind(Arc::new(clip), |_| None));
-        let shot = Attack { clip: clip.clone(), up: None, down: None, t: 0.0, len: 0.167, repeat: None, since: 0.0, fade_in: true, reload: false, kind: Move::Attack, opening: false, melee: false, hit: 0.0 };
+        let shot = Attack { clip: clip.clone(), up: None, down: None, t: 0.0, len: 0.167, repeat: None, since: 0.0, fade_in: true, reload: false, kind: Move::Attack, opening: false, melee: false, hit: 0.0, on_the_move: None, head_blow: None };
         let mut player = BlendPlayer::new(Vec::new(), Arc::new(Vec::new()));
         let mut pose = CombatPose { fighting: true, attack: Some(shot), ..Default::default() };
         let weight = |p: &BlendPlayer| p.layers[ATTACK_LAYER].as_ref().map_or(0.0, |l| l.weight);

@@ -2080,7 +2080,6 @@ fn drive_body(
     player.body_view = None;
     // Set again below while the body's attack clip carries the player.
     let was_carrying = std::mem::replace(&mut lunge.carrying, false);
-    lunge.carry = [0.0; 2];
     // Set again below when the sights come up; not on the frames that leave early.
     if let Some(t) = true_sights.as_deref_mut() {
         t.0 = false;
@@ -2384,8 +2383,9 @@ fn drive_body(
     // (actors.md §8.13), turned by the heading and scaled with the body.
     if let Some(d) = body.third.carry.filter(|_| dt > 0.0) {
         let (s, c) = player.heading.sin_cos();
-        let k = body.scale / dt;
-        lunge.carry = [(d.x * c + d.y * s) * k, (-d.x * s + d.y * c) * k];
+        let k = body.scale;
+        lunge.owed[0] += (d.x * c + d.y * s) * k;
+        lunge.owed[1] += (-d.x * s + d.y * c) * k;
         if !was_carrying {
             info!("player: the body's attack clip carries the player");
         }

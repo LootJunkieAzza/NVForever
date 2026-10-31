@@ -995,6 +995,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "wait-pointer-press"
+source = "issue #950: the menus' own pointer state (ui_pointer.rs) keeps Bevy 0.20 Interaction's timing: a real left press on the wait menu's slider puts the marker under the pointer, and a press on Accept fires on the press, before the release"
+areas = ["wait", "menus"]
+paths = ["engine/nvf-play/src/ui_pointer.rs", "engine/nvf-play/src/wait.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_WAIT = "10:open,11:point=0.584:0.47,11.5:press,12:release,12.5:point=0.677:0.576,13:press,14:release" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--size", "1280x720"]
+run_seconds = 18
+expect = [
+  "wait menu: open",
+  { re = 'wait menu: waiting (?P<n>\d+) hour', range = [17, 19], label = "the slider press at 72% of its length chose about 18 hours" },
+]
+order = [["test aid NVF_PLAY_TEST_WAIT: Point(0.677, 0.576)", "test aid NVF_PLAY_TEST_WAIT: Press", "wait menu: waiting … hour(s)", "test aid NVF_PLAY_TEST_WAIT: Release"]]
+
+[[scenario]]
 name = "sleep-goodsprings-24h"
 source = "CLAUDE.md: after changes to the wait and sleep menu or to the play clock it advances (fnv_sim::World::advance_hours, sky_follows_game)"
 areas = ["wait", "clock"]
@@ -2115,6 +2129,7 @@ order = [[
   { re = 'levelup: menu open, level 2, \d+ skill points, perk due' },
 ]]
 expect = [
+  { re = "music: level up: the default objects' level-up music DefaultSuccess has no file to play", label = "the shipped Level Up Music (DefaultSuccess) has no file, so nothing more plays (#991)" },
   { text = "xp meter: sound UIPopUpExperienceUp", label = "a sound for each gain", count = 2 },
   { gap = ["xp meter: +150 XP", "xp meter: LEVEL UP"], range = [7.1, 8.0], label = "LEVEL UP follows the six-second meter and gap (console holds HUD time until 22.3 s)" },
   { text = "xp meter: sound UILevelUpText", label = "the bar filled: the level-up sound" },
@@ -6533,6 +6548,39 @@ expect = [
 ]
 
 [[scenario]]
+name = "reputation-after-combat"
+source = "owner request 2026-10-30 (#1050): the reputation box and the level-up menu wait until the fight has been over for a short while (engine/nvf-play/src/after_combat.rs, 2 s of play [design])"
+note = "beside Violet's camp (as music-battle), god mode: Goodsprings fame is added at 12 s while the fight is on, the five fighters are killed at 15 s; the box waits for the fight to end and then 2 s more"
+areas = ["hud"]
+paths = ["engine/nvf-play/src/after_combat.rs", "engine/nvf-play/src/reputation.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "12:player.addreputation 00104C22 1 5;12.3:close", NVF_PLAY_TEST_SCRIPT = "15:kill:0x000F570B,15:kill:0x0013E5BB,15:kill:0x000F573B,15:kill:0x000F5741,15:kill:0x0013F85F" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-46800,65000,4600", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 26
+order = [[
+  "after combat: in a fight, boxes wait",
+  "after combat: the fight is over",
+  { re = 'after combat: settled, boxes may come up \(2\.0 s' },
+  "reputation: Goodsprings Neutral -> Liked (fame 12, infamy 0)",
+]]
+expect = [
+  { gap = ["after combat: the fight is over", "reputation: Goodsprings Neutral -> Liked"], range = [1.9, 4.0], label = "the box comes about 2 s after the fight ends, not at once" },
+]
+forbid = [{ re = 'the player died', label = "the player dies" }]
+
+[[scenario]]
+name = "console-killall"
+source = "issue #1046: `killall` (KillAllActors, GECK wiki: kills every actor in the loaded area, essential ones knocked out) did nothing; the console now finds vanilla functions without an opcode by name and alias (docs/design/console.md)"
+areas = ["console"]
+paths = ["crates/fnv-game/src/functions/console.rs", "engine/nvf-play/src/console.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_CONSOLE = "12:killall;12.3:player.getdead;12.6:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 18
+order = [[
+  { re = 'KillAllActors >> [1-9]\d* killed, \d+ essential knocked out', label = "the town's actors die, essential ones are knocked out" },
+  { re = 'console: GetDead on player >> 0\.00', label = "never the player" },
+]]
+
+[[scenario]]
 name = "reputation-disguise"
 source = "owner request 2026-10-22: faction armour's scripts set every reputation to 0 while it is worn and back after; only the player's real reputation opens boxes, so putting on and taking off a Powder Gang outfit (000A472F, script 00134B71) shows none"
 areas = ["hud"]
@@ -6740,6 +6788,25 @@ expect = [
   "wait menu: open as sleep (the player lies on a bed)",
   { re = 'sleep: crippled limbs healed: Left Mobility Condition', label = "the first hour slept heals the leg" },
   "combat: player's left leg healed",
+]
+
+[[scenario]]
+name = "coyote-warn-charge"
+source = "issue #1073: a coyote warns the player head down (its h2h stance drawn while it warns), then charges on its h2h run, and never moves with no movement clip; a blow begun on the run shows on its head and neck over the run (docs/spec-notes/actors.md §8.10)"
+note = "VERGSCoyote6REF 0x00157B38 at the coyote-warning spot (as crippled-limp-creature, not crippled and with no test aid starting the fight): it warns twice and attacks about 15 s after its first warning (observer campaign warnings2). God mode: the coyote is Aggressive. Base game only, so no add-on start-up box holds the clock"
+areas = ["actors", "combat"]
+paths = ["engine/nvforever/src/creature_stance.rs", "engine/nvforever/src/attack_anims.rs", "engine/nvforever/src/locomotion.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--play", "--plugins", "FalloutNV.esm", "--pos=-59300,-753,9100", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 45
+expect = [
+  { re = 'creature stance: .*00157B38 draws \(warning the player\)', label = "the coyote draws its stance to warn (head down)" },
+  { re = 'creature stance: .*00157B38 Drawn', label = "... and holds it drawn" },
+  { re = 'creature pace: VSpawnTier1CoyoteMed 0x00157B38 takes its alert stance', label = "it charges on its h2h set" },
+  { gap = ["00157B38 draws (warning the player)", "0x00157B38 takes its alert stance"], range = [1, 60], label = "the warning comes before the charge" },
+  { re = 'attack anims: 00157B38 plays', label = "it bites" },
+  { re = 'actor moves with no movement clip: .*00157B38', count = 0, label = "the coyote never moves with no movement clip showing (logged once per actor at its first such frame)" },
+  { re = '(?P<n>\d+) actor frames of a creature.s blow on its head and neck over its run', range = [1, 100000000], label = "its blows on the run show on its head and neck over the run (on main the whole clip, legs standing in the bite, while it ran on)" },
 ]
 
 [[scenario]]
@@ -8067,24 +8134,73 @@ forbid = [{ re = 'combat: hit 0x000F573F on ', label = "the missed shot hits its
 
 [[scenario]]
 name = "vats-kill-cam"
-source = "ESM full audit gap 10 (2026-10-24): the masters' camera paths and shots (CPTH, CAMS) play as VATS mode's kill cameras (docs/design/vats-mode.md §19)"
-note = "vats-mode-miss' setup (a .357 among the Goodsprings dogs on their packages, god mode) with both dogs left at 1 health (set_av) and every roll forced to hit: one mark, E; the shot kills the dog, the camera path tree picks a path whose hit shots play (each its Max Time in real seconds at its Global time multiplier), then the view is the player's again. Which path and shots is the tree's choice (GetRandomPercent varies it), so only their form is checked; a shot whose model fails to load would leave the view where it is"
-areas = ["combat", "vats"]
-paths = ["engine/nvf-play/src/kill_cam.rs", "crates/fnv-game/src/camera_paths.rs", "engine/nvf-assets/src/camera_shot.rs", "engine/nvf-play/src/vats_mode.rs", "crates/fnv-game/src/vats.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e" }
+source = "ESM full audit gap 10 (2026-10-24): the masters' camera paths and shots (CPTH, CAMS) play as VATS mode's kill cameras (docs/design/vats-mode.md §19); owner's playtest requests #1034 (the HUD hidden while it plays) and #1036 (the player's input held)"
+note = "vats-mode-miss' setup (a .357 among the Goodsprings dogs on their packages, god mode) with both dogs left at 1 health (set_av) and every roll forced to hit: one mark, E; Violet, her two Fiends and the other dog are killed at 3 s (they fight the player, and the camera plays only for the last enemy, #1035); the shot kills the dog, the camera path tree picks a path whose hit shots play (each its Max Time in real seconds at its Global time multiplier), then the view is the player's again. Which path and shots is the tree's choice (GetRandomPercent varies it), so only their form is checked; a shot whose model fails to load would leave the view where it is. While it plays the HUD is hidden and comes back after it; W held from 10.8 s and a look at 10.9 s (test aids standing in for the keys and the mouse) are held by it"
+areas = ["combat", "vats", "hud"]
+paths = ["engine/nvf-play/src/kill_cam.rs", "crates/fnv-game/src/camera_paths.rs", "engine/nvf-assets/src/camera_shot.rs", "engine/nvf-play/src/vats_mode.rs", "crates/fnv-game/src/vats.rs", "engine/nvf-play/src/hud.rs", "engine/nvf-play/src/bindings.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e", NVF_PLAY_TEST_MOVE = "10.8:1:0,13:0:0", NVF_PLAY_TEST_LOOK = "10.9:90:0" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 28
-order = [[
-  { re = 'vats mode: marked .* mark 1; ', label = "one mark" },
-  { re = 'vats mode: shot 1 of 1 at .*, 26 AP spent; \d+% to hit: hit', label = "the roll hits (forced)" },
-  { re = 'kill camera: .* killed by the last mark: path \S+ \(0x[0-9A-F]{8}\), shots \S', label = "the dog dies and the tree picks a path with shots" },
-  { re = 'kill camera: shot 1 of \d+ \S+: ', label = "the first shot plays" },
-  { re = 'kill camera: done \([\d.]+ s\)', label = "the kill camera ends by itself" },
-]]
-expect = [{ re = 'kill camera summary: 1 shown', label = "one kill camera shown" }]
+order = [
+  [
+    { re = 'vats mode: marked .* mark 1; ', label = "one mark" },
+    { re = 'vats mode: shot 1 of 1 at .*, 26 AP spent; \d+% to hit: hit', label = "the roll hits (forced)" },
+    { re = 'kill camera: .* killed by the last mark: path \S+ \(0x[0-9A-F]{8}\), shots \S', label = "the dog dies and the tree picks a path with shots" },
+    { re = 'kill camera: shot 1 of \d+ \S+: ', label = "the first shot plays" },
+    { re = 'kill camera: done \([\d.]+ s\)', label = "the kill camera ends by itself" },
+  ],
+  [
+    { re = 'kill camera: .* killed by the last mark: path ', label = "the kill camera starts" },
+    { text = "hud: hidden: the kill camera has the view", label = "the HUD goes while it plays (#1034)" },
+    { re = 'test aid: look heading 90\.0 pitch 0\.0 ignored: the kill camera has the view', label = "the look is held (#1036)" },
+    { re = 'kill camera: done \([\d.]+ s\), input held [1-9]\d* frames', label = "the held W is struck from the frames it plays (#1036)" },
+    { text = "hud: back after the kill camera", label = "the HUD comes back after it (#1034)" },
+  ],
+]
+expect = [{ re = 'kill camera summary: 1 shown, 0 skipped, 0 off', label = "one kill camera shown" }]
 forbid = [
   { text = "no camera path chosen", label = "the tree gave no path for a VATS kill" },
   { text = "not loaded, the view stays", label = "a shot's camera model did not load" },
+  { text = "kill camera: skipped", label = "another enemy still fights the player" },
+]
+
+[[scenario]]
+name = "vats-kill-cam-others-fighting"
+source = "owner's playtest request #1035: the VATS kill camera plays only when no other enemy is in combat with the player (engine/nvf-play/src/kill_cam.rs, docs/design/vats-mode.md §19)"
+note = "vats-kill-cam's setup with Violet and her two Fiends killed at 3 s; the other dog (0x0013E5BB, still alive) is set on the player (StartCombat, a script aid) between the mark and E, so the kill leaves an enemy in combat with the player: no kill camera, the view stays the player's"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/kill_cam.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,10.34:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 20
+order = [[
+  { re = 'vats mode: marked .*000F573F.* mark 1; ', label = "one mark, on the Fiend Guard Dog" },
+  { re = 'vats mode: shot 1 of 1 at .*, 26 AP spent; \d+% to hit: hit', label = "the roll hits (forced)" },
+  { re = 'kill camera: skipped, 1 enemies still in combat \(.*0x0013E5BB', label = "the other dog still fights the player: no kill camera" },
+]]
+expect = [{ re = 'kill camera summary: 0 shown, 1 skipped, 0 off', label = "none shown, one skipped" }]
+forbid = [
+  { re = 'kill camera: shot \d+ of', label = "a kill camera shot plays" },
+  { text = "hud: hidden: the kill camera has the view", label = "the HUD goes" },
+]
+
+[[scenario]]
+name = "vats-kill-cam-off"
+source = "owner's playtest request #1037: the settings page's Kill camera row turns the VATS kill camera off (engine/nvf-play/src/kill_cam.rs, docs/design/vats-mode.md §19)"
+note = "vats-kill-cam's setup with the settings page's Kill camera set to Off at 6.5 s (the pause menu open 6 to 7.5 s): the shot kills the dog and no kill camera plays"
+areas = ["combat", "vats", "settings"]
+paths = ["engine/nvf-play/src/kill_cam.rs", "engine/nvf-play/src/settings.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e", NVF_PLAY_TEST_PAUSE = "6:7.5", NVF_PLAY_TEST_SETTINGS = "6.5:kill-camera=Off" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 20
+order = [[
+  { text = "test aid NVF_PLAY_TEST_SETTINGS: kill-camera=Off", label = "the row is set to Off" },
+  { re = 'vats mode: shot 1 of 1 at .*, 26 AP spent; \d+% to hit: hit', label = "the roll hits (forced)" },
+  { text = "kill camera: off in the settings", label = "the kill shows no camera: the setting is off" },
+]]
+expect = [{ re = 'kill camera summary: 0 shown, 0 skipped, 1 off', label = "none shown, one kill with the setting off" }]
+forbid = [
+  { re = 'kill camera: shot \d+ of', label = "a kill camera shot plays" },
 ]
 
 [[scenario]]
@@ -10434,6 +10550,7 @@ expect = [
   { re = 'weapon wheel: the clock runs at 0\.20, blur 3\.0', label = "the game clock slows to 0.2 behind the wheel" },
   { re = 'weapon wheel: picked slot 4 \(pointer\)', label = "the pointer to the right picks slot 4" },
   { re = 'weapon wheel: picked slot 3 \(key\)', label = "key 3 picks slot 3" },
+  { re = 'ui sounds summary: .*UIPipBoyScroll (?P<n>\d+)', range = [2, 100], label = "each changed pick clicks, UIPipBoyScroll (#985)" },
   { re = 'weapon wheel: closed: slot 3: equipped Varmint Rifle', label = "letting go of 1 equips what slot 3 holds" },
   { re = 'weapon wheel: closed: nothing used', label = "a cancel closes the wheel doing nothing" },
   { re = 'hotkeys: slot 2: Ammo Swap', label = "a tap of 2 is Ammo Swap" },
@@ -16566,8 +16683,46 @@ args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--heading", "0", "--
 run_seconds = 30
 expect = [
   { re = 'attack anims: meshes.creatures.deathclaw.h2hattackforwardpower[.]kf carries its actor (\d+) units', range = [500, 560], label = "the deathclaw's lunge clip carries it (523 units at its end)" },
-  { re = 'FF\w{6}: its attack clip carried it (\d+) units of', range = [40, 1000], label = "a carried blow moves the deathclaw's character forward and leaves it there" },
+  { re = 'attack anims: FF\w{6}.s lunge stopped at its target.s body', label = "the lunge carries it no nearer than the player's body (it strikes when it touches them, review of #1209)" },
+  { re = 'FF\w{6}: its attack clip carried it \d+ units of', label = "each carried blow leaves the deathclaw's character where the clip took it" },
+  { re = 'FF\w{6}: its attack clip carried it (\d+) units of', range = [40, 1000], label = "a carried blow moves the deathclaw's character forward and leaves it there", known_failing = "2026-10-31 (#1209 review): the deathclaw strikes where it touches the player, so its lunge has little or no room (0-35 units carried); it passed before only through a frame-old distance. A lunge with room carries its full travel: unit test a_lunge_with_room_carries_its_clips_travel_and_stops_at_the_body. Passes again once the AI lunges from farther out (owner-review item 36)" },
   { re = 'ai: attack clips carried actors in ([1-9]\d*) actor updates', label = "attack clips carried an actor" },
+]
+
+[[scenario]]
+name = "radio-dial-onoff"
+source = "#1080 (docs/spec-notes/activators.md §2-§3): a vintage radio (vintageradio01.nif) switched off and on again: Close darkens its dial, Open flickers it on (the tuning) and leaves it lit; Open and Close drive the NiMaterialProperty that the body, the needle and the glass dial share"
+note = "Goodsprings general store's radio 0x0014E8BB (VintageRadioNVStartONCountry, switched on by its OnLoad); E at 10 s (off) and 18 s (on); frames at 8 s (on), 13 s (off), 18.3 s (in Open's flicker) and 21 s (on again) in target/smoke"
+areas = ["activators"]
+paths = ["engine/nvforever/src/activators.rs", "engine/nvf-assets/src/material_anim.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0014E8BB", NVF_PLAY_TEST_ACTIVATE = "10,18", NVF_PLAY_TEST_SHOTS = "8:radio_on.png,13:radio_off.png,18.3:radio_tuning.png,21:radio_on_again.png" }
+args = ["--cell", "GSGeneralStore", "--play", "--no-voice", "--hour", "12", "--plugins", "FalloutNV.esm"]
+run_seconds = 24
+order = [[
+  "0014E8BB (VintageRadioNVStartONCountry) on: plays Open (0.67 s)",
+  "0014E8BB (VintageRadioNVStartONCountry) off: plays Close (0.37 s)",
+  "0014E8BB (VintageRadioNVStartONCountry) on: plays Open (0.67 s)",
+]]
+expect = [
+  { re = 'vintageradio01[.]nif: shapes sharing a driven material are driven with it: .*VintageRadioGlassDial:0', label = "Open and Close drive the glass dial, which wears the body's material" },
+  { re = 'test aid: screenshot .*radio_on_again[.]png', label = "the frames are saved" },
+]
+
+[[scenario]]
+name = "victor-talk-glow"
+source = "#1081 (docs/spec-notes/lipsync.md §6.1): a Securitron's Talking sequence (talking.kf) plays while it says a line, its time from the line's .lip, so Victor's chest light ##VoiceBox_talk:0 (nvsecuritronvoicebox.nif), dark under his idle, lights and flickers with his words"
+note = "Goodsprings' Victor (GSVictorRef 0x001073E8; VictorREF 0x00103DFE is not drawn yet at the start) is put 200 units in front of the player at 3 s, the player faces him at 5 s and talks to him at 7 s (his greeting is voiced); frames at 9 to 9.4 s (lit while he speaks, flickering) and at 21 s, faced again after his lines (dark under the idle) in target/smoke"
+areas = ["dialogue", "actors", "effects"]
+paths = ["engine/nvforever/src/talk_clips.rs", "engine/nvforever/src/actor_materials.rs", "engine/nvf-assets/src/material_anim.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x001073E8:player:200:0:0", NVF_PLAY_TEST_FACE = "5:001073E8,20:001073E8", NVF_PLAY_TEST_TALK = "7:0x001073E8=leave", NVF_PLAY_TEST_TALK_DELAY = "6", NVF_PLAY_TEST_SHOTS = "9:victor_talking.png,9.2:victor_talking_2.png,9.4:victor_talking_3.png,21:victor_quiet.png" }
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-messages", "--plugins", "FalloutNV.esm"]
+run_seconds = 24
+expect = [
+  { re = 'talk clip: meshes.creatures.nvsecuritron.talking[.]kf [(]Talking, 0[.]17 s[)]: \d+ material tracks on .*##voicebox_talk:0', label = "the Securitron's Talking sequence drives the chest light" },
+  "actor materials: reference 001073E8 shape ##voicebox_talk:0 driven by its clips",
+  { re = 'talk clip: .*001073E8 says .*robotvictor.*: Talking from its [.]lip [(]\d+ frames[)]', label = "Victor's line drives his Talking sequence from its .lip" },
+  { re = 'talk clip: .*001073E8 line over: \d+ frames, level mean 0[.](1\d|[2-9]\d), peak (0[.][5-9]\d|1[.]00)', label = "the chest's level moves with the words (mean above 0.1, peak above 0.5)" },
+  { re = 'test aid: screenshot .*victor_talking[.]png', label = "the frames are saved" },
 ]
 [[scenario]]
 name = "melee-knockback"

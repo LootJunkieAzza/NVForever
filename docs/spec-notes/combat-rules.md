@@ -561,7 +561,7 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
   (ragdoll.md §4). A living actor (the player, an NPC, a creature) struck by a melee or
   unarmed blow that leaves it alive and on its feet (not knocked down or out) is pushed
   back (#1070, `nvf_play::combat::Knockback`):
-  - **Force to motion** [design; the original's not measured, observer-checks.md #58]:
+  - **Force to motion** [design; the original's not measured, observer-checks.md #61]:
     the force is the speed it is pushed at, units per second, falling evenly to rest over
     fKnockbackTime (1 s in FalloutNV.esm [documented: GMST]), so it travels force × time
     / 2: a Sledgehammer blow of 14 damage on Agility 5 (force 114) 57 units, a punch of 3

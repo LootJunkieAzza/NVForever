@@ -13,7 +13,7 @@
 use super::draw::{Align, Ctx, Which, BODY_H, THICK};
 use crate::interface::{amber, at, u};
 use bevy::prelude::*;
-use crate::ui_compat::Button;
+use crate::ui_pointer::Button;
 use fnv_game::actor_values::SPECIALS;
 use fnv_game::chargen::{self, SpecialSheet, TagSheet, TraitSheet};
 use fnv_game::functions::ui::SpecialMenu;
