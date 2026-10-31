@@ -25,6 +25,7 @@ mod actor_weapons;
 mod actor_cmd;
 mod bsa_cmd;
 mod collide_cmd;
+mod crash_report;
 mod combat_cmd;
 mod combat_sim;
 mod dds_cmd;
@@ -1122,6 +1123,7 @@ fn init_logging() {
 }
 
 fn main() -> ExitCode {
+    crash_report::install();
     let cli = Cli::parse();
     init_logging();
     // The game folder a command reads (its data-folder argument, wherever the command
