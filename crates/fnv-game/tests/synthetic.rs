@@ -2544,6 +2544,7 @@ fn arrays_that_hold_themselves_do_not_crash() {
     let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("array_var aA
 array_var aB
 array_var aC
+array_var aD
 float fRes
 Begin Function {{ }}
 {body}
@@ -2555,9 +2556,19 @@ let aB := ar_List 3
 let aC := ar_List aB
 let aB[1] := aC
 ";
-    // The copy keeps the shape: its third element is the copy itself, not the original.
+    // The copy keeps the shape: its third element is the copy itself, not the original, so
+    // writing through it changes the copy and leaves the original alone.
     assert_eq!(q(&mut g, &format!("{make}let aC := Ar_DeepCopy aA
-SetFunctionValue ((aC[2])[0])")), Ok(XVal::Num(1.0)));
+let aD := aC[2]
+let aD[0] := 9
+SetFunctionValue (aC[0] * 100 + aA[0])")), Ok(XVal::Num(901.0)));
+    // An array held twice is copied twice: the two copies stay apart.
+    assert_eq!(q(&mut g, "let aB := ar_List 5
+let aA := ar_List aB, aB
+let aC := Ar_DeepCopy aA
+let aD := aC[0]
+let aD[0] := 7
+SetFunctionValue ((aC[1])[0] * 100 + aB[0])"), Ok(XVal::Num(505.0)));
     assert_eq!(q(&mut g, &format!("{make}let aC := Ar_DeepCopy aA
 SetFunctionValue (Ar_DeepEquals aC aA)")), Ok(XVal::Num(1.0)));
     assert_eq!(q(&mut g, &format!("{make}SetFunctionValue (Ar_DeepEquals aA aA)")), Ok(XVal::Num(1.0)));

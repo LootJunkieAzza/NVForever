@@ -993,7 +993,10 @@ fn same(a: &XVal, b: &XVal) -> bool {
 /// A copy of an array; nested arrays shared (Ar_Copy) or copied all the way down
 /// (Ar_DeepCopy) [documented: Ar Copy; Ar DeepCopy].
 /// An array that holds itself, directly or through others, is copied with the same shape:
-/// each array is copied once and its copy stands wherever it comes back (#1089).
+/// an entry that leads back to an array still being copied gets that array's copy (#1089).
+/// An array met twice on separate paths (`[b, b]`) is copied twice, so the copies stay
+/// apart, as before #1089 [documented: Ar DeepCopy, "all the way down"; hypothesis: the
+/// original also copies each entry apart, not probed].
 fn copy_array(store: &mut ExtStore, id: u32, deep: bool) -> u32 {
     if !deep {
         let Some(a) = store.array(id).cloned() else { return 0 };
@@ -1023,6 +1026,8 @@ fn deep_copy(store: &mut ExtStore, id: u32, copies: &mut std::collections::HashM
         n.entries = es;
         n.renumber();
     }
+    // Only the arrays on the path being copied stand for themselves.
+    copies.remove(&id);
     new
 }
 
