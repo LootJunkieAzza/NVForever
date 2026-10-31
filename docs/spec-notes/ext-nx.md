@@ -1,8 +1,9 @@
 # NX NVSE ("NVSE Extender", #1017)
 
 Code: `crates/fnv-game/src/nvse_nx.rs`. Sources: the GECK wiki export, Category:Functions
-(NX) and each function's page [documented]. No probe yet: NX is not among the plugins
-of the owner's install (docs/spec-notes/ext-plugins.md) [observed: Data\NVSE\Plugins].
+(NX) and each function's page [documented]. No probe: NX is not installed on the
+owner's game (Data\NVSE\Plugins holds JIP, JohnnyGuitar, ShowOff, kNVSE, MCM and
+ZeGaryHax) [observed: 2026-10-31].
 
 ## 1. NX variables
 
