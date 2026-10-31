@@ -213,7 +213,7 @@ impl From<BTreeMap<FormId, StackRepr>> for Inventory {
 /// Light Items and Adjust Heavy Weapon Weight entry points; docs/spec-notes/perk-entry-points.md
 /// §7): a unit at most `light.0` weighs × `light.1` (Pack Rat), a weapon unit of at least
 /// `heavy_weapons.0` × `heavy_weapons.1` (Heavyweight), each unit's weight with its mods.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct WeightRules {
     pub light: Option<(f32, f32)>,
     pub heavy_weapons: Option<(f32, f32)>,

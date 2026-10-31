@@ -636,6 +636,10 @@ impl Runtime {
         let session = self.game.take_session();
         self.game = Game::restore(data, World::new(sim.forms, sim.refs, world.config()), cfg, &s)?;
         self.game.put_session(session);
+        // The world's session edits (game settings, leveled lists, base containers changed
+        // by script) last for the run, not in the save (`fnv_sim::world::WorldSession`).
+        let mut world = world;
+        world.put_session(sim.world.take_session());
         sim.world = world;
         sim.world.set_inventory_sources(data.inventory_sources(sim.refs));
         self.opening_pending = false;
