@@ -387,7 +387,8 @@ struct Args {
     #[arg(long)]
     no_overlay: bool,
     /// Show the frame rate counter in the top-right corner (fps_counter.rs; a switch on the
-    /// settings page too).
+    /// settings page too). Once any setting is saved, NVForever.ini's Frame rate counter
+    /// switch wins over this flag, as for every switch.
     #[arg(long)]
     fps: bool,
     /// With --play: draw the text overlay (the developer's position, loading counts and

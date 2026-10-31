@@ -12,8 +12,12 @@ use bevy::prelude::*;
 /// How often the readout changes, in seconds.
 const WINDOW: f32 = 0.5;
 
-/// Above every menu and the HUD (`nvf_play::interface::TOP_MENU_Z` is 107).
-const Z: i32 = 200;
+/// Above every menu, the HUD (`nvf_play::interface::TOP_MENU_Z` is 107) and the loading
+/// screen (200, `nvf_play::loading`), so a load's frame rate can be read too.
+const Z: i32 = 201;
+
+/// The text until the first reading of a showing.
+const WAITING: &str = "-- FPS";
 
 /// Whether the counter is shown.
 #[derive(Resource, Clone, Copy, Debug, Default)]
@@ -41,7 +45,7 @@ impl Plugin for FpsCounterPlugin {
 
 fn spawn(mut commands: Commands, counter: Res<FpsCounter>) {
     commands.spawn((
-        Text::new(""),
+        Text::new(WAITING),
         TextFont { font_size: FontSize::Px(14.0), ..default() },
         TextColor(Color::srgb(1.0, 1.0, 0.6)),
         Node { position_type: PositionType::Absolute, top: Val::Px(6.0), right: Val::Px(8.0), padding: UiRect::axes(Val::Px(5.0), Val::Px(2.0)), ..default() },
@@ -52,16 +56,20 @@ fn spawn(mut commands: Commands, counter: Res<FpsCounter>) {
     ));
 }
 
-/// Shows or hides the text when the switch changes.
-fn show(counter: Res<FpsCounter>, mut text: Query<&mut Visibility, With<FpsText>>) {
+/// Shows or hides the text when the switch changes; a new showing starts from the
+/// waiting text, not the last showing's reading.
+fn show(counter: Res<FpsCounter>, mut text: Query<(&mut Visibility, &mut Text), With<FpsText>>) {
     if !counter.is_changed() {
         return;
     }
     if !counter.is_added() {
         info!("fps counter: {}", if counter.show { "on" } else { "off" });
     }
-    for mut v in &mut text {
+    for (mut v, mut t) in &mut text {
         *v = if counter.show { Visibility::Inherited } else { Visibility::Hidden };
+        if counter.show {
+            t.0 = WAITING.to_string();
+        }
     }
 }
 
