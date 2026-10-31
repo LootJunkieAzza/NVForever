@@ -241,7 +241,12 @@ uGridsToLoad=5).
 - Done (same branch): `lod::update_lod` rebuilt every terrain chunk and object block
   whose loaded cells changed in one frame, 60–71 ms three times on that tour [observed].
   The rebuilds now stop at 4 ms a frame (`REBUILD_BUDGET_MS`, at least one a frame); the
-  old meshes stay drawn until theirs come round.
+  old meshes stay drawn until theirs come round. Terrain runs first and could spend the
+  whole budget, putting off every new object block while flying fast; since #1058 the
+  first block of each frame goes through whatever terrain spent. On the `auto-fly` smoke
+  run (Goodsprings, 4000 units/s, 40 s) a square was then put off at most 12 frames in a
+  row and none was still waiting at the end [observed, 2026-10-31; not measured before
+  the change].
 
 ## 3.1 Slower at night, and the longer the session (2026-10-28, 7c96203d)
 
