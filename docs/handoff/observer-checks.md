@@ -97,7 +97,8 @@ engine if needed, and delete the item here.
      FOD 12, SLP 2. So 12, 4 and 2 an hour, whole points, where ours gives 12, 4.8 and
      2.4; sleep did not bring SLP below 2. In Hardcore, sleep heals neither Health nor
      crippled limbs; outside it heals both. Ours heals no Health on a plain sleep (#1177).
-   - Still open: Buffout; how much a plain sleep heals outside Hardcore.
+     Outside Hardcore a sleep restores Health and every limb in full (owner).
+   - Still open: Buffout.
    ([aid-items §2, §6, §11](../spec-notes/aid-items.md),
    [wait-menu](../spec-notes/wait-menu.md))
 5. **Weapon wear.** Ours:
