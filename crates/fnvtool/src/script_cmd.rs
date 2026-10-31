@@ -1185,11 +1185,26 @@ fn sweep(a: &ScriptArgs, top: usize, detail: Option<&std::path::Path>, log: Opti
     let refs = fnv_sim::RefTable::build(&lo, &schema);
     let data = fnv_game::GameData::build(&lo, &schema, table, &fjson, &refs);
     let (mut r, cov) = fnv_game::sweep::sweep(&data, &forms, &refs, 5);
+    // Every script's calls, one per argument shape: arguments read wrong without failing.
+    let mut probe = fnv_game::sweep::probe_calls(&data, &forms, &refs, 5);
+    r["summary"]["call_probe"] = json!({"shapes": probe["shapes"], "not_judged": probe["not_judged"].as_array().map_or(0, Vec::len), "causes": probe["causes"], "calls": probe["calls"]});
+    r["call_probe"] = probe["arg_unread"].take();
+    if detail.is_some() {
+        r["call_probe_not_judged"] = probe["not_judged"].take();
+    }
     if let Some(p) = log {
         std::fs::write(p, serde_json::to_string(&cov.log(&data, "result-script sweep"))?).with_context(|| p.display().to_string())?;
     }
     if let Some(p) = detail {
         std::fs::write(p, serde_json::to_string_pretty(&r)?).with_context(|| p.display().to_string())?;
+    }
+    if let Some(list) = r["call_probe"].as_array_mut() {
+        list.truncate(top);
+        for c in list.iter_mut() {
+            if let Some(e) = c["e.g."].as_array_mut() {
+                e.truncate(2);
+            }
+        }
     }
     if let Some(causes) = r["causes"].as_object_mut() {
         for v in causes.values_mut() {

@@ -258,6 +258,27 @@ The commonest call failures:
   | 12 | EquipItem: no calling reference | PACK FalloutNV.esm:0273AE begin |
   | 11 | SetDestroyed: called on an empty reference | TERM DeadMoney.esm:006CAF item 0 |
 
+**The call probe** (#1122, `probe_calls` in the same file; `summary.call_probe` and
+`call_probe` in the output, the shapes it could not judge under `call_probe_not_judged`
+with `--detail`). A function that is given an argument of a kind its accessor cannot read
+(ShowMessage's compiled variables, one `Vars` list, read as a number) and then goes on with
+a default fails nowhere: the sweep's causes, `script stubs` and `script coverage` cannot see
+it. The `Args` accessors (crates/fnv-game/src/functions/mod.rs) record such an argument
+(present but unreadable; an absent one is an optional parameter), and a call that succeeds
+with one is traced as `arg_unread` (once per opcode, unit and parameter) in every run, the
+walkthroughs' `script run` traces and the game included. The probe runs every implemented
+function called by any compiled script (object, quest and effect scripts too, which the
+sweep does not run) once per distinct shape of its arguments, as a statement by itself, on
+the player, with the script's variables at 0. Result over the ten masters [observed,
+2026-10-31]: 427 shapes, 41 not judged (their call failed for want of context: 26 on an
+empty reference variable, 4 a form in a variable left at 0, 11 state the player lacks such
+as an equipped weapon or sleep; one of them has an argument other than a
+value, DamageActorValue's actor-value code, which the accessor reads), one cause before
+#1120 (ShowMessage parameter 2, 1713 call sites, 241 result scripts), none after.
+What it does not see: a function that returns before it reads the argument (context the
+probe lacks), and arguments a function reads without the accessors (`a.get(i)`, `a.0`;
+ShowMessage's `message_vars`, navmesh and camera arguments, each matching every kind).
+
 ## 8. Second and third batches (2026-10-27/28)
 
 Every chain below runs with no step or given error (`script cover`: 32 chains, all 0/0),
