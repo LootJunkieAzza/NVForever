@@ -104,6 +104,7 @@ mod particles;
 mod shot_fx;
 mod ragdoll;
 mod swing_traps;
+mod talk_clips;
 mod readahead;
 mod reflection;
 mod refraction;
@@ -1444,6 +1445,8 @@ fn main() -> AppExit {
             app.add_plugins(combat_face::CombatFacePlugin);
             // Alerted creatures raise their claws and hands (creature_stance.rs).
             app.add_plugins(creature_stance::CreatureStancePlugin);
+            // Robots and Mr. House light up as they talk (talk_clips.rs).
+            app.add_plugins(talk_clips::TalkClipsPlugin);
             // Actors sneaking by script or package (sneaking.rs).
             app.add_plugins(sneaking::SneakingPlugin);
             // Actors swimming in water (swimming.rs).
@@ -1487,6 +1490,7 @@ fn main() -> AppExit {
         // dialogue lines), before the actors are posed. The player's body, posed earlier
         // in the frame, takes them up in the next one.
         app.init_resource::<idles::Idles>()
+            .init_resource::<idles::IdleHolds>()
             .add_systems(Update, idles::drive.after(nvf_play::PlaySet::Scripts).after(residents::drive).before(locomotion::walk_test))
             .add_systems(Last, idles::report);
         // The props idles hold (anim_objects.rs): after the idles started and ended.
@@ -1598,6 +1602,7 @@ fn main() -> AppExit {
                     );
                     info!("actor turns: {} actor frames playing a turn-on-the-spot clip", c.turn_frames);
                     info!("actor idle under movement: {} actor frames with the idle laid under another clip", c.under_frames);
+                    info!("actor moves without a clip: {} actor frames moving with no movement clip showing; {} actor frames of a creature's blow on its head and neck over its run", c.clipless_frames, c.head_blow_frames);
                 }
                 if let Some(a) = actors {
                     let fg = a.facegen.lock().expect("facegen cache");

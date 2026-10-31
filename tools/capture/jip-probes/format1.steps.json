@@ -1,0 +1,98 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "format1",
+ "title": "format1, runtime-compiled (read-only)",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rObj\nfloat fRes\nBegin Function { }\nSetFunctionValue (sv_Construct \"%g\" 0.5)\nEnd\n",
+   "label": "format.g.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\nBegin Function { }\nSetFunctionValue (sv_Construct \"%g\" 2.5)\nEnd\n",
+   "label": "format.g.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\nBegin Function { }\nSetFunctionValue (sv_Construct \"%g\" 1000000)\nEnd\n",
+   "label": "format.g.2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\nBegin Function { }\nSetFunctionValue (sv_Construct \"%g\" 123.456789)\nEnd\n",
+   "label": "format.g.3",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\nBegin Function { }\nSetFunctionValue (sv_Construct \"%g\" 1234567)\nEnd\n",
+   "label": "format.g.5",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\nBegin Function { }\nSetFunctionValue (sv_Construct \"%g\" 0.1)\nEnd\n",
+   "label": "format.g.6",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\nBegin Function { }\nSetFunctionValue (sv_Construct \"%g\" 100000)\nEnd\n",
+   "label": "format.g.7",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\nBegin Function { }\nSetFunctionValue (sv_Construct \"%g\" 42)\nEnd\n",
+   "label": "format.g.8",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\nBegin Function { }\nSetFunctionValue (sv_Construct \"%g\" 3.14159265)\nEnd\n",
+   "label": "format.g.10",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\nBegin Function { }\nSetFunctionValue (sv_Construct \"%.3e\" 123000)\nEnd\n",
+   "label": "format.e.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\nBegin Function { }\nSetFunctionValue (sv_Construct \"%e\" 0.5)\nEnd\n",
+   "label": "format.e.1",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\nBegin Function { }\nSetFunctionValue (sv_Construct \"%G\" 1234567)\nEnd\n",
+   "label": "format.G",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\nBegin Function { }\nSetFunctionValue (sv_Construct \"%.2g\" 123.456)\nEnd\n",
+   "label": "format.g2",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"11673A\"\nSetFunctionValue (sv_Construct \"%g %g %g %g\" (GetTextureSetFlag rObj 0) (GetTextureSetFlag rObj 1) (GetTextureSetFlag rObj 2) (GetTextureSetFlag rObj 3))\nEnd\n",
+   "label": "txst.dirt.dnam",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rObj\nfloat fRes\nBegin Function { }\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"782D2\"\nSetFunctionValue (sv_Construct \"%g %g\" (GetTextureSetFlag rObj 0) (GetTextureSetFlag rObj 1))\nEnd\n",
+   "label": "txst.other",
+   "field": "value",
+   "text": true
+  }
+ ]
+}

@@ -31,7 +31,7 @@ fn object(shape: Shape, motion: Motion) -> CollisionObject {
         mass: 10.0,
         friction: 0.5,
         restitution: 0.0,
-        shape,
+        shape: shape.into(),
         shell: 0.0,
         material: None,
     }

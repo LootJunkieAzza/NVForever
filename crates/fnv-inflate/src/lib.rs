@@ -94,13 +94,17 @@ pub enum Trailer {
     /// Adler-32 present but wrong, while the deflate stream itself ended cleanly
     /// and produced exactly the expected size. Observed once in FalloutNV.esm.
     Mismatch { stored: u32, computed: u32 },
+    /// Adler-32 present and correct, followed by `bytes` more bytes that belong to no
+    /// part of the stream (#998). Accepted, as the game's reader is not known to refuse
+    /// them [hypothesis]; the verify commands report them.
+    Extra { bytes: usize },
 }
 
 /// Decompress a zlib stream, verifying the Adler-32 trailer.
 /// If `expected_len` is given, the output size must match it exactly.
 pub fn zlib_decompress(input: &[u8], expected_len: Option<usize>) -> Result<Vec<u8>, InflateError> {
     match zlib_decompress_ex(input, expected_len)? {
-        (out, Trailer::Verified) => Ok(out),
+        (out, Trailer::Verified | Trailer::Extra { .. }) => Ok(out),
         (_, Trailer::Missing) => Err(InflateError::Truncated),
         (_, Trailer::Mismatch { stored, computed }) => {
             Err(InflateError::ChecksumMismatch { expected: stored, actual: computed })
@@ -148,7 +152,10 @@ pub fn zlib_decompress_ex(input: &[u8], expected_len: Option<usize>) -> Result<(
         }
         return Err(InflateError::ChecksumMismatch { expected: stored, actual });
     }
-    Ok((out, Trailer::Verified))
+    match input.len() - (tpos + 4) {
+        0 => Ok((out, Trailer::Verified)),
+        bytes => Ok((out, Trailer::Extra { bytes })),
+    }
 }
 
 /// Encode `data` as a zlib stream using stored (uncompressed) deflate blocks.
@@ -175,6 +182,15 @@ pub fn zlib_store(data: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bytes_after_the_checksum_are_reported_and_accepted() {
+        let mut z = zlib_store(b"abc");
+        z.extend_from_slice(&[0, 0]);
+        assert_eq!(zlib_decompress_ex(&z, Some(3)).unwrap(), (b"abc".to_vec(), Trailer::Extra { bytes: 2 }));
+        assert_eq!(zlib_decompress(&z, Some(3)).unwrap(), b"abc".to_vec(), "accepted at run time");
+        assert_eq!(zlib_decompress_ex(&zlib_store(b"abc"), Some(3)).unwrap().1, Trailer::Verified);
+    }
 
     #[test]
     fn adler_known() {

@@ -130,7 +130,7 @@ fn boxed(half: f32) -> CollisionObject {
         mass: 10.0,
         friction: 0.5,
         restitution: 0.0,
-        shape: Shape::Box { half_extents: [half; 3] },
+        shape: Shape::Box { half_extents: [half; 3] }.into(),
         shell: 0.0,
         material: None,
     }
@@ -237,6 +237,21 @@ fn an_empty_chest_is_marked_empty_until_it_holds_something() {
     let mut sim = sim();
     assert!(!holds_nothing(None, &mut sim, SAFE_REF, &Action::Locked { level: 50 }));
     assert!(sim.world.peek(FormId(SAFE_REF)).is_none(), "not materialised");
+}
+
+#[test]
+fn a_body_whose_weapon_lies_beside_it_is_not_empty() {
+    // The chest stands in for a body that dropped its only item as it died (#1032): its
+    // loot menu lists the dropped reference, so the prompt is not "[Empty]".
+    let mut sim = sim();
+    sim.world.add_item(FormId(CHEST_REF), FormId(STIMPAK), 1).unwrap();
+    let r = sim.world.drop_item(FormId(CHEST_REF), FormId(STIMPAK), 1).unwrap()[0];
+    assert!(holds_nothing(None, &mut sim, CHEST_REF, &Action::Open), "nothing linked yet");
+    sim.world.get(r).unwrap().dropped_by = Some(FormId(CHEST_REF));
+    assert!(!holds_nothing(None, &mut sim, CHEST_REF, &Action::Open));
+    // Picked up from the ground: empty again.
+    sim.world.activate(FormId::PLAYER_REF, r).unwrap();
+    assert!(holds_nothing(None, &mut sim, CHEST_REF, &Action::Open));
 }
 
 #[test]

@@ -42,7 +42,7 @@ use crate::PlayState;
 use crate::PlaySet;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
-use crate::ui_compat::{Button, Interaction};
+use crate::ui_pointer::{Button, PointerState};
 use bevy::window::PrimaryWindow;
 use fnv_game::companion_wheel::{Command, Outcome, State as WheelButton};
 use fnv_sim::FormId;
@@ -328,7 +328,7 @@ fn keys(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    exit: Query<&Interaction, (Changed<Interaction>, With<ExitButton>)>,
+    exit: Query<&PointerState, (Changed<PointerState>, With<ExitButton>)>,
     mut screen: ResMut<WheelScreen>,
     mut out: MessageWriter<WheelInput>,
 ) {
@@ -353,7 +353,7 @@ fn keys(
             Err(()) => s.exit_hover = true,
         }
     }
-    if exit.iter().any(|i| *i == Interaction::Pressed) || keys.any_just_pressed([KeyE, Escape]) {
+    if exit.iter().any(|i| *i == PointerState::Pressed) || keys.any_just_pressed([KeyE, Escape]) {
         out.write(WheelInput::Close);
         return;
     }

@@ -521,7 +521,57 @@ emotions) or about other heads (female, old, child, ghoul).
 - Blinks and eye movement between lines (§5.3) are a design, not the original's.
 - The 588 sounds without a `.lip` (the face stays at rest), and the `.lip` files of
   voices without a human head (robots, Mr. House's screen): what the game does with
-  them is not known.
+  them is not known; §6.1 is what NVForever does with them.
+
+### 6.1 Speakers without a face: the `Talking` sequence (issue #1081)
+
+**The data** [observed: `fnvtool nif decode`, `fnvtool actor creatures --all`,
+2026-10-31]:
+
+- Eight creature skeleton folders hold a `talking.kf` with one sequence, `Talking`,
+  clamped (cycle type 2), text keys `start` and `end`: `nvsecuritron` (0.17 s),
+  `nvpenthouemaincomputer` (Mr. House's screen, 0.17 s), `nvmrhouse` (Mr. House in his
+  pod, 0.17 s, 118 tracks), `nvfestus` (0.17 s), `smspinebreaker` (super mutants and
+  nightkin, 0.17 s, ponytail only), `protectron` (1 s), `robobrain` (1 s),
+  `libertyprime` (3.33 s). No human folder has one.
+- **Victor's chest piece** is `nvsecuritronvoicebox.nif`, which Victor, Yes Man, the
+  street and Lucky 38 Securitrons and others wear (their NIFZ lists; Victor's:
+  `nvsecuritron`, `…screenstatic`, `…smoketrail`, `…victorscreen01`, `…voicebox`). Its
+  shape `##VoiceBox_talk:0` (under node `##VoiceBox_talk`, parent bone `Bip01 Spin02`)
+  is lit (`BSShaderPPLightingProperty`) with the glow map `VoiceMask.dds` (texture slot
+  3), emissive 0.078 × 12. Controllers in the file key only a setup (−0.33 to 0 s).
+- The Securitron's `mtidle.kf` holds `##VoiceBox_talk:0` SELF_ILLUM at 0 (five keys, all
+  0) with priority 0: dark at rest. `Talking` drives it with priority 85 by a B-spline
+  (six control points 0.056, −0.053, 0.170, 0.043, 0.178, 0.148; × 12 that is 0 to 2.1),
+  `Screen01:0` SELF_ILLUM with priority 95 (0.034 to 0.049), and `Bip01 Speaker` with 97.
+- **Mr. House's screen**: `Talking` in `nvpenthouemaincomputer` drives
+  `##TalkButtons:0` SELF_ILLUM by control points 0.039, 0.039, 0.246, 0.769, 0.989,
+  1.0: a steady rise from dark to full over the 0.17 s. Its `mtidle.kf` also drives
+  `##TalkButtons:0`. The protectron's `Dome` (1.945 → 0), robobrain's `brain_talk:0`
+  (0 → 0.494) and Liberty Prime's `Visor` (0.29 → 0.529) are two-key ramps.
+
+**What it means** [hypothesis]: the sequences are scales from quiet to loud rather than
+loops: Mr. House's rises steadily, the others are ramps, and five are as short as five
+frames. The game would set the sequence's time from how loud the speaker is at the
+moment. What it reads (the sound's amplitude, or the `.lip`) is not known
+(observer-checks.md 59).
+
+**Built** (`engine/nvforever/src/talk_clips.rs`) [engine choices where marked]:
+
+- A creature whose skeleton folder has a `talking.kf` plays `Talking` on blend layer 7
+  while it says a line, and nothing between lines (the idle's values come back: the
+  chest goes dark).
+- The sequence's time is the line's level now, 0 to 1 of the sequence: the largest of
+  the sixteen mouth-shape weights of the line's `.lip` at the sound's time (§2.4)
+  [engine choice: the `.lip` stands for the loudness]. Victor's lines all have one
+  (487 `.lip` files under `robotvictor`); a line whose sound has no `.lip` holds 0.5.
+  A response with no sound file at all (none in the voice archives for that speaker)
+  does not light the speaker: only a sound being said drives the sequence.
+- The bone tracks play too, except the accumulation root and `Bip01 NonAccum` [design:
+  a talking robot that walks keeps its walk].
+- Material values: of two layers of the same weight, the track of the higher priority
+  shows (`material_anim::actor_material_values`), so `Talking` (85) wins over the
+  idle's 0 on the chest light, as bones blend by priority (actors.md §9.4).
 
 ## 7. Tools
 

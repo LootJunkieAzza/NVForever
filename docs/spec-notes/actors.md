@@ -329,6 +329,24 @@ R ForeTwist`) ends at x 43.4 where the base leather armour's (454 vertices, boun
 the glove (`RightGlove`, x 40.9–54.6) covers it [observed: the NIFs' vertex bounds in
 the bind pose].
 
+**One hand model per hand** (#1067, owner 2026-10-30: with the vault suit the player's left
+hand was drawn twice, overlapping). The always-worn Pip-Boy Glove (`PipBoyGlove` 0x00025B83,
+Left Hand, `Characters\_Male\LeftHandPipboyGlove.NIF`) shares its slot with addons
+[observed: FalloutNV.esm]:
+- The vault suits (`VaultSuit21` 0x00104184 and the rest, Upper Body) name the list
+  `BaseFemale` (0x0011AFDB): `BaseFemaleGloveR` (Right Hand, `characters\_male\righthand.nif`)
+  and `BaseFemaleGloveL` (Left Hand, `lefthand.nif`), the race's own bare hand models.
+- The gloved outfits and power armours name glove addons of their own (`LeatherArmorGloveL`,
+  `PowerArmorLeftHand`, `NVRangerGloveL`, … : 50-odd hand ARMA, BMDT general flags 0x10 on
+  most, which tells the two kinds apart in no way).
+
+Rules [hypothesis; owner's report for the vault suit]: an addon whose model is the race's
+own hand for the actor's sex gives way to another worn item taking its slot itself, as the
+race's hand does (the vault suit shows the Pip-Boy Glove's hand); a worn item whose every
+slot other items' addons take is not drawn (the Pip-Boy Glove gives way to an outfit's
+glove or a power armour's gauntlet). The first-person rig takes the same parts. Smoke:
+`pipboy-glove-vault-suit`, `pipboy-glove-leather`.
+
 ### 2.4 Parts
 
 `covered` = the union of the worn items' biped flags. Parts, in this order:
@@ -1658,6 +1676,48 @@ stopped and started, as Victor's walk had before #258). Code:
     its claws over its shoulders and the ghoul hunches with its hands raised; both go
     back after the unequip clip. Deathclaws fighting a feral ghoul play their attacks
     with the stance drawn.
+  - **Dogs and coyotes warn head down** (issue #1073, 2026-10-31) [design]: creatures
+    with an `h2h` movement set (§8.10 Alert stance) now draw the stance too, but only
+    while they warn the player (`Game::warning_to`, not alerted), and put it away when
+    they fight, where their `h2h` set is their alert look. The dog folder's
+    `h2hequip.kf` (0.67 s), `h2haim.kf` (2.0 s) and `h2hunequip.kf` (0.67 s) key every
+    bone at 25 [observed: `fnvtool nif decode`, `Fallout - Meshes.bsa`]: over the dog's
+    `mtidle.kf` (20) and under its `mtforward.kf` (30) and `h2hfastforward.kf` (31), so
+    the warning pose shows while it stands and the charge shows the run. The dog has no
+    IDLE record of its own for a warning (its IDLEs are barks, growl, sit, sniff, look,
+    hit reactions and getting up) [observed: `fnvtool esm inventory`]; whether the
+    original plays `h2haim.kf` while a coyote warns is not measured (observer check 58).
+  - **The slide** (issue #1073) [observed in NVForever, smoke `crippled-limp-creature`
+    on main, 2026-10-31]: the coyote "attacks the player on the run from 247 units
+    (closing at 503 units/s)", and its blow clips (`h2hattackleft.kf`,
+    `h2hattackpower.kf`, `h2hattackforwardpower.kf` …) key every bone, legs included,
+    at 55 to 57 over the run's 31: for the blow's length the legs stood in the bite
+    while the body went on at the run's speed. Rule [design]: a biter's blow begun
+    while it moves shows on its head and neck only for the whole blow (decided in its
+    first frame, so the pose does not snap when it stops or sets off mid-blow). Biters:
+    the creatures with an `h2h` movement set other than the cazador and the mirelurk
+    king (whose stings and claws stay whole, as every other creature's do), so dogs and
+    coyotes; it shows (the bones named `Head…`,
+    `Neck…`, `Ponytail…` (ears and tongue), `…Jaw`, `…TungeControler`;
+    `attack_anims::head_only`), over its run; begun standing, the whole clip. People's
+    blows are unchanged. Not done: blows whose clip travels (the deathclaw's lunge, #1069).
+  - **Moving with no movement clip** is counted (`actor moves without a clip:` at exit:
+    actor frames moving at 5 units/s or more on no movement clip, and frames of a
+    creature's blow on its head and neck over its run), and logged once per actor
+    (`actor moves with no movement clip: …`). The dog skeleton has no side clips and no
+    fast backward clip (`mtbackrward.kf` and `h2hbackward.kf` only) [observed]; creatures
+    are moved facing their way (`nav::show_actor`: no strafing for creatures), so this
+    is not met by turning alone.
+  - **Setting off within a fade** (issue #1073) [observed in NVForever, smoke
+    `coyote-warn-charge` with the count above, 2026-10-31]: eight coyotes around the
+    warning spot were logged moving at 50-85 units/s on `TurnLeft`, `TurnRight` or
+    `Idle`, 183 actor frames in 45 s: a walk asked for while the blend faded into a
+    standing clip (the idle into a turn on the spot, a turn back into the idle) waited
+    for that fade to end (`fnv_actor::locomotion::Blend::step`), and the actor slid on
+    the standing clip meanwhile. Rule [design]: for creatures (`Blend::set_off_at_once`, set on
+    every creature's locomotion), a walk or run asked for while the clip playing is a
+    standing one starts at once, fading from that clip; changes between moves still wait
+    for the fade. People keep the eased fade (their movement look is the owner's).
 - **Not done**: the aim's up and down forms for creatures that have them (ghoul,
   protectron, smbehemoth, smspinebreaker: `h2haimup.kf`, `h2haimdown.kf`; people's are
   in `attack_anims.rs`); the creature alert look is not compared with the original game

@@ -492,7 +492,15 @@ fn draw(
     (combat, hostile, bar, camera, time, dynamic): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>, Option<Res<DynamicCrosshair>>),
     mut spread: Local<f32>,
     mut logged: Local<(bool, i32, bool, Option<String>, Option<bool>, Option<bool>, Option<CrosshairStyle>)>,
-    (locks, bindings, creator, sights, scope, driven): (Option<Res<ControlLocks>>, Option<Res<crate::bindings::Bindings>>, Option<Res<crate::creator::CreatorMenu>>, Option<Res<crate::aim_zoom::TrueSights>>, Option<Res<crate::aim_zoom::Scope>>, Option<Res<crate::player::ViewDriven>>),
+    (locks, bindings, creator, sights, scope, driven, kill_cam): (
+        Option<Res<ControlLocks>>,
+        Option<Res<crate::bindings::Bindings>>,
+        Option<Res<crate::creator::CreatorMenu>>,
+        Option<Res<crate::aim_zoom::TrueSights>>,
+        Option<Res<crate::aim_zoom::Scope>>,
+        Option<Res<crate::player::ViewDriven>>,
+        Option<Res<crate::kill_cam::KillCam>>,
+    ),
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
@@ -510,8 +518,10 @@ fn draw(
     // (the opening's wake-up, `crate::player::ViewDriven`): only subtitles then [owner
     // 2026-10-24: "E) Talk Doc Mitchell" showed in the starting bed sequence].
     let held = driven.is_some_and(|d| d.0);
-    // Nor under the weapon wheel (docs/design/weapon-wheel.md §7).
-    let playing = *state.get() == PlayState::Playing && !creator.is_some_and(|c| c.is_open()) && !held && !wheel.is_some_and(|w| w.is_open());
+    // Nor while a kill camera plays (`crate::kill_cam`) [owner's playtest request #1034],
+    // nor under the weapon wheel (docs/design/weapon-wheel.md §7).
+    let killcam = kill_cam.is_some_and(|k| k.active());
+    let playing = *state.get() == PlayState::Playing && !creator.is_some_and(|c| c.is_open()) && !held && !killcam && !wheel.is_some_and(|w| w.is_open());
     // What the idle keeps off the screen, once per target.
     let kept = held.then(|| target.0.as_ref().map(|t| t.name.clone())).flatten();
     if kept != logged.3 {

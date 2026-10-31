@@ -5,7 +5,7 @@
 use super::draw::{Align, Ctx, Which, BODY_BASE, BODY_H, LINE_PITCH, THICK};
 use crate::interface::{amber, at, set_line, u};
 use bevy::prelude::*;
-use crate::ui_compat::Button;
+use crate::ui_pointer::Button;
 use fnv_game::chargen;
 
 // ---- the menu file's numbers [documented: texteditmenu.xml, §2] ---------------------------
@@ -27,10 +27,11 @@ const TOP_CORNER: f32 = 50.0;
 
 // ---- measured on the owner's screenshot [observed, §5] ----------------------------------------
 
-/// The question (the exe's `sEnterName`, not in the masters).
-pub const PROMPT: &str = "Enter character name.";
-/// The Ok button's word (the exe's `sOk`).
-pub const OK: &str = "Ok";
+/// The settings that name the question and the Ok button's word: the load order's GMST
+/// when a plugin has one, else NVForever's own label (`fnv_ui::strings::BUILT_IN`;
+/// `fnv_game::ui_loading::game_string`; LEGAL.md) [design, #1028].
+pub const PROMPT_SETTING: &str = "sEnterName";
+pub const OK_SETTING: &str = "sOk";
 /// The question and the name are in font 1, the glowing one [observed: their letters
 /// have the glow on the screenshot; hypothesis: font 1 is the default of a text the file
 /// gives no font]; Ok in font 2, a text box's default [documented: text_box.xml].
@@ -44,6 +45,10 @@ const SHADE: f32 = crate::interface::TOP_MENU_SHADE;
 pub struct NameMenu {
     pub text: String,
     pub hover_ok: bool,
+    /// The question over the name ([`PROMPT_SETTING`]).
+    pub prompt: String,
+    /// The Ok button's word ([`OK_SETTING`]).
+    pub ok: String,
 }
 
 /// The Ok button.
@@ -51,8 +56,14 @@ pub struct NameMenu {
 pub struct OkButton;
 
 impl NameMenu {
-    pub fn open(offered: String) -> NameMenu {
-        NameMenu { text: chargen::clean_name(&offered), hover_ok: false }
+    /// The menu offering `offered`, its words from the running game's strings (or
+    /// NVForever's labels alone without one).
+    pub fn open(offered: String, game: Option<&fnv_game::Game<'_>>) -> NameMenu {
+        let word = |name: &str| match game {
+            Some(g) => fnv_game::ui_loading::game_string(g, name),
+            None => fnv_ui::strings::built_in(name).unwrap_or_default().to_owned(),
+        };
+        NameMenu { text: chargen::clean_name(&offered), hover_ok: false, prompt: word(PROMPT_SETTING), ok: word(OK_SETTING) }
     }
 
     /// Typed text goes after the name, as far as the name may be long.
@@ -83,7 +94,7 @@ pub fn spawn(root: &mut ChildSpawnerCommands, m: &NameMenu, c: &mut Ctx) {
         }
         c.top_bracket(p, 0.0, 0.0, BOX.x, TOP_CORNER, bright);
         c.bottom_bracket(p, 0.0, BOX.y - THICK, BOX.x, bright);
-        c.text(p, Which::Glow, PROMPT, BOX.x / 2.0, PROMPT_Y, Align::Centre, bright);
+        c.text(p, Which::Glow, &m.prompt, BOX.x / 2.0, PROMPT_Y, Align::Centre, bright);
         // The name, each line centred, the whole in the middle of the box's height.
         let lines = c.kit.glow.font.lines(&m.text, Some(TEXT_WRAP));
         let h = BODY_H + LINE_PITCH * lines.len().saturating_sub(1) as f32;
@@ -91,14 +102,14 @@ pub fn spawn(root: &mut ChildSpawnerCommands, m: &NameMenu, c: &mut Ctx) {
         for (k, line) in lines.iter().enumerate() {
             set_line(p, &c.kit.glow, line, (BOX.x - line.width) / 2.0, top + BODY_BASE + LINE_PITCH * k as f32, bright);
         }
-        let ok_w = c.width(Which::Body, OK) + 2.0 * BUTTON_PAD;
+        let ok_w = c.width(Which::Body, &m.ok) + 2.0 * BUTTON_PAD;
         let ok_h = BODY_H + 2.0 * BUTTON_PAD;
         let (ok_x, ok_y) = (BOX.x - OK_IN - ok_w, BOX.y - ok_h - OK_IN);
         let color = bright.with_alpha(if m.can_finish() { 1.0 } else { 128.0 / 255.0 });
         if m.hover_ok && m.can_finish() {
             c.outline(p, ok_x, ok_y, ok_w, ok_h, amber(200.0));
         }
-        c.text(p, Which::Body, OK, ok_x + ok_w - BUTTON_PAD, ok_y + BUTTON_PAD, Align::Right, color);
+        c.text(p, Which::Body, &m.ok, ok_x + ok_w - BUTTON_PAD, ok_y + BUTTON_PAD, Align::Right, color);
         p.spawn((Button, OkButton, at(ok_x, ok_y, ok_w, ok_h)));
     });
 }
@@ -109,7 +120,9 @@ mod tests {
 
     #[test]
     fn typing_and_rubbing_out() {
-        let mut m = NameMenu::open("Courier".into());
+        let mut m = NameMenu::open("Courier".into(), None);
+        // Without a game, NVForever's own labels (#1028).
+        assert_eq!((m.prompt.as_str(), m.ok.as_str()), (fnv_ui::strings::built_in(PROMPT_SETTING).unwrap(), fnv_ui::strings::built_in(OK_SETTING).unwrap()));
         assert!(m.type_text(" Six"));
         assert_eq!(m.text, "Courier Six");
         for _ in 0..11 {
