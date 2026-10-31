@@ -1021,7 +1021,13 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
   facing the fight; the fight within 600 units again, it runs again (at most once per
   5 s, `SPECTATOR_REFLEE_SECONDS`); with no fighter within 1,500 units it goes back to
   its package [design]. Log `… runs from the fight of <who> (<d> units away): too close
-  to watch`, then the flee lines (`flees from …`, `reached its flee spot …`).
+  to watch`, then the flee lines (`flees from …`, `reached its flee spot …`). A fighter
+  is a resident in Combat, or the player while someone in Combat (not Alert or Lost: a
+  search is no fight) fights it within 1,500 units of it. The player's teammates, those
+  following someone (Follow, Accompany) and allies or friends of the fighter by faction
+  take a side and do not run. It runs from the middle of the fighters within 1,500
+  units, not only the nearest, so as not to run into the fight's far side [design for
+  each: review of #1216; tests `spectators_run_only_from_a_real_fight_and_not_the_players_side`].
 - **Avoid Radiation** ("Allow actors to avoid entering radiated areas" [documented:
   Category:Packages]): for an actor whose Rad Resistance is below
   `fRadiationResistanceAvoidLevel` (50) [hypothesis: the setting's name], the radiation

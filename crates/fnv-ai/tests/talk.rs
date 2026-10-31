@@ -826,3 +826,50 @@ fn a_spectator_runs_from_a_fight_that_comes_too_close() {
     assert!(s.events().iter().any(|e| matches!(e, AiEvent::SearchOver { why } if why.contains("fight"))), "{:?}", s.events());
     assert!(s.agent(R_IDLE).search.is_none());
 }
+
+/// Who does not run from a fight (review of #1216): nobody while its foe only searches
+/// (Alert), not the player's teammate, and a fight between residents sends a spectator
+/// running from the resident fighting.
+#[test]
+fn spectators_run_only_from_a_real_fight_and_not_the_players_side() {
+    use fnv_game::awareness::{State, Timers};
+    use fnv_game::detection::{Band, Detection};
+    use fnv_game::combat_group::GroupSettings;
+    let f = fixture();
+    let close = [10.0, 10.0, 0.0];
+    let fights = |s: &Sim| s.events().iter().any(|e| matches!(e, AiEvent::SpectatorFlee { .. }));
+    let hunt = |s: &mut Sim, state: State| {
+        let foe = FormId(0xF00);
+        let (now, t) = (s.game.time, Timers::default());
+        let a = s.game.awareness.actors.entry(foe).or_default();
+        a.observe(FormId::PLAYER_REF, &Detection { value: 5.0, band: Band::Detected, ..Default::default() }, [0.0; 3], now, &t);
+        a.settle(foe, now, &t, true);
+        a.state = state;
+    };
+    // A foe that only searches for the player (Alert): no fight to run from.
+    let mut s = sim(&f, R_IDLE, [CORNER[0] + 1000.0, CORNER[1] + 1000.0, 0.0]);
+    s.game.awareness.tactics.settings = Some(GroupSettings { flee_normal: 700.0, ..GroupSettings::default() });
+    s.run_social(1.0);
+    hunt(&mut s, State::Alert);
+    s.player_to(close);
+    s.run_social(1.0);
+    assert!(!fights(&s), "an Alert hunt is no fight: {:?}", s.events());
+    // In Combat, the player's teammate stays (it joins the fight, it does not watch it).
+    hunt(&mut s, State::Combat);
+    s.game.extra.entry(FormId(R_IDLE)).or_default().teammate = true;
+    s.run_social(1.0);
+    assert!(!fights(&s), "a teammate does not run: {:?}", s.events());
+    // A resident fighting (no player in it) next to a spectator: it runs from that one.
+    let mut s = sim(&f, R_IDLE, [CORNER[0] + 1000.0, CORNER[1] + 1000.0, 0.0]);
+    s.game.awareness.tactics.settings = Some(GroupSettings { flee_normal: 700.0, ..GroupSettings::default() });
+    s.run_social(1.0);
+    let feet = s.agent(R_IDLE).walker.feet;
+    s.game.set_actor_place(FormId(R_GREET), Some(FormId(CELL)), [feet[0] + 150.0, feet[1], 0.0], 0.0).unwrap();
+    s.ai.add(&s.game, FormId(R_GREET)).unwrap();
+    s.game.awareness.actors.entry(FormId(R_GREET)).or_default().state = State::Combat;
+    s.run_social(0.5);
+    let ev = s.events();
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::SpectatorFlee { fighter, .. } if *fighter == FormId(R_GREET))), "{ev:?}");
+    assert!(!ev.iter().any(|e| matches!(e, AiEvent::SpectatorFlee { fighter, .. } if *fighter == FormId::PLAYER_REF)), "the player fights nobody: {ev:?}");
+}
+

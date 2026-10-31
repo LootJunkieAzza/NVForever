@@ -269,6 +269,20 @@ fn nearest_fighter(fighters: &[(FormId, Place)], actor: FormId, at: Place) -> Op
     fighters.iter().filter(|(id, p)| *id != actor && p.space == at.space).map(|(id, p)| (*id, p.pos, dist(p.pos, at.pos))).min_by(|a, b| a.2.total_cmp(&b.2))
 }
 
+/// Where a spectator at `at` runs from: the middle of the fighters within
+/// [`OBSERVE_DISTANCE`] of it, so that it runs from the whole fight and not into its far
+/// side (the nearest fighter's place when it is alone) [design: review of #1216].
+fn fight_centre(fighters: &[(FormId, Place)], actor: FormId, at: Place) -> [f32; 3] {
+    let near: Vec<[f32; 3]> = fighters.iter().filter(|(id, p)| *id != actor && p.space == at.space && dist(p.pos, at.pos) <= OBSERVE_DISTANCE).map(|(_, p)| p.pos).collect();
+    let n = near.len().max(1) as f32;
+    let sum = near.iter().fold([0.0f32; 3], |s, p| [s[0] + p[0], s[1] + p[1], s[2] + p[2]]);
+    if near.is_empty() {
+        at.pos
+    } else {
+        [sum[0] / n, sum[1] / n, sum[2] / n]
+    }
+}
+
 /// Whether an actor is in the world and alive.
 fn here(game: &Game, actor: FormId) -> bool {
     game.present(actor) && !game.extra.get(&actor).is_some_and(|e| e.dead)
@@ -481,19 +495,39 @@ impl Ai {
             .collect()
     }
 
-    /// The fighters now: residents in Combat, and the player while hunted (its foe may be
-    /// no resident).
+    /// The fighters now: residents in Combat, and the player while someone in Combat (not
+    /// Alert or Lost: a search is no fight) fights it within [`OBSERVE_DISTANCE`] of it
+    /// (its foe may be no resident: then where it last measured from, else anywhere).
     fn fighters(&self, game: &Game, player: Option<Place>) -> Vec<(FormId, Place)> {
+        use fnv_game::awareness::State;
         let mut fighters: Vec<(FormId, Place)> = self
             .agents
             .iter()
-            .filter(|(id, _)| game.awareness.state(**id) == fnv_game::awareness::State::Combat && here(game, **id))
+            .filter(|(id, _)| game.awareness.state(**id) == State::Combat && here(game, **id))
             .map(|(id, a)| (*id, Place { space: a.walker.space, pos: a.walker.feet }))
             .collect();
-        if let Some(p) = player.filter(|_| game.awareness.hunted(FormId::PLAYER_REF)) {
+        let fought = |p: Place| {
+            game.awareness.actors.iter().any(|(id, w)| {
+                let near = match self.agents.get(id) {
+                    Some(a) => a.walker.space == p.space && dist(a.walker.feet, p.pos) <= OBSERVE_DISTANCE,
+                    None => w.at.is_none_or(|at| dist(at, p.pos) <= OBSERVE_DISTANCE),
+                };
+                w.state == State::Combat && w.targets.contains_key(&FormId::PLAYER_REF) && near
+            })
+        };
+        if let Some(p) = player.filter(|p| fought(*p)) {
             fighters.push((FormId::PLAYER_REF, p));
         }
         fighters
+    }
+
+    /// Whether `actor` takes a side in a fight of `fighter` rather than watching it: the
+    /// player's teammates and those following someone (a Follow or Accompany package) for
+    /// the player, and an ally or friend of the fighter by their factions (who will join
+    /// it) [design: review of #1216].
+    fn takes_sides(&self, game: &Game, actor: FormId, fighter: FormId) -> bool {
+        let follows = self.agents.get(&actor).and_then(|a| a.package).and_then(|p| game.data.package_defs.get(&p)).is_some_and(|d| matches!(d.ty, PackageType::Follow | PackageType::Accompany));
+        game.is_teammate(actor) || follows || fnv_game::functions::faction_relation(game, actor, fighter) >= 2
     }
 
     /// Comments on a fight nearby, and spectators running from one too close (module
@@ -529,8 +563,9 @@ impl Ai {
             .filter(|(_, a)| a.package.and_then(|p| data.package_defs.get(&p)).is_some_and(|d| allows(d, fallout::OBSERVE_COMBAT) && d.ty != PackageType::Sleep))
             .filter(|(id, _)| !in_combat(game, **id) && !game.is_talking(**id))
             .filter_map(|(id, a)| {
-                let (fighter, at, away) = nearest_fighter(&fighters, *id, Place { space: a.walker.space, pos: a.walker.feet })?;
-                (away <= SPECTATOR_FLEE_DISTANCE).then_some((*id, fighter, at, away))
+                let place = Place { space: a.walker.space, pos: a.walker.feet };
+                let (fighter, _, away) = nearest_fighter(&fighters, *id, place)?;
+                (away <= SPECTATOR_FLEE_DISTANCE && !self.takes_sides(game, *id, fighter)).then(|| (*id, fighter, fight_centre(&fighters, *id, place), away))
             })
             .collect();
         for (actor, fighter, at, away) in close {
@@ -538,7 +573,8 @@ impl Ai {
         }
     }
 
-    /// A spectator sets off from `fighter`, at `at`, `away` units off.
+    /// A spectator sets off from the fight at `at` ([`fight_centre`]; `fighter` the
+    /// nearest of it), `away` units off.
     fn spectator_flee(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, fighter: FormId, at: [f32; 3], away: f32) {
         if self.agents[&actor].using.is_some() {
             self.set_using(game, actor, None);
@@ -573,7 +609,8 @@ impl Ai {
                 let player = goal::place_of_ref(game, FormId::PLAYER_REF);
                 let fighters = self.fighters(game, player);
                 match nearest_fighter(&fighters, actor, place) {
-                    Some((fighter, at, away)) if away <= SPECTATOR_FLEE_DISTANCE && now - set_off >= SPECTATOR_REFLEE_SECONDS => {
+                    Some((fighter, _, away)) if away <= SPECTATOR_FLEE_DISTANCE && now - set_off >= SPECTATOR_REFLEE_SECONDS => {
+                        let at = fight_centre(&fighters, actor, place);
                         self.spectator_flee(game, nav, actor, fighter, at, away);
                     }
                     Some((_, at, away)) if away <= OBSERVE_DISTANCE => {
