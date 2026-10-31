@@ -426,14 +426,15 @@ The numbers above stay put so links to them hold; each item here gives its own p
     never met) and must still reach VEndingConclusion. To check: a query script that
     SayTos a topic whose lines all fail, and a SayToDone block that sets a variable; read
     it one and ten frames later. ([mq-walkthrough](mq-walkthrough-2026-10-27.md) §2)
-29. **Does a line's fixed speaker (INFO ANAM) gate who says it?** (P2.) 262 lines name a
-    fixed speaker other than the actor of their own GetIsID condition (167 end slides:
-    a Boomer, Nolan McNamara ... as speaker, GetIsID Narrator). Ours now lets that
-    condition decide when the line has one [hypothesis]. To check: the end slides of a
-    finished game say the Boomers' slide; for a non-ending case, talk to Victor at the
-    Lucky 38 door (0x00165102, speaker the entrance Victor, GetIsID the elevator). The
-    line is only heard after first meeting House (owner; its condition is VDialogueMrHouse
-    variable 3); from nvf38door, meet House, then pass both Victors again.
+29. **Does a line's fixed speaker (INFO ANAM) gate who says it?** — answered for the
+    non-ending case 2026-10-31 (owner, from nvf38door): **no, the GetIsID condition
+    decides**. After the first meeting with House, the elevator Victor in the penthouse
+    (Lucky38VictorElevator, the line's GetIsID) greeted with 0x00165102, "comp you to the
+    High-Roller Suite", whose fixed speaker is the entrance Victor (Lucky38VictorEntrance)
+    [observed]. Ours does the same (dialogue.rs `can_say_as`). Still open: lines with a
+    fixed speaker and no GetIsID condition (the Dead Money end slides, #965), and the
+    Boomers' end slide of a finished game. Also: the penthouse elevator can only be
+    taken through this Victor's dialogue until House is dead (owner).
     ([mq-walkthrough](mq-walkthrough-2026-10-27.md) §2)
 30. **Reputation axes outside 0-2** — answered 2026-10-31 (o5_00-02, RepNVNCR, scale 80):
     GetReputation axes 2 and 3 read 0; GetReputationThreshold axis 3 read 0 at every value
