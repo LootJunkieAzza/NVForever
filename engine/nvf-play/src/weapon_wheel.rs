@@ -406,7 +406,7 @@ fn read(
     }
     f.click = input.mouse.just_pressed(MouseButton::Left) || aid.click;
     f.cancel = input.mouse.just_pressed(MouseButton::Right) || input.keys.just_pressed(KeyCode::Escape) || aid.cancel;
-    f.blocked = *state.get() != PlayState::Playing || vats.is_some_and(|v| v.holds_input());
+    f.blocked = *state.get() != PlayState::Playing || vats.is_some_and(|v| v.holds_input()) || input.kill_cam.as_ref().is_some_and(|k| k.active());
     let was_open = wheel.is_open();
     for o in wheel.step(&f) {
         match o {
@@ -414,7 +414,12 @@ fn read(
                 stats.opened += 1;
                 info!("weapon wheel: open on slot {} (clock {WHEEL_SCALE} over {EASE} s)", n + 1);
             }
-            Outcome::Picked(n, by_key) => info!("weapon wheel: picked slot {} ({})", n + 1, if by_key { "key" } else { "pointer" }),
+            Outcome::Picked(n, by_key) => {
+                info!("weapon wheel: picked slot {} ({})", n + 1, if by_key { "key" } else { "pointer" });
+                // The Pip-Boy's click for a selection that moves (`ui_sounds`: the ITEMS
+                // page's row change, UIPipBoyScroll) [design: weapon-wheel.md §8, #985].
+                sounds.write(UiSound { menu: UiMenu::Inventory, event: UiEvent::Focus });
+            }
             Outcome::Cancelled => {
                 stats.cancelled += 1;
                 info!("weapon wheel: closed: nothing used");
