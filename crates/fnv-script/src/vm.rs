@@ -992,32 +992,57 @@ fn same(a: &XVal, b: &XVal) -> bool {
 
 /// A copy of an array; nested arrays shared (Ar_Copy) or copied all the way down
 /// (Ar_DeepCopy) [documented: Ar Copy; Ar DeepCopy].
+/// An array that holds itself, directly or through others, is copied with the same shape:
+/// each array is copied once and its copy stands wherever it comes back (#1089).
 fn copy_array(store: &mut ExtStore, id: u32, deep: bool) -> u32 {
+    if !deep {
+        let Some(a) = store.array(id).cloned() else { return 0 };
+        return store.new_array(a.kind, a.entries);
+    }
+    deep_copy(store, id, &mut std::collections::HashMap::new())
+}
+
+fn deep_copy(store: &mut ExtStore, id: u32, copies: &mut std::collections::HashMap<u32, u32>) -> u32 {
+    if let Some(&c) = copies.get(&id) {
+        return c;
+    }
     let Some(a) = store.array(id).cloned() else { return 0 };
+    // The copy exists before its entries, so an entry leading back here finds it.
+    let new = store.new_array(a.kind, Vec::new());
+    copies.insert(id, new);
     let mut es = Vec::with_capacity(a.entries.len());
     for (k, v) in a.entries {
         let v = match v {
-            XVal::Array(c) if deep => {
-                let n = copy_array(store, c, true);
-                XVal::Array(n)
-            }
+            XVal::Array(c) => XVal::Array(deep_copy(store, c, copies)),
             other => other,
         };
+        store.retain(&v);
         es.push((k, v));
     }
-    store.new_array(a.kind, es)
+    if let Some(n) = store.array_mut(new) {
+        n.entries = es;
+        n.renumber();
+    }
+    new
 }
 
 /// Same key-element pairs in the same order, nested arrays included; two nulls are equal
 /// [documented: Ar DeepEquals].
+/// A pair of arrays met again on the way down is taken as equal, so arrays that hold
+/// themselves compare without end (#1089).
 fn deep_equal(store: &ExtStore, a: &XVal, b: &XVal) -> bool {
+    deep_equal_in(store, a, b, &mut std::collections::HashSet::new())
+}
+
+fn deep_equal_in(store: &ExtStore, a: &XVal, b: &XVal, seen: &mut std::collections::HashSet<(u32, u32)>) -> bool {
     match (a, b) {
         (XVal::Array(x), XVal::Array(y)) => match (store.array(*x), store.array(*y)) {
             (None, None) => true,
+            (Some(_), Some(_)) if !seen.insert((*x, *y)) => true,
             (Some(p), Some(q)) => {
                 p.kind == q.kind
                     && p.entries.len() == q.entries.len()
-                    && p.entries.iter().zip(&q.entries).all(|(e, f)| e.0 == f.0 && deep_equal(store, &e.1, &f.1))
+                    && p.entries.iter().zip(&q.entries).all(|(e, f)| e.0 == f.0 && deep_equal_in(store, &e.1, &f.1, seen))
             }
             _ => false,
         },
@@ -1398,13 +1423,21 @@ impl Vm<'_, '_> {
 
     /// A value as text (`$`, ToString): a number's text, a form's name or, without one, its
     /// FormID in hex [documented: ToString].
-    /// An array on one line, as PrintVar shows it: `[2, 4]`, a map's pairs `[k: v, …]`.
+    /// An array on one line, as PrintVar shows it: `[2, 4]`, a map's pairs `[k: v, …]`. An
+    /// array already being written further out is written `array #n`, as Ar_Dump writes a
+    /// nested one, so an array holding itself ends (#1089).
     fn brief_array(&mut self, id: u32) -> Result<String, VmError> {
+        self.brief_array_in(id, &mut Vec::new())
+    }
+
+    fn brief_array_in(&mut self, id: u32, path: &mut Vec<u32>) -> Result<String, VmError> {
         let Some(arr) = self.store()?.array(id).cloned() else { return Ok("(no array)".into()) };
+        path.push(id);
         let mut parts = Vec::new();
         for (k, v) in &arr.entries {
             let vt = match v {
-                XVal::Array(inner) => self.brief_array(*inner)?,
+                XVal::Array(inner) if path.contains(inner) => format!("array #{inner}"),
+                XVal::Array(inner) => self.brief_array_in(*inner, path)?,
                 other => self.text_of(other)?,
             };
             parts.push(match (arr.kind, k) {
@@ -1413,6 +1446,7 @@ impl Vm<'_, '_> {
                 (_, XKey::Str(s)) => format!("{s}: {vt}"),
             });
         }
+        path.pop();
         Ok(format!("[{}]", parts.join(", ")))
     }
 
