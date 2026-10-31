@@ -6239,6 +6239,26 @@ order = [[
   { re = 'hud: enemy health \S' },
 ]]
 
+# ------------------------------------------------------------------ the sneak word leaves companions out (issue #1159)
+
+[[scenario]]
+name = "hud-sneak-companion"
+source = "issue #1159 (docs/spec-notes/hud.md §9): sneaking with only a following companion near shows [HIDDEN], though the companion detects the player"
+note = "Boone hired by his recruit line at 3 s in his room (as follower-boone; no one else in the cell); the player sneaks at 14 s, Boone following beside: his detection of the player is measured and logged, the sneak word stays [HIDDEN]"
+areas = ["hud", "detection", "followers"]
+paths = ["engine/nvf-play/src/hud.rs", "crates/fnv-game/src/followers.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:info:0x0015F30D:CraigBooneREF", NVF_PLAY_TEST_CONTROL = "14:sneak" }
+args = ["--cell", "NovacBoonesRoom", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 24
+expect = [
+  { re = 'CraigBooneREF: package FollowersBooneFollowPlayerDEFAULT', label = "hired: his Follow package" },
+  { re = 'detection: \S*Boone\S* .*→ the player: \S+ → detected', label = "Boone detects the player" },
+  { re = 'hud: sneak \[HIDDEN\]', label = "the sneak word is [HIDDEN]" },
+]
+forbid = [
+  { re = 'hud: sneak \[(DETECTED|CAUTION)\]', label = "Boone alone sets neither [DETECTED] nor [CAUTION]" },
+]
+
 # ------------------------------------------------------------------ the enemy bar's show rule (issue #935)
 
 [[scenario]]
