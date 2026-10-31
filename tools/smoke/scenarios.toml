@@ -2115,6 +2115,7 @@ order = [[
   { re = 'levelup: menu open, level 2, \d+ skill points, perk due' },
 ]]
 expect = [
+  { re = "music: level up: the default objects' level-up music DefaultSuccess has no file to play", label = "the shipped Level Up Music (DefaultSuccess) has no file, so nothing more plays (#991)" },
   { text = "xp meter: sound UIPopUpExperienceUp", label = "a sound for each gain", count = 2 },
   { gap = ["xp meter: +150 XP", "xp meter: LEVEL UP"], range = [7.1, 8.0], label = "LEVEL UP follows the six-second meter and gap (console holds HUD time until 22.3 s)" },
   { text = "xp meter: sound UILevelUpText", label = "the bar filled: the level-up sound" },
