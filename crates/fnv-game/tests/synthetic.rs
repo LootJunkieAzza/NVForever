@@ -2423,8 +2423,8 @@ fn coverage_reports_which_missing_stages_the_data_can_set() {
     assert!(!set.literal.contains_key(&(FormId(Q2), 10)));
 }
 
-/// A condition's null form (FormID 0) reads 0 for GetIsID and GetQuestVariable, without a
-/// failed call [observed 2026-10-30, capture o4_00_probe: Papa Khan's goodbye with
+/// A condition's null form (FormID 0) reads 0 for GetIsID and GetQuestVariable, and for
+/// any other function (#966, hypothesis), without a failed call [observed 2026-10-30, capture o4_00_probe: Papa Khan's goodbye with
 /// `GetQuestVariable <null> 1 == 0` was chosen and Cass's greeting with only `GetIsID
 /// <null> == 1` passed over; observer-checks.md check 35].
 #[test]
@@ -2443,7 +2443,12 @@ fn a_null_form_in_a_condition_reads_zero_without_a_failed_call() {
     assert!(!g.conditions_pass(&[is_id], player, None, "null GetIsID"));
     assert!(g.conditions_pass(&[qvar_0], player, None, "null GetQuestVariable == 0"));
     assert!(!g.conditions_pass(&[qvar_1], player, None, "null GetQuestVariable == 1"));
-    assert!(!g.events.iter().any(|e| matches!(&e.kind, EventKind::CallFailed { .. })));
+    // Any other function with a null form parameter reads 0 the same way (#966).
+    for name in ["GetInFaction", "GetItemCount", "GetDistance", "GetDead"] {
+        let zero = cond(index(name), vec![ArgValue::Value(Value::NONE)], Cmp::Eq, 0.0);
+        assert!(g.conditions_pass(&[zero], player, None, name), "{name} <null> == 0");
+    }
+    assert!(!g.events.iter().any(|e| matches!(&e.kind, EventKind::CallFailed { .. })), "{:?}", g.events.iter().filter(|e| matches!(&e.kind, EventKind::CallFailed { .. })).collect::<Vec<_>>());
 }
 
 #[test]

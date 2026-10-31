@@ -4350,6 +4350,12 @@ impl<'a> Game<'a> {
         if crate::vats::is_area_function(c.function) {
             return crate::vats::area_value(self, c.function);
         }
+        // A null form parameter (FormID 0 in the CTDA) reads 0 without calling the
+        // function, so no failed call is logged (#966) [observed for GetIsID and
+        // GetQuestVariable, dialogue.md "A null form parameter"; hypothesis for the rest].
+        if c.params.iter().any(|p| matches!(p, ArgValue::Value(Value::Ref(0)))) {
+            return 0.0;
+        }
         self.call_function(&ctx, &c.params).num()
     }
 
