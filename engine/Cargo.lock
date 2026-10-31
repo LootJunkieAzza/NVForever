@@ -4569,6 +4569,7 @@ dependencies = [
 name = "nvforever"
 version = "0.5.1"
 dependencies = [
+ "ash",
  "bevy",
  "clap",
  "fnv-actor",
@@ -4595,6 +4596,7 @@ dependencies = [
  "rfd",
  "serde_json",
  "texpresso",
+ "wgpu",
  "windows-sys 0.61.2",
  "winit",
  "winresource",

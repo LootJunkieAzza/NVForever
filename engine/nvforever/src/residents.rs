@@ -700,6 +700,28 @@ struct Core {
     posed: HashSet<u32>,
     /// Of those, the ones whose AI has somewhere to go: they break out of the idle.
     breaking: HashSet<u32>,
+    /// How far their attack clips carry actors this frame (`attack_anims::AttackTravel`,
+    /// game x, y): their characters move them ([`Core::carry`]).
+    travel: HashMap<u32, [f32; 2]>,
+    /// The actors carried in the last update: their characters are kept for it. Each
+    /// with where its feet were when the carry began and the travel asked of it since.
+    carried: HashMap<u32, ([f32; 3], f32)>,
+    /// Actors whose carry a hit reaction broke: the rest of that attack does not carry
+    /// them (gone when the attack's travel ends).
+    carry_broken: HashSet<u32>,
+    /// Updates in which an attack carried an actor; times it could not be (no
+    /// character); for the summary.
+    carries: [usize; 2],
+    /// Melee blows' knockbacks pushing actors (`nvf_play::combat::Knockback`): each with
+    /// its seconds left and where the actor's feet were when it began ([`Core::knock`]).
+    knocks: HashMap<u32, (nvf_play::combat::Knockback, f32, [f32; 3])>,
+    /// This frame's knockback travel (game x, y), kept apart from the attack clips'
+    /// [`Core::travel`]: a hit reaction ends a clip's carry but not a knockback.
+    knock_travel: HashMap<u32, [f32; 2]>,
+    /// Actors on furniture this frame (their bodies drawn in the seat): no knockback.
+    on_furniture: HashSet<u32>,
+    /// Knockbacks begun and their distance in all (asked), for the summary.
+    knocked: (usize, f32),
     /// Load doors used since the last frame: actor, door, the door it leads to.
     door_uses: Vec<(FormId, u32, u32)>,
     /// People in Combat (standing, closing in, going to a flank or a step back, in and
@@ -822,6 +844,14 @@ impl Residents {
             staggering: HashSet::new(),
             posed: HashSet::new(),
             breaking: HashSet::new(),
+            travel: HashMap::new(),
+            carried: HashMap::new(),
+            carry_broken: HashSet::new(),
+            carries: [0; 2],
+            knocks: HashMap::new(),
+            knock_travel: HashMap::new(),
+            on_furniture: HashSet::new(),
+            knocked: (0, 0.0),
             door_uses: Vec::new(),
             aims: HashMap::new(),
         };
@@ -1230,6 +1260,142 @@ impl Core {
         }
     }
 
+    /// Melee blows' knockbacks (docs/spec-notes/combat-rules.md, "Knockback"): each
+    /// pushes its actor over this frame by its falling speed, through the same character
+    /// as an attack clip's travel ([`Core::carry`]), so walls and actors stop it. Logged
+    /// when it ends: how far the actor got of the distance asked.
+    fn knock(&mut self, game: &Game, phys: Option<&PhysState>, dt: f32) {
+        let mut over = Vec::new();
+        for (&id, (k, left, from)) in self.knocks.iter_mut() {
+            let feet = phys.and_then(|p| p.npcs.get(&id)).map(|b| b.ch.feet).or_else(|| self.ai.agents.get(&FormId(id)).map(|a| a.walker.feet)).unwrap_or(*from);
+            if *left <= 0.0 {
+                over.push((id, k.distance(), *from, feet));
+                continue;
+            }
+            let d = k.step(*left, dt);
+            *left -= dt;
+            let t = self.knock_travel.entry(id).or_default();
+            t[0] += k.dir[0] * d;
+            t[1] += k.dir[1] * d;
+        }
+        for (id, asked, from, to) in over {
+            self.knocks.remove(&id);
+            info!(
+                "knockback: {} {id:08X} pushed back {:.0} units of {asked:.0} ({:.0} %), from ({:.0}, {:.0}, {:.0}) to ({:.0}, {:.0}, {:.0})",
+                game.data.name(FormId(id)),
+                (to[0] - from[0]).hypot(to[1] - from[1]),
+                (to[0] - from[0]).hypot(to[1] - from[1]) / asked.max(1e-3) * 100.0,
+                from[0],
+                from[1],
+                from[2],
+                to[0],
+                to[1],
+                to[2]
+            );
+        }
+    }
+
+    /// A melee blow's knockback on `k.form_id` begins (one still going is replaced
+    /// [design]); not for the player (`nvf_play::player::Lunge::knock`) nor an actor
+    /// that is not a resident.
+    fn begin_knock(&mut self, k: nvf_play::combat::Knockback) {
+        let Some(a) = self.ai.agents.get(&FormId(k.form_id)) else { return };
+        let from = self.knocks.get(&k.form_id).map_or(a.walker.feet, |(_, _, f)| *f);
+        self.knocks.insert(k.form_id, (k, k.secs, from));
+        self.knocked.0 += 1;
+        self.knocked.1 += k.distance();
+        info!("knockback: {:08X} knocked back at {:.0} units/s for {:.2} s ({:.0} units)", k.form_id, k.speed, k.secs, k.distance());
+    }
+
+    /// Attack clips that travel carry their actors (docs/spec-notes/actors.md §8.13):
+    /// each one carried gets a character, if it has none, moved at this frame's travel
+    /// over the frame, so walls, the player and other actors stop it as they stop a walk
+    /// (`nvf_play::player`), and while its clip plays its walk waits. Where its character
+    /// got to is where its walker stands (one walking reads it there itself), so it stays
+    /// where the clip ended, or was stopped. Its character goes once the clip is over and
+    /// it is not on its way.
+    fn carry(&mut self, game: &mut Game, phys: Option<&mut PhysState>, dt: f32) {
+        let mut travel = std::mem::take(&mut self.travel);
+        let pushes = std::mem::take(&mut self.knock_travel);
+        let Some(phys) = phys else {
+            self.carried.clear();
+            return;
+        };
+        let last = std::mem::take(&mut self.carried);
+        for (&id, &(from, asked)) in &last {
+            let Some(feet) = phys.npcs.get(&id).map(|b| b.ch.feet) else { continue };
+            if let Some(a) = self.ai.agents.get_mut(&FormId(id)).filter(|a| a.activity != Activity::Travelling) {
+                a.walker.feet = feet;
+                a.walker.tri = fnv_nav::graph::NONE;
+                let place = fnv_nav::path::Place { space: a.walker.space, pos: feet };
+                let cell = fnv_ai::goal::cell_of_place(game.world.placed, &place);
+                let _ = game.set_actor_place(FormId(id), cell, feet, a.walker.heading);
+            }
+            if !travel.contains_key(&id) {
+                let _ = stop_body(Some(&mut *phys), id);
+                info!(
+                    "ai [{}] {} {id:08X}: its attack clip carried it {:.0} units of {asked:.0}, from ({:.0}, {:.0}, {:.0}) to ({:.0}, {:.0}, {:.0})",
+                    self.clock_text,
+                    game.data.name(FormId(id)),
+                    (feet[0] - from[0]).hypot(feet[1] - from[1]),
+                    from[0],
+                    from[1],
+                    from[2],
+                    feet[0],
+                    feet[1],
+                    feet[2]
+                );
+            }
+        }
+        self.carry_broken.retain(|id| travel.contains_key(id));
+        // A hit reaction (a crippling hit's stagger) stops the lunge where it is and ends
+        // its carry: the stagger's hold would not stop a velocity set here [design: review
+        // of #1209]. A knockback still pushes the staggering actor (#1070).
+        let broken: Vec<u32> = travel.keys().copied().filter(|id| self.staggering.contains(id) || self.carry_broken.contains(id)).collect();
+        for id in broken {
+            travel.remove(&id);
+            if self.carry_broken.insert(id) {
+                if !pushes.contains_key(&id) {
+                    let _ = stop_body(Some(&mut *phys), id);
+                }
+                info!("ai [{}] {} {id:08X}: a hit reaction ends its attack clip's carry", self.clock_text, game.data.name(FormId(id)));
+            }
+            self.carries[1] += 1;
+        }
+        // A knockback on a walking actor adds to its walk (the walk set the velocity this
+        // frame and follows its character), so a punched actor still closes in or gets
+        // away [design: review of #1219]; on one standing, or carried by a clip, it is
+        // carried as the clip's travel is.
+        let clips: Vec<u32> = travel.keys().copied().collect();
+        for (id, p) in pushes {
+            // On furniture its body stays in the seat: not pushed [design: review of #1219].
+            if self.on_furniture.contains(&id) {
+                continue;
+            }
+            let walking = !clips.contains(&id) && self.ai.agents.get(&FormId(id)).is_some_and(|a| a.walker.moving);
+            if let Some(b) = phys.npcs.get_mut(&id).filter(|_| walking && dt > 0.0) {
+                b.velocity = [b.velocity[0] + p[0] / dt, b.velocity[1] + p[1] / dt];
+                continue;
+            }
+            let t = travel.entry(id).or_default();
+            t[0] += p[0];
+            t[1] += p[1];
+        }
+        for (id, by) in travel {
+            let carried = self.ai.agents.get(&FormId(id)).filter(|_| !game.extra.get(&FormId(id)).is_some_and(|e| e.dead || e.restrained || e.out_cold())).is_some_and(|a| {
+                in_loaded_space(&a.walker, phys) && phys.ready_at(a.walker.feet) && (phys.npcs.contains_key(&id) || phys.add_npc(id, a.walker.feet))
+            });
+            let Some(b) = phys.npcs.get_mut(&id).filter(|_| carried && dt > 0.0) else {
+                self.carries[1] += 1;
+                continue;
+            };
+            b.velocity = [by[0] / dt, by[1] / dt];
+            let (from, asked) = last.get(&id).copied().unwrap_or((b.ch.feet, 0.0));
+            self.carried.insert(id, (from, asked + by[0].hypot(by[1])));
+            self.carries[0] += 1;
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn think(&mut self, game: &mut Game, own: bool, nav: &NavState, world: &WorldData, doors: &mut nvf_play::doors::Doors, mut phys: Option<&mut PhysState>, mut blocks: Option<&mut ActorBlocks>, dt: f32, now: f32, waited: u32) {
         // Who a walker pushed since the last frame, and (below) who may be pushed in
@@ -1346,6 +1512,13 @@ impl Core {
         let mut moved = [0usize; 6];
         let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, hopped: &mut self.hopped, now, stats: &mut moved, held: &held, coasting: &mut self.coasting, fighting: &self.aims };
         self.ai.update_moved(game, &nav.graph, dt, &mut mover);
+        // Knockbacks push their actors, and attack clips that travel carry theirs, over
+        // their walks.
+        self.knock(game, phys.as_deref(), dt);
+        self.carry(game, phys.as_deref_mut(), dt);
+        if let Some(b) = blocks.as_deref_mut().filter(|b| b.carried.len() != self.carried.len() || !b.carried.iter().all(|id| self.carried.contains_key(id))) {
+            b.carried = self.carried.keys().copied().collect();
+        }
         // Walks with the AI off that ended in this update (the AI back on, or nothing
         // left to carry the actor on), for the log.
         let ended: Vec<u32> = self.coasting.iter().filter(|(_, c)| !c.now).map(|(id, _)| *id).collect();
@@ -1394,21 +1567,22 @@ impl Core {
                 let f = b.ch.feet;
                 info!("ai [{}] {} {id:08X}: its character stops (dead, restrained or out cold) at ({:.0}, {:.0}, {:.0}), walking at {:.0} units/s", self.clock_text, game.data.name(FormId(id)), f[0], f[1], f[2], b.velocity[0].hypot(b.velocity[1]));
             }
-            let idle: Vec<u32> = p.npcs.keys().copied().filter(|id| held(FormId(*id)) || self.ai.agents.get(&FormId(*id)).is_none_or(|a| a.activity != Activity::Travelling)).collect();
+            let idle: Vec<u32> = p.npcs.keys().copied().filter(|id| held(FormId(*id)) || (!self.carried.contains_key(id) && self.ai.agents.get(&FormId(*id)).is_none_or(|a| a.activity != Activity::Travelling))).collect();
             for id in idle {
                 p.remove_npc(id);
                 self.unstuck.remove(&id);
             }
             // Nor does one go on while it staggers, whether or not the AI walked it this
             // frame.
-            for &id in &self.staggering {
+            // (A knockback or an attack clip moving it goes on.)
+            for &id in self.staggering.iter().filter(|id| !self.carried.contains_key(id)) {
                 let was = stop_body(Some(&mut *p), id);
                 if was > 0.0 {
                     info!("ai [{}] {} {id:08X}: its character stops while it staggers (was walking at {was:.0} units/s)", self.clock_text, game.data.name(FormId(id)));
                 }
             }
             // Nor while an idle holds it in place (idles.md §15).
-            for &id in &self.posed {
+            for &id in self.posed.iter().filter(|id| !self.carried.contains_key(id)) {
                 let was = stop_body(Some(&mut *p), id);
                 if was > 0.0 {
                     info!("ai [{}] {} {id:08X}: its character stops while an idle holds it (was walking at {was:.0} units/s)", self.clock_text, game.data.name(FormId(id)));
@@ -1526,6 +1700,7 @@ impl Core {
                 | AiEvent::IdleChatter { .. }
                 | AiEvent::PlayerAction { .. }
                 | AiEvent::ObserveCombat { .. }
+                | AiEvent::SpectatorFlee { .. }
                 | AiEvent::Chat { .. }
                 | AiEvent::ChatApproach { .. }
                 | AiEvent::ChatGaveUp { .. }
@@ -1723,6 +1898,10 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
             "comments on the fight of {} ({away:.0} units away), line {line}",
             if *fighter == FormId::PLAYER_REF { "the player".to_string() } else { n(fighter) }
         ),
+        AiEvent::SpectatorFlee { fighter, away } => format!(
+            "runs from the fight of {} ({away:.0} units away): too close to watch",
+            if *fighter == FormId::PLAYER_REF { "the player".to_string() } else { n(fighter) }
+        ),
         AiEvent::Chat { partner, line, away } => format!("starts a conversation with {} from {away:.0} units, line {line}", n(partner)),
         AiEvent::ChatApproach { partner, away, length } => format!("walks up to {} to talk: {away:.0} units away, {length:.0} units to go", n(partner)),
         AiEvent::ChatGaveUp { partner, why } => format!("gives up talking to {}: {why}", n(partner)),
@@ -1880,6 +2059,14 @@ type PlayState<'w> = (
 
 /// Who is on furniture, the hours passed in the Wait menu, who plays a hit reaction, and
 /// who is locked on its target (`npc_combat`).
+/// What moves actors besides their walk, and the doors they pass: [`drive`]'s.
+type Moves<'w, 's> = (
+    ResMut<'w, crate::door_fade::DoorFades>,
+    MessageWriter<'w, nvf_play::world_sounds::DoorPassed>,
+    Option<ResMut<'w, crate::attack_anims::AttackTravel>>,
+    Option<MessageReader<'w, 's, nvf_play::combat::Knockback>>,
+);
+
 type Held<'w, 's> = (
     Query<'w, 's, &'static RefVisual, With<OnFurniture>>,
     Option<MessageReader<'w, 's, nvf_play::wait::HourPassed>>,
@@ -1906,7 +2093,7 @@ pub fn drive(
     mut doors: ResMut<nvf_play::doors::Doors>,
     (script, sim, mut phys, mut blocks): PlayState,
     (seated, hours, flinches, fighters, idle_holds): Held,
-    (mut door_fades, mut door_sounds): (ResMut<crate::door_fade::DoorFades>, MessageWriter<nvf_play::world_sounds::DoorPassed>),
+    (mut door_fades, mut door_sounds, mut travel, mut knocks): Moves,
 ) {
     // Hours passed in the Wait menu since the last frame (`--play` only: without it
     // there is no menu and no such message).
@@ -1928,7 +2115,16 @@ pub fn drive(
     }
     let all = res.all;
     // Who staggers (a hit reaction playing) stands until it ends.
+    res.core.on_furniture = seated.iter().map(|v| v.0).collect();
     res.core.staggering = flinches.iter().filter(|(_, f)| now < f.at + f.clip.clip.length()).map(|(v, _)| v.0).collect();
+    // How far attack clips carry actors (`attack_anims.rs`), from the frame before.
+    if let Some(t) = travel.as_deref_mut() {
+        res.core.travel = t.take();
+    }
+    // Melee blows' knockbacks on actors (`nvf_play::combat`).
+    for k in knocks.iter_mut().flat_map(|k| k.read()).filter(|k| k.form_id != FormId::PLAYER_REF.0) {
+        res.core.begin_knock(*k);
+    }
     // Who an idle holds in place (`idles.rs`, from the frame before) stands too.
     // and those of them with somewhere to go (the last update's) are told to break out.
     match idle_holds {
@@ -2295,6 +2491,8 @@ pub fn report(
         core.waited[1],
         each.join("; ")
     );
+    info!("ai: attack clips carried actors in {} actor updates, {} times there was no character to carry one", core.carries[0], core.carries[1]);
+    info!("knockback summary: {} knockbacks on actors, {:.0} units asked in all", core.knocked.0, core.knocked.1);
     let st = core.ai.social_stats();
     info!(
         "social summary: {} hellos said to the player, {} random conversations started, {} walks up to a partner ({} given up); {} tries next to the player, {} chances won; {:.0} actor-seconds next to the player",

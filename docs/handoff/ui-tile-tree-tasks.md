@@ -694,7 +694,7 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       run of 2026-10-31 on the merged head: root tests and clippy clean, `nvf-play` 690
       tests, engine clippy clean, smoke 271 of 273 (the two fails explained in the PR).
       The screenshot comparison was made against upstream main and the original (the
-      PR's pictures); observer-checks.md item 61 remains, item 60 is answered by the
+      PR's pictures); observer-checks.md item 64 remains, item 63 is answered by the
       capture.
       - Review fixes (2026-10-31, an independent review): navigation has one owner (a
         highlight a ref moved for a hand-built Up/Down is not the choice); a new box makes

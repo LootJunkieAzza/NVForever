@@ -137,12 +137,15 @@ pub fn complete_all_objectives(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Val
 }
 
 /// The quest's stages, objectives, completed/failed state and script variables go back
-/// to their start [documented: catalogue summary of ResetQuest]; whether it runs is
-/// unchanged [hypothesis].
+/// to their start [documented: catalogue summary of ResetQuest; observed: o41, the
+/// variables read 0 after it]. A SetQuestDelay override is kept [observed: o41,
+/// VMQ03aTimer at SetQuestDelay 2 ran every 2.0 s after the reset, not at its DATA 0.5 s;
+/// observer check 41, issue #1109]. Whether it runs is unchanged here, although the
+/// original stopped VMQ03aTimer [observed: o41; layer5-captures.md §5.7].
 pub fn reset_quest(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let q = quest(g, a, 0)?;
-    let running = g.quests.get(&q).is_some_and(|s| s.running);
-    g.quests.insert(q, crate::quest::QuestState { running, ..Default::default() });
+    let (running, delay) = g.quests.get(&q).map_or((false, None), |s| (s.running, s.delay));
+    g.quests.insert(q, crate::quest::QuestState { running, delay, ..Default::default() });
     g.instances.remove(&InstKey::Quest { quest: q });
     none()
 }

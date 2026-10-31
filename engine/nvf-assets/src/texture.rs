@@ -265,16 +265,36 @@ pub fn is_first_person_texture(path: &str) -> bool {
 impl TextureCache {
     /// Drop the textures nothing else holds (no live material uses them), after their
     /// grace time (`crate::release`); the number dropped. Keys: (path, sRGB, clamped).
-    pub fn release(&mut self, idle: &mut crate::release::Unused<(String, bool, bool)>, now: f64) -> usize {
-        use crate::release::{held_beyond, KEEP_UNUSED_MAX, KEEP_UNUSED_SECS};
+    /// The textures held, for the stress census: an entry is idle when only the cache
+    /// holds its image (it waits out its keep time).
+    pub fn share(&self) -> crate::release::CacheShare {
+        let mut s = crate::release::CacheShare::default();
+        for h in self.map.values().chain(self.clamped.values()).flatten() {
+            s.entries += 1;
+            s.idle += usize::from(!crate::release::held_beyond(h, 1));
+            s.images.insert(h.id());
+        }
+        s
+    }
+
+    /// Drop the textures nothing has used for `keep.secs` ([`KeepLimits`](crate::release::KeepLimits)):
+    /// counted from when the model or part that last held one went unused, where `hints`
+    /// says (release.rs [`ImageHints`](crate::release::ImageHints)).
+    pub fn release(&mut self, idle: &mut crate::release::Unused<(String, bool, bool)>, hints: &crate::release::ImageHints, now: f64, keep: crate::release::KeepLimits) -> usize {
+        use crate::release::held_beyond;
+        let mut ids = HashMap::new();
         let entries: Vec<_> = [(false, &self.map), (true, &self.clamped)]
             .into_iter()
-            .flat_map(|(clamp, map)| map.iter().filter_map(move |((p, srgb), h)| h.as_ref().map(|h| ((p.clone(), *srgb, clamp), held_beyond(h, 1)))))
+            .flat_map(|(clamp, map)| map.iter().filter_map(move |((p, srgb), h)| h.as_ref().map(|h| ((p.clone(), *srgb, clamp), h))))
+            .map(|(k, h)| {
+                ids.insert(k.clone(), h.id());
+                (k, held_beyond(h, 1))
+            })
             .collect();
         self.ahead.retain(|_, (_, at)| now - *at < AHEAD_KEEP_SECS);
         self.workers.entries.lock().expect("worker textures").retain(|_, w| w.stored_at.is_none_or(|t| now - t < WORKER_KEEP_SECS));
-        let drop = idle.sweep(now, entries, KEEP_UNUSED_SECS, KEEP_UNUSED_MAX);
-        for (p, srgb, clamp) in &drop {
+        let drop = idle.sweep_timed(now, entries, keep.secs, keep.max, |k| ids.get(k).and_then(|&id| hints.since(id)));
+        for ((p, srgb, clamp), _) in &drop {
             (if *clamp { &mut self.clamped } else { &mut self.map }).remove(&(p.clone(), *srgb));
         }
         self.generation += u64::from(!drop.is_empty());
