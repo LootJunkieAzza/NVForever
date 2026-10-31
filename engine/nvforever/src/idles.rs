@@ -285,10 +285,17 @@ impl ActorIdle {
     }
 }
 
-/// The NPCs an idle holds in place this frame ([`holds_in_place`]), read by
-/// `residents.rs`: their walk waits, as for a stagger, until the idle ends or fades out.
+/// The NPCs whose legs an idle poses ([`holds_in_place`]) and who stand while it shows,
+/// shared with `residents.rs` (idles.md §15).
 #[derive(Resource, Default)]
-pub struct IdleHolds(pub HashSet<u32>);
+pub struct IdleHolds {
+    /// Written here: those whose idle shows (playing or fading out). Their walk waits.
+    pub held: HashSet<u32>,
+    /// Written by `residents.rs`: those of them whose AI has somewhere to go. Their idle
+    /// fades out at once (a looping one too), and they walk once it has gone
+    /// [design: owner 2026-10-31].
+    pub breaking: HashSet<u32>,
+}
 
 /// Whether a track drives a leg: the people's `Bip01 L Thigh`, `Bip01 R Calf`,
 /// `Bip01 L Foot`, and creatures' bones named the same way or `...Leg...`
@@ -303,8 +310,9 @@ fn leg_priority(clip: &Clip) -> Option<i32> {
     clip.tracks.iter().enumerate().filter(|(_, (n, _))| is_leg(n)).map(|(k, _)| clip.priorities.get(k).copied().unwrap_or(0)).max()
 }
 
-/// Whether an idle holds its actor in place while it plays (idles.md §15) [design: the
-/// original's rule is not documented; observer check `idle-holds-actor`]:
+/// Whether an idle poses its actor's legs, so the actor stands while it shows and breaks
+/// out of it (fading it out) to walk (idles.md §15) [design: the original's rule is not
+/// documented, observer check 57; breaking out: owner 2026-10-31]:
 ///
 /// - asked for by a script (`PlayIdle`, `PickIdle`), a package's begin, end or change, a
 ///   dialogue line, or a pick-up (collections, fidgets, gestures, cowering and stimpaks
@@ -593,11 +601,21 @@ pub fn drive(
         if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::Gesture && (moving || !talk_parts.iter().any(|p| p.actor.0 == v.0))) {
             c.play.stop();
         }
-        // An idle that holds its actor in place ends when it goes into combat (alerted,
-        // fighting or searching) [design, idles.md §15].
-        if let Some(c) = idle.0.cur.as_mut().filter(|c| c.holds && !c.play.ended() && game.awareness.state(FormId(v.0)).in_combat()) {
-            info!("idle hold: {} ({:08X}) leaves its idle for combat", game.data.name(FormId(v.0)), v.0);
-            c.play.stop();
+        // An idle that poses its actor's legs ends when the actor has somewhere to go
+        // (`residents.rs`), or goes into combat (alerted, fighting or searching): it
+        // breaks out of it [design: owner 2026-10-31, idles.md §15].
+        if let Some(c) = idle.0.cur.as_mut().filter(|c| c.holds && !c.play.ended()) {
+            let why = if holds.breaking.contains(&v.0) {
+                Some("to walk")
+            } else if game.awareness.state(FormId(v.0)).in_combat() {
+                Some("for combat")
+            } else {
+                None
+            };
+            if let Some(why) = why {
+                info!("idle hold: {} ({:08X}) breaks out of its idle {why}", game.data.name(FormId(v.0)), v.0);
+                c.play.stop();
+            }
         }
         busy.insert(v.0, idle.0.playing().is_some());
     }
@@ -960,7 +978,7 @@ pub fn drive(
             match source {
                 IdleSource::PackageIdles | IdleSource::MarkerIdles | IdleSource::Gesture => debug!("idle: {name} plays {what} ({source:?})"),
                 _ if !started => info!("idle: {name} plays {what} again: not started over ({source:?})"),
-                _ => info!("idle: {name} plays {what} ({source:?}){}", if holds { ", holding it in place" } else { "" }),
+                _ => info!("idle: {name} plays {what} ({source:?}){}", if holds { ", its legs held" } else { "" }),
             }
         }
     }
@@ -971,7 +989,8 @@ pub fn drive(
     for (e, v, _, idle, _, _) in &mut actors {
         let Some(mut idle) = idle else { continue };
         idle.0.advance(dt);
-        if idle.0.playing().is_some_and(|p| p.holds) {
+        // Held while it shows, its fade-out too (one gone is no longer `cur`).
+        if idle.0.cur.as_ref().is_some_and(|p| p.holds) {
             holding.insert(v.0);
         }
         match idle.0.playing() {
@@ -1001,13 +1020,13 @@ pub fn drive(
         game.set_idle_playing(FormId(*actor), None);
     }
     st.told = now;
-    for a in holding.difference(&holds.0) {
-        info!("idle hold: {} ({a:08X}) stands until its idle ends", game.data.name(FormId(*a)));
+    for a in holding.difference(&holds.held) {
+        info!("idle hold: {} ({a:08X}) stands while its idle shows", game.data.name(FormId(*a)));
     }
-    for a in holds.0.difference(&holding) {
-        info!("idle hold: {} ({a:08X}) may walk again", game.data.name(FormId(*a)));
+    for a in holds.held.difference(&holding) {
+        info!("idle hold: {} ({a:08X}) may walk again: its idle has gone", game.data.name(FormId(*a)));
     }
-    holds.0 = holding;
+    holds.held = holding;
 }
 
 /// Whether `actor` flees from a fight (`GetCurrentAIProcedure` 16).

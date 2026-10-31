@@ -815,7 +815,7 @@ marker has a patrol idle time (XPRD) of 1 s and a patrol script: 01 plays
 `LooseCheeringBothArmsUp` (IDLE 0x00033CDC, `CheeringBothArmsUp.kf`, 4.67 s, loops 1-2,
 section byte 0x47 Special Idle), 02 `LooseMiddleFinger`, 03 `LooseCheeringOneArmUp`
 (`CheeringOneArmUp.kf`, 4.67 s). So the patrol wants him on his way after 1 s while the
-cheer has 4.7 to 9.3 s to run.
+cheer has 4.7 to 9.3 s to run. (Before 2026-10-31 he walked off with it playing.)
 
 **Why he slid** [observed in the code]: the idle is laid over the locomotion by track
 priority (§7). `CheeringBothArmsUp.kf` keys every bone, `Bip01`, the pelvis and both
@@ -823,29 +823,37 @@ legs included, at priority 50 [observed: `fnvtool nif decode`]; the people's wal
 run clips (`mtforward.kf`, `mtfastforward.kf`, `h2hfastright.kf`, `2hrfastright.kf`)
 key their legs at 30. Walking on, his legs showed the cheer while the body moved.
 
-**The rule** [design; the original's rule is not documented: observer check 56]: an NPC
-stands while an idle plays that
+**The rule** [design; the original's rule is not documented: observer check 57]: an
+idle *poses the legs* when it
 
 - was asked for by a script (`PlayIdle`, `PickIdle`), a package's begin, end or change,
   a dialogue line, or a pick-up;
 - is not of the Upper Body section (IDLE DATA byte 0, low six bits, 21; `IdleDef::section`);
 - has a leg track (a bone named `...Thigh`, `...Calf`, `...Foot` or `...Leg...`) of a
   higher priority than the legs of the actor's walk clip (its stance's Forward, else
-  FastForward). An idle whose legs lose to the walk does not hold: the cower's (23)
-  lose to the run's (30), and a fleeing actor runs with its arms over its head (§13).
+  FastForward). An idle whose legs lose to the walk does not: the cower's (23) lose to
+  the run's (30), and a fleeing actor runs with its arms over its head (§13).
 
-While it plays the actor's walk waits as for a stagger (`residents.rs`, the held set):
-its character stops, it neither moves nor turns. It goes on once the idle ends or starts
-to fade out (`IdleHolds`, `idles.rs`). Collection idles, fidgets, gestures, combat idles,
-cowering and stimpaks are not held: they end (or play on) when their actor moves, as
-before.
+**Standing, and breaking out** [design: owner 2026-10-31, "for the idles we probably
+need a way for npcs to break out of the idle then when moving instead of locking in
+place"]: while such an idle shows (playing, or fading out) the actor's walk waits as for
+a stagger (`residents.rs`, the held set): its character stops, it neither moves nor
+turns, so the legs never slide. The legs stay still only while the AI has nowhere to go.
+As soon as it has somewhere to go (nothing else holds it and its AI travels: its package
+walks on, a patrol wait ends, it follows or flees, a conversation that moves), it breaks
+out of the idle: the idle fades out at once over its blend-out (a looping one is cut the
+same way), and the actor walks once the idle has gone (`IdleHolds::breaking`). So
+Oliver Swanick cheers for his marker's 1 s of patrol idle time, then breaks out and runs
+to the next marker; no idle can hold an actor for ever. Collection idles, fidgets,
+gestures, combat idles, cowering and stimpaks are not held: they end (or play on) when
+their actor moves, as before.
 
-**What still ends such an idle** [design]: combat (the actor alert, fighting or
-searching: the idle fades out at once); `StopIdle` / `ForceStopIdle`; another idle asked
-for (it replaces it); a stagger (the hit reaction plays over it and holds the actor
-anyway); a conversation holds the actor anyway. A package change does not end a one-shot
-idle (§5): it plays to its end, then the new package walks.
+**What else ends such an idle** [design]: combat (the actor alert, fighting or
+searching: it breaks out at once); `StopIdle` / `ForceStopIdle`; another idle asked for
+(it replaces it); a stagger (the hit reaction plays over it and holds the actor anyway).
+A conversation that does not move holds the actor anyway, and its dialogue idles play.
 
-**Log**: `idle: <name> plays <idle> (...) (<source>), holding it in place`, then `idle
-hold: <name> (<ref>) stands until its idle ends` and `idle hold: <name> (<ref>) may walk
-again`; `idle hold: <name> (<ref>) leaves its idle for combat`. Smoke `idle-hold-oliver`.
+**Log**: `idle: <name> plays <idle> (...) (<source>), its legs held`, then `idle hold:
+<name> (<ref>) stands while its idle shows`, `idle hold: <name> (<ref>) breaks out of its
+idle to walk` (or `for combat`) and `idle hold: <name> (<ref>) may walk again: its idle
+has gone`. Smoke `idle-hold-oliver`.

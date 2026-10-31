@@ -1803,6 +1803,64 @@ fn a_book_that_cant_be_taken_stays_unless_a_script_activates_it() {
     assert!(matches!(w.activate_scripted(p, id(STIM_REF)).unwrap().outcome, Outcome::PickedUp { .. }));
 }
 
+/// A created reference picked up is saved as its FormID and base only (#1002): after the
+/// load a held reference to it still answers that it is deleted, its base is known, its
+/// FormID is not given again, and saves no longer grow by a whole entry per drop and
+/// pick-up.
+#[test]
+fn deleted_created_references_are_pruned_from_saves() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    let cell = Some(id(CELL_A));
+    let held = w.place(id(STIMPAK), cell, [1.0, 2.0, 3.0], [0.0; 3], 1).unwrap();
+    // Both dropped by the same dead holder (`dropped_beside`); one is then taken.
+    let holder = id(SAFE_REF);
+    w.get(held).unwrap().dropped_by = Some(holder);
+    assert!(matches!(w.activate(p, held).unwrap().outcome, Outcome::PickedUp { .. }));
+    assert!(w.peek(held).unwrap().deleted);
+    let lying = w.place(id(CAPS), cell, [0.0; 3], [0.0; 3], 5).unwrap();
+    w.get(lying).unwrap().dropped_by = Some(holder);
+    let snap: fnv_sim::Snapshot = serde_json::from_str(&serde_json::to_string(&w.snapshot()).unwrap()).unwrap();
+    assert!(!snap.refs.contains_key(&held), "no full entry");
+    assert_eq!(snap.deleted_created.get(&held), Some(&id(STIMPAK)));
+    assert!(snap.refs.contains_key(&lying), "one still in the world stays");
+    let mut back = World::restore(&f.forms, &f.refs, &snap).unwrap();
+    assert!(back.peek(held).is_none());
+    assert_eq!(back.get(held).err(), Some(SimError::Deleted(held)));
+    assert_eq!(back.item_count(held, id(STIMPAK)).err(), Some(SimError::Deleted(held)), "as an inventory lookup answered before");
+    assert_eq!(back.deleted_base(held), Some(id(STIMPAK)));
+    assert_eq!(back.dropped_beside(holder), vec![lying], "the pruned one is skipped, not an error");
+    assert_eq!(back.item_count(p, id(STIMPAK)).unwrap(), 1);
+    let next = back.place(id(STIMPAK), cell, [0.0; 3], [0.0; 3], 1).unwrap();
+    assert!(next.0 > lying.0, "FormIDs are not given again");
+    // Saved again, the tombstone stays.
+    assert_eq!(back.snapshot().deleted_created.get(&held), Some(&id(STIMPAK)));
+    // An older snapshot with the whole deleted entry still loads, and the next save prunes it.
+    let mut old = snap.clone();
+    old.deleted_created.clear();
+    old.refs.insert(held, w.peek(held).unwrap().clone());
+    let mut again = World::restore(&f.forms, &f.refs, &old).unwrap();
+    assert!(again.get(held).unwrap().deleted);
+    assert!(!again.snapshot().refs.contains_key(&held));
+
+    // Size after N drops and pick-ups: the whole entries the save used to keep against
+    // the pruned save.
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    const N: usize = 1000;
+    for _ in 0..N {
+        let r = w.place(id(STIMPAK), cell, [1.0, 2.0, 3.0], [0.0; 3], 1).unwrap();
+        w.activate(p, r).unwrap();
+    }
+    let pruned = serde_json::to_string(&w.snapshot()).unwrap().len();
+    let mut whole = w.snapshot();
+    whole.refs.extend(w.created().map(|(k, v)| (k, v.clone())));
+    whole.deleted_created.clear();
+    let whole = serde_json::to_string(&whole).unwrap().len();
+    println!("snapshot after {N} drop/pick-up cycles: {whole} bytes with whole entries, {pruned} pruned");
+    assert!(pruned * 4 < whole, "{pruned} vs {whole}");
+}
+
 /// The run-time state a snapshot carries since #1084 (a created reference's inventory
 /// source, the power armour flag, carry bonuses and weight rules), and what it leaves
 /// to the session: game settings, leveled lists and base containers edited by script are

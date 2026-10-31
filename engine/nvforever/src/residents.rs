@@ -263,7 +263,7 @@ impl Mover for PhysMover<'_> {
             // in a smoke run, 2026-10-25].
             let was = stop_body(self.phys.as_deref_mut(), id);
             if was > 0.0 {
-                info!("actor {id:08X} held (staggering, seated, talking or held by an idle): its character stops (was walking at {was:.0} units/s)");
+                info!("actor {id:08X} held (staggering, seated or talking): its character stops (was walking at {was:.0} units/s)");
             }
             walker.moving = false;
             return Some(WalkEvent::Moved);
@@ -696,8 +696,10 @@ struct Core {
     /// frame: they stand until it ends (owner's playtest list 4 item 21) [design].
     staggering: HashSet<u32>,
     /// Actors an idle holds in place (`idles::IdleHolds`, docs/spec-notes/idles.md §15):
-    /// they stand as a staggering actor does until it ends.
+    /// they stand as a staggering actor does while it shows.
     posed: HashSet<u32>,
+    /// Of those, the ones whose AI has somewhere to go: they break out of the idle.
+    breaking: HashSet<u32>,
     /// Load doors used since the last frame: actor, door, the door it leads to.
     door_uses: Vec<(FormId, u32, u32)>,
     /// People in Combat (standing, closing in, going to a flank or a step back, in and
@@ -819,6 +821,7 @@ impl Residents {
             held_now: false,
             staggering: HashSet::new(),
             posed: HashSet::new(),
+            breaking: HashSet::new(),
             door_uses: Vec::new(),
             aims: HashMap::new(),
         };
@@ -1239,7 +1242,7 @@ impl Core {
         // talking to each other (`fnv_ai::social`), unless the script that started their
         // conversation allowed movement (`Game::conversation_moves`); nor one saying its
         // Goodbye greeting at the player (`Game::greets_player`).
-        let held: HashSet<u32> = self
+        let mut held: HashSet<u32> = self
             .list
             .iter()
             .filter(|r| {
@@ -1248,10 +1251,16 @@ impl Core {
                     || self.ai.holds_for_chat(r.actor)
                     || game.greets_player(r.actor)
                     || self.staggering.contains(&r.actor.0)
-                    || self.posed.contains(&r.actor.0)
             })
             .map(|r| r.actor.0)
             .collect();
+        // One whose legs an idle poses (idles.md §15) stands while it shows; when its AI
+        // has somewhere to go (nothing else holds it and it travels: its package walks on,
+        // a patrol wait ended, it follows or flees, a conversation that moves) it breaks
+        // out of the idle, which fades out (`idles.rs`), and walks once it has gone
+        // [design: owner 2026-10-31].
+        self.breaking = self.posed.iter().copied().filter(|id| !held.contains(id) && self.ai.agents.get(&FormId(*id)).is_some_and(|a| a.activity == Activity::Travelling)).collect();
+        held.extend(self.posed.iter().copied());
         if !self.prepared {
             self.prepared = true;
             game.cfg.package_interval = Some(PACKAGE_INTERVAL);
@@ -1876,7 +1885,7 @@ type Held<'w, 's> = (
     Option<MessageReader<'w, 's, nvf_play::wait::HourPassed>>,
     Query<'w, 's, (&'static RefVisual, &'static crate::locomotion::Flinch)>,
     Option<Res<'w, crate::npc_combat::Fighters>>,
-    Option<Res<'w, crate::idles::IdleHolds>>,
+    Option<ResMut<'w, crate::idles::IdleHolds>>,
 );
 
 /// Run the package choice and the walks, log what happens, keep the visuals in step.
@@ -1921,7 +1930,14 @@ pub fn drive(
     // Who staggers (a hit reaction playing) stands until it ends.
     res.core.staggering = flinches.iter().filter(|(_, f)| now < f.at + f.clip.clip.length()).map(|(v, _)| v.0).collect();
     // Who an idle holds in place (`idles.rs`, from the frame before) stands too.
-    res.core.posed = idle_holds.map(|h| h.0.clone()).unwrap_or_default();
+    // and those of them with somewhere to go (the last update's) are told to break out.
+    match idle_holds {
+        Some(mut h) => {
+            h.breaking = std::mem::take(&mut res.core.breaking);
+            res.core.posed = h.held.clone();
+        }
+        None => res.core.posed.clear(),
+    }
     // The game state: this module's, or the game being played (once its data is in).
     match (res.own.as_deref_mut(), script, sim) {
         (Some(game), _, _) => {
