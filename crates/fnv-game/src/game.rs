@@ -1341,7 +1341,8 @@ pub struct Game<'a> {
     /// one `FormId(0)`, has no Message form to count them from, and [`Game::message_box`]
     /// is the last box shown, not the one on screen) and which showing it is. Kept in the
     /// snapshot. Out of step (code that changed `boxes` alone) it is not read
-    /// ([`Game::front_box`]).
+    /// ([`Game::front_box`]) until the queue next changes, which puts it back in step
+    /// with every count unknown ([`Game::align_queued`]).
     pub queued: Vec<QueuedBox>,
     /// The last [`QueuedBox::serial`] given.
     pub box_serial: u64,
@@ -3223,10 +3224,9 @@ impl<'a> Game<'a> {
         if !self.cfg.modal_message_boxes {
             return;
         }
+        self.align_queued();
         let entry = self.next_queued(Some(buttons));
-        if self.queued.len() == self.boxes.len() {
-            self.queued.push(entry);
-        }
+        self.queued.push(entry);
         self.boxes.push(message);
         if self.menu.is_none() {
             self.open_menu(menus::MESSAGE);
@@ -3236,11 +3236,20 @@ impl<'a> Game<'a> {
     /// A box of a message not known, put in front of the others (a scenario's `given`
     /// menu): its buttons not known.
     pub fn put_box_in_front(&mut self, message: FormId) {
+        self.align_queued();
         let entry = self.next_queued(None);
-        if self.queued.len() == self.boxes.len() {
-            self.queued.insert(0, entry);
-        }
+        self.queued.insert(0, entry);
         self.boxes.insert(0, message);
+    }
+
+    /// Put [`Game::queued`] back in step with [`Game::boxes`] when code changed the queue
+    /// alone (or an older snapshot had no `queued`): every box then its own showing and
+    /// its buttons not known, so nothing is closed on a made-up count and no two boxes
+    /// count as one [design].
+    pub fn align_queued(&mut self) {
+        if self.queued.len() != self.boxes.len() {
+            self.queued = (0..self.boxes.len()).map(|_| self.next_queued(None)).collect();
+        }
     }
 
     fn next_queued(&mut self, buttons: Option<usize>) -> QueuedBox {
@@ -3317,12 +3326,8 @@ impl<'a> Game<'a> {
             return Some(m);
         }
         if m == menus::MESSAGE && !self.boxes.is_empty() {
-            // Out of step, nothing can be told of the rest: none is read (unknown).
-            if self.queued.len() == self.boxes.len() {
-                self.queued.remove(0);
-            } else {
-                self.queued.clear();
-            }
+            self.align_queued();
+            self.queued.remove(0);
             let b = self.boxes.remove(0);
             if let Some(mb) = self.message_box.as_mut().filter(|mb| mb.message == b && mb.pressed.is_none()) {
                 mb.pressed = Some(0);
@@ -4554,9 +4559,10 @@ impl<'a> Game<'a> {
         g.loading = s.loading;
         g.message_box = s.message_box.clone();
         g.boxes = s.boxes.clone();
-        // An older snapshot has none: out of step, so not read (`Game::front_box`).
         g.queued = s.queued.clone();
         g.box_serial = g.queued.iter().map(|q| q.serial).max().unwrap_or(0);
+        // An older snapshot has no `queued`: each box its own showing, buttons not known.
+        g.align_queued();
         g.speech = s.speech.clone();
         g.said = s.said.clone();
         g.said_day = s.said_day.clone();

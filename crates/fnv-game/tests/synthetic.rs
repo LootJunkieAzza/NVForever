@@ -2266,9 +2266,43 @@ fn each_queued_box_keeps_its_own_button_count() {
     assert_eq!((g.boxes.clone(), buttons(&g)), (vec![FormId(0x810), FormId(0), FormId(0)], Some(2)));
     g.close_menu();
     assert_eq!(buttons(&g), Some(1));
-    // Code that changes the queue alone puts it out of step: nothing read, not a 0.
+    // Code that changes the queue alone puts it out of step: nothing read, not a 0;
+    // the next box shown puts it back in step, the others' counts not known.
     g.boxes.push(FormId(0));
     assert_eq!(g.front_box(), None);
+    g.show_box_buttons(FormId(0), 2);
+    assert_eq!(g.queued.len(), g.boxes.len());
+    assert_eq!(g.queued.iter().map(|q| q.buttons).collect::<Vec<_>>(), vec![None, None, Some(2)]);
+}
+
+#[test]
+fn an_older_snapshots_boxes_restore_as_showings_of_unknown_count() {
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.run_source("MessageBoxEx \"A|Yes|No\"", Default::default()).expect("compiles");
+    g.run_source("MessageBoxEx \"A|Yes|No\"", Default::default()).expect("compiles");
+    // A snapshot from before `queued`: the boxes alone.
+    let mut s = g.snapshot();
+    s.queued.clear();
+    let text = serde_json::to_string(&s).unwrap();
+    assert!(!text.contains("\"queued\""));
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&text).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let mut g = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    // In step, each box its own showing, its buttons not known (left open by
+    // --no-messages, never counted 0).
+    assert_eq!(g.queued.len(), 2);
+    assert!(g.queued.iter().all(|q| q.buttons.is_none()));
+    let (first, second) = (g.queued[0].serial, g.queued[1].serial);
+    assert_ne!(first, second, "two boxes alike are two showings");
+    // An identical box shown after them is another showing again.
+    g.run_source("MessageBoxEx \"A|Yes|No\"", Default::default()).expect("compiles");
+    assert_eq!(g.queued.len(), 3);
+    assert!(g.queued[2].serial > second && g.queued[2].buttons == Some(2));
+    // Closing the front brings the second, still its own showing.
+    g.menu = Some(fnv_game::game::menus::MESSAGE);
+    g.close_menu();
+    assert_eq!(g.front_box().map(|b| b.serial), Some(second));
 }
 
 #[test]
