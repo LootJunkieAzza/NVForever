@@ -803,3 +803,49 @@ sessions; the frame rate was lower, the clock normal):
   package, procedure 11, instead). Guard packages' own warnings were taken out.
 - Coyote at 300-560 of 1024: it took up the warning's Guard package within 0.6 s, then
   lost sight of the player and stood without warning or fighting for 28 s.
+
+## 15. Idles that hold their actor in place (issue #1072, 2026-10-31)
+
+**The case** [observed in the data, `fnvtool esm decode`, FalloutNV.esm]: Oliver Swanick
+(NPC_ `vNiptonSurvivor` 0x00134985, placed as `vNiptonSurvivorREF` 0x001349B6) is given
+`vNiptonSurvivorCelebrate01` (0x0016B11A, Patrol, Always Run) by
+`VNiptonSceneControlScript` when the player comes within 3,700 units of him. Its patrol
+starts at `VNiptonOliverCelebrate01MarkerREF` (0x0016B098), linked to 02 and 03; each
+marker has a patrol idle time (XPRD) of 1 s and a patrol script: 01 plays
+`LooseCheeringBothArmsUp` (IDLE 0x00033CDC, `CheeringBothArmsUp.kf`, 4.67 s, loops 1-2,
+section byte 0x47 Special Idle), 02 `LooseMiddleFinger`, 03 `LooseCheeringOneArmUp`
+(`CheeringOneArmUp.kf`, 4.67 s). So the patrol wants him on his way after 1 s while the
+cheer has 4.7 to 9.3 s to run.
+
+**Why he slid** [observed in the code]: the idle is laid over the locomotion by track
+priority (§7). `CheeringBothArmsUp.kf` keys every bone, `Bip01`, the pelvis and both
+legs included, at priority 50 [observed: `fnvtool nif decode`]; the people's walk and
+run clips (`mtforward.kf`, `mtfastforward.kf`, `h2hfastright.kf`, `2hrfastright.kf`)
+key their legs at 30. Walking on, his legs showed the cheer while the body moved.
+
+**The rule** [design; the original's rule is not documented: observer check 56]: an NPC
+stands while an idle plays that
+
+- was asked for by a script (`PlayIdle`, `PickIdle`), a package's begin, end or change,
+  a dialogue line, or a pick-up;
+- is not of the Upper Body section (IDLE DATA byte 0, low six bits, 21; `IdleDef::section`);
+- has a leg track (a bone named `...Thigh`, `...Calf`, `...Foot` or `...Leg...`) of a
+  higher priority than the legs of the actor's walk clip (its stance's Forward, else
+  FastForward). An idle whose legs lose to the walk does not hold: the cower's (23)
+  lose to the run's (30), and a fleeing actor runs with its arms over its head (§13).
+
+While it plays the actor's walk waits as for a stagger (`residents.rs`, the held set):
+its character stops, it neither moves nor turns. It goes on once the idle ends or starts
+to fade out (`IdleHolds`, `idles.rs`). Collection idles, fidgets, gestures, combat idles,
+cowering and stimpaks are not held: they end (or play on) when their actor moves, as
+before.
+
+**What still ends such an idle** [design]: combat (the actor alert, fighting or
+searching: the idle fades out at once); `StopIdle` / `ForceStopIdle`; another idle asked
+for (it replaces it); a stagger (the hit reaction plays over it and holds the actor
+anyway); a conversation holds the actor anyway. A package change does not end a one-shot
+idle (§5): it plays to its end, then the new package walks.
+
+**Log**: `idle: <name> plays <idle> (...) (<source>), holding it in place`, then `idle
+hold: <name> (<ref>) stands until its idle ends` and `idle hold: <name> (<ref>) may walk
+again`; `idle hold: <name> (<ref>) leaves its idle for combat`. Smoke `idle-hold-oliver`.

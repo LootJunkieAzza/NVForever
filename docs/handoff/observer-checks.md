@@ -586,3 +586,15 @@ The numbers above stay put so links to them hold; each item here gives its own p
     vault suit's bare-hand addon give way to the Pip-Boy Glove. To check: the player in
     Leather Armor and in T-45d Power Armor, first and third person: is the left hand the
     outfit's glove or the Pip-Boy Glove's hand? ([actors §2.3](../spec-notes/actors.md))
+
+## Added 2026-10-31 (idles that hold their actor in place, issue #1072)
+
+56. **Whether an idle with leg tracks holds its actor in place** (P2: every scripted
+    idle on a patrol or walk). NVForever holds an NPC still while an idle asked for by a
+    script, a package or a dialogue line plays whose leg tracks outrank the walk clip's
+    (not Upper Body). To check: Nipton, Oliver Swanick (vNiptonSurvivorREF 0x001349B6)
+    on his celebrate patrol: at each marker his patrol idle time is 1 s and the marker's
+    script plays `LooseCheeringBothArmsUp` (4.7 s, 1-2 passes). Sample his position
+    every game loop from the marker: does he stand until the cheer ends, walk off after
+    1 s with the cheer cut short, or slide with it playing? And `IsIdlePlaying` at the
+    moment he sets off. ([idles §15](../spec-notes/idles.md))

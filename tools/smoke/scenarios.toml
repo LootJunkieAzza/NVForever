@@ -1624,6 +1624,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "idle-hold-oliver"
+source = "issue #1072: an idle whose legs outrank the walk holds its NPC in place until it ends (docs/spec-notes/idles.md §15)"
+note = "Nipton: Oliver Swanick (vNiptonSurvivorREF 0x001349B6) is enabled and given his celebrate patrol once the player is within 3,700 units; at marker 01 (1 s of patrol idle time) its script plays LooseCheeringBothArmsUp (4.7 s, 1-2 passes); the player stays some 1,300 units off, beyond the 600 that start his dialogue. Base game only, so no add-on start-up box holds the clock"
+areas = ["idles", "ai"]
+paths = ["engine/nvforever/src/idles.rs", "engine/nvforever/src/residents.rs", "crates/fnv-game/src/idles.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--play", "--plugins", "FalloutNV.esm", "--world", "WastelandNV", "--pos=-33500,-96800,6900", "--hour", "12", "--npc-packages", "001349B6", "--no-voice", "--no-messages"]
+run_seconds = 60
+expect = [
+  { re = 'idle: Oliver Swanick plays LooseCheeringBothArmsUp .*\(Script\), holding it in place', label = "the cheer at marker 01 holds him in place" },
+  { re = 'idle hold: Oliver Swanick \(001349B6\) stands until its idle ends', label = "he stands while it plays" },
+  { re = 'idle hold: Oliver Swanick \(001349B6\) may walk again', label = "and walks once it ends" },
+  { re = 'idle: Oliver Swanick plays LooseMiddleFinger', label = "he walks on to marker 02 afterwards" },
+]
+
+[[scenario]]
 name = "idles-opening"
 source = "CLAUDE.md: after idle animation changes (docs/spec-notes/idles.md §7), the opening"
 areas = ["idles"]

@@ -263,7 +263,7 @@ impl Mover for PhysMover<'_> {
             // in a smoke run, 2026-10-25].
             let was = stop_body(self.phys.as_deref_mut(), id);
             if was > 0.0 {
-                info!("actor {id:08X} held (staggering, seated or talking): its character stops (was walking at {was:.0} units/s)");
+                info!("actor {id:08X} held (staggering, seated, talking or held by an idle): its character stops (was walking at {was:.0} units/s)");
             }
             walker.moving = false;
             return Some(WalkEvent::Moved);
@@ -695,6 +695,9 @@ struct Core {
     /// Actors playing a hit reaction (the stagger of a crippled limb, `deaths.rs`) this
     /// frame: they stand until it ends (owner's playtest list 4 item 21) [design].
     staggering: HashSet<u32>,
+    /// Actors an idle holds in place (`idles::IdleHolds`, docs/spec-notes/idles.md §15):
+    /// they stand as a staggering actor does until it ends.
+    posed: HashSet<u32>,
     /// Load doors used since the last frame: actor, door, the door it leads to.
     door_uses: Vec<(FormId, u32, u32)>,
     /// People in Combat (standing, closing in, going to a flank or a step back, in and
@@ -815,6 +818,7 @@ impl Residents {
             standing_by: [0; 6],
             held_now: false,
             staggering: HashSet::new(),
+            posed: HashSet::new(),
             door_uses: Vec::new(),
             aims: HashMap::new(),
         };
@@ -1244,6 +1248,7 @@ impl Core {
                     || self.ai.holds_for_chat(r.actor)
                     || game.greets_player(r.actor)
                     || self.staggering.contains(&r.actor.0)
+                    || self.posed.contains(&r.actor.0)
             })
             .map(|r| r.actor.0)
             .collect();
@@ -1391,6 +1396,13 @@ impl Core {
                 let was = stop_body(Some(&mut *p), id);
                 if was > 0.0 {
                     info!("ai [{}] {} {id:08X}: its character stops while it staggers (was walking at {was:.0} units/s)", self.clock_text, game.data.name(FormId(id)));
+                }
+            }
+            // Nor while an idle holds it in place (idles.md §15).
+            for &id in &self.posed {
+                let was = stop_body(Some(&mut *p), id);
+                if was > 0.0 {
+                    info!("ai [{}] {} {id:08X}: its character stops while an idle holds it (was walking at {was:.0} units/s)", self.clock_text, game.data.name(FormId(id)));
                 }
             }
         }
@@ -1864,6 +1876,7 @@ type Held<'w, 's> = (
     Option<MessageReader<'w, 's, nvf_play::wait::HourPassed>>,
     Query<'w, 's, (&'static RefVisual, &'static crate::locomotion::Flinch)>,
     Option<Res<'w, crate::npc_combat::Fighters>>,
+    Option<Res<'w, crate::idles::IdleHolds>>,
 );
 
 /// Run the package choice and the walks, log what happens, keep the visuals in step.
@@ -1883,7 +1896,7 @@ pub fn drive(
     mut actors: Query<(&mut Transform, Option<&mut Locomotion>), Without<OnFurniture>>,
     mut doors: ResMut<nvf_play::doors::Doors>,
     (script, sim, mut phys, mut blocks): PlayState,
-    (seated, hours, flinches, fighters): Held,
+    (seated, hours, flinches, fighters, idle_holds): Held,
     (mut door_fades, mut door_sounds): (ResMut<crate::door_fade::DoorFades>, MessageWriter<nvf_play::world_sounds::DoorPassed>),
 ) {
     // Hours passed in the Wait menu since the last frame (`--play` only: without it
@@ -1907,6 +1920,8 @@ pub fn drive(
     let all = res.all;
     // Who staggers (a hit reaction playing) stands until it ends.
     res.core.staggering = flinches.iter().filter(|(_, f)| now < f.at + f.clip.clip.length()).map(|(v, _)| v.0).collect();
+    // Who an idle holds in place (`idles.rs`, from the frame before) stands too.
+    res.core.posed = idle_holds.map(|h| h.0.clone()).unwrap_or_default();
     // The game state: this module's, or the game being played (once its data is in).
     match (res.own.as_deref_mut(), script, sim) {
         (Some(game), _, _) => {
