@@ -1614,7 +1614,7 @@ impl GameSnapshot {
     /// or cell is gone (created ones: a plugin's creature placed with PlaceAtMe, its item
     /// dropped), script instances whose key or script is gone, magic effects whose effect,
     /// source, target or script is gone (and their effect scripts; a co-op player's
-    /// likewise), and the radio station
+    /// likewise), NX form variables naming a gone form, and the radio station
     /// or weather shown. Other fields keep the gone ID, which names no form: a lookup of it
     /// fails as one of any form that does not exist [hypothesis: the original's behaviour
     /// with a missing plugin is not documented]. Returns how many were dropped.
@@ -1649,6 +1649,7 @@ impl GameSnapshot {
             !key_gone && !inst.script.is_some_and(&gone)
         });
         n += before - self.instances.len();
+        n += self.nx.drop_gone(&gone);
         for slot in [&mut self.pipboy_station, &mut self.weather_shown] {
             if slot.is_some_and(&gone) {
                 *slot = None;
@@ -4539,12 +4540,15 @@ impl<'a> Game<'a> {
     // ---- snapshots -----------------------------------------------------------------
 
     pub fn snapshot(&self) -> GameSnapshot {
+        let sim = self.world.snapshot();
         GameSnapshot {
             format: SNAPSHOT_FORMAT.into(),
             ext: self.ext.clone(),
             lambdas: self.lambdas.iter().map(|d| SavedLambda { unit: d.key.clone(), lambda: d.lambda.clone(), inst: d.inst }).collect(),
-            nx: self.nx.clone(),
-            sim: self.world.snapshot(),
+            // A created reference deleted since keeps no variables: its FormID is not
+            // used again, so they could never be read.
+            nx: crate::nvse_nx::NxVars(self.nx.0.iter().filter(|(id, _)| !sim.deleted_created.contains_key(id)).map(|(k, v)| (*k, v.clone())).collect()),
+            sim,
             quests: self.quests.clone(),
             instances: self.instances.iter().map(|(k, v)| (*k, v.clone())).collect(),
             extra: self.extra.clone(),

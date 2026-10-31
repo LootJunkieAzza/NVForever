@@ -10,8 +10,18 @@ use fnv_sim::FormId;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// One kind of NX variable on one reference: lower-cased key -> (key as given, value).
-pub type NxMap<T> = BTreeMap<String, (String, T)>;
+/// One kind of NX variable on one reference: lower-cased key -> the key as given and the
+/// value.
+pub type NxMap<T> = BTreeMap<String, NxVar<T>>;
+
+/// One NX variable. Saved as named fields, not a pair: a save loaded without a form's
+/// plugin moves a field's FormID to the gone slot (`GameSnapshot::drop_gone` then drops
+/// the variable), where a pair would lose the element and fail to read.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NxVar<T> {
+    pub key: String,
+    pub value: T,
+}
 
 /// A reference's NX variables. "Keys for each type must be unique, although alternative
 /// types may share the same key"; "Keys are case insensitive" [documented: Category:
@@ -41,6 +51,19 @@ pub struct NxVars(pub BTreeMap<FormId, NxRef>);
 impl NxVars {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+
+    /// After a remap: drop the form variables naming a gone plugin's form, and references
+    /// left with none. Returns how many were dropped.
+    pub(crate) fn drop_gone(&mut self, gone: impl Fn(FormId) -> bool) -> usize {
+        let mut n = 0;
+        for r in self.0.values_mut() {
+            let before = r.fo.len();
+            r.fo.retain(|_, v| !gone(v.value));
+            n += before - r.fo.len();
+        }
+        self.0.retain(|_, r| !r.is_empty());
+        n
     }
 }
 
@@ -85,7 +108,7 @@ fn clear<T>(m: &mut NxMap<T>, key: &str, prefix: bool) {
 /// the variables were set ("Keys in the returned array match the NX ones"; copies)
 /// [documented: NX_GetEVFlAr; hypothesis: the key's case as it was last set].
 fn map_of<T: Clone>(g: &mut Game, m: Option<&NxMap<T>>, prefix: &str, val: impl Fn(T) -> XVal) -> XVal {
-    let entries = m.map_or_else(Vec::new, |m| m.iter().filter(|(k, _)| starts(k, prefix)).map(|(_, (given, v))| (XKey::Str(given.clone()), val(v.clone()))).collect());
+    let entries = m.map_or_else(Vec::new, |m| m.iter().filter(|(k, _)| starts(k, prefix)).map(|(_, v)| (XKey::Str(v.key.clone()), val(v.value.clone()))).collect());
     XVal::Array(g.ext.new_array(ArrayKind::StringMap, entries))
 }
 
@@ -109,13 +132,13 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 let r = g.nx.0.entry(on).or_default();
                 match name {
                     "nx_setevfl" => {
-                        r.fl.insert(low, (key, num(args, 1)));
+                        r.fl.insert(low, NxVar { key, value: num(args, 1) });
                     }
                     "nx_setevfo" => {
-                        r.fo.insert(low, (key, form(args, 1).unwrap_or(FormId(0))));
+                        r.fo.insert(low, NxVar { key, value: form(args, 1).unwrap_or(FormId(0)) });
                     }
                     _ => {
-                        r.st.insert(low, (key, text(args, 1)));
+                        r.st.insert(low, NxVar { key, value: text(args, 1) });
                     }
                 }
             }
@@ -123,9 +146,9 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         // A key not set reads 0, an empty string for a string [documented: NX_GetEVFl,
         // NX_GetEVFo "Returns 0"; NX_GetEVSt "Returns NULL"].
-        "nx_getevfl" => XVal::Num(g.nx.0.get(&on).and_then(|r| r.fl.get(&low)).map_or(0.0, |(_, v)| *v)),
-        "nx_getevfo" => XVal::Ref(g.nx.0.get(&on).and_then(|r| r.fo.get(&low)).map_or(0, |(_, v)| v.0)),
-        "nx_getevst" => XVal::Str(g.nx.0.get(&on).and_then(|r| r.st.get(&low)).map(|(_, v)| v.clone()).unwrap_or_default()),
+        "nx_getevfl" => XVal::Num(g.nx.0.get(&on).and_then(|r| r.fl.get(&low)).map_or(0.0, |v| v.value)),
+        "nx_getevfo" => XVal::Ref(g.nx.0.get(&on).and_then(|r| r.fo.get(&low)).map_or(0, |v| v.value.0)),
+        "nx_getevst" => XVal::Str(g.nx.0.get(&on).and_then(|r| r.st.get(&low)).map(|v| v.value.clone()).unwrap_or_default()),
         "nx_clrevfl" | "nx_clrevfo" | "nx_clrevst" => {
             let prefix = num(args, 1) == 2.0;
             if let Some(r) = g.nx.0.get_mut(&on) {
@@ -208,8 +231,16 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
     Some(Ok(v))
 }
 
-/// The skeleton model of an actor's base (MODL), "" when it has none.
-fn skeleton_of(g: &Game, actor: Option<FormId>) -> String {
-    let Some(b) = actor.and_then(|a| crate::functions::base_of(g, a)) else { return String::new() };
+/// The skeleton model (MODL) of an actor, or of an actor base, "" when it has none. A
+/// leveled base reads the actor drawn for the reference, and a template with Use
+/// Model/Animation the template's [documented: actors.md §2.2, the Model/Animation group;
+/// hypothesis: the skeleton is in that group].
+pub(crate) fn skeleton_model(g: &Game, f: FormId) -> String {
+    let base = crate::functions::base_of(g, f).unwrap_or(f);
+    let b = g.template_source(base, f, |d| d.template_model).map_or(base, |(s, _)| s);
     g.data.record_field(b, "MODL", "").and_then(serde_json::Value::as_str).unwrap_or_default().to_string()
+}
+
+fn skeleton_of(g: &Game, actor: Option<FormId>) -> String {
+    actor.map(|a| skeleton_model(g, a)).unwrap_or_default()
 }

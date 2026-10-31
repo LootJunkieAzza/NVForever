@@ -2211,6 +2211,42 @@ SetFunctionValue sS"), Ok(XVal::Str("glad".into())));
     assert_eq!(q(&mut h, "SetFunctionValue (PlayerREF.NX_GetConversationPartner)"), Ok(XVal::Ref(0)));
 }
 
+/// NX form variables in a save loaded without a plugin (#1017 review): one naming a gone
+/// plugin's form is dropped and the save still reads; the others stay. A created
+/// reference deleted before the save keeps no variables.
+#[test]
+fn nx_variables_survive_a_gone_plugin_and_leave_with_deleted_references() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}
+{body}
+End
+"), Default::default());
+    q(&mut g, "PlayerREF.NX_SetEVFo \"MyMod:Pet\" PlayerREF
+PlayerREF.NX_SetEVFo \"Mine\" PlayerREF
+PlayerREF.NX_SetEVFl \"Count\" 2").unwrap();
+    let mut v = serde_json::to_value(g.snapshot()).unwrap();
+    let pet = &mut v["nx"]["0x00000014"]["fo"]["mymod:pet"];
+    assert_eq!(pet["key"], json!("MyMod:Pet"), "{pet}");
+    pet["value"] = json!("0x01000ABC");
+    // A created reference deleted before the save, with a variable.
+    v["sim"]["deleted_created"]["0xFF000099"] = json!("0x00000014");
+    v["nx"]["0xFF000099"] = json!({"fl": {"n": {"key": "N", "value": 1.0}}});
+    let e = |n: &str| fnv_save::PluginEntry { name: n.into(), size: 0 };
+    let remap = fnv_save::PluginRemap::new(&[e("Test.esm"), e("Extra.esm")], &[e("Test.esm")]);
+    fnv_save::remap_json(&mut v, &remap);
+    let mut back: fnv_game::game::GameSnapshot = serde_json::from_value(v).unwrap();
+    assert_eq!(back.drop_gone(|id| fnv_save::is_gone(id.0)), 1, "the form variable of Extra.esm");
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let mut h = fnv_game::Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!(q(&mut h, "SetFunctionValue (PlayerREF.NX_GetEVFo \"MyMod:Pet\")"), Ok(XVal::Ref(0)));
+    assert_eq!(q(&mut h, "SetFunctionValue (PlayerREF.NX_GetEVFo \"mine\")"), Ok(XVal::Ref(FormId::PLAYER_REF.0)));
+    assert_eq!(q(&mut h, "SetFunctionValue (PlayerREF.NX_GetEVFl \"Count\")"), Ok(XVal::Num(2.0)));
+    let again = serde_json::to_value(h.snapshot()).unwrap();
+    assert!(again["nx"].get("0xFF000099").is_none(), "{}", again["nx"]);
+}
+
 #[test]
 fn queries_run_function_scripts_and_keep_what_they_change() {
     // The runner's `query` action (Game::run_query): JIP's auxiliary variables set by one
