@@ -144,7 +144,12 @@ region, higher is closer)]:
 
 All three favour A. Rule used by `crates/fnv-vfs` (lowest precedence first):
 1. the `SArchiveList` archives in list order [the order among them never matters for
-   the shipped data: the six share no path, observed];
+   the shipped data: the six share no path, observed]. The game's own INI is never
+   read (install-layout.md): the list is the shipped one (`fnv_vfs::DEFAULT_ARCHIVE_LIST`)
+   unless NVForever's own `NVForever.ini` sets `[Archive] SArchiveList` (the original's
+   section and key), which replaces it for the run, logged as `vfs: SArchiveList from
+   <file>` (#1142; `fnvtool vfs order --archive-list` takes the same list; smoke
+   `vfs-order-archive-list`) [design: for mod setups that add base archives];
 2. `Update.bsa` — **overrides the base archives** [observed, two objects above];
 3. each active plugin's own archives (`<plugin stem> - *.bsa`, `<plugin stem>.bsa`) in
    load order — a **DLC archive overrides the base archives** [observed, Nellis hangar].

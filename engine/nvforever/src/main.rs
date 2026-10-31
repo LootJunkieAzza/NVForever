@@ -888,6 +888,12 @@ fn main() -> AppExit {
         },
         None => None,
     };
+    // NVForever.ini's `[Archive] SArchiveList`, in place of the shipped base list (#1142).
+    if let Some((list, from)) = nvf_play::game_start::archive_list_for_run() {
+        if fnv_vfs::set_archive_list(list.clone()).is_ok() {
+            eprintln!("vfs: SArchiveList from {from}: {}", list.join(", "));
+        }
+    }
     let game = match GameData::open_for_plugins(args.data(), &args.plugins, &args.nif_schema) {
         Ok(g) => g,
         Err(e) => return fail(e),
