@@ -98,11 +98,52 @@ pub fn leaves(shape: &Shape, iso: &Iso, scale: f32, out: &mut Vec<Leaf>, errors:
     }
 }
 
-/// The leaves and errors of one shape at one scale, kept while the shape lives.
+/// One converted leaf as the cache keeps it: without holding its rapier shape or codes,
+/// so they are freed with the last collider (or prepared reference) using them, as when
+/// every copy had its own.
+struct WeakLeaf {
+    pose: Pose,
+    shape: Weak<dyn rapier3d::parry::shape::Shape>,
+    /// `None`: no codes (a convex leaf).
+    materials: Option<Weak<[u32]>>,
+}
+
+impl WeakLeaf {
+    fn of(l: &Leaf) -> WeakLeaf {
+        WeakLeaf { pose: l.pose, shape: Arc::downgrade(&l.shape.0), materials: (!l.materials.is_empty()).then(|| Arc::downgrade(&l.materials)) }
+    }
+
+    fn get(&self) -> Option<Leaf> {
+        let materials = match &self.materials {
+            Some(m) => m.upgrade()?,
+            None => Arc::default(),
+        };
+        Some(Leaf { pose: self.pose, shape: SharedShape(self.shape.upgrade()?), materials })
+    }
+
+    fn alive(&self) -> bool {
+        self.shape.strong_count() > 0 && self.materials.as_ref().is_none_or(|m| m.strong_count() > 0)
+    }
+}
+
+/// The leaves and errors of one shape at one scale.
 struct Converted {
     shape: Weak<Shape>,
-    leaves: Arc<[Leaf]>,
-    errors: Arc<[ConvertError]>,
+    leaves: Vec<WeakLeaf>,
+    errors: Vec<ConvertError>,
+}
+
+impl Converted {
+    /// Its leaves and errors, when the shape is `shape` and every leaf is still in use.
+    fn get(&self, shape: &Arc<Shape>) -> Option<(Vec<Leaf>, Vec<ConvertError>)> {
+        self.shape.upgrade().filter(|s| Arc::ptr_eq(s, shape))?;
+        let leaves = self.leaves.iter().map(WeakLeaf::get).collect::<Option<Vec<_>>>()?;
+        Some((leaves, self.errors.clone()))
+    }
+
+    fn alive(&self) -> bool {
+        self.shape.strong_count() > 0 && self.leaves.iter().all(WeakLeaf::alive)
+    }
 }
 
 /// Converted shapes by (address of the shared shape, bits of the scale). The `Weak`
@@ -110,44 +151,39 @@ struct Converted {
 /// still upgrades is the same shape.
 struct LeafCache {
     map: HashMap<(usize, u32), Converted>,
-    /// Entries of dead shapes are dropped when the map grows past this.
+    /// Entries no longer in use are dropped when the map grows past this.
     prune_at: usize,
 }
 
 static LEAF_CACHE: Mutex<Option<LeafCache>> = Mutex::new(None);
 
-/// Entries kept before the first sweep of dead shapes [engineering choice].
+/// Entries kept before the first sweep of unused ones [engineering choice].
 const LEAF_CACHE_MIN: usize = 1024;
 
-/// [`leaves`] of a shared shape at the body's origin, converted once per shape and
-/// scale: every placed copy of a model at one scale gets clones of the same rapier shapes
-/// (a triangle mesh's BVH, a convex hull) and material codes, where each used to build
-/// its own (issue #1085). The result is the same as [`leaves`]'s; the leaves of a shape
-/// are kept until the shape itself is dropped (its model unloaded) and a later sweep
-/// finds it gone.
+/// [`leaves`] of a shared shape at the body's origin, converted once per shape and scale
+/// while any copy is in use: the placed copies of a model at one scale get clones of the
+/// same rapier shapes (a triangle mesh's BVH, a convex hull) and material codes, where
+/// each used to build its own (issue #1085). The result is the same as [`leaves`]'s. The
+/// cache holds the converted shapes weakly: they are freed with the last collider using
+/// them (a cell unloaded), as before, and converted again when needed later.
 pub fn shared_leaves(shape: &Arc<Shape>, scale: f32, out: &mut Vec<Leaf>, errors: &mut Vec<ConvertError>) {
     let key = (Arc::as_ptr(shape) as usize, scale.to_bits());
-    let found = LEAF_CACHE.lock().ok().and_then(|cache| {
-        let c = cache.as_ref()?.map.get(&key)?;
-        c.shape.upgrade().filter(|s| Arc::ptr_eq(s, shape))?;
-        Some((c.leaves.clone(), c.errors.clone()))
-    });
+    let found = LEAF_CACHE.lock().ok().and_then(|cache| cache.as_ref()?.map.get(&key)?.get(shape));
     let (made, failed) = found.unwrap_or_else(|| {
         let (mut l, mut e) = (Vec::new(), Vec::new());
         leaves(shape, &Iso::IDENTITY, scale, &mut l, &mut e);
-        let (l, e): (Arc<[Leaf]>, Arc<[ConvertError]>) = (l.into(), e.into());
         if let Ok(mut cache) = LEAF_CACHE.lock() {
             let cache = cache.get_or_insert_with(|| LeafCache { map: HashMap::new(), prune_at: LEAF_CACHE_MIN });
-            cache.map.insert(key, Converted { shape: Arc::downgrade(shape), leaves: l.clone(), errors: e.clone() });
+            cache.map.insert(key, Converted { shape: Arc::downgrade(shape), leaves: l.iter().map(WeakLeaf::of).collect(), errors: e.clone() });
             if cache.map.len() > cache.prune_at {
-                cache.map.retain(|_, c| c.shape.strong_count() > 0);
+                cache.map.retain(|_, c| c.alive());
                 cache.prune_at = (2 * cache.map.len()).max(LEAF_CACHE_MIN);
             }
         }
         (l, e)
     });
-    out.extend(made.iter().cloned());
-    errors.extend(failed.iter().cloned());
+    out.extend(made);
+    errors.extend(failed);
 }
 
 fn leaf_shape(shape: &Shape, s: f32) -> Result<(SharedShape, Arc<[u32]>), ConvertError> {
@@ -282,5 +318,9 @@ mod tests {
         // An equal shape in another allocation is not taken for this one.
         let (d, _) = get(&Arc::new((*shape).clone()), 2.0);
         assert!(!std::ptr::eq(a[0].shape.as_ref() as *const _ as *const u8, d[0].shape.as_ref() as *const _ as *const u8));
+        // The cache does not keep converted shapes alive: gone with the last leaf using them.
+        let held = Arc::downgrade(&a[0].shape.0);
+        drop((a, b, plain));
+        assert_eq!(held.strong_count(), 0);
     }
 }
