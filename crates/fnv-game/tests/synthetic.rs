@@ -2268,6 +2268,82 @@ fn get_game_loaded_and_restarted_are_true_once_per_script() {
 }
 
 #[test]
+fn nx_variables_are_kept_per_reference_and_saved() {
+    // #1017 [documented: Category:Functions (NX)]: keys without regard to case, one set
+    // per kind, prefix maps and clears, kept in the save.
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("array_var aA
+string_var sS
+Begin Function {{ }}
+{body}
+End
+"), Default::default());
+    q(&mut g, "PlayerREF.NX_SetEVFl \"MyMod:Mood\" 67
+PlayerREF.NX_SetEVFl \"MyMod:Age\" 30
+PlayerREF.NX_SetEVFl \"Other\" 5
+PlayerREF.NX_SetEVSt \"MyMod:Mood\" \"glad\"").unwrap();
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.NX_GetEVFl \"mymod:MOOD\")"), Ok(XVal::Num(67.0)));
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.NX_GetEVFl \"MyMod:None\")"), Ok(XVal::Num(0.0)));
+    assert_eq!(q(&mut g, "let sS := PlayerREF.NX_GetEVSt \"MyMod:Mood\"
+SetFunctionValue sS"), Ok(XVal::Str("glad".into())));
+    assert_eq!(q(&mut g, "let aA := PlayerREF.NX_GetEVFlAr \"mymod:\"
+SetFunctionValue (Ar_Size aA) * 100 + aA[\"MyMod:Age\"]"), Ok(XVal::Num(230.0)));
+    // A save keeps them.
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&serde_json::to_string(&g.snapshot()).unwrap()).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let mut h = fnv_game::Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!(q(&mut h, "SetFunctionValue (PlayerREF.NX_GetEVFl \"MyMod:Age\")"), Ok(XVal::Num(30.0)));
+    // Match 2 clears every key with the prefix; the string of the same key stays.
+    q(&mut h, "PlayerREF.NX_ClrEVFl \"MYMOD\" 2").unwrap();
+    assert_eq!(q(&mut h, "SetFunctionValue (PlayerREF.NX_GetEVFl \"MyMod:Mood\") + (PlayerREF.NX_GetEVFl \"Other\")"), Ok(XVal::Num(5.0)));
+    assert_eq!(q(&mut h, "let sS := PlayerREF.NX_GetEVSt \"MyMod:Mood\"
+SetFunctionValue sS"), Ok(XVal::Str("glad".into())));
+    for _ in 0..20 {
+        let Ok(XVal::Num(r)) = q(&mut h, "SetFunctionValue (NX_GetRandom 1 3)") else { panic!() };
+        assert!((1.0..=3.0).contains(&r) && r.fract() == 0.0, "{r}");
+    }
+    assert_eq!(q(&mut h, "SetFunctionValue (PlayerREF.NX_GetConversationPartner)"), Ok(XVal::Ref(0)));
+}
+
+/// NX form variables in a save loaded without a plugin (#1017 review): one naming a gone
+/// plugin's form is dropped and the save still reads; the others stay. A created
+/// reference deleted before the save keeps no variables.
+#[test]
+fn nx_variables_survive_a_gone_plugin_and_leave_with_deleted_references() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}
+{body}
+End
+"), Default::default());
+    q(&mut g, "PlayerREF.NX_SetEVFo \"MyMod:Pet\" PlayerREF
+PlayerREF.NX_SetEVFo \"Mine\" PlayerREF
+PlayerREF.NX_SetEVFl \"Count\" 2").unwrap();
+    let mut v = serde_json::to_value(g.snapshot()).unwrap();
+    let pet = &mut v["nx"]["0x00000014"]["fo"]["mymod:pet"];
+    assert_eq!(pet["key"], json!("MyMod:Pet"), "{pet}");
+    pet["value"] = json!("0x01000ABC");
+    // A created reference deleted before the save, with a variable.
+    v["sim"]["deleted_created"]["0xFF000099"] = json!("0x00000014");
+    v["nx"]["0xFF000099"] = json!({"fl": {"n": {"key": "N", "value": 1.0}}});
+    let e = |n: &str| fnv_save::PluginEntry { name: n.into(), size: 0 };
+    let remap = fnv_save::PluginRemap::new(&[e("Test.esm"), e("Extra.esm")], &[e("Test.esm")]);
+    fnv_save::remap_json(&mut v, &remap);
+    let mut back: fnv_game::game::GameSnapshot = serde_json::from_value(v).unwrap();
+    assert_eq!(back.drop_gone(|id| fnv_save::is_gone(id.0)), 1, "the form variable of Extra.esm");
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let mut h = fnv_game::Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!(q(&mut h, "SetFunctionValue (PlayerREF.NX_GetEVFo \"MyMod:Pet\")"), Ok(XVal::Ref(0)));
+    assert_eq!(q(&mut h, "SetFunctionValue (PlayerREF.NX_GetEVFo \"mine\")"), Ok(XVal::Ref(FormId::PLAYER_REF.0)));
+    assert_eq!(q(&mut h, "SetFunctionValue (PlayerREF.NX_GetEVFl \"Count\")"), Ok(XVal::Num(2.0)));
+    let again = serde_json::to_value(h.snapshot()).unwrap();
+    assert!(again["nx"].get("0xFF000099").is_none(), "{}", again["nx"]);
+}
+
+#[test]
 fn queries_run_function_scripts_and_keep_what_they_change() {
     // The runner's `query` action (Game::run_query): JIP's auxiliary variables set by one
     // query are read by the next, and the saved ones are in the snapshot.
