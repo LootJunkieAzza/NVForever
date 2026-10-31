@@ -10415,6 +10415,7 @@ expect = [
   { re = 'weapon wheel: the clock runs at 0\.20, blur 3\.0', label = "the game clock slows to 0.2 behind the wheel" },
   { re = 'weapon wheel: picked slot 4 \(pointer\)', label = "the pointer to the right picks slot 4" },
   { re = 'weapon wheel: picked slot 3 \(key\)', label = "key 3 picks slot 3" },
+  { re = 'ui sounds summary: .*UIPipBoyScroll (?P<n>\d+)', range = [2, 100], label = "each changed pick clicks, UIPipBoyScroll (#985)" },
   { re = 'weapon wheel: closed: slot 3: equipped Varmint Rifle', label = "letting go of 1 equips what slot 3 holds" },
   { re = 'weapon wheel: closed: nothing used', label = "a cancel closes the wheel doing nothing" },
   { re = 'hotkeys: slot 2: Ammo Swap', label = "a tap of 2 is Ammo Swap" },
