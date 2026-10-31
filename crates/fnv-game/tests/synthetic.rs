@@ -2895,3 +2895,22 @@ fn lines_a_later_plugin_adds_follow_their_previous_info() {
     let data = GameData::build(&lo, &schema, table, &j, &refs);
     assert_eq!(data.topics[&FormId(TOPIC)], [0xA01, 0xA02, 0xA03].map(FormId));
 }
+
+/// `killall` (KillAllActors, #1046): the console word reaches it by alias; every actor of
+/// the loaded cell dies, the player does not, and the killer given takes the kills.
+#[test]
+fn kill_all_actors_kills_the_loaded_cells_actors_but_never_the_player() {
+    use fnv_game::functions::console::{lookup_word, ConsoleCtx};
+    let f = fixture();
+    let mut g = game(&f);
+    g.set_loaded([FormId(CELL)].into_iter().collect());
+    let (name, run) = lookup_word(&g.data.table, "killall").expect("killall");
+    assert_eq!(name, "KillAllActors");
+    let lines = run(&mut g, &ConsoleCtx::default(), &["player".to_string()]).unwrap();
+    assert_eq!(lines, ["KillAllActors >> 2 killed, 0 essential knocked out"]);
+    assert!(g.is_dead(FormId(NPC_REF)) && g.is_dead(FormId(NPC_AUTO_REF)));
+    assert!(!g.is_dead(FormId::PLAYER_REF));
+    assert_eq!(g.extra[&FormId(NPC_REF)].killer, Some(FormId::PLAYER_REF));
+    // Run again: nobody is left to kill.
+    assert_eq!(run(&mut g, &ConsoleCtx::default(), &[]).unwrap(), ["KillAllActors >> 0 killed, 0 essential knocked out"]);
+}
