@@ -4464,7 +4464,7 @@ impl<'a> Game<'a> {
         for l in &s.lambdas {
             // A lambda whose unit is gone (a plugin removed, a console line) keeps its place,
             // so the later ones keep their names; calling it fails.
-            let unit = data.units.iter().find(|u| u.key() == l.unit);
+            let unit = data.unit_by_key.get(&l.unit).map(|&i| &data.units[i]);
             g.lambdas.push(LambdaDef { unit, key: l.unit.clone(), lambda: l.lambda.clone(), inst: l.inst, captured: None });
         }
         g.quests = s.quests.clone();
