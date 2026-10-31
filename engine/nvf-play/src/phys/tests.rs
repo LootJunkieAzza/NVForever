@@ -252,6 +252,67 @@ fn cells_left_behind_are_cancelled_and_reset_forgets_requests() {
     assert!(p.cells.is_empty());
 }
 
+/// [`fake_cell`], with square (1, 0) also holding a walkway: a slab 20 units thick whose
+/// top is at z 420, reaching 500 units west over the border into square (0, 0).
+fn bridge_cell(job: &Job) -> Prepared {
+    let mut p = fake_cell(job);
+    if job.cell == PhysCell::Exterior(1, 0) {
+        let pl = Placement {
+            form_id: 0x0200_0001,
+            sig: *b"REFR",
+            flags: 0,
+            base: None,
+            position: [CELL_SIZE + 100.0, 0.5 * CELL_SIZE, 400.0],
+            rotation: [0.0; 3],
+            scale: 1.0,
+            enable_parent: None,
+            open_by_default: false,
+            teleport: false,
+            emittance: None,
+            imposter: false,
+        };
+        let obj = CollisionObject { shape: Shape::Box { half_extents: [600.0, 600.0, 20.0] }.into(), ..object(0.0, Motion::Static) };
+        let prepared = PreparedRef::new(&PhysParams::default(), &RefPose::from_placement(&pl), &[obj]);
+        p.refs.push(Entry { form_id: pl.form_id, placement: Some(pl), shapes: Some(RefShapes { tallies: vec!["fake"], water: Vec::new(), prepared: Some(prepared), dynamic_local: None, door: None, drawn: None }) });
+    }
+    p
+}
+
+#[test]
+fn a_start_over_a_neighbours_walkway_waits_for_it() {
+    // #1103: a save made on the Bison Steve rollercoaster loaded the player on the ground
+    // under it. The start's own square goes in at once; the track's, next door, later.
+    let (d, sim) = (play_data(), sim());
+    let ctx = LoadCtx { d: &d, sim: &sim, data: None };
+    let mut p = PhysState { fake: Some(bridge_cell), loader: loader::Loader::manual(), ..Default::default() };
+    // Saved standing on the walkway, in square (0, 0) 300 units from the border.
+    let saved = [CELL_SIZE - 300.0, 0.5 * CELL_SIZE, 420.0];
+    p.stream(&ctx, saved, CELLS_PER_FRAME);
+    assert!(p.ready_at(saved), "the square underfoot is in");
+    assert!(!p.ready_around(saved), "the walkway's square is not");
+    // Placed now, the start would find only the terrain (about z 51).
+    let early = p.place_player(saved, 120.0, 100_000.0).expect("terrain");
+    assert!(early.point[2] < 100.0, "{early:?}");
+    p.loader.run_manual(false);
+    for _ in 0..8 {
+        p.stream(&ctx, saved, CELLS_PER_FRAME);
+    }
+    assert!(p.ready_around(saved));
+    let hit = p.place_player(saved, 120.0, 100_000.0).expect("the walkway");
+    assert!((hit.point[2] - 420.0).abs() < 1.0, "{hit:?}");
+    let feet = p.player.as_ref().unwrap().feet;
+    assert!((feet[2] - 420.0).abs() < 5.0, "back at the saved height: {feet:?}");
+}
+
+#[test]
+fn indoors_the_one_cell_is_all_a_start_waits_for() {
+    let mut p = state(true);
+    p.space = Space::Interior(7);
+    assert!(!p.ready_around([0.0; 3]));
+    p.cells.insert(PhysCell::Interior(7), LoadedCell::default());
+    assert!(p.ready_around([0.0; 3]));
+}
+
 /// The dynamic crate of cell (0, 0) as a placed reference the simulation knows.
 fn sim_with_crate() -> (SimState, u32, [f32; 3]) {
     let id = 0x0100_0000 + (100 << 12) + (100 << 4) + 5;
