@@ -11183,7 +11183,8 @@ manual = "a change: run the command with --max-rows 200 and read the work queue 
 [[scenario]]
 name = "walkthrough-coverage"
 kind = "tool"
-# It runs every chain: minutes on a busy machine.
+# It runs every chain, side by side on the thread pool: 155 s alone (#1241; 206 chains one
+# after another took 800 s alone, 2851 s on a busy machine).
 timeout = 900
 source = "docs/handoff/mq-walkthrough-2026-10-27.md §5: every walkthrough chain in crates/fnv-game/walkthrough run with coverage recorded (fnvtool script cover), compared with the ten masters' quests, scripts and dialogue lines"
 areas = ["quests", "scripts", "dialogue"]
@@ -11339,7 +11340,8 @@ manual = "on a failure, the chain's notes say what each step stands for; stand-i
 [[scenario]]
 name = "walkthrough-roundtrip"
 kind = "tool"
-# It runs every chain twice: minutes on a busy machine.
+# It runs every chain twice, side by side on the thread pool: 200 s alone (#1241; one after
+# another 793 s alone, 2851 s on a busy machine).
 timeout = 900
 source = "docs/handoff/mq-walkthrough-2026-10-27.md §6: every walkthrough chain run twice (fnvtool script roundtrip), once as it is and once with a save and load through fnv-save before its middle action; the quests at the end and the observations must be the same"
 areas = ["quests", "scripts", "save"]
