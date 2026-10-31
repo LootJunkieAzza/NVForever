@@ -552,7 +552,7 @@ fn brackets(p: &mut ChildSpawnerCommands, x: f32, y: f32, w: f32, bottom: f32, t
 }
 
 #[allow(clippy::too_many_arguments)]
-fn spawn(commands: &mut Commands, look: &RecipeLook, v: &View, kit: &mut crate::menu::look::Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) {
+fn spawn(commands: &mut Commands, look: &RecipeLook, v: &View, words: &[String; 2], kit: &mut crate::menu::look::Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) {
     let left = Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), margin: UiRect::left(u(-MAIN.x / 2.0)), top: u((960.0 - MAIN.y) / 2.0), width: u(MAIN.x), height: u(MAIN.y), ..default() };
     commands.spawn((RecipeRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, GlobalZIndex(crate::interface::TOP_MENU_Z), crate::interface::top_menu_backing())).with_children(|root| {
         root.spawn(left).with_children(|m| {
@@ -640,7 +640,7 @@ fn spawn(commands: &mut Commands, look: &RecipeLook, v: &View, kit: &mut crate::
         if let Some((amount, most)) = v.quantity {
             let screen = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() };
             let q = crate::menu::model::Quantity { cmd: crate::menu::model::Command::One, side: crate::menu::model::Side::Player, row: 0, max: most, amount };
-            root.spawn(screen).with_children(|s| crate::menu::look::spawn_quantity(s, &q, kit, data, images, bc));
+            root.spawn(screen).with_children(|s| crate::menu::look::spawn_quantity(s, &q, words, kit, data, images, bc));
         }
     });
 }
@@ -684,7 +684,8 @@ fn draw(
     }
     let bc = bc_supported(formats.as_deref());
     let kit = kit.get_or_insert_with(|| crate::menu::look::Kit::load(data.as_deref(), &mut images, bc));
-    spawn(&mut commands, &look, &v, kit, data.as_deref(), &mut images, bc);
+    let words = crate::menu::look::quantity_words(Some(&rt.game));
+    spawn(&mut commands, &look, &v, &words, kit, data.as_deref(), &mut images, bc);
     if v.effects.is_some() && open.drawn.as_ref().is_none_or(|d| d.selected != v.selected) {
         info!("recipe menu: {} effects: {}", v.rows.get(v.selected).map_or("", |r| r.label.as_str()), v.effects.as_deref().unwrap_or(""));
     }
