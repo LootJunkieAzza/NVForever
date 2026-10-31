@@ -181,6 +181,24 @@ impl Args<'_> {
         }
     }
 
+    /// Parameter `i` as a form, without recording anything: for a parameter that takes
+    /// another kind as well, read next (GetVATSValue's parameter).
+    pub fn peek_form(&self, i: usize) -> Option<FormId> {
+        match self.0.get(i)? {
+            ArgValue::Value(v) => v.as_form().map(FormId),
+            _ => None,
+        }
+    }
+
+    /// Parameter `i` as a string, without recording anything: for a parameter that
+    /// takes another kind as well, read next (GetIsUsedItemType's name or code).
+    pub fn peek_str(&self, i: usize) -> Option<&str> {
+        match self.0.get(i)? {
+            ArgValue::Str(s) => Some(s),
+            _ => None,
+        }
+    }
+
     pub fn num(&self, i: usize) -> Result<f64, String> {
         match self.0.get(i) {
             Some(a) => a.value().map(Value::num).ok_or_else(|| {
@@ -866,6 +884,12 @@ mod unread_tests {
             assert!(a.str(0).is_ok());
             assert!(a.opt_form(9).is_none() && a.str(9).is_err()); // absent
         });
+        let peeked = recorded(|| {
+            assert!(a.peek_form(0).is_none() && a.peek_str(1).is_none());
+            assert_eq!(a.peek_str(0), Some("x"));
+            assert_eq!(a.peek_form(3).map(|f| f.0), Some(1));
+        });
+        assert_eq!(peeked, [], "a peek records nothing");
         let got: Vec<_> = u.iter().map(|u| (u.param, u.got, u.wanted)).collect();
         assert_eq!(got, [(1, "axis", "form"), (0, "string", "code"), (3, "number", "axis"), (2, "code", "string")]);
     }

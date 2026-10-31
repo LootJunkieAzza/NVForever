@@ -276,8 +276,12 @@ as an equipped weapon or sleep; one of them has an argument other than a
 value, DamageActorValue's actor-value code, which the accessor reads), one cause before
 #1120 (ShowMessage parameter 2, 1713 call sites, 241 result scripts), none after.
 What it does not see: a function that returns before it reads the argument (context the
-probe lacks), and arguments a function reads without the accessors (`a.get(i)`, `a.0`;
-ShowMessage's `message_vars`, navmesh and camera arguments, each matching every kind).
+probe lacks); arguments a function reads without the accessors (`a.get(i)`, `a.0`;
+ShowMessage's `message_vars`, navmesh and camera arguments, each matching every kind);
+calls inside the extender's expressions (Let, Eval, While, ForEach), which the probe does
+not walk (they are traced as `arg_unread` when they run). A parameter that takes two kinds
+reads the first with a peek that records nothing (`Args::peek_str`, `peek_form`:
+GetIsUsedItemType's name or code, GetVATSValue's form or code).
 
 ## 8. Second and third batches (2026-10-27/28)
 

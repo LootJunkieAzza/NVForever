@@ -196,7 +196,10 @@ type Shape = (usize, Stmt, usize, Vec<usize>);
 /// player, with the script's variables at 0. Lists the calls that succeeded although the
 /// function could not read an argument they passed (`EventKind::ArgUnread`): per
 /// function, parameter and kinds, the call sites of those shapes and a few of their
-/// scripts. A shape whose first call fails for want of context is not judged.
+/// scripts. A shape whose first call fails for want of context is not judged. Only
+/// vanilla call statements and expression tokens are probed: calls inside the
+/// extender's expressions (Let, Eval, While, ForEach: `Token::X`) are not, though they
+/// are traced as `ArgUnread` when a script runs them.
 pub fn probe_calls(data: &GameData, forms: &FormStore, refs: &RefTable, samples: usize) -> Json {
     let lo = &data.load_order;
     // Shape (opcode, argument kinds) → the first call site, how many, their scripts.
