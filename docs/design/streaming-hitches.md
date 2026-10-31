@@ -448,3 +448,23 @@ It changes behaviour: far actors would notice each other, lose each other and re
 hits up to 0.25–0.75 s later than now, and a search or an alarm far away would start
 later. The original's rate for actors far from the player is not documented. Not built:
 the owner has not decided whether that delay is acceptable [design].
+
+## 5. Asset caches and the machine's memory (#1170, 2026-10-31)
+
+The release sweep (`nvf_assets::release`) keeps unused models, actor parts and textures
+for five minutes, at most 2048 per cache. Those numbers were set on the owner's machine
+(48 GB of RAM, a 12 GB card). They are now the `KeepLimits` resource, set at the start by
+nvforever `memory_budget.rs` from the machine's RAM (`GlobalMemoryStatusEx`) and the GPU's
+memory budget (`VK_EXT_memory_budget`: the device-local heaps' `heapBudget`, read through
+wgpu's Vulkan device). Under 16 GB of RAM or an 8 GB budget they scale down by the smaller
+share, to no less than 30 s and 128 entries. Every 2 s, when wgpu's allocator holds over
+85 % of the GPU budget, or the process's committed memory over 85 % of 60 % of the RAM,
+the caches are pressed: 10 s and 32 entries, until every share is back under 75 %
+[design for every number]. The start logs `memory budget: RAM …, GPU budget …`; each
+change logs `near a budget, caches pressed` or `back under the budgets`.
+
+Test aids: `NVF_PLAY_TEST_VRAM_MB` and `NVF_PLAY_TEST_RAM_MB` cap what was read. Smoke:
+`memory-budget-capped` (512 MB and 6 GB: least limits, pressed during the Goodsprings
+flight at 664 of 512 MB). [observed 2026-10-31, this machine: RAM 48,927 MB, GPU budget
+11,242 MB, full limits.] Not done: a stress tour with a capped budget, to measure what
+the pressed caches cost in hitches.

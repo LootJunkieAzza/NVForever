@@ -50,8 +50,6 @@ const MIN_LIMITS: KeepLimits = KeepLimits { secs: 30.0, max: 128 };
 pub struct MemoryBudget {
     pub ram_mb: Option<u64>,
     pub vram_mb: Option<u64>,
-    /// Where the GPU budget came from, or why it is not known.
-    pub vram_source: String,
     /// The limits the budgets give, when not pressed.
     pub base: KeepLimits,
     pub pressed: bool,
@@ -118,7 +116,7 @@ fn read_ram() -> Option<(u64, u64)> {
     use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
     let mut m = MEMORYSTATUSEX { dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32, ..unsafe { std::mem::zeroed() } };
     // SAFETY: `m` is a MEMORYSTATUSEX with its length set, as the call asks.
-    (unsafe { GlobalMemoryStatusEx(&mut m) } != 0).then(|| (m.ullTotalPhys / MB, m.ullAvailPhys / MB))
+    (unsafe { GlobalMemoryStatusEx(&mut m) } != 0).then_some((m.ullTotalPhys / MB, m.ullAvailPhys / MB))
 }
 
 #[cfg(not(windows))]
@@ -134,7 +132,7 @@ fn process_commit_mb() -> Option<u64> {
     let mut c: PROCESS_MEMORY_COUNTERS = unsafe { std::mem::zeroed() };
     c.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
     // SAFETY: the current process's pseudo handle and a counters struct of the size given.
-    (unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut c, c.cb) } != 0).then(|| c.PagefileUsage as u64 / MB)
+    (unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut c, c.cb) } != 0).then_some(c.PagefileUsage as u64 / MB)
 }
 
 #[cfg(not(windows))]
@@ -200,7 +198,7 @@ fn read_budgets(mut commands: Commands, device: Option<Res<RenderDevice>>, mut b
         (_, None) => format!("GPU budget {source}"),
     };
     info!("memory budget: {ram_text}, {vram_text}; caches keep unused models and textures {:.0} s, at most {} per cache", base.secs, base.max);
-    *budget = MemoryBudget { ram_mb, vram_mb, vram_source: source, base, pressed: false };
+    *budget = MemoryBudget { ram_mb, vram_mb, base, pressed: false };
     commands.insert_resource(base);
 }
 
