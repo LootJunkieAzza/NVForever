@@ -706,6 +706,9 @@ struct Core {
     /// The actors carried in the last update: their characters are kept for it. Each
     /// with where its feet were when the carry began and the travel asked of it since.
     carried: HashMap<u32, ([f32; 3], f32)>,
+    /// Actors whose carry a hit reaction broke: the rest of that attack does not carry
+    /// them (gone when the attack's travel ends).
+    carry_broken: HashSet<u32>,
     /// Updates in which an attack carried an actor; times it could not be (no
     /// character); for the summary.
     carries: [usize; 2],
@@ -833,6 +836,7 @@ impl Residents {
             breaking: HashSet::new(),
             travel: HashMap::new(),
             carried: HashMap::new(),
+            carry_broken: HashSet::new(),
             carries: [0; 2],
             door_uses: Vec::new(),
             aims: HashMap::new(),
@@ -1281,7 +1285,19 @@ impl Core {
                 );
             }
         }
+        self.carry_broken.retain(|id| travel.contains_key(id));
         for (id, by) in travel {
+            // A hit reaction (a crippling hit's stagger) stops the lunge where it is and
+            // ends its carry: the stagger's hold would not stop a velocity set here
+            // [design: review of #1209].
+            if self.staggering.contains(&id) || self.carry_broken.contains(&id) {
+                if self.carry_broken.insert(id) {
+                    let _ = stop_body(Some(&mut *phys), id);
+                    info!("ai [{}] {} {id:08X}: a hit reaction ends its attack clip's carry", self.clock_text, game.data.name(FormId(id)));
+                }
+                self.carries[1] += 1;
+                continue;
+            }
             let carried = self.ai.agents.get(&FormId(id)).filter(|_| !game.extra.get(&FormId(id)).is_some_and(|e| e.dead || e.restrained || e.out_cold())).is_some_and(|a| {
                 in_loaded_space(&a.walker, phys) && phys.ready_at(a.walker.feet) && (phys.npcs.contains_key(&id) || phys.add_npc(id, a.walker.feet))
             });

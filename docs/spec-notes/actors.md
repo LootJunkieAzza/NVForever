@@ -1896,7 +1896,9 @@ as their clips.
 
 - A **lunge's** clip whose `Bip01` gets more than 100 units from its start
   (`nvf_assets::anim_play::CARRY_MIN`) carries its actor: an NPC's or creature's forward
-  power attack (every `…forwardpower` above), and the player's body's melee attack clips
+  power attack (every `…forwardpower` above) except a biter's (dogs and coyotes, which
+  bite on the move with a head-only clip while their walk carries them: the walk wins),
+  and the player's body's melee attack clips
   (the forward and custom power attacks: Legion Assault, `1hmattackcustom2power` …). The
   other blows step in place by §8.2's rule, as before: carrying the dogs' 55-unit bites,
   and then their standing power attack (`h2hattackpower`, 187), brought them to 37 units
@@ -1914,14 +1916,21 @@ as their clips.
   velocity replaces it). A lunge carries its actor no nearer its target than its walk
   would stop (`npc_combat::Fighters::lunge_room`, the melee spacing): the dog's
   `h2hattackforwardpower` goes 900 units, and carried in full it ran a dog past the
-  player and back (smoke `combat-dogs`) [design]. A carried actor pushes nobody aside
+  player and back (smoke `combat-dogs`) [design]. The room is the fight's distance less
+  the travel given the frame before (the distance is a frame old); once a lunge reaches
+  it, the rest of that attack carries nothing, its clip's later travel back included (the
+  Deathclaw's goes 572 forward and back to 523) [design]. A hit reaction (a crippling
+  hit's stagger) stops the character and ends the carry for the rest of that attack
+  (`… a hit reaction ends its attack clip's carry`) [design]. A carried actor pushes nobody aside
   (`ActorBlocks::carried`, owner 2026-10-11: a bite does not push the player around).
   Its walker stands where its character got to, so it stays where the clip ends (or where
   it was stopped); the character goes once the clip is over and it is not on its way.
   Logged per carried blow: `its attack clip carried it N units of M, from … to …`.
 - The player (`player_body` → `nvf_play::player::Lunge`): the third-person body's melee
-  attack layer gives its root's travel each frame, as the player's velocity on top of the
-  walk; it plays at the swing's rate (the layer's), so a faster swing lunges faster.
+  attack layer adds its root's travel each frame to the travel owed, which the next
+  physics steps move the player by on top of the walk, spread over them (travel, not a
+  velocity: a long frame after a short one moves the clip's own travel); it plays at the
+  swing's rate (the layer's), so a faster swing lunges faster.
   Legion Assault's lunge (perk-entry-points.md §11.4) is this rule now: its fixed 332
   units over 1.6 s (`combat::LUNGE`) went, as the clip gives the same.
 - Before: the clips' travel less its average stayed in the pose and the actor did not

@@ -402,6 +402,12 @@ pub struct CombatPose {
     /// How far the attack's clip has carried the actor since [`carry`] last took it (x,
     /// y in the actor's axes, unscaled; module notes, "Attacks that travel").
     pub travel: Vec2,
+    /// The lunge reached where its walk would stop ([`carry`]): the rest of this attack's
+    /// travel, its later backward travel too, is not applied.
+    pub lunge_stopped: bool,
+    /// The forward travel [`carry`] gave last frame (game units), which the fight's
+    /// distance to the target ([`Fighters::lunge_room`]) does not count yet.
+    pub lunge_last: f32,
 }
 
 /// The weight to give the up or down form, played beside its level clip at weight 1,
@@ -919,6 +925,8 @@ fn start(
             }
             let on_the_move = if biter && a.melee { head_only(&clip, &rig.skel.names).map(Arc::new) } else { None };
             new_pose.attack = Some(Attack { clip, up, down, t, len, repeat, since: 0.0, fade_in, reload: reloads, kind: a.kind, opening, melee: a.melee, hit, on_the_move, head_blow: None });
+            new_pose.lunge_stopped = false;
+            new_pose.lunge_last = 0.0;
         }
         match pose {
             Some(mut p) => *p = new_pose,
@@ -1008,10 +1016,21 @@ fn carry(mut travel: ResMut<AttackTravel>, fighters: Res<Fighters>, mut poses: Q
         let mut d = std::mem::take(&mut pose.travel);
         // A lunge carries its actor no nearer its target than its walk stops
         // (`Fighters::lunge_room`): a dog's 900-unit leap ran it past the player before.
+        // Stopped there, it stays: the clip's later travel back is not applied either
+        // (the Deathclaw's lunge goes 572 forward, then back to 523) [design].
         let k = tr.scale.x.max(1e-3);
-        if let Some(room) = fighters.lunge_room(rig.reference).filter(|_| d.y > 0.0) {
-            d.y = d.y.min(room / k);
+        if pose.lunge_stopped {
+            d = Vec2::ZERO;
+        } else if let Some(room) = fighters.lunge_room(rig.reference).filter(|_| d.y > 0.0) {
+            // The distance is the fight's of the last update: last frame's carry is
+            // not in it yet.
+            let room = (room - pose.lunge_last).max(0.0) / k;
+            if d.y >= room {
+                d.y = room;
+                pose.lunge_stopped = true;
+            }
         }
+        pose.lunge_last = d.y.max(0.0) * k;
         let carrying = pose.attack.as_ref().is_some_and(|a| a.clip.carried.is_some());
         if !carrying && d == Vec2::ZERO {
             continue;

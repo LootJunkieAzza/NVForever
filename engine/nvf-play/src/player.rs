@@ -654,13 +654,16 @@ impl Default for PerkSpeed {
 /// What the player's attack clip carries them through (docs/spec-notes/actors.md §8.13):
 /// the body's attack clip whose `Bip01` travels (Legion Assault's
 /// `h2hattackcustom1power.kf`, 332 units forward; the forward power attacks) gives the
-/// player its root's travel, set every frame by the body (nvforever `player_body`).
-/// `step` moves the character by it as well as where the player walks; walls and actors
-/// stop it as they stop walking.
+/// player its root's travel, added every frame by the body (nvforever `player_body`).
+/// `step` moves the character by the travel owed, spread over its physics steps, as well
+/// as where the player walks; walls and actors stop it as they stop walking. Travel, not
+/// a velocity, so a long frame after a short one moves the player the clip's own travel
+/// (review of #1209).
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
 pub struct Lunge {
-    /// Game-space velocity (x, y, units per second) the clip carries the player at now.
-    pub carry: [f32; 2],
+    /// Game-space travel (x, y, units) the clip has carried the player by that the
+    /// physics steps have not moved yet.
+    pub owed: [f32; 2],
     /// An attack clip that carries the player plays now.
     pub carrying: bool,
     /// Where the feet were when it started, for the log at its end.
@@ -1079,6 +1082,11 @@ fn step(
     let dt = p.world.params.dt;
     let n = p.stepper.advance(&p.world.params, time.delta_secs());
     let c = p.player.as_mut().expect("placed");
+    // The clip's travel owed, spread over this frame's steps (none: kept for the next).
+    let carry = if n > 0 { lunge.owed.map(|o| o / (n as f32 * dt)) } else { [0.0; 2] };
+    if n > 0 {
+        lunge.owed = [0.0; 2];
+    }
     for i in 0..n {
         // Swimming or not is the character's state after the last step.
         let [vx, vy, vz] = if d.auto_walk > 0.0 {
@@ -1114,8 +1122,7 @@ fn step(
             if lunge.carrying && lunge.from.is_none() {
                 lunge.from = Some(c.feet);
             }
-            let l = if lunge.carrying { lunge.carry } else { [0.0; 2] };
-            [x * k + l[0], y * k + l[1], 0.0]
+            [x * k + carry[0], y * k + carry[1], 0.0]
         };
         // Turbo slows the world's clock, not the player: its own movement goes faster by
         // the clock's inverse; falling and jumping stay on the clock (magic-archetypes.md
