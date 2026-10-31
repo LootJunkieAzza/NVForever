@@ -1677,7 +1677,7 @@ fn limb_hits_lower_conditions_and_cripple() {
     g.new_game();
     let npc = FormId(NPC_REF);
     // Maximum health 55; a leg at 25 %: a pool of 13.75. Left Mobility Condition is code 29.
-    let leg = LimbHit { condition: 29, health_percent: 25.0, damage: 0.0 };
+    let leg = LimbHit { condition: 29, health_percent: 25.0, damage: 0.0, points: false };
     let hit = |damage: f64| HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 7, critical: false, limb: Some(LimbHit { damage, ..leg }) };
     let r = g.hit(npc, 5.0, hit(2.75));
     assert_eq!((r.limb, r.crippled), (Some((29, 80.0)), false));
@@ -1693,6 +1693,25 @@ fn limb_hits_lower_conditions_and_cripple() {
     assert_eq!(r.health, 40.0);
 }
 
+/// A fall's leg (docs/spec-notes/physics.md §6.12): limb damage in condition points comes
+/// straight off the condition, without the part's pool or the player's limb multiplier.
+#[test]
+fn limb_damage_in_points() {
+    use fnv_game::combat::{HitInfo, LimbHit, RIGHT_MOBILITY};
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let leg = |damage: f64| HitInfo { attacker: None, weapon: None, location: -1, critical: false, limb: Some(LimbHit { condition: RIGHT_MOBILITY, health_percent: 0.0, damage, points: true }) };
+    for target in [FormId(NPC_REF), FormId::PLAYER_REF] {
+        let r = g.hit(target, 49.88, leg(24.94));
+        assert_eq!(r.limb.map(|(c, v)| (c, (v * 100.0).round() / 100.0)), Some((RIGHT_MOBILITY, 75.06)));
+        assert!(!r.crippled);
+        // More than is left: down to 0, crippled.
+        let r = g.hit(target, 1.0, leg(500.0));
+        assert_eq!((r.limb, r.crippled), (Some((RIGHT_MOBILITY, 0.0)), true));
+    }
+}
+
 /// Crippled legs slow every actor by the game settings, the player's limbs take half the
 /// limb damage, and a sleep outside Hardcore heals them (docs/spec-notes/crippled-limbs.md).
 #[test]
@@ -1705,7 +1724,7 @@ fn crippled_limbs_slow_and_heal() {
     // fCombatPlayerLimbDamageMult's default: half for the player, all for others.
     assert_eq!(g.limb_damage(FormId::PLAYER_REF, 10.0), 5.0);
     assert_eq!(g.limb_damage(npc, 10.0), 10.0);
-    let hit = |condition: u16| HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 7, critical: false, limb: Some(LimbHit { condition, health_percent: 25.0, damage: 1000.0 }) };
+    let hit = |condition: u16| HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 7, critical: false, limb: Some(LimbHit { condition, health_percent: 25.0, damage: 1000.0, points: false }) };
     assert_eq!(g.leg_speed_mult(npc), 1.0);
     assert!(g.hit(npc, 1.0, hit(LEFT_MOBILITY)).crippled);
     assert_eq!(g.leg_speed_mult(npc), 0.85);

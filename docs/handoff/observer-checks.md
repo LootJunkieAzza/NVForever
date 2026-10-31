@@ -70,8 +70,8 @@ engine if needed, and delete the item here.
    - Every weapon's Crit Effect applies.
    - Fall damage is 0.0252 × (h − 600)^1.65, with no leg crippling — answered
      2026-10-31 (o6_00): the formula holds within 1 %, but each fall also hurts one leg
-     (+700: 24.9 of 100, half the Health lost; +1000 and +1300: crippled). Ours never
-     does (physics.md §6.6, the falls into and beside the lake).
+     (+700: 24.9 of 100, half the Health lost; +1000 and +1300: crippled). Built since
+     (#1129): one random leg loses half the damage (physics.md §6.12).
    To check: OnHit events plus Health and limb values for each case.
    ([combat-rules §10](../spec-notes/combat-rules.md),
    [weapon-data-fields](../spec-notes/weapon-data-fields.md),

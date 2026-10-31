@@ -1239,7 +1239,7 @@ fn step(
         }
         // A fall's damage (`crate::falls`).
         if let Some(height) = falls.as_deref_mut().and_then(|f| f.step(c.id, p.prev_feet[2], &s)) {
-            fell.write(crate::falls::Fell { actor: FormId::PLAYER_REF, height });
+            fell.write(crate::falls::Fell { actor: FormId::PLAYER_REF, height, feet: s.feet });
         }
         // Pushed and held by something: the actors walk round the player for a while.
         let want = pushed[0].hypot(pushed[1]);
@@ -1298,7 +1298,7 @@ fn move_npcs(
         let (f, from) = (b.ch.feet, b.prev_feet);
         b.lift.step(f[2] - from[2], (f[0] - from[0]).hypot(f[1] - from[1]), was_on_ground && b.ch.grounded && !b.ch.swimming, dt);
         if let Some(height) = falls.as_deref_mut().and_then(|f| f.step(id, b.prev_feet[2], &s)) {
-            fell.write(crate::falls::Fell { actor: FormId(id), height });
+            fell.write(crate::falls::Fell { actor: FormId(id), height, feet: s.feet });
         }
     }
 }

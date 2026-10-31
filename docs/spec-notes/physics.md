@@ -2254,16 +2254,34 @@ report says how many steps the player's lift took in and its largest value; smok
   jump's apex counts) to the landing [hypothesis: the capture's falls started at rest].
   A character put somewhere else in mid-air (a teleport, `SetPos`) falls from there
   [design]. Entering water ends the fall without damage [observed].
-- **Applied** as a hit with no attacker and no body part through the combat hit path (god
-  mode spares the player; death as from any hit). Armour does not reduce it and no limb
-  is damaged [hypothesis: unmeasured]. `fJumpFallVelocityMin` is not used (what it
-  limits is open).
+- **Applied** as a hit with no attacker through the combat hit path (god mode spares the
+  player; death as from any hit). Armour does not reduce it [hypothesis: unmeasured].
+  `fJumpFallVelocityMin` is not used (what it limits is open).
+- **One leg** (issue #1129) [observed: capture o6_00, 2026-10-31, nvfairport runway, god
+  mode off, Health raised by 6000, `player.SetPos z` +700 / +1000 / +1300]: Health fell
+  49.88, 491.86 and 1236.13 (the rule above gives 50.3, 494.7 and 1246, within 1 %);
+  each fall hurt one leg and no other limb: the right leg 100 → 75.06 (−24.94, exactly
+  half the Health lost), then the left leg to 0, then the right leg to 0. Health did not
+  drop again in the 12 s after landing.
+  **Rule built**: the hit carries one leg, Left or Right Mobility Condition, which loses
+  half the fall's damage (after the difficulty's multiplier, as the Health does) as
+  condition points straight off its condition, not as a share of the leg's pool
+  (crippled-limbs.md) and without `fCombatPlayerLimbDamageMult` or the Adjust Limb
+  Damage perks; stopped at 0, crippled there with every crippled-leg effect (slower
+  pace, the HUD's limb, Crippled lines) [observed for the player: with 6,000 extra
+  Health a pool share would be far below half]. The leg is picked at random, from a
+  generator seeded the same each run [hypothesis: right, left, right cannot tell random
+  from alternating; design: the seed]. NPCs the same [hypothesis: unmeasured].
+- **Sound** (issue #1104): a damaging landing plays `FSTLandHardHeavy` or
+  `FSTLandHardLight` (audio.md §14.2), in god mode too.
 - **Who**: the player, and the NPCs whose characters the physics walks
   (`PhysState::npcs`) by the same rule [hypothesis: no NPC-specific fall setting exists in
   FalloutNV.esm]. Actors moved by other systems (nav travellers, ledge jumps,
   actor-jumps.md) take none.
 - **Checked**: unit tests in `falls.rs` (the capture's three falls within 1 %; the apex;
-  water; a mid-air placement), smoke `falls-player`.
+  water; a mid-air placement; half the damage off one leg, both legs picked), fnv-game's
+  `limb_damage_in_points` (75.06 after 24.94, crippled at 0), smoke `falls-player` and
+  `falls-player-leg`.
 
 ## 7. CLI contract
 

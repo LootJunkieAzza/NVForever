@@ -646,7 +646,7 @@ fn limb_hit(bp: Option<&BodyPart>, d: &damage::Damage, w: &WeaponStats) -> Optio
     let bp = bp?;
     let condition = fnv_game::combat::limb_condition(bp.actor_value.as_deref()?)?;
     let damage = d.limb_damage(w.limb_dmg_mult) as f64;
-    (damage > 0.0).then_some(LimbHit { condition, health_percent: bp.health_percent as f64, damage })
+    (damage > 0.0).then_some(LimbHit { condition, health_percent: bp.health_percent as f64, damage, points: false })
 }
 
 /// A hit that may dismember (`crate::dismember`): one that killed the actor, or landed on
