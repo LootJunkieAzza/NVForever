@@ -647,8 +647,11 @@ fn format_codes() {
 
 #[test]
 fn big_numbers_in_g_are_scientific() {
-    let h = run("string_var s\nbegin GameMode\nlet s := Sv_Construct \"%g %.3e\", 1000000, 123000\nend");
-    assert_eq!(h.text(1), "1E+006 1.230E+005");
+    // [observed: probe format1 in the game: "1e+06", "1.230e+05", "0.5", "123.457",
+    // "1.23457E+06", "1.2e+02"].
+    let h = run("string_var s\nstring_var t\nbegin GameMode\nlet s := Sv_Construct \"%g %.3e\", 1000000, 123000\nlet t := Sv_Construct \"%g|%g|%G|%.2g|%g\", 0.5, 123.456789, 1234567, 123.456, 100000\nend");
+    assert_eq!(h.text(1), "1e+06 1.230e+05");
+    assert_eq!(h.text(2), "0.5|123.457|1.23457E+06|1.2e+02|100000");
 }
 
 #[test]

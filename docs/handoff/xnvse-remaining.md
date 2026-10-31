@@ -84,6 +84,7 @@ textures, water traits and the texture sets' decal traits (DODT, not decoded yet
 
 Built since: Anh 31 of 34 (#1015, ext-anh.md; not installed in the probe game, so from the
 pages alone) and ShowOff 28 (#1010, ext-showoff.md §5, probe set showoff2 49/50).
+JIP batch 5: 27 (#1006, jip-records-5.md, probe set jip5 94/95).
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,

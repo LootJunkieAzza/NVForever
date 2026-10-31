@@ -1062,11 +1062,15 @@ fn hex_prefix(h: &str) -> f64 {
     i64::from_str_radix(&h[..n], 16).map_or(0.0, |v| v as f64)
 }
 
-/// A number by a printf-style code of the base game [documented: String Formatting,
-/// "Vanilla Game Options"]: `%X.Yf` (width X, Y decimals), `%g` (an integer; 1,000,000 and
-/// above in scientific form), `%.Ne` (scientific, `1.23E+005`); switches `+`, space, `-`
-/// (left-aligned), `0` (zero padding). How `%g` rounds is open; it rounds half away from
-/// zero here [hypothesis].
+/// A number by a printf-style code, as the C library writes it [observed: the game's
+/// sv_Construct, probe format1 and jip5 (#1006): `%g` 0.5 "0.5", 2.5 "2.5", 1000000
+/// "1e+06", 123.456789 "123.457", 1234567 "1.23457e+06", 10020030 "1.002e+07"; `%G`
+/// 1234567 "1.23457E+06"; `%.2g` 123.456 "1.2e+02"; `%.3e` 123000 "1.230e+05"; rules1, a
+/// denormal "7.09985e-318"]: `%X.Yf` (width X, Y decimals), `%g`/`%G` (Y significant
+/// digits, 6 by default, scientific below 1e-4 or from 10^Y, trailing zeros dropped),
+/// `%.Ye`/`%.YE`; switches `+`, space, `-` (left-aligned), `0` (zero padding). The wiki's
+/// "%g as an integer, 1E+006" (String Formatting, Vanilla Game Options) is the older
+/// runtime's form and not what the game writes now.
 fn printf_number(spec: &str, code: char, x: f64) -> String {
     let flags: String = spec.chars().take_while(|c| "+- 0".contains(*c)).collect();
     let rest = &spec[flags.len()..];
@@ -1075,28 +1079,41 @@ fn printf_number(spec: &str, code: char, x: f64) -> String {
         None => (rest, None),
     };
     let width: usize = w.parse().unwrap_or(0);
+    let upper = code.is_ascii_uppercase();
+    // The C library's scientific form: the mantissa, then e (or E), a sign and at least
+    // two digits.
     let sci = |x: f64, digits: usize| {
-        let s = format!("{:.*E}", digits, x);
-        match s.split_once('E') {
+        let s = format!("{:.*e}", digits, x);
+        match s.split_once('e') {
             Some((m, e)) => {
                 let e: i32 = e.parse().unwrap_or(0);
-                format!("{m}E{}{:03}", if e < 0 { '-' } else { '+' }, e.abs())
+                format!("{m}{}{}{:02}", if upper { 'E' } else { 'e' }, if e < 0 { '-' } else { '+' }, e.abs())
             }
             None => s,
         }
     };
-    let mut body = match code {
+    let trim = |s: String| if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_string() } else { s };
+    let mut body = match code.to_ascii_lowercase() {
         'f' => format!("{:.*}", p.unwrap_or(6), x),
         'e' => sci(x, p.unwrap_or(6)),
-        _ if x.abs() >= 1_000_000.0 => {
-            let s = sci(x, 5);
-            // `1E+006`: no trailing zeros in the mantissa.
-            match s.split_once('E') {
-                Some((m, e)) => format!("{}E{e}", m.trim_end_matches('0').trim_end_matches('.')),
-                None => s,
+        _ => {
+            let p = p.unwrap_or(6).max(1);
+            if x == 0.0 || !x.is_finite() {
+                if x.is_finite() { "0".to_string() } else { format!("{x}") }
+            } else {
+                // The exponent the scientific form would have, after rounding to p digits.
+                let e: i32 = format!("{:.*e}", p - 1, x).split_once('e').and_then(|(_, e)| e.parse().ok()).unwrap_or(0);
+                if e < -4 || e >= p as i32 {
+                    let s = sci(x, p - 1);
+                    match s.split_once(if upper { 'E' } else { 'e' }) {
+                        Some((m, rest)) => format!("{}{}{rest}", trim(m.to_string()), if upper { 'E' } else { 'e' }),
+                        None => s,
+                    }
+                } else {
+                    trim(format!("{:.*}", (p as i32 - 1 - e).max(0) as usize, x))
+                }
             }
         }
-        _ => format!("{}", x.round() as i64),
     };
     if x >= 0.0 {
         if flags.contains('+') {
@@ -2079,13 +2096,13 @@ impl Vm<'_, '_> {
                 i += 1;
             }
             match cs.get(i) {
-                Some('f' | 'g' | 'a' | 'i' | 'k' | 'n' | 'v' | 'x' | 'z' | '{') => n += 1,
+                Some('f' | 'g' | 'G' | 'a' | 'i' | 'k' | 'n' | 'v' | 'x' | 'z' | '{') => n += 1,
                 Some('c') => n += 2,
                 Some('p') => {
                     n += 1;
                     i += 1;
                 }
-                Some('e') if cs[i - 1] != '%' => n += 1,
+                Some('e' | 'E') if cs[i - 1] != '%' => n += 1,
                 _ => {}
             }
             i += 1;
@@ -2129,8 +2146,8 @@ impl Vm<'_, '_> {
                 'q' => "\"".to_string(),
                 'r' => "\n".to_string(),
                 'B' | 'b' => String::new(),
-                'e' if spec.is_empty() => String::new(),
-                'f' | 'g' | 'e' => printf_number(&spec, code, next("number")?.num()?),
+                'e' | 'E' if spec.is_empty() => String::new(),
+                'f' | 'g' | 'e' | 'G' | 'E' => printf_number(&spec, code, next("number")?.num()?),
                 'a' => char::from_u32(next("character")?.num()? as u32).map(String::from).unwrap_or_default(),
                 'i' => {
                     let v = next("form")?;

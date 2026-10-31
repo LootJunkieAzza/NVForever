@@ -40,8 +40,8 @@ from a cited document or from compiling our own test scripts with xNVSE,
 | Code | Writes |
 |---|---|
 | `%X.Yf` | a number at least X characters wide with at most Y decimals: `%.2f` two decimals, `%.0f` none, `%5.0f` padded to 5 |
-| `%g` | the number as an integer; 1,000,000 and above in scientific form (`1E+006`) |
-| `%.3e` | scientific form with 3 decimals (123000 → `1.23E+005`) |
+| `%g`, `%G` | the C library's: 6 significant digits (`%.Yg` Y), scientific below 1e-4 or from 10^Y, trailing zeros dropped (0.5 → `0.5`, 123.456789 → `123.457`, 1000000 → `1e+06`, `%G` 1234567 → `1.23457E+06`) [observed: probe format1 (#1006), sv_Construct in the game; the wiki's "as an integer; 1E+006" is the older runtime's] |
+| `%.3e`, `%.3E` | scientific form with 3 decimals, a two-digit exponent (123000 → `1.230e+05`) [observed: format1; the wiki's `1.23E+005` is the older runtime's]; `%e` without a precision writes nothing [observed: format1] |
 | `%%` | a percent sign |
 | Player Character String Codes | the player's name, race, sex or pronouns: see §6 |
 | `sUActn…` | the key bound to a control, in messages, terminals, dialogue and notes; `&-` before it adds " button", `p&-` adds "Press … button" (`p&-sUActnForward` → "Press W button") [documented: sUActn, pasted by the owner from geckwiki.com, 2026-10-25] |
@@ -84,7 +84,7 @@ Notes:
 
 ## 4. Open (to observe)
 
-Rounding of `%g`; a bare `%e` given a value; `%a` with codes above 127; `%c` on other
+A bare `%e` given a value (format1: nothing); `%a` with codes above 127; `%c` on other
 form types; `%{` without `%}`, and nested ones; what an unknown code writes; more or
 fewer values than codes in extender functions (the page says they must match, not what
 happens when they do not). A PrintC capture of each code with a known form, string, int

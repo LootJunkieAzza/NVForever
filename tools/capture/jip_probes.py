@@ -4867,6 +4867,29 @@ JIP5_PROBES = (
     + [_j5v(f"world.{k}.water", k, "GetWorldspaceWaterType rObj", "form") for k in ("freeside", "wasteland")]
 )
 
+
+# format1 (read-only; #1006): how sv_Construct writes %g, %G and %e in the game (the wiki's
+# "%g as an integer, 1E+006" is the older runtime's; ext-format.md §2), and two texture
+# sets' flags (jip5's open row).
+_F1_G = (0.5, 2.5, 1000000, 123.456789, None, 1234567, 0.1, 100000, 42, None, 3.14159265)
+
+
+def _f1(pid, body):
+    return (pid, "ref rObj\nfloat fRes\nBegin Function { }\n" + body, True, None, "")
+
+
+FORMAT1_PROBES = (
+    [_f1(f"format.g.{i}", f'SetFunctionValue (sv_Construct "%g" {v!r})') for i, v in enumerate(_F1_G) if v is not None]
+    + [_f1("format.e.0", 'SetFunctionValue (sv_Construct "%.3e" 123000)'),
+       _f1("format.e.1", 'SetFunctionValue (sv_Construct "%e" 0.5)'),
+       _f1("format.G", 'SetFunctionValue (sv_Construct "%G" 1234567)'),
+       _f1("format.g2", 'SetFunctionValue (sv_Construct "%.2g" 123.456)'),
+       _f1("txst.dirt.dnam", 'let rObj := GetFormFromMod "FalloutNV.esm" "11673A"\nSetFunctionValue (sv_Construct "%g %g %g %g" '
+           '(GetTextureSetFlag rObj 0) (GetTextureSetFlag rObj 1) (GetTextureSetFlag rObj 2) (GetTextureSetFlag rObj 3))'),
+       _f1("txst.other", 'let rObj := GetFormFromMod "FalloutNV.esm" "782D2"\nSetFunctionValue (sv_Construct "%g %g" '
+           '(GetTextureSetFlag rObj 0) (GetTextureSetFlag rObj 1))')]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -4928,7 +4951,8 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "rules1": RULES1_PROBES,
         "rules2": RULES2_PROBES,
         "showoff2": SHOWOFF2_PROBES,
-        "jip5": JIP5_PROBES}
+        "jip5": JIP5_PROBES,
+        "format1": FORMAT1_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
