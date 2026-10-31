@@ -702,3 +702,15 @@ The numbers above stay put so links to them hold; each item here gives its own p
     the greeting adds came first every time, also when it was known before (R3); none of
     learned order, newest first or "first on top" fits all five. Still open: a way to see
     the whole list (scrolling, or reading the list's tiles), then the rule.
+
+    Whole list of the full run [observed: owner screenshots 2026-10-31, the same console
+    steps by hand]: 96BCF (learned 6th, by the greeting), B15FB (4th), 137A62 (3rd),
+    B15FC (2nd), 15F503 (top-level), CEDEE (1st), B15FA (5th), Goodbye. R1 by hand:
+    96BCF, B15FC, 15F503, CEDEE, Goodbye. R3 by hand: 96BCF, 15F503, B15FC, CEDEE,
+    Goodbye (CEDEE after B15FC although learned after it here). Newest first
+    holds for five of the six learned topics; B15FA falls to the end and the top-level
+    topic sits among them. With R1–R4 this looks like an order that is fixed for a
+    given history but follows no learning rule [hypothesis: equal priorities come out
+    of a sort that does not keep their order]. Matching it exactly would mean
+    reproducing that sort, which we do not do (clean room); the rule to use is an owner
+    decision (owner-review).
