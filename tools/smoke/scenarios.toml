@@ -1625,6 +1625,24 @@ expect = [
 ]
 
 [[scenario]]
+name = "idle-hold-oliver"
+source = "issue #1072: an idle whose legs outrank the walk holds its NPC in place while it shows, and the NPC breaks out of it when its AI has somewhere to go (owner 2026-10-31; docs/spec-notes/idles.md §15)"
+note = "Nipton: Oliver Swanick (vNiptonSurvivorREF 0x001349B6) is enabled and given his celebrate patrol once the player is within 3,700 units; at marker 01 (1 s of patrol idle time) its script plays LooseCheeringBothArmsUp (4.7 s, 1-2 passes); the player stays some 1,300 units off, beyond the 600 that start his dialogue. Base game only, so no add-on start-up box holds the clock"
+areas = ["idles", "ai"]
+paths = ["engine/nvforever/src/idles.rs", "engine/nvforever/src/residents.rs", "crates/fnv-game/src/idles.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--play", "--plugins", "FalloutNV.esm", "--world", "WastelandNV", "--pos=-33500,-96800,6900", "--hour", "12", "--npc-packages", "001349B6", "--no-voice", "--no-messages"]
+run_seconds = 60
+expect = [
+  { re = 'idle: vNiptonSurvivorREF plays LooseCheeringBothArmsUp .*\(Script\), its legs held', label = "the cheer at marker 01 poses his legs" },
+  { re = 'idle hold: vNiptonSurvivorREF \(001349B6\) stands while its idle shows', label = "he stands while it shows" },
+  { re = 'idle hold: vNiptonSurvivorREF \(001349B6\) breaks out of its idle to walk', label = "his patrol walks on: he breaks out of it (owner 2026-10-31)" },
+  { gap = ["plays LooseCheeringBothArmsUp", "001349B6) breaks out of its idle to walk"], range = [0.8, 3], label = "when his 1 s patrol wait ends, not when the 4.7 s cheer does" },
+  { gap = ["001349B6) breaks out of its idle to walk", "001349B6) may walk again: its idle has gone"], range = [0, 1.5], label = "he walks once it has faded out (0.2 s), not sliding with it" },
+  { re = 'idle: vNiptonSurvivorREF plays LooseMiddleFinger', label = "he walks on to marker 02" },
+]
+
+[[scenario]]
 name = "idles-opening"
 source = "CLAUDE.md: after idle animation changes (docs/spec-notes/idles.md §7), the opening"
 areas = ["idles"]
@@ -6980,7 +6998,7 @@ env = { NVFOREVER_HOME = "controls-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 63 of 63 line\(s\) read from .*NVForever\.ini, 3 changed: Activate E -> F, Jump Space -> J, Toggle POV F, Middle Mouse -> E, Middle Mouse; input device Keyboard and Mouse', label = "the stored keys are bound at the start (the INI also lists the input device and the controller's buttons)" },
+  { re = 'controls: 65 of 65 line\(s\) read from .*NVForever\.ini, 3 changed: Activate E -> F, Jump Space -> J, Toggle POV F, Middle Mouse -> E, Middle Mouse; input device Keyboard and Mouse', label = "the stored keys are bound at the start (the INI also lists the input device and the controller's buttons)" },
 ]
 
 [[scenario]]
@@ -7023,7 +7041,7 @@ env = { NVFOREVER_HOME = "controller-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 63 of 63 line\(s\) read from .*NVForever\.ini, 4 changed: Input Device Controller, \[Controller\] Jump Y -> RB, \[Controller\] Vats RB -> Y, \[Controller\] Rumble 0; input device Controller', label = "the stored device, buttons and Rumble off are taken at the start" },
+  { re = 'controls: 65 of 65 line\(s\) read from .*NVForever\.ini, 4 changed: Input Device Controller, \[Controller\] Jump Y -> RB, \[Controller\] Vats RB -> Y, \[Controller\] Rumble 0; input device Controller', label = "the stored device, buttons and Rumble off are taken at the start" },
 ]
 
 [[scenario]]

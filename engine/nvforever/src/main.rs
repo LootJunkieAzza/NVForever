@@ -1487,6 +1487,7 @@ fn main() -> AppExit {
         // dialogue lines), before the actors are posed. The player's body, posed earlier
         // in the frame, takes them up in the next one.
         app.init_resource::<idles::Idles>()
+            .init_resource::<idles::IdleHolds>()
             .add_systems(Update, idles::drive.after(nvf_play::PlaySet::Scripts).after(residents::drive).before(locomotion::walk_test))
             .add_systems(Last, idles::report);
         // The props idles hold (anim_objects.rs): after the idles started and ended.
