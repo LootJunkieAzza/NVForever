@@ -184,7 +184,7 @@ fn body(name: &str, mass: f32) -> RagdollBody {
             mass,
             friction: 0.3,
             restitution: 0.8,
-            shape: Shape::Sphere { radius: 1.0 },
+            shape: Shape::Sphere { radius: 1.0 }.into(),
             shell: 0.0,
             material: Some(7),
         },

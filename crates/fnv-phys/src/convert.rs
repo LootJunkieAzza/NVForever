@@ -8,6 +8,8 @@
 use fnv_collide::{Iso, Shape};
 use rapier3d::math::{Matrix, Pose, Rotation, Vector};
 use rapier3d::prelude::SharedShape;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, Weak};
 
 /// Why a shape (or part of one) was not converted. Nothing is dropped silently: callers
 /// count these.
@@ -28,11 +30,13 @@ pub enum ConvertError {
 }
 
 /// A converted leaf: its pose relative to the body, the rapier shape, and the
-/// per-triangle material codes of a triangle mesh (empty otherwise).
+/// per-triangle material codes of a triangle mesh (empty otherwise). Cloning shares the
+/// shape and the codes.
+#[derive(Clone)]
 pub struct Leaf {
     pub pose: Pose,
     pub shape: SharedShape,
-    pub materials: Vec<u32>,
+    pub materials: Arc<[u32]>,
 }
 
 /// Largest deviation of `r·rᵀ` from identity tolerated for a stored rotation. NIF and
@@ -94,7 +98,59 @@ pub fn leaves(shape: &Shape, iso: &Iso, scale: f32, out: &mut Vec<Leaf>, errors:
     }
 }
 
-fn leaf_shape(shape: &Shape, s: f32) -> Result<(SharedShape, Vec<u32>), ConvertError> {
+/// The leaves and errors of one shape at one scale, kept while the shape lives.
+struct Converted {
+    shape: Weak<Shape>,
+    leaves: Arc<[Leaf]>,
+    errors: Arc<[ConvertError]>,
+}
+
+/// Converted shapes by (address of the shared shape, bits of the scale). The `Weak`
+/// keeps the address from being reused while the entry exists, so a key whose `Weak`
+/// still upgrades is the same shape.
+struct LeafCache {
+    map: HashMap<(usize, u32), Converted>,
+    /// Entries of dead shapes are dropped when the map grows past this.
+    prune_at: usize,
+}
+
+static LEAF_CACHE: Mutex<Option<LeafCache>> = Mutex::new(None);
+
+/// Entries kept before the first sweep of dead shapes [engineering choice].
+const LEAF_CACHE_MIN: usize = 1024;
+
+/// [`leaves`] of a shared shape at the body's origin, converted once per shape and
+/// scale: every placed copy of a model at one scale gets clones of the same rapier shapes
+/// (a triangle mesh's BVH, a convex hull) and material codes, where each used to build
+/// its own (issue #1085). The result is the same as [`leaves`]'s; the leaves of a shape
+/// are kept until the shape itself is dropped (its model unloaded) and a later sweep
+/// finds it gone.
+pub fn shared_leaves(shape: &Arc<Shape>, scale: f32, out: &mut Vec<Leaf>, errors: &mut Vec<ConvertError>) {
+    let key = (Arc::as_ptr(shape) as usize, scale.to_bits());
+    let found = LEAF_CACHE.lock().ok().and_then(|cache| {
+        let c = cache.as_ref()?.map.get(&key)?;
+        c.shape.upgrade().filter(|s| Arc::ptr_eq(s, shape))?;
+        Some((c.leaves.clone(), c.errors.clone()))
+    });
+    let (made, failed) = found.unwrap_or_else(|| {
+        let (mut l, mut e) = (Vec::new(), Vec::new());
+        leaves(shape, &Iso::IDENTITY, scale, &mut l, &mut e);
+        let (l, e): (Arc<[Leaf]>, Arc<[ConvertError]>) = (l.into(), e.into());
+        if let Ok(mut cache) = LEAF_CACHE.lock() {
+            let cache = cache.get_or_insert_with(|| LeafCache { map: HashMap::new(), prune_at: LEAF_CACHE_MIN });
+            cache.map.insert(key, Converted { shape: Arc::downgrade(shape), leaves: l.clone(), errors: e.clone() });
+            if cache.map.len() > cache.prune_at {
+                cache.map.retain(|_, c| c.shape.strong_count() > 0);
+                cache.prune_at = (2 * cache.map.len()).max(LEAF_CACHE_MIN);
+            }
+        }
+        (l, e)
+    });
+    out.extend(made.iter().cloned());
+    errors.extend(failed.iter().cloned());
+}
+
+fn leaf_shape(shape: &Shape, s: f32) -> Result<(SharedShape, Arc<[u32]>), ConvertError> {
     let s = finite_pos(s)?;
     let p = |p: &[f32; 3]| -> Result<Vector, ConvertError> {
         let v = vec3(*p) * s;
@@ -107,13 +163,13 @@ fn leaf_shape(shape: &Shape, s: f32) -> Result<(SharedShape, Vec<u32>), ConvertE
     Ok(match shape {
         Shape::Box { half_extents: h } => (
             SharedShape::cuboid(finite_pos(h[0] * s)?, finite_pos(h[1] * s)?, finite_pos(h[2] * s)?),
-            Vec::new(),
+            Arc::default(),
         ),
-        Shape::Sphere { radius } => (SharedShape::ball(finite_pos(radius * s)?), Vec::new()),
-        Shape::Capsule { a, b, radius } => (SharedShape::capsule(p(a)?, p(b)?, finite_pos(radius * s)?), Vec::new()),
+        Shape::Sphere { radius } => (SharedShape::ball(finite_pos(radius * s)?), Arc::default()),
+        Shape::Capsule { a, b, radius } => (SharedShape::capsule(p(a)?, p(b)?, finite_pos(radius * s)?), Arc::default()),
         Shape::ConvexHull { points } => {
             let pts = points.iter().map(p).collect::<Result<Vec<_>, _>>()?;
-            (SharedShape::convex_hull(&pts).ok_or(ConvertError::DegenerateHull(pts.len()))?, Vec::new())
+            (SharedShape::convex_hull(&pts).ok_or(ConvertError::DegenerateHull(pts.len()))?, Arc::default())
         }
         Shape::TriMesh { vertices, triangles, materials } => {
             let verts = vertices.iter().map(p).collect::<Result<Vec<_>, _>>()?;
@@ -121,7 +177,7 @@ fn leaf_shape(shape: &Shape, s: f32) -> Result<(SharedShape, Vec<u32>), ConvertE
                 return Err(ConvertError::BadIndex);
             }
             let mesh = SharedShape::trimesh(verts, triangles.clone()).map_err(|e| ConvertError::BadTriMesh(e.to_string()))?;
-            (mesh, materials.clone())
+            (mesh, materials.as_slice().into())
         }
         Shape::Compound { .. } => unreachable!("compounds are flattened by `leaves`"),
     })
@@ -192,7 +248,39 @@ mod tests {
         leaves(&ok, &Iso::IDENTITY, 1.0, &mut out, &mut errs);
         leaves(&bad, &Iso::IDENTITY, 1.0, &mut out, &mut errs);
         assert_eq!(out.len(), 1);
-        assert_eq!(out[0].materials, vec![7]);
+        assert_eq!(&*out[0].materials, &[7]);
         assert_eq!(errs, vec![ConvertError::BadIndex]);
+    }
+
+    #[test]
+    fn shared_leaves_are_built_once_per_shape_and_scale() {
+        let v = vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
+        let mesh = Arc::new(Shape::TriMesh { vertices: v, triangles: vec![[0, 1, 2]], materials: vec![7] });
+        let shape = Arc::new(Shape::Compound { children: vec![(Iso::IDENTITY, (*mesh).clone()), (Iso::IDENTITY, Shape::Sphere { radius: 2.0 })] });
+        let get = |s: &Arc<Shape>, scale: f32| {
+            let (mut out, mut errs) = (Vec::new(), Vec::new());
+            shared_leaves(s, scale, &mut out, &mut errs);
+            (out, errs)
+        };
+        let (a, _) = get(&shape, 2.0);
+        let (b, _) = get(&shape, 2.0);
+        let (c, _) = get(&shape, 3.0);
+        assert_eq!(a.len(), 2);
+        // The same rapier shapes and codes for the same shape and scale, new ones for another.
+        assert!(std::ptr::eq(a[0].shape.as_ref() as *const _ as *const u8, b[0].shape.as_ref() as *const _ as *const u8));
+        assert!(Arc::ptr_eq(&a[0].materials, &b[0].materials));
+        assert!(!std::ptr::eq(a[0].shape.as_ref() as *const _ as *const u8, c[0].shape.as_ref() as *const _ as *const u8));
+        // What `leaves` makes.
+        let (mut plain, mut errs) = (Vec::new(), Vec::new());
+        leaves(&shape, &Iso::IDENTITY, 2.0, &mut plain, &mut errs);
+        assert!(errs.is_empty());
+        for (x, y) in a.iter().zip(&plain) {
+            assert_eq!(x.pose, y.pose);
+            assert_eq!(x.materials, y.materials);
+            assert_eq!(x.shape.compute_local_aabb(), y.shape.compute_local_aabb());
+        }
+        // An equal shape in another allocation is not taken for this one.
+        let (d, _) = get(&Arc::new((*shape).clone()), 2.0);
+        assert!(!std::ptr::eq(a[0].shape.as_ref() as *const _ as *const u8, d[0].shape.as_ref() as *const _ as *const u8));
     }
 }
