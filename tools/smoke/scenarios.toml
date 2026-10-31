@@ -16439,6 +16439,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "jukebox-tubes-off"
+source = "#1079 (docs/spec-notes/activators.md §3): switched off, the saloon jukebox's light tubes (JukeBox01:1, unlit shader) stayed lit at full texture brightness; the original's go dark [observed: owner 2026-10-30]. While off, every unlit shape the idle drives is drawn black: the opaque tubes go dark, the additive notes and bubbles vanish"
+note = "the jukebox seen from the test spot in front of it (NVF_PLAY_TEST_NEAR), on at 6 s (frame), switched off by E at 7 s, frame at 9 s, on again at 10 s, frame at 12 s"
+areas = ["activators", "rendering"]
+paths = ["engine/nvf-assets/src/material_anim.rs", "engine/nvforever/src/activators.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00107D73", NVF_PLAY_TEST_ACTIVATE = "7,10", NVF_PLAY_TEST_SHOTS = "6:jukebox_on.png,9:jukebox_off.png,12:jukebox_on_again.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages", "--hour", "21", "--size", "1280x720"]
+run_seconds = 14
+manual = "jukebox_off.png: the side tubes and arch dark, no notes or bubbles; jukebox_on.png and jukebox_on_again.png: bright cyan tubes"
+expect = [
+  { re = 'activator: 00107D73 \(JukeBoxDirtyNVCountry\) off: holds its idle, lights dark, unlit shapes black', label = "switched off: the lights and the unlit tubes go dark" },
+  { re = 'test aid: screenshot .*jukebox_on_again\.png', label = "the frames are saved" },
+]
+
+[[scenario]]
 name = "radscorpion-intact-caps"
 source = "#1075 (docs/spec-notes/dismemberment.md §2.5): the radscorpion's `meatcapbody` holds its torso caps (part flag bit 0 clear) and one editor-visible BP_TORSO triangle, so the whole-shape cap rule drew every torso cap on an intact radscorpion; cap partitions are now hidden one by one [observed: fnvtool nif decode]"
 note = "a radscorpion (CrRadscorpion1Small) placed 300 units from the player (GOD, UNSEEN) at 3 s and held (SetRestrained); the view turns to it at 5 s, a frame at 6 s (no caps on its leg roots or stinger)"
