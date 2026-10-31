@@ -90,7 +90,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getinteriorlightingtraitnumeric" | "setinteriorlightingtraitnumeric" => {
             let (Some(c), Some(path)) = (of_sig(g, form(args, 0), b"CELL"), interior_trait(num(args, 1, -1.0))) else { return Some(Ok(zero)) };
             if name.starts_with("set") {
-                g.field_overrides.insert((c, format!("XCLL/{path}")), XVal::Num(num(args, 2, 0.0)));
+                // A colour channel is a byte: 300 reads 44, 25.5 reads 25 [observed: jg2,
+                // interior.setcolor].
+                let v = num(args, 2, 0.0);
+                let v = if path.ends_with(".red") || path.ends_with(".green") || path.ends_with(".blue") { (v.trunc() as i64).rem_euclid(256) as f64 } else { v };
+                g.field_overrides.insert((c, format!("XCLL/{path}")), XVal::Num(v));
                 zero
             } else {
                 XVal::Num(as_num(field(g, c, "XCLL", &path)))
@@ -104,7 +108,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             XVal::Ref(z.map_or(0, |z| z.0))
         }
         "setrefencounterzone" | "setrefzone" => {
-            let Some(r) = subject.filter(|&r| g.world.placed.get(r).is_some()) else { return Some(Ok(zero)) };
+            // Any reference, the player and references made in play too (#1102 review).
+            let Some(r) = subject else { return Some(Ok(zero)) };
             let z = form(args, 0).filter(|z| g.world.forms.zones.contains_key(z));
             if form(args, 0).is_some() && z.is_none() {
                 return Some(Ok(zero));

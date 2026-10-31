@@ -5,193 +5,207 @@
  "start": "any save (read-only)",
  "steps": [
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 0)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 0)\nEnd\n",
    "label": "jg2.interior.0",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 1)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 1)\nEnd\n",
    "label": "jg2.interior.1",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 2)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 2)\nEnd\n",
    "label": "jg2.interior.2",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 3)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 3)\nEnd\n",
    "label": "jg2.interior.3",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 4)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 4)\nEnd\n",
    "label": "jg2.interior.4",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 5)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 5)\nEnd\n",
    "label": "jg2.interior.5",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 6)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 6)\nEnd\n",
    "label": "jg2.interior.6",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 7)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 7)\nEnd\n",
    "label": "jg2.interior.7",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 8)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 8)\nEnd\n",
    "label": "jg2.interior.8",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 9)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 9)\nEnd\n",
    "label": "jg2.interior.9",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 10)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 10)\nEnd\n",
    "label": "jg2.interior.10",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 11)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 11)\nEnd\n",
    "label": "jg2.interior.11",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 12)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 12)\nEnd\n",
    "label": "jg2.interior.12",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 13)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 13)\nEnd\n",
    "label": "jg2.interior.13",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 14)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 14)\nEnd\n",
    "label": "jg2.interior.14",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 15)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 15)\nEnd\n",
    "label": "jg2.interior.15",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 16)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nSetFunctionValue (GetInteriorLightingTraitNumeric rObj 16)\nEnd\n",
    "label": "jg2.interior.16",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nlet fRes := GetInteriorLightingTraitNumeric rObj 10\nSetInteriorLightingTraitNumeric rObj 10 123\nlet sText := sv_Construct \"%g\" (GetInteriorLightingTraitNumeric rObj 10)\nSetInteriorLightingTraitNumeric rObj 10 fRes\nSetFunctionValue sText\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nlet fRes := GetInteriorLightingTraitNumeric rObj 10\nSetInteriorLightingTraitNumeric rObj 10 123\nlet sText := sv_Construct \"%g\" (GetInteriorLightingTraitNumeric rObj 10)\nSetInteriorLightingTraitNumeric rObj 10 fRes\nSetFunctionValue sText\nEnd\n",
    "label": "jg2.interior.set",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (GetFormIDString (rDoc.GetRefEncounterZone))\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"D70E2\"\nlet fSave := GetInteriorLightingTraitNumeric rObj 0\nSetInteriorLightingTraitNumeric rObj 0 300\nlet fRes := GetInteriorLightingTraitNumeric rObj 0\nSetInteriorLightingTraitNumeric rObj 0 25.5\nlet sText := sv_Construct \"%g %g\" fRes (GetInteriorLightingTraitNumeric rObj 0)\nSetInteriorLightingTraitNumeric rObj 0 fSave\nSetFunctionValue (sv_Construct \"%z %g\" sText (GetInteriorLightingTraitNumeric rObj 0))\nEnd\n",
+   "label": "jg2.interior.setcolor",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (GetFormIDString (rDoc.GetRefEncounterZone))\nEnd\n",
    "label": "jg2.refzone.doc",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"E9081\"\nlet fRes := rDoc.SetRefEncounterZone rObj\nlet rOther := rDoc.GetRefEncounterZone\nlet sText := GetFormIDString rOther\nrDoc.SetRefEncounterZone\nlet rOther := rDoc.GetRefEncounterZone\nSetFunctionValue (sv_Construct \"%g %z %i\" fRes sText rOther)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"E9081\"\nlet rSave := rP.GetRefEncounterZone\nlet fRes := rP.SetRefEncounterZone rObj\nlet rOther := rP.GetRefEncounterZone\nlet sText := GetFormIDString rOther\nrP.SetRefEncounterZone rSave\nlet rOther := rP.GetRefEncounterZone\nSetFunctionValue (sv_Construct \"%g %z %i %i\" fRes sText rOther rSave)\nEnd\n",
+   "label": "jg2.refzone.player",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"E9081\"\nlet fRes := rDoc.SetRefEncounterZone rObj\nlet rOther := rDoc.GetRefEncounterZone\nlet sText := GetFormIDString rOther\nrDoc.SetRefEncounterZone\nlet rOther := rDoc.GetRefEncounterZone\nSetFunctionValue (sv_Construct \"%g %z %i\" fRes sText rOther)\nEnd\n",
    "label": "jg2.refzone.set",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"103DF9\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"E9081\"\nlet fRes := SetCellEncounterZone rObj rOther\nlet rOther := GetCellEncounterZone rObj\nlet sText := GetFormIDString rOther\nSetCellEncounterZone rObj\nlet rOther := GetCellEncounterZone rObj\nSetFunctionValue (sv_Construct \"%g %z %i\" fRes sText rOther)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"103DF9\"\nlet rOther := GetFormFromMod \"FalloutNV.esm\" \"E9081\"\nlet rSave := GetCellEncounterZone rObj\nlet fRes := SetCellEncounterZone rObj rOther\nlet rOther := GetCellEncounterZone rObj\nlet sText := GetFormIDString rOther\nSetCellEncounterZone rObj rSave\nlet rOther := GetCellEncounterZone rObj\nSetFunctionValue (sv_Construct \"%g %z %i %i\" fRes sText rOther rSave)\nEnd\n",
    "label": "jg2.cellzone.set",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"103B1E\"\nSetFunctionValue (GetMessageIconPath rObj)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"103B1E\"\nSetFunctionValue (GetMessageIconPath rObj)\nEnd\n",
    "label": "jg2.icon.sarsaparilla",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nSetFunctionValue (GetMessageIconPath rObj 0)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nSetFunctionValue (GetMessageIconPath rObj 0)\nEnd\n",
    "label": "jg2.icon.leather.male",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nSetFunctionValue (GetMessageIconPath rObj 1)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nSetFunctionValue (GetMessageIconPath rObj 1)\nEnd\n",
    "label": "jg2.icon.leather.female",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"421C\"\nSetFunctionValue (GetMessageIconPath rObj)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"421C\"\nSetFunctionValue (GetMessageIconPath rObj)\nEnd\n",
    "label": "jg2.icon.bat",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"103B1E\"\nlet sText := GetMessageIconPath rObj\nSetMessageIconPath \"nvf\\icon.dds\" rObj\nlet sText := GetMessageIconPath rObj\nSetMessageIconPath \"interface\\icons\\pipboyimages_small\\items_small\\glow_items_cola.dds\" rObj\nSetFunctionValue sText\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"103B1E\"\nlet sSave := GetMessageIconPath rObj\nSetMessageIconPath \"nvf\\icon.dds\" rObj\nlet sText := GetMessageIconPath rObj\nSetMessageIconPath \"interface\\icons\\pipboyimages_small\\items_small\\glow_items_cola.dds\" rObj\nSetFunctionValue (sv_Construct \"%z|%z|%z\" sSave sText (GetMessageIconPath rObj))\nEnd\n",
    "label": "jg2.icon.set",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CEE1B\"\nSetFunctionValue (GetIMODAnimatable rObj)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CEE1B\"\nSetFunctionValue (GetIMODAnimatable rObj)\nEnd\n",
    "label": "jg2.imod.night",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CEE1B\"\nSetIMODAnimatable rObj 1\nlet fRes := GetIMODAnimatable rObj\nSetIMODAnimatable rObj 0\nSetFunctionValue fRes\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"CEE1B\"\nlet fSave := GetIMODAnimatable rObj\nSetIMODAnimatable rObj 1\nlet fRes := GetIMODAnimatable rObj\nSetIMODAnimatable rObj fSave\nSetFunctionValue (sv_Construct \"%g %g\" fRes (GetIMODAnimatable rObj))\nEnd\n",
    "label": "jg2.imod.set",
-   "field": "value"
+   "field": "value",
+   "text": true
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"421C\"\nSetFunctionValue (GetWeaponVATSTraitNumeric rObj 0)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"421C\"\nSetFunctionValue (GetWeaponVATSTraitNumeric rObj 0)\nEnd\n",
    "label": "jg2.vats.bat.0",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"421C\"\nSetFunctionValue (GetWeaponVATSTraitNumeric rObj 1)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"421C\"\nSetFunctionValue (GetWeaponVATSTraitNumeric rObj 1)\nEnd\n",
    "label": "jg2.vats.bat.1",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"421C\"\nSetFunctionValue (GetWeaponVATSTraitNumeric rObj 2)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"421C\"\nSetFunctionValue (GetWeaponVATSTraitNumeric rObj 2)\nEnd\n",
    "label": "jg2.vats.bat.2",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"421C\"\nSetFunctionValue (GetWeaponVATSTraitNumeric rObj 3)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"421C\"\nSetFunctionValue (GetWeaponVATSTraitNumeric rObj 3)\nEnd\n",
    "label": "jg2.vats.bat.3",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"421C\"\nSetFunctionValue (GetWeaponVATSTraitNumeric rObj 4)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"421C\"\nSetFunctionValue (GetWeaponVATSTraitNumeric rObj 4)\nEnd\n",
    "label": "jg2.vats.bat.4",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"421C\"\nSetFunctionValue (GetWeaponVATSTraitNumeric rObj 5)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"421C\"\nSetFunctionValue (GetWeaponVATSTraitNumeric rObj 5)\nEnd\n",
    "label": "jg2.vats.bat.5",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"421C\"\nSetFunctionValue (GetWeaponVATSTraitNumeric rObj 6)\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"421C\"\nSetFunctionValue (GetWeaponVATSTraitNumeric rObj 6)\nEnd\n",
    "label": "jg2.vats.bat.6",
    "field": "value"
   },
   {
-   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"421C\"\nSetWeaponVATSTraitNumeric rObj 3 99\nlet fRes := GetWeaponVATSTraitNumeric rObj 3\nSetWeaponVATSTraitNumeric rObj 3 35\nSetFunctionValue fRes\nEnd\n",
+   "query": "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\nstring_var sSave\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rDoc := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"421C\"\nlet fSave := GetWeaponVATSTraitNumeric rObj 3\nSetWeaponVATSTraitNumeric rObj 3 99\nlet fRes := GetWeaponVATSTraitNumeric rObj 3\nSetWeaponVATSTraitNumeric rObj 3 fSave\nSetFunctionValue (sv_Construct \"%g %g\" fRes (GetWeaponVATSTraitNumeric rObj 3))\nEnd\n",
    "label": "jg2.vats.set",
-   "field": "value"
+   "field": "value",
+   "text": true
   }
  ]
 }
