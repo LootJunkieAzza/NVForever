@@ -58,7 +58,7 @@ impl Plugin for EffectShadersPlugin {
         app.init_resource::<Shaders>()
             .init_resource::<crate::effect_particles::EffectParticles>()
             .add_systems(Update, (play, actor_alpha.after(crate::texture_swap::apply), crate::effect_particles::draw.after(play), addons_leaving.after(play)))
-            .add_systems(Last, (report, crate::effect_particles::report));
+            .add_systems(Last, (report, crate::effect_particles::report, release_faded));
     }
 }
 
@@ -609,6 +609,17 @@ impl Shaders {
             s.material(materials, h, 1);
         }
         s
+    }
+}
+
+/// Every [`SWEEP_SECS`](nvf_assets::release::SWEEP_SECS), drop the see-through copies no
+/// mesh wears any more (the actor's alpha came back to 1, it unloaded, or its part was let
+/// go of), so their textures go with their models (issue #904).
+fn release_faded(time: Res<Time<Real>>, mut st: ResMut<Shaders>, mut since: Local<f32>) {
+    *since += time.delta_secs();
+    if *since >= nvf_assets::release::SWEEP_SECS {
+        *since = 0.0;
+        nvf_assets::release::retain_held(&mut st.faded, 1);
     }
 }
 
