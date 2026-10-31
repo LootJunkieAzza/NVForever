@@ -77,7 +77,7 @@ mod properties {
                 let computed = fnv_inflate::adler32(&out);
                 let present = z.windows(4).any(|w| w == computed.to_be_bytes());
                 match t {
-                    Trailer::Verified => prop_assert!(present),
+                    Trailer::Verified | Trailer::Extra { .. } => prop_assert!(present),
                     Trailer::Mismatch { stored, computed: c } => {
                         prop_assert_eq!(c, computed);
                         prop_assert_ne!(stored, c);
