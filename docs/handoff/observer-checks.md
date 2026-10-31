@@ -14,6 +14,26 @@ earlier rounds settled). Start from the `nvfstrip` save unless a check needs an 
 game state. When a check is settled, write the answer into the linked spec, fix the
 engine if needed, and delete the item here.
 
+## What the open checks need (2026-10-31)
+
+- **Unattended, from the saves we have** (a session can run them): 1, 2, the rest of 3,
+  5 (weapon health around scripted shots), 6 (nvftest, Sunny), 8, 11 (72 h at a raised
+  TimeScale), 13, 15, 20, 21, 22 (dialogue events), the rest of 33, 35, 36, 52, 53, and
+  #1076 (melee reach).
+- **A save from the owner** (quest or character state no save has yet):
+  - Hardcore on (4; the Hardcore Stimpak in 9): SetHardcore does not work from scripts.
+  - Boone, Rex and ED-E hired (19, 22's complaints, 18's wheel).
+  - Lucky 38 opened, the Tops Yes Man met (31); Benny's invitation to the Tops taken (47).
+  - Old World Blues just started in the Think Tank (43, 37); X-8 done, EM pulse module
+    (38). Honest Hearts at Flight from Zion with Daniel (49).
+  - VMS46 at Anders' thanks (39); Stone on his night route, VMS31 (50); HELIOS One before
+    the west terminal (46, 25 at Intelligence 1); Oliver on House's path (48); a finished
+    game at the end slides (28, 29).
+- **A save made inside the capture** (allowed, probe-saves rule): 24 (save half-way along
+  a patrol, reload), 41 (the emergency radio, timed).
+- **Screenshots or video** (window in front, both locks): 7 (casino menus by key taps),
+  12 (Ringo, Nash, Red Lucy, Doc Mitchell: nvftest/nvfdoc have them), 16, 17, 26, 27, 54.
+
 ## P1: changes many fights or the whole run
 
 1. **Which weapon NPCs carry and draw.** Ours ranks weapons by base damage plus
@@ -49,13 +69,18 @@ engine if needed, and delete the item here.
    - Your own explosives hurt you.
    - A second burn or poison hit restarts the timer rather than stacking.
    - Every weapon's Crit Effect applies.
-   - Fall damage is 0.0252 × (h − 600)^1.65, with no leg crippling.
+   - Fall damage is 0.0252 × (h − 600)^1.65, with no leg crippling — answered
+     2026-10-31 (o6_00): the formula holds within 1 %, but each fall also hurts one leg
+     (+700: 24.9 of 100, half the Health lost; +1000 and +1300: crippled). Ours never
+     does (physics.md §6.6, the falls into and beside the lake).
    To check: OnHit events plus Health and limb values for each case.
    ([combat-rules §10](../spec-notes/combat-rules.md),
    [weapon-data-fields](../spec-notes/weapon-data-fields.md),
    [crippled-limbs](../spec-notes/crippled-limbs.md), [difficulty](../spec-notes/difficulty.md),
    [hit-effects](../spec-notes/hit-effects.md), [physics §6.12](../spec-notes/physics.md))
-4. **Hardcore needs and waiting.** Ours:
+4. **Hardcore needs and waiting.** Needs a save with Hardcore already on: SetHardcore 1
+   from a script or the console left IsHardcore 0 in the original (o6_00-01, 2026-10-31),
+   and the needs stay 0 without it. The sleep value's name is `SleepDeprevation`. Ours:
    - Hunger rises 4.8/h and sleep deprivation 2.4/h. Dehydration is guessed at 9.6/h
      (Minor at about 21 h).
    - An hour slept takes 100 off sleep deprivation. Needs rise while asleep.
@@ -130,7 +155,11 @@ engine if needed, and delete the item here.
    ([aid-items](../spec-notes/aid-items.md), [levelup §9](../spec-notes/levelup.md),
    [skill-books](../spec-notes/skill-books.md))
 10. **Karma, reputation and crime.** Ours:
-    - Killing Very Evil gives +100, Good −100, and murdering a Neutral −25.
+    - Killing Very Evil gives +100, Good −100, and murdering a Neutral −25 — partly
+      answered 2026-10-31 (o6_02): −500 victims gave +100 and a +900 one −100 (ours gives
+      0 for −500, "Evil"); a 0 victim by KillActor 0. The 2026-10-19 convict (−500 only
+      through a levelled template) gave 0, so the reward may read the base's own karma
+      (crime-karma.md §4.1). Still open: a real murder of a Neutral.
     - Each owned take or lock is −5.
     - A seen theft is +2 infamy and any seen kill +30, including hostile Powder Gangers.
     - An owner who sees a theft attacks at once.
@@ -401,20 +430,13 @@ The numbers above stay put so links to them hold; each item here gives its own p
 
 ## Added 2026-10-29 (radiation falloff, issue #894; HUD states capture)
 
-33. **Does a radiation marker fall off linearly with distance, and does Rad Resistance cut
-    GetRadiationLevel?** (P2: every irradiated place.) Ours now gives a marker's XRAD ×
-    (1 − d ÷ XRDS), d the 3-D distance from GetPos, and GetRadiationLevel and the HUD
-    that times (1 − Rad Resistance ÷ 100). One distance was read (the shack's coc spot,
-    693.65 units from marker 0x00154611, 15/2000, Rad Resistance 8: 9.013784, ours
-    9.013783); the `hud_corners` jobs' moves to two other spots did not move the player,
-    nor did console `player.setpos` steps (hud.md §14.3).
-    To check, in SLNuclearTestShackINT with GetPos after each move to prove it: at the
-    marker's x, y (4358.3, −718.9; ours 13.475 with RadResist 8), halfway
-    (4338.6, −373.4; ours 11.390), and at the coc spot after Rad-X (RadResist 58; ours
-    4.115). Then, for overlapping markers (strongest or sum), on the Camp Searchlight
-    crater's three markers (5/10000, 10/6000, 18/2000 on one point) 1000 units from their
-    point (ours 9 × 0.92 = 8.28; summed 21.83 × 0.92 = 20.09); and a Fat Man's zone read
-    at its centre and 300 units out (ours flat). ([radiation §2, §4](../spec-notes/radiation.md))
+33. **Radiation falloff and Rad Resistance** — answered 2026-10-31 (o6_00): linear in
+    the 3-D distance (346 units 11.412178, 602 units 9.647502, as ours to 1e-5) and
+    GetRadiationLevel × (1 − Rad Resistance ÷ 100) (Rad-X: 6.291849, as ours).
+    (radiation.md §2, §4) Still open (P3): overlapping markers (the Camp Searchlight
+    crater's three, 1000 units from their point: ours 8.28, summed 20.09) and a Fat Man's
+    zone at its centre and 300 units out. MoveTo a marker with offsets moves the player
+    where SetPos did not, unless the point is outside the room.
 34. **The corner bars' ticks' brightness** — answered 2026-10-31 (o5_00-01): the full-row
     meters read `brightness` 175 in both bars (`HUDMainMenu/HitPoints/*:2` and
     `ActionPoints/*:2`, each 296 wide and visible; the bars' other visible children 255),

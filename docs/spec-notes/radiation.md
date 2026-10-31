@@ -64,8 +64,11 @@ damaging water: ESM gap audit row 7, branch claude/e7-explosion-water-radiation.
   original's reads; 15 × (1 − 693.65 ÷ 2000) = 9.7976, and after Rad Resistance 8 (§4)
   9.7976 × 0.92 = 9.013783 against the read 9.013784, the three reads' small spread in
   z following the formula to 1e-6; the 2-D distance (692.05) would give 9.0248 and
-  no falloff 13.8; hypothesis: the linear shape at other distances, since all reads are
-  at one distance, issue #894.] Until 2026-10-29 the whole XRAD held in the radius, which
+  no falloff 13.8; issue #894. Two more distances confirm the linear shape: 346.06 units
+  (3-D, GetDistance) read 11.412178 (formula 11.41218) and 601.81 read 9.647502 (formula
+  9.64750) [observed: o6_00, 2026-10-31, `player.MoveTo` the marker with offsets
+  (−19.7, 345.5) and (0, 600); offsets (0, 0) and (0, 300) left the player where it was,
+  those points being outside the room].] Until 2026-10-29 the whole XRAD held in the radius, which
   gave 15 there. The same reads are hud.md §14.1-§14.3's; console `player.setpos` steps
   did not move the player in the shack either [observed: hud.md §14.3]. More distances,
   Rad-X and overlapping markers: observer-checks.md item 33.
@@ -149,7 +152,9 @@ damaging water: ESM gap audit row 7, branch claude/e7-explosion-water-radiation.
 - **GetRadiationLevel** = level × (1 − Rad Resistance ÷ 100) for the player, 0 for anyone
   else [documented: §1, and the wiki's "directly proportional to your rads/sec meter";
   observed: §2, the original's 9.013784 is the marker's 9.7976 there times 0.92 for its
-  Rad Resistance 8, issue #894; hypothesis: the same for water's rads, not read]. It
+  Rad Resistance 8, issue #894; o6_00, 2026-10-31: after Rad-X (Rad Resistance 40) the
+  601.81-unit spot read 6.291849, 9.6475 ÷ 0.92 × 0.60 = 6.29185; hypothesis: the same
+  for water's rads, not read]. It
   gave the level before resistance until 2026-10-29.
 - **Rads taken a second** = level × `fRadiationAccumulationRate` (1.0 [observed]) ×
   (1 − Rad Resistance ÷ 100), Rad Resistance held to 0…85 [documented: §1, the setting

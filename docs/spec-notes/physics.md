@@ -1444,6 +1444,13 @@ the job each time until the run was stopped), so the part under water was not re
   1.649): `fJumpFallHeightMin` 600 and `fJumpFallHeightExponent` 1.65 [the link to the
   settings is a hypothesis]. Two later drops of 40 Health each, 1–3 s after the 700 and
   1500 landings (once with the player pushed 130 units sideways), are not explained.
+- **Falls damage a leg** [observed: o6_00, 2026-10-31, nvfairport runway, god mode off,
+  Health raised by 6000, `player.SetPos z` +700, +1000, +1300 and Health read for 12 s]:
+  −49.88, −491.86 and −1236.13 Health (the formula above gives 50.3, 494.7 and 1246), and
+  each fall hurt **one** leg: +700 took the right leg from 100 to 75.06 (24.94, half the
+  Health lost), +1000 crippled the left (0), +1300 the right (0); the other limbs stayed
+  100 [hypothesis: half the fall's damage to one leg chosen at random]. No later drops
+  in the 12 s after any landing (the 40-point drops above did not recur).
 
 **Predictions for `sw_breath`** (written before its run): two minutes pressed against the
 bed 800 below S with god mode off: Health drops after a breath time of some tens of seconds
