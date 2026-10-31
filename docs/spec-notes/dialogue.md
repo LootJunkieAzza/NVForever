@@ -147,7 +147,7 @@ Category:Dialogue for the meanings]:
 |---|---|---|---|
 | 0x0001 | Goodbye | the actor leaves dialogue after the line | 9,828 |
 | 0x0002 | Random | §4 rule 3 | 8,001 |
-| 0x0004 | Say Once | an actor says the line only once; another actor may still say it | 4,434 |
+| 0x0004 | Say Once | the line is said only once; in the one case checked another actor sharing it did not say it again (question 13) | 4,434 |
 | 0x0008 | Run Immediately | the results run when the conversation is put together, not when the line is spoken | 765 |
 | 0x0010 | Info Refusal | the player's prompt is not shaded after use | 80 |
 | 0x0020 | Random End | closes a Random stack | 1,143 |
@@ -212,10 +212,16 @@ Order"].
 
 So file order agrees with the previous-info links in 5,677 of 5,686 cases, and is the
 only order FalloutNV.esm has. **The runtime's stored order of a topic** is: the lines in
-the file order of the plugin that first defines each, plugins in load order
-(`GameData::topics`) [observed as above for one quest's lines; hypothesis for the 9
-exceptions and for how lines of different quests interleave in the editor's list,
-which §4 makes mostly irrelevant].
+the file order of the plugin that first defines each, plugins in load order, then each
+line a later plugin adds put straight behind the line its winning PNAM names, when that
+line comes from an earlier plugin or was itself moved so (`GameData::topics`,
+`data::follow_previous`) [observed as above for one quest's lines; hypothesis for the 9
+exceptions, for how lines of different quests interleave in the editor's list, which §4
+makes mostly irrelevant, and for added lines with PNAM 0 (left at the end), two added
+lines naming one line (the later in file order first) and broken chains (file order)].
+In the ten masters this moves no line [observed: `lines_moved_by_previous` is 0,
+crates/fnv-game/tests/dialogue_data.rs]; it matters for mods that add lines to a
+master's topic.
 
 ### 3.2 Lines of several quests in one topic
 
@@ -380,9 +386,15 @@ said.
 A speaker **can say** a line when:
 - it has not said it, for Say Once; not within the last `fSayOncePerDayInfoTimer` game
   hours (12 when the setting is absent), for Say Once a Day; both per actor
-  [documented: Category:Dialogue]. The clock is GameDaysPassed × 24 + GameHour
+  [documented: Category:Dialogue]. Say Once was seen to hold across actors instead: the
+  Yes Man mainframe skipped the greeting 0x001164F1 the Tops Yes Man had said
+  [observed 2026-10-31, observer check 31; one case]. The clock is GameDaysPassed × 24 + GameHour
   [hypothesis];
-- it is the line's fixed speaker, if the line has one [documented: Category:Dialogue];
+- it is the line's fixed speaker, if the line has one [documented: Category:Dialogue] —
+  unless the line has its own GetIsID condition on the speaker, which then decides
+  [observed 2026-10-31: the Lucky 38 elevator Victor said 0x00165102, whose fixed
+  speaker is the entrance Victor and whose condition is GetIsID the elevator Victor;
+  observer check 29];
 - the line's quest is running **and the quest's own conditions pass**
   [owner statement 2026-10-10: "every actor has the line as long as the quest is active
   and the conditions are met on both the topic and the quest itself"; not yet captured;
@@ -406,9 +418,10 @@ A speaker **can say** a line when:
   and GREETING chose 0x0014B5A9 (position 1613), passing over 0x000FF5BA (position 1305,
   only `GetIsID <null> == 1`; both quests priority 55 and running)]. So Cass's line
   0x000FF5BA is never said and Papa Khan's 0x0014B596/7 (`== 1`) never either. Ours gives
-  0 for these two functions in a condition without a failed call (`Args::is_null_form`);
-  other functions with a null form still fail their call, which also reads 0
-  [hypothesis that the original gives 0 for them too].
+  0 for these two functions in a condition without a failed call (`Args::is_null_form`),
+  and since #966 any condition with a null form parameter reads 0 without calling its
+  function (`Game::condition_value`), so no `call_failed` is logged for it [hypothesis
+  that the original gives 0 for the other functions too].
 
 Pointer for the AI package work: the owner states that an actor's package is chosen the
 same way, the first eligible one from the top of its list [owner statement 2026-10-10];
@@ -802,7 +815,8 @@ up to C and F):
     afterwards; whether its Add Topics list is applied; SayToDone; activating the actor
     again while it speaks (cut and restart, or ignored); and whether a Goodbye line of
     a topic named by StartConversation opens the menu.
-13. Say Once across two actors sharing a line; Say Once a Day's clock; Say Once and
+13. Say Once across two actors sharing a line (one case answered: not said again,
+    observer check 31); Say Once a Day's clock; Say Once and
     Say Once a Day counted from the line's start or end.
 14. Response order where numbers and stored order disagree.
 15. Whether SayTo and Say obey Random stacks like menu dialogue.

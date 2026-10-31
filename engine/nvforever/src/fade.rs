@@ -98,7 +98,7 @@ pub fn complement(k: u8) -> VisibilityRange {
     VisibilityRange { start_margin: z..z, end_margin: z..z + W, use_aabb: false }
 }
 
-/// Meshes whose materials dither (nif_material.wgsl, Bevy's PBR fragment for trees and
+/// Meshes whose materials dither (nif_material.wesl, Bevy's PBR fragment for trees and
 /// grass); water keeps its own shader and does not fade.
 type Fading = Or<(
     With<MeshMaterial3d<NifMaterial>>,

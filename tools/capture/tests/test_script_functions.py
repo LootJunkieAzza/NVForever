@@ -79,6 +79,18 @@ class WikiParsing(unittest.TestCase):
             {"name": "Count", "type": "int", "kind": "int", "optional": True}])
         self.assertEqual(rec["categories"], ["Functions (GECK)", "Widget Functions"])
 
+    def test_empty_argument_template_is_no_argument(self):
+        page = PAGE.replace("{{FunctionArgument\n   |Name = Target\n   |Type = ref\n  }}", "{{FunctionArgument |Name = |Type = }}")
+        rec = sf.parse_page("FrobWidget", page)
+        self.assertEqual(rec["params"], [{"name": "Count", "type": "int", "kind": "int", "optional": True}])
+        rec = sf.parse_page("FrobWidget", PAGE.split(" |arguments")[0] + " |arguments = {{FunctionArgument |Name = |Type = }}\n}}")
+        self.assertNotIn("params", rec)
+
+    def test_parameter_fixes_fill_or_replace_a_pages_arguments(self):
+        page = PAGE.replace("FrobWidget", "SetNthPackage").split(" |arguments")[0] + "\n}}"
+        rec = sf.parse_page("SetNthPackage", page)
+        self.assertEqual([x["kind"] for x in rec["params"]], ["form", "int"])
+
     def test_page_without_template_is_skipped(self):
         self.assertIsNone(sf.parse_page("Category:Stuff", "[[Category:Functions]]"))
 

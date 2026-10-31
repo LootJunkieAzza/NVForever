@@ -452,7 +452,7 @@ def exe_is_stale(exe: Path, repo: Path, files: list[str]) -> list[str]:
         return []
     out = []
     for f in files:
-        if f.startswith(("engine/", "crates/")) and f.endswith((".rs", ".wgsl", ".toml")):
+        if f.startswith(("engine/", "crates/")) and f.endswith((".rs", ".wgsl", ".wesl", ".toml")):
             try:
                 if (repo / f).stat().st_mtime > t:
                     out.append(f)

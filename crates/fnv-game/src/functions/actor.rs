@@ -278,7 +278,7 @@ pub fn set_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
     if crate::actor_values::SKILLS.contains(&code) && crate::revision::keeps(ctx, r, || format!("the skill {} (points spent stay)", AV_NAMES[code as usize])) {
         return none();
     }
-    if crate::actor_values::SPECIALS.contains(&code) && crate::revision::keeps(ctx, r, || format!("the attribute {} (the Vigor Tester moves points)", AV_NAMES[code as usize])) {
+    if crate::actor_values::SPECIALS.contains(&code) && crate::revision::keeps(ctx, r, || format!("the attribute {} (points are moved on the attributes page)", AV_NAMES[code as usize])) {
         return none();
     }
     // The player's skill keeps its part from the attributes: SetActorValue sets the rest
@@ -546,7 +546,7 @@ pub fn get_dead_count(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Strin
 /// The factions and ranks the records give an actor: its base's `SNAM` list, or its
 /// template's with the template flag "Factions" (docs/spec-notes/factions.md §2).
 fn base_factions<'d>(g: &'d Game, r: FormId) -> &'d [(FormId, i8)] {
-    base_of(g, r).map_or(&[], |b| g.data.base_factions_at(b, r, g.leveled_at(r)))
+    base_of(g, r).map_or(&[], |b| g.data.base_factions_at(b, g.pick_seed(r), g.leveled_at(r)))
 }
 
 /// Faction rank of an actor: a run-time change, else the records' ([`base_factions`]);

@@ -199,7 +199,7 @@ const LYING_DOWN: f32 = 10.0 * std::f32::consts::PI / 180.0;
 const LOOP_HOLD: f32 = 0.25;
 
 /// The share of the sun's light the arms rig's shade light carries. The materials need
-/// some to work the sun's part of the light out (`nif_material.wgsl`), and the world gets
+/// some to work the sun's part of the light out (`nif_material.wesl`), and the world gets
 /// that much more sun with it [engineering choice: a thousandth, a quarter of one step of
 /// an 8-bit picture at full brightness].
 const ARMS_SHADE_SHARE: f32 = 1.0 / 1024.0;

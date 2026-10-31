@@ -11,8 +11,9 @@
 //!   file's tiles, the code-made copies, the mods'; `super::draw::Select::Whole`) and
 //!   the hand-built pieces that have a tile-drawn equivalent are hidden ([`DrawnByTiles`],
 //!   [`hide_hand_built`]). The pieces whose tiles the engine does not fill yet stay
-//!   hand-built and their file and code tiles are not drawn ([`KEPT_PIECES`]); the mapping
-//!   is in docs/spec-notes/hud.md §14.7.
+//!   hand-built and their file and code tiles are not drawn ([`KEPT_PIECES`], none since
+//!   the breath meter's `nif` tile is drawn, `super::model`); the mapping is in
+//!   docs/spec-notes/hud.md §14.7.
 //! - [`write_corners`] gives the corner labels' code-made copies the places the
 //!   hand-built HUD sets them at (the captures give none), the ammo type's label its
 //!   abbreviation, and the condition row its showing rule, only while the switch is on
@@ -80,9 +81,22 @@ pub(crate) fn setup(app: &mut App) {
     });
 }
 
-/// [design] Remaining hand-built pieces: their copies are unfilled, or (BreathMeter)
-/// require nif rendering. Settled T12b pieces now draw from tiles (hud.md §14.8).
-pub const KEPT_PIECES: [&str; 5] = ["BreathMeter", "Messages", "QuestReminder", "Region_Location", "Subtitles"];
+/// [design] Remaining hand-built pieces: none. Settled T12b pieces draw from tiles (hud.md
+/// §14.8); the messages, quest notices and subtitles since their copies are written
+/// (`super::notices`, hud.md §14.11); the breath meter since `nif` tiles are drawn
+/// (`super::model`, hud.md §14.12). `Region_Location` is no longer kept: a discovery's
+/// label and name copies are written under it (`super::notices`, hud.md §14.11)
+/// [hypothesis: hud.md §14 maps discoveries to Region_Location; the capture saw no copies
+/// there, so their layout is the quest banner's], hidden, as `QuestReminder`'s draw it.
+/// Kept as a list for a piece that has to go back to being hand-built.
+pub const KEPT_PIECES: [&str; 0] = [];
+
+/// The start-up line telling the whole HUD is drawn from tiles, with the pieces still
+/// hand-built (`kept`, [`KEPT_PIECES`]) when there are any.
+pub fn drawn_line(file: usize, code: usize, kept: &[&str]) -> String {
+    let but = if kept.is_empty() { String::new() } else { format!(" but for {}", kept.join(", ")) };
+    format!("tiles: {} drawn from tiles ({file} file tiles, {code} code tiles); hand-built HUD hidden{but}", super::draw::HUD_MENU)
+}
 
 /// [design] Shared visibility markers moved here from the hand-built modules so the
 /// tile switch can hide their roots without changing their drawing/timing logic.
@@ -96,6 +110,19 @@ pub(crate) struct LimbRoot;
 pub(crate) struct MeterRoot;
 #[derive(Component)]
 pub(crate) struct PromptTexts;
+/// The hand-built corner messages', quest lines' and subtitles' areas
+/// (`corner_messages.rs`, `quest_messages.rs`, `script_hud.rs`); their queues and clocks
+/// still run, only their nodes are hidden [design].
+#[derive(Component)]
+pub(crate) struct MessagesArea;
+#[derive(Component)]
+pub(crate) struct QuestArea;
+#[derive(Component)]
+pub(crate) struct SubtitlesArea;
+/// The hand-built breath meter's root (`hud_breath.rs`); its model is still read and its
+/// ticks set, only its node is hidden [design].
+#[derive(Component)]
+pub(crate) struct BreathRoot;
 
 /// The compass window, whose picture is the strip the heading moves [observed: hud.md
 /// §14.4, the name read; §14.5].
@@ -108,21 +135,76 @@ pub fn kept_pieces(ui: &Ui) -> Vec<TileId> {
 
 /// A hand-built HUD node whose piece the tiles draw while the HUD is a tile menu: the
 /// health and action points corners (with the compass, the condition row and the ammo),
-/// the sneak word, the crosshair, the radiation meter.
+/// the sneak word, the crosshair, the radiation meter. The other pieces' roots carry their
+/// own markers ([`EnemyPiece`], [`WordsRoot`], [`LimbRoot`], [`MeterRoot`],
+/// [`PromptTexts`], [`MessagesArea`], [`QuestArea`], [`SubtitlesArea`], [`BreathRoot`]).
 #[derive(Component, Clone, Copy, Default)]
 pub(crate) struct DrawnByTiles;
 
+/// What [`hide_hand_built`] hides of the hand-built HUD.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Hide {
+    /// The pieces the tiles draw ([`DrawnByTiles`] and the other roots' markers), the
+    /// subtitles aside.
+    pub pieces: bool,
+    /// The hand-built subtitles ([`SubtitlesArea`]).
+    pub subtitles: bool,
+}
+
+/// What to hide: with the HUD a tile menu and the tree having it (`loaded`), the pieces the
+/// tiles draw; the subtitles only while the tile renderer draws something of the HUD
+/// (`root_drawn`, [`root_drawn`]). In a menu the renderer draws nothing and the hand-built
+/// subtitles stay, so a line said while a message box is up still shows [design: hud.md
+/// §14.11; maintainer's review of #952].
+pub fn hide(menus: TileMenus, loaded: bool, root_drawn: bool) -> Hide {
+    let on = menus.hud && loaded;
+    Hide { pieces: on, subtitles: on && root_drawn }
+}
+
+/// Whether the tile renderer draws anything of the HUD menu `menu`: the menu tile live,
+/// visible and not transparent, as `super::layout::layout` passes them down to every tile
+/// under it (`fnv_game::ui_hud::write` sets its `visible` from `Shown::root`, 0 in a menu)
+/// [design].
+pub fn root_drawn(ui: &Ui, menu: TileId) -> bool {
+    let tile = ui.tile(menu);
+    tile.live && tile.get("visible").is_none_or(Value::truthy) && tile.get("alpha").map_or(255.0, Value::num) > 0.0
+}
+
 /// Hide [`DrawnByTiles`] nodes while the HUD is a tile menu and the tree has it (without
-/// the game's menu files the hand-built HUD stays): after every drawing system has set its
-/// visibility, before it is passed down [design: no drawer changes].
+/// the game's menu files the hand-built HUD stays), and the hand-built subtitles while the
+/// tile renderer draws something ([`hide`]): after every drawing system has set its
+/// visibility, before it is passed down [design: no drawer changes]. The subtitles' area
+/// sets no visibility of its own, so it is given back (`Inherited`) when the tiles draw
+/// nothing.
 #[allow(clippy::type_complexity)]
-pub(crate) fn hide_hand_built(menus: Res<TileMenus>, script: Res<crate::script::ScriptState>, mut nodes: Query<&mut Visibility, Or<(With<DrawnByTiles>, With<EnemyPiece>, With<WordsRoot>, With<LimbRoot>, With<MeterRoot>, With<PromptTexts>)>>) {
-    let loaded = script.rt.as_ref().is_some_and(|rt| rt.game.ui_files.is_some() && rt.game.ui_tree.menu(super::draw::HUD_MENU).is_some());
-    if !menus.hud || !loaded {
+pub(crate) fn hide_hand_built(
+    menus: Res<TileMenus>,
+    script: Res<crate::script::ScriptState>,
+    mut nodes: Query<&mut Visibility, (Or<(With<DrawnByTiles>, With<EnemyPiece>, With<WordsRoot>, With<LimbRoot>, With<MeterRoot>, With<PromptTexts>, With<MessagesArea>, With<QuestArea>, With<BreathRoot>)>, Without<SubtitlesArea>)>,
+    mut subtitles: Query<&mut Visibility, With<SubtitlesArea>>,
+) {
+    let menu = script.rt.as_ref().filter(|rt| rt.game.ui_files.is_some()).and_then(|rt| rt.game.ui_tree.menu(super::draw::HUD_MENU).map(|m| (&rt.game.ui_tree, m)));
+    let hide = hide(*menus, menu.is_some(), menu.is_some_and(|(ui, m)| root_drawn(ui, m)));
+    // Before any early return: the area has no drawer of its own to show it again, so
+    // it would stay hidden once the tree lost the menu (a load's rebuild).
+    subtitles.iter_mut().for_each(|mut v| {
+        v.set_if_neq(subtitles_visibility(hide));
+    });
+    if !hide.pieces {
         return;
     }
     for mut v in &mut nodes {
         v.set_if_neq(Visibility::Hidden);
+    }
+}
+
+/// The hand-built subtitles' area's visibility for a [`Hide`]: given back (`Inherited`)
+/// whenever it is not hidden, the switch off or the menu gone included.
+pub fn subtitles_visibility(hide: Hide) -> Visibility {
+    if hide.subtitles {
+        Visibility::Hidden
+    } else {
+        Visibility::Inherited
     }
 }
 
@@ -257,10 +339,92 @@ pub fn write_corners(ui: &mut Ui, c: &Corner) {
     set(ui, "CNDArrows", "alpha", on(255.0));
 }
 
+/// The breath meter's tile [documented: hud_main_menu.xml, a `nif` tile].
+pub const BREATH_TILE: &str = "BreathMeter";
+
+/// Write what the tile-drawn breath meter needs, only while the HUD is a tile menu
+/// [design: off, the tree stays T4's]:
+/// - its `alpha`, 255 while the hand-built meter would show (`hud_breath::shown`: the head
+///   under water, or the breath not yet whole) and 0 otherwise [hypothesis: as the sneak
+///   word's and the radiation meter's children, whose alpha goes 0 to 255 while they show,
+///   hud.md §14.1; the file sets the tile's alpha 0; the meter's own alpha under water was
+///   not read];
+/// - `_NVFSequenceFraction`, how far into its `animation` the model stands (0 its start, 1
+///   its end): the share of the breath used, as the hand-built meter plays `Forward`
+///   (`hud_breath::time_at`) [hypothesis: drowning.md §3; how the original's code drives
+///   the model's sequence is not known, no trait of the file says it; the name is
+///   NVForever's own, `super::model::FRACTION`].
+pub fn write_breath(ui: &mut Ui, shown: bool, used: f64) {
+    set(ui, BREATH_TILE, "alpha", Value::Num(if shown { 255.0 } else { 0.0 }));
+    set(ui, BREATH_TILE, super::model::FRACTION, Value::Num(used.clamp(0.0, 1.0)));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use fnv_ui::MemSource;
+
+    #[test]
+    fn the_start_line_names_the_kept_pieces_only_when_there_are_any() {
+        assert_eq!(drawn_line(900, 120, &KEPT_PIECES), "tiles: HUDMainMenu drawn from tiles (900 file tiles, 120 code tiles); hand-built HUD hidden");
+        assert_eq!(drawn_line(1, 2, &["BreathMeter"]), "tiles: HUDMainMenu drawn from tiles (1 file tiles, 2 code tiles); hand-built HUD hidden but for BreathMeter");
+    }
+
+    #[test]
+    fn the_hand_built_subtitles_stay_while_the_tiles_draw_nothing() {
+        let on = TileMenus { hud: true };
+        // The HUD drawn from tiles and shown: every hand-built piece hidden.
+        assert_eq!(hide(on, true, true), Hide { pieces: true, subtitles: true });
+        // In a menu the tile root draws nothing: the hand-built subtitles stay.
+        assert_eq!(hide(on, true, false), Hide { pieces: true, subtitles: false });
+        // The switch off, or no menu files: nothing hidden.
+        for drawn in [true, false] {
+            assert_eq!(hide(TileMenus::default(), true, drawn), Hide { pieces: false, subtitles: false });
+            assert_eq!(hide(on, false, drawn), Hide { pieces: false, subtitles: false });
+        }
+        // Hidden only while the tiles draw them; given back otherwise, the menu gone (a
+        // load's rebuild) included, where nothing else would show the area again.
+        assert_eq!(subtitles_visibility(hide(on, true, true)), Visibility::Hidden);
+        assert_eq!(subtitles_visibility(hide(on, false, true)), Visibility::Inherited);
+        assert_eq!(subtitles_visibility(hide(on, true, false)), Visibility::Inherited);
+        // The root's `visible` (written from `Shown::root`) and alpha decide whether
+        // anything of the menu is drawn.
+        let src = MemSource::default().with("hud.xml", r#"<menu name="HUDMainMenu"><text name="Subtitles"><string>Line</string></text></menu>"#);
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "hud.xml").unwrap();
+        assert!(root_drawn(&ui, menu));
+        ui.set_trait(menu, "visible", Value::Num(0.0));
+        assert!(!root_drawn(&ui, menu));
+        ui.set_trait(menu, "visible", Value::Num(1.0));
+        assert!(root_drawn(&ui, menu));
+        ui.set_trait(menu, "alpha", Value::Num(0.0));
+        assert!(!root_drawn(&ui, menu));
+    }
+
+    #[test]
+    fn the_breath_meter_shows_by_alpha_and_stands_in_its_sequence_by_the_breath_used() {
+        let src = MemSource::default().with(
+            "hud.xml",
+            r#"<menu name="HUDMainMenu"><nif name="BreathMeter"><filename>Interface\HUD\AirTimer01.NIF</filename><animation>Forward</animation>
+              <visible>&false;</visible><alpha>0</alpha><width>64</width><height>64</height><systemcolor>&hudmain;</systemcolor></nif></menu>"#,
+        );
+        let mut ui = Ui::new();
+        ui.load_menu(&src, "hud.xml").unwrap();
+        let f = |ui: &Ui, t: &str| ui.get_float(&format!("HUDMainMenu/BreathMeter/{t}")).unwrap();
+        // The file's alpha 0 and no fraction until written.
+        assert_eq!(f(&ui, "alpha"), 0.0);
+        assert!(ui.get_float(&format!("HUDMainMenu/BreathMeter/{}", super::super::model::FRACTION)).is_none());
+        write_breath(&mut ui, true, 0.25);
+        assert_eq!((f(&ui, "alpha"), f(&ui, super::super::model::FRACTION)), (255.0, 0.25));
+        // Hidden: alpha 0, the place in the sequence still written; held to 0..=1.
+        write_breath(&mut ui, false, 1.5);
+        assert_eq!((f(&ui, "alpha"), f(&ui, super::super::model::FRACTION)), (0.0, 1.0));
+        // A tree without the tile gets nothing.
+        let mut empty = Ui::new();
+        empty.load_menu(&MemSource::default().with("hud.xml", r#"<menu name="HUDMainMenu"/>"#), "hud.xml").unwrap();
+        write_breath(&mut empty, true, 0.5);
+        assert!(empty.find_tile("HUDMainMenu/BreathMeter").is_none());
+    }
 
     #[test]
     fn the_switch_is_a_list_of_menu_names() {

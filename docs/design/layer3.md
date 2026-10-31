@@ -86,7 +86,7 @@ What it does now:
 - Materials as in the viewer, plus: nodes named `EditorMarker*` are skipped, additive and
   multiplicative NIF blend modes are honoured, alpha test wins over blending, and
   BSShaderNoLightingProperty is unlit (nif.md §6). NIF shapes use `NifMaterial`
-  (StandardMaterial + `nif_material.wgsl`): emissive light × diffuse texture and vertex
+  (StandardMaterial + `nif_material.wesl`): emissive light × diffuse texture and vertex
   colour, and no ambient specular (nif.md §6 "Emissive light", "Specular"). Emissive = colour × multiplier ×
   glow map from texture-set slot 2 (neon signs, lit windows; nif.md §6 "Emissive
   light"); material colour and emittance controllers are not evaluated yet. Helper shapes (properties but no
@@ -103,7 +103,7 @@ What it does now:
   `clouds.nif` layers with the weather's cloud textures and colours (world.md §6 "Sky
   colours"), a directional light with the weather's sunlight colour along a sun path,
   the climate's sun and glare textures drawn around the sun (world.md §6 "Sun and
-  glare"), ambient and fog colours. Sky parts use their own material (`sky.wgsl`): their
+  glare"), ambient and fog colours. Sky parts use their own material (`sky.wesl`): their
   colours are display values passed through the inverse of the tonemapper, so the
   image-space grade sees them as the game's grade does; by day they are dimmed and
   warmed and the clouds take on part of the sunlight's hue [hypothesis, fitted to the
@@ -127,12 +127,12 @@ What it does now:
   NightQuestScript's `VNight` rule (night weather 21:00-04:18) and crossfades weathers
   (colours, fog and a second set of cloud layers) over half a game hour. `--day <n>`
   sets the days passed (moon phase; default the `GameDaysPassed` global).
-- Image-space grade (world.md §6, `imagespace.rs`/`imagespace.wgsl`): a full-screen pass
+- Image-space grade (world.md §6, `imagespace.rs`/`imagespace.wesl`): a full-screen pass
   after tonemapping with the worldspace's image space and the weather's adapters for the
   time of day (warm amber by day, darker grey-navy at night); `--no-grade` turns it off.
   The same pass draws the image space modifiers scripts play on the screen (fade to a
   colour, double vision, radial blur, changes to the grade), after a two-pass blur
-  that runs only while a modifier blurs (`imagespace_blur.wgsl`;
+  that runs only while a modifier blurs (`imagespace_blur.wesl`;
   docs/spec-notes/image-modifiers.md §5); `--imod <record>[@seconds]` shows one.
   Compared with the owner's screenshots: night ground still a little bright (HDR eye
   adaptation not applied), and the game still shows sunset colours at 20:00 where the
@@ -195,12 +195,12 @@ What it does now:
   "Objects", `nvf-assets` `shape_alpha_mode`; cutoff [hypothesis]).
 - SpeedTree trees (TREE; distant ones as billboards, see Distant LOD): geometry generated from the `.spt` parameters by `fnv-spt`
   (speedtree.md §5): bark tubes with the standard material, leaf cards turned towards
-  the camera by a vertex shader (tree.wgsl, also in the prepass so depth and shadows
+  the camera by a vertex shader (tree.wesl, also in the prepass so depth and shadows
   match), scaled to the billboard size. Leaf cards cast shadows but receive none (their
   own light-facing shadow copies blackened the lower half of every bush); instead the
   crown darkens towards its bottom by the TREE record's CNAM leaf and branch dimming,
   as vertex colours (speedtree.md §6). Trees rock and their leaves rustle in the
-  weather's wind (WTHR wind speed, TREE CNAM rock and rustle speeds; tree.wgsl, also in
+  weather's wind (WTHR wind speed, TREE CNAM rock and rustle speeds; tree.wesl, also in
   the shadow pass). A tree that fails to generate falls back to its
   billboard: one upright quad turned towards the camera every frame, normals up.
 - Interiors: `--cell <interior Editor ID>` loads that one cell with its own lighting
@@ -220,7 +220,7 @@ What it does now:
   4000 units/s streams 200-260 cells). Meshes on the GPU are render-world only and cannot
   be read back; code that derives meshes later (LOD trimming) asks the model cache for
   CPU copies (`ModelCtx::model_with_cpu`).
-- Water (`engine/nvforever/src/water.rs`, `water.wgsl`): one plane per "has water"
+- Water (`engine/nvforever/src/water.rs`, `water.wesl`): one plane per "has water"
   cell at its water height, in loaded cells and, out to the LOD range, in every cell
   whose water lies above its lowest landscape point (distant water). A custom material
   fogs what lies behind the surface by the view ray's length in the water (depth prepass),

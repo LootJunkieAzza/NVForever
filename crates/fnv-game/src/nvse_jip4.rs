@@ -20,8 +20,6 @@ use std::collections::HashMap;
 /// This file's session state (not saved).
 #[derive(Debug, Default)]
 pub struct Jip4State {
-    /// SetGlobalRef's forms, by global [documented: SetGlobalRef].
-    pub global_refs: HashMap<FormId, u32>,
     /// SetQuestFlag's changes to the record flags of a quest (IDs 2–5 and 7), as the
     /// whole flag byte.
     pub quest_flags: HashMap<FormId, u8>,
@@ -139,9 +137,10 @@ fn class_flag(id: i64) -> Option<(&'static str, i64)> {
     }
 }
 
-/// The combat style trait IDs 0–63 [documented: GetCombatStyleTraitNumeric, the names],
-/// each the CSTY field of the same name [hypothesis: matched by name; the IDs follow the
-/// CSSD, CSTD, CSAD order but for 43–63, whose base/mult pairs the page lists base first].
+/// The combat style trait IDs 0–63 [documented: GetCombatStyleTraitNumeric, the names]:
+/// CSSD, CSTD and CSAD in the record's field order. For 43–63 the order is the record's,
+/// not the page's, which lists three base/mult pairs base first [observed: jip4 probe set,
+/// FollowersCombatStyleRanged 43 reads CSAD's first field, -20].
 const CSTY_TRAITS: [(&str, &str); 64] = [
     ("CSSD", "cover_search_radius"),
     ("CSSD", "take_cover_chance"),
@@ -186,8 +185,8 @@ const CSTY_TRAITS: [(&str, &str); 64] = [
     ("CSTD", "acrobatic_dodge_chance"),
     ("CSTD", "rushing_attack_chance"),
     ("CSTD", "rushing_attack_distance_mult"),
-    ("CSAD", "dodge_fatigue_mod_base"),
     ("CSAD", "dodge_fatigue_mod_mult"),
+    ("CSAD", "dodge_fatigue_mod_base"),
     ("CSAD", "encumbered_speed_mod_base"),
     ("CSAD", "encumbered_speed_mod_mult"),
     ("CSAD", "dodge_while_under_attack_mult"),
@@ -196,12 +195,12 @@ const CSTY_TRAITS: [(&str, &str); 64] = [
     ("CSAD", "dodge_back_not_under_attack_mult"),
     ("CSAD", "dodge_forward_while_attacking_mult"),
     ("CSAD", "dodge_forward_not_attacking_mult"),
-    ("CSAD", "block_skill_modifier_base"),
     ("CSAD", "block_skill_modifier_mult"),
+    ("CSAD", "block_skill_modifier_base"),
     ("CSAD", "block_while_under_attack_mult"),
     ("CSAD", "block_not_under_attack_mult"),
-    ("CSAD", "attack_skill_modifier_base"),
     ("CSAD", "attack_skill_modifier_mult"),
+    ("CSAD", "attack_skill_modifier_base"),
     ("CSAD", "attack_while_under_attack_mult"),
     ("CSAD", "attack_not_under_attack_mult"),
     ("CSAD", "attack_during_block_mult"),
@@ -501,21 +500,27 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // The door at the other end, SetDoorTeleport's change first [documented:
         // GetTeleportDoor; the same reading as GetLinkedDoor].
         "getteleportdoor" => XVal::Ref(subject.and_then(|d| g.door_teleport(d)).map_or(0, |t| t.0 .0)),
-        // `quest`: seconds until the quest's script runs again [documented:
-        // GetDelayElapsed; the delay as SetDelayElapsed reads it].
+        // `quest`: seconds until the quest's script runs again, going down each frame and
+        // below 0 for a moment before the script runs [documented: GetDelayElapsed;
+        // observed: jip4 probe set, VDeadSea read 15.6 ms less each frame, VCG01 once < 0].
         "getdelayelapsed" => {
             let delay = g.quests.get(&f0).and_then(|s| s.delay).or_else(|| g.data.quests.get(&f0).map(|d| d.script_delay())).unwrap_or(0.0);
             let since = g.quests.get(&f0).map_or(0.0, |s| s.since_run);
-            XVal::Num((delay - since).max(0.0))
+            XVal::Num(delay - since)
         }
-        // `global [form]`: a form kept in a global; on a reference with no form, the
-        // reference [documented: GetGlobalRef, SetGlobalRef; hypothesis: the global's
-        // number is left as it was].
-        "getglobalref" => XVal::Ref(g.gaps.jip4.global_refs.get(&f0).copied().unwrap_or(0)),
+        // `global [form]`: a form kept in a global's own value, its float's bits being the
+        // form ID [documented: GetGlobalRef, SetGlobalRef; observed: jip4 probe set,
+        // GameYear reads 1.49665e-39 after SetGlobalRef of 00104C0F, and GetGlobalRef of
+        // 2281.0 reads 0]. GetGlobalRef reads 0 when the bits name no form.
+        "getglobalref" => {
+            let id = g.world.global(f0).map_or(0, f32::to_bits);
+            let known = id != 0 && (FormId(id) == FormId::PLAYER_REF || g.data.sig(FormId(id)).is_some() || g.world.peek(FormId(id)).is_some());
+            XVal::Ref(if known { id } else { 0 })
+        }
         "setglobalref" => {
             if f0.0 != 0 {
                 let r = form(args, 1).or(subject).map_or(0, |r| r.0);
-                g.gaps.jip4.global_refs.insert(f0, r);
+                let _ = g.world.set_global(f0, f32::from_bits(r));
             }
             zero
         }

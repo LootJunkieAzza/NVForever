@@ -294,6 +294,7 @@ fn mod_roots_cover_injections_templates_and_loose_includes_once() {
         assert_eq!(ui.tile(ui.find_tile(path).unwrap()).origin, Origin::File { path: "menus\\prefabs\\child.xml".into(), loose: false });
     }
     assert_eq!(ui.mod_added_tiles(root), [loose]);
+    assert!(ui.has_mod_added_tiles(root));
     assert!(ui.inject_file(&src, "M/File", "Data/inject.xml"));
     let injected = ui.find_tile("M/File/Injected").unwrap();
     for path in ["M/File/Injected", "M/File/Injected/Loose", "M/File/Injected/Loose/Child/Grandchild"] {
@@ -320,6 +321,57 @@ fn mod_roots_cover_injections_templates_and_loose_includes_once() {
     assert_eq!(ui.tile(file).origin, Origin::File { path: "menu.xml".into(), loose: false });
     ui.unload_tile(root);
     assert!(ui.mod_added_tiles(root).is_empty());
+    assert!(!ui.has_mod_added_tiles(root));
+}
+
+#[test]
+fn the_mod_tile_answer_follows_injection_templates_and_unloading() {
+    // [design: #938] `has_mod_added_tiles` answers as `mod_added_tiles` walks, per menu.
+    let src = MemSource::default()
+        .with("hud.xml", r#"<menu name="HUD"><rect name="Piece"><template name="row"><rect name="Row"><rect name="Inner"/></rect></template></rect></menu>"#)
+        .with("start.xml", r#"<menu name="Start"><rect name="Panel"/></menu>"#);
+    let mut ui = Ui::new();
+    let hud = ui.load_menu(&src, "hud.xml").unwrap();
+    let start = ui.load_menu(&src, "start.xml").unwrap();
+    let agree = |ui: &Ui| {
+        for menu in [hud, start] {
+            assert_eq!(ui.has_mod_added_tiles(menu), !ui.mod_added_tiles(menu).is_empty());
+        }
+    };
+    assert!(!ui.has_mod_added_tiles(hud));
+    agree(&ui);
+    // A tile injected into another menu leaves the HUD's answer alone.
+    assert!(ui.inject_text(&src, "Start/Panel", r#"<rect name="MCM"><text name="Label"/></rect>"#));
+    assert!(ui.has_mod_added_tiles(start) && !ui.has_mod_added_tiles(hud));
+    agree(&ui);
+    // Injected with children: yes; the tree worked out leaves it so.
+    assert!(ui.inject_text(&src, "HUD/Piece", r#"<rect name="Gauge"><image name="Bar"/></rect>"#));
+    assert!(ui.has_mod_added_tiles(hud));
+    ui.update();
+    ui.set_trait(ui.find_tile("HUD/Piece").unwrap(), "x", Value::Num(3.0));
+    ui.update();
+    assert!(ui.has_mod_added_tiles(hud));
+    agree(&ui);
+    // A child of the injected tile unloaded: still yes; the injected tile unloaded: no.
+    ui.unload_tile(ui.find_tile("HUD/Piece/Gauge/Bar").unwrap());
+    assert!(ui.has_mod_added_tiles(hud));
+    ui.unload_tile(ui.find_tile("HUD/Piece/Gauge").unwrap());
+    assert!(!ui.has_mod_added_tiles(hud));
+    agree(&ui);
+    // A mod's template copy counts; the engine's own copies do not.
+    ui.add_code_tile_from_template(&src, "HUD/Piece", "row", Some("CodeRow")).unwrap();
+    assert!(!ui.has_mod_added_tiles(hud));
+    let row = ui.add_from_template(&src, "HUD/Piece", "row", Some("ModRow")).unwrap();
+    assert!(ui.has_mod_added_tiles(hud));
+    agree(&ui);
+    ui.unload_tile(row);
+    assert!(!ui.has_mod_added_tiles(hud));
+    // The menu read again starts with none; unloading a menu forgets its count.
+    assert!(ui.inject_text(&src, "HUD", r#"<rect name="Again"/>"#));
+    let hud = ui.load_menu(&src, "hud.xml").unwrap();
+    assert!(!ui.has_mod_added_tiles(hud));
+    ui.unload_tile(start);
+    assert!(!ui.has_mod_added_tiles(start));
 }
 
 #[test]
@@ -363,6 +415,366 @@ fn a_loose_replacement_draws_only_what_the_archived_file_lacks() {
     assert_eq!(drawn(None), ["m/piece/injected"]);
     assert!(!ui.mod_tile_drawn(code, Some(&vanilla)));
     assert!(Ui::file_name_paths(&MemSource::default(), "menus/m.xml").is_none());
+}
+
+#[test]
+fn game_strings_resolve_from_the_load_order_then_the_built_in_table() {
+    // menu-xml.md §2.4 (T10): `&-sName;` reads the load order's GMST, then the built-in
+    // table; a name in neither reads empty. Synthetic names and text only.
+    struct Files {
+        mem: MemSource,
+        strings: crate::GameStrings,
+    }
+    impl Source for Files {
+        fn read(&self, path: &str) -> Option<Vec<u8>> {
+            self.mem.read(path)
+        }
+        fn game_string(&self, name: &str) -> Option<String> {
+            self.strings.get(name)
+        }
+    }
+    const BUILT_IN: &[crate::strings::Entry] = &[("sNvfButton", "built-in button", "test"), ("sNvfTitle", "built-in title", "test")];
+    let mem = MemSource::default().with(
+        "menus/s.xml",
+        r#"<menu name="S">
+  <text name="Title"> <string> &-SNVFTITLE; </string> </text>
+  <text name="Button"> <string> &-sNvfButton; </string> </text>
+  <text name="Missing"> <string> &-sNvfMissing; </string> </text>
+  <text name="Copied"> <string> <copy> &-sNvfButton; </copy> </string> </text>
+</menu>"#,
+    );
+    let src = Files { mem, strings: crate::GameStrings::with_built_in([("sNvfTitle", "first plugin"), ("sNvfTitle", "last plugin")], BUILT_IN) };
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus/s.xml").unwrap();
+    ui.update();
+    assert_eq!(ui.get_string("S/Title/string").as_deref(), Some("last plugin"));
+    assert_eq!(ui.get_string("S/Button/string").as_deref(), Some("built-in button"));
+    assert_eq!(ui.get_string("S/Missing/string").as_deref(), Some(""));
+    assert_eq!(ui.get_string("S/Copied/string").as_deref(), Some("built-in button"));
+    let read: Vec<_> = ui.game_strings_read.iter().map(|(n, &found)| (n.as_str(), found)).collect();
+    assert_eq!(read, [("snvfbutton", true), ("snvfmissing", false), ("snvftitle", true)]);
+}
+
+#[test]
+fn mem_source_game_strings_ignore_case_and_unknown_names_read_empty() {
+    // [observed: menu-xml.md §2.4] lookup ignores case; an unknown name is empty text.
+    let mut src = MemSource::default().with("menus/c.xml", r#"<menu name="C"><text name="A"><string>&-SNVFCASE;</string></text><text name="B"><string>&-sNvfUnknown;</string></text></menu>"#);
+    src.strings.insert("sNvfCase".into(), "case text".into());
+    assert_eq!(src.game_string("snvfcase").as_deref(), Some("case text"));
+    assert_eq!(src.game_string("sNvfUnknown"), None);
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus/c.xml").unwrap();
+    assert_eq!(ui.get_string("C/A/string").as_deref(), Some("case text"));
+    assert_eq!(ui.get_string("C/B/string").as_deref(), Some(""));
+}
+
+/// Every live tile's traits by path: the pseudo-tiles' and the menus'.
+fn all_values(ui: &Ui) -> Vec<(String, String, String)> {
+    let mut out = Vec::new();
+    let mut stack: Vec<_> = [ui.screen(), ui.strings(), ui.globals()].into_iter().chain(ui.menus()).collect();
+    while let Some(id) = stack.pop() {
+        for t in &ui.tile(id).traits {
+            out.push((ui.path_of(id), t.name.clone(), format!("{:?}", t.value)));
+        }
+        stack.extend(ui.tile(id).children.iter().copied());
+    }
+    out.sort();
+    out
+}
+
+#[test]
+fn reopening_a_menu_leaves_the_tree_its_size() {
+    // [design: #1039] Unloaded tiles' slots are used again.
+    let src = files();
+    let mut ui = loaded();
+    let (slots, live) = (ui.tile_slots(), ui.live_tiles());
+    let before = all_values(&ui);
+    for _ in 0..50 {
+        let menu = ui.menu("TestMenu").unwrap();
+        ui.unload_tile(menu);
+        ui.update();
+        assert!(ui.live_tiles() < live);
+        ui.load_menu(&src, "menus\\test_menu.xml").unwrap();
+        ui.update();
+        // Loading over the loaded menu frees the old one first, too.
+        ui.load_menu(&src, "menus\\test_menu.xml").unwrap();
+        ui.update();
+    }
+    assert_eq!((ui.tile_slots(), ui.live_tiles()), (slots, live));
+    assert_eq!(all_values(&ui), before);
+    assert_eq!(ui.get_float("TestMenu/Panel/Gauge:0/Bar/width"), Some(380.0));
+}
+
+#[test]
+fn templates_and_injection_work_in_a_reopened_menu() {
+    let src = files();
+    let mut ui = loaded();
+    let made = ui.add_from_template(&src, "TestMenu/Panel", "row", Some("Row0")).unwrap();
+    let menu = ui.menu("TestMenu").unwrap();
+    ui.unload_tile(menu);
+    ui.load_menu(&src, "menus\\test_menu.xml").unwrap();
+    // The reopened menu has no Row0 (it was made in the old one) and makes its own.
+    assert!(ui.find_tile("TestMenu/Panel/Row0").is_none());
+    assert!(!ui.is_live(made));
+    let again = ui.add_from_template(&src, "TestMenu/Panel", "row", Some("Row0")).unwrap();
+    assert_ne!(again, made);
+    assert_eq!(ui.path_of(again), "TestMenu/Panel/Row0");
+    assert!(ui.inject_text(&src, "TestMenu/Panel", r#"<text name="Added"> <x> <copy src="parent()" trait="width"/> </x> </text>"#));
+    ui.update();
+    assert_eq!(ui.get_float("TestMenu/Panel/Added/x"), Some(400.0));
+    assert_eq!(ui.get_string("TestMenu/Panel/Row0/Label/string").as_deref(), Some("row"));
+    let root = ui.menu("TestMenu").unwrap();
+    assert_eq!(ui.mod_added_tiles(root).len(), 2);
+    assert!(ui.has_mod_added_tiles(root));
+}
+
+#[test]
+fn uio_includes_apply_again_in_a_reopened_menu() {
+    let src = MemSource::default()
+        .with("menus/hud.xml", r#"<menu name="HUDMainMenu"><rect name="Existing"/></menu>"#)
+        .with_loose("menus/prefabs/added.xml", r#"<rect name="Added"><text name="Child"/></rect>"#)
+        .with("uio/public/test.txt", "added.xml::HUDMainMenu::Existing\ntrue");
+    let mut ui = Ui::new();
+    ui.configure_uio(&src, |_| false);
+    let first = ui.load_menu(&src, "menus/hud.xml").unwrap();
+    let old_added = ui.find_tile("HUDMainMenu/Existing/Added").unwrap();
+    assert_eq!(ui.mod_added_tiles(first), [old_added]);
+    let slots = ui.tile_slots();
+    for _ in 0..5 {
+        let root = ui.menu("HUDMainMenu").unwrap();
+        ui.unload_tile(root);
+        assert!(!ui.has_mod_added_tiles(root));
+        ui.load_menu(&src, "menus/hud.xml").unwrap();
+    }
+    let root = ui.menu("HUDMainMenu").unwrap();
+    let added = ui.find_tile("HUDMainMenu/Existing/Added").unwrap();
+    assert_ne!(added, old_added);
+    assert_eq!(ui.mod_added_tiles(root), [added]);
+    assert!(ui.has_mod_added_tiles(root));
+    assert!(ui.mod_tile_drawn(added, None) && ui.mod_tile_drawn(ui.tile(added).children[0], None));
+    // A stale UIO tile's id is no mod tile, though a new tile has its slot.
+    assert!(!ui.mod_tile_drawn(old_added, None));
+    assert_eq!(ui.tile_slots(), slots);
+    assert_eq!(ui.uio.decisions[0].applied, 6);
+}
+
+#[test]
+fn stale_ids_name_no_tile_and_never_a_new_one() {
+    let src = files();
+    let mut ui = loaded();
+    let old_menu = ui.menu("TestMenu").unwrap();
+    let old_title = ui.find_tile("TestMenu/Panel/Title").unwrap();
+    ui.write_changed(old_title, "_code", Value::Num(1.0));
+    ui.unload_tile(old_menu);
+    ui.load_menu(&src, "menus\\test_menu.xml").unwrap();
+    ui.update();
+    let menu = ui.menu("TestMenu").unwrap();
+    let title = ui.find_tile("TestMenu/Panel/Title").unwrap();
+    // The new tiles took old slots, under new ids.
+    assert!(menu.index() < ui.tile_slots() as u32 && title.index() < ui.tile_slots() as u32);
+    assert_ne!(menu, old_menu);
+    assert_ne!(title, old_title);
+    for stale in [old_menu, old_title] {
+        assert!(!ui.is_live(stale));
+        let t = ui.tile(stale);
+        assert!(!t.live && t.name.is_empty() && t.children.is_empty() && t.traits.is_empty());
+        assert_eq!(ui.path_of(stale), "");
+        assert!(ui.mod_added_tiles(stale).is_empty() && !ui.has_mod_added_tiles(stale));
+    }
+    // Writes and unloads through a stale id do nothing to the new tiles.
+    let before = all_values(&ui);
+    ui.set_trait(old_title, "x", Value::Num(99.0));
+    ui.write_changed(old_title, "_code", Value::Num(2.0));
+    ui.unload_tile(old_menu);
+    ui.unload_tile(old_title);
+    ui.update();
+    assert_eq!(all_values(&ui), before);
+    assert!(ui.is_live(menu) && ui.is_live(title));
+    // What the code last wrote was the old tile's: the new tile takes the same value.
+    ui.write_changed(title, "_code", Value::Num(1.0));
+    assert_eq!(ui.get_float("TestMenu/Panel/Title/_code"), Some(1.0));
+}
+
+/// What `update` worked out (not skipped).
+fn evaluations(ui: &mut Ui) -> usize {
+    ui.evaluations = 0;
+    ui.update();
+    ui.evaluations
+}
+
+#[test]
+fn an_update_skips_expressions_whose_sources_did_not_change() {
+    let src = files();
+    let mut ui = loaded();
+    // Values nothing reads (the first Gauge's _Fill is 0, so its Bar reads `_pic_0`):
+    // nothing worked out.
+    assert!(ui.set_string("TestMenu/Panel/Gauge/Bar/_pic_1", "other.dds"));
+    assert!(ui.set_string("TestMenu/Panel/Title/string", "other"));
+    assert_eq!(evaluations(&mut ui), 0);
+    // `_Selected` is read by Title's alpha and visible only.
+    assert!(ui.set_float("TestMenu/_Selected", 1.0));
+    assert_eq!(evaluations(&mut ui), 2);
+    assert_eq!(ui.get_float("TestMenu/Panel/Title/alpha"), Some(295.0));
+    // A source read through a chain: the first Gauge's _Fill, its Bar's width, then the
+    // Bar's x (which reads that width) and filename.
+    assert!(ui.set_float("TestMenu/Panel/Gauge:1/_Fill", 0.25));
+    assert_eq!(evaluations(&mut ui), 3);
+    assert_eq!(ui.get_float("TestMenu/Panel/Gauge:1/Bar/width"), Some(95.0));
+    assert_eq!(ui.get_float("TestMenu/Panel/Gauge:1/Bar/x"), Some(-47.5));
+    // A new tile changes the shape: everything is worked out once, then skipped again.
+    assert!(ui.inject_text(&src, "TestMenu", "<rect name=\"New\"/>"));
+    // Panel's height, two Gauges' width and their Bars' width, x and filename, Title's x,
+    // alpha and visible.
+    assert_eq!(evaluations(&mut ui), 12);
+    assert_eq!(evaluations(&mut ui), 0);
+    assert!(ui.set_float("TestMenu/_Selected", 0.0));
+    assert_eq!(evaluations(&mut ui), 2);
+}
+
+#[test]
+fn skipping_finds_what_working_everything_out_finds() {
+    // [design: #1039] The same writes to a tree that skips and to one that never does.
+    let mut fast = loaded();
+    let mut slow = loaded();
+    slow.never_skip = true;
+    let steps: [fn(&mut Ui); 16] = [
+        |ui| {
+            let s = ui.screen();
+            ui.set_trait(s, "height", Value::Num(500.0));
+        },
+        |ui| _ = ui.set_float("TestMenu/_Selected", 1.0),
+        |ui| _ = ui.set_float("TestMenu/Panel/Gauge/_Fill", 0.25),
+        |ui| _ = ui.set_float("TestMenu/Panel/Gauge:0/_Fill", 0.0),
+        |ui| _ = ui.set_float("TestMenu/Panel/Title/x", 7.0),
+        |ui| _ = ui.mod_float("TestMenu/Panel/width", 100.0),
+        |ui| _ = ui.set_float("TestMenu/Panel/Gauge/width", 100.0),
+        |ui| _ = ui.inject_text(&files(), "TestMenu/Panel", "<rect name=\"Gauge\"> <_Fill> 0.75 </_Fill> <include src=\"gauge.xml\"/> </rect>"),
+        |ui| _ = ui.set_float("TestMenu/Panel/Gauge:0/_Fill", 1.0),
+        |ui| _ = ui.set_string("TestMenu/Panel/Gauge:1/Bar/_pic_1", "other.dds"),
+        |ui| _ = ui.set_float("TestMenu/Panel/Gauge:1/_Fill", 0.1),
+        |ui| {
+            let g = ui.find_tile("TestMenu/Panel/Gauge:2").unwrap();
+            ui.unload_tile(g);
+        },
+        |ui| _ = ui.set_float("TestMenu/Panel/width", 300.0),
+        |ui| _ = ui.add_from_template(&files(), "TestMenu/Panel", "row", Some("Row0")),
+        |ui| _ = ui.load_menu(&files(), "menus\\test_menu.xml"),
+        |ui| _ = ui.set_float("TestMenu/_Selected", 0.0),
+    ];
+    for (n, step) in steps.iter().enumerate() {
+        step(&mut fast);
+        step(&mut slow);
+        assert_eq!(fast.update(), slow.update(), "step {n}");
+        assert_eq!(all_values(&fast), all_values(&slow), "step {n}");
+    }
+}
+
+#[test]
+fn ids_from_a_replaced_tree_name_no_tile_of_the_new_one() {
+    // [design: #1061] Two trees built alike have their tiles in the same slots.
+    let old = loaded();
+    let mut new = loaded();
+    let old_title = old.find_tile("TestMenu/Panel/Title").unwrap();
+    let title = new.find_tile("TestMenu/Panel/Title").unwrap();
+    assert_eq!(old_title.index(), title.index());
+    assert_ne!(old_title, title);
+    assert!(!new.is_live(old_title) && !new.tile(old_title).live);
+    assert!(!new.is_live(old.screen()));
+    let before = all_values(&new);
+    new.set_trait(old_title, "x", Value::Num(99.0));
+    new.unload_tile(old.menu("TestMenu").unwrap());
+    new.update();
+    assert_eq!(all_values(&new), before);
+}
+
+#[test]
+fn a_shape_changed_before_every_update_is_told_once() {
+    // [design: #1061] Values written every update: no warning.
+    let mut ui = loaded();
+    for n in 0..300 {
+        ui.set_float("TestMenu/_Fill", n as f64);
+        ui.update();
+        assert_eq!(ui.take_reshape_warning(), None);
+    }
+    // A new trait every update (a shape change each time) is told once, naming the call.
+    let s = ui.screen();
+    let mut told = Vec::new();
+    for n in 0..300 {
+        ui.set_trait(s, &format!("_made{n}"), Value::Num(1.0));
+        ui.update();
+        told.extend(ui.take_reshape_warning());
+    }
+    assert_eq!(told.len(), 1, "{told:?}");
+    assert!(told[0].contains("set_trait called at") && told[0].contains("tests.rs"), "{}", told[0]);
+}
+
+#[test]
+fn a_nested_loose_uio_include_counts_every_tile_it_adds() {
+    // [design: #1061] The loose include includes an archived file, which includes another.
+    let src = MemSource::default()
+        .with("menus/hud.xml", r#"<menu name="HUDMainMenu"><rect name="Existing"><rect name="Own"/></rect></menu>"#)
+        .with_loose("menus/prefabs/added.xml", r#"<rect name="Added"><include src="child.xml"/></rect><include src="sibling.xml"/>"#)
+        .with("menus/prefabs/child.xml", r#"<text name="Child"><include src="grand.xml"/></text>"#)
+        .with("menus/prefabs/grand.xml", r#"<image name="Grand"/>"#)
+        .with("menus/prefabs/sibling.xml", r#"<rect name="Sibling"><include src="grand.xml"/></rect>"#)
+        .with("uio/public/test.txt", "added.xml::HUDMainMenu::Existing\ntrue");
+    let mut ui = Ui::new();
+    ui.configure_uio(&src, |_| false);
+    let root = ui.load_menu(&src, "menus/hud.xml").unwrap();
+    let added = ["Existing/Added", "Existing/Added/Child", "Existing/Added/Child/Grand", "Existing/Sibling", "Existing/Sibling/Grand"]
+        .map(|p| ui.find_tile(&format!("HUDMainMenu/{p}")).unwrap());
+    for t in added {
+        assert!(ui.mod_tile_drawn(t, None), "{}", ui.path_of(t));
+    }
+    // The menu's own tiles are not the mod's.
+    assert!(!ui.mod_tile_drawn(ui.find_tile("HUDMainMenu/Existing/Own").unwrap(), None));
+    assert_eq!(ui.mod_added_tiles(root), [added[0], added[3]]);
+    assert!(ui.has_mod_added_tiles(root));
+    ui.unload_tile(added[0]);
+    assert!(ui.has_mod_added_tiles(root));
+    ui.unload_tile(added[3]);
+    assert!(!ui.has_mod_added_tiles(root));
+}
+
+#[test]
+fn a_reopened_deep_menu_settles_in_as_few_passes_as_the_first_time() {
+    // [design: review of #1045] Each tile's x reads its parent's: 20 levels deep. Slots
+    // used again must keep parents before children, as `update` walks them.
+    let mut deep = String::from(r#"<menu name="Deep"> <x> 5 </x>"#);
+    for i in 0..20 {
+        deep.push_str(&format!(r#"<rect name="L{i}"> <x> <copy src="parent()" trait="x"/> <add> 1 </add> </x>"#));
+    }
+    deep.push_str(&"</rect>".repeat(20));
+    deep.push_str("</menu>");
+    let src = MemSource::default()
+        .with("menus/deep.xml", &deep)
+        .with("menus/small.xml", r#"<menu name="Small"> <rect name="A"/> <rect name="B"> <rect name="C"/> </rect> </menu>"#);
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus/small.xml").unwrap();
+    ui.load_menu(&src, "menus/deep.xml").unwrap();
+    ui.update();
+    let first = ui.passes;
+    assert!(first <= 3, "{first}");
+    let path = format!("Deep/{}/x", (0..20).map(|i| format!("L{i}")).collect::<Vec<_>>().join("/"));
+    assert_eq!(ui.get_float(&path), Some(25.0));
+    for _ in 0..5 {
+        // Both menus' slots are free, in the order they were unloaded.
+        let small = ui.menu("Small").unwrap();
+        let deep = ui.menu("Deep").unwrap();
+        ui.unload_tile(deep);
+        ui.unload_tile(small);
+        ui.update();
+        ui.load_menu(&src, "menus/deep.xml").unwrap();
+        ui.update();
+        assert_eq!(ui.passes, first);
+        assert_eq!(ui.get_float(&path), Some(25.0));
+        ui.load_menu(&src, "menus/small.xml").unwrap();
+        ui.update();
+    }
+    assert!(ui.set_float("Deep/x", 0.0));
+    ui.update();
+    assert_eq!(ui.passes, first);
+    assert_eq!(ui.get_float(&path), Some(20.0));
 }
 
 #[test]

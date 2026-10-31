@@ -41,6 +41,7 @@ use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
 use crate::{PlaySet, PlayState};
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
+use crate::ui_compat::Interaction;
 use fnv_game::caravan::{self as rules, Bet, Card, CaravanRequest, End, Event, Game, Move, Phase, Record, CAPS, MIN_DECK, OPPONENT, PLAYER};
 use fnv_sim::FormId;
 use rand_chacha::ChaCha8Rng;
@@ -188,7 +189,7 @@ impl Session {
         }
         if let Some((title, text)) = rules::first_help(&mut rt.game, which) {
             info!("caravan: help message {} {title:?} shown (first time)", which.message());
-            self.help = Some(Help { title, text: crate::lockpick::help::expand_keys(&text, bindings) });
+            self.help = Some(Help::new(&rt.game, title, &text, bindings));
         }
     }
 }

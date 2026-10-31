@@ -16,15 +16,17 @@
 //!   box scrolls (wheel, Up/Down, Page Up/Down, Home/End, the bar held) with a scroll bar
 //!   beside it [design: the owner's request; the original pages with Next/Previous].
 //! - At the bottom the same corners fading up, after the left one the VDSG symbol (64
-//!   high, its file's first 36 left out) and "VDSG MANUAL", then the line to the right
-//!   corner; the Close button right-aligned 81 from the box's right, its foot on the
+//!   high, its file's first 36 left out) and the manual's words, then the line to the
+//!   right corner; the Close button right-aligned 81 from the box's right, its foot on the
 //!   right corner's fading line.
 //!
-//! The texts the executable supplies are written as the screenshot shows them: "VDSG
-//! MANUAL" (`&-sVDSGManual;`), "Close" (`&-sCloseButton;`) and "E)" after it [observed].
+//! The box's words are the game settings `tutorial_menu.xml` names: the manual's words
+//! after the symbol (`&-sVDSGManual;`), the Close button (`&-sCloseButton;`) and its PC
+//! key hint (`&-sPCMenuHintE;`). They are read by name from the game strings table when
+//! the help opens ([`BoxWords::read`]: the load order's string settings over
+//! NVForever's own labels, `fnv_ui::strings::BUILT_IN`; menu-xml.md §2.4) [design].
 //! The message's own text names keys by the executable's strings (`&-sUActnForward;`,
-//! `&sKBF;`); [`expand_keys`] writes the key bound to each, "WSAD" and "F" with the
-//! game's default keys as the screenshot has them [observed].
+//! `&sKBF;`); [`expand_keys`] writes the key bound to each [design].
 
 use super::screen::{Ctx, FontKind, LockButton, ParagraphLine, BUTTON_DIM};
 use super::{Help, LockpickInput};
@@ -32,6 +34,7 @@ use crate::bindings::{Bindings, Control, GAME_CONTROLS};
 use crate::interface::{amber, at, u};
 use bevy::input::mouse::{AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::prelude::*;
+use crate::ui_compat::{Button, Interaction};
 use bevy::ui::RelativeCursorPosition;
 
 const BOX_PART: f32 = 0.8;
@@ -53,8 +56,8 @@ const BUTTONS_FROM_RIGHT: f32 = 81.0;
 const BUTTON_COLUMN: f32 = 120.0;
 const BEFORE_BUTTONS: f32 = 64.0;
 /// The VDSG symbol: 64 high, drawn from 36 short of where it is placed [documented:
-/// `_dead_space`]; its file is taken as 128 wide [hypothesis: puts "VDSG MANUAL" where the
-/// screenshot has it].
+/// `_dead_space`]; its file is taken as 128 wide [hypothesis: puts the manual's words where
+/// the screenshot has them].
 const SYMBOL: &str = "interface\\loading\\glow_loading_vdsgsymbol.dds";
 const SYMBOL_H: f32 = 64.0;
 const SYMBOL_FILE_W: f32 = 128.0;
@@ -154,8 +157,8 @@ pub fn scroll(
 }
 
 /// The label of a key as the help text shows it: a letter or digit as itself, the
-/// modifiers and arrows in words, else the key's name [observed: "WSAD", "F"; design:
-/// other keys, the words the Controls page's INI values use].
+/// modifiers and arrows in words, else the key's name [design: the words the Controls
+/// page's INI values use].
 pub fn key_label(k: KeyCode) -> String {
     let words = match k {
         KeyCode::ShiftLeft => "Left Shift",
@@ -257,6 +260,29 @@ pub fn expand_keys(text: &str, bindings: &Bindings) -> String {
     out
 }
 
+/// The game settings the help box's words come from [documented: tutorial_menu.xml].
+const MANUAL: &str = "sVDSGManual";
+const CLOSE: &str = "sCloseButton";
+const CLOSE_HINT: &str = "sPCMenuHintE";
+
+/// The help box's words, read by name from the game strings table (menu-xml.md §2.4).
+#[derive(Clone, Debug, PartialEq)]
+pub struct BoxWords {
+    /// After the symbol at the foot (`sVDSGManual`).
+    pub manual: String,
+    /// The Close button (`sCloseButton`).
+    pub close: String,
+    /// Close's PC key hint (`sPCMenuHintE`).
+    pub close_hint: String,
+}
+
+impl BoxWords {
+    pub fn read(game: &fnv_game::Game<'_>) -> BoxWords {
+        let word = |name| fnv_game::ui_loading::game_string(game, name);
+        BoxWords { manual: word(MANUAL), close: word(CLOSE), close_hint: word(CLOSE_HINT) }
+    }
+}
+
 /// The box, over the whole view; `view_w`: the view's width in interface units.
 pub fn spawn(r: &mut ChildSpawnerCommands, c: &mut Ctx, help: &Help, view_w: f32) {
     let w = view_w * BOX_PART;
@@ -313,7 +339,7 @@ pub fn spawn(r: &mut ChildSpawnerCommands, c: &mut Ctx, help: &Help, view_w: f32
             b.spawn((HelpThumb { top: window_top }, at(bar_x, window_top, BAR_W, room * shown as f32 / lines as f32), BackgroundColor(bright)));
             b.spawn((HelpTrack, Interaction::default(), RelativeCursorPosition::default(), at(bar_x - BAR_GAP / 2.0, window_top, BAR_W + BAR_GAP, room)));
         }
-        // The bottom: corners, the VDSG symbol and words, the line on.
+        // The bottom: corners, the VDSG symbol and the manual's words, the line on.
         c.image(b, up, at(SIDE, bottom - FADE, THICK, FADE), bright);
         c.image(b, solid, at(SIDE, bottom - THICK, CORNER, THICK), bright);
         let symbol_x = SIDE + CORNER + BUFFER - DEAD_SPACE;
@@ -321,7 +347,7 @@ pub fn spawn(r: &mut ChildSpawnerCommands, c: &mut Ctx, help: &Help, view_w: f32
         c.image(b, SYMBOL, at(symbol_x, symbol_y, SYMBOL_FILE_W, SYMBOL_H), bright);
         let vdsg_x = symbol_x + SYMBOL_FILE_W - DEAD_SPACE + BUFFER;
         let body_h = c.font_size(FontKind::Body);
-        let vdsg_w = c.text_in(b, FontKind::Body, "VDSG MANUAL", vdsg_x, symbol_y + (SYMBOL_H - body_h) / 2.0 + VDSG_DOWN, false, bright);
+        let vdsg_w = c.text_in(b, FontKind::Body, &help.words.manual, vdsg_x, symbol_y + (SYMBOL_H - body_h) / 2.0 + VDSG_DOWN, false, bright);
         let line_x = vdsg_x + vdsg_w + BUFFER;
         c.image(b, solid, at(line_x, bottom - THICK, (w - SIDE - line_x).max(0.0), THICK), bright);
         c.image(b, up, at(w - SIDE, bottom - FADE, THICK, FADE), bright);
@@ -329,8 +355,8 @@ pub fn spawn(r: &mut ChildSpawnerCommands, c: &mut Ctx, help: &Help, view_w: f32
         let dim = amber(BUTTON_DIM);
         let right = w - BUTTONS_FROM_RIGHT;
         let top = bottom - FADE - body_h - 2.0 * VERBUF + CLOSE_LOWER;
-        let cw = c.text_in(b, FontKind::Body, "Close", right, top + VERBUF, true, dim);
-        c.text_in(b, FontKind::Body, "E)", right + HINT_GAP, top + VERBUF, false, dim);
+        let cw = c.text_in(b, FontKind::Body, &help.words.close, right, top + VERBUF, true, dim);
+        c.text_in(b, FontKind::Body, &help.words.close_hint, right + HINT_GAP, top + VERBUF, false, dim);
         b.spawn((Button, LockButton(LockpickInput::CloseHelp), at(right - cw - 10.0, top, cw + 2.0 * HINT_GAP + 40.0, body_h + 2.0 * VERBUF)));
     });
 }
@@ -341,14 +367,15 @@ mod tests {
 
     #[test]
     fn the_help_names_the_keys_bound() {
+        // Synthetic text round the key strings (charter).
         let b = Bindings::game_defaults();
-        let text = "&-sUActnForward;&-sUActnBack;&-sUActnSldleft;&-sUActnSldright;: Apply torque\r\n&sKBF;: Force Lock &unknown; & so";
-        assert_eq!(expand_keys(text, &b), "WSAD: Apply torque\r\nF: Force Lock &unknown; & so");
-        assert_eq!(expand_keys("Center VATS &sUActnVats;", &b), "Center VATS V");
-        assert_eq!(expand_keys("To sneak or crouch, &sUActnCrouch;.", &b), "To sneak or crouch, Left Ctrl.");
-        assert_eq!(expand_keys("&-sUActnRdyitem;: Reload", &b), "R: Reload");
+        let text = "&-sUActnForward;&-sUActnBack;&-sUActnSldleft;&-sUActnSldright;: nvf push\r\n&sKBF;: nvf force &unknown; & so";
+        assert_eq!(expand_keys(text, &b), "WSAD: nvf push\r\nF: nvf force &unknown; & so");
+        assert_eq!(expand_keys("nvf aim &sUActnVats;", &b), "nvf aim V");
+        assert_eq!(expand_keys("nvf low, &sUActnCrouch;.", &b), "nvf low, Left Ctrl.");
+        assert_eq!(expand_keys("&-sUActnRdyitem;: nvf load", &b), "R: nvf load");
         assert_eq!(expand_keys("&-sUActnMenumode;&-sUActnTogglepov;", &b), "TabF");
-        assert_eq!(expand_keys("&-sUActnUse;: Attack", &b), "Left Mouse: Attack");
+        assert_eq!(expand_keys("&-sUActnUse;: nvf hit", &b), "Left Mouse: nvf hit");
         assert_eq!(expand_keys("&sMouseLeftButton;, &sDeviceMouse;", &b), "Left Mouse, Mouse");
         assert_eq!(key_label(KeyCode::Digit4), "4");
         assert_eq!(key_label(KeyCode::Space), "Space");

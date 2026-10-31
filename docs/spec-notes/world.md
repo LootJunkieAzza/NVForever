@@ -524,7 +524,7 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
     above needs no other factor). The tonemapper (Bevy's Tony McMapface) maps linear
     0.1 to display 89, 0.5 to 163, 1.0 to 195, 2.2 to 224, 5 to 241 and 100 to 253
     [observed, renders of a flat grey sky without the grade]; sky parts now pass their
-    colour through the inverse of that response (sky.wgsl) [chosen: lit surfaces keep
+    colour through the inverse of that response (sky.wesl) [chosen: lit surfaces keep
     the tonemapper, so noon ground brightness is unchanged].
   - By day the game's sky is darker and warmer than this model through the grade: the
     noon gaps fit about 0.63 × (the dusk-fitted mix of day colours) plus 0.1 × the
@@ -782,7 +782,7 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   below, the Dead Money frames come out within 1 EV of the original's; the lab's frames
   move by under 0.1 EV.
   The sky counts 1/16 of a world pixel in the meter, from a mask drawn each frame from
-  the depth prepass (`eye_mask.wgsl`) [hypothesis, 2026-10-23]: once our night sky was
+  the depth prepass (`eye_mask.wesl`) [hypothesis, 2026-10-23]: once our night sky was
   as dark as the original's ("Night sky" above), metering it with the world brightened
   the Mojave 23:00 views by several EV (windmill and buildings far lighter than the
   original's, whose frames match ours without adaptation). With the mask those views
@@ -987,7 +987,7 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   they would be hundredths of a unit]: seen from above, the whole surface, reflection
   included, fades in from the start to the end of that ramp of water crossed by the view
   ray, so the reflecting surface meets the shore without a seam
-  (`fnv_world::sky::Water::edge_falloff`, water.wgsl). The refraction's 200-unit ramp is
+  (`fnv_world::sky::Water::edge_falloff`, water.wesl). The refraction's 200-unit ramp is
   another thing and stays; distortion, light radius and brightness are still unused.
 - **Ripples** [hypothesis, the renderer's model]: DNAM's "rain" and "displacement"
   groups (starting size, force, velocity, falloff, dampner; NVCleanWater: rain 0.05 /

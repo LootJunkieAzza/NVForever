@@ -224,6 +224,21 @@ impl Kind {
             Kind::Lock | Kind::Assault => None,
         }
     }
+
+    /// The topic a witness that ignores crime says instead: "the same as …, but the actor
+    /// doesn't regard it as a crime" [documented: GECK wiki Combat Tab, AssaultNoCrime,
+    /// MurderNoCrime, PickpocketNoCrime, StealNoCrime, TrespassNoCrime; #974]. None for an
+    /// opened lock (no such topic).
+    pub fn no_crime_topic(self) -> Option<&'static str> {
+        match self {
+            Kind::Theft => Some("StealNoCrime"),
+            Kind::Murder => Some("MurderNoCrime"),
+            Kind::Trespass => Some("TrespassNoCrime"),
+            Kind::Pickpocket => Some("PickpocketNoCrime"),
+            Kind::Assault => Some("AssaultNoCrime"),
+            Kind::Lock => None,
+        }
+    }
 }
 
 /// What happened, for the engine's log, corner messages and summary.
@@ -301,6 +316,9 @@ pub struct Crimes {
     /// Actors warning the trespassing player now: they have warned it and saw it at the
     /// last crime tick, and have not turned on it (`Game::warning_to`).
     pub warning_now: std::collections::BTreeSet<FormId>,
+    /// When each witness that ignores crime last said TrespassNoCrime: once per
+    /// fAITrespassWarningTimer, as the warnings are paced (#974).
+    pub no_crime_trespass: BTreeMap<FormId, f64>,
     /// The cell the player trespasses in, with its owner.
     pub trespassing: Option<(FormId, FormId)>,
     /// The cell the player arrived in through a No Alarm door, while the player is in it
@@ -470,6 +488,26 @@ impl Game<'_> {
             .collect()
     }
 
+    /// The actors that see the player now and would be witnesses ([`Game::crime_witnesses`])
+    /// but ignore crime: they say the crime's NoCrime topic instead (#974).
+    pub fn crime_ignorers(&self) -> Vec<FormId> {
+        let now = self.time;
+        self.detection
+            .pairs
+            .iter()
+            .filter(|((w, t), (d, at))| *t == FormId::PLAYER_REF && *w != FormId::PLAYER_REF && d.band == Band::Detected && now - at <= 1.0)
+            .map(|((w, _), _)| *w)
+            .filter(|&w| self.present(w) && !self.is_dead(w) && self.extra.get(&w).is_some_and(|e| e.ignore_crime && !e.teammate && !e.out_cold()))
+            .collect()
+    }
+
+    /// `actor`, which ignores crime, says `kind`'s NoCrime topic to the player.
+    fn say_no_crime(&mut self, actor: FormId, kind: Kind) {
+        if let Some(topic) = kind.no_crime_topic() {
+            self.detection_bark(actor, Some(FormId::PLAYER_REF), topic);
+        }
+    }
+
     /// Whether `actor` attacks the player because of crimes: the player's crimes made it
     /// an enemy, or the player is an enemy of one of its factions (SetPCEnemyOfFaction,
     /// a witnessed murder) [documented: GECK wiki GetActorCrimePlayerEnemy,
@@ -549,6 +587,12 @@ impl Game<'_> {
         if owners.is_empty() {
             self.count_crime(o.owner, kind);
         }
+        // Those that would speak for the owner but ignore crime say so (#974).
+        for w in self.crime_ignorers() {
+            if self.speaks_for(w, o) {
+                self.say_no_crime(w, kind);
+            }
+        }
         let seen = !seen_by.is_empty();
         self.crimes.notes.push(Note::Crime { kind, victim: Some(o.owner), seen_by, hostile });
         self.crime_infamy(kind, o.owner, seen);
@@ -607,6 +651,12 @@ impl Game<'_> {
         self.player.murderer = true;
         self.count_crime(victim, Kind::Murder);
         let seen_by: Vec<FormId> = self.crime_witnesses().into_iter().filter(|&w| w != victim).collect();
+        // The victim's allies and friends that ignore crime say MurderNoCrime (#974).
+        for w in self.crime_ignorers() {
+            if w != victim && matches!(self.reaction_to(w, victim), ALLY | FRIEND) {
+                self.say_no_crime(w, Kind::Murder);
+            }
+        }
         let mut hostile = Vec::new();
         for &w in &seen_by {
             if matches!(self.reaction_to(w, victim), ALLY | FRIEND) && self.turn_on_player(w, Kind::Murder) {
@@ -632,6 +682,10 @@ impl Game<'_> {
     /// against it [documented: HelpCrime]. Its friends join through assistance
     /// (`crate::provocation`).
     pub fn player_assaulted(&mut self, victim: FormId) {
+        // A victim that ignores crime says AssaultNoCrime (#974).
+        if self.extra.get(&victim).is_some_and(|e| e.ignore_crime) {
+            self.say_no_crime(victim, Kind::Assault);
+        }
         self.count_crime(victim, Kind::Assault);
         self.crimes.notes.push(Note::Crime { kind: Kind::Assault, victim: Some(victim), seen_by: Vec::new(), hostile: vec![victim] });
     }
@@ -696,6 +750,15 @@ impl Game<'_> {
         self.crimes.warning_now.clear();
         let Some((_, o)) = here else { return 0 };
         let mut turned = 0;
+        // The owner's people that ignore crime say TrespassNoCrime, once per warning
+        // interval (#974).
+        for w in self.crime_ignorers() {
+            let last = self.crimes.no_crime_trespass.get(&w).copied().unwrap_or(f64::NEG_INFINITY);
+            if self.speaks_for(w, &o) && now - last >= s.warning_timer {
+                self.crimes.no_crime_trespass.insert(w, now);
+                self.say_no_crime(w, Kind::Trespass);
+            }
+        }
         for w in self.crime_witnesses() {
             if !self.speaks_for(w, &o) || self.player.crime_enemies.contains(&w) {
                 continue;

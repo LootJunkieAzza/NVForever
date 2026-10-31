@@ -40,6 +40,7 @@ use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
 use crate::PlayState;
 use crate::PlaySet;
 use bevy::prelude::*;
+use crate::ui_compat::Interaction;
 use fnv_game::blackjack::{self as rules, Action, BlackjackRequest, CasinoDef, Card, Closed, Event, Outcome, Phase, Refusal, Rules, Seat, Table};
 use fnv_sim::FormId;
 use rand_chacha::ChaCha8Rng;
@@ -446,7 +447,7 @@ fn open(
         if def.stay_soft17 { "stays on" } else { "hits" }
     );
     rt.game.open_menu(MENU_BLACKJACK);
-    let help = rules::first_help(&mut rt.game).map(|(title, text)| Help { title, text: crate::lockpick::help::expand_keys(&text, &bindings) });
+    let help = rules::first_help(&mut rt.game).map(|(title, text)| Help::new(&rt.game, title, &text, &bindings));
     if let Some(h) = &help {
         info!("blackjack: help message {} {:?} shown (first use)", rules::HELP_MESSAGE, h.title);
     }

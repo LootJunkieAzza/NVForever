@@ -25,7 +25,7 @@ use crate::trace::EventKind;
 use fnv_sim::FormId;
 
 /// A child waiting for its delay to pass.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DueChild {
     /// Game time ([`Game::time`]) when it goes off.
     pub due: f64,

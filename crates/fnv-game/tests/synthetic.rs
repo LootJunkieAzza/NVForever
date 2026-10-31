@@ -1349,6 +1349,54 @@ fn a_line_said_for_its_fixed_speaker_is_timed_by_the_fixed_speakers_file() {
 }
 
 #[test]
+fn an_actor_whose_traits_come_from_a_leveled_list_speaks_with_the_picked_entrys_voice() {
+    // Issue #1051: generic actors take race, sex and voice type from a leveled list of
+    // male and female entries (template flag "Traits"). The voice is the entry's, the
+    // one `GetIsVoiceType` reads, not the placed base record's own.
+    const LIST: u32 = 0x9F0;
+    struct Sounds;
+    impl fnv_game::voice::VoiceLengths for Sounds {
+        fn response_seconds(&self, info: FormId, response: usize, speaker_base: Option<FormId>) -> Option<f64> {
+            (info == FormId(INFO_A) && response == 0 && speaker_base == Some(FormId(NPC_AUTO))).then_some(0.5)
+        }
+    }
+    let mut f = fixture();
+    f.data.leveled_actors.insert(FormId(LIST), fnv_game::data::LeveledActorDef { entries: vec![(1, FormId(NPC_AUTO))], counts: vec![1], ..Default::default() });
+    let npc = f.data.actors.get_mut(&FormId(NPC)).unwrap();
+    npc.template = Some(FormId(LIST));
+    npc.template_traits = true;
+    let mut g = game(&f);
+    g.new_game();
+    g.voice = Some(std::sync::Arc::new(Sounds));
+    let speaker = FormId(NPC_REF);
+    assert_eq!(g.voice_base(FormId(NPC), speaker), FormId(NPC_AUTO));
+    assert_eq!(g.speaker_voice_base(speaker), Some(FormId(NPC_AUTO)));
+    assert_eq!(g.response_lengths(speaker, FormId(INFO_A)), vec![0.5]);
+    // A fixed speaker (ANAM) that is the placed base itself is no other actor: the
+    // record's own voice does not stand in when the picked voice has no file.
+    struct BaseOnly;
+    impl fnv_game::voice::VoiceLengths for BaseOnly {
+        fn response_seconds(&self, info: FormId, response: usize, speaker_base: Option<FormId>) -> Option<f64> {
+            (info == FormId(INFO_A) && response == 0 && speaker_base == Some(FormId(NPC))).then_some(0.5)
+        }
+    }
+    f.data.infos.get_mut(&FormId(INFO_A)).unwrap().speaker = Some(FormId(NPC));
+    let mut g = game(&f);
+    g.new_game();
+    g.voice = Some(std::sync::Arc::new(BaseOnly));
+    assert_eq!(g.response_lengths(speaker, FormId(INFO_A)), vec![1.7875]);
+    assert_eq!(g.response_seconds(speaker, FormId(INFO_A), 0), 1.7875);
+    // Said by another actor, the fixed speaker's file still stands in.
+    assert_eq!(g.response_lengths_voiced(Some(FormId(NPC_AUTO)), Some(FormId(NPC_AUTO)), FormId(INFO_A)), vec![0.5]);
+    // Without the flag the base keeps its own voice.
+    let mut f = fixture();
+    f.data.leveled_actors.insert(FormId(LIST), fnv_game::data::LeveledActorDef { entries: vec![(1, FormId(NPC_AUTO))], counts: vec![1], ..Default::default() });
+    f.data.actors.get_mut(&FormId(NPC)).unwrap().template = Some(FormId(LIST));
+    let g = game(&f);
+    assert_eq!(g.voice_base(FormId(NPC), speaker), FormId(NPC));
+}
+
+#[test]
 fn a_message_box_is_a_menu_until_closed_and_holds_the_rest_of_the_frame() {
     use fnv_game::game::menus;
     let f = fixture();
@@ -2254,8 +2302,129 @@ fn the_runner_names_a_reference_made_at_run_time_by_its_base() {
     assert_eq!(fnv_game::runner::resolve(&g, "placed:TestActivator"), Ok(FormId(ACT_REF)));
 }
 
-/// A condition's null form (FormID 0) reads 0 for GetIsID and GetQuestVariable, without a
-/// failed call [observed 2026-10-30, capture o4_00_probe: Papa Khan's goodbye with
+/// Script coverage counts a quest completed when a run marks it completed, by a Complete
+/// Quest stage or by the script function CompleteQuest (many quests end by the function
+/// with no flagged stage reached: VMS39, VVault21Tour; High Times and Debt Collector have
+/// only a fail stage); a chain's given state does not. A quest completed with no stage
+/// reached counts as touched.
+#[test]
+fn coverage_counts_a_quest_completed_by_complete_quest() {
+    let f = fixture();
+    let report = |cov: &fnv_game::coverage::Coverage| {
+        let log = cov.log(&f.data, "t");
+        fnv_game::coverage::report(&f.data, &[log], 10).unwrap()
+    };
+    let ctx = fnv_game::game::RunCtx::default;
+    // Stage 10 only (not flagged): touched, not completed.
+    let mut g = game(&f);
+    g.new_game();
+    g.coverage = Some(Default::default());
+    g.set_stage(q(), 10);
+    let r = report(g.coverage.as_ref().unwrap());
+    assert_eq!(r["summary"]["quests"]["touched"], json!(1));
+    assert_eq!(r["summary"]["quests"]["completed"], json!(0));
+    // A given completed state (as a chain's `given`) is not the run's: still not counted.
+    g.quest(q()).completed = true;
+    assert!(g.coverage.as_ref().unwrap().completed.is_empty());
+    g.quest(q()).completed = false;
+    // CompleteQuest with stage 20 (the flagged one) never reached: completed.
+    g.run_query("Begin Function { }
+CompleteQuest Q
+End
+", ctx()).unwrap();
+    let r = report(g.coverage.as_ref().unwrap());
+    assert_eq!(r["summary"]["quests"]["completed"], json!(1));
+    assert!(!g.coverage.as_ref().unwrap().stages.contains(&(q(), 20)));
+    // A log without the field (older runs) still reads, by the stage flags alone.
+    let mut log = g.coverage.as_ref().unwrap().log(&f.data, "old");
+    log.as_object_mut().unwrap().remove("completed");
+    let r = fnv_game::coverage::report(&f.data, &[log], 10).unwrap();
+    assert_eq!(r["summary"]["quests"]["completed"], json!(0));
+
+    // CompleteQuest alone, no stage reached: touched and completed, not untouched.
+    let mut g = game(&f);
+    g.new_game();
+    g.coverage = Some(Default::default());
+    g.run_query("Begin Function { }
+CompleteQuest Q
+End
+", ctx()).unwrap();
+    let cov = g.coverage.as_ref().unwrap();
+    assert!(!cov.stages.iter().any(|(quest, _)| *quest == q()), "no stage of Q reached");
+    let r = report(cov);
+    assert_eq!(r["summary"]["quests"]["touched"], json!(1));
+    assert_eq!(r["summary"]["quests"]["completed"], json!(1));
+    assert!(r["untouched"].as_array().unwrap().iter().all(|u| u["quest"] != "Q"));
+}
+
+/// Script coverage reports which missing stages the data can set (`fnvtool script
+/// cover`): a SetStage call with a literal stage in any unit (a script, a stage result)
+/// makes that stage settable; a stage set only from its own result script is not; a
+/// stage given by a variable makes the quest's other stages settable "by variable".
+#[test]
+fn coverage_reports_which_missing_stages_the_data_can_set() {
+    const Q2: u32 = 0xA00;
+    const Q3: u32 = 0xA01;
+    const SCPT: u32 = 0xA02;
+    const GLOB: u32 = 0xA03;
+    let stage = |s: i16, unit_: Vec<Subrecord>| [vec![sub(b"INDX", s.to_le_bytes().to_vec()), sub(b"QSDT", vec![0])], unit_].concat();
+    let data = sub(b"DATA", [vec![0u8, 0, 0, 0], 0f32.to_le_bytes().to_vec()].concat());
+    // Q2 stage 10: SetStage Q2 10 (itself) ; SetStage Q2 20. Stage 20: SetStage Q3
+    // TestGlobal. Stage 30: nothing.
+    let q2 = [
+        vec![sub(b"EDID", z("Q2")), data.clone()],
+        stage(10, unit(0, &[call(SET_STAGE, &[r(1), n(10)]), call(SET_STAGE, &[r(1), n(20)])].concat(), &[], &[Q2])),
+        stage(20, unit(0, &call(SET_STAGE, &[r(1), [vec![b'G'], le16(2)].concat()]), &[], &[Q3, GLOB])),
+        stage(30, vec![]),
+    ]
+    .concat();
+    let q3 = [vec![sub(b"EDID", z("Q3")), data], stage(5, vec![]), stage(6, vec![])].concat();
+    // A script: begin GameMode / SetStage Q2 30 / end.
+    let scpt = [vec![sub(b"EDID", z("SetterScript"))], unit(0, &script(&[(0, None, call(SET_STAGE, &[r(1), n(30)]))]), &[], &[Q2])].concat();
+    let glob = record(b"GLOB", 0, GLOB, &[sub(b"EDID", z("TestGlobal")), sub(b"FNAM", vec![b's']), sub(b"FLTV", 5f32.to_le_bytes().to_vec())]);
+    let bytes = [
+        tes4(),
+        top(b"GLOB", &glob),
+        top(b"SCPT", &record(b"SCPT", 0, SCPT, &scpt)),
+        top(b"QUST", &[record(b"QUST", 0, Q2, &q2), record(b"QUST", 0, Q3, &q3)].concat()),
+    ]
+    .concat();
+    let plugins = vec![Plugin::parse(&bytes, "Test.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = schema();
+    let (table, j) = catalogue();
+    let refs = RefTable::build(&lo, &schema);
+    let d = GameData::build(&lo, &schema, table, &j, &refs);
+    assert_eq!(d.quests[&FormId(Q2)].stages.len(), 3);
+
+    let mut cov = fnv_game::coverage::Coverage::default();
+    cov.stages.insert((FormId(Q2), 20));
+    let r = fnv_game::coverage::report(&d, &[cov.log(&d, "t")], 10).unwrap();
+    let s = &r["summary"]["stages"];
+    assert_eq!(s["total"], json!(5));
+    assert_eq!(s["reached"], json!(1));
+    assert_eq!(s["settable"], json!(2), "Q2 20 and 30; not 10, set only by its own result");
+    assert_eq!(s["by_variable"], json!(2), "Q3 5 and 6");
+    assert_eq!(s["missing_settable"], json!(1));
+    assert_eq!(s["missing_by_variable"], json!(2));
+    let quests = r["detail"]["quests"].as_array().unwrap();
+    let q2 = quests.iter().find(|q| q["quest"] == "Q2").unwrap();
+    assert_eq!(q2["missing_settable"], json!([30]));
+    assert_eq!(q2["missing_unsettable"], json!([10]));
+    assert_eq!(q2["setters"]["30"], json!([{"kind": "script", "form": "Test.esm:000A02", "edid": "SetterScript"}]));
+    assert!(q2.get("missing_by_variable").is_none());
+    let q3 = quests.iter().find(|q| q["quest"] == "Q3").unwrap();
+    assert_eq!(q3["missing_settable"], json!([]));
+    assert_eq!(q3["missing_by_variable"], json!([5, 6]));
+    assert_eq!(q3["by_variable_setters"], json!([{"kind": "stage", "form": "Test.esm:000A00", "edid": "Q2", "stage": 20}]));
+    // The setter scan: stage 20 is set by Q2's stage 10 result.
+    let set = fnv_game::coverage::stage_setters(&d);
+    assert_eq!(set.literal[&(FormId(Q2), 20)][0].stage, Some(10));
+    assert!(!set.literal.contains_key(&(FormId(Q2), 10)));
+}
+
+/// A condition's null form (FormID 0) reads 0 for GetIsID and GetQuestVariable, and for
+/// any other function (#966, hypothesis), without a failed call [observed 2026-10-30, capture o4_00_probe: Papa Khan's goodbye with
 /// `GetQuestVariable <null> 1 == 0` was chosen and Cass's greeting with only `GetIsID
 /// <null> == 1` passed over; observer-checks.md check 35].
 #[test]
@@ -2274,7 +2443,12 @@ fn a_null_form_in_a_condition_reads_zero_without_a_failed_call() {
     assert!(!g.conditions_pass(&[is_id], player, None, "null GetIsID"));
     assert!(g.conditions_pass(&[qvar_0], player, None, "null GetQuestVariable == 0"));
     assert!(!g.conditions_pass(&[qvar_1], player, None, "null GetQuestVariable == 1"));
-    assert!(!g.events.iter().any(|e| matches!(&e.kind, EventKind::CallFailed { .. })));
+    // Any other function with a null form parameter reads 0 the same way (#966).
+    for name in ["GetInFaction", "GetItemCount", "GetDistance", "GetDead"] {
+        let zero = cond(index(name), vec![ArgValue::Value(Value::NONE)], Cmp::Eq, 0.0);
+        assert!(g.conditions_pass(&[zero], player, None, name), "{name} <null> == 0");
+    }
+    assert!(!g.events.iter().any(|e| matches!(&e.kind, EventKind::CallFailed { .. })), "{:?}", g.events.iter().filter(|e| matches!(&e.kind, EventKind::CallFailed { .. })).collect::<Vec<_>>());
 }
 
 #[test]
@@ -2412,52 +2586,113 @@ fn last_core_setters_change_what_their_getters_read() {
     assert_eq!(q(&mut g, "SetFunctionValue (GetHairLength PlayerREF)"), XVal::Num(0.5));
 }
 
+#[test]
+fn arrays_that_hold_themselves_do_not_crash() {
+    // #1089: Ar_DeepCopy, Ar_DeepEquals and PrintVar on an array that holds itself, and on
+    // two arrays that hold each other, end instead of overflowing the stack.
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("array_var aA
+array_var aB
+array_var aC
+array_var aD
+float fRes
+Begin Function {{ }}
+{body}
+End
+"), ctx());
+    let make = "let aA := ar_List 1, 2
+let aA[2] := aA
+let aB := ar_List 3
+let aC := ar_List aB
+let aB[1] := aC
+";
+    // The copy keeps the shape: its third element is the copy itself, not the original, so
+    // writing through it changes the copy and leaves the original alone.
+    assert_eq!(q(&mut g, &format!("{make}let aC := Ar_DeepCopy aA
+let aD := aC[2]
+let aD[0] := 9
+SetFunctionValue (aC[0] * 100 + aA[0])")), Ok(XVal::Num(901.0)));
+    // An array held twice is copied twice: the two copies stay apart.
+    assert_eq!(q(&mut g, "let aB := ar_List 5
+let aA := ar_List aB, aB
+let aC := Ar_DeepCopy aA
+let aD := aC[0]
+let aD[0] := 7
+SetFunctionValue ((aC[1])[0] * 100 + aB[0])"), Ok(XVal::Num(505.0)));
+    assert_eq!(q(&mut g, &format!("{make}let aC := Ar_DeepCopy aA
+SetFunctionValue (Ar_DeepEquals aC aA)")), Ok(XVal::Num(1.0)));
+    assert_eq!(q(&mut g, &format!("{make}SetFunctionValue (Ar_DeepEquals aA aA)")), Ok(XVal::Num(1.0)));
+    assert_eq!(q(&mut g, &format!("{make}let aC := ar_List 1, 2, 3
+SetFunctionValue (Ar_DeepEquals aC aA)")), Ok(XVal::Num(0.0)));
+    g.console_out.clear();
+    q(&mut g, &format!("{make}PrintVar aA, aB")).unwrap();
+    assert_eq!(g.console_out.len(), 2, "{:?}", g.console_out);
+    assert!(g.console_out[0].starts_with("aA: [1, 2, array #"), "{:?}", g.console_out);
+    assert!(g.console_out[1].starts_with("aB: [3, [array #"), "{:?}", g.console_out);
+}
+
 /// The extender functions a script call still finds unbuilt ("not built yet"), by plugin,
 /// from the catalogue: `cargo test --release -p fnv-game --test synthetic -- --ignored
 /// extender_census --nocapture`; the list goes to `target/tmp/extender-census.txt`. Each
-/// is called once with placeholder arguments (0, PlayerREF, "a"); a name that does not
-/// compile so is counted apart.
+/// is called once (a name two plugins share, once) with placeholder arguments (0,
+/// PlayerREF, "a"), then with fewer when the compiler takes fewer than the catalogue
+/// lists; the statements (`let`, `while`, …) are syntax and skipped. A name the compiler
+/// does not know at all is listed apart, with what the compiler said.
 #[test]
 #[ignore]
 fn extender_census() {
+    const STATEMENTS: [&str; 8] = ["let", "while", "loop", "foreach", "break", "continue", "eval", "search"];
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{root}/schemas/script/functions.json")).unwrap()).unwrap();
     let fs = doc.as_array().or_else(|| doc["functions"].as_array()).unwrap();
     let f = udf_fixture();
     let mut g = game(&f);
     let mut unbuilt: std::collections::BTreeMap<String, Vec<String>> = Default::default();
-    let mut nocompile = Vec::new();
+    let mut unknown = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     for x in fs.iter().filter(|x| x["family"] == "extender") {
         let n = x["name"].as_str().unwrap_or_default();
-        if n.is_empty() || !n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        if n.is_empty() || !n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || STATEMENTS.contains(&n.to_ascii_lowercase().as_str()) || !seen.insert(n.to_ascii_lowercase()) {
             continue;
         }
-        let args: Vec<&str> = x["params"].as_array().into_iter().flatten().map(|p| match p["kind"].as_str() {
-            Some("form" | "reference") => "PlayerREF",
-            Some("string") => "\"a\"",
-            Some("actor_value") => "Luck",
-            Some("axis") => "X",
-            _ => "0",
-        }).collect();
-        let before = g.events.len();
-        let r = g.run_query(&format!("Begin Function {{ }}
-{n} {}
-End
-", args.join(" ")), fnv_game::game::RunCtx::default());
-        let said = g.events[before..].iter().any(|e| format!("{e:?}").contains("not built"));
-        if r.as_ref().is_err_and(|e| e.contains("did not compile")) {
-            nocompile.push(n.to_string());
-        } else if said || r.as_ref().is_err_and(|e| e.contains("not built")) {
-            unbuilt.entry(x["origin"].as_str().unwrap_or("?").to_string()).or_default().push(n.to_string());
+        let args: Vec<&str> = x["params"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|p| match p["kind"].as_str() {
+                Some("form" | "reference") => "PlayerREF",
+                Some("string") => "\"a\"",
+                Some("actor_value") => "Luck",
+                Some("axis") => "X",
+                _ => "0",
+            })
+            .collect();
+        let mut verdict = None;
+        for k in (0..=args.len()).rev() {
+            let before = g.events.len();
+            let r = g.run_query(&format!("Begin Function {{ }}\n{n} {}\nEnd\n", args[..k].join(" ")), fnv_game::game::RunCtx::default());
+            let said: Vec<String> = g.events[before..].iter().map(|e| format!("{e:?}")).collect();
+            if r.as_ref().is_err_and(|e| e.contains("did not compile")) {
+                verdict = Some(Err(said.join(" | ")));
+                continue;
+            }
+            verdict = Some(Ok(said.iter().any(|e| e.contains("not built")) || r.as_ref().is_err_and(|e| e.contains("not built"))));
+            break;
+        }
+        match verdict {
+            Some(Ok(true)) => unbuilt.entry(x["origin"].as_str().unwrap_or("?").to_string()).or_default().push(n.to_string()),
+            Some(Err(why)) => unknown.push(format!("{n} ({why})")),
+            _ => {}
         }
     }
     let mut out = String::new();
     for (o, v) in &unbuilt {
-        out += &format!("{o} {}: {}
-", v.len(), v.join(", "));
+        out += &format!("{o} {}: {}\n", v.len(), v.join(", "));
     }
-    out += &format!("did not compile with placeholders {}: {}
-", nocompile.len(), nocompile.join(", "));
+    out += &format!("not compiled with any argument count {}: {}\n", unknown.len(), unknown.join(", "));
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/tmp");
     std::fs::create_dir_all(dir).unwrap();
     std::fs::write(format!("{dir}/extender-census.txt"), &out).unwrap();
@@ -2562,6 +2797,8 @@ fn jip_batch_four_reads_the_game_state() {
     assert_eq!(n(&mut g, "GetGlobalRef TestRefGlobal"), XVal::Ref(0));
     q(&mut g, "SetGlobalRef TestRefGlobal TestClass");
     assert_eq!(n(&mut g, "GetGlobalRef TestRefGlobal"), XVal::Ref(0x0000_0A01));
+    // The form is the global's own value: its float's bits are the form ID [observed: jip4].
+    assert_eq!(n(&mut g, "GetGlobalValue TestRefGlobal"), XVal::Num(f64::from(f32::from_bits(0x0000_0A01))));
     q(&mut g, "PlayerREF.SetGlobalRef TestRefGlobal");
     assert_eq!(n(&mut g, "GetGlobalRef TestRefGlobal"), XVal::Ref(FormId::PLAYER_REF.0), "the calling reference");
     let achr = f64::from(fnv_script::vm::form_type_code(b"ACHR").unwrap());
@@ -2573,4 +2810,88 @@ fn jip_batch_four_reads_the_game_state() {
     g.tick();
     let after = n(&mut g, "GetSessionTime");
     assert!(matches!((before, after), (XVal::Num(a), XVal::Num(b)) if b > a), "time goes on");
+}
+
+/// A save with the tutorial menu open over the Pip-Boy, a SayToDone and a reference
+/// event waiting for the next frame: all come back, and closing the tutorial after the
+/// load gives the Pip-Boy back (#1090). A save from before these fields still loads.
+#[test]
+fn the_tutorial_stack_and_next_frame_work_survive_a_save() {
+    use fnv_game::game::menus;
+    let f = fixture();
+    let mut g = game(&f);
+    g.open_menu(menus::STATS);
+    g.show_tutorial(FormId(MESSAGE));
+    g.say_to_unsaid.push((FormId(ACT_REF), FormId(MESSAGE)));
+    g.queue_ref_event(FormId(ACT_REF), 7, Some(FormId::PLAYER_REF));
+    let s = g.snapshot();
+    let text = serde_json::to_string(&s).unwrap();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&text).unwrap();
+    assert_eq!(back, s);
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let mut h = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!((h.menu, h.menu_under, h.tutorial.clone()), (Some(menus::TUTORIAL), Some(menus::STATS), vec![FormId(MESSAGE)]));
+    assert_eq!(h.say_to_unsaid, g.say_to_unsaid);
+    assert_eq!(h.queued_ref_events, g.queued_ref_events);
+    assert_eq!(h.close_menu(), Some(menus::TUTORIAL));
+    assert_eq!((h.menu, h.menu_under), (Some(menus::STATS), None), "the Pip-Boy is back");
+    let mut old: serde_json::Value = serde_json::from_str(&text).unwrap();
+    for k in ["menu_under", "tutorial", "say_to_unsaid", "queued_ref_events"] {
+        assert!(old.as_object_mut().unwrap().remove(k).is_some(), "{k} is written");
+    }
+    let old: fnv_game::game::GameSnapshot = serde_json::from_value(old).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &old.sim).unwrap();
+    let h = Game::restore(&f.data, world, g.cfg, &old).unwrap();
+    assert!(h.tutorial.is_empty() && h.menu_under.is_none());
+}
+
+/// A topic of three lines in Base.esm (A, B, C) and a patch that adds two lines chained
+/// by Previous INFO behind A (X names A, Y names X) and one with PNAM 0 (Z): the added
+/// run goes behind A, Z stays at the end (issue #968, `data::follow_previous`).
+#[test]
+fn lines_a_later_plugin_adds_follow_their_previous_info() {
+    const TOPIC: u32 = 0x900;
+    let info = |id: u32, pnam: Option<u32>| {
+        let mut subs = vec![sub(b"DATA", vec![0, 0, 0, 0]), sub(b"NAM1", z("line"))];
+        if let Some(p) = pnam {
+            subs.push(sub(b"PNAM", p.to_le_bytes().to_vec()));
+        }
+        record(b"INFO", 0, id, &subs)
+    };
+    let base = [
+        tes4(),
+        top(
+            b"DIAL",
+            &[record(b"DIAL", 0, TOPIC, &[sub(b"EDID", z("TestTopic"))]), group(TOPIC.to_le_bytes(), 7, &[info(0xA01, None), info(0xA02, None), info(0xA03, None)].concat())].concat(),
+        ),
+    ]
+    .concat();
+    let hedr = [1.34f32.to_le_bytes(), 0i32.to_le_bytes(), 0x800u32.to_le_bytes()].concat();
+    let patch_tes4 = record(b"TES4", 0, 0, &[sub(b"HEDR", hedr), sub(b"MAST", z("Base.esm")), sub(b"DATA", vec![0; 8])]);
+    // The patch's own forms carry its index (1) in the top byte; the topic is the base's.
+    let (x, y, zl) = (0x0100_0B01, 0x0100_0B02, 0x0100_0B03);
+    let patch = [
+        patch_tes4,
+        top(
+            b"DIAL",
+            &[record(b"DIAL", 0, TOPIC, &[sub(b"EDID", z("TestTopic"))]), group(TOPIC.to_le_bytes(), 7, &[info(x, Some(0xA01)), info(y, Some(x)), info(zl, Some(0))].concat())].concat(),
+        ),
+    ]
+    .concat();
+    let plugins = vec![Plugin::parse(&base, "Base.esm".into()).unwrap(), Plugin::parse(&patch, "Patch.esp".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = schema();
+    let (table, j) = catalogue();
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    let ids: Vec<u32> = data.topics[&FormId(TOPIC)].iter().map(|f| f.0).collect();
+    assert_eq!(ids, vec![0xA01, x, y, 0xA02, 0xA03, zl]);
+    assert_eq!(data.lines_moved_by_previous, 2);
+    // In one plugin a PNAM changes nothing: the base order is its file order.
+    let alone = vec![Plugin::parse(&base, "Base.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&alone).unwrap();
+    let (table, j) = catalogue();
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    assert_eq!(data.topics[&FormId(TOPIC)], [0xA01, 0xA02, 0xA03].map(FormId));
 }

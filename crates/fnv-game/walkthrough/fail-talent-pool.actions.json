@@ -1,0 +1,28 @@
+{
+  "format": "fnv.script.actions/1",
+  "title": "Headless Talent Pool (VMSTopsTalentPool), the fail: Tommy Torini's talent scouting (stage 10), then the Tops' greeter threatened (the Chairmen hostile, stage 70)",
+  "given": [
+    {"kind": "actor_value", "of": "player", "av": "Barter", "value": 50},
+    {"kind": "actor_value", "of": "player", "av": "Speech", "value": 50},
+    {"kind": "item_count", "of": "player", "item": "Caps001", "count": 500},
+    {"kind": "quest", "quest": "VFreeformFreeside", "vars": {"PlayerPassport": 1}}
+  ],
+  "actions": [
+    {"op": "note", "text": "Path, the fail: Tommy Torini's talent scouting as in talent-pool (stage 10); then the Tops' greeter at the door (GREETING, Topic005 'from my cold dead hands', 006: the player threatens him; the Chairmen turn hostile and stage 70 is set while the quest is not completed). Travel inside the Tops is move_player."},
+    {"op": "move_player", "to": "TommyToriniREF"},
+    {"op": "talk", "actor": "TommyToriniREF", "label": "tommy greeting"},
+    {"op": "choose", "topic": "TommyToriniIntro", "label": "tommy intro"},
+    {"op": "choose", "topic": "VMSTopsTalentPoolVMSTopsTommyToriniTopic006", "label": "tommy 006"},
+    {"op": "choose", "topic": "VMSTopsTalentPoolVMSTopsTommyToriniTopic007", "label": "tommy 007"},
+    {"op": "choose", "topic": "VMSTopsTalentPoolVMSTopsTommyToriniTopic009", "label": "tommy bargain (Barter 50)"},
+    {"op": "wait_talk", "label": "w1"},
+    {"op": "end_talk"},
+    {"op": "get_quest", "quest": "VMSTopsTalentPool", "fields": ["stage", "done.10"], "label": "milestone: VMSTopsTalentPool 10"},
+    {"op": "move_player", "to": "VTopsGreeter1REF"},
+    {"op": "talk", "actor": "VTopsGreeter1REF", "label": "greeter"},
+    {"op": "choose", "topic": "VDialogueTopsVTopsGreeter1Topic005", "label": "greeter 005"},
+    {"op": "choose", "topic": "VDialogueTopsVTopsGreeter1Topic006", "label": "greeter threatened"},
+    {"op": "wait_talk"},
+    {"op": "get_quest", "quest": "VMSTopsTalentPool", "fields": ["stage", "done.70", "completed"], "label": "final: VMSTopsTalentPool 70"}
+  ]
+}

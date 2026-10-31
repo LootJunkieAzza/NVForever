@@ -206,6 +206,7 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             let input: fnv_game::runner::Input = serde_json::from_value(input).context("query actions")?;
             let run = fnv_game::runner::run(&data, &forms, &refs, &input).map_err(anyhow::Error::msg)?;
             if let Some(path) = trace {
+                fnv_install::guard_write(&path, None)?;
                 std::fs::write(&path, serde_json::to_string(&run)?).with_context(|| path.display().to_string())?;
             }
             Ok(queries_doc(&set, &run))
@@ -250,6 +251,7 @@ fn dump_units(units: &[ScriptUnit], table: &FunctionTable, plugin: Option<&str>,
         }));
     }
     let doc = json!({"format": "fnv.ext.units/1", "units": index});
+    fnv_install::guard_write(&dir.join("units.json"), None)?;
     std::fs::write(dir.join("units.json"), serde_json::to_string_pretty(&doc)?).context("units.json")?;
     Ok(json!({"dir": dir.display().to_string(), "units": doc["units"].as_array().map_or(0, |a| a.len())}))
 }

@@ -1,9 +1,9 @@
 # Weapon wheel: hold a hotkey for a slow-time wheel
 
 Status 2026-10-23: **built** on `claude/weapon-wheel` (`engine/nvf-play/src/hotkeys.rs`,
-`weapon_wheel.rs`, `weapon_wheel/draw.rs`, `weapon_wheel/slice.wgsl`; smoke scenario
+`weapon_wheel.rs`, `weapon_wheel/draw.rs`, `weapon_wheel/slice.wesl`; smoke scenario
 `weapon-wheel`). The Pip-Boy's hotkey panel (§3) since 2026-10-27
-(`pipboy/hotkey_panel.rs`, smoke `pipboy-hotkey-assign`). Not built yet: the sounds (§8). Owner request: every hotkey (1–8)
+(`pipboy/hotkey_panel.rs`, smoke `pipboy-hotkey-assign`). The sounds (§8) are built. Owner request: every hotkey (1–8)
 works as a quick key when tapped, and opens a wheel of all eight when held, modelled on
 Red Dead Redemption 2's weapon wheel (the owner's reference picture is kept privately in
 `C:\fnv-private\references\weapon_wheel\owner-reference.webp`, never committed).
@@ -163,7 +163,8 @@ The HUD (`hud.rs`) is hidden while the wheel is open [design: as the reference].
 
 The Pip-Boy's existing interface sounds (`pipboy/sounds.rs`): a click when the picked
 slice changes, the equip sound on release [design; which sound files is a choice for the
-owner's ear]. A slot used by a tap or from the wheel plays what the ITEMS page plays for
+owner's ear]. **Built** (#985): a changed pick plays the ITEMS page's row-change click
+(`ui_sounds` Inventory / selection moved, `UIPipBoyScroll`). A slot used by a tap or from the wheel plays what the ITEMS page plays for
 the same thing (owner 2026-10-27, `ui_sounds`, inventory events): putting on a weapon or
 apparel plays the item's own put-on sound, taking apparel off its take-off sound, an aid
 item its consume sound (ALCH `ENIT`), an item not carried or refused the refusal sound;

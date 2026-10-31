@@ -43,8 +43,20 @@ the reader, the tree, trait evaluation and the script-facing API (`crates/fnv-ui
   expression: the operator list of menu-xml.md §4 (`copy`, `add`, `onlyif`, …), with
   arguments that are literals, other tiles' traits (`src="parent()" trait="width"`) or
   nested lists.
-- **Ids**: tiles live in one arena (`TileId`). Unloading marks a subtree dead; ids are
-  never reused, so the engine can hold one across frames and check `live`.
+- **Ids**: tiles live in one arena of slots (`TileId`: a slot and its generation).
+  Unloading frees a subtree's slots for later tiles and moves each slot's generation on,
+  so opening and closing menus leaves the arena its size (#1039). An id kept past its
+  tile's unloading never names the slot's new tile: `Ui::tile` answers a dead, empty tile
+  (`live` false), `Ui::is_live` false, and writes and unloads through it do nothing, so
+  the engine can hold one across frames and check `live`.
+- **Skipping unchanged traits**: an expression remembers the traits it read when last
+  worked out; while the tree's shape (tiles made, unloaded, renamed, traits added) is
+  unchanged and none of those traits changed since, `Ui::update` skips it without
+  working it out (#1039). A changed shape works every expression out once more. If the
+  shape changed before each of 120 updates in a row (the skip lost), the engine logs one
+  warning naming the last call that changed it and where from (`Ui::take_reshape_warning`,
+  #1061). Each tree also has its own number in its ids, so an id kept from a tree since
+  replaced names no tile of the new one.
 - **Paths**: `Menu/Tile/…/trait`, any case, `/` or `\`, `*` and `name:N` (menu-xml.md
   §5): `Ui::find_tile`, `Ui::find_trait`, `Ui::path_of`.
 
@@ -62,8 +74,12 @@ is the one door:
 
 Replaced menu files therefore work without any code: the VFS already prefers the loose
 file. Game strings (`&-sName;`) come from `Source::game_string`. The engine answers from
-the load order's GMSTs and then from NVForever's English table, since the masters hold
-none of the 145 names (menu-xml.md §2.4; task T10).
+`fnv_ui::GameStrings`: the load order's GMSTs (last plugin wins), then the built-in table
+`fnv_ui::strings::BUILT_IN`, since the masters hold only one of the 145 names
+(`sMorphine`). The table holds NVForever's own English labels, written from each
+setting's name and where the menu files use it, never from the original's text (the
+maintainer's decision 2026-10-30, LEGAL.md; menu-xml.md §2.4). A name with no text reads
+empty, as an unknown name does in the original, and names ignore case (task T10).
 
 ### 3.2 Which menu file
 
@@ -124,14 +140,25 @@ or holds no `<menu>` is an error for that menu only.
    - The open menu's `io()` traits (`user0`…, `_IsContainerListSelected`, the HUD's
      `_SneakLevel`, …).
    - List rows made from templates (`add_from_template`), with their `user` traits.
-   - Pointer state: `mouseover` and `clicked` on hotrects (task T8).
+   - Pointer state: `mouseover` and `clicked` on targets, the keys' clicks and the menu
+     events (task T8, `tiles::input::feed` → `fnv_game::ui_input::step`; menu-xml.md
+     §3.2), only for the menus drawn from tiles that take input, so the default game
+     does no tree work for it.
 
    The HUD's writes (`fnv_game::ui_hud::write`) are made only when something reads
-   them: the tile-drawn HUD (`[UI] TileMenus=HUDMainMenu`), mod tiles in the HUD, or a
-   script that has called a UI function. Otherwise the frame keeps them
-   (`ui_hud::defer`), and the first UI function call makes them before it reads
+   them: the tile-drawn HUD (`[UI] TileMenus=HUDMainMenu`), mod tiles in the HUD
+   (`Ui::has_mod_added_tiles`: a count per menu kept where tiles are made, unloaded or
+   change origin, so neither this check nor the drawing walks the HUD a frame, #938), or a
+   script that has called a UI function on the HUD (a path whose menu is `HUDMainMenu`:
+   a trait read or set there, a tile injected, made from a template or unloaded there;
+   calls on other menus and MCM's shorthands do not count, #937). Otherwise the frame
+   keeps them (`ui_hud::defer`), and the first such call makes them before it reads
    (`ui_hud::flush`); from then on they are written every frame [design: maintainer's
-   review of #902, so the default game does no tree work a frame].
+   review of #902, so the default game does no tree work a frame]. The measured text
+   widths are kept with them as their measure (the engine's fonts, owned, a
+   `ui_hud::Measure`): they are measured from the strings the write puts in the tree, so
+   the flush makes the strings and then the widths, in a frame's order (#936). The
+   corners are written only with the tile-drawn HUD, when nothing is kept back.
 2. **Scripts run**, and their Set/Mod/Inject calls land in the tree at once (the
    functions read what they set in the same frame).
 3. **`Ui::update()`** works out every trait whose sources changed, until nothing
@@ -185,7 +212,9 @@ these functions by name:
 | `InjectUIXML`, `InjectUIComponent` | XML into the named tile; 1 on success |
 | `UnloadUIComponent` | removes a tile |
 | `AddTileFromTemplate` | `"path\|template\|name"` |
-| `MenuTapKey` | queues a key in `ui_taps` |
+| `MenuTapKey` | queues a key in `ui_taps` (a menu taking tile input reads them as presses) |
+| `GetActiveUIComponentName`, `…FullName`, `…ID` | the highlighted tile's name, path, `<id>`; "" / -1 with none |
+| `ClickMenuButton`, `ClickMenuTile` | click a tile (path or `Menu#id`) as a press does; 1 when clicked |
 
 Wiring it is one line in `crate::nvse::call` on claude/ext-compiler (task T2):
 
@@ -245,7 +274,8 @@ traits:
   code already reads);
 - `text`: `string`, `font` (fnv-font), `justify`, `wrapwidth`;
 - colour: `systemcolor`, `red`/`green`/`blue`, `brightness`;
-- `nif`: a model drawn into the menu, later.
+- `nif`: a model drawn into the menu; since the T12 leftovers a model of flat textured
+  squares (the breath meter) is drawn as pictures (hud.md §14.12), other models later.
 
 The layout is a pure function from the tree to rectangles (tested headless). What each
 drawing trait means exactly is checked against the original menu by menu (screenshots

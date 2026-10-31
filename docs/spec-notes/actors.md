@@ -28,7 +28,8 @@ format page (§4).
 - 4,220 NPC_ records [observed]. `TPLT` names an NPC_ in 2,204 and an LVLN in 703.
   Template use by group: none 1,313; a `TPLT` but no group flag 482; Inventory only
   1,295; Traits+Model+Inventory 712; Traits+Model 190; Model only 91; Model+Inventory 48;
-  Traits+Inventory 77; Traits only 12 [observed].
+  Traits+Inventory 77; Traits only 12 [observed]. Every flag, for NPC_ and CREA, and
+  where NVForever resolves each: §1.3.
 - Skeletons named by NPC_ `MODL`: `characters\_male\skeleton.nif` 3,534,
   `marker_creature.nif` 678 (an editor placeholder), none 8 [observed]. Of the 89 NPC_
   with Traits but not Model/Animation from a template, 22 name the placeholder; 21 of
@@ -152,6 +153,89 @@ actor meshes`]:
   the idle by default (owner decision 2026-10-09; it was the frozen bind pose before);
   `--actor-pose bind` keeps the bind pose (§7).
 
+### 1.3 Template flags: audit (2026-10-30)
+
+An actor base (NPC_, CREA) with a template (`TPLT`) takes each group of data whose ACBS
+template flag is set from the template, which may itself be a levelled list (LVLN,
+LVLC) [documented: GECK wiki Category:NPC, Template Data, "Each checkbox corresponds to a
+tab on the NPC. If checked, the NPC gets it's data for that tab from the NPC specified";
+flag IDs from GetActorTemplateFlag: 1 Traits, 2 Stats, 4 Factions, 8 Actor Effect List,
+16 AI Data, 32 AI Packages, 64 Model/Animation, 128 Base Data, 256 Inventory, 512
+Script]. Base Data leaves out Quest Item, No Knockdowns, No VATS Melee, Is CharGen Face
+Preset and Can Be All Races; Model/Animation also covers the Blood, Sounds and
+Destruction tabs [documented: same page]. A levelled-list template stands for the one
+actor picked for the reference; every group that reaches the list sees the same pick
+(§2.1). Which fields lie on which tab beyond these pages follows xEdit's grouping (§1.1)
+[documented for NPC_; hypothesis for the CREA-only fields, `CNAM` impact data set and the
+sound lists].
+
+**Records [observed: the ten masters, `cargo run --release -p fnv-actor --example
+template_flag_survey -- schemas/fnv <masters>`].** NPC_ 4,220: `TPLT` an actor 2,204, a
+list 703, none 1,313. CREA 2,235: an actor 1,162, a list 541, none 532. Records with each
+flag set:
+
+| Flag | NPC_, actor template | NPC_, list template | CREA, actor template | CREA, list template |
+|---|---|---|---|---|
+| Traits | 340 | 651 | 932 | 509 |
+| Stats | 1,679 | 625 | 463 | 522 |
+| Factions | 1,811 | 471 | 776 | 470 |
+| Actor Effect List | 1,542 | 636 | 1,061 | 537 |
+| AI Data | 1,468 | 544 | 861 | 480 |
+| AI Packages | 1,127 | 117 | 477 | 150 |
+| Model/Animation | 373 | 668 | 774 | 540 |
+| Base Data | 1,559 | 428 | 480 | 472 |
+| Inventory | 1,562 | 570 | 918 | 512 |
+| Script | 1,387 | 412 | 513 | 380 |
+
+Two CREA set flags with no `TPLT` (they keep their own data). Every placed ACHR has an
+NPC_ base and every placed ACRE a CREA base: in the masters levelled lists are reached
+only through `TPLT` [observed].
+
+**Where reading the wrong record shows [observed, same survey].** Records with the flag
+whose own (hidden) field differs from what one of their template sources gives, actor
+template / list template: Traits — NPC_ `VTCK` voice 40 / 642 (in 631 the list's picks
+disagree among themselves), Female 20 / 432, race 32 / 432; CREA `VTCK` 40 / 491.
+Model/Animation — CREA `NAM4` impact material 52 / 244 (e.g. `LvlTurret1024`), CREA
+`CNAM` impact data set 37 / 464, CREA own sound list (`CSDT`) 21 / 0
+(`FriendshipMetroMetroRoach`), CREA `CSCR` 131 / 538. Script — `SCRI` NPC_ 10 / 97,
+CREA 36 / 214 (`LvlFeralGhoul`). The own field of a list-templated record is mostly a
+placeholder, so reading it instead of the pick's shows in play.
+
+**How NVForever resolves each group.** One rule,
+`fnv_game::templates::GameData::template_source_at`: follow `TPLT` while the current
+record's flag for the group is set; a list stands for its pick, seeded by the reference
+and read at the reference's level. In a game it is reached through `Game::template_source`
+(the level from `Game::leveled_at`, the seed from `Game::pick_seed`, which a
+ResurrectActor re-roll changes). The drawn body uses `fnv_actor::resolve`
+(`template_source`, `creature_source`), which picks with the same seed, level and order:
+every group's chain is a prefix of one path through the same lists, so both name the same
+actor.
+
+| Flag | What NVForever takes from the source | Where | Verdict |
+|---|---|---|---|
+| Traits | race, sex, class, karma, death item (`INAM`), voice type | `Game::traits_def` (appearance, GetIsSex, GetIsClass, GetIsVoiceType, death items, dialogue), crime alignment, `fnv_actor::resolve` | right in `fnv-game`. Voice files: `fnv_voice::VoiceIndex::voice_of` follows `TPLT` only to an actor and the engine passes the placed base, so a list-templated actor speaks with the record's own `VTCK` (#1051, fixed separately) |
+| Stats | level, attributes, skills, health, speed mult, creature type, combat skill, base scale | `Game::stats_def`, `creature_pace`, `fnv_actor::resolve` | right |
+| Factions | `SNAM` list | `GameData::base_factions_at` | right; NVSE GetBaseNthFaction / GetBaseFactions read the record's own (#1057, needs a probe) |
+| Actor Effect List | `SPLO` abilities | `abilities.rs`, `combat.rs` | right; NVSE GetBaseSpellListSpells follows one step and gives nothing for a list template (#1057) |
+| AI Data | aggression, confidence, …, combat style, services, aggro radius | `def_following(template_ai)` | right |
+| AI Packages | `PKID` list | `GameData::base_package_list_at` | right; NVSE GetNthPackage / GetBasePackages follow the template only when the own list is empty, one step (#1057) |
+| Model/Animation | skeleton, head parts, FaceGen, creature models and animations, No Blood flags, movement flags, impact material, creature impact data set, creature sounds | `fnv_actor::resolve`, `GameData::no_blood`, `movement_def`, `GameData::model_base_at` | was wrong: impact material and impact data set read from the placed base (#1053), creature sounds took the picked creature's own list first (#1054); fixed |
+| Base Data | name, Essential, Respawn, No Low Level Processing, Invulnerable, Is Ghost, Not Pushable, head and limb flags, Can't Open Doors, Allow PC Dialogue | `base_data_def`, `display_base`, `minor_flags` | right; No VATS Melee is read from the record's own flags, as documented |
+| Inventory | `CNTO` | `inventory_sources_at`, `fnv_actor::resolve` | right (the engine's start-up and restore used level 1, #1055; fixed) |
+| Script | `SCRI` | `Game::ref_script` | right (the `script` an `Activation` of a corpse reports is the placed base's; informational only) |
+
+**Pick and level** (#1055, #1056; fixed): `GameData::no_blood`, `minor_flags` and
+`no_vats_melee`, and the engine's start-up and restore inventory sources, picked lists at
+level 1 rather than at the reference's level; and after a ResurrectActor re-roll only the
+body and the carried items followed the new pick, while sex, voice type, factions, stats
+and the rest kept the first. All now use the reference's level and `Game::pick_seed`.
+Outside a game turn the engine reads the level from the world played
+(`nvf_play::sim::SimState::leveled_at`, `pick`): `Game::world` is then an empty stand-in
+(`with_world`) with no fixed levels, so `Game::leveled_at` there would give the level an
+actor would be fixed at now, not the one it was fixed at. The copy of every placed
+actor's level the drawn actors use (`nvforever::zones::sync_levels`) had the same fault
+and reads it there too; inventory sources set on a restore take the saved roll seeds.
+
 ## 2. Resolution rules (`fnv_actor::resolve`)
 
 FormIDs are global (load-order) FormIDs as in simulation.md §1; paths are **archive
@@ -187,6 +271,21 @@ paths**: trimmed, `/` → `\`, lower case, leading `\` removed, prefixed with `m
   §2.1 [hypothesis, following xEdit's field grouping]. `ACBS` "Use Template" is not
   consulted.
 - From the **Traits** source: race (`RNAM`), sex (ACBS bit 0 Female).
+- **The extender's base-form getters** on templated bases [observed: o5_00-01,
+  2026-10-31, xNVSE 6.4.9 + JIP LN; issue #1057]:
+  - GetBaseNumFactions / GetBaseNthFaction follow an NPC_ template when Use Factions is
+    set: GoodspringsPowderGangerHM 0x0015F312 (own 2 SNAM, template
+    GoodspringsPowderGangerAAMTemplate's 3) read 3, in the template's SNAM order
+    reversed (0x00134B6D, 0x00104C7E, 0x00136E0F). Without the flag the base's own
+    (PrimmPowderGangerOutside: 2, reversed). With an LVLN template and no own SNAM
+    (LvlGoodspringsPowderGanger 0x0015F315, Use Factions): 0 and no form.
+  - GetClass: own CNAM when Traits is not templated (0x0008D370, 0x0001945C). With Use
+    Traits and an LVLN template (PrimmPowderGangerOutside → VarPowderGangerGun,
+    LvlGoodspringsPowderGanger → VarGoodspringsPowderGanger; own CNAM VaultDweller
+    0x00000801) both read the **same** unrelated class, LonesomeRoad.esm's
+    NVDLC04UlyssesClass (load-order 0400A679), neither their own nor a list entry's
+    (0x0008D370) [observed; not explained].
+  - GetBaseSpellListSpells: an empty array on all five bases tried (none has own SPLO).
 - From the **Model/Animation** source: skeleton, hair, eyes, head parts, hair colour
   (`HCLR`, first three bytes), FaceGen arrays.
 - From the **Inventory** source: carried items (`CNTO` in record order).
@@ -229,6 +328,24 @@ R ForeTwist`) ends at x 43.4 where the base leather armour's (454 vertices, boun
 `Bip01 R Hand` too) runs to 46.6, so with the bare hand drawn the wrist showed a gap;
 the glove (`RightGlove`, x 40.9–54.6) covers it [observed: the NIFs' vertex bounds in
 the bind pose].
+
+**One hand model per hand** (#1067, owner 2026-10-30: with the vault suit the player's left
+hand was drawn twice, overlapping). The always-worn Pip-Boy Glove (`PipBoyGlove` 0x00025B83,
+Left Hand, `Characters\_Male\LeftHandPipboyGlove.NIF`) shares its slot with addons
+[observed: FalloutNV.esm]:
+- The vault suits (`VaultSuit21` 0x00104184 and the rest, Upper Body) name the list
+  `BaseFemale` (0x0011AFDB): `BaseFemaleGloveR` (Right Hand, `characters\_male\righthand.nif`)
+  and `BaseFemaleGloveL` (Left Hand, `lefthand.nif`), the race's own bare hand models.
+- The gloved outfits and power armours name glove addons of their own (`LeatherArmorGloveL`,
+  `PowerArmorLeftHand`, `NVRangerGloveL`, … : 50-odd hand ARMA, BMDT general flags 0x10 on
+  most, which tells the two kinds apart in no way).
+
+Rules [hypothesis; owner's report for the vault suit]: an addon whose model is the race's
+own hand for the actor's sex gives way to another worn item taking its slot itself, as the
+race's hand does (the vault suit shows the Pip-Boy Glove's hand); a worn item whose every
+slot other items' addons take is not drawn (the Pip-Boy Glove gives way to an outfit's
+glove or a power armour's gauntlet). The first-person rig takes the same parts. Smoke:
+`pipboy-glove-vault-suit`, `pipboy-glove-leather`.
 
 ### 2.4 Parts
 
@@ -1559,6 +1676,48 @@ stopped and started, as Victor's walk had before #258). Code:
     its claws over its shoulders and the ghoul hunches with its hands raised; both go
     back after the unequip clip. Deathclaws fighting a feral ghoul play their attacks
     with the stance drawn.
+  - **Dogs and coyotes warn head down** (issue #1073, 2026-10-31) [design]: creatures
+    with an `h2h` movement set (§8.10 Alert stance) now draw the stance too, but only
+    while they warn the player (`Game::warning_to`, not alerted), and put it away when
+    they fight, where their `h2h` set is their alert look. The dog folder's
+    `h2hequip.kf` (0.67 s), `h2haim.kf` (2.0 s) and `h2hunequip.kf` (0.67 s) key every
+    bone at 25 [observed: `fnvtool nif decode`, `Fallout - Meshes.bsa`]: over the dog's
+    `mtidle.kf` (20) and under its `mtforward.kf` (30) and `h2hfastforward.kf` (31), so
+    the warning pose shows while it stands and the charge shows the run. The dog has no
+    IDLE record of its own for a warning (its IDLEs are barks, growl, sit, sniff, look,
+    hit reactions and getting up) [observed: `fnvtool esm inventory`]; whether the
+    original plays `h2haim.kf` while a coyote warns is not measured (observer check 58).
+  - **The slide** (issue #1073) [observed in NVForever, smoke `crippled-limp-creature`
+    on main, 2026-10-31]: the coyote "attacks the player on the run from 247 units
+    (closing at 503 units/s)", and its blow clips (`h2hattackleft.kf`,
+    `h2hattackpower.kf`, `h2hattackforwardpower.kf` …) key every bone, legs included,
+    at 55 to 57 over the run's 31: for the blow's length the legs stood in the bite
+    while the body went on at the run's speed. Rule [design]: a biter's blow begun
+    while it moves shows on its head and neck only for the whole blow (decided in its
+    first frame, so the pose does not snap when it stops or sets off mid-blow). Biters:
+    the creatures with an `h2h` movement set other than the cazador and the mirelurk
+    king (whose stings and claws stay whole, as every other creature's do), so dogs and
+    coyotes; it shows (the bones named `Head…`,
+    `Neck…`, `Ponytail…` (ears and tongue), `…Jaw`, `…TungeControler`;
+    `attack_anims::head_only`), over its run; begun standing, the whole clip. People's
+    blows are unchanged. Not done: blows whose clip travels (the deathclaw's lunge, #1069).
+  - **Moving with no movement clip** is counted (`actor moves without a clip:` at exit:
+    actor frames moving at 5 units/s or more on no movement clip, and frames of a
+    creature's blow on its head and neck over its run), and logged once per actor
+    (`actor moves with no movement clip: …`). The dog skeleton has no side clips and no
+    fast backward clip (`mtbackrward.kf` and `h2hbackward.kf` only) [observed]; creatures
+    are moved facing their way (`nav::show_actor`: no strafing for creatures), so this
+    is not met by turning alone.
+  - **Setting off within a fade** (issue #1073) [observed in NVForever, smoke
+    `coyote-warn-charge` with the count above, 2026-10-31]: eight coyotes around the
+    warning spot were logged moving at 50-85 units/s on `TurnLeft`, `TurnRight` or
+    `Idle`, 183 actor frames in 45 s: a walk asked for while the blend faded into a
+    standing clip (the idle into a turn on the spot, a turn back into the idle) waited
+    for that fade to end (`fnv_actor::locomotion::Blend::step`), and the actor slid on
+    the standing clip meanwhile. Rule [design]: for creatures (`Blend::set_off_at_once`, set on
+    every creature's locomotion), a walk or run asked for while the clip playing is a
+    standing one starts at once, fading from that clip; changes between moves still wait
+    for the fade. People keep the eased fade (their movement look is the owner's).
 - **Not done**: the aim's up and down forms for creatures that have them (ghoul,
   protectron, smbehemoth, smspinebreaker: `h2haimup.kf`, `h2haimdown.kf`; people's are
   in `attack_anims.rs`); the creature alert look is not compared with the original game

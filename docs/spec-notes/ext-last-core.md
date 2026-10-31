@@ -56,8 +56,46 @@ the HUD captures in hud.md §14 [observed]. Every change lasts for the session.
   none of them and they do nothing else [decision: NVForever writes nothing beside the
   game, docs/design/install-layout.md]. DecompileScript gives an empty array.
 
-## 4. Not built
+## 4. Found by probing the original (2026-10-30, #1021, #1025)
 
-- SetNthPackage: its page gives no arguments [documented: SetNthPackage].
-- PrintActiveTile: the tile under the pointer; the tile tree has no pointer state.
-- `eval` is the if-statement form (ext-syntax.md), built in the compiler.
+Probe sets `rules1` and `rules2` (`tools/capture/jip_probes.py`, run from the owner's save
+nvfairport; goldens private). They read to eight or ten decimals, more than the lab's sets.
+
+- **SetNthPackage** `ref.SetNthPackage package index` (the page gives no arguments): the
+  package at the index of the actor's base list is replaced, for the AI too, and the result
+  is the package it replaced; an index past the end changes nothing [observed: Doc's 9
+  packages, index 0 15ED62 became 10B756 and back, the count stayed 9; index 99 left 9;
+  the result 15ED62]. Only `let x := ref.SetNthPackage p i` compiled in the game; the
+  statement forms did not. The catalogue takes its parameters from the generator's
+  observed table (`OBSERVED_PARAMS`, tools/capture/script_functions.py).
+- **FATan / FATan2** are the game's own approximation, not the exact angle: an odd
+  polynomial of degree 11 in 32-bit floats of min(|y|,|x|)/max(|y|,|x|), then π/2 less it
+  when |y| is the larger, π less it when x is negative, negated when y is negative; π and
+  π/2 are 32-bit floats (FATan2 1 0 = 90.0000025). The coefficients are a least-squares fit
+  of the 21 readings in (0, 1] (residual 4.6e-8 radians, the 32-bit noise there), so
+  NVForever matches every reading within 0.000014° and at six significant digits, not to
+  the last decimal [observed: 29 readings; `fast_atan2` in fnv-script `vm/jip.rs`].
+- **GetRunSpeed** (JohnnyGuitar) reads 338.8 for the player and for Doc Mitchell, and kept
+  338.8 while Speed Mult (50), Agility (10), `fMoveRunMult` (5) and `fMoveBaseSpeed` (100)
+  were changed one at a time, and while sneaking [observed: rules2]. 338.8 is
+  `fMoveBaseSpeed` 77 × 4.4, and no human run clip moves at it (`fnvtool actor
+  locomotion`); where the number comes from is open [hypothesis: worked out when the actor
+  loads, so live setting changes do not reach it]. Not built.
+- **The reference walk in Doc Mitchell's house**: the one reference the game counts only
+  with taken references included is `VCG01CasualHardcoreMessageREF` (0011F293), a
+  persistent reference the opening quest's state in the owner's save has taken away
+  [observed: rules1, both lists]. A new game has it, so the count belongs to the save
+  (#1023), not to a counting rule. The game lists the cell's references in its own order,
+  not by FormID [observed]; NVForever's order is FormID order.
+
+## 5. PrintActiveTile
+
+The highlighted tile's name, printed on the console [documented: PrintActiveTile, "Prints
+name of highlighted UI component"]; nothing with none [hypothesis]. The highlighted tile
+is the tile tree's pointer's (`Game::ui_pointer`, #957), as GetActiveUIComponentName reads
+it. The console's exact line is not documented: the name alone [hypothesis].
+
+## 6. Not a function
+
+- `eval` is the if-statement form (ext-syntax.md), built in the compiler; the census
+  counts it only because it calls every catalogue name as a function.

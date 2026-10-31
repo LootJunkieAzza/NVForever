@@ -11,6 +11,7 @@
 //! [`dialogue`] is the screen for its conversations (docs/design/dialogue-play.md);
 //! [`dialogue_look`] turns the player's view to the actor they talk to.
 
+pub mod after_combat;
 pub mod activate;
 pub mod aid;
 pub mod aim_zoom;
@@ -108,6 +109,7 @@ pub mod space;
 pub mod terminal;
 pub mod tiles;
 pub mod tutorial_menu;
+pub mod ui_compat;
 pub mod credits;
 mod test_aid;
 pub use test_aid::{drives_run, MEASURING_AIDS};
@@ -327,7 +329,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(companion_wheel::CompanionWheelPlugin)
             .add_plugins(caravan::CaravanPlugin)
             .add_plugins(poker::PokerPlugin)
-            .add_plugins((crime::CrimePlugin, reputation::ReputationPlugin, knockouts::KnockoutsPlugin))
+            .add_plugins((crime::CrimePlugin, reputation::ReputationPlugin, knockouts::KnockoutsPlugin, after_combat::AfterCombatPlugin))
             .add_plugins(console::ConsolePlugin)
             .add_plugins(free_cam::FreeCamPlugin)
             .add_plugins(aim_zoom::AimZoomPlugin)

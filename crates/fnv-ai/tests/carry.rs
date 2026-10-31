@@ -144,6 +144,8 @@ const P_STEADY: u32 = 0x82F;
 const P_ACCOMPANY: u32 = 0x830;
 const P_WITH_PLAYER: u32 = 0x831;
 const P_SHOOT: u32 = 0x832;
+const P_NEAR_OBJECT: u32 = 0x833;
+const P_GUARD_NEAR: u32 = 0x834;
 // Bases.
 const N_TRAVEL: u32 = 0x840;
 const N_IN: u32 = 0x841;
@@ -164,6 +166,8 @@ const N_DOG: u32 = 0x84F;
 const N_COMPANION: u32 = 0x850;
 const N_LONER: u32 = 0x851;
 const N_SHOOTER: u32 = 0x852;
+const N_SEEKER: u32 = 0x853;
+const N_KEEPER: u32 = 0x854;
 // Cells and references.
 const CELL_A: u32 = 0x860;
 const CELL_B: u32 = 0x861;
@@ -201,6 +205,8 @@ const R_COMPANION: u32 = 0x89B;
 const R_LONER: u32 = 0x89C;
 const R_SHOOTER: u32 = 0x89D;
 const R_DOG2: u32 = 0x89E;
+const R_SEEKER: u32 = 0x89F;
+const R_KEEPER: u32 = 0x8A0;
 const DOOR_A: u32 = 0x8D1;
 const DOOR_B: u32 = 0x8D2;
 
@@ -209,6 +215,7 @@ const SLEEP: u8 = 4;
 const SANDBOX: u8 = 12;
 const PATROL: u8 = 13;
 const FOLLOW: u8 = 1;
+const GUARD: u8 = 14;
 const START: [f32; 3] = [50.0, 50.0, 0.0];
 /// A sandbox's switches for everything it does with objects and for talking.
 const NO_OBJECTS: u16 = type_flags::NO_EATING | type_flags::NO_SLEEPING | type_flags::NO_CONVERSATION | type_flags::NO_IDLE_MARKERS | type_flags::NO_FURNITURE;
@@ -247,6 +254,21 @@ fn plugin_bytes() -> Vec<u8> {
         accompany(P_ACCOMPANY, "AccompanyTheTraveller", R_TRAVEL, 128),
         accompany(P_WITH_PLAYER, "AccompanyThePlayer", 0x14, 256),
         shoot(P_SHOOT, "ShootAtTheLoner", MARK_A, R_LONER),
+        // Travel near an object: the idle marker's base (location type 4, Near Object ID).
+        pack(P_NEAR_OBJECT, "TravelNearAnIdleMarker", 0, TRAVEL, (4, IDLE_MARKER, 100), None),
+        // A Guard staying near the reference it guards (Remain Near Reference to Guard),
+        // its location only "near current location".
+        record(
+            b"PACK",
+            P_GUARD_NEAR,
+            &[
+                sub(b"EDID", z("GuardTheMiddle")),
+                sub(b"PKDT", [&0u32.to_le_bytes()[..], &[GUARD, 0, 0, 0], &type_flags::REMAIN_NEAR_REFERENCE.to_le_bytes(), &[0, 0]].concat()),
+                sub(b"PLDT", [2i32.to_le_bytes(), 0u32.to_le_bytes(), 0i32.to_le_bytes()].concat()),
+                sub(b"PSDT", [&[0xFF, 0xFF, 0, 0xFF][..], &0u32.to_le_bytes()].concat()),
+                sub(b"PTDT", [0i32.to_le_bytes(), MARK_C.to_le_bytes(), 120i32.to_le_bytes()].concat()),
+            ],
+        ),
     ]
     .concat();
     let npcs = [
@@ -271,6 +293,8 @@ fn plugin_bytes() -> Vec<u8> {
         npc(N_COMPANION, "Companion", &[P_WITH_PLAYER]),
         npc(N_LONER, "Loner", &[]),
         npc(N_SHOOTER, "Shooter", &[P_SHOOT]),
+        npc(N_SEEKER, "Seeker", &[P_NEAR_OBJECT]),
+        npc(N_KEEPER, "Keeper", &[P_GUARD_NEAR]),
     ]
     .concat();
     // Furniture: a chair (marker flags bit 30) and a bed (bit 31); an idle marker with
@@ -331,6 +355,8 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", R_SB_NOTHING, "StatueRef", N_SB_NOTHING, [10450.0, 10450.0, 0.0], None),
         placed(b"ACHR", R_TO_CHAIR, "ChairUserRef", N_TO_CHAIR, [10050.0, 10050.0, 0.0], None),
         placed(b"ACHR", R_SLEEP_C, "SleeperRef", N_SLEEP_C, [10050.0, 10950.0, 0.0], None),
+        placed(b"ACHR", R_SEEKER, "SeekerRef", N_SEEKER, [10050.0, 10500.0, 0.0], None),
+        placed(b"ACHR", R_KEEPER, "KeeperRef", N_KEEPER, [10950.0, 10050.0, 0.0], None),
     ]
     .concat();
     let cells = [cell(CELL_A, "CellA", &a_refs), cell(CELL_B, "CellB", &b_refs), cell(CELL_C, "CellC", &c_refs)].concat();
@@ -2094,6 +2120,45 @@ fn an_unarmed_fighter_fetches_a_gun_and_a_copy_of_its_ammunition() {
     assert!(!s.game.rearms.fetches.contains_key(&me));
 }
 
+/// A placed gun with the No AI Acquire flag (#962) is left where it lies: the fighter
+/// goes past it for one without the flag.
+#[test]
+fn a_fighter_leaves_a_gun_flagged_no_ai_acquire() {
+    let mut f = with_arms(fixture());
+    let me = FormId(R_SB_NOTHING);
+    let home = f.refs.refs[&me].pos;
+    let template = f.refs.by_cell[&FormId(CELL_C)].iter().map(|r| &f.refs.refs[r]).find(|p| &p.sig == b"REFR").expect("a REFR in cell C").clone();
+    let flagged = FormId(0xA10);
+    let mut gun = template;
+    gun.id = flagged;
+    gun.base = FormId(PISTOL);
+    gun.edid = None;
+    gun.pos = [home[0] + 150.0, home[1], home[2]];
+    gun.flags |= fnv_sim::refs::FLAG_NO_AI_ACQUIRE;
+    gun.lock = None;
+    gun.owner = None;
+    gun.health = None;
+    gun.count = None;
+    gun.enable_parent = None;
+    f.refs.refs.insert(flagged, gun);
+    f.refs.by_cell.get_mut(&FormId(CELL_C)).unwrap().push(flagged);
+    let mut s = sim(&f, &[R_SB_NOTHING]);
+    s.run(1.0);
+    let feet = s.feet(R_SB_NOTHING);
+    // Lay it beside the fighter, nearer than the plain gun, and touch it so the search
+    // sees it as a weapon on the ground.
+    s.game.world.get(flagged).unwrap().pos = [feet[0] + 150.0, feet[1], 0.0];
+    let plain = lay(&mut s, PISTOL, [feet[0] - 300.0, feet[1], 0.0]);
+    lay(&mut s, ROUNDS, [feet[0], feet[1] + 40.0, 0.0]);
+    fighting(&mut s, R_SB_NOTHING, [10450.0, 10950.0, 0.0]);
+    s.run(10.0);
+    let ev = s.events(R_SB_NOTHING);
+    let from: Vec<FormId> = ev.iter().filter_map(|e| if let AiEvent::FetchGot { from, .. } = e { Some(*from) } else { None }).collect();
+    assert!(!from.contains(&flagged), "{ev:?}");
+    assert!(s.game.present(flagged), "the flagged gun stays on the ground");
+    assert!(!s.game.present(plain), "the plain gun is taken instead: {ev:?}");
+}
+
 #[test]
 fn a_gunman_takes_a_weak_gun_over_a_strong_knife_and_the_knife_only_without_ammunition() {
     let f = with_arms(fixture());
@@ -2183,4 +2248,21 @@ fn a_fighter_takes_the_incinerator_for_a_far_target_and_the_flamer_for_a_near_on
     assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(INCINERATOR)), "not before 3 s");
     s.run(3.0);
     assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(FLAMER)), "{:?}", s.events(R_SB_NOTHING));
+}
+
+/// Stay-at locations given by an object, and a Guard that remains near what it guards
+/// (#961, `goal::stay_at`, packages.md §7.7) [hypothesis: no source says how either
+/// chooses its place]: Near Object ID walks to the nearest reference of the base (the
+/// idle marker, 500 units off); Remain Near Reference to Guard walks to the guarded
+/// reference, within the target's distance (120), though the location is "near current".
+#[test]
+fn object_locations_and_a_guard_remaining_near_its_reference_are_carried_out() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_SEEKER, R_KEEPER]);
+    s.run(30.0);
+    let idle = [10500.0, 10250.0, 0.0];
+    assert!(dist(s.feet(R_SEEKER), idle) <= 101.0, "seeker at {:?}", s.feet(R_SEEKER));
+    assert!(!s.events(R_SEEKER).iter().any(|e| matches!(e, AiEvent::NotCarriedOut { .. })));
+    assert!(dist(s.feet(R_KEEPER), MIDDLE_C) <= 121.0, "keeper at {:?}", s.feet(R_KEEPER));
+    assert!(dist(s.feet(R_KEEPER), [10950.0, 10050.0, 0.0]) > 400.0);
 }

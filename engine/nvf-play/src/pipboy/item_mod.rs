@@ -109,26 +109,26 @@ struct ModExit;
 struct ModAct;
 
 /// Only a row not chosen yet (as the repair list's rows, `super::repair`).
-fn on_row_over(over: On<Pointer<Over>>, rows: Query<&ModRow>, menu: Res<PipItemMod>, mut out: MessageWriter<ModInput>) {
+fn on_row_over(over: On<PointerOver>, rows: Query<&ModRow>, menu: Res<PipItemMod>, mut out: MessageWriter<ModInput>) {
     let (Ok(r), Some(s)) = (rows.get(over.entity), menu.0.as_ref()) else { return };
     if s.selected != r.0 {
         out.write(ModInput::Hover(r.0));
     }
 }
 
-fn on_row_click(click: On<Pointer<Click>>, rows: Query<&ModRow>, mut out: MessageWriter<ModInput>) {
+fn on_row_click(click: On<PointerClick>, rows: Query<&ModRow>, mut out: MessageWriter<ModInput>) {
     if let Ok(r) = rows.get(click.entity) {
         out.write(ModInput::Click(r.0));
     }
 }
 
-fn on_exit_click(click: On<Pointer<Click>>, exit: Query<&ModExit>, mut out: MessageWriter<ModInput>) {
+fn on_exit_click(click: On<PointerClick>, exit: Query<&ModExit>, mut out: MessageWriter<ModInput>) {
     if exit.get(click.entity).is_ok() {
         out.write(ModInput::Cancel);
     }
 }
 
-fn on_act_click(click: On<Pointer<Click>>, act: Query<&ModAct>, mut out: MessageWriter<ModInput>) {
+fn on_act_click(click: On<PointerClick>, act: Query<&ModAct>, mut out: MessageWriter<ModInput>) {
     if act.get(click.entity).is_ok() {
         out.write(ModInput::Use);
     }

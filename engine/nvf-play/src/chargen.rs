@@ -41,6 +41,7 @@ use bevy::image::CompressedImageFormatSupport;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
+use crate::ui_compat::Interaction;
 use fnv_game::chargen as rules;
 use fnv_game::game::menus;
 use fnv_game::Game;
@@ -197,7 +198,7 @@ fn sync(mut st: ResMut<ChargenMenus>, script: Option<ResMut<ScriptState>>, sim: 
     let Some(code) = code else { return };
     st.open = with_game(&mut script, &mut sim, |g| {
         if code == menus::NAME {
-            let m = NameMenu::open(rules::name_offered(g));
+            let m = NameMenu::open(rules::name_offered(g), Some(g));
             info!("chargen: name menu open, offering \"{}\"", m.text);
             OpenMenu::Name(m)
         } else {

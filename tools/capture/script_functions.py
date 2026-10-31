@@ -226,6 +226,26 @@ def parse_wiki(path):
     return out
 
 
+# Parameters where a page's argument table is missing or short: what the game took
+# [observed: the probe named] or what the page's own example passes [documented].
+PARAM_FIXES = {
+    # [observed: jip-probes rules1/rules2 (#1021): `let x := ref.SetNthPackage package
+    # index` compiled in the game and replaced the package at the index].
+    "SetNthPackage": [{"name": "package", "type": "form", "kind": "form"},
+                      {"name": "index", "type": "int", "kind": "int"}],
+    # [documented: GetCellEncounterZone's example "GetCellEncounterZone VikkiAndVance";
+    # observed: showoff2, Doc Mitchell's house].
+    "GetCellEncounterZone": [{"name": "cell", "type": "form", "kind": "form"}],
+    # [documented: SetZoneMinLevel's example "SetZoneMinLevel YaoGauiDen01 10"; the table
+    # lists the zone only].
+    "SetZoneMinLevel": [{"name": "encounterZone", "type": "form", "kind": "form"},
+                        {"name": "level", "type": "int", "kind": "int"}],
+    # [documented: SetMusicTypeDB's example "SetMusicTypeDB DefaultSuccess -100"].
+    "SetMusicTypeDB": [{"name": "musicType", "type": "ref", "kind": "reference"},
+                       {"name": "dB", "type": "float", "kind": "float"}],
+}
+
+
 def parse_page(title, text):
     body = _template_body(text, "Function")
     if body is None:
@@ -248,10 +268,16 @@ def parse_page(title, text):
     for m in re.finditer(r"\{\{\s*FunctionArgument(.*?)\}\}", f.get("arguments", ""), re.S):
         af = template_fields(m.group(1))
         raw = plain(af.get("Type", "")) or None
+        # `{{FunctionArgument |Name = |Type = }}`: the page's empty placeholder for a
+        # function that takes nothing (GetCallingScript, KillAll2, ...), not an argument.
+        if raw is None and not plain(af.get("Name", "")):
+            continue
         p = {"name": plain(af.get("Name", "")), "type": raw, "kind": arg_kind(raw)}
         if _truthy(af.get("Optional", af.get("optional", ""))):
             p["optional"] = True
         params.append(p)
+    if name in PARAM_FIXES:
+        params = [dict(x) for x in PARAM_FIXES[name]]
     if params:
         rec["params"] = params
     cond = plain(f.get("conditionFunc", "")).split()

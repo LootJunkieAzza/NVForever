@@ -26,24 +26,24 @@ use std::collections::{HashMap, VecDeque};
 // ---- measured on the owner's screenshots [observed, §4] --------------------------------
 
 /// Where the text starts, from the view's left edge, in the interface's units.
-const TEXT_X: f32 = 45.0;
+pub(crate) const TEXT_X: f32 = 45.0;
 /// The name's letters carry more glow before them: it starts this much further left.
-const TITLE_X: f32 = -1.5;
+pub(crate) const TITLE_X: f32 = -1.5;
 /// The line "Quest added" stands on, and the quest's name.
-const LABEL_BASE: f32 = 247.0;
-const TITLE_BASE: f32 = 311.0;
+pub(crate) const LABEL_BASE: f32 = 247.0;
+pub(crate) const TITLE_BASE: f32 = 311.0;
 /// The line the first objective stands on; the next lines are the font's size and
 /// [`LEADING`] lower.
-const LIST_BASE: f32 = 263.0;
-const LEADING: f32 = 2.0;
+pub(crate) const LIST_BASE: f32 = 263.0;
+pub(crate) const LEADING: f32 = 2.0;
 /// An objective's text is broken at this width [hypothesis: the screenshots' lines break
 /// between 556 and 590 units, §4].
-const WRAP: f32 = 570.0;
+pub(crate) const WRAP: f32 = 570.0;
 /// The box before an objective, from where its first line starts and the line it stands
 /// on: left, top, width, height. Both boxes are drawn 26 wide, the filled one's size in
 /// the HUD file; the open one's 16 there would draw its square half as large as the
 /// screenshots show it (§4).
-const BOX: [f32; 4] = [-16.0, -21.0, 26.0, 26.0];
+pub(crate) const BOX: [f32; 4] = [-16.0, -21.0, 26.0, 26.0];
 
 // ---- the HUD menu file's [documented: menus\main\hud_main_menu.xml, §2] -----------------
 
@@ -72,7 +72,7 @@ const MAX_WAITING: usize = 32;
 
 /// The words over the name [observed: "Quest added", "Quest completed"; "Quest failed"
 /// is NVForever's by analogy].
-fn label(n: &QuestNotice) -> Option<&'static str> {
+pub(crate) fn label(n: &QuestNotice) -> Option<&'static str> {
     match n {
         QuestNotice::Added(_) => Some("Quest added"),
         QuestNotice::Completed(_) => Some("Quest completed"),
@@ -95,7 +95,7 @@ fn sound(n: &QuestNotice) -> Option<&'static str> {
     }
 }
 
-fn objective_text(o: &Objective) -> String {
+pub(crate) fn objective_text(o: &Objective) -> String {
     if o.completed {
         format!("COMPLETED: {}", o.text.trim())
     } else {
@@ -272,8 +272,9 @@ impl Plugin for QuestMessagesPlugin {
     }
 }
 
-#[derive(Component)]
-pub(crate) struct AreaRoot;
+// The area's root; the marker lives with the tile HUD's, which hides it while the HUD is
+// drawn from tiles (`crate::tiles::vanilla::hide_hand_built`).
+pub(crate) use crate::tiles::vanilla::QuestArea as AreaRoot;
 
 /// A piece that comes and goes with the line, from `0` seconds after it appears.
 #[derive(Component, Clone)]
@@ -329,7 +330,7 @@ fn draw(
     mut texts: Query<(&mut TextColor, &Part)>,
     mut fills: Query<(&mut BackgroundColor, &Fill)>,
     mut kit: Local<Option<Kit>>,
-    (state, script, driven): (Option<Res<State<crate::PlayState>>>, Option<Res<crate::script::ScriptState>>, Option<Res<crate::player::ViewDriven>>),
+    (state, script, driven, kill_cam): (Option<Res<State<crate::PlayState>>>, Option<Res<crate::script::ScriptState>>, Option<Res<crate::player::ViewDriven>>, Option<Res<crate::kill_cam::KillCam>>),
     mut sound_forms: Local<HashMap<&'static str, Option<FormId>>>,
 ) {
     let hold = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.player.auto_objectives);
@@ -342,7 +343,8 @@ fn draw(
     // the line comes back when the conversation ends. So too while an idle holds the
     // camera (the opening's wake-up, `crate::player::ViewDriven`): only subtitles then
     // [owner 2026-10-24].
-    let held = panel.view.is_some() || state.is_some_and(|s| *s.get() == crate::PlayState::Dialogue) || driven.is_some_and(|d| d.0);
+    // And while a kill camera plays (`crate::kill_cam`) [owner's playtest request #1034].
+    let held = panel.view.is_some() || state.is_some_and(|s| *s.get() == crate::PlayState::Dialogue) || driven.is_some_and(|d| d.0) || kill_cam.is_some_and(|k| k.active());
     for (_, mut v) in &mut roots {
         v.set_if_neq(if held { Visibility::Hidden } else { Visibility::Inherited });
     }

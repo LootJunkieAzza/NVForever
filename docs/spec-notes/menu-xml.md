@@ -131,14 +131,105 @@ codes [documented: GetActiveMenuMode]. Other numbers stay as before [hypothesis]
 
 `&-sName;` is the text of the game setting `sName` [hypothesis: the names are game
 settings' names, `s` for a string, as the wait menu's `sHowManyWait` and `sCancel`
-(wait-menu.md)]. 145 different ones are in the vanilla files [observed]. They are **not
-in the masters** [observed: `sInventoryItems`, `sHowMany`, `sContinue`,
-`sPCMenuHintR`, `sStatsXP` appear nowhere in FalloutNV.esm]: their default text is built
-into the executable, and a plugin's GMST can override one. So the engine answers
-`Source::game_string` from the load order's GMSTs first and then from NVForever's own
-English table, filled from the owner's screenshots (as barter-menu.md did for
-`sHowMany`); a name in neither reads empty. The reader puts the text in when the file
-is read.
+(wait-menu.md)]. 145 different spellings are in the vanilla files, 143 without case
+(`sOK`/`sOk`, `sQuit`/`squit`) [observed: the `&-…;` entities of the 121 `menus\**\*.xml`
+in `Fallout - Misc.bsa`, 2026-10-29; no other vanilla archive holds menu files].
+
+Only one has a record in the vanilla load order: `sMorphine`, a GMST of FalloutNV.esm.
+The other 144 have none in FalloutNV.esm or the nine official add-on masters (DeadMoney,
+HonestHearts, OldWorldBlues, LonesomeRoad, GunRunnersArsenal, Caravan, Classic,
+Mercenary and Tribal packs) [observed: `fnvtool esm inventory`, GMST Editor IDs (649 in
+all) against the names, 2026-10-29]. One spelling, `sExplosive`, stands only inside a
+comment of `hud_main_menu.xml`, so the reader never asks for it: the reader reads 144
+spellings, 142 without case [observed: the archive's menu files, 2026-10-30].
+Four more uses lack the closing `;` (`&-sChallengeToggle` in `map_menu.xml`, `&-sStats`
+and one `&-sStatsGeneral` in `stats_menu.xml`, `&-sNetTotalText` in
+`prefabs\caravan_game_menu.xml`) [observed: same files]; the reader keeps them as plain
+text, not names [design: `fnv_ui::xml`; what the original does with them is not known].
+
+Which names the original fills in [observed: private capture `t10_gmst`,
+`GetStringGameSetting`, 2026-10-29, the 10 official masters and fo_proof.esp loaded, 146
+reads, no errors]: of the 142 names without a record (without case, `sExplosive` among
+them), 140 read a text and two, `sModffects` and `sReputationSwap`, read empty. A name no game defines
+(`sNvfT10NoSuchSetting`) read empty, and both spellings of `sOK`/`sOk` and of
+`sQuit`/`squit` read alike, so names are compared without case. The capture is kept
+privately for these points only: what the names read is not recorded anywhere in the
+repository and is not used (the rule below). That a plugin's GMST overrides the built-in
+text is [hypothesis: as `iLockLevelMax…`, read with `GetGameSetting` though no master
+defines them, script-function-audit.md].
+
+**The rule for the text** (the maintainer's decision, 2026-10-30, LEGAL.md "built-in
+labels the data files lack are written by the project, not transcribed from the
+original") [design]:
+
+- The load order's string game settings win.
+- Where the plugins define none, the text is an English label NVForever writes itself
+  from two things only: the setting's name and where the menu files use it (the tile's
+  kind, its menu, its neighbours, its place: a button row, a title, a prompt).
+  `sCloseButton`, a button at the foot of the tutorial box, reads "Close"; `sNext` reads
+  "Next".
+- The original's text is not looked up by any route: not from screenshots, not from
+  `GetGameSetting` or `GetStringGameSetting` readings, not from memory of the game, not
+  from any list of game-setting values. An observer dump may say only which names the
+  original fills in, not what they say.
+- Wording is not changed on purpose either: a short generic label ("Close", "Next",
+  "Back", "OK") stays what the use calls for even if it is the original's word. A longer
+  label (a prompt, a sentence) is written fresh from what the menu needs. The menu files'
+  comments are not copied into labels.
+
+How NVForever answers `Source::game_string` (`fnv_ui::strings::GameStrings`, task T10)
+[design]:
+
+1. the load order's string settings, the last plugin's record winning (the form store's
+   one value per setting, or a run-time change made before the files are read);
+2. `fnv_ui::strings::BUILT_IN`, NVForever's own labels under the rule above, each entry
+   with the name, the label and where the label came from (the setting's name and the
+   file and place that use it). The two names the original leaves empty
+   (`sModffects`, `sReputationSwap`) have no entry and read empty; `sMorphine` comes
+   from its record. The engine's own menus that stand in for menu files (the tutorial
+   menu, the lockpick menu and its help) read their words from the same table, by the
+   names their files use;
+3. a name in neither reads empty, as in the original. The reader puts the text in when
+   the file is read (a later `SetStringSetting` does not change a tile already built)
+   [design].
+
+The tree records each name it read and whether it had text (`Ui::game_strings_read`); the
+engine logs `ui: game strings: N read, M without text` at start for the menus it keeps
+loaded (with the vanilla files, `sModffects` of `item_stats_display.xml` is the one name
+without text there).
+
+The names with no record in the vanilla masters, by spelling:
+
+`sAccept`, `sAcceptText`, `sAddText`, `sAllCardsText`, `sAntePotText`, `sAutoAttempt`,
+`sAutoMatchText`, `sBack`, `sCWheelTitle`, `sCancel`, `sCaravanBiggestAnteText`,
+`sCaravanLossesText`, `sCaravanWinLossText`, `sCaravanWinningsText`, `sCardsInDeckText`,
+`sCauterize`, `sCloseButton`, `sConfirmWarning`, `sContinue`, `sCrew`,
+`sCurrentAnteText`, `sCurrentObjective`, `sData`, `sDevice`, `sDiscardCardText`,
+`sDiscardTrackText`, `sDone`, `sEnterName`, `sExit`, `sExplosive`, `sForfeitGameText`,
+`sHackingLockout3`, `sHackingLockout4`, `sHitPointsShort`, `sHowMany`, `sIngredients`,
+`sInventoryCaps`, `sInventoryCondition`, `sInventoryDamage`,
+`sInventoryDamagePerSecond`, `sInventoryDamageResistance`, `sInventoryDamageThreshold`,
+`sInventoryDrop`, `sInventoryEffects`, `sInventoryEquip`, `sInventoryHotKey`,
+`sInventoryItems`, `sInventoryMod`, `sInventoryRepair`, `sInventoryStrReq`,
+`sInventoryValue`, `sInventoryWeight`, `sInventoryWeightUpper`, `sLevelProgress`,
+`sLevelUp`, `sLoad`, `sLoadSavedGame`, `sLockLevelText`, `sLockpickSkillText`,
+`sMadeAt`, `sMakeActiveQuest`, `sMedicineSkill`, `sModffects`, `sNavigate`,
+`sNavigateText`, `sNew`, `sNext`, `sNextChallenge`, `sNoItemsToRepair`, `sOK`, `sOk`,
+`sPCMenuHintA`, `sPCMenuHintE`, `sPCMenuHintF`, `sPCMenuHintQ`, `sPCMenuHintR`,
+`sPCMenuHintRMB`, `sPCMenuHintS`, `sPCMenuHintW`, `sPCMenuHintX`, `sPicksRemainingText`,
+`sPlaceMarker`, `sPlayAudio`, `sPlayCaravanText`, `sPressStart`, `sPrevious`, `sQuit`,
+`sRaiseText`, `sRecipes`, `sRedeemCode`, `sRemoveText`, `sRepairAllItems`,
+`sRepairItem`, `sRepairServicesTitle`, `sRepairSkill`, `sReputationSwap`, `sReset`,
+`sReturn`, `sSave`, `sSaveGame`, `sSelect`, `sSelectCardText`, `sSettings`,
+`sShowActiveNotes`, `sShowAllNotes`, `sShowLocation`, `sSkillRequirement`, `sSpace`,
+`sStatsAP`, `sStatsCNDAbbrev`, `sStatsCrippled`, `sStatsEFFAbbrev`, `sStatsFODAbbrev`,
+`sStatsGeneral`, `sStatsH20Abbrev`, `sStatsHP`, `sStatsLMBAbbrev`, `sStatsLVLAbbrev`,
+`sStatsNoEffects`, `sStatsPerks`, `sStatsRADAbbrev`, `sStatsRadResist`,
+`sStatsSLPAbbrev`, `sStatsSkills`, `sStatsSpecial`, `sStatsStatus`, `sStatsXP`,
+`sStimpak`, `sStopAudio`, `sSwitchLimbs`, `sTakeAll`, `sTotalCardsText`,
+`sTotalFundsText`, `sTravel`, `sTune`, `sVDSGManual`, `sVDSGPlate`, `sVatsAiming`,
+`sVatsBodyPart`, `sVatsSelect`, `sVatsTarget`, `sWinLossText`, `sXPProgressMarker`,
+`squit`.
 
 ## 3. Traits
 
@@ -183,7 +274,7 @@ docs/handoff/ui-tile-tree-tasks.md]: `x` `y` `width` `height` `depth` `alpha` `v
 - [hypothesis] True `clips` crops children to this tile's rectangle. Nested ancestor
   clips intersect; a disjoint intersection is empty. The tile's own box is unchanged.
 - [design] `menu` and `hotrect` contribute layout to children but emit no drawing item;
-  hotrect input is T8. `rect`, `image`, `text`, `nif`, `radial` and `window` retain
+  hotrect input is T8 (§3.2). `rect`, `image`, `text`, `nif`, `radial` and `window` retain
   distinct kinds; producing a layout item does not implement model or radial drawing.
 - [design] Image `filename` is passed through (empty if absent); `texatlas` is retained
   as a raw value for later atlas resolution using interface.rs's existing `.tai` reader.
@@ -223,7 +314,8 @@ NVForever's own HUD, from the layout of §3.1.1. What it takes the traits to mea
   Vanilla UI Plus 5, its `VUI+` outline tiles in the prompt box).
 - [design] A `rect` draws a filled box only when it sets `red`, `green` or `blue`
   itself; otherwise it only places its children. `nif`, `radial` and `window` tiles,
-  and empty pictures and strings, draw nothing in v1.
+  and empty pictures and strings, draw nothing in v1 (the whole HUD's drawing draws
+  `nif` tiles, §3.1.3).
 - [design] An `image` is its `filename` stretched over its box: the piece of
   `interfaceshared.tai` of that file name when the atlas has it, else the file under
   `textures\` (`interface::Pictures`). Another `.tai` named by `texatlas`, and `zoom`,
@@ -237,20 +329,30 @@ NVForever's own HUD, from the layout of §3.1.1. What it takes the traits to mea
 - [observed: the font files against hud.md §14.1] A text's width is the sum of its
   glyphs' advances (fonts.md §3): font 7 "Button Text" 156 and "Talk" 54, font 8 "+0" 50
   and "+9" 49, as the original wrote. A `wrapwidth` of 0 does not wrap (the prompt's
-  `button_text` has 0 and measured one line). [hypothesis] A text's height is its lines
-  times the font's line height; each line is set left, centred or right inside the box by
+  `button_text` has 0 and measured one line). [hypothesis] In NVForever's implementation
+  (`draw::measure`) a text's height is its lines times the font's line height, not the
+  original's text tile `height` (below); each line is set left, centred or right inside the box by
   `justify`, one line height under the last.
-- [hypothesis, T12c] A text's first line stands `draw::TEXT_BASE`, 24 units, under its
-  top whatever its font. On the original's screenshots texts set at one `y` stand on one
-  line: `RadiationMeter`'s `radiation_text` (font 7) and `radiation_text_value` (font 8),
-  both at y 65, stand on one line 23.7 under it; the sneak word (font 1, `SneakMeter` y
-  30) 22 under its top; the prompt's verb, name and figures (font 7) 24.5-25.5 under the
-  places the captures read for their tiles, against the hand-built prompt's lines
-  measured on the owner's screenshots (`reticle.rs`) [observed: private shots
-  `hud_corners` rad_coc_spot, `hud_jip` s4_sneak_drawn; hud.md §14.8's places]. Until
-  T12c each font's tallest glyph set the line (`interface::line_base`: 28, 33, 48 for
-  fonts 1, 7, 8), which put `+14` 15 units under `RAD/SEC`. What the original's distance
-  is made of is not known; 24 is the font-7 readings' middle.
+- A text's first line stands under its top by its font. [observed: hud_textbase capture
+  2026-10-31, hud.md §14.10] Measured from the capitals' ink in the original against
+  where NVForever's glyph pictures put it (fonts.md §3), the lines stand 24.9 units under
+  the top in font 7, 30.5 in font 8 and 21.0 in font 1 (a tile with no `font`).
+  [design: NVForever's calibration, anchored on font 7] `draw::text_base` keeps font 7
+  at the earlier readings' 24 and stands fonts 8 and 1 as far from it as the capture
+  shows: 29.5 and 20; the fonts no capture measured take 24 [hypothesis]. Texts of fonts 7 and 8 set at one `y` do not
+  stand on one line: `radiation_text` ("RAD/SEC", font 7) and `radiation_text_value`
+  ("+9", font 8), both at y 65, end 25.0 and 31.7 under it. T12c (2026-10-29) stood
+  every font's line 24 under the top [hypothesis then: the two radiation texts read on
+  one line 23.7 under their `y`, the sneak word (font 1, `SneakMeter` y 30) 22, the
+  prompt's lines (font 7) 24.5-25.5 under the captures' places, private shots
+  `hud_corners` rad_coc_spot, `hud_jip` s4_sneak_drawn, hud.md §14.8]; the font-8
+  reading was wrong (#979). Until T12c each font's tallest glyph set the line
+  (`interface::line_base`: 28, 33, 48 for fonts 1, 7, 8).
+- [observed: hud_textbase capture 2026-10-31] A text tile's `height`, read in the
+  original, is its font's tallest glyph picture whatever its string: 36 for font 1, 42
+  for font 7, 64 for font 8 (fonts.md §3). NVForever's `measure` gives lines times the
+  font's size (31, 36, 52 for one line) and writes no text tile's `height` [design: a
+  difference kept, not yet needed].
 - [hypothesis] Colour: a tile's own `systemcolor`; else its own `red`/`green`/`blue`
   when it sets any; else the nearest tile above's `systemcolor`; else system colour 1, the
   HUD's [documented: GECK wiki Color UI directives, "Systemcolor is by default 1 and always
@@ -359,8 +461,84 @@ stands unchanged: every picture stretched, the shared atlas only.
   as the original's [observed: hud.md §14.10]: the window's part of the strip baked into
   one image with each texel column's alpha on the ramp, as the hand-built HUD's
   (`crate::compass_strip`) [design: one image, no seams between parts].
-- [design] `nif` tiles (the HUD's one, the breath meter) are still not drawn; the
-  hand-built breath meter stays.
+- [design] `nif` tiles (the HUD's one, the breath meter) are drawn with the whole menu:
+  the `filename` under `meshes\`, its flat textured squares as turned pictures in the
+  tile's colour and alpha, the `animation` sequence's vis keys at the time NVForever's
+  own `_NVFSequenceFraction` gives (hud.md §14.12, `tiles/model.rs`). [hypothesis] The
+  model's origin stands at the tile's `x`, `y`, a model unit an interface unit; the
+  tile's `width` and `height` do not scale it.
+
+### 3.2 The pointer and keys (T8)
+
+What the game's code writes for input, and how `fnv_ui::input` reads the files for it.
+Wiki pages in our own words [documented: the GECK wiki's Target, Mouseover, Clicked,
+Shiftclicked, Ref, Input, Hotrect, Wheelmoved pages and "Tutorial: Understanding XML"
+§3.2 c), export of 2026-10-28].
+
+- [documented] `target` true makes a tile react to the pointer, the keys and a
+  controller; `mouseover`, `clicked`, `clicksound`, `mouseoversound`, `wheelable`,
+  `draggable` need it. A hotrect with `target` true makes its children targets too,
+  even with their own `target` 0. A hidden tile (`visible` false, its own or an
+  ancestor's) is neither moused over nor clicked, but a script can still click it.
+- [documented] `mouseover` is 1 while the tile has the pointer (or a controller's
+  highlight) and 0 otherwise. [hypothesis] Only on the tile that takes the event (below),
+  not on the tiles above it; observer check §8 item 9.
+- [documented, disagreeing] `clicked`: "set to 1 by the engine for a single frame after
+  the element is clicked by the mouse" (the tutorial) against "it will count how many
+  times a element has been clicked" (the Clicked page). [hypothesis] The single frame
+  (`fnv_ui::input::CLICKED_RULE`, `ClickedRule::OneFrame`; `Count` is the other); a
+  press, not the release, clicks. Observer check §8 item 8. `shiftclicked` is 1 for a
+  frame when Shift is held during the click [documented].
+- [documented: tutorial] A click sets `clicked` on a tile with an `id`; the Clicked page
+  says on any target. [hypothesis] `clicked` on any target, the `id` being what the
+  menu's code reads.
+- [documented: Target] `target` has no effect on a `rect` (the tutorial says "rect or
+  image"); [design] `rect` and `menu` tiles are never under the pointer.
+- [observed: the vanilla menu files, read privately] Every text button is the text_box
+  prefab: a target hotrect with `alpha` 0 and its text, box and key hint as children;
+  the save list's rows and the scrollbars are target hotrects at alpha 0 too.
+  [hypothesis] `alpha` therefore does not stop the pointer; a hit on a child the hotrect
+  made a target goes to the nearest tile above it whose own `target` is true.
+- [hypothesis] Boxes are the layout's (§3.1.1): `x`/`y` added to the parent's top-left,
+  `width`/`height`, a text measured when it has no size and moved by its `justify`,
+  `clips` cropping the children; `locus` is not read, as the layout does not.
+- [documented: tutorial, the higher `depth` is drawn on top] [hypothesis] Where targets
+  overlap, the highest summed `depth` takes the pointer, a tie going to the one drawn
+  later; a menu opened later is over an earlier one whatever their depths. Observer
+  check §8 item 7.
+- [observed: the vanilla files] `_PCButton_<key>` appears only on the `<menu>` element
+  (61 times, any case: `_PCButton_E`, `_PCBUTTON_S`), its value the name of a tile; the
+  letters used are A, B, E, F, Q, R, S, W and X. Pressing the key clicks that tile
+  [documented: the menus' key hints, e.g. lockpicking.md §2 "E is Exit"]; LStewieAl's
+  Tweaks "extends vanilla XML keybindings" to digits, F1-F12, Caps, Tab and Alt
+  [documented], so the unmodded game reads letters. [hypothesis] The tile is the first of
+  that name in the menu, and it must be shown and a target.
+- [documented: Input] The controller's traits `xbuttona` `xbuttonb` `xbuttonx`
+  `xbuttony` `xbuttonlt` `xbuttonrt` `xbuttonlb` `xbuttonrb` `xbuttonstart`, and `xup`
+  `xdown` `xleft` `xright`, which the arrow keys press too; the stick buttons are
+  `&xbuttonls;` `&xbuttonrs;` [documented: Hardcoded UI Shortcuts]. `xdefault`'s meaning
+  is unknown [documented: Input] and is not read. [observed: the vanilla files] Their
+  value is a `<ref src="…" trait="clicked"/>` on the `<menu>` element (the button the
+  key clicks) or `<ref … trait="mouseover"/>` on list items (`xup`/`xdown` to the
+  neighbour); one `xscroll` refs `_value_adjust_poke`. [documented: Ref, Input] A `ref`
+  to `mouseover` moves the highlight there; one to `clicked` clicks that tile.
+  [hypothesis] The highlighted tile's trait first, else the menu's, also when the
+  tile's ref does nothing (it names no tile, or one hidden or not a target); a key-moved
+  highlight holds until the pointer moves or its tile is hidden or stops being a target;
+  a ref to another trait is reported, not followed [design].
+- [documented: ClickMenuButton, SetOnMenuClickEventHandler] `Menu#<id>` names the tile
+  of that `<id>` in the menu. [hypothesis] The first in file order when two share one.
+- [documented] Wheelmoved, Draggable (`dragx` …), Repeathorizontal: not built (T8 left
+  them; `wheelable` is the next step for lists).
+- [design] NVForever: `fnv_ui::input::hit` (the tile under a pointer in interface units,
+  960 to the view's height as the tile renderer draws), `Pointer::step` (one frame:
+  pulses ended, the pointer followed, the press, the keys), `fnv_game::ui_input::step`
+  (that and the JIP events); the engine feeds only the menus drawn from tiles that take
+  input (none in play yet: the HUD takes none; the test aid `NVF_PLAY_TEST_POINTER`
+  makes it take input). GetActiveUIComponentName/FullName/ID read the highlighted tile,
+  empty and -1 with none [hypothesis: observer check §8 item 10]; ClickMenuButton (a
+  target with an `id`, `clickTimes`) and ClickMenuTile (any target, hidden too) click as
+  a press does.
 
 ## 4. Operators
 
@@ -607,6 +785,24 @@ What the original can settle (copied to docs/handoff/observer-checks.md):
    hud.md §14.8]. These reads used JIP GetUIFloatAlt; deprecated xNVSE GetUIFloat
    parity remains untested [hypothesis]. No contrary vanilla menu/script dependency
    was established by these captures; other menus/scripts still need checking.
+7. **Which target takes the pointer where two overlap.** Ours: the highest summed `depth`,
+   a tie to the one drawn later; a later menu over an earlier one (§3.2). In a menu with
+   overlapping buttons (the level-up menu's list over its buttons, or two tiles injected
+   with InjectUIComponent at the same place and different depths), GetActiveUIComponentName
+   with the cursor over the overlap.
+8. **How long `clicked` holds.** Ours: 1 for the frame of the press, then 0 (the
+   tutorial), not a count (the Clicked page). A tile injected with
+   `<_n> <copy src="me()" trait="_n"/> <add src="me()" trait="clicked"/> </_n>` and one
+   with `<_c> <copy src="me()" trait="clicked"/> </_c>`, clicked twice; GetUIFloat on
+   both after each click (a count: `_c` 1 then 2; a frame: `_c` back to 0, `_n` 1 then 2),
+   and whether it is the press or the release that sets it.
+9. **Whether `mouseover` reaches the tiles above.** With the cursor on a text_box button
+   (its text child), GetUIFloat on the hotrect's, the text's and the parent rect's
+   `mouseover` (ours: the hotrect 1, the others 0 or absent).
+10. **The pointer functions with no menu, and on a tile without an id.**
+    GetActiveUIComponentName, GetActiveUIComponentFullName and GetActiveUIComponentID in
+    game mode with no menu open (ours: "", "" and -1), and over a target with no `<id>`
+    (ours: its name and -1); ClickMenuTile's return value.
 
 ## 9. The rest of the tile functions (task T9)
 

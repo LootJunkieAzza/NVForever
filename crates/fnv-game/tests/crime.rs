@@ -83,7 +83,34 @@ fn placed(sig: &[u8; 4], fid: u32, base: u32, extra: Vec<fnv_esm::raw::Subrecord
     record(sig, 0, fid, &subs)
 }
 
+/// A quest whose Detection-type topics a witness can say: the NoCrime topics (#974).
+const QUEST: u32 = 0x910;
+const NO_CRIME_TOPICS: [(u32, &str); 2] = [(0xA00, "StealNoCrime"), (0xA01, "AssaultNoCrime")];
+
+/// A topic of type Combat (the GECK's Combat tab) with one line, no conditions.
+fn topic(id: u32, edid: &str) -> Vec<u8> {
+    let dial = record(b"DIAL", 0, id, &[sub(b"EDID", z(edid)), sub(b"FULL", z(edid)), sub(b"PNAM", 50f32.to_le_bytes().to_vec()), sub(b"DATA", vec![fnv_game::data::topic_type::COMBAT, 0])]);
+    let trdt = [0u32.to_le_bytes().to_vec(), 50u32.to_le_bytes().to_vec(), vec![0; 4], vec![1, 0, 0, 0], 0u32.to_le_bytes().to_vec(), vec![0; 4]].concat();
+    let info = record(
+        b"INFO",
+        0,
+        id + 0x100,
+        &[
+            sub(b"DATA", vec![fnv_game::data::topic_type::COMBAT, 0, 0, 0]),
+            sub(b"QSTI", QUEST.to_le_bytes().to_vec()),
+            sub(b"TRDT", trdt),
+            sub(b"NAM1", z(edid)),
+            sub(b"NAM2", z("")),
+            sub(b"NAM3", z("")),
+            sub(b"NEXT", vec![]),
+        ],
+    );
+    [dial, group(id.to_le_bytes(), 7, &info)].concat()
+}
+
 fn plugin_bytes() -> Vec<u8> {
+    let quest = record(b"QUST", 0, QUEST, &[sub(b"EDID", z("CrimeTalk")), sub(b"DATA", [vec![1, 50, 0, 0], 0f32.to_le_bytes().to_vec()].concat())]);
+    let dial: Vec<u8> = NO_CRIME_TOPICS.iter().flat_map(|&(id, edid)| topic(id, edid)).collect();
     let factions = [
         // Track Crime (second byte, bit 0).
         record(b"FACT", 0, TOWN, &[sub(b"EDID", z("Town")), sub(b"DATA", vec![0, 1, 0, 0])]),
@@ -122,6 +149,8 @@ fn plugin_bytes() -> Vec<u8> {
     [
         tes4(),
         top(b"FACT", &factions),
+        top(b"QUST", &quest),
+        top(b"DIAL", &dial),
         top(b"NPC_", &npcs),
         top(b"MISC", &misc),
         top(b"DOOR", &door),
@@ -337,4 +366,33 @@ fn reward_karma_leaves_a_note() {
     call(&mut g, REWARD_KARMA, None, &[ArgValue::Value(Value::Num(-75.0))]);
     assert_eq!(karma(&mut g), -75.0);
     assert!(matches!(g.crimes.take_notes().as_slice(), [Note::Karma { change, now, .. }] if *change == -75.0 && *now == -75.0));
+}
+
+/// What `actor` said as a Detection-style line since the last look.
+fn said(g: &mut Game, actor: u32) -> Vec<&'static str> {
+    let barks = std::mem::take(&mut g.awareness.barks);
+    barks.into_iter().filter(|b| b.1 == FormId(actor) && b.2.is_some()).map(|b| b.0).collect()
+}
+
+/// A witness that ignores crime says the act's NoCrime topic and does not turn on the
+/// player [documented: GECK wiki Combat Tab, StealNoCrime, AssaultNoCrime; #974].
+#[test]
+fn a_witness_that_ignores_crime_says_so() {
+    let f = fixture();
+    let mut g = game(&f);
+    // The lines' quest (start-game enabled) runs from a new game.
+    g.new_game();
+    g.player_entered(Some(FormId(SHOP)));
+    g.extra.entry(FormId(SHOPKEEPER_REF)).or_default().ignore_crime = true;
+    sees(&mut g, SHOPKEEPER_REF);
+    g.player_stole(Some(FormId(TRINKET_REF)), None, FormId(TRINKET), 1);
+    assert_eq!(said(&mut g, SHOPKEEPER_REF), vec!["StealNoCrime"]);
+    assert!(!g.would_attack(FormId(SHOPKEEPER_REF), FormId::PLAYER_REF), "it does not turn");
+    // An assaulted victim that ignores crime says AssaultNoCrime.
+    g.extra.entry(FormId(TOWNSMAN_REF)).or_default().ignore_crime = true;
+    g.player_assaulted(FormId(TOWNSMAN_REF));
+    assert_eq!(said(&mut g, TOWNSMAN_REF), vec!["AssaultNoCrime"]);
+    // One that does not ignore crime says no NoCrime line.
+    g.player_assaulted(FormId(STRANGER_REF));
+    assert!(said(&mut g, STRANGER_REF).is_empty());
 }

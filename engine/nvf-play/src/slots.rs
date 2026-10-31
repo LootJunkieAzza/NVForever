@@ -38,6 +38,7 @@ use crate::sfx::PlaySound;
 use crate::sim::SimState;
 use crate::{PlaySet, PlayState};
 use bevy::prelude::*;
+use crate::ui_compat::Interaction;
 use fnv_game::casino;
 use fnv_game::slots::{self as rules, Limits, REELS};
 use fnv_sim::FormId;
@@ -354,7 +355,7 @@ fn open(
     let reel = rules::reel(&def.reel_stops);
     let earnings = rt.game.player.casino_earnings.get(&asked.casino).copied().unwrap_or(0);
     rt.game.open_menu(MENU_SLOTS);
-    let help = rules::first_help(&mut rt.game).map(|(title, text)| Help { title, text: crate::lockpick::help::expand_keys(&text, &bindings) });
+    let help = rules::first_help(&mut rt.game).map(|(title, text)| Help::new(&rt.game, title, &text, &bindings));
     info!(
         "slots: open {} ({}): bets {} to {}, {chips} chips carried, earnings {earnings} of {max}, reel stops {:?} ({} a reel), {} symbol pictures, model {}{}",
         def.name,

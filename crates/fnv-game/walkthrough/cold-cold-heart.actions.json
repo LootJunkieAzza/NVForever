@@ -1,0 +1,87 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless Cold, Cold Heart (vNiptonVulpes): Vulpes Inculta's lesson at Nipton (10) to the word brought to Sergeant Kilborn at the Mojave Outpost (100, complete)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: walking into the Nipton town hall trigger (vNiptonVulpesScript) enables Vulpes; his greeting (0x0013AC1B, end script) sets 10 (spread word of the Legion's deed); at the Mojave Outpost Sergeant Kilborn's greeting offers the news (vNiptonVulpesvMojaveNCRTrooperTopic003, at 10: end script completes objective 10 and sets 100, whose script completes and stops the quest). Stage 15 is set by nothing in FalloutNV.esm. Stand-ins: travel by move_player; the walk into the trigger by trigger_enter."
+  },
+  {
+   "op": "trigger_enter",
+   "trigger": "scripted:vNiptonVulpesScript",
+   "actor": "player",
+   "event": "enter"
+  },
+  {
+   "op": "move_player",
+   "to": "vLegionaryVulpesIncultaREF"
+  },
+  {
+   "op": "talk",
+   "actor": "vLegionaryVulpesIncultaREF",
+   "label": "vulpes greeting"
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "end_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "vNiptonVulpes",
+   "fields": [
+    "running",
+    "stage",
+    "done.10",
+    "objective.10.displayed"
+   ],
+   "label": "milestone: vNiptonVulpes 10"
+  },
+  {
+   "op": "note",
+   "text": "Stand-in for the road south to the Mojave Outpost."
+  },
+  {
+   "op": "move_player",
+   "to": "placed:vMOSgtKilborn"
+  },
+  {
+   "op": "talk",
+   "actor": "placed:vMOSgtKilborn",
+   "label": "kilborn greeting"
+  },
+  {
+   "op": "choose",
+   "topic": "vNiptonVulpesvMojaveNCRTrooperTopic003",
+   "label": "kilborn nipton"
+  },
+  {
+   "op": "note",
+   "text": "Stage 100 stops the quest, whose topics were all Kilborn offered: the conversation ends by itself."
+  },
+  {
+   "op": "wait_talk"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "vNiptonVulpes",
+   "fields": [
+    "stage",
+    "done.100",
+    "completed",
+    "objective.10.completed"
+   ],
+   "label": "final: vNiptonVulpes 100"
+  }
+ ]
+}

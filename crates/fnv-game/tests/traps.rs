@@ -140,3 +140,27 @@ fn a_child_disabled_meanwhile_is_skipped() {
     assert_eq!(activations(&g, GUN_NOW), vec![WIRE_REF]);
     assert!(activations(&g, GUN_LATER).is_empty());
 }
+
+/// A save while a child waits for its delay keeps it waiting: after the load it goes off
+/// when the delay passes (#1090).
+#[test]
+fn a_waiting_child_survives_a_save_and_load() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.cfg.frame_seconds = 0.25;
+    g.activate(WIRE_REF, WIRE_REF, ActMode::Default).unwrap();
+    g.tick();
+    assert_eq!(g.due_children.len(), 1, "the 1 s child waits");
+    let text = serde_json::to_string(&g.snapshot()).unwrap();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&text).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let mut h = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!(h.due_children, g.due_children);
+    for _ in 0..2 {
+        h.tick();
+    }
+    assert!(activations(&h, GUN_LATER).is_empty(), "0.75 s of the 1 s delay");
+    h.tick();
+    assert_eq!(activations(&h, GUN_LATER), vec![WIRE_REF]);
+    assert!(h.due_children.is_empty());
+}

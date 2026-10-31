@@ -11,8 +11,10 @@
 
 use crate::data::GameData;
 use crate::game::Game;
+use fnv_script::ir::{FuncId, XExpr};
+use fnv_script::unit::RefSlot;
 use fnv_script::vm::{ArgValue, Value};
-use fnv_script::UnitOwner;
+use fnv_script::{Arg, Call, Expr, RefIndex, Stmt, Token, UnitOwner};
 use fnv_sim::FormId;
 use serde_json::{json, Map, Value as Json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -29,6 +31,9 @@ pub struct Coverage {
     pub infos: BTreeSet<FormId>,
     /// Unit keys of the result scripts run.
     pub results: BTreeSet<String>,
+    /// Quests the run marked completed: by a Complete Quest stage or by the script
+    /// function CompleteQuest (not by a chain's given state, not by a fail stage).
+    pub completed: BTreeSet<FormId>,
 }
 
 impl Game<'_> {
@@ -47,6 +52,12 @@ impl Game<'_> {
     pub(crate) fn cover_stage(&mut self, quest: FormId, stage: i32) {
         if let Some(c) = self.coverage.as_mut() {
             c.stages.insert((quest, stage));
+        }
+    }
+
+    pub(crate) fn cover_completed(&mut self, quest: FormId) {
+        if let Some(c) = self.coverage.as_mut() {
+            c.completed.insert(quest);
         }
     }
 
@@ -109,6 +120,7 @@ impl Coverage {
             "blocks": self.blocks.iter().map(|(k, i)| json!([unit_name(lo, k), i, block_name(k, *i)])).collect::<Vec<_>>(),
             "infos": self.infos.iter().map(|i| form_name(lo, i.0)).collect::<Vec<_>>(),
             "results": self.results.iter().map(|k| unit_name(lo, k)).collect::<Vec<_>>(),
+            "completed": self.completed.iter().map(|q| form_name(lo, q.0)).collect::<Vec<_>>(),
         })
     }
 }
@@ -120,6 +132,7 @@ struct Reached {
     blocks: BTreeSet<(String, u64)>,
     infos: BTreeSet<String>,
     results: BTreeSet<String>,
+    completed: BTreeSet<String>,
 }
 
 impl Reached {
@@ -136,6 +149,8 @@ impl Reached {
         }
         self.infos.extend(arr("infos").iter().filter_map(|i| i.as_str().map(str::to_string)));
         self.results.extend(arr("results").iter().filter_map(|i| i.as_str().map(str::to_string)));
+        // Older logs have no "completed": their quests count by the stage flags alone.
+        self.completed.extend(arr("completed").iter().filter_map(|i| i.as_str().map(str::to_string)));
         Ok(())
     }
 }
@@ -198,6 +213,242 @@ fn result_kind(o: &UnitOwner) -> Option<&'static str> {
     })
 }
 
+/// `SetStage quest stage` [documented: GECK wiki SetStage; functions/mod.rs].
+const SET_STAGE: u16 = 0x1039;
+
+/// One place in the data that sets a quest stage.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Setter {
+    /// What holds the call: `script` (an SCPT record), `stage` (a quest stage's result
+    /// script), `info_begin` / `info_end`, `terminal`, `package_begin` / `package_end` /
+    /// `package_change`, `perk_script`, `patrol`, `perk` (a perk's Quest + Stage effect,
+    /// which the engine runs when the rank is gained: perks.rs `gain_rank`), or the
+    /// lower-case signature of any other record with a unit.
+    pub kind: String,
+    /// The record holding it (the quest, for a stage result script).
+    pub form: FormId,
+    /// The stage, for a stage result script.
+    pub stage: Option<i64>,
+}
+
+/// SetStage calls found in one unit: the quest's reference slot (None when the quest
+/// argument is not a reference list entry) and the stage.
+type StageCalls = Vec<(Option<RefIndex>, StageArg)>;
+
+/// Which quest stages anything in the load order can set. A setter is a `SetStage` call
+/// in any compiled unit whose quest is a form in the unit's reference list (a stage given
+/// by a variable puts the quest in `by_variable`), or a perk's Quest + Stage effect. No
+/// condition function sets a stage in the engine (conditions only read: GetStage,
+/// GetStageDone), so conditions are not setters. A stage's own result script setting that
+/// stage again is not a setter of it.
+#[derive(Debug, Default)]
+pub struct Setters {
+    pub literal: BTreeMap<(FormId, i32), Vec<Setter>>,
+    /// Quests set to a stage held in a variable (or an expression), with the setters.
+    pub by_variable: BTreeMap<FormId, Vec<Setter>>,
+    /// SetStage calls whose quest is a variable: no quest to credit.
+    pub quest_by_variable: usize,
+}
+
+fn setter_kind(o: &UnitOwner) -> String {
+    use fnv_script::unit::PackageEvent;
+    match o {
+        UnitOwner::Script { .. } => "script".into(),
+        UnitOwner::QuestStage { .. } => "stage".into(),
+        UnitOwner::Info { end: false, .. } => "info_begin".into(),
+        UnitOwner::Info { end: true, .. } => "info_end".into(),
+        UnitOwner::Terminal { .. } => "terminal".into(),
+        UnitOwner::Package { event, .. } => match event {
+            PackageEvent::Begin => "package_begin".into(),
+            PackageEvent::End => "package_end".into(),
+            PackageEvent::Change => "package_change".into(),
+        },
+        UnitOwner::Perk { .. } => "perk_script".into(),
+        UnitOwner::Patrol { .. } => "patrol".into(),
+        UnitOwner::Other { sig, .. } => sig.to_ascii_lowercase(),
+    }
+}
+
+/// A SetStage call's stage argument.
+enum StageArg {
+    Literal(i32),
+    Variable,
+}
+
+fn plain_call(c: &Call, out: &mut StageCalls) {
+    if c.opcode != SET_STAGE {
+        return;
+    }
+    let q = match c.args.first() {
+        Some(Arg::Ref(r)) => Some(*r),
+        _ => None,
+    };
+    let s = match c.args.get(1) {
+        Some(Arg::Int(n)) => StageArg::Literal(*n),
+        Some(Arg::Float(f)) if f.fract() == 0.0 => StageArg::Literal(*f as i32),
+        _ => StageArg::Variable,
+    };
+    out.push((q, s));
+}
+
+fn expr_calls(e: &Expr, out: &mut StageCalls) {
+    for t in &e.0 {
+        match t {
+            Token::Call { call } => plain_call(call, out),
+            Token::X { e } => x_calls(e, out),
+            _ => {}
+        }
+    }
+}
+
+fn x_calls(e: &XExpr, out: &mut StageCalls) {
+    match e {
+        XExpr::Call { call } => {
+            let is = match &call.func {
+                FuncId::Opcode(o) => *o == SET_STAGE,
+                FuncId::Name(n) => n.eq_ignore_ascii_case("setstage"),
+            };
+            if is {
+                let q = match call.args.first() {
+                    Some(XExpr::Ref { r }) => Some(*r),
+                    _ => None,
+                };
+                let s = match call.args.get(1) {
+                    Some(XExpr::Num { value, .. }) if value.fract() == 0.0 => StageArg::Literal(*value as i32),
+                    _ => StageArg::Variable,
+                };
+                out.push((q, s));
+            }
+            if let Some(o) = &call.on {
+                x_calls(o, out);
+            }
+            call.args.iter().for_each(|a| x_calls(a, out));
+        }
+        XExpr::Unary { e, .. } => x_calls(e, out),
+        XExpr::Binary { l, r, .. } => {
+            x_calls(l, out);
+            x_calls(r, out);
+        }
+        XExpr::Member { l, .. } => x_calls(l, out),
+        XExpr::Assign { target, value, .. } => {
+            x_calls(target, out);
+            x_calls(value, out);
+        }
+        // Lambda bodies are not reached by Program::walk: walk them here.
+        XExpr::Lambda { body, value, .. } => {
+            body.iter().for_each(|s| walk_calls(s, out));
+            if let Some(v) = value {
+                x_calls(v, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// A statement's SetStage calls and those of the statements inside it.
+fn walk_calls(st: &Stmt, out: &mut StageCalls) {
+    stmt_calls(st, out);
+    match st {
+        Stmt::If { arms, otherwise } => {
+            arms.iter().flat_map(|a| &a.body).for_each(|s| walk_calls(s, out));
+            otherwise.iter().flatten().for_each(|s| walk_calls(s, out));
+        }
+        Stmt::While { body, .. } | Stmt::ForEach { body, .. } => body.iter().for_each(|s| walk_calls(s, out)),
+        _ => {}
+    }
+}
+
+/// A statement's own SetStage calls: the call it is, and calls in its expressions.
+fn stmt_calls(st: &Stmt, out: &mut StageCalls) {
+    match st {
+        Stmt::Call { call } => plain_call(call, out),
+        Stmt::Set { expr, .. } => expr_calls(expr, out),
+        Stmt::If { arms, .. } => arms.iter().for_each(|a| expr_calls(&a.cond, out)),
+        Stmt::Unmatched { cond: Some(c), .. } => expr_calls(c, out),
+        Stmt::Let { expr } | Stmt::Eval { expr } => x_calls(expr, out),
+        Stmt::While { cond, .. } => x_calls(cond, out),
+        Stmt::ForEach { head, .. } => {
+            x_calls(&head.var, out);
+            x_calls(&head.source, out);
+        }
+        _ => {}
+    }
+}
+
+fn add_setter(v: &mut Vec<Setter>, s: Setter) {
+    if !v.contains(&s) {
+        v.push(s);
+    }
+}
+
+/// The stage setters of `data` ([`Setters`]).
+pub fn stage_setters(data: &GameData) -> Setters {
+    let mut out = Setters::default();
+    for u in &data.units {
+        let mut calls = StageCalls::new();
+        u.program.walk(&mut |st| stmt_calls(st, &mut calls));
+        if calls.is_empty() {
+            continue;
+        }
+        let owner = &u.unit.owner;
+        let setter = || Setter {
+            kind: setter_kind(owner),
+            form: FormId(owner.form()),
+            stage: match owner {
+                UnitOwner::QuestStage { stage, .. } => Some(*stage),
+                _ => None,
+            },
+        };
+        for (q, s) in calls {
+            let quest = match q.and_then(|r| u.unit.slot(r)) {
+                Some(RefSlot::Form(f)) if data.is_quest(FormId(f)) => FormId(f),
+                _ => {
+                    out.quest_by_variable += 1;
+                    continue;
+                }
+            };
+            match s {
+                StageArg::Literal(n) => {
+                    let own = matches!(owner, UnitOwner::QuestStage { form, stage, .. } if *form == quest.0 && *stage == i64::from(n));
+                    if !own {
+                        add_setter(out.literal.entry((quest, n)).or_default(), setter());
+                    }
+                }
+                StageArg::Variable => add_setter(out.by_variable.entry(quest).or_default(), setter()),
+            }
+        }
+    }
+    let mut perks: Vec<_> = data.perks.iter().collect();
+    perks.sort_by_key(|(id, _)| **id);
+    for (id, p) in perks {
+        for e in &p.entries {
+            if let crate::data::PerkEffect::QuestStage { quest, stage } = e.effect {
+                if data.is_quest(quest) {
+                    let s = Setter { kind: "perk".into(), form: *id, stage: None };
+                    add_setter(out.literal.entry((quest, i32::from(stage))).or_default(), s);
+                }
+            }
+        }
+    }
+    out
+}
+
+fn setter_json(data: &GameData, s: &Setter) -> Json {
+    let mut o = Map::new();
+    o.insert("kind".into(), json!(s.kind));
+    o.insert("form".into(), json!(form_name(&data.load_order, s.form.0)));
+    if let Some(e) = data.edid_of.get(&s.form) {
+        o.insert("edid".into(), json!(e));
+    }
+    if let Some(st) = s.stage {
+        o.insert("stage".into(), json!(st));
+    }
+    Json::Object(o)
+}
+
+/// How many setters the detail lists per stage.
+const SETTERS_SHOWN: usize = 3;
+
 /// `fnvtool script cover` / `coverage-report`: `logs` merged and compared with `data`'s
 /// quests, scripts and lines. The summary holds the totals and the untouched quests,
 /// ranked (main quest, factions, add-ons, the rest) and cut to `untouched_max`; the
@@ -210,10 +461,15 @@ pub fn report(data: &GameData, logs: &[Json], untouched_max: usize) -> Result<Js
     let lo = &data.load_order;
     let edid = |f: FormId| data.edid_of.get(&f).cloned().unwrap_or_else(|| form_name(lo, f.0));
 
-    // Quests: stages reached, whether a stage that completes the quest was reached.
+    // Quests: stages reached; completed when a stage that completes the quest was reached
+    // or the run marked the quest completed (CompleteQuest in a script, which many quests
+    // end by instead of a flagged stage).
     let mut quests = Vec::new();
     let mut untouched: Vec<(u8, String, usize)> = Vec::new();
     let (mut stages_total, mut stages_reached, mut quests_touched, mut completed) = (0usize, 0usize, 0usize, 0usize);
+    let setters = stage_setters(data);
+    let (mut settable, mut by_variable, mut missing_settable, mut missing_by_variable, mut reached_unsettable) =
+        (0usize, 0usize, 0usize, 0usize, 0usize);
     for (q, def) in &data.quests {
         if def.stages.is_empty() {
             continue;
@@ -222,21 +478,59 @@ pub fn report(data: &GameData, logs: &[Json], untouched_max: usize) -> Result<Js
         let reached: Vec<i32> = def.stages.keys().copied().filter(|s| r.stages.contains(&(name.clone(), *s as i64))).collect();
         let completing: Vec<i32> =
             def.stages.iter().filter(|(_, es)| es.iter().any(|e| e.flags & 1 != 0)).map(|(s, _)| *s).collect();
-        let complete = completing.iter().any(|s| reached.contains(s));
+        let complete = completing.iter().any(|s| reached.contains(s)) || r.completed.contains(&name);
         let e = def.edid.clone().unwrap_or_else(|| name.clone());
         stages_total += def.stages.len();
         stages_reached += reached.len();
-        quests_touched += usize::from(!reached.is_empty());
+        // A quest marked completed with no stage reached (one whose only stage is its
+        // fail stage, ended by CompleteQuest) was touched too.
+        let touched = !reached.is_empty() || complete;
+        quests_touched += usize::from(touched);
         completed += usize::from(complete);
         let rk = rank(data, *q, &e);
-        if reached.is_empty() {
+        if !touched {
             untouched.push((rk, e.clone(), def.stages.len()));
         }
-        quests.push(json!({
+        // Missing stages by whether anything in the data can set them.
+        let var_setters = setters.by_variable.get(q);
+        let (mut m_set, mut m_var, mut m_none) = (Vec::new(), Vec::new(), Vec::new());
+        let mut shown = Map::new();
+        for s in def.stages.keys() {
+            let hit = reached.contains(s);
+            match (setters.literal.get(&(*q, *s)), var_setters) {
+                (Some(l), _) => {
+                    settable += 1;
+                    if !hit {
+                        m_set.push(*s);
+                        let l: Vec<Json> = l.iter().take(SETTERS_SHOWN).map(|x| setter_json(data, x)).collect();
+                        shown.insert(s.to_string(), json!(l));
+                    }
+                }
+                (None, Some(_)) => {
+                    by_variable += 1;
+                    if !hit {
+                        m_var.push(*s);
+                    }
+                }
+                (None, None) if hit => reached_unsettable += 1,
+                (None, None) => m_none.push(*s),
+            }
+        }
+        missing_settable += m_set.len();
+        missing_by_variable += m_var.len();
+        let mut row = json!({
             "quest": e, "form": name, "rank": RANKS[rk as usize],
             "stages": def.stages.len(), "reached": reached,
             "completing_stages": completing, "completed": complete,
-        }));
+            "missing_settable": m_set, "missing_unsettable": m_none,
+            "setters": shown,
+        });
+        if let Some(v) = var_setters {
+            row["missing_by_variable"] = json!(m_var);
+            let v: Vec<Json> = v.iter().take(SETTERS_SHOWN).map(|x| setter_json(data, x)).collect();
+            row["by_variable_setters"] = json!(v);
+        }
+        quests.push(row);
     }
     untouched.sort();
     let mut untouched_by_rank = Map::new();
@@ -299,7 +593,13 @@ pub fn report(data: &GameData, logs: &[Json], untouched_max: usize) -> Result<Js
         "logs": logs.len(),
         "summary": {
             "quests": {"total": quests.len(), "touched": quests_touched, "completed": completed},
-            "stages": {"total": stages_total, "reached": stages_reached},
+            "stages": {
+                "total": stages_total, "reached": stages_reached,
+                "settable": settable, "by_variable": by_variable,
+                "missing_settable": missing_settable, "missing_by_variable": missing_by_variable,
+                "reached_unsettable": reached_unsettable,
+                "set_calls_quest_by_variable": setters.quest_by_variable,
+            },
             "scripts": {"total": scripts.len(), "touched": scripts_touched},
             "blocks": {"total": blocks_total, "run": blocks_run},
             "lines": {"total": lines_total, "said": lines_said},

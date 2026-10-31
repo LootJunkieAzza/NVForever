@@ -57,6 +57,7 @@ mod eye_adapt;
 mod fog;
 mod fly;
 mod foot_ik;
+mod fps_counter;
 mod frame_pace;
 mod blit_warm;
 mod handoff;
@@ -385,6 +386,11 @@ struct Args {
     /// --overlay is given).
     #[arg(long)]
     no_overlay: bool,
+    /// Show the frame rate counter in the top-right corner (fps_counter.rs; a switch on the
+    /// settings page too). Once any setting is saved, NVForever.ini's Frame rate counter
+    /// switch wins over this flag, as for every switch.
+    #[arg(long)]
+    fps: bool,
     /// With --play: draw the text overlay (the developer's position, loading counts and
     /// key help), which the game leaves off (owner, list 5 item 68); the settings page's
     /// Developer group turns it on and off too.
@@ -806,6 +812,9 @@ fn main() -> AppExit {
         }
     };
     args.data = Some(install.data.clone());
+    // Every `fnv_install::guard_write` from here on refuses writes into this install,
+    // also where the writer has none at hand (saves, test aids; #994).
+    fnv_install::remember_game(&install);
     let default_plugins = args.plugins.iter().map(String::as_str).eq(MASTERS);
     // A player's start (no --data, no --plugins): the home's own plugins.txt (setup.rs).
     // Developer and smoke runs keep the fixed masters below, whatever the list says.
@@ -995,6 +1004,16 @@ fn main() -> AppExit {
     };
     sky_state.time_scale = args.time_scale.max(0.0);
     sky_state.days_passed = args.day.or_else(|| sky::find_global(&world, "GameDaysPassed")).unwrap_or(0.0).floor();
+    if let Some(dir) = &args.timelapse {
+        if let Err(e) = fnv_install::guard_write(dir, None) {
+            return fail(format!("--timelapse {}: {e}", dir.display()));
+        }
+    }
+    for (flag, path) in [("--screenshot", &args.screenshot), ("--frame-json", &args.frame_json)] {
+        if let Some(Err(e)) = path.as_deref().map(|p| fnv_install::guard_write(p, None)) {
+            return fail(format!("{flag}: {e}"));
+        }
+    }
     if let Some(dir) = &args.timelapse {
         if let Err(e) = std::fs::create_dir_all(dir) {
             return fail(format!("--timelapse {}: {e}", dir.display()));
@@ -1195,6 +1214,7 @@ fn main() -> AppExit {
     .add_plugins(nvf_play::audio_out::AudioOutPlugin)
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times)))
+    .add_plugins(fps_counter::FpsCounterPlugin(args.fps))
     // Vsync as Bevy's default, off while frame times are measured; no frame-rate cap.
     .add_plugins(frame_pace::FramePacePlugin(frame_pace::FramePace { vsync: args.log_frame_times.is_none(), cap: 0 }))
     .add_plugins(blit_warm::BlitWarmPlugin)
@@ -1467,6 +1487,7 @@ fn main() -> AppExit {
         // dialogue lines), before the actors are posed. The player's body, posed earlier
         // in the frame, takes them up in the next one.
         app.init_resource::<idles::Idles>()
+            .init_resource::<idles::IdleHolds>()
             .add_systems(Update, idles::drive.after(nvf_play::PlaySet::Scripts).after(residents::drive).before(locomotion::walk_test))
             .add_systems(Last, idles::report);
         // The props idles hold (anim_objects.rs): after the idles started and ended.
@@ -1554,6 +1575,7 @@ fn main() -> AppExit {
                     t.0, streamer.stats.cells_loaded, streamer.loaded.len(), t.1, t.1 as f32 / t.0, baked, cached, streamer.stats.actors
                 );
                 info!("distant LOD at the end: {}", lod.describe());
+                info!("distant LOD blocks over the run: {}", lod.block_stats.describe());
                 info!("grass at the end: {}, {} generated in total in {:.0} ms", grass.describe(), grass.plants_generated, grass.build_ms);
                 info!(
                     "animation: up to {} clips playing at once, {:.3} ms per frame on average, {:.2} us per clip and frame, {} switches of nodes shown and hidden by visibility tracks",
@@ -1577,6 +1599,7 @@ fn main() -> AppExit {
                     );
                     info!("actor turns: {} actor frames playing a turn-on-the-spot clip", c.turn_frames);
                     info!("actor idle under movement: {} actor frames with the idle laid under another clip", c.under_frames);
+                    info!("actor moves without a clip: {} actor frames moving with no movement clip showing; {} actor frames of a creature's blow on its head and neck over its run", c.clipless_frames, c.head_blow_frames);
                 }
                 if let Some(a) = actors {
                     let fg = a.facegen.lock().expect("facegen cache");
@@ -1822,6 +1845,7 @@ fn write_frame_json(out: &std::path::Path, image: &std::path::Path, args: &Args,
         "hour": sky.hour,
         "weather": sky.weather.edid,
     });
+    fnv_install::guard_write(out, None).map_err(std::io::Error::other)?;
     if let Some(dir) = out.parent() {
         std::fs::create_dir_all(dir)?;
     }

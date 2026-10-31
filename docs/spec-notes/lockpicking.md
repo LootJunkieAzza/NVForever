@@ -18,14 +18,14 @@ torque, wear, Force Lock, what opening and breaking do). Engine:
   has stopped turning, drains the pin's health; a pin without health breaks; with pins
   left a new one goes in; the lock's difficulty sets how small the sweet spot is.
 - **The owner's screenshots** of the menu with its tutorial (2026-10-11, ten frames in the
-  owner's private references folder, looked at again 2026-10-12): the rows "Lockpick
-  Skill 30", "Bobby Pins 7", "Lock Level Easy"; "Force Lock [15%] F)" and "Exit E)"; the
+  owner's private references folder, looked at again 2026-10-12): the three information
+  rows with their values; "Force Lock [15%]" and Exit, each with its key hint; the
   pin coming in from the top and upright as the menu opens; the screwdriver coming in from
   the lower right; the lock turning part way and all the way (the keyhole lying flat)
   while the pin stays at the angle the player gave it; the room dim behind the lock; the
   mouse pointer shown at the screen's left edge but never over the lock; the help
-  message in a tutorial box ("Lockpicking", "VDSG MANUAL", "Close E)") with the keys
-  written "WSAD" and "F"; after a break a short piece of the pin in the keyhole and one
+  message in a tutorial box (its title, the manual's words, Close with its key hint) with
+  the keys bound written in; after a break a short piece of the pin in the keyhole and one
   pin fewer; after the lock opened, the HUD coming back over the lock still drawn.
 - **The tutorial menu file** `menus\tutorial_menu.xml` (`Fallout - Misc.bsa`), read the
   same way: the box the help message is shown in.
@@ -56,13 +56,14 @@ torque, wear, Force Lock, what opening and breaking do). Engine:
   the player's skill (`&-sLockpickSkillText;`), the picks left (`&-sPicksRemainingText;`)
   and the lock's level (`&-sLockLevelText;`), titles on the left, values right-aligned
   at 80 short of the box's width. The three strings are the executable's own settings,
-  not in the plugins [observed: no such GMST in FalloutNV.esm]; NVForever writes them as
-  the screenshots show them: "Lockpick Skill", "Bobby Pins", "Lock Level" [observed].
+  not in the plugins [observed: no such GMST in FalloutNV.esm]; NVForever reads them by
+  name from its game strings table (the load order's string settings over its own
+  labels, menu-xml.md §2.4; the maintainer's decision 2026-10-30) [design].
 - The buttons: right-aligned 50 from the main rectangle's right, the first 72 under the
   information box's top; Force Lock (its text set by the code: "Force Lock [15%]"
   [observed]) and Exit under it (`&-sExit;`). Each is `text_box.xml` with a vertical
-  buffer of 9. The PC key hint is drawn after the text ("Exit E)") as the barter menu does
-  [design].
+  buffer of 9. The PC key hint (`&-sPCMenuHintF;`, `&-sPCMenuHintE;`, from the same table)
+  is drawn after the text as the barter menu does [design].
 - A status line, font 7, right-aligned with the buttons, 450 down, hidden until code shows
   it: "Displays message on pick break / success". The words are NVForever's: "Your bobby
   pin broke", "Lock picked", "Lock forced open", "The lock is broken", "You have no bobby
@@ -94,21 +95,22 @@ through [design; open].
 
 The first time the menu opens, the message `HelpLockpicking` (§1) comes up over it in the
 tutorial box [observed: screenshot; documented: tutorial_menu.xml], and E closes it
-("Close E)"); while it is up nothing is picked. NVForever keeps whether it has been shown
+(`_PCButton_E` of Close); while it is up nothing is picked. NVForever keeps whether it has been shown
 in the game state (`Locks::help_shown`, saved with the snapshot) and shows it once per
 game [hypothesis: "Auto Display" shows a help message once]. The box [documented:
 tutorial_menu.xml]: 0.8 of the screen, centred, black at the globals' fill alpha 32;
 corners 48 in and 96 down (a 50-long line and a 60-long line fading down), the title in
 font 6 after the left corner, a line on to the right corner; the text in the default font
 from the title's left plus 5, 21 under the corners' fading lines; at the bottom the same
-corners fading up, the VDSG symbol, "VDSG MANUAL" and the line on; Close right-aligned 81
-from the right. The message's text writes keys as executable strings: `&-sUActnForward;`
-and the other three movement controls, `&sKBF;`; NVForever writes the key bound to each
-control and the letter after `sKB` ("WSAD", "F" with the default keys, as the screenshot
-shows them) [observed]. "VDSG MANUAL" and "Close" are the executable's strings, written as
-the screenshot shows them [observed]. The width of the Next/Previous column (175) and the
-VDSG symbol file's width (128) are [hypothesis], fitted so the text wraps and "VDSG MANUAL"
-stands where the screenshot has them.
+corners fading up, the VDSG symbol, the manual's words (`&-sVDSGManual;`) and the line
+on; Close (`&-sCloseButton;`, its hint `&-sPCMenuHintE;`) right-aligned 81 from the right.
+Those three words are read by name from NVForever's game strings table (menu-xml.md §2.4;
+the maintainer's decision 2026-10-30) [design]. The message's text writes keys as
+executable strings: `&-sUActnForward;` and the other three movement controls, `&sKBF;`;
+NVForever writes the key bound to each control and the letter after `sKB` [design]. The
+width of the Next/Previous column (175) and the VDSG symbol file's width (128) are
+[hypothesis], fitted so the text wraps and the manual's words stand where the screenshot
+has them.
 
 ### 2.1 The models [observed: `fnvtool nif decode`]
 

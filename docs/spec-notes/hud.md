@@ -173,7 +173,9 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
 - A tick is the picture `hud_tick_mark.dds`: a block 6 texels wide (2 clear after it),
   its opacity rising from about an eighth at the top to full at the bottom [observed:
   the texture, §3], so the ticks look darker than the lines over the world; drawn at
-  brightness 175 since T12d [hypothesis, §14.9]. Each tick is set on whole pixels — the
+  brightness 175 since T12d [observed: o5_00-01, 2026-10-31, the original's full-row meters
+  `HitPoints/*:2` and `ActionPoints/*:2` (296 wide) read `brightness` 175, the bars' other
+  visible children 255; §14.9]. Each tick is set on whole pixels — the
   step `round(8 × scale)`, the width `round(6 × scale)` — so all ticks are as wide as
   each other at any view size [design: the owner's "clean straight lines, not some
   bigger than others"; at 720 lines a 6-of-8 tick is 4.5 pixels and rounded unevenly
@@ -301,7 +303,8 @@ the compass the eight directions' letters in Bevy's font.
   [design: owner 2026-10-24; maintainer's choice T12b B/M4; needs an issue] The filled-bar
   sound and 5 s sound-to-menu wait stay; the original's sound moment is not captured.
 - The radiation meter is built: radiation.md §6 (`radiation.rs`); its place is a guess.
-- The breath meter is built: drowning.md §3 (`hud_breath.rs`).
+- The breath meter is built: drowning.md §3 (`hud_breath.rs`); from its `nif` tile with
+  `[UI] TileMenus=HUDMainMenu` (§14.12).
 - The messages at the top left with their icons, subtitles,
   the armour-piercing icons. The ammo type's label is built (§4). The crippled-limb
   picture is built (§12), and Hardcore mode's words (§13).
@@ -352,22 +355,76 @@ hud_enemy2, e5_back; hud_enemy3, n2_away, g2_gecko_half] The original has at mos
 always even; `2 × floor(share × 15)` fits the captured shares. Draft issue: decide
 whether to replace the owner's 31-tick rule with the measured even-tick rule.
 
-Whose health [hypothesis; the original's rule is not documented]: the living actor under
-the crosshair (a ray along the crosshair's line through the collision world, up to 8192
-units, to the first actor hit volume or capsule) when it is hostile to the player
-(`Game::would_attack`) or in combat with the player, or when the player hit it within
-5 seconds; and for 5 seconds after the player hits an actor, aimed at or not. Logged as
-`hud: enemy health <name> 0x<ref> <percent> %` and `hud: enemy health off`. The
-developer's stand-in (a line of `|` characters over the crosshair, `combat.rs`) is gone.
+**When it shows** [observed: private jobs hud_enemy4 (run 1793322469) and hud_enemy5
+(run 1793323493), with hud_enemy2/3, in the unmodded original through xNVSE and JIP;
+"shown" means `EnemyHealth`'s three code-made children (the name, the meter, the
+bracket) read visible, which they always did together. "Under the crosshair" is the
+crosshair's ray on the actor; "the activation target" is the reference GetCrosshairRef
+returns, the one the prompt is for, within activation reach only [documented: GECK wiki
+GetCrosshairRef]]:
 
-[observed: private job hud_enemy3, n0_neutral_dwell, n1-n1c, h1_hostile_combat,
-g2_gecko_half; hud_enemy2, e4-e6] Full-health actors showed no bar (including a hostile
-in combat aimed at for 0.94 s); a hurt hostile showed without aim or a player's shot;
-a hurt non-hostile on target showed none for 5.6 s. [hypothesis: open, low confidence]
-Health below base may be necessary, but no rule fits every state. Capture the player's
-own shot and a longer hostile aim before changing `hud_target::shown`, including a
-health-below-base guard. [design: T12b B9] Visibility is unchanged; the new flag only
-selects colour.
+1. **Never at full health.** No bar for an actor whose Health is at its base value,
+   neutral or hostile, aimed at, the activation target or in combat (hud_enemy4 s1, x1,
+   g1, g3, g5; hud_enemy5 a0, b1, c1; hud_enemy3 h1). Health below base was necessary
+   in every sample of every run.
+2. **Out of combat, a hurt actor under the crosshair** gets the bar, hostile or not, the
+   weapon need not be drawn: a hurt neutral settler at 350 units and at 150 aimed at the
+   chest, neither the activation target nor with a prompt up (hud_enemy5 a1, a2, a3). It
+   appears 0.1-0.25 s after the crosshair comes on it. Every shown case had IsWeaponOut
+   0; none was captured with the weapon drawn.
+3. **Out of combat, not while it is the activation target, nor while any activation
+   prompt is up**: the hurt settler as the target with his Talk prompt (hud_enemy4 s2,
+   s3; hud_enemy5 a3a), a hurt restrained gecko as the target with no prompt (hud_enemy5
+   b2), the same gecko under the crosshair while a prompt for something else was up
+   (hud_enemy5 b2). Prompt up and bar shown together: no sample in hud_enemy4 or 5. When
+   the target dropped with the crosshair still on the actor, the bar showed at once
+   (hud_enemy4 s2h, s2a, s3; hud_enemy5 a3a, b2).
+4. **In combat with the player** (its combat target is the player), a hurt actor keeps
+   the bar aimed at or not, the activation target or not, the meter following its
+   health, until it dies (hud_enemy4 g4; hud_enemy3 g2; hud_enemy5 b4). A dead actor has
+   none (hud_enemy5 b4).
+5. **After the crosshair leaves it**, out of combat, the bar stays on that actor for a
+   while: a restrained gecko's about 5.5 s (hud_enemy5 b2), a neutral settler's at least
+   16-18 s (hud_enemy5 a1, a2, a3, a3a: the watch ended first). An actor that was the
+   activation target as the crosshair left had its bar for one frame only (hud_enemy4
+   s2, s2h, s2a, s3), which fits the linger applying only to a bar that was shown
+   [hypothesis].
+
+[design] NVForever (`hud_target::why_shown`, a pure function of the case, tested point
+by point): hurt is Health below its full value (the meter not full); "in combat" is the
+actor's combat target being the player; the activation target is
+`crate::activate::Target`, and a prompt is up whenever there is one (unless a script has
+the rollover text off). The linger is `LINGER_SECONDS` = 5.5 s for every actor [observed
+for the hostile; a known divergence for a neutral, whose bar the original kept at least
+16-18 s (point 5): what makes the two differ is not known], and the activation target or
+a prompt coming up ends it. The player's own hit keeps the earlier rule [hypothesis]:
+for 5 seconds after the player hits an actor it has the bar, aimed at or not, prompt or
+not, while it is hurt. No actor that is no longer here has it: disabled, deleted or
+outside the loaded cells (`Case::gone`, as after a script's Disable or a load door), and
+behind a loading screen the bar forgets the actor it held and the player's hits
+(`Memory::enter`). One actor at a time (`hud_target::candidates`, tested in that order):
+the one under the crosshair (a ray along the crosshair's line through the collision
+world, up to 8192 units, to the first actor hit volume or capsule), else the one the
+player hit last, else a hurt actor fighting the player (the one the bar holds, else the
+nearest), else the one it lingers on. Logged as `hud: enemy health <name> 0x<ref>
+<percent> %`, `hud: enemy health <name> 0x<ref> held by the linger (…)` when only the
+linger holds it, and `hud: enemy health off`. The developer's stand-in (a line of `|`
+characters over the crosshair, `combat.rs`) is gone.
+
+Earlier runs agree [observed: private job hud_enemy3, n0_neutral_dwell, n1-n1c,
+h1_hostile_combat, g2_gecko_half; hud_enemy2, e4-e6]: full-health actors showed no bar
+(including a hostile in combat aimed at for 0.94 s); a hurt hostile in combat showed
+without aim or a player's shot; a hurt non-hostile on target showed none for 5.6 s. The
+hostility flag (`TargetHealth::hostile`, in combat with the player or
+`Game::would_attack`) only selects the colour above [design: T12b B9]; it is no input to
+whether the bar shows.
+
+Still open (docs/handoff/observer-checks.md): the player's own hit (no capture had the
+weapon out, so no shot hit); aiming down the sights; why the bar comes about 1 s after a
+hurt in combat (hud_enemy4 g4, hud_enemy3 g2) but within 0.25 s out of it (not built:
+NVForever shows it at once); how long a neutral's bar lingers, and what ends it; what
+`EnemyHealth`'s own visible value 8 means (it read 1, then 8 after a held Ready or right
+mouse button, and stayed 8 with nothing pressed).
 
 ## 9. The sneak word
 
@@ -540,7 +597,7 @@ menu's (`dialogue_menu.rs`).
   "HP", their right ends at x 145, 186, 226, 266, 308; the widths the capture read (45,
   44, 43, 46, 43) are font 7's at 100 ("H20" 45, "LMB" 43, "HP" 30). T12b drew them at
   0.75 (13 pixels, their starts right of the original's) [design, corrected T12e]: both
-  drawings draw them at the font's size, the first line `TEXT_BASE` (24) under the
+  drawings draw them at the font's size, the first line font 7's 24 (§14.10) under the
   piece's top (the capitals' top a pixel under it, as the original's) [hypothesis].
 - **Looks** [design: owner 2026-10-23]: faded (dim), normal amber, red, flashing red.
   [observed: private job hud_hardcore2, hc2, hc6; hud_radiation2, r_in_200, r_in_300]
@@ -677,6 +734,9 @@ in interface units: the view is 960 high at every size, so 1280 wide at 4:3, 153
   XP drawing, and the message queues, for those children and the ones still to capture;
   subtitles share the drawing's selection. Discovery notices map to `Region_Location`,
   other quest notices to `QuestReminder` [hypothesis: NVForever draws both in one queue].
+  Since §14.11 the tile HUD writes a discovery's copies under both `Region_Location` and
+  `QuestReminder` and draws `QuestReminder`'s, where the owner's screenshot shows them;
+  `Shown::location` still only tells which kind of line shows.
 - [hypothesis] T4a truncates W and W/2 before subtracting offsets: at 16:9,
   `1706.67 - 386` truncates to 1320 (nearest would give 1321); the truncated middle
   853 keeps the reticle's half-unit offset and reproduces its child's x 820.5.
@@ -693,9 +753,10 @@ in interface units: the view is 960 high at every size, so 1280 wide at 4:3, 153
   `SetUIString "HUDMainMenu/HardcoreMode/Dehydration/string" "NVF one"`, then
   `SetUIStringAlt … "NVF %g" 2` read "NVF 2" in a later step (frames later), and "H20" only
   after the probe wrote it back], out of Hardcore at least. So the original does not write
-  the need words every frame, or writes them only when they change [hypothesis]; T4a
-  writes them every frame and loses the script's string at the next frame. Open for the
-  HUD tasks (ui-tile-tree-tasks.md).
+  the need words every frame, or writes them only when they change [hypothesis]. Since
+  #1026 `ui_hud::write` writes a need word only when the HUD's own word changes
+  (`Ui::write_changed`), so a script's string lasts until then. Open: whether a stage
+  change or a mode change rewrites it in the original (not probed yet).
 
 ### 14.1 States: drawn, aiming, moving, sneaking, a prompt, radiation (2026-10-29)
 
@@ -983,10 +1044,10 @@ hidden only where the tree's tiles are filled enough to draw it. Off, nothing ch
 | `hud_needs.rs` words | `HardcoreMode` | tiles (§14.8), fixed word places |
 | `xp_meter.rs` | `XPMeter` | tiles (§14.8), independent visual clock |
 | `hud_limbs.rs` | `crippled_limb_indicator` | tiles (§14.8) |
-| `hud_breath.rs` | `BreathMeter` | hand-built: a `nif` tile (`Interface\HUD\AirTimer01.NIF`), not drawn |
-| `corner_messages.rs` | `Messages` | hand-built: its text and icon copies are not built |
-| `quest_messages.rs` | `QuestReminder`, `Region_Location` | hand-built: no texts in the tree |
-| `script_hud.rs` subtitles | `Subtitles` | hand-built: its text copy is not built |
+| `hud_breath.rs` | `BreathMeter` | tiles (§14.12): its `nif` tile drawn with the hand-built meter's model reader; the showing rule and the breath stay the hand-built HUD's |
+| `corner_messages.rs` | `Messages` | tiles (§14.11): the bracket, text and icon copies; the queue stays hand-built |
+| `quest_messages.rs` | `QuestReminder`, discoveries also `Region_Location` | tiles (§14.11): banner and objective copies (a discovery's banner also under `Region_Location`, not drawn there); the queue and sounds stay hand-built |
+| `script_hud.rs` subtitles | `Subtitles` | tiles (§14.11): its text copy; the selection stays hand-built |
 | `sneak_gauges.rs` (NVForever's own, off by default) | none | hand-built |
 
 - [design] The kept pieces' file and code tiles are not drawn (`KEPT_PIECES`), a mod's
@@ -1134,7 +1195,8 @@ and `t12b-fixes.md`, part A] Game 1.4.0.525, xNVSE 6.4.9, JIP 57.3, save `hudtes
   stays the file's: the health-to-face mapping is unmeasured.
 - [design] Five pieces leave KEPT_PIECES: HardcoreMode, Info, EnemyHealth, XPMeter,
   crippled_limb_indicator. Keep BreathMeter (NIF), Messages (text/icon copies absent),
-  QuestReminder/Region_Location (texts absent), Subtitles (text absent). Only the five
+  QuestReminder/Region_Location (texts absent), Subtitles (text absent) (as of T12b;
+  the texts leave it in §14.11, BreathMeter in §14.12, and it is empty since). Only the five
   visibility marker declarations move from the hand-built files into tiles/vanilla.rs;
   their drawing/timing logic and optional sneak gauges stay untouched. Prompt/enemy
   copies and XP readout widths are measured with the game fonts. Text zoom scales
@@ -1212,7 +1274,7 @@ the hand-built HUD (the default) keeps:
 | Quest marker under the compass (§11) | no quest in the scenes; off-band targets now held at the end | the same, through `CompassView` |
 | The strip's right end fades (§4) | fixed: one baked window image (`compass_strip`) | fixed: the same image |
 | Condition bar 175, ground 100 (§4) | fixed | fixed |
-| LEVEL UP 16 units low | fixed: 16 above the amount's line (`xp_meter::LEVEL_UP_BASE`) | needs a capture (below) |
+| LEVEL UP 16 units low | fixed: 16 above the amount's line (`xp_meter::LEVEL_UP_BASE`) | fixed (#979): font 8's line 29.5 under the text's top, a line per font (below) |
 | Compass pattern, end caps, health underline (§3) | fixed: the atlas pieces | already the pieces |
 | Radiation ruler 40 units long, ticks 16.7 pixels | fixed: the bracket at its texels' size, the owner's place and texts kept on the screen (radiation.md §6) | already |
 | The strip 4 pixels left (§4) | fixed: `STRIP_HEADING` 154 | fixed: shared `strip_left` |
@@ -1228,15 +1290,37 @@ the hand-built HUD (the default) keeps:
   0.68 of the colour at x 266 pixels, 0.38 at 280, 0.21 at 290, 0.05 at 298: from full at
   about 250 to nothing at about 300.5 (window x 273 to 341). The quest marker at SE
   (x 255-264) is drawn full where the line beside it is at about 0.8.
-- **Needs a capture: LEVEL UP on the tile HUD (5 pixels high).** The original's font-8
-  texts stand 30.7 units under their tiles' read `y` (`XPAmount` y 90: "+54" ends at y
-  578 pixels; `XPLevelUp` y 70: ends at 563), the radiation value 29.3 under the file's
-  y 65; its font-7 texts 22-24 (`XPLabel` y 80 ends at 564, the enemy's name, the need
-  words) but `radiation_text`, set at the same y as the value, also 29.3 [observed:
-  xp_meter, xp_levelup_menu, environment-radiation, perk-meltdown-anatomy]. A rule by
-  font (`TEXT_BASE` 24 for font 7, about 31 for font 8) would put "+9" under "RAD/SEC"'s
-  line, where the original shows them on one: read `radiation_text`'s and
-  `radiation_text_value`'s `y` (and `height`) in radiation before changing `TEXT_BASE`.
+- **LEVEL UP on the tile HUD (5 pixels high): a line per font (#979).** Until #979
+  every font's first line stood 24 under a text tile's top, which drew the font-8 texts
+  about 5 pixels high. [observed: hud_textbase capture 2026-10-31, 1280 x 720, 0.75
+  pixels a unit; the text tiles' traits read in every state, no `y` or `height` moved;
+  private, not shipped] `radiation_text` (font 7, height 42) and `radiation_text_value`
+  (font 8, height 64) both stand at y 65; `XPAmount` (font 8, 64) at y 90, `XPLabel`
+  (font 7, 42) at 80, `XPLevelUp` (font 8, 64) at 70, `XPLastLevel` and `XPNextLevel`
+  (no `font`, 36) at 30. A text tile's `height` is its font's tallest glyph picture
+  (fonts.md §3). Where the capitals' ink ends under the tile's `y`, and where it starts:
+  "RAD/SEC" 25.0 (1.0), "XP" about 24 (about 1.7), "+9" 31.7 (-5.7), "+54" about 31.7,
+  "LEVEL UP" 32.0 (-6.7), the level digits "1" and "2" (font 1) about 21 (about 1.3).
+  So "+9" and "RAD/SEC" do not stand on one line: the 29.3 this note gave
+  `radiation_text` before, like its value's, was a mis-measurement (menu-xml.md §3.1.2's
+  23.7 agrees with the other font-7 readings), and a line per font fits every reading.
+  [observed: the font textures, fonts.md §3] NVForever sets a glyph's picture with its
+  top `ascent` over the line (fonts.md §2); the glows are as deep under the letters as
+  over them, so the middle of a text's ink stands where it does whatever edge the eye
+  takes: 12 units over the line for font 7's capitals, 18 for "LEVEL UP", 17.5 for "9",
+  10 for font 1's digits. Measured so, the capture's lines stand 24.9 (font 7), 30.5
+  (font 8) and 21.0 (font 1) under the tops. `tiles::draw::text_base` keeps font 7's 24
+  (this capture's 24.9 is within its pixel of it; the earlier readings 23.7 and the
+  prompt's 24.5-25.5, menu-xml.md §3.1.2) and stands fonts 8 and 1 as far from it as
+  this capture shows: font 8 29.5, font 1 20; the fonts no capture measured take 24
+  [hypothesis: needs a capture of a text in each]. No single font measure gives the
+  three (the size less the deepest glyph's reach under the line: 21, 24, 37, fonts.md
+  §3) [hypothesis: the rule behind them is not known]. The tile texts take it
+  (`draw::text_lines`), the quest notices' tops (§14.11: the name's top 29.5 over the
+  hand-built line), the need words (`hud_needs::WORD_BASE`, font 7) and the corner
+  labels (font 7). Tests: `tiles::draw::{fonts_7_and_8_at_one_y_stand_on_their_own_lines,
+  the_default_font_stands_higher_and_unmeasured_fonts_take_font_7s_line,
+  a_text_tiles_font_trait_sets_the_line_it_is_drawn_on}`.
 - Tests: `hud::{the_last_action_point_tick_stands_clear_of_the_upright,
   the_compass_keeps_the_heading_at_the_triangle, the_pieces_stand_inside_their_brackets}`,
   `compass_strip::{the_window_fades_out_at_its_right_end,
@@ -1250,3 +1334,155 @@ the hand-built HUD (the default) keeps:
   zoom), `crates/fnv-game/tests/ui_hud.rs`
   `need_words_keep_places_and_use_stage_alpha_and_colour_in_both_modes` (LMB). Smoke
   `tiles-hud-ammo-label` (new), `hud-compass-north` (the strip's log line).
+
+### 14.11 The messages, quest notices and subtitles from tiles (T12 leftovers, 2026-10-29)
+
+[observed: private run hud_traits run1, `*:N` children of each piece, sample 0 (x, y,
+width, height, alpha, visible, depth); hud_jip for the strings, §14.2]
+
+- **`Messages`** has three code-made children from the start, before any message:
+  `*:0` 470 x 192 at y -20, alpha 0, depth 1 (the template `message_bracket`'s size and
+  y); `*:1` a text at x 130, y 5, 281 x 80, alpha 0, depth 2 (the corner message's text,
+  §14.2); `*:2` 160 x 160 at x 0, y -25, alpha 0, depth 2 (`message_icon`'s). All visible
+  1. Which template the text comes from is not read [hypothesis: the left-justified
+  text's, by its x where the hand-built HUD's text starts, `corner_messages::TEXT_X`].
+- **`QuestReminder`**: its `*:0` and `*:1` were the file's `QuestAdded` and
+  `QuestStages` (no code copy under it with no notice showing). **`Region_Location`**
+  had no child. **`Subtitles`**: `*:0` a text at x 400 (the middle of the 800-wide
+  piece), 13 x 42, alpha 255, visible 0, string " ".
+- [design] With `[UI] TileMenus=HUDMainMenu`, `engine/nvf-play/src/tiles/notices.rs`
+  writes these copies before scripts, only while the switch is on (off, nothing is made:
+  the tree stays T4's). What shows, when and how strongly stays the hand-built HUD's:
+  `CornerMessages` (one at a time, the record's Display Time, 0.25 s fades),
+  `QuestMessages` (its order, times, fades, AutoDisplayObjectives hold and sounds), the
+  subtitle selection of `script_hud.rs`, and the hand-built showing rules (hidden and
+  held behind a message box, in dialogue, while an idle holds the camera). The hand-built
+  areas are hidden (`vanilla::{MessagesArea, QuestArea, SubtitlesArea}`), their queues
+  still run; the subtitles' area only while the tile renderer draws something (below,
+  "Differences"). `KEPT_PIECES` is empty: `BreathMeter`, the last kept piece, is drawn
+  from its tile since §14.12; `Region_Location` gets a discovery's copies (below).
+- **Messages** [design, places observed]: the icon, text and bracket are made in that
+  order, so `*:0`-`*:2` are as read; the text at its read x 130, y 5, depth 2. Alpha:
+  icon and text 255 × the queue's strength, the bracket 0.65 of that (the hand-built
+  HUD's `BRACKET_STRENGTH`, corner-messages.md §4); with no message all three alpha 0 and
+  the last text held [observed: alpha 0 with a text]. The icon's `filename` is the
+  record's Menu Icon, else the default Vault Boy's [documented: GECK wiki, Message].
+  The text wraps at 330 (`wrapwidth`) [hypothesis: the hand-built HUD's break,
+  corner-messages.md §4; the copy's own `wrapwidth` was not read].
+- **Quest notices** [design]: made at the first notice (none were there before one),
+  directly under `QuestReminder` [hypothesis: whether the original puts them under
+  `QuestStages` (y 40) or `QuestAdded` (y 80) is not read; the first objective's top,
+  39, is next to `QuestStages`' 40]. Places are the hand-built HUD's (quest-messages.md
+  §4, measured on the owner's screenshots) less the piece's place (45, 200) and a text's
+  line in its font (`tiles::draw::text_base`, §14.10: 24 in font 7, 29.5 in font 8):
+  the label at (0, 23), the name in font 8 at (-1.5, 81.5), the first
+  objective at (0, 39), each next one under the lines before it (the font's size + 2 a
+  line), wrapped at 570. Each objective has a box copy of its kind (`template_checkbox`,
+  `template_filled_checkbox`) at x -16, 3 under its text's top, 26 x 26 (the screenshots'
+  square; the file's templates say x -20 and 16 x 16 for the open one) [observed:
+  quest-messages.md §4-§5]. Surplus copies are hidden, not removed. A discovery ("You
+  have discovered" over the name) is a banner here, where the owner's screenshot shows it
+  [observed: quest-messages.md, "Discovered"].
+- **Discoveries under `Region_Location`** [hypothesis: hud.md §14 maps discoveries to
+  Region_Location; the capture saw no copies there, so their layout is the quest
+  banner's]: at the first discovery a label and a name copy (`template_justify_left_text`,
+  no bracket: the hand-built HUD draws a discovery as the label and the name only) are
+  made under `Region_Location` (45, 728), at the quest banner's places moved to its top
+  left, so they stand where the hand-built HUD draws a discovery: the label at (0, -505),
+  the name in font 8 at (-1.5, -446.5). Their strings and alpha follow the queue as
+  `QuestReminder`'s banner (alpha 0 with the last discovery held while another notice or
+  none shows); their `visible` stays 0 [design]: the same notice is drawn once, from
+  `QuestReminder`'s copies, because the hand-built drawing's place (the label's top 223,
+  the name's 281.5) lies inside `QuestReminder`'s rect (45, 200, 400 x 200) and far outside
+  `Region_Location`'s (45, 728, 100 x 100). What the original draws under
+  `Region_Location` on entering a named place (a region or location name) is still not
+  known.
+- **Differences from the hand-built drawing** [design]: the quest's name fades as one
+  tile (the hand-built letters come one after another over 0.6 s); a wrapped line inside
+  one tile stands the font's size under the one before (the hand-built 2 more); the
+  subtitles stand under `Subtitles`' y (660, or raised by a prompt, §14.6), the
+  hand-built ones on a fixed base 633; the tile renderer draws nothing in a menu (the
+  root's `visible` 0, written from `Shown::root`), and while it draws nothing the
+  hand-built subtitles are not hidden (`vanilla::{hide, root_drawn}`, the root live,
+  visible and with an alpha above 0 as the layout passes them down), so a line said
+  while a message box is up shows, drawn by hand.
+- **Subtitles** [design, observed place]: one centre-justified text at x 400, made at the
+  first write with " ", hidden; while lines are drawn its string is the lines (one text a
+  line), `visible` 1, wrapped at 800 [hypothesis: the hand-built HUD's width, its own
+  `wrapwidth` not read]; after them hidden with the last text [hypothesis].
+- **Widths** [design: ui-tile-tree.md §4.1]: each text copy's `width` is written from
+  its string just after the copies, before scripts, in its font at its `wrapwidth`, only
+  with the game's own fonts (`notices::write_widths`) [hypothesis: a wrapped text is as
+  wide as its widest line; `Messages/*:1` was read 281 wide under the 330 wrap, and no
+  copy holding a wrapped string was read]. The hand-built subtitles' area is given back
+  (`Inherited`) every frame the tiles do not draw them, the HUD menu gone included
+  (`vanilla::subtitles_visibility`).
+- **Needs a capture**: the copies' traits while a message, a quest notice, a discovery
+  and a subtitle show (alpha over time, `wrapwidth`, which template, the parents under
+  `QuestReminder`, whether `Region_Location` gets children on entering a named place),
+  read with GetUIFloat/GetUIString as §14.2; the original's fades and times
+  (quest-messages.md §6, corner-messages.md §7).
+- Tests: `tiles::notices::{the_message_copies_are_made_in_the_observed_order_and_fade_with_the_queue,
+  the_renderer_draws_the_message_where_the_hand_built_hud_does,
+  a_quest_banner_and_its_objectives_take_the_hand_built_places,
+  subtitles_are_one_centred_text_there_from_the_start,
+  a_rebuilt_tree_gets_its_copies_again_and_a_tree_without_the_pieces_none,
+  a_discovery_is_written_under_region_location_too_and_drawn_once,
+  the_log_names_what_each_area_shows,
+  every_text_copy_gets_its_width_from_its_string_font_and_wrap}`,
+  `tiles::vanilla::the_hand_built_subtitles_stay_while_the_tiles_draw_nothing`. Smoke
+  `tiles-hud-notices`, `tiles-hud-discovered`, `tiles-hud-subtitles`; every `tiles-*`
+  scenario expects the start line to end `hand-built HUD hidden` (no piece kept, since
+  §14.12).
+
+### 14.12 The breath meter from its `nif` tile (T12 leftovers, 2026-10-29)
+
+- **The tile** [documented: `hud_main_menu.xml`, read with `fnvtool ui tree --at
+  HUDMainMenu/BreathMeter`]: `<nif name="BreathMeter">`, `filename`
+  `Interface\HUD\AirTimer01.NIF`, `animation` `Forward`, `visible` `&false;`, `alpha` 0,
+  64 x 64, `systemcolor` `&hudmain;`, no children and no place. [observed: §14] Its place
+  W/2, 110 and `visible` 8192 while playing (T4 writes both). No trait of the file says
+  how far into `Forward` the model stands or when it shows: the code drives both
+  [hypothesis]; neither was read in the original under water.
+- **What the hand-built meter does** (`hud_breath.rs`, drowning.md §3): it reads the
+  model itself (no 3D rendering): each textured square of the model's x–z plane is a
+  picture turned to its angle, the model's bounds fitted in its own 64 box centred at
+  W/2 and 104 down; `Forward`'s vis keys switch `Tick01`…`Tick16` off at the share of the
+  breath used [observed: the keys; hypothesis: the share].
+- [design] **The tile renderer draws `nif` tiles** with the whole menu drawn
+  (`engine/nvf-play/src/tiles/model.rs`): the tile's `filename` under `meshes\`
+  (`model::model_path`) read once by the same reader (`MeterModel::read_sequence`, with
+  the tile's `animation`), its pieces spawned by the hand-built meter's own code
+  (`hud_breath::spawn_pieces`), in the tile's colour and alpha. It is not the design
+  note's "drawn to a texture" (hud-xml.md §5): a model with no flat pieces draws nothing
+  and says so once. The mods' `nif` tiles with the switch off are still not drawn (T5).
+- [hypothesis] **Where**: the model's origin at the tile's `x`, `y`, one model unit an
+  interface unit, its z up the screen: the meter centred across at W/2 with its centre
+  about 110 down (the 16 ticks reach about 30 units round the origin, filling the 64 x
+  64 the file gives). The read x W/2, a left edge for every other piece, would put a box
+  drawn from the tile's top left right of the middle, where the original's meter is not
+  [the owner: "center high", drowning.md §3]. The hand-built meter (the default) keeps
+  the owner's place, centred 104 down, and its bounds-fitted size (about 7% larger).
+- [design] **When and how far** (`vanilla::write_breath`, only while the switch is on):
+  `BreathMeter`'s `alpha` 255 while the hand-built meter would show (`hud_breath::shown`:
+  the head under water, or the breath not yet whole, and the corners shown), 0 otherwise
+  [hypothesis: as the sneak word's and the radiation meter's children, §14.1]; and
+  `_NVFSequenceFraction`, NVForever's own trait, the share of the breath used (0 to 1),
+  which `model::animate` turns into `Forward`'s time each frame and shows the pieces by,
+  without spawning them again. The hand-built meter's root is hidden
+  (`vanilla::BreathRoot`), its model still read. `KEPT_PIECES` is empty; the start line
+  says `hand-built HUD hidden`.
+- **Needs a capture**: `BreathMeter`'s `alpha`, `visible`, `x`, `y` and any new trait
+  read under water (GetUIFloat every half second through a dive, as §14.1), and a
+  screenshot of the meter at 1280 x 720 with about half the breath used: its centre and
+  size against the tile's place, which tick goes first and whether the ticks go one by
+  one or fade.
+- Tests: `tiles::model::{a_nif_tile_names_its_model_under_meshes_and_its_sequence,
+  the_breath_meter_draws_from_its_tile_only_while_written_shown_with_the_switch_on,
+  the_model_stands_on_the_tiles_place_a_unit_a_unit,
+  the_ticks_go_out_as_the_fraction_written_grows}`,
+  `tiles::vanilla::{the_breath_meter_shows_by_alpha_and_stands_in_its_sequence_by_the_breath_used,
+  the_start_line_names_the_kept_pieces_only_when_there_are_any}`, the `hud_breath` tests.
+  Smoke `tiles-hud-breath` (new, shot `tiles_hud_breath.png`); the six other `tiles-*`
+  scenarios that quote the start line now expect `hand-built HUD hidden` with nothing
+  after it.

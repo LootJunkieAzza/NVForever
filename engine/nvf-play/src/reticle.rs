@@ -21,7 +21,8 @@
 //!   bar's inner end on the cone's edge, no nearer the middle than [`CROSS_REST`] [owner
 //!   2026-10-27; observed: each picture's bar is 5 texels across, its middle line texel 2,
 //!   its solid end at the picture's edge toward the middle]. Without the four pictures,
-//!   the arrows as before.
+//!   the arrows as before. The settings page's Crosshair style ([`CrosshairStyle`]; owner
+//!   2026-10-30) picks the cross or the parting arrows.
 //! - **Hostile**: over an actor hostile to the player the crosshair is red, the crime
 //!   colour (`crate::hud_target::AimHostile`) [owner's playtest list 5, item 58;
 //!   documented: GECK wiki IsCrimeOrEnemy, "the red color of the crosshair"].
@@ -271,21 +272,78 @@ impl Default for DynamicCrosshair {
     }
 }
 
+/// What the dynamic crosshair looks like with a gun or thrown weapon drawn (module
+/// notes): the gun cross, or the arrows parting [owner 2026-10-30].
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CrosshairStyle {
+    /// The four bars of §7.
+    #[default]
+    Cross,
+    /// The plain crosshair's two arrows, parting with the spread (§6).
+    Arrows,
+}
+
+impl CrosshairStyle {
+    pub const ALL: [CrosshairStyle; 2] = [CrosshairStyle::Cross, CrosshairStyle::Arrows];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            CrosshairStyle::Cross => "Cross",
+            CrosshairStyle::Arrows => "Arrows",
+        }
+    }
+
+    /// The style of this name, any case.
+    pub fn by_name(name: &str) -> Option<CrosshairStyle> {
+        CrosshairStyle::ALL.into_iter().find(|s| s.name().eq_ignore_ascii_case(name.trim()))
+    }
+}
+
+fn style_pick(w: &mut World, name: &str) -> bool {
+    match CrosshairStyle::by_name(name) {
+        Some(s) => {
+            *w.resource_mut::<CrosshairStyle>() = s;
+            true
+        }
+        None => false,
+    }
+}
+
 pub struct ReticlePlugin;
 
 impl Plugin for ReticlePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<DynamicCrosshair>().add_systems(Update, draw.in_set(PlaySet::Ui));
+        app.init_resource::<DynamicCrosshair>().init_resource::<CrosshairStyle>().add_systems(Update, draw.in_set(PlaySet::Ui));
         crate::settings::add_setting(
             app,
             crate::settings::Setting {
                 key: "dynamic-crosshair",
                 group: crate::pause::GROUP_MENUS,
                 label: "Dynamic crosshair",
-                note: "On: with a gun or thrown weapon drawn the crosshair is a cross whose four bars part to show how wide your shots spread now (wider running, after shots, with crippled arms; narrower aimed or crouched). Off: the arrows stay together whatever is drawn.",
+                note: "On: with a gun or thrown weapon drawn the crosshair opens to show how wide your shots spread now (wider running, after shots, with crippled arms; narrower aimed or crouched); Crosshair style below picks how it looks. Off: the arrows stay together whatever is drawn.",
                 get: |w| w.resource::<DynamicCrosshair>().0,
                 set: |w, on| w.resource_mut::<DynamicCrosshair>().0 = on,
                 slider: None,
+            },
+        );
+        crate::settings::add_choice_list(
+            app,
+            crate::settings::Setting {
+                key: "crosshair-style",
+                group: crate::pause::GROUP_MENUS,
+                label: "Crosshair style",
+                note: "With Dynamic crosshair on and a gun or thrown weapon drawn. Cross: four bars that part with the spread. Arrows: the plain crosshair's two arrows part instead.",
+                get: |_| false,
+                set: |_, _| {},
+                slider: None,
+            },
+            crate::settings::ChoiceList {
+                names: |_| CrosshairStyle::ALL.iter().map(|s| s.name().to_string()).collect(),
+                chosen: |w| w.resource::<CrosshairStyle>().name().to_string(),
+                pick: style_pick,
+                save: |w| w.resource::<CrosshairStyle>().name().to_string(),
+                load: style_pick,
+                ask_keep: false,
             },
         );
     }
@@ -428,13 +486,21 @@ fn spawn_texts(p: &mut ChildSpawnerCommands, kit: &Kit, prompt: &Prompt) {
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn draw(
     mut commands: Commands,
-    (state, wheel): (Res<State<PlayState>>, Option<Res<crate::weapon_wheel::WeaponWheel>>),
+    (state, wheel, style): (Res<State<PlayState>>, Option<Res<crate::weapon_wheel::WeaponWheel>>, Option<Res<CrosshairStyle>>),
     target: Res<Target>,
     sim: Res<SimState>,
     (combat, hostile, bar, camera, time, dynamic): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>, Option<Res<DynamicCrosshair>>),
     mut spread: Local<f32>,
-    mut logged: Local<(bool, i32, bool, Option<String>, Option<bool>, Option<bool>)>,
-    (locks, bindings, creator, sights, scope, driven): (Option<Res<ControlLocks>>, Option<Res<crate::bindings::Bindings>>, Option<Res<crate::creator::CreatorMenu>>, Option<Res<crate::aim_zoom::TrueSights>>, Option<Res<crate::aim_zoom::Scope>>, Option<Res<crate::player::ViewDriven>>),
+    mut logged: Local<(bool, i32, bool, Option<String>, Option<bool>, Option<bool>, Option<CrosshairStyle>)>,
+    (locks, bindings, creator, sights, scope, driven, kill_cam): (
+        Option<Res<ControlLocks>>,
+        Option<Res<crate::bindings::Bindings>>,
+        Option<Res<crate::creator::CreatorMenu>>,
+        Option<Res<crate::aim_zoom::TrueSights>>,
+        Option<Res<crate::aim_zoom::Scope>>,
+        Option<Res<crate::player::ViewDriven>>,
+        Option<Res<crate::kill_cam::KillCam>>,
+    ),
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
@@ -452,8 +518,10 @@ fn draw(
     // (the opening's wake-up, `crate::player::ViewDriven`): only subtitles then [owner
     // 2026-10-24: "E) Talk Doc Mitchell" showed in the starting bed sequence].
     let held = driven.is_some_and(|d| d.0);
-    // Nor under the weapon wheel (docs/design/weapon-wheel.md §7).
-    let playing = *state.get() == PlayState::Playing && !creator.is_some_and(|c| c.is_open()) && !held && !wheel.is_some_and(|w| w.is_open());
+    // Nor while a kill camera plays (`crate::kill_cam`) [owner's playtest request #1034],
+    // nor under the weapon wheel (docs/design/weapon-wheel.md §7).
+    let killcam = kill_cam.is_some_and(|k| k.active());
+    let playing = *state.get() == PlayState::Playing && !creator.is_some_and(|c| c.is_open()) && !held && !killcam && !wheel.is_some_and(|w| w.is_open());
     // What the idle keeps off the screen, once per target.
     let kept = held.then(|| target.0.as_ref().map(|t| t.name.clone())).flatten();
     if kept != logged.3 {
@@ -514,9 +582,14 @@ fn draw(
         info!("reticle: {} spread {:.1} (cone {:.2} deg)", if foe { "hostile" } else { "plain" }, *spread, combat.as_ref().and_then(|c| c.crosshair_cone).unwrap_or(0.0));
         (logged.0, logged.1) = now;
     }
-    // A gun or thrown weapon drawn, with the switch on: the four bars in place of the
-    // arrows (module notes).
-    let cross = dynamic && kit.bars.is_some() && combat.as_ref().is_some_and(|c| c.crosshair_cone.is_some());
+    let style = style.map_or_else(CrosshairStyle::default, |s| *s);
+    if logged.6 != Some(style) {
+        info!("reticle: crosshair style {}", style.name());
+        logged.6 = Some(style);
+    }
+    // A gun or thrown weapon drawn, with the switch on and the Cross style: the four bars
+    // in place of the arrows (module notes).
+    let cross = dynamic && style == CrosshairStyle::Cross && kit.bars.is_some() && combat.as_ref().is_some_and(|c| c.crosshair_cone.is_some());
     if logged.5 != Some(cross) {
         info!("reticle: {}", if cross { "gun cross (four bars)" } else { "arrows" });
         logged.5 = Some(cross);
@@ -574,6 +647,16 @@ mod tests {
 
     fn prompt(action: &str, name: &str, figures: Option<[&str; 2]>) -> Prompt {
         Prompt { action: action.into(), name: name.into(), figures: figures.map(|f| f.map(String::from)), crime: false, key: String::new(), note: None }
+    }
+
+    #[test]
+    fn crosshair_styles_are_known_by_their_names() {
+        assert_eq!(CrosshairStyle::default(), CrosshairStyle::Cross);
+        for s in CrosshairStyle::ALL {
+            assert_eq!(CrosshairStyle::by_name(s.name()), Some(s));
+        }
+        assert_eq!(CrosshairStyle::by_name(" arrows "), Some(CrosshairStyle::Arrows));
+        assert_eq!(CrosshairStyle::by_name("Dot"), None);
     }
 
     #[test]

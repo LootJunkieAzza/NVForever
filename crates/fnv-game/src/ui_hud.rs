@@ -123,30 +123,34 @@ pub fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
     // aiming changed one: ReticleCenter 0, EnemyHealth 8 [observed: hud.md §14.1].
     // The corners, AmmoTypeLabel and CNDArrows were seen shown only [hypothesis: the
     // same]. With the root hidden they read 0 [observed: hud.md §14.3]. Pieces we do
-    // not draw keep the file's visible [design].
+    // not draw keep the file's visible [design]. The corner pieces (the two corners,
+    // the radiation meter, the ammo label and the condition arrows) also read 0 while
+    // `shown.corners` is off (movement lock, portrait, held camera, weapon wheel), as
+    // the hand-built HUD hides them then (#980) [design; not captured in the original].
     let reticle = if shown.reticle && !shown.aiming { 64.0 } else { 0.0 };
     let enemy = if shown.aiming { 8.0 } else { 1.0 };
-    for (name, value) in [
-        ("ActionPoints", 1.0),
-        ("HitPoints", 2.0),
-        ("RadiationMeter", 4.0),
-        ("QuestReminder", 16.0),
-        ("Region_Location", 32.0),
-        ("ReticleCenter", reticle),
-        ("SneakMeter", 128.0),
-        ("Messages", 256.0),
-        ("Info", 512.0),
-        ("Subtitles", 1024.0),
-        ("XPMeter", 4096.0),
-        ("BreathMeter", 8192.0),
-        ("crippled_limb_indicator", 32768.0),
-        ("HardcoreMode", 65536.0),
-        ("EnemyHealth", enemy),
-        ("AmmoTypeLabel", 1.0),
-        ("CNDArrows", 1.0),
+    for (name, value, corner) in [
+        ("ActionPoints", 1.0, true),
+        ("HitPoints", 2.0, true),
+        ("RadiationMeter", 4.0, true),
+        ("QuestReminder", 16.0, false),
+        ("Region_Location", 32.0, false),
+        ("ReticleCenter", reticle, false),
+        ("SneakMeter", 128.0, false),
+        ("Messages", 256.0, false),
+        ("Info", 512.0, false),
+        ("Subtitles", 1024.0, false),
+        ("XPMeter", 4096.0, false),
+        ("BreathMeter", 8192.0, false),
+        ("crippled_limb_indicator", 32768.0, false),
+        ("HardcoreMode", 65536.0, false),
+        ("EnemyHealth", enemy, false),
+        ("AmmoTypeLabel", 1.0, true),
+        ("CNDArrows", 1.0, true),
     ] {
         if let Some(tile) = ui.find_tile(&format!("HUDMainMenu/{name}")) {
-            ui.set_trait(tile, "visible", Value::Num(if shown.root { value } else { 0.0 }));
+            let on = shown.root && (!corner || shown.corners);
+            ui.set_trait(tile, "visible", Value::Num(if on { value } else { 0.0 }));
         }
     }
     // What shows is the children's alpha: the sneak word while sneaking, the radiation
@@ -170,11 +174,6 @@ pub fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
         ("RadiationMeter/radiation_text_value", Some(texts.radiation_value.as_str())),
         ("XPMeter/XPLabel", Some(texts.xp_label.as_str())),
         ("XPMeter/XPLevelUp", Some(texts.xp_level_up.as_str())),
-        ("HardcoreMode/Dehydration", Some(texts.needs[0].as_str())),
-        ("HardcoreMode/Hunger", Some(texts.needs[1].as_str())),
-        ("HardcoreMode/Sleep", Some(texts.needs[2].as_str())),
-        ("HardcoreMode/Rads", Some(texts.needs[3].as_str())),
-        ("HardcoreMode/LMBs", Some(texts.needs[4].as_str())),
         ("SneakMeter/sneak_nif", texts.sneak.as_deref()),
         ("Info/justify_center_hotrect/PCShortcutLabel", texts.prompt_key.as_deref()),
         ("Info/justify_center_hotrect", texts.prompt_verb.as_deref()),
@@ -186,22 +185,52 @@ pub fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
             }
         }
     }
+    // The need words are written when their text changes, not every frame: a script's
+    // SetUIString on one lasts until the HUD's own word changes [observed: the jip-probes
+    // set gaps1, "NVF one" then "NVF 2" read back in later steps, "H20" only after the
+    // probe wrote it; hypothesis: written on change, the stage changes not yet probed].
+    for (name, word) in ["Dehydration", "Hunger", "Sleep", "Rads", "LMBs"].iter().zip(&texts.needs) {
+        if let Some(tile) = ui.find_tile(&format!("HUDMainMenu/HardcoreMode/{name}")) {
+            ui.write_changed(tile, "string", Value::Str(word.clone()));
+        }
+    }
     copies::write(ui, shown, texts);
+}
+
+/// Measures a text: font number (0 when absent) and string to its width in interface
+/// units, as [`write_text_widths`] takes it. The engine's fonts behind it, owned, so the
+/// game holds no engine types [design].
+pub type Measure = std::sync::Arc<dyn Fn(f64, &str) -> f64 + Send + Sync>;
+
+/// A frame's HUD writes kept back by [`defer`]: what [`write`] and [`write_text_widths`]
+/// would have made.
+pub struct Pending {
+    pub shown: Shown,
+    pub texts: Texts,
+    /// The text widths' measure, `None` when the frame would have written no widths (no
+    /// game fonts) [design].
+    pub widths: Option<Measure>,
 }
 
 /// Keeps this frame's writes for [`flush`] instead of making them, for a frame where
 /// nothing reads the HUD's traits (no tile-drawn HUD, no mod tiles, no script has called
-/// a UI function): such a frame does no tree work [design: maintainer's review of #902].
-pub fn defer(game: &mut Game, shown: Shown, texts: Texts) {
-    game.ui_hud_pending = Some(Box::new((shown, texts)));
+/// a UI function on the HUD): such a frame does no tree work [design: maintainer's review
+/// of #902]. The widths are kept as their measure: they are measured from the strings
+/// [`write`] puts in the tree, which are not there yet.
+pub fn defer(game: &mut Game, shown: Shown, texts: Texts, widths: Option<Measure>) {
+    game.ui_hud_pending = Some(Box::new(Pending { shown, texts, widths }));
 }
 
-/// Makes the writes [`defer`] kept, before a UI function reads or changes the tree, so a
-/// script reads this frame's values as it would had they been written [design].
+/// Makes the writes [`defer`] kept, before a UI function reads or changes the HUD, in a
+/// frame's order (the strings, then the widths measured from them), so a script reads
+/// this frame's values as it would had they been written [design].
 pub fn flush(game: &mut Game) {
     if let Some(pending) = game.ui_hud_pending.take() {
-        let (shown, texts) = *pending;
+        let Pending { shown, texts, widths } = *pending;
         write(&mut game.ui_tree, shown, &texts);
+        if let Some(measure) = widths {
+            write_text_widths(&mut game.ui_tree, &*measure);
+        }
     }
 }
 

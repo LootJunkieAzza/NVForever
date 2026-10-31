@@ -464,12 +464,37 @@ impl<'a> Resolver<'a> {
         };
         // The worn items and the armour addons their biped model lists name (ARMO BIPL,
         // `records::Armor::addons`): an addon's slots are covered and its model drawn as
-        // the item's.
-        let drawn: Vec<FormId> = worn
+        // the item's. One hand model per hand (actors.md §2.3, #1067) [hypothesis: the
+        // rules; observed: FalloutNV.esm]:
+        // - an addon that is the race's own bare hand (the vault suits' `BaseFemale` list:
+        //   `lefthand.nif`, `righthand.nif`) is left out when another worn item takes its
+        //   slot itself, as the race's hand is: the Pip-Boy Glove's hand is drawn alone;
+        // - a worn item whose every slot another item's addons take is left out: the
+        //   Pip-Boy Glove under an outfit's glove or a power armour's gauntlet.
+        let own_slots = |id: &FormId| self.actors.armors.get(id).map_or(0, |a| a.slots);
+        let race_hands: Vec<String> = race.body[sex].iter().filter(|p| matches!(p.index, 1 | 2)).filter_map(|p| p.model.as_deref().map(mesh_path)).collect();
+        let bare_hand = |id: &FormId| {
+            let a = self.actors.armors.get(id);
+            a.and_then(|a| a.worn[sex].as_ref().or(a.worn[0].as_ref())).is_some_and(|m| race_hands.contains(&mesh_path(m)))
+        };
+        // (piece, the worn item naming it when it is an addon)
+        let mut pieces: Vec<(FormId, Option<FormId>)> = Vec::new();
+        for w in &worn {
+            pieces.push((*w, None));
+            let others = worn.iter().filter(|o| *o != w).fold(0, |acc, o| acc | own_slots(o));
+            for ad in self.actors.armors.get(w).map(|a| a.addons.clone()).unwrap_or_default() {
+                if !(bare_hand(&ad) && own_slots(&ad) & others != 0) {
+                    pieces.push((ad, Some(*w)));
+                }
+            }
+        }
+        let by_others_addons = |id: &FormId| pieces.iter().filter(|(_, o)| o.is_some_and(|o| o != *id)).fold(0, |acc, (a, _)| acc | own_slots(a));
+        let drawn: Vec<FormId> = pieces
             .iter()
-            .flat_map(|w| std::iter::once(*w).chain(self.actors.armors.get(w).map(|a| a.addons.clone()).unwrap_or_default()))
+            .filter(|(id, owner)| owner.is_some() || own_slots(id) == 0 || own_slots(id) & !by_others_addons(id) != 0)
+            .map(|(id, _)| *id)
             .filter(|id| self.actors.armors.get(id).is_some_and(|a| !(hide_backpack && a.slots & slot::BACKPACK != 0)))
-            .fold(Vec::new(), |mut v, id| {
+            .fold(Vec::new(), |mut v, id: FormId| {
                 if !v.contains(&id) {
                     v.push(id);
                 }

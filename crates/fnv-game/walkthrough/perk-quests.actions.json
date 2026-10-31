@@ -1,0 +1,205 @@
+{
+ "format": "fnv.script.actions/1",
+ "title": "Headless perk quests: the perks that set quest stages taken (Generic 10-110, FerociousLoyaltyQuest 10, FriendOfTheNightQuest 10)",
+ "given": [],
+ "actions": [
+  {
+   "op": "note",
+   "text": "Path: the perks whose effects are a quest's stage scripts (the Generic perk quest's stages 10-110, FerociousLoyaltyQuest and FriendOfTheNightQuest 10) are taken one rank at a time; each rank's entry sets its stage [observed: script cover's setter list, the perks' entry points]. Here and Now (10), Animal Friend ranks 1 and 2 (20, 30), Tag! (40), Explorer (50), Fortune Finder (60), Scrounger (70), Intense Training ranks 1-10 (101-110), Ferocious Loyalty, Friend of the Night. Stand-in: the level-up menu's picks, over many levels, by AddPerk (no level, SPECIAL or skill requirement is checked); the extra tag skill (stage 40, AddTagSkills) and S.P.E.C.I.A.L. points (101-110, AddSpecialPoints) are not spent. Generic 80 (power armour training) is reached by other chains."
+  },
+  {
+   "op": "call",
+   "line": "player.AddPerk HereandNow"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "Generic",
+   "fields": [
+    "done.10"
+   ],
+   "label": "milestone: Generic 10 (HereandNow)"
+  },
+  {
+   "op": "call",
+   "line": "player.AddPerk AnimalFriend"
+  },
+  {
+   "op": "call",
+   "line": "player.AddPerk AnimalFriend"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "Generic",
+   "fields": [
+    "done.20",
+    "done.30"
+   ],
+   "label": "milestone: Generic 20/30 (AnimalFriend)"
+  },
+  {
+   "op": "call",
+   "line": "player.AddPerk Tag"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "Generic",
+   "fields": [
+    "done.40"
+   ],
+   "label": "milestone: Generic 40 (Tag)"
+  },
+  {
+   "op": "call",
+   "line": "player.AddPerk Explorer"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "Generic",
+   "fields": [
+    "done.50"
+   ],
+   "label": "milestone: Generic 50 (Explorer)"
+  },
+  {
+   "op": "call",
+   "line": "player.AddPerk FortuneFinder"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "Generic",
+   "fields": [
+    "done.60"
+   ],
+   "label": "milestone: Generic 60 (FortuneFinder)"
+  },
+  {
+   "op": "call",
+   "line": "player.AddPerk Scrounger"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "Generic",
+   "fields": [
+    "done.70"
+   ],
+   "label": "milestone: Generic 70 (Scrounger)"
+  },
+  {
+   "op": "call",
+   "line": "player.AddPerk IntenseTraining"
+  },
+  {
+   "op": "call",
+   "line": "player.AddPerk IntenseTraining"
+  },
+  {
+   "op": "call",
+   "line": "player.AddPerk IntenseTraining"
+  },
+  {
+   "op": "call",
+   "line": "player.AddPerk IntenseTraining"
+  },
+  {
+   "op": "call",
+   "line": "player.AddPerk IntenseTraining"
+  },
+  {
+   "op": "call",
+   "line": "player.AddPerk IntenseTraining"
+  },
+  {
+   "op": "call",
+   "line": "player.AddPerk IntenseTraining"
+  },
+  {
+   "op": "call",
+   "line": "player.AddPerk IntenseTraining"
+  },
+  {
+   "op": "call",
+   "line": "player.AddPerk IntenseTraining"
+  },
+  {
+   "op": "call",
+   "line": "player.AddPerk IntenseTraining"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "Generic",
+   "fields": [
+    "done.101",
+    "done.102",
+    "done.103",
+    "done.104",
+    "done.105",
+    "done.106",
+    "done.107",
+    "done.108",
+    "done.109",
+    "done.110"
+   ],
+   "label": "milestone: Generic 101-110 (IntenseTraining)"
+  },
+  {
+   "op": "call",
+   "line": "player.AddPerk FerociousLoyalty"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "FerociousLoyaltyQuest",
+   "fields": [
+    "done.10"
+   ],
+   "label": "milestone: FerociousLoyaltyQuest 10 (FerociousLoyalty)"
+  },
+  {
+   "op": "call",
+   "line": "player.AddPerk FriendOfTheNight"
+  },
+  {
+   "op": "advance_seconds",
+   "seconds": 1
+  },
+  {
+   "op": "get_quest",
+   "quest": "FriendOfTheNightQuest",
+   "fields": [
+    "done.10"
+   ],
+   "label": "milestone: FriendOfTheNightQuest 10 (FriendOfTheNight)"
+  }
+ ]
+}

@@ -258,6 +258,31 @@ The commonest call failures:
   | 12 | EquipItem: no calling reference | PACK FalloutNV.esm:0273AE begin |
   | 11 | SetDestroyed: called on an empty reference | TERM DeadMoney.esm:006CAF item 0 |
 
+**The call probe** (#1122, `probe_calls` in the same file; `summary.call_probe` and
+`call_probe` in the output, the shapes it could not judge under `call_probe_not_judged`
+with `--detail`). A function that is given an argument of a kind its accessor cannot read
+(ShowMessage's compiled variables, one `Vars` list, read as a number) and then goes on with
+a default fails nowhere: the sweep's causes, `script stubs` and `script coverage` cannot see
+it. The `Args` accessors (crates/fnv-game/src/functions/mod.rs) record such an argument
+(present but unreadable; an absent one is an optional parameter), and a call that succeeds
+with one is traced as `arg_unread` (once per opcode, unit and parameter) in every run, the
+walkthroughs' `script run` traces and the game included. The probe runs every implemented
+function called by any compiled script (object, quest and effect scripts too, which the
+sweep does not run) once per distinct shape of its arguments, as a statement by itself, on
+the player, with the script's variables at 0. Result over the ten masters [observed,
+2026-10-31]: 427 shapes, 41 not judged (their call failed for want of context: 26 on an
+empty reference variable, 4 a form in a variable left at 0, 11 state the player lacks such
+as an equipped weapon or sleep; one of them has an argument other than a
+value, DamageActorValue's actor-value code, which the accessor reads), one cause before
+#1120 (ShowMessage parameter 2, 1713 call sites, 241 result scripts), none after.
+What it does not see: a function that returns before it reads the argument (context the
+probe lacks); arguments a function reads without the accessors (`a.get(i)`, `a.0`;
+ShowMessage's `message_vars`, navmesh and camera arguments, each matching every kind);
+calls inside the extender's expressions (Let, Eval, While, ForEach), which the probe does
+not walk (they are traced as `arg_unread` when they run). A parameter that takes two kinds
+reads the first with a peek that records nothing (`Args::peek_str`, `peek_form`:
+GetIsUsedItemType's name or code, GetVATSValue's form or code).
+
 ## 8. Second and third batches (2026-10-27/28)
 
 Every chain below runs with no step or given error (`script cover`: 32 chains, all 0/0),
@@ -429,3 +454,130 @@ chain (379 stages at db11b046, 378 on main 1e9a14c7). Its script (SCPT 0x0016829
 point about 12000 frames later and the script takes its stage-5 branch instead. One of the
 two fnv-game changes since db11b046 (4449628f radiation falloff, cd93d5c7 aid effects) moved
 it; not bisected.
+
+## 10. Fifth batch (2026-10-30, issue #932)
+
+24 new chains (one older chain runs further), from four groups, each with its `mq-*` smoke
+scenario, plus a coverage change. `script cover` over all chains: 0 step and 0 given errors;
+**191 of 228 quests touched (was 166), 165 completed (132), 710 of 1405 stages (639), 2249 lines said (1966), 246 actors (209)** [observed]. The totals are in tools/smoke/expected/walkthrough-coverage.toml.
+
+| group | chains (quests: stages reached) |
+|---|---|
+| larger base-game | someone-to-watch-over-me (VDialogueVegasNorth 10-100, Alice goes home), nothin-but-a-hound-dog (VMS24 100), the-coyotes (VMS13 100), unfriendly-persuasion (VMS50 100, bought off), eyesight-to-the-blind (VMS55b 100), tend-to-your-business (VMS55a 100, VMS55 101), ant-misbehavin (VNellisInfestation 20, completed), sunshine-boogie (NellisSunshineBoogie 100) |
+| add-ons | old-world-blues-setups (NVDLC03X8Setup 100, NVDLC03X13Setup 100, NVDLC03Enc 10, NVDLC03GenericPerkQUEST 10/11), lonesome-road-launch (NVDLC04MQ04 100, launch at both) |
+| small side | exploring-vault-74 (VT74 100), nelson-explorer (nvNelsonExplorerBark 100), geckoman (VES02DialogueGeckoman 50-70), legend-of-the-star (VMS09 30 fail, VMS09a 100), crazy-crazy-crazy (VMS57 100), cold-cold-heart (vNiptonVulpes 100), doctors (VDoctors 10-30, Doctors 20), that-lucky-old-sun (VMS03, by CompleteQuest), cottonwood-cove (vCCLeftMyHeart by CompleteQuest, vCCEyeforaneye 100), fail-beyond-the-beef (VMS18 255); beyond-the-beef now runs on to Heck's reward |
+| freeform | stocking-up (vFreeformForlornHope02 10), high-times (VFSHighTimes, CompleteQuest), debt-collector (VFSDebtCollector, CompleteQuest), wang-dang-atomic-tango (VFSAtomicPimp 100) |
+
+New stand-ins beyond §3's: skill values and items given (each chain's notes), `add_spell
+WithdrawalJet` for an addiction, ShowMap for a marker found on arrival, Ibsen's datastore
+virus hunt replaced by its result (`VirusWiped 1`: its infected hosts are drawn at random),
+Rex moved to Doctor Henry by MoveTo, and two new runner ops (below).
+
+**Coverage change.** A quest the run completes (`Game::quest_completed`, which CompleteQuest
+and a Complete Quest stage both go through) now counts as completed, and as touched even with
+no stage reached; `given` state does not count. Of §9's seven "walked but not counted", VMS39,
+VMS11 and VMS05 now count. VVault21Tour and vFreeformForlornHope03 are completed by nothing in
+the ESM, VMS43a ends by StopQuest, and VMS44's CompleteQuest is only on the Logan-dead branch
+[observed, decompiled scripts]. Test: `coverage_counts_a_quest_completed_by_complete_quest`.
+
+**Runner ops** (test: `the_runner_picks_a_perks_activate_choice`, perk_talk.rs):
+`perk_choice {target, choice}` opens the perks' activate choice list on a reference and picks
+one (Robot Compliance's "Deactivate"); `player_sneak {sneaking}` sets the player's measured
+crouch, which IsSneaking reads (SetForceSneak does nothing for the player).
+
+**Set by nothing** [observed, ESM]: VES02DialogueGeckoman 10 and 100, VMS09 10, vNiptonVulpes
+15, VNellisInfestation 10, VMS55b objective 20, Doctors 10 (Argyll's script sets a stage the
+quest does not define), vCCLeftMyHeart 0 and 100, NVDLC03Enc 20. Not walkable, as §9 said:
+NVDLC01ElijahBarkTown, NVDLC01FountainStartSequence, NVDLC01MQ01d/MQ03d, NVDLC01EnemyTest,
+NVDLC02MQ02.
+
+**Data notes** [observed]: VMS24 is offered only from the King's plain greeting, after G.I.
+Blues; Raquel and the Nellis gate guard start disabled and are enabled by the front gate
+script and the guard's greeting; Greasy Johnny is WatchFiend2REF; Mrs Hostetler's Topic034 and
+Jules' Topic007 borrow another topic's line (INFC/INFX).
+
+### Stalls
+
+1. **Possibly hard: the doctors' addiction cure does nothing.** VDoctors and Doctors stage
+   20 call RemoveSpell with no reference; a stage result script has no calling reference
+   (script-language.md), so all 13 calls fail and the withdrawal stays [observed]. Observer
+   check 42.
+2. **Soft: Old World Blues' first quest script never runs in the older chains.**
+   old-world-blues and the chains that copy its start talk to Dr. Klein in the same second
+   the quest starts; MQ01 reaches 100 before its 5 s script has run, so the Act XP values and
+   NVDLC03Enc 10 are never set there. old-world-blues-setups spends 6 s first and reaches
+   them [observed]. Observer check 43.
+3. **Soft: `RemoveItem x 0` is refused** (Loyal's reward line, INFO 0x0010A1BF, when the
+   arrays were fixed by hand). Not blocking. Observer check 44.
+4. **Soft:** a second Nelson explorer force-greets at once (the any-distance
+   StartConversation stall, check 45); the HELIOS One west-terminal password lands on
+   Fantastic as the speaker (check 46); Kilborn's conversation ends when stage 100 stops
+   vNiptonVulpes; Doctors 30's line (0x000BE417) is offered by none of the doctors tried;
+   VNellisInfestation's iInfestation stays 0 when the emitter is used before the power.
+5. **Not from this batch:** `GetQuestVariable` "parameter 1 is not a form" in every Hidden
+   Valley/Freeside run (INFO 0x0014B595-97); issue #907.
+
+**Not walked:** other branches (VDialogueVegasNorth 72-89, VMS03's other power targets and
+Ignacio's ending, Eye for an Eye's other paths, VMS57's peaceful ending) and the fail stages.
+
+## 11. Stage coverage (2026-10-30, issue #940)
+
+95 new chains (two older ones run further), from four groups, each with its `mq-*` smoke
+scenario, plus a report of which stages anything can set. `script cover` over all 206 chains:
+0 step and 0 given errors; **927 of 1405 stages reached (was 710), and 927 of the 1043 stages
+the data can set (89%)**; 195 of 228 quests touched (191), 166 completed (165), 2435 lines
+said (2249) [observed]. The totals are in tools/smoke/expected/walkthrough-coverage.toml.
+
+**Settable stages** (`coverage.rs`, `stage_setters`; test
+`coverage_reports_which_missing_stages_the_data_can_set`). A stage is settable when some unit
+in the load order calls SetStage on that quest and stage: any script, quest stage result
+(other than the stage's own), INFO begin/end, terminal item, package begin/end/change, perk
+entry or patrol script, as a statement, inside an expression or an extender lambda. Perks'
+Quest + Stage effects count too (the engine sets them in `perks.rs gain_rank`). No condition
+function sets a stage. The summary gains `stages.settable`, `missing_settable`,
+`by_variable` and `reached_unsettable`; `--detail` lists per quest the missing settable and
+unsettable stages and up to three setters for each. In the ten masters, no SetStage takes a
+variable quest or stage, and every reached stage has a setter [observed]. The other 362
+stages are set by nothing: cut content (VCG00 5-85, the cemetery scene stage 0's script skips),
+test quests, and stages only a quest's own stage names.
+
+| group | chains (stages) |
+|---|---|
+| main quest | house runs on through All or Nothing (VHDHouseBattle 20-100); come-fly-with-me on to VMQ01 50; fail-house-boomers/-omertas/-brotherhood/-kimball/-el-dorado/-dam (VMQHouse3-8 fails); tops-ambush, tops-swank, tops-swank-assassin, tops-swank-guns (VMQTops 5-80); new-game (VCG00 0, 90, 95, 100); fail-sunny-killed; fail-kimball-graham; fail-kimball-left; fail-cato-killed; dam-generators (VHDIndependentBattle 25); yesman-vault-destroyed |
+| factions | Camp Golf range and fail; Forlorn Hope's no-medic, patient killed/harmed; Medical Mystery bribe and let-off; I Fought the Law NCR side and fail; fail chains for Talent Pool, Lucky 38, ET Tumor Brute (two), Khans, Volare, Finger of Suspicion, Come Fly With Me, G.I. Blues, Nipton, We Are Legion, Bitter Springs, Pressing Matters, Run Goodsprings Run, Beggar, Nelson and others; hard-luck-blues-survivors; gi-blues-kieran; beggar-expose-tyrone |
+| side quests | fail-killed-givers-1/2/3 (each quest giver killed: about 30 fail stages); Pheeble Will (5 branches), Bye Bye Love (4), North Vegas (3), Camp Searchlight (3); tutorial-hints (CGTutorial 200-218); perk-quests (Generic 10-110, Ferocious Loyalty, Friend of the Night); and single branches of Nellis, Wheel of Fortune, White Wash, Atomic Tango, Cottonwood Cove, Primm, Cass, Lem |
+| add-ons | fail chains for the Think Tank and its six doctors, Honest Hearts' arrival, supply, deliverer, Gathering Storms, Crush and Flight, Dead Money's dog, gala and act 3; honest-hearts-pine-creek; honest-hearts-happy-trails; lonesome-road-launch-ncr/-legion and -camarader-e (NVDLC04GenericPerkQUEST 10, 12, 70, 80) |
+
+New stand-ins (each chain's notes): AddPerk for a perk picked at a level-up, GameHour for the
+wait menu, `enable NellisRaquelREF` for the front gate, `call "...StartCombat player"` for the
+player attacking an actor, trigger_enter with an NPC as the actor for his walk.
+
+**Runner change:** `package {event: done}` now marks the goal met when that package is the
+actor's current one, as `Game::package_goal_met` does, so GetCurrentAIProcedure reads DONE
+after it (Camp Golf's range waits for three misfits to read it). Test:
+`the_runners_package_done_marks_the_current_packages_goal_met` (package_choice.rs); the 17
+chains using the op still pass.
+
+### Stalls
+
+1. **Possibly hard: a talking activator's scripted `Activate player` opens no conversation**
+   (the Tops intercom in Benny's voice; same as the REPCONN intercom, #906). Not fixed here: a
+   change in `default_activation` would double-start conversations with the runner's
+   `talk_since` and play's `talk_after`. Observer check 47.
+2. **Possibly hard (check 40 again):** VFSAtomicPimpSCRIPT re-displays objective 34 after
+   completing it on every pass, so a recruit killed after the quest starts leaves 24/34 open
+   and Garret's short-handed line unoffered. The chain kills them before the quest starts.
+3. **Soft, headless only:** a hit starts no AI combat (Daniel, check 49); no line of sight
+   (VMS31 60, check 50); Jed and the caravan guards are essential until stage 100, so
+   NVDLC02MQ00 255 cannot be reached; CGTutorial 214 counts only markers play discovers.
+4. **Soft:** Oliver's Topic065 has two lines with the same conditions; ours always says
+   0x00159932, so his retreat lines are never offered (check 48). EDEScript logs an
+   empty-reference error every frame because ours does not short-circuit `&&` (check 51).
+
+**Settable, not walked (116 left):** VMS29's nine Kings' Gambit alternatives; VMS20, VMS21,
+VMS23, VMS55 branches; VMQ02 40, VMQ03a 110, VMQ03b 110/115/200, VMQHouse3/4/6 report lines;
+VMS35 110/255; VMS21a 5, VMS43a 19/25, VMS06 31-33, VMS42 50, VMS11 90, VMS47 20;
+CGTutorial 18-24, 62, 72, 92 (a branch of the intro chain); NVDLC01MQ02c 60, MQ03 255, MQ03c
+20; NVDLC02MS02 27/35/40, MQ03a/b/c 20; NVDLC03 HQBuddySamples 20, SonicEmitterQuest 10,
+ThinkTankQuest 35; NVDLC04 GenericPerkQUEST 30, MQ02 30; VMQNCRFail 2 (#931). The --detail
+report lists them all with their setters.
