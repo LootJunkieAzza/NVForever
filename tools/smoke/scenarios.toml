@@ -9980,6 +9980,20 @@ order = [[
 ]]
 
 [[scenario]]
+name = "ragdoll-under-a-box"
+source = "#1049 (owner's playtest): a corpse falls even when a message box opens right after the kill (the faction reputation box after a fight's last kill); its calm and awake timers count physics time, which stands still under the box (engine/nvforever/src/ragdoll.rs)"
+note = "Chet in the general store is killed by a test-aid hit at 6 s; a script's message box (VCG04Message) opens at 6.05 s and stays 3 s (longer than the 1.5 s calm that sets a body at rest), then closes; the base game alone, so that no add-on's start-up boxes are held 3 s too"
+areas = ["ragdoll", "combat", "menus"]
+paths = ["engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/deaths.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "3", NVF_PLAY_TEST_HIT = "6:0x00104C79:1000", NVF_PLAY_TEST_SCRIPT = "6.05:call:player:ShowMessage:VCG04Message" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm"]
+run_seconds = 16
+order = [[
+  { re = 'script: menu 1001 \(message VCG04Message\)', label = "the box is up after the kill" },
+  { re = 'ragdoll: actor 00104C79 at rest at .*, trunk (?P<h>-?\d+) units over its lowest bone', range = [-1000, 35], label = "Chet comes to rest lying down, not standing" },
+]]
+
+[[scenario]]
 name = "death-weapon-drop"
 source = "ESM full audit gap 21 (engine/nvf-play/src/combat.rs death_drops): an NPC that dies holding its weapon drops it, with the chance iDeathDropWeaponChance (100 in FalloutNV.esm)"
 note = "Chet is given a .357 and set on the player (GOD) at 3-4 s, then killed by KillActor at 9 s"
