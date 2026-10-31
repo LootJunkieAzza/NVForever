@@ -2954,3 +2954,35 @@ fn kill_all_actors_kills_the_loaded_cells_actors_but_never_the_player() {
     // Run again: nobody is left to kill.
     assert_eq!(run(&mut g, &ConsoleCtx::default(), &[]).unwrap(), ["KillAllActors >> 0 killed, 0 essential knocked out"]);
 }
+
+/// `saq`, `rdf`, `rat` and `zap` (#1046 step 2): reached by their aliases; StartAllQuests
+/// starts the quests not running, ResetDialogueFlags forgets the lines said once,
+/// ResetAllTerminals forgets the hacking, DeleteReference removes the selection and never
+/// the player.
+#[test]
+fn console_saq_rdf_rat_and_zap() {
+    use fnv_game::functions::console::{lookup_word, ConsoleCtx};
+    let f = fixture();
+    let mut g = game(&f);
+    let run = |g: &mut Game, word: &str, ctx: &ConsoleCtx| {
+        let (_, run) = lookup_word(&g.data.table, word).unwrap_or_else(|| panic!("{word}"));
+        run(g, ctx, &[])
+    };
+    let none = ConsoleCtx::default();
+    g.stop_quest(FormId(QUEST));
+    assert!(!g.quest_state(FormId(QUEST)).running);
+    let lines = run(&mut g, "saq", &none).unwrap();
+    assert!(lines[0].ends_with(&format!("({} in all)", g.data.quests.len())), "{lines:?}");
+    assert!(g.quest_state(FormId(QUEST)).running);
+    g.said.insert((FormId(NPC_REF), FormId(INFO_A)));
+    g.said_day.entry(FormId(NPC_REF)).or_default().insert(FormId(INFO_B), 1.0);
+    assert_eq!(run(&mut g, "rdf", &none).unwrap(), ["Dialogue flags reset: 1 lines said once, 1 once a day"]);
+    assert!(g.said.is_empty() && g.said_day.is_empty());
+    g.terminals.access.insert(FormId(0x7777), fnv_game::terminal::Access::Hacked);
+    assert_eq!(run(&mut g, "rat", &none).unwrap(), ["1 terminals reset"]);
+    assert!(g.terminals.access.is_empty());
+    assert!(run(&mut g, "zap", &none).is_err(), "nothing selected");
+    assert!(run(&mut g, "zap", &ConsoleCtx { on: Some(FormId::PLAYER_REF), ..Default::default() }).is_err(), "never the player");
+    run(&mut g, "zap", &ConsoleCtx { on: Some(FormId(NPC_REF)), ..Default::default() }).unwrap();
+    assert!(g.extra[&FormId(NPC_REF)].marked_for_delete);
+}

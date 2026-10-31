@@ -390,6 +390,66 @@ pub fn free_material_tracks(file: &NifFile, dec: &Decoded) -> Vec<MaterialTrack>
     material_tracks_of_own(file, dec, false)
 }
 
+/// For each named shape, the other named shapes that list the same `NiMaterialProperty`
+/// block (lower-case names). A sequence's material track names one shape, but its
+/// controller animates the property block, which every shape listing it wears
+/// [documented: nif.xml NiTimeController "Target", ControlledBlock "Node Name" /
+/// "Property Type"; properties are shared by reference]: the vintage radio's Open and
+/// Close name `VintageRadioBody:0`, whose material the needle and the glass dial (with the
+/// glow-mapped dial face) list too [observed: `vintageradio01.nif`, docs/spec-notes/activators.md §2].
+pub fn material_sharers(file: &NifFile, dec: &Decoded) -> HashMap<String, Vec<String>> {
+    let mut users: HashMap<i32, Vec<String>> = HashMap::new();
+    for b in dec.blocks.iter().flatten() {
+        let Some(name) = b.text("name").filter(|n| !n.is_empty()) else { continue };
+        for &r in b.refs("properties").unwrap_or_default() {
+            if file.blocks.get(r as usize).is_some_and(|p| p.type_name == "NiMaterialProperty") {
+                let v = users.entry(r).or_default();
+                if !v.iter().any(|n| n.eq_ignore_ascii_case(name)) {
+                    v.push(name.to_ascii_lowercase());
+                }
+            }
+        }
+    }
+    let mut out: HashMap<String, Vec<String>> = HashMap::new();
+    for names in users.values().filter(|v| v.len() > 1) {
+        for n in names {
+            let e = out.entry(n.clone()).or_default();
+            for m in names.iter().filter(|m| *m != n) {
+                if !e.contains(m) {
+                    e.push(m.clone());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Give the shapes that share a driven shape's `NiMaterialProperty` ([`material_sharers`],
+/// named as the file names them in `names`) the same material tracks: the members a
+/// `NiMaterialProperty` holds (emissive colour and multiplier, alpha), not texture
+/// transforms or refraction. A shape the clip already drives for a member keeps its own
+/// track. Returns the shapes added.
+pub fn share_material_tracks(clip: &mut Clip, sharers: &HashMap<String, Vec<String>>, names: &HashMap<String, String>) -> Vec<String> {
+    let mut added: Vec<MaterialTrack> = Vec::new();
+    for t in &clip.materials {
+        if !matches!(t.target, MaterialTarget::SelfIllum | MaterialTarget::EmissiveMult | MaterialTarget::Alpha) {
+            continue;
+        }
+        for other in sharers.get(&t.shape.to_ascii_lowercase()).into_iter().flatten() {
+            let Some(name) = names.get(other) else { continue };
+            let driven = |m: &MaterialTrack| m.target == t.target && m.shape.eq_ignore_ascii_case(name);
+            if clip.materials.iter().any(driven) || added.iter().any(driven) {
+                continue;
+            }
+            added.push(MaterialTrack { shape: name.clone(), ..t.clone() });
+        }
+    }
+    let mut shapes: Vec<String> = added.iter().map(|t| t.shape.clone()).collect();
+    shapes.dedup();
+    clip.materials.extend(added);
+    shapes
+}
+
 /// The material tracks of the controllers no sequence drives ([`free_material_tracks`]);
 /// `inactive` also takes those without the Active flag, for effect models
 /// ([`effect_clip`]). The one reader of such controllers: placed objects play them
@@ -761,10 +821,10 @@ impl ModelCache {
 
     /// Drop the prepared models and tree billboards nothing else holds, after their grace
     /// time (`crate::release`); the number dropped.
-    pub fn release(&mut self, s: &mut crate::release::ModelSweeps, hints: &mut crate::release::ImageHints, materials: &Assets<NifMaterial>, now: f64) -> usize {
-        use crate::release::{held_beyond, KEEP_UNUSED_MAX, KEEP_UNUSED_SECS};
+    pub fn release(&mut self, s: &mut crate::release::ModelSweeps, hints: &mut crate::release::ImageHints, materials: &Assets<NifMaterial>, now: f64, keep: crate::release::KeepLimits) -> usize {
+        use crate::release::held_beyond;
         let entries = self.map.iter().filter_map(|(k, m)| m.as_ref().map(|m| (k.clone(), model_in_use(m))));
-        let drop = s.models.sweep_timed(now, entries.collect::<Vec<_>>(), KEEP_UNUSED_SECS, KEEP_UNUSED_MAX, |_| None);
+        let drop = s.models.sweep_timed(now, entries.collect::<Vec<_>>(), keep.secs, keep.max, |_| None);
         for (k, since) in &drop {
             if let Some(Some(m)) = self.map.remove(k) {
                 let rig = m.rig.iter().flat_map(|r| &r.shapes).map(|s| &s.material);
@@ -774,7 +834,7 @@ impl ModelCache {
             }
         }
         let entries = self.billboards.iter().filter_map(|(&k, b)| b.as_ref().map(|(m, t)| (k, held_beyond(m, 1) || held_beyond(t, 1))));
-        let gone = s.billboards.sweep_timed(now, entries.collect::<Vec<_>>(), KEEP_UNUSED_SECS, KEEP_UNUSED_MAX, |_| None);
+        let gone = s.billboards.sweep_timed(now, entries.collect::<Vec<_>>(), keep.secs, keep.max, |_| None);
         for (k, since) in &gone {
             if let Some(Some((_, m))) = self.billboards.remove(k) {
                 hints.note(materials, &m, *since, now);
@@ -791,7 +851,7 @@ impl ModelCache {
             }
             Some((k.clone(), Arc::strong_count(p) > 1 || h.held_elsewhere()))
         });
-        let fx = s.particles.sweep_timed(now, entries.collect::<Vec<_>>(), KEEP_UNUSED_SECS, KEEP_UNUSED_MAX, |_| None);
+        let fx = s.particles.sweep_timed(now, entries.collect::<Vec<_>>(), keep.secs, keep.max, |_| None);
         for (k, since) in &fx {
             if let Some(Some(p)) = self.particles.remove(k) {
                 for d in &p.systems {
@@ -1339,9 +1399,27 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
     // sequence, by shape block (docs/spec-notes/vertex-morphs.md §3).
     let morph_of = shape_morphs(&file, &dec, &seqs, |b| by_block.get(&b).and_then(|o| o.name.clone()));
     // A door's Open and Close, when both move nodes of this file.
-    let door = named("open").zip(named("close")).and_then(|(open, close)| Some(DoorClips { open: playable(path, open)?, close: playable(path, close)? }));
+    let mut door = named("open").zip(named("close")).and_then(|(open, close)| Some(DoorClips { open: playable(path, open)?, close: playable(path, close)? }));
     // Every named sequence that animates this file (scripts' PlayGroup).
-    let groups: Vec<Clip> = seqs.iter().filter(|s| s.name.is_some()).map(Clip::from_sequence).filter(&moves).filter_map(|c| playable(path, c)).collect();
+    let mut groups: Vec<Clip> = seqs.iter().filter(|s| s.name.is_some()).map(Clip::from_sequence).filter(&moves).filter_map(|c| playable(path, c)).collect();
+    // Shapes that wear a driven shape's material are driven with it (`material_sharers`).
+    let sharers = material_sharers(&file, &dec);
+    let mut idle = idle;
+    let mut effect = effect;
+    if !sharers.is_empty() {
+        let names: HashMap<String, String> = objects.iter().filter_map(|o| o.name.clone()).map(|n| (n.to_ascii_lowercase(), n)).collect();
+        let mut shared: Vec<String> = Vec::new();
+        for c in idle.iter_mut().chain(effect.iter_mut()).chain(door.iter_mut().flat_map(|d| [&mut d.open, &mut d.close])).chain(groups.iter_mut()) {
+            for s in share_material_tracks(c, &sharers, &names) {
+                if !shared.contains(&s) {
+                    shared.push(s);
+                }
+            }
+        }
+        if !shared.is_empty() {
+            info!("{path}: shapes sharing a driven material are driven with it: {}", shared.join(", "));
+        }
+    }
     // Shapes whose material a clip of the rig drives.
     let animated_shapes: HashSet<String> = idle
         .iter()
@@ -1587,6 +1665,23 @@ mod tests {
     use fnv_nif::scene::Transform as NifTransform;
 
     #[test]
+    fn shapes_sharing_a_driven_material_get_its_tracks() {
+        // vintageradio01.nif: Open names the body; the needle and the glass dial wear
+        // the same NiMaterialProperty. A texture scroll is not shared.
+        let glow = MaterialTrack { shape: "VintageRadioBody:0".into(), target: MaterialTarget::SelfIllum, values: Arc::new(ValueTrack::Point3(Channel::Static(Some([1.0; 3])))), cycle: None, priority: 0 };
+        let scroll = MaterialTrack { target: MaterialTarget::UvOffset(0), values: Arc::new(ValueTrack::Float(Channel::Static(Some([0.5])))), ..glow.clone() };
+        let mut clip = Clip::from_controllers(vec![glow, scroll], Vec::new(), Vec::new());
+        let names: HashMap<String, String> = ["VintageRadioBody:0", "VintageRadioNeedle01", "VintageRadioGlassDial:0"].iter().map(|n| (n.to_ascii_lowercase(), n.to_string())).collect();
+        let sharers = HashMap::from([("vintageradiobody:0".to_string(), vec!["vintageradioneedle01".to_string(), "vintageradioglassdial:0".to_string()])]);
+        let added = share_material_tracks(&mut clip, &sharers, &names);
+        assert_eq!(added, ["VintageRadioNeedle01", "VintageRadioGlassDial:0"]);
+        assert_eq!(clip.materials.len(), 4);
+        assert!(clip.materials[2..].iter().all(|t| t.target == MaterialTarget::SelfIllum));
+        // Again: nothing more (each already driven).
+        assert!(share_material_tracks(&mut clip, &sharers, &names).is_empty());
+    }
+
+    #[test]
     fn attach_light_takes_the_nodes_above_it() {
         let node = |name: &str, parent, z| ModelNode {
             name: Some(name.into()),
@@ -1641,17 +1736,17 @@ mod tests {
         drop(shape);
         let (mut sweeps, mut hints) = (crate::release::ModelSweeps::default(), crate::release::ImageHints::default());
         // Drawn: kept however long.
-        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 0.0), 0);
-        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 500.0), 0);
+        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 0.0, Default::default()), 0);
+        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 500.0, Default::default()), 0);
         // A rig holding the Arc keeps it too.
         drop(spawned);
         let rig = cache.map["a.nif"].clone();
-        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 600.0), 0);
+        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 600.0, Default::default()), 0);
         drop(rig);
         // Unused: kept for the grace time, then dropped; the failure stays remembered.
-        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 700.0), 0);
+        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 700.0, Default::default()), 0);
         assert_eq!(cache.held(), 1);
-        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 700.0 + crate::release::KEEP_UNUSED_SECS), 1);
+        assert_eq!(cache.release(&mut sweeps, &mut hints, &materials, 700.0 + crate::release::KEEP_UNUSED_SECS, Default::default()), 1);
         assert_eq!((cache.held(), cache.len()), (0, 1));
     }
 

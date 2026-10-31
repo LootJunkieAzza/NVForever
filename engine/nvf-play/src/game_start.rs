@@ -159,3 +159,39 @@ mod tests {
         assert_eq!(GameStart::parse("[General]\nsCharGenQuest=\n").chargen_quest, "VCG00");
     }
 }
+
+/// The INI section and key of the base archive list, the original's (`[Archive]
+/// SArchiveList` [documented: its `Fallout_default.ini`; observed: the owner's
+/// `Fallout.ini`, docs/spec-notes/bsa.md]), read from NVForever's own INI, never the
+/// game's (docs/design/install-layout.md).
+pub const ARCHIVE_SECTION: &str = "Archive";
+pub const ARCHIVE_LIST_KEY: &str = "SArchiveList";
+
+/// The base archive list an INI's text sets, if it sets a non-empty one.
+pub fn archive_list_of(text: &str) -> Option<Vec<String>> {
+    let list = fnv_vfs::parse_archive_list(unquote(&ini_get(text, ARCHIVE_SECTION, ARCHIVE_LIST_KEY)?));
+    (!list.is_empty()).then_some(list)
+}
+
+/// The base archive list NVForever.ini sets for this run (issue #1142: a mod setup that
+/// adds base archives), with the file it came from; `None` without the key, and in an
+/// unattended run without its own home (as every INI key, `SettingsFile::for_run`).
+pub fn archive_list_for_run() -> Option<(Vec<String>, String)> {
+    let file = SettingsFile::for_run(crate::test_aid::Unattended::from_env().0).0?;
+    let list = archive_list_of(&std::fs::read_to_string(&file).ok()?)?;
+    Some((list, file.display().to_string()))
+}
+
+#[cfg(test)]
+mod archive_list_tests {
+    use super::*;
+
+    #[test]
+    fn the_inis_archive_list_replaces_the_default_only_when_set() {
+        let text = "[Archive]\nSArchiveList=Fallout - Textures.bsa, Fallout - Textures2.bsa, Fallout - Meshes.bsa, MyBase.bsa\n";
+        assert_eq!(archive_list_of(text).unwrap().last().map(String::as_str), Some("MyBase.bsa"));
+        assert_eq!(archive_list_of(text).unwrap().len(), 4);
+        assert_eq!(archive_list_of("[Archive]\nSArchiveList=\n"), None);
+        assert_eq!(archive_list_of("[General]\nSArchiveList=a.bsa\n"), None);
+    }
+}

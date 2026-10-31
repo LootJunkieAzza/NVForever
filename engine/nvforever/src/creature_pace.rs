@@ -480,6 +480,7 @@ mod tests {
             tracks: Vec::new(),
             root: None,
             root_track: None,
+            carried: None,
         });
         let clip = |speed: f32| crate::locomotion::SetClip { bound: bound.clone(), info: ClipInfo { duration: 1.0, speed, blend_time: 0.1, foot_phase: 0.0 }, path: String::new() };
         let mut s = ClipSet::default();
