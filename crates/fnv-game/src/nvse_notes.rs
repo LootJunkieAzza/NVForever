@@ -93,7 +93,7 @@ pub(crate) fn call(g: &mut Game, name: &str, _subject: Option<FormId>, args: &[X
         // quests"].
         "getnotequestlist" => {
             let qs: Vec<(XKey, XVal)> = def.map(|d| d.quests.clone()).unwrap_or_default().into_iter().enumerate().map(|(i, q)| (XKey::Num(i as f64), XVal::Ref(q.0))).collect();
-            XVal::Array(g.ext.new_array(ArrayKind::Array, qs))
+            XVal::Array(g.ext.new_array(ArrayKind::List, qs))
         }
         // The setters: 1 when the form is a note, 0 otherwise [hypothesis: "int" on each
         // page; not probed]. A type outside 0-3 is refused [hypothesis].
