@@ -17,7 +17,7 @@ engine if needed, and delete the item here.
 ## What the open checks need (2026-10-31)
 
 - **Unattended, from the saves we have** (a session can run them): 1, 2, the rest of 3,
-  5 (weapon health around scripted shots), 6 (nvftest, Sunny), 8, 11 (72 h at a raised
+  5 (weapon health around scripted shots), 6 (nvftest, Sunny), the rest of 8, 11 (72 h at a raised
   TimeScale), 13, 15, 20, 21, 22 (dialogue events), the rest of 33, 35, 36, 52, 53, and
   #1076 (melee reach).
 - **A save from the owner** (quest or character state no save has yet):
@@ -128,8 +128,9 @@ engine if needed, and delete the item here.
    - People during a wait walk an hour's worth each hour.
    - **A far actor heading for you, past what was captured** (Malcolm Holmes, settled
      in part 2026-10-24: hourly jumps along a route, [ai-observer §13](../spec-notes/ai-observer.md)).
-     Open: after you move, does he re-aim when his first route runs out (ours plans
-     again then), or ever before? Run `holmes_far_moving` with part2 longer than 3 hours.
+     Answered 2026-10-31 (`holmes_far_long`, 14 h after the player moved): he follows
+     the old route to its end (ten more hourly jumps), then heads for where the player
+     is now, as ours plans again then.
    To check: observer timelines, which already record packages.
    ([actor-behaviour §3, §5.5–§5.6, §5.9](../design/actor-behaviour.md),
    [owner-decision-captures §7](../spec-notes/owner-decision-captures.md))
