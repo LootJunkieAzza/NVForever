@@ -13,7 +13,7 @@
 //! show the screen at almost that scale (0.99).
 
 use super::{Hacking, MenuView, Page, Session};
-use crate::interface::{at, face, plain_font, set_line, texture, u, Face};
+use crate::interface::{at, face, line_anchor, plain_font, set_line, texture, u, Face};
 use bevy::prelude::*;
 use fnv_font::Line;
 use fnv_game::data::NoteDef;
@@ -250,15 +250,21 @@ fn text_colored(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32, 
         set_line(p, face, line, x, base, color(None));
         return;
     };
-    for placed in &line.glyphs {
-        let k = (placed.x / CHAR).round() as usize;
-        let g = face.font.glyph(placed.code);
-        if !g.drawn() {
-            continue;
+    p.spawn((line_anchor(base), LayoutConfig { use_rounding: true })).with_children(|p| {
+        for placed in &line.glyphs {
+            let k = (placed.x / CHAR).round() as usize;
+            let g = face.font.glyph(placed.code);
+            if !g.drawn() {
+                continue;
+            }
+            let rect = Rect::new(g.uv[0] * size.x, g.uv[1] * size.y, g.uv[2] * size.x, g.uv[3] * size.y);
+            p.spawn((
+                at(x + placed.x + g.before, -g.ascent, g.width, g.height),
+                ImageNode { rect: Some(rect), color: color(Some(k)), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) },
+                LayoutConfig { use_rounding: false },
+            ));
         }
-        let rect = Rect::new(g.uv[0] * size.x, g.uv[1] * size.y, g.uv[2] * size.x, g.uv[3] * size.y);
-        p.spawn((at(x + placed.x + g.before, base - g.ascent, g.width, g.height), ImageNode { rect: Some(rect), color: color(Some(k)), ..ImageNode::new(image.clone()) }));
-    }
+    });
 }
 
 /// Text centred across the screen.

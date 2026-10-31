@@ -82,6 +82,28 @@ The texture of `monofonto_large` is 256 x 256, 16 bits a texel with 4 of them al
   the line (number 10 less number 13) is 21, 24 and 37 for fonts 1, 7 and 8 (31 - 10,
   36 - 12, 52 - 15); the tallest reach over it 29, 34, 50.
 
+### 3.1. Drawing the glyph pictures
+
+- [observed: issue #1221, original and NVForever message-box captures at 1280x720,
+  2026-10-31] In the original, the x-height letters in "NVF box without buttons"
+  share their top and bottom ink rows. In NVForever, even the two occurrences of
+  `u` differ: one is 12 rows high and the other 10. This is a drawing error after
+  the font's measurements have been read, not a different ascent for each occurrence.
+- [documented: Bevy 0.20.1, `bevy_ui_render/src/lib.rs`, `NodeImageMode::Auto`
+  extraction; `bevy_ui/src/layout/mod.rs`, `ui_layout_system`] The default image
+  mode fits a texture rectangle inside its node while preserving its aspect ratio.
+  Layout rounding can give equal glyphs at different x positions different box
+  widths; the fit then changes both their width and height. `Stretch` fills the
+  specified box, and `LayoutConfig { use_rounding: false }` retains its fractional
+  dimensions and position.
+- [design: #1221] Snap one zero-sized line anchor to physical pixels, then draw
+  its glyphs without layout rounding, at their fractional horizontal positions and
+  their file ascent above the anchor. Stretch each texture rectangle into its
+  measured box. This retains a common baseline, including after resizing, without
+  changing the per-font baseline offsets measured in #979. The terminal's coloured
+  characters and the character creator's scaled text use the same rule. Stand-in
+  text without a game font texture keeps its existing Bevy text path.
+
 ## 4. Font numbers
 
 [documented: `Fallout_default.ini`] 1 `Glow_Monofonto_Large`, 2 `Monofonto_Large`,
