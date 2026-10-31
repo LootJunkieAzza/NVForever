@@ -52,6 +52,34 @@ pub enum VfsError {
 /// (diagnostics only; see there).
 pub const ARCHIVE_ORDER_ENV: &str = "NVF_ARCHIVE_ORDER";
 
+static ARCHIVE_LIST: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
+/// Set the run's base archive list (an `SArchiveList` from NVForever's own INI, or
+/// `fnvtool vfs order --archive-list`) in place of [`DEFAULT_ARCHIVE_LIST`], before any
+/// archive is mounted (issue #1142: a mod setup that adds base archives). Once per run: a
+/// second call is refused (`Err` with the list kept). An empty list is refused too.
+pub fn set_archive_list(list: Vec<String>) -> Result<(), Vec<String>> {
+    if list.is_empty() {
+        return Err(list);
+    }
+    ARCHIVE_LIST.set(list)
+}
+
+/// The run's base archive list, lowest precedence first: the one set with
+/// [`set_archive_list`], else [`DEFAULT_ARCHIVE_LIST`]. `Update.bsa` and the plugins'
+/// own archives come after it ([`Vfs::archive_order`]).
+pub fn archive_list() -> Vec<String> {
+    match ARCHIVE_LIST.get() {
+        Some(l) => l.clone(),
+        None => DEFAULT_ARCHIVE_LIST.iter().map(|s| s.to_string()).collect(),
+    }
+}
+
+/// Whether the run's base archive list was set ([`set_archive_list`]).
+pub fn archive_list_overridden() -> bool {
+    ARCHIVE_LIST.get().is_some()
+}
+
 /// Archive names of a comma-separated list (`SArchiveList` style), trimmed, empty items
 /// dropped.
 pub fn parse_archive_list(list: &str) -> Vec<String> {
@@ -226,12 +254,16 @@ impl Vfs {
 
     /// The archives [`Vfs::open_for_plugins`] mounts, lowest precedence first, and
     /// whether they came from the [`ARCHIVE_ORDER_ENV`] override (`fnvtool vfs order`).
+    /// The base list is [`archive_list`]'s: an `SArchiveList` set for the run, else the
+    /// shipped default.
     pub fn order_for_plugins<S: AsRef<str>>(data_dir: &Path, plugins: &[S]) -> (Vec<String>, bool) {
         match std::env::var(ARCHIVE_ORDER_ENV) {
             Ok(list) if !list.trim().is_empty() => (parse_archive_list(&list), true),
             _ => {
                 let plugins: Vec<&str> = plugins.iter().map(AsRef::as_ref).collect();
-                (Vfs::archive_order(data_dir, &DEFAULT_ARCHIVE_LIST, &plugins), false)
+                let list = archive_list();
+                let list: Vec<&str> = list.iter().map(String::as_str).collect();
+                (Vfs::archive_order(data_dir, &list, &plugins), false)
             }
         }
     }
