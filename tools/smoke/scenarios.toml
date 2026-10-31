@@ -16391,7 +16391,8 @@ areas = ["ui", "scripts", "console"]
 paths = [
   "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs",
   "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs",
-  "engine/nvf-play/src/message_menu.rs", "engine/nvf-play/src/script_hud.rs",
+  "engine/nvf-play/src/message_menu.rs", "engine/nvf-play/src/script_hud.rs", "engine/nvf-play/src/script.rs",
+  "crates/fnv-game/src/game.rs",
   "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs",
 ]
 env = { NVF_PLAY_TEST_TILE_MENUS = "MessageMenu", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "6", NVF_PLAY_TEST_CONSOLE = "24:MessageBoxEx \"nvf tiles box|Yes|No\";24.3:close", NVF_PLAY_TEST_SHOTS = "25:tiles_message_box.png", NVF_PLAY_TEST_POINTER = "26:770:540,26.5:770:540:click,28:off" }

@@ -36,6 +36,82 @@ const ROW_TEMPLATE: &str = "MM_ButtonTemplate";
 const ROW: &str = "MM_Button";
 const METER: &str = "QuantityMenu/NOGLOW_BRANCH/QM_MainRect/QM_AmountMeter";
 
+/// [design] A whole menu draws from tiles or falls back with one diagnostic reason.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Tiled {
+    Yes,
+    No(String),
+}
+
+impl Tiled {
+    pub fn yes(&self) -> bool {
+        matches!(self, Self::Yes)
+    }
+}
+
+/// [design] Every fixed path the message model writes is part of a successful build.
+/// Look for the template along the same ancestors as `Ui::add_code_tile_from_template`.
+pub fn message_built(ui: &Ui) -> Tiled {
+    for path in [
+        MESSAGE_MENU,
+        MAIN,
+        LIST,
+        "MessageMenu/NOGLOW_BRANCH/MM_MainRect/MM_Title",
+        "MessageMenu/NOGLOW_BRANCH/MM_MainRect/MM_MessageText",
+        "MessageMenu/NOGLOW_BRANCH/MM_MainRect/MM_MessageIcon",
+        "MessageMenu/NOGLOW_BRANCH/MM_MainRect/MM_ButtonList/lb_scrollbar",
+        "MessageMenu/NOGLOW_BRANCH/MM_Background",
+    ] {
+        if ui.find_tile(path).is_none() {
+            return Tiled::No(format!("{path} missing"));
+        }
+    }
+    let mut at = ui.find_tile(LIST);
+    while let Some(t) = at {
+        if let Some(tp) = ui.tile(t).templates.iter().find(|tp| tp.name.eq_ignore_ascii_case(ROW_TEMPLATE)) {
+            let row = tp.body.iter().find_map(|n| match n {
+                fnv_ui::xml::Node::Element(e) if e.attr("name").is_some_and(|n| n.eq_ignore_ascii_case(ROW)) => Some(e),
+                _ => None,
+            });
+            let Some(row) = row else { return Tiled::No("MM_ButtonTemplate/MM_Button missing".into()) };
+            if !row.elements().any(|e| e.is("text") && e.attr("name").is_some_and(|n| n.eq_ignore_ascii_case("ListItemText"))) {
+                return Tiled::No("MM_ButtonTemplate/MM_Button/ListItemText missing".into());
+            }
+            return Tiled::Yes;
+        }
+        at = ui.tile(t).parent;
+    }
+    Tiled::No(format!("{ROW_TEMPLATE} missing"))
+}
+
+/// [design] Every fixed path the quantity model writes is part of a successful build.
+pub fn quantity_built(ui: &Ui) -> Tiled {
+    for path in [QUANTITY_MENU, METER, "QuantityMenu/NOGLOW_BRANCH/QM_Background"] {
+        if ui.find_tile(path).is_none() {
+            return Tiled::No(format!("{path} missing"));
+        }
+    }
+    Tiled::Yes
+}
+
+/// [design] The model has measured these rows before input and drawing. Until scrolling
+/// is built, a list taller than `LIST_MOST` keeps the whole hand-built box. Scrolling is
+/// a follow-up (docs/handoff/ui-tile-tree-tasks.md, T15a).
+pub fn message_status(ui: &Ui) -> Tiled {
+    let built = message_built(ui);
+    if !built.yes() {
+        return built;
+    }
+    let rows = rows(ui);
+    if rows.iter().any(|&r| child(ui, r, "ListItemText").is_none()) {
+        return Tiled::No("MM_ButtonTemplate/MM_Button/ListItemText missing".into());
+    }
+    if rows.iter().map(|&r| num(ui, r, "height")).sum::<f64>() > LIST_MOST {
+        return Tiled::No("button rows exceed LIST_MOST (420); scrolling is not built".into());
+    }
+    Tiled::Yes
+}
+
 /// How far the message box's button list grows before it would scroll [documented:
 /// message_menu.xml, the list's `height` "set by code" under a `min` of 420; the list's
 /// scrolling is not built, as in the hand-built box, message-menu.md §4].
@@ -55,9 +131,10 @@ pub type Size<'a> = dyn Fn(f64, &str, Option<f64>) -> (f64, f64) + 'a;
 /// Whether the open message box is drawn from `MessageMenu`'s tiles: the switch on, the
 /// menu files read, a message box the open menu and its file built into the tree (the
 /// panels other script menus show in the same box, and a box whose file is missing or did
-/// not build, keep the hand-built one) [design].
+/// not build every model path, or whose measured rows exceed `LIST_MOST`, keep the
+/// hand-built one). Every drawing and input reader uses this same decision [design].
 pub fn message_tiled(on: bool, game: &fnv_game::Game<'_>) -> bool {
-    on && game.ui_files.is_some() && game.menu == Some(fnv_game::game::menus::MESSAGE) && game.ui_tree.menu(MESSAGE_MENU).is_some()
+    on && game.ui_files.is_some() && game.menu == Some(fnv_game::game::menus::MESSAGE) && message_status(&game.ui_tree).yes()
 }
 
 /// Whether the "How many?" prompt of the container, barter and inventory menus is drawn
@@ -67,7 +144,7 @@ pub fn message_tiled(on: bool, game: &fnv_game::Game<'_>) -> bool {
 /// hand-built one once) [design]. The crafting menu's prompt (`crate::crafting`) stays
 /// hand-built.
 pub fn quantity_tiled(on: bool, game: &fnv_game::Game<'_>, open: bool) -> bool {
-    on && open && game.ui_files.is_some() && game.ui_tree.menu(QUANTITY_MENU).is_some()
+    on && open && game.ui_files.is_some() && quantity_built(&game.ui_tree).yes()
 }
 
 /// What a prompt or box puts under the pointer: nothing (not shown), its hand-built
@@ -229,8 +306,13 @@ pub fn row_button(ui: &Ui, tile: TileId) -> Option<usize> {
 /// step) finds its tile gone and answers nothing ([`message_pick`]) [design].
 ///
 /// `size` measures a text. The tree is worked out once in between, so the rows' texts
-/// read their strings before they are measured.
+/// read their strings before they are measured. A total row height above `LIST_MOST`
+/// makes [`message_status`] reject tiling for every input/drawing reader; list scrolling
+/// is a follow-up [design: docs/handoff/ui-tile-tree-tasks.md, T15a].
 pub fn write_message(ui: &mut Ui, view: &PanelView, selected: Option<usize>, fresh: bool, size: &Size<'_>) {
+    if !message_built(ui).yes() {
+        return;
+    }
     let Some(menu) = ui.menu(MESSAGE_MENU) else { return };
     let (Some(main), Some(list)) = (ui.find_tile(MAIN), ui.find_tile(LIST)) else { return };
     let path = |name: &str| format!("{MAIN}/{name}");
@@ -376,6 +458,9 @@ const STEPS: (f64, f64) = (1.0, crate::menu::model::QUANTITY_JUMP as f64);
 /// meter's `_Value` (the amount over the stack), its tiled fill and the amount's text out
 /// of them. The background's `alpha` ([`background_alpha`]).
 pub fn write_quantity(ui: &mut Ui, q: Amount) {
+    if !quantity_built(ui).yes() {
+        return;
+    }
     let Some(meter) = ui.find_tile(METER) else { return };
     set(ui, meter, "user0", Value::Num(f64::from(q.most.max(1))));
     set(ui, meter, "user2", Value::Num(f64::from(q.amount)));
@@ -418,7 +503,7 @@ pub fn quantity_tile(ui: &Ui, tile: TileId) -> Option<QuantityTile> {
 /// The meter's box in interface units, for a press or a drag on it.
 pub fn meter_box(ui: &Ui) -> Option<super::layout::Rect> {
     let meter = ui.find_tile(METER)?;
-    super::layout::layout(ui, meter, &|_, _, _| (0.0, 0.0)).into_iter().find(|i| i.tile == meter).map(|i| i.rect)
+    super::layout::layout(ui, meter, &|_, _, _| (0.0, 0.0), true).into_iter().find(|i| i.tile == meter).map(|i| i.rect)
 }
 
 /// What a text tile's size was last measured from, and the size written.
@@ -548,9 +633,13 @@ mod tests {
     /// [design] A message menu in the vanilla file's shape (the names, the `io()` traits,
     /// the list and its template), its expressions cut down to what these tests read.
     fn message() -> Ui {
+        message_changed(str::to_string)
+    }
+
+    fn message_changed(change: impl FnOnce(&str) -> String) -> Ui {
         let src = MemSource::default().with(
             "message.xml",
-            r#"<menu name="MessageMenu"><_MinMenuWidth>200</_MinMenuWidth><_MaxMenuWidth>700</_MaxMenuWidth><_horbuf>40</_horbuf><_verbuf>20</_verbuf>
+            &change(r#"<menu name="MessageMenu"><_MinMenuWidth>200</_MinMenuWidth><_MaxMenuWidth>700</_MaxMenuWidth><_horbuf>40</_horbuf><_verbuf>20</_verbuf>
   <rect name="NOGLOW_BRANCH">
     <image name="MM_Background"><alpha>32</alpha></image>
     <rect name="MM_MainRect"><width></width>
@@ -567,7 +656,7 @@ mod tests {
   <template name="MM_ButtonTemplate"><hotrect name="MM_Button"><_VerticalSpacing>20</_VerticalSpacing><_y></_y>
     <text name="ListItemText"><font>2</font><string><copy src="parent()" trait="string"/></string><wrapwidth>560</wrapwidth></text>
   </hotrect></template>
-</menu>"#,
+</menu>"#),
         );
         let mut ui = Ui::new();
         ui.load_menu(&src, "message.xml").unwrap();
@@ -629,12 +718,69 @@ mod tests {
         // A long text: as wide as the box allows.
         write_message(&mut ui, &view(None, &"w".repeat(200), &["OK"]), Some(0), true, &size);
         assert_eq!(ui.get_float("MessageMenu/NOGLOW_BRANCH/MM_MainRect/width"), Some(700.0));
-        // Many tall rows: the list stops at its most, and the bar's counts say it overflows.
+    }
+
+    #[test]
+    fn oversized_boxes_fall_back_and_a_later_short_box_can_be_tiled() {
+        // [design] Twelve 50-unit rows exceed the file's 420-unit cap. Every reader of
+        // message_tiled takes this same status after the model has measured the rows.
+        let mut ui = message();
         let many: Vec<String> = (0..12).map(|i| format!("button {i}")).collect();
         let v = PanelView { buttons: many, ..view(None, "x", &[]) };
         write_message(&mut ui, &v, Some(11), true, &size);
+        assert_eq!(message_status(&ui), Tiled::No("button rows exceed LIST_MOST (420); scrolling is not built".into()));
+        assert!(!message_status(&ui).yes());
+        // [design] The cap includes measured wrapping and spacing, not a button count.
+        write_message(&mut ui, &v, None, false, &|_, _, _| (10.0, 15.0));
         assert_eq!(f(&ui, "MM_ButtonList/height"), LIST_MOST);
-        assert!(f(&ui, "MM_ButtonList/lb_scrollbar/_number_of_items") > f(&ui, "MM_ButtonList/lb_scrollbar/_number_of_visible_items"));
+        assert_eq!(message_status(&ui), Tiled::Yes, "exactly 420 fits");
+        write_message(&mut ui, &view(None, "x", &["a"]), None, true, &size);
+        assert_eq!(message_status(&ui), Tiled::Yes);
+        write_message(&mut ui, &view(None, "x", &[&"x".repeat(800)]), None, true, &size);
+        assert!(!message_status(&ui).yes(), "one wrapped row can also exceed the cap");
+    }
+
+    #[test]
+    fn cut_down_message_files_fall_back_for_every_model_path_and_template() {
+        // [design] Each file still builds MessageMenu, but renames one required tile or
+        // template so its vanilla path is absent, as a restructuring mod might do.
+        for (name, missing) in [
+            ("MM_MainRect", MAIN),
+            ("MM_ButtonList", LIST),
+            ("MM_Title", "MessageMenu/NOGLOW_BRANCH/MM_MainRect/MM_Title"),
+            ("MM_MessageText", "MessageMenu/NOGLOW_BRANCH/MM_MainRect/MM_MessageText"),
+            ("MM_MessageIcon", "MessageMenu/NOGLOW_BRANCH/MM_MainRect/MM_MessageIcon"),
+            ("lb_scrollbar", "MessageMenu/NOGLOW_BRANCH/MM_MainRect/MM_ButtonList/lb_scrollbar"),
+            ("MM_Background", "MessageMenu/NOGLOW_BRANCH/MM_Background"),
+            (ROW_TEMPLATE, ROW_TEMPLATE),
+            (ROW, "MM_ButtonTemplate/MM_Button"),
+            ("ListItemText", "MM_ButtonTemplate/MM_Button/ListItemText"),
+        ] {
+            let mut ui = message_changed(|xml| xml.replace(&format!("name=\"{name}\""), "name=\"Modded\""));
+            assert!(ui.menu(MESSAGE_MENU).is_some());
+            let expected = Tiled::No(format!("{missing} missing"));
+            assert_eq!(message_built(&ui), expected);
+            assert_eq!(message_status(&ui), expected);
+            write_message(&mut ui, &view(None, "x", &["OK"]), None, true, &size);
+            assert!(rows(&ui).is_empty(), "a partial model is not written");
+        }
+    }
+
+    #[test]
+    fn cut_down_quantity_files_fall_back_for_every_model_path() {
+        // [design] The shared eligibility helper rejects a loaded but partial prompt.
+        for (body, missing) in [
+            (r#"<rect name="QM_MainRect"><rect name="QM_AmountMeter"/></rect>"#, "QuantityMenu/NOGLOW_BRANCH/QM_Background"),
+            (r#"<image name="QM_Background"/>"#, METER),
+        ] {
+            let src = MemSource::default().with("q.xml", &format!(r#"<menu name="QuantityMenu"><rect name="NOGLOW_BRANCH">{body}</rect></menu>"#));
+            let mut ui = Ui::new();
+            ui.load_menu(&src, "q.xml").unwrap();
+            assert!(ui.menu(QUANTITY_MENU).is_some());
+            assert_eq!(quantity_built(&ui), Tiled::No(format!("{missing} missing")));
+            write_quantity(&mut ui, Amount { amount: 5, most: 20 });
+            assert_eq!(ui.get_float(&format!("{METER}/user0")), None);
+        }
     }
 
     #[test]
@@ -823,7 +969,7 @@ mod tests {
         assert_eq!((f(&ui, "MM_MessageText/width"), f(&ui, "MM_MessageText/height")), (0.0, 0.0));
         // The row's text, font 2: set out on font 2's line, 16 under its tile's top
         // [observed: hud_menus capture 2026-10-31, "Ok" 16.5 under ListItemText's y].
-        let (set, _) = pieces(&ui, menu, &sized, Select::Whole { kept: &[], strip: None });
+        let (set, _) = pieces(&ui, menu, &sized, Select::Whole { kept: &[], strip: None }, true);
         let ok = set.iter().find(|p| matches!(&p.look, Look::Text { string, .. } if string == "Ok")).unwrap();
         let lines = piece_lines(ok, &crate::interface::plain_font(31.0, 10.0));
         assert!(matches!(&ok.look, Look::Text { font: 2, .. }));

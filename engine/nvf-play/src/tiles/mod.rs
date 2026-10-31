@@ -60,9 +60,9 @@ impl MenuFiles<'_, '_> {
 
 /// Whether `screen()` is written in interface units ([`write_screen`]): only while a T15
 /// menu (`MessageMenu`, `QuantityMenu`) is switched on, whose file centres its box by
-/// `screen()` [design: the default game, and the tile HUD alone, keep the window's pixels
-/// until a capture of the original settles which units its `screen()` reports;
-/// docs/handoff/observer-checks.md].
+/// `screen()`. The default game and the tile HUD alone keep the window's pixels
+/// [design]. The original reports interface units [observed: hud_menus capture
+/// 2026-10-31, three window sizes]; applying them unconditionally is a follow-up.
 pub fn interface_screen(menus: vanilla::TileMenus) -> bool {
     menus.message || menus.quantity
 }
@@ -70,8 +70,8 @@ pub fn interface_screen(menus: vanilla::TileMenus) -> bool {
 /// Write `screen()`'s traits for a window `window_width` x `window_height` (logical
 /// pixels): with `interface_units` ([`interface_screen`]) the view in interface units
 /// ([`screen_size`]) and `resolutionconverter` ([`resolution_converter`]); otherwise the
-/// window's size, as fnvtool's `--screen` [hypothesis: menu-xml.md §4.2, `screen()` row],
-/// and no converter, as before T15a. `cropx` and `cropy` stay unset until their units are
+/// window's size, as fnvtool's `--screen`, and no converter, as before T15a [design:
+/// menu-xml.md §4.2, `screen()` row]. `cropx` and `cropy` stay unset until their units are
 /// known [design]. The HUD's places are worked out from the shape alone
 /// (`fnv_game::ui_hud::write`), so they are the same either way.
 pub fn write_screen(ui: &mut fnv_ui::Ui, window_width: f32, window_height: f32, interface_units: bool) {
@@ -87,11 +87,11 @@ pub fn write_screen(ui: &mut fnv_ui::Ui, window_width: f32, window_height: f32, 
     }
 }
 
-/// `screen()`'s width and height for a window in interface units: 960 high and as wide as
-/// the window's shape makes it [documented: hud.md §14, the right-hand pieces at W - 386
-/// with W = 960 × width/height; hypothesis: the message box's and the prompt's files centre
-/// their boxes, whose sizes are in those units, by `screen()`'s width and height,
-/// menu-xml.md §3.1.2; what the original's `screen()` reports was not captured].
+/// `screen()`'s width and height for a window in interface units: 960 high and
+/// 960 × window width/height wide [observed: hud_menus capture 2026-10-31, three window sizes].
+/// The windows were 1280 x 720, 1920 x 1080 and 1280 x 1024 (also hud.md §14's
+/// right-hand pieces at W - 386). Written only while a T15 menu is switched on ([`interface_screen`]);
+/// applying these observed units unconditionally is a follow-up [design].
 pub fn screen_size(window_width: f32, window_height: f32) -> (f64, f64) {
     let (w, h) = (f64::from(window_width), f64::from(window_height));
     if w > 0.0 && h > 0.0 {
@@ -101,12 +101,11 @@ pub fn screen_size(window_width: f32, window_height: f32) -> (f64, f64) {
     }
 }
 
-/// `screen()`'s `resolutionconverter` for a window `window_height` pixels high: 960 / the
-/// height, the interface units of one pixel, so `globals()`'s `_line_thickness` (2 × the
-/// converter on a PC) is a line 2 pixels thick [observed: hud.md §14, the original's lines
-/// 1.78 units thick at 1920 x 1080, 2 × 960/1080; message-menu.md §3, the box's lines 2
-/// pixel rows at 1050 lines; hypothesis: the same rule at every size, one size read].
-/// Written only with interface units ([`write_screen`]).
+/// `screen()`'s `resolutionconverter` for a window `window_height` pixels high:
+/// 960 / height [observed: hud_menus capture 2026-10-31, three window sizes]. The windows
+/// were 1280 x 720, 1920 x 1080 and 1280 x 1024. Thus `globals()`'s PC `_line_thickness` (2 × the
+/// converter) is 2 pixels thick [documented: globals.xml]. Written only with interface
+/// units ([`write_screen`]); the unconditional switch is a follow-up [design].
 pub fn resolution_converter(window_height: f32) -> f64 {
     if window_height > 0.0 {
         960.0 / f64::from(window_height)
@@ -361,6 +360,19 @@ struct MenusWritten {
     quantity: Option<(fnv_ui::TileId, menus::Amount)>,
     /// The text sizes written, the message box's and the prompt's.
     sizes: [menus::SizesWritten; 2],
+    /// [design] Each fallback reason is warned once per session, including after reopen.
+    fallbacks: std::collections::HashSet<String>,
+}
+
+impl MenusWritten {
+    fn warn_fallback(&mut self, menu: &str, status: menus::Tiled) {
+        if let menus::Tiled::No(reason) = status {
+            let line = format!("{menu} drawn by hand: {reason}");
+            if self.fallbacks.insert(line.clone()) {
+                warn!("{line}");
+            }
+        }
+    }
 }
 
 /// T15a: what the message box and the prompt show, from their hand-built models.
@@ -385,7 +397,10 @@ impl MenuTiles<'_, '_> {
         if !(switch.message || switch.quantity) || game.ui_files.is_none() {
             return;
         }
-        let message = menus::message_tiled(switch.message, game).then(|| game.ui_tree.menu(menus::MESSAGE_MENU)).flatten();
+        // [design] Reconsider an overflowing box when its view changes: using the final
+        // tiled decision here would prevent a later short box from being written.
+        let message_open = switch.message && game.menu == Some(fnv_game::game::menus::MESSAGE);
+        let message = (message_open && menus::message_built(&game.ui_tree).yes()).then(|| game.ui_tree.menu(menus::MESSAGE_MENU)).flatten();
         let quantity = self.quantity().filter(|_| menus::quantity_tiled(switch.quantity, game, true));
         let prompt = quantity.and_then(|q| game.ui_tree.menu(menus::QUANTITY_MENU).map(|m| (m, q)));
         // Which showing the box on screen is (counted up for every box shown, one alike
@@ -402,7 +417,7 @@ impl MenuTiles<'_, '_> {
                     let size = fonts.menu_measure(&menus::fonts(ui, menu));
                     menus::write_message(ui, view, selected, another, &size);
                     menus::write_text_sizes(ui, menu, &mut written.sizes[0], &size);
-                    if another {
+                    if another && menus::message_status(ui).yes() {
                         info!("{}", menus::describe_message(ui, view));
                     }
                     written.message = Some((now, selected));
@@ -414,6 +429,12 @@ impl MenuTiles<'_, '_> {
                 }
             }
             _ => written.message = None,
+        }
+        if message_open {
+            written.warn_fallback(menus::MESSAGE_MENU, menus::message_status(ui));
+        }
+        if switch.quantity && self.active.as_ref().and_then(|a| a.0.as_ref()).is_some_and(|m| m.quantity.is_some()) {
+            written.warn_fallback(menus::QUANTITY_MENU, menus::quantity_built(ui));
         }
         match prompt {
             Some((menu, q)) => {
@@ -547,6 +568,21 @@ impl Plugin for TilesPlugin {
 mod tests {
     use super::*;
     use fnv_ui::{MemSource, Ui};
+
+    #[test]
+    fn fallback_reasons_are_warned_once_across_reopens() {
+        // [design] Reopening the same broken file or an oversized box cannot spam logs;
+        // a different reason or menu still gets its own warning.
+        let mut written = MenusWritten::default();
+        for _ in 0..2 {
+            written.warn_fallback(menus::MESSAGE_MENU, menus::Tiled::No("path missing".into()));
+            written.warn_fallback(menus::MESSAGE_MENU, menus::Tiled::Yes);
+        }
+        assert_eq!(written.fallbacks.len(), 1);
+        written.warn_fallback(menus::QUANTITY_MENU, menus::Tiled::No("path missing".into()));
+        written.warn_fallback(menus::MESSAGE_MENU, menus::Tiled::No("button rows exceed LIST_MOST (420); scrolling is not built".into()));
+        assert_eq!(written.fallbacks.len(), 3);
+    }
 
     /// [design] A tile placed by `screen()`, as the T15 menus centre their boxes.
     fn centred() -> Ui {

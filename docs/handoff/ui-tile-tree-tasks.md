@@ -616,8 +616,8 @@ owner to add to its pull request or issue (owner, 2026-10-29).
         the hand-built box (`message_menu.rs`) or prompt (`menu/look.rs::spawn_quantity`)
         is not spawned and the tile renderer draws the menu's whole tree at the
         hand-built box's stacking level. Off, no writes, drawing or tile input for them;
-        but `QuantityMenu`'s tree builds while the prompt shows (below), and the hotrect
-        alpha and `_name_` rules hold for every menu (below).
+        but `QuantityMenu`'s tree builds while the prompt shows (below), and the `_name_`
+        rule holds for every menu (below). Hotrect alpha uses the T15 switch gate [design].
       - **The tree has the menu**: `MessageMenu` builds while a message box is the open
         menu (T3b). The prompt is no `Game::menu` (MenuMode does not report it), so
         `Game::ui_prompt` (new, set by the engine each frame from `ActiveMenu`) builds
@@ -634,8 +634,9 @@ owner to add to its pull request or issue (owner, 2026-10-29).
         HUD's measured texts), only when its string, font or wrap changed.
       - **Tree rules the files need** (menu-xml.md): `screen()` in interface units (960
         high; both files centre their boxes by it) and `resolutionconverter` 960 / the
-        window's height (lines 2 pixels), both only while a T15 menu is switched on, a hotrect's own `alpha` not passed to its children (every text button
-        is an alpha-0 hotrect over a visible text), and `copy … trait="_name_"` after a
+        window's height (lines 2 pixels), both only while a T15 menu is switched on;
+        a hotrect's own `alpha` not passed to its children under that same gate (every
+        text button is an alpha-0 hotrect over a visible text), and `copy … trait="_name_"` after a
         constant (`&false;`) reading `_name_0` (the fade lines' and the meter's picture).
       - **Input** (T8): the menus take tile input while drawn from tiles. A pointer or
         script click on a button row answers the box (`script_hud::menu_keys`), the
@@ -658,13 +659,22 @@ owner to add to its pull request or issue (owner, 2026-10-29).
     - **T15a built** 2026-10-31 (`claude/t15-menus-a`), awaiting the screenshot
       comparison and the maintainer: as planned above (`tiles/menus.rs`,
       message-menu.md §5a, barter-menu.md §7, menu-xml.md §3.1.1, §4.2, §4.4).
-      **Also changes, with the T15 menus off:** the hotrect alpha rule lets
-      `Info/justify_center_hotrect`'s verb and key draw in the tile HUD and a mod's text
-      under an alpha-0 hotrect show; `copy … _name_` after `&true;`/`&false;` reads
-      `_name_1`/`_name_0` in every menu; `QuantityMenu` builds and drops with the prompt.
-      `screen()` stays the window's pixels unless a T15 menu is on (gated after review).
-      **Open, for the comparison:** font 2's line spacing and first-line place in the
-      renderer (31 and 24 against the screenshot's 35 and 15), the empty title's height,
+      **Review safeguards** [design]: every model-written path and `MM_ButtonTemplate`
+      (its row and text) is required; missing paths warn once and keep the whole
+      hand-built menu. Message rows totalling more than the file's 420-unit list cap
+      also warn once and keep the whole hand-built box; list scrolling is a follow-up.
+      Hotrect alpha inheritance uses `tiles::interface_screen`'s T15 gate, preserving
+      default mod HUD drawing. Unconditional hotrect alpha is a candidate for its own
+      PR. The observed interface `screen()` units stay gated too; their unconditional
+      adoption is a follow-up [observed: hud_menus capture 2026-10-31, three window sizes;
+      design: preserve default play]. The prompt can still draw by hand for its opening
+      frame before the next tree sync; removing that flicker needs a scheduling or
+      loading follow-up [design].
+      **Also changes, with the T15 menus off:** `copy … _name_` after `&true;`/`&false;`
+      reads `_name_1`/`_name_0` in every menu; `QuantityMenu` builds and drops with the prompt.
+      **Font follow-up applied:** font 2 now uses its captured first-line place (16),
+      pitch (35) and one-line height (32); the empty title keeps 14 x 38 [observed:
+      hud_menus capture 2026-10-31; fonts.md §3.1]. **Open, for the comparison:**
       the highlight box's fill (hotrects draw nothing), the crafting menu's prompt (still
       hand-built); the per-frame layout of an open tile menu (the tree has no cheap
       revision to skip it; to measure with the perf harness). **Where it stands
@@ -681,8 +691,9 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       compiled since. The commits after `bdaad547`/
       `a9c5f151` (the tiled prompt's and box's pointer sheet, the late-font retry through
       `draw::whole_pieces` and its test) were only compiled (`cargo check`). The final
-      smoke run and the screenshot comparison with the original are pending. Captures to do: observer-checks.md items
-      60, 61.
+      run was subsequently reported as `nvf-play` 690 tests and smoke 271 of 273
+      [observed: maintainer's final run report 2026-10-31]. The screenshot comparison
+      and observer-checks.md item 61 remain; item 60 is answered by the capture.
       - Review fixes (2026-10-31, an independent review): navigation has one owner (a
         highlight a ref moved for a hand-built Up/Down is not the choice); a new box makes
         its rows again (a queued script click on the last box answers nothing); key clicks

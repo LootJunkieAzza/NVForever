@@ -679,19 +679,13 @@ The numbers above stay put so links to them hold; each item here gives its own p
     Mr. House's screen (`##TalkButtons:0`). ([lipsync §6.1](../spec-notes/lipsync.md))
 ## Added 2026-10-31 (UI tile tree T15a: the message box and the prompt from their files)
 
-60. **What `screen()` reports, and `resolutionconverter`** (P2: every menu file that
-    centres or sizes by `screen()`, 451 uses; mods placing tiles by it). Ours: the window's
-    pixels by default; interface units (960 high, 960 × width/height wide) and a
-    converter of 960 / the window's height only while `[UI] TileMenus` names `MessageMenu`
-    or `QuantityMenu` (`tiles::write_screen`) [design]. The converter is fitted to one
-    reading (the lines 1.78 units thick at 1920 x 1080, hud.md §14) [hypothesis]; the
-    units are inferred from the files centring boxes sized in interface units
-    [hypothesis].
-    To check: GetUIFloat of `screen()`'s width, height and resolutionconverter is not a
-    path; read instead a tile injected into the HUD with `<x><copy src="screen()"
-    trait="width"/></x>`, `<y>` the height and a third trait the converter, at 1920 x
-    1080, 1280 x 800 and 1024 x 768; and `MessageMenu/NOGLOW_BRANCH/MM_MainRect/x`, `y`
-    with a message box open (MessageBoxEx) at the same sizes.
+60. **What `screen()` reports, and `resolutionconverter` — Answered 2026-10-31**.
+    Width is 960 × window width/height, height 960 and `resolutionconverter` 960 /
+    window height [observed: hud_menus capture 2026-10-31, three window sizes:
+    1280 x 720, 1920 x 1080 and 1280 x 1024]. The capture read `screen()` through
+    copied traits. NVForever keeps those units gated on a switched-on T15 menu
+    (`MessageMenu` or `QuantityMenu`); applying them unconditionally is a follow-up
+    [design: preserve default play].
     ([menu-xml §4.2](../spec-notes/menu-xml.md), [message-menu §5a](../spec-notes/message-menu.md))
 61. **The message box's and the prompt's code-set traits** (P2: every message box and
     stack prompt drawn from its file). Ours (`tiles::menus`): the list as wide as the

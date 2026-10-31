@@ -527,7 +527,7 @@ mod tests {
         write(&mut ui, &message("Bomb disarmed.", 1.0), &lines);
         ui.update();
         let menu = ui.menu(HUD).unwrap();
-        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None });
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None }, false);
         let by = |name: &str| drawn.iter().find(|p| ui.tile(p.tile).name == name).unwrap_or_else(|| panic!("{name} not drawn"));
         // The area at (25, 55): the text at 130 in (corner_messages::TEXT_X), the bracket
         // and icon at the templates' places, the icon and text in front.
@@ -540,7 +540,7 @@ mod tests {
         assert!(order.iter().position(|n| n == "message_bracket") < order.iter().position(|n| n == "message_icon"));
         // Nothing showing: nothing drawn.
         write(&mut ui, &Notices::default(), &lines);
-        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None });
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None }, false);
         assert!(!drawn.iter().any(|p| ui.path_of(p.tile).starts_with("HUDMainMenu/Messages/")));
     }
 
@@ -588,7 +588,7 @@ mod tests {
         // Drawn: the objective at QuestReminder's place plus its own, its box before it.
         ui.update();
         let menu = ui.menu(HUD).unwrap();
-        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None });
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None }, false);
         let text = drawn.iter().find(|p| p.tile == texts[0]).unwrap();
         assert_eq!((text.rect.left, text.rect.top), (45.0, 239.0));
         let square = drawn.iter().find(|p| p.tile == open[0]).unwrap();
@@ -596,7 +596,7 @@ mod tests {
         assert!(!drawn.iter().any(|p| p.tile == texts[1] || p.tile == done[0]));
         // Gone: everything at alpha 0 or hidden, nothing drawn.
         write(&mut ui, &Notices::default(), &lines);
-        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None });
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None }, false);
         assert!(!drawn.iter().any(|p| ui.path_of(p.tile).starts_with("HUDMainMenu/QuestReminder/")));
     }
 
@@ -626,7 +626,7 @@ mod tests {
         // Region_Location.
         ui.update();
         let menu = ui.menu(HUD).unwrap();
-        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None });
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None }, false);
         let said: Vec<_> = drawn.iter().filter(|p| matches!(&p.look, Look::Text { string, .. } if string == "You have discovered")).collect();
         assert_eq!(said.len(), 1);
         assert_eq!((said[0].tile, said[0].rect.left, said[0].rect.top), (shown, 45.0, 223.0));
@@ -655,7 +655,7 @@ mod tests {
         assert_eq!((f(&ui, "Subtitles/*:0/visible"), f(&ui, "Subtitles/*:0/wrapwidth")), (1.0, 800.0));
         ui.update();
         let menu = ui.menu(HUD).unwrap();
-        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None });
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None }, false);
         let text = drawn.iter().find(|p| ui.path_of(p.tile).starts_with("HUDMainMenu/Subtitles/")).unwrap();
         // Centred on the area's middle (453 + 400), its top the area's.
         assert_eq!((text.rect.left + text.rect.width / 2.0, text.rect.top), (853.0, 660.0));

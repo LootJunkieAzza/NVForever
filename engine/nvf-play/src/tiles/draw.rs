@@ -531,12 +531,12 @@ fn under(ui: &Ui, id: TileId, of: &[TileId]) -> bool {
 /// The pieces to draw of `menu`, in drawing order (stable by summed `depth`
 /// [hypothesis: depth is the stacking order, ui-tile-tree.md §6.1]), and how many of the
 /// mod roots ([`fnv_ui::Ui::mod_added_tiles`]) draw at least one. `select` says which
-/// tiles ([`Select`]).
-pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Select<'_>) -> (Vec<Piece>, usize) {
+/// tiles ([`Select`]); `t15` is `tiles::interface_screen`'s hotrect-alpha gate [design].
+pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Select<'_>, t15: bool) -> (Vec<Piece>, usize) {
     let roots = ui.mod_added_tiles(menu);
     let items: Vec<(Option<TileId>, layout::DrawItem)> = match select {
-        Select::Mods { .. } => roots.iter().flat_map(|&r| layout::layout(ui, r, measure).into_iter().map(move |i| (Some(r), i))).collect(),
-        Select::Whole { .. } => layout::layout(ui, menu, measure).into_iter().map(|i| (roots.iter().copied().find(|&r| under(ui, i.tile, &[r])), i)).collect(),
+        Select::Mods { .. } => roots.iter().flat_map(|&r| layout::layout(ui, r, measure, t15).into_iter().map(move |i| (Some(r), i))).collect(),
+        Select::Whole { .. } => layout::layout(ui, menu, measure, t15).into_iter().map(|i| (roots.iter().copied().find(|&r| under(ui, i.tile, &[r])), i)).collect(),
     };
     let whole = matches!(select, Select::Whole { .. });
     let mut out = Vec::new();
@@ -886,7 +886,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
                     info!("tiles: {name} drawn from tiles ({file} file tiles, {code} code tiles)");
                     drawn.told_menu = Some(menu);
                 }
-                whole_pieces(ui, menu, &mut kit)
+                whole_pieces(ui, menu, &mut kit, super::interface_screen(switch))
             }
             None => Vec::new(),
         };
@@ -934,9 +934,9 @@ impl MenuFonts for FontKit<'_> {
 /// writes (`super::menus`, before scripts); a text piece in a font not loaded yet (a script
 /// brought it in meanwhile) has it loaded here and the pieces worked out again, so no text
 /// is set out unmeasured or spawned without its face ([`unloaded_fonts`]).
-pub fn whole_pieces(ui: &Ui, menu: TileId, fonts: &mut impl MenuFonts) -> Vec<Piece> {
+pub fn whole_pieces(ui: &Ui, menu: TileId, fonts: &mut impl MenuFonts, t15: bool) -> Vec<Piece> {
     let select = Select::Whole { kept: &[], strip: None };
-    let set_out = |fonts: &dyn MenuFonts| pieces(ui, menu, &|font: f64, text: &str, wrap: Option<f64>| fonts.size(font, text, wrap), select).0;
+    let set_out = |fonts: &dyn MenuFonts| pieces(ui, menu, &|font: f64, text: &str, wrap: Option<f64>| fonts.size(font, text, wrap), select, t15).0;
     let first = set_out(fonts);
     let missing = unloaded_fonts(&first, |f| fonts.loaded(f));
     if missing.is_empty() {
@@ -953,6 +953,7 @@ pub fn whole_pieces(ui: &Ui, menu: TileId, fonts: &mut impl MenuFonts) -> Vec<Pi
 #[allow(clippy::too_many_arguments)]
 fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut FontKit, drawn: &mut Drawn, nodes: &mut Nodes, scale: f32, heading: f32) {
     let whole = view.menus.as_ref().is_some_and(|m| m.hud);
+    let t15 = view.menus.as_deref().copied().is_some_and(super::interface_screen);
     let ui = script.rt.as_ref().filter(|rt| rt.game.ui_files.is_some()).map(|rt| &rt.game.ui_tree);
     let menu = ui.and_then(|ui| ui.menu(HUD_MENU).map(|m| (ui, m)));
     // With the tile HUD off and no mod tiles in the HUD (the default game), nothing to
@@ -976,9 +977,9 @@ fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut Fon
                     drawn.told = true;
                 }
                 let kept = kept_pieces(ui);
-                pieces(ui, menu, &measured, Select::Whole { kept: &kept, strip: ui.find_tile(STRIP_TILE) })
+                pieces(ui, menu, &measured, Select::Whole { kept: &kept, strip: ui.find_tile(STRIP_TILE) }, t15)
             } else {
-                pieces(ui, menu, &measured, Select::Mods { vanilla: None })
+                pieces(ui, menu, &measured, Select::Mods { vanilla: None }, t15)
             }
         }
         _ => (Vec::new(), 0),
@@ -1220,7 +1221,7 @@ mod tests {
         let mut ui = Ui::new();
         let menu = ui.load_menu(&src, "m.xml").unwrap();
         ui.update();
-        let (set, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &[], strip: None });
+        let (set, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &[], strip: None }, false);
         // Font 2 loaded, font 8 not: font 8 is to load before painting.
         let mut loaded = vec![2u8];
         assert_eq!(unloaded_fonts(&set, |f| loaded.contains(&f)), vec![8]);
@@ -1243,13 +1244,13 @@ mod tests {
             }
         }
         let mut fonts = Fonts(vec![2]);
-        let drawn = whole_pieces(&ui, menu, &mut fonts);
+        let drawn = whole_pieces(&ui, menu, &mut fonts, true);
         assert!(fonts.loaded(8), "the late font is loaded");
         let late = drawn.iter().find(|p| matches!(&p.look, Look::Text { string, .. } if string == "Late")).unwrap();
         assert_eq!((late.rect.width, late.rect.height), (40.0, 20.0), "set out with its face, not at (0, 0)");
         // With every font there, one layout and nothing loaded.
         let before = fonts.0.len();
-        assert_eq!(whole_pieces(&ui, menu, &mut fonts), drawn);
+        assert_eq!(whole_pieces(&ui, menu, &mut fonts, true), drawn);
         assert_eq!(fonts.0.len(), before);
     }
 
@@ -1257,7 +1258,7 @@ mod tests {
     fn only_the_mods_tiles_draw_and_code_copies_never() {
         let (mut ui, src) = hud();
         let menu = ui.menu(HUD_MENU).unwrap();
-        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }), (Vec::new(), 0));
+        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false), (Vec::new(), 0));
         ui.add_code_tile_from_template(&src, "HUDMainMenu/Piece", "row", None).unwrap();
         assert!(ui.inject_text(
             &src,
@@ -1268,7 +1269,7 @@ mod tests {
                 <rect name="Empty"/><nif name="Model"/></rect>"#
         ));
         ui.update();
-        let (drawn, roots) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None });
+        let (drawn, roots) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false);
         assert_eq!(roots, 1);
         let names: Vec<_> = drawn.iter().map(|p| ui.tile(p.tile).name.as_str()).collect();
         assert_eq!(names, ["Mod", "Pic", "Words"]);
@@ -1286,10 +1287,10 @@ mod tests {
         // The HUD hidden hides them; a zero alpha too.
         let hidden = ui.find_tile("HUDMainMenu").unwrap();
         ui.set_trait(hidden, "visible", Value::Num(0.0));
-        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }).1, 0);
+        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false).1, 0);
         ui.set_trait(hidden, "visible", Value::Num(1.0));
         ui.set_float("HUDMainMenu/Piece/Mod/alpha", 0.0);
-        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }).1, 0);
+        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false).1, 0);
     }
 
     #[test]
@@ -1305,7 +1306,7 @@ mod tests {
               <text name="Zero"><string>x</string><font>0</font><wrapwidth>0</wrapwidth></text>"#
         ));
         ui.update();
-        let (drawn, roots) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None });
+        let (drawn, roots) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false);
         assert_eq!(roots, 2);
         let names: Vec<_> = drawn.iter().map(|p| ui.tile(p.tile).name.as_str()).collect();
         assert_eq!(names, ["Back", "Clip", "Zero", "Front"]);
@@ -1320,9 +1321,9 @@ mod tests {
         let mut ui = Ui::new();
         let menu = ui.load_menu(&src, "hud.xml").unwrap();
         ui.update();
-        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }).1, 0);
+        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false).1, 0);
         let vanilla: HashSet<String> = ["hudmainmenu".to_string()].into();
-        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: Some(&vanilla) }).1, 1);
+        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: Some(&vanilla) }, false).1, 1);
     }
 
     #[test]
@@ -1380,7 +1381,7 @@ mod tests {
         let mut ui = Ui::new();
         let root = ui.load_menu(&src, "c.xml").unwrap();
         ui.update();
-        let (drawn, _) = pieces(&ui, root, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None });
+        let (drawn, _) = pieces(&ui, root, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None }, false);
         assert_eq!(drawn.len(), 2);
         for (number, name) in [(1.0, "hudmain"), (2.0, "hudalt")] {
             assert_eq!(system_colour(&Value::Num(number)), system_colour(&Value::Sym(name.into())));
@@ -1432,10 +1433,10 @@ mod tests {
     fn with_the_switch_on_the_files_and_the_codes_tiles_draw_but_the_kept_pieces() {
         let (mut ui, src, menu) = vanilla_hud();
         // Off (T5): none of them.
-        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }).0, Vec::new());
+        assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false).0, Vec::new());
         let kept = [ui.find_tile("HUDMainMenu/Info").unwrap()];
         let strip = ui.find_tile("HUDMainMenu/HitPoints/compass_window");
-        let whole = |ui: &Ui| pieces(ui, menu, &plain, Select::Whole { kept: &kept, strip });
+        let whole = |ui: &Ui| pieces(ui, menu, &plain, Select::Whole { kept: &kept, strip }, false);
         let (drawn, roots) = whole(&ui);
         assert_eq!(roots, 0);
         assert_eq!(
@@ -1456,7 +1457,7 @@ mod tests {
         let alt = crate::reticle::crime_colour().to_srgba();
         assert_eq!(drawn[3].colour, [alt.red, alt.green, alt.blue, 1.0]);
         // Without the strip named, the compass window is its zoom's.
-        let (plain_strip, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept, strip: None });
+        let (plain_strip, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept, strip: None }, false);
         assert_eq!(plain_strip[0].look, Look::Picture { name: "Interface\\HUD\\strip.dds".into(), source: Source::Index("Interface\\InterfaceShared.tai".into()), fit: Fit::Zoom(100.0) });
         // A mod's tile under a kept piece still draws, and counts as a mod root.
         assert!(ui.inject_text(&src, "HUDMainMenu/Info", r#"<rect name="Outline"><red>1</red><width>4</width><height>4</height></rect>"#));
@@ -1520,7 +1521,7 @@ mod tests {
         let mut ui = Ui::new();
         let menu = ui.load_menu(&src, "c.xml").unwrap();
         ui.update();
-        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &[], strip: None });
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &[], strip: None }, false);
         let hud = interface::hud_rgb().map(|c| f32::from(c) / 255.0);
         assert_eq!(drawn[0].colour[..3], hud);
         assert_eq!(drawn[1].colour[..3], [10.0 / 255.0, 1.0, 1.0]);
@@ -1594,7 +1595,7 @@ mod tests {
               <text name="Eight"><string>LEVEL UP</string><font>8</font></text>"#
         ));
         ui.update();
-        let (drawn, _) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None });
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false);
         let font = plain_font(36.0, 15.0);
         let bases = |name: &str| {
             let piece = drawn.iter().find(|p| ui.tile(p.tile).name == name).expect("a text piece");
@@ -1612,7 +1613,7 @@ mod tests {
     fn a_tiled_meter_is_one_image_and_its_ticks_stand_evenly() {
         let (ui, _, menu) = vanilla_hud();
         let kept = [ui.find_tile("HUDMainMenu/Info").unwrap()];
-        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept, strip: None });
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept, strip: None }, false);
         let meter = drawn.iter().find(|p| ui.path_of(p.tile) == "HUDMainMenu/HitPoints/meter").unwrap();
         let Look::Picture { fit, .. } = &meter.look else { panic!("a picture") };
         let Placed::Repeat { width, height } = placed(*fit, false, (8.0, 32.0)) else { panic!("repeated") };
@@ -1637,7 +1638,7 @@ mod tests {
     fn moved_and_recoloured_pieces_change_in_place() {
         let (ui, _, menu) = vanilla_hud();
         let kept = [ui.find_tile("HUDMainMenu/Info").unwrap()];
-        let (old, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept, strip: None });
+        let (old, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept, strip: None }, false);
         assert_eq!(change(&old[0], &old[0]), Change::Same);
         let mut moved = old[0].clone();
         moved.rect.left += 0.25;
@@ -1702,7 +1703,7 @@ mod tests {
     fn a_tiles_pieces_are_kept_apart_by_their_count() {
         let (ui, _, menu) = vanilla_hud();
         let kept = [ui.find_tile("HUDMainMenu/Info").unwrap()];
-        let (mut all, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept, strip: None });
+        let (mut all, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept, strip: None }, false);
         all.push(all[0].clone());
         let keys = keys(&all);
         assert_eq!(keys[0], (all[0].tile, 0));

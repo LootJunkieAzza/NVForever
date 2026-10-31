@@ -141,11 +141,13 @@ default, §4 stands. The panels of the other script menus (§4's placeholder) st
   W/2 less half the list's width plus 22, so the frame's middle is 3.5 right of the box's
   (3.7 measured; §4's code uses 2.5).
 - Lines: 2 pixels thick, `globals()`'s `_line_thickness` with the converter 960 / the
-  window's height (menu-xml.md §4.2) [hypothesis; §3 measured 2 pixel rows].
+  window's height (menu-xml.md §4.2) [observed: hud_menus capture 2026-10-31, three
+  window sizes; §3 measured 2 pixel rows].
 - [design] The box's width: the widest of the text's place, widest line and `_horbuf`,
   the title's room (its place, width, the line's gap of 10 and its place again) and the
   list's width with two `_horbuf`, within the file's 200 and 700. The list's height stops
-  at the file's 420; the list does not scroll yet.
+  at the file's 420; if the measured rows exceed it, the whole box falls back to §4's
+  hand-built drawing. Scrolling is a follow-up [design].
 - Input: the pointer over a row chooses it, a click (or a script's ClickMenuButton)
   answers the box with that button; the keys stay §4's (a file's own key binding the
   hand-built keys lack, and a script's MenuTapKey, still act). The rows are made again
@@ -153,7 +155,10 @@ default, §4 stands. The panels of the other script menus (§4's placeholder) st
   `Game::front_box`'s serial), so a script's click queued on the last box's rows answers
   nothing; a click queued on the box still on screen answers it. A panel with no box
   queued (the perks' choice list) is known by its words alone. The tile drawing is
-  chosen only once the tree has built the file; a missing file keeps §4's box.
+  chosen only once the tree has built every path the model writes and the
+  `MM_ButtonTemplate` row and its `ListItemText`; a missing path or template keeps §4's
+  box and warns once with the missing path. Drawing and tile input use the same
+  eligibility check, including the measured list-height limit [design].
 - **Read from the original** [observed: hud_menus capture 2026-10-31, `MessageBoxEx`
   boxes at 1280 x 720, 1280 x 1024 and 1920 x 1080] and followed since:
   - **No row is chosen when a box opens**: `_highlight_y` -1, `_selected_height` 0, the
