@@ -653,3 +653,27 @@ The numbers above stay put so links to them hold; each item here gives its own p
     every game loop from the marker: does he stand until the cheer ends, walk off after
     1 s with the cheer cut short, or slide with it playing? And `IsIdlePlaying` at the
     moment he sets off. ([idles §15](../spec-notes/idles.md))
+
+## Added 2026-10-31 (coyotes' warning and charge, issue #1073)
+
+58. **What a warning coyote plays, and how it bites on the run** (P3: every coyote and
+    dog fight). NVForever plays the dog folder's `h2hequip.kf` then holds `h2haim.kf`
+    while a coyote warns the player, puts it away when it attacks, and shows a blow
+    begun on the run on the head and neck only, over the run. To check: VERGSCoyote6REF
+    (0x00157B38) at its warning spot, the player 600-700 units off: `GetAnimAction` and
+    `IsWeaponOut` sampled every game loop through its two warnings and the charge; does
+    it stand with its head down (a frame), and do its legs keep running through a blow
+    begun on the run or does it stop to bite? ([actors §8.10](../spec-notes/actors.md))
+
+## Added 2026-10-31 (robots' talking lights, issue #1081)
+
+59. **What sets a robot's `Talking` sequence while it speaks** (P3: Victor, Yes Man, Mr.
+    House's screen, protectrons). NVForever plays `talking.kf` while a line is said with
+    the sequence's time taken from the line's `.lip` (the widest mouth shape now, 0 to 1
+    of the 0.17 s), so Victor's chest light (`##VoiceBox_talk:0`) flickers with the
+    words and goes dark between lines (lipsync.md §6.1). To check: Goodsprings, talk to
+    Victor (VictorREF 0x00103DFE) and record his chest light frame by frame over one
+    line; compare its brightness with the `.lip`'s mouth weights and with the sound's
+    loudness over the same frames (a pause between words, a long vowel). Does it go
+    dark in pauses, follow the loudness or the mouth shapes, or loop by itself? Same on
+    Mr. House's screen (`##TalkButtons:0`). ([lipsync §6.1](../spec-notes/lipsync.md))

@@ -1616,3 +1616,26 @@ fn the_runner_reaches_a_patrol_point() {
     assert_eq!(t["steps"][0].get("error"), None, "{}", t["steps"][0]);
     assert_eq!(t["observations"][0]["value"], json!(9.0));
 }
+
+/// Known topics are kept newest first: one line's Add Topics go to the front together in
+/// record order, a line's topic learned again moves to the front, and `AddTopic` on a
+/// known topic leaves it in place (owner's choice 2026-10-31, dialogue.md §3.5). Saves
+/// holding the old sorted list still load.
+#[test]
+fn known_topics_newest_first() {
+    use fnv_game::game::KnownTopics;
+    let ids = |k: &KnownTopics| k.iter().map(|t| t.0).collect::<Vec<_>>();
+    let mut k = KnownTopics::default();
+    assert_eq!(k.learn(&[FormId(0xC8), FormId(0xC7)]), vec![FormId(0xC8), FormId(0xC7)]);
+    assert!(k.insert(FormId(0xCA)));
+    assert_eq!(k.learn(&[FormId(0xCC), FormId(0xCB)]).len(), 2);
+    assert_eq!(ids(&k), vec![0xCC, 0xCB, 0xCA, 0xC8, 0xC7]);
+    // AddTopic again: stays where it is, and not reported as new.
+    assert!(!k.insert(FormId(0xC8)));
+    assert_eq!(ids(&k), vec![0xCC, 0xCB, 0xCA, 0xC8, 0xC7]);
+    // A line's Add Topics again: to the front.
+    assert!(k.learn(&[FormId(0xC8)]).is_empty());
+    assert_eq!(ids(&k), vec![0xC8, 0xCC, 0xCB, 0xCA, 0xC7]);
+    let old: KnownTopics = serde_json::from_value(json!([FormId(1).to_string(), FormId(2).to_string(), FormId(3).to_string()])).unwrap();
+    assert_eq!(ids(&old), vec![1, 2, 3]);
+}
