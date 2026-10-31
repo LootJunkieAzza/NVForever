@@ -604,3 +604,90 @@ owner to add to its pull request or issue (owner, 2026-10-29).
     - Pip-Boy STATS, ITEMS, DATA (into the screen texture);
     - dialogue, level-up, character creation, casino games, terminals, lockpick,
       hacking, VATS.
+    - **T15a plan: the message box and "How many?" from their files** (2026-10-31,
+      `claude/t15-menus-a`, issue #978; T15b, sleep/wait and the tutorial menu, follows
+      the same shape). One switch per menu, the hand-built drawing stays the default.
+      **Builds on #979** (PR #1166, `claude/tile-text-baseline`) and its per-font
+      follow-up (18088f1e, a text line, pitch and height for every font), merged into
+      the branch: those must merge first.
+      - **Switch**: `[UI] TileMenus=` takes `MessageMenu` and `QuantityMenu` beside
+        `HUDMainMenu` (`tiles::vanilla::TileMenus`, its test aid
+        `NVF_PLAY_TEST_TILE_MENUS`). On, and with the menu's file built into the tree,
+        the hand-built box (`message_menu.rs`) or prompt (`menu/look.rs::spawn_quantity`)
+        is not spawned and the tile renderer draws the menu's whole tree at the
+        hand-built box's stacking level. Off, no writes, drawing or tile input for them;
+        but `QuantityMenu`'s tree builds while the prompt shows (below), and the hotrect
+        alpha and `_name_` rules hold for every menu (below).
+      - **The tree has the menu**: `MessageMenu` builds while a message box is the open
+        menu (T3b). The prompt is no `Game::menu` (MenuMode does not report it), so
+        `Game::ui_prompt` (new, set by the engine each frame from `ActiveMenu`) builds
+        `QuantityMenu` (1016) while the prompt shows.
+      - **What the model writes** (`tiles::menus`, only while its switch is on, before
+        scripts): MessageMenu: the title and text strings, the icon's file and
+        `visible`, one `MM_ButtonTemplate` row per button under `MM_ButtonList` (its
+        `string`, `listindex`, `_y`, `height`), the list's `width`, `height`,
+        `_highlight_y`, `_selected_height` and the scroll bar's item counts, and
+        `MM_MainRect`'s `width` ("set in code" in the file); QuantityMenu: the meter's
+        `user0` (the stack) and `user2` (the amount), from which the file works out the
+        meter's fill and the amount text. Both: the background's opacity (set in code).
+        Every text tile of a drawn menu gets its measured `width` and `height` (as the
+        HUD's measured texts), only when its string, font or wrap changed.
+      - **Tree rules the files need** (menu-xml.md): `screen()` in interface units (960
+        high; both files centre their boxes by it) and `resolutionconverter` 960 / the
+        window's height (lines 2 pixels), both only while a T15 menu is switched on, a hotrect's own `alpha` not passed to its children (every text button
+        is an alpha-0 hotrect over a visible text), and `copy … trait="_name_"` after a
+        constant (`&false;`) reading `_name_0` (the fade lines' and the meter's picture).
+      - **Input** (T8): the menus take tile input while drawn from tiles. A pointer or
+        script click on a button row answers the box (`script_hud::menu_keys`), the
+        pointer over a row frames it; on the prompt OK, Cancel and the arrows send their
+        commands (`menu::MenuInput`) and a press or drag on the meter sets the amount.
+        The hand-built keys stay the prompt's and the box's: a click a key makes through
+        the files' `_PCButton_*` and `x…` refs acts unless that key came from the
+        keyboard (or a controller standing in for it) and the hand-built handler took it
+        that frame (`tiles::menus::key_click_acts`), so a script's MenuTapKey and a file's
+        own bindings act (changed after review; the plan first ignored every key click).
+      - **Hand-copied numbers**: the tile path reads none of `message_menu.rs`'s layout
+        constants or `look.rs`'s `Q_*`, and draws the meter as one tiled picture (no node
+        per tick). They stay for the hand-built drawing, the default, and go when the
+        maintainer makes tiles the default.
+      - **Tests**: `tiles::menus` (the writes on trees written for the tests),
+        `tiles::layout` (hotrect alpha), `tiles::vanilla` (the switch), `fnv-ui`
+        (`_name_` after a constant), `fnv-game` `ui_loading` (the prompt builds and
+        drops). Smoke: `tiles-message-box`, `tiles-quantity` (new). The model's own
+        tests (`message_menu`, `menu::model`) unchanged.
+    - **T15a built** 2026-10-31 (`claude/t15-menus-a`), awaiting the screenshot
+      comparison and the maintainer: as planned above (`tiles/menus.rs`,
+      message-menu.md §5a, barter-menu.md §7, menu-xml.md §3.1.1, §4.2, §4.4).
+      **Also changes, with the T15 menus off:** the hotrect alpha rule lets
+      `Info/justify_center_hotrect`'s verb and key draw in the tile HUD and a mod's text
+      under an alpha-0 hotrect show; `copy … _name_` after `&true;`/`&false;` reads
+      `_name_1`/`_name_0` in every menu; `QuantityMenu` builds and drops with the prompt.
+      `screen()` stays the window's pixels unless a T15 menu is on (gated after review).
+      **Open, for the comparison:** font 2's line spacing and first-line place in the
+      renderer (31 and 24 against the screenshot's 35 and 15), the empty title's height,
+      the highlight box's fill (hotrects draw nothing), the crafting menu's prompt (still
+      hand-built); the per-frame layout of an open tile menu (the tree has no cheap
+      revision to skip it; to measure with the perf harness). **Where it stands
+      (2026-10-31):** implemented. On `d5fc28fa`: root tests no failures, root clippy
+      clean, `nvf-play` tests 670 passed, engine clippy clean. Smoke on `6a95d7e7`: 256
+      of 261 passed; of the fails, one a tool timeout, one #1181 (stale on main), and
+      `tiles-message-box` from #1180 (`--no-messages` closed a form-less Yes/No box; fixed
+      since, `1c16ec8a`, `d5fc28fa`, `3baf8595`). Later, 2026-10-31: root tests no
+      failures (after `a9c5f151`'s test fix) and root clippy clean; on `bdaad547`
+      `nvf-play` tests 672 passed and engine clippy clean; smoke on `947e9c7e` 251 of 253,
+      the two fails explained in the run's report. Then, from the three-way pictures and
+      the hud_menus capture [observed 2026-10-31]: the box opens with no row chosen, the
+      empty title is 14 x 38, and font 2 stands on its own line (the #979 merge); only
+      compiled since. The commits after `bdaad547`/
+      `a9c5f151` (the tiled prompt's and box's pointer sheet, the late-font retry through
+      `draw::whole_pieces` and its test) were only compiled (`cargo check`). The final
+      smoke run and the screenshot comparison with the original are pending. Captures to do: observer-checks.md items
+      60, 61.
+      - Review fixes (2026-10-31, an independent review): navigation has one owner (a
+        highlight a ref moved for a hand-built Up/Down is not the choice); a new box makes
+        its rows again (a queued script click on the last box answers nothing); key clicks
+        act unless the hand-built handler took that key this frame (MenuTapKey and the
+        files' extra bindings act); the tile view only with the menu's file built and the
+        prompt open; text sizes per axis; `screen()` gated; `_name_` only after a constant
+        with a known number; the drop aid's `ask` holds the prompt; the message scenario
+        closes the console.

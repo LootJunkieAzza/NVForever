@@ -197,7 +197,18 @@ fn place(tile: &Tile, kind: &Kind, parent: Context, measure: &Measure<'_>) -> Co
     Context {
         rect,
         depth: parent.depth + number(tile, "depth", 0.0),
-        alpha: parent.alpha * number(tile, "alpha", 255.0).clamp(0.0, 255.0) / 255.0,
+        alpha: match kind {
+            // A hotrect's own `alpha` is not passed to its children [hypothesis: every
+            // vanilla text button is a hotrect of alpha 0 (text_box.xml) whose text sets
+            // its own alpha, 128 or 255 by `target`, and the original shows those texts
+            // (the message box's OK, the prompt's Ok and Cancel, the HUD prompt's verb on
+            // the owner's screenshots); the list rows (list_box_template.xml) and the
+            // list itself are alpha-0 hotrects over shown texts; the highlight box, alpha
+            // 40, draws its lines at full strength (message-menu.md §2); T15a,
+            // menu-xml.md §3.1.1].
+            Kind::Hotrect => parent.alpha,
+            _ => parent.alpha * number(tile, "alpha", 255.0).clamp(0.0, 255.0) / 255.0,
+        },
         visible: parent.visible && tile.get("visible").is_none_or(Value::truthy),
         clip: parent.clip,
     }
@@ -279,6 +290,27 @@ mod tests {
 
     fn unmeasured(_: f64, _: &str, _: Option<f64>) -> (f64, f64) {
         panic!("this tree needs no text measurement")
+    }
+
+    #[test]
+    fn a_hotrects_alpha_is_not_passed_to_its_children() {
+        // [design] A text button's shape (text_box.xml): an alpha-0 hotrect over its text,
+        // under a rect at half strength.
+        let (ui, root) = tree(
+            r#"<menu name="M"><rect name="R"><alpha>128</alpha>
+          <hotrect name="H"><alpha>0</alpha><text name="T"><string>OK</string><width>20</width><height>10</height><alpha>255</alpha></text></hotrect>
+          </rect></menu>"#,
+        );
+        let items = layout(&ui, root, &unmeasured);
+        let text = items.iter().find(|i| matches!(i.kind, Kind::Text(_))).unwrap();
+        assert_eq!(text.alpha, 128.0);
+        // An alpha-0 hotrect alone over its text: the text drawn at full strength, shown.
+        let (ui, root) = tree(
+            r#"<menu name="M"><hotrect name="H"><alpha>0</alpha><text name="T"><string>OK</string><width>20</width><height>10</height></text></hotrect></menu>"#,
+        );
+        let items = layout(&ui, root, &unmeasured);
+        assert_eq!(items.len(), 1, "the hotrect itself draws nothing");
+        assert_eq!((items[0].alpha, items[0].visible), (255.0, true));
     }
 
     #[test]

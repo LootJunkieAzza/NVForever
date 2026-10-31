@@ -266,6 +266,17 @@ docs/handoff/ui-tile-tree-tasks.md]: `x` `y` `width` `height` `depth` `alpha` `v
 - [hypothesis] `depth` adds down the tree, with zero when absent. Parents precede
   children; siblings sort by increasing depth, preserving file order for ties. Neither
   this note's earlier sections nor hud.md establish cumulative depth or traversal order.
+- [hypothesis, T15a] A `hotrect`'s own `alpha` is not passed to its children: every
+  vanilla text button is a hotrect of alpha 0 (`text_box.xml`) whose text sets its own
+  alpha (128, or 255 while it is a target), the message box's list and its rows
+  (`list_box.xml`, `list_box_template.xml`) are alpha-0 hotrects over texts the original
+  shows (the message box's OK, the prompt's Ok and Cancel on the owner's screenshots,
+  message-menu.md §3, barter-menu.md §7), and the list's highlight box, alpha 40, draws
+  its lines at full strength. Until T15a it multiplied through as the other tiles' does,
+  which hid those texts. The rule holds for every drawn menu, whatever `[UI] TileMenus`
+  says: with the T15 menus off it changes the tile HUD (`Info/justify_center_hotrect`'s
+  verb and key now draw) and the mods' tiles drawn over the HUD (a mod's text under an
+  alpha-0 hotrect now shows) [design: one rule for one tree].
 - [hypothesis] `alpha` is 0–255, defaults to 255, and multiplies through ancestors as
   fractions of 255. [design] Clamp each local alpha to that range and retain fractional
   results without rounding.
@@ -329,17 +340,23 @@ NVForever's own HUD, from the layout of §3.1.1. What it takes the traits to mea
 - [observed: the font files against hud.md §14.1] A text's width is the sum of its
   glyphs' advances (fonts.md §3): font 7 "Button Text" 156 and "Talk" 54, font 8 "+0" 50
   and "+9" 49, as the original wrote. A `wrapwidth` of 0 does not wrap (the prompt's
-  `button_text` has 0 and measured one line). [hypothesis] In NVForever's implementation
-  (`draw::measure`) a text's height is its lines times the font's line height, not the
-  original's text tile `height` (below); each line is set left, centred or right inside the box by
-  `justify`, one line height under the last.
+  `button_text` has 0 and measured one line). [hypothesis] Each line is set left,
+  centred or right inside the box by `justify`; [observed: hud_menus capture
+  2026-10-31, fonts.md §3.1] the lines stand one pitch of their font apart
+  (`draw::line_pitch`: 31, 35, 32, 36, 25, 38, 38, 52 for fonts 1-8), which for fonts 2,
+  3, 6 and 7 is not the font file's size (until this change NVForever set them the size
+  apart).
 - A text's first line stands under its top by its font. [observed: hud_textbase capture
   2026-10-31, hud.md §14.10] Measured from the capitals' ink in the original against
   where NVForever's glyph pictures put it (fonts.md §3), the lines stand 24.9 units under
   the top in font 7, 30.5 in font 8 and 21.0 in font 1 (a tile with no `font`).
-  [design: NVForever's calibration, anchored on font 7] `draw::text_base` keeps font 7
-  at the earlier readings' 24 and stands fonts 8 and 1 as far from it as the capture
-  shows: 29.5 and 20; the fonts no capture measured take 24 [hypothesis]. Texts of fonts 7 and 8 set at one `y` do not
+  [observed: hud_menus capture 2026-10-31, fonts.md §3.1] Every font, measured the same
+  way at three window sizes: font 1 20.3, fonts 2-5 about 16.5, font 6 22.4, font 7
+  24.5, font 8 30.5. [design: NVForever's calibration, anchored on font 7]
+  `draw::text_base` keeps font 7 at the earlier readings' 24 and stands every other font
+  as far from it as the hud_menus capture shows: font 1 20, fonts 2-5 16, font 6 22,
+  font 8 30 (29.5 from hud_textbase until then; fonts.md §3.1 says why 30); font 9, which
+  draws nothing in the original, takes font 7's 24 [design]. Texts of fonts 7 and 8 set at one `y` do not
   stand on one line: `radiation_text` ("RAD/SEC", font 7) and `radiation_text_value`
   ("+9", font 8), both at y 65, end 25.0 and 31.7 under it. T12c (2026-10-29) stood
   every font's line 24 under the top [hypothesis then: the two radiation texts read on
@@ -348,11 +365,14 @@ NVForever's own HUD, from the layout of §3.1.1. What it takes the traits to mea
   `hud_corners` rad_coc_spot, `hud_jip` s4_sneak_drawn, hud.md §14.8]; the font-8
   reading was wrong (#979). Until T12c each font's tallest glyph set the line
   (`interface::line_base`: 28, 33, 48 for fonts 1, 7, 8).
-- [observed: hud_textbase capture 2026-10-31] A text tile's `height`, read in the
-  original, is its font's tallest glyph picture whatever its string: 36 for font 1, 42
-  for font 7, 64 for font 8 (fonts.md §3). NVForever's `measure` gives lines times the
-  font's size (31, 36, 52 for one line) and writes no text tile's `height` [design: a
-  difference kept, not yet needed].
+- [observed: hud_textbase and hud_menus captures 2026-10-31] A text tile's `height`,
+  read in the original, is its font's tallest glyph picture whatever its string, plus
+  one pitch for each line after the first: one line 36, 32, 31, 37, 28, 38, 42, 64 for
+  fonts 1-8, two lines 67, 67, 63, 73, 53, 76, 80, 116 (fonts.md §3.1). NVForever's
+  `draw::measure` gives that height (`tallest_glyph` + (lines - 1) × `line_pitch`; until
+  this change lines × the font's size); the layout uses it for a text tile without its
+  own `height` (§3.1.1), and the code writes no text tile's `height` into the tree
+  [design: not yet needed].
 - [hypothesis] Colour: a tile's own `systemcolor`; else its own `red`/`green`/`blue`
   when it sets any; else the nearest tile above's `systemcolor`; else system colour 1, the
   HUD's [documented: GECK wiki Color UI directives, "Systemcolor is by default 1 and always
@@ -585,7 +605,7 @@ marked]:
 | `me()` | 1798 | the tile itself |
 | `sibling(name)` | 1660 | the tile of that name under the same parent |
 | `sibling()` | 2 | the tile just before it under the same parent |
-| `screen()` | 451 | the view: traits `width`, `height`, `cropx`, `cropy`, `resolutionconverter`, set by the engine |
+| `screen()` | 451 | the view: traits `width`, `height`, `cropx`, `cropy`, `resolutionconverter`, set by the engine (the running game writes the window's pixels, and no converter; since T15a, only while `[UI] TileMenus` names `MessageMenu` or `QuantityMenu`, the view in interface units, 960 high and 960 × width/height wide, and `resolutionconverter` 960 / the window's height [design: the default unchanged; hypothesis: the units and the converter, fitted to hud.md §14's line thickness 1.78 at 1920 x 1080; observer-checks.md item 60]; `fnvtool ui tree --screen` writes the size it is given) |
 | `globals()` | 244 | `globals.xml`'s tile (`gloabls()`, once, read the same) |
 | `io()` | 242 | the menu the tile is in, whose traits the game's code reads and writes (barter reads `io()`'s `_IsContainerListSelected`, which its `<menu>` declares) |
 | `child(name)` | 148 | the child of that name; `child()` the first child |
@@ -614,7 +634,12 @@ use found:
 
 `<copy src="me()" trait="_filename_"/>` after the value is a number n reads the trait
 `_filename_n` [hypothesis: the meter and barter files pick a picture that way; 15
-names end in `_` in the vanilla files, all after a numeric value].
+names end in `_` in the vanilla files, all after a numeric value]. After a constant it
+reads the constant's number (§2.3; `&false;` 0, `&true;` 1) [hypothesis, T15a: the meter
+prefab copies `_SolidMeter` and `vertical_fade_line.xml` copies `_bottom_to_top`, both
+`&false;` or `&true;`, before the copy, and their `_filename_0`/`_Filename_1` are the two
+pictures; until T15a the name was read without a number, and the message box's corner
+lines and the prompt's meter had no picture].
 
 ## 5. Paths
 

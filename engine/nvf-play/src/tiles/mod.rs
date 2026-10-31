@@ -3,6 +3,7 @@
 pub mod draw;
 pub mod input;
 pub mod layout;
+pub mod menus;
 pub mod model;
 pub mod notices;
 pub mod vanilla;
@@ -19,6 +20,7 @@ pub(crate) struct MenuFiles<'w, 's> {
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
     paused: Option<Res<'w, crate::pause::Paused>>,
     main_menu: Option<Res<'w, crate::main_menu::MainMenu>>,
+    menus: Option<Res<'w, vanilla::TileMenus>>,
 }
 
 impl MenuFiles<'_, '_> {
@@ -42,7 +44,9 @@ impl MenuFiles<'_, '_> {
             return;
         }
         if let Ok(window) = self.windows.single() {
-            screen(game, window);
+            // T15a: interface units only while a T15 menu is drawn from its file.
+            let units = self.menus.as_ref().is_some_and(|m| interface_screen(**m));
+            write_screen(&mut game.ui_tree, window.width(), window.height(), units);
         }
         let report = ui_loading::sync(game, self.paused.as_ref().is_some_and(|p| p.0), self.main_menu.as_ref().is_some_and(|m| m.open));
         for line in report.changes {
@@ -54,12 +58,61 @@ impl MenuFiles<'_, '_> {
     }
 }
 
-fn screen(game: &mut fnv_game::Game<'_>, window: &Window) {
-    // Window dimensions, as fnvtool's --screen [hypothesis: menu-xml.md §4.2, screen() row].
-    // cropx, cropy and resolutionconverter stay unset until their units are known [design].
-    let id = game.ui_tree.screen();
-    game.ui_tree.set_trait(id, "width", Value::Num(f64::from(window.width())));
-    game.ui_tree.set_trait(id, "height", Value::Num(f64::from(window.height())));
+/// Whether `screen()` is written in interface units ([`write_screen`]): only while a T15
+/// menu (`MessageMenu`, `QuantityMenu`) is switched on, whose file centres its box by
+/// `screen()` [design: the default game, and the tile HUD alone, keep the window's pixels
+/// until a capture of the original settles which units its `screen()` reports;
+/// docs/handoff/observer-checks.md].
+pub fn interface_screen(menus: vanilla::TileMenus) -> bool {
+    menus.message || menus.quantity
+}
+
+/// Write `screen()`'s traits for a window `window_width` x `window_height` (logical
+/// pixels): with `interface_units` ([`interface_screen`]) the view in interface units
+/// ([`screen_size`]) and `resolutionconverter` ([`resolution_converter`]); otherwise the
+/// window's size, as fnvtool's `--screen` [hypothesis: menu-xml.md §4.2, `screen()` row],
+/// and no converter, as before T15a. `cropx` and `cropy` stay unset until their units are
+/// known [design]. The HUD's places are worked out from the shape alone
+/// (`fnv_game::ui_hud::write`), so they are the same either way.
+pub fn write_screen(ui: &mut fnv_ui::Ui, window_width: f32, window_height: f32, interface_units: bool) {
+    let id = ui.screen();
+    if interface_units {
+        let (width, height) = screen_size(window_width, window_height);
+        ui.set_trait(id, "width", Value::Num(width));
+        ui.set_trait(id, "height", Value::Num(height));
+        ui.set_trait(id, "resolutionconverter", Value::Num(resolution_converter(window_height)));
+    } else {
+        ui.set_trait(id, "width", Value::Num(f64::from(window_width)));
+        ui.set_trait(id, "height", Value::Num(f64::from(window_height)));
+    }
+}
+
+/// `screen()`'s width and height for a window in interface units: 960 high and as wide as
+/// the window's shape makes it [documented: hud.md §14, the right-hand pieces at W - 386
+/// with W = 960 × width/height; hypothesis: the message box's and the prompt's files centre
+/// their boxes, whose sizes are in those units, by `screen()`'s width and height,
+/// menu-xml.md §3.1.2; what the original's `screen()` reports was not captured].
+pub fn screen_size(window_width: f32, window_height: f32) -> (f64, f64) {
+    let (w, h) = (f64::from(window_width), f64::from(window_height));
+    if w > 0.0 && h > 0.0 {
+        (960.0 * w / h, 960.0)
+    } else {
+        (0.0, 0.0)
+    }
+}
+
+/// `screen()`'s `resolutionconverter` for a window `window_height` pixels high: 960 / the
+/// height, the interface units of one pixel, so `globals()`'s `_line_thickness` (2 × the
+/// converter on a PC) is a line 2 pixels thick [observed: hud.md §14, the original's lines
+/// 1.78 units thick at 1920 x 1080, 2 × 960/1080; message-menu.md §3, the box's lines 2
+/// pixel rows at 1050 lines; hypothesis: the same rule at every size, one size read].
+/// Written only with interface units ([`write_screen`]).
+pub fn resolution_converter(window_height: f32) -> f64 {
+    if window_height > 0.0 {
+        960.0 / f64::from(window_height)
+    } else {
+        0.0
+    }
 }
 
 /// Read the same inputs as the current HUD, before scripts [design]. Timed pieces
@@ -299,6 +352,90 @@ impl HudTiles<'_> {
     }
 }
 
+/// What the message box and the prompt drawn from tiles were last written from (T15a,
+/// `menus`): the menu's tile (a new one when it is built again) and what it showed, so a
+/// frame with nothing changed writes nothing [design: the maintainer's review of #902].
+#[derive(Default)]
+struct MenusWritten {
+    message: Option<(menus::BoxShown, Option<usize>)>,
+    quantity: Option<(fnv_ui::TileId, menus::Amount)>,
+    /// The text sizes written, the message box's and the prompt's.
+    sizes: [menus::SizesWritten; 2],
+}
+
+/// T15a: what the message box and the prompt show, from their hand-built models.
+#[derive(SystemParam)]
+struct MenuTiles<'w, 's> {
+    panel: Option<Res<'w, crate::message_menu::MessagePanel>>,
+    active: Option<Res<'w, crate::menu::ActiveMenu>>,
+    written: Local<'s, MenusWritten>,
+}
+
+impl MenuTiles<'_, '_> {
+    /// The "How many?" prompt of the container, barter and inventory menus, when open.
+    fn quantity(&self) -> Option<crate::menu::model::Quantity> {
+        self.active.as_ref().and_then(|a| a.0.as_ref()).and_then(|m| m.quantity)
+    }
+
+    /// Write the switched-on menus' traits (`menus::write_message`, `menus::write_quantity`)
+    /// when what they show changed, and their text tiles' sizes every frame they are drawn
+    /// (each measured again only when its string changed), before scripts [design:
+    /// ui-tile-tree.md §4.1]. Off, or without the menu files, nothing.
+    fn write(&mut self, game: &mut fnv_game::Game<'_>, switch: vanilla::TileMenus, fonts: &mut draw::FontKit) {
+        if !(switch.message || switch.quantity) || game.ui_files.is_none() {
+            return;
+        }
+        let message = menus::message_tiled(switch.message, game).then(|| game.ui_tree.menu(menus::MESSAGE_MENU)).flatten();
+        let quantity = self.quantity().filter(|_| menus::quantity_tiled(switch.quantity, game, true));
+        let prompt = quantity.and_then(|q| game.ui_tree.menu(menus::QUANTITY_MENU).map(|m| (m, q)));
+        // Which showing the box on screen is (counted up for every box shown, one alike
+        // included): its rows are made again for another (`menus::another_box`).
+        let showing = game.front_box().map(|b| b.serial);
+        let written = &mut *self.written;
+        let ui = &mut game.ui_tree;
+        match (message, self.panel.as_ref().and_then(|p| p.view.as_ref().map(|v| (v, p.framed())))) {
+            (Some(menu), Some((view, selected))) => {
+                let now = menus::BoxShown { menu, showing, view: view.clone() };
+                let was = written.message.as_ref();
+                let another = menus::another_box(was.map(|(b, _)| b), &now);
+                if another || was.is_some_and(|(_, s)| *s != selected) {
+                    let size = fonts.menu_measure(&menus::fonts(ui, menu));
+                    menus::write_message(ui, view, selected, another, &size);
+                    menus::write_text_sizes(ui, menu, &mut written.sizes[0], &size);
+                    if another {
+                        info!("{}", menus::describe_message(ui, view));
+                    }
+                    written.message = Some((now, selected));
+                } else {
+                    // One walk of the menu's texts a frame, for their fonts and sizes.
+                    let texts = menus::texts(ui, menu);
+                    let size = fonts.menu_measure(&menus::fonts_of(ui, &texts));
+                    menus::write_text_sizes_of(ui, &texts, &mut written.sizes[0], &size);
+                }
+            }
+            _ => written.message = None,
+        }
+        match prompt {
+            Some((menu, q)) => {
+                let amount = menus::Amount { amount: q.amount, most: q.max };
+                if written.quantity != Some((menu, amount)) {
+                    menus::write_quantity(ui, amount);
+                    // The amount's text follows from the meter: worked out before its size.
+                    ui.update();
+                }
+                let texts = menus::texts(ui, menu);
+                let size = fonts.menu_measure(&menus::fonts_of(ui, &texts));
+                menus::write_text_sizes_of(ui, &texts, &mut written.sizes[1], &size);
+                if written.quantity != Some((menu, amount)) {
+                    info!("{}", menus::describe_quantity(ui));
+                    written.quantity = Some((menu, amount));
+                }
+            }
+            None => written.quantity = None,
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn write(
     mut script: ResMut<ScriptState>,
@@ -309,9 +446,15 @@ fn write(
     time: Res<Time>,
     mut animation: Local<fnv_game::ui_hud::Animation>,
     mut told: Local<[Option<String>; 4]>,
+    mut menu_tiles: MenuTiles,
 ) {
     let Some(rt) = script.rt.as_mut() else { return };
+    // T15a: the prompt over the container, barter and inventory menus builds `QuantityMenu`
+    // while it shows (`Game::ui_prompt`), whether or not it is drawn from it, as the open
+    // menus build (T3b).
+    rt.game.ui_prompt = menu_tiles.quantity().map(|_| fnv_game::game::menus::QUANTITY);
     files.write(&mut rt.game);
+    menu_tiles.write(&mut rt.game, *menus, &mut fonts);
     let shown = hud.shown(&rt.game, &files);
     let mut texts = hud.texts(&mut rt.game, shown);
     if let Some(root) = rt.game.ui_tree.find_tile("HUDMainMenu") {
@@ -397,5 +540,49 @@ impl Plugin for TilesPlugin {
             .add_systems(Update, update.after(PlaySet::Scripts).before(PlaySet::Ui))
             .add_systems(Update, (draw::draw, draw::scroll, model::animate).chain().in_set(PlaySet::Ui))
             .add_systems(PostUpdate, vanilla::hide_hand_built.before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fnv_ui::{MemSource, Ui};
+
+    /// [design] A tile placed by `screen()`, as the T15 menus centre their boxes.
+    fn centred() -> Ui {
+        let src = MemSource::default().with(
+            "m.xml",
+            r#"<menu name="M"><rect name="Box"><width>100</width>
+              <x><copy src="screen()" trait="width"/><sub src="me()" trait="width"/><div>2</div></x>
+              <_thick><copy>2</copy><mul src="screen()" trait="resolutionconverter"/></_thick></rect></menu>"#,
+        );
+        let mut ui = Ui::new();
+        ui.load_menu(&src, "m.xml").unwrap();
+        ui
+    }
+
+    #[test]
+    fn screen_keeps_the_windows_pixels_unless_a_t15_menu_is_on() {
+        // Off (the default game, or the tile HUD alone): the window's size, no converter,
+        // and a tile placed by screen() where it was before T15a.
+        assert!(!interface_screen(vanilla::TileMenus::default()));
+        assert!(!interface_screen(vanilla::TileMenus { hud: true, ..Default::default() }));
+        let mut ui = centred();
+        write_screen(&mut ui, 1280.0, 720.0, false);
+        ui.update();
+        let s = ui.tile(ui.screen());
+        assert_eq!((s.get("width").map(Value::num), s.get("height").map(Value::num)), (Some(1280.0), Some(720.0)));
+        assert!(s.get("resolutionconverter").is_none());
+        assert_eq!(ui.get_float("M/Box/x"), Some(590.0));
+        assert_eq!(ui.get_float("M/Box/_thick"), Some(0.0));
+        // On: interface units, 960 high, and the converter.
+        assert!(interface_screen(vanilla::TileMenus { message: true, ..Default::default() }));
+        assert!(interface_screen(vanilla::TileMenus { quantity: true, ..Default::default() }));
+        write_screen(&mut ui, 1280.0, 720.0, true);
+        ui.update();
+        assert_eq!(ui.get_float("M/Box/x").map(|x| (x * 100.0).round() / 100.0), Some(803.33));
+        // A line 2 pixels thick: 2 × 960/720 units.
+        assert_eq!(ui.get_float("M/Box/_thick"), Some(2.0 * 960.0 / 720.0));
+        assert_eq!(screen_size(1280.0, 720.0).1, 960.0);
     }
 }
