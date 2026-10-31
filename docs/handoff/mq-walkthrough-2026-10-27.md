@@ -30,7 +30,7 @@ item 6) is a separate task.
 | ending-legion (`mq-ending-legion`) | VHDLegionBattle 100 sets story state 62; the same slide chain (12 slides) | FadeToCreditsTimer faded out, ExitGame called |
 | ending-house (`mq-ending-house`) | VHDHouseBattle 100 sets 63 (9 slides) | FadeToCreditsTimer faded out, ExitGame called |
 | ending-independent (`mq-ending-independent`) | VHDIndependentBattle 100 sets 64, Securitron vault not opened (65 when it was; not run) (11 slides) | FadeToCreditsTimer faded out, ExitGame called |
-| reputation-axes (`mq-reputation-axes`) | Crocker's messenger and Vulpes's Strip greeting, which call SetReputation with axis 2 (item 10) | NCR and Legion infamy 0; VMS23's flags set after the axis-2 call |
+| reputation-axes (`mq-reputation-axes`) | Crocker's messenger and Vulpes's Strip greeting, which call SetReputation with axis 2 (item 10) | NCR and Legion infamy 0; VMS23's message flag set, its cleared flag not (the axis-2 call stops the script, #1127) |
 
 Notes [observed]:
 - **The Lucky 38 elevator** is an actor with one reference per floor. Activation adds a
@@ -114,11 +114,15 @@ Notes [observed]:
     (Boulder City Showdown stage 100, one ending) and 3 (Severus's three tag trades), and
     conditions use GetReputation axis 2 (VMS36, Crocker's topics 013/014) and
     GetReputationThreshold axis 3 (Benny's two greetings) [observed: decompiled scripts,
-    INFO conditions]. **Not a stall**: a refused call reads 0 and the script goes on (the
-    engine traces `call_failed` and returns 0; only a call on an empty reference stops a
-    script), and `reputation-axes` shows the messenger's flags set after the axis-2 call.
-    The engine now treats other axes as doing nothing and reading 0 without a call error
-    (reputation.rs `axis`) [hypothesis; observer check 30]. One open effect: Benny's
+    INFO conditions]. **Not a stall**: the original reads 0 for axes 2/3, and a write with
+    one fails and stops the script (observer check 30, o5_00/o5_01); ours does the same since
+    #1127 (reputation.rs `write_axis`). So the messenger's line 0x00119094 leaves VMS23
+    bReputationClear 0 (its other lines 0x00117E68-6B and stages 10/40 set it; its one
+    reader, SCPT 0x0016829F, also takes an NCR threshold), and Vulpes's greeting skips its
+    two SetEnemy calls. AddReputation's axis 2/3 was not captured and still goes on
+    (observer check 62): if it stops as SetReputation does, Boulder City Showdown's stage
+    100 entry 1 (VMS20) would never complete the quest and Severus's trades would not
+    count the tags [observed: decompiled scripts; hypothesis: the effect]. One open effect: Benny's
     greeting for a player liked on the Strip needs axis 3 >= 3, so with 0 it is never
     chosen; what the original reads for axis 3 decides it.
 11. Say Once per actor: the Yes Man mainframe repeats the Tops Yes Man's first-meeting
@@ -291,7 +295,7 @@ each with its `mq-*` smoke scenario. Add-on chains name their load order (`plugi
 | chain(s) | path | reached |
 |---|---|---|
 | ending-legion, ending-house, ending-independent | the other three endings' slides | ExitGame (12, 9, 11 slides) |
-| reputation-axes | Crocker's messenger, Vulpes's greeting (axis 2) | infamy cleared, VMS23's flags set |
+| reputation-axes | Crocker's messenger, Vulpes's greeting (axis 2) | infamy cleared; the axis-2 call stops the script (#1127) |
 | volare, how-little-we-know, beyond-the-beef, brotherhood, khans | the tribe outcomes Yes Man and House count (VMS18 is Beyond the Beef; G.I. Blues, VMS19, is not stood in by any chain) | VMS15 110, VMS21 50, VMS18 obj. 80, VMS55 100, VMS45 50 and the VStoryEvent globals |
 | honest-hearts | Daniel's path, Prisoners of War's door OnOpen | NVDLC02MQ07 100 |
 | dead-money, dead-money-heist | Elijah left in the vault; Dog and Christine live | NVDLC01MQ03 100, the ending sequence |
@@ -424,9 +428,11 @@ World Blues X-8/X-13 setups and Lonesome Road's launch-at-both ending (NVDLC04MQ
    lost (not blocking). Fix: queue the force-greet and start it in `end_dialogue_as`.
 2. Re-displaying a completed objective un-completes it (`Game::set_objective`). In G.I.
    Blues, Roy's chained line 0x0015C410 re-displays objective 65; if it plays after the King
-   completes 65, his greeting 0x00113634 holds and stage 100 cannot be reached.
+   completes 65, his greeting 0x00113634 holds and stage 100 cannot be reached. Fixed
+   (#1108): re-displaying keeps the flag, as the original does (observer check 40).
 3. ResetQuest drops a SetQuestDelay override (`reset_quest` replaces the QuestState): the
-   Emergency Radio's drop then waits 5 s of menu mode instead of 0.1 s.
+   Emergency Radio's drop then waits 5 s of menu mode instead of 0.1 s. Fixed (#1109):
+   the delay is kept, as the original does (observer check 41).
 4. Still open from §8: a talking activator's bare `Activate` in GameMode opens no
    conversation; all of the Sink's appliances (SCPT 0x0100F075, 0x0100F071, 0x0100F05D,
    0x0100F05A, ...) hit it, in play too.
@@ -501,7 +507,9 @@ Jules' Topic007 borrow another topic's line (INFC/INFX).
 1. **Possibly hard: the doctors' addiction cure does nothing.** VDoctors and Doctors stage
    20 call RemoveSpell with no reference; a stage result script has no calling reference
    (script-language.md), so all 13 calls fail and the withdrawal stays [observed]. Observer
-   check 42.
+   check 42. **Fixed (#1110)**: the original cures the player (o5_03); RemoveSpell with no
+   reference now acts on the player, and `mq-doctors` checks the withdrawal is gone after
+   both cures.
 2. **Soft: Old World Blues' first quest script never runs in the older chains.**
    old-world-blues and the chains that copy its start talk to Dr. Klein in the same second
    the quest starts; MQ01 reaches 100 before its 5 s script has run, so the Act XP values and
@@ -567,12 +575,14 @@ chains using the op still pass.
 2. **Possibly hard (check 40 again):** VFSAtomicPimpSCRIPT re-displays objective 34 after
    completing it on every pass, so a recruit killed after the quest starts leaves 24/34 open
    and Garret's short-handed line unoffered. The chain kills them before the quest starts.
+   Fixed (#1108): the original keeps the flag (check 40), and so does `set_objective` now.
 3. **Soft, headless only:** a hit starts no AI combat (Daniel, check 49); no line of sight
    (VMS31 60, check 50); Jed and the caravan guards are essential until stage 100, so
    NVDLC02MQ00 255 cannot be reached; CGTutorial 214 counts only markers play discovers.
 4. **Soft:** Oliver's Topic065 has two lines with the same conditions; ours always says
-   0x00159932, so his retreat lines are never offered (check 48). EDEScript logs an
-   empty-reference error every frame because ours does not short-circuit `&&` (check 51).
+   0x00159932, so his retreat lines are never offered (check 48). EDEScript calls on an
+   empty reference every frame: the original does not short-circuit `&&` either (check 51);
+   since #1112 the failure is traced once.
 
 **Settable, not walked (116 left):** VMS29's nine Kings' Gambit alternatives; VMS20, VMS21,
 VMS23, VMS55 branches; VMQ02 40, VMQ03a 110, VMQ03b 110/115/200, VMQHouse3/4/6 report lines;

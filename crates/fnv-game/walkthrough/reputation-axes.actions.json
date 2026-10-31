@@ -7,14 +7,14 @@
     {"kind": "reputation", "rep": "RepNVTheStrip", "fame": 40, "infamy": 0}
   ],
   "actions": [
-    {"op": "note", "text": "Crocker's messenger (Kings' Gambit's NCR side) clears the player's NCR infamy: its line's end script sets infamy (axis 0) to 0, a quest variable, SetReputation axis 2 to 0, then the quest's reputation-cleared flag. The axis-2 call must not stop the flag."},
+    {"op": "note", "text": "Crocker's messenger (Kings' Gambit's NCR side) clears the player's NCR infamy: its line's end script sets infamy (axis 0) to 0, a quest variable, SetReputation axis 2 to 0, then the quest's reputation-cleared flag. The axis-2 call fails and stops the script, as in the original (captures o5_00/o5_01, #1127), so the flag stays 0; the messenger's other lines (0x00117E68-6B) and VMS23 stages 10/40 set it without an axis-2 call, and its one reader (SCPT 0x0016829F) also takes an NCR threshold instead."},
     {"op": "say_info", "info": "0x00119094", "speaker": "placed:VStreetMPMessenger"},
     {"op": "get_reputation", "rep": "RepNVNCR", "fields": ["infamy", "fame"], "label": "milestone: NCR infamy cleared by the messenger"},
-    {"op": "get_quest", "quest": "VMS23", "fields": ["var.bmessagedelivered", "var.breputationclear"], "label": "milestone: Kings' Gambit (VMS23) flags set after the axis-2 call"},
-    {"op": "note", "text": "Vulpes's greeting on the Strip, before Render Unto Caesar: the same clearing for the Legion (axis 0, then axis 2), then two SetEnemy calls."},
+    {"op": "get_quest", "quest": "VMS23", "fields": ["var.bmessagedelivered", "var.breputationclear"], "label": "milestone: Kings' Gambit (VMS23) message flag set, cleared flag not (the axis-2 call stops the script)"},
+    {"op": "note", "text": "Vulpes's greeting on the Strip, before Render Unto Caesar: the same clearing for the Legion (axis 0, then axis 2); the axis-2 call stops the script, so its two SetEnemy calls do not run (#1127)."},
     {"op": "say_info", "info": "0x00131F74", "speaker": "placed:VVulpesIncultaStrip"},
     {"op": "get_reputation", "rep": "RepNVCaesarsLegion", "fields": ["infamy", "fame"], "label": "milestone: Legion infamy cleared by Vulpes"},
     {"op": "note", "text": "Benny's two GREETING lines at the Tops compare GetReputationThreshold axis 3 of the Strip's reputation with 3 (one below, one at or above). Axis 3 reads 0, so the line for a player liked on the Strip is never chosen (observer check 30). Observed only."},
-    {"op": "get_reputation", "rep": "RepNVTheStrip", "fields": ["threshold.mixed", "threshold.good", "threshold.bad"], "label": "final: the Strip's tiers on axes 0-2 (axis 3 reads 0: unit test reputation_other_axes_do_nothing)"}
+    {"op": "get_reputation", "rep": "RepNVTheStrip", "fields": ["threshold.mixed", "threshold.good", "threshold.bad"], "label": "final: the Strip's tiers on axes 0-2 (axis 3 reads 0: unit test reputation_other_axes_read_0_and_stop_a_write)"}
   ]
 }

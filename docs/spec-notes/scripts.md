@@ -497,6 +497,13 @@ function does. Tests run the VM in strict mode; the game runs it in lenient mode
 - Comparisons give 1 or 0; `&&` and `||` test for non-zero; arithmetic is in double
   precision; `/` by 0 gives 0; `%` is the remainder of both operands truncated to
   integers, 0 for a zero divisor [hypothesis, all of this line].
+- **`&&` and `||` do not short-circuit**: both operands are evaluated, calls included
+  [observed: o5_01, 2026-10-31, issue #1112: `if 0 && player.ModAV Variable09 10`,
+  `if 1 || …`, `if 0 == 1 && … == 0` and five more forms all ran the ModAV;
+  observer-checks.md check 51; script-language.md §4]. Only the extender's `eval`
+  expressions short-circuit [documented: Eval]. So a script that guards a call on a
+  reference with `&&` (EDEScript) makes the call on an empty reference every frame in the
+  original too.
 - `If`/`ElseIf`/`Else`: the first true arm runs, else the `Else` body.
 - `Return` ends the whole run (block or result script), from any depth.
 - **Stray markers** (§2.6). An `EndIf` with nothing open does nothing [observed]. An
@@ -524,7 +531,9 @@ function does. Tests run the VM in strict mode; the game runs it in lenient mode
   entries read the local variable), then `Host::call`. **A call on an empty reference
   variable stops the script for this run**, silently in the game [documented: GECK wiki
   Ref Variable, Eval and Let pages, owner export 2026-10-09; docs/spec-notes/script-language.md §7.3 row
-  1]; here it is traced as `call_failed`. A `Set` whose expression stopped the script
+  1]; here it is traced as `call_failed`, once per (script record, function): a record's
+  script runs every frame, so a repeated failure would trace every frame (#1112); result,
+  stage and console scripts trace every time [design]. A `Set` whose expression stopped the script
   leaves its variable unchanged [documented: Let, "a failed set stops the script"].
   Until round 4 the call read 0 and the script went on. In the original with xNVSE 6.4.9,
   a function script run through CallFunction **went on** after `rE.GetDisabled` on an
@@ -582,8 +591,8 @@ in the 5C captures (layer5-captures.md §5) unless tagged:
   SetObjectiveCompleted does not display** (VMS16 objectives 5 and 10). On an objective
   already displayed it **keeps** the flag [observed: o5_00, 2026-10-31, VMS19 65 and
   VFSAtomicPimp 34 displayed, completed, displayed again: still completed; hidden with 0
-  and shown again: not completed; layer5-captures.md §5.2]. The runtime clears it on every
-  display (issue #1108). Only objectives the quest defines
+  and shown again: not completed; layer5-captures.md §5.2]; `Game::set_objective` does the
+  same (issue #1108). Only objectives the quest defines
   change; displaying one starts a stopped quest [documented: GECK wiki
   SetObjectiveDisplayed; also Quest scripts and Quest Data Tab, owner export 2026-10-09: SetStage, StartQuest
   and SetObjectiveDisplayed start a quest].
@@ -601,6 +610,10 @@ in the 5C captures (layer5-captures.md §5) unless tagged:
   (docs/spec-notes/quests-dialogue.md §5). A stopped quest's script does not run.
   The first run after StartQuest is not modelled (it was irregular in game; the
   scenarios skip it): the counter starts at 0 on StartQuest.
+- **ResetQuest keeps a SetQuestDelay override** and zeroes the variables [observed: o41,
+  VMQ03aTimer, layer5-captures.md §5.7]; `reset_quest` keeps it (issue #1109). The
+  original also stopped the quest; the runtime leaves it running [hypothesis kept for
+  self-resets such as the Emergency Radio's, not observed].
 - **GetSecondsPassed** returns the game time between the start of the instance's
   previous per-frame run (GameMode, ScriptEffectUpdate) and the start of this one, read
   from a clock with 1/64 s resolution [observed: every drop is a multiple of 0.015625 s;
@@ -912,7 +925,12 @@ scales 10–70].
   and GetReputationThreshold axis 3 reads 0 at every value; SetReputation with axis 2 or
   3 is a failed call that stops the script, the next line not run [observed: o5_00-02,
   2026-10-31, RepNVNCR at ten infamy/fame pairs from 0/0 to 100/100; the threshold
-  axes 0-2 matched `reputation::tiers` at all ten]. The runtime's SetReputation goes on.
+  axes 0-2 matched `reputation::tiers` at all ten]. Runtime: SetReputation with such an
+  axis fails (`call_failed`) and stops the script for this run (`reputation::write_axis`;
+  #1127). AddReputation, RemoveReputation and AddReputationExact change nothing and go on
+  [hypothesis, not captured: observer check 62]; stopping would skip Boulder City
+  Showdown's completion in stage 100 entry 1 and the tag count of Severus's trades, which
+  follow their axis-2/3 AddReputation [observed: decompiled scripts].
 - AddReputation / RemoveReputation sizes 1–5 add or take 1, 2, 4, 7, 12 points, the
   settings fReputationBumpVeryMinor … VeryMajor (no master defines them; their defaults)
   [documented: GECK wiki AddReputation; observed: the same points on scales 10 and 70,

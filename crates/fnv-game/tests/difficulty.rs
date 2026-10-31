@@ -106,7 +106,7 @@ fn limb_damage_scales_with_the_hit() {
     // pool of about 10, at Very Easy 20, enough to cripple.
     let hit = |d: Difficulty| {
         let mut g = game(&f, d);
-        let info = HitInfo { limb: Some(LimbHit { condition: LEFT_ARM, health_percent: 10.0, damage: 10.0 }), ..by(FormId::PLAYER_REF) };
+        let info = HitInfo { limb: Some(LimbHit { condition: LEFT_ARM, health_percent: 10.0, damage: 10.0, points: false }), ..by(FormId::PLAYER_REF) };
         g.hit(RAIDER_REF, 1.0, info).crippled
     };
     assert!(hit(Difficulty::VeryEasy));

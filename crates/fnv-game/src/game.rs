@@ -603,6 +603,67 @@ pub enum RaceMenu {
     Surgeon,
 }
 
+/// The dialogue topics the player knows, newest first: the order that breaks ties of
+/// topic priority in the topic list (`Game::build_choices`).
+///
+/// The topics one line adds go to the front together, in their record order; a line's
+/// topic already known moves to the front again ([`KnownTopics::learn`]). `AddTopic` on a
+/// known topic leaves it where it is ([`KnownTopics::insert`]): a script may call it every
+/// frame, and the list must not depend on how often scripts run [design: review of
+/// #1205]. The original's lists for Boone and Manny Vargas follow no rule of learning
+/// order [observed 2026-10-31, dialogue.md §3.5]; newest first is the owner's choice of
+/// 2026-10-31 [design]. Saves from before kept a sorted set; they load in that order.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct KnownTopics(Vec<FormId>);
+
+impl KnownTopics {
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn contains(&self, topic: &FormId) -> bool {
+        self.0.contains(topic)
+    }
+
+    /// Newest first.
+    pub fn iter(&self) -> std::slice::Iter<'_, FormId> {
+        self.0.iter()
+    }
+
+    /// Learns `topics` (one line's Add Topics): all go to the front, the known ones too,
+    /// and returns those that were not known before, in their order.
+    pub fn learn(&mut self, topics: &[FormId]) -> Vec<FormId> {
+        let mut batch: Vec<FormId> = Vec::with_capacity(topics.len());
+        for &t in topics {
+            if !batch.contains(&t) {
+                batch.push(t);
+            }
+        }
+        let new: Vec<FormId> = batch.iter().copied().filter(|t| !self.0.contains(t)).collect();
+        self.0.retain(|t| !batch.contains(t));
+        self.0.splice(0..0, batch);
+        new
+    }
+
+    /// Learns one topic (`AddTopic`): to the front if it was not known, else it stays
+    /// where it is. True if it was not known before.
+    pub fn insert(&mut self, topic: FormId) -> bool {
+        let new = !self.0.contains(&topic);
+        if new {
+            self.0.insert(0, topic);
+        }
+        new
+    }
+}
+
+impl Extend<FormId> for KnownTopics {
+    fn extend<I: IntoIterator<Item = FormId>>(&mut self, iter: I) {
+        let topics: Vec<FormId> = iter.into_iter().collect();
+        self.learn(&topics);
+    }
+}
+
 /// The player's state outside the world's reference table.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct PlayerState {
@@ -712,9 +773,10 @@ pub struct PlayerState {
     /// SetPCCanUsePowerArmor.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub power_armor: bool,
-    /// Dialogue topics added with AddTopic.
-    #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
-    pub topics: BTreeSet<FormId>,
+    /// Dialogue topics added with AddTopic and lines' Add Topics, newest first
+    /// ([`KnownTopics`]).
+    #[serde(skip_serializing_if = "KnownTopics::is_empty", default)]
+    pub topics: KnownTopics,
     /// SetLevel on the player (otherwise the configuration's level).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub level: Option<i32>,
@@ -1024,6 +1086,8 @@ pub struct Game<'a> {
     pub(crate) name_overrides: std::collections::HashMap<FormId, String>,
     /// xNVSE's mod local data: lower-cased key -> (key as given, value); the session's.
     pub(crate) mod_data: BTreeMap<String, (String, fnv_script::vm::XVal)>,
+    /// NX NVSE's variables on references (`crate::nvse_nx`), saved.
+    pub(crate) nx: crate::nvse_nx::NxVars,
     /// TempCloneForm's clones and their originals (`crate::nvse_data`).
     pub(crate) clones: std::collections::HashMap<FormId, FormId>,
     pub(crate) clone_seq: u32,
@@ -1409,6 +1473,10 @@ pub struct Game<'a> {
     depth: u32,
     /// A function asked the running script to stop as `Return` does (RemoveMe).
     stop_run: bool,
+    /// The (script record, opcode) pairs whose call on an empty reference was already
+    /// traced: a record's script runs every frame, so the failure is traced the first
+    /// time only (`Exec::call`). Not part of the saved state.
+    empty_ref_traced: BTreeSet<(u32, u16)>,
     /// Game time of the next scan for actors whose package choice is due (`crate::ai`).
     pub(crate) package_scan_due: f64,
 }
@@ -1435,6 +1503,10 @@ pub struct GameSnapshot {
     /// The lambdas scripts made, so variables naming them stay right after a load.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub lambdas: Vec<SavedLambda>,
+    /// NX NVSE's variables on references (`crate::nvse_nx`), saved [documented: they "are
+    /// persistent across game sessions"].
+    #[serde(default, skip_serializing_if = "crate::nvse_nx::NxVars::is_empty")]
+    pub nx: crate::nvse_nx::NxVars,
     pub sim: Snapshot,
     pub quests: BTreeMap<FormId, QuestState>,
     pub instances: Vec<(InstKey, Instance)>,
@@ -1546,7 +1618,7 @@ impl GameSnapshot {
     /// or cell is gone (created ones: a plugin's creature placed with PlaceAtMe, its item
     /// dropped), script instances whose key or script is gone, magic effects whose effect,
     /// source, target or script is gone (and their effect scripts; a co-op player's
-    /// likewise), and the radio station
+    /// likewise), NX form variables naming a gone form, and the radio station
     /// or weather shown. Other fields keep the gone ID, which names no form: a lookup of it
     /// fails as one of any form that does not exist [hypothesis: the original's behaviour
     /// with a missing plugin is not documented]. Returns how many were dropped.
@@ -1581,6 +1653,7 @@ impl GameSnapshot {
             !key_gone && !inst.script.is_some_and(&gone)
         });
         n += before - self.instances.len();
+        n += self.nx.drop_gone(&gone);
         for slot in [&mut self.pipboy_station, &mut self.weather_shown] {
             if slot.is_some_and(&gone) {
                 *slot = None;
@@ -1742,6 +1815,7 @@ impl<'a> Game<'a> {
             field_overrides: std::collections::HashMap::new(),
             name_overrides: std::collections::HashMap::new(),
             mod_data: BTreeMap::new(),
+            nx: Default::default(),
             clones: std::collections::HashMap::new(),
             clone_seq: 0,
             playable_overrides: std::collections::HashMap::new(),
@@ -1885,6 +1959,7 @@ impl<'a> Game<'a> {
             effect_elapsed: 0.0,
             depth: 0,
             stop_run: false,
+            empty_ref_traced: BTreeSet::new(),
             package_scan_due: 0.0,
         }
     }
@@ -2069,8 +2144,10 @@ impl<'a> Game<'a> {
 
     /// `SetObjectiveDisplayed` / `SetObjectiveCompleted`. Only objectives the quest
     /// defines change; displaying one starts a stopped quest [documented: GECK wiki
-    /// SetObjectiveDisplayed]. Completing does not display; displaying clears the
-    /// completed flag [observed: VMS16 objectives 10 and 5, layer5-captures.md §5.2].
+    /// SetObjectiveDisplayed]. Completing does not display; showing a hidden objective
+    /// clears the completed flag [observed: VMS16 objectives 10 and 5, layer5-captures.md
+    /// §5.2], displaying one already shown keeps it [observed: o5_00, VMS19 65 and
+    /// VFSAtomicPimp 34, observer check 40, issue #1108].
     pub fn set_objective(&mut self, q: FormId, index: i32, displayed: Option<bool>, completed: Option<bool>) -> bool {
         let data = self.data;
         let Some(def) = data.quests.get(&q) else { return false };
@@ -2083,10 +2160,10 @@ impl<'a> Game<'a> {
         let o = self.quest(q).objectives.entry(index).or_default();
         let (d0, c0) = (o.displayed, o.completed);
         if let Some(d) = displayed {
-            o.displayed = d;
-            if d {
+            if d && !o.displayed {
                 o.completed = false;
             }
+            o.displayed = d;
         }
         if let Some(c) = completed {
             o.completed = c;
@@ -3565,10 +3642,8 @@ impl<'a> Game<'a> {
             // (`Game::start_dialogue`): its Add Topics join the known topics, and it
             // is no SayTo line [hypothesis for both].
             if s.greeting {
-                for &t in &def.add_topics {
-                    if self.player.topics.insert(t) {
-                        self.emit(EventKind::TopicAdded { topic: t, by: Some(info) });
-                    }
+                for t in self.player.topics.learn(&def.add_topics) {
+                    self.emit(EventKind::TopicAdded { topic: t, by: Some(info) });
                 }
             }
         }
@@ -4472,11 +4547,15 @@ impl<'a> Game<'a> {
     // ---- snapshots -----------------------------------------------------------------
 
     pub fn snapshot(&self) -> GameSnapshot {
+        let sim = self.world.snapshot();
         GameSnapshot {
             format: SNAPSHOT_FORMAT.into(),
             ext: self.ext.clone(),
             lambdas: self.lambdas.iter().map(|d| SavedLambda { unit: d.key.clone(), lambda: d.lambda.clone(), inst: d.inst }).collect(),
-            sim: self.world.snapshot(),
+            // A created reference deleted since keeps no variables: its FormID is not
+            // used again, so they could never be read.
+            nx: crate::nvse_nx::NxVars(self.nx.0.iter().filter(|(id, _)| !sim.deleted_created.contains_key(id)).map(|(k, v)| (*k, v.clone())).collect()),
+            sim,
             quests: self.quests.clone(),
             instances: self.instances.iter().map(|(k, v)| (*k, v.clone())).collect(),
             extra: self.extra.clone(),
@@ -4536,6 +4615,7 @@ impl<'a> Game<'a> {
             let unit = data.unit_by_key.get(&l.unit).map(|&i| &data.units[i]);
             g.lambdas.push(LambdaDef { unit, key: l.unit.clone(), lambda: l.lambda.clone(), inst: l.inst, captured: None });
         }
+        g.nx = s.nx.clone();
         g.quests = s.quests.clone();
         g.instances = s.instances.iter().cloned().collect();
         g.extra = s.extra.clone();
@@ -4775,8 +4855,17 @@ impl Host for Exec<'_, '_> {
                     // A call on an empty reference variable stops the script silently
                     // for this run [documented: GECK wiki Ref Variable, Eval and Let
                     // pages, owner export; docs/spec-notes/script-language.md §7.3 row
-                    // 1]; traced as `call_failed`.
+                    // 1]; traced as `call_failed`. Classic `&&` and `||` evaluate both
+                    // sides, so a reference guarded by `&&` (EDEScript) still makes this
+                    // call every frame, in the original too [observed: o5_01,
+                    // observer-checks.md check 51; script-language.md §4]. A script
+                    // record's failure is traced once per function, not every frame.
                     self.game.stop_run = true;
+                    if let fnv_script::UnitOwner::Script { form } = self.unit.unit.owner {
+                        if !self.game.empty_ref_traced.insert((form, opcode)) {
+                            return Ok(Value::ZERO);
+                        }
+                    }
                     let name = self.game.data.table.get(opcode).map(|f| f.name.clone()).unwrap_or_default();
                     let unit = self.unit.key();
                     self.game.emit(EventKind::CallFailed {

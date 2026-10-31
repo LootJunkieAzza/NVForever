@@ -786,19 +786,42 @@ creature_sound_survey` (FalloutNV.esm alone; `--show <CREA edid>`, `--near x,y,r
   like a person (§10.2). Aware also plays when the creature becomes aware (§16).
   Not built: Attack beyond the keys (§16), Weapon, the type-21 sound.
 
-### 14.2 The player's movement
+### 14.2 The player's and actors' movement
 
 - **Jumps and landings** [hypothesis: by the names]: `FST<family>Jump` when the player
   leaves the ground going up faster than 100 units/s, `FST<family>Land` on touching
   down after at least 0.4 s in the air [design: the thresholds], of the ground under the
   feet (§10.2), else `FSTDirtJump`/`Land`; at the listener. Not while swimming.
+  **Actors** that step like a person (people, and creatures without a sound list, §10.2)
+  play theirs by the same thresholds where they are, within 3,000 units of the player
+  [design: the player's rule]: `actor_jumps.rs` tells each one leaving the ground (its
+  character's vertical speed, or its feet's for a navmesh walker) and coming down
+  (`ActorAir`). A creature with a sound list plays none: none lists a Jump (CSDT 20,
+  §14.1) [observed], and how the original sounds a creature's jump is not documented.
+  An actor stepping off a ledge (actor-jumps.md §3) leaves at vertical speed 0, so only
+  its landing sounds.
   `FSTDirtJump` names `fx\xxx_placeholder_silence.wav` [observed].
+- **Hard landings** (issue #1104): FalloutNV.esm has `FSTLandHardLight` (0x0005A724) and
+  `FSTLandHardHeavy` (0x0005A725), both the folder `fx\fst\landhard\` (one file in
+  `Fallout - Sound.bsa`, `fst_landhard_01.wav`), Random Frequency Shift, static
+  attenuation 1762 and 1410 (hundredths of a dB); no record of FalloutNV.esm names either
+  [observed: a scan of every record's fields for the two form ids]. Built: a landing that
+  does fall damage (physics.md §6.12) plays the Heavy one for an actor in heavy body
+  armour, else the Light one [hypothesis: the exe picks them, by their names, the way the
+  data names armour footsteps `FSTArmorLightSneak` / `FSTArmorHeavySneak`], the player's
+  at the listener, an NPC's at its feet, besides the ground's `FST…Land`; in god mode too
+  [design]. Falls without damage play only `FST…Land`. The player's hurt voice is the
+  combat lines' (combat-dialogue.md §3: `GenericPlayer` Hit lines), which every hit, a
+  fall's too, may say by `fCombatSpeakHitThreshold` / `…Chance`; no SOUN of FalloutNV.esm
+  is named for a player's pain [observed: no `Pain`/`Hurt` edid outside creatures and
+  `UISurgeryPain01`–`03`], so no separate issue. Log: `falls: <actor> hard landing,
+  sound FSTLandHard…`.
 - **Wading** [design]: feet more than 2 units under a water surface (the cell's water or
   a placed water volume) step on Water (`FSTWaterWalkL`…, files `fx\fst\water\…`).
 - **Stairs on the landscape** do not exist in the data: the 89 landscape textures' Havok
   materials are 0 (10), 2 (47), 4 (12), 10 (3), 18 (7) and 19 (10), none a stairs code
   (64–127) [observed].
-- Not built: actors' jump and landing sounds (actors jump since 2026-10-20, actor-jumps.md; their footstep families are not played for it).
+- Smoke: `actor-jump-sounds` (Easy Pete drops off the Goodsprings ledge in play).
 
 ### 14.3 Objects' own sounds
 
@@ -912,7 +935,8 @@ reverb indoors, owner-review.md].
 ### 14.7 Checks
 
 Log: the `anim sounds summary` ends `creatures: N sounds (<type> n, …), N hits, N deaths,
-N keys of a type not listed; the player jumped N and landed N times`; the `ambient
+N keys of a type not listed; the player jumped N and landed N times; actors jumped N and
+landed N times`; the `ambient
 summary` ends `things that sound (activators, containers, doors, creatures): N heard, N
 loops started, N random sounds played`; the `world sounds summary` ends `N load doors; N
 objects' own sounds in reach`; the `shot fx` line ends `N casing knocks heard`. Per

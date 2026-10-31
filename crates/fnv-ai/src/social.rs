@@ -75,14 +75,22 @@
 //! - **Observe combat** ("ObserveCombat: actors in "spectator" mode -- watching a combat
 //!   but not joining in" [documented: Misc Tab]): an actor within [`OBSERVE_DISTANCE`]
 //!   of an actor in Combat, and within [`REACT_DISTANCE`] of the player, says its line,
-//!   each actor at most once per `fCommentOnPlayerActionsTimer` [stand-in]. The behaviour's
-//!   running away from a fight that comes too close is not built.
+//!   each actor at most once per `fCommentOnPlayerActionsTimer` [stand-in]. Spectators
+//!   "run away if they get too close" [documented: GECK wiki Packages; no distance is
+//!   documented]: an actor whose package allows the behaviour, not in a combat state,
+//!   within [`SPECTATOR_FLEE_DISTANCE`] of a fighter [design: stand-in] runs from it,
+//!   wherever the player is, by the combat flee's search for a spot (a door, cover, or
+//!   straight away: `crate::alert`) without entering a combat state; at its spot it
+//!   stands facing the fight, runs again (at most once per
+//!   [`SPECTATOR_REFLEE_SECONDS`]) if the fight comes as close again, and goes back to
+//!   its package once no fighter is within [`OBSERVE_DISTANCE`] [design].
 //!
 //! While two actors talk, and while an actor says hello or a SayTo line, they turn to
 //! whom they talk to (`Game::facings`, which says who turns; [hypothesis] for hellos and
 //! conversations); the engine keeps whoever waits or talks where it stands
 //! ([`Ai::holds_for_chat`]).
 
+use crate::alert::{Search, FLEE_WALK_SECONDS};
 use crate::carry::{Activity, Ai, AiEvent, Talking};
 use crate::goal::{self, dist};
 use crate::sandbox::Rng;
@@ -128,6 +136,13 @@ const COMMENT_SECONDS: f32 = 60.0;
 pub const REACT_DISTANCE: f32 = 1000.0;
 /// An actor watches a fight this close to one of its fighters, game units [stand-in].
 pub const OBSERVE_DISTANCE: f32 = 1500.0;
+/// A spectator runs from a fighter this close, game units [design: stand-in; no source
+/// documents the original's distance (docs/handoff/observer-checks.md); well inside
+/// [`OBSERVE_DISTANCE`], so it watches before it runs].
+pub const SPECTATOR_FLEE_DISTANCE: f32 = 600.0;
+/// A spectator at its flee spot runs again, the fight come as close, at most this often,
+/// seconds [design: so a cornered one does not search every frame].
+pub const SPECTATOR_REFLEE_SECONDS: f64 = 5.0;
 /// WEAP DNAM animation types that shoot (pistols, rifles, the launcher) [documented: xEdit
 /// wbWeaponAnimTypeEnum: 3 Pistol Ballistic … 9 Launcher].
 const GUN_ANIM_TYPES: std::ops::RangeInclusive<i64> = 3..=9;
@@ -163,6 +178,8 @@ pub(crate) struct Social {
     next_comment: f64,
     /// Until when each actor that commented on a fight watches quietly.
     observed: BTreeMap<FormId, f64>,
+    /// Spectators running from a fight: when they last set off.
+    fleeing: BTreeMap<FormId, f64>,
     /// The player's body last frame: a gun's shot going, a throw going.
     player_was: (bool, bool),
     /// The Looks turning bodies, by actor: the target, how far the turn is, and the body's
@@ -211,6 +228,7 @@ impl Default for Social {
             next_chatter: None,
             next_comment: 0.0,
             observed: BTreeMap::new(),
+            fleeing: BTreeMap::new(),
             player_was: (false, false),
             looks: BTreeMap::new(),
         }
@@ -244,6 +262,25 @@ fn setting(game: &Game, name: &str, default: f32) -> f32 {
 /// Whether an actor is in a combat state (Alert, Combat, Lost).
 fn in_combat(game: &Game, actor: FormId) -> bool {
     game.awareness.state(actor).in_combat()
+}
+
+/// The fighter nearest `at` other than `actor`, in its space: who, where, how far.
+fn nearest_fighter(fighters: &[(FormId, Place)], actor: FormId, at: Place) -> Option<(FormId, [f32; 3], f32)> {
+    fighters.iter().filter(|(id, p)| *id != actor && p.space == at.space).map(|(id, p)| (*id, p.pos, dist(p.pos, at.pos))).min_by(|a, b| a.2.total_cmp(&b.2))
+}
+
+/// Where a spectator at `at` runs from: the middle of the fighters within
+/// [`OBSERVE_DISTANCE`] of it, so that it runs from the whole fight and not into its far
+/// side (the nearest fighter's place when it is alone) [design: review of #1216].
+fn fight_centre(fighters: &[(FormId, Place)], actor: FormId, at: Place) -> [f32; 3] {
+    let near: Vec<[f32; 3]> = fighters.iter().filter(|(id, p)| *id != actor && p.space == at.space && dist(p.pos, at.pos) <= OBSERVE_DISTANCE).map(|(_, p)| p.pos).collect();
+    let n = near.len().max(1) as f32;
+    let sum = near.iter().fold([0.0f32; 3], |s, p| [s[0] + p[0], s[1] + p[1], s[2] + p[2]]);
+    if near.is_empty() {
+        at.pos
+    } else {
+        [sum[0] / n, sum[1] / n, sum[2] / n]
+    }
 }
 
 /// Whether an actor is in the world and alive.
@@ -312,7 +349,7 @@ impl Ai {
         if let Some(p) = player {
             self.idle_chatter(game, p, &mut events);
             self.player_actions(game, p, &mut events);
-            self.observe_combat(game, p, &mut events);
+            self.observe_combat(game, nav, p, &mut events);
         }
         for (actor, e) in events {
             self.log(game, actor, e);
@@ -458,37 +495,139 @@ impl Ai {
             .collect()
     }
 
-    /// Comments on a fight nearby (module notes).
-    fn observe_combat(&mut self, game: &mut Game, player: Place, events: &mut Vec<(FormId, AiEvent)>) {
-        let now = game.time;
-        self.social.observed.retain(|_, until| now < *until);
+    /// The fighters now: residents in Combat, and the player while someone in Combat (not
+    /// Alert or Lost: a search is no fight) fights it within [`OBSERVE_DISTANCE`] of it
+    /// (its foe may be no resident: then where it last measured from, else anywhere).
+    fn fighters(&self, game: &Game, player: Option<Place>) -> Vec<(FormId, Place)> {
+        use fnv_game::awareness::State;
         let mut fighters: Vec<(FormId, Place)> = self
             .agents
             .iter()
-            .filter(|(id, _)| game.awareness.state(**id) == fnv_game::awareness::State::Combat && here(game, **id))
+            .filter(|(id, _)| game.awareness.state(**id) == State::Combat && here(game, **id))
             .map(|(id, a)| (*id, Place { space: a.walker.space, pos: a.walker.feet }))
             .collect();
-        // The player in a fight counts as a fighter too (its foe may be no resident).
-        if game.awareness.hunted(FormId::PLAYER_REF) {
-            fighters.push((FormId::PLAYER_REF, player));
+        let fought = |p: Place| {
+            game.awareness.actors.iter().any(|(id, w)| {
+                let near = match self.agents.get(id) {
+                    Some(a) => a.walker.space == p.space && dist(a.walker.feet, p.pos) <= OBSERVE_DISTANCE,
+                    None => w.at.is_none_or(|at| dist(at, p.pos) <= OBSERVE_DISTANCE),
+                };
+                w.state == State::Combat && w.targets.contains_key(&FormId::PLAYER_REF) && near
+            })
+        };
+        if let Some(p) = player.filter(|p| fought(*p)) {
+            fighters.push((FormId::PLAYER_REF, p));
         }
+        fighters
+    }
+
+    /// Whether `actor` takes a side in a fight of `fighter` rather than watching it: the
+    /// player's teammates and those following someone (a Follow or Accompany package) for
+    /// the player, and an ally or friend of the fighter by their factions (who will join
+    /// it) [design: review of #1216].
+    fn takes_sides(&self, game: &Game, actor: FormId, fighter: FormId) -> bool {
+        let follows = self.agents.get(&actor).and_then(|a| a.package).and_then(|p| game.data.package_defs.get(&p)).is_some_and(|d| matches!(d.ty, PackageType::Follow | PackageType::Accompany));
+        game.is_teammate(actor) || follows || fnv_game::functions::faction_relation(game, actor, fighter) >= 2
+    }
+
+    /// Comments on a fight nearby, and spectators running from one too close (module
+    /// notes).
+    fn observe_combat(&mut self, game: &mut Game, nav: &NavGraph, player: Place, events: &mut Vec<(FormId, AiEvent)>) {
+        let now = game.time;
+        self.social.observed.retain(|_, until| now < *until);
+        let fighters = self.fighters(game, Some(player));
         if fighters.is_empty() {
             return;
         }
-        let Some(topic) = game.data.by_edid("ObserveCombat").filter(|t| game.data.topic_defs.contains_key(t)) else { return };
-        for (actor, at, _) in self.onlookers(game, player, fallout::OBSERVE_COMBAT) {
-            if self.social.observed.contains_key(&actor) {
-                continue;
+        if let Some(topic) = game.data.by_edid("ObserveCombat").filter(|t| game.data.topic_defs.contains_key(t)) {
+            for (actor, at, _) in self.onlookers(game, player, fallout::OBSERVE_COMBAT) {
+                if self.social.observed.contains_key(&actor) {
+                    continue;
+                }
+                let Some((fighter, _, away)) = nearest_fighter(&fighters, actor, at).filter(|f| f.2 <= OBSERVE_DISTANCE) else { continue };
+                // Tried once per wait, said or not, so an actor without a line does not
+                // look for one every frame.
+                self.social.observed.insert(actor, now + setting(game, "fCommentOnPlayerActionsTimer", COMMENT_SECONDS) as f64);
+                if let Some(line) = game.say(actor, None, topic, false) {
+                    events.push((actor, AiEvent::ObserveCombat { fighter, line, away }));
+                    break;
+                }
             }
-            let Some((fighter, away)) = fighters.iter().copied().filter(|(id, p)| *id != actor && p.space == at.space).map(|(id, p)| (id, dist(p.pos, at.pos))).filter(|(_, d)| *d <= OBSERVE_DISTANCE).min_by(|a, b| a.1.total_cmp(&b.1)) else {
-                continue;
-            };
-            // Tried once per wait, said or not, so an actor without a line does not look
-            // for one every frame.
-            self.social.observed.insert(actor, now + setting(game, "fCommentOnPlayerActionsTimer", COMMENT_SECONDS) as f64);
-            if let Some(line) = game.say(actor, None, topic, false) {
-                events.push((actor, AiEvent::ObserveCombat { fighter, line, away }));
-                return;
+        }
+        // Spectators too close run, wherever the player is.
+        let data = game.data;
+        let close: Vec<(FormId, FormId, [f32; 3], f32)> = self
+            .agents
+            .iter()
+            .filter(|(id, a)| self.is_high(**id) && here(game, **id) && a.chat.is_none() && a.talk.is_none() && a.search.is_none() && !self.social.fleeing.contains_key(id))
+            .filter(|(_, a)| a.package.and_then(|p| data.package_defs.get(&p)).is_some_and(|d| allows(d, fallout::OBSERVE_COMBAT) && d.ty != PackageType::Sleep))
+            .filter(|(id, _)| !in_combat(game, **id) && !game.is_talking(**id))
+            .filter_map(|(id, a)| {
+                let place = Place { space: a.walker.space, pos: a.walker.feet };
+                let (fighter, _, away) = nearest_fighter(&fighters, *id, place)?;
+                (away <= SPECTATOR_FLEE_DISTANCE && !self.takes_sides(game, *id, fighter)).then(|| (*id, fighter, fight_centre(&fighters, *id, place), away))
+            })
+            .collect();
+        for (actor, fighter, at, away) in close {
+            self.spectator_flee(game, nav, actor, fighter, at, away);
+        }
+    }
+
+    /// A spectator sets off from the fight at `at` ([`fight_centre`]; `fighter` the
+    /// nearest of it), `away` units off.
+    fn spectator_flee(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, fighter: FormId, at: [f32; 3], away: f32) {
+        if self.agents[&actor].using.is_some() {
+            self.set_using(game, actor, None);
+            self.log(game, actor, AiEvent::Furniture { furniture: None });
+        }
+        self.social.fleeing.insert(actor, game.time);
+        self.log(game, actor, AiEvent::SpectatorFlee { fighter, away });
+        self.flee_from(game, nav, actor, fighter, at);
+    }
+
+    /// One update of a spectator running from a fight (module notes), out of a combat
+    /// state; whether it holds the actor (its package waits meanwhile).
+    pub(crate) fn spectator_step(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32) -> bool {
+        let Some(&set_off) = self.social.fleeing.get(&actor) else { return false };
+        let now = game.time;
+        let a = &self.agents[&actor];
+        let place = Place { space: a.walker.space, pos: a.walker.feet };
+        match a.search {
+            Some(Search::Fleeing { from, to, since }) => {
+                if a.activity != Activity::Travelling || now - since > FLEE_WALK_SECONDS {
+                    let a = self.agents.get_mut(&actor).expect("listed");
+                    a.walker.follower = None;
+                    a.activity = Activity::There;
+                    let feet = a.walker.feet;
+                    a.search = Some(Search::Fled { from, at: feet });
+                    let hides = game.sneaks(actor);
+                    self.log(game, actor, AiEvent::FleeArrived { from, seconds: (now - since) as f32, off: dist(feet, to), hides });
+                }
+                true
+            }
+            Some(Search::Fled { .. }) => {
+                let player = goal::place_of_ref(game, FormId::PLAYER_REF);
+                let fighters = self.fighters(game, player);
+                match nearest_fighter(&fighters, actor, place) {
+                    Some((fighter, _, away)) if away <= SPECTATOR_FLEE_DISTANCE && now - set_off >= SPECTATOR_REFLEE_SECONDS => {
+                        let at = fight_centre(&fighters, actor, place);
+                        self.spectator_flee(game, nav, actor, fighter, at, away);
+                    }
+                    Some((_, at, away)) if away <= OBSERVE_DISTANCE => {
+                        self.face(game, actor, Place { space: place.space, pos: at }, dt);
+                    }
+                    _ => {
+                        self.social.fleeing.remove(&actor);
+                        self.search_over(game, nav, actor, "the fight it ran from is over");
+                        return false;
+                    }
+                }
+                true
+            }
+            // Something else took it over (a fight of its own, and back out of it): done.
+            _ => {
+                self.social.fleeing.remove(&actor);
+                false
             }
         }
     }

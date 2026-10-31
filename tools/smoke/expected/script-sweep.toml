@@ -11,7 +11,9 @@
 
 [summary.scripts.info]
 run = 8639
-with_problems = 114
+# 3 of them since #1127: the axis-2 SetReputation lines (INFO 0x00119094, 0x00131F74,
+# 0x001543A9) fail and stop the script, as in the original (o5_00/o5_01).
+with_problems = 117
 
 [summary.scripts.package]
 run = 558
@@ -19,7 +21,7 @@ with_problems = 95
 
 [summary.scripts.stage]
 run = 1040
-with_problems = 7
+with_problems = 5
 
 [summary.scripts.terminal]
 run = 384
@@ -27,7 +29,7 @@ with_problems = 50
 
 [summary.problems.call_failed]
 causes = 54
-scripts = 386
+scripts = 384
 
 [summary.problems.script_error]
 causes = 1

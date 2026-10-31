@@ -16,16 +16,26 @@ pub fn run(cmd: EsmCmd) -> anyhow::Result<Value> {
         EsmCmd::Stats { plugin } => Ok(stats_json(&Plugin::open(plugin)?)),
         EsmCmd::Inventory { plugin } => Ok(inventory_json(&Plugin::open(plugin)?)),
         EsmCmd::Verify { plugin } => verify(&plugin),
-        EsmCmd::Coverage { plugin, schema, max_rows } => {
+        EsmCmd::Coverage { plugins, schema, max_rows } => {
             let schema = Schema::load_dir(schema)?;
-            let p = Plugin::open(plugin)?;
+            // Several plugins: one report over all of them (smoke `esm-coverage` pins the
+            // ten masters' totals).
             let mut cov = Coverage::default();
-            let mut recs = Vec::new();
-            visit_records(&p.nodes[1..], &mut |r, _| recs.push(r));
-            cov.add_records_par(&recs, &schema);
+            let mut names = Vec::new();
+            for plugin in plugins {
+                let p = Plugin::open(plugin)?;
+                let mut recs = Vec::new();
+                visit_records(&p.nodes[1..], &mut |r, _| recs.push(r));
+                cov.add_records_par(&recs, &schema);
+                names.push(p.name.clone());
+            }
             let mut v = cov.to_json(max_rows);
             v["schema"] = json!("fnv.esm.coverage/1");
-            v["plugin"] = json!(p.name);
+            if let [one] = &names[..] {
+                v["plugin"] = json!(one);
+            } else {
+                v["plugins"] = json!(names);
+            }
             Ok(v)
         }
         EsmCmd::Decode { plugin, schema, formid: want_fid, edid } => {
