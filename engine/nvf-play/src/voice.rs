@@ -244,7 +244,7 @@ pub fn response_at(lengths: &[f64], elapsed: f64) -> usize {
 /// taken from the simulation (between frames the runtime's own world is swapped out,
 /// `script::with_world`).
 pub fn line_lengths(g: &Game, sim: &SimState, s: &Speech) -> Vec<f64> {
-    g.response_lengths_as(voice_base(g, sim, s.speaker), s.info)
+    g.response_lengths_voiced(sim.base_of(s.speaker.0), voice_base(g, sim, s.speaker), s.info)
 }
 
 /// The base form whose voice type a speaker speaks with: its template chain's "Traits"
@@ -468,8 +468,9 @@ fn play(
                 }
             }
         }
+        let placed = sim.base_of(s.speaker.0);
         let base = voice_base(g, &sim, s.speaker);
-        let fitted = g.response_seconds_as(base, s.info, k);
+        let fitted = g.response_seconds_voiced(placed, base, s.info, k);
         let who = g.data.name(s.speaker);
         let number = bank.index.lines.get(&s.info.0).and_then(|l| l.responses.get(k)).map_or(0, |r| r.number);
         // A line said for its fixed speaker (INFO ANAM) by another actor (its own GetIsID
@@ -477,7 +478,9 @@ fn play(
         // in the fixed speaker's folder only: tried after the speaker's own, as the line's
         // length is (`Game::response_seconds_as`) [observed: fnvtool voice line, INFO
         // 010134BA and 001614B2; hypothesis: the game plays that file].
-        let fixed = g.data.infos.get(&s.info).and_then(|d| d.speaker).filter(|f| Some(*f) != base);
+        // A fixed speaker that is the placed base is no other actor: its file is in the
+        // record's own voice, not the one the actor speaks with (issue #1051).
+        let fixed = g.data.infos.get(&s.info).and_then(|d| d.speaker).filter(|f| Some(*f) != base && Some(*f) != placed);
         let file = base.and_then(|b| bank.file(s.info.0, k, b.0)).or_else(|| fixed.and_then(|f| bank.file(s.info.0, k, f.0)));
         // A line outside the conversation is heard from where it is said, or not at all;
         // a 2D one (Say's is2D) as the conversation's.

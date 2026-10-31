@@ -446,7 +446,7 @@ impl<'a> Game<'a> {
     /// file it is the length fitted to the response text
     /// ([`crate::game::fitted_seconds`], scripts.md §7.7).
     pub fn response_seconds(&self, speaker: FormId, info: FormId, response: usize) -> f64 {
-        self.response_seconds_as(self.speaker_voice_base(speaker), info, response)
+        self.response_seconds_voiced(crate::functions::base_of(self, speaker), self.speaker_voice_base(speaker), info, response)
     }
 
     /// Seconds a whole line lasts: its responses one after another; a line without

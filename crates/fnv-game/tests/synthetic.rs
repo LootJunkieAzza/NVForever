@@ -1372,6 +1372,22 @@ fn an_actor_whose_traits_come_from_a_leveled_list_speaks_with_the_picked_entrys_
     assert_eq!(g.voice_base(FormId(NPC), speaker), FormId(NPC_AUTO));
     assert_eq!(g.speaker_voice_base(speaker), Some(FormId(NPC_AUTO)));
     assert_eq!(g.response_lengths(speaker, FormId(INFO_A)), vec![0.5]);
+    // A fixed speaker (ANAM) that is the placed base itself is no other actor: the
+    // record's own voice does not stand in when the picked voice has no file.
+    struct BaseOnly;
+    impl fnv_game::voice::VoiceLengths for BaseOnly {
+        fn response_seconds(&self, info: FormId, response: usize, speaker_base: Option<FormId>) -> Option<f64> {
+            (info == FormId(INFO_A) && response == 0 && speaker_base == Some(FormId(NPC))).then_some(0.5)
+        }
+    }
+    f.data.infos.get_mut(&FormId(INFO_A)).unwrap().speaker = Some(FormId(NPC));
+    let mut g = game(&f);
+    g.new_game();
+    g.voice = Some(std::sync::Arc::new(BaseOnly));
+    assert_eq!(g.response_lengths(speaker, FormId(INFO_A)), vec![1.7875]);
+    assert_eq!(g.response_seconds(speaker, FormId(INFO_A), 0), 1.7875);
+    // Said by another actor, the fixed speaker's file still stands in.
+    assert_eq!(g.response_lengths_voiced(Some(FormId(NPC_AUTO)), Some(FormId(NPC_AUTO)), FormId(INFO_A)), vec![0.5]);
     // Without the flag the base keeps its own voice.
     let mut f = fixture();
     f.data.leveled_actors.insert(FormId(LIST), fnv_game::data::LeveledActorDef { entries: vec![(1, FormId(NPC_AUTO))], counts: vec![1], ..Default::default() });

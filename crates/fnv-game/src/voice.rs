@@ -33,9 +33,18 @@ impl Game<'_> {
     /// fixed-speaker responses are in that speaker's folder; hypothesis: the game plays
     /// that file; found by walkthrough/old-world-blues.actions.json].
     pub fn response_seconds_as(&self, speaker_base: Option<FormId>, info: FormId, response: usize) -> f64 {
+        self.response_seconds_voiced(speaker_base, speaker_base, info, response)
+    }
+
+    /// [`Game::response_seconds_as`] for a speaker placed with `placed_base` that speaks
+    /// with `voice_base`'s voice ([`Game::voice_base`]). The fixed speaker's file stands in
+    /// only for a line said by another actor: a fixed speaker that is the placed base
+    /// itself is no other actor, and its file (in the record's own voice type) would bring
+    /// back the voice the actor does not have (issue #1051).
+    pub fn response_seconds_voiced(&self, placed_base: Option<FormId>, voice_base: Option<FormId>, info: FormId, response: usize) -> f64 {
         let voice = self.voice.as_ref();
-        let sound = voice.and_then(|v| v.response_seconds(info, response, speaker_base)).or_else(|| {
-            let fixed = self.data.infos.get(&info).and_then(|d| d.speaker).filter(|s| Some(*s) != speaker_base)?;
+        let sound = voice.and_then(|v| v.response_seconds(info, response, voice_base)).or_else(|| {
+            let fixed = self.data.infos.get(&info).and_then(|d| d.speaker).filter(|s| Some(*s) != voice_base && Some(*s) != placed_base)?;
             voice?.response_seconds(info, response, Some(fixed))
         });
         sound.unwrap_or_else(|| {
@@ -47,7 +56,14 @@ impl Game<'_> {
     /// The length of each response of a line, in record order. A line without responses
     /// lasts as one empty response does ([`Game::line_seconds`] is their sum).
     pub fn response_lengths(&self, speaker: FormId, info: FormId) -> Vec<f64> {
-        self.response_lengths_as(self.speaker_voice_base(speaker), info)
+        self.response_lengths_voiced(crate::functions::base_of(self, speaker), self.speaker_voice_base(speaker), info)
+    }
+
+    /// [`Game::response_lengths`] for a speaker placed with `placed_base` speaking with
+    /// `voice_base`'s voice ([`Game::response_seconds_voiced`]).
+    pub fn response_lengths_voiced(&self, placed_base: Option<FormId>, voice_base: Option<FormId>, info: FormId) -> Vec<f64> {
+        let n = self.data.infos.get(&info).map_or(0, |d| d.response_chars.len());
+        (0..n.max(1)).map(|k| self.response_seconds_voiced(placed_base, voice_base, info, k)).collect()
     }
 
     /// The base form whose voice `speaker` (a reference) speaks with

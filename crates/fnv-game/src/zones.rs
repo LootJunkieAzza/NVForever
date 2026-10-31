@@ -64,7 +64,11 @@ impl<'a> Game<'a> {
     /// world themselves between frames (the engine, `script::with_world`).
     pub fn voice_base_in(&self, world: &fnv_sim::World, base: FormId, r: FormId) -> FormId {
         let at = world.level_at(r, self.list_player_level());
-        self.data.template_source_at(base, r, at, |d| d.template_traits).map_or(base, |(id, _)| id)
+        // Seeded as the drawn actor and its carried items are: by the reference until
+        // ResurrectActor rolled its picks again, so a resurrected actor speaks with the
+        // voice of the entry it now shows.
+        let seed = fnv_sim::leveled::roll_seed(r, self.extra.get(&r).map_or(0, |e| e.rolls));
+        self.data.template_source_at(base, seed, at, |d| d.template_traits).map_or(base, |(id, _)| id)
     }
 
     /// `cell` comes into the loaded area: its encounter zone gets its level if it has none,
