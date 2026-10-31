@@ -1913,10 +1913,12 @@ as their clips.
   the velocity of the actor's character for the frame (a character is made for it if it
   has none), so walls stop it and the actor blocks of the player and others stop it as
   they stop a walk (`nvf_play::blocking`); while the clip plays its walk waits (the clip's
-  velocity replaces it). A lunge carries its actor no nearer its target than its walk
-  would stop (`npc_combat::Fighters::lunge_room`, the melee spacing): the dog's
+  velocity replaces it). A lunge carries its actor no nearer its target than where
+  their bodies touch (`npc_combat::Fighters::lunge_room`; the melee spacing where the
+  walk stops when the bodies are not known): a deathclaw strikes from where its walk
+  stops, so a clamp at the walk's stop left its lunge nothing to carry. The dog's
   `h2hattackforwardpower` goes 900 units, and carried in full it ran a dog past the
-  player and back (smoke `combat-dogs`) [design]. The room is the fight's distance less
+  player and back (smoke `combat-dogs`); biters no longer carry [design]. The room is the fight's distance less
   the travel given the frame before (the distance is a frame old); once a lunge reaches
   it, the rest of that attack carries nothing, its clip's later travel back included (the
   Deathclaw's goes 572 forward and back to 523) [design]. A hit reaction (a crippling

@@ -1024,9 +1024,10 @@ fn carry(mut travel: ResMut<AttackTravel>, fighters: Res<Fighters>, mut poses: Q
         } else if let Some(room) = fighters.lunge_room(rig.reference).filter(|_| d.y > 0.0) {
             // The distance is the fight's of the last update: last frame's carry is
             // not in it yet.
-            let room = (room - pose.lunge_last).max(0.0) / k;
-            if d.y >= room {
-                d.y = room;
+            let left = (room - pose.lunge_last).max(0.0) / k;
+            if d.y >= left {
+                info!("attack anims: {:08X}'s lunge stopped at its target's body ({room:.0} units of room, {:.0} carried the frame before, {:.1} asked)", rig.reference, pose.lunge_last, d.y * k);
+                d.y = left;
                 pose.lunge_stopped = true;
             }
         }

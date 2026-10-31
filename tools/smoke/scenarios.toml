@@ -16683,7 +16683,8 @@ args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--heading", "0", "--
 run_seconds = 30
 expect = [
   { re = 'attack anims: meshes.creatures.deathclaw.h2hattackforwardpower[.]kf carries its actor (\d+) units', range = [500, 560], label = "the deathclaw's lunge clip carries it (523 units at its end)" },
-  { re = 'FF\w{6}: its attack clip carried it (\d+) units of', range = [40, 1000], label = "a carried blow moves the deathclaw's character forward and leaves it there" },
+  { re = 'attack anims: FF\w{6}.s lunge stopped at its target.s body', label = "the lunge carries it no nearer than the player's body (it strikes when it touches them, review of #1209)" },
+  { re = 'FF\w{6}: its attack clip carried it \d+ units of', label = "each carried blow leaves the deathclaw's character where the clip took it" },
   { re = 'ai: attack clips carried actors in ([1-9]\d*) actor updates', label = "attack clips carried an actor" },
 ]
 

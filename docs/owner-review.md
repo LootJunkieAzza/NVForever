@@ -93,7 +93,8 @@ the spec it links to.
     still step in place (carried, the dogs ended up biting from inside the player's
     reach); the yao guai's standing power attack (305 units) so still slides back. If you
     rule otherwise: every travelling blow carries, and the AI must step back after it.
-    ([actors §8.13](spec-notes/actors.md))
+    NPCs start their lunges once they touch their target, so an NPC's lunge carries it
+    little or nothing until the AI lunges from farther out. ([actors §8.13](spec-notes/actors.md))
 
 ## Tier 2: movement and controls feel
 
