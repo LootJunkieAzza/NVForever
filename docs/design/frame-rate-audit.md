@@ -151,7 +151,11 @@ does not remove most of the render thread's work here; what does scale is not se
   created actors no longer start stuck, but an actor pushed into geometry would. Not
   changed (the character controller is the physics workstream's).
 - The voice limit's numbers (64, 8) are guesses; whether the original limits voices is
-  not known.
+  not known. Since #1098 (2026-10-31) a sound at 8 of its own SOUN takes over that SOUN's
+  oldest voice instead of not playing (an automatic weapon's burst had gaps); the voices
+  stay within the same limits, and mantis-egg-spawn still mixed in real time (66.1 s
+  mixed in 66.1 s, then 63.8 s in 63.8 s; 64 one-shots at most; 1 % low 42 and 77 ms
+  with other games running, against 400 the scenario allows) [observed].
 - **Heaps of corpses**: done 2026-10-30 (#910): corpses smaller than 64 units (rats,
   geckos, mantis nymphs, ...) pass through each other and still land on the world and on
   bigger corpses; bigger ones still collide (ragdoll.md, "Corpse against corpse"). 25

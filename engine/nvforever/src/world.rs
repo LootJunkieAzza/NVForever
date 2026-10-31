@@ -62,8 +62,14 @@ pub fn open_plugins(data_dir: &Path, names: &[String]) -> OpenedPlugins {
     let mut dropped = Vec::new();
     let mut plugins = Vec::with_capacity(names.len());
     for n in names {
-        match EsmPlugin::open(data_dir.join(n)) {
-            Ok(p) => plugins.push(p),
+        // The file whatever its case on disk (a case-sensitive copy may hold
+        // `deadmoney.esm`; #995); the plugin keeps the name the load order gives it.
+        let path = fnv_install::child_ci(data_dir, n).unwrap_or_else(|| data_dir.join(n));
+        match EsmPlugin::open(path) {
+            Ok(mut p) => {
+                p.name = n.clone();
+                plugins.push(p)
+            }
             Err(e) => dropped.push(format!("plugin {n} left out: cannot be read: {e}")),
         }
     }

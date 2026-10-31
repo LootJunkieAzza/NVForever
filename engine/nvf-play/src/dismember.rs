@@ -97,7 +97,7 @@ pub fn resolve(
         }
         // A creature flagged No Head, No Left Arm or No Right Arm has no such part to lose
         // (actor-fields.md §1).
-        if sim.base_of(k.target.0).is_some_and(|b| rt.game.data.minor_flags(b, k.target).lacks(part.location())) {
+        if sim.base_of(k.target.0).is_some_and(|b| { let (seed, at) = sim.pick(&rt.game, k.target); rt.game.data.minor_flags(b, seed, at) }.lacks(part.location())) {
             debug!("dismember: {} {}: the creature has no such part", k.target, part.name.as_deref().unwrap_or("part"));
             continue;
         }

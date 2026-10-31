@@ -489,9 +489,20 @@ impl Archive {
     /// Like [`Archive::extract`], also returning the zlib trailer status
     /// (`Verified` for uncompressed files and empty compressed entries).
     pub fn extract_checked(&mut self, r: &FileRecord) -> Result<(Vec<u8>, fnv_inflate::Trailer), BsaError> {
-        let raw = self.read_raw(r)?;
-        let compressed = self.is_compressed(r);
-        decode_block_checked(&raw, compressed, self.embeds_names(), &cp1252::decode(&r.name))
+        self.read_stored(r)?.decode_checked()
+    }
+
+    /// The stored block of a file with what decoding it needs, read but not decoded:
+    /// the only step that uses the archive's file handle. A caller sharing the archive
+    /// behind a lock reads under the lock and decodes ([`StoredBlock::decode`]) after
+    /// letting it go, so readers of one archive do not wait on each other's inflate.
+    pub fn read_stored(&mut self, r: &FileRecord) -> Result<StoredBlock, BsaError> {
+        Ok(StoredBlock {
+            raw: self.read_raw(r)?,
+            compressed: self.is_compressed(r),
+            embedded_name: self.embeds_names(),
+            name: r.name.clone(),
+        })
     }
 
     /// Decode many files and summarise each decoded file with `f`, in parallel.
@@ -565,6 +576,28 @@ impl Archive {
 /// nothing is decompressed (a file that fails to decompress later is that file's error).
 pub fn check(path: impl AsRef<Path>) -> Result<(), BsaError> {
     Archive::open(path)?.check_tables()
+}
+
+/// One file's stored data block as read by [`Archive::read_stored`], not yet decoded.
+#[derive(Debug, Clone)]
+pub struct StoredBlock {
+    pub raw: Vec<u8>,
+    pub compressed: bool,
+    pub embedded_name: bool,
+    /// The file's name as stored (for error messages).
+    pub name: Vec<u8>,
+}
+
+impl StoredBlock {
+    /// Decoded contents, the same bytes as [`Archive::extract`].
+    pub fn decode(&self) -> Result<Vec<u8>, BsaError> {
+        self.decode_checked().map(|(d, _)| d)
+    }
+
+    /// Like [`StoredBlock::decode`], also returning the zlib trailer status.
+    pub fn decode_checked(&self) -> Result<(Vec<u8>, fnv_inflate::Trailer), BsaError> {
+        decode_block_checked(&self.raw, self.compressed, self.embedded_name, &cp1252::decode(&self.name))
+    }
 }
 
 /// Decode one stored data block.

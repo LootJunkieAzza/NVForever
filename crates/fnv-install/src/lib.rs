@@ -87,14 +87,15 @@ pub struct GameInstall {
 
 impl GameInstall {
     /// Accepts either the install root or its `Data` folder.
+    /// `Data` and `FalloutNV.esm` are found whatever their case, as a copy on a
+    /// case-sensitive file system may name them (`data/falloutnv.esm`; #995).
     pub fn open(path: impl AsRef<Path>) -> Result<GameInstall, InstallError> {
         let p = canonical(path.as_ref())?;
-        let (root, data) = if p.join("Data").join("FalloutNV.esm").is_file() {
-            (p.clone(), p.join("Data"))
-        } else if p.join("FalloutNV.esm").is_file() {
-            (p.parent().map(Path::to_path_buf).unwrap_or_else(|| p.clone()), p.clone())
-        } else {
-            return Err(InstallError::NotAGameInstall(p));
+        let has_master = |d: &Path| child_ci(d, "FalloutNV.esm").is_some_and(|f| f.is_file());
+        let (root, data) = match child_ci(&p, "Data").filter(|d| d.is_dir() && has_master(d)) {
+            Some(d) => (p.clone(), d),
+            None if has_master(&p) => (p.parent().map(Path::to_path_buf).unwrap_or_else(|| p.clone()), p.clone()),
+            None => return Err(InstallError::NotAGameInstall(p)),
         };
         Ok(GameInstall { root, data })
     }
@@ -106,16 +107,7 @@ impl GameInstall {
     /// The file in `Data` whose name matches `name` regardless of case (the game's own
     /// names are mixed case; a copy on a case-sensitive file system may differ).
     pub fn data_file(&self, name: &str) -> Option<PathBuf> {
-        let exact = self.data.join(name);
-        if exact.is_file() {
-            return Some(exact);
-        }
-        std::fs::read_dir(&self.data)
-            .ok()?
-            .flatten()
-            .find(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(name))
-            .map(|e| e.path())
-            .filter(|p| p.is_file())
+        child_ci(&self.data, name).filter(|p| p.is_file())
     }
 
     /// The [`REQUIRED_DATA_FILES`] that are absent or empty, in that list's order.
@@ -327,9 +319,40 @@ pub fn check_separation(home: &EngineHome, game: &GameInstall, exe: Option<&Path
     v
 }
 
-/// Gatekeeper for every file NVForever writes.
+/// The game install this process reads, set once at start-up ([`remember_game`]).
+static GAME_IN_USE: std::sync::OnceLock<GameInstall> = std::sync::OnceLock::new();
+
+/// Remember the game install this process reads, so that [`guard_write`] refuses writes
+/// into it even where the caller has no [`GameInstall`] at hand (a save, a test aid's
+/// output). The first call wins; later ones are ignored.
+pub fn remember_game(game: &GameInstall) {
+    let _ = GAME_IN_USE.set(game.clone());
+}
+
+/// [`remember_game`] for the install whose `Data` folder (or root) is `data`, when it
+/// opens; a folder that is not a game install is ignored.
+pub fn remember_game_at(data: &Path) {
+    if let Ok(g) = GameInstall::open(data) {
+        remember_game(&g);
+    }
+}
+
+/// The entry `name` of the folder `dir`, matched regardless of case: the exact name when
+/// it exists, else the first entry whose name equals it ignoring ASCII case. `None` when
+/// neither exists. The game's own names are mixed case; a copy on a case-sensitive file
+/// system may differ (#995).
+pub fn child_ci(dir: &Path, name: &str) -> Option<PathBuf> {
+    let exact = dir.join(name);
+    if exact.exists() {
+        return Some(exact);
+    }
+    std::fs::read_dir(dir).ok()?.flatten().find(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(name)).map(|e| e.path())
+}
+
+/// Gatekeeper for every file NVForever writes: never into `game`, the remembered game
+/// install ([`remember_game`]) or the original game's user folder.
 pub fn guard_write(path: &Path, game: Option<&GameInstall>) -> Result<(), InstallError> {
-    if let Some(g) = game {
+    for g in [game, GAME_IN_USE.get()].into_iter().flatten() {
         if g.contains(path) {
             return Err(InstallError::WriteDenied {
                 path: path.to_path_buf(),
@@ -577,6 +600,39 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    /// A write with no game at hand is still refused inside the remembered install
+    /// (#994); outside it, it is allowed.
+    #[test]
+    fn remembered_game_refuses_writes_without_a_game_at_hand() {
+        let root = tmp("remembered");
+        let g = fake_game(&root.join("game"));
+        remember_game_at(&g.data);
+        let inside = root.join("game").join("Data").join("out").join("trace.jsonl");
+        assert!(matches!(guard_write(&inside, None), Err(InstallError::WriteDenied { .. })));
+        assert!(matches!(guard_write(&root.join("game").join("shot.png"), None), Err(InstallError::WriteDenied { .. })));
+        assert!(guard_write(&root.join("elsewhere").join("trace.jsonl"), None).is_ok());
+    }
+
+    /// A copy whose names differ in case from the game's (`data/falloutnv.esm`,
+    /// `deadmoney.esm`), as on a case-sensitive file system, still opens, and its files
+    /// are found by the game's names (#995).
+    #[test]
+    fn a_lower_case_copy_opens_and_finds_the_masters() {
+        let root = tmp("lowercase");
+        let data = root.join("data");
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(data.join("falloutnv.esm"), b"TES4").unwrap();
+        std::fs::write(data.join("deadmoney.esm"), b"TES4").unwrap();
+        for at in [root.clone(), data.clone()] {
+            let g = GameInstall::open(&at).unwrap();
+            assert!(g.data.file_name().unwrap().eq_ignore_ascii_case("data"), "{}", g.data.display());
+            assert!(g.data_file("FalloutNV.esm").is_some());
+            let dm = child_ci(&g.data, "DeadMoney.esm").expect("the add-on master by the game's name");
+            assert!(dm.is_file());
+        }
+        assert!(child_ci(&data, "HonestHearts.esm").is_none());
     }
 
     fn fake_game(root: &Path) -> GameInstall {

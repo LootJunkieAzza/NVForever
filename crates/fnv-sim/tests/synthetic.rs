@@ -976,6 +976,58 @@ fn a_broken_weapon_is_not_equipped() {
     w.equip(p, id(SUIT)).unwrap();
 }
 
+/// A menu row whose units are no longer carried fails before anything is taken off
+/// (#1083): the clashing armour, and the item itself, stay worn.
+#[test]
+fn a_failed_equip_leaves_the_worn_gear_on() {
+    use fnv_sim::inventory::Pick;
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    for it in [HAT, HELMET, SUIT, PISTOL, RIFLE] {
+        w.add_item(p, id(it), 1).unwrap();
+    }
+    for it in [HAT, SUIT, PISTOL] {
+        w.equip(p, id(it)).unwrap();
+    }
+    let worn = |w: &World| w.peek(p).unwrap().inventory.as_ref().unwrap().equipped();
+    let before = worn(&w);
+    let half = Pick::at(Some(0.5));
+    let gone = |item| Err(SimError::NotCarried { actor: p, item: id(item) });
+    // No helmet at half condition is carried: the hat it would replace stays on.
+    assert_eq!(w.equip_at(p, id(HELMET), half).map(|e| e.unequipped), gone(HELMET));
+    // The suit clashes with itself: the worn one stays on.
+    assert_eq!(w.equip_at(p, id(SUIT), half).map(|e| e.unequipped), gone(SUIT));
+    // The same for weapons: another weapon is refused by the sound-unit check (which
+    // reports it as Broken), the equipped one by the new check.
+    assert_eq!(w.equip_at(p, id(RIFLE), half).map(|e| e.unequipped), Err(SimError::Broken(id(RIFLE))));
+    assert_eq!(w.equip_at(p, id(PISTOL), half).map(|e| e.unequipped), gone(PISTOL));
+    assert_eq!(worn(&w), before);
+    // A unit that is carried still replaces the clashing one.
+    assert_eq!(w.equip_at(p, id(HELMET), Pick::ANY).unwrap().unequipped, vec![id(HAT)]);
+}
+
+/// Reading a stat or a lock of a reference nothing has touched rolls none of its
+/// leveled lists, so later rolls don't depend on what was only looked at (#1083).
+#[test]
+fn reading_values_leaves_the_random_stream_alone() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let pos = |w: &World| w.snapshot().rng_word_pos;
+    let start = pos(&w);
+    // The safe holds a leveled list (LL_LOOT).
+    assert_eq!(w.lock_status(id(SAFE_REF)).unwrap(), 1);
+    assert_eq!(w.lock_status(id(CHAIR_REF)).unwrap(), 0);
+    assert!(w.peek(id(SAFE_REF)).is_none(), "not materialised by a read");
+    assert_eq!(w.actor_value(FormId::PLAYER_REF, "strength").unwrap(), 5.0);
+    assert!(w.peek(FormId::PLAYER_REF).is_none());
+    assert_eq!(pos(&w), start);
+    assert!(matches!(w.lock_status(id(0xDEAD)), Err(SimError::UnknownRef(_))));
+    // Once the safe is materialised, the same values come back.
+    w.get(id(SAFE_REF)).unwrap();
+    assert_eq!(w.lock_status(id(SAFE_REF)).unwrap(), 1);
+}
+
 #[test]
 fn equipping_follows_slots() {
     let f = fixture();

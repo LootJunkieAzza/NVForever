@@ -2094,6 +2094,45 @@ fn an_unarmed_fighter_fetches_a_gun_and_a_copy_of_its_ammunition() {
     assert!(!s.game.rearms.fetches.contains_key(&me));
 }
 
+/// A placed gun with the No AI Acquire flag (#962) is left where it lies: the fighter
+/// goes past it for one without the flag.
+#[test]
+fn a_fighter_leaves_a_gun_flagged_no_ai_acquire() {
+    let mut f = with_arms(fixture());
+    let me = FormId(R_SB_NOTHING);
+    let home = f.refs.refs[&me].pos;
+    let template = f.refs.by_cell[&FormId(CELL_C)].iter().map(|r| &f.refs.refs[r]).find(|p| &p.sig == b"REFR").expect("a REFR in cell C").clone();
+    let flagged = FormId(0xA10);
+    let mut gun = template;
+    gun.id = flagged;
+    gun.base = FormId(PISTOL);
+    gun.edid = None;
+    gun.pos = [home[0] + 150.0, home[1], home[2]];
+    gun.flags |= fnv_sim::refs::FLAG_NO_AI_ACQUIRE;
+    gun.lock = None;
+    gun.owner = None;
+    gun.health = None;
+    gun.count = None;
+    gun.enable_parent = None;
+    f.refs.refs.insert(flagged, gun);
+    f.refs.by_cell.get_mut(&FormId(CELL_C)).unwrap().push(flagged);
+    let mut s = sim(&f, &[R_SB_NOTHING]);
+    s.run(1.0);
+    let feet = s.feet(R_SB_NOTHING);
+    // Lay it beside the fighter, nearer than the plain gun, and touch it so the search
+    // sees it as a weapon on the ground.
+    s.game.world.get(flagged).unwrap().pos = [feet[0] + 150.0, feet[1], 0.0];
+    let plain = lay(&mut s, PISTOL, [feet[0] - 300.0, feet[1], 0.0]);
+    lay(&mut s, ROUNDS, [feet[0], feet[1] + 40.0, 0.0]);
+    fighting(&mut s, R_SB_NOTHING, [10450.0, 10950.0, 0.0]);
+    s.run(10.0);
+    let ev = s.events(R_SB_NOTHING);
+    let from: Vec<FormId> = ev.iter().filter_map(|e| if let AiEvent::FetchGot { from, .. } = e { Some(*from) } else { None }).collect();
+    assert!(!from.contains(&flagged), "{ev:?}");
+    assert!(s.game.present(flagged), "the flagged gun stays on the ground");
+    assert!(!s.game.present(plain), "the plain gun is taken instead: {ev:?}");
+}
+
 #[test]
 fn a_gunman_takes_a_weak_gun_over_a_strong_knife_and_the_knife_only_without_ammunition() {
     let f = with_arms(fixture());

@@ -13,11 +13,13 @@
 //!   or cancel) gets that inverse rotation from the attachment. A rigid part on any other
 //!   bone (the Pip-Boy models on `Bip01 L ForeTwist`) is in the bone's own axes: an
 //!   ordinary child. Node transforms are kept in every case.
-//! - Dismemberment caps are hidden: shapes none of whose `BSDismemberSkinInstance`
-//!   partitions sets part flag bit 0 [documented: nif.xml BSPartFlag bit 0
-//!   "PF_EDITOR_VISIBLE"; observed: the cap shapes of `upperbody.nif` (`bodycaps`,
-//!   `limbcaps`, `meatneck01`, `meathead01`) all have it clear, its body shapes set it;
-//!   hypothesis: an intact actor shows no cap].
+//! - Dismemberment caps are hidden: `BSDismemberSkinInstance` partitions that clear part
+//!   flag bit 0 [documented: nif.xml BSPartFlag bit 0 "PF_EDITOR_VISIBLE"; observed: the
+//!   cap shapes of `upperbody.nif` (`bodycaps`, `limbcaps`, `meatneck01`, `meathead01`)
+//!   all have it clear, its body shapes set it; hypothesis: an intact actor shows no cap].
+//!   A shape all of caps is a cap shape ([`PartShape::cap`]); a cap partition in a shape
+//!   with drawn ones (the radscorpion's `meatcapbody`) is hidden by itself
+//!   ([`Partition::cap`], dismemberment.md §2.5).
 //! - Pose: the skeleton's bind pose, frozen (owner decision 2026-10-08), by default; a
 //!   KF clips can play on the skeleton's bones instead ([`blend_player`], actors.md §7–8).
 //! - Creatures (actors.md §10.2) use the same assembly with one difference for unskinned
@@ -375,6 +377,12 @@ fn hierarchy(objects: &[SceneObject]) -> Vec<usize> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Partition {
     pub body_part: u16,
+    /// A cap partition: every partition of a cap shape, and in a shape with drawn
+    /// partitions a cap body part (1xx, 2xx) with part flag bit 0 (editor visible)
+    /// clear. Not drawn on an intact actor (the radscorpion's `meatcapbody` holds one
+    /// editor-visible triangle among its torso caps, Mr. Gutsy's body one torso cap;
+    /// dismemberment.md §2.5).
+    pub cap: bool,
     /// Its triangles, as indices into the shape's mesh vertices (3 per triangle).
     pub indices: Vec<u32>,
 }
@@ -401,6 +409,7 @@ fn shape_partitions(dec: &Decoded, shape: &fnv_nif::Struct, vertices: usize) -> 
     for (p, s) in parts.iter().zip(sp) {
         let (Value::Struct(p), Value::Struct(s)) = (p, s) else { return Vec::new() };
         let body_part = p.int("body_part").unwrap_or(0) as u16;
+        let cap = p.int("part_flag").unwrap_or(1) & 1 == 0;
         let map = ints(s.get("vertex_map"));
         let local = |i: i64| -> Option<u32> {
             let v = if map.is_empty() { i } else { *map.get(usize::try_from(i).ok()?)? };
@@ -421,9 +430,23 @@ fn shape_partitions(dec: &Decoded, shape: &fnv_nif::Struct, vertices: usize) -> 
             }
         }
         let indices = tris.iter().filter_map(|t| Some([local(t[0])?, local(t[1])?, local(t[2])?])).flatten().collect();
-        out.push(Partition { body_part, indices });
+        out.push(Partition { body_part, cap, indices });
     }
     out
+}
+
+/// Whether a partition is a cap ([`Partition::cap`]): in a cap shape always; else a cap
+/// body part (1xx, 2xx) whose part flag bit 0 is clear (`flag_clear`).
+fn partition_is_cap(cap_shape: bool, flag_clear: bool, body_part: u16) -> bool {
+    cap_shape || (flag_clear && (100..300).contains(&body_part))
+}
+
+/// Whether the mixed-cap shape `block` of `path` is reported for the first time (the line
+/// is written once per model and shape, not each time the part is prepared again after a
+/// release).
+fn first_mixed_report(path: &str, block: usize) -> bool {
+    static SEEN: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<(String, usize)>>> = std::sync::OnceLock::new();
+    SEEN.get_or_init(Default::default).lock().is_ok_and(|mut s| s.insert((path.to_string(), block)))
 }
 
 /// Whether a skinned shape is a dismemberment cap: its skin instance has partitions and
@@ -751,7 +774,18 @@ impl ActorCtx<'_, '_> {
                 self.cache.failures.push(format!("{path}: texture {t} not loaded"));
             }
             let cap = is_cap(&dec, shape);
-            let partitions = Arc::new(shape_partitions(&dec, shape, mesh.count_vertices()));
+            let mut partitions = shape_partitions(&dec, shape, mesh.count_vertices());
+            // In a shape with drawn partitions, only a cap body part (section caps 1xx,
+            // torso caps 2xx) with bit 0 clear counts as a cap, so an outfit's piece
+            // with an odd flag is never hidden; in a cap shape every partition is one.
+            for p in &mut partitions {
+                p.cap = partition_is_cap(cap, p.cap, p.body_part);
+            }
+            let partitions = Arc::new(partitions);
+            let caps = partitions.iter().filter(|p| p.cap).count();
+            if !cap && caps > 0 && first_mixed_report(path, o.block) {
+                info!("actor parts: {path}: shape {:?} hides {caps} cap partitions beside {} drawn", o.name.as_deref().unwrap_or(""), partitions.len() - caps);
+            }
             let skin = shape_skin(&dec, shape, mesh.count_vertices()).and_then(|skin| {
                 let names: Option<Vec<String>> = skin.bones.iter().map(|b| by_block.get(b).and_then(|o| o.name.clone())).collect();
                 let names = names?;
@@ -765,8 +799,9 @@ impl ActorCtx<'_, '_> {
                 mesh
             };
             let cpu = Arc::new(mesh.clone());
-            // A cap draws nothing until its part is gone (`dismember_mesh`).
-            let mesh = if cap { dismember_mesh(&cpu, &partitions, |_| false) } else { mesh };
+            // A cap draws nothing until its part is gone (`dismember_mesh`); nor does a cap
+            // partition in a shape that also holds drawn ones.
+            let mesh = if partitions.iter().any(|p| p.cap) { dismember_mesh(&cpu, &partitions, |p| !p.cap) } else { mesh };
             out.shapes.push(PartShape {
                 name: o.name.clone(),
                 mesh: m.meshes.add(mesh),
@@ -907,17 +942,17 @@ pub struct ShapeName(pub String);
 /// Spawn every part's shapes on the skeleton nodes of `out` (an actor spawned already:
 /// [`spawn_actor`], or parts put on later, as armour taken off shows the body), adding
 /// them to its `drawn`, `part_of` (indices into `parts`) and `shape_of`.
-/// `cpu` drawn with only the partitions `keep` keeps (by body part). A shape without
-/// partitions keeps all its triangles when `keep` keeps BP_TORSO (0), else none.
-pub fn dismember_mesh(cpu: &Mesh, partitions: &[Partition], keep: impl Fn(u16) -> bool) -> Mesh {
+/// `cpu` drawn with only the partitions `keep` keeps. A shape without partitions keeps
+/// all its triangles when `keep` keeps a BP_TORSO (0) partition that is no cap, else none.
+pub fn dismember_mesh(cpu: &Mesh, partitions: &[Partition], keep: impl Fn(&Partition) -> bool) -> Mesh {
     let mut m = cpu.clone();
     let idx: Vec<u32> = if partitions.is_empty() {
-        if keep(0) {
+        if keep(&Partition { body_part: 0, cap: false, indices: Vec::new() }) {
             return m;
         }
         Vec::new()
     } else {
-        partitions.iter().filter(|p| keep(p.body_part)).flat_map(|p| p.indices.iter().copied()).collect()
+        partitions.iter().filter(|p| keep(p)).flat_map(|p| p.indices.iter().copied()).collect()
     };
     m.insert_indices(Indices::U32(idx));
     m
@@ -1095,6 +1130,29 @@ mod tests {
         // the fallback carries it.
         assert_eq!((j[3], w[3]), ([0, 1, 0, 0], [0.0, 1.0, 0.0, 0.0]));
         assert_eq!((j[5], w[5]), ([1, 0, 0, 0], [1.0, 0.0, 0.0, 0.0]));
+    }
+
+    #[test]
+    fn cap_partitions_are_hidden_also_in_a_shape_with_drawn_ones() {
+        // The radscorpion's `meatcapbody` (dismemberment.md §2.5): torso caps 206 and 203
+        // (part flag bit 0 clear) around one editor-visible BP_TORSO triangle.
+        let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 9]);
+        let parts = [
+            Partition { body_part: 206, cap: true, indices: vec![0, 1, 2] },
+            Partition { body_part: 0, cap: false, indices: vec![3, 4, 5] },
+            Partition { body_part: 203, cap: true, indices: vec![6, 7, 8] },
+        ];
+        let intact = dismember_mesh(&m, &parts, |p| !p.cap);
+        assert_eq!(intact.indices().unwrap().iter().collect::<Vec<_>>(), [3, 4, 5]);
+        // Its left foreleg (3) gone: that leg's torso cap shows too.
+        let gone = dismember_mesh(&m, &parts, |p| !p.cap || p.body_part == 203);
+        assert_eq!(gone.indices().unwrap().iter().collect::<Vec<_>>(), [3, 4, 5, 6, 7, 8]);
+        // Which partitions count as caps: a flag-clear torso cap beside drawn ones; not
+        // the flag-clear 65535 of `wastelandchild02\outfitf.nif`'s `Arms`; all of a cap shape.
+        assert!(partition_is_cap(false, true, 205) && partition_is_cap(false, true, 101));
+        assert!(!partition_is_cap(false, true, 65535) && !partition_is_cap(false, false, 205));
+        assert!(partition_is_cap(true, true, 0));
     }
 
     #[test]

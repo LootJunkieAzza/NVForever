@@ -1008,7 +1008,7 @@ fn mark(
     // [documented: GECK wiki Category:NPC, No VATS Melee] (actor-flags.md §1).
     let melee = v.weapon.as_ref().is_some_and(|w| w.style == AttackStyle::Melee);
     // The base from the simulation: the game's world is not attached outside its turn.
-    let flagged = sim.base_of(actor).is_some_and(|b| script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.data.no_vats_melee(b, FormId(actor))));
+    let flagged = sim.base_of(actor).is_some_and(|b| script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| { let (seed, at) = sim.pick(&rt.game, FormId(actor)); rt.game.data.no_vats_melee(b, seed, at) }));
     if melee && flagged {
         v.stats.refused += 1;
         info!("vats mode: {actor:08X} is flagged No VATS Melee: not marked with a melee weapon");

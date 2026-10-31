@@ -159,6 +159,11 @@ pub struct RefState {
     /// UnequipItem's NoEquipFlag), by base form ([`World::lock_equip`]).
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub equip_locks: BTreeMap<FormId, EquipLock>,
+    /// A created item reference that an actor dropped as it died (its weapon): that
+    /// actor. The corpse's loot menu lists it beside the body's inventory, and taking it
+    /// there picks this reference up ([`World::dropped_beside`]).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub dropped_by: Option<FormId>,
 }
 
 /// A script's lock on an item of an actor [documented: GECK wiki EquipItem, "If
@@ -450,6 +455,16 @@ impl<'a> World<'a> {
         Ok(self.refs.get_mut(&id).expect("inserted above"))
     }
 
+    /// The base form a reference not yet materialised starts from, as [`World::initial`]
+    /// picks it.
+    fn initial_base(&self, id: FormId) -> Result<FormId, SimError> {
+        match self.placed.get(id) {
+            Some(p) => Ok(p.base),
+            None if id == FormId::PLAYER_REF => Ok(FormId::PLAYER_BASE),
+            None => Err(SimError::UnknownRef(id)),
+        }
+    }
+
     fn initial(&mut self, id: FormId) -> Result<RefState, SimError> {
         let (base, placed): (FormId, Option<&PlacedRef>) = match self.placed.get(id) {
             Some(p) => (p.base, Some(p)),
@@ -507,6 +522,7 @@ impl<'a> World<'a> {
             last_restock: None,
             scale: None,
             equip_locks: BTreeMap::new(),
+            dropped_by: None,
             outfitted: false,
         })
     }
@@ -1061,6 +1077,7 @@ impl<'a> World<'a> {
                     outfitted: false,
                     scale: None,
                     equip_locks: BTreeMap::new(),
+                    dropped_by: None,
                 },
             );
             out.push(id);
@@ -1162,6 +1179,12 @@ impl<'a> World<'a> {
         if let Some(held) = inv.equipped().into_iter().find(|&o| o != item && clashes(o) && locks.get(&o) == Some(&EquipLock::NoUnequip)) {
             return Err(SimError::EquipLocked { item: held, on: true });
         }
+        // Check a unit `at` names can be put on before taking anything off, so a failed
+        // equip leaves the actor dressed as it was (#1083). The clash loop below frees
+        // the equipped units of `item` itself when it clashes with itself.
+        if !inv.can_equip_at(item, at, clashes(item)) {
+            return Err(SimError::NotCarried { actor, item });
+        }
         let inv = self.inventory(actor)?;
         let mut unequipped = Vec::new();
         for other in inv.equipped() {
@@ -1169,9 +1192,8 @@ impl<'a> World<'a> {
                 unequipped.push(other);
             }
         }
-        if !inv.set_equipped_at(item, at) {
-            return Err(SimError::NotCarried { actor, item });
-        }
+        let equipped = inv.set_equipped_at(item, at);
+        debug_assert!(equipped, "can_equip_at said a unit was free");
         Ok(Equip { consumed: false, unequipped })
     }
 
@@ -1203,14 +1225,20 @@ impl<'a> World<'a> {
 
     /// An actor value: S.P.E.C.I.A.L. from the base NPC_ record unless changed at run
     /// time. (Template NPCs take stats from their template: not followed yet.)
-    pub fn actor_value(&mut self, actor: FormId, name: &str) -> Result<f32, SimError> {
+    /// Reading never materialises the reference, so it rolls no leveled list and leaves
+    /// the random number stream where it was (#1083).
+    pub fn actor_value(&self, actor: FormId, name: &str) -> Result<f32, SimError> {
         let key = name.to_ascii_lowercase();
         let idx = SPECIAL.iter().position(|n| *n == key).ok_or_else(|| SimError::UnknownActorValue(name.into()))?;
-        let s = self.get(actor)?;
-        if let Some(v) = s.actor_values.get(&key) {
-            return Ok(*v);
-        }
-        let base = s.base;
+        let base = match self.peek(actor) {
+            Some(s) => {
+                if let Some(v) = s.actor_values.get(&key) {
+                    return Ok(*v);
+                }
+                s.base
+            }
+            None => self.initial_base(actor)?,
+        };
         match self.forms.get(base).map(|b| &b.data) {
             Some(BaseData::Actor(a)) => a.attributes.map(|a| a[idx] as f32).ok_or(SimError::NoActorValues(actor)),
             _ => Err(SimError::NoActorValues(actor)),
@@ -1525,8 +1553,13 @@ impl<'a> World<'a> {
     /// "locked out" for an impossible level or a broken lock; observed in game,
     /// docs/spec-notes/simulation.md §5: a level-255 lock reads 1, both an authored one
     /// and one set with `Lock 255`. Broken locks (failed lockpicking) are Layer 6.]
-    pub fn lock_status(&mut self, id: FormId) -> Result<u8, SimError> {
-        Ok(match self.get(id)?.lock {
+    /// Read without materialising the reference ([`World::lock_of`]), as
+    /// [`World::actor_value`].
+    pub fn lock_status(&self, id: FormId) -> Result<u8, SimError> {
+        if self.peek(id).is_none() {
+            self.initial_base(id)?;
+        }
+        Ok(match self.lock_of(id) {
             Some(l) if l.locked => 1,
             _ => 0,
         })
@@ -1564,6 +1597,7 @@ impl<'a> World<'a> {
                 outfitted,
                 scale: None,
                 equip_locks: BTreeMap::new(),
+                dropped_by: None,
             },
         );
         Ok(id)
@@ -1625,6 +1659,12 @@ impl<'a> World<'a> {
     /// (`RefState::deleted`).
     pub fn created(&self) -> impl Iterator<Item = (FormId, &RefState)> {
         self.refs.range(FormId::FIRST_DYNAMIC..).map(|(&k, v)| (k, v))
+    }
+
+    /// The created references `holder` dropped as it died ([`RefState::dropped_by`]) that
+    /// are still present (not taken, enabled), in FormID order.
+    pub fn dropped_beside(&self, holder: FormId) -> Vec<FormId> {
+        self.created().filter(|(_, s)| s.dropped_by == Some(holder) && !s.deleted && s.enabled).map(|(id, _)| id).collect()
     }
 
     /// The newest reference created at run time (a drop) whose base is `base` and that
