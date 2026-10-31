@@ -55,6 +55,17 @@ property and controller types, and a controller ID saying which member:
   glow map (`VintageRadio01_g.dds`). "Open" (0.67 s, clamp) keys SELF_ILLUM 0, 0, 1, 0,
   0, 1, 1 at 0, 0.13, 0.2, 0.27, 0.4, 0.5, 0.67 s: the dial flickers and lights. "Close"
   (0.37 s, clamp) keys 1, 0, 1, 1, 0: it flickers and goes dark. No sound keys.
+  Decoded in full (issue #1080) [observed: `fnvtool nif decode`]: Open and Close have one
+  track each, that SELF_ILLUM; no transform, texture-transform, morph or visibility track,
+  and the needle `VintageRadioNeedle01` has no controller: the tuning is the flicker.
+  The model has three shapes, `VintageRadioBody:0`, `VintageRadioNeedle01` and
+  `VintageRadioGlassDial:0` (the round dial in the centre, alpha-blended, scale 0.6), and
+  **all three list the same `NiMaterialProperty`** (emissive black × 1), the one the
+  `NiMaterialColorController` targets, each with the same texture set (glow map
+  `VintageRadio01_g.dds`). The glow map is black but for the dial face (the patch the
+  glass dial's texture coordinates use); the body's panel does not glow. So the
+  controller lights the dial, through the property it shares with the body [documented:
+  nif.xml NiTimeController Target, NiAVObject Properties as references].
 - `jukeboxdirty01.nif`: three shapes store black; "Open" and "Close" are the same
   2.67 s flicker that ends dark (0 at 2.67 s) — a broken jukebox that does not stay lit.
 - `jukeboxdirtynv.nif` (`JukeBoxDirtyNV`, `JukeBoxDirtyNVCountry`; the Prospector
@@ -96,6 +107,19 @@ groups FalloutNV.esm's scripts play on which objects.
   there is no Idle) play it from load like transform idles (nif.md §6), whatever their
   record type: jukeboxes, `vmonitorbank.nif`, consoles, slot machines. A shape whose
   emissive is driven loads its glow map even when its stored colour is black.
+- **Shared materials** (issue #1080): a sequence's track on a `NiMaterialProperty` member
+  (SELF_ILLUM, emittance multiplier, alpha) names one shape, but every shape of the file
+  that lists the same property block is driven with it (`model::material_sharers`, log
+  `<model>: shapes sharing a driven material are driven with it: …`). Before, only
+  `VintageRadioBody:0` was driven, whose texels have no glow, so the radios never
+  changed: on, off and while switching, the dial crop of the general store's radio read
+  the same mean (105.8, 68.4, 19.3) in all four frames of smoke `radio-dial-onoff`
+  [observed in NVForever, 2026-10-31]. Now the dial face (crop 515-595 × 512-548) reads
+  106.6, 72.4, 29.5 on; 88.7, 55.0, 15.1 off; the same dark value 0.3 s into Open
+  (its flicker's 0 key at 0.27 s); and lit again at the end of Open. Off, the face keeps
+  its painted cream under the room's light, without the glow. The same rule now also
+  drives `terminal01.nif`'s `Text01:2`, `Text02:2` and `T01Screen01:1` with the shapes
+  its sequences name.
 - **Receivers' on and off looks** follow the runtime's switch (`fnv_game` `radio_on`,
   off when destroyed):
   - Open/Close models: switched on plays "Open" and holds its end, switched off "Close"
@@ -136,9 +160,10 @@ groups FalloutNV.esm's scripts play on which objects.
   controllers outside sequences; the Open/Close sound keys (none on the receivers).
 - Capture questions for the owner: the saloon jukebox switched off in game — answered:
   its glow tube goes dark (owner 2026-10-30, #1079; §3). Do its notes and bubbles go
-  too? A vintage radio switched on and off — does
-  the dial flicker on and off as Open and Close say? Which way the jukebox's music notes
-  scroll.
+  too? A vintage radio switched on and off: switching plays the tuning (Open's flicker)
+  and the centre lights only while on [observed: owner 2026-10-30, #1080]; that it
+  flickers through Close as the keys say is [hypothesis]. Which way the jukebox's music
+  notes scroll.
 
 ## 5. Scripts' animation groups: PlayGroup and IsAnimPlaying
 

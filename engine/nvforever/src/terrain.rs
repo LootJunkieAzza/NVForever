@@ -47,6 +47,17 @@ pub struct TerrainCache {
     pub layers: usize,
 }
 
+impl TerrainCache {
+    /// The landscape materials held, for the stress census.
+    pub fn share(&self, materials: &Assets<NifMaterial>) -> nvf_assets::release::CacheShare {
+        let mut s = nvf_assets::release::CacheShare::default();
+        for h in self.base.values().chain(self.layer.values()) {
+            s.material(materials, h, 1);
+        }
+        s
+    }
+}
+
 /// Terrain settings and caches; GPU assets come from the shared [`ModelCtx`].
 #[derive(SystemParam)]
 pub struct TerrainMaterials<'w> {
