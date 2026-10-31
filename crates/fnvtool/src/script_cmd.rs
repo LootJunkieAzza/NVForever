@@ -1081,8 +1081,8 @@ fn cover(
     }
     let mut all = Vec::new();
     let mut chains = Vec::new();
-    each_chain(a, &files, |c, name, input| {
-        match fnv_game::runner::run_with_coverage(c.data, c.forms, c.refs, input, c.voice.clone()) {
+    let runs = each_chain(a, &files, |c, name, input| {
+        Ok(match fnv_game::runner::run_with_coverage(c.data, c.forms, c.refs, input, c.voice.clone()) {
             Ok((trace, cov)) => {
                 let log = cov.log(c.data, name);
                 if let Some(d) = log_dir {
@@ -1091,13 +1091,15 @@ fn cover(
                     std::fs::write(&p, serde_json::to_string(&log)?).with_context(|| p.display().to_string())?;
                 }
                 let given = trace["given_errors"].as_array().map_or(0, Vec::len);
-                chains.push(serde_json::json!({"chain": name, "plugins": c.plugins, "step_errors": step_errors(&trace), "given_errors": given}));
-                all.push(log);
+                (serde_json::json!({"chain": name, "plugins": c.plugins, "step_errors": step_errors(&trace), "given_errors": given}), Some(log))
             }
-            Err(e) => chains.push(serde_json::json!({"chain": name, "plugins": c.plugins, "error": e})),
-        }
-        Ok(())
+            Err(e) => (serde_json::json!({"chain": name, "plugins": c.plugins, "error": e}), None),
+        })
     })?;
+    for (chain, log) in runs {
+        chains.push(chain);
+        all.extend(log);
+    }
     let tp = table_path(a);
     let ftext = std::fs::read_to_string(&tp).with_context(|| tp.display().to_string())?;
     let fjson: Value = serde_json::from_str(&ftext).with_context(|| tp.display().to_string())?;
@@ -1134,13 +1136,16 @@ struct ChainData<'a> {
 }
 
 /// Run `f` on every chain in `files`, over the load order the chain names (`plugins`,
-/// else the first plugin of `a`'s), the data built once per load order, in the order
-/// the load orders are first named.
-fn each_chain(
+/// else the first plugin of `a`'s), the data built once per load order; the results in
+/// the order the load orders are first named, each load order's in file order. A load
+/// order's chains run side by side on the thread pool: every run builds its own world
+/// and game over the shared data, so a chain's result does not depend on the others
+/// (#1241: 206 chains one after another outran the smoke timeout).
+fn each_chain<T: Send>(
     a: &ScriptArgs,
     files: &[PathBuf],
-    mut f: impl FnMut(&ChainData<'_>, &str, &fnv_game::runner::Input) -> anyhow::Result<()>,
-) -> anyhow::Result<()> {
+    f: impl Fn(&ChainData<'_>, &str, &fnv_game::runner::Input) -> anyhow::Result<T> + Sync,
+) -> anyhow::Result<Vec<T>> {
     let tp = table_path(a);
     let ftext = std::fs::read_to_string(&tp).with_context(|| tp.display().to_string())?;
     let fjson: Value = serde_json::from_str(&ftext).with_context(|| tp.display().to_string())?;
@@ -1155,6 +1160,7 @@ fn each_chain(
             None => groups.push((wanted, vec![(name, input)])),
         }
     }
+    let mut out = Vec::with_capacity(files.len());
     for (wanted, inputs) in &groups {
         let args = ScriptArgs {
             lo: crate::LoadOrderArgs { data_dir: a.lo.data_dir.clone(), plugins: wanted.clone() },
@@ -1168,11 +1174,10 @@ fn each_chain(
         let refs = fnv_sim::RefTable::build(&lo, &schema);
         let data = fnv_game::GameData::build(&lo, &schema, table, &fjson, &refs);
         let c = ChainData { plugins: wanted, data: &data, forms: &forms, refs: &refs, voice: voice_lengths_hook(&args, &lo, true) };
-        for (name, input) in inputs {
-            f(&c, name, input)?;
-        }
+        let done: Vec<T> = inputs.par_iter().map(|(name, input)| f(&c, name, input)).collect::<anyhow::Result<_>>()?;
+        out.extend(done);
     }
-    Ok(())
+    Ok(out)
 }
 
 /// `script sweep`: [`fnv_game::sweep::sweep`] over the whole load order.
@@ -1240,9 +1245,7 @@ const ROUNDTRIP_LABEL: &str = "roundtrip: saved and loaded";
 /// differences.
 fn roundtrip(a: &ScriptArgs, actions: &[PathBuf]) -> anyhow::Result<Value> {
     let files = action_files(actions)?;
-    let mut chains = Vec::new();
-    let mut differing = 0;
-    each_chain(a, &files, |c, name, input| {
+    let chains = each_chain(a, &files, |c, name, input| {
         let plain = fnv_game::runner::run_with_voice(c.data, c.forms, c.refs, input, c.voice.clone()).map_err(anyhow::Error::msg)?;
         let mut with = input.clone();
         let at = with.actions.len() / 2;
@@ -1267,18 +1270,20 @@ fn roundtrip(a: &ScriptArgs, actions: &[PathBuf]) -> anyhow::Result<Value> {
         json_diff("final.quests", &plain["final"]["quests"], &loaded["final"]["quests"], &mut diffs);
         json_diff("observations", &Value::Array(strip(&plain)), &Value::Array(strip(&loaded)), &mut diffs);
         let errors = (step_errors(&plain), step_errors(&loaded));
-        if !diffs.is_empty() || errors.0 != errors.1 {
-            differing += 1;
-        }
+        let differs = !diffs.is_empty() || errors.0 != errors.1;
         let bytes = loaded["observations"].as_array().and_then(|v| v.iter().find(|o| o["label"] == ROUNDTRIP_LABEL)).map(|o| o["bytes"].clone());
         let n = diffs.len();
         diffs.truncate(10);
-        chains.push(serde_json::json!({
-            "chain": name, "saved_before_action": at, "save_bytes": bytes,
-            "step_errors": [errors.0, errors.1], "differences": n, "first": diffs,
-        }));
-        Ok(())
+        Ok((
+            differs,
+            serde_json::json!({
+                "chain": name, "saved_before_action": at, "save_bytes": bytes,
+                "step_errors": [errors.0, errors.1], "differences": n, "first": diffs,
+            }),
+        ))
     })?;
+    let differing = chains.iter().filter(|(d, _)| *d).count();
+    let chains: Vec<Value> = chains.into_iter().map(|(_, c)| c).collect();
     Ok(serde_json::json!({"format": "fnv.script.roundtrip/1", "chains": chains.len(), "differing": differing, "runs": chains}))
 }
 

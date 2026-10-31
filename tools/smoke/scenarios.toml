@@ -2958,6 +2958,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "hacking-notice-held"
+source = "issue #1239: a quest line pushed while the hacking terminal is open is not drawn under it and its time does not run there; it is shown once after the power button closes the terminal (as the rest of the HUD, hud.md §14.3)"
+areas = ["hacking", "terminal", "quest-messages", "corner-messages", "hud"]
+paths = ["engine/nvf-play/src/corner_messages.rs", "engine/nvf-play/src/quest_messages.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TERMINAL = "30:science:25,31:open:000D74D5,33:wrong,34:brackets,35:symbol,36:wrong,37:right,41:item:0,43:power", NVF_PLAY_TEST_SCRIPT = "35:objective:VCG02:3" }
+args = ["--cell", "BisonSteve01", "--play", "--no-voice"]
+run_seconds = 52
+order = [[
+  { text = "quest message: Talk to Sunny Smiles in the Prospector Saloon.", label = "the line pushed while the terminal is open" },
+  "terminal: the power button pressed",
+  { text = "quest message on screen: Talk to Sunny Smiles in the Prospector Saloon.", label = "drawn only after the terminal closes" },
+]]
+expect = [{ text = "quest message on screen: Talk to Sunny Smiles in the Prospector Saloon.", count = 1, label = "shown once" }]
+
+[[scenario]]
 name = "hacking-owned"
 source = "the owner 2026-10-22: a terminal still to hack shows its difficulty on the activate prompt as a lock does, an owned one in the crime colour, and hacking it is the crime of picking an owned lock (karma, the owner's side that sees it hostile): the Easy terminal in the Prospector Saloon (0010872F, cell owned)"
 areas = ["hacking", "terminal", "crime"]
@@ -4060,8 +4075,10 @@ expect = [
   { json = "settings.KarmaEvil", equals = -250.0 },
   { json = "settings.KarmaVeryGood", equals = 750.0 },
   { json = "actors.?actor=FiendVioletRef.alignment", equals = "Evil" },
-  # 0 since 2026-10-19: an Evil kill gives no karma in the original (crime-karma.md §4.1).
-  { json = "actors.?actor=FiendVioletRef.kill_karma_in_a_fight_it_started", equals = 0.0 },
+  # 100 since #1131: a Fiend holding −500 in its own ACBS gave +100 in the original
+  # (capture o6_02, crime-karma.md §4.1).
+  { json = "actors.?actor=FiendVioletRef.kill_alignment", equals = "Evil" },
+  { json = "actors.?actor=FiendVioletRef.kill_karma_in_a_fight_it_started", equals = 100.0 },
   { json = "actors.?actor=SunnyRef.alignment", equals = "Very Good" },
   { json = "actors.?actor=GSChetRef.kill_karma_as_murder", equals = -25.0 },
   { json = "cells.?cell=GSGeneralStore.owner", equals = "GSChet" },
@@ -4098,7 +4115,7 @@ forbid = [{ re = 'the player died', label = "the player dies" }]
 
 [[scenario]]
 name = "karma-fiend"
-source = "owner's playtest list 2 (2026-10-12): killing an evil actor; since 2026-10-19 an Evil kill gives no karma, as the original's NCRCF convict shot dead by the player (docs/spec-notes/crime-karma.md §4.1), and no murder"
+source = "owner's playtest list 2 (2026-10-12): killing an evil actor; since #1131 an Evil NPC holding −500 in its own record gives +100, as the original's NorthVegasFiendCF and GoodspringsPowderGangerHM (capture o6_02, docs/spec-notes/crime-karma.md §4.1), and no murder"
 note = "beside Violet's camp (as music-battle); the script test aid kills Violet as the player at 14 s (Game::kill with the player as the killer): shooting her was not repeatable at the run's frame rate (a hunting rifle's shots were dropped, the 10mm pistol does 8 a hit against her DT)"
 areas = ["crime", "karma"]
 paths = ["crates/fnv-game/src/crime.rs", "crates/fnv-game/src/combat.rs", "engine/nvf-play/src/crime.rs"]
@@ -4107,13 +4124,13 @@ args = ["--cell", "Goodsprings", "--pos=-46800,65000,4600", "--play", "--hour", 
 run_seconds = 24
 expect = [
   { re = 'test aid: the player killed ', label = "the player kills Violet (Game::kill)" },
-  { re = 'crime: karma .* for killing ', count = 0, label = "no karma for killing an Evil NPC (the original's convict)" },
+  { re = 'crime: karma \+100 for killing .*\(Evil\), now 100', label = "+100 for killing an Evil NPC (capture o6_02)" },
   { re = 'crime summary: .* 0 murders', label = "no murder" },
 ]
 
 [[scenario]]
 name = "karma-convict"
-source = "owner's playtest list 5 item 22 (killing a convict near the NCR highway patrol station took karma): in the original the player shooting an NCRCF convict dead (LvlNCRCFPowderGangerMelee, Karma -500, Evil) changed no karma (AI observer campaign player_kills 2026-10-19, docs/spec-notes/crime-karma.md §4.1)"
+source = "owner's playtest list 5 item 22 (killing a convict near the NCR highway patrol station took karma): in the original the player shooting an NCRCF convict dead (LvlNCRCFPowderGangerMelee, Karma -500, Evil) changed no karma (AI observer campaign player_kills 2026-10-19, docs/spec-notes/crime-karma.md §4.1); since #1131 it gives none because the kill reads its own record's karma (0), not its template's"
 note = "a placed convict (0x001543FC, LvlNCRCFPowderGangerMelee) is killed as the player by the script test aid at 14 s, the player standing 600 units away"
 areas = ["crime", "karma"]
 paths = ["crates/fnv-game/src/crime.rs", "engine/nvf-play/src/crime.rs"]
@@ -6222,6 +6239,26 @@ order = [[
   { re = 'hud: enemy health \S' },
 ]]
 
+# ------------------------------------------------------------------ the sneak word leaves companions out (issue #1159)
+
+[[scenario]]
+name = "hud-sneak-companion"
+source = "issue #1159 (docs/spec-notes/hud.md §9): sneaking with only a following companion near shows [HIDDEN], though the companion detects the player"
+note = "Boone hired by his recruit line at 3 s in his room (as follower-boone; no one else in the cell); the player sneaks at 14 s, Boone following beside: his detection of the player is measured and logged, the sneak word stays [HIDDEN]"
+areas = ["hud", "detection", "followers"]
+paths = ["engine/nvf-play/src/hud.rs", "crates/fnv-game/src/followers.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:info:0x0015F30D:CraigBooneREF", NVF_PLAY_TEST_CONTROL = "14:sneak" }
+args = ["--cell", "NovacBoonesRoom", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 24
+expect = [
+  { re = 'CraigBooneREF: package FollowersBooneFollowPlayerDEFAULT', label = "hired: his Follow package" },
+  { re = 'detection: \S*Boone\S* .*→ the player: \S+ → detected', label = "Boone detects the player" },
+  { re = 'hud: sneak \[HIDDEN\]', label = "the sneak word is [HIDDEN]" },
+]
+forbid = [
+  { re = 'hud: sneak \[(DETECTED|CAUTION)\]', label = "Boone alone sets neither [DETECTED] nor [CAUTION]" },
+]
+
 # ------------------------------------------------------------------ the enemy bar's show rule (issue #935)
 
 [[scenario]]
@@ -7811,6 +7848,19 @@ order = [[
 ]]
 
 [[scenario]]
+name = "doctors-addiction-cure"
+source = "issue #1110, observer check 42 (o5_03): the doctors' cure, VDoctors stage 20, calls RemoveSpell with no reference in a stage result; in the original it takes the player's withdrawal. Jet withdrawal (WithdrawalJet 00033067) given by the console, then SetStage VDoctors (000CE959) 20"
+areas = ["scripts", "quests", "items"]
+paths = ["crates/fnv-game/src/functions/magic.rs", "crates/fnv-game/src/functions/mod.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "8:player.addspell 00033067;9:player.isspelltarget 00033067;9.5:setstage 000CE959 20;11:player.isspelltarget 00033067;11.5:close" }
+args = ["--cell", "GSGasStation", "--play", "--no-voice", "--hour", "10"]
+run_seconds = 14
+order = [[
+  "console: IsSpellTarget on player >> 1.00",
+  "console: IsSpellTarget on player >> 0.00",
+]]
+
+[[scenario]]
 name = "character-creator-opening"
 source = "owner 2026-10-17: no mouse pointer in the character creator in a real new game (docs/spec-notes/character-creator.md §6)"
 note = "In the opening menu 1036 opens at the end of Doc Mitchell's line, still in the conversation and with the wake-up idle driving the view; the pointer stayed hidden there. Each script menu stays 3 s before the test aid closes it."
@@ -8062,11 +8112,11 @@ expect = [
 [[scenario]]
 name = "package-flee"
 source = "Flee Not Combat packages (fnv-ai errand.rs; docs/spec-notes/packages.md §3.1): VTerrifyingPresencePackage and EasyPeteHideInSaloonPackage"
-note = "GoodspringsSettler03Ref, put 200 units from the player, is given VTerrifyingPresencePackage (flee the player to 768); the player is no enemy of his, so he stays and the package is done, as the original's settler did (packages.md §4: 0.4 game hours in procedure FLEE without moving); Easy Pete is given EasyPeteHideInSaloonPackage (no target) with nothing threatening him: he stays, the package done (the original: procedure DONE). Running from an enemy is the unit tests' (crates/fnv-ai/tests/errands.rs)"
+note = "GoodspringsSettler03Ref, put 200 units from the player, is given VTerrifyingPresencePackage (flee the player to 768); the player is no enemy of his, so he stays and the package is done, as the original's settler did (packages.md §4: 0.4 game hours in procedure FLEE without moving); Easy Pete is given EasyPeteHideInSaloonPackage (no target) with nothing threatening him: he stays, the package done (the original: procedure DONE). Running from an enemy is the unit tests' (crates/fnv-ai/tests/errands.rs). 15:00, not 12:00 (#1222): from 12 to 14 Pete's package is EasyPeteEat12x2 (fnvtool ai day), which walks him into GSProspectorSaloonInterior, out of the loaded area when the aid adds the hide package; from 14 EasyPeteChairPackage14x4 keeps him on his porch chair outdoors (the settler's GSSettlerSandbox holds all day)"
 areas = ["ai", "packages"]
 paths = ["crates/fnv-ai/src/errand.rs", "crates/fnv-ai/src/goal.rs", "crates/fnv-ai/src/carry.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:GoodspringsSettler03Ref:player:200:0:0,4:call:GoodspringsSettler03Ref:AddScriptPackage:VTerrifyingPresencePackage,4:call:EasyPeteRef:AddScriptPackage:EasyPeteHideInSaloonPackage" }
-args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler03Ref,EasyPeteRef"]
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "15", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler03Ref,EasyPeteRef"]
 run_seconds = 40
 expect = [
   "GoodspringsSettler03Ref: package VTerrifyingPresencePackage",
@@ -10154,7 +10204,25 @@ run_seconds = 18
 expect = [
   { re = 'falls: 0x00000014 lands from (?P<n>\d+) units: [\d.]+ fall damage', range = [700, 5000], label = "the player lands from the drop" },
   { re = 'falls: 0x00000014 lands from \d+ units: [1-9][\d.]* fall damage, 0\.0 dealt.*immune', label = "the formula gives damage; god mode deals none" },
+  { re = 'falls: 0x00000014 hard landing, sound FSTLandHard(Light|Heavy)$', label = "the hard landing's sound plays in god mode too (issue #1104)" },
 ]
+forbid = [{ re = 'falls: 0x00000014 (left|right) leg condition', label = "god mode spares the leg" }]
+
+[[scenario]]
+name = "falls-player-leg"
+source = "issues #1129 (a fall hurts one leg by half its damage, crippling it on big falls; capture o6_00) and #1104 (no sound on fall damage): docs/spec-notes/physics.md §6.12, audio.md §14.2"
+note = "No god mode in Goodsprings: at 6 s the console raises the player's health to 6,000, at 8 s it puts the player about 1,850 units up; the landing (about 3,200 damage) plays FSTLandHardLight (the player wears no heavy armour), takes the health and cripples one leg (half the damage, over its 100 points)"
+areas = ["physics", "combat", "audio"]
+paths = ["engine/nvf-play/src/falls.rs", "engine/nvf-play/src/player.rs", "crates/fnv-game/src/combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "6:player.setav health 6000;6.3:close;8:player.setpos z 10200;8.3:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'falls: 0x00000014 hard landing, sound FSTLandHardLight$', label = "the hard landing's sound plays (issue #1104)" },
+  { re = 'falls: 0x00000014 lands from (?P<n>\d+) units: [\d.]+ fall damage, [1-9][\d.]* dealt, health \d+/', range = [700, 5000], label = "the fall takes health" },
+  { re = 'falls: 0x00000014 (left|right) leg condition 0\.0, crippled$', label = "one leg is crippled (issue #1129)" },
+]
+forbid = [{ re = 'combat: the player died', label = "6,000 health outlasts the fall" }]
 
 [[scenario]]
 name = "incinerator-hurts-player"
@@ -11156,15 +11224,16 @@ manual = "on a failure, the chain's notes say what each step stands for; the sta
 [[scenario]]
 name = "mq-reputation-axes"
 kind = "tool"
-source = "docs/handoff/mq-walkthrough-2026-10-27.md item 10: crates/fnv-game/walkthrough/reputation-axes.actions.json, the lines that call the reputation functions with axis 2 (Crocker's messenger, Vulpes's greeting): infamy is cleared and the script goes on past the axis-2 call"
+source = "docs/handoff/mq-walkthrough-2026-10-27.md item 10: crates/fnv-game/walkthrough/reputation-axes.actions.json, the lines that call the reputation functions with axis 2 (Crocker's messenger, Vulpes's greeting): infamy is cleared and the axis-2 call stops the script, as in the original (captures o5_00/o5_01, #1127)"
 areas = ["quests", "scripts", "dialogue"]
 paths = ["crates/fnv-game/walkthrough/reputation-axes.actions.json", "crates/fnv-game/src/functions/reputation.rs", "crates/fnv-game/src/functions/player.rs", "crates/fnv-game/src/runner.rs"]
 commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/reputation-axes.actions.json"]]
 expect = [
   { json = "observations.?label=milestone: NCR infamy cleared by the messenger.infamy", equals = 0.0, label = "milestone: NCR infamy cleared by the messenger: infamy = 0.0" },
-  { json = "observations.?label=milestone: Kings' Gambit (VMS23) flags set after the axis-2 call.var.breputationclear", equals = 1.0, label = "milestone: VMS23 breputationclear = 1.0" },
+  { json = "observations.?label=milestone: Kings' Gambit (VMS23) message flag set, cleared flag not (the axis-2 call stops the script).var.bmessagedelivered", equals = 1.0, label = "milestone: VMS23 bmessagedelivered = 1.0 (set before the axis-2 call)" },
+  { json = "observations.?label=milestone: Kings' Gambit (VMS23) message flag set, cleared flag not (the axis-2 call stops the script).var.breputationclear", equals = 0.0, label = "milestone: VMS23 breputationclear = 0.0 (after the axis-2 call, which stops the script, #1127)" },
   { json = "observations.?label=milestone: Legion infamy cleared by Vulpes.infamy", equals = 0.0, label = "milestone: Legion infamy cleared by Vulpes: infamy = 0.0" },
-  { json = "observations.?label=final: the Strip's tiers on axes 0-2 (axis 3 reads 0: unit test reputation_other_axes_do_nothing).threshold.good", equals = 6, label = "final: the Strip's good tier = 6 (Idolized)" },
+  { json = "observations.?label=final: the Strip's tiers on axes 0-2 (axis 3 reads 0: unit test reputation_other_axes_read_0_and_stop_a_write).threshold.good", equals = 6, label = "final: the Strip's good tier = 6 (Idolized)" },
 ]
 manual = "on a failure, the chain's notes say what each step stands for; docs/handoff/mq-walkthrough-2026-10-27.md item 10 and observer check 30"
 
@@ -11181,7 +11250,8 @@ manual = "a change: run the command with --max-rows 200 and read the work queue 
 [[scenario]]
 name = "walkthrough-coverage"
 kind = "tool"
-# It runs every chain: minutes on a busy machine.
+# It runs every chain, side by side on the thread pool: 155 s alone (#1241; 206 chains one
+# after another took 800 s alone, 2851 s on a busy machine).
 timeout = 900
 source = "docs/handoff/mq-walkthrough-2026-10-27.md §5: every walkthrough chain in crates/fnv-game/walkthrough run with coverage recorded (fnvtool script cover), compared with the ten masters' quests, scripts and dialogue lines"
 areas = ["quests", "scripts", "dialogue"]
@@ -11337,7 +11407,8 @@ manual = "on a failure, the chain's notes say what each step stands for; stand-i
 [[scenario]]
 name = "walkthrough-roundtrip"
 kind = "tool"
-# It runs every chain twice: minutes on a busy machine.
+# It runs every chain twice, side by side on the thread pool: 200 s alone (#1241; one after
+# another 793 s alone, 2851 s on a busy machine).
 timeout = 900
 source = "docs/handoff/mq-walkthrough-2026-10-27.md §6: every walkthrough chain run twice (fnvtool script roundtrip), once as it is and once with a save and load through fnv-save before its middle action; the quests at the end and the observations must be the same"
 areas = ["quests", "scripts", "save"]
@@ -12712,7 +12783,7 @@ name = "mq-old-world-blues-sink"
 kind = "tool"
 source = "the headless add-on walkthrough crates/fnv-game/walkthrough/old-world-blues-sink.actions.json (OldWorldBlues.esm): the Think Tank's chip line (Topic001 answered with its line that is no follow-up, dialogue.md 3.4), All My Friends Have Off Switches (nine personality modules), Influencing People (the upgrades) and Field Research (seeds and sound samples), each to 100"
 areas = ["quests", "scripts", "dialogue"]
-paths = ["crates/fnv-game/walkthrough/old-world-blues-sink.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+paths = ["crates/fnv-game/walkthrough/old-world-blues-sink.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs", "crates/fnv-game/src/functions/refs.rs"]
 commands = [["script", "run", "{data}", "FalloutNV.esm", "OldWorldBlues.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/old-world-blues-sink.actions.json"]]
 expect = [
   { json = "observations.?label=milestone: MQ00 done (the satellite takes the player to Big MT).stage", equals = 100, label = "old-world-blues-sink milestone: MQ00 done (the satellite takes the player to Big MT): stage = 100" },
@@ -12725,6 +12796,9 @@ expect = [
   { json = "observations.?label=milestone: Influencing People done.completed", equals = true, label = "old-world-blues-sink milestone: Influencing People done: completed = true" },
   { json = "observations.?label=milestone: Field Research done.stage", equals = 100, label = "old-world-blues-sink milestone: Field Research done: stage = 100" },
   { json = "observations.?label=milestone: Field Research done.completed", equals = true, label = "old-world-blues-sink milestone: Field Research done: completed = true" },
+  { json = "observations.?label=Biological Research Station talks after the install.state", equals = "choosing", label = "old-world-blues-sink: the station's bare Activate in GameMode opens its conversation (#1111)" },
+  { json = "observations.?label=Biological Research Station talks after the install.actor", equals = "0x0100F05B", label = "old-world-blues-sink: the station speaks for its talking actor (#1111)" },
+  { json = "observations.?label=Jukebox talks after the install.state", equals = "choosing", label = "old-world-blues-sink: the Jukebox's install opens its conversation (#1111)" },
   { json = "steps.*.error", count = 0, label = "old-world-blues-sink: no step fails" },
   { json = "given_errors.*", count = 0, label = "old-world-blues-sink: no given fails" },
 ]
@@ -13402,12 +13476,13 @@ name = "mq-doctors"
 kind = "tool"
 source = "headless walkthrough crates/fnv-game/walkthrough/doctors.actions.json: doctors' services (VDoctors 10, 20, 30 at Ada Straus; Doctors 20 at Argyll)"
 areas = ["quests", "scripts", "dialogue"]
-paths = ["crates/fnv-game/walkthrough/doctors.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
+paths = ["crates/fnv-game/walkthrough/doctors.actions.json", "crates/fnv-game/src/functions/magic.rs", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
 commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/doctors.actions.json"]]
 expect = [
   { json = "observations.?label=milestone: VDoctors 10.running", equals = true, label = "doctors, milestone: VDoctors 10: running = true" },
   { json = "observations.?label=milestone: VDoctors 10.done.10", equals = true, label = "doctors, milestone: VDoctors 10: done.10 = true" },
   { json = "observations.?label=milestone: VDoctors 20.done.20", equals = true, label = "doctors, milestone: VDoctors 20: done.20 = true" },
+  { json = "observations.?label=jet withdrawal after the cure.value", equals = 0.0, label = "doctors: Ada's cure (VDoctors 20, RemoveSpell with no reference) takes the Jet withdrawal (#1110)" },
   { json = "observations.?label=final: VDoctors 30.stage", equals = 30, label = "doctors, final: VDoctors 30: stage = 30" },
   { json = "observations.?label=final: VDoctors 30.done.30", equals = true, label = "doctors, final: VDoctors 30: done.30 = true" },
   { json = "observations.?label=milestone: Doctors 10.running", equals = true, label = "doctors, milestone: Doctors 10: running = true" },
@@ -13415,6 +13490,7 @@ expect = [
   { json = "observations.?label=milestone: Doctors 10.done.10", equals = false, label = "doctors, milestone: Doctors 10: done.10 = false" },
   { json = "observations.?label=final: Doctors 20.stage", equals = 20, label = "doctors, final: Doctors 20: stage = 20" },
   { json = "observations.?label=final: Doctors 20.done.20", equals = true, label = "doctors, final: Doctors 20: done.20 = true" },
+  { json = "observations.?label=jet withdrawal after argyll's cure.value", equals = 0.0, label = "doctors: Argyll's cure (Doctors 20, RemoveSpell with no reference) takes the Jet withdrawal (#1110)" },
   { json = "steps.*.error", count = 0, label = "doctors: no step fails" },
   { json = "given_errors.*", count = 0, label = "doctors: no given fails" },
 ]

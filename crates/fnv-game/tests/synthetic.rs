@@ -607,6 +607,49 @@ fn quest_targets_are_marked_while_their_conditions_pass() {
     assert!(g.check_quest_targets(q()).is_empty());
 }
 
+/// Displaying an objective already shown keeps its completed flag; showing a hidden one
+/// clears it (observer check 40, issue #1108; scripts.md §5).
+#[test]
+fn redisplaying_a_completed_objective_keeps_it_completed() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let state = |g: &mut Game| {
+        let o = &g.quest(q()).objectives[&10];
+        (o.displayed, o.completed)
+    };
+    g.set_objective(q(), 10, Some(true), None);
+    g.set_objective(q(), 10, None, Some(true));
+    g.set_objective(q(), 10, Some(true), None);
+    assert_eq!(state(&mut g), (true, true));
+    g.set_objective(q(), 10, Some(false), None);
+    assert_eq!(state(&mut g), (false, true));
+    g.set_objective(q(), 10, Some(true), None);
+    assert_eq!(state(&mut g), (true, false));
+}
+
+/// ResetQuest keeps a SetQuestDelay override and clears the rest (observer check 41,
+/// issue #1109; layer5-captures.md §5.7).
+#[test]
+fn reset_quest_keeps_the_set_quest_delay() {
+    const RESET_QUEST: u16 = 0x11DB;
+    const SET_QUEST_DELAY: u16 = 0x11DC;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let quest_call = |g: &mut Game, op: u16, args: &[ArgValue]| {
+        let ctx = Ctx { unit: "test".into(), opcode: op, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+        g.call_function(&ctx, args);
+    };
+    let quest_arg = ArgValue::Value(Value::Ref(QUEST));
+    quest_call(&mut g, SET_QUEST_DELAY, &[quest_arg.clone(), ArgValue::Value(Value::Num(0.1))]);
+    g.set_stage(q(), 20);
+    quest_call(&mut g, RESET_QUEST, &[quest_arg]);
+    let s = g.quest(q());
+    assert!(s.delay.is_some_and(|d| (d - 0.1).abs() < 1e-6), "{:?}", s.delay);
+    assert!(s.stages_done.is_empty());
+}
+
 #[test]
 fn snapshots_round_trip() {
     let f = fixture();
@@ -1677,7 +1720,7 @@ fn limb_hits_lower_conditions_and_cripple() {
     g.new_game();
     let npc = FormId(NPC_REF);
     // Maximum health 55; a leg at 25 %: a pool of 13.75. Left Mobility Condition is code 29.
-    let leg = LimbHit { condition: 29, health_percent: 25.0, damage: 0.0 };
+    let leg = LimbHit { condition: 29, health_percent: 25.0, damage: 0.0, points: false };
     let hit = |damage: f64| HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 7, critical: false, limb: Some(LimbHit { damage, ..leg }) };
     let r = g.hit(npc, 5.0, hit(2.75));
     assert_eq!((r.limb, r.crippled), (Some((29, 80.0)), false));
@@ -1693,6 +1736,25 @@ fn limb_hits_lower_conditions_and_cripple() {
     assert_eq!(r.health, 40.0);
 }
 
+/// A fall's leg (docs/spec-notes/physics.md §6.12): limb damage in condition points comes
+/// straight off the condition, without the part's pool or the player's limb multiplier.
+#[test]
+fn limb_damage_in_points() {
+    use fnv_game::combat::{HitInfo, LimbHit, RIGHT_MOBILITY};
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let leg = |damage: f64| HitInfo { attacker: None, weapon: None, location: -1, critical: false, limb: Some(LimbHit { condition: RIGHT_MOBILITY, health_percent: 0.0, damage, points: true }) };
+    for target in [FormId(NPC_REF), FormId::PLAYER_REF] {
+        let r = g.hit(target, 49.88, leg(24.94));
+        assert_eq!(r.limb.map(|(c, v)| (c, (v * 100.0).round() / 100.0)), Some((RIGHT_MOBILITY, 75.06)));
+        assert!(!r.crippled);
+        // More than is left: down to 0, crippled.
+        let r = g.hit(target, 1.0, leg(500.0));
+        assert_eq!((r.limb, r.crippled), (Some((RIGHT_MOBILITY, 0.0)), true));
+    }
+}
+
 /// Crippled legs slow every actor by the game settings, the player's limbs take half the
 /// limb damage, and a sleep outside Hardcore heals them (docs/spec-notes/crippled-limbs.md).
 #[test]
@@ -1705,7 +1767,7 @@ fn crippled_limbs_slow_and_heal() {
     // fCombatPlayerLimbDamageMult's default: half for the player, all for others.
     assert_eq!(g.limb_damage(FormId::PLAYER_REF, 10.0), 5.0);
     assert_eq!(g.limb_damage(npc, 10.0), 10.0);
-    let hit = |condition: u16| HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 7, critical: false, limb: Some(LimbHit { condition, health_percent: 25.0, damage: 1000.0 }) };
+    let hit = |condition: u16| HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 7, critical: false, limb: Some(LimbHit { condition, health_percent: 25.0, damage: 1000.0, points: false }) };
     assert_eq!(g.leg_speed_mult(npc), 1.0);
     assert!(g.hit(npc, 1.0, hit(LEFT_MOBILITY)).crippled);
     assert_eq!(g.leg_speed_mult(npc), 0.85);
@@ -2027,6 +2089,8 @@ fn udf_fixture() -> Fixture {
             "TestMap",
             "scn TestMap\narray_var m\nBegin Function {m}\n  let TestGlobal := Sv_Length (m[\"eventName\"]) * 10 + Sv_Length (m[\"eventSender\"])\nEnd\n".to_string(),
         ),
+        // A call on an empty reference behind a classic `&&` (EDEScript's shape, #1112).
+        (0x0000_0905u32, "TestEmpty", "scn TestEmpty\nref r\nint n\nBegin Function {n}\n  if n == 1 && r.GetDisabled == 0\n  endif\nEnd\n".to_string()),
     ] {
         // TestFact calls itself: its own name resolves through a seed reference list.
         let c = if edid != "TestAdd" {
@@ -2063,6 +2127,18 @@ fn udf_fixture() -> Fixture {
         let vars: Vec<(u32, &str, u8)> = vars.iter().map(|(i, n, t)| (*i, n.as_str(), *t)).collect();
         let refs: Vec<u32> = c.refs.iter().filter_map(|r| if let fnv_script::unit::RefSlot::Form(f) = r { Some(*f) } else { None }).collect();
         let mut subs = unit(0, &c.bytes, &vars, &refs);
+        // A local `ref` variable's slot is an SCRV (TestEmpty); the list keeps its order.
+        if refs.len() < c.refs.len() {
+            subs.retain(|s| &s.sig != b"SCRO");
+            subs[0].data[4..8].copy_from_slice(&(c.refs.len() as u32).to_le_bytes());
+            for r in &c.refs {
+                subs.push(match r {
+                    fnv_script::unit::RefSlot::Form(f) => sub(b"SCRO", f.to_le_bytes().to_vec()),
+                    fnv_script::unit::RefSlot::Local(v) => sub(b"SCRV", v.to_le_bytes().to_vec()),
+                    fnv_script::unit::RefSlot::Unmapped(f) => sub(b"SCRO", f.to_le_bytes().to_vec()),
+                });
+            }
+        }
         subs.push(sub(b"SCTX", src.as_bytes().to_vec()));
         scripts.push(record(b"SCPT", 0, fid, &[vec![sub(b"EDID", z(edid))], subs].concat()));
     }
@@ -2094,6 +2170,26 @@ fn call_runs_a_function_script_with_its_parameters() {
     assert_eq!(global_after(&f, "let TestGlobal := Call TestAdd 2, 3"), 5.0);
     // Recursion: each call has its own variables [documented: User Defined Function].
     assert_eq!(global_after(&f, "let TestGlobal := Call TestFact 5"), 120.0);
+}
+
+#[test]
+fn a_scripts_call_on_an_empty_reference_is_traced_once() {
+    // Classic `&&` evaluates both sides, so the call is made on every run, in the
+    // original too [observed: o5_01, observer-checks.md check 51]; a script record traces
+    // the failure once per function, not every frame (#1112). Console lines are traced
+    // each time.
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.cfg.strict = false;
+    let failed = |g: &Game<'_>| g.events.iter().filter(|e| matches!(&e.kind, EventKind::CallFailed { error, .. } if error.contains("empty reference"))).count();
+    for _ in 0..3 {
+        g.run_source("let TestGlobal := Call TestEmpty 0", Default::default()).expect("compiles");
+    }
+    assert_eq!(failed(&g), 1);
+    for _ in 0..2 {
+        g.run_source("ref r\nr.Disable", Default::default()).expect("compiles");
+    }
+    assert_eq!(failed(&g), 3);
 }
 
 #[test]
@@ -2169,6 +2265,82 @@ fn get_game_loaded_and_restarted_are_true_once_per_script() {
     g2.put_session(session);
     g2.run_source("DispatchEventAlt \"NVFTestEvent\" 3", Default::default()).unwrap();
     assert_eq!(g2.world.global(FormId(0x0000_0800)).unwrap(), 3.0, "the handler lasted for the session");
+}
+
+#[test]
+fn nx_variables_are_kept_per_reference_and_saved() {
+    // #1017 [documented: Category:Functions (NX)]: keys without regard to case, one set
+    // per kind, prefix maps and clears, kept in the save.
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("array_var aA
+string_var sS
+Begin Function {{ }}
+{body}
+End
+"), Default::default());
+    q(&mut g, "PlayerREF.NX_SetEVFl \"MyMod:Mood\" 67
+PlayerREF.NX_SetEVFl \"MyMod:Age\" 30
+PlayerREF.NX_SetEVFl \"Other\" 5
+PlayerREF.NX_SetEVSt \"MyMod:Mood\" \"glad\"").unwrap();
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.NX_GetEVFl \"mymod:MOOD\")"), Ok(XVal::Num(67.0)));
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.NX_GetEVFl \"MyMod:None\")"), Ok(XVal::Num(0.0)));
+    assert_eq!(q(&mut g, "let sS := PlayerREF.NX_GetEVSt \"MyMod:Mood\"
+SetFunctionValue sS"), Ok(XVal::Str("glad".into())));
+    assert_eq!(q(&mut g, "let aA := PlayerREF.NX_GetEVFlAr \"mymod:\"
+SetFunctionValue (Ar_Size aA) * 100 + aA[\"MyMod:Age\"]"), Ok(XVal::Num(230.0)));
+    // A save keeps them.
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&serde_json::to_string(&g.snapshot()).unwrap()).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let mut h = fnv_game::Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!(q(&mut h, "SetFunctionValue (PlayerREF.NX_GetEVFl \"MyMod:Age\")"), Ok(XVal::Num(30.0)));
+    // Match 2 clears every key with the prefix; the string of the same key stays.
+    q(&mut h, "PlayerREF.NX_ClrEVFl \"MYMOD\" 2").unwrap();
+    assert_eq!(q(&mut h, "SetFunctionValue (PlayerREF.NX_GetEVFl \"MyMod:Mood\") + (PlayerREF.NX_GetEVFl \"Other\")"), Ok(XVal::Num(5.0)));
+    assert_eq!(q(&mut h, "let sS := PlayerREF.NX_GetEVSt \"MyMod:Mood\"
+SetFunctionValue sS"), Ok(XVal::Str("glad".into())));
+    for _ in 0..20 {
+        let Ok(XVal::Num(r)) = q(&mut h, "SetFunctionValue (NX_GetRandom 1 3)") else { panic!() };
+        assert!((1.0..=3.0).contains(&r) && r.fract() == 0.0, "{r}");
+    }
+    assert_eq!(q(&mut h, "SetFunctionValue (PlayerREF.NX_GetConversationPartner)"), Ok(XVal::Ref(0)));
+}
+
+/// NX form variables in a save loaded without a plugin (#1017 review): one naming a gone
+/// plugin's form is dropped and the save still reads; the others stay. A created
+/// reference deleted before the save keeps no variables.
+#[test]
+fn nx_variables_survive_a_gone_plugin_and_leave_with_deleted_references() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}
+{body}
+End
+"), Default::default());
+    q(&mut g, "PlayerREF.NX_SetEVFo \"MyMod:Pet\" PlayerREF
+PlayerREF.NX_SetEVFo \"Mine\" PlayerREF
+PlayerREF.NX_SetEVFl \"Count\" 2").unwrap();
+    let mut v = serde_json::to_value(g.snapshot()).unwrap();
+    let pet = &mut v["nx"]["0x00000014"]["fo"]["mymod:pet"];
+    assert_eq!(pet["key"], json!("MyMod:Pet"), "{pet}");
+    pet["value"] = json!("0x01000ABC");
+    // A created reference deleted before the save, with a variable.
+    v["sim"]["deleted_created"]["0xFF000099"] = json!("0x00000014");
+    v["nx"]["0xFF000099"] = json!({"fl": {"n": {"key": "N", "value": 1.0}}});
+    let e = |n: &str| fnv_save::PluginEntry { name: n.into(), size: 0 };
+    let remap = fnv_save::PluginRemap::new(&[e("Test.esm"), e("Extra.esm")], &[e("Test.esm")]);
+    fnv_save::remap_json(&mut v, &remap);
+    let mut back: fnv_game::game::GameSnapshot = serde_json::from_value(v).unwrap();
+    assert_eq!(back.drop_gone(|id| fnv_save::is_gone(id.0)), 1, "the form variable of Extra.esm");
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let mut h = fnv_game::Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!(q(&mut h, "SetFunctionValue (PlayerREF.NX_GetEVFo \"MyMod:Pet\")"), Ok(XVal::Ref(0)));
+    assert_eq!(q(&mut h, "SetFunctionValue (PlayerREF.NX_GetEVFo \"mine\")"), Ok(XVal::Ref(FormId::PLAYER_REF.0)));
+    assert_eq!(q(&mut h, "SetFunctionValue (PlayerREF.NX_GetEVFl \"Count\")"), Ok(XVal::Num(2.0)));
+    let again = serde_json::to_value(h.snapshot()).unwrap();
+    assert!(again["nx"].get("0xFF000099").is_none(), "{}", again["nx"]);
 }
 
 #[test]

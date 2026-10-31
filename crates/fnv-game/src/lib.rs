@@ -84,6 +84,7 @@ pub mod nvse_refs;
 pub mod nvse_misc;
 pub mod nvse_data;
 pub mod nvse_notes;
+pub mod nvse_nx;
 pub mod nvse_actor;
 pub mod nvse_items;
 pub mod nvse_amata;

@@ -37,6 +37,8 @@ const BONUS: u32 = 0x891;
 /// "Add Leveled List On Death" (21), Add Leveled List (8), BONUS, when the target (tab 1)
 /// is a Pup.
 const EATER: u32 = 0x700;
+/// A leveled creature list drawing BEAST.
+const BEASTS: u32 = 0x8A0;
 const GET_IS_ID: u16 = 72;
 
 fn acbs(template_flags: u16) -> fnv_esm::raw::Subrecord {
@@ -64,7 +66,7 @@ fn plugin_bytes() -> Vec<u8> {
     let item = |fid: u32, edid: &str| record(b"MISC", 0, fid, &[sub(b"EDID", z(edid)), sub(b"DATA", [1i32.to_le_bytes(), 1f32.to_le_bytes()].concat())]);
     let fid = |sig: &[u8; 4], f: u32| sub(sig, f.to_le_bytes().to_vec());
     let creatures = [
-        record(b"CREA", 0, BEAST, &[sub(b"EDID", z("Beast")), acbs(0), fid(b"INAM", DROPS), sub(b"CNTO", [TAIL.to_le_bytes(), 1i32.to_le_bytes()].concat())]),
+        record(b"CREA", 0, BEAST, &[sub(b"EDID", z("Beast")), sub(b"MODL", z("Creatures\\NVGecko\\Skeleton.NIF")), acbs(0), fid(b"INAM", DROPS), sub(b"CNTO", [TAIL.to_le_bytes(), 1i32.to_le_bytes()].concat())]),
         record(b"CREA", 0, PUP, &[sub(b"EDID", z("Pup")), acbs(1), fid(b"TPLT", BEAST)]),
         record(b"CREA", 0, ODD, &[sub(b"EDID", z("Odd")), acbs(0x1FE), fid(b"TPLT", BEAST)]),
     ]
@@ -109,6 +111,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"MISC", &[item(HIDE, "Hide"), item(MEAT, "Meat"), item(TAIL, "Tail")].concat()),
         top(b"CREA", &creatures),
         top(b"LVLI", &[record(b"LVLI", 0, DROPS, &drops), record(b"LVLI", 0, BONUS, &bonus)].concat()),
+        top(b"LVLC", &record(b"LVLC", 0, BEASTS, &[sub(b"EDID", z("Beasts")), sub(b"LVLD", vec![0]), sub(b"LVLF", vec![0]), sub(b"LVLO", [1i16.to_le_bytes().to_vec(), vec![0; 2], BEAST.to_le_bytes().to_vec(), 1i16.to_le_bytes().to_vec(), vec![0; 2]].concat())])),
         top(b"PERK", &perk),
         top(b"ECZN", &eczn),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cells))),
@@ -220,4 +223,34 @@ fn a_perk_adds_its_list_to_the_players_kills_it_applies_to() {
     // The player's kill of a Pup: its death item and the perk's tail.
     assert!(g.kill(FormId(PUP_REF), Some(FormId::PLAYER_REF)));
     assert_eq!((count(&mut g, PUP_REF, MEAT), count(&mut g, PUP_REF, TAIL)), (1, 1));
+}
+
+/// The skeleton functions read the actor that supplies the model (#1017 review): a
+/// leveled list's drawn creature, a template with Use Model/Animation (ODD); a template
+/// for Traits alone (PUP) keeps its own record, which has none.
+#[test]
+fn skeleton_functions_follow_leveled_lists_and_model_templates() {
+    use fnv_script::vm::XVal;
+    let f = fixture();
+    let mut g = game(&f);
+    let mut q = |on: Option<u32>, body: &str| {
+        let ctx = fnv_game::game::RunCtx { self_ref: on.map(FormId), ..Default::default() };
+        g.run_query(&format!("string_var sS
+Begin Function {{ }}
+{body}
+End
+"), ctx)
+    };
+    let model = "Creatures\\NVGecko\\Skeleton.NIF";
+    for who in ["Beasts", "Odd", "Beast"] {
+        assert_eq!(q(None, &format!("let sS := GetSkeletonModel {who}
+SetFunctionValue sS")), Ok(XVal::Str(model.into())), "{who}");
+    }
+    assert_eq!(q(None, "let sS := GetSkeletonModel Pup
+SetFunctionValue sS"), Ok(XVal::Str(String::new())));
+    // On the placed ODD: the folder of its template's skeleton.
+    assert_eq!(q(Some(ODD_REF), "let sS := NX_GetSkeletonPath
+SetFunctionValue sS"), Ok(XVal::Str("NVGecko".into())));
+    assert_eq!(q(Some(ODD_REF), "SetFunctionValue (NX_IsUsingSkeleton \"nvgecko\")"), Ok(XVal::Num(1.0)));
+    assert_eq!(q(Some(PUP_REF), "SetFunctionValue (NX_IsUsingSkeleton \"nvgecko\")"), Ok(XVal::Num(0.0)));
 }
