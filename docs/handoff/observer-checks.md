@@ -709,3 +709,16 @@ The numbers above stay put so links to them hold; each item here gives its own p
     the front; sample its position every game loop for 1.5 s after the hit: the distance,
     how long it moves, and whether the speed falls off. The same with a deathclaw's
     swipe on the player (god mode). ([combat-rules, Knockback](../spec-notes/combat-rules.md))
+
+## Added 2026-10-31 (follow-ups and choices, issue #964)
+
+62. **What a line with both follow-ups and choices offers after its follow-up** (P2: 15
+    lines in the masters, e.g. INFO 0x00158A3D of Topic056, whose choice Topic068 is
+    otherwise never offered). NVForever passes over a follow-up with the Goodbye flag
+    when the line has choices and offers the choices (Topic067, whose line is that
+    Goodbye follow-up, and Topic068); other follow-ups are said first [design, issue
+    #964]. To check: at Yes Man's final report (VStoryEventSecuritronsFort 1) pick
+    Topic056 and record whether the conversation ends after the line (Topic067's
+    goodbye said with no pick) or Topic067/068 are offered. A second sample: Arcade's
+    Topic065 (0x0016338D, non-Goodbye Say Once follow-ups): is 0x00163380 said before
+    the choices? ([dialogue §3.4](../spec-notes/dialogue.md))

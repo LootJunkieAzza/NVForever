@@ -267,6 +267,19 @@ said next, without a choice by the player [owner statement 2026-10-10: follow-up
 no player response, as read here from Doc Mitchell's lines; not yet captured;
 hypothesis: the first sayable one when a line lists several].
 
+The 15 lines of FalloutNV.esm with both follow-ups and choices (§3) fall in two kinds
+[observed: `fnvtool dialogue lines --all`, 2026-10-31]. In 11 the follow-up is Say Once
+(so the choices come once it has been said) or has choices of its own, mostly the
+same or overlapping ones (the Fort's greeting, Arcade's Topic065, Papa Khan, Markland,
+Vicky Vance, Caesar's Topic095/146/150, the followers' distance line). In 4 the
+follow-up is a Goodbye line, so saying it leaves the choices unreachable: Yes Man's
+Topic056 (INFO 0x00158A3D, whose choice Topic068 was never offered [observed:
+mq-walkthrough-2026-10-27 §2 item 13]) and Topic064, both leading to Topic067's Goodbye
+line, which is also one of their choices; Jeannie May's Repcon line (to GOODBYE); the
+King's north bodyguard's Topic002. So a line with choices passes over its Goodbye
+follow-ups and offers its choices; other follow-ups are said first, as above [design,
+issue #964; what the original does is observer check 62].
+
 When the player chooses a topic from a list, its lines that some line names as a
 follow-up are passed over while another line of the topic can be said; only when none
 can is a follow-up line taken [hypothesis, 2026-10-30; observer check 37]. Greetings and
@@ -494,7 +507,12 @@ All of it is in `GameSnapshot`.
   topics [documented: xEdit "Add Topics"; hypothesis on the moment and that they stay
   known afterwards]; a Goodbye line ends the conversation [documented]; else the first
   follow-up the actor can say is said (§3.4) [owner statement]; else choices are offered;
-  with nothing to offer the conversation ends [hypothesis].
+  with nothing to offer the conversation ends [hypothesis]. A `StartConversation player`
+  in the end result of the line that ends the conversation (Goodbye, or nothing to offer)
+  is held and starts right after the conversation closes; when the conversation goes on
+  it is refused, as any StartConversation while one runs (`Game::hold_force_greet`)
+  [design, issue #1107: 8 end scripts of Goodbye lines in FalloutNV.esm do this, e.g.
+  Anders' thanks in VMS46, INFO 0x00142A9C [observed]; observer check 39].
 - **Choices** (`Game::build_choices`). After a line with choices: those topics and
   nothing else [documented; owner statement 2026-10-11: a line linked by choices offers
   only the topics given as its choices]. Otherwise the top-level topics plus the known

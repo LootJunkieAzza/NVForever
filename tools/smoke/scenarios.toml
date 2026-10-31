@@ -12193,6 +12193,8 @@ commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fn
 expect = [
   { json = "observations.?label=milestone: VMS46 objective 10.running", equals = true, label = "aba-daba-honeymoon, milestone: VMS46 objective 10: running = true" },
   { json = "observations.?label=milestone: VMS46 objective 10.objective.10.displayed", equals = true, label = "aba-daba-honeymoon, milestone: VMS46 objective 10: objective.10.displayed = true" },
+  { json = "observations.?label=anders thanks.state", equals = "choosing", label = "aba-daba-honeymoon: Anders' thanks opens after his Goodbye line closes (#1107)" },
+  { json = "observations.?label=anders thanks.actor", equals = "0x001413C3", label = "aba-daba-honeymoon: Anders (VRRCAndersREF) force-greets for his thanks (#1107)" },
   { json = "observations.?label=milestone: VMS46 objective 15.var.andersfreed", equals = 2.0, label = "aba-daba-honeymoon, milestone: VMS46 objective 15: var.andersfreed = 2.0" },
   { json = "observations.?label=milestone: VMS46 objective 15.objective.10.completed", equals = true, label = "aba-daba-honeymoon, milestone: VMS46 objective 15: objective.10.completed = true" },
   { json = "observations.?label=milestone: VMS46 objective 15.objective.15.displayed", equals = true, label = "aba-daba-honeymoon, milestone: VMS46 objective 15: objective.15.displayed = true" },
