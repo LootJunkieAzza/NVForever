@@ -109,7 +109,7 @@ pub fn location_place((x, y): (f64, f64)) -> (f64, f64) {
 /// The label ("Quest added"), the name (font 8, [observed: quest-messages.md §4]) and the
 /// first objective, from `QuestReminder`'s top left: each tile's top its font's line
 /// (`super::draw::text_base`) over the hand-built HUD's line, so the tiles draw the texts
-/// where it does (#979: the name's top 29.5 over its line, the label's and the
+/// where it does (#979: the name's top 30 over its line, the label's and the
 /// objectives' 24).
 pub fn label_place() -> (f64, f64) {
     (quest_x(0.0), quest_y(crate::quest_messages::LABEL_BASE, TEXT_FONT))
@@ -527,7 +527,7 @@ mod tests {
         write(&mut ui, &message("Bomb disarmed.", 1.0), &lines);
         ui.update();
         let menu = ui.menu(HUD).unwrap();
-        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None });
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None }, false);
         let by = |name: &str| drawn.iter().find(|p| ui.tile(p.tile).name == name).unwrap_or_else(|| panic!("{name} not drawn"));
         // The area at (25, 55): the text at 130 in (corner_messages::TEXT_X), the bracket
         // and icon at the templates' places, the icon and text in front.
@@ -540,7 +540,7 @@ mod tests {
         assert!(order.iter().position(|n| n == "message_bracket") < order.iter().position(|n| n == "message_icon"));
         // Nothing showing: nothing drawn.
         write(&mut ui, &Notices::default(), &lines);
-        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None });
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None }, false);
         assert!(!drawn.iter().any(|p| ui.path_of(p.tile).starts_with("HUDMainMenu/Messages/")));
     }
 
@@ -555,11 +555,11 @@ mod tests {
         let label = copies(&ui, "QuestReminder", "label")[0];
         let title = copies(&ui, "QuestReminder", "title")[0];
         // "Quest added" on 247, the name in font 8 on 311, from x 45 (quest-messages.md §4):
-        // the label's top 24 over its line (font 7), the name's 29.5 (font 8).
+        // the label's top 24 over its line (font 7), the name's 30 (font 8).
         fn at(ui: &Ui, t: TileId) -> (f64, f64) {
             (ui.tile(t).get("x").unwrap().num(), ui.tile(t).get("y").unwrap().num())
         }
-        assert_eq!((at(&ui, label), at(&ui, title)), ((0.0, 23.0), (-1.5, 81.5)));
+        assert_eq!((at(&ui, label), at(&ui, title)), ((0.0, 23.0), (-1.5, 81.0)));
         assert_eq!(ui.tile(title).get("font").unwrap().num(), 8.0);
         assert_eq!(ui.tile(title).get("string").unwrap().text(), "BACK IN THE SADDLE");
         assert_eq!(ui.tile(label).get("alpha").unwrap().num(), 255.0);
@@ -588,7 +588,7 @@ mod tests {
         // Drawn: the objective at QuestReminder's place plus its own, its box before it.
         ui.update();
         let menu = ui.menu(HUD).unwrap();
-        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None });
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None }, false);
         let text = drawn.iter().find(|p| p.tile == texts[0]).unwrap();
         assert_eq!((text.rect.left, text.rect.top), (45.0, 239.0));
         let square = drawn.iter().find(|p| p.tile == open[0]).unwrap();
@@ -596,7 +596,7 @@ mod tests {
         assert!(!drawn.iter().any(|p| p.tile == texts[1] || p.tile == done[0]));
         // Gone: everything at alpha 0 or hidden, nothing drawn.
         write(&mut ui, &Notices::default(), &lines);
-        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None });
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None }, false);
         assert!(!drawn.iter().any(|p| ui.path_of(p.tile).starts_with("HUDMainMenu/QuestReminder/")));
     }
 
@@ -614,9 +614,9 @@ mod tests {
             ["x", "y", "alpha", "visible"].map(|n| ui.tile(t).get(n).unwrap().num())
         }
         // The quest banner's places from Region_Location's (45, 728): the label's top on
-        // 223, the name's on 281.5, as QuestReminder's (45, 200) + (0, 23) and (-1.5, 81.5).
+        // 223, the name's on 281, as QuestReminder's (45, 200) + (0, 23) and (-1.5, 81).
         assert_eq!(traits(&ui, label), [0.0, -505.0, 127.5, 0.0]);
-        assert_eq!(traits(&ui, title), [-1.5, -446.5, 127.5, 0.0]);
+        assert_eq!(traits(&ui, title), [-1.5, -447.0, 127.5, 0.0]);
         assert_eq!(ui.tile(label).get("string").unwrap().text(), "You have discovered");
         assert_eq!((ui.tile(title).get("string").unwrap().text(), ui.tile(title).get("font").unwrap().num()), ("GOODSPRINGS".into(), 8.0));
         // QuestReminder's banner holds the same and is the one shown.
@@ -626,7 +626,7 @@ mod tests {
         // Region_Location.
         ui.update();
         let menu = ui.menu(HUD).unwrap();
-        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None });
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None }, false);
         let said: Vec<_> = drawn.iter().filter(|p| matches!(&p.look, Look::Text { string, .. } if string == "You have discovered")).collect();
         assert_eq!(said.len(), 1);
         assert_eq!((said[0].tile, said[0].rect.left, said[0].rect.top), (shown, 45.0, 223.0));
@@ -655,7 +655,7 @@ mod tests {
         assert_eq!((f(&ui, "Subtitles/*:0/visible"), f(&ui, "Subtitles/*:0/wrapwidth")), (1.0, 800.0));
         ui.update();
         let menu = ui.menu(HUD).unwrap();
-        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None });
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &kept_pieces(&ui), strip: None }, false);
         let text = drawn.iter().find(|p| ui.path_of(p.tile).starts_with("HUDMainMenu/Subtitles/")).unwrap();
         // Centred on the area's middle (453 + 400), its top the area's.
         assert_eq!((text.rect.left + text.rect.width / 2.0, text.rect.top), (853.0, 660.0));

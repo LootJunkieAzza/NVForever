@@ -113,7 +113,7 @@ pub fn at(left: f32, top: f32, width: f32, height: f32) -> Node {
     Node { position_type: PositionType::Absolute, left: u(left), top: u(top), width: u(width), height: u(height), ..default() }
 }
 
-/// [design: fonts.md §3.1, #1221] A zero-size anchor at a text line's baseline. Its
+/// [design: fonts.md §3.2, #1221] A zero-size anchor at a text line's baseline. Its
 /// layout rounds to a physical pixel, then its 0.25-pixel sampling phase places the
 /// fractional glyph children consistently.
 pub fn line_anchor(base: f32) -> (Node, LayoutConfig, UiTransform) {

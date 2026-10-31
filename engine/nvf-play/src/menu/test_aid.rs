@@ -16,7 +16,7 @@
 //! opens the inventory, half a second later selects the item's row and drops one unit
 //! (`Drop`, the X key), the whole stack (`DropStack`, Shift+X), `<count>` units (`Drop`,
 //! then that amount and Ok on "How many?", which a stack of more than five asks; `ask`
-//! leaves the prompt open until the menu closes, for a screenshot) or uses
+//! leaves the prompt open until it is answered, for a screenshot or clicks) or uses
 //! it (`One`, Enter: equips, or uses up an aid item) and logs the list, and half a second
 //! later closes the menu. The other scripted checks answer "How many?" with 1.
 //! Dropping a quest item is refused: the logged status says so and the item stays (give
@@ -200,7 +200,8 @@ pub(super) struct DropJob {
     /// `Drop`, `DropStack` or `One` (use / equip).
     cmd: Command,
     /// What a `Drop` answers "How many?" with (1 unless the job names a number); 0
-    /// leaves the prompt open (`ask`, for a screenshot) until the menu closes.
+    /// leaves the prompt open (`ask`, for a screenshot) until it is answered; the menu
+    /// then closes as after the other drops.
     amount: i32,
 }
 
@@ -309,6 +310,11 @@ pub(super) fn run_drops(
                         }
                         None => info!("test aid: {} is not carried", job.item),
                     }
+                    d.current = Some((job, 2, now + 0.5));
+                }
+                // `ask`: the prompt stays open until answered (a screenshot, a pointer's
+                // clicks; T15a's `tiles-quantity`), then the menu closes as for the others.
+                (2, Some(m)) if job.cmd == Command::Drop && job.amount == 0 && m.quantity.is_some() => {
                     d.current = Some((job, 2, now + 0.5));
                 }
                 (2, m) => {

@@ -883,7 +883,7 @@ fn apply_given(g: &mut Game, gv: &Given) -> Result<(), String> {
             if *open {
                 if *menu == menus::MESSAGE {
                     // A box of a message the input does not name, in front of any other.
-                    g.boxes.insert(0, FormId(0));
+                    g.put_box_in_front(FormId(0));
                 }
                 g.open_menu(*menu);
             } else if g.menu == Some(*menu) {
@@ -2252,7 +2252,9 @@ fn run_as(
         };
         // A script's activation by the player whose default is to talk opens the
         // conversation, in the frame it happened, as the play loop's `talk_after` does
-        // (`scripted_talk`). The activation ops answer for their own activation.
+        // (`scripted_talk`). The activation ops answer for their own activation, but not
+        // for one a script makes in the frames after it: the Sink's appliances
+        // (OldWorldBlues.esm) talk from GameMode once their OnActivate has run (#1111).
         let opens = !matches!(a, Action::PlayerActivate { .. } | Action::Activate { .. } | Action::ActivateRead { .. });
         if opens {
             scripted_talk(&mut g, events_from);
@@ -2260,9 +2262,7 @@ fn run_as(
         for _ in 0..wait {
             let from = g.events.len();
             g.tick();
-            if opens {
-                scripted_talk(&mut g, from);
-            }
+            scripted_talk(&mut g, from);
         }
         let mut s = json!({"step": i, "frame": start_frame});
         if let Err(e) = res {

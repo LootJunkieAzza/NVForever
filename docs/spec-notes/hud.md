@@ -443,6 +443,15 @@ an actor is in Combat with the player as its target; else `[CAUTION]` when an ac
 Alert or Lost has the player among its threats or an alarm the player caused
 (`fnv_game::awareness`); else `[DETECTED]` when some actor's latest detection of the
 player is in the detected band (`Game::detection`, value above 0); else `[HIDDEN]`.
+Teammates and actors whose current package is a Follow or Accompany package on the
+player (`Game::with_player`) count for neither `[CAUTION]` nor `[DETECTED]`; their
+detection is still measured and kept for their own AI [observed: owner's playtest
+2026-10-31, #1159: a following companion alone set `[DETECTED]`, which the owner
+reports the original does not; hypothesis: the original leaves companions out by the
+same rule, observer-checks.md P3 16]. Other actors, hostile or not, still count
+[hypothesis: a neutral seeing the player is what theft and pickpocketing care about;
+not checked in the original, observer-checks.md P3 16]. An actor with the player that
+is in Combat with the player still gives `[DANGER]` [design].
 Logged as `hud: sneak [WORD]` on each change. (`fnv_game::detection::Band::meter`
 names the bands HIDDEN, CAUTION, DANGER for the detection log; that older mapping is not
 what the HUD shows.)
@@ -1274,7 +1283,7 @@ the hand-built HUD (the default) keeps:
 | Quest marker under the compass (§11) | no quest in the scenes; off-band targets now held at the end | the same, through `CompassView` |
 | The strip's right end fades (§4) | fixed: one baked window image (`compass_strip`) | fixed: the same image |
 | Condition bar 175, ground 100 (§4) | fixed | fixed |
-| LEVEL UP 16 units low | fixed: 16 above the amount's line (`xp_meter::LEVEL_UP_BASE`) | fixed (#979): font 8's line 29.5 under the text's top, a line per font (below) |
+| LEVEL UP 16 units low | fixed: 16 above the amount's line (`xp_meter::LEVEL_UP_BASE`) | fixed (#979): font 8's line 30 under the text's top (29.5 until every font was measured), a line per font (below) |
 | Compass pattern, end caps, health underline (§3) | fixed: the atlas pieces | already the pieces |
 | Radiation ruler 40 units long, ticks 16.7 pixels | fixed: the bracket at its texels' size, the owner's place and texts kept on the screen (radiation.md §6) | already |
 | The strip 4 pixels left (§4) | fixed: `STRIP_HEADING` 154 | fixed: shared `strip_left` |
@@ -1312,14 +1321,19 @@ the hand-built HUD (the default) keeps:
   (font 8) and 21.0 (font 1) under the tops. `tiles::draw::text_base` keeps font 7's 24
   (this capture's 24.9 is within its pixel of it; the earlier readings 23.7 and the
   prompt's 24.5-25.5, menu-xml.md §3.1.2) and stands fonts 8 and 1 as far from it as
-  this capture shows: font 8 29.5, font 1 20; the fonts no capture measured take 24
-  [hypothesis: needs a capture of a text in each]. No single font measure gives the
+  this capture shows: font 8 29.5, font 1 20. [observed: hud_menus capture 2026-10-31,
+  fonts.md §3.1] Every font measured since, at three window sizes, one font-7 reading
+  for all: `text_base` is font 1 20, fonts 2-5 16, font 6 22, font 7 24, font 8 30 (5.6
+  under font 7 here, 6.0 there; 30, fonts.md §3.1), and the lines stand one pitch of
+  their font apart (`draw::line_pitch`: 31, 35, 32, 36, 25, 38, 38, 52 for fonts 1-8),
+  not the font file's size. No single font measure gives the
   three (the size less the deepest glyph's reach under the line: 21, 24, 37, fonts.md
   §3) [hypothesis: the rule behind them is not known]. The tile texts take it
-  (`draw::text_lines`), the quest notices' tops (§14.11: the name's top 29.5 over the
+  (`draw::text_lines`), the quest notices' tops (§14.11: the name's top 30 over the
   hand-built line), the need words (`hud_needs::WORD_BASE`, font 7) and the corner
   labels (font 7). Tests: `tiles::draw::{fonts_7_and_8_at_one_y_stand_on_their_own_lines,
-  the_default_font_stands_higher_and_unmeasured_fonts_take_font_7s_line,
+  the_default_font_stands_higher_and_font_9_takes_font_7s_line,
+  every_font_has_its_own_line_and_pitch, a_texts_height_is_its_tallest_glyph_and_a_pitch_a_line,
   a_text_tiles_font_trait_sets_the_line_it_is_drawn_on}`.
 - Tests: `hud::{the_last_action_point_tick_stands_clear_of_the_upright,
   the_compass_keeps_the_heading_at_the_triangle, the_pieces_stand_inside_their_brackets}`,
@@ -1374,10 +1388,11 @@ width, height, alpha, visible, depth); hud_jip for the strings, §14.2]
   `QuestStages` (y 40) or `QuestAdded` (y 80) is not read; the first objective's top,
   39, is next to `QuestStages`' 40]. Places are the hand-built HUD's (quest-messages.md
   §4, measured on the owner's screenshots) less the piece's place (45, 200) and a text's
-  line in its font (`tiles::draw::text_base`, §14.10: 24 in font 7, 29.5 in font 8):
-  the label at (0, 23), the name in font 8 at (-1.5, 81.5), the first
+  line in its font (`tiles::draw::text_base`, §14.10: 24 in font 7, 30 in font 8):
+  the label at (0, 23), the name in font 8 at (-1.5, 81), the first
   objective at (0, 39), each next one under the lines before it (the font's size + 2 a
-  line), wrapped at 570. Each objective has a box copy of its kind (`template_checkbox`,
+  line: 38 in font 7, the same as font 7's observed line pitch, fonts.md §3.1, which
+  sets the lines inside one wrapped objective), wrapped at 570. Each objective has a box copy of its kind (`template_checkbox`,
   `template_filled_checkbox`) at x -16, 3 under its text's top, 26 x 26 (the screenshots'
   square; the file's templates say x -20 and 16 x 16 for the open one) [observed:
   quest-messages.md §4-§5]. Surplus copies are hidden, not removed. A discovery ("You
@@ -1389,11 +1404,11 @@ width, height, alpha, visible, depth); hud_jip for the strings, §14.2]
   no bracket: the hand-built HUD draws a discovery as the label and the name only) are
   made under `Region_Location` (45, 728), at the quest banner's places moved to its top
   left, so they stand where the hand-built HUD draws a discovery: the label at (0, -505),
-  the name in font 8 at (-1.5, -446.5). Their strings and alpha follow the queue as
+  the name in font 8 at (-1.5, -447). Their strings and alpha follow the queue as
   `QuestReminder`'s banner (alpha 0 with the last discovery held while another notice or
   none shows); their `visible` stays 0 [design]: the same notice is drawn once, from
   `QuestReminder`'s copies, because the hand-built drawing's place (the label's top 223,
-  the name's 281.5) lies inside `QuestReminder`'s rect (45, 200, 400 x 200) and far outside
+  the name's 281) lies inside `QuestReminder`'s rect (45, 200, 400 x 200) and far outside
   `Region_Location`'s (45, 728, 100 x 100). What the original draws under
   `Region_Location` on entering a named place (a region or location name) is still not
   known.

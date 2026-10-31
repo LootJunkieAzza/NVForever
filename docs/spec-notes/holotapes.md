@@ -87,8 +87,7 @@ ESM gap audit row 14 (docs/handoff/esm-gap-audit-2026-10-21.md). Code:
 - **A Sound note** plays its SOUN once at the listener (`crate::sfx::PlaySound`) and
   cannot be stopped [hypothesis; no master note uses it].
 - Not built: the subtitles of a holotape's responses (whether the original shows them is
-  not known), the JIP note functions (GetNoteSpeaker, SetNoteTopic …), the read flag
-  (GetNoteRead).
+  not known).
 
 ## 4. Checks
 
@@ -97,3 +96,24 @@ ESM gap audit row 14 (docs/handoff/esm-gap-audit-2026-10-21.md). Code:
   Notes tab, `note=001618BF`: the log names the line and plays
   `sound\voice\falloutnv.esm\maleadult11\nvprimmdep_vmq01beaglejour_001618b7_1.ogg`, then
   the second response; a second `note=` stops it.
+
+## 5. The extender's note functions (#984)
+
+JIP's GetNoteRead and JohnnyGuitar's note getters and setters, in
+`crates/fnv-game/src/nvse_notes.rs` [documented: each page]:
+
+| Function | NVForever |
+|---|---|
+| GetNoteType `note` | DATA, 0 Sound, 1 Text, 2 Image, 3 Voice |
+| GetNoteSound, GetNoteSpeaker `note` | SNAM, whatever the type [hypothesis: the field is one union, §1] |
+| GetNoteTopic `note` | a Voice note's TNAM |
+| GetNoteImage `note` | XNAM; "" without one |
+| GetNoteQuestList `note` | an array of the ONAM quests, in record order [hypothesis: one ONAM per quest] |
+| SetNoteType, SetNoteSound, SetNoteSpeaker, SetNoteTopic, SetNoteImage | change the note for the session; 1 for a note, 0 otherwise [hypothesis: "int" on each page]. SetNoteType takes 0-3 in DATA's order [hypothesis: its page lists 1 Image, 2 Text, the reverse of GetNoteType's; not probed]. SetNoteSound and SetNoteSpeaker both set the one SNAM, and the type says what it is: a note made a Sound note plays its SNAM as a sound, one made a Voice note as the speaker [hypothesis: the field is one union, §1]. A Voice note played afterwards plays the new speaker and topic; a tape playing ends with the end script of the line it began with [hypothesis] |
+| AddNoteQuest, RemoveNoteQuest `note quest` | the session's quest list; a quest is not added twice [hypothesis]; Remove returns whether it was there |
+| GetNoteRead `note` | whether the note was read: saved, set when its page is shown in the Pip-Boy (DATA, Notes), again each time it comes up after the player leaves the notes or closes the Pip-Boy [documented: "read in the Pip-Boy"; hypothesis: shown counts as read] |
+| SetNoteRead `note isRead [serialize]` | with `serialize` 1 the saved flag, otherwise a change for the session over it [documented: "the change will persist in the save" with 1] |
+
+The setters' edits are not saved [hypothesis: the pages do not say; JohnnyGuitar marks
+only SetNoteRead's `serialize` as saving]. The Pip-Boy list does not show the edits yet
+(its names and texts come from the records).

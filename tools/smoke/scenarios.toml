@@ -2958,6 +2958,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "hacking-notice-held"
+source = "issue #1239: a quest line pushed while the hacking terminal is open is not drawn under it and its time does not run there; it is shown once after the power button closes the terminal (as the rest of the HUD, hud.md §14.3)"
+areas = ["hacking", "terminal", "quest-messages", "corner-messages", "hud"]
+paths = ["engine/nvf-play/src/corner_messages.rs", "engine/nvf-play/src/quest_messages.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TERMINAL = "30:science:25,31:open:000D74D5,33:wrong,34:brackets,35:symbol,36:wrong,37:right,41:item:0,43:power", NVF_PLAY_TEST_SCRIPT = "35:objective:VCG02:3" }
+args = ["--cell", "BisonSteve01", "--play", "--no-voice"]
+run_seconds = 52
+order = [[
+  { text = "quest message: Talk to Sunny Smiles in the Prospector Saloon.", label = "the line pushed while the terminal is open" },
+  "terminal: the power button pressed",
+  { text = "quest message on screen: Talk to Sunny Smiles in the Prospector Saloon.", label = "drawn only after the terminal closes" },
+]]
+expect = [{ text = "quest message on screen: Talk to Sunny Smiles in the Prospector Saloon.", count = 1, label = "shown once" }]
+
+[[scenario]]
 name = "hacking-owned"
 source = "the owner 2026-10-22: a terminal still to hack shows its difficulty on the activate prompt as a lock does, an owned one in the crime colour, and hacking it is the crime of picking an owned lock (karma, the owner's side that sees it hostile): the Easy terminal in the Prospector Saloon (0010872F, cell owned)"
 areas = ["hacking", "terminal", "crime"]
@@ -5625,6 +5640,35 @@ expect = [
 ]
 
 [[scenario]]
+name = "save-high-write"
+source = "#1103 (owner playtest 2026-10-31): a save made up high loads at its height; the first half: start on the Bison Steve rollercoaster track (ElDiabloCoaster 000E538D, placed in square -13,-13) where it runs over square -13,-14, about 860 units above the terrain [observed: fnvtool phys cell rays, track z 6672 at (-50100, -55200), terrain 5808], and save there; save-high-load reads the save"
+note = "the start's own square goes in first and the track's square next door later: placed before it, the start found only the terrain (the bug), so this half checks the fix too"
+areas = ["save"]
+paths = ["engine/nvf-play/src/save.rs", "engine/nvf-play/src/player.rs", "engine/nvf-play/src/phys.rs"]
+env = { NVFOREVER_HOME = "save-high-home", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "10:player.getpos z;10.5:save smoke-high;11:close" }
+args = ["--play", "--world", "WastelandNV", "--pos=-50100,-55200,6800", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'player placed: feet \(-50100, -55200, 66[5-9]\d\.\d\), ground z 66[5-9]\d\.\d \(Ref', label = "the start stands on the track, not the terrain under it" },
+  { re = 'console: GetPos on player >> 66[5-9]\d\.', label = "still on the track when saving" },
+  { re = 'save: wrote .*smoke-high\.nvfsave \(manual', label = "the save is written" },
+]
+
+[[scenario]]
+name = "save-high-load"
+source = "#1103 (owner playtest 2026-10-31): the second half: --load the save save-high-write made on the rollercoaster track; the player comes back on the track at the saved height, not on the ground below"
+areas = ["save"]
+paths = ["engine/nvf-play/src/save.rs", "engine/nvf-play/src/player.rs", "engine/nvf-play/src/phys.rs"]
+env = { NVFOREVER_HOME = "save-high-home", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "10:player.getpos z;11:close" }
+args = ["--play", "--load", "smoke-high", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'load: .*smoke-high\.nvfsave .*starting at .*feet: \[-50[01]\d\d\.\d+, -552\d\d\.\d+, 66[5-9]\d\.\d+\]', label = "the save holds the height on the track" },
+  { re = 'player placed: feet \(-50[01]\d\d, -552\d\d, 66[5-9]\d\.\d\), ground z 66[5-9]\d\.\d \(Ref', label = "the load places the player on the track at the saved height" },
+  { re = 'console: GetPos on player >> 66[5-9]\d\.', label = "and they stay there" },
+]
+
+[[scenario]]
 name = "script-saves-reticle"
 source = "docs/outstanding.md §1 rows 2 and 12 (2026-10-18): SystemSave writes the one system slot, ForceSave a new save by hand, PlaceAtReticle places where the crosshair hits (docs/spec-notes/script-saves-and-reticle.md)"
 areas = ["save", "script"]
@@ -6223,6 +6267,26 @@ order = [[
   { re = 'hud: sneak \[' },
   { re = 'hud: enemy health \S' },
 ]]
+
+# ------------------------------------------------------------------ the sneak word leaves companions out (issue #1159)
+
+[[scenario]]
+name = "hud-sneak-companion"
+source = "issue #1159 (docs/spec-notes/hud.md §9): sneaking with only a following companion near shows [HIDDEN], though the companion detects the player"
+note = "Boone hired by his recruit line at 3 s in his room (as follower-boone; no one else in the cell); the player sneaks at 14 s, Boone following beside: his detection of the player is measured and logged, the sneak word stays [HIDDEN]"
+areas = ["hud", "detection", "followers"]
+paths = ["engine/nvf-play/src/hud.rs", "crates/fnv-game/src/followers.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:info:0x0015F30D:CraigBooneREF", NVF_PLAY_TEST_CONTROL = "14:sneak" }
+args = ["--cell", "NovacBoonesRoom", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 24
+expect = [
+  { re = 'CraigBooneREF: package FollowersBooneFollowPlayerDEFAULT', label = "hired: his Follow package" },
+  { re = 'detection: \S*Boone\S* .*→ the player: \S+ → detected', label = "Boone detects the player" },
+  { re = 'hud: sneak \[HIDDEN\]', label = "the sneak word is [HIDDEN]" },
+]
+forbid = [
+  { re = 'hud: sneak \[(DETECTED|CAUTION)\]', label = "Boone alone sets neither [DETECTED] nor [CAUTION]" },
+]
 
 # ------------------------------------------------------------------ the enemy bar's show rule (issue #935)
 
@@ -12748,7 +12812,7 @@ name = "mq-old-world-blues-sink"
 kind = "tool"
 source = "the headless add-on walkthrough crates/fnv-game/walkthrough/old-world-blues-sink.actions.json (OldWorldBlues.esm): the Think Tank's chip line (Topic001 answered with its line that is no follow-up, dialogue.md 3.4), All My Friends Have Off Switches (nine personality modules), Influencing People (the upgrades) and Field Research (seeds and sound samples), each to 100"
 areas = ["quests", "scripts", "dialogue"]
-paths = ["crates/fnv-game/walkthrough/old-world-blues-sink.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs"]
+paths = ["crates/fnv-game/walkthrough/old-world-blues-sink.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/data.rs", "crates/fnv-game/src/functions/refs.rs"]
 commands = [["script", "run", "{data}", "FalloutNV.esm", "OldWorldBlues.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/old-world-blues-sink.actions.json"]]
 expect = [
   { json = "observations.?label=milestone: MQ00 done (the satellite takes the player to Big MT).stage", equals = 100, label = "old-world-blues-sink milestone: MQ00 done (the satellite takes the player to Big MT): stage = 100" },
@@ -12761,6 +12825,9 @@ expect = [
   { json = "observations.?label=milestone: Influencing People done.completed", equals = true, label = "old-world-blues-sink milestone: Influencing People done: completed = true" },
   { json = "observations.?label=milestone: Field Research done.stage", equals = 100, label = "old-world-blues-sink milestone: Field Research done: stage = 100" },
   { json = "observations.?label=milestone: Field Research done.completed", equals = true, label = "old-world-blues-sink milestone: Field Research done: completed = true" },
+  { json = "observations.?label=Biological Research Station talks after the install.state", equals = "choosing", label = "old-world-blues-sink: the station's bare Activate in GameMode opens its conversation (#1111)" },
+  { json = "observations.?label=Biological Research Station talks after the install.actor", equals = "0x0100F05B", label = "old-world-blues-sink: the station speaks for its talking actor (#1111)" },
+  { json = "observations.?label=Jukebox talks after the install.state", equals = "choosing", label = "old-world-blues-sink: the Jukebox's install opens its conversation (#1111)" },
   { json = "steps.*.error", count = 0, label = "old-world-blues-sink: no step fails" },
   { json = "given_errors.*", count = 0, label = "old-world-blues-sink: no given fails" },
 ]
@@ -16547,6 +16614,72 @@ order = [[
 ]]
 
 [[scenario]]
+name = "tiles-message-box"
+source = "[design] ui-tile-tree.md §6.2 step 3 (T15a, docs/handoff/ui-tile-tree-tasks.md): with [UI] TileMenus=MessageMenu a message box is drawn from the game's MessageMenu tiles (the model writes its text and one MM_ButtonTemplate row per button; screen() in interface units centres it), the hand-built box is not spawned, and a pointer click on the second row answers the box with button 1"
+note = "the console opens the box at 24 s and closes at 24.3 s (the open console would stand over the box); the shot at 25 s; the pointer at 26 s and its click at 26.5 s fall on the second row at 1280 x 800 (across: the rows stand at W/2 less half the list's width plus 22, the list the widest button's text and 80; down: the text at 43 under the box's top, the list 95, rows 52 high, the box 219 high centred in 960, so the second row spans y 517.5-569.5; docs/spec-notes/message-menu.md §5a); NVF_PLAY_TEST_SCRIPT_MENUS closes the box at 30 s if the click missed"
+areas = ["ui", "scripts", "console"]
+paths = [
+  "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs",
+  "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs",
+  "engine/nvf-play/src/message_menu.rs", "engine/nvf-play/src/script_hud.rs", "engine/nvf-play/src/script.rs",
+  "crates/fnv-game/src/game.rs",
+  "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs",
+]
+env = { NVF_PLAY_TEST_TILE_MENUS = "MessageMenu", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "6", NVF_PLAY_TEST_CONSOLE = "24:MessageBoxEx \"nvf tiles box|Yes|No\";24.3:close", NVF_PLAY_TEST_SHOTS = "25:tiles_message_box.png", NVF_PLAY_TEST_POINTER = "26:770:540,26.5:770:540:click,28:off" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x800"]
+run_seconds = 31
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=MessageMenu \(from test aid NVF_PLAY_TEST_TILE_MENUS\): MessageMenu drawn from tiles', label = "the switch is read from the test aid" },
+  { re = 'tiles: MessageMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', label = "the box's tree draws, with code-made rows for its buttons" },
+  { re = 'tiles: MessageMenu drawn from tiles: "nvf tiles box", 2 button row\(s\), width \d+', label = "the model writes the text and two rows" },
+  { re = 'tiles: pointer over MessageMenu/.*MM_Button', label = "the pointer finds a row" },
+  { re = 'tiles: MessageMenu button 1 picked on its tiles', count = 1, label = "a click on the second row picks button 1" },
+  { re = 'script: menu 1001 .*answered \(button 1\)', label = "the box is answered with button 1" },
+  { re = 'ui: dropped MessageMenu', label = "the answered box drops its tiles" },
+]
+order = [[
+  { re = 'console: MessageBoxEx "nvf tiles box\|Yes\|No" >> ran' },
+  { re = 'tiles: MessageMenu drawn from tiles: "nvf tiles box"' },
+  { re = 'tiles: MessageMenu button 1 picked on its tiles' },
+  { re = 'script: menu 1001 .*answered \(button 1\)' },
+  "ui: dropped MessageMenu",
+]]
+
+[[scenario]]
+name = "tiles-quantity"
+source = "[design] ui-tile-tree.md §6.2 step 3 (T15a, docs/handoff/ui-tile-tree-tasks.md): with [UI] TileMenus=QuantityMenu the \"How many?\" prompt over the Pip-Boy is drawn from the game's QuantityMenu tiles (Game::ui_prompt builds it; the model writes the meter's user0 and user2, the file works out the tiled fill and the amount), the hand-built prompt is not spawned, and pointer clicks on the decrease arrow and on OK drop one fewer than the stack"
+note = "the drop aid asks at 21 s for the 20 rounds given (the prompt opens at the whole stack, and `ask` holds it open until answered); the shot at 23 s; at 1280 x 800 the decrease arrow stands at 550-567 x 452-487 and OK ends at x 1085, y 492-543 (QM_Background centred by screen(), QM_MainRect 22, 42 in; quantity_menu.xml)"
+areas = ["ui", "menu", "items"]
+paths = [
+  "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs",
+  "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs",
+  "engine/nvf-play/src/menu.rs", "engine/nvf-play/src/menu/**",
+  "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs",
+]
+env = { NVF_PLAY_TEST_TILE_MENUS = "QuantityMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "0008ED03:20", NVF_PLAY_TEST_DROP = "21:0008ED03:ask", NVF_PLAY_TEST_SHOTS = "23:tiles_quantity.png", NVF_PLAY_TEST_POINTER = "24:558:470,24.5:558:470:click,25.5:1070:515,26:1070:515:click,27:off" }
+args = ["--cell", "GSGasStation", "--play", "--no-voice", "--no-messages", "--size", "1280x800"]
+run_seconds = 29
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=QuantityMenu \(from test aid NVF_PLAY_TEST_TILE_MENUS\): QuantityMenu drawn from tiles', label = "the switch is read from the test aid" },
+  { re = 'ui: built QuantityMenu \(menus\\[^,]+\.xml, [1-9]\d* tiles\)', label = "the prompt builds its file while it shows (Game::ui_prompt)" },
+  { re = 'tiles: QuantityMenu drawn from tiles \(\d+ file tiles, 0 code tiles\)', label = "the prompt's tree draws" },
+  "tiles: QuantityMenu drawn from tiles: amount 20 of 20",
+  { text = "tiles: QuantityMenu AmountStep(-1) on its tiles", count = 1, label = "a click on the decrease arrow steps the amount down" },
+  "tiles: QuantityMenu drawn from tiles: amount 19 of 20",
+  { text = "tiles: QuantityMenu AmountOk on its tiles", count = 1, label = "a click on OK" },
+  { text = "menu: AmountOk: Dropped 9mm Round x19", label = "OK drops the amount chosen" },
+  { re = 'ui: dropped QuantityMenu', label = "the closed prompt drops its tiles" },
+]
+order = [[
+  "menu: Drop: how many? (20 of 20)",
+  "tiles: QuantityMenu drawn from tiles: amount 20 of 20",
+  "tiles: QuantityMenu AmountStep(-1) on its tiles",
+  "tiles: QuantityMenu drawn from tiles: amount 19 of 20",
+  "tiles: QuantityMenu AmountOk on its tiles",
+  "menu: AmountOk: Dropped 9mm Round x19",
+]]
+
+[[scenario]]
 name = "nvse-engine-events"
 source = "The extender's events that only the running engine raises (docs/handoff/nvse-next-batch.md §6): OnLoad of a placed unscripted item, OnHit/OnHitWith of a hit, OnMagicEffectHit of a stimpak, OnPackageStart, OnCombatEnd; handlers set from the console as one-line lambdas"
 areas = ["scripts", "actors"]
@@ -16917,7 +17050,7 @@ expect = [
 
 [[scenario]]
 name = "font-glyph-baseline"
-source = "#1221 (docs/spec-notes/fonts.md §3.1): repeated font-2 glyphs at different fractional x positions keep their dimensions and share one pixel-aligned line baseline"
+source = "#1221 (docs/spec-notes/fonts.md §3.2): repeated font-2 glyphs at different fractional x positions keep their dimensions and share one pixel-aligned line baseline"
 areas = ["ui", "menus", "fonts"]
 paths = ["engine/nvf-play/src/interface.rs", "engine/nvf-play/src/terminal/screen.rs", "engine/nvf-play/src/creator/view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "24:MessageBoxEx \"NVF box without buttons\";24.2:close", NVF_PLAY_TEST_SHOTS = "24.6:font_glyph_baseline.png" }

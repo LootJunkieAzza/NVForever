@@ -65,9 +65,10 @@ The texture of `monofonto_large` is 256 x 256, 16 bits a texel with 4 of them al
 - How far apart the lines are, and where a text's first line stands under its top, is
   with the menu that was measured (`message-menu.md` §3). The interface files' text
   tiles: menu-xml.md §3.1.2, hud.md §14.10 (a line per font, #979).
-- [observed: hud_textbase capture 2026-10-31] A text tile's `height`, read in the
-  original, is its font's tallest glyph picture: 36 for font 1, 42 for font 7, 64 for
-  font 8, the largest number 10 of their files (menu-xml.md §3.1.2).
+- [observed: hud_textbase capture 2026-10-31] A one-line text tile's `height`, read in
+  the original, is its font's tallest glyph picture: 36 for font 1, 42 for font 7, 64 for
+  font 8, the largest number 10 of their files (menu-xml.md §3.1.2); every font, and
+  more lines: §3.1.
 - [observed: the textures of fonts 1, 7 and 8, 2026-10-31, decoded and measured row by
   row in alpha] Where the ink of a capital or a digit stands against the line (a
   picture set with its top number 13 over it): font 7 (`baked-in_monofonto_large`, a
@@ -82,7 +83,62 @@ The texture of `monofonto_large` is 256 x 256, 16 bits a texel with 4 of them al
   the line (number 10 less number 13) is 21, 24 and 37 for fonts 1, 7 and 8 (31 - 10,
   36 - 12, 52 - 15); the tallest reach over it 29, 34, 50.
 
-### 3.1. Drawing the glyph pictures
+### 3.1 Every font's line, pitch and height (hud_menus capture, 2026-10-31)
+
+[observed: hud_menus capture 2026-10-31, private and not shipped: text tiles of fonts 1-9
+injected into `HUDMainMenu`, one line and two (a line break in the string), some wrapped
+to three; their `width` and `height` read back through xNVSE/JIP at 1280x720, 1920x1080
+and 1280x1024 (the same at all three); the ink of four capitals measured on the shots as
+for fonts 1, 7 and 8 above (the ink's middle against the glyph pictures' middle on the
+texture, texture middles decoded from each font's `.dds`)]
+
+| font | file size (number 0) | tallest glyph = one-line `height` | two-line `height` | pitch | line under the top, measured | on NVForever's convention | `text_base` | `line_pitch` |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 31 | 36 | 67 | 31 | 20.3 | 19.8 | 20 | 31 |
+| 2 | 31 | 32 | 67 | 35 | 16.5 | 16.0 | 16 | 35 |
+| 3 | 26 | 31 | 63 | 32 | 16.5 | 16.0 | 16 | 32 |
+| 4 | 36 | 37 | 73 (three lines 109) | 36 | 16.5 | 16.0 | 16 | 36 |
+| 5 | 25 | 28 | 53 | 25 | 16.5 | 16.0 | 16 | 25 |
+| 6 | 34 | 38 | 76 | 38 | 22.4 | 21.9 | 22 | 38 |
+| 7 | 36 | 42 | 80 (three lines 118) | 38 | 24.5 | 24 (anchor) | 24 | 38 |
+| 8 | 52 | 64 | 116 (three lines 168) | 52 | 30.5 | 30.0 | 30 | 52 |
+| 9 | - | no `width`, no `height` | - | - | nothing drawn | - | 24 [design] | file size [hypothesis] |
+
+- [observed] A text tile's `height` is its font's tallest glyph picture plus one pitch
+  for each line after the first, in all eight drawn fonts at one to three lines. The
+  pitch is a whole number per font, and the ink's line-to-line distance agrees with it
+  (within one pixel row). For fonts 2, 3, 6 and 7 it is not the file's size (+4, +6, +4,
+  +2); no number of the files gives all eight (the size, the tallest glyph, the deepest
+  reach over plus under the line fit two fonts at most); where it comes from is not
+  known.
+- [observed] Fonts 2-5 stand their first line about 16.5 under the tile's top, font 6
+  22.4; in a real message box the font-2 message text and its button's label agree
+  (16.1-16.7). Precision ±0.7 unit at 1280x720 (a pixel row is 1.33 units), ±0.5 at
+  1280x1024.
+- [design: NVForever's convention] `tiles::draw::text_base` anchors font 7 at 24 (the
+  earlier captures, menu-xml.md §3.1.2; this capture reads it 24.5, hud_textbase 24.9)
+  and stands every other font as far from it as this capture shows, rounded to the
+  nearest half unit. Font 8 was 29.5 from hud_textbase (5.6 under its font 7); this
+  capture measures it 6.0 under its font 7. Both read font 8 itself at 30.5, so the two
+  differ in font 7 only; their mean distance, 5.8, is nearer 30, and 30 keeps every font
+  on one capture's font-7 reading.
+- [design] `tiles::draw::line_pitch` is the pitch above for fonts 1-8 and the file's
+  size for any other font; `tiles::draw::measure` gives a text the observed `height`
+  (`tallest_glyph`; the file's size for a font without pictures, the stand-in).
+  NVForever reads the default font files (§4), so the numbers go by font number; when
+  it reads the player's INI fonts, a replaced file's pitch is not known [hypothesis: its
+  size].
+- [observed: the archives] Font 9 (`NVFont_Test`) has its `.fnt` and a `.tex` but no
+  `.dds`; in the original its tiles get no `width` or `height` and draw nothing.
+  NVForever draws a font-9 text in Bevy's stand-in font (`interface::face` finds no
+  texture), on font 7's line, and a font-9 tile among the texts whose widths the tile
+  HUD writes stops those writes (`FontKit::game_fonts`) [design: not yet the original's
+  nothing].
+- Not determined: an empty string's measure. The message box's empty title read 14 x 38
+  in font 6, one space wide and one line high; NVForever's `measure` gives 0 wide and
+  one line high.
+
+### 3.2 Drawing the glyph pictures
 
 - [observed: issue #1221, original and NVForever message-box captures at 1280x720,
   2026-10-31] In the original, the x-height letters in "NVF box without buttons"

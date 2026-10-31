@@ -2,7 +2,8 @@
 //! §6.2 step 3; hud-xml.md step 5].
 //!
 //! - **The switch**: `[UI] TileMenus=` in the home's `NVForever.ini`, a comma-separated
-//!   list of menu names, empty by default; only `HUDMainMenu` is acted on for now. It is
+//!   list of menu names, empty by default; `HUDMainMenu`, and since T15a `MessageMenu`
+//!   and `QuantityMenu` (`super::menus`), are acted on. It is
 //!   read once at start, from the INI the settings page uses
 //!   (`crate::settings::SettingsFile`: an unattended run in the player's own home reads
 //!   none). The test aid `NVF_PLAY_TEST_TILE_MENUS=<list>` sets it instead, so a smoke
@@ -36,6 +37,12 @@ pub struct TileMenus {
     /// `HUDMainMenu`: the vanilla HUD from tiles, the hand-built one hidden where a tile
     /// draws its piece.
     pub hud: bool,
+    /// `MessageMenu` (T15a): a message box from its file, the hand-built box
+    /// (`crate::message_menu`) not spawned (`super::menus`).
+    pub message: bool,
+    /// `QuantityMenu` (T15a): the "How many?" prompt from its file, the hand-built prompt
+    /// (`crate::menu::look::spawn_quantity`) not spawned (`super::menus`).
+    pub quantity: bool,
 }
 
 impl TileMenus {
@@ -47,6 +54,10 @@ impl TileMenus {
         for name in list.split(',').map(str::trim).filter(|n| !n.is_empty()) {
             if name.eq_ignore_ascii_case(super::draw::HUD_MENU) {
                 menus.hud = true;
+            } else if name.eq_ignore_ascii_case(super::menus::MESSAGE_MENU) {
+                menus.message = true;
+            } else if name.eq_ignore_ascii_case(super::menus::QUANTITY_MENU) {
+                menus.quantity = true;
             } else {
                 other.push(name.to_string());
             }
@@ -74,11 +85,26 @@ pub(crate) fn setup(app: &mut App) {
     app.insert_resource(menus);
     app.add_systems(Startup, move || {
         let Some((list, from)) = &list else { return };
-        info!("tiles: [{SECTION}] {KEY}={list} (from {from}): {}", if menus.hud { "HUDMainMenu drawn from tiles" } else { "no menu drawn from tiles" });
+        info!("tiles: [{SECTION}] {KEY}={list} (from {from}): {}", menus.line());
         if !other.is_empty() {
-            warn!("tiles: [{SECTION}] {KEY}: {} not drawn from tiles yet (only HUDMainMenu is)", other.join(", "));
+            warn!("tiles: [{SECTION}] {KEY}: {} not drawn from tiles yet (only {} are)", other.join(", "), TileMenus::NAMES.join(", "));
         }
     });
+}
+
+impl TileMenus {
+    /// The menus the switch acts on, in its order.
+    pub const NAMES: [&str; 3] = [super::draw::HUD_MENU, super::menus::MESSAGE_MENU, super::menus::QUANTITY_MENU];
+
+    /// The start-up line's end: the menus drawn from tiles, or none.
+    pub fn line(&self) -> String {
+        let on: Vec<&str> = Self::NAMES.into_iter().zip([self.hud, self.message, self.quantity]).filter(|(_, on)| *on).map(|(n, _)| n).collect();
+        if on.is_empty() {
+            "no menu drawn from tiles".into()
+        } else {
+            format!("{} drawn from tiles", on.join(", "))
+        }
+    }
 }
 
 /// [design] Remaining hand-built pieces: none. Settled T12b pieces draw from tiles (hud.md
@@ -372,7 +398,7 @@ mod tests {
 
     #[test]
     fn the_hand_built_subtitles_stay_while_the_tiles_draw_nothing() {
-        let on = TileMenus { hud: true };
+        let on = TileMenus { hud: true, ..TileMenus::default() };
         // The HUD drawn from tiles and shown: every hand-built piece hidden.
         assert_eq!(hide(on, true, true), Hide { pieces: true, subtitles: true });
         // In a menu the tile root draws nothing: the hand-built subtitles stay.
@@ -428,10 +454,19 @@ mod tests {
 
     #[test]
     fn the_switch_is_a_list_of_menu_names() {
-        assert_eq!(TileMenus::parse(""), (TileMenus { hud: false }, Vec::new()));
-        assert_eq!(TileMenus::parse("HUDMainMenu"), (TileMenus { hud: true }, Vec::new()));
-        assert_eq!(TileMenus::parse(" hudmainmenu , StartMenu,,"), (TileMenus { hud: true }, vec!["StartMenu".to_string()]));
-        assert_eq!(TileMenus::parse("StartMenu").0, TileMenus { hud: false });
+        let hud = TileMenus { hud: true, ..TileMenus::default() };
+        assert_eq!(TileMenus::parse(""), (TileMenus::default(), Vec::new()));
+        assert_eq!(TileMenus::parse("HUDMainMenu"), (hud, Vec::new()));
+        assert_eq!(TileMenus::parse(" hudmainmenu , StartMenu,,"), (hud, vec!["StartMenu".to_string()]));
+        assert_eq!(TileMenus::parse("StartMenu").0, TileMenus::default());
+        assert_eq!(hud.line(), "HUDMainMenu drawn from tiles");
+        assert_eq!(TileMenus::default().line(), "no menu drawn from tiles");
+        // T15a: the message box and the prompt, each on its own.
+        let (menus, other) = TileMenus::parse("messagemenu,QuantityMenu, SleepWaitMenu");
+        assert_eq!(menus, TileMenus { hud: false, message: true, quantity: true });
+        assert_eq!(other, vec!["SleepWaitMenu".to_string()]);
+        assert_eq!(menus.line(), "MessageMenu, QuantityMenu drawn from tiles");
+        assert_eq!(TileMenus::parse("QuantityMenu").0, TileMenus { quantity: true, ..TileMenus::default() });
     }
 
     #[test]
