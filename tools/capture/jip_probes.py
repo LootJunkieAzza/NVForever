@@ -4886,6 +4886,76 @@ JG1_PROBES = (
 )
 
 
+# jg2 (writes, session only, each change put back; #1007): JohnnyGuitar batch 2
+# (docs/spec-notes/ext-jg2.md) on FalloutNV.esm forms [observed: fnvtool esm inventory]:
+# PrimmNashResidence (an interior with lighting and an acoustic space), Doc Mitchell's
+# house and reference, Vault11Zone, NVWastelandNightIS, the baseball bat, leather armor and
+# Sunset Sarsaparilla.
+JG2 = {"nash": "D70E2", "dochouse": "103DF9", "vault11zone": "E9081", "nightis": "CEE1B", "bat": "421C",
+       "leather": "20423", "sarsaparilla": "103B1E"}
+
+
+def _jg2(pid, body, text=False):
+    return (f"jg2.{pid}", "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nstring_var sText\n"
+            "string_var sSave\nBegin Function { }\n"
+            + _form("rP", NF["player"]) + _form("rDoc", NF["docref"]) + body, text, None, "")
+
+
+def _jg2v(pid, key, expr, text=False):
+    return _jg2(pid, _form("rObj", JG2[key]) + f"SetFunctionValue ({expr})", text)
+
+
+JG2_PROBES = (
+    # The acoustic space functions are left out: no form of the call compiled in the game
+    # (ext-jg2.md).
+    [_jg2v(f"interior.{n}", "nash", f"GetInteriorLightingTraitNumeric rObj {n}") for n in range(0, 17)]
+    + [_jg2("interior.set", _form("rObj", JG2["nash"]) + "let fRes := GetInteriorLightingTraitNumeric rObj 10\n"
+            "SetInteriorLightingTraitNumeric rObj 10 123\nlet sText := sv_Construct \"%g\" (GetInteriorLightingTraitNumeric rObj 10)\n"
+            "SetInteriorLightingTraitNumeric rObj 10 fRes\nSetFunctionValue sText", True),
+       # A colour channel given 300 and 25.5: kept, clamped or wrapped (#1102 review).
+       _jg2("interior.setcolor", _form("rObj", JG2["nash"]) + "let fSave := GetInteriorLightingTraitNumeric rObj 0\n"
+            "SetInteriorLightingTraitNumeric rObj 0 300\nlet fRes := GetInteriorLightingTraitNumeric rObj 0\n"
+            "SetInteriorLightingTraitNumeric rObj 0 25.5\nlet sText := sv_Construct \"%g %g\" fRes (GetInteriorLightingTraitNumeric rObj 0)\n"
+            "SetInteriorLightingTraitNumeric rObj 0 fSave\n"
+            'SetFunctionValue (sv_Construct "%z %g" sText (GetInteriorLightingTraitNumeric rObj 0))', True)]
+    + [_jg2("refzone.doc", "SetFunctionValue (GetFormIDString (rDoc.GetRefEncounterZone))", True),
+       # The player as the reference (#1102 review), its zone saved and put back.
+       _jg2("refzone.player", _form("rObj", JG2["vault11zone"]) + "let rSave := rP.GetRefEncounterZone\n"
+            "let fRes := rP.SetRefEncounterZone rObj\nlet rOther := rP.GetRefEncounterZone\nlet sText := GetFormIDString rOther\n"
+            "rP.SetRefEncounterZone rSave\nlet rOther := rP.GetRefEncounterZone\n"
+            'SetFunctionValue (sv_Construct "%g %z %i %i" fRes sText rOther rSave)', True),
+       _jg2("refzone.set", _form("rObj", JG2["vault11zone"]) + "let fRes := rDoc.SetRefEncounterZone rObj\n"
+            "let rOther := rDoc.GetRefEncounterZone\nlet sText := GetFormIDString rOther\nrDoc.SetRefEncounterZone\n"
+            "let rOther := rDoc.GetRefEncounterZone\n"
+            'SetFunctionValue (sv_Construct "%g %z %i" fRes sText rOther)', True),
+       # Each setter step saves the value and writes it back in the same step (#1102 review).
+       _jg2("cellzone.set", _form("rObj", JG2["dochouse"]) + _form("rOther", JG2["vault11zone"])
+            + "let rSave := GetCellEncounterZone rObj\nlet fRes := SetCellEncounterZone rObj rOther\n"
+            "let rOther := GetCellEncounterZone rObj\nlet sText := GetFormIDString rOther\nSetCellEncounterZone rObj rSave\n"
+            "let rOther := GetCellEncounterZone rObj\n"
+            'SetFunctionValue (sv_Construct "%g %z %i %i" fRes sText rOther rSave)', True)]
+    + [_jg2v("icon.sarsaparilla", "sarsaparilla", "GetMessageIconPath rObj", True),
+       _jg2v("icon.leather.male", "leather", "GetMessageIconPath rObj 0", True),
+       _jg2v("icon.leather.female", "leather", "GetMessageIconPath rObj 1", True),
+       _jg2v("icon.bat", "bat", "GetMessageIconPath rObj", True),
+       # The original goes back as a literal (the record's MICO, fnvtool esm decode): a
+       # string_var given here reaches the game as its name (ext-showoff.md §5). The row shows
+       # the saved, the set and the restored path, so a restore that differs shows.
+       _jg2("icon.set", _form("rObj", JG2["sarsaparilla"]) + "let sSave := GetMessageIconPath rObj\n"
+            'SetMessageIconPath "nvf\\icon.dds" rObj\nlet sText := GetMessageIconPath rObj\n'
+            'SetMessageIconPath "interface\\icons\\pipboyimages_small\\items_small\\glow_items_cola.dds" rObj\n'
+            'SetFunctionValue (sv_Construct "%z|%z|%z" sSave sText (GetMessageIconPath rObj))', True)]
+    + [_jg2v("imod.night", "nightis", "GetIMODAnimatable rObj"),
+       _jg2("imod.set", _form("rObj", JG2["nightis"]) + "let fSave := GetIMODAnimatable rObj\nSetIMODAnimatable rObj 1\n"
+            "let fRes := GetIMODAnimatable rObj\nSetIMODAnimatable rObj fSave\n"
+            'SetFunctionValue (sv_Construct "%g %g" fRes (GetIMODAnimatable rObj))', True)]
+    + [_jg2v(f"vats.bat.{n}", "bat", f"GetWeaponVATSTraitNumeric rObj {n}") for n in range(0, 7)]
+    + [_jg2("vats.set", _form("rObj", JG2["bat"]) + "let fSave := GetWeaponVATSTraitNumeric rObj 3\nSetWeaponVATSTraitNumeric rObj 3 99\n"
+            "let fRes := GetWeaponVATSTraitNumeric rObj 3\nSetWeaponVATSTraitNumeric rObj 3 fSave\n"
+            'SetFunctionValue (sv_Construct "%g %g" fRes (GetWeaponVATSTraitNumeric rObj 3))', True)]
+)
+
+
 # jip5 (writes, session only, each change put back; #1006): JIP batch 5
 # (docs/spec-notes/jip-records-5.md) on FalloutNV.esm forms [observed: fnvtool esm
 # inventory]: NVGecko (body-part data), LScrubDirtCanyon01Grass (a land texture with three
@@ -5039,12 +5109,13 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "rules2": RULES2_PROBES,
         "showoff2": SHOWOFF2_PROBES,
         "jg1": JG1_PROBES,
+        "jg2": JG2_PROBES,
         "jip5": JIP5_PROBES,
         "format1": FORMAT1_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1", "atk1", "jip4", "rules1", "rules2", "showoff2", "jg1", "jip5"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1", "atk1", "jip4", "rules1", "rules2", "showoff2", "jg1", "jg2", "jip5"}
 
 
 def script(body):

@@ -16,10 +16,10 @@ completed = 166
 
 [summary.stages]
 total = 1405
-reached = 928
+reached = 929
 settable = 1043
 by_variable = 0
-missing_settable = 115
+missing_settable = 114
 missing_by_variable = 0
 reached_unsettable = 0
 set_calls_quest_by_variable = 0
@@ -34,7 +34,7 @@ run = 1635
 
 [summary.lines]
 total = 28896
-said = 2444
+said = 2445
 
 [summary.actors]
 with_lines = 704
@@ -42,7 +42,7 @@ touched = 261
 
 [summary.results.info]
 total = 8639
-run = 1630
+run = 1632
 
 [summary.results.package]
 total = 558
@@ -50,7 +50,7 @@ run = 28
 
 [summary.results.stage]
 total = 1040
-run = 819
+run = 820
 
 [summary.results.terminal]
 total = 384

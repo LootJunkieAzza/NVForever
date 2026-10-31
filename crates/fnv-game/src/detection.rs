@@ -266,7 +266,12 @@ impl Settings {
             + if s.detector_asleep { self.sleep_bonus } else { 0.0 }
             + if s.combat_target { self.combat_mod } else { 0.0 };
         let detector_skill = a * perception_skill * state;
-        let target_skill = if s.sneaking {
+        // The target's Sneak counts only against an actor that sees it, or hears it: an
+        // unseen, silent target reads the same sneaking or standing, by distance alone
+        // [observed: jip_detection, observer-jip-audit-2026-10-25.md §3.2: -12 to -14
+        // within 500, -32 to -33 at 3,000-4,000, standing or sneaking; #969]. Kept when
+        // there is sound [hypothesis: no unseen, noisy case was captured].
+        let target_skill = if s.sneaking && (seen || sound > 0.0) {
             let penalty = match p.target_armor_class {
                 ArmorClass::Heavy => self.heavy_armor_penalty,
                 ArmorClass::Medium => self.medium_armor_penalty,
@@ -733,6 +738,26 @@ mod tests {
         assert_eq!(sneaking.band, Band::Hidden);
     }
 
+    /// An unseen, silent target reads the same sneaking or standing: its Sneak counts only
+    /// against an actor that sees or hears it (#969; observer-jip-audit-2026-10-25.md §3.2).
+    #[test]
+    fn an_unseen_silent_target_reads_the_same_sneaking_or_standing() {
+        let s = Settings::default();
+        let p = Pair { target_sneak: 15.0, ..Pair::default() };
+        for distance in [500.0, 3000.0, 5000.0] {
+            let unseen = Situation { distance, in_view: false, ..outdoors(50.0) };
+            let standing = s.evaluate(&p, &unseen);
+            let sneaking = s.evaluate(&p, &Situation { sneaking: true, ..unseen });
+            assert!(near(standing.value, sneaking.value), "{distance}: {} vs {}", standing.value, sneaking.value);
+            assert_eq!(sneaking.target_skill, 0.0);
+        }
+        // Seen, sneaking still lowers it; heard while unseen too [hypothesis].
+        let seen = outdoors(50.0);
+        assert!(s.evaluate(&p, &Situation { sneaking: true, ..seen }).value < s.evaluate(&p, &seen).value);
+        let heard = Situation { in_view: false, moving: true, ..outdoors(50.0) };
+        assert!(s.evaluate(&p, &Situation { sneaking: true, ..heard }).target_skill > 0.0);
+    }
+
     #[test]
     fn a_creature_moves_as_loud_as_its_sound_level() {
         let s = Settings::default();
@@ -777,13 +802,19 @@ mod tests {
     fn a_shot_is_heard_through_walls_nearby() {
         let s = Settings::default();
         let p = Pair::default();
-        // Sneaking at Sneak 0 behind a wall indoors: −35 + 0.5 · (0.7744 · 50 − 40).
+        // Sneaking at Sneak 0 behind a wall indoors, unseen and silent: −35 + 0.5 · 0.7744
+        // · 50, the Sneak skill left out (#969): noticed, as the original's unseen targets
+        // within 500 units (−12 to −14, observer-jip-audit-2026-10-25.md §3.2).
         let quiet = Situation { distance: 300.0, sneaking: true, ..Default::default() };
-        assert_eq!(s.evaluate(&p, &quiet).band, Band::Hidden);
+        let q = s.evaluate(&p, &quiet);
+        assert!(near(q.value, -35.0 + 0.5 * 0.7744 * 50.0));
+        assert_eq!(q.band, Band::Noticed);
         let shot = Situation { action_sound: s.firing_sound("Loud"), ..quiet };
-        // a = (2200/2500)² = 0.7744; sound 0.7744 · 0.1 · 1.6 · 200 ≈ 24.8.
+        // a = (2200/2500)² = 0.7744; sound 0.7744 · 0.1 · 1.6 · 200 ≈ 24.8; heard, the
+        // Sneak skill counts again [hypothesis].
         let d = s.evaluate(&p, &shot);
         assert!(near(d.sound, 0.7744 * 0.1 * 1.6 * 200.0));
+        assert!(near(d.value, -35.0 + d.sound + 0.5 * (0.7744 * 50.0 - 40.0)));
         assert_eq!(d.band, Band::Noticed);
     }
 
