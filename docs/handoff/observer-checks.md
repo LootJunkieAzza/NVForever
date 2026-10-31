@@ -530,9 +530,10 @@ The numbers above stay put so links to them hold; each item here gives its own p
     clears the flag (displayed 0, then 1: not completed), which is what the VMS16 capture
     of layer5-captures.md §5.2 saw. Ours clears it on every display, so G.I. Blues can
     stall. (scripts.md §5)
-41. **Does ResetQuest keep a SetQuestDelay?** (P3.) Use the NCR emergency radio and close
-    the Pip-Boy at once: does the supply drop still come? (§9 stall 3.) No script function
-    reads a quest's delay, so this needs a timed watch of the quest's effect.
+41. **Does ResetQuest keep a SetQuestDelay?** — answered 2026-10-31 (o41 on nvftest, issue
+    #1109): yes. VMQ03aTimer at SetQuestDelay 2, ResetQuest, StartQuest: its timer still
+    dropped every 2.0 s (DATA delay 0.5 s). ResetQuest also zeroed the variables and
+    stopped the running quest (GetQuestRunning 0). (layer5-captures.md §5.7)
 42. **Does a stage result script's reference-less RemoveSpell act on the player?** —
     answered 2026-10-31 (o5_03 on nvfairport, issue #1110): yes. Addicted to Jet (10 doses;
     IsSpellTarget WithdrawalJet 1 over a game hour), `SetStage VDoctors 20` made it 0 within

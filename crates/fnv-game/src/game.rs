@@ -2131,8 +2131,10 @@ impl<'a> Game<'a> {
 
     /// `SetObjectiveDisplayed` / `SetObjectiveCompleted`. Only objectives the quest
     /// defines change; displaying one starts a stopped quest [documented: GECK wiki
-    /// SetObjectiveDisplayed]. Completing does not display; displaying clears the
-    /// completed flag [observed: VMS16 objectives 10 and 5, layer5-captures.md §5.2].
+    /// SetObjectiveDisplayed]. Completing does not display; showing a hidden objective
+    /// clears the completed flag [observed: VMS16 objectives 10 and 5, layer5-captures.md
+    /// §5.2], displaying one already shown keeps it [observed: o5_00, VMS19 65 and
+    /// VFSAtomicPimp 34, observer check 40, issue #1108].
     pub fn set_objective(&mut self, q: FormId, index: i32, displayed: Option<bool>, completed: Option<bool>) -> bool {
         let data = self.data;
         let Some(def) = data.quests.get(&q) else { return false };
@@ -2145,10 +2147,10 @@ impl<'a> Game<'a> {
         let o = self.quest(q).objectives.entry(index).or_default();
         let (d0, c0) = (o.displayed, o.completed);
         if let Some(d) = displayed {
-            o.displayed = d;
-            if d {
+            if d && !o.displayed {
                 o.completed = false;
             }
+            o.displayed = d;
         }
         if let Some(c) = completed {
             o.completed = c;
