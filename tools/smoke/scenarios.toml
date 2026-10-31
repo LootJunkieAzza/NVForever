@@ -16192,7 +16192,7 @@ order = [[
 [[scenario]]
 name = "tiles-message-box"
 source = "[design] ui-tile-tree.md §6.2 step 3 (T15a, docs/handoff/ui-tile-tree-tasks.md): with [UI] TileMenus=MessageMenu a message box is drawn from the game's MessageMenu tiles (the model writes its text and one MM_ButtonTemplate row per button; screen() in interface units centres it), the hand-built box is not spawned, and a pointer click on the second row answers the box with button 1"
-note = "the console opens the box at 24 s and closes at 24.3 s (the open console would stand over the box); the shot at 25 s; the pointer at 26 s and its click at 26.5 s fall on the second row at 1280 x 800 (the rows stand at W/2 less half the list's width plus 22, the list the widest button's text and 80, docs/spec-notes/message-menu.md §6); NVF_PLAY_TEST_SCRIPT_MENUS closes the box at 30 s if the click missed"
+note = "the console opens the box at 24 s and closes at 24.3 s (the open console would stand over the box); the shot at 25 s; the pointer at 26 s and its click at 26.5 s fall on the second row at 1280 x 800 (across: the rows stand at W/2 less half the list's width plus 22, the list the widest button's text and 80; down: the text at 43 under the box's top, the list 95, rows 52 high, the box 219 high centred in 960, so the second row spans y 517.5-569.5; docs/spec-notes/message-menu.md §5a); NVF_PLAY_TEST_SCRIPT_MENUS closes the box at 30 s if the click missed"
 areas = ["ui", "scripts", "console"]
 paths = [
   "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs",
@@ -16200,7 +16200,7 @@ paths = [
   "engine/nvf-play/src/message_menu.rs", "engine/nvf-play/src/script_hud.rs",
   "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs",
 ]
-env = { NVF_PLAY_TEST_TILE_MENUS = "MessageMenu", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "6", NVF_PLAY_TEST_CONSOLE = "24:MessageBoxEx \"nvf tiles box|Yes|No\";24.3:close", NVF_PLAY_TEST_SHOTS = "25:tiles_message_box.png", NVF_PLAY_TEST_POINTER = "26:770:520,26.5:770:520:click,28:off" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "MessageMenu", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "6", NVF_PLAY_TEST_CONSOLE = "24:MessageBoxEx \"nvf tiles box|Yes|No\";24.3:close", NVF_PLAY_TEST_SHOTS = "25:tiles_message_box.png", NVF_PLAY_TEST_POINTER = "26:770:540,26.5:770:540:click,28:off" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x800"]
 run_seconds = 31
 expect = [
