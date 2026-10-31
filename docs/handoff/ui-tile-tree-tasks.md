@@ -456,11 +456,12 @@ owner to add to its pull request or issue (owner, 2026-10-29).
         its own file, not the shared atlas, and no `zoom` stands an own file at its
         texels' size (atlas pieces still fill their boxes) [observed: the original's
         own-file wedges and its upright at W - 57, where 512 texels from x -135 put it;
-        hypothesis: the rule]. `RAD/SEC` above `+14`: every font's first line now stands
+        hypothesis: the rule]. `RAD/SEC` above `+14`: every font's first line then stood
         `TEXT_BASE` 24 under the text's top (was the font's tallest glyph, 33 for font 7,
         48 for font 8) [hypothesis: radiation texts, the sneak word and the prompt's
         lines on the original's screenshots]; the corner labels' writes use it, so they
-        stay put.
+        stay put. (Superseded by #979, 2026-10-31: a line per font, `draw::text_base`,
+        hud.md §14.10; the one shared line was a mis-measurement.)
       - **Not changed: the brackets' shapes and the compass's doubled line.** The tile
         HUD draws the atlas pieces the files name, and the original's screenshots show
         those (the cut corners, the stepped arrow ends, the doubled long line, the
@@ -522,10 +523,10 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       LEVEL UP 16 above the amount's line; the condition row's brightness; the strip as
       the tile HUD's [observed]. **Maintainer's choices kept:** the ammo abbreviation
       right of the divider (owner 2026-10-25), LMB's looks (owner 2026-10-23/24), and
-      those T12b listed. **Needs a capture:** the tile HUD's LEVEL UP (font 8's line
-      under its `y` against `radiation_text`'s, §14.10; captured 2026-10-31, a line per
-      font since #979); the side a target to the right
-      is held at. Smoke: `tiles-hud-ammo-label` (new); `hud-compass-north` logs the
+      those T12b listed. **Needed a capture then:** the tile HUD's LEVEL UP (font 8's
+      line under its `y` against `radiation_text`'s, §14.10), done since: captured
+      2026-10-31, a line per font (#979). **Still needs a capture:** the side a target to
+      the right is held at. Smoke: `tiles-hud-ammo-label` (new); `hud-compass-north` logs the
       strip's place. Only `cargo check -p nvf-play --tests` and `cargo check -p fnv-game
       --tests` were run, and `python tools/smoke verify` (644 scenarios, fine).
     - **T12 leftovers: the texts, done** 2026-10-29 (`claude/tile-hud-texts`): the corner

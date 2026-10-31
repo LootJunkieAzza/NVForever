@@ -329,15 +329,17 @@ NVForever's own HUD, from the layout of §3.1.1. What it takes the traits to mea
 - [observed: the font files against hud.md §14.1] A text's width is the sum of its
   glyphs' advances (fonts.md §3): font 7 "Button Text" 156 and "Talk" 54, font 8 "+0" 50
   and "+9" 49, as the original wrote. A `wrapwidth` of 0 does not wrap (the prompt's
-  `button_text` has 0 and measured one line). [hypothesis] A text's height is its lines
-  times the font's line height; each line is set left, centred or right inside the box by
+  `button_text` has 0 and measured one line). [hypothesis] In NVForever's implementation
+  (`draw::measure`) a text's height is its lines times the font's line height, not the
+  original's text tile `height` (below); each line is set left, centred or right inside the box by
   `justify`, one line height under the last.
-- [observed: hud_textbase capture 2026-10-31, hud.md §14.10] A text's first line
-  stands under its top by its font (`draw::text_base`): 24 units in font 7, 29.5 in
-  font 8, 20 in font 1 (a tile with no `font`), measured from the capitals' ink in the
-  original against where NVForever's glyph pictures put it (fonts.md §3), font 7's kept
-  at the earlier readings' 24 and fonts 8 and 1 as far from it as the capture shows; the
-  fonts no capture measured take 24 [hypothesis]. Texts of fonts 7 and 8 set at one `y` do not
+- A text's first line stands under its top by its font. [observed: hud_textbase capture
+  2026-10-31, hud.md §14.10] Measured from the capitals' ink in the original against
+  where NVForever's glyph pictures put it (fonts.md §3), the lines stand 24.9 units under
+  the top in font 7, 30.5 in font 8 and 21.0 in font 1 (a tile with no `font`).
+  [design: NVForever's calibration, anchored on font 7] `draw::text_base` keeps font 7
+  at the earlier readings' 24 and stands fonts 8 and 1 as far from it as the capture
+  shows: 29.5 and 20; the fonts no capture measured take 24 [hypothesis]. Texts of fonts 7 and 8 set at one `y` do not
   stand on one line: `radiation_text` ("RAD/SEC", font 7) and `radiation_text_value`
   ("+9", font 8), both at y 65, end 25.0 and 31.7 under it. T12c (2026-10-29) stood
   every font's line 24 under the top [hypothesis then: the two radiation texts read on

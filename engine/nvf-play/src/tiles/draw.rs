@@ -331,6 +331,16 @@ pub fn text_lines(font: &Font, number: u8, string: &str, wrap: Option<f64>, alig
         .collect()
 }
 
+/// A text piece's lines as the renderer sets them in its box ([`text_lines`]), in its
+/// font `font` (the face of the piece's font number) and on that number's line
+/// ([`text_base`]); none for a piece that is not a text.
+pub fn piece_lines(piece: &Piece, font: &Font) -> Vec<(fnv_font::Line, f32, f32)> {
+    match &piece.look {
+        Look::Text { string, font: number, wrap, alignment } => text_lines(font, *number, string, *wrap, *alignment, piece.rect.width),
+        _ => Vec::new(),
+    }
+}
+
 /// One tile to draw, in interface units from the view's top left.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Piece {
@@ -706,12 +716,12 @@ fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pictu
             })
         }
         Look::Model { .. } => Some(model::spawn(p, node, piece.tile, model?, colour)),
-        Look::Text { string, font, wrap, alignment } => {
+        Look::Text { font, .. } => {
             let face = ctx.fonts.faces.get(font)?;
             let id = p
                 .spawn((node, Pickable::IGNORE))
                 .with_children(|t| {
-                    for (line, x, base) in text_lines(&face.font, *font, string, *wrap, *alignment, r.width) {
+                    for (line, x, base) in piece_lines(piece, &face.font) {
                         set_marked(t, face, &line, x, base, colour, Ink::Drawn);
                     }
                 })
@@ -1271,6 +1281,29 @@ mod tests {
         assert_eq!(digit[0].2, 20.0);
         assert_eq!([2, 3, 4, 5, 6, 9].map(text_base), [24.0; 6]);
         assert_eq!(text_base(7), 24.0);
+    }
+
+    /// #979: from a tile's `font` trait through the drawn pieces to the line the renderer
+    /// sets the text on: no `font` is font 1 (20), font 7 24, font 8 29.5.
+    #[test]
+    fn a_text_tiles_font_trait_sets_the_line_it_is_drawn_on() {
+        let (mut ui, src) = hud();
+        let menu = ui.menu(HUD_MENU).unwrap();
+        assert!(ui.inject_text(
+            &src,
+            "HUDMainMenu",
+            r#"<text name="Plain"><string>2</string></text>
+              <text name="Seven"><string>XP</string><font>7</font></text>
+              <text name="Eight"><string>LEVEL UP</string><font>8</font></text>"#
+        ));
+        ui.update();
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Mods { vanilla: None });
+        let font = plain_font(36.0, 15.0);
+        let base = |name: &str| {
+            let piece = drawn.iter().find(|p| ui.tile(p.tile).name == name).expect("a text piece");
+            piece_lines(piece, &font)[0].2
+        };
+        assert_eq!([base("Plain"), base("Seven"), base("Eight")], [20.0, 24.0, 29.5]);
     }
 
     /// T12d: a `tile` picture is one image of its repeats at its texels' resolution,

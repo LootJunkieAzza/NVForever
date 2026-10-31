@@ -1319,7 +1319,8 @@ the hand-built HUD (the default) keeps:
   (`draw::text_lines`), the quest notices' tops (§14.11: the name's top 29.5 over the
   hand-built line), the need words (`hud_needs::WORD_BASE`, font 7) and the corner
   labels (font 7). Tests: `tiles::draw::{fonts_7_and_8_at_one_y_stand_on_their_own_lines,
-  the_default_font_stands_higher_and_unmeasured_fonts_take_font_7s_line}`.
+  the_default_font_stands_higher_and_unmeasured_fonts_take_font_7s_line,
+  a_text_tiles_font_trait_sets_the_line_it_is_drawn_on}`.
 - Tests: `hud::{the_last_action_point_tick_stands_clear_of_the_upright,
   the_compass_keeps_the_heading_at_the_triangle, the_pieces_stand_inside_their_brackets}`,
   `compass_strip::{the_window_fades_out_at_its_right_end,
