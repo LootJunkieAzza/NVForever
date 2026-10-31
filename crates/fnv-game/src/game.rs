@@ -1531,6 +1531,9 @@ impl GameSnapshot {
         let before = self.sim.refs.len();
         self.sim.refs.retain(|_, r| !gone(r.base) && !r.cell.is_some_and(&gone));
         n += before - self.sim.refs.len();
+        let before = self.sim.deleted_created.len();
+        self.sim.deleted_created.retain(|_, &mut b| !gone(b));
+        n += before - self.sim.deleted_created.len();
         let before = self.effects.len();
         self.effects.retain(|e| !gone(e.effect) && !gone(e.source) && !gone(e.target) && !e.script.is_some_and(&gone));
         n += before - self.effects.len();
@@ -4856,7 +4859,8 @@ impl Host for Exec<'_, '_> {
         // A reference made at run time (a dropped item, PlaceAtMe) is a reference too, an
         // actor's by its base [observed: rgb-ui, OnDrop's dropped stimpak is a reference
         // in the game].
-        let base = self.game.world.peek(f)?.base;
+        // One deleted before the last load answers as it did before the save (#1002).
+        let base = self.game.world.peek(f).map(|s| s.base).or_else(|| self.game.world.deleted_base(f))?;
         Some(match self.game.data.sig(base) {
             Some(s) if &s == b"NPC_" => *b"ACHR",
             Some(s) if &s == b"CREA" => *b"ACRE",

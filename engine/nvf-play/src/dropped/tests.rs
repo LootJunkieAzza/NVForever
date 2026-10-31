@@ -172,6 +172,7 @@ fn world_with(s: RefState) -> World<'static> {
         zone_levels: Default::default(),
         ref_levels: Default::default(),
         death_items: Default::default(),
+        deleted_created: Default::default(),
     };
     World::restore(forms, refs, &snap).unwrap()
 }

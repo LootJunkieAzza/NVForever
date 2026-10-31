@@ -304,6 +304,12 @@ pub struct Snapshot {
     /// ([`World::add_death_item`]); absent when none.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub death_items: BTreeMap<FormId, FormId>,
+    /// References created at run time and since deleted (picked up, a shot that is over),
+    /// by FormID, with their base form: the save keeps only this of them, not their whole
+    /// state ([`World::deleted_base`]); absent when none (and in older snapshots, which
+    /// keep the whole entries in `refs`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub deleted_created: BTreeMap<FormId, FormId>,
 }
 
 /// A death item rolled into a body ([`World::add_death_item`]): the level the list was
@@ -361,6 +367,11 @@ pub struct World<'a> {
     /// Death items owed to dead actors not read yet, rolled into the inventory when it is
     /// first made ([`World::add_death_item`]).
     death_items: BTreeMap<FormId, FormId>,
+    /// Created references deleted before the last load, with their base forms: their
+    /// state was left out of the save (`Snapshot::deleted_created`). A lookup of one
+    /// answers [`SimError::Deleted`]; their FormIDs are never given again
+    /// (`next_dynamic` only goes up).
+    deleted_created: BTreeMap<FormId, FormId>,
     /// Counts lock changes ([`World::lock`], [`World::unlock`]) so the AI can bring its
     /// nav graph's door locks in line when one changed ([`World::lock_serial`]). Not
     /// saved: every world made (a new or a restored one) starts from a number no other
@@ -391,6 +402,7 @@ impl<'a> World<'a> {
             zone_levels: BTreeMap::new(),
             ref_levels: BTreeMap::new(),
             death_items: BTreeMap::new(),
+            deleted_created: BTreeMap::new(),
             lock_serial: next_world_serial(),
             next_dynamic: FormId::FIRST_DYNAMIC.0,
             rng: ChaCha8Rng::seed_from_u64(cfg.seed),
@@ -444,6 +456,9 @@ impl<'a> World<'a> {
     /// The current state of `id`, creating it from the placement data on first use.
     pub fn get(&mut self, id: FormId) -> Result<&mut RefState, SimError> {
         if !self.refs.contains_key(&id) {
+            if self.deleted_created.contains_key(&id) {
+                return Err(SimError::Deleted(id));
+            }
             let s = self.initial(id)?;
             self.refs.insert(id, s);
         }
@@ -1782,20 +1797,36 @@ impl<'a> World<'a> {
         Ok(done(outcome, unlocked_with))
     }
 
+    /// The base form of a created reference deleted before the last load, whose state
+    /// is gone (`Snapshot::deleted_created`); `None` for any other FormID.
+    pub fn deleted_base(&self, id: FormId) -> Option<FormId> {
+        self.deleted_created.get(&id).copied()
+    }
+
+    /// The world's state for a save. A created reference that was deleted (picked up, a
+    /// shot that is over) is kept as its FormID and base form only, not its whole state,
+    /// so saves do not grow with every item dropped and picked up (#1002) [hypothesis: the
+    /// original drops them too; its save M held 574 created forms while its next created
+    /// FormID was 0xFF00155E, save-files.md §6.3].
     pub fn snapshot(&self) -> Snapshot {
+        let gone = |id: &FormId, s: &RefState| id.is_dynamic() && s.deleted;
+        let mut deleted_created = self.deleted_created.clone();
+        deleted_created.extend(self.created().filter(|(id, s)| gone(id, s)).map(|(id, s)| (id, s.base)));
+        let kept = |id: &FormId| !deleted_created.contains_key(id);
         Snapshot {
             format: SNAPSHOT_FORMAT.into(),
             config: self.cfg,
             rng_word_pos: self.rng.get_word_pos().to_string(),
             next_dynamic: self.next_dynamic,
-            refs: self.refs.clone(),
+            refs: self.refs.iter().filter(|(id, s)| !gone(id, s)).map(|(&k, v)| (k, v.clone())).collect(),
             globals: self.globals.clone(),
             detached_cells: self.detached_cells.clone(),
             quest_objects: self.quest_objects.clone(),
             leveled_added: self.leveled_added.clone(),
             zone_levels: self.zone_levels.clone(),
-            ref_levels: self.ref_levels.clone(),
-            death_items: self.death_items.clone(),
+            ref_levels: self.ref_levels.iter().filter(|(id, _)| kept(id)).map(|(&k, &v)| (k, v)).collect(),
+            death_items: self.death_items.iter().filter(|(id, _)| kept(id)).map(|(&k, &v)| (k, v)).collect(),
+            deleted_created,
         }
     }
 
@@ -1815,6 +1846,7 @@ impl<'a> World<'a> {
         w.zone_levels = s.zone_levels.clone();
         w.ref_levels = s.ref_levels.clone();
         w.death_items = s.death_items.clone();
+        w.deleted_created = s.deleted_created.clone();
         Ok(w)
     }
 }
