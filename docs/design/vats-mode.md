@@ -916,6 +916,26 @@ camera starts. Earlier kills in the run do not cut it short. With the masters' d
 kill camera plays on every such kill: the original's chance of one is not in our notes
 (the tree's GetRandomPercent conditions only choose between shots).
 
+The settings page's Kill camera row (`kill-camera` in NVForever.ini, Gameplay; owner's
+playtest requests #1035 and #1037, 2026-10-31) narrows that [design: combat is not a
+parity target; the original is thought to play one on any killing shot, hypothesis]:
+
+- **Last enemy** (the default): only when the kill leaves no other living actor in
+  combat with the player, counted by the player's IsInCombat rule (an actor in Alert,
+  Combat or Lost with the player on its target or alert list,
+  `fnv_game::awareness::is_in_combat`). Otherwise none plays and the view stays the
+  player's.
+- **Every kill**: on every such kill, as before.
+- **Off**: never.
+
+While one plays (#1034, #1036) [design] the HUD, the crosshair and the corner and quest
+notices are hidden (the notices wait, as under a message box), and the gameplay controls
+are held: every key and button but Menu Mode, Wait, Quick Save and Quick Load (a menu or
+the pause menu ends the camera, §19.4), the mouse and stick look, the weapon wheel, and
+the frame's moving, jumping, trigger, aim, reload and ammo swap requests, including the
+test aids that stand in for the keys. A fire button held as it starts needs a fresh
+press after it.
+
 ### 19.3 Choosing the path [hypothesis]
 
 `fnv_game::camera_paths`, `Game::pick_camera_path`: the tree is walked from the roots in
@@ -966,8 +986,7 @@ landed, so its Shoot and Fly shots have passed].
 - While a model's camera has the view, it counts as third person
   (`PlayerControl::cinematic`): the body is drawn, the first-person arms are not.
 - The player's death or any menu ends it.
-- Not built: the HUD stays up; the player's input is not held (VATS mode's firing holds
-  it, the kill camera after it does not); the No Tracer flag; the shots' fields of view
+- Not built: the No Tracer flag; the shots' fields of view
   (the player's stays); the death cameras (§19.5).
 
 ### 19.5 Death cameras
@@ -982,13 +1001,22 @@ loaded but not played: the death camera is the owner's own design (`death_cam.rs
   <EDID>, …; room right/left/back/front …, target seen …`, or `… no camera path chosen`
 - `kill camera: shot <k> of <n> <EDID>: <model>, held by the <Location>, looking at the
   <Target>, <s> s at world speed <x>[, image space modifier <EDID>]`
-- `kill camera: done (<s> s[; <why cut short>])`; at exit `kill camera summary: <n> shown`
+- `kill camera: skipped, <n> enemies still in combat (<name> <ref>, …)` (Last enemy) or
+  `kill camera: off in the settings` for a kill that shows none
+- `hud: hidden: the kill camera has the view` and `hud: back after the kill camera`;
+  `test aid: look … ignored: the kill camera has the view`
+- `kill camera: done (<s> s[; <why cut short>]), input held <n> frames` (frames in which
+  something asked of the character was struck); at exit `kill camera summary: <n> shown,
+  <n> skipped, <n> off`
 - Unit: `fnv-game` `camera_paths` (tree order, shot data, hit shots) and the
   `camera_paths` test file (the choice on a synthetic tree; the masters' tree with
   `FNVLAB_DATA_DIR`), `nvf-assets` `camera_shot`, `nvf-play` `kill_cam` (frame, look
-  point, length).
-- Smoke: `vats-kill-cam` (one mark on a Goodsprings dog left with 1 health: the shot
-  kills it, a path and its shots play, the camera ends).
+  point, length, the setting's names, the held requests).
+- Smoke: `vats-kill-cam` (one mark on a Goodsprings dog left with 1 health, the Fiends
+  about it killed first: the shot kills it, a path and its shots play, the HUD goes and
+  comes back, a held W and a look are held, the camera ends),
+  `vats-kill-cam-others-fighting` (another dog set on the player: skipped) and
+  `vats-kill-cam-off` (the row set to Off: none).
 
 ## 20. Placed objects as targets (2026-10-25)
 

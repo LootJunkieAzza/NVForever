@@ -680,6 +680,7 @@ fn goto_and_look(
     locks: Res<crate::control::ControlLocks>,
     mut stats: ResMut<crate::control::LockStats>,
     driven: Option<Res<crate::player::ViewDriven>>,
+    kill_cam: Option<Res<crate::kill_cam::KillCam>>,
 ) {
     let now = time.elapsed_secs();
     if phys.player.is_some() {
@@ -713,6 +714,11 @@ fn goto_and_look(
         // As the mouse, held while an animation drives the view (`ViewDriven`).
         if driven.as_deref().is_some_and(|d| d.0) {
             info!("test aid: look heading {:.1} pitch {:.1} ignored: an animation drives the view", h.to_degrees(), p.to_degrees());
+            continue;
+        }
+        // As the mouse, held while a kill camera plays (`crate::kill_cam`).
+        if kill_cam.as_deref().is_some_and(|k| k.active()) {
+            info!("test aid: look heading {:.1} pitch {:.1} ignored: the kill camera has the view", h.to_degrees(), p.to_degrees());
             continue;
         }
         info!("test aid: look heading {:.1} pitch {:.1}", h.to_degrees(), p.to_degrees());
