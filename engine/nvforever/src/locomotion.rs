@@ -874,6 +874,7 @@ type ActorAnimParts = (
     Option<&'static mut crate::attack_anims::CombatPose>,
     Option<&'static mut crate::creature_stance::CreatureStance>,
     Option<&'static Name>,
+    Option<&'static crate::talk_clips::TalkClip>,
 );
 
 /// Choose, blend and pose every actor with a [`Locomotion`], with its weapon clips
@@ -888,7 +889,7 @@ pub fn drive(
     let t0 = std::time::Instant::now();
     let (dt, now) = (time.delta_secs(), time.elapsed_secs());
     let mut n = 0;
-    for (mut lo, mut player, weapon, dying, flinch, seated, idle, pose, creature, name) in &mut actors {
+    for (mut lo, mut player, weapon, dying, flinch, seated, idle, pose, creature, name, talk) in &mut actors {
         if let Some(mut d) = dying {
             // Dead: the death pose to its end and held; without one the pose stays.
             let Some(clip) = d.clip.clone() else { continue };
@@ -989,6 +990,10 @@ pub fn drive(
         // A stimpak's upper-body idle over the fight's pose too (`npc_stimpaks.rs`).
         if let Some(i) = idle.filter(|i| i.over_pose()) {
             i.layers(&mut player);
+        }
+        // A robot's `Talking` while it says a line (`talk_clips.rs`).
+        if let Some(t) = talk {
+            t.layers(&mut player);
         }
         let layers = player.layers.iter().flatten().count() as u64;
         cost.layer_frames += layers;

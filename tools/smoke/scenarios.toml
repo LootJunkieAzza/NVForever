@@ -995,6 +995,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "wait-pointer-press"
+source = "issue #950: the menus' own pointer state (ui_pointer.rs) keeps Bevy 0.20 Interaction's timing: a real left press on the wait menu's slider puts the marker under the pointer, and a press on Accept fires on the press, before the release"
+areas = ["wait", "menus"]
+paths = ["engine/nvf-play/src/ui_pointer.rs", "engine/nvf-play/src/wait.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_WAIT = "10:open,11:point=0.584:0.47,11.5:press,12:release,12.5:point=0.677:0.576,13:press,14:release" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--size", "1280x720"]
+run_seconds = 18
+expect = [
+  "wait menu: open",
+  { re = 'wait menu: waiting (?P<n>\d+) hour', range = [17, 19], label = "the slider press at 72% of its length chose about 18 hours" },
+]
+order = [["test aid NVF_PLAY_TEST_WAIT: Point(0.677, 0.576)", "test aid NVF_PLAY_TEST_WAIT: Press", "wait menu: waiting … hour(s)", "test aid NVF_PLAY_TEST_WAIT: Release"]]
+
+[[scenario]]
 name = "sleep-goodsprings-24h"
 source = "CLAUDE.md: after changes to the wait and sleep menu or to the play clock it advances (fnv_sim::World::advance_hours, sky_follows_game)"
 areas = ["wait", "clock"]
@@ -6551,6 +6565,19 @@ expect = [
   { gap = ["after combat: the fight is over", "reputation: Goodsprings Neutral -> Liked"], range = [1.9, 4.0], label = "the box comes about 2 s after the fight ends, not at once" },
 ]
 forbid = [{ re = 'the player died', label = "the player dies" }]
+
+[[scenario]]
+name = "console-killall"
+source = "issue #1046: `killall` (KillAllActors, GECK wiki: kills every actor in the loaded area, essential ones knocked out) did nothing; the console now finds vanilla functions without an opcode by name and alias (docs/design/console.md)"
+areas = ["console"]
+paths = ["crates/fnv-game/src/functions/console.rs", "engine/nvf-play/src/console.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_CONSOLE = "12:killall;12.3:player.getdead;12.6:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 18
+order = [[
+  { re = 'KillAllActors >> [1-9]\d* killed, \d+ essential knocked out', label = "the town's actors die, essential ones are knocked out" },
+  { re = 'console: GetDead on player >> 0\.00', label = "never the player" },
+]]
 
 [[scenario]]
 name = "reputation-disguise"
@@ -16660,4 +16687,21 @@ args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "
 run_seconds = 9
 expect = [
   { re = 'actor parts: meshes.creatures.radscorpion.radscorpion[.]nif: shape "meatcapbody" hides 11 cap partitions beside 1 drawn', label = "the intact radscorpion's torso caps are hidden, partition by partition" },
+]
+
+[[scenario]]
+name = "victor-talk-glow"
+source = "#1081 (docs/spec-notes/lipsync.md §6.1): a Securitron's Talking sequence (talking.kf) plays while it says a line, its time from the line's .lip, so Victor's chest light ##VoiceBox_talk:0 (nvsecuritronvoicebox.nif), dark under his idle, lights and flickers with his words"
+note = "Goodsprings' Victor (GSVictorRef 0x001073E8; VictorREF 0x00103DFE is not drawn yet at the start) is put 200 units in front of the player at 3 s, the player faces him at 5 s and talks to him at 7 s (his greeting is voiced); frames at 9 to 9.4 s (lit while he speaks, flickering) and at 21 s, faced again after his lines (dark under the idle) in target/smoke"
+areas = ["dialogue", "actors", "effects"]
+paths = ["engine/nvforever/src/talk_clips.rs", "engine/nvforever/src/actor_materials.rs", "engine/nvf-assets/src/material_anim.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x001073E8:player:200:0:0", NVF_PLAY_TEST_FACE = "5:001073E8,20:001073E8", NVF_PLAY_TEST_TALK = "7:0x001073E8=leave", NVF_PLAY_TEST_TALK_DELAY = "6", NVF_PLAY_TEST_SHOTS = "9:victor_talking.png,9.2:victor_talking_2.png,9.4:victor_talking_3.png,21:victor_quiet.png" }
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-messages", "--plugins", "FalloutNV.esm"]
+run_seconds = 24
+expect = [
+  { re = 'talk clip: meshes.creatures.nvsecuritron.talking[.]kf [(]Talking, 0[.]17 s[)]: \d+ material tracks on .*##voicebox_talk:0', label = "the Securitron's Talking sequence drives the chest light" },
+  "actor materials: reference 001073E8 shape ##voicebox_talk:0 driven by its clips",
+  { re = 'talk clip: .*001073E8 says .*robotvictor.*: Talking from its [.]lip [(]\d+ frames[)]', label = "Victor's line drives his Talking sequence from its .lip" },
+  { re = 'talk clip: .*001073E8 line over: \d+ frames, level mean 0[.](1\d|[2-9]\d), peak (0[.][5-9]\d|1[.]00)', label = "the chest's level moves with the words (mean above 0.1, peak above 0.5)" },
+  { re = 'test aid: screenshot .*victor_talking[.]png', label = "the frames are saved" },
 ]

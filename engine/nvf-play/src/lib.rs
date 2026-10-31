@@ -109,7 +109,7 @@ pub mod space;
 pub mod terminal;
 pub mod tiles;
 pub mod tutorial_menu;
-pub mod ui_compat;
+pub mod ui_pointer;
 pub mod credits;
 mod test_aid;
 pub use test_aid::{drives_run, MEASURING_AIDS};
@@ -335,6 +335,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(aim_zoom::AimZoomPlugin)
             .add_plugins(save::SavePlugin)
             .add_plugins(main_menu::MainMenuPlugin)
+            .add_plugins(ui_pointer::UiPointerPlugin)
             .add_plugins(intro::IntroPlugin)
             .add_plugins(screen_splatter::ScreenSplatterPlugin)
             .add_plugins(cursor::CursorPlugin)
