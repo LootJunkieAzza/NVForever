@@ -1336,13 +1336,15 @@ pub struct Game<'a> {
     /// [hypothesis: one box at a time, the next when the open one closes]. `FormId(0)`:
     /// a box whose message is not known (a scenario's `given`).
     pub boxes: Vec<FormId>,
-    /// How many buttons each box in [`Game::boxes`] declared when shown, in step with it
-    /// (`box_buttons[i]` is `boxes[i]`'s): a form-less box (MessageBoxEx, every one
-    /// `FormId(0)`) has no Message form to count them from, and [`Game::message_box`] is
-    /// the last box shown, not the one on screen. Out of step (a snapshot restored, a
-    /// scenario's box put in front) it is not read ([`Game::front_box_buttons`]). Not
-    /// saved.
-    pub box_buttons: Vec<usize>,
+    /// What each box in [`Game::boxes`] was when shown, in step with it (`queued[i]` is
+    /// `boxes[i]`'s): how many buttons it declared (a form-less box, MessageBoxEx, every
+    /// one `FormId(0)`, has no Message form to count them from, and [`Game::message_box`]
+    /// is the last box shown, not the one on screen) and which showing it is. Kept in the
+    /// snapshot. Out of step (code that changed `boxes` alone) it is not read
+    /// ([`Game::front_box`]).
+    pub queued: Vec<QueuedBox>,
+    /// The last [`QueuedBox::serial`] given.
+    pub box_serial: u64,
     /// Dialogue lines being said (SayTo, Say), one per speaker.
     pub speech: Vec<Speech>,
     /// SayTo calls that found no line the speaker could say, (speaker, topic): their
@@ -1439,6 +1441,17 @@ pub struct SavedLambda {
     pub inst: Option<InstKey>,
 }
 
+/// A message box in [`Game::boxes`], as it was shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueuedBox {
+    /// The buttons it declared, whatever their conditions; `None` when not known (a
+    /// scenario's box of a message it does not name).
+    pub buttons: Option<usize>,
+    /// Which showing it is, counted up for every box shown: two boxes alike (the same
+    /// message, or two form-less boxes of the same words) are two showings.
+    pub serial: u64,
+}
+
 /// Snapshot of the Layer 5 state plus the world's (`fnv.game.state/1`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GameSnapshot {
@@ -1465,6 +1478,8 @@ pub struct GameSnapshot {
     pub message_box: Option<MessageBox>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub boxes: Vec<FormId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub queued: Vec<QueuedBox>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub speech: Vec<Speech>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
@@ -1843,7 +1858,8 @@ impl<'a> Game<'a> {
             loading: false,
             message_box: None,
             boxes: Vec::new(),
-            box_buttons: Vec::new(),
+            queued: Vec::new(),
+            box_serial: 0,
             speech: Vec::new(),
             say_to_unsaid: Vec::new(),
             moving_talkers: BTreeSet::new(),
@@ -3202,27 +3218,40 @@ impl<'a> Game<'a> {
 
     /// [`Game::show_box`] of a box that declared `buttons` buttons, all of them whatever
     /// their conditions (a form-less MessageBoxEx box counts its own): kept with the box
-    /// while it waits and is on screen ([`Game::front_box_buttons`]).
+    /// while it waits and is on screen ([`Game::front_box`]).
     pub fn show_box_buttons(&mut self, message: FormId, buttons: usize) {
         if !self.cfg.modal_message_boxes {
             return;
         }
-        if self.box_buttons.len() != self.boxes.len() {
-            self.box_buttons.clear();
+        let entry = self.next_queued(Some(buttons));
+        if self.queued.len() == self.boxes.len() {
+            self.queued.push(entry);
         }
         self.boxes.push(message);
-        if self.box_buttons.len() + 1 == self.boxes.len() {
-            self.box_buttons.push(buttons);
-        }
         if self.menu.is_none() {
             self.open_menu(menus::MESSAGE);
         }
     }
 
-    /// How many buttons the box on screen (or first in line) declared when shown; `None`
-    /// without a box, or when the counts are out of step with [`Game::boxes`].
-    pub fn front_box_buttons(&self) -> Option<usize> {
-        (self.box_buttons.len() == self.boxes.len()).then(|| self.box_buttons.first().copied()).flatten()
+    /// A box of a message not known, put in front of the others (a scenario's `given`
+    /// menu): its buttons not known.
+    pub fn put_box_in_front(&mut self, message: FormId) {
+        let entry = self.next_queued(None);
+        if self.queued.len() == self.boxes.len() {
+            self.queued.insert(0, entry);
+        }
+        self.boxes.insert(0, message);
+    }
+
+    fn next_queued(&mut self, buttons: Option<usize>) -> QueuedBox {
+        self.box_serial += 1;
+        QueuedBox { buttons, serial: self.box_serial }
+    }
+
+    /// What the box on screen (or first in line) was when shown; `None` without a box, or
+    /// when [`Game::queued`] is out of step with [`Game::boxes`].
+    pub fn front_box(&self) -> Option<QueuedBox> {
+        (self.queued.len() == self.boxes.len()).then(|| self.queued.first().copied()).flatten()
     }
 
     /// `ShowTutorialMenu message`: the tutorial menu shows the message, a page of the
@@ -3288,10 +3317,11 @@ impl<'a> Game<'a> {
             return Some(m);
         }
         if m == menus::MESSAGE && !self.boxes.is_empty() {
-            if self.box_buttons.len() == self.boxes.len() {
-                self.box_buttons.remove(0);
+            // Out of step, nothing can be told of the rest: none is read (unknown).
+            if self.queued.len() == self.boxes.len() {
+                self.queued.remove(0);
             } else {
-                self.box_buttons.clear();
+                self.queued.clear();
             }
             let b = self.boxes.remove(0);
             if let Some(mb) = self.message_box.as_mut().filter(|mb| mb.message == b && mb.pressed.is_none()) {
@@ -4470,6 +4500,7 @@ impl<'a> Game<'a> {
             loading: self.loading,
             message_box: self.message_box.clone(),
             boxes: self.boxes.clone(),
+            queued: self.queued.clone(),
             speech: self.speech.clone(),
             said: self.said.clone(),
             said_day: self.said_day.clone(),
@@ -4523,8 +4554,9 @@ impl<'a> Game<'a> {
         g.loading = s.loading;
         g.message_box = s.message_box.clone();
         g.boxes = s.boxes.clone();
-        // Not in the snapshot: out of step, so not read (`Game::front_box_buttons`).
-        g.box_buttons.clear();
+        // An older snapshot has none: out of step, so not read (`Game::front_box`).
+        g.queued = s.queued.clone();
+        g.box_serial = g.queued.iter().map(|q| q.serial).max().unwrap_or(0);
         g.speech = s.speech.clone();
         g.said = s.said.clone();
         g.said_day = s.said_day.clone();
@@ -4809,7 +4841,7 @@ impl Host for Exec<'_, '_> {
         let (is_box, count) = (!buttons.is_empty(), buttons.len());
         self.game.emit(EventKind::MessageShown { message: none, text: Some(text.to_string()), buttons, hidden: Vec::new() });
         if is_box {
-            // Its own buttons: no Message form to count them from (`Game::box_buttons`).
+            // Its own buttons: no Message form to count them from (`Game::queued`).
             self.game.show_box_buttons(none, count);
         } else {
             self.game.queue_corner_message();

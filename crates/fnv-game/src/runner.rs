@@ -882,7 +882,7 @@ fn apply_given(g: &mut Game, gv: &Given) -> Result<(), String> {
             if *open {
                 if *menu == menus::MESSAGE {
                     // A box of a message the input does not name, in front of any other.
-                    g.boxes.insert(0, FormId(0));
+                    g.put_box_in_front(FormId(0));
                 }
                 g.open_menu(*menu);
             } else if g.menu == Some(*menu) {

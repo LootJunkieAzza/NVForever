@@ -2230,28 +2230,45 @@ fn message_ex_box_ex_and_debug_print() {
 
 #[test]
 fn each_queued_box_keeps_its_own_button_count() {
-    // `--no-messages` (nvf-play) closes the front box when it declared one button or none.
+    // `--no-messages` (nvf-play) closes the front box when it declared one button or none,
+    // and leaves it when its count is not known.
     let f = udf_fixture();
     let mut g = game(&f);
+    let buttons = |g: &Game| g.front_box().and_then(|b| b.buttons);
     // A form-less Yes/No box A: two buttons, though no Message form says so.
     g.run_source("MessageBoxEx \"A|Yes|No\"", Default::default()).expect("compiles");
-    assert_eq!((g.boxes.clone(), g.front_box_buttons()), (vec![FormId(0)], Some(2)));
+    assert_eq!((g.boxes.clone(), buttons(&g)), (vec![FormId(0)], Some(2)));
     // A form box B of two buttons shown behind it overwrites the last-shown record, as
     // ShowMessage does; A on screen still counts its own two.
     g.message_box = Some(fnv_game::game::MessageBox { message: FormId(0x810), buttons: 2, pressed: None, owner: None, hidden: Vec::new() });
     g.show_box_buttons(FormId(0x810), 2);
-    assert_eq!((g.boxes.len(), g.front_box_buttons()), (2, Some(2)));
-    // A closes: B is in front with its two buttons, as before this change.
-    g.close_menu();
-    assert_eq!((g.boxes.clone(), g.front_box_buttons()), (vec![FormId(0x810)], Some(2)));
-    g.close_menu();
-    assert_eq!(g.front_box_buttons(), None);
-    // A form-less OK-only box: one button.
+    // Two more form-less boxes, the same ID 0 and the same words, of other counts: each
+    // its own count and its own showing.
     g.run_source("MessageBoxEx \"C|Ok\"", Default::default()).expect("compiles");
-    assert_eq!(g.front_box_buttons(), Some(1));
-    // Out of step (a scenario's box put in front): not read.
-    g.boxes.insert(0, FormId(0));
-    assert_eq!(g.front_box_buttons(), None);
+    g.run_source("MessageBoxEx \"C|Ok\"", Default::default()).expect("compiles");
+    assert_eq!((g.boxes.len(), buttons(&g)), (4, Some(2)));
+    let serials: Vec<u64> = g.queued.iter().map(|q| q.serial).collect();
+    assert!(serials.windows(2).all(|w| w[0] < w[1]), "every box its own showing: {serials:?}");
+    // Through a snapshot and back: the counts and showings kept.
+    let text = serde_json::to_string(&g.snapshot()).unwrap();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&text).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let mut g = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!((g.boxes.len(), buttons(&g)), (4, Some(2)));
+    assert_eq!(g.queued.iter().map(|q| q.serial).collect::<Vec<_>>(), serials);
+    // A scenario's box put in front: its count not known; the rest keep theirs.
+    g.put_box_in_front(FormId(0));
+    assert_eq!(g.front_box().map(|b| b.buttons), Some(None));
+    g.menu = Some(fnv_game::game::menus::MESSAGE);
+    g.close_menu();
+    assert_eq!(buttons(&g), Some(2), "A again, after the scenario's box closed");
+    g.close_menu();
+    assert_eq!((g.boxes.clone(), buttons(&g)), (vec![FormId(0x810), FormId(0), FormId(0)], Some(2)));
+    g.close_menu();
+    assert_eq!(buttons(&g), Some(1));
+    // Code that changes the queue alone puts it out of step: nothing read, not a 0.
+    g.boxes.push(FormId(0));
+    assert_eq!(g.front_box(), None);
 }
 
 #[test]
