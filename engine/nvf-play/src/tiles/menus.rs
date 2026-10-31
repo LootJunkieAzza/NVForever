@@ -102,7 +102,7 @@ pub struct ModalSheet;
 pub fn modal_sheet() -> impl bevy::prelude::Bundle {
     use bevy::prelude::{Node, PositionType, Val};
     let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..Default::default() };
-    (ModalSheet, full, bevy::ui::FocusPolicy::Block, crate::ui_compat::Interaction::default())
+    (ModalSheet, full, bevy::ui::FocusPolicy::Block, crate::ui_pointer::PointerState::default())
 }
 
 /// The keys a menu's hand-built handler acts on itself, by the names the tile input gives
@@ -710,7 +710,7 @@ mod tests {
         let node = world.get::<Node>(e).unwrap();
         assert_eq!((node.width, node.height, node.position_type), (Val::Percent(100.0), Val::Percent(100.0), PositionType::Absolute));
         assert_eq!(world.get::<bevy::ui::FocusPolicy>(e), Some(&bevy::ui::FocusPolicy::Block));
-        assert!(world.get::<crate::ui_compat::Interaction>(e).is_some() && world.get::<ModalSheet>(e).is_some());
+        assert!(world.get::<crate::ui_pointer::PointerState>(e).is_some() && world.get::<ModalSheet>(e).is_some());
     }
 
     #[test]

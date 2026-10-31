@@ -8,7 +8,7 @@ use crate::chargen::draw::{Align, Ctx, Which, BODY_H, THICK};
 use crate::chargen::lists::{marker, MAIN, ROW_H};
 use crate::interface::{amber, at};
 use bevy::prelude::*;
-use crate::ui_compat::Button;
+use crate::ui_pointer::Button;
 
 /// The files' dark picture behind (1144 × 1070, 50 left of and 125 above the rectangle)
 /// is replaced by the whole screen darkened ([`crate::interface::top_menu_backing`]; the

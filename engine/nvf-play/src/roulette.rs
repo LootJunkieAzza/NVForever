@@ -40,7 +40,7 @@ use crate::sfx::PlaySound;
 use crate::sim::SimState;
 use crate::{PlaySet, PlayState};
 use bevy::prelude::*;
-use crate::ui_compat::{Button, Interaction};
+use crate::ui_pointer::{Button, PointerState};
 use fnv_game::casino;
 use fnv_game::roulette::{self as rules, Refusal, Table};
 use fnv_sim::FormId;
@@ -415,7 +415,7 @@ fn open(
 }
 
 /// The keys.
-fn keys(keys: Res<ButtonInput<KeyCode>>, mouse: Res<ButtonInput<MouseButton>>, screen: Res<RouletteScreen>, pointer: Res<RoulettePointer>, over_button: Query<&Interaction, With<Button>>, mut out: MessageWriter<RouletteInput>) {
+fn keys(keys: Res<ButtonInput<KeyCode>>, mouse: Res<ButtonInput<MouseButton>>, screen: Res<RouletteScreen>, pointer: Res<RoulettePointer>, over_button: Query<&PointerState, With<Button>>, mut out: MessageWriter<RouletteInput>) {
     let Some(s) = screen.0.as_ref() else { return };
     if s.help.is_some() {
         if keys.any_just_pressed([KeyCode::KeyE, KeyCode::Escape, KeyCode::Tab, KeyCode::Enter]) {
@@ -444,7 +444,7 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, mouse: Res<ButtonInput<MouseButton>>, s
         }
     }
     // A click on the felt places the bet there; the mouse wheel changes the bet [design].
-    let on_button = over_button.iter().any(|i| *i != Interaction::None);
+    let on_button = over_button.iter().any(|i| *i != PointerState::None);
     if mouse.just_pressed(MouseButton::Left) && !on_button && pointer.point.is_some() {
         out.write(RouletteInput::Place);
     }
@@ -455,20 +455,20 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, mouse: Res<ButtonInput<MouseButton>>, s
 
 fn buttons(
     screen: Res<RouletteScreen>,
-    pressed: Query<(&Interaction, &screen::RouletteButton), Changed<Interaction>>,
-    help_close: Query<(&Interaction, &crate::lockpick::screen::LockButton), Changed<Interaction>>,
+    pressed: Query<(&PointerState, &screen::RouletteButton), Changed<PointerState>>,
+    help_close: Query<(&PointerState, &crate::lockpick::screen::LockButton), Changed<PointerState>>,
     mut out: MessageWriter<RouletteInput>,
 ) {
     if screen.0.is_none() {
         return;
     }
     for (i, b) in &pressed {
-        if *i == Interaction::Pressed {
+        if *i == PointerState::Pressed {
             out.write(b.0.clone());
         }
     }
     // The help box's Close (lockpicking's box, `crate::lockpick::help`).
-    if help_close.iter().any(|(i, _)| *i == Interaction::Pressed) {
+    if help_close.iter().any(|(i, _)| *i == PointerState::Pressed) {
         out.write(RouletteInput::CloseHelp);
     }
 }

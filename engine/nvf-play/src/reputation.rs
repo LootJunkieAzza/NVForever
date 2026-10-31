@@ -14,9 +14,9 @@
 //!   two SOUN records in FalloutNV.esm; hypothesis: when each plays].
 //! - **Log**: `reputation:` lines for each change of title.
 //! - **Not in a fight**: while the player is in combat the box, sound and log line wait,
-//!   and come when the fight is over (a title that changed back meanwhile shows nothing)
-//!   [owner request 2026-10-19]. In combat is the wait menu's test (`crate::wait`): a
-//!   drawn, living actor in a combat state hunts the player, as IsInCombat reads it.
+//!   and come once the fight has been over for a short while (a title that changed back
+//!   meanwhile shows nothing) [owner requests 2026-10-19 and 2026-10-30, #1050]: the
+//!   shared gate `crate::after_combat` (in combat is the wait menu's test, `crate::wait`).
 //! - A save keeps the titles last shown, so a load shows no box for what it restores.
 //! - **Disguises**: the titles are those of the player's real reputation
 //!   (`fnv_game::functions::reputation::real`), so faction armour, whose scripts set
@@ -84,8 +84,9 @@ const GOOD_FACE: &str = "textures\\interface\\icons\\message icons\\glow_message
 const BAD_FACE: &str = "textures\\interface\\icons\\message icons\\glow_message_vaultboy_sad.dds";
 const MIXED_FACE: &str = "textures\\interface\\icons\\message icons\\glow_message_vaultboy_neutral.dds";
 
-/// The box's button [observed: "Ok" on both screenshots].
-const OK: &str = "Ok";
+/// The setting naming the box's button, read through `fnv_game::ui_loading::game_string`
+/// (the load order's GMST, else NVForever's own label; LEGAL.md) [design, #1183].
+const OK_SETTING: &str = "sOk";
 
 const NUMBERS: [&str; 4] = ["Zero", "One", "Two", "Three"];
 
@@ -132,7 +133,7 @@ pub fn panel(g: &fnv_game::Game, sim: &SimState, rep: FormId) -> PanelView {
     PanelView {
         title: Some(name),
         text: format!("{}\n{}", title(fame, infamy), description(fame, infamy, setting)),
-        buttons: vec![OK.into()],
+        buttons: vec![fnv_game::ui_loading::game_string(g, OK_SETTING)],
         icon: Some(face(fame, infamy).into()),
     }
 }
@@ -176,25 +177,18 @@ const SAVE_HOOK: SaveHook = SaveHook {
     }),
 };
 
-/// Whether a drawn, living actor in a combat state hunts the player (`crate::wait`'s
-/// test; an actor left in an unloaded cell keeps its state, so only drawn ones count).
-fn player_in_combat(g: &fnv_game::Game, living: &[(u32, [f32; 3])]) -> bool {
-    let player = FormId::PLAYER_REF;
-    living.iter().any(|&(a, _)| g.awareness.get(FormId(a)).is_some_and(|w| w.state.in_combat() && (w.targets.contains_key(&player) || w.alarms.iter().any(|x| x.owner == player))))
-}
-
 /// A title that changed since it was last shown: the box, the sound, the log line, held
-/// back while the player is in combat.
-fn watch(
+/// back while the player is in combat and for a while after (`crate::after_combat`).
+pub(crate) fn watch(
     mut script: Option<ResMut<ScriptState>>,
     sim: Res<SimState>,
-    actors: Option<Res<crate::hitvol::HitVolumes>>,
+    after: Option<Res<crate::after_combat::AfterCombat>>,
     mut shown: ResMut<Shown>,
     mut sounds: MessageWriter<PlaySound>,
 ) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let g = &mut rt.game;
-    if shown.0.is_some() && actors.is_some_and(|a| player_in_combat(g, &a.living)) {
+    if shown.0.is_some() && after.is_some_and(|a| !a.settled()) {
         return;
     }
     let now: BTreeMap<u32, (usize, usize)> = g.player.reputation.keys().chain(g.player.reputation_hidden.keys()).map(|&r| (r.0, levels(g, r))).collect();

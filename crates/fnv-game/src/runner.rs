@@ -457,6 +457,7 @@ fn save_and_load(g: &mut Game) -> Result<usize, String> {
     let back: crate::game::GameSnapshot = serde_json::from_slice(&file.body).map_err(|e| e.to_string())?;
     let world = World::restore(g.world.forms, g.world.placed, &back.sim)?;
     let mut n = Game::restore(g.data, world, g.cfg, &back)?;
+    n.world.put_session(g.world.take_session());
     n.put_session(g.take_session());
     n.voice = g.voice.take();
     n.coverage = g.coverage.take();

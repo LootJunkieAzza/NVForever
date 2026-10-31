@@ -38,7 +38,7 @@ use crate::sfx::PlaySound;
 use crate::sim::SimState;
 use crate::{PlaySet, PlayState};
 use bevy::prelude::*;
-use crate::ui_compat::Interaction;
+use crate::ui_pointer::PointerState;
 use fnv_game::casino;
 use fnv_game::slots::{self as rules, Limits, REELS};
 use fnv_sim::FormId;
@@ -425,19 +425,19 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, screen: Res<SlotsScreen>, mut out: Mess
 
 fn buttons(
     screen: Res<SlotsScreen>,
-    pressed: Query<(&Interaction, &screen::SlotsButton), Changed<Interaction>>,
-    help_close: Query<(&Interaction, &crate::lockpick::screen::LockButton), Changed<Interaction>>,
+    pressed: Query<(&PointerState, &screen::SlotsButton), Changed<PointerState>>,
+    help_close: Query<(&PointerState, &crate::lockpick::screen::LockButton), Changed<PointerState>>,
     mut out: MessageWriter<SlotsInput>,
 ) {
     if screen.0.is_none() {
         return;
     }
     for (i, b) in &pressed {
-        if *i == Interaction::Pressed {
+        if *i == PointerState::Pressed {
             out.write(b.0.clone());
         }
     }
-    if help_close.iter().any(|(i, _)| *i == Interaction::Pressed) {
+    if help_close.iter().any(|(i, _)| *i == PointerState::Pressed) {
         out.write(SlotsInput::CloseHelp);
     }
 }

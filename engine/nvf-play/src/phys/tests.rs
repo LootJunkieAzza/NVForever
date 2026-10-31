@@ -34,7 +34,7 @@ fn object(half: f32, motion: Motion) -> CollisionObject {
         mass: 20.0,
         friction: 0.5,
         restitution: 0.0,
-        shape: Shape::Box { half_extents: [half; 3] },
+        shape: Shape::Box { half_extents: [half; 3] }.into(),
         shell: 0.0,
         material: None,
     }

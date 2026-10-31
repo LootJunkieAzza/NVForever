@@ -44,7 +44,7 @@ use crate::script_events::BoxMessage;
 use crate::sim::SimState;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
-use crate::ui_compat::Interaction;
+use crate::ui_pointer::PointerState;
 use fnv_font::{Font, Line};
 use fnv_game::game::menus;
 use fnv_sim::FormId;
@@ -341,7 +341,7 @@ fn draw(
 #[allow(clippy::too_many_arguments)]
 pub fn menu_keys(
     keys: Res<ButtonInput<KeyCode>>,
-    clicks: Query<(&Interaction, &BoxButton), Changed<Interaction>>,
+    clicks: Query<(&PointerState, &BoxButton), Changed<PointerState>>,
     hud: Res<ScriptHud>,
     mut panel: ResMut<MessagePanel>,
     mut script: ResMut<ScriptState>,
@@ -355,7 +355,7 @@ pub fn menu_keys(
     if !crate::script::is_script_menu(code) {
         return;
     }
-    let clicked = clicks.iter().find(|(i, _)| **i == Interaction::Pressed).map(|(_, b)| b.0).or(tile_click);
+    let clicked = clicks.iter().find(|(i, _)| **i == PointerState::Pressed).map(|(_, b)| b.0).or(tile_click);
     let enter = keys.any_just_pressed([Enter, NumpadEnter]);
     if code == menus::TUTORIAL || crate::chargen::has_own_menu(code) || crate::levelup::draws(code) || crate::creator::draws(code, creator.is_some()) {
         return;

@@ -682,7 +682,7 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       `a9c5f151` (the tiled prompt's and box's pointer sheet, the late-font retry through
       `draw::whole_pieces` and its test) were only compiled (`cargo check`). The final
       smoke run and the screenshot comparison with the original are pending. Captures to do: observer-checks.md items
-      55, 56.
+      60, 61.
       - Review fixes (2026-10-31, an independent review): navigation has one owner (a
         highlight a ref moved for a hand-built Up/Down is not the choice); a new box makes
         its rows again (a queued script click on the last box answers nothing); key clicks

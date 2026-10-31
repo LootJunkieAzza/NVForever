@@ -605,7 +605,7 @@ marked]:
 | `me()` | 1798 | the tile itself |
 | `sibling(name)` | 1660 | the tile of that name under the same parent |
 | `sibling()` | 2 | the tile just before it under the same parent |
-| `screen()` | 451 | the view: traits `width`, `height`, `cropx`, `cropy`, `resolutionconverter`, set by the engine (the running game writes the window's pixels, and no converter; since T15a, only while `[UI] TileMenus` names `MessageMenu` or `QuantityMenu`, the view in interface units, 960 high and 960 × width/height wide, and `resolutionconverter` 960 / the window's height [design: the default unchanged; hypothesis: the units and the converter, fitted to hud.md §14's line thickness 1.78 at 1920 x 1080; observer-checks.md item 55]; `fnvtool ui tree --screen` writes the size it is given) |
+| `screen()` | 451 | the view: traits `width`, `height`, `cropx`, `cropy`, `resolutionconverter`, set by the engine (the running game writes the window's pixels, and no converter; since T15a, only while `[UI] TileMenus` names `MessageMenu` or `QuantityMenu`, the view in interface units, 960 high and 960 × width/height wide, and `resolutionconverter` 960 / the window's height [design: the default unchanged; hypothesis: the units and the converter, fitted to hud.md §14's line thickness 1.78 at 1920 x 1080; observer-checks.md item 60]; `fnvtool ui tree --screen` writes the size it is given) |
 | `globals()` | 244 | `globals.xml`'s tile (`gloabls()`, once, read the same) |
 | `io()` | 242 | the menu the tile is in, whose traits the game's code reads and writes (barter reads `io()`'s `_IsContainerListSelected`, which its `<menu>` declares) |
 | `child(name)` | 148 | the child of that name; `child()` the first child |

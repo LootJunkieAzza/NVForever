@@ -66,7 +66,7 @@ use crate::{space, ItemUsed, Location, OpenContainer, PlaySet, PlayState, Player
 use bevy::image::CompressedImageFormatSupport;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
-use crate::ui_compat::Interaction;
+use crate::ui_pointer::PointerState;
 use bevy::ui::RelativeCursorPosition;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use fnv_sim::forms::BaseData;
@@ -510,8 +510,8 @@ fn wheel_hold(mut wheel: MessageReader<MouseWheel>, mut moved: MessageReader<Cur
 /// stack.
 #[allow(clippy::too_many_arguments)]
 fn menu_mouse(
-    rows: Query<(&Interaction, &RowButton), Changed<Interaction>>,
-    buttons: Query<(&Interaction, &CmdButton), Changed<Interaction>>,
+    rows: Query<(&PointerState, &RowButton), Changed<PointerState>>,
+    buttons: Query<(&PointerState, &CmdButton), Changed<PointerState>>,
     keys: Res<ButtonInput<KeyCode>>,
     active: Res<ActiveMenu>,
     hold: Res<WheelHold>,
@@ -532,24 +532,24 @@ fn menu_mouse(
     for (i, r) in &rows {
         let on_it = m.focus == r.0 && m.selected[r.0 as usize] == r.1;
         match *i {
-            Interaction::Hovered if hover && !on_it && pointer_moved && !hold.held() => {
+            PointerState::Hovered if hover && !on_it && pointer_moved && !hold.held() => {
                 out.write(MenuInput(Command::Hover(r.0, r.1)));
             }
-            Interaction::Pressed if hover && on_it && shift => {
+            PointerState::Pressed if hover && on_it && shift => {
                 out.write(MenuInput(Command::Stack));
             }
-            Interaction::Pressed if hover && !on_it => {
+            PointerState::Pressed if hover && !on_it => {
                 out.write(MenuInput(Command::Hover(r.0, r.1)));
                 out.write(MenuInput(if shift { Command::Stack } else { Command::One }));
             }
-            Interaction::Pressed => {
+            PointerState::Pressed => {
                 out.write(MenuInput(Command::Select(r.0, r.1)));
             }
             _ => {}
         }
     }
     for (i, b) in &buttons {
-        if *i == Interaction::Pressed {
+        if *i == PointerState::Pressed {
             out.write(MenuInput(b.0));
         }
     }
@@ -595,8 +595,8 @@ fn quantity_keys(keys: Res<ButtonInput<KeyCode>>, active: Res<ActiveMenu>, mut h
 /// arrows and buttons act, the wheel moves the amount (up: more).
 fn quantity_mouse(
     active: Res<ActiveMenu>,
-    meter: Query<(&Interaction, &RelativeCursorPosition), With<AmountMeter>>,
-    buttons: Query<(&Interaction, &CmdButton), Changed<Interaction>>,
+    meter: Query<(&PointerState, &RelativeCursorPosition), With<AmountMeter>>,
+    buttons: Query<(&PointerState, &CmdButton), Changed<PointerState>>,
     mut wheel: MessageReader<MouseWheel>,
     mut lines: Local<f32>,
     mut out: MessageWriter<MenuInput>,
@@ -606,7 +606,7 @@ fn quantity_mouse(
         return;
     };
     for (i, at) in &meter {
-        if let (Interaction::Pressed, Some(p)) = (i, at.normalized) {
+        if let (PointerState::Pressed, Some(p)) = (i, at.normalized) {
             let n = model::amount_at(p.x + 0.5, q.max);
             if n != q.amount {
                 out.write(MenuInput(Command::Amount(n)));
@@ -614,7 +614,7 @@ fn quantity_mouse(
         }
     }
     for (i, b) in &buttons {
-        if *i == Interaction::Pressed {
+        if *i == PointerState::Pressed {
             out.write(MenuInput(b.0));
         }
     }
@@ -716,6 +716,12 @@ fn apply_input(
             }
             let (at, count) = sim.world.peek(*id).map(|s| (s.pos, s.count)).unwrap_or_default();
             info!("menu: dropped reference {id} (count {count}) at ({:.1}, {:.1}, {:.1})", at[0], at[1], at[2]);
+            changed.write(RefChanged { form_id: id.0 });
+        }
+        // A corpse's dropped weapon taken from its loot menu: picked up from the world,
+        // so its collision and drawing go (`model::Row::reference`).
+        for id in &a.picked {
+            info!("menu: picked up reference {id} lying beside the container");
             changed.write(RefChanged { form_id: id.0 });
         }
         if a.close {
@@ -821,8 +827,9 @@ fn draw(
     // alone, `crate::tiles::menus::modal_sheet`); it goes with the prompt.
     match (crate::tiles::menus::modal(m.quantity.is_some(), tiled), &m.quantity) {
         (crate::tiles::menus::Modal::HandBuilt, Some(q)) => {
+            let words = look::quantity_words(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game));
             commands.spawn((MenuRoot, screen, GlobalZIndex(101))).with_children(|root| {
-                look::spawn_quantity(root, q, kit, data.as_deref(), &mut images, bc);
+                look::spawn_quantity(root, q, &words, kit, data.as_deref(), &mut images, bc);
             });
         }
         (crate::tiles::menus::Modal::Sheet, _) => {

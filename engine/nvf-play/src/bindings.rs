@@ -840,6 +840,8 @@ pub struct ControlInput<'w, 's> {
     pub sticks: Option<Res<'w, crate::pad::StickButtons>>,
     /// Keys and buttons scripts disabled (DisableKey, DisableControl; task D6).
     pub blocked: Option<Res<'w, crate::script_input::ScriptBlocked>>,
+    /// A playing kill camera holds the gameplay controls (`crate::kill_cam`).
+    pub kill_cam: Option<Res<'w, crate::kill_cam::KillCam>>,
 }
 
 /// How a controller input is asked about.
@@ -854,6 +856,12 @@ impl ControlInput<'_, '_> {
     /// The free camera has the keys.
     pub fn suppressed(&self) -> bool {
         self.free_cam.as_ref().is_some_and(|f| f.active)
+    }
+
+    /// A playing kill camera holds `c`: every control but those that open a menu or
+    /// save, so the game can still be paused or left (`crate::kill_cam`, module notes).
+    pub fn held(&self, c: Control) -> bool {
+        self.kill_cam.as_ref().is_some_and(|k| k.active()) && !matches!(c, Control::MenuMode | Control::Rest | Control::QuickSave | Control::QuickLoad)
     }
 
     /// A controller works the controls.
@@ -881,11 +889,11 @@ impl ControlInput<'_, '_> {
     /// the movement controls are on the stick.
     pub fn move_stick(&self) -> Option<Vec2> {
         let on_stick = [Control::Forward, Control::Back, Control::SlideLeft, Control::SlideRight].iter().all(|&c| matches!(self.bindings.pad(c), Some(PadInput::Stick(_))));
-        (self.controller() && on_stick && !self.suppressed()).then(|| crate::pad::stick(&self.pads, true))
+        (self.controller() && on_stick && !self.suppressed() && !self.held(Control::Forward)).then(|| crate::pad::stick(&self.pads, true))
     }
 
     pub fn pressed(&self, c: Control) -> bool {
-        if self.suppressed() {
+        if self.suppressed() || self.held(c) {
             return false;
         }
         if self.controller() {
@@ -904,7 +912,7 @@ impl ControlInput<'_, '_> {
     }
 
     pub fn just_pressed(&self, c: Control) -> bool {
-        if self.suppressed() {
+        if self.suppressed() || self.held(c) {
             return false;
         }
         if self.controller() {
@@ -916,6 +924,9 @@ impl ControlInput<'_, '_> {
 
     /// Released this frame, and neither of its inputs is still down.
     pub fn just_released(&self, c: Control) -> bool {
+        if self.held(c) {
+            return false;
+        }
         if self.controller() {
             return self.pad_is(c, Ask::JustReleased) && !self.pressed(c);
         }

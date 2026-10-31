@@ -143,14 +143,17 @@ impl Vfs {
             push(find(a), &mut order);
         }
         push(find("Update.bsa"), &mut order);
-        for p in plugins {
-            let stem = p.rsplit_once('.').map_or(*p, |(s, _)| s).to_ascii_lowercase();
+        let stems: Vec<String> = plugins.iter().map(|p| p.rsplit_once('.').map_or(*p, |(s, _)| s).to_ascii_lowercase()).collect();
+        let claims = |stem: &str, name: &str| {
+            let l = name.to_ascii_lowercase();
+            l == format!("{stem}.bsa") || l.starts_with(&format!("{stem} - "))
+        };
+        for stem in &stems {
+            // An archive several plugins' stems match belongs to the longest of them:
+            // `Foo - Bar.bsa` is `Foo - Bar.esp`'s, not `Foo.esp`'s (#996).
             let mut own: Vec<String> = present
                 .iter()
-                .filter(|n| {
-                    let l = n.to_ascii_lowercase();
-                    l == format!("{stem}.bsa") || l.starts_with(&format!("{stem} - "))
-                })
+                .filter(|n| claims(stem, n) && !stems.iter().any(|o| o.len() > stem.len() && claims(o, n)))
                 .cloned()
                 .collect();
             own.sort_by_key(|n| n.to_ascii_lowercase());
@@ -218,14 +221,19 @@ impl Vfs {
     /// its plugin loads after them, and loose files stay above every archive. The
     /// [`ARCHIVE_ORDER_ENV`] override applies as there.
     pub fn open_for_plugins<S: AsRef<str>>(data_dir: &Path, plugins: &[S]) -> Result<Vfs, VfsError> {
-        let order = match std::env::var(ARCHIVE_ORDER_ENV) {
-            Ok(list) if !list.trim().is_empty() => parse_archive_list(&list),
+        Vfs::open(data_dir, &Vfs::order_for_plugins(data_dir, plugins).0)
+    }
+
+    /// The archives [`Vfs::open_for_plugins`] mounts, lowest precedence first, and
+    /// whether they came from the [`ARCHIVE_ORDER_ENV`] override (`fnvtool vfs order`).
+    pub fn order_for_plugins<S: AsRef<str>>(data_dir: &Path, plugins: &[S]) -> (Vec<String>, bool) {
+        match std::env::var(ARCHIVE_ORDER_ENV) {
+            Ok(list) if !list.trim().is_empty() => (parse_archive_list(&list), true),
             _ => {
                 let plugins: Vec<&str> = plugins.iter().map(AsRef::as_ref).collect();
-                Vfs::archive_order(data_dir, &DEFAULT_ARCHIVE_LIST, &plugins)
+                (Vfs::archive_order(data_dir, &DEFAULT_ARCHIVE_LIST, &plugins), false)
             }
-        };
-        Vfs::open(data_dir, &order)
+        }
     }
 
     pub fn archives(&self) -> impl Iterator<Item = &str> {
@@ -474,6 +482,24 @@ mod tests {
         // Without the plugin its archives are not read.
         let order = Vfs::archive_order(&dir, &DEFAULT_ARCHIVE_LIST, &DEFAULT_PLUGINS);
         assert!(!order.iter().any(|n| n.starts_with("MyMod")));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// `Foo - Bar.bsa` matches both `Foo.esp` ("Foo - *") and `Foo - Bar.esp`: it takes
+    /// the longer stem's place, after `Foo - Bar.esp`'s other archives load order puts
+    /// later (#996).
+    #[test]
+    fn an_archive_belongs_to_the_longest_plugin_stem() {
+        let dir = std::env::temp_dir().join(format!("nvf-vfs-stems-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for n in ["Foo.bsa", "Foo - Main.bsa", "Foo - Bar.bsa", "Middle.bsa"] {
+            std::fs::write(dir.join(n), b"").unwrap();
+        }
+        let order = Vfs::archive_order(&dir, &[], &["Foo.esp", "Middle.esp", "Foo - Bar.esp"]);
+        assert_eq!(order, ["Foo - Main.bsa", "Foo.bsa", "Middle.bsa", "Foo - Bar.bsa"]);
+        // Without the longer plugin, Foo.esp keeps claiming it.
+        let order = Vfs::archive_order(&dir, &[], &["Foo.esp", "Middle.esp"]);
+        assert_eq!(order, ["Foo - Bar.bsa", "Foo - Main.bsa", "Foo.bsa", "Middle.bsa"]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

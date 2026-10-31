@@ -7,7 +7,7 @@
 //! transform conventions are established on the data.
 
 use fnv_nif::file::{NifFile, RawBlock};
-use fnv_nif::scene::{mesh_data, scene_objects, Decoded, Transform, SHAPE_DATA_TYPES};
+use fnv_nif::scene::{mesh_data, scene_objects, Decoded, SceneObject, Transform, SHAPE_DATA_TYPES};
 use fnv_nif::{Struct, Value};
 use std::collections::HashMap;
 
@@ -409,14 +409,13 @@ impl Walk<'_> {
     }
 }
 
-/// Transforms of every scene node and shape into the mesh root's frame (the root's own
-/// transform excluded), plus the render bounds and vertices in that frame.
-fn scene_space(file: &NifFile, dec: &Decoded) -> (HashMap<usize, Similarity>, Option<Aabb>, Vec<[f32; 3]>) {
-    let objs = scene_objects(file, dec);
+/// Transforms of every scene node and shape in `objs` into the mesh root's frame (the
+/// root's own transform excluded).
+fn node_to_root(file: &NifFile, objs: &[SceneObject]) -> HashMap<usize, Similarity> {
     let root = file.footer.roots.first().copied();
     let by_block: HashMap<usize, usize> = objs.iter().enumerate().map(|(k, o)| (o.block, k)).collect();
     let mut to_root: HashMap<usize, Similarity> = HashMap::new();
-    for o in &objs {
+    for o in objs {
         let mut chain = vec![o.block];
         let mut cur = o.parent;
         while let Some(p) = cur {
@@ -439,6 +438,12 @@ fn scene_space(file: &NifFile, dec: &Decoded) -> (HashMap<usize, Similarity>, Op
         }
         to_root.insert(o.block, acc);
     }
+    to_root
+}
+
+/// The render geometry's bounds and vertices in the mesh root's frame (`to_root` from
+/// [`node_to_root`]).
+fn render_space(dec: &Decoded, objs: &[SceneObject], to_root: &HashMap<usize, Similarity>) -> (Option<Aabb>, Vec<[f32; 3]>) {
     let mut bounds = Aabb::empty();
     let mut points = Vec::new();
     for o in objs.iter().filter(|o| !o.is_node) {
@@ -451,13 +456,29 @@ fn scene_space(file: &NifFile, dec: &Decoded) -> (HashMap<usize, Similarity>, Op
             points.push(q);
         }
     }
-    (to_root, bounds.is_valid().then_some(bounds), points)
+    (bounds.is_valid().then_some(bounds), points)
 }
 
-/// Every collision object reachable from a scene node's `collision_object`.
+/// Every collision object reachable from a scene node's `collision_object`, with the
+/// render geometry's bounds and vertices.
 pub fn extract(file: &NifFile, dec: &Decoded) -> Extracted {
-    let (to_root, render, render_points) = scene_space(file, dec);
-    let mut out = Extracted { render, render_points, ..Default::default() };
+    extract_with(file, dec, true)
+}
+
+/// [`extract`] without the render geometry (`render` and `render_points` left empty):
+/// the collision objects, phantoms and problems only, for callers that use nothing else
+/// (the streaming path decoded every drawn vertex for nothing, issue #1085).
+pub fn extract_collision(file: &NifFile, dec: &Decoded) -> Extracted {
+    extract_with(file, dec, false)
+}
+
+fn extract_with(file: &NifFile, dec: &Decoded, render: bool) -> Extracted {
+    let objs = scene_objects(file, dec);
+    let to_root = node_to_root(file, &objs);
+    let mut out = Extracted::default();
+    if render {
+        (out.render, out.render_points) = render_space(dec, &objs, &to_root);
+    }
     for (i, b) in dec.blocks.iter().enumerate() {
         let Ok(node) = b else { continue };
         if !dec.is_a(i, "NiAVObject") {
@@ -651,7 +672,7 @@ impl RawCollision {
             mass: self.mass.unwrap_or(0.0),
             friction: self.friction.unwrap_or(0.0),
             restitution: self.restitution.unwrap_or(0.0),
-            shape: self.shape.scaled(f),
+            shape: self.shape.scaled(f).into(),
             shell: self.shell * f,
             material: self.convex_material,
         }
@@ -665,7 +686,7 @@ impl RawCollision {
 /// Solid collision objects of a mesh in game units (phantoms left out), with the
 /// problems met while reading.
 pub fn collision_objects(file: &NifFile, dec: &Decoded) -> (Vec<crate::shape::CollisionObject>, Vec<String>) {
-    let ex = extract(file, dec);
+    let ex = extract_collision(file, dec);
     let objs = ex.objects.iter().map(RawCollision::to_object).collect();
     (objs, ex.problems)
 }
@@ -676,7 +697,7 @@ pub fn collision_and_phantoms(
     file: &NifFile,
     dec: &Decoded,
 ) -> (Vec<crate::shape::CollisionObject>, Vec<crate::shape::CollisionObject>, Vec<String>) {
-    let ex = extract(file, dec);
+    let ex = extract_collision(file, dec);
     let objs = ex.objects.iter().map(RawCollision::to_object).collect();
     let phantoms = ex.phantom_objects.iter().map(RawCollision::to_object).collect();
     (objs, phantoms, ex.problems)
@@ -801,7 +822,7 @@ mod tests {
             mass: 1.0,
             friction: 0.0,
             restitution: 0.0,
-            shape: crate::shape::Shape::Sphere { radius: 1.0 },
+            shape: crate::shape::Shape::Sphere { radius: 1.0 }.into(),
             shell: 0.0,
             material: None,
         }
@@ -915,7 +936,7 @@ mod tests {
             convex_material: Some(24),
         };
         let plain = raw("bhkRigidBody").to_object();
-        assert_eq!(plain.shape, Shape::Box { half_extents: [14.0, 28.0, 42.0] });
+        assert_eq!(*plain.shape, Shape::Box { half_extents: [14.0, 28.0, 42.0] });
         assert_eq!(plain.body_transform, Iso::IDENTITY);
         assert!((plain.shell - 1.4).abs() < 1e-6, "shell scales like the shape: {}", plain.shell);
         assert_eq!(plain.material, Some(24));
