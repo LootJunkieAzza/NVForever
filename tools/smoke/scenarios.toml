@@ -10827,7 +10827,7 @@ order = [
 [[scenario]]
 name = "hotkey-weapon-holstered"
 source = "#1106 (the owner 2026-10-31): a weapon from a hotkey is equipped holstered, a drawn one is put away, Ready Item draws the new one"
-note = "Written 2026-10-31 by the hotkey-equip-only session. As weapon-wheel's setup: the revolver in slot 1, the rifle in slot 3. Real keys (NVF_PLAY_TEST_KEYS): 1 at 18 s with nothing drawn (the revolver comes in holstered), R at 20 s draws it, 3 at 23 s swaps to the rifle (the revolver is put away, the rifle holstered), R at 26 s draws the rifle"
+note = "Written 2026-10-31 by the hotkey-equip-only session. As weapon-wheel's setup: the revolver in slot 1, the rifle in slot 3. Real keys (NVF_PLAY_TEST_KEYS): 1 at 18 s with nothing drawn (the revolver comes in holstered), R at 20 s draws it, 3 at 23 s swaps to the rifle (the revolver is put away, and only once its holster clip has run is the rifle equipped, holstered: the #1258 review), R at 26 s draws the rifle"
 areas = ["hotkeys"]
 paths = ["engine/nvf-play/src/weapon_wheel.rs", "engine/nvf-play/src/hotkeys.rs", "engine/nvf-play/src/control.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "0008F216:1,0008ED02:24,0007EA24:1,00004240:40", NVF_PLAY_TEST_HOTKEYS = "16:assign:1:WeapNV357Revolver,16.1:assign:3:WeapNVVarmintRifle", NVF_PLAY_TEST_KEYS = "18:1,20:r,23:3,26:r" }
@@ -10835,11 +10835,12 @@ args = ["--cell", "GSDocMitchellHouse", "--play", "--hour", "14", "--no-voice", 
 run_seconds = 40
 expect = [
   { re = 'hotkeys: slot 1: \.357 Magnum Revolver equipped holstered \(nothing was drawn\)', label = "holstered + key 1: the revolver comes in holstered" },
+  { re = 'hotkeys: slot 3: putting the weapon in hand away for Varmint Rifle', label = "drawn + key 3: the revolver goes away first, the rifle waits for its holster clip" },
   { re = 'hotkeys: slot 3: Varmint Rifle equipped holstered \(the weapon in hand put away\)', label = "drawn + key 3: the revolver is put away, the rifle comes in holstered" },
   { re = 'Ready Item pressed: the weapon drawn', count = 2, label = "R draws each new weapon, and only R draws" },
 ]
 order = [
-  ["hotkeys: slot 1: .357 Magnum Revolver equipped holstered", "Ready Item pressed: the weapon drawn", "hotkeys: slot 3: Varmint Rifle equipped holstered (the weapon in hand put away)", "Ready Item pressed: the weapon drawn"],
+  ["hotkeys: slot 1: .357 Magnum Revolver equipped holstered", "Ready Item pressed: the weapon drawn", "hotkeys: slot 3: putting the weapon in hand away for Varmint Rifle", "hotkeys: slot 3: Varmint Rifle equipped holstered (the weapon in hand put away)", "Ready Item pressed: the weapon drawn"],
 ]
 
 [[scenario]]
