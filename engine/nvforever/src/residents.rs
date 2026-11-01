@@ -565,10 +565,6 @@ struct Resident {
     /// The heading it is drawn with while it fights, facing its target (`Core::aims`),
     /// until it is back on the walker's.
     aim_heading: Option<f32>,
-    /// It has been in the loaded area: leaving it takes its cell into the cell buffer.
-    /// An actor a script put far away (Malcolm Holmes) never was, so its cell is not
-    /// buffered and it stays at the Low level (`process_levels`).
-    been_loaded: bool,
 }
 
 /// A fighter locked on its target (`npc_combat::Fighters::lock_on`) and turned within
@@ -1122,7 +1118,6 @@ impl Core {
             moved: false,
             last_space: None,
             aim_heading: None,
-            been_loaded: false,
         });
     }
 
@@ -1257,14 +1252,16 @@ impl Core {
             let Some(a) = self.ai.agents.get(&r.actor) else { continue };
             let (space, feet) = (a.walker.space, a.walker.feet);
             let high = drawn(world, streamer, space, feet);
-            r.been_loaded |= high;
             if high {
                 self.loaded_at.insert(r.actor, self.clock_hours);
             }
             // Out of the loaded area: Mid-High in the cell buffer, Low beyond (`cell_buffer.rs`).
-            // Walking out of the loaded area, or on into another cell, takes the cell along.
+            // Walking out of the loaded area into a cell the buffer does not hold drops the
+            // actor to Low: the original's Victor went from process level 0 straight to 3,
+            // never 1 [observed: docs/handoff/observer-jip-audit-2026-10-25.md §3.1]. One
+            // already at Mid-High walking on into another cell takes that cell along.
             let new_cell = fnv_world::cell_of(r.last_feet[0], r.last_feet[1]) != fnv_world::cell_of(feet[0], feet[1]);
-            let carries = !high && !streamer.buffer.holds(space, feet) && ((self.ai.is_high(r.actor) && r.been_loaded) || (new_cell && self.ai.level(r.actor) == fnv_ai::ProcessLevel::MidHigh));
+            let carries = !high && !streamer.buffer.holds(space, feet) && new_cell && self.ai.level(r.actor) == fnv_ai::ProcessLevel::MidHigh;
             if carries {
                 streamer.buffer.carry(space, feet);
             }
