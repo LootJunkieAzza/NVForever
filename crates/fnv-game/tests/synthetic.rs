@@ -248,8 +248,9 @@ fn plugin_bytes() -> Vec<u8> {
                 (1, Some([le16(1), n(1007)].concat()), set(var(b's', 5), ex(&[var(b's', 5), a("1"), a("+")]))),
                 (1, Some([le16(1), n(1056)].concat()), set(var(b's', 6), ex(&[var(b's', 6), a("1"), a("+")]))),
                 (0x15, None, set(var(b's', 7), ex(&[var(b's', 7), a("1"), a("+")]))),
+                (1, Some([le16(1), n(1013)].concat()), set(var(b's', 8), ex(&[var(b's', 8), a("1"), a("+")]))),
             ]),
-            &[(1, "nUsed", 1), (2, "nHit", 1), (3, "nFrames", 1), (4, "nPip", 1), (5, "nLoad", 1), (6, "nVats", 1), (7, "nOnLoad", 1)],
+            &[(1, "nUsed", 1), (2, "nHit", 1), (3, "nFrames", 1), (4, "nPip", 1), (5, "nLoad", 1), (6, "nVats", 1), (7, "nOnLoad", 1), (8, "nStart", 1)],
             &[0x14, QUEST, MESSAGE],
         ),
     ]
@@ -1964,6 +1965,33 @@ fn coded_menu_mode_blocks_run_for_their_menus() {
     g.vats.mode = fnv_game::vats::MODE_OFF;
     g.tick();
     assert_eq!(v(&g, 6), 1.0);
+}
+
+/// The pause menu's Mods page (#976 T11): `Game::page_tick` runs the start menu's
+/// `MenuMode 1013` blocks and nothing else of a frame, and leaves the open menu (a box a
+/// script showed) as it is.
+#[test]
+fn a_page_tick_runs_only_the_start_menus_blocks_and_keeps_the_open_menu() {
+    use fnv_game::game::menus;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.set_loaded([FormId(CELL)].into_iter().collect());
+    let key = InstKey::Ref { reference: FormId(ACT_REF) };
+    let v = |g: &Game, i: u16| g.var(key, i).num();
+    g.frames(2);
+    assert_eq!(v(&g, 8), 0.0, "no 1013 block in play");
+    let (t, frames) = (g.time, v(&g, 3));
+    g.page_tick(menus::START);
+    g.page_tick(menus::START);
+    assert_eq!((v(&g, 8), v(&g, 3), v(&g, 4), g.time), (2.0, frames, 0.0, t), "only the 1013 block, no game time");
+    assert_eq!(g.menu, None);
+    g.menu = Some(menus::MESSAGE);
+    g.page_tick(menus::START);
+    assert_eq!((g.menu, v(&g, 8)), (Some(menus::MESSAGE), 3.0), "a box stays the open menu");
+    g.menu = None;
+    g.tick();
+    assert_eq!(v(&g, 8), 3.0, "the page's menu ends with its tick");
 }
 
 fn ui_call(g: &mut Game, op: u16, args: &[ArgValue]) {

@@ -1740,7 +1740,8 @@ pub(crate) fn run_scripts(
     if crate::pause::mods_open(&paused, &page) && !screen.active() {
         if let Some(rt) = st.rt.as_mut() {
             rt.game.cfg.frame_seconds = time.delta_secs_f64();
-            crate::tiles::mods::tick(&mut rt.game, |g| with_ray_caster(&mut phys, || g.tick()));
+            // In the played world, as every run of the game's scripts (`with_world`).
+            with_world(rt, &mut sim, |rt| with_ray_caster(&mut phys, || crate::tiles::mods::tick(&mut rt.game)));
             *mods_ticks += 1;
             if *mods_ticks == 1 {
                 info!("scripts: MenuMode {} blocks run under the pause menu's Mods page", fnv_game::game::menus::START);

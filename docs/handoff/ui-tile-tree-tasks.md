@@ -343,14 +343,19 @@ owner to add to its pull request or issue (owner, 2026-10-29).
     - **Built 2026-11-01** (claude/mcm-pause-976-t11, issue #976): steps 1-4 as the
       plumbing, behind `[UI] TileMenus=StartMenu` (off by default; `nvf-play
       tiles/mods.rs`, `pause.rs`). With it on and a mod's tiles in `StartMenu`, the column
-      has a Mods entry before Quit (`pause::ModsEntry`); its page draws StartMenu's mod
-      tiles over the pause menu (`tiles::draw`, as T5 draws the HUD's: a loose
-      replacement's own tiles, not the archived file's; interface units), feeds them T8's
-      pointer and keys, and runs one MenuMode tick per frame with `Game::menu` the start
-      menu (only on that page: our pause menu still holds every script elsewhere, the
-      first decision above kept narrow) [design]. Esc, Backspace or Back close it.
-      Tests: `tiles::mods` (the entry's rule), `pause` (the entries, the page);
-      smoke `pause-mods-page`.
+      has a Mods entry before Quit (`pause::ModsEntry`; a tile counts as a mod's as T5
+      tells the HUD's apart, so a loose `start_menu.xml` that only reskins the menu gives
+      no entry); its page draws StartMenu's mod tiles over the pause menu (`tiles::draw`,
+      as T5 draws the HUD's: a loose replacement's own tiles, not the archived file's;
+      interface units), feeds them T8's pointer and keys, and each frame runs only the
+      `MenuMode 1013` blocks, in the played world, with `MenuMode 1013` true
+      (`Game::page_tick`: no GameMode block, no game time, no queued events or OnLoad
+      blocks, the open menu left as a block's box or tutorial set it; only on that page:
+      our pause menu still holds every script elsewhere, the first decision above kept
+      narrow) [design]. Esc, Backspace or Back close it. Tests: `tiles::mods` (the
+      entry's rule, a reskin), `pause` (the entries, the page), fnv-game
+      `a_page_tick_runs_only_the_start_menus_blocks_and_keeps_the_open_menu`; smoke
+      `pause-mods-page` (MCM's own 1013 block clears its `iInstallCheck`).
     - **Blocked: MCM's own page** (step 5). MCM's ESP shows MCM only when
       `StartMenu/NOGLOW_BRANCH/main_container/childcount` is 8 (the original's pause
       column, filled in by the game's code; NVForever's column is hand-built and the

@@ -996,7 +996,7 @@ pub fn whole_pieces(ui: &Ui, menu: TileId, fonts: &mut impl MenuFonts, t15: bool
 /// The archived copy's name paths of the menu file `menu` was read from, when a root of
 /// its mod tiles is a file's (a loose replacement, or a loose prefab it includes): read
 /// once per file path into `kept` [design: #975, as `fnvtool ui mod-tiles`].
-fn archived_names<'a>(ui: &Ui, menu: TileId, files: &dyn fnv_ui::Source, kept: &'a mut Option<(String, Option<HashSet<String>>)>) -> Option<&'a HashSet<String>> {
+pub(super) fn archived_names<'a>(ui: &Ui, menu: TileId, files: &dyn fnv_ui::Source, kept: &'a mut Option<(String, Option<HashSet<String>>)>) -> Option<&'a HashSet<String>> {
     let fnv_ui::Origin::File { path, .. } = &ui.tile(menu).origin else { return None };
     if !ui.mod_added_tiles(menu).iter().any(|&r| matches!(ui.tile(r).origin, fnv_ui::Origin::File { .. })) {
         return None;

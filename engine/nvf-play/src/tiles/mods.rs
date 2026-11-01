@@ -23,6 +23,7 @@
 
 use fnv_game::game::menus;
 use fnv_ui::Ui;
+use std::collections::HashSet;
 
 /// The start menu's name [documented: start_menu.xml].
 pub const START_MENU: &str = "StartMenu";
@@ -31,21 +32,41 @@ pub const START_MENU: &str = "StartMenu";
 /// [design].
 pub const MODS_Z: i32 = 115;
 
-/// Whether the column has a Mods entry: the switch on and a mod's tiles in `StartMenu`.
-pub fn available(switch: super::vanilla::TileMenus, ui: &Ui) -> bool {
-    switch.start && ui.menu(START_MENU).is_some_and(|m| ui.has_mod_added_tiles(m))
+/// The archived start menu file's tile names, kept per file path (`super::draw`).
+pub type KeptNames = Option<(String, Option<HashSet<String>>)>;
+
+/// Whether the column has a Mods entry: the switch on and a tile in `StartMenu` that a mod
+/// adds, as the HUD's mod tiles are told apart (`Ui::mod_tile_drawn`): injected, a
+/// template's, a loose UIO include's, or a tile of a loose replacement that the archived
+/// file does not have. A loose `start_menu.xml` that only reskins the menu adds none
+/// [design]. `files` reads the archived file's names, once per path into `kept`.
+pub fn available(switch: super::vanilla::TileMenus, ui: &Ui, files: Option<&dyn fnv_ui::Source>, kept: &mut KeptNames) -> bool {
+    if !switch.start {
+        return false;
+    }
+    let Some(menu) = ui.menu(START_MENU).filter(|&m| ui.has_mod_added_tiles(m)) else { return false };
+    let vanilla = files.and_then(|f| super::draw::archived_names(ui, menu, f, kept));
+    let mut stack = ui.mod_added_tiles(menu);
+    while let Some(t) = stack.pop() {
+        if !ui.tile(t).live {
+            continue;
+        }
+        if ui.mod_tile_drawn(t, vanilla) {
+            return true;
+        }
+        stack.extend(ui.tile(t).children.iter().copied());
+    }
+    false
 }
 
-/// One frame of the start menu's scripts under the Mods page: `Game::menu` is the start
-/// menu (`MenuMode 1013`) for this tick, so its MenuMode blocks run (and no GameMode
-/// block), then the menu that was open before is back [design: the original runs them
-/// under its start menu, as MCM's mods expect, menu-xml.md §10; NVForever's pause menu
-/// otherwise holds every script, `crate::script`]. `tick` is the game's tick, with the
-/// engine's ray caster.
-pub fn tick(game: &mut fnv_game::Game<'_>, tick: impl FnOnce(&mut fnv_game::Game<'_>)) {
-    let before = game.menu.replace(menus::START);
-    tick(game);
-    game.menu = before;
+/// One frame of the start menu's scripts under the Mods page: only their `MenuMode 1013`
+/// blocks run (`Game::page_tick`; no GameMode block, no game time) and the open menu is
+/// left alone, so a box a block shows stays open [design: the original runs them under
+/// its start menu, as MCM's mods expect, menu-xml.md §10; NVForever's pause menu
+/// otherwise holds every script, `crate::script`]. The caller puts the played world in
+/// the game first (`crate::script::with_world`).
+pub fn tick(game: &mut fnv_game::Game<'_>) {
+    game.page_tick(menus::START);
 }
 
 #[cfg(test)]
@@ -57,15 +78,36 @@ mod tests {
     fn the_entry_needs_the_switch_and_a_mods_tiles() {
         let on = super::super::vanilla::TileMenus { start: true, ..Default::default() };
         let off = super::super::vanilla::TileMenus::default();
+        let path = "menus\options\start_menu.xml";
+        let vanilla = r#"<menu name="StartMenu"> <rect name="Panel"/> </menu>"#;
+        let mut kept = None;
         let mut ui = Ui::new();
-        assert!(!available(on, &ui), "no start menu");
+        assert!(!available(on, &ui, None, &mut kept), "no start menu");
         // The vanilla file from the archive: no mod's tiles.
-        let src = MemSource::default().with("menus\\options\\start_menu.xml", r#"<menu name="StartMenu"> <rect name="Panel"/> </menu>"#);
-        ui.load_menu(&src, "menus\\options\\start_menu.xml").unwrap();
-        assert!(!available(on, &ui));
+        let src = MemSource::default().with(path, vanilla);
+        ui.load_menu(&src, path).unwrap();
+        assert!(!available(on, &ui, Some(&src), &mut kept));
         // A mod's tile injected into it.
         assert!(ui.inject_text(&src, "StartMenu", r#"<rect name="MCM"/>"#));
-        assert!(available(on, &ui));
-        assert!(!available(off, &ui), "the switch is off by default");
+        assert!(available(on, &ui, Some(&src), &mut kept));
+        assert!(!available(off, &ui, Some(&src), &mut kept), "the switch is off by default");
+    }
+
+    #[test]
+    fn a_loose_reskin_of_the_start_menu_is_no_mods_page() {
+        let on = super::super::vanilla::TileMenus { start: true, ..Default::default() };
+        let path = "menus\options\start_menu.xml";
+        let vanilla = r#"<menu name="StartMenu"> <rect name="Panel"/> </menu>"#;
+        // A UI overhaul's loose copy: the same tiles, other looks.
+        let reskin = MemSource::default().with_loose_over(path, r#"<menu name="StartMenu"> <rect name="Panel"> <width>300</width> </rect> </menu>"#, vanilla);
+        let mut ui = Ui::new();
+        ui.load_menu(&reskin, path).unwrap();
+        assert!(ui.has_mod_added_tiles(ui.menu(START_MENU).unwrap()), "the loose file's tiles count as loose");
+        assert!(!available(on, &ui, Some(&reskin), &mut None));
+        // A loose copy that adds a tile of its own.
+        let added = MemSource::default().with_loose_over(path, r#"<menu name="StartMenu"> <rect name="Panel"/> <rect name="ModPage"/> </menu>"#, vanilla);
+        let mut ui = Ui::new();
+        ui.load_menu(&added, path).unwrap();
+        assert!(available(on, &ui, Some(&added), &mut None));
     }
 }

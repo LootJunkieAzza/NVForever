@@ -471,6 +471,7 @@ fn write(
     mut told: Local<[Option<String>; 4]>,
     mut menu_tiles: MenuTiles,
     mut mods_entry: ResMut<crate::pause::ModsEntry>,
+    mut start_names: Local<mods::KeptNames>,
 ) {
     let Some(rt) = script.rt.as_mut() else { return };
     // T15a: the prompt over the container, barter and inventory menus builds `QuantityMenu`
@@ -479,7 +480,8 @@ fn write(
     rt.game.ui_prompt = menu_tiles.quantity().map(|_| fnv_game::game::menus::QUANTITY);
     files.write(&mut rt.game);
     // T11: the pause column's Mods entry, while a mod's tiles are in the start menu.
-    let mods_now = crate::pause::ModsEntry(mods::available(*menus, &rt.game.ui_tree));
+    let ui_files = rt.game.ui_files.as_deref().map(|f| f as &dyn fnv_ui::Source);
+    let mods_now = crate::pause::ModsEntry(mods::available(*menus, &rt.game.ui_tree, ui_files, &mut start_names));
     if *mods_entry != mods_now {
         info!("tiles: {}", if mods_now.0 { "a mod's tiles in StartMenu: the pause menu has a Mods entry" } else { "no Mods entry in the pause menu" });
         *mods_entry = mods_now;

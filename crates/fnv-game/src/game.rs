@@ -1203,6 +1203,8 @@ pub struct Game<'a> {
     /// loose files. `None` headless: InjectUIXML then fails, InjectUIComponent works
     /// without includes.
     pub ui_files: Option<Box<dyn fnv_ui::Source + Send + Sync>>,
+    /// The menu an engine page stands for while [`Game::page_tick`] runs its blocks.
+    page_menu: Option<u16>,
     /// This frame's HUD writes, kept back while nothing reads the HUD's traits
     /// (`crate::ui_hud::defer`); the first UI function call makes them
     /// (`crate::ui_hud::flush`).
@@ -1955,6 +1957,7 @@ impl<'a> Game<'a> {
             ui_menus: fnv_ui::MenuIndex::default(),
             ui_lifetime: crate::ui_loading::MenuLifetime::default(),
             ui_files: None,
+            page_menu: None,
             ui_hud_pending: None,
             ui_used: false,
             ui_taps: Vec::new(),
@@ -3434,8 +3437,23 @@ impl<'a> Game<'a> {
         } else if self.vats.mode == crate::vats::MODE_TARGET_SELECT {
             Some(menus::VATS)
         } else {
-            None
+            self.page_menu
         }
+    }
+
+    /// One frame of a page the engine shows over a held game in place of the original's
+    /// menu `code` (the pause menu's Mods page for the start menu, 1013): the `Begin
+    /// MenuMode <code>` blocks of the running quests and of the references in loaded
+    /// cells run, as under a side menu ([`Game::side_blocks`]), and `MenuMode <code>` is
+    /// true while they do; nothing else of a frame happens (no game time, no queued
+    /// events or OnLoad blocks, no AI) and the open menu is left as it is, so a menu a
+    /// block opens (ShowMessage, ShowTutorialMenu) stays open [design: issue #976 T11].
+    pub fn page_tick(&mut self, code: u16) {
+        self.frame += 1;
+        self.temp_refs.clear();
+        let before = self.page_menu.replace(code);
+        self.side_blocks(code);
+        self.page_menu = before;
     }
 
     /// A function asks the running script to stop as `Return` does (RemoveMe).
