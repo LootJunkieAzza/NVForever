@@ -205,9 +205,12 @@ impl<'a> Game<'a> {
     }
 
     /// Whether `speaker` can say the line `info` to `listener` now:
-    /// - a Say Once line the speaker has not said, a Say Once a Day line it has not said
-    ///   in the last `fSayOncePerDayInfoTimer` (12) game hours [documented:
-    ///   Category:Dialogue: both are per actor];
+    /// - a Say Once line no actor has said, a Say Once a Day line the speaker has not said
+    ///   in the last `fSayOncePerDayInfoTimer` (12) game hours. The wiki has both per
+    ///   actor [documented: Category:Dialogue], but a Say Once line two actors share was
+    ///   not said again by the second [observed: observer check 31, save nvf31mainframe:
+    ///   the Yes Man mainframe did not repeat 0x001164F1, the Tops Yes Man's first-meeting
+    ///   greeting; hypothesis: one case, and the two may count as one speaker] (#1113);
     /// - the speaker is the line's fixed speaker, if it has one (a reference of that
     ///   base form) [documented: Category:Dialogue: "Speaker" acts like GetIsID], unless
     ///   the line has a GetIsID condition on the subject of its own: then that condition
@@ -237,7 +240,7 @@ impl<'a> Game<'a> {
     pub(crate) fn can_say_as(&mut self, speaker: FormId, listener: Option<FormId>, info: FormId, says: Says) -> bool {
         let data = self.data;
         let Some(def) = data.infos.get(&info) else { return false };
-        if def.say_once && self.said.contains(&(speaker, info)) {
+        if def.say_once && self.said.iter().any(|&(_, i)| i == info) {
             return false;
         }
         // Low / High Intelligence lines: for a dim player, and for one who is not
@@ -432,8 +435,9 @@ impl<'a> Game<'a> {
     }
 
     /// The speaker said the line: Say Once and Say Once a Day remember it per actor
-    /// [documented: Category:Dialogue]. `always` remembers every line (conversations:
-    /// the shading of choices already made).
+    /// [documented: Category:Dialogue]; [`Game::can_say_as`] holds a Say Once line back
+    /// from every actor once any has said it. `always` remembers every line
+    /// (conversations: the shading of choices already made).
     pub(crate) fn mark_said(&mut self, speaker: FormId, info: FormId, always: bool) {
         let Some(def) = self.data.infos.get(&info) else { return };
         if def.say_once || always {

@@ -397,13 +397,13 @@ flag.
 ## 10. Not built
 
 - Of the refusals (§9): in combat, an alarm sounding, the cells' own flag.
-- **Healing by plain sleep.** No source read says that a bed without the Well Rested
-  script heals, or by how much an hour: no game setting of FalloutNV.esm names sleep or
+- (Built 2026-11-01, #1177.) **Healing by plain sleep.** No source read says that a bed
+  without the Well Rested script heals: no game setting of FalloutNV.esm names sleep or
   rest healing [observed: its GMST records], and the wiki export has no page on it.
-  Nothing is built. Proposal for the owner (docs/owner-review.md): leave it so until a
-  capture shows the original's health before and after an hour in a plain bed.
   The owner saw it 2026-10-31 [observed]: outside Hardcore a sleep heals Health and
-  crippled limbs in full; in Hardcore it heals neither (#1177).
+  crippled limbs in full; in Hardcore it heals neither. So the first hour slept outside
+  Hardcore restores all Health and every limb (`Game::pass_hours`, the log line
+  `sleep: Health restored by N`); a wait heals nothing.
 - **The hardcore sleep need.** The records [observed: FalloutNV.esm]: an actor value
   "Sleep Deprivation" (AVIF 0x000005F9), the setting `fHCSleepDeprivationRate` (50.0),
   five spells for its stages (their names end in 200, 400, 600, 800 and 1000), magic

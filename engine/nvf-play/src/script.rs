@@ -1936,12 +1936,14 @@ pub(crate) fn run_scripts(
             let _ = log.out.flush();
         }
     }
-    if loading_menu && !effects.iter().any(|e| matches!(e, ScriptEffect::Travel(_))) {
+    if loading_menu && !effects.iter().any(|e| matches!(e, ScriptEffect::Travel(_) | ScriptEffect::DoorTravel(_))) {
         info!("script: EnableLoadingMenu with no move of the player: no loading screen (a screen without travel is not built)");
     }
     let mut sent = BTreeSet::new();
     let feet = phys.player.as_ref().map(|c| c.feet);
     for e in effects {
+        // The player's own trip through a door, not a script's MoveTo (`Loading::arriving`).
+        let door = matches!(e, ScriptEffect::DoorTravel(_));
         match e {
             ScriptEffect::RefChanged(id) => {
                 if sent.insert(id) {
@@ -1951,10 +1953,10 @@ pub(crate) fn run_scripts(
             ScriptEffect::Fade { form_id, fade_in } => {
                 fades.write(crate::fade::RefFade { form_id, fade_in });
             }
-            ScriptEffect::Travel(t) if crate::stress::holds_player() => {
+            ScriptEffect::Travel(t) | ScriptEffect::DoorTravel(t) if crate::stress::holds_player() => {
                 info!("test aid NVF_PLAY_TEST_STRESS: a script's move of the player to {:?} / {:?} at {:?} left out", t.interior, t.world, t.feet);
             }
-            ScriptEffect::Travel(t) => {
+            ScriptEffect::Travel(t) | ScriptEffect::DoorTravel(t) => {
                 // A move to where the player already stands (VCG00 stage 0's MoveTo to the
                 // new game's start) needs no loading.
                 let here = t.destination(*location) == *location
@@ -1971,6 +1973,7 @@ pub(crate) fn run_scripts(
                         screen.generic_next = true;
                         loading_menu = false;
                     }
+                    screen.arriving = door;
                     travel.write(TravelRequest(t));
                 }
             }

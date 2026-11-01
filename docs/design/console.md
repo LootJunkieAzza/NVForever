@@ -88,6 +88,10 @@ it asks through `Game::console_requests`, which the console carries out. Wording
 | `ResetDialogueFlags` (`rdf`) | Say Once and Say Once a Day lines may be said again [documented]; the record of lines said to the player goes with them, so choices are no longer shaded [hypothesis: one set holds both] |
 | `ResetAllTerminals` (`rat`) | hacked and locked-out terminals are as if never hacked [documented]; scripts' Lock/Unlock stay |
 | `[ref.]DeleteReference` (`zap`) | removes the reference (else the selection) at once, as MarkForDelete [documented]; never the player |
+| `ShowLockPickMenu [1-5]` (`slpm`) | the console closes and the lockpicking menu opens on a practice lock, 1 Very Easy to 5 Very Hard, 3 without one [documented: GECK wiki]; the player's skill and bobby pins, which wear and break; any skill may try it, and opening it opens nothing, gives no XP and is no crime [hypothesis] (`nvf_play::lockpick::PracticeLock`) |
+| `[ref.]MFG Expression\|Phoneme\|Modifier <id> <intensity>`, `MFG Reset` | morphs on the actor's face by the wiki's ID tables (expressions 0-14, phonemes 0-15, modifiers 0-16; one expression at a time; intensity 0 takes one off; reset clears them) [documented: GECK wiki ModifyFaceGen]; intensity 100 is a weight of 1, head modifiers 14-16 turn the head bone either way, −100 to 100 [hypothesis]; shown at once, where the original takes a second or two [design]; not saved (`Game::mfg`, nvforever `lips.rs`). Faces without a face rig (the player's own body, creatures) show nothing |
+| `ToggleFogOfWar` (`tfow`) | says why it does nothing: our local map draws no fog of war, it shows the whole map |
+| `bat <file>` | runs the file's console lines next, in order, as if typed (blank lines left out; `;` statements as on a typed line); the file is looked for in NVForever's folder (`Documents\My Games\NVForever`), then the game's folder ("a text file in game folder" [documented: GECK wiki Bat]), both only read; `.txt` is added to a name without an extension [hypothesis]; at most 16 batch files per line, those they run included [design] (nvf-play `console::batch_lines`) |
 | `ShowQuestStages <quest>` (`sqs`) | running/completed, the stage, and every stage the quest defines with done or not |
 | `ShowQuestVars <quest>` (`sqv`) | every variable the quest script declares, with its value |
 | `ShowVars [ref]` (`sv`) | the same for the selected reference's script (or the one named) |
@@ -119,17 +123,16 @@ only functions the masters' scripts call. A function typed at the console that n
 calls is outside it, so `killall` did nothing unnoticed (#1046). The vanilla functions of
 the catalogue that nothing handles (not in `functions::registry`, the console registries,
 or the engine's own words `console::ENGINE_WORDS`: `coc`, `cow`, `coe`, `help`,
-`AdvLevel`) and that no
+`AdvLevel`, `bat`) and that no
 master script calls are counted by `console::unhandled_unused`. The test
-`registered_names_are_catalogue_console_commands` pins the two numbers: **51** in the
+`registered_names_are_catalogue_console_commands` pins the two numbers: **45** in the
 wiki's "Console Functions" category, **124** others. Implementing one lowers a number
 there; a catalogue update that adds one raises it. Sorted (2026-10-31):
 
-**Console functions players use, to build next** (`cow`, `coe`, `saq`, `rdf`, `rat` and
-`zap` are built: in the table above): `PlaceLocationMarker` / `ClearLocationMarkers`
-(`plm` / `clm`), `ShowLockPickMenu` (`slpm`), `bat` (run a batch file of console lines),
-`ToggleFogOfWar` (`tfow`), `ToggleEmotions` (`temo`), `ToggleLookIK` (`tlik`),
-`Show1stPerson` (`s1st`), `SetVel`, `MFG` (face morphs).
+**Console functions players use, to build next** (`cow`, `coe`, `saq`, `rdf`, `rat`,
+`zap`, `slpm`, `bat`, `tfow`, `temo`, `tlik` and `MFG` are built: in the tables above):
+`PlaceLocationMarker` / `ClearLocationMarkers` (`plm` / `clm`), `Show1stPerson`
+(`s1st`), `SetVel`.
 
 **Console functions not applicable to NVForever**, as they inspect or drive the original
 engine's own renderer, scene graph, tools or files, which NVForever does not have:
@@ -173,6 +176,8 @@ starts with the game's toggles on [design].
 | `tt` ToggleTrees | SpeedTrees and their distant billboards hidden [hypothesis: the catalogue says the original stops their animated parts; hiding them is our choice] |
 | ToggleLODLand | distant land, as the settings page's switch and `--no-lod` |
 | ToggleNavmesh | the navmesh drawing (`NavState::show`, the settings page's switch); a run without navmesh says so |
+| `tlik` ToggleLookIK | head tracking (`HeadLookSettings::enabled`, the settings page's switch): heads ease back to their animation [documented: GECK wiki, "actors moving their heads to face other actors"]; a run with `--no-head-tracking` says so |
+| `temo` ToggleEmotions | faces leave out every expression and mood: a line's emotion, the combat face, MFG's expressions (`LipState::emotions_off`; mouths, blinks and eyes still move) [documented: GECK wiki, "facial emotions of all actors"; what counts as an emotion is ours] |
 | `twf` ToggleWireframe | not built: Bevy's wireframe needs a GPU line mode the renderer does not ask for |
 
 Sky, water and trees have no switch of their own: while one is off, its meshes are
