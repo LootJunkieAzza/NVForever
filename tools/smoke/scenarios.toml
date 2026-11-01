@@ -370,7 +370,7 @@ expect = [
 [[scenario]]
 name = "render-diagnostics-disabled"
 source = "docs/design/frame-rate-audit.md §1 (profiling options together) and issue #1275: the profile aid and frame-time logging each register Bevy render diagnostics only when enabled; neither option should request the diagnostics plugin"
-note = "Source-reviewed on the pinned Bevy 0.20.1 dependency; runtime verification is pending a profile build and game launch"
+note = "Source-reviewed on pinned Bevy 0.20.1; default-build startup/output verification passes; broader profiling validation remains"
 areas = ["renderer", "graphics", "profiling"]
 paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/profile.rs"]
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
@@ -384,7 +384,7 @@ expect = [
 [[scenario]]
 name = "render-diagnostics-profile"
 source = "docs/design/frame-rate-audit.md §1 (profiling options together) and issue #1275: NVF_PLAY_TEST_PROFILE enables the profile reporting path and its render diagnostics registration"
-note = "Source-reviewed on the pinned Bevy 0.20.1 dependency; runtime verification is pending a profile build and game launch"
+note = "Source-reviewed on pinned Bevy 0.20.1; profile-build startup/output verification passes; broader profiling validation remains"
 areas = ["renderer", "graphics", "profiling"]
 paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/profile.rs"]
 env = { NVF_PLAY_TEST_PROFILE = "2" }
@@ -398,7 +398,7 @@ expect = [
 [[scenario]]
 name = "render-diagnostics-frame-times"
 source = "docs/design/frame-rate-audit.md §1 (profiling options together) and issue #1275: --log-frame-times enables the graphics frame-time path and its render diagnostics registration"
-note = "Source-reviewed on the pinned Bevy 0.20.1 dependency; runtime verification is pending a profile build and game launch"
+note = "Source-reviewed on pinned Bevy 0.20.1; default-build frame-time startup/output verification passes; broader profiling validation remains"
 areas = ["renderer", "graphics", "profiling"]
 paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/profile.rs"]
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--log-frame-times", "2"]
@@ -411,7 +411,7 @@ expect = [
 [[scenario]]
 name = "render-diagnostics-combined"
 source = "docs/design/frame-rate-audit.md §1 (profiling options together) and issue #1275: profile reporting and --log-frame-times must share one safe RenderDiagnosticsPlugin registration"
-note = "Source-reviewed on the pinned Bevy 0.20.1 dependency; runtime verification is pending a profile build and game launch; GPU timestamp output is backend-dependent"
+note = "Source-reviewed on pinned Bevy 0.20.1; combined startup/output verification passes; NVIDIA RTX 5070 Ti Vulkan GPU samples are nonzero in validation; broader profiling validation remains"
 areas = ["renderer", "graphics", "profiling"]
 paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/profile.rs"]
 env = { NVF_PLAY_TEST_PROFILE = "2" }

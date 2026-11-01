@@ -46,11 +46,13 @@ install it. The enable conditions and existing report formats are unchanged (#12
 `bevy_app::Plugin::is_unique`, `App::add_boxed_plugin`, and
 `bevy_render::diagnostic::RenderDiagnosticsPlugin`] Registering this unique plugin
 twice takes Bevy's duplicate-plugin panic path. The shared guard addresses that
-source-confirmed startup failure; runtime reproduction and the four startup/output
-combinations still need verification in default and profile-enabled release builds.
+source-confirmed startup failure; default and profile-enabled release builds now
+pass the four startup/output combinations in the focused smoke coverage. Broader
+profiling and performance validation remain separate work.
 
-CPU system spans require `--features nvforever/profile`; without it the profile
-report explicitly says no spans were seen. GPU timestamps and pipeline statistics
+The profile feature enables Bevy's tracing spans; manually instrumented project
+spans can still appear in a default build, so an empty profile window does not
+prove that the feature is absent. GPU timestamps and pipeline statistics
 are supported by pinned Bevy on Vulkan and DX12, subject to device capabilities;
 other backends record CPU render timings. Missing GPU timings are not zero GPU cost.
 `--log-frame-times` also selects display sync off and disables the frame cap settings;
