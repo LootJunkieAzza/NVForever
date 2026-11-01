@@ -860,3 +860,15 @@ The numbers above stay put so links to them hold; each item here gives its own p
     Barter or Science check passed and failed (do they move either stat?); (c) one perk
     line (e.g. [Lady Killer]). If (a) moves nothing, the count goes; if (b) moves them,
     other skills count too.
+
+## Added 2026-11-01 (a conversation with nothing left to offer, issue #1113)
+
+72. **Does a conversation close when the actor has no topic left?** (P3; mq-walkthrough §10
+    stall 4.) Cold, Cold Heart: tell Sergeant Kilborn at the Mojave Outpost about Nipton
+    (vNiptonVulpesvMojaveNCRTrooperTopic003, INFO 0x00138E1A: no Goodbye flag, no choices;
+    its end script sets vNiptonVulpes 100, which stops the quest). Every line Kilborn has
+    as a fixed speaker is vNiptonVulpes' [observed: `fnvtool dialogue lines --speaker
+    vMOSgtKilborn`], and talked to again he greets with 0x001754C6 and offers nothing.
+    NVForever closes the conversation when the line ends (dialogue.md "When a line ends":
+    with nothing to offer the conversation ends [hypothesis]). Does the original close it,
+    or does the menu stay open with nothing but a way out?
