@@ -387,7 +387,10 @@ Rules (`crates/fnv-game/src/needs.rs`):
   first takes 60 away (never below 0) [documented: the owner's Hardcore table, "~ -60/h
   Sleep"; before, a guess of 100] and then adds the hour's 2 [observed: 3 hours slept
   from 0 gave SLP 2, H2O 36, FOD 12; hypothesis: the order, one case] (§6). Hours passed
-  together count hour by hour. Before 2026-11-01 the waits added 12, 4.8 and 2.4 an hour
+  together count hour by hour. A share under one point an hour (a TimeScale above 72
+  for sleep deprivation, 144 for hunger, 360 for dehydration) would round to nothing, so
+  it builds up from hour to hour and gives a point whenever a whole one is reached
+  [design: keeps the long-run rate; `Player::need_carry`]. Before 2026-11-01 the waits added 12, 4.8 and 2.4 an hour
   and a sleep ended sleep deprivation at 0.
 - The stage effects are the records' [observed: FalloutNV.esm SPEL Dehydration200 …
   SleepDeprivation1000, 2026-10-23]; they agree with the owner's table but for Deadly

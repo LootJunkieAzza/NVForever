@@ -85,6 +85,19 @@ pub struct Passed {
     pub health_restored: f64,
 }
 
+/// Points of a need for `step` hour(s) whose whole hour's share is `share` points: whole
+/// points of a share of one or more, else the share added to `carry` and its whole points
+/// taken out ([`Game::need_hour_points`]).
+pub fn hour_points(share: f64, step: f64, carry: &mut f64) -> f64 {
+    if share >= 1.0 {
+        return share.floor() * step;
+    }
+    *carry += share * step;
+    let whole = (*carry + 1e-9).floor();
+    *carry = (*carry - whole).max(0.0);
+    whole
+}
+
 impl Game<'_> {
     /// Whether Hardcore mode is on (SetHardcore, else the configuration).
     pub fn hardcore(&self) -> bool {
@@ -108,6 +121,7 @@ impl Game<'_> {
             for (code, _, _) in NEEDS {
                 let _ = fa::set_current(self, p, code, 0.0);
             }
+            self.player.need_carry.clear();
             self.update_need_stages();
         }
     }
@@ -143,10 +157,15 @@ impl Game<'_> {
         self.world.time_scale().filter(|s| *s > 0.0).unwrap_or(DEFAULT_TIME_SCALE)
     }
 
-    /// Whole points a need rises in an hour waited or slept: the hour's seconds of play
-    /// over the need's rate, rounded down (module notes).
-    pub fn need_per_hour(&self, code: u16) -> f64 {
-        (3600.0 / self.time_scale() / self.need_rate(code)).floor()
+    /// Points a need rises in `step` (at most one) hour waited or slept: the hour's share,
+    /// its seconds of play over the need's rate, rounded down to whole points (module
+    /// notes). A share under one point (TimeScale above 72 for sleep deprivation) would
+    /// round to nothing, so it builds up from hour to hour instead and gives a point
+    /// whenever a whole one is reached [design: keeps the long-run rate; the original at
+    /// TimeScale 30, where every share is over one point, is matched as before].
+    pub fn need_hour_points(&mut self, code: u16, step: f64) -> f64 {
+        let share = 3600.0 / self.time_scale() / self.need_rate(code);
+        hour_points(share, step, self.player.need_carry.entry(code).or_default())
     }
 
     /// `hours` of a wait or a sleep have passed on the clock (the caller moved the
@@ -172,7 +191,7 @@ impl Game<'_> {
                     if sleeping && code == SLEEP_DEPRIVATION {
                         self.shift_need(code, -SLEEP_RECOVERY_PER_HOUR * step);
                     }
-                    let by = self.need_per_hour(code) * step;
+                    let by = self.need_hour_points(code, step);
                     self.shift_need(code, by);
                 }
             }
@@ -255,5 +274,18 @@ mod tests {
         // An hour waited at TimeScale 30 is 120 s of play: 4.8 points of hunger, which
         // waits and sleeps round down to 4.
         assert!((120.0 / rate(HUNGER) - 4.8).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_share_under_a_point_builds_up_over_the_hours() {
+        // TimeScale 120: an hour is 30 s of play, 0.6 of a point of sleep deprivation;
+        // ten hours give 6, not 0.
+        let mut carry = 0.0;
+        let hours: Vec<f64> = (0..10).map(|_| hour_points(3600.0 / 120.0 / 50.0, 1.0, &mut carry)).collect();
+        assert_eq!(hours, [0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 1.0, 1.0]);
+        // At TimeScale 30 hunger's 4.8 stays 4 an hour, as the original gave (#1177).
+        let mut carry = 0.0;
+        assert_eq!((0..3).map(|_| hour_points(4.8, 1.0, &mut carry)).sum::<f64>(), 12.0);
+        assert_eq!(carry, 0.0);
     }
 }
