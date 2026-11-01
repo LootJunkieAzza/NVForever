@@ -509,6 +509,19 @@ End
     assert_eq!(g.player.reputation[&FormId(REP)], [5.0, 3.0]);
 }
 
+/// `RemoveItem <item> 0` removes nothing and is no failed call: the script goes on
+/// (observer check 44, capture o5_00; #1113).
+#[test]
+fn remove_item_of_none_is_a_no_op() {
+    let f = fixture();
+    let mut g = game(&f);
+    call(&mut g, 0x1002, Some(ADULT_REF), &[r(MISC), n(3.0)]);
+    // `call` panics on a failed call.
+    call(&mut g, 0x1052, Some(ADULT_REF), &[r(MISC), n(0.0)]);
+    assert_eq!(call(&mut g, 0x102F, Some(ADULT_REF), &[r(MISC)]), 3.0);
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::ItemRemoved { .. })));
+}
+
 /// Damage and restore [documented: catalogue; observed: layer5-captures.md §9.3 b].
 #[test]
 fn resurrect_generates_a_dead_actor_again_where_it_lies() {
