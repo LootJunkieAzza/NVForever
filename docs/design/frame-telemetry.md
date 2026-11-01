@@ -8,7 +8,8 @@
 An unset value or zero disables it. Reject negative, nonnumeric and non-finite values; cap positive values
 at the hard maximum of 60 real seconds. `NVF_PLAY_TEST_FRAME_TELEMETRY_GPU=1` additionally requests
 render CPU and GPU observations; unset or zero leaves them off, and other values are errors.
-The GPU aid alone does not enable capture. Neither aid requires tracing or the custom span collector.
+The GPU aid alone does not enable capture. While capture is off, the GPU and ID aids are not read, so
+a stray one logs nothing (#1312). Neither aid requires tracing or the custom span collector.
 They do not change display sync, frame caps or graphics settings. The fixed limits are 100,000 attempted
 frame records and 67,108,864 bytes (64 MiB), including the header, trailer and line separators.
 
@@ -18,7 +19,9 @@ The write guard refuses the game install and original user folder (`crates/fnv-i
 
 [hypothesis] Reuse that directory handling and `fnv_install::guard_write`, guarding the final file against
 the explicit game install. Create `<home>/logs/frame-telemetry-<capture_id>.jsonl` exclusively, outside
-ordinary run-log rotation. Report home or write failures; never fall back to the current directory,
+ordinary run-log rotation. [design, #1312] At start the oldest captures are removed so that eight remain
+with the new one (`KEEP_CAPTURES`; at most 8 × 64 MiB), since every smoke run of a telemetry scenario
+writes one; the start logs `frame telemetry: removed <n> older captures (keeping 8)` when it removes any. Report home or write failures; never fall back to the current directory,
 the game folder or `Documents\My Games\FalloutNV`. Pair the epoch clocks before the first update.
 Duration includes startup. Producers check duration and frame limits before each payload and stop after
 the Nth frame attempt. The writer enforces the byte budget before writing each line, reserving 16 KiB for
@@ -64,25 +67,31 @@ including on exporter drops. The collector uses only `measurement()` and preserv
 GPU mode scans the whole diagnostic store on each collection update, including non-render paths before
 filtering them. Traversal cost is bounded by the store's population, not by the 4,096-path cursor capacity.
 
-[observed] `engine/nvforever/build.rs` retains the Windows icon logic and reads `git rev-parse HEAD` at
-build time to embed the commit through
-`cargo:rustc-env=NVF_BUILD_GIT_SHA=...`, read with `option_env!`. If Git is absent, the checkout is not a
-repository or the query fails, the field is null with a reason; provenance must never fail the build.
-Keep the icon watch and add `rerun-if-changed` only for the Git-resolved `HEAD`, the branch reference it
-names (or its nearest existing ancestor directory under the common directory when packed-only) and
-existing `packed-refs` files (worktree and common directory paths), so the script reruns when the commit
-changes and not on every source or document edit, which would recompile the crate. The engine does not
-record uncommitted changes: a build-time dirty flag would either go stale or force a rebuild on any edit.
-The stress runner records its own checkout's commit and dirty state (#1277), which describe the
-engine only when both come from the same checkout. The game process never runs Git.
+[design, #1312] The commit is read at run time, not embedded at build time. Embedding it
+(`build.rs` watching `HEAD` and refs, `option_env!`) recompiled the whole nvforever crate on every
+commit or branch switch, documents-only ones included, and a separate crate would not help: its
+dependents recompile when it changes. `engine/nvforever/build.rs` keeps only the Windows icon.
 
-[observed] The implementation resolves relative Git directory answers against `CARGO_MANIFEST_DIR`,
-watches the worktree's `HEAD` and the common directory's named branch ref, and watches existing
-`packed-refs` files in either directory. Missing optional packed-refs files are not watched, so they do
-not force every build to rerun. A packed-only branch watches its nearest existing ancestor directory,
-down to the common directory if necessary, so creation of a loose ref invalidates provenance. Once that
-ref exists, only its file is watched. No missing path is watched. The header uses `build_git_unavailable`
-when no commit was embedded.
+[observed] `frame_telemetry/git_paths.rs` runs when capture is on, in plugin start-up before the
+epoch clocks are paired, so Git's time is not part of the measured duration. The checkout is the
+crate's folder, a compile-time constant (`CARGO_MANIFEST_DIR`) that does not change with the commit.
+The commit is reported only when:
+
+- Git answers there and the checkout's top level holds the crate as `engine/nvforever`, so a source tree
+  unpacked inside another repository never reports that repository's commit
+  (`checkout_not_engine_repository`);
+- no file a change of commit rewrites (the worktree's `HEAD`; the branch's loose ref, else the
+  `packed-refs` files) is newer than the running executable (`checkout_changed_since_build`), so a
+  checkout moved on after the build is not mistaken for the build's commit. Packing refs after the build
+  also counts, which leaves the field unavailable, never wrong.
+
+Otherwise `unavailable` gives the reason: `source_checkout_unavailable` (the folder is gone, as for a
+copied executable), `git_unavailable`, `build_time_unavailable`, or one of the two above. Any
+commit made after the build (building, then committing what was built, or a documents-only commit)
+leaves the field unavailable until a build relinks the executable: unavailable rather than possibly
+wrong [design]. The engine does not record uncommitted changes. The
+stress runner records its own checkout's commit and dirty state (#1277), which describe the engine only
+when both come from the same checkout. Git runs without a console window.
 
 ## 3. Records
 
@@ -103,7 +112,7 @@ last. Ignore unknown fields; report unsupported versions and record types. Drop 
 | `capture_id` | string | None; no | Is a unique token matching `[A-Za-z0-9_-]{1,64}` and the filename. |
 | `run_id`, `scenario_id` | string | None; yes | Carry opaque harness IDs from `NVF_PLAY_TEST_FRAME_TELEMETRY_RUN_ID` and `NVF_PLAY_TEST_FRAME_TELEMETRY_SCENARIO_ID`; each matches `[A-Za-z0-9_-]{0,64}`. |
 | `started_at_utc` | string | UTC; yes | Records the RFC3339 epoch clock pair, never the source for elapsed calculations. |
-| `engine_revision` | string | None; yes | Gives the build-embedded commit, never an inference from the runner or executable name. |
+| `engine_revision` | string | None; yes | Gives the engine checkout's commit when it is unchanged since the executable was built (§2), never an inference from the runner or executable name. |
 | `build_features` | array of strings | None; no | Lists sorted enabled nvforever crate features from compile-time cfg, not transitive features. |
 | `adapter`, `backend`, `driver`, `driver_info` | string | None; yes | Copy AdapterInfo's corresponding fields; empty values become null. |
 | `width_px`, `height_px` | u32 | Physical pixels; yes | Give the primary window size at the header snapshot. |

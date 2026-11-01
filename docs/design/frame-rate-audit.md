@@ -71,6 +71,43 @@ not zero GPU cost.
 sync off and disables the frame cap settings; match effective presentation settings
 before comparing instrumentation overhead.
 
+### Tracy: the same spans on a live timeline
+
+The span profile above sums spans into log lines; the Tracy profiler shows them on a
+timeline, every thread frame by frame, which is how a single hitch is read rather than
+averaged (#1329).
+
+```
+cd engine
+cargo build --release -p nvforever --features nvforever/tracy    # or nvforever/tracy-memory
+```
+
+- `tracy` is `profile` plus Bevy's `trace_tracy`; `tracy-memory` also records every
+  allocation (slower). Keep the build in its own target folder: it rebuilds Bevy. A
+  default build compiles no Tracy code.
+- [documented: `engine/Cargo.lock`, `tracy-client-sys-0.30.1/tracy/common/TracyVersion.hpp`]
+  Bevy 0.20.1 pins `tracing-tracy` 0.12.0, `tracy-client` 0.19.0 and `tracy-client-sys`
+  0.30.1, which carries the Tracy 0.14.1 client. Use the Tracy 0.14.x viewer
+  (github.com/wolfpld/tracy releases); a viewer of another protocol version refuses the
+  connection. Recheck this file after a Bevy upgrade.
+- [observed 2026-11-01, Goodsprings, `--play`] The game listens on TCP 8086 from start-up;
+  start it, then Connect in the viewer (localhost). `NVF_PLAY_TEST_PROFILE` works beside
+  it, unchanged.
+- [documented: `tracy-client-sys-0.30.1/build.rs`, `tracy/client/TracyProfiler.cpp`,
+  `tracy/common/TracySocket.cpp`] The client is built `ondemand` and `only-localhost`
+  (`engine/nvforever/Cargo.toml`). On demand: nothing is recorded until a viewer
+  connects, so a Tracy build left running without one does not fill memory, and what
+  happened before connecting (start-up, the first cell's load) is not in the capture;
+  connect first, then trigger the scene. Only localhost: the port listens on the loopback
+  address and the viewer-discovery broadcast goes to 127.255.255.255, so nothing is
+  reachable from another machine and no firewall rule is needed; profiling across
+  machines takes a build without it.
+- [hypothesis: Tracy's manual, not checked here] The client also records context switches
+  and samples call stacks only when run as administrator on Windows; the spans need
+  neither. Frame telemetry lists `tracy` among the build features, so its numbers are
+  not mistaken for a plain build's.
+- Tracy sees CPU spans only here; the GPU's passes still want PIX or Nsight Graphics.
+
 ## 2. Item 4: the mantis ootheca
 
 **What happens** [observed: `fnvtool script decompile --form 000EF406`, `esm decode`]:

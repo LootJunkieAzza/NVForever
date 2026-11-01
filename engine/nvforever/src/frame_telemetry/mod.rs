@@ -4,7 +4,6 @@
 mod plugin;
 pub use plugin::FrameTelemetryPlugin;
 
-#[cfg(test)]
 mod git_paths;
 
 pub mod capture;
@@ -59,6 +58,15 @@ pub fn parse_aids(seconds: Option<&str>, gpu: Option<&str>, run_id: Option<&str>
         return Err(ConfigError {
             field: "NVF_PLAY_TEST_FRAME_TELEMETRY",
             reason: "expected finite, nonnegative seconds",
+        });
+    }
+    // Off: the other aids are not read, so a stray one warns about nothing (#1312).
+    if seconds == 0.0 {
+        return Ok(Config {
+            duration: Duration::ZERO,
+            gpu: false,
+            run_id: None,
+            scenario_id: None,
         });
     }
     let gpu = match gpu {
