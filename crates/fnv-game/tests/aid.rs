@@ -307,14 +307,16 @@ fn restoration_over_time_follows_the_seconds() {
     add_actor_value_damage(&mut g, P, HEALTH, 60.0);
     g.ingest(P, FormId(STIM_HC));
     assert!(near(av(&mut g, HEALTH), 40.0));
+    // 5 a second at Medicine 15's potency 1.3 is 6.5, rounded down to 6 (#1167).
     g.frames(180);
-    assert!((av(&mut g, HEALTH) - 59.5).abs() < 1e-3, "{}", av(&mut g, HEALTH));
+    assert!((av(&mut g, HEALTH) - 58.0).abs() < 1e-3, "{}", av(&mut g, HEALTH));
     g.frames(240);
-    assert!((av(&mut g, HEALTH) - 79.0).abs() < 1e-3);
+    assert!((av(&mut g, HEALTH) - 76.0).abs() < 1e-3);
     assert!(g.effects.is_empty());
 }
 
-/// Food's potency follows Survival (55 → 2.1, the GECK wiki's example).
+/// Food's potency follows Survival (55 → 2.1, the GECK wiki's example); the scaled
+/// magnitude is rounded down.
 #[test]
 fn food_follows_survival() {
     let f = fixture();
@@ -322,8 +324,9 @@ fn food_follows_survival() {
     add_actor_value_damage(&mut g, P, HEALTH, 50.0);
     let r = g.ingest(P, FormId(FOOD));
     assert!(near(r.potency, 2.1));
+    // 2 a second × 2.1 = 4.2, rounded down to 4, for 5 s.
     g.frames(300);
-    assert!((av(&mut g, HEALTH) - 71.0).abs() < 1e-3);
+    assert!((av(&mut g, HEALTH) - 70.0).abs() < 1e-3);
 }
 
 /// Recover: a temporary modifier while the effect lasts; the base and the permanent
@@ -434,7 +437,7 @@ fn waiting_advances_effect_timers() {
     add_actor_value_damage(&mut g, P, HEALTH, 60.0);
     g.ingest(P, FormId(STIM_HC));
     g.pass_hours(1.0, false);
-    assert!((av(&mut g, HEALTH) - 79.0).abs() < 1e-6);
+    assert!((av(&mut g, HEALTH) - 76.0).abs() < 1e-6);
     // Outside Hardcore the needs do not move.
     assert_eq!(av(&mut g, HUNGER), 0.0);
 }

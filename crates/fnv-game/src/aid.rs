@@ -638,10 +638,9 @@ mod tests {
         // Buffout's Strength: Recover, a duration.
         let c = value_change(&mgef(0, R, Some(5)), &item(2, 240, Some(5)), 1.0, false).unwrap();
         assert_eq!((c.kind, c.amount, c.code), (ChangeKind::Modifier, 2.0, 5));
-        // Hardcore Stimpak: no Recover, 5 a second for 6 s.
+        // Hardcore Stimpak: no Recover, 5 a second for 6 s; 6.5 rounds down to 6.
         let c = value_change(&mgef(0, 0, Some(16)), &item(5, 6, Some(16)), 1.3, false).unwrap();
-        assert_eq!(c.kind, ChangeKind::PerSecond);
-        assert!((c.amount - 6.5).abs() < 1e-9);
+        assert_eq!((c.kind, c.amount), (ChangeKind::PerSecond, 6.0));
         // Value And Parts at once; withdrawal's Reduce Strength is a negative modifier.
         let c = value_change(&mgef(34, 0, Some(16)), &item(30, 0, Some(16)), 1.0, false).unwrap();
         assert_eq!((c.kind, c.parts), (ChangeKind::Once, true));
