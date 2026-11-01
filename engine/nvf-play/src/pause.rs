@@ -167,6 +167,12 @@ impl PlayClock {
     pub fn stopped_secs(&self) -> f32 {
         self.stopped
     }
+
+    /// A clock whose frame stood still for `secs` of real time (tests).
+    #[cfg(test)]
+    pub(crate) fn frozen_frame(secs: f32) -> PlayClock {
+        PlayClock { stopped: 0.0, frame: Some(secs) }
+    }
 }
 
 /// The clock of what goes on while a menu holds the picture: timed test aids, menu
