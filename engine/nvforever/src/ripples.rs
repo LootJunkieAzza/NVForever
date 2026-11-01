@@ -114,6 +114,7 @@ impl Sim {
                     }
                 }
             }
+            clear_border(buf);
         }
         self.settle();
     }
@@ -154,6 +155,19 @@ impl Sim {
             self.at_rest = false;
         }
         changed
+    }
+}
+
+/// [design] Zero the one-cell border of a grid buffer. `Sim::step` updates only the
+/// interior and reads the border as the fixed 0 edge, so the border is not simulated: a
+/// value `Sim::shift` moved into it would stay there forever (across every buffer swap),
+/// show as a frozen value at the edge of the texture and keep the grid from coming to rest.
+fn clear_border(buf: &mut [f32]) {
+    buf[..N].fill(0.0);
+    buf[(N - 1) * N..].fill(0.0);
+    for y in 1..N - 1 {
+        buf[y * N] = 0.0;
+        buf[y * N + N - 1] = 0.0;
     }
 }
 
@@ -514,5 +528,55 @@ mod tests {
         s.shift(3, -2);
         assert_eq!(s.cur[12 * N + 7], 1.0);
         assert_eq!(s.cur.iter().filter(|&&h| h != 0.0).count(), 1);
+    }
+
+    fn border_is_zero(buf: &[f32]) -> bool {
+        (0..N).all(|i| buf[i] == 0.0 && buf[(N - 1) * N + i] == 0.0 && buf[i * N] == 0.0 && buf[i * N + N - 1] == 0.0)
+    }
+
+    #[test]
+    fn shift_keeps_the_border_zero_in_every_direction() {
+        for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1), (3, -2)] {
+            let mut s = Sim::new();
+            for y in 1..N - 1 {
+                for x in 1..N - 1 {
+                    s.cur[y * N + x] = 1.0;
+                    s.prev[y * N + x] = -1.0;
+                }
+            }
+            s.at_rest = false;
+            s.shift(dx, dy);
+            assert!(border_is_zero(&s.cur) && border_is_zero(&s.prev), "shift ({dx}, {dy})");
+            // The interior keeps the moved contents: a cell whose source was interior
+            // still holds it.
+            assert_eq!(s.cur[128 * N + 128], 1.0);
+            assert_eq!(s.prev[128 * N + 128], -1.0);
+            assert!(!s.at_rest);
+        }
+    }
+
+    #[test]
+    fn a_wave_shifted_against_the_edge_still_comes_to_rest() {
+        let (mut rp, mut images) = fixture();
+        // Production damping and wave speed (Sim::new).
+        assert_eq!((rp.rain.c2, rp.rain.falloff), (0.5, 0.985));
+        rp.rain.impulse(2.0, 128.0, 1.0, 0.1);
+        rp.step();
+        assert!(rp.upload(&mut images));
+        // Move the grid two cells: values from x = 2 would land in the border at x = 0.
+        rp.follow(IVec2::new(2, 0));
+        assert!(!rp.rain.at_rest, "interior values remain after the shift");
+        assert!(border_is_zero(&rp.rain.cur) && border_is_zero(&rp.rain.prev));
+        // sqrt(0.985) per step from about 0.1 to below 2^-126 takes about 11 000 steps.
+        let mut steps = 0;
+        while !(rp.rain.at_rest && rp.wake.at_rest) {
+            assert!(steps < 20_000, "the grid never came to rest");
+            rp.step();
+            steps += 1;
+        }
+        assert!(rp.upload(&mut images), "the last step to rest uploads a final clear");
+        assert!(images.get(&rp.image).unwrap().data.as_ref().unwrap().iter().all(|&b| b == 0));
+        rp.step();
+        assert!(!rp.upload(&mut images));
     }
 }
