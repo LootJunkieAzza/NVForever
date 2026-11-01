@@ -45,18 +45,29 @@ install it. The enable conditions and existing report formats are unchanged (#12
 [documented in pinned Bevy 0.20.1 source; `engine/Cargo.lock`,
 `bevy_app::Plugin::is_unique`, `App::add_boxed_plugin`, and
 `bevy_render::diagnostic::RenderDiagnosticsPlugin`] Registering this unique plugin
-twice takes Bevy's duplicate-plugin panic path. The shared guard addresses that
-source-confirmed startup failure; default and profile-enabled release builds now
-pass the four startup/output combinations in the focused smoke coverage. Broader
-profiling and performance validation remain separate work.
+twice takes Bevy's duplicate-plugin panic path; the shared guard avoids it.
 
-The profile feature enables Bevy's tracing spans; manually instrumented project
-spans can still appear in a default build, so an empty profile window does not
-prove that the feature is absent. GPU timestamps and pipeline statistics
-are supported by pinned Bevy on Vulkan and DX12, subject to device capabilities;
-other backends record CPU render timings. Missing GPU timings are not zero GPU cost.
-`--log-frame-times` also selects display sync off and disables the frame cap settings;
-match effective presentation settings before comparing instrumentation overhead.
+[observed: release builds of #1275, default and `nvforever/profile`] Both options
+alone, together and neither start and finish normally, with the expected reports
+present or absent (smoke scenarios `render-diagnostics-*`). Broader profiling and
+performance validation remain separate work.
+
+[documented: `crash.rs` installs the tracing subscriber without the `profile`
+feature; project `info_span!` calls are unconditional] The profile feature enables
+Bevy's own tracing spans, but manually instrumented project spans still appear in a
+default build, so a non-empty profile window does not prove the feature is on.
+
+[documented: `bevy_render-0.20.1/src/diagnostic/internal.rs` (checks device
+features), `wgpu-hal-30.0.1` adapters] GPU timings depend on the device features
+the backend exposes, not on a backend list. Timestamps need `TIMESTAMP_QUERY`
+(exposed by the Vulkan, DX12 and Metal back ends, subject to the device); pipeline
+statistics need `PIPELINE_STATISTICS_QUERY`, which wgpu-hal 30.0.1 does not yet
+expose on DX12. Without them Bevy records CPU render timings only. Missing GPU
+timings are not zero GPU cost.
+
+[documented: `main.rs`, `settings.rs`] `--log-frame-times` also selects display
+sync off and disables the frame cap settings; match effective presentation settings
+before comparing instrumentation overhead.
 
 ## 2. Item 4: the mantis ootheca
 
