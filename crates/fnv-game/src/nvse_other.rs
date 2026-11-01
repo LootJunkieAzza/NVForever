@@ -74,6 +74,8 @@ pub struct OtherState {
     pub itr: crate::nvse_itr1::ItrState,
     /// ITR NVSE's batch-2 state (`nvse_itr2`).
     pub itr2: crate::nvse_itr2::Itr2State,
+    /// JIP batch 7's lists and settings: ammo effects, climate weathers, armour (`nvse_jip7`).
+    pub jip7: crate::nvse_jip7::Jip7State,
 }
 
 /// The bit of DisablePlayerControlsAltEx's flags for each control group, in the order of
