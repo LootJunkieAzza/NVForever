@@ -7,7 +7,9 @@
 //! 1. This run brings a loading screen up (`nvf_play::loading::CoverRequest`, its picture
 //!    one for the save's place), which holds the game. Once it is drawn, the new run
 //!    starts with `--handoff <file>` and this window's place and size (`--window-at`,
-//!    `--size`, `--window-maximized`); this run then updates a few times a second only.
+//!    `--size`, `--window-maximized`); this run then updates a few times a second only,
+//!    and its asset caches let go of every model and texture no cell uses
+//!    ([`LETTING_GO`]), so less of this run is held while the new one loads (#1357).
 //! 2. The new run opens its window hidden at that place ([`Hidden`]), loads with long
 //!    frames as behind a loading screen (`Loading::unseen`), and holds its sounds. When
 //!    the world is in (the cells around the camera drawn and in physics, the save put
@@ -63,6 +65,10 @@ const EXIT_AID: &str = "NVF_PLAY_TEST_HANDOFF_EXIT";
 /// the new run's file soon, rarely enough to leave the computer to the new run].
 const WAIT_TICK: Duration = Duration::from_millis(50);
 
+/// The caches' keep limits while the old run waits: nothing unused is kept (the limits
+/// before come back if the new run fails).
+const LETTING_GO: nvf_assets::KeepLimits = nvf_assets::KeepLimits { secs: 0.0, max: 0 };
+
 /// Where the old window is, for the new run's arguments.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Placement {
@@ -102,6 +108,8 @@ struct Successor {
     started: Instant,
     /// The update mode before the wait.
     settings: WinitSettings,
+    /// The caches' keep limits before the wait.
+    keep: nvf_assets::KeepLimits,
     /// The new run is up: it goes on alone.
     handed_over: bool,
 }
@@ -201,6 +209,7 @@ pub fn leave(
     location: Res<nvf_play::Location>,
     window: Query<(Entity, &Window), With<PrimaryWindow>>,
     mut winit: ResMut<WinitSettings>,
+    mut limits: ResMut<nvf_assets::KeepLimits>,
     _main_thread: NonSendMarker,
 ) {
     let request = asked.read().last().cloned().map(Some).or(to_menu.read().last().map(|_| None));
@@ -241,7 +250,8 @@ pub fn leave(
                     info!("load: handing over to a new run with {}", r.as_ref().map_or("--menu".to_string(), |r| format!("--load {}", r.path.display())));
                     let settings = winit.clone();
                     *winit = WinitSettings { focused_mode: UpdateMode::reactive_low_power(WAIT_TICK), unfocused_mode: UpdateMode::reactive_low_power(WAIT_TICK) };
-                    *h = Leaving::Waiting(Successor { child, file, started: Instant::now(), settings, handed_over: false });
+                    *h = Leaving::Waiting(Successor { child, file, started: Instant::now(), settings, keep: *limits, handed_over: false });
+                    *limits = LETTING_GO;
                 }
                 Err(e) => {
                     warn!("load: {e}; staying");
@@ -258,6 +268,10 @@ pub fn leave(
             }
             let ended = match s.child.try_wait() {
                 Ok(None) => {
+                    // The memory budget's watch may have set its own limits since.
+                    if *limits != LETTING_GO {
+                        *limits = LETTING_GO;
+                    }
                     *h = Leaving::Waiting(s);
                     return;
                 }
@@ -272,6 +286,7 @@ pub fn leave(
             };
             warn!("load: {ended}; staying");
             *winit = s.settings.clone();
+            *limits = s.keep;
             uncover.write(Uncover);
         }
     }
