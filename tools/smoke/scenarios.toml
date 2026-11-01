@@ -6017,6 +6017,12 @@ expect = [
   { re = 'before the world was in|before it was ready', count = 0, label = "no time limit or failure" },
   { text = "menu pause: the picture runs again", count = 0, label = "the world behind the loading screen stands still while the new run loads (owner 2026-10-23: a load from the main menu played the opening behind it)" },
 ]
+order = [[
+  { re = 'handoff: window shown after [\d.]+ s$', label = "the new window shows" },
+  { re = 'load: the new run is up after [\d.]+ s; ending this one', label = "the old run ends once the new window shows" },
+  { re = 'load: restored .*handoff-test\.nvfsave', label = "only then is the save put back (owner 2026-11-01: the old run does not stay through the load)" },
+  { text = "the new run took over and its world is in; ending it", label = "and the world comes in" },
+]]
 
 [[scenario]]
 name = "load-handoff-refused"
@@ -6033,6 +6039,26 @@ expect = [
   { re = 'handoff: window shown after [\d.]+ s$', label = "the new window is shown (not past the time limit)" },
   { re = 'load: the new run is up after [\d.]+ s; ending this one', label = "the old run ends" },
   { text = "the new run took over and its main menu is in; ending it", label = "the main menu is open" },
+  { re = 'load: message box not shown \(unattended run\): the save could not be loaded: --load .*win\.ini', count = 1, label = "the player is told why (the box itself is skipped in unattended runs)" },
+]
+order = [[
+  { re = 'handoff: window shown after [\d.]+ s$', label = "the new window shows" },
+  { re = 'load: message box .*the save could not be loaded', label = "the box comes once the new window is up" },
+]]
+
+[[scenario]]
+name = "load-bad-save-by-hand"
+source = "owner 2026-11-01 (#1357): a save given with --load that cannot be loaded opens the main menu with a message box saying why, instead of the game ending with an error (engine/nvforever/src/main.rs start_from_save)"
+areas = ["save"]
+paths = ["engine/nvforever/src/main.rs", "engine/nvforever/src/handoff.rs", "engine/nvf-play/src/main_menu.rs"]
+env = { NVFOREVER_HOME = "bad-save-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--play", "--load", 'C:\Windows\win.ini']
+run_seconds = 12
+expect = [
+  { re = 'load: --load .*win\.ini.*; opening the main menu', count = 1, label = "the file is not loaded and the main menu opens instead" },
+  { re = 'main menu: open \(', label = "the main menu is open" },
+  { re = 'load: message box not shown \(unattended run\): the save could not be loaded: --load .*win\.ini', count = 1, label = "the player is told why" },
+  { re = '^error: ', count = 0, label = "the game does not stop with an error" },
 ]
 
 [[scenario]]

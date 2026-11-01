@@ -180,8 +180,10 @@ fn placement(window: &Window, entity: Entity) -> Placement {
 fn tell_player(why: &str) {
     // Unattended: a test aid drives this run (as nvf_play's test_aid::Unattended).
     if std::env::vars_os().any(|(k, _)| k.to_str().is_some_and(nvf_play::drives_run)) {
+        info!("load: message box not shown (unattended run): the save could not be loaded: {why}");
         return;
     }
+    info!("load: message box: the save could not be loaded: {why}");
     // rfd is a Windows-only dependency; elsewhere the log line carries the reason.
     #[cfg(windows)]
     {
@@ -304,10 +306,12 @@ pub fn add_end_now(app: &mut App) {
 }
 
 /// The old run, once the new one is up: its exit logs are written, its saves on disk
-/// (waited for before the screen came up); the process ends here, the system freeing its
-/// memory at once.
-fn end_now(handoff: Res<Handoff>) {
-    if matches!(handoff.0, Leaving::HandedOver) {
+/// (waited for before the screen came up), a frame capture finished (`--frame-telemetry`:
+/// its writer otherwise finishes in the teardown this skips); the process ends here, the
+/// system freeing its memory at once.
+fn end_now(world: &mut World) {
+    if matches!(world.resource::<Handoff>().0, Leaving::HandedOver) {
+        crate::frame_telemetry::finish_for_exit(world);
         std::process::exit(0);
     }
 }
@@ -319,7 +323,8 @@ pub struct LoadFailed(pub String);
 
 /// The message box for [`LoadFailed`], once the window is shown (a handoff's new run
 /// shows it over the old run's window first).
-pub fn tell_load_failed(mut commands: Commands, failed: Res<LoadFailed>, hidden: Option<Res<Hidden>>, windows: Query<&Window, With<PrimaryWindow>>) {
+pub fn tell_load_failed(mut commands: Commands, failed: Option<Res<LoadFailed>>, hidden: Option<Res<Hidden>>, windows: Query<&Window, With<PrimaryWindow>>) {
+    let Some(failed) = failed else { return };
     if hidden.as_ref().is_some_and(|h| !h.told) || !windows.single().is_ok_and(|w| w.visible) {
         return;
     }
