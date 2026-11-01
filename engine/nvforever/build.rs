@@ -22,11 +22,12 @@ fn embed_revision() -> Option<()> {
     let common_dir = git(&base, &["rev-parse", "--git-common-dir"])?;
     let symbolic = git(&base, &["rev-parse", "--symbolic-full-name", "HEAD"])?;
     let paths = git_paths::resolve(&base, &git_dir, &common_dir, &symbolic)?;
-    println!("cargo:rerun-if-changed={}", paths.head.display());
-    // Watch only files that exist: Cargo treats a missing watched path as always changed,
-    // which would rerun this script on every build (a branch kept only in packed-refs).
-    // Packing removes a watched loose ref, which triggers a fresh lookup.
-    if let Some(branch) = paths.branch.filter(|path| path.is_file()) {
+    if paths.head.is_file() {
+        println!("cargo:rerun-if-changed={}", paths.head.display());
+    }
+    // Watch a packed-only branch's nearest existing directory until its loose ref
+    // appears. A missing watched path would make Cargo rerun on every build.
+    if let Some(branch) = paths.branch_watch() {
         println!("cargo:rerun-if-changed={}", branch.display());
     }
     for packed in paths.packed_refs.into_iter().filter(|path| path.is_file()) {

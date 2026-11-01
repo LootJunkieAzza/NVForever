@@ -128,7 +128,6 @@ impl Header {
             capture_id: capture_id.to_owned(),
             metadata,
         };
-        header.line()?;
         Ok(header)
     }
 

@@ -40,7 +40,7 @@ pre-first-update startup time (`bevy_time/src/real.rs:23-38,99-108`).
 `FrameCount` is u32, starts at zero during Update, increments in Last and wraps; extraction copies it
 into the render world (`bevy_diagnostic/src/frame_count.rs:10-39`; `bevy_render/src/globals.rs:16-37`).
 
-[hypothesis] At the end of main `Update`, after settings and phase and marker producers, read
+[hypothesis] In main `Update`, after the named engine systems and phase and marker producers, read
 `Time<Real>::delta().as_nanos()`. It measures cadence between First's instants, including waits, rather than
 Update execution or CPU or GPU time. First duration is null; later zeros are valid. Require automatic time
 outside synthetic tests. Collection time is separate from interval endpoints.
@@ -61,13 +61,16 @@ Keep spans and process CPU in legacy output. Never wait for readbacks; history o
 diagnostic import schedule. Its per-path cursor holds at most 4,096 paths; an import-time watermark
 deduplicates observations from paths that cannot enter that map. Cursors advance before queue admission,
 including on exporter drops. The collector uses only `measurement()` and preserves its import timestamp.
+GPU mode scans the whole diagnostic store on each collection update, including non-render paths before
+filtering them. Traversal cost is bounded by the store's population, not by the 4,096-path cursor capacity.
 
 [observed] `engine/nvforever/build.rs` retains the Windows icon logic and reads `git rev-parse HEAD` at
 build time to embed the commit through
 `cargo:rustc-env=NVF_BUILD_GIT_SHA=...`, read with `option_env!`. If Git is absent, the checkout is not a
 repository or the query fails, the field is null with a reason; provenance must never fail the build.
 Keep the icon watch and add `rerun-if-changed` only for the Git-resolved `HEAD`, the branch reference it
-names and `packed-refs` (worktree and common directory paths), so the script reruns when the commit
+names (or its nearest existing ancestor directory under the common directory when packed-only) and
+existing `packed-refs` files (worktree and common directory paths), so the script reruns when the commit
 changes and not on every source or document edit, which would recompile the crate. The engine does not
 record uncommitted changes: a build-time dirty flag would either go stale or force a rebuild on any edit.
 The stress runner records its own checkout's commit and dirty state (#1277), which describe the
@@ -76,7 +79,10 @@ engine only when both come from the same checkout. The game process never runs G
 [observed] The implementation resolves relative Git directory answers against `CARGO_MANIFEST_DIR`,
 watches the worktree's `HEAD` and the common directory's named branch ref, and watches existing
 `packed-refs` files in either directory. Missing optional packed-refs files are not watched, so they do
-not force every build to rerun. The header uses `build_git_unavailable` when no commit was embedded.
+not force every build to rerun. A packed-only branch watches its nearest existing ancestor directory,
+down to the common directory if necessary, so creation of a loose ref invalidates provenance. Once that
+ref exists, only its file is watched. No missing path is watched. The header uses `build_git_unavailable`
+when no commit was embedded.
 
 ## 3. Records
 
@@ -95,7 +101,7 @@ last. Ignore unknown fields; report unsupported versions and record types. Drop 
 |---|---|---|---|
 | `schema_version` | u32 | None; no | Is exactly 1; incompatible semantics require a new version. |
 | `capture_id` | string | None; no | Is a unique token matching `[A-Za-z0-9_-]{1,64}` and the filename. |
-| `run_id`, `scenario_id` | string | None; yes | Carry opaque harness IDs from `NVF_PLAY_TEST_FRAME_TELEMETRY_RUN_ID` and `NVF_PLAY_TEST_FRAME_TELEMETRY_SCENARIO_ID`; each is at most 64 ASCII bytes. |
+| `run_id`, `scenario_id` | string | None; yes | Carry opaque harness IDs from `NVF_PLAY_TEST_FRAME_TELEMETRY_RUN_ID` and `NVF_PLAY_TEST_FRAME_TELEMETRY_SCENARIO_ID`; each matches `[A-Za-z0-9_-]{0,64}`. |
 | `started_at_utc` | string | UTC; yes | Records the RFC3339 epoch clock pair, never the source for elapsed calculations. |
 | `engine_revision` | string | None; yes | Gives the build-embedded commit, never an inference from the runner or executable name. |
 | `build_features` | array of strings | None; no | Lists sorted enabled nvforever crate features from compile-time cfg, not transitive features. |
@@ -195,6 +201,12 @@ under 8 KiB. A writer thread merges by seq, serializes and writes without blocki
 It measures actual lines as a backstop, dropping and counting any oversized payload as exporter loss.
 It keeps only wholly written durations, at most max_frames, and computes statistics at stop.
 
+[observed] The first collector passes bounded header values and the already guarded path to the writer.
+Only thread creation happens synchronously there. The writer opens the file with `create_new`, encodes
+the header once, checks its line size and trailer reservation, and writes it before draining payloads.
+Opening and header failures freeze capture through shared writer-error state and return an error report;
+the polling system logs that report once. The header constructor performs no JSON encoding or file I/O.
+
 [hypothesis] Before a line would exceed `max_bytes - 16 KiB`, the writer freezes producers and cuts at
 the last wholly written record, publishing its seq as `cut_seq` and its collection time as the byte stop
 time. Already queued attempts and in-flight submissions with higher seq values are outside the interval.
@@ -228,8 +240,18 @@ trailer only if writable. Mark partial lines or absent trailers incomplete; neve
 
 [observed] Normal collection and limit stops use `Capture::begin_finish_at` and `poll_finish`, which
 close producers and poll the writer without waiting on a game frame. `AppExit` starts the same shutdown;
-resource teardown outside collection waits only for the remainder of the original 2 s grace. The GPU
-sentinel distinguishes unavailable device capability from a known device lacking `TIMESTAMP_QUERY`
+resource teardown outside collection waits only for the remainder of the original 2 s drain grace.
+An atomic claim resolves timeout against trailer construction: timeout may claim an unbegun trailer and
+omit it permanently, leaving the file incomplete. The writer claims before constructing the trailer and
+rechecks the drain deadline immediately after its claim; if it has expired, it also omits the trailer.
+Once construction begins, neither polling nor teardown assigns a different timeout status to that trailer.
+They allow up to 100 ms beyond the original drain deadline for its write and final flush. If still pending,
+they report `trailer in progress, final status unavailable`, detach the writer and claim no final status
+or counts. A later trailer retains the status selected by its writer. A successful final flush returns the
+exact serialized trailer. A final flush failure also preserves any wholly written trailer in the report,
+with its original status, an error and `flush_confirmed = false`; the summary flags `flush unconfirmed`
+instead of changing a trailer already written. Consumers must treat that flush outcome as unconfirmed.
+The GPU sentinel distinguishes unavailable device capability from a known device lacking `TIMESTAMP_QUERY`
 and `TIMESTAMP_QUERY_INSIDE_ENCODERS`; only the latter reports `timestamp_queries_unsupported`.
 
 ## 5. Coexistence, consumption and validation
@@ -244,11 +266,16 @@ must call that helper; frames-only mode does not request the plugin. Add only ex
 [observed] The plugin logs one start line, `frame telemetry: capturing <seconds> s to <path>
 (frames[ + render timings])`, and one terminal summary, `frame telemetry: <path> <status>
 (<stop_reason>), <frames> frames, gameplay p50 <x> ms p95 <y> ms p99 <z> ms, dropped <n>, <bytes> bytes`.
-Empty quantiles print `null`. A missing trailer produces a truncated summary with its reason, without
-inventing final counts. Invalid aids or output setup failures log one `frame telemetry: disabled:` warning.
+GPU mode appends `, gpu observations <n>`, counting available wholly written GPU observations and excluding
+the sentinel. Empty quantiles print `none`. A missing trailer produces a truncated summary with its reason,
+without inventing final counts. A claimed trailer still in progress has the separate uncertainty message
+described in §4. Invalid aids or synchronous output setup failures log one `frame telemetry: disabled:`
+warning; asynchronous file creation or header failures appear once in the terminal writer-error summary.
 An unset or zero aid installs no telemetry systems, resources or render diagnostics and logs nothing.
-The synthetic smoke scenarios are `frame-telemetry-frames`, `frame-telemetry-gpu`, `frame-telemetry-off`
-and `frame-telemetry-bad-aid`; runtime delivery, pacing and overhead validation remain supervisor work.
+The smoke scenarios are `frame-telemetry-frames`, `frame-telemetry-gpu`, `frame-telemetry-off`
+and `frame-telemetry-bad-aid`. The frames and GPU scenarios request 18 s and allow a 25 s run; they inspect
+start/summary log lines, not JSONL validity or plugin installation. The GPU scenario requires a nonzero
+logged GPU observation count. Runtime JSONL delivery, pacing and overhead validation remain supervisor work.
 
 [documented] Stress gives each launch its own home and captures stdout (`tools/stress/stress/lib.py:251-280`).
 [observed] Sibling #1277 records provenance in `tools/stress/stress/metadata.py:158-198`, attaches it in

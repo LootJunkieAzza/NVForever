@@ -151,7 +151,7 @@ impl Session {
         let result = self.capture.as_mut().and_then(Capture::poll_finish);
         if let Some(result) = result {
             self.capture.take();
-            log_summary(&self.path, result);
+            log_summary(&self.path, result, self.config.gpu);
         }
     }
 }
@@ -164,7 +164,7 @@ impl Drop for Telemetry {
             if let Some(capture) = session.capture.take() {
                 let t_ns = elapsed_ns(session.epoch);
                 let sentinel = session.sentinel(t_ns);
-                log_summary(&session.path, capture.finish_at(t_ns, StopReason::NormalExit, sentinel));
+                log_summary(&session.path, capture.finish_at(t_ns, StopReason::NormalExit, sentinel), session.config.gpu);
             }
         }
     }
@@ -495,13 +495,20 @@ fn utc_stamp(utc: Duration) -> Option<String> {
     ))
 }
 
-fn log_summary(path: &std::path::Path, result: Shutdown) {
+fn log_summary(path: &std::path::Path, result: Shutdown, gpu: bool) {
     if let Shutdown::Finished(report) = result {
         if let Some(trailer) = report.trailer {
             let gameplay = &trailer.phases[Phase::Gameplay.index()];
             let number = |value: Option<f64>| value.map_or_else(|| "none".to_owned(), |v| format!("{v:.3}"));
-            info!(
-                "frame telemetry: {} {} ({}), {} frames, gameplay p50 {} ms p95 {} ms p99 {} ms, dropped {}, {} bytes",
+            let observations = if gpu {
+                format!(", gpu observations {}", trailer.gpu_observations_written)
+            } else {
+                String::new()
+            };
+            let error = report.error.as_deref().map_or(String::new(), |error| format!(", writer error: {error}"));
+            let flush = if report.flush_confirmed { "" } else { ", flush unconfirmed" };
+            let summary = format!(
+                "frame telemetry: {} {} ({}), {} frames, gameplay p50 {} ms p95 {} ms p99 {} ms, dropped {}, {} bytes{observations}{flush}{error}",
                 path.display(),
                 if trailer.complete() { "complete" } else { "truncated" },
                 trailer.stop_reason.name(),
@@ -512,15 +519,23 @@ fn log_summary(path: &std::path::Path, result: Shutdown) {
                 trailer.dropped_frames + trailer.dropped_diagnostics + trailer.dropped_markers,
                 report.bytes_written
             );
+            if report.error.is_some() {
+                warn!("{summary}");
+            } else {
+                info!("{summary}");
+            }
         } else {
             warn!(
-                "frame telemetry: {} truncated (writer_error), trailer unavailable: {}",
+                "frame telemetry: {} truncated ({}), trailer unavailable: {}",
                 path.display(),
-                report.error.as_deref().unwrap_or("writer stopped")
+                report.stop_reason.name(),
+                report.error.as_deref().unwrap_or("shutdown grace expired")
             );
         }
-    } else {
+    } else if matches!(result, Shutdown::TimedOut) {
         warn!("frame telemetry: {} truncated (shutdown_timeout), trailer unavailable", path.display());
+    } else {
+        warn!("frame telemetry: {} trailer in progress, final status unavailable", path.display());
     }
 }
 

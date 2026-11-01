@@ -45,23 +45,50 @@ impl Memory {
     }
 }
 
-// Hold the writer in its first write so capacity tests never depend on scheduling.
+#[derive(Clone, Copy)]
+enum HoldAt {
+    Header,
+    Trailer,
+    FinalFlush,
+}
+
+// Hold a chosen writer operation so failure-path tests never depend on scheduling.
 struct GateSink {
     memory: Memory,
     started: Option<Sender<()>>,
     release: Receiver<()>,
     done: Sender<()>,
+    hold_at: HoldAt,
+    saw_trailer: bool,
+    fail_final_flush: bool,
 }
 
-impl Write for GateSink {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+impl GateSink {
+    fn hold(&mut self) {
         if let Some(started) = self.started.take() {
             started.send(()).unwrap();
             let _ = self.release.recv();
         }
+    }
+}
+
+impl Write for GateSink {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.saw_trailer |= bytes.windows(b"\"type\":\"trailer\"".len()).any(|part| part == b"\"type\":\"trailer\"");
+        if matches!(self.hold_at, HoldAt::Header) || (matches!(self.hold_at, HoldAt::Trailer) && self.saw_trailer) {
+            self.hold();
+        }
         self.memory.write(bytes)
     }
     fn flush(&mut self) -> io::Result<()> {
+        if self.saw_trailer {
+            if matches!(self.hold_at, HoldAt::FinalFlush) {
+                self.hold();
+            }
+            if self.fail_final_flush {
+                return Err(io::Error::other("synthetic final flush failure"));
+            }
+        }
         Ok(())
     }
 }
@@ -81,6 +108,10 @@ struct Gate {
 
 impl Gate {
     fn new() -> (Self, GateSink) {
+        Self::at(HoldAt::Header)
+    }
+
+    fn at(hold_at: HoldAt) -> (Self, GateSink) {
         let memory = Memory::default();
         let (started_tx, started) = mpsc::channel();
         let (release, release_rx) = mpsc::channel();
@@ -90,6 +121,9 @@ impl Gate {
             started: Some(started_tx),
             release: release_rx,
             done: done_tx,
+            hold_at,
+            saw_trailer: false,
+            fail_final_flush: false,
         };
         (
             Self {
@@ -139,7 +173,7 @@ fn finish(capture: Capture) -> WriterReport {
             assert!(report.error.is_none(), "{:?}", report.error);
             *report
         }
-        Shutdown::TimedOut => panic!("synthetic capture timed out"),
+        Shutdown::TimedOut | Shutdown::TrailerInProgress => panic!("synthetic capture did not finish"),
     }
 }
 
@@ -683,10 +717,15 @@ fn payload_and_line_byte_limits_include_lf_correctly() {
         build_features: vec!["x".repeat(MAX_LINE)],
         ..Default::default()
     };
-    assert!(Header::new("large", config(false), metadata).is_err());
+    assert!(Header::new("large", config(false), metadata).unwrap().line().is_err());
     let h = header(false);
     let too_small = h.line().unwrap().len() as u64 + TRAILER_RESERVE - 1;
-    assert!(test_support::start(Memory::default(), h, MAX_FRAMES, too_small, 1, 1).is_err());
+    let capture = test_support::start(Memory::default(), h, MAX_FRAMES, too_small, 1, 1).unwrap();
+    let Shutdown::Finished(report) = capture.finish_at(1, StopReason::NormalExit, None) else {
+        panic!()
+    };
+    assert!(report.error.is_some());
+    assert!(report.trailer.is_none());
 }
 
 #[test]
@@ -1029,10 +1068,21 @@ fn create_new_never_overwrites_and_missing_directory_fails() {
     let temp = TempDir::new();
     let path = temp.0.join("capture.jsonl");
     fs::write(&path, b"keep").unwrap();
-    let error = Capture::create(&path, header(false), Instant::now()).err().unwrap();
-    assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+    let capture = Capture::create(&path, header(false), Instant::now()).unwrap();
+    let Shutdown::Finished(report) = capture.finish_at(1, StopReason::NormalExit, None) else {
+        panic!()
+    };
+    assert_eq!(report.stop_reason, StopReason::WriterError);
+    assert!(report.error.is_some());
+    assert!(report.trailer.is_none());
     assert_eq!(fs::read(&path).unwrap(), b"keep");
-    assert!(Capture::create(&temp.0.join("missing/capture.jsonl"), header(false), Instant::now()).is_err());
+    let capture = Capture::create(&temp.0.join("missing/capture.jsonl"), header(false), Instant::now()).unwrap();
+    let Shutdown::Finished(report) = capture.finish_at(1, StopReason::NormalExit, None) else {
+        panic!()
+    };
+    assert_eq!(report.stop_reason, StopReason::WriterError);
+    assert!(report.error.is_some());
+    assert!(report.trailer.is_none());
 }
 
 #[test]
@@ -1165,7 +1215,7 @@ fn recoverable_payload_flush_failure_writes_truncated_trailer() {
 }
 
 #[test]
-fn shutdown_timeout_freezes_and_late_writer_reports_truncated() {
+fn shutdown_timeout_freezes_and_late_writer_leaves_no_trailer() {
     let (mut gate, sink) = Gate::new();
     let mut capture = test_support::start(sink, header(false), MAX_FRAMES, MAX_BYTES, 1, 1).unwrap();
     gate.wait();
@@ -1175,7 +1225,87 @@ fn shutdown_timeout_freezes_and_late_writer_reports_truncated() {
     gate.open();
     gate.done.recv_timeout(Duration::from_secs(2)).unwrap();
     let lines = gate.memory.lines();
-    assert_eq!(lines.last().unwrap()["stop_reason"], "shutdown_timeout");
-    assert_eq!(lines.last().unwrap()["status"], "truncated");
-    assert_eq!(lines.last().unwrap()["dropped_frames"], 1);
+    assert!(lines.iter().all(|line| line["type"] != "trailer"));
+    let report = test_support::late_report(&mut capture);
+    assert_eq!(report.stop_reason, StopReason::ShutdownTimeout);
+    assert!(report.trailer.is_none());
+}
+
+fn held_trailer_agrees_with_report(hold_at: HoldAt, fail_final_flush: bool) {
+    let (mut gate, mut sink) = Gate::at(hold_at);
+    sink.fail_final_flush = fail_final_flush;
+    let mut capture = test_support::start(sink, header(false), MAX_FRAMES, MAX_BYTES, 1, 1).unwrap();
+    assert!(capture.frame_at(1, 0, 0, Phase::Startup));
+    capture.begin_finish_at(2, StopReason::NormalExit, None);
+    gate.wait();
+    // Advance the poll clock beyond both graces while the claimed trailer/flush is
+    // held. This reproduces the late-write interleaving without a wall-clock sleep.
+    assert!(matches!(test_support::poll_past_graces(&mut capture), Some(Shutdown::TrailerInProgress)));
+    gate.open();
+    let report = test_support::late_report(&mut capture);
+    let trailer = report.trailer.unwrap();
+    assert_eq!(report.stop_reason, trailer.stop_reason);
+    assert_eq!(report.flush_confirmed, !fail_final_flush);
+    assert_eq!(report.error.is_some(), fail_final_flush);
+    let expected: Value = serde_json::from_slice(&trailer.line().unwrap()).unwrap();
+    assert_eq!(gate.memory.lines().last().unwrap(), &expected);
+    assert!(trailer.complete());
+}
+
+#[test]
+fn trailer_write_past_grace_keeps_file_and_report_consistent() {
+    held_trailer_agrees_with_report(HoldAt::Trailer, false);
+}
+
+#[test]
+fn final_flush_past_grace_keeps_file_and_report_consistent() {
+    held_trailer_agrees_with_report(HoldAt::FinalFlush, false);
+}
+
+#[test]
+fn final_flush_failure_preserves_the_serialized_trailer() {
+    held_trailer_agrees_with_report(HoldAt::FinalFlush, true);
+}
+
+#[test]
+fn header_encoding_failure_is_reported_by_writer() {
+    let temp = TempDir::new();
+    let metadata = HeaderMetadata {
+        build_features: vec!["x".repeat(MAX_LINE)],
+        ..Default::default()
+    };
+    let header = Header::new("oversized", config(false), metadata).unwrap();
+    let capture = Capture::create(&temp.0.join("oversized.jsonl"), header, Instant::now()).unwrap();
+    let Shutdown::Finished(report) = capture.finish_at(1, StopReason::NormalExit, None) else {
+        panic!()
+    };
+    assert!(report.error.is_some());
+    assert_eq!(report.stop_reason, StopReason::WriterError);
+    assert_eq!(report.bytes_written, 0);
+    assert!(report.trailer.is_none());
+}
+
+#[test]
+fn file_opener_runs_on_writer_without_waiting_on_producer() {
+    let memory = Memory::default();
+    let output = memory.clone();
+    let (entered_tx, entered) = mpsc::channel();
+    let (release, release_rx) = mpsc::channel();
+    let producer = std::thread::current().id();
+    let mut capture = test_support::start_with_open(
+        move || {
+            entered_tx.send(std::thread::current().id()).unwrap();
+            release_rx.recv().unwrap();
+            Ok(output)
+        },
+        header(false),
+    )
+    .unwrap();
+    assert_ne!(entered.recv_timeout(Duration::from_secs(2)).unwrap(), producer);
+    assert!(capture.frame_at(1, 0, 0, Phase::Startup));
+    capture.begin_finish_at(2, StopReason::NormalExit, None);
+    assert!(capture.poll_finish().is_none());
+    release.send(()).unwrap();
+    assert!(finish(capture).trailer.unwrap().complete());
+    assert_eq!(memory.lines().len(), 3);
 }

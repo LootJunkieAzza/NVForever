@@ -6,13 +6,17 @@ use super::{Config, DIAGNOSTIC_SLOTS, FRAME_SLOTS, MARKERS_PER_FRAME, MAX_BYTES,
 use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
+const TRAILER_GRACE: Duration = Duration::from_millis(100);
+const DRAINING: u8 = 0;
+const TRAILER_BEGUN: u8 = 1;
+const ABORTED: u8 = 2;
 
 #[derive(Clone, Copy)]
 struct Stop {
@@ -27,6 +31,7 @@ struct Shared {
     writer_error: OnceLock<Stop>,
     timeout: OnceLock<Stop>,
     deadline: OnceLock<Instant>,
+    finalization: AtomicU8,
     frozen: AtomicBool,
     closing: AtomicBool,
     active: AtomicBool,
@@ -48,9 +53,8 @@ impl Shared {
                 let _ = self.writer_error.set(stop);
             }
             StopReason::ShutdownTimeout => {
-                // Design note: exceeding the drain grace truncates an earlier normal or
-                // limit stop; an I/O error still takes precedence over the timeout.
-                let _ = self.timeout.set(stop);
+                self.try_timeout(t_ns);
+                return;
             }
             _ => {
                 let _ = self.stop.set(stop);
@@ -76,6 +80,48 @@ impl Shared {
             t_ns,
         });
         self.frozen.store(true, Ordering::SeqCst);
+    }
+
+    /// Timeout owns the right to omit the trailer, or the writer owns the trailer.
+    fn try_timeout(&self, t_ns: u64) -> bool {
+        match self.finalization.compare_exchange(DRAINING, ABORTED, Ordering::SeqCst, Ordering::SeqCst) {
+            Ok(_) => {
+                let _ = self
+                    .timeout
+                    .set(StopReason::ShutdownTimeout.at(t_ns.max(self.last_t_ns.load(Ordering::Acquire))));
+                self.frozen.store(true, Ordering::SeqCst);
+                true
+            }
+            Err(ABORTED) => true,
+            Err(_) => false,
+        }
+    }
+
+    fn claim_trailer(&self, epoch: Instant) -> bool {
+        if self
+            .finalization
+            .compare_exchange(DRAINING, TRAILER_BEGUN, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return false;
+        }
+        // Recheck AFTER the claim, so expiration during the claim cannot serialize a
+        // complete trailer. Once construction begins, its status is immutable.
+        if self.deadline.get().is_some_and(|deadline| Instant::now() >= *deadline) {
+            let _ = self
+                .timeout
+                .set(StopReason::ShutdownTimeout.at(elapsed(epoch).max(self.last_t_ns.load(Ordering::Acquire))));
+            self.frozen.store(true, Ordering::SeqCst);
+            self.finalization.store(ABORTED, Ordering::SeqCst);
+            return false;
+        }
+        true
+    }
+}
+
+impl StopReason {
+    fn at(self, t_ns: u64) -> Stop {
+        Stop { reason: self, t_ns }
     }
 }
 
@@ -118,16 +164,20 @@ impl Default for Limits {
 
 #[derive(Debug)]
 pub struct WriterReport {
-    /// None if the trailer could not be wholly written and flushed.
+    /// The exact wholly written trailer, even if its subsequent flush failed.
     pub trailer: Option<Trailer>,
     pub error: Option<String>,
     pub bytes_written: u64,
+    pub stop_reason: StopReason,
+    pub flush_confirmed: bool,
 }
 
 #[derive(Debug)]
 pub enum Shutdown {
     Finished(Box<WriterReport>),
     TimedOut,
+    /// No final status is claimed while a trailer write or its flush remains pending.
+    TrailerInProgress,
 }
 
 struct Production<'a>(&'a Shared);
@@ -150,16 +200,21 @@ impl Drop for Production<'_> {
 impl Capture {
     /// The caller must guard this final path before calling. Never replaces an existing file.
     pub fn create(path: &Path, header: Header, epoch: Instant) -> io::Result<Self> {
-        // Validate before creating a file, including the reserved trailer capacity.
-        let header_line = header.line()?;
-        let sink = OpenOptions::new().write(true).create_new(true).open(path)?;
-        Self::start(sink, header.config, header_line, epoch, Limits::default())
+        let path = path.to_path_buf();
+        Self::start(
+            move || OpenOptions::new().write(true).create_new(true).open(path),
+            header,
+            epoch,
+            Limits::default(),
+        )
     }
 
-    fn start<W: Write + Send + 'static>(sink: W, config: Config, header_line: Vec<u8>, epoch: Instant, limits: Limits) -> io::Result<Self> {
-        if header_line.len() as u64 + TRAILER_RESERVE > limits.bytes {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "header leaves no trailer reserve"));
-        }
+    fn start<W, F>(open: F, header: Header, epoch: Instant, limits: Limits) -> io::Result<Self>
+    where
+        W: Write + 'static,
+        F: FnOnce() -> io::Result<W> + Send + 'static,
+    {
+        let config = header.config.clone();
         let shared = Arc::new(Shared::default());
         shared.next_seq.store(1, Ordering::Relaxed);
         let (frames_tx, frames_rx) = mpsc::sync_channel(limits.frame_slots);
@@ -167,7 +222,10 @@ impl Capture {
         let (done_tx, done) = mpsc::sync_channel(1);
         let writer_shared = Arc::clone(&shared);
         let writer = thread::Builder::new().name("frame-telemetry".to_owned()).spawn(move || {
-            let report = write_capture(sink, &header_line, frames_rx, diagnostics_rx, &writer_shared, epoch, limits.bytes);
+            let report = match open() {
+                Ok(sink) => write_capture(sink, header, frames_rx, diagnostics_rx, &writer_shared, epoch, limits.bytes),
+                Err(error) => failed_start(error, &writer_shared, epoch),
+            };
             let _ = done_tx.send(report);
         })?;
         Ok(Self {
@@ -314,6 +372,10 @@ impl Capture {
 
     /// Never waits for the writer, including when the shutdown grace expires.
     pub fn poll_finish(&mut self) -> Option<Shutdown> {
+        self.poll_finish_at(Instant::now())
+    }
+
+    fn poll_finish_at(&mut self, now: Instant) -> Option<Shutdown> {
         self.writer.as_ref()?;
         let result = self.done.get_mut().expect("completion receiver is never locked").try_recv();
         match result {
@@ -321,13 +383,35 @@ impl Capture {
                 self.writer.take();
                 Some(Shutdown::Finished(Box::new(report)))
             }
-            Err(TryRecvError::Empty) if self.shared.deadline.get().is_none_or(|deadline| Instant::now() < *deadline) => None,
-            Err(_) => {
-                self.shared.stop(StopReason::ShutdownTimeout, self.elapsed_ns());
+            Err(TryRecvError::Empty) => {
+                let deadline = *self.shared.deadline.get()?;
+                if now < deadline {
+                    return None;
+                }
+                let result = if self.shared.try_timeout(self.elapsed_ns()) {
+                    Shutdown::TimedOut
+                } else if now >= deadline + TRAILER_GRACE {
+                    Shutdown::TrailerInProgress
+                } else {
+                    return None;
+                };
                 self.writer.take();
-                Some(Shutdown::TimedOut)
+                Some(result)
             }
+            Err(TryRecvError::Disconnected) => Some(self.disconnected()),
         }
+    }
+
+    fn disconnected(&mut self) -> Shutdown {
+        self.writer.take();
+        if self.shared.finalization.load(Ordering::SeqCst) == TRAILER_BEGUN {
+            return Shutdown::TrailerInProgress;
+        }
+        Shutdown::Finished(Box::new(failed_start(
+            io::Error::other("writer stopped without a report"),
+            &self.shared,
+            self.epoch,
+        )))
     }
 
     fn begin_shutdown(&mut self, t_ns: u64, reason: StopReason, sentinel: Option<Diagnostic>, grace: Duration) -> Instant {
@@ -362,10 +446,24 @@ impl Capture {
                 }
                 Shutdown::Finished(Box::new(report))
             }
-            Err(_) => {
-                self.shared.stop(StopReason::ShutdownTimeout, t_ns);
-                self.writer.take(); // A blocked OS write cannot be cancelled; detach within the grace.
-                Shutdown::TimedOut
+            Err(mpsc::RecvTimeoutError::Disconnected) => self.disconnected(),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if self.shared.try_timeout(t_ns) {
+                    self.writer.take();
+                    return Shutdown::TimedOut;
+                }
+                // The writer owns an immutable trailer. Allow a short extra wait, then
+                // report uncertainty without assigning a conflicting timeout status.
+                let result = self
+                    .done
+                    .get_mut()
+                    .expect("completion receiver is never locked")
+                    .recv_timeout((deadline + TRAILER_GRACE).saturating_duration_since(Instant::now()));
+                self.writer.take();
+                match result {
+                    Ok(report) => Shutdown::Finished(Box::new(report)),
+                    Err(_) => Shutdown::TrailerInProgress,
+                }
             }
         }
     }
@@ -416,22 +514,38 @@ impl<W: Write> Output<W> {
     fn fail(&mut self, error: io::Error, shared: &Shared, epoch: Instant) {
         shared.stop(StopReason::WriterError, elapsed(epoch));
         if self.error.is_none() {
-            let message = error.to_string();
-            eprintln!("frame telemetry: {message}");
-            self.error = Some(message);
+            self.error = Some(error.to_string());
         }
+    }
+}
+
+fn failed_start(error: io::Error, shared: &Shared, epoch: Instant) -> WriterReport {
+    shared.stop(StopReason::WriterError, elapsed(epoch));
+    WriterReport {
+        trailer: None,
+        error: Some(error.to_string()),
+        bytes_written: 0,
+        stop_reason: StopReason::WriterError,
+        flush_confirmed: false,
     }
 }
 
 fn write_capture<W: Write>(
     sink: W,
-    header: &[u8],
+    header: Header,
     frames: Receiver<Record>,
     diagnostics: Receiver<Record>,
     shared: &Shared,
     epoch: Instant,
     max_bytes: u64,
 ) -> WriterReport {
+    // Header values reach this thread unchanged; encoding and file operations never
+    // run in the Update collector. Each header is encoded exactly once here.
+    let header = match header.line() {
+        Ok(line) if line.len() as u64 + TRAILER_RESERVE <= max_bytes => line,
+        Ok(_) => return failed_start(io::Error::new(io::ErrorKind::InvalidInput, "header leaves no trailer reserve"), shared, epoch),
+        Err(error) => return failed_start(error, shared, epoch),
+    };
     let mut output = Output {
         sink,
         bytes: 0,
@@ -443,7 +557,7 @@ fn write_capture<W: Write>(
     let (mut frames_written, mut diagnostics_written, mut markers_written, mut gpu_written) = (0, 0, 0, 0);
     let mut last_written = (0, 0, AttemptCounts::default());
     let mut cut = None;
-    if let Err(e) = output.line(header, TRAILER_RESERVE) {
+    if let Err(e) = output.line(&header, TRAILER_RESERVE) {
         output.fail(e, shared, epoch);
     }
     let (mut frame, mut diagnostic): (Option<Record>, Option<Record>) = (None, None);
@@ -451,7 +565,7 @@ fn write_capture<W: Write>(
         if shared.deadline.get().is_some_and(|deadline| Instant::now() >= *deadline) {
             shared.stop(StopReason::ShutdownTimeout, elapsed(epoch));
         }
-        if output.error.is_some() || shared.timeout.get().is_some() {
+        if output.error.is_some() || shared.finalization.load(Ordering::SeqCst) == ABORTED {
             if !shared.active.load(Ordering::SeqCst) {
                 break;
             }
@@ -531,8 +645,14 @@ fn write_capture<W: Write>(
             output.fail(e, shared, epoch);
         }
     }
-    if shared.deadline.get().is_some_and(|deadline| Instant::now() >= *deadline) {
-        shared.stop(StopReason::ShutdownTimeout, elapsed(epoch));
+    if !shared.claim_trailer(epoch) {
+        return WriterReport {
+            trailer: None,
+            error: output.error,
+            bytes_written: output.bytes,
+            stop_reason: shared.stopped().map_or(StopReason::ShutdownTimeout, |stop| stop.reason),
+            flush_confirmed: false,
+        };
     }
     let make_trailer = |phases: &mut [PhaseStats; 3]| {
         let stop = shared.stopped().unwrap_or(Stop {
@@ -561,7 +681,7 @@ fn write_capture<W: Write>(
             phases: phases.each_mut().map(PhaseStats::summary),
         }
     };
-    let mut trailer = make_trailer(&mut phases);
+    let trailer = make_trailer(&mut phases);
     let recoverable = if output.error.is_some() {
         // A successful flush is the only useful writability check after a write error.
         // A partial record remains invalid even if the following trailer can be written.
@@ -576,25 +696,40 @@ fn write_capture<W: Write>(
             Err(e) => output.fail(e, shared, epoch),
         }
     }
-    if let Err(e) = output.sink.flush() {
-        output.fail(e, shared, epoch);
-        trailer_written = false;
-    }
-    // If the trailer/flush itself failed, never return an earlier 'complete' trailer.
-    if shared.writer_error.get().is_some() && trailer.stop_reason != StopReason::WriterError {
-        trailer = make_trailer(&mut phases);
-        trailer_written = false;
-    }
+    let flush_confirmed = match output.sink.flush() {
+        Ok(()) => true,
+        Err(error) => {
+            // The serialized trailer is immutable. Preserve it in the report, and
+            // expose the failed flush separately instead of inventing another status.
+            output.fail(error, shared, epoch);
+            false
+        }
+    };
+    let stop_reason = if trailer_written {
+        trailer.stop_reason
+    } else {
+        shared.stopped().map_or(StopReason::WriterError, |stop| stop.reason)
+    };
     WriterReport {
         trailer: trailer_written.then_some(trailer),
         error: output.error,
         bytes_written: output.bytes,
+        stop_reason,
+        flush_confirmed,
     }
 }
 
 #[cfg(test)]
 pub(super) mod test_support {
     use super::*;
+
+    pub fn start_with_open<W, F>(open: F, header: Header) -> io::Result<Capture>
+    where
+        W: Write + 'static,
+        F: FnOnce() -> io::Result<W> + Send + 'static,
+    {
+        Capture::start(open, header, Instant::now(), Limits::default())
+    }
 
     pub fn start<W: Write + Send + 'static>(
         sink: W,
@@ -604,11 +739,9 @@ pub(super) mod test_support {
         frame_slots: usize,
         diagnostic_slots: usize,
     ) -> io::Result<Capture> {
-        let line = header.line()?;
         Capture::start(
-            sink,
-            header.config,
-            line,
+            move || Ok(sink),
+            header,
             Instant::now(),
             Limits {
                 frames,
@@ -621,6 +754,15 @@ pub(super) mod test_support {
 
     pub fn shutdown(capture: &mut Capture, grace: Duration) -> Shutdown {
         capture.shutdown(1, StopReason::NormalExit, None, grace)
+    }
+
+    pub fn poll_past_graces(capture: &mut Capture) -> Option<Shutdown> {
+        let now = *capture.shared.deadline.get().unwrap() + TRAILER_GRACE + Duration::from_nanos(1);
+        capture.poll_finish_at(now)
+    }
+
+    pub fn late_report(capture: &mut Capture) -> WriterReport {
+        capture.done.get_mut().unwrap().recv_timeout(Duration::from_secs(2)).unwrap()
     }
 
     pub fn write_records<W: Write>(sink: W, header: Header, records: Vec<Record>) -> WriterReport {
@@ -642,6 +784,6 @@ pub(super) mod test_support {
             };
             queue.try_send(record).unwrap();
         }
-        write_capture(sink, &header.line().unwrap(), frames, diagnostics, &shared, Instant::now(), MAX_BYTES)
+        write_capture(sink, header, frames, diagnostics, &shared, Instant::now(), MAX_BYTES)
     }
 }
