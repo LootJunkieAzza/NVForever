@@ -1405,6 +1405,9 @@ pub struct Game<'a> {
     /// Challenge rewards and notices waiting for the next frame (`crate::challenges`).
     /// Not saved.
     pub challenge_queue: crate::challenges::Queue,
+    /// Notes the player was given since the engine last took them (its corner
+    /// messages, [`Game::take_note_notices`]). Not saved.
+    pub note_notices: Vec<FormId>,
     /// The open menu, by menu code. While a menu is open, [`Game::tick`] runs MenuMode
     /// blocks instead of GameMode, and game time stops for scripts (GetSecondsPassed and
     /// the quest delay of GameMode) [observed: layer5-captures.md §8.3 e]. Part of the
@@ -1999,6 +2002,7 @@ impl<'a> Game<'a> {
             activate_menu: None,
             perk_acts: Vec::new(),
             challenge_queue: Default::default(),
+            note_notices: Vec::new(),
             fighting: BTreeSet::new(),
             condition_target: None,
             menu: None,
@@ -2076,11 +2080,40 @@ impl<'a> Game<'a> {
             inv.iter().filter(|&(i, n)| n > 0 && forms.item(i).is_some_and(|it| it.kind == fnv_sim::forms::ItemKind::Note)).collect();
         for (note, n) in carried {
             let _ = self.world.remove_item(FormId::PLAYER_REF, note, n);
-            if self.player.notes.insert(note) {
+            if self.file_note(note) {
                 tracing::info!("notes: {} {note} filed with the player's notes", self.data.name(note));
-                self.jip_event("noteadded", None, vec![fnv_script::vm::XVal::Ref(note.0)]);
             }
         }
+    }
+
+    /// The player is given a note (picked up, taken, AddItem, AddNote, a terminal's Add
+    /// Note item). The first time it becomes one of the player's notes, JIP's
+    /// `noteadded` event runs and the engine is told to show its corner notice
+    /// ([`Game::take_note_notices`]); `false` when the player had it, which shows nothing
+    /// [documented: issue #1163, the owner's request; hypothesis: that the original
+    /// shows it for script-added notes too, docs/handoff/observer-checks.md].
+    pub fn file_note(&mut self, note: FormId) -> bool {
+        if !self.player.notes.insert(note) {
+            return false;
+        }
+        self.jip_event("noteadded", None, vec![fnv_script::vm::XVal::Ref(note.0)]);
+        self.note_notices.push(note);
+        true
+    }
+
+    /// Take the notes given since the last call (the engine's corner messages).
+    pub fn take_note_notices(&mut self) -> Vec<FormId> {
+        std::mem::take(&mut self.note_notices)
+    }
+
+    /// The corner line for a note given to the player: its name (FULL; the editor ID
+    /// when it has none) after "Note: ".
+    /// No setting in the masters holds this line [observed: no string GMST of
+    /// FalloutNV.esm or the add-on masters names notes, 2026-10-31], so the words are
+    /// NVForever's, the owner's example in issue #1163 (LEGAL.md).
+    pub fn note_notice_text(&self, note: FormId) -> String {
+        let name = self.data.notes.get(&note).and_then(|n| n.name.clone()).filter(|n| !n.trim().is_empty());
+        format!("Note: {}", name.unwrap_or_else(|| self.data.name(note)))
     }
 
     /// The new-game state: every quest flagged "Start game enabled" is running, with no

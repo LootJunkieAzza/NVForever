@@ -765,3 +765,14 @@ The numbers above stay put so links to them hold; each item here gives its own p
     on itself in its MenuMode and then sets iSpawnSupplyDelay; if that stopped it, the
     drop would not come. Use the radio (button 1) and read GetQuestRunning right after,
     and whether the drop arrives. Ours keeps a self-reset running. (scripts.md §5)
+
+## Added 2026-10-31 (the note notice, issue #1163)
+
+67. **Does the original name a note in the corner when a script gives it?** (P3: every
+    AddNote and AddItem of a note in quest scripts.) NVForever shows its own corner line,
+    "Note: <the note's name>", for every note the player gets the first time: picked up,
+    taken from a container, AddItem, AddNote, a terminal's Add Note item
+    [hypothesis for the script-given ones]. To check: with a note the player lacks,
+    `AddNote` it from the console, then `player.AddItem` another; screenshot the top left
+    after each, and note any sound. A picked-up note in the same way for comparison.
+    (issue #1163, `Game::file_note`)

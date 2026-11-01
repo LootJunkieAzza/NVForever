@@ -10821,6 +10821,19 @@ expect = [
   { re = 'notes: VFreeformNovacBillOfSale 0x000B83CC filed with the player.s notes', label = "the Bill of Sale is a note, not an item" },
 ]
 
+[[scenario]]
+name = "note-pickup-notice"
+source = "issue #1163 (owner playtest 2026-10-31): a note the player is given is named in the top-left corner messages. Jeannie May's Bill of Sale (NOTE 0x000B83CC, FULL 'Bill of Sale') taken from her safe (VLootSafeFloorJeannieMayREF 0x000B83E5); the words are NVForever's, no GMST names notes (Game::note_notice_text)"
+areas = ["containers", "hud"]
+paths = ["crates/fnv-game/src/game.rs", "crates/fnv-game/src/functions/player.rs", "crates/fnv-game/src/terminal.rs", "engine/nvf-play/src/corner_messages.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MENU = "000B83E5", NVF_PLAY_TEST_DELAY = "12" }
+args = ["--cell", "NovacJeannieMayHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { re = 'note notice: Note: Bill of Sale', label = "the Bill of Sale's corner notice, by its FULL name" },
+  { re = 'note notice:', count = 1, label = "one notice: the note is filed once" },
+]
+
 # ------------------------------------------------------------------ weapon wheel
 
 [[scenario]]
