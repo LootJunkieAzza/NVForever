@@ -310,7 +310,10 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
   run; a new run still hidden after 120 s shows itself. The new run gets none of the old
   run's test aids (`NVF_PLAY_TEST_*`) except `NVF_PLAY_TEST_HANDOFF_EXIT=1` (end once it
   has taken over; smoke `load-handoff`). For the seconds of the load both runs hold the
-  game in memory.
+  game in memory; while it waits the old run's asset caches keep nothing unused (#1357:
+  about 135 MB let go after a trip indoors; the rest of its ~3.7 GB is the game it goes
+  on with if the new run fails). The new run's start peak is its own: the script data no
+  longer reads every record at once (#1357, 6.9 GB to 4.1 GB at the start).
 - **Console**: `save <name>`, `load [name]` (the quicksave without a name), `saves` (the
   list: name, level, place, game date, kind).
 - **Thumbnail** (`save.rs`): the snapshot is taken at the end of the frame as before; that
