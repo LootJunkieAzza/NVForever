@@ -70,6 +70,8 @@ pub struct OtherState {
     /// The Set…TerminalMenuItem… changes, by terminal and item (`nvse_jg3`, read through
     /// `crate::terminal::item`).
     pub terminal_items: HashMap<(FormId, usize), crate::terminal::ItemEdit>,
+    /// ITR NVSE's state (`nvse_itr1`).
+    pub itr: crate::nvse_itr1::ItrState,
 }
 
 /// The bit of DisablePlayerControlsAltEx's flags for each control group, in the order of

@@ -3025,6 +3025,31 @@ order = [[
   "pipboy: STATS Status",
   "pipboy: down",
 ]]
+expect = [
+  { re = 'player First rig: PipBoy\(\w+\) plays .*pipboy', label = "the first-person Pip-Boy clip loaded (#1330)" },
+]
+forbid = [
+  { text = "the Pip-Boy cannot come up", label = "the first-person Pip-Boy clip missing (#1330)" },
+  { text = "up, but the menus are not on the arm", label = "the arm up with nowhere to show the menus (#1330)" },
+]
+
+[[scenario]]
+name = "pipboy-menu-pause"
+source = "issue #1330: with menu pause on (--menu-pause original) the inventory stops the virtual clock; the Pip-Boy still comes up, on the menus' clock"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy*", "engine/nvf-play/src/pause.rs", "engine/nvforever/src/pipboy_arm.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,15:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1280x720", "--menu-pause", "original"]
+run_seconds = 17
+order = [[
+  "pipboy: up, page ITEMS tab Weapons",
+  "menu pause: the picture stands still (--menu-pause original)",
+  "pipboy: raised",
+  "pipboy: down",
+]]
+forbid = [
+  { text = "up, but the menus are not on the arm", label = "the arm up with nowhere to show the menus (#1330)" },
+]
 
 [[scenario]]
 name = "pipboy-list5"
@@ -17882,6 +17907,26 @@ expect = [
   { text = "MannyVargasREF: put at its package", count = 0, label = "Manny Vargas, in view before the trip, is not moved" },
   { re = 'put at its package.s place on arrival .* units from \([^)]*\) in WastelandNV', count = 0, label = "nobody in Novac's street is put anywhere (residents in the rooms behind its doors may be: they are near and unseen)" },
 ]
+
+[[scenario]]
+name = "pause-mods-page"
+source = "issue #976 T11 (engine/nvf-play/src/tiles/mods.rs, pause.rs; docs/handoff/ui-tile-tree-tasks.md T11, ui-tile-tree.md §7): with [UI] TileMenus=StartMenu and a mod's tiles in StartMenu, the pause menu has a Mods entry; its page runs the start menu's MenuMode 1013 blocks each frame, in the played world, and Back closes it"
+note = "needs MCM in Data: its loose menu files (menus/options/start_menu.xml and menus/prefabs/MCM) give StartMenu its mod tiles, and its plugin (The Mod Configuration Menu.esp, loaded with --plugins) has the blocks. MCM's quest sets iInstallCheck to 1 in GameMode at the start and its MenuMode 1013 block sets it to 0, so the variable read before and after the page shows the block ran. MCM's own page stays hidden (its script waits for the original's code-filled pause column); pause_mods.png shows the page"
+areas = ["ui", "menus", "scripts"]
+paths = ["engine/nvf-play/src/tiles/mods.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/tiles/input.rs", "crates/fnv-game/src/game.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "StartMenu", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PAUSE = "16:28", NVF_PLAY_TEST_PAUSE_MENU = "17:mods,18.5:shot,22:back", NVF_PLAY_TEST_CONSOLE = "10:PrintC \"nvf mcm install check %g\" MCM.iInstallCheck;10.5:close;29:PrintC \"nvf mcm install check %g\" MCM.iInstallCheck;29.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "The Mod Configuration Menu.esp"]
+run_seconds = 32
+expect = [
+  "tiles: a mod's tiles in StartMenu: the pause menu has a Mods entry",
+  "pause menu: mods page",
+  "scripts: MenuMode 1013 blocks run under the pause menu's Mods page",
+  "pause menu: mods page closed",
+  { re = "scripts: the Mods page closed after [1-9][0-9]* MenuMode frames", label = "the start menu's MenuMode blocks ran each frame of the page" },
+  { text = "nvf mcm install check 1", min = 1, label = "before the page MCM's GameMode block has set iInstallCheck" },
+  { text = "nvf mcm install check 0", min = 1, label = "MCM's MenuMode 1013 block ran under the page, in the played world, and cleared it" },
+]
+order = [["nvf mcm install check 1", "tiles: a mod's tiles in StartMenu", "pause menu: mods page", "scripts: MenuMode 1013 blocks run", "pause menu: mods page closed", "nvf mcm install check 0"]]
 
 [[scenario]]
 name = "script-move-dynamic-clutter"

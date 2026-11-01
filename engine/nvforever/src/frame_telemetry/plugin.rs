@@ -491,6 +491,8 @@ fn build_features() -> Vec<String> {
         ("default", cfg!(feature = "default")),
         ("intro-video", cfg!(feature = "intro-video")),
         ("profile", cfg!(feature = "profile")),
+        ("tracy", cfg!(feature = "tracy")),
+        ("tracy-memory", cfg!(feature = "tracy-memory")),
     ]
     .into_iter()
     .filter(|(_, enabled)| *enabled)
