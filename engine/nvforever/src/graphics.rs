@@ -595,8 +595,10 @@ mod tests {
         assert!(Graphics::only(&["bloom".into()]).unwrap().describe().contains("light glow"));
     }
 
+    // The guard alone: repeated requests and an earlier registration. Both callers
+    // together are covered by the smoke scenario render-diagnostics-combined.
     #[test]
-    fn render_diagnostics_can_be_requested_by_both_profiling_paths() {
+    fn render_diagnostics_guard_allows_repeated_requests() {
         let mut app = App::new();
         ensure_render_diagnostics(&mut app);
         ensure_render_diagnostics(&mut app);
