@@ -599,3 +599,11 @@ CGTutorial 18-24, 62, 72, 92 (a branch of the intro chain); NVDLC01MQ02c 60, MQ0
 20; NVDLC02MS02 27/35/40, MQ03a/b/c 20; NVDLC03 HQBuddySamples 20, SonicEmitterQuest 10,
 ThinkTankQuest 35; NVDLC04 GenericPerkQUEST 30, MQ02 30; VMQNCRFail 2 (#931). The --detail
 report lists them all with their setters.
+
+**Triage of the settable, not walked (2026-11-01, issue #1115, in progress).** On main
+`5fb0b80e` `script cover` counts 114 (`missing_settable`; two were walked since). 32 of them
+are VCG00 5-85, the cut cemetery scene: VCG00ScriptNV's GameMode would step through them
+only from stage 0, but stage 0's own result script plays the intro film and sets 90 at its
+end, so the GameMode never sees stage 0 [observed, decompiled QUST 0x00102037 stage 0 and
+SCPT 0x00102035]. They count as settable (a script names them) but cannot be walked. That
+leaves 82; no new chain for them yet.
