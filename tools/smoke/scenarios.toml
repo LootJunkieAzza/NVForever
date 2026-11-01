@@ -17331,6 +17331,45 @@ order = [[
 ]]
 
 [[scenario]]
+name = "tiles-sleep-wait"
+source = "[design] ui-tile-tree.md §6.2 step 3 (T15b, docs/handoff/ui-tile-tree-tasks.md): with [UI] TileMenus=SleepWaitMenu the Wait menu is drawn from the game's SleepWaitMenu tiles (menu 1012 builds it; the model writes its three texts, the Wait button's word and the slider's value), the hand-built menu is not spawned, pointer clicks on the slider's right page area move it six hours at a time to 24, a click at 24 keeps it there, the slider drawn after each click's pulse is the model's value (#1307 review), and W (the file's _PCButton_W, which the hand-built menu has no use for) presses Wait"
+note = "the menu opens at 10 s on one hour; at 1280 x 720 the screen is 1706.7 x 960 interface units, SWM_MainRect centred at 423.3, 280, the slider 112.5, 145 in (640 x 64) with its marker 48 wide at value 0, so x 1100 (y 457) is on the page area right of the marker at values 0, 6 and 12 (marker 48 wide, 592/23 apart from x 535.8), x 1165 on it at 18 (to 24) and on the marker at value 23 (the click at 24) (sleep_wait_menu.xml, scrollbar_horiz.xml); the 24 hours then pass in 12 s"
+areas = ["ui", "wait", "menus"]
+paths = [
+  "engine/nvf-play/src/tiles/wait_menu.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs",
+  "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs",
+  "engine/nvf-play/src/wait.rs", "engine/nvf-play/src/wait/**",
+  "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs",
+]
+env = { NVF_PLAY_TEST_TILE_MENUS = "SleepWaitMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_WAIT = "10:open", NVF_PLAY_TEST_POINTER = "11:1100:457,11.5:1100:457:click,12:1100:457:click,12.5:1100:457:click,13:1165:457:click,13.5:1165:457:click,14:off", NVF_PLAY_TEST_SHOTS = "14.5:tiles_sleep_wait.png", NVF_PLAY_TEST_KEYS = "15.5:w" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--size", "1280x720"]
+run_seconds = 35
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=SleepWaitMenu \(from test aid NVF_PLAY_TEST_TILE_MENUS\): SleepWaitMenu drawn from tiles', label = "the switch is read from the test aid" },
+  { re = 'ui: built SleepWaitMenu \(menus\\[^,]+\.xml, [1-9]\d* tiles\)', label = "the open menu builds its file" },
+  { re = 'tiles: SleepWaitMenu drawn from tiles \(\d+ file tiles, 0 code tiles\)', label = "the menu's tree draws" },
+  { re = 'tiles: SleepWaitMenu drawn from tiles: "[^"]+", "1 hour \([^"]+\)", "[^"]+", button "Wait", slider 0', label = "the model writes the texts, the verb and the slider" },
+  { text = "tiles: SleepWaitMenu Step(6) on its tiles", min = 3, label = "clicks on the right page area page the slider" },
+  { re = 'tiles: SleepWaitMenu (Step\(-?\d+\)|Hours\(\d+\)) on its tiles', count = 5, label = "five clicks on the slider, the last at 24" },
+  { re = 'tiles: SleepWaitMenu drawn from tiles: "[^"]+", "7 hours \([^"]+\)", "[^"]+", button "Wait", slider 6', label = "the slider follows" },
+  { re = 'tiles: SleepWaitMenu drawn from tiles: "[^"]+", "24 hours \([^"]+\)", "[^"]+", button "Wait", slider 23', label = "the slider reaches 24 hours" },
+  { text = "tiles: SleepWaitMenu slider drawn at 6", label = "the slider is drawn at the model's value after the pulse" },
+  { text = "tiles: SleepWaitMenu slider drawn at 23", label = "and at 24 hours, after the click there" },
+  { re = 'tiles: SleepWaitMenu slider drawn at \S+, not the \S+ written', count = 0, label = "the slider never draws the file's own count of the clicks (#1307 review)" },
+  { text = "tiles: SleepWaitMenu Accept on its tiles", count = 1, label = "W presses the file's Wait button" },
+  "wait menu: waiting 24 hour(s)",
+  { re = 'ui: dropped SleepWaitMenu', label = "the closed menu drops its tiles" },
+]
+order = [[
+  "wait menu: open",
+  "tiles: SleepWaitMenu Step(6) on its tiles",
+  "tiles: SleepWaitMenu slider drawn at 23",
+  "tiles: SleepWaitMenu Accept on its tiles",
+  "wait menu: waiting 24 hour(s)",
+  "ui: dropped SleepWaitMenu",
+]]
+
+[[scenario]]
 name = "tiles-quantity"
 source = "[design] ui-tile-tree.md §6.2 step 3 (T15a, docs/handoff/ui-tile-tree-tasks.md): with [UI] TileMenus=QuantityMenu the \"How many?\" prompt over the Pip-Boy is drawn from the game's QuantityMenu tiles (Game::ui_prompt builds it; the model writes the meter's user0 and user2, the file works out the tiled fill and the amount), the hand-built prompt is not spawned, and pointer clicks on the decrease arrow and on OK drop one fewer than the stack"
 note = "the drop aid asks at 21 s for the 20 rounds given (the prompt opens at the whole stack, and `ask` holds it open until answered); the shot at 23 s; at 1280 x 800 the decrease arrow stands at 550-567 x 452-487 and OK ends at x 1085, y 492-543 (QM_Background centred by screen(), QM_MainRect 22, 42 in; quantity_menu.xml)"
