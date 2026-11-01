@@ -1708,6 +1708,38 @@ fn the_runner_talks_and_prints_a_dialogue_trace() {
     assert!(fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).is_err());
 }
 
+/// The runner's `wait_talk` after a Goodbye greeting (no conversation opens) waits for
+/// the line to end, so its end script has run before the next step (issue #1114: a
+/// following conversation used to cut Carlitos's and Joana's lines); `end_talk` with no
+/// conversation running does nothing.
+#[test]
+fn the_runners_wait_talk_hears_a_goodbye_greeting_out_and_end_talk_after_the_end_does_nothing() {
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "set_global", "name": "TestGate", "value": 7},
+            {"op": "talk", "actor": "TalkerREF", "label": "bark"},
+            {"op": "get_global", "name": "TestOut", "label": "begun"},
+            {"op": "wait_talk", "label": "heard"},
+            {"op": "get_global", "name": "TestOut", "label": "after"},
+            {"op": "end_talk"},
+            {"op": "get_global", "name": "TestOut", "label": "still"}
+        ]
+    }))
+    .unwrap();
+    let t = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let all = t["observations"].as_array().unwrap();
+    let obs = |label: &str| all.iter().find(|o| o["label"] == label).cloned().unwrap();
+    assert_eq!(obs("bark")["info"], FormId(A_BARK).to_string());
+    assert_eq!(obs("begun")["value"], 3.0);
+    assert_eq!(obs("heard")["state"], "ended");
+    // The end script ran during the wait.
+    assert_eq!(obs("after")["value"], 4.0);
+    assert_eq!(obs("still")["value"], 4.0);
+    assert!(all.iter().all(|o| o.get("errors").is_none()), "{all:?}");
+}
+
 /// The runner's `player_activate` of an actor ends in the default action of talking
 /// (`Outcome::Talk`), and the conversation opens with the greeting, as the play loop's
 /// activation does (nvf-play `talk_after`).

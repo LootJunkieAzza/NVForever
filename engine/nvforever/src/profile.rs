@@ -162,7 +162,7 @@ impl Plugin for ProfilePlugin {
         let Some(every) = interval() else { return };
         info!("test aid NVF_PLAY_TEST_PROFILE: a span profile every {every} s");
         // GPU time per render pass (timestamp queries, Vulkan and DX12): `profile gpu:`.
-        app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
+        crate::graphics::ensure_render_diagnostics(app);
         app.insert_resource(ProfileWindow { every, ..default() }).init_resource::<AssetChanges>().add_systems(Last, (count_asset_changes, report).chain());
         if let Some(render) = app.get_sub_app_mut(bevy::render::RenderApp) {
             render.add_systems(bevy::render::Render, pipeline_counts.in_set(bevy::render::RenderSystems::Render));

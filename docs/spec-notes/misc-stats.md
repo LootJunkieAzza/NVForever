@@ -70,7 +70,7 @@ names]. Locations Discovered also counts the map markers found (`found_markers`)
 | Health From Food, Water Consumed | a food item (ENIT Food): the health it restores; one water when it lowers dehydration [hypothesis] | same |
 | Times Addicted | an addiction roll that addicts | `Game::ingest` |
 | Mines Disarmed | the player disarms a placed mine | `Game::default_activation` |
-| Speech Successes | a Fallout 3 style speech challenge line is said (the roll is not modelled, dialogue.md §3.3), or the player picks the pass line of a New Vegas Speech check (KNAM, its condition `GetActorValue Speech >= N` met) [hypothesis: by the name; observer-checks.md item 69] | `Game::choose` |
+| Speech Successes | a Fallout 3 style speech challenge line is said (the roll is not modelled, dialogue.md §3.3), or the player picks the pass line of a New Vegas Speech check (KNAM, its condition `GetActorValue Speech >= N` met) [hypothesis: by the name; observer-checks.md item 70] | `Game::choose` |
 | Speech Failures | the player picks the fail line of a New Vegas Speech check (`< N`) [hypothesis, same]. Checks of other skills and perks count neither [hypothesis, same] | `Game::choose` |
 | Challenges Completed | a challenge completes (each time for a recurring one) [hypothesis] | `functions::ui` |
 | Books Read | the player reads a skill book (one per book; books that teach nothing do not count) [hypothesis] ([skill-books](skill-books.md) §5) | `Game::read_book` |

@@ -253,7 +253,7 @@ and current level taken from the line's first GetActorValue-family condition run
 the target) [hypothesis for where the game takes the two numbers from]. Choosing a
 Speech check's line counts Speech Successes when the player meets the level and Speech
 Failures otherwise; other skills and perks count nothing [hypothesis; misc-stats.md §3,
-observer-checks.md item 69].
+observer-checks.md item 70].
 
 ### 3.4 Follow-up lines (TCFU)
 
