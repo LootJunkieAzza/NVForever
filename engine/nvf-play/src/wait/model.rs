@@ -111,9 +111,14 @@ impl Model {
         true
     }
 
+    /// The hours the slider shows: those chosen, or those left while they pass.
+    pub fn marker(&self) -> u32 {
+        self.passing.map_or(self.hours, |p| p.left)
+    }
+
     /// What the menu shows at the game time `now`.
     pub fn view(&self, words: &Words, now: &Calendar) -> View {
-        let hours = self.passing.map_or(self.hours, |p| p.left);
+        let hours = self.marker();
         View {
             title: if self.sleep { words.sleep_title.clone() } else { words.wait_title.clone() },
             hours: words.hours_line(hours, minute_of_day(now)),

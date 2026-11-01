@@ -18,7 +18,9 @@
 //!   `_current_value` sums the arrows' and page areas' `clicked` counts from 0 in this
 //!   tree (an expression starts from 0, `fnv_ui`), so it cannot follow a value code set;
 //!   the clicks on the slider's pieces are therefore the hand-built menu's commands
-//!   ([`slider_command`]), and the value is written again after them [design].
+//!   ([`slider_command`]). A value written from outside lasts only until a source changes
+//!   again (a click's one-frame pulse, its end), so the model's hours are written back on
+//!   every frame the menu is tiled, after the input's step (`super::input::feed`) [design].
 //! - None of `crate::wait`'s layout numbers is read here: the places come from the file.
 
 use super::menus::Tiled;
@@ -157,30 +159,50 @@ pub fn slider_command(what: WaitTile, under: Option<u32>) -> Option<Command> {
     })
 }
 
-/// The hours under the pointer `x` (interface units) on the slider: the value whose marker,
-/// `_step_width` apart and `width` wide, is centred nearest the pointer [documented: the
-/// prefab places the marker at value × `_step_width`; design: the nearest centre].
-pub fn hours_under(ui: &Ui, x: f64) -> Option<u32> {
-    let bar = ui.find_tile(SLIDER)?;
-    let marker = ui.tile(bar).children.iter().copied().find(|&c| ui.is_live(c) && ui.tile(c).name.eq_ignore_ascii_case("scrollbar_horiz_marker"))?;
-    // The layout lists the drawn tiles (the marker, not the slider's hotrect): the slider's
-    // left edge is the marker's less the marker's own `x` in it.
+/// The slider's left edge (interface units): the marker's place less its own `x` in the
+/// slider. The layout lists the drawn tiles (the marker, not the slider's hotrect), so this
+/// lays out the whole menu: worked out once a press, and kept while it drags [design].
+pub fn slider_left(ui: &Ui) -> Option<f64> {
+    let marker = marker(ui)?;
     let menu = ui.menu(SLEEP_WAIT_MENU)?;
     let placed = super::layout::layout(ui, menu, &|_, _, _| (0.0, 0.0), true).into_iter().find(|i| i.tile == marker)?.rect;
-    let num = |t: TileId, n: &str| ui.tile(t).get(n).map_or(0.0, Value::num);
-    let (step, width) = (num(marker, "_step_width"), num(marker, "width"));
+    Some(placed.left - ui.tile(marker).get("x").map_or(0.0, Value::num))
+}
+
+fn marker(ui: &Ui) -> Option<TileId> {
+    let bar = ui.find_tile(SLIDER)?;
+    ui.tile(bar).children.iter().copied().find(|&c| ui.is_live(c) && ui.tile(c).name.eq_ignore_ascii_case("scrollbar_horiz_marker"))
+}
+
+/// The hours under the pointer `x` (interface units) on the slider whose left edge is
+/// `left` ([`slider_left`]): the value whose marker, `_step_width` apart and `width` wide,
+/// is centred nearest the pointer [documented: the prefab places the marker at value ×
+/// `_step_width`; design: the nearest centre].
+pub fn hours_at(ui: &Ui, left: f64, x: f64) -> Option<u32> {
+    let marker = marker(ui)?;
+    let num = |n: &str| ui.tile(marker).get(n).map_or(0.0, Value::num);
+    let (step, width) = (num("_step_width"), num("width"));
     if step <= 0.0 {
         return None;
     }
-    let left = placed.left - num(marker, "x");
     let value = ((x - left - width / 2.0) / step).round().clamp(0.0, f64::from(MAX_HOURS - 1));
     Some(value as u32 + 1)
+}
+
+/// The hours under the pointer `x`: [`hours_at`] the slider's [`slider_left`].
+pub fn hours_under(ui: &Ui, x: f64) -> Option<u32> {
+    hours_at(ui, slider_left(ui)?, x)
+}
+
+/// The slider's value in the tree: after the tree is worked out, the value drawn.
+pub fn slider_shown(ui: &Ui) -> Option<f64> {
+    ui.get_float(&format!("{SLIDER}/_current_value"))
 }
 
 /// A line for the log when what the menu shows changes (smoke reads these).
 pub fn describe(ui: &Ui) -> String {
     let s = |p: &str| ui.get_string(&format!("{p}/string")).unwrap_or_default();
-    let value = ui.get_float(&format!("{SLIDER}/_current_value")).unwrap_or(-1.0);
+    let value = slider_shown(ui).unwrap_or(-1.0);
     format!("tiles: {SLEEP_WAIT_MENU} drawn from tiles: \"{}\", \"{}\", \"{}\", button \"{}\", slider {}", s(TITLE), s(HOURS), s(TIME), s(WAIT_BUTTON), Value::Num(value).text())
 }
 
@@ -278,6 +300,18 @@ mod tests {
         assert_eq!(slider_command(WaitTile::Slider, None), None);
     }
 
+    /// A frame of the menu with a click on the right arrow (a one-frame pulse, `clicked` 1)
+    /// or none (`clicked` 0): the file's count is worked out, then the model's `hours`
+    /// written back as `super::input::feed` does on every tiled frame, then the tree worked
+    /// out again (after scripts). The slider's value then.
+    fn frame(ui: &mut Ui, click: bool, hours: u32) -> f64 {
+        let right = ui.find_tile(&format!("{SLIDER}/scrollbar_horiz_right")).unwrap();
+        ui.set_trait(right, "clicked", Value::Num(f64::from(u8::from(click))));
+        write_slider(ui, hours);
+        ui.update();
+        ui.get_float(&format!("{SLIDER}/_current_value")).unwrap()
+    }
+
     #[test]
     fn a_click_counted_by_the_file_is_put_back_to_the_models_value() {
         // [design] The prefab's value sums clicks from 0 here; the value written after the
@@ -292,6 +326,29 @@ mod tests {
         write_slider(&mut ui, 11);
         ui.update();
         assert_eq!(ui.get_float(&format!("{SLIDER}/_current_value")), Some(10.0));
+        // The pulse ends next frame: the file works its count out again (0) unless the
+        // model's value is written back on that frame too (#1307 review).
+        ui.set_trait(right, "clicked", Value::Num(0.0));
+        ui.update();
+        assert_eq!(ui.get_float(&format!("{SLIDER}/_current_value")), Some(0.0), "the file's count once the pulse ends");
+        assert_eq!(frame(&mut ui, false, 11), 10.0, "written back on the pulse's end");
+        assert_eq!(frame(&mut ui, false, 11), 10.0, "and on the frames after");
+    }
+
+    #[test]
+    fn a_click_at_24_hours_keeps_the_marker_at_24() {
+        // At 24 the model clamps a step right: its hours do not change, and the slider
+        // stays at value 23 on the click's frame, the pulse's end and after (#1307 review).
+        let mut ui = menu();
+        write(&mut ui, &view(24));
+        ui.update();
+        let mut model = crate::wait::model::Model { hours: 24, ..crate::wait::model::Model::open(false) };
+        model.apply(slider_command(WaitTile::StepRight, None).unwrap());
+        assert_eq!(model.marker(), 24, "clamped");
+        assert_eq!(frame(&mut ui, true, model.marker()), 23.0, "the click's frame");
+        assert_eq!(frame(&mut ui, false, model.marker()), 23.0, "the pulse's end");
+        assert_eq!(frame(&mut ui, false, model.marker()), 23.0, "a frame later");
+        assert!(describe(&ui).contains("slider 23"));
     }
 
     #[test]
