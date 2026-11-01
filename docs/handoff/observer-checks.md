@@ -77,6 +77,17 @@ engine if needed, and delete the item here.
    field set and OnStartCombat events. ([factions](../spec-notes/factions.md),
    [combat-ai §10, §12, §13](../design/combat-ai.md), [followers](../design/followers.md),
    [packages §3.1](../spec-notes/packages.md))
+   Tried 2026-11-01 (o16_air, nvfairport runway, mortal player healed by script, nothing
+   set on the player) [observed]: two spawned CrCoyote (GetAV Aggression 1, Aggressive)
+   700 units off detected the player and fought it unprovoked (one in combat at once,
+   the other OnStartCombat about 1 s in; 13 bites); two more at 250 units the same (15
+   bites). Two VCrTier2GeckoMed (Aggression 2) were in combat at once. Two CrDogWild
+   (Aggression 1) at 250 units never detected the player (GetDetected 0) and started no
+   combat in 0.2 game hours. So Aggressive coyotes do not wait to be attacked: ours'
+   first rule does not hold for them (#1341). Open: why the wild dogs never detected
+   the player, placed (not spawned) animals, warnings, allies, onlookers, escorts.
+   (killall between sessions left the earlier spawns standing: later sessions had them
+   around too.)
 3. **Damage numbers.** Ours:
    - Power attacks do 3× standing and 2× moving.
    - A damage type uses its resistance in place of DR (capped at 85 %, after DT).
@@ -163,6 +174,20 @@ engine if needed, and delete the item here.
    sneak with a key tap (the plugin's tap) and check IsSneaking, and use Sunny or a
    settler of the save rather than a spawned trooper, whose detection may not run while
    it is idle out of combat [hypothesis].
+   Retried 2026-11-01 (o16_town, nvftest, player still, GetDetected player on every
+   nearby actor every loop) [observed]:
+   - `TapControl 8` toggles sneak: IsSneaking went 0 to 1 (and, in a session that began
+     sneaking, 1 to 0). Sessions do not reload the save, so sneak carries over.
+   - The save's own residents do detect: outdoors at noon, 400 units from Settler 1,
+     three residents had GetDetected 1 at times while the player stood; at midnight five
+     of eight had it 1 while standing, and after the tap to sneak four of them dropped to
+     0 within 14-50 loops, two coming back to 1 for a while later.
+   - Indoors at noon 600 units from Sunny's spot (cell 00106185), none of the four
+     actors there detected the player standing or sneaking. Sunny's ref was not among
+     them [hypothesis: she was elsewhere at noon].
+   So the spawned troopers' 0 in o14_detect was the trooper, not the readout. Not yet
+   enough for the light, FOV or flashlight rules: next, sneak at noon vs midnight from
+   the same spot and distances, by settler, with the flashlight on.
 7. **Casino payouts.**
    - Slots: ours pays back about 1.35 per chip, so max winnings come fast. Check the
      reading of "= BET × N", the cherry rule and the middle row.
@@ -316,6 +341,14 @@ engine if needed, and delete the item here.
       gave no OnHit and no GetKnockedState change. Placed by the spawned actor's own
       PlaceAtMe in a timed script, the explosion seems not to go off [hypothesis]; next
       time place it on a save's own actor as blast_knockdown did on Ringo.
+      Retried 2026-11-01 (o16_town, nvftest): `RingoRef.PlaceAtMe GrenadeFragExplosion 1`
+      (in GSGasStation) and the same on Settler 1 outdoors: no OnHit, no Health change, no
+      GetKnockedState 2, so the placed explosion did not go off on the save's own actors
+      either. The 2026-10 knockdown_look timeline (PushActorAway 10/40/120 on Ringo) also
+      has GetKnockedState 0 throughout. Script-placed explosions and PushActorAway knock
+      nobody down in these captures; next: a grenade thrown by an NPC (o12's dynamite
+      ganger) at a spawned actor, or the player firing a grenade rifle by TapControl 4
+      (the tap fires: see 53).
 
 ## P3: smaller or rarer
 
@@ -710,6 +743,15 @@ The numbers above stay put so links to them hold; each item here gives its own p
     50 ms for 20 s; then the same with the crosshair off him at the moment of the hit (a
     shot from a script, or a grenade), and at 120 units where he is the activation target.
     ([hud §8](../spec-notes/hud.md))
+    Tried 2026-11-01 (o16_town hit53_settler, nvftest, god mode) [observed]: the weapon
+    can be drawn by script: `player.EquipItem Weap10mmPistol 0 1` then `TapControl 7`
+    gave IsWeaponOut 1 within 17 loops; `TapControl 4` then fired one shot. But the
+    shot, after a scripted SetAngle Z toward Settler 1 (GetHeadingAngle) and X 0, hit
+    another actor (OnHit target 0017B64E, not in the nearby scan), not him: no settler's
+    Health changed. `EnemyHealth`'s own `visible` went from 8 to 1 at the shot and its
+    three children stayed 0, so no bar showed. Not settled; next: aim by GetHeadingAngle
+    with pitch from the height difference (SetAngle X), the settler alone, and confirm
+    the hit by his Health before reading the bar.
 
 ## Added 2026-10-30 (UI tile tree T8: the pointer and keys)
 
