@@ -927,15 +927,24 @@ fn apply_given(g: &mut Game, gv: &Given) -> Result<(), String> {
         }
         Given::Place { reference, cell, pos, rot } => {
             let r = resolve(g, reference)?;
-            let c = resolve(g, cell)?;
-            // A worldspace stands for its exterior cell at the position.
-            let c = g.world.placed.world_cell_at(c, *pos).unwrap_or(c);
-            let p = g.world.get(r).map_err(|e| e.to_string())?;
-            p.cell = Some(c);
-            p.pos = *pos;
-            p.rot = *rot;
+            let at = resolve(g, cell)?;
+            // A worldspace stands for its exterior cell at the position; anything else must
+            // be a cell (as `go_to_cell`).
+            let c = match g.world.placed.world_cell_at(at, *pos) {
+                Some(c) => c,
+                None if g.world.placed.by_cell.contains_key(&at) || g.world.placed.world_of(at).is_some() => at,
+                None => return Err(format!("{cell:?} is neither a cell nor a worldspace with a cell at {pos:?}")),
+            };
+            {
+                let p = g.world.get(r).map_err(|e| e.to_string())?;
+                p.cell = Some(c);
+                p.pos = *pos;
+                p.rot = *rot;
+            }
+            g.emit(EventKind::Moved { reference: r, cell: Some(c), pos: *pos });
             if r == FormId::PLAYER_REF {
                 g.player_entered(Some(c));
+                g.settle_start_weather();
             }
         }
         Given::TagSkills { skills } => {

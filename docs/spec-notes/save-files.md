@@ -369,7 +369,11 @@ running/completed bits, stages done and not done, objectives and variables (by t
 script's variable names), SPECIAL as the player's actor values, the tag skills, the skill
 entries of the first modifier array as skill points spent, the inventory as changes on
 top of the new game's, and the place. What it leaves out is counted in its output
-(`save.skipped`).
+(`save.skipped`, by reason): a quest record the reader does not understand (bytes left
+over, a non-empty list after the variables), a form of a plugin not loaded, a form the save
+created (0xFF...), a reference past the form ID array. The inventory's fixed markers
+(0x00, 1.0, 0x5E, 0x18 and, with flag 29, 0x74) are checked: a record of another shape
+gives no inventory. The tag skills are read only from PlayerClass's record (0x00057E6A).
 
 ## 7. What moves between C and D [observed]
 

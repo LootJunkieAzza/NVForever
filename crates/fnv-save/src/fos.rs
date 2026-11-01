@@ -39,6 +39,9 @@ pub const TYPE_CLAS: u8 = 33;
 /// The player's reference and base form.
 pub const PLAYER_REF: u32 = 0x14;
 pub const PLAYER_BASE: u32 = 0x7;
+/// The player's class, whose record holds the tag skills (FalloutNV.esm PlayerClass; the
+/// one CLAS the saves change, save-files.md §6.1) [observed].
+pub const PLAYER_CLASS: u32 = 0x0005_7E6A;
 
 /// A cursor over the file's bytes.
 #[derive(Clone)]
@@ -52,9 +55,17 @@ impl<'a> Cur<'a> {
         Cur { b, p }
     }
     fn take(&mut self, n: usize) -> Result<&'a [u8], FosError> {
-        let s = self.b.get(self.p..self.p + n).ok_or_else(|| FosError(format!("{n} bytes past the end at {}", self.p)))?;
-        self.p += n;
+        let end = self.p.checked_add(n).filter(|&e| e <= self.b.len()).ok_or_else(|| FosError(format!("{n} bytes past the end at {}", self.p)))?;
+        let s = &self.b[self.p..end];
+        self.p = end;
         Ok(s)
+    }
+    /// A byte that must have this value: a fixed marker of the layout.
+    fn expect_u8(&mut self, want: u8) -> Result<(), FosError> {
+        match self.u8()? {
+            b if b == want => Ok(()),
+            b => err(format!("expected {want:#04x} at {}, found {b:#04x}", self.p - 1)),
+        }
     }
     fn u8(&mut self) -> Result<u8, FosError> {
         Ok(self.take(1)?[0])
@@ -138,11 +149,13 @@ impl ChangedForm {
 }
 
 /// A script variable's saved value (§6.2): a number, or a reference when the index's top
-/// bit is set.
+/// bit is set (`None`: no reference).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum VarValue {
     Num(f64),
-    Ref(u32),
+    Ref(Option<u32>),
+    /// A reference the form ID array does not hold.
+    Unresolved,
 }
 
 /// A quest's saved changes (§6.2).
@@ -174,7 +187,8 @@ impl FosQuest {
 /// An inventory entry of the player (§6.2): the item and its count change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FosItem {
-    pub item: u32,
+    /// `None`: a reference the form ID array does not hold.
+    pub item: Option<u32>,
     /// The change against the base form's inventory [hypothesis: the Pip-Boy, which the
     /// player's base carries, is listed worn with 0].
     pub count: i32,
@@ -244,10 +258,11 @@ impl Fos {
         c.bar()?;
         h.play_time = c.string()?;
         // The screenshot follows the header (§3.2).
-        c.p = header_start + header_size + width * height * 3;
+        let shot = width.checked_mul(height).and_then(|n| n.checked_mul(3));
+        c.p = shot.and_then(|n| header_start.checked_add(header_size)?.checked_add(n)).ok_or_else(|| FosError("a header or screenshot size past any file".into()))?;
         let _form_version = c.u8()?;
         let plugin_block = c.u32()? as usize;
-        let plugins_end = c.p + plugin_block;
+        let plugins_end = c.p.checked_add(plugin_block).ok_or_else(|| FosError("a plugin block size past any file".into()))?;
         let n = c.u8()?;
         c.bar()?;
         let mut plugins = Vec::new();
@@ -299,15 +314,23 @@ impl Fos {
 
     /// A reference's form ID (§5.4): kind 0 indexes the form ID array (1-based, 0 = none),
     /// kind 1 is a form ID of the first master, kind 2 a created form.
+    /// `None` for no reference and for one the save does not hold ([`Fos::reference`]
+    /// tells them apart).
     pub fn resolve(&self, r: [u8; 3]) -> Option<u32> {
+        self.reference(r).ok().flatten()
+    }
+
+    /// [`Fos::resolve`], with `Err` for an index past the form ID array or an unknown kind,
+    /// and `Ok(None)` for "no reference".
+    pub fn reference(&self, r: [u8; 3]) -> Result<Option<u32>, FosError> {
         let v = u32::from_be_bytes([0, r[0], r[1], r[2]]);
         let value = v & 0x3F_FFFF;
         match v >> 22 {
-            0 if value == 0 => None,
-            0 => self.form_ids.get(value as usize - 1).copied(),
-            1 => Some(value),
-            2 => Some(0xFF00_0000 | value),
-            _ => None,
+            0 if value == 0 => Ok(None),
+            0 => self.form_ids.get(value as usize - 1).copied().map(Some).ok_or_else(|| FosError(format!("reference {value} past the form ID array"))),
+            1 => Ok(Some(value)),
+            2 => Ok(Some(0xFF00_0000 | value)),
+            k => err(format!("reference of unknown kind {k}")),
         }
     }
 
@@ -363,8 +386,9 @@ impl Fos {
         self.records(kind).find(|f| f.form == form)
     }
 
-    /// Every quest record's changes (§6.2).
-    pub fn quests(&self) -> Result<Vec<FosQuest>, FosError> {
+    /// Every quest record's changes (§6.2), each on its own: a record the reader does not
+    /// understand is an `Err` and leaves the others.
+    pub fn quests(&self) -> Vec<Result<FosQuest, FosError>> {
         self.records(TYPE_QUST).map(|f| self.quest(f).map_err(|e| FosError(format!("quest {:08X}: {e}", f.form)))).collect()
     }
 
@@ -410,7 +434,7 @@ impl Fos {
                 let index = c.u32()?;
                 c.bar()?;
                 let value = if index & 0x8000_0000 != 0 {
-                    VarValue::Ref(self.resolve(c.ref3()?).unwrap_or(0))
+                    self.reference(c.ref3()?).map_or(VarValue::Unresolved, VarValue::Ref)
                 } else {
                     VarValue::Num(c.f64()?)
                 };
@@ -448,7 +472,7 @@ impl Fos {
         if let Some(npc) = self.record(PLAYER_BASE, TYPE_NPC).filter(|f| f.has(2)) {
             p.special = Some(npc.data.get(..7).ok_or_else(|| FosError("short SPECIAL".into()))?.try_into().unwrap());
         }
-        if let Some(clas) = self.records(TYPE_CLAS).find(|f| f.has(1)) {
+        if let Some(clas) = self.record(PLAYER_CLASS, TYPE_CLAS).filter(|f| f.has(1)) {
             let mut c = Cur::new(&clas.data, 0);
             for _ in 0..4 {
                 let v = c.u32()?;
@@ -482,14 +506,18 @@ impl Fos {
 
     /// The player's inventory list, after the parts between the modifiers and it that are
     /// not understood but have the same shape in every save looked at (save-files.md §6.2).
+    /// Its fixed markers (0x00, 1.0, 0x5E, 0x18, 0x74) are checked, so a record of another
+    /// shape gives no inventory rather than items read out of other data.
     fn player_inventory(&self, r: &ChangedForm, mut c: Cur<'_>) -> Result<Vec<FosItem>, FosError> {
-        c.u8()?;
+        c.expect_u8(0)?;
         c.bar()?;
-        c.f32()?;
+        if c.f32()? != 1.0 {
+            return err("not 1.0 after the actor values");
+        }
         c.bar()?;
         c.vsval()?;
         c.bar()?;
-        c.u8()?;
+        c.expect_u8(0x5E)?;
         c.bar()?;
         let n = c.vsval()?;
         c.bar()?;
@@ -499,7 +527,7 @@ impl Fos {
             c.u8()?;
             c.bar()?;
         }
-        c.u8()?;
+        c.expect_u8(0x18)?;
         c.bar()?;
         c.ref3()?;
         c.bar()?;
@@ -508,9 +536,7 @@ impl Fos {
         c.f32()?;
         c.bar()?;
         if r.has(29) {
-            if c.u8()? != 0x74 {
-                return err("an unknown block before the inventory");
-            }
+            c.expect_u8(0x74)?;
             c.bar()?;
             c.ref3()?;
             c.bar()?;
@@ -519,7 +545,7 @@ impl Fos {
         c.bar()?;
         let mut items = Vec::new();
         for _ in 0..n {
-            let item = self.resolve(c.ref3()?).unwrap_or(0);
+            let item = self.reference(c.ref3()?).ok().flatten();
             c.bar()?;
             let count = c.i32()?;
             c.bar()?;
@@ -607,6 +633,32 @@ mod tests {
         out.extend(data);
     }
 
+    const PLAYER_FLAGS: u32 = 1 << 1 | 1 << 4 | 1 << 5;
+
+    /// The player record's data: the place, the actor values, the unknown part (with
+    /// `marker` where 0x5E stands), the flag-29 block when `bit29`, and two items, the
+    /// second with a worn extra and one of type `extra` (0x25: an f32).
+    fn player_data(bit29: bool, marker: u8, extra: u8) -> Vec<u8> {
+        let mut p = Build { b: Vec::new() };
+        p.r(3);
+        for v in [37000.0f32, -117159.0, 6057.0, 0.0, 0.0, 1.309] {
+            p.f32(v);
+        }
+        p.bar();
+        for i in 0..AV_ENTRIES {
+            p.f32(if i == 38 { 2.0 } else { 0.0 }).bar();
+        }
+        p.u8(0).bar().f32(1.0).bar().vs(3).bar().u8(marker).bar().vs(1).bar().r(4).bar().u8(1).bar();
+        p.u8(0x18).bar().r(2).bar().f32(1.0).f32(2.0).f32(3.0).bar().f32(3.5).bar();
+        if bit29 {
+            p.u8(0x74).bar().r(8).bar();
+        }
+        p.vs(2).bar();
+        p.r(4).bar().u32(9).bar().vs(0).bar();
+        p.r(4).bar().u32(1).bar().vs(1).bar().vs(2).bar().u8(0x16).bar().u8(extra).bar().f32(41.25).bar();
+        p.b
+    }
+
     /// A save: form IDs [quest 0x1234, global 0x5678, world 0xDA726, item 0x15169,
     /// player 0x14, player base 7, class 0x57E6A, ref var target 0x4242].
     fn save() -> Vec<u8> {
@@ -653,21 +705,7 @@ mod tests {
         let mut clas = Build { b: Vec::new() };
         clas.u32(38).bar().u32(43).bar().u32(44).bar().u32(u32::MAX).bar();
         record(&mut b, 7, 1 << 1, TYPE_CLAS, &clas.b);
-        let mut p = Build { b: Vec::new() };
-        p.r(3);
-        for v in [37000.0f32, -117159.0, 6057.0, 0.0, 0.0, 1.309] {
-            p.f32(v);
-        }
-        p.bar();
-        for i in 0..AV_ENTRIES {
-            p.f32(if i == 38 { 2.0 } else { 0.0 }).bar();
-        }
-        p.u8(0).bar().f32(1.0).bar().vs(3).bar().u8(0x5E).bar().vs(1).bar().r(4).bar().u8(1).bar();
-        p.u8(0x18).bar().r(2).bar().f32(1.0).f32(2.0).f32(3.0).bar().f32(3.5).bar();
-        p.vs(2).bar();
-        p.r(4).bar().u32(9).bar().vs(0).bar();
-        p.r(4).bar().u32(1).bar().vs(1).bar().vs(2).bar().u8(0x16).bar().u8(0x25).bar().f32(41.25).bar();
-        record(&mut b, 5, 1 << 1 | 1 << 4 | 1 << 5, TYPE_ACHR, &p.b);
+        record(&mut b, 5, PLAYER_FLAGS, TYPE_ACHR, &player_data(false, 0x5E, 0x25));
         let g2 = b.len();
         b.extend(1000u32.to_le_bytes());
         b.extend(0u32.to_le_bytes());
@@ -703,11 +741,11 @@ mod tests {
     #[test]
     fn reads_quest_stages_variables_and_objectives() {
         let f = Fos::parse(&save()).unwrap();
-        let q = &f.quests().unwrap()[0];
+        let q = f.quests().remove(0).unwrap();
         assert_eq!(q.form, 0x1234);
         assert_eq!((q.running(), q.completed()), (Some(true), Some(false)));
         assert_eq!(q.stages, [(10, true)]);
-        assert_eq!(q.vars, [(3, VarValue::Num(1.5)), (4, VarValue::Ref(0x4242))]);
+        assert_eq!(q.vars, [(3, VarValue::Num(1.5)), (4, VarValue::Ref(Some(0x4242)))]);
         assert_eq!(q.objectives, [(10, 3)]);
     }
 
@@ -720,7 +758,68 @@ mod tests {
         assert_eq!(p.special, Some([5, 6, 5, 5, 5, 5, 10]));
         assert_eq!(p.tag_skills, [38, 43, 44]);
         assert_eq!(p.av_modifiers, [(38, 2.0)]);
-        assert_eq!(p.inventory.unwrap(), [FosItem { item: 0x15169, count: 9 }, FosItem { item: 0x15169, count: 1 }]);
+        assert_eq!(p.inventory.unwrap(), [FosItem { item: Some(0x15169), count: 9 }, FosItem { item: Some(0x15169), count: 1 }]);
+    }
+
+    /// The player record with other data in place of the test save's.
+    fn with_player(data: Vec<u8>, flags: u32) -> FosPlayer {
+        let mut f = Fos::parse(&save()).unwrap();
+        let r = f.changed.iter_mut().find(|c| c.form == PLAYER_REF).unwrap();
+        (r.data, r.flags) = (data, flags);
+        f.player().unwrap()
+    }
+
+    #[test]
+    fn the_inventory_after_the_flag_29_block_and_none_for_another_shape() {
+        // Flag 29: `74 |` and a ref before the list.
+        let p = with_player(player_data(true, 0x5E, 0x25), PLAYER_FLAGS | 1 << 29);
+        assert_eq!(p.inventory.map(|i| i.len()), Some(2));
+        // A marker that differs: no inventory, not items read out of other data.
+        assert_eq!(with_player(player_data(false, 0x5F, 0x25), PLAYER_FLAGS).inventory, None);
+        // The flag set but no block: none either.
+        assert_eq!(with_player(player_data(false, 0x5E, 0x25), PLAYER_FLAGS | 1 << 29).inventory, None);
+        // An extra data type of unknown size: none.
+        let p = with_player(player_data(false, 0x5E, 0x0D), PLAYER_FLAGS);
+        assert_eq!(p.inventory, None);
+        assert_eq!(p.tag_skills, [38, 43, 44], "the rest is read");
+    }
+
+    #[test]
+    fn an_odd_quest_leaves_the_others_and_a_reference_past_the_array_is_unresolved() {
+        let mut f = Fos::parse(&save()).unwrap();
+        let good = f.changed.iter().find(|c| c.kind == TYPE_QUST).unwrap().clone();
+        // Bytes left over after the flags byte.
+        f.changed.push(ChangedForm { form: 0x9999, flags: 1 << 1, kind: TYPE_QUST, data: vec![1, BAR, 0] });
+        // A reference variable naming form 99 of an 8-entry array.
+        let mut v = Build { b: Vec::new() };
+        v.vs(1).bar().u32(0x8000_0002).bar().r(99).bar().vs(0).bar().vs(0).bar();
+        f.changed.push(ChangedForm { form: 0x8888, flags: 1 << 30, kind: TYPE_QUST, data: v.b });
+        let qs = f.quests();
+        assert_eq!(qs.len(), 3);
+        assert_eq!(qs[0].as_ref().unwrap().form, good.form);
+        assert!(qs[1].is_err());
+        assert_eq!(qs[2].as_ref().unwrap().vars, [(2, VarValue::Unresolved)]);
+    }
+
+    #[test]
+    fn tag_skills_only_from_the_player_class() {
+        let mut f = Fos::parse(&save()).unwrap();
+        f.changed.iter_mut().find(|c| c.kind == TYPE_CLAS).unwrap().form = 0x1234_5678;
+        assert_eq!(f.player().unwrap().tag_skills, Vec::<u32>::new());
+    }
+
+    #[test]
+    fn sizes_past_any_file_are_errors_not_overflows() {
+        // The screenshot's width and height (after the u32, the language and their bars).
+        let mut b = save();
+        let at = MAGIC.len() + 4 + 5 + 65;
+        b[at..at + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+        b[at + 5..at + 9].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(Fos::parse(&b).is_err());
+        // The header size.
+        let mut b = save();
+        b[MAGIC.len()..MAGIC.len() + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(Fos::parse(&b).is_err());
     }
 
     #[test]

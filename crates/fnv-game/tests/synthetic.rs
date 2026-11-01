@@ -1328,6 +1328,23 @@ End", "label": "z"}
     assert!((by("z")["value"].as_f64().unwrap() - 75.0).abs() < 0.01, "{}", by("z"));
 }
 
+/// A save's place must be a cell, or a worldspace with a cell at the position: the player
+/// is never put in another form (#1325 review).
+#[test]
+fn a_place_that_is_no_cell_is_refused() {
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "given": [{"kind": "place", "ref": "player", "cell": "TestWeapon", "pos": [1.0, 2.0, 3.0]}],
+        "actions": []
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let errors = out["given_errors"].as_array().unwrap();
+    assert_eq!(errors.len(), 1);
+    assert!(errors[0]["error"].as_str().unwrap().contains("neither a cell nor a worldspace"), "{errors:?}");
+}
+
 #[test]
 fn say_to_says_the_next_unsaid_line_and_runs_its_end_script_when_it_ends() {
     let f = fixture();

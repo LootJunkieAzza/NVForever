@@ -215,7 +215,7 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             }
             let mut save_notes = None;
             if let Some(fos) = &fos {
-                let (given, notes) = crate::ext_save::save_given(fos, &data, &forms, &lo.plugins)?;
+                let (given, notes) = crate::ext_save::save_given(fos, &crate::ext_save::Loaded { data: &data, forms: &forms }, &lo.plugins)?;
                 input["given"] = json!(given);
                 input["new_game"] = json!(true);
                 save_notes = Some(notes);
