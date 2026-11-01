@@ -341,7 +341,13 @@ pub fn soften(font: &Font, alpha: &[f32], w: usize, h: usize, sigma: f32, bend: 
         if !g.drawn() {
             continue;
         }
-        let at = |v: f32, n: usize| (v * n as f32).round().clamp(0.0, n as f32) as usize;
+        // [design] Refuse malformed replacement-font UVs before rounding can hide
+        // an out-of-range edge (or turn NaN into an integer). Keep the hard fallback.
+        if !g.uv.iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v)) || g.uv[0] >= g.uv[2] || g.uv[1] >= g.uv[3] {
+            return None;
+        }
+        // [design] Fractional UV boundaries use the nearest source texel edge.
+        let at = |v: f32, n: usize| (v * n as f32).round() as usize;
         let (x0, y0, x1, y1) = (at(g.uv[0], w), at(g.uv[1], h), at(g.uv[2], w), at(g.uv[3], h));
         if x1 <= x0 || y1 <= y0 {
             return None;
@@ -860,10 +866,87 @@ mod tests {
             let last = c.len() - 1;
             assert!(c[0].iter().chain(&c[last]).all(|&a| a == 0), "{c:?}");
         }
-        // A glyph outside its texture is refused rather than read out of bounds.
-        let mut bad = font.clone();
-        bad.glyphs[67] = Glyph { uv: [0.5, 0.5, 0.5, 1.0], width: 1.0, height: 1.0, ..Glyph::default() };
-        assert!(soften(&bad, &alpha, 4, 4, SOFT_SIGMA, |a| a).is_none());
+    }
+
+    #[test]
+    fn softened_glyphs_refuse_invalid_uvs_before_rounding() {
+        use fnv_font::Glyph;
+        let mut font = Font { size: 4.0, texture: String::new(), glyphs: vec![Glyph::default(); 256] };
+        // [design] Include slight excursions that rounding would otherwise hide,
+        // non-finite edges, reversed ranges, and ranges collapsed by rounding.
+        for uv in [
+            [-0.01, 0.0, 0.5, 1.0], [0.0, 0.0, 1.01, 1.0],
+            [0.0, -0.01, 1.0, 1.0], [0.0, 0.0, 1.0, 1.01],
+            [f32::NAN, 0.0, 1.0, 1.0], [0.0, 0.0, f32::INFINITY, 1.0],
+            [0.75, 0.0, 0.25, 1.0], [0.0, 0.75, 1.0, 0.25],
+            [0.5, 0.0, 0.5, 1.0], [0.01, 0.0, 0.02, 1.0],
+        ] {
+            font.glyphs[65] = Glyph { uv, width: 1.0, height: 1.0, ..Glyph::default() };
+            assert!(soften(&font, &[1.0; 16], 4, 4, SOFT_SIGMA, |a| a).is_none(), "{uv:?}");
+        }
+    }
+
+    #[test]
+    fn softened_fractional_uvs_use_nearest_edges_and_preserve_ink_placement() {
+        use fnv_font::Glyph;
+        let mut glyphs = vec![Glyph::default(); 256];
+        // [design] UVs span source edges (1.25, 2.25) to (3.25, 5.25), rounded to
+        // a 2 x 3 cut-out. Non-unit metric/texel ratios must also pad proportionally.
+        let original = Glyph { uv: [1.25 / 8.0, 2.25 / 8.0, 3.25 / 8.0, 5.25 / 8.0], width: 3.0, height: 6.0, before: 1.0, after: 2.0, ascent: 5.0 };
+        glyphs[65] = original;
+        let font = Font { size: 8.0, texture: String::new(), glyphs };
+        let mut alpha = vec![0.0; 64];
+        for y in 2..5 {
+            alpha[y * 8 + 1] = 0.25;
+            alpha[y * 8 + 2] = 0.75;
+        }
+        let soft = soften(&font, &alpha, 8, 8, 0.0, |a| a).expect("fractional glyph");
+        let g = soft.font.glyphs[65];
+        assert_eq!(g.advance(), original.advance());
+        let px = g.width / (2 + 2 * SOFT_PAD) as f32;
+        let py = g.height / (3 + 2 * SOFT_PAD) as f32;
+        assert_eq!(g.before + SOFT_PAD as f32 * px, original.before);
+        assert_eq!(-g.ascent + SOFT_PAD as f32 * py, -original.ascent);
+        // No rect offset: padding moves the cut-out back to the original ink origin.
+        for y in 0..3 {
+            let from = ((SOFT_PAD + y) * soft.width + SOFT_PAD) * 4 + 3;
+            assert_eq!([soft.rgba[from], soft.rgba[from + 4]], [64, 191]);
+        }
+    }
+
+    #[test]
+    fn softened_shelves_wrap_below_the_tallest_glyph_without_coverage_bleed() {
+        use fnv_font::Glyph;
+        let mut glyphs = vec![Glyph::default(); 256];
+        let mut alpha = vec![0.0; 750 * 4];
+        for (i, (height, coverage)) in [(1, 1.0), (4, 0.25), (2, 0.75)].into_iter().enumerate() {
+            glyphs[65 + i] = Glyph { uv: [i as f32 / 3.0, 0.0, (i + 1) as f32 / 3.0, height as f32 / 4.0], width: 250.0, height: height as f32, ..Glyph::default() };
+            for y in 0..height {
+                alpha[y * 750 + i * 250..y * 750 + (i + 1) * 250].fill(coverage);
+            }
+        }
+        let font = Font { size: 4.0, texture: String::new(), glyphs };
+        let soft = soften(&font, &alpha, 750, 4, SOFT_SIGMA, |a| a).expect("wrapped shelf");
+        let origins: Vec<_> = (65..68).map(|code| {
+            let g = soft.font.glyphs[code];
+            ((g.uv[0] * soft.width as f32).round() as usize, (g.uv[1] * soft.height as f32).round() as usize)
+        }).collect();
+        assert_eq!(origins, [(0, 0), (256, 0), (0, 4 + 2 * SOFT_PAD)]);
+        // Independently blur each glyph: packing beside different coverage or on the
+        // next shelf must produce exactly the same cell, including its empty border.
+        for (i, &(x0, y0)) in origins.iter().enumerate() {
+            let mut solo = font.clone();
+            for code in 65..68 {
+                if code != 65 + i { solo.glyphs[code] = Glyph::default(); }
+            }
+            let single = soften(&solo, &alpha, 750, 4, SOFT_SIGMA, |a| a).unwrap();
+            let height = [1, 4, 2][i] + 2 * SOFT_PAD;
+            for y in 0..height {
+                let packed = ((y0 + y) * soft.width + x0) * 4;
+                let alone = y * single.width * 4;
+                assert_eq!(&soft.rgba[packed..packed + 256 * 4], &single.rgba[alone..alone + 256 * 4]);
+            }
+        }
     }
 
     #[test]
