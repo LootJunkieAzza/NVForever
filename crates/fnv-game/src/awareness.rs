@@ -1072,7 +1072,7 @@ impl Game<'_> {
     /// Whether `actor` has its weapon out for alertness: SetAlert or a combat state
     /// ([`get_is_alerted`]).
     pub fn is_alerted(&self, actor: FormId) -> bool {
-        self.extra.get(&actor).is_some_and(|e| e.alerted) || self.awareness.state(actor).in_combat()
+        self.extra.get(&actor).is_some_and(|e| e.alerted) || self.awareness.state(actor).in_combat() || self.itr_alert(actor)
     }
 
     /// Whether `actor` draws its weapon (a creature its unarmed stance): alerted, or
