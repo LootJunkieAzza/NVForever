@@ -116,6 +116,12 @@ fn norm(p: &str) -> String {
 }
 
 impl ModFiles {
+    /// [`ModFiles::read`] for the other files of the crate: a Data file's text, this
+    /// session's write first.
+    pub(crate) fn read_text(&self, rel: &str) -> Option<String> {
+        self.read(rel)
+    }
+
     /// A file's text: this session's write, else NVForever's layer, else the game's Data.
     fn read(&self, rel: &str) -> Option<String> {
         if let Some(t) = self.written.get(&norm(rel)) {
@@ -192,7 +198,7 @@ fn section_key(s: &str) -> Option<(String, String)> {
 }
 
 /// The value of a key in INI text (section and key without regard to case).
-fn ini_get(text: &str, section: &str, key: &str) -> Option<String> {
+pub(crate) fn ini_get(text: &str, section: &str, key: &str) -> Option<String> {
     let mut cur = String::new();
     for line in text.lines() {
         let l = line.trim();
