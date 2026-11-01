@@ -847,3 +847,16 @@ The numbers above stay put so links to them hold; each item here gives its own p
     `StartMenu/MCM/*:1/*:1/_optionID`, GetUIFloat
     `StartMenu/MCM/MCM_Options/Option1/_optionID`, `GetMCMFloat 1 1 "_optionID"` and
     `GetMCMFloat 1 0 "_optionID"`.
+
+## Added 2026-11-01 (Speech Successes and Failures, issue #967)
+
+70. **Do New Vegas skill checks count Speech Successes / Speech Failures** (P3, issue
+    #967). NVForever counts stat 12 when the player picks a Speech check's pass line
+    and stat 31 for its fail line, and nothing for checks of other skills or perks
+    [hypothesis: by the stats' names; `Game::choose`, misc-stats.md §3]. To check, with
+    nvf_capture reading `GetPCMiscStat "Speech Successes"` and `"Speech Failures"` just
+    before and after each choice: (a) one Speech check passed and one failed (Primm or
+    Goodsprings, e.g. a [Speech 35] line with Speech above and below it); (b) one
+    Barter or Science check passed and failed (do they move either stat?); (c) one perk
+    line (e.g. [Lady Killer]). If (a) moves nothing, the count goes; if (b) moves them,
+    other skills count too.

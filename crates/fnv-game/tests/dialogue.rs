@@ -1422,6 +1422,38 @@ fn a_speech_challenge_gives_its_xp_and_a_skill_line_none() {
     assert_eq!(challenge(4), 0.0);
 }
 
+/// A New Vegas Speech check counts a Speech Success when its pass line is chosen and a
+/// Speech Failure for its fail line (stats 12 and 31), with no XP of its own; a check
+/// of another skill counts neither (#967; misc-stats.md §3).
+#[test]
+fn a_speech_check_counts_a_success_or_a_failure() {
+    use fnv_game::misc_stats::{SPEECH_FAILURES, SPEECH_SUCCESSES};
+    let f = fixture();
+    let run = |speech: f64| {
+        let mut g = at_topic_list(&f);
+        fnv_game::functions::set_actor_value_current(&mut g, FormId::PLAYER_REF, SPEECH as u16, speech).unwrap();
+        pick(&mut g, T_TOP2);
+        listen(&mut g);
+        assert_eq!(g.dialogue_choices().iter().find(|c| c.topic == FormId(T_SKILL)).unwrap().challenge.as_ref().unwrap().skill, Some(SPEECH as u16));
+        let line = pick(&mut g, T_SKILL);
+        (line, g.misc_stat(SPEECH_SUCCESSES), g.misc_stat(SPEECH_FAILURES), g.player.xp)
+    };
+    assert_eq!(run(60.0), (FormId(H_PASS), 1.0, 0.0, 0.0));
+    assert_eq!(run(35.0), (FormId(H_PASS), 1.0, 0.0, 0.0));
+    assert_eq!(run(10.0), (FormId(H_FAIL), 0.0, 1.0, 0.0));
+    // The same pair testing another skill (Barter, 32): nothing counted.
+    let mut f = f;
+    for id in [H_PASS, H_FAIL] {
+        let line = f.data.infos.get_mut(&FormId(id)).unwrap();
+        line.conditions[0].params = vec![ArgValue::Enum(32)];
+    }
+    let mut g = at_topic_list(&f);
+    pick(&mut g, T_TOP2);
+    listen(&mut g);
+    pick(&mut g, T_SKILL);
+    assert_eq!((g.misc_stat(SPEECH_SUCCESSES), g.misc_stat(SPEECH_FAILURES)), (0.0, 0.0));
+}
+
 #[test]
 fn start_conversation_and_the_dialogue_functions() {
     let f = fixture();
