@@ -1734,9 +1734,16 @@ checked against the original (observer-checks.md item 20):
   (frag, plasma and pulse grenades, dynamite), from the actor's inventory, the lowest
   FormID of those it carries; one used up per throw (rounds of guns still come from
   nowhere, owner 2026-10-17: a grenade is the weapon itself).
-- **Who and when**: a person fighting with a gun (not fleeing), ready to fire on a target
-  it sees; the first throw 4 to 10 s after it is first ready on that target, then one every
-  12 to 25 s, rolled on the grenade rolls' own sequence.
+- **Who** (2026-11-01, issue #1303): only an actor whose held weapon is the grenade. A
+  gunman keeps the grenades it carries [observed: observer check 20, o12_grenades and
+  o13_airport on the airport runway: Powder Gangers carrying 4-10 dynamite threw none in
+  90 s at 426-1,595 units, nor at 76-667 in 24 s; the one that spawned holding its
+  dynamite threw it once at about 1,225 units within a second, then drew a gun and threw
+  no more]. In ours a held weapon always comes before a thrown one (actors.md §9.3) and
+  re-arming passes grenades over, so no NPC throws until drawing a grenade is built.
+- **When**: holding it, not fleeing, ready on a target it sees; the first throw 4 to 10 s
+  after it is first ready on that target, then one every 12 to 25 s, rolled on the
+  grenade rolls' own sequence [design; the original's one throw came within a second].
 - **Where**: only at a target beyond 1.1 times the blast's radius (a frag grenade's
   blast radius is 900 units, so beyond 990) and within the throw's reach:
   the low arc's under the projectile's gravity, at most 1,500 units. Held when a comrade
@@ -1748,9 +1755,10 @@ checked against the original (observer-checks.md item 20):
   run from by those it threatens (§17.7).
 - Log: `npc combat: X throws W at T (D units, blast R); N left`, `X keeps its grenade: K
   would be caught …`; summary `N grenades thrown, M kept for a comrade or a bystander`.
-  Smoke `combat-npc-grenades`.
-- Not built: putting the gun away and drawing the grenade, throwing from the clip's
-  release key, grenades for melee fighters and creatures, mines.
+  Smoke `combat-npc-grenades`: Violet, given three frag grenades, fights with her gun and
+  throws none.
+- Not built: drawing a grenade (and back to the gun after the throw, as the original's
+  ganger did), throwing from the clip's release key, grenades for creatures, mines.
 
 ## 21. NPCs use their stimpaks (owner request 2026-10-25)
 

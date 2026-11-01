@@ -1056,6 +1056,10 @@ impl Game<'_> {
     /// run on "Combat Target" runs on (docs/spec-notes/packages.md §7.5).
     pub fn combat_target_of(&self, r: FormId) -> Option<FormId> {
         let a = self.awareness.get(r).filter(|a| a.state == State::Combat)?;
+        // ITR's ForceCombatTarget over the actor's own choice (`crate::nvse_itr2`).
+        if let Some(t) = self.itr_forced_target(r) {
+            return Some(t);
+        }
         a.combat_target().map(|(t, _)| t)
     }
 }
@@ -1099,7 +1103,7 @@ impl Game<'_> {
     /// Whether `actor` has its weapon out for alertness: SetAlert or a combat state
     /// ([`get_is_alerted`]).
     pub fn is_alerted(&self, actor: FormId) -> bool {
-        self.extra.get(&actor).is_some_and(|e| e.alerted) || self.awareness.state(actor).in_combat()
+        self.extra.get(&actor).is_some_and(|e| e.alerted) || self.awareness.state(actor).in_combat() || self.itr_alert(actor)
     }
 
     /// Whether `actor` draws its weapon (a creature its unarmed stance): alerted, or

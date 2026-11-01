@@ -92,7 +92,7 @@ pub const KEEP_REPORTS: usize = 20;
 
 /// The files named `<prefix>…<ext>` to delete so that `keep` remain, given the names in
 /// the folder: they sort by their time stamp, oldest first.
-fn old_files(names: &[String], prefix: &str, ext: &str, keep: usize) -> Vec<String> {
+pub(crate) fn old_files(names: &[String], prefix: &str, ext: &str, keep: usize) -> Vec<String> {
     let mut logs: Vec<&String> = names.iter().filter(|n| n.starts_with(prefix) && n.ends_with(ext)).collect();
     logs.sort();
     let n = logs.len().saturating_sub(keep);

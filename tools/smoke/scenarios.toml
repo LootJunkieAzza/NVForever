@@ -1216,17 +1216,17 @@ forbid = [{ re = '1EFiendViolet.*Lost → Combat', label = "Combat ↔ Lost flic
 
 [[scenario]]
 name = "combat-npc-grenades"
-source = "docs/design/combat-ai.md §20: a gunman carrying grenades throws one now and then at a target it sees, clear of its blast and within the throw's reach, one taken from its inventory each time (npc_grenades.rs)"
-note = "god mode; Violet is given three frag grenades at 14 s and put 1,200 units from the player at 15 s (a frag grenade is thrown from beyond 990: 1.1 x its 900-unit blast)"
+source = "docs/design/combat-ai.md §20: only an actor holding a grenade throws one; a gunman carrying grenades keeps them (observer check 20: the original's Powder Gangers carrying dynamite threw none in 90 s)"
+note = "god mode; Violet is given three frag grenades at 14 s and put 1,200 units from the player at 15 s (within a frag grenade's throw band, 990-1,500), and fights with her gun"
 areas = ["combat"]
 paths = ["engine/nvforever/src/npc_grenades.rs", "engine/nvforever/src/npc_combat.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:call:FiendVioletRef:AddItem:WeapGrenadeFrag:3,15:moveto:FiendVioletRef:player:1200:0:0" }
 args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
 run_seconds = 60
 expect = [
-  { re = 'npc combat: .*Violet.* throws WeapGrenadeFrag at the player \((?P<n>\d+) units', range = [990, 1500], label = "Violet throws a frag grenade, clear of its blast" },
-  { re = 'throws WeapGrenadeFrag at .*; (?P<n>\d) left', range = [0, 2], label = "one taken from her three each throw" },
-  { re = 'npc combat style summary: .*; (?P<n>\d+) grenades thrown', range = [1, 3], label = "the summary counts the throws" },
+  { re = 'npc combat: FiendVioletRef \S+ fights the player with \S+ \(gun\)', label = "Violet fights with her gun" },
+  { re = 'npc combat: .*Violet.* throws WeapGrenadeFrag', count = 0, label = "she keeps the grenades she carries" },
+  { re = 'npc combat style summary: .*; (?P<n>\d+) grenades thrown', range = [0, 0], label = "the summary counts no throws" },
 ]
 
 [[scenario]]
@@ -3025,6 +3025,31 @@ order = [[
   "pipboy: STATS Status",
   "pipboy: down",
 ]]
+expect = [
+  { re = 'player First rig: PipBoy\(\w+\) plays .*pipboy', label = "the first-person Pip-Boy clip loaded (#1330)" },
+]
+forbid = [
+  { text = "the Pip-Boy cannot come up", label = "the first-person Pip-Boy clip missing (#1330)" },
+  { text = "up, but the menus are not on the arm", label = "the arm up with nowhere to show the menus (#1330)" },
+]
+
+[[scenario]]
+name = "pipboy-menu-pause"
+source = "issue #1330: with menu pause on (--menu-pause original) the inventory stops the virtual clock; the Pip-Boy still comes up, on the menus' clock"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy*", "engine/nvf-play/src/pause.rs", "engine/nvforever/src/pipboy_arm.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,15:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1280x720", "--menu-pause", "original"]
+run_seconds = 17
+order = [[
+  "pipboy: up, page ITEMS tab Weapons",
+  "menu pause: the picture stands still (--menu-pause original)",
+  "pipboy: raised",
+  "pipboy: down",
+]]
+forbid = [
+  { text = "up, but the menus are not on the arm", label = "the arm up with nowhere to show the menus (#1330)" },
+]
 
 [[scenario]]
 name = "pipboy-list5"
@@ -4893,6 +4918,28 @@ order = [[
   { re = 'npc combat: FiendCookCookRef \S+ has the player in reach \((?P<n>\d+) units, reach 640\)', range = [0, 640], label = "then has the player within his flame's reach" },
   { re = 'npc combat: FiendCookCookRef \S+ opens fire on the player from (?P<n>\d+) units \(reach 640\)', range = [0, 640], label = "then fires, from within his flame's reach" },
   { re = 'attack anims: 000F5704 plays \S*2hhattackspin2?\.kf', label = "with the flamer's attack clip" },
+]]
+
+[[scenario]]
+name = "cook-cook-flamer-hands"
+source = "owner spot check 2026-11-01 (#1309): Cook-Cook held his flamer below his hands while firing, again after PR #322 (animation.md §9.7)"
+note = "as npc-muzzle-flash-flamer, but the two Fiends that stood between the camera and Cook-Cook (0x000F9CE7, 0x000F9CE8) are disabled at 2 s, the player is put 100 units in front of him at 5 s and again half a second before each frame, and the camera is 250 units out, circled 90 degrees to his side. He fires standing, reloads, and crouches at 24 s (SetForceSneak) to fire crouched. Frames cook_flamer_hands_00..03.png (11.5, 21, 28, 32 s) show the hands; the log checks are the 'weapon grip' lines (attack_anims::grip_check): right hand 7.3 units from the Weapon node in the clips, left hand within 4 units of the equip clip's grip on every attack pose [observed: nvf-assets/examples/hand_probe.rs]"
+areas = ["combat", "animation"]
+paths = ["engine/nvforever/src/attack_anims.rs", "engine/nvforever/src/weapons.rs", "engine/nvf-assets/src/anim_play.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2:call:FiendCookCookRef:EquipItem:WeapFlamer,2:call:0x000F9CE7:Disable,2:call:0x000F9CE8:Disable,3:combat:0x000F5704:player,24:call:FiendCookCookRef:SetForceSneak:1", NVF_PLAY_TEST_FACE = "5:000F5704,11:000F5704,20.5:000F5704,27.5:000F5704,31.5:000F5704", NVF_PLAY_TEST_CONTROL = "6:view,6.2:zoom=250,6.4:orbit=90:10,20.6:release,20.65:zoom=250,20.7:orbit=90:10,27.6:release,27.65:zoom=250,27.7:orbit=90:10,31.6:release,31.65:zoom=250,31.7:orbit=90:10", NVF_PLAY_TEST_SHOTS = "11.5:cook_flamer_hands_00.png,21:cook_flamer_hands_01.png,28:cook_flamer_hands_02.png,32:cook_flamer_hands_03.png" }
+args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F5704"]
+run_seconds = 34
+expect = [
+  { re = 'npc combat: FiendCookCookRef \S+ fights the player with WeapFlamer \(gun\)', label = "Cook-Cook fights with his flamer" },
+  { re = 'weapon grip: 000F5704 .*: right hand (?P<n>[\d.]+) units from the Weapon node', range = [0, 10], all = true, label = "his right hand stays on the flamer's rear grip while he fires" },
+  { re = 'weapon grip: 000F5704 .* left hand (?P<n>[\d.]+) units from its grip', range = [0, 6], all = true, label = "his left hand stays on the top handle while he fires (the flamer not below his hands)" },
+  { re = 'weapon grip: 000F5704 .*, crouched:', label = "the grip is checked crouched too" },
+  "Screenshot saved to cook_flamer_hands_03.png",
+]
+order = [[
+  { re = 'attack anims: 000F5704 plays \S*2hhattackspin2?\.kf', label = "he fires with the 2hh spin clip" },
+  { re = 'attack anims: 000F5704 plays \S*2hhreload\w*\.kf', label = "then reloads" },
+  { re = 'weapon grip: 000F5704 ', label = "then is checked firing again" },
 ]]
 
 [[scenario]]
@@ -17331,6 +17378,45 @@ order = [[
 ]]
 
 [[scenario]]
+name = "tiles-sleep-wait"
+source = "[design] ui-tile-tree.md §6.2 step 3 (T15b, docs/handoff/ui-tile-tree-tasks.md): with [UI] TileMenus=SleepWaitMenu the Wait menu is drawn from the game's SleepWaitMenu tiles (menu 1012 builds it; the model writes its three texts, the Wait button's word and the slider's value), the hand-built menu is not spawned, pointer clicks on the slider's right page area move it six hours at a time to 24, a click at 24 keeps it there, the slider drawn after each click's pulse is the model's value (#1307 review), and W (the file's _PCButton_W, which the hand-built menu has no use for) presses Wait"
+note = "the menu opens at 10 s on one hour; at 1280 x 720 the screen is 1706.7 x 960 interface units, SWM_MainRect centred at 423.3, 280, the slider 112.5, 145 in (640 x 64) with its marker 48 wide at value 0, so x 1100 (y 457) is on the page area right of the marker at values 0, 6 and 12 (marker 48 wide, 592/23 apart from x 535.8), x 1165 on it at 18 (to 24) and on the marker at value 23 (the click at 24) (sleep_wait_menu.xml, scrollbar_horiz.xml); the 24 hours then pass in 12 s"
+areas = ["ui", "wait", "menus"]
+paths = [
+  "engine/nvf-play/src/tiles/wait_menu.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs",
+  "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs",
+  "engine/nvf-play/src/wait.rs", "engine/nvf-play/src/wait/**",
+  "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs",
+]
+env = { NVF_PLAY_TEST_TILE_MENUS = "SleepWaitMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_WAIT = "10:open", NVF_PLAY_TEST_POINTER = "11:1100:457,11.5:1100:457:click,12:1100:457:click,12.5:1100:457:click,13:1165:457:click,13.5:1165:457:click,14:off", NVF_PLAY_TEST_SHOTS = "14.5:tiles_sleep_wait.png", NVF_PLAY_TEST_KEYS = "15.5:w" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--size", "1280x720"]
+run_seconds = 35
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=SleepWaitMenu \(from test aid NVF_PLAY_TEST_TILE_MENUS\): SleepWaitMenu drawn from tiles', label = "the switch is read from the test aid" },
+  { re = 'ui: built SleepWaitMenu \(menus\\[^,]+\.xml, [1-9]\d* tiles\)', label = "the open menu builds its file" },
+  { re = 'tiles: SleepWaitMenu drawn from tiles \(\d+ file tiles, 0 code tiles\)', label = "the menu's tree draws" },
+  { re = 'tiles: SleepWaitMenu drawn from tiles: "[^"]+", "1 hour \([^"]+\)", "[^"]+", button "Wait", slider 0', label = "the model writes the texts, the verb and the slider" },
+  { text = "tiles: SleepWaitMenu Step(6) on its tiles", min = 3, label = "clicks on the right page area page the slider" },
+  { re = 'tiles: SleepWaitMenu (Step\(-?\d+\)|Hours\(\d+\)) on its tiles', count = 5, label = "five clicks on the slider, the last at 24" },
+  { re = 'tiles: SleepWaitMenu drawn from tiles: "[^"]+", "7 hours \([^"]+\)", "[^"]+", button "Wait", slider 6', label = "the slider follows" },
+  { re = 'tiles: SleepWaitMenu drawn from tiles: "[^"]+", "24 hours \([^"]+\)", "[^"]+", button "Wait", slider 23', label = "the slider reaches 24 hours" },
+  { text = "tiles: SleepWaitMenu slider drawn at 6", label = "the slider is drawn at the model's value after the pulse" },
+  { text = "tiles: SleepWaitMenu slider drawn at 23", label = "and at 24 hours, after the click there" },
+  { re = 'tiles: SleepWaitMenu slider drawn at \S+, not the \S+ written', count = 0, label = "the slider never draws the file's own count of the clicks (#1307 review)" },
+  { text = "tiles: SleepWaitMenu Accept on its tiles", count = 1, label = "W presses the file's Wait button" },
+  "wait menu: waiting 24 hour(s)",
+  { re = 'ui: dropped SleepWaitMenu', label = "the closed menu drops its tiles" },
+]
+order = [[
+  "wait menu: open",
+  "tiles: SleepWaitMenu Step(6) on its tiles",
+  "tiles: SleepWaitMenu slider drawn at 23",
+  "tiles: SleepWaitMenu Accept on its tiles",
+  "wait menu: waiting 24 hour(s)",
+  "ui: dropped SleepWaitMenu",
+]]
+
+[[scenario]]
 name = "tiles-quantity"
 source = "[design] ui-tile-tree.md §6.2 step 3 (T15a, docs/handoff/ui-tile-tree-tasks.md): with [UI] TileMenus=QuantityMenu the \"How many?\" prompt over the Pip-Boy is drawn from the game's QuantityMenu tiles (Game::ui_prompt builds it; the model writes the meter's user0 and user2, the file works out the tiled fill and the amount), the hand-built prompt is not spawned, and pointer clicks on the decrease arrow and on OK drop one fewer than the stack"
 note = "the drop aid asks at 21 s for the 20 rounds given (the prompt opens at the whole stack, and `ask` holds it open until answered); the shot at 23 s; at 1280 x 800 the decrease arrow stands at 550-567 x 452-487 and OK ends at x 1085, y 492-543 (QM_Background centred by screen(), QM_MainRect 22, 42 in; quantity_menu.xml)"
@@ -17801,4 +17887,41 @@ order = [[
 expect = [
   { text = "MannyVargasREF: put at its package", count = 0, label = "Manny Vargas, in view before the trip, is not moved" },
   { re = 'put at its package.s place on arrival .* units from \([^)]*\) in WastelandNV', count = 0, label = "nobody in Novac's street is put anywhere (residents in the rooms behind its doors may be: they are near and unseen)" },
+]
+
+[[scenario]]
+name = "pause-mods-page"
+source = "issue #976 T11 (engine/nvf-play/src/tiles/mods.rs, pause.rs; docs/handoff/ui-tile-tree-tasks.md T11, ui-tile-tree.md §7): with [UI] TileMenus=StartMenu and a mod's tiles in StartMenu, the pause menu has a Mods entry; its page runs the start menu's MenuMode 1013 blocks each frame, in the played world, and Back closes it"
+note = "needs MCM in Data: its loose menu files (menus/options/start_menu.xml and menus/prefabs/MCM) give StartMenu its mod tiles, and its plugin (The Mod Configuration Menu.esp, loaded with --plugins) has the blocks. MCM's quest sets iInstallCheck to 1 in GameMode at the start and its MenuMode 1013 block sets it to 0, so the variable read before and after the page shows the block ran. MCM's own page stays hidden (its script waits for the original's code-filled pause column); pause_mods.png shows the page"
+areas = ["ui", "menus", "scripts"]
+paths = ["engine/nvf-play/src/tiles/mods.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/tiles/input.rs", "crates/fnv-game/src/game.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "StartMenu", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PAUSE = "16:28", NVF_PLAY_TEST_PAUSE_MENU = "17:mods,18.5:shot,22:back", NVF_PLAY_TEST_CONSOLE = "10:PrintC \"nvf mcm install check %g\" MCM.iInstallCheck;10.5:close;29:PrintC \"nvf mcm install check %g\" MCM.iInstallCheck;29.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "The Mod Configuration Menu.esp"]
+run_seconds = 32
+expect = [
+  "tiles: a mod's tiles in StartMenu: the pause menu has a Mods entry",
+  "pause menu: mods page",
+  "scripts: MenuMode 1013 blocks run under the pause menu's Mods page",
+  "pause menu: mods page closed",
+  { re = "scripts: the Mods page closed after [1-9][0-9]* MenuMode frames", label = "the start menu's MenuMode blocks ran each frame of the page" },
+  { text = "nvf mcm install check 1", min = 1, label = "before the page MCM's GameMode block has set iInstallCheck" },
+  { text = "nvf mcm install check 0", min = 1, label = "MCM's MenuMode 1013 block ran under the page, in the played world, and cleared it" },
+]
+order = [["nvf mcm install check 1", "tiles: a mod's tiles in StartMenu", "pause menu: mods page", "scripts: MenuMode 1013 blocks run", "pause menu: mods page closed", "nvf mcm install check 0"]]
+
+[[scenario]]
+name = "script-move-dynamic-clutter"
+source = "issue #1311: SetPos on a reference whose collision is one dynamic body (clutter, dropped or placed items) snapped back at once, the settle write-back copying the body's old pose over the move; console moves were never seen (the tick cleared Game::turned first)"
+note = "A bottle (0x0010A1F6) placed by the console at the player in Goodsprings, moved sideways 3 s later to x = -68150 with SetPos; GetPos x half a second and two seconds later reads the new x"
+areas = ["physics", "console", "scripts"]
+paths = ["engine/nvf-play/src/phys.rs", "engine/nvf-play/src/script.rs", "engine/nvf-play/src/dropped.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "8:player.placeatme 0010A1F6 1;8.5:ff000000.getpos x;11:ff000000.setpos x -68150;11.5:ff000000.getpos x;13:ff000000.getpos x;13.5:ff000000.getpos z;14:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 17
+expect = [
+  { re = 'console: PlaceAtMe on player >> 0xFF000000', label = "the bottle is placed" },
+  { re = 'collision of dropped 0xFF000000 added: .*\(dynamic\)', label = "its collision is one dynamic body" },
+  { re = 'collision of 0xFF000000 built again where a script moved it', label = "the move rebuilds its collision at the new place" },
+  { re = 'console: GetPos on 0xFF000000 >> -683\d\d\.', count = 1, label = "before the move it lies at the player" },
+  { re = 'console: GetPos on 0xFF000000 >> -6815\d\.', min = 2, label = "the move sticks: x reads the new value half a second and two seconds later (it read the old x again before #1311)" },
 ]

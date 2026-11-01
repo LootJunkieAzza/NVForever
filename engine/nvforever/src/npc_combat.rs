@@ -2280,9 +2280,11 @@ pub(crate) fn fight(
                         }
                     }
                     let reloading = cycle.reloading();
-                    // Now and then a grenade it carries instead of a shot (`npc_grenades`).
+                    // A grenade, only when the grenade is the weapon it holds: gunmen do not
+                    // throw the grenades they carry (`npc_grenades`, observer check 20).
                     let mut threw = false;
-                    if ready && !fleeing && person {
+                    let holds_grenade = ws.anim_type.as_deref() == Some(crate::npc_grenades::GRENADE_ANIM);
+                    if ready && !fleeing && person && holds_grenade {
                         let due = match f.grenade_at.get(&id) {
                             Some(&(t, at)) if t == target => at,
                             _ => {
