@@ -793,3 +793,16 @@ The numbers above stay put so links to them hold; each item here gives its own p
     the package's radius?); (b) a fast travel to a marker a few metres away inside the
     loaded area (does anyone move?); (c) entering the Mojave Outpost (Cass) and the
     Prospector Saloon (the settler at the bar): GetSitting 3 on the first frame?
+
+## Added 2026-11-01 (Speech Successes and Failures, issue #967)
+
+69. **Do New Vegas skill checks count Speech Successes / Speech Failures** (P3, issue
+    #967). NVForever counts stat 12 when the player picks a Speech check's pass line
+    and stat 31 for its fail line, and nothing for checks of other skills or perks
+    [hypothesis: by the stats' names; `Game::choose`, misc-stats.md §3]. To check, with
+    nvf_capture reading `GetPCMiscStat "Speech Successes"` and `"Speech Failures"` just
+    before and after each choice: (a) one Speech check passed and one failed (Primm or
+    Goodsprings, e.g. a [Speech 35] line with Speech above and below it); (b) one
+    Barter or Science check passed and failed (do they move either stat?); (c) one perk
+    line (e.g. [Lady Killer]). If (a) moves nothing, the count goes; if (b) moves them,
+    other skills count too.

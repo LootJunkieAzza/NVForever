@@ -250,7 +250,10 @@ foremost.
 Runtime: the pass or fail line is simply the line of the topic the actor can say
 (§4); the choice carries the tag (`Challenge`: the form, the difficulty, and the needed
 and current level taken from the line's first GetActorValue-family condition run on
-the target) [hypothesis for where the game takes the two numbers from].
+the target) [hypothesis for where the game takes the two numbers from]. Choosing a
+Speech check's line counts Speech Successes when the player meets the level and Speech
+Failures otherwise; other skills and perks count nothing [hypothesis; misc-stats.md §3,
+observer-checks.md item 69].
 
 ### 3.4 Follow-up lines (TCFU)
 
