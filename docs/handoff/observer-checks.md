@@ -19,7 +19,7 @@ engine if needed, and delete the item here.
 - **Unattended, from the saves we have** (a session can run them): 1, 2, the rest of 3,
   5 (weapon health around scripted shots), 6 (nvftest, Sunny), the rest of 8, 11 (72 h at a raised
   TimeScale), 13, 15, 20, 21, 22 (dialogue events), the rest of 33, 35, 36, 52, 53, and
-  #1076 (melee reach).
+  #1076 (melee reach; measured 2026-11-01, o14_reach: combat-rules §8).
 - **A save from the owner** (quest or character state no save has yet):
   - Hardcore on: done (nvfHardcore).
   - Boone, Rex and ED-E hired (19, 22's complaints, 18's wheel): Boone done (nvfBoone).
@@ -125,6 +125,11 @@ engine if needed, and delete the item here.
    - NPC weapons wear like the player's.
    To check: weapon health before and after N swings and shots, per weapon.
    ([combat-rules §17–§18](../spec-notes/combat-rules.md))
+   Answered in part 2026-11-01 (o14_reach, nvfairport, god-mode player) [observed]: NPC
+   melee weapons (knife, sledgehammer, super sledge, lead pipe, bumper sword) stayed at
+   GetWeaponHealthPerc 99.9 through 12-16 swings and about 13 landed blows each; ours
+   would take a lead pipe to 94.8. Open: whether god mode on the target hides the wear
+   (repeat on a mortal target), and the player's own swings and the override weapons.
 6. **Detection.** Ours:
    - Light level is ambient + sun + lamps; sunlight counts only where unshaded.
    - FOV is 95° each side, and sneak-running counts as running.
