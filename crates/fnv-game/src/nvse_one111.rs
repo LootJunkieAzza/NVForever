@@ -166,12 +166,16 @@ impl Game<'_> {
             ListKey::Three(f, first, second) => {
                 let f = self.unclone(f);
                 if let Some(q) = d.quests.get(&f) {
-                    // The objective by its index (the number the record gives it)
-                    // [hypothesis: "Quest Objective index" read as that number].
+                    // The objective by its place among the quest's objectives, not the
+                    // number the record gives it [observed: one111, Run Goodsprings Run's
+                    // objective 0 has a target, its objectives being numbered 10 and up;
+                    // hypothesis: the places in objective-number order (the record lists
+                    // 70 before 60, so its own order may differ past the first ones; not
+                    // probed)].
                     if first == -1 {
                         return Some(q.conditions.clone());
                     }
-                    return q.objectives.get(&first).and_then(|o| o.targets.get(at(second)?)).map(|t| t.conditions.clone());
+                    return q.objectives.values().nth(at(first)?).and_then(|o| o.targets.get(at(second)?)).map(|t| t.conditions.clone());
                 }
                 let p = d.perks.get(&f)?;
                 if first == -1 {
@@ -184,9 +188,9 @@ impl Game<'_> {
                 }
                 match &e.effect {
                     crate::data::PerkEffect::EntryPoint(ep) => ep.conditions.as_ref().map(|cs| cs.iter().filter(|(tab, _)| i32::from(*tab) == second).map(|(_, c)| c.clone()).collect()),
-                    // The other effect types keep no conditions here [hypothesis: an
-                    // empty page].
-                    _ => Some(Vec::new()),
+                    // An ability or quest entry has no condition pages: −1 [observed:
+                    // one111, Nerd Rage!'s entry 0, an ability, pages 0 and 1].
+                    _ => None,
                 }
             }
         }
@@ -663,13 +667,15 @@ fn set_form(g: &Game, c: &mut Condition, id: i64, v: Option<FormId>) -> bool {
             c.params[k] = ArgValue::Value(Value::Ref(v.map_or(0, |f| f.0)));
             true
         }
-        3 => match c.run_on {
-            RunOn::Reference(_) => {
+        // Accepted whatever the run-on type [observed: one111, 1 on a condition run on
+        // the subject]; NVForever keeps the reference only with run-on type 2, where it
+        // has a place for it [hypothesis: the game keeps it for a later change to 2].
+        3 => {
+            if let RunOn::Reference(_) = c.run_on {
                 c.run_on = RunOn::Reference(v.map(|f| f.0));
-                true
             }
-            _ => false,
-        },
+            true
+        }
         _ => false,
     }
 }
@@ -689,14 +695,16 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             let i = int(args, 0, -1);
             XVal::Num(g.one111.damage_calc.as_ref().and_then(|d| usize::try_from(i).ok().and_then(|i| d.numbers.get(i).copied().flatten())).unwrap_or(INT_MIN))
         }
-        // [documented: GetOnDamageCalcAdditionalNumb: IDs 0–5; hypothesis: INT_MIN for
-        // one not calculated, as GetOnDamageCalcNumb].
+        // [documented: GetOnDamageCalcAdditionalNumb: IDs 0–5]; 0 outside a damage
+        // event [observed: one111]; in one, INT_MIN for one not calculated [hypothesis:
+        // as GetOnDamageCalcNumb].
         "getondamagecalcadditionalnumb" => {
             let i = int(args, 0, -1);
-            XVal::Num(g.one111.damage_calc.as_ref().and_then(|d| usize::try_from(i).ok().and_then(|i| d.additional.get(i).copied().flatten())).unwrap_or(INT_MIN))
+            XVal::Num(g.one111.damage_calc.as_ref().map_or(0.0, |d| usize::try_from(i).ok().and_then(|i| d.additional.get(i).copied().flatten()).unwrap_or(INT_MIN)))
         }
-        // [documented: GetOnDamageCalcFlag, the HitData flags as one number].
-        "getondamagecalcflag" => XVal::Num(g.one111.damage_calc.as_ref().map_or(0.0, |d| f64::from(d.flags))),
+        // [documented: GetOnDamageCalcFlag, the HitData flags as one number]; −1 outside
+        // a damage event [observed: one111].
+        "getondamagecalcflag" => XVal::Num(g.one111.damage_calc.as_ref().map_or(-1.0, |d| f64::from(d.flags))),
         // [documented: GetOnDamageCalcRef: 0 source, 1 target, 2 weapon, 3 projectile].
         "getondamagecalcref" => {
             let i = int(args, 0, -1);
@@ -747,6 +755,11 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         "getweapadditionalvectorarray" => {
             let (w, t) = (weapon(g, 0), int(args, 1, -1));
             let firsts: Vec<f64> = w.and_then(|w| u8::try_from(t).ok().and_then(|t| g.one111.vectors.get(&(w, t)))).map(|v| v.iter().map(|p| p.0).collect()).unwrap_or_default();
+            // An empty vector gives no array [observed: one111, ar_Size −1 for the 10mm
+            // pistol's].
+            if firsts.is_empty() {
+                return Some(Ok(XVal::Array(0)));
+            }
             let entries = firsts.into_iter().enumerate().map(|(i, x)| (XKey::Num(i as f64), XVal::Num(x))).collect();
             XVal::Array(g.ext.new_array(ArrayKind::List, entries))
         }
@@ -758,8 +771,9 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             v.retain(|p| (p.0 - h).abs() > 1e-6);
             yes(v.len() != before)
         }
-        // "There is not flags for now" [documented: GetWeapAdditionalFlag]: every bit 0.
-        "getweapadditionalflag" => zero,
+        // "There is not flags for now" [documented: GetWeapAdditionalFlag]: −1
+        // [observed: one111, the 10mm pistol].
+        "getweapadditionalflag" => XVal::Num(-1.0),
         // `[type]`: 0 the full spread, 1 the wobble, 2 the weapon's [documented:
         // GetCalculatedSpreadAlt].
         "getcalculatedspreadalt" => {

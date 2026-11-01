@@ -222,6 +222,9 @@ fn damage_event_values_read_inside_the_event_only() {
     let f = fixture();
     let mut g = game(&f);
     assert_eq!(val(&mut g, "GetOnDamageCalcNumb 0"), x(INT_MIN));
+    // Outside an event [observed: one111].
+    assert_eq!(val(&mut g, "GetOnDamageCalcAdditionalNumb 0"), x(0.0));
+    assert_eq!(val(&mut g, "GetOnDamageCalcFlag"), x(-1.0));
     assert_eq!(val(&mut g, "GetOnDamageCalcRef 1"), XVal::Ref(0));
     assert_eq!(val(&mut g, "SetOnDamageCalcNumb 0 10"), x(0.0));
     let mut d = DamageCalc { flags: 4, ..DamageCalc::default() };
@@ -243,6 +246,8 @@ fn weapon_stat_vectors_interpolate_between_pairs() {
     let f = fixture();
     let mut g = game(&f);
     assert_eq!(val(&mut g, "GetWeapAdditionalVectorValueScale Gun 0 0.7"), x(-1.0));
+    // An empty vector gives no array [observed: one111].
+    assert_eq!(query(&mut g, "array_var a\nlet a := GetWeapAdditionalVectorArray Gun 0\nSetFunctionValue (ar_Size a)"), x(-1.0));
     // The page's example: (0.9; 1) and (0.5; 0.2) [documented].
     assert_eq!(val(&mut g, "SetWeapAdditionalVectorValue Gun 0 0.9 1"), x(1.0));
     assert_eq!(val(&mut g, "SetWeapAdditionalVectorValue Gun 0 0.5 0.2"), x(1.0));
@@ -261,7 +266,7 @@ fn weapon_stat_vectors_interpolate_between_pairs() {
     assert_eq!(val(&mut g, "DeleteWeapAdditionalVectorValue Gun 0 0.5"), x(1.0));
     assert_eq!(val(&mut g, "DeleteWeapAdditionalVectorValue Gun 0 0.5"), x(0.0));
     assert_eq!(val(&mut g, "GetWeapAdditionalVectorValueScale Gun 0 0.1"), x(1.0));
-    assert_eq!(val(&mut g, "GetWeapAdditionalFlag Gun -1"), x(0.0));
+    assert_eq!(val(&mut g, "GetWeapAdditionalFlag Gun -1"), x(-1.0));
 }
 
 #[test]
