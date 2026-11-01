@@ -1,9 +1,11 @@
 //! ITR NVSE, batch 2 (#1011): the dialogue menu's entries and rules, speech and
 //! gestures, fake hits and combat, the path and navmesh questions, ground and terrain,
 //! doors and references by distance, perk eligibility, recipes, menus and the rest
-//! [documented: each page in the wiki export; docs/spec-notes/ext-itr.md §7-12]. ITR is
-//! not installed in the probe game, so nothing here is observed. What the engine draws or
-//! simulates (gestures, ragdolls, impacts, the barter filter) is kept for it to take.
+//! [documented: each page in the wiki export; docs/spec-notes/ext-itr.md §7-12]. What the
+//! probe set `itr` showed in the game (itr-nvse.dll installed) is marked [observed: itr
+//! probes]; what a page leaves open and no probe checked is marked [hypothesis]. What the
+//! engine draws or simulates (gestures, ragdolls, impacts, the barter filter) is kept for
+//! it to take; nothing in the engine takes it yet (follow-up), so each queue is bounded.
 
 use crate::combat::{HitInfo, LimbHit};
 use crate::game::{Game, RunCtx};
@@ -73,6 +75,18 @@ const MAX_ENTRIES: usize = 16;
 const MAX_RULES: usize = 32;
 /// Gesture's actors at once [documented: "Up to 32 actors"].
 const MAX_GESTURES: usize = 32;
+/// The most asks kept in each engine queue (ForceReload, FakeImpact, Ragdoll); the
+/// oldest goes first [decision: no consumer takes them yet, so a script calling every
+/// frame must not grow them for the whole session].
+const MAX_QUEUED: usize = 64;
+
+/// `x` at the back of an engine queue of at most [`MAX_QUEUED`].
+fn queue<T>(q: &mut Vec<T>, x: T) {
+    if q.len() >= MAX_QUEUED {
+        q.remove(0);
+    }
+    q.push(x);
+}
 /// The cover functions' largest radius [documented: "no greater than 8192"] and
 /// GetCoverPointsInRadius's most points [documented: "limited to 128 points"].
 const MAX_COVER_RADIUS: f64 = 8192.0;
@@ -787,8 +801,14 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             if !gs.contains_key(&a) && gs.len() >= MAX_GESTURES {
                 return Some(Ok(zero));
             }
-            let speed = Some(num(args, 3, 0.0)).filter(|&s| s > 0.0).unwrap_or(0.4);
-            gs.insert(a, Gesture { kind, amplitude: num(args, 1, 0.0), duration: num(args, 2, 0.0).max(0.0), speed, started: now });
+            // A value that is not a finite number is refused [decision: an endless
+            // gesture would hold its slot until a load].
+            let (amplitude, duration, speed) = (num(args, 1, 0.0), num(args, 2, 0.0), num(args, 3, 0.0));
+            if ![amplitude, duration, speed].iter().all(|v| v.is_finite()) {
+                return Some(Ok(zero));
+            }
+            let speed = Some(speed).filter(|&s| s > 0.0).unwrap_or(0.4);
+            gs.insert(a, Gesture { kind, amplitude, duration: duration.max(0.0), speed, started: now });
             one
         }
         // ---- hits ----
@@ -804,8 +824,9 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let (w_at, loc_at) = if ex { (4, 5) } else { (2, 3) };
             let attacker = form(args, 0);
             let weapon = form(args, w_at).map(|w| base(g, w)).filter(|&w| g.data.sig(w) == Some(*b"WEAP"));
+            // A damage that is not a finite number counts as none given [decision].
             let mut damage = num(args, 1, -1.0);
-            if damage < 0.0 {
+            if damage < 0.0 || !damage.is_finite() {
                 damage = weapon.and_then(|w| crate::nvse::record_value(g, w, "DATA", "base_damage")).and_then(|v| v.num().ok()).unwrap_or(1.0);
             }
             let loc = num(args, loc_at, 0.0) as i64;
@@ -821,14 +842,15 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                 6 => (13, 31),
                 _ => (0, crate::combat::TORSO),
             };
-            let limb_damage = if ex { num(args, 3, 0.0).max(0.0) } else { 0.0 };
+            let finite = |v: f64| if v.is_finite() { v } else { 0.0 };
+            let limb_damage = if ex { finite(num(args, 3, 0.0)).max(0.0) } else { 0.0 };
             let limb = (ex && (1..=6).contains(&loc) && limb_damage > 0.0).then_some(LimbHit { condition, health_percent: 0.0, damage: limb_damage, points: true });
             if skip {
                 g.effect_health_damage(target, damage, attacker);
             } else {
                 g.hit(target, damage, HitInfo { attacker, weapon, location, critical: false, limb });
             }
-            let fatigue = if ex { num(args, 2, 0.0) } else { 0.0 };
+            let fatigue = if ex { finite(num(args, 2, 0.0)) } else { 0.0 };
             if fatigue > 0.0 {
                 crate::functions::add_actor_value_damage(g, target, crate::actor_values::FATIGUE, fatigue);
             }
@@ -839,7 +861,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "fakeimpact" => {
             let (Some(r), Some(w)) = (subject, form(args, 0).map(|w| base(g, w)).filter(|&w| g.data.sig(w) == Some(*b"WEAP"))) else { return Some(Ok(zero)) };
             let m = args.get(1).and_then(|v| v.num().ok()).and_then(|m| u8::try_from(m as i64).ok()).filter(|m| *m <= 31);
-            g.other.itr2.impacts.push((r, w, m));
+            queue(&mut g.other.itr2.impacts, (r, w, m));
             one
         }
         // `[target]`: the actor fights the target (combat started when not in it), whom
@@ -877,11 +899,13 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             if crate::functions::items::equipped_weapon(g, a).is_none() {
                 return Some(Ok(zero));
             }
-            g.other.itr2.reloads.push(a);
+            queue(&mut g.other.itr2.reloads, a);
             one
         }
         // `count`: that many rounds of the weapon's ammo into the inventory, the
-        // player's magazine topped up to the clip but not past the count; refused for a
+        // player's magazine topped up by at most the count, never past the clip and never
+        // below what it holds [documented: RefillAmmo; hypothesis: the rounds already
+        // loaded count, 0 without the engine's magazine]; refused for a
         // dead actor, no weapon, or one that regenerates its ammo [documented: RefillAmmo].
         "refillammo" => {
             let Some(a) = actor.filter(|&a| !g.is_dead(a)) else { return Some(Ok(zero)) };
@@ -900,7 +924,10 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             if a == FormId::PLAYER_REF {
                 let clip = field(g, "DATA", "clip_size").unwrap_or(0.0).max(0.0) as u32;
-                g.other.set_magazine = Some(clip.min(n as u32));
+                let loaded = g.player_magazine.unwrap_or(0);
+                let m = clip.min(loaded.saturating_add(n as u32)).max(loaded);
+                g.other.set_magazine = Some(m);
+                g.player_magazine = Some(m);
             }
             one
         }
@@ -937,7 +964,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let Some(a) = actor else { return Some(Ok(zero)) };
             let limb = num(args, 0, -1.0) as i64;
             let ask = RagdollAsk { actor: a, limb, push: [num(args, 1, 0.0), num(args, 2, 0.0), num(args, 3, 0.0)], spin: num(args, 4, 0.0), duration: num(args, 5, 0.0), flags: num(args, 6, 0.0) as i64 };
-            g.other.itr2.ragdolls.push(ask);
+            queue(&mut g.other.itr2.ragdolls, ask);
             one
         }
         // [documented: IsRigidBodyAtRest]: an actor has no rigid body of its own (a

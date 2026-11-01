@@ -260,6 +260,9 @@ fn dialogue_rules_speech_and_gestures() {
     assert_eq!(num(&mut g, "TestNpcRef.IsSaying TestInfoB"), 0.0);
     assert_eq!(num(&mut g, "TestNpcRef.Gesture \"Nod\" 8 2"), 1.0);
     assert_eq!(num(&mut g, "TestNpcRef.Gesture \"wave\" 8 2"), 0.0);
+    // An endless or not-a-number gesture is refused.
+    assert_eq!(num(&mut g, "TestBeastRef.Gesture \"Nod\" 8 (10 ^ 400)"), 0.0);
+    assert_eq!(num(&mut g, "TestBeastRef.Gesture \"Nod\" ((-1) ^ 0.5) 2"), 0.0);
     // An actor has no rigid body at rest [observed: itr probes, the player].
     assert_eq!(num(&mut g, "player.IsRigidBodyAtRest"), 0.0);
     assert_eq!(g.other.itr2.gestures.get(&FormId(NPC_REF)).map(|x| (x.kind.as_str(), x.speed)), Some(("nod", 0.4)));
@@ -281,6 +284,11 @@ fn fake_hits_combat_targets_ammo_aid_and_resurrection() {
     query(&mut g, "TestNpcRef.FakeHitEx TestBeastRef 3 20 0");
     assert_eq!(num(&mut g, "TestNpcRef.GetActorValue Fatigue"), fatigue - 20.0);
     assert_eq!(num(&mut g, "Scrap.FakeHit player 3"), 0.0);
+    // A damage that is not a finite number: as none given (1 without a weapon).
+    let before = health(&mut g);
+    query(&mut g, "TestNpcRef.FakeHit TestBeastRef ((-1) ^ 0.5)
+TestNpcRef.FakeHit TestBeastRef (10 ^ 400)");
+    assert_eq!(health(&mut g), before - 2.0);
     // ForceCombatTarget: combat with the target, named by GetCombatTarget.
     assert_eq!(num(&mut g, "TestNpcRef.ForceCombatTarget TestBeastRef"), 1.0);
     assert_eq!(form(&mut g, "TestNpcRef.GetCombatTarget"), CREA_REF);
@@ -293,7 +301,18 @@ fn fake_hits_combat_targets_ammo_aid_and_resurrection() {
     assert_eq!(num(&mut g, "player.RefillAmmo 20"), 1.0);
     assert_eq!(num(&mut g, "player.GetItemCount Bullets"), 20.0);
     assert_eq!(g.other.set_magazine, Some(6));
+    // A loaded magazine is topped up, never cut down.
+    g.player_magazine = Some(4);
+    assert_eq!(num(&mut g, "player.RefillAmmo 1"), 1.0);
+    assert_eq!(g.other.set_magazine, Some(5));
+    assert_eq!(num(&mut g, "player.RefillAmmo 5"), 1.0);
+    assert_eq!(g.other.set_magazine, Some(6));
     assert_eq!(num(&mut g, "player.ForceReload"), 1.0);
+    // The engine queues stay bounded while nothing takes them.
+    for _ in 0..100 {
+        query(&mut g, "player.ForceReload");
+    }
+    assert_eq!(g.other.itr2.reloads.len(), 64);
     // UseAidItem.
     assert_eq!(num(&mut g, "player.UseAidItem TestChem"), 0.0);
     query(&mut g, "player.AddItem TestChem 2");
