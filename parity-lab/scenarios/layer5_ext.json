@@ -930,6 +930,20 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "templates", "probes", "tmpl2"]
+  },
+  {
+   "id": "L5.ext.tmpl3",
+   "layer": 5,
+   "description": "Base-form getters on templated actors (#1057; docs/spec-notes/actors.md §2.2): GetBaseNumFactions/GetBaseNthFaction/GetBaseNthRank/GetBaseFactions through Use Factions templates and GetBaseSpellListSpells through Use Actor Effect List templates whose lists differ from the record's own, and GetRace/GetClass on a placed reference whose Traits come from a leveled list; set tmpl3 of tools/capture/jip_probes.py, keyed by probe id. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/tmpl3.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/tmpl3.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "templates", "probes", "tmpl3"]
   }
  ]
 }

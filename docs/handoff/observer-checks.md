@@ -323,8 +323,8 @@ engine if needed, and delete the item here.
     shows only while aiming (none with the weapon drawn and not aiming) and goes when
     aiming stops; it marks every hostile actor or creature, whether or not it is in
     combat with the player; and it seems to reach every enemy in render distance. Ours
-    matches the first two; its reach is the detection reach (5,000 units outdoors,
-    perk_marks.rs), shorter than the loaded area (#1171). The owner's screenshot: distant
+    matches the first two; its reach was the detection reach (5,000 units outdoors),
+    shorter than the loaded area, and is now as far as actors are drawn (#1171). The owner's screenshot: distant
     enemies at night look tinted red all over; Boone is not marked. Two more shots show
     the red pulsing (faint, then strong) [observed], as the record says: edge pulse
     amplitude 0.5 at 1 a second, edge fall-off 0.5 (EFSH 0x0015FF60), which ours plays
@@ -765,3 +765,14 @@ The numbers above stay put so links to them hold; each item here gives its own p
     on itself in its MenuMode and then sets iSpawnSupplyDelay; if that stopped it, the
     drop would not come. Use the radio (button 1) and read GetQuestRunning right after,
     and whether the drop arrives. Ours keeps a self-reset running. (scripts.md §5)
+
+## Added 2026-10-31 (the note notice, issue #1163)
+
+67. **Does the original name a note in the corner when a script gives it?** (P3: every
+    AddNote and AddItem of a note in quest scripts.) NVForever shows its own corner line,
+    "Note: <the note's name>", for every note the player gets the first time: picked up,
+    taken from a container, AddItem, AddNote, a terminal's Add Note item
+    [hypothesis for the script-given ones]. To check: with a note the player lacks,
+    `AddNote` it from the console, then `player.AddItem` another; screenshot the top left
+    after each, and note any sound. A picked-up note in the same way for comparison.
+    (issue #1163, `Game::file_note`)
