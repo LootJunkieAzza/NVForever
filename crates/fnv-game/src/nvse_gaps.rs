@@ -480,7 +480,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             _ => XVal::Ref(0),
         },
         // DEST stages [observed: gaps3, the 10mm pistol 0].
-        "getdestructiondatanumstages" => XVal::Num(form(args, 0).and_then(|f| g.data.destructibles.get(&f)).map_or(0, |d| d.stages.len()) as f64),
+        "getdestructiondatanumstages" => XVal::Num(form(args, 0).and_then(|f| g.destruction(f)).map_or(0, |d| d.stages.len()) as f64),
         // ---- weapons ----
         // ShowOff's index into DNAM flags1 [observed: gaps4, the 10mm pistol reads 0 on
         // 0–5 and SetWeaponFlag 5 1 reads back 1; hypothesis: flags1's bits].
@@ -814,7 +814,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         "getdestructiondatahealth" => {
             let f = form(args, 0).unwrap_or(FormId(0));
-            XVal::Num(g.gaps.destruction_health.get(&f).copied().or_else(|| g.data.destructibles.get(&f).map(|d| d.health)).unwrap_or(0) as f64)
+            XVal::Num(g.gaps.destruction_health.get(&f).copied().or_else(|| g.destruction(f).map(|d| d.health)).unwrap_or(0) as f64)
         }
         // Returns 0, for the session [observed: gaps8, 75 reads back].
         "setdestructiondatahealth" => {

@@ -718,7 +718,7 @@ impl Game<'_> {
 
     /// Whether the reference's base has destruction data.
     pub fn is_destructible(&self, r: FormId) -> bool {
-        base_of(self, r).is_some_and(|b| self.data.destructibles.contains_key(&b))
+        base_of(self, r).is_some_and(|b| self.destruction(b).is_some())
     }
 
     /// The model damage stage the reference is drawn at: the DSTD damage stage of the
@@ -736,7 +736,7 @@ impl Game<'_> {
         if stage < 0 {
             return None;
         }
-        let def = base_of(self, r).and_then(|b| self.data.destructibles.get(&b))?;
+        let def = base_of(self, r).and_then(|b| self.destruction(b))?;
         def.stages.iter().filter(|s| i32::from(s.index) <= stage && s.model.is_some()).max_by_key(|s| s.index).and_then(|s| s.model.as_deref())
     }
 
@@ -747,7 +747,7 @@ impl Game<'_> {
 
     pub fn model_damage_stage(&self, r: FormId) -> u8 {
         let stage = crate::functions::objects_destruction_stage(self, r);
-        let def = base_of(self, r).and_then(|b| self.data.destructibles.get(&b));
+        let def = base_of(self, r).and_then(|b| self.destruction(b));
         def.and_then(|d| d.stages.iter().find(|s| s.index as i32 == stage)).map_or(0, |s| s.damage_stage)
     }
 
@@ -764,7 +764,7 @@ impl Game<'_> {
     ///
     /// `None` when the reference has no destruction data or nothing changed hands.
     pub fn damage_object(&mut self, r: FormId, amount: f64) -> Option<DestructionChange> {
-        let def = base_of(self, r).and_then(|b| self.data.destructibles.get(&b)).cloned()?;
+        let def = base_of(self, r).and_then(|b| self.destruction(b)).cloned()?;
         let e = self.extra.get(&r);
         if e.is_some_and(|e| e.destroyed) && e.and_then(|e| e.burning).is_none() {
             return None;

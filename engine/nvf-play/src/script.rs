@@ -1335,12 +1335,12 @@ impl EffectCtx for PlayCtx<'_> {
     }
 
     fn is_message_box(&self, message: FormId) -> bool {
-        self.data.messages.get(&message).is_some_and(|m| m.message_box)
+        self.data.messages.contains_key(&message) && self.message_flags(message) & 1 != 0
     }
 
     fn message_look(&self, message: FormId) -> (Option<String>, Option<f32>) {
         let Some(m) = self.data.messages.get(&message) else { return (None, None) };
-        (m.icon.and_then(|i| self.data.menu_icons.get(&i).cloned()), m.display_seconds.map(|s| s as f32))
+        (m.icon.and_then(|i| self.data.menu_icons.get(&i).cloned()), self.message_seconds(message).map(|s| s as f32))
     }
 
     fn skill_look(&self, code: u16) -> (String, Option<String>) {

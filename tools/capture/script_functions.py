@@ -255,6 +255,10 @@ PARAM_FIXES = {
     # [documented: AddConditionFormTwo's example "AddConditionFormTwo StealthBoy 0" adds
     # to Base Effect 0's list; every other FormTwo function (GetConditionFormTwoCount,
     # DeleteConditionFormTwo, ...) takes `First` after the entity; the table leaves it out].
+    # [documented: ToggleCraftingMessages' example "ToggleCraftingMessages 0 // Disables the
+    # crafting messages"; the table gives the argument a type but no name, which the
+    # compiler does not count].
+    "ToggleCraftingMessages": [{"name": "enable", "type": "int", "kind": "int"}],
     "AddConditionFormTwo": [{"name": "FormTwoEntity", "type": "ref", "kind": "reference"},
                             {"name": "First", "type": "int", "kind": "int"},
                             {"name": "Condition", "type": "int", "kind": "int",
