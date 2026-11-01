@@ -249,6 +249,15 @@ owner to add to its pull request or issue (owner, 2026-10-29).
      modlist-scan-2026-10-26.md) as tree writes;
    - a test that runs one MCM mod's menu script in `MenuMode 1013` against the tree and
      checks the traits it sets.
+   - **Built 2026-11-01** (claude/mcm-pause-976, issue #976): the MCM shorthands find
+     their tile by counting the `MCM` rect's children from 1 in file order, 0 stopping
+     at the level above [hypothesis, from MCM's files: menu-xml.md §10; observer check
+     69], not through `*:N`; GetSelfModIndex gives the calling script's plugin index
+     (it gave 0, which made every MCM mod take MCM's page as its own). Test
+     `crates/fnv-game/tests/ui_mcm.rs`: StartMenu built through an MCM-shaped include
+     chain with the start menu open, a quest script compiled from source whose
+     `MenuMode 1013` block acts only on its own page, fills in its option and takes a
+     new value (FOV Slider's way), and stops when the menu closes.
 4. **T8. Input on tiles.**
    - Pointer hit-tests over hotrects (`target`, `id`, `depth`): `mouseover` and
      `clicked` traits written each frame, `ref` links followed, `_PCButton_*` keys,
@@ -313,6 +322,24 @@ owner to add to its pull request or issue (owner, 2026-10-29).
 7. **T11. MCM drawn.** MCM's page from tiles inside NVForever's pause menu (design §7,
     after the owner's ruling), mouse and keys through T8. Done when an MCM mod's
     settings change in game.
+    - **Plan** (2026-11-01, after T7; issue #976 stays open for it). In order, each
+      with a smoke scenario on the owner's MCM install (vanilla Data has MCM's ESP and
+      files, not in the load order by default):
+      1. Scripts under the pause menu: while NVForever's pause menu is open with a mod
+         that added tiles to `StartMenu`, `Game::menu` is `menus::START` and the
+         MenuMode blocks run (`nvf_play::script` skips scripts while paused today;
+         `game::menus::START` says "not reported"). Whether every `Begin MenuMode`
+         block should run under our pause menu, as the original's start menu does, or
+         only with a Mods page open, is the first decision (vanilla has `MenuMode
+         1007 || MenuMode 1013` effect scripts).
+      2. The Mods entry in `pause.rs`'s column, shown only when
+         `Ui::has_mod_added_tiles(StartMenu)`; choosing it opens a page that shows
+         MCM the way its trigger does (MCM's own ESP scripts take it from there).
+      3. The page drawn from tiles: `tiles::draw` selecting the `StartMenu/MCM`
+         subtree (as T12 draws `HUDMainMenu`), sized by `screen()`.
+      4. T8's pointer and keys fed to `StartMenu` while the page is open
+         (`tiles/input.rs`: no menu takes input in play yet).
+      5. Done when an MCM mod's option changes in game and its INI value is written.
 8. **T12. The vanilla HUD on tiles**, behind `[UI] TileMenus=HUDMainMenu`. Compare
     with the hud.md screenshots; keep the old HUD the default until the owner agrees.
     - **T12a done** 2026-10-29 (claude/t12-hud-tiles): the switch and the drawing.

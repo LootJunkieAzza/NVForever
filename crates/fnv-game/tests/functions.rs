@@ -494,14 +494,21 @@ End
     // Axes 0 and 1 set the value and go on.
     assert_eq!(q(&mut g, "SetReputation RepTest 0 5"), Ok(XVal::Num(7.0)));
     assert_eq!(g.player.reputation[&FormId(REP)], [5.0, 12.0]);
-    for line in ["SetReputation RepTest 2 5", "SetReputation RepTest 3 7"] {
+    // So do AddReputation, RemoveReputation and AddReputationExact (capture o11_00,
+    // observer check 62).
+    for line in [
+        "SetReputation RepTest 2 5",
+        "SetReputation RepTest 3 7",
+        "AddReputation RepTest 3 1",
+        "AddReputation RepTest 2 1",
+        "RemoveReputation RepTest 2 1",
+        "RemoveReputation RepTest 3 1",
+        "AddReputationExact RepTest 2 5",
+        "AddReputationExact RepTest 3 5",
+    ] {
         let before = g.events.len();
         assert_ne!(q(&mut g, line), Ok(XVal::Num(7.0)), "{line}: the line after it does not run");
         assert!(g.events[before..].iter().any(|e| matches!(&e.kind, EventKind::CallFailed { .. })), "{line}: traced as a failed call");
-        assert_eq!(g.player.reputation[&FormId(REP)], [5.0, 12.0], "{line}");
-    }
-    for line in ["AddReputation RepTest 3 1", "AddReputation RepTest 2 1", "RemoveReputation RepTest 2 1", "AddReputationExact RepTest 2 1"] {
-        assert_eq!(q(&mut g, line), Ok(XVal::Num(7.0)), "{line}: goes on");
         assert_eq!(g.player.reputation[&FormId(REP)], [5.0, 12.0], "{line}");
     }
     // The stop lasts for that run only.

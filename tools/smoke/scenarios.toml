@@ -368,6 +368,61 @@ expect = [
 ]
 
 [[scenario]]
+name = "render-diagnostics-disabled"
+source = "docs/design/frame-rate-audit.md §1 (profiling options together) and issue #1275: the profile aid and frame-time logging each register Bevy render diagnostics only when enabled; neither option should request the diagnostics plugin"
+note = "Source-reviewed on pinned Bevy 0.20.1; default-build startup/output verification passes; broader profiling validation remains"
+areas = ["renderer", "graphics", "profiling"]
+paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/profile.rs"]
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  "graphics:",
+  { re = '\bprofile: \d', max = 0, label = "no profile report when profiling is disabled" },
+  { re = '\bframe time: \d', max = 0, label = "no frame-time report when frame-time logging is disabled" },
+]
+
+[[scenario]]
+name = "render-diagnostics-profile"
+source = "docs/design/frame-rate-audit.md §1 (profiling options together) and issue #1275: NVF_PLAY_TEST_PROFILE enables the profile reporting path and its render diagnostics registration"
+note = "Source-reviewed on pinned Bevy 0.20.1; profile-build startup/output verification passes; broader profiling validation remains"
+areas = ["renderer", "graphics", "profiling"]
+paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/profile.rs"]
+env = { NVF_PLAY_TEST_PROFILE = "2" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  { re = '\bprofile: \d', min = 1, label = "profile reporting is enabled" },
+  { re = '\bframe time: \d', max = 0, label = "frame-time logging remains disabled" },
+]
+
+[[scenario]]
+name = "render-diagnostics-frame-times"
+source = "docs/design/frame-rate-audit.md §1 (profiling options together) and issue #1275: --log-frame-times enables the graphics frame-time path and its render diagnostics registration"
+note = "Source-reviewed on pinned Bevy 0.20.1; default-build frame-time startup/output verification passes; broader profiling validation remains"
+areas = ["renderer", "graphics", "profiling"]
+paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/profile.rs"]
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--log-frame-times", "2"]
+run_seconds = 15
+expect = [
+  { re = '\bframe time: \d', min = 1, label = "frame-time logging is enabled" },
+  { re = '\bprofile: \d', max = 0, label = "profile reporting remains disabled" },
+]
+
+[[scenario]]
+name = "render-diagnostics-combined"
+source = "docs/design/frame-rate-audit.md §1 (profiling options together) and issue #1275: profile reporting and --log-frame-times must share one safe RenderDiagnosticsPlugin registration"
+note = "Source-reviewed on pinned Bevy 0.20.1; combined startup/output verification passes; NVIDIA RTX 5070 Ti Vulkan GPU samples are nonzero in validation; broader profiling validation remains"
+areas = ["renderer", "graphics", "profiling"]
+paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/profile.rs"]
+env = { NVF_PLAY_TEST_PROFILE = "2" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--log-frame-times", "2"]
+run_seconds = 15
+expect = [
+  { re = '\bprofile: \d', min = 1, label = "profile reporting remains enabled" },
+  { re = '\bframe time: \d', min = 1, label = "frame-time logging remains enabled" },
+]
+
+[[scenario]]
 name = "shadow-probe"
 source = "engine/nvforever/src/shadow_probe.rs (playtest list 4 item 5, the first-person shadow flicker; found 2026-10-26): the debug probe NVF_PLAY_DEBUG_SHADOWS runs and finds no stretched skin, lost joint, wrong skin slot or moved mesh outside Doc Mitchell's house in first person with a weapon out, the hidden third-person body stays body-sized, and switching view four times leaves no two render views with one key (player_body.rs shade_light)"
 areas = ["renderer", "player-body"]
@@ -3268,13 +3323,14 @@ expect = [
 [[scenario]]
 name = "sunny-wells"
 source = "CLAUDE.md (PR #226): after changes to force greets, Follow/Accompany packages or MoveTo of actors (actor-behaviour.md §5.1–§5.2): Sunny's walk to the wells"
+note = "the player goes out the saloon's back door 20 s after stage 10, once Sunny's conversation is over and she and Cheyenne have left (about 15 s after stage 10): the player cannot go through a door mid-conversation, and leaving earlier left Cheyenne in the unloaded saloon to start ~1,900 units behind (#959)"
 areas = ["ai", "dialogue-packages", "follow"]
 paths = ["crates/fnv-game/src/dialogue.rs", "crates/fnv-ai/src/goal.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "14:activate:ProspectorSaloonDoor,1@VCG02=10:stage:VCG02:25,3@VCG02=10:activate:0x0010618E", NVF_PLAY_TEST_TALK = "0:*=VFreeformGoodspringsGSSunnySmilesTopic019", NVF_PLAY_TEST_GOTO = "90:-67150:-9100:7650" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "14:activate:ProspectorSaloonDoor,1@VCG02=10:stage:VCG02:25,20@VCG02=10:activate:0x0010618E", NVF_PLAY_TEST_TALK = "0:*=VFreeformGoodspringsGSSunnySmilesTopic019", NVF_PLAY_TEST_GOTO = "90:-67150:-9100:7650" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "10"]
 run_seconds = 150
 expect = [
-  { text = "CheyenneREF: walks after SunnyRef (CheyenneAccompany)", known_failing = "main 2026-10-27 (325cdaf1, rerun alone with claude/optimistic-almeida-e63a9c's play changes switched off): Cheyenne runs after Sunny, 1,903 units off in another cell; not explained yet" },
+  "CheyenneREF: walks after SunnyRef (CheyenneAccompany)",
   "SunnyRef: starts a conversation … (VCG02SunnySmilesDialogueSneakStart), line 0x0010A1ED",
   "conversation with SunnyRef ended (goodbye, 1 lines)",
 ]
@@ -6920,7 +6976,7 @@ source = "playtest list 5 items 34-37 (engine/nvforever/src/sneaking.rs, alert.r
 note = "the sunny-wells run (Sunny takes the player to the wells), then at 115 s VCG02's two geckos go for the player (StartCombat, as when the player opens fire), who stands by Sunny; she and Cheyenne join in as the geckos come up (the geckos, Very Aggressive, would attack them too)"
 areas = ["ai", "sneaking"]
 paths = ["engine/nvforever/src/sneaking.rs", "engine/nvforever/src/alert.rs", "engine/nvforever/src/locomotion.rs", "crates/fnv-game/src/functions/senses.rs", "crates/fnv-ai/src/carry.rs", "crates/fnv-game/src/provocation.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "14:activate:ProspectorSaloonDoor,1@VCG02=10:stage:VCG02:25,3@VCG02=10:activate:0x0010618E,115:call:0x0010A1FE:StartCombat:player,115:call:0x0010A1FD:StartCombat:player", NVF_PLAY_TEST_TALK = "0:*=VFreeformGoodspringsGSSunnySmilesTopic019", NVF_PLAY_TEST_GOTO = "90:-67150:-9100:7650", NVF_PLAY_TEST_GOD = "1" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "14:activate:ProspectorSaloonDoor,1@VCG02=10:stage:VCG02:25,20@VCG02=10:activate:0x0010618E,115:call:0x0010A1FE:StartCombat:player,115:call:0x0010A1FD:StartCombat:player", NVF_PLAY_TEST_TALK = "0:*=VFreeformGoodspringsGSSunnySmilesTopic019", NVF_PLAY_TEST_GOTO = "90:-67150:-9100:7650", NVF_PLAY_TEST_GOD = "1" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "10"]
 run_seconds = 180
 expect = [
@@ -12469,7 +12525,7 @@ manual = "on a failure, the chain's notes say what each step stands for; the sta
 [[scenario]]
 name = "mq-birds-of-a-feather"
 kind = "tool"
-source = "the headless side-quest walkthrough crates/fnv-game/walkthrough/birds-of-a-feather.actions.json, Birds of a Feather (VMS29a): hired (10), the Silver Rush door (20, the customers stood in by talks, Simon's fight ended by StopCombat), the Legion contact (30), Jean-Baptiste and Cass (40), the warehouse trap (50), Gloria (100)"
+source = "the headless side-quest walkthrough crates/fnv-game/walkthrough/birds-of-a-feather.actions.json, Birds of a Feather (VMS29a): hired (10), the Silver Rush door (20, the customers stood in by talks, Simon's fight ending by itself once the bomber is dead), the Legion contact (30), Jean-Baptiste and Cass (40), the warehouse trap (50), Gloria (100)"
 areas = ["quests", "scripts", "dialogue"]
 paths = ["crates/fnv-game/walkthrough/birds-of-a-feather.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
 commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/birds-of-a-feather.actions.json"]]
