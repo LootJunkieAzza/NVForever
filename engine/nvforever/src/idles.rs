@@ -105,6 +105,7 @@ use nvf_play::control::PlayerControl;
 use nvf_play::player::Player;
 use nvf_play::script::ScriptState;
 use nvf_play::RefVisual;
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -656,10 +657,13 @@ pub fn drive(
     let mut live: Vec<u32> = Vec::new();
     let mut ask: Vec<(u32, FormId, IdleSource)> = Vec::new();
     for (actor, marker) in candidates {
-        // A script's SetIdleMarkerAnimation(s) first (`fnv_game::nvse_jg4::idle_marker`).
-        let of_marker = marker.and_then(|m| fnv_game::nvse_jg4::idle_marker(game, m).filter(|c| !c.idles.is_empty()).map(|c| ((true, m.0), c)));
+        // A script's SetIdleMarkerAnimation(s) first (`fnv_game::nvse_jg4::idle_marker`),
+        // copied out so the game can be changed below; the record's is borrowed.
+        let edited = |m: FormId| game.other.idle_markers.get(&m).map(|c| Cow::Owned(c.clone()));
+        let of_marker = marker
+            .and_then(|m| edited(m).or_else(|| game.data.idle_markers.get(&m).map(Cow::Borrowed)).filter(|c| !c.idles.is_empty()).map(|c| ((true, m.0), c)));
         let quiet = package_of(game, actor).and_then(|p| game.package_def(&p)).is_some_and(|d| d.has(flags::NO_IDLE_ANIMS));
-        let Some((key, collection)) = of_marker.or_else(|| game.package_idles(FormId(actor)).map(|(p, c)| ((false, p.0), c))).filter(|_| !quiet) else { continue };
+        let Some((key, collection)) = of_marker.or_else(|| game.package_idles(FormId(actor)).map(|(p, c)| ((false, p.0), Cow::Borrowed(c)))).filter(|_| !quiet) else { continue };
         live.push(actor);
         let c = st.collections.entry(actor).or_insert_with(|| Collection { key, picker: IdlePicker::default(), next: None, retry: 0.0 });
         if c.key != key {
@@ -675,7 +679,7 @@ pub fn drive(
             let rng = &mut st.rng;
             with_world(game, &mut |game| {
                 for _ in 0..collection.idles.len().max(1) {
-                    c.next = c.picker.next(collection, |n| rng.below(n as u32) as usize).filter(|(idle, _)| game.idle_allowed(FormId(actor), *idle));
+                    c.next = c.picker.next(&collection, |n| rng.below(n as u32) as usize).filter(|(idle, _)| game.idle_allowed(FormId(actor), *idle));
                     if c.next.is_some() {
                         break;
                     }
