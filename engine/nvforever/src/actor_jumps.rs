@@ -12,6 +12,9 @@
 //!   Allow Falls flag, `--npc-ledges`) go over them (`fnv_nav::jump`), and an actor
 //!   walking into something low jumps it (`residents.rs`).
 //!
+//! Each actor leaving the ground and coming down again is told as an [`ActorAir`]
+//! message (`anim_sounds.rs` plays its jump and landing sounds from them).
+//!
 //! At exit `actor jumps summary` counts the falls and landings drawn.
 
 use crate::limbs::ActorRig;
@@ -37,11 +40,98 @@ pub struct ActorJumpsPlugin {
 
 impl Plugin for ActorJumpsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<JumpStats>().add_systems(Update, count.after(crate::locomotion::drive)).add_systems(Last, report);
+        app.add_message::<ActorAir>()
+            .init_resource::<JumpStats>()
+            .add_systems(Update, (count, air_changes).after(crate::locomotion::drive))
+            .add_systems(Last, report);
         if self.physics {
             app.add_systems(Update, in_air.after(nvf_play::PlaySet::Scripts).after(crate::residents::drive).after(crate::nav::drive).before(crate::locomotion::walk_test));
         }
     }
+}
+
+/// An actor leaving the ground or coming down on it (`Locomotion::in_air` changing),
+/// whatever its body plays: creatures have no jump clips.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct ActorAir {
+    pub actor: Entity,
+    pub reference: u32,
+    /// Its feet, game space.
+    pub feet: [f32; 3],
+    pub change: AirChange,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum AirChange {
+    /// Left the ground, rising at this speed, units/s (its character's, else its
+    /// feet's over the last frame).
+    TakeOff { rising: f32 },
+    /// Back on the ground after this long in the air, seconds.
+    Landed { air: f32 },
+}
+
+/// Each actor's last frame for [`ActorAir`]: in the air, for how long, its feet's height;
+/// whether it had a physics character, and whether this time in the air is not told
+/// (`quiet`: its character went away while it was in the air).
+#[derive(Default)]
+struct AirTrack {
+    in_air: bool,
+    air: f32,
+    z: f32,
+    had_character: bool,
+    quiet: bool,
+}
+
+/// Actors leaving the ground and coming down: [`ActorAir`] messages.
+///
+/// The feet are the actor's `Transform` (game space under the world root), which the walkers (`nav::drive`,
+/// `residents::drive`) set this frame; its `GlobalTransform` is propagated only in
+/// PostUpdate, so a walker's take-off would measure the frame before's rise (review of
+/// #1215). An actor whose character goes away while it is in the air (knocked out, moved
+/// by MoveTo, out of the physics range) was not falling all that time: that time in the
+/// air ends without a landing.
+fn air_changes(
+    time: Res<Time>,
+    phys: Option<Res<PhysState>>,
+    actors: Query<(Entity, &ActorRig, &Locomotion, &Transform)>,
+    mut track: Local<HashMap<Entity, AirTrack>>,
+    mut out: MessageWriter<ActorAir>,
+) {
+    let dt = time.delta_secs();
+    let mut seen = HashMap::with_capacity(track.len());
+    for (e, rig, lo, tr) in &actors {
+        // Under the world root, whose frame is game space (`nav::show_actor` sets it from
+        // the feet).
+        let feet = tr.translation.to_array();
+        let has_character = phys.as_deref().is_some_and(|p| p.npcs.contains_key(&rig.reference));
+        let Some(was) = track.remove(&e) else {
+            seen.insert(e, AirTrack { in_air: lo.in_air, air: 0.0, z: feet[2], had_character: has_character, quiet: lo.in_air });
+            continue;
+        };
+        let quiet = was.quiet || (was.in_air && was.had_character && !has_character);
+        let mut now = AirTrack {
+            in_air: lo.in_air,
+            air: if lo.in_air && !quiet { was.air + dt } else { 0.0 },
+            z: feet[2],
+            had_character: has_character,
+            quiet: quiet && lo.in_air,
+        };
+        let change = match (was.in_air, lo.in_air) {
+            (false, true) => {
+                let character = phys.as_deref().and_then(|p| p.npcs.get(&rig.reference)).map(|b| b.ch.vertical_speed);
+                let rising = character.unwrap_or_else(|| (feet[2] - was.z) / dt.max(1e-3));
+                now.air = dt;
+                Some(AirChange::TakeOff { rising })
+            }
+            (true, false) if !quiet => Some(AirChange::Landed { air: was.air }),
+            _ => None,
+        };
+        if let Some(change) = change {
+            out.write(ActorAir { actor: e, reference: rig.reference, feet, change });
+        }
+        seen.insert(e, now);
+    }
+    *track = seen;
 }
 
 #[derive(Resource, Default)]

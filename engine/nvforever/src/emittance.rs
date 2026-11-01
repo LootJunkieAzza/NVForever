@@ -30,7 +30,8 @@ pub struct EmittancePlugin;
 impl Plugin for EmittancePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<EmittanceState>()
-            .add_systems(Update, (script_drawn_emittance, update_emittance.after(crate::sky::update_sky)).chain());
+            .add_systems(Update, (script_drawn_emittance, update_emittance.after(crate::sky::update_sky)).chain())
+            .add_systems(Last, release_copies);
     }
 }
 
@@ -108,10 +109,37 @@ impl EmittanceState {
         Some(copy)
     }
 
+    /// The copies held, for the stress census: each is held twice here (`copies`, `driven`).
+    pub fn share(&self, materials: &Assets<NifMaterial>) -> nvf_assets::release::CacheShare {
+        let mut s = nvf_assets::release::CacheShare::default();
+        for h in self.copies.values() {
+            s.material(materials, h, 2);
+        }
+        s
+    }
+
     /// Mark a light as driven by `xemi`, if that resolves.
     pub fn light(&mut self, world: &WorldData, xemi: u32, color: LinearRgba) -> Option<LightEmittance> {
         self.hour = None;
         self.source(world, xemi).then_some(LightEmittance { source: xemi, color })
+    }
+}
+
+/// Every [`SWEEP_SECS`](nvf_assets::release::SWEEP_SECS), drop the copies no entity holds
+/// (each is held twice here, in `copies` and `driven`): their references unloaded, or
+/// their model was let go of (its material's id is never asked for again). Without this
+/// every copy, its textures and its bindless slot stayed for the session, and each was
+/// recoloured every game minute (issue #904). A reference drawn again gets a fresh copy.
+fn release_copies(time: Res<Time<Real>>, mut state: ResMut<EmittanceState>, mut since: Local<f32>) {
+    *since += time.delta_secs();
+    if *since < nvf_assets::release::SWEEP_SECS {
+        return;
+    }
+    *since = 0.0;
+    let s = &mut *state;
+    if nvf_assets::release::retain_held(&mut s.copies, 2) > 0 {
+        let kept: std::collections::HashSet<AssetId<NifMaterial>> = s.copies.values().map(Handle::id).collect();
+        s.driven.retain(|d| kept.contains(&d.copy.id()));
     }
 }
 
@@ -188,11 +216,23 @@ fn update_emittance(
         state.sources.iter().filter_map(|(&k, s)| Some((k, color(s.as_ref()?, &sky)))).collect();
     for d in &state.driven {
         let Some(&(e, _)) = colors.get(&d.source) else { continue };
-        let Some(mut m) = materials.get_mut(&d.copy) else { continue };
+        // Only a colour that changes is written: taking the material mutably marks it
+        // changed, and its bindless slab is sent to the GPU again whatever was written.
+        let Some(m) = materials.get(&d.copy) else { continue };
         if d.unlit {
-            m.base.base_color = Color::LinearRgba(scale(d.base_color, e));
+            let c = Color::LinearRgba(scale(d.base_color, e));
+            if m.base.base_color != c {
+                if let Some(mut m) = materials.get_mut(&d.copy) {
+                    m.base.base_color = c;
+                }
+            }
         } else {
-            m.base.emissive = scale(d.emissive, e);
+            let c = scale(d.emissive, e);
+            if m.base.emissive != c {
+                if let Some(mut m) = materials.get_mut(&d.copy) {
+                    m.base.emissive = c;
+                }
+            }
         }
     }
     for (l, point, spot) in &mut lights {

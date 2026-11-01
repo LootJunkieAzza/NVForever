@@ -461,9 +461,17 @@ pub fn get_is_lock_broken(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, S
 /// (inside OnActivate: whoever activated it) is used, and without one nothing happens;
 /// flag 0 runs the default action, bypassing OnActivate; flag 1 runs the OnActivate block
 /// instead [documented: GECK wiki Activate].
+///
+/// Outside OnActivate the reference keeps the action reference of its last activation
+/// ([`Game::action_refs`]) [hypothesis: the wiki's "the calling reference's ActionRef";
+/// the Sink's appliances in OldWorldBlues.esm (SCPT 0x0100F05A, the Biological Research
+/// Station) set a flag in OnActivate and call a bare `Activate` in GameMode once the
+/// message box closes, to talk to the player who activated them [observed: `fnvtool
+/// script decompile`]; talking-activators.md §2].
 pub fn activate(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let target = ctx.subject()?;
-    let actor = a.opt_form(0).or(ctx.action_ref).ok_or("no action reference")?;
+    let kept = || g.action_refs.get(&target).copied();
+    let actor = a.opt_form(0).or(ctx.action_ref).or_else(kept).ok_or("no action reference")?;
     // "Disabled actors cannot be forced to activate objects via Activate" [documented:
     // GECK wiki Disable notes].
     if matches!(base_sig(g, actor).as_ref(), Some(b"NPC_") | Some(b"CREA")) && !g.world.is_enabled(actor).unwrap_or(true) {

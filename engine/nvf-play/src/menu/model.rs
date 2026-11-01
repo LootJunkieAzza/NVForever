@@ -14,7 +14,9 @@
 //! The container and barter menus list one category at a time, chosen with the arrows
 //! beside each list's title: all items, weapons, apparel, aid, misc, ammunition
 //! [observed: "ITEMS" and "MISC" titles on the owner's screenshots; the other names and
-//! their order are hypotheses, after the Pip-Boy's item pages].
+//! their order are hypotheses, after the Pip-Boy's item pages]. The mouse wheel over a
+//! list's heading steps its category as the arrows do (`Command::wheel`) [design: owner
+//! request 2026-10-31, #1192].
 //!
 //! Non-playable items (`Item::non_playable`) are not listed in inventories other than
 //! the player's, and non-playable armour (the Pip-Boy Glove) not in the player's either,
@@ -483,6 +485,19 @@ pub enum Command {
     /// The prompt's Cancel.
     AmountCancel,
     Close,
+}
+
+impl Command {
+    /// What whole wheel steps (`steps`, up positive) do: with the pointer over a list's
+    /// heading (`title`) they step that list's category, down the next as the right arrow
+    /// does; anywhere else they move the selection, up moving it up [design: owner
+    /// request 2026-10-31, #1192].
+    pub fn wheel(title: Option<Side>, steps: i32) -> Command {
+        match title {
+            Some(side) => Command::Category(side, -steps),
+            None => Command::Scroll(-steps),
+        }
+    }
 }
 
 /// The "How many?" prompt open over a menu (`menus\quantity_menu.xml`).

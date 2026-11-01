@@ -154,6 +154,10 @@ impl Ai {
         let state = game.awareness.state(actor);
         if !state.in_combat() || game.continues_during_combat(actor) {
             game.rearms.calm(actor);
+            // A spectator running from a fight that came too close (`crate::social`).
+            if !state.in_combat() && self.spectator_step(game, nav, actor, dt) {
+                return true;
+            }
             if let Some(target) = game.warning_to(actor).filter(|_| !state.in_combat()) {
                 if self.warn_step(game, actor, target, dt) {
                     return true;
@@ -504,7 +508,7 @@ impl Ai {
     }
 
     /// Choose a flee spot away from `threat` and set off there, running (module notes).
-    fn flee_from(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, from: FormId, threat: [f32; 3]) {
+    pub(crate) fn flee_from(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, from: FormId, threat: [f32; 3]) {
         let params = self.path_params(game, actor);
         let gs = game.group_settings();
         let now = game.time;
@@ -582,7 +586,7 @@ impl Ai {
     }
 
     /// The search or the stand ends: the actor goes back to its package.
-    fn search_over(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, why: &'static str) {
+    pub(crate) fn search_over(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, why: &'static str) {
         let a = self.agents.get_mut(&actor).expect("listed");
         a.search = None;
         if a.activity == Activity::Travelling {

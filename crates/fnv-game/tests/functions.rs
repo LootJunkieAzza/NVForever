@@ -118,7 +118,7 @@ fn plugin_bytes() -> Vec<u8> {
     let misc = record(b"MISC", 0, MISC, &[sub(b"EDID", z("Junk")), sub(b"DATA", [1i32.to_le_bytes().to_vec(), f32b(1.0)].concat())]);
     let weap_data = [10i32.to_le_bytes().to_vec(), 100i32.to_le_bytes().to_vec(), f32b(2.0), 5i16.to_le_bytes().to_vec(), vec![6]].concat();
     let weap = record(b"WEAP", 0, WEAP, &[sub(b"EDID", z("Gun")), sub(b"DATA", weap_data), sub(b"REPL", FLST.to_le_bytes().to_vec())]);
-    let note = record(b"NOTE", 0, NOTE, &[sub(b"EDID", z("TestHolotape"))]);
+    let note = record(b"NOTE", 0, NOTE, &[sub(b"EDID", z("TestHolotape")), sub(b"FULL", z("Test Holotape"))]);
     let flst = record(b"FLST", 0, FLST, &[sub(b"EDID", z("GunList")), sub(b"LNAM", WEAP.to_le_bytes().to_vec())]);
     // The base effect: archetype 1 (Script), its script 0x851 (scripts.md §7.6).
     let mgef_data = [u32s(&[0]), f32b(0.0), u32s(&[EFFECT_SCRIPT]), vec![0xFF; 8], vec![0; 4], vec![0; 4], f32b(1.0), vec![0; 24], vec![0; 8], u32s(&[1]), vec![0xFF; 4]].concat();
@@ -472,19 +472,54 @@ fn reputation_limits_levels_and_ignored_sizes() {
     }
 }
 
-/// Axes other than 0 and 1 (FalloutNV.esm's scripts use 2 and 3) change nothing and read
-/// 0, with no call error [hypothesis: `reputation::axis`].
+/// Axes other than 0 and 1 (FalloutNV.esm's scripts use 2 and 3) read 0 with no call
+/// error (observer check 30); SetReputation with one changes nothing, fails and stops the
+/// script: the line after it does not run (captures o5_00/o5_01, #1127). The other
+/// writers change nothing and go on (not captured, observer check 62).
 #[test]
-fn reputation_other_axes_do_nothing() {
+fn reputation_other_axes_read_0_and_stop_a_write() {
+    use fnv_script::vm::XVal;
     let f = fixture();
     let mut g = game(&f);
     call(&mut g, 0x1238, None, &[r(REP), n(1.0), n(12.0)]);
-    call(&mut g, 0x1238, None, &[r(REP), n(2.0), n(0.0)]);
-    call(&mut g, 0x1239, None, &[r(REP), n(3.0), n(1.0)]);
-    assert_eq!(g.player.reputation[&FormId(REP)], [0.0, 12.0]);
     assert_eq!(call(&mut g, 0x123D, None, &[r(REP), n(2.0)]), 0.0);
     assert_eq!(call(&mut g, 0x123E, None, &[r(REP), n(2.0)]), 0.0);
     assert_eq!(call(&mut g, 0x123F, None, &[r(REP), n(3.0)]), 0.0);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut Game, body: &str| g.run_query(&format!("Begin Function {{ }}
+{body}
+SetFunctionValue 7
+End
+"), ctx());
+    // Axes 0 and 1 set the value and go on.
+    assert_eq!(q(&mut g, "SetReputation RepTest 0 5"), Ok(XVal::Num(7.0)));
+    assert_eq!(g.player.reputation[&FormId(REP)], [5.0, 12.0]);
+    for line in ["SetReputation RepTest 2 5", "SetReputation RepTest 3 7"] {
+        let before = g.events.len();
+        assert_ne!(q(&mut g, line), Ok(XVal::Num(7.0)), "{line}: the line after it does not run");
+        assert!(g.events[before..].iter().any(|e| matches!(&e.kind, EventKind::CallFailed { .. })), "{line}: traced as a failed call");
+        assert_eq!(g.player.reputation[&FormId(REP)], [5.0, 12.0], "{line}");
+    }
+    for line in ["AddReputation RepTest 3 1", "AddReputation RepTest 2 1", "RemoveReputation RepTest 2 1", "AddReputationExact RepTest 2 1"] {
+        assert_eq!(q(&mut g, line), Ok(XVal::Num(7.0)), "{line}: goes on");
+        assert_eq!(g.player.reputation[&FormId(REP)], [5.0, 12.0], "{line}");
+    }
+    // The stop lasts for that run only.
+    assert_eq!(q(&mut g, "SetReputation RepTest 1 3"), Ok(XVal::Num(7.0)));
+    assert_eq!(g.player.reputation[&FormId(REP)], [5.0, 3.0]);
+}
+
+/// `RemoveItem <item> 0` removes nothing and is no failed call: the script goes on
+/// (observer check 44, capture o5_00; #1113).
+#[test]
+fn remove_item_of_none_is_a_no_op() {
+    let f = fixture();
+    let mut g = game(&f);
+    call(&mut g, 0x1002, Some(ADULT_REF), &[r(MISC), n(3.0)]);
+    // `call` panics on a failed call.
+    call(&mut g, 0x1052, Some(ADULT_REF), &[r(MISC), n(0.0)]);
+    assert_eq!(call(&mut g, 0x102F, Some(ADULT_REF), &[r(MISC)]), 3.0);
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::ItemRemoved { .. })));
 }
 
 /// Damage and restore [documented: catalogue; observed: layer5-captures.md §9.3 b].
@@ -1435,6 +1470,16 @@ fn script_function_audit_fixes() {
     g.tick();
     assert!(g.player.notes.contains(&FormId(NOTE)));
     assert_eq!(g.world.item_count(FormId(PLAYER), FormId(NOTE)).unwrap(), 0);
+    // Its corner notice (#1163), by its FULL name; AddNote of a note the player has
+    // shows no second one.
+    assert_eq!(g.take_note_notices(), vec![FormId(NOTE)]);
+    assert_eq!(g.note_notice_text(FormId(NOTE)), "Note: Test Holotape");
+    call(&mut g, 0x117C, None, &[r(NOTE)]);
+    assert!(g.take_note_notices().is_empty());
+    call(&mut g, 0x117D, None, &[r(NOTE)]);
+    // AddNote of a new note: its notice too [hypothesis: the original's, observer-checks].
+    call(&mut g, 0x117C, None, &[r(NOTE)]);
+    assert_eq!(g.take_note_notices(), vec![FormId(NOTE)]);
     call(&mut g, 0x117D, None, &[r(NOTE)]);
     // KillActor's cause of death; ResurrectActor brings the actor back unharmed.
     call(&mut g, 0x1181, Some(ADULT_REF), &[av(16), n(5.0)]);

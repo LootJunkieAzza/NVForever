@@ -149,7 +149,7 @@ fn holstered_off(clip: &nvf_assets::anim_play::Clip) -> Vec<String> {
 
 /// `clip` with only the track of the `Weapon` node (index `weapon_node`).
 pub fn weapon_track_only(clip: &BoundClip, weapon_node: usize) -> BoundClip {
-    BoundClip { clip: clip.clip.clone(), tracks: clip.tracks.iter().filter(|(i, ..)| *i == weapon_node).cloned().collect(), root: None, root_track: None }
+    BoundClip { clip: clip.clip.clone(), tracks: clip.tracks.iter().filter(|(i, ..)| *i == weapon_node).cloned().collect(), root: None, root_track: None, carried: None }
 }
 
 /// Where `clip` leaves node `node` at its end (`bind` fills what the track leaves out);
@@ -567,7 +567,7 @@ mod tests {
         let clip = |stop: f32| {
             let mut c = nvf_assets::anim_play::Clip::from_controllers(Vec::new(), Vec::new(), Vec::new());
             c.stop = stop;
-            Arc::new(BoundClip { clip: Arc::new(c), tracks: Vec::new(), root: None, root_track: None })
+            Arc::new(BoundClip { clip: Arc::new(c), tracks: Vec::new(), root: None, root_track: None, carried: None })
         };
         // As `1hp*.kf` and `sneak1hp*.kf`: crouched forms of the equip, aim and unequip
         // clips, none of the holster clip (actors.md §9.4).
@@ -640,7 +640,7 @@ mod tests {
             if !keys.is_empty() {
                 c.visibility.push(("##FlamerGun".into(), 0, BoolTrack { value: None, keys }));
             }
-            Arc::new(BoundClip { clip: Arc::new(c), tracks: Vec::new(), root: None, root_track: None })
+            Arc::new(BoundClip { clip: Arc::new(c), tracks: Vec::new(), root: None, root_track: None, carried: None })
         };
         let mut st = Arc::try_unwrap(stance()).ok().expect("one owner");
         st.clips.insert(EquipClip::Holster, clip(0.1, vec![(0.0, false)]));

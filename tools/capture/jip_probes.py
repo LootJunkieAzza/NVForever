@@ -2145,6 +2145,50 @@ KNVSE_PROBES = [
     _kn("kn.cleanup", _GETA + 'rA.Disable\nrA.MarkForDelete\nrPlayer.AuxVarErase "*nvfKA"\nSetFunctionValue 1'),
 ]
 
+# Set knvse2 (#1018): kNVSE's second slice on a placed copy of Doc's NPC, as knvse-anim:
+# the animation clock, a sequence's current time, weight and text keys, the blends'
+# refusals, the attributes of a sequence the actor does not play. AllowAttack is not in
+# the installed kNVSE 37 (a runtime compile fails). The placed actor goes at the end.
+_KN2_ATTR = 'let aA := rA.GetAnimationAttributes "' + _KF_SMILE + '"\n'
+KNVSE2_PROBES = [
+    _kn("k2.place", _form("rObj", NF["doc"]) + 'let rA := rPlayer.PlaceAtMe rObj 1\nrPlayer.AuxVarSetRef "*nvfKA" rA\nSetFunctionValue 1'),
+] + [_kn(f"k2.settle{i}", "SetFunctionValue 1") for i in range(1, 6)] + [
+    _knv("k2.global", "Ceil (rA.GetGlobalAnimTime 0)"),
+    _kn("k2.global.set", _GETA + "rA.SetGlobalAnimTime 5 0\nSetFunctionValue (Floor (rA.GetGlobalAnimTime 0))"),
+    _knv("k2.global.next", "Floor (rA.GetGlobalAnimTime 0)"),
+    _kn("k2.play", _GETA + f'rA.PlayAnimationPath "{_KF_SMILE}" 0\nSetFunctionValue (rA.IsAnimSequencePlaying "{_KF_SMILE}")'),
+    _kn("k2.curtime.set", _GETA + f'rA.SetAnimCurrentTime "{_KF_SMILE}" 1.5\nSetFunctionValue (Floor ((rA.GetAnimCurrentTime "{_KF_SMILE}") * 10))'),
+    # The next frame's time is 1.5 plus that frame (16 tenths in a first run, the frames
+    # being slow): whole seconds only.
+    _knv("k2.curtime.next", f'Floor (rA.GetAnimCurrentTime "{_KF_SMILE}")'),
+    # Array elements go through a float first (as the nif-blocks set's _V3).
+    _kn("k2.weight", _GETA + f'rA.SetAnimWeight "{_KF_SMILE}" 0.25\n' + _KN2_ATTR + 'let fRes := aA["seqWeight"]\nSetFunctionValue (Floor (fRes * 100))'),
+    # AddAnimTextKey changes the loaded KF, which every actor shares, and kNVSE 37 has no
+    # function that takes a key off again (no RemoveAnimTextKey page; SetAnimTextKeys
+    # sets one actor's keys and "does nothing" while it plays the sequence). The change
+    # is in the game's memory only, never on disk, and a job is one set per game launch,
+    # which quits after k2.cleanup, so nothing reads the key after this set.
+    _knv("k2.addkey", f'AddAnimTextKey "{_KF_SMILE}" 0.5 "nvfKey"'),
+    _knv("k2.addkey.missing", 'AddAnimTextKey "characters\\_male\\nvfnone.kf" 0.5 "nvfKey"'),
+    _kn("k2.addkey.read", _GETA + _KN2_ATTR + 'let aA := aA["textKeyValues"]\nSetFunctionValue ((ar_Find "nvfKey" aA) >= 0)'),
+    _kn("k2.settextkeys.playing", _GETA + f'rA.SetAnimTextKeys "{_KF_SMILE}" (ar_List 0, 1) (ar_List "nvfA", "nvfB")\n' + _KN2_ATTR
+        + 'let aA := aA["textKeyValues"]\nSetFunctionValue ((ar_Find "nvfA" aA) >= 0)'),
+    _kn("k2.attrs.played", _GETA + _KN2_ATTR + "SetFunctionValue (ar_Size aA)"),
+    _kn("k2.attrs.notplayed", _GETA + f'let aA := rA.GetAnimationAttributes "{_KF_JUMP}"\nSetFunctionValue (ar_Size aA)'),
+    _kn("k2.attrs.noref", f'let aA := GetAnimationAttributes "{_KF_SMILE}"\nSetFunctionValue (ar_Size aA)'),
+    _kn("k2.attrs.state", _GETA + _KN2_ATTR + 'SetFunctionValue aA["state"]'),
+    _kn("k2.attrs.cycle", _GETA + _KN2_ATTR + 'SetFunctionValue aA["cycleType"]'),
+    _kn("k2.attrs.root", _GETA + _KN2_ATTR + 'SetFunctionValue aA["accumRootName"]', True),
+    _kn("k2.bytype.idle", _GETA + "let aA := rA.GetPlayingAnimBySequenceType 0\nSetFunctionValue (ar_Size aA)"),
+    _kn("k2.bytype.special", _GETA + "let aA := rA.GetPlayingAnimBySequenceType 7\nSetFunctionValue (ar_Size aA)"),
+    _knv("k2.crossfade.notplaying", f'rA.CrossFadeAnims "{_KF_H2H}" "{_KF_JUMP}" 0'),
+    _knv("k2.blend.notplaying", f'rA.BlendToAnim "{_KF_H2H}" "{_KF_JUMP}" 0'),
+    _knv("k2.blendpose", f'rA.BlendToAnimFromPose "{_KF_H2H}" 0 0.2'),
+    _knv("k2.additive", f'rA.SetAnimAdditive "{_KF_JUMP}" 0'),
+    _knv("k2.additive.missing", 'rA.SetAnimAdditive "characters\\_male\\nvfnone.kf" 0'),
+    _kn("k2.cleanup", _GETA + 'rA.Disable\nrA.MarkForDelete\nrPlayer.AuxVarErase "*nvfKA"\nSetFunctionValue 1'),
+]
+
 # Thirty-seventh set (next batch N6): JIP's NIF block functions on a loaded actor (a
 # copy of Doc's NPC placed beside the player, as knvse-anim), by node name: the Bip01
 # skeleton. Changes are made on that reference only (InsertNode / AttachModel mode 3,
@@ -4819,6 +4863,32 @@ SHOWOFF2_PROBES = (
 )
 
 
+# tmpl1 (read-only; #1057): what the base-form getters answer for templated NPCs, against
+# their records' own fields [observed: fnvtool esm decode]. Three take their template from
+# another NPC (VHDLegionODeckHeavyTroopers, use Traits and Factions; VHDNCRRanger6Veteran,
+# use Traits and Factions, its own PKID, SNAM and CNAM; VHDNCRTrooper7aHeavy, use Factions,
+# not Traits), three from a leveled list (VSpawnSpecialJackalFem01Primm, VViperGangSpawnNRGunD,
+# VSpawnJackalFemale01NR, using Traits, Factions and the Actor Effect List). Doc Mitchell
+# untemplated beside them.
+TM1 = {"legion": "17B58D", "ranger": "17A2EE", "trooper": "17A2DC", "jackalprimm": "1689BD", "viper": "167DFB",
+       "jackal": "167DDD", "doc": "104C0C"}
+
+
+def _tm1(pid, key, expr, text=False):
+    rd = f"SetFunctionValue (GetFormIDString ({expr}))" if text == "form" else f"SetFunctionValue ({expr})"
+    return (f"tmpl1.{pid}", "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\n" + _form("rObj", TM1[key]) + rd,
+            bool(text), None, "")
+
+
+TMPL1_PROBES = [p for k in TM1 for p in (
+    _tm1(f"{k}.factions", k, "GetBaseNumFactions rObj"),
+    _tm1(f"{k}.faction0", k, "GetBaseNthFaction 0 rObj", "form"),
+    _tm1(f"{k}.rank0", k, "GetBaseNthRank 0 rObj"),
+    _tm1(f"{k}.class", k, "GetClass rObj", "form"),
+    _tm1(f"{k}.spells", k, "ar_Size (GetBaseSpellListSpells rObj)"),
+    _tm1(f"{k}.race", k, "GetRace rObj", "form"),
+)]
+
 # jg1 (writes, session only, each change put back; #1007): JohnnyGuitar batch 1
 # (docs/spec-notes/ext-jg1.md) on FalloutNV.esm forms [observed: fnvtool esm inventory]:
 # books, factions, the dog, races, the 10mm pistol, music types, a dresser with sounds, a
@@ -5047,6 +5117,79 @@ FORMAT1_PROBES = (
            '(GetTextureSetFlag rObj 0) (GetTextureSetFlag rObj 1))')]
 )
 
+
+# tmpl2 (read-only; #1057): the cases tmpl1 left open [observed: FalloutNV.esm NPC_ scan].
+# No NPC_ there takes Traits from an NPC with a class other than its own; one takes them from
+# an NPC with another race: PrimmNCRTrooper3 (own RNAM 0x424A, PrimmNCRTrooper1's 0x19).
+# Packages, each using AI Packages from an NPC with another list: a Brotherhood paladin with
+# no PKID of its own (template 5) and one with 6 of its own (template 5), FortChildHM (1 vs 2),
+# 1ESharecropperCF (5 vs 3); and the template paladin itself.
+TM2 = {"trooper3": "099D05", "paladin0": "0E2966", "paladin6": "0E2960", "child": "11E507",
+       "sharecropper": "0F6403", "paladintmpl": "15E581"}
+
+
+def _tm2(pid, key, expr, text=False):
+    rd = f"SetFunctionValue (GetFormIDString ({expr}))" if text == "form" else f"SetFunctionValue ({expr})"
+    return (f"tmpl2.{pid}", "ref rObj\narray_var aA\nfloat fRes\nBegin Function { }\n" + _form("rObj", TM2[key]) + rd,
+            bool(text), None, "")
+
+
+TMPL2_PROBES = [
+    _tm2("trooper3.race", "trooper3", "GetRace rObj", "form"),
+    _tm2("trooper3.class", "trooper3", "GetClass rObj", "form"),
+    *[p for k in ("paladin0", "paladin6", "child", "sharecropper", "paladintmpl") for p in (
+        _tm2(f"{k}.packages", k, "ar_Size (GetBasePackages rObj)"),
+        _tm2(f"{k}.package0", k, "(GetBasePackages rObj)[0]", "form"),
+    )],
+]
+
+# tmpl3 (#1057): factions and spells where the record's own list and its NPC template's
+# differ (tmpl1's NPC templates all carried the record's own SNAM, so it could not tell)
+# [observed: load-order scan, 842 actors for factions and 345 for spells]. Raider1MeleeAM
+# (own 3 SNAM, Use Factions from Raider1MeleeAAFTEMPLATE with 5); SniperShackRadroach01 (own
+# 1, CrRadroach 2); CrMisterGutsyEnclave (own 1 SPLO, Use Actor Effect List from CrMisterGutsy
+# with 3); Shakes (1, CrProtectron 3); FFEU02DeathClaw (0, CrDeathClaw 1); CrFeralGhoul2B
+# (2, CrFeralGhoul2A's other 2). Then a reference whose Traits come from a leveled list:
+# LvlRaiderRandomMale (own RNAM 0x19; every NPC its list can give has race 0x0004BF72)
+# placed beside the player, read and removed (session only).
+TM3 = {"raider": "0295FA", "roach": "01FEC8", "gutsy": "021EBE", "shakes": "017A03", "claw": "031E29",
+       "feral": "01CF77", "lvlraider": "07E40E"}
+_H3 = ("ref rPlayer\nref rObj\nref rF\narray_var aA\nfloat fRes\nBegin Function { }\n" + _form("rPlayer", NF["player"]))
+_AUX3 = 'let rF := rPlayer.AuxVarGetRef "*nvfT3"\n'
+
+
+def _tm3(pid, key, expr, text=False):
+    rd = f"SetFunctionValue (GetFormIDString ({expr}))" if text == "form" else f"SetFunctionValue ({expr})"
+    return (f"tmpl3.{pid}", _H3 + _form("rObj", TM3[key]) + rd, bool(text), None, "")
+
+
+def _tm3ref(pid, expr, text=False):
+    rd = f"SetFunctionValue (GetFormIDString ({expr}))" if text == "form" else f"SetFunctionValue ({expr})"
+    return (f"tmpl3.{pid}", _H3 + _AUX3 + rd, bool(text), None, "")
+
+
+TMPL3_PROBES = [
+    *[p for k in ("raider", "roach") for p in (
+        _tm3(f"{k}.factions", k, "GetBaseNumFactions rObj"),
+        _tm3(f"{k}.faction0", k, "GetBaseNthFaction 0 rObj", "form"),
+        _tm3(f"{k}.rank0", k, "GetBaseNthRank 0 rObj"),
+        _tm3(f"{k}.basefactions", k, "ar_Size (GetBaseFactions rObj)"),
+    )],
+    *[p for k in ("gutsy", "shakes", "claw", "feral") for p in (
+        _tm3(f"{k}.spells", k, "ar_Size (GetBaseSpellListSpells rObj)"),
+        _tm3(f"{k}.spell0", k, "(GetBaseSpellListSpells rObj)[0]", "form"),
+    )],
+    ("tmpl3.lvlraider.place", _H3 + _form("rObj", TM3["lvlraider"]) + 'let rF := rPlayer.PlaceAtMe rObj 1\n'
+     'rPlayer.AuxVarSetRef "*nvfT3" rF\nSetFunctionValue 1', False, None, ""),
+    _tm3ref("lvlraider.race", "GetRace rF", "form"),
+    _tm3ref("lvlraider.class", "GetClass rF", "form"),
+    _tm3ref("lvlraider.base", "rF.GetBaseObject", "form"),
+    _tm3ref("lvlraider.baserace", "GetRace (rF.GetBaseObject)", "form"),
+    _tm3("lvlraider.recordrace", "lvlraider", "GetRace rObj", "form"),
+    ("tmpl3.lvlraider.cleanup", _H3 + _AUX3 + 'rF.Disable\nrF.MarkForDelete\nrPlayer.AuxVarErase "*nvfT3"\nSetFunctionValue 1',
+     False, None, ""),
+]
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -5067,6 +5210,7 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "projectile": PROJECTILE_PROBES,
         "sky-sound": SKY_SOUND_PROBES,
         "knvse-anim": KNVSE_PROBES,
+        "knvse2": KNVSE2_PROBES,
         "nif-blocks": NIF_PROBES,
         "nvse-events": NVSE_EVENT_PROBES,
         "jip-events2": JIP_EVENT2_PROBES,
@@ -5108,14 +5252,17 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "rules1": RULES1_PROBES,
         "rules2": RULES2_PROBES,
         "showoff2": SHOWOFF2_PROBES,
+        "tmpl1": TMPL1_PROBES,
         "jg1": JG1_PROBES,
         "jg2": JG2_PROBES,
         "jip5": JIP5_PROBES,
-        "format1": FORMAT1_PROBES}
+        "format1": FORMAT1_PROBES,
+        "tmpl2": TMPL2_PROBES,
+        "tmpl3": TMPL3_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1", "atk1", "jip4", "rules1", "rules2", "showoff2", "jg1", "jg2", "jip5"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1", "atk1", "jip4", "rules1", "rules2", "showoff2", "jg1", "jg2", "jip5", "tmpl3", "knvse2"}
 
 
 def script(body):

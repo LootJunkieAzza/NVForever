@@ -144,6 +144,11 @@ struct RowButton(Side, usize);
 #[derive(Component, Clone, Copy)]
 pub(crate) struct CmdButton(pub(crate) Command);
 
+/// A list's heading (its arrows and title): the wheel over it steps the list's category
+/// ([`Command::wheel`]). It lets the pointer through to the arrows under it.
+#[derive(Component, Clone, Copy)]
+pub(crate) struct CategoryTitle(pub(crate) Side);
+
 /// The "How many?" prompt's meter, which takes a press and a drag.
 #[derive(Component)]
 pub(crate) struct AmountMeter;
@@ -185,6 +190,7 @@ impl Plugin for MenuPlugin {
                     open_menus,
                     keep_menu_state,
                     sync_cards,
+                    publish_menu_picks,
                     wheel_hold,
                     (quantity_keys, menu_keys, menu_mouse, quantity_mouse, apply_input).chain().run_if(menu_open),
                     draw,
@@ -512,6 +518,7 @@ fn wheel_hold(mut wheel: MessageReader<MouseWheel>, mut moved: MessageReader<Cur
 fn menu_mouse(
     rows: Query<(&PointerState, &RowButton), Changed<PointerState>>,
     buttons: Query<(&PointerState, &CmdButton), Changed<PointerState>>,
+    titles: Query<(&PointerState, &CategoryTitle)>,
     keys: Res<ButtonInput<KeyCode>>,
     active: Res<ActiveMenu>,
     hold: Res<WheelHold>,
@@ -561,8 +568,8 @@ fn menu_mouse(
     }
     let whole = lines.trunc();
     if whole != 0.0 {
-        // Wheel up (positive) moves the selection up.
-        out.write(MenuInput(Command::Scroll(-whole as i32)));
+        let title = titles.iter().find(|(i, _)| **i != PointerState::None).map(|(_, t)| t.0);
+        out.write(MenuInput(Command::wheel(title, whole as i32)));
         *lines -= whole;
     }
 }
@@ -644,6 +651,56 @@ fn sync_cards(mut active: ResMut<ActiveMenu>, mut sim: ResMut<SimState>, script:
         if let Err(e) = m.set_cards(&mut sim.world, cards) {
             warn!("menu: the Caravan cards: {e}");
         }
+    }
+}
+
+/// Tell the scripts' game what the open item menus are about and have highlighted, for
+/// GetMenuTargetRef and GetSelectedItemRef (`fnv_game::game::MenuPicks`, #983): the
+/// container or merchant and the focused column's row (container 1008, inventory 1002,
+/// barter 1053), the item being repaired and the part (1035), the weapon being modded and
+/// the mod (1061). A closed menu's picks are cleared.
+fn publish_menu_picks(
+    active: Res<ActiveMenu>,
+    modding: Option<Res<crate::pipboy::item_mod::PipItemMod>>,
+    repairing: Option<Res<crate::pipboy::repair::PipRepair>>,
+    script: Option<ResMut<crate::script::ScriptState>>,
+) {
+    use fnv_game::game::{MenuPick, MenuPicks};
+    let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
+    let player = FormId::PLAYER_REF;
+    let item = |owner, item| Some(MenuPick::Item { owner, item });
+    let mut picks: Vec<(u16, MenuPicks)> = [crate::script::MENU_CONTAINER, crate::script::MENU_INVENTORY, crate::script::MENU_BARTER, fnv_game::game::menus::REPAIR, fnv_game::game::menus::ITEM_MOD]
+        .into_iter()
+        .map(|c| (c, MenuPicks::default()))
+        .collect();
+    let mut put = |code: u16, p: MenuPicks| {
+        if let Some(e) = picks.iter_mut().find(|(c, _)| *c == code) {
+            e.1 = p;
+        }
+    };
+    if let Some(m) = active.0.as_ref() {
+        let other = match m.mode {
+            Mode::Container(c) | Mode::Barter(c) => Some(c),
+            Mode::Inventory => None,
+        };
+        // The merchant's column is what its merchant container holds (`Trade::stock`), not
+        // the merchant: the item reference names that container; the target stays the
+        // merchant.
+        let column = m.trade.as_ref().map(|t| t.stock).or(other);
+        let owner = if m.focus == Side::Player { Some(player) } else { column };
+        let selected = m.selected_row(m.focus).zip(owner).and_then(|(r, o)| item(o, r.item));
+        put(crate::script::menu_code(m.mode), MenuPicks { target: other.map(MenuPick::Form), selected });
+    }
+    if let Some(s) = modding.as_ref().and_then(|r| r.0.as_ref()) {
+        let chosen = s.selected.checked_sub(1).and_then(|i| s.offer.choices.get(i)).map_or(s.offer.item, |c| c.item);
+        put(fnv_game::game::menus::ITEM_MOD, MenuPicks { target: item(player, s.offer.item), selected: item(player, chosen) });
+    }
+    if let Some(s) = repairing.as_ref().and_then(|r| r.0.as_ref()) {
+        let chosen = s.selected.checked_sub(1).and_then(|i| s.offer.parts.get(i)).map_or(s.offer.item, |p| p.item);
+        put(fnv_game::game::menus::REPAIR, MenuPicks { target: item(player, s.offer.item), selected: item(player, chosen) });
+    }
+    for (code, p) in picks {
+        rt.game.set_menu_picks(code, p);
     }
 }
 
@@ -774,10 +831,17 @@ fn draw(
     mut kit: Local<Option<look::Kit>>,
     (combat, play, mut script): DrawSources,
     mut forms: Local<Option<crate::pipboy::stats::read::Forms>>,
+    (tiles, mut was_tiled): (Option<Res<crate::tiles::vanilla::TileMenus>>, Local<bool>),
 ) {
-    if !active.is_changed() && !roots.is_empty() {
+    // T15a: with `[UI] TileMenus=QuantityMenu` the prompt is drawn from its tiles
+    // (`crate::tiles::menus`) once the tree has built its file; drawn again here when that
+    // changes (the frame the prompt opens, before the tree builds it, draws it by hand).
+    let prompt = active.0.as_ref().is_some_and(|m| m.quantity.is_some());
+    let tiled = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| crate::tiles::menus::quantity_tiled(tiles.as_ref().is_some_and(|t| t.quantity), &rt.game, prompt));
+    if !active.is_changed() && !roots.is_empty() && tiled == *was_tiled {
         return;
     }
+    *was_tiled = tiled;
     for e in &roots {
         commands.entity(e).despawn();
     }
@@ -816,11 +880,21 @@ fn draw(
             look::spawn(root, m, note.as_deref(), info.as_ref(), kit, data.as_deref(), &mut images, bc);
         });
     }
-    if let Some(q) = &m.quantity {
-        let words = look::quantity_words(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game));
-        commands.spawn((MenuRoot, screen, GlobalZIndex(101))).with_children(|root| {
-            look::spawn_quantity(root, q, &words, kit, data.as_deref(), &mut images, bc);
-        });
+    // Drawn from tiles, the prompt still keeps the pointer from the menu under it (a sheet
+    // alone, `crate::tiles::menus::modal_sheet`); it goes with the prompt.
+    match (crate::tiles::menus::modal(m.quantity.is_some(), tiled), &m.quantity) {
+        (crate::tiles::menus::Modal::HandBuilt, Some(q)) => {
+            let words = look::quantity_words(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game));
+            commands.spawn((MenuRoot, screen, GlobalZIndex(101))).with_children(|root| {
+                look::spawn_quantity(root, q, &words, kit, data.as_deref(), &mut images, bc);
+            });
+        }
+        (crate::tiles::menus::Modal::Sheet, _) => {
+            commands.spawn((MenuRoot, screen, GlobalZIndex(101))).with_children(|root| {
+                root.spawn(crate::tiles::menus::modal_sheet());
+            });
+        }
+        _ => {}
     }
 }
 

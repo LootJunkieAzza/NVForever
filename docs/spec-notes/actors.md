@@ -215,10 +215,10 @@ actor.
 |---|---|---|---|
 | Traits | race, sex, class, karma, death item (`INAM`), voice type | `Game::traits_def` (appearance, GetIsSex, GetIsClass, GetIsVoiceType, death items, dialogue), crime alignment, `fnv_actor::resolve` | right in `fnv-game`. Voice files: `fnv_voice::VoiceIndex::voice_of` follows `TPLT` only to an actor and the engine passes the placed base, so a list-templated actor speaks with the record's own `VTCK` (#1051, fixed separately) |
 | Stats | level, attributes, skills, health, speed mult, creature type, combat skill, base scale | `Game::stats_def`, `creature_pace`, `fnv_actor::resolve` | right |
-| Factions | `SNAM` list | `GameData::base_factions_at` | right; NVSE GetBaseNthFaction / GetBaseFactions read the record's own (#1057, needs a probe) |
-| Actor Effect List | `SPLO` abilities | `abilities.rs`, `combat.rs` | right; NVSE GetBaseSpellListSpells follows one step and gives nothing for a list template (#1057) |
+| Factions | `SNAM` list | `GameData::base_factions_at` | right; NVSE GetBaseNumFactions / GetBaseNthFaction / GetBaseNthRank / GetBaseFactions follow an NPC template chain whenever the flag is set (`GameData::base_template_source`, #1057) |
+| Actor Effect List | `SPLO` abilities | `abilities.rs`, `combat.rs` | right; NVSE GetBaseSpellListSpells follows an NPC template chain whenever the flag is set (#1057) |
 | AI Data | aggression, confidence, …, combat style, services, aggro radius | `def_following(template_ai)` | right |
-| AI Packages | `PKID` list | `GameData::base_package_list_at` | right; NVSE GetNthPackage / GetBasePackages follow the template only when the own list is empty, one step (#1057) |
+| AI Packages | `PKID` list | `GameData::base_package_list_at` | right; NVSE GetPackageCount / GetNthPackage / GetBasePackages follow an NPC template chain whenever the flag is set (`GameData::base_template_source`, #1057) |
 | Model/Animation | skeleton, head parts, FaceGen, creature models and animations, No Blood flags, movement flags, impact material, creature impact data set, creature sounds | `fnv_actor::resolve`, `GameData::no_blood`, `movement_def`, `GameData::model_base_at` | was wrong: impact material and impact data set read from the placed base (#1053), creature sounds took the picked creature's own list first (#1054); fixed |
 | Base Data | name, Essential, Respawn, No Low Level Processing, Invulnerable, Is Ghost, Not Pushable, head and limb flags, Can't Open Doors, Allow PC Dialogue | `base_data_def`, `display_base`, `minor_flags` | right; No VATS Melee is read from the record's own flags, as documented |
 | Inventory | `CNTO` | `inventory_sources_at`, `fnv_actor::resolve` | right (the engine's start-up and restore used level 1, #1055; fixed) |
@@ -286,6 +286,55 @@ paths**: trimmed, `/` → `\`, lower case, leading `\` removed, prefixed with `m
     NVDLC04UlyssesClass (load-order 0400A679), neither their own nor a list entry's
     (0x0008D370) [observed; not explained].
   - GetBaseSpellListSpells: an empty array on all five bases tried (none has own SPLO).
+  - Set tmpl1 [observed: 2026-10-31, same versions; 7 NPCs, 42 rows; posted on #1057]:
+    GetBaseNumFactions / GetBaseNthFaction / GetBaseNthRank / GetBaseSpellListSpells gave
+    the record's own lists, but no NPC tried tells own from template: those with an NPC
+    template (VHDNCRRanger6Veteran, VHDNCRTrooper7aHeavy) carry the same `SNAM` list as
+    it, and those with a list template have none of their own and answer 0 (e.g.
+    VSpawnJackalFemale01NR: 0 factions, 0 spells); set tmpl3 settles it. Class and race follow Use Traits
+    through NPC templates; the four whose Traits chain ends at a leveled list read class
+    NVDLC04UlyssesClass (LonesomeRoad.esm 0x0100A679) **and race** MarkedMenGhoul
+    (0x010083D7), neither their own (0x801 / 0x19) nor a list entry's. NVDLC04Ulysses is
+    the last NPC_ in the load order and carries that class; MarkedMenGhoul is the race of
+    the NPC_ before it, so it looks like a leftover of loading [hypothesis], not copied.
+  - Second set tmpl2 [observed: 2026-10-31, same versions; lab L5.ext.tmpl2]: with
+    Use AI Packages, GetBasePackages answers the template's `PKID` list even when the
+    record has one of its own: HVBrotherhoodOfSteelPaladinAAM 0x000E2960 (own 6) and
+    HVBrotherhoodOfSteelPaladinAM 0x000E2966 (own none) read the template's 5 (first
+    0x000E2968), FortChildHM 0x0011E507 (own 1) its template's 2, 1ESharecropperCF
+    0x000F6403 (own 5) its template's 3. GetRace on PrimmNCRTrooper3 0x00099D05 (Use
+    Traits from PrimmNCRTrooper1; own `RNAM` 0x424A) reads the template's 0x00000019.
+    No NPC_ in FalloutNV.esm takes Traits from an NPC with a class other than its own,
+    so GetClass through an NPC template is not observed. NVForever's base getters follow
+    such chains through NPC_ records only and keep the record's own data when the chain
+    reaches a leveled list (the original's list answers above match no record)
+    [hypothesis for the list case].
+  - Third set tmpl3 [observed: 2026-11-01, same versions; lab L5.ext.tmpl3], on actors
+    whose own list differs from their template's (a load-order scan found 842 for
+    factions, 345 for actor effects):
+    - Factions follow Use Factions through the template: Raider1MeleeAM 0x000295FA (own 3
+      `SNAM`) reads Raider1MeleeAAFTEMPLATE's 5, first its last `SNAM` 0x000448D1;
+      SniperShackRadroach01 0x0001FEC8 (own 1) reads CrRadroach's 2. GetBaseFactions
+      gives the same count. With o5's GoodspringsPowderGangerHM, three actors agree.
+    - GetBaseSpellListSpells follows Use Actor Effect List through the template, in
+      `SPLO` order: CrMisterGutsyEnclave 0x00021EBE (own 1) and Shakes 0x00017A03 (own 1)
+      read their templates' 3 (first 0x0012B88C, 0x0012B88E), FFEU02DeathClaw 0x00031E29
+      (none of its own) CrDeathClaw's 0x0012B892, CrFeralGhoul2B 0x0001CF77 CrFeralGhoul2A's
+      2 (first 0x000617BD).
+    - A reference whose Traits come from a leveled list: LvlRaiderRandomMale 0x0007E40E
+      (own `RNAM` 0x19, `CNAM` 0x801; every NPC its list gives has race 0x0004BF72, class
+      0x0001945C or 0x0001945E) placed with PlaceAtMe. GetRace on the reference reads
+      0x0004BF72 and GetClass 0x0001945C: the actor the list gave it. GetBaseObject on it
+      reads a form made at run time (0xFF001319), whose race is also 0x0004BF72. GetRace on
+      the record itself reads the Lonesome Road leftover again (0x040083D7).
+    - NVForever: the faction and actor-effect getters take the list of
+      `GameData::base_template_source`; GetRace, GetClass and GetNameOfClass on a
+      reference read its Traits source, the leveled pick included (`Game::traits_def`,
+      `Game::traits_class`), and on a base form its Traits template through NPC records
+      (class through an NPC template [hypothesis, as race]). Not copied: the run-time base
+      form (GetBaseObject answers the placed record), and the list case on a base form.
+      The class row differs in the lab only by the pick: the game's roll gave a melee
+      raider, NVForever's seeded pick a gun raider of the same list.
 - From the **Model/Animation** source: skeleton, hair, eyes, head parts, hair colour
   (`HCLR`, first three bytes), FaceGen arrays.
 - From the **Inventory** source: carried items (`CNTO` in record order).
@@ -1279,7 +1328,7 @@ only in the walk test and on the player's body. All rules here are engine choice
   (mole rat), 90 (mantis), 75 (sentry bot), 50 (Protectron), 45 (giant ant), 40
   (bighorner), 0 on templated ones [observed, a sample of 12 of FalloutNV.esm's 1,578 records; every CREA carries TNAM, non-zero on 1,033 of them, and on 1,547 of 2,238 over the base game and add-ons]. A
   creature's steady turn rates are TNAM × 1.25, × 3 or × 0.075 degrees per second
-  [observed 2026-10-30, §8.10 "TNAM"]; not used yet. While its heading catches up with the
+  [observed 2026-10-30, §8.10 "TNAM"]; creatures turn at × 1.25 (§8.10). While its heading catches up with the
   way to go the actor slows down: it keeps `0.3 + 0.7 × max(cos off, 0)` of its speed
   (`turn_slowdown`; a right-angle corner costs about half a second). Actors moved by
   the character controller (near the player, `residents.rs`) walk along their heading
@@ -1591,7 +1640,8 @@ stopped and started, as Victor's walk had before #258). Code:
   turns faster than 60°/s happened while they moved (over 20 units/s). Rule
   [hypothesis: proportional to scale, fitted on these two kinds; CREA `TNAM`, 720 and
   90 on these records, does not match]: a creature turns at 300°/s × its scale walking
-  and standing (`CREATURE_TURN_RATE`), and turns on the spot before setting off only
+  and standing (`CREATURE_TURN_RATE`). Since issue #915 this is only the fallback for a
+  creature whose TNAM is 0: the rest turn at TNAM × 1.25 ("TNAM" below). A creature turns on the spot before setting off only
   when its way is more than 60° off (`CREATURE_SPOT_TURN_START`, design; people: 20°,
   §8.9). With the people's 120°/s and 20°, a fast cazador stopped to turn at the start
   of nearly every short sandbox walk.
@@ -1627,7 +1677,17 @@ stopped and started, as Victor's walk had before #258). Code:
   standing or moving; what picks × 3 is not known [hypothesis: an attack or movement state
   the fields read here do not show]. The fitted 300°/s × scale above does not follow from
   this; the cazadors' 304°/s and 137°/s plateaus, from headings 0.16 s apart, mix these
-  rates. Not yet used by the engine (issue #915 stays open until the × 3 rule is known).
+  rates.
+
+  Rule (issue #915) [observed, campaign `o4turn` above, for the rates; design, the pick of
+  one]: a creature turns at TNAM × 1.25 degrees per second walking and standing, whatever
+  its scale (`creature_pace::creature_turn_rate`, `TNAM_TURN_MULT`), the rate every
+  creature measured showed on big turns. TNAM is read from the record that supplies the
+  creature's stats (template flag "Stats"; Turning Speed is on the Stats tab [documented:
+  GECK wiki Stats Tab for Creatures]), with SetCreatureTurningSpeed's change
+  (`Game::creature_turning_speed`). With TNAM 0 it turns at the fitted 300°/s × scale
+  above. Not built: × 3 (what picks it is not known, observer check 36) and × 0.075 (aim
+  tracking; the walker makes no such turn).
 - **Walk/run changes** [design]: the gait changes only when a speed smoothed over 0.2 s
   (`Locomotion::gait_speed`) is 15% past the switch point (`GAIT_HYSTERESIS`). In
   NVForever a creature's drawn speed jumped to two or three times its walk for a single
@@ -1859,6 +1919,90 @@ skeleton's placed creatures; `fnvtool combat form` of all 49 BPTD records; 2026-
   skeleton's limping set and `limping: … moves <Move> on its limping clip <sequence>`,
   logged once per actor, move and alert state when the clip played is not the upright
   set's.
+
+### 8.13 Attack clips that travel (#1069)
+
+Survey [observed: `fnvtool actor locomotion <Data> --nif-schema schemas/nif --folder
+<skeleton folder> --attacks` (new `--attacks` option: every `.kf` whose name holds
+`attack`, with `root_peak`, the farthest `Bip01` gets from its start along the ground),
+base `Fallout - Meshes.bsa`, 2026-10-31]. Distances in game units, the clip's own (before
+the actor's scale); "ends" is `Bip01`'s offset at the clip's stop, "peak" the farthest
+and when.
+
+| Skeleton | Clip | Length | Ends | Peak |
+|---|---|---|---|---|
+| deathclaw | `h2hattackforwardpower` | 1.50 s | 523 forward | 572 at 0.65 s |
+| dog | `h2hattackforwardpower` / `h2hattackpower` / `h2hattackleft` / `…right` | 1.37 / 1.83 / 1.03 / 1.03 s | 900 / 187 / 55 / 49 forward | at the end |
+| giantant | `h2hattackforwardpower` / `h2hattackleft` / `…right` | 1.10 / 1.00 / 1.00 s | 1402 / 0 / 0 | 1427 at 0.86 s / 128 / 125 |
+| ghoul (feral) | `h2hattackforwardpower`, `…leftpower`, `…rightpower` | 1.33 s | 350 forward | 387–396 at 0.71 s |
+| mirelurk, mirelurkking | `h2hattackforwardpower` / `h2h_attackforwardpower` | 1.27 / 1.10 s | 512 / 229 | at the end |
+| molerat, nvgiantrat | `h2hattackforwardpower` | 1.00 s | 348 / 350 | 348 / 350 |
+| nightstalker, yaoguai | `h2hattackforwardpower` | 1.33 / 1.17 s | 620 / 600 | at the end |
+| nvcazadores | `h2hattackforwardpower` / `h2hattackpower` | 1.83 / 1.70 s | 479 / 106 | 483 / 106 |
+| nvgecko, nvmantis, nvbighorner | `h2hattackforwardpower` | 1.70 / 1.70 / 1.67 s | 374 / 433 / 236 | at or near the end |
+| nvsecuritron, nvsporecarrier | `h2hattackforwardpower` | 1.10 / 1.00 s | 237 / 384 | 284 / 384 |
+| radscorpion | `h2hattackforwardpower` | 1.27 s | 399 | 399 |
+| smspinebreaker | `2hmattack{forward,left,right}power` | 2.0–2.3 s | 576–697 | 598–697 |
+| `characters\_male` | `h2hattackforwardpower` / `1hmattackforwardpower` / `2hmattackforwardpower` | 1.60 s | 280 / 281 / 238 | 305 / 300 / 265 |
+| `characters\_male` | `h2hattackcustom1power` (Legion Assault) / `1hmattackcustom2power` / `2hmattackcustom4power` | 1.60 / 2.33 / 1.63 s | 332 / 570 / 333 | 373 / 574 / 333 |
+| `characters\_male` | the directional power attacks (back, left, right) | 1.1–1.6 s | 31–71 that way | 31–72 |
+
+Ordinary blows move little (the radscorpion's 13–28, the queen ant's 55 and back), the
+forward power attacks (lunges) a creature's length or more. 2hr/2hh shots move `Bip01`
+by 21 at most (`2hrattack9`) [observed]. `idleanims\vats…` copies carry the same travel
+as their clips.
+
+**Playback** [design; engine rule, the original's not captured]:
+
+- A **lunge's** clip whose `Bip01` gets more than 100 units from its start
+  (`nvf_assets::anim_play::CARRY_MIN`) carries its actor: an NPC's or creature's forward
+  power attack (every `…forwardpower` above) except a biter's (dogs and coyotes, which
+  bite on the move with a head-only clip while their walk carries them: the walk wins),
+  and the player's body's melee attack clips
+  (the forward and custom power attacks: Legion Assault, `1hmattackcustom2power` …). The
+  other blows step in place by §8.2's rule, as before: carrying the dogs' 55-unit bites,
+  and then their standing power attack (`h2hattackpower`, 187), brought them to 37 units
+  of their target for the blows that followed, against the original's median 133 (smoke
+  `combat-dogs`, npc-behaviour-compare.md §3); the yao guai's and cazador's standing
+  power attacks (305, 106) still slide back for that reason. A carried clip: the pose holds `Bip01`'s ground position where its track starts (all of its
+  travel out of the pose, not only §8.2's linear accumulation; its height stays relative
+  as in §8.2), and its travel of each frame (`Clip::root_travel`) is the actor's,
+  turned by the actor's heading and scaled with it. Shots, reloads and block reactions
+  do not carry.
+- NPCs and creatures (`attack_anims::carry` → `residents::Core::carry`): the travel is
+  the velocity of the actor's character for the frame (a character is made for it if it
+  has none), so walls stop it and the actor blocks of the player and others stop it as
+  they stop a walk (`nvf_play::blocking`); while the clip plays its walk waits (the clip's
+  velocity replaces it). A lunge carries its actor no nearer its target than where
+  their bodies touch (`npc_combat::Fighters::lunge_room`; the melee spacing where the
+  walk stops when the bodies are not known): a deathclaw strikes from where its walk
+  stops, so a clamp at the walk's stop left its lunge nothing to carry. The dog's
+  `h2hattackforwardpower` goes 900 units, and carried in full it ran a dog past the
+  player and back (smoke `combat-dogs`); biters no longer carry [design]. The room is the fight's distance less
+  the travel given the frame before (the distance is a frame old); once a lunge reaches
+  it, the rest of that attack carries nothing, its clip's later travel back included (the
+  Deathclaw's goes 572 forward and back to 523) [design]. A hit reaction (a crippling
+  hit's stagger) stops the character and ends the carry for the rest of that attack
+  (`… a hit reaction ends its attack clip's carry`) [design]. A carried actor pushes nobody aside
+  (`ActorBlocks::carried`, owner 2026-10-11: a bite does not push the player around).
+  Its walker stands where its character got to, so it stays where the clip ends (or where
+  it was stopped); the character goes once the clip is over and it is not on its way.
+  Logged per carried blow: `its attack clip carried it N units of M, from … to …`.
+- The player (`player_body` → `nvf_play::player::Lunge`): the third-person body's melee
+  attack layer adds its root's travel each frame to the travel owed, which the next
+  physics steps move the player by on top of the walk, spread over them (travel, not a
+  velocity: a long frame after a short one moves the clip's own travel); it plays at the
+  swing's rate (the layer's), so a faster swing lunges faster.
+  Legion Assault's lunge (perk-entry-points.md §11.4) is this rule now: its fixed 332
+  units over 1.6 s (`combat::LUNGE`) went, as the clip gives the same.
+- Before: the clips' travel less its average stayed in the pose and the actor did not
+  move: the Deathclaw's model ran up to 345 units ahead of its collision and slid back to
+  where it started [observed in NVForever: owner 2026-10-30; the numbers from the clip].
+- Not carried: other clips with root travel (idles such as the deathclaw's
+  `specialidle_cageexit`, getting up, furniture) keep §8.2's rule.
+- **Smoke**: `deathclaw-lunge-carries` (a deathclaw set on the player south of
+  Goodsprings: the lunge clip carries it 523 units, and each carried blow ends forward);
+  `perk-legion-lunge` (the player's Legion Assault).
 
 ## 9. Weapons: holstering and drawing (part H)
 

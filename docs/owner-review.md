@@ -86,6 +86,22 @@ the spec it links to.
     below 35 % health, 3 s apart at least; the idle plays on the upper body so it keeps
     moving. All our numbers: should NPCs heal more, less, or not at all?
     ([combat-ai §21](design/combat-ai.md))
+36. **Lunges carry the attacker.** A forward power attack (a lunge) whose clip moves its
+    root more than 100 units carries the actor that far (a Deathclaw's 523 units, your
+    forward power attacks 240-280, Legion Assault 332), stopped by walls and by whoever it
+    lunges at; a lunging actor pushes nobody aside, as you ruled for bites. Other blows
+    still step in place (carried, the dogs ended up biting from inside the player's
+    reach); the yao guai's standing power attack (305 units) so still slides back. If you
+    rule otherwise: every travelling blow carries, and the AI must step back after it.
+    NPCs start their lunges once they touch their target, so an NPC's lunge carries it
+    little or nothing until the AI lunges from farther out. ([actors §8.13](spec-notes/actors.md))
+37. **Melee knockback distance.** A melee blow that leaves its target standing pushes it
+    back through its collision: the knockback formula's force read as a speed falling to
+    rest over 1 s, so force / 2 units (a Sledgehammer hit about 57, a punch 24, a
+    deathclaw swipe up to 256). A blocked or 0-damage blow still pushes 15 units (the
+    formula's base force). Our reading of the formula, not measured in the original:
+    more, less, only on power attacks, and should a block take the push too?
+    ([combat-rules, Knockback](spec-notes/combat-rules.md))
 
 ## Tier 2: movement and controls feel
 
@@ -114,6 +130,17 @@ the spec it links to.
     (Cook-Cook, Speed Mult 110) ran at the people's speed without his Speed Mult. Keep the
     matched feet, take the sliding feet, or have people ignore Speed Mult?
     ([actor-flags §3](spec-notes/actor-flags.md), [actors §8.10](spec-notes/actors.md))
+38. **Variable refresh on your screen.** Display sync has a new "Variable refresh" choice
+    for G-Sync: vsync stays on and the frame rate is held under your monitor's refresh rate
+    (138 at 144 Hz). Does G-SYNC engage in borderless and in exclusive full screen (the
+    NVIDIA G-SYNC indicator), and does Primm feel smoother than plain vsync? Should it be
+    the default? ([display-sync](spec-notes/display-sync.md))
+39. **Controller aim assist strengths.** With a controller, the stick turns 45% slower
+    while the crosshair is on a hostile within 1800 units, and aiming down the sights
+    eases the view onto the hostile nearest the crosshair (within about 8.7°) for 0.3 s.
+    On by default, both strengths 0.6 on the settings page's Controller group. Too
+    strong, too weak, or should either be off by default?
+    ([controller §5](design/controller.md))
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 
@@ -182,6 +209,12 @@ the spec it links to.
    cuts the physics cost of a heap of 20+ small corpses (#910). Look at a nest of nymphs
    killed in one spot: if corpses lying inside each other look wrong, the size limit can
    come down or the rule go. [ragdoll.md](spec-notes/ragdoll.md), "Corpse against corpse".
+
+40. **Hotkeyed weapons come in holstered (your ruling, #1106).** A weapon picked by a
+   number key or the weapon wheel is equipped holstered; a weapon in hand is put away
+   first, and Ready Item draws the new one. The original may draw it. Kept here only so
+   it is on record as a difference; if you want a drawn weapon to stay drawn on a swap,
+   it is one function (`holster_for_new_weapon`). [weapon-wheel.md §4](design/weapon-wheel.md)
 
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 

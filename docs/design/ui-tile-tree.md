@@ -73,7 +73,9 @@ is the one door:
 - tests pass `MemSource`, files written for the test.
 
 Replaced menu files therefore work without any code: the VFS already prefers the loose
-file. Game strings (`&-sName;`) come from `Source::game_string`. The engine answers from
+file. `Source::read_archived` reads the copy a loose file hides (`fnv_vfs::Vfs::read_archived`,
+the highest archive's), whose names tell a loose replacement's own tiles from the ones it
+kept (`Ui::archived_name_paths`, §6.1, #975). Game strings (`&-sName;`) come from `Source::game_string`. The engine answers from
 `fnv_ui::GameStrings`: the load order's GMSTs (last plugin wins), then the built-in table
 `fnv_ui::strings::BUILT_IN`, since the masters hold only one of the 145 names
 (`sMorphine`). The table holds NVForever's own English labels, written from each
@@ -247,6 +249,10 @@ From the UI category of functions.json, the ones that need tiles:
 - the cursor and screen traits;
 - the menu events `SetOnMenuClickEventHandler` and `SetOnMouseoverChangeEventHandler`.
 
+Built (T9) and left open, function by function: menu-xml.md §9. The gradual changes'
+state is `Game::ui_gradients`, stepped by the engine on real time; CacheUI's caches, the
+HUD bars and the attached components are `Game::ui_extra`.
+
 ### 5.3 For modders writing for NVForever
 
 The same as for the original: the menu files, includes, UIO lists, the functions.
@@ -291,6 +297,7 @@ at the same view size). That is the work of each migration task, not guessed up 
    current code does: compared against the same screenshots as the current spec notes.
    - Each menu has a switch, `NVForever.ini` `[UI] TileMenus=`, a list of menu names.
      The old drawing stays the default until the owner agrees a menu has moved.
+     `HUDMainMenu` (T12), `MessageMenu` and `QuantityMenu` (T15a) are acted on.
    - The game rules stay where they are (`menu::model`, `pipboy::items`,
      `wait::model`, …). Only the view changes: the model writes `io()` traits and
      template rows, input comes back as clicked tiles.

@@ -266,6 +266,18 @@ docs/handoff/ui-tile-tree-tasks.md]: `x` `y` `width` `height` `depth` `alpha` `v
 - [hypothesis] `depth` adds down the tree, with zero when absent. Parents precede
   children; siblings sort by increasing depth, preserving file order for ties. Neither
   this note's earlier sections nor hud.md establish cumulative depth or traversal order.
+- [hypothesis, T15a] A `hotrect`'s own `alpha` is not passed to its children: every
+  vanilla text button is a hotrect of alpha 0 (`text_box.xml`) whose text sets its own
+  alpha (128, or 255 while it is a target), the message box's list and its rows
+  (`list_box.xml`, `list_box_template.xml`) are alpha-0 hotrects over texts the original
+  shows (the message box's OK, the prompt's Ok and Cancel on the owner's screenshots,
+  message-menu.md §3, barter-menu.md §7), and the list's highlight box, alpha 40, draws
+  its lines at full strength. Until T15a it multiplied through as the other tiles' does,
+  which hid those texts. [design] The exception now applies only while a T15 menu is
+  switched on (`tiles::interface_screen`, the same gate as interface `screen()` units).
+  With both T15 menus off, including the tile HUD alone, hotrect alpha still multiplies
+  through mod HUD tiles and other layouts as before T15a. Applying the exception
+  unconditionally is a candidate for its own PR.
 - [hypothesis] `alpha` is 0–255, defaults to 255, and multiplies through ancestors as
   fractions of 255. [design] Clamp each local alpha to that range and retain fractional
   results without rounding.
@@ -306,12 +318,13 @@ NVForever's own HUD, from the layout of §3.1.1. What it takes the traits to mea
   height/960 window pixels (`interface::u`), as the current HUD.
 - [design] Which tiles: §7's `mod_added_tiles` roots, and inside them each tile
   `mod_tile_drawn` accepts: Injected and Template always, Code never, File tiles only
-  against the archived file's name paths. In the game no File tile draws in v1:
-  `fnv_vfs::Vfs` keeps one location per path, so the archived copy under a loose file
-  cannot be read [documented: crates/fnv-vfs/src/lib.rs, `Vfs::open`]. `fnvtool ui
-  mod-tiles` makes the comparison where overlays and archives are separate (2026-10-29,
-  over the test install [observed]: vanilla 0 tiles, Clean Vanilla Hud's loose HUD 0,
-  Vanilla UI Plus 5, its `VUI+` outline tiles in the prompt box).
+  against the archived file's name paths. Since #975 `fnv_vfs::Vfs` keeps the highest
+  archive's copy under each loose file (`Vfs::read_archived`), and the game and `fnvtool
+  ui mod-tiles` both compare a loose replacement with it (`Ui::archived_name_paths`);
+  before, the game drew no File tile, as the VFS kept one location per path. `fnvtool`'s
+  comparison over the test install (2026-10-29, overlays [observed]): vanilla 0 tiles,
+  Clean Vanilla Hud's loose HUD 0, Vanilla UI Plus 5, its `VUI+` outline tiles in the
+  prompt box.
 - [design] A `rect` draws a filled box only when it sets `red`, `green` or `blue`
   itself; otherwise it only places its children. `nif`, `radial` and `window` tiles,
   and empty pictures and strings, draw nothing in v1 (the whole HUD's drawing draws
@@ -329,17 +342,23 @@ NVForever's own HUD, from the layout of §3.1.1. What it takes the traits to mea
 - [observed: the font files against hud.md §14.1] A text's width is the sum of its
   glyphs' advances (fonts.md §3): font 7 "Button Text" 156 and "Talk" 54, font 8 "+0" 50
   and "+9" 49, as the original wrote. A `wrapwidth` of 0 does not wrap (the prompt's
-  `button_text` has 0 and measured one line). [hypothesis] In NVForever's implementation
-  (`draw::measure`) a text's height is its lines times the font's line height, not the
-  original's text tile `height` (below); each line is set left, centred or right inside the box by
-  `justify`, one line height under the last.
+  `button_text` has 0 and measured one line). [hypothesis] Each line is set left,
+  centred or right inside the box by `justify`; [observed: hud_menus capture
+  2026-10-31, fonts.md §3.1] the lines stand one pitch of their font apart
+  (`draw::line_pitch`: 31, 35, 32, 36, 25, 38, 38, 52 for fonts 1-8), which for fonts 2,
+  3, 6 and 7 is not the font file's size (until this change NVForever set them the size
+  apart).
 - A text's first line stands under its top by its font. [observed: hud_textbase capture
   2026-10-31, hud.md §14.10] Measured from the capitals' ink in the original against
   where NVForever's glyph pictures put it (fonts.md §3), the lines stand 24.9 units under
   the top in font 7, 30.5 in font 8 and 21.0 in font 1 (a tile with no `font`).
-  [design: NVForever's calibration, anchored on font 7] `draw::text_base` keeps font 7
-  at the earlier readings' 24 and stands fonts 8 and 1 as far from it as the capture
-  shows: 29.5 and 20; the fonts no capture measured take 24 [hypothesis]. Texts of fonts 7 and 8 set at one `y` do not
+  [observed: hud_menus capture 2026-10-31, fonts.md §3.1] Every font, measured the same
+  way at three window sizes: font 1 20.3, fonts 2-5 about 16.5, font 6 22.4, font 7
+  24.5, font 8 30.5. [design: NVForever's calibration, anchored on font 7]
+  `draw::text_base` keeps font 7 at the earlier readings' 24 and stands every other font
+  as far from it as the hud_menus capture shows: font 1 20, fonts 2-5 16, font 6 22,
+  font 8 30 (29.5 from hud_textbase until then; fonts.md §3.1 says why 30); font 9, which
+  draws nothing in the original, takes font 7's 24 [design]. Texts of fonts 7 and 8 set at one `y` do not
   stand on one line: `radiation_text` ("RAD/SEC", font 7) and `radiation_text_value`
   ("+9", font 8), both at y 65, end 25.0 and 31.7 under it. T12c (2026-10-29) stood
   every font's line 24 under the top [hypothesis then: the two radiation texts read on
@@ -348,11 +367,14 @@ NVForever's own HUD, from the layout of §3.1.1. What it takes the traits to mea
   `hud_corners` rad_coc_spot, `hud_jip` s4_sneak_drawn, hud.md §14.8]; the font-8
   reading was wrong (#979). Until T12c each font's tallest glyph set the line
   (`interface::line_base`: 28, 33, 48 for fonts 1, 7, 8).
-- [observed: hud_textbase capture 2026-10-31] A text tile's `height`, read in the
-  original, is its font's tallest glyph picture whatever its string: 36 for font 1, 42
-  for font 7, 64 for font 8 (fonts.md §3). NVForever's `measure` gives lines times the
-  font's size (31, 36, 52 for one line) and writes no text tile's `height` [design: a
-  difference kept, not yet needed].
+- [observed: hud_textbase and hud_menus captures 2026-10-31] A text tile's `height`,
+  read in the original, is its font's tallest glyph picture whatever its string, plus
+  one pitch for each line after the first: one line 36, 32, 31, 37, 28, 38, 42, 64 for
+  fonts 1-8, two lines 67, 67, 63, 73, 53, 76, 80, 116 (fonts.md §3.1). NVForever's
+  `draw::measure` gives that height (`tallest_glyph` + (lines - 1) × `line_pitch`; until
+  this change lines × the font's size); the layout uses it for a text tile without its
+  own `height` (§3.1.1), and the code writes no text tile's `height` into the tree
+  [design: not yet needed].
 - [hypothesis] Colour: a tile's own `systemcolor`; else its own `red`/`green`/`blue`
   when it sets any; else the nearest tile above's `systemcolor`; else system colour 1, the
   HUD's [documented: GECK wiki Color UI directives, "Systemcolor is by default 1 and always
@@ -585,7 +607,7 @@ marked]:
 | `me()` | 1798 | the tile itself |
 | `sibling(name)` | 1660 | the tile of that name under the same parent |
 | `sibling()` | 2 | the tile just before it under the same parent |
-| `screen()` | 451 | the view: traits `width`, `height`, `cropx`, `cropy`, `resolutionconverter`, set by the engine |
+| `screen()` | 451 | the view: traits `width`, `height`, `cropx`, `cropy`, `resolutionconverter`, set by the engine. Width is 960 × window width/height, height 960 and `resolutionconverter` 960 / window height [observed: hud_menus capture 2026-10-31, three window sizes] (1280 x 720, 1920 x 1080 and 1280 x 1024). NVForever uses those interface units only while `[UI] TileMenus` names `MessageMenu` or `QuantityMenu`; otherwise it keeps window pixels and no converter [design: preserve default play; applying the observed units unconditionally is a follow-up]. `fnvtool ui tree --screen` writes the size it is given [design] |
 | `globals()` | 244 | `globals.xml`'s tile (`gloabls()`, once, read the same) |
 | `io()` | 242 | the menu the tile is in, whose traits the game's code reads and writes (barter reads `io()`'s `_IsContainerListSelected`, which its `<menu>` declares) |
 | `child(name)` | 148 | the child of that name; `child()` the first child |
@@ -614,7 +636,12 @@ use found:
 
 `<copy src="me()" trait="_filename_"/>` after the value is a number n reads the trait
 `_filename_n` [hypothesis: the meter and barter files pick a picture that way; 15
-names end in `_` in the vanilla files, all after a numeric value].
+names end in `_` in the vanilla files, all after a numeric value]. After a constant it
+reads the constant's number (§2.3; `&false;` 0, `&true;` 1) [hypothesis, T15a: the meter
+prefab copies `_SolidMeter` and `vertical_fade_line.xml` copies `_bottom_to_top`, both
+`&false;` or `&true;`, before the copy, and their `_filename_0`/`_Filename_1` are the two
+pictures; until T15a the name was read without a number, and the message box's corner
+lines and the prompt's meter had no picture].
 
 ## 5. Paths
 
@@ -803,3 +830,51 @@ What the original can settle (copied to docs/handoff/observer-checks.md):
     GetActiveUIComponentName, GetActiveUIComponentFullName and GetActiveUIComponentID in
     game mode with no menu open (ours: "", "" and -1), and over a target with no `<id>`
     (ours: its name and -1); ClickMenuTile's return value.
+
+## 9. The rest of the tile functions (task T9)
+
+[design] Built headless in `crates/fnv-game`: `ui_more` (dispatch, after
+`ui_functions` in `nvse::call`), `ui_gradients` (changes over time), `ui_cache`
+(CacheUI), `ui_hudbar` (SUP's bars); tests `crates/fnv-game/tests/ui_more.rs`, the
+units in those files, and `fnv_ui` `a_trait_by_a_path_under_a_tile`
+(`Ui::find_trait_in`). Every page is the GECK wiki export of 2026-10-28; the tags per
+rule are in the code beside it. Smoke: `ui-gradual-in-game`.
+
+| Functions | Page(s) | What NVForever does | Open |
+|---|---|---|---|
+| SetUIFloatGradual | SetUIFloatGradual [documented] | modes 0-3 on real time; stop with the path, stop and set with a start; the engine steps them after the scripts, before `Ui::update` (`engine/nvf-play/src/tiles/mod.rs`) | linear in time [hypothesis]; a missing duration ends at once [hypothesis] |
+| GetUIFloatGradualActiveForTile, …ForTileTrait, …Mode, …Timer | the four SUP pages [documented] | read JIP's table; Mode -1 when none [documented] | Timer -1 when none, a repeating change's time left is its round's [hypothesis] |
+| SetUIStringReveal, CacheUIStringReveal(Alt) | SetUIStringReveal, CacheUIStringReveal [documented] | letters by the time's share, from the left or right, inverted, ease in as the square [hypothesis for the rounding, the right and the ease] | none |
+| SetUIFloatMultiple | SetUIFloatMultiple [documented] | every tile inside of the type, that has the trait; the count back [design] | whether it makes the trait [hypothesis: not] |
+| AttachUIXML, AttachUIComponent | AttachUIXML, AttachUIComponent [documented] | a single `rect` into `HUDMainMenu`'s root, kept in `UiExtra::attached` with the reference and node; 1 or 0; the VM formats the component. Replaces the one attached before to the same (reference, node, rect name), keeps it hidden until placed, drops it when the reference is deleted, disabled or outside the loaded cells [design] | **placing the component at the node on screen** (the engine's 3D projection), and checking the node exists |
+| AddTraitToTile | AddTraitToTile [documented] | makes or sets the trait; an empty name makes none (0) [design] | the original's list of trait ids it allows is not known: any other name taken [hypothesis] |
+| GetUIValueType, GetUIElementType | the SUP pages [documented] | 1/2/3 and -1; 1-5 by tile kind, `nif` 4 [hypothesis], other kinds 0 [hypothesis] | no path means the cursor's tile: T8, -1 here |
+| SortUIListBox | SortUIListBox [documented] | keys `-`, `#`, `@`; `$destination$increment` (default `_y`, `height`); numeric keys in a total order, NaN keys at the ends (`total_cmp`) [design] | which children are items (those with the destination), the first value (the smallest), the case [hypothesis each] |
+| GetStringUIDimensions | GetStringUIDimensions [documented] | `string_dimensions` over a measure; outputs through the VM's out_call | **the engine does not yet set `UiExtra::measure`** (its fonts are in `tiles::draw::TileFonts`): in game the outputs stay unwritten |
+| DumpTileInfo, DumpTileInfoALL, DumpTileInfoToArray | the three SUP pages [documented] | `[ Tilename ] : name` and `[ trait ] : value` lines (the ToArray page's example output) to the console, or to NVForever's log for DumpToFile (never `SUPNVSE.log` in the game folder); ToArray a string map | no path means the cursor's tile (T8); ALL lists the menus, no cursor tile exists |
+| CacheUI, …Float, …String, …ModFloat, …GetFloat, …GetString, …Range, …RangeMod, …Erase, …Dump, …Gradual, …RangeGradual, …GradualDelay, …RangeGradualDelay, each with its Alt | the CacheUI pages (CacheUIModFloat's is `CacheUIMod`) [documented] | caches per calling plugin, Alt per key; delay pulls the value then, flags 0/1/2 and the lock, `match` ends a delay; modes 0-3, 5, 6 | mode 4 (rumble) refused: its shake and decay are not given; RangeMod's page and example differ in argument order, both taken [design]; the script runners' shared cache |
+| CUICreateQueue, CUIGetQueue, CUIGetQueueSize, CUIQueueCycle, CUIQueueFloat | the five pages [documented] | per plugin; toggle, forced add and remove, duplicates | cycle direction 0 [hypothesis] |
+| HudBar… (35 functions) | SUP HUD Bar Functions and each HudBar page [documented] | a `rect NVFHudBar<n>` with `Meter`, `Frame`, `Text`, `ImageEx` in `HUDMainMenu`, per plugin (console: first of the name), written after each change and after a load; types 0-5, value/max/percentage, text with prefix, postfix and max, alpha, colour, system colour, depth, zoom, rotation, size, indent, alt size, texture, text font and justify, auto position, bar and meter traits, all-bars arrays, element paths, debug lines to the log | **not built**: HudBarSetValueScriptVar and HudBarSetValueUDF (the VM passes a variable's value, not the variable), the visibility conditions and gradual vanishing (bar traits 0, 21-27, 41-64 kept, not acted on), reading a texture's size (`iCalculateSize`), the rotation on screen (the traits are written, the tile renderer turns no tile yet); the meter's width as indent plus the share of the rest, type 4 without a built-in `%`, the default max 100 and which elements show by default [hypothesis] |
+
+[design] Numbers that are not numbers: SetUIFloatMultiple, AddTraitToTile, CacheUIFloat /
+ModFloat / Range / RangeMod (and their Alt forms), a HUD bar's place at creation and its
+element, bar, meter and text setters write 0 for a NaN or an infinity (`ui_more::finite`;
+a CacheUI sum that is one too); HudBarSetValueFloat, …Max and …Percentage refuse one with
+-1. The pages say nothing about such numbers; these are NVForever's own safeguards.
+
+[design] DumpTileInfo reads its path from the second argument (`toFile path`), so the HUD's
+kept-back writes are made before a dump of a `HUDMainMenu` path; a dump of another menu
+leaves them kept back.
+
+Not built, with why:
+
+- **SetUITexOffset, SetUIAlphaMap** [documented: their ITR pages]: texture sampling
+  and a shader stage, the renderer's; nothing in the tree to write.
+- **SetUITypewriter** [documented: SetUITypewriter]: per-letter `_TS?`/`_TA?` traits
+  with fades and Fisher-Yates orders; the page's XML example is cut off and does not say
+  how the text splits into the traits or which random order.
+- **SetTileScript, RemoveTileScript** (CacheUI): a script called each frame while a
+  trait is non-zero; a per-frame script hook, outside this task.
+- **The cursor's tile** for GetUIElementType and DumpTileInfo without a path, and the
+  menu events: T8's pointer (`Game::ui_pointer`, #957) is on main now; these functions
+  do not read it yet.

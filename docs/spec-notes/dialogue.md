@@ -267,6 +267,19 @@ said next, without a choice by the player [owner statement 2026-10-10: follow-up
 no player response, as read here from Doc Mitchell's lines; not yet captured;
 hypothesis: the first sayable one when a line lists several].
 
+The 15 lines of FalloutNV.esm with both follow-ups and choices (§3) fall in two kinds
+[observed: `fnvtool dialogue lines --all`, 2026-10-31]. In 11 the follow-up is Say Once
+(so the choices come once it has been said) or has choices of its own, mostly the
+same or overlapping ones (the Fort's greeting, Arcade's Topic065, Papa Khan, Markland,
+Vicky Vance, Caesar's Topic095/146/150, the followers' distance line). In 4 the
+follow-up is a Goodbye line, so saying it leaves the choices unreachable: Yes Man's
+Topic056 (INFO 0x00158A3D, whose choice Topic068 was never offered [observed:
+mq-walkthrough-2026-10-27 §2 item 13]) and Topic064, both leading to Topic067's Goodbye
+line, which is also one of their choices; Jeannie May's Repcon line (to GOODBYE); the
+King's north bodyguard's Topic002. So a line with choices passes over its Goodbye
+follow-ups and offers its choices; other follow-ups are said first, as above [design,
+issue #964; what the original does is observer check 65].
+
 When the player chooses a topic from a list, its lines that some line names as a
 follow-up are passed over while another line of the topic can be said; only when none
 can is a follow-up line taken [hypothesis, 2026-10-30; observer check 37]. Greetings and
@@ -384,11 +397,13 @@ the game's seeded generator, and only when more than one line of the pool can be
 said.
 
 A speaker **can say** a line when:
-- it has not said it, for Say Once; not within the last `fSayOncePerDayInfoTimer` game
-  hours (12 when the setting is absent), for Say Once a Day; both per actor
-  [documented: Category:Dialogue]. Say Once was seen to hold across actors instead: the
-  Yes Man mainframe skipped the greeting 0x001164F1 the Tops Yes Man had said
-  [observed 2026-10-31, observer check 31; one case]. The clock is GameDaysPassed × 24 + GameHour
+- no actor has said it, for Say Once; it has not said it within the last
+  `fSayOncePerDayInfoTimer` game hours (12 when the setting is absent), for Say Once a
+  Day. The wiki has both per actor [documented: Category:Dialogue], but Say Once was seen
+  to hold across actors: the Yes Man mainframe skipped the greeting 0x001164F1 the Tops
+  Yes Man had said [observed 2026-10-31, observer check 31; one case, and the two may
+  count as one speaker]. Ours holds a Say Once line back from every actor once any has
+  said it (#1113); Say Once a Day stays per actor. The clock is GameDaysPassed × 24 + GameHour
   [hypothesis];
 - it is the line's fixed speaker, if the line has one [documented: Category:Dialogue] —
   unless the line has its own GetIsID condition on the speaker, which then decides
@@ -494,7 +509,14 @@ All of it is in `GameSnapshot`.
   topics [documented: xEdit "Add Topics"; hypothesis on the moment and that they stay
   known afterwards]; a Goodbye line ends the conversation [documented]; else the first
   follow-up the actor can say is said (§3.4) [owner statement]; else choices are offered;
-  with nothing to offer the conversation ends [hypothesis].
+  with nothing to offer the conversation ends [hypothesis]. A `StartConversation player`
+  in the end result of the line that ends the conversation (Goodbye, or nothing to offer)
+  is held and starts right after the conversation closes; when the conversation goes on
+  it is refused, as any StartConversation while one runs (`Game::hold_force_greet`)
+  [design, issue #1107: 8 end scripts in FalloutNV.esm do this, 4 of them of Goodbye
+  lines, e.g. Anders' thanks in VMS46, INFO 0x00142A9C; the other 4 lines have neither
+  the flag nor choices [observed: `fnvtool dialogue lines --all`]; observer check 39]. A
+  conversation the end script ends some other way does not start it [design].
 - **Choices** (`Game::build_choices`). After a line with choices: those topics and
   nothing else [documented; owner statement 2026-10-11: a line linked by choices offers
   only the topics given as its choices]. Otherwise the top-level topics plus the known
@@ -508,16 +530,28 @@ All of it is in `GameSnapshot`.
   shared lines, e.g. Red Lucy's greeting.) Topics whose lines name the line's topic in
   their Link From join either list (§3.5) [documented; hypothesis on how]. Order: topic priority (DIAL PNAM), highest first
   [documented]; then, for a line's choices, their order in the record [documented:
-  "Sorting order of links"], and for the topic list the topics' record order
-  [hypothesis]. Quest priority plays no part in the order of the list.
+  "Sorting order of links"], and for the topic list the known topics newest first, one
+  line's Add Topics keeping their record order and a line's topic already known moving
+  to the front again (`AddTopic` on a known topic leaves it in place: scripts may call
+  it every frame), then the others in record order, the top-level topics among them
+  even when the player also learned one [owner's choice 2026-10-31 and design;
+  `KnownTopics`, `dialogue::ListKey`]. The original follows no rule we can copy [observed
+  2026-10-31: Boone's list after learning C8, CA, then CC and CB from one line read C8,
+  CC, CB, CA; Manny Vargas with topics given by `AddTopic` (captures `dlg_topic_order_*`
+  and owner screenshots): learned CEDEE, B15FC, 137A62, B15FB, B15FA, then 96BCF from
+  the greeting gave 96BCF, B15FB, 137A62, B15FC, top-level 15F503, CEDEE, B15FA; CEDEE,
+  B15FC, 96BCF gave 96BCF, B15FC, 15F503, CEDEE; 96BCF, B15FC, CEDEE, then 96BCF again
+  gave 96BCF, 15F503, B15FC, CEDEE. The same set in two orders rules out record order
+  or any fixed index; each run gave the same list twice. Hypothesis: equal priorities
+  come out of a sort that does not keep their order.] Quest priority plays no part in the order of the list.
 - **The text of a choice** is the line's prompt, else the topic's name [documented].
   It is shaded when the actor has said that line before, unless the line has Info
   Refusal; always with Always Darken [documented: Category:Dialogue flags].
 - **GOODBYE.** When the topic list holds no Goodbye line, the actor's line of the
   GOODBYE topic is offered last, if it has one [documented: Quest and Dialogue Tutorial;
   Conversation Tab].
-- **Known topics.** `AddTopic` and lines' Add Topics lists fill one set, kept for the
-  whole game; every actor that can say a line of a known topic offers it [owner
+- **Known topics.** `AddTopic` and lines' Add Topics lists fill one list, newest first
+  (above), kept for the whole game; every actor that can say a line of a known topic offers it [owner
   statement 2026-10-10: every actor has the line while its quest is active and the
   conditions are met; not yet captured]. When an Add Topics list is applied (here: when
   the line ends) stays a [hypothesis].
@@ -816,7 +850,7 @@ up to C and F):
     again while it speaks (cut and restart, or ignored); and whether a Goodbye line of
     a topic named by StartConversation opens the menu.
 13. Say Once across two actors sharing a line (one case answered: not said again,
-    observer check 31); Say Once a Day's clock; Say Once and
+    observer check 31; built, #1113); Say Once a Day's clock; Say Once and
     Say Once a Day counted from the line's start or end.
 14. Response order where numbers and stored order disagree.
 15. Whether SayTo and Say obey Random stacks like menu dialogue.

@@ -52,6 +52,34 @@ pub enum VfsError {
 /// (diagnostics only; see there).
 pub const ARCHIVE_ORDER_ENV: &str = "NVF_ARCHIVE_ORDER";
 
+static ARCHIVE_LIST: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
+/// Set the run's base archive list (an `SArchiveList` from NVForever's own INI, or
+/// `fnvtool vfs order --archive-list`) in place of [`DEFAULT_ARCHIVE_LIST`], before any
+/// archive is mounted (issue #1142: a mod setup that adds base archives). Once per run: a
+/// second call is refused (`Err` with the list kept). An empty list is refused too.
+pub fn set_archive_list(list: Vec<String>) -> Result<(), Vec<String>> {
+    if list.is_empty() {
+        return Err(list);
+    }
+    ARCHIVE_LIST.set(list)
+}
+
+/// The run's base archive list, lowest precedence first: the one set with
+/// [`set_archive_list`], else [`DEFAULT_ARCHIVE_LIST`]. `Update.bsa` and the plugins'
+/// own archives come after it ([`Vfs::archive_order`]).
+pub fn archive_list() -> Vec<String> {
+    match ARCHIVE_LIST.get() {
+        Some(l) => l.clone(),
+        None => DEFAULT_ARCHIVE_LIST.iter().map(|s| s.to_string()).collect(),
+    }
+}
+
+/// Whether the run's base archive list was set ([`set_archive_list`]).
+pub fn archive_list_overridden() -> bool {
+    ARCHIVE_LIST.get().is_some()
+}
+
 /// Archive names of a comma-separated list (`SArchiveList` style), trimmed, empty items
 /// dropped.
 pub fn parse_archive_list(list: &str) -> Vec<String> {
@@ -109,6 +137,9 @@ pub struct Vfs {
     index: HashMap<String, Location>,
     /// Lower-cased loose path → real relative path (for case-sensitive file systems).
     loose: HashMap<String, PathBuf>,
+    /// The highest archive copy of each loose path that also sits in an archive, which
+    /// the loose file hides from [`Vfs::read`] ([`Vfs::read_archived`], #975).
+    under_loose: HashMap<String, Location>,
     /// Archives and folders that could not be read, with why: skipped, not fatal (a
     /// broken mod must not stop the game). Kept so a caller whose log is not up yet can
     /// report them later.
@@ -167,7 +198,7 @@ impl Vfs {
     /// Open the archives (lowest precedence first) and index loose files under `data_dir`.
     pub fn open(data_dir: &Path, archives: &[String]) -> Result<Vfs, VfsError> {
         let mut vfs =
-            Vfs { data_dir: data_dir.to_path_buf(), archives: Vec::new(), index: HashMap::new(), loose: HashMap::new(), skipped: Vec::new(), broken: Vec::new() };
+            Vfs { data_dir: data_dir.to_path_buf(), archives: Vec::new(), index: HashMap::new(), loose: HashMap::new(), under_loose: HashMap::new(), skipped: Vec::new(), broken: Vec::new() };
         for name in archives {
             // A bad or wrong-version archive is skipped; the others still load.
             let a = match Archive::open(data_dir.join(name)) {
@@ -200,7 +231,9 @@ impl Vfs {
             if !key.contains('\\') {
                 continue;
             }
-            vfs.index.insert(key.clone(), Location::Loose);
+            if let Some(under @ Location::Archive { .. }) = vfs.index.insert(key.clone(), Location::Loose) {
+                vfs.under_loose.insert(key.clone(), under);
+            }
             vfs.loose.insert(key, rel);
         }
         Ok(vfs)
@@ -226,12 +259,16 @@ impl Vfs {
 
     /// The archives [`Vfs::open_for_plugins`] mounts, lowest precedence first, and
     /// whether they came from the [`ARCHIVE_ORDER_ENV`] override (`fnvtool vfs order`).
+    /// The base list is [`archive_list`]'s: an `SArchiveList` set for the run, else the
+    /// shipped default.
     pub fn order_for_plugins<S: AsRef<str>>(data_dir: &Path, plugins: &[S]) -> (Vec<String>, bool) {
         match std::env::var(ARCHIVE_ORDER_ENV) {
             Ok(list) if !list.trim().is_empty() => (parse_archive_list(&list), true),
             _ => {
                 let plugins: Vec<&str> = plugins.iter().map(AsRef::as_ref).collect();
-                (Vfs::archive_order(data_dir, &DEFAULT_ARCHIVE_LIST, &plugins), false)
+                let list = archive_list();
+                let list: Vec<&str> = list.iter().map(String::as_str).collect();
+                (Vfs::archive_order(data_dir, &list, &plugins), false)
             }
         }
     }
@@ -281,8 +318,24 @@ impl Vfs {
     /// Decoded contents of `path`, or `None` when no source has it.
     pub fn read(&self, path: &str) -> Option<std::io::Result<Vec<u8>>> {
         let key = normalize(path);
-        Some(match *self.index.get(&key)? {
-            Location::Loose => std::fs::read(self.data_dir.join(&self.loose[&key])),
+        Some(self.read_at(&key, *self.index.get(&key)?))
+    }
+
+    /// Decoded contents of the highest archive copy of `path`, also when a loose file
+    /// replaces it; `None` when no archive has it. Menu files are compared with the
+    /// copy a loose replacement hides (docs/design/ui-tile-tree.md, #975).
+    pub fn read_archived(&self, path: &str) -> Option<std::io::Result<Vec<u8>>> {
+        let key = normalize(path);
+        let at = match *self.index.get(&key)? {
+            Location::Loose => *self.under_loose.get(&key)?,
+            at => at,
+        };
+        Some(self.read_at(&key, at))
+    }
+
+    fn read_at(&self, key: &str, at: Location) -> std::io::Result<Vec<u8>> {
+        match at {
+            Location::Loose => std::fs::read(self.data_dir.join(&self.loose[key])),
             Location::Archive { archive, folder, file } => {
                 // The lock covers only the seek and read of the stored bytes; inflating
                 // happens after it is let go, so workers reading the same archive do not
@@ -294,7 +347,7 @@ impl Vfs {
                 };
                 stored.and_then(|b| b.decode()).map_err(std::io::Error::other)
             }
-        })
+        }
     }
 
     /// Every path (normalised) for which `pred` holds, sorted.
@@ -465,6 +518,33 @@ mod tests {
                 }
             });
         }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A loose file hides an archive's copy from `read` but not from `read_archived`,
+    /// which reads the highest archive's (#975); a path no archive has reads nothing there.
+    #[test]
+    fn the_archived_copy_under_a_loose_file_still_reads() {
+        use fnv_bsa::{encode_block, flags, write_archive, WriteFile, WriteFolder};
+        let dir = std::env::temp_dir().join(format!("nvf-vfs-under-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("Menus/Main")).unwrap();
+        std::fs::write(dir.join("Menus/Main/HUD_Main_Menu.xml"), b"loose").unwrap();
+        std::fs::write(dir.join("Menus/Main/new.xml"), b"new").unwrap();
+        for (n, text) in [("Low.bsa", b"low"), ("High.bsa", b"top")] {
+            let file = |name: &str, data: &[u8]| WriteFile { name: name.as_bytes().to_vec(), size_flag_bits: 0, data: encode_block(data, false, None) };
+            let files = vec![file("hud_main_menu.xml", text), file("only.xml", text)];
+            let mut bytes = Vec::new();
+            write_archive(&mut bytes, flags::DIR_NAMES | flags::FILE_NAMES, 0x1, 0, &[WriteFolder { name: b"menus\\main".to_vec(), files }]).unwrap();
+            std::fs::write(dir.join(n), &bytes).unwrap();
+        }
+        let vfs = Vfs::open(&dir, &["Low.bsa".to_string(), "High.bsa".to_string()]).unwrap();
+        assert_eq!(vfs.source_of("menus\\main\\hud_main_menu.xml"), Some("loose"));
+        assert_eq!(vfs.read("menus/main/hud_main_menu.xml").unwrap().unwrap(), b"loose");
+        assert_eq!(vfs.read_archived("Menus/Main/HUD_Main_Menu.xml").unwrap().unwrap(), b"top");
+        // Not loose: the archived copy is the one that wins.
+        assert_eq!(vfs.read_archived("menus\\main\\only.xml").unwrap().unwrap(), b"top");
+        assert!(vfs.read_archived("menus\\main\\new.xml").is_none());
+        assert!(vfs.read_archived("menus\\main\\absent.xml").is_none());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

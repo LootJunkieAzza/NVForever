@@ -252,7 +252,8 @@ pub fn say(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// StartConversation, owner export: a "force greet"; nothing happens when either actor
 /// is disabled]. In the game the speaker first walks up to the target; that needs AI
 /// packages, so here the conversation starts at once [stand-in]. A call while a
-/// conversation is running, or when the speaker has no line to say, does nothing
+/// conversation is running (except from the end script of the line that closes it:
+/// `Game::hold_force_greet`), or when the speaker has no line to say, does nothing
 /// [hypothesis]. With another actor as the target the two talk to each other and the
 /// player overhears them (`Game::start_actor_conversation`, docs/spec-notes/dialogue.md
 /// §5.1). There `headTrack` 0 turns nobody for the whole conversation [documented:
@@ -286,8 +287,12 @@ pub fn start_conversation(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
     }
     // Refusals (a conversation is running, the speaker is gone or has no line) are not
     // errors of the script. The speaker starts it: a force greet, which holds the player
-    // also for a Goodbye greeting (`Game::force_greet`).
-    let _ = g.force_greet(speaker, a.opt_form(1));
+    // also for a Goodbye greeting (`Game::force_greet`). Called from the end script of
+    // the line that closes the running conversation, it starts once that has closed
+    // (`Game::hold_force_greet`).
+    if !g.hold_force_greet(speaker, a.opt_form(1)) {
+        let _ = g.force_greet(speaker, a.opt_form(1));
+    }
     none()
 }
 

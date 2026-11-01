@@ -786,19 +786,42 @@ creature_sound_survey` (FalloutNV.esm alone; `--show <CREA edid>`, `--near x,y,r
   like a person (§10.2). Aware also plays when the creature becomes aware (§16).
   Not built: Attack beyond the keys (§16), Weapon, the type-21 sound.
 
-### 14.2 The player's movement
+### 14.2 The player's and actors' movement
 
 - **Jumps and landings** [hypothesis: by the names]: `FST<family>Jump` when the player
   leaves the ground going up faster than 100 units/s, `FST<family>Land` on touching
   down after at least 0.4 s in the air [design: the thresholds], of the ground under the
   feet (§10.2), else `FSTDirtJump`/`Land`; at the listener. Not while swimming.
+  **Actors** that step like a person (people, and creatures without a sound list, §10.2)
+  play theirs by the same thresholds where they are, within 3,000 units of the player
+  [design: the player's rule]: `actor_jumps.rs` tells each one leaving the ground (its
+  character's vertical speed, or its feet's for a navmesh walker) and coming down
+  (`ActorAir`). A creature with a sound list plays none: none lists a Jump (CSDT 20,
+  §14.1) [observed], and how the original sounds a creature's jump is not documented.
+  An actor stepping off a ledge (actor-jumps.md §3) leaves at vertical speed 0, so only
+  its landing sounds.
   `FSTDirtJump` names `fx\xxx_placeholder_silence.wav` [observed].
+- **Hard landings** (issue #1104): FalloutNV.esm has `FSTLandHardLight` (0x0005A724) and
+  `FSTLandHardHeavy` (0x0005A725), both the folder `fx\fst\landhard\` (one file in
+  `Fallout - Sound.bsa`, `fst_landhard_01.wav`), Random Frequency Shift, static
+  attenuation 1762 and 1410 (hundredths of a dB); no record of FalloutNV.esm names either
+  [observed: a scan of every record's fields for the two form ids]. Built: a landing that
+  does fall damage (physics.md §6.12) plays the Heavy one for an actor in heavy body
+  armour, else the Light one [hypothesis: the exe picks them, by their names, the way the
+  data names armour footsteps `FSTArmorLightSneak` / `FSTArmorHeavySneak`], the player's
+  at the listener, an NPC's at its feet, besides the ground's `FST…Land`; in god mode too
+  [design]. Falls without damage play only `FST…Land`. The player's hurt voice is the
+  combat lines' (combat-dialogue.md §3: `GenericPlayer` Hit lines), which every hit, a
+  fall's too, may say by `fCombatSpeakHitThreshold` / `…Chance`; no SOUN of FalloutNV.esm
+  is named for a player's pain [observed: no `Pain`/`Hurt` edid outside creatures and
+  `UISurgeryPain01`–`03`], so no separate issue. Log: `falls: <actor> hard landing,
+  sound FSTLandHard…`.
 - **Wading** [design]: feet more than 2 units under a water surface (the cell's water or
   a placed water volume) step on Water (`FSTWaterWalkL`…, files `fx\fst\water\…`).
 - **Stairs on the landscape** do not exist in the data: the 89 landscape textures' Havok
   materials are 0 (10), 2 (47), 4 (12), 10 (3), 18 (7) and 19 (10), none a stairs code
   (64–127) [observed].
-- Not built: actors' jump and landing sounds (actors jump since 2026-10-20, actor-jumps.md; their footstep families are not played for it).
+- Smoke: `actor-jump-sounds` (Easy Pete drops off the Goodsprings ledge in play).
 
 ### 14.3 Objects' own sounds
 
@@ -888,8 +911,24 @@ reverb indoors, owner-review.md].
 - **The sounds** [hypothesis]: every sound effect (§10–§14: shots, impacts, footsteps,
   doors, creatures, the random placed sounds) and the placed loops, as they start; not
   the records with Environment Ignored or Menu Sound, the interface sounds (`UI…`), the
-  background loops (the room's own tone), music, voices, radios, or the loops a weapon
+  background loops (the room's own tone), music, radios, or the loops a weapon
   holds while it fires (they repeat their file, and the tail would break at each repeat).
+- **Voices** (`reverb::for_voice`, played by `voice.rs`; built 2026-11-01, #987): a line
+  heard where it is said (SayTo, Say, hellos, barks, lines between actors; voice.md §9)
+  goes into the listener's environment after the voice filter, and its reverb stops
+  with the line, no tail: "during dialogue the reverberation if any is abruptly cut off
+  at the end of each spoken line" [documented: GECK wiki "Special Effect" notes, owner
+  export]. A line cut early stops with its reverb. The send is 0.85: the
+  [Audio] `fDialogReverbAttenuation=0.15` of `Fallout_default.ini` [observed] read as a
+  SOUN's Reverb Attenuation Control is (0 all, 1 nothing) [hypothesis: its unit is not
+  documented]. The conversation with the player and 2D lines stay dry [design: the wiki
+  note can be read as the conversation being reverbed in the original; NVForever keeps
+  it whole and unplaced, as voice.md has it]. `bEnableEnviroEffectsOnPC=0` of the
+  shipped INI (above) is not followed for voices, as it is not for world sounds: the
+  owner asked for reverb indoors, and voices follow the same Reverb switch [decision].
+  The Sound tab's Voice reverb switch (`voice-reverb`, kept in the INI) keeps every
+  voice dry. Log: `voice: … in the room's reverb: <environment> (send 0.85, cut at its end)`; the
+  `reverb summary` and `voice summary` count the lines through it.
 - **Per sound** [hypothesis: DirectSound's effects run on each sound buffer, so a sound's
   reverb falls with its distance as the sound does]: each sound has its own reverb and
   plays in stereo, and goes on for the preset's delays plus its decay time (at most 6 s)
@@ -904,15 +943,15 @@ reverb indoors, owner-review.md].
   inputs are scaled so an impulse's late tail carries its level's energy. Density scales
   the comb lengths (half to whole), Diffusion the all-passes' gain (up to 0.5). Room
   Rolloff Factor is 0 in every preset.
-- Not built: the `GNAM` reverb attenuation, voices in rooms (the wiki says the
-  original's reverb is cut at the end of each spoken line), a reverb that changes under a
-  sound already playing.
+- Not built: a reverb that changes under a sound already playing. (The `GNAM` reverb
+  attenuation was built 2026-10-24, §15.5; voices in rooms 2026-11-01, above.)
 - Smoke: `reverb-cave-exit` (the Goodsprings cave, a shot, out through its door).
 
 ### 14.7 Checks
 
 Log: the `anim sounds summary` ends `creatures: N sounds (<type> n, …), N hits, N deaths,
-N keys of a type not listed; the player jumped N and landed N times`; the `ambient
+N keys of a type not listed; the player jumped N and landed N times; actors jumped N and
+landed N times`; the `ambient
 summary` ends `things that sound (activators, containers, doors, creatures): N heard, N
 loops started, N random sounds played`; the `world sounds summary` ends `N load doors; N
 objects' own sounds in reach`; the `shot fx` line ends `N casing knocks heard`. Per

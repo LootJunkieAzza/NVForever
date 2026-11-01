@@ -92,7 +92,8 @@ fn warning_key(warning: &str) -> String {
 pub fn sync(game: &mut Game<'_>, paused: bool, main_menu: bool) -> LifetimeReport {
     let mut report = LifetimeReport::default();
     let Some(files) = game.ui_files.as_deref() else { return report };
-    let mut open: BTreeSet<_> = game.menu.into_iter().chain(game.menu_under).collect();
+    // The engine's prompt over the open menu (`Game::ui_prompt`, T15a) builds as well.
+    let mut open: BTreeSet<_> = game.menu.into_iter().chain(game.menu_under).chain(game.ui_prompt).collect();
     if game.dialogue.is_some() {
         open.insert(menus::DIALOGUE);
     }
@@ -198,6 +199,10 @@ impl Source for UiFiles {
         self.vfs.read(path)?.ok()
     }
 
+    fn read_archived(&self, path: &str) -> Option<Vec<u8>> {
+        self.vfs.read_archived(path)?.ok()
+    }
+
     fn game_string(&self, name: &str) -> Option<String> {
         self.strings.get(name)
     }
@@ -272,6 +277,7 @@ pub fn load(game: &mut Game<'_>, files: Box<dyn Source + Send + Sync>, paths: im
         }
     }
     game.ui_tree = ui;
+    crate::ui_more::tree_rebuilt(game);
     // The old tree's tiles are gone with it [design].
     game.ui_pointer = fnv_ui::input::Pointer::default();
     game.ui_menus = index;

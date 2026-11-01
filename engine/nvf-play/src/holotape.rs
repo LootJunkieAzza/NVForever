@@ -28,7 +28,7 @@ use crate::voice::{VoiceSettings, VoiceState};
 use crate::PlaySet;
 use bevy::audio::Volume;
 use bevy::prelude::*;
-use fnv_game::holotapes::{tape, Tape};
+use fnv_game::holotapes::Tape;
 use fnv_sim::FormId;
 
 /// The holotape that plays, and the picks waiting to be taken.
@@ -108,7 +108,7 @@ fn play(
             }
             continue;
         }
-        match tape(g.data, *note) {
+        match g.note_tape(*note) {
             Some(Tape::Sound(sound)) => {
                 if st.playing.is_some() {
                     st.stop(&mut commands);

@@ -557,8 +557,38 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
   [hypothesis: the game's unarmed weapon form]. The Fists do 0 base damage, so a punch is
   the UnarmedDamage actor value (0.5 + 0.05 × Unarmed) [documented].
 - **Knockback.** The force is computed with the documented Melee Knockback Formula and
-  logged. Living actors are not pushed until they move physically (AI work). A dead
-  actor's ragdoll is shoved by every shot and blow that lands on it (ragdoll.md §4).
+  logged. A dead actor's ragdoll is shoved by every shot and blow that lands on it
+  (ragdoll.md §4). A living actor (the player, an NPC, a creature) struck by a melee or
+  unarmed blow that leaves it alive and on its feet (not knocked down or out) is pushed
+  back (#1070, `nvf_play::combat::Knockback`):
+  - **Force to motion** [design; the original's not measured, observer-checks.md #61]:
+    the force is the speed it is pushed at, units per second, falling evenly to rest over
+    fKnockbackTime (1 s in FalloutNV.esm [documented: GMST]), so it travels force × time
+    / 2: a Sledgehammer blow of 14 damage on Agility 5 (force 114) 57 units, a punch of 3
+    (force 48) 24, the cap (512) 256. A power attack deals more damage and so pushes
+    further; nothing else multiplies it.
+  - **Which way**: the blow's direction along the ground (the player's: the view's; an
+    NPC's: from it to its target).
+  - **How**: through the actor's character, as an attack clip's travel (actors.md §8.13):
+    the player's character controller (`player::Lunge::knock`), an NPC's or creature's
+    character in `residents` (one is made if it has none), so walls and other actors stop
+    it; the pushed actor pushes nobody aside. A new blow's knockback replaces one still
+    going [design]. It goes on through the stagger a blow starts (hit reactions hold the
+    walk, not the push; they end an attack clip's carry, not a knockback, which
+    `residents` keeps apart for that); a knockdown throws the ragdoll instead. On an NPC
+    that is walking it adds to the walk, so a punched actor still closes in or gets away;
+    an actor on furniture is not pushed (its body stays in the seat); the player's push
+    counts down walking or swimming alike, and is dropped while seated or flying with no
+    collision [design for each: review of #1219]. The player in god mode (`tgm`) is not
+    pushed: pushed, a god-mode player bitten by dogs kept them chasing it (smoke
+    `combat-dogs`, 93 chase lines).
+  - **Blocked and 0-damage blows** push too: the formula's force with no damage (about 30,
+    15 units) [documented formula; design to apply it to a blocked blow,
+    owner-review item 37].
+  - Logged: `knockback: <id> knocked back at <v> units/s for <s> s (<d> units)` and, at
+    its end, `knockback: … pushed back <n> units of <d>, from … to …` (the player:
+    `player: knocked back …`, `player: knockback done: …`); `knockback summary` at exit.
+    Smoke `melee-knockback`.
 - **Blocking.** `damage::blocked` takes `block` (60 %) off a melee hit taken while
   blocking [design]. Nothing attacks the player yet; NPC melee (Layer 6 AI) will use it.
 - **The body.** A power attack plays `{prefix}attackpower.kf` (`1hmattackpower.kf`,
@@ -1281,7 +1311,13 @@ docs/spec-notes/particles.md.
   - `nvforever::shot_fx` shows the IPCT's model at the point for its effect duration,
     its +z along the orientation the IPCT names [hypothesis: +z, from the impact
     models' add-on nodes standing along +z]. The model's add-on nodes emit dust and
-    debris (particles.md).
+    debris (particles.md) while the model is there; the particles they gave birth to
+    live out their own life spans after it goes (particles.md §2 "Master system").
+    On an actor the organic IPCT (`BallisticOrganicImpact`, 0.08 s) gives
+    `MPSBloodSplat01`'s drops, mist and splat: about 18 drops, 5 puffs and 7 splats a
+    hit [observed: NVForever log, #1074], the puffs living about 1 s. They were born but
+    not seen until their soft intersection was sized to them (nif.md §6 "Soft
+    intersections of particles").
 - **Shell casings.** The player body gives the weapon model's `ShellCasingNode` place
   and its +z axis to combat (`WeaponAnim::casing`). Each shot of a weapon with a casing
   model throws one along that axis at `fGunShellEjectSpeed`: at the shot, or, when the

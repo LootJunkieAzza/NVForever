@@ -41,6 +41,8 @@ const CONCUSSED: u32 = 0x877;
 const SHARP_EYES: u32 = 0x8A0;
 const ROBOT: u32 = 0x400;
 const ROBOT_TEMPLATE: u32 = 0x401;
+/// Takes its actor effects from the robot, so from the robot's template.
+const ROBOT_COPY: u32 = 0x40F;
 const GHOUL: u32 = 0x402;
 const ROBOT_REF: u32 = 0x500;
 const GHOUL_REF: u32 = 0x501;
@@ -199,6 +201,7 @@ fn plugin_bytes() -> Vec<u8> {
         npc(0x7, "Player", vec![acbs(0), sub(b"RNAM", RACE_HUMAN.to_le_bytes().to_vec())]),
         // The robot's own SPLO is ignored: its template supplies the actor effects.
         npc(ROBOT, "Robot", vec![acbs(0x08), sub(b"TPLT", ROBOT_TEMPLATE.to_le_bytes().to_vec()), splo(RAD_IMMUNITY)]),
+        npc(ROBOT_COPY, "RobotCopy", vec![acbs(0x08), sub(b"TPLT", ROBOT.to_le_bytes().to_vec())]),
         npc(ROBOT_TEMPLATE, "RobotTemplate", vec![acbs(0), splo(DT_ABILITY), splo(RAD_IMMUNITY), splo(AURA)]),
         npc(GHOUL, "Ghoul", vec![acbs(0), sub(b"RNAM", RACE_GHOUL.to_le_bytes().to_vec())]),
     ]
@@ -381,6 +384,29 @@ fn remove_spell_takes_an_authored_ability() {
     assert_eq!(target(&mut g, robot, DT_ABILITY), 0.0);
     call(&mut g, robot, ADD_SPELL, &[form(DT_ABILITY)]);
     assert_eq!(av(&mut g, robot, DAMAGE_THRESHOLD), 15.0);
+}
+
+/// A RemoveSpell with no reference in a script that has none (the doctors' cure in a
+/// quest stage result, VDoctors / Doctors stage 20) acts on the player (o5_03, observer
+/// check 42, #1110).
+#[test]
+fn remove_spell_with_no_reference_acts_on_the_player() {
+    let f = fixture();
+    let mut g = game(&f);
+    call(&mut g, P, ADD_SPELL, &[form(DT_ABILITY)]);
+    assert_eq!(target(&mut g, P, DT_ABILITY), 1.0);
+    let ctx = Ctx { unit: "stage".into(), opcode: REMOVE_SPELL, on: None, self_ref: None, action_ref: None, quest: Some(FormId(0x999)), inst: None, in_condition: false };
+    let before = g.events.len();
+    g.call_function(&ctx, &[form(DT_ABILITY)]);
+    assert!(!g.events[before..].iter().any(|e| matches!(e.kind, EventKind::CallFailed { .. })), "no call error");
+    assert_eq!(target(&mut g, P, DT_ABILITY), 0.0);
+    assert_eq!(av(&mut g, P, DAMAGE_THRESHOLD), 0.0);
+    // A script with its own reference still removes the spell from that reference.
+    let robot = FormId(ROBOT_REF);
+    let ctx = Ctx { self_ref: Some(robot), quest: None, ..ctx };
+    g.call_function(&ctx, &[form(RAD_IMMUNITY)]);
+    assert_eq!(target(&mut g, robot, RAD_IMMUNITY), 0.0);
+    assert_eq!(target(&mut g, robot, DT_ABILITY), 1.0);
 }
 
 /// A worn item's enchantment is active while it is equipped, in the temporary pool,
@@ -571,4 +597,26 @@ fn perk_abilities_follow_the_perks() {
     g.player.perks.remove(&FormId(SHARP_EYES));
     assert_eq!(av(&mut g, P, PERCEPTION), 5.0);
     assert_eq!(target(&mut g, P, PERK_SPELL_2), 0.0);
+}
+
+/// GetBaseSpellListSpells reads the Use Actor Effect List template's list through NPC
+/// records, in record order (actors.md §2.2; observed: tmpl3, #1057).
+#[test]
+fn base_spell_list_follows_the_actor_effect_template() {
+    use fnv_script::vm::XVal;
+    let f = fixture();
+    let mut g = game(&f);
+    let mut q = |body: &str| g.run_query(&format!("Begin Function {{ }}
+{body}
+End
+"), Default::default()).expect("the query runs");
+    for npc in ["Robot", "RobotCopy"] {
+        assert_eq!(q(&format!("SetFunctionValue (ar_Size (GetBaseSpellListSpells {npc}))")), XVal::Num(3.0), "{npc}");
+        assert_eq!(q(&format!("SetFunctionValue ((GetBaseSpellListSpells {npc})[0])")), XVal::Ref(DT_ABILITY), "{npc}");
+    }
+    // GenericAddForm starts from the same list: the template's three, then the new one.
+    q("GenericAddForm 6, RobotCopy, GhoulRad, -2");
+    assert_eq!(q("SetFunctionValue (ar_Size (GetBaseSpellListSpells RobotCopy))"), XVal::Num(4.0));
+    assert_eq!(q("SetFunctionValue ((GetBaseSpellListSpells RobotCopy)[0])"), XVal::Ref(DT_ABILITY));
+    assert_eq!(q("SetFunctionValue ((GetBaseSpellListSpells RobotCopy)[3])"), XVal::Ref(GHOUL_RAD));
 }

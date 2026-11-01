@@ -299,12 +299,28 @@ pub struct NoteDef {
     pub texture: Option<String>,
     /// SNAM: a Sound note's sound (SOUN), a Voice note's speaker (NPC_ or CREA)
     /// [documented: xEdit wbDefinitionsFNV.pas NOTE, a union by note type; GECK wiki
-    /// GetNoteSound, GetNoteSpeaker]. docs/spec-notes/holotapes.md §1.
-    pub sound: Option<FormId>,
-    pub speaker: Option<FormId>,
+    /// GetNoteSound, GetNoteSpeaker]. One value, read by the type ([`NoteDef::sound`],
+    /// [`NoteDef::speaker`]), so SetNoteType changes what it is. docs/spec-notes/holotapes.md §1.
+    pub snam: Option<FormId>,
     /// TNAM of a Voice note: the topic (DIAL) whose line it plays [documented: xEdit
     /// NOTE TNAM union; GECK wiki GetNoteTopic].
     pub topic: Option<FormId>,
+    /// ONAM: the note's quests, in record order [documented: xEdit NOTE ONAM; GECK wiki
+    /// GetNoteQuestList, "all quests associated with a Note"; hypothesis: one ONAM per
+    /// quest].
+    pub quests: Vec<FormId>,
+}
+
+impl NoteDef {
+    /// A Sound note's sound (SNAM).
+    pub fn sound(&self) -> Option<FormId> {
+        self.snam.filter(|_| self.kind == 0)
+    }
+
+    /// A Voice note's speaker (SNAM).
+    pub fn speaker(&self) -> Option<FormId> {
+        self.snam.filter(|_| self.kind == 3)
+    }
 }
 
 /// A terminal (TERM) [documented: xEdit wbDefinitionsFNV.pas TERM; schema
@@ -1057,15 +1073,14 @@ pub struct IdleDef {
 pub const IDLE_SECTION_UPPER_BODY: u8 = 21;
 
 impl IdleDef {
-    /// From the raw `MODL` (a NUL-terminated name) and `DATA` (animation group section,
-    /// loop minimum, loop maximum, … [documented: xEdit IDLE DATA]) subrecords.
-    pub fn from_raw(modl: Option<&[u8]>, data: Option<&[u8]>) -> IdleDef {
-        let model = modl
-            .map(|b| String::from_utf8_lossy(b.split(|c| *c == 0).next().unwrap_or_default()).trim().to_string())
-            .filter(|s| !s.is_empty());
-        let byte = |i: usize| data.and_then(|d| d.get(i)).copied().unwrap_or(0);
-        let replay_delay = i16::from_le_bytes([byte(4), byte(5)]);
-        IdleDef { model, loop_min: byte(1), loop_max: byte(2), conditions: Some(Vec::new()), parent: None, previous: None, replay_delay, no_attacking: byte(6) & 1 != 0, section: byte(0) & 0x3F }
+    /// From the decoded `MODL` (the name) and `DATA` (schema `gameplay.json` IDLE:
+    /// animation group section, loop minimum and maximum, replay delay, flags
+    /// [documented: xEdit wbDefinitionsFNV.pas IDLE DATA]); a missing field reads 0.
+    pub fn from_fields(model: Option<&str>, data: Option<&Json>) -> IdleDef {
+        let model = model.map(|m| m.trim().to_string()).filter(|s| !s.is_empty());
+        let n = |k: &str| data.and_then(|d| d.get(k)).and_then(Json::as_i64).unwrap_or(0);
+        let no_attacking = flag_bits(data.and_then(|d| d.get("flags"))) & 1 != 0;
+        IdleDef { model, loop_min: n("loop_min") as u8, loop_max: n("loop_max") as u8, conditions: Some(Vec::new()), parent: None, previous: None, replay_delay: n("replay_delay") as i16, no_attacking, section: n("animation_group_section") as u8 & 0x3F }
     }
 
     /// Whether the record names an animation file.
@@ -1248,7 +1263,7 @@ pub struct ImageModifierDef {
     pub duration: f32,
 }
 
-fn hexid(v: &Json) -> Option<u32> {
+pub(crate) fn hexid(v: &Json) -> Option<u32> {
     let s = v.as_str()?;
     u32::from_str_radix(s.strip_prefix("0x")?, 16).ok()
 }
@@ -2350,15 +2365,10 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
         let flags = subs.iter().find(|s| &s.sig == b"MNAM").and_then(|s| <[u8; 4]>::try_from(s.data.as_slice()).ok()).map(u32::from_le_bytes);
         out.furniture = Some(flags.unwrap_or(0));
     }
-    if &sig == b"IDLE" {
-        out.idle = Some(IdleDef::from_raw(
-            subs.iter().find(|s| &s.sig == b"MODL").map(|s| s.data.as_slice()),
-            subs.iter().find(|s| &s.sig == b"DATA").map(|s| s.data.as_slice()),
-        ));
-    }
-    // A stage of a need: the value from which it holds, and its actor effect [observed:
-    // DATA is 8 bytes, a u32 of 200, 400 … 1000 and a SPEL FormID named for that number
-    // (Water1: 200, Dehydration200), docs/spec-notes/aid-items.md §11].
+    // A stage of a need: the value from which it holds, and its actor effect (DATA,
+    // schema type NeedStage [documented: xEdit RADS/DEHY/HUNG/SLPD]; observed: 200, 400 …
+    // 1000 and a SPEL named for that number, Water1: 200, Dehydration200;
+    // docs/spec-notes/aid-items.md §11).
     let need = match &sig {
         b"RADS" => Some(crate::aid::RAD_LEVEL),
         b"DEHY" => Some(crate::aid::DEHYDRATION),
@@ -2367,10 +2377,11 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
         _ => None,
     };
     if let Some(code) = need {
-        let data = subs.iter().find(|s| &s.sig == b"DATA").map(|s| s.data.as_slice()).unwrap_or_default();
-        let word = |o: usize| data.get(o..o + 4).and_then(|b| <[u8; 4]>::try_from(b).ok()).map(u32::from_le_bytes);
-        if let (Some(threshold), Some(spell)) = (word(0), word(4).and_then(map)) {
-            out.need_stage = Some((code, threshold, FormId(spell)));
+        let data = subs.iter().find(|s| &s.sig == b"DATA").and_then(&mut val);
+        let threshold = data.as_ref().and_then(|v| v.get("trigger_threshold")).and_then(Json::as_u64);
+        let spell = data.as_ref().and_then(|v| v.get("actor_effect")).and_then(hexid).and_then(map);
+        if let (Some(threshold), Some(spell)) = (threshold, spell) {
+            out.need_stage = Some((code, threshold as u32, FormId(spell)));
         }
     }
     // A water type's actor effect: XNAM, a SPEL [documented: xEdit wbDefinitionsFNV.pas
@@ -2426,7 +2437,8 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 }
             }
         };
-        out.camera_path = Some(crate::camera_paths::CameraPathDef::from_raw(&subs, &map, &mut cond));
+        let zoom = |v: &Json| field_code(schema, b"CPTH", b"DATA", None, v);
+        out.camera_path = Some(crate::camera_paths::CameraPathDef::from_fields(&subs, &mut val, &zoom, &map, &mut cond));
     }
     if &sig == b"CAMS" {
         out.camera_shot = crate::camera_paths::CameraShotDef::from_raw(&subs, &map);
@@ -2434,10 +2446,10 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
     if &sig == b"RCCT" {
         out.recipe_category = Some(crate::crafting::RecipeCategoryDef::from_raw(&subs));
     }
-    // CLAS DATA: four tag skills (i32), the class flags (u32), then the services (u32)
-    // [documented: xEdit wbDefinitionsFNV.pas CLAS; schema `gameplay.json`].
+    // CLAS DATA "services" (schema `gameplay.json` ServiceFlags) [documented: xEdit
+    // wbDefinitionsFNV.pas CLAS].
     if &sig == b"CLAS" {
-        out.class_services = subs.iter().find(|s| &s.sig == b"DATA").and_then(|s| <[u8; 4]>::try_from(s.data.get(20..24)?).ok()).map(u32::from_le_bytes);
+        out.class_services = subs.iter().find(|s| &s.sig == b"DATA").and_then(&mut val).and_then(|v| v.get("services").map(|f| flag_bits(Some(f))));
     }
     if &sig == b"CSNO" {
         out.casino = Some(crate::casino::CasinoDef::from_raw(&subs, &map));
@@ -2803,13 +2815,15 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 let b = s.data.get(..4)?;
                 map(u32::from_le_bytes([b[0], b[1], b[2], b[3]])).filter(|f| *f != 0).map(FormId)
             };
+            n.quests = subs
+                .iter()
+                .filter(|s| &s.sig == b"ONAM")
+                .filter_map(|s| s.data.get(..4).and_then(|b| map(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))).filter(|f| *f != 0).map(FormId))
+                .collect();
+            n.snam = form_of(b"SNAM");
             match n.kind {
-                0 => n.sound = form_of(b"SNAM"),
                 1 => n.text = subs.iter().find(|s| &s.sig == b"TNAM").map(|s| fnv_util::cp1252::decode_z(&s.data)),
-                3 => {
-                    n.speaker = form_of(b"SNAM");
-                    n.topic = form_of(b"TNAM");
-                }
+                3 => n.topic = form_of(b"TNAM"),
                 _ => {}
             }
             out.note = Some(n);
@@ -3295,14 +3309,14 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             // is only marked as one that cannot be judged.
             let mut unread = Issues::default();
             let conds: Vec<Option<Condition>> = decoded.iter().filter(|(s, _)| *s == b"CTDA").map(|(_, v)| cond(v, &mut unread)).collect();
-            if let Some(i) = out.idle.as_mut() {
-                i.conditions = conds.into_iter().collect();
-                // ANAM: parent and previous IDLE, file-local FormIDs (null: none).
-                let anam = subs.iter().find(|s| &s.sig == b"ANAM").map(|s| s.data.as_slice()).unwrap_or_default();
-                let link = |at: usize| anam.get(at..at + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]])).filter(|l| *l != 0).and_then(map).map(FormId);
-                i.parent = link(0);
-                i.previous = link(4);
-            }
+            let field = |sub: &[u8; 4]| decoded.iter().find(|(s, _)| *s == sub).and_then(|(_, v)| v.as_ref());
+            let mut i = IdleDef::from_fields(field(b"MODL").and_then(Json::as_str), field(b"DATA"));
+            i.conditions = conds.into_iter().collect();
+            // ANAM: parent and previous IDLE, file-local FormIDs (null: none).
+            let link = |k: &str| field(b"ANAM").and_then(|a| a.get(k)).and_then(hexid).filter(|l| *l != 0).and_then(map).map(FormId);
+            i.parent = link("parent");
+            i.previous = link("previous");
+            out.idle = Some(i);
         }
         b"IDLM" => {
             let code = |sub: &[u8; 4], field: &str, v: &Json| field_code(schema, &sig, sub, Some(field), v);
@@ -3348,7 +3362,7 @@ fn skills(v: &Json) -> Option<[u8; 14]> {
     Some(out)
 }
 
-fn field_code(schema: &Schema, sig: &[u8; 4], sub: &[u8; 4], field: Option<&str>, v: &Json) -> Option<i64> {
+pub(crate) fn field_code(schema: &Schema, sig: &[u8; 4], sub: &[u8; 4], field: Option<&str>, v: &Json) -> Option<i64> {
     if let Some(n) = v.as_i64() {
         return Some(n);
     }

@@ -607,6 +607,68 @@ fn quest_targets_are_marked_while_their_conditions_pass() {
     assert!(g.check_quest_targets(q()).is_empty());
 }
 
+/// Displaying an objective already shown keeps its completed flag; showing a hidden one
+/// clears it (observer check 40, issue #1108; scripts.md §5).
+#[test]
+fn redisplaying_a_completed_objective_keeps_it_completed() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let state = |g: &mut Game| {
+        let o = &g.quest(q()).objectives[&10];
+        (o.displayed, o.completed)
+    };
+    g.set_objective(q(), 10, Some(true), None);
+    g.set_objective(q(), 10, None, Some(true));
+    g.set_objective(q(), 10, Some(true), None);
+    assert_eq!(state(&mut g), (true, true));
+    g.set_objective(q(), 10, Some(false), None);
+    assert_eq!(state(&mut g), (false, true));
+    g.set_objective(q(), 10, Some(true), None);
+    assert_eq!(state(&mut g), (true, false));
+}
+
+/// ResetQuest keeps a SetQuestDelay override and clears the rest (observer check 41,
+/// issue #1109; layer5-captures.md §5.7).
+#[test]
+fn reset_quest_keeps_the_set_quest_delay() {
+    const RESET_QUEST: u16 = 0x11DB;
+    const SET_QUEST_DELAY: u16 = 0x11DC;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let quest_call = |g: &mut Game, op: u16, args: &[ArgValue]| {
+        let ctx = Ctx { unit: "test".into(), opcode: op, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+        g.call_function(&ctx, args);
+    };
+    let quest_arg = ArgValue::Value(Value::Ref(QUEST));
+    quest_call(&mut g, SET_QUEST_DELAY, &[quest_arg.clone(), ArgValue::Value(Value::Num(0.1))]);
+    g.set_stage(q(), 20);
+    quest_call(&mut g, RESET_QUEST, &[quest_arg]);
+    let s = g.quest(q());
+    assert!(s.delay.is_some_and(|d| (d - 0.1).abs() < 1e-6), "{:?}", s.delay);
+    assert!(s.stages_done.is_empty());
+}
+
+/// ResetQuest from another script stops the quest (o41, issue #1232); from the quest's
+/// own script it keeps running (the Emergency Radio's self-reset, not observed).
+#[test]
+fn reset_quest_stops_the_quest_unless_its_own_script() {
+    const RESET_QUEST: u16 = 0x11DB;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let reset = |g: &mut Game, from: Option<FormId>| {
+        let ctx = Ctx { unit: "test".into(), opcode: RESET_QUEST, on: None, self_ref: None, action_ref: None, quest: from, inst: None, in_condition: false };
+        g.call_function(&ctx, &[ArgValue::Value(Value::Ref(QUEST))]);
+    };
+    g.quest(q()).running = true;
+    reset(&mut g, Some(q()));
+    assert!(g.quest(q()).running, "a self-reset keeps the quest running");
+    reset(&mut g, None);
+    assert!(!g.quest(q()).running, "a reset from another script stops it");
+}
+
 #[test]
 fn snapshots_round_trip() {
     let f = fixture();
@@ -1677,7 +1739,7 @@ fn limb_hits_lower_conditions_and_cripple() {
     g.new_game();
     let npc = FormId(NPC_REF);
     // Maximum health 55; a leg at 25 %: a pool of 13.75. Left Mobility Condition is code 29.
-    let leg = LimbHit { condition: 29, health_percent: 25.0, damage: 0.0 };
+    let leg = LimbHit { condition: 29, health_percent: 25.0, damage: 0.0, points: false };
     let hit = |damage: f64| HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 7, critical: false, limb: Some(LimbHit { damage, ..leg }) };
     let r = g.hit(npc, 5.0, hit(2.75));
     assert_eq!((r.limb, r.crippled), (Some((29, 80.0)), false));
@@ -1693,6 +1755,25 @@ fn limb_hits_lower_conditions_and_cripple() {
     assert_eq!(r.health, 40.0);
 }
 
+/// A fall's leg (docs/spec-notes/physics.md §6.12): limb damage in condition points comes
+/// straight off the condition, without the part's pool or the player's limb multiplier.
+#[test]
+fn limb_damage_in_points() {
+    use fnv_game::combat::{HitInfo, LimbHit, RIGHT_MOBILITY};
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let leg = |damage: f64| HitInfo { attacker: None, weapon: None, location: -1, critical: false, limb: Some(LimbHit { condition: RIGHT_MOBILITY, health_percent: 0.0, damage, points: true }) };
+    for target in [FormId(NPC_REF), FormId::PLAYER_REF] {
+        let r = g.hit(target, 49.88, leg(24.94));
+        assert_eq!(r.limb.map(|(c, v)| (c, (v * 100.0).round() / 100.0)), Some((RIGHT_MOBILITY, 75.06)));
+        assert!(!r.crippled);
+        // More than is left: down to 0, crippled.
+        let r = g.hit(target, 1.0, leg(500.0));
+        assert_eq!((r.limb, r.crippled), (Some((RIGHT_MOBILITY, 0.0)), true));
+    }
+}
+
 /// Crippled legs slow every actor by the game settings, the player's limbs take half the
 /// limb damage, and a sleep outside Hardcore heals them (docs/spec-notes/crippled-limbs.md).
 #[test]
@@ -1705,7 +1786,7 @@ fn crippled_limbs_slow_and_heal() {
     // fCombatPlayerLimbDamageMult's default: half for the player, all for others.
     assert_eq!(g.limb_damage(FormId::PLAYER_REF, 10.0), 5.0);
     assert_eq!(g.limb_damage(npc, 10.0), 10.0);
-    let hit = |condition: u16| HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 7, critical: false, limb: Some(LimbHit { condition, health_percent: 25.0, damage: 1000.0 }) };
+    let hit = |condition: u16| HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 7, critical: false, limb: Some(LimbHit { condition, health_percent: 25.0, damage: 1000.0, points: false }) };
     assert_eq!(g.leg_speed_mult(npc), 1.0);
     assert!(g.hit(npc, 1.0, hit(LEFT_MOBILITY)).crippled);
     assert_eq!(g.leg_speed_mult(npc), 0.85);
@@ -2027,6 +2108,8 @@ fn udf_fixture() -> Fixture {
             "TestMap",
             "scn TestMap\narray_var m\nBegin Function {m}\n  let TestGlobal := Sv_Length (m[\"eventName\"]) * 10 + Sv_Length (m[\"eventSender\"])\nEnd\n".to_string(),
         ),
+        // A call on an empty reference behind a classic `&&` (EDEScript's shape, #1112).
+        (0x0000_0905u32, "TestEmpty", "scn TestEmpty\nref r\nint n\nBegin Function {n}\n  if n == 1 && r.GetDisabled == 0\n  endif\nEnd\n".to_string()),
     ] {
         // TestFact calls itself: its own name resolves through a seed reference list.
         let c = if edid != "TestAdd" {
@@ -2063,6 +2146,18 @@ fn udf_fixture() -> Fixture {
         let vars: Vec<(u32, &str, u8)> = vars.iter().map(|(i, n, t)| (*i, n.as_str(), *t)).collect();
         let refs: Vec<u32> = c.refs.iter().filter_map(|r| if let fnv_script::unit::RefSlot::Form(f) = r { Some(*f) } else { None }).collect();
         let mut subs = unit(0, &c.bytes, &vars, &refs);
+        // A local `ref` variable's slot is an SCRV (TestEmpty); the list keeps its order.
+        if refs.len() < c.refs.len() {
+            subs.retain(|s| &s.sig != b"SCRO");
+            subs[0].data[4..8].copy_from_slice(&(c.refs.len() as u32).to_le_bytes());
+            for r in &c.refs {
+                subs.push(match r {
+                    fnv_script::unit::RefSlot::Form(f) => sub(b"SCRO", f.to_le_bytes().to_vec()),
+                    fnv_script::unit::RefSlot::Local(v) => sub(b"SCRV", v.to_le_bytes().to_vec()),
+                    fnv_script::unit::RefSlot::Unmapped(f) => sub(b"SCRO", f.to_le_bytes().to_vec()),
+                });
+            }
+        }
         subs.push(sub(b"SCTX", src.as_bytes().to_vec()));
         scripts.push(record(b"SCPT", 0, fid, &[vec![sub(b"EDID", z(edid))], subs].concat()));
     }
@@ -2094,6 +2189,26 @@ fn call_runs_a_function_script_with_its_parameters() {
     assert_eq!(global_after(&f, "let TestGlobal := Call TestAdd 2, 3"), 5.0);
     // Recursion: each call has its own variables [documented: User Defined Function].
     assert_eq!(global_after(&f, "let TestGlobal := Call TestFact 5"), 120.0);
+}
+
+#[test]
+fn a_scripts_call_on_an_empty_reference_is_traced_once() {
+    // Classic `&&` evaluates both sides, so the call is made on every run, in the
+    // original too [observed: o5_01, observer-checks.md check 51]; a script record traces
+    // the failure once per function, not every frame (#1112). Console lines are traced
+    // each time.
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.cfg.strict = false;
+    let failed = |g: &Game<'_>| g.events.iter().filter(|e| matches!(&e.kind, EventKind::CallFailed { error, .. } if error.contains("empty reference"))).count();
+    for _ in 0..3 {
+        g.run_source("let TestGlobal := Call TestEmpty 0", Default::default()).expect("compiles");
+    }
+    assert_eq!(failed(&g), 1);
+    for _ in 0..2 {
+        g.run_source("ref r\nr.Disable", Default::default()).expect("compiles");
+    }
+    assert_eq!(failed(&g), 3);
 }
 
 #[test]
@@ -2172,6 +2287,114 @@ fn get_game_loaded_and_restarted_are_true_once_per_script() {
 }
 
 #[test]
+fn nx_variables_are_kept_per_reference_and_saved() {
+    // #1017 [documented: Category:Functions (NX)]: keys without regard to case, one set
+    // per kind, prefix maps and clears, kept in the save.
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("array_var aA
+string_var sS
+Begin Function {{ }}
+{body}
+End
+"), Default::default());
+    q(&mut g, "PlayerREF.NX_SetEVFl \"MyMod:Mood\" 67
+PlayerREF.NX_SetEVFl \"MyMod:Age\" 30
+PlayerREF.NX_SetEVFl \"Other\" 5
+PlayerREF.NX_SetEVSt \"MyMod:Mood\" \"glad\"").unwrap();
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.NX_GetEVFl \"mymod:MOOD\")"), Ok(XVal::Num(67.0)));
+    assert_eq!(q(&mut g, "SetFunctionValue (PlayerREF.NX_GetEVFl \"MyMod:None\")"), Ok(XVal::Num(0.0)));
+    assert_eq!(q(&mut g, "let sS := PlayerREF.NX_GetEVSt \"MyMod:Mood\"
+SetFunctionValue sS"), Ok(XVal::Str("glad".into())));
+    assert_eq!(q(&mut g, "let aA := PlayerREF.NX_GetEVFlAr \"mymod:\"
+SetFunctionValue (Ar_Size aA) * 100 + aA[\"MyMod:Age\"]"), Ok(XVal::Num(230.0)));
+    // A save keeps them.
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&serde_json::to_string(&g.snapshot()).unwrap()).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let mut h = fnv_game::Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!(q(&mut h, "SetFunctionValue (PlayerREF.NX_GetEVFl \"MyMod:Age\")"), Ok(XVal::Num(30.0)));
+    // Match 2 clears every key with the prefix; the string of the same key stays.
+    q(&mut h, "PlayerREF.NX_ClrEVFl \"MYMOD\" 2").unwrap();
+    assert_eq!(q(&mut h, "SetFunctionValue (PlayerREF.NX_GetEVFl \"MyMod:Mood\") + (PlayerREF.NX_GetEVFl \"Other\")"), Ok(XVal::Num(5.0)));
+    assert_eq!(q(&mut h, "let sS := PlayerREF.NX_GetEVSt \"MyMod:Mood\"
+SetFunctionValue sS"), Ok(XVal::Str("glad".into())));
+    for _ in 0..20 {
+        let Ok(XVal::Num(r)) = q(&mut h, "SetFunctionValue (NX_GetRandom 1 3)") else { panic!() };
+        assert!((1.0..=3.0).contains(&r) && r.fract() == 0.0, "{r}");
+    }
+    assert_eq!(q(&mut h, "SetFunctionValue (PlayerREF.NX_GetConversationPartner)"), Ok(XVal::Ref(0)));
+}
+
+/// NX form variables in a save loaded without a plugin (#1017 review): one naming a gone
+/// plugin's form is dropped and the save still reads; the others stay. A created
+/// reference deleted before the save keeps no variables.
+#[test]
+fn nx_variables_survive_a_gone_plugin_and_leave_with_deleted_references() {
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}
+{body}
+End
+"), Default::default());
+    q(&mut g, "PlayerREF.NX_SetEVFo \"MyMod:Pet\" PlayerREF
+PlayerREF.NX_SetEVFo \"Mine\" PlayerREF
+PlayerREF.NX_SetEVFl \"Count\" 2").unwrap();
+    let mut v = serde_json::to_value(g.snapshot()).unwrap();
+    let pet = &mut v["nx"]["0x00000014"]["fo"]["mymod:pet"];
+    assert_eq!(pet["key"], json!("MyMod:Pet"), "{pet}");
+    pet["value"] = json!("0x01000ABC");
+    // A created reference deleted before the save, with a variable.
+    v["sim"]["deleted_created"]["0xFF000099"] = json!("0x00000014");
+    v["nx"]["0xFF000099"] = json!({"fl": {"n": {"key": "N", "value": 1.0}}});
+    let e = |n: &str| fnv_save::PluginEntry { name: n.into(), size: 0 };
+    let remap = fnv_save::PluginRemap::new(&[e("Test.esm"), e("Extra.esm")], &[e("Test.esm")]);
+    fnv_save::remap_json(&mut v, &remap);
+    let mut back: fnv_game::game::GameSnapshot = serde_json::from_value(v).unwrap();
+    assert_eq!(back.drop_gone(|id| fnv_save::is_gone(id.0)), 1, "the form variable of Extra.esm");
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let mut h = fnv_game::Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!(q(&mut h, "SetFunctionValue (PlayerREF.NX_GetEVFo \"MyMod:Pet\")"), Ok(XVal::Ref(0)));
+    assert_eq!(q(&mut h, "SetFunctionValue (PlayerREF.NX_GetEVFo \"mine\")"), Ok(XVal::Ref(FormId::PLAYER_REF.0)));
+    assert_eq!(q(&mut h, "SetFunctionValue (PlayerREF.NX_GetEVFl \"Count\")"), Ok(XVal::Num(2.0)));
+    let again = serde_json::to_value(h.snapshot()).unwrap();
+    assert!(again["nx"].get("0xFF000099").is_none(), "{}", again["nx"]);
+}
+
+#[test]
+fn menu_getters_read_what_the_engine_reports() {
+    // #983: GetMenuTargetRef and GetSelectedItemRef answer the picks the engine reports
+    // for an open menu (Game::set_menu_picks), an item as an inventory reference.
+    use fnv_game::game::{menus, MenuPick, MenuPicks, TEMP_REF_BASE};
+    use fnv_script::vm::XVal;
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}
+{body}
+End
+"), Default::default());
+    let chest = FormId(0x0000_0A00);
+    let item = FormId(0x0000_0A01);
+    g.set_menu_picks(1008, MenuPicks { target: Some(MenuPick::Form(chest)), selected: Some(MenuPick::Item { owner: chest, item }) });
+    // Closed: nothing.
+    assert_eq!(q(&mut g, "SetFunctionValue (GetMenuTargetRef 1008)"), Ok(XVal::Ref(0)));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetSelectedItemRef)"), Ok(XVal::Ref(0)));
+    g.menu = Some(1008);
+    assert_eq!(q(&mut g, "SetFunctionValue (GetMenuTargetRef 1008)"), Ok(XVal::Ref(chest.0)));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetMenuTargetRef 1053)"), Ok(XVal::Ref(0)));
+    match q(&mut g, "SetFunctionValue (GetSelectedItemRef)") {
+        Ok(XVal::Ref(r)) => assert!(r >= TEMP_REF_BASE, "an inventory reference, not {r:08X}"),
+        other => panic!("{other:?}"),
+    }
+    // The menu on top answers GetSelectedItemRef.
+    g.set_menu_picks(menus::ITEM_MOD, MenuPicks { target: None, selected: Some(MenuPick::Form(item)) });
+    g.menu_under = g.menu;
+    g.menu = Some(menus::ITEM_MOD);
+    assert_eq!(q(&mut g, "SetFunctionValue (GetSelectedItemRef)"), Ok(XVal::Ref(item.0)));
+}
+
+#[test]
 fn queries_run_function_scripts_and_keep_what_they_change() {
     // The runner's `query` action (Game::run_query): JIP's auxiliary variables set by one
     // query are read by the next, and the saved ones are in the snapshot.
@@ -2226,6 +2449,84 @@ fn message_ex_box_ex_and_debug_print() {
         _ => None,
     }).collect();
     assert_eq!(printed, ["shown"]);
+}
+
+#[test]
+fn each_queued_box_keeps_its_own_button_count() {
+    // `--no-messages` (nvf-play) closes the front box when it declared one button or none,
+    // and leaves it when its count is not known.
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let buttons = |g: &Game| g.front_box().and_then(|b| b.buttons);
+    // A form-less Yes/No box A: two buttons, though no Message form says so.
+    g.run_source("MessageBoxEx \"A|Yes|No\"", Default::default()).expect("compiles");
+    assert_eq!((g.boxes.clone(), buttons(&g)), (vec![FormId(0)], Some(2)));
+    // A form box B of two buttons shown behind it overwrites the last-shown record, as
+    // ShowMessage does; A on screen still counts its own two.
+    g.message_box = Some(fnv_game::game::MessageBox { message: FormId(0x810), buttons: 2, pressed: None, owner: None, hidden: Vec::new() });
+    g.show_box_buttons(FormId(0x810), 2);
+    // Two more form-less boxes, the same ID 0 and the same words, of other counts: each
+    // its own count and its own showing.
+    g.run_source("MessageBoxEx \"C|Ok\"", Default::default()).expect("compiles");
+    g.run_source("MessageBoxEx \"C|Ok\"", Default::default()).expect("compiles");
+    assert_eq!((g.boxes.len(), buttons(&g)), (4, Some(2)));
+    let serials: Vec<u64> = g.queued.iter().map(|q| q.serial).collect();
+    assert!(serials.windows(2).all(|w| w[0] < w[1]), "every box its own showing: {serials:?}");
+    // Through a snapshot and back: the counts and showings kept.
+    let text = serde_json::to_string(&g.snapshot()).unwrap();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&text).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let mut g = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!((g.boxes.len(), buttons(&g)), (4, Some(2)));
+    assert_eq!(g.queued.iter().map(|q| q.serial).collect::<Vec<_>>(), serials);
+    // A scenario's box put in front: its count not known; the rest keep theirs.
+    g.put_box_in_front(FormId(0));
+    assert_eq!(g.front_box().map(|b| b.buttons), Some(None));
+    g.menu = Some(fnv_game::game::menus::MESSAGE);
+    g.close_menu();
+    assert_eq!(buttons(&g), Some(2), "A again, after the scenario's box closed");
+    g.close_menu();
+    assert_eq!((g.boxes.clone(), buttons(&g)), (vec![FormId(0x810), FormId(0), FormId(0)], Some(2)));
+    g.close_menu();
+    assert_eq!(buttons(&g), Some(1));
+    // Code that changes the queue alone puts it out of step: nothing read, not a 0;
+    // the next box shown puts it back in step, the others' counts not known.
+    g.boxes.push(FormId(0));
+    assert_eq!(g.front_box(), None);
+    g.show_box_buttons(FormId(0), 2);
+    assert_eq!(g.queued.len(), g.boxes.len());
+    // The two boxes left, the one pushed out of step, then the box shown.
+    assert_eq!(g.queued.iter().map(|q| q.buttons).collect::<Vec<_>>(), vec![None, None, None, Some(2)]);
+}
+
+#[test]
+fn an_older_snapshots_boxes_restore_as_showings_of_unknown_count() {
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.run_source("MessageBoxEx \"A|Yes|No\"", Default::default()).expect("compiles");
+    g.run_source("MessageBoxEx \"A|Yes|No\"", Default::default()).expect("compiles");
+    // A snapshot from before `queued`: the boxes alone.
+    let mut s = g.snapshot();
+    s.queued.clear();
+    let text = serde_json::to_string(&s).unwrap();
+    assert!(!text.contains("\"queued\""));
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&text).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let mut g = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    // In step, each box its own showing, its buttons not known (left open by
+    // --no-messages, never counted 0).
+    assert_eq!(g.queued.len(), 2);
+    assert!(g.queued.iter().all(|q| q.buttons.is_none()));
+    let (first, second) = (g.queued[0].serial, g.queued[1].serial);
+    assert_ne!(first, second, "two boxes alike are two showings");
+    // An identical box shown after them is another showing again.
+    g.run_source("MessageBoxEx \"A|Yes|No\"", Default::default()).expect("compiles");
+    assert_eq!(g.queued.len(), 3);
+    assert!(g.queued[2].serial > second && g.queued[2].buttons == Some(2));
+    // Closing the front brings the second, still its own showing.
+    g.menu = Some(fnv_game::game::menus::MESSAGE);
+    g.close_menu();
+    assert_eq!(g.front_box().map(|b| b.serial), Some(second));
 }
 
 #[test]
@@ -2913,4 +3214,81 @@ fn kill_all_actors_kills_the_loaded_cells_actors_but_never_the_player() {
     assert_eq!(g.extra[&FormId(NPC_REF)].killer, Some(FormId::PLAYER_REF));
     // Run again: nobody is left to kill.
     assert_eq!(run(&mut g, &ConsoleCtx::default(), &[]).unwrap(), ["KillAllActors >> 0 killed, 0 essential knocked out"]);
+}
+
+/// `saq`, `rdf`, `rat` and `zap` (#1046 step 2): reached by their aliases; StartAllQuests
+/// starts the quests not running, ResetDialogueFlags forgets the lines said once,
+/// ResetAllTerminals forgets the hacking, DeleteReference removes the selection and never
+/// the player.
+#[test]
+fn console_saq_rdf_rat_and_zap() {
+    use fnv_game::functions::console::{lookup_word, ConsoleCtx};
+    let f = fixture();
+    let mut g = game(&f);
+    let run = |g: &mut Game, word: &str, ctx: &ConsoleCtx| {
+        let (_, run) = lookup_word(&g.data.table, word).unwrap_or_else(|| panic!("{word}"));
+        run(g, ctx, &[])
+    };
+    let none = ConsoleCtx::default();
+    g.stop_quest(FormId(QUEST));
+    assert!(!g.quest_state(FormId(QUEST)).running);
+    let lines = run(&mut g, "saq", &none).unwrap();
+    assert!(lines[0].ends_with(&format!("({} in all)", g.data.quests.len())), "{lines:?}");
+    assert!(g.quest_state(FormId(QUEST)).running);
+    g.said.insert((FormId(NPC_REF), FormId(INFO_A)));
+    g.said_day.entry(FormId(NPC_REF)).or_default().insert(FormId(INFO_B), 1.0);
+    assert_eq!(run(&mut g, "rdf", &none).unwrap(), ["Dialogue flags reset: 1 lines said once, 1 once a day"]);
+    assert!(g.said.is_empty() && g.said_day.is_empty());
+    g.terminals.access.insert(FormId(0x7777), fnv_game::terminal::Access::Hacked);
+    assert_eq!(run(&mut g, "rat", &none).unwrap(), ["1 terminals reset"]);
+    assert!(g.terminals.access.is_empty());
+    assert!(run(&mut g, "zap", &none).is_err(), "nothing selected");
+    assert!(run(&mut g, "zap", &ConsoleCtx { on: Some(FormId::PLAYER_REF), ..Default::default() }).is_err(), "never the player");
+    run(&mut g, "zap", &ConsoleCtx { on: Some(FormId(NPC_REF)), ..Default::default() }).unwrap();
+    assert!(g.extra[&FormId(NPC_REF)].marked_for_delete);
+}
+
+/// `tlik`, `temo`, `tfow`, `slpm` and `MFG` (#1046 step 3): the toggles are asked of the
+/// engine, ToggleFogOfWar says why it does nothing, ShowLockPickMenu asks for a practice
+/// lock (Average without a difficulty), MFG keeps one expression at a time, takes a
+/// morph off at 0 and forgets the face on reset.
+#[test]
+fn console_tlik_temo_tfow_slpm_and_mfg() {
+    use fnv_game::functions::console::{lookup_word, ConsoleCtx, ConsoleRequest, FaceMfg};
+    use fnv_game::functions::toggles::Toggle;
+    use fnv_game::lockpick::Level;
+    let f = fixture();
+    let mut g = game(&f);
+    for word in ["tlik", "temo", "ToggleLookIK"] {
+        fnv_game::functions::console::call_words(&mut g, None, word, &[], "console").unwrap();
+    }
+    assert_eq!(g.toggles.asked, [Toggle::LookIk, Toggle::Emotions, Toggle::LookIk]);
+    let run = |g: &mut Game, word: &str, ctx: &ConsoleCtx, a: &[&str]| {
+        let (_, run) = lookup_word(&g.data.table, word).unwrap_or_else(|| panic!("{word}"));
+        run(g, ctx, &a.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    };
+    let none = ConsoleCtx::default();
+    assert!(run(&mut g, "tfow", &none, &[]).unwrap()[0].contains("no fog of war"));
+    run(&mut g, "slpm", &none, &[]).unwrap();
+    run(&mut g, "slpm", &none, &["5"]).unwrap();
+    assert!(run(&mut g, "slpm", &none, &["6"]).is_err());
+    assert_eq!(g.console_requests, [ConsoleRequest::Lockpick(Level::Average), ConsoleRequest::Lockpick(Level::VeryHard)]);
+    assert!(run(&mut g, "mfg", &none, &["expression", "3", "100"]).is_err(), "nothing selected");
+    let on = ConsoleCtx { on: Some(FormId(NPC_REF)), ..Default::default() };
+    assert!(run(&mut g, "mfg", &on, &["expression", "3", "100"]).unwrap()[0].ends_with("MFG expression Sad at 100"));
+    run(&mut g, "mfg", &on, &["expression", "2", "250"]).unwrap();
+    run(&mut g, "mfg", &on, &["phoneme", "0", "25"]).unwrap();
+    run(&mut g, "mfg", &on, &["modifier", "16", "-50"]).unwrap();
+    assert!(run(&mut g, "mfg", &on, &["modifier", "17", "50"]).is_err());
+    let face = &g.mfg[&FormId(NPC_REF)];
+    assert_eq!(face.expression, Some((2, 100.0)), "one expression at a time, at most 100");
+    assert_eq!((face.phonemes[&0], face.modifiers[&16]), (25.0, -50.0));
+    run(&mut g, "mfg", &on, &["phoneme", "0", "0"]).unwrap();
+    assert!(g.mfg[&FormId(NPC_REF)].phonemes.is_empty());
+    run(&mut g, "mfg", &on, &["reset"]).unwrap();
+    assert!(!g.mfg.contains_key(&FormId(NPC_REF)));
+    run(&mut g, "mfg", &on, &["modifier", "9", "100"]).unwrap();
+    run(&mut g, "mfg", &on, &["modifier", "9", "0"]).unwrap();
+    assert!(!g.mfg.contains_key(&FormId(NPC_REF)), "nothing left set: no face kept");
+    assert_eq!(FaceMfg::default().expression, None);
 }

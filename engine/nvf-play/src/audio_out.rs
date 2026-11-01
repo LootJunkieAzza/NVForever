@@ -64,7 +64,9 @@
 //! appears`, and at the end `audio output summary: opened N times, M reopens, X s mixed,
 //! Y s since the last open`, then `audio categories: music X s, footstep X s, voice X s,
 //! effects X s, radio X s heard; volumes master N%, music N%, …` (the seconds in which a
-//! category's mixer had sound, before its volume).
+//! category's mixer had sound, before its volume), then `audio categories after volumes:
+//! music X s, … audible` (the same after its volume and the master's: what a slider
+//! turned down leaves to be heard; #1077).
 //!
 //! Test aid (unattended runs only; no effect unless set):
 //! `NVF_PLAY_TEST_AUDIO_REOPEN=<seconds>[,...]` drops the device and opens the default
@@ -184,12 +186,14 @@ struct Levels {
     categories: [AtomicU32; 5],
     /// Stereo frames in which each category's mixer had sound.
     heard: [AtomicU64; 5],
+    /// The same, after the category's volume and the master's.
+    audible: [AtomicU64; 5],
 }
 
 impl Default for SoundVolumes {
     fn default() -> Self {
         let one = || AtomicU32::new(1f32.to_bits());
-        SoundVolumes(Arc::new(Levels { master: one(), categories: std::array::from_fn(|_| one()), heard: Default::default() }))
+        SoundVolumes(Arc::new(Levels { master: one(), categories: std::array::from_fn(|_| one()), heard: Default::default(), audible: Default::default() }))
     }
 }
 
@@ -223,15 +227,17 @@ struct Gain {
     volumes: SoundVolumes,
     category: SoundCategory,
     now: f32,
-    /// Samples of the stereo frame being counted for the summary, and whether one had sound.
+    /// Samples of the stereo frame being counted for the summary, and whether one had
+    /// sound before and after the gain.
     counted: u16,
     heard: bool,
+    audible: bool,
 }
 
 impl Gain {
     fn new(inner: MixerSource, volumes: SoundVolumes, category: SoundCategory) -> Gain {
         let now = volumes.gain(category);
-        Gain { inner, volumes, category, now, counted: 0, heard: false }
+        Gain { inner, volumes, category, now, counted: 0, heard: false, audible: false }
     }
 }
 
@@ -249,13 +255,18 @@ impl Iterator for Gain {
         self.now += (target - self.now).clamp(-step, step);
         let s = self.inner.next().unwrap_or(0.0);
         self.heard |= s.abs() > HEARD;
+        self.audible |= (s * self.now).abs() > HEARD;
         self.counted += 1;
         if self.counted == CHANNELS {
             if self.heard {
                 self.volumes.0.heard[self.category.index()].fetch_add(1, Ordering::Relaxed);
             }
+            if self.audible {
+                self.volumes.0.audible[self.category.index()].fetch_add(1, Ordering::Relaxed);
+            }
             self.counted = 0;
             self.heard = false;
+            self.audible = false;
         }
         Some(s * self.now)
     }
@@ -372,6 +383,20 @@ pub fn register_settings(app: &mut App) {
                 note: "World sounds echo as the place you are in does (a cave, a hall, a small room). Off: --no-reverb.",
                 get: |w| w.resource::<crate::sfx::SfxSettings>().reverb,
                 set: |w, on| w.resource_mut::<crate::sfx::SfxSettings>().reverb = on,
+                slider: None,
+            },
+        );
+    }
+    if app.world().contains_resource::<crate::voice::VoiceSettings>() {
+        add_setting(
+            app,
+            Setting {
+                key: "voice-reverb",
+                group: GROUP_SOUND,
+                label: "Voice reverb",
+                note: "What people say around you echoes in the place you are in, up to the end of each line, as Reverb does for world sounds. Conversations stay dry.",
+                get: |w| w.resource::<crate::voice::VoiceSettings>().reverb,
+                set: |w, on| w.resource_mut::<crate::voice::VoiceSettings>().reverb = on,
                 slider: None,
             },
         );
@@ -776,6 +801,8 @@ fn report(mut exit: MessageReader<AppExit>, out: Res<AudioOut>, volumes: Res<Sou
         let heard = SoundCategory::ALL.map(|c| format!("{} {:.1} s", c.name(), volumes.0.heard[c.index()].load(Ordering::Relaxed) as f64 / RATE as f64));
         let levels = SoundCategory::ALL.map(|c| format!("{} {:.0}%", c.name(), volumes.get(c) * 100.0));
         info!("audio categories: {} heard; volumes master {:.0}%, {}", heard.join(", "), volumes.master() * 100.0, levels.join(", "));
+        let audible = SoundCategory::ALL.map(|c| format!("{} {:.1} s", c.name(), volumes.0.audible[c.index()].load(Ordering::Relaxed) as f64 / RATE as f64));
+        info!("audio categories after volumes: {} audible", audible.join(", "));
     }
 }
 
@@ -821,6 +848,19 @@ mod tests {
         assert_eq!(rest, Some(0.0));
         assert!(volumes.0.heard[SoundCategory::Music.index()].load(Ordering::Relaxed) > 0);
         assert_eq!(volumes.0.heard[SoundCategory::Voice.index()].load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn a_category_turned_down_is_heard_but_not_audible() {
+        let volumes = SoundVolumes::default();
+        volumes.set(SoundCategory::Radio, 0.0);
+        let (radio, source) = rodio::mixer::mixer(NonZero::new(CHANNELS).unwrap(), NonZero::new(RATE).unwrap());
+        let mut gain = Gain::new(source, volumes.clone(), SoundCategory::Radio);
+        radio.add(ones(RATE as usize));
+        assert!(gain.by_ref().take(RATE as usize).all(|s| s == 0.0));
+        let count = |c: &[AtomicU64; 5]| c[SoundCategory::Radio.index()].load(Ordering::Relaxed);
+        assert!(count(&volumes.0.heard) > 0);
+        assert_eq!(count(&volumes.0.audible), 0);
     }
 
     #[test]

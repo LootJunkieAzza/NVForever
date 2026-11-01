@@ -296,6 +296,28 @@ fn the_records_are_read() {
     assert_eq!((l.all_levels, l.entries.clone()), (false, vec![(1, FormId(LIST_WOLF)), (9, FormId(RAT))]));
 }
 
+/// The extender's base faction getters read the Use Factions template's list through NPC
+/// records, the record's own when the chain reaches a leveled list (actors.md §2.2;
+/// observed: o5 and tmpl3, #1057).
+#[test]
+fn base_faction_getters_follow_the_factions_template() {
+    use fnv_script::vm::XVal;
+    let f = fixture();
+    let mut g = game(&f);
+    let mut q = |body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).expect("the query runs");
+    // Member (own Rats) and Second (through Member) both answer Leader's Raiders, rank 2.
+    for npc in ["Member", "Second"] {
+        assert_eq!(q(&format!("SetFunctionValue (GetBaseNumFactions {npc})")), XVal::Num(1.0), "{npc}");
+        assert_eq!(q(&format!("SetFunctionValue (GetBaseNthFaction 0 {npc})")), XVal::Ref(RAIDERS), "{npc}");
+        assert_eq!(q(&format!("SetFunctionValue (GetBaseNthRank 0 {npc})")), XVal::Num(2.0), "{npc}");
+        assert_eq!(q(&format!("SetFunctionValue (ar_Size (GetBaseFactions {npc}))")), XVal::Num(1.0), "{npc}");
+    }
+    // A template not used for the factions, and a leveled-list template: their own.
+    assert_eq!(q("SetFunctionValue (GetBaseNthRank 0 Own)"), XVal::Num(1.0));
+    assert_eq!(q("SetFunctionValue (GetBaseNthFaction 0 SpawnHigh)"), XVal::Ref(RATS));
+    assert_eq!(q("SetFunctionValue (GetBaseNthRank 0 SpawnHigh)"), XVal::Num(3.0));
+}
+
 #[test]
 fn the_template_supplies_the_factions_it_is_flagged_for() {
     let f = fixture();
@@ -674,6 +696,42 @@ fn an_escort_joins_its_charges_fights() {
     g.extra.entry(escort).or_default().current_package = None;
     fighting(&mut g, WATCHMAN_REF, PLAYER);
     assert_eq!(g.escorts_assist(), 0);
+}
+
+#[test]
+fn companions_seeing_the_player_do_not_set_the_sneak_word() {
+    // #1159 (hud.md §9): a teammate, or an actor following the player, detecting the
+    // player is no [DETECTED]; anyone else still is, and the pair stays for the AI.
+    use fnv_game::package::{PackageDef, PackageType, Target, TargetKind};
+    const FOLLOW_PACK: u32 = 0x8F1;
+    let mut f = fixture();
+    let def = PackageDef { ty: PackageType::Follow, target: Some(Target { kind: TargetKind::Reference(Some(FormId::PLAYER_REF)), count_distance: 0 }), ..Default::default() };
+    f.data.package_defs.insert(FormId(FOLLOW_PACK), def);
+    let mut g = game(&f);
+    let (mate, follower, other, player) = (FormId(LOAFER_REF), FormId(HELPER_REF), FormId(WATCHMAN_REF), FormId::PLAYER_REF);
+    let seen = |g: &mut Game, who: FormId| {
+        let t = g.time;
+        g.detection.pairs.insert((who, player), (Detection { value: 30.0, band: Band::Detected, ..Default::default() }, t));
+    };
+    assert!(!g.player_detected_for_sneak(), "no one measured");
+    g.extra.entry(mate).or_default().teammate = true;
+    seen(&mut g, mate);
+    assert!(g.with_player(mate));
+    assert!(!g.player_detected_for_sneak(), "the teammate alone: hidden");
+    assert!(g.detection.get(mate, player).is_some(), "its own detection is kept");
+    g.extra.entry(follower).or_default().current_package = Some(FormId(FOLLOW_PACK));
+    seen(&mut g, follower);
+    assert!(g.with_player(follower));
+    assert!(!g.player_detected_for_sneak(), "a follower too");
+    // A non-hostile actor that is not with the player still counts (hud.md §9).
+    assert!(!g.with_player(other));
+    seen(&mut g, other);
+    assert!(g.player_detected_for_sneak());
+    // A follower on another package is no longer with the player.
+    g.detection.pairs.remove(&(other, player));
+    g.extra.entry(follower).or_default().current_package = None;
+    assert!(!g.with_player(follower));
+    assert!(g.player_detected_for_sneak());
 }
 
 #[test]

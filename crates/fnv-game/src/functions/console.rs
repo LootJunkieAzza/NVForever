@@ -36,6 +36,9 @@ pub enum ConsoleRequest {
     Save(String),
     /// A save by name; empty for the quick save.
     Load(String),
+    /// The lockpicking menu on a practice lock of that difficulty, no reference's
+    /// (`ShowLockPickMenu`).
+    Lockpick(crate::lockpick::Level),
 }
 
 pub type ConsoleImpl = fn(&mut Game, &ConsoleCtx, &[String]) -> Result<Vec<String>, String>;
@@ -62,13 +65,20 @@ pub fn registry() -> &'static [(&'static str, ConsoleImpl)] {
         ("SaveGame", save_game),
         ("LoadGame", load_game),
         ("KillAllActors", kill_all_actors),
+        ("StartAllQuests", start_all_quests),
+        ("ResetDialogueFlags", reset_dialogue_flags),
+        ("ResetAllTerminals", reset_all_terminals),
+        ("DeleteReference", delete_reference),
+        ("ToggleFogOfWar", toggle_fog_of_war),
+        ("ShowLockPickMenu", show_lock_pick_menu),
+        ("MFG", modify_face_gen),
     ]
 }
 
 /// Vanilla functions the engine's console handles itself by name, outside both
-/// registries (engine/nvf-play/src/console.rs): `coc` travels, `help` searches records,
-/// `AdvLevel` levels up.
-pub const ENGINE_WORDS: &[&str] = &["CenterOnCell", "Help", "AdvancePCLevel"];
+/// registries (engine/nvf-play/src/console.rs): `coc`, `cow` and `coe` travel, `help`
+/// searches records, `AdvLevel` levels up, `bat` runs a file's lines.
+pub const ENGINE_WORDS: &[&str] = &["CenterOnCell", "CenterOnWorld", "CenterOnExterior", "Help", "AdvancePCLevel", "bat"];
 
 /// The vanilla functions of the catalogue that nothing handles and no script of the
 /// masters calls (so the stub audit, `fnvtool script stubs`, never counts them): those
@@ -445,6 +455,149 @@ pub fn quit_game(g: &mut Game, _ctx: &ConsoleCtx, _a: &[String]) -> Result<Vec<S
     Ok(vec!["Quitting".into()])
 }
 
+/// `StartAllQuests` (`saq`): every quest of the load order is started ("Starts every quest
+/// in the game" [documented: GECK wiki StartAllQuests]), each as StartQuest starts one;
+/// those running already are left as they are.
+pub fn start_all_quests(g: &mut Game, _ctx: &ConsoleCtx, _a: &[String]) -> Result<Vec<String>, String> {
+    let quests: Vec<FormId> = g.data.quests.keys().copied().collect();
+    let started = quests.iter().filter(|&&q| !g.quest_state(q).running && g.start_quest(q)).count();
+    Ok(vec![format!("{started} quests started ({} in all)", quests.len())])
+}
+
+/// `ResetDialogueFlags` (`rdf`): the Say Once and Say Once a Day lines may be said again
+/// ("Currently resets the say-once and say-once-per-day flags" [documented: GECK wiki
+/// ResetDialogueFlags]). The record of lines said to the player goes with them, so their
+/// choices are no longer shaded [hypothesis: one set holds both here, `Game::said`].
+pub fn reset_dialogue_flags(g: &mut Game, _ctx: &ConsoleCtx, _a: &[String]) -> Result<Vec<String>, String> {
+    let (once, daily) = (g.said.len(), g.said_day.values().map(|m| m.len()).sum::<usize>());
+    g.said.clear();
+    g.said_day.clear();
+    Ok(vec![format!("Dialogue flags reset: {once} lines said once, {daily} once a day")])
+}
+
+/// `ResetAllTerminals` (`rat`): every terminal is as if never hacked: hacked ones must be
+/// hacked again, locked-out ones may be tried again ("Clears all variables changed during
+/// hacking, resetting terminals as if never hacked" [documented: GECK wiki
+/// ResetAllTerminals]). What scripts set with Lock and Unlock stays: no hacking set it.
+pub fn reset_all_terminals(g: &mut Game, _ctx: &ConsoleCtx, _a: &[String]) -> Result<Vec<String>, String> {
+    let n = g.terminals.access.len();
+    g.terminals.access.clear();
+    g.terminals.retried.clear();
+    Ok(vec![format!("{n} terminals reset")])
+}
+
+/// `[ref.]DeleteReference` (`zap`): the reference (else the console's selection) is
+/// removed from the world at once ("immediately removes a reference" [documented: GECK
+/// wiki DeleteReference]); the save keeps it removed, as MarkForDelete's. Never the
+/// player.
+pub fn delete_reference(g: &mut Game, ctx: &ConsoleCtx, _a: &[String]) -> Result<Vec<String>, String> {
+    let r = ctx.on.ok_or("select a reference first, or ref.zap")?;
+    if r == FormId::PLAYER_REF {
+        return Err("not the player".into());
+    }
+    let what = label(g, r);
+    g.extra.entry(r).or_default().marked_for_delete = true;
+    g.world.get(r).map_err(|e| e.to_string())?.deleted = true;
+    Ok(vec![format!("{what} deleted")])
+}
+
+/// `ToggleFogOfWar` (`tfow`): "turns local map fog of war on or off" [documented: GECK
+/// wiki ToggleFogOfWar]. NVForever's local map draws no fog of war (the Pip-Boy shows the
+/// whole map, `nvf_play::pipboy`), so there is nothing to switch; the console says so.
+pub fn toggle_fog_of_war(_g: &mut Game, _ctx: &ConsoleCtx, _a: &[String]) -> Result<Vec<String>, String> {
+    Ok(vec!["The local map has no fog of war here: it always shows the whole map".into()])
+}
+
+/// `ShowLockPickMenu [difficulty]` (`slpm`): the lockpicking menu on a practice lock,
+/// difficulty 1 Very Easy to 5 Very Hard, 3 Average without one [documented: GECK wiki
+/// ShowLockPickMenu]. The console closes and the menu opens with the player's Lockpick
+/// skill and bobby pins, which wear and break as on any lock; whatever the skill, the
+/// lock may be tried, and opening it opens nothing, gives no XP and is no crime
+/// [hypothesis: a designer's test of the minigame].
+pub fn show_lock_pick_menu(g: &mut Game, _ctx: &ConsoleCtx, a: &[String]) -> Result<Vec<String>, String> {
+    use crate::lockpick::Level;
+    let d = match a.first() {
+        Some(w) => w.parse::<u8>().ok().filter(|d| (1..=5).contains(d)).ok_or("difficulty 1 (Very Easy) to 5 (Very Hard)")?,
+        None => 3,
+    };
+    let level = [Level::VeryEasy, Level::Easy, Level::Average, Level::Hard, Level::VeryHard][usize::from(d - 1)];
+    g.console_requests.push(ConsoleRequest::Lockpick(level));
+    Ok(vec![format!("Practice lock ({}): the lockpicking menu opens", level.name())])
+}
+
+/// The expressions of `MFG Expression <id>`, by ID, as the heads' `.tri` morph labels
+/// [documented: GECK wiki ModifyFaceGen, Expression IDs; the wiki's `MoodCocky` is the
+/// label `Cocky` of the heads, lips.rs `MOODS`].
+pub const MFG_EXPRESSIONS: [&str; 15] =
+    ["Anger", "Fear", "Happy", "Sad", "Surprise", "MoodNeutral", "MoodAfraid", "MoodAnnoyed", "Cocky", "MoodDrugged", "MoodPleasant", "MoodAngry", "MoodSad", "Pained", "CombatAnger"];
+/// Phoneme IDs 0 to 15 and modifier IDs 0 to 16 [documented: GECK wiki ModifyFaceGen],
+/// the `.lip` channels of the same numbers (fnv_voice::lip::CHANNEL_NAMES).
+pub const MFG_PHONEMES: u8 = 16;
+pub const MFG_MODIFIERS: u8 = 17;
+/// Modifiers 14 to 16 turn the head (HeadPitch, HeadRoll, HeadYaw): they may be negative.
+pub const MFG_HEAD_MODIFIERS: std::ops::RangeInclusive<u8> = 14..=16;
+
+/// What `MFG` set on one actor's face, intensities 0 to 100 (head turns −100 to 100).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FaceMfg {
+    /// The expression (an index of [`MFG_EXPRESSIONS`]) and its intensity: one at a time.
+    pub expression: Option<(u8, f32)>,
+    pub phonemes: std::collections::BTreeMap<u8, f32>,
+    pub modifiers: std::collections::BTreeMap<u8, f32>,
+}
+
+/// `[ref.]MFG <Expression|Phoneme|Modifier> <id> <intensity>`, `MFG Reset`: morphs on the
+/// actor's face (else the selection's) [documented: GECK wiki ModifyFaceGen, "An actor may
+/// only have one Expression at a time"; reset "clears all MFG emotions"]. Intensity 0
+/// takes one off. They stay until reset, on top of what the face does otherwise (lips,
+/// blinks, a line's emotion). The original takes "a second or two" to show them
+/// [documented]; ours show at once [design].
+pub fn modify_face_gen(g: &mut Game, ctx: &ConsoleCtx, a: &[String]) -> Result<Vec<String>, String> {
+    const USE: &str = "MFG Expression|Phoneme|Modifier <id> <intensity 0-100>, or MFG Reset";
+    let r = ctx.on.ok_or("select an actor first, or ref.MFG")?;
+    let who = label(g, r);
+    let kind = a.first().map(|k| k.to_ascii_lowercase()).ok_or(USE)?;
+    if kind == "reset" {
+        g.mfg.remove(&r);
+        return Ok(vec![format!("{who}: MFG reset")]);
+    }
+    let id: u8 = a.get(1).and_then(|w| w.parse().ok()).ok_or(USE)?;
+    let asked: f32 = a.get(2).and_then(|w| w.parse().ok()).ok_or(USE)?;
+    let head = kind == "modifier" && MFG_HEAD_MODIFIERS.contains(&id);
+    let value = asked.clamp(if head { -100.0 } else { 0.0 }, 100.0);
+    let face = g.mfg.entry(r).or_default();
+    let (what, name) = match kind.as_str() {
+        "expression" => {
+            let name = *MFG_EXPRESSIONS.get(usize::from(id)).ok_or("expression IDs are 0 to 14")?;
+            face.expression = (value > 0.0).then_some((id, value));
+            ("expression", name.to_string())
+        }
+        "phoneme" if id < MFG_PHONEMES => {
+            set_mfg(&mut face.phonemes, id, value);
+            ("phoneme", id.to_string())
+        }
+        "modifier" if id < MFG_MODIFIERS => {
+            set_mfg(&mut face.modifiers, id, value);
+            ("modifier", id.to_string())
+        }
+        "phoneme" => return Err("phoneme IDs are 0 to 15".into()),
+        "modifier" => return Err("modifier IDs are 0 to 16".into()),
+        _ => return Err(USE.into()),
+    };
+    if *face == FaceMfg::default() {
+        g.mfg.remove(&r);
+    }
+    Ok(vec![format!("{who}: MFG {what} {name} at {value:.0}")])
+}
+
+fn set_mfg(m: &mut std::collections::BTreeMap<u8, f32>, id: u8, v: f32) {
+    if v == 0.0 {
+        m.remove(&id);
+    } else {
+        m.insert(id, v);
+    }
+}
+
 /// `KillAllActors [killer]` (`killall`): every actor of the loaded area dies (the cells
 /// around the player outdoors, the player's cell indoors), the player never; an essential
 /// one is knocked out instead; the killer given (a reference) takes the kill as its own
@@ -706,7 +859,7 @@ mod tests {
         let (console, other) = unhandled_unused(&j);
         eprintln!("unhandled console functions: {console:?}
 unhandled other vanilla functions: {other:?}");
-        assert_eq!((console.len(), other.len()), (57, 124), "docs/design/console.md, What the console does not handle, sorts them");
+        assert_eq!((console.len(), other.len()), (45, 124), "docs/design/console.md, What the console does not handle, sorts them");
         // `killall` reaches KillAllActors by its alias.
         assert_eq!(lookup_word(&t, "killall").map(|r| r.0).as_deref(), Some("KillAllActors"));
         assert_eq!(lookup_word(&t, "cam").map(|r| r.0).as_deref(), Some("CloseAllMenus"));

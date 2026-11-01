@@ -120,11 +120,15 @@ owner to add to its pull request or issue (owner, 2026-10-29).
     or 0 font 1. What each trait is taken to mean: menu-xml.md §3.1.2. Log line
     `tiles: HUDMainMenu: N mod tiles drawn (M items)` when the counts change.
   - Which tiles: `Ui::mod_tile_drawn` (Injected/Template always, Code never, File only
-    against the archived file's name paths, `Ui::file_name_paths`). The game cannot read
-    the archived copy under a loose file (one VFS location per path), so a loose HUD
-    replacement draws none of its file tiles in v1; `fnvtool ui mod-tiles --menu …`
-    shows the comparison (test install: vanilla 0, Clean Vanilla Hud 0, Vanilla UI
-    Plus 5, its `VUI+` outlines).
+    against the archived file's name paths, `Ui::archived_name_paths`). The archived
+    copy under a loose file is read since #975 (`fnv_vfs::Vfs::read_archived`,
+    `Source::read_archived`, `fnv_ui::tree::Archived`), so a loose HUD replacement draws
+    its own file tiles, the archived names read once per file (`draw.rs`
+    `archived_names`); `fnvtool ui mod-tiles --menu …` shows the same comparison (test
+    install: vanilla 0, Clean Vanilla Hud 0, Vanilla UI Plus 5, its `VUI+` outlines).
+    Tests: `fnv_vfs` `the_archived_copy_under_a_loose_file_still_reads`, `fnv_ui`
+    `the_archived_copy_under_a_loose_file_gives_the_names_compared_with`, `nvf-play`
+    `a_loose_hud_over_an_archived_one_draws_its_own_tiles`.
   - Carried over from T4, done: text widths written back before scripts
     (`fnv_game::ui_hud::write_text_widths`): the sneak word, the prompt's `button_text`
     (its hotrect follows by the file's expression), the radiation value; the observed
@@ -137,9 +141,7 @@ owner to add to its pull request or issue (owner, 2026-10-29).
     `ui-mod-tile-drawn` (a box, picture and text injected by the console, shot
     `ui_mod_tile.png`) and `ui-mod-tiles-vanilla` (fnvtool, 0 tiles).
   - Left: nif and radial tiles; another `.tai` than the shared atlas, `zoom`, `tile`,
-    `cropx`, `cropy`; numeric `justify` and system colour numbers; reading the archived
-    copy under a loose file in the VFS (then loose HUD files draw their own tiles);
-    every hypothesis in menu-xml.md §3.1.2 against the original (screenshots of a HUD
+    `cropx`, `cropy`; numeric `justify` and system colour numbers; every hypothesis in menu-xml.md §3.1.2 against the original (screenshots of a HUD
     mod at the same view size); a HUD mod from a Viva New Vegas `mods` folder in game
     (JAM's meters after T6).
 
@@ -270,6 +272,12 @@ owner to add to its pull request or issue (owner, 2026-10-29).
    AttachUIXML, AttachUIComponent, AddTraitToTile, GetUIValueType, GetUIElementType,
    SortUIListBox, GetStringUIDimensions (fnv-font metrics), the CacheUI family, the
    HudBar family, the DumpTileInfo family. Each with a headless test.
+   - **Built** 2026-10-30 (claude/t9-tile-functions): `fnv_game::ui_more`,
+     `ui_gradients`, `ui_cache`, `ui_hudbar`, tests `crates/fnv-game/tests/ui_more.rs`;
+     the engine steps the gradients in `tiles::update`. What each page leaves open and
+     what is not built (SetUITexOffset, SetUIAlphaMap, SetUITypewriter, the HUD bars'
+     script-variable values and visibility conditions, the attached components'
+     placing, the engine's text measure): menu-xml.md §9.
 6. **T10. The game strings table.** The 145 `&-sName;` names of the vanilla files: the
    load order's GMST first; where the plugins have none, an English label NVForever
    writes itself from the setting's name and the menu's purpose (`sCloseButton` →
@@ -604,3 +612,103 @@ owner to add to its pull request or issue (owner, 2026-10-29).
     - Pip-Boy STATS, ITEMS, DATA (into the screen texture);
     - dialogue, level-up, character creation, casino games, terminals, lockpick,
       hacking, VATS.
+    - **T15a plan: the message box and "How many?" from their files** (2026-10-31,
+      `claude/t15-menus-a`, issue #978; T15b, sleep/wait and the tutorial menu, follows
+      the same shape). One switch per menu, the hand-built drawing stays the default.
+      **Builds on #979** (PR #1166, `claude/tile-text-baseline`) and its per-font
+      follow-up (18088f1e, a text line, pitch and height for every font), merged into
+      the branch: those must merge first.
+      - **Switch**: `[UI] TileMenus=` takes `MessageMenu` and `QuantityMenu` beside
+        `HUDMainMenu` (`tiles::vanilla::TileMenus`, its test aid
+        `NVF_PLAY_TEST_TILE_MENUS`). On, and with the menu's file built into the tree,
+        the hand-built box (`message_menu.rs`) or prompt (`menu/look.rs::spawn_quantity`)
+        is not spawned and the tile renderer draws the menu's whole tree at the
+        hand-built box's stacking level. Off, no writes, drawing or tile input for them;
+        but `QuantityMenu`'s tree builds while the prompt shows (below), and the `_name_`
+        rule holds for every menu (below). Hotrect alpha uses the T15 switch gate [design].
+      - **The tree has the menu**: `MessageMenu` builds while a message box is the open
+        menu (T3b). The prompt is no `Game::menu` (MenuMode does not report it), so
+        `Game::ui_prompt` (new, set by the engine each frame from `ActiveMenu`) builds
+        `QuantityMenu` (1016) while the prompt shows.
+      - **What the model writes** (`tiles::menus`, only while its switch is on, before
+        scripts): MessageMenu: the title and text strings, the icon's file and
+        `visible`, one `MM_ButtonTemplate` row per button under `MM_ButtonList` (its
+        `string`, `listindex`, `_y`, `height`), the list's `width`, `height`,
+        `_highlight_y`, `_selected_height` and the scroll bar's item counts, and
+        `MM_MainRect`'s `width` ("set in code" in the file); QuantityMenu: the meter's
+        `user0` (the stack) and `user2` (the amount), from which the file works out the
+        meter's fill and the amount text. Both: the background's opacity (set in code).
+        Every text tile of a drawn menu gets its measured `width` and `height` (as the
+        HUD's measured texts), only when its string, font or wrap changed.
+      - **Tree rules the files need** (menu-xml.md): `screen()` in interface units (960
+        high; both files centre their boxes by it) and `resolutionconverter` 960 / the
+        window's height (lines 2 pixels), both only while a T15 menu is switched on;
+        a hotrect's own `alpha` not passed to its children under that same gate (every
+        text button is an alpha-0 hotrect over a visible text), and `copy … trait="_name_"` after a
+        constant (`&false;`) reading `_name_0` (the fade lines' and the meter's picture).
+      - **Input** (T8): the menus take tile input while drawn from tiles. A pointer or
+        script click on a button row answers the box (`script_hud::menu_keys`), the
+        pointer over a row frames it; on the prompt OK, Cancel and the arrows send their
+        commands (`menu::MenuInput`) and a press or drag on the meter sets the amount.
+        The hand-built keys stay the prompt's and the box's: a click a key makes through
+        the files' `_PCButton_*` and `x…` refs acts unless that key came from the
+        keyboard (or a controller standing in for it) and the hand-built handler took it
+        that frame (`tiles::menus::key_click_acts`), so a script's MenuTapKey and a file's
+        own bindings act (changed after review; the plan first ignored every key click).
+      - **Hand-copied numbers**: the tile path reads none of `message_menu.rs`'s layout
+        constants or `look.rs`'s `Q_*`, and draws the meter as one tiled picture (no node
+        per tick). They stay for the hand-built drawing, the default, and go when the
+        maintainer makes tiles the default.
+      - **Tests**: `tiles::menus` (the writes on trees written for the tests),
+        `tiles::layout` (hotrect alpha), `tiles::vanilla` (the switch), `fnv-ui`
+        (`_name_` after a constant), `fnv-game` `ui_loading` (the prompt builds and
+        drops). Smoke: `tiles-message-box`, `tiles-quantity` (new). The model's own
+        tests (`message_menu`, `menu::model`) unchanged.
+    - **T15a built** 2026-10-31 (`claude/t15-menus-a`), awaiting the screenshot
+      comparison and the maintainer: as planned above (`tiles/menus.rs`,
+      message-menu.md §5a, barter-menu.md §7, menu-xml.md §3.1.1, §4.2, §4.4).
+      **Review safeguards** [design]: every model-written path and `MM_ButtonTemplate`
+      (its row and text) is required; missing paths warn once and keep the whole
+      hand-built menu. Message rows totalling more than the file's 420-unit list cap
+      also warn once and keep the whole hand-built box; list scrolling is a follow-up.
+      Hotrect alpha inheritance uses `tiles::interface_screen`'s T15 gate, preserving
+      default mod HUD drawing. Unconditional hotrect alpha is a candidate for its own
+      PR. The observed interface `screen()` units stay gated too; their unconditional
+      adoption is a follow-up (the units [observed: hud_menus capture 2026-10-31, three
+      window sizes]; the gate [design: default play unchanged]). The prompt can still draw by hand for its opening
+      frame before the next tree sync; removing that flicker needs a scheduling or
+      loading follow-up [design].
+      **Also changes, with the T15 menus off:** `copy … _name_` after `&true;`/`&false;`
+      reads `_name_1`/`_name_0` in every menu; `QuantityMenu` builds and drops with the prompt.
+      **Font follow-up applied:** font 2 now uses its captured first-line place (16),
+      pitch (35) and one-line height (32); the empty title keeps 14 x 38 [observed:
+      hud_menus capture 2026-10-31; fonts.md §3.1]. **Open, for the comparison:**
+      the highlight box's fill (hotrects draw nothing), the crafting menu's prompt (still
+      hand-built); the per-frame layout of an open tile menu (the tree has no cheap
+      revision to skip it; to measure with the perf harness). **Where it stands
+      (2026-10-31):** implemented. On `d5fc28fa`: root tests no failures, root clippy
+      clean, `nvf-play` tests 670 passed, engine clippy clean. Smoke on `6a95d7e7`: 256
+      of 261 passed; of the fails, one a tool timeout, one #1181 (stale on main), and
+      `tiles-message-box` from #1180 (`--no-messages` closed a form-less Yes/No box; fixed
+      since, `1c16ec8a`, `d5fc28fa`, `3baf8595`). Later, 2026-10-31: root tests no
+      failures (after `a9c5f151`'s test fix) and root clippy clean; on `bdaad547`
+      `nvf-play` tests 672 passed and engine clippy clean; smoke on `947e9c7e` 251 of 253,
+      the two fails explained in the run's report. Then, from the three-way pictures and
+      the hud_menus capture [observed 2026-10-31]: the box opens with no row chosen, the
+      empty title is 14 x 38, and font 2 stands on its own line (the #979 merge); only
+      compiled since. The commits after `bdaad547`/
+      `a9c5f151` (the tiled prompt's and box's pointer sheet, the late-font retry through
+      `draw::whole_pieces` and its test) were only compiled (`cargo check`). The final
+      run of 2026-10-31 on the merged head: root tests and clippy clean, `nvf-play` 690
+      tests, engine clippy clean, smoke 271 of 273 (the two fails explained in the PR).
+      The screenshot comparison was made against upstream main and the original (the
+      PR's pictures); observer-checks.md item 64 remains, item 63 is answered by the
+      capture.
+      - Review fixes (2026-10-31, an independent review): navigation has one owner (a
+        highlight a ref moved for a hand-built Up/Down is not the choice); a new box makes
+        its rows again (a queued script click on the last box answers nothing); key clicks
+        act unless the hand-built handler took that key this frame (MenuTapKey and the
+        files' extra bindings act); the tile view only with the menu's file built and the
+        prompt open; text sizes per axis; `screen()` gated; `_name_` only after a constant
+        with a known number; the drop aid's `ask` holds the prompt; the message scenario
+        closes the console.

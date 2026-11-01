@@ -35,8 +35,10 @@
 //! **The settings page** lists the on/off switches of [`crate::settings`] the original's
 //! way: their groups as categories left of the column (Gameplay, World, Display,
 //! Graphics, Debug: NVForever's switches, not the original's), the chosen category's
-//! switches in the middle over the darkened band, each with ON or OFF as the game is
-//! using it now, the chosen switch's note under them, Defaults and Back at the bottom
+//! switches in the middle over the darkened band (from near the view's top, as far left
+//! as keeps the band clear of the categories: `options_left`, #1210), each with ON or
+//! OFF as the game is using it now, the chosen switch's note under them (cut to the lines
+//! that fit), Defaults and Back at the bottom
 //! right, the version at the bottom left. Up/Down (or W/S) choose a row within the
 //! category, Tab or Page Down the next category (Page Up the one before), a click on a
 //! category shows it; Enter, Space, Left or Right flip the row, as does a click on it; a
@@ -116,7 +118,7 @@
 
 use crate::interface::{bc_supported, u, Face, Picture, Pictures};
 use crate::settings::{add_setting, Setting, Settings};
-use crate::start_menu::{color, highlight_colors, text as sm_text, wrapped, Faces, Shade, BASE, COLUMN, ITEM, LINE, RIGHT, SUB_RIGHT, SUB_WIDTH};
+use crate::start_menu::{color, highlight_colors, text as sm_text, Faces, Shade, BASE, COLUMN, ITEM, LINE, RIGHT, SUB_RIGHT, SUB_WIDTH};
 use crate::{PlaySet, PlayState};
 use bevy::ecs::system::SystemParam;
 use bevy::image::CompressedImageFormatSupport;
@@ -646,6 +648,19 @@ const BAR_PICTURES: [&str; 3] = ["interface\\shared\\scrollbar\\arrow_up.dds", "
 const WHEEL_PIXELS: f32 = 20.0;
 const OPTIONS_WIDTH: f32 = 820.0;
 const OPTIONS_LEFT: f32 = -470.0;
+/// The settings page's rows' top: higher than the column's (360 with the pause menu's
+/// five entries), where nine rows and the note under them ran off the bottom [design:
+/// #1210]. The categories stay beside the column.
+const OPTIONS_TOP: f32 = 120.0;
+/// The note under the rows: its lines this far apart, the last one above the version's
+/// line [design].
+const NOTE_STEP: f32 = 26.0;
+const NOTE_BOTTOM: f32 = 900.0;
+/// The room between the band's right edge and the categories [design: #1210, the scroll
+/// bar and band ran under them at 16:9].
+const TABS_GAP: f32 = 20.0;
+/// The view's width in interface units when no window says (16:9).
+const VIEW_W: f32 = 960.0 * 16.0 / 9.0;
 const VALUE_AT: f32 = 700.0;
 /// A slider's meter in its row: its left edge, width and height, the arrows' left edges
 /// and the value's centre [design: the "How many?" meter's height and arrows
@@ -815,6 +830,8 @@ struct Drawn {
     keep: Option<(&'static str, u32, usize)>,
     /// The load page's delete question: the row it asks about.
     delete_ask: Option<usize>,
+    /// The view's width in interface units (960 high), rounded.
+    view_w: u32,
 }
 
 impl Drawn {
@@ -1019,6 +1036,8 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
         return;
     }
     let f = &look.faces;
+    // The settings rows' left edge, clear of the categories.
+    let left = options_left(d.view_w as f32, tabs_width(f, settings));
     commands.spawn((PauseRoot, full(), GlobalZIndex(110))).with_children(|root| {
         // The pause screen over the held world.
         if !d.under_main {
@@ -1044,7 +1063,9 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
         }
         // The band behind a page's list.
         match d.page {
-            Page::Settings { .. } | Page::Controls { .. } => band(root, look, Node { top: u(0.0), height: Val::Percent(100.0), ..from_middle(OPTIONS_LEFT - BAND_MARGIN, 0.0, OPTIONS_WIDTH + 2.0 * BAND_MARGIN + BAR_GAP + BAR_W, 0.0) }),
+            Page::Settings { .. } | Page::Controls { .. } => {
+                band(root, look, Node { top: u(0.0), height: Val::Percent(100.0), ..from_middle(left - BAND_MARGIN, 0.0, OPTIONS_WIDTH + 2.0 * BAND_MARGIN + BAR_GAP + BAR_W, 0.0) })
+            }
             Page::Load { .. } => band(root, look, Node { height: Val::Percent(100.0), ..from_right(RIGHT + COLUMN, 0.0, LOAD_WIDTH + BAND_MARGIN, 0.0) }),
             Page::Main => {}
         }
@@ -1076,8 +1097,8 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
                     });
                 }
             }
-            Page::Settings { selected } => settings_page(root, d, look, settings, selected, top),
-            Page::Controls { selected, listening } => controls_page(root, d, look, settings, selected, listening, top),
+            Page::Settings { selected } => settings_page(root, d, look, settings, selected, top, left),
+            Page::Controls { selected, listening } => controls_page(root, d, look, settings, selected, listening, top, left),
             Page::Load { selected } => load_page(root, d, look, list, selected),
         }
         // Back (and Defaults) at the bottom right.
@@ -1123,20 +1144,22 @@ struct KeepLine;
 
 /// The settings page: the categories left of the column, the chosen category's switches
 /// in the middle with the chosen one's note under them, the version at the bottom left.
-fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: &[Setting], selected: usize, top: f32) {
+#[allow(clippy::too_many_arguments)]
+fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: &[Setting], selected: usize, top: f32, left: f32) {
     let f = &look.faces;
     category_column(root, f, list, list.get(selected).map(|s| s.group), top);
+    let top = OPTIONS_TOP;
     if list.is_empty() {
-        root.spawn(from_middle(OPTIONS_LEFT, top, OPTIONS_WIDTH, OPTION_ROW)).with_children(|t| sm_text(t, &f.entry, "Nothing to switch.", 10.0, BASE, color(Shade::Dim)));
+        root.spawn(from_middle(left, top, OPTIONS_WIDTH, OPTION_ROW)).with_children(|t| sm_text(t, &f.entry, "Nothing to switch.", 10.0, BASE, color(Shade::Dim)));
     }
     let rows = group_rows(list, selected);
     // A window of the group's rows from the one scrolled to, the chosen one in it.
     let first = rows.start + follow(d.scroll, selected.saturating_sub(rows.start), rows.len());
-    scroll_bar(root, look, rows.len(), first - rows.start, top);
+    scroll_bar(root, look, rows.len(), first - rows.start, top, left);
     for (n, i) in (first..rows.end).take(OPTION_ROWS).enumerate() {
         let s = &list[i];
         let v = d.states.get(i).copied().unwrap_or(0.0);
-        root.spawn((Button, PauseButton::Switch(i), boxed(from_middle(OPTIONS_LEFT, top + n as f32 * OPTION_ROW, OPTIONS_WIDTH, OPTION_ROW), i == selected)))
+        root.spawn((Button, PauseButton::Switch(i), boxed(from_middle(left, top + n as f32 * OPTION_ROW, OPTIONS_WIDTH, OPTION_ROW), i == selected)))
         .with_children(|r| {
             sm_text(r, &f.entry, s.label, 10.0, BASE + 2.0, color(Shade::Bright));
             if let Some(slider) = &s.slider {
@@ -1157,7 +1180,7 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
     let note = list.get(selected).map_or("", |s| s.note);
     root.spawn((SwitchNote, Text::new(note), Node { display: Display::None, ..default() }));
     let shown = (rows.end - first).min(OPTION_ROWS) as f32;
-    root.spawn(from_middle(OPTIONS_LEFT + 10.0, top + shown * OPTION_ROW + 20.0, OPTIONS_WIDTH - 20.0, 160.0)).with_children(|t| wrapped(t, &f.small, note, OPTIONS_WIDTH - 20.0, 26.0, color(Shade::Bright)));
+    note_lines(root, f, note, left, top + shown * OPTION_ROW + 20.0);
     version(root, f);
     // The open dropdown over the rows under its own (over those above near the bottom).
     let Some((o, names)) = d.dropdown.and_then(|o| Some((o, d.list(o.row)?.0))) else { return };
@@ -1167,7 +1190,7 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
     let row_top = top + n as f32 * OPTION_ROW;
     let y = if row_top + OPTION_ROW + h > 950.0 { row_top - h } else { row_top + OPTION_ROW };
     let (line, _) = highlight_colors();
-    root.spawn((Node { border: UiRect::all(u(LINE)), ..from_middle(OPTIONS_LEFT + LIST_LEFT, y, LIST_WIDTH, h) }, BorderColor::all(line), BackgroundColor(Color::BLACK), GlobalZIndex(111))).with_children(|b| {
+    root.spawn((Node { border: UiRect::all(u(LINE)), ..from_middle(left + LIST_LEFT, y, LIST_WIDTH, h) }, BorderColor::all(line), BackgroundColor(Color::BLACK), GlobalZIndex(111))).with_children(|b| {
         for (k, name) in names.iter().enumerate().skip(o.first).take(shown) {
             let nw = f.entry.font.width(name);
             b.spawn((Button, PauseButton::Choice(o.row, k), boxed(at(0.0, (k - o.first) as f32 * DROP_ITEM, LIST_WIDTH - 2.0 * LINE, DROP_ITEM), k == o.at)))
@@ -1208,15 +1231,16 @@ fn category_column(root: &mut ChildSpawnerCommands, f: &Faces, list: &[Setting],
 /// The settings page's Controls tab: every control with its key and mouse button, a
 /// window of [`OPTION_ROWS`] round the chosen one, the chosen one's note under them.
 #[allow(clippy::too_many_arguments)]
-fn controls_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: &[Setting], selected: usize, listening: bool, top: f32) {
+fn controls_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: &[Setting], selected: usize, listening: bool, top: f32, left: f32) {
     use crate::bindings::{label, Bindings};
     let f = &look.faces;
     category_column(root, f, list, None, top);
+    let top = OPTIONS_TOP;
     let (device, controller) = d.device;
     let n = control_rows(controller);
     let selected = selected.min(n - 1);
     let first = follow(d.scroll, selected, n);
-    scroll_bar(root, look, n, first, top);
+    scroll_bar(root, look, n, first, top, left);
     for (row, i) in (first..n).take(OPTION_ROWS).enumerate() {
         let (name, value) = match control_at(i) {
             None if i == rumble_row() => (RUMBLE_ROW, (if d.rumble { "ON" } else { "OFF" }).to_string()),
@@ -1225,7 +1249,7 @@ fn controls_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
             Some(_) => ("", d.controls.get(i - 1).cloned().unwrap_or_default()),
         };
         let name = control_at(i).map_or(name, label);
-        root.spawn((Button, PauseButton::ControlRow(i), boxed(from_middle(OPTIONS_LEFT, top + row as f32 * OPTION_ROW, OPTIONS_WIDTH, OPTION_ROW), i == selected)))
+        root.spawn((Button, PauseButton::ControlRow(i), boxed(from_middle(left, top + row as f32 * OPTION_ROW, OPTIONS_WIDTH, OPTION_ROW), i == selected)))
         .with_children(|r| {
             sm_text(r, &f.entry, name, 10.0, BASE + 2.0, color(Shade::Bright));
             let vw = f.entry.font.width(&value);
@@ -1255,13 +1279,47 @@ fn controls_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
     };
     root.spawn((SwitchNote, Text::new(note.clone()), Node { display: Display::None, ..default() }));
     let shown = (n - first).min(OPTION_ROWS) as f32;
-    root.spawn(from_middle(OPTIONS_LEFT + 10.0, top + shown * OPTION_ROW + 20.0, OPTIONS_WIDTH - 20.0, 160.0)).with_children(|t| wrapped(t, &f.small, &note, OPTIONS_WIDTH - 20.0, 26.0, color(Shade::Bright)));
+    note_lines(root, f, &note, left, top + shown * OPTION_ROW + 20.0);
     version(root, f);
 }
 
+/// The note under the settings page's rows from `top`, wrapped to the rows' width and cut
+/// to the lines that fit above [`NOTE_BOTTOM`].
+fn note_lines(root: &mut ChildSpawnerCommands, f: &Faces, note: &str, left: f32, top: f32) {
+    let width = OPTIONS_WIDTH - 20.0;
+    let lines = f.small.font.lines(note, Some(width));
+    let fit = note_fit(lines.len(), top);
+    let bright = color(Shade::Bright);
+    root.spawn(from_middle(left + 10.0, top, width, fit as f32 * NOTE_STEP)).with_children(|t| {
+        for (i, line) in lines.iter().take(fit).enumerate() {
+            crate::interface::set_line(t, &f.small, line, 0.0, NOTE_STEP * (i as f32 + 0.8), bright);
+        }
+    });
+}
+
+/// How many of a note's `lines` fit from `top` above [`NOTE_BOTTOM`].
+fn note_fit(lines: usize, top: f32) -> usize {
+    lines.min(((NOTE_BOTTOM - top) / NOTE_STEP).max(0.0) as usize)
+}
+
+/// The categories' width: the widest tab's ([`category_column`]).
+fn tabs_width(f: &Faces, list: &[Setting]) -> f32 {
+    categories(list).iter().map(|c| c.0).chain([CONTROLS_TAB]).map(|name| SUB_WIDTH.max(f.entry.font.width(name) + 20.0)).fold(SUB_WIDTH, f32::max)
+}
+
+/// The settings rows' left edge from the view's middle in a view `view_w` units wide
+/// whose categories are `tabs_w` wide: [`OPTIONS_LEFT`] where that keeps the band
+/// [`TABS_GAP`] clear of the categories, else as far left as does, but never so far that
+/// the band leaves the view (a view narrower than about 16:10 cannot hold both).
+fn options_left(view_w: f32, tabs_w: f32) -> f32 {
+    let half = view_w / 2.0;
+    let clear = half - (SUB_RIGHT + tabs_w + TABS_GAP) - (OPTIONS_WIDTH + BAR_GAP + BAR_W + BAND_MARGIN);
+    OPTIONS_LEFT.min(clear).max(BAND_MARGIN - half)
+}
+
 /// The settings page's scroll bar, right of its rows.
-fn scroll_bar(root: &mut ChildSpawnerCommands, look: &PauseLook, rows: usize, first: usize, top: f32) {
-    let bar = from_middle(OPTIONS_LEFT + OPTIONS_WIDTH + BAR_GAP, top, BAR_W, SETTINGS_WINDOW.shown as f32 * SETTINGS_WINDOW.row);
+fn scroll_bar(root: &mut ChildSpawnerCommands, look: &PauseLook, rows: usize, first: usize, top: f32, left: f32) {
+    let bar = from_middle(left + OPTIONS_WIDTH + BAR_GAP, top, BAR_W, SETTINGS_WINDOW.shown as f32 * SETTINGS_WINDOW.row);
     window_bar(root, look, rows, first, SETTINGS_WINDOW, bar);
 }
 
@@ -2249,6 +2307,7 @@ fn show_status(mut done: MessageReader<crate::save::SaveDone>, mut status: ResMu
 
 /// What the page shows now.
 fn drawn_now(world: &mut World) -> Drawn {
+    let view_w = world.query_filtered::<&bevy::window::Window, With<bevy::window::PrimaryWindow>>().iter(world).next().filter(|w| w.height() > 0.0).map_or(VIEW_W, |w| 960.0 * w.width() / w.height()).round() as u32;
     let page = *world.resource::<Page>();
     let list = world.resource::<Settings>().list().to_vec();
     let states: Vec<f32> = world.resource::<Settings>().values(world);
@@ -2284,6 +2343,7 @@ fn drawn_now(world: &mut World) -> Drawn {
         dropdown: view.dropdown.filter(|_| matches!(page, Page::Settings { .. })),
         keep,
         delete_ask: view.delete_ask.filter(|_| matches!(page, Page::Load { .. })),
+        view_w,
     }
 }
 
@@ -2334,6 +2394,27 @@ fn close(mut commands: Commands, mut paused: ResMut<Paused>, mut page: ResMut<Pa
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_settings_page_fits_the_view() {
+        // 16:9 (1280x720, 1920x1080, 2560x1440 are all 1707 units wide), 16:10, 21:9.
+        for (view_w, tabs_w) in [(VIEW_W, SUB_WIDTH), (VIEW_W, 220.0), (1536.0, 220.0), (2240.0, 220.0)] {
+            let left = options_left(view_w, tabs_w);
+            let band_right = view_w / 2.0 + left + OPTIONS_WIDTH + BAR_GAP + BAR_W + BAND_MARGIN;
+            let tabs_left = view_w - SUB_RIGHT - tabs_w;
+            assert!(band_right + TABS_GAP <= tabs_left + 0.01, "{view_w}: the band ends at {band_right}, the categories start at {tabs_left}");
+            assert!(view_w / 2.0 + left - BAND_MARGIN >= 0.0, "{view_w}: the band leaves the view");
+            assert!(left <= OPTIONS_LEFT);
+        }
+        // Wide views keep the old place; a 4:3 view keeps the band on it.
+        assert_eq!(options_left(2240.0, 220.0), OPTIONS_LEFT);
+        assert_eq!(options_left(1280.0, 220.0), BAND_MARGIN - 640.0);
+        // Nine rows and a note of up to eleven lines fit above the version's line.
+        let note_top = OPTIONS_TOP + OPTION_ROWS as f32 * OPTION_ROW + 20.0;
+        assert_eq!(note_fit(4, note_top), 4);
+        assert_eq!(note_fit(30, note_top), 11);
+        assert!(note_top + 11.0 * NOTE_STEP <= NOTE_BOTTOM && NOTE_BOTTOM < 960.0);
+    }
 
     /// The systems that read or write the world aids' clock (directly or through
     /// [`AidTime`]) build into a schedule: Bevy checks each system's parameters for a
@@ -2532,7 +2613,7 @@ mod tests {
             list.saves.push((PathBuf::from(format!("{name}.nvfsave")), h));
         }
         app.insert_resource(list);
-        let drawn = Drawn { page: Page::Load { selected: 1 }, main_selected: 0, confirm: None, states: vec![], status: String::new(), column: ENTRIES.iter().map(|e| (e.label(), true)).collect(), under_main: false, thumb: None, controls: vec![], device: ("Keyboard and Mouse", false), rumble: true, scroll: 0, lists: vec![], dropdown: None, keep: None, delete_ask: None };
+        let drawn = Drawn { page: Page::Load { selected: 1 }, main_selected: 0, confirm: None, states: vec![], status: String::new(), column: ENTRIES.iter().map(|e| (e.label(), true)).collect(), under_main: false, thumb: None, controls: vec![], device: ("Keyboard and Mouse", false), rumble: true, scroll: 0, lists: vec![], dropdown: None, keep: None, delete_ask: None, view_w: VIEW_W as u32 };
         app.world_mut().run_system_cached_with(|In(d): In<Drawn>, mut commands: Commands, list: Res<LoadList>| spawn_page(&mut commands, &d, &PauseLook::plain(), &[], &list), drawn).unwrap();
         let world = app.world_mut();
         let mut rows = world.query::<(&PauseButton, &BorderColor)>();

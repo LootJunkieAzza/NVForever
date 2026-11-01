@@ -418,6 +418,38 @@ fn a_loose_replacement_draws_only_what_the_archived_file_lacks() {
 }
 
 #[test]
+fn the_archived_copy_under_a_loose_file_gives_the_names_compared_with() {
+    // [design] One source holds both copies of the menu file (as the VFS does since #975);
+    // the archived one includes a prefab a mod also replaced loose.
+    let src = MemSource::default()
+        .with_loose_over(
+            "menus/m.xml",
+            r#"<menu name="M"><rect name="Piece"><include src="p.xml"/><image name="ModBar"/></rect></menu>"#,
+            r#"<menu name="M"><rect name="Piece"><include src="p.xml"/></rect></menu>"#,
+        )
+        .with_loose_over("menus/prefabs/p.xml", r#"<text name="Label"/><text name="ModLabel"/>"#, r#"<text name="Label"/>"#)
+        .with("menus/other.xml", r#"<menu name="Other"/>"#)
+        .with_loose("menus/new.xml", r#"<menu name="New"/>"#);
+    let mut ui = Ui::new();
+    let root = ui.load_menu(&src, "menus/m.xml").unwrap();
+    assert_eq!(ui.mod_added_tiles(root), [root]);
+    let vanilla = Ui::archived_name_paths(&src, "menus/m.xml").unwrap();
+    let mut expected: Vec<&str> = vec!["m", "m/piece", "m/piece/label"];
+    let mut got: Vec<&str> = vanilla.iter().map(String::as_str).collect();
+    got.sort();
+    expected.sort();
+    assert_eq!(got, expected);
+    let mut drawn: Vec<String> = ui.name_paths(root).into_iter().filter(|p| ui.mod_tile_drawn(ui.find_tile(p).unwrap(), Some(&vanilla))).collect();
+    drawn.sort();
+    assert_eq!(drawn, ["m/piece/modbar", "m/piece/modlabel"]);
+    // A file that is not loose reads as it wins; a loose file with no archive under it
+    // has no archived copy.
+    assert_eq!(src.read_archived("Menus/Other.xml"), src.read("menus/other.xml"));
+    assert!(src.read_archived("menus/new.xml").is_none());
+    assert!(Ui::archived_name_paths(&src, "menus/new.xml").is_none());
+}
+
+#[test]
 fn game_strings_resolve_from_the_load_order_then_the_built_in_table() {
     // menu-xml.md §2.4 (T10): `&-sName;` reads the load order's GMST, then the built-in
     // table; a name in neither reads empty. Synthetic names and text only.
@@ -775,4 +807,43 @@ fn a_reopened_deep_menu_settles_in_as_few_passes_as_the_first_time() {
     ui.update();
     assert_eq!(ui.passes, first);
     assert_eq!(ui.get_float(&path), Some(20.0));
+}
+
+#[test]
+fn a_trait_by_a_path_under_a_tile() {
+    let src = MemSource::default().with("menus/m9.xml", r#"<menu name="M"> <rect name="Item"> <_y> 4 </_y> <text name="Label"> <string> a </string> </text> </rect> </menu>"#);
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus/m9.xml").unwrap();
+    let item = ui.find_tile("M/Item").unwrap();
+    let (t, k) = ui.find_trait_in(item, "_y").unwrap();
+    assert_eq!((t, ui.tile(t).traits[k].value.num()), (item, 4.0));
+    let (t, k) = ui.find_trait_in(item, "Label/string").unwrap();
+    assert_eq!(ui.tile(t).traits[k].value.text(), "a");
+    assert!(ui.find_trait_in(item, "Label/nope").is_none());
+    assert!(ui.find_trait_in(item, "").is_none());
+}
+
+#[test]
+fn a_trait_name_ending_in_an_underscore_after_a_constant_reads_its_number() {
+    // [design] The fade-line and meter prefabs' shape: a `&false;`/`&true;` flag copied
+    // before `copy … trait="_pic_"` (menu-xml.md §4.4, T15a).
+    let src = MemSource::default().with(
+        "menus/flag.xml",
+        r#"<menu name="Flags">
+  <image name="Off"> <_flag> &false; </_flag> <_pic_0> off.dds </_pic_0> <_pic_1> on.dds </_pic_1>
+    <filename> <copy src="me()" trait="_flag"/> <copy src="me()" trait="_pic_"/> </filename> </image>
+  <image name="On"> <_flag> &true; </_flag> <_pic_0> off.dds </_pic_0> <_pic_1> on.dds </_pic_1>
+    <filename> <copy src="me()" trait="_flag"/> <copy src="me()" trait="_pic_"/> </filename> </image>
+  <image name="Unknown"> <_flag> &nvfunknown; </_flag> <_pic_0> off.dds </_pic_0>
+    <filename> <copy src="me()" trait="_flag"/> <copy src="me()" trait="_pic_"/> </filename> </image>
+</menu>"#,
+    );
+    let mut ui = Ui::new();
+    ui.load_menu(&src, "menus/flag.xml").unwrap();
+    ui.update();
+    assert_eq!(ui.get_string("Flags/Off/filename").as_deref(), Some("off.dds"));
+    assert_eq!(ui.get_string("Flags/On/filename").as_deref(), Some("on.dds"));
+    // A constant without a known number names no suffix: `_pic_` itself is read, and it
+    // is absent, so the copy reads the default value (0, as a string "0").
+    assert_eq!(ui.get_string("Flags/Unknown/filename").as_deref(), Some("0"));
 }

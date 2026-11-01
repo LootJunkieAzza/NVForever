@@ -40,6 +40,16 @@ pub trait Source {
     fn is_loose(&self, _path: &str) -> bool {
         false
     }
+    /// [design] The archived copy of a file, also when a loose file replaces it (the
+    /// file a loose replacement is compared against, [`Ui::archived_name_paths`]); `None`
+    /// when no archive has it. By default a path that is not loose reads as it wins.
+    fn read_archived(&self, path: &str) -> Option<Vec<u8>> {
+        if self.is_loose(path) {
+            None
+        } else {
+            self.read(path)
+        }
+    }
     /// A game setting's string, for `&-sName;` (the GMST `sName`): the engine answers
     /// from a [`crate::GameStrings`] (the load order's GMSTs, then the built-in table).
     fn game_string(&self, _name: &str) -> Option<String> {
@@ -54,6 +64,8 @@ pub struct MemSource {
     pub strings: HashMap<String, String>,
     /// [design] Loose-file provenance for synthetic sources, using normalized paths.
     pub loose_files: HashSet<String>,
+    /// [design] The archived copies under synthetic loose files, by normalized path.
+    pub archived: HashMap<String, Vec<u8>>,
 }
 
 impl MemSource {
@@ -67,6 +79,12 @@ impl MemSource {
         self.loose_files.insert(norm(path));
         self.files.insert(norm(path), text.as_bytes().to_vec());
         self
+    }
+
+    /// [design] Add a synthetic loose file over an archived copy of the same path.
+    pub fn with_loose_over(mut self, path: &str, loose: &str, archived: &str) -> MemSource {
+        self.archived.insert(norm(path), archived.as_bytes().to_vec());
+        self.with_loose(path, loose)
     }
 }
 
@@ -85,9 +103,31 @@ impl Source for MemSource {
         self.files.get(&norm(path)).cloned()
     }
 
+    fn read_archived(&self, path: &str) -> Option<Vec<u8>> {
+        let path = norm(path);
+        if self.loose_files.contains(&path) {
+            self.archived.get(&path).cloned()
+        } else {
+            self.files.get(&path).cloned()
+        }
+    }
+
     /// Without case, as the original [observed: menu-xml.md §2.4].
     fn game_string(&self, name: &str) -> Option<String> {
         self.strings.get(name).or_else(|| self.strings.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v)).cloned()
+    }
+}
+
+/// [design] A source's archived copies alone ([`Source::read_archived`]): the menu files
+/// as the archives hold them, under any loose replacement. No discovery, no loose files.
+pub struct Archived<'a>(pub &'a dyn Source);
+
+impl Source for Archived<'_> {
+    fn read(&self, path: &str) -> Option<Vec<u8>> {
+        self.0.read_archived(path)
+    }
+    fn game_string(&self, name: &str) -> Option<String> {
+        self.0.game_string(name)
     }
 }
 
@@ -762,6 +802,15 @@ impl Ui {
         self.walk_to_trait(root, rest, name)
     }
 
+    /// A trait by a path under a tile: `Tile/…/trait` from `at`'s children, or a trait of
+    /// `at` itself when the path is one segment (SortUIListBox's keys, read on each item)
+    /// [design].
+    pub fn find_trait_in(&self, at: TileId, path: &str) -> Option<(TileId, usize)> {
+        let segs = split(path);
+        let (name, tiles) = segs.split_last()?;
+        self.walk_to_trait(at, tiles, name)
+    }
+
     fn root_named(&self, seg: &str) -> Option<TileId> {
         self.roots.iter().copied().find(|&r| self.tile(r).live && self.tile(r).name.eq_ignore_ascii_case(seg))
     }
@@ -1018,6 +1067,13 @@ impl Ui {
         Some(ui.name_paths(root))
     }
 
+    /// [design] [`Ui::file_name_paths`] of the archived copy of the menu file at `path`
+    /// ([`Archived`]), also under a loose replacement: the names [`Ui::mod_tile_drawn`]
+    /// compares a loose file's tiles with (#975). `None` when no archive has the file.
+    pub fn archived_name_paths(src: &dyn Source, path: &str) -> Option<HashSet<String>> {
+        Ui::file_name_paths(&Archived(src), path)
+    }
+
     /// [design] Whether a tile inside a root of [`Ui::mod_added_tiles`] is the mod's own,
     /// to draw over NVForever's HUD: never a `Code` tile; always an `Injected` or
     /// `Template` one; a `File` tile (a loose replacement's, or an archived prefab's it
@@ -1208,9 +1264,15 @@ impl Ui {
                 Arg::Seq(inner) => self.eval_reading(me, inner, deps, sources),
                 Arg::Ref { src, name } => {
                     // `<copy … trait="_filename_"/>` after a number reads `_filename_<n>`
-                    // [hypothesis: the meter and barter files pick a picture so].
+                    // [hypothesis: the meter and barter files pick a picture so]; after a
+                    // constant with a known number, by it (`&false;` 0, `&true;` 1,
+                    // menu-xml.md §2.3; an unknown constant names no suffix) [hypothesis:
+                    // the meter prefab's `_SolidMeter` and vertical_fade_line.xml's
+                    // `_bottom_to_top` are `&false;`/`&true;` before the copy, and their
+                    // `_filename_0`/`_Filename_1` are the two pictures; T15a].
                     let name = match (&acc, name.ends_with('_')) {
                         (Value::Num(n), true) if op.kind == OpKind::Copy => format!("{name}{}", *n as i64),
+                        (Value::Sym(s), true) if op.kind == OpKind::Copy && crate::value::sym_number(s).is_some() => format!("{name}{}", acc.num() as i64),
                         _ => name.clone(),
                     };
                     self.read_trait(me, src, &name, deps, sources)

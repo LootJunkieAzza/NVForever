@@ -63,6 +63,7 @@ Console commands of its own:
 | `help <text>` | search every record: functions, then records (FormID, record type, Editor ID, name) whose name or Editor ID contains the text; see below |
 | `prid <reference>` | select the reference |
 | `coc <cell>` | travel to the cell's COC spot (`player::safe::cell_spot`: COCMarkerHeading, else XMarker, else a door arrival); interior or exterior cell by Editor ID or FormID |
+| `cow <world> <x> <y>` (`CenterOnWorld`), `coe <x> <y>` (`CenterOnExterior`) | travel to the exterior cell at grid square (x, y) of the worldspace named (Editor ID or FormID), or of the current one for `coe` (inside an interior, the one last walked in) [documented: GECK wiki]; arriving at the cell's centre on its landscape (no landscape: the worldspace's default land height; water above it: its surface) [hypothesis: where in the cell is undocumented], settled by the arrival rule; a square the worldspace has no cell at prints `No exterior cell at …` |
 | `tgm` | god mode on or off while no script runs (with scripts running it is ToggleGodMode, below) |
 | `cls`, `clear` | empty the scrollback |
 
@@ -83,6 +84,14 @@ it asks through `Game::console_requests`, which the console carries out. Wording
 | `ShowQuests` (`sq`) | running quests: FormID, Editor ID, name, stage; a count of finished ones |
 | `ShowQuestTargets` (`sqt`) | each target of the active quest's objectives shown and not done: target reference, cell, position, and for a target indoors the door outdoors leading to it. Active quest: the Pip-Boy's; with none, every running quest with such an objective [hypothesis] |
 | `MoveToQuestTarget [n]` (`movetoqt`) | travel, as `coc` does, to the `n`-th target `sqt` lists (the first without `n`), arriving at the target's position [hypothesis] |
+| `StartAllQuests` (`saq`) | starts every quest not running [documented: GECK wiki] |
+| `ResetDialogueFlags` (`rdf`) | Say Once and Say Once a Day lines may be said again [documented]; the record of lines said to the player goes with them, so choices are no longer shaded [hypothesis: one set holds both] |
+| `ResetAllTerminals` (`rat`) | hacked and locked-out terminals are as if never hacked [documented]; scripts' Lock/Unlock stay |
+| `[ref.]DeleteReference` (`zap`) | removes the reference (else the selection) at once, as MarkForDelete [documented]; never the player |
+| `ShowLockPickMenu [1-5]` (`slpm`) | the console closes and the lockpicking menu opens on a practice lock, 1 Very Easy to 5 Very Hard, 3 without one [documented: GECK wiki]; the player's skill and bobby pins, which wear and break; any skill may try it, and opening it opens nothing, gives no XP and is no crime [hypothesis] (`nvf_play::lockpick::PracticeLock`) |
+| `[ref.]MFG Expression\|Phoneme\|Modifier <id> <intensity>`, `MFG Reset` | morphs on the actor's face by the wiki's ID tables (expressions 0-14, phonemes 0-15, modifiers 0-16; one expression at a time; intensity 0 takes one off; reset clears them) [documented: GECK wiki ModifyFaceGen]; intensity 100 is a weight of 1, head modifiers 14-16 turn the head bone either way, −100 to 100 [hypothesis]; shown at once, where the original takes a second or two [design]; not saved (`Game::mfg`, nvforever `lips.rs`). Faces without a face rig (the player's own body, creatures) show nothing |
+| `ToggleFogOfWar` (`tfow`) | says why it does nothing: our local map draws no fog of war, it shows the whole map |
+| `bat <file>` | runs the file's console lines next, in order, as if typed (blank lines left out; `;` statements as on a typed line); the file is looked for in NVForever's folder (`Documents\My Games\NVForever`), then the game's folder ("a text file in game folder" [documented: GECK wiki Bat]), both only read; `.txt` is added to a name without an extension [hypothesis]; at most 16 batch files per line, those they run included [design] (nvf-play `console::batch_lines`) |
 | `ShowQuestStages <quest>` (`sqs`) | running/completed, the stage, and every stage the quest defines with done or not |
 | `ShowQuestVars <quest>` (`sqv`) | every variable the quest script declares, with its value |
 | `ShowVars [ref]` (`sv`) | the same for the selected reference's script (or the one named) |
@@ -113,19 +122,17 @@ The stub audit (`fnvtool script stubs`, `tools/smoke/expected/script-stubs.toml`
 only functions the masters' scripts call. A function typed at the console that no script
 calls is outside it, so `killall` did nothing unnoticed (#1046). The vanilla functions of
 the catalogue that nothing handles (not in `functions::registry`, the console registries,
-or the engine's own words `console::ENGINE_WORDS`: `coc`, `help`, `AdvLevel`) and that no
+or the engine's own words `console::ENGINE_WORDS`: `coc`, `cow`, `coe`, `help`,
+`AdvLevel`, `bat`) and that no
 master script calls are counted by `console::unhandled_unused`. The test
-`registered_names_are_catalogue_console_commands` pins the two numbers: **57** in the
+`registered_names_are_catalogue_console_commands` pins the two numbers: **45** in the
 wiki's "Console Functions" category, **124** others. Implementing one lowers a number
 there; a catalogue update that adds one raises it. Sorted (2026-10-31):
 
-**Console functions players use, to build next**: `CenterOnWorld` (`cow <world> <x> <y>`,
-used by the capture campaigns), `CenterOnExterior` (`coe <x> <y>`), `StartAllQuests`
-(`saq`), `PlaceLocationMarker` / `ClearLocationMarkers` (`plm` / `clm`),
-`ShowLockPickMenu` (`slpm`), `DeleteReference` (`zap`), `bat` (run a batch file of
-console lines), `ToggleFogOfWar` (`tfow`), `ToggleEmotions` (`temo`), `ToggleLookIK`
-(`tlik`), `Show1stPerson` (`s1st`), `ResetDialogueFlags` (`rdf`), `ResetAllTerminals`
-(`rat`), `SetVel`, `MFG` (face morphs).
+**Console functions players use, to build next** (`cow`, `coe`, `saq`, `rdf`, `rat`,
+`zap`, `slpm`, `bat`, `tfow`, `temo`, `tlik` and `MFG` are built: in the tables above):
+`PlaceLocationMarker` / `ClearLocationMarkers` (`plm` / `clm`), `Show1stPerson`
+(`s1st`), `SetVel`.
 
 **Console functions not applicable to NVForever**, as they inspect or drive the original
 engine's own renderer, scene graph, tools or files, which NVForever does not have:
@@ -169,6 +176,8 @@ starts with the game's toggles on [design].
 | `tt` ToggleTrees | SpeedTrees and their distant billboards hidden [hypothesis: the catalogue says the original stops their animated parts; hiding them is our choice] |
 | ToggleLODLand | distant land, as the settings page's switch and `--no-lod` |
 | ToggleNavmesh | the navmesh drawing (`NavState::show`, the settings page's switch); a run without navmesh says so |
+| `tlik` ToggleLookIK | head tracking (`HeadLookSettings::enabled`, the settings page's switch): heads ease back to their animation [documented: GECK wiki, "actors moving their heads to face other actors"]; a run with `--no-head-tracking` says so |
+| `temo` ToggleEmotions | faces leave out every expression and mood: a line's emotion, the combat face, MFG's expressions (`LipState::emotions_off`; mouths, blinks and eyes still move) [documented: GECK wiki, "facial emotions of all actors"; what counts as an emotion is ours] |
 | `twf` ToggleWireframe | not built: Bevy's wireframe needs a GPU line mode the renderer does not ask for |
 
 Sky, water and trees have no switch of their own: while one is off, its meshes are
@@ -180,8 +189,9 @@ those systems gave them when it is on again.
 Script functions of the catalogue's "Console Functions", run like any other line
 (`fnv_game::functions::camera`, the engine side in `engine/nvf-play/src/free_cam.rs`).
 The catalogue gives them no opcode; the function table numbers every opcode-less console
-function from `0xF000` in name order (`fnv_script::table::CONSOLE_OPCODE_BASE`)
-[decision]. Smoke test: `console-camera`.
+function from `0xF000` in name order (`fnv_script::table::CONSOLE_OPCODE_BASE`), except
+NVSE extender functions, which are left unnumbered and go by name [design].
+Smoke test: `console-camera`.
 
 | Command | What it does |
 |---|---|

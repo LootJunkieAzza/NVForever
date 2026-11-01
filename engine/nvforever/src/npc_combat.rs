@@ -496,6 +496,12 @@ struct Pose {
     blocking: bool,
     /// The flat distance from its feet to its target's, units.
     distance: f32,
+    /// A melee fighter's: where its walk stops short of its target (feet to feet,
+    /// units).
+    stop: Option<f32>,
+    /// A melee fighter's: feet to feet when its body touches its target's (units); a
+    /// lunge carries it no nearer ([`Fighters::lunge_room`]).
+    contact: Option<f32>,
 }
 
 #[derive(Resource, Default)]
@@ -564,6 +570,14 @@ impl Fighters {
     /// The flat distance from a fighting actor's feet to its target's, units.
     pub fn distance(&self, actor: u32) -> Option<f32> {
         self.poses.get(&actor).map(|p| p.distance)
+    }
+
+    /// How much nearer a melee fighter may come to its target before its body touches
+    /// the target's (where its walk stops when the bodies are not known), units (0 when
+    /// there already): a lunge's clip carries it no further (`attack_anims::carry`,
+    /// docs/spec-notes/actors.md §8.13) [design].
+    pub fn lunge_room(&self, actor: u32) -> Option<f32> {
+        self.poses.get(&actor).and_then(|p| Some((p.distance - p.contact.or(p.stop)?).max(0.0)))
     }
 
     /// Whether a fighting actor reloads (it moves slower then, limping.rs).
@@ -2225,7 +2239,7 @@ pub(crate) fn fight(
             } else {
                 g.awareness.aiming.remove(&me);
             }
-            f.poses.insert(id, Pose { pitch, weapon: weapons.get(&id).copied(), sights, crouched, blocking: fighter.block.is_some(), distance: away });
+            f.poses.insert(id, Pose { pitch, weapon: weapons.get(&id).copied(), sights, crouched, blocking: fighter.block.is_some(), distance: away, stop: None, contact: None });
             match &arm {
                 Arm::Gun(w) => {
                     let Some(ws) = c.forms.weapons.get(w) else { continue };
@@ -2458,6 +2472,16 @@ pub(crate) fn fight(
                         fighter.velocity = [(feet[0] - l[0]) / dt, (feet[1] - l[1]) / dt];
                     }
                     fighter.walk_feet = Some(feet);
+                    // Where its walk stops short of the target: a lunge carries it no nearer.
+                    let stop = match (&arm, gap) {
+                        (Arm::Creature(..), gap) => creature_spacing(gap.map(|gap| away - gap), reach).0,
+                        (_, Some(gap)) => melee_spacing(away - gap, reach).0,
+                        (_, None) => reach * MELEE_SPACING_SHARE,
+                    };
+                    if let Some(p) = f.poses.get_mut(&id) {
+                        p.stop = Some(stop);
+                        p.contact = gap.map(|gap| away - gap);
+                    }
                     f.stats.melee_closest = Some(f.stats.melee_closest.map_or(away, |c| c.min(away)));
                     fighter.strike_in = (fighter.strike_in - dt).max(0.0);
                     let near = match (&arm, gap) {

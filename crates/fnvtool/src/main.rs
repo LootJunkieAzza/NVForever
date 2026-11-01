@@ -25,6 +25,7 @@ mod actor_weapons;
 mod actor_cmd;
 mod bsa_cmd;
 mod collide_cmd;
+mod crash_report;
 mod combat_cmd;
 mod combat_sim;
 mod dds_cmd;
@@ -491,6 +492,10 @@ pub enum ActorCmd {
         /// clip.
         #[arg(long, default_value_t = 0)]
         samples: usize,
+        /// Also every attack clip in the folder and below it (file name containing
+        /// `attack`), for the travel of attack clips (actors.md §8.13).
+        #[arg(long)]
+        attacks: bool,
     },
     /// The FaceGen `.tri` files (morph targets of head parts): morph labels, and whether
     /// each has the vertices of the model beside it (fnv.actor.tri/1).
@@ -941,6 +946,10 @@ pub enum VfsCmd {
         data_dir: PathBuf,
         /// Plugins in load order (default: the base game and its add-on masters).
         plugins: Vec<String>,
+        /// A base archive list in place of the shipped `SArchiveList` (comma-separated,
+        /// lowest precedence first), as NVForever.ini's `[Archive] SArchiveList` sets it.
+        #[arg(long)]
+        archive_list: Option<String>,
     },
 }
 
@@ -954,9 +963,11 @@ pub enum EsmCmd {
     Inventory { plugin: PathBuf },
     /// Byte-identical rewrite and per-record payload checks.
     Verify { plugin: PathBuf },
-    /// Schema coverage report (work queue of undecoded subrecords).
+    /// Schema coverage report (work queue of undecoded subrecords), over one plugin or
+    /// several together.
     Coverage {
-        plugin: PathBuf,
+        #[arg(required = true, num_args = 1..)]
+        plugins: Vec<PathBuf>,
         #[arg(long)]
         schema: PathBuf,
         #[arg(long, default_value_t = 200)]
@@ -1112,6 +1123,7 @@ fn init_logging() {
 }
 
 fn main() -> ExitCode {
+    crash_report::install();
     let cli = Cli::parse();
     init_logging();
     // The game folder a command reads (its data-folder argument, wherever the command

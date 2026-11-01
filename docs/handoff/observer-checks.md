@@ -70,8 +70,8 @@ engine if needed, and delete the item here.
    - Every weapon's Crit Effect applies.
    - Fall damage is 0.0252 × (h − 600)^1.65, with no leg crippling — answered
      2026-10-31 (o6_00): the formula holds within 1 %, but each fall also hurts one leg
-     (+700: 24.9 of 100, half the Health lost; +1000 and +1300: crippled). Ours never
-     does (physics.md §6.6, the falls into and beside the lake).
+     (+700: 24.9 of 100, half the Health lost; +1000 and +1300: crippled). Built since
+     (#1129): one random leg loses half the damage (physics.md §6.12).
    To check: OnHit events plus Health and limb values for each case.
    ([combat-rules §10](../spec-notes/combat-rules.md),
    [weapon-data-fields](../spec-notes/weapon-data-fields.md),
@@ -89,14 +89,17 @@ engine if needed, and delete the item here.
      on. SetHardcore 1 on nvfairport still did nothing: the needs stayed 0 for two hours
      (o6_00-01).
    - Beer and Nuka-Cola, drunk by EquipItem, raised Dehydration by no more than the
-     normal rate over 11 s (14, 14, 15 and 15, 15, 16) [observed]. Ours raises it
-     (their "Damage Dehydration" read literally, aid-items §3).
+     normal rate over 11 s (14, 14, 15 and 15, 15, 16) [observed]. The job had `tgm` on
+     at the time (o7_00 steps 6 to 101; it went off before the Stimpak) [observed: the
+     job file], and their Dehydration +20 / +10 holds only on `IsHardcore == 1`, the
+     same condition the Hardcore Stimpak passed [observed: FalloutNV.esm CTDA]. So god
+     mode most likely kept it off; ours now does the same in god mode and keeps the
+     rise without it (#1167, aid-items §3). Still open: a drink in Hardcore without tgm.
    - Waits and sleeps (owner, 2026-10-31, from all needs at 0, Pip-Boy values)
      [observed]: 3 hours waited give H2O 36, FOD 12, SLP 6; 3 hours slept give H2O 36,
-     FOD 12, SLP 2. So 12, 4 and 2 an hour, whole points, where ours gives 12, 4.8 and
-     2.4; sleep did not bring SLP below 2. In Hardcore, sleep heals neither Health nor
-     crippled limbs; outside it heals both. Ours heals no Health on a plain sleep (#1177).
-     Outside Hardcore a sleep restores Health and every limb in full (owner).
+     FOD 12, SLP 2. So 12, 4 and 2 an hour, whole points; sleep did not bring SLP below
+     2. In Hardcore, sleep heals neither Health nor crippled limbs; outside it heals
+     both, in full (owner). Ours does all of this since #1177 (needs.rs).
    - Still open: Buffout.
    ([aid-items §2, §6, §11](../spec-notes/aid-items.md),
    [wait-menu](../spec-notes/wait-menu.md))
@@ -152,8 +155,9 @@ engine if needed, and delete the item here.
    - Addiction: +30 usage per use, chance (usage − 70)/100, and it never wears off.
    - The Hardcore Stimpak heals 5/s for 6 s, and a normal Stimpak heals every limb.
      In Hardcore at Medicine 15 (o7_05, 2026-10-31) [observed]: about 6 Health a second
-     for about 6 s, 36 in all, where ours gives 6.5 a second, 39 (potency 1.3); a
-     crippled leg (LeftMobilityCondition 0) stayed at 0 (o7_00).
+     for about 6 s, 36 in all; a crippled leg (LeftMobilityCondition 0) stayed at 0
+     (o7_00). Ours now rounds the potency-scaled 6.5 down to 6 (#1167, aid-items §4);
+     a second Medicine value would tell rounding from another base.
    - A second dose doesn't re-run Start.
    - Only the highest rank of a ranked perk applies, and perks are the player's only.
    - Chemist doubles the Stealth Boy.
@@ -263,7 +267,9 @@ engine if needed, and delete the item here.
 16. **HUD and menus.**
     - The enemy health bar and red crosshair show only for hostiles, or for anyone hit in
       the last 5 s.
-    - Sneak-indicator states.
+    - Sneak-indicator states. Does a following companion (or an actor on a Follow
+      package on the player) seeing the player leave the word at [HIDDEN]? Does a
+      neutral (non-hostile) NPC seeing the player give [DETECTED]? (#1159)
     - Compass ticks within PER × 300; markers within PER × 2048.
     - "How many?" asks only above 5 (barter) or above 1 (crafting).
     - The crafting filter arrows.
@@ -321,8 +327,8 @@ engine if needed, and delete the item here.
     shows only while aiming (none with the weapon drawn and not aiming) and goes when
     aiming stops; it marks every hostile actor or creature, whether or not it is in
     combat with the player; and it seems to reach every enemy in render distance. Ours
-    matches the first two; its reach is the detection reach (5,000 units outdoors,
-    perk_marks.rs), shorter than the loaded area (#1171). The owner's screenshot: distant
+    matches the first two; its reach was the detection reach (5,000 units outdoors),
+    shorter than the loaded area, and is now as far as actors are drawn (#1171). The owner's screenshot: distant
     enemies at night look tinted red all over; Boone is not marked. Two more shots show
     the red pulsing (faint, then strong) [observed], as the record says: edge pulse
     amplitude 0.5 at 1 a second, edge fall-off 0.5 (EFSH 0x0015FF60), which ours plays
@@ -451,7 +457,7 @@ The numbers above stay put so links to them hold; each item here gives its own p
     tried (so Benny's "axis 3 >= 3" greeting is never chosen in the original either), and
     axes 0-2 matched ours (`reputation::tiers`) at all ten infamy/fame pairs. SetReputation
     with axis 2 or 3 is a failed call that **stops the script** (the line after it did not
-    run); ours does nothing and goes on (reputation.rs `axis`). (scripts.md §7.6)
+    run); ours does the same since #1127 (reputation.rs `write_axis`). (scripts.md §7.6)
 31. **Say Once on a line two actors share** — answered 2026-10-31 (owner, save
     nvf31mainframe, issue #1113): **no repeat**. After the upload and the Mark II upgrade
     the Yes Man mainframe greeted with 0x001164F2 (GREETING position 2424, conditions
@@ -459,8 +465,8 @@ The numbers above stay put so links to them hold; each item here gives its own p
     first-meeting greeting 0x001164F1 (position 2398, Say Once, only the same GetIsID OR)
     that the Tops Yes Man had said [observed]. So Say Once holds per line across speakers
     in the original [hypothesis: one case; the mainframe and the Tops Yes Man may also
-    count as one speaker]. Ours keeps it per (speaker, line) (dialogue.rs `said`) and
-    would say 0x001164F1 again. (dialogue.md question 13)
+    count as one speaker]. Built (#1113): ours holds a Say Once line back from every
+    actor once any has said it (dialogue.rs `can_say_as`). (dialogue.md question 13)
 32. **An expression that leaves extra values** — answered 2026-10-30 (issue #908): the
     original stops the script at `if GetStage Q N == 1` and runs neither arm, as ours.
     ([scripts §4.2](../spec-notes/scripts.md))
@@ -520,9 +526,10 @@ The numbers above stay put so links to them hold; each item here gives its own p
     the data]. To check: with the EM pulse module downloaded (X-8), shoot a Big MT force
     field with the Sonic Emitter: Sonic Emitter Upgrade completes and the field drops.
 
-39. **Can a Goodbye line's end script start a new conversation?** (P2: 8 lines, e.g. Anders'
-    thanks in VMS46, INFO 0x00142A9C.) Ours refuses StartConversation while the old
-    conversation is still open. In the original, after the line, does the new speaker
+39. **Can a Goodbye line's end script start a new conversation?** (P2: 8 end scripts, 4
+    of them of Goodbye lines, e.g. Anders' thanks in VMS46, INFO 0x00142A9C.) Ours now
+    holds the StartConversation and starts it once the line has closed the conversation
+    [design, issue #1107]. In the original, after the line, does the new speaker
     force-greet? (mq-walkthrough §9 stall 1.)
 40. **Does re-displaying a completed objective un-complete it?** — answered 2026-10-31
     (o5_00, issue #1108): no. VMS19 65 and VFSAtomicPimp 34: displayed, completed, then
@@ -530,13 +537,14 @@ The numbers above stay put so links to them hold; each item here gives its own p
     clears the flag (displayed 0, then 1: not completed), which is what the VMS16 capture
     of layer5-captures.md §5.2 saw. Ours clears it on every display, so G.I. Blues can
     stall. (scripts.md §5)
-41. **Does ResetQuest keep a SetQuestDelay?** (P3.) Use the NCR emergency radio and close
-    the Pip-Boy at once: does the supply drop still come? (§9 stall 3.) No script function
-    reads a quest's delay, so this needs a timed watch of the quest's effect.
+41. **Does ResetQuest keep a SetQuestDelay?** — answered 2026-10-31 (o41 on nvftest, issue
+    #1109): yes. VMQ03aTimer at SetQuestDelay 2, ResetQuest, StartQuest: its timer still
+    dropped every 2.0 s (DATA delay 0.5 s). ResetQuest also zeroed the variables and
+    stopped the running quest (GetQuestRunning 0). (layer5-captures.md §5.7)
 42. **Does a stage result script's reference-less RemoveSpell act on the player?** —
     answered 2026-10-31 (o5_03 on nvfairport, issue #1110): yes. Addicted to Jet (10 doses;
     IsSpellTarget WithdrawalJet 1 over a game hour), `SetStage VDoctors 20` made it 0 within
-    10 frames. The doctors' cure works in the original; ours does nothing.
+    10 frames. The doctors' cure works in the original; ours too since #1110.
     (script-language.md §1.2) Traps for the next capture: the first addiction opens a
     message box (menu 1001) and the nvfstrip save loads into a dialogue (menu 1009); both
     pause the game, and effects do not change while it is paused.
@@ -545,7 +553,8 @@ The numbers above stay put so links to them hold; each item here gives its own p
     encounters (NVDLC03Enc 10) start? (§10 stall 2.)
 44. **What does `RemoveItem <item> 0` do?** — answered 2026-10-31 (o5_00, issue #1113):
     nothing, and the script goes on (12 Stimpaks and 21 caps stayed; the next line ran).
-    Ours refuses the call (#1113).
+    Built (#1113): ours returns without removing anything (functions/items.rs
+    `remove_item`).
 45. **Does a second Nelson explorer stop the player right after the first?** (P3; §10
     stall 4.)
 46. **Does the HELIOS One west-terminal password go to the player from Fantastic's line?**
@@ -677,3 +686,110 @@ The numbers above stay put so links to them hold; each item here gives its own p
     loudness over the same frames (a pause between words, a long vowel). Does it go
     dark in pauses, follow the loudness or the mouth shapes, or loop by itself? Same on
     Mr. House's screen (`##TalkButtons:0`). ([lipsync §6.1](../spec-notes/lipsync.md))
+
+## Added 2026-10-31 (Observe Combat spectators running away, issue #960)
+
+60. **How close a fight comes before a spectator runs, and what it does then** (P3: the
+    806 packages with Observe Combat [observed: esm-audit-2026-10-25.md]; the wiki says
+    only "run away if they get too close"). NVForever runs a spectator from the nearest
+    fighter within 600 units [design: stand-in], by the combat flee's spot search, out
+    of a combat state, and brings it back to its package once no fighter is within
+    1,500 (packages.md §7.6b). To check: Goodsprings by day, Easy Pete (EasyPeteRef) on
+    his own package, the player in god mode starting a fight with a placed cazador
+    (`PlaceAtMe NVCrCazador`) at about 1,200 units from Pete, then backing towards Pete
+    in steps of about 100 units every few seconds. Sample every game loop: the distance
+    from Pete to the player and to the cazador, Pete's `GetCurrentAIProcedure`,
+    `GetCurrentAIPackage`, combat state (`IsInCombat`, `GetCombatTarget`) and
+    `IsWeaponOut`, and his position. At what distance does he set off, from whom (the
+    player or the cazador), how far does he go (a door, cover, straight away), does he
+    turn to watch from there, and does he go back to his package when the fight ends or
+    only later? ([packages §7.6b](../spec-notes/packages.md))
+
+## Added 2026-10-31 (melee knockback, issue #1070)
+
+61. **How far a melee blow pushes a living actor, and for how long** (P2: every melee
+    fight). NVForever reads the Melee Knockback Formula's force (fKnockbackDamageMult 10,
+    fKnockbackDamageBase 50, fKnockbackAgilMult -0.008, fKnockbackAgilBase 1, at most
+    fKnockbackForceMax 512) as a speed in units/s that falls evenly to rest over
+    fKnockbackTime (1 s), so a blow pushes force / 2 units: a Sledgehammer blow of 14
+    damage on Agility 5 pushes 57 units [design]. To check: in Goodsprings, hit a
+    standing settler (Agility known) with a Sledgehammer, normal and power attack, from
+    the front; sample its position every game loop for 1.5 s after the hit: the distance,
+    how long it moves, and whether the speed falls off. The same with a deathclaw's
+    swipe on the player (god mode). ([combat-rules, Knockback](../spec-notes/combat-rules.md))
+62. **Does AddReputation with axis 2 or 3 stop the script, as SetReputation does?** (P2:
+    Boulder City Showdown, Severus.) SetReputation with axis 2 or 3 stops the script
+    (check 30, o5_00/o5_01); AddReputation's was not captured, and ours changes nothing and
+    goes on [hypothesis]. It matters: VMS20 stage 100 entry 1 calls `AddReputation
+    RepNVGreatKhans 2 5` and then RewardXP, CompleteAllObjectives, CompleteQuest and
+    StopQuest, and Severus's three tag trades (INFO 0x00135115/17/20) count the tags in
+    iAureliusTags after `AddReputation RepNVCaesarsLegion 3 1` [observed: decompiled
+    scripts]. To check: in a function or quest script, `AddReputation RepNVNCR 2 1`, then
+    a line that sets a variable; the same with RemoveReputation and AddReputationExact.
+    (scripts.md §7.6, issue #1127)
+
+## Added 2026-10-31 (UI tile tree T15a: the message box and the prompt from their files)
+
+63. **What `screen()` reports, and `resolutionconverter` — Answered 2026-10-31**.
+    Width is 960 × window width/height, height 960 and `resolutionconverter` 960 /
+    window height [observed: hud_menus capture 2026-10-31, three window sizes:
+    1280 x 720, 1920 x 1080 and 1280 x 1024]. The capture read `screen()` through
+    copied traits. NVForever keeps those units gated on a switched-on T15 menu
+    (`MessageMenu` or `QuantityMenu`); applying them unconditionally is a follow-up
+    [design: preserve default play].
+    ([menu-xml §4.2](../spec-notes/menu-xml.md), [message-menu §5a](../spec-notes/message-menu.md))
+64. **The message box's and the prompt's code-set traits** (P2: every message box and
+    stack prompt drawn from its file). Ours (`tiles::menus`): the list as wide as the
+    widest button's text and 80, each row its text's height and 20, the box's width by
+    its text, title and list, the empty title 0 high, the backgrounds' alpha 237, the
+    meter's `user3`/`user4` 1 and 10 [hypothesis or design each].
+    To check: with a message box of a title, two lines and three buttons open, GetUIFloat
+    `MessageMenu/NOGLOW_BRANCH/MM_MainRect/width`, `…/MM_ButtonList/width`, `height`,
+    `_highlight_y`, `_selected_height`, `…/MM_Title/height` (and again for a box without
+    a title), `…/MM_Background/alpha`, the rows' `_y` and `height`
+    (`…/MM_ButtonList/MM_Button:0` …); with the prompt open over a stack of 20,
+    `QuantityMenu/NOGLOW_BRANCH/QM_MainRect/QM_AmountMeter/user0` … `user4`, and a
+    screenshot of each at 1280 x 720.
+    ([message-menu §5a](../spec-notes/message-menu.md), [barter-menu §7](../spec-notes/barter-menu.md))
+
+## Added 2026-10-31 (follow-ups and choices, issue #964)
+
+65. **What a line with both follow-ups and choices offers after its follow-up** (P2: 15
+    lines of FalloutNV.esm, e.g. INFO 0x00158A3D of Topic056, whose choice Topic068 is
+    otherwise never offered). NVForever passes over a follow-up with the Goodbye flag
+    when the line has choices and offers the choices (Topic067, whose line is that
+    Goodbye follow-up, and Topic068); other follow-ups are said first [design, issue
+    #964]. To check: at Yes Man's final report (VStoryEventSecuritronsFort 1) pick
+    Topic056 and record whether the conversation ends after the line (Topic067's
+    goodbye said with no pick) or Topic067/068 are offered. A second sample: Arcade's
+    Topic065 (0x0016338D, non-Goodbye Say Once follow-ups): is 0x00163380 said before
+    the choices? ([dialogue §3.4](../spec-notes/dialogue.md))
+
+66. **Does a quest's ResetQuest on itself stop it?** (P2, issue #1232.) o41 reset VMQ03aTimer
+    from a job script. The Emergency Radio (VEFR01NCRGood2EmergencyRadio) calls ResetQuest
+    on itself in its MenuMode and then sets iSpawnSupplyDelay; if that stopped it, the
+    drop would not come. Use the radio (button 1) and read GetQuestRunning right after,
+    and whether the drop arrives. Ours keeps a self-reset running. (scripts.md §5)
+
+## Added 2026-10-31 (the note notice, issue #1163)
+
+67. **Does the original name a note in the corner when a script gives it?** (P3: every
+    AddNote and AddItem of a note in quest scripts.) NVForever shows its own corner line,
+    "Note: <the note's name>", for every note the player gets the first time: picked up,
+    taken from a container, AddItem, AddNote, a terminal's Add Note item
+    [hypothesis for the script-given ones]. To check: with a note the player lacks,
+    `AddNote` it from the console, then `player.AddItem` another; screenshot the top left
+    after each, and note any sound. A picked-up note in the same way for comparison.
+    (issue #1163, `Game::file_note`)
+
+## Added 2026-11-01 (actors at their place on arrival, issue #1208)
+
+68. **Where the destination's actors are on arrival** (P2, issue #1208). NVForever puts
+    every actor not in the loaded area before a fast travel or a load door at the end of
+    its package's walk (on its furniture, seated) behind the loading screen, and moves
+    nobody that was loaded [hypothesis, packages.md §8]. To check, with nvf_capture
+    recording position, current package and GetSitting just before and just after:
+    (a) Goodsprings → Novac at 5am (Boone: at the dinosaur exactly, part-way, or within
+    the package's radius?); (b) a fast travel to a marker a few metres away inside the
+    loaded area (does anyone move?); (c) entering the Mojave Outpost (Cass) and the
+    Prospector Saloon (the settler at the bar): GetSitting 3 on the first frame?

@@ -44,7 +44,7 @@ mod outline;
 pub(crate) mod read;
 pub mod travel;
 
-use super::frame::{base, Align, Ctx, Kit, FADE, FILL, LINE, MAIN, TEXT, THICK};
+use super::frame::{Align, Ctx, Kit, FADE, FILL, LINE, MAIN, TEXT, THICK};
 use super::{Page, PageBody, PipBoy, PipBoyAid, PipBoyInput, PipBoyScreen};
 use crate::interface::{pipboy_amber as amber, at, u};
 use crate::menu::model::Command;
@@ -79,7 +79,6 @@ const RADIO: usize = 4;
 /// Heading: the title 70 in after a line of 50; a line from 180, 470 long; the place
 /// right-aligned at 630 and the time at 845, both 20 down in font 2; lines fading down at
 /// 650 and 855, a line from 660 to the end.
-const TITLE_X: f32 = 70.0;
 const LEAD_LINE: f32 = 50.0;
 const LINE2: (f32, f32) = (180.0, 470.0);
 const PLACE_X: f32 = 630.0;
@@ -276,6 +275,8 @@ pub struct DataState {
     seen_count: u64,
     /// "Show Active Quest Notes" is on.
     notes_of_active: bool,
+    /// The note whose page was last shown, so it is marked read once (GetNoteRead).
+    note_shown: Option<u32>,
     /// The Notes tab shows the challenges instead ("Challenges", R; `crate::challenges`).
     challenges: bool,
     /// The point shown at each map's middle (world: the picture's 0–1; local: game x, y)
@@ -486,6 +487,7 @@ pub fn draw(
     let Some((body, b)) = body else {
         st.was_open = false;
         st.popup = None;
+        st.note_shown = None;
         input.wheel.clear();
         input.menu.clear();
         return;
@@ -503,6 +505,12 @@ pub fn draw(
     let lists = lists(st, &game);
     let pointer = screen.as_ref().and_then(|s| s.pointer);
     take_input(st, tab, &lists, &mut game, &mut input, pointer);
+    if tab == NOTES && lists.challenges.is_none() {
+        mark_read(st, &lists, &mut game);
+    } else {
+        // Left the notes: the next note shown comes up again.
+        st.note_shown = None;
+    }
     if tab == LOCAL {
         advance_outline(st, &mut game, &mut tools.images);
     }
@@ -690,6 +698,24 @@ fn lists(st: &mut DataState, game: &Game) -> Lists {
         out.playing = p.station.filter(|_| p.on).and_then(|s| places.sites.get(&s.0)).map(|s| s.base);
     }
     out
+}
+
+/// The note whose page is shown is read, once each time it comes up (GetNoteRead,
+/// `fnv_game::game::Game::mark_note_read`), so a script's SetNoteRead 0 holds while it stays.
+/// It comes up again after the player leaves the notes or closes the Pip-Boy; a frame
+/// with no scripts' game marks nothing and tries again on the next.
+fn mark_read(st: &mut DataState, l: &Lists, game: &mut Game) {
+    let shown = l.notes.get(st.sel[NOTES]).map(|n| n.form);
+    if shown == st.note_shown {
+        return;
+    }
+    let Some(f) = shown else {
+        st.note_shown = None;
+        return;
+    };
+    let Some(rt) = game.script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
+    rt.game.mark_note_read(FormId(f));
+    st.note_shown = shown;
 }
 
 fn list_len(tab: usize, l: &Lists) -> usize {
@@ -1513,9 +1539,10 @@ fn heading(p: &mut ChildSpawnerCommands, c: &mut Ctx, place: &str, when: &str) {
     let bright = amber(TEXT);
     c.fade(p, x0, y0, FADE, false, line);
     c.line(p, x0, y0, LEAD_LINE, THICK, line);
-    let title_top = y0 - base(&c.kit.face(4).font) + THICK;
-    let w = c.text(p, 4, Page::Data.title(), x0 + TITLE_X, title_top, Align::Left, bright);
-    let from = LINE2.0.max(TITLE_X + w + 20.0);
+    // The title, or in the screen menu nothing (the header stands there) and the line
+    // runs on from the lead line (`frame::heading_title`).
+    let after = super::frame::heading_title(p, c, Page::Data.title()) - x0;
+    let from = if c.kit.screen { LEAD_LINE } else { LINE2.0.max(after) };
     c.line(p, x0 + from, y0, LINE2.0 + LINE2.1 - from, THICK, line);
     c.text(p, 2, place, x0 + PLACE_X, y0 + HEAD_TEXT_Y, Align::Right, bright);
     c.fade(p, x0 + SPLIT_X, y0, FADE, false, line);

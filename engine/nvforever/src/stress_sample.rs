@@ -47,7 +47,7 @@ impl Plugin for StressSamplePlugin {
     fn build(&self, app: &mut App) {
         let Some(every) = Self::interval() else { return };
         info!("test aid NVF_PLAY_TEST_SAMPLE: a stress sample every {every} s");
-        app.insert_resource(Samples { every, ..default() }).add_systems(Last, ((sample, report).chain(), census));
+        app.insert_resource(Samples { every, ..default() }).add_systems(Last, ((sample, report).chain(), census, cache_census));
         if let Some(render) = app.get_sub_app_mut(bevy::render::RenderApp) {
             render.add_systems(bevy::render::Render, render_census.in_set(bevy::render::RenderSystems::Cleanup));
         }
@@ -79,6 +79,59 @@ fn render_census(
     if let Some(a) = allocators.as_deref().and_then(|a| a.get(&std::any::TypeId::of::<nvf_assets::NifMaterial>())) {
         info!("stress render: nif material slabs {}, resources in them {}", a.slab_count(), a.allocations());
     }
+}
+
+/// The caches outside the release sweep (issue #904), for [`cache_census`].
+#[derive(bevy::ecs::system::SystemParam)]
+struct Caches<'w> {
+    materials: Res<'w, Assets<nvf_assets::NifMaterial>>,
+    images: Res<'w, Assets<Image>>,
+    models: Option<Res<'w, nvf_assets::ModelCache>>,
+    textures: Option<Res<'w, nvf_assets::TextureCache>>,
+    emittance: Option<Res<'w, crate::emittance::EmittanceState>>,
+    faded: Option<Res<'w, crate::effect_shaders::Shaders>>,
+    swapped: Option<Res<'w, crate::texture_swap::Swapped>>,
+    particles: Option<Res<'w, crate::particles::Particles>>,
+    terrain: Option<Res<'w, crate::terrain::TerrainCache>>,
+    grass: Option<Res<'w, crate::grass::GrassCache>>,
+    trees: Option<Res<'w, crate::tree::TreeCache>>,
+    water: Option<Res<'w, crate::water::WaterCache>>,
+}
+
+/// Every [`CENSUS_SECS`] of real time, `stress caches: <cache> <entries> (<idle> idle, <n>
+/// images <MB> MB); …`: what the caches the release sweep does not see hold, an entry
+/// idle when nothing outside its cache holds it, and the images its materials sample
+/// with their GPU bytes (an image two caches share counts in both).
+fn cache_census(real: Res<Time<Real>>, c: Caches, mut last: Local<f32>) {
+    let now = real.elapsed_secs();
+    if now - *last < CENSUS_SECS {
+        return;
+    }
+    *last = now;
+    let m = &*c.materials;
+    let mut listed: Vec<String> = Vec::new();
+    let mut put = |name: &str, s: Option<nvf_assets::release::CacheShare>| {
+        if let Some(s) = s {
+            listed.push(format!("{name} {}", s.text(&c.images)));
+        }
+    };
+    put("textures", c.textures.as_deref().map(nvf_assets::TextureCache::share));
+    put("emittance copies", c.emittance.as_deref().map(|e| e.share(m)));
+    put("see-through copies", c.faded.as_deref().map(|e| e.share(m)));
+    put("swapped copies", c.swapped.as_deref().map(|e| e.share(m)));
+    put("particle files", c.models.as_deref().map(|e| e.particle_share(m)));
+    if let Some([placed, shared]) = c.particles.as_deref().map(|p| p.share(m)) {
+        put("placed particle systems", Some(placed));
+        put("shared particle systems", Some(shared));
+    }
+    put("terrain materials", c.terrain.as_deref().map(|e| e.share(m)));
+    let counts = format!(
+        "grass models {}; trees {}; water materials {}",
+        c.grass.as_deref().map_or(0, crate::grass::GrassCache::models),
+        c.trees.as_deref().map_or(0, crate::tree::TreeCache::len),
+        c.water.as_deref().map_or(0, crate::water::WaterCache::len)
+    );
+    info!("stress caches: {}; {counts}", listed.join("; "));
 }
 
 /// Seconds between entity censuses ([`census`]).

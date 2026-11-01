@@ -1762,8 +1762,11 @@ pub(crate) fn run_scripts(
     // A reputation's box (`crate::reputation`) is the engine's, not a plugin's message.
     let reputation_box = |st: &ScriptState, f: FormId| st.rt.as_ref().is_some_and(|rt| crate::reputation::is_reputation(&rt.game, f));
     if let (true, Some((MENU_MESSAGE, Some(front), _))) = (st.no_messages, st.on_screen.filter(|o| !o.1.is_some_and(|f| reputation_box(st, f)))) {
-        let buttons = st.rt.as_ref().and_then(|rt| rt.game.data.messages.get(&front)).map_or(0, |m| m.buttons.len());
-        if buttons <= 1 && st.answer(None, "--no-messages") {
+        // The buttons the front box declared, every one whatever its conditions (OK
+        // answers button 0, `ScriptState::answer`, without asking whether it shows); else
+        // its Message form's; neither known: left for the player.
+        let buttons = st.rt.as_ref().and_then(|rt| rt.game.front_box().and_then(|b| b.buttons).or_else(|| rt.game.data.messages.get(&front).map(|m| m.buttons.len())));
+        if buttons.is_some_and(asks_nothing) && st.answer(None, "--no-messages") {
             info!("--no-messages: closed message box {front}");
             st.on_screen = None;
         }
@@ -1933,12 +1936,14 @@ pub(crate) fn run_scripts(
             let _ = log.out.flush();
         }
     }
-    if loading_menu && !effects.iter().any(|e| matches!(e, ScriptEffect::Travel(_))) {
+    if loading_menu && !effects.iter().any(|e| matches!(e, ScriptEffect::Travel(_) | ScriptEffect::DoorTravel(_))) {
         info!("script: EnableLoadingMenu with no move of the player: no loading screen (a screen without travel is not built)");
     }
     let mut sent = BTreeSet::new();
     let feet = phys.player.as_ref().map(|c| c.feet);
     for e in effects {
+        // The player's own trip through a door, not a script's MoveTo (`Loading::arriving`).
+        let door = matches!(e, ScriptEffect::DoorTravel(_));
         match e {
             ScriptEffect::RefChanged(id) => {
                 if sent.insert(id) {
@@ -1948,10 +1953,10 @@ pub(crate) fn run_scripts(
             ScriptEffect::Fade { form_id, fade_in } => {
                 fades.write(crate::fade::RefFade { form_id, fade_in });
             }
-            ScriptEffect::Travel(t) if crate::stress::holds_player() => {
+            ScriptEffect::Travel(t) | ScriptEffect::DoorTravel(t) if crate::stress::holds_player() => {
                 info!("test aid NVF_PLAY_TEST_STRESS: a script's move of the player to {:?} / {:?} at {:?} left out", t.interior, t.world, t.feet);
             }
-            ScriptEffect::Travel(t) => {
+            ScriptEffect::Travel(t) | ScriptEffect::DoorTravel(t) => {
                 // A move to where the player already stands (VCG00 stage 0's MoveTo to the
                 // new game's start) needs no loading.
                 let here = t.destination(*location) == *location
@@ -1968,6 +1973,7 @@ pub(crate) fn run_scripts(
                         screen.generic_next = true;
                         loading_menu = false;
                     }
+                    screen.arriving = door;
                     travel.write(TravelRequest(t));
                 }
             }
@@ -2179,5 +2185,25 @@ fn write_final(mut exit: MessageReader<AppExit>, mut script: ResMut<ScriptState>
         log.write(&v);
         let _ = log.out.flush();
         info!("script trace: {} lines in {}", log.lines, log.path.display());
+    }
+}
+
+/// Whether a box of `buttons` declared buttons asks nothing (none, or an OK alone), so
+/// `--no-messages` closes it ([`NoMessages`]): a box with two or more stays for the player.
+/// The count comes with the box (`fnv_game::Game::front_box`), else from its Message form;
+/// a box with neither (a form-less box whose count was lost) is left open. A form-less
+/// MessageBoxEx box has no form to count from, and until 2026-10-31 counted 0 and closed.
+pub fn asks_nothing(buttons: usize) -> bool {
+    buttons <= 1
+}
+
+#[cfg(test)]
+mod no_messages_tests {
+    use super::*;
+
+    #[test]
+    fn a_box_of_one_button_asks_nothing() {
+        assert!(asks_nothing(0) && asks_nothing(1));
+        assert!(!asks_nothing(2));
     }
 }

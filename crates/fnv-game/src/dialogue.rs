@@ -118,6 +118,14 @@ pub struct Conversation {
     /// Lines said so far.
     #[serde(default)]
     pub lines: u32,
+    /// A force greet (`StartConversation player`) asked for by the end result script of
+    /// the line that just ended, as (speaker, topic): it starts once this conversation
+    /// closes ([`Game::hold_force_greet`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub then: Option<(FormId, Option<FormId>)>,
+    /// A line's end result script is running ([`Game::finish_line`]).
+    #[serde(skip)]
+    pub ending: bool,
 }
 
 /// Whether a line may be said in a conversation between two actors: only Conversation
@@ -197,9 +205,12 @@ impl<'a> Game<'a> {
     }
 
     /// Whether `speaker` can say the line `info` to `listener` now:
-    /// - a Say Once line the speaker has not said, a Say Once a Day line it has not said
-    ///   in the last `fSayOncePerDayInfoTimer` (12) game hours [documented:
-    ///   Category:Dialogue: both are per actor];
+    /// - a Say Once line no actor has said, a Say Once a Day line the speaker has not said
+    ///   in the last `fSayOncePerDayInfoTimer` (12) game hours. The wiki has both per
+    ///   actor [documented: Category:Dialogue], but a Say Once line two actors share was
+    ///   not said again by the second [observed: observer check 31, save nvf31mainframe:
+    ///   the Yes Man mainframe did not repeat 0x001164F1, the Tops Yes Man's first-meeting
+    ///   greeting; hypothesis: one case, and the two may count as one speaker] (#1113);
     /// - the speaker is the line's fixed speaker, if it has one (a reference of that
     ///   base form) [documented: Category:Dialogue: "Speaker" acts like GetIsID], unless
     ///   the line has a GetIsID condition on the subject of its own: then that condition
@@ -229,7 +240,7 @@ impl<'a> Game<'a> {
     pub(crate) fn can_say_as(&mut self, speaker: FormId, listener: Option<FormId>, info: FormId, says: Says) -> bool {
         let data = self.data;
         let Some(def) = data.infos.get(&info) else { return false };
-        if def.say_once && self.said.contains(&(speaker, info)) {
+        if def.say_once && self.said.iter().any(|&(_, i)| i == info) {
             return false;
         }
         // Low / High Intelligence lines: for a dim player, and for one who is not
@@ -424,8 +435,9 @@ impl<'a> Game<'a> {
     }
 
     /// The speaker said the line: Say Once and Say Once a Day remember it per actor
-    /// [documented: Category:Dialogue]. `always` remembers every line (conversations:
-    /// the shading of choices already made).
+    /// [documented: Category:Dialogue]; [`Game::can_say_as`] holds a Say Once line back
+    /// from every actor once any has said it. `always` remembers every line
+    /// (conversations: the shading of choices already made).
     pub(crate) fn mark_said(&mut self, speaker: FormId, info: FormId, always: bool) {
         let Some(def) = self.data.infos.get(&info) else { return };
         if def.say_once || always {
@@ -560,7 +572,7 @@ impl<'a> Game<'a> {
             self.say_line(actor, listener, topic, info, LineKind::Greeting);
             return Ok(info);
         }
-        self.dialogue = Some(Conversation { actor, through, line: None, choices: Vec::new(), lines: 0 });
+        self.dialogue = Some(Conversation { actor, through, line: None, choices: Vec::new(), lines: 0, then: None, ending: false });
         self.extra.entry(actor).or_default().talked_to_pc = true;
         self.emit(EventKind::DialogueStarted { actor, topic });
         self.speak(actor, topic, info);
@@ -664,24 +676,36 @@ impl<'a> Game<'a> {
     ///    captured; hypothesis: the first sayable of several, dialogue.md §3.4];
     /// 5. otherwise the player is offered choices ([`Game::build_choices`]); with
     ///    nothing to offer the conversation ends [hypothesis].
+    ///
+    /// A line with both follow-ups and choices (15 in FalloutNV.esm, dialogue.md §3.4)
+    /// passes over its follow-ups with the Goodbye flag: they would close the conversation
+    /// and leave its choices unreachable [design, issue #964: the original's order is not
+    /// known (observer check 65); the follow-ups of the 11 others are Say Once or lead to
+    /// choices of their own].
+    ///
+    /// A `StartConversation player` in the end script of a line that ends the
+    /// conversation (Goodbye, or nothing to offer) starts once it has closed
+    /// ([`Game::hold_force_greet`]) [design, issue #1107; observer check 39].
     fn finish_line(&mut self, actor: FormId, topic: FormId, info: FormId) {
         let data = self.data;
         let Some(def) = data.infos.get(&info) else { return };
         if let Some(c) = self.dialogue.as_mut() {
             c.line = None;
+            c.ending = true;
         }
         self.emit(EventKind::LineEnded { speaker: actor, info, cut: false });
         if !def.has(info_flag::RUN_IMMEDIATELY) {
             self.run_line_result(actor, def, true);
         }
-        for &t in &def.add_topics {
-            if self.player.topics.insert(t) {
-                self.emit(EventKind::TopicAdded { topic: t, by: Some(info) });
-            }
+        for t in self.player.topics.learn(&def.add_topics) {
+            self.emit(EventKind::TopicAdded { topic: t, by: Some(info) });
         }
         // The end script may have ended the conversation.
         if !self.dialogue.as_ref().is_some_and(|c| c.actor == actor && c.line.is_none()) {
             return;
+        }
+        if let Some(c) = self.dialogue.as_mut() {
+            c.ending = false;
         }
         if def.goodbye {
             self.end_dialogue_as(ended::GOODBYE);
@@ -689,9 +713,10 @@ impl<'a> Game<'a> {
         }
         let listener = Some(FormId::PLAYER_REF);
         for &f in &def.follow_ups {
-            if self.can_say(actor, listener, f) {
-                let topic = data.infos.get(&f).and_then(|d| d.topic).unwrap_or(FormId(0));
-                self.speak(actor, topic, f);
+            let Some(fd) = data.infos.get(&f) else { continue };
+            if !(fd.goodbye && !def.choices.is_empty()) && self.can_say(actor, listener, f) {
+                self.drop_held_greet();
+                self.speak(actor, fd.topic.unwrap_or(FormId(0)), f);
                 return;
             }
         }
@@ -700,9 +725,36 @@ impl<'a> Game<'a> {
             self.end_dialogue_as(ended::NO_CHOICES);
             return;
         }
+        self.drop_held_greet();
         self.emit(EventKind::ChoicesOffered { actor, choices: choices.clone() });
         if let Some(c) = self.dialogue.as_mut() {
             c.choices = choices;
+        }
+    }
+
+    /// `StartConversation player` while the player's conversation runs: inside the end
+    /// result script of the line that just ended, the force greet is held and starts
+    /// once the conversation closes, if the line closes it (Goodbye, or nothing to offer
+    /// after it); returns whether it was held. Anywhere else it is refused, as before
+    /// [design, issue #1107: 8 end scripts in FalloutNV.esm call it, 4 of them of Goodbye
+    /// lines, e.g. Anders' thanks in VMS46 (INFO 0x00142A9C); the other 4 lines have no
+    /// choices, so theirs starts when nothing is offered after them [observed]; whether the original
+    /// opens the new conversation is observer check 39 [hypothesis]]. A later call in the
+    /// same script replaces an earlier one [design].
+    pub fn hold_force_greet(&mut self, speaker: FormId, topic: Option<FormId>) -> bool {
+        match self.dialogue.as_mut().filter(|c| c.ending) {
+            Some(c) => {
+                c.then = Some((speaker, topic));
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The conversation goes on: a held force greet is refused after all [design].
+    fn drop_held_greet(&mut self) {
+        if let Some(c) = self.dialogue.as_mut() {
+            c.then = None;
         }
     }
 
@@ -737,8 +789,9 @@ impl<'a> Game<'a> {
     ///
     /// Order: topic priority (DIAL PNAM), highest first [documented: Category:Dialogue,
     /// "Priority"], then for a line's choices their order in the record [documented:
-    /// "Sorting order of links"] and for the topic list the topics' record order
-    /// [hypothesis].
+    /// "Sorting order of links"] and for the topic list the known topics newest first
+    /// ([`crate::game::KnownTopics`]; owner's choice 2026-10-31, the original's order
+    /// following no rule we can copy), then the others in record order.
     ///
     /// When the topic list holds no line with the Goodbye flag, the actor's line of the
     /// GOODBYE topic is offered last, if it has one [documented: Quest and Dialogue
@@ -764,8 +817,14 @@ impl<'a> Game<'a> {
         known.append(&mut links);
         if !known.is_empty() {
             listed.append(&mut known);
-            let order = |t: &FormId| data.topic_defs.get(t).map_or((usize::MAX, 0), |d| d.order);
-            listed.sort_by(|a, b| priority(&b.topic).total_cmp(&priority(&a.topic)).then(order(&a.topic).cmp(&order(&b.topic))));
+            // Ties: known topics newest first, then the rest (the top-level topics, even
+            // one the player also learned) in record order.
+            let key = |t: &FormId| ListKey {
+                priority: priority(t),
+                learned: (!data.top_level.contains(t)).then(|| self.player.topics.iter().position(|k| k == t)).flatten(),
+                order: data.topic_defs.get(t).map_or((usize::MAX, 0), |d| d.order),
+            };
+            listed.sort_by(|a, b| key(&a.topic).list_cmp(&key(&b.topic)));
         }
         let mut out = self.offer(actor, &listed);
         if !out.iter().any(|c| c.goodbye && data.infos.get(&c.info).is_some_and(|d| d.end.is_none())) {
@@ -929,6 +988,13 @@ impl<'a> Game<'a> {
             self.emit(EventKind::LineEnded { speaker: c.actor, info: l.info, cut: true });
         }
         self.emit(EventKind::DialogueEnded { actor: c.actor, reason, lines: c.lines });
+        // A force greet held by the last line's end script ([`Game::hold_force_greet`]),
+        // only when that line closed the conversation: not when the end script itself ended
+        // it some other way (a ForceFlee after the StartConversation) [design]. Refusals (the
+        // speaker gone, no line) are not errors, as for StartConversation.
+        if let Some((speaker, topic)) = c.then.filter(|_| reason == ended::GOODBYE || reason == ended::NO_CHOICES) {
+            let _ = self.force_greet(speaker, topic);
+        }
         true
     }
 
@@ -1132,5 +1198,42 @@ impl<'a> Game<'a> {
                 order.get(at).or(order.first()).map(|&r| def.responses[r].emotion)
             })
             .unwrap_or(0)
+    }
+}
+
+/// Where a topic goes in the topic list ([`Game::build_choices`]): topic priority,
+/// highest first; then a known topic by when it was learned, newest first (`learned`,
+/// its place in [`crate::game::KnownTopics`]); then the others in record order.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ListKey {
+    priority: f32,
+    learned: Option<usize>,
+    order: (usize, usize),
+}
+
+impl ListKey {
+    fn list_cmp(&self, b: &ListKey) -> std::cmp::Ordering {
+        let learned = |k: &ListKey| k.learned.unwrap_or(usize::MAX);
+        b.priority.total_cmp(&self.priority).then(learned(self).cmp(&learned(b))).then(self.order.cmp(&b.order))
+    }
+}
+
+#[cfg(test)]
+mod list_order_tests {
+    use super::ListKey;
+
+    #[test]
+    fn priority_then_newest_learned_then_record_order() {
+        let k = |priority: f32, learned: Option<usize>, order: usize| ListKey { priority, learned, order: (0, order) };
+        let mut list = [
+            ("top-level, later record", k(50.0, None, 9)),
+            ("known, older", k(50.0, Some(3), 1)),
+            ("top-level, earlier record", k(50.0, None, 2)),
+            ("known, newest", k(50.0, Some(0), 8)),
+            ("higher priority, top-level", k(60.0, None, 99)),
+        ];
+        list.sort_by(|a, b| a.1.list_cmp(&b.1));
+        let names: Vec<&str> = list.iter().map(|e| e.0).collect();
+        assert_eq!(names, ["higher priority, top-level", "known, newest", "known, older", "top-level, earlier record", "top-level, later record"]);
     }
 }

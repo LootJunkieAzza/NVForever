@@ -12,7 +12,7 @@
 use super::barter::{self, Flow};
 use crate::pipboy::items::{tiles_in, Info};
 use super::model::{Category, Command, MenuModel, Mode, Quantity, Row, Side};
-use super::{AmountMeter, CmdButton, RowButton};
+use super::{AmountMeter, CategoryTitle, CmdButton, RowButton};
 use crate::interface::{amber, at, face, plain_font, set_line, texture, Face, Picture, Pictures};
 use bevy::ui::{FocusPolicy, RelativeCursorPosition};
 use bevy::prelude::*;
@@ -189,6 +189,13 @@ pub fn heading(title_width: f32) -> (f32, f32, f32, (f32, f32)) {
     let right_arrow = TITLE_X + 10.0 + title_width;
     let line = right_arrow + 20.0;
     (ARROW_X, TITLE_X, right_arrow, (line, (HALF_W - line).max(0.0)))
+}
+
+/// The heading's part that takes the wheel for the category, from its half's left end
+/// (start, width): from the left arrow to the right arrow's end [design: #1192].
+pub fn title_zone(title_width: f32) -> (f32, f32) {
+    let (left, _, right, _) = heading(title_width);
+    (left, right + ARROW.x - left)
 }
 
 /// Where the caps figure is centred, from the menu's left: the file's "somewhat centred"
@@ -405,6 +412,9 @@ fn half(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, side: Side) {
         c.image_with(p, &format!("interface\\main\\{name}"), node, bright, (Button, CmdButton(Command::Category(side, by))));
     }
     c.text(p, true, &title, x0 + title_x, title_top, Align::Left, bright);
+    // Over the arrows and the title, where the wheel steps the category.
+    let (zone_x, zone_w) = title_zone(title_w);
+    p.spawn((at(x0 + zone_x, TOP - 10.0, zone_w, ARROW.y), FocusPolicy::Pass, PointerState::default(), CategoryTitle(side)));
     c.line(p, x0 + line_x, TOP, line_len, THICK, bright);
     if let Some(f) = half_figure(m, side) {
         c.text(p, false, &f, x0 + FIGURE_RIGHT, TOP + 20.0, Align::Right, bright);
@@ -670,6 +680,8 @@ mod tests {
         let (l, t, r, (x, len)) = heading(80.0);
         assert_eq!((l, t, r, x, len), (30.0, 50.0, 140.0, 160.0, 304.0));
         assert_eq!(heading(500.0).3, (580.0, 0.0));
+        // The wheel's zone runs from the left arrow to the right arrow's end.
+        assert_eq!(title_zone(80.0), (30.0, 140.0 + 17.5 - 30.0));
         // "9492" in the title font is about 70 wide: centred 509 from the menu's left
         // when the player is paid, as the screenshot shows.
         assert_eq!(flow_figure_x(Flow::Sell, 70.0), 20.0 + 449.0 + 20.0 + 32.5 + 7.5);

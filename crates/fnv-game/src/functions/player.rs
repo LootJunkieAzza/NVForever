@@ -95,10 +95,7 @@ pub fn get_has_note(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String>
 }
 
 pub fn add_note(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    let n = a.form(0)?;
-    if g.player.notes.insert(n) {
-        g.jip_event("noteadded", None, vec![fnv_script::vm::XVal::Ref(n.0)]);
-    }
+    g.file_note(a.form(0)?);
     none()
 }
 
@@ -233,10 +230,11 @@ pub fn get_reputation(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Strin
 
 /// Sets the amount exactly, with no limit [documented: GECK wiki SetReputation;
 /// observed: −3, 2.5 and twice the scale were stored as given, layer5-captures.md
-/// §9.3 a].
+/// §9.3 a]. An axis other than 0 or 1 fails and stops the script
+/// ([`super::reputation::write_axis`]).
 pub fn set_reputation(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = a.form(0)?;
-    let Some(i) = rep_axis(a)? else { return none() };
+    let i = super::reputation::write_axis(g, a, 1)?;
     super::reputation::store(g, r, i, a.num(2)?);
     none()
 }

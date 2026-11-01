@@ -17,7 +17,7 @@
 //! show the screen at almost that scale (0.99).
 
 use super::{Hacking, MenuView, Page, Session};
-use crate::interface::{at, face, plain_font, set_line, set_marked, texture, u, Face};
+use crate::interface::{at, face, line_anchor, plain_font, set_line, set_marked, texture, u, Face};
 use bevy::prelude::*;
 use fnv_font::{Font, Line};
 use fnv_game::data::NoteDef;
@@ -376,6 +376,9 @@ pub fn soften(font: &Font, alpha: &[f32], w: usize, h: usize, sigma: f32, bend: 
         g.before -= px;
         g.after -= px;
         g.ascent += py;
+        // [design] The rect includes the padding: before/ascent move its origin back
+        // by the same amount. No extra UV offset is needed for line_anchor's shared
+        // sampling phase (fonts.md ?3.2); the original ink stays inside this box.
     }
     Some(Soft { font: out, rgba, width, height })
 }
@@ -532,23 +535,29 @@ fn text_colored(p: &mut ChildSpawnerCommands, face: &Face, lit: &Face, line: &Li
         set_line(p, face, line, x, base, color(None));
         return;
     };
-    for placed in &line.glyphs {
-        let k = (placed.x / CHAR).round() as usize;
-        let g = face.font.glyph(placed.code);
-        if !g.drawn() {
-            continue;
+    p.spawn(line_anchor(base)).with_children(|p| {
+        for placed in &line.glyphs {
+            let k = (placed.x / CHAR).round() as usize;
+            let g = face.font.glyph(placed.code);
+            if !g.drawn() {
+                continue;
+            }
+            let rect = Rect::new(g.uv[0] * size.x, g.uv[1] * size.y, g.uv[2] * size.x, g.uv[3] * size.y);
+            let c = color(Some(k));
+            let on_fill = c == lit_text();
+            let picture = if on_fill { lit.image.as_ref().map_or(image, |(i, _)| i) } else { image };
+            let glyph = (
+                at(x + placed.x + g.before, -g.ascent, g.width, g.height),
+                ImageNode { rect: Some(rect), color: c, image_mode: NodeImageMode::Stretch, ..ImageNode::new(picture.clone()) },
+                LayoutConfig { use_rounding: false },
+            );
+            if on_fill {
+                p.spawn((glyph, ON_FILLS));
+            } else {
+                p.spawn(glyph);
+            }
         }
-        let rect = Rect::new(g.uv[0] * size.x, g.uv[1] * size.y, g.uv[2] * size.x, g.uv[3] * size.y);
-        let c = color(Some(k));
-        let on_fill = c == lit_text();
-        let picture = if on_fill { lit.image.as_ref().map_or(image, |(i, _)| i) } else { image };
-        let glyph = (at(x + placed.x + g.before, base - g.ascent, g.width, g.height), ImageNode { rect: Some(rect), color: c, ..ImageNode::new(picture.clone()) });
-        if on_fill {
-            p.spawn((glyph, ON_FILLS));
-        } else {
-            p.spawn(glyph);
-        }
-    }
+    });
 }
 
 /// Text centred across the screen.

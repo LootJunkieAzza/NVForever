@@ -23,5 +23,5 @@ pub use particles::{ParticleSystemDef, PreparedParticles};
 pub use model::{ModelCache, PreparedModel, PreparedShape};
 pub use nif_material::{fade_prepass, nif_material, soft_edges, NifMaterial, NifMaterialPlugin};
 pub use nif_spawn::{NifHidden, NifRoot, SpawnCtx, SpawnReport};
-pub use release::AssetReleasePlugin;
+pub use release::{AssetReleasePlugin, KeepLimits};
 pub use texture::TextureCache;

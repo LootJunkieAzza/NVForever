@@ -1010,8 +1010,24 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
   units of the player and 1500 of a fighter (a resident in Combat, or the player while
   hunted) [stand-ins] says its line, each actor at most once per
   `fCommentOnPlayerActionsTimer` [stand-in]. Log `… comments on the fight of <who>`.
-  Not built: the behaviour's "run away if they get too close" [documented: GECK wiki
-  Packages] (no flee for actors outside a fight).
+  Spectators "run away if they get too close" [documented: GECK wiki Packages; no
+  distance is documented] (#960): an actor whose package allows the behaviour, not in a
+  combat state, not asleep or talking, within 600 units of a fighter
+  (`fnv_ai::social::SPECTATOR_FLEE_DISTANCE`) [design: stand-in, observer-checks.md
+  check 60] runs from the nearest one, wherever the player is, by the combat flee's
+  spot search (`fnv_ai::alert`: a door, cover between the flee cover distances, else
+  fCombatFleeNormalDistance straight away; combat-ai.md §12.2) at its run speed. It
+  does not enter a combat state, draw a weapon or join the fight. At its spot it stands
+  facing the fight; the fight within 600 units again, it runs again (at most once per
+  5 s, `SPECTATOR_REFLEE_SECONDS`); with no fighter within 1,500 units it goes back to
+  its package [design]. Log `… runs from the fight of <who> (<d> units away): too close
+  to watch`, then the flee lines (`flees from …`, `reached its flee spot …`). A fighter
+  is a resident in Combat, or the player while someone in Combat (not Alert or Lost: a
+  search is no fight) fights it within 1,500 units of it. The player's teammates, those
+  following someone (Follow, Accompany) and allies or friends of the fighter by faction
+  take a side and do not run. It runs from the middle of the fighters within 1,500
+  units, not only the nearest, so as not to run into the fight's far side [design for
+  each: review of #1216; tests `spectators_run_only_from_a_real_fight_and_not_the_players_side`].
 - **Avoid Radiation** ("Allow actors to avoid entering radiated areas" [documented:
   Category:Packages]): for an actor whose Rad Resistance is below
   `fRadiationResistanceAvoidLevel` (50) [hypothesis: the setting's name], the radiation
@@ -1021,15 +1037,17 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
   into one. A goal inside stays reachable. The radiation zones explosions leave count as
   well while they still give rads, at their radiation radius [design]; a way planned
   before the zone appeared is not planned again for it (the Fat Man's fades in 12 s).
-- Checks: fnv-ai test `an_actor_next_to_the_player_chatters_now_and_then`; fnv-nav
+- Checks: fnv-ai tests `an_actor_next_to_the_player_chatters_now_and_then`,
+  `a_spectator_runs_from_a_fight_that_comes_too_close`; fnv-nav
   `places_to_avoid_cost_more_and_are_gone_round`; smoke `player-fire-comment` (Easy
   Pete: "What in tarnation?") and `observe-combat-comment` (Easy Pete: "Look at 'em
-  go!" while a cazador fights the player).
+  go!" while a cazador fights the player, then runs from it).
 
 ### 7.7 Not built, and why
 
-- **Observe Combat Behavior**'s running away from a fight that comes too close (§7.6b
-  says its lines).
+- **Observe Combat Behavior**'s running away from a fight that comes too close: built
+  on a stand-in distance (§7.6b, #960); the original's distance, and whether its
+  spectators come back, are for the AI observer (observer-checks.md check 60).
 - **Guard "Remain Near Reference to Guard"**: no page in the wiki export documents the
   Guard package's tab. Built on the flag's name (#961) [hypothesis]: a Guard with it
   stays near its target reference (or linked reference), within the location's radius,
@@ -1060,3 +1078,43 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
 - **AIDT Responsibility in crime reactions**: the wiki documents Responsibility in the
   disposition formula and in combat's iAvoidHurtingNonTargetsResponsibility, not in
   crime reactions.
+
+## 8. Actors already at their package's place when the player arrives (issue #1208)
+
+- **What the original shows** [observed, owner, issue #1208]: fast travelling from
+  Goodsprings to Novac at 5am, Boone is already at his post by the dinosaur on arrival;
+  entering the Mojave Outpost, Cass is already drinking at the bar, and in the
+  Prospector Saloon the settler is already seated at the bar. Ours had them walk there
+  (out of Boone's motel room, up to the bar stools) in front of the player, because an
+  actor of a cell that was not loaded joined the AI where it was placed (or where the
+  low process left it, §1 of `fnv_ai::process`) and only then set off.
+- **What is built** [hypothesis: the original is seen with the actors at the place,
+  not how it gets them there]: when the player goes through a load door or fast
+  travels (not when a script moves the player: `Loading::arriving`), the residents the
+  player saw in the loaded area within the last game hour stay where they are (out of
+  a house and straight back, the street is as it was [design]). Every other resident
+  near the destination, in the loaded area, the cell buffer or an interior behind a
+  door of the loaded cells, whose package's walk starts there, takes up its current
+  package (chosen again for the hour it is now: a fast travel's hours have passed) and
+  is put where the walk ends instead of walking: at the package's place, on the
+  furniture the package gives it (seated at once, no walk up and no sitting-down clip),
+  at the furniture or marker its sandbox chooses there, at the patrol point it sets off
+  for when the patrol goes round (the nearest, as when its package begins), at the last
+  point when it goes once (the waits at the points on the way over: Boone's night
+  patrol out of his room, through the gift shop, to the dinosaur's mouth)
+  (`fnv_ai::arrive`, engine `residents.rs` `Core::arrive`). An actor found already at
+  its place on its furniture (the low process had it there behind a door) is seated at
+  once too, instead of walking up and playing the sitting-down clip in sight. Actors
+  farther away come as the low process brings them, stopping at the loaded area's
+  edge (`fnv_ai::process`, Malcolm Holmes). Left alone: actors dead, unconscious,
+  restrained, rooted, with their AI off, in a combat state, or put somewhere by a
+  script in the last 10 seconds; those whose package's place is the player or another
+  actor (a hunter would land beside the player); walks that depend on someone else
+  (following, escorting, searching, fleeing, a conversation). Each resident is looked
+  at once per trip, after the cells around the player have loaded; those put somewhere
+  join the AI and are drawn under the loading screen, so the screen waits for their
+  bodies.
+- **Open** (docs/handoff/observer-checks.md, check 68): whether the original puts the
+  actor exactly at the walk's end or somewhere part-way / within the package's radius;
+  whether a short fast travel inside the loaded area moves anybody (ours: nobody,
+  [design]); whether the hours a fast travel passes matter beyond choosing the package.
