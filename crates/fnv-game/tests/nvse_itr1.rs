@@ -171,6 +171,13 @@ fn fall_damage_multipliers_global_and_per_actor() {
     assert_eq!(num(&mut g, &format!("GetFallDamageMult {npc}")), 0.5);
     assert_eq!(g.fall_damage_mult(FormId(NPC_REF)), 0.5);
     assert_eq!(g.fall_damage_mult(FormId(CREA_REF)), 2.0);
+    // Not a finite number: nothing changes; past f32's range: f32's largest.
+    assert_eq!(num(&mut g, "SetFallDamageMult (10 ^ 400)"), 0.0);
+    assert_eq!(num(&mut g, "SetFallDamageMult ((-1) ^ 0.5)"), 0.0);
+    assert_eq!(num(&mut g, "GetFallDamageMult"), 2.0);
+    query(&mut g, &format!("SetFallDamageMult (10 ^ 39) {npc}"));
+    assert_eq!(g.fall_damage_mult(FormId(NPC_REF)), f64::from(f32::MAX));
+    query(&mut g, &format!("SetFallDamageMult 0.5 {npc}"));
     // Negative: 0; an actor's 1 clears its override.
     query(&mut g, "SetFallDamageMult -3");
     assert_eq!(num(&mut g, "GetFallDamageMult"), 0.0);
@@ -293,6 +300,9 @@ fn records_hair_combat_skill_casino_challenge_worldspace_and_info_flags() {
     assert_eq!(num(&mut g, &format!("{beast}.SetCreatureCombatSkill 300")), 1.0);
     assert_eq!(num(&mut g, &format!("GetCreatureCombatSkill {}", r(CREA))), 255.0);
     assert_eq!(num(&mut g, &format!("SetCreatureCombatSkill 75 {}", r(NPC))), 0.0);
+    // Not a number: 0, never NaN.
+    num(&mut g, &format!("{beast}.SetCreatureCombatSkill ((-1) ^ 0.5)"));
+    assert_eq!(num(&mut g, &format!("GetCreatureCombatSkill {}", r(CREA))), 0.0);
     // Casino: never played 0; banned at the max winnings; lifted to one below it.
     let c = r(CASINO);
     assert_eq!(num(&mut g, &format!("GetCasinoBan {c}")), 0.0);

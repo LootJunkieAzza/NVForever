@@ -272,9 +272,15 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             None => g.other.itr.kept.fall_global.unwrap_or(1.0),
         }),
         // `mult [actor]`: below 0 taken as 0; an actor's 1 clears its override; with no
-        // actor the global one [documented: SetFallDamageMult].
+        // actor the global one [documented: SetFallDamageMult]. A value that is not a
+        // finite number changes nothing and gives 0, and one past f32's range is kept at
+        // its largest, so the engine's fall damage stays a number [decision].
         "setfalldamagemult" => {
-            let m = num(args, 0, 1.0).max(0.0);
+            let m = num(args, 0, 1.0);
+            if !m.is_finite() {
+                return Some(Ok(zero));
+            }
+            let m = m.clamp(0.0, f64::from(f32::MAX));
             let k = &mut g.other.itr.kept;
             match form(args, 1).or(subject) {
                 Some(a) if m == 1.0 => {
@@ -549,12 +555,13 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             one
         }
         // `value [creature]`: the creature base's DATA combat skill, above 255 kept at
-        // 255 (below 0 at 0 [hypothesis]); the calling reference's base when no creature
+        // 255 (below 0 at 0 [hypothesis]; not a finite number, 0 [decision]); the calling
+        // reference's base when no creature
         // is given; 1 done [documented: SetCreatureCombatSkill]. GetCreatureCombatSkill
         // reads it.
         "setcreaturecombatskill" => {
             let Some(c) = form(args, 1).or(subject).map(|f| base(g, f)).filter(|&c| g.data.sig(c) == Some(*b"CREA")) else { return Some(Ok(zero)) };
-            g.field_overrides.insert((c, "DATA/combat_skill".into()), XVal::Num(num(args, 0, 0.0).trunc().clamp(0.0, 255.0)));
+            g.field_overrides.insert((c, "DATA/combat_skill".into()), XVal::Num(Some(num(args, 0, 0.0)).filter(|v| v.is_finite()).map_or(0.0, |v| v.trunc().clamp(0.0, 255.0))));
             one
         }
         // ---- casinos ----
