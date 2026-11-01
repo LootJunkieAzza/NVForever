@@ -7694,15 +7694,15 @@ manual = "on a failure, explain the change against docs/spec-notes/animation.md 
 [[scenario]]
 name = "creature-pace"
 source = "owner's playtest 2026-10-16 (engine/nvforever/src/creature_pace.rs, docs/spec-notes/actors.md §8.10): creatures move at their clips' pace × scale × Speed Mult × 0.70, measured on cazadors in the original game; a steady walk keeps its walk clip"
-note = "the Tribal Village's leveled cazadors (young: scale 0.5, Speed Mult 300; medium: scale 1, Speed Mult 250); the player arrives at 9 s after tdetect at 3 s, so they stay calm (sandbox); at 8 s the console aid sometimes came after the first detection under a loaded machine (2026-10-25)"
+note = "the Tribal Village's leveled cazadors (young: scale 0.5, Speed Mult 300; medium: scale 1, Speed Mult 250); the player arrives at 9 s after tdetect at 3 s, so they stay calm (sandbox); at 8 s the console aid sometimes came after the first detection under a loaded machine (2026-10-25); turns are TNAM × 1.25 since issue #915 (young TNAM 90: 112, medium TNAM 200: 250; was the fitted 300 × scale)"
 areas = ["actors", "ai"]
 paths = ["engine/nvforever/src/creature_pace.rs", "engine/nvforever/src/locomotion.rs", "crates/fnv-ai/src/carry.rs", "crates/fnv-actor/src/locomotion.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "3:tdetect;3.5:close", NVF_PLAY_TEST_GOTO = "9:-74027:30369:8200" }
 args = ["--play", "--pos=-80027,30369,8500", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 70
 expect = [
-  { re = 'creature pace: VSpawnTier3Cazador\S* 0x\w+ walks 228 and runs 573 units/s, turns 150 degrees/s, alert 313 and 573', label = "a young cazador's speeds (observed 228 and up to 576)" },
-  { re = 'creature pace: VSpawnTier4Cazador\S* 0x\w+ walks 379 and runs 955 units/s, turns 300 degrees/s, alert 522 and 955', label = "a medium cazador's speeds (observed 380 and up to 974)" },
+  { re = 'creature pace: VSpawnTier3Cazador\S* 0x\w+ walks 228 and runs 573 units/s, turns 112 degrees/s, alert 313 and 573', label = "a young cazador's speeds (observed 228 and up to 576)" },
+  { re = 'creature pace: VSpawnTier4Cazador\S* 0x\w+ walks 379 and runs 955 units/s, turns 250 degrees/s, alert 522 and 955', label = "a medium cazador's speeds (observed 380 and up to 974)" },
   { re = 'creature pace summary: .*alert stance taken 0 times.* [1-9]\d+ frames of their moves, [0-3] changes between walk and run clips', label = "calm cazadors walking with at most 3 walk/run changes" },
 ]
 
