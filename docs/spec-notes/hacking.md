@@ -51,8 +51,10 @@ blinks every 400 ms.
 
 [observed: the owner's screenshots]
 
-- Header: "ROBCO INDUSTRIES (TM) TERMLINK PROTOCOL", "ENTER PASSWORD NOW", a blank line,
-  "4 ATTEMPT(S) LEFT:" and four blocks. Lines at 1, 32 and 93 under the header's top.
+- Header: the title line, the password prompt line, a blank line, the attempts line
+  (the count, then a label) and four blocks. Lines at 1, 32 and 93 under the header's
+  top. None of the header's words is in the plugins or the menu file (§8); NVForever's
+  are `screen::words::HACK_TITLE`, `HACK_PROMPT` and `attempts(n)`.
 - Rows: an address "0xF650" (four hex digits), a space, 12 characters. Addresses go up
   12 a row; column 2 goes on from column 1 (0xF710, then 0xF71C). The dump is one run of
   408 characters: words run on across rows and from the last row of column 1 into the
@@ -114,9 +116,9 @@ it also removes the observed red and blue dip, leaving all three channels consta
 [observed: same hacking JPEG against the branch's `hacking.png` at 1280 × 720,
 2026-11-01; the JPEG's sums divided by 2.25 for its larger pixels] The original's text
 strokes are soft, about 3 pixels across at 1080 with peaks of 200 to 250 green, where
-ours were 2.5 pixels of full green at 720. On the same lines of text ("ENTER PASSWORD
-NOW", "ATTEMPT(S) LEFT:"), the summed green above the glass beside the line was 0.79 and
-0.77 of ours in display values, 0.60 and 0.51 in linear light, with hard-edged text in
+ours were 2.5 pixels of full green at 720. On the same lines of text (the password
+prompt line and the attempts line, §2), the summed green above the glass beside the line
+was 0.79 and 0.77 of ours in display values, 0.60 and 0.51 in linear light, with hard-edged text in
 the block colour. Fine horizontal scanlines cross the glass and the text: 7.8 pixels
 apart at 1080, which is 7.33 units (the dump's rows 29.7 pixels apart for 28 units), 131
 down the texture's 960 units; the blocks' blue dims to about 0.84 at 1080 and 0.82 when
@@ -339,9 +341,18 @@ after each adjustment:
 
 ## 8. Words not in the plugins
 
-From the owner's screenshots [observed], and shown as the original has them: "ENTER
-PASSWORD NOW", "N ATTEMPT(S) LEFT:", "Entry denied", "N/L correct.", "Allowance
-replenished.", "Exact match!", "Please wait while system is accessed.".
+The header's password prompt line and attempts line (§2) are not in the masters
+[observed, 2026-11-01]: FalloutNV.esm has no string game setting for them (its only
+hacking or terminal settings are the `iXPRewardHackComputer*` numbers and
+`sTerminalServerText*`), the add-on masters have none either, and `menus\hacking_menu.xml`
+holds no text for them (its prompt and header tiles are filled by the game's code; the
+only names it reads from the strings table are `sHackingLockout3` and `sHackingLockout4`,
+menu-xml.md §2.4). So they are not quoted here, and the strings table has no entry to
+give them. Under LEGAL.md the engine needs its own words for them, in
+`screen::words::HACK_PROMPT` and `screen::words::attempts(n)`; today those still hold
+the phrases seen on the owner's screenshots, which is open. The log's phrases (§2: a
+wrong word, its likeness, the allowance, the exact match, the wait) are in the same
+position: not in the plugins, still quoted in §2, §5 and §7, and open.
 
 NVForever's own wording in place of the original's (owner decision 2026-10-30, LEGAL.md):
 the hacking title and the menu's two header lines, which in the original name the game's
