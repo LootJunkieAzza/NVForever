@@ -728,6 +728,10 @@ pub struct PlayerState {
     /// need's actor value code (`crate::needs`).
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub need_stages: BTreeMap<u16, FormId>,
+    /// The part of a point each need has built up over hours waited or slept whose share
+    /// is under one point (`crate::needs`, a high TimeScale).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub need_carry: BTreeMap<u16, f64>,
     /// Miscellaneous statistics by code (ModPCMiscStat).
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub misc_stats: BTreeMap<u16, f64>,
