@@ -396,7 +396,10 @@ rules; what NVForever decides where they are open is tagged here.
   255th plugin]. `Call f args` runs it; the `{params} => expr` form returns its
   expression's value [documented: Lambda]. A lambda made by a result script has fresh
   variables of its own [hypothesis]. A loaded save's lambdas keep their names, and
-  making one again after the load gives the saved name.
+  making one again after the load gives the saved name while the unit's lambda of that
+  number is still the saved code [decision: a save from before the numbering reads
+  every lambda as number 0, and an edited plugin can number other code the same; such
+  a lambda gets a new name and runs the current code].
 
 - **Formats** (C4; docs/spec-notes/ext-format.md): a format string's values are as many
   as its codes [documented]. `%X.Yf`, `%g` (an integer, 1,000,000 and up as `1E+006`),

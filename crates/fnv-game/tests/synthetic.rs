@@ -2294,6 +2294,65 @@ fn a_function_makes_the_same_lambda_every_call() {
     assert_eq!(r.snapshot().lambdas, snap.lambdas);
 }
 
+/// A saved lambda is made again under its saved name only while the unit's lambda of
+/// that number is the same code: a save from before the numbering reads every lambda as
+/// number 0, and an edited plugin can give a number other code (#1310 review).
+#[test]
+fn a_loaded_lambda_keeps_its_name_only_for_the_same_code() {
+    let f = udf_fixture();
+    let src = "ref a
+ref b
+ref c
+ref d
+int x
+int n
+        let a := Call TestMaker 0
+let x := Call TestAdd 1 2
+let c := Call TestMaker 1
+let n := Call TestFact 4
+        let d := Call TestMaker2
+let b := Call TestMaker 0
+        let TestGlobal := 0
+        if eval a == b && a != c && a != d && c != d
+  let TestGlobal := (Call a 5) + (Call c 5) * 1000 + (Call d 5) * 1000000
+endif";
+    let number = |l: &mut fnv_script::ir::XExpr, n: u32| {
+        if let fnv_script::ir::XExpr::Lambda { index, .. } = l {
+            *index = n;
+        }
+    };
+    let load_and_run = |snap: &fnv_game::game::GameSnapshot| {
+        let world = World::new(&f.forms, &f.refs, SimConfig::default());
+        let mut r = Game::restore(&f.data, world, GameConfig::default(), snap).unwrap();
+        r.run_source(src, Default::default()).expect("compiles");
+        (r.world.global(FormId(0x0000_0800)).unwrap(), r.snapshot().lambdas.len())
+    };
+
+    // A save from before the numbering: TestMaker's second lambda (k * 2) reads as
+    // number 0, which is k + 100 now.
+    let mut g = game(&f);
+    g.run_source("ref a
+let a := Call TestMaker 0", Default::default()).expect("compiles");
+    let mut old = g.snapshot();
+    assert_eq!(old.lambdas.len(), 1);
+    number(&mut old.lambdas[0].lambda, 0);
+    assert_eq!(load_and_run(&old), (4_105_010.0, 4), "k + 100 runs its own code under a new name");
+
+    // A plugin edited since the save: lambda 0 of TestMaker was k * 2 then.
+    let mut g = game(&f);
+    g.run_source(src, Default::default()).expect("compiles");
+    let mut edited = g.snapshot();
+    // Only TestMaker has a lambda 1.
+    let j = edited.lambdas.iter().position(|l| matches!(l.lambda, fnv_script::ir::XExpr::Lambda { index: 1, .. })).unwrap();
+    let i = edited.lambdas.iter().position(|l| matches!(l.lambda, fnv_script::ir::XExpr::Lambda { index: 0, .. }) && l.unit == edited.lambdas[j].unit).unwrap();
+    edited.lambdas[i].lambda = edited.lambdas[j].lambda.clone();
+    number(&mut edited.lambdas[i].lambda, 0);
+    assert_eq!(load_and_run(&edited), (4_105_010.0, 4), "the current k + 100 runs, not the saved code");
+
+    // The same code keeps its name (a_function_makes_the_same_lambda_every_call).
+    assert_eq!(load_and_run(&g.snapshot()), (4_105_010.0, 3));
+}
+
 #[test]
 fn the_extenders_strings_arrays_and_lambdas_are_in_the_save() {
     // Task F1: a snapshot keeps the ExtStore and the lambdas; a restore gives them back.

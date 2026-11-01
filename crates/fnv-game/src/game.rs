@@ -1812,6 +1812,25 @@ fn lambda_key(unit: &Compiled, l: &fnv_script::ir::XExpr, inst: Option<InstKey>)
     (unit as *const Compiled as usize, index, inst)
 }
 
+/// The lambda of `unit` that has the number of `l`, as the unit is compiled now.
+fn unit_lambda(unit: &Compiled, l: &fnv_script::ir::XExpr) -> Option<fnv_script::ir::XExpr> {
+    fn find(v: &serde_json::Value, index: u64) -> Option<&serde_json::Value> {
+        match v {
+            serde_json::Value::Object(m) => {
+                if m.get("x").and_then(|x| x.as_str()) == Some("lambda") && m.get("index").and_then(|i| i.as_u64()).unwrap_or(0) == index {
+                    return Some(v);
+                }
+                m.values().find_map(|x| find(x, index))
+            }
+            serde_json::Value::Array(a) => a.iter().find_map(|x| find(x, index)),
+            _ => None,
+        }
+    }
+    let fnv_script::ir::XExpr::Lambda { index, .. } = l else { return None };
+    let program = serde_json::to_value(&unit.program).ok()?;
+    find(&program, *index as u64).and_then(|v| serde_json::from_value(v.clone()).ok())
+}
+
 /// A lambda a script made: its unit (`None` when a loaded save names a unit that is gone)
 /// and that unit's key, the lambda, and the instance whose variables it shares.
 #[derive(Clone)]
@@ -4863,8 +4882,11 @@ impl<'a> Game<'a> {
             // A lambda whose unit is gone (a plugin removed, a console line) keeps its place,
             // so the later ones keep their names; calling it fails.
             let unit = data.unit_by_key.get(&l.unit).map(|&i| &data.units[i]);
-            // Made again after the load, it is the same lambda.
-            if let Some(u) = unit {
+            // Made again after the load, it is the same lambda, but only while the unit's
+            // lambda of that number is still this code: a save from before the numbering
+            // reads every lambda as number 0, and an edited plugin can number other code
+            // the same; those get a new ID with the current code when made.
+            if let Some(u) = unit.filter(|u| unit_lambda(u, &l.lambda).is_some_and(|now| now == l.lambda)) {
                 g.lambda_ids.entry(lambda_key(u, &l.lambda, l.inst)).or_insert(LAMBDA_BASE + g.lambdas.len() as u32);
             }
             g.lambdas.push(LambdaDef { unit, key: l.unit.clone(), lambda: l.lambda.clone(), inst: l.inst, captured: None });
