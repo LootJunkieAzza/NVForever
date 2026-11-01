@@ -291,4 +291,50 @@ fn armour() {
     assert_eq!(n(&mut g, "SetDamageToArmorMaxPercent"), 0.025);
 }
 
-
+/// Every setter keeps its field in range: NaN and infinity set nothing, a number past the
+/// field is clamped to it (`crate::nvse::field_number`, #1358 review).
+#[test]
+fn setters_keep_their_fields_in_range() {
+    let f = fixture();
+    let mut g = game(&f);
+    const INF: &str = "(Pow 10 400)";
+    const NAN: &str = "((Pow 10 400) - (Pow 10 400))";
+    // Ammunition: clip rounds are a u8, projectiles per shot a u32.
+    q(&mut g, "SetAmmoTraitNumeric TestAmmo 3 300");
+    assert_eq!(g.num_field(FormId(AMMO), "DATA", "clip_rounds"), 255.0);
+    q(&mut g, "SetAmmoTraitNumeric TestAmmo 1 -4");
+    assert_eq!(g.num_field(FormId(AMMO), "DAT2", "projectiles_per_shot"), 0.0);
+    for bad in [INF, NAN] {
+        q(&mut g, &format!("SetAmmoTraitNumeric TestAmmo 0 {bad}"));
+        assert_eq!(n(&mut g, "GetAmmoSpeed TestAmmo"), 2000.0, "{bad}");
+        q(&mut g, &format!("SetAmmoEffectTraitNumeric TestAmmoEffect 2 {bad}"));
+        assert_eq!(n(&mut g, "GetAmmoEffectTraitNumeric TestAmmoEffect 2"), 3.0, "{bad}");
+        // Projectile and explosion traits.
+        q(&mut g, &format!("SetProjectileTraitNumeric TestProjectile 2 {bad}"));
+        assert_eq!(g.num_field(FormId(PROJ), "DATA", "speed"), 1000.0, "{bad}");
+        q(&mut g, &format!("SetExplosionTraitNumeric TestExplosion 2 {bad}"));
+        assert_eq!(g.num_field(FormId(EXPL), "DATA", "radius"), 300.0, "{bad}");
+        q(&mut g, &format!("SetImpactDataTraitNumeric TestImpact 0 {bad}"));
+        assert_eq!(n(&mut g, "GetImpactDataTrait TestImpact 0"), 2.0, "{bad}");
+    }
+    // An effect type past 0-5, a sound level past 0-2: clamped.
+    q(&mut g, "SetAmmoEffectTraitNumeric TestAmmoEffect 0 9");
+    assert_eq!(n(&mut g, "GetAmmoEffectTraitNumeric TestAmmoEffect 0"), 5.0);
+    q(&mut g, "SetProjectileTraitNumeric TestProjectile 14 7");
+    assert_eq!(g.num_field(FormId(PROJ), "VNAM", ""), 2.0);
+    // The weather transition: infinity changes nothing.
+    q(&mut g, "SetWeatherTransitionTimeOverride 90");
+    q(&mut g, &format!("SetWeatherTransitionTimeOverride {INF}"));
+    assert_eq!(g.weather_transition_override(), Some(90.0));
+    // Armour: NaN and infinity set nothing; the penalty is 0-2, the share 0-1.
+    for bad in [INF, NAN] {
+        assert_eq!(n(&mut g, &format!("SetArmorConditionPenalty {bad}")), 1.0, "{bad}");
+        assert_eq!(n(&mut g, &format!("SetDamageToArmorMaxPercent {bad}")), 1.0, "{bad}");
+    }
+    assert_eq!(n(&mut g, "SetArmorConditionPenalty -1"), 0.0);
+    assert_eq!(n(&mut g, "SetArmorConditionPenalty 7"), 2.0);
+    assert_eq!(n(&mut g, "SetDamageToArmorMaxPercent 3"), 1.0);
+    // A climate chance that is NaN adds nothing.
+    assert_eq!(n(&mut g, &format!("ClimateAddWeatherType TestClimate TestWeather2 {NAN}")), 0.0);
+    assert_eq!(n(&mut g, "GetClimateNumWeatherTypes TestClimate"), 1.0);
+}

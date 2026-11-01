@@ -4,6 +4,7 @@
 //! getters (this file's and the earlier batches').
 
 use crate::game::{Game, RunCtx};
+use crate::nvse::{field_number, F32, U32, U8};
 use fnv_script::vm::XVal;
 use fnv_sim::FormId;
 use serde_json::Value as Json;
@@ -58,6 +59,13 @@ fn text(args: &[XVal], k: usize) -> Option<String> {
     }
 }
 
+/// [`field_number`] for a field of this range, whole for a field that is not an f32 (an
+/// integer or an enumeration).
+fn fit(v: f64, range: (f64, f64)) -> Option<f64> {
+    let v = field_number(v, range.0, range.1)?;
+    Some(if range == F32 { v } else { v.trunc() })
+}
+
 fn yes(b: bool) -> XVal {
     XVal::Num(f64::from(u8::from(b)))
 }
@@ -68,53 +76,62 @@ fn json_form(v: Option<&Json>) -> Option<FormId> {
 
 /// AMMO numeric traits 0-3 [documented: SetAmmoTraitNumeric's table: 0 speed, 1
 /// projectiles per shot, 2 ammo consumed percent, 3 clip rounds]; the fields: xEdit AMMO.
-const AMMO_NUMERIC: [(&str, &str); 4] = [("DATA", "speed"), ("DAT2", "projectiles_per_shot"), ("DAT2", "consumed_percentage"), ("DATA", "clip_rounds")];
+/// Each with its field's range (u32 projectiles, u8 clip rounds).
+const AMMO_NUMERIC: [(&str, &str, (f64, f64)); 4] = [("DATA", "speed", F32), ("DAT2", "projectiles_per_shot", U32), ("DAT2", "consumed_percentage", F32), ("DATA", "clip_rounds", U8)];
 
 /// AMEF numeric traits 0-2 [documented: SetAmmoEffectTraitNumeric's table] as
 /// GetAmmoEffectTraitNumeric reads them (`nvse_gaps`).
-const AMEF_NUMERIC: [&str; 3] = ["type", "operation", "value"];
+/// The type is 0-5 and the operation 0-2 [documented: the page's tables].
+const AMEF_NUMERIC: [(&str, (f64, f64)); 3] = [("type", (0.0, 5.0)), ("operation", (0.0, 2.0)), ("value", F32)];
 
 /// PROJ numeric traits 0-14 [documented: SetProjectileTraitNumeric's table]; 14 the
 /// detection sound level is VNAM [the field: xEdit PROJ].
-const PROJ_NUMERIC: [(&str, &str); 15] = [
-    ("DATA", "type"),
-    ("DATA", "gravity"),
-    ("DATA", "speed"),
-    ("DATA", "range"),
-    ("DATA", "tracer_chance"),
-    ("DATA", "explosion_alt_trigger_proximity"),
-    ("DATA", "explosion_alt_trigger_timer"),
-    ("DATA", "muzzle_flash_duration"),
-    ("DATA", "fade_duration"),
-    ("DATA", "impact_force"),
-    ("DATA", "rotation.x"),
-    ("DATA", "rotation.y"),
-    ("DATA", "rotation.z"),
-    ("DATA", "bouncy_mult"),
-    ("VNAM", ""),
+/// The type is one of 1-16 and the sound level 0-2 [documented: the page's tables]; the
+/// rest are f32 fields.
+const PROJ_NUMERIC: [(&str, &str, (f64, f64)); 15] = [
+    ("DATA", "type", (1.0, 16.0)),
+    ("DATA", "gravity", F32),
+    ("DATA", "speed", F32),
+    ("DATA", "range", F32),
+    ("DATA", "tracer_chance", F32),
+    ("DATA", "explosion_alt_trigger_proximity", F32),
+    ("DATA", "explosion_alt_trigger_timer", F32),
+    ("DATA", "muzzle_flash_duration", F32),
+    ("DATA", "fade_duration", F32),
+    ("DATA", "impact_force", F32),
+    ("DATA", "rotation.x", F32),
+    ("DATA", "rotation.y", F32),
+    ("DATA", "rotation.z", F32),
+    ("DATA", "bouncy_mult", F32),
+    ("VNAM", "", (0.0, 2.0)),
 ];
 
 /// EXPL numeric traits 0-7 [documented: SetExplosionTraitNumeric's table].
-const EXPL_NUMERIC: [&str; 8] = ["force", "damage", "radius", "is_radius", "radiation_level", "radiation_dissipation_time", "radiation_radius", "sound_level"];
+/// f32 fields but the sound level, 0-2 [documented: the sound levels of the projectile
+/// page].
+const EXPL_NUMERIC: [(&str, (f64, f64)); 8] =
+    [("force", F32), ("damage", F32), ("radius", F32), ("is_radius", F32), ("radiation_level", F32), ("radiation_dissipation_time", F32), ("radiation_radius", F32), ("sound_level", (0.0, 2.0))];
 
 /// IPCT numeric traits of SetImpactDataTraitNumeric, 0-14 [documented: its table]: the
 /// impact data (DATA) 0-4, the decal data (DODT) 5-12; 13 the flags and 14 the colour are
 /// worked out apart. GetImpactDataTrait numbers the same with the three forms (texture
 /// set, sounds 1 and 2) at 5-7, so its 8-17 are these 5-14 [documented: its table].
-const IPCT_NUMERIC: [(&str, &str); 13] = [
-    ("DATA", "effect_duration"),
-    ("DATA", "effect_orientation"),
-    ("DATA", "angle_threshold"),
-    ("DATA", "placement_radius"),
-    ("DATA", "sound_level"),
-    ("DODT", "min_width"),
-    ("DODT", "max_width"),
-    ("DODT", "min_height"),
-    ("DODT", "max_height"),
-    ("DODT", "depth"),
-    ("DODT", "shininess"),
-    ("DODT", "parallax_scale"),
-    ("DODT", "parallax_passes"),
+/// The orientation and sound level are 0-2 [documented: the page's table], the passes a
+/// u8; the rest f32 fields.
+const IPCT_NUMERIC: [(&str, &str, (f64, f64)); 13] = [
+    ("DATA", "effect_duration", F32),
+    ("DATA", "effect_orientation", (0.0, 2.0)),
+    ("DATA", "angle_threshold", F32),
+    ("DATA", "placement_radius", F32),
+    ("DATA", "sound_level", (0.0, 2.0)),
+    ("DODT", "min_width", F32),
+    ("DODT", "max_width", F32),
+    ("DODT", "min_height", F32),
+    ("DODT", "max_height", F32),
+    ("DODT", "depth", F32),
+    ("DODT", "shininess", F32),
+    ("DODT", "parallax_scale", F32),
+    ("DODT", "parallax_passes", U8),
 ];
 
 /// IPCT form traits 0-2 [documented: SetImpactDataTraitForm's table].
@@ -202,11 +219,10 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // ---- ammunition
         "setammotraitnumeric" => {
             let t = usize::try_from(num(args, 1, -1.0) as i64).ok().and_then(|i| AMMO_NUMERIC.get(i));
-            if let (Some(a), Some((sub, path))) = (of_sig(g, form(args, 0), b"AMMO"), t) {
-                let v = num(args, 2, 0.0);
-                // Projectiles per shot and clip rounds are whole numbers.
-                let v = if matches!(*path, "projectiles_per_shot" | "clip_rounds") { v.max(0.0).trunc() } else { v };
-                g.set_field(a, sub, path, XVal::Num(v));
+            if let (Some(a), Some(&(sub, path, range))) = (of_sig(g, form(args, 0), b"AMMO"), t) {
+                if let Some(v) = fit(num(args, 2, f64::NAN), range) {
+                    g.set_field(a, sub, path, XVal::Num(v));
+                }
             }
             zero
         }
@@ -237,17 +253,20 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         }
         "setammoeffecttraitnumeric" => {
             let t = usize::try_from(num(args, 1, -1.0) as i64).ok().and_then(|i| AMEF_NUMERIC.get(i));
-            if let (Some(e), Some(path)) = (of_sig(g, form(args, 0), b"AMEF"), t) {
-                let v = num(args, 2, 0.0);
-                g.set_field(e, "DATA", path, XVal::Num(if *path == "value" { v } else { v.max(0.0).trunc() }));
+            if let (Some(e), Some(&(path, range))) = (of_sig(g, form(args, 0), b"AMEF"), t) {
+                if let Some(v) = fit(num(args, 2, f64::NAN), range) {
+                    g.set_field(e, "DATA", path, XVal::Num(v));
+                }
             }
             zero
         }
         // ---- projectiles and explosions
         "setprojectiletraitnumeric" => {
             let t = usize::try_from(num(args, 1, -1.0) as i64).ok().and_then(|i| PROJ_NUMERIC.get(i));
-            if let (Some(p), Some((sub, path))) = (of_sig(g, form(args, 0), b"PROJ"), t) {
-                g.set_field(p, sub, path, XVal::Num(num(args, 2, 0.0)));
+            if let (Some(p), Some(&(sub, path, range))) = (of_sig(g, form(args, 0), b"PROJ"), t) {
+                if let Some(v) = fit(num(args, 2, f64::NAN), range) {
+                    g.set_field(p, sub, path, XVal::Num(v));
+                }
             }
             zero
         }
@@ -268,8 +287,10 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         }
         "setexplosiontraitnumeric" => {
             let t = usize::try_from(num(args, 1, -1.0) as i64).ok().and_then(|i| EXPL_NUMERIC.get(i));
-            if let (Some(e), Some(path)) = (of_sig(g, form(args, 0), b"EXPL"), t) {
-                g.set_field(e, "DATA", path, XVal::Num(num(args, 2, 0.0)));
+            if let (Some(e), Some(&(path, range))) = (of_sig(g, form(args, 0), b"EXPL"), t) {
+                if let Some(v) = fit(num(args, 2, f64::NAN), range) {
+                    g.set_field(e, "DATA", path, XVal::Num(v));
+                }
             }
             zero
         }
@@ -287,7 +308,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                     _ => 0,
                 }),
                 t @ 8..=15 => {
-                    let (sub, path) = IPCT_NUMERIC[(t - 3) as usize];
+                    let (sub, path, _) = IPCT_NUMERIC[(t - 3) as usize];
                     XVal::Num(g.num_field(i, sub, path))
                 }
                 16 => XVal::Num(impact_flags(g, i) as f64),
@@ -297,22 +318,26 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         }
         "setimpactdatatraitnumeric" => {
             let Some(i) = of_sig(g, form(args, 0), b"IPCT") else { return Some(Ok(zero)) };
-            let v = num(args, 2, 0.0);
+            let v = num(args, 2, f64::NAN);
             match num(args, 1, -1.0) as i64 {
                 t @ 0..=12 => {
-                    let (sub, path) = IPCT_NUMERIC[t as usize];
-                    let v = if matches!(path, "effect_orientation" | "sound_level" | "parallax_passes") { v.max(0.0).trunc() } else { v };
-                    g.set_field(i, sub, path, XVal::Num(v));
+                    let (sub, path, range) = IPCT_NUMERIC[t as usize];
+                    if let Some(v) = fit(v, range) {
+                        g.set_field(i, sub, path, XVal::Num(v));
+                    }
                 }
+                // The four flag bits.
                 13 => {
-                    let f = v.max(0.0) as u64;
+                    let Some(f) = fit(v, (0.0, 15.0)) else { return Some(Ok(zero)) };
+                    let f = f as u64;
                     let data = g.num_field(i, "DATA", "flags") as u64;
                     g.set_field(i, "DATA", "flags", XVal::Num(((data & !1) | (f & 1)) as f64));
                     let decal = g.num_field(i, "DODT", "flags") as u64;
                     g.set_field(i, "DODT", "flags", XVal::Num(((decal & !7) | ((f >> 1) & 7)) as f64));
                 }
                 14 => {
-                    let c = v.max(0.0) as u64;
+                    let Some(c) = fit(v, (0.0, 255_255_255.0)) else { return Some(Ok(zero)) };
+                    let c = c as u64;
                     for (k, p) in [(c / 1_000_000) % 1000, (c / 1000) % 1000, c % 1000].into_iter().zip(["color.red", "color.green", "color.blue"]) {
                         g.set_field(i, "DODT", p, XVal::Num(k.min(255) as f64));
                     }
@@ -369,8 +394,10 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         }
         // `[seconds]`: 0 or none removes the override [documented].
         "setweathertransitiontimeoverride" => {
-            let s = num(args, 0, 0.0);
-            g.other.jip7.weather_transition = (s > 0.0).then_some(s);
+            // NaN or infinity changes nothing.
+            if let Some(s) = field_number(num(args, 0, 0.0), 0.0, F32.1) {
+                g.other.jip7.weather_transition = (s > 0.0).then_some(s);
+            }
             zero
         }
         // `climate weather chance [global]`: a weather already listed takes the chance and
@@ -378,7 +405,9 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // `successful`].
         "climateaddweathertype" => {
             let (Some(c), Some(w)) = (of_sig(g, form(args, 0), b"CLMT"), of_sig(g, form(args, 1), b"WTHR")) else { return Some(Ok(zero)) };
-            let entry = ClimateWeather { weather: w, chance: num(args, 2, 0.0).clamp(0.0, 100.0) as i64, global: of_sig(g, form(args, 3), b"GLOB") };
+            // The chance is 0-100 [documented: the page's `0-100`].
+            let Some(chance) = fit(num(args, 2, f64::NAN), (0.0, 100.0)) else { return Some(Ok(zero)) };
+            let entry = ClimateWeather { weather: w, chance: chance as i64, global: of_sig(g, form(args, 3), b"GLOB") };
             let mut list = g.climate_weathers(c);
             match list.iter_mut().find(|e| e.weather == w) {
                 Some(e) => *e = entry,
@@ -414,18 +443,20 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             zero
         }
         // `[multiplier]`: sets it, and returns it; left out, returns it unchanged
-        // [documented: SetArmorConditionPenalty].
+        // [documented: SetArmorConditionPenalty]. 0-2: past 2 the formula's mult would go
+        // below zero at 0% condition [hypothesis: the page's formula,
+        // `1.0 - (0.5 - condition) * multiplier`].
         "setarmorconditionpenalty" => {
-            if let Some(XVal::Num(m)) = args.first() {
-                g.other.jip7.armor_condition_penalty = Some(*m);
+            if let Some(m) = args.first().and_then(|v| v.num().ok()).and_then(|m| field_number(m, 0.0, 2.0)) {
+                g.other.jip7.armor_condition_penalty = Some(m);
             }
             XVal::Num(g.armor_condition_penalty())
         }
         // `[maxPercent]` 0-1, the same way [documented: SetDamageToArmorMaxPercent]; 1
         // (no cap) until a script sets it [hypothesis: the page gives no default].
         "setdamagetoarmormaxpercent" => {
-            if let Some(XVal::Num(m)) = args.first() {
-                g.other.jip7.damage_to_armor_max = Some(m.clamp(0.0, 1.0));
+            if let Some(m) = args.first().and_then(|v| v.num().ok()).and_then(|m| field_number(m, 0.0, 1.0)) {
+                g.other.jip7.damage_to_armor_max = Some(m);
             }
             XVal::Num(g.other.jip7.damage_to_armor_max.unwrap_or(1.0))
         }

@@ -40,6 +40,21 @@ pub(crate) fn record_float(x: f64) -> f64 {
     }
 }
 
+/// A number a script hands a record setter, made fit for the field it goes to: `None`
+/// for NaN or infinity (nothing is set), else clamped to `lo..=hi`, the field's range
+/// [hypothesis: the game keeps its record fields in range; NVForever never stores a value
+/// a field cannot hold]. Every record setter of the extender batches uses it.
+pub(crate) fn field_number(v: f64, lo: f64, hi: f64) -> Option<f64> {
+    v.is_finite().then(|| v.clamp(lo, hi))
+}
+
+/// The range of an f32 field.
+pub(crate) const F32: (f64, f64) = (-(f32::MAX as f64), f32::MAX as f64);
+/// The range of a u8 field.
+pub(crate) const U8: (f64, f64) = (0.0, 255.0);
+/// The range of a u32 field.
+pub(crate) const U32: (f64, f64) = (0.0, u32::MAX as f64);
+
 /// [`field`] for the sibling files.
 pub(crate) fn record_value(g: &Game, form: FormId, sub: &str, path: &str) -> Option<XVal> {
     field(g, form, sub, path)

@@ -802,13 +802,8 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         "applyammoeffects" => {
             let (Some(ammo), Some(t)) = (form(args, 0), num(args, 1)) else { return Some(Ok(XVal::Num(num(args, 2).unwrap_or(0.0)))) };
             let mut x = num(args, 2).unwrap_or(0.0);
-            let effects: Vec<FormId> = g
-                .data
-                .record_all(g.unclone(ammo), "RCIL")
-                .into_iter()
-                .filter_map(|v| v.as_str()?.strip_prefix("0x").and_then(|h| u32::from_str_radix(h, 16).ok()))
-                .map(FormId)
-                .collect();
+            // AddAmmoEffect's and RemoveAmmoEffect's changes first (`crate::nvse_jip7`).
+            let effects = g.ammo_effects(g.unclone(ammo));
             for e in effects {
                 let trait_of = |k: &str| match crate::nvse::record_value(g, e, "DATA", k) {
                     Some(XVal::Num(v)) => v,

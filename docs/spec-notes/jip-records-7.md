@@ -17,8 +17,12 @@ setters of batch 5 were observed to, jip-records-5.md].
 |---|---|
 | SetAmmoTraitNumeric `ammo trait value` | 0 speed (DATA), 1 projectiles per shot (DAT2), 2 ammo consumed percent (DAT2), 3 clip rounds (DATA) [documented: the page's table, which lists 0-3 though its argument says 0-2] |
 | SetAmmoProjectile, SetAmmoCasing `ammo [form]` | DAT2's projectile and consumed ammo; left out, none [documented] |
-| AddAmmoEffect, RemoveAmmoEffect `ammo effect` | the RCIL list: 1 when it changed, 0 for an effect already there or not there [documented: `successful`; hypothesis: the 0 cases] |
+| AddAmmoEffect, RemoveAmmoEffect `ammo effect` | the RCIL list: 1 when it changed, 0 for an effect already there or not there [documented: `successful`; hypothesis: the 0 cases]; GetNumAmmoEffects, GetNthAmmoEffect, ApplyAmmoEffects and GetCalculatedWeaponDegradation read the changed list |
 | SetAmmoEffectTraitNumeric `effect trait value` | AMEF DATA: 0 type, 1 operation, 2 value [documented] |
+
+Combat builds each ammunition's effects once, when the data loads (`fnv_combat::data`,
+`ammo`), so a list changed by these functions does not reach a shot's damage, DT or
+spread (follow-up: combat's ammo effects through `Game::ammo_effects`).
 
 ## 2. Projectiles and explosions
 
@@ -72,3 +76,17 @@ Combat still uses the fixed multiplier 1.0 and no cap (`fnv_combat::condition`),
 ragdolls and movement read the records as loaded (follow-up: these through the changes).
 SetDamageToArmorMaxPercent "is saved in the game" [documented]; NVForever keeps it for the
 session only for now.
+
+## 6. Values a field cannot hold
+
+Every setter of this batch passes its number through one check
+(`crate::nvse::field_number`): NaN and infinity set nothing; any other number is clamped
+to the field's range: an f32 field's, a u8's (clip rounds, parallax passes), a u32's
+(projectiles per shot), the documented ranges of an enumeration (effect type 0-5,
+operation 0-2, projectile type 1-16, sound level 0-2, orientation 0-2, a climate chance
+0-100, impact flags 0-15, the colour up to 255255255); and a whole number for every field
+that is not an f32 [hypothesis: the game keeps its record fields in range]. Also:
+SetWeatherTransitionTimeOverride's seconds (0 and up), SetArmorConditionPenalty's
+multiplier (0-2: past 2 the page's formula `1.0 - (0.5 - condition) × multiplier` goes below
+zero at 0% condition [hypothesis]) and SetDamageToArmorMaxPercent's share (0-1
+[documented]). The later batches use the same check.
