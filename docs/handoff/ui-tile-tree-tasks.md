@@ -764,3 +764,15 @@ owner to add to its pull request or issue (owner, 2026-10-29).
         prompt open; text sizes per axis; `screen()` gated; `_name_` only after a constant
         with a known number; the drop aid's `ask` holds the prompt; the message scenario
         closes the console.
+    - **T15b, part 1 built** 2026-11-01 (`claude/tile-menus-978`, issue #978): the Wait /
+      Sleep menu from `sleep_wait_menu.xml` behind `[UI] TileMenus=SleepWaitMenu`, in T15a's
+      shape (`tiles/wait_menu.rs`, wait-menu.md §12). The model writes the three texts, the
+      Wait button's bare word, the slider's `_current_value` (with `_SetInCode` poked) and
+      the background's opacity; clicks on the buttons and the slider's pieces are the
+      hand-built menu's commands (`crate::wait::WaitInput`), the slider's value written
+      again after them (the prefab's own value counts clicks from 0 in this tree); the
+      hand-built keys stay, W presses Wait through the file. Interface `screen()` units
+      while it is switched on (`interface_screen`). Tests: `tiles::wait_menu`,
+      `tiles::vanilla` (the switch). Smoke: `tiles-sleep-wait`. **Left for part 2: the
+      tutorial menu**: `tutorial_menu.xml`'s text scrolls inside `TM_text_container`, a
+      `clipwindow` hotrect, and the tile renderer clips nothing yet; that comes first.

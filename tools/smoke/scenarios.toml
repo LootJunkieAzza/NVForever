@@ -4896,6 +4896,28 @@ order = [[
 ]]
 
 [[scenario]]
+name = "cook-cook-flamer-hands"
+source = "owner spot check 2026-11-01 (#1309): Cook-Cook held his flamer below his hands while firing, again after PR #322 (animation.md §9.7)"
+note = "as npc-muzzle-flash-flamer, but the two Fiends that stood between the camera and Cook-Cook (0x000F9CE7, 0x000F9CE8) are disabled at 2 s, the player is put 100 units in front of him at 5 s and again half a second before each frame, and the camera is 250 units out, circled 90 degrees to his side. He fires standing, reloads, and crouches at 24 s (SetForceSneak) to fire crouched. Frames cook_flamer_hands_00..03.png (11.5, 21, 28, 32 s) show the hands; the log checks are the 'weapon grip' lines (attack_anims::grip_check): right hand 7.3 units from the Weapon node in the clips, left hand within 4 units of the equip clip's grip on every attack pose [observed: nvf-assets/examples/hand_probe.rs]"
+areas = ["combat", "animation"]
+paths = ["engine/nvforever/src/attack_anims.rs", "engine/nvforever/src/weapons.rs", "engine/nvf-assets/src/anim_play.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2:call:FiendCookCookRef:EquipItem:WeapFlamer,2:call:0x000F9CE7:Disable,2:call:0x000F9CE8:Disable,3:combat:0x000F5704:player,24:call:FiendCookCookRef:SetForceSneak:1", NVF_PLAY_TEST_FACE = "5:000F5704,11:000F5704,20.5:000F5704,27.5:000F5704,31.5:000F5704", NVF_PLAY_TEST_CONTROL = "6:view,6.2:zoom=250,6.4:orbit=90:10,20.6:release,20.65:zoom=250,20.7:orbit=90:10,27.6:release,27.65:zoom=250,27.7:orbit=90:10,31.6:release,31.65:zoom=250,31.7:orbit=90:10", NVF_PLAY_TEST_SHOTS = "11.5:cook_flamer_hands_00.png,21:cook_flamer_hands_01.png,28:cook_flamer_hands_02.png,32:cook_flamer_hands_03.png" }
+args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F5704"]
+run_seconds = 34
+expect = [
+  { re = 'npc combat: FiendCookCookRef \S+ fights the player with WeapFlamer \(gun\)', label = "Cook-Cook fights with his flamer" },
+  { re = 'weapon grip: 000F5704 .*: right hand (?P<n>[\d.]+) units from the Weapon node', range = [0, 10], all = true, label = "his right hand stays on the flamer's rear grip while he fires" },
+  { re = 'weapon grip: 000F5704 .* left hand (?P<n>[\d.]+) units from its grip', range = [0, 6], all = true, label = "his left hand stays on the top handle while he fires (the flamer not below his hands)" },
+  { re = 'weapon grip: 000F5704 .*, crouched:', label = "the grip is checked crouched too" },
+  "Screenshot saved to cook_flamer_hands_03.png",
+]
+order = [[
+  { re = 'attack anims: 000F5704 plays \S*2hhattackspin2?\.kf', label = "he fires with the 2hh spin clip" },
+  { re = 'attack anims: 000F5704 plays \S*2hhreload\w*\.kf', label = "then reloads" },
+  { re = 'weapon grip: 000F5704 ', label = "then is checked firing again" },
+]]
+
+[[scenario]]
 name = "npc-muzzle-flash-flamer"
 source = "owner request 2026-10-20: every weapon's projectile and fire effects drawn, the player's and NPCs' shots (engine/nvforever/src/shot_fx.rs)"
 note = "Cook-Cook (FiendCookCookRef 000F5704, WeapFlamer) is set on the player at 3 s (scripts' clock), god mode, and at 8 s the player is put 100 units in front of him, inside his flame's reach, and from 9 s the camera is in third person 400 units out, circled 90 degrees round to the side: his flashes go under his flamer's muzzle marker (weapons::Muzzle), its +y along the barrel, and the log measures the first one against where the shot left. Frames npc_flash_flamer_00..12.png in target/smoke (10 to 13 s, every 0.25 s) show from the side the flash at the flamer's nozzle and the flame along the flight. He draws his Incinerator by the weapon choice (actors.md §9.3), so EquipItem gives him the Flamer he also carries at 2 s"
@@ -17328,6 +17350,45 @@ order = [[
   { re = 'tiles: MessageMenu button 1 picked on its tiles' },
   { re = 'script: menu 1001 .*answered \(button 1\)' },
   "ui: dropped MessageMenu",
+]]
+
+[[scenario]]
+name = "tiles-sleep-wait"
+source = "[design] ui-tile-tree.md §6.2 step 3 (T15b, docs/handoff/ui-tile-tree-tasks.md): with [UI] TileMenus=SleepWaitMenu the Wait menu is drawn from the game's SleepWaitMenu tiles (menu 1012 builds it; the model writes its three texts, the Wait button's word and the slider's value), the hand-built menu is not spawned, pointer clicks on the slider's right page area move it six hours at a time to 24, a click at 24 keeps it there, the slider drawn after each click's pulse is the model's value (#1307 review), and W (the file's _PCButton_W, which the hand-built menu has no use for) presses Wait"
+note = "the menu opens at 10 s on one hour; at 1280 x 720 the screen is 1706.7 x 960 interface units, SWM_MainRect centred at 423.3, 280, the slider 112.5, 145 in (640 x 64) with its marker 48 wide at value 0, so x 1100 (y 457) is on the page area right of the marker at values 0, 6 and 12 (marker 48 wide, 592/23 apart from x 535.8), x 1165 on it at 18 (to 24) and on the marker at value 23 (the click at 24) (sleep_wait_menu.xml, scrollbar_horiz.xml); the 24 hours then pass in 12 s"
+areas = ["ui", "wait", "menus"]
+paths = [
+  "engine/nvf-play/src/tiles/wait_menu.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs",
+  "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs",
+  "engine/nvf-play/src/wait.rs", "engine/nvf-play/src/wait/**",
+  "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs",
+]
+env = { NVF_PLAY_TEST_TILE_MENUS = "SleepWaitMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_WAIT = "10:open", NVF_PLAY_TEST_POINTER = "11:1100:457,11.5:1100:457:click,12:1100:457:click,12.5:1100:457:click,13:1165:457:click,13.5:1165:457:click,14:off", NVF_PLAY_TEST_SHOTS = "14.5:tiles_sleep_wait.png", NVF_PLAY_TEST_KEYS = "15.5:w" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--size", "1280x720"]
+run_seconds = 35
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=SleepWaitMenu \(from test aid NVF_PLAY_TEST_TILE_MENUS\): SleepWaitMenu drawn from tiles', label = "the switch is read from the test aid" },
+  { re = 'ui: built SleepWaitMenu \(menus\\[^,]+\.xml, [1-9]\d* tiles\)', label = "the open menu builds its file" },
+  { re = 'tiles: SleepWaitMenu drawn from tiles \(\d+ file tiles, 0 code tiles\)', label = "the menu's tree draws" },
+  { re = 'tiles: SleepWaitMenu drawn from tiles: "[^"]+", "1 hour \([^"]+\)", "[^"]+", button "Wait", slider 0', label = "the model writes the texts, the verb and the slider" },
+  { text = "tiles: SleepWaitMenu Step(6) on its tiles", min = 3, label = "clicks on the right page area page the slider" },
+  { re = 'tiles: SleepWaitMenu (Step\(-?\d+\)|Hours\(\d+\)) on its tiles', count = 5, label = "five clicks on the slider, the last at 24" },
+  { re = 'tiles: SleepWaitMenu drawn from tiles: "[^"]+", "7 hours \([^"]+\)", "[^"]+", button "Wait", slider 6', label = "the slider follows" },
+  { re = 'tiles: SleepWaitMenu drawn from tiles: "[^"]+", "24 hours \([^"]+\)", "[^"]+", button "Wait", slider 23', label = "the slider reaches 24 hours" },
+  { text = "tiles: SleepWaitMenu slider drawn at 6", label = "the slider is drawn at the model's value after the pulse" },
+  { text = "tiles: SleepWaitMenu slider drawn at 23", label = "and at 24 hours, after the click there" },
+  { re = 'tiles: SleepWaitMenu slider drawn at \S+, not the \S+ written', count = 0, label = "the slider never draws the file's own count of the clicks (#1307 review)" },
+  { text = "tiles: SleepWaitMenu Accept on its tiles", count = 1, label = "W presses the file's Wait button" },
+  "wait menu: waiting 24 hour(s)",
+  { re = 'ui: dropped SleepWaitMenu', label = "the closed menu drops its tiles" },
+]
+order = [[
+  "wait menu: open",
+  "tiles: SleepWaitMenu Step(6) on its tiles",
+  "tiles: SleepWaitMenu slider drawn at 23",
+  "tiles: SleepWaitMenu Accept on its tiles",
+  "wait menu: waiting 24 hour(s)",
+  "ui: dropped SleepWaitMenu",
 ]]
 
 [[scenario]]
