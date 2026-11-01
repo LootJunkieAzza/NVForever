@@ -1092,8 +1092,9 @@ pub struct Game<'a> {
     /// (lower case) to them.
     compiled_files: Vec<&'a Compiled>,
     compiled_paths: std::collections::HashMap<String, u32>,
-    /// A lambda already made, by where its expression is and whose variables it shares.
-    lambda_ids: std::collections::HashMap<(usize, Option<InstKey>), u32>,
+    /// A lambda already made, by its unit, its number in the unit and whose variables it
+    /// shares ([`LambdaKey`]).
+    lambda_ids: std::collections::HashMap<LambdaKey, u32>,
     /// The extender's event handlers (tasks E1–E3); not saved [documented: SetEventHandler
     /// lasts for the session; SetEventHandlerAlt is flushed on every load].
     pub(crate) handlers: Vec<Handler>,
@@ -1793,6 +1794,22 @@ enum Locals {
     Instance(InstKey),
     /// A result script (stage, dialogue, package): locals live for one run.
     Temp(BTreeMap<u16, Value>),
+}
+
+/// What makes a lambda the same one each time a script makes it (#1088): its unit (by
+/// address: units live as long as the game, from the data or leaked, so no other unit
+/// takes the address; their keys are not unique, every console line is `CONS`), its
+/// number in the unit (`XExpr::Lambda::index`), and the instance whose variables it
+/// shares. Not the expression's own address: user-defined functions run from a copy of
+/// their body, so that changed with every call and could be a dropped lambda's.
+type LambdaKey = (usize, u32, Option<InstKey>);
+
+fn lambda_key(unit: &Compiled, l: &fnv_script::ir::XExpr, inst: Option<InstKey>) -> LambdaKey {
+    let index = match l {
+        fnv_script::ir::XExpr::Lambda { index, .. } => *index,
+        _ => u32::MAX,
+    };
+    (unit as *const Compiled as usize, index, inst)
 }
 
 /// A lambda a script made: its unit (`None` when a loaded save names a unit that is gone)
@@ -2577,7 +2594,7 @@ impl<'a> Game<'a> {
         let (unit, params, body, value, locals): (&Compiled, Vec<VarRef>, Vec<Stmt>, Option<fnv_script::ir::XExpr>, Locals) = if id >= LAMBDA_BASE {
             let d = self.lambdas.get((id - LAMBDA_BASE) as usize).cloned().ok_or("an unknown lambda")?;
             let (unit, l, inst) = (d.unit.ok_or_else(|| format!("the lambda's script {} is gone", d.key))?, d.lambda, d.inst);
-            let fnv_script::ir::XExpr::Lambda { params, body, value } = l else { return Err("an unknown lambda".into()) };
+            let fnv_script::ir::XExpr::Lambda { params, body, value, .. } = l else { return Err("an unknown lambda".into()) };
             let locals = match inst {
                 Some(k) => Locals::Instance(k),
                 None => Locals::Temp(d.captured.unwrap_or_default()),
@@ -4846,6 +4863,10 @@ impl<'a> Game<'a> {
             // A lambda whose unit is gone (a plugin removed, a console line) keeps its place,
             // so the later ones keep their names; calling it fails.
             let unit = data.unit_by_key.get(&l.unit).map(|&i| &data.units[i]);
+            // Made again after the load, it is the same lambda.
+            if let Some(u) = unit {
+                g.lambda_ids.entry(lambda_key(u, &l.lambda, l.inst)).or_insert(LAMBDA_BASE + g.lambdas.len() as u32);
+            }
             g.lambdas.push(LambdaDef { unit, key: l.unit.clone(), lambda: l.lambda.clone(), inst: l.inst, captured: None });
         }
         g.nx = s.nx.clone();
@@ -5191,8 +5212,13 @@ impl Host for Exec<'_, '_> {
     }
 
     fn make_lambda(&mut self, l: &fnv_script::ir::XExpr) -> Result<fnv_script::vm::XVal, String> {
-        let key = (l as *const _ as usize, self.inst_key());
+        let key = lambda_key(self.unit, l, self.inst_key());
         if let Some(&id) = self.game.lambda_ids.get(&key) {
+            // Made again by a maker with no instance: it reads that run's variables
+            // [hypothesis, script-compiler.md §9 Lambdas].
+            if let (Locals::Temp(m), Some(d)) = (&self.locals, self.game.lambdas.get_mut((id - LAMBDA_BASE) as usize)) {
+                d.captured = Some(m.clone());
+            }
             return Ok(fnv_script::vm::XVal::Ref(id));
         }
         let id = LAMBDA_BASE + self.game.lambdas.len() as u32;
@@ -5200,7 +5226,7 @@ impl Host for Exec<'_, '_> {
             Locals::Temp(m) => Some(m.clone()),
             Locals::Instance(_) => None,
         };
-        self.game.lambdas.push(LambdaDef { unit: Some(self.unit), key: self.unit.key(), lambda: l.clone(), inst: key.1, captured });
+        self.game.lambdas.push(LambdaDef { unit: Some(self.unit), key: self.unit.key(), lambda: l.clone(), inst: key.2, captured });
         self.game.lambda_ids.insert(key, id);
         Ok(fnv_script::vm::XVal::Ref(id))
     }
