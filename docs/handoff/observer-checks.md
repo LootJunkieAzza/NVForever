@@ -793,3 +793,14 @@ The numbers above stay put so links to them hold; each item here gives its own p
     the package's radius?); (b) a fast travel to a marker a few metres away inside the
     loaded area (does anyone move?); (c) entering the Mojave Outpost (Cass) and the
     Prospector Saloon (the settler at the bar): GetSitting 3 on the first frame?
+
+## Added 2026-11-01 (MCM's shorthands, issue #976)
+
+69. **Where MCM's shorthands point** (P3, issue #976; menu-xml.md §8 item 11, §10).
+    NVForever reads `GetMCMFloat child grandchild` as the `MCM` rect's children counted
+    from 1 in file order, 0 stopping at the level above [hypothesis, from MCM's files],
+    while its `*:N` counts from the last child [observed on the HUD]. With MCM and one
+    MCM mod installed, its page open and the pointer on the first row: GetUIFloat
+    `StartMenu/MCM/*:1/*:1/_optionID`, GetUIFloat
+    `StartMenu/MCM/MCM_Options/Option1/_optionID`, `GetMCMFloat 1 1 "_optionID"` and
+    `GetMCMFloat 1 0 "_optionID"`.
