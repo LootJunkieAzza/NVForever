@@ -404,7 +404,7 @@ mod tests {
         });
         actors.weapons.insert(WEAPON, Weapon {
             edid: None, model: None, anim_type: None, damage: 0, projectile: None,
-            explosion_damage: 0.0, embedded: false, non_playable: false, not_for_npcs: false,
+            explosion_damage: 0.0, skill: None, embedded: false, non_playable: false, not_for_npcs: false,
             first_person: None, first_person_model: None, mod_models: Default::default(),
             mod_first_person: Default::default(), mod_first_person_models: Default::default(),
             held_world_model: None, grip: None, hide_backpack: true,

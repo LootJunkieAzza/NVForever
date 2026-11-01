@@ -741,6 +741,7 @@ pub fn console_registry() -> &'static [(&'static str, Kind)] {
         ("ToggleSky", Impl(toggles::toggle_sky)),
         ("ToggleWaterSystem", Impl(toggles::toggle_water_system)),
         ("ToggleTrees", Impl(toggles::toggle_trees)),
+        ("ToggleLeaves", Impl(toggles::toggle_leaves)),
         ("ToggleLODLand", Impl(toggles::toggle_lod_land)),
         ("ToggleNavmesh", Impl(toggles::toggle_navmesh)),
         ("ToggleLookIK", Impl(toggles::toggle_look_ik)),

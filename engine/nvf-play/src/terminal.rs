@@ -59,7 +59,7 @@ use rand_core::SeedableRng;
 pub const MENU_HACKING: u16 = 1055;
 pub const MENU_TERMINAL: u16 = 1057;
 
-/// After the password, "Please wait while system is accessed." stays this long before
+/// After the password, the wait message (`hacking::words::WAIT`) stays this long before
 /// the menu [design]; after the last wrong word, the log this long before the lockout
 /// screen [design].
 pub const GRANTED_SECONDS: f32 = 2.0;
@@ -124,7 +124,8 @@ pub struct Session {
 
 pub enum Page {
     Hacking(Hacking),
-    LockedOut,
+    /// The lockout screen's two lines, read from the game strings table when it opens.
+    LockedOut([String; 2]),
     Menu(MenuView),
 }
 
@@ -459,7 +460,7 @@ fn open(
         Opening::LockedOut => {
             info!("terminal: open {reference} {name}: locked out for good");
             rt.game.open_menu(MENU_HACKING);
-            Page::LockedOut
+            Page::LockedOut(lockout_lines(&rt.game))
         }
         Opening::Refused(r) => {
             stats.refused += 1;
@@ -618,7 +619,7 @@ fn mouse(
                 out.write(TerminalInput::Select);
             }
         }
-        Page::LockedOut => {
+        Page::LockedOut(_) => {
             if buttons.just_pressed(MouseButton::Left) {
                 out.write(TerminalInput::Back);
             }
@@ -705,13 +706,13 @@ fn apply(
                     Outcome::Denied { likeness } => {
                         sound(UiEvent::Refused);
                         stats.guesses += 1;
-                        info!("terminal: >{entered}: Entry denied, {likeness}/{} correct, {} attempts left", p.password().len(), p.attempts);
+                        info!("terminal: >{entered}: wrong word, {likeness} of {} right, {} attempts left", p.password().len(), p.attempts);
                     }
                     Outcome::Granted => {
                         sound(UiEvent::Granted);
                         stats.guesses += 1;
                         stats.hacked += 1;
-                        info!("terminal: >{entered}: Exact match! access granted");
+                        info!("terminal: >{entered}: the password, access granted");
                         rules::hacked(&mut rt.game, reference, true);
                         // Hacking an owned terminal is the crime of picking an owned lock:
                         // karma, and the owner's side that sees it turns hostile
@@ -723,7 +724,7 @@ fn apply(
                         sound(UiEvent::Refused);
                         stats.guesses += 1;
                         stats.locked_out += 1;
-                        info!("terminal: >{entered}: Entry denied, no attempts left: the terminal is locked for good");
+                        info!("terminal: >{entered}: wrong word, no attempts left: the terminal is locked for good");
                         rules::hacked(&mut rt.game, reference, false);
                         h.ended = Some(now);
                     }
@@ -735,13 +736,13 @@ fn apply(
                     Outcome::Replenished => {
                         stats.pairs += 1;
                         stats.refills += 1;
-                        info!("terminal: >{entered}: Allowance replenished ({} attempts)", p.attempts);
+                        info!("terminal: >{entered}: attempts restored ({} attempts)", p.attempts);
                     }
                     Outcome::Error => info!("terminal: >{entered}: Error"),
                     Outcome::Ignored => {}
                 }
             }
-            Page::LockedOut => {
+            Page::LockedOut(_) => {
                 if matches!(cmd, TerminalInput::Back | TerminalInput::Exit | TerminalInput::Select) {
                     leave(&mut next, "locked out");
                     return;
@@ -866,6 +867,13 @@ fn aid_pick(p: &Puzzle, a: AidPick) -> Option<usize> {
     }
 }
 
+/// The lockout screen's lines: `sHackingLockout3` and `sHackingLockout4`, the names
+/// `menus\hacking_menu.xml` gives them, from the game strings table (the load order's
+/// string settings over NVForever's labels; menu-xml.md §2.4).
+fn lockout_lines(game: &fnv_game::Game<'_>) -> [String; 2] {
+    [fnv_game::ui_loading::game_string(game, "sHackingLockout3"), fnv_game::ui_loading::game_string(game, "sHackingLockout4")]
+}
+
 /// The ended game turns into the menu or the lockout screen.
 fn timers(time: AidTime, mut screen: ResMut<TerminalScreen>, mut sim: ResMut<SimState>, mut script: Option<ResMut<ScriptState>>) {
     let now = time.elapsed_secs();
@@ -887,9 +895,10 @@ fn timers(time: AidTime, mut screen: ResMut<TerminalScreen>, mut sim: ResMut<Sim
         rt.game.open_menu(MENU_TERMINAL);
         s.page = Page::Menu(m);
     } else {
-        info!("terminal: on screen: {} / {}", screen::words::LOCKOUT_1, screen::words::LOCKOUT_2);
+        let lines = lockout_lines(&rt.game);
+        info!("terminal: on screen: {} / {}", lines[0], lines[1]);
         rt.game.open_menu(MENU_HACKING);
-        s.page = Page::LockedOut;
+        s.page = Page::LockedOut(lines);
     }
 }
 
@@ -897,7 +906,7 @@ fn timers(time: AidTime, mut screen: ResMut<TerminalScreen>, mut sim: ResMut<Sim
 fn view_key(s: &Session) -> String {
     match &s.page {
         Page::Hacking(h) => format!("h{}:{}:{}:{}:{}:{:?}:{:?}", h.cursor, h.hidden, h.puzzle.log.len(), h.puzzle.attempts, h.puzzle.used.len(), h.ended.is_some(), h.puzzle.words.iter().filter(|w| w.removed).count()),
-        Page::LockedOut => "lockout".into(),
+        Page::LockedOut(_) => "lockout".into(),
         Page::Menu(m) => format!("m{}:{:?}:{}:{}:{}:{}:{:?}:{}", m.terminal.0, m.items, m.selected, m.hidden, m.scroll, m.result, m.note, m.parents.len()),
     }
 }
