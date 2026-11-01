@@ -571,6 +571,27 @@ fn categories_filter_each_list() {
 }
 
 #[test]
+fn the_wheel_over_a_heading_steps_its_category() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut m = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    m.apply(&mut w, Command::Hover(Side::Container, 2));
+    // Down over the container's heading: the next category, the selection back at the top.
+    m.apply(&mut w, Command::wheel(Some(Side::Container), -1));
+    assert_eq!((m.category[0], m.selected[0], m.scroll[0]), (Category::Weapons, 0, 0));
+    assert_eq!(m.category[1], Category::All, "the player's list keeps its own");
+    // Up twice wraps round to the last, as the left arrow does.
+    m.apply(&mut w, Command::wheel(Some(Side::Container), 2));
+    assert_eq!(m.category[0], Category::Weapons.step(-2));
+    // The player's heading.
+    m.apply(&mut w, Command::wheel(Some(Side::Player), -1));
+    assert_eq!(m.category[1], Category::Weapons);
+    // Off the headings the wheel moves the selection as before.
+    assert_eq!(Command::wheel(None, 1), Command::Scroll(-1));
+    assert_eq!(Command::wheel(None, -3), Command::Scroll(3));
+}
+
+#[test]
 fn hovering_selects_without_acting() {
     let f = fixture();
     let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
