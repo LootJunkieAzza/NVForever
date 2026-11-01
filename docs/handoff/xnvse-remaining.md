@@ -90,7 +90,7 @@ the probe game, so from the pages alone). Census after it: 1,216 (ITR 119 → 57
 ITR batch 2: the other 57 (#1011, ext-itr.md §7-12, `nvse_itr2.rs`, the navmesh lender
 `nav_ask.rs`). Census after it: 1,159 (ITR 0).
 ITR probes (itr-nvse.dll installed 2026-11-01): set `itr`, lab `L5.ext.itr` 91 of 92 rows
-match, the rest explained (ext-itr.md §13); 13 first-run differences fixed to follow the game.
+match, the rest explained (ext-itr.md §13); 13 first-run differences fixed to follow the game. Census with the small libraries merged: 1,067 (ITR 0).
 The small libraries (2026-11-01): 92, every one of kNVSE 16 (#1018, ext-knvse.md, probe
 set knvse2 29/31), JIP PP LN 10 (#1019, ext-jippp.md), vheyes-nvse 21 (#1016, ext-vheyes.md),
 CacheUI 8 (#1013), Anh 3 (#1015), NX 1 (#1017) and the #1020 plugins 33 (ext-small.md).
