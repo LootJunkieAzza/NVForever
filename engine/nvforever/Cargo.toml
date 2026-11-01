@@ -43,7 +43,7 @@ ash = { version = "0.38", default-features = false }
 # Only with the `tracy` feature: the Tracy client Bevy's trace_tracy uses, the version Bevy
 # already pins, made to record only while a viewer is connected (`ondemand`: no data piles
 # up in memory) and to listen and announce itself on this machine only (`only-localhost`);
-# frame-rate-audit.md §1. MIT/Apache-2.0.
+# frame-rate-audit.md §1. MIT/Apache-2.0; the Tracy C++ client in tracy-client-sys is BSD-3-Clause.
 tracy-client = { version = "0.19", optional = true, default-features = false, features = ["ondemand", "only-localhost"] }
 
 # The first-start dialogs that ask for the game's folder (setup.rs); MIT.
