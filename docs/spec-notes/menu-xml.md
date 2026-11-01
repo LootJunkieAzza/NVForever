@@ -318,12 +318,13 @@ NVForever's own HUD, from the layout of §3.1.1. What it takes the traits to mea
   height/960 window pixels (`interface::u`), as the current HUD.
 - [design] Which tiles: §7's `mod_added_tiles` roots, and inside them each tile
   `mod_tile_drawn` accepts: Injected and Template always, Code never, File tiles only
-  against the archived file's name paths. In the game no File tile draws in v1:
-  `fnv_vfs::Vfs` keeps one location per path, so the archived copy under a loose file
-  cannot be read [documented: crates/fnv-vfs/src/lib.rs, `Vfs::open`]. `fnvtool ui
-  mod-tiles` makes the comparison where overlays and archives are separate (2026-10-29,
-  over the test install [observed]: vanilla 0 tiles, Clean Vanilla Hud's loose HUD 0,
-  Vanilla UI Plus 5, its `VUI+` outline tiles in the prompt box).
+  against the archived file's name paths. Since #975 `fnv_vfs::Vfs` keeps the highest
+  archive's copy under each loose file (`Vfs::read_archived`), and the game and `fnvtool
+  ui mod-tiles` both compare a loose replacement with it (`Ui::archived_name_paths`);
+  before, the game drew no File tile, as the VFS kept one location per path. `fnvtool`'s
+  comparison over the test install (2026-10-29, overlays [observed]): vanilla 0 tiles,
+  Clean Vanilla Hud's loose HUD 0, Vanilla UI Plus 5, its `VUI+` outline tiles in the
+  prompt box.
 - [design] A `rect` draws a filled box only when it sets `red`, `green` or `blue`
   itself; otherwise it only places its children. `nif`, `radial` and `window` tiles,
   and empty pictures and strings, draw nothing in v1 (the whole HUD's drawing draws
