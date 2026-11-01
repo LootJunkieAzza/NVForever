@@ -1005,7 +1005,7 @@ mod tests {
         let band: Vec<f32> = (0..64).map(|i| if (32..48).contains(&i) { 0.8 } else { 1.0 }).collect();
         let column = scanline_column(&band, CANVAS.y as usize, SCANLINE_PITCH);
         let (rgba, kept) = scanline_pixels(&column);
-        let byte_mean = rgba.chunks_exact(4).map(|p| 1.0 - p[3] as f32 / 255.0).sum::<f32>() / column.len() as f32;
+        let byte_mean = rgba.as_chunks::<4>().0.iter().map(|p| 1.0 - p[3] as f32 / 255.0).sum::<f32>() / column.len() as f32;
         assert_eq!(kept, byte_mean);
         assert!(kept > 0.5 && kept < 1.0);
         for sample in [Some(Color::srgb_u8(5, 6, 5)), Some(BACKGROUND_MIDDLE), Some(Color::srgb_u8(99, 99, 99)), None] {
@@ -1020,7 +1020,7 @@ mod tests {
             let mut display_sum = [0u32; 3];
             let mut min_green = 255;
             let mut max_green = 0;
-            for p in rgba.chunks_exact(4) {
+            for p in rgba.as_chunks::<4>().0 {
                 let shown = over(Color::srgba_u8(p[0], p[1], p[2], p[3]), glass);
                 let light = shown.to_linear();
                 let bytes = shown.to_srgba().to_u8_array();
