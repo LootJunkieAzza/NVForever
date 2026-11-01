@@ -28,8 +28,15 @@ engine if needed, and delete the item here.
   - VMS46 at Anders' thanks (39); Stone on his night route, VMS31 (50); HELIOS One before
     the west terminal (46, 25 at Intelligence 1); Oliver on House's path (48); a finished
     game at the end slides (28 and 29 answered).
-- **A save made inside the capture** (allowed, probe-saves rule): 24 (save half-way along
-  a patrol, reload), 41 (the emergency radio, timed).
+- **A save made inside the capture** (allowed, probe-saves rule): 41 (the emergency radio,
+  timed). 24 answered 2026-11-01 (save-load.md §5 item 4).
+- **Observer limits met 2026-11-01** (o18-o24): the runtime compiler takes no Editor ID
+  in a raw field expression (`GetItemCount WeapGrenadeFrag`, `VStreetFluffNPC.iPlayerInArea`
+  read nothing; pass forms as `names`); `let x := <ref>.GetItemCount <form>` did not compile
+  even with a valid form from `names`; Variable11 and up are not actor values (01-10 are);
+  `SetNumericINISetting "bGeneralSubtitles:Interface" 1` showed no subtitles; a timed
+  cleanup by sample count can miss a session's end (samples run 15-60 a second) and
+  `GameHour >= 10.13` fired at once (sessions start near 10.1, not 10.0).
 - **Screenshots or video** (window in front, both locks): 7 (casino menus by key taps),
   12 (Ringo, Nash, Red Lucy, Doc Mitchell: nvftest/nvfdoc have them), 16, 17, 26, 27, 54.
 
@@ -199,18 +206,17 @@ engine if needed, and delete the item here.
    - SetPackDuration 60 switched every 10–70 game minutes in the original. What does
      the number count?
    - A schedule duration with no start hour ends only when the goal is met.
-   - Sandbox sit and stand times are our own numbers.
+   - Sandbox sit and stand times are our own numbers. Tried 2026-11-01 (o20_town
+     saloon_sandbox, nvftest, the Prospector Saloon 18-20 h, every 0.5 s) [observed]: only
+     three actors were in the scan; Settler 4 (GoodspringsSettler04Ref) sat the whole two
+     game hours without standing, the other two never sat. Too few for the spans; needs a
+     busier sandbox (the Strip's casino floors from nvfstrip, 6+ h).
    - An unreachable package is set aside for 1 h.
    - MP A gives up her escort half-way in the original.
    - Random NPC chats start only with you within 300 units.
    - Force greets need a clear line, but facing doesn't matter.
    - A woken sleeper talks within 8 s and stays up 30 game-seconds.
    - People during a wait walk an hour's worth each hour.
-   - **A far actor heading for you, past what was captured** (Malcolm Holmes, settled
-     in part 2026-10-24: hourly jumps along a route, [ai-observer §13](../spec-notes/ai-observer.md)).
-     Answered 2026-10-31 (`holmes_far_long`, 14 h after the player moved): he follows
-     the old route to its end (ten more hourly jumps), then heads for where the player
-     is now, as ours plans again then.
    To check: observer timelines, which already record packages.
    ([actor-behaviour §3, §5.5–§5.6, §5.9](../design/actor-behaviour.md),
    [owner-decision-captures §7](../spec-notes/owner-decision-captures.md))
@@ -266,6 +272,14 @@ engine if needed, and delete the item here.
       Boss is 50/75/125/200 %).
     - The three placed weapons that name their ammo give it once.
     To check: barter screenshots, inventory dumps, and timelines over 72 h.
+    Respawn tried 2026-11-01 (o23_town respawn_72h, nvftest, TimeScale 2000) [observed]:
+    v19 Geckos 1 and 2 (base flagged Respawn) killed by script while unloaded, the player
+    in the gas station, then moved to Gecko 3's cell after 66.7 game hours (the wait was
+    meant to be 3.2 days, but the start day was stored as a whole 13): both still dead, at
+    their death spots. Consistent with a 72 h rule, not a test of it; run again with the
+    start stored to the hour (GameDaysPassed * 24 into a Variable) and 80 h. (A first run,
+    o20_town, moved the player to the geckos at once by a wrong condition: corpses in the
+    loaded cell stayed dead over 80 h.)
     ([vendor-services](../spec-notes/vendor-services.md),
     [death-items](../spec-notes/death-items.md), [encounter-zones](../spec-notes/encounter-zones.md),
     [dead-on-spawn §4](../spec-notes/dead-on-spawn.md))
@@ -287,9 +301,12 @@ engine if needed, and delete the item here.
     armour and two-handed weapons, and creatures' walks and runs (clip pace × scale ×
     Speed Mult × their skeleton's share). Still open, ours:
     - People turn ≤180°/s walking, 120°/s standing; creatures 300°/s × scale (measured
-      on cazadors only); the CREA Turning Speed field is unused.
-    - Speed Mult on people: one actor (Cook-Cook, 110) ran as if it were 100 (asked in
-      owner-review.md).
+      on cazadors only); the CREA Turning Speed field is unused. People's combat turns
+      measured 2026-11-01: about 270°/s at first, easing out (actors §8.9, issue #1352);
+      a package turn out of combat is still unmeasured.
+    - Speed Mult on people: answered 2026-11-01 (o18_air): a trooper ran 305 units/s at
+      100 and about 460 at 150, proportional as ours (actors §8.10); Cook-Cook (110, ran
+      as if 100) stays the one exception, asked in owner-review.md.
     - People walking with a weapon drawn (77–78 seen outside combat, about 100 in
       combat) are not built.
     - Follow distances: stand within distance + 64, run beyond 512.
@@ -447,6 +464,12 @@ The numbers above stay put so links to them hold; each item here gives its own p
     So the original does not throw carried grenades on a timer: they are thrown when
     they are the drawn weapon. Ours throws a carried grenade 4-10 s into the fight and
     every 12-25 s after (combat-ai §20): a divergence, not yet changed.
+    Frag grenades 2026-11-01 (o18_air, o24_air) [observed]: held, they are thrown every
+    1.6-3.6 s from the first second (5-6 throws from 800 and 1,200 units, then fists or
+    a knife), none at 300 units (the trooper closes in and strikes); carried beside a
+    10mm, none in 27 s at 600 units. Ours waits 4-10 s, then 12-25 s, and never throws
+    within 990 units: issue #1351 (combat-ai §20). Still open: the minimum distance
+    (between 300 and 800) and whether they switch back to a grenade they still carry.
 21. **Packages that send NPCs through player-only load doors** (P2). Some door
     scripts' OnActivate blocks call Activate for the player only. `fnvtool ai reach`
     (routes_through_door) still finds FalloutNV.esm packages routed through them:
@@ -466,6 +489,15 @@ The numbers above stay put so links to them hold; each item here gives its own p
     left the Strip, but none was on a gate-crossing package (the MP B patrolled the
     Lucky 38, VStripMPABPatrol38, not VStripMPBPatrolEmb; the gate securitrons there are
     the Lucky 38's). Needs a campaign tracking the Strip-gate securitrons themselves.
+    2026-11-01 (o19_strip, nvfstrip) [observed, doors §5.2]: with the player south of
+    both gates for 1.5 game hours MP B stayed north, unloaded and unmoved, on 00151E3E,
+    never on VStripMPBPatrolEmb; with the player north he patrolled the north section
+    (VStripMPABPatrol38). No actor crossed a gate. Not settled: the patrols hang on
+    VStreetFluffNPC iPlayerInArea (52) and bSecuritronPatrol (65), set by the quest's
+    triggers, and the observer could not read them (Editor IDs in raw expressions do
+    not resolve). Next: read them through `names` (or GetQuestVariable by form) and put
+    the player at each area's trigger; the gate securitrons (VLVBStationBot01REF's
+    VStripSecuritronGuardGate*) were not tracked.
 22. **Combat answer lines and companion complaints** (P2). To check:
     - When a group-mate says NormalToAlert or NormalToCombat, does a nearby mate answer
       with NormalToAlertResponse or StartCombatResponse?
@@ -481,15 +513,19 @@ The numbers above stay put so links to them hold; each item here gives its own p
       a heavy hit.
     Read dialogue events in the observer timeline, with audio or subtitles.
     ([combat-dialogue §5](../spec-notes/combat-dialogue.md))
+    Tried 2026-11-01 (o21_air, nvfairport runway) [observed, IsTalking only]: three NCR
+    troopers set on the god-mode player from 1,000 units; one spoke at 4.1 s, another
+    at 12.9 s (no answer within 8 s of the first line); the first was killed (Kill) at
+    about 33 s and the survivor next spoke about 10 s later, so no line followed the death
+    at once. Screenshots taken while one talked show no subtitle: general subtitles are
+    off in the owner's INI and `SetNumericINISetting "bGeneralSubtitles:Interface" 1` did
+    not turn them on, so no line was identified. Two super mutants hurt by DamageAV 300 to
+    make them flee died instead. Next: turn general subtitles on in FalloutPrefs.ini for
+    the run (and back), mutants hurt by a share of their Health.
 23. **Actor Effect spells in NPC and creature spell lists** — answered 2026-10-30 (issue
     #916): the original does not apply the type-0 entries (Tunnelers' DT, Ruthless,
     SporeCarrierRegen read IsSpellTarget 0 and base values; the Ability beside them 1), as
     ours. ([area-effects §3](../spec-notes/area-effects.md))
-24. **A patrol after a load** (P3). Ours: an NPC on a non-repeating Patrol package
-    goes on to its next point after a reload.
-    To check: save while it is half-way along its route, reload, and see whether it
-    goes on or starts again from the first point.
-    ([save-load §5 item 4](../design/save-load.md))
 25. **Dialogue at low Intelligence** (P3; few players run Intelligence 3 or below).
     Ours (PR #743), with the player's Intelligence at or below
     iDialogueDummySpeakThisIntOrBelow (3 in FalloutNV.esm):
@@ -610,6 +646,13 @@ The numbers above stay put so links to them hold; each item here gives its own p
     GetIsID on 0x000FF5BA) — answered 2026-10-30 (issue #907): the original reads 0 for
     both; ours now does without a failed call. Open: other functions given a null form
     in a condition (ours: a failed call, also 0). ([dialogue §4](../spec-notes/dialogue.md))
+    Tried 2026-11-01 from a script (o18_air, o24_air): GetItemCount, GetInFaction,
+    GetDetected and HasPerk given a null ref variable, each in its own script with a
+    marker before and after. Not answered: none of the five scripts compiled in the
+    observer, the control (`let fR := player.GetItemCount <Caps001 from names>`) neither,
+    so the fault is the `let` of GetItemCount in the runtime compiler, not the null form.
+    Next: `set fR to ...`, or a condition-side test (a dialogue line or package whose
+    condition names a null form, e.g. found by `fnvtool ai show` / dialogue dumps).
 36. **Which of a creature's turn rates applies when** (P3; issue #915). Steady turns are
     TNAM × 1.25, × 3 or × 0.075 °/s on every skeleton tried, whatever the base scale
     (actors.md §8.10 "TNAM"); × 0.075 is aim tracking within about 6°, but × 1.25 and × 3
@@ -733,6 +776,15 @@ The numbers above stay put so links to them hold; each item here gives its own p
     either; the likeliest end is another actor taking the bar (not captured). Ours drops it
     after 5.5 s (`hud_target::LINGER_SECONDS`); left as is (owner, 2026-11-01). The bar
     took 10-15 s of facing to appear in both runs (the aim's pitch, most likely).
+    Second actor tried 2026-11-01 (o20_town, o23_town bar_handoff; nvftest, Settler 1
+    hurt 20 at 350 units, a spawned NCR trooper hurt 40 on the other side) [observed]:
+    re-faced on the settler every 5 s, the bar showed only once, 39 s in, for 6 s (meter
+    width 269 of 500), and went while the player was still being turned onto him as he
+    walked; faced on the hurt trooper for 30 s and then turned away, it never showed (the
+    first run, faced every 5 s for 20 s each, showed none at all). So the hand-over was not
+    seen. The bar's appearing hangs on the crosshair being on the actor, which script
+    facing at 350 units hits only now and then. Next: a standing target (a spawned actor
+    with `SetRestrained 1`) at 200 units, aim pitch set from the height difference.
 53. **Does the player's own hit show the enemy bar, and for how long?** (P2: every fight
     the player starts.) No capture had the weapon out (IsWeaponOut read 0 after the
     script's Ready taps), so no shot hit. Ours keeps its earlier guess: 5 s after the
