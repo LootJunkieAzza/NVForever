@@ -40,7 +40,7 @@ game AX_Exists with no form crashed it [observed: first run], so the global form
 
 | Function | NVForever |
 |---|---|
-| AX_Set `value key [index] [form]` | the value (number, form, string or array) at the index, 0 when omitted [documented: AX Get, "Index 0 is assumed"]; the list grows with null entries to reach it [hypothesis]; an array is held as it is, not copied or flattened [documented: AX Set; observed: ax.get2 reads the array's entry back]. Returns the value [hypothesis: the page's return type "variable"] |
+| AX_Set `value key [index] [form]` | the value (number, form, string or array) at the index, 0 when omitted [documented: AX Get, "Index 0 is assumed"]; an index below 0 or from 65,536 sets nothing and gives 0 [decision: PR #1291 review, a key's list is bounded]; the list grows with null entries to reach it [hypothesis]; an array is held as it is, not copied or flattened [documented: AX Set; observed: ax.get2 reads the array's entry back]. Returns the value [hypothesis: the page's return type "variable"] |
 | AX_Get `key [index] form` | the value [observed: ax.get0, ax.get1, ax.get2]; 0 for none or a null entry [hypothesis] |
 | AX_GetType `key [index] form` | −2 no such aux (or no such index), −1 null, 0 number, 1 form, 2 string, 3 array [documented; observed: ax.none, ax.types, ax.null] |
 | AX_Size `key form` | the number of entries, nulls included; 0 for no key [observed: ax.none, ax.set, ax.null] |
@@ -61,7 +61,12 @@ save game" [documented: CreateFormInstance]. NVForever makes it a clone of the b
 inst.mod: IsFormInstance 1, GetStaticForm the base, GetWeaponItemMod the base's], with
 the editor ID "Inst" and a count: the page says the base form's editor ID comes first,
 but the 10mm pistol's instance was "Inst1" while GetEditorID gave the pistol's own
-[observed: inst, edid.pistol]; counted per base form [hypothesis]. GetEditorID and
+[observed: inst, edid.pistol]; the count rises with every instance the game makes and
+is restored from the saved editor IDs, so one dropped on a load does not hand its
+number to the next [hypothesis: the page's "InstanceCount"; decision: PR #1291 review,
+no two instances share an editor ID]. Instances take clone IDs (`CLONE_BASE` and up);
+when those reach the compiled scripts' range, CreateFormInstance gives 0
+[decision: same review]. GetEditorID and
 EditorIDToFormID find it. Instances are saved with the game
 (`GameSnapshot::form_instances`) and come back as clones on a load.
 
@@ -104,7 +109,7 @@ put in by the test. Attachments last for the session [hypothesis].
 | SetSightingNode `name`, GetCurrentSightingNode | `##SightingNode` until a node is set [observed: sight]; the node set until the player's weapon changes [documented; observed: sight.set]. While one stands, further sets do nothing: after "Bip01 Head", setting "##SightingNode" or another name left it reading "Bip01 Head" [observed: sight.set, sight.set2; hypothesis: a weapon change clears it, as the page says] |
 | SetWeaponDegradationMult `multiplier [weapon]` (or `weapon multiplier`, as the example) | the weapon base's per-shot wear [documented]. GetWeaponDegradationMult (catalogued under the setter's name, so a call with no number reads) gives it, else the record's Damage to Weapon Mult when its override flag is on, else fDamageToWeaponValue (0.2) [hypothesis: what it reads with nothing set] |
 | GetTopicPrompt `info` | the name (FULL) of the info's topic, not the info's own prompt (RNAM) the page names: for a line of Doc Mitchell's with a 27-character prompt the game gave the 26 characters of its topic's name, and for a line with no prompt the 19 of its topic's [observed: prompt, prompt.none]; "" without a topic or a name [hypothesis] |
-| EvaluateString `"condition"` | 1 when the text holds as an `if` condition, compiled once per text as a function script [documented]; a text that does not compile is false and goes to the trace [hypothesis] |
+| EvaluateString `"condition"` | 1 when the text holds as an `if` condition, compiled once per text as a function script [documented]; a text that does not compile is false and goes to the trace [hypothesis] At most 1,024 distinct texts are compiled in one game (a text that does not compile is remembered as such and counts); a new text past that gives 0 and goes to the trace. A compiled unit lives as long as the game (the VM runs units borrowed for the game's lifetime, and lambdas keep theirs), so the cache cannot evict [decision: PR #1291 review, memory bounded] |
 | CallLoop `delay udf args…` on a reference (the player when none) | the function called every `delay` seconds of game time; a function that sets its value sets the next delay, below 0 ends the loop; `-1` as the delay removes it [documented]. The first call after one delay; the same udf on the same reference again replaces it [hypothesis]. Not kept across a load [documented: the page's example text, "auto-removed when loading a game"] |
 
 ## 5. Files
@@ -119,6 +124,14 @@ the two lines back] and pWriteFileAlt under Data [documented: "relative
 to the game's DATA path"; hypothesis: a mod's staging folder is its place in Data]. Both
 write into NVForever's own layer, never the game's folder (CLAUDE.md charter;
 `mod_files` module notes), and readers read that copy first.
+
+A path is taken only when every part is a plain name: one starting at a root (`\x`),
+naming a drive or stream (any `:`), or with a `.` or `..` part is refused by the readers
+(an empty array) and the writers (0, nothing written), and a writer also refuses a disk
+path inside the game install, the original game's user folder
+(`fnv_install::guard_write`) or the game folder above the Data read root
+[decision: CLAUDE.md charter; PR #1291 review]. This holds for every `mod_files` reader
+and writer, the INI functions and the array files included.
 
 ## 6. Not read: Devkit
 

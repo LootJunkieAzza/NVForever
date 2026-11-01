@@ -228,6 +228,9 @@ fn form_instances_stand_for_their_base_and_are_saved() {
     // New instances do not take the restored ones' ids.
     let XVal::Ref(third) = val(&mut h, "CreateFormInstance Gun") else { panic!() };
     assert!(third > second);
+    // Its count follows the restored ones, not the live count, so "Inst2", still in use,
+    // is not made again (PR #1291 review).
+    assert_eq!(h.pp.instances[&FormId(third)].edid, "Inst3");
 }
 
 #[test]
@@ -338,3 +341,53 @@ fn files_are_read_by_line_and_written_beside_the_game() {
     assert_eq!(query(&mut g, "array_var a\nlet a := pReadFile \"Data\\NVFTest\\missing.txt\"\nSetFunctionValue (ar_Size a)"), x(0.0));
     assert_eq!(query(&mut g, "array_var a\nlet a := ar_List \"x\"\nSetFunctionValue (pWriteFileAlt \"Config\\Test.ini\" a)"), x(1.0));
 }
+
+/// Paths that would leave NVForever's layer (a `..` part, a drive, a root) are refused by
+/// the readers and the writers: nothing written, 0, and an empty array (PR #1291 review).
+#[test]
+fn file_paths_cannot_leave_the_layer() {
+    let f = fixture();
+    let mut g = game(&f);
+    for bad in ["..\\..\\x.txt", "C:\\x.txt", "\\x.txt", "Data\\..\\..\\..\\x.txt"] {
+        for func in ["pWriteFile", "pWriteFileAlt"] {
+            let q = format!("array_var a\nlet a := ar_List \"x\"\nSetFunctionValue ({func} \"{bad}\" a)");
+            assert_eq!(query(&mut g, &q), x(0.0), "{func} {bad}");
+        }
+        let q = format!("array_var a\nlet a := pReadFile \"{bad}\"\nSetFunctionValue (ar_Size a)");
+        assert_eq!(query(&mut g, &q), x(0.0), "pReadFile {bad}");
+    }
+    // The INI writers go through the same check.
+    assert_eq!(query(&mut g, "SetINIFloat \"General:fX\" 2 \"..\\..\\Fallout\"\nSetFunctionValue (GetINIFloat \"General:fX\" \"..\\..\\Fallout\")"), x(0.0));
+}
+
+/// AX_Set refuses an index past the cap or below 0: 0, nothing set.
+#[test]
+fn ax_set_is_bounded() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(val(&mut g, "AX_Set 1 \"Big\" 1000000000 Gun"), x(0.0));
+    assert_eq!(val(&mut g, "AX_Exists \"Big\" Gun"), x(0.0));
+    assert_eq!(val(&mut g, "AX_Set 1 \"Big\" -5 Gun"), x(0.0));
+    assert_eq!(val(&mut g, "AX_Set 1 \"Big\" 65535 Gun"), x(1.0));
+    assert_eq!(val(&mut g, "AX_Size \"Big\" Gun"), x(65536.0));
+}
+
+/// EvaluateString compiles each text once, a failing one too, and at most
+/// EVALUATE_MAX texts in a game.
+#[test]
+fn evaluate_string_is_bounded() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(val(&mut g, "EvaluateString \"Counter < 3\""), x(1.0));
+    assert_eq!(val(&mut g, "EvaluateString \"NoSuchThing ((\""), x(0.0));
+    assert_eq!(val(&mut g, "EvaluateString \"NoSuchThing ((\""), x(0.0));
+    assert_eq!(g.pp.evaluated.len(), 2);
+    for n in 0..fnv_game::nvse_pp::EVALUATE_MAX {
+        let _ = val(&mut g, &format!("EvaluateString \"Counter < {n}\""));
+    }
+    assert_eq!(g.pp.evaluated.len(), fnv_game::nvse_pp::EVALUATE_MAX);
+    // Texts already compiled still work; a new one past the cap gives 0.
+    assert_eq!(val(&mut g, "EvaluateString \"Counter < 3\""), x(1.0));
+    assert_eq!(val(&mut g, "EvaluateString \"Counter < 100000\""), x(0.0));
+}
+

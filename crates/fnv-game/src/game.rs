@@ -2551,24 +2551,37 @@ impl<'a> Game<'a> {
     }
 
     /// EvaluateString: whether `text` holds as an `if` condition [documented:
-    /// EvaluateString]; each text is compiled once, as a function script.
+    /// EvaluateString]; each text is compiled once, as a function script, and a text that
+    /// does not compile is remembered too, so it is not compiled again. A running unit
+    /// must live as long as the game (`Exec::unit`, and lambdas keep theirs), so a unit
+    /// cannot be freed: instead at most [`crate::nvse_pp::EVALUATE_MAX`] distinct texts
+    /// are compiled in one game, and a new text past that is refused [decision: PR #1291
+    /// review, memory bounded].
     pub(crate) fn evaluate_string(&mut self, text: &str) -> Result<bool, String> {
-        let key = format!("\u{1}evaluate:{text}");
-        let id = match self.compiled_paths.get(&key) {
+        let id = match self.pp.evaluated.get(text) {
             Some(&id) => id,
             None => {
+                if self.pp.evaluated.len() >= crate::nvse_pp::EVALUATE_MAX {
+                    return Err(format!("{text:?}: more than {} distinct texts in one game", crate::nvse_pp::EVALUATE_MAX));
+                }
                 let src = format!("Begin Function {{ }}\nif {text}\nSetFunctionValue 1\nendif\nEnd\n");
-                let id = self.compile_source("EvaluateString", src).ok_or_else(|| format!("{text:?} does not compile"))?;
-                self.compiled_paths.insert(key, id);
+                let id = self.compile_source("EvaluateString", src);
+                self.pp.evaluated.insert(text.to_string(), id);
                 id
             }
         };
+        let id = id.ok_or_else(|| format!("{text:?} does not compile"))?;
         Ok(self.run_function(&fnv_script::vm::XVal::Ref(id), None, Vec::new(), None, RunCtx::default())?.truthy())
     }
 
     /// A function script from source text, kept as CompileScript keeps its files; `None`
     /// when it does not compile (the compiler's words go to the trace).
     fn compile_source(&mut self, what: &str, src: String) -> Option<u32> {
+        // The IDs end where the temporary references' begin: no more units past it.
+        if COMPILED_BASE as usize + self.compiled_files.len() >= TEMP_REF_BASE as usize {
+            self.emit(EventKind::Skipped { unit: "CompileScript".into(), what: format!("{what}: no compiled-script ID left") });
+            return None;
+        }
         let c = fnv_script::compile::compile(&src, &self.data.table, &GameEnv { g: self }, None);
         if let Some(e) = c.errors().next() {
             let what = format!("{what}: {}: {}", e.kind.replace('_', " "), e.detail);

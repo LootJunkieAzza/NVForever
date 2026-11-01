@@ -99,6 +99,12 @@ pub struct PpState {
     pub loops: Vec<CallLoop>,
     /// SetSightingNode's node and the weapon the player had then.
     pub sighting: Option<(Option<FormId>, String)>,
+    /// EvaluateString's texts and what each compiled to (`None`: it does not compile);
+    /// at most [`EVALUATE_MAX`] (`Game::evaluate_string`).
+    pub evaluated: HashMap<String, Option<u32>>,
+    /// The count in the last instance's editor ID ("Inst" and it); it only rises, so no
+    /// two instances share one (restored from the saved editor IDs on a load).
+    pub inst_seq: u32,
     /// SetWeaponDegradationMult's multipliers by weapon base.
     pub degradation: HashMap<FormId, f64>,
 }
@@ -150,6 +156,14 @@ fn index_and_form(args: &[XVal], k: usize) -> (Option<i64>, Option<FormId>) {
     (index, f)
 }
 
+/// The most distinct texts EvaluateString compiles in one game (`Game::evaluate_string`).
+pub const EVALUATE_MAX: usize = 1_024;
+
+/// The most entries one AX key holds: AX_Set refuses an index at or past it
+/// [decision: PR #1291 review, so a script cannot ask for gigabytes; the pages give no
+/// limit].
+pub const AX_MAX_ENTRIES: usize = 65_536;
+
 /// AX_GetType's codes [documented: AX GetType: −2 no such aux, −1 null, 0 number, 1
 /// form, 2 string, 3 array].
 fn type_code(v: Option<&Option<XVal>>) -> f64 {
@@ -169,17 +183,23 @@ impl Game<'_> {
         crate::functions::base_of(self, f).unwrap_or(f)
     }
 
-    /// The editor ID of a new instance of `parent`: its own, "Inst" and how many it has
-    /// had [documented: CreateFormInstance; hypothesis: counted per base form].
-    fn pp_new_instance(&mut self, parent: FormId, key: String) -> FormId {
+    /// A new instance of `parent`, with the editor ID "Inst" and a count [observed: pp
+    /// probe inst, "Inst1" for the first; the page puts the base's editor ID first]. The
+    /// count rises with every instance made in the game and is never reused, so no two
+    /// share an editor ID [hypothesis: the page's "InstanceCount"; PR #1291 review]. `None`
+    /// when the clone IDs are used up (they end where the compiled scripts' begin).
+    fn pp_new_instance(&mut self, parent: FormId, key: String) -> Option<FormId> {
+        if crate::nvse_data::CLONE_BASE + self.clone_seq + 1 >= crate::game::COMPILED_BASE {
+            return None;
+        }
         self.clone_seq += 1;
         let id = FormId(crate::nvse_data::CLONE_BASE + self.clone_seq);
-        let count = self.pp.instances.values().filter(|i| i.parent == parent).count() + 1;
-        let edid = format!("Inst{count}");
+        self.pp.inst_seq += 1;
+        let edid = format!("Inst{}", self.pp.inst_seq);
         self.clones.insert(id, parent);
         self.other.edids.insert(id, edid.clone());
         self.pp.instances.insert(id, Instance { parent, key, edid });
-        id
+        Some(id)
     }
 
     /// The saved instances back after a load (`Game::restore`): each is a clone of its base
@@ -190,6 +210,8 @@ impl Game<'_> {
             self.other.edids.insert(*id, i.edid.clone());
             self.pp.instances.insert(*id, i.clone());
             self.clone_seq = self.clone_seq.max(id.0.saturating_sub(crate::nvse_data::CLONE_BASE));
+            let n = i.edid.strip_prefix("Inst").and_then(|n| n.parse::<u32>().ok()).unwrap_or(0);
+            self.pp.inst_seq = self.pp.inst_seq.max(n);
         }
     }
 
@@ -292,6 +314,10 @@ impl Game<'_> {
                 }
             }
         }
+        // A loop function's array result was handed over as a temporary (`run_function`);
+        // the loops run between statements, so free it now (PR #1291 review). A string
+        // result is an owned value, dropped with `r`.
+        self.ext.sweep();
     }
 
     /// The vanilla mod flags of an object: an inventory item's own; a base form or an
@@ -382,7 +408,9 @@ fn ax_call(g: &mut Game, name: &str, args: &[XVal]) -> Option<XVal> {
             let value = args.first().cloned().unwrap_or(XVal::Num(0.0));
             let key = text(args, 1);
             let (index, f) = index_and_form(args, 2);
-            let i = usize::try_from(index.unwrap_or(0)).ok()?;
+            // A negative index or one past the cap sets nothing and gives 0 [decision: PR
+            // #1291 review; a list may not grow without bound].
+            let Some(i) = usize::try_from(index.unwrap_or(0)).ok().filter(|&i| i < AX_MAX_ENTRIES) else { return Some(zero) };
             g.ext.retain(&value);
             let (_, list) = g.pp.ax.entry((f, key.clone())).or_insert_with(|| (key, Vec::new()));
             if list.len() <= i {
@@ -503,7 +531,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 return Some(Ok(XVal::Ref(0)));
             }
             let key = if name == "createforminstance" { text(args, 1) } else { String::new() };
-            XVal::Ref(g.pp_new_instance(base, key).0)
+            XVal::Ref(g.pp_new_instance(base, key).map_or(0, |f| f.0))
         }
         // [documented: GetStaticForm; GetWeaponBase (its older name)]: the base form an
         // instance (or a reference's) was made from; a form that is no instance itself.
