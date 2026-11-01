@@ -387,6 +387,20 @@ pub fn register_settings(app: &mut App) {
             },
         );
     }
+    if app.world().contains_resource::<crate::voice::VoiceSettings>() {
+        add_setting(
+            app,
+            Setting {
+                key: "voice-reverb",
+                group: GROUP_SOUND,
+                label: "Voice reverb",
+                note: "What people say around you echoes in the place you are in, up to the end of each line, as Reverb does for world sounds. Conversations stay dry.",
+                get: |w| w.resource::<crate::voice::VoiceSettings>().reverb,
+                set: |w, on| w.resource_mut::<crate::voice::VoiceSettings>().reverb = on,
+                slider: None,
+            },
+        );
+    }
 }
 
 /// The run-long mixer every sound plays into, and the line to the watcher thread.

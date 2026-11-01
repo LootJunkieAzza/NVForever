@@ -87,6 +87,10 @@ JohnnyGuitar batch 2: 13 (#1007, ext-jg2.md, probe set jg2 37/38).
 JIP batch 5: 27 (#1006, jip-records-5.md, probe set jip5 99/100).
 ITR batch 1: 62 (#1011, ext-itr.md §1-6, `nvse_itr1.rs` and `vm/itr.rs`; not installed in
 the probe game, so from the pages alone). Census after it: 1,216 (ITR 119 → 57).
+The small libraries (2026-11-01): 92, every one of kNVSE 16 (#1018, ext-knvse.md, probe
+set knvse2 29/31), JIP PP LN 10 (#1019, ext-jippp.md), vheyes-nvse 21 (#1016, ext-vheyes.md),
+CacheUI 8 (#1013), Anh 3 (#1015), NX 1 (#1017) and the #1020 plugins 33 (ext-small.md).
+Census after it: 1,186 (from 1,278).
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,

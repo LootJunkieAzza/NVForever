@@ -5,10 +5,10 @@
 //! - Which tiles: [`fnv_ui::Ui::mod_added_tiles`] of the HUD, laid out by
 //!   [`super::layout`], each item kept only when [`fnv_ui::Ui::mod_tile_drawn`] says it is
 //!   the mod's own. Code-made copies (`fnv_game::ui_hud::copies`) never draw. A loose
-//!   replacement of the HUD file (or of a prefab it includes) draws none of its file
-//!   tiles in v1: the VFS keeps no archived copy under a loose file to compare against
-//!   (`fnv_vfs::Vfs` indexes one location per path) [design]; `fnvtool ui mod-tiles`
-//!   shows what the comparison would pick where it can read both.
+//!   replacement of the HUD file (or of a prefab it includes) draws the file tiles the
+//!   archived copy under it lacks (`fnv_vfs::Vfs::read_archived`,
+//!   [`fnv_ui::Ui::archived_name_paths`], read once) [design: #975]; `fnvtool ui
+//!   mod-tiles` shows the same choice.
 //! - Units: the tree's places are the HUD's interface units, 960 to the view's height
 //!   at every size, so `screen()` is 960 × height/width wide [documented: hud.md §14;
 //!   `fnv_game::ui_hud::write`]; [`crate::interface::u`] turns them into the window's
@@ -658,6 +658,10 @@ pub(crate) struct Drawn {
     models: model::Models,
     /// The menu tile whose start line is written (T15a's menus, told at each build).
     told_menu: Option<TileId>,
+    /// The archived HUD file's name paths, by the menu file's path, read once: what a
+    /// loose replacement's own tiles are told from (`fnv_ui::Ui::archived_name_paths`,
+    /// #975).
+    vanilla: Option<(String, Option<HashSet<String>>)>,
 }
 
 /// A `tile` picture baked into one image ([`crate::repeat`]): the image and its node's
@@ -948,12 +952,27 @@ pub fn whole_pieces(ui: &Ui, menu: TileId, fonts: &mut impl MenuFonts, t15: bool
     set_out(fonts)
 }
 
+/// The archived copy's name paths of the menu file `menu` was read from, when a root of
+/// its mod tiles is a file's (a loose replacement, or a loose prefab it includes): read
+/// once per file path into `kept` [design: #975, as `fnvtool ui mod-tiles`].
+fn archived_names<'a>(ui: &Ui, menu: TileId, files: &dyn fnv_ui::Source, kept: &'a mut Option<(String, Option<HashSet<String>>)>) -> Option<&'a HashSet<String>> {
+    let fnv_ui::Origin::File { path, .. } = &ui.tile(menu).origin else { return None };
+    if !ui.mod_added_tiles(menu).iter().any(|&r| matches!(ui.tile(r).origin, fnv_ui::Origin::File { .. })) {
+        return None;
+    }
+    if kept.as_ref().is_none_or(|(p, _)| p != path) {
+        *kept = Some((path.clone(), Ui::archived_name_paths(files, path)));
+    }
+    kept.as_ref().and_then(|(_, names)| names.as_ref())
+}
+
 /// The HUD's pieces (T5's mods' tiles, or with `[UI] TileMenus=HUDMainMenu` the whole menu)
 /// drawn ([`paint`]).
 #[allow(clippy::too_many_arguments)]
 fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut FontKit, drawn: &mut Drawn, nodes: &mut Nodes, scale: f32, heading: f32) {
     let whole = view.menus.as_ref().is_some_and(|m| m.hud);
     let t15 = view.menus.as_deref().copied().is_some_and(super::interface_screen);
+    let files = script.rt.as_ref().and_then(|rt| rt.game.ui_files.as_deref());
     let ui = script.rt.as_ref().filter(|rt| rt.game.ui_files.is_some()).map(|rt| &rt.game.ui_tree);
     let menu = ui.and_then(|ui| ui.menu(HUD_MENU).map(|m| (ui, m)));
     // With the tile HUD off and no mod tiles in the HUD (the default game), nothing to
@@ -979,7 +998,8 @@ fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut Fon
                 let kept = kept_pieces(ui);
                 pieces(ui, menu, &measured, Select::Whole { kept: &kept, strip: ui.find_tile(STRIP_TILE) }, t15)
             } else {
-                pieces(ui, menu, &measured, Select::Mods { vanilla: None }, t15)
+                let vanilla = files.and_then(|files| archived_names(ui, menu, files, &mut drawn.vanilla));
+                pieces(ui, menu, &measured, Select::Mods { vanilla }, t15)
             }
         }
         _ => (Vec::new(), 0),
@@ -1324,6 +1344,29 @@ mod tests {
         assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: None }, false).1, 0);
         let vanilla: HashSet<String> = ["hudmainmenu".to_string()].into();
         assert_eq!(pieces(&ui, menu, &plain, Select::Mods { vanilla: Some(&vanilla) }, false).1, 1);
+        // No archived copy under it: nothing to compare with, nothing drawn (#975).
+        let mut kept = None;
+        assert_eq!(archived_names(&ui, menu, &src, &mut kept), None);
+    }
+
+    /// [design] A loose HUD over an archived one draws its own tile, read through the
+    /// archived copy's names, and keeps the archived tile hidden (#975).
+    #[test]
+    fn a_loose_hud_over_an_archived_one_draws_its_own_tiles() {
+        let src = MemSource::default().with_loose_over(
+            "menus/main/hud_main_menu.xml",
+            r#"<menu name="HUDMainMenu"><rect name="Old"><red>9</red><width>4</width><height>4</height></rect><rect name="New"><red>9</red><width>4</width><height>4</height></rect></menu>"#,
+            r#"<menu name="HUDMainMenu"><rect name="Old"/></menu>"#,
+        );
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "menus/main/hud_main_menu.xml").unwrap();
+        ui.update();
+        let mut kept = None;
+        let vanilla = archived_names(&ui, menu, &src, &mut kept).cloned();
+        assert_eq!(vanilla, Some(["hudmainmenu".to_string(), "hudmainmenu/old".to_string()].into()));
+        let (drawn, roots) = pieces(&ui, menu, &plain, Select::Mods { vanilla: vanilla.as_ref() }, false);
+        assert_eq!((drawn.len(), roots), (1, 1));
+        assert_eq!(drawn[0].tile, ui.find_tile("HUDMainMenu/New").unwrap());
     }
 
     #[test]
