@@ -17161,3 +17161,59 @@ expect = [
   { re = 'test aid: screenshot .*font_glyph_baseline[.]png', label = "the glyph comparison frame is saved" },
 ]
 manual = "font_glyph_baseline.png, compared with upstream main and the original at 1280x720: every x-height letter in 'NVF box without buttons' has the same top and bottom ink rows; the two u glyphs have equal heights; capitals and ascenders share their own height. Check the whole box, including its frame and Ok button, for position or size changes. Log expectations only verify the scene and capture; the glyph appearance needs this image review."
+
+[[scenario]]
+name = "arrive-door-seated"
+source = "issue #1208 (owner): after a load door or a fast travel the destination's actors are already where their package has them, seated on its furniture, not walking there in front of the player; those loaded before the trip are not moved (docs/spec-notes/packages.md §8)"
+note = "Goodsprings at 20:00, every resident; at 14 s the player goes through the Prospector Saloon's door. GoodspringsSettler04Ref (00104F08) is behind the door on GoodspringsSettlerSaloonPackage, at the bar stool 00106192 (the low process took him there): he is drawn on it at once. Before the change he walked up to it and played SpecialIdle_StoolEnter in front of the player (2026-11-01)"
+areas = ["ai", "residents", "loading"]
+paths = ["crates/fnv-ai/src/arrive.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:activate:ProspectorSaloonDoor" }
+args = ["--cell", "Goodsprings", "--play", "--npc-packages", "all,GoodspringsSettler04Ref,TrudyRef,SunnyRef,GSJoeCobbRef,CheyenneREF,EasyPeteRef", "--hour", "20", "--no-voice", "--no-messages"]
+run_seconds = 40
+order = [[
+  { re = 'trip behind a loading screen: (?P<n>\d+) residents in the loaded area stay where they are', range = [5, 999], label = "the residents of Goodsprings' streets stay where they are" },
+  { text = "GoodspringsSettler04Ref: already on 0x00106192 at its package's place on arrival: seated at once", label = "the settler is seated on his bar stool at once" },
+  { text = "furniture: 00104F08 is back on 00106192", label = "drawn on the stool, no walk up" },
+]]
+expect = [
+  { text = "furniture: 00104F08 goes to 00106192", count = 0, label = "he does not walk up to the stool in sight" },
+  { re = 'arrival summary: \d+ residents put .*, (?P<n>\d+) seated at once', range = [1, 99], label = "arrival summary: someone seated at once" },
+]
+
+[[scenario]]
+name = "arrive-fast-travel-boone"
+source = "issue #1208 (owner): fast travelling to Novac, Boone is already at his post on arrival, not walking there from his motel room (docs/spec-notes/packages.md §8)"
+note = "Goodsprings at 12:00; Novac's marker 0x0009289B made a travel target by ShowMap; the 9.6 h trip lands at about 21:40, when Boone's NovacBoonePatrolToNest (21:00) is current: out of his room (behind the motel's door), through the gift shop, to the sniper marker 0x000CB0EF (25415, -32822) in the dinosaur's mouth. He is put there behind the loading screen and uses no door in sight. Manny Vargas, whose day shift ended, is put in his room"
+areas = ["ai", "residents", "fast-travel"]
+paths = ["crates/fnv-ai/src/arrive.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "6:call:-:ShowMap:0x0009289B:1", NVF_PLAY_TEST_PIPBOY = "12:open,14:page=data,15:tab=1,16:travel=0009289B,17:key=use" }
+args = ["--cell", "Goodsprings", "--play", "--npc-packages", "all,CraigBooneREF,MannyVargasREF", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 60
+order = [[
+  { re = 'fast travel: 9\.\d\d hours passed', label = "the trip to Novac passes the evening" },
+  "trip behind a loading screen",
+  { re = 'CraigBooneREF: put at its package.s place on arrival \(NovacBoonePatrolToNest\): \(254\d\d, -328\d\d, \d+\) in WastelandNV, .*3 walk\(s\) skipped', label = "Boone is at the sniper marker in the dinosaur's mouth on arrival" },
+]]
+expect = [
+  { text = "CraigBooneREF: used door", count = 0, label = "Boone walks through no door in sight" },
+  { re = 'MannyVargasREF: put at its package.s place on arrival \(NovacVargasPatrolToHome\): .* in NovacVargasRoom', label = "Manny Vargas is home" },
+]
+
+[[scenario]]
+name = "arrive-fast-travel-short"
+source = "issue #1208: a short fast travel inside the loaded area moves nobody who was in it (docs/spec-notes/packages.md §8)"
+note = "Novac at 12:00 by the dinosaur; a fast travel to Novac's own marker 2,427 units away (no time passes). Every resident in the loaded area before the trip stays where it is: Manny Vargas, on his way up to the dinosaur's mouth, goes on walking"
+areas = ["ai", "residents", "fast-travel"]
+paths = ["crates/fnv-ai/src/arrive.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "6:call:-:ShowMap:0x0009289B:1", NVF_PLAY_TEST_PIPBOY = "12:open,14:page=data,15:tab=1,16:travel=0009289B,17:key=use" }
+args = ["--cell", "Novac", "--pos=24300,-31700,7050", "--play", "--npc-packages", "all,CraigBooneREF,MannyVargasREF", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 40
+order = [[
+  { re = 'fast travel: to Novac \(0x0009289B\).* (?P<n>\d+) units away', range = [0, 4096], label = "a short hop inside the loaded area" },
+  { re = 'trip behind a loading screen: (?P<n>\d+) residents in the loaded area stay where they are', range = [10, 999], label = "Novac's residents in view stay where they are" },
+]]
+expect = [
+  { text = "MannyVargasREF: put at its package", count = 0, label = "Manny Vargas, in view before the trip, is not moved" },
+  { re = 'arrival summary: (?P<n>\d+) residents put', range = [0, 0], label = "nobody put anywhere (2026-11-01: interiors' residents whose walk would come out could be, by the rule)" },
+]

@@ -1097,7 +1097,12 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
   passed) and is put where the walk ends instead of walking: at the package's place,
   on the furniture the package gives it (seated at once, no walk up and no sitting-down
   clip), at the furniture or marker its sandbox chooses there, at a patrol's first
-  point (`fnv_ai::arrive`, engine `residents.rs` `Core::arrive`). Walks wholly out of
+  point when it goes round, at its last when it goes once (the waits at the points on
+  the way over: Boone's night patrol out of his room, through the gift shop, to the
+  dinosaur's mouth) (`fnv_ai::arrive`, engine `residents.rs` `Core::arrive`). An actor
+  found already at its place on its furniture (the low process had it there behind a
+  door) is seated at once too, instead of walking up and playing the sitting-down clip
+  in sight. Walks wholly out of
   the loaded area stay the low process's. Left alone: actors dead, unconscious,
   restrained, rooted, with their AI off; walks that depend on someone else (following,
   escorting, searching, fleeing, a conversation). These actors join the AI and are

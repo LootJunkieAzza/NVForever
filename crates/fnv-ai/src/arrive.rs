@@ -12,7 +12,8 @@
 //! comes into the loaded area and was not in it before the trip ([`Ai::arrive`]); the
 //! AI takes up the actor's current package and, instead of walking, puts it where the
 //! walk ends: at the package's place, on the furniture the package or its sandbox gives
-//! it, at a patrol's first point. Only walks that start or end in the loaded area
+//! it, at a patrol's first point (one that goes round) or its last (one that goes once,
+//! its waits on the way over). Only walks that start or end in the loaded area
 //! ([`crate::Ai::set_loaded`]) are skipped [hypothesis: the original's actors were seen at the
 //! place, not part-way; whether it puts them exactly at the end or somewhere within the
 //! package's radius is for the observer, docs/handoff/observer-checks.md]. Actors the
@@ -48,7 +49,7 @@ pub struct Arrival {
     pub from: Place,
     pub to: Place,
     /// The walks skipped, and how long they were together (straight lines between the
-    /// ends), game units.
+    /// ends of those within one space), game units.
     pub walks: usize,
     pub skipped: f32,
     /// The furniture it now uses (the engine seats it at once), if any.
@@ -72,7 +73,8 @@ impl Ai {
         // now, not of the last periodic choice.
         game.update_package(actor);
         let (mut walks, mut skipped) = (0, 0.0);
-        for _ in 0..ARRIVE_WALKS {
+        let mut limit = ARRIVE_WALKS;
+        while walks < limit {
             // Takes up the package (its goal and walk), as an update in a menu does.
             self.step_actor(game, nav, actor, 0.0, &mut Passed, true);
             let a = &self.agents[&actor];
@@ -96,7 +98,9 @@ impl Ai {
                 [.., p, q] if goal::dist(*p, *q) > 1.0 => heading_of([q[0] - p[0], q[1] - p[1]]),
                 _ => w.heading,
             };
-            skipped += goal::dist(w.feet, to.pos);
+            if w.space == to.space {
+                skipped += goal::dist(w.feet, to.pos);
+            }
             w.space = to.space;
             w.feet = to.pos;
             w.heading = heading;
@@ -105,11 +109,25 @@ impl Ai {
             let cell = goal::cell_of_place(game.world.placed, &to);
             let _ = game.set_actor_place(actor, cell, to.pos, heading);
             walks += 1;
-            let patrol = matches!(a.goal, Some(Goal::Route(_)));
+            let patrol = match &a.goal {
+                Some(Goal::Route(r)) => Some((r.repeatable, r.points.len())),
+                _ => None,
+            };
             self.arrived(game, nav, actor);
-            // A patrol starts from its first point; it walks on from there in sight.
-            if patrol {
-                break;
+            match patrol {
+                // A patrol that goes round starts from its first point and walks on from
+                // there in sight.
+                Some((true, _)) => break,
+                // One that goes once has been walked to its end (Boone's night patrol to
+                // the dinosaur's mouth, through his room's and the gift shop's doors):
+                // the waits at the points on the way are over too.
+                Some((false, n)) => {
+                    limit = limit.max(n + 1);
+                    if self.agents.get_mut(&actor).expect("listed").wait_until.take().is_some() {
+                        self.patrol_on(game, nav, actor);
+                    }
+                }
+                None => {}
             }
         }
         if walks == 0 {

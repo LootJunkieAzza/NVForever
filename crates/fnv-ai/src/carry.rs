@@ -2269,7 +2269,7 @@ impl Ai {
     /// where the chain loops, round again; a repeatable patrol whose chain ends starts
     /// over at its first point [hypothesis: the documentation says "loop or go back and
     /// forth"]; else the patrol is done.
-    fn patrol_on(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
+    pub(crate) fn patrol_on(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
         let a = &self.agents[&actor];
         let (Some(package), Some(Goal::Route(route))) = (a.package, a.goal.clone()) else { return };
         let at = a.route_at;

@@ -733,8 +733,9 @@ struct Core {
     /// the actors coming into the loaded area are put at their package's place
     /// ([`Core::arrive`], issue #1208).
     trip: Option<Trip>,
-    /// Of all trips: actors put at their package's place, of them seated at once, and
-    /// actors left where they were because they were in the loaded area before the trip.
+    /// Of all trips: actors put at their package's place, actors seated at once (put on
+    /// their furniture, or found on it already), and actors left where they were because
+    /// they were in the loaded area before the trip.
     arrivals: [usize; 3],
 }
 
@@ -747,7 +748,8 @@ struct Trip {
     seen: HashSet<FormId>,
     /// Frames since the loaded cells settled with the game no longer held by the screen.
     settled: u32,
-    /// Residents put at their package's place in this trip, and of them seated.
+    /// Residents put at their package's place in this trip, and those seated at once
+    /// (put on their furniture, or found on it already).
     put: [usize; 2],
 }
 
@@ -1291,13 +1293,21 @@ impl Core {
     /// (`fnv_ai::arrive`; issue #1208: Boone at the dinosaur on a fast travel to Novac
     /// at 5am, Cass at the Mojave Outpost's bar on entering) [observed, owner; the
     /// placing itself: hypothesis]. They join the AI and are drawn under the screen, so
-    /// the screen waits for their bodies (`readahead::actors_waiting`). The trip ends
-    /// [`TRIP_SETTLE_FRAMES`] after the cells settled and the screen let the game go.
+    /// the screen waits for their bodies (`readahead::actors_waiting`). They are put once
+    /// the cells around the player have all loaded (`Streamer::settled`, which the screen
+    /// waits for too). The trip ends [`TRIP_SETTLE_FRAMES`] after that and the screen let
+    /// the game go.
     fn arrive(&mut self, game: &mut Game, nav: &NavState, world: &WorldData, streamer: &Streamer, mut phys: Option<&mut PhysState>) {
         if self.trip.is_none() {
             return;
         }
         self.join(game);
+        // Once the cells around the player are all in (the screen stays up for them):
+        // before, a walk's end could be in a cell not loaded yet and the walk left to be
+        // made in sight (Boone stopped in the gift shop, the dinosaur's cell not in).
+        if !streamer.settled {
+            return;
+        }
         let trip = self.trip.as_mut().expect("checked");
         for r in self.list.iter_mut().filter(|r| r.joined && !r.failed) {
             if trip.before.contains(&r.actor) || trip.seen.contains(&r.actor) {
@@ -1314,7 +1324,27 @@ impl Core {
             }
             trip.seen.insert(r.actor);
             r.present = game.present(r.actor);
-            let Some(arr) = arrival else { continue };
+            let Some(arr) = arrival else {
+                // Already at its place and on its furniture (the low process had it
+                // there, behind the door): seated at once too, not walked up to it in
+                // sight (the Goodsprings settler's bar stool in the Prospector Saloon).
+                let a = &self.ai.agents[&r.actor];
+                // Its seat not yet taken up (`Seat::Wanted`: it was never drawn there).
+                let unseated = matches!(r.seat, Seat::None | Seat::Wanted(..));
+                if let (Some(f), Activity::There, true) = (a.using, a.activity, unseated) {
+                    r.wants = Some(f.0);
+                    r.seat = Seat::Wanted(f.0, true);
+                    self.arrivals[1] += 1;
+                    trip.put[1] += 1;
+                    let line = format!("ai [{}] {}: already on {} at its package's place on arrival: seated at once", self.clock_text, r.label, game.data.name(f));
+                    if r.named {
+                        info!("{line}");
+                    } else {
+                        debug!("{line}");
+                    }
+                }
+                continue;
+            };
             self.arrivals[0] += 1;
             trip.put[0] += 1;
             // Its character, if it had one, is made again where it is now (as after a
@@ -1358,7 +1388,7 @@ impl Core {
             trip.settled += 1;
         }
         if trip.settled >= TRIP_SETTLE_FRAMES {
-            info!("ai [{}] trip over: {} residents put at their package's place, {} of them seated", self.clock_text, trip.put[0], trip.put[1]);
+            info!("ai [{}] trip over: {} residents put at their package's place, {} seated at once", self.clock_text, trip.put[0], trip.put[1]);
             self.trip = None;
         }
     }
@@ -2650,7 +2680,7 @@ pub fn report(
         p.reached_loaded
     );
     info!(
-        "arrival summary: {} residents put at their package's place behind a loading screen, {} of them seated at once; {} left where they were (in the loaded area before the trip)",
+        "arrival summary: {} residents put at their package's place behind a loading screen, {} seated at once on their furniture; {} left where they were (in the loaded area before the trip)",
         core.arrivals[0], core.arrivals[1], core.arrivals[2]
     );
 }

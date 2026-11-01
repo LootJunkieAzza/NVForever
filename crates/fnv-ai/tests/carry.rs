@@ -2277,7 +2277,8 @@ fn an_arriving_actor_is_put_at_its_packages_place_without_walking() {
     let arr = s.ai.arrive(&mut s.game, &s.nav, actor).expect("put at its place");
     assert_eq!(arr.package, FormId(P_TRAVEL_B));
     assert_eq!((arr.from.space, arr.to.space, arr.walks, arr.furniture), (A, B, 1, None));
-    assert!(arr.skipped > 100.0, "{arr:?}");
+    // A walk through a door into another space is not measured.
+    assert_eq!(arr.skipped, 0.0);
     assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0);
     let a = &s.ai.agents[&actor];
     assert_eq!(a.activity, Activity::There);
@@ -2327,20 +2328,36 @@ fn an_arriving_sandboxer_is_already_at_what_it_chose() {
 }
 
 #[test]
-fn an_arriving_patrol_starts_at_its_first_point() {
+fn an_arriving_patrol_that_goes_once_is_at_its_last_point() {
     let f = fixture();
     let mut s = sim(&f, &[R_PATROL]);
     let actor = FormId(R_PATROL);
-    let arr = s.ai.arrive(&mut s.game, &s.nav, actor).expect("put at its first point");
-    assert_eq!(arr.walks, 1);
-    assert!(dist(arr.to.pos, [350.0, 50.0, 0.0]) < 5.0, "{arr:?}");
+    let arr = s.ai.arrive(&mut s.game, &s.nav, actor).expect("put along its patrol");
+    assert_eq!(arr.walks, 3);
+    assert!(dist(arr.to.pos, [50.0, 350.0, 0.0]) < 5.0, "{arr:?}");
+    // Three straight stretches between the points, in one space.
+    assert!(arr.skipped > 800.0, "{arr:?}");
     let points: Vec<u32> = s.events(R_PATROL).iter().filter_map(|e| match e {
         AiEvent::Arrived { patrol_point: Some(p), .. } => Some(p.0),
         _ => None,
     }).collect();
-    assert_eq!(points, vec![M1]);
-    // It walks on to the next point from there, in sight.
+    assert_eq!(points, vec![M1, M2, M3]);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::There);
+    assert_eq!(s.ai.agents[&actor].walker.travelled, 0.0);
+    assert!(s.game.extra[&actor].package_goal_met);
+}
+
+#[test]
+fn an_arriving_patrol_that_goes_round_starts_at_its_first_point() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_LOOP]);
+    let actor = FormId(R_LOOP);
+    // The sentry stands next to L3, its nearest point: there, then it walks on in sight.
+    let arr = s.ai.arrive(&mut s.game, &s.nav, actor).expect("put at its first point");
+    assert_eq!(arr.walks, 1);
+    assert!(dist(arr.to.pos, [50.0, 250.0, 0.0]) < 5.0, "{arr:?}");
     assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    assert!(!s.game.extra[&actor].package_goal_met);
 }
 
 #[test]
