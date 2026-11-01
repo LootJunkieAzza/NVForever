@@ -439,7 +439,7 @@ pub(crate) fn activate(
         MessageWriter<crate::terminal::OpenTerminal>,
         MessageWriter<crate::lockpick::OpenLockpick>,
     ),
-    (mut seat, mut steal, mut ui): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::pickpocket::OpenPickpocket>, MessageWriter<crate::ui_sounds::UiSound>),
+    (mut seat, mut steal, mut ui, mut screen): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::pickpocket::OpenPickpocket>, MessageWriter<crate::ui_sounds::UiSound>, Option<ResMut<crate::loading::Loading>>),
     script: Option<ResMut<crate::script::ScriptState>>,
     locks: Option<Res<crate::control::ControlLocks>>,
     stats: Option<ResMut<crate::control::LockStats>>,
@@ -619,6 +619,10 @@ pub(crate) fn activate(
                     (None, None) => "the worldspace".to_string(),
                 };
                 info!("travel to {to} at {feet:?} heading {heading_deg:.1}");
+                // The player's own trip through a load door (`Loading::arriving`).
+                if let Some(s) = screen.as_deref_mut() {
+                    s.arriving = true;
+                }
                 travel.write(TravelRequest(Travel { world, interior, feet, heading_deg }));
             }
             Effect::OpenContainer(container) => {

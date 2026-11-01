@@ -3074,7 +3074,12 @@ source = "docs/spec-notes/lockpicking.md §7: the wall safe in GSHouseInterior02
 areas = ["lockpick"]
 paths = ["crates/fnv-game/src/lockpick.rs", "engine/nvf-play/src/lockpick*", "engine/nvf-play/src/lockpick/**", "engine/nvforever/src/lockpick_view.rs", "engine/nvf-play/src/activate.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00105229", NVF_PLAY_TEST_GIVE = "0000000A:3", NVF_PLAY_TEST_ACTIVATE = "12,15,32", NVF_PLAY_TEST_LOCKPICK = "1:skill:30,14:skill:55,16:help,17:off:20,17.5:torque:2,24:spot,24.5:torque:2" }
-args = ["--cell", "GSHouseInterior02", "--play", "--no-voice"]
+# --no-messages added 2026-11-01 (#1274): since #1239 the corner messages wait while a box
+# or a menu is open, so the add-on packs' four "items added" notices only began after their
+# boxes closed (about 8.7 s) and still filled the queue when the lockpick menu opened (15 s);
+# the refusal (12 s) then waited behind them through the lockpicking and the container menu.
+# With the boxes closed at once, the notices are through before the refusal.
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
 run_seconds = 36
 order = [[
   'lockpick: 0x00105229 Safe refused (Lockpick 30): on screen: "You need a Lockpick skill of 50 to pick this lock."',
@@ -3964,16 +3969,17 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "00015169:1,000
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
 run_seconds = 24
 # The new player: Health 200, Medicine and Survival 15 (potency 1.3). Stimpak 30 x 1.3 at
-# once; Purified Water 2 x 1.3 a second for 5 s (13); Buffout +2/+3/+60 for 240 s.
+# once; Purified Water 2 x 1.3 = 2.6 a second, rounded down to 2, for 5 s (10; it was 13
+# before #1167 rounded potency-scaled magnitudes down); Buffout +2/+3/+60 for 240 s.
 expect = [
   "test aid: 0x00000014 Health damaged by 60: now 140.0",
   "inventory item used: NPCHumanUsingStimpak",
   "aid: the player used Stimpak (potency 1.30): Health +39.0 at once, limbs too; Health 140 → 179",
-  "aid: the player used WaterPurified (potency 1.30): Health +2.6 a second for 5 s",
+  "aid: the player used WaterPurified (potency 1.30): Health +2.0 a second for 5 s",
   "aid: the player used Buffout (potency 1.00): Strength +2.0 while it lasts (240 s), Endurance +3.0 while it lasts (240 s), Health +60.0 while it lasts (240 s); usage 30; addiction chance 0.00; carry capacity 200 → 220; Strength 5 → 7, Endurance 5 → 8, Carry Weight 200 → 220",
   # When Buffout comes in the 5 s of the water depends on the message boxes; the sum not.
   "aid: WaterPurified's effects on the player ended: Health ",
-  "aid summary: 3 items used (Buffout 1, Stimpak 1, WaterPurified 1), 6 effects started, 2 ended; addictions: none; 0 cured; 0 stage changes; 0 hours waited for effects; the player at exit: Strength 7, Endurance 8, Carry Weight 220, Health 252",
+  "aid summary: 3 items used (Buffout 1, Stimpak 1, WaterPurified 1), 6 effects started, 2 ended; addictions: none; 0 cured; 0 stage changes; 0 hours waited for effects; the player at exit: Strength 7, Endurance 8, Carry Weight 220, Health 249",
 ]
 
 [[scenario]]
@@ -4011,8 +4017,9 @@ commands = [
 # challenge perk (25), Lead Belly (44). §11: five stages per need. Chemist doubles 240 s
 # to 480 s; usage 90 gives 0.2, Chem Resistant halves it; Buffout's +20 capacity outlasts
 # 5 hours (600 s) of a 1,440 s effect. Hardcore: 3 hours slept take Sleep Deprivation 235
-# to 55 (60 an hour, the owner's table 2026-10-23; it was 0 with the old guess of 100)
-# and add 3 x 4.8 Hunger.
+# by 58 an hour, 60 off then the hour's 2 back (#1177: the owner's table 2026-10-23 and
+# 3 hours slept from 0 ending at 2 in the original), to 61; Hunger rises by 3 x 4, whole
+# points (it was 55 and 3 x 4.8 before #1177).
 expect = [
   { json = "perks.count", equals = 109 },
   { json = "perks.entries_by_entry_point.23", equals = 1 },
@@ -4023,8 +4030,8 @@ expect = [
   { json = "use.uses.?item=Buffout.addiction.chance", range = [0.0999, 0.1001], label = "the third Buffout's addiction chance 0.1" },
   { json = "use.wait.values_after.carry_capacity", equals = 220.0 },
   { json = "use.stage_changes.*.spell", equals = "SleepDeprivation200" },
-  { json = "use.wait.values_after.Sleep Deprivation", range = [54.9, 55.1] },
-  { json = "use.wait.values_after.Hunger", range = [14.43, 14.45] },
+  { json = "use.wait.values_after.Sleep Deprivation", range = [60.9, 61.1] },
+  { json = "use.wait.values_after.Hunger", range = [12.03, 12.05] },
 ]
 
 [[scenario]]
@@ -4507,6 +4514,19 @@ args = ["--cell", "Goodsprings", "--pos=-45600,62000,7000", "--play", "--hour", 
 run_seconds = 16
 order = [[
   { re = 'perk marks: Spotter marks [1-9]\d* hostile actors while the player aims', label = "Spotter marks hostiles that have not noticed the player, beyond the compass's range" },
+]]
+
+[[scenario]]
+name = "perk-spotter-past-detection"
+source = "#1171 (owner, observer check 19: the original's Spotter marks every enemy in render distance): Spotter marks hostile actors as far as actors are drawn, past the 5,000-unit outdoor detection reach it stopped at before (engine/nvf-play/src/perk_marks.rs)"
+note = "as perk-spotter-unaware-far, but the player stands about 6,500 units south of where the dogs and fiends are (beyond the 5,000 outdoor detection reach, within the loaded cells at --radius 2); the perk by test aid; the player aims from 9 to 12 s"
+areas = ["perks", "effects"]
+paths = ["engine/nvf-play/src/perk_marks.rs", "engine/nvforever/src/draw_distance.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_SCRIPT = "3:perk:Spotting", NVF_PLAY_TEST_CONTROL = "2:weapon", NVF_PLAY_TEST_KEYS = "9:mouse-right:3" }
+args = ["--cell", "Goodsprings", "--pos=-45600,58500,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 16
+order = [[
+  { re = 'perk marks: Spotter marks [1-9]\d* hostile actors while the player aims', label = "Spotter marks hostiles past the detection reach" },
 ]]
 
 [[scenario]]
@@ -6796,6 +6816,31 @@ order = [[
 ]]
 
 [[scenario]]
+name = "console-tlik-temo-slpm-mfg-bat"
+source = "issue #1046 step 3: tlik (ToggleLookIK), temo (ToggleEmotions), tfow (ToggleFogOfWar), MFG, bat and slpm (ShowLockPickMenu) did nothing; Doc Mitchell's face takes MFG's morphs, a missing batch file is named, slpm closes the console and opens a practice lock that is picked without changing anything (docs/design/console.md)"
+areas = ["console"]
+paths = ["crates/fnv-game/src/functions/console.rs", "crates/fnv-game/src/functions/toggles.rs", "engine/nvforever/src/console_toggles.rs", "engine/nvforever/src/lips.rs", "engine/nvf-play/src/console.rs", "engine/nvf-play/src/lockpick.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_GIVE = "0000000A:3", NVF_PLAY_TEST_CONSOLE = "12:tlik;12.3:tlik;12.6:temo;12.9:temo;13.2:tfow;13.5:DocMitchellREF.mfg expression 3 100;14:DocMitchellREF.mfg modifier 16 50;14.5:DocMitchellREF.mfg reset;14.8:bat nvf_smoke_no_such_batch;15.1:slpm 2", NVF_PLAY_TEST_LOCKPICK = "17:help,18:spot,18.5:torque:2" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 28
+order = [[
+  { re = 'console: Head tracking off', label = "tlik" },
+  { re = 'console: Head tracking on', label = "tlik again" },
+  { re = 'console: Emotions off', label = "temo" },
+  { re = 'console: Emotions on', label = "temo again" },
+  { re = 'console: The local map has no fog of war here', label = "tfow says why it does nothing" },
+  { re = 'console: \S+ \S+: MFG expression Sad at 100', label = "MFG on Doc Mitchell" },
+  { re = 'face: [0-9A-F]{8} MFG Sad 100$', label = "his face asks for Sad" },
+  { re = 'face: [0-9A-F]{8} MFG Sad 100, HeadYaw 50', label = "and turns his head" },
+  { re = 'face: [0-9A-F]{8} MFG reset', label = "MFG reset clears it" },
+  { re = 'console: No batch file nvf_smoke_no_such_batch\.txt', label = "bat names the file it did not find" },
+  { re = 'console: Practice lock \(Easy\): the lockpicking menu opens', label = "slpm 2" },
+  { re = 'lockpick: open 0x00000000 practice lock: Easy lock', label = "the menu opens on the practice lock" },
+  { re = 'lockpick: the lock turned all the way: practice lock picked open \(Easy lock\)', label = "picked; nothing in the world changes" },
+]]
+forbid = [{ re = 'lockpick: crime hook', label = "a practice lock is no crime" }]
+
+[[scenario]]
 name = "reputation-disguise"
 source = "owner request 2026-10-22: faction armour's scripts set every reputation to 0 while it is worn and back after; only the player's real reputation opens boxes, so putting on and taking off a Powder Gang outfit (000A472F, script 00134B71) shows none"
 areas = ["hud"]
@@ -7003,6 +7048,37 @@ expect = [
   "wait menu: open as sleep (the player lies on a bed)",
   { re = 'sleep: crippled limbs healed: Left Mobility Condition', label = "the first hour slept heals the leg" },
   "combat: player's left leg healed",
+]
+
+[[scenario]]
+name = "sleep-heals-health"
+source = "issue #1177: outside Hardcore a sleep restores all Health (and crippled limbs) [observed: the owner in the original, 2026-10-31]; a wait restores none (docs/spec-notes/wait-menu.md §10)"
+note = "the console takes 50 Health from the player; the player lies on the Goodsprings house bed (as crippled-sleep-heals) and sleeps 2 hours"
+areas = ["wait", "aid"]
+paths = ["crates/fnv-game/src/needs.rs", "engine/nvf-play/src/aid.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "10:player.DamageAV Health 50;10.5:close", NVF_PLAY_TEST_NEAR = "00176ACE", NVF_PLAY_TEST_ACTIVATE = "16", NVF_PLAY_TEST_WAIT = "22:open,23.5:hours=2,24.5:accept" }
+args = ["--cell", "GSHouseInterior03", "--play", "--hour", "22", "--no-voice"]
+run_seconds = 34
+expect = [
+  "wait menu: open as sleep (the player lies on a bed)",
+  { re = 'sleep: Health restored by \d+', label = "the first hour slept restores Health" },
+  { re = 'wait: hour 2 passed for the player', label = "the second hour passes" },
+]
+
+[[scenario]]
+name = "wait-needs-whole-points"
+source = "issue #1177: in Hardcore an hour waited raises Dehydration, Hunger and Sleep Deprivation by 12, 4 and 2, whole points [observed: the owner in the original, 2026-10-31: 3 hours waited from 0 gave 36, 12, 6] (docs/spec-notes/aid-items.md §11)"
+note = "Hardcore on at 3 s; the three needs set to 100 just before the Wait menu opens (T, no bed), 3 hours waited. The tenth of a second of play between the set and the menu adds at most 0.01, which the log's whole numbers hide"
+areas = ["wait", "aid", "hardcore"]
+paths = ["crates/fnv-game/src/needs.rs", "engine/nvf-play/src/aid.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:hardcore:1,13.9:set_av:player:Dehydration:100,13.9:set_av:player:Hunger:100,13.9:set_av:player:SleepDeprivation:100", NVF_PLAY_TEST_WAIT = "14:open,15:hours=3,16:accept" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 28
+expect = [
+  "test aid: Hardcore mode on",
+  "wait menu: open as wait",
+  { re = 'wait: hour 1 passed for the player .*; Dehydration 100 → 112, Hunger 100 → 104, Sleep Deprivation 100 → 102(?![\d.])', label = "the first hour: 12, 4 and 2" },
+  { re = 'wait: hour 3 passed for the player .*; Dehydration 124 → 136, Hunger 108 → 112, Sleep Deprivation 104 → 106(?![\d.])', label = "three hours: 36, 12 and 6" },
 ]
 
 [[scenario]]
@@ -10361,6 +10437,25 @@ expect = [
   { re = 'decals summary: \d+ placed \((?P<n>\d+) on actors\)', range = [1, 3], label = "no more than three on him" },
 ]
 
+[[scenario]]
+name = "blood-spray"
+source = "issue #1074: blood spray was not seen on hits to living actors nor on dismemberment though its particles were born; every particle system faded towards the surface behind it over 160 units, so the blood mist a few units off a body drew at a few percent. Particles now fade over a quarter of their width (docs/spec-notes/nif.md §6 \"Soft intersections of particles\")"
+note = "the impact-decals-blood setup: God mode in the Goodsprings general store, the 10mm pistol with no spread shoots the living Chet in the chest four times from 14.1 s (BallisticOrganicImpact, its add-on node 11 = MPSBloodSplat01); then the hit aid explodes his head with a sniper rifle at 17 s and the console has KillActor explode his left leg at 19 s. Frames just after the third shot and the head for a look"
+areas = ["combat", "render"]
+paths = ["engine/nvf-assets/src/particles.rs", "engine/nvforever/src/particles.rs", "engine/nvforever/src/shot_fx.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:20", NVF_PLAY_TEST_CONTROL = "10:weapon,14:aimnpc=0.6,14.1:fire,14.5:aimnpc=0.6,14.6:fire,15:aimnpc=0.6,15.1:fire,15.4:aimnpc=0.6,15.5:fire", NVF_PLAY_TEST_HIT = "17:GSChetRef:500:WeapSniperRifle:limb=PerceptionCondition", NVF_PLAY_TEST_CONSOLE = "19:GSChetRef.KillActor player 7;19.5:close", NVF_PLAY_TEST_SHOTS = "15.15:blood_spray_hit.png,17.2:blood_spray_head.png" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 23
+expect = [
+  { re = '(?i)particles: add-on node 11 \S*mpsbloodsplat01\S*: 3 system\(s\) \[pBloodSpraySmall [^;]*soft over 1\.0; pBloodMist [^;]*soft over 30\.0', label = "the blood spray's drops and mist fade only near the surface, by their size" },
+  { re = 'particles: born in add-on node 11: (?=.*pBloodSpraySmall [1-9])(?=.*pBloodMist [1-9])', label = "hits on the living Chet spray blood drops and mist" },
+  { re = 'dismember: .* 0x00104C79: Head exploded \(overkill', label = "the sniper rifle explodes Chet's head" },
+  { re = 'dismember: .* 0x00104C79: Left Leg exploded \(KillActor\)', label = "KillActor explodes his left leg" },
+  { re = '(?i)particles: born in \S*bloodspraylimb01\.nif: pBloodLimbSpray [1-9]', label = "the exploded parts spurt blood (the limb blood spray)" },
+  { re = '(?i)particles: born in \S*fxgorepophead01\.nif: BloodMist [1-9]', label = "the exploded head puffs a blood mist" },
+]
+manual = "blood_spray_hit.png: a dark red puff and drops at Chet's chest; blood_spray_head.png: blood where his head was"
+
 # ------------------------------------------------------------------ playtest list 7 (W8, frame rate)
 
 [[scenario]]
@@ -11556,7 +11651,7 @@ areas = ["quests", "scripts", "save"]
 paths = ["crates/fnv-game/walkthrough/", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/game.rs", "crates/fnv-save/", "crates/fnv-sim/src/world.rs", "crates/fnvtool/src/script_cmd.rs"]
 commands = [["script", "roundtrip", "{data}", "{masters}", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough"]]
 expect = [
-  { json = "differing", equals = 0, label = "no chain ends differently after a save and load at its midpoint", known_failing = "fail-boulder-force, come-fly-with-me and birds-of-a-feather (all save while the player is hunted): awareness is not saved (the engine measures again after a load; save-load.md), and headless runs have no detection to measure it, so the player is out of combat after the load and CGTutorial's VATSTimer reads 0; handoff §6" },
+  { json = "differing", equals = 0, label = "no chain ends differently after a save and load at its midpoint" },
 ]
 manual = "a chain that differs lists its first differences (final.quests.<quest>... / observations[i]...): the state that did not survive the save is what the snapshot (Game::snapshot) leaves out"
 
@@ -17193,3 +17288,59 @@ expect = [
   { re = 'test aid: screenshot .*font_glyph_baseline[.]png', label = "the glyph comparison frame is saved" },
 ]
 manual = "font_glyph_baseline.png, compared with upstream main and the original at 1280x720: every x-height letter in 'NVF box without buttons' has the same top and bottom ink rows; the two u glyphs have equal heights; capitals and ascenders share their own height. Check the whole box, including its frame and Ok button, for position or size changes. Log expectations only verify the scene and capture; the glyph appearance needs this image review."
+
+[[scenario]]
+name = "arrive-door-seated"
+source = "issue #1208 (owner): after a load door or a fast travel the destination's actors are already where their package has them, seated on its furniture, not walking there in front of the player; those loaded before the trip are not moved (docs/spec-notes/packages.md §8)"
+note = "Goodsprings at 20:00, every resident; at 14 s the player goes through the Prospector Saloon's door. GoodspringsSettler04Ref (00104F08) is behind the door on GoodspringsSettlerSaloonPackage, at the bar stool 00106192 (the low process took him there): he is drawn on it at once. Before the change he walked up to it and played SpecialIdle_StoolEnter in front of the player (2026-11-01)"
+areas = ["ai", "residents", "loading"]
+paths = ["crates/fnv-ai/src/arrive.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:activate:ProspectorSaloonDoor" }
+args = ["--cell", "Goodsprings", "--play", "--npc-packages", "all,GoodspringsSettler04Ref,TrudyRef,SunnyRef,GSJoeCobbRef,CheyenneREF,EasyPeteRef", "--hour", "20", "--no-voice", "--no-messages"]
+run_seconds = 40
+order = [[
+  { re = 'trip behind a loading screen: (?P<n>\d+) residents in the loaded area .*stay where they are', range = [5, 999], label = "the residents of Goodsprings' streets stay where they are" },
+  { text = "GoodspringsSettler04Ref: already on 0x00106192 at its package's place on arrival: seated at once", label = "the settler is seated on his bar stool at once" },
+  { text = "furniture: 00104F08 is back on 00106192", label = "drawn on the stool, no walk up" },
+]]
+expect = [
+  { text = "furniture: 00104F08 goes to 00106192", count = 0, label = "he does not walk up to the stool in sight" },
+  { re = 'arrival summary: \d+ residents put .*, (?P<n>\d+) seated at once', range = [1, 99], label = "arrival summary: someone seated at once" },
+]
+
+[[scenario]]
+name = "arrive-fast-travel-boone"
+source = "issue #1208 (owner): fast travelling to Novac, Boone is already at his post on arrival, not walking there from his motel room (docs/spec-notes/packages.md §8)"
+note = "Goodsprings at 12:00; Novac's marker 0x0009289B made a travel target by ShowMap; the 9.6 h trip lands at about 21:40, when Boone's NovacBoonePatrolToNest (21:00) is current: out of his room (behind the motel's door), through the gift shop, to the sniper marker 0x000CB0EF (25415, -32822) in the dinosaur's mouth. He is put there behind the loading screen and uses no door in sight. Manny Vargas, whose day shift ended, is put in his room"
+areas = ["ai", "residents", "fast-travel"]
+paths = ["crates/fnv-ai/src/arrive.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "6:call:-:ShowMap:0x0009289B:1", NVF_PLAY_TEST_PIPBOY = "12:open,14:page=data,15:tab=1,16:travel=0009289B,17:key=use" }
+args = ["--cell", "Goodsprings", "--play", "--npc-packages", "all,CraigBooneREF,MannyVargasREF", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 60
+order = [[
+  { re = 'fast travel: 9\.\d\d hours passed', label = "the trip to Novac passes the evening" },
+  "trip behind a loading screen",
+  { re = 'CraigBooneREF: put at its package.s place on arrival \(NovacBoonePatrolToNest\): \(254\d\d, -328\d\d, \d+\) in WastelandNV, .*3 walk\(s\) skipped', label = "Boone is at the sniper marker in the dinosaur's mouth on arrival" },
+]]
+expect = [
+  { text = "CraigBooneREF: used door", count = 0, label = "Boone walks through no door in sight" },
+  { re = 'MannyVargasREF: put at its package.s place on arrival \(NovacVargasPatrolToHome\): .* in NovacVargasRoom', label = "Manny Vargas is home" },
+]
+
+[[scenario]]
+name = "arrive-fast-travel-short"
+source = "issue #1208: a short fast travel inside the loaded area moves nobody who was in it (docs/spec-notes/packages.md §8)"
+note = "Novac at 12:00 by the dinosaur; a fast travel to Novac's own marker 2,427 units away (no time passes). Every resident in the loaded area before the trip stays where it is: Manny Vargas, on his way up to the dinosaur's mouth, goes on walking. Residents of the rooms behind Novac's doors are near the player and unseen: some are put at their package's place (6 on 2026-11-01)"
+areas = ["ai", "residents", "fast-travel"]
+paths = ["crates/fnv-ai/src/arrive.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "6:call:-:ShowMap:0x0009289B:1", NVF_PLAY_TEST_PIPBOY = "12:open,14:page=data,15:tab=1,16:travel=0009289B,17:key=use" }
+args = ["--cell", "Novac", "--pos=24300,-31700,7050", "--play", "--npc-packages", "all,CraigBooneREF,MannyVargasREF", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 40
+order = [[
+  { re = 'fast travel: to Novac \(0x0009289B\).* (?P<n>\d+) units away', range = [0, 4096], label = "a short hop inside the loaded area" },
+  { re = 'trip behind a loading screen: (?P<n>\d+) residents in the loaded area .*stay where they are', range = [10, 999], label = "Novac's residents in view stay where they are" },
+]]
+expect = [
+  { text = "MannyVargasREF: put at its package", count = 0, label = "Manny Vargas, in view before the trip, is not moved" },
+  { re = 'put at its package.s place on arrival .* units from \([^)]*\) in WastelandNV', count = 0, label = "nobody in Novac's street is put anywhere (residents in the rooms behind its doors may be: they are near and unseen)" },
+]

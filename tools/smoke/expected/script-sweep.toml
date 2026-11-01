@@ -13,7 +13,8 @@
 run = 8639
 # 3 of them since #1127: the axis-2 SetReputation lines (INFO 0x00119094, 0x00131F74,
 # 0x001543A9) fail and stop the script, as in the original (o5_00/o5_01).
-with_problems = 117
+# 117 before #1113: `RemoveItem <item> 0` removes nothing and goes on (observer check 44).
+with_problems = 98
 
 [summary.scripts.package]
 run = 558
@@ -28,8 +29,8 @@ run = 384
 with_problems = 50
 
 [summary.problems.call_failed]
-causes = 54
-scripts = 384
+causes = 53
+scripts = 352
 
 [summary.problems.script_error]
 causes = 1

@@ -3247,3 +3247,48 @@ fn console_saq_rdf_rat_and_zap() {
     run(&mut g, "zap", &ConsoleCtx { on: Some(FormId(NPC_REF)), ..Default::default() }).unwrap();
     assert!(g.extra[&FormId(NPC_REF)].marked_for_delete);
 }
+
+/// `tlik`, `temo`, `tfow`, `slpm` and `MFG` (#1046 step 3): the toggles are asked of the
+/// engine, ToggleFogOfWar says why it does nothing, ShowLockPickMenu asks for a practice
+/// lock (Average without a difficulty), MFG keeps one expression at a time, takes a
+/// morph off at 0 and forgets the face on reset.
+#[test]
+fn console_tlik_temo_tfow_slpm_and_mfg() {
+    use fnv_game::functions::console::{lookup_word, ConsoleCtx, ConsoleRequest, FaceMfg};
+    use fnv_game::functions::toggles::Toggle;
+    use fnv_game::lockpick::Level;
+    let f = fixture();
+    let mut g = game(&f);
+    for word in ["tlik", "temo", "ToggleLookIK"] {
+        fnv_game::functions::console::call_words(&mut g, None, word, &[], "console").unwrap();
+    }
+    assert_eq!(g.toggles.asked, [Toggle::LookIk, Toggle::Emotions, Toggle::LookIk]);
+    let run = |g: &mut Game, word: &str, ctx: &ConsoleCtx, a: &[&str]| {
+        let (_, run) = lookup_word(&g.data.table, word).unwrap_or_else(|| panic!("{word}"));
+        run(g, ctx, &a.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    };
+    let none = ConsoleCtx::default();
+    assert!(run(&mut g, "tfow", &none, &[]).unwrap()[0].contains("no fog of war"));
+    run(&mut g, "slpm", &none, &[]).unwrap();
+    run(&mut g, "slpm", &none, &["5"]).unwrap();
+    assert!(run(&mut g, "slpm", &none, &["6"]).is_err());
+    assert_eq!(g.console_requests, [ConsoleRequest::Lockpick(Level::Average), ConsoleRequest::Lockpick(Level::VeryHard)]);
+    assert!(run(&mut g, "mfg", &none, &["expression", "3", "100"]).is_err(), "nothing selected");
+    let on = ConsoleCtx { on: Some(FormId(NPC_REF)), ..Default::default() };
+    assert!(run(&mut g, "mfg", &on, &["expression", "3", "100"]).unwrap()[0].ends_with("MFG expression Sad at 100"));
+    run(&mut g, "mfg", &on, &["expression", "2", "250"]).unwrap();
+    run(&mut g, "mfg", &on, &["phoneme", "0", "25"]).unwrap();
+    run(&mut g, "mfg", &on, &["modifier", "16", "-50"]).unwrap();
+    assert!(run(&mut g, "mfg", &on, &["modifier", "17", "50"]).is_err());
+    let face = &g.mfg[&FormId(NPC_REF)];
+    assert_eq!(face.expression, Some((2, 100.0)), "one expression at a time, at most 100");
+    assert_eq!((face.phonemes[&0], face.modifiers[&16]), (25.0, -50.0));
+    run(&mut g, "mfg", &on, &["phoneme", "0", "0"]).unwrap();
+    assert!(g.mfg[&FormId(NPC_REF)].phonemes.is_empty());
+    run(&mut g, "mfg", &on, &["reset"]).unwrap();
+    assert!(!g.mfg.contains_key(&FormId(NPC_REF)));
+    run(&mut g, "mfg", &on, &["modifier", "9", "100"]).unwrap();
+    run(&mut g, "mfg", &on, &["modifier", "9", "0"]).unwrap();
+    assert!(!g.mfg.contains_key(&FormId(NPC_REF)), "nothing left set: no face kept");
+    assert_eq!(FaceMfg::default().expression, None);
+}

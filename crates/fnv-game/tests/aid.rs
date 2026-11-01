@@ -307,14 +307,16 @@ fn restoration_over_time_follows_the_seconds() {
     add_actor_value_damage(&mut g, P, HEALTH, 60.0);
     g.ingest(P, FormId(STIM_HC));
     assert!(near(av(&mut g, HEALTH), 40.0));
+    // 5 a second at Medicine 15's potency 1.3 is 6.5, rounded down to 6 (#1167).
     g.frames(180);
-    assert!((av(&mut g, HEALTH) - 59.5).abs() < 1e-3, "{}", av(&mut g, HEALTH));
+    assert!((av(&mut g, HEALTH) - 58.0).abs() < 1e-3, "{}", av(&mut g, HEALTH));
     g.frames(240);
-    assert!((av(&mut g, HEALTH) - 79.0).abs() < 1e-3);
+    assert!((av(&mut g, HEALTH) - 76.0).abs() < 1e-3);
     assert!(g.effects.is_empty());
 }
 
-/// Food's potency follows Survival (55 → 2.1, the GECK wiki's example).
+/// Food's potency follows Survival (55 → 2.1, the GECK wiki's example); the scaled
+/// magnitude is rounded down.
 #[test]
 fn food_follows_survival() {
     let f = fixture();
@@ -322,8 +324,9 @@ fn food_follows_survival() {
     add_actor_value_damage(&mut g, P, HEALTH, 50.0);
     let r = g.ingest(P, FormId(FOOD));
     assert!(near(r.potency, 2.1));
+    // 2 a second × 2.1 = 4.2, rounded down to 4, for 5 s.
     g.frames(300);
-    assert!((av(&mut g, HEALTH) - 71.0).abs() < 1e-3);
+    assert!((av(&mut g, HEALTH) - 70.0).abs() < 1e-3);
 }
 
 /// Recover: a temporary modifier while the effect lasts; the base and the permanent
@@ -433,15 +436,15 @@ fn waiting_advances_effect_timers() {
     // A restoration by the second gives what is left of it, no more.
     add_actor_value_damage(&mut g, P, HEALTH, 60.0);
     g.ingest(P, FormId(STIM_HC));
-    g.pass_hours(1.0, true);
-    assert!((av(&mut g, HEALTH) - 79.0).abs() < 1e-6);
+    g.pass_hours(1.0, false);
+    assert!((av(&mut g, HEALTH) - 76.0).abs() < 1e-6);
     // Outside Hardcore the needs do not move.
     assert_eq!(av(&mut g, HUNGER), 0.0);
 }
 
 /// In Hardcore the needs rise one point every `rate` seconds of play (hunger 25, sleep
-/// 50, dehydration 10 from the owner's table), in play and while waiting; sleep lowers sleep
-/// deprivation (aid-items.md §11).
+/// 50, dehydration 10 from the owner's table) in play, and by whole points an hour while
+/// waiting (12, 4, 2); sleep lowers sleep deprivation (aid-items.md §11).
 #[test]
 fn hardcore_needs_rise_with_time() {
     let f = fixture();
@@ -455,16 +458,51 @@ fn hardcore_needs_rise_with_time() {
     assert!((av(&mut g, SLEEP_DEPRIVATION) - 0.5).abs() < 1e-6);
     let passed = g.pass_hours(10.0, false);
     assert_eq!(passed.needs.len(), 3);
-    assert!((av(&mut g, HUNGER) - 49.0).abs() < 1e-6);
-    assert!((av(&mut g, SLEEP_DEPRIVATION) - 24.5).abs() < 1e-6);
+    assert!((av(&mut g, HUNGER) - 41.0).abs() < 1e-6);
+    assert!((av(&mut g, SLEEP_DEPRIVATION) - 20.5).abs() < 1e-6);
     g.pass_hours(1.0, true);
-    assert_eq!(av(&mut g, SLEEP_DEPRIVATION), 0.0);
-    assert!((av(&mut g, HUNGER) - 53.8).abs() < 1e-6);
+    assert_eq!(av(&mut g, SLEEP_DEPRIVATION), 2.0);
+    assert!((av(&mut g, HUNGER) - 45.0).abs() < 1e-6);
     // Food lowers hunger ("Restore" on a need), never below 0.
     g.ingest(P, FormId(BREAD));
-    assert!((av(&mut g, HUNGER) - 23.8).abs() < 1e-6);
+    assert!((av(&mut g, HUNGER) - 15.0).abs() < 1e-6);
     g.ingest(P, FormId(BREAD));
     assert_eq!(av(&mut g, HUNGER), 0.0);
+}
+
+/// The owner's check in the original (2026-10-31, Hardcore, all needs at 0, #1177): 3
+/// hours waited give H2O 36, FOD 12, SLP 6; 3 hours slept give 36, 12 and 2. In
+/// Hardcore the sleep heals no Health.
+#[test]
+fn waits_and_sleeps_give_the_originals_totals() {
+    let f = fixture();
+    for (sleeping, slp) in [(false, 6.0), (true, 2.0)] {
+        let mut g = game(&f);
+        g.player.hardcore = Some(true);
+        add_actor_value_damage(&mut g, P, HEALTH, 40.0);
+        for _ in 0..3 {
+            g.pass_hours(1.0, sleeping);
+        }
+        assert_eq!((av(&mut g, DEHYDRATION), av(&mut g, HUNGER), av(&mut g, SLEEP_DEPRIVATION)), (36.0, 12.0, slp), "sleeping {sleeping}");
+        // Hours passed at once give the same.
+        let mut h = game(&f);
+        h.player.hardcore = Some(true);
+        h.pass_hours(3.0, sleeping);
+        assert_eq!((av(&mut h, DEHYDRATION), av(&mut h, HUNGER), av(&mut h, SLEEP_DEPRIVATION)), (36.0, 12.0, slp));
+        assert_eq!(av(&mut g, HEALTH), 60.0);
+    }
+}
+
+/// Outside Hardcore a sleep restores all Health (and limbs); a wait restores none.
+#[test]
+fn a_sleep_outside_hardcore_restores_health() {
+    let f = fixture();
+    let mut g = game(&f);
+    add_actor_value_damage(&mut g, P, HEALTH, 70.0);
+    assert_eq!(g.pass_hours(1.0, false).health_restored, 0.0);
+    assert_eq!(av(&mut g, HEALTH), 30.0);
+    assert_eq!(g.pass_hours(1.0, true).health_restored, 70.0);
+    assert_eq!(av(&mut g, HEALTH), 100.0);
 }
 
 /// SetHardcore turns on the simulation's switch too (ammunition weighs), and turning it
@@ -573,6 +611,21 @@ fn perks_change_chems_addiction_and_rads() {
     g.player.perks.clear();
     g.ingest(P, FormId(NUKA));
     assert!(near(av(&mut g, RAD_LEVEL), 15.0));
+}
+
+/// In god mode (tgm) a damaging effect leaves the player alone: the original's Beer and
+/// Nuka-Cola, drunk with tgm on, raised no Dehydration (o7_00, #1167). Without it the
+/// soda's damage holds.
+#[test]
+fn god_mode_keeps_damaging_effects_off_the_player() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.toggles.god_mode = true;
+    g.ingest(P, FormId(NUKA));
+    assert_eq!(av(&mut g, RAD_LEVEL), 0.0);
+    g.toggles.god_mode = false;
+    g.ingest(P, FormId(NUKA));
+    assert!(near(av(&mut g, RAD_LEVEL), 10.0));
 }
 
 /// Buffout's +2 Strength raises the carry capacity the menus show by 20 while it lasts

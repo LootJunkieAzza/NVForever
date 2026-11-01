@@ -724,6 +724,7 @@ fn mouse_look(
     driven: Option<Res<ViewDriven>>,
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
+    assist: Option<Res<crate::aim_assist::AimAssistState>>,
 ) {
     // The console's free camera takes the mouse (`crate::free_cam`), and so does the
     // weapon wheel while it is open (`crate::weapon_wheel`); a playing kill camera holds
@@ -736,11 +737,12 @@ fn mouse_look(
     let playing = *state.get() == PlayState::Playing || look.is_some_and(|l| l.0);
     // The right stick's turn this frame, as mouse counts of a thousandth of a radian
     // (`crate::bindings::LOOK_SPEED_HORIZONTAL`), pushed a little turning slowly
-    // (squared) [design].
+    // (squared) [design], slower on a nearby hostile (`crate::aim_assist`; never the
+    // mouse).
     let (delta, s) = if bindings.device == crate::bindings::InputDevice::Controller {
         let v = crate::pad::stick(&pads, false);
         let curve = |x: f32| x * x.abs();
-        let dt = time.delta_secs();
+        let dt = time.delta_secs() * assist.map_or(1.0, |a| a.look_scale);
         (Vec2::new(curve(v.x) * bindings.look_speed[0] * dt, -curve(v.y) * bindings.look_speed[1] * dt), STICK_LOOK_RADIANS)
     } else {
         (motion.delta, bindings.mouse_sensitivity)
