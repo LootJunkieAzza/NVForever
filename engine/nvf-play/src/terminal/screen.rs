@@ -475,14 +475,20 @@ fn scanline_image(data: &GameData, images: &mut Assets<Image>) -> Option<(Handle
         return None;
     }
     let column = scanline_column(&band, CANVAS.y as usize, SCANLINE_PITCH);
-    let alpha: Vec<u8> = column.iter().map(|&k| ((1.0 - k).clamp(0.0, 1.0) * 255.0).round() as u8).collect();
-    let kept = alpha.iter().map(|&a| 1.0 - a as f32 / 255.0).sum::<f32>() / alpha.len() as f32;
-    let rgba = alpha.iter().flat_map(|&a| [0, 0, 0, a]).collect();
+    let (rgba, kept) = scanline_pixels(&column);
     let format = bevy::render::render_resource::TextureFormat::Rgba8Unorm;
     let mut image = nvf_assets::texture::checked_image(1, column.len() as u32, 1, format, rgba).map_err(|e| warn!("terminal: {SCANLINES}: {e}")).ok()?;
     image.asset_usage = bevy::asset::RenderAssetUsages::default();
     image.sampler = bevy::image::ImageSampler::linear();
     Some((images.add(image), kept))
+}
+
+/// [design] Quantize the overlay first, then measure the light those actual bytes keep.
+fn scanline_pixels(column: &[f32]) -> (Vec<u8>, f32) {
+    let alpha: Vec<u8> = column.iter().map(|&k| ((1.0 - k).clamp(0.0, 1.0) * 255.0).round() as u8).collect();
+    let kept = alpha.iter().map(|&a| 1.0 - a as f32 / 255.0).sum::<f32>() / alpha.len() as f32;
+    let rgba = alpha.iter().flat_map(|&a| [0, 0, 0, a]).collect();
+    (rgba, kept)
 }
 
 #[derive(Component)]
@@ -802,17 +808,24 @@ mod tests {
         // [design] Exercise source-over at partial glyph coverage as well as the
         // empty glass and solid blocks; blending must happen in linear light.
         assert_eq!(compose_screen(block.with_alpha(0.5), Some(BACKGROUND_MIDDLE)).to_srgba().to_u8_array(), [39, 187, 110, 255]);
-        for shade in [SHADE, SHADE_FLAT] {
+        for (shade, glare_floor) in [(SHADE, Some([8u8, 6, 8])), (SHADE_FLAT, None)] {
             for world in [Color::BLACK, Color::WHITE] {
                 let backdrop = over(Color::BLACK.with_alpha(shade), world);
                 let shown_glass = over(glass, backdrop).to_srgba().to_u8_array();
                 let shown_block = over(block, backdrop).to_srgba().to_u8_array();
-                // [design] What the glare's dark texels add over the middle in linear
-                // light, about (8, 6, 8) display units on this glass (terminal_view.rs,
-                // §7), is what puts the glass into the §2 ranges.
-                let glare_floor = [8u8, 6, 8];
+                // [design] Monitor only: what the glare's dark texels add over the
+                // middle in linear light, about (8, 6, 8) display units on this glass
+                // (terminal_view.rs, §7), puts the glass into the §2 ranges.
+                if let Some(floor) = glare_floor {
+                    for channel in 0..3 {
+                        assert!(ranges[channel].contains(&(shown_glass[channel] + floor[channel])), "glass {shown_glass:?}, shade {shade}");
+                    }
+                } else {
+                    // Flat mode has no glare: the opaque canvas must show its own
+                    // middle, independently of the world behind its darker shade.
+                    assert_eq!(shown_glass, [12, 38, 20, 255]);
+                }
                 for channel in 0..3 {
-                    assert!(ranges[channel].contains(&(shown_glass[channel] + glare_floor[channel])), "glass {shown_glass:?}, shade {shade}");
                     assert!(shown_block[channel].abs_diff([54, 252, 150][channel]) <= 3, "block {shown_block:?}, shade {shade}");
                 }
                 assert_eq!(shown_glass[3], 255);
@@ -831,6 +844,22 @@ mod tests {
         let half = display_blend(0.5, ink, glass);
         assert!((0.25..0.35).contains(&half), "{half}");
         assert_eq!(display_blend(0.3, 0.5, 0.5), 0.3);
+    }
+
+    #[test]
+    fn soft_dark_edges_blend_as_display_values_over_bright_fills() {
+        // [design] Exercise the lit atlas's dark-over-bright bend independently of
+        // bright text on glass; its half coverage needs more than half linear alpha.
+        let (ink, fill) = (5.0 / 255.0, 252.0 / 255.0);
+        for coverage in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            let alpha = display_blend(coverage, ink, fill);
+            let shown = over(lit_text().with_alpha(alpha), bright()).to_srgba();
+            let expected = coverage * ink + (1.0 - coverage) * fill;
+            assert!((shown.green - expected).abs() < 1e-5, "coverage {coverage}, alpha {alpha}");
+        }
+        assert_eq!(display_blend(0.0, ink, fill), 0.0);
+        assert!((display_blend(1.0, ink, fill) - 1.0).abs() < 1e-5);
+        assert!((0.7..0.85).contains(&display_blend(0.5, ink, fill)));
     }
 
     #[test]
@@ -966,6 +995,52 @@ mod tests {
         assert_eq!(lifted(glass, 1.0).to_srgba().to_u8_array(), glass.to_srgba().to_u8_array());
         let lift = lifted(glass, 0.5).to_linear();
         assert!((lift.green - 2.0 * glass.to_linear().green).abs() < 1e-6);
+    }
+
+    #[test]
+    fn quantized_scanlines_preserve_the_glass_mean_through_all_layers() {
+        // [design] Use the same baked bytes and kept mean as scanline_image, then
+        // mirror spawn's lifted undercoat -> texture * lifted tint -> overlay. Check
+        // corners, middle and bright glass plus the missing-background fallback.
+        let band: Vec<f32> = (0..64).map(|i| if (32..48).contains(&i) { 0.8 } else { 1.0 }).collect();
+        let column = scanline_column(&band, CANVAS.y as usize, SCANLINE_PITCH);
+        let (rgba, kept) = scanline_pixels(&column);
+        let byte_mean = rgba.chunks_exact(4).map(|p| 1.0 - p[3] as f32 / 255.0).sum::<f32>() / column.len() as f32;
+        assert_eq!(kept, byte_mean);
+        assert!(kept > 0.5 && kept < 1.0);
+        for sample in [Some(Color::srgb_u8(5, 6, 5)), Some(BACKGROUND_MIDDLE), Some(Color::srgb_u8(99, 99, 99)), None] {
+            let glass = if let Some(texel) = sample {
+                let p = texel.to_linear();
+                let t = lifted(BACKGROUND_TINT, kept).to_linear();
+                over(Color::linear_rgba(p.red * t.red, p.green * t.green, p.blue * t.blue, p.alpha * BACKGROUND_ALPHA), lifted(screen_color(), kept))
+            } else {
+                lifted(compose_screen(Color::NONE, None), kept)
+            };
+            let mut light_sum = [0.0f32; 3];
+            let mut display_sum = [0u32; 3];
+            let mut min_green = 255;
+            let mut max_green = 0;
+            for p in rgba.chunks_exact(4) {
+                let shown = over(Color::srgba_u8(p[0], p[1], p[2], p[3]), glass);
+                let light = shown.to_linear();
+                let bytes = shown.to_srgba().to_u8_array();
+                for (channel, value) in [light.red, light.green, light.blue].into_iter().enumerate() {
+                    light_sum[channel] += value;
+                    display_sum[channel] += bytes[channel] as u32;
+                }
+                min_green = min_green.min(bytes[1]);
+                max_green = max_green.max(bytes[1]);
+                assert_eq!(bytes[3], 255);
+            }
+            assert!(max_green > min_green, "scanlines must remain visible");
+            let target = compose_screen(Color::NONE, sample);
+            let linear_target = target.to_linear();
+            let bytes = target.to_srgba().to_u8_array();
+            for (channel, value) in [linear_target.red, linear_target.green, linear_target.blue].into_iter().enumerate() {
+                assert!((light_sum[channel] / column.len() as f32 - value).abs() < 1e-6);
+                assert!((display_sum[channel] as f32 / column.len() as f32 - bytes[channel] as f32).abs() <= 1.0);
+            }
+        }
     }
 
     #[test]
