@@ -1659,6 +1659,9 @@ pub(crate) fn fight(
                     if !t.use_cover && person {
                         t.use_cover = next_unit(&mut f.stance_rng) * 100.0 < stance::COVER_BIAS * temper.cover;
                     }
+                    if t.use_cover {
+                        info!("npc combat: {name} will use cover for the next {:.0} s (Take Cover Chance {chance:.0})", tactics::COVER_EVERY);
+                    }
                     if !t.use_cover && t.cover.take().is_some() {
                         info!("npc combat: {name} leaves its cover (no cover for the next {:.0} s)", tactics::COVER_EVERY);
                     }
