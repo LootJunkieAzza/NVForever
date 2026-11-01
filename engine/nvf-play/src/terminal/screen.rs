@@ -539,11 +539,13 @@ fn text(p: &mut ChildSpawnerCommands, face: &Face, s: &str, x: f32, top: f32, co
 
 /// A line of text whose characters have colours of their own, by the column each stands
 /// in (every character of font 5 is [`CHAR`] wide): the lit cells of the dump.
-/// Lit characters take `lit`'s picture (the same layout as `face`'s).
-fn text_colored(p: &mut ChildSpawnerCommands, face: &Face, lit: &Face, line: &Line, x: f32, top: f32, color: impl Fn(Option<usize>) -> Color) {
+/// `is_lit` explicitly selects the dark colour, `lit`'s picture (the same layout as
+/// `face`'s), and the ordering above fills.
+fn text_colored(p: &mut ChildSpawnerCommands, face: &Face, lit: &Face, line: &Line, x: f32, top: f32, is_lit: impl Fn(usize) -> bool) {
     let base = top + BASE;
+    let bright = bright();
     let Some((image, size)) = &face.image else {
-        set_line(p, face, line, x, base, color(None));
+        set_line(p, face, line, x, base, bright);
         return;
     };
     p.spawn(line_anchor(base)).with_children(|p| {
@@ -554,8 +556,8 @@ fn text_colored(p: &mut ChildSpawnerCommands, face: &Face, lit: &Face, line: &Li
                 continue;
             }
             let rect = Rect::new(g.uv[0] * size.x, g.uv[1] * size.y, g.uv[2] * size.x, g.uv[3] * size.y);
-            let c = color(Some(k));
-            let on_fill = c == lit_text();
+            let on_fill = is_lit(k);
+            let c = if on_fill { lit_text() } else { bright };
             let picture = if on_fill { lit.image.as_ref().map_or(image, |(i, _)| i) } else { image };
             let glyph = (
                 at(x + placed.x + g.before, -g.ascent, g.width, g.height),
@@ -642,7 +644,7 @@ fn hacking_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, h: &
                     }
                 }
                 if let Some(line) = face.font.lines(&s, None).into_iter().next() {
-                    text_colored(d, face, lit_face, &line, x, top, |k| if k.is_some_and(|k| k >= 7 && is_lit(first + k - 7)) { lit_text() } else { bright });
+                    text_colored(d, face, lit_face, &line, x, top, |k| k >= 7 && is_lit(first + k - 7));
                 }
             }
         }
