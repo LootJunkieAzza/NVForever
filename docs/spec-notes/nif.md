@@ -518,9 +518,22 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   mostly light pools and grime cards on walls), and the fade distance is a quarter of the
   shape's largest side when that is less than 160 units (`nif_material.rs`
   `soft_distance`; 14.6 for the lantern glow) [engineering choice]; particle systems
-  keep 160 (their mesh is a unit quad). In the original's frame the glass also burns
+  take the same rule from their particles' size (next item). In the original's frame the glass also burns
   near white ((255, 252, 235)), which hides any step; ours does since the image space's
   Emissive Mult is applied (world.md §6 "Emissive mult").
+- **Soft intersections of particles** (2026-11-01, #1074). A particle system's mesh
+  is a unit quad per particle, so it had been given the full 160 units. Blood on an
+  actor never showed: `MPSBloodSplat01`'s mist (DustCloud01, radius 50 ± 10, colour
+  (0.38, 0.05, 0.05) at alpha 0.6, alpha-blended) and drops (FluidDrops, radius
+  1.25 ± 0.5) are born within a few units of the body [observed, `fnvtool nif decode`,
+  NVForever particle log], and over 160 units a puff 5 units off the body kept about 3 %
+  of its alpha. Particles now fade over a quarter of their largest width,
+  2 × (emitter radius + radius variation), at most 160 and at least 1 (`nvf_assets::
+  particles::particle_soft_distance`): 30 units for the mist, 1 for the drops, and
+  smoke puffs of radius 320 or more keep 160 [engineering choice: the shapes' rule
+  applied to the particle; the game's own rule is not known]. The system's log line
+  says `soft over N`. The splat (`pBloodSplat01`, NiAlphaProperty 4641: blend ONE /
+  ZERO with the alpha test) is alpha-tested and not faded.
 - **Multiply blend** (NiAlphaProperty with the blend bit, source factor ZERO and
   destination factor SRC_COLOR): the frame behind the shape is multiplied by the shape's
   colour, channel by channel, and the shape adds no light of its own [documented:
