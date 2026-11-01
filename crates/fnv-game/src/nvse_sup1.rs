@@ -83,7 +83,7 @@ pub fn number_to_words(n: i64) -> String {
         let r = n % 100;
         if r >= 20 {
             out.push(TENS[(r / 10) as usize]);
-            if r % 10 != 0 {
+            if !r.is_multiple_of(10) {
                 out.push(ONES[(r % 10) as usize]);
             }
         } else if r > 0 {
