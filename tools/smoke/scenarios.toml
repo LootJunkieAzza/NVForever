@@ -3074,7 +3074,12 @@ source = "docs/spec-notes/lockpicking.md §7: the wall safe in GSHouseInterior02
 areas = ["lockpick"]
 paths = ["crates/fnv-game/src/lockpick.rs", "engine/nvf-play/src/lockpick*", "engine/nvf-play/src/lockpick/**", "engine/nvforever/src/lockpick_view.rs", "engine/nvf-play/src/activate.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00105229", NVF_PLAY_TEST_GIVE = "0000000A:3", NVF_PLAY_TEST_ACTIVATE = "12,15,32", NVF_PLAY_TEST_LOCKPICK = "1:skill:30,14:skill:55,16:help,17:off:20,17.5:torque:2,24:spot,24.5:torque:2" }
-args = ["--cell", "GSHouseInterior02", "--play", "--no-voice"]
+# --no-messages added 2026-11-01 (#1274): since #1239 the corner messages wait while a box
+# or a menu is open, so the add-on packs' four "items added" notices only began after their
+# boxes closed (about 8.7 s) and still filled the queue when the lockpick menu opened (15 s);
+# the refusal (12 s) then waited behind them through the lockpicking and the container menu.
+# With the boxes closed at once, the notices are through before the refusal.
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
 run_seconds = 36
 order = [[
   'lockpick: 0x00105229 Safe refused (Lockpick 30): on screen: "You need a Lockpick skill of 50 to pick this lock."',
