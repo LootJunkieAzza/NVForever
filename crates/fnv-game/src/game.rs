@@ -1158,6 +1158,9 @@ pub struct Game<'a> {
     pub scene: crate::nif_blocks::SceneMirror,
     /// The xNVSE "other" functions' and the control locks' session state.
     pub other: crate::nvse_other::OtherState,
+    /// The 1111 NVSE plugin's condition lists, weapon stat vectors and damage event
+    /// (`crate::nvse_one111`).
+    pub one111: crate::nvse_one111::One111State,
     /// The INI settings the extender reads and sets (`crate::nvse_settings`).
     pub ini: crate::nvse_settings::IniState,
     /// MessageBoxExAlt's callback, run with the pressed button (`Game::tick`).
@@ -1907,6 +1910,7 @@ impl<'a> Game<'a> {
             jip_flags: std::collections::HashSet::new(),
             box_callback: None,
             other: Default::default(),
+            one111: Default::default(),
             ini: Default::default(),
             package_overrides: std::collections::HashMap::new(),
             jip2: Default::default(),
@@ -4603,6 +4607,9 @@ impl<'a> Game<'a> {
         let Some(def) = data.messages.get(&message) else { return Vec::new() };
         let mut hidden = Vec::new();
         for (i, c) in def.button_conditions.iter().enumerate() {
+            // A list a script changed (One111's SetConditionFormTwo…, `crate::nvse_one111`).
+            let changed = self.one111.lists.get(&crate::nvse_one111::ListKey::Two(message, i as i32)).cloned();
+            let c = changed.as_ref().unwrap_or(c);
             if !c.is_empty() && !self.conditions_pass(c, Some(FormId::PLAYER_REF), shown_by, &format!("MESG {message} button {i}")) {
                 hidden.push(i);
             }
