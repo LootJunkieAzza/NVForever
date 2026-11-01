@@ -104,6 +104,8 @@ third-person camera). Census after it, with ITR, One111 and JohnnyGuitar batch 3
 JohnnyGuitar batch 4: 19 (#1007, ext-jg4.md, from the pages and the records, not probed;
 branched from main beside batch 3). Census after it, with batch 3 and ppNVSE merged: 931;
 JohnnyGuitar 223 left.
+SUP batch 1: 19 (#1008, ext-sup1.md, from the pages; SUP is not installed here, nothing
+probed). Census after it: 912; SUP 122 left.
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,
