@@ -2145,6 +2145,50 @@ KNVSE_PROBES = [
     _kn("kn.cleanup", _GETA + 'rA.Disable\nrA.MarkForDelete\nrPlayer.AuxVarErase "*nvfKA"\nSetFunctionValue 1'),
 ]
 
+# Set knvse2 (#1018): kNVSE's second slice on a placed copy of Doc's NPC, as knvse-anim:
+# the animation clock, a sequence's current time, weight and text keys, the blends'
+# refusals, the attributes of a sequence the actor does not play. AllowAttack is not in
+# the installed kNVSE 37 (a runtime compile fails). The placed actor goes at the end.
+_KN2_ATTR = 'let aA := rA.GetAnimationAttributes "' + _KF_SMILE + '"\n'
+KNVSE2_PROBES = [
+    _kn("k2.place", _form("rObj", NF["doc"]) + 'let rA := rPlayer.PlaceAtMe rObj 1\nrPlayer.AuxVarSetRef "*nvfKA" rA\nSetFunctionValue 1'),
+] + [_kn(f"k2.settle{i}", "SetFunctionValue 1") for i in range(1, 6)] + [
+    _knv("k2.global", "Ceil (rA.GetGlobalAnimTime 0)"),
+    _kn("k2.global.set", _GETA + "rA.SetGlobalAnimTime 5 0\nSetFunctionValue (Floor (rA.GetGlobalAnimTime 0))"),
+    _knv("k2.global.next", "Floor (rA.GetGlobalAnimTime 0)"),
+    _kn("k2.play", _GETA + f'rA.PlayAnimationPath "{_KF_SMILE}" 0\nSetFunctionValue (rA.IsAnimSequencePlaying "{_KF_SMILE}")'),
+    _kn("k2.curtime.set", _GETA + f'rA.SetAnimCurrentTime "{_KF_SMILE}" 1.5\nSetFunctionValue (Floor ((rA.GetAnimCurrentTime "{_KF_SMILE}") * 10))'),
+    # The next frame's time is 1.5 plus that frame (16 tenths in a first run, the frames
+    # being slow): whole seconds only.
+    _knv("k2.curtime.next", f'Floor (rA.GetAnimCurrentTime "{_KF_SMILE}")'),
+    # Array elements go through a float first (as the nif-blocks set's _V3).
+    _kn("k2.weight", _GETA + f'rA.SetAnimWeight "{_KF_SMILE}" 0.25\n' + _KN2_ATTR + 'let fRes := aA["seqWeight"]\nSetFunctionValue (Floor (fRes * 100))'),
+    # AddAnimTextKey changes the loaded KF, which every actor shares, and kNVSE 37 has no
+    # function that takes a key off again (no RemoveAnimTextKey page; SetAnimTextKeys
+    # sets one actor's keys and "does nothing" while it plays the sequence). The change
+    # is in the game's memory only, never on disk, and a job is one set per game launch,
+    # which quits after k2.cleanup, so nothing reads the key after this set.
+    _knv("k2.addkey", f'AddAnimTextKey "{_KF_SMILE}" 0.5 "nvfKey"'),
+    _knv("k2.addkey.missing", 'AddAnimTextKey "characters\\_male\\nvfnone.kf" 0.5 "nvfKey"'),
+    _kn("k2.addkey.read", _GETA + _KN2_ATTR + 'let aA := aA["textKeyValues"]\nSetFunctionValue ((ar_Find "nvfKey" aA) >= 0)'),
+    _kn("k2.settextkeys.playing", _GETA + f'rA.SetAnimTextKeys "{_KF_SMILE}" (ar_List 0, 1) (ar_List "nvfA", "nvfB")\n' + _KN2_ATTR
+        + 'let aA := aA["textKeyValues"]\nSetFunctionValue ((ar_Find "nvfA" aA) >= 0)'),
+    _kn("k2.attrs.played", _GETA + _KN2_ATTR + "SetFunctionValue (ar_Size aA)"),
+    _kn("k2.attrs.notplayed", _GETA + f'let aA := rA.GetAnimationAttributes "{_KF_JUMP}"\nSetFunctionValue (ar_Size aA)'),
+    _kn("k2.attrs.noref", f'let aA := GetAnimationAttributes "{_KF_SMILE}"\nSetFunctionValue (ar_Size aA)'),
+    _kn("k2.attrs.state", _GETA + _KN2_ATTR + 'SetFunctionValue aA["state"]'),
+    _kn("k2.attrs.cycle", _GETA + _KN2_ATTR + 'SetFunctionValue aA["cycleType"]'),
+    _kn("k2.attrs.root", _GETA + _KN2_ATTR + 'SetFunctionValue aA["accumRootName"]', True),
+    _kn("k2.bytype.idle", _GETA + "let aA := rA.GetPlayingAnimBySequenceType 0\nSetFunctionValue (ar_Size aA)"),
+    _kn("k2.bytype.special", _GETA + "let aA := rA.GetPlayingAnimBySequenceType 7\nSetFunctionValue (ar_Size aA)"),
+    _knv("k2.crossfade.notplaying", f'rA.CrossFadeAnims "{_KF_H2H}" "{_KF_JUMP}" 0'),
+    _knv("k2.blend.notplaying", f'rA.BlendToAnim "{_KF_H2H}" "{_KF_JUMP}" 0'),
+    _knv("k2.blendpose", f'rA.BlendToAnimFromPose "{_KF_H2H}" 0 0.2'),
+    _knv("k2.additive", f'rA.SetAnimAdditive "{_KF_JUMP}" 0'),
+    _knv("k2.additive.missing", 'rA.SetAnimAdditive "characters\\_male\\nvfnone.kf" 0'),
+    _kn("k2.cleanup", _GETA + 'rA.Disable\nrA.MarkForDelete\nrPlayer.AuxVarErase "*nvfKA"\nSetFunctionValue 1'),
+]
+
 # Thirty-seventh set (next batch N6): JIP's NIF block functions on a loaded actor (a
 # copy of Doc's NPC placed beside the player, as knvse-anim), by node name: the Bip01
 # skeleton. Changes are made on that reference only (InsertNode / AttachModel mode 3,
@@ -5302,6 +5346,7 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "projectile": PROJECTILE_PROBES,
         "sky-sound": SKY_SOUND_PROBES,
         "knvse-anim": KNVSE_PROBES,
+        "knvse2": KNVSE2_PROBES,
         "nif-blocks": NIF_PROBES,
         "nvse-events": NVSE_EVENT_PROBES,
         "jip-events2": JIP_EVENT2_PROBES,
@@ -5354,7 +5399,7 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1", "atk1", "jip4", "rules1", "rules2", "showoff2", "jg1", "jg2", "jip5", "tmpl3", "itr"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1", "atk1", "jip4", "rules1", "rules2", "showoff2", "jg1", "jg2", "jip5", "tmpl3", "knvse2", "itr"}
 
 
 def script(body):

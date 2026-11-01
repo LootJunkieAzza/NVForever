@@ -1158,6 +1158,14 @@ pub struct Game<'a> {
     pub traits: crate::nvse_traits::TraitState,
     /// kNVSE's animation paths and script-played sequences (`crate::nvse_anim`).
     pub anim_paths: crate::nvse_anim::AnimPaths,
+    /// kNVSE's animation clock, weights, text keys and blends (`crate::nvse_knvse`).
+    pub knvse: crate::nvse_knvse::KnvseState,
+    /// JIP PP LN's runtime node lists and ground requests (`crate::nvse_jippp`).
+    pub jippp: crate::nvse_jippp::JipppState,
+    /// vheyes-nvse's moon, stamps and 3D rebuilds (`crate::nvse_vheyes`).
+    pub vheyes: crate::nvse_vheyes::VheyesState,
+    /// The small plugins' and CacheUI's state (`crate::nvse_small`).
+    pub small: crate::nvse_small::SmallState,
     /// The node trees scripts asked about, as the engine tells them (`crate::nif_blocks`).
     pub scene: crate::nif_blocks::SceneMirror,
     /// The xNVSE "other" functions' and the control locks' session state.
@@ -1935,6 +1943,10 @@ impl<'a> Game<'a> {
             mod_files: Default::default(),
             traits: Default::default(),
             anim_paths: Default::default(),
+            knvse: Default::default(),
+            jippp: Default::default(),
+            vheyes: Default::default(),
+            small: Default::default(),
             scene: Default::default(),
             input: Default::default(),
             event_names: Vec::new(),
@@ -3100,6 +3112,11 @@ impl<'a> Game<'a> {
         // delayed calls.
         self.run_main_loop();
         self.run_delayed();
+        // CacheUI's loops, tile scripts and typewriters; vheyes-nvse's moon fade, deferred
+        // 3D refreshes and queued console command; kNVSE's SetAnimCurrentTime calls.
+        self.small_tick();
+        self.vheyes_tick();
+        self.knvse_tick();
         self.run_box_callback();
         self.track_velocity();
         self.run_due_snippets();

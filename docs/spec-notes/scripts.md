@@ -931,10 +931,17 @@ scales 10–70].
   2026-10-31, RepNVNCR at ten infamy/fame pairs from 0/0 to 100/100; the threshold
   axes 0-2 matched `reputation::tiers` at all ten]. Runtime: SetReputation with such an
   axis fails (`call_failed`) and stops the script for this run (`reputation::write_axis`;
-  #1127). AddReputation, RemoveReputation and AddReputationExact change nothing and go on
-  [hypothesis, not captured: observer check 62]; stopping would skip Boulder City
-  Showdown's completion in stage 100 entry 1 and the tag count of Severus's trades, which
-  follow their axis-2/3 AddReputation [observed: decompiled scripts].
+  #1127). AddReputation, RemoveReputation and AddReputationExact do the same: with axis 2
+  or 3 each changed nothing and the next line did not run, with axes 0 and 1 they changed
+  the value and went on [observed: o11_00, 2026-11-01, RepNVNCR; observer check 62]. A
+  quest stage's result script stops there too: VMS20 stage 100 with
+  `bBoulderCityOutcome` 2 (the betrayal entry: `AddReputation RepNVNCR 1 1`, then
+  `AddReputation RepNVGreatKhans 2 5`, RewardXP, CompleteAllObjectives, CompleteQuest,
+  StopQuest) gave NCR fame +1, nothing to the Khans, and left the quest running, while
+  the stage's Complete Quest flag still made GetQuestCompleted 1; with outcome 1 the whole
+  entry ran (fame 12 each, karma +100, quest stopped) [observed: o11_05, nvftest]. So
+  Boulder City Showdown completes either way. Runtime: all four use
+  `reputation::write_axis`.
 - AddReputation / RemoveReputation sizes 1–5 add or take 1, 2, 4, 7, 12 points, the
   settings fReputationBumpVeryMinor … VeryMajor (no master defines them; their defaults)
   [documented: GECK wiki AddReputation; observed: the same points on scales 10 and 70,
