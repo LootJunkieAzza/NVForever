@@ -670,7 +670,7 @@ fn apply(
                     Some(true) => {
                         stats.forced += 1;
                         let level = g.level;
-                        info!("lockpick: Force Lock ({chance:.0}%, roll {roll:.1}): {} forced open", s.name);
+                        info!("lockpick: Force Lock ({chance:.0}%, roll {roll:.1}): {reference} forced open");
                         if !s.practice {
                             let owner = with_world(rt, &mut sim, |rt| rules::opened(&mut rt.game, reference, level, false));
                             crime_hook(&mut opened, reference, owner, true);
@@ -684,7 +684,7 @@ fn apply(
                         if !s.practice {
                             with_world(rt, &mut sim, |rt| rules::broke(&mut rt.game, reference));
                         }
-                        info!("lockpick: Force Lock ({chance:.0}%, roll {roll:.1}): {} broken for good, the pin with it ({} left)", s.name, g.pins);
+                        info!("lockpick: Force Lock ({chance:.0}%, roll {roll:.1}): {reference} broken for good, the pin with it ({} left)", g.pins);
                         s.status = Some("The lock is broken".into());
                         s.ended = Some(now);
                         s.pin(PinClip::Break, now);
