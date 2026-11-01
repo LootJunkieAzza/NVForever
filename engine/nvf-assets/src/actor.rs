@@ -1337,3 +1337,8 @@ mod tests {
         assert_eq!(rigid_local(&skel, 9, &Affine3A::IDENTITY, &shape), shape);
     }
 }
+
+/// The prepared skeleton at `path`, read without a [`ClipReader`] (the examples).
+pub fn probe_skeleton(data: &GameData, path: &str) -> Result<PreparedSkeleton, String> {
+    prepare_skeleton(decode(data, &fnv_vfs::normalize(path)))
+}
