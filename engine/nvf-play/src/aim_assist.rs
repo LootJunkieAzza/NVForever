@@ -286,7 +286,7 @@ impl Plugin for AimAssistPlugin {
 
 /// The aim assist's frame (module notes): pick the target, ease the stick's scale, start,
 /// run and end a lock-on.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn assist(
     time: Res<Time>,
     state: Res<State<PlayState>>,
