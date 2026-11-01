@@ -3064,6 +3064,7 @@ expect = [
   { re = 'pipboy items: .* selected: Info', label = "pipboy items: the selected item's figures" },
   "pipboy sound: UIPipBoyTab",
   "pipboy sound: UIPipBoyMode",
+  { text = "pipboy sound: UIPipBoyScroll", label = "pipboy: the STATS lists click as ITEMS' (General's other list at 18 s, #1340)" },
   "pipboy sound: UIPipBoyStatic",
   { re = 'pipboy stats: .*karma title Drifter', label = "pipboy stats: the karma title of level 1, neutral (Drifter, sKarmicTitleNeutral1)" },
   { re = 'pipboy data: local map outline \d+x\d+ samples 96 apart, [1-9]\d* landed \(exterior\)', label = "pipboy data: the local map's outline made outdoors" },
