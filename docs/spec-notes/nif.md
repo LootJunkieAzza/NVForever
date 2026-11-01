@@ -532,8 +532,9 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   particles::particle_soft_distance`): 30 units for the mist, 1 for the drops, and
   smoke puffs of radius 320 or more keep 160 [engineering choice: the shapes' rule
   applied to the particle; the game's own rule is not known]. The system's log line
-  says `soft over N`. The splat (`pBloodSplat01`, NiAlphaProperty 4641: blend ONE /
-  ZERO with the alpha test) is alpha-tested and not faded.
+  says `soft over N` [observed, smoke `blood-spray`: drops 1.0, mist 30.0, splat
+  12.1; the dismemberment's `bloodspraylimb01.nif` spray 1.2 and
+  `fxgorepophead01.nif` mist 48.0].
 - **Multiply blend** (NiAlphaProperty with the blend bit, source factor ZERO and
   destination factor SRC_COLOR): the frame behind the shape is multiplied by the shape's
   colour, channel by channel, and the shape adds no light of its own [documented:
