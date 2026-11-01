@@ -3160,24 +3160,54 @@ pub(crate) fn apply_hit(
     info: HitInfo,
     stats: &mut CombatStats,
     feedback: &mut HitFeedback,
-    mut hud: Option<&mut HudMessage>,
+    hud: Option<&mut HudMessage>,
     messages: &mut MessageWriter<ActorHit>,
     effects: &[FormId],
     guard_broken: bool,
     crit: Option<(FormId, bool)>,
 ) -> Option<HitResult> {
+    let (r, hit) = hit_actor(script, sim, target, dealt, info, stats, feedback, hud, effects, guard_broken, crit, &[])?;
+    if let Some(h) = hit {
+        messages.write(h);
+    }
+    Some(r)
+}
+
+/// [`apply_hit`] with an explosion's limb damage (`blast`, [`blast_limb_hits`]; empty for
+/// any other hit), which goes on after the health damage and counts as the hit's own: a
+/// limb it cripples disarms, shows on the HUD and makes the hit a crippling one for the
+/// stagger rule (crippled-limbs.md §5). The [`ActorHit`] to send is returned, for the
+/// caller to send once it has decided a knockdown (none for the player, whose
+/// [`PlayerHit`] is in `feedback`).
+#[allow(clippy::too_many_arguments)]
+fn hit_actor(
+    script: Option<&mut ScriptState>,
+    sim: &mut SimState,
+    target: FormId,
+    dealt: f32,
+    info: HitInfo,
+    stats: &mut CombatStats,
+    feedback: &mut HitFeedback,
+    mut hud: Option<&mut HudMessage>,
+    effects: &[FormId],
+    guard_broken: bool,
+    crit: Option<(FormId, bool)>,
+    blast: &[LimbHit],
+) -> Option<(HitResult, Option<ActorHit>)> {
     let mine = info.attacker == Some(FormId::PLAYER_REF);
     let rt = script.and_then(|s| s.rt.as_mut())?;
     if target == FormId::PLAYER_REF {
-        return hit_player(rt, sim, dealt, info, stats, hud, effects, feedback);
+        return hit_player(rt, sim, dealt, info, stats, hud, effects, feedback, blast).map(|r| (r, None));
     }
     // The hit's effects go on before its damage (`hit_effects`).
     let span = info_span!("combat::hit_effects").entered();
     with_world(rt, sim, |rt| hit_effects::apply(&mut rt.game, &mut stats.hit_effects, target, effects, info.attacker));
     drop(span);
     let span = info_span!("combat::game_hit").entered();
-    let r = with_world(rt, sim, |rt| rt.game.hit(target, dealt as f64, info));
+    let mut r = with_world(rt, sim, |rt| rt.game.hit(target, dealt as f64, info));
     drop(span);
+    let blasted = blast_limbs(rt, sim, target, info, blast, &r);
+    r.crippled |= !blasted.is_empty();
     let name = sim.ref_name(Some(&rt.game), target.0).map_or_else(|| target.to_string(), str::to_string);
     if let Some((spell, on_death)) = crit.filter(|_| info.critical && !r.immune) {
         let _span = info_span!("combat::crit_effect").entered();
@@ -3206,28 +3236,55 @@ pub(crate) fn apply_hit(
     } else if r.knocked_out {
         info!("combat: {name} {target} knocked out (essential)");
     }
-    if let Some((code, condition)) = r.limb {
-        let limb = code.checked_sub(25).and_then(|i| LIMB_NAMES.get(i as usize)).copied().unwrap_or("limb");
-        if r.crippled && !r.died && !r.knocked_out && matches!(code, fnv_game::combat::LEFT_ARM | fnv_game::combat::RIGHT_ARM) {
-            feedback.disarms.push(target);
+    // The limbs this hit crippled: the one it struck, or those a blast did.
+    let crippled: Vec<u16> = match r.limb {
+        Some((code, _)) if r.crippled => vec![code],
+        Some((code, condition)) => {
+            debug!("combat: {name} {target}: {} condition {condition:.0}", limb_name(code));
+            Vec::new()
         }
-        if r.crippled {
-            info!("combat: {name} {target}: {limb} crippled");
-            if let Some(h) = hud.filter(|_| !r.died && mine) {
-                h.show(format!("{name}: {limb} crippled"));
-            }
-        } else {
-            debug!("combat: {name} {target}: {limb} condition {condition:.0}");
+        None => blasted,
+    };
+    if !r.died && !r.knocked_out && crippled.iter().any(|c| matches!(*c, fnv_game::combat::LEFT_ARM | fnv_game::combat::RIGHT_ARM)) {
+        feedback.disarms.push(target);
+    }
+    for &code in &crippled {
+        let limb = limb_name(code);
+        info!("combat: {name} {target}: {limb} crippled");
+        if let Some(h) = hud.as_deref_mut().filter(|_| !r.died && mine) {
+            h.show(format!("{name}: {limb} crippled"));
         }
     }
+    let mut hit = None;
     if !r.immune {
         let torso_crippled = with_world(rt, sim, |rt| rt.game.is_crippled(target, fnv_game::combat::TORSO));
         if mine {
             feedback.target = Some((name, r.health as f32, r.max_health as f32, 0.0));
         }
-        messages.write(ActorHit { form_id: target.0, died: r.died, knocked_out: r.knocked_out, location: info.location, crippled: r.crippled, part_crippled: r.limb.is_some_and(|(_, c)| c <= 0.0), torso_crippled, by: info.attacker, share: if r.max_health > 0.0 { (r.dealt / r.max_health) as f32 } else { 0.0 }, guard_broken, weapon: info.weapon });
+        hit = Some(ActorHit { form_id: target.0, died: r.died, knocked_out: r.knocked_out, location: info.location, crippled: r.crippled, part_crippled: r.limb.is_some_and(|(_, c)| c <= 0.0), torso_crippled, by: info.attacker, share: if r.max_health > 0.0 { (r.dealt / r.max_health) as f32 } else { 0.0 }, guard_broken, weapon: info.weapon });
     }
-    Some(r)
+    Some((r, hit))
+}
+
+/// A limb's name by its condition code (25–31).
+fn limb_name(code: u16) -> &'static str {
+    code.checked_sub(25).and_then(|i| LIMB_NAMES.get(i as usize)).copied().unwrap_or("limb")
+}
+
+/// An explosion's limb damage after its health damage `r` ([`hit_actor`]): none when the
+/// hit killed, knocked out or did not touch the actor. Logs the damage; returns the limbs
+/// it crippled.
+fn blast_limbs(rt: &mut crate::script::Runtime, sim: &mut SimState, target: FormId, info: HitInfo, blast: &[LimbHit], r: &HitResult) -> Vec<u16> {
+    if blast.is_empty() || r.immune || r.died || r.knocked_out || r.dealt <= 0.0 {
+        return Vec::new();
+    }
+    let hurt = with_world(rt, sim, |rt| rt.game.blast_limbs(target, info.attacker, blast));
+    let crippled: Vec<u16> = hurt.iter().filter(|h| h.2).map(|h| h.0).collect();
+    if !hurt.is_empty() {
+        let names: Vec<&str> = crippled.iter().map(|&c| limb_name(c)).collect();
+        info!("combat: blast on {target}: {:.1} limb damage on {} limbs{}", blast[0].damage, hurt.len(), if names.is_empty() { String::new() } else { format!(", crippled {}", names.join(", ")) });
+    }
+    crippled
 }
 
 /// God mode: the player takes no damage from hits, so cannot be killed by them
@@ -3248,7 +3305,7 @@ pub fn set_god_mode(on: bool) {
 /// Another actor hits the player (module notes): the player's health takes the damage
 /// through `Game::hit`, and at 0 the player dies.
 #[allow(clippy::too_many_arguments)]
-fn hit_player(rt: &mut crate::script::Runtime, sim: &mut SimState, dealt: f32, info: HitInfo, stats: &mut CombatStats, hud: Option<&mut HudMessage>, effects: &[FormId], feedback: &mut HitFeedback) -> Option<HitResult> {
+fn hit_player(rt: &mut crate::script::Runtime, sim: &mut SimState, dealt: f32, info: HitInfo, stats: &mut CombatStats, hud: Option<&mut HudMessage>, effects: &[FormId], feedback: &mut HitFeedback, blast: &[LimbHit]) -> Option<HitResult> {
     let by = info.attacker.map_or("?".to_string(), |a| sim.ref_name(Some(&rt.game), a.0).map_or_else(|| a.to_string(), str::to_string));
     stats.player_hits += 1;
     if god_mode() {
@@ -3260,7 +3317,8 @@ fn hit_player(rt: &mut crate::script::Runtime, sim: &mut SimState, dealt: f32, i
         return Some(HitResult { health, immune: true, ..HitResult::default() });
     }
     with_world(rt, sim, |rt| hit_effects::apply(&mut rt.game, &mut stats.hit_effects, FormId::PLAYER_REF, effects, info.attacker));
-    let r = with_world(rt, sim, |rt| rt.game.hit(FormId::PLAYER_REF, dealt as f64, info));
+    let mut r = with_world(rt, sim, |rt| rt.game.hit(FormId::PLAYER_REF, dealt as f64, info));
+    r.crippled |= !blast_limbs(rt, sim, FormId::PLAYER_REF, info, blast, &r).is_empty();
     stats.player_damage += r.dealt as f32;
     info!("combat: {by} hits the player for {:.1}, health {:.0}/{:.0}", r.dealt, r.health, r.max_health);
     if !r.immune && r.dealt > 0.0 {
@@ -4223,20 +4281,13 @@ fn fly(
             let info = blast_hit_info(cause);
             // The blast's object effect on those it catches (hit-effects.md §1).
             let items: Vec<FormId> = x.enchantment.into_iter().collect();
-            let r = apply_hit(script.as_deref_mut(), &mut sim, target, dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, false, None);
+            // Its limb damage, on every limb (crippled-limbs.md §5): from the damage after
+            // armour; `Game::blast_limbs` applies the difficulty, as `hit` does to Health.
+            let limbs = blast_limb_hits(c, &parts, target, dealt, cause.and_then(|k| c.forms.weapons.get(&k.weapon)));
+            let (r, hit) = hit_actor(script.as_deref_mut(), &mut sim, target, dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &items, false, None, &limbs).unzip();
+            let mut hit = hit.flatten();
             if r.as_ref().is_none_or(|r| !r.immune) {
                 wear_armor(c, &mut sim, &mut stats, target, Zone::All, b.damage);
-            }
-            // Its limb damage, on every limb (crippled-limbs.md §5): from the damage
-            // after armour; `blast_limbs` applies the difficulty, as `hit` did to Health.
-            if r.as_ref().is_some_and(|r| !r.immune && !r.died && r.dealt > 0.0) {
-                let weapon = cause.and_then(|k| c.forms.weapons.get(&k.weapon));
-                let limbs = blast_limb_hits(c, &parts, target, dealt, weapon);
-                let hurt = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| with_world(rt, &mut sim, |rt| rt.game.blast_limbs(target, info.attacker, &limbs))).unwrap_or_default();
-                let crippled: Vec<&str> = hurt.iter().filter(|h| h.2).map(|h| LIMB_NAMES[(h.0 - 25) as usize]).collect();
-                if !hurt.is_empty() {
-                    info!("combat: blast {} on {target}: {:.1} limb damage on {} limbs{}", x.edid.as_deref().unwrap_or("?"), limbs.first().map_or(0.0, |l| l.damage), hurt.len(), if crippled.is_empty() { String::new() } else { format!(", crippled {}", crippled.join(", ")) });
-                }
             }
             // A blast that kills (or hits a corpse) may dismember the part facing it, by
             // its weapon's On Hit (dismemberment.md §4, §7): most grenades and every mine are
@@ -4267,6 +4318,15 @@ fn fly(
                 let down = rolled && script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| rt.game.knock_down(target, info.attacker, shove));
                 if down {
                     stats.knockdowns += 1;
+                    // Laid down, it does not also stagger from the limbs the blast crippled.
+                    if let Some(h) = hit.as_mut() {
+                        h.crippled = false;
+                    }
+                    if target == FormId::PLAYER_REF {
+                        if let Some(h) = feedback.player_hits.last_mut() {
+                            h.crippled = false;
+                        }
+                    }
                 }
                 info!(
                     "combat: blast {} on {target} at {:.0}: {:.1} health damage, health {:.0}/{:.0}{}",
@@ -4277,6 +4337,9 @@ fn fly(
                     r.max_health,
                     if down { ", knocked down" } else if rolled { ", knockdown refused (No Knockdowns, or the player seated or talking)" } else { "" }
                 );
+            }
+            if let Some(h) = hit {
+                messages.write(h);
             }
         }
         // Not one gone from the world this frame: a mine that went off is disabled
