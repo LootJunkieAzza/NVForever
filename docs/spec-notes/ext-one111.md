@@ -37,13 +37,18 @@ the message box's buttons (`Game::hidden_buttons`). **Follow-up**: recipes, idle
 packages, topic infos, effects, terminal items, quest targets and perks still read their
 records' lists in the game's own systems.
 
-**Catalogue gaps**: the wiki pages GetConditionFormOneFloat, SetConditionFormOneFloat and
-SetConditionFormOneForm carry the template name of the Int function, so the catalogue
-(`schemas/script/functions.json`) has no entry under their own names and a script calling
-them does not compile yet; `nvse_one111` answers the names already. AddConditionFormTwo's
-template lacks the `First` argument its example passes ("StealthBoy 0" adds to effect 0):
-NVForever reads `entity first [cond]` [documented: the example], so with the catalogue's
-two arguments a script can only append.
+**Catalogue fixes**: the wiki pages GetConditionFormOneFloat, SetConditionFormOneFloat and
+SetConditionFormOneForm carry the template name of the Int function (copied from a
+sibling page), so the catalogue (`schemas/script/functions.json`) had them under the Int
+names. The generator (`tools/capture/script_functions.py`, `NAME_FIXES`) now names them
+by their page titles [documented: each title and its example, "GetConditionFormOneFloat
+HitReactionIdles 0 1"]. AddConditionFormTwo's template lacks the `First` argument its
+example passes ("StealthBoy 0" adds to Base Effect 0's list) and every other FormTwo
+function takes; `PARAM_FIXES` gives it `entity first [cond]` [documented: the example and
+the sibling pages; hypothesis: that `First` is required, as in the siblings]. The four
+committed rows were edited to what the generator now emits (a full regeneration also
+rewrites rows that were hand-edited since, so it was not committed); tested in
+`tests/one111.rs` `renamed_catalogue_rows_compile_and_answer`.
 
 ## 2. The damage calculation (`GetOnDamageCalc…`, `SetOnDamageCalcNumb`)
 

@@ -138,6 +138,31 @@ fn condition_lists_read_the_records_and_count_what_is_wrong() {
     assert_eq!(val(&mut g, "GetConditionFormThreeFloat Quest (-1) 0 0 0"), x(1.0));
 }
 
+/// The three FormOne pages whose template carries the Int function's name, and
+/// AddConditionFormTwo's `First`, compile under their own names and arguments (the
+/// catalogue generator's NAME_FIXES / PARAM_FIXES rows).
+#[test]
+fn renamed_catalogue_rows_compile_and_answer() {
+    let f = fixture();
+    let mut g = game(&f);
+    // The value compared with; the global parameter is a form, not a number
+    // [documented: GetConditionFormOneFloat].
+    assert_eq!(val(&mut g, "GetConditionFormOneFloat Recipe 0 0"), x(3.0));
+    assert_eq!(val(&mut g, "GetConditionFormOneFloat Recipe 0 1"), x(INT_MIN));
+    assert_eq!(val(&mut g, "SetConditionFormOneFloat Recipe 0 0 4"), x(1.0));
+    assert_eq!(val(&mut g, "GetConditionFormOneFloat Recipe 0 0"), x(4.0));
+    // A parameter that is a form takes a form [documented: SetConditionFormOneForm].
+    assert_eq!(val(&mut g, "SetConditionFormOneForm Recipe 0 1 Gate"), x(1.0));
+    assert_eq!(val(&mut g, "GetConditionFormOneForm Recipe 0 1"), XVal::Ref(GLOB));
+    // `entity first cond`: before button 0's only condition, then at its end.
+    assert_eq!(val(&mut g, "AddConditionFormTwo Choice 0 0"), x(1.0));
+    assert_eq!(val(&mut g, "GetConditionFormTwoCount Choice 0"), x(2.0));
+    assert_eq!(val(&mut g, "GetConditionFormTwoInt Choice 0 0 0"), x(4136.0));
+    assert_eq!(val(&mut g, "AddConditionFormTwo Choice 0 (-1)"), x(1.0));
+    assert_eq!(val(&mut g, "GetConditionFormTwoCount Choice 0"), x(3.0));
+    assert_eq!(val(&mut g, "AddConditionFormTwo Choice 0 5"), x(0.0));
+}
+
 #[test]
 fn condition_lists_change_and_evaluate() {
     let f = fixture();
