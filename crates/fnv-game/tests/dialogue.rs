@@ -1039,6 +1039,18 @@ fn say_once_lines_are_said_once_per_actor() {
     assert_eq!(g.start_dialogue(actor(), None), Ok(FormId(A_LATER)));
 }
 
+/// A Say Once line another actor said is not said again (observer check 31: the Yes Man
+/// mainframe did not repeat the Tops Yes Man's first-meeting greeting; #1113).
+#[test]
+fn say_once_lines_said_by_another_actor_are_not_said_again() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert!(g.can_say(actor(), Some(FormId(0x14)), FormId(A_FIRST)));
+    g.said.insert((FormId(0x00FF_0001), FormId(A_FIRST)));
+    assert!(!g.can_say(actor(), Some(FormId(0x14)), FormId(A_FIRST)));
+    assert_eq!(g.start_dialogue(actor(), None), Ok(FormId(A_LATER)));
+}
+
 #[test]
 fn added_topics_follow_ups_and_the_topic_list() {
     let f = fixture();

@@ -241,7 +241,7 @@ pub fn choose(g: &mut Game, reference: FormId, base: FormId, item: usize) -> Opt
     }
     if it.flags & 1 != 0 {
         if let Some(n) = it.note {
-            g.player.notes.insert(n);
+            g.file_note(n);
         }
     }
     let back = std::mem::take(&mut g.terminals.back);
