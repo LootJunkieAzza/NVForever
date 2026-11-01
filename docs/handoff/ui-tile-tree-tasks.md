@@ -120,11 +120,15 @@ owner to add to its pull request or issue (owner, 2026-10-29).
     or 0 font 1. What each trait is taken to mean: menu-xml.md §3.1.2. Log line
     `tiles: HUDMainMenu: N mod tiles drawn (M items)` when the counts change.
   - Which tiles: `Ui::mod_tile_drawn` (Injected/Template always, Code never, File only
-    against the archived file's name paths, `Ui::file_name_paths`). The game cannot read
-    the archived copy under a loose file (one VFS location per path), so a loose HUD
-    replacement draws none of its file tiles in v1; `fnvtool ui mod-tiles --menu …`
-    shows the comparison (test install: vanilla 0, Clean Vanilla Hud 0, Vanilla UI
-    Plus 5, its `VUI+` outlines).
+    against the archived file's name paths, `Ui::archived_name_paths`). The archived
+    copy under a loose file is read since #975 (`fnv_vfs::Vfs::read_archived`,
+    `Source::read_archived`, `fnv_ui::tree::Archived`), so a loose HUD replacement draws
+    its own file tiles, the archived names read once per file (`draw.rs`
+    `archived_names`); `fnvtool ui mod-tiles --menu …` shows the same comparison (test
+    install: vanilla 0, Clean Vanilla Hud 0, Vanilla UI Plus 5, its `VUI+` outlines).
+    Tests: `fnv_vfs` `the_archived_copy_under_a_loose_file_still_reads`, `fnv_ui`
+    `the_archived_copy_under_a_loose_file_gives_the_names_compared_with`, `nvf-play`
+    `a_loose_hud_over_an_archived_one_draws_its_own_tiles`.
   - Carried over from T4, done: text widths written back before scripts
     (`fnv_game::ui_hud::write_text_widths`): the sneak word, the prompt's `button_text`
     (its hotrect follows by the file's expression), the radiation value; the observed
@@ -137,9 +141,7 @@ owner to add to its pull request or issue (owner, 2026-10-29).
     `ui-mod-tile-drawn` (a box, picture and text injected by the console, shot
     `ui_mod_tile.png`) and `ui-mod-tiles-vanilla` (fnvtool, 0 tiles).
   - Left: nif and radial tiles; another `.tai` than the shared atlas, `zoom`, `tile`,
-    `cropx`, `cropy`; numeric `justify` and system colour numbers; reading the archived
-    copy under a loose file in the VFS (then loose HUD files draw their own tiles);
-    every hypothesis in menu-xml.md §3.1.2 against the original (screenshots of a HUD
+    `cropx`, `cropy`; numeric `justify` and system colour numbers; every hypothesis in menu-xml.md §3.1.2 against the original (screenshots of a HUD
     mod at the same view size); a HUD mod from a Viva New Vegas `mods` folder in game
     (JAM's meters after T6).
 

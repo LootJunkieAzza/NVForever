@@ -1105,8 +1105,9 @@ at random, Say Once a Day), and a response is timed in one place
 - A line is said when its quest runs [hypothesis] and the quest's conditions pass
   [documented: Quest Data Tab: checked first, for all of the quest's dialogue], its own
   conditions pass (subject the speaker, target the listener; the player for Say)
-  [documented: Category:Conditions], and, with Say Once, the speaker has not said it
-  [documented: Category:Dialogue: once per actor]. Random lines are taken in order, not
+  [documented: Category:Conditions], and, with Say Once, no actor has said it
+  [documented: Category:Dialogue: once per actor; observed: observer check 31, a line two
+  actors share was not said again by the second, dialogue.md]. Random lines are taken in order, not
   at random [hypothesis]. ANAM restricts the speaker.
 - The begin result script runs when the line starts, the end script when it ends
   [documented: Category:Dialogue], on the speaker, with the line's quest as the quest.

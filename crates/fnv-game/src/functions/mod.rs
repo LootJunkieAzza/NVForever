@@ -743,6 +743,8 @@ pub fn console_registry() -> &'static [(&'static str, Kind)] {
         ("ToggleTrees", Impl(toggles::toggle_trees)),
         ("ToggleLODLand", Impl(toggles::toggle_lod_land)),
         ("ToggleNavmesh", Impl(toggles::toggle_navmesh)),
+        ("ToggleLookIK", Impl(toggles::toggle_look_ik)),
+        ("ToggleEmotions", Impl(toggles::toggle_emotions)),
         ("ToggleWireframe", Stub("rendering (wireframe: the renderer does not ask the GPU for its line mode)")),
     ]
 }

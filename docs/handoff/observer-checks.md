@@ -89,14 +89,17 @@ engine if needed, and delete the item here.
      on. SetHardcore 1 on nvfairport still did nothing: the needs stayed 0 for two hours
      (o6_00-01).
    - Beer and Nuka-Cola, drunk by EquipItem, raised Dehydration by no more than the
-     normal rate over 11 s (14, 14, 15 and 15, 15, 16) [observed]. Ours raises it
-     (their "Damage Dehydration" read literally, aid-items §3).
+     normal rate over 11 s (14, 14, 15 and 15, 15, 16) [observed]. The job had `tgm` on
+     at the time (o7_00 steps 6 to 101; it went off before the Stimpak) [observed: the
+     job file], and their Dehydration +20 / +10 holds only on `IsHardcore == 1`, the
+     same condition the Hardcore Stimpak passed [observed: FalloutNV.esm CTDA]. So god
+     mode most likely kept it off; ours now does the same in god mode and keeps the
+     rise without it (#1167, aid-items §3). Still open: a drink in Hardcore without tgm.
    - Waits and sleeps (owner, 2026-10-31, from all needs at 0, Pip-Boy values)
      [observed]: 3 hours waited give H2O 36, FOD 12, SLP 6; 3 hours slept give H2O 36,
-     FOD 12, SLP 2. So 12, 4 and 2 an hour, whole points, where ours gives 12, 4.8 and
-     2.4; sleep did not bring SLP below 2. In Hardcore, sleep heals neither Health nor
-     crippled limbs; outside it heals both. Ours heals no Health on a plain sleep (#1177).
-     Outside Hardcore a sleep restores Health and every limb in full (owner).
+     FOD 12, SLP 2. So 12, 4 and 2 an hour, whole points; sleep did not bring SLP below
+     2. In Hardcore, sleep heals neither Health nor crippled limbs; outside it heals
+     both, in full (owner). Ours does all of this since #1177 (needs.rs).
    - Still open: Buffout.
    ([aid-items §2, §6, §11](../spec-notes/aid-items.md),
    [wait-menu](../spec-notes/wait-menu.md))
@@ -152,8 +155,9 @@ engine if needed, and delete the item here.
    - Addiction: +30 usage per use, chance (usage − 70)/100, and it never wears off.
    - The Hardcore Stimpak heals 5/s for 6 s, and a normal Stimpak heals every limb.
      In Hardcore at Medicine 15 (o7_05, 2026-10-31) [observed]: about 6 Health a second
-     for about 6 s, 36 in all, where ours gives 6.5 a second, 39 (potency 1.3); a
-     crippled leg (LeftMobilityCondition 0) stayed at 0 (o7_00).
+     for about 6 s, 36 in all; a crippled leg (LeftMobilityCondition 0) stayed at 0
+     (o7_00). Ours now rounds the potency-scaled 6.5 down to 6 (#1167, aid-items §4);
+     a second Medicine value would tell rounding from another base.
    - A second dose doesn't re-run Start.
    - Only the highest rank of a ranked perk applies, and perks are the player's only.
    - Chemist doubles the Stealth Boy.
@@ -323,8 +327,8 @@ engine if needed, and delete the item here.
     shows only while aiming (none with the weapon drawn and not aiming) and goes when
     aiming stops; it marks every hostile actor or creature, whether or not it is in
     combat with the player; and it seems to reach every enemy in render distance. Ours
-    matches the first two; its reach is the detection reach (5,000 units outdoors,
-    perk_marks.rs), shorter than the loaded area (#1171). The owner's screenshot: distant
+    matches the first two; its reach was the detection reach (5,000 units outdoors),
+    shorter than the loaded area, and is now as far as actors are drawn (#1171). The owner's screenshot: distant
     enemies at night look tinted red all over; Boone is not marked. Two more shots show
     the red pulsing (faint, then strong) [observed], as the record says: edge pulse
     amplitude 0.5 at 1 a second, edge fall-off 0.5 (EFSH 0x0015FF60), which ours plays
@@ -461,8 +465,8 @@ The numbers above stay put so links to them hold; each item here gives its own p
     first-meeting greeting 0x001164F1 (position 2398, Say Once, only the same GetIsID OR)
     that the Tops Yes Man had said [observed]. So Say Once holds per line across speakers
     in the original [hypothesis: one case; the mainframe and the Tops Yes Man may also
-    count as one speaker]. Ours keeps it per (speaker, line) (dialogue.rs `said`) and
-    would say 0x001164F1 again. (dialogue.md question 13)
+    count as one speaker]. Built (#1113): ours holds a Say Once line back from every
+    actor once any has said it (dialogue.rs `can_say_as`). (dialogue.md question 13)
 32. **An expression that leaves extra values** — answered 2026-10-30 (issue #908): the
     original stops the script at `if GetStage Q N == 1` and runs neither arm, as ours.
     ([scripts §4.2](../spec-notes/scripts.md))
@@ -549,7 +553,8 @@ The numbers above stay put so links to them hold; each item here gives its own p
     encounters (NVDLC03Enc 10) start? (§10 stall 2.)
 44. **What does `RemoveItem <item> 0` do?** — answered 2026-10-31 (o5_00, issue #1113):
     nothing, and the script goes on (12 Stimpaks and 21 caps stayed; the next line ran).
-    Ours refuses the call (#1113).
+    Built (#1113): ours returns without removing anything (functions/items.rs
+    `remove_item`).
 45. **Does a second Nelson explorer stop the player right after the first?** (P3; §10
     stall 4.)
 46. **Does the HELIOS One west-terminal password go to the player from Fantastic's line?**
@@ -765,3 +770,26 @@ The numbers above stay put so links to them hold; each item here gives its own p
     on itself in its MenuMode and then sets iSpawnSupplyDelay; if that stopped it, the
     drop would not come. Use the radio (button 1) and read GetQuestRunning right after,
     and whether the drop arrives. Ours keeps a self-reset running. (scripts.md §5)
+
+## Added 2026-10-31 (the note notice, issue #1163)
+
+67. **Does the original name a note in the corner when a script gives it?** (P3: every
+    AddNote and AddItem of a note in quest scripts.) NVForever shows its own corner line,
+    "Note: <the note's name>", for every note the player gets the first time: picked up,
+    taken from a container, AddItem, AddNote, a terminal's Add Note item
+    [hypothesis for the script-given ones]. To check: with a note the player lacks,
+    `AddNote` it from the console, then `player.AddItem` another; screenshot the top left
+    after each, and note any sound. A picked-up note in the same way for comparison.
+    (issue #1163, `Game::file_note`)
+
+## Added 2026-11-01 (actors at their place on arrival, issue #1208)
+
+68. **Where the destination's actors are on arrival** (P2, issue #1208). NVForever puts
+    every actor not in the loaded area before a fast travel or a load door at the end of
+    its package's walk (on its furniture, seated) behind the loading screen, and moves
+    nobody that was loaded [hypothesis, packages.md §8]. To check, with nvf_capture
+    recording position, current package and GetSitting just before and just after:
+    (a) Goodsprings → Novac at 5am (Boone: at the dinosaur exactly, part-way, or within
+    the package's radius?); (b) a fast travel to a marker a few metres away inside the
+    loaded area (does anyone move?); (c) entering the Mojave Outpost (Cass) and the
+    Prospector Saloon (the settler at the bar): GetSitting 3 on the first frame?

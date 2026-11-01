@@ -135,6 +135,12 @@ the spec it links to.
     (138 at 144 Hz). Does G-SYNC engage in borderless and in exclusive full screen (the
     NVIDIA G-SYNC indicator), and does Primm feel smoother than plain vsync? Should it be
     the default? ([display-sync](spec-notes/display-sync.md))
+39. **Controller aim assist strengths.** With a controller, the stick turns 45% slower
+    while the crosshair is on a hostile within 1800 units, and aiming down the sights
+    eases the view onto the hostile nearest the crosshair (within about 8.7°) for 0.3 s.
+    On by default, both strengths 0.6 on the settings page's Controller group. Too
+    strong, too weak, or should either be off by default?
+    ([controller §5](design/controller.md))
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 
@@ -203,6 +209,12 @@ the spec it links to.
    cuts the physics cost of a heap of 20+ small corpses (#910). Look at a nest of nymphs
    killed in one spot: if corpses lying inside each other look wrong, the size limit can
    come down or the rule go. [ragdoll.md](spec-notes/ragdoll.md), "Corpse against corpse".
+
+40. **Hotkeyed weapons come in holstered (your ruling, #1106).** A weapon picked by a
+   number key or the weapon wheel is equipped holstered; a weapon in hand is put away
+   first, and Ready Item draws the new one. The original may draw it. Kept here only so
+   it is on record as a difference; if you want a drawn weapon to stay drawn on a swap,
+   it is one function (`holster_for_new_weapon`). [weapon-wheel.md §4](design/weapon-wheel.md)
 
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 

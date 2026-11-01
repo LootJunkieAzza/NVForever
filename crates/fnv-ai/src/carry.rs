@@ -490,7 +490,7 @@ pub trait Mover {
 }
 
 /// [`Ai::pass_time`]'s mover: the walker's own steps, every door open.
-struct Passed;
+pub(crate) struct Passed;
 
 impl Mover for Passed {}
 
@@ -539,7 +539,7 @@ pub struct Agent {
     /// target went before that plan, when known.
     following: Option<(Place, f64, Option<f32>)>,
     /// The number of the script's weapon use it carries out ([`Ai::weapon_step`]).
-    weapon_order: Option<u64>,
+    pub(crate) weapon_order: Option<u64>,
     /// An Escort, Find, Use Item At, Ambush or Flee Not Combat package's progress
     /// (`crate::errand`).
     pub errand: Option<crate::errand::Errand>,
@@ -597,6 +597,9 @@ pub struct Ai {
     /// The columns of followers: for each one followed, its followers in their order
     /// in the line ([`Ai::ahead_in_column`]).
     columns: BTreeMap<FormId, Vec<FormId>>,
+    /// When (`Game::time`) a script last put each actor somewhere ([`Ai::relocate`]):
+    /// [`Ai::arrive`] leaves such an actor where it was put for a while.
+    pub(crate) script_moved: BTreeMap<FormId, f64>,
 }
 
 /// A walker turning at its actor's own rate ([`ActorSpeeds::turn_rate`]).
@@ -615,7 +618,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), restored: BTreeMap::new() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new() }
     }
 
     /// Bring the graph's navmeshes in line with the scripts' switches (EnableNavMesh,
@@ -803,6 +806,7 @@ impl Ai {
     pub fn relocate(&mut self, game: &mut Game, actor: FormId) {
         let Some(place) = goal::place_of_ref(game, actor) else { return };
         let heading = game.world.peek(actor).map_or(0.0, |s| s.rot[2]);
+        self.script_moved.insert(actor, game.time);
         self.set_using(game, actor, None);
         let Some(a) = self.agents.get_mut(&actor) else { return };
         let w = &mut a.walker;
@@ -1786,7 +1790,7 @@ impl Ai {
     }
 
     /// A sandboxing actor whose behaviour is over chooses the next one and sets off.
-    fn sandbox_step(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
+    pub(crate) fn sandbox_step(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
         let a = self.agents.get_mut(&actor).expect("listed");
         let Some(sb) = a.sandbox.as_mut() else { return };
         if sb.pending.is_some() || !sb.due(game) {
@@ -2174,7 +2178,7 @@ impl Ai {
         }
     }
 
-    fn arrived(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
+    pub(crate) fn arrived(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
         let a = self.agents.get_mut(&actor).expect("listed");
         a.walker.follower = None;
         // The end of the way to a conversation partner: `crate::social` starts the
@@ -2269,7 +2273,7 @@ impl Ai {
     /// where the chain loops, round again; a repeatable patrol whose chain ends starts
     /// over at its first point [hypothesis: the documentation says "loop or go back and
     /// forth"]; else the patrol is done.
-    fn patrol_on(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
+    pub(crate) fn patrol_on(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
         let a = &self.agents[&actor];
         let (Some(package), Some(Goal::Route(route))) = (a.package, a.goal.clone()) else { return };
         let at = a.route_at;
