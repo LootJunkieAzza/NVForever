@@ -17333,7 +17333,7 @@ order = [[
 [[scenario]]
 name = "tiles-sleep-wait"
 source = "[design] ui-tile-tree.md §6.2 step 3 (T15b, docs/handoff/ui-tile-tree-tasks.md): with [UI] TileMenus=SleepWaitMenu the Wait menu is drawn from the game's SleepWaitMenu tiles (menu 1012 builds it; the model writes its three texts, the Wait button's word and the slider's value), the hand-built menu is not spawned, pointer clicks on the slider's right page area move it six hours at a time to 24, a click at 24 keeps it there, the slider drawn after each click's pulse is the model's value (#1307 review), and W (the file's _PCButton_W, which the hand-built menu has no use for) presses Wait"
-note = "the menu opens at 10 s on one hour; at 1280 x 720 the screen is 1706.7 x 960 interface units, SWM_MainRect centred at 423.3, 280, the slider 112.5, 145 in (640 x 64) with its marker 48 wide at value 0, so x 1100 (y 457) is on the page area right of the marker at values 0, 6, 12 and 18 (marker 48 wide, 592/23 apart from x 535.8), and x 1165 is on the marker at value 23 (sleep_wait_menu.xml, scrollbar_horiz.xml); the 24 hours then pass in 12 s"
+note = "the menu opens at 10 s on one hour; at 1280 x 720 the screen is 1706.7 x 960 interface units, SWM_MainRect centred at 423.3, 280, the slider 112.5, 145 in (640 x 64) with its marker 48 wide at value 0, so x 1100 (y 457) is on the page area right of the marker at values 0, 6 and 12 (marker 48 wide, 592/23 apart from x 535.8), x 1165 on it at 18 (to 24) and on the marker at value 23 (the click at 24) (sleep_wait_menu.xml, scrollbar_horiz.xml); the 24 hours then pass in 12 s"
 areas = ["ui", "wait", "menus"]
 paths = [
   "engine/nvf-play/src/tiles/wait_menu.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs",
@@ -17341,16 +17341,16 @@ paths = [
   "engine/nvf-play/src/wait.rs", "engine/nvf-play/src/wait/**",
   "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs",
 ]
-env = { NVF_PLAY_TEST_TILE_MENUS = "SleepWaitMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_WAIT = "10:open", NVF_PLAY_TEST_POINTER = "11:1100:457,11.5:1100:457:click,12:1100:457:click,12.5:1100:457:click,13:1165:457:click,13.5:off", NVF_PLAY_TEST_SHOTS = "14:tiles_sleep_wait.png", NVF_PLAY_TEST_KEYS = "15:w" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "SleepWaitMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_WAIT = "10:open", NVF_PLAY_TEST_POINTER = "11:1100:457,11.5:1100:457:click,12:1100:457:click,12.5:1100:457:click,13:1165:457:click,13.5:1165:457:click,14:off", NVF_PLAY_TEST_SHOTS = "14.5:tiles_sleep_wait.png", NVF_PLAY_TEST_KEYS = "15.5:w" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--size", "1280x720"]
-run_seconds = 34
+run_seconds = 35
 expect = [
   { re = 'tiles: \[UI\] TileMenus=SleepWaitMenu \(from test aid NVF_PLAY_TEST_TILE_MENUS\): SleepWaitMenu drawn from tiles', label = "the switch is read from the test aid" },
   { re = 'ui: built SleepWaitMenu \(menus\\[^,]+\.xml, [1-9]\d* tiles\)', label = "the open menu builds its file" },
   { re = 'tiles: SleepWaitMenu drawn from tiles \(\d+ file tiles, 0 code tiles\)', label = "the menu's tree draws" },
   { re = 'tiles: SleepWaitMenu drawn from tiles: "[^"]+", "1 hour \([^"]+\)", "[^"]+", button "Wait", slider 0', label = "the model writes the texts, the verb and the slider" },
   { text = "tiles: SleepWaitMenu Step(6) on its tiles", min = 3, label = "clicks on the right page area page the slider" },
-  { re = 'tiles: SleepWaitMenu (Step\(-?\d+\)|Hours\(\d+\)) on its tiles', count = 4, label = "four clicks on the slider, the last at 24" },
+  { re = 'tiles: SleepWaitMenu (Step\(-?\d+\)|Hours\(\d+\)) on its tiles', count = 5, label = "five clicks on the slider, the last at 24" },
   { re = 'tiles: SleepWaitMenu drawn from tiles: "[^"]+", "7 hours \([^"]+\)", "[^"]+", button "Wait", slider 6', label = "the slider follows" },
   { re = 'tiles: SleepWaitMenu drawn from tiles: "[^"]+", "24 hours \([^"]+\)", "[^"]+", button "Wait", slider 23', label = "the slider reaches 24 hours" },
   { text = "tiles: SleepWaitMenu slider drawn at 6", label = "the slider is drawn at the model's value after the pulse" },
