@@ -70,6 +70,8 @@ pub struct OtherState {
     /// `nvse_jg4::region_weathers`).
     pub idle_markers: HashMap<FormId, crate::package::IdleCollection>,
     pub region_weathers: HashMap<FormId, crate::data::RegionWeathers>,
+    /// ITR NVSE's state (`nvse_itr1`).
+    pub itr: crate::nvse_itr1::ItrState,
 }
 
 /// The bit of DisablePlayerControlsAltEx's flags for each control group, in the order of

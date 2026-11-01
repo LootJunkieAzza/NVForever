@@ -139,6 +139,13 @@ them.
   the weapon in its hand when a hit cripples either arm. The weapon falls in front of it
   as a broken one does (combat-rules.md §17) [observed: HelpCrippling; hypothesis:
   either arm, and not the player, as the text says "enemies"].
+  Arms crippled **by script** do not disarm [observed: o14_hazards, 2026-11-01,
+  `nvfairport`, god-mode player]: an NCR trooper firing a 10mm Pistol at the player kept
+  it equipped (GetEquippedObject 5) and drawn (IsWeaponOut 1) and went on firing for
+  40 s after `DamageAV RightAttackCondition 200` (condition 0), and so did one with both
+  arms at 0. So the drop, if the original has it, comes with a crippling **hit**, not
+  with the condition reaching 0; ours disarms on the hit, which fits. Not yet checked
+  with a crippling shot.
 - **Hits on the held weapon** (already there, combat-rules.md §17): they wear the
   weapon. At 0 an NPC's falls and the player's is unequipped. This is the owner notes'
   "crippling the weapon".

@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 mod anh;
+mod itr;
 mod jip;
 mod quat;
 pub use jip::{JIP_NAMES, JIP_VERSION};
@@ -2762,6 +2763,11 @@ impl Vm<'_, '_> {
         }
         if origin == "Anh" {
             if let Some(v) = self.anh_function(&lname, c)? {
+                return Ok(v);
+            }
+        }
+        if origin == "ITR" {
+            if let Some(v) = self.itr_function(&lname, c)? {
                 return Ok(v);
             }
         }
