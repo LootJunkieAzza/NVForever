@@ -1625,6 +1625,42 @@ expect = [
   { re = '(?P<n>\d+) conversations started by scripts', range = [2, 1e9], label = "2 or more conversations started by scripts" },
 ]
 
+[[scenario]]
+name = "radio-rnv-voice-off"
+source = "#1077 item 2 (owner: Mr. New Vegas on the Pip-Boy followed the Voice slider): with Voice at 0, Radio New Vegas's DJ talk and news are still heard, on the Radio mixer"
+areas = ["radio", "audio", "pipboy", "settings"]
+paths = ["crates/fnv-world/src/radio.rs", "crates/fnv-game/src/radio.rs", "engine/nvf-play/src/radio.rs", "engine/nvf-play/src/voice.rs", "engine/nvf-play/src/audio_out.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:volume-voice=0", NVF_PLAY_TEST_SCRIPT = "1:enable:RNVTARef", NVF_PLAY_TEST_RADIO = "2:tune=RadioNewVegasTA,48:off" }
+args = ["--cell", "Goodsprings", "--play", "--no-messages"]
+run_seconds = 52
+expect = [
+  "settings: volume-voice 0%",
+  "pipboy radio: on, tuned to RadioNewVegasTA",
+  { re = 'radio: RadioNewVegasTA says RadioHello .*maleuniquemrnewvegas', label = "Mr. New Vegas opens the station" },
+  { re = 'radio: RadioNewVegasTA says RNVNews', label = "and reads the news" },
+  { re = 'the Pip-Boy tuned to RadioNewVegasTA playing sound\\voice\\', min = 5, label = "the Pip-Boy plays his lines" },
+  { re = 'the Pip-Boy tuned to RadioNewVegasTA playing sound\\songs', count = 0, label = "and no song before it is turned off (the programme runs on after): the Radio mixer holds only his speech" },
+  { re = 'volumes master 100%, music 100%, footstep 100%, voice 0%, effects 100%, radio 100%$' },
+  { re = 'audio categories after volumes: .*radio (?P<n>[\d.]+) s audible', range = [25, 1e9], label = "his speech is heard with Voice at 0 (#1077)" },
+]
+
+[[scenario]]
+name = "radio-rnv-radio-off"
+source = "#1077 item 2: with Radio at 0, Radio New Vegas's DJ talk and news are silent"
+areas = ["radio", "audio", "pipboy", "settings"]
+paths = ["crates/fnv-world/src/radio.rs", "crates/fnv-game/src/radio.rs", "engine/nvf-play/src/radio.rs", "engine/nvf-play/src/voice.rs", "engine/nvf-play/src/audio_out.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:volume-radio=0", NVF_PLAY_TEST_SCRIPT = "1:enable:RNVTARef", NVF_PLAY_TEST_RADIO = "2:tune=RadioNewVegasTA,48:off" }
+args = ["--cell", "Goodsprings", "--play", "--no-messages"]
+run_seconds = 52
+expect = [
+  "settings: volume-radio 0%",
+  "pipboy radio: on, tuned to RadioNewVegasTA",
+  { re = 'radio: RadioNewVegasTA says RNVNews', label = "Mr. New Vegas reads the news" },
+  { re = 'volumes master 100%, music 100%, footstep 100%, voice 100%, effects 100%, radio 0%$' },
+  { re = 'audio categories: .*radio (?P<n>[\d.]+) s heard', range = [25, 1e9], label = "his speech plays on the Radio mixer" },
+  { re = 'audio categories after volumes: .*radio (?P<n>[\d.]+) s audible', range = [0, 0], label = "and is silent with Radio at 0" },
+]
+
 # ------------------------------------------------------------------ controls, pushing, idles
 
 [[scenario]]
@@ -2916,6 +2952,50 @@ expect = [
 ]
 
 [[scenario]]
+name = "pipboy-screen-menu"
+source = "issue #1228 (docs/design/screen-menu.md §6): the Gameplay setting Use Pip-Boy off takes the Pip-Boy and its glove off and the menus show full screen; on puts them back and the menus are on the arm"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy*", "engine/nvforever/src/pipboy_arm.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "10.5:player.equipitem 00015038;10.8:close", NVF_PLAY_TEST_PIPBOY = "10:frame=screen,12:open,14:page=data,15:tab=1,15.5:page=stats,16:click=600:650,18:close,20:frame=device,22:open,25:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1920x1080"]
+run_seconds = 27
+note = "the console's equipitem at 10.5 s, with Use Pip-Boy off, is taken off again (the setting holds, as for a loaded save or Doc Mitchell's script); 1920x1080 so the image is made larger; the click at 16 s is on the STATS tab line's fourth tab (Perks) through the flat image; 00015038 is the Pip-Boy 3000, 00025B83 the Pip-Boy Glove (FalloutNV.esm)"
+expect = [
+  { text = "pipboy: Use Pip-Boy off: took off 0x00015038", count = 2, label = "off takes the Pip-Boy off, and again after a script equips it" },
+]
+order = [[
+  "pipboy: Use Pip-Boy off: took off 0x00015038",
+  "pipboy: frame Screen",
+  "pipboy: up, page ITEMS tab Weapons",
+  { re = 'pipboy: image scale \d', label = "pipboy: the image made at the window's size" },
+  "pipboy: DATA Local Map",
+  "pipboy: DATA World Map",
+  "pipboy: STATS Status",
+  "pipboy: STATS Perks",
+  "pipboy: down",
+  "pipboy: Use Pip-Boy on: put on 0x00015038",
+  "pipboy: frame Device",
+  "pipboy: the menus are on the model's screen",
+]]
+
+[[scenario]]
+name = "pipboy-screen-menu-unworn"
+source = "issue #1228 (docs/design/screen-menu.md §2.1): with no Pip-Boy worn the inventory still opens, as the screen menu, with Use Pip-Boy on"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy*"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:player.unequipitem 00015038;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,15:page=stats,17:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1280x720"]
+run_seconds = 19
+note = "00015038 is the player's Pip-Boy 3000 (ARMO PipBoy, FalloutNV.esm)"
+order = [[
+  "pipboy: frame Screen",
+  "pipboy: up, page ITEMS tab Weapons",
+  "pipboy: STATS Status",
+  "pipboy: down",
+]]
+forbid = [{ text = "pipboy: the menus are on the model's screen", label = "the arm raised with no Pip-Boy worn" }]
+
+[[scenario]]
 name = "pipboy-holotape"
 source = "ESM gap audit row 14 (docs/spec-notes/holotapes.md §3, §4): a Voice note (holotape) picked in the Pip-Boy's Notes list plays its line's voice files, one response after another; picked again it pauses, again it goes on, and it keeps playing with the Pip-Boy put away (owner 2026-10-27)"
 areas = ["pipboy", "audio"]
@@ -4024,7 +4104,7 @@ manual = "the frame at 14 s shows the player's body as a clear, slightly bent ou
 [[scenario]]
 name = "stealth-boy-pipboy"
 source = "owner 2026-10-23: under a Stealth Boy the Pip-Boy's screen was see-through too, so the menus could not be used; the screen is drawn plain while the menus are on it, the arm stays see-through"
-note = "first person; the Stealth Boy used at 8 s; the Pip-Boy up on ITEMS at 18 s, after the add-ons' start-up message boxes (frame at 20 s), down at 21 s, up again at 23 s (the screen had turned see-through again), down at 25 s"
+note = "first person; the Stealth Boy used at 8 s (the drop aid turns ITEMS to its Aid tab to reach it, and the Pip-Boy keeps that tab, #1256); the Pip-Boy up on ITEMS at 18 s, after the add-ons' start-up message boxes (frame at 20 s), down at 21 s, up again at 23 s (the screen had turned see-through again), down at 25 s"
 areas = ["aid", "pipboy"]
 paths = ["engine/nvforever/src/stealth_field.rs", "engine/nvforever/src/pipboy_arm.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "00043E94:1", NVF_PLAY_TEST_DROP = "8:00043E94:use", NVF_PLAY_TEST_PIPBOY = "18:open,21:close,23:open,25:close", NVF_PLAY_TEST_SHOTS = "20:stealth_pipboy.png" }
@@ -4035,7 +4115,7 @@ expect = [
 ]
 order = [[
   { re = 'stealth field: on \(Chameleon 75\): [1-9]\d* meshes see-through' },
-  "pipboy: up, page ITEMS tab Weapons",
+  "pipboy: up, page ITEMS tab Aid",
   "pipboy: the menus are on the screen drawn plain under the Stealth Boy",
   "pipboy: the menus are on the model's screen",
   "pipboy: down",
@@ -12304,6 +12384,8 @@ commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fn
 expect = [
   { json = "observations.?label=milestone: VMS46 objective 10.running", equals = true, label = "aba-daba-honeymoon, milestone: VMS46 objective 10: running = true" },
   { json = "observations.?label=milestone: VMS46 objective 10.objective.10.displayed", equals = true, label = "aba-daba-honeymoon, milestone: VMS46 objective 10: objective.10.displayed = true" },
+  { json = "observations.?label=anders thanks.state", equals = "choosing", label = "aba-daba-honeymoon: Anders' thanks opens after his Goodbye line closes (#1107)" },
+  { json = "observations.?label=anders thanks.actor", equals = "0x001413C3", label = "aba-daba-honeymoon: Anders (VRRCAndersREF) force-greets for his thanks (#1107)" },
   { json = "observations.?label=milestone: VMS46 objective 15.var.andersfreed", equals = 2.0, label = "aba-daba-honeymoon, milestone: VMS46 objective 15: var.andersfreed = 2.0" },
   { json = "observations.?label=milestone: VMS46 objective 15.objective.10.completed", equals = true, label = "aba-daba-honeymoon, milestone: VMS46 objective 15: objective.10.completed = true" },
   { json = "observations.?label=milestone: VMS46 objective 15.objective.15.displayed", equals = true, label = "aba-daba-honeymoon, milestone: VMS46 objective 15: objective.15.displayed = true" },
@@ -16335,6 +16417,24 @@ expect = [
 ]
 
 [[scenario]]
+name = "ui-gradual-in-game"
+source = "[documented: GECK wiki SetUIFloatGradual, GetUIFloatGradualMode] T9: a gradual change started from the console steps on real time in the running game (fnv_game::ui_gradients, the engine's tiles update) and ends at its end value; [design] HUDMainMenu/depth as ui-tree-in-game uses it"
+areas = ["ui", "scripts", "console"]
+paths = [
+  "crates/fnv-game/src/ui_gradients.rs", "crates/fnv-game/src/ui_more.rs",
+  "crates/fnv-game/src/nvse.rs", "crates/fnv-game/tests/ui_more.rs",
+  "engine/nvf-play/src/tiles/mod.rs",
+]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:SetUIFloatGradual \"HUDMainMenu/depth\" 0 100 2;10.5:PrintC \"nvf gradual mode %g\", (GetUIFloatGradualMode \"HUDMainMenu/depth\");13:PrintC \"nvf gradual %g %g\", (GetUIFloat \"HUDMainMenu/depth\"), (GetUIFloatGradualMode \"HUDMainMenu/depth\")" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 16
+expect = [
+  { re = 'console: SetUIFloatGradual "HUDMainMenu/depth" 0 100 2 >> ran', label = "the console compiles and runs SetUIFloatGradual" },
+  { re = 'script: print "nvf gradual mode 0"', label = "the change runs half a second in (mode 0)" },
+  { re = 'script: print "nvf gradual 100 -1"', label = "after its two seconds the depth is 100 and nothing changes it" },
+]
+
+[[scenario]]
 name = "ui-hud-code-traits"
 source = "[observed: hud.md §14] T4a: HUD places at 16:10 (visibility is in the unit tests: the console line runs with the console open, a PlayState::Menu that hides NVForever's HUD); [design] GetUIFloat through the console beside the current drawing"
 areas = ["ui", "scripts", "console"]
@@ -17060,3 +17160,17 @@ expect = [
   { re = 'player: knocked back at \d+ units/s for 1[.]00 s', label = "the trooper's punch knocks the player back" },
   { re = 'player: knockback done: (\d+) units of (\d+)', range = [3, 300], label = "the player is pushed back through its character" },
 ]
+
+[[scenario]]
+name = "font-glyph-baseline"
+source = "#1221 (docs/spec-notes/fonts.md §3.2): repeated font-2 glyphs at different fractional x positions keep their dimensions and share one pixel-aligned line baseline"
+areas = ["ui", "menus", "fonts"]
+paths = ["engine/nvf-play/src/interface.rs", "engine/nvf-play/src/terminal/screen.rs", "engine/nvf-play/src/creator/view.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "24:MessageBoxEx \"NVF box without buttons\";24.2:close", NVF_PLAY_TEST_SHOTS = "24.6:font_glyph_baseline.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--size", "1280x720"]
+run_seconds = 27
+expect = [
+  "message box shown: NVF box without buttons",
+  { re = 'test aid: screenshot .*font_glyph_baseline[.]png', label = "the glyph comparison frame is saved" },
+]
+manual = "font_glyph_baseline.png, compared with upstream main and the original at 1280x720: every x-height letter in 'NVF box without buttons' has the same top and bottom ink rows; the two u glyphs have equal heights; capitals and ascenders share their own height. Check the whole box, including its frame and Ok button, for position or size changes. Log expectations only verify the scene and capture; the glyph appearance needs this image review."

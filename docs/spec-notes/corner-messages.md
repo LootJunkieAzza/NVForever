@@ -174,7 +174,7 @@ within a pixel in every one of these (§7).
   icon and the 2 seconds. No string setting in FalloutNV.esm or the add-on masters names
   notes [observed: search of their GMST records, 2026-10-31], so the words are
   NVForever's (the owner's example). That the original shows it for script-given notes
-  too is a hypothesis (observer-checks.md item 65). No sound: none in the masters is
+  too is a hypothesis (observer-checks.md item 67). No sound: none in the masters is
   named for it [observed: SOUN editor IDs, only the holotape player's].
 - **Icons.** A message's icon is its Menu Icon's file, from the atlas if the index has
   its file name, else the file itself, stretched to 160 by 160. Without an icon, or if

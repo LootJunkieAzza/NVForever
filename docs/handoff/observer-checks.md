@@ -522,9 +522,10 @@ The numbers above stay put so links to them hold; each item here gives its own p
     the data]. To check: with the EM pulse module downloaded (X-8), shoot a Big MT force
     field with the Sonic Emitter: Sonic Emitter Upgrade completes and the field drops.
 
-39. **Can a Goodbye line's end script start a new conversation?** (P2: 8 lines, e.g. Anders'
-    thanks in VMS46, INFO 0x00142A9C.) Ours refuses StartConversation while the old
-    conversation is still open. In the original, after the line, does the new speaker
+39. **Can a Goodbye line's end script start a new conversation?** (P2: 8 end scripts, 4
+    of them of Goodbye lines, e.g. Anders' thanks in VMS46, INFO 0x00142A9C.) Ours now
+    holds the StartConversation and starts it once the line has closed the conversation
+    [design, issue #1107]. In the original, after the line, does the new speaker
     force-greet? (mq-walkthrough §9 stall 1.)
 40. **Does re-displaying a completed objective un-complete it?** — answered 2026-10-31
     (o5_00, issue #1108): no. VMS19 65 and VFSAtomicPimp 34: displayed, completed, then
@@ -746,9 +747,28 @@ The numbers above stay put so links to them hold; each item here gives its own p
     screenshot of each at 1280 x 720.
     ([message-menu §5a](../spec-notes/message-menu.md), [barter-menu §7](../spec-notes/barter-menu.md))
 
+## Added 2026-10-31 (follow-ups and choices, issue #964)
+
+65. **What a line with both follow-ups and choices offers after its follow-up** (P2: 15
+    lines of FalloutNV.esm, e.g. INFO 0x00158A3D of Topic056, whose choice Topic068 is
+    otherwise never offered). NVForever passes over a follow-up with the Goodbye flag
+    when the line has choices and offers the choices (Topic067, whose line is that
+    Goodbye follow-up, and Topic068); other follow-ups are said first [design, issue
+    #964]. To check: at Yes Man's final report (VStoryEventSecuritronsFort 1) pick
+    Topic056 and record whether the conversation ends after the line (Topic067's
+    goodbye said with no pick) or Topic067/068 are offered. A second sample: Arcade's
+    Topic065 (0x0016338D, non-Goodbye Say Once follow-ups): is 0x00163380 said before
+    the choices? ([dialogue §3.4](../spec-notes/dialogue.md))
+
+66. **Does a quest's ResetQuest on itself stop it?** (P2, issue #1232.) o41 reset VMQ03aTimer
+    from a job script. The Emergency Radio (VEFR01NCRGood2EmergencyRadio) calls ResetQuest
+    on itself in its MenuMode and then sets iSpawnSupplyDelay; if that stopped it, the
+    drop would not come. Use the radio (button 1) and read GetQuestRunning right after,
+    and whether the drop arrives. Ours keeps a self-reset running. (scripts.md §5)
+
 ## Added 2026-10-31 (the note notice, issue #1163)
 
-65. **Does the original name a note in the corner when a script gives it?** (P3: every
+67. **Does the original name a note in the corner when a script gives it?** (P3: every
     AddNote and AddItem of a note in quest scripts.) NVForever shows its own corner line,
     "Note: <the note's name>", for every note the player gets the first time: picked up,
     taken from a container, AddItem, AddNote, a terminal's Add Note item

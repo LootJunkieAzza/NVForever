@@ -682,6 +682,10 @@ pub struct PlayerState {
     pub teammate_perks: BTreeSet<FormId>,
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub notes: BTreeSet<FormId>,
+    /// Notes read in the Pip-Boy (GetNoteRead, `Game::mark_note_read`), and those
+    /// SetNoteRead marked with `serialize` 1 [documented: SetNoteRead].
+    #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
+    pub notes_read: BTreeSet<FormId>,
     /// Infamy (index 0) and fame (index 1) per reputation, as GetReputation's axis.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub reputation: BTreeMap<FormId, [f64; 2]>,
@@ -1109,6 +1113,13 @@ pub struct Game<'a> {
     pub(crate) name_overrides: std::collections::HashMap<FormId, String>,
     /// xNVSE's mod local data: lower-cased key -> (key as given, value); the session's.
     pub(crate) mod_data: BTreeMap<String, (String, fnv_script::vm::XVal)>,
+    /// Notes the extender's setters changed this session (`crate::nvse_notes`), whole.
+    pub(crate) note_edits: BTreeMap<FormId, crate::data::NoteDef>,
+    /// The holotape playing and the line it started with (`Game::holotape_script`): its
+    /// end script is that line's, whatever the start script changed of the note.
+    pub(crate) tape_playing: Option<(FormId, FormId)>,
+    /// SetNoteRead's changes without `serialize`: for the session, over the saved flag.
+    pub(crate) note_read_session: BTreeMap<FormId, bool>,
     /// What each open menu is about and has highlighted, by menu code ([`MenuPicks`]).
     pub(crate) menu_picks: BTreeMap<u16, MenuPicks>,
     /// NX NVSE's variables on references (`crate::nvse_nx`), saved.
@@ -1190,6 +1201,12 @@ pub struct Game<'a> {
     /// Keys MenuTapKey pressed (DirectInput scan codes), for the engine to take as one
     /// frame's presses in the open menu.
     pub ui_taps: Vec<u32>,
+    /// The trait changes over real time (SetUIFloatGradual, CacheUI's gradual and reveal
+    /// functions): the engine steps them each frame (`ui_gradients::Gradients::step`).
+    pub ui_gradients: crate::ui_gradients::Gradients,
+    /// The other tile functions' session state (`crate::ui_more`): CacheUI's caches and
+    /// queues, SUP's HUD bars, the attached components, the text measure.
+    pub ui_extra: crate::ui_more::UiExtra,
     /// The pointer on the menus drawn from tiles: the tile with `mouseover`, the `clicked`
     /// pulses to end (`crate::ui_input`, `fnv_ui::input`). Reset with the tree.
     pub ui_pointer: fnv_ui::input::Pointer,
@@ -1876,6 +1893,9 @@ impl<'a> Game<'a> {
             field_overrides: std::collections::HashMap::new(),
             name_overrides: std::collections::HashMap::new(),
             mod_data: BTreeMap::new(),
+            note_edits: BTreeMap::new(),
+            tape_playing: None,
+            note_read_session: BTreeMap::new(),
             menu_picks: BTreeMap::new(),
             nx: Default::default(),
             clones: std::collections::HashMap::new(),
@@ -1909,6 +1929,8 @@ impl<'a> Game<'a> {
             ui_hud_pending: None,
             ui_used: false,
             ui_taps: Vec::new(),
+            ui_gradients: Default::default(),
+            ui_extra: Default::default(),
             ui_pointer: fnv_ui::input::Pointer::default(),
             difficulty: Default::default(),
             combat_requests: Vec::new(),
@@ -4165,10 +4187,22 @@ impl<'a> Game<'a> {
     /// command tape (NVDLC01DogCommandNote, line 0x0100DFC7, NVDLC01DogDialogueBackInYourCage)
     /// is its quest's only way to stage 40 of NVDLC01MQ01a, so the original runs the
     /// line's scripts; whom they run on is not known, and the DM lines name every
-    /// reference they touch. docs/spec-notes/holotapes.md §3.]
+    /// reference they touch. docs/spec-notes/holotapes.md §3.] The end script is the one of
+    /// the line the tape started with, though the start script changed the note (SetNoteTopic)
+    /// [hypothesis: the tape plays the line it began].
     pub fn holotape_script(&mut self, note: FormId, which: usize) -> Option<FormId> {
         let data = self.data;
-        let crate::holotapes::Tape::Voice { info, .. } = crate::holotapes::tape(data, note)? else { return None };
+        let started = self.tape_playing.take().filter(|&(n, _)| n == note && which == 1).map(|(_, i)| i);
+        let info = match started {
+            Some(i) => i,
+            None => {
+                let crate::holotapes::Tape::Voice { info, .. } = self.note_tape(note)? else { return None };
+                info
+            }
+        };
+        if which == 0 {
+            self.tape_playing = Some((note, info));
+        }
         let def = data.infos.get(&info)?;
         if let Some(u) = [def.begin, def.end][which.min(1)] {
             self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(FormId::PLAYER_REF) });

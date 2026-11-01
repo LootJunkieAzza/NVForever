@@ -144,6 +144,11 @@ struct RowButton(Side, usize);
 #[derive(Component, Clone, Copy)]
 pub(crate) struct CmdButton(pub(crate) Command);
 
+/// A list's heading (its arrows and title): the wheel over it steps the list's category
+/// ([`Command::wheel`]). It lets the pointer through to the arrows under it.
+#[derive(Component, Clone, Copy)]
+pub(crate) struct CategoryTitle(pub(crate) Side);
+
 /// The "How many?" prompt's meter, which takes a press and a drag.
 #[derive(Component)]
 pub(crate) struct AmountMeter;
@@ -513,6 +518,7 @@ fn wheel_hold(mut wheel: MessageReader<MouseWheel>, mut moved: MessageReader<Cur
 fn menu_mouse(
     rows: Query<(&PointerState, &RowButton), Changed<PointerState>>,
     buttons: Query<(&PointerState, &CmdButton), Changed<PointerState>>,
+    titles: Query<(&PointerState, &CategoryTitle)>,
     keys: Res<ButtonInput<KeyCode>>,
     active: Res<ActiveMenu>,
     hold: Res<WheelHold>,
@@ -562,8 +568,8 @@ fn menu_mouse(
     }
     let whole = lines.trunc();
     if whole != 0.0 {
-        // Wheel up (positive) moves the selection up.
-        out.write(MenuInput(Command::Scroll(-whole as i32)));
+        let title = titles.iter().find(|(i, _)| **i != PointerState::None).map(|(_, t)| t.0);
+        out.write(MenuInput(Command::wheel(title, whole as i32)));
         *lines -= whole;
     }
 }

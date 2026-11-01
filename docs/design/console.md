@@ -184,8 +184,9 @@ those systems gave them when it is on again.
 Script functions of the catalogue's "Console Functions", run like any other line
 (`fnv_game::functions::camera`, the engine side in `engine/nvf-play/src/free_cam.rs`).
 The catalogue gives them no opcode; the function table numbers every opcode-less console
-function from `0xF000` in name order (`fnv_script::table::CONSOLE_OPCODE_BASE`)
-[decision]. Smoke test: `console-camera`.
+function from `0xF000` in name order (`fnv_script::table::CONSOLE_OPCODE_BASE`), except
+NVSE extender functions, which are left unnumbered and go by name [design].
+Smoke test: `console-camera`.
 
 | Command | What it does |
 |---|---|
