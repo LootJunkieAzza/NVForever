@@ -93,6 +93,15 @@ cargo build --release -p nvforever --features nvforever/tracy    # or nvforever/
 - [observed 2026-11-01, Goodsprings, `--play`] The game listens on TCP 8086 from start-up;
   start it, then Connect in the viewer (localhost). `NVF_PLAY_TEST_PROFILE` works beside
   it, unchanged.
+- [documented: `tracy-client-sys-0.30.1/build.rs`, `tracy/client/TracyProfiler.cpp`,
+  `tracy/common/TracySocket.cpp`] The client is built `ondemand` and `only-localhost`
+  (`engine/nvforever/Cargo.toml`). On demand: nothing is recorded until a viewer
+  connects, so a Tracy build left running without one does not fill memory, and what
+  happened before connecting (start-up, the first cell's load) is not in the capture;
+  connect first, then trigger the scene. Only localhost: the port listens on the loopback
+  address and the viewer-discovery broadcast goes to 127.255.255.255, so nothing is
+  reachable from another machine and no firewall rule is needed; profiling across
+  machines takes a build without it.
 - [hypothesis: Tracy's manual, not checked here] The client also records context switches
   and samples call stacks only when run as administrator on Windows; the spans need
   neither. Frame telemetry lists `tracy` among the build features, so its numbers are

@@ -4627,6 +4627,7 @@ dependencies = [
  "rfd",
  "serde_json",
  "texpresso",
+ "tracy-client",
  "wgpu",
  "windows-sys 0.61.2",
  "winit",
