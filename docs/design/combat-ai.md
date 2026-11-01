@@ -594,9 +594,13 @@ ratio at or above (confidence threshold + 0.5) × the alarm confidence multiplie
 wiki's example, 3: no game setting of FalloutNV.esm names it) [documented]. An actor that
 **noticed** a hostile (Normal → Alert) alarms them too [design: the owner's "alerting
 their friends when they sense an enemy presence"]. Who hears it: the actors measured in
-that round (drawn, near the player) within `ALARM_RADIUS` (4,096 units, a whole exterior cell [design]; 2,048 until the owner's playtest list 5 item 31) that are
+that round (drawn, near the player) and the other actors of the loaded cells, within
+`ALARM_RADIUS` (9,216 units [design on the original's farthest combat allies, 9,026];
+2,048 until the owner's playtest list 5 item 31, 4,096 until #972), that are
 its own kind (§12.4) or an ally or friend whose Assistance helps it; never against their
-own ally or friend. An alarmed actor gets an alarm at the foe's position (`Cause::Ally`)
+own ally or friend. The alarm names the first of the foe's side to start fighting, not
+the sender's own foe, and a fighter keeps a target while a member of its group detects
+it (docs/spec-notes/combat-groups.md). An alarmed actor gets an alarm at the foe's position (`Cause::Ally`)
 and holds a grudge (`Assist`) when its records would not attack the foe; it goes Alert,
 searches, and fights when it detects the foe. An alarm passed on by an ally is not passed
 on again. This is in addition to §10.3 (an ally that sees a fight joins it). Log:
@@ -739,6 +743,13 @@ is meant to hide a fighter from the fire coming at it, not only from the one it 
   peek point must still see its **own target**: it fires at its target from there, not at
   the gunman it hides from. Low cover hides its crouched eyes from the `from` actor and
   lets it see its target standing.
+- **Range before the candidate cap** (2026-11-01, #1162) [design]: the edges out of that
+  range are dropped before the 16 nearest (`COVER_CANDIDATES`) are taken, as the cap is
+  there to limit the sight rays. Smoke `combat-cover` failed 3 runs of 3 without it: the
+  troopers looked for cover while still 2,000 units or more from the Fiends, and the 16
+  nearest facing edges all lay behind them, 2,000–2,700 units from their targets, beyond
+  their reach of 1,286–1,736 (50 of 51 edges out of range, all beyond reach) [observed:
+  smoke logs of #1292]; the edges in range, nearer the Fiends, were never looked at.
 - **Give-up and peek rules follow it**: the cover is given up when its edge no longer
   faces the `from` actor (log `gives up its cover: … is no longer behind it` names that
   actor) or the edge is beyond its reach from its target (§16). Once the `from` gunman
@@ -1894,7 +1905,11 @@ target through every phase of the attack and fired only once turned to it
   that sees its target and does not run from it (a flight away or by a door; a flight to cover keeps
   it) is locked on where that target is drawn this frame. `residents` draws it facing that
   place, turning at the combat turn rate (240° a second standing, 360° walking) and, once
-  within 10° (`LOCK_HOLD`), following it exactly. On its way to cover, a post or a flee
+  within 10° (`LOCK_HOLD`), following it exactly; once held it stays on that target even
+  when the target sweeps more than 10° in one frame (2026-11-01, #1162 [design]: melee
+  Fiends circling troopers 70–340 units away, and long frames, slipped out of the hold and
+  turned back at the turn rate, up to 21 frames past 10° in smoke battle-ncr-fiends
+  [observed: smoke logs of #1292]); a new target is still turned to at the turn rate. On its way to cover, a post or a flee
   spot it strafes or backs away with its target in front. Out of sight it faces the
   target's AI place as before (`Core::aims`).
 - **Why it slipped**: the drawn facing used the target's AI place, which for a charging
