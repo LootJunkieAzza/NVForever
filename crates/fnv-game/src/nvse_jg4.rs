@@ -105,7 +105,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                         let bits = v as i64;
                         (c.run_in_sequence, c.do_once) = (bits & 1 != 0, bits & 4 != 0);
                     }
-                    Some(2) => c.timer = v as f32,
+                    // A timer that is not a finite, non-negative number after the
+                    // cast is refused: an endless one would stop the marker's idles for
+                    // the session (#1333 review) [hypothesis: the game keeps a float].
+                    Some(2) if (v as f32).is_finite() && v >= 0.0 => c.timer = v as f32,
                     _ => {}
                 }
             }

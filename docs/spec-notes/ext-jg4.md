@@ -11,7 +11,7 @@ session, read by the getters. Tests: `crates/fnv-game/tests/jg4.rs`.
 |---|---|
 | GetIdleMarkerAnimations `marker` | the marker's idles (IDLA) as an array, in record order [documented] |
 | GetIdleMarkerTraitNumeric `marker trait` | 1 the flags (1 run in sequence, 4 do once; IDLF), 2 the idle timer (IDLT), 3 the number of animations; 0 for another trait [documented: the page's table] |
-| SetIdleMarkerTraitNumeric `marker trait value` | 1 the flags, 2 the timer; the count is not set here [documented: the page and its note] |
+| SetIdleMarkerTraitNumeric `marker trait value` | 1 the flags, 2 the timer; the count is not set here [documented: the page and its note]; a timer that is not finite as a float, or below 0, is refused [hypothesis] |
 | SetIdleMarkerAnimation `marker index idle` | the idle at the index replaced [documented]; an index past the list or a form that is not an IDLE changes nothing [hypothesis] |
 | SetIdleMarkerAnimations `marker array` | the idles become the array's, in its order, and the count follows [documented: the note]; entries that are not IDLE forms are left out [hypothesis] |
 | GetRegionWeathers `region` | the weathers of the region's weather block (RDWT after an RDAT of type 3) as an array, in record order [documented; the block: xEdit wbRegionDataEntries] |
@@ -30,8 +30,10 @@ The engine's idles play a marker's changed collection (`nvse_jg4::idle_marker`, 
 Follow-ups: the sky (`engine/nvforever/src/sky.rs`) loads the regions' weather lists once
 from the plugins when it is set up, so a script's region weather changes reach the
 getters only, not the weather drawn; it needs a reload when `OtherState::region_weathers`
-changes. The sandbox's stay at an idle marker (`fnv-ai` sandbox.rs) still reads the
-record's timer. The race flags reach GetRaceFlag only.
+changes; the light a region's weathers give (`fnv-world/src/lighting.rs`, `emittance`)
+reads RDWT from the plugins too. The sandbox (`fnv-ai` sandbox.rs) still picks idle markers
+and the stay at one from the record, so a marker a script emptied still draws actors, who
+then fall back to their package's idles. The race flags reach GetRaceFlag only.
 
 Not in this batch: GetLightingTemplateCell and SetLightingTemplateCell (the page names a
 cell the template copies its values from; the LGTM record has only DATA in the schema, so
