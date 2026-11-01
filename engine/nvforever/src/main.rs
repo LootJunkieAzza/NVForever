@@ -59,6 +59,8 @@ mod fly;
 mod foot_ik;
 mod fps_counter;
 mod frame_pace;
+#[allow(dead_code)] // The telemetry core is wired into the engine in stage 2 of #1276.
+mod frame_telemetry;
 mod blit_warm;
 mod handoff;
 mod furniture;

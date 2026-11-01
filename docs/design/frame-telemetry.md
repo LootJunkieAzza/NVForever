@@ -20,10 +20,14 @@ The write guard refuses the game install and original user folder (`crates/fnv-i
 the explicit game install. Create `<home>/logs/frame-telemetry-<capture_id>.jsonl` exclusively, outside
 ordinary run-log rotation. Report home or write failures; never fall back to the current directory,
 the game folder or `Documents\My Games\FalloutNV`. Pair the epoch clocks before the first update.
-Duration includes startup. Stop at the requested duration, after the Nth frame attempt, or before a line
-exceeds the byte budget, reserving 16 KiB for the trailer. Check before each payload; a stalled update may
-delay finalization. Bounds stop capture without restarting it. The first stop wins; simultaneous checks
-prefer duration, then frames. Writer errors override it, and the game continues.
+Duration includes startup. Producers check duration and frame limits before each payload and stop after
+the Nth frame attempt. The writer enforces the byte budget before writing each line, reserving 16 KiB for
+the trailer. If the next line would exceed that budget, it stops with `byte_limit` and cuts the interval
+at the last wholly written record. Attempts with higher seq values are outside that interval and are not
+exporter loss. A stalled update may delay finalization. Bounds stop capture without restarting it.
+The first producer stop wins; simultaneous checks prefer duration, then frames. A writer byte cut may
+shorten an already frozen interval. Writer errors override the stop, shutdown timeouts truncate, and the
+game continues.
 
 ## 2. Timing and provenance
 
@@ -141,8 +145,9 @@ unsupported, otherwise use no_sample_observed. Frames-only mode never exports di
 |---|---|---|---|
 | `status` | string | None; no | Is `complete` when the capture stopped at a limit or a normal exit without exporter loss, otherwise `truncated`. |
 | `stop_reason` | string | None; no | Is `duration_limit`, `frame_limit`, `byte_limit`, `normal_exit`, `settings_changed`, `writer_error` or `shutdown_timeout`. |
-| `frames_attempted`, `frames_written` | u64 | Frames; no | Count attempted and wholly written frame records, including null-duration records. |
-| `dropped_frames`, `dropped_diagnostics`, `dropped_markers` | u64 | Records, records, markers respectively; no | Count unwritten record attempts, and markers beyond eight or carried by an unwritten frame. |
+| `cut_seq` | u64 | Records; yes | Gives the last wholly written record's seq when the writer cuts at the byte limit; it is 0 for a header-only interval and null when there is no byte cut. |
+| `frames_attempted`, `frames_written` | u64 | Frames; no | Count attempted and wholly written frame records, including null-duration records; a byte cut includes only attempts with seq at most cut_seq. |
+| `dropped_frames`, `dropped_diagnostics`, `dropped_markers` | u64 | Records, records, markers respectively; no | Count unwritten record attempts, and markers beyond eight or carried by an unwritten frame; a byte cut includes only records and their frame-associated markers at or before cut_seq. |
 | `gpu_observations_written` | u64 | Records; no | Counts written available GPU observations, excluding the sentinel. |
 | `phases` | object | None; no | Contains exactly startup, loading and gameplay summary objects, including empty populations. |
 
@@ -162,8 +167,20 @@ giving 100 ms in this example.
 [hypothesis] Preallocate 1,024 frame slots and 3,072 diagnostic slots with reserved header and trailer
 capacity. Drop diagnostics before using frame slots; drop frames when their queue fills. A bounded cursor
 map drops and counts new-path observations on overflow; an import watermark prevents duplicate counts.
-A writer thread merges by seq, serializes and writes without blocking main or render threads. It keeps
-only wholly written durations, at most max_frames, and computes statistics at stop.
+Collection never encodes JSON or performs file I/O. Producers assign seq, check stop conditions and field
+bounds, and use a nonblocking queue send. Frame construction bounds markers to eight and their IDs to
+64 ASCII bytes; diagnostic paths are at most 1,024 UTF-8 bytes. These bounds keep each encoded payload
+under 8 KiB. A writer thread merges by seq, serializes and writes without blocking main or render threads.
+It measures actual lines as a backstop, dropping and counting any oversized payload as exporter loss.
+It keeps only wholly written durations, at most max_frames, and computes statistics at stop.
+
+[hypothesis] Before a line would exceed `max_bytes - 16 KiB`, the writer freezes producers and cuts at
+the last wholly written record, publishing its seq as `cut_seq` and its collection time as the byte stop
+time. Already queued attempts and in-flight submissions with higher seq values are outside the interval.
+Counters carried with records preserve cumulative attempts through that cut without an unbounded history.
+Markers, including overflow, belong to their frame attempt for cut accounting; pending markers without
+a frame attempt at or before the cut are outside the interval. The trailer keeps the next capture-wide
+seq without reusing numbers assigned after the cut, so its seq may be greater than `cut_seq + 1`.
 
 [documented] Legacy output lists at most 12 top-level GPU paths, not an exhaustive path count
 (`engine/nvforever/src/graphics.rs:353-361`). Bevy constructs nested paths and may emit both elapsed_cpu
@@ -176,14 +193,16 @@ increase that. At 300 bytes per observation and frame, this is about 103 MiB ove
 near 37 s; 48 observations give about 202 MiB and a stop near 19 s. GPU mode cannot fit 60 s at those
 rates; it stops early at the byte limit with a shorter, still complete capture. These estimates require measured delivery and byte rates.
 
-[hypothesis] Record drops leave seq gaps; any exporter loss, including markers alone, truncates capture.
+[hypothesis] Record drops leave seq gaps; any exporter loss within the interval, including markers alone, truncates capture.
 Statistics describe written samples and may be biased. Attempted frames equal written plus dropped
 frames; written frames equal the sum of phase frame counts; seq gaps equal dropped frame and diagnostic
-records. Duration, frame and byte limits end a lossless bounded interval and stay `complete` when nothing was
-dropped; the trailer's counts give the interval's actual length. Settings changes, writer errors and
-shutdown timeouts truncate.
-Freeze producers, drain, write the trailer and flush, allowing 2 s at shutdown. The terminal sentinel
-is exempt from duration checks, but not byte capacity. On I/O failure, stop, log one error and attempt a
+records. With a byte cut, counts and seq-gap checks cover only records with seq at most `cut_seq`, excluding
+the later trailer seq and all attempts after the cut. Loss before or at the cut still truncates; attempts
+after the cut are not exporter loss. Duration, frame and byte limits end a lossless bounded interval and
+stay `complete` when nothing in that interval was dropped; the trailer's counts give its actual length.
+Settings changes, writer errors and shutdown timeouts truncate.
+Freeze producers, drain the retained interval, write the trailer and flush, allowing 2 s at shutdown.
+The terminal sentinel is exempt from duration checks, but not byte capacity. On I/O failure, stop, log one error and attempt a
 trailer only if writable. Mark partial lines or absent trailers incomplete; never invent exact final drops.
 
 ## 5. Coexistence, consumption and validation
@@ -201,7 +220,8 @@ must call that helper; frames-only mode does not request the plugin. Add only ex
 [hypothesis] Stress will pass unique run and scenario IDs and discover new matching files under each
 launch's home/logs. Require one matching capture; save its path and validation per repetition. Validate
 field types, finite values, order, strictly increasing seq, nondecreasing t_ns, bounds, IDs, null reasons,
-count invariants and recomputed statistics. Allow FrameCount wrap and import times preceding collection.
+count invariants and recomputed statistics, restricting counts and seq gaps to seq at most `cut_seq` when
+it is non-null. Allow FrameCount wrap and import times preceding collection.
 Keep engine identity separate from runner provenance. Older runs without files retain coarse results
 and unavailable percentiles. Reject missing, invalid, partial or lossy requested exports for comparisons.
 Preserve run-status and load gates; averaged repetition quantiles must never be called pooled percentiles.
@@ -209,6 +229,7 @@ Preserve run-status and load gates; averaged repetition quantiles must never be 
 [hypothesis] Synthetic tests should cover known distributions, N=99,100,199,200, threshold equality, first
 null and later zero deltas, phases, seq gaps, FrameCount wrap, queues, cursor overflow, markers, all bounds,
 write failures, partial shutdown, import deduplication, non-finite diagnostics and unavailable origin metadata.
+Cover lossless byte cuts, losses before the cut, excluded later attempts and maximum-size escaped payloads.
 Cover delayed or missing GPU data and unsupported timestamps. Test provenance
 after commits and branch changes, with missing Git or outside a repository, legacy runs and repetition discovery.
 Supervisor game checks should parse a capture, match markers and phases, inspect adapter and backend
