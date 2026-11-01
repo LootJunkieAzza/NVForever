@@ -5289,6 +5289,137 @@ TMPL3_PROBES = [
      False, None, ""),
 ]
 
+# one111 (#1012): the 1111 NVSE plugin (OneOneOneOne.dll, installed 2026-11-01;
+# docs/spec-notes/ext-one111.md) on FalloutNV.esm forms [observed: fnvtool esm
+# inventory]: the Brahmin Wellington recipe, HitReactionIdles, Sunny's sleep package,
+# GomorraElevatorMessage, the companion dismissal terminal, the Stealth Boy, the Nerd
+# Rage! spell and perk, Run Goodsprings Run, the 10mm pistol, the varmint and sniper
+# rifles, 5mm hollow point rounds and their DT effect, fxCateye. Read-only getters first;
+# every writing step saves what it changes and puts it back in the same step.
+ONE = {"recipe": "175AAA", "idle": "14F54", "package": "176AD3", "message": "10DDBD", "terminal": "17B7A0",
+       "stealthboy": "43E94", "nerdspell": "44CA4", "nerdperk": "44CA7", "quest": "15EC5B", "pistol": "434F",
+       "varmint": "7EA24", "sniper": "4353", "ammohp": "1613FF", "amefhp": "17BA47", "cateye": "15FF5F"}
+
+
+def _one(pid, body, text=False):
+    return (f"one.{pid}", "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nfloat fN\n"
+            "string_var sText\narray_var aA\nBegin Function { }\n"
+            + _form("rP", NF["player"]) + _form("rDoc", NF["docref"]) + body, text, None, "")
+
+
+def _onev(pid, key, expr, text=False):
+    return _one(pid, _form("rObj", ONE[key]) + f"SetFunctionValue ({expr})", text)
+
+
+# FormOne lists, FormTwo (form first), FormThree (form first second): (key, the arguments
+# after the form that name the list).
+_ONE_LISTS = [("One", "recipe", ""), ("One", "idle", ""), ("One", "package", ""),
+              ("Two", "message", " 0"), ("Two", "message", " 1"), ("Two", "terminal", " 0"),
+              ("Two", "stealthboy", " 0"), ("Two", "nerdspell", " 0"),
+              ("Three", "quest", " (-1) 0"), ("Three", "quest", " 0 0"), ("Three", "nerdperk", " (-1) 0"),
+              ("Three", "nerdperk", " 0 0"), ("Three", "nerdperk", " 0 1")]
+
+
+def _lid(fam, key, args):
+    return f"{fam.lower()}.{key}" + args.replace(" (-1)", ".m1").replace(" ", ".")
+
+
+ONE111_PROBES = (
+    [_onev(f"count.{_lid(f, k, a)}", k, f"GetConditionForm{f}Count rObj{a}") for f, k, a in _ONE_LISTS]
+    + [_onev("count.one.pistol", "pistol", "GetConditionFormOneCount rObj"),
+       _onev("count.two.message.9", "message", "GetConditionFormTwoCount rObj 9")]
+    # The first condition of the lists that have one, every value ID of each kind.
+    + [_onev(f"int.{_lid(f, k, a)}.{i}", k, f"GetConditionForm{f}Int rObj{a} 0 {i}")
+       for f, k, a in _ONE_LISTS[:5] for i in range(0, 6)]
+    + [_onev(f"float.{_lid(f, k, a)}.{i}", k, f"GetConditionForm{f}Float rObj{a} 0 {i}")
+       for f, k, a in _ONE_LISTS[:5] for i in range(0, 3)]
+    # The form goes through a ref variable: the game compiles the call as a number, which
+    # GetFormIDString refuses as its argument.
+    + [_one(f"form.{_lid(f, k, a)}.{i}", _form("rObj", ONE[k]) + f"let rOther := GetConditionForm{f}Form rObj{a} 0 {i}\n"
+            "SetFunctionValue (GetFormIDString rOther)", True)
+       for f, k, a in _ONE_LISTS[:5] for i in range(0, 4)]
+    + [_onev("int.one.recipe.9", "recipe", "GetConditionFormOneInt rObj 9 0")]
+    + [_one("eval.one.recipe", _form("rObj", ONE["recipe"]) + "SetFunctionValue (EvalConditionListFormOne rObj rP rP)"),
+       _one("eval.two.message.0", _form("rObj", ONE["message"]) + "SetFunctionValue (EvalConditionListFormTwo rObj 0 rP rP)"),
+       _one("eval.three.quest", _form("rObj", ONE["quest"]) + "SetFunctionValue (EvalConditionListFormThree rObj (-1) 0 rP rP)")]
+    # Outside a damage event.
+    + [_one(f"damage.numb.{i}", f"SetFunctionValue (GetOnDamageCalcNumb {i})") for i in (0, 5)]
+    + [_one("damage.addnumb.0", "SetFunctionValue (GetOnDamageCalcAdditionalNumb 0)"),
+       _one("damage.flag", "SetFunctionValue (GetOnDamageCalcFlag)"),
+       _one("damage.ref.0", "SetFunctionValue (GetFormIDString (GetOnDamageCalcRef 0))", True),
+       _one("damage.setnumb", "SetFunctionValue (SetOnDamageCalcNumb 0 5)")]
+    + [_onev("weap.flag", "pistol", "GetWeapAdditionalFlag rObj 0"),
+       _onev("weap.vector.none", "pistol", "GetWeapAdditionalVectorValue rObj 0 1"),
+       _onev("weap.vector.scale.none", "pistol", "GetWeapAdditionalVectorValueScale rObj 0 0.5"),
+       _one("weap.vector.array.none", _form("rObj", ONE["pistol"]) + "let aA := GetWeapAdditionalVectorArray rObj 0\nSetFunctionValue (ar_Size aA)")]
+    + [_one(f"armor.doc.{k}", f"SetFunctionValue (rDoc.GetActorTotalArmor{k})") for k in ("DR", "DT")]
+    + [_onev(f"ammo.apply.{t}", "ammohp", f"ApplyAmmoEffects rObj {t} 10") for t in range(0, 6)]
+    + [_onev(f"scope.{k}", k, "GetFormIDString (GetWeaponScopeEffectShader rObj)", True) for k in ("varmint", "sniper", "pistol")]
+    + [_one("projammo.player", "SetFunctionValue (GetFormIDString (rP.GetProjectileRefAmmo))", True)]
+    # ---- writing steps, each put back ----
+    # A new condition at the end: GetVampire == 1 on the subject; then deleted.
+    + [_one("add.one.recipe", _form("rObj", ONE["recipe"]) + "let fN := GetConditionFormOneCount rObj\n"
+            "let fRes := AddConditionFormOne rObj\nlet sText := sv_Construct \"%g %g %g %g %g\" fRes (GetConditionFormOneCount rObj) "
+            "(GetConditionFormOneInt rObj fN 0) (GetConditionFormOneFloat rObj fN 0) (GetConditionFormOneInt rObj fN 5)\n"
+            "DeleteConditionFormOne rObj fN\nSetFunctionValue (sv_Construct \"%z %g\" sText (GetConditionFormOneCount rObj))", True),
+       _one("add.one.recipe.at0", _form("rObj", ONE["recipe"]) + "let fSave := GetConditionFormOneInt rObj 0 0\n"
+            "let fRes := AddConditionFormOne rObj 0\nlet sText := sv_Construct \"%g %g %g\" fRes (GetConditionFormOneInt rObj 0 0) "
+            "(GetConditionFormOneInt rObj 1 0)\nDeleteConditionFormOne rObj 0\n"
+            "SetFunctionValue (sv_Construct \"%z %g\" sText ((GetConditionFormOneInt rObj 0 0) == fSave))", True),
+       _one("add.one.recipe.bad", _form("rObj", ONE["recipe"]) + "let fN := GetConditionFormOneCount rObj\n"
+            "let fRes := AddConditionFormOne rObj 40\nSetFunctionValue (sv_Construct \"%g %g\" fRes ((GetConditionFormOneCount rObj) - fN))", True),
+       _one("add.two.message", _form("rObj", ONE["message"]) + "let fN := GetConditionFormTwoCount rObj 0\n"
+            "let fRes := AddConditionFormTwo rObj 0\nlet sText := sv_Construct \"%g %g %g\" fRes (GetConditionFormTwoCount rObj 0) "
+            "(GetConditionFormTwoInt rObj 0 fN 0)\nDeleteConditionFormTwo rObj 0 fN\n"
+            "SetFunctionValue (sv_Construct \"%z %g\" sText (GetConditionFormTwoCount rObj 0))", True),
+       _one("add.three.quest", _form("rObj", ONE["quest"]) + "let fN := GetConditionFormThreeCount rObj (-1) 0\n"
+            "let fRes := AddConditionFormThree rObj (-1) 0\nlet sText := sv_Construct \"%g %g\" fRes (GetConditionFormThreeCount rObj (-1) 0)\n"
+            "DeleteConditionFormThree rObj (-1) 0 fN\nSetFunctionValue (sv_Construct \"%z %g\" sText (GetConditionFormThreeCount rObj (-1) 0))", True),
+       # Two new ones swapped (the record's own conditions are left in place).
+       _one("swap.one.recipe", _form("rObj", ONE["recipe"]) + "let fN := GetConditionFormOneCount rObj\n"
+            "AddConditionFormOne rObj\nAddConditionFormOne rObj\nSetConditionFormOneInt rObj fN 4 3\n"
+            "let fRes := SwapConditionFormOne rObj fN (fN + 1)\n"
+            "let sText := sv_Construct \"%g %g %g\" fRes (GetConditionFormOneInt rObj fN 4) (GetConditionFormOneInt rObj (fN + 1) 4)\n"
+            "let fRes := SwapConditionFormOne rObj fN (fN + 9)\n"
+            "DeleteConditionFormOne rObj (fN + 1)\nDeleteConditionFormOne rObj fN\n"
+            "SetFunctionValue (sv_Construct \"%z %g %g\" sText fRes ((GetConditionFormOneCount rObj) - fN))", True),
+       # A condition's comparison, value and flags on a new one, then the new one deleted.
+       _one("set.one.recipe", _form("rObj", ONE["recipe"]) + "let fN := GetConditionFormOneCount rObj\nAddConditionFormOne rObj\n"
+            "let fRes := SetConditionFormOneInt rObj fN 4 2\nlet sText := sv_Construct \"%g %g\" fRes (GetConditionFormOneInt rObj fN 4)\n"
+            "let fRes := SetConditionFormOneFloat rObj fN 0 7.5\nlet sText := sv_Construct \"%z %g %g\" sText fRes (GetConditionFormOneFloat rObj fN 0)\n"
+            "let fRes := SetConditionFormOneInt rObj fN 5 9\nlet sText := sv_Construct \"%z %g %g\" sText fRes (GetConditionFormOneInt rObj fN 5)\n"
+            "let fRes := SetConditionFormOneInt rObj fN 1 0\nlet sText := sv_Construct \"%z %g %g\" sText fRes (GetConditionFormOneInt rObj fN 1)\n"
+            "let fRes := SetConditionFormOneForm rObj fN 3 rP\nlet sText := sv_Construct \"%z %g\" sText fRes\n"
+            "let fRes := EvalConditionListFormOne rObj rP rP\nDeleteConditionFormOne rObj fN\n"
+            "SetFunctionValue (sv_Construct \"%z %g %g\" sText fRes ((GetConditionFormOneCount rObj) - fN))", True),
+       # The weapon's additional vector: two pairs, read, scaled, deleted.
+       _one("weap.vector", _form("rObj", ONE["pistol"]) + "let fRes := SetWeapAdditionalVectorValue rObj 0 0.9 1\n"
+            "SetWeapAdditionalVectorValue rObj 0 0.5 0.2\nlet fN := SetWeapAdditionalVectorValue rObj 0 0.7 -1\n"
+            "let aA := GetWeapAdditionalVectorArray rObj 0\n"
+            "let sText := sv_Construct \"%g %g %g %g %g %g %g\" fRes fN (GetWeapAdditionalVectorValue rObj 0 0.9) "
+            "(GetWeapAdditionalVectorValueScale rObj 0 0.7) (GetWeapAdditionalVectorValueScale rObj 0 0.2) (ar_Size aA) "
+            "(GetWeapAdditionalVectorValueScale rObj 0 1)\n"
+            "DeleteWeapAdditionalVectorValue rObj 0 0.9\nDeleteWeapAdditionalVectorValue rObj 0 0.5\n"
+            "SetFunctionValue (sv_Construct \"%z %g\" sText (GetWeapAdditionalVectorValue rObj 0 0.9))", True),
+       _one("ammo.settrait", _form("rObj", ONE["amefhp"]) + "let fSave := GetAmmoEffectTraitNumeric rObj 2\n"
+            "let fRes := SetAmmoEffectTraitNumericAlt rObj 2 42\nlet sText := sv_Construct \"%g %g\" fRes (GetAmmoEffectTraitNumeric rObj 2)\n"
+            "SetAmmoEffectTraitNumericAlt rObj 2 fSave\nSetFunctionValue (sv_Construct \"%z %g\" sText ((GetAmmoEffectTraitNumeric rObj 2) == fSave))", True),
+       _one("mod.effect", _form("rObj", ONE["varmint"]) + "let fSave := GetWeaponItemModEffect 1 rObj\n"
+            "let fRes := SetWeaponItemModEffectAlt rObj 1 20\nlet sText := sv_Construct \"%g %g %g\" fSave fRes (GetWeaponItemModEffect 1 rObj)\n"
+            "SetWeaponItemModEffectAlt rObj 1 fSave\nSetFunctionValue (sv_Construct \"%z %g\" sText (GetWeaponItemModEffect 1 rObj))", True),
+       _one("mod.value2", _form("rObj", ONE["varmint"]) + "let fSave := GetWeaponItemModValue2 1 rObj\n"
+            "let fRes := SetWeaponItemModValue2 rObj 1 3.5\nlet sText := sv_Construct \"%g %g %g\" fSave fRes (GetWeaponItemModValue2 1 rObj)\n"
+            "SetWeaponItemModValue2 rObj 1 fSave\nSetFunctionValue (sv_Construct \"%z %g\" sText (GetWeaponItemModValue2 1 rObj))", True),
+       # A scope shader that is not an effect shader (the pistol itself): refused or not.
+       # No vanilla weapon has a scope shader to put back and a set one may not clear
+       # again, so a real shader is not set here.
+       _one("scope.set.notshader", _form("rObj", ONE["sniper"]) + _form("rOther", ONE["pistol"])
+            + "let fRes := SetWeaponScopeEffectShader rObj rOther\nlet rSave := GetWeaponScopeEffectShader rObj\n"
+            "if rSave != rOther\nSetFunctionValue (sv_Construct \"%g %z\" fRes (GetFormIDString rSave))\nreturn\nendif\n"
+            "let rOther := GetFormFromMod \"FalloutNV.esm\" \"0\"\nSetWeaponScopeEffectShader rObj rOther\n"
+            "SetFunctionValue (sv_Construct \"%g %z %z\" fRes (GetFormIDString rSave) (GetFormIDString (GetWeaponScopeEffectShader rObj)))", True)]
+)
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -5354,6 +5485,7 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "tmpl1": TMPL1_PROBES,
         "jg1": JG1_PROBES,
         "jg2": JG2_PROBES,
+        "one111": ONE111_PROBES,
         "jip5": JIP5_PROBES,
         "pp": PP_PROBES,
         "format1": FORMAT1_PROBES,
@@ -5362,7 +5494,7 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1", "atk1", "jip4", "rules1", "rules2", "showoff2", "jg1", "jg2", "jip5", "tmpl3", "knvse2", "pp"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1", "atk1", "jip4", "rules1", "rules2", "showoff2", "jg1", "jg2", "jip5", "tmpl3", "knvse2", "one111", "pp"}
 
 
 def script(body):

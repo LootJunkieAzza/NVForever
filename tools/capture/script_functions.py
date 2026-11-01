@@ -267,6 +267,23 @@ PARAM_FIXES = {
     # the same].
     "OnAttachItemMod": _item_mod_handler("runOnReconstruct"),
     "OnDetachItemMod": _item_mod_handler("runOnDeconstruct"),
+    # [documented: AddConditionFormTwo's example "AddConditionFormTwo StealthBoy 0" adds
+    # to Base Effect 0's list; every other FormTwo function (GetConditionFormTwoCount,
+    # DeleteConditionFormTwo, ...) takes `First` after the entity; the table leaves it out].
+    "AddConditionFormTwo": [{"name": "FormTwoEntity", "type": "ref", "kind": "reference"},
+                            {"name": "First", "type": "int", "kind": "int"},
+                            {"name": "Condition", "type": "int", "kind": "int",
+                             "optional": True}],
+}
+
+# Pages whose template `name` is another function's (copied from a sibling page): the
+# page title is the function's name [documented: each page's title and its example,
+# e.g. "GetConditionFormOneFloat HitReactionIdles 0 1"; the template says
+# GetConditionFormOneInt / SetConditionFormOneInt].
+NAME_FIXES = {
+    "GetConditionFormOneFloat": "GetConditionFormOneFloat",
+    "SetConditionFormOneFloat": "SetConditionFormOneFloat",
+    "SetConditionFormOneForm": "SetConditionFormOneForm",
 }
 
 
@@ -276,6 +293,7 @@ def parse_page(title, text):
         return None
     f = template_fields(body)
     name = (plain(f.get("name", "")) or title).split()[0]
+    name = NAME_FIXES.get(title, name)
     rec = {"name": name, "page": title, "origin": f.get("origin", "").strip() or None}
     if f.get("alias"):
         rec["aliases"] = [a for a in (x.strip() for x in re.split(r"[,/]| or ",
