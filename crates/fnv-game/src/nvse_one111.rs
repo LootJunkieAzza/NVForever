@@ -1,9 +1,10 @@
 //! The 1111 NVSE plugin's functions (One111): the condition lists of records, the
 //! damage-calculation event values, the weapon's additional stat vectors, armour totals,
 //! ammo effects and a few weapon and ammo setters [documented: each page in the wiki
-//! export; docs/spec-notes/ext-one111.md]. One111 is not installed in the probe game, so
-//! nothing here is observed; what a page leaves open is marked [hypothesis]. Every change
-//! lasts for the session.
+//! export; docs/spec-notes/ext-one111.md]. What the probe set `one111` showed in the game
+//! (OneOneOneOne.dll installed, 2026-11-01) is marked [observed: one111]; what a page
+//! leaves open and no probe checked is marked [hypothesis]. Every change lasts for the
+//! session.
 
 use crate::cond::{Cmp, Condition, Operand, RunOn};
 use crate::game::Game;
@@ -325,13 +326,15 @@ impl Game<'_> {
 /// entity, then `first` (FormTwo, FormThree) and `second` (FormThree).
 fn list_key(args: &[XVal], family: u8) -> Option<(ListKey, usize)> {
     let f = form(args, 0)?;
+    // An index outside i32 is no list, not a wrapped one [decision].
+    let index = |k: usize, dflt: i64| i32::try_from(int(args, k, dflt)).ok();
     Some(match family {
         1 => (ListKey::One(f), 1),
-        2 => (ListKey::Two(f, int(args, 1, -1) as i32), 2),
+        2 => (ListKey::Two(f, index(1, -1)?), 2),
         _ => {
-            let first = int(args, 1, -1) as i32;
+            let first = index(1, -1)?;
             // "If First is (-1) then Second is ignored" [documented].
-            let second = if first == -1 { 0 } else { int(args, 2, 0) as i32 };
+            let second = if first == -1 { 0 } else { index(2, 0)? };
             (ListKey::Three(f, first, second), 3)
         }
     })
@@ -726,10 +729,11 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // `weapon type health value`: the pair, replacing one with the same health; 1 when
         // set [documented: SetWeapAdditionalVectorValue; GetWeapAdditionalVectorValue, the
         // types 0–6, health 0–1, "the second value can only be a positive number or
-        // zero"; hypothesis: a health outside 0–1 or a form that is not a weapon refused].
+        // zero"; hypothesis: a health outside 0–1 or a form that is not a weapon refused;
+        // decision: a value that is not a finite number refused, so no NaN reaches combat].
         "setweapadditionalvectorvalue" => {
             let (Some(w), Some(t), Some(h), Some(x)) = (weapon(g, 0), num(args, 1), num(args, 2), num(args, 3)) else { return Some(Ok(zero)) };
-            if g.data.sig(w) != Some(*b"WEAP") || !(0.0..=6.0).contains(&t) || t.fract() != 0.0 || !(0.0..=1.0).contains(&h) || x < 0.0 {
+            if g.data.sig(w) != Some(*b"WEAP") || !(0.0..=6.0).contains(&t) || t.fract() != 0.0 || !(0.0..=1.0).contains(&h) || !x.is_finite() || x < 0.0 {
                 return Some(Ok(zero));
             }
             let v = g.one111.vectors.entry((w, t as u8)).or_default();
@@ -835,7 +839,8 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             let (key, ok) = match t as i64 {
                 0 => ("type", (0.0..=9.0).contains(&x) && x.fract() == 0.0),
                 1 => ("operation", (0.0..=2.0).contains(&x) && x.fract() == 0.0),
-                2 => ("value", true),
+                // [decision: a value that is not a finite number refused].
+                2 => ("value", x.is_finite()),
                 _ => ("", false),
             };
             if !ok {

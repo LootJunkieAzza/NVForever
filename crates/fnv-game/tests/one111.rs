@@ -215,6 +215,8 @@ fn condition_lists_change_and_evaluate() {
     assert_eq!(val(&mut g, "SetConditionFormTwoFloat Choice 1 0 0 5"), x(1.0));
     assert_eq!(val(&mut g, "EvalConditionListFormTwo Choice 1 PlayerRef PlayerRef"), x(1.0));
     assert_eq!(val(&mut g, "SetConditionFormTwoInt Choice 1 0 0 99999"), x(0.0));
+    // An index past i32 is no list, not button 0 wrapped round.
+    assert_eq!(val(&mut g, "SetConditionFormTwoInt Choice (2 ^ 32) 0 4 1"), x(0.0));
 }
 
 #[test]
@@ -252,6 +254,9 @@ fn weapon_stat_vectors_interpolate_between_pairs() {
     assert_eq!(val(&mut g, "SetWeapAdditionalVectorValue Gun 0 0.9 1"), x(1.0));
     assert_eq!(val(&mut g, "SetWeapAdditionalVectorValue Gun 0 0.5 0.2"), x(1.0));
     assert_eq!(val(&mut g, "SetWeapAdditionalVectorValue Gun 0 0.5 -1"), x(0.0));
+    // Not a number, or infinite: refused, nothing stored.
+    assert_eq!(val(&mut g, "SetWeapAdditionalVectorValue Gun 2 0.5 ((-1) ^ 0.5)"), x(0.0));
+    assert_eq!(val(&mut g, "SetWeapAdditionalVectorValue Gun 2 0.5 (10 ^ 400)"), x(0.0));
     assert_eq!(val(&mut g, "SetWeapAdditionalVectorValue Gun 9 0.5 1"), x(0.0));
     assert_eq!(val(&mut g, "SetWeapAdditionalVectorValue Glow 0 0.5 1"), x(0.0));
     assert_eq!(val(&mut g, "GetWeapAdditionalVectorValue Gun 0 0.5"), x(0.2));
@@ -281,6 +286,7 @@ fn ammo_effects_and_weapon_fields() {
     assert_eq!(val(&mut g, "SetAmmoEffectTraitNumericAlt Effect870 0 8"), x(1.0));
     assert_eq!(val(&mut g, "SetAmmoEffectTraitNumericAlt Effect870 0 10"), x(0.0));
     assert_eq!(val(&mut g, "SetAmmoEffectTraitNumericAlt Effect870 1 3"), x(0.0));
+    assert_eq!(val(&mut g, "SetAmmoEffectTraitNumericAlt Effect870 2 ((-1) ^ 0.5)"), x(0.0));
     assert_eq!(val(&mut g, "GetAmmoEffectTraitNumeric Effect870 0"), x(8.0));
     assert_eq!(val(&mut g, "ApplyAmmoEffects Rounds 0 2"), x(2.0));
     assert_eq!(val(&mut g, "ApplyAmmoEffects Rounds 8 2"), x(3.5));
