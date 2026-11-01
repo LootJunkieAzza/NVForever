@@ -333,7 +333,10 @@ fn aid_parsing_accepts_and_caps() {
         parse_aids(Some("1"), None, Some(&id), Some("A-z_09")).unwrap().run_id.as_deref(),
         Some(id.as_str())
     );
-    assert_eq!(parse_aids(None, None, Some(""), None).unwrap().run_id.as_deref(), Some(""));
+    assert_eq!(parse_aids(Some("1"), None, Some(""), None).unwrap().run_id.as_deref(), Some(""));
+    // With capture off the other aids are not read: a bad one warns about nothing.
+    assert_eq!(parse_aids(None, Some("2"), Some("a b"), Some("a/b")).unwrap(), off);
+    assert_eq!(parse_aids(Some("0"), Some("true"), None, None).unwrap(), off);
 }
 
 #[test]
@@ -342,12 +345,12 @@ fn aid_parsing_rejects_bad_values_even_when_disabled() {
         assert!(parse_aids(Some(raw), None, None, None).is_err(), "{raw}");
     }
     for raw in ["2", "true", "-1", "", "1.0", " 1"] {
-        let error = parse_aids(None, Some(raw), None, None).unwrap_err();
+        let error = parse_aids(Some("1"), Some(raw), None, None).unwrap_err();
         assert!(error.to_string().contains("GPU"));
     }
     for id in ["a".repeat(65), "é".to_owned(), "a/b".to_owned(), "a b".to_owned(), "a\n".to_owned()] {
-        assert!(parse_aids(None, None, Some(&id), None).is_err());
-        assert!(parse_aids(None, None, None, Some(&id)).is_err());
+        assert!(parse_aids(Some("1"), None, Some(&id), None).is_err());
+        assert!(parse_aids(Some("1"), None, None, Some(&id)).is_err());
     }
 }
 

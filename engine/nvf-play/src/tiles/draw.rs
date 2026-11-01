@@ -859,6 +859,7 @@ pub(crate) struct Nodes<'w, 's> {
 pub(crate) struct MenusDrawn {
     message: Drawn,
     quantity: Drawn,
+    sleep_wait: Drawn,
 }
 
 /// The stacking levels of the menus drawn from tiles besides the HUD: their hand-built
@@ -866,6 +867,8 @@ pub(crate) struct MenusDrawn {
 /// container menu's 100, `crate::menu`) [design].
 pub const MESSAGE_Z: i32 = 108;
 pub const QUANTITY_Z: i32 = 101;
+/// T15b: the Wait / Sleep menu's, its hand-built drawing's 105 (`crate::wait`) [design].
+pub const SLEEP_WAIT_Z: i32 = 105;
 
 pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View, mut kit: FontKit, (mut drawn, mut others): (Local<Drawn>, Local<MenusDrawn>), mut nodes: Nodes) {
     let scale = view.windows.single().map_or(1.0, |w| w.height() / 960.0);
@@ -880,6 +883,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
     for (name, on, z, drawn) in [
         (super::menus::MESSAGE_MENU, game.is_some_and(|g| super::menus::message_tiled(switch.message, g)), MESSAGE_Z, &mut others.message),
         (super::menus::QUANTITY_MENU, game.is_some_and(|g| super::menus::quantity_tiled(switch.quantity, g, prompt_open)), QUANTITY_Z, &mut others.quantity),
+        (super::wait_menu::SLEEP_WAIT_MENU, game.is_some_and(|g| super::wait_menu::tiled(switch.sleep_wait, g)), SLEEP_WAIT_Z, &mut others.sleep_wait),
     ] {
         let ui = game.map(|g| &g.ui_tree);
         let menu = ui.filter(|_| on).and_then(|ui| ui.menu(name).map(|m| (ui, m)));

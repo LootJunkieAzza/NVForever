@@ -1,30 +1,82 @@
-//! Git metadata paths for build provenance (docs/design/frame-telemetry.md §2).
+//! The engine's commit for a capture's header, read at run time (docs/design/frame-telemetry.md
+//! §2). Embedding it at build time made every commit, even a docs-only one, recompile the
+//! nvforever crate (#1312); the source checkout's place is a compile-time constant
+//! (`CARGO_MANIFEST_DIR`) that does not change from commit to commit.
 
 use std::path::{Component, Path, PathBuf};
+use std::time::SystemTime;
 
 pub struct GitPaths {
     pub head: PathBuf,
     pub branch: Option<PathBuf>,
     pub packed_refs: Vec<PathBuf>,
-    common: PathBuf,
 }
 
 impl GitPaths {
-    /// A packed-only branch needs a directory watch to observe its first loose ref.
-    pub fn branch_watch(&self) -> Option<PathBuf> {
-        let branch = self.branch.as_deref()?;
-        if branch.is_file() {
-            return Some(branch.to_path_buf());
+    /// The files a change of the checked-out commit rewrites: `HEAD` (a switch), the
+    /// branch's loose ref (a commit), else the `packed-refs` files that hold it.
+    pub fn ref_files(&self) -> Vec<PathBuf> {
+        let mut files = vec![self.head.clone()];
+        match self.branch.as_deref() {
+            Some(branch) if branch.is_file() => files.push(branch.to_path_buf()),
+            _ => files.extend(self.packed_refs.iter().cloned()),
         }
-        let mut ancestor = branch.parent()?;
-        while ancestor.starts_with(&self.common) {
-            if ancestor.is_dir() {
-                return Some(ancestor.to_path_buf());
-            }
-            ancestor = ancestor.parent()?;
-        }
-        None
+        files.retain(|f| f.is_file());
+        files
     }
+}
+
+fn git(base: &Path, arguments: &[&str]) -> Option<String> {
+    let mut command = std::process::Command::new("git");
+    command.current_dir(base).args(arguments);
+    #[cfg(windows)]
+    {
+        // No console window flashes up beside the game's.
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    let output = command.output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(String::from_utf8(output.stdout).ok()?.trim().to_owned())
+}
+
+/// The commit the running engine was built from, or why it is not known (the header's
+/// `unavailable` reason): the checkout at `source` (the crate's own folder) must be the
+/// engine's repository (`<toplevel>/engine/nvforever` is `source`), so a source tree
+/// unpacked inside another repository never reports that one's commit; and its commit
+/// must not have changed since `built` (the executable's time), so a checkout moved on
+/// after the build is not mistaken for the build's. Packing refs after the build counts
+/// as a change: the field is then unavailable, never wrong.
+pub fn engine_revision(source: &Path, built: Option<SystemTime>) -> Result<String, &'static str> {
+    if !source.is_dir() {
+        return Err("source_checkout_unavailable");
+    }
+    let toplevel = git(source, &["rev-parse", "--show-toplevel"]).ok_or("git_unavailable")?;
+    let same = |a: &Path, b: &Path| matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y);
+    if !same(&Path::new(&toplevel).join("engine").join("nvforever"), source) {
+        return Err("checkout_not_engine_repository");
+    }
+    let revision = git(source, &["rev-parse", "HEAD"]).ok_or("git_unavailable")?;
+    if !matches!(revision.len(), 40 | 64) || !revision.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("git_unavailable");
+    }
+    let git_dir = git(source, &["rev-parse", "--git-dir"]).ok_or("git_unavailable")?;
+    let common_dir = git(source, &["rev-parse", "--git-common-dir"]).ok_or("git_unavailable")?;
+    let symbolic = git(source, &["rev-parse", "--symbolic-full-name", "HEAD"]).ok_or("git_unavailable")?;
+    let paths = resolve(source, &git_dir, &common_dir, &symbolic).ok_or("git_unavailable")?;
+    let built = built.ok_or("build_time_unavailable")?;
+    if moved_since(&paths.ref_files(), built) {
+        return Err("checkout_changed_since_build");
+    }
+    Ok(revision)
+}
+
+/// Whether any of `files` was written after `built` (a file whose time is unreadable
+/// counts as written).
+fn moved_since(files: &[PathBuf], built: SystemTime) -> bool {
+    files.iter().any(|f| std::fs::metadata(f).and_then(|m| m.modified()).map_or(true, |t| t > built))
 }
 
 /// Git's relative directory answers are relative to the command's working directory.
@@ -54,7 +106,6 @@ pub fn resolve(base: &Path, git_dir: &str, common_dir: &str, symbolic: &str) -> 
         head: git.join("HEAD"),
         branch,
         packed_refs,
-        common,
     })
 }
 
@@ -85,23 +136,29 @@ mod tests {
     }
 
     #[test]
-    fn packed_branch_watches_nearest_existing_ancestor_then_loose_ref() {
+    fn a_commit_or_switch_after_the_build_is_seen_by_the_ref_files() {
         let temp = TempDir::new();
         let common = temp.0.join("common");
-        std::fs::create_dir_all(common.join("refs/heads/codex")).unwrap();
-        let paths = resolve(&temp.0, ".git", common.to_str().unwrap(), "refs/heads/codex/topic").unwrap();
-        assert_eq!(paths.branch_watch(), Some(common.join("refs/heads/codex")));
-        std::fs::write(paths.branch.as_ref().unwrap(), "synthetic ref").unwrap();
-        assert_eq!(paths.branch_watch(), paths.branch);
+        std::fs::create_dir_all(common.join("refs/heads")).unwrap();
+        std::fs::write(common.join("HEAD"), "ref: refs/heads/topic").unwrap();
+        std::fs::write(common.join("packed-refs"), "synthetic").unwrap();
+        let paths = resolve(&temp.0, common.to_str().unwrap(), common.to_str().unwrap(), "refs/heads/topic").unwrap();
+        // A packed-only branch: HEAD and packed-refs.
+        assert_eq!(paths.ref_files(), vec![common.join("HEAD"), common.join("packed-refs")]);
+        let before = SystemTime::now() - std::time::Duration::from_secs(3600);
+        let after = SystemTime::now() + std::time::Duration::from_secs(3600);
+        assert!(moved_since(&paths.ref_files(), before), "written after a build an hour ago");
+        assert!(!moved_since(&paths.ref_files(), after));
+        // Its loose ref, once written, stands for the branch.
+        std::fs::write(common.join("refs/heads/topic"), "synthetic").unwrap();
+        assert_eq!(paths.ref_files(), vec![common.join("HEAD"), common.join("refs/heads/topic")]);
+        assert!(moved_since(&[temp.0.join("missing")], after), "an unreadable time counts as moved");
     }
 
     #[test]
-    fn packed_branch_can_watch_common_directory_without_leaving_it() {
+    fn no_checkout_no_revision() {
         let temp = TempDir::new();
-        let paths = resolve(&temp.0, ".git", temp.0.to_str().unwrap(), "refs/heads/missing/topic").unwrap();
-        assert_eq!(paths.branch_watch(), Some(temp.0.clone()));
-        assert!(resolve(&temp.0, ".git", "nonexistent", "refs/heads/topic").unwrap().branch_watch().is_none());
-        assert!(resolve(&temp.0, ".git", temp.0.to_str().unwrap(), "HEAD").unwrap().branch_watch().is_none());
+        assert_eq!(engine_revision(&temp.0.join("missing"), Some(SystemTime::now())), Err("source_checkout_unavailable"));
     }
 
     #[test]
