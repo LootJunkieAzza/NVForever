@@ -70,6 +70,12 @@ pub struct FrameLoop {
 /// The session state of the plugins of this file.
 #[derive(Debug, Default)]
 pub struct SmallState {
+    /// Seconds of play, menus included: each frame's own length added up (the engine
+    /// changes `frame_seconds` every frame, so the frame count times it is no clock).
+    pub real_seconds: f64,
+    /// TTW_CRC32's answers by plugin name (lower case): a plugin does not change during
+    /// a session, and FalloutNV.esm is hundreds of megabytes to read again.
+    pub crc_cache: HashMap<String, f64>,
     /// CacheUI's SetTileScript: a trait path (lower case) and its UDF, in call order.
     pub tile_scripts: Vec<(String, XVal)>,
     pub frame_loops: Vec<FrameLoop>,
@@ -96,14 +102,20 @@ pub struct SmallState {
 /// CRC-32 (the IEEE polynomial, reflected, as zip and PNG use) [decision: the page's
 /// "CRC32 checksum" names no variant; this is the common one].
 pub fn crc32(bytes: &[u8]) -> u32 {
-    let mut c = 0xFFFF_FFFFu32;
-    for &b in bytes {
-        c ^= u32::from(b);
-        for _ in 0..8 {
-            c = if c & 1 != 0 { (c >> 1) ^ 0xEDB8_8320 } else { c >> 1 };
+    // The byte table: one lookup a byte instead of eight shifts.
+    static TABLE: std::sync::OnceLock<[u32; 256]> = std::sync::OnceLock::new();
+    let table = TABLE.get_or_init(|| {
+        let mut t = [0u32; 256];
+        for (n, e) in t.iter_mut().enumerate() {
+            let mut c = n as u32;
+            for _ in 0..8 {
+                c = if c & 1 != 0 { (c >> 1) ^ 0xEDB8_8320 } else { c >> 1 };
+            }
+            *e = c;
         }
-    }
-    !c
+        t
+    });
+    !bytes.iter().fold(0xFFFF_FFFFu32, |c, &b| table[((c ^ u32::from(b)) & 0xFF) as usize] ^ (c >> 8))
 }
 
 impl Game<'_> {
@@ -111,6 +123,7 @@ impl Game<'_> {
     /// typewriter animations. Called from [`Game::tick`].
     pub(crate) fn small_tick(&mut self) {
         let dt = self.cfg.frame_seconds;
+        self.small.real_seconds += dt;
         let frame = self.frame;
         // SetFrameControllerLoop: the time counts down; at zero it starts again at once
         // and the call waits `frames` more frames [documented: "Time will be reseted when
@@ -193,9 +206,10 @@ impl Game<'_> {
         Some(out)
     }
 
-    /// Seconds of play, menus included: the frame count times the frame's length.
-    fn time_real(&self) -> f64 {
-        self.frame as f64 * self.cfg.frame_seconds
+    /// Seconds of play, menus included: the frames' lengths added up
+    /// ([`SmallState::real_seconds`]).
+    pub(crate) fn time_real(&self) -> f64 {
+        self.small.real_seconds
     }
 }
 
@@ -503,7 +517,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // checksum of a plugin"]; 0 when it cannot be read [hypothesis].
         "ttw_crc32" => {
             let p = text(args, 0);
-            XVal::Num(crate::mod_files::read_data(&p).map_or(0.0, |b| f64::from(crc32(&b))))
+            let k = p.replace('/', "\\").to_ascii_lowercase();
+            if let Some(&v) = g.small.crc_cache.get(&k) {
+                return Some(Ok(XVal::Num(v)));
+            }
+            let v = crate::mod_files::read_data(&p).map_or(0.0, |b| f64::from(crc32(&b)));
+            g.small.crc_cache.insert(k, v);
+            XVal::Num(v)
         }
         // `skill`: 1 when the calling actor's (else the player's) equipped weapon uses
         // that skill (its actor value code, as GetWeaponSkill gives) [documented:

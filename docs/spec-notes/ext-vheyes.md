@@ -42,4 +42,13 @@ pages' "no stored data" [decision: NVForever keeps no Stewie's Tweaks "Remember 
 Ammos" data].
 
 Follow-ups: the engine's sky does not read `moon_look` or tell the angle, and its model
-loader does not take `take_rebuild_3d`.
+loader does not take `take_rebuild_3d`. Until the engine takes them, the three engine
+queues of these batches (`take_rebuild_3d`, `take_clamp_requests`, `take_allow_attack`)
+hold a reference once however often it is asked for, and at most `QUEUE_LIMIT` (1,024),
+the oldest going first, so a script asking every frame cannot grow them
+(`nvse_vheyes::queue_once`) [decision].
+
+The moon fade's clock is the same real-seconds clock as CacheUI's typewriter (frame
+lengths added up, `Game::time_real`); a zero fade changes the looks at once without
+running the rest of the frame's work (the deferred 3D flush, the queued console lines)
+[decision].

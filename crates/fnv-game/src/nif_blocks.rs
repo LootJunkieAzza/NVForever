@@ -295,11 +295,15 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // [documented: InsertNode; observed: both return 1 and show in the walks].
         "insertnode" | "attachmodel" => {
             let target_ref = form(args, 0).unwrap_or(r);
-            let add = num(args, 1, 1.0) != 0.0;
+            // Modes 1 and 3 insert, 0 and 2 remove [documented: InsertNode's addOrRemove
+            // table]. The mirror drops nothing on a remove: mode 0 waits for a reload and
+            // mode 2's instant removal is a follow-up (ext-jippp.md).
+            let mode = num(args, 1, 1.0);
+            let add = mode as i64 & 1 == 1;
             let spec = text(args, 2);
-            // JIPPPLN's runtime node lists (`crate::nvse_jippp`) keep every call.
-            crate::nvse_jippp::record(g, target_ref, name == "attachmodel", &spec, num(args, 1, 1.0));
             let Some((target, what)) = spec.split_once('|') else { return Some(Ok(zero)) };
+            // JIPPPLN's runtime node lists (`crate::nvse_jippp`) keep every well-formed call.
+            crate::nvse_jippp::record(g, target_ref, name == "attachmodel", &spec, mode);
             if !add {
                 return Some(Ok(zero));
             }

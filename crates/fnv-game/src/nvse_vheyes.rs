@@ -31,6 +31,24 @@ fn yes(b: bool) -> XVal {
 /// list" without its size].
 pub const DEFER_LIMIT: usize = 4096;
 
+/// The most requests a queue the engine takes ([`Game::take_rebuild_3d`],
+/// `take_clamp_requests`, `take_allow_attack`) holds: a reference asked twice before
+/// the engine takes the queue is in it once, and past the limit the oldest goes, so a
+/// script asking every frame cannot grow it while nothing takes it [decision: the
+/// engine does not take these queues yet, follow-up in ext-vheyes.md §3].
+pub const QUEUE_LIMIT: usize = 1024;
+
+/// Put `r` in an engine queue once, keeping it under [`QUEUE_LIMIT`].
+pub(crate) fn queue_once(q: &mut Vec<FormId>, r: FormId) {
+    if q.contains(&r) {
+        return;
+    }
+    if q.len() >= QUEUE_LIMIT {
+        q.remove(0);
+    }
+    q.push(r);
+}
+
 /// A moon cross-fade (SetMoonFade).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MoonFade {
@@ -87,7 +105,7 @@ impl Game<'_> {
         let grown = m.growth.map(|(base, per, max, anchor)| (base * per.powf(days - anchor)).min(max).max(base));
         let alpha = m.fade.map_or(1.0, |f| {
             let half = f.duration / 2.0;
-            let el = self.frame as f64 * self.cfg.frame_seconds - f.start;
+            let el = self.time_real() - f.start;
             if half <= 0.0 { 1.0 } else { ((el - half).abs() / half).clamp(0.0, 1.0) }
         });
         (m, m.scale.or(grown), alpha)
@@ -98,6 +116,19 @@ impl Game<'_> {
         self.vheyes.moon_angle = angle;
     }
 
+    /// The moon's fade for the time now: the looks change at the midpoint, the fade ends
+    /// after its duration.
+    fn moon_fade_step(&mut self) {
+        let now = self.time_real();
+        if let Some(mut f) = self.vheyes.moon.fade {
+            if !f.applied && now - f.start >= f.duration / 2.0 {
+                (self.vheyes.moon.doom_set, self.vheyes.moon.doom, self.vheyes.moon.full) = f.to;
+                f.applied = true;
+            }
+            self.vheyes.moon.fade = (now - f.start < f.duration).then_some(f);
+        }
+    }
+
     /// The engine takes the references whose 3D is to be built again.
     pub fn take_rebuild_3d(&mut self) -> Vec<FormId> {
         std::mem::take(&mut self.vheyes.rebuild)
@@ -106,14 +137,7 @@ impl Game<'_> {
     /// The per-frame part: the moon's fade, DeferRefUpdate3D's flush and the queued
     /// console command. Called from [`Game::tick`].
     pub(crate) fn vheyes_tick(&mut self) {
-        let now = self.frame as f64 * self.cfg.frame_seconds;
-        if let Some(mut f) = self.vheyes.moon.fade {
-            if !f.applied && now - f.start >= f.duration / 2.0 {
-                (self.vheyes.moon.doom_set, self.vheyes.moon.doom, self.vheyes.moon.full) = f.to;
-                f.applied = true;
-            }
-            self.vheyes.moon.fade = (now - f.start < f.duration).then_some(f);
-        }
+        self.moon_fade_step();
         // The queue is always settled here, so the waiting references go every frame:
         // still valid ones are rebuilt and, with the flag, stamped [documented:
         // DeferRefUpdate3D; "dropped/invalid entries are never stamped"].
@@ -121,7 +145,7 @@ impl Game<'_> {
             if crate::functions::base_of(self, r).is_none() {
                 continue;
             }
-            self.vheyes.rebuild.push(r);
+            queue_once(&mut self.vheyes.rebuild, r);
             if stamp {
                 if let Some(m) = crate::nif_blocks::model_of(self, r) {
                     self.vheyes.stamps.insert(r, m.to_ascii_lowercase());
@@ -176,12 +200,14 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // call while one runs is ignored [documented: SetMoonFade].
         "setmoonfade" => {
             if g.vheyes.moon.fade.is_none() {
-                let now = g.frame as f64 * g.cfg.frame_seconds;
+                let now = g.time_real();
                 let to = (num(args, 1, 0.0) != 0.0, num(args, 2, 0.0) != 0.0, num(args, 3, 0.0) != 0.0);
                 let duration = num(args, 0, 0.0).max(0.0);
                 g.vheyes.moon.fade = Some(MoonFade { start: now, duration, to, applied: false });
+                // A zero fade changes the looks at once; only the fade's step runs, not
+                // the frame's flush or queued console lines.
                 if duration == 0.0 {
-                    g.vheyes_tick();
+                    g.moon_fade_step();
                 }
             }
             zero
@@ -211,7 +237,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // rebuild"].
         "queueref3d" => match valid(g, subject) {
             Some(r) => {
-                g.vheyes.rebuild.push(r);
+                queue_once(&mut g.vheyes.rebuild, r);
                 XVal::Num(1.0)
             }
             None => zero,

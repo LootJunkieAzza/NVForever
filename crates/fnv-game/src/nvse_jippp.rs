@@ -349,7 +349,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // (`Game::take_clamp_requests`; follow-up: the engine does not take it yet).
         "clamptoground" => {
             if let Some(r) = subject.filter(|&r| crate::functions::base_of(g, r).is_some()) {
-                g.jippp.clamp.push(r);
+                crate::nvse_vheyes::queue_once(&mut g.jippp.clamp, r);
             }
             zero
         }

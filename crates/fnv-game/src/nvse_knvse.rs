@@ -396,7 +396,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             if let Some(s) = g.senses.anim.get_mut(&a) {
                 s.action = Some(crate::anim_state::AnimAction::Equip);
             }
-            g.knvse.allow_attack.push(a);
+            crate::nvse_vheyes::queue_once(&mut g.knvse.allow_attack, a);
             zero
         }
         // The equipped weapon fires, as FireWeapon (`CombatRequest::Fire`) [documented:

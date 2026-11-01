@@ -2163,6 +2163,11 @@ KNVSE2_PROBES = [
     _knv("k2.curtime.next", f'Floor (rA.GetAnimCurrentTime "{_KF_SMILE}")'),
     # Array elements go through a float first (as the nif-blocks set's _V3).
     _kn("k2.weight", _GETA + f'rA.SetAnimWeight "{_KF_SMILE}" 0.25\n' + _KN2_ATTR + 'let fRes := aA["seqWeight"]\nSetFunctionValue (Floor (fRes * 100))'),
+    # AddAnimTextKey changes the loaded KF, which every actor shares, and kNVSE 37 has no
+    # function that takes a key off again (no RemoveAnimTextKey page; SetAnimTextKeys
+    # sets one actor's keys and "does nothing" while it plays the sequence). The change
+    # is in the game's memory only, never on disk, and a job is one set per game launch,
+    # which quits after k2.cleanup, so nothing reads the key after this set.
     _knv("k2.addkey", f'AddAnimTextKey "{_KF_SMILE}" 0.5 "nvfKey"'),
     _knv("k2.addkey.missing", 'AddAnimTextKey "characters\\_male\\nvfnone.kf" 0.5 "nvfKey"'),
     _kn("k2.addkey.read", _GETA + _KN2_ATTR + 'let aA := aA["textKeyValues"]\nSetFunctionValue ((ar_Find "nvfKey" aA) >= 0)'),

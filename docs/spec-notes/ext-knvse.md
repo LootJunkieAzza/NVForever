@@ -25,7 +25,7 @@ Paths compare without regard to case [decision: as the first slice, knvse-anim.m
 |---|---|
 | SetAnimWeight `path weight` | kept by actor and path, read back as `seqWeight` [documented] |
 | SetAnimAdditive `path [first] [refPose] [refTime]` | 1 when the files exist, kept for the engine; else 0 [documented: "Returns 1 if the additive animation is successfully applied"; hypothesis: success is the files existing] |
-| AddAnimTextKey `path time key` | one key more for every actor; 1, or 0 for a file that does not exist [documented: the page gives a Float return; hypothesis: its value] |
+| AddAnimTextKey `path time key` | one key more for every actor; 1, or 0 for a file that does not exist [documented: the page gives a Float return; hypothesis: its value]. The knvse2 probe cannot take its key off again (kNVSE 37 has no function for it); the change is in the probe game's memory only and the game quits after the set |
 | SetAnimTextKeys `path times values` | the actor's own keys (no reference: every actor's); nothing while the actor plays the sequence [documented]; nothing when the lists differ in length [hypothesis] |
 | GetAnimationAttributes `path` (GetAnimAttrs) | a string map of the 13 keys with no reference; on an actor, 22 keys (9 more, `lastTime` … `multiplier`) when it plays the sequence, else ar_Null [documented; observed: knvse2, 13 keys with no reference, 22 for a playing sequence, ar_Size −1 for one the actor never played] |
 | GetPlayingAnimBySequenceType `type` (GetAnimByType) | the attributes of the sequence of that type the actor plays, else ar_Null [documented]. The body's clip is Idle (0) for the Idle group and Movement (1) for any other locomotion group [hypothesis] |

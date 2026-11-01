@@ -244,8 +244,63 @@ fn jippp_runtime_nodes_effects_and_wear() {
     // A control's key and mouse button; a pad's is unbound.
     assert_eq!(q(&mut g, "SetFunctionValue (GetControlCodeByID 7 0)"), q(&mut g, "SetFunctionValue (GetControl 7 0)"));
     assert_eq!(q(&mut g, "SetFunctionValue (GetControlCodeByID 7 2)"), n(-1.0));
-    q(&mut g, "TestBoxRef.ClampToGround");
+    // Asked every frame while nothing takes the queue: in it once.
+    for _ in 0..3 {
+        q(&mut g, "TestBoxRef.ClampToGround");
+    }
     assert_eq!(g.take_clamp_requests(), vec![FormId(BOX_REF)]);
+    assert_eq!(g.take_clamp_requests(), Vec::<FormId>::new());
+    // Mode 2 removes [documented: InsertNode's addOrRemove table]: off the runtime list,
+    // and nothing added to the list or the scene; a spec without `|` is not kept.
+    q(&mut g, "InsertNode TestBox 2 \"Weapon\\BarrelDevice|Second_Barrel\"");
+    assert_eq!(q(&mut g, "SetFunctionValue (HasRuntimeNode TestBox \"Weapon\\BarrelDevice|Second_Barrel\" 1)"), n(0.0));
+    q(&mut g, "InsertNode TestBox 1 \"NoBar\"");
+    assert_eq!(q(&mut g, "SetFunctionValue (HasRuntimeNode TestBox \"NoBar\" 1)"), n(0.0));
+}
+
+/// The CacheUI and vheyes clocks add up each frame's own length: the engine gives every
+/// frame its own `frame_seconds`, so a change of it does not move the clock back or on.
+#[test]
+fn clocks_add_up_frames_of_changing_length() {
+    files();
+    let f = fixture();
+    let mut g = game(&f);
+    // 0.25 s of 1/60 frames, then the frame length doubles: the typewriter (1 s, no
+    // fade) is half way at 0.5 s, not at 0.25 s + 15 × 2/60.
+    g.cfg.frame_seconds = 1.0 / 60.0;
+    for _ in 0..15 {
+        g.tick();
+    }
+    q(&mut g, "SetUITypewriter \"TypeMenu\\Line\" \"abcd\" 1 0");
+    g.cfg.frame_seconds = 2.0 / 60.0;
+    for _ in 0..8 {
+        g.tick();
+    }
+    // 8 × 2/60 = 0.267 s since the start: letters 0 and 1 (0 and 0.25 s) are in.
+    assert_eq!(g.ui_tree.get_float("TypeMenu\\Line\\_TA1"), Some(255.0));
+    assert_eq!(g.ui_tree.get_float("TypeMenu\\Line\\_TA2"), Some(0.0));
+    // The moon's fade: 1 s, just past half way (alpha 1/30, the looks changed) after 31
+    // frames of 1/60.
+    q(&mut g, "SetMoonFade 1 0 1 0");
+    g.cfg.frame_seconds = 1.0 / 60.0;
+    for _ in 0..31 {
+        g.tick();
+    }
+    let (look, _, alpha) = g.moon_look(1.0);
+    assert!((alpha - 1.0 / 30.0).abs() < 1e-6, "{alpha}");
+    assert!(look.doom);
+    // A zero fade changes the looks at once.
+    for _ in 0..40 {
+        g.tick();
+    }
+    q(&mut g, "SetMoonFade 0 0 0 1");
+    let (look, _, alpha) = g.moon_look(1.0);
+    assert!(look.full && !look.doom && alpha == 1.0);
+    // A reference queued for its 3D again and again is in the queue once.
+    for _ in 0..3 {
+        q(&mut g, "TestBoxRef.QueueRef3D");
+    }
+    assert_eq!(g.take_rebuild_3d(), vec![FormId(BOX_REF)]);
 }
 
 #[test]

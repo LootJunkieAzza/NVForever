@@ -11,7 +11,10 @@ JIP PP LN keeps, for each base form or reference, the list of its InsertNode and
 AttachModel calls ("RuntimeNodes") [documented: HasRuntimeNode, CopyRuntimeNodes].
 NVForever keeps the same list (`Game::jippp.nodes`): every InsertNode and AttachModel
 call (`crate::nif_blocks`) adds its `"Target|Name"` spec, and removes it with modes 0 and
-2 [documented: AttachFormModel's addOrRemove table], with the plugin whose script called.
+2 [documented: AttachFormModel's addOrRemove table; InsertNode's], with the plugin whose
+script called. A spec without `|` is refused (0) and not kept. The scene mirror adds the
+node only with modes 1 and 3; a remove leaves the mirror as it is (mode 0 waits for the
+3D to load again; mode 2's instant removal of an inserted node is a follow-up).
 
 | Function | NVForever |
 |---|---|

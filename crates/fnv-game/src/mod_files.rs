@@ -79,7 +79,7 @@ pub fn data_dir() -> Option<PathBuf> {
 /// Whether a Data path is a file of the game: in a read root or in an archive.
 pub fn exists(path: &str) -> bool {
     let r = roots();
-    r.read.iter().any(|root| root.join(path).is_file()) || r.lookup.as_ref().is_some_and(|f| f(path) > 0)
+    r.read.iter().any(|root| on_disk(root, path).is_file()) || r.lookup.as_ref().is_some_and(|f| f(path) > 0)
 }
 
 fn roots() -> Roots {
@@ -110,6 +110,15 @@ fn cell_text(v: &XVal) -> String {
     }
 }
 
+/// `base` joined with a Data-relative path whose parts are split at `\` or `/`: the
+/// same path on Windows, and a real subfolder (not a name with a backslash in it) on
+/// other systems.
+fn on_disk(base: &std::path::Path, rel: &str) -> PathBuf {
+    let mut p = base.to_path_buf();
+    p.extend(rel.split(['\\', '/']).filter(|c| !c.is_empty()));
+    p
+}
+
 /// A Data-relative path with `/` turned to `\` and lower case, for the maps.
 fn norm(p: &str) -> String {
     p.replace('/', "\\").trim_start_matches('\\').to_ascii_lowercase()
@@ -131,9 +140,9 @@ impl ModFiles {
         let r = roots();
         let config = r.config.as_ref().and_then(|c| {
             let lower = rel.to_ascii_lowercase();
-            lower.strip_prefix("config\\").map(|_| c.join(&rel["config\\".len()..]))
+            lower.strip_prefix("config\\").map(|_| on_disk(c, &rel["config\\".len()..]))
         });
-        config.into_iter().chain(r.read.iter().map(|root| root.join(&rel))).find_map(|p| std::fs::read(p).ok()).map(|b| b.iter().map(|&c| c as char).collect())
+        config.into_iter().chain(r.read.iter().map(|root| on_disk(root, &rel))).find_map(|p| std::fs::read(p).ok()).map(|b| b.iter().map(|&c| c as char).collect())
     }
 
     /// A file under the game's own folder (JIP's array files): this session's write,
@@ -145,8 +154,8 @@ impl ModFiles {
         }
         let rel = rel.replace('/', "\\");
         let r = roots();
-        let mine = r.write.map(|w| w.join(GAME_ROOT).join(&rel));
-        let game = r.read.last().and_then(|d| d.parent()).map(|d| d.join(&rel));
+        let mine = r.write.map(|w| on_disk(&w.join(GAME_ROOT), &rel));
+        let game = r.read.last().and_then(|d| d.parent()).map(|d| on_disk(d, &rel));
         mine.into_iter().chain(game).find_map(|p| std::fs::read(p).ok()).map(|b| b.iter().map(|&c| c as char).collect())
     }
 
@@ -154,7 +163,7 @@ impl ModFiles {
     /// folder (CLAUDE.md charter; docs/design/install-layout.md).
     fn write_root(&mut self, rel: &str, text: String) {
         if let Some(w) = roots().write {
-            let p = w.join(GAME_ROOT).join(rel.replace('/', "\\"));
+            let p = on_disk(&w.join(GAME_ROOT), rel);
             if let Some(d) = p.parent() {
                 let _ = std::fs::create_dir_all(d);
             }
@@ -165,7 +174,7 @@ impl ModFiles {
 
     fn write(&mut self, rel: &str, text: String) {
         if let Some(w) = roots().write {
-            let p = w.join(rel.replace('/', "\\"));
+            let p = on_disk(&w, rel);
             if let Some(d) = p.parent() {
                 let _ = std::fs::create_dir_all(d);
             }
