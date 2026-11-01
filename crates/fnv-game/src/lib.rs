@@ -94,6 +94,8 @@ pub mod nvse_console;
 pub mod nvse_lists;
 pub mod nvse_anh;
 pub mod nvse_itr1;
+pub mod nvse_itr2;
+pub mod nav_ask;
 pub mod nvse_jg1;
 pub mod nvse_jg2;
 pub mod nvse_jip5;

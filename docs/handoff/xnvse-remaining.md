@@ -87,6 +87,8 @@ JohnnyGuitar batch 2: 13 (#1007, ext-jg2.md, probe set jg2 37/38).
 JIP batch 5: 27 (#1006, jip-records-5.md, probe set jip5 99/100).
 ITR batch 1: 62 (#1011, ext-itr.md §1-6, `nvse_itr1.rs` and `vm/itr.rs`; not installed in
 the probe game, so from the pages alone). Census after it: 1,216 (ITR 119 → 57).
+ITR batch 2: the other 57 (#1011, ext-itr.md §7-12, `nvse_itr2.rs`, the navmesh lender
+`nav_ask.rs`). Census after it: 1,159 (ITR 0).
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,
