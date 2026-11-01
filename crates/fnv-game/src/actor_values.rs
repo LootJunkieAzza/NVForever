@@ -181,6 +181,17 @@ impl<'a> Game<'a> {
         self.def_following(r, |d| d.template_traits)
     }
 
+    /// GetClass's class of `f` (docs/spec-notes/actors.md §2.2): a reference's Traits
+    /// source, the actor its leveled list gave it included [observed: tmpl3 (#1057)]; an
+    /// actor base's along its Traits templates through NPC records, the record's own
+    /// when the chain reaches a list [hypothesis, as GetRace].
+    pub(crate) fn traits_class(&self, f: FormId) -> Option<FormId> {
+        match base_of(self, f) {
+            Some(_) => self.traits_def(f).and_then(|d| d.class),
+            None => self.data.actors.get(&self.data.base_template_source(f, |d| d.template_traits)).and_then(|d| d.class),
+        }
+    }
+
     /// The definition supplying `r`'s base data: its name and the configuration flags
     /// (Essential, Respawn, No Low Level Processing, Invulnerable) (template flag "Base
     /// Data") [documented: GECK wiki Category:NPC, Template Data, "Base Data does not
