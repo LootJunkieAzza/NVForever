@@ -78,7 +78,7 @@ mod tests {
     fn the_entry_needs_the_switch_and_a_mods_tiles() {
         let on = super::super::vanilla::TileMenus { start: true, ..Default::default() };
         let off = super::super::vanilla::TileMenus::default();
-        let path = "menus\options\start_menu.xml";
+        let path = r"menus\options\start_menu.xml";
         let vanilla = r#"<menu name="StartMenu"> <rect name="Panel"/> </menu>"#;
         let mut kept = None;
         let mut ui = Ui::new();
@@ -96,7 +96,7 @@ mod tests {
     #[test]
     fn a_loose_reskin_of_the_start_menu_is_no_mods_page() {
         let on = super::super::vanilla::TileMenus { start: true, ..Default::default() };
-        let path = "menus\options\start_menu.xml";
+        let path = r"menus\options\start_menu.xml";
         let vanilla = r#"<menu name="StartMenu"> <rect name="Panel"/> </menu>"#;
         // A UI overhaul's loose copy: the same tiles, other looks.
         let reskin = MemSource::default().with_loose_over(path, r#"<menu name="StartMenu"> <rect name="Panel"> <width>300</width> </rect> </menu>"#, vanilla);
