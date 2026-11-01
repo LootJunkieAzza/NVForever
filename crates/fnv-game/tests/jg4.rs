@@ -146,7 +146,9 @@ fn idle_marker_animations_and_traits() {
     assert_eq!(n(&mut g, "GetIdleMarkerTraitNumeric TestMarker 1"), 4.0, "do once only");
     assert_eq!(n(&mut g, "GetIdleMarkerTraitNumeric TestMarker 2"), 12.5);
     // A timer past a float's range or below 0 is refused (#1333 review).
-    q(&mut g, "SetIdleMarkerTraitNumeric TestMarker 2 10000000000000000000000000000000000000000");
+    q(&mut g, "float f
+let f := 10000000000.0 * 10000000000.0 * 10000000000.0 * 10000000000.0
+SetIdleMarkerTraitNumeric TestMarker 2 f");
     q(&mut g, "SetIdleMarkerTraitNumeric TestMarker 2 -3");
     assert_eq!(n(&mut g, "GetIdleMarkerTraitNumeric TestMarker 2"), 12.5);
     assert_eq!(n(&mut g, "GetIdleMarkerTraitNumeric TestMarker 3"), 2.0, "the count is not set");
