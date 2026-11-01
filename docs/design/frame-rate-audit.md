@@ -59,11 +59,13 @@ default build, so a non-empty profile window does not prove the feature is on.
 
 [documented: `bevy_render-0.20.1/src/diagnostic/internal.rs` (checks device
 features), `wgpu-hal-30.0.1` adapters] GPU timings depend on the device features
-the backend exposes, not on a backend list. Timestamps need `TIMESTAMP_QUERY`
-(exposed by the Vulkan, DX12 and Metal back ends, subject to the device); pipeline
-statistics need `PIPELINE_STATISTICS_QUERY`, which wgpu-hal 30.0.1 does not yet
-expose on DX12. Without them Bevy records CPU render timings only. Missing GPU
-timings are not zero GPU cost.
+the backend exposes, not on a backend list. GPU timings need `TIMESTAMP_QUERY` and
+`TIMESTAMP_QUERY_INSIDE_ENCODERS`, plus `TIMESTAMP_QUERY_INSIDE_PASSES` for scopes
+inside a pass (the Vulkan, DX12 and Metal back ends expose these, subject to the
+device). Pipeline statistics are separate and optional: they need
+`PIPELINE_STATISTICS_QUERY`, which wgpu-hal 30.0.1 does not yet expose on DX12.
+Without usable timestamp features the timings are CPU-only. Missing GPU timings are
+not zero GPU cost.
 
 [documented: `main.rs`, `settings.rs`] `--log-frame-times` also selects display
 sync off and disables the frame cap settings; match effective presentation settings
