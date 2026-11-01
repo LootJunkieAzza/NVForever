@@ -101,9 +101,13 @@ JohnnyGuitar batch 3: 24 (#1007, ext-jg3.md, from the pages and the records, not
 Census after it, with One111 merged: 1,111; JohnnyGuitar 242 left.
 ppNVSE: all 42 (#1014, ext-pp.md, probe set pp 35/37, the two left the probe save's
 third-person camera). Census after it, with ITR, One111 and JohnnyGuitar batch 3 all merged: 950.
+JohnnyGuitar batch 4: 19 (#1007, ext-jg4.md, from the pages and the records, not probed;
+branched from main beside batch 3). Census after it, with batch 3 and ppNVSE merged: 931;
+JohnnyGuitar 223 left.
 JIP batch 7: 27 (#1006, jip-records-7.md: ammunition, ammo effects, projectiles, explosions,
 impact data, weathers and climates, armour; from the pages and the records, not probed).
-Census after it: 923 (JIP 311 → 284; batch 6 counted apart).
+Census after it, with JohnnyGuitar batch 4 merged: 904 (JIP 311 → 284; batch 6 counted
+apart).
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,

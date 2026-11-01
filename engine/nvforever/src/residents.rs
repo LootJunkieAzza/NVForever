@@ -819,6 +819,12 @@ pub struct Residents {
     startup: Vec<(bool, String)>,
 }
 
+/// Standalone packages own their simulation; in play mode `SimState` owns it
+/// [design: `drive`]. Shared by drawing and prefetch so neither selects a stale world.
+pub(crate) fn equipment_world<'a, 'w>(private: Option<&'a World<'w>>, shared: Option<&'a World<'w>>) -> Option<&'a World<'w>> {
+    private.or(shared)
+}
+
 fn set_global(g: &mut Game, edid: &str, v: f32) -> Result<(), String> {
     let (id, _) = g.world.forms.global_by_edid(edid).ok_or_else(|| format!("the load order has no {edid} global"))?;
     g.world.set_global(id, v).map_err(|e| e.to_string())
@@ -997,6 +1003,13 @@ impl Residents {
     /// This module's own game state (without `--play`).
     pub fn own_game(&mut self) -> Option<&mut Game<'static>> {
         self.own.as_deref_mut()
+    }
+
+    /// Use the same simulation as `drive` for resident prefetch, including a resident
+    /// also listed among its cell's placed references [design: `read_ahead`].
+    pub fn prefetch_world<'a>(&'a self, reference: u32, shared: Option<&'a World<'static>>) -> Option<&'a World<'static>> {
+        let private = self.core.known.contains(&reference).then(|| self.own.as_deref().map(|g| &g.world)).flatten();
+        equipment_world(private, shared)
     }
 
     pub fn references(&self) -> impl Iterator<Item = u32> + '_ {
@@ -2294,14 +2307,14 @@ pub fn drive(
     mut nav: ResMut<NavState>,
     world: Res<WorldData>,
     streamer: Res<Streamer>,
-    actor_world: Option<Res<ActorWorld>>,
+    (actor_world, mut ahead): (Option<Res<ActorWorld>>, ResMut<crate::readahead::ReadAhead>),
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     root: Query<Entity, With<WorldRoot>>,
     roots: Query<(Entity, &RefVisual, &ChildOf)>,
     mut actors: Query<(&mut Transform, Option<&mut Locomotion>), Without<OnFurniture>>,
     mut doors: ResMut<nvf_play::doors::Doors>,
-    (script, sim, mut phys, mut blocks): PlayState,
+    (script, mut sim, mut phys, mut blocks): PlayState,
     (seated, hours, flinches, fighters, idle_holds): Held,
     (mut door_fades, mut door_sounds, mut travel, mut knocks, trips, screen): Moves,
 ) {
@@ -2355,7 +2368,7 @@ pub fn drive(
         None => res.core.posed.clear(),
     }
     // The game state: this module's, or the game being played (once its data is in).
-    match (res.own.as_deref_mut(), script, sim) {
+    match (res.own.as_deref_mut(), script, sim.as_deref_mut()) {
         (Some(game), _, _) => {
             if all {
                 res.core.take_cells(&world, &streamer, game.world.placed);
@@ -2372,7 +2385,7 @@ pub fn drive(
             let _span = info_span!("ai::think").entered();
             res.core.think(game, true, &nav, &world, &mut doors, None, None, dt, now, 0);
         }
-        (None, Some(mut script), Some(mut sim)) => {
+        (None, Some(mut script), Some(sim)) => {
             let script = &mut *script;
             let Some(rt) = script.rt.as_mut() else {
                 if let (Some(why), false) = (&script.off, res.warned) {
@@ -2388,7 +2401,7 @@ pub fn drive(
             let core = &mut res.core;
             let (phys, blocks) = (phys.as_deref_mut(), blocks.as_deref_mut());
             let (world_ref, streamer_ref) = (&*world, &*streamer);
-            nvf_play::script::with_world(rt, &mut sim, |rt| {
+            nvf_play::script::with_world(rt, sim, |rt| {
                 let mut phys = phys;
                 let span = info_span!("ai::take_moved").entered();
                 core.take_moved(&mut rt.game, all, phys.as_deref_mut());
@@ -2415,6 +2428,8 @@ pub fn drive(
         }
         _ => return,
     }
+    let equipment_world = equipment_world(res.own.as_deref().map(|g| &g.world), sim.as_deref().map(|s| &s.world));
+    let mut spawn_stats = crate::actors::ActorStats::default();
     let core = &mut res.core;
     // Load doors used: the doors' sounds where the listener is, the body left at the door
     // fades out, the one drawn at the other side fades in (`door_fade.rs`).
@@ -2617,13 +2632,14 @@ pub fn drive(
             }
         }
         let stage = (&mut r.spawned, &mut r.root);
-        if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe, air: agent.walker.air.is_some() }, stage, (feet, heading), moving, dt) {
+        if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), equipment_world, &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe, air: agent.walker.air.is_some() }, stage, (feet, heading), moving, dt) {
             if r.named {
                 warn!("ai: {} could not be drawn ({e})", r.label);
             }
             r.failed = true;
         }
     }
+    crate::profile::actor_spawns(spawn_stats.equipment_spawns, spawn_stats.record_spawns);
 }
 
 /// The residents' state when the app exits (smoke tests read it).
@@ -2784,6 +2800,39 @@ mod tests {
     use fnv_ai::ProcessLevel;
     use fnv_sim::FormId;
     use std::collections::HashMap;
+
+    #[test]
+    fn private_world_prefetch_matches_resident_spawn_even_with_a_shared_world() {
+        use super::{Clock, Residents};
+        use crate::outfits::tests::{actor_forms, appearance_world, empty_world_data, equipped, game, OTHER};
+        let world = appearance_world();
+        let forms = Box::leak(Box::new(actor_forms(vec![])));
+        let refs = Box::leak(Box::new(fnv_sim::RefTable::default()));
+        let mut private = fnv_sim::World::new(forms, refs, Default::default());
+        let mut shared = fnv_sim::World::new(forms, refs, Default::default());
+        let id = private.place(OTHER, None, [0.0; 3], [0.0; 3], 1).unwrap();
+        assert_eq!(shared.place(OTHER, None, [0.0; 3], [0.0; 3], 1).unwrap(), id);
+        private.get(id).unwrap().inventory = Some(equipped());
+        let outsider = private.place(OTHER, None, [0.0; 3], [0.0; 3], 1).unwrap();
+        assert_eq!(shared.place(OTHER, None, [0.0; 3], [0.0; 3], 1).unwrap(), outsider);
+        private.get(outsider).unwrap().inventory = Some(equipped());
+        let mut residents = Residents::build(&empty_world_data(), &[], Clock { hour: 12.0, days_passed: 1.0, rate: 0.0 }, 100.0, true).unwrap();
+        residents.own = Some(Box::new(game(private)));
+        residents.core.known.insert(id.0);
+        let private = &residents.own.as_ref().unwrap().world;
+        let plan = crate::readahead::actor_plan(&world, residents.prefetch_world(id.0, Some(&shared)), id.0, OTHER.0, false).unwrap();
+        assert_eq!(plan, crate::readahead::actor_plan(&world, Some(private), id.0, OTHER.0, false).unwrap());
+        assert_ne!(plan, crate::readahead::actor_plan(&world, Some(&shared), id.0, OTHER.0, false).unwrap());
+        assert!(plan.parts.iter().any(|p| p.ends_with("modded.nif")));
+        assert!(std::ptr::eq(residents.prefetch_world(id.0, None).unwrap(), private));
+        // Even a reference present in the private simulation is not a resident until
+        // it is in known. The placed-reference prefetch must use the shared world.
+        assert!(std::ptr::eq(residents.prefetch_world(outsider.0, Some(&shared)).unwrap(), &shared));
+        assert!(residents.prefetch_world(outsider.0, None).is_none());
+        residents.own = None;
+        assert!(std::ptr::eq(residents.prefetch_world(id.0, Some(&shared)).unwrap(), &shared));
+        assert!(residents.prefetch_world(id.0, None).is_none());
+    }
 
     /// Out of a house and straight back: the residents seen in the street before are not
     /// moved by the trip back; those not seen for longer than the memory are (coordinator
