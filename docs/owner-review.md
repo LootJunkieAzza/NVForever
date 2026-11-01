@@ -135,6 +135,12 @@ the spec it links to.
     (138 at 144 Hz). Does G-SYNC engage in borderless and in exclusive full screen (the
     NVIDIA G-SYNC indicator), and does Primm feel smoother than plain vsync? Should it be
     the default? ([display-sync](spec-notes/display-sync.md))
+39. **Controller aim assist strengths.** With a controller, the stick turns 45% slower
+    while the crosshair is on a hostile within 1800 units, and aiming down the sights
+    eases the view onto the hostile nearest the crosshair (within about 8.7°) for 0.3 s.
+    On by default, both strengths 0.6 on the settings page's Controller group. Too
+    strong, too weak, or should either be off by default?
+    ([controller §5](design/controller.md))
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 
