@@ -42,12 +42,21 @@ engine if needed, and delete the item here.
    those 40 NPCs and on a sample of armed NPCs at first load, and again after AddItem
    and after a combat start. ([npc-behaviour-compare §9.1](../spec-notes/npc-behaviour-compare.md),
    [combat-ai §18](../design/combat-ai.md), [companion-wheel §4](../spec-notes/companion-wheel.md))
-   Tried 2026-11-01 (o11_02, o11_03, nvftest), no answer yet: every query returning a
-   weapon form (`let rW := rN.GetEquippedObject 5` then `SetFunctionValue
-   (GetFormIDString rW)`, the shape aa_auto_trial ran) came back "script did not
-   compile", and Sunny, Trudy, Easy Pete and Settler 1 were outside the loaded area
-   (GetDistance 3.4e38) even after `MoveTo player`. Next try: a short diagnostic job of
-   the form query alone, and the NPCs met where they stand.
+   Answered in part 2026-11-01 (o13_reequip, nvftest at noon, observer `weapon` field
+   every 5 loops, nobody in combat or with a weapon out) [observed]. At load: Sunny a
+   Varmint Rifle, Easy Pete and Settler 1 a .357 Revolver, Ringo a 9mm Pistol (Trudy
+   not in the loaded area). Then, to all of them in turn:
+   - `AddItem` 10 caps: nobody's weapon changed.
+   - a Hunting Rifle and 20 .308: **Easy Pete and Ringo equipped it at once** (holstered,
+     out of combat); Sunny kept her Varmint Rifle, Settler 1 his .357.
+   - a Grenade Rifle and 10 40mm grenades: **nobody** took it.
+   - a Sledgehammer: no change.
+   So an AddItem can re-equip outside combat, but a Grenade Rifle did not outrank a
+   Hunting Rifle, a .357 or a Varmint Rifle, as it does in ours (base plus explosion
+   damage): ours' ranking is the divergence. Why Sunny and Settler 1 kept theirs (skill,
+   a weapon of their own class, condition) is open. The first tries (o11_02, o11_03,
+   steps jobs) failed on the plugin compiling only one full script per job
+   (xnvse-capture.md §6).
 2. **Who attacks you, and who joins a fight.** Ours:
    - 618 placed Aggressive (not Very Aggressive) animals ignore you until attacked.
    - Inside an aggro radius, an actor warns twice 5 s apart, then attacks.
