@@ -847,3 +847,12 @@ The numbers above stay put so links to them hold; each item here gives its own p
     `StartMenu/MCM/*:1/*:1/_optionID`, GetUIFloat
     `StartMenu/MCM/MCM_Options/Option1/_optionID`, `GetMCMFloat 1 1 "_optionID"` and
     `GetMCMFloat 1 0 "_optionID"`.
+70. **The pause column's code-written traits** (P3, issue #976 T11; ui-tile-tree-tasks.md
+    T11). MCM's script shows MCM only when `GetUIFloat
+    "StartMenu/NOGLOW_BRANCH/main_container/childcount"` is 8, and places its trigger from
+    main_container's `x`, `y`, `width` and `_alpha`, all written by the game's code (the
+    file leaves them unset). NVForever's pause column is hand-built and writes none of
+    them; no rule is guessed. In the original, with the pause menu open (no MCM), and
+    again from the main menu: GetUIFloat `StartMenu/NOGLOW_BRANCH/main_container/childcount`,
+    `…/x`, `…/y`, `…/width`, `…/_alpha`, `…/_enabled`, and `StartMenu/_isPauseMenu`; then
+    the same with the Settings page open.

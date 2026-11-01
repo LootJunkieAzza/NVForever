@@ -3,7 +3,8 @@
 //!
 //! - **The switch**: `[UI] TileMenus=` in the home's `NVForever.ini`, a comma-separated
 //!   list of menu names, empty by default; `HUDMainMenu`, and since T15a `MessageMenu`
-//!   and `QuantityMenu` (`super::menus`), are acted on. It is
+//!   and `QuantityMenu` (`super::menus`), and since T11 `StartMenu` (the pause menu's
+//!   Mods page, `crate::pause::ModsEntry`, `super::mods`), are acted on. It is
 //!   read once at start, from the INI the settings page uses
 //!   (`crate::settings::SettingsFile`: an unattended run in the player's own home reads
 //!   none). The test aid `NVF_PLAY_TEST_TILE_MENUS=<list>` sets it instead, so a smoke
@@ -43,6 +44,9 @@ pub struct TileMenus {
     /// `QuantityMenu` (T15a): the "How many?" prompt from its file, the hand-built prompt
     /// (`crate::menu::look::spawn_quantity`) not spawned (`super::menus`).
     pub quantity: bool,
+    /// `StartMenu` (T11): the pause menu's Mods entry, when a mod added tiles to the
+    /// start menu, opens a page drawing them (`super::mods`).
+    pub start: bool,
 }
 
 impl TileMenus {
@@ -58,6 +62,8 @@ impl TileMenus {
                 menus.message = true;
             } else if name.eq_ignore_ascii_case(super::menus::QUANTITY_MENU) {
                 menus.quantity = true;
+            } else if name.eq_ignore_ascii_case(super::mods::START_MENU) {
+                menus.start = true;
             } else {
                 other.push(name.to_string());
             }
@@ -94,11 +100,11 @@ pub(crate) fn setup(app: &mut App) {
 
 impl TileMenus {
     /// The menus the switch acts on, in its order.
-    pub const NAMES: [&str; 3] = [super::draw::HUD_MENU, super::menus::MESSAGE_MENU, super::menus::QUANTITY_MENU];
+    pub const NAMES: [&str; 4] = [super::draw::HUD_MENU, super::menus::MESSAGE_MENU, super::menus::QUANTITY_MENU, super::mods::START_MENU];
 
     /// The start-up line's end: the menus drawn from tiles, or none.
     pub fn line(&self) -> String {
-        let on: Vec<&str> = Self::NAMES.into_iter().zip([self.hud, self.message, self.quantity]).filter(|(_, on)| *on).map(|(n, _)| n).collect();
+        let on: Vec<&str> = Self::NAMES.into_iter().zip([self.hud, self.message, self.quantity, self.start]).filter(|(_, on)| *on).map(|(n, _)| n).collect();
         if on.is_empty() {
             "no menu drawn from tiles".into()
         } else {
@@ -457,13 +463,16 @@ mod tests {
         let hud = TileMenus { hud: true, ..TileMenus::default() };
         assert_eq!(TileMenus::parse(""), (TileMenus::default(), Vec::new()));
         assert_eq!(TileMenus::parse("HUDMainMenu"), (hud, Vec::new()));
-        assert_eq!(TileMenus::parse(" hudmainmenu , StartMenu,,"), (hud, vec!["StartMenu".to_string()]));
-        assert_eq!(TileMenus::parse("StartMenu").0, TileMenus::default());
+        assert_eq!(TileMenus::parse(" hudmainmenu , PipBoyMenu,,"), (hud, vec!["PipBoyMenu".to_string()]));
+        // T11: the start menu's Mods page.
+        let start = TileMenus { start: true, ..TileMenus::default() };
+        assert_eq!(TileMenus::parse(" startmenu "), (start, Vec::new()));
+        assert_eq!(start.line(), "StartMenu drawn from tiles");
         assert_eq!(hud.line(), "HUDMainMenu drawn from tiles");
         assert_eq!(TileMenus::default().line(), "no menu drawn from tiles");
         // T15a: the message box and the prompt, each on its own.
         let (menus, other) = TileMenus::parse("messagemenu,QuantityMenu, SleepWaitMenu");
-        assert_eq!(menus, TileMenus { hud: false, message: true, quantity: true });
+        assert_eq!(menus, TileMenus { hud: false, message: true, quantity: true, start: false });
         assert_eq!(other, vec!["SleepWaitMenu".to_string()]);
         assert_eq!(menus.line(), "MessageMenu, QuantityMenu drawn from tiles");
         assert_eq!(TileMenus::parse("QuantityMenu").0, TileMenus { quantity: true, ..TileMenus::default() });

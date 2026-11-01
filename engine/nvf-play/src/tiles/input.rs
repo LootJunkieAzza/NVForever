@@ -5,7 +5,8 @@
 //! - **Which menus take input**: a menu drawn from its file that the player works: since
 //!   T15a the message box and the "How many?" prompt while drawn from tiles
 //!   (`[UI] TileMenus=MessageMenu,QuantityMenu`, `super::menus`), the prompt under the
-//!   box. The HUD (`[UI] TileMenus=HUDMainMenu`) is drawn from tiles but has no pointer in
+//!   box; since T11 the start menu while the pause menu's Mods page is up
+//!   (`[UI] TileMenus=StartMenu`, `super::mods`). The HUD (`[UI] TileMenus=HUDMainMenu`) is drawn from tiles but has no pointer in
 //!   play [hypothesis: the original's HUD takes no clicks]. With none, nothing is fed and
 //!   the frame does no tree work [design: the maintainer's review of #902], unless the test
 //!   aid below makes the HUD take input; but a script's ClickMenuButton or ClickMenuTile
@@ -240,7 +241,15 @@ fn amount_under(ui: &fnv_ui::Ui, at: Option<(f64, f64)>, most: i32) -> Option<i3
     Some(crate::menu::model::amount_at(((x - b.left) / b.width) as f32, most))
 }
 
-pub(crate) fn feed(mut script: ResMut<ScriptState>, menus: Res<super::vanilla::TileMenus>, aid: Option<ResMut<PointerAid>>, time: crate::pause::AidTime, devices: Devices, mut inputs: MenuInputs) {
+pub(crate) fn feed(
+    mut script: ResMut<ScriptState>,
+    menus: Res<super::vanilla::TileMenus>,
+    aid: Option<ResMut<PointerAid>>,
+    time: crate::pause::AidTime,
+    devices: Devices,
+    mut inputs: MenuInputs,
+    (paused, page): (Option<Res<crate::pause::Paused>>, Option<Res<crate::pause::Page>>),
+) {
     let Some(rt) = script.rt.as_mut() else { return };
     if rt.game.ui_files.is_none() {
         return;
@@ -275,6 +284,11 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, menus: Res<super::vanilla::T
         taking.extend(rt.game.ui_tree.menu(super::draw::HUD_MENU));
     }
     taking.extend(inputs.taking(*menus, &rt.game));
+    // T11: the pause menu's Mods page takes the pointer and keys for the start menu's
+    // tiles (`super::mods`).
+    if menus.start && paused.as_ref().zip(page.as_ref()).is_some_and(|(p, pg)| crate::pause::mods_open(p, pg)) {
+        taking.extend(rt.game.ui_tree.menu(super::mods::START_MENU));
+    }
     if taking.is_empty() {
         // A highlight left from the last menu that took input goes (mouseover back to 0),
         // and the scripts' clicks end and fire their events; otherwise nothing to do

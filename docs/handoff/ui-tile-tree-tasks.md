@@ -340,6 +340,26 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       4. T8's pointer and keys fed to `StartMenu` while the page is open
          (`tiles/input.rs`: no menu takes input in play yet).
       5. Done when an MCM mod's option changes in game and its INI value is written.
+    - **Built 2026-11-01** (claude/mcm-pause-976-t11, issue #976): steps 1-4 as the
+      plumbing, behind `[UI] TileMenus=StartMenu` (off by default; `nvf-play
+      tiles/mods.rs`, `pause.rs`). With it on and a mod's tiles in `StartMenu`, the column
+      has a Mods entry before Quit (`pause::ModsEntry`); its page draws StartMenu's mod
+      tiles over the pause menu (`tiles::draw`, as T5 draws the HUD's: a loose
+      replacement's own tiles, not the archived file's; interface units), feeds them T8's
+      pointer and keys, and runs one MenuMode tick per frame with `Game::menu` the start
+      menu (only on that page: our pause menu still holds every script elsewhere, the
+      first decision above kept narrow) [design]. Esc, Backspace or Back close it.
+      Tests: `tiles::mods` (the entry's rule), `pause` (the entries, the page);
+      smoke `pause-mods-page`.
+    - **Blocked: MCM's own page** (step 5). MCM's ESP shows MCM only when
+      `StartMenu/NOGLOW_BRANCH/main_container/childcount` is 8 (the original's pause
+      column, filled in by the game's code; NVForever's column is hand-built and the
+      rule is not documented), places its trigger from that column's x/y/width, and
+      fills its mod list with MCM.dll functions no source describes (SetMCMModList,
+      GetMCMListWidth, SetMCMFloatMass, SetMCMStringMass: `{{Incomplete}}` wiki stubs,
+      not in functions.json). Until a source for those turns up (an observer capture of
+      the start menu's `main_container` traits, the functions' effects on the tree), the
+      Mods page shows only what a mod's own MenuMode script draws.
 8. **T12. The vanilla HUD on tiles**, behind `[UI] TileMenus=HUDMainMenu`. Compare
     with the hud.md screenshots; keep the old HUD the default until the owner agrees.
     - **T12a done** 2026-10-29 (claude/t12-hud-tiles): the switch and the drawing.

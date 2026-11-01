@@ -17415,3 +17415,21 @@ expect = [
   { text = "MannyVargasREF: put at its package", count = 0, label = "Manny Vargas, in view before the trip, is not moved" },
   { re = 'put at its package.s place on arrival .* units from \([^)]*\) in WastelandNV', count = 0, label = "nobody in Novac's street is put anywhere (residents in the rooms behind its doors may be: they are near and unseen)" },
 ]
+
+[[scenario]]
+name = "pause-mods-page"
+source = "issue #976 T11 (engine/nvf-play/src/tiles/mods.rs, pause.rs; docs/handoff/ui-tile-tree-tasks.md T11, ui-tile-tree.md §7): with [UI] TileMenus=StartMenu and a mod's tiles in StartMenu, the pause menu has a Mods entry; its page runs the start menu's MenuMode 1013 blocks each frame and Back closes it"
+note = "needs MCM's loose menu files in Data (menus/options/start_menu.xml and menus/prefabs/MCM, as in the owner's install): they give StartMenu its mod tiles. MCM's own page stays hidden (its ESP is not loaded, and its script waits for the original's code-filled pause column), so only the entry, the page and the script frames are checked; pause_mods.png shows the page"
+areas = ["ui", "menus"]
+paths = ["engine/nvf-play/src/tiles/mods.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/tiles/input.rs"]
+env = { NVF_PLAY_TEST_TILE_MENUS = "StartMenu", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PAUSE = "16:28", NVF_PLAY_TEST_PAUSE_MENU = "17:mods,18.5:shot,22:back" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  "tiles: a mod's tiles in StartMenu: the pause menu has a Mods entry",
+  "pause menu: mods page",
+  "scripts: MenuMode 1013 blocks run under the pause menu's Mods page",
+  "pause menu: mods page closed",
+  { re = "scripts: the Mods page closed after [1-9][0-9]* MenuMode frames", label = "the start menu's MenuMode blocks ran each frame of the page" },
+]
+order = [["tiles: a mod's tiles in StartMenu", "pause menu: mods page", "scripts: MenuMode 1013 blocks run", "pause menu: mods page closed"]]

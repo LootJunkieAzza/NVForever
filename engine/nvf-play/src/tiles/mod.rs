@@ -5,6 +5,7 @@ pub mod input;
 pub mod layout;
 pub mod menus;
 pub mod model;
+pub mod mods;
 pub mod notices;
 pub mod vanilla;
 
@@ -59,12 +60,13 @@ impl MenuFiles<'_, '_> {
 }
 
 /// Whether `screen()` is written in interface units ([`write_screen`]): only while a T15
-/// menu (`MessageMenu`, `QuantityMenu`) is switched on, whose file centres its box by
-/// `screen()`. The default game and the tile HUD alone keep the window's pixels
+/// menu (`MessageMenu`, `QuantityMenu`) or the start menu's Mods page (T11, `mods`) is
+/// switched on, whose files centre their boxes by `screen()` (MCM's `x` and `y`,
+/// menu-xml.md §10). The default game and the tile HUD alone keep the window's pixels
 /// [design]. The original reports interface units [observed: hud_menus capture
 /// 2026-10-31, three window sizes]; applying them unconditionally is a follow-up.
 pub fn interface_screen(menus: vanilla::TileMenus) -> bool {
-    menus.message || menus.quantity
+    menus.message || menus.quantity || menus.start
 }
 
 /// Write `screen()`'s traits for a window `window_width` x `window_height` (logical
@@ -468,6 +470,7 @@ fn write(
     mut animation: Local<fnv_game::ui_hud::Animation>,
     mut told: Local<[Option<String>; 4]>,
     mut menu_tiles: MenuTiles,
+    mut mods_entry: ResMut<crate::pause::ModsEntry>,
 ) {
     let Some(rt) = script.rt.as_mut() else { return };
     // T15a: the prompt over the container, barter and inventory menus builds `QuantityMenu`
@@ -475,6 +478,12 @@ fn write(
     // menus build (T3b).
     rt.game.ui_prompt = menu_tiles.quantity().map(|_| fnv_game::game::menus::QUANTITY);
     files.write(&mut rt.game);
+    // T11: the pause column's Mods entry, while a mod's tiles are in the start menu.
+    let mods_now = crate::pause::ModsEntry(mods::available(*menus, &rt.game.ui_tree));
+    if *mods_entry != mods_now {
+        info!("tiles: {}", if mods_now.0 { "a mod's tiles in StartMenu: the pause menu has a Mods entry" } else { "no Mods entry in the pause menu" });
+        *mods_entry = mods_now;
+    }
     menu_tiles.write(&mut rt.game, *menus, &mut fonts);
     let shown = hud.shown(&rt.game, &files);
     let mut texts = hud.texts(&mut rt.game, shown);
@@ -617,6 +626,7 @@ mod tests {
         // On: interface units, 960 high, and the converter.
         assert!(interface_screen(vanilla::TileMenus { message: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { quantity: true, ..Default::default() }));
+        assert!(interface_screen(vanilla::TileMenus { start: true, ..Default::default() }));
         write_screen(&mut ui, 1280.0, 720.0, true);
         ui.update();
         assert_eq!(ui.get_float("M/Box/x").map(|x| (x * 100.0).round() / 100.0), Some(803.33));
