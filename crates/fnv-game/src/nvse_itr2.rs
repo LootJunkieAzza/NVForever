@@ -97,6 +97,11 @@ const GET_ITEM_COUNT: u16 = 47;
 const GET_IS_ID: u16 = 72;
 const IS_IN_LIST: u16 = 372;
 const IS_WEAPON_IN_LIST: u16 = 399;
+/// GetWeaponAnimType and IsWeaponSkillType: filters on a weapon's own fields, which
+/// GetPerksForForm checks against the form [observed: itr probes, Gunslinger (anim
+/// type 4) and Fast Shot (Guns) are given for the 10mm pistol].
+const GET_WEAPON_ANIM_TYPE: u16 = 108;
+const IS_WEAPON_SKILL_TYPE: u16 = 109;
 
 /// GetPerksForForm's "item, weapon, armour, and combat-oriented entry points": the
 /// combat entry points NVForever reads (`crate::perks`), with their names.
@@ -233,6 +238,8 @@ struct Eligibility {
     owned: u8,
     max: u8,
     status: &'static str,
+    /// A data gate (trait, hidden, not playable, not a level-up perk) holds it back.
+    gated: bool,
     blockers: Vec<Req>,
     indeterminate: Vec<Req>,
 }
@@ -477,8 +484,9 @@ impl Game<'_> {
         }
         let status = if owned_max {
             "owned_max"
-        } else if scripted {
-            "scripted"
+        // A data gate is a blocker like any other: a trait reads "blocked", not
+        // "scripted" [observed: itr probes, WildWasteland]. "scripted" (a page's
+        // name) is not given until a probe shows when the plugin gives it.
         } else if !blockers.is_empty() {
             "blocked"
         } else if !indeterminate.is_empty() {
@@ -486,7 +494,7 @@ impl Game<'_> {
         } else {
             "takeable"
         };
-        Some(Eligibility { owned, max, status, blockers, indeterminate })
+        Some(Eligibility { owned, max, status, gated: scripted, blockers, indeterminate })
     }
 
     fn req_map(&mut self, r: &Req) -> XVal {
@@ -642,16 +650,29 @@ impl Game<'_> {
     fn filter_names(&self, conds: &[&crate::cond::Condition], subject: FormId) -> Option<bool> {
         let mut results = Vec::new();
         for c in conds {
-            let hit = match c.function {
-                GET_IS_ID => param_form(c, 0) == Some(subject),
-                IS_IN_LIST | IS_WEAPON_IN_LIST => param_form(c, 0).is_some_and(|l| crate::functions::list_members(self, l).contains(&subject)),
-                _ => continue,
+            let flag = |b: bool| f64::from(u8::from(b));
+            let weapon = (self.data.sig(subject) == Some(*b"WEAP")).then_some(subject);
+            let value = match c.function {
+                GET_IS_ID => flag(param_form(c, 0) == Some(subject)),
+                IS_IN_LIST | IS_WEAPON_IN_LIST => flag(param_form(c, 0).is_some_and(|l| crate::functions::list_members(self, l).contains(&subject))),
+                GET_WEAPON_ANIM_TYPE => match weapon.and_then(|w| self.data.weapon_anim_types.get(&w)) {
+                    Some(&t) => crate::functions::actor::weapon_anim_code(t) as f64,
+                    None => return None,
+                },
+                IS_WEAPON_SKILL_TYPE => match (weapon, param_num(c, 0)) {
+                    (Some(w), Some(skill)) => flag(self.data.weapon_skills.get(&w).is_some_and(|&s| s as f64 == skill)),
+                    _ => return None,
+                },
+                // A tab with any other condition does not name the form [observed: itr
+                // probes, Robotics Expert, whose weapon tab mixes GetIsID with actor
+                // tests, is not given for the pistol].
+                _ => return None,
             };
             let rhs = match c.rhs {
                 crate::cond::Operand::Value(x) => x,
                 _ => 1.0,
             };
-            results.push((c.cmp.test(f64::from(u8::from(hit)), rhs), c.or));
+            results.push((c.cmp.test(value, rhs), c.or));
         }
         (!results.is_empty()).then(|| crate::cond::combine(&results))
     }
@@ -690,7 +711,9 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         }
         // `topicOrInfo flag`: hide (1) or drop the rule (0); at most 32 [documented].
         "setdialoguetopichidden" => {
-            let Some(f) = form(args, 0).filter(|&f| matches!(g.data.sig(f).as_ref(), Some(b"DIAL" | b"INFO"))) else { return Some(Ok(zero)) };
+            // Any form is taken, not only topics and lines [observed: itr probes, a
+            // reference returns 1 and counts in ClearDialogueTopicOverrides].
+            let Some(f) = form(args, 0) else { return Some(Ok(zero)) };
             let h = &mut g.other.itr2.hidden;
             if num(args, 1, 0.0) != 0.0 {
                 if !h.contains(&f) {
@@ -705,7 +728,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             one
         }
         "setdialoguetopicorder" => {
-            let Some(f) = form(args, 0).filter(|&f| matches!(g.data.sig(f).as_ref(), Some(b"DIAL" | b"INFO"))) else { return Some(Ok(zero)) };
+            let Some(f) = form(args, 0) else { return Some(Ok(zero)) };
             let o = num(args, 1, 0.0) as i64;
             let rules = &mut g.other.itr2.order;
             match rules.iter().position(|(x, _)| *x == f) {
@@ -917,9 +940,11 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             g.other.itr2.ragdolls.push(ask);
             one
         }
-        // [documented: IsRigidBodyAtRest]: the engine's bodies are not reported to the
-        // game, so a reference reads at rest [hypothesis; follow-up].
-        "isrigidbodyatrest" => yes(subject.is_some()),
+        // [documented: IsRigidBodyAtRest]: an actor has no rigid body of its own (a
+        // character controller), 0 [observed: itr probes, the player reads 0;
+        // hypothesis for other actors]; the engine's bodies are not reported to the
+        // game, so another reference reads at rest [hypothesis; follow-up].
+        "isrigidbodyatrest" => yes(subject.is_some() && actor.is_none()),
         // `x y z level` by the calling actor; `x y z level radius [flags] [topic]` by no
         // one: a detection event there, the level in place of the action sound
         // [documented: CreateDetectionSoundAt; CreateAnonymousDetectionSoundAt;
@@ -1141,33 +1166,39 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let d = g.delta_of(args.get(1));
             let flags = num(args, 2, 0.0) as i64;
             let mut items = Vec::new();
-            for p in g.perks_in_order() {
+            // In FormID order [observed: itr probes, the pistol's six perks].
+            let mut perks: Vec<FormId> = g.data.perks.keys().copied().collect();
+            perks.sort();
+            for p in perks {
                 let Some(def) = g.data.perks.get(&p) else { continue };
                 let mut matches = Vec::new();
                 for e in &def.entries {
                     let crate::data::PerkEffect::EntryPoint(ep) = &e.effect else { continue };
+                    // Any entry point whose filter names the form [observed: itr probes,
+                    // Hand Loader]; the combat ones keep their names.
                     let known = COMBAT_POINTS.iter().find(|(c, _)| *c == ep.point).map(|(_, n)| *n);
-                    if known.is_none() && flags & 128 == 0 {
-                        continue;
-                    }
                     let conds = ep.conditions.clone().unwrap_or_default();
                     let tabs: BTreeSet<i8> = conds.iter().map(|(t, _)| *t).collect();
                     let (kind, contextual, unknown) = match tabs.len() {
-                        0 => ("broad", false, false),
+                        // No filter at all: not listed [observed: itr probes, Toughness and
+                        // Quick Draw are not given for the pistol; the page counts them].
+                        0 => continue,
                         1 => match g.filter_names(&conds.iter().map(|(_, c)| c).collect::<Vec<_>>(), subj) {
                             Some(true) => ("filter", false, false),
                             Some(false) => continue,
                             None if flags & 64 != 0 && flags & 128 != 0 => ("unknown", false, true),
                             None => continue,
                         },
-                        _ if flags & 32 != 0 => {
+                        // Several tabs: listed when one names the form, without flag 32
+                        // [observed: itr probes, The Professional reads "future"]; flag 32
+                        // marks it contextual [documented: GetPerksForForm].
+                        _ => {
                             let named = tabs.iter().any(|t| g.filter_names(&conds.iter().filter(|(x, _)| x == t).map(|(_, c)| c).collect::<Vec<_>>(), subj) == Some(true));
                             if !named {
                                 continue;
                             }
-                            ("contextual", true, false)
+                            if flags & 32 != 0 { ("contextual", true, false) } else { ("filter", false, false) }
                         }
-                        _ => continue,
                     };
                     matches.push((e.rank, ep.point, known.unwrap_or(""), ep.function, tabs.len(), kind, contextual, unknown));
                 }
@@ -1177,7 +1208,9 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                 let Some(el) = g.eligibility(p, &d, flags | 8) else { continue };
                 // Without the flags, the perks the level-up menu would not offer are left
                 // out unless owned [documented: "Owned relevant perks are returned"].
-                if el.owned == 0 && el.status == "scripted" {
+                // Traits are listed [observed: itr probes, Fast Shot and Trigger
+                // Discipline read "blocked"]; the other gates leave a perk out.
+                if el.owned == 0 && el.gated && !g.data.perks.get(&p).is_some_and(|d| d.is_trait) {
                     continue;
                 }
                 let all_contextual = matches.iter().all(|m| m.6);
@@ -1190,7 +1223,11 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                     "unknown"
                 } else if el.status == "takeable" {
                     "takeable"
-                } else if !el.blockers.is_empty() && el.blockers.iter().all(|b| b.kind == "Level") {
+                // Only what the player raises holds it back, the level or actor values
+                // [hypothesis, fitted to the itr probes: Run 'n Gun, Hand Loader and The
+                // Professional read "future" with skill requirements; the traits Fast
+                // Shot and Trigger Discipline "blocked"; the page gives the names only].
+                } else if !el.blockers.is_empty() && el.blockers.iter().all(|b| matches!(b.kind, "Level" | "ActorValue")) {
                     "future"
                 } else if el.status == "unknown" {
                     "unknown"
@@ -1329,12 +1366,16 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
 
 impl Game<'_> {
     /// The doors of the fewest-doors way from `start` to a cell `arrived` accepts,
-    /// through the load doors (enabled, not deleted, teleporting) of each cell.
+    /// through the load doors (enabled, not deleted, teleporting) of each place: an
+    /// interior cell, or a whole worldspace (one walks between its cells) [observed:
+    /// itr probes, GetRefNextTeleportDoor from GSGasStation to Doc Mitchell's house
+    /// gives the gas station's own door, the way crossing Goodsprings outdoors].
     fn door_route(&self, start: FormId, arrived: impl Fn(&Game, FormId) -> bool) -> Option<Vec<FormId>> {
-        let mut seen = BTreeSet::from([start]);
+        let place = |g: &Game, c: FormId| g.world.placed.world_of(c).unwrap_or(c);
+        let mut seen = BTreeSet::from([place(self, start)]);
         let mut queue = std::collections::VecDeque::from([(start, Vec::<FormId>::new())]);
         while let Some((cell, way)) = queue.pop_front() {
-            for d in self.refs_in_cell(cell, false) {
+            for d in self.place_doors(cell) {
                 if self.data.sig(crate::functions::base_of(self, d).unwrap_or(d)) != Some(*b"DOOR") || self.world.peek(d).is_some_and(|s| !s.enabled) {
                     continue;
                 }
@@ -1345,11 +1386,29 @@ impl Game<'_> {
                 if arrived(self, next) {
                     return Some(way);
                 }
-                if seen.insert(next) {
+                if seen.insert(place(self, next)) {
                     queue.push_back((next, way));
                 }
             }
         }
         None
+    }
+
+    /// The references that may be load doors in `cell`'s place: the cell's own inside,
+    /// every cell of the worldspace outside (the placed doors with a teleport, in
+    /// FormID order).
+    fn place_doors(&self, cell: FormId) -> Vec<FormId> {
+        let placed = &self.world.placed;
+        let Some(w) = placed.world_of(cell) else { return self.refs_in_cell(cell, false) };
+        let mut out: Vec<FormId> = placed
+            .cell_world
+            .iter()
+            .filter(|(_, &cw)| cw == w)
+            .flat_map(|(c, _)| placed.by_cell.get(c).into_iter().flatten().copied())
+            .filter(|&d| placed.get(d).is_some_and(|p| p.teleport.is_some()) || self.other.doors.contains_key(&d))
+            .collect();
+        out.sort();
+        out.dedup();
+        out
     }
 }

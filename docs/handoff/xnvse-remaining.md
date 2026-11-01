@@ -89,6 +89,8 @@ ITR batch 1: 62 (#1011, ext-itr.md §1-6, `nvse_itr1.rs` and `vm/itr.rs`; not in
 the probe game, so from the pages alone). Census after it: 1,216 (ITR 119 → 57).
 ITR batch 2: the other 57 (#1011, ext-itr.md §7-12, `nvse_itr2.rs`, the navmesh lender
 `nav_ask.rs`). Census after it: 1,159 (ITR 0).
+ITR probes (itr-nvse.dll installed 2026-11-01): set `itr`, lab `L5.ext.itr` 91 of 92 rows
+match, the rest explained (ext-itr.md §13); 13 first-run differences fixed to follow the game.
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,

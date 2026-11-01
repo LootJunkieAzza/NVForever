@@ -246,10 +246,11 @@ fn dialogue_rules_speech_and_gestures() {
     assert_eq!(num(&mut g, "GetDisplayedDialogueInfos"), 0.0);
     assert_eq!(num(&mut g, "SetDialogueTopicEntryAlpha 0 128"), 0.0);
     assert_eq!(num(&mut g, "SetDialogueTopicHidden TestTopic 1"), 1.0);
-    assert_eq!(num(&mut g, "SetDialogueTopicHidden TestNpc 1"), 0.0);
+    // Any form is taken [observed: itr probes].
+    assert_eq!(num(&mut g, "SetDialogueTopicHidden TestNpc 1"), 1.0);
     assert_eq!(num(&mut g, "SetDialogueTopicOrder TestInfoB 3"), 1.0);
     assert_eq!(num(&mut g, "SetDialogueTopicOrder TestInfoB 1"), 1.0);
-    assert_eq!(num(&mut g, "ClearDialogueTopicOverrides"), 2.0);
+    assert_eq!(num(&mut g, "ClearDialogueTopicOverrides"), 3.0);
     assert_eq!(num(&mut g, "ClearDialogueTopicOverrides"), 0.0);
     // ForceSay: the topic's first line, whatever its conditions.
     assert_eq!(num(&mut g, "TestNpcRef.IsSaying TestTopic"), 0.0);
@@ -259,6 +260,8 @@ fn dialogue_rules_speech_and_gestures() {
     assert_eq!(num(&mut g, "TestNpcRef.IsSaying TestInfoB"), 0.0);
     assert_eq!(num(&mut g, "TestNpcRef.Gesture \"Nod\" 8 2"), 1.0);
     assert_eq!(num(&mut g, "TestNpcRef.Gesture \"wave\" 8 2"), 0.0);
+    // An actor has no rigid body at rest [observed: itr probes, the player].
+    assert_eq!(num(&mut g, "player.IsRigidBodyAtRest"), 0.0);
     assert_eq!(g.other.itr2.gestures.get(&FormId(NPC_REF)).map(|x| (x.kind.as_str(), x.speed)), Some(("nod", 0.4)));
 }
 
@@ -396,7 +399,8 @@ let d[\"av\"] := av
     assert_eq!(get(&mut g, delta, "GetPerkEligibility GunPerk d", "[\"status\"]"), s("takeable"));
     assert_eq!(get(&mut g, delta, "GetPerkEligibility GunPerk d", "[\"nextRank\"]"), XVal::Num(1.0));
     // The free perk is not a level-up perk unless flag 16; the trait needs flag 4.
-    assert_eq!(get(&mut g, "", "GetPerkEligibility FreePerk", "[\"status\"]"), s("scripted"));
+    // A data gate is a blocker: "blocked" [observed: itr probes, WildWasteland].
+    assert_eq!(get(&mut g, "", "GetPerkEligibility FreePerk", "[\"status\"]"), s("blocked"));
     let empty = "array_var d
 let d := ar_Construct StringMap
 ";
