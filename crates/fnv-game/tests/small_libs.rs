@@ -263,6 +263,40 @@ fn jippp_runtime_nodes_effects_and_wear() {
     assert_eq!(q(&mut g, "SetFunctionValue (HasRuntimeNode TestBox \"NoBar\" 1)"), n(0.0));
 }
 
+/// GetSessionTime adds up each frame's own length too: frames of changing length move it
+/// on by exactly their sum, never back (#1297).
+#[test]
+fn session_time_adds_up_frames_of_changing_length() {
+    files();
+    let f = fixture();
+    let mut g = game(&f);
+    let secs = |g: &mut Game| match q(g, "SetFunctionValue (GetSessionTime)") {
+        XVal::Num(x) => x,
+        v => panic!("{v:?}"),
+    };
+    let start = secs(&mut g);
+    let mut want = start;
+    let mut last = start;
+    for (i, dt) in [1.0 / 60.0, 1.0 / 30.0, 0.0166, 0.017, 0.1, 0.008].iter().cycle().take(600).enumerate() {
+        g.cfg.frame_seconds = *dt;
+        g.tick();
+        want += dt;
+        let now = secs(&mut g);
+        assert!(now >= last, "frame {i}: {last} then {now}");
+        assert!((now - want).abs() < 1e-9, "frame {i}: {now}, frames add up to {want}");
+        last = now;
+    }
+    // A long session with a frame-time change: the clock does not jump with it.
+    g.cfg.frame_seconds = 0.0166;
+    for _ in 0..36_000 {
+        g.tick();
+    }
+    let before = secs(&mut g);
+    g.cfg.frame_seconds = 0.017;
+    g.tick();
+    assert!((secs(&mut g) - before - 0.017).abs() < 1e-6);
+}
+
 /// The CacheUI and vheyes clocks add up each frame's own length: the engine gives every
 /// frame its own `frame_seconds`, so a change of it does not move the clock back or on.
 #[test]
