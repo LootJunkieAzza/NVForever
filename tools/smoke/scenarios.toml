@@ -6796,6 +6796,31 @@ order = [[
 ]]
 
 [[scenario]]
+name = "console-tlik-temo-slpm-mfg-bat"
+source = "issue #1046 step 3: tlik (ToggleLookIK), temo (ToggleEmotions), tfow (ToggleFogOfWar), MFG, bat and slpm (ShowLockPickMenu) did nothing; Doc Mitchell's face takes MFG's morphs, a missing batch file is named, slpm closes the console and opens a practice lock that is picked without changing anything (docs/design/console.md)"
+areas = ["console"]
+paths = ["crates/fnv-game/src/functions/console.rs", "crates/fnv-game/src/functions/toggles.rs", "engine/nvforever/src/console_toggles.rs", "engine/nvforever/src/lips.rs", "engine/nvf-play/src/console.rs", "engine/nvf-play/src/lockpick.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_GIVE = "0000000A:3", NVF_PLAY_TEST_CONSOLE = "12:tlik;12.3:tlik;12.6:temo;12.9:temo;13.2:tfow;13.5:DocMitchellREF.mfg expression 3 100;14:DocMitchellREF.mfg modifier 16 50;14.5:DocMitchellREF.mfg reset;14.8:bat nvf_smoke_no_such_batch;15.1:slpm 2", NVF_PLAY_TEST_LOCKPICK = "17:help,18:spot,18.5:torque:2" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 28
+order = [[
+  { re = 'console: Head tracking off', label = "tlik" },
+  { re = 'console: Head tracking on', label = "tlik again" },
+  { re = 'console: Emotions off', label = "temo" },
+  { re = 'console: Emotions on', label = "temo again" },
+  { re = 'console: The local map has no fog of war here', label = "tfow says why it does nothing" },
+  { re = 'console: \S+ \S+: MFG expression Sad at 100', label = "MFG on Doc Mitchell" },
+  { re = 'face: [0-9A-F]{8} MFG Sad 100$', label = "his face asks for Sad" },
+  { re = 'face: [0-9A-F]{8} MFG Sad 100, HeadYaw 50', label = "and turns his head" },
+  { re = 'face: [0-9A-F]{8} MFG reset', label = "MFG reset clears it" },
+  { re = 'console: No batch file nvf_smoke_no_such_batch\.txt', label = "bat names the file it did not find" },
+  { re = 'console: Practice lock \(Easy\): the lockpicking menu opens', label = "slpm 2" },
+  { re = 'lockpick: open 0x00000000 practice lock: Easy lock', label = "the menu opens on the practice lock" },
+  { re = 'lockpick: the lock turned all the way: practice lock picked open \(Easy lock\)', label = "picked; nothing in the world changes" },
+]]
+forbid = [{ re = 'lockpick: crime hook', label = "a practice lock is no crime" }]
+
+[[scenario]]
 name = "reputation-disguise"
 source = "owner request 2026-10-22: faction armour's scripts set every reputation to 0 while it is worn and back after; only the player's real reputation opens boxes, so putting on and taking off a Powder Gang outfit (000A472F, script 00134B71) shows none"
 areas = ["hud"]

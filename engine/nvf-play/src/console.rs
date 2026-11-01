@@ -166,6 +166,38 @@ pub fn statements(line: &str) -> Vec<String> {
     out.into_iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
 }
 
+/// Batch files one console line may run, those they run included (a file running itself
+/// stops there) [design].
+pub const MAX_BATCHES: usize = 16;
+
+/// Where `bat` looks for its file: NVForever's own folder (`Documents\My Games\NVForever`),
+/// then the game's folder, which holds the original's batch files ("a text file in game
+/// folder" [documented: GECK wiki Bat]); both are only read.
+fn batch_roots(data: Option<&nvf_assets::GameData>) -> Vec<std::path::PathBuf> {
+    let home = fnv_install::EngineHome::default_root();
+    let game = data.and_then(|d| d.vfs.data_dir().parent().map(std::path::Path::to_path_buf));
+    home.into_iter().chain(game).collect()
+}
+
+/// `bat <file>` (docs/design/console.md): the console lines of a text file, found in the
+/// first of `roots` that has it (or at the path given, when it is absolute), `.txt` added
+/// to a name without an extension [hypothesis: `bat mybatfile` reads mybatfile.txt, as
+/// players use it]. Blank lines are left out.
+pub fn batch_lines(name: &str, roots: &[std::path::PathBuf]) -> Result<(std::path::PathBuf, Vec<String>), String> {
+    use std::path::{Path, PathBuf};
+    let name = name.trim().trim_matches('"');
+    if name.is_empty() {
+        return Err("bat <file>: runs the console lines of a text file in NVForever's folder or the game's (.txt when no extension is given)".into());
+    }
+    let file = if Path::new(name).extension().is_some() { name.to_string() } else { format!("{name}.txt") };
+    let path = if Path::new(&file).is_absolute() { Some(PathBuf::from(&file)).filter(|p| p.is_file()) } else { roots.iter().map(|r| r.join(&file)).find(|p| p.is_file()) };
+    let shown: Vec<String> = roots.iter().map(|r| r.display().to_string()).collect();
+    let path = path.ok_or_else(|| format!("No batch file {file} (looked in {})", shown.join(", ")))?;
+    let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let lines = String::from_utf8_lossy(&bytes).lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect();
+    Ok((path, lines))
+}
+
 /// Whether an aid part starts with `<seconds>:` (else it belongs to the line before).
 fn timed_part(p: &str) -> bool {
     p.split_once(':').is_some_and(|(t, _)| t.trim().parse::<f32>().is_ok())
@@ -312,7 +344,7 @@ fn typing(
     mut clicks: Local<Vec<Vec2>>,
     (mut index, play, mut poker, location): (ResMut<SearchIndex>, Res<PlayWorld>, MessageWriter<crate::poker::OpenPoker>, Option<Res<crate::Location>>),
     (mut saves, mut loads, save_cfg, mut save_log): (MessageWriter<crate::save::SaveRequest>, MessageWriter<crate::save::LoadRequest>, Res<crate::save::SaveConfig>, ResMut<crate::save::SaveLog>),
-    pipboy: Option<Res<crate::pipboy::data::DataState>>,
+    (pipboy, data): (Option<Res<crate::pipboy::data::DataState>>, Option<Res<nvf_assets::GameData>>),
 ) {
     let typed: Vec<KeyboardInput> = typed.read().cloned().collect();
     if !c.open {
@@ -367,7 +399,7 @@ fn typing(
         }
     }
     // Each line once in the history, then its statements one by one.
-    let mut runs: Vec<String> = Vec::new();
+    let mut runs: std::collections::VecDeque<String> = std::collections::VecDeque::new();
     for line in submit {
         let line = line.trim().to_string();
         if line.is_empty() {
@@ -383,7 +415,8 @@ fn typing(
         }
         runs.extend(parts);
     }
-    for line in runs {
+    let mut batches = 0;
+    while let Some(line) = runs.pop_front() {
         c.print(format!("> {line}"));
         let (head, rest) = line.split_once(char::is_whitespace).map_or((line.as_str(), ""), |(h, r)| (h, r.trim()));
         match head.to_ascii_lowercase().as_str() {
@@ -395,7 +428,8 @@ fn typing(
                     c.print("help <text>: records and functions whose name or Editor ID contains it (not case sensitive); \"two words\" for a phrase, several words must all match");
                     c.print("prid <ref>, coc <cell>, cow <world> <x> <y>, coe <x> <y>, tgm, cls, save <name>, load [name], saves, set <var> to <value>. Click something to select it; calls without a reference run on it.");
                     c.print("Quests and info: sq, sqt, movetoqt [n], sqs <quest>, sqv <quest>, sv, caqs, inv, getavinfo <av>, setgs <setting> <value>, cam, qqq, advlevel (level up), poker [casino] (a poker table)");
-                    c.print("Toggles: tcl (collision), tai (actors' AI), tdetect, tgm, tscr (scripts), tg (grass), ts (sky), tws (water), tt (trees), ToggleLODLand, ToggleNavmesh");
+                    c.print("Toggles: tcl (collision), tai (actors' AI), tdetect, tgm, tscr (scripts), tg (grass), ts (sky), tws (water), tt (trees), ToggleLODLand, ToggleNavmesh, tlik (head tracking), temo (emotions)");
+                    c.print("bat <file> (console lines from a text file), slpm [1-5] (a practice lock), [ref.]mfg expression|phoneme|modifier <id> <0-100>, mfg reset");
                 } else {
                     let funcs = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| matching_functions(&rt.game.data.table, &terms)).unwrap_or_default();
                     if !funcs.is_empty() {
@@ -414,6 +448,22 @@ fn typing(
             "close" => {
                 close(&mut c, &mut next, &mut commands, &roots);
                 return;
+            }
+            // `bat <file>`: the file's lines run next, in order, as if typed.
+            "bat" => {
+                batches += 1;
+                let found = if batches > MAX_BATCHES { Err(format!("bat: more than {MAX_BATCHES} batch files on one line")) } else { batch_lines(rest, &batch_roots(data.as_deref())) };
+                match found {
+                    Ok((path, lines)) => {
+                        c.print(format!("Running {} ({} lines)", path.display(), lines.len()));
+                        for l in lines.iter().rev() {
+                            for st in statements(l).into_iter().rev() {
+                                runs.push_front(st);
+                            }
+                        }
+                    }
+                    Err(e) => c.print(e),
+                }
             }
             "save" => match fnv_save::check_name(rest) {
                 Ok(n) => {
@@ -522,7 +572,7 @@ fn replies(
         MessageWriter<AppExit>,
     ),
     (mut next, mut commands, roots): (ResMut<NextState<PlayState>>, Commands, Query<Entity, With<ConsoleRoot>>),
-    (mut noclip, mut render): (ResMut<crate::player::NoClip>, ResMut<RenderToggles>),
+    (mut noclip, mut render, mut practice): (ResMut<crate::player::NoClip>, ResMut<RenderToggles>, Option<ResMut<crate::lockpick::PracticeLock>>),
 ) {
     let Some(mut st) = script else { return };
     if let Some(rt) = st.rt.as_mut() {
@@ -591,6 +641,17 @@ fn replies(
                     }
                     Ok(p) => c.print(format!("No save {}", p.display())),
                     Err(e) => c.print(e),
+                },
+                // ShowLockPickMenu: the console closes, then the menu opens on the
+                // practice lock (`crate::lockpick::PracticeLock`).
+                ConsoleRequest::Lockpick(level) => match practice.as_deref_mut() {
+                    Some(p) => {
+                        p.0 = Some(level);
+                        if c.open {
+                            close(&mut c, &mut next, &mut commands, &roots);
+                        }
+                    }
+                    None => c.print("No lockpicking in this run"),
                 },
             }
         }
@@ -1225,6 +1286,24 @@ fn compiled(g: &mut fnv_game::Game, call: &ConsoleCall, on: Option<FormId>) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn batch_files_are_found_in_the_first_folder_that_has_them() {
+        let base = std::env::temp_dir().join(format!("nvf-bat-{}", std::process::id()));
+        let (home, game) = (base.join("home"), base.join("game"));
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&game).unwrap();
+        std::fs::write(game.join("setup.txt"), "tgm\r\n\r\n  player.additem f 100 \nbat more\n").unwrap();
+        std::fs::write(home.join("other.bat"), "tcl").unwrap();
+        let roots = [home.clone(), game.clone()];
+        let (path, lines) = batch_lines("setup", &roots).unwrap();
+        assert_eq!(path, game.join("setup.txt"));
+        assert_eq!(lines, ["tgm", "player.additem f 100", "bat more"]);
+        assert_eq!(batch_lines("\"other.bat\"", &roots).unwrap().1, ["tcl"]);
+        assert!(batch_lines("missing", &roots).unwrap_err().starts_with("No batch file missing.txt"));
+        assert!(batch_lines("", &roots).is_err());
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     #[test]
     fn operators_outside_quotes_send_a_line_to_the_compiler() {
