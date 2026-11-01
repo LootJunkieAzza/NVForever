@@ -323,8 +323,8 @@ engine if needed, and delete the item here.
     shows only while aiming (none with the weapon drawn and not aiming) and goes when
     aiming stops; it marks every hostile actor or creature, whether or not it is in
     combat with the player; and it seems to reach every enemy in render distance. Ours
-    matches the first two; its reach is the detection reach (5,000 units outdoors,
-    perk_marks.rs), shorter than the loaded area (#1171). The owner's screenshot: distant
+    matches the first two; its reach was the detection reach (5,000 units outdoors),
+    shorter than the loaded area, and is now as far as actors are drawn (#1171). The owner's screenshot: distant
     enemies at night look tinted red all over; Boone is not marked. Two more shots show
     the red pulsing (faint, then strong) [observed], as the record says: edge pulse
     amplitude 0.5 at 1 a second, edge fall-off 0.5 (EFSH 0x0015FF60), which ours plays

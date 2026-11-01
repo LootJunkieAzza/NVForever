@@ -4510,6 +4510,19 @@ order = [[
 ]]
 
 [[scenario]]
+name = "perk-spotter-past-detection"
+source = "#1171 (owner, observer check 19: the original's Spotter marks every enemy in render distance): Spotter marks hostile actors as far as actors are drawn, past the 5,000-unit outdoor detection reach it stopped at before (engine/nvf-play/src/perk_marks.rs)"
+note = "as perk-spotter-unaware-far, but the player stands about 6,500 units south of where the dogs and fiends are (beyond the 5,000 outdoor detection reach, within the loaded cells at --radius 2); the perk by test aid; the player aims from 9 to 12 s"
+areas = ["perks", "effects"]
+paths = ["engine/nvf-play/src/perk_marks.rs", "engine/nvforever/src/draw_distance.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_SCRIPT = "3:perk:Spotting", NVF_PLAY_TEST_CONTROL = "2:weapon", NVF_PLAY_TEST_KEYS = "9:mouse-right:3" }
+args = ["--cell", "Goodsprings", "--pos=-45600,58500,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 16
+order = [[
+  { re = 'perk marks: Spotter marks [1-9]\d* hostile actors while the player aims', label = "Spotter marks hostiles past the detection reach" },
+]]
+
+[[scenario]]
 name = "perk-spotter-boone-hired"
 source = "#1094 (owner's playtest): with Boone hired, Spotter highlights hostile actors while the player aims. Boone joins by his own hire line (VNPCFollowers INFO 0x000B16C8: SetPlayerTeammate, the follower variables, then player.AddPerk Spotting in its end script), not a test-aid perk (docs/spec-notes/perk-entry-points.md §13)"
 note = "as perk-spotter, but Boone (CraigBooneREF 0x00096BCE) is moved 200 units behind the player at 1.5 s and his hire line run at 2 s; then the Goodsprings dogs are set on the player (god mode) at 3 s and the player aims from 9 to 12 s"
