@@ -317,8 +317,17 @@ impl Game<'_> {
     /// (template flag Stats) [hypothesis for the reach: which template group RNAM belongs
     /// to is not checked]. `None` for an NPC.
     pub fn creature_attack(&self, r: FormId) -> Option<(f64, Option<f64>)> {
-        let d = self.stats_def(r)?;
-        (&d.sig == b"CREA").then(|| (d.attack_damage.unwrap_or(0) as f64, d.attack_reach.map(f64::from)))
+        // A base form reads its own (a script's base form argument).
+        let (id, d) = self.template_source(base_of(self, r).unwrap_or(r), r, |d| d.template_stats)?;
+        if &d.sig != b"CREA" {
+            return None;
+        }
+        // SetCreatureDamage's change first (`crate::nvse_jip6`).
+        let damage = match self.field_overrides.get(&(id, "DATA/damage".to_string())) {
+            Some(fnv_script::vm::XVal::Num(x)) => *x,
+            _ => d.attack_damage.unwrap_or(0) as f64,
+        };
+        Some((damage, d.attack_reach.map(f64::from)))
     }
 
     /// The actor dies: dead flag, killer, GetDeadCount, OnDeath (KillActor's effect).

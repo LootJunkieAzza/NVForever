@@ -28,6 +28,11 @@ data reads 0, none or "".
 | RemoveDestructionStage `object index` | the new stage count, -1 when nothing was removed [documented] |
 
 After an add or a remove, each stage's DSTD index is its place in the list [hypothesis].
+A value a trait cannot hold is not set: a health percentage past 0-100, a byte trait past
+0-255, NaN or infinity; AddDestructionStage with a NaN or infinite index adds nothing and
+gives -1 [hypothesis: the game keeps the fields in range]. The int arguments reach the
+functions already made whole (the VM's int conversion), so a number past the i32 field
+arrives as its nearest end.
 The setters return 0 [hypothesis: as the record setters of batch 5 were observed to,
 jip-records-5.md].
 
@@ -45,7 +50,7 @@ reference].
 
 | Function | NVForever |
 |---|---|
-| Get/SetCreatureDamage `[damage] [baseForm]` | DATA's damage (the unarmed attack's) |
+| Get/SetCreatureDamage `[damage] [baseForm]` | DATA's damage (the unarmed attack's), which combat's creature attack reads too (`Game::creature_attack`); a value past the i16 field, NaN or infinity is not set [hypothesis] |
 | GetCreatureReach `[baseForm]` | RNAM |
 | GetCreatureWeaponList `[baseForm]` | LNAM, the melee weapon list |
 | Get/SetCreatureSoundsTemplate `creature [template]` | CSCR ("Inherits Sounds from"); left out clears it [documented] |
@@ -61,8 +66,8 @@ from its whole list (follow-up: drawing only the models toggled on).
 | Function | NVForever |
 |---|---|
 | Get/SetMessageFlags `message [flags]` | DNAM: 1 Is Message Box, 2 Auto-display [documented]; ShowMessage shows a message as a box by the changed flag |
-| SetMessageDisplayTime `message seconds` | TNAM, the seconds a corner message stays |
-| Get/SetMessageDisabled `messageOrList [0/1]` | a disabled message is never shown [documented]; a form list disables or enables each message in it [documented] |
+| SetMessageDisplayTime `message seconds` | TNAM, the seconds a corner message stays; a negative value, one past the u32 field, NaN or infinity is not set [hypothesis] |
+| Get/SetMessageDisabled `messageOrList [0/1]` | a disabled message is never shown [documented]: by ShowMessage, nor as the box the engine shows on refusing power armour without the training; a form list disables or enables each message in it [documented] |
 | ToggleCraftingMessages `0/1` | the recipe menu's "added" corner lines off or on [documented] |
 
 ToggleCraftingMessages' page names its argument's type but not the argument, and the

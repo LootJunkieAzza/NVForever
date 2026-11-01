@@ -126,15 +126,42 @@ fn stage_trait(s: &DestructionStage, t: i64) -> Option<f64> {
     })
 }
 
+/// A value past what the trait holds is not set: a health percentage past 0-100, a
+/// byte past 0-255, a number past the i32 field, NaN or infinity [hypothesis: the game
+/// keeps the record's fields in range].
 fn set_stage_trait(s: &mut DestructionStage, t: i64, v: f64) {
-    let byte = v.clamp(0.0, 255.0) as u8;
+    if !v.is_finite() {
+        return;
+    }
+    let byte = (0.0..=255.0).contains(&v).then_some(v as u8);
+    let int = (f64::from(i32::MIN)..=f64::from(i32::MAX)).contains(&v).then_some(v as i32);
     match t {
-        0 => s.health_percent = byte,
-        1 => s.self_damage_per_second = v as i32,
-        2 => s.damage_stage = byte,
+        0 => {
+            if let Some(p) = byte.filter(|&p| p <= 100) {
+                s.health_percent = p;
+            }
+        }
+        1 => {
+            if let Some(i) = int {
+                s.self_damage_per_second = i;
+            }
+        }
+        2 => {
+            if let Some(b) = byte {
+                s.damage_stage = b;
+            }
+        }
         // Flags 1 cap damage, 2 disable, 4 destroy [documented: the page's table].
-        3 => s.flags = byte & 7,
-        4 => s.debris_count = v as i32,
+        3 => {
+            if let Some(b) = byte {
+                s.flags = b & 7;
+            }
+        }
+        4 => {
+            if let Some(i) = int {
+                s.debris_count = i;
+            }
+        }
         _ => {}
     }
 }
@@ -194,9 +221,12 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // was added [documented: AddDestructionStage]. An index past the end adds at the
         // end [hypothesis].
         "adddestructionstage" => {
-            let (i, health, stage) = (num(args, 1, -1.0) as i64, num(args, 2, 0.0), num(args, 3, 0.0));
+            // A NaN or infinite index adds nothing.
+            let (i, health, stage) = (num(args, 1, -1.0), num(args, 2, 0.0), num(args, 3, 0.0));
+            let ok = i.is_finite() && i >= 0.0 && health.is_finite() && stage.is_finite();
+            let i = i as i64;
             let d = form(args, 0).map(|f| base(g, f)).and_then(|b| g.destruction_mut(b));
-            match d.filter(|_| i >= 0) {
+            match d.filter(|_| ok) {
                 Some(d) => {
                     let s = DestructionStage { health_percent: health.clamp(0.0, 100.0) as u8, damage_stage: stage.clamp(0.0, 255.0) as u8, ..DestructionStage::default() };
                     let at = (i as usize).min(d.stages.len());
@@ -237,9 +267,12 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
         }
         // `damage [baseForm]`.
+        // The field is an i16 (xEdit CREA DATA): a value past it, NaN or infinity is not
+        // set [hypothesis].
         "setcreaturedamage" => {
-            if let Some(c) = of_sig(g, form(args, 1).or(subject).map(|f| base(g, f)), b"CREA") {
-                g.field_overrides.insert((c, "DATA/damage".into()), XVal::Num(num(args, 0, 0.0).trunc()));
+            let v = num(args, 0, f64::NAN).trunc();
+            if let Some(c) = of_sig(g, form(args, 1).or(subject).map(|f| base(g, f)), b"CREA").filter(|_| (f64::from(i16::MIN)..=f64::from(i16::MAX)).contains(&v)) {
+                g.field_overrides.insert((c, "DATA/damage".into()), XVal::Num(v));
             }
             zero
         }
@@ -291,9 +324,12 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             zero
         }
+        // TNAM is a u32 of seconds (xEdit MESG): a negative value, one past it, NaN or
+        // infinity is not set [hypothesis].
         "setmessagedisplaytime" => {
-            if let Some(m) = of_sig(g, form(args, 0), b"MESG") {
-                g.field_overrides.insert((m, "TNAM/".into()), XVal::Num(num(args, 1, 0.0).max(0.0).trunc()));
+            let v = num(args, 1, f64::NAN).trunc();
+            if let Some(m) = of_sig(g, form(args, 0), b"MESG").filter(|_| (0.0..=f64::from(u32::MAX)).contains(&v)) {
+                g.field_overrides.insert((m, "TNAM/".into()), XVal::Num(v));
             }
             zero
         }
