@@ -215,8 +215,8 @@ actor.
 |---|---|---|---|
 | Traits | race, sex, class, karma, death item (`INAM`), voice type | `Game::traits_def` (appearance, GetIsSex, GetIsClass, GetIsVoiceType, death items, dialogue), crime alignment, `fnv_actor::resolve` | right in `fnv-game`. Voice files: `fnv_voice::VoiceIndex::voice_of` follows `TPLT` only to an actor and the engine passes the placed base, so a list-templated actor speaks with the record's own `VTCK` (#1051, fixed separately) |
 | Stats | level, attributes, skills, health, speed mult, creature type, combat skill, base scale | `Game::stats_def`, `creature_pace`, `fnv_actor::resolve` | right |
-| Factions | `SNAM` list | `GameData::base_factions_at` | right; NVSE GetBaseNthFaction / GetBaseFactions read the record's own (#1057, needs a probe) |
-| Actor Effect List | `SPLO` abilities | `abilities.rs`, `combat.rs` | right; NVSE GetBaseSpellListSpells follows one step and gives nothing for a list template (#1057) |
+| Factions | `SNAM` list | `GameData::base_factions_at` | right; NVSE GetBaseNumFactions / GetBaseNthFaction / GetBaseNthRank / GetBaseFactions follow an NPC template chain whenever the flag is set (`GameData::base_template_source`, #1057) |
+| Actor Effect List | `SPLO` abilities | `abilities.rs`, `combat.rs` | right; NVSE GetBaseSpellListSpells follows an NPC template chain whenever the flag is set (#1057) |
 | AI Data | aggression, confidence, …, combat style, services, aggro radius | `def_following(template_ai)` | right |
 | AI Packages | `PKID` list | `GameData::base_package_list_at` | right; NVSE GetPackageCount / GetNthPackage / GetBasePackages follow an NPC template chain whenever the flag is set (`GameData::base_template_source`, #1057) |
 | Model/Animation | skeleton, head parts, FaceGen, creature models and animations, No Blood flags, movement flags, impact material, creature impact data set, creature sounds | `fnv_actor::resolve`, `GameData::no_blood`, `movement_def`, `GameData::model_base_at` | was wrong: impact material and impact data set read from the placed base (#1053), creature sounds took the picked creature's own list first (#1054); fixed |
@@ -287,9 +287,11 @@ paths**: trimmed, `/` → `\`, lower case, leading `\` removed, prefixed with `m
     (0x0008D370) [observed; not explained].
   - GetBaseSpellListSpells: an empty array on all five bases tried (none has own SPLO).
   - Set tmpl1 [observed: 2026-10-31, same versions; 7 NPCs, 42 rows; posted on #1057]:
-    GetBaseNumFactions / GetBaseNthFaction / GetBaseNthRank / GetBaseSpellListSpells read
-    the record's own lists on every templated NPC tried, the template an NPC or a list
-    (e.g. VSpawnJackalFemale01NR: 0 factions, 0 spells). Class and race follow Use Traits
+    GetBaseNumFactions / GetBaseNthFaction / GetBaseNthRank / GetBaseSpellListSpells gave
+    the record's own lists, but no NPC tried tells own from template: those with an NPC
+    template (VHDNCRRanger6Veteran, VHDNCRTrooper7aHeavy) carry the same `SNAM` list as
+    it, and those with a list template have none of their own and answer 0 (e.g.
+    VSpawnJackalFemale01NR: 0 factions, 0 spells); set tmpl3 settles it. Class and race follow Use Traits
     through NPC templates; the four whose Traits chain ends at a leveled list read class
     NVDLC04UlyssesClass (LonesomeRoad.esm 0x0100A679) **and race** MarkedMenGhoul
     (0x010083D7), neither their own (0x801 / 0x19) nor a list entry's. NVDLC04Ulysses is
@@ -307,6 +309,32 @@ paths**: trimmed, `/` → `\`, lower case, leading `\` removed, prefixed with `m
     such chains through NPC_ records only and keep the record's own data when the chain
     reaches a leveled list (the original's list answers above match no record)
     [hypothesis for the list case].
+  - Third set tmpl3 [observed: 2026-11-01, same versions; lab L5.ext.tmpl3], on actors
+    whose own list differs from their template's (a load-order scan found 842 for
+    factions, 345 for actor effects):
+    - Factions follow Use Factions through the template: Raider1MeleeAM 0x000295FA (own 3
+      `SNAM`) reads Raider1MeleeAAFTEMPLATE's 5, first its last `SNAM` 0x000448D1;
+      SniperShackRadroach01 0x0001FEC8 (own 1) reads CrRadroach's 2. GetBaseFactions
+      gives the same count. With o5's GoodspringsPowderGangerHM, three actors agree.
+    - GetBaseSpellListSpells follows Use Actor Effect List through the template, in
+      `SPLO` order: CrMisterGutsyEnclave 0x00021EBE (own 1) and Shakes 0x00017A03 (own 1)
+      read their templates' 3 (first 0x0012B88C, 0x0012B88E), FFEU02DeathClaw 0x00031E29
+      (none of its own) CrDeathClaw's 0x0012B892, CrFeralGhoul2B 0x0001CF77 CrFeralGhoul2A's
+      2 (first 0x000617BD).
+    - A reference whose Traits come from a leveled list: LvlRaiderRandomMale 0x0007E40E
+      (own `RNAM` 0x19, `CNAM` 0x801; every NPC its list gives has race 0x0004BF72, class
+      0x0001945C or 0x0001945E) placed with PlaceAtMe. GetRace on the reference reads
+      0x0004BF72 and GetClass 0x0001945C: the actor the list gave it. GetBaseObject on it
+      reads a form made at run time (0xFF001319), whose race is also 0x0004BF72. GetRace on
+      the record itself reads the Lonesome Road leftover again (0x040083D7).
+    - NVForever: the faction and actor-effect getters take the list of
+      `GameData::base_template_source`; GetRace, GetClass and GetNameOfClass on a
+      reference read its Traits source, the leveled pick included (`Game::traits_def`,
+      `Game::traits_class`), and on a base form its Traits template through NPC records
+      (class through an NPC template [hypothesis, as race]). Not copied: the run-time base
+      form (GetBaseObject answers the placed record), and the list case on a base form.
+      The class row differs in the lab only by the pick: the game's roll gave a melee
+      raider, NVForever's seeded pick a gun raider of the same list.
 - From the **Model/Animation** source: skeleton, hair, eyes, head parts, hair colour
   (`HCLR`, first three bytes), FaceGen arrays.
 - From the **Inventory** source: carried items (`CNTO` in record order).

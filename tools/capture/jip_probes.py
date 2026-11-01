@@ -5099,6 +5099,53 @@ TMPL2_PROBES = [
     )],
 ]
 
+# tmpl3 (#1057): factions and spells where the record's own list and its NPC template's
+# differ (tmpl1's NPC templates all carried the record's own SNAM, so it could not tell)
+# [observed: load-order scan, 842 actors for factions and 345 for spells]. Raider1MeleeAM
+# (own 3 SNAM, Use Factions from Raider1MeleeAAFTEMPLATE with 5); SniperShackRadroach01 (own
+# 1, CrRadroach 2); CrMisterGutsyEnclave (own 1 SPLO, Use Actor Effect List from CrMisterGutsy
+# with 3); Shakes (1, CrProtectron 3); FFEU02DeathClaw (0, CrDeathClaw 1); CrFeralGhoul2B
+# (2, CrFeralGhoul2A's other 2). Then a reference whose Traits come from a leveled list:
+# LvlRaiderRandomMale (own RNAM 0x19; every NPC its list can give has race 0x0004BF72)
+# placed beside the player, read and removed (session only).
+TM3 = {"raider": "0295FA", "roach": "01FEC8", "gutsy": "021EBE", "shakes": "017A03", "claw": "031E29",
+       "feral": "01CF77", "lvlraider": "07E40E"}
+_H3 = ("ref rPlayer\nref rObj\nref rF\narray_var aA\nfloat fRes\nBegin Function { }\n" + _form("rPlayer", NF["player"]))
+_AUX3 = 'let rF := rPlayer.AuxVarGetRef "*nvfT3"\n'
+
+
+def _tm3(pid, key, expr, text=False):
+    rd = f"SetFunctionValue (GetFormIDString ({expr}))" if text == "form" else f"SetFunctionValue ({expr})"
+    return (f"tmpl3.{pid}", _H3 + _form("rObj", TM3[key]) + rd, bool(text), None, "")
+
+
+def _tm3ref(pid, expr, text=False):
+    rd = f"SetFunctionValue (GetFormIDString ({expr}))" if text == "form" else f"SetFunctionValue ({expr})"
+    return (f"tmpl3.{pid}", _H3 + _AUX3 + rd, bool(text), None, "")
+
+
+TMPL3_PROBES = [
+    *[p for k in ("raider", "roach") for p in (
+        _tm3(f"{k}.factions", k, "GetBaseNumFactions rObj"),
+        _tm3(f"{k}.faction0", k, "GetBaseNthFaction 0 rObj", "form"),
+        _tm3(f"{k}.rank0", k, "GetBaseNthRank 0 rObj"),
+        _tm3(f"{k}.basefactions", k, "ar_Size (GetBaseFactions rObj)"),
+    )],
+    *[p for k in ("gutsy", "shakes", "claw", "feral") for p in (
+        _tm3(f"{k}.spells", k, "ar_Size (GetBaseSpellListSpells rObj)"),
+        _tm3(f"{k}.spell0", k, "(GetBaseSpellListSpells rObj)[0]", "form"),
+    )],
+    ("tmpl3.lvlraider.place", _H3 + _form("rObj", TM3["lvlraider"]) + 'let rF := rPlayer.PlaceAtMe rObj 1\n'
+     'rPlayer.AuxVarSetRef "*nvfT3" rF\nSetFunctionValue 1', False, None, ""),
+    _tm3ref("lvlraider.race", "GetRace rF", "form"),
+    _tm3ref("lvlraider.class", "GetClass rF", "form"),
+    _tm3ref("lvlraider.base", "rF.GetBaseObject", "form"),
+    _tm3ref("lvlraider.baserace", "GetRace (rF.GetBaseObject)", "form"),
+    _tm3("lvlraider.recordrace", "lvlraider", "GetRace rObj", "form"),
+    ("tmpl3.lvlraider.cleanup", _H3 + _AUX3 + 'rF.Disable\nrF.MarkForDelete\nrPlayer.AuxVarErase "*nvfT3"\nSetFunctionValue 1',
+     False, None, ""),
+]
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -5165,11 +5212,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "jg2": JG2_PROBES,
         "jip5": JIP5_PROBES,
         "format1": FORMAT1_PROBES,
-        "tmpl2": TMPL2_PROBES}
+        "tmpl2": TMPL2_PROBES,
+        "tmpl3": TMPL3_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1", "atk1", "jip4", "rules1", "rules2", "showoff2", "jg1", "jg2", "jip5"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1", "atk1", "jip4", "rules1", "rules2", "showoff2", "jg1", "jg2", "jip5", "tmpl3"}
 
 
 def script(body):
