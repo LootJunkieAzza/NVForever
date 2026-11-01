@@ -860,3 +860,29 @@ The numbers above stay put so links to them hold; each item here gives its own p
     Barter or Science check passed and failed (do they move either stat?); (c) one perk
     line (e.g. [Lady Killer]). If (a) moves nothing, the count goes; if (b) moves them,
     other skills count too.
+
+## Added 2026-11-01 (combat groups, issue #972)
+
+71. **Does a fighter keep a hidden target while a member of its group detects it?** (P2,
+    issue #972). NVForever keeps a target neither lost nor forgotten while a comrade in
+    Combat with the same target detects it [hypothesis, combat-groups.md §3, from
+    observer-jip-audit §3.3: five Fiends fought a hidden player for half an hour while
+    often only 1 or 2 detected it]. To check, with nvf_capture recording IsInCombat,
+    GetCombatTarget and GetDetected/GetDetectionValue against the player for each Fiend
+    at Cook-Cook's camp: (a) the player hidden from all of them for over 15 s (does every
+    Fiend drop out of combat, and when?); (b) one Fiend kept detecting the player (a
+    TestDetection placement, or the player in its sight only): do the others that do not
+    detect it stay in combat past 15 s? Also: does an alarmed townsperson that has not
+    seen the first Ganger (GSPG03Ref) still name it in OnStartCombat (combat-groups.md §2)?
+
+## Added 2026-11-01 (a conversation with nothing left to offer, issue #1113)
+
+72. **Does a conversation close when the actor has no topic left?** (P3; mq-walkthrough §10
+    stall 4.) Cold, Cold Heart: tell Sergeant Kilborn at the Mojave Outpost about Nipton
+    (vNiptonVulpesvMojaveNCRTrooperTopic003, INFO 0x00138E1A: no Goodbye flag, no choices;
+    its end script sets vNiptonVulpes 100, which stops the quest). Every line Kilborn has
+    as a fixed speaker is vNiptonVulpes' [observed: `fnvtool dialogue lines --speaker
+    vMOSgtKilborn`], and talked to again he greets with 0x001754C6 and offers nothing.
+    NVForever closes the conversation when the line ends (dialogue.md "When a line ends":
+    with nothing to offer the conversation ends [hypothesis]). Does the original close it,
+    or does the menu stay open with nothing but a way out?

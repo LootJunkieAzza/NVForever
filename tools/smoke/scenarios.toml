@@ -3072,14 +3072,16 @@ order = [[
 
 [[scenario]]
 name = "hacking"
+manual = "[design] In hacking.png, compare 10x10 medians on glass right of the dump and below the header, and inside an attempt block, against docs/spec-notes/hacking.md §2: glass R 16-23 / G 38-52 / B 15-32; blocks near (61, 253, 152) and solid (not crossed by the scanlines), without a glare wash. Retain faint texture, dark corners (about 8, 11, 5) and the monitor's top-right streak near (100, 125, 95); use the per-constant tuning recipes in §7 and check text outside the streak stays no higher than (88, 255, 160), that the text has soft edges and the scanlines cross glass and text, and that the header line ENTER PASSWORD NOW sums near the original's green above the glass (§2). In flat mode (no monitor model, so no glare) check its own targets instead: glass middle near (12, 38, 20) and blocks near (54, 252, 150) (screen.rs tests), with the same texture."
 source = "CLAUDE.md: after changes to terminals or the hacking game (docs/spec-notes/hacking.md §9): the Easy terminal"
 areas = ["hacking", "terminal"]
 paths = ["crates/fnv-game/src/hacking.rs", "crates/fnv-game/src/terminal.rs", "engine/nvf-play/src/terminal*", "engine/nvf-play/src/terminal/**", "engine/nvforever/src/terminal_view.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TERMINAL = "30:science:25,31:open:000D74D5,33:wrong,34:brackets,35:symbol,36:wrong,37:right,41:item:0,43:power" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TERMINAL = "30:science:25,31:open:000D74D5,33:wrong,34:brackets,35:symbol,36:wrong,37:right,41:item:0,43:power", NVF_PLAY_TEST_SHOTS = "32:hacking.png" }
 args = ["--cell", "BisonSteve01", "--play", "--no-voice"]
 run_seconds = 48
 expect = [
   "hacking, Easy (Science 25): 20 words",
+  { re = 'test aid: screenshot .*hacking\.png', label = "the hacking frame is saved for the glass and block comparison" },
   "Exact match! access granted",
   { text = "xp: +30 XP from a hacked terminal", label = "the Easy terminal's iXPRewardHackComputerEasy (experience.md §2)" },
   'menu of DefaultUnlockTermDESK1Easy (1 of 1 items listed): "Disengage Lock"',
