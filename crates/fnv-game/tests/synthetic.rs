@@ -1843,6 +1843,30 @@ fn limb_hits_lower_conditions_and_cripple() {
     assert_eq!(r.health, 40.0);
 }
 
+/// An explosion damages every limb it is given at once, crippling those whose pool it
+/// empties; the player's limbs take half; nothing on a dead actor
+/// (docs/spec-notes/crippled-limbs.md §5).
+#[test]
+fn blasts_damage_every_limb() {
+    use fnv_game::combat::{LimbHit, LEFT_MOBILITY, RIGHT_MOBILITY};
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let npc = FormId(NPC_REF);
+    // Maximum health 55: a head at 10 % has a pool of 5.5, a leg at 25 % one of 13.75.
+    let limb = |condition: u16, health_percent: f64| LimbHit { condition, health_percent, damage: 11.0, points: false };
+    let limbs = [limb(25, 10.0), limb(LEFT_MOBILITY, 25.0), limb(RIGHT_MOBILITY, 25.0)];
+    let hurt = g.blast_limbs(npc, None, &limbs);
+    assert_eq!(hurt, vec![(25, 0.0, true), (LEFT_MOBILITY, 20.0, false), (RIGHT_MOBILITY, 20.0, false)]);
+    assert!(g.is_crippled(npc, 25) && !g.is_crippled(npc, LEFT_MOBILITY));
+    // The player's limbs take fCombatPlayerLimbDamageMult (0.5) of it.
+    let hurt = g.blast_limbs(FormId::PLAYER_REF, None, &limbs[1..2]);
+    assert_eq!(hurt.len(), 1);
+    assert!(hurt[0].1 > 20.0 && hurt[0].1 < 100.0 && !hurt[0].2, "{hurt:?}");
+    g.kill(npc, None);
+    assert!(g.blast_limbs(npc, None, &limbs).is_empty());
+}
+
 /// A fall's leg (docs/spec-notes/physics.md §6.12): limb damage in condition points comes
 /// straight off the condition, without the part's pool or the player's limb multiplier.
 #[test]

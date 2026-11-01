@@ -1089,3 +1089,17 @@ The numbers above stay put so links to them hold; each item here gives its own p
     again from the main menu: GetUIFloat `StartMenu/NOGLOW_BRANCH/main_container/childcount`,
     `…/x`, `…/y`, `…/width`, `…/_alpha`, `…/_enabled`, and `StartMenu/_isPauseMenu`; then
     the same with the Settings page open.
+
+## Added 2026-11-01 (explosions' limb damage, issue #1338)
+
+74. **How much of a blast reaches each limb?** (P2; crippled-limbs.md §5.) Blasts damage
+    limbs [documented: GetHitLimbDamage returns 0 for an explosion "even if the explosion
+    dealt limb damage"], and NVForever takes the full blast damage after armour off every
+    limb [hypothesis]. In the original, with a fresh NPC of known Health (e.g. an NCR
+    trooper at the airport, `nvfairport`, tgm on the player): read all seven limb
+    conditions (GetAV PerceptionCondition, EnduranceCondition, LeftAttackCondition,
+    RightAttackCondition, LeftMobilityCondition, RightMobilityCondition,
+    BrainCondition) and Health; `PlaceAtMe MineFragExplosion` at known distances (0, 64,
+    128 units) and read them again. Repeat with a Frag Grenade thrown by the player, and
+    once on the player. The answer: which limbs lose condition, how much each against the
+    Health lost, and whether distance or the side facing the blast matters.
