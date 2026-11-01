@@ -911,8 +911,24 @@ reverb indoors, owner-review.md].
 - **The sounds** [hypothesis]: every sound effect (§10–§14: shots, impacts, footsteps,
   doors, creatures, the random placed sounds) and the placed loops, as they start; not
   the records with Environment Ignored or Menu Sound, the interface sounds (`UI…`), the
-  background loops (the room's own tone), music, voices, radios, or the loops a weapon
+  background loops (the room's own tone), music, radios, or the loops a weapon
   holds while it fires (they repeat their file, and the tail would break at each repeat).
+- **Voices** (`reverb::for_voice`, played by `voice.rs`; built 2026-11-01, #987): a line
+  heard where it is said (SayTo, Say, hellos, barks, lines between actors; voice.md §9)
+  goes into the listener's environment after the voice filter, and its reverb stops
+  with the line, no tail: "during dialogue the reverberation if any is abruptly cut off
+  at the end of each spoken line" [documented: GECK wiki "Special Effect" notes, owner
+  export]. A line cut early stops with its reverb. The send is 0.85: the
+  [Audio] `fDialogReverbAttenuation=0.15` of `Fallout_default.ini` [observed] read as a
+  SOUN's Reverb Attenuation Control is (0 all, 1 nothing) [hypothesis: its unit is not
+  documented]. The conversation with the player and 2D lines stay dry [design: the wiki
+  note can be read as the conversation being reverbed in the original; NVForever keeps
+  it whole and unplaced, as voice.md has it]. `bEnableEnviroEffectsOnPC=0` of the
+  shipped INI (above) is not followed for voices, as it is not for world sounds: the
+  owner asked for reverb indoors, and voices follow the same Reverb switch [decision].
+  The Sound tab's Voice reverb switch (`voice-reverb`, kept in the INI) keeps every
+  voice dry. Log: `voice: … in the room's reverb: <environment> (send 0.85, cut at its end)`; the
+  `reverb summary` and `voice summary` count the lines through it.
 - **Per sound** [hypothesis: DirectSound's effects run on each sound buffer, so a sound's
   reverb falls with its distance as the sound does]: each sound has its own reverb and
   plays in stereo, and goes on for the preset's delays plus its decay time (at most 6 s)
@@ -927,9 +943,8 @@ reverb indoors, owner-review.md].
   inputs are scaled so an impulse's late tail carries its level's energy. Density scales
   the comb lengths (half to whole), Diffusion the all-passes' gain (up to 0.5). Room
   Rolloff Factor is 0 in every preset.
-- Not built: the `GNAM` reverb attenuation, voices in rooms (the wiki says the
-  original's reverb is cut at the end of each spoken line), a reverb that changes under a
-  sound already playing.
+- Not built: a reverb that changes under a sound already playing. (The `GNAM` reverb
+  attenuation was built 2026-10-24, §15.5; voices in rooms 2026-11-01, above.)
 - Smoke: `reverb-cave-exit` (the Goodsprings cave, a shot, out through its door).
 
 ### 14.7 Checks

@@ -1328,7 +1328,7 @@ only in the walk test and on the player's body. All rules here are engine choice
   (mole rat), 90 (mantis), 75 (sentry bot), 50 (Protectron), 45 (giant ant), 40
   (bighorner), 0 on templated ones [observed, a sample of 12 of FalloutNV.esm's 1,578 records; every CREA carries TNAM, non-zero on 1,033 of them, and on 1,547 of 2,238 over the base game and add-ons]. A
   creature's steady turn rates are TNAM × 1.25, × 3 or × 0.075 degrees per second
-  [observed 2026-10-30, §8.10 "TNAM"]; not used yet. While its heading catches up with the
+  [observed 2026-10-30, §8.10 "TNAM"]; creatures turn at × 1.25 (§8.10). While its heading catches up with the
   way to go the actor slows down: it keeps `0.3 + 0.7 × max(cos off, 0)` of its speed
   (`turn_slowdown`; a right-angle corner costs about half a second). Actors moved by
   the character controller (near the player, `residents.rs`) walk along their heading
@@ -1640,7 +1640,8 @@ stopped and started, as Victor's walk had before #258). Code:
   turns faster than 60°/s happened while they moved (over 20 units/s). Rule
   [hypothesis: proportional to scale, fitted on these two kinds; CREA `TNAM`, 720 and
   90 on these records, does not match]: a creature turns at 300°/s × its scale walking
-  and standing (`CREATURE_TURN_RATE`), and turns on the spot before setting off only
+  and standing (`CREATURE_TURN_RATE`). Since issue #915 this is only the fallback for a
+  creature whose TNAM is 0: the rest turn at TNAM × 1.25 ("TNAM" below). A creature turns on the spot before setting off only
   when its way is more than 60° off (`CREATURE_SPOT_TURN_START`, design; people: 20°,
   §8.9). With the people's 120°/s and 20°, a fast cazador stopped to turn at the start
   of nearly every short sandbox walk.
@@ -1676,7 +1677,17 @@ stopped and started, as Victor's walk had before #258). Code:
   standing or moving; what picks × 3 is not known [hypothesis: an attack or movement state
   the fields read here do not show]. The fitted 300°/s × scale above does not follow from
   this; the cazadors' 304°/s and 137°/s plateaus, from headings 0.16 s apart, mix these
-  rates. Not yet used by the engine (issue #915 stays open until the × 3 rule is known).
+  rates.
+
+  Rule (issue #915) [observed, campaign `o4turn` above, for the rates; design, the pick of
+  one]: a creature turns at TNAM × 1.25 degrees per second walking and standing, whatever
+  its scale (`creature_pace::creature_turn_rate`, `TNAM_TURN_MULT`), the rate every
+  creature measured showed on big turns. TNAM is read from the record that supplies the
+  creature's stats (template flag "Stats"; Turning Speed is on the Stats tab [documented:
+  GECK wiki Stats Tab for Creatures]), with SetCreatureTurningSpeed's change
+  (`Game::creature_turning_speed`). With TNAM 0 it turns at the fitted 300°/s × scale
+  above. Not built: × 3 (what picks it is not known, observer check 36) and × 0.075 (aim
+  tracking; the walker makes no such turn).
 - **Walk/run changes** [design]: the gait changes only when a speed smoothed over 0.2 s
   (`Locomotion::gait_speed`) is 15% past the switch point (`GAIT_HYSTERESIS`). In
   NVForever a creature's drawn speed jumped to two or three times its walk for a single
