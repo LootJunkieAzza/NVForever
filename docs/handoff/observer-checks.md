@@ -793,3 +793,17 @@ The numbers above stay put so links to them hold; each item here gives its own p
     the package's radius?); (b) a fast travel to a marker a few metres away inside the
     loaded area (does anyone move?); (c) entering the Mojave Outpost (Cass) and the
     Prospector Saloon (the settler at the bar): GetSitting 3 on the first frame?
+
+## Added 2026-11-01 (combat groups, issue #972)
+
+69. **Does a fighter keep a hidden target while a member of its group detects it?** (P2,
+    issue #972). NVForever keeps a target neither lost nor forgotten while a comrade in
+    Combat with the same target detects it [hypothesis, combat-groups.md §3, from
+    observer-jip-audit §3.3: five Fiends fought a hidden player for half an hour while
+    often only 1 or 2 detected it]. To check, with nvf_capture recording IsInCombat,
+    GetCombatTarget and GetDetected/GetDetectionValue against the player for each Fiend
+    at Cook-Cook's camp: (a) the player hidden from all of them for over 15 s (does every
+    Fiend drop out of combat, and when?); (b) one Fiend kept detecting the player (a
+    TestDetection placement, or the player in its sight only): do the others that do not
+    detect it stay in combat past 15 s? Also: does an alarmed townsperson that has not
+    seen the first Ganger (GSPG03Ref) still name it in OnStartCombat (combat-groups.md §2)?

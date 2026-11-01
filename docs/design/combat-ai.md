@@ -594,9 +594,13 @@ ratio at or above (confidence threshold + 0.5) × the alarm confidence multiplie
 wiki's example, 3: no game setting of FalloutNV.esm names it) [documented]. An actor that
 **noticed** a hostile (Normal → Alert) alarms them too [design: the owner's "alerting
 their friends when they sense an enemy presence"]. Who hears it: the actors measured in
-that round (drawn, near the player) within `ALARM_RADIUS` (4,096 units, a whole exterior cell [design]; 2,048 until the owner's playtest list 5 item 31) that are
+that round (drawn, near the player) and the other actors of the loaded cells, within
+`ALARM_RADIUS` (9,216 units [design on the original's farthest combat allies, 9,026];
+2,048 until the owner's playtest list 5 item 31, 4,096 until #972), that are
 its own kind (§12.4) or an ally or friend whose Assistance helps it; never against their
-own ally or friend. An alarmed actor gets an alarm at the foe's position (`Cause::Ally`)
+own ally or friend. The alarm names the first of the foe's side to start fighting, not
+the sender's own foe, and a fighter keeps a target while a member of its group detects
+it (docs/spec-notes/combat-groups.md). An alarmed actor gets an alarm at the foe's position (`Cause::Ally`)
 and holds a grudge (`Assist`) when its records would not attack the foe; it goes Alert,
 searches, and fights when it detects the foe. An alarm passed on by an ally is not passed
 on again. This is in addition to §10.3 (an ally that sees a fight joins it). Log:
