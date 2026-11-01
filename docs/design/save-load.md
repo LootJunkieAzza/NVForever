@@ -249,7 +249,12 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
    `NVF_PLAY_TEST_SAVE_SAME_ROLLS=1` keeps the saved positions.
 4. **AI continuity**: packages start again from where each actor stands. Since
    2026-10-25 a patrol goes on to the point the save had it walk to (one that does not
-   repeat started again at its first point and walked back) and a sandbox keeps the
+   repeat started again at its first point and walked back), as the original does
+   [observed 2026-11-01, observer check 24, o23_town victor_save and o22_reload: Victor
+   (enabled by script) on VGSVictorCircuitPatrol, 11 points, not repeating, saved just
+   after point 5 on his way to point 6; after loading that save he went on to points
+   6-10 and his home marker and stopped there, the same path as the run that was not
+   reloaded, never back to point 1] and a sandbox keeps the
    day's times and its random numbers (§3.3); a wait at a patrol point, walks under way,
    furniture and errands start again.
 5. **Physics**: objects load at rest where they were.

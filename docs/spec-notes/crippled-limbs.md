@@ -183,6 +183,21 @@ them.
 - **The player's limbs** take `fCombatPlayerLimbDamageMult` (0.5) of the limb damage
   (`Game::limb_damage`) [observed: the value; hypothesis: it scales the damage the
   player's limbs take rather than the damage the player does to others' limbs].
+- **Explosions** (built, `nvf_play::combat::blast_limb_hits`, `Game::blast_limbs`): a
+  blast damages limbs as well as Health [documented: GECK wiki GetHitLimbDamage, which
+  returns 0 for an explosion "even if the explosion dealt limb damage"]. It has no hit
+  location (GetHitLocation −1, jip-hit-info.md §1), so it is spread over the body: each
+  limb of the actor's body part data, once per limb condition, takes the blast's damage
+  after armour times the weapon's Limb Dmg Mult (1 for a blast without a weapon), then
+  the difficulty and the two rules above, as a shot's limb damage [hypothesis: every
+  limb takes the full amount; no game setting or page gives the share; owner-review 41,
+  observer check 74]. A blast that kills or knocks out does no limb damage. The limb
+  damage counts as the blast's hit (`nvf_play::combat::hit_actor`): a limb it cripples
+  makes it a crippling hit, so the actor staggers once (the player flinches) by the rule
+  in §3, an arm it cripples disarms, and the "limb crippled" HUD line shows for the
+  player's blasts; an actor the blast knocks down does not also stagger [design]. The player in first person, whose body is not posed, uses
+  the human skeleton's body part data. Before 2026-11-01 blasts did no limb damage, so a
+  mine never crippled the player (#1338).
 
 ## 6. Healing
 
