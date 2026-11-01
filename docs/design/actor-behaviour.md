@@ -718,7 +718,12 @@ Now (`fnv_ai::process`, the residents' `process_levels`):
     went from process level 0 straight to 3 and never read 1 [observed:
     `docs/handoff/observer-jip-audit-2026-10-25.md` §3.1, campaign jip_state_goodsprings,
     GetActorProcessingLevel; issue #958]. (Until 2026-11-01 such an actor took its cell
-    into the buffer and stayed Mid-High.) One already at Mid-High walking on into
+    into the buffer and stayed Mid-High.) This is for a walk out in a worldspace: one
+    going from the loaded area through a door into an interior the buffer does not hold
+    takes that interior into the buffer, since interiors behind the loaded area's doors
+    read Mid-Low (2) in the original [observed: same §3.1; Benny riding the lift into
+    2ETopsPresidentialSuite, smoke `scene-tops-suite`, whose Dialogue package must take
+    over before the player follows]. One already at Mid-High walking on into
     another cell takes that cell into the buffer [hypothesis: it keeps its surroundings
     in memory], and a follower (Follow or Accompany package) out of the buffer is kept
     at Mid-High while its leader is processed at Mid-High or above [design].
