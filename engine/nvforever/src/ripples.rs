@@ -224,7 +224,7 @@ impl Ripples {
         let Some(mut img) = images.get_mut(&self.image) else { return false };
         let bytes = img.data.get_or_insert_with(|| vec![0; N * N * 4]);
         bytes.resize(N * N * 4, 0);
-        for ((a, b), pixel) in self.rain.cur.iter().zip(&self.wake.cur).zip(bytes.chunks_exact_mut(4)) {
+        for ((a, b), pixel) in self.rain.cur.iter().zip(&self.wake.cur).zip(bytes.as_chunks_mut::<4>().0) {
             pixel.copy_from_slice(&(a + b).to_le_bytes());
         }
         self.texture_dirty = false;
