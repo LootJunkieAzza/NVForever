@@ -1857,6 +1857,8 @@ pub struct Session {
     main_loop: Vec<crate::jip_events::MainLoop>,
     restarted_seen: BTreeSet<String>,
     handler_seq: u64,
+    /// ITR's settings that outlast a load (`crate::nvse_itr1::ItrKept`).
+    itr_kept: crate::nvse_itr1::ItrKept,
 }
 
 /// An event handler: the event (lower case), the function or lambda, the filters by
@@ -2845,7 +2847,7 @@ impl<'a> Game<'a> {
                 m
             })
             .collect();
-        Session { handlers, main_loop, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq }
+        Session { handlers, main_loop, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq, itr_kept: std::mem::take(&mut self.other.itr.kept) }
     }
 
     /// Take over what lasts for the session ([`Game::take_session`]).
@@ -2854,6 +2856,7 @@ impl<'a> Game<'a> {
         self.jip.main_loop = s.main_loop;
         self.restarted_seen = s.restarted_seen;
         self.handler_seq = s.handler_seq;
+        self.other.itr.kept = s.itr_kept;
     }
 
     /// Run every handler registered for `event` whose filters match, highest priority
@@ -3157,6 +3160,7 @@ impl<'a> Game<'a> {
         self.run_box_callback();
         self.track_velocity();
         self.run_due_snippets();
+        self.itr_tick();
         let (dt, frame) = (self.cfg.frame_seconds, self.frame);
         self.gaps.sounds.tick(dt, frame);
         self.projectiles_tick(dt as f32);
