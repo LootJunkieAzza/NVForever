@@ -2,8 +2,10 @@
 //! §2, §7): the hacking game by `menus\hacking_menu.xml`, the terminal's own menu by
 //! `menus\computers_menu.xml`, both in the game's font 5 (`fixedsys_comp_uniform_width`,
 //! 17 units a character). [design] A derived dark undercoat and tinted Pip-Boy image
-//! retain the glass's texture/vignette beneath the measured foreground colours (§2).
-//! The monitor keeps its glare sheet at reduced strength (`terminal_view.rs`, §7).
+//! retain the glass's texture/vignette beneath the measured foreground colours (§2); the
+//! text has the original's soft edges ([`soften`]) and scanlines cross the whole canvas
+//! ([`scanline_image`]). The monitor keeps its glare sheet at reduced strength
+//! (`terminal_view.rs`, §7).
 //!
 //! The original draws this into a texture shown on a monitor model
 //! (`meshes\terminals\terminalinterface01.nif`, `[RenderedTerminal]` in
@@ -15,9 +17,9 @@
 //! show the screen at almost that scale (0.99).
 
 use super::{Hacking, MenuView, Page, Session};
-use crate::interface::{at, face, plain_font, set_line, texture, u, Face};
+use crate::interface::{at, face, plain_font, set_line, set_marked, texture, u, Face};
 use bevy::prelude::*;
-use fnv_font::Line;
+use fnv_font::{Font, Line};
 use fnv_game::data::NoteDef;
 use fnv_game::hacking::{Puzzle, Target, ROWS, ROW_CHARS};
 use nvf_assets::GameData;
@@ -32,14 +34,26 @@ pub const CANVAS: Vec2 = Vec2::new(960.0, 720.0);
 /// 62 of 720 pixels down; `fRenderedTerminalVPos` 0.38 moves it up from the middle].
 pub const CANVAS_TOP: f32 = 83.0;
 
-/// The text and the lit cells. The menus' colour is the terminal colour
+/// The text, the blocks and the lit cells. The menus' colour is the terminal colour
 /// [documented: Fallout_default.ini `iSystemColorTerminal*` 33, 231, 121; `systemcolor`
-/// `&terminal;`]. [observed: hacking.md §2, owner's seven screenshots, 2026-10-11]
-/// The displayed attempt blocks measure 63, 255, 152. [design] Use that final colour
-/// directly; the background stays beneath it. Glare strength is tuned separately (§7).
+/// `&terminal;`]. [observed: hacking.md §2, the original-game JPEG, 2026-11-01] The
+/// attempt blocks show (61, 253, 152) (picked on screen; their brightest rows (61-62,
+/// 255, 149-151)), the monitor's glare included. [observed: in game, 1280 × 720,
+/// 2026-11-01] Our glare adds about (6, 0, 2) display units there: drawn (63, 255, 152),
+/// shown (69, 255, 154). [design] So the canvas draws the shown colour less the glare's
+/// add in linear light (red 0.0098, blue 0.0092, green taken as red's × 1.14 / 1.19 by
+/// `GLARE_LINEAR_SCALE`, terminal_view.rs): (54, 252, 150). Flat, without the glare, the
+/// blocks show it as is.
 pub fn bright() -> Color {
-    compose_screen(Color::srgb_u8(63, 255, 152), None)
+    compose_screen(Color::srgb_u8(54, 252, 150), None)
 }
+
+/// [design] The solid fills (blocks, lit cells, the cursor, the separator, the chosen
+/// row's box) lie above the scanlines, and the text on them above the fills: on the
+/// original the fills keep their green through the scanlines' troughs (253 to 255 while
+/// red and blue dim by about 15%; it is clipped there) and read solid [observed: §2].
+const OVER_LINES: GlobalZIndex = GlobalZIndex(1);
+const ON_FILLS: GlobalZIndex = GlobalZIndex(2);
 
 /// [design] The middle of the glass beneath the monitor's glare: the original's middle
 /// (21, 44, 26) [observed: §2, the 2026-10-31 reference] less what the glare's dark
@@ -227,8 +241,18 @@ pub fn shown_log(log: &[String]) -> &[String] {
 
 /// What the screens are drawn with.
 pub struct Faces {
+    /// Font 5, with soft edges when its texture could be read ([`soften`]).
     pub text: Face,
+    /// The same glyphs for the dark text on the lit cells, their edges bent for dark over
+    /// the fill rather than ink over the glass.
+    pub lit: Face,
     pub background: Option<Handle<Image>>,
+    /// The scanlines over the whole canvas ([`scanline_image`]).
+    pub scanlines: Option<Handle<Image>>,
+    /// How much of the glass's light the scanlines keep on average, in linear light (1
+    /// without them); the undercoat is raised by it so that the glass still averages
+    /// [`GLASS_MIDDLE`].
+    pub scan_kept: f32,
 }
 
 const FONT: &str = "textures\\fonts\\fixedsys_comp_uniform_width.fnt";
@@ -237,7 +261,214 @@ const FONT: &str = "textures\\fonts\\fixedsys_comp_uniform_width.fnt";
 const BACKGROUND: &str = "textures\\interface\\shared\\background\\pipboy.dds";
 
 pub fn load_faces(data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Faces {
-    Faces { text: face(FONT, plain_font(25.0, CHAR), data, images, bc), background: data.and_then(|d| texture(BACKGROUND, d, images, bc)).map(|t| t.0) }
+    let soft = data.and_then(|d| soft_faces(FONT, d, images));
+    if data.is_some() && soft.is_none() {
+        warn!("terminal: {FONT} drawn with hard edges (its texture could not be softened)");
+    }
+    let (text, lit) = soft.unwrap_or_else(|| {
+        let hard = face(FONT, plain_font(25.0, CHAR), data, images, bc);
+        let lit = Face { font: hard.font.clone(), image: hard.image.clone() };
+        (hard, lit)
+    });
+    let (scanlines, scan_kept) = data.and_then(|d| scanline_image(d, images)).map_or((None, 1.0), |(image, kept)| (Some(image), kept));
+    Faces { text, lit, background: data.and_then(|d| texture(BACKGROUND, d, images, bc)).map(|t| t.0), scanlines, scan_kept }
+}
+
+// ---- the original's soft strokes and scanlines (hacking.md §2) ---------------------------
+
+/// [documented: Fallout_default.ini `bDoRenderedTerminalScanlines=1`] The only scanline
+/// picture in the archives [observed]: one soft dark band, white at its top to about 0.8
+/// (pipboy/frame.rs).
+const SCANLINES: &str = "textures\\pipboy3000\\pipboyscanlines.dds";
+/// [hypothesis: `fRenderedTerminalScanlineScale=130` lines down the screen's texture,
+/// [`TEXTURE_UNITS`] high] The original-game JPEG shows them 7.33 units apart, 131 down
+/// the texture [observed: §2].
+pub const SCANLINE_PITCH: f32 = TEXTURE_UNITS.y / 130.0;
+/// [design] Room round each glyph in the soft copy of the font, at least the blur's reach.
+const SOFT_PAD: usize = 3;
+/// [design] The blur's spread in texels, which are canvas units (fnv-font): with it and
+/// the text in the terminal colour, the original's header lines give off 1.01 and 1.00
+/// of our light in display values; 0.6 and 0.7 left the strokes harder than the
+/// original's (§2).
+const SOFT_SIGMA: f32 = 0.8;
+
+/// sRGB display value (0 to 1) to linear light.
+fn linear(v: f32) -> f32 {
+    if v <= 0.04045 {
+        v / 12.92
+    } else {
+        ((v + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// [design] The coverage that, blended in linear light, gives what blending the display
+/// values `ink` over `glass` (green, 0 to 1) at `a` would: the original's soft edges
+/// are dark shoulders, not a glow (§2).
+pub fn display_blend(a: f32, ink: f32, glass: f32) -> f32 {
+    let (li, lg) = (linear(ink), linear(glass));
+    if (li - lg).abs() < 1e-6 {
+        return a;
+    }
+    ((linear(a * ink + (1.0 - a) * glass) - lg) / (li - lg)).clamp(0.0, 1.0)
+}
+
+/// A font's glyphs in a texture of their own, with soft edges.
+pub struct Soft {
+    pub font: Font,
+    /// White, the coverage in alpha; `width` × `height`.
+    pub rgba: Vec<u8>,
+    pub width: usize,
+    pub height: usize,
+}
+
+/// [design] Each drawn glyph of `font` (its texture's coverage `alpha`, `w` × `h`) in a
+/// cell of its own with [`SOFT_PAD`] texels round it, the coverage blurred by a Gaussian
+/// of `sigma` texels and passed through `bend`. The glyphs grow by the room on every side
+/// and keep their advances, so the letters stand where they did and lines keep their
+/// widths. `None` when a glyph lies outside the texture or will not fit.
+pub fn soften(font: &Font, alpha: &[f32], w: usize, h: usize, sigma: f32, bend: impl Fn(f32) -> f32) -> Option<Soft> {
+    const ACROSS: usize = 512;
+    let pad = SOFT_PAD;
+    if alpha.len() != w * h {
+        return None;
+    }
+    let mut cells = Vec::new();
+    let (mut x, mut y, mut row) = (0, 0, 0);
+    for (code, g) in font.glyphs.iter().enumerate() {
+        if !g.drawn() {
+            continue;
+        }
+        let at = |v: f32, n: usize| (v * n as f32).round().clamp(0.0, n as f32) as usize;
+        let (x0, y0, x1, y1) = (at(g.uv[0], w), at(g.uv[1], h), at(g.uv[2], w), at(g.uv[3], h));
+        if x1 <= x0 || y1 <= y0 {
+            return None;
+        }
+        let (cw, ch) = (x1 - x0 + 2 * pad, y1 - y0 + 2 * pad);
+        if cw > ACROSS {
+            return None;
+        }
+        if x + cw > ACROSS {
+            (x, y, row) = (0, y + row, 0);
+        }
+        cells.push((code, x0, y0, x1 - x0, y1 - y0, x, y));
+        x += cw;
+        row = row.max(ch);
+    }
+    let (width, height) = (ACROSS, (y + row).max(1));
+    let mut cover = vec![0.0f32; width * height];
+    for &(_, x0, y0, gw, gh, dx, dy) in &cells {
+        for yy in 0..gh {
+            let from = (y0 + yy) * w + x0;
+            let to = (dy + pad + yy) * width + dx + pad;
+            cover[to..to + gw].copy_from_slice(&alpha[from..from + gw]);
+        }
+    }
+    blur(&mut cover, width, height, sigma, pad);
+    let rgba = cover.iter().flat_map(|&a| [255, 255, 255, (bend(a.clamp(0.0, 1.0)).clamp(0.0, 1.0) * 255.0).round() as u8]).collect();
+    let mut out = font.clone();
+    let (wf, hf) = (width as f32, height as f32);
+    for &(code, _, _, gw, gh, dx, dy) in &cells {
+        let g = &mut out.glyphs[code];
+        let (px, py) = (pad as f32 * g.width / gw as f32, pad as f32 * g.height / gh as f32);
+        g.uv = [dx as f32 / wf, dy as f32 / hf, (dx + gw + 2 * pad) as f32 / wf, (dy + gh + 2 * pad) as f32 / hf];
+        g.width += 2.0 * px;
+        g.height += 2.0 * py;
+        g.before -= px;
+        g.after -= px;
+        g.ascent += py;
+    }
+    Some(Soft { font: out, rgba, width, height })
+}
+
+/// A Gaussian blur of `sigma`, reaching at most `reach` texels; outside is empty.
+fn blur(a: &mut [f32], w: usize, h: usize, sigma: f32, reach: usize) {
+    if sigma <= 0.0 {
+        return;
+    }
+    let r = ((3.0 * sigma).ceil() as usize).min(reach) as isize;
+    let mut k: Vec<f32> = (-r..=r).map(|i| (-((i * i) as f32) / (2.0 * sigma * sigma)).exp()).collect();
+    let sum: f32 = k.iter().sum();
+    k.iter_mut().for_each(|v| *v /= sum);
+    let tap = |n: usize, at: usize, i: isize| usize::try_from(at as isize + i).ok().filter(|&v| v < n);
+    let mut tmp = vec![0.0f32; a.len()];
+    for y in 0..h {
+        for x in 0..w {
+            tmp[y * w + x] = (-r..=r).filter_map(|i| tap(w, x, i).map(|xx| a[y * w + xx] * k[(i + r) as usize])).sum();
+        }
+    }
+    for y in 0..h {
+        for x in 0..w {
+            a[y * w + x] = (-r..=r).filter_map(|i| tap(h, y, i).map(|yy| tmp[yy * w + x] * k[(i + r) as usize])).sum();
+        }
+    }
+}
+
+/// [design] Font 5 with soft edges: its texture's top level read here, the glyphs softened
+/// ([`soften`]) and bent ([`display_blend`]) for the ink over the glass, and again for the
+/// dark text over a lit cell; the two share one layout.
+fn soft_faces(path: &str, data: &GameData, images: &mut Assets<Image>) -> Option<(Face, Face)> {
+    let font = Font::parse(&data.read(path)?).ok()?;
+    let bytes = data.read(&font.texture_path())?;
+    let dds = fnv_dds::Dds::parse(&bytes).ok()?;
+    let (w, h) = (dds.header.width, dds.header.height);
+    let top = dds.levels.first()?.first()?;
+    let rgba = fnv_dds::to_rgba8(dds.format, top).or_else(|| fnv_dds::decode_blocks(dds.format, w, h, top))?;
+    let alpha: Vec<f32> = rgba.iter().skip(3).step_by(4).map(|&a| a as f32 / 255.0).collect();
+    let mut bent = |ink: Color, under: Color| {
+        let (ink, under) = (ink.to_srgba().green, under.to_srgba().green);
+        let soft = soften(&font, &alpha, w as usize, h as usize, SOFT_SIGMA, |a| display_blend(a, ink, under))?;
+        let format = bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb;
+        let mut image = nvf_assets::texture::checked_image(soft.width as u32, soft.height as u32, 1, format, soft.rgba).map_err(|e| warn!("terminal: {path}: {e}")).ok()?;
+        image.asset_usage = bevy::asset::RenderAssetUsages::default();
+        image.sampler = bevy::image::ImageSampler::linear();
+        let size = Vec2::new(soft.width as f32, soft.height as f32);
+        Some(Face { font: soft.font, image: Some((images.add(image), size)) })
+    };
+    let text = bent(bright(), GLASS_MIDDLE)?;
+    let lit = bent(lit_text(), bright())?;
+    Some((text, lit))
+}
+
+/// How much light a scanline texel `l` (0 to 1) keeps, in linear light: [design] it
+/// scales the display values, as the original's blocks show (their blue dims to about
+/// 0.82 at the troughs at 720 high, ours to 0.81 so; scaling the light instead gave 0.94)
+/// [observed: §2].
+fn scan_kept(l: f32) -> f32 {
+    linear(l)
+}
+
+/// [design] The scanlines as one column, a value per canvas row: the light the band
+/// keeps there at `pitch`, read with linear filtering. One stretched picture, not a tile
+/// per line.
+pub fn scanline_column(band: &[f32], rows: usize, pitch: f32) -> Vec<f32> {
+    let n = band.len() as isize;
+    (0..rows)
+        .map(|y| {
+            let t = ((y as f32 + 0.5) / pitch).fract() * n as f32 - 0.5;
+            let i = t.floor();
+            let f = t - i;
+            let at = |k: f32| band[(k as isize).rem_euclid(n) as usize];
+            scan_kept(at(i) * (1.0 - f) + at(i + 1.0) * f)
+        })
+        .collect()
+}
+
+/// The scanlines' picture: black, its alpha the light taken away per canvas row; with the
+/// light it keeps on average.
+fn scanline_image(data: &GameData, images: &mut Assets<Image>) -> Option<(Handle<Image>, f32)> {
+    let band = crate::pipboy::frame::scanline_column(&data.read(SCANLINES)?)?;
+    if band.is_empty() {
+        return None;
+    }
+    let column = scanline_column(&band, CANVAS.y as usize, SCANLINE_PITCH);
+    let alpha: Vec<u8> = column.iter().map(|&k| ((1.0 - k).clamp(0.0, 1.0) * 255.0).round() as u8).collect();
+    let kept = alpha.iter().map(|&a| 1.0 - a as f32 / 255.0).sum::<f32>() / alpha.len() as f32;
+    let rgba = alpha.iter().flat_map(|&a| [0, 0, 0, a]).collect();
+    let format = bevy::render::render_resource::TextureFormat::Rgba8Unorm;
+    let mut image = nvf_assets::texture::checked_image(1, column.len() as u32, 1, format, rgba).map_err(|e| warn!("terminal: {SCANLINES}: {e}")).ok()?;
+    image.asset_usage = bevy::asset::RenderAssetUsages::default();
+    image.sampler = bevy::image::ImageSampler::linear();
+    Some((images.add(image), kept))
 }
 
 #[derive(Component)]
@@ -294,7 +525,8 @@ fn text(p: &mut ChildSpawnerCommands, face: &Face, s: &str, x: f32, top: f32, co
 
 /// A line of text whose characters have colours of their own, by the column each stands
 /// in (every character of font 5 is [`CHAR`] wide): the lit cells of the dump.
-fn text_colored(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32, top: f32, color: impl Fn(Option<usize>) -> Color) {
+/// Lit characters take `lit`'s picture (the same layout as `face`'s).
+fn text_colored(p: &mut ChildSpawnerCommands, face: &Face, lit: &Face, line: &Line, x: f32, top: f32, color: impl Fn(Option<usize>) -> Color) {
     let base = top + BASE;
     let Some((image, size)) = &face.image else {
         set_line(p, face, line, x, base, color(None));
@@ -307,7 +539,15 @@ fn text_colored(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32, 
             continue;
         }
         let rect = Rect::new(g.uv[0] * size.x, g.uv[1] * size.y, g.uv[2] * size.x, g.uv[3] * size.y);
-        p.spawn((at(x + placed.x + g.before, base - g.ascent, g.width, g.height), ImageNode { rect: Some(rect), color: color(Some(k)), ..ImageNode::new(image.clone()) }));
+        let c = color(Some(k));
+        let on_fill = c == lit_text();
+        let picture = if on_fill { lit.image.as_ref().map_or(image, |(i, _)| i) } else { image };
+        let glyph = (at(x + placed.x + g.before, base - g.ascent, g.width, g.height), ImageNode { rect: Some(rect), color: c, ..ImageNode::new(picture.clone()) });
+        if on_fill {
+            p.spawn((glyph, ON_FILLS));
+        } else {
+            p.spawn(glyph);
+        }
     }
 }
 
@@ -325,21 +565,34 @@ pub fn spawn(commands: &mut Commands, camera: Entity, faces: &Faces, session: &S
     commands.spawn((ScreenRoot, root, UiTargetCamera(camera), Name::new("Terminal screen"))).with_children(|c| {
         // [design] Keep the texture/vignette, accounting for its contribution in the
         // undercoat. Both layers stay beneath ink; compose_screen mirrors this order.
+        // Both are raised by what the scanlines take away on average (`lifted`).
         let undercoat = if faces.background.is_some() { screen_color() } else { compose_screen(Color::NONE, None) };
-        c.spawn((at(0.0, 0.0, CANVAS.x, CANVAS.y), BackgroundColor(undercoat)));
+        c.spawn((at(0.0, 0.0, CANVAS.x, CANVAS.y), BackgroundColor(lifted(undercoat, faces.scan_kept))));
         if let Some(image) = &faces.background {
-            c.spawn((at(0.0, 0.0, CANVAS.x, CANVAS.y), ImageNode { color: BACKGROUND_TINT.with_alpha(BACKGROUND_ALPHA), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) }));
+            c.spawn((at(0.0, 0.0, CANVAS.x, CANVAS.y), ImageNode { color: lifted(BACKGROUND_TINT, faces.scan_kept).with_alpha(BACKGROUND_ALPHA), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) }));
         }
         match &session.page {
-            Page::Hacking(h) => hacking_page(c, &faces.text, h, cursor_on),
+            Page::Hacking(h) => hacking_page(c, &faces.text, &faces.lit, h, cursor_on),
             Page::LockedOut => lockout_page(c, &faces.text),
-            Page::Menu(m) => menu_page(c, &faces.text, m, terminals, cursor_on, &mut rows),
+            Page::Menu(m) => menu_page(c, &faces.text, &faces.lit, m, terminals, cursor_on, &mut rows),
+        }
+        // [design] Over everything on the canvas, under the monitor's glare (§2, §7).
+        if let Some(lines) = &faces.scanlines {
+            c.spawn((at(0.0, 0.0, CANVAS.x, CANVAS.y), ImageNode { image_mode: NodeImageMode::Stretch, ..ImageNode::new(lines.clone()) }));
         }
     });
     rows
 }
 
-fn hacking_page(c: &mut ChildSpawnerCommands, face: &Face, h: &Hacking, cursor_on: bool) {
+/// [design] `glass` raised so that, with the scanlines keeping `kept` of its light on
+/// average, it still averages what it would without them.
+pub fn lifted(glass: Color, kept: f32) -> Color {
+    let g = glass.to_linear();
+    let k = kept.max(0.05);
+    Color::linear_rgba(g.red / k, g.green / k, g.blue / k, g.alpha)
+}
+
+fn hacking_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, h: &Hacking, cursor_on: bool) {
     let p = &h.puzzle;
     let bright = bright();
     c.spawn(at(DEPTH.x, DEPTH.y, DEPTH_SIZE.x, DEPTH_SIZE.y)).with_children(|d| {
@@ -351,7 +604,7 @@ fn hacking_page(c: &mut ChildSpawnerCommands, face: &Face, h: &Hacking, cursor_o
         // [documented] Blocks one apart, starting one block after the text.
         for i in 0..p.attempts {
             let x = w + (2 * i as usize + 1) as f32 * BLOCK;
-            d.spawn((at(x, HEADER_LINES[2] + BASE - 18.0, BLOCK, BLOCK), BackgroundColor(bright)));
+            d.spawn((at(x, HEADER_LINES[2] + BASE - 18.0, BLOCK, BLOCK), BackgroundColor(bright), OVER_LINES));
         }
         // The dump: the lit span under the cursor, while the game goes on.
         let lit = (h.ended.is_none() && !h.hidden).then(|| p.span(p.target(h.cursor)));
@@ -365,11 +618,11 @@ fn hacking_page(c: &mut ChildSpawnerCommands, face: &Face, h: &Hacking, cursor_o
                 for k in 0..ROW_CHARS {
                     if is_lit(first + k) {
                         let cell = cell_at(first + k);
-                        d.spawn((at(cell.x, cell.y + ROW_TEXT_Y - 2.0, CHAR, ROW - 4.0), BackgroundColor(bright)));
+                        d.spawn((at(cell.x, cell.y + ROW_TEXT_Y - 2.0, CHAR, ROW - 4.0), BackgroundColor(bright), OVER_LINES));
                     }
                 }
                 if let Some(line) = face.font.lines(&s, None).into_iter().next() {
-                    text_colored(d, face, &line, x, top, |k| if k.is_some_and(|k| k >= 7 && is_lit(first + k - 7)) { lit_text() } else { bright });
+                    text_colored(d, face, lit_face, &line, x, top, |k| if k.is_some_and(|k| k >= 7 && is_lit(first + k - 7)) { lit_text() } else { bright });
                 }
             }
         }
@@ -385,7 +638,7 @@ fn hacking_page(c: &mut ChildSpawnerCommands, face: &Face, h: &Hacking, cursor_o
             let entry = if lit.is_some() { p.text(p.target(h.cursor)) } else { String::new() };
             let w = text(l, face, &entry, ENTRY_X, top, bright);
             if entry.is_empty() {
-                l.spawn((Blink, at(ENTRY_X + w, top + BASE - 18.0, BLOCK, BLOCK), BackgroundColor(bright), if cursor_on { Visibility::Inherited } else { Visibility::Hidden }));
+                l.spawn((Blink, at(ENTRY_X + w, top + BASE - 18.0, BLOCK, BLOCK), BackgroundColor(bright), OVER_LINES, if cursor_on { Visibility::Inherited } else { Visibility::Hidden }));
             }
         });
     });
@@ -409,7 +662,7 @@ pub fn note_text(n: Option<&NoteDef>) -> String {
     }
 }
 
-fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, m: &MenuView, data: &fnv_game::GameData, cursor_on: bool, rows: &mut Vec<(usize, Rect)>) {
+fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &MenuView, data: &fnv_game::GameData, cursor_on: bool, rows: &mut Vec<(usize, Rect)>) {
     let bright = bright();
     let Some(t) = data.terminals.get(&m.terminal) else { return };
     let mut y = MENU_HEADER_Y;
@@ -433,7 +686,7 @@ fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, m: &MenuView, data: &fnv
     }
     // [documented] The separator 10 under the welcome text, as long as it is wide.
     y += 10.0;
-    c.spawn((at(MENU_X, y, widest.max(1.0), 2.0), BackgroundColor(bright)));
+    c.spawn((at(MENU_X, y, widest.max(1.0), 2.0), BackgroundColor(bright), OVER_LINES));
     y += 12.0;
     match m.note {
         Some(n) => {
@@ -468,9 +721,13 @@ fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, m: &MenuView, data: &fnv
                     let w = face.font.width(&s);
                     if lit {
                         // [documented] A filled box (224 of 255) behind the chosen row.
-                        b.spawn((at(0.0, 2.0, w + CHAR, LIST_ROW - 4.0), BackgroundColor(bright.with_alpha(224.0 / 255.0))));
+                        b.spawn((at(0.0, 2.0, w + CHAR, LIST_ROW - 4.0), BackgroundColor(bright.with_alpha(224.0 / 255.0)), OVER_LINES));
+                        if let Some(line) = face.font.lines(&s, None).into_iter().next() {
+                            set_marked(b, lit_face, &line, 0.0, (LIST_ROW - LINE) / 2.0 + BASE, lit_text(), ON_FILLS);
+                        }
+                    } else {
+                        text(b, face, &s, 0.0, (LIST_ROW - LINE) / 2.0, bright);
                     }
-                    text(b, face, &s, 0.0, (LIST_ROW - LINE) / 2.0, if lit { lit_text() } else { bright });
                 });
             }
         }
@@ -480,7 +737,7 @@ fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, m: &MenuView, data: &fnv
     text(c, face, ">", MENU_X, top, bright);
     let w = text(c, face, &m.result, MENU_X + RESULT_X, top, bright);
     let x = MENU_X + RESULT_X + if m.result.is_empty() { 0.0 } else { w + CHAR };
-    c.spawn((Blink, at(x, top + BASE - 18.0, BLOCK, BLOCK), BackgroundColor(bright), if cursor_on { Visibility::Inherited } else { Visibility::Hidden }));
+    c.spawn((Blink, at(x, top + BASE - 18.0, BLOCK, BLOCK), BackgroundColor(bright), OVER_LINES, if cursor_on { Visibility::Inherited } else { Visibility::Hidden }));
 }
 
 /// Whether a row's character `index` is drawn lit (tests).
@@ -501,7 +758,7 @@ mod tests {
         let glass = compose_screen(Color::NONE, Some(BACKGROUND_MIDDLE));
         let block = bright();
         assert_eq!(glass.to_srgba().to_u8_array(), [12, 38, 20, 255]);
-        assert_eq!(block.to_srgba().to_u8_array(), [63, 255, 152, 255]);
+        assert_eq!(block.to_srgba().to_u8_array(), [54, 252, 150, 255]);
         // [design] Verify the actual undercoat + ImageNode source-over, not just the
         // target constant. Samples cover a dark corner, dim texture and middle;
         // the brightest texture can exceed the middle's range, as can the glare (§2).
@@ -514,7 +771,7 @@ mod tests {
             let ui_glass = over(layer, screen_color());
             assert_eq!(ui_glass.to_srgba().to_u8_array(), expected);
             assert_eq!(compose_screen(Color::NONE, Some(texel)), ui_glass);
-            assert_eq!(compose_screen(block, Some(texel)).to_srgba().to_u8_array(), [63, 255, 152, 255]);
+            assert_eq!(compose_screen(block, Some(texel)).to_srgba().to_u8_array(), [54, 252, 150, 255]);
         }
         // A transparent texture sample leaves the undercoat, and a missing image
         // uses the middle target; neither may turn the screen transparent [design].
@@ -522,7 +779,7 @@ mod tests {
         assert_eq!(compose_screen(Color::NONE, None).to_srgba().to_u8_array(), [12, 38, 20, 255]);
         // [design] Exercise source-over at partial glyph coverage as well as the
         // empty glass and solid blocks; blending must happen in linear light.
-        assert_eq!(compose_screen(block.with_alpha(0.5), Some(BACKGROUND_MIDDLE)).to_srgba().to_u8_array(), [45, 189, 112, 255]);
+        assert_eq!(compose_screen(block.with_alpha(0.5), Some(BACKGROUND_MIDDLE)).to_srgba().to_u8_array(), [39, 187, 110, 255]);
         for shade in [SHADE, SHADE_FLAT] {
             for world in [Color::BLACK, Color::WHITE] {
                 let backdrop = over(Color::BLACK.with_alpha(shade), world);
@@ -534,12 +791,82 @@ mod tests {
                 let glare_floor = [8u8, 6, 8];
                 for channel in 0..3 {
                     assert!(ranges[channel].contains(&(shown_glass[channel] + glare_floor[channel])), "glass {shown_glass:?}, shade {shade}");
-                    assert!(shown_block[channel].abs_diff([63, 255, 152][channel]) <= 3, "block {shown_block:?}, shade {shade}");
+                    assert!(shown_block[channel].abs_diff([54, 252, 150][channel]) <= 3, "block {shown_block:?}, shade {shade}");
                 }
                 assert_eq!(shown_glass[3], 255);
                 assert_eq!(shown_block[3], 255);
             }
         }
+    }
+
+    #[test]
+    fn soft_edges_blend_as_display_values_do() {
+        // [design] Ends stay put; a half-covered texel of ink over the glass gives what
+        // mixing the display values would, much less light than a linear mix (§2).
+        let (ink, glass) = (1.0, 38.0 / 255.0);
+        assert_eq!(display_blend(0.0, ink, glass), 0.0);
+        assert!((display_blend(1.0, ink, glass) - 1.0).abs() < 1e-5);
+        let half = display_blend(0.5, ink, glass);
+        assert!((0.25..0.35).contains(&half), "{half}");
+        assert_eq!(display_blend(0.3, 0.5, 0.5), 0.3);
+    }
+
+    #[test]
+    fn softened_glyphs_keep_their_place_and_do_not_bleed() {
+        use fnv_font::Glyph;
+        // Two 2 x 2 glyphs touching corner to corner on a 4 x 4 texture.
+        let mut glyphs = vec![Glyph::default(); 256];
+        glyphs[65] = Glyph { uv: [0.0, 0.0, 0.5, 0.5], width: 2.0, height: 2.0, before: 1.0, after: 1.0, ascent: 2.0 };
+        glyphs[66] = Glyph { uv: [0.5, 0.5, 1.0, 1.0], width: 2.0, height: 2.0, before: 0.0, after: 3.0, ascent: 1.0 };
+        let font = Font { size: 4.0, texture: String::new(), glyphs };
+        let mut alpha = vec![0.0; 16];
+        for (x, y) in [(0, 0), (1, 0), (0, 1), (1, 1), (2, 2), (3, 2), (2, 3), (3, 3)] {
+            alpha[y * 4 + x] = 1.0;
+        }
+        let soft = soften(&font, &alpha, 4, 4, SOFT_SIGMA, |a| a).expect("softened");
+        let pad = SOFT_PAD as f32;
+        for code in [65, 66] {
+            let (a, b) = (font.glyphs[code], soft.font.glyphs[code]);
+            assert_eq!(a.advance(), b.advance());
+            assert_eq!((b.width, b.height, b.before, b.ascent), (a.width + 2.0 * pad, a.height + 2.0 * pad, a.before - pad, a.ascent + pad));
+        }
+        // Read a softened glyph's cell back: the middle stays the strongest, the blur
+        // falls off within the room, and the cell's border is empty (no neighbour in it).
+        let cell = |code: usize| {
+            let g = soft.font.glyphs[code];
+            let (x0, y0) = ((g.uv[0] * soft.width as f32).round() as usize, (g.uv[1] * soft.height as f32).round() as usize);
+            let side = 2 + 2 * SOFT_PAD;
+            (0..side).map(|y| (0..side).map(|x| soft.rgba[((y0 + y) * soft.width + x0 + x) * 4 + 3]).collect::<Vec<_>>()).collect::<Vec<_>>()
+        };
+        for code in [65, 66] {
+            let c = cell(code);
+            let mid = c[SOFT_PAD][SOFT_PAD];
+            assert!(mid > 128 && mid < 255, "{mid}");
+            assert!(c[SOFT_PAD][SOFT_PAD - 1] > 0 && c[SOFT_PAD][SOFT_PAD - 1] < mid);
+            let last = c.len() - 1;
+            assert!(c[0].iter().chain(&c[last]).all(|&a| a == 0), "{c:?}");
+        }
+        // A glyph outside its texture is refused rather than read out of bounds.
+        let mut bad = font.clone();
+        bad.glyphs[67] = Glyph { uv: [0.5, 0.5, 0.5, 1.0], width: 1.0, height: 1.0, ..Glyph::default() };
+        assert!(soften(&bad, &alpha, 4, 4, SOFT_SIGMA, |a| a).is_none());
+    }
+
+    #[test]
+    fn scanlines_darken_display_values_and_the_glass_is_lifted_back() {
+        // [design] A white band keeps everything; a band dipping to 0.8 keeps linear(0.8)
+        // at its trough, about 0.6 of the light (0.8 of the display value) (§2).
+        assert!(scanline_column(&[1.0; 64], 720, SCANLINE_PITCH).iter().all(|&k| (k - 1.0).abs() < 1e-6));
+        let band: Vec<f32> = (0..64).map(|i| if (32..48).contains(&i) { 0.8 } else { 1.0 }).collect();
+        let column = scanline_column(&band, 720, SCANLINE_PITCH);
+        let (lo, hi) = column.iter().fold((1.0f32, 0.0f32), |(lo, hi), &k| (lo.min(k), hi.max(k)));
+        assert!((lo - linear(0.8)).abs() < 0.01 && (hi - 1.0).abs() < 1e-6, "{lo} {hi}");
+        let rows = (SCANLINE_PITCH * 10.0).round() as usize;
+        assert!((column[3] - column[3 + rows]).abs() < 0.1, "ten lines on, the same place in the band");
+        let glass = Color::srgb_u8(12, 38, 20);
+        assert_eq!(lifted(glass, 1.0).to_srgba().to_u8_array(), glass.to_srgba().to_u8_array());
+        let lift = lifted(glass, 0.5).to_linear();
+        assert!((lift.green - 2.0 * glass.to_linear().green).abs() < 1e-6);
     }
 
     #[test]

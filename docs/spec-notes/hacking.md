@@ -98,6 +98,51 @@ the header stroke patch (455–550; 152–180) has median (63, 246.5, 141), mean
 (63.55, 246.325, 140.9). JPEG/patch variation explains small differences from the
 earlier measurements [hypothesis]; retain the §2 block target (63, 255, 152) [design].
 
+[observed: same JPEG, 2026-11-01] Picked on screen, the attempt blocks show (61, 253,
+152); the brightest 30% of each block's pixels have medians (61-62, 255, 149-151), all
+its pixels (57-59, 253, 139-141). Through the scanlines' troughs their green stays 253
+to 255 while red and blue dim by about 15%: the fills are clipped in green and read
+solid. [observed: in game, 2026-11-01] Our glare adds about (6, 0, 2) display units over
+the blocks (drawn (63, 255, 152), shown (69, 255, 154)). [design] So the canvas draws
+the shown colour less that add in linear light, (54, 252, 150) (`screen::bright`), and
+the fills (blocks, lit cells, the cursor, the separator, the chosen row's box) lie above
+the scanlines, the text on them above the fills. Flat, without the glare, the blocks
+show the drawn colour.
+
+[observed: same hacking JPEG against the branch's `hacking.png` at 1280 × 720,
+2026-11-01; the JPEG's sums divided by 2.25 for its larger pixels] The original's text
+strokes are soft, about 3 pixels across at 1080 with peaks of 200 to 250 green, where
+ours were 2.5 pixels of full green at 720. On the same lines of text ("ENTER PASSWORD
+NOW", "ATTEMPT(S) LEFT:"), the summed green above the glass beside the line was 0.79 and
+0.77 of ours in display values, 0.60 and 0.51 in linear light, with hard-edged text in
+the block colour. Fine horizontal scanlines cross the glass and the text: 7.8 pixels
+apart at 1080, which is 7.33 units (the dump's rows 29.7 pixels apart for 28 units), 131
+down the texture's 960 units; the blocks' blue dims to about 0.84 at 1080 and 0.82 when
+the frame is scaled to 720, the empty glass by about 4 display units [observed]. The
+streak dims by about the glass's units, not its own share, so the lines lie under the
+glare [observed]. Fallout_default.ini has `bDoRenderedTerminalScanlines=1`,
+`fRenderedTerminalScanlineScale=130` [documented]; the only scanline texture in the
+archives is `textures\pipboy3000\pipboyscanlines.dds` [observed]. [hypothesis] The
+scale is the number of lines down the screen's texture.
+
+[design] So NVForever draws both, and the text keeps the terminal colour of the blocks:
+- Soft strokes (`screen::soften`): the terminal's own copy of font 5, each glyph in a
+  cell with 3 texels of room, its coverage blurred by a Gaussian of 0.8 texels (canvas
+  units) and bent (`display_blend`) so that blending in linear light over the glass gives
+  what blending the display values would; the glyphs keep their advances, so nothing
+  moves. Blurs of 0.6 and 0.7 left the strokes harder than the original's.
+- Scanlines (`screen::scanline_image`): the band at 960/130 units, baked into one column
+  a texel per canvas row and stretched over the whole canvas above the text, under the
+  glare; it scales the display values (the blocks' blue dims to 0.81 at 720; scaling the
+  light instead gave 0.94). The undercoat and the background's tint are raised by what
+  the band takes away on average; the glass's 10 × 10 medians then move by 2 units at
+  most [observed: in game, 2026-11-01].
+- [observed: in game, 1280 × 720, 2026-11-01] With both and the blocks' colour below,
+  the original's header lines give off 1.01 and 1.00 of our light in display values,
+  0.97 and 0.90 in linear light;
+  the empty glass's banding is about 4 display units, as the original's. An intermediate
+  fit, hard text at 0.6 of the block colour's light, matched the sums but not the look.
+
 [design] Keep the Pip-Boy background beneath the ink and the monitor's glare above the
 screen (§7). The glare is additive and its dark texels add a little over the whole glass
 (a few display units in linear light; §7), so the glass beneath it is fitted to the
@@ -118,10 +163,11 @@ the image falls back to opaque middle glass.
 [design] `screen::compose_screen` mirrors undercoat → texture × tint → foreground
 coverage in linear light. Its test predicts middle (12,38,20), dark texture corner
 (3,8,2), dim texel (49,49,49) → (7,24,11), brightest texel → (17,50,28), opaque
-blocks (63,255,152), and half glyph coverage at the middle (45,189,112). It checks
+blocks (54,252,150), and half glyph coverage at the middle (39,187,110). It checks
 undercoat + background (the §2 ranges hold for the middle with the glare's floor on
 top, not for the glass alone), blocks within 3 units and opacity over both world
-shades. The upper text-stroke measurement is not a separate text tint.
+shades. The text is the block colour; the original's softer, dimmer-looking strokes
+come from soft edges and scanlines (above), not from a different colour in the files.
 Glare's final screen-space contribution remains an in-game check (§7).
 
 ## 3. The words
@@ -224,7 +270,7 @@ in the data looks like a word list.
   [observed: fitted, the glass 0.735 of the view's height; the INI's zoom 36 is not that
   distance]. [design] Keep the glare sheet `glare:0`, at reduced material alpha and
   colour (below), to retain the original's top-right streak [observed: §2]. Scanlines
-  and the screen light are not drawn. Without the model the picture is drawn flat over the darkened
+  are drawn over the canvas (§2); the screen light is not drawn. Without the model the picture is drawn flat over the darkened
   world, its top 83 down [observed: the screen's scale on the owner's screenshots is 0.99
   of the interface's]. [design] World shade alpha is 0.4 with the monitor and 0.88 in
   flat mode; both stay behind the opaque screen, whose colours compose as in §2. The
