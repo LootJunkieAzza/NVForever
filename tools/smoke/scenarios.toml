@@ -6967,6 +6967,35 @@ order = [[
 forbid = [{ re = 'lockpick: crime hook', label = "a practice lock is no crime" }]
 
 [[scenario]]
+name = "console-plm-s1st-setvel"
+source = "issue #1046 step 4: plm/clm (location markers), s1st (Show1stPerson), SetVel, tst (Show), prc, tlv (ToggleLeaves), ClearScreenBlood, rbat and scof did nothing; the player is thrown up and pushed along x, a recorded line is saved and run back with bat (docs/design/console.md)"
+areas = ["console"]
+paths = ["crates/fnv-game/src/functions/console.rs", "crates/fnv-game/src/functions/toggles.rs", "crates/fnv-phys/src/world.rs", "engine/nvf-play/src/console.rs", "engine/nvf-play/src/location_markers.rs", "engine/nvforever/src/console_toggles.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVFOREVER_HOME = "console-rbat-home", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_CONSOLE = "12:plm 0 0 0 NVFSpot 3;12.3:tst GameHour;12.6:prc;12.9:s1st;13.2:s1st;13.5:tlv;13.8:tlv;14.1:ClearScreenBlood;14.4:rbat;14.7:tst GameDaysPassed;15:rbat nvf_smoke_rbat;15.3:bat nvf_smoke_rbat;15.6:scof nvf_smoke_scof;15.9:scof;16.2:clm;16.5:player.setvel z 600;16.8:player.setvel x 400;17:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 26
+order = [[
+  { re = 'console: Location marker NVFSpot placed', label = "plm" },
+  { re = 'console: GameHour = 12', label = "tst shows a global" },
+  { re = 'console: Persistent references: [1-9]\d*', label = "prc counts" },
+  { re = 'console: First-person model in third person shown', label = "s1st" },
+  { re = 'console: First-person model in third person hidden', label = "s1st again" },
+  { re = 'console: Tree leaves off', label = "tlv" },
+  { re = 'console: Tree leaves on', label = "tlv again" },
+  { re = 'console: Screen blood cleared', label = "ClearScreenBlood" },
+  { re = 'console: Recording console lines', label = "rbat starts" },
+  { re = 'console: 1 lines saved to .*nvf_smoke_rbat\.txt', label = "rbat saves the recorded line" },
+  { re = 'console: Running .*nvf_smoke_rbat\.txt \(1 lines\)', label = "bat runs it back" },
+  { re = 'console: > tst GameDaysPassed', label = "the recorded line runs" },
+  { re = 'console: Console lines are added to .*nvf_smoke_scof\.txt', label = "scof" },
+  { re = 'console: Console lines no longer written to a file', label = "scof off" },
+  { re = 'console: 1 location markers cleared', label = "clm clears the marker of this place" },
+  { re = 'console: SetVel: 0x00000014 up at 600 units/s', label = "SetVel z on the player" },
+  { re = 'console: SetVel: 0x00000014 pushed along X at 400 units/s', label = "SetVel x on the player" },
+  { re = 'player: knocked back at 400 units/s', label = "the push reaches the player's movement" },
+]]
+
+[[scenario]]
 name = "reputation-disguise"
 source = "owner request 2026-10-22: faction armour's scripts set every reputation to 0 while it is worn and back after; only the player's real reputation opens boxes, so putting on and taking off a Powder Gang outfit (000A472F, script 00134B71) shows none"
 areas = ["hud"]
