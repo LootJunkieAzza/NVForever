@@ -57,6 +57,10 @@ engine if needed, and delete the item here.
    a weapon of their own class, condition) is open. The first tries (o11_02, o11_03,
    steps jobs) failed on the plugin compiling only one full script per job
    (xnvse-capture.md §6).
+   In combat (o15_round, nvfairport, 2026-11-01) [observed]: a trooper holding a 10mm
+   Pistol and one holding a Hunting Rifle, each also carrying a Grenade Rifle and 20
+   40mm grenades, kept their own gun drawn through 42 and 15 shots; neither drew the
+   Grenade Rifle. Same divergence as above (ours would draw it).
 2. **Who attacks you, and who joins a fight.** Ours:
    - 618 placed Aggressive (not Very Aggressive) animals ignore you until attacked.
    - Inside an aggro radius, an actor warns twice 5 s apart, then attacks.
@@ -103,6 +107,14 @@ engine if needed, and delete the item here.
    [weapon-data-fields](../spec-notes/weapon-data-fields.md),
    [crippled-limbs](../spec-notes/crippled-limbs.md), [difficulty](../spec-notes/difficulty.md),
    [hit-effects](../spec-notes/hit-effects.md), [physics §6.12](../spec-notes/physics.md))
+   Player limbs, 2026-11-01 (o17_air limbs_10mm, nvfairport, mortal player, a trooper's
+   10mm Pistol, three runs to the player's death, 38 hits) [observed]: each body hit
+   took 16.06 Health; the arm or leg hit lost the same 16.06 of its condition, the torso
+   (EnduranceCondition) 6.69 (0.4167 of it); a head hit took 32.12 Health and 20.075
+   PerceptionCondition (0.625 of the Health lost, as on one larger 76.12 head hit). So
+   nothing halved arm and leg damage here; whether ours' `fCombatPlayerLimbDamageMult`
+   halving is cancelled by body-part multipliers is open (#1345). The lead-pipe trooper
+   never landed a blow in 0.15 h (no data).
 4. **Hardcore needs and waiting.** Partly answered 2026-10-31 (o7_00, o7_05, owner save
    nvfHardcore, TimeScale 30, about 59 frames a second):
    - The needs rise at our rates [observed]: Dehydration 2 every 0.168 game hours
@@ -139,8 +151,12 @@ engine if needed, and delete the item here.
    Answered in part 2026-11-01 (o14_reach, nvfairport, god-mode player) [observed]: NPC
    melee weapons (knife, sledgehammer, super sledge, lead pipe, bumper sword) stayed at
    GetWeaponHealthPerc 99.9 through 12-16 swings and about 13 landed blows each; ours
-   would take a lead pipe to 94.8. Open: whether god mode on the target hides the wear
-   (repeat on a mortal target), and the player's own swings and the override weapons.
+   would take a lead pipe to 94.8. Repeated on a mortal player (o15_round, no god mode,
+   healed every 20 samples): GetEquippedCurrentHealth 5 stayed exact, lead pipe 49.95
+   over 10 swings with blows landing, sledgehammer 149.85 over 12; and NPC guns did not
+   wear either: a 10mm Pistol 79.92 over 42 shots, a Hunting Rifle 299.7 over 15. So
+   these NPCs' weapons do not wear from their own attacks (Cook-Cook's Incinerator did,
+   §17: the override weapons may differ). Open: the player's own swings and shots.
 6. **Detection.** Ours:
    - Light level is ambient + sun + lamps; sunlight counts only where unshaded.
    - FOV is 95° each side, and sneak-running counts as running.
@@ -320,6 +336,11 @@ engine if needed, and delete the item here.
     - Knockdown length: not captured. `player.PushActorAway <spawned> 60` knocked
       neither a free-standing trooper nor a gecko (GetKnockedState stayed 0); next time
       use a placed explosion on a free-standing spawned actor (blast_knockdown's setup).
+      Tried that too (o15_round): `rA.PlaceAtMe GrenadeFragExplosion 1` and
+      `WeaponKnockdownExplosion` from a timed script on a free-standing spawned trooper
+      gave no OnHit and no GetKnockedState change. Placed by the spawned actor's own
+      PlaceAtMe in a timed script, the explosion seems not to go off [hypothesis]; next
+      time place it on a save's own actor as blast_knockdown did on Ringo.
       Retried 2026-11-01 (o16_town, nvftest): `RingoRef.PlaceAtMe GrenadeFragExplosion 1`
       (in GSGasStation) and the same on Settler 1 outdoors: no OnHit, no Health change, no
       GetKnockedState 2, so the placed explosion did not go off on the save's own actors
@@ -597,6 +618,17 @@ The numbers above stay put so links to them hold; each item here gives its own p
     per creature (e.g. a mongrel set on the player again and again from behind), and
     whether a standing turn without combat (a Travel package to a marker behind it)
     takes × 1.25 or × 3. ([actors §8.10](../spec-notes/actors.md))
+    Tried 2026-11-01 (o17_air, nvfairport runway, one creature spawned 400 units behind a
+    still god-mode player, heading every loop) [observed]:
+    - CrCoyote: in combat at once, it turned about 125° onto the player at a steady
+      187-189°/s (standing or creeping, GetAnimAction -1, 115 units off), stopping
+      exactly on the bearing. Then, attacking (GetAnimAction 2) and moving 85-270 u/s,
+      its heading tracked the bearing at 41-42°/s one way and 85-99°/s the other.
+    - VCrTier2GeckoMed: in combat at once, it turned at a steady 599-603°/s for about
+      0.15 s (the long way round, away from the bearing), then the rate fell smoothly
+      from about 560 to 85°/s over the next 0.25 s while it moved off at 50-250 u/s.
+    The coyote's and gecko's TNAM were not read here, so the ×1.25 / ×3 question is not
+    settled; next: read their TNAM (fnvtool), set the ratio, and add a non-combat turn.
 
 ## Added 2026-10-30 (add-on walkthroughs, issue #918)
 

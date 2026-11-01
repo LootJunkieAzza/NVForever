@@ -1451,7 +1451,7 @@ const BOUNDS_SIGS: [[u8; 4]; 20] = [
 ];
 
 /// The record types whose fields [`GameData::record_fields`] keeps.
-pub const FIELD_SIGS: [[u8; 4]; 45] = [
+pub const FIELD_SIGS: [[u8; 4]; 47] = [
     *b"PROJ", *b"EXPL", *b"AMMO", *b"WEAP", *b"ARMO", *b"LSCR", *b"NOTE", *b"PERK", *b"MESG", *b"TERM", *b"IMOD", *b"CHAL", *b"BOOK", *b"BPTD", *b"MISC", *b"ALCH", *b"KEYM",
     *b"NPC_", *b"CREA", *b"FACT", *b"RACE", *b"HAIR", *b"EYES", *b"SOUN", *b"WTHR", *b"IMGS", *b"IMAD", *b"AMEF", *b"CLMT", *b"CELL", *b"WRLD", *b"IPDS", *b"IPCT", *b"IDLE", *b"ACTI",
     // JIP batch 4 (`crate::nvse_jip4`).
@@ -1460,6 +1460,8 @@ pub const FIELD_SIGS: [[u8; 4]; 45] = [
     *b"MUSC", *b"CONT", *b"LGTM",
     // JIP batch 5 (`crate::nvse_jip5`).
     *b"LTEX",
+    // JohnnyGuitar batch 3 (`crate::nvse_jg3`).
+    *b"EFSH", *b"MSET",
 ];
 
 /// The winning records of the [`FIELD_SIGS`] types, each decoded by

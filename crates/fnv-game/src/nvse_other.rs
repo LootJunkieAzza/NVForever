@@ -65,8 +65,15 @@ pub struct OtherState {
     pub cell_zones: HashMap<FormId, Option<FormId>>,
     /// LandTextureAddGrass's and LandTextureRemoveGrass's grass lists (`nvse_jip5`).
     pub ltex_grasses: HashMap<FormId, Vec<FormId>>,
+    /// SetCasinoChip's chips, by casino (`nvse_jg3`, read through `crate::casino::chip`).
+    pub casino_chips: HashMap<FormId, FormId>,
+    /// The Set…TerminalMenuItem… changes, by terminal and item (`nvse_jg3`, read through
+    /// `crate::terminal::item`).
+    pub terminal_items: HashMap<(FormId, usize), crate::terminal::ItemEdit>,
     /// ITR NVSE's state (`nvse_itr1`).
     pub itr: crate::nvse_itr1::ItrState,
+    /// ITR NVSE's batch-2 state (`nvse_itr2`).
+    pub itr2: crate::nvse_itr2::Itr2State,
 }
 
 /// The bit of DisablePlayerControlsAltEx's flags for each control group, in the order of
