@@ -1705,6 +1705,40 @@ fn the_runners_hit_runs_an_objects_hit_blocks() {
     assert_eq!(by("count")["var.nHit"], 11.0);
 }
 
+/// The runner's `hit` on an actor is a hit as in play: the actor turns on the player and
+/// fights (issue #1114: a hit started no AI combat headless, the chains called
+/// StartCombat instead); and with no detection measured the awareness update still ends
+/// a fight whose target died (Simon after the bomber).
+#[test]
+fn the_runners_hit_on_an_actor_starts_a_fight_and_a_fight_ends_with_its_target_dead() {
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "call", "line": "TestNpcREF.IsInCombat", "label": "calm"},
+            {"op": "hit", "target": "TestNpcREF", "label": "struck"},
+            {"op": "advance_seconds", "seconds": 0.1},
+            {"op": "call", "line": "TestNpcREF.IsInCombat", "label": "fights"},
+            {"op": "call", "line": "TestNpcREF.GetCombatTarget", "label": "target"},
+            {"op": "call", "line": "TestAutoNpcREF.StartCombat TestNpcREF"},
+            {"op": "call", "line": "TestAutoNpcREF.IsInCombat", "label": "other fights"},
+            {"op": "kill", "target": "TestNpcREF"},
+            {"op": "advance_seconds", "seconds": 0.1},
+            {"op": "call", "line": "TestAutoNpcREF.IsInCombat", "label": "target dead"}
+        ]
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let obs = out["observations"].as_array().unwrap();
+    let by = |l: &str| obs.iter().find(|o| o["label"] == l).unwrap().clone();
+    assert_eq!(by("calm")["value"], 0.0);
+    assert_eq!((by("struck")["died"].clone(), by("struck")["health"].as_f64().is_some()), (json!(false), true));
+    assert_eq!(by("fights")["value"], 1.0);
+    assert_eq!(by("target")["value"], FormId::PLAYER_REF.to_string());
+    assert_eq!(by("other fights")["value"], 1.0);
+    assert_eq!(by("target dead")["value"], 0.0);
+}
+
 #[test]
 fn weapon_out_and_weapon_animation_type() {
     use fnv_game::functions::weapon_anim_code;
