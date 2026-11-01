@@ -140,6 +140,13 @@ engine if needed, and delete the item here.
    To check: GetDetected player while walking up to Sunny at noon and at night, with the
    flashlight on, on a porch, and with a missed shot near a sleeper.
    ([detection §8](../design/detection.md))
+   Tried 2026-11-01 (o14_detect, nvfairport, a spawned NCR trooper 500/1000/2000 units
+   off, player still, noon and midnight), not settled: `player.SetForceSneak 1` from the
+   console left IsSneaking 0, and no trooper ever had GetDetected player 1, even at 500
+   units at noon (240-280 samples each; package type 1, procedures 11/17). Next time:
+   sneak with a key tap (the plugin's tap) and check IsSneaking, and use Sunny or a
+   settler of the save rather than a spawned trooper, whose detection may not run while
+   it is idle out of combat [hypothesis].
 7. **Casino payouts.**
    - Slots: ours pays back about 1.35 per chip, so max winnings come fast. Check the
      reading of "= BET × N", the cherry rule and the middle row.
@@ -281,6 +288,13 @@ engine if needed, and delete the item here.
     To check: actor values and events.
     ([radiation](../spec-notes/radiation.md), [magic-archetypes](../spec-notes/magic-archetypes.md),
     [unconscious §5.4](../spec-notes/unconscious.md), [traps](../spec-notes/traps.md))
+    Tried 2026-11-01 (o14_hazards, nvfairport, god-mode player) [observed]:
+    - Crippled arm: a trooper firing a 10mm Pistol kept it drawn and fired on for 40 s
+      after `DamageAV RightAttackCondition 200`; both arms at 0 the same. So a scripted
+      crippling does not disarm (crippled-limbs §3); a crippling **shot** is still to try.
+    - Knockdown length: not captured. `player.PushActorAway <spawned> 60` knocked
+      neither a free-standing trooper nor a gecko (GetKnockedState stayed 0); next time
+      use a placed explosion on a free-standing spawned actor (blast_knockdown's setup).
 
 ## P3: smaller or rarer
 
