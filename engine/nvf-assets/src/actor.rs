@@ -1118,6 +1118,11 @@ pub fn blend_player(actor: &SpawnedActor, skel: &PreparedSkeleton) -> BlendPlaye
     BlendPlayer::new(actor.nodes.clone(), Arc::new(skel.locals.clone()))
 }
 
+/// The prepared skeleton at `path`, read without a [`ClipReader`] (the examples).
+pub fn probe_skeleton(data: &GameData, path: &str) -> Result<PreparedSkeleton, String> {
+    prepare_skeleton(decode(data, &fnv_vfs::normalize(path)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1336,9 +1341,4 @@ mod tests {
         // A bone the skeleton does not have: the same.
         assert_eq!(rigid_local(&skel, 9, &Affine3A::IDENTITY, &shape), shape);
     }
-}
-
-/// The prepared skeleton at `path`, read without a [`ClipReader`] (the examples).
-pub fn probe_skeleton(data: &GameData, path: &str) -> Result<PreparedSkeleton, String> {
-    prepare_skeleton(decode(data, &fnv_vfs::normalize(path)))
 }
