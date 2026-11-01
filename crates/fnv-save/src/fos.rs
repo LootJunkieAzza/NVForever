@@ -663,7 +663,7 @@ mod tests {
             p.f32(if i == 38 { 2.0 } else { 0.0 }).bar();
         }
         p.u8(0).bar().f32(1.0).bar().vs(3).bar().u8(0x5E).bar().vs(1).bar().r(4).bar().u8(1).bar();
-        p.u8(0x18).bar().r(2).bar().f32(1.0).f32(2.0).f32(3.0).bar().f32(3.14).bar();
+        p.u8(0x18).bar().r(2).bar().f32(1.0).f32(2.0).f32(3.0).bar().f32(3.5).bar();
         p.vs(2).bar();
         p.r(4).bar().u32(9).bar().vs(0).bar();
         p.r(4).bar().u32(1).bar().vs(1).bar().vs(2).bar().u8(0x16).bar().u8(0x25).bar().f32(41.25).bar();
