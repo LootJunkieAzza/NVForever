@@ -56,7 +56,8 @@ impl Default for DialogueCamera {
 pub struct TileWatch {
     pub id: u32,
     pub path: String,
-    pub last: TileValue,
+    /// `None` while the trait is not there (its menu still is) [observed: itr probes].
+    pub last: Option<TileValue>,
 }
 
 /// A trait's value as a watch compares it: a number, or text.
@@ -157,15 +158,22 @@ fn text(args: &[XVal], k: usize) -> String {
     }
 }
 
+/// The menu a tile path starts with.
+fn menu_of(path: &str) -> &str {
+    path.split(['/', '\\']).next().unwrap_or_default()
+}
+
 fn yes(b: bool) -> XVal {
     XVal::Num(f64::from(u8::from(b)))
 }
 
 /// A path the radio functions take: relative, ending in .wav or .ogg [documented:
-/// PlayRadioFile, QueueRadioTrack "Only relative .wav and .ogg paths are accepted"].
+/// PlayRadioFile, QueueRadioTrack "Only relative .wav and .ogg paths are accepted"],
+/// or .mp3 [observed: itr probes, QueueRadioTrack "nvf\a.mp3" returns 1]; an absolute
+/// path is refused [observed].
 fn radio_path_ok(p: &str) -> bool {
     let l = p.trim().to_ascii_lowercase();
-    !l.is_empty() && (l.ends_with(".wav") || l.ends_with(".ogg")) && !l.starts_with(['\\', '/']) && !l.contains(':') && !l.split(['\\', '/']).any(|s| s == "..")
+    !l.is_empty() && (l.ends_with(".wav") || l.ends_with(".ogg") || l.ends_with(".mp3")) && !l.starts_with(['\\', '/']) && !l.contains(':') && !l.split(['\\', '/']).any(|s| s == "..")
 }
 
 impl Game<'_> {
@@ -236,12 +244,13 @@ impl Game<'_> {
         for w in &mut self.other.itr.tile_watches {
             match self.ui_tree.get(&w.path).map(TileValue::from) {
                 // [documented: WatchTileValue, "Watches are removed when their menu closes"].
-                None => gone.push(w.id),
+                None if self.ui_tree.menu(menu_of(&w.path)).is_none() => gone.push(w.id),
+                None => w.last = None,
                 Some(v) => {
-                    if w.last != v {
+                    if w.last.as_ref() != Some(&v) {
                         fired.push((w.id, w.path.clone(), v.clone()));
                     }
-                    w.last = v;
+                    w.last = Some(v);
                 }
             }
         }
@@ -462,11 +471,11 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // ---- keys ----
         // `key [mask]`: DisableKey, kept under the mask group (0 when none), and
         // ITR:OnKeyDisabled with the key and mask [documented: DisableKeyEx; hypothesis:
-        // the event's parameters, no page]. 0 for a code that is no key (0-255, or a
-        // mouse button 256-263) [hypothesis].
+        // the event's parameters, no page]. Any code is taken [observed: itr probes,
+        // DisableKeyEx 300 returns 1]; 0 only for a code outside 1-65535 [hypothesis].
         "disablekeyex" | "enablekeyex" => {
             let code = num(args, 0, -1.0) as i64;
-            let Some(k) = u16::try_from(code).ok().filter(|&k| k > 0 && k < 264) else { return Some(Ok(zero)) };
+            let Some(k) = u16::try_from(code).ok().filter(|&k| k > 0) else { return Some(Ok(zero)) };
             let mask = num(args, 1, 0.0) as i64;
             let masks = g.other.itr.key_masks.entry(k).or_default();
             if name == "disablekeyex" {
@@ -530,7 +539,15 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             g.other.itr.eye_meshes.insert(e, (left, right));
             one
         }
-        "cleareyemesh" => yes(form(args, 0).is_some_and(|e| g.other.itr.eye_meshes.remove(&e).is_some())),
+        // ClearEyeMesh: 1 for an eyes form, set or not [observed: itr probes, a second
+        // ClearEyeMesh returns 1 too].
+        "cleareyemesh" => match form(args, 0).filter(|&e| g.data.sig(e) == Some(*b"EYES")) {
+            Some(e) => {
+                g.other.itr.eye_meshes.remove(&e);
+                one
+            }
+            None => zero,
+        },
         // ---- hair colour ----
         // `[channel] [npc]` on the NPC base: 1 red, 2 green, 3 blue, else the packed
         // red + green·256 + blue·65536 SetHairColor takes; 0 for no NPC [documented:
@@ -698,11 +715,16 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         }
         // ---- UI tiles ----
         // `path trait`: a positive id, the same one for a trait already watched, 0 when
-        // the trait is not there or 48 are watched [documented: WatchTileValue]. The
-        // trait's path is the tile's path and the trait's name.
+        // 48 are watched [documented: WatchTileValue]; a trait that is not there is
+        // watched too while its menu is [observed: itr probes, "HUDMainMenu"
+        // "_nvfnone" returns an id; the page says 0], 0 without the menu [hypothesis].
+        // The trait's path is the tile's path and the trait's name.
         "watchtilevalue" => {
             let path = format!("{}/{}", text(args, 0).trim_end_matches(['/', '\\']), text(args, 1));
-            let Some(v) = g.ui_tree.get(&path).map(TileValue::from) else { return Some(Ok(zero)) };
+            let v = g.ui_tree.get(&path).map(TileValue::from);
+            if v.is_none() && g.ui_tree.menu(menu_of(&path)).is_none() {
+                return Some(Ok(zero));
+            }
             let norm = |p: &str| p.replace('\\', "/").to_ascii_lowercase();
             if let Some(w) = g.other.itr.tile_watches.iter().find(|w| norm(&w.path) == norm(&path)) {
                 return Some(Ok(XVal::Num(f64::from(w.id))));
