@@ -528,8 +528,21 @@ Jules' Topic007 borrow another topic's line (INFC/INFX).
    StartConversation stall, check 45; since #1113 it finds no greeting, the explorers'
    0x0014E9FF being Say Once and held for every actor once said, check 31); the HELIOS One west-terminal password lands on
    Fantastic as the speaker (check 46); Kilborn's conversation ends when stage 100 stops
-   vNiptonVulpes; Doctors 30's line (0x000BE417) is offered by none of the doctors tried;
-   VNellisInfestation's iInfestation stays 0 when the emitter is used before the power.
+   vNiptonVulpes: every line he has as a fixed speaker is that quest's, so nothing is left
+   to offer and ours closes it, as dialogue.md's [hypothesis] says (check 69). Two are the
+   data's own (#1113) [observed]: Doctors 30's line (DoctorRadiationYES 0x000BE417, Info
+   Refusal, no conditions) can be said by no placed actor: Doctors' quest conditions ask
+   for DoctorsDialogueFaction and not Doc Mitchell's voice type 0x0010512F; of the
+   faction's NPCs, Sawbones and Markland have VDoctors lines of the topic (priority 76 over
+   Doctors' 75, a GetIsID line with no other condition always among them), Doc Mitchell is
+   left out by his voice, Doctor Barrows and DocAATEMPLATE are placed nowhere, and Doctor
+   Rotson (Hell's Motel, templated on DocAATEMPLATE with no template flags) is not in the
+   faction. VNellisInfestation's iInfestation stays 0 when the emitter is used before the
+   power: the emitter's OnActivate sets it only when objective 15 (the power) is done, the
+   ants' OnDeath only when objective 20 is still open (the emitter has completed it), and
+   the generator door's script asks for GetDeadCount NellisAntWorkerExplosive == 15 while
+   5 are placed (10 soldiers), so no script sets it (a door activation after the power
+   reads 5 and 10 headless).
 5. **Not from this batch:** `GetQuestVariable` "parameter 1 is not a form" in every Hidden
    Valley/Freeside run (INFO 0x0014B595-97); issue #907.
 
