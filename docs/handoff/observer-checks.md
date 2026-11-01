@@ -355,6 +355,12 @@ The numbers above stay put so links to them hold; each item here gives its own p
     - Does their count drop?
     Setup: Powder Gangers with dynamite at NCRCF, or a Legion squad.
     ([combat-ai §20](../design/combat-ai.md))
+    Tried 2026-11-01 (o12_grenades, nvfairport runway): three gun Powder Gangers
+    (LvlPowderGangerGunVar) given 5 dynamite each (8, 8 and 10 carried) and set on the
+    god-mode player threw **none** in 24 s at 76-667 units, never drew it, and the counts
+    stayed [observed]. PlaceAtMe's distance argument was ignored (they spawned 120-160
+    units off), so far throws are still untested: next time spawn them with `place` and
+    an `offset` 1,200 units up the runway, and watch a minute or more.
 21. **Packages that send NPCs through player-only load doors** (P2). Some door
     scripts' OnActivate blocks call Activate for the player only. `fnvtool ai reach`
     (routes_through_door) still finds FalloutNV.esm packages routed through them:
@@ -370,6 +376,10 @@ The numbers above stay put so links to them hold; each item here gives its own p
     securitron's gate patrol cross the gate? Do Nero and Big Sal go between their rooms
     and the casino floor through the elevator, or never get there?
     ([doors §5.2](../spec-notes/doors.md))
+    Not settled by the `strip` timeline of 2026-10-19 (6 evening hours): no tracked actor
+    left the Strip, but none was on a gate-crossing package (the MP B patrolled the
+    Lucky 38, VStripMPABPatrol38, not VStripMPBPatrolEmb; the gate securitrons there are
+    the Lucky 38's). Needs a campaign tracking the Strip-gate securitrons themselves.
 22. **Combat answer lines and companion complaints** (P2). To check:
     - When a group-mate says NormalToAlert or NormalToCombat, does a nearby mate answer
       with NormalToAlertResponse or StartCombatResponse?
@@ -617,6 +627,15 @@ The numbers above stay put so links to them hold; each item here gives its own p
     for 40-60 s with no MoveTo; then the same on a hurt restrained gecko, and on each
     after showing the bar 1 s against 10 s before the turn (hostility or the time shown
     are the candidates). ([hud §8](../spec-notes/hud.md))
+    Answered in part 2026-11-01 (o12_enemybar s2, nvftest, settler 1 hurt by DamageAV 20,
+    350 units, no prompt) [observed]: once the bar was up (all three children visible), it
+    **stayed up for the rest of the session, 46 s after the player turned 180 degrees
+    away**, while the settler walked about at 360-620 units out of sight; his Health
+    stayed below base. So for a hurt neutral it does not time out within 46 s; ours drops
+    it after 5.5 s (`hud_target::LINGER_SECONDS`). What ends it is still open (full
+    Health, another target, a cell change are the candidates). The bar took about 10 s
+    of facing to appear (the aim's pitch, most likely); the 1 s session (s1) never showed
+    it, so the 1 s against 10 s comparison did not happen.
 53. **Does the player's own hit show the enemy bar, and for how long?** (P2: every fight
     the player starts.) No capture had the weapon out (IsWeaponOut read 0 after the
     script's Ready taps), so no shot hit. Ours keeps its earlier guess: 5 s after the
@@ -700,6 +719,10 @@ The numbers above stay put so links to them hold; each item here gives its own p
     it stand with its head down (a frame), and do its legs keep running through a blow
     begun on the run or does it stop to bite? ([actors §8.10](../spec-notes/actors.md))
 
+    Tried 2026-11-01 (o12_coyote, nvftest): at 650 units VERGSCoyote6REF neither warned
+    nor charged in 10 s: in combat for 3 loops, then out (OnCombatEnd), GetAnimAction 1
+    for 0.9 s, procedure 44 [observed]. Next try: walk the player in from farther and
+    watch longer.
 ## Added 2026-10-31 (robots' talking lights, issue #1081)
 
 59. **What sets a robot's `Talking` sequence while it speaks** (P3: Victor, Yes Man, Mr.
@@ -731,6 +754,11 @@ The numbers above stay put so links to them hold; each item here gives its own p
     turn to watch from there, and does he go back to his package when the fight ends or
     only later? ([packages §7.6b](../spec-notes/packages.md))
 
+    Tried 2026-11-01 (o12_spectator): the cazador spawned about 150 units from Pete, not
+    near the player 1,200 units off, so the test of a fight coming closer did not happen.
+    What it did show: Pete went into combat for a moment on a runtime package
+    (procedure 21), moved about 50 units, then stood with no package [observed]. Next try:
+    place the cazador with an `offset` from the player, not a distance.
 ## Added 2026-10-31 (melee knockback, issue #1070)
 
 61. **How far a melee blow pushes a living actor, and for how long** (P2: every melee
@@ -743,6 +771,10 @@ The numbers above stay put so links to them hold; each item here gives its own p
     the front; sample its position every game loop for 1.5 s after the hit: the distance,
     how long it moves, and whether the speed falls off. The same with a deathclaw's
     swipe on the player (god mode). ([combat-rules, Knockback](../spec-notes/combat-rules.md))
+    One sample 2026-11-01 (o12_reach deathclaw, nvfairport, god mode): a
+    VCrTier4DeathClawMed's hit threw the standing player about 65 units **up** and only
+    about 9 sideways at once, then the player fell back over 0.5 s, never knocked down
+    (GetKnockedState 0) [observed]. Settler and Sledgehammer cases still open.
 62. **Does AddReputation with axis 2 or 3 stop the script, as SetReputation does?** —
     answered 2026-11-01 (o11_00, o11_05 on nvftest): **yes**, and RemoveReputation and
     AddReputationExact too: the call changes nothing and the script's next line does not
