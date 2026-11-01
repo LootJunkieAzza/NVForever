@@ -210,7 +210,8 @@ at its midpoint (saves of 70-370 KB). With 41 chains, two differ, `fail-boulder-
 `come-fly-with-me`: both save while the player is hunted (after a fight); awareness (detection states,
 who hunts whom) is not part of a save by design (save-load.md: the engine measures again),
 and a headless run has no detection to measure it, so after the load the player is out of
-combat and CGTutorial's script resets its `VATSTimer` (0, not 16). Soft, and a lead for
+combat and CGTutorial's script resets its `VATSTimer` (0, not 16). (Since 2026-11-01, #971,
+the save keeps each actor's detection state and lists, so the player stays hunted.) Soft, and a lead for
 play: in the engine the quest script may run in the first frame after a load before
 detection does, read IsInCombat 0 and show the VATS tutorial message again when combat
 comes back [hypothesis, not run]. The smoke check carries it as known failing. The first run differed in two of intro's stopwatch
@@ -342,8 +343,8 @@ to talk (the play loop does); a container opened by the player runs OnOpen/OnClo
    dialogue packages start no conversation headless (§2 item 6); AI arrivals and sitting are
    stood in; MoveTo travel leaves Dead Money's collar radios counting the player in range
    (their check runs only while their cell is loaded); no pickpocket, loot or sit op.
-5. Soft: save and load drops awareness (by design, §6), so a headless run loaded mid-fight
-   reads IsInCombat 0; in play the VATS tutorial message may show again.
+5. Fixed 2026-11-01 (#971): save and load dropped awareness (§6), so a headless run loaded
+   mid-fight read IsInCombat 0; detection states and lists are now saved.
 6. Data notes [observed]: SetStage on stages a quest does not define does nothing (Dead
    Money); NVDLC02MQ02 is never started (its errands take its place); the Pine Creek tunnel
    trigger script and Jason's farewell trigger have no placed reference; `scripted:X#n`

@@ -96,7 +96,8 @@ original lacks it); **Save?**: *yes* (must be saved), *have* (already in the sna
 | Long-lived provocations | `provocations.grudges/forgiven` | not found | **yes: add** (cheap) |
 | Package scan time | `package_scan_due` | none | rebuild (reset on load) |
 | Trespass warnings | `crimes.warnings/trespassing` | not found | drop |
-| Request queues, animations, detection, awareness, Wait/Sleep in progress | marked "Not saved" in `Game` | none | drop |
+| Request queues, animations, detection values, detection events, Wait/Sleep in progress | marked "Not saved" in `Game` | none | drop |
+| Detection states: each actor's state (Normal/Alert/Combat/Lost), alert and target lists, the target fought; StartCombat's forced pairs | `awareness` (`awareness.actors`, `awareness.forced`) | not found | **saved since 2026-11-01** (#971): a fight goes on after a load, and IsInCombat on the player reads the same before the first detection round; the next round measures again as before. Combat groups' tactics, barks and the engine's engage/aim/crouch hints are rebuilt |
 | Config | `cfg: GameConfig` | none | rebuild from settings (seed: see §5) |
 
 ### 3.3 AI (fnv-ai, used by `engine/nvforever`)

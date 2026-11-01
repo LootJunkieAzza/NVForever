@@ -33,12 +33,13 @@ use crate::game::{event, Game};
 use crate::package::flags;
 use fnv_script::vm::Value;
 use fnv_sim::FormId;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 const AGGRESSION: u16 = crate::actor_values::AGGRESSION;
 
 /// An actor's detection state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize)]
 pub enum State {
     #[default]
     Normal,
@@ -98,7 +99,7 @@ impl State {
 }
 
 /// CreateDetectionEvent's event types [documented: GECK wiki CreateDetectionEvent].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum EventType {
     Bullet,
     Beam,
@@ -127,7 +128,7 @@ impl EventType {
 }
 
 /// Why an alarm is on an actor's alert list.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Cause {
     /// A hostile it noticed (above −20, not detected).
     Noticed,
@@ -154,7 +155,7 @@ impl Cause {
 }
 
 /// An entry of an actor's alert list: something of `owner` happened at `at`.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Alarm {
     pub owner: FormId,
     /// Game space.
@@ -169,7 +170,7 @@ pub struct Alarm {
 }
 
 /// An entry of an actor's target list.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Target {
     /// The band and value of the latest measurement.
     pub band: Band,
@@ -264,7 +265,7 @@ pub struct Said {
 }
 
 /// One actor's detection state, alert list and target list.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Awareness {
     pub state: State,
     /// `Game::time` the state began.
