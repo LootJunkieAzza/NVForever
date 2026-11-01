@@ -1638,7 +1638,8 @@ expect = [
   "pipboy radio: on, tuned to RadioNewVegasTA",
   { re = 'radio: RadioNewVegasTA says RadioHello .*maleuniquemrnewvegas', label = "Mr. New Vegas opens the station" },
   { re = 'radio: RadioNewVegasTA says RNVNews', label = "and reads the news" },
-  { re = 'radio: RadioNewVegasTA says RNVMusic \S+: sound\\songs', count = 0, label = "no song before the radio is turned off: the Radio mixer holds only his speech" },
+  { re = 'the Pip-Boy tuned to RadioNewVegasTA playing sound\\voice\\', min = 5, label = "the Pip-Boy plays his lines" },
+  { re = 'the Pip-Boy tuned to RadioNewVegasTA playing sound\\songs', count = 0, label = "and no song before it is turned off (the programme runs on after): the Radio mixer holds only his speech" },
   { re = 'volumes master 100%, music 100%, footstep 100%, voice 0%, effects 100%, radio 100%$' },
   { re = 'audio categories after volumes: .*radio (?P<n>[\d.]+) s audible', range = [25, 1e9], label = "his speech is heard with Voice at 0 (#1077)" },
 ]
