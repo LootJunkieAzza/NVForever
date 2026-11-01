@@ -1455,7 +1455,11 @@ Owner's request, 2026-10-11. Code: `fnv_combat::condition`, `fnv_sim::inventory`
     §8]. At 0.2 health a landed blow the lead pipe would have shown 94.8, so in the
     original an NPC's melee blows on the player wear its weapon by much less than ours'
     rule, or not at all. Whether god mode on the target stops the wear was not
-    separated [hypothesis to test with a mortal target].
+    separated. Against a mortal player (o15_round, 2026-11-01, healed by script) the
+    weapons' GetEquippedCurrentHealth 5 did not move at all: lead pipe 49.95 over 10
+    swings, sledgehammer 149.85 over 12, and an NPC 10mm Pistol 79.92 over 42 shots, a
+    Hunting Rifle 299.7 over 15 [observed]. So these NPCs' weapons do not wear from
+    their own attacks; ours wears them (`actor_attacks`) — #1334.
 - **A weapon that is hit** [design: the owner's rule]. An actor holding its weapon
   drawn has a hit volume along the weapon (`hitvol::WEAPON_PART`: one capsule along the
   longest side of the model's bounds, `nvforever::limbs::weapon_segment`).

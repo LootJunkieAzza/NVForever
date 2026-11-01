@@ -1296,6 +1296,8 @@ struct PlayCtx<'a> {
     index: &'a WorldIndex,
     children: &'a HashMap<FormId, Vec<FormId>>,
     quests: &'a std::collections::BTreeMap<FormId, fnv_game::quest::QuestState>,
+    /// The game, for what scripts changed of a form (SetMessageFlags, SetMessageDisplayTime).
+    game: &'a Game<'static>,
 }
 
 impl PlayCtx<'_> {
@@ -1335,12 +1337,12 @@ impl EffectCtx for PlayCtx<'_> {
     }
 
     fn is_message_box(&self, message: FormId) -> bool {
-        self.data.messages.contains_key(&message) && self.message_flags(message) & 1 != 0
+        self.data.messages.contains_key(&message) && self.game.message_flags(message) & 1 != 0
     }
 
     fn message_look(&self, message: FormId) -> (Option<String>, Option<f32>) {
         let Some(m) = self.data.messages.get(&message) else { return (None, None) };
-        (m.icon.and_then(|i| self.data.menu_icons.get(&i).cloned()), self.message_seconds(message).map(|s| s as f32))
+        (m.icon.and_then(|i| self.data.menu_icons.get(&i).cloned()), self.game.message_seconds(message).map(|s| s as f32))
     }
 
     fn skill_look(&self, code: u16) -> (String, Option<String>) {
@@ -1923,7 +1925,7 @@ pub(crate) fn run_scripts(
     // `activate::drawn`), and MoveToMarkerWithFade's fades (`fade`).
     let culled = std::mem::take(&mut rt.game.script_looks.critical_changed);
     let move_fades = std::mem::take(&mut rt.game.script_looks.fades);
-    let ctx = PlayCtx { sim: &sim, data: rt.game.data, index: play.index, children: &rt.children, quests: &rt.game.quests };
+    let ctx = PlayCtx { sim: &sim, data: rt.game.data, index: play.index, children: &rt.children, quests: &rt.game.quests, game: &rt.game };
     let mut effects = script_events::effects(&events, &skip, &ctx);
     // Objects a script moved, turned or resized: their collision follows (`crate::phys`).
     for r in rt.game.turned.union(&console_turned) {

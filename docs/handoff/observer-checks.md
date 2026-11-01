@@ -57,6 +57,10 @@ engine if needed, and delete the item here.
    a weapon of their own class, condition) is open. The first tries (o11_02, o11_03,
    steps jobs) failed on the plugin compiling only one full script per job
    (xnvse-capture.md §6).
+   In combat (o15_round, nvfairport, 2026-11-01) [observed]: a trooper holding a 10mm
+   Pistol and one holding a Hunting Rifle, each also carrying a Grenade Rifle and 20
+   40mm grenades, kept their own gun drawn through 42 and 15 shots; neither drew the
+   Grenade Rifle. Same divergence as above (ours would draw it).
 2. **Who attacks you, and who joins a fight.** Ours:
    - 618 placed Aggressive (not Very Aggressive) animals ignore you until attacked.
    - Inside an aggro radius, an actor warns twice 5 s apart, then attacks.
@@ -73,6 +77,17 @@ engine if needed, and delete the item here.
    field set and OnStartCombat events. ([factions](../spec-notes/factions.md),
    [combat-ai §10, §12, §13](../design/combat-ai.md), [followers](../design/followers.md),
    [packages §3.1](../spec-notes/packages.md))
+   Tried 2026-11-01 (o16_air, nvfairport runway, mortal player healed by script, nothing
+   set on the player) [observed]: two spawned CrCoyote (GetAV Aggression 1, Aggressive)
+   700 units off detected the player and fought it unprovoked (one in combat at once,
+   the other OnStartCombat about 1 s in; 13 bites); two more at 250 units the same (15
+   bites). Two VCrTier2GeckoMed (Aggression 2) were in combat at once. Two CrDogWild
+   (Aggression 1) at 250 units never detected the player (GetDetected 0) and started no
+   combat in 0.2 game hours. So Aggressive coyotes do not wait to be attacked: ours'
+   first rule does not hold for them (#1341). Open: why the wild dogs never detected
+   the player, placed (not spawned) animals, warnings, allies, onlookers, escorts.
+   (killall between sessions left the earlier spawns standing: later sessions had them
+   around too.)
 3. **Damage numbers.** Ours:
    - Power attacks do 3× standing and 2× moving.
    - A damage type uses its resistance in place of DR (capped at 85 %, after DT).
@@ -92,6 +107,14 @@ engine if needed, and delete the item here.
    [weapon-data-fields](../spec-notes/weapon-data-fields.md),
    [crippled-limbs](../spec-notes/crippled-limbs.md), [difficulty](../spec-notes/difficulty.md),
    [hit-effects](../spec-notes/hit-effects.md), [physics §6.12](../spec-notes/physics.md))
+   Player limbs, 2026-11-01 (o17_air limbs_10mm, nvfairport, mortal player, a trooper's
+   10mm Pistol, three runs to the player's death, 38 hits) [observed]: each body hit
+   took 16.06 Health; the arm or leg hit lost the same 16.06 of its condition, the torso
+   (EnduranceCondition) 6.69 (0.4167 of it); a head hit took 32.12 Health and 20.075
+   PerceptionCondition (0.625 of the Health lost, as on one larger 76.12 head hit). So
+   nothing halved arm and leg damage here; whether ours' `fCombatPlayerLimbDamageMult`
+   halving is cancelled by body-part multipliers is open (#1345). The lead-pipe trooper
+   never landed a blow in 0.15 h (no data).
 4. **Hardcore needs and waiting.** Partly answered 2026-10-31 (o7_00, o7_05, owner save
    nvfHardcore, TimeScale 30, about 59 frames a second):
    - The needs rise at our rates [observed]: Dehydration 2 every 0.168 game hours
@@ -128,8 +151,12 @@ engine if needed, and delete the item here.
    Answered in part 2026-11-01 (o14_reach, nvfairport, god-mode player) [observed]: NPC
    melee weapons (knife, sledgehammer, super sledge, lead pipe, bumper sword) stayed at
    GetWeaponHealthPerc 99.9 through 12-16 swings and about 13 landed blows each; ours
-   would take a lead pipe to 94.8. Open: whether god mode on the target hides the wear
-   (repeat on a mortal target), and the player's own swings and the override weapons.
+   would take a lead pipe to 94.8. Repeated on a mortal player (o15_round, no god mode,
+   healed every 20 samples): GetEquippedCurrentHealth 5 stayed exact, lead pipe 49.95
+   over 10 swings with blows landing, sledgehammer 149.85 over 12; and NPC guns did not
+   wear either: a 10mm Pistol 79.92 over 42 shots, a Hunting Rifle 299.7 over 15. So
+   these NPCs' weapons do not wear from their own attacks (Cook-Cook's Incinerator did,
+   §17: the override weapons may differ). Open: the player's own swings and shots.
 6. **Detection.** Ours:
    - Light level is ambient + sun + lamps; sunlight counts only where unshaded.
    - FOV is 95° each side, and sneak-running counts as running.
@@ -147,6 +174,20 @@ engine if needed, and delete the item here.
    sneak with a key tap (the plugin's tap) and check IsSneaking, and use Sunny or a
    settler of the save rather than a spawned trooper, whose detection may not run while
    it is idle out of combat [hypothesis].
+   Retried 2026-11-01 (o16_town, nvftest, player still, GetDetected player on every
+   nearby actor every loop) [observed]:
+   - `TapControl 8` toggles sneak: IsSneaking went 0 to 1 (and, in a session that began
+     sneaking, 1 to 0). Sessions do not reload the save, so sneak carries over.
+   - The save's own residents do detect: outdoors at noon, 400 units from Settler 1,
+     three residents had GetDetected 1 at times while the player stood; at midnight five
+     of eight had it 1 while standing, and after the tap to sneak four of them dropped to
+     0 within 14-50 loops, two coming back to 1 for a while later.
+   - Indoors at noon 600 units from Sunny's spot (cell 00106185), none of the four
+     actors there detected the player standing or sneaking. Sunny's ref was not among
+     them [hypothesis: she was elsewhere at noon].
+   So the spawned troopers' 0 in o14_detect was the trooper, not the readout. Not yet
+   enough for the light, FOV or flashlight rules: next, sneak at noon vs midnight from
+   the same spot and distances, by settler, with the flashlight on.
 7. **Casino payouts.**
    - Slots: ours pays back about 1.35 per chip, so max winnings come fast. Check the
      reading of "= BET × N", the cherry rule and the middle row.
@@ -295,6 +336,19 @@ engine if needed, and delete the item here.
     - Knockdown length: not captured. `player.PushActorAway <spawned> 60` knocked
       neither a free-standing trooper nor a gecko (GetKnockedState stayed 0); next time
       use a placed explosion on a free-standing spawned actor (blast_knockdown's setup).
+      Tried that too (o15_round): `rA.PlaceAtMe GrenadeFragExplosion 1` and
+      `WeaponKnockdownExplosion` from a timed script on a free-standing spawned trooper
+      gave no OnHit and no GetKnockedState change. Placed by the spawned actor's own
+      PlaceAtMe in a timed script, the explosion seems not to go off [hypothesis]; next
+      time place it on a save's own actor as blast_knockdown did on Ringo.
+      Retried 2026-11-01 (o16_town, nvftest): `RingoRef.PlaceAtMe GrenadeFragExplosion 1`
+      (in GSGasStation) and the same on Settler 1 outdoors: no OnHit, no Health change, no
+      GetKnockedState 2, so the placed explosion did not go off on the save's own actors
+      either. The 2026-10 knockdown_look timeline (PushActorAway 10/40/120 on Ringo) also
+      has GetKnockedState 0 throughout. Script-placed explosions and PushActorAway knock
+      nobody down in these captures; next: a grenade thrown by an NPC (o12's dynamite
+      ganger) at a spawned actor, or the player firing a grenade rifle by TapControl 4
+      (the tap fires: see 53).
 
 ## P3: smaller or rarer
 
@@ -564,6 +618,17 @@ The numbers above stay put so links to them hold; each item here gives its own p
     per creature (e.g. a mongrel set on the player again and again from behind), and
     whether a standing turn without combat (a Travel package to a marker behind it)
     takes × 1.25 or × 3. ([actors §8.10](../spec-notes/actors.md))
+    Tried 2026-11-01 (o17_air, nvfairport runway, one creature spawned 400 units behind a
+    still god-mode player, heading every loop) [observed]:
+    - CrCoyote: in combat at once, it turned about 125° onto the player at a steady
+      187-189°/s (standing or creeping, GetAnimAction -1, 115 units off), stopping
+      exactly on the bearing. Then, attacking (GetAnimAction 2) and moving 85-270 u/s,
+      its heading tracked the bearing at 41-42°/s one way and 85-99°/s the other.
+    - VCrTier2GeckoMed: in combat at once, it turned at a steady 599-603°/s for about
+      0.15 s (the long way round, away from the bearing), then the rate fell smoothly
+      from about 560 to 85°/s over the next 0.25 s while it moved off at 50-250 u/s.
+    The coyote's and gecko's TNAM were not read here, so the ×1.25 / ×3 question is not
+    settled; next: read their TNAM (fnvtool), set the ratio, and add a non-combat turn.
 
 ## Added 2026-10-30 (add-on walkthroughs, issue #918)
 
@@ -678,6 +743,15 @@ The numbers above stay put so links to them hold; each item here gives its own p
     50 ms for 20 s; then the same with the crosshair off him at the moment of the hit (a
     shot from a script, or a grenade), and at 120 units where he is the activation target.
     ([hud §8](../spec-notes/hud.md))
+    Tried 2026-11-01 (o16_town hit53_settler, nvftest, god mode) [observed]: the weapon
+    can be drawn by script: `player.EquipItem Weap10mmPistol 0 1` then `TapControl 7`
+    gave IsWeaponOut 1 within 17 loops; `TapControl 4` then fired one shot. But the
+    shot, after a scripted SetAngle Z toward Settler 1 (GetHeadingAngle) and X 0, hit
+    another actor (OnHit target 0017B64E, not in the nearby scan), not him: no settler's
+    Health changed. `EnemyHealth`'s own `visible` went from 8 to 1 at the shot and its
+    three children stayed 0, so no bar showed. Not settled; next: aim by GetHeadingAngle
+    with pitch from the height difference (SetAngle X), the settler alone, and confirm
+    the hit by his Health before reading the bar.
 
 ## Added 2026-10-30 (UI tile tree T8: the pointer and keys)
 

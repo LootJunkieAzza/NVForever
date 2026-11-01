@@ -515,6 +515,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "fnv-esm",
+ "fnv-install",
  "fnv-save",
  "fnv-script",
  "fnv-sim",
@@ -706,6 +707,7 @@ dependencies = [
  "fnv-nav",
  "fnv-nif",
  "fnv-phys",
+ "fnv-save",
  "fnv-script",
  "fnv-sim",
  "fnv-spt",
