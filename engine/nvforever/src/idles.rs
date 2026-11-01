@@ -184,10 +184,19 @@ impl<C> IdleSlot<C> {
     /// The idle that shows now asked for again by a script or a dialogue line is not
     /// started over: it plays on, or holds its last pose again (`IdlePlay::again`);
     /// returns false then. (Collections, fidgets and gestures that pick the same idle
-    /// again play it again.)
+    /// again play it again.) That holds too for an ended one that a fidget or a
+    /// collection's idle, started as it ended, now fades in over: it comes back and the
+    /// newcomer goes [design: #1355, the opening's mirror hand-over, where Doc's chair
+    /// fidget started in the step the scripted idle ended and the next line's speaker
+    /// idle, asked for a frame later, handed the mirror over a second time].
     fn start(&mut self, idle: u32, source: IdleSource, owner: Option<FormId>, clip: C, play: IdlePlay) -> bool {
         let asked = matches!(source, IdleSource::Script | IdleSource::Speaker | IdleSource::Listener);
-        if let Some(c) = self.cur.as_mut().filter(|c| asked && idle != 0 && c.idle == idle && c.group.is_none() && !c.play.gone()) {
+        let same = |c: &Playing<C>| idle != 0 && c.idle == idle && c.group.is_none() && !c.play.gone();
+        let picked = |c: &Playing<C>| !matches!(c.source, IdleSource::Script | IdleSource::Speaker | IdleSource::Listener);
+        if asked && self.cur.as_ref().is_some_and(picked) && self.prev.as_ref().is_some_and(same) {
+            self.cur = self.prev.take();
+        }
+        if let Some(c) = self.cur.as_mut().filter(|c| asked && same(c)) {
             c.play.again();
             (c.source, c.owner) = (source, owner);
             return false;
@@ -1162,6 +1171,19 @@ mod tests {
         assert!(!s.start(7, IdleSource::Speaker, None, 2, play(3.0, 0.0, Some(1))));
         assert_eq!(weights(&s), [(1, 1.0)]);
         assert_eq!(s.playing().unwrap().play.time(), 3.0);
+        // A fidget started as the scripted idle ended (Doc's chair fidget, #1355): the
+        // line's speaker idle brings the held one back, not a second hand-over.
+        let mut s: IdleSlot<u8> = IdleSlot::default();
+        assert!(s.start(7, IdleSource::Script, None, 1, play(3.0, 0.0, Some(1))));
+        s.advance(3.01);
+        s.check_owner(|_| None);
+        assert!(s.start(9, IdleSource::FurnitureFidget, None, 3, play(16.0, 0.67, Some(1))));
+        s.advance(0.02);
+        assert!(!s.start(7, IdleSource::Speaker, None, 2, play(3.0, 0.0, Some(1))));
+        assert_eq!(weights(&s), [(1, 1.0)]);
+        assert_eq!(s.playing().unwrap().play.time(), 3.0);
+        // Another asked idle over the fidget is a new one, as before.
+        assert!(s.start(8, IdleSource::Speaker, None, 4, play(1.0, 0.0, Some(1))));
         // A collection picking the same idle again plays it again.
         let mut s: IdleSlot<u8> = IdleSlot::default();
         s.start(7, IdleSource::PackageIdles, None, 1, play(3.0, 0.0, Some(1)));
