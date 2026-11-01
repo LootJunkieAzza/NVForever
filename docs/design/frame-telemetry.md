@@ -194,7 +194,10 @@ giving 100 ms in this example.
 [hypothesis] Preallocate 1,024 frame slots and 3,072 diagnostic slots with reserved header and trailer
 capacity. Drop diagnostics before using frame slots; drop frames when their queue fills. A bounded cursor
 map drops and counts new-path observations on overflow; an import watermark prevents duplicate counts.
-Collection never encodes JSON or performs file I/O. Producers assign seq, check stop conditions and field
+Per-frame collection never encodes JSON or performs file I/O. The only main-thread I/O is outside it:
+plugin start-up resolves and creates the logs directory and guards the path before the first frame,
+and the capture writes two run-log lines (start and summary) through the engine's ordinary logger,
+which writes synchronously like every other log line. Producers assign seq, check stop conditions and field
 bounds, and use a nonblocking queue send. Frame construction bounds markers to eight and their IDs to
 64 ASCII bytes; diagnostic paths are at most 1,024 UTF-8 bytes. These bounds keep each encoded payload
 under 8 KiB. A writer thread merges by seq, serializes and writes without blocking main or render threads.
@@ -233,8 +236,9 @@ records. With a byte cut, counts and seq-gap checks cover only records with seq 
 the later trailer seq and all attempts after the cut. Loss before or at the cut still truncates; attempts
 after the cut are not exporter loss. Duration, frame and byte limits end a lossless bounded interval and
 stay `complete` when nothing in that interval was dropped; the trailer's counts give its actual length.
-Settings changes, writer errors and shutdown timeouts truncate.
-Freeze producers, drain the retained interval, write the trailer and flush, allowing 2 s at shutdown.
+Settings changes, writer errors before the trailer and shutdown timeouts truncate (a final-flush failure
+after a written trailer is the exception described below). Freeze producers, drain the retained interval,
+write the trailer and flush, allowing 2 s at shutdown plus the 100 ms trailer allowance described below.
 The terminal sentinel is exempt from duration checks, but not byte capacity. On I/O failure, stop, log one error and attempt a
 trailer only if writable. Mark partial lines or absent trailers incomplete; never invent exact final drops.
 
@@ -250,7 +254,9 @@ they report `trailer in progress, final status unavailable`, detach the writer a
 or counts. A later trailer retains the status selected by its writer. A successful final flush returns the
 exact serialized trailer. A final flush failure also preserves any wholly written trailer in the report,
 with its original status, an error and `flush_confirmed = false`; the summary flags `flush unconfirmed`
-instead of changing a trailer already written. Consumers must treat that flush outcome as unconfirmed.
+instead of changing a trailer already written. `flush_confirmed` exists only in that report and the log
+summary, not in the JSONL file: a consumer comparing captures must read the run log's summary line too and
+treat a `flush unconfirmed` capture as unconfirmed.
 The GPU sentinel distinguishes unavailable device capability from a known device lacking `TIMESTAMP_QUERY`
 and `TIMESTAMP_QUERY_INSIDE_ENCODERS`; only the latter reports `timestamp_queries_unsupported`.
 
