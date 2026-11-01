@@ -8,25 +8,37 @@
 //! that was not loaded joined the AI at its editor place (or where the low process had
 //! left it) and only then set off.
 //!
-//! So here the engine, while the loading screen is up, hands the AI each actor that
-//! comes into the loaded area and was not in it before the trip ([`Ai::arrive`]); the
-//! AI takes up the actor's current package and, instead of walking, puts it where the
-//! walk ends: at the package's place, on the furniture the package or its sandbox gives
-//! it, at a patrol's first point (one that goes round) or its last (one that goes once,
-//! its waits on the way over). Only walks that start or end in the loaded area
-//! ([`crate::Ai::set_loaded`]) are skipped [hypothesis: the original's actors were seen at the
-//! place, not part-way; whether it puts them exactly at the end or somewhere within the
-//! package's radius is for the observer, docs/handoff/observer-checks.md]. Actors the
-//! player could see before the trip are never moved: the engine leaves them out (a
-//! short fast travel inside the loaded area moves nobody [design, issue #1208]).
+//! So here the engine, while the loading screen of the player's own trip (a load door,
+//! a fast travel; not a script's MoveTo) is up, hands the AI each actor near the
+//! destination that was not in the loaded area shortly before the trip
+//! ([`Ai::arrive`]); the AI takes up the actor's current package and, instead of
+//! walking, puts it where the walk ends: at the package's place, on the furniture the
+//! package or its sandbox gives it, at the patrol point it sets off for (one that goes
+//! round: the nearest, as when its package begins) or at a patrol's last point (one that
+//! goes once, its waits on the way over) [hypothesis: the original's actors were seen at
+//! the place, not part-way; whether it puts them exactly at the end or somewhere within
+//! the package's radius is for the observer, docs/handoff/observer-checks.md].
+//!
+//! Only a walk that starts near the player is skipped: in the loaded area, the cell
+//! buffer or an interior behind a door of the loaded cells (the engine says which, the
+//! `near` of [`Ai::arrive`]): Boone, in his room behind the motel's door, to the
+//! dinosaur in the street. An actor farther away comes as the low process brings it,
+//! stopping at the loaded area's edge ([`crate::process`]: Malcolm Holmes). Actors the
+//! player could see shortly before the trip are never moved: the engine leaves them out
+//! (a short fast travel inside the loaded area, or out of a house and straight back,
+//! moves nobody [design, issue #1208]).
 //!
 //! Not put anywhere: an actor that is dead, unconscious, restrained, rooted, with its
-//! AI off, or not in the world; one following, escorting, searching, fleeing or in a
+//! AI off, not in the world, in a combat state (Alert, Combat, Lost) or just put
+//! somewhere by a script (MoveTo, [`SCRIPT_MOVE_HOLD`]); one whose
+//! package's place is the player or another actor (a hunter sent after the player would
+//! land beside them); one following, escorting, searching, fleeing or in a
 //! conversation (those walks depend on someone else, and go on as they do now).
 
 use crate::carry::{Activity, Ai, Passed, Talking};
 use crate::goal::{self, Goal};
 use fnv_game::game::Game;
+use fnv_game::package::{LocationKind, PackageDef, PackageType};
 use fnv_nav::follow::heading_of;
 use fnv_nav::{NavGraph, Place};
 use fnv_sim::FormId;
@@ -36,6 +48,11 @@ use serde::Serialize;
 /// then a sandbox's own walk from there to the furniture or marker it chose [our choice;
 /// a bound so that a package that keeps sending its actor on cannot hold the loading].
 pub const ARRIVE_WALKS: usize = 3;
+
+/// An actor a script put somewhere (MoveTo, [`Ai::relocate`]) less than this long before
+/// (`Game::time`, seconds, which stands still under a loading screen) stays where it was
+/// put [design: a scene's MoveTo just before the player comes in is the script's word].
+pub const SCRIPT_MOVE_HOLD: f64 = 10.0;
 
 /// How far from a walk's end the navmesh is looked for to stand the actor on, game units
 /// [our choice: the path's end is on the navmesh already, this only finds its triangle].
@@ -57,21 +74,31 @@ pub struct Arrival {
 }
 
 impl Ai {
-    /// `actor` comes into the loaded area as the player arrives somewhere (module
-    /// notes): it takes up its current package, chosen again for the hour it is now, and
-    /// is put where that package's walk would take it, on the furniture it would use
-    /// there. Returns what was done, or `None` when it was not put anywhere (already
+    /// `actor` is near the player as the player arrives somewhere (module notes): it
+    /// takes up its current package, chosen again for the hour it is now, and is put
+    /// where that package's walk would take it, on the furniture it would use there.
+    /// `near` says whether a place is near the player (the loaded area, the cell buffer,
+    /// an interior behind a door of the loaded cells): only a walk starting there is
+    /// skipped. Returns what was done, or `None` when it was not put anywhere (already
     /// there, nowhere to go, or one of those left alone).
-    pub fn arrive(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) -> Option<Arrival> {
+    pub fn arrive(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, near: &dyn Fn(Place) -> bool) -> Option<Arrival> {
         let a = self.agents.get(&actor)?;
         let held = game.extra.get(&actor).is_some_and(|e| e.dead || e.out_cold() || e.restrained);
-        if a.rooted || held || !game.present(actor) || game.ai_off(actor) {
+        let put = self.script_moved.get(&actor).is_some_and(|t| game.time - t < SCRIPT_MOVE_HOLD);
+        if a.rooted || held || put || !game.present(actor) || game.ai_off(actor) || game.awareness.state(actor).in_combat() {
             return None;
         }
         let from = Place { space: a.walker.space, pos: a.walker.feet };
+        if !near(from) {
+            return None;
+        }
         // The hour may have moved on in the trip (a fast travel's hours): the package of
         // now, not of the last periodic choice.
-        game.update_package(actor);
+        let data = game.data;
+        let package = game.update_package(actor)?;
+        if data.package_defs.get(&package).is_none_or(|d| placed_on_an_actor(game, actor, d)) {
+            return None;
+        }
         let (mut walks, mut skipped) = (0, 0.0);
         let mut limit = ARRIVE_WALKS;
         while walks < limit {
@@ -83,11 +110,9 @@ impl Ai {
                 self.sandbox_step(game, nav, actor);
             }
             let Some(to) = self.skippable(actor) else { break };
-            // Only a walk that would be seen: one that starts or ends in the loaded area
-            // (Boone, in his room behind the motel's door, to the dinosaur in the
-            // street); one wholly out of it is the low process's ([`crate::process`]).
+            // Only a walk that starts near the player (module notes).
             let at = Place { space: self.agents[&actor].walker.space, pos: self.agents[&actor].walker.feet };
-            if self.loaded.as_ref().is_some_and(|l| !l.holds(at.space, at.pos) && !l.holds(to.space, to.pos)) {
+            if !near(at) {
                 break;
             }
             let a = self.agents.get_mut(&actor).expect("listed");
@@ -115,8 +140,8 @@ impl Ai {
             };
             self.arrived(game, nav, actor);
             match patrol {
-                // A patrol that goes round starts from its first point and walks on from
-                // there in sight.
+                // A patrol that goes round is at the point it set off for (the nearest,
+                // as when its package begins) and walks on from there in sight.
                 Some((true, _)) => break,
                 // One that goes once has been walked to its end (Boone's night patrol to
                 // the dinosaur's mouth, through his room's and the gift shop's doors):
@@ -155,5 +180,22 @@ impl Ai {
             return None;
         }
         a.walker.follower.as_ref().and_then(|f| f.destination())
+    }
+}
+
+/// Whether `def` has its actor stay near the player or another actor (its location
+/// names one, directly or as the actor's linked reference; a Guard package keeping near
+/// what it guards): its place moves with that actor, so [`Ai::arrive`] does not put it
+/// there (a hunter sent after the player would land beside them).
+fn placed_on_an_actor(game: &Game, actor: FormId, def: &PackageDef) -> bool {
+    let refs = game.world.placed;
+    let is_actor = |r: FormId| r == FormId::PLAYER_REF || refs.get(r).is_some_and(|p| game.data.actors.contains_key(&p.base));
+    if def.ty == PackageType::Guard && def.remain_near_reference() {
+        return true;
+    }
+    match def.location.map(|l| l.kind) {
+        Some(LocationKind::NearReference(Some(r))) => is_actor(r),
+        Some(LocationKind::NearLinked) => refs.get(actor).and_then(|p| p.linked).is_some_and(is_actor),
+        _ => false,
     }
 }

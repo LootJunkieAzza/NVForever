@@ -597,6 +597,9 @@ pub struct Ai {
     /// The columns of followers: for each one followed, its followers in their order
     /// in the line ([`Ai::ahead_in_column`]).
     columns: BTreeMap<FormId, Vec<FormId>>,
+    /// When (`Game::time`) a script last put each actor somewhere ([`Ai::relocate`]):
+    /// [`Ai::arrive`] leaves such an actor where it was put for a while.
+    pub(crate) script_moved: BTreeMap<FormId, f64>,
 }
 
 /// A walker turning at its actor's own rate ([`ActorSpeeds::turn_rate`]).
@@ -615,7 +618,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), restored: BTreeMap::new() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new() }
     }
 
     /// Bring the graph's navmeshes in line with the scripts' switches (EnableNavMesh,
@@ -803,6 +806,7 @@ impl Ai {
     pub fn relocate(&mut self, game: &mut Game, actor: FormId) {
         let Some(place) = goal::place_of_ref(game, actor) else { return };
         let heading = game.world.peek(actor).map_or(0.0, |s| s.rot[2]);
+        self.script_moved.insert(actor, game.time);
         self.set_using(game, actor, None);
         let Some(a) = self.agents.get_mut(&actor) else { return };
         let w = &mut a.walker;

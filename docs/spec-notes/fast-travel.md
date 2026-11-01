@@ -130,9 +130,9 @@ player"]: the teammates following the player come along, put beside them
 
 **The people at the destination** [observed, owner, issue #1208]: they are already where
 their package has them on arrival (Boone at the dinosaur, fast travelling to Novac at
-5am), not walking there. The residents not in the loaded area before the trip are put at
-their package's place behind the loading screen; those that were stay put
-(docs/spec-notes/packages.md §8).
+5am), not walking there. The residents near the destination that the player did not see
+in the last game hour are put at their package's place behind the loading screen; those
+the player saw stay put (docs/spec-notes/packages.md §8).
 
 ## 5. Checking it
 

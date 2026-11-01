@@ -1089,24 +1089,31 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
   actor of a cell that was not loaded joined the AI where it was placed (or where the
   low process left it, §1 of `fnv_ai::process`) and only then set off.
 - **What is built** [hypothesis: the original is seen with the actors at the place,
-  not how it gets them there]: when the player travels behind a loading screen (a fast
-  travel, a load door: both are `nvf_play::Travel`), the residents in the loaded area
-  before the trip stay where they are. Every other resident that comes into the loaded
-  area under the screen, or whose package's walk would bring it in, takes up its
-  current package (chosen again for the hour it is now: a fast travel's hours have
-  passed) and is put where the walk ends instead of walking: at the package's place,
-  on the furniture the package gives it (seated at once, no walk up and no sitting-down
-  clip), at the furniture or marker its sandbox chooses there, at a patrol's first
-  point when it goes round, at its last when it goes once (the waits at the points on
-  the way over: Boone's night patrol out of his room, through the gift shop, to the
-  dinosaur's mouth) (`fnv_ai::arrive`, engine `residents.rs` `Core::arrive`). An actor
-  found already at its place on its furniture (the low process had it there behind a
-  door) is seated at once too, instead of walking up and playing the sitting-down clip
-  in sight. Walks wholly out of
-  the loaded area stay the low process's. Left alone: actors dead, unconscious,
-  restrained, rooted, with their AI off; walks that depend on someone else (following,
-  escorting, searching, fleeing, a conversation). These actors join the AI and are
-  drawn under the loading screen, so the screen waits for their bodies.
+  not how it gets them there]: when the player goes through a load door or fast
+  travels (not when a script moves the player: `Loading::arriving`), the residents the
+  player saw in the loaded area within the last game hour stay where they are (out of
+  a house and straight back, the street is as it was [design]). Every other resident
+  near the destination, in the loaded area, the cell buffer or an interior behind a
+  door of the loaded cells, whose package's walk starts there, takes up its current
+  package (chosen again for the hour it is now: a fast travel's hours have passed) and
+  is put where the walk ends instead of walking: at the package's place, on the
+  furniture the package gives it (seated at once, no walk up and no sitting-down clip),
+  at the furniture or marker its sandbox chooses there, at the patrol point it sets off
+  for when the patrol goes round (the nearest, as when its package begins), at the last
+  point when it goes once (the waits at the points on the way over: Boone's night
+  patrol out of his room, through the gift shop, to the dinosaur's mouth)
+  (`fnv_ai::arrive`, engine `residents.rs` `Core::arrive`). An actor found already at
+  its place on its furniture (the low process had it there behind a door) is seated at
+  once too, instead of walking up and playing the sitting-down clip in sight. Actors
+  farther away come as the low process brings them, stopping at the loaded area's
+  edge (`fnv_ai::process`, Malcolm Holmes). Left alone: actors dead, unconscious,
+  restrained, rooted, with their AI off, in a combat state, or put somewhere by a
+  script in the last 10 seconds; those whose package's place is the player or another
+  actor (a hunter would land beside the player); walks that depend on someone else
+  (following, escorting, searching, fleeing, a conversation). Each resident is looked
+  at once per trip, after the cells around the player have loaded; those put somewhere
+  join the AI and are drawn under the loading screen, so the screen waits for their
+  bodies.
 - **Open** (docs/handoff/observer-checks.md, check 68): whether the original puts the
   actor exactly at the walk's end or somewhere part-way / within the package's radius;
   whether a short fast travel inside the loaded area moves anybody (ours: nobody,

@@ -17236,7 +17236,7 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:activate:Pr
 args = ["--cell", "Goodsprings", "--play", "--npc-packages", "all,GoodspringsSettler04Ref,TrudyRef,SunnyRef,GSJoeCobbRef,CheyenneREF,EasyPeteRef", "--hour", "20", "--no-voice", "--no-messages"]
 run_seconds = 40
 order = [[
-  { re = 'trip behind a loading screen: (?P<n>\d+) residents in the loaded area stay where they are', range = [5, 999], label = "the residents of Goodsprings' streets stay where they are" },
+  { re = 'trip behind a loading screen: (?P<n>\d+) residents in the loaded area .*stay where they are', range = [5, 999], label = "the residents of Goodsprings' streets stay where they are" },
   { text = "GoodspringsSettler04Ref: already on 0x00106192 at its package's place on arrival: seated at once", label = "the settler is seated on his bar stool at once" },
   { text = "furniture: 00104F08 is back on 00106192", label = "drawn on the stool, no walk up" },
 ]]
@@ -17267,7 +17267,7 @@ expect = [
 [[scenario]]
 name = "arrive-fast-travel-short"
 source = "issue #1208: a short fast travel inside the loaded area moves nobody who was in it (docs/spec-notes/packages.md §8)"
-note = "Novac at 12:00 by the dinosaur; a fast travel to Novac's own marker 2,427 units away (no time passes). Every resident in the loaded area before the trip stays where it is: Manny Vargas, on his way up to the dinosaur's mouth, goes on walking"
+note = "Novac at 12:00 by the dinosaur; a fast travel to Novac's own marker 2,427 units away (no time passes). Every resident in the loaded area before the trip stays where it is: Manny Vargas, on his way up to the dinosaur's mouth, goes on walking. Residents of the rooms behind Novac's doors are near the player and unseen: some are put at their package's place (6 on 2026-11-01)"
 areas = ["ai", "residents", "fast-travel"]
 paths = ["crates/fnv-ai/src/arrive.rs", "engine/nvforever/src/residents.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "6:call:-:ShowMap:0x0009289B:1", NVF_PLAY_TEST_PIPBOY = "12:open,14:page=data,15:tab=1,16:travel=0009289B,17:key=use" }
@@ -17275,9 +17275,9 @@ args = ["--cell", "Novac", "--pos=24300,-31700,7050", "--play", "--npc-packages"
 run_seconds = 40
 order = [[
   { re = 'fast travel: to Novac \(0x0009289B\).* (?P<n>\d+) units away', range = [0, 4096], label = "a short hop inside the loaded area" },
-  { re = 'trip behind a loading screen: (?P<n>\d+) residents in the loaded area stay where they are', range = [10, 999], label = "Novac's residents in view stay where they are" },
+  { re = 'trip behind a loading screen: (?P<n>\d+) residents in the loaded area .*stay where they are', range = [10, 999], label = "Novac's residents in view stay where they are" },
 ]]
 expect = [
   { text = "MannyVargasREF: put at its package", count = 0, label = "Manny Vargas, in view before the trip, is not moved" },
-  { re = 'arrival summary: (?P<n>\d+) residents put', range = [0, 0], label = "nobody put anywhere (2026-11-01: interiors' residents whose walk would come out could be, by the rule)" },
+  { re = 'put at its package.s place on arrival .* units from \([^)]*\) in WastelandNV', count = 0, label = "nobody in Novac's street is put anywhere (residents in the rooms behind its doors may be: they are near and unseen)" },
 ]
