@@ -3964,16 +3964,17 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "00015169:1,000
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
 run_seconds = 24
 # The new player: Health 200, Medicine and Survival 15 (potency 1.3). Stimpak 30 x 1.3 at
-# once; Purified Water 2 x 1.3 a second for 5 s (13); Buffout +2/+3/+60 for 240 s.
+# once; Purified Water 2 x 1.3 = 2.6 a second, rounded down to 2, for 5 s (10; it was 13
+# before #1167 rounded potency-scaled magnitudes down); Buffout +2/+3/+60 for 240 s.
 expect = [
   "test aid: 0x00000014 Health damaged by 60: now 140.0",
   "inventory item used: NPCHumanUsingStimpak",
   "aid: the player used Stimpak (potency 1.30): Health +39.0 at once, limbs too; Health 140 → 179",
-  "aid: the player used WaterPurified (potency 1.30): Health +2.6 a second for 5 s",
+  "aid: the player used WaterPurified (potency 1.30): Health +2.0 a second for 5 s",
   "aid: the player used Buffout (potency 1.00): Strength +2.0 while it lasts (240 s), Endurance +3.0 while it lasts (240 s), Health +60.0 while it lasts (240 s); usage 30; addiction chance 0.00; carry capacity 200 → 220; Strength 5 → 7, Endurance 5 → 8, Carry Weight 200 → 220",
   # When Buffout comes in the 5 s of the water depends on the message boxes; the sum not.
   "aid: WaterPurified's effects on the player ended: Health ",
-  "aid summary: 3 items used (Buffout 1, Stimpak 1, WaterPurified 1), 6 effects started, 2 ended; addictions: none; 0 cured; 0 stage changes; 0 hours waited for effects; the player at exit: Strength 7, Endurance 8, Carry Weight 220, Health 252",
+  "aid summary: 3 items used (Buffout 1, Stimpak 1, WaterPurified 1), 6 effects started, 2 ended; addictions: none; 0 cured; 0 stage changes; 0 hours waited for effects; the player at exit: Strength 7, Endurance 8, Carry Weight 220, Health 249",
 ]
 
 [[scenario]]
@@ -4011,8 +4012,9 @@ commands = [
 # challenge perk (25), Lead Belly (44). §11: five stages per need. Chemist doubles 240 s
 # to 480 s; usage 90 gives 0.2, Chem Resistant halves it; Buffout's +20 capacity outlasts
 # 5 hours (600 s) of a 1,440 s effect. Hardcore: 3 hours slept take Sleep Deprivation 235
-# to 55 (60 an hour, the owner's table 2026-10-23; it was 0 with the old guess of 100)
-# and add 3 x 4.8 Hunger.
+# by 58 an hour, 60 off then the hour's 2 back (#1177: the owner's table 2026-10-23 and
+# 3 hours slept from 0 ending at 2 in the original), to 61; Hunger rises by 3 x 4, whole
+# points (it was 55 and 3 x 4.8 before #1177).
 expect = [
   { json = "perks.count", equals = 109 },
   { json = "perks.entries_by_entry_point.23", equals = 1 },
@@ -4023,8 +4025,8 @@ expect = [
   { json = "use.uses.?item=Buffout.addiction.chance", range = [0.0999, 0.1001], label = "the third Buffout's addiction chance 0.1" },
   { json = "use.wait.values_after.carry_capacity", equals = 220.0 },
   { json = "use.stage_changes.*.spell", equals = "SleepDeprivation200" },
-  { json = "use.wait.values_after.Sleep Deprivation", range = [54.9, 55.1] },
-  { json = "use.wait.values_after.Hunger", range = [14.43, 14.45] },
+  { json = "use.wait.values_after.Sleep Deprivation", range = [60.9, 61.1] },
+  { json = "use.wait.values_after.Hunger", range = [12.03, 12.05] },
 ]
 
 [[scenario]]
