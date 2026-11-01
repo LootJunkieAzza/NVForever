@@ -34,6 +34,43 @@ top down to the first leaf that explains the time. `--log-frame-times <s>` (no v
 and `NVF_PLAY_TEST_SAMPLE` (stress_sample.rs, actors and audio counts) were used beside
 it.
 
+### Profiling options together
+
+[documented in source] `graphics::ensure_render_diagnostics` lets
+`NVF_PLAY_TEST_PROFILE=<seconds>` and `--log-frame-times <seconds>` request the same
+render diagnostics plugin. Both requests share one registration, including when a
+caller has already installed it. With neither option enabled, these paths do not
+install it. The enable conditions and existing report formats are unchanged (#1275).
+
+[documented in pinned Bevy 0.20.1 source; `engine/Cargo.lock`,
+`bevy_app::Plugin::is_unique`, `App::add_boxed_plugin`, and
+`bevy_render::diagnostic::RenderDiagnosticsPlugin`] Registering this unique plugin
+twice takes Bevy's duplicate-plugin panic path; the shared guard avoids it.
+
+[observed: release builds of #1275, default and `nvforever/profile`] Both options
+alone, together and neither start and finish normally, with the expected reports
+present or absent (smoke scenarios `render-diagnostics-*`). Broader profiling and
+performance validation remain separate work.
+
+[documented: `crash.rs` installs the tracing subscriber without the `profile`
+feature; project `info_span!` calls are unconditional] The profile feature enables
+Bevy's own tracing spans, but manually instrumented project spans still appear in a
+default build, so a non-empty profile window does not prove the feature is on.
+
+[documented: `bevy_render-0.20.1/src/diagnostic/internal.rs` (checks device
+features), `wgpu-hal-30.0.1` adapters] GPU timings depend on the device features
+the backend exposes, not on a backend list. GPU timings need `TIMESTAMP_QUERY` and
+`TIMESTAMP_QUERY_INSIDE_ENCODERS`, plus `TIMESTAMP_QUERY_INSIDE_PASSES` for scopes
+inside a pass (the Vulkan, DX12 and Metal back ends expose these, subject to the
+device). Pipeline statistics are separate and optional: they need
+`PIPELINE_STATISTICS_QUERY`, which wgpu-hal 30.0.1 does not yet expose on DX12.
+Without usable timestamp features the timings are CPU-only. Missing GPU timings are
+not zero GPU cost.
+
+[documented: `main.rs`, `settings.rs`] `--log-frame-times` also selects display
+sync off and disables the frame cap settings; match effective presentation settings
+before comparing instrumentation overhead.
+
 ## 2. Item 4: the mantis ootheca
 
 **What happens** [observed: `fnvtool script decompile --form 000EF406`, `esm decode`]:
