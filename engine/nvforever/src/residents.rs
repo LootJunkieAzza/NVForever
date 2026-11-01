@@ -729,7 +729,76 @@ struct Core {
     /// and step sideways or back as they go, so they can fire on the move (owner's
     /// playtest list 5 item 33; owner 2026-10-16, strafing and backing away) [design].
     aims: HashMap<FormId, [f32; 3]>,
+    /// The player's trip behind a loading screen under way (a fast travel, a load door):
+    /// the actors coming into the loaded area are put at their package's place
+    /// ([`Core::arrive`], issue #1208).
+    trip: Option<Trip>,
+    /// When (game hours: GameDaysPassed x 24) each resident was last in the loaded area,
+    /// and the game hours at the last frame: a trip leaves alone whoever the player saw
+    /// within [`RECENTLY_LOADED_HOURS`] ([`recently_loaded`]).
+    loaded_at: HashMap<FormId, f64>,
+    clock_hours: f64,
+    /// Of all trips: actors put at their package's place, actors seated at once (put on
+    /// their furniture, or found on it already), and actors left where they were because
+    /// they were in the loaded area before the trip.
+    arrivals: [usize; 3],
 }
+
+/// A trip of the player behind a loading screen ([`Core::arrive`]).
+struct Trip {
+    /// The residents in the loaded area before it: they are never moved (a short fast
+    /// travel inside the loaded area moves nobody, issue #1208).
+    before: HashSet<FormId>,
+    /// The residents looked at since.
+    seen: HashSet<FormId>,
+    /// Frames since the loaded cells settled with the game no longer held by the screen.
+    settled: u32,
+    /// Residents put at their package's place in this trip, and those seated at once
+    /// (put on their furniture, or found on it already).
+    put: [usize; 2],
+    /// The interiors behind the doors of the loaded cells, once they settled: actors in
+    /// them are near the player ([`interiors_behind_doors`]).
+    doors: Option<HashSet<u32>>,
+}
+
+/// A resident the player saw in the loaded area within this many game hours before a
+/// trip is not moved by it: out of a house and straight back, the street is as it was
+/// [design: coordinator review of #1269; the cell buffer's own life in the original is
+/// not known in hours].
+const RECENTLY_LOADED_HOURS: f64 = 1.0;
+
+/// The residents in the loaded area within [`RECENTLY_LOADED_HOURS`] of `now` (game
+/// hours), from when each was last there.
+fn recently_loaded(loaded_at: &HashMap<FormId, f64>, now: f64) -> HashSet<FormId> {
+    loaded_at.iter().filter(|(_, at)| now - **at <= RECENTLY_LOADED_HOURS).map(|(a, _)| *a).collect()
+}
+
+/// The interiors a load door of the loaded cells leads into (the original's Mid-Low
+/// level, as `Core::take_cells` finds them).
+fn interiors_behind_doors(world: &WorldData, streamer: &Streamer, refs: &RefTable) -> HashSet<u32> {
+    let keys: Vec<CellKey> = match streamer.interior {
+        Some(c) => vec![CellKey::Interior(c)],
+        None => streamer.loaded.keys().map(|g| CellKey::Exterior(*g)).collect(),
+    };
+    let mut out = HashSet::new();
+    for key in keys {
+        let (cell, persistent) = match key {
+            CellKey::Exterior(g) => (world.grid_cell(g), world.persistent_by_grid.get(&g)),
+            CellKey::Interior(id) => (world.index.cells.get(&id), None),
+        };
+        for r in cell.into_iter().flat_map(|c| c.refs.iter()).chain(persistent.into_iter().flatten()) {
+            if let Some(tp) = refs.get(FormId(*r)).and_then(|d| d.teleport.as_ref()) {
+                out.extend(refs.teleport_cell(tp).filter(|c| refs.world_of(*c).is_none() && key != CellKey::Interior(c.0)).map(|c| c.0));
+            }
+        }
+    }
+    out
+}
+
+/// A trip ends this many frames after the loaded cells settled and the loading screen
+/// let the game go [our choice: the frame the last cells' actors join, and the one
+/// they are put in].
+const TRIP_SETTLE_FRAMES: u32 = 2;
 
 #[derive(Resource)]
 pub struct Residents {
@@ -854,6 +923,10 @@ impl Residents {
             knocked: (0, 0.0),
             door_uses: Vec::new(),
             aims: HashMap::new(),
+            trip: None,
+            loaded_at: HashMap::new(),
+            clock_hours: 0.0,
+            arrivals: [0; 3],
         };
         for name in names.iter().flat_map(|n| n.split(',')).map(str::trim).filter(|n| !n.is_empty()) {
             if name.eq_ignore_ascii_case("all") {
@@ -1177,11 +1250,17 @@ impl Core {
         if self.ai.loaded() != Some(&loaded) {
             self.ai.set_loaded(Some(loaded));
         }
+        if let Ok(c) = game.world.calendar() {
+            self.clock_hours = c.days_passed as f64 * 24.0;
+        }
         for r in self.list.iter_mut().filter(|r| r.joined && !r.failed) {
             let Some(a) = self.ai.agents.get(&r.actor) else { continue };
             let (space, feet) = (a.walker.space, a.walker.feet);
             let high = drawn(world, streamer, space, feet);
             r.been_loaded |= high;
+            if high {
+                self.loaded_at.insert(r.actor, self.clock_hours);
+            }
             // Out of the loaded area: Mid-High in the cell buffer, Low beyond (`cell_buffer.rs`).
             // Walking out of the loaded area, or on into another cell, takes the cell along.
             let new_cell = fnv_world::cell_of(r.last_feet[0], r.last_feet[1]) != fnv_world::cell_of(feet[0], feet[1]);
@@ -1230,6 +1309,138 @@ impl Core {
                     debug!("{line}");
                 }
             }
+        }
+    }
+
+    /// The residents not handed to the AI yet are.
+    fn join(&mut self, game: &Game) {
+        for r in self.list.iter_mut().filter(|r| !r.joined) {
+            r.joined = true;
+            if let Err(e) = self.ai.add(game, r.actor) {
+                if r.named {
+                    warn!("ai: {} cannot be handed to the AI: {e}", r.label);
+                }
+                r.failed = true;
+            } else if r.rooted == Some(true) {
+                self.ai.root(game, r.actor);
+                info!("ai: {} cannot move (no movement animations, or flagged Immobile): it stays where it is{}", r.label, if r.perched { "; it flies, so it is in nobody's way" } else { "" });
+            }
+        }
+    }
+
+    /// The player sets off through a load door or on a fast travel, behind a loading
+    /// screen (`nvf_play::Travel` with `Loading::arriving`): who was in the loaded area
+    /// within [`RECENTLY_LOADED_HOURS`] stays where it is through the trip. The clock is
+    /// the last frame's: a fast travel's hours have passed already, so the residents of
+    /// the place left are not kept.
+    fn begin_trip(&mut self) {
+        let before = recently_loaded(&self.loaded_at, self.clock_hours);
+        info!("ai [{}] trip behind a loading screen: {} residents in the loaded area in the last {RECENTLY_LOADED_HOURS} game hour(s) stay where they are", self.clock_text, before.len());
+        self.arrivals[2] += before.len();
+        self.trip = Some(Trip { before, seen: HashSet::new(), settled: 0, put: [0; 2], doors: None });
+    }
+
+    /// While a trip is under way: the residents near the player (in the loaded area, the
+    /// cell buffer, or an interior behind a door of the loaded cells) whose package's
+    /// walk starts there are put where that walk ends, on its furniture (seated at once),
+    /// before the loading screen comes down (`fnv_ai::arrive`; issue #1208: Boone at the
+    /// dinosaur on a fast travel to Novac at 5am, Cass at the Mojave Outpost's bar on
+    /// entering) [observed, owner; the placing itself: hypothesis]. They join the AI and
+    /// are drawn under the screen, so the screen waits for their bodies
+    /// (`readahead::actors_waiting`). They are put once the cells around the player have
+    /// all loaded (`Streamer::settled`, which the screen waits for too), each resident
+    /// looked at once; the others are not touched (the low process keeps them). A
+    /// resident a script moved this frame (MoveTo) stays where it was put. The trip ends
+    /// [`TRIP_SETTLE_FRAMES`] after that and the screen let the game go.
+    fn arrive(&mut self, game: &mut Game, nav: &NavState, world: &WorldData, streamer: &Streamer, mut phys: Option<&mut PhysState>) {
+        if self.trip.is_none() {
+            return;
+        }
+        self.join(game);
+        // Once the cells around the player are all in (the screen stays up for them):
+        // before, a walk's end could be in a cell not loaded yet and the walk left to be
+        // made in sight (Boone stopped in the gift shop, the dinosaur's cell not in).
+        if !streamer.settled {
+            return;
+        }
+        let trip = self.trip.as_mut().expect("checked");
+        let doors = trip.doors.get_or_insert_with(|| interiors_behind_doors(world, streamer, game.world.placed));
+        let near = |p: fnv_nav::Place| drawn(world, streamer, p.space, p.pos) || streamer.buffer.holds(p.space, p.pos) || matches!(p.space, Space::Interior(c) if doors.contains(&c));
+        for r in self.list.iter_mut().filter(|r| r.joined && !r.failed) {
+            // Each resident once; those seen shortly before, and one a script has just
+            // moved (MoveTo), are left as they are.
+            if trip.before.contains(&r.actor) || !trip.seen.insert(r.actor) || r.moved {
+                continue;
+            }
+            let Some(a) = self.ai.agents.get(&r.actor) else { continue };
+            if !near(fnv_nav::Place { space: a.walker.space, pos: a.walker.feet }) {
+                continue;
+            }
+            let arrival = self.ai.arrive(game, &nav.graph, r.actor, &near);
+            r.present = game.present(r.actor);
+            let Some(arr) = arrival else {
+                // Already at its place and on its furniture (the low process had it
+                // there, behind the door): seated at once too, not walked up to it in
+                // sight (the Goodsprings settler's bar stool in the Prospector Saloon).
+                let a = &self.ai.agents[&r.actor];
+                // Its seat not yet taken up (`Seat::Wanted`: it was never drawn there).
+                let unseated = matches!(r.seat, Seat::None | Seat::Wanted(..));
+                if let (Some(f), Activity::There, true) = (a.using, a.activity, unseated) {
+                    r.wants = Some(f.0);
+                    r.seat = Seat::Wanted(f.0, true);
+                    self.arrivals[1] += 1;
+                    trip.put[1] += 1;
+                    let line = format!("ai [{}] {}: already on {} at its package's place on arrival: seated at once", self.clock_text, r.label, game.data.name(f));
+                    if r.named {
+                        info!("{line}");
+                    } else {
+                        debug!("{line}");
+                    }
+                }
+                continue;
+            };
+            self.arrivals[0] += 1;
+            trip.put[0] += 1;
+            // Its character, if it had one, is made again where it is now (as after a
+            // MoveTo, [`Core::take_moved`]).
+            if let Some(p) = phys.as_deref_mut() {
+                p.remove_npc(r.actor.0);
+            }
+            self.unstuck.remove(&r.actor.0);
+            self.skip_until.remove(&r.actor.0);
+            if let Some(f) = arr.furniture {
+                // Sat down at once, as found sitting (no walk up, no sitting-down clip).
+                r.wants = Some(f.0);
+                r.seat = Seat::Wanted(f.0, true);
+                self.arrivals[1] += 1;
+                trip.put[1] += 1;
+            }
+            let line = format!(
+                "ai [{}] {}: put at its package's place on arrival ({}): ({:.0}, {:.0}, {:.0}) in {}, {:.0} units from ({:.0}, {:.0}, {:.0}) in {}, {} walk(s) skipped{}",
+                self.clock_text,
+                r.label,
+                game.data.name(arr.package),
+                arr.to.pos[0],
+                arr.to.pos[1],
+                arr.to.pos[2],
+                nav::space_name(world, arr.to.space),
+                arr.skipped,
+                arr.from.pos[0],
+                arr.from.pos[1],
+                arr.from.pos[2],
+                nav::space_name(world, arr.from.space),
+                arr.walks,
+                arr.furniture.map_or_else(String::new, |f| format!(", seated on {}", game.data.name(f)))
+            );
+            // Every one: a trip puts few, and the smoke tests read where they came from.
+            info!("{line}");
+        }
+        if streamer.settled && !game.loading {
+            trip.settled += 1;
+        }
+        if trip.settled >= TRIP_SETTLE_FRAMES {
+            info!("ai [{}] trip over: {} residents put at their package's place, {} seated at once", self.clock_text, trip.put[0], trip.put[1]);
+            self.trip = None;
         }
     }
 
@@ -1451,18 +1662,7 @@ impl Core {
             self.ai.update_held(game, dt);
             return;
         }
-        for r in self.list.iter_mut().filter(|r| !r.joined) {
-            r.joined = true;
-            if let Err(e) = self.ai.add(game, r.actor) {
-                if r.named {
-                    warn!("ai: {} cannot be handed to the AI: {e}", r.label);
-                }
-                r.failed = true;
-            } else if r.rooted == Some(true) {
-                self.ai.root(game, r.actor);
-                info!("ai: {} cannot move (no movement animations, or flagged Immobile): it stays where it is{}", r.label, if r.perched { "; it flies, so it is in nobody's way" } else { "" });
-            }
-        }
+        self.join(game);
         if own {
             // The game being played advances its own calendar (`nvf_play::sim`) and
             // ticks itself; this module's game state is moved on here.
@@ -2065,6 +2265,8 @@ type Moves<'w, 's> = (
     MessageWriter<'w, nvf_play::world_sounds::DoorPassed>,
     Option<ResMut<'w, crate::attack_anims::AttackTravel>>,
     Option<MessageReader<'w, 's, nvf_play::combat::Knockback>>,
+    Option<MessageReader<'w, 's, nvf_play::Travel>>,
+    Option<ResMut<'w, nvf_play::loading::Loading>>,
 );
 
 type Held<'w, 's> = (
@@ -2093,7 +2295,7 @@ pub fn drive(
     mut doors: ResMut<nvf_play::doors::Doors>,
     (script, sim, mut phys, mut blocks): PlayState,
     (seated, hours, flinches, fighters, idle_holds): Held,
-    (mut door_fades, mut door_sounds, mut travel, mut knocks): Moves,
+    (mut door_fades, mut door_sounds, mut travel, mut knocks, trips, screen): Moves,
 ) {
     // Hours passed in the Wait menu since the last frame (`--play` only: without it
     // there is no menu and no such message).
@@ -2112,6 +2314,16 @@ pub fn drive(
             return;
         }
         res.started = true;
+    }
+    // The player set off behind a loading screen through a load door or on a fast
+    // travel (not a script's MoveTo: `Loading::arriving`): who was in the loaded area
+    // shortly before stays put; the others near the destination are put at their
+    // package's place (`Core::arrive`).
+    if trips.is_some_and(|mut t| t.read().count() > 0) {
+        let arriving = screen.is_some_and(|mut s| std::mem::take(&mut s.arriving));
+        if arriving {
+            res.core.begin_trip();
+        }
     }
     let all = res.all;
     // Who staggers (a hit reaction playing) stands until it ends.
@@ -2147,6 +2359,7 @@ pub fn drive(
                 res.core.take_created(game);
             }
             res.core.process_levels(game, &world, &streamer);
+            res.core.arrive(game, &nav, &world, &streamer, None);
             res.core.switch_navmeshes(game, &mut nav);
             let _span = info_span!("ai::think").entered();
             res.core.think(game, true, &nav, &world, &mut doors, None, None, dt, now, 0);
@@ -2181,6 +2394,9 @@ pub fn drive(
                 }
                 let span = info_span!("ai::process_levels").entered();
                 core.process_levels(&rt.game, world_ref, streamer_ref);
+                drop(span);
+                let span = info_span!("ai::arrive").entered();
+                core.arrive(&mut rt.game, &nav, world_ref, streamer_ref, phys.as_deref_mut());
                 drop(span);
                 let span = info_span!("ai::switch_navmeshes").entered();
                 core.switch_navmeshes(&mut rt.game, &mut nav);
@@ -2519,11 +2735,35 @@ pub fn report(
         p.coming_updates,
         p.reached_loaded
     );
+    info!(
+        "arrival summary: {} residents put at their package's place behind a loading screen, {} seated at once on their furniture; {} left where they were (in the loaded area before the trip)",
+        core.arrivals[0], core.arrivals[1], core.arrivals[2]
+    );
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{RunEnd, StopRun};
+    use super::{recently_loaded, RunEnd, StopRun, RECENTLY_LOADED_HOURS};
+    use fnv_sim::FormId;
+    use std::collections::HashMap;
+
+    /// Out of a house and straight back: the residents seen in the street before are not
+    /// moved by the trip back; those not seen for longer than the memory are (coordinator
+    /// review of #1269).
+    #[test]
+    fn residents_seen_shortly_before_a_trip_stay_where_they_are() {
+        let (street, earlier, never) = (FormId(0x100), FormId(0x101), FormId(0x102));
+        // GameDaysPassed 5 at 12:00, as game hours; the street seen until 12:00, the
+        // other a day before.
+        let at: HashMap<FormId, f64> = [(street, 5.5 * 24.0), (earlier, 4.5 * 24.0)].into();
+        // Out to Doc Mitchell's and back 20 game minutes later.
+        let back = 5.5 * 24.0 + 20.0 / 60.0;
+        let kept = recently_loaded(&at, back);
+        assert!(kept.contains(&street));
+        assert!(!kept.contains(&earlier) && !kept.contains(&never));
+        // A fast travel's hours later, nobody of the place left is kept.
+        assert!(recently_loaded(&at, 5.5 * 24.0 + RECENTLY_LOADED_HOURS + 0.1).is_empty());
+    }
 
     fn ends(frames: &[bool]) -> Vec<RunEnd> {
         let mut run = StopRun::default();
