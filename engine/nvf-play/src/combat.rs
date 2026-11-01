@@ -649,6 +649,30 @@ fn limb_hit(bp: Option<&BodyPart>, d: &damage::Damage, w: &WeaponStats) -> Optio
     (damage > 0.0).then_some(LimbHit { condition, health_percent: bp.health_percent as f64, damage, points: false })
 }
 
+/// The human skeleton, whose body part data the player's limbs follow when the player's
+/// body is not posed (first person).
+const HUMAN_SKELETON: &str = "characters\\_male\\skeleton.nif";
+
+/// An explosion's limb damage on `target` (docs/spec-notes/crippled-limbs.md §5): each
+/// limb of its body part data, once per limb condition, takes the blast's damage after
+/// armour times the weapon's Limb Dmg Mult (1 without a weapon) [documented: explosions
+/// deal limb damage, GECK wiki GetHitLimbDamage; hypothesis: the share]. The player's body
+/// part data is the human skeleton's when the body is not posed.
+fn blast_limb_hits(c: &Combat, parts: &ActorParts, target: FormId, dealt: f32, weapon: Option<&WeaponStats>) -> Vec<LimbHit> {
+    let mult = weapon.map_or(1.0, |w| w.limb_dmg_mult.max(0.0));
+    let damage = f64::from(dealt.max(0.0) * mult);
+    let data = parts.data_of(target.0).or_else(|| (target == FormId::PLAYER_REF).then(|| c.forms.body_parts_for(FormId::PLAYER_BASE, HUMAN_SKELETON)).flatten());
+    let Some(bpd) = data.and_then(|d| c.forms.body_parts.get(&d)).filter(|_| damage > 0.0) else { return Vec::new() };
+    let mut out: Vec<LimbHit> = Vec::new();
+    for bp in &bpd.parts {
+        let Some(condition) = bp.actor_value.as_deref().and_then(fnv_game::combat::limb_condition) else { continue };
+        if !out.iter().any(|l| l.condition == condition) {
+            out.push(LimbHit { condition, health_percent: f64::from(bp.health_percent), damage, points: false });
+        }
+    }
+    out
+}
+
 /// A hit that may dismember (`crate::dismember`): one that killed the actor, or landed on
 /// its corpse, on a body part. The player is not dismembered.
 pub(crate) fn dismember_check(target: FormId, part: Option<u8>, w: &WeaponStats, r: &HitResult, by: Option<FormId>, point: V3, dir: V3) -> Option<crate::dismember::Check> {
@@ -4202,6 +4226,17 @@ fn fly(
             let r = apply_hit(script.as_deref_mut(), &mut sim, target, dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, false, None);
             if r.as_ref().is_none_or(|r| !r.immune) {
                 wear_armor(c, &mut sim, &mut stats, target, Zone::All, b.damage);
+            }
+            // Its limb damage, on every limb (crippled-limbs.md §5): from the damage
+            // after armour; `blast_limbs` applies the difficulty, as `hit` did to Health.
+            if r.as_ref().is_some_and(|r| !r.immune && !r.died && r.dealt > 0.0) {
+                let weapon = cause.and_then(|k| c.forms.weapons.get(&k.weapon));
+                let limbs = blast_limb_hits(c, &parts, target, dealt, weapon);
+                let hurt = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| with_world(rt, &mut sim, |rt| rt.game.blast_limbs(target, info.attacker, &limbs))).unwrap_or_default();
+                let crippled: Vec<&str> = hurt.iter().filter(|h| h.2).map(|h| LIMB_NAMES[(h.0 - 25) as usize]).collect();
+                if !hurt.is_empty() {
+                    info!("combat: blast {} on {target}: {:.1} limb damage on {} limbs{}", x.edid.as_deref().unwrap_or("?"), limbs.first().map_or(0.0, |l| l.damage), hurt.len(), if crippled.is_empty() { String::new() } else { format!(", crippled {}", crippled.join(", ")) });
+                }
             }
             // A blast that kills (or hits a corpse) may dismember the part facing it, by
             // its weapon's On Hit (dismemberment.md §4, §7): most grenades and every mine are

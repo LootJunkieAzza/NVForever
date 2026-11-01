@@ -511,20 +511,9 @@ impl Game<'_> {
         let health = actor::actor_value(self, target, HEALTH).unwrap_or(before - dealt);
         let mut out = HitResult { dealt, health, max_health, ..HitResult::default() };
         if let Some(l) = info.limb {
-            let (condition, crippled) = self.damage_limb(target, l, max_health);
+            let (condition, crippled) = self.hit_limb(target, l, max_health);
             out.limb = Some((l.condition, condition));
             out.crippled = crippled;
-            if crippled {
-                if let Some(h) = self.jip.hits.get_mut(&target) {
-                    h.flags |= 1 << 5;
-                }
-                // [documented: SetOnCrippledLimbEventHandler] 0 head … 6 brain.
-                let limb = f64::from(l.condition - crate::actor_values::LIMB_CONDITIONS.start());
-                self.jip_event("crippledlimb", Some(target), vec![fnv_script::vm::XVal::Num(limb)]);
-            }
-            if crippled && target == FormId::PLAYER_REF {
-                self.count_stat(crate::misc_stats::HAVE_LIMBS_CRIPPLED, 1.0);
-            }
         }
         // The player's hit counts towards the hit and damage challenges (`crate::challenges`).
         if info.attacker == Some(FormId::PLAYER_REF) {
@@ -616,6 +605,45 @@ impl Game<'_> {
         // SetWeaponOut 1 holds it drawn (`crate::nvse_hud`).
         let held = self.hud.forced_out.contains(&actor);
         !unequipped && !fleeing && (self.draws_weapon(actor) || drawn || held || self.active_weapon_use(actor).is_some())
+    }
+
+    /// A hit's limb damage on one limb ([`Game::damage_limb`]) with what crippling it
+    /// tells: the hit record's crippled flag, JIP's crippled-limb handlers and the
+    /// player's Limbs Crippled statistic.
+    fn hit_limb(&mut self, target: FormId, l: LimbHit, max_health: f64) -> (f64, bool) {
+        let (condition, crippled) = self.damage_limb(target, l, max_health);
+        if crippled {
+            if let Some(h) = self.jip.hits.get_mut(&target) {
+                h.flags |= 1 << 5;
+            }
+            // [documented: SetOnCrippledLimbEventHandler] 0 head … 6 brain.
+            let limb = f64::from(l.condition - crate::actor_values::LIMB_CONDITIONS.start());
+            self.jip_event("crippledlimb", Some(target), vec![fnv_script::vm::XVal::Num(limb)]);
+            if target == FormId::PLAYER_REF {
+                self.count_stat(crate::misc_stats::HAVE_LIMBS_CRIPPLED, 1.0);
+            }
+        }
+        (condition, crippled)
+    }
+
+    /// An explosion's limb damage on the actor it caught (docs/spec-notes/crippled-limbs.md
+    /// §5): every limb in `limbs` at once, after its health damage ([`Game::hit`], whose
+    /// hit record this marks crippled), scaled by the difficulty as a hit's. Nothing on a
+    /// dead or immune actor. Returns each limb's condition code, its condition after and
+    /// whether this blast crippled it.
+    pub fn blast_limbs(&mut self, target: FormId, attacker: Option<FormId>, limbs: &[LimbHit]) -> Vec<(u16, f64, bool)> {
+        if self.is_dead(target) || self.is_immune(target) {
+            return Vec::new();
+        }
+        let mult = self.damage_mult(attacker, target);
+        let max_health = actor::actor_value_base(self, target, HEALTH);
+        limbs
+            .iter()
+            .map(|&l| {
+                let (after, crippled) = self.hit_limb(target, LimbHit { damage: l.damage * mult, ..l }, max_health);
+                (l.condition, after, crippled)
+            })
+            .collect()
     }
 
     /// Lower a limb's condition by a hit (see the module notes): its condition after, and
