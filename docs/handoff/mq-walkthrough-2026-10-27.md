@@ -531,7 +531,7 @@ Jules' Topic007 borrow another topic's line (INFC/INFX).
    0x0014E9FF being Say Once and held for every actor once said, check 31); the HELIOS One west-terminal password lands on
    Fantastic as the speaker (check 46); Kilborn's conversation ends when stage 100 stops
    vNiptonVulpes: every line he has as a fixed speaker is that quest's, so nothing is left
-   to offer and ours closes it, as dialogue.md's [hypothesis] says (check 70). Two are the
+   to offer and ours closes it, as dialogue.md's [hypothesis] says (check 72). Two are the
    data's own (#1113) [observed]: Doctors 30's line (DoctorRadiationYES 0x000BE417, Info
    Refusal, no conditions) can be said by no placed actor: Doctors' quest conditions ask
    for DoctorsDialogueFaction and not Doc Mitchell's voice type 0x0010512F; of the

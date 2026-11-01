@@ -42,6 +42,12 @@ engine if needed, and delete the item here.
    those 40 NPCs and on a sample of armed NPCs at first load, and again after AddItem
    and after a combat start. ([npc-behaviour-compare §9.1](../spec-notes/npc-behaviour-compare.md),
    [combat-ai §18](../design/combat-ai.md), [companion-wheel §4](../spec-notes/companion-wheel.md))
+   Tried 2026-11-01 (o11_02, o11_03, nvftest), no answer yet: every query returning a
+   weapon form (`let rW := rN.GetEquippedObject 5` then `SetFunctionValue
+   (GetFormIDString rW)`, the shape aa_auto_trial ran) came back "script did not
+   compile", and Sunny, Trudy, Easy Pete and Settler 1 were outside the loaded area
+   (GetDistance 3.4e38) even after `MoveTo player`. Next try: a short diagnostic job of
+   the form query alone, and the NPCs met where they stand.
 2. **Who attacks you, and who joins a fight.** Ours:
    - 618 placed Aggressive (not Very Aggressive) animals ignore you until attacked.
    - Inside an aggro radius, an actor warns twice 5 s apart, then attacks.
@@ -417,6 +423,21 @@ The numbers above stay put so links to them hold; each item here gives its own p
     SetUIFloat against SetUIFloatAlt on a templated list row (the "children tiles" bug
     MCM depends on). ([menu-xml §8](../spec-notes/menu-xml.md))
 
+    Partly answered 2026-11-01 (o11_00, nvftest, HUD in game mode) [observed]:
+    - SetUIFloat makes no trait that is not there: `HUDMainMenu/_NvfNewTrait` read
+      -999 (GetUIFloat's "not found") before and after `SetUIFloat … 5`, by GetUIFloat
+      and by GetUIFloatAlt. As ours.
+    - Constants other than `&true;`/`&false;` read as numbers: `&center;` 2
+      (`HUDMainMenu/SneakMeter/sneak_nif/justify`) and `&right;` 4
+      (`HUDMainMenu/XPMeter/XPAmount/justify`). Ours keeps them by name: check what our
+      GetUIFloat gives on a `justify`.
+    - The deprecated GetUIFloat and GetUIFloatAlt read the same on eight HUD paths,
+      `*:N` paths included (`HitPoints/*:2/brightness` 175, `ActionPoints/*:5/brightness`
+      255, `HitPoints/*:0/width` 345, `ActionPoints/*:0/width` 60), so `*:N` counts the
+      same way for both (last matching child first, menu-xml §8 item 6).
+    Still open: DumpTileInfo, a set trait with an expression, SetUIFloat against
+    SetUIFloatAlt on a templated row.
+
 ## Added 2026-10-27 (first-person depth)
 
 27. **Does the original's first-person weapon go into walls?** (P3: one look in every
@@ -625,6 +646,11 @@ The numbers above stay put so links to them hold; each item here gives its own p
     the three functions in game mode and over a target without an `<id>`.
     ([menu-xml §3.2, §8 items 7-10](../spec-notes/menu-xml.md))
 
+    Partly answered 2026-11-01 (o11_00, nvftest): in game mode with no menu open,
+    GetActiveUIComponentName and GetActiveUIComponentFullName gave "" and
+    GetActiveUIComponentID -1 [observed], as ours. The rest (overlap, `clicked`,
+    `mouseover`, a target without an `<id>`) is still open.
+
 ## Added 2026-10-31 (the Pip-Boy Glove and outfit gloves, issue #1067)
 
 55. **Which left hand the player shows in an outfit with gloves** (P3: the player's own
@@ -717,16 +743,13 @@ The numbers above stay put so links to them hold; each item here gives its own p
     the front; sample its position every game loop for 1.5 s after the hit: the distance,
     how long it moves, and whether the speed falls off. The same with a deathclaw's
     swipe on the player (god mode). ([combat-rules, Knockback](../spec-notes/combat-rules.md))
-62. **Does AddReputation with axis 2 or 3 stop the script, as SetReputation does?** (P2:
-    Boulder City Showdown, Severus.) SetReputation with axis 2 or 3 stops the script
-    (check 30, o5_00/o5_01); AddReputation's was not captured, and ours changes nothing and
-    goes on [hypothesis]. It matters: VMS20 stage 100 entry 1 calls `AddReputation
-    RepNVGreatKhans 2 5` and then RewardXP, CompleteAllObjectives, CompleteQuest and
-    StopQuest, and Severus's three tag trades (INFO 0x00135115/17/20) count the tags in
-    iAureliusTags after `AddReputation RepNVCaesarsLegion 3 1` [observed: decompiled
-    scripts]. To check: in a function or quest script, `AddReputation RepNVNCR 2 1`, then
-    a line that sets a variable; the same with RemoveReputation and AddReputationExact.
-    (scripts.md §7.6, issue #1127)
+62. **Does AddReputation with axis 2 or 3 stop the script, as SetReputation does?** —
+    answered 2026-11-01 (o11_00, o11_05 on nvftest): **yes**, and RemoveReputation and
+    AddReputationExact too: the call changes nothing and the script's next line does not
+    run, in a function script and in VMS20 stage 100's result script (the betrayal
+    entry: NCR fame +1 from the line before, Khans unchanged, StopQuest not run). The
+    stage's Complete Quest flag still completes the quest. Ours now stops the same way
+    (reputation.rs `write_axis`). (scripts.md §7.6, issue #1127)
 
 ## Added 2026-10-31 (UI tile tree T15a: the message box and the prompt from their files)
 
@@ -751,6 +774,26 @@ The numbers above stay put so links to them hold; each item here gives its own p
     `QuantityMenu/NOGLOW_BRANCH/QM_MainRect/QM_AmountMeter/user0` … `user4`, and a
     screenshot of each at 1280 x 720.
     ([message-menu §5a](../spec-notes/message-menu.md), [barter-menu §7](../spec-notes/barter-menu.md))
+
+    Message box answered 2026-11-01 (o11_01, nvftest, GetUIFloatAlt 30 frames after
+    opening; the window's size as the owner's INI has it) [observed]; the prompt is
+    still open:
+    - `MessageBoxEx "<two lines>|Alpha|Beta|Gamma"` (no title): box (`MM_MainRect`)
+      396 x 306, text 316 x 67, title 14 x 38 (the empty title keeps its room, as the
+      2026-10-31 capture read), list 155 x 156, rows 118 wide and 52 high at `_y` 0, 52,
+      104, `MM_Button:0` the **last** row (104), `MM_Button:3` absent (-999).
+    - `ShowMessage CG03GoatQuestion01` (title "G.O.A.T. Question 1", a long text, four
+      long buttons): box 700 x 603 (the file's `_MaxMenuWidth`), text 618 x 137, title
+      264 x 38, list 620 x 383 (the box less 80), rows 583 wide (the list less 37),
+      wrapped rows 87, 157, 52 and 87 high: one line 52 and each further line 35 more,
+      as message-menu §5a's line pitch gives.
+    - Both: `MM_Background` is the box × 1.1 wide and × 1.3 high (435.6 x 397.8;
+      770 x 783.9) with alpha 193.8 (ours 237, already listed in §5a);
+      `_selected_height` 52 and `lb_highlight_box` 51 high; `_highlight_y` 0 and 87 (a
+      row was chosen by then, likely by the pointer at the window's middle, so this does
+      not contradict §5a's "no row chosen when a box opens").
+    So ours' row height (text + 20 = 52 for one line) and list = box − 80 hold; the
+    background's size and alpha are to compare with ours.
 
 ## Added 2026-10-31 (follow-ups and choices, issue #964)
 
@@ -805,9 +848,22 @@ The numbers above stay put so links to them hold; each item here gives its own p
     `StartMenu/MCM/MCM_Options/Option1/_optionID`, `GetMCMFloat 1 1 "_optionID"` and
     `GetMCMFloat 1 0 "_optionID"`.
 
+## Added 2026-11-01 (Speech Successes and Failures, issue #967)
+
+70. **Do New Vegas skill checks count Speech Successes / Speech Failures** (P3, issue
+    #967). NVForever counts stat 12 when the player picks a Speech check's pass line
+    and stat 31 for its fail line, and nothing for checks of other skills or perks
+    [hypothesis: by the stats' names; `Game::choose`, misc-stats.md §3]. To check, with
+    nvf_capture reading `GetPCMiscStat "Speech Successes"` and `"Speech Failures"` just
+    before and after each choice: (a) one Speech check passed and one failed (Primm or
+    Goodsprings, e.g. a [Speech 35] line with Speech above and below it); (b) one
+    Barter or Science check passed and failed (do they move either stat?); (c) one perk
+    line (e.g. [Lady Killer]). If (a) moves nothing, the count goes; if (b) moves them,
+    other skills count too.
+
 ## Added 2026-11-01 (a conversation with nothing left to offer, issue #1113)
 
-70. **Does a conversation close when the actor has no topic left?** (P3; mq-walkthrough §10
+72. **Does a conversation close when the actor has no topic left?** (P3; mq-walkthrough §10
     stall 4.) Cold, Cold Heart: tell Sergeant Kilborn at the Mojave Outpost about Nipton
     (vNiptonVulpesvMojaveNCRTrooperTopic003, INFO 0x00138E1A: no Goodbye flag, no choices;
     its end script sets vNiptonVulpes 100, which stops the quest). Every line Kilborn has
