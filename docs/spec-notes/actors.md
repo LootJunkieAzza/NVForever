@@ -1291,6 +1291,14 @@ only in the walk test and on the player's body. All rules here are engine choice
   turn in 1.5 s, three footfalls]. The clip plays at rate 1 whatever the angle. The AI
   observer captures record each actor's heading per sample (ai-observer.md), so a
   capture of an NPC turning to a new package target could replace this number [open].
+  Measured 2026-11-01 (observer check 13, o24_air and o18_air on the nvfairport runway)
+  [observed]: an NCR trooper set facing away from the player (SetAngle Z 270) and then
+  put on the player with StartCombat turned at 270°/s at first (4.3° a game loop) both
+  standing with a 10mm 400 units off and starting its run with a lead pipe 1,500 units
+  off, then slower as the angle closed: 180 to 150° off in 0.15 s, 150 to 128° in
+  0.12 s, 128 to 98° in 0.27 s (it stepped about 125 units/s meanwhile); a trooper
+  spawned 14° off turned it at 225°/s. So a person's combat turn starts near 270°/s and
+  eases out, faster than ours (120°/s standing) [issue #1352].
 - **Before walking** (`fnv_nav::Walker`): a walker that stands (it did not move in its
   last update: at the start of a path, after waiting at a door, after arriving through a
   teleport door) and whose way lies more than 20° off its heading
@@ -1600,6 +1608,10 @@ stopped and started, as Victor's walk had before #258). Code:
     `creature_pace::npc_speeds`, from the ESM actor audit); against it [observed, one
     actor]: Cook-Cook has Speed Mult 110 and ran 255, the 258 above without it, 284 with
     it (asked in docs/owner-review.md); every other person measured had Speed Mult 100.
+    Measured 2026-11-01 (observer check 13, o18_air run_speedmult100/150) [observed]: an
+    NCR trooper with a lead pipe running 1,500 units at the player held about 305 units/s
+    at SetAV SpeedMult 100 and 457-468 at 150 (two troopers), 1.5 times: a person's run
+    is proportional to its Speed Mult, as ours; Cook-Cook stays the one exception seen.
   - **Built**: `NPC_WALK` 85.3 and `NPC_RUN` 344 are every person's speeds, times its
     Speed Mult (`npc_speeds`); a drawn person's both are also scaled by its body armour's
     share (`person_pace`), the armour
