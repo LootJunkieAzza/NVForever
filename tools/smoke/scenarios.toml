@@ -5086,6 +5086,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "voice-reverb-room"
+source = "issue #987 (docs/spec-notes/audio.md §14.6 Voices): a line said at a place goes into the room's reverb, cut at its end; Doc Mitchell's house is Small Room"
+note = "the voice-opening setup"
+areas = ["voice", "audio"]
+paths = ["engine/nvf-play/src/voice.rs", "engine/nvf-play/src/reverb.rs", "engine/nvf-play/src/sfx.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--play", "--new-game"]
+run_seconds = 30
+expect = [
+  { re = 'voice: DocMitchellREF line 0x00104BEE response 1 in the room.s reverb: Small Room \(send 0\.85, cut at its end\)', label = "Doc Mitchell's opening line rings in his Small Room" },
+  { re = 'voice summary: .*, (?P<n>\d+) through the room.s reverb', range = [1, 200], label = "the voice summary counts lines through the reverb" },
+  { re = 'reverb summary: .*, (?P<n>\d+) voice lines through it \(cut at their end\)', range = [1, 200], label = "the reverb summary counts them too" },
+]
+
+[[scenario]]
 name = "message-button-conditions"
 source = "owner playtest list 4 item 4: message box buttons whose conditions fail are not shown (Doc Mitchell's chemistry set and broken 9mm SMG need Science / Repair 25; the player has 15)"
 areas = ["messages", "menus"]
