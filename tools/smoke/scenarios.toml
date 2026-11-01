@@ -10041,7 +10041,7 @@ run_seconds = 14
 expect = [
   { re = 'mines: 0x00000014 sets off mine 0x00172DB5', label = "the player sets the mine off" },
   { re = 'combat: blast MineFragExplosion on 0x00000014: [1-9][\d.]* limb damage on [1-9] limbs', label = "its blast damages the player's limbs" },
-  { re = "combat: player's \w+( \w+)? crippled", label = "and cripples one" },
+  { re = "combat: player's [a-z]+( [a-z]+)? crippled", label = "and cripples one" },
   { re = 'hud: crippled limbs shown', label = "the HUD shows it" },
 ]
 
