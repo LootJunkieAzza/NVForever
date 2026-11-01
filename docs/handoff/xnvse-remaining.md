@@ -85,8 +85,8 @@ pages alone) and ShowOff 28 (#1010, ext-showoff.md §5, probe set showoff2 49/50
 JohnnyGuitar batch 1: 20 (#1007, ext-jg1.md, probe set jg1 71/71). Census after it: 1,441.
 JohnnyGuitar batch 2: 13 (#1007, ext-jg2.md, probe set jg2 37/38).
 JIP batch 5: 27 (#1006, jip-records-5.md, probe set jip5 99/100).
-ppNVSE: all 42 (#1014, ext-pp.md; not installed in the probe game, so from the pages
-alone). Census after it: 1,236.
+ppNVSE: all 42 (#1014, ext-pp.md, probe set pp 35/37, the two left the probe save's
+third-person camera). Census after it: 1,236.
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,

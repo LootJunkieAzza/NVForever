@@ -149,7 +149,9 @@ fn ax_variables_hold_values_by_key_index_and_form() {
     // [documented: AX Set's example, three types at 0, 1, 2 on one form].
     query(&mut g, "AX_Set 777 \"MyAuxList\" 0 Gun\nAX_Set \"Hello\" \"MyAuxList\" 1 Gun\narray_var a\nlet a := ar_List 4 5 6\nAX_Set a \"MyAuxList\" 2 Gun");
     assert_eq!(val(&mut g, "AX_Get \"MyAuxList\" 0 Gun"), x(777.0));
-    assert_eq!(query(&mut g, "string_var t\nlet t := AX_Get \"myauxlist\" 1 Gun\nSetFunctionValue t"), s("Hello"));
+    assert_eq!(query(&mut g, "string_var t\nlet t := AX_Get \"MyAuxList\" 1 Gun\nSetFunctionValue t"), s("Hello"));
+    // Keys are matched with case [observed: pp probe ax.exists].
+    assert_eq!(val(&mut g, "AX_GetType \"myauxlist\" 1 Gun"), x(-2.0));
     // The array outlives the script that made it.
     assert_eq!(query(&mut g, "array_var b\nlet b := AX_Get \"MyAuxList\" 2 Gun\nSetFunctionValue b[1]"), x(5.0));
     assert_eq!(val(&mut g, "AX_GetType \"MyAuxList\" 0 Gun"), x(0.0));
@@ -164,21 +166,24 @@ fn ax_variables_hold_values_by_key_index_and_form() {
     query(&mut g, "AX_Set 256 \"MCM_UserControl_Activate\"");
     assert_eq!(val(&mut g, "AX_Get \"MCM_UserControl_Activate\" 0 0"), x(256.0));
     // Find: an entry, inside an array with a deep search.
-    assert_eq!(val(&mut g, "AX_Find \"hello\" \"MyAuxList\" 0 Gun"), x(1.0));
+    assert_eq!(val(&mut g, "AX_Find \"Hello\" \"MyAuxList\" 0 Gun"), x(1.0));
+    // With case, and not inside arrays even with the deep flag [observed: pp probe ax.find].
+    assert_eq!(val(&mut g, "AX_Find \"hello\" \"MyAuxList\" 0 Gun"), x(-1.0));
     assert_eq!(val(&mut g, "AX_Find 5 \"MyAuxList\" 0 Gun"), x(-1.0));
-    assert_eq!(val(&mut g, "AX_Find 5 \"MyAuxList\" 1 Gun"), x(2.0));
-    // Null keeps the places, erase closes the gap [documented].
-    assert_eq!(val(&mut g, "AX_Null \"MyAuxList\" 0 Gun"), x(1.0));
+    assert_eq!(val(&mut g, "AX_Find 5 \"MyAuxList\" 1 Gun"), x(-1.0));
+    // Null keeps the places, erase closes the gap [documented]; both give 0 [observed:
+    // pp probes ax.null, ax.erase, ax.drop].
+    assert_eq!(val(&mut g, "AX_Null \"MyAuxList\" 0 Gun"), x(0.0));
     assert_eq!(val(&mut g, "AX_GetType \"MyAuxList\" 0 Gun"), x(-1.0));
     assert_eq!(val(&mut g, "AX_Size \"MyAuxList\" Gun"), x(3.0));
-    assert_eq!(val(&mut g, "AX_Erase \"MyAuxList\" 0 Gun"), x(1.0));
+    assert_eq!(val(&mut g, "AX_Erase \"MyAuxList\" 0 Gun"), x(0.0));
     assert_eq!(val(&mut g, "AX_Size \"MyAuxList\" Gun"), x(2.0));
     assert_eq!(val(&mut g, "AX_GetType \"MyAuxList\" 0 Gun"), x(2.0));
     let before = g.console_out.len();
     assert_eq!(val(&mut g, "AX_Dump \"MyAuxList\" Gun"), x(1.0));
     assert_eq!(g.console_out.len() - before, 3);
     // −1 deletes the key.
-    assert_eq!(val(&mut g, "AX_Erase \"MyAuxList\" -1 Gun"), x(1.0));
+    assert_eq!(val(&mut g, "AX_Erase \"MyAuxList\" -1 Gun"), x(0.0));
     assert_eq!(val(&mut g, "AX_Exists \"MyAuxList\" Gun"), x(0.0));
 }
 
@@ -194,18 +199,18 @@ fn form_instances_stand_for_their_base_and_are_saved() {
     let mut g = game(&f);
     let XVal::Ref(inst) = val(&mut g, "CreateFormInstance Gun \"MyInstances\"") else { panic!() };
     assert_ne!(inst, 0);
-    // Its editor ID is the base's, "Inst" and the count [documented: CreateFormInstance].
-    assert_eq!(val(&mut g, "EditorIDToFormID \"GunInst1\""), XVal::Ref(inst));
-    assert_eq!(on(&mut g, "IsFormInstance", "GunInst1"), x(1.0));
+    // Its editor ID is "Inst" and the count, without the base's [observed: pp probe inst].
+    assert_eq!(val(&mut g, "EditorIDToFormID \"Inst1\""), XVal::Ref(inst));
+    assert_eq!(on(&mut g, "IsFormInstance", "Inst1"), x(1.0));
     assert_eq!(val(&mut g, "IsFormInstance Gun"), x(0.0));
-    assert_eq!(on(&mut g, "GetStaticForm", "GunInst1"), XVal::Ref(WEAP));
-    assert_eq!(on(&mut g, "GetWeaponBase", "GunInst1"), XVal::Ref(WEAP));
+    assert_eq!(on(&mut g, "GetStaticForm", "Inst1"), XVal::Ref(WEAP));
+    assert_eq!(on(&mut g, "GetWeaponBase", "Inst1"), XVal::Ref(WEAP));
     // Not an instance of an instance [documented].
-    assert_eq!(on(&mut g, "CreateFormInstance", "GunInst1"), XVal::Ref(0));
+    assert_eq!(on(&mut g, "CreateFormInstance", "Inst1"), XVal::Ref(0));
     let XVal::Ref(second) = val(&mut g, "NewWeaponInstance Gun") else { panic!() };
-    assert_eq!(val(&mut g, "EditorIDToFormID \"GunInst2\""), XVal::Ref(second));
+    assert_eq!(val(&mut g, "EditorIDToFormID \"Inst2\""), XVal::Ref(second));
     // A clone reads its base's fields.
-    assert_eq!(query(&mut g, "ref r\nlet r := EditorIDToFormID \"GunInst1\"\nSetFunctionValue (GetWeaponItemMod 1 r)"), XVal::Ref(IMOD));
+    assert_eq!(query(&mut g, "ref r\nlet r := EditorIDToFormID \"Inst1\"\nSetFunctionValue (GetWeaponItemMod 1 r)"), XVal::Ref(IMOD));
     // Saved with the game; a reconstruct handler that sets 1 drops one on the load: the
     // handler filters on "MyInstances", the first instance's key; the second has none.
     query(&mut g, "SetOnInstanceReconstruct 1 PPSkip \"MyInstances\"");
@@ -217,8 +222,8 @@ fn form_instances_stand_for_their_base_and_are_saved() {
     h.put_session(session);
     assert!(!h.pp.instances.contains_key(&FormId(inst)));
     assert!(h.pp.instances.contains_key(&FormId(second)));
-    assert_eq!(on(&mut h, "IsFormInstance", "GunInst2"), x(1.0));
-    assert_eq!(on(&mut h, "GetStaticForm", "GunInst2"), XVal::Ref(WEAP));
+    assert_eq!(on(&mut h, "IsFormInstance", "Inst2"), x(1.0));
+    assert_eq!(on(&mut h, "GetStaticForm", "Inst2"), XVal::Ref(WEAP));
     assert_eq!(counter(&mut h), 100.0);
     // New instances do not take the restored ones' ids.
     let XVal::Ref(third) = val(&mut h, "CreateFormInstance Gun") else { panic!() };
@@ -229,21 +234,24 @@ fn form_instances_stand_for_their_base_and_are_saved() {
 fn item_mod_slots_vanilla_and_extended() {
     let f = fixture();
     let mut g = game(&f);
-    // Vanilla slot 1 takes the weapon's WMI1 only; slot 2 has none.
-    assert_eq!(val(&mut g, "AttachMod Gun \"1\" Silencer"), x(0.0));
-    assert_eq!(val(&mut g, "AttachMod Gun \"2\""), x(0.0));
-    assert_eq!(val(&mut g, "AttachMod Gun \"1\""), x(1.0));
-    assert_eq!(val(&mut g, "GetAllAttachedWeaponMods Gun \"1\""), XVal::Ref(IMOD));
-    // An extended slot, with the attach and detach handlers [documented: AttachMod;
-    // OnAttachItemMod].
+    // A vanilla slot on a base form turns nothing on [observed: pp probe attach.vanilla,
+    // on an instance]; nor does a slot Devkit does not define [observed: pp probe attach].
+    assert_eq!(val(&mut g, "AttachMod Gun \"1\""), x(0.0));
+    assert_eq!(val(&mut g, "GetAllAttachedWeaponMods Gun \"1\""), XVal::Ref(0));
+    assert_eq!(val(&mut g, "AttachMod Gun \"Barrel Device\" Silencer"), x(0.0));
+    // An extended slot as Devkit would define it, with the attach and detach handlers
+    // [documented: AttachMod; OnAttachItemMod].
+    g.pp.slots.extend(["barrel device".to_string(), "grip".to_string()]);
     query(&mut g, "OnAttachItemMod 1 PPMark 1 \"1\" Silencer \"2\" Gun\nOnDetachItemMod 1 PPCount 1");
     assert_eq!(val(&mut g, "HasExtendedMods Gun"), x(0.0));
+    // The flag counts the vanilla mods the weapon has (its WMI1) [observed: pp probes].
+    assert_eq!(val(&mut g, "HasExtendedMods Gun 1"), x(1.0));
     assert_eq!(val(&mut g, "AttachMod Gun \"Barrel Device\" Silencer"), x(1.0));
     assert_eq!(counter(&mut g), 1000.0);
     assert_eq!(val(&mut g, "HasExtendedMods Gun"), x(1.0));
     assert_eq!(val(&mut g, "HasExtendedMods Gun 1"), x(1.0));
     assert_eq!(val(&mut g, "GetAllAttachedWeaponMods Gun \"barrel device\""), XVal::Ref(IMOD2));
-    assert_eq!(query(&mut g, "array_var a\nlet a := GetAllAttachedMods Gun\nSetFunctionValue (ar_Size a)"), x(2.0));
+    assert_eq!(query(&mut g, "array_var a\nlet a := GetAllAttachedMods Gun\nSetFunctionValue (ar_Size a)"), x(1.0));
     assert_eq!(query(&mut g, "array_var a\nlet a := GetAllModsInSlot Gun \"1\"\nSetFunctionValue a[\"1\"]"), XVal::Ref(IMOD));
     assert_eq!(val(&mut g, "AttachMod Gun \"Barrel Device\""), x(1.0));
     assert_eq!(counter(&mut g), 1001.0);

@@ -1,13 +1,13 @@
 //! The weapon-instance plugin's functions (ppNVSE, catalogue origin PP): AX variables,
 //! form instances, the extended item mods' slots, CallLoop, the sighting node and a few
 //! weapon and inventory helpers [documented: each page in the wiki export;
-//! docs/spec-notes/ext-pp.md]. ppNVSE is not installed in the probe game, so nothing here
-//! is observed; what a page leaves open is marked [hypothesis]. Its file functions
+//! docs/spec-notes/ext-pp.md] and the probe set `pp` run in the game with ppNVSE installed
+//! [observed: pp probes, the row named]; what neither settles is marked [hypothesis]. Its file functions
 //! (pReadFile, pWriteFile, pWriteFileAlt) are in `crate::mod_files`.
 //!
 //! Devkit, the plugin's text files that give forms traits, item-mod slots and akimbo sets,
 //! is not read by NVForever [decision: a separate loader, ext-pp.md §6], so the traits and
-//! akimbo functions find none and the extended slots hold only what scripts attach.
+//! akimbo functions find none and no extended slot is defined, so none can be filled.
 
 use crate::game::{Game, RunCtx};
 use crate::trace::EventKind;
@@ -93,9 +93,9 @@ pub struct PpState {
     /// The extended slots' mods by object (a base form, an instance or a reference):
     /// slot lower case -> (slot as given, item mod). Session only [hypothesis].
     pub attached: HashMap<FormId, BTreeMap<String, (String, FormId)>>,
-    /// The vanilla slots AttachMod turned on, on a base form or an instance (an inventory
-    /// item keeps its own mod flags).
-    pub vanilla: HashMap<FormId, u8>,
+    /// The extended slots Devkit defines (lower case); AttachMod attaches only in these.
+    /// Empty: NVForever reads no Devkit (ext-pp.md §6).
+    pub slots: std::collections::BTreeSet<String>,
     pub loops: Vec<CallLoop>,
     /// SetSightingNode's node and the weapon the player had then.
     pub sighting: Option<(Option<FormId>, String)>,
@@ -163,15 +163,6 @@ fn type_code(v: Option<&Option<XVal>>) -> f64 {
     }
 }
 
-/// Two values the same for AX_Find: numbers and forms equal, strings without regard to
-/// case, arrays the same array [hypothesis: as Ar_Find].
-fn same(a: &XVal, b: &XVal) -> bool {
-    match (a, b) {
-        (XVal::Str(x), XVal::Str(y)) => x.eq_ignore_ascii_case(y),
-        _ => a == b,
-    }
-}
-
 impl Game<'_> {
     /// An object's base form, through references and inventory references.
     fn pp_base(&self, f: FormId) -> FormId {
@@ -184,8 +175,7 @@ impl Game<'_> {
         self.clone_seq += 1;
         let id = FormId(crate::nvse_data::CLONE_BASE + self.clone_seq);
         let count = self.pp.instances.values().filter(|i| i.parent == parent).count() + 1;
-        let own = self.other.edids.get(&parent).or_else(|| self.data.edid_of.get(&parent)).cloned().unwrap_or_default();
-        let edid = format!("{own}Inst{count}");
+        let edid = format!("Inst{count}");
         self.clones.insert(id, parent);
         self.other.edids.insert(id, edid.clone());
         self.pp.instances.insert(id, Instance { parent, key, edid });
@@ -304,14 +294,11 @@ impl Game<'_> {
         }
     }
 
-    /// The vanilla mod flags of an object: an inventory item's own, else what AttachMod
-    /// set on its base form or instance.
+    /// The vanilla mod flags of an object: an inventory item's own; a base form or an
+    /// instance has none (AttachMod turns none on there, see "attachmod").
     fn pp_vanilla_flags(&mut self, object: FormId) -> u8 {
-        if let Some((c, item)) = self.temp_item(object) {
-            return self.world.inventory_mut(c).ok().and_then(|inv| inv.groups().find(|(i, _, _)| *i == item).map(|(_, e, _)| e.mods)).unwrap_or(0);
-        }
-        let b = self.pp_base(object);
-        self.pp.vanilla.get(&b).or_else(|| self.pp.vanilla.get(&object)).copied().unwrap_or(0)
+        let Some((c, item)) = self.temp_item(object) else { return 0 };
+        self.world.inventory_mut(c).ok().and_then(|inv| inv.groups().find(|(i, _, _)| *i == item).map(|(_, e, _)| e.mods)).unwrap_or(0)
     }
 
     /// The item mod of a vanilla slot (1–3): the weapon's WMI1–3.
@@ -373,7 +360,7 @@ impl Game<'_> {
     // ---- AX variables ----
 
     fn ax_entries(&self, key: &str, f: Option<FormId>) -> Option<&Vec<Option<XVal>>> {
-        self.pp.ax.get(&(f, key.to_lowercase())).map(|(_, v)| v)
+        self.pp.ax.get(&(f, key.to_string())).map(|(_, v)| v)
     }
 
     fn ax_drop(&mut self, v: Option<XVal>) {
@@ -397,7 +384,7 @@ fn ax_call(g: &mut Game, name: &str, args: &[XVal]) -> Option<XVal> {
             let (index, f) = index_and_form(args, 2);
             let i = usize::try_from(index.unwrap_or(0)).ok()?;
             g.ext.retain(&value);
-            let (_, list) = g.pp.ax.entry((f, key.to_lowercase())).or_insert_with(|| (key, Vec::new()));
+            let (_, list) = g.pp.ax.entry((f, key.clone())).or_insert_with(|| (key, Vec::new()));
             if list.len() <= i {
                 list.resize(i + 1, None);
             }
@@ -433,14 +420,11 @@ fn ax_call(g: &mut Game, name: &str, args: &[XVal]) -> Option<XVal> {
         "ax_find" => {
             let needle = args.first().cloned().unwrap_or(XVal::Num(0.0));
             let key = text(args, 1);
-            let (deep, f) = index_and_form(args, 2);
-            let deep = deep.unwrap_or(0) != 0;
+            // The deep flag is read and does not look inside arrays: 5 held in an array
+            // entry was not found with it [observed: pp probe ax.find].
+            let (_deep, f) = index_and_form(args, 2);
             let Some(list) = g.ax_entries(&key, f).cloned() else { return Some(XVal::Num(-1.0)) };
-            let found = list.iter().position(|e| match e {
-                Some(v) if same(v, &needle) => true,
-                Some(XVal::Array(id)) if deep => holds(g, *id, &needle, 0),
-                _ => false,
-            });
+            let found = list.iter().position(|e| e.as_ref().is_some_and(|v| v == &needle));
             XVal::Num(found.map_or(-1.0, |i| i as f64))
         }
         // `key [index] form`: index omitted or −1 deletes the whole key [documented: AX
@@ -448,23 +432,22 @@ fn ax_call(g: &mut Game, name: &str, args: &[XVal]) -> Option<XVal> {
         "ax_erase" | "ax_null" => {
             let key = text(args, 0);
             let (index, f) = index_and_form(args, 1);
-            let k = (f, key.to_lowercase());
+            let k = (f, key.clone());
             match index.unwrap_or(-1) {
-                -1 => match g.pp.ax.remove(&k) {
-                    Some((_, list)) => {
+                -1 => {
+                    if let Some((_, list)) = g.pp.ax.remove(&k) {
                         for v in list {
                             g.ax_drop(v);
                         }
-                        XVal::Num(1.0)
                     }
-                    None => zero,
-                },
+                    zero
+                }
                 i => {
                     let Some((_, list)) = g.pp.ax.get_mut(&k) else { return Some(zero) };
                     let Some(i) = usize::try_from(i).ok().filter(|&i| i < list.len()) else { return Some(zero) };
                     let old = if name == "ax_erase" { list.remove(i) } else { list[i].take() };
                     g.ax_drop(old);
-                    XVal::Num(1.0)
+                    zero
                 }
             }
         }
@@ -473,7 +456,7 @@ fn ax_call(g: &mut Game, name: &str, args: &[XVal]) -> Option<XVal> {
         "ax_dump" => {
             let key = text(args, 0);
             let (_, f) = index_and_form(args, 1);
-            let Some((shown, list)) = g.pp.ax.get(&(f, key.to_lowercase())).cloned() else { return Some(zero) };
+            let Some((shown, list)) = g.pp.ax.get(&(f, key.clone())).cloned() else { return Some(zero) };
             let on = f.map_or_else(|| "global".to_string(), |f| format!("{:08X}", f.0));
             g.console_out.push(format!("AX \"{shown}\" ({on}), {} entries", list.len()));
             for (i, e) in list.iter().enumerate() {
@@ -494,19 +477,6 @@ fn ax_call(g: &mut Game, name: &str, args: &[XVal]) -> Option<XVal> {
 }
 
 /// Whether an array holds the value, at any depth (a cycle stops at 32 levels).
-fn holds(g: &Game, id: u32, needle: &XVal, depth: u32) -> bool {
-    if depth > 32 {
-        return false;
-    }
-    g.ext.array(id).is_some_and(|a| {
-        a.entries.iter().any(|(_, v)| match v {
-            v if same(v, needle) => true,
-            XVal::Array(c) => holds(g, *c, needle, depth + 1),
-            _ => false,
-        })
-    })
-}
-
 /// A string map of slot names to item mods.
 fn slot_map(g: &mut Game, slots: Vec<(String, FormId)>) -> XVal {
     let entries = slots.into_iter().map(|(s, m)| (XKey::Str(s), XVal::Ref(m.0))).collect();
@@ -577,21 +547,22 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                     return Some(Ok(zero));
                 }
                 let bit = 1u8 << (s - 1);
-                if let Some((c, item)) = g.temp_item(object) {
-                    let ok = g.world.inventory_mut(c).is_ok_and(|inv| {
-                        let Some((_, e, _)) = inv.groups().find(|(i, _, _)| *i == item) else { return false };
-                        inv.set_mods_one(item, e, e.mods | bit)
-                    });
-                    return Some(Ok(yes(ok)));
-                }
-                let b = g.pp_base(object);
-                *g.pp.vanilla.entry(b).or_default() |= bit;
-                return Some(Ok(XVal::Num(1.0)));
+                // On a form instance (and so a base form [hypothesis]) nothing is turned on
+                // and 0 returned [observed: pp probe attach.vanilla]: an inventory item only.
+                let Some((c, item)) = g.temp_item(object) else { return Some(Ok(zero)) };
+                let ok = g.world.inventory_mut(c).is_ok_and(|inv| {
+                    let Some((_, e, _)) = inv.groups().find(|(i, _, _)| *i == item) else { return false };
+                    inv.set_mods_one(item, e, e.mods | bit)
+                });
+                return Some(Ok(yes(ok)));
             }
-            if slot.trim().is_empty() {
+            let lower = slot.trim().to_lowercase();
+            // A slot name Devkit does not define attaches nothing and gives 0 [observed: pp
+            // probe attach, "nvfslot"]; NVForever reads no Devkit (§6), so `slots` stays
+            // empty outside tests until a loader fills it.
+            if !g.pp.slots.contains(&lower) {
                 return Some(Ok(zero));
             }
-            let lower = slot.to_lowercase();
             let old = g.pp.attached.get(&object).and_then(|m| m.get(&lower)).map(|(_, m)| *m);
             match item_mod {
                 Some(m) => {
@@ -641,14 +612,16 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             slots.retain(|(s, _)| want.is_empty() || s.to_lowercase() == want);
             slot_map(g, slots)
         }
-        // `object [checkVanillaMods]`: the object uses extended slots (here: has a mod in
-        // one), and with the flag also has vanilla mods [documented: HasExtendedMods;
-        // hypothesis: "uses the extended mod system" read as having an extended mod].
+        // `object [checkVanillaMods]`: the object has a mod in an extended slot
+        // [documented: HasExtendedMods; hypothesis: "uses the extended mod system" read as
+        // having an extended mod], or, with the flag, vanilla mods: the 10mm pistol's base
+        // form, with no extended mod and its three WMI slots filled, gives 0 without the
+        // flag and 1 with it [observed: pp probes hasext.pistol, hasext.pistol.vanilla].
         "hasextendedmods" => {
             let Some(object) = form(args, 0) else { return Some(Ok(zero)) };
             let ext = g.pp.attached.get(&object).is_some_and(|m| !m.is_empty());
-            let vanilla = num(args, 1).unwrap_or(0.0) == 0.0 || (1..=3u8).any(|s| g.pp_vanilla_mod(object, s).is_some());
-            yes(ext && vanilla)
+            let vanilla = num(args, 1).unwrap_or(0.0) != 0.0 && (1..=3u8).any(|s| g.pp_vanilla_mod(object, s).is_some());
+            yes(ext || vanilla)
         }
         // `priority script runOn… filters…`, or `script 0` to remove [documented:
         // OnAttachItemMod; OnDetachItemMod: filter "1" the item mod, "2" the object].
@@ -742,9 +715,15 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         // `node`: the player's weapon lines up on that node until it changes [documented:
         // SetSightingNode]; GetCurrentSightingNode reads it [documented].
+        // Once a node is set, further sets do nothing while the player keeps that weapon:
+        // after "Bip01 Head", setting "##SightingNode" or another name left it reading
+        // "Bip01 Head" [observed: pp probes sight.set, sight.set2; hypothesis: until the
+        // weapon changes, as GetCurrentSightingNode's page says of the set node].
         "setsightingnode" => {
-            let w = crate::functions::items::equipped_weapon(g, FormId::PLAYER_REF);
-            g.pp.sighting = Some((w, text(args, 0)));
+            if g.pp.sighting.is_none() || g.pp_sighting_node() == SIGHTING_NODE {
+                let w = crate::functions::items::equipped_weapon(g, FormId::PLAYER_REF);
+                g.pp.sighting = Some((w, text(args, 0)));
+            }
             zero
         }
         "getcurrentsightingnode" => XVal::Str(g.pp_sighting_node()),
@@ -764,8 +743,12 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                 None => XVal::Num(g.pp_degradation_mult(w)),
             }
         }
-        // [documented: GetTopicPrompt, the topic info's prompt].
-        "gettopicprompt" => XVal::Str(form(args, 0).and_then(|i| g.data.infos.get(&i)).and_then(|i| i.prompt.clone()).unwrap_or_default()),
+        // The name (FULL) of the info's topic, not the info's own prompt (RNAM): for one of
+        // Doc Mitchell's lines with a 27-character prompt the game gave the 26 characters
+        // of its topic's name, and for a line with no prompt the 19 of its topic's
+        // [observed: pp probes prompt, prompt.none; the page says "prompt"]. "" without a
+        // topic or a name [hypothesis].
+        "gettopicprompt" => XVal::Str(form(args, 0).and_then(|i| g.data.infos.get(&i)).and_then(|i| i.topic).and_then(|t| g.data.full_names.get(&t).cloned()).unwrap_or_default()),
         // `delay udf args…` on a reference (the player when none): the function called
         // every `delay` seconds, −1 removing it [documented: CallLoop]. The first call
         // after one delay, and the same function on the same reference registered again

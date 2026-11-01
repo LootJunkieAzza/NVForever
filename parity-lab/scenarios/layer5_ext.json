@@ -944,6 +944,20 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "templates", "probes", "tmpl3"]
+  },
+  {
+   "id": "L5.ext.pp",
+   "layer": 5,
+   "description": "ppNVSE (#1014; docs/spec-notes/ext-pp.md), installed as VanillaPluginsPlus.dll: AX variables, form instances, extended item-mod slots, the sighting node, topic prompts, the camera rotation, line files and the Devkit getters with no Devkit; set pp of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/pp.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/pp.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "pp", "probes"]
   }
  ]
 }

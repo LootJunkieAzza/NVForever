@@ -5051,6 +5051,105 @@ JIP5_PROBES = (
 )
 
 
+
+# pp (writes, session only, each change put back where the plugin allows; #1014): ppNVSE
+# (docs/spec-notes/ext-pp.md), installed as VanillaPluginsPlus.dll, on FalloutNV.esm forms
+# [observed: fnvtool esm inventory; fnvtool dialogue lines]: the baseball bat, the 10mm
+# pistol and its silencer, two of Doc Mitchell's lines (one with a 27-character prompt, one
+# without). Read-only probes first. Left out after the first runs: AX_Exists with no form
+# (the game crashed on it), and what did not compile in the game: HasFormTrait with the
+# catalogue's index-first arguments, AX_Find without the deep flag, CreateFormInstance
+# without a key, and a literal -1 argument (the AX probes pass -1 in a variable). The AX keys are dropped at the end; the form instance
+# made here cannot be deleted (the plugin has no such script function) and lives for the
+# session only; pp.file.write writes nvfpp_probe.txt into the game's folder (in-game probes may
+# write the base install; NVForever writes its own layer). Not probed: CallLoop and the
+# instance and item-mod handlers (they run on later frames or on a load),
+# ReplaceItemInInventory (needs an inventory reference), the Devkit-only setters, and the
+# six names the DLL does not register (EvaluateString, GetAllAttachedWeaponMods,
+# GetAllModsInSlot, GetWeaponBase, IsWeaponInstance, NewWeaponInstance).
+PP = {"bat": "421C", "pistol": "434F", "silencer": "129878", "info": "10749E", "info.none": "105570"}
+
+
+def _pp(pid, body, text=False):
+    return (f"pp.{pid}", "ref rP\nref rObj\nref rOther\nref rInst\nfloat fRes\nfloat fA\nfloat fB\nfloat fC\n"
+            "string_var sText\narray_var aList\nBegin Function { }\n" + _form("rP", NF["player"]) + body, text, None, "")
+
+
+def _ppv(pid, key, expr, text=False):
+    return _pp(pid, _form("rObj", PP[key]) + f"SetFunctionValue ({expr})", text)
+
+
+# The instance pp.inst makes, kept under an AX key on the player for the probes after it.
+_INST = 'let rInst := AX_Get "nvfppinst" 0 rP\n'
+
+PP_PROBES = [
+    # ---- read-only ----
+    _pp("third", "SetFunctionValue (IsThirdPerson)"),
+    _pp("sight", "SetFunctionValue (GetCurrentSightingNode)", True),
+    _ppv("static.bat", "bat", "GetFormIDString (GetStaticForm rObj)", True),
+    _ppv("isinst.bat", "bat", "IsFormInstance rObj"),
+    _ppv("hasext.pistol", "pistol", "HasExtendedMods rObj"),
+    _ppv("hasext.pistol.vanilla", "pistol", "HasExtendedMods rObj 1"),
+    _pp("allmods.pistol", _form("rObj", PP["pistol"]) + "let aList := GetAllAttachedMods rObj\n"
+        "SetFunctionValue (ar_Size aList)"),
+    _ppv("akimbo.pistol", "pistol", "IsAkimboForm rObj"),
+    _pp("akimboset.pistol", _form("rObj", PP["pistol"]) + "SetFunctionValue (HasAkimboSet rObj rObj)"),
+    _ppv("trait.pistol", "pistol", 'GetFormTrait 0 rObj "MoveNode"'),
+    _ppv("prompt", "info", "sv_Length (GetTopicPrompt rObj)"),
+    _ppv("prompt.none", "info.none", "sv_Length (GetTopicPrompt rObj)"),
+    # The hypothesis (ext-pp.md §4): the camera looks where the player does; the
+    # differences from the player's angles, and the roll.
+    _pp("camrot", "GetPlayerCameraRotation fA fB fC\n"
+        'SetFunctionValue (sv_Construct "%.0f %.0f %.0f" (fA - (rP.GetAngle X)) fB (fC - (rP.GetAngle Z)))', True),
+    _ppv("ammo.bat", "bat", "GetFormIDString (rP.FindWeaponAmmo rObj)", True),
+    _pp("readfile", 'let aList := pReadFile "Fallout_default.ini"\nSetFunctionValue (ar_Size aList)'),
+    _pp("readfile.lines", 'let aList := pReadFile "Fallout_default.ini" 0 3\nSetFunctionValue (ar_Size aList)'),
+    _pp("ax.none", _form("rObj", PP["bat"]) + 'SetFunctionValue (sv_Construct "%g %g %g" (AX_Exists "nvfppnone" rObj) '
+        '(AX_GetType "nvfppnone" 0 rObj) (AX_Size "nvfppnone" rObj))', True),
+    # ---- writing ----
+    _pp("ax.set", _form("rObj", PP["bat"]) + 'AX_Set 777 "nvfpp" 0 rObj\nAX_Set "Hello" "nvfpp" 1 rObj\n'
+        'let aList := ar_List 4 5 6\nAX_Set aList "nvfpp" 2 rObj\nSetFunctionValue (AX_Size "nvfpp" rObj)'),
+    _ppv("ax.get0", "bat", 'AX_Get "nvfpp" 0 rObj'),
+    _pp("ax.get1", _form("rObj", PP["bat"]) + 'let sText := AX_Get "nvfpp" 1 rObj\nSetFunctionValue sText', True),
+    _pp("ax.get2", _form("rObj", PP["bat"]) + 'let aList := AX_Get "nvfpp" 2 rObj\nSetFunctionValue aList[1]'),
+    _ppv("ax.types", "bat", 'sv_Construct "%g %g %g %g" (AX_GetType "nvfpp" 0 rObj) (AX_GetType "nvfpp" 1 rObj) '
+         '(AX_GetType "nvfpp" 2 rObj) (AX_GetType "nvfpp" 7 rObj)', True),
+    _ppv("ax.exists", "bat", 'sv_Construct "%g %g" (AX_Exists "nvfpp" rObj) (AX_Exists "NVFPP" rObj)', True),
+    _ppv("ax.find", "bat", 'sv_Construct "%g %g %g" (AX_Find "hello" "nvfpp" 0 rObj) (AX_Find 5 "nvfpp" 0 rObj) '
+         '(AX_Find 5 "nvfpp" 1 rObj)', True),
+    _pp("ax.null", _form("rObj", PP["bat"]) + 'let fRes := AX_Null "nvfpp" 0 rObj\n'
+        'SetFunctionValue (sv_Construct "%g %g %g" fRes (AX_GetType "nvfpp" 0 rObj) (AX_Size "nvfpp" rObj))', True),
+    _pp("ax.erase", _form("rObj", PP["bat"]) + 'let fRes := AX_Erase "nvfpp" 0 rObj\n'
+        'SetFunctionValue (sv_Construct "%g %g %g" fRes (AX_Size "nvfpp" rObj) (AX_GetType "nvfpp" 0 rObj))', True),
+    # A literal -1 argument did not compile in the game (run 2): the index from a variable.
+    _pp("ax.drop", _form("rObj", PP["bat"]) + 'let fA := -1\nlet fRes := AX_Erase "nvfpp" fA rObj\n'
+        'SetFunctionValue (sv_Construct "%g %g" fRes (AX_Exists "nvfpp" rObj))', True),
+    _ppv("edid.pistol", "pistol", "GetEditorID rObj", True),
+    _pp("inst", _form("rObj", PP["pistol"]) + 'let rInst := CreateFormInstance rObj "nvfpp"\nAX_Set rInst "nvfppinst" 0 rP\n'
+        'SetFunctionValue (sv_Construct "%g %z %z" (IsFormInstance rInst) (GetFormIDString (GetStaticForm rInst)) '
+        '(GetEditorID rInst))', True),
+    _pp("inst.mod", _INST + _form("rObj", PP["pistol"])
+        + 'SetFunctionValue (sv_Construct "%z %z" (GetFormIDString (GetWeaponItemMod 1 rInst)) '
+        "(GetFormIDString (GetWeaponItemMod 1 rObj)))", True),
+    # A slot name no Devkit file defines.
+    _pp("attach", _INST + _form("rObj", PP["silencer"]) + 'let fRes := AttachMod rInst "nvfslot" rObj\n'
+        "let fA := HasExtendedMods rInst\nlet aList := GetAllAttachedMods rInst\nlet fB := ar_Size aList\n"
+        'AttachMod rInst "nvfslot"\nlet aList := GetAllAttachedMods rInst\n'
+        'SetFunctionValue (sv_Construct "%g %g %g %g %g" fRes fA fB (HasExtendedMods rInst) (ar_Size aList))', True),
+    # A vanilla slot on the instance (session only).
+    _pp("attach.vanilla", _INST + 'let fRes := AttachMod rInst "1"\nlet aList := GetAllAttachedMods rInst\n'
+        'SetFunctionValue (sv_Construct "%g %g" fRes (ar_Size aList))', True),
+    _pp("inst.drop", 'let fA := -1\nSetFunctionValue (AX_Erase "nvfppinst" fA rP)'),
+    _pp("sight.set", 'SetSightingNode "Bip01 Head"\nlet sText := GetCurrentSightingNode\n'
+        'SetSightingNode "##SightingNode"\nSetFunctionValue (sv_Construct "%z %z" sText (GetCurrentSightingNode))', True),
+    # Run 2: the default name did not take; another name does?
+    _pp("sight.set2", 'SetSightingNode "NVFNodeTwo"\nSetFunctionValue (GetCurrentSightingNode)', True),
+    _pp("file.write", 'let aList := ar_List "nvf one" "nvf two"\nSetFunctionValue (pWriteFile "nvfpp_probe.txt" aList)'),
+    _pp("file.read", 'let aList := pReadFile "nvfpp_probe.txt"\nlet sText := aList[1]\n'
+        'SetFunctionValue (sv_Construct "%g %z" (ar_Size aList) sText)', True),
+]
+
+
 # format1 (read-only; #1006): how sv_Construct writes %g, %G and %e in the game (the wiki's
 # "%g as an integer, 1E+006" is the older runtime's; ext-format.md §2), and two texture
 # sets' flags (jip5's open row).
@@ -5211,13 +5310,14 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "jg1": JG1_PROBES,
         "jg2": JG2_PROBES,
         "jip5": JIP5_PROBES,
+        "pp": PP_PROBES,
         "format1": FORMAT1_PROBES,
         "tmpl2": TMPL2_PROBES,
         "tmpl3": TMPL3_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1", "atk1", "jip4", "rules1", "rules2", "showoff2", "jg1", "jg2", "jip5", "tmpl3"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1", "atk1", "jip4", "rules1", "rules2", "showoff2", "jg1", "jg2", "jip5", "tmpl3", "pp"}
 
 
 def script(body):
