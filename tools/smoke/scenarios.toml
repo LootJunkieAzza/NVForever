@@ -12496,7 +12496,7 @@ manual = "on a failure, the chain's notes say what each step stands for; the sta
 [[scenario]]
 name = "mq-birds-of-a-feather"
 kind = "tool"
-source = "the headless side-quest walkthrough crates/fnv-game/walkthrough/birds-of-a-feather.actions.json, Birds of a Feather (VMS29a): hired (10), the Silver Rush door (20, the customers stood in by talks, Simon's fight ended by StopCombat), the Legion contact (30), Jean-Baptiste and Cass (40), the warehouse trap (50), Gloria (100)"
+source = "the headless side-quest walkthrough crates/fnv-game/walkthrough/birds-of-a-feather.actions.json, Birds of a Feather (VMS29a): hired (10), the Silver Rush door (20, the customers stood in by talks, Simon's fight ending by itself once the bomber is dead), the Legion contact (30), Jean-Baptiste and Cass (40), the warehouse trap (50), Gloria (100)"
 areas = ["quests", "scripts", "dialogue"]
 paths = ["crates/fnv-game/walkthrough/birds-of-a-feather.actions.json", "crates/fnv-game/src/runner.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs"]
 commands = [["script", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actions", "crates/fnv-game/walkthrough/birds-of-a-feather.actions.json"]]
