@@ -316,14 +316,6 @@
       "label": "chip handed over"
     },
     {
-      "op": "note",
-      "text": "The Goodbye line is still being spoken when the conversation reads as over; its end script (chip removed, stage 70) runs when the line ends, about 11.5 s later."
-    },
-    {
-      "op": "advance_seconds",
-      "seconds": 12
-    },
-    {
       "op": "get_quest",
       "quest": "VMQYesMan01",
       "fields": [

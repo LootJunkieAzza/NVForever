@@ -568,9 +568,10 @@ struct Resident {
     /// The target it was held on last frame ([`LOCK_HOLD`]): it stays on that target
     /// however far it moves in a frame.
     lock_held: Option<u32>,
-    /// It has been in the loaded area: leaving it takes its cell into the cell buffer.
-    /// An actor a script put far away (Malcolm Holmes) never was, so its cell is not
-    /// buffered and it stays at the Low level (`process_levels`).
+    /// It has been drawn in the loaded area. Going from there through a door into an
+    /// interior takes the interior into the cell buffer (`carries_cell`); an actor a
+    /// script keeps in a holding cell (Malcolm Holmes in RandomEncounterNPCs) never was,
+    /// so its cell is not buffered and it stays at the Low level.
     been_loaded: bool,
 }
 
@@ -1269,10 +1270,15 @@ impl Core {
                 self.loaded_at.insert(r.actor, self.clock_hours);
             }
             // Out of the loaded area: Mid-High in the cell buffer, Low beyond (`cell_buffer.rs`).
-            // Walking out of the loaded area, or on into another cell, takes the cell along.
+            // Walking out of the loaded area into a cell the buffer does not hold drops the
+            // actor to Low: the original's Victor went from process level 0 straight to 3,
+            // never 1 [observed: docs/handoff/observer-jip-audit-2026-10-25.md §3.1]. One
+            // already at Mid-High walking on into another cell takes that cell along, and so
+            // does one going through a door into an interior: interiors behind the loaded
+            // area's doors read Mid-Low there (same §3.1; Benny into the presidential suite).
             let new_cell = fnv_world::cell_of(r.last_feet[0], r.last_feet[1]) != fnv_world::cell_of(feet[0], feet[1]);
-            let carries = !high && !streamer.buffer.holds(space, feet) && ((self.ai.is_high(r.actor) && r.been_loaded) || (new_cell && self.ai.level(r.actor) == fnv_ai::ProcessLevel::MidHigh));
-            if carries {
+            let into_interior = r.been_loaded && matches!(space, Space::Interior(_));
+            if carries_cell(high, streamer.buffer.holds(space, feet), new_cell, into_interior, self.ai.level(r.actor)) {
                 streamer.buffer.carry(space, feet);
             }
             // On its way into the loaded area (a corner of the rest of its path is in
@@ -1285,12 +1291,7 @@ impl Core {
                 && (streamer.buffer.holds(space, feet) || self.ai.follows_near_leader(r.actor))
                 && a.activity == fnv_ai::Activity::Travelling
                 && a.walker.follower.as_ref().is_some_and(|f| f.path.legs.iter().skip(f.leg).any(|l| l.points.iter().any(|p| drawn(world, streamer, l.space, *p))));
-            let level = match (high, coming, streamer.buffer.holds(space, feet)) {
-                (true, _, _) => fnv_ai::ProcessLevel::High,
-                (false, true, _) => fnv_ai::ProcessLevel::Coming,
-                (false, false, true) => fnv_ai::ProcessLevel::MidHigh,
-                (false, false, false) => fnv_ai::ProcessLevel::Low,
-            };
+            let level = level_for(high, coming, streamer.buffer.holds(space, feet));
             let was_high = self.ai.is_high(r.actor);
             if self.ai.set_level(game, r.actor, level) {
                 let line = format!(
@@ -2756,9 +2757,31 @@ pub fn report(
     );
 }
 
+/// Whether an actor out of the loaded area takes its cell into the cell buffer, when the
+/// buffer does not hold it: one already at Mid-High walking on into another cell, and one
+/// going from the loaded area through a door into an interior (`into_interior`: it has
+/// been drawn there, and is in an interior now). One walking out of the
+/// loaded area in a worldspace does not, so it drops to Low (#958).
+fn carries_cell(high: bool, buffered: bool, new_cell: bool, into_interior: bool, level: fnv_ai::ProcessLevel) -> bool {
+    use fnv_ai::ProcessLevel::{High, MidHigh};
+    !high && !buffered && ((new_cell && level == MidHigh) || (into_interior && level == High))
+}
+
+/// The process level for an actor: High in the loaded area, Coming on its way in, Mid-High
+/// in the cell buffer, Low beyond.
+fn level_for(high: bool, coming: bool, buffered: bool) -> fnv_ai::ProcessLevel {
+    match (high, coming, buffered) {
+        (true, _, _) => fnv_ai::ProcessLevel::High,
+        (false, true, _) => fnv_ai::ProcessLevel::Coming,
+        (false, false, true) => fnv_ai::ProcessLevel::MidHigh,
+        (false, false, false) => fnv_ai::ProcessLevel::Low,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{recently_loaded, RunEnd, StopRun, RECENTLY_LOADED_HOURS};
+    use super::{carries_cell, level_for, recently_loaded, RunEnd, StopRun, RECENTLY_LOADED_HOURS};
+    use fnv_ai::ProcessLevel;
     use fnv_sim::FormId;
     use std::collections::HashMap;
 
@@ -2802,5 +2825,43 @@ mod tests {
         assert_eq!(ends(&[false, true, false, false, false, true, false, false, false, false, true]), vec![RunEnd::SetOff, RunEnd::Stop(3), RunEnd::Stop(4)]);
         // Standing at the end of a walk ends nothing.
         assert_eq!(ends(&[true, true, false, false]), vec![]);
+    }
+
+    /// The original's Victor walked out of the loaded area from process level 0 straight to
+    /// 3, never 1 (#958): a High actor stepping out into a cell the buffer does not hold
+    /// does not carry the cell, so it is Low on the next pass.
+    #[test]
+    fn walking_out_of_the_loaded_area_drops_to_low() {
+        // The frame it steps out: it was High, the new cell is neither drawn nor buffered.
+        assert!(!carries_cell(false, false, true, false, ProcessLevel::High));
+        assert!(!carries_cell(false, false, false, false, ProcessLevel::High));
+        assert_eq!(level_for(false, false, false), ProcessLevel::Low);
+        // Into a cell the buffer already holds: Mid-High.
+        assert_eq!(level_for(false, false, true), ProcessLevel::MidHigh);
+    }
+
+    #[test]
+    fn mid_high_walking_on_into_another_cell_takes_it_along() {
+        assert!(carries_cell(false, false, true, false, ProcessLevel::MidHigh));
+        // Same cell, a held cell, or back in the loaded area: nothing to carry.
+        assert!(!carries_cell(false, false, false, false, ProcessLevel::MidHigh));
+        assert!(!carries_cell(false, true, true, false, ProcessLevel::MidHigh));
+        assert!(!carries_cell(true, false, true, false, ProcessLevel::MidHigh));
+        // Low actors walking about beyond the buffer never pull cells in.
+        assert!(!carries_cell(false, false, true, false, ProcessLevel::Low));
+        assert_eq!(level_for(true, false, false), ProcessLevel::High);
+        assert_eq!(level_for(false, true, false), ProcessLevel::Coming);
+    }
+
+    /// Interiors behind the loaded area's doors read Mid-Low in the original (audit §3.1):
+    /// Benny riding the lift from the casino into the presidential suite keeps the suite.
+    #[test]
+    fn going_through_a_door_into_an_interior_takes_it_along() {
+        assert!(carries_cell(false, false, true, true, ProcessLevel::High));
+        assert!(carries_cell(false, false, false, true, ProcessLevel::High));
+        // Already Low, or the interior is held or loaded: nothing to carry.
+        assert!(!carries_cell(false, false, true, true, ProcessLevel::Low));
+        assert!(!carries_cell(false, true, true, true, ProcessLevel::High));
+        assert!(!carries_cell(true, false, true, true, ProcessLevel::High));
     }
 }
