@@ -1353,6 +1353,9 @@ pub struct Game<'a> {
     pub ui: crate::functions::ui::UiRequests,
     /// What console commands asked of the engine (`functions::console`), for it to take.
     pub console_requests: Vec<crate::functions::console::ConsoleRequest>,
+    /// The faces `MFG` set, by actor (`functions::console::FaceMfg`), for the engine's
+    /// faces to show. Not part of the saved state [design: a console aid].
+    pub mfg: std::collections::BTreeMap<FormId, crate::functions::console::FaceMfg>,
     /// Crimes being reported, trespass warnings and karma changes for the engine
     /// (`crate::crime`); what lasts is in [`PlayerState`]. Not part of the saved state.
     pub crimes: crate::crime::Crimes,
@@ -1992,6 +1995,7 @@ impl<'a> Game<'a> {
             weather: Default::default(),
             ui: Default::default(),
             console_requests: Vec::new(),
+            mfg: Default::default(),
             crimes: Default::default(),
             pickpocket: Default::default(),
             world,
