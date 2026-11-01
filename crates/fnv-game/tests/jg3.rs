@@ -225,6 +225,12 @@ fn casino_chip_and_winnings() {
     assert_eq!(n(&mut g, "GetCasinoWinnings TestCasino"), 600.0);
     // The winnings level follows: 600 of 1000 is level 2 (`casino::winnings_level`).
     assert_eq!(g.player.casino_levels.get(&FormId(CSNO)), Some(&2));
+    // Huge values from negative earnings do not overflow (#1328 review); the argument is
+    // an int, so the script hands over at most i32::MAX.
+    q(&mut g, "SetCasinoWinnings TestCasino -5000");
+    q(&mut g, "SetCasinoWinnings TestCasino 1000000000000000000000000");
+    assert_eq!(g.player.casino_earnings[&FormId(CSNO)], i64::from(i32::MAX));
+    assert_eq!(g.player.casino_levels.get(&FormId(CSNO)), Some(&4), "past the max winnings");
 }
 
 #[test]

@@ -228,9 +228,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getcasinowinnings" => XVal::Num(form(args, 0).and_then(|c| g.player.casino_earnings.get(&c)).map_or(0.0, |&e| e as f64)),
         "setcasinowinnings" => {
             if let Some(c) = form(args, 0).filter(|c| g.data.casinos.contains_key(c)) {
-                let now = g.player.casino_earnings.get(&c).copied().unwrap_or(0);
                 let max = g.data.casinos[&c].max_winnings;
-                crate::casino::add_earnings(g, c, num(args, 1, 0.0).trunc() as i64 - now, max);
+                // The earnings set outright (`as` saturates a huge number), then the level
+                // worked out as after a round, so no difference can overflow (#1328 review).
+                g.player.casino_earnings.insert(c, num(args, 1, 0.0).trunc() as i64);
+                crate::casino::add_earnings(g, c, 0, max);
             }
             zero
         }

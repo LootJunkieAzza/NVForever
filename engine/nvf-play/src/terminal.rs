@@ -410,6 +410,14 @@ fn labels(rt: &crate::script::Runtime, terminal: FormId, items: &[usize]) -> Vec
     items.iter().map(|&i| rules::item(&rt.game, terminal, i).map(|it| it.text).unwrap_or_default()).collect()
 }
 
+/// The menu lists `items` of `terminal`, with their lines: every change of the list
+/// goes through here, so the lines drawn are always the list's (#1328 review: Back from
+/// a sub menu left the sub menu's lines).
+fn list(rt: &crate::script::Runtime, m: &mut MenuView, terminal: FormId, items: Vec<usize>) {
+    m.labels = labels(rt, terminal, &items);
+    (m.terminal, m.items) = (terminal, items);
+}
+
 fn log_menu(rt: &crate::script::Runtime, m: &MenuView) {
     let data = rt.game.data;
     let Some(t) = data.terminals.get(&m.terminal) else { return };
@@ -769,7 +777,8 @@ fn apply(
                             info!("terminal: back from the note to the list");
                         } else if let Some((parent, row)) = m.parents.pop() {
                             let items = with_world(rt, &mut sim, |rt| rules::items(&mut rt.game, reference, parent));
-                            (m.terminal, m.items, m.selected) = (parent, items, row);
+                            list(rt, m, parent, items);
+                            m.selected = row;
                             log_menu(rt, m);
                         } else {
                             leave(&mut next, "back from the top menu");
@@ -838,8 +847,8 @@ fn apply(
                     if let Some((parent, row)) = m.parents.pop() {
                         info!("terminal: ForceTerminalBack: back to {}", rt.game.data.name(parent));
                         let items = with_world(rt, &mut sim, |rt| rules::items(&mut rt.game, reference, parent));
-                        m.labels = labels(rt, parent, &items);
-                        (m.terminal, m.items, m.selected) = (parent, items, row);
+                        list(rt, m, parent, items);
+                        m.selected = row;
                         log_menu(rt, m);
                         continue;
                     }
@@ -854,8 +863,8 @@ fn apply(
                 // [design] The list is read again after every choice: a script may have
                 // changed what its conditions see (the "Force Redraw" flag says so too).
                 let t = m.terminal;
-                m.items = with_world(rt, &mut sim, |rt| rules::items(&mut rt.game, reference, t));
-                m.labels = labels(rt, t, &m.items);
+                let items = with_world(rt, &mut sim, |rt| rules::items(&mut rt.game, reference, t));
+                list(rt, m, t, items);
                 m.selected = m.selected.min(m.items.len().saturating_sub(1));
                 (m.note, m.scroll) = (c.note, 0);
                 if c.submenu.is_some() {
