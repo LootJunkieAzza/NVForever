@@ -5,8 +5,9 @@
 //! EquipItem/UnequipItem on NPCs changed only the rules' flags
 //! (docs/design/script-function-audit.md §5).
 //!
-//! An NPC is spawned from `fnv_actor::resolve`'s own choice ([`Dressed`], put on by
-//! `actors::spawn`) and redressed at once when the rules say otherwise, and again whenever
+//! An NPC is spawned from its simulation equipment when available, otherwise from
+//! `fnv_actor::resolve`'s own choice ([`Dressed`], put on by `actors::spawn`)
+//! [observed: `appearance`]. It is redressed whenever
 //! their equipped set changes (a script's EquipItem or UnequipItem, an item taken from a
 //! corpse or removed): armour no longer worn is taken off and what it covered (the race's
 //! body, hands or head, the hair's no-hat shape) is put on, armour now worn is put on, on
@@ -68,6 +69,49 @@ pub struct Dressed {
     pub weapon_mods: u8,
     /// Each drawn part's key ([`part_key`]) and its shape entities.
     pub parts: Vec<(String, Vec<Entity>)>,
+}
+
+/// The simulation's drawable equipment, shared by spawning, prefetch and reconciliation.
+/// `None` means no simulated inventory yet; an empty or partial set is authoritative
+/// [observed: `fnv_sim::World::equipment`], including after looting or UnequipItem.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Equipment {
+    pub worn: Vec<FormId>,
+    pub weapon: Option<FormId>,
+    pub weapon_mods: u8,
+}
+
+impl Equipment {
+    pub fn of(world: &ActorWorld, sim: Option<&fnv_sim::World<'_>>, reference: u32) -> Option<Self> {
+        let sim = sim?;
+        let id = FormId(reference);
+        let items = sim.equipment(id)?;
+        Self::select(&world.actors, Some(&items), |w| sim.peek(id).and_then(|s| s.inventory.as_ref()).map_or(0, |inv| inv.mods_in_use(w)))
+    }
+
+    fn select(actors: &fnv_actor::ActorForms, items: Option<&[FormId]>, mods: impl FnOnce(FormId) -> u8) -> Option<Self> {
+        let items = items?;
+        let mut worn = Vec::new();
+        for &i in items {
+            if actors.armors.contains_key(&i) && !worn.contains(&i) {
+                worn.push(i);
+            }
+        }
+        let weapon = items.iter().copied().find(|i| actors.weapons.contains_key(i));
+        Some(Self { worn, weapon, weapon_mods: weapon.map_or(0, mods) })
+    }
+}
+
+/// Resolve the same appearance for spawn, read-ahead and later outfit changes. Passing
+/// the held weapon to the resolver also applies its Hide Backpack flag [observed:
+/// `Resolver::resolve_changed_at`]; its record-selected weapon is then replaced.
+pub fn appearance(world: &ActorWorld, base: u32, reference: u32, equipment: Option<&Equipment>) -> Result<Appearance, String> {
+    let Some(e) = equipment else { return world.resolve(base, reference) };
+    let wearing: Vec<_> = e.worn.iter().copied().chain(e.weapon).collect();
+    let mut a = world.resolve_wearing(base, reference, Some(&wearing))?;
+    a.weapon = e.weapon;
+    a.weapon_mods = e.weapon_mods;
+    Ok(a)
 }
 
 impl Dressed {
@@ -142,11 +186,11 @@ fn follow_inventory(
     muzzles: Query<(Entity, &Muzzle)>,
 ) {
     let (Some(world), Some(sim)) = (world, sim) else { return };
+    let profiling = crate::profile::interval().is_some();
+    let (mut replacements, mut replacement_ms) = (0, 0.0);
     for (entity, rig, mut dressed, mut player, dead) in &mut actors {
-        let Some(items) = sim.world.equipment(FormId(rig.reference)) else { continue };
-        let (worn, weapon) = drawn_of(&world, &items);
-        // The mods of the unit held: a modded weapon draws its mods' model.
-        let mods = weapon.map_or(0, |w| sim.world.peek(FormId(rig.reference)).and_then(|s| s.inventory.as_ref()).map_or(0, |inv| inv.mods_in_use(w)));
+        let Some(equipment) = Equipment::of(&world, Some(&sim.world), rig.reference) else { continue };
+        let Equipment { ref worn, weapon, weapon_mods: mods } = equipment;
         let dressed = &mut *dressed;
         // A weapon with "Hide Backpack" taken up or put away dresses the body again
         // (`Resolver::resolve_wearing`).
@@ -157,17 +201,15 @@ fn follow_inventory(
             continue;
         }
         let who = format!("{:08X}", rig.reference);
-        let wearing: Vec<FormId> = worn.iter().copied().chain(weapon.filter(|w| hides(Some(*w)))).collect();
-        let mut new = match world.resolve_wearing(rig.base, rig.reference, Some(&wearing)) {
+        let started = profiling.then(std::time::Instant::now);
+        let new = match appearance(&world, rig.base, rig.reference, Some(&equipment)) {
             Ok(n) => n,
             Err(e) => {
                 warn!("outfit: actor {who}: cannot be dressed again ({e})");
-                (dressed.worn, dressed.weapon, dressed.weapon_mods) = (worn, weapon, mods);
+                (dressed.worn, dressed.weapon, dressed.weapon_mods) = (worn.clone(), weapon, mods);
                 continue;
             }
         };
-        new.weapon = weapon;
-        new.weapon_mods = mods;
         let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
         let mut spawned = SpawnedActor { root: rig.nodes[0], nodes: rig.nodes.clone(), drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0 };
         if !same_weapon {
@@ -205,6 +247,8 @@ fn follow_inventory(
             (dressed.weapon, dressed.weapon_mods) = (weapon, mods);
         }
         if same_worn {
+            replacements += 1;
+            replacement_ms += started.map_or(0.0, |s| s.elapsed().as_secs_f64() * 1000.0);
             continue;
         }
         let pipboy = pipboy_of(&world, &new);
@@ -246,8 +290,11 @@ fn follow_inventory(
             put_on.parts.len(),
             put_on.parts.iter().map(|p| p.role.as_str()).collect::<Vec<_>>().join(", ")
         );
-        dressed.worn = worn;
+        dressed.worn = worn.clone();
+        replacements += 1;
+        replacement_ms += started.map_or(0.0, |s| s.elapsed().as_secs_f64() * 1000.0);
     }
+    crate::profile::outfit_replacements(replacements, replacement_ms);
 }
 
 /// A drawn creature: its root, rig, clips, whether it is a corpse, and what it was armed with.
@@ -320,18 +367,6 @@ fn arm_creatures(
     }
 }
 
-/// Of the rules' equipped `items`, the armour drawn (each piece once) and the weapon held
-/// (the first that has a weapon record).
-fn drawn_of(world: &ActorWorld, items: &[FormId]) -> (Vec<FormId>, Option<FormId>) {
-    let mut worn: Vec<FormId> = Vec::new();
-    for &i in items {
-        if world.actors.armors.contains_key(&i) && !worn.contains(&i) {
-            worn.push(i);
-        }
-    }
-    (worn, items.iter().copied().find(|i| world.actors.weapons.contains_key(i)))
-}
-
 /// Whether appearance `a` wears a Pip-Boy (the outfits' sleeve shapes depend on it).
 fn pipboy_of(world: &ActorWorld, a: &Appearance) -> bool {
     a.parts.iter().any(|p| world.actors.armors.get(&p.form).is_some_and(|ar| ar.slots & fnv_actor::resolve::slot::PIPBOY != 0))
@@ -343,5 +378,148 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<OutfitStats>) {
             "outfit summary: {} armour pieces taken off and {} put on, {} weapons taken off and {} put on drawn actors as the rules' equipped items changed; {} parts put on; {} creatures took up a weapon, {} hold one their skeleton has no stance for",
             stats.armour_off, stats.armour_on, stats.weapons_off, stats.weapons_on, stats.parts_on, stats.creatures_armed, stats.creatures_no_stance
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fnv_actor::records::{Armor, Npc, Race, RacePart, Weapon};
+
+    const ARMOUR: FormId = FormId(1);
+    const WEAPON: FormId = FormId(2);
+    const OTHER: FormId = FormId(3);
+
+    fn forms() -> fnv_actor::ActorForms {
+        let mut actors = fnv_actor::ActorForms::default();
+        actors.armors.insert(ARMOUR, Armor {
+            edid: None, slots: fnv_actor::resolve::slot::UPPER_BODY, worn: [None, None],
+            dt: 0.0, dr_raw: 0, power_armor: false, ragdoll_template: None, addons: vec![],
+        });
+        actors.weapons.insert(WEAPON, Weapon {
+            edid: None, model: None, anim_type: None, damage: 0, projectile: None,
+            explosion_damage: 0.0, embedded: false, non_playable: false, not_for_npcs: false,
+            first_person: None, first_person_model: None, mod_models: Default::default(),
+            mod_first_person: Default::default(), mod_first_person_models: Default::default(),
+            held_world_model: None, grip: None, hide_backpack: true,
+        });
+        actors
+    }
+
+    fn appearance_world() -> ActorWorld {
+        let mut actors = forms();
+        actors.npcs.insert(OTHER, Npc {
+            id: OTHER, edid: None, name: None, female: false, chargen_preset: false,
+            template: None, template_flags: 0, skeleton: None, race: Some(OTHER),
+            hair: None, hair_length: None, hair_color: None, eyes: None, head_parts: vec![],
+            facegen: None, height: None,
+        });
+        actors.races.insert(OTHER, Race {
+            id: OTHER, edid: None, height: [1.0; 2], head: Default::default(),
+            body: [vec![RacePart { index: 0, model: Some("bare.nif".into()), icon: None }], vec![]],
+            default_hair: [None; 2], facegen: [None, None], name: None, playable: false,
+            child: false, hairs: vec![], eyes: vec![], older: None, younger: None, voices: [None; 2],
+        });
+        let pack = FormId(4);
+        let armour = actors.armors.get_mut(&ARMOUR).unwrap();
+        armour.worn[0] = Some("armour.nif".into());
+        armour.addons.push(pack);
+        let mut addon = armour.clone();
+        addon.slots = fnv_actor::resolve::slot::BACKPACK;
+        addon.worn[0] = Some("pack.nif".into());
+        addon.addons.clear();
+        actors.armors.insert(pack, addon);
+        let weapon = actors.weapons.get_mut(&WEAPON).unwrap();
+        weapon.model = Some("weapon.nif".into());
+        weapon.mod_models[4] = Some("modded.nif".into());
+        ActorWorld {
+            actors, forms: Default::default(), facegen_enabled: false, facegen: Default::default(),
+            race_facegen: false, show_disabled: false, pose: crate::actors::ActorPose::Bind,
+            pose_time: None, walk_test: None, weapon_mode: crate::weapons::WeaponMode::Holstered,
+            weapon_test: None, anims: Default::default(), rolls: Default::default(),
+            changes: Default::default(), levels: Default::default(),
+        }
+    }
+
+    #[test]
+    fn simulated_equipment_selects_unique_armour_and_the_held_units_mods() {
+        let actors = forms();
+        let selected = Equipment::select(&actors, Some(&[OTHER, ARMOUR, WEAPON, ARMOUR]), |w| {
+            assert_eq!(w, WEAPON);
+            5
+        });
+        assert_eq!(selected, Some(Equipment { worn: vec![ARMOUR], weapon: Some(WEAPON), weapon_mods: 5 }));
+    }
+
+    #[test]
+    fn unavailable_simulation_equipment_preserves_record_fallback() {
+        assert_eq!(Equipment::select(&forms(), None, |_| panic!("no held unit")), None);
+    }
+
+    #[test]
+    fn partial_equipment_does_not_fill_missing_slots_from_the_record() {
+        let actors = forms();
+        assert_eq!(Equipment::select(&actors, Some(&[ARMOUR]), |_| panic!("no held unit")),
+            Some(Equipment { worn: vec![ARMOUR], weapon: None, weapon_mods: 0 }));
+        assert_eq!(Equipment::select(&actors, Some(&[WEAPON]), |_| 3),
+            Some(Equipment { worn: vec![], weapon: Some(WEAPON), weapon_mods: 3 }));
+        for items in [&[][..], &[OTHER][..]] {
+            assert_eq!(Equipment::select(&actors, Some(items), |_| panic!("no held unit")),
+                Some(Equipment { worn: vec![], weapon: None, weapon_mods: 0 }));
+        }
+    }
+
+    #[test]
+    fn shared_appearance_resolves_parts_weapon_mods_and_hide_backpack() {
+        let world = appearance_world();
+        assert_eq!(appearance(&world, OTHER.0, 100, None), world.resolve(OTHER.0, 100));
+        let equipment = Equipment::select(&world.actors, Some(&[ARMOUR, WEAPON]), |_| 5).unwrap();
+        let a = appearance(&world, OTHER.0, 100, Some(&equipment)).unwrap();
+        assert_eq!((a.worn.as_slice(), a.weapon, a.weapon_mods), (&[ARMOUR][..], Some(WEAPON), 5));
+        assert!(a.parts.iter().any(|p| p.model.ends_with("armour.nif")));
+        assert!(!a.parts.iter().any(|p| p.model.ends_with("bare.nif") || p.model.ends_with("pack.nif")));
+        assert_eq!(world.actors.weapons[&a.weapon.unwrap()].model_for(false, a.weapon_mods), Some("modded.nif"));
+        let unarmed = Equipment::select(&world.actors, Some(&[ARMOUR]), |_| unreachable!()).unwrap();
+        let a = appearance(&world, OTHER.0, 100, Some(&unarmed)).unwrap();
+        assert!(a.parts.iter().any(|p| p.model.ends_with("pack.nif")));
+        assert_eq!((a.weapon, a.weapon_mods), (None, 0));
+        let empty = Equipment::select(&world.actors, Some(&[]), |_| unreachable!()).unwrap();
+        let a = appearance(&world, OTHER.0, 100, Some(&empty)).unwrap();
+        assert!(a.worn.is_empty());
+        assert!(a.parts.iter().any(|p| p.model.ends_with("bare.nif")));
+    }
+
+    #[test]
+    fn simulation_lookup_and_prefetch_use_the_same_equipment() {
+        use fnv_sim::forms::{ActorBase, BaseData, BaseForm};
+        use fnv_sim::inventory::{Extra, Inventory};
+        let mut world = appearance_world();
+        world.forms.sigs.insert(OTHER, *b"NPC_");
+        world.forms.bases.insert(OTHER, BaseForm {
+            id: OTHER, sig: *b"NPC_", edid: None, name: None, script: None, prompt: None,
+            voice_filter: false, data: BaseData::Actor(ActorBase { entries: vec![], attributes: None }),
+        });
+        let refs = fnv_sim::RefTable::default();
+        let mut sim = fnv_sim::World::new(&world.forms, &refs, Default::default());
+        assert_eq!(Equipment::of(&world, None, 100), None);
+        assert_eq!(Equipment::of(&world, Some(&sim), 100), None);
+        let id = sim.place(OTHER, None, [0.0; 3], [0.0; 3], 1).unwrap();
+        sim.get(id).unwrap().inventory = None;
+        assert_eq!(Equipment::of(&world, Some(&sim), id.0), None);
+        let mut inv = Inventory::new();
+        inv.add(ARMOUR, 1);
+        inv.set_equipped(ARMOUR);
+        sim.get(id).unwrap().inventory = Some(inv);
+        assert_eq!(Equipment::of(&world, Some(&sim), id.0),
+            Some(Equipment { worn: vec![ARMOUR], weapon: None, weapon_mods: 0 }));
+        let inv = sim.get(id).unwrap().inventory.as_mut().unwrap();
+        inv.add_extra(WEAPON, 1, Extra { mods: 5, ..Default::default() });
+        inv.set_equipped(WEAPON);
+        assert_eq!(Equipment::of(&world, Some(&sim), id.0),
+            Some(Equipment { worn: vec![ARMOUR], weapon: Some(WEAPON), weapon_mods: 5 }));
+        let plan = crate::readahead::actor_plan(&world, Some(&sim), id.0, OTHER.0, false).unwrap();
+        assert!(plan.parts.iter().any(|p| p.ends_with("armour.nif")));
+        assert!(plan.parts.iter().any(|p| p.ends_with("modded.nif")));
+        assert!(!plan.parts.iter().any(|p| p.ends_with("bare.nif") || p.ends_with("pack.nif")));
     }
 }

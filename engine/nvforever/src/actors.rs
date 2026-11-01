@@ -321,6 +321,9 @@ pub fn spawn_hidden(commands: &mut Commands, root: Entity, reference: u32) {
 
 #[derive(Debug, Default, Clone)]
 pub struct ActorStats {
+    /// Successful NPC spawns by appearance source (profiled per system call).
+    pub equipment_spawns: usize,
+    pub record_spawns: usize,
     pub drawn: usize,
     pub unresolved: usize,
     pub parts_missing: usize,
@@ -502,11 +505,13 @@ pub fn spawn(
     reference: u32,
     base: u32,
     world: &ActorWorld,
+    sim: Option<&fnv_sim::World<'_>>,
     ctx: &mut ActorCtx,
     stats: &mut ActorStats,
     hidden: bool,
 ) -> bool {
-    let a = match world.resolve(base, reference) {
+    let equipment = crate::outfits::Equipment::of(world, sim, reference);
+    let a = match crate::outfits::appearance(world, base, reference, equipment.as_ref()) {
         Ok(a) => a,
         Err(e) => {
             stats.unresolved += 1;
@@ -587,6 +592,11 @@ pub fn spawn(
     }
     stats.unbound_shapes += spawned.unbound;
     stats.drawn += 1;
+    if equipment.is_some() {
+        stats.equipment_spawns += 1;
+    } else {
+        stats.record_spawns += 1;
+    }
     true
 }
 

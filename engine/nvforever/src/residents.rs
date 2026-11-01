@@ -2294,7 +2294,7 @@ pub fn drive(
     roots: Query<(Entity, &RefVisual, &ChildOf)>,
     mut actors: Query<(&mut Transform, Option<&mut Locomotion>), Without<OnFurniture>>,
     mut doors: ResMut<nvf_play::doors::Doors>,
-    (script, sim, mut phys, mut blocks): PlayState,
+    (script, mut sim, mut phys, mut blocks): PlayState,
     (seated, hours, flinches, fighters, idle_holds): Held,
     (mut door_fades, mut door_sounds, mut travel, mut knocks, trips, screen): Moves,
 ) {
@@ -2348,7 +2348,7 @@ pub fn drive(
         None => res.core.posed.clear(),
     }
     // The game state: this module's, or the game being played (once its data is in).
-    match (res.own.as_deref_mut(), script, sim) {
+    match (res.own.as_deref_mut(), script, sim.as_deref_mut()) {
         (Some(game), _, _) => {
             if all {
                 res.core.take_cells(&world, &streamer, game.world.placed);
@@ -2365,7 +2365,7 @@ pub fn drive(
             let _span = info_span!("ai::think").entered();
             res.core.think(game, true, &nav, &world, &mut doors, None, None, dt, now, 0);
         }
-        (None, Some(mut script), Some(mut sim)) => {
+        (None, Some(mut script), Some(sim)) => {
             let script = &mut *script;
             let Some(rt) = script.rt.as_mut() else {
                 if let (Some(why), false) = (&script.off, res.warned) {
@@ -2381,7 +2381,7 @@ pub fn drive(
             let core = &mut res.core;
             let (phys, blocks) = (phys.as_deref_mut(), blocks.as_deref_mut());
             let (world_ref, streamer_ref) = (&*world, &*streamer);
-            nvf_play::script::with_world(rt, &mut sim, |rt| {
+            nvf_play::script::with_world(rt, sim, |rt| {
                 let mut phys = phys;
                 let span = info_span!("ai::take_moved").entered();
                 core.take_moved(&mut rt.game, all, phys.as_deref_mut());
@@ -2408,6 +2408,8 @@ pub fn drive(
         }
         _ => return,
     }
+    let equipment_world = res.own.as_deref().map(|g| &g.world).or_else(|| sim.as_deref().map(|s| &s.world));
+    let mut spawn_stats = crate::actors::ActorStats::default();
     let core = &mut res.core;
     // Load doors used: the doors' sounds where the listener is, the body left at the door
     // fades out, the one drawn at the other side fades in (`door_fade.rs`).
@@ -2602,13 +2604,14 @@ pub fn drive(
             }
         }
         let stage = (&mut r.spawned, &mut r.root);
-        if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe, air: agent.walker.air.is_some() }, stage, (feet, heading), moving, dt) {
+        if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), equipment_world, &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe, air: agent.walker.air.is_some() }, stage, (feet, heading), moving, dt) {
             if r.named {
                 warn!("ai: {} could not be drawn ({e})", r.label);
             }
             r.failed = true;
         }
     }
+    crate::profile::actor_spawns(spawn_stats.equipment_spawns, spawn_stats.record_spawns);
 }
 
 /// The residents' state when the app exits (smoke tests read it).

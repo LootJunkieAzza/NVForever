@@ -94,13 +94,17 @@ pub struct Plan {
 }
 
 /// What actor `reference` (base `base`) is drawn from. `None`: it cannot be resolved
-/// (spawning it says why).
-pub fn actor_plan(world: &ActorWorld, reference: u32, base: u32, creature: bool) -> Option<Plan> {
+/// (spawning it says why). The ring uses the equipment available now; readiness asks
+/// again before spawning, since the simulation may have acquired or changed it since
+/// the ring was listed [design]. Initial cell spawns and explicit respawns can still
+/// read missing parts synchronously through `ActorCtx`, as before.
+pub fn actor_plan(world: &ActorWorld, sim: Option<&fnv_sim::World<'_>>, reference: u32, base: u32, creature: bool) -> Option<Plan> {
     if creature {
         let c = world.resolve_creature(base, reference).ok()?;
         Some(Plan { parts: c.parts.iter().map(|p| p.model.clone()).collect(), skeleton: c.skeleton, body: Body::Male, prefix: None, facegen: Vec::new() })
     } else {
-        let a = world.resolve(base, reference).ok()?;
+        let equipment = crate::outfits::Equipment::of(world, sim, reference);
+        let a = crate::outfits::appearance(world, base, reference, equipment.as_ref()).ok()?;
         let w = a.weapon.and_then(|id| world.actors.weapons.get(&id)).filter(|_| world.weapon_mode != crate::weapons::WeaponMode::None);
         let model = w.and_then(|w| w.model_for(false, a.weapon_mods)).map(fnv_actor::resolve::mesh_path);
         let held = w.filter(|_| model.is_some()).and_then(|w| w.anim_type.as_deref().and_then(AnimType::from_name));
@@ -122,8 +126,8 @@ pub fn actor_plan(world: &ActorWorld, reference: u32, base: u32, creature: bool)
 /// parts, skeleton and weapon model are prepared or read ahead. The rest are read on a
 /// worker thread (`ActorCtx::parts_ready`). An actor that cannot be resolved counts as
 /// ready: spawning it says why. Counts for the summary whether it was ready at once.
-pub fn ready_to_draw(world: &ActorWorld, ctx: &mut ActorCtx, reference: u32, base: u32, creature: bool) -> bool {
-    let ready = actor_plan(world, reference, base, creature).is_none_or(|p| ctx.parts_ready(p.parts.iter().chain([&p.skeleton]).map(String::as_str)));
+pub fn ready_to_draw(world: &ActorWorld, sim: Option<&fnv_sim::World<'_>>, ctx: &mut ActorCtx, reference: u32, base: u32, creature: bool) -> bool {
+    let ready = actor_plan(world, sim, reference, base, creature).is_none_or(|p| ctx.parts_ready(p.parts.iter().chain([&p.skeleton]).map(String::as_str)));
     let mut waiting = WAITING.lock().expect("read-ahead waits");
     let waiting = waiting.get_or_insert_with(HashMap::new);
     if !ready {
@@ -203,6 +207,7 @@ pub fn read_ahead(
     streamer: Res<Streamer>,
     world: Res<WorldData>,
     actor_world: Option<Res<ActorWorld>>,
+    sim: Option<Res<nvf_play::sim::SimState>>,
     residents: Option<Res<crate::residents::Residents>>,
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
@@ -268,7 +273,7 @@ pub fn read_ahead(
         let Some(job) = ahead.jobs.pop_front() else { break };
         match job {
             Job::Actor { reference, base, creature } => {
-                let Some(Plan { parts, skeleton, body, prefix, facegen }) = actor_plan(aw, reference, base, creature) else { continue };
+                let Some(Plan { parts, skeleton, body, prefix, facegen }) = actor_plan(aw, sim.as_deref().map(|s| &s.world), reference, base, creature) else { continue };
                 // Starts the reads of what is neither prepared nor read yet.
                 ctx.parts_ready(parts.iter().chain([&skeleton]).map(String::as_str));
                 let key = (fnv_vfs::normalize(&skeleton), body, prefix);
