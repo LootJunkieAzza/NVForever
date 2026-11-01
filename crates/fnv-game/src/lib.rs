@@ -99,6 +99,7 @@ pub mod nvse_small;
 pub mod nvse_vheyes;
 pub mod nvse_jg1;
 pub mod nvse_jg2;
+pub mod nvse_jg3;
 pub mod nvse_jip5;
 pub mod nvse_rest;
 pub mod nvse_showoff2;

@@ -89,6 +89,8 @@ The small libraries (2026-11-01): 92, every one of kNVSE 16 (#1018, ext-knvse.md
 set knvse2 29/31), JIP PP LN 10 (#1019, ext-jippp.md), vheyes-nvse 21 (#1016, ext-vheyes.md),
 CacheUI 8 (#1013), Anh 3 (#1015), NX 1 (#1017) and the #1020 plugins 33 (ext-small.md).
 Census after it: 1,186 (from 1,278).
+JohnnyGuitar batch 3: 24 (#1007, ext-jg3.md, from the pages and the records, not probed).
+Census after it: 1,162; JohnnyGuitar 242 left.
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,
