@@ -443,7 +443,8 @@ fn soft_faces(path: &str, data: &GameData, images: &mut Assets<Image>) -> Option
 
 /// How much light a scanline texel `l` (0 to 1) keeps, in linear light: [design] it
 /// approximately scales the display values. [observed: hacking.md section 2] The fit
-/// was calibrated on the block dip (blue about 0.82 at 720 high, ours 0.81; scaling
+/// was calibrated on the block dip (blue about 0.82 at 720 high; ours 0.81 in the
+/// calibration run, before the fills moved above the lines; scaling
 /// the light instead gave 0.94) and the glass banding. [design] Multiplying linear(C)
 /// by linear(l) is darker than C * l in display values for dark tones: glass (12,38,20)
 /// at 0.8 gives about (7,28,14), not (10,30,16).

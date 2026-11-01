@@ -135,8 +135,9 @@ scale is the number of lines down the screen's texture.
   moves. Blurs of 0.6 and 0.7 left the strokes harder than the original's.
 - Scanlines (`screen::scanline_image`): the band at 960/130 units, baked into one column
   a texel per canvas row and stretched over the whole canvas above the text, under the
-  glare; it approximately scales the display values (the blocks' blue dims to 0.81 at
-  720; scaling the light instead gave 0.94). This fit was calibrated on the block dip
+  glare; it approximately scales the display values (in the calibration run, before the
+  fills moved above the lines, a block's blue dimmed to 0.81 at 720; scaling the light
+  instead gave 0.94; the final blocks draw above the lines and keep their blue). This fit was calibrated on the block dip
   and glass banding. `sRGB(linear(C) * linear(band))` is darker than a display-value
   multiply in dark tones: glass (12,38,20) at band 0.8 gives about (7,28,14), rather
   than (10,30,16). The undercoat and the background's tint are raised by what
