@@ -1310,8 +1310,9 @@ pub struct Game<'a> {
     /// Factions kept for a frame of the combat AI ([`Game::begin_faction_frame`]).
     pub(crate) faction_frame: Option<crate::functions::actor::FactionKeep>,
     /// Every actor's detection state (Normal, Alert, Combat, Lost), its alert and target
-    /// lists, and detection events waiting to be heard (`crate::awareness`). Not part of
-    /// the saved state: the engine measures again.
+    /// lists, and detection events waiting to be heard (`crate::awareness`). The actors'
+    /// states and lists and StartCombat's pairs are saved (a fight survives a save and
+    /// load, #971); the rest is not: the engine measures again.
     pub awareness: crate::awareness::Awarenesses,
     /// Fights started by being hit, friendly hits, yields and allies joining
     /// (`crate::provocation`). Not part of the saved state.
@@ -1405,6 +1406,9 @@ pub struct Game<'a> {
     /// Challenge rewards and notices waiting for the next frame (`crate::challenges`).
     /// Not saved.
     pub challenge_queue: crate::challenges::Queue,
+    /// Notes the player was given since the engine last took them (its corner
+    /// messages, [`Game::take_note_notices`]). Not saved.
+    pub note_notices: Vec<FormId>,
     /// The open menu, by menu code. While a menu is open, [`Game::tick`] runs MenuMode
     /// blocks instead of GameMode, and game time stops for scripts (GetSecondsPassed and
     /// the quest delay of GameMode) [observed: layer5-captures.md §8.3 e]. Part of the
@@ -1684,6 +1688,15 @@ pub struct GameSnapshot {
     /// a load is taken as it stands, which is the same).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub door_open_seen: BTreeMap<FormId, bool>,
+    /// Actors out of the Normal state or with anything on their lists: state, alert and
+    /// target lists, the target fought (`crate::awareness::Awareness`), so that whoever
+    /// fought is still fighting after a load and IsInCombat on the player reads the same
+    /// before the first detection round (#971; save-load.md §3.2).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub awareness: BTreeMap<FormId, crate::awareness::Awareness>,
+    /// (actor, target) pairs StartCombat made hostile until StopCombat.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub forced_combat: BTreeSet<(FormId, FormId)>,
 }
 
 impl GameSnapshot {
@@ -1997,6 +2010,7 @@ impl<'a> Game<'a> {
             activate_menu: None,
             perk_acts: Vec::new(),
             challenge_queue: Default::default(),
+            note_notices: Vec::new(),
             fighting: BTreeSet::new(),
             condition_target: None,
             menu: None,
@@ -2074,11 +2088,40 @@ impl<'a> Game<'a> {
             inv.iter().filter(|&(i, n)| n > 0 && forms.item(i).is_some_and(|it| it.kind == fnv_sim::forms::ItemKind::Note)).collect();
         for (note, n) in carried {
             let _ = self.world.remove_item(FormId::PLAYER_REF, note, n);
-            if self.player.notes.insert(note) {
+            if self.file_note(note) {
                 tracing::info!("notes: {} {note} filed with the player's notes", self.data.name(note));
-                self.jip_event("noteadded", None, vec![fnv_script::vm::XVal::Ref(note.0)]);
             }
         }
+    }
+
+    /// The player is given a note (picked up, taken, AddItem, AddNote, a terminal's Add
+    /// Note item). The first time it becomes one of the player's notes, JIP's
+    /// `noteadded` event runs and the engine is told to show its corner notice
+    /// ([`Game::take_note_notices`]); `false` when the player had it, which shows nothing
+    /// [documented: issue #1163, the owner's request; hypothesis: that the original
+    /// shows it for script-added notes too, docs/handoff/observer-checks.md].
+    pub fn file_note(&mut self, note: FormId) -> bool {
+        if !self.player.notes.insert(note) {
+            return false;
+        }
+        self.jip_event("noteadded", None, vec![fnv_script::vm::XVal::Ref(note.0)]);
+        self.note_notices.push(note);
+        true
+    }
+
+    /// Take the notes given since the last call (the engine's corner messages).
+    pub fn take_note_notices(&mut self) -> Vec<FormId> {
+        std::mem::take(&mut self.note_notices)
+    }
+
+    /// The corner line for a note given to the player: its name (FULL; the editor ID
+    /// when it has none) after "Note: ".
+    /// No setting in the masters holds this line [observed: no string GMST of
+    /// FalloutNV.esm or the add-on masters names notes, 2026-10-31], so the words are
+    /// NVForever's, the owner's example in issue #1163 (LEGAL.md).
+    pub fn note_notice_text(&self, note: FormId) -> String {
+        let name = self.data.notes.get(&note).and_then(|n| n.name.clone()).filter(|n| !n.trim().is_empty());
+        format!("Note: {}", name.unwrap_or_else(|| self.data.name(note)))
     }
 
     /// The new-game state: every quest flagged "Start game enabled" is running, with no
@@ -4763,6 +4806,8 @@ impl<'a> Game<'a> {
             say_to_unsaid: self.say_to_unsaid.clone(),
             queued_ref_events: self.queued_ref_events.clone(),
             door_open_seen: self.door_open_seen.iter().filter(|&(&r, &seen)| self.world.peek(r).is_some_and(|s| s.open != seen)).map(|(&r, &seen)| (r, seen)).collect(),
+            awareness: self.awareness.actors.iter().filter(|(_, a)| a.state.in_combat() || !a.targets.is_empty() || !a.alarms.is_empty() || a.fighting.is_some()).map(|(&r, a)| (r, a.clone())).collect(),
+            forced_combat: self.awareness.forced.clone(),
         }
     }
 
@@ -4823,6 +4868,8 @@ impl<'a> Game<'a> {
         g.say_to_unsaid = s.say_to_unsaid.clone();
         g.queued_ref_events = s.queued_ref_events.clone();
         g.door_open_seen = s.door_open_seen.clone();
+        g.awareness.actors = s.awareness.clone();
+        g.awareness.forced = s.forced_combat.clone();
         g.coop =crate::coop::checked(s.coop.clone()).map_err(|e| e.to_string())?;
         for (&on, texture) in &s.securitron_faces {
             g.texture_swaps.set_securitron(on, texture.clone());

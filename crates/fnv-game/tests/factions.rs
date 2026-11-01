@@ -296,6 +296,28 @@ fn the_records_are_read() {
     assert_eq!((l.all_levels, l.entries.clone()), (false, vec![(1, FormId(LIST_WOLF)), (9, FormId(RAT))]));
 }
 
+/// The extender's base faction getters read the Use Factions template's list through NPC
+/// records, the record's own when the chain reaches a leveled list (actors.md §2.2;
+/// observed: o5 and tmpl3, #1057).
+#[test]
+fn base_faction_getters_follow_the_factions_template() {
+    use fnv_script::vm::XVal;
+    let f = fixture();
+    let mut g = game(&f);
+    let mut q = |body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), Default::default()).expect("the query runs");
+    // Member (own Rats) and Second (through Member) both answer Leader's Raiders, rank 2.
+    for npc in ["Member", "Second"] {
+        assert_eq!(q(&format!("SetFunctionValue (GetBaseNumFactions {npc})")), XVal::Num(1.0), "{npc}");
+        assert_eq!(q(&format!("SetFunctionValue (GetBaseNthFaction 0 {npc})")), XVal::Ref(RAIDERS), "{npc}");
+        assert_eq!(q(&format!("SetFunctionValue (GetBaseNthRank 0 {npc})")), XVal::Num(2.0), "{npc}");
+        assert_eq!(q(&format!("SetFunctionValue (ar_Size (GetBaseFactions {npc}))")), XVal::Num(1.0), "{npc}");
+    }
+    // A template not used for the factions, and a leveled-list template: their own.
+    assert_eq!(q("SetFunctionValue (GetBaseNthRank 0 Own)"), XVal::Num(1.0));
+    assert_eq!(q("SetFunctionValue (GetBaseNthFaction 0 SpawnHigh)"), XVal::Ref(RATS));
+    assert_eq!(q("SetFunctionValue (GetBaseNthRank 0 SpawnHigh)"), XVal::Num(3.0));
+}
+
 #[test]
 fn the_template_supplies_the_factions_it_is_flagged_for() {
     let f = fixture();

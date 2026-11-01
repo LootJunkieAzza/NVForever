@@ -1107,7 +1107,7 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
   restrained, rooted, with their AI off; walks that depend on someone else (following,
   escorting, searching, fleeing, a conversation). These actors join the AI and are
   drawn under the loading screen, so the screen waits for their bodies.
-- **Open** (docs/handoff/observer-checks.md, check 67): whether the original puts the
+- **Open** (docs/handoff/observer-checks.md, check 68): whether the original puts the
   actor exactly at the walk's end or somewhere part-way / within the package's radius;
   whether a short fast travel inside the loaded area moves anybody (ours: nobody,
   [design]); whether the hours a fast travel passes matter beyond choosing the package.

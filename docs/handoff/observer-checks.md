@@ -323,8 +323,8 @@ engine if needed, and delete the item here.
     shows only while aiming (none with the weapon drawn and not aiming) and goes when
     aiming stops; it marks every hostile actor or creature, whether or not it is in
     combat with the player; and it seems to reach every enemy in render distance. Ours
-    matches the first two; its reach is the detection reach (5,000 units outdoors,
-    perk_marks.rs), shorter than the loaded area (#1171). The owner's screenshot: distant
+    matches the first two; its reach was the detection reach (5,000 units outdoors),
+    shorter than the loaded area, and is now as far as actors are drawn (#1171). The owner's screenshot: distant
     enemies at night look tinted red all over; Boone is not marked. Two more shots show
     the red pulsing (faint, then strong) [observed], as the record says: edge pulse
     amplitude 0.5 at 1 a second, edge fall-off 0.5 (EFSH 0x0015FF60), which ours plays
@@ -461,8 +461,8 @@ The numbers above stay put so links to them hold; each item here gives its own p
     first-meeting greeting 0x001164F1 (position 2398, Say Once, only the same GetIsID OR)
     that the Tops Yes Man had said [observed]. So Say Once holds per line across speakers
     in the original [hypothesis: one case; the mainframe and the Tops Yes Man may also
-    count as one speaker]. Ours keeps it per (speaker, line) (dialogue.rs `said`) and
-    would say 0x001164F1 again. (dialogue.md question 13)
+    count as one speaker]. Built (#1113): ours holds a Say Once line back from every
+    actor once any has said it (dialogue.rs `can_say_as`). (dialogue.md question 13)
 32. **An expression that leaves extra values** — answered 2026-10-30 (issue #908): the
     original stops the script at `if GetStage Q N == 1` and runs neither arm, as ours.
     ([scripts §4.2](../spec-notes/scripts.md))
@@ -549,7 +549,8 @@ The numbers above stay put so links to them hold; each item here gives its own p
     encounters (NVDLC03Enc 10) start? (§10 stall 2.)
 44. **What does `RemoveItem <item> 0` do?** — answered 2026-10-31 (o5_00, issue #1113):
     nothing, and the script goes on (12 Stimpaks and 21 caps stayed; the next line ran).
-    Ours refuses the call (#1113).
+    Built (#1113): ours returns without removing anything (functions/items.rs
+    `remove_item`).
 45. **Does a second Nelson explorer stop the player right after the first?** (P3; §10
     stall 4.)
 46. **Does the HELIOS One west-terminal password go to the player from Fantastic's line?**
@@ -766,9 +767,20 @@ The numbers above stay put so links to them hold; each item here gives its own p
     drop would not come. Use the radio (button 1) and read GetQuestRunning right after,
     and whether the drop arrives. Ours keeps a self-reset running. (scripts.md §5)
 
+## Added 2026-10-31 (the note notice, issue #1163)
+
+67. **Does the original name a note in the corner when a script gives it?** (P3: every
+    AddNote and AddItem of a note in quest scripts.) NVForever shows its own corner line,
+    "Note: <the note's name>", for every note the player gets the first time: picked up,
+    taken from a container, AddItem, AddNote, a terminal's Add Note item
+    [hypothesis for the script-given ones]. To check: with a note the player lacks,
+    `AddNote` it from the console, then `player.AddItem` another; screenshot the top left
+    after each, and note any sound. A picked-up note in the same way for comparison.
+    (issue #1163, `Game::file_note`)
+
 ## Added 2026-11-01 (actors at their place on arrival, issue #1208)
 
-67. **Where the destination's actors are on arrival** (P2, issue #1208). NVForever puts
+68. **Where the destination's actors are on arrival** (P2, issue #1208). NVForever puts
     every actor not in the loaded area before a fast travel or a load door at the end of
     its package's walk (on its furniture, seated) behind the loading screen, and moves
     nobody that was loaded [hypothesis, packages.md §8]. To check, with nvf_capture
