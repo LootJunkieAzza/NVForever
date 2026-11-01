@@ -81,6 +81,8 @@ pub struct OtherState {
     pub itr2: crate::nvse_itr2::Itr2State,
     /// JIP batch 6's changes: destruction data, creature models, messages (`nvse_jip6`).
     pub jip6: crate::nvse_jip6::Jip6State,
+    /// JIP batch 7's lists and settings: ammo effects, climate weathers, armour (`nvse_jip7`).
+    pub jip7: crate::nvse_jip7::Jip7State,
 }
 
 /// The bit of DisablePlayerControlsAltEx's flags for each control group, in the order of
