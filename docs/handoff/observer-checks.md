@@ -89,14 +89,17 @@ engine if needed, and delete the item here.
      on. SetHardcore 1 on nvfairport still did nothing: the needs stayed 0 for two hours
      (o6_00-01).
    - Beer and Nuka-Cola, drunk by EquipItem, raised Dehydration by no more than the
-     normal rate over 11 s (14, 14, 15 and 15, 15, 16) [observed]. Ours raises it
-     (their "Damage Dehydration" read literally, aid-items §3).
+     normal rate over 11 s (14, 14, 15 and 15, 15, 16) [observed]. The job had `tgm` on
+     at the time (o7_00 steps 6 to 101; it went off before the Stimpak) [observed: the
+     job file], and their Dehydration +20 / +10 holds only on `IsHardcore == 1`, the
+     same condition the Hardcore Stimpak passed [observed: FalloutNV.esm CTDA]. So god
+     mode most likely kept it off; ours now does the same in god mode and keeps the
+     rise without it (#1167, aid-items §3). Still open: a drink in Hardcore without tgm.
    - Waits and sleeps (owner, 2026-10-31, from all needs at 0, Pip-Boy values)
      [observed]: 3 hours waited give H2O 36, FOD 12, SLP 6; 3 hours slept give H2O 36,
-     FOD 12, SLP 2. So 12, 4 and 2 an hour, whole points, where ours gives 12, 4.8 and
-     2.4; sleep did not bring SLP below 2. In Hardcore, sleep heals neither Health nor
-     crippled limbs; outside it heals both. Ours heals no Health on a plain sleep (#1177).
-     Outside Hardcore a sleep restores Health and every limb in full (owner).
+     FOD 12, SLP 2. So 12, 4 and 2 an hour, whole points; sleep did not bring SLP below
+     2. In Hardcore, sleep heals neither Health nor crippled limbs; outside it heals
+     both, in full (owner). Ours does all of this since #1177 (needs.rs).
    - Still open: Buffout.
    ([aid-items §2, §6, §11](../spec-notes/aid-items.md),
    [wait-menu](../spec-notes/wait-menu.md))
@@ -152,8 +155,9 @@ engine if needed, and delete the item here.
    - Addiction: +30 usage per use, chance (usage − 70)/100, and it never wears off.
    - The Hardcore Stimpak heals 5/s for 6 s, and a normal Stimpak heals every limb.
      In Hardcore at Medicine 15 (o7_05, 2026-10-31) [observed]: about 6 Health a second
-     for about 6 s, 36 in all, where ours gives 6.5 a second, 39 (potency 1.3); a
-     crippled leg (LeftMobilityCondition 0) stayed at 0 (o7_00).
+     for about 6 s, 36 in all; a crippled leg (LeftMobilityCondition 0) stayed at 0
+     (o7_00). Ours now rounds the potency-scaled 6.5 down to 6 (#1167, aid-items §4);
+     a second Medicine value would tell rounding from another base.
    - A second dose doesn't re-run Start.
    - Only the highest rank of a ranked perk applies, and perks are the player's only.
    - Chemist doubles the Stealth Boy.

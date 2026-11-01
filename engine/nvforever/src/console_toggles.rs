@@ -1,10 +1,12 @@
 //! The console's render toggles (docs/design/console.md): `tg`, `ts`, `tws`, `tt`,
-//! `ToggleLODLand`, `ToggleNavmesh` and xNVSE's Con_TFIK (foot IK) asked through
+//! `ToggleLODLand`, `ToggleNavmesh`, `tlik` (head tracking), `temo` (faces' emotions)
+//! and xNVSE's Con_TFIK (foot IK) asked through
 //! `nvf_play::console::RenderToggles`,
 //! switched here and reported in the console.
 //!
-//! - Grass, distant land and the navmesh drawing switch what the settings page
-//!   switches (`GrassConfig::enabled`, the LOD as `--no-lod`, `NavState::show`).
+//! - Grass, distant land, the navmesh drawing and head tracking switch what the settings
+//!   page switches (`GrassConfig::enabled`, the LOD as `--no-lod`, `NavState::show`,
+//!   `HeadLookSettings::enabled`); emotions `LipState::emotions_off`.
 //! - Sky, water and trees have no switch of their own: their meshes are kept hidden
 //!   ([`keep_hidden`]) while the toggle is off, each frame after the systems that show and
 //!   hide them, and given back their visibility when it is on again. Sky: the dome,
@@ -97,6 +99,20 @@ fn apply(world: &mut World) {
                     format!("Foot IK {}", state(!f.enabled))
                 }
                 None => "No foot IK in this run".to_string(),
+            },
+            Toggle::LookIk => match world.get_resource_mut::<crate::head_look::HeadLookSettings>() {
+                Some(mut h) => {
+                    h.enabled = !h.enabled;
+                    format!("Head tracking {}", state(!h.enabled))
+                }
+                None => "No head tracking in this run".to_string(),
+            },
+            Toggle::Emotions => match world.get_resource_mut::<crate::lips::LipState>() {
+                Some(mut l) => {
+                    l.emotions_off = !l.emotions_off;
+                    format!("Emotions {}", state(l.emotions_off))
+                }
+                None => "No faces move in this run".to_string(),
             },
             other => format!("{other:?}: not a render toggle"),
         };

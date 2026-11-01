@@ -728,6 +728,10 @@ pub struct PlayerState {
     /// need's actor value code (`crate::needs`).
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub need_stages: BTreeMap<u16, FormId>,
+    /// The part of a point each need has built up over hours waited or slept whose share
+    /// is under one point (`crate::needs`, a high TimeScale).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub need_carry: BTreeMap<u16, f64>,
     /// Miscellaneous statistics by code (ModPCMiscStat).
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub misc_stats: BTreeMap<u16, f64>,
@@ -1349,6 +1353,9 @@ pub struct Game<'a> {
     pub ui: crate::functions::ui::UiRequests,
     /// What console commands asked of the engine (`functions::console`), for it to take.
     pub console_requests: Vec<crate::functions::console::ConsoleRequest>,
+    /// The faces `MFG` set, by actor (`functions::console::FaceMfg`), for the engine's
+    /// faces to show. Not part of the saved state [design: a console aid].
+    pub mfg: std::collections::BTreeMap<FormId, crate::functions::console::FaceMfg>,
     /// Crimes being reported, trespass warnings and karma changes for the engine
     /// (`crate::crime`); what lasts is in [`PlayerState`]. Not part of the saved state.
     pub crimes: crate::crime::Crimes,
@@ -1988,6 +1995,7 @@ impl<'a> Game<'a> {
             weather: Default::default(),
             ui: Default::default(),
             console_requests: Vec::new(),
+            mfg: Default::default(),
             crimes: Default::default(),
             pickpocket: Default::default(),
             world,

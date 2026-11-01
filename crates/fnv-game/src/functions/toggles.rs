@@ -6,7 +6,7 @@
 //! The world and render toggles: the game's own (actors' AI, detection of the player,
 //! scripts) are switched here and read by the AI, detection and [`Game::tick`]; the
 //! engine's (collision, god mode, the drawing of grass, sky, water, trees, distant land
-//! and navmesh) are asked of the engine in [`Toggles::asked`], which switches them and
+//! and navmesh, head tracking, faces' emotions) are asked of the engine in [`Toggles::asked`], which switches them and
 //! prints their new state in the console.
 
 use super::{yes, Args, Ctx};
@@ -36,6 +36,12 @@ pub enum Toggle {
     /// xNVSE's Con_TFIK (ToggleFootIK): feet placed on the ground, as the settings page
     /// switches them.
     FootIk,
+    /// `tlik`: actors turn their heads to look at others (head tracking, as the settings
+    /// page switches it).
+    LookIk,
+    /// `temo`: faces show emotions (a line's emotion, the expressions and moods other
+    /// systems and MFG ask for).
+    Emotions,
 }
 
 /// The console toggles' state on the game's side, and those asked of the engine.
@@ -123,4 +129,16 @@ pub fn toggle_lod_land(g: &mut Game, _: &Ctx, _: &Args) -> Result<Value, String>
 
 pub fn toggle_navmesh(g: &mut Game, _: &Ctx, _: &Args) -> Result<Value, String> {
     ask(g, Toggle::Navmesh)
+}
+
+/// `tlik`: "Disables/enables actors moving their heads to face other actors" [documented:
+/// GECK wiki ToggleLookIK]; the engine switches its head tracking.
+pub fn toggle_look_ik(g: &mut Game, _: &Ctx, _: &Args) -> Result<Value, String> {
+    ask(g, Toggle::LookIk)
+}
+
+/// `temo`: "Disables/enables facial emotions of all actors" [documented: GECK wiki
+/// ToggleEmotions]; the engine's faces leave out expressions and moods while off.
+pub fn toggle_emotions(g: &mut Game, _: &Ctx, _: &Args) -> Result<Value, String> {
+    ask(g, Toggle::Emotions)
 }
