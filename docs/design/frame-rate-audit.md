@@ -34,6 +34,28 @@ top down to the first leaf that explains the time. `--log-frame-times <s>` (no v
 and `NVF_PLAY_TEST_SAMPLE` (stress_sample.rs, actors and audio counts) were used beside
 it.
 
+### Profiling options together
+
+[documented in source] `graphics::ensure_render_diagnostics` lets
+`NVF_PLAY_TEST_PROFILE=<seconds>` and `--log-frame-times <seconds>` request the same
+render diagnostics plugin. Both requests share one registration, including when a
+caller has already installed it. With neither option enabled, these paths do not
+install it. The enable conditions and existing report formats are unchanged (#1275).
+
+[documented in pinned Bevy 0.20.1 source; `engine/Cargo.lock`,
+`bevy_app::Plugin::is_unique`, `App::add_boxed_plugin`, and
+`bevy_render::diagnostic::RenderDiagnosticsPlugin`] Registering this unique plugin
+twice takes Bevy's duplicate-plugin panic path. The shared guard addresses that
+source-confirmed startup failure; runtime reproduction and the four startup/output
+combinations still need verification in default and profile-enabled release builds.
+
+CPU system spans require `--features nvforever/profile`; without it the profile
+report explicitly says no spans were seen. GPU timestamps and pipeline statistics
+are supported by pinned Bevy on Vulkan and DX12, subject to device capabilities;
+other backends record CPU render timings. Missing GPU timings are not zero GPU cost.
+`--log-frame-times` also selects display sync off and disables the frame cap settings;
+match effective presentation settings before comparing instrumentation overhead.
+
 ## 2. Item 4: the mantis ootheca
 
 **What happens** [observed: `fnvtool script decompile --form 000EF406`, `esm decode`]:

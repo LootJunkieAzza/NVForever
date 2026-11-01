@@ -316,6 +316,13 @@ impl FrameTimes {
 /// The improvements to start with, `--msaa` and the frame-time test aid.
 pub struct GraphicsPlugin(pub Graphics, pub Msaa, pub Option<FrameTimes>);
 
+/// Add the shared GPU diagnostics once when either profiling path needs them.
+pub(crate) fn ensure_render_diagnostics(app: &mut App) {
+    if !app.is_plugin_added::<bevy::render::diagnostic::RenderDiagnosticsPlugin>() {
+        app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
+    }
+}
+
 impl Plugin for GraphicsPlugin {
     fn build(&self, app: &mut App) {
         let g = self.0;
@@ -328,7 +335,7 @@ impl Plugin for GraphicsPlugin {
             .add_systems(Update, apply);
         if let Some(ft) = self.2.clone().filter(|f| f.every > 0.0) {
             // GPU time per render pass (timestamp queries), logged with the frame time.
-            app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
+            ensure_render_diagnostics(app);
             // (time in this period, time counted, slowest, frames counted, cycle index)
             #[allow(clippy::type_complexity)]
             app.add_systems(Update, move |mut commands: Commands, time: Res<Time<Real>>, mut g: ResMut<Graphics>, sky: Res<SkyState>, store: Res<bevy::diagnostic::DiagnosticsStore>, lights: Query<(Option<&Name>, &DirectionalLight, &bevy::camera::visibility::CascadesVisibleEntities)>, views: Query<Option<&Name>, With<Camera>>, mut acc: Local<(f32, f32, f32, u32, usize)>, mut start_shadows: Local<Option<(bool, f32, usize, f32)>>, thin: Res<crate::shadow_thin::ShadowThin>, refs: Query<&nvf_play::RefVisual>| {
@@ -586,5 +593,18 @@ mod tests {
         assert_eq!(off.describe(), "vanilla (no engine-level improvements)");
         // Bloom, when on, adds to the glow.
         assert!(Graphics::only(&["bloom".into()]).unwrap().describe().contains("light glow"));
+    }
+
+    #[test]
+    fn render_diagnostics_can_be_requested_by_both_profiling_paths() {
+        let mut app = App::new();
+        ensure_render_diagnostics(&mut app);
+        ensure_render_diagnostics(&mut app);
+        assert!(app.is_plugin_added::<bevy::render::diagnostic::RenderDiagnosticsPlugin>());
+
+        let mut already_added = App::new();
+        already_added.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
+        ensure_render_diagnostics(&mut already_added);
+        assert!(already_added.is_plugin_added::<bevy::render::diagnostic::RenderDiagnosticsPlugin>());
     }
 }

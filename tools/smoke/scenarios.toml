@@ -368,6 +368,61 @@ expect = [
 ]
 
 [[scenario]]
+name = "render-diagnostics-disabled"
+source = "docs/design/frame-rate-audit.md §1 (profiling options together) and issue #1275: the profile aid and frame-time logging each register Bevy render diagnostics only when enabled; neither option should request the diagnostics plugin"
+note = "Source-reviewed on the pinned Bevy 0.20.1 dependency; runtime verification is pending a profile build and game launch"
+areas = ["renderer", "graphics", "profiling"]
+paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/profile.rs"]
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  "graphics:",
+  { re = '\bprofile: \d', max = 0, label = "no profile report when profiling is disabled" },
+  { re = '\bframe time: \d', max = 0, label = "no frame-time report when frame-time logging is disabled" },
+]
+
+[[scenario]]
+name = "render-diagnostics-profile"
+source = "docs/design/frame-rate-audit.md §1 (profiling options together) and issue #1275: NVF_PLAY_TEST_PROFILE enables the profile reporting path and its render diagnostics registration"
+note = "Source-reviewed on the pinned Bevy 0.20.1 dependency; runtime verification is pending a profile build and game launch"
+areas = ["renderer", "graphics", "profiling"]
+paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/profile.rs"]
+env = { NVF_PLAY_TEST_PROFILE = "2" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  { re = '\bprofile: \d', min = 1, label = "profile reporting is enabled" },
+  { re = '\bframe time: \d', max = 0, label = "frame-time logging remains disabled" },
+]
+
+[[scenario]]
+name = "render-diagnostics-frame-times"
+source = "docs/design/frame-rate-audit.md §1 (profiling options together) and issue #1275: --log-frame-times enables the graphics frame-time path and its render diagnostics registration"
+note = "Source-reviewed on the pinned Bevy 0.20.1 dependency; runtime verification is pending a profile build and game launch"
+areas = ["renderer", "graphics", "profiling"]
+paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/profile.rs"]
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--log-frame-times", "2"]
+run_seconds = 15
+expect = [
+  { re = '\bframe time: \d', min = 1, label = "frame-time logging is enabled" },
+  { re = '\bprofile: \d', max = 0, label = "profile reporting remains disabled" },
+]
+
+[[scenario]]
+name = "render-diagnostics-combined"
+source = "docs/design/frame-rate-audit.md §1 (profiling options together) and issue #1275: profile reporting and --log-frame-times must share one safe RenderDiagnosticsPlugin registration"
+note = "Source-reviewed on the pinned Bevy 0.20.1 dependency; runtime verification is pending a profile build and game launch; GPU timestamp output is backend-dependent"
+areas = ["renderer", "graphics", "profiling"]
+paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/profile.rs"]
+env = { NVF_PLAY_TEST_PROFILE = "2" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--log-frame-times", "2"]
+run_seconds = 15
+expect = [
+  { re = '\bprofile: \d', min = 1, label = "profile reporting remains enabled" },
+  { re = '\bframe time: \d', min = 1, label = "frame-time logging remains enabled" },
+]
+
+[[scenario]]
 name = "shadow-probe"
 source = "engine/nvforever/src/shadow_probe.rs (playtest list 4 item 5, the first-person shadow flicker; found 2026-10-26): the debug probe NVF_PLAY_DEBUG_SHADOWS runs and finds no stretched skin, lost joint, wrong skin slot or moved mesh outside Doc Mitchell's house in first person with a weapon out, the hidden third-person body stays body-sized, and switching view four times leaves no two render views with one key (player_body.rs shade_light)"
 areas = ["renderer", "player-body"]
