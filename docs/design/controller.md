@@ -96,7 +96,8 @@ those settings so a mod that changes them changes this too.
   `fAutoAimMaxDistance` (1800) of the crosshair, inside a cone around the crosshair whose
   radius is `fAutoAimScreenPercentage` (10) % of the screen's width at a 75° field of view
   (about 8.7°) [hypothesis: how the original measures the percentage], and seen: a ray from
-  the crosshair to its aim point meets it first (no lock through walls). The nearest to the
+  the crosshair to its aim point meets it first, passing what shots pass (water, triggers,
+  NPCs' walking capsules: a capsule is not the body), so no lock through walls. The nearest to the
   crosshair by angle wins; the aim point is the middle of its posed torso part, else 80
   units over its feet.
 - **Slowdown** (#1196): while the crosshair is within 40 units of a target's aim point (as
@@ -108,8 +109,9 @@ those settings so a mod that changes them changes this too.
   target as it moves. It lets go at the end, when the target dies or leaves sight, range or
   1.5 times the cone, when aiming ends, or when the right stick is pushed at least 0.7 of
   the way against the pull. A new lock needs 0.6 s since the last began.
-- **Not while** the free camera, the weapon wheel, a kill camera, a script's look lock or a
-  circling or detached camera has the look, or outside play.
+- **Not while** the free camera, the weapon wheel, a kill camera, VATS mode, an animation
+  driving the view, furniture holding the player, a script's look lock or a circling or
+  detached camera has the look, without the cursor grabbed, or outside play.
 - **Settings**: the settings page's Controller group, kept in `[Settings]` of
   NVForever.ini: `aim-assist` (on/off, on), `aim-slowdown` and `aim-lock` (strengths 0 to
   1, 0.6 each; 0 turns that part off).

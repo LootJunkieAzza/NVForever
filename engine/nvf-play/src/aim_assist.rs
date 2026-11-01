@@ -10,7 +10,8 @@
 //!   crosshair's red uses, `crate::hud_target`), within `fAutoAimMaxDistance` (1800) of
 //!   the crosshair ray's start, inside the on-target cone around the crosshair
 //!   ([`cone_half_angle`], from `fAutoAimScreenPercentage`, 10), and seen along a ray to
-//!   its aim point (the same collision world shots use: no lock through walls). The
+//!   its aim point (the same collision world shots use, passing what shots pass: water,
+//!   triggers and NPCs' walking capsules, [`sight_filter`]; no lock through walls). The
 //!   nearest to the crosshair by angle wins. Its aim point is the middle of its torso's
 //!   posed part, else [`TORSO_ABOVE_FEET`] over its feet.
 //! - **Slowdown** ([`slow_target`], [`ease`]): while the crosshair is within the
@@ -26,9 +27,10 @@
 //!   range or sight, when aiming ends, or when the right stick is pushed hard against the
 //!   pull ([`breaks_lock`]). A new lock needs [`LOCK_COOLDOWN`] since the last began, so
 //!   tapping LT does not aim for the player.
-//! - **Not while** the free camera, the weapon wheel, a kill camera, a script's look
-//!   lock, a circling or detached camera or anything but play has the look (the guards of
-//!   `crate::player`'s look).
+//! - **Not while** the free camera, the weapon wheel, a kill camera, VATS mode, an
+//!   animation driving the view, furniture holding the player, a script's look lock, a
+//!   circling or detached camera, an ungrabbed cursor or anything but play has the look
+//!   (the guards of `crate::player`'s look, and VATS: [`Guards`]).
 //! - **Settings** (Controller group of the settings page, kept in `[Settings]` of
 //!   NVForever.ini): `aim-assist` on/off (on), `aim-slowdown` and `aim-lock` strengths
 //!   (0 turns that part off).
@@ -42,7 +44,8 @@ use crate::settings::{add_setting, Setting, Slider};
 use crate::sim::SimState;
 use crate::{PlaySet, PlayState};
 use bevy::prelude::*;
-use fnv_phys::{layers, Filter, Owner};
+use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
+use fnv_phys::{layers, Filter, Key, Owner};
 use fnv_sim::settings::Setting as GameSetting;
 use fnv_sim::FormId;
 
@@ -230,6 +233,64 @@ pub fn breaks_lock(stick: Vec2, pull: (f32, f32), invert_y: bool) -> bool {
     turn.dot(Vec2::new(pull.0, pull.1)) < 0.0
 }
 
+/// What keeps the aim assist from acting this frame (module notes: "Not while").
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Guards {
+    /// The setting's switch.
+    pub on: bool,
+    /// A controller works the controls.
+    pub controller: bool,
+    /// Play, or free look in a conversation.
+    pub playing: bool,
+    /// The window has the cursor (as `crate::player`'s look asks).
+    pub grabbed: bool,
+    /// A script locked looking.
+    pub looking_locked: bool,
+    pub wheel: bool,
+    /// The camera circles or is detached.
+    pub orbit: bool,
+    pub free_cam: bool,
+    pub kill_cam: bool,
+    /// VATS mode has the input (`crate::vats_mode::VatsMode::holds_input`): it aims and
+    /// turns the view itself.
+    pub vats: bool,
+    /// An animation drives the view (`crate::player::ViewDriven`).
+    pub driven: bool,
+    /// Furniture holds the player (its look is kept apart, `PlayerSeat::look`).
+    pub seated: bool,
+}
+
+impl Guards {
+    pub fn usable(&self) -> bool {
+        self.on && self.controller && self.playing && self.grabbed && !self.looking_locked && !self.wheel && !self.orbit && !self.free_cam && !self.kill_cam && !self.vats && !self.driven && !self.seated
+    }
+}
+
+/// The sight ray's filter: what a walking character passes (water, triggers, zones,
+/// `layers::character_ignores`), the player's character, and every NPC's walking capsule
+/// (`Key::Character`): a capsule is not the body, its hit volumes are, as for shots
+/// (`crate::combat`'s rays).
+pub fn sight_filter(player: Option<Key>, npcs: impl Iterator<Item = u32>) -> Filter {
+    let mut f = Filter { exclude_layers: layers::character_ignores(), ..Default::default() };
+    f.exclude.extend(player);
+    f.exclude.extend(npcs.map(Key::Character));
+    f
+}
+
+/// Whether `c` is seen from `origin`: the ray to its aim point meets its own hit volume
+/// (or its own capsule) first, or nothing up to it.
+pub fn seen(q: &fnv_phys::Queries<'_>, filter: &Filter, origin: [f32; 3], c: &Candidate) -> bool {
+    let to = [c.aim[0] - origin[0], c.aim[1] - origin[1], c.aim[2] - origin[2]];
+    match q.ray(origin, to, c.distance + FRICTION_RADIUS, filter) {
+        Some(h) => match h.owner {
+            Owner::Actor { form_id, .. } => form_id == c.form_id,
+            Owner::Character { id } => id == c.form_id,
+            _ => false,
+        },
+        None => true,
+    }
+}
+
 /// A game setting's float from the load order.
 fn game_float(sim: &SimState, name: &str) -> Option<f32> {
     match sim.forms.settings.get(&name.to_ascii_lowercase()) {
@@ -292,6 +353,7 @@ fn assist(
     state: Res<State<PlayState>>,
     (settings, bindings, pads): (Res<AimAssist>, Res<Bindings>, Query<&Gamepad>),
     (locks, look, free_cam, kill_cam): (Res<ControlLocks>, Option<Res<crate::dialogue::FreeLook>>, Option<Res<crate::free_cam::FreeCam>>, Option<Res<crate::kill_cam::KillCam>>),
+    (vats, driven, cursor, seat): (Option<Res<crate::vats_mode::VatsMode>>, Option<Res<crate::player::ViewDriven>>, Query<&CursorOptions, With<PrimaryWindow>>, Option<Res<crate::furniture::PlayerSeat>>),
     control: Res<PlayerControl>,
     mut player: ResMut<Player>,
     phys: Option<ResMut<PhysState>>,
@@ -307,14 +369,21 @@ fn assist(
     let began = aiming && !st.was_aiming;
     st.was_aiming = aiming;
     let playing = *state.get() == PlayState::Playing || look.is_some_and(|l| l.0);
-    let usable = settings.on
-        && bindings.device == InputDevice::Controller
-        && playing
-        && !locks.looking
-        && !control.wheel
-        && !control.orbit.active()
-        && !free_cam.is_some_and(|f| f.on)
-        && !kill_cam.is_some_and(|k| k.active());
+    let guards = Guards {
+        on: settings.on,
+        controller: bindings.device == InputDevice::Controller,
+        playing,
+        grabbed: cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None),
+        looking_locked: locks.looking,
+        wheel: control.wheel,
+        orbit: control.orbit.active(),
+        free_cam: free_cam.is_some_and(|f| f.on),
+        kill_cam: kill_cam.is_some_and(|k| k.active()),
+        vats: vats.is_some_and(|v| v.holds_input()),
+        driven: driven.is_some_and(|d| d.0),
+        seated: seat.is_some_and(|s| s.hold.is_some()),
+    };
+    let usable = guards.usable();
     let want_slow = usable && settings.slowdown > 0.0;
     let want_lock = usable && settings.lock > 0.0 && (st.lock.is_some() || began && st.since_lock >= LOCK_COOLDOWN);
     if !want_slow && !want_lock {
@@ -359,16 +428,10 @@ fn assist(
     };
     let seen: Vec<Candidate> = match phys {
         Some(mut p) if !foes.is_empty() => {
-            let mut filter = p.player.as_ref().map_or_else(Filter::default, |c| Filter::excluding(c.key()));
-            filter.exclude_layers.insert(layers::TRIGGER);
+            let p = &mut *p;
+            let filter = sight_filter(p.player.as_ref().map(|c| c.key()), p.npcs.keys().copied());
             let q = p.world.queries();
-            let to = |c: &Candidate| [c.aim[0] - origin[0], c.aim[1] - origin[1], c.aim[2] - origin[2]];
-            foes.into_iter()
-                .filter(|c| match q.ray(origin, to(c), c.distance + FRICTION_RADIUS, &filter) {
-                    Some(h) => matches!(h.owner, Owner::Actor { form_id, .. } if form_id == c.form_id),
-                    None => true,
-                })
-                .collect()
+            foes.into_iter().filter(|c| seen(&q, &filter, origin, c)).collect()
         }
         _ => Vec::new(),
     };
@@ -557,6 +620,94 @@ mod tests {
         let down = (0.0, -0.05);
         assert!(breaks_lock(Vec2::new(0.0, 0.9), down, false));
         assert!(!breaks_lock(Vec2::new(0.0, 0.9), down, true));
+    }
+
+    /// A wall box of half size `half` at `at`.
+    fn wall(world: &mut fnv_phys::PhysWorld, id: u32, at: [f32; 3], half: f32) {
+        use fnv_collide::{CollisionObject, Iso, Motion, Shape};
+        let wall = CollisionObject {
+            node: None,
+            node_block: 0,
+            node_transform: Iso::IDENTITY,
+            body_transform: Iso::IDENTITY,
+            motion: Motion::Static,
+            layer: layers::STATIC,
+            mass: 0.0,
+            friction: 0.5,
+            restitution: 0.0,
+            shape: Shape::Box { half_extents: [half; 3] }.into(),
+            shell: 0.0,
+            material: None,
+        };
+        world.add_ref(&fnv_phys::RefPose { form_id: id, position: at, rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], scale: 1.0 }, &[wall]);
+    }
+
+    /// The player at the origin (eye 100) and NPC 2 walking 300 units east: its capsule
+    /// (radius 22) around a thinner hit volume (radius 15), as physics-walked NPCs have.
+    fn sight_scene() -> (fnv_phys::PhysWorld, Key, Candidate) {
+        let mut world = fnv_phys::PhysWorld::new(fnv_phys::PhysParams::default());
+        let me = world.add_character(1, fnv_phys::CharacterParams::default(), [0.0, 0.0, 0.0]);
+        world.add_character(2, fnv_phys::CharacterParams::default(), [300.0, 0.0, 0.0]);
+        world.set_actor_volume(2, fnv_phys::HitVolume { feet: [300.0, 0.0, 0.0], radius: 15.0, height: 120.0, dead: false });
+        let (angle, distance) = angle_off([0.0, 0.0, 100.0], [1.0, 0.0, 0.0], [300.0, 0.0, 80.0]);
+        (world, me.key(), Candidate { form_id: 2, aim: [300.0, 0.0, 80.0], distance, angle })
+    }
+
+    #[test]
+    fn the_sight_ray_passes_walking_capsules_to_the_body() {
+        let (mut world, me, c) = sight_scene();
+        let filter = sight_filter(Some(me), [2u32].into_iter());
+        let q = world.queries();
+        let to = [c.aim[0], c.aim[1], c.aim[2] - 100.0];
+        // The capsule is passed: the ray meets the hit volume.
+        let hit = q.ray([0.0, 0.0, 100.0], to, c.distance + FRICTION_RADIUS, &filter).map(|h| h.owner);
+        assert!(matches!(hit, Some(Owner::Actor { form_id: 2, .. })), "{hit:?}");
+        assert!(seen(&q, &filter, [0.0, 0.0, 100.0], &c));
+        // Without the capsules excluded the ray meets the capsule first; still the target.
+        let bare = sight_filter(Some(me), std::iter::empty());
+        assert!(matches!(q.ray([0.0, 0.0, 100.0], to, c.distance + FRICTION_RADIUS, &bare).map(|h| h.owner), Some(Owner::Character { id: 2 })));
+        assert!(seen(&q, &bare, [0.0, 0.0, 100.0], &c));
+    }
+
+    #[test]
+    fn another_npcs_capsule_does_not_hide_the_target_but_a_wall_does() {
+        let (mut world, me, c) = sight_scene();
+        world.add_character(3, fnv_phys::CharacterParams::default(), [150.0, 0.0, 0.0]);
+        let filter = sight_filter(Some(me), [2u32, 3].into_iter());
+        assert!(seen(&world.queries(), &filter, [0.0, 0.0, 100.0], &c));
+        wall(&mut world, 0x100, [200.0, 0.0, 90.0], 30.0);
+        assert!(!seen(&world.queries(), &filter, [0.0, 0.0, 100.0], &c));
+    }
+
+    #[test]
+    fn the_sight_filter_passes_what_a_character_passes() {
+        let f = sight_filter(Some(Key::Character(1)), [7u32].into_iter());
+        assert_eq!(f.exclude_layers, layers::character_ignores());
+        assert!(f.exclude.contains(&Key::Character(1)) && f.exclude.contains(&Key::Character(7)));
+        assert!(!f.exclude.contains(&Key::Actor(7)), "the hit volume is the body");
+    }
+
+    #[test]
+    fn not_while_anything_else_has_the_look() {
+        let ok = Guards { on: true, controller: true, playing: true, grabbed: true, ..Default::default() };
+        assert!(ok.usable());
+        let blocked = [
+            Guards { on: false, ..ok },
+            Guards { controller: false, ..ok },
+            Guards { playing: false, ..ok },
+            Guards { grabbed: false, ..ok },
+            Guards { looking_locked: true, ..ok },
+            Guards { wheel: true, ..ok },
+            Guards { orbit: true, ..ok },
+            Guards { free_cam: true, ..ok },
+            Guards { kill_cam: true, ..ok },
+            Guards { vats: true, ..ok },
+            Guards { driven: true, ..ok },
+            Guards { seated: true, ..ok },
+        ];
+        for g in blocked {
+            assert!(!g.usable(), "{g:?}");
+        }
     }
 
     #[test]
