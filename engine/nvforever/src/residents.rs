@@ -2801,6 +2801,39 @@ mod tests {
     use fnv_sim::FormId;
     use std::collections::HashMap;
 
+    #[test]
+    fn private_world_prefetch_matches_resident_spawn_even_with_a_shared_world() {
+        use super::{Clock, Residents};
+        use crate::outfits::tests::{actor_forms, appearance_world, empty_world_data, equipped, game, OTHER};
+        let world = appearance_world();
+        let forms = Box::leak(Box::new(actor_forms(vec![])));
+        let refs = Box::leak(Box::new(fnv_sim::RefTable::default()));
+        let mut private = fnv_sim::World::new(forms, refs, Default::default());
+        let mut shared = fnv_sim::World::new(forms, refs, Default::default());
+        let id = private.place(OTHER, None, [0.0; 3], [0.0; 3], 1).unwrap();
+        assert_eq!(shared.place(OTHER, None, [0.0; 3], [0.0; 3], 1).unwrap(), id);
+        private.get(id).unwrap().inventory = Some(equipped());
+        let outsider = private.place(OTHER, None, [0.0; 3], [0.0; 3], 1).unwrap();
+        assert_eq!(shared.place(OTHER, None, [0.0; 3], [0.0; 3], 1).unwrap(), outsider);
+        private.get(outsider).unwrap().inventory = Some(equipped());
+        let mut residents = Residents::build(&empty_world_data(), &[], Clock { hour: 12.0, days_passed: 1.0, rate: 0.0 }, 100.0, true).unwrap();
+        residents.own = Some(Box::new(game(private)));
+        residents.core.known.insert(id.0);
+        let private = &residents.own.as_ref().unwrap().world;
+        let plan = crate::readahead::actor_plan(&world, residents.prefetch_world(id.0, Some(&shared)), id.0, OTHER.0, false).unwrap();
+        assert_eq!(plan, crate::readahead::actor_plan(&world, Some(private), id.0, OTHER.0, false).unwrap());
+        assert_ne!(plan, crate::readahead::actor_plan(&world, Some(&shared), id.0, OTHER.0, false).unwrap());
+        assert!(plan.parts.iter().any(|p| p.ends_with("modded.nif")));
+        assert!(std::ptr::eq(residents.prefetch_world(id.0, None).unwrap(), private));
+        // Even a reference present in the private simulation is not a resident until
+        // it is in known. The placed-reference prefetch must use the shared world.
+        assert!(std::ptr::eq(residents.prefetch_world(outsider.0, Some(&shared)).unwrap(), &shared));
+        assert!(residents.prefetch_world(outsider.0, None).is_none());
+        residents.own = None;
+        assert!(std::ptr::eq(residents.prefetch_world(id.0, Some(&shared)).unwrap(), &shared));
+        assert!(residents.prefetch_world(id.0, None).is_none());
+    }
+
     /// Out of a house and straight back: the residents seen in the street before are not
     /// moved by the trip back; those not seen for longer than the memory are (coordinator
     /// review of #1269).

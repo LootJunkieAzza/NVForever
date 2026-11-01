@@ -196,6 +196,18 @@ pub struct ReadAhead {
 }
 
 impl ReadAhead {
+    fn collect_anims(&mut self) {
+        self.anims.retain_mut(|(key, task)| {
+            if check_ready(task).is_some() {
+                self.anims_queued.remove(key);
+                self.anims_loaded += 1;
+                false
+            } else {
+                true
+            }
+        });
+    }
+
     pub fn from_env() -> ReadAhead {
         let off = std::env::var("NVF_PLAY_TEST_NO_READ_AHEAD").is_ok_and(|v| v.trim() == "1");
         if off {
@@ -345,15 +357,7 @@ pub fn read_ahead(
             ahead.queued.remove(&path);
         }
     }
-    ahead.anims.retain_mut(|(key, task)| {
-        if check_ready(task).is_some() {
-            ahead.anims_queued.remove(key);
-            ahead.anims_loaded += 1;
-            false
-        } else {
-            true
-        }
-    });
+    ahead.collect_anims();
     if ahead.jobs.is_empty() {
         return;
     }
@@ -449,6 +453,94 @@ pub fn report(mut exit: MessageReader<AppExit>, ahead: Res<ReadAhead>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn animated_spawn_waits_for_clip_sets_and_warm_task_completion() {
+        use crate::outfits::tests::{asset_fixture, OTHER};
+        use std::sync::{Arc, Mutex};
+        use std::task::{Poll, Waker};
+        const REFERENCE: u32 = 0x1234;
+        fn ready(app: &mut App) -> bool {
+            app.world_mut().run_system_once(|world: Res<ActorWorld>, mut ahead: ResMut<ReadAhead>, mut parts: ResMut<ActorParts>, mut models: ModelCtx| {
+                ready_to_draw(&world, None, &mut ActorCtx { cache: &mut parts, models: &mut models }, &mut ahead, REFERENCE, OTHER.0, false)
+            }).unwrap()
+        }
+        let (mut app, _files) = asset_fixture();
+        app.init_resource::<ReadAhead>();
+        // Isolate animation readiness: every model in this animated spawn's plan is
+        // prepared already, and FaceGen is disabled in the synthetic fixture.
+        let (anims, data, skel, plan) = app.world_mut().run_system_once(|world: Res<ActorWorld>, mut parts: ResMut<ActorParts>, mut models: ModelCtx| {
+            assert_eq!(world.pose, ActorPose::Idle);
+            let plan = actor_plan(&world, None, REFERENCE, OTHER.0, false).unwrap();
+            let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
+            let skel = ctx.skeleton(&plan.skeleton).unwrap();
+            for p in &plan.parts { assert!(ctx.part(p).is_some()); }
+            assert!(!world.anims.loaded(&plan.skeleton, plan.body, plan.prefix));
+            (world.anims.clone(), (*ctx.models.data).clone(), skel, plan)
+        }).unwrap();
+        assert!(!ready(&mut app));
+        assert!(WAITING.lock().unwrap().as_ref().unwrap().contains_key(&REFERENCE));
+        {
+            let ahead = app.world().resource::<ReadAhead>();
+            assert_eq!(ahead.jobs.len(), 1);
+            assert!(matches!(ahead.jobs.front(), Some(Job::Anims { prefix: Some("1hp"), .. })));
+        }
+        assert!(!ready(&mut app));
+        let (skeleton, body, creature, prefix) = {
+            let mut ahead = app.world_mut().resource_mut::<ReadAhead>();
+            assert_eq!(ahead.jobs.len(), 1, "retries must not duplicate warm-up jobs");
+            let Some(Job::Anims { skeleton, body, creature, prefix }) = ahead.jobs.pop_front() else { panic!("animation job") };
+            (skeleton, body, creature, prefix)
+        };
+        let key = (skeleton.clone(), body, prefix);
+        // Run the real warm-up, then hold its completion independently of the cache.
+        // No sleeps or timing assumptions about when the worker gets scheduled.
+        let gate: Arc<Mutex<(bool, Option<Waker>)>> = Arc::default();
+        let worker_gate = gate.clone();
+        let task = AsyncComputeTaskPool::get_or_init(TaskPool::default).spawn(async move {
+            anims.warm(&mut ClipReader::new(data), &skeleton, &skel, body, creature, prefix);
+            std::future::poll_fn(move |cx| {
+                let mut gate = worker_gate.lock().unwrap();
+                if gate.0 { Poll::Ready(()) } else {
+                    gate.1 = Some(cx.waker().clone());
+                    Poll::Pending
+                }
+            }).await;
+        });
+        app.world_mut().resource_mut::<ReadAhead>().anims.push((key.clone(), task));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while gate.lock().unwrap().1.is_none() {
+            assert!(Instant::now() < deadline, "warm-up did not reach the completion gate");
+            std::thread::yield_now();
+        }
+        let world = app.world().resource::<ActorWorld>();
+        assert!(world.anims.loaded(&plan.skeleton, plan.body, plan.prefix));
+        app.world_mut().resource_mut::<ReadAhead>().collect_anims();
+        assert!(!ready(&mut app), "visible cache entries do not complete the task");
+        let wake = { let mut gate = gate.lock().unwrap(); gate.0 = true; gate.1.take().unwrap() };
+        wake.wake();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let mut ahead = app.world_mut().resource_mut::<ReadAhead>();
+            ahead.collect_anims();
+            if ahead.anims.is_empty() { break; }
+            assert!(Instant::now() < deadline, "completed warm-up was not collected");
+            std::thread::yield_now();
+        }
+        let ahead = app.world().resource::<ReadAhead>();
+        assert_eq!(ahead.anims_loaded, 1);
+        assert!(!ahead.anims_queued.contains(&key));
+        assert!(ready(&mut app));
+        assert!(!WAITING.lock().unwrap().as_ref().unwrap().contains_key(&REFERENCE));
+        let parent = app.world_mut().spawn_empty().id();
+        let stats = app.world_mut().run_system_once(move |mut commands: Commands, world: Res<ActorWorld>, mut parts: ResMut<ActorParts>, mut models: ModelCtx| {
+            let mut stats = crate::actors::ActorStats::default();
+            assert!(crate::actors::spawn(&mut commands, parent, bevy::math::Affine3A::IDENTITY, Vec3::ZERO, REFERENCE, OTHER.0, &world, None, &mut ActorCtx { cache: &mut parts, models: &mut models }, &mut stats, false));
+            stats
+        }).unwrap();
+        assert_eq!((stats.animated, stats.armed), (1, 1));
+    }
 
     #[test]
     fn the_ring_is_the_band_outside_the_loaded_grid() {
