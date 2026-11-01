@@ -57,6 +57,10 @@ engine if needed, and delete the item here.
    a weapon of their own class, condition) is open. The first tries (o11_02, o11_03,
    steps jobs) failed on the plugin compiling only one full script per job
    (xnvse-capture.md §6).
+   In combat (o15_round, nvfairport, 2026-11-01) [observed]: a trooper holding a 10mm
+   Pistol and one holding a Hunting Rifle, each also carrying a Grenade Rifle and 20
+   40mm grenades, kept their own gun drawn through 42 and 15 shots; neither drew the
+   Grenade Rifle. Same divergence as above (ours would draw it).
 2. **Who attacks you, and who joins a fight.** Ours:
    - 618 placed Aggressive (not Very Aggressive) animals ignore you until attacked.
    - Inside an aggro radius, an actor warns twice 5 s apart, then attacks.
@@ -128,8 +132,12 @@ engine if needed, and delete the item here.
    Answered in part 2026-11-01 (o14_reach, nvfairport, god-mode player) [observed]: NPC
    melee weapons (knife, sledgehammer, super sledge, lead pipe, bumper sword) stayed at
    GetWeaponHealthPerc 99.9 through 12-16 swings and about 13 landed blows each; ours
-   would take a lead pipe to 94.8. Open: whether god mode on the target hides the wear
-   (repeat on a mortal target), and the player's own swings and the override weapons.
+   would take a lead pipe to 94.8. Repeated on a mortal player (o15_round, no god mode,
+   healed every 20 samples): GetEquippedCurrentHealth 5 stayed exact, lead pipe 49.95
+   over 10 swings with blows landing, sledgehammer 149.85 over 12; and NPC guns did not
+   wear either: a 10mm Pistol 79.92 over 42 shots, a Hunting Rifle 299.7 over 15. So
+   these NPCs' weapons do not wear from their own attacks (Cook-Cook's Incinerator did,
+   §17: the override weapons may differ). Open: the player's own swings and shots.
 6. **Detection.** Ours:
    - Light level is ambient + sun + lamps; sunlight counts only where unshaded.
    - FOV is 95° each side, and sneak-running counts as running.
@@ -295,6 +303,11 @@ engine if needed, and delete the item here.
     - Knockdown length: not captured. `player.PushActorAway <spawned> 60` knocked
       neither a free-standing trooper nor a gecko (GetKnockedState stayed 0); next time
       use a placed explosion on a free-standing spawned actor (blast_knockdown's setup).
+      Tried that too (o15_round): `rA.PlaceAtMe GrenadeFragExplosion 1` and
+      `WeaponKnockdownExplosion` from a timed script on a free-standing spawned trooper
+      gave no OnHit and no GetKnockedState change. Placed by the spawned actor's own
+      PlaceAtMe in a timed script, the explosion seems not to go off [hypothesis]; next
+      time place it on a save's own actor as blast_knockdown did on Ringo.
 
 ## P3: smaller or rarer
 
