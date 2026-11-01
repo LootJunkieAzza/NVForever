@@ -3025,6 +3025,31 @@ order = [[
   "pipboy: STATS Status",
   "pipboy: down",
 ]]
+expect = [
+  { re = 'player First rig: PipBoy\(\w+\) plays .*pipboy', label = "the first-person Pip-Boy clip loaded (#1330)" },
+]
+forbid = [
+  { text = "the Pip-Boy cannot come up", label = "the first-person Pip-Boy clip missing (#1330)" },
+  { text = "up, but the menus are not on the arm", label = "the arm up with nowhere to show the menus (#1330)" },
+]
+
+[[scenario]]
+name = "pipboy-menu-pause"
+source = "issue #1330: with menu pause on (--menu-pause original) the inventory stops the virtual clock; the Pip-Boy still comes up, on the menus' clock"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy*", "engine/nvf-play/src/pause.rs", "engine/nvforever/src/pipboy_arm.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,15:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1280x720", "--menu-pause", "original"]
+run_seconds = 17
+order = [[
+  "pipboy: up, page ITEMS tab Weapons",
+  "menu pause: the picture stands still (--menu-pause original)",
+  "pipboy: raised",
+  "pipboy: down",
+]]
+forbid = [
+  { text = "up, but the menus are not on the arm", label = "the arm up with nowhere to show the menus (#1330)" },
+]
 
 [[scenario]]
 name = "pipboy-list5"
