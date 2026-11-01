@@ -7,7 +7,7 @@ use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{self, Receiver, SyncSender};
+use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -80,7 +80,7 @@ impl Shared {
 }
 
 /// One producer owns sequence assignment; engine and render data enter through it.
-/// Only `finish`/Drop waits for the writer. Queue admission uses `try_send` exclusively.
+/// Only `finish_at`/Drop waits for the writer. Queue admission uses `try_send` exclusively.
 pub struct Capture {
     config: Config,
     epoch: Instant,
@@ -237,12 +237,12 @@ impl Capture {
         let marker_attempts = std::mem::take(&mut self.pending_marker_attempts);
         self.submit(
             t_ns,
-            Payload::Frame(Frame {
+            Some(Payload::Frame(Frame {
                 main_frame,
                 duration_ns,
                 phase,
                 markers,
-            }),
+            })),
             marker_attempts,
             false,
         )
@@ -252,10 +252,17 @@ impl Capture {
         if !self.config.gpu {
             return false;
         }
-        self.submit(t_ns, Payload::Diagnostic(diagnostic), 0, false)
+        self.submit(t_ns, Some(Payload::Diagnostic(diagnostic)), 0, false)
     }
 
-    fn submit(&mut self, t_ns: u64, payload: Payload, marker_attempts: u64, terminal: bool) -> bool {
+    /// Count an observation omitted by the bounded import cursor, without allocating it.
+    pub fn drop_diagnostic_at(&mut self, t_ns: u64) {
+        if self.config.gpu {
+            self.submit(t_ns, None, 0, false);
+        }
+    }
+
+    fn submit(&mut self, t_ns: u64, payload: Option<Payload>, marker_attempts: u64, terminal: bool) -> bool {
         let _active = Production::begin(&self.shared);
         let t_ns = t_ns.max(self.shared.last_t_ns.load(Ordering::Acquire));
         if !terminal {
@@ -268,26 +275,24 @@ impl Capture {
         }
         let seq = self.next_seq;
         self.next_seq += 1;
-        let frame = matches!(payload, Payload::Frame(_));
+        let frame = matches!(payload, Some(Payload::Frame(_)));
         if frame {
             self.shared.frames_attempted.fetch_add(1, Ordering::Relaxed);
             self.framed_marker_attempts += marker_attempts;
         } else {
             self.shared.diagnostics_attempted.fetch_add(1, Ordering::Relaxed);
         }
-        let record = Record {
-            seq,
-            t_ns,
-            payload,
-            attempts: AttemptCounts {
-                frames: self.shared.frames_attempted.load(Ordering::Relaxed),
-                diagnostics: self.shared.diagnostics_attempted.load(Ordering::Relaxed),
-                markers: self.framed_marker_attempts,
-            },
+        let attempts = AttemptCounts {
+            frames: self.shared.frames_attempted.load(Ordering::Relaxed),
+            diagnostics: self.shared.diagnostics_attempted.load(Ordering::Relaxed),
+            markers: self.framed_marker_attempts,
         };
         self.shared.last_t_ns.store(t_ns, Ordering::Relaxed);
         let queue = if frame { &self.frames } else { &self.diagnostics };
-        let accepted = record.payload.within_bounds() && queue.as_ref().is_some_and(|queue| queue.try_send(record).is_ok());
+        let accepted = payload.is_some_and(|payload| {
+            let record = Record { seq, t_ns, payload, attempts };
+            record.payload.within_bounds() && queue.as_ref().is_some_and(|queue| queue.try_send(record).is_ok())
+        });
         // Publish only after try_send/drop completes. The writer may then skip seq gaps.
         self.shared.next_seq.store(self.next_seq, Ordering::Release);
         if !terminal {
@@ -302,19 +307,49 @@ impl Capture {
         self.shutdown(t_ns, reason, sentinel, SHUTDOWN_GRACE)
     }
 
-    fn shutdown(&mut self, t_ns: u64, reason: StopReason, sentinel: Option<Diagnostic>, grace: Duration) -> Shutdown {
-        let deadline = Instant::now() + grace;
-        let _ = self.shared.deadline.set(deadline);
+    /// Freeze and close the queues without waiting. Poll on later updates for the trailer.
+    pub fn begin_finish_at(&mut self, t_ns: u64, reason: StopReason, sentinel: Option<Diagnostic>) {
+        self.begin_shutdown(t_ns, reason, sentinel, SHUTDOWN_GRACE);
+    }
+
+    /// Never waits for the writer, including when the shutdown grace expires.
+    pub fn poll_finish(&mut self) -> Option<Shutdown> {
+        self.writer.as_ref()?;
+        let result = self.done.get_mut().expect("completion receiver is never locked").try_recv();
+        match result {
+            Ok(report) => {
+                self.writer.take();
+                Some(Shutdown::Finished(Box::new(report)))
+            }
+            Err(TryRecvError::Empty) if self.shared.deadline.get().is_none_or(|deadline| Instant::now() < *deadline) => None,
+            Err(_) => {
+                self.shared.stop(StopReason::ShutdownTimeout, self.elapsed_ns());
+                self.writer.take();
+                Some(Shutdown::TimedOut)
+            }
+        }
+    }
+
+    fn begin_shutdown(&mut self, t_ns: u64, reason: StopReason, sentinel: Option<Diagnostic>, grace: Duration) -> Instant {
+        let deadline = *self.shared.deadline.get_or_init(|| Instant::now() + grace);
+        if self.shared.closing.load(Ordering::Acquire) {
+            return deadline;
+        }
         self.stop_at(reason, t_ns);
         if self.config.gpu {
             if let Some(sentinel) = sentinel {
                 let stop_t = self.shared.stopped().map_or(t_ns, |s| s.t_ns);
-                self.submit(stop_t, Payload::Diagnostic(sentinel), 0, true);
+                self.submit(stop_t, Some(Payload::Diagnostic(sentinel)), 0, true);
             }
         }
         self.frames.take();
         self.diagnostics.take();
         self.shared.closing.store(true, Ordering::Release);
+        deadline
+    }
+
+    fn shutdown(&mut self, t_ns: u64, reason: StopReason, sentinel: Option<Diagnostic>, grace: Duration) -> Shutdown {
+        let deadline = self.begin_shutdown(t_ns, reason, sentinel, grace);
         match self
             .done
             .get_mut()

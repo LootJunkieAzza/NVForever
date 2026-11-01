@@ -160,6 +160,7 @@ impl Header {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)] // The marker vocabulary also supports optional harness event producers.
 pub enum MarkerKind {
     PhaseEnter,
     ScenarioBegin,

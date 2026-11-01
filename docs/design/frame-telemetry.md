@@ -57,8 +57,13 @@ State unavailable origin and age once in the header. Import time cannot establis
 associate a result with this CPU frame. Never sum overlapping scopes into an additive breakdown.
 Keep spans and process CPU in legacy output. Never wait for readbacks; history omissions and upstream losses are not exporter drops.
 
-[documented] `engine/nvforever/build.rs:1-10` currently embeds the Windows icon and watches its source.
-[hypothesis] Extend this build script to read `git rev-parse HEAD` and embed the commit through
+[observed] `frame_telemetry/plugin.rs` collects in main `Update`, which follows the entire `PreUpdate`
+diagnostic import schedule. Its per-path cursor holds at most 4,096 paths; an import-time watermark
+deduplicates observations from paths that cannot enter that map. Cursors advance before queue admission,
+including on exporter drops. The collector uses only `measurement()` and preserves its import timestamp.
+
+[observed] `engine/nvforever/build.rs` retains the Windows icon logic and reads `git rev-parse HEAD` at
+build time to embed the commit through
 `cargo:rustc-env=NVF_BUILD_GIT_SHA=...`, read with `option_env!`. If Git is absent, the checkout is not a
 repository or the query fails, the field is null with a reason; provenance must never fail the build.
 Keep the icon watch and add `rerun-if-changed` only for the Git-resolved `HEAD`, the branch reference it
@@ -67,6 +72,11 @@ changes and not on every source or document edit, which would recompile the crat
 record uncommitted changes: a build-time dirty flag would either go stale or force a rebuild on any edit.
 The stress runner records its own checkout's commit and dirty state (#1277), which describe the
 engine only when both come from the same checkout. The game process never runs Git.
+
+[observed] The implementation resolves relative Git directory answers against `CARGO_MANIFEST_DIR`,
+watches the worktree's `HEAD` and the common directory's named branch ref, and watches existing
+`packed-refs` files in either directory. Missing optional packed-refs files are not watched, so they do
+not force every build to rerun. The header uses `build_git_unavailable` when no commit was embedded.
 
 ## 3. Records
 
@@ -106,6 +116,17 @@ last. Ignore unknown fields; report unsupported versions and record types. Drop 
 FramePace computes caps and applies modes (`engine/nvforever/src/frame_pace.rs:134-167`).
 [hypothesis] Snapshot after initial settings application. Stop with `settings_changed` before admitting
 a later frame with different resolution or presentation settings; the game and legacy output continue.
+
+[documented] Bevy makes renderer identity and capability resources available to the main world:
+`RenderResources::unpack_into` clones `RenderDevice` and `RenderAdapterInfo` there
+(`bevy_render-0.20.1/src/settings.rs:195-198`), called from `RenderPlugin::finish`
+(`bevy_render-0.20.1/src/lib.rs:493-505`). No custom render-to-main transfer is required.
+[observed] Telemetry snapshots those main-world resources on its first collection update, after the
+settings loaded in `PostStartup`, settings UI, window mode application and frame pacing application.
+It records enabled nvforever features `default`, `intro-video` and `profile` from compile-time cfg.
+The collector follows `PlaySet::Sync`, the loading gate and handoff reveal. It emits `phase_enter` before
+the corresponding frame, using a startup accumulator independent of the stress sample aid. Window mode,
+physical size, sync, effective cap, refresh and present mode changes end the capture before another frame.
 
 | Frame field | JSON type | Unit; nullable | Meaning |
 |---|---|---|---|
@@ -205,6 +226,12 @@ Freeze producers, drain the retained interval, write the trailer and flush, allo
 The terminal sentinel is exempt from duration checks, but not byte capacity. On I/O failure, stop, log one error and attempt a
 trailer only if writable. Mark partial lines or absent trailers incomplete; never invent exact final drops.
 
+[observed] Normal collection and limit stops use `Capture::begin_finish_at` and `poll_finish`, which
+close producers and poll the writer without waiting on a game frame. `AppExit` starts the same shutdown;
+resource teardown outside collection waits only for the remainder of the original 2 s grace. The GPU
+sentinel distinguishes unavailable device capability from a known device lacking `TIMESTAMP_QUERY`
+and `TIMESTAMP_QUERY_INSIDE_ENCODERS`; only the latter reports `timestamp_queries_unsupported`.
+
 ## 5. Coexistence, consumption and validation
 
 [documented] Existing frame windows use Time<Real> in Update and omit cycle warmup; profile windows
@@ -213,6 +240,15 @@ use it in Last, while profile hitches use consecutive Instant calls (`graphics.r
 `graphics::ensure_render_diagnostics` (`engine/nvforever/src/graphics.rs:320-324` on that branch).
 [hypothesis] Keep all existing text lines unchanged. Telemetry retains warmup and all phases. GPU mode
 must call that helper; frames-only mode does not request the plugin. Add only export-specific log lines.
+
+[observed] The plugin logs one start line, `frame telemetry: capturing <seconds> s to <path>
+(frames[ + render timings])`, and one terminal summary, `frame telemetry: <path> <status>
+(<stop_reason>), <frames> frames, gameplay p50 <x> ms p95 <y> ms p99 <z> ms, dropped <n>, <bytes> bytes`.
+Empty quantiles print `null`. A missing trailer produces a truncated summary with its reason, without
+inventing final counts. Invalid aids or output setup failures log one `frame telemetry: disabled:` warning.
+An unset or zero aid installs no telemetry systems, resources or render diagnostics and logs nothing.
+The synthetic smoke scenarios are `frame-telemetry-frames`, `frame-telemetry-gpu`, `frame-telemetry-off`
+and `frame-telemetry-bad-aid`; runtime delivery, pacing and overhead validation remain supervisor work.
 
 [documented] Stress gives each launch its own home and captures stdout (`tools/stress/stress/lib.py:251-280`).
 [observed] Sibling #1277 records provenance in `tools/stress/stress/metadata.py:158-198`, attaches it in

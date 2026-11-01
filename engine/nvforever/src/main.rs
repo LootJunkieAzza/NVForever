@@ -59,7 +59,6 @@ mod fly;
 mod foot_ik;
 mod fps_counter;
 mod frame_pace;
-#[allow(dead_code)] // The telemetry core is wired into the engine in stage 2 of #1276.
 mod frame_telemetry;
 mod blit_warm;
 mod handoff;
@@ -1441,6 +1440,7 @@ fn main() -> AppExit {
             app.add_plugins(stress_sample::StressSamplePlugin);
             // The span profile (NVF_PLAY_TEST_PROFILE; nothing without it; profile.rs).
             app.add_plugins(profile::ProfilePlugin);
+            app.add_plugins(frame_telemetry::FrameTelemetryPlugin(args.data().to_path_buf()));
             app.insert_resource(death_cam::DeathCam::with_imod(death_imod)).add_plugins(death_cam::DeathCamPlugin);
             // The player knocked down (player_knockdown.rs).
             app.add_plugins(player_knockdown::PlayerKnockdownPlugin);

@@ -382,6 +382,57 @@ expect = [
 ]
 
 [[scenario]]
+name = "frame-telemetry-frames"
+source = "docs/design/frame-telemetry.md sections 1-5 and issue #1276: frames-only JSONL capture stops at its duration without enabling render timing collection"
+areas = ["renderer", "graphics", "profiling"]
+paths = ["engine/nvforever/src/frame_telemetry/", "engine/nvforever/build.rs", "engine/nvforever/src/main.rs"]
+env = { NVF_PLAY_TEST_FRAME_TELEMETRY = "18", NVF_PLAY_TEST_FRAME_TELEMETRY_GPU = "0" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  { re = 'frame telemetry: capturing 18 s to .* \(frames\)', count = 1, label = "one frames-only capture starts" },
+  { re = 'frame telemetry: .* complete \(duration_limit\), [1-9]\d* frames, gameplay p50 \d', count = 1, label = "one lossless duration-limited summary" },
+  { re = 'frame telemetry: .*render timings', max = 0, label = "frames-only mode requests no render timings" },
+]
+
+[[scenario]]
+name = "frame-telemetry-gpu"
+source = "docs/design/frame-telemetry.md sections 1-5 and issue #1276: render diagnostics share the bounded JSONL writer and can shorten its lossless interval at the byte limit"
+areas = ["renderer", "graphics", "profiling"]
+paths = ["engine/nvforever/src/frame_telemetry/", "engine/nvforever/build.rs", "engine/nvforever/src/main.rs"]
+env = { NVF_PLAY_TEST_FRAME_TELEMETRY = "18", NVF_PLAY_TEST_FRAME_TELEMETRY_GPU = "1" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  { re = 'frame telemetry: capturing 18 s to .* \(frames \+ render timings\)', count = 1, label = "one capture with render timings starts" },
+  { re = 'frame telemetry: .* complete \((duration_limit|byte_limit)\), [1-9]\d* frames, gameplay p50 \d', count = 1, label = "one lossless duration or byte-limited summary" },
+]
+
+[[scenario]]
+name = "frame-telemetry-off"
+source = "docs/design/frame-telemetry.md section 1 and issue #1276: an unset capture aid installs no telemetry resources, systems or render diagnostics"
+areas = ["renderer", "graphics", "profiling"]
+paths = ["engine/nvforever/src/frame_telemetry/", "engine/nvforever/build.rs", "engine/nvforever/src/main.rs"]
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  { re = 'frame telemetry:', max = 0, label = "disabled telemetry logs nothing" },
+]
+
+[[scenario]]
+name = "frame-telemetry-bad-aid"
+source = "docs/design/frame-telemetry.md section 1 and issue #1276: invalid capture seconds produce one warning and leave capture off"
+areas = ["renderer", "graphics", "profiling"]
+paths = ["engine/nvforever/src/frame_telemetry/", "engine/nvforever/build.rs", "engine/nvforever/src/main.rs"]
+env = { NVF_PLAY_TEST_FRAME_TELEMETRY = "abc" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  { re = 'frame telemetry: disabled: NVF_PLAY_TEST_FRAME_TELEMETRY: expected finite, nonnegative seconds', count = 1, label = "one invalid-aid warning" },
+  { re = 'frame telemetry: capturing', max = 0, label = "invalid aids start no capture" },
+]
+
+[[scenario]]
 name = "render-diagnostics-profile"
 source = "docs/design/frame-rate-audit.md §1 (profiling options together) and issue #1275: NVF_PLAY_TEST_PROFILE enables the profile reporting path and its render diagnostics registration"
 note = "Source-reviewed on pinned Bevy 0.20.1; profile-build startup/output verification passes; broader profiling validation remains"

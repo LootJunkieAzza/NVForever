@@ -148,6 +148,41 @@ fn diagnostic(value: f64) -> Diagnostic {
 }
 
 #[test]
+fn cursor_drops_are_counted_as_record_attempts() {
+    let (mut capture, memory) = capture(true);
+    capture.drop_diagnostic_at(1);
+    assert!(capture.diagnostic_at(2, diagnostic(1.0)));
+    let trailer = finish(capture).trailer.unwrap();
+    assert_eq!(trailer.dropped_diagnostics, 1);
+    assert!(!trailer.complete());
+    assert_eq!(memory.lines()[1]["seq"], 2);
+}
+
+#[test]
+fn nonblocking_finish_can_poll_while_writer_is_held() {
+    let (mut gate, sink) = Gate::new();
+    let mut capture = test_support::start(sink, header(false), MAX_FRAMES, MAX_BYTES, 1, 1).unwrap();
+    gate.wait();
+    assert!(capture.frame_at(1, 0, 0, Phase::Startup));
+    capture.begin_finish_at(2, StopReason::NormalExit, None);
+    assert!(capture.poll_finish().is_none());
+    assert!(!capture.frame_at(3, 1, 0, Phase::Gameplay));
+    gate.open();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let result = loop {
+        if let Some(result) = capture.poll_finish() {
+            break result;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::yield_now();
+    };
+    let Shutdown::Finished(report) = result else { panic!() };
+    assert!(report.trailer.unwrap().complete());
+    assert!(capture.poll_finish().is_none());
+    assert_eq!(gate.memory.lines().len(), 3);
+}
+
+#[test]
 fn capture_can_be_stored_as_send_sync() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<Capture>();

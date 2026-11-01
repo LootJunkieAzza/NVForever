@@ -1,5 +1,11 @@
-//! Bounded frame captures, independent of Bevy (docs/design/frame-telemetry.md).
-//! The caller supplies engine metadata, elapsed times and a guarded output path.
+//! Opt-in frame captures and their bounded core (docs/design/frame-telemetry.md).
+//! The plugin supplies engine metadata, elapsed times and a guarded output path.
+
+mod plugin;
+pub use plugin::FrameTelemetryPlugin;
+
+#[cfg(test)]
+mod git_paths;
 
 pub mod capture;
 pub mod records;
