@@ -649,6 +649,24 @@ impl PhysWorld {
         Some(dv.length() / k)
     }
 
+    /// Set one axis (0 x, 1 y, 2 z) of the velocity of every dynamic body of a reference
+    /// to `speed` game units per second, the other axes kept (the console's SetVel);
+    /// how many bodies it set, 0 when the reference has no dynamic body.
+    pub fn set_ref_velocity(&mut self, form_id: u32, axis: usize, speed: f32) -> usize {
+        let k = self.k;
+        let Some(bodies) = self.refs.get(&form_id) else { return 0 };
+        let mut set = 0;
+        for &b in bodies {
+            let Some(body) = self.w.bodies.get_mut(b).filter(|x| x.is_dynamic()) else { continue };
+            let mut v = body.linvel();
+            v[axis.min(2)] = speed * k;
+            body.set_linvel(v, true);
+            self.struck.push(b);
+            set += 1;
+        }
+        set
+    }
+
     /// The mass of a reference's heaviest dynamic body; `None` without one.
     pub fn ref_mass(&self, form_id: u32) -> Option<f32> {
         self.refs.get(&form_id)?.iter().filter_map(|&b| self.w.bodies.get(b).filter(|x| x.is_dynamic()).map(|x| x.mass())).max_by(f32::total_cmp)

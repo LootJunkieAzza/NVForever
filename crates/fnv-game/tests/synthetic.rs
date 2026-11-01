@@ -3326,3 +3326,42 @@ fn console_tlik_temo_tfow_slpm_and_mfg() {
     assert!(!g.mfg.contains_key(&FormId(NPC_REF)), "nothing left set: no face kept");
     assert_eq!(FaceMfg::default().expression, None);
 }
+
+#[test]
+fn console_plm_clm_s1st_setvel_and_the_small_ones() {
+    use fnv_game::functions::console::{lookup_word, ConsoleCtx, ConsoleRequest};
+    let f = fixture();
+    let mut g = game(&f);
+    let run = |g: &mut Game, word: &str, ctx: &ConsoleCtx, a: &[&str]| {
+        let (_, run) = lookup_word(&g.data.table, word).unwrap_or_else(|| panic!("{word}"));
+        run(g, ctx, &a.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    };
+    let none = ConsoleCtx::default();
+    run(&mut g, "plm", &none, &["10", "25", "0", "TestLocation"]).unwrap();
+    run(&mut g, "plm", &none, &["1.5", "-2", "3"]).unwrap();
+    assert!(run(&mut g, "plm", &none, &["1", "2", "3", "x", "10"]).is_err(), "colours 0 to 9");
+    assert!(run(&mut g, "plm", &none, &["1", "2"]).is_err());
+    run(&mut g, "clm", &none, &[]).unwrap();
+    run(&mut g, "s1st", &none, &[]).unwrap();
+    assert!(run(&mut g, "SetVel", &none, &["z", "300"]).is_err(), "nothing selected");
+    let on = ConsoleCtx { on: Some(FormId::PLAYER_REF), ..Default::default() };
+    assert!(run(&mut g, "SetVel", &on, &["w", "300"]).is_err());
+    run(&mut g, "SetVel", &on, &["z", "300"]).unwrap();
+    assert_eq!(
+        g.console_requests,
+        [
+            ConsoleRequest::PlaceMarker { pos: [10.0, 25.0, 0.0], name: "TestLocation".into(), color: 0 },
+            ConsoleRequest::PlaceMarker { pos: [1.5, -2.0, 3.0], name: "2 -2 3".into(), color: 0 },
+            ConsoleRequest::ClearMarkers,
+            ConsoleRequest::Show1stPerson,
+            ConsoleRequest::SetVel { on: FormId::PLAYER_REF, axis: 'Z', speed: 300.0 },
+        ]
+    );
+    assert_eq!(run(&mut g, "tst", &none, &["TestGlobal"]).unwrap(), ["TestGlobal = 5"]);
+    assert!(run(&mut g, "Show", &none, &["NoSuchGlobal"]).is_err());
+    assert!(run(&mut g, "prc", &none, &[]).unwrap()[0].starts_with("Persistent references: "));
+    run(&mut g, "ClearScreenBlood", &none, &[]).unwrap();
+    assert_eq!(g.ui.splatter.clears, 1);
+    run(&mut g, "TestRaceSexTerimnal", &none, &[]).unwrap();
+    assert_eq!(g.race_menu, fnv_game::game::RaceMenu::Creator);
+}

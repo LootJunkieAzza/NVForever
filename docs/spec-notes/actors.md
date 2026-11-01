@@ -2111,6 +2111,15 @@ No NPC's own choice takes a weapon flagged Player Only or Not Used In Normal Com
     one was taken because it keeps every other choice as it was unless the weapon fires
     an explosive projectile.] Thrown weapons and mines keep their base damage: grenade
     use is not built, and a grenade as the weapon drawn would not be thrown.
+  - **Not for an Explosives weapon** (2026-11-01, issue #1303): a weapon whose DNAM
+    "Skill" is Explosives (grenade rifles, grenade machine guns, missile launchers, Fat
+    Man) ranks by its base damage alone. [hypothesis: fitted to observer check 1
+    (o13_reequip): given a Grenade Rifle (base 2, Explosives) and 10 40mm grenades,
+    none of Sunny, Easy Pete, Settler 1 and Ringo took it over a Varmint Rifle (18), a
+    .357 (26) or a 9mm (16), while Easy Pete and Ringo took a Hunting Rifle (52) at once
+    [observed]. Cook-Cook's pair is Energy Weapons and keeps its rule. Ours had about 40
+    NPCs draw grenade rifles or launchers.] Why Sunny and Settler 1 kept their Varmint
+    Rifle and .357 over a Hunting Rifle is not known.
   - What it changes (`fnvtool actor weapons`, FalloutNV.esm, 2026-10-20 [observed]):
     42 of 2,703 placed NPCs draw another weapon they carry, each a gun with an explosive
     projectile: Cook-Cook and a Bison Steve Powder Ganger the Incinerator (instead of the
