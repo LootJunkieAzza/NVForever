@@ -349,8 +349,8 @@ Read in the 19 `nvf*.fos` saves of the owner's `Saves` folder (2026-11-01; flags
 
 Extra data sizes seen in the inventory: 0x16 none (on the worn suit, Pip-Boy and glove),
 0x21 a ref (3 bytes), 0x25 an f32 (on weapons and armour, 41.25 on a pistol)
-[hypothesis: worn, owner, condition]. 0x0D (nvfSlides) has a payload not mapped; the
-reader gives no inventory for such a save rather than guess.
+[hypothesis: worn, owner, condition]. 0x0D (nvf31mainframe, nvfSlides) has a payload not
+mapped; the reader gives no inventory for such a save rather than guess.
 
 The Pip-Boy and its glove are listed worn with count 0 [hypothesis: the count is the
 change against the base form's inventory, which holds them].
