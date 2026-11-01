@@ -36,6 +36,10 @@ impl Plugin for FrameTelemetryPlugin {
                 return;
             }
         };
+        // The commit, read before the clocks start: running Git is not part of what is
+        // measured (git_paths.rs).
+        let built = std::env::current_exe().and_then(std::fs::metadata).and_then(|m| m.modified()).ok();
+        let revision = super::git_paths::engine_revision(std::path::Path::new(env!("CARGO_MANIFEST_DIR")), built);
         // Pair the clocks before the first update; startup is part of the duration.
         let epoch = Instant::now();
         let utc = SystemTime::now().duration_since(UNIX_EPOCH).ok();
@@ -46,7 +50,8 @@ impl Plugin for FrameTelemetryPlugin {
             let id = capture_id(utc.unwrap_or_default(), std::process::id(), COUNTER.fetch_add(1, Ordering::Relaxed));
             let path = dir.join(format!("frame-telemetry-{id}.jsonl"));
             fnv_install::guard_write(&path, Some(&game)).map_err(|e| e.to_string())?;
-            Ok::<_, String>(Pending { config, epoch, utc, id, path })
+            remove_old_captures(&dir, &game);
+            Ok::<_, String>(Pending { config, epoch, utc, id, path, revision })
         })();
         let pending = match pending {
             Ok(pending) => pending,
@@ -80,6 +85,22 @@ impl Plugin for FrameTelemetryPlugin {
     }
 }
 
+/// Captures kept in the logs folder, this run's included: each may reach MAX_BYTES (64 MB),
+/// and smoke runs start one every time (#1312) [design].
+pub const KEEP_CAPTURES: usize = 8;
+
+/// Remove the oldest `frame-telemetry-*.jsonl` files so that, with the one this run is
+/// about to write, KEEP_CAPTURES remain. Capture IDs start with the UTC seconds, so the
+/// names sort oldest first (`crash::old_files`). A file that cannot go is left.
+fn remove_old_captures(dir: &std::path::Path, game: &fnv_install::GameInstall) {
+    let names: Vec<String> = std::fs::read_dir(dir).into_iter().flatten().flatten().filter_map(|e| e.file_name().into_string().ok()).collect();
+    let old = crate::crash::old_files(&names, "frame-telemetry-", ".jsonl", KEEP_CAPTURES - 1);
+    let removed = old.iter().map(|n| dir.join(n)).filter(|p| fnv_install::guard_write(p, Some(game)).is_ok() && std::fs::remove_file(p).is_ok()).count();
+    if removed > 0 {
+        info!("frame telemetry: removed {removed} older captures (keeping {KEEP_CAPTURES})");
+    }
+}
+
 fn read_aids() -> Result<Config, String> {
     let mut raw = Vec::with_capacity(4);
     for name in [
@@ -103,6 +124,8 @@ struct Pending {
     utc: Option<Duration>,
     id: String,
     path: PathBuf,
+    /// The engine's commit, or why it is not known.
+    revision: Result<String, &'static str>,
 }
 
 #[derive(Resource)]
@@ -219,7 +242,7 @@ fn start(pending: Pending, inputs: &Inputs<'_, '_>) -> Result<Session, String> {
     let settings = inputs.settings();
     let mut metadata = HeaderMetadata {
         started_at_utc: pending.utc.and_then(utc_stamp),
-        engine_revision: option_env!("NVF_BUILD_GIT_SHA").map(str::to_owned),
+        engine_revision: pending.revision.clone().ok(),
         build_features: build_features(),
         width_px: settings.size.map(|s| s.0),
         height_px: settings.size.map(|s| s.1),
@@ -234,8 +257,8 @@ fn start(pending: Pending, inputs: &Inputs<'_, '_>) -> Result<Session, String> {
         renderer_available: inputs.device.is_some(),
         ..Default::default()
     };
-    if metadata.engine_revision.is_none() {
-        metadata.unavailable.insert("engine_revision".to_owned(), "build_git_unavailable".to_owned());
+    if let Err(reason) = &pending.revision {
+        metadata.unavailable.insert("engine_revision".to_owned(), reason.to_string());
     }
     if metadata.started_at_utc.is_none() {
         metadata.unavailable.insert("started_at_utc".to_owned(), "utc_clock_unavailable".to_owned());
