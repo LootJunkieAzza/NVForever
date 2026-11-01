@@ -765,3 +765,15 @@ The numbers above stay put so links to them hold; each item here gives its own p
     on itself in its MenuMode and then sets iSpawnSupplyDelay; if that stopped it, the
     drop would not come. Use the radio (button 1) and read GetQuestRunning right after,
     and whether the drop arrives. Ours keeps a self-reset running. (scripts.md §5)
+
+## Added 2026-11-01 (actors at their place on arrival, issue #1208)
+
+67. **Where the destination's actors are on arrival** (P2, issue #1208). NVForever puts
+    every actor not in the loaded area before a fast travel or a load door at the end of
+    its package's walk (on its furniture, seated) behind the loading screen, and moves
+    nobody that was loaded [hypothesis, packages.md §8]. To check, with nvf_capture
+    recording position, current package and GetSitting just before and just after:
+    (a) Goodsprings → Novac at 5am (Boone: at the dinosaur exactly, part-way, or within
+    the package's radius?); (b) a fast travel to a marker a few metres away inside the
+    loaded area (does anyone move?); (c) entering the Mojave Outpost (Cass) and the
+    Prospector Saloon (the settler at the bar): GetSitting 3 on the first frame?

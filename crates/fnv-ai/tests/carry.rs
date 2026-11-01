@@ -2,7 +2,7 @@
 //! data): two interior cells joined by a door, markers, and actors with one package
 //! each. The rules and their sources: docs/design/actor-behaviour.md §5.
 
-use fnv_ai::{Activity, Ai, AiConfig, AiEvent, Doing};
+use fnv_ai::{Activity, Ai, AiConfig, AiEvent, Doing, LoadedArea};
 use fnv_esm::raw::{write_subrecords, Subrecord};
 use fnv_game::ai::{AiPhase, SandboxPhase};
 use fnv_esm::{LoadOrder, Plugin, Schema};
@@ -2265,4 +2265,113 @@ fn object_locations_and_a_guard_remaining_near_its_reference_are_carried_out() {
     assert!(!s.events(R_SEEKER).iter().any(|e| matches!(e, AiEvent::NotCarriedOut { .. })));
     assert!(dist(s.feet(R_KEEPER), MIDDLE_C) <= 121.0, "keeper at {:?}", s.feet(R_KEEPER));
     assert!(dist(s.feet(R_KEEPER), [10950.0, 10050.0, 0.0]) > 400.0);
+}
+
+// ---- arriving behind a loading screen (`fnv_ai::arrive`, issue #1208) ----------------
+
+#[test]
+fn an_arriving_actor_is_put_at_its_packages_place_without_walking() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    let arr = s.ai.arrive(&mut s.game, &s.nav, actor).expect("put at its place");
+    assert_eq!(arr.package, FormId(P_TRAVEL_B));
+    assert_eq!((arr.from.space, arr.to.space, arr.walks, arr.furniture), (A, B, 1, None));
+    assert!(arr.skipped > 100.0, "{arr:?}");
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0);
+    let a = &s.ai.agents[&actor];
+    assert_eq!(a.activity, Activity::There);
+    assert!(a.walker.follower.is_none());
+    assert_eq!(a.walker.travelled, 0.0, "not walked");
+    // The game knows where it is, and that the package met its goal.
+    assert_eq!(s.game.world.peek(actor).unwrap().cell, Some(FormId(CELL_B)));
+    assert!(s.game.extra[&actor].package_goal_met);
+    assert!(matches!(s.events(R_TRAVEL).last(), Some(AiEvent::Arrived { .. })));
+    // There already: nothing to do again, and the updates after leave it there.
+    assert_eq!(s.ai.arrive(&mut s.game, &s.nav, actor), None);
+    s.run(10.0);
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0);
+    assert_eq!(s.ai.agents[&actor].walker.travelled, 0.0);
+}
+
+#[test]
+fn an_arriving_actor_whose_package_gives_it_a_chair_is_on_it() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TO_CHAIR]);
+    let actor = FormId(R_TO_CHAIR);
+    let arr = s.ai.arrive(&mut s.game, &s.nav, actor).expect("put at its place");
+    assert_eq!(arr.furniture, Some(FormId(CHAIR_C)));
+    let a = &s.ai.agents[&actor];
+    assert_eq!((a.activity, a.using), (Activity::There, Some(FormId(CHAIR_C))));
+    assert_eq!(a.walker.travelled, 0.0);
+    // Still on it after the next updates.
+    s.run(5.0);
+    assert_eq!(s.ai.agents[&actor].using, Some(FormId(CHAIR_C)));
+}
+
+#[test]
+fn an_arriving_sandboxer_is_already_at_what_it_chose() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_SB_OBJECTS]);
+    let actor = FormId(R_SB_OBJECTS);
+    let arr = s.ai.arrive(&mut s.game, &s.nav, actor).expect("put at what it chose");
+    assert!(arr.walks >= 1, "{arr:?}");
+    let did = doings(&s, R_SB_OBJECTS);
+    assert_eq!(did.len(), 1, "{did:?}");
+    assert!(matches!(did[0], Doing::Sitting(c) if c.0 == CHAIR_C) || matches!(did[0], Doing::AtIdleMarker(m) if m.0 == IDLE_C), "{did:?}");
+    let a = &s.ai.agents[&actor];
+    assert_eq!(a.activity, Activity::There);
+    assert_eq!(a.walker.travelled, 0.0);
+    assert_eq!(a.using, arr.furniture);
+    assert_eq!(a.using.is_some(), matches!(did[0], Doing::Sitting(_)));
+}
+
+#[test]
+fn an_arriving_patrol_starts_at_its_first_point() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_PATROL]);
+    let actor = FormId(R_PATROL);
+    let arr = s.ai.arrive(&mut s.game, &s.nav, actor).expect("put at its first point");
+    assert_eq!(arr.walks, 1);
+    assert!(dist(arr.to.pos, [350.0, 50.0, 0.0]) < 5.0, "{arr:?}");
+    let points: Vec<u32> = s.events(R_PATROL).iter().filter_map(|e| match e {
+        AiEvent::Arrived { patrol_point: Some(p), .. } => Some(p.0),
+        _ => None,
+    }).collect();
+    assert_eq!(points, vec![M1]);
+    // It walks on to the next point from there, in sight.
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+}
+
+#[test]
+fn an_arriving_actor_whose_walk_stays_out_of_the_loaded_area_is_left_to_the_low_process() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    // From A to B, the loaded area elsewhere: it takes up its package and is not put.
+    s.ai.set_loaded(Some(LoadedArea { space: C, cells: Default::default() }));
+    assert_eq!(s.ai.arrive(&mut s.game, &s.nav, actor), None);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    assert!(dist(s.feet(R_TRAVEL), START) < 1.0);
+    // The walk's end loaded (the player came into B): put there.
+    s.ai.set_loaded(Some(LoadedArea { space: B, cells: Default::default() }));
+    assert!(s.ai.arrive(&mut s.game, &s.nav, actor).is_some());
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0);
+}
+
+#[test]
+fn rooted_dead_or_restrained_actors_are_not_put_anywhere() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL, R_TO_CHAIR]);
+    s.ai.root(&s.game, FormId(R_TRAVEL));
+    assert_eq!(s.ai.arrive(&mut s.game, &s.nav, FormId(R_TRAVEL)), None);
+    s.game.extra.entry(FormId(R_TO_CHAIR)).or_default().restrained = true;
+    assert_eq!(s.ai.arrive(&mut s.game, &s.nav, FormId(R_TO_CHAIR)), None);
+    s.game.extra.get_mut(&FormId(R_TO_CHAIR)).unwrap().restrained = false;
+    s.game.extra.get_mut(&FormId(R_TO_CHAIR)).unwrap().dead = true;
+    assert_eq!(s.ai.arrive(&mut s.game, &s.nav, FormId(R_TO_CHAIR)), None);
+    for r in [R_TRAVEL, R_TO_CHAIR] {
+        assert_eq!(s.ai.agents[&FormId(r)].walker.travelled, 0.0);
+        assert!(dist(s.feet(r), s.game.world.placed.get(FormId(r)).unwrap().pos) < 1.0);
+    }
 }

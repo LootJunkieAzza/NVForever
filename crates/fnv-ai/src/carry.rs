@@ -490,7 +490,7 @@ pub trait Mover {
 }
 
 /// [`Ai::pass_time`]'s mover: the walker's own steps, every door open.
-struct Passed;
+pub(crate) struct Passed;
 
 impl Mover for Passed {}
 
@@ -539,7 +539,7 @@ pub struct Agent {
     /// target went before that plan, when known.
     following: Option<(Place, f64, Option<f32>)>,
     /// The number of the script's weapon use it carries out ([`Ai::weapon_step`]).
-    weapon_order: Option<u64>,
+    pub(crate) weapon_order: Option<u64>,
     /// An Escort, Find, Use Item At, Ambush or Flee Not Combat package's progress
     /// (`crate::errand`).
     pub errand: Option<crate::errand::Errand>,
@@ -1786,7 +1786,7 @@ impl Ai {
     }
 
     /// A sandboxing actor whose behaviour is over chooses the next one and sets off.
-    fn sandbox_step(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
+    pub(crate) fn sandbox_step(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
         let a = self.agents.get_mut(&actor).expect("listed");
         let Some(sb) = a.sandbox.as_mut() else { return };
         if sb.pending.is_some() || !sb.due(game) {
@@ -2174,7 +2174,7 @@ impl Ai {
         }
     }
 
-    fn arrived(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
+    pub(crate) fn arrived(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
         let a = self.agents.get_mut(&actor).expect("listed");
         a.walker.follower = None;
         // The end of the way to a conversation partner: `crate::social` starts the

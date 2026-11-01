@@ -1078,3 +1078,31 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
 - **AIDT Responsibility in crime reactions**: the wiki documents Responsibility in the
   disposition formula and in combat's iAvoidHurtingNonTargetsResponsibility, not in
   crime reactions.
+
+## 8. Actors already at their package's place when the player arrives (issue #1208)
+
+- **What the original shows** [observed, owner, issue #1208]: fast travelling from
+  Goodsprings to Novac at 5am, Boone is already at his post by the dinosaur on arrival;
+  entering the Mojave Outpost, Cass is already drinking at the bar, and in the
+  Prospector Saloon the settler is already seated at the bar. Ours had them walk there
+  (out of Boone's motel room, up to the bar stools) in front of the player, because an
+  actor of a cell that was not loaded joined the AI where it was placed (or where the
+  low process left it, §1 of `fnv_ai::process`) and only then set off.
+- **What is built** [hypothesis: the original is seen with the actors at the place,
+  not how it gets them there]: when the player travels behind a loading screen (a fast
+  travel, a load door: both are `nvf_play::Travel`), the residents in the loaded area
+  before the trip stay where they are. Every other resident that comes into the loaded
+  area under the screen, or whose package's walk would bring it in, takes up its
+  current package (chosen again for the hour it is now: a fast travel's hours have
+  passed) and is put where the walk ends instead of walking: at the package's place,
+  on the furniture the package gives it (seated at once, no walk up and no sitting-down
+  clip), at the furniture or marker its sandbox chooses there, at a patrol's first
+  point (`fnv_ai::arrive`, engine `residents.rs` `Core::arrive`). Walks wholly out of
+  the loaded area stay the low process's. Left alone: actors dead, unconscious,
+  restrained, rooted, with their AI off; walks that depend on someone else (following,
+  escorting, searching, fleeing, a conversation). These actors join the AI and are
+  drawn under the loading screen, so the screen waits for their bodies.
+- **Open** (docs/handoff/observer-checks.md, check 67): whether the original puts the
+  actor exactly at the walk's end or somewhere part-way / within the package's radius;
+  whether a short fast travel inside the loaded area moves anybody (ours: nobody,
+  [design]); whether the hours a fast travel passes matter beyond choosing the package.
