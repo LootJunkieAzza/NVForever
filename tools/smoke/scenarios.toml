@@ -17417,3 +17417,20 @@ expect = [
   { text = "MannyVargasREF: put at its package", count = 0, label = "Manny Vargas, in view before the trip, is not moved" },
   { re = 'put at its package.s place on arrival .* units from \([^)]*\) in WastelandNV', count = 0, label = "nobody in Novac's street is put anywhere (residents in the rooms behind its doors may be: they are near and unseen)" },
 ]
+
+[[scenario]]
+name = "script-move-dynamic-clutter"
+source = "issue #1311: SetPos on a reference whose collision is one dynamic body (clutter, dropped or placed items) snapped back at once, the settle write-back copying the body's old pose over the move; console moves were never seen (the tick cleared Game::turned first)"
+note = "A bottle (0x0010A1F6) placed by the console at the player in Goodsprings, moved sideways 3 s later to x = -68150 with SetPos; GetPos x half a second and two seconds later reads the new x"
+areas = ["physics", "console", "scripts"]
+paths = ["engine/nvf-play/src/phys.rs", "engine/nvf-play/src/script.rs", "engine/nvf-play/src/dropped.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "8:player.placeatme 0010A1F6 1;8.5:ff000000.getpos x;11:ff000000.setpos x -68150;11.5:ff000000.getpos x;13:ff000000.getpos x;13.5:ff000000.getpos z;14:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 17
+expect = [
+  { re = 'console: PlaceAtMe on player >> 0xFF000000', label = "the bottle is placed" },
+  { re = 'collision of dropped 0xFF000000 added: .*\(dynamic\)', label = "its collision is one dynamic body" },
+  { re = 'collision of 0xFF000000 built again where a script moved it', label = "the move rebuilds its collision at the new place" },
+  { re = 'console: GetPos on 0xFF000000 >> -683\d\d\.', count = 1, label = "before the move it lies at the player" },
+  { re = 'console: GetPos on 0xFF000000 >> -6815\d\.', min = 2, label = "the move sticks: x reads the new value half a second and two seconds later (it read the old x again before #1311)" },
+]
