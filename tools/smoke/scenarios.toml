@@ -7006,6 +7006,37 @@ expect = [
 ]
 
 [[scenario]]
+name = "sleep-heals-health"
+source = "issue #1177: outside Hardcore a sleep restores all Health (and crippled limbs) [observed: the owner in the original, 2026-10-31]; a wait restores none (docs/spec-notes/wait-menu.md §10)"
+note = "the console takes 50 Health from the player; the player lies on the Goodsprings house bed (as crippled-sleep-heals) and sleeps 2 hours"
+areas = ["wait", "aid"]
+paths = ["crates/fnv-game/src/needs.rs", "engine/nvf-play/src/aid.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "10:player.DamageAV Health 50;10.5:close", NVF_PLAY_TEST_NEAR = "00176ACE", NVF_PLAY_TEST_ACTIVATE = "16", NVF_PLAY_TEST_WAIT = "22:open,23.5:hours=2,24.5:accept" }
+args = ["--cell", "GSHouseInterior03", "--play", "--hour", "22", "--no-voice"]
+run_seconds = 34
+expect = [
+  "wait menu: open as sleep (the player lies on a bed)",
+  { re = 'sleep: Health restored by \d+', label = "the first hour slept restores Health" },
+  { re = 'wait: hour 2 passed for the player', label = "the second hour passes" },
+]
+
+[[scenario]]
+name = "wait-needs-whole-points"
+source = "issue #1177: in Hardcore an hour waited raises Dehydration, Hunger and Sleep Deprivation by 12, 4 and 2, whole points [observed: the owner in the original, 2026-10-31: 3 hours waited from 0 gave 36, 12, 6] (docs/spec-notes/aid-items.md §11)"
+note = "Hardcore on at 3 s; the three needs set to 100 just before the Wait menu opens (T, no bed), 3 hours waited. The tenth of a second of play between the set and the menu adds at most 0.01, which the log's whole numbers hide"
+areas = ["wait", "aid", "hardcore"]
+paths = ["crates/fnv-game/src/needs.rs", "engine/nvf-play/src/aid.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:hardcore:1,13.9:set_av:player:Dehydration:100,13.9:set_av:player:Hunger:100,13.9:set_av:player:SleepDeprivation:100", NVF_PLAY_TEST_WAIT = "14:open,15:hours=3,16:accept" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 28
+expect = [
+  "test aid: Hardcore mode on",
+  "wait menu: open as wait",
+  { re = 'wait: hour 1 passed for the player .*; Dehydration 100 → 112, Hunger 100 → 104, Sleep Deprivation 100 → 102(?![\d.])', label = "the first hour: 12, 4 and 2" },
+  { re = 'wait: hour 3 passed for the player .*; Dehydration 124 → 136, Hunger 108 → 112, Sleep Deprivation 104 → 106(?![\d.])', label = "three hours: 36, 12 and 6" },
+]
+
+[[scenario]]
 name = "coyote-warn-charge"
 source = "issue #1073: a coyote warns the player head down (its h2h stance drawn while it warns), then charges on its h2h run, and never moves with no movement clip; a blow begun on the run shows on its head and neck over the run (docs/spec-notes/actors.md §8.10)"
 note = "VERGSCoyote6REF 0x00157B38 at the coyote-warning spot (as crippled-limp-creature, not crippled and with no test aid starting the fight): it warns twice and attacks about 15 s after its first warning (observer campaign warnings2). God mode: the coyote is Aggressive. Base game only, so no add-on start-up box holds the clock"

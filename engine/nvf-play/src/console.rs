@@ -545,6 +545,9 @@ fn replies(
                 t => render.0.push(t),
             }
         }
+        // The game sees the engine's god mode (tgm, the settings page, `--god`): effects
+        // that would damage the player do nothing in it (aid-items.md §3).
+        rt.game.toggles.god_mode = crate::combat::god_mode();
     }
     let mut out = std::mem::take(&mut st.console_out);
     // What scripts asked of the engine through console commands (xNVSE's con_QuitGame,
