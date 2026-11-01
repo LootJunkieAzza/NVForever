@@ -614,4 +614,9 @@ End
         assert_eq!(q(&format!("SetFunctionValue (ar_Size (GetBaseSpellListSpells {npc}))")), XVal::Num(3.0), "{npc}");
         assert_eq!(q(&format!("SetFunctionValue ((GetBaseSpellListSpells {npc})[0])")), XVal::Ref(DT_ABILITY), "{npc}");
     }
+    // GenericAddForm starts from the same list: the template's three, then the new one.
+    q("GenericAddForm 6, RobotCopy, GhoulRad, -2");
+    assert_eq!(q("SetFunctionValue (ar_Size (GetBaseSpellListSpells RobotCopy))"), XVal::Num(4.0));
+    assert_eq!(q("SetFunctionValue ((GetBaseSpellListSpells RobotCopy)[0])"), XVal::Ref(DT_ABILITY));
+    assert_eq!(q("SetFunctionValue ((GetBaseSpellListSpells RobotCopy)[3])"), XVal::Ref(GHOUL_RAD));
 }
