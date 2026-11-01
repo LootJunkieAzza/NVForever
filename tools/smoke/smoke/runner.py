@@ -50,6 +50,56 @@ def pid_alive(pid: int) -> bool:
     return True
 
 
+def child_pids(pid: int) -> list[int]:
+    """The processes `pid` started that are still running (a load's new run, which goes on
+    after the run that started it ends: engine/nvforever/src/handoff.rs). Windows keeps a
+    process's parent id after the parent ends. None elsewhere."""
+    if os.name != "nt":
+        return []
+    import ctypes
+    from ctypes import wintypes
+
+    class Entry(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+                    ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                    ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", ctypes.c_long), ("dwFlags", wintypes.DWORD),
+                    ("szExeFile", ctypes.c_wchar * 260)]
+
+    k32 = ctypes.windll.kernel32
+    k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    snap = k32.CreateToolhelp32Snapshot(0x2, 0)  # TH32CS_SNAPPROCESS
+    if snap in (None, wintypes.HANDLE(-1).value):
+        return []
+    out = []
+    e = Entry()
+    e.dwSize = ctypes.sizeof(Entry)
+    ok = k32.Process32FirstW(snap, ctypes.byref(e))
+    while ok:
+        if e.th32ParentProcessID == pid and e.th32ProcessID != pid:
+            out.append(e.th32ProcessID)
+        ok = k32.Process32NextW(snap, ctypes.byref(e))
+    k32.CloseHandle(snap)
+    return out
+
+
+def wait_for_children(pid: int, children: list[int], deadline: float) -> str:
+    """Wait for the processes `pid` started (their output is the launch's too) until
+    `deadline` (time.monotonic()); past it, end them (they are this launch's own). An
+    error text when they had to be ended."""
+    while children and time.monotonic() < deadline:
+        children = [c for c in children if pid_alive(c)]
+        if children:
+            time.sleep(0.2)
+    if not children:
+        return ""
+    for c in children:
+        try:
+            os.kill(c, 9)
+        except OSError:
+            pass
+    return f"a process it started (pid {', '.join(map(str, children))}) ran past the time limit"
+
+
 GAME_PROCESSES = ("nvforever", "falloutnv")
 
 
@@ -378,7 +428,8 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
                                      env=aid_free_environ(aids))
                 try:
                     code = p.wait(timeout=launch_timeout(launch))
-                    err = ""
+                    # A load hands over to a new run that goes on writing to this log.
+                    err = wait_for_children(p.pid, child_pids(p.pid), started + launch_timeout(launch))
                 except subprocess.TimeoutExpired:
                     # Where it stopped, before it goes: every thread's stack.
                     stacks = env.out / f"{launch.name}.stacks.txt"
