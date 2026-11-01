@@ -894,6 +894,17 @@ impl Ui {
         self.set(path, Value::Str(s.to_string()))
     }
 
+    /// Sets a tile's trait by name as [`Ui::set`] does by path: false, and nothing made,
+    /// when the tile has no such trait (MCM's shorthands, which find their tile by place).
+    pub fn set_existing(&mut self, tile: TileId, name: &str, v: Value) -> bool {
+        if !self.is_live(tile) {
+            return false;
+        }
+        let Some(k) = self.tile(tile).trait_index(name) else { return false };
+        self.set_at(tile, k, v);
+        true
+    }
+
     /// Adds to a trait by path (`ModUIFloat`).
     pub fn mod_float(&mut self, path: &str, by: f64) -> bool {
         let Some((t, k)) = self.find_trait(path) else { return false };

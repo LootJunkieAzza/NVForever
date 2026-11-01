@@ -443,15 +443,17 @@ World Blues X-8/X-13 setups and Lonesome Road's launch-at-both ending (NVDLC04MQ
    the Sink's appliances talk after their install; the old-world-blues-sink chain no
    longer stands in `talk` for the station and the Jukebox.
 
-**Soft** (headless only, stood in): `wait_talk` returns before a Goodbye greeting's line
-ends, so a following conversation cuts it and its end script never runs (Carlitos INFO
-0x0011F861, Joana 0x00127A55; fix: wait for `line_ended`); `end_talk` on an ended
-conversation is a step error; AddScriptPackage is a stub (Joana, the Omertas, Sarah's tour,
-Logan, Boone's BSArrive, the VEFR messengers); SayTo ping-pong with no line runs every frame
-until a condition passes (VFSPacerGreetsSimon, SCPT 0x001205B7 / 0x001251C6); StartConversation
+**Soft** (headless only, stood in): **done** (#1282): `wait_talk` waits while a Goodbye
+greeting is said at the player, so its end script runs (Carlitos INFO 0x0011F861, Joana
+0x00127A55; bye-bye-love and the Yes Man chains wait for it with no timed stand-in);
+`end_talk` on an ended conversation does nothing; a runner `hit` on an actor provokes it as
+the engine's detection pass does, and every runner frame settles awareness, so a fight whose
+target died ends (Simon after the bomber: birds-of-a-feather drops its StopCombat). Left
+(#1114): AddScriptPackage is a stub (Joana, the Omertas, Sarah's tour, Logan, Boone's
+BSArrive, the VEFR messengers); SayTo ping-pong with no line runs every frame until a
+condition passes (VFSPacerGreetsSimon, SCPT 0x001205B7 / 0x001251C6); StartConversation
 starts at any distance, so Nelson's explorers pull the player in from about 4000 units
-(nvNelsonExplorerBarkSCRIPT 0x0014EA06); no detection headless, so combat does not end when
-the target dies (Simon after the bomber).
+(nvNelsonExplorerBarkSCRIPT 0x0014EA06).
 
 **Data notes** [observed]: Billy Knight is enabled only by the Strip code box
 (VStreetEventStarterScript 0x00163E9B), which needs its `Bot05` filled by the Freeside gate
@@ -529,7 +531,7 @@ Jules' Topic007 borrow another topic's line (INFC/INFX).
    0x0014E9FF being Say Once and held for every actor once said, check 31); the HELIOS One west-terminal password lands on
    Fantastic as the speaker (check 46); Kilborn's conversation ends when stage 100 stops
    vNiptonVulpes: every line he has as a fixed speaker is that quest's, so nothing is left
-   to offer and ours closes it, as dialogue.md's [hypothesis] says (check 69). Two are the
+   to offer and ours closes it, as dialogue.md's [hypothesis] says (check 70). Two are the
    data's own (#1113) [observed]: Doctors 30's line (DoctorRadiationYES 0x000BE417, Info
    Refusal, no conditions) can be said by no placed actor: Doctors' quest conditions ask
    for DoctorsDialogueFaction and not Doc Mitchell's voice type 0x0010512F; of the
@@ -597,7 +599,9 @@ chains using the op still pass.
    completing it on every pass, so a recruit killed after the quest starts leaves 24/34 open
    and Garret's short-handed line unoffered. The chain kills them before the quest starts.
    Fixed (#1108): the original keeps the flag (check 40), and so does `set_objective` now.
-3. **Soft, headless only:** a hit starts no AI combat (Daniel, check 49); no line of sight
+3. **Soft, headless only:** a hit starts no AI combat (Daniel, check 49; **done**, #1282: the
+   runner's `hit` provokes the actor, and fail-honest-hearts-flight and fail-boulder-force
+   hit instead of calling StartCombat); no line of sight
    (VMS31 60, check 50); Jed and the caravan guards are essential until stage 100, so
    NVDLC02MQ00 255 cannot be reached; CGTutorial 214 counts only markers play discovers.
 4. **Soft:** Oliver's Topic065 has two lines with the same conditions; ours always says
