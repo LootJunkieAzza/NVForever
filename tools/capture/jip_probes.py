@@ -1474,7 +1474,7 @@ _FREFS = {"doc": "104C0F", "chet": "104C79", "joecobb": "104C68", "sunny": "104E
           "hidden.16941d": "16941D", "hidden.1690f1": "1690F1", "hidden.e7514": "E7514", "hidden.101a47": "101A47"}
 _HF = ("ref rPlayer\nref rF\nref rItem\nfloat fRes\nstring_var sText\nBegin Function { }\n" + _form("rPlayer", NF["player"]))
 _FLAGS_OF = ('if IsFormValid rF\n  SetFunctionValue (sv_Construct "%g %g" (GetFlagsLow rF) (rF.GetDisabled))\n'
-             'else\n  SetFunctionValue "none"\nendif')
+             'else\n  SetFunctionValue \"none\"\nendif')
 _AUXF = 'let rF := rPlayer.AuxVarGetRef "*nvfFL"\n'
 
 
@@ -5190,6 +5190,25 @@ TMPL3_PROBES = [
      False, None, ""),
 ]
 
+# itr (writes, session only, each change put back; #1011): the ITR plugin's functions
+# (docs/spec-notes/ext-itr.md) on FalloutNV.esm forms [observed: fnvtool esm inventory]:
+# Doc Mitchell's and Sunny's bases, the Caucasian race and eyes, the casinos, the Mojave
+# worldspace, two greeting lines, GREETING and GOODBYE, perks, the 10mm pistol, the dog.
+# Read-only steps first; each writing step saves what it changes and puts it back in the
+# same step. Settings ITR keeps "in static memory" (fall damage) are cleared by the step.
+ITR = {"doc": "104C0C", "sunnyref": "104E85", "caucasian": "19", "eyeraider": "4CB10", "eyeblue": "4253",
+       "wasteland": "DA726", "info1": "104E7E", "info2": "104E7F", "greeting": "C8", "goodbye": "D4",
+       "toughness": "31DE0", "actionboy": "31DBA", "wildwasteland": "ED568", "intense": "44CB1",
+       "commando": "99828", "gunslinger": "94EBB", "pistol": "434F", "dog": "14F425", "stimpak": "15169",
+       "tops": "144C3F", "ultraluxe": "144C40", "gomorrah": "140521", "wrangler": "144C42", "vikki": "144C41"}
+
+
+def _itr(pid, body, text=False):
+    return (f"itr.{pid}", "ref rP\nref rDoc\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nfloat fA\nfloat fB\nfloat fC\n"
+            "string_var sText\narray_var aA\nBegin Function { }\n"
+            + _form("rP", NF["player"]) + _form("rDoc", NF["docref"]) + body, text, None, "")
+
+
 # one111 (#1012): the 1111 NVSE plugin (OneOneOneOne.dll, installed 2026-11-01;
 # docs/spec-notes/ext-one111.md) on FalloutNV.esm forms [observed: fnvtool esm
 # inventory]: the Brahmin Wellington recipe, HitReactionIdles, Sunny's sleep package,
@@ -5206,6 +5225,123 @@ def _one(pid, body, text=False):
     return (f"one.{pid}", "ref rP\nref rDoc\nref rObj\nref rOther\nref rSave\nfloat fRes\nfloat fSave\nfloat fN\n"
             "string_var sText\narray_var aA\nBegin Function { }\n"
             + _form("rP", NF["player"]) + _form("rDoc", NF["docref"]) + body, text, None, "")
+
+
+def _itrv(pid, key, expr, text=False):
+    return _itr(pid, _form("rObj", ITR[key]) + f"SetFunctionValue ({expr})", text)
+
+
+ITR_PROBES = (
+    # Strings (no page for these three: ext-itr.md §1).
+    [_itr("sv.join", 'let aA := ar_List "a" "b" "c"\nSetFunctionValue (Sv_Join aA "-")', True),
+     _itr("sv.join.nodelim", 'let aA := ar_List "a" "b" "c"\nSetFunctionValue (Sv_Join aA)', True),
+     _itr("sv.reverse", 'SetFunctionValue (Sv_Reverse "abc d")', True),
+     _itr("sv.trim", 'let sText := Sv_TrimStr "  ab c  "\nSetFunctionValue (sv_Construct "[%z]" sText)', True)]
+    # Switches and settings as the save leaves them.
+    + [_itr("fall.global", "SetFunctionValue (GetFallDamageMult)"),
+       _itr("fall.player", "SetFunctionValue (rP.GetFallDamageMult)"),
+       _itr("noweaponsearch.doc", "SetFunctionValue (rDoc.GetNoWeaponSearch)"),
+       _itr("preventswitch.doc", "SetFunctionValue (rDoc.GetPreventWeaponSwitch)"),
+       _itr("contactwatch.doc", "SetFunctionValue (rDoc.GetOnContactWatch)"),
+       _itr("alertns.doc", "SetFunctionValue (rDoc.GetAlertNS)"),
+       _itr("aimzoom", "SetFunctionValue (GetAimZoomFirstPersonOnly)"),
+       _itr("radio.queuesize", "SetFunctionValue (GetRadioQueueSize)"),
+       _itr("dialogue.displayed", "let aA := GetDisplayedDialogueInfos\nSetFunctionValue (ar_Size aA)"),
+       _itr("issaying.doc", _form("rObj", ITR["greeting"]) + "SetFunctionValue (rDoc.IsSaying rObj)"),
+       _itr("rigidbody.player", "SetFunctionValue (rP.IsRigidBodyAtRest)")]
+    # Records.
+    + [_itr(f"hair.doc.{c}", f'SetFunctionValue (sv_Construct "%.0f" (rDoc.GetHairColorAlt {c}))', True) for c in range(4)]
+    + [_itrv(f"hair.sunny.{c}", "sunnyref", f'sv_Construct "%.0f" (rObj.GetHairColorAlt {c})', True) for c in (0, 1)]
+    + [_itrv(f"casino.{k}", k, "GetCasinoBan rObj") for k in ("tops", "ultraluxe", "gomorrah", "wrangler", "vikki")]
+    + [_itrv("casino.notcasino", "doc", "GetCasinoBan rObj")]
+    + [_itrv(f"wrld.{n}", "wasteland", f"GetWorldspaceOffset{s} rObj") for n, s in (("scale", "Scale"), ("x", "X"), ("y", "Y"))]
+    + [_itrv(f"infoflags.{k}", k, "GetDialogueInfoFlags rObj") for k in ("info1", "info2")]
+    # References and doors (the save stands outdoors, Doc indoors).
+    + [_itr("exteriordoor.player", "SetFunctionValue (GetFormIDString (rP.GetRefExteriorDoor))", True),
+       _itr("exteriordoor.doc", "SetFunctionValue (GetFormIDString (rDoc.GetRefExteriorDoor))", True),
+       _itr("nextdoor.doc", "SetFunctionValue (GetFormIDString (rDoc.GetRefNextTeleportDoor))", True),
+       _itr("navmesh.player", "SetFunctionValue (IsPointOnNavmesh (rP.GetPos X) (rP.GetPos Y) (rP.GetPos Z))"),
+       _itr("cover.zero", "let aA := GetCoverPointsInRadius (rP.GetPos X) (rP.GetPos Y) (rP.GetPos Z) 0\nSetFunctionValue (ar_Size aA)")]
+    # Perks: what the records give, then what depends on the player.
+    + [_itr(f"perkcond.{k}.size", _form("rObj", ITR[k]) + "let aA := GetPerkConditions rObj\nSetFunctionValue (ar_Size aA)")
+       for k in ("toughness", "actionboy", "wildwasteland", "intense", "commando", "gunslinger")]
+    + [_itr(f"perkcond.toughness.0.{f}", _form("rObj", ITR["toughness"]) + f'let aA := GetPerkConditions rObj\nSetFunctionValue (aA[0]["{f}"])', t)
+       for f, t in (("function", True), ("comparison", True), ("comparisonValue", False), ("kind", True), ("source", True))]
+    + [_itr(f"perkelig.toughness.{f}", _form("rObj", ITR["toughness"]) + f'let aA := GetPerkEligibility rObj\nSetFunctionValue (aA["{f}"])', t)
+       for f, t in (("name", True), ("maxRank", False), ("ownedRank", False), ("nextRank", False), ("eligible", False), ("status", True))]
+    + [_itr(f"perkelig.{k}.status", _form("rObj", ITR[k]) + 'let aA := GetPerkEligibility rObj\nSetFunctionValue (aA["status"])', True)
+       for k in ("wildwasteland", "actionboy", "commando")]
+    + [_itr("perkblockers.toughness.size", _form("rObj", ITR["toughness"]) + "let aA := GetPerkBlockers rObj\nSetFunctionValue (ar_Size aA)"),
+       _itr("perksforform.pistol.size", _form("rObj", ITR["pistol"]) + "let aA := GetPerksForForm rObj\nSetFunctionValue (ar_Size aA)"),
+       _itr("eligibleperks.size", "let aA := GetEligiblePerks\nSetFunctionValue (ar_Size aA)")]
+    # Writing steps, each put back.
+    + [_itr("fall.set", "let fA := SetFallDamageMult 2\nlet fB := rP.SetFallDamageMult 0.5\n"
+            "let sText := sv_Construct \"%g %g %g %g\" fA fB (GetFallDamageMult) (rP.GetFallDamageMult)\n"
+            "SetFallDamageMult -3\nlet fC := GetFallDamageMult\nClearFallDamageMult\n"
+            'SetFunctionValue (sv_Construct "%z %g %g %g" sText fC (GetFallDamageMult) (rP.GetFallDamageMult))', True),
+       _itr("switches.doc", "let fA := rDoc.SetNoWeaponSearch 1\nlet fB := rDoc.GetNoWeaponSearch\nrDoc.SetNoWeaponSearch 0\n"
+            "let sText := sv_Construct \"%g %g %g\" fA fB (rDoc.GetNoWeaponSearch)\n"
+            "let fA := rDoc.SetPreventWeaponSwitch 1\nlet fB := rDoc.GetPreventWeaponSwitch\nrDoc.SetPreventWeaponSwitch 0\n"
+            "let sText := sv_Construct \"%z %g %g %g\" sText fA fB (rDoc.GetPreventWeaponSwitch)\n"
+            "let fA := rDoc.SetOnContactWatch 1\nlet fB := rDoc.GetOnContactWatch\nrDoc.SetOnContactWatch 0\n"
+            'SetFunctionValue (sv_Construct "%z %g %g %g" sText fA fB (rDoc.GetOnContactWatch))', True),
+       _itr("aimzoom.set", "let fSave := GetAimZoomFirstPersonOnly\nlet fA := SetAimZoomFirstPersonOnly 1\nlet fB := GetAimZoomFirstPersonOnly\n"
+            "let fC := SetAimZoomFirstPersonOnly 0\nSetAimZoomFirstPersonOnly fSave\n"
+            'SetFunctionValue (sv_Construct "%g %g %g %g" fA fB fC (GetAimZoomFirstPersonOnly))', True),
+       _itr("alertns.set", "let fA := rDoc.SetAlertNS 1 10\nlet fB := rDoc.GetAlertNS\nrDoc.SetAlertNS 1\nlet fC := rDoc.GetAlertNS\n"
+            "let fRes := rDoc.GetIsAlerted\nrDoc.SetAlertNS 0\n"
+            'SetFunctionValue (sv_Construct "%g %.0f %g %g %g" fA fB fC fRes (rDoc.GetAlertNS))', True),
+       _itr("hair.set", "let fA := rDoc.GetHairColorAlt 1\nlet fB := rDoc.GetHairColorAlt 2\nlet fC := rDoc.GetHairColorAlt 3\n"
+            "let fRes := rDoc.SetHairColorAlt 300 20 30\n"
+            "let sText := sv_Construct \"%g %g %g %g %.0f\" fRes (rDoc.GetHairColorAlt 1) (rDoc.GetHairColorAlt 2) (rDoc.GetHairColorAlt 3) (rDoc.GetHairColorAlt 0)\n"
+            "rDoc.SetHairColorAlt fA fB fC\n"
+            'SetFunctionValue (sv_Construct "%z | %.0f" sText (rDoc.GetHairColorAlt 0))', True),
+       _itr("infoflags.set", _form("rObj", ITR["info1"]) + "let fSave := GetDialogueInfoFlags rObj\nlet fA := SetDialogueInfoFlags rObj 258\n"
+            "let fB := GetDialogueInfoFlags rObj\nSetDialogueInfoFlags rObj fSave\n"
+            'SetFunctionValue (sv_Construct "%g %g %g" fA fB (GetDialogueInfoFlags rObj))', True),
+       _itr("combatskill.set", _form("rObj", ITR["dog"]) + "let fSave := GetCreatureCombatSkill rObj\nlet fA := SetCreatureCombatSkill 300 rObj\n"
+            "let fB := GetCreatureCombatSkill rObj\nSetCreatureCombatSkill fSave rObj\n"
+            'SetFunctionValue (sv_Construct "%g %g %g" fA fB ((GetCreatureCombatSkill rObj) == fSave))', True),
+       # Mask groups: a key held by two groups stays disabled until both let go
+       # [hypothesis, ext-itr.md §3]; EnableKeyEx without a mask; a code that is no key.
+       _itr("keys.masks", "let fA := DisableKeyEx 87 1\nDisableKeyEx 87 2\nEnableKeyEx 87 1\nlet fB := IsKeyDisabled 87\n"
+            "EnableKeyEx 87 2\nlet fC := IsKeyDisabled 87\n"
+            "DisableKeyEx 87 4\nEnableKeyEx 87\nlet fRes := IsKeyDisabled 87\nEnableKeyEx 87\n"
+            'SetFunctionValue (sv_Construct "%g %g %g %g %g" fA fB fC fRes (DisableKeyEx 300))', True),
+       _itr("radio.queue", 'let fA := QueueRadioTrack "nvf\\a.mp3"\nlet fB := QueueRadioTrack "nvf\\a.ogg"\n'
+            'let fC := QueueRadioTrack "C:\\nvf\\b.ogg"\nlet fRes := GetRadioQueueSize\nlet fSave := ClearRadioQueue\n'
+            'SetFunctionValue (sv_Construct "%g %g %g %g %g %g" fA fB fC fRes fSave (GetRadioQueueSize))', True),
+       _itr("topics.rules", _form("rObj", ITR["greeting"]) + _form("rOther", ITR["goodbye"])
+            + "let fA := SetDialogueTopicHidden rObj 1\nSetDialogueTopicHidden rOther 1\nlet fB := SetDialogueTopicOrder rObj 5\n"
+            "let fC := SetDialogueTopicHidden rDoc 1\nlet fRes := ClearDialogueTopicOverrides\n"
+            'SetFunctionValue (sv_Construct "%g %g %g %g %g" fA fB fC fRes (ClearDialogueTopicOverrides))', True),
+       _itr("topics.entry.closed", 'SetFunctionValue (AddDialogueTopicEntry "nvf" 5)'),
+       _itr("dialoguecamera.range", 'SetFunctionValue (sv_Construct "%g %g %g" (SetDialogueCameraMode 9) '
+            "(SetDialogueCameraFixedAngle 12) (SetDialogueCameraAngleEnabled 15 1))", True),
+       _itr("raceeye.raider", _form("rObj", ITR["caucasian"]) + _form("rOther", ITR["eyeraider"])
+            + "let fA := AddRaceEye rObj rOther\nlet fB := RemoveRaceEye rObj rOther\n"
+            'SetFunctionValue (sv_Construct "%g %g" fA fB)', True),
+       _itr("eyemesh.set", _form("rObj", ITR["eyeblue"]) + 'let fA := SetEyeMesh rObj "nvf\\eye.nif"\n'
+            "let fB := ClearEyeMesh rObj\n"
+            'SetFunctionValue (sv_Construct "%g %g %g" fA fB (ClearEyeMesh rObj))', True),
+       _itr("tile.watch", 'let fA := WatchTileValue "HUDMainMenu" "_nvfnone"\nlet fB := WatchTileValue "HUDMainMenu" "visible"\n'
+            "let fC := UnwatchTileValue fB\n"
+            'SetFunctionValue (sv_Construct "%g %g %g %g" fA (fB > 0) fC (UnwatchTileValue fB))', True),
+       _itr("gesture.player", 'SetFunctionValue (sv_Construct "%g %g" (rP.Gesture "wave" 1 1) (rP.Gesture "Nod" 0.1 0.2))', True),
+       _itr("emissive.clear", "SetFunctionValue (ClearWeaponEmissiveColor)"),
+       _itr("cameraangle.release", "SetFunctionValue (SetCameraAngle 0 0 0 0)"),
+       _itr("useaid.notaid", _form("rObj", ITR["pistol"]) + "SetFunctionValue (rP.UseAidItem rObj)")]
+    # Last (a hang in them costs nothing before): which perks GetPerksForForm gives the
+    # pistol and which blockers hold Wild Wasteland back (the first run differed:
+    # ext-itr.md §13). One row per index, no loops and no if blocks (neither compiled
+    # in the game's runtime compiler here); an index past the end is an error row.
+    + [_itr(f"perkblockers.wildwasteland.kind.{i}", _form("rObj", ITR["wildwasteland"])
+            + f'let aA := GetPerkBlockers rObj\nSetFunctionValue (aA[{i}]["kind"])', True) for i in range(2)]
+    + [_itr(f"perksforform.pistol.perk.{i}", _form("rObj", ITR["pistol"])
+            + f'let aA := GetPerksForForm rObj\nSetFunctionValue (GetFormIDString (aA[{i}]["perk"]))', True) for i in range(6)]
+    + [_itr(f"perksforform.pistol.status.{i}", _form("rObj", ITR["pistol"])
+            + f'let aA := GetPerksForForm rObj\nSetFunctionValue (aA[{i}]["status"])', True) for i in range(6)]
+)
 
 
 def _onev(pid, key, expr, text=False):
@@ -5390,11 +5526,12 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "jip5": JIP5_PROBES,
         "format1": FORMAT1_PROBES,
         "tmpl2": TMPL2_PROBES,
-        "tmpl3": TMPL3_PROBES}
+        "tmpl3": TMPL3_PROBES,
+        "itr": ITR_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1", "atk1", "jip4", "rules1", "rules2", "showoff2", "jg1", "jg2", "jip5", "tmpl3", "knvse2", "one111"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1", "atk1", "jip4", "rules1", "rules2", "showoff2", "jg1", "jg2", "jip5", "tmpl3", "knvse2", "itr", "one111"}
 
 
 def script(body):

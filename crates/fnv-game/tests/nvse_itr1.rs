@@ -270,6 +270,9 @@ fn camera_settings_keys_and_eyes() {
     query(&mut g, "EnableKeyEx 34 2");
     assert_eq!(num(&mut g, "IsKeyDisabled 34"), 0.0);
     assert_eq!(num(&mut g, "DisableKeyEx -5"), 0.0);
+    // A code past the keys and mouse buttons is taken [observed: itr probes].
+    assert_eq!(num(&mut g, "DisableKeyEx 300"), 1.0);
+    assert_eq!(num(&mut g, "EnableKeyEx 300"), 1.0);
     // Race eyes: only playable eyes join.
     let (race, ok, not) = (r(RACE), r(EYES_OK), r(EYES_NOT));
     assert_eq!(num(&mut g, &format!("AddRaceEye {race} {not}")), 0.0);
@@ -282,7 +285,8 @@ fn camera_settings_keys_and_eyes() {
     query(&mut g, &format!("SetEyeMesh {ok} \"Characters\\Eye.nif\""));
     assert_eq!(g.other.itr.eye_meshes.get(&FormId(EYES_OK)).cloned(), Some(("Characters\\Eye.nif".to_string(), "Characters\\Eye.nif".to_string())));
     assert_eq!(num(&mut g, &format!("ClearEyeMesh {ok}")), 1.0);
-    assert_eq!(num(&mut g, &format!("ClearEyeMesh {ok}")), 0.0);
+    // Set or not, 1 for an eyes form [observed: itr probes].
+    assert_eq!(num(&mut g, &format!("ClearEyeMesh {ok}")), 1.0);
 }
 
 #[test]
@@ -348,8 +352,10 @@ fn the_radio_and_its_queue() {
     assert_eq!(num(&mut g, "ChangeRadioTrack"), 1.0);
     g.radio_line_ends(FormId(NPC_REF), FormId(INFO));
     assert_eq!(num(&mut g, "IsRadioPlaying"), 0.0);
-    // The queue: relative wav or ogg, 8 at most.
-    assert_eq!(num(&mut g, "QueueRadioTrack \"songs\\a.mp3\""), 0.0);
+    // The queue: relative wav, ogg or mp3 [observed: itr probes], 8 at most.
+    assert_eq!(num(&mut g, "QueueRadioTrack \"songs\\a.mp3\""), 1.0);
+    assert_eq!(num(&mut g, "QueueRadioTrack \"songs\\a.txt\""), 0.0);
+    assert_eq!(num(&mut g, "ClearRadioQueue"), 1.0);
     assert_eq!(num(&mut g, "QueueRadioTrack \"C:\\songs\\a.ogg\""), 0.0);
     for k in 0..8 {
         assert_eq!(num(&mut g, &format!("QueueRadioTrack \"songs\\t{k}.ogg\"")), 1.0);
@@ -375,7 +381,11 @@ fn tile_watches_textures_item_mods_and_the_emissive_colour() {
     let id = num(&mut g, "WatchTileValue \"TestMenu/Pic\" \"alpha\"");
     assert!(id > 0.0);
     assert_eq!(num(&mut g, "WatchTileValue \"TestMenu\\Pic\" \"alpha\""), id);
-    assert_eq!(num(&mut g, "WatchTileValue \"TestMenu/Nope\" \"alpha\""), 0.0);
+    // A trait that is not there is watched while its menu is [observed: itr probes];
+    // no menu, no watch.
+    let nope = num(&mut g, "WatchTileValue \"TestMenu/Nope\" \"alpha\"");
+    assert!(nope > id);
+    assert_eq!(num(&mut g, "WatchTileValue \"NoSuchMenu/Pic\" \"alpha\""), 0.0);
     // A change fires the event with the id, the path and the new value.
     query(&mut g, "SetEventHandler \"ITR:OnTileValueChange\" (begin function {int i, string_var p, float v}\nSetUIFloat \"TestMenu/Box/x\" v\nend)");
     query(&mut g, "SetUIFloat \"TestMenu/Pic/alpha\" 77");
