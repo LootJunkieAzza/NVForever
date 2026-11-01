@@ -120,6 +120,19 @@ const CELL: u32 = 0x200;
 const NOTE_TAPE: u32 = 0xA60;
 const T_TAPE: u32 = 0xA61;
 const S_TAPE: u32 = 0xA62;
+// Issue #1107: lines whose end script has ChatterREF force-greet the player.
+const T_HANDOFF: u32 = 0xA63;
+const T_HANDOFF_STAY: u32 = 0xA64;
+const H_HANDOFF: u32 = 0xA65;
+const H_HANDOFF_STAY: u32 = 0xA66;
+// Issue #964: lines with both follow-ups and choices.
+const T_BOTH: u32 = 0xA67;
+const T_BOTH_FU: u32 = 0xA68;
+const W_BOTH: u32 = 0xA69;
+const W_BOTH_FU: u32 = 0xA6A;
+const W_BOTH_BYE: u32 = 0xA6B;
+const T_KEEP: u32 = 0xA6C;
+const W_KEEP: u32 = 0xA6D;
 const PATROL_REF: u32 = 0x322;
 const NPC1_REF: u32 = 0x320;
 const NPC2_REF: u32 = 0x321;
@@ -181,7 +194,15 @@ struct L {
     /// Result scripts: the value TestOut is set to.
     begin: Option<&'static str>,
     end: Option<&'static str>,
+    /// The end script is `ChatterREF.StartConversation player` instead.
+    end_talk: bool,
     knam: Option<u32>,
+}
+
+/// `ChatterREF.StartConversation player` (SCRO 1 ChatterREF, 2 the player).
+fn talk_result() -> Vec<Subrecord> {
+    let call = [le16(0x1C), le16(1), st(0x1056, &[le16(1), vec![b'r'], le16(2)].concat())].concat();
+    unit(0, &call, &[], &[NPC2_REF, FormId::PLAYER_REF.0])
 }
 
 fn result(value: Option<&str>) -> Vec<Subrecord> {
@@ -204,7 +225,7 @@ fn info(l: L) -> Vec<u8> {
     s.extend(l.follow.iter().map(|t| sub(b"TCFU", u32b(*t))));
     s.extend(result(l.begin));
     s.push(sub(b"NEXT", vec![]));
-    s.extend(result(l.end));
+    s.extend(if l.end_talk { talk_result() } else { result(l.end) });
     s.extend(l.prompt.map(|p| sub(b"RNAM", z(p))));
     s.extend(l.speaker.map(|a| sub(b"ANAM", u32b(a))));
     s.extend(l.knam.map(|k| sub(b"KNAM", u32b(k))));
@@ -587,11 +608,61 @@ fn plugin_bytes() -> Vec<u8> {
         topic(T_PONG, "TestPong", "TestPong", topic_type::CONVERSATION, 0, 50.0, vec![L { id: P_PONG, quest: QA, ty: CONV, responses: one("Pong"), choices: vec![T_PING], ..L::default() }]),
         topic(T_RPING, "TestRPing", "TestRPing", topic_type::CONVERSATION, 0, 50.0, vec![L { id: P_RPING, quest: QREP, ty: CONV, responses: one("Ping"), choices: vec![T_RPONG], ..L::default() }]),
         topic(T_RPONG, "TestRPong", "TestRPong", topic_type::CONVERSATION, 0, 50.0, vec![L { id: P_RPONG, quest: QREP, ty: CONV, responses: one("Pong"), choices: vec![T_RPING], ..L::default() }]),
+        topic(
+            T_HANDOFF,
+            "TestHandoff",
+            "Handoff",
+            topic_type::TOPIC,
+            0,
+            50.0,
+            vec![L { id: H_HANDOFF, quest: QA, flags: info_flag::GOODBYE, speaker: me, responses: one("Go see him"), end_talk: true, ..L::default() }],
+        ),
+        topic(
+            T_HANDOFF_STAY,
+            "TestHandoffStay",
+            "HandoffStay",
+            topic_type::TOPIC,
+            0,
+            50.0,
+            vec![L { id: H_HANDOFF_STAY, quest: QA, speaker: me, responses: one("He can wait"), choices: vec![T_BYE], end_talk: true, ..L::default() }],
+        ),
+        // Lines with follow-ups and choices: W_BOTH's follow-up is a Goodbye line, W_KEEP's
+        // has choices of its own.
+        topic(
+            T_BOTH,
+            "TestBoth",
+            "Both",
+            topic_type::TOPIC,
+            0,
+            50.0,
+            vec![L { id: W_BOTH, quest: QA, speaker: me, responses: one("Hear me out"), follow: vec![W_BOTH_BYE], choices: vec![T_ASK, T_BYE], ..L::default() }],
+        ),
+        topic(
+            T_KEEP,
+            "TestKeep",
+            "Keep",
+            topic_type::TOPIC,
+            0,
+            50.0,
+            vec![L { id: W_KEEP, quest: QA, speaker: me, responses: one("Listen"), follow: vec![W_BOTH_FU], choices: vec![T_ASK, T_BYE], ..L::default() }],
+        ),
+        topic(
+            T_BOTH_FU,
+            "TestBothFollow",
+            "BothFollow",
+            topic_type::TOPIC,
+            0,
+            50.0,
+            vec![
+                L { id: W_BOTH_FU, quest: QA, speaker: me, responses: one("And another thing"), choices: vec![T_BYE], ..L::default() },
+                L { id: W_BOTH_BYE, quest: QA, flags: info_flag::GOODBYE, speaker: me, responses: one("That's all"), ..L::default() },
+            ],
+        ),
         topic(T_TAPE, "TestTape", "TestTape", topic_type::TOPIC, 0, 50.0, vec![L { id: S_TAPE, quest: QA, speaker: me, responses: one("Tape"), begin: Some("6"), end: Some("7"), ..L::default() }]),
     ]
     .concat();
     // DATA 3 Voice; SNAM the speaker, TNAM the topic (the NOTE unions, holotapes.md §1).
-    let note = record(b"NOTE", 0, NOTE_TAPE, &[sub(b"EDID", z("TestTapeNote")), sub(b"DATA", vec![3]), sub(b"SNAM", u32b(NPC1)), sub(b"TNAM", u32b(T_TAPE))]);
+    let note = record(b"NOTE", 0, NOTE_TAPE, &[sub(b"EDID", z("TestTapeNote")), sub(b"DATA", vec![3]), sub(b"SNAM", u32b(NPC1)), sub(b"TNAM", u32b(T_TAPE)), sub(b"ONAM", u32b(QA))]);
     let placed = |id: u32, base: u32, edid: &str| record(b"ACHR", 0, id, &[sub(b"EDID", z(edid)), sub(b"NAME", u32b(base)), sub(b"DATA", vec![0; 24])]);
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TalkCell"))]);
     // A patrol point whose result script (after XPPA) sets TestOut to 9.
@@ -1008,6 +1079,69 @@ fn a_goodbye_line_ends_the_conversation() {
     assert_eq!(pick(&mut h, GOODBYE), FormId(I_BYE));
     listen(&mut h);
     assert!(h.dialogue.is_none());
+}
+
+/// Issue #1107: `StartConversation player` in the end script of a Goodbye line starts
+/// the new conversation once the old one has closed (`Game::hold_force_greet`).
+#[test]
+fn a_goodbye_lines_end_script_starts_the_next_conversation_after_it_closes() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(g.start_dialogue(actor(), Some(FormId(T_HANDOFF))), Ok(FormId(H_HANDOFF)));
+    listen(&mut g);
+    assert_eq!(g.dialogue_actor(), Some(FormId(NPC2_REF)));
+    // The old conversation ended (Goodbye) before the new one started, with the second
+    // actor's greeting.
+    let order: Vec<(&str, u32)> = g
+        .events
+        .iter()
+        .filter_map(|e| match e.kind {
+            EventKind::DialogueEnded { actor, .. } => Some(("ended", actor.0)),
+            EventKind::DialogueStarted { actor, .. } => Some(("started", actor.0)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(order, vec![("started", NPC1_REF), ("ended", NPC1_REF), ("started", NPC2_REF)]);
+    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::DialogueEnded { reason: "goodbye", .. })));
+    let c = g.dialogue.as_ref().unwrap();
+    assert!(c.then.is_none() && !c.ending);
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::CallFailed { .. })));
+}
+
+/// When the line does not close the conversation the force greet is refused, as any
+/// StartConversation while a conversation runs, and does not come back later.
+#[test]
+fn a_force_greet_from_a_line_that_goes_on_is_refused() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.start_dialogue(actor(), Some(FormId(T_HANDOFF_STAY))).unwrap();
+    listen(&mut g);
+    assert_eq!(g.dialogue_actor(), Some(actor()));
+    assert_eq!(offered(&g), vec![T_BYE]);
+    assert!(g.dialogue.as_ref().unwrap().then.is_none());
+    pick(&mut g, T_BYE);
+    listen(&mut g);
+    assert!(g.dialogue.is_none());
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::DialogueStarted { actor, .. } if actor == FormId(NPC2_REF))));
+}
+
+/// Issue #964: a line with both choices and a Goodbye follow-up offers its choices (the
+/// follow-up would leave them unreachable); a follow-up that is no Goodbye line is said
+/// first, as before, and offers its own choices.
+#[test]
+fn a_lines_choices_pass_over_a_goodbye_follow_up() {
+    let f = fixture();
+    let started = |g: &Game| -> Vec<u32> { g.events.iter().filter_map(|e| if let EventKind::LineStarted { info, .. } = e.kind { Some(info.0) } else { None }).collect() };
+    let mut g = game(&f);
+    g.start_dialogue(actor(), Some(FormId(T_BOTH))).unwrap();
+    listen(&mut g);
+    assert_eq!(started(&g), vec![W_BOTH]);
+    assert_eq!(offered(&g), vec![T_ASK, T_BYE]);
+    let mut h = game(&f);
+    h.start_dialogue(actor(), Some(FormId(T_KEEP))).unwrap();
+    listen(&mut h);
+    assert_eq!(started(&h), vec![W_KEEP, W_BOTH_FU]);
+    assert_eq!(offered(&h), vec![T_BYE]);
 }
 
 /// A fight breaking out while an actor says its Goodbye greeting at the player ends the
@@ -1588,6 +1722,13 @@ fn a_voice_note_runs_its_lines_result_scripts() {
     assert_eq!(out(&g), 6.0, "the begin script");
     assert_eq!(g.holotape_script(FormId(NOTE_TAPE), 1), Some(FormId(S_TAPE)));
     assert_eq!(out(&g), 7.0, "the end script");
+    // A topic changed while the tape plays: it ends with the line it began.
+    assert_eq!(g.holotape_script(FormId(NOTE_TAPE), 0), Some(FormId(S_TAPE)));
+    g.run_query("Begin Function { }
+SetNoteTopic TestTapeNote TestPing
+End
+", Default::default()).unwrap();
+    assert_eq!(g.holotape_script(FormId(NOTE_TAPE), 1), Some(FormId(S_TAPE)));
     // Not a voice note: nothing runs.
     assert_eq!(g.holotape_script(FormId(G_OUT), 0), None);
     let input: fnv_game::runner::Input = serde_json::from_value(json!({
@@ -1615,6 +1756,54 @@ fn the_runner_reaches_a_patrol_point() {
     let t = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
     assert_eq!(t["steps"][0].get("error"), None, "{}", t["steps"][0]);
     assert_eq!(t["observations"][0]["value"], json!(9.0));
+}
+
+/// The extender's note functions (#984): the getters read the record, the setters change
+/// the note for the session, and the read flag is saved (docs/spec-notes/holotapes.md §5).
+#[test]
+fn note_functions_read_and_change_a_note() {
+    use fnv_script::vm::XVal;
+    let f = fixture();
+    let mut g = game(&f);
+    let q = |g: &mut Game, body: &str| g.run_query(&format!("array_var aQ
+Begin Function {{ }}
+{body}
+End
+"), fnv_game::game::RunCtx::default());
+    let n = |v: f64| Ok(XVal::Num(v));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetNoteType TestTapeNote)"), n(3.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetNoteSpeaker TestTapeNote)"), Ok(XVal::Ref(NPC1)));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetNoteTopic TestTapeNote)"), Ok(XVal::Ref(T_TAPE)));
+    assert_eq!(q(&mut g, "let aQ := GetNoteQuestList TestTapeNote
+SetFunctionValue (Ar_Size aQ) * 10 + (aQ[0] == QA)"), n(11.0));
+    // A setter changes the note for the session; the tape it plays follows.
+    assert_eq!(q(&mut g, "SetFunctionValue (SetNoteTopic TestTapeNote TestPing)"), n(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetNoteTopic TestTapeNote)"), Ok(XVal::Ref(T_PING)));
+    assert_eq!(
+        g.note_tape(FormId(NOTE_TAPE)),
+        Some(fnv_game::holotapes::Tape::Voice { speaker: FormId(NPC1), info: FormId(P_PING) }),
+        "the new topic's line that names no speaker"
+    );
+    assert_eq!(q(&mut g, "SetFunctionValue (AddNoteQuest TestTapeNote QHi) + (AddNoteQuest TestTapeNote QHi) + (RemoveNoteQuest TestTapeNote QA)"), n(3.0));
+    assert_eq!(q(&mut g, "let aQ := GetNoteQuestList TestTapeNote
+SetFunctionValue (Ar_Size aQ) * 10 + (aQ[0] == QHi)"), n(11.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (SetNoteType TestTapeNote 9) * 10 + (SetNoteType Talker 1)"), n(0.0));
+    // The read flag: the Pip-Boy marks it (saved); SetNoteRead without serialize lasts the
+    // session, with it the save.
+    assert_eq!(q(&mut g, "SetFunctionValue (GetNoteRead TestTapeNote)"), n(0.0));
+    g.mark_note_read(FormId(NOTE_TAPE));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetNoteRead TestTapeNote)"), n(1.0));
+    q(&mut g, "SetNoteRead TestTapeNote 0").unwrap();
+    assert_eq!(q(&mut g, "SetFunctionValue (GetNoteRead TestTapeNote)"), n(0.0));
+    let snap: GameSnapshot = serde_json::from_str(&serde_json::to_string(&g.snapshot()).unwrap()).unwrap();
+    assert!(snap.player.notes_read.contains(&FormId(NOTE_TAPE)), "the session change is not in the save");
+    q(&mut g, "SetNoteRead TestTapeNote 0 1").unwrap();
+    assert!(!g.snapshot().player.notes_read.contains(&FormId(NOTE_TAPE)));
+    // The note's one SNAM is read by its type: made a Sound note, the speaker is its
+    // sound, for the getter and the tape alike.
+    assert_eq!(q(&mut g, "SetFunctionValue (SetNoteType TestTapeNote 0)"), n(1.0));
+    assert_eq!(q(&mut g, "SetFunctionValue (GetNoteSound TestTapeNote)"), Ok(XVal::Ref(NPC1)));
+    assert_eq!(g.note_tape(FormId(NOTE_TAPE)), Some(fnv_game::holotapes::Tape::Sound(FormId(NPC1))));
 }
 
 /// Known topics are kept newest first: one line's Add Topics go to the front together in

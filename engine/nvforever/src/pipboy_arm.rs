@@ -125,7 +125,7 @@ pub(crate) fn show_screen(
     hovered: Res<Hovered>,
 ) {
     let Some(mut screen) = screen else { return };
-    let shown = pip.shown() && body.first_person_drawn();
+    let shown = pip.on_arm() && body.first_person_drawn();
     let model_screen = parts.iter().find(|(_, p, _)| **p == PipBoyPart::Screen).map(|(e, _, m)| (e, m.0.clone()));
     // Give back the screen's own material when the menus leave it (or the rig was rebuilt).
     if let Some((e, own)) = swapped.screen.clone() {
@@ -171,7 +171,7 @@ pub(crate) fn show_screen(
     // glass is not drawn while the menus are on the screen.
     for (e, p, _) in &parts {
         let shown = match *p {
-            PipBoyPart::Glow(page) => !pip.shown() || page == pip.page || hovered.0 == Some(page),
+            PipBoyPart::Glow(page) => !pip.on_arm() || page == pip.page || hovered.0 == Some(page),
             PipBoyPart::Glass => !screen.on_model,
             _ => continue,
         };

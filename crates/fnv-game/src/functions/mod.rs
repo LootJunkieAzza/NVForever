@@ -683,10 +683,10 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
             (0x1163, "PreloadMagicEffect", NoOp("loading: effect particles load when drawn")),
             (0x1223, "ForceTerminalBack", Impl(ui::force_terminal_back)),
             // The console's camera (camera.rs; opcodes of our own, fnv_script::table::CONSOLE_OPCODE_BASE).
-            (0xF04B, "ToggleFlyCam", Impl(camera::toggle_fly_cam)),
+            (0xF04A, "ToggleFlyCam", Impl(camera::toggle_fly_cam)),
             (0xF033, "SetUFOCamSpeedMult", Impl(camera::set_ufo_cam_speed_mult)),
             (0xF02B, "SetCameraFOV", Impl(camera::set_camera_fov)),
-            (0xF055, "ToggleMenus", Impl(camera::toggle_menus)),
+            (0xF054, "ToggleMenus", Impl(camera::toggle_menus)),
             (0x125A, "ShowCaravanMenu", Impl(misc::show_caravan_menu)),
             (0x125B, "AddCardToPlayer", Impl(misc::add_card_to_player)),
             (0x11C8, "OpenTeammateContainer", Impl(crate::followers::open_teammate_container)),
