@@ -706,6 +706,7 @@ dependencies = [
  "fnv-nav",
  "fnv-nif",
  "fnv-phys",
+ "fnv-save",
  "fnv-script",
  "fnv-sim",
  "fnv-spt",
