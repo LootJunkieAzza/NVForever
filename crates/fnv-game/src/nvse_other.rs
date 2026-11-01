@@ -70,6 +70,11 @@ pub struct OtherState {
     /// The Set…TerminalMenuItem… changes, by terminal and item (`nvse_jg3`, read through
     /// `crate::terminal::item`).
     pub terminal_items: HashMap<(FormId, usize), crate::terminal::ItemEdit>,
+    /// The idle markers' and regions' weather blocks a script changed, whole copies of
+    /// the record's (`nvse_jg4`, read through `nvse_jg4::idle_marker` and
+    /// `nvse_jg4::region_weathers`).
+    pub idle_markers: HashMap<FormId, crate::package::IdleCollection>,
+    pub region_weathers: HashMap<FormId, crate::data::RegionWeathers>,
     /// ITR NVSE's state (`nvse_itr1`).
     pub itr: crate::nvse_itr1::ItrState,
     /// ITR NVSE's batch-2 state (`nvse_itr2`).
