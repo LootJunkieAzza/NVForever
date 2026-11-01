@@ -92,6 +92,14 @@ engine if needed, and delete the item here.
    [weapon-data-fields](../spec-notes/weapon-data-fields.md),
    [crippled-limbs](../spec-notes/crippled-limbs.md), [difficulty](../spec-notes/difficulty.md),
    [hit-effects](../spec-notes/hit-effects.md), [physics §6.12](../spec-notes/physics.md))
+   Player limbs, 2026-11-01 (o17_air limbs_10mm, nvfairport, mortal player, a trooper's
+   10mm Pistol, three runs to the player's death, 38 hits) [observed]: each body hit
+   took 16.06 Health; the arm or leg hit lost the same 16.06 of its condition, the torso
+   (EnduranceCondition) 6.69 (0.4167 of it); a head hit took 32.12 Health and 20.075
+   PerceptionCondition (0.625 of the Health lost, as on one larger 76.12 head hit). So
+   nothing halved arm and leg damage here; whether ours' `fCombatPlayerLimbDamageMult`
+   halving is cancelled by body-part multipliers is open (#1345). The lead-pipe trooper
+   never landed a blow in 0.15 h (no data).
 4. **Hardcore needs and waiting.** Partly answered 2026-10-31 (o7_00, o7_05, owner save
    nvfHardcore, TimeScale 30, about 59 frames a second):
    - The needs rise at our rates [observed]: Dehydration 2 every 0.168 game hours
@@ -564,6 +572,17 @@ The numbers above stay put so links to them hold; each item here gives its own p
     per creature (e.g. a mongrel set on the player again and again from behind), and
     whether a standing turn without combat (a Travel package to a marker behind it)
     takes × 1.25 or × 3. ([actors §8.10](../spec-notes/actors.md))
+    Tried 2026-11-01 (o17_air, nvfairport runway, one creature spawned 400 units behind a
+    still god-mode player, heading every loop) [observed]:
+    - CrCoyote: in combat at once, it turned about 125° onto the player at a steady
+      187-189°/s (standing or creeping, GetAnimAction -1, 115 units off), stopping
+      exactly on the bearing. Then, attacking (GetAnimAction 2) and moving 85-270 u/s,
+      its heading tracked the bearing at 41-42°/s one way and 85-99°/s the other.
+    - VCrTier2GeckoMed: in combat at once, it turned at a steady 599-603°/s for about
+      0.15 s (the long way round, away from the bearing), then the rate fell smoothly
+      from about 560 to 85°/s over the next 0.25 s while it moved off at 50-250 u/s.
+    The coyote's and gecko's TNAM were not read here, so the ×1.25 / ×3 question is not
+    settled; next: read their TNAM (fnvtool), set the ratio, and add a non-combat turn.
 
 ## Added 2026-10-30 (add-on walkthroughs, issue #918)
 
