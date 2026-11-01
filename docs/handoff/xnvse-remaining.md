@@ -99,6 +99,8 @@ One111: all 51 (#1012, ext-one111.md, probe set one111 117/118 after OneOneOneOn
 installed). Census after it, with the small libraries merged: 1,138.
 JohnnyGuitar batch 3: 24 (#1007, ext-jg3.md, from the pages and the records, not probed).
 Census after it, with One111 merged: 1,111; JohnnyGuitar 242 left.
+ppNVSE: all 42 (#1014, ext-pp.md, probe set pp 35/37, the two left the probe save's
+third-person camera). Census after it, with ITR, One111 and JohnnyGuitar batch 3 all merged: 950.
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,
