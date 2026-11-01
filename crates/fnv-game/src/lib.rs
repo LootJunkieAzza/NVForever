@@ -97,6 +97,7 @@ pub mod nvse_jippp;
 pub mod nvse_knvse;
 pub mod nvse_small;
 pub mod nvse_vheyes;
+pub mod nvse_one111;
 pub mod nvse_jg1;
 pub mod nvse_jg2;
 pub mod nvse_jip5;

@@ -113,10 +113,15 @@ fn game(f: &Fixture) -> Game<'_> {
 fn files() {
     use fnv_game::mod_files::{set_roots, Roots};
     let dir = std::env::temp_dir().join(format!("nvf-small-libs-{}", std::process::id()));
-    std::fs::create_dir_all(dir.join("NVSE/Plugins")).unwrap();
-    std::fs::create_dir_all(dir.join("Config/vheyes-nvse")).unwrap();
-    std::fs::write(dir.join("NVSE/Plugins/nvse_stewie_tweaks.ini"), "[Tweaks]\r\nbJumpWhileAiming=1\r\n[Cookable Grenades]\r\nsSoundName=\"WPNGrenadeBeep\"\r\n").unwrap();
-    std::fs::write(dir.join("Config/vheyes-nvse/QueuedCommand.txt"), "SetGlobalTimeMultiplier 2\r\n").unwrap();
+    // Written once per test process: the tests run in parallel, and writing a file again
+    // empties it for a moment while another test may be reading it.
+    static WRITE: std::sync::Once = std::sync::Once::new();
+    WRITE.call_once(|| {
+        std::fs::create_dir_all(dir.join("NVSE/Plugins")).unwrap();
+        std::fs::create_dir_all(dir.join("Config/vheyes-nvse")).unwrap();
+        std::fs::write(dir.join("NVSE/Plugins/nvse_stewie_tweaks.ini"), "[Tweaks]\r\nbJumpWhileAiming=1\r\n[Cookable Grenades]\r\nsSoundName=\"WPNGrenadeBeep\"\r\n").unwrap();
+        std::fs::write(dir.join("Config/vheyes-nvse/QueuedCommand.txt"), "SetGlobalTimeMultiplier 2\r\n").unwrap();
+    });
     set_roots(Roots {
         read: vec![dir],
         lookup: Some(Arc::new(|p: &str| u8::from(p.to_ascii_lowercase().starts_with("meshes\\test\\")))),
