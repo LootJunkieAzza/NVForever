@@ -404,7 +404,9 @@ static SPOT_TALLY: [AtomicUsize; 3] = [AtomicUsize::new(0), AtomicUsize::new(0),
 /// Cover searches by [`find_cover`], for the battle summary: searches, edges looked at,
 /// of those too near or too far from the target, taken by another, the one hidden from
 /// seen from behind it, and no peek point seeing the target.
-static SEARCH_TALLY: [AtomicUsize; 6] = [const { AtomicUsize::new(0) }; 6];
+/// Of those out of range: too near the target, beyond the fighter's reach, too near the
+/// one hidden from.
+static SEARCH_TALLY: [AtomicUsize; 9] = [const { AtomicUsize::new(0) }; 9];
 
 fn find_room(nav: &NavGraph, phys: &mut PhysState, space: Space, want: [f32; 3], back: [f32; 2]) -> Option<([f32; 3], f32)> {
     for k in 0..=ROOM_BACK_TRIES {
@@ -446,13 +448,20 @@ pub fn find_cover(nav: &NavGraph, mut phys: Option<&mut PhysState>, space: Space
     let mut low: Option<Cover> = None;
     let tally = |i: usize| SEARCH_TALLY[i].fetch_add(1, Ordering::Relaxed);
     tally(0);
-    for e in nav.cover_edges_near(space, feet, radius).into_iter().filter(|e| e.faces(hidden)).take(COVER_CANDIDATES) {
+    // Edges out of range are dropped before the nearest COVER_CANDIDATES are taken: the
+    // cap limits the sight rays, and nearest-first edges behind a fighter still closing in
+    // would otherwise fill it with cover it may not fight from (#1162).
+    let in_range = |e: &CoverEdge| {
         tally(1);
         let d = flat(e.mid, chest);
-        if !(COVER_MIN_TARGET..=max_range).contains(&d) || flat(e.mid, hidden) < COVER_MIN_TARGET {
-            tally(2);
-            continue;
+        if (COVER_MIN_TARGET..=max_range).contains(&d) && flat(e.mid, hidden) >= COVER_MIN_TARGET {
+            return true;
         }
+        tally(2);
+        tally(if d < COVER_MIN_TARGET { 6 } else if d > max_range { 7 } else { 8 });
+        false
+    };
+    for e in nav.cover_edges_near(space, feet, radius).into_iter().filter(|e| e.faces(hidden)).filter(in_range).take(COVER_CANDIDATES) {
         let inward = [-e.out[0], -e.out[1]];
         let Some((behind, behind_room)) = spot_with_room(nav, phys.as_deref_mut(), space, e.behind(COVER_STANDOFF), inward) else { continue };
         if taken.iter().any(|t| flat(*t, behind) < TAKEN_RADIUS) {
@@ -686,7 +695,7 @@ fn report(mut exit: MessageReader<AppExit>, battle: Res<Battle>) {
         None => "still going at exit".to_string(),
     };
     info!(
-        "battle summary: {} sides, {actors} actors; {}; {} flights ({} by a door, {} to cover, {} away; {} cornered), {} confidence boosts, {} back to the fight; {} cover taken ({} from a gunman firing at it), {} peeks out of it; {} flank posts, {} steps aside, {} steps back, {} shots held for someone in the line of fire; {} held for a wall ({} steps aside, {} clear again); {} alarms, {} not sent; {} complete searches; {} fights started by a hit between actors; first fighter at {first:.1} s, {resolved}; cover spots: {} with room, {} moved to have room, {} without room; cover searches: {} ({} edges: {} out of range, {} taken, {} seen from behind, {} without a peek)",
+        "battle summary: {} sides, {actors} actors; {}; {} flights ({} by a door, {} to cover, {} away; {} cornered), {} confidence boosts, {} back to the fight; {} cover taken ({} from a gunman firing at it), {} peeks out of it; {} flank posts, {} steps aside, {} steps back, {} shots held for someone in the line of fire; {} held for a wall ({} steps aside, {} clear again); {} alarms, {} not sent; {} complete searches; {} fights started by a hit between actors; first fighter at {first:.1} s, {resolved}; cover spots: {} with room, {} moved to have room, {} without room; cover searches: {} ({} edges: {} out of range ({} near the target, {} beyond reach, {} near the one hidden from), {} taken, {} seen from behind, {} without a peek)",
         b.sides.len(),
         b.line(),
         b.flights.iter().sum::<usize>(),
@@ -716,6 +725,9 @@ fn report(mut exit: MessageReader<AppExit>, battle: Res<Battle>) {
         SEARCH_TALLY[0].load(Ordering::Relaxed),
         SEARCH_TALLY[1].load(Ordering::Relaxed),
         SEARCH_TALLY[2].load(Ordering::Relaxed),
+        SEARCH_TALLY[6].load(Ordering::Relaxed),
+        SEARCH_TALLY[7].load(Ordering::Relaxed),
+        SEARCH_TALLY[8].load(Ordering::Relaxed),
         SEARCH_TALLY[3].load(Ordering::Relaxed),
         SEARCH_TALLY[4].load(Ordering::Relaxed),
         SEARCH_TALLY[5].load(Ordering::Relaxed),

@@ -565,6 +565,9 @@ struct Resident {
     /// The heading it is drawn with while it fights, facing its target (`Core::aims`),
     /// until it is back on the walker's.
     aim_heading: Option<f32>,
+    /// The target it was held on last frame ([`LOCK_HOLD`]): it stays on that target
+    /// however far it moves in a frame.
+    lock_held: Option<u32>,
     /// It has been in the loaded area: leaving it takes its cell into the cell buffer.
     /// An actor a script put far away (Malcolm Holmes) never was, so its cell is not
     /// buffered and it stays at the Low level (`process_levels`).
@@ -574,7 +577,10 @@ struct Resident {
 /// A fighter locked on its target (`npc_combat::Fighters::lock_on`) and turned within
 /// this of it (radians, 10°) follows it exactly: the original's gunmen stayed within about
 /// 1.5° of their target while they fought [observed 2026-10-25, observer campaign
-/// fiend_facing]; a bigger turn (a new target) goes at the turn rate [design].
+/// fiend_facing]; a bigger turn (a new target) goes at the turn rate [design]. Once held,
+/// it stays on that target even when the target sweeps past this in one frame (a melee
+/// Fiend circling a trooper 70 units away, a long frame): smoke battle-ncr-fiends saw up
+/// to 21 frames past 10° while such fighters turned back at the turn rate (#1162).
 const LOCK_HOLD: f32 = 10.0 * std::f32::consts::PI / 180.0;
 
 /// ACBS flag bits 5, "Flies", and 23, "Immobile" [documented: xEdit wbDefinitionsFNV.pas
@@ -1122,6 +1128,7 @@ impl Core {
             moved: false,
             last_space: None,
             aim_heading: None,
+            lock_held: None,
             been_loaded: false,
         });
     }
@@ -2566,6 +2573,10 @@ pub fn drive(
         // from its AI place, and the trooper shooting at it faced 16° off), and once
         // turned to it, it stays on it.
         let lock = fighters.as_deref().and_then(|f| f.lock_on(r.actor.0));
+        let lock_target = lock.map(|(t, _)| t);
+        let held = lock_target.is_some() && r.lock_held == lock_target;
+        let lock = lock.map(|(_, at)| at);
+        r.lock_held = None;
         let heading = match (lock.or_else(|| core.aims.get(&r.actor).copied()), r.aim_heading) {
             (Some(t), from) => {
                 let want = heading_of([t[0] - feet[0], t[1] - feet[1]]);
@@ -2573,7 +2584,11 @@ pub fn drive(
                 // Standing, at the rate the AI turns a fighter (`fnv_ai::alert`), so one
                 // that never moves is drawn as its walker turns.
                 let rate = if agent.activity == Activity::Travelling { fnv_nav::follow::WALK_TURN_RATE * 2.0 } else { fnv_nav::follow::SPOT_TURN_RATE * fnv_ai::alert::COMBAT_TURN };
-                let h = if lock.is_some() && heading_delta(from, want).abs() <= LOCK_HOLD { want } else { turn_towards(from, want, rate * dt) };
+                let hold = lock.is_some() && (held || heading_delta(from, want).abs() <= LOCK_HOLD);
+                let h = if hold { want } else { turn_towards(from, want, rate * dt) };
+                if hold {
+                    r.lock_held = lock_target;
+                }
                 r.aim_heading = Some(h);
                 h
             }
