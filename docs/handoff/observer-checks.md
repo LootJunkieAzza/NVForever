@@ -461,8 +461,8 @@ The numbers above stay put so links to them hold; each item here gives its own p
     first-meeting greeting 0x001164F1 (position 2398, Say Once, only the same GetIsID OR)
     that the Tops Yes Man had said [observed]. So Say Once holds per line across speakers
     in the original [hypothesis: one case; the mainframe and the Tops Yes Man may also
-    count as one speaker]. Ours keeps it per (speaker, line) (dialogue.rs `said`) and
-    would say 0x001164F1 again. (dialogue.md question 13)
+    count as one speaker]. Built (#1113): ours holds a Say Once line back from every
+    actor once any has said it (dialogue.rs `can_say_as`). (dialogue.md question 13)
 32. **An expression that leaves extra values** — answered 2026-10-30 (issue #908): the
     original stops the script at `if GetStage Q N == 1` and runs neither arm, as ours.
     ([scripts §4.2](../spec-notes/scripts.md))
@@ -549,7 +549,8 @@ The numbers above stay put so links to them hold; each item here gives its own p
     encounters (NVDLC03Enc 10) start? (§10 stall 2.)
 44. **What does `RemoveItem <item> 0` do?** — answered 2026-10-31 (o5_00, issue #1113):
     nothing, and the script goes on (12 Stimpaks and 21 caps stayed; the next line ran).
-    Ours refuses the call (#1113).
+    Built (#1113): ours returns without removing anything (functions/items.rs
+    `remove_item`).
 45. **Does a second Nelson explorer stop the player right after the first?** (P3; §10
     stall 4.)
 46. **Does the HELIOS One west-terminal password go to the player from Fantastic's line?**
