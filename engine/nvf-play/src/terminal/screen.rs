@@ -51,7 +51,10 @@ pub fn bright() -> Color {
 /// [design] The solid fills (blocks, lit cells, the cursor, the separator, the chosen
 /// row's box) lie above the scanlines, and the text on them above the fills: on the
 /// original the fills keep their green through the scanlines' troughs (253 to 255 while
-/// red and blue dim by about 15%; it is clipped there) and read solid [observed: §2].
+/// red and blue dim by about 15%) and read solid [observed: hacking.md section 2].
+/// [hypothesis] Green is clipped there. [design] Drawing above the lines approximates
+/// that solid look: our fills also lose the observed red/blue dip; all three channels
+/// stay constant.
 const OVER_LINES: GlobalZIndex = GlobalZIndex(1);
 const ON_FILLS: GlobalZIndex = GlobalZIndex(2);
 
@@ -378,7 +381,7 @@ pub fn soften(font: &Font, alpha: &[f32], w: usize, h: usize, sigma: f32, bend: 
         g.ascent += py;
         // [design] The rect includes the padding: before/ascent move its origin back
         // by the same amount. No extra UV offset is needed for line_anchor's shared
-        // sampling phase (fonts.md ?3.2); the original ink stays inside this box.
+        // sampling phase (fonts.md section 3.2); the original ink stays inside this box.
     }
     Some(Soft { font: out, rgba, width, height })
 }
@@ -433,9 +436,11 @@ fn soft_faces(path: &str, data: &GameData, images: &mut Assets<Image>) -> Option
 }
 
 /// How much light a scanline texel `l` (0 to 1) keeps, in linear light: [design] it
-/// scales the display values, as the original's blocks show (their blue dims to about
-/// 0.82 at the troughs at 720 high, ours to 0.81 so; scaling the light instead gave 0.94)
-/// [observed: §2].
+/// approximately scales the display values. [observed: hacking.md section 2] The fit
+/// was calibrated on the block dip (blue about 0.82 at 720 high, ours 0.81; scaling
+/// the light instead gave 0.94) and the glass banding. [design] Multiplying linear(C)
+/// by linear(l) is darker than C * l in display values for dark tones: glass (12,38,20)
+/// at 0.8 gives about (7,28,14), not (10,30,16).
 fn scan_kept(l: f32) -> f32 {
     linear(l)
 }

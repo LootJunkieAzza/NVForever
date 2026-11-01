@@ -96,18 +96,20 @@ weights (0.2126, 0.7152, 0.0722) in each patch: the first attempt block
 (808–829; 251–272) has median (65, 255, 151.5), mean (64.7, 254.55, 151.2);
 the header stroke patch (455–550; 152–180) has median (63, 246.5, 141), mean
 (63.55, 246.325, 140.9). JPEG/patch variation explains small differences from the
-earlier measurements [hypothesis]; retain the §2 block target (63, 255, 152) [design].
+earlier measurements [hypothesis]. [design, superseded] The retained block target
+(63, 255, 152) was replaced by the 2026-11-01 fit below.
 
 [observed: same JPEG, 2026-11-01] Picked on screen, the attempt blocks show (61, 253,
 152); the brightest 30% of each block's pixels have medians (61-62, 255, 149-151), all
 its pixels (57-59, 253, 139-141). Through the scanlines' troughs their green stays 253
-to 255 while red and blue dim by about 15%: the fills are clipped in green and read
-solid. [observed: in game, 2026-11-01] Our glare adds about (6, 0, 2) display units over
-the blocks (drawn (63, 255, 152), shown (69, 255, 154)). [design] So the canvas draws
+to 255 while red and blue dim by about 15%, so they read solid. [hypothesis] The fills
+are clipped in green. [observed: in game, 2026-11-01] Our glare adds about (6, 0, 2)
+display units over the blocks (drawn (63, 255, 152), shown (69, 255, 154)). [design] So the canvas draws
 the shown colour less that add in linear light, (54, 252, 150) (`screen::bright`), and
 the fills (blocks, lit cells, the cursor, the separator, the chosen row's box) lie above
 the scanlines, the text on them above the fills. Flat, without the glare, the blocks
-show the drawn colour.
+show the drawn colour. [design] Keeping fills above the lines is an approximation:
+it also removes the observed red and blue dip, leaving all three channels constant.
 
 [observed: same hacking JPEG against the branch's `hacking.png` at 1280 × 720,
 2026-11-01; the JPEG's sums divided by 2.25 for its larger pixels] The original's text
@@ -119,8 +121,8 @@ the block colour. Fine horizontal scanlines cross the glass and the text: 7.8 pi
 apart at 1080, which is 7.33 units (the dump's rows 29.7 pixels apart for 28 units), 131
 down the texture's 960 units; the blocks' blue dims to about 0.84 at 1080 and 0.82 when
 the frame is scaled to 720, the empty glass by about 4 display units [observed]. The
-streak dims by about the glass's units, not its own share, so the lines lie under the
-glare [observed]. Fallout_default.ini has `bDoRenderedTerminalScanlines=1`,
+streak dims by about the glass's units, not its own share [observed]. [hypothesis]
+So the lines lie under the glare. Fallout_default.ini has `bDoRenderedTerminalScanlines=1`,
 `fRenderedTerminalScanlineScale=130` [documented]; the only scanline texture in the
 archives is `textures\pipboy3000\pipboyscanlines.dds` [observed]. [hypothesis] The
 scale is the number of lines down the screen's texture.
@@ -133,8 +135,11 @@ scale is the number of lines down the screen's texture.
   moves. Blurs of 0.6 and 0.7 left the strokes harder than the original's.
 - Scanlines (`screen::scanline_image`): the band at 960/130 units, baked into one column
   a texel per canvas row and stretched over the whole canvas above the text, under the
-  glare; it scales the display values (the blocks' blue dims to 0.81 at 720; scaling the
-  light instead gave 0.94). The undercoat and the background's tint are raised by what
+  glare; it approximately scales the display values (the blocks' blue dims to 0.81 at
+  720; scaling the light instead gave 0.94). This fit was calibrated on the block dip
+  and glass banding. `sRGB(linear(C) * linear(band))` is darker than a display-value
+  multiply in dark tones: glass (12,38,20) at band 0.8 gives about (7,28,14), rather
+  than (10,30,16). The undercoat and the background's tint are raised by what
   the band takes away on average; the glass's 10 × 10 medians then move by 2 units at
   most [observed: in game, 2026-11-01].
 - [observed: in game, 1280 × 720, 2026-11-01] With both and the blocks' colour below,
@@ -268,9 +273,9 @@ in the data looks like a word list.
   0.38 below the model's origin [hypothesis: the INI's VPos in model units; observed: the
   owner's screenshot puts the origin 0.37 above the middle] from 38.5 units away
   [observed: fitted, the glass 0.735 of the view's height; the INI's zoom 36 is not that
-  distance]. [design] Keep the glare sheet `glare:0`, at reduced material alpha and
-  colour (below), to retain the original's top-right streak [observed: §2]. Scanlines
-  are drawn over the canvas (§2); the screen light is not drawn. Without the model the picture is drawn flat over the darkened
+  distance]. [design] Keep the glare sheet `glare:0` with an opaque base colour
+  `GLARE_LINEAR_SCALE` and additive blending in linear light (below), to retain the
+  original's top-right streak [observed: §2]. Scanlines are drawn over the canvas (§2); the screen light is not drawn. Without the model the picture is drawn flat over the darkened
   world, its top 83 down [observed: the screen's scale on the owner's screenshots is 0.99
   of the interface's]. [design] World shade alpha is 0.4 with the monitor and 0.88 in
   flat mode; both stay behind the opaque screen, whose colours compose as in §2. The
