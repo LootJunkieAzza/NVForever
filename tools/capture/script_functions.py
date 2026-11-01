@@ -267,6 +267,15 @@ PARAM_FIXES = {
     # the same].
     "OnAttachItemMod": _item_mod_handler("runOnReconstruct"),
     "OnDetachItemMod": _item_mod_handler("runOnDeconstruct"),
+    # [documented: the casino pages' examples, "GetCasinoChip GomorrahCasinoData",
+    # "SetCasinoChip GomorrahCasinoData TheTopsChip", "GetCasinoWinnings TheTopsCasinoData",
+    # "SetCasinoWinnings TheTopsCasinoData 5000"; the tables name the casino only or no type].
+    "GetCasinoChip": [{"name": "casino", "type": "form", "kind": "form"}],
+    "SetCasinoChip": [{"name": "casino", "type": "form", "kind": "form"},
+                      {"name": "chip", "type": "form", "kind": "form"}],
+    "GetCasinoWinnings": [{"name": "casino", "type": "form", "kind": "form"}],
+    "SetCasinoWinnings": [{"name": "casino", "type": "form", "kind": "form"},
+                          {"name": "chips", "type": "int", "kind": "int"}],
     # [documented: AddConditionFormTwo's example "AddConditionFormTwo StealthBoy 0" adds
     # to Base Effect 0's list; every other FormTwo function (GetConditionFormTwoCount,
     # DeleteConditionFormTwo, ...) takes `First` after the entity; the table leaves it out].
