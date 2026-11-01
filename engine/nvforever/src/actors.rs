@@ -269,7 +269,11 @@ impl Anims {
     pub fn loaded(&self, skeleton: &str, body: Body, prefix: Option<&str>) -> bool {
         let skeleton = fnv_vfs::normalize(skeleton);
         self.sets.lock().expect("clip sets").contains_key(&(skeleton.clone(), body, crate::locomotion::STANCE))
-            && prefix.is_none_or(|p| self.stances.lock().expect("stances").contains_key(&(skeleton, p.to_string())))
+            && prefix.is_none_or(|p| {
+                let stances = self.stances.lock().expect("stances");
+                stances.contains_key(&(skeleton.clone(), p.to_string()))
+                    && stances.contains_key(&(skeleton, AnimType::HandToHand.prefix().to_string()))
+            })
     }
 
     /// Load what drawing an actor of `skeleton` and `body` takes (as [`spawn`] and
@@ -291,6 +295,10 @@ impl Anims {
         }
         if let Some(prefix) = prefix {
             self.stance(ctx, skeleton, skel, prefix);
+            // `arm` falls back to fists when a weapon's model or stance is missing.
+            if !creature && prefix != AnimType::HandToHand.prefix() {
+                self.stance(ctx, skeleton, skel, AnimType::HandToHand.prefix());
+            }
         }
     }
 }
@@ -579,6 +587,10 @@ pub fn spawn(
                     lo.hold = true;
                 }
                 lo.layers(&mut player);
+                // Dead-at-spawn actors keep their own weapon (`nvf_play::combat::death_drops`
+                // documents this presentation). Arm from the simulated appearance too:
+                // changing equipment here must not leave a record-selected weapon on the
+                // corpse, or rely on `follow_inventory` to rearm it (it never arms corpses).
                 let weapon = arm(commands, &spawned, &skel, &a, reference, world, ctx, &mut player, stats);
                 let mut ec = commands.entity(spawned.root);
                 ec.insert((lo, player));

@@ -813,6 +813,12 @@ pub struct Residents {
     startup: Vec<(bool, String)>,
 }
 
+/// Standalone packages own their simulation; in play mode `SimState` owns it
+/// [observed: `drive`]. Shared by drawing and prefetch so neither selects a stale world.
+pub(crate) fn equipment_world<'a, 'w>(private: Option<&'a World<'w>>, shared: Option<&'a World<'w>>) -> Option<&'a World<'w>> {
+    private.or(shared)
+}
+
 fn set_global(g: &mut Game, edid: &str, v: f32) -> Result<(), String> {
     let (id, _) = g.world.forms.global_by_edid(edid).ok_or_else(|| format!("the load order has no {edid} global"))?;
     g.world.set_global(id, v).map_err(|e| e.to_string())
@@ -991,6 +997,13 @@ impl Residents {
     /// This module's own game state (without `--play`).
     pub fn own_game(&mut self) -> Option<&mut Game<'static>> {
         self.own.as_deref_mut()
+    }
+
+    /// Use the same simulation as `drive` for resident prefetch, including a resident
+    /// also listed among its cell's placed references [observed: `read_ahead`].
+    pub fn prefetch_world<'a>(&'a self, reference: u32, shared: Option<&'a World<'static>>) -> Option<&'a World<'static>> {
+        let private = self.core.known.contains(&reference).then(|| self.own.as_deref().map(|g| &g.world)).flatten();
+        equipment_world(private, shared)
     }
 
     pub fn references(&self) -> impl Iterator<Item = u32> + '_ {
@@ -2287,7 +2300,7 @@ pub fn drive(
     mut nav: ResMut<NavState>,
     world: Res<WorldData>,
     streamer: Res<Streamer>,
-    actor_world: Option<Res<ActorWorld>>,
+    (actor_world, mut ahead): (Option<Res<ActorWorld>>, ResMut<crate::readahead::ReadAhead>),
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     root: Query<Entity, With<WorldRoot>>,
@@ -2408,7 +2421,7 @@ pub fn drive(
         }
         _ => return,
     }
-    let equipment_world = res.own.as_deref().map(|g| &g.world).or_else(|| sim.as_deref().map(|s| &s.world));
+    let equipment_world = equipment_world(res.own.as_deref().map(|g| &g.world), sim.as_deref().map(|s| &s.world));
     let mut spawn_stats = crate::actors::ActorStats::default();
     let core = &mut res.core;
     // Load doors used: the doors' sounds where the listener is, the body left at the door
@@ -2604,7 +2617,7 @@ pub fn drive(
             }
         }
         let stage = (&mut r.spawned, &mut r.root);
-        if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), equipment_world, &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe, air: agent.walker.air.is_some() }, stage, (feet, heading), moving, dt) {
+        if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), equipment_world, &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe, air: agent.walker.air.is_some() }, stage, (feet, heading), moving, dt) {
             if r.named {
                 warn!("ai: {} could not be drawn ({e})", r.label);
             }

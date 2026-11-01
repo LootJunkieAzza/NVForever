@@ -302,7 +302,7 @@ pub fn stream(
     mut grass: crate::grass::GrassCtx,
     mut emittance: ResMut<crate::emittance::EmittanceState>,
     time: Res<Time>,
-    (actor_world, sim): (Option<Res<crate::actors::ActorWorld>>, Option<Res<nvf_play::sim::SimState>>),
+    (actor_world, sim, mut ahead): (Option<Res<crate::actors::ActorWorld>>, Option<Res<nvf_play::sim::SimState>>, ResMut<crate::readahead::ReadAhead>),
     mut actor_parts: ResMut<ActorParts>,
     loading: Option<Res<nvf_play::loading::Loading>>,
     children: Query<&Children>,
@@ -311,7 +311,7 @@ pub fn stream(
     let before = (streamer.stats.actors.equipment_spawns, streamer.stats.actors.record_spawns);
     let frame_start = std::time::Instant::now();
     let behind_screen = loading.is_some_and(|l| l.unseen_frames());
-    let mut actors = actor_world.as_deref().map(|w| (w, &mut *actor_parts, sim.as_deref().map(|s| &s.world)));
+    let mut actors = actor_world.as_deref().map(|w| (w, &mut *actor_parts, sim.as_deref().map(|s| &s.world), &mut *ahead));
     despawn_dying(&mut commands, &mut streamer.dying, &children);
     if let Some(id) = streamer.interior {
         if streamer.loaded.is_empty() {
@@ -859,6 +859,9 @@ pub fn ref_affine(p: &Placement) -> Affine3A {
     Affine3A::from_mat3_translation(m * p.scale, Vec3::from_array(p.position))
 }
 
+/// Resources shared by a cell's actor spawns, including readiness refreshes.
+type ActorDraw<'a, 'w> = (&'a crate::actors::ActorWorld, &'a mut ActorParts, Option<&'a fnv_sim::World<'w>>, &'a mut crate::readahead::ReadAhead);
+
 /// Load a cell whole in one go: [`begin_cell`], then every reference ([`spawn_ref`]).
 #[allow(clippy::too_many_arguments)]
 fn load_cell(
@@ -871,7 +874,7 @@ fn load_cell(
     trees: &mut crate::tree::TreeCtx,
     grass: &mut crate::grass::GrassCtx,
     emittance: &mut crate::emittance::EmittanceState,
-    actors: &mut Option<(&crate::actors::ActorWorld, &mut ActorParts, Option<&fnv_sim::World<'_>>)>,
+    actors: &mut Option<ActorDraw<'_, '_>>,
     streamer: &mut Streamer,
 ) -> Entity {
     let tile = terrain.settings.tile;
@@ -949,7 +952,7 @@ fn spawn_ref(
     water: &mut WaterCtx,
     trees: &mut crate::tree::TreeCtx,
     emittance: &mut crate::emittance::EmittanceState,
-    actors: &mut Option<(&crate::actors::ActorWorld, &mut ActorParts, Option<&fnv_sim::World<'_>>)>,
+    actors: &mut Option<ActorDraw<'_, '_>>,
     streamer: &mut Streamer,
 ) {
     // Once the start's cells are in, an actor whose parts are not read yet is drawn when
@@ -984,9 +987,9 @@ fn spawn_ref(
     }
     let base: Option<BaseObject> = p.base.and_then(|b| base_object(world.lo, world.schema, b));
     // Placed NPCs and creatures (actors.rs `spawn`, `spawn_creature`, actors.md §10).
-    if let (Some((aw, parts, sim)), Some(b)) = (actors.as_mut(), base.as_ref().filter(|b| matches!(&b.sig, b"NPC_" | b"CREA"))) {
+    if let (Some((aw, parts, sim, ahead)), Some(b)) = (actors.as_mut(), base.as_ref().filter(|b| matches!(&b.sig, b"NPC_" | b"CREA"))) {
         let w = WaitingActor { cell: cell_e, rt: to_cell * ref_affine(&p), at: Vec3::from_array(p.position), reference: r, base: b.form_id, creature: &b.sig == b"CREA", hidden: false };
-        if spawn_or_wait(commands, w, aw, *sim, &mut ActorCtx { cache: parts, models }, waits.then_some(&mut *waiting), &mut stats.actors) {
+        if spawn_or_wait(commands, w, aw, *sim, ahead, &mut ActorCtx { cache: parts, models }, waits.then_some(&mut *waiting), &mut stats.actors) {
             return;
         }
     }
@@ -1284,7 +1287,7 @@ fn spawn_dormant(
     r: u32,
     to_cell: Affine3A,
     models: &mut ModelCtx,
-    actors: &mut Option<(&crate::actors::ActorWorld, &mut ActorParts, Option<&fnv_sim::World<'_>>)>,
+    actors: &mut Option<ActorDraw<'_, '_>>,
     light_scale: f32,
     emittance: &mut crate::emittance::EmittanceState,
     stats: &mut StreamStats,
@@ -1293,9 +1296,9 @@ fn spawn_dormant(
     let Some(base) = p.base.and_then(|b| base_object(world.lo, world.schema, b)) else { return };
     let rt = to_cell * ref_affine(p);
     match (&base.sig, actors.as_mut()) {
-        (b"NPC_" | b"CREA", Some((aw, parts, sim))) => {
+        (b"NPC_" | b"CREA", Some((aw, parts, sim, ahead))) => {
             let w = WaitingActor { cell: cell_e, rt, at: Vec3::from_array(p.position), reference: r, base: base.form_id, creature: &base.sig == b"CREA", hidden: true };
-            spawn_or_wait(commands, w, aw, *sim, &mut ActorCtx { cache: parts, models }, waiting, &mut stats.actors);
+            spawn_or_wait(commands, w, aw, *sim, ahead, &mut ActorCtx { cache: parts, models }, waiting, &mut stats.actors);
         }
         (b"LIGH", _) => {
             let holder = commands.spawn((Transform::IDENTITY, Visibility::Inherited, RefVisual(r), ChildOf(cell_e))).id();
@@ -1315,17 +1318,19 @@ fn spawn_dormant(
 /// (`readahead::ready_to_draw`) [engineering choice: it appears a few frames after its cell,
 /// at the edge of the loaded cells, instead of stalling the frame]. Whether it was drawn
 /// or put to wait.
+#[allow(clippy::too_many_arguments)]
 fn spawn_or_wait(
     commands: &mut Commands,
     w: WaitingActor,
     aw: &crate::actors::ActorWorld,
     sim: Option<&fnv_sim::World<'_>>,
+    ahead: &mut crate::readahead::ReadAhead,
     ctx: &mut ActorCtx,
     waiting: Option<&mut Vec<WaitingActor>>,
     stats: &mut crate::actors::ActorStats,
 ) -> bool {
     if let Some(waiting) = waiting {
-        if !crate::readahead::ready_to_draw(aw, sim, ctx, w.reference, w.base, w.creature) {
+        if !crate::readahead::ready_to_draw(aw, sim, ctx, ahead, w.reference, w.base, w.creature) {
             waiting.push(w);
             return true;
         }
@@ -1345,6 +1350,7 @@ pub fn draw_waiting_actors(
     mut commands: Commands,
     mut streamer: ResMut<Streamer>,
     actor_world: Option<Res<crate::actors::ActorWorld>>,
+    mut ahead: ResMut<crate::readahead::ReadAhead>,
     sim: Option<Res<nvf_play::sim::SimState>>,
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
@@ -1360,11 +1366,11 @@ pub fn draw_waiting_actors(
         if !s.loaded.values().any(|&e| e == w.cell) {
             continue;
         }
-        if !crate::readahead::ready_to_draw(aw, sim.as_deref().map(|s| &s.world), &mut ctx, w.reference, w.base, w.creature) {
+        if !crate::readahead::ready_to_draw(aw, sim.as_deref().map(|s| &s.world), &mut ctx, &mut ahead, w.reference, w.base, w.creature) {
             s.waiting.push(w);
             continue;
         }
-        spawn_or_wait(&mut commands, w, aw, sim.as_deref().map(|s| &s.world), &mut ctx, None, &mut s.stats.actors);
+        spawn_or_wait(&mut commands, w, aw, sim.as_deref().map(|s| &s.world), &mut ahead, &mut ctx, None, &mut s.stats.actors);
     }
     crate::profile::actor_spawns(s.stats.actors.equipment_spawns - before.0, s.stats.actors.record_spawns - before.1);
 }

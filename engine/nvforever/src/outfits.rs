@@ -151,6 +151,8 @@ pub fn part_key(a: &Appearance, p: &Part, pipboy: bool) -> String {
 /// Counts for the summary line.
 #[derive(Resource, Default)]
 pub struct OutfitStats {
+    /// Actors whose reconciled outfit was committed (one for armour and weapon together).
+    pub replacements: usize,
     pub armour_off: usize,
     pub armour_on: usize,
     pub weapons_off: usize,
@@ -294,6 +296,7 @@ fn follow_inventory(
         replacements += 1;
         replacement_ms += started.map_or(0.0, |s| s.elapsed().as_secs_f64() * 1000.0);
     }
+    stats.replacements += replacements;
     crate::profile::outfit_replacements(replacements, replacement_ms);
 }
 
@@ -385,6 +388,9 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<OutfitStats>) {
 mod tests {
     use super::*;
     use fnv_actor::records::{Armor, Npc, Race, RacePart, Weapon};
+    use fnv_sim::forms::{ActorBase, BaseData, BaseForm, Entry};
+    use fnv_sim::inventory::{Extra, Inventory};
+    use bevy::ecs::system::RunSystemOnce;
 
     const ARMOUR: FormId = FormId(1);
     const WEAPON: FormId = FormId(2);
@@ -439,6 +445,174 @@ mod tests {
             weapon_test: None, anims: Default::default(), rolls: Default::default(),
             changes: Default::default(), levels: Default::default(),
         }
+    }
+
+    fn actor_forms(entries: Vec<Entry>) -> fnv_sim::FormStore {
+        let mut forms = fnv_sim::FormStore::default();
+        forms.sigs.insert(OTHER, *b"NPC_");
+        forms.bases.insert(OTHER, BaseForm {
+            id: OTHER, sig: *b"NPC_", edid: None, name: None, script: None, prompt: None,
+            voice_filter: false, data: BaseData::Actor(ActorBase { entries, attributes: None }),
+        });
+        forms
+    }
+
+    fn equipped() -> Inventory {
+        let mut inv = Inventory::new();
+        inv.add(ARMOUR, 1);
+        inv.set_equipped(ARMOUR);
+        inv.add_extra(WEAPON, 1, Extra { mods: 5, ..Default::default() });
+        inv.set_equipped(WEAPON);
+        inv
+    }
+
+    #[test]
+    fn private_world_prefetch_matches_resident_spawn_even_with_a_shared_world() {
+        let world = appearance_world();
+        let forms = actor_forms(vec![]);
+        let refs = fnv_sim::RefTable::default();
+        let mut private = fnv_sim::World::new(&forms, &refs, Default::default());
+        let mut shared = fnv_sim::World::new(&forms, &refs, Default::default());
+        let id = private.place(OTHER, None, [0.0; 3], [0.0; 3], 1).unwrap();
+        assert_eq!(shared.place(OTHER, None, [0.0; 3], [0.0; 3], 1).unwrap(), id);
+        private.get(id).unwrap().inventory = Some(equipped());
+        let authoritative = crate::residents::equipment_world(Some(&private), Some(&shared));
+        let plan = crate::readahead::actor_plan(&world, authoritative, id.0, OTHER.0, false).unwrap();
+        assert_eq!(plan, crate::readahead::actor_plan(&world, Some(&private), id.0, OTHER.0, false).unwrap());
+        assert_ne!(plan, crate::readahead::actor_plan(&world, Some(&shared), id.0, OTHER.0, false).unwrap());
+        assert!(plan.parts.iter().any(|p| p.ends_with("modded.nif")));
+        assert!(std::ptr::eq(crate::residents::equipment_world(None, Some(&shared)).unwrap(), &shared));
+    }
+
+    #[test]
+    fn equipment_acquired_after_prefetch_refreshes_the_spawn_plan() {
+        let mut world = appearance_world();
+        world.facegen_enabled = true;
+        world.actors.weapons.get_mut(&WEAPON).unwrap().anim_type = Some("Rifle - Ballistic (2 Hand)".into());
+        let forms = actor_forms(vec![]);
+        let refs = fnv_sim::RefTable::default();
+        let mut sim = fnv_sim::World::new(&forms, &refs, Default::default());
+        let id = sim.place(OTHER, None, [0.0; 3], [0.0; 3], 1).unwrap();
+        sim.get(id).unwrap().inventory = None;
+        let before = crate::readahead::actor_plan(&world, Some(&sim), id.0, OTHER.0, false).unwrap();
+        sim.get(id).unwrap().inventory = Some(equipped());
+        let after = crate::readahead::actor_plan(&world, Some(&sim), id.0, OTHER.0, false).unwrap();
+        assert_ne!(before, after);
+        assert_eq!((before.prefix, after.prefix), (Some("h2h"), Some("2hr")));
+        assert!(after.facegen.iter().any(|p| p.ends_with("armour.egm")));
+        assert!(!after.facegen.iter().any(|p| p.ends_with("bare.egm")));
+        let e = Equipment::of(&world, Some(&sim), id.0).unwrap();
+        let a = appearance(&world, OTHER.0, id.0, Some(&e)).unwrap();
+        assert!(a.parts.iter().all(|p| after.parts.contains(&p.model)));
+        assert_eq!((a.weapon, a.weapon_mods), (Some(WEAPON), 5));
+    }
+
+    /// A one-node NIF made from the same documented synthetic layout as
+    /// `crates/fnv-nif/tests/synthetic.rs`; no game data or original binaries.
+    fn skeleton_nif() -> Vec<u8> {
+        fn words(out: &mut Vec<u8>, values: &[u32]) { out.extend(values.iter().flat_map(|v| v.to_le_bytes())); }
+        fn string(out: &mut Vec<u8>, s: &str) { words(out, &[s.len() as u32]); out.extend(s.as_bytes()); }
+        let mut node = vec![];
+        words(&mut node, &[0, 0, u32::MAX, 14]); // name, extras, controller, flags
+        node.extend([0.0f32, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0].iter().flat_map(|v| v.to_le_bytes()));
+        words(&mut node, &[0, u32::MAX, 0, 0]); // properties, collision, children, effects
+        let mut out = b"Gamebryo File Format, Version 20.2.0.7\n".to_vec();
+        words(&mut out, &[0x1402_0007]);
+        out.push(1);
+        words(&mut out, &[11, 1, 34]);
+        out.extend([1, 0, 1, 0, 1, 0]); // three empty export strings
+        out.extend(1u16.to_le_bytes());
+        string(&mut out, "NiNode");
+        out.extend(0u16.to_le_bytes());
+        words(&mut out, &[node.len() as u32, 1, 4]);
+        string(&mut out, "Root");
+        words(&mut out, &[0]); // groups
+        out.extend(node);
+        words(&mut out, &[1, 0]); // footer roots
+        out
+    }
+
+    struct TestFiles(std::path::PathBuf);
+    impl Drop for TestFiles {
+        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+    }
+
+    fn spawn_fixture() -> (App, Entity, TestFiles) {
+        use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
+        use nvf_assets::{GameData, NifMaterial};
+        use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let dir = TestFiles(std::env::temp_dir().join(format!("nvf-spawn-equipment-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed))));
+        std::fs::create_dir_all(dir.0.join("meshes")).unwrap();
+        for name in ["skeleton", "armour", "bare", "pack", "weapon", "modded"] {
+            std::fs::write(dir.0.join("meshes").join(format!("{name}.nif")), skeleton_nif()).unwrap();
+        }
+        let data = GameData {
+            vfs: Arc::new(fnv_vfs::Vfs::open(&dir.0, &[]).unwrap()),
+            schema: Arc::new(fnv_nif::Schema::load_dir(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/nif")).unwrap()),
+        };
+        let mut world = appearance_world();
+        world.actors.npcs.get_mut(&OTHER).unwrap().skeleton = Some("skeleton.nif".into());
+        let record_weapon = FormId(5);
+        let mut record = world.actors.weapons[&WEAPON].clone();
+        record.anim_type = Some("Pistol - Ballistic (1 Hand)".into());
+        world.actors.weapons.insert(record_weapon, record);
+        world.forms = actor_forms(vec![Entry::new(record_weapon, 1)]);
+        assert_eq!(world.resolve(OTHER.0, 100).unwrap().weapon, Some(record_weapon));
+        let forms = Box::leak(Box::new(actor_forms(vec![])));
+        let refs = Box::leak(Box::new(fnv_sim::RefTable::default()));
+        let mut sim = SimState { forms, refs, world: fnv_sim::World::new(forms, refs, Default::default()) };
+        let id = sim.world.place(OTHER, None, [0.0; 3], [0.0; 3], 1).unwrap();
+        sim.world.get(id).unwrap().inventory = Some(equipped());
+        let mut app = App::new();
+        app.insert_resource(world).insert_resource(sim).insert_resource(data)
+            .init_resource::<ActorParts>().init_resource::<OutfitStats>()
+            .init_resource::<Assets<Mesh>>().init_resource::<Assets<Image>>()
+            .init_resource::<Assets<NifMaterial>>().init_resource::<Assets<SkinnedMeshInverseBindposes>>()
+            .init_resource::<nvf_assets::model::ModelCache>().init_resource::<nvf_assets::TextureCache>();
+        let parent = app.world_mut().spawn_empty().id();
+        let drawn = app.world_mut().run_system_once(move |mut commands: Commands, world: Res<ActorWorld>, sim: Res<SimState>, mut parts: ResMut<ActorParts>, mut models: ModelCtx| {
+            let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
+            crate::actors::spawn(&mut commands, parent, bevy::math::Affine3A::IDENTITY, Vec3::ZERO, id.0, OTHER.0, &world, Some(&sim.world), &mut ctx, &mut ActorStats::default(), false)
+        }).unwrap();
+        assert!(drawn);
+        let w = app.world_mut();
+        let actor = w.query_filtered::<Entity, With<Dressed>>().single(w).unwrap();
+        (app, actor, dir)
+    }
+
+    #[test]
+    fn npc_spawned_from_equipment_reconciles_without_rebuilding() {
+        let (mut app, actor, _files) = spawn_fixture();
+        assert_eq!(app.world().get::<Dressed>(actor).unwrap().weapon, Some(WEAPON));
+        let before = app.world().get::<Dressed>(actor).unwrap().clone();
+        app.world_mut().run_system_once(follow_inventory).unwrap();
+        let after = app.world().get::<Dressed>(actor).unwrap();
+        assert_eq!((&after.worn, after.weapon, after.weapon_mods, &after.parts), (&before.worn, before.weapon, before.weapon_mods, &before.parts));
+        let stats = app.world().resource::<OutfitStats>();
+        assert_eq!(stats.replacements, 0);
+        assert_eq!((stats.armour_off, stats.armour_on, stats.weapons_off, stats.weapons_on, stats.parts_on), (0, 0, 0, 0, 0));
+    }
+
+    #[test]
+    fn corpse_keeps_its_simulated_weapon_and_later_changes_do_not_rearm_it() {
+        let (mut app, actor, _files) = spawn_fixture();
+        let rig = app.world().get::<ActorRig>(actor).unwrap().clone();
+        // Death presentation follows spawn. Its weapon differs from the record's,
+        // but `combat::death_drops` intentionally keeps dead-at-spawn weapons.
+        app.world_mut().entity_mut(actor).insert((Corpse::default(), BlendPlayer::new(rig.nodes.clone(), std::sync::Arc::new(rig.skel.locals.clone()))));
+        let held = app.world_mut().spawn(HeldWeapon { reference: rig.reference, weapon: WEAPON }).id();
+        app.world_mut().run_system_once(follow_inventory).unwrap();
+        assert!(app.world().get_entity(held).is_ok());
+        assert_eq!(app.world().resource::<OutfitStats>().replacements, 0);
+        assert_eq!(app.world().get::<Dressed>(actor).unwrap().weapon, Some(WEAPON));
+        // A later Unequip/loot still removes that weapon without arming the corpse.
+        app.world_mut().resource_mut::<SimState>().world.get(FormId(rig.reference)).unwrap().inventory = Some(Inventory::new());
+        app.world_mut().run_system_once(follow_inventory).unwrap();
+        assert!(app.world().get_entity(held).is_err());
+        assert!(app.world().get::<WeaponHold>(actor).is_none());
+        assert_eq!(app.world().resource::<OutfitStats>().weapons_on, 0);
+        assert_eq!(app.world().get::<Dressed>(actor).unwrap().weapon, None);
     }
 
     #[test]

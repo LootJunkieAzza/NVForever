@@ -261,6 +261,7 @@ pub fn drive(
     world: Res<WorldData>,
     streamer: Res<Streamer>,
     actor_world: Option<Res<ActorWorld>>,
+    mut ahead: ResMut<crate::readahead::ReadAhead>,
     sim: Option<Res<nvf_play::sim::SimState>>,
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
@@ -401,7 +402,7 @@ pub fn drive(
         let moving = ev == WalkEvent::Moved;
         let stage = (&mut tr.spawned, &mut tr.root);
         let air = tr.walker.air.is_some();
-        if let Err(e) = show_actor(&mut commands, root, visible, actor_world.as_deref(), sim.as_deref().map(|s| &s.world), &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, Who { reference: tr.reference, base: tr.base, creature: false, scale: tr.scale, strafe: false, air }, stage, (tr.walker.feet, tr.walker.heading), moving, dt) {
+        if let Err(e) = show_actor(&mut commands, root, visible, actor_world.as_deref(), sim.as_deref().map(|s| &s.world), &mut ahead, &mut spawn_stats, &mut parts, &mut models, &roots, &mut actors, Who { reference: tr.reference, base: tr.base, creature: false, scale: tr.scale, strafe: false, air }, stage, (tr.walker.feet, tr.walker.heading), moving, dt) {
             warn!("nav: {} could not be drawn", tr.label);
             tr.failed = Some(e.into());
         }
@@ -437,6 +438,7 @@ pub(crate) fn show_actor(
     visible: bool,
     actor_world: Option<&ActorWorld>,
     sim: Option<&fnv_sim::World<'_>>,
+    ahead: &mut crate::readahead::ReadAhead,
     stats: &mut crate::actors::ActorStats,
     parts: &mut ActorParts,
     models: &mut ModelCtx,
@@ -464,7 +466,7 @@ pub(crate) fn show_actor(
         // Drawn once its parts are read, on a worker thread, rather than reading them in
         // the frame it comes into view (`readahead::ready_to_draw`) [engineering choice: it
         // appears a few frames later, out at the edge of the loaded cells].
-        if !crate::readahead::ready_to_draw(aw, sim, &mut ctx, reference, base, creature) {
+        if !crate::readahead::ready_to_draw(aw, sim, &mut ctx, ahead, reference, base, creature) {
             return Ok(());
         }
         let drawn = crate::readahead::clocked(|| {
