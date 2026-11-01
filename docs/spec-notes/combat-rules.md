@@ -1311,7 +1311,13 @@ docs/spec-notes/particles.md.
   - `nvforever::shot_fx` shows the IPCT's model at the point for its effect duration,
     its +z along the orientation the IPCT names [hypothesis: +z, from the impact
     models' add-on nodes standing along +z]. The model's add-on nodes emit dust and
-    debris (particles.md).
+    debris (particles.md) while the model is there; the particles they gave birth to
+    live out their own life spans after it goes (particles.md §2 "Master system").
+    On an actor the organic IPCT (`BallisticOrganicImpact`, 0.08 s) gives
+    `MPSBloodSplat01`'s drops, mist and splat: about 18 drops, 5 puffs and 7 splats a
+    hit [observed: NVForever log, #1074], the puffs living about 1 s. They were born but
+    not seen until their soft intersection was sized to them (nif.md §6 "Soft
+    intersections of particles").
 - **Shell casings.** The player body gives the weapon model's `ShellCasingNode` place
   and its +z axis to combat (`WeaponAnim::casing`). Each shot of a weapon with a casing
   model throws one along that axis at `fGunShellEjectSpeed`: at the shot, or, when the

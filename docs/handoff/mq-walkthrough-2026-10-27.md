@@ -127,6 +127,8 @@ Notes [observed]:
     chosen; what the original reads for axis 3 decides it.
 11. Say Once per actor: the Yes Man mainframe repeats the Tops Yes Man's first-meeting
     greeting (0x001164F1, shared by GetIsID OR) once (dialogue.md question 13).
+    **Fixed (#1113)**: the original does not repeat it (observer check 31); a Say Once
+    line now holds for every actor once any has said it.
 12. `GetStage Q N == 1` compiled with an extra argument leaves two values on the stack.
     Three begin scripts (e.g. INFO 0x00160731) stop there; ours gives a script error.
     Settled 2026-10-30: the original stops them too (scripts.md §4.2, issue #908).
@@ -210,7 +212,8 @@ at its midpoint (saves of 70-370 KB). With 41 chains, two differ, `fail-boulder-
 `come-fly-with-me`: both save while the player is hunted (after a fight); awareness (detection states,
 who hunts whom) is not part of a save by design (save-load.md: the engine measures again),
 and a headless run has no detection to measure it, so after the load the player is out of
-combat and CGTutorial's script resets its `VATSTimer` (0, not 16). Soft, and a lead for
+combat and CGTutorial's script resets its `VATSTimer` (0, not 16). (Since 2026-11-01, #971,
+the save keeps each actor's detection state and lists, so the player stays hunted.) Soft, and a lead for
 play: in the engine the quest script may run in the first frame after a load before
 detection does, read IsInCombat 0 and show the VATS tutorial message again when combat
 comes back [hypothesis, not run]. The smoke check carries it as known failing. The first run differed in two of intro's stopwatch
@@ -235,8 +238,10 @@ Result over the ten masters [observed, 2026-10-27]: 8639 line, 1040 stage,
 56 causes. No function is unknown (no `unhandled` cause). By what they are:
 - **Context the sweep cannot give** (most): "no calling reference" (a terminal used only as
   a sub menu, a package only AddScriptPackage gives), "called on an empty reference" (a
-  reference variable an earlier scene sets), RemoveItem/AddItem "count must be positive"
-  (Nipton's and the Kings' trade lines remove as many as the player carries: 0 alone),
+  reference variable an earlier scene sets), AddItem "count must be positive"
+  (Nipton's and the Kings' trade lines move as many as the player carries: 0 alone;
+  RemoveItem of 0 removes nothing and goes on since #1113, observer check 44; AddItem of
+  0 is still refused, not observed),
   EquipItem of an item the actor does not carry yet.
 - **AddPerk on an actor other than the player** (26 scripts, companion perks among them):
   was refused; fixed by the companions walkthrough (perks kept per actor), which brought
@@ -251,7 +256,6 @@ The commonest call failures:
   |---|---|---|
   | 47 | GetLinkedRef: no calling reference | TERM FalloutNV.esm:064B6E item 0 |
   | 34 | SetActorValue: no calling reference | PACK FalloutNV.esm:02800E begin |
-  | 32 | RemoveItem: count must be positive, got # | INFO FalloutNV.esm:0F3E50 end |
   | 26 | AddPerk: perks of actors other than the player are not modelled | INFO FalloutNV.esm:0B16C8 begin |
   | 21 | AddItem: count must be positive, got # | INFO FalloutNV.esm:0F3E50 end |
   | 20 | Disable: no calling reference | PACK FalloutNV.esm:07E1D1 end |
@@ -342,8 +346,8 @@ to talk (the play loop does); a container opened by the player runs OnOpen/OnClo
    dialogue packages start no conversation headless (§2 item 6); AI arrivals and sitting are
    stood in; MoveTo travel leaves Dead Money's collar radios counting the player in range
    (their check runs only while their cell is loaded); no pickpocket, loot or sit op.
-5. Soft: save and load drops awareness (by design, §6), so a headless run loaded mid-fight
-   reads IsInCombat 0; in play the VATS tutorial message may show again.
+5. Fixed 2026-11-01 (#971): save and load dropped awareness (§6), so a headless run loaded
+   mid-fight read IsInCombat 0; detection states and lists are now saved.
 6. Data notes [observed]: SetStage on stages a quest does not define does nothing (Dead
    Money); NVDLC02MQ02 is never started (its errands take its place); the Pine Creek tunnel
    trigger script and Jason's farewell trigger have no placed reference; `scripted:X#n`
@@ -518,9 +522,11 @@ Jules' Topic007 borrow another topic's line (INFC/INFX).
    NVDLC03Enc 10 are never set there. old-world-blues-setups spends 6 s first and reaches
    them [observed]. Observer check 43.
 3. **Soft: `RemoveItem x 0` is refused** (Loyal's reward line, INFO 0x0010A1BF, when the
-   arrays were fixed by hand). Not blocking. Observer check 44.
+   arrays were fixed by hand). Not blocking. Observer check 44. **Fixed (#1113)**: the
+   original removes nothing and goes on (o5_00); ours does the same.
 4. **Soft:** a second Nelson explorer force-greets at once (the any-distance
-   StartConversation stall, check 45); the HELIOS One west-terminal password lands on
+   StartConversation stall, check 45; since #1113 it finds no greeting, the explorers'
+   0x0014E9FF being Say Once and held for every actor once said, check 31); the HELIOS One west-terminal password lands on
    Fantastic as the speaker (check 46); Kilborn's conversation ends when stage 100 stops
    vNiptonVulpes; Doctors 30's line (0x000BE417) is offered by none of the doctors tried;
    VNellisInfestation's iInfestation stays 0 when the emitter is used before the power.
