@@ -2062,7 +2062,7 @@ fn drive_body(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     mut anim: ResMut<WeaponAnim>,
-    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d, lens_sway), (ahead, mut lunge)): (
+    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d, lens_sway), (ahead, mut lunge, s1st)): (
         Res<crate::furniture::BodyOverride>,
         ResMut<PlayerIdles>,
         ResMut<nvf_play::furniture::PlayerSeat>,
@@ -2072,7 +2072,7 @@ fn drive_body(
         Option<Res<nvf_play::combat::PlayerLimbs>>,
         (Res<crate::death_cam::DeathCam>, Res<crate::player_knockdown::PlayerKnockdown>),
         (Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::combat::Combat>>, Option<ResMut<nvf_play::aim_zoom::TrueSights>>, Option<Res<nvf_play::aim_zoom::Scope>>, Option<ResMut<nvf_play::aim_zoom::Scope3d>>, Option<Res<nvf_play::aim_zoom::LensSway>>),
-        (Res<crate::weapon_lower::Ahead>, ResMut<nvf_play::player::Lunge>),
+        (Res<crate::weapon_lower::Ahead>, ResMut<nvf_play::player::Lunge>, Option<Res<nvf_play::console::ShowFirstPerson>>),
     ),
     mut driven: ResMut<nvf_play::player::ViewDriven>,
 ) {
@@ -2591,7 +2591,9 @@ fn drive_body(
     // Through a scope the arms rig is not drawn (docs/spec-notes/weapon-scopes.md §2),
     // unless the scope is shown in its lens (3D scopes).
     let scoped = scope.as_deref().is_some_and(|s| s.on && !s.lens_3d);
-    show_rigs(body, &mut commands, &mut visibility, seen, !third_view && !scoped);
+    // The console's Show1stPerson shows it in third person too, at the eye.
+    let s1st = s1st.is_some_and(|s| s.0);
+    show_rigs(body, &mut commands, &mut visibility, seen, (!third_view || s1st) && !scoped);
 
     m.log_elapsed += dt;
     if m.log_elapsed >= 1.0 {

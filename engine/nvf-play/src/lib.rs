@@ -65,6 +65,7 @@ pub mod aim_assist;
 pub mod knockouts;
 pub mod loading;
 pub mod main_menu;
+pub mod location_markers;
 pub mod lockpick;
 pub mod roulette;
 pub mod slots;
@@ -332,6 +333,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(poker::PokerPlugin)
             .add_plugins((crime::CrimePlugin, reputation::ReputationPlugin, knockouts::KnockoutsPlugin, after_combat::AfterCombatPlugin))
             .add_plugins(console::ConsolePlugin)
+            .add_plugins(location_markers::LocationMarkersPlugin)
             .add_plugins(free_cam::FreeCamPlugin)
             .add_plugins(aim_zoom::AimZoomPlugin)
             .add_plugins(save::SavePlugin)
