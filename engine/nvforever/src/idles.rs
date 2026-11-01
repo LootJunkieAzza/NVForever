@@ -656,8 +656,8 @@ pub fn drive(
     let mut live: Vec<u32> = Vec::new();
     let mut ask: Vec<(u32, FormId, IdleSource)> = Vec::new();
     for (actor, marker) in candidates {
-        let data = game.data;
-        let of_marker = marker.and_then(|m| data.idle_markers.get(&m).filter(|c| !c.idles.is_empty()).map(|c| ((true, m.0), c)));
+        // A script's SetIdleMarkerAnimation(s) first (`fnv_game::nvse_jg4::idle_marker`).
+        let of_marker = marker.and_then(|m| fnv_game::nvse_jg4::idle_marker(game, m).filter(|c| !c.idles.is_empty()).map(|c| ((true, m.0), c)));
         let quiet = package_of(game, actor).and_then(|p| game.package_def(&p)).is_some_and(|d| d.has(flags::NO_IDLE_ANIMS));
         let Some((key, collection)) = of_marker.or_else(|| game.package_idles(FormId(actor)).map(|(p, c)| ((false, p.0), c))).filter(|_| !quiet) else { continue };
         live.push(actor);

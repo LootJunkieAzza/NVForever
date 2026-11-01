@@ -65,6 +65,11 @@ pub struct OtherState {
     pub cell_zones: HashMap<FormId, Option<FormId>>,
     /// LandTextureAddGrass's and LandTextureRemoveGrass's grass lists (`nvse_jip5`).
     pub ltex_grasses: HashMap<FormId, Vec<FormId>>,
+    /// The idle markers' and regions' weather blocks a script changed, whole copies of
+    /// the record's (`nvse_jg4`, read through `nvse_jg4::idle_marker` and
+    /// `nvse_jg4::region_weathers`).
+    pub idle_markers: HashMap<FormId, crate::package::IdleCollection>,
+    pub region_weathers: HashMap<FormId, crate::data::RegionWeathers>,
 }
 
 /// The bit of DisablePlayerControlsAltEx's flags for each control group, in the order of

@@ -573,6 +573,27 @@ pub struct LeveledActorDef {
 pub struct RegionDef {
     pub world: Option<FormId>,
     pub areas: Vec<Vec<[f32; 2]>>,
+    /// The weather block (RDAT type 3, then RDWT), when the region has one.
+    pub weathers: Option<RegionWeathers>,
+}
+
+/// A region's weather block [documented: xEdit wbRegionDataEntries type 3; schema
+/// `sky.json` REGN RDAT, RDWT]: its RDAT flags (bit 0 override,
+/// `fnv_world::sky::REGION_WEATHER_OVERRIDE`) and priority, and the weathers with their
+/// chances and globals.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RegionWeathers {
+    pub flags: u8,
+    pub priority: u8,
+    pub list: Vec<RegionWeather>,
+}
+
+/// One RDWT entry: a weather, its chance and the global that gates it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RegionWeather {
+    pub weather: FormId,
+    pub chance: i32,
+    pub global: Option<FormId>,
 }
 
 impl RegionDef {
@@ -3090,8 +3111,27 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
         }
         b"REGN" => {
             let mut rg = RegionDef::default();
+            let num = |v: Option<&Json>| v.and_then(|x| x.as_f64().or_else(|| x.get("value")?.as_f64())).unwrap_or(0.0);
+            let mut header: Option<&Json> = None;
             for (s, v) in &decoded {
                 match *s {
+                    b"RDAT" => header = v.as_ref(),
+                    // A weather list follows a header of type 3 [documented: xEdit
+                    // wbRegionDataEntries].
+                    b"RDWT" if num(header.and_then(|h| h.get("type"))) == 3.0 => {
+                        let h = header;
+                        let list = v
+                            .as_ref()
+                            .and_then(Json::as_array)
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|w| {
+                                let form = |k: &str| w.get(k).and_then(hexid).filter(|&x| x != 0).and_then(map).map(FormId);
+                                Some(RegionWeather { weather: form("weather")?, chance: num(w.get("chance")) as i32, global: form("global") })
+                            })
+                            .collect();
+                        rg.weathers = Some(RegionWeathers { flags: num(h.and_then(|h| h.get("flags"))) as u8, priority: num(h.and_then(|h| h.get("priority"))) as u8, list });
+                    }
                     b"WNAM" => rg.world = fid(v),
                     b"RPLI" => rg.areas.push(Vec::new()),
                     b"RPLD" => {
