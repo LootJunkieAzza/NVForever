@@ -428,7 +428,6 @@ fn the_package_list_comes_from_the_same_source() {
     assert!(g.package_list(FormId(MEMBER_REF)).is_empty());
 }
 
-/// Put `actor` in Combat against `target`, detected now.
 /// Every placed actor of the cell but `keep` stands 50,000 units off: alarms reach the
 /// loaded cells' actors too, not only those measured (`Game::raise_alarms`).
 fn only_near(g: &mut Game, keep: &[u32]) {
@@ -438,6 +437,7 @@ fn only_near(g: &mut Game, keep: &[u32]) {
     }
 }
 
+/// Put `actor` in Combat against `target`, detected now.
 fn fighting(g: &mut Game, actor: u32, target: u32) {
     let (now, t) = (g.time, Timers::default());
     let a = g.awareness.actors.entry(FormId(actor)).or_default();
@@ -642,10 +642,42 @@ fn a_joiner_is_called_against_the_first_of_the_foes_to_start() {
     let now = g.time;
     g.awareness.changes.push(Change { actor: own, from: State::Normal, to: State::Combat, time: now, about: Some(wolf), cause: None, at: Some([500.0, 0.0, 0.0]), value: Some(5.0) });
     let near: std::collections::BTreeMap<FormId, [f32; 3]> = [(own, [0.0; 3]), (helper, [1000.0, 0.0, 0.0]), (wolf, [500.0, 0.0, 0.0]), (leader, [800.0, 0.0, 0.0])].into_iter().collect();
+    assert!(!g.would_attack(helper, wolf) && !g.would_attack(helper, leader), "the helper (Rats) is neutral to the Raiders");
     assert_eq!(g.raise_alarms(&near), 1);
     let a = g.awareness.get(helper).expect("alarmed");
     assert!(a.alarms.iter().any(|x| x.owner == leader && x.cause == Cause::Ally && x.at == [800.0, 0.0, 0.0]), "{:?}", a.alarms);
     assert!(g.would_attack(helper, leader));
+    // The grudge goes against the foe it was called about too: with the starter dead,
+    // the helper can still fight the wolf in front of it.
+    assert!(g.would_attack(helper, wolf), "a grudge against the wolf it was called about");
+    g.extra.entry(leader).or_default().dead = true;
+    assert!(g.would_attack(helper, wolf));
+}
+
+#[test]
+fn a_starter_out_cold_is_passed_over() {
+    // #972 review: a knocked-out (or dead) first starter is not fighting; the next of its
+    // side to start is named, or the foe itself when none is left.
+    use fnv_game::awareness::Change;
+    let f = fixture();
+    let mut g = game(&f);
+    let (leader, wolf, own, helper) = (FormId(LEADER_REF), FormId(LIST_REF), FormId(OWN_REF), FormId(HELPER_REF));
+    only_near(&mut g, &[LEADER_REF, LIST_REF, OWN_REF, HELPER_REF]);
+    fighting(&mut g, LEADER_REF, OWN_REF);
+    fighting(&mut g, LIST_REF, OWN_REF);
+    g.awareness.tactics.started.insert(leader, 1.0);
+    g.awareness.tactics.started.insert(wolf, 2.0);
+    assert_eq!(g.first_starter(wolf), leader);
+    assert!(g.knock_out(leader, fnv_game::unconscious::Cause::Fatigue, Some(own)));
+    assert_eq!(g.first_starter(wolf), wolf, "the leader lies out cold: the wolf is the first still fighting");
+    fighting(&mut g, OWN_REF, LIST_REF);
+    let now = g.time;
+    g.awareness.changes.push(Change { actor: own, from: State::Normal, to: State::Combat, time: now, about: Some(wolf), cause: None, at: Some([500.0, 0.0, 0.0]), value: Some(5.0) });
+    let near: std::collections::BTreeMap<FormId, [f32; 3]> = [(own, [0.0; 3]), (helper, [1000.0, 0.0, 0.0]), (wolf, [500.0, 0.0, 0.0]), (leader, [800.0, 0.0, 0.0])].into_iter().collect();
+    assert_eq!(g.raise_alarms(&near), 1);
+    let a = g.awareness.get(helper).expect("alarmed");
+    assert!(a.alarms.iter().any(|x| x.owner == wolf && x.at == [500.0, 0.0, 0.0]), "{:?}", a.alarms);
+    assert!(!a.alarms.iter().any(|x| x.owner == leader), "{:?}", a.alarms);
 }
 
 #[test]

@@ -39,10 +39,15 @@ town's side.
   - The first starter of a foe's side is the member of the foe's combat group (its
     comrades in a combat state with a foe in common) that went to Combat earliest, ties by
     FormID; the foe itself when none of them is fighting (the player, for one)
-    [design on the observation].
-  - An alarm names that first starter, at its position when it was measured, instead of
-    the sender's own foe, unless the starter is the hearer or the hearer's ally or friend
-    (then the sender's foe, as before) [design].
+    [design on the observation]. A member dead or out cold (knocked out, or set
+    unconscious) is passed over: the next to start is named [design].
+  - An alarm names that first starter, at its position when it was measured (or where
+    the world has it in the loaded cells), instead of the sender's own foe, unless the
+    starter is the hearer or the hearer's ally or friend (then the sender's foe, as
+    before) [design].
+  - A hearer that would not attack them otherwise (a neutral helping by its Assistance)
+    holds an Assist grudge against both the sender's own foe and the starter, so it can
+    still fight the foe in front of it once the starter is gone [design].
   - An actor alarmed by an ally (`Cause::Ally`) that is not fighting anyone yet takes the
     alarm's owner as its target once it detects it, and holds it for the target
     commitment (alert.md, `TARGET_COMMIT`), even when it detects another foe better

@@ -441,10 +441,11 @@ impl Game<'_> {
     /// went to Combat earliest (ties by FormID), `foe` itself when none of them is
     /// fighting [observed: in the Goodsprings gunfight every townsperson's OnStartCombat
     /// named GSPG03Ref, the first Ganger to start, observer-jip-audit-2026-10-25.md §3.5;
-    /// docs/spec-notes/combat-groups.md §2].
+    /// docs/spec-notes/combat-groups.md §2]. A member dead or out cold (knocked out, or
+    /// set unconscious) is passed over: it is not fighting [design].
     pub fn first_starter(&self, foe: FormId) -> FormId {
         let started = &self.awareness.tactics.started;
-        self.combat_group(foe).into_iter().filter_map(|m| started.get(&m).map(|t| (*t, m))).min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1))).map_or(foe, |(_, m)| m)
+        self.combat_group(foe).into_iter().filter(|m| *m == foe || (!self.is_dead(*m) && !self.is_out_cold(*m))).filter_map(|m| started.get(&m).map(|t| (*t, m))).min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1))).map_or(foe, |(_, m)| m)
     }
 
     /// Who may hear an alarm, and where: the actors measured this round (`near`), then
@@ -532,7 +533,7 @@ impl Game<'_> {
             let (Some(about), Some(from)) = (c.about, near.get(&c.actor).copied()) else { continue };
             let at = c.at.or_else(|| near.get(&about).copied()).unwrap_or(from);
             let starter = self.first_starter(about);
-            let starter_at = near.get(&starter).copied().unwrap_or(at);
+            let starter_at = hearers.get(&starter).copied().unwrap_or(at);
             let combat = c.to == State::Combat;
             // "If a faction is flagged as Special Combat, members can attack one another
             // without sending a combat alarm" [documented: GECK wiki Category:Factions].
@@ -557,7 +558,9 @@ impl Game<'_> {
                 if self.is_dead(receiver) || !self.present(receiver) || self.awareness.state(receiver) == State::Combat {
                     continue;
                 }
-                // The foe's first starter, unless that is this receiver or its comrade.
+                // The foe's first starter, unless that is this receiver or its comrade; the
+                // foe it was called about stays `foe`, for its grudges.
+                let foe = about;
                 let (about, at) = if receiver == starter || self.comrades(receiver, starter) { (about, at) } else { (starter, starter_at) };
                 let relation = self.reaction_to(receiver, c.actor);
                 let assistance = actor_value(self, receiver, crate::actor_values::ASSISTANCE).unwrap_or(0.0) as i64;
@@ -570,14 +573,19 @@ impl Game<'_> {
                 if self.awareness.get(receiver).is_some_and(|a| a.alarms.iter().any(|x| x.owner == about)) {
                     continue;
                 }
-                if !self.would_attack(receiver, about) {
-                    // Never against its own allies and friends; a coward stays out
-                    // (`crate::provocation`, item 14 of playtest list 4).
-                    if self.comrades(receiver, about) || self.stays_out(receiver, c.actor) {
+                // A grudge against the foe it was called about, and against the starter it
+                // is sent after when that is another, so it can still fight the foe once the
+                // starter is gone. Never against its own allies and friends; a coward stays
+                // out (`crate::provocation`, item 14 of playtest list 4).
+                let grudges: Vec<FormId> = [foe, about].into_iter().filter(|&x| !self.would_attack(receiver, x)).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+                if !grudges.is_empty() {
+                    if grudges.iter().any(|&x| self.comrades(receiver, x)) || self.stays_out(receiver, c.actor) {
                         continue;
                     }
                     let now = self.time;
-                    self.provocations.grudges.insert((receiver, about), Grudge { why: Why::Assist { victim: c.actor }, since: now });
+                    for x in grudges {
+                        self.provocations.grudges.insert((receiver, x), Grudge { why: Why::Assist { victim: c.actor }, since: now });
+                    }
                 }
                 let t = self.awareness.timers.unwrap_or_default();
                 let now = self.time;
