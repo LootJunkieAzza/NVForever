@@ -1294,6 +1294,59 @@ fn the_runner_reads_and_writes_reference_variables_and_activates_with_the_flag()
 }
 
 #[test]
+fn the_runner_starts_from_a_saves_place_skills_and_items() {
+    // What `fnvtool ext queries --save` gives (issue #1023). The fixture's player has no
+    // base record, so its skills read 0: the tags are read instead.
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "given": [
+            {"kind": "tag_skills", "skills": ["32", "Speech"]},
+            {"kind": "skill_points", "skill": "Barter", "value": 2.0},
+            {"kind": "item_change", "of": "TestNpcREF", "item": "TestWeapon", "change": 3},
+            {"kind": "item_change", "of": "TestNpcREF", "item": "TestWeapon", "change": -1},
+            {"kind": "place", "ref": "player", "cell": "TestCell", "pos": [100.0, 200.0, 300.0], "rot": [0.0, 0.0, 1.309]}
+        ],
+        "actions": [
+            {"op": "get_tag_skills", "skills": ["Barter", "Speech", "Guns"], "label": "tags"},
+            {"op": "get_item_count", "of": "TestNpcREF", "item": "TestWeapon", "label": "items"},
+            {"op": "query", "script": "Begin Function { }
+SetFunctionValue (player.GetPos X)
+End", "label": "x"},
+            {"op": "query", "script": "Begin Function { }
+SetFunctionValue (player.GetAngle Z)
+End", "label": "z"}
+        ]
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    assert_eq!(out["given_errors"], json!([]));
+    let obs = out["observations"].as_array().unwrap();
+    let by = |l: &str| obs.iter().find(|o| o["label"] == l).unwrap().clone();
+    assert_eq!((by("tags")["tag.Barter"].clone(), by("tags")["tag.Speech"].clone(), by("tags")["tag.Guns"].clone()), (json!(true), json!(true), json!(false)));
+    assert_eq!(by("items")["count"], 2);
+    assert_eq!(by("x")["value"], 100.0, "{}", by("x"));
+    assert!((by("z")["value"].as_f64().unwrap() - 75.0).abs() < 0.01, "{}", by("z"));
+}
+
+/// A save's place must be a cell, or a worldspace with a cell at the position: the player
+/// is never put in another form (#1325 review).
+#[test]
+fn a_place_that_is_no_cell_is_refused() {
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "given": [{"kind": "place", "ref": "player", "cell": "TestWeapon", "pos": [1.0, 2.0, 3.0]}],
+        "actions": []
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let errors = out["given_errors"].as_array().unwrap();
+    assert_eq!(errors.len(), 1);
+    assert!(errors[0]["error"].as_str().unwrap().contains("neither a cell nor a worldspace"), "{errors:?}");
+}
+
+#[test]
 fn say_to_says_the_next_unsaid_line_and_runs_its_end_script_when_it_ends() {
     let f = fixture();
     assert_eq!(f.data.topics[&FormId(TOPIC)], vec![FormId(INFO_A), FormId(INFO_B)]);

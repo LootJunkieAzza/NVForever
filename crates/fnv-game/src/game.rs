@@ -1176,6 +1176,12 @@ pub struct Game<'a> {
     pub one111: crate::nvse_one111::One111State,
     /// The INI settings the extender reads and sets (`crate::nvse_settings`).
     pub ini: crate::nvse_settings::IniState,
+    /// ppNVSE's AX variables, form instances, item-mod slots and call loops
+    /// (`crate::nvse_pp`).
+    pub pp: crate::nvse_pp::PpState,
+    /// Whether the last [`Game::run_function`] call's function set its value
+    /// (SetFunctionValue), for callers that tell "set to 0" from "not set" (CallLoop).
+    pub(crate) udf_value_set: bool,
     /// MessageBoxExAlt's callback, run with the pressed button (`Game::tick`).
     pub(crate) box_callback: Option<fnv_script::vm::XVal>,
     /// The rounds in the player's magazine, as the engine's combat has them (None without
@@ -1718,6 +1724,10 @@ pub struct GameSnapshot {
     /// (actor, target) pairs StartCombat made hostile until StopCombat.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub forced_combat: BTreeSet<(FormId, FormId)>,
+    /// ppNVSE's form instances [documented: CreateFormInstance, "tied to the users save
+    /// game"] (`crate::nvse_pp`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub form_instances: Vec<(FormId, crate::nvse_pp::Instance)>,
 }
 
 impl GameSnapshot {
@@ -1859,6 +1869,8 @@ pub struct Session {
     main_loop: Vec<crate::jip_events::MainLoop>,
     restarted_seen: BTreeSet<String>,
     handler_seq: u64,
+    /// ppNVSE's instance and item-mod handlers, and the instances to deconstruct.
+    pp: crate::nvse_pp::PpSession,
     /// ITR's settings that outlast a load (`crate::nvse_itr1::ItrKept`).
     itr_kept: crate::nvse_itr1::ItrKept,
 }
@@ -1977,6 +1989,8 @@ impl<'a> Game<'a> {
             other: Default::default(),
             one111: Default::default(),
             ini: Default::default(),
+            pp: Default::default(),
+            udf_value_set: false,
             package_overrides: std::collections::HashMap::new(),
             jip2: Default::default(),
             gaps: Default::default(),
@@ -2576,9 +2590,46 @@ impl<'a> Game<'a> {
         }
         let bytes = crate::mod_files::read_data(&format!("nvse\\user_defined_functions\\{key}"))?;
         let src = String::from_utf8_lossy(&bytes).into_owned();
+        let id = self.compile_source(&format!("CompileScript {path}"), src)?;
+        self.compiled_paths.insert(key, id);
+        Some(id)
+    }
+
+    /// EvaluateString: whether `text` holds as an `if` condition [documented:
+    /// EvaluateString]; each text is compiled once, as a function script, and a text that
+    /// does not compile is remembered too, so it is not compiled again. A running unit
+    /// must live as long as the game (`Exec::unit`, and lambdas keep theirs), so a unit
+    /// cannot be freed: instead at most [`crate::nvse_pp::EVALUATE_MAX`] distinct texts
+    /// are compiled in one game, and a new text past that is refused [decision: PR #1291
+    /// review, memory bounded].
+    pub(crate) fn evaluate_string(&mut self, text: &str) -> Result<bool, String> {
+        let id = match self.pp.evaluated.get(text) {
+            Some(&id) => id,
+            None => {
+                if self.pp.evaluated.len() >= crate::nvse_pp::EVALUATE_MAX {
+                    return Err(format!("{text:?}: more than {} distinct texts in one game", crate::nvse_pp::EVALUATE_MAX));
+                }
+                let src = format!("Begin Function {{ }}\nif {text}\nSetFunctionValue 1\nendif\nEnd\n");
+                let id = self.compile_source("EvaluateString", src);
+                self.pp.evaluated.insert(text.to_string(), id);
+                id
+            }
+        };
+        let id = id.ok_or_else(|| format!("{text:?} does not compile"))?;
+        Ok(self.run_function(&fnv_script::vm::XVal::Ref(id), None, Vec::new(), None, RunCtx::default())?.truthy())
+    }
+
+    /// A function script from source text, kept as CompileScript keeps its files; `None`
+    /// when it does not compile (the compiler's words go to the trace).
+    fn compile_source(&mut self, what: &str, src: String) -> Option<u32> {
+        // The IDs end where the temporary references' begin: no more units past it.
+        if COMPILED_BASE as usize + self.compiled_files.len() >= TEMP_REF_BASE as usize {
+            self.emit(EventKind::Skipped { unit: "CompileScript".into(), what: format!("{what}: no compiled-script ID left") });
+            return None;
+        }
         let c = fnv_script::compile::compile(&src, &self.data.table, &GameEnv { g: self }, None);
         if let Some(e) = c.errors().next() {
-            let what = format!("CompileScript {path}: {}: {}", e.kind.replace('_', " "), e.detail);
+            let what = format!("{what}: {}: {}", e.kind.replace('_', " "), e.detail);
             self.emit(EventKind::Skipped { unit: "CompileScript".into(), what });
             return None;
         }
@@ -2597,7 +2648,6 @@ impl<'a> Game<'a> {
         let unit: &'a Compiled = Box::leak(Box::new(Compiled { unit, program: d.program, raw: d.report.raw_total() }));
         let id = COMPILED_BASE + self.compiled_files.len() as u32;
         self.compiled_files.push(unit);
-        self.compiled_paths.insert(key, id);
         Some(id)
     }
 
@@ -2675,6 +2725,7 @@ impl<'a> Game<'a> {
             }
         }
         let frame = self.udf.pop();
+        self.udf_value_set = frame.as_ref().is_some_and(|f| f.value.is_some());
         let v = match lambda_value {
             Some(v) => v,
             None => {
@@ -2850,7 +2901,8 @@ impl<'a> Game<'a> {
                 m
             })
             .collect();
-        Session { handlers, main_loop, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq, itr_kept: std::mem::take(&mut self.other.itr.kept) }
+        let pp = self.pp_take_session();
+        Session { handlers, main_loop, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq, pp, itr_kept: std::mem::take(&mut self.other.itr.kept) }
     }
 
     /// Take over what lasts for the session ([`Game::take_session`]).
@@ -2859,6 +2911,7 @@ impl<'a> Game<'a> {
         self.jip.main_loop = s.main_loop;
         self.restarted_seen = s.restarted_seen;
         self.handler_seq = s.handler_seq;
+        self.pp_put_session(s.pp);
         self.other.itr.kept = s.itr_kept;
     }
 
@@ -3160,6 +3213,8 @@ impl<'a> Game<'a> {
         self.small_tick();
         self.vheyes_tick();
         self.knvse_tick();
+        // ppNVSE's CallLoop functions due (`crate::nvse_pp`).
+        self.run_pp_loops();
         self.run_box_callback();
         self.track_velocity();
         self.run_due_snippets();
@@ -4898,6 +4953,7 @@ impl<'a> Game<'a> {
             door_open_seen: self.door_open_seen.iter().filter(|&(&r, &seen)| self.world.peek(r).is_some_and(|s| s.open != seen)).map(|(&r, &seen)| (r, seen)).collect(),
             awareness: self.awareness.actors.iter().filter(|(_, a)| a.state.in_combat() || !a.targets.is_empty() || !a.alarms.is_empty() || a.fighting.is_some()).map(|(&r, a)| (r, a.clone())).collect(),
             forced_combat: self.awareness.forced.clone(),
+            form_instances: self.pp.instances.iter().map(|(k, v)| (*k, v.clone())).collect(),
         }
     }
 
@@ -4965,6 +5021,7 @@ impl<'a> Game<'a> {
         g.say_to_unsaid = s.say_to_unsaid.clone();
         g.queued_ref_events = s.queued_ref_events.clone();
         g.door_open_seen = s.door_open_seen.clone();
+        g.pp_restore_instances(&s.form_instances);
         g.awareness.actors = s.awareness.clone();
         g.awareness.forced = s.forced_combat.clone();
         g.coop =crate::coop::checked(s.coop.clone()).map_err(|e| e.to_string())?;

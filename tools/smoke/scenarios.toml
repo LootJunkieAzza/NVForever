@@ -3064,6 +3064,7 @@ expect = [
   { re = 'pipboy items: .* selected: Info', label = "pipboy items: the selected item's figures" },
   "pipboy sound: UIPipBoyTab",
   "pipboy sound: UIPipBoyMode",
+  { text = "pipboy sound: UIPipBoyScroll", label = "pipboy: the STATS lists click as ITEMS' (General's other list at 18 s, #1340)" },
   "pipboy sound: UIPipBoyStatic",
   { re = 'pipboy stats: .*karma title Drifter', label = "pipboy stats: the karma title of level 1, neutral (Drifter, sKarmicTitleNeutral1)" },
   { re = 'pipboy data: local map outline \d+x\d+ samples 96 apart, [1-9]\d* landed \(exterior\)', label = "pipboy data: the local map's outline made outdoors" },
@@ -3146,6 +3147,25 @@ order = [[
   "holotape: VMQ01BeagleJournalNote goes on",
   "test aid: pipboy Close at 27.0 s",
   "holotape: playing … response 3/6",
+]]
+
+[[scenario]]
+name = "terminal-submenu-back"
+source = "[design] #1328 review: Back from a terminal's sub menu lists the parent's own items again, with their lines (MenuView.labels, engine/nvf-play/src/terminal.rs `list`)"
+note = "V21SheldonTerminal (0011E3BF, unlocked) placed as 0011E3C3 in 2EOMichaelAngelo: one item, Sheldon Weintraub's Mail, opening V21SheldonTerminalMail (Messages, Sent Mail) [observed: FalloutNV.esm TERM records]"
+areas = ["terminal"]
+paths = ["crates/fnv-game/src/terminal.rs", "engine/nvf-play/src/terminal*", "engine/nvf-play/src/terminal/**"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TERMINAL = "20:open:0011E3C3,22:item:0,24:back,26:exit" }
+args = ["--cell", "2EOMichaelAngelo", "--play", "--no-voice"]
+run_seconds = 30
+expect = [
+  { text = "menu of V21SheldonTerminal (1 of 1 items listed): \"Sheldon Weintraub's Mail\"", count = 2, label = "the terminal's own line, when opened and again after Back" },
+  { text = 'menu of V21SheldonTerminalMail (2 of 2 items listed): "Messages", "Sent Mail"', count = 1, label = "the sub menu's lines" },
+]
+order = [[
+  'menu of V21SheldonTerminal (1 of 1 items listed)',
+  'menu of V21SheldonTerminalMail (2 of 2 items listed)',
+  'menu of V21SheldonTerminal (1 of 1 items listed)',
 ]]
 
 [[scenario]]
@@ -5477,6 +5497,20 @@ args = ["--play", "--pos=-58185,-5600,8300", "--hour", "12", "--no-voice", "--no
 run_seconds = 12
 expect = [
   { re = 'reticle: prompt "Enter Goodsprings Cave"', label = "the door's prompt reads its XATO" },
+]
+
+[[scenario]]
+name = "door-behind-wall-face"
+source = "#1339 (docs/spec-notes/cells-refs.md §5): the Nipton town hall's collision mesh has a face 8.5 units in front of its door's slab, so the crosshair stopped on the building and the door could not be used; a door within 16 units behind a face that cannot be activated is the target"
+note = "the town hall's outside door (0x00130CFF, a teleport into NiptonTownHallInterior), the player put 100 units south of it facing it; E at 8 s takes the player inside"
+areas = ["activation"]
+paths = ["engine/nvf-play/src/activate.rs", "engine/nvf-play/src/activate/pick.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_FACE = "5:00130CFF", NVF_PLAY_TEST_ACTIVATE = "8" }
+args = ["--play", "--pos=-33136,-91118,7000", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'target 0x00130CFF Door \(Open: Town Hall First Floor\) by Collision', label = "the door behind the building's face is targeted" },
+  { re = 'activate 0x00130CFF .*Teleported \{ to_door: 0x00130C7D', label = "E takes the player through it" },
 ]
 
 [[scenario]]

@@ -1741,6 +1741,15 @@ checked against the original (observer-checks.md item 20):
   dynamite threw it once at about 1,225 units within a second, then drew a gun and threw
   no more]. In ours a held weapon always comes before a thrown one (actors.md §9.3) and
   re-arming passes grenades over, so no NPC throws until drawing a grenade is built.
+- **Frag grenades** (2026-11-01, observer check 20, o18_air and o24_air, god-mode
+  player) [observed]: a trooper holding a frag grenade (6 carried, nothing else) threw
+  from 800 units within a second of combat and again at about 1.8, 5.4, 7.2 and 9.2 s,
+  then held nothing (14.9 s) and fought with a knife; from 1,200 units its throws landed
+  at 0, 1.6, 4.0, 5.7 and 9.3 s. Two holding frags 300 units off threw none: they closed
+  in and struck (2.25 Health a blow) and put the grenade away after 6 s. A 10mm trooper
+  carrying 5 frags threw none in 27 s at 600 units. So a held grenade is thrown every
+  1.6-3.6 s from the start, from 800 units at least (not from 300), against ours' first
+  throw after 4-10 s, one every 12-25 s and nothing within 990 units [issue #1351].
 - **When**: holding it, not fleeing, ready on a target it sees; the first throw 4 to 10 s
   after it is first ready on that target, then one every 12 to 25 s, rolled on the
   grenade rolls' own sequence [design; the original's one throw came within a second].

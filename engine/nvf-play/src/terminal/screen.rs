@@ -738,13 +738,12 @@ fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, lit_face: &Face, m: &Men
         }
         None => {
             let first = m.selected.saturating_sub(LIST_ROWS - 1);
-            for (row, &item) in m.items.iter().enumerate().skip(first).take(LIST_ROWS) {
-                let Some(it) = t.items.get(item) else { continue };
+            for (row, label) in m.labels.iter().enumerate().skip(first).take(LIST_ROWS) {
                 let top = y + (row - first) as f32 * LIST_ROW;
                 let lit = row == m.selected && !m.hidden;
                 rows.push((row, Rect::new(MENU_X, top, MENU_X + LIST_WIDTH, top + LIST_ROW)));
                 c.spawn(at(MENU_X, top, LIST_WIDTH, LIST_ROW)).with_children(|b| {
-                    let s = format!("> {}", it.text);
+                    let s = format!("> {label}");
                     let w = face.font.width(&s);
                     if lit {
                         // [documented] A filled box (224 of 255) behind the chosen row.
