@@ -30,8 +30,9 @@ touched = 1192
 
 [summary.blocks]
 total = 5690
-# 1635 -> 1634 (#1282): a Nightkin killed by come-fly-with-me no longer starts combat a frame
-# after its death, so REPCONDavisonSCRIPT's OnStartCombat (run on a corpse) is not counted.
+# 1635 -> 1634: a Nightkin killed by come-fly-with-me no longer starts combat a frame after
+# its death, so REPCONDavisonSCRIPT's OnStartCombat (run on a corpse) is not counted. #1282's
+# runner did it on c665a84b; main a1dcaa54 (after #1287) reads 1634 and info.run 1638 too.
 run = 1634
 
 [summary.lines]
