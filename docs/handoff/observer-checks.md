@@ -951,3 +951,15 @@ The numbers above stay put so links to them hold; each item here gives its own p
     NVForever closes the conversation when the line ends (dialogue.md "When a line ends":
     with nothing to offer the conversation ends [hypothesis]). Does the original close it,
     or does the menu stay open with nothing but a way out?
+
+## Added 2026-11-01 (the pause column MCM waits for, issue #976 T11)
+
+73. **The pause column's code-written traits** (P3, issue #976 T11; ui-tile-tree-tasks.md
+    T11). MCM's script shows MCM only when `GetUIFloat
+    "StartMenu/NOGLOW_BRANCH/main_container/childcount"` is 8, and places its trigger from
+    main_container's `x`, `y`, `width` and `_alpha`, all written by the game's code (the
+    file leaves them unset). NVForever's pause column is hand-built and writes none of
+    them; no rule is guessed. In the original, with the pause menu open (no MCM), and
+    again from the main menu: GetUIFloat `StartMenu/NOGLOW_BRANCH/main_container/childcount`,
+    `…/x`, `…/y`, `…/width`, `…/_alpha`, `…/_enabled`, and `StartMenu/_isPauseMenu`; then
+    the same with the Settings page open.
