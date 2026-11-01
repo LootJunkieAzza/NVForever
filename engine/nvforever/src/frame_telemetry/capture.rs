@@ -7,13 +7,16 @@ use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
-use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TryRecvError};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 const TRAILER_GRACE: Duration = Duration::from_millis(100);
+/// Longest the writer waits on an empty frame queue before looking at the other queue,
+/// the close and the deadline again [design: well inside TRAILER_GRACE].
+const IDLE_WAIT: Duration = Duration::from_millis(5);
 const DRAINING: u8 = 0;
 const TRAILER_BEGUN: u8 = 1;
 const ABORTED: u8 = 2;
@@ -597,7 +600,14 @@ fn write_capture<W: Write>(
                     }
                     continue;
                 }
-                thread::park_timeout(Duration::from_millis(1));
+                // Block on the frame queue, the one that fills every frame, instead of
+                // polling (#1312): a frame wakes the writer at once; a diagnostic alone, a
+                // close or the deadline is seen within IDLE_WAIT.
+                match frames.recv_timeout(IDLE_WAIT) {
+                    Ok(record) => frame = Some(record),
+                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => thread::sleep(IDLE_WAIT),
+                }
                 continue;
             }
         };

@@ -348,7 +348,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 2 => "value",
                 _ => return Some(Ok(zero)),
             };
-            XVal::Num(json_num(g.data.record_field(f, "DATA", key)))
+            // SetAmmoEffectTraitNumericAlt's change first (`crate::nvse_one111`).
+            match crate::nvse::record_value(g, f, "DATA", key) {
+                Some(XVal::Num(x)) => XVal::Num(x),
+                _ => XVal::Num(json_num(g.data.record_field(f, "DATA", key))),
+            }
         }
         // ---- globals ----
         // LU's take the global by name too [observed: plugins3, `GetGlobalValue

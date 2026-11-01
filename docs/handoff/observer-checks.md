@@ -19,7 +19,7 @@ engine if needed, and delete the item here.
 - **Unattended, from the saves we have** (a session can run them): 1, 2, the rest of 3,
   5 (weapon health around scripted shots), 6 (nvftest, Sunny), the rest of 8, 11 (72 h at a raised
   TimeScale), 13, 15, 20, 21, 22 (dialogue events), the rest of 33, 35, 36, 52, 53, and
-  #1076 (melee reach).
+  #1076 (melee reach; measured 2026-11-01, o14_reach: combat-rules §8).
 - **A save from the owner** (quest or character state no save has yet):
   - Hardcore on: done (nvfHardcore).
   - Boone, Rex and ED-E hired (19, 22's complaints, 18's wheel): Boone done (nvfBoone).
@@ -125,6 +125,11 @@ engine if needed, and delete the item here.
    - NPC weapons wear like the player's.
    To check: weapon health before and after N swings and shots, per weapon.
    ([combat-rules §17–§18](../spec-notes/combat-rules.md))
+   Answered in part 2026-11-01 (o14_reach, nvfairport, god-mode player) [observed]: NPC
+   melee weapons (knife, sledgehammer, super sledge, lead pipe, bumper sword) stayed at
+   GetWeaponHealthPerc 99.9 through 12-16 swings and about 13 landed blows each; ours
+   would take a lead pipe to 94.8. Open: whether god mode on the target hides the wear
+   (repeat on a mortal target), and the player's own swings and the override weapons.
 6. **Detection.** Ours:
    - Light level is ambient + sun + lamps; sunlight counts only where unshaded.
    - FOV is 95° each side, and sneak-running counts as running.
@@ -135,6 +140,13 @@ engine if needed, and delete the item here.
    To check: GetDetected player while walking up to Sunny at noon and at night, with the
    flashlight on, on a porch, and with a missed shot near a sleeper.
    ([detection §8](../design/detection.md))
+   Tried 2026-11-01 (o14_detect, nvfairport, a spawned NCR trooper 500/1000/2000 units
+   off, player still, noon and midnight), not settled: `player.SetForceSneak 1` from the
+   console left IsSneaking 0, and no trooper ever had GetDetected player 1, even at 500
+   units at noon (240-280 samples each; package type 1, procedures 11/17). Next time:
+   sneak with a key tap (the plugin's tap) and check IsSneaking, and use Sunny or a
+   settler of the save rather than a spawned trooper, whose detection may not run while
+   it is idle out of combat [hypothesis].
 7. **Casino payouts.**
    - Slots: ours pays back about 1.35 per chip, so max winnings come fast. Check the
      reading of "= BET × N", the cherry rule and the middle row.
@@ -276,6 +288,13 @@ engine if needed, and delete the item here.
     To check: actor values and events.
     ([radiation](../spec-notes/radiation.md), [magic-archetypes](../spec-notes/magic-archetypes.md),
     [unconscious §5.4](../spec-notes/unconscious.md), [traps](../spec-notes/traps.md))
+    Tried 2026-11-01 (o14_hazards, nvfairport, god-mode player) [observed]:
+    - Crippled arm: a trooper firing a 10mm Pistol kept it drawn and fired on for 40 s
+      after `DamageAV RightAttackCondition 200`; both arms at 0 the same. So a scripted
+      crippling does not disarm (crippled-limbs §3); a crippling **shot** is still to try.
+    - Knockdown length: not captured. `player.PushActorAway <spawned> 60` knocked
+      neither a free-standing trooper nor a gecko (GetKnockedState stayed 0); next time
+      use a placed explosion on a free-standing spawned actor (blast_knockdown's setup).
 
 ## P3: smaller or rarer
 
@@ -932,3 +951,15 @@ The numbers above stay put so links to them hold; each item here gives its own p
     NVForever closes the conversation when the line ends (dialogue.md "When a line ends":
     with nothing to offer the conversation ends [hypothesis]). Does the original close it,
     or does the menu stay open with nothing but a way out?
+
+## Added 2026-11-01 (the pause column MCM waits for, issue #976 T11)
+
+73. **The pause column's code-written traits** (P3, issue #976 T11; ui-tile-tree-tasks.md
+    T11). MCM's script shows MCM only when `GetUIFloat
+    "StartMenu/NOGLOW_BRANCH/main_container/childcount"` is 8, and places its trigger from
+    main_container's `x`, `y`, `width` and `_alpha`, all written by the game's code (the
+    file leaves them unset). NVForever's pause column is hand-built and writes none of
+    them; no rule is guessed. In the original, with the pause menu open (no MCM), and
+    again from the main menu: GetUIFloat `StartMenu/NOGLOW_BRANCH/main_container/childcount`,
+    `…/x`, `…/y`, `…/width`, `…/_alpha`, `…/_enabled`, and `StartMenu/_isPauseMenu`; then
+    the same with the Settings page open.
