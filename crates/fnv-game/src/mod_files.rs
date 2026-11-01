@@ -366,6 +366,53 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
             let inner: Vec<XVal> = groups.into_iter().map(|c| list(g, c)).collect();
             list(g, inner)
         }
+        // ---- ppNVSE's line files ----
+        // `path [start] [end]`: the file's lines as strings, from `start` (0 the first) up
+        // to before `end` [documented: pReadFile, "0 5" reads the first five lines;
+        // hypothesis: the end left out], the path under the game's folder as
+        // ReadArrayFromFile's [documented: pWriteFile, "relative to the game's
+        // installation path"]. A missing file gives an empty array [hypothesis].
+        "preadfile" => {
+            let path = text(args, 0).unwrap_or_default();
+            let lines: Vec<String> = g.mod_files.read_root(&path).map(|t| t.lines().map(str::to_string).collect()).unwrap_or_default();
+            let start = num(args, 1, 0.0).max(0.0) as usize;
+            let end = match args.get(2) {
+                Some(XVal::Num(e)) => e.max(0.0) as usize,
+                _ => lines.len(),
+            }
+            .min(lines.len());
+            let entries = lines.into_iter().skip(start).take(end.saturating_sub(start)).enumerate().map(|(i, l)| (XKey::Num(i as f64), XVal::Str(l))).collect();
+            XVal::Array(g.ext.new_array(ArrayKind::List, entries))
+        }
+        // `path array [append]`: one line per element [documented: pWriteFile], into
+        // NVForever's own layer, never the game's folder (`write_root`); pWriteFileAlt's
+        // path is under Data [documented: pWriteFileAlt, "relative to the game's DATA
+        // path"; hypothesis: the calling mod's staging folder is its place in Data]. 1
+        // when written, 0 without a path or an array [documented: pWriteFileAlt].
+        "pwritefile" | "pwritefilealt" => {
+            let path = text(args, 0).unwrap_or_default();
+            let Some(XVal::Array(id)) = args.get(1) else { return Some(Ok(zero)) };
+            if path.trim().is_empty() {
+                return Some(Ok(zero));
+            }
+            let lines: Vec<String> = g.ext.array(*id).map(|a| a.entries.iter().map(|(_, v)| cell_text(v)).collect()).unwrap_or_default();
+            let append = num(args, 2, 0.0) != 0.0;
+            let body = lines.join("
+");
+            let alt = name == "pwritefilealt";
+            let old = if alt { g.mod_files.read(&path) } else { g.mod_files.read_root(&path) };
+            let text = match old.filter(|_| append) {
+                Some(o) if !o.is_empty() => format!("{o}
+{body}"),
+                _ => body,
+            };
+            if alt {
+                g.mod_files.write(&path, text);
+            } else {
+                g.mod_files.write_root(&path, text);
+            }
+            XVal::Num(1.0)
+        }
         // ---- LU: read the file each time; write it at once ----
         "getinifloat" | "getinistring" => {
             let Some((s, k)) = text(args, 0).as_deref().and_then(section_key) else { return Some(Ok(zero)) };

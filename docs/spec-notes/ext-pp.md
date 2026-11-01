@@ -14,6 +14,16 @@ AX_Dump … AX_Size on "AX Dump" … "AX Size", GetAllAttachedWeaponMods on "Get
 (whose template carries the wrong name) and GetAllModsInSlot on "GetAllSlotMods". So
 these are `[documented]` too, from those pages; what they leave open is marked.
 
+Three catalogue rows were short of what their pages' examples pass, so scripts calling
+them as the pages show did not compile; they are fixed in the generator's `PARAM_FIXES`
+(`tools/capture/script_functions.py`) and the same rows edited in `functions.json`:
+GetAllAttachedWeaponMods takes the slot after the weapon [documented: GetAttachedMod's
+examples; optional, hypothesis: the table lists the weapon only], and OnAttachItemMod /
+OnDetachItemMod take up to two filters after the flag, each its number and its form, the
+flag and filters optional for the removal form `udf 0` [documented: OnAttachItemMod's
+examples]. [decision: the rows were hand-edited and not regenerated, because a full
+regeneration from today's wiki export also rewrites unrelated rows.]
+
 ## 1. AX variables
 
 Values kept by a string key, optionally on a form, each key a list of entries; they last

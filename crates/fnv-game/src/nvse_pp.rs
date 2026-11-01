@@ -73,13 +73,18 @@ pub struct PpSession {
     gone: Vec<(FormId, String)>,
 }
 
+/// An AX key: the form it is on (`None` global) and the key, lower case.
+pub type AxKey = (Option<FormId>, String);
+/// An AX key's entries: the key as first given and the entries (`None` a nulled one).
+pub type AxList = (String, Vec<Option<XVal>>);
+
 /// This plugin's state.
 #[derive(Debug, Default)]
 pub struct PpState {
     /// AX variables: (form, key lower case) -> (the key as first given, the entries;
     /// `None` a nulled entry). Session only [documented: "all AX values remain valid for
     /// the session"].
-    pub ax: BTreeMap<(Option<FormId>, String), (String, Vec<Option<XVal>>)>,
+    pub ax: BTreeMap<AxKey, AxList>,
     /// The form instances, saved with the game (`GameSnapshot::form_instances`)
     /// [documented: CreateFormInstance, "tied to the users save game"].
     pub instances: BTreeMap<FormId, Instance>,
@@ -236,7 +241,7 @@ impl Game<'_> {
     /// [hypothesis: as event handler priorities]; true when one set a true function value.
     fn pp_instance_event(&mut self, reconstruct: bool, id: FormId, key: &str) -> bool {
         let mut hs: Vec<InstanceHandler> = self.pp.handlers.iter().filter(|h| h.reconstruct == reconstruct && h.filter.as_ref().is_none_or(|f| f.eq_ignore_ascii_case(key))).cloned().collect();
-        hs.sort_by(|a, b| b.priority.cmp(&a.priority));
+        hs.sort_by_key(|a| std::cmp::Reverse(a.priority));
         let mut skip = false;
         for h in hs {
             match self.run_function(&h.func, None, vec![XVal::Ref(id.0)], None, RunCtx::default()) {
@@ -257,7 +262,7 @@ impl Game<'_> {
             .filter(|h| h.attach == attach && h.item_mod.is_none_or(|m| m == item_mod) && h.object.is_none_or(|o| o == object || self.unclone(object) == o))
             .cloned()
             .collect();
-        hs.sort_by(|a, b| b.priority.cmp(&a.priority));
+        hs.sort_by_key(|a| std::cmp::Reverse(a.priority));
         for h in hs {
             if let Err(error) = self.run_function(&h.func, None, vec![XVal::Ref(item_mod.0), XVal::Ref(object.0)], None, RunCtx::default()) {
                 self.emit(EventKind::ScriptError { unit: "item mod handler".into(), error });

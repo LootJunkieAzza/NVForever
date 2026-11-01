@@ -182,33 +182,43 @@ fn ax_variables_hold_values_by_key_index_and_form() {
     assert_eq!(val(&mut g, "AX_Exists \"MyAuxList\" Gun"), x(0.0));
 }
 
+/// `func r` with `r` the form whose editor ID is `edid` (an instance has no FormID a
+/// script can name; EditorIDToFormID finds it by its editor ID).
+fn on(g: &mut Game, func: &str, edid: &str) -> XVal {
+    query(g, &format!("ref r\nlet r := EditorIDToFormID \"{edid}\"\nSetFunctionValue ({func} r)"))
+}
+
 #[test]
 fn form_instances_stand_for_their_base_and_are_saved() {
     let f = fixture();
     let mut g = game(&f);
     let XVal::Ref(inst) = val(&mut g, "CreateFormInstance Gun \"MyInstances\"") else { panic!() };
     assert_ne!(inst, 0);
-    let i = format!("{inst:X}");
-    assert_eq!(val(&mut g, &format!("IsFormInstance {i}")), x(1.0));
+    // Its editor ID is the base's, "Inst" and the count [documented: CreateFormInstance].
+    assert_eq!(val(&mut g, "EditorIDToFormID \"GunInst1\""), XVal::Ref(inst));
+    assert_eq!(on(&mut g, "IsFormInstance", "GunInst1"), x(1.0));
     assert_eq!(val(&mut g, "IsFormInstance Gun"), x(0.0));
-    assert_eq!(val(&mut g, &format!("GetStaticForm {i}")), XVal::Ref(WEAP));
-    assert_eq!(val(&mut g, &format!("GetWeaponBase {i}")), XVal::Ref(WEAP));
-    assert_eq!(query(&mut g, &format!("string_var e\nlet e := GetEditorID {i}\nSetFunctionValue e")), s("GunInst1"));
+    assert_eq!(on(&mut g, "GetStaticForm", "GunInst1"), XVal::Ref(WEAP));
+    assert_eq!(on(&mut g, "GetWeaponBase", "GunInst1"), XVal::Ref(WEAP));
     // Not an instance of an instance [documented].
-    assert_eq!(val(&mut g, &format!("CreateFormInstance {i}")), XVal::Ref(0));
+    assert_eq!(on(&mut g, "CreateFormInstance", "GunInst1"), XVal::Ref(0));
     let XVal::Ref(second) = val(&mut g, "NewWeaponInstance Gun") else { panic!() };
-    assert_eq!(query(&mut g, &format!("string_var e\nlet e := GetEditorID {second:X}\nSetFunctionValue e")), s("GunInst2"));
+    assert_eq!(val(&mut g, "EditorIDToFormID \"GunInst2\""), XVal::Ref(second));
     // A clone reads its base's fields.
-    assert_eq!(val(&mut g, &format!("GetWeaponItemMod 1 {i}")), XVal::Ref(IMOD));
-    // Saved with the game; a reconstruct handler that sets 1 drops one on the load.
+    assert_eq!(query(&mut g, "ref r\nlet r := EditorIDToFormID \"GunInst1\"\nSetFunctionValue (GetWeaponItemMod 1 r)"), XVal::Ref(IMOD));
+    // Saved with the game; a reconstruct handler that sets 1 drops one on the load: the
+    // handler filters on "MyInstances", the first instance's key; the second has none.
     query(&mut g, "SetOnInstanceReconstruct 1 PPSkip \"MyInstances\"");
     let snap = g.snapshot();
+    assert_eq!(snap.form_instances.len(), 2);
     let session = g.take_session();
     let world = World::new(&f.forms, &f.refs, SimConfig::default());
     let mut h = Game::restore(&f.data, world, GameConfig::default(), &snap).unwrap();
     h.put_session(session);
-    assert_eq!(val(&mut h, &format!("IsFormInstance {i}")), x(0.0));
-    assert_eq!(val(&mut h, &format!("IsFormInstance {second:X}")), x(1.0));
+    assert!(!h.pp.instances.contains_key(&FormId(inst)));
+    assert!(h.pp.instances.contains_key(&FormId(second)));
+    assert_eq!(on(&mut h, "IsFormInstance", "GunInst2"), x(1.0));
+    assert_eq!(on(&mut h, "GetStaticForm", "GunInst2"), XVal::Ref(WEAP));
     assert_eq!(counter(&mut h), 100.0);
     // New instances do not take the restored ones' ids.
     let XVal::Ref(third) = val(&mut h, "CreateFormInstance Gun") else { panic!() };
