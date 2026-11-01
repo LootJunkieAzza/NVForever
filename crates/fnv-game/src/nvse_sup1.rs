@@ -48,14 +48,18 @@ pub fn round_to(x: f64, places: f64, round: bool) -> f64 {
 /// in (-180, 180], as GetHeadingAngle (`functions::objects::get_heading_angle`)
 /// [documented: GetHeadingAngleBetweenPoints, "equivalent to GetHeadingAngle"].
 pub fn heading_between(x: f64, y: f64, angle_z: f64, tx: f64, ty: f64) -> f64 {
-    let mut d = (tx - x).atan2(ty - y).to_degrees() - angle_z;
-    while d > 180.0 {
-        d -= 360.0;
+    let d = (tx - x).atan2(ty - y).to_degrees() - angle_z;
+    // Script-supplied: a non-finite angle gives 0, and a huge one wraps in one step (a
+    // loop of 360s would never end, #1363 review).
+    if !d.is_finite() {
+        return 0.0;
     }
-    while d <= -180.0 {
-        d += 360.0;
+    let d = (d + 180.0).rem_euclid(360.0) - 180.0;
+    if d <= -180.0 {
+        d + 360.0
+    } else {
+        d
     }
-    d
 }
 
 /// A whole number in English words, without "and" or hyphens [documented: NumberToWords,
@@ -259,5 +263,13 @@ mod tests {
         assert_eq!(heading_between(0.0, 0.0, 0.0, 10.0, 0.0), 90.0);
         assert_eq!(heading_between(0.0, 0.0, 0.0, 0.0, -10.0), 180.0);
         assert_eq!(heading_between(0.0, 0.0, 90.0, 0.0, 10.0), -90.0);
+        // In (-180, 180]: due south from a facing of 0 is 180, not -180; a facing past a
+        // turn wraps; an endless or huge angle does not hang (#1363 review).
+        assert_eq!(heading_between(0.0, 0.0, 0.0, 0.0, -10.0), 180.0);
+        assert_eq!(heading_between(0.0, 0.0, 720.0 + 45.0, 0.0, 10.0), -45.0);
+        assert_eq!(heading_between(0.0, 0.0, f64::INFINITY, 0.0, 10.0), 0.0);
+        assert_eq!(heading_between(0.0, 0.0, f64::NAN, 0.0, 10.0), 0.0);
+        let h = heading_between(0.0, 0.0, 1e30, 0.0, 10.0);
+        assert!(h > -180.0 && h <= 180.0, "{h}");
     }
 }
