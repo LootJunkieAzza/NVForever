@@ -3125,7 +3125,7 @@ order = [[
 
 [[scenario]]
 name = "hacking"
-manual = "[design] In hacking.png, compare 10x10 medians on glass right of the dump and below the header, and inside an attempt block, against docs/spec-notes/hacking.md §2: glass R 16-23 / G 38-52 / B 15-32; blocks near (61, 253, 152) and solid (not crossed by the scanlines), without a glare wash. Retain faint texture, dark corners (about 8, 11, 5) and the monitor's top-right streak near (100, 125, 95); use the per-constant tuning recipes in §7 and check text outside the streak stays no higher than (88, 255, 160), that the text has soft edges and the scanlines cross glass and text, and that the header line ENTER PASSWORD NOW sums near the original's green above the glass (§2). In flat mode (no monitor model, so no glare) check its own targets instead: glass middle near (12, 38, 20) and blocks near (54, 252, 150) (screen.rs tests), with the same texture."
+manual = "[design] In hacking.png, compare 10x10 medians on glass right of the dump and below the header, and inside an attempt block, against docs/spec-notes/hacking.md §2: glass R 16-23 / G 38-52 / B 15-32; blocks near (61, 253, 152) and solid (not crossed by the scanlines), without a glare wash. Retain faint texture, dark corners (about 8, 11, 5) and the monitor's top-right streak near (100, 125, 95); use the per-constant tuning recipes in §7 and check text outside the streak stays no higher than (88, 255, 160), that the text has soft edges and the scanlines cross glass and text, and that the password prompt line's green above the glass, per character, is near the original's (§2; the words differ, so compare per character). In flat mode (no monitor model, so no glare) check its own targets instead: glass middle near (12, 38, 20) and blocks near (54, 252, 150) (screen.rs tests), with the same texture."
 source = "CLAUDE.md: after changes to terminals or the hacking game (docs/spec-notes/hacking.md §9): the Easy terminal"
 areas = ["hacking", "terminal"]
 paths = ["crates/fnv-game/src/hacking.rs", "crates/fnv-game/src/terminal.rs", "engine/nvf-play/src/terminal*", "engine/nvf-play/src/terminal/**", "engine/nvforever/src/terminal_view.rs"]
@@ -3135,7 +3135,7 @@ run_seconds = 48
 expect = [
   "hacking, Easy (Science 25): 20 words",
   { re = 'test aid: screenshot .*hacking\.png', label = "the hacking frame is saved for the glass and block comparison" },
-  "Exact match! access granted",
+  "the password, access granted",
   { text = "xp: +30 XP from a hacked terminal", label = "the Easy terminal's iXPRewardHackComputerEasy (experience.md §2)" },
   'menu of DefaultUnlockTermDESK1Easy (1 of 1 items listed): "Disengage Lock"',
   "result script",
@@ -3173,7 +3173,7 @@ run_seconds = 24
 order = [[
   "target 0x0010872F Terminal (Locked (Easy), owned)",
   "hacking, Easy (Science 25)",
-  "Exact match! access granted",
+  "the password, access granted",
   "crime: the player opened the lock of 0x0010872F (hacked), owned by",
   "target 0x0010872F Terminal (Access)",
 ]]
@@ -3277,10 +3277,10 @@ args = ["--cell", "BisonSteve01", "--play", "--no-voice"]
 run_seconds = 54
 order = [[
   "terminal: open 0x000D74D5",
-  "Entry denied, no attempts left: the terminal is locked for good",
+  "wrong word, no attempts left: the terminal is locked for good",
   "terminal: 0x000D74D5 is locked out; Ignore Locked Terminal (Computer Whiz) gives one more try",
   { re = 'terminal: open 0x000D74D5 .*: hacking, Easy', label = "the terminal can be hacked again" },
-  "Entry denied, no attempts left: the terminal is locked for good",
+  "wrong word, no attempts left: the terminal is locked for good",
   { re = 'terminal: open 0x000D74D5 .*: locked out for good', label = "the second lock-out is for good" },
 ]]
 
