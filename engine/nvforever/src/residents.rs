@@ -820,7 +820,7 @@ pub struct Residents {
 }
 
 /// Standalone packages own their simulation; in play mode `SimState` owns it
-/// [observed: `drive`]. Shared by drawing and prefetch so neither selects a stale world.
+/// [design: `drive`]. Shared by drawing and prefetch so neither selects a stale world.
 pub(crate) fn equipment_world<'a, 'w>(private: Option<&'a World<'w>>, shared: Option<&'a World<'w>>) -> Option<&'a World<'w>> {
     private.or(shared)
 }
@@ -1006,7 +1006,7 @@ impl Residents {
     }
 
     /// Use the same simulation as `drive` for resident prefetch, including a resident
-    /// also listed among its cell's placed references [observed: `read_ahead`].
+    /// also listed among its cell's placed references [design: `read_ahead`].
     pub fn prefetch_world<'a>(&'a self, reference: u32, shared: Option<&'a World<'static>>) -> Option<&'a World<'static>> {
         let private = self.core.known.contains(&reference).then(|| self.own.as_deref().map(|g| &g.world)).flatten();
         equipment_world(private, shared)

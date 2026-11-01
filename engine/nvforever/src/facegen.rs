@@ -121,7 +121,7 @@ impl FaceGenCache {
     }
 
     /// `morph` tries shape-specific files only after the whole model's EGM is known
-    /// absent [observed: `morph`]. Read-ahead discovers those names from prepared parts.
+    /// absent [design: `morph`]. Read-ahead discovers those names from prepared parts.
     pub fn needs_shape_egms(&self, model: &str) -> bool {
         matches!(self.egm.get(&sibling(model, "egm")), Some(None))
     }

@@ -7,7 +7,7 @@
 //!
 //! An NPC is spawned from its simulation equipment when available, otherwise from
 //! `fnv_actor::resolve`'s own choice ([`Dressed`], put on by `actors::spawn`)
-//! [observed: `appearance`]. It is redressed whenever
+//! [design: `appearance`]. It is redressed whenever
 //! their equipped set changes (a script's EquipItem or UnequipItem, an item taken from a
 //! corpse or removed): armour no longer worn is taken off and what it covered (the race's
 //! body, hands or head, the hair's no-hat shape) is put on, armour now worn is put on, on
@@ -17,7 +17,7 @@
 //! [design]. While the simulation holds no inventory for the actor (its cell never
 //! loaded in the rules) the engine's own choice stays; it agrees with the rules' only
 //! where no leveled choice is random (`fnvtool actor appearance` "random": false)
-//! [observed]. Creatures' bodies are drawn as their records say and are not followed;
+//! [design]. Creatures' bodies are drawn as their records say and are not followed;
 //! the weapon a creature holds is ([`arm_creatures`]).
 //!
 //! **Creatures' weapons** (owner's playtest list 7 item 39: a nightkin fought with its
@@ -73,7 +73,7 @@ pub struct Dressed {
 
 /// The simulation's drawable equipment, shared by spawning, prefetch and reconciliation.
 /// `None` means no simulated inventory yet; an empty or partial set is authoritative
-/// [observed: `fnv_sim::World::equipment`], including after looting or UnequipItem.
+/// [design: `fnv_sim::World::equipment`], including after looting or UnequipItem.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Equipment {
     pub worn: Vec<FormId>,
@@ -103,7 +103,7 @@ impl Equipment {
 }
 
 /// Resolve the same appearance for spawn, read-ahead and later outfit changes. Passing
-/// the held weapon to the resolver also applies its Hide Backpack flag [observed:
+/// the held weapon to the resolver also applies its Hide Backpack flag [design:
 /// `Resolver::resolve_changed_at`]; its record-selected weapon is then replaced.
 pub fn appearance(world: &ActorWorld, base: u32, reference: u32, equipment: Option<&Equipment>) -> Result<Appearance, String> {
     let Some(e) = equipment else { return world.resolve(base, reference) };

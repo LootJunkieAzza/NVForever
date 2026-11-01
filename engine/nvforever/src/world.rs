@@ -707,7 +707,7 @@ pub struct LateMeshes {
 
 /// Mark the meshes of new entities changed again over the next frames while the upload
 /// limit is on. Bevy 0.19 never draws an entity whose mesh was not on the GPU yet when it
-/// first chose the entity's pipeline [observed: bevy_pbr 0.19.1 `specialize_material_meshes`
+/// first chose the entity's pipeline [design: bevy_pbr 0.19.1 `specialize_material_meshes`
 /// skips such an entity without putting it in its pending queue, which it does for a
 /// material not ready; only a change to `Mesh3d` or `MeshMaterial3d` or their assets
 /// tries it again]. Under the limit a mesh can wait behind large textures: with 4096x4096
