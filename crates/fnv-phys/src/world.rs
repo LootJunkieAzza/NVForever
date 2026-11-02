@@ -10,9 +10,10 @@
 //! the order of insertion is what counts.
 
 use crate::convert::{self, arr3, vec3, ConvertError, Leaf};
-use crate::refresh::{DirtyReasons, RefreshStats};
+use crate::refresh::{ActorPoses, DirtyReasons, RefreshStats};
 use fnv_collide::{CollisionObject, Iso, Motion, Shape};
 use rapier3d::math::{Pose, Vector};
+use rapier3d::parry::bounding_volume::BoundingVolume;
 use rapier3d::parry::query::ShapeCastOptions;
 use rapier3d::prelude::*;
 use std::collections::{BTreeMap, HashMap};
@@ -314,6 +315,9 @@ pub struct PhysWorld {
     dirty: DirtyReasons,
     /// Refreshes run by [`PhysWorld::update_queries`], by reason.
     refresh_stats: RefreshStats,
+    /// Actor hit colliders moved since the last detection pass or step, and those the
+    /// queries test directly (`crate::refresh`).
+    pub(crate) poses: ActorPoses,
     /// Bodies inserted since the last step (see [`PhysWorld::update_queries`]).
     new_bodies: Vec<RigidBodyHandle>,
     /// Bodies struck ([`PhysWorld::push_ref`], [`PhysWorld::push_dynamic`]) or moved by
@@ -358,6 +362,7 @@ impl PhysWorld {
             shells: HashMap::new(),
             dirty: DirtyReasons::NONE,
             refresh_stats: RefreshStats::default(),
+            poses: ActorPoses::default(),
             new_bodies: Vec::new(),
             struck: Vec::new(),
             pending_sleep: Vec::new(),
@@ -747,6 +752,7 @@ impl PhysWorld {
         self.buoy();
         self.step_world();
         self.dirty = DirtyReasons::NONE;
+        self.poses.clear();
         self.new_bodies.clear();
         self.struck.clear();
         self.steps += 1;
@@ -757,11 +763,33 @@ impl PhysWorld {
     }
 
     /// Bring the broad phase up to date after adding or removing bodies, so that queries
-    /// see them, without advancing time.
+    /// see them, without advancing time. When only actor hit colliders moved since the
+    /// last refresh or step, their world poses are updated and the queries test them
+    /// directly, without a collision detection pass (`crate::refresh`); the results are
+    /// those of the full pass ([`PhysWorld::update_queries_full`]).
     pub fn update_queries(&mut self) {
+        self.refresh(true);
+    }
+
+    /// [`PhysWorld::update_queries`] always with a full collision detection pass, as it
+    /// ran before the refresh of moved actor colliders alone existed: the reference that
+    /// refresh is tested against.
+    pub fn update_queries_full(&mut self) {
+        self.refresh(false);
+    }
+
+    fn refresh(&mut self, allow_actor_poses: bool) {
+        if allow_actor_poses && !self.dirty.is_empty() && self.dirty.is_within(DirtyReasons::ACTOR_POSES) && self.refresh_actor_poses() {
+            self.refresh_stats.record_fast();
+            self.dirty = DirtyReasons::NONE;
+            return;
+        }
         if !self.dirty.is_empty() {
             self.refresh_stats.record_full(self.dirty);
             self.detect();
+            // The pass updated the broad phase from every changed collider, the actor
+            // colliders kept aside included.
+            self.poses.clear();
             // rapier 0.36's collision-only pipeline consumes the change flags of bodies
             // inserted since the last step without registering them with the island
             // manager, so they would never move [observed: a dynamic box added, queried
@@ -892,6 +920,7 @@ impl PhysWorld {
             shells: self.shells.clone(),
             dirty: self.dirty,
             refresh_stats: self.refresh_stats.clone(),
+            poses: self.poses.clone(),
             new_bodies: self.new_bodies.clone(),
             struck: self.struck.clone(),
             pending_sleep: self.pending_sleep.clone(),
@@ -1048,10 +1077,27 @@ impl Queries<'_> {
         self.world.water_surface_for(p)
     }
 
+    /// Run a query through the broad phase. The actor colliders a refresh kept aside
+    /// (`crate::refresh`) are left out here: their leaves are stale, and
+    /// [`Queries::aside`] tests them directly.
     fn with_filter<R>(&self, filter: &Filter, f: impl FnOnce(QueryFilter) -> R) -> R {
         let w = &self.world.w;
-        let pred = |_: ColliderHandle, c: &Collider| filter.accepts(c, &w.bodies);
+        let poses = &self.world.poses;
+        let pred = |_: ColliderHandle, c: &Collider| filter.accepts(c, &w.bodies) && !poses.hides(c.user_data);
         f(QueryFilter::default().exclude_sensors().predicate(&pred))
+    }
+
+    /// The actor colliders a refresh kept aside that the query's filter accepts, with the
+    /// loosened AABB of each: the same test the broad-phase query applies to a collider
+    /// (`QueryFilter::test` with the same filter), so each query adds exactly the
+    /// colliders the full pass would have let it test.
+    fn aside<'s>(&'s self, filter: &'s Filter) -> impl Iterator<Item = (ColliderHandle, &'s Collider, &'s Aabb)> + 's {
+        let w = &self.world.w;
+        self.world.poses.side.iter().filter_map(move |s| {
+            let co = w.colliders.get(s.handle)?;
+            let pred = |_: ColliderHandle, c: &Collider| filter.accepts(c, &w.bodies);
+            QueryFilter::default().exclude_sensors().predicate(&pred).test(&w.bodies, s.handle, co).then_some((s.handle, co, &s.aabb))
+        })
     }
 
     /// First hit along the ray from `origin` in `direction` (normalised here) within
@@ -1060,7 +1106,23 @@ impl Queries<'_> {
         let dir = vec3(direction).try_normalize()?;
         let ray = Ray::new(vec3(origin) * self.world.k, dir);
         let w = &self.world.w;
-        let (c, hit) = self.with_filter(filter, |f| w.cast_ray_and_get_normal(&ray, max_distance * self.world.k, true, f))?;
+        let max = max_distance * self.world.k;
+        let mut best = self.with_filter(filter, |f| w.cast_ray_and_get_normal(&ray, max, true, f));
+        // The colliders kept aside, by the rule of the broad-phase traversal: a hit counts
+        // when it is strictly nearer than the best so far, which starts at the maximum
+        // distance [design: `Bvh::find_best`, parry3d 0.31.1]. A capsule's ray test gives
+        // the same distance whatever bound it is given (it only filters by it,
+        // `RayCast for Capsule`), so testing against `max` changes nothing.
+        for (h, co, aabb) in self.aside(filter) {
+            if !aabb.intersects_local_ray(&ray, max) {
+                continue;
+            }
+            let Some(hit) = co.shape().cast_ray_and_get_normal(co.position(), &ray, max, true) else { continue };
+            if hit.time_of_impact < best.as_ref().map_or(max, |b| b.1.time_of_impact) {
+                best = Some((h, hit));
+            }
+        }
+        let (c, hit) = best?;
         Some(self.ray_hit(c, &ray, hit))
     }
 
@@ -1082,9 +1144,17 @@ impl Queries<'_> {
         let Some(dir) = vec3(direction).try_normalize() else { return Vec::new() };
         let ray = Ray::new(vec3(origin) * self.world.k, dir);
         let w = &self.world.w;
-        let mut hits: Vec<RayHit> = self.with_filter(filter, |f| {
-            w.intersect_ray(ray, max_distance * self.world.k, true, f).map(|(c, _, hit)| self.ray_hit(c, &ray, hit)).collect()
-        });
+        let max = max_distance * self.world.k;
+        let mut hits: Vec<RayHit> =
+            self.with_filter(filter, |f| w.intersect_ray(ray, max, true, f).map(|(c, _, hit)| self.ray_hit(c, &ray, hit)).collect());
+        // The same test `PhysicsWorld::intersect_ray` makes on each collider.
+        for (h, co, aabb) in self.aside(filter) {
+            if aabb.intersects_local_ray(&ray, max) {
+                if let Some(hit) = co.shape().cast_ray_and_get_normal(co.position(), &ray, max, true) {
+                    hits.push(self.ray_hit(h, &ray, hit));
+                }
+            }
+        }
         hits.sort_by(|a, b| a.distance.total_cmp(&b.distance).then(a.owner.cmp(&b.owner)));
         hits
     }
@@ -1095,7 +1165,28 @@ impl Queries<'_> {
         let (pose, shape) = probe(shape, from, k)?;
         let w = &self.world.w;
         let opts = ShapeCastOptions { max_time_of_impact: 1.0, stop_at_penetration: true, ..Default::default() };
-        let hit = self.with_filter(filter, |f| w.cast_shape(&pose, vec3(motion) * k, shape.as_ref(), opts, f));
+        let vel = vec3(motion) * k;
+        let mut hit = self.with_filter(filter, |f| w.cast_shape(&pose, vel, shape.as_ref(), opts, f));
+        if !self.world.poses.side.is_empty() {
+            // Each collider kept aside as the broad-phase traversal casts against one of
+            // its parts, and kept by the same strictly-nearer rule [design:
+            // `CompositeShapeRef::cast_shape` and `Bvh::find_best`, parry3d 0.31.1]; the
+            // part's cast gets the query's own options, not the best so far.
+            let dispatcher = w.narrow_phase.query_dispatcher();
+            let end = Pose::from_parts(pose.translation + vel * opts.max_time_of_impact, pose.rotation);
+            let swept = shape.compute_aabb(&pose).merged(&shape.compute_aabb(&end)).loosened(opts.target_distance);
+            for (h, co, aabb) in self.aside(filter) {
+                if !aabb.intersects(&swept) {
+                    continue;
+                }
+                let part = co.position();
+                let Ok(Some(x)) = dispatcher.cast_shapes(&part.inv_mul(&pose), part.rotation.inverse() * vel, co.shape(), shape.as_ref(), opts) else { continue };
+                let x = x.transform1_by(part);
+                if x.time_of_impact < hit.as_ref().map_or(opts.max_time_of_impact, |b| b.1.time_of_impact) {
+                    hit = Some((h, x));
+                }
+            }
+        }
         Ok(hit.map(|(c, hit)| {
             let co = &self.world.w.colliders[c];
             SweepHit {
@@ -1115,6 +1206,18 @@ impl Queries<'_> {
         let mut out: Vec<Owner> = self.with_filter(filter, |f| {
             w.intersect_shape(pose, shape.as_ref(), f).filter_map(|(_, c)| Owner::decode(c.user_data)).collect()
         });
+        if !self.world.poses.side.is_empty() {
+            // The same test `PhysicsWorld::intersect_shape` makes on each collider.
+            let dispatcher = w.narrow_phase.query_dispatcher();
+            let shape_aabb = shape.compute_aabb(&pose);
+            for (_, co, aabb) in self.aside(filter) {
+                if aabb.intersects(&shape_aabb)
+                    && dispatcher.intersection_test(&pose.inv_mul(co.position()), shape.as_ref(), co.shape()).is_ok_and(|hit| hit.intersecting)
+                {
+                    out.extend(Owner::decode(co.user_data));
+                }
+            }
+        }
         out.sort();
         out.dedup();
         Ok(out)

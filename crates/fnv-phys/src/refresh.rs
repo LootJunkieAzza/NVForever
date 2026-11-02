@@ -2,8 +2,20 @@
 //! ([`crate::PhysWorld::update_queries`]): every change that leaves the broad phase stale
 //! says what it was ([`DirtyReasons`]), the reasons accumulate until the next refresh, and
 //! each refresh is counted by the combination of reasons that called for it
-//! ([`RefreshStats`]). Measurement only: the reasons do not change what a refresh does.
+//! ([`RefreshStats`]).
+//!
+//! When the only changes since the last refresh are moved actor hit colliders (their
+//! body or parent-relative poses, their shapes or owners; no collider or body added,
+//! removed or rebuilt, nothing else), the refresh skips the collision detection pass:
+//! it writes those colliders' world poses and keeps them aside ([`ActorPoses`]), and the
+//! scene queries test them directly instead of through their stale broad-phase leaves
+//! (`crate::world::Queries`). Nothing the next step or detection pass reads is consumed:
+//! the colliders keep their change flags, so the next pass updates the broad phase from
+//! them as it would have without a query.
 
+use crate::world::Owner;
+use rapier3d::parry::bounding_volume::Aabb;
+use rapier3d::prelude::ColliderHandle;
 use std::collections::BTreeMap;
 use std::fmt;
 
@@ -34,8 +46,14 @@ impl DirtyReasons {
     pub const TERRAIN: DirtyReasons = DirtyReasons(1 << 8);
     /// Bodies added asleep need their first contacts before a step.
     pub const SLEEP: DirtyReasons = DirtyReasons(1 << 9);
+    /// An actor's hit volume body or capsules were added or replaced (with
+    /// [`DirtyReasons::ACTOR_PARTS`] or [`DirtyReasons::ACTOR_VOLUME`]).
+    pub const ACTOR_REBUILT: DirtyReasons = DirtyReasons(1 << 10);
+    /// What a refresh without a collision detection pass can bring up to date: actor hit
+    /// colliders that moved, nothing added, removed or rebuilt.
+    pub const ACTOR_POSES: DirtyReasons = DirtyReasons(DirtyReasons::ACTOR_PARTS.0 | DirtyReasons::ACTOR_VOLUME.0);
 
-    const NAMES: [(DirtyReasons, &'static str); 10] = [
+    const NAMES: [(DirtyReasons, &'static str); 11] = [
         (DirtyReasons::ACTOR_PARTS, "actor_parts"),
         (DirtyReasons::ACTOR_VOLUME, "actor_volume"),
         (DirtyReasons::BODIES, "bodies"),
@@ -46,6 +64,7 @@ impl DirtyReasons {
         (DirtyReasons::GORE, "gore"),
         (DirtyReasons::TERRAIN, "terrain"),
         (DirtyReasons::SLEEP, "sleep"),
+        (DirtyReasons::ACTOR_REBUILT, "actor_rebuilt"),
     ];
 
     pub fn is_empty(self) -> bool {
@@ -55,6 +74,11 @@ impl DirtyReasons {
     /// Whether every reason in `other` is in `self`.
     pub fn contains(self, other: DirtyReasons) -> bool {
         self.0 & other.0 == other.0
+    }
+
+    /// Whether every reason in `self` is in `other`.
+    pub fn is_within(self, other: DirtyReasons) -> bool {
+        self.0 & !other.0 == 0
     }
 
     pub fn insert(&mut self, other: DirtyReasons) {
@@ -100,7 +124,9 @@ impl fmt::Display for DirtyReasons {
 pub struct RefreshStats {
     /// Full collision detection passes.
     pub full: u64,
-    /// Refreshes by the combination of reasons that called for them.
+    /// Refreshes that only moved actor hit colliders, without a detection pass.
+    pub fast: u64,
+    /// Full refreshes by the combination of reasons that called for them.
     pub by_reasons: BTreeMap<DirtyReasons, u64>,
 }
 
@@ -108,6 +134,72 @@ impl RefreshStats {
     pub(crate) fn record_full(&mut self, reasons: DirtyReasons) {
         self.full += 1;
         *self.by_reasons.entry(reasons).or_default() += 1;
+    }
+
+    pub(crate) fn record_fast(&mut self) {
+        self.fast += 1;
+    }
+}
+
+/// An actor hit collider brought up to date by a refresh without a detection pass: its
+/// world pose is current, its broad-phase leaf is not.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SideCollider {
+    pub form_id: u32,
+    pub handle: ColliderHandle,
+    /// Its world AABB at the current pose, loosened by [`SIDE_MARGIN`] (a prefilter for
+    /// the queries' direct tests; the shape test decides).
+    pub aabb: Aabb,
+}
+
+/// How much the AABB of a [`SideCollider`] is loosened, metres: a prefilter must never
+/// turn away a hit the shape test finds (the broad phase's own leaves are loosened by
+/// the contact skin, prediction and change-detection margins for the same reason).
+pub(crate) const SIDE_MARGIN: f32 = 0.05;
+
+/// The actor hit colliders that moved since the last detection pass or step.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ActorPoses {
+    /// Actors whose hit colliders were moved (not added, removed or rebuilt) since the
+    /// last refresh, in call order, possibly repeated.
+    pub touched: Vec<u32>,
+    /// Actors refreshed without a detection pass since the last one or the last step,
+    /// sorted: their colliders' broad-phase leaves are stale.
+    stale: Vec<u32>,
+    /// Those actors' colliders.
+    pub side: Vec<SideCollider>,
+}
+
+impl ActorPoses {
+    pub fn touch(&mut self, form_id: u32) {
+        self.touched.push(form_id);
+    }
+
+    /// Forget everything: a detection pass or a step brought the broad phase up to date.
+    pub fn clear(&mut self) {
+        self.touched.clear();
+        self.stale.clear();
+        self.side.clear();
+    }
+
+    /// Replace an actor's colliders kept aside by the ones `push_side` adds next.
+    pub fn restart(&mut self, form_id: u32) {
+        if let Err(i) = self.stale.binary_search(&form_id) {
+            self.stale.insert(i, form_id);
+        } else {
+            self.side.retain(|s| s.form_id != form_id);
+        }
+    }
+
+    pub fn push_side(&mut self, s: SideCollider) {
+        self.side.push(s);
+    }
+
+    /// Whether a collider (by its `user_data`) is one kept aside, whose broad-phase leaf
+    /// the queries must not use.
+    pub fn hides(&self, user_data: u128) -> bool {
+        !self.stale.is_empty()
+            && matches!(Owner::decode(user_data), Some(Owner::Actor { form_id, .. }) if self.stale.binary_search(&form_id).is_ok())
     }
 }
 
@@ -124,6 +216,9 @@ mod tests {
         r.insert(DirtyReasons::ACTOR_PARTS);
         assert!(r.contains(DirtyReasons::ACTOR_PARTS) && r.contains(DirtyReasons::DOORS));
         assert!(!r.contains(DirtyReasons::GORE));
+        assert!(DirtyReasons::ACTOR_PARTS.is_within(DirtyReasons::ACTOR_POSES));
+        assert!(!r.is_within(DirtyReasons::ACTOR_POSES));
+        assert!(!(DirtyReasons::ACTOR_PARTS | DirtyReasons::ACTOR_REBUILT).is_within(DirtyReasons::ACTOR_POSES));
         assert_eq!(r.to_string(), "actor_parts+doors");
         assert_eq!(r, DirtyReasons::ACTOR_PARTS | DirtyReasons::DOORS);
     }

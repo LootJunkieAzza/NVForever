@@ -12,7 +12,7 @@
 //! Sizes and bone positions come from the caller; this module keeps the shapes where it
 //! is told.
 
-use crate::refresh::DirtyReasons;
+use crate::refresh::{DirtyReasons, SideCollider, SIDE_MARGIN};
 use crate::world::{Owner, PhysWorld};
 use crate::{layers, BodyState};
 use rapier3d::math::{Pose, Rotation};
@@ -87,7 +87,8 @@ const NO_CONTACTS: InteractionGroups = InteractionGroups::new(Group::NONE, Group
 const RESIZE: f32 = 0.5;
 
 impl PhysWorld {
-    fn actor_body(&mut self, form_id: u32, v: HitVolume) -> RigidBodyHandle {
+    /// Move an actor's body to `v.feet`, or add it; true when it was added.
+    fn actor_body(&mut self, form_id: u32, v: HitVolume) -> bool {
         let k = self.k;
         let f = Vector::new(v.feet[0], v.feet[1], v.feet[2]) * k;
         if let Some(a) = self.actors.get(&form_id) {
@@ -95,20 +96,21 @@ impl PhysWorld {
             if let Some(body) = self.w.bodies.get_mut(b) {
                 body.set_translation(f, true);
             }
-            return b;
+            return false;
         }
         let owner = Owner::Actor { form_id, layer: v.layer(), part: WHOLE };
         let body = self.insert_body(RigidBodyBuilder::kinematic_position_based().translation(f).user_data(owner.encode()));
         self.actors.insert(form_id, ActorBody { body, volume: v, colliders: Vec::new() });
-        body
+        true
     }
 
-    /// Replace an actor's colliders when their number or parts differ from `want`.
-    fn ensure_colliders(&mut self, form_id: u32, want: &[(u8, f32, f32)]) {
-        let Some(a) = self.actors.get(&form_id) else { return };
+    /// Replace an actor's colliders when their number or parts differ from `want`; true
+    /// when they were replaced.
+    fn ensure_colliders(&mut self, form_id: u32, want: &[(u8, f32, f32)]) -> bool {
+        let Some(a) = self.actors.get(&form_id) else { return false };
         let same = a.colliders.len() == want.len() && a.colliders.iter().zip(want).all(|(c, w)| c.1 == w.0);
         if same {
-            return;
+            return false;
         }
         let body = a.body;
         let old: Vec<ColliderHandle> = a.colliders.iter().map(|c| c.0).collect();
@@ -125,6 +127,62 @@ impl PhysWorld {
         if let Some(a) = self.actors.get_mut(&form_id) {
             a.colliders = cols;
         }
+        true
+    }
+
+    /// Note an actor's hit colliders as changed: moved only (the refresh can update them
+    /// without a detection pass, `crate::refresh`), or added or replaced (it cannot).
+    fn actor_changed(&mut self, form_id: u32, reason: DirtyReasons, rebuilt: bool) {
+        if rebuilt {
+            self.mark_dirty(reason | DirtyReasons::ACTOR_REBUILT);
+        } else {
+            self.mark_dirty(reason);
+            self.poses.touch(form_id);
+        }
+    }
+
+    /// Bring the world poses of the actor hit colliders moved since the last refresh up
+    /// to date for queries, without a detection pass (`crate::refresh`): each collider's
+    /// pose becomes its body's pose times its parent-relative pose, the same product
+    /// rapier's next pass computes for it before reading it [design:
+    /// `handle_user_changes_to_colliders` and `RigidBodyColliders::update_positions`,
+    /// rapier3d 0.36.0], and it is kept aside for the queries. Its change flags are left
+    /// for that next pass (the PARENT flag `set_position_wrt_parent` set already makes
+    /// that pass recompute the pose and add the POSITION flag `set_position` adds here),
+    /// so the broad phase, narrow phase and islands see exactly what they would have
+    /// without the refresh. False, with nothing written, when a pose is not finite: the
+    /// caller then runs the full pass.
+    pub(crate) fn refresh_actor_poses(&mut self) -> bool {
+        let mut touched = std::mem::take(&mut self.poses.touched);
+        touched.sort_unstable();
+        touched.dedup();
+        let finite = touched.iter().all(|id| {
+            let Some(a) = self.actors.get(id) else { return true };
+            let Some(body) = self.w.bodies.get(a.body) else { return true };
+            let parent = *body.position();
+            a.colliders.iter().all(|c| self.w.colliders.get(c.0).and_then(|co| co.position_wrt_parent()).is_none_or(|local| (parent * *local).is_finite()))
+        });
+        if !finite {
+            self.poses.touched = touched;
+            return false;
+        }
+        for &id in &touched {
+            // An actor removed since it was posed is a `BODIES` change: not this path.
+            let Some(a) = self.actors.get(&id) else { continue };
+            let Some(body) = self.w.bodies.get(a.body) else { continue };
+            let parent = *body.position();
+            self.poses.restart(id);
+            for c in &a.colliders {
+                let Some(co) = self.w.colliders.get_mut(c.0) else { continue };
+                let Some(local) = co.position_wrt_parent().copied() else { continue };
+                co.set_position(parent * local);
+                let aabb = co.compute_aabb().loosened(SIDE_MARGIN);
+                self.poses.push_side(SideCollider { form_id: id, handle: c.0, aabb });
+            }
+        }
+        touched.clear();
+        self.poses.touched = touched;
+        true
     }
 
     /// Add the single hit capsule of actor reference `form_id`, or move and resize it
@@ -140,8 +198,8 @@ impl PhysWorld {
         let k = self.k;
         let radius = v.radius.max(1.0);
         let half = (v.height.max(2.0 * radius) / 2.0 - radius).max(0.0);
-        self.actor_body(form_id, v);
-        self.ensure_colliders(form_id, &[(WHOLE, half, radius)]);
+        let added = self.actor_body(form_id, v);
+        let rebuilt = self.ensure_colliders(form_id, &[(WHOLE, half, radius)]);
         let owner = Owner::Actor { form_id, layer: v.layer(), part: WHOLE }.encode();
         let c = v.center();
         let local = Pose::from_translation((Vector::new(c[0], c[1], c[2]) - Vector::new(v.feet[0], v.feet[1], v.feet[2])) * k);
@@ -157,7 +215,7 @@ impl PhysWorld {
                 co.set_shape(SharedShape::capsule_z(half * k, radius * k));
             }
         }
-        self.mark_dirty(DirtyReasons::ACTOR_VOLUME);
+        self.actor_changed(form_id, DirtyReasons::ACTOR_VOLUME, added || rebuilt);
     }
 
     /// One capsule per body part (step C8): `v` is the actor's overall extent (its body
@@ -197,8 +255,8 @@ impl PhysWorld {
         // sees exactly the calls it always did; only the refresh is skipped when they
         // change nothing.
         let unchanged = self.parts_unchanged(form_id, v, parts, &want, &locals);
-        self.actor_body(form_id, v);
-        self.ensure_colliders(form_id, &want);
+        let added = self.actor_body(form_id, v);
+        let rebuilt = self.ensure_colliders(form_id, &want);
         let a = self.actors.get_mut(&form_id).expect("added");
         a.volume = v;
         for (i, p) in parts.iter().enumerate() {
@@ -216,7 +274,7 @@ impl PhysWorld {
             }
         }
         if !unchanged {
-            self.mark_dirty(DirtyReasons::ACTOR_PARTS);
+            self.actor_changed(form_id, DirtyReasons::ACTOR_PARTS, added || rebuilt);
         }
     }
 

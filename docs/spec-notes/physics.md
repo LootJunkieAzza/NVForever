@@ -663,6 +663,24 @@ playtest list 5 item 59].
   `a_sleeping_body_struck_then_queried_still_moves`; in play, a bottle shot off a fence
   stayed put]. `update_queries` puts such a body to sleep and wakes it with its velocity
   again.
+- **Refresh of moved actor hit colliders**: posing the actors' body part capsules every
+  frame (`set_actor_parts`) made the first query of each frame run the whole collision
+  pass, which also recomputes the contacts of every awake body [design:
+  `crates/fnv-phys/src/refresh.rs`; issue #1383 measured it at about 2 ms a frame]. Each
+  change now says why the broad phase is stale (`DirtyReasons`, counted per refresh in
+  `PhysWorld::refresh_stats`). When the only changes since the last refresh or step are
+  actor hit colliders that moved (nothing added, removed or rebuilt, nothing else
+  changed), `update_queries` sets their world poses (body pose times parent-relative
+  pose, the product rapier's next pass computes) and the queries test them directly,
+  leaving the broad phase and every change flag for the next pass: query results are
+  those of the full pass (`update_queries_full`) [design: test
+  `moved_actor_colliders_refreshed_alone_query_like_a_full_pass`], and the next step is
+  the one a world never queried takes. Exact ties between hits (two colliders at the same
+  distance) are decided by the broad-phase tree in either path. What no longer happens at
+  the query: the full pass's recomputation of awake contacts at a zero time step, its
+  begin-touch wake-ups and its contact diagnostics (`ref_contacts`); they happen at the
+  next step, as in a frame with no query. Setting the same part capsules again marks
+  nothing.
 - **f32 range**: a ray–sphere test from about 10,000 units away was off by about one unit
   (cancellation in the quadratic), from 100 units by under 0.01 [observed: tests]. Probes
   and activation rays should start near what they test; `fnvtool phys` starts ground rays
