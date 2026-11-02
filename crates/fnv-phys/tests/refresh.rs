@@ -256,7 +256,7 @@ fn same_queries(a: &mut PhysWorld, b: &mut PhysWorld, probes: &[f32]) {
     let pill = Shape::Capsule { a: [-5.0, 0.0, 0.0], b: [5.0, 0.0, 0.0], radius: 4.0 };
     let fs = filters();
     let (qa, qb) = (a.queries(), b.queries());
-    for (n, p) in probes.chunks_exact(4).enumerate() {
+    for (n, p) in probes.as_chunks::<4>().0.iter().enumerate() {
         let (u, v, s, t) = (p[0], p[1], p[2], p[3]);
         // From above, and level from the west (through the actors).
         let rays = [([u * 800.0, v * 700.0, 320.0], [s * 0.6, t * 0.6, -1.0]), ([-900.0, v * 700.0, 20.0 + (u + 1.0) * 70.0], [1.0, s * 0.3, t * 0.1])];
