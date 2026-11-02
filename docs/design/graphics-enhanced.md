@@ -107,6 +107,14 @@ the water surface; the first-person arms take a little occlusion from their own 
 cascades, so it also got 4096² maps: about 512 MB of shadow maps in all (vanilla: 128 MB).
 Since #254 it has one cascade of its own (256 units); the total has not been measured again.
 
+**By night and at the horizon** (#1369, owner 2026-11-02: cheaper moon shadows;
+`graphics::sun_shadow_quality`): below the horizon the sun's light is the moon's (`sky.rs`),
+and it casts one cascade out to 3,000 units (`MOON_SHADOW_DISTANCE`) in 2048² maps whatever
+this switch says; while the light is under a tenth of its strength in its fade at the
+horizon (`SHADOW_FADED`), no shadow maps are drawn. [observed 2026-11-02, i9-14900K, RTX 4070,
+1920 × 1080, 8x MSAA, enhanced] With the day's 3 cascades at 4096² the moon's shadows cost
+about 2.5 ms on the Strip at 22:00 (9.2 ms against 6.7 ms without sun shadows).
+
 ### 3.3 Bloom (`bloom`)
 
 On the tonemapped picture (linear values 0..1): the brightest channel over 0.82 with a soft knee
