@@ -402,3 +402,31 @@ fn gore_of_an_actor_refreshed_without_a_pass_is_still_hit() {
     assert_eq!(Some(hit), down(&mut full));
     same_queries(&mut w, &mut full, &noise(34, 16 * 4));
 }
+
+/// The reference pass runs whatever changed: after an unchanged pose (which asks for no
+/// refresh any more) and after a refresh that skipped the pass, the queries equal those
+/// after a mandatory pass, as the pass ran on any change before.
+#[test]
+fn the_reference_pass_always_runs_and_queries_match_it() {
+    let mut w = posed(41);
+    w.step();
+    // The same pose again: nothing pending, no refresh.
+    pose(&mut w, &noise(41, ACTORS.len() * PARTS * JIT), &noise(42, 10), &[false, true, false, true]);
+    assert!(w.pending_refresh().is_empty());
+    let mut full = w.snapshot();
+    let (fast0, full0) = (w.refresh_stats().fast, w.refresh_stats().full);
+    w.update_queries();
+    assert_eq!((w.refresh_stats().fast, w.refresh_stats().full), (fast0, full0));
+    full.update_queries_full();
+    assert_eq!(full.refresh_stats().full, full0 + 1);
+    same_queries(&mut w, &mut full, &noise(43, 16 * 4));
+
+    // After a refresh that skipped the pass, the reference still runs one.
+    pose(&mut w, &noise(44, ACTORS.len() * PARTS * JIT), &noise(45, 10), &[false; 4]);
+    w.update_queries();
+    assert_eq!(w.refresh_stats().fast, fast0 + 1);
+    let mut full = w.snapshot();
+    full.update_queries_full();
+    assert_eq!(full.refresh_stats().full, w.refresh_stats().full + 1);
+    same_queries(&mut w, &mut full, &noise(46, 16 * 4));
+}

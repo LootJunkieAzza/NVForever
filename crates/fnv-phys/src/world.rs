@@ -765,67 +765,73 @@ impl PhysWorld {
     /// Bring the broad phase up to date after adding or removing bodies, so that queries
     /// see them, without advancing time. When only actor hit colliders moved since the
     /// last refresh or step, their world poses are updated and the queries test them
-    /// directly, without a collision detection pass (`crate::refresh`); the results are
-    /// those of the full pass ([`PhysWorld::update_queries_full`]).
+    /// directly, without a collision detection pass (`crate::refresh`): the same results
+    /// as a full pass ([`PhysWorld::update_queries_full`]) except that an exact tie
+    /// between hits may go to another collider.
     pub fn update_queries(&mut self) {
-        self.refresh(true);
-    }
-
-    /// [`PhysWorld::update_queries`] always with a full collision detection pass, as it
-    /// ran before the refresh of moved actor colliders alone existed: the reference that
-    /// refresh is tested against.
-    pub fn update_queries_full(&mut self) {
         self.refresh(false);
     }
 
-    fn refresh(&mut self, allow_actor_poses: bool) {
-        if allow_actor_poses && !self.dirty.is_empty() && self.dirty.is_within(DirtyReasons::ACTOR_POSES) && self.refresh_actor_poses() {
-            self.refresh_stats.record_fast();
-            self.dirty = DirtyReasons::NONE;
-            return;
+    /// A full collision detection pass now, whatever has changed (even nothing, even
+    /// after a refresh that skipped the pass), dropping what such a refresh kept aside.
+    /// A reference for tests and diagnostics: the pass the queries would have paid for
+    /// before refreshes by reason existed, when any change at all (an unchanged pose
+    /// included) called for one. Games call [`PhysWorld::update_queries`].
+    pub fn update_queries_full(&mut self) {
+        self.refresh(true);
+    }
+
+    fn refresh(&mut self, mandatory: bool) {
+        if !mandatory {
+            if self.dirty.is_empty() {
+                return;
+            }
+            if self.dirty.is_within(DirtyReasons::ACTOR_POSES) && self.refresh_actor_poses() {
+                self.refresh_stats.record_fast();
+                self.dirty = DirtyReasons::NONE;
+                return;
+            }
         }
-        if !self.dirty.is_empty() {
-            self.refresh_stats.record_full(self.dirty);
-            self.detect();
-            // The pass updated the broad phase from every changed collider, the actor
-            // colliders kept aside included.
-            self.poses.clear();
-            // rapier 0.36's collision-only pipeline consumes the change flags of bodies
-            // inserted since the last step without registering them with the island
-            // manager, so they would never move [observed: a dynamic box added, queried
-            // and stepped stays put; test `bodies_added_then_queried_still_simulate`].
-            // Flag them changed again so the next step registers them.
-            for &h in &self.new_bodies {
-                if let Some(b) = self.w.bodies.get_mut(h) {
-                    let p = *b.position();
-                    b.set_position(p, false);
-                }
+        self.refresh_stats.record_full(self.dirty);
+        self.detect();
+        // The pass updated the broad phase from every changed collider, the actor
+        // colliders kept aside included.
+        self.poses.clear();
+        // rapier 0.36's collision-only pipeline consumes the change flags of bodies
+        // inserted since the last step without registering them with the island
+        // manager, so they would never move [observed: a dynamic box added, queried
+        // and stepped stays put; test `bodies_added_then_queried_still_simulate`].
+        // Flag them changed again so the next step registers them.
+        for &h in &self.new_bodies {
+            if let Some(b) = self.w.bodies.get_mut(h) {
+                let p = *b.position();
+                b.set_position(p, false);
             }
-            // A body added asleep wakes when its first contacts are found: rapier wakes
-            // both sides of every contact that starts [rapier 0.36.0, `NarrowPhase`'s
-            // pair transitions], so clutter placed on a shelf, touching it or its
-            // neighbours, woke at once and was pushed about. Its contacts have been found
-            // now; put it back to sleep, so it rests until something new touches it
-            // [observed: test `clutter_added_asleep_on_a_shelf_it_overlaps_stays_asleep`].
-            for h in self.pending_sleep.drain(..) {
-                if let Some(b) = self.w.bodies.get_mut(h) {
-                    b.sleep();
-                }
-            }
-            // The same loses the wake-up of a sleeping body struck since the last step:
-            // it counts as awake, keeps its new velocity and never moves [observed: test
-            // `a_sleeping_body_struck_then_queried_still_moves`]. Put it to sleep and
-            // wake it with its velocity again, so the next step sees it wake.
-            for &h in &self.struck {
-                if let Some(b) = self.w.bodies.get_mut(h) {
-                    let (v, spin) = (b.linvel(), b.angvel());
-                    b.sleep();
-                    b.set_linvel(v, true);
-                    b.set_angvel(spin, true);
-                }
-            }
-            self.dirty = DirtyReasons::NONE;
         }
+        // A body added asleep wakes when its first contacts are found: rapier wakes
+        // both sides of every contact that starts [rapier 0.36.0, `NarrowPhase`'s
+        // pair transitions], so clutter placed on a shelf, touching it or its
+        // neighbours, woke at once and was pushed about. Its contacts have been found
+        // now; put it back to sleep, so it rests until something new touches it
+        // [observed: test `clutter_added_asleep_on_a_shelf_it_overlaps_stays_asleep`].
+        for h in self.pending_sleep.drain(..) {
+            if let Some(b) = self.w.bodies.get_mut(h) {
+                b.sleep();
+            }
+        }
+        // The same loses the wake-up of a sleeping body struck since the last step:
+        // it counts as awake, keeps its new velocity and never moves [observed: test
+        // `a_sleeping_body_struck_then_queried_still_moves`]. Put it to sleep and
+        // wake it with its velocity again, so the next step sees it wake.
+        for &h in &self.struck {
+            if let Some(b) = self.w.bodies.get_mut(h) {
+                let (v, spin) = (b.linvel(), b.angvel());
+                b.sleep();
+                b.set_linvel(v, true);
+                b.set_angvel(spin, true);
+            }
+        }
+        self.dirty = DirtyReasons::NONE;
     }
 
     /// Scene queries on the current state (updates the broad phase first if needed).
