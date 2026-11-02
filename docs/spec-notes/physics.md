@@ -674,7 +674,7 @@ playtest list 5 item 59].
   pose, the product rapier's next pass computes) and the queries test them directly,
   leaving the broad phase and every change flag for the next pass: query results are
   those of the full pass (`update_queries_full`) [design: test
-  `moved_actor_colliders_refreshed_alone_query_like_a_full_pass`], and the next step is
+  `tie_free_queries_match_the_full_pass_and_steps_match_an_unqueried_copy`], and the next step is
   the one a world never queried takes. Exact-distance ties may select a different
   collider than the full pass: the fast path keeps a broad-phase hit over a kept-aside
   collider at the same distance and orders kept-aside colliders by actor FormID, then

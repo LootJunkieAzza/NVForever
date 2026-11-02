@@ -213,10 +213,47 @@ fn filters() -> Vec<Filter> {
     ]
 }
 
+fn rz(a: f32) -> [f32; 9] {
+    let (s, c) = a.sin_cos();
+    [c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0]
+}
+
+fn bits3(v: [f32; 3]) -> [u32; 3] {
+    v.map(f32::to_bits)
+}
+
+/// A ray hit as bits: `PartialEq` on floats would take -0.0 for 0.0.
+type RayBits = (Owner, u32, [u32; 3], [u32; 3], Option<u32>, u32);
+
+fn ray_bits(h: &RayHit) -> RayBits {
+    (h.owner, h.distance.to_bits(), bits3(h.point), bits3(h.normal), h.material, h.shell.to_bits())
+}
+
+fn sweep_bits(h: &SweepHit) -> (Owner, u32, [u32; 3], [u32; 3]) {
+    (h.owner, h.fraction.to_bits(), bits3(h.point), bits3(h.normal))
+}
+
+/// Both query paths on one ray, bit for bit.
+fn same_ray(qa: &Queries, qb: &Queries, o: [f32; 3], d: [f32; 3], max: f32, f: &Filter) {
+    assert_eq!(qa.ray(o, d, max, f).as_ref().map(ray_bits), qb.ray(o, d, max, f).as_ref().map(ray_bits), "ray {o:?} {d:?} {max} {f:?}");
+    let all = |q: &Queries| q.ray_all(o, d, max, f).iter().map(ray_bits).collect::<Vec<_>>();
+    assert_eq!(all(qa), all(qb), "ray_all {o:?} {d:?} {max} {f:?}");
+}
+
+/// Both query paths on one sweep, bit for bit.
+fn same_sweep(qa: &Queries, qb: &Queries, shape: &Shape, from: &Iso, motion: [f32; 3], f: &Filter) {
+    let sweep = |q: &Queries| q.sweep(shape, from, motion, f).unwrap().as_ref().map(sweep_bits);
+    assert_eq!(sweep(qa), sweep(qb), "sweep {shape:?} {from:?} {motion:?} {f:?}");
+}
+
 /// Every query kind, from probes in -1..1 (four per probe), on two worlds: equal results,
-/// bit for bit.
+/// bit for bit. The probes start outside every collider and the scene keeps colliders
+/// apart, so no probe meets an exact tie (whose winner the two paths may choose
+/// differently: `exact_ties_follow_the_documented_order`).
 fn same_queries(a: &mut PhysWorld, b: &mut PhysWorld, probes: &[f32]) {
     let ball = Shape::Sphere { radius: 6.0 };
+    let brick = Shape::Box { half_extents: [7.0, 4.0, 3.0] };
+    let pill = Shape::Capsule { a: [-5.0, 0.0, 0.0], b: [5.0, 0.0, 0.0], radius: 4.0 };
     let fs = filters();
     let (qa, qb) = (a.queries(), b.queries());
     for (n, p) in probes.chunks_exact(4).enumerate() {
@@ -225,25 +262,35 @@ fn same_queries(a: &mut PhysWorld, b: &mut PhysWorld, probes: &[f32]) {
         let rays = [([u * 800.0, v * 700.0, 320.0], [s * 0.6, t * 0.6, -1.0]), ([-900.0, v * 700.0, 20.0 + (u + 1.0) * 70.0], [1.0, s * 0.3, t * 0.1])];
         for f in &fs {
             for (o, d) in rays {
-                assert_eq!(qa.ray(o, d, 2_000.0, f), qb.ray(o, d, 2_000.0, f), "ray {n} {o:?} {d:?} {f:?}");
-                assert_eq!(qa.ray_all(o, d, 2_000.0, f), qb.ray_all(o, d, 2_000.0, f), "ray_all {n} {o:?} {d:?} {f:?}");
+                same_ray(&qa, &qb, o, d, 2_000.0, f);
             }
-            let from = Iso { translation: [u * 800.0, v * 700.0, 320.0], ..Iso::IDENTITY };
             let motion = [s * 150.0, t * 150.0, -400.0];
-            assert_eq!(qa.sweep(&ball, &from, motion, f).unwrap(), qb.sweep(&ball, &from, motion, f).unwrap(), "sweep {n} {f:?}");
+            for (shape, turn) in [(&ball, 0.0), (&brick, u * 3.0), (&pill, v * 3.0)] {
+                let from = Iso { translation: [u * 800.0, v * 700.0, 320.0], rotation: rz(turn) };
+                same_sweep(&qa, &qb, shape, &from, motion, f);
+            }
+            // Level sweeps through the actors.
+            let from = Iso { translation: [-900.0, v * 700.0, 20.0 + (u + 1.0) * 70.0], rotation: rz(t) };
+            same_sweep(&qa, &qb, &brick, &from, [1_700.0, s * 300.0, 0.0], f);
             let blob = Shape::Sphere { radius: 20.0 + (t + 1.0) * 30.0 };
             let centre = Iso { translation: [u * 800.0, v * 700.0, (s + 1.0) * 80.0], ..Iso::IDENTITY };
             assert_eq!(qa.overlap(&blob, &centre, f).unwrap(), qb.overlap(&blob, &centre, f).unwrap(), "overlap {n} {f:?}");
+            let slab = Iso { translation: centre.translation, rotation: rz(s) };
+            assert_eq!(qa.overlap(&brick, &slab, f).unwrap(), qb.overlap(&brick, &slab, f).unwrap(), "overlap box {n} {f:?}");
         }
     }
     for id in ACTORS.iter().copied().chain([VOLUME_ACTOR]) {
-        assert_eq!(a.actor_part_centers(id), b.actor_part_centers(id), "actor {id:#x}");
-        assert_eq!(a.actor_aim_point(id), b.actor_aim_point(id), "actor {id:#x}");
+        let centres = |w: &PhysWorld| w.actor_part_centers(id).into_iter().map(bits3).collect::<Vec<_>>();
+        assert_eq!(centres(a), centres(b), "actor {id:#x}");
+        assert_eq!(a.actor_aim_point(id).map(bits3), b.actor_aim_point(id).map(bits3), "actor {id:#x}");
     }
 }
 
-/// Bodies, sleep and contacts equal, bit for bit.
+/// What the next step reads, equal bit for bit: every body's pose, velocities and sleep,
+/// every contact pair with its manifolds, depths and impulses (`PhysWorld::sim_digest`),
+/// and the readbacks.
 fn same_state(a: &PhysWorld, b: &PhysWorld) {
+    assert_eq!(a.sim_digest(), b.sim_digest());
     assert_eq!(a.state_digest(), b.state_digest());
     for id in CLUTTER.chain([DOOR]) {
         assert_eq!(a.ref_bodies(id), b.ref_bodies(id), "ref {id:#x}");
@@ -277,7 +324,7 @@ fn posed(seed: u32) -> PhysWorld {
 proptest::proptest! {
     #![proptest_config(proptest::prelude::ProptestConfig::with_cases(48))]
     #[test]
-    fn moved_actor_colliders_refreshed_alone_query_like_a_full_pass(
+    fn tie_free_queries_match_the_full_pass_and_steps_match_an_unqueried_copy(
         jit in proptest::collection::vec(-1.0f32..1.0, ACTORS.len() * PARTS * JIT),
         moves in proptest::collection::vec(-1.0f32..1.0, 10),
         dead in proptest::collection::vec(proptest::bool::ANY, 4),
@@ -325,7 +372,7 @@ fn a_second_pose_before_the_step_replaces_the_colliders_kept_aside() {
 type Change = Box<dyn Fn(&mut PhysWorld)>;
 
 #[test]
-fn anything_besides_moved_actor_colliders_takes_the_full_pass() {
+fn mixed_changes_take_the_full_pass_and_query_like_it() {
     let node = Iso { translation: [0.0, 0.0, 0.0], rotation: [0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0] };
     let changes: Vec<(&str, Change)> = vec![
         ("door", Box::new(move |w: &mut PhysWorld| assert!(w.pose_ref_object(&door_pose(), 0, &node, &Iso::IDENTITY)))),
@@ -490,4 +537,188 @@ fn exact_ties_follow_the_documented_order() {
     assert_eq!(alone(&mut w, 320.0, low), alone(&mut w, 320.0, high));
     let got = probes(&mut w, 320.0);
     assert_eq!(got.iter().map(|p| p.0).collect::<Vec<_>>(), vec![owner(high); 3], "{got:?}");
+}
+
+/// Rays at the edges: ending exactly at a capsule (a hit at the maximum distance does not
+/// count, in either path), grazing a capsule's side and cap, and an actor far from the
+/// origin.
+#[test]
+fn edge_rays_match_the_full_pass() {
+    let mut w = ground();
+    let far = [30_000.0, -30_000.0, 500.0];
+    let one = |p: [f32; 3]| vec![PartCapsule { part: 0, a: [p[0], p[1], p[2] + 40.0], b: [p[0], p[1], p[2] + 100.0], radius: 15.0 }];
+    let vol = |p: [f32; 3]| HitVolume { feet: p, radius: 20.0, height: 128.0, dead: false };
+    w.set_actor_parts(0x10, vol([200.0, 0.0, 0.0]), &one([200.0, 0.0, 0.0]));
+    w.set_actor_parts(0x11, vol(far), &one(far));
+    w.step();
+    w.set_actor_parts(0x10, vol([210.0, 0.0, 0.0]), &one([210.0, 0.0, 0.0]));
+    let far2 = [far[0] + 10.0, far[1], far[2]];
+    w.set_actor_parts(0x11, vol(far2), &one(far2));
+    let mut full = w.snapshot();
+    w.update_queries();
+    full.update_queries_full();
+    assert_eq!(w.refresh_stats().fast, 1);
+    let f = Filter::default();
+    let (qa, qb) = (w.queries(), full.queries());
+    for (x, base) in [(210.0f32, [0.0f32, 0.0, 0.0]), (far2[0], far2)] {
+        let o = [x - 300.0, base[1], base[2] + 70.0];
+        let d = [1.0, 0.0, 0.0];
+        let hit = qa.ray(o, d, 1_000.0, &f).expect("hits the capsule");
+        // Maximum distances a few ulps either side of the hit.
+        for i in -4i32..=4 {
+            let max = f32::from_bits((hit.distance.to_bits() as i32 + i) as u32);
+            same_ray(&qa, &qb, o, d, max, &f);
+        }
+        // Grazing the side (radius 15 off the axis) and the top cap, and an ulp either side.
+        for off in [15.0f32, 14.999999, 15.000001, -15.0] {
+            same_ray(&qa, &qb, [x - 300.0, base[1] + off, base[2] + 70.0], d, 1_000.0, &f);
+        }
+        for top in [base[2] + 115.0, base[2] + 114.99999, base[2] + 115.00001] {
+            same_ray(&qa, &qb, [x - 300.0, base[1], top], d, 1_000.0, &f);
+        }
+        same_ray(&qa, &qb, [x, base[1] + 300.0, base[2] + 70.0], [0.0, -1.0, 0.0], 1_000.0, &f);
+    }
+}
+
+/// The character controller rejects actor hit volumes (`solid_for`), so a refresh without
+/// a pass changes none of its results: the same step and the same character, bit for bit,
+/// for several inputs.
+#[test]
+fn the_character_controller_moves_alike_after_either_refresh() {
+    let mut w = posed(51);
+    w.update_queries_full();
+    let start = w.add_character(9, CharacterParams::default(), [-450.0, -150.0, 0.0]);
+    w.step();
+    pose(&mut w, &noise(52, ACTORS.len() * PARTS * JIT), &noise(53, 10), &[false; 4]);
+    let mut full = w.snapshot();
+    w.update_queries();
+    full.update_queries_full();
+    assert_eq!(w.refresh_stats().fast, 1);
+    for (i, velocity) in [[0.0, 300.0], [250.0, 250.0], [-200.0, 100.0], [0.0, 0.0]].into_iter().enumerate() {
+        let input = CharacterInput { velocity, jump: i == 3, ..Default::default() };
+        let (mut a, mut b) = (w.snapshot(), full.snapshot());
+        let (mut ca, mut cb) = (start.clone(), start.clone());
+        let (sa, sb) = (a.move_character(&mut ca, input), b.move_character(&mut cb, input));
+        // Debug prints every float so that it reads back to the same bits (-0.0 included).
+        assert_eq!(format!("{sa:?}"), format!("{sb:?}"), "input {i}");
+        assert_eq!(format!("{ca:?}"), format!("{cb:?}"), "input {i}");
+    }
+}
+
+/// A copy made after a refresh that skipped the pass keeps what it kept aside: it queries
+/// like the original and the full pass, and steps like the original.
+#[test]
+fn a_copy_after_a_refresh_without_a_pass_queries_and_steps_alike() {
+    let mut w = posed(61);
+    let mut full = w.snapshot();
+    w.update_queries();
+    full.update_queries_full();
+    let mut copy = w.snapshot();
+    assert_eq!(copy.refresh_stats().fast, 1);
+    same_queries(&mut copy, &mut full, &noise(62, 16 * 4));
+    same_queries(&mut copy, &mut w, &noise(63, 8 * 4));
+    for _ in 0..3 {
+        w.step();
+        copy.step();
+        same_state(&w, &copy);
+    }
+}
+
+/// One actor reposed among several: the others keep their broad-phase leaves.
+#[test]
+fn one_actor_reposed_among_several_queries_like_the_full_pass() {
+    let mut w = posed(71);
+    w.step();
+    let j = 2;
+    let f = actor_feet(j);
+    let feet = [f[0] + 4.0, f[1] - 3.0, f[2]];
+    w.set_actor_parts(ACTORS[j], person(feet), &parts(feet, &noise(72, PARTS * JIT)));
+    assert_eq!(w.pending_refresh(), DirtyReasons::ACTOR_PARTS);
+    let mut full = w.snapshot();
+    let mut never = w.snapshot();
+    w.update_queries();
+    full.update_queries_full();
+    assert_eq!(w.refresh_stats().fast, 1);
+    same_queries(&mut w, &mut full, &noise(73, 24 * 4));
+    w.step();
+    never.step();
+    same_state(&w, &never);
+}
+
+/// A tiny ragdoll: one capsule body.
+fn stick() -> std::sync::Arc<fnv_collide::ragdoll::Ragdoll> {
+    use fnv_collide::ragdoll::{Ragdoll, RagdollBody};
+    let mut object = object(Shape::Capsule { a: [0.0, 0.0, -10.0], b: [0.0, 0.0, 10.0], radius: 5.0 }, Motion::Keyframed);
+    object.node = Some("stick".into());
+    object.layer = layers::BIPED;
+    let rest = Iso { translation: [0.0, 0.0, 0.0], rotation: ID };
+    object.node_transform = rest;
+    let body = RagdollBody { object, linear_damping: 0.1, angular_damping: 0.05, stored: rest, unit: 7.0 };
+    std::sync::Arc::new(Ragdoll { bodies: vec![body], joints: vec![], problems: vec![] })
+}
+
+/// Every other reason, alongside a moved actor, takes the full pass, and that pass is
+/// counted under a combination that names it.
+#[test]
+fn each_other_reason_forces_the_full_pass() {
+    let rag = stick();
+    let rag_nodes = [Iso { translation: [0.0, 500.0, 100.0], rotation: ID }];
+    let cases: Vec<(DirtyReasons, Change)> = vec![
+        (DirtyReasons::BODIES, Box::new(|w: &mut PhysWorld| assert!(w.remove_ref(0x41)))),
+        (DirtyReasons::DOORS, Box::new(|w: &mut PhysWorld| assert_eq!(w.set_ref_keyframed_solid(DOOR, false), 1))),
+        (DirtyReasons::CHARACTERS, Box::new(|w: &mut PhysWorld| {
+            w.add_character(7, CharacterParams::default(), [0.0, 500.0, 0.0]);
+        })),
+        (DirtyReasons::RAGDOLLS, Box::new(move |w: &mut PhysWorld| {
+            w.add_ragdoll(&RagdollStart { form_id: 0x400, ragdoll: &rag, scale: 1.0, nodes: &rag_nodes, velocity: [0.0; 3], parts: &[], asleep: false });
+        })),
+        (DirtyReasons::GORE, Box::new(|w: &mut PhysWorld| {
+            w.add_gore(&fnv_phys::gore::GoreStart {
+                id: 3,
+                actor: ACTORS[0],
+                translation: [0.0, 450.0, 150.0],
+                rotation: ID,
+                half_extents: [5.0; 3],
+                center: [0.0; 3],
+                linvel: [0.0; 3],
+                angvel: [0.0; 3],
+                mass: 2.0,
+            })
+        })),
+        (DirtyReasons::TERRAIN, Box::new(|w: &mut PhysWorld| w.add_terrain((1, 0), &vec![5.0; SIDE * SIDE]))),
+        (DirtyReasons::ACTOR_REBUILT, Box::new(|w: &mut PhysWorld| w.set_actor_volume(0x300, person([0.0, 400.0, 0.0])))),
+    ];
+    for (reason, change) in &cases {
+        let mut w = posed(81);
+        let mut full = w.snapshot();
+        change(&mut w);
+        change(&mut full);
+        assert!(w.pending_refresh().contains(*reason), "{reason}: {}", w.pending_refresh());
+        let (fast0, full0) = (w.refresh_stats().fast, w.refresh_stats().full);
+        w.update_queries();
+        full.update_queries_full();
+        assert_eq!((w.refresh_stats().fast, w.refresh_stats().full), (fast0, full0 + 1), "{reason}");
+        assert!(w.refresh_stats().by_reasons.keys().any(|k| k.contains(*reason | DirtyReasons::ACTOR_PARTS)), "{reason}");
+        same_queries(&mut w, &mut full, &noise(82, 8 * 4));
+    }
+
+    // A teleport (PLACED) needs a character that exists already.
+    let mut w = posed(83);
+    w.update_queries_full();
+    let mut c = w.add_character(8, CharacterParams::default(), [0.0, 500.0, 0.0]);
+    w.step();
+    pose(&mut w, &noise(84, ACTORS.len() * PARTS * JIT), &noise(85, 10), &[false; 4]);
+    w.place_character(&mut c, [100.0, 500.0, 0.0]);
+    assert_eq!(w.pending_refresh(), DirtyReasons::ACTOR_PARTS | DirtyReasons::ACTOR_VOLUME | DirtyReasons::PLACED);
+    let fast0 = w.refresh_stats().fast;
+    w.update_queries();
+    assert_eq!(w.refresh_stats().fast, fast0);
+
+    // Clutter added asleep (SLEEP) is found its contacts by a full pass before the step.
+    let mut w = posed(86);
+    let p = PreparedRef::new(&w.params, &at(0x71, [0.0, 450.0, 8.0]), &[object(Shape::Box { half_extents: [8.0; 3] }, Motion::Dynamic)]).asleep();
+    w.insert_ref(p);
+    w.step();
+    assert!(w.refresh_stats().by_reasons.keys().any(|k| k.contains(DirtyReasons::SLEEP | DirtyReasons::ACTOR_PARTS)));
+    assert_eq!(w.refresh_stats().fast, 0);
 }

@@ -959,6 +959,61 @@ impl PhysWorld {
         h
     }
 
+    /// A digest of what a step carries into the next, wider than
+    /// [`PhysWorld::state_digest`]: every body's pose, linear and angular velocity, sleep
+    /// and enabled state (handle order), and every contact pair of the narrow phase
+    /// (contact-graph order): its two colliders, whether it touches, its manifolds, and in
+    /// each the normal, sub-shapes and every point's depth, local points and impulses
+    /// (warm-start ones included). Equal digests mean bit-identical states as far as
+    /// these go (determinism checks).
+    pub fn sim_digest(&self) -> u64 {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut eat = |bits: u32| {
+            for byte in bits.to_le_bytes() {
+                h ^= byte as u64;
+                h = h.wrapping_mul(0x0100_0000_01b3);
+            }
+        };
+        for (handle, b) in self.w.bodies.iter() {
+            let (i, g) = handle.into_raw_parts();
+            eat(i);
+            eat(g);
+            let p = b.position();
+            let (l, a) = (b.linvel(), b.angvel());
+            for v in [p.translation.x, p.translation.y, p.translation.z, p.rotation.x, p.rotation.y, p.rotation.z, p.rotation.w, l.x, l.y, l.z, a.x, a.y, a.z] {
+                eat(v.to_bits());
+            }
+            eat(b.is_sleeping() as u32 | (b.is_enabled() as u32) << 1);
+        }
+        for pair in self.w.narrow_phase.contact_pairs() {
+            for c in [pair.collider1, pair.collider2] {
+                let (i, g) = c.into_raw_parts();
+                eat(i);
+                eat(g);
+            }
+            eat(pair.has_any_active_contact() as u32);
+            eat(pair.manifolds().len() as u32);
+            for m in pair.manifolds() {
+                eat(m.points.len() as u32);
+                eat(m.subshape1);
+                eat(m.subshape2);
+                for v in [m.local_n1.x, m.local_n1.y, m.local_n1.z] {
+                    eat(v.to_bits());
+                }
+                for p in &m.points {
+                    let d = &p.data;
+                    for v in [p.dist, p.local_p1.x, p.local_p1.y, p.local_p1.z, p.local_p2.x, p.local_p2.y, p.local_p2.z, d.impulse, d.warmstart_impulse, d.warmstart_twist_impulse] {
+                        eat(v.to_bits());
+                    }
+                    for v in d.tangent_impulse.iter().chain(d.warmstart_tangent_impulse.iter()) {
+                        eat(v.to_bits());
+                    }
+                }
+            }
+        }
+        h
+    }
+
     /// Contact shell of a collider, game units: [`TERRAIN_SHELL`] for terrain, the
     /// collision object's shell for a reference's collider, 0 otherwise.
     pub(crate) fn shell_of(&self, c: ColliderHandle) -> f32 {
