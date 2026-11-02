@@ -675,8 +675,12 @@ playtest list 5 item 59].
   leaving the broad phase and every change flag for the next pass: query results are
   those of the full pass (`update_queries_full`) [design: test
   `moved_actor_colliders_refreshed_alone_query_like_a_full_pass`], and the next step is
-  the one a world never queried takes. Exact ties between hits (two colliders at the same
-  distance) are decided by the broad-phase tree in either path. What no longer happens at
+  the one a world never queried takes. Exact-distance ties may select a different
+  collider than the full pass: the fast path keeps a broad-phase hit over a kept-aside
+  collider at the same distance and orders kept-aside colliders by actor FormID, then
+  capsule order, while the full pass takes whichever its tree traversal meets first;
+  this includes distance-0 ties when a ray or sweep starts inside overlapping shapes
+  [design: test `exact_ties_follow_the_documented_order`]. What no longer happens at
   the query: the full pass's recomputation of awake contacts at a zero time step, its
   begin-touch wake-ups and its contact diagnostics (`ref_contacts`); they happen at the
   next step, as in a frame with no query. Setting the same part capsules again marks

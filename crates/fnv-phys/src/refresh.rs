@@ -12,6 +12,15 @@
 //! (`crate::world::Queries`). Nothing the next step or detection pass reads is consumed:
 //! the colliders keep their change flags, so the next pass updates the broad phase from
 //! them as it would have without a query.
+//!
+//! Exact ties: the queries search the broad phase first, then test the kept-aside
+//! colliders in their kept order (by actor FormID, then by the order of the actor's
+//! capsules), and a kept-aside hit replaces the best so far only when strictly nearer. So
+//! at exactly the same distance a broad-phase hit beats a kept-aside collider, and an
+//! earlier kept-aside collider beats a later one. A full pass decides the same tie by the
+//! order its tree traversal meets the colliders, so an exact-distance tie may select a
+//! different collider than the full pass would, distance-0 ties included (a ray or sweep
+//! starting inside overlapping shapes). `ray_all` and `overlap` return every hit, sorted.
 
 use rapier3d::parry::bounding_volume::Aabb;
 use rapier3d::prelude::ColliderHandle;

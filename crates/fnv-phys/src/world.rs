@@ -766,8 +766,8 @@ impl PhysWorld {
     /// see them, without advancing time. When only actor hit colliders moved since the
     /// last refresh or step, their world poses are updated and the queries test them
     /// directly, without a collision detection pass (`crate::refresh`): the same results
-    /// as a full pass ([`PhysWorld::update_queries_full`]) except that an exact tie
-    /// between hits may go to another collider.
+    /// as a full pass ([`PhysWorld::update_queries_full`]) except that an exact-distance
+    /// tie may select a different collider (the rule: `crate::refresh`).
     pub fn update_queries(&mut self) {
         self.refresh(false);
     }
@@ -1121,7 +1121,8 @@ impl Queries<'_> {
         // when it is strictly nearer than the best so far, which starts at the maximum
         // distance [design: `Bvh::find_best`, parry3d 0.31.1]. A capsule's ray test gives
         // the same distance whatever bound it is given (it only filters by it,
-        // `RayCast for Capsule`), so testing against `max` changes nothing.
+        // `RayCast for Capsule`), so testing against `max` changes nothing. Exact ties
+        // follow the kept order, not the full pass's tree order (`crate::refresh`).
         for (h, co, aabb) in self.aside(filter) {
             if !aabb.intersects_local_ray(&ray, max) {
                 continue;
@@ -1180,7 +1181,9 @@ impl Queries<'_> {
             // Each collider kept aside as the broad-phase traversal casts against one of
             // its parts, and kept by the same strictly-nearer rule [design:
             // `CompositeShapeRef::cast_shape` and `Bvh::find_best`, parry3d 0.31.1]; the
-            // part's cast gets the query's own options, not the best so far.
+            // part's cast gets the query's own options, not the best so far. Exact ties
+            // (distance 0 from inside overlapping shapes too) follow the kept order, not
+            // the full pass's tree order (`crate::refresh`).
             let dispatcher = w.narrow_phase.query_dispatcher();
             let end = Pose::from_parts(pose.translation + vel * opts.max_time_of_impact, pose.rotation);
             let swept = shape.compute_aabb(&pose).merged(&shape.compute_aabb(&end)).loosened(opts.target_distance);

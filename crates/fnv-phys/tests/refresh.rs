@@ -430,3 +430,64 @@ fn the_reference_pass_always_runs_and_queries_match_it() {
     assert_eq!(full.refresh_stats().full, w.refresh_stats().full + 1);
     same_queries(&mut w, &mut full, &noise(46, 16 * 4));
 }
+
+/// The documented tie rule of the refresh without a pass (`fnv_phys::refresh`): at
+/// exactly the same distance, a broad-phase hit beats a kept-aside collider, and among
+/// kept-aside colliders the lowest FormID (then the earliest capsule) wins. A full pass
+/// may pick either; this pins the fast path only. Two actors with the same capsules in the
+/// same place tie for every ray and sweep, from outside and from inside (distance 0).
+#[test]
+fn exact_ties_follow_the_documented_order() {
+    let mut w = ground();
+    let one = |x: f32| vec![PartCapsule { part: 3, a: [x, 0.0, 40.0], b: [x, 0.0, 100.0], radius: 15.0 }];
+    let at_x = |x: f32| HitVolume { feet: [x, 0.0, 0.0], radius: 20.0, height: 128.0, dead: false };
+    let (low, high) = (0x10u32, 0x20u32);
+    for id in [high, low] {
+        w.set_actor_parts(id, at_x(200.0), &one(200.0));
+    }
+    w.step();
+    let ball = Shape::Sphere { radius: 5.0 };
+    // Rays from outside and from inside both capsules; a sweep from inside both.
+    let probes = |w: &mut PhysWorld, x: f32| -> Vec<(Option<Owner>, u32)> {
+        let q = w.queries();
+        let f = Filter::default();
+        let outside = q.ray([x - 100.0, 0.0, 70.0], [1.0, 0.0, 0.0], 1_000.0, &f).map(|h| (h.owner, h.distance.to_bits()));
+        let inside = q.ray([x, 0.0, 70.0], [1.0, 0.0, 0.0], 1_000.0, &f).map(|h| (h.owner, h.distance.to_bits()));
+        let from = Iso { translation: [x, 0.0, 70.0], ..Iso::IDENTITY };
+        let sweep = q.sweep(&ball, &from, [50.0, 0.0, 0.0], &f).unwrap().map(|h| (h.owner, h.fraction.to_bits()));
+        [outside, inside, sweep].into_iter().map(|p| (p.map(|p| p.0), p.map_or(u32::MAX, |p| p.1))).collect()
+    };
+    let owner = |id: u32| Some(Owner::Actor { form_id: id, layer: layers::BIPED, part: 3 });
+    // The two really tie: each alone is met at the same distance, bit for bit.
+    let alone = |w: &mut PhysWorld, x: f32, id: u32| {
+        let other = if id == low { high } else { low };
+        let f = Filter { exclude: vec![Key::Actor(other)], ..Default::default() };
+        w.queries().ray([x - 100.0, 0.0, 70.0], [1.0, 0.0, 0.0], 1_000.0, &f).map(|h| h.distance.to_bits())
+    };
+
+    // Both kept aside: the lower FormID wins, whichever was posed first.
+    for id in [high, low] {
+        w.set_actor_parts(id, at_x(260.0), &one(260.0));
+    }
+    w.update_queries();
+    assert_eq!(w.refresh_stats().fast, 1);
+    assert_eq!(alone(&mut w, 260.0, low), alone(&mut w, 260.0, high));
+    let got = probes(&mut w, 260.0);
+    assert_eq!(got.iter().map(|p| p.0).collect::<Vec<_>>(), vec![owner(low); 3], "{got:?}");
+    assert_eq!((got[1].1, got[2].1), (0.0f32.to_bits(), 0.0f32.to_bits()), "inside: distance 0");
+
+    // One in the broad phase (placed by a full pass), one kept aside: the broad-phase hit
+    // wins.
+    for id in [high, low] {
+        w.set_actor_parts(id, at_x(320.0), &one(320.0));
+    }
+    w.update_queries_full();
+    w.set_actor_parts(low, at_x(330.0), &one(330.0));
+    w.update_queries();
+    w.set_actor_parts(low, at_x(320.0), &one(320.0));
+    w.update_queries();
+    assert_eq!(w.refresh_stats().fast, 3);
+    assert_eq!(alone(&mut w, 320.0, low), alone(&mut w, 320.0, high));
+    let got = probes(&mut w, 320.0);
+    assert_eq!(got.iter().map(|p| p.0).collect::<Vec<_>>(), vec![owner(high); 3], "{got:?}");
+}
