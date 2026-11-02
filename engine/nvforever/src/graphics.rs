@@ -332,7 +332,7 @@ impl Plugin for GraphicsPlugin {
             .insert_resource(DirectionalLightShadowMap { size: if g.fine_shadows { FINE_SHADOW_MAP } else { SHADOW_MAP } })
             .add_plugins((crate::ssao::SsaoPlugin, crate::post::PostPlugin, crate::taa::TaaPlugin, crate::shafts::ShaftsPlugin))
             .add_systems(Startup, |g: Res<Graphics>| info!("graphics: {}", g.describe()))
-            .add_systems(Update, apply);
+            .add_systems(Update, (apply, sun_shadow_quality.after(crate::sky::update_sky)).chain());
         if let Some(ft) = self.2.clone().filter(|f| f.every > 0.0) {
             // GPU time per render pass (timestamp queries), logged with the frame time.
             ensure_render_diagnostics(app);
@@ -447,6 +447,79 @@ fn apply_shadow_step(commands: &mut Commands, sky: &SkyState, start: (bool, f32,
     }
 }
 
+/// The moon's shadows (the sun's light below the horizon) reach this far, in one cascade
+/// of [`SHADOW_MAP`] size whatever the finer shadows say [engineering choice, owner
+/// 2026-11-02 (#1369): by night the light is dimmer and softer and the dark hides the far
+/// shadows; by day's settings they cost about 2.5 ms on the Strip at 22:00, RTX 5070 Ti].
+pub const MOON_SHADOW_DISTANCE: f32 = 3_000.0;
+/// Below this share of its strength (the fade at the horizon) the sun or moon casts no
+/// shadows at all: its maps are not drawn [engineering choice: at a tenth of the light the
+/// shadow is too faint to see go].
+const SHADOW_FADED: f32 = 0.1;
+
+/// Which shadows the sun's light casts at the sun's current height.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum SunShadows {
+    Day,
+    Moon,
+    Faded,
+}
+
+impl SunShadows {
+    /// For the sun's height above the horizon (below 0: the moon) and the light's fade.
+    fn at(height: f32, fade: f32) -> Self {
+        if fade < SHADOW_FADED {
+            SunShadows::Faded
+        } else if height < 0.0 {
+            SunShadows::Moon
+        } else {
+            SunShadows::Day
+        }
+    }
+}
+
+/// The sun's shadow quality for the hour: by day the settings' cascades, reach and map size;
+/// by night the moon's cheaper ones ([`MOON_SHADOW_DISTANCE`]); none while the light is
+/// faded at the horizon. Applied when the phase or a shadow setting changes, after
+/// [`apply`] and [`crate::sky::set_shadows`] (which put the day's cascades on).
+#[allow(clippy::type_complexity)]
+fn sun_shadow_quality(
+    mut commands: Commands,
+    g: Res<Graphics>,
+    sky: Res<SkyState>,
+    mut shadow_map: ResMut<DirectionalLightShadowMap>,
+    mut suns: Query<(Entity, &mut DirectionalLight), With<Sun>>,
+    mut done: Local<Option<(SunShadows, bool, bool, f32, f32, usize, usize)>>,
+) {
+    let (height, fade) = crate::sky::sun_height_and_fade(&sky);
+    let phase = SunShadows::at(height, fade);
+    let count = suns.iter().count();
+    let key = (phase, sky.shadows, g.fine_shadows, sky.shadow_distance, sky.shadow_reach, sky.shadow_cascades, count);
+    if count == 0 || done.as_ref() == Some(&key) {
+        return;
+    }
+    if done.is_some_and(|d| d.0 != phase) {
+        info!("sun shadows: {phase:?}");
+    }
+    *done = Some(key);
+    let size = if g.fine_shadows && phase == SunShadows::Day { FINE_SHADOW_MAP } else { SHADOW_MAP };
+    if shadow_map.size != size {
+        shadow_map.size = size;
+    }
+    let on = sky.shadows && phase != SunShadows::Faded;
+    for (e, mut light) in &mut suns {
+        if light.shadow_maps_enabled != on {
+            light.shadow_maps_enabled = on;
+        }
+        if on {
+            commands.entity(e).insert(match phase {
+                SunShadows::Moon => crate::sky::shadow_cascades(MOON_SHADOW_DISTANCE.min(sky.shadow_distance), 1.0, 1),
+                _ => crate::sky::shadow_cascades(sky.shadow_distance, sky.shadow_reach, sky.shadow_cascades),
+            });
+        }
+    }
+}
+
 /// Put the improvements that are on onto the main camera and the sun, take those that are
 /// off away (when a switch changes, and once at the start).
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -455,7 +528,6 @@ fn apply(
     g: Res<Graphics>,
     msaa: Res<MsaaSetting>,
     mut sky: ResMut<SkyState>,
-    mut shadow_map: ResMut<DirectionalLightShadowMap>,
     cams: Query<(Entity, &Msaa), With<FlyCam>>,
     suns: Query<(Entity, &DirectionalLight), With<Sun>>,
     eye: Res<crate::eye_adapt::EyeCurve>,
@@ -538,10 +610,6 @@ fn apply(
             e.remove::<LightShafts>();
         }
     }
-    let size = if g.fine_shadows { FINE_SHADOW_MAP } else { SHADOW_MAP };
-    if shadow_map.size != size {
-        shadow_map.size = size;
-    }
     let reach = if g.fine_shadows { FINE_SHADOW_REACH } else { 1.0 };
     let reach_changed = sky.shadow_reach != reach;
     if reach_changed {
@@ -563,6 +631,15 @@ fn apply(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_moon_casts_cheaper_shadows_and_none_at_the_horizon() {
+        assert_eq!(SunShadows::at(0.8, 1.0), SunShadows::Day);
+        assert_eq!(SunShadows::at(-0.5, 1.0), SunShadows::Moon);
+        assert_eq!(SunShadows::at(0.005, 0.05), SunShadows::Faded, "sunrise: the light a twentieth of itself");
+        assert_eq!(SunShadows::at(-0.005, 0.05), SunShadows::Faded, "moonset");
+        assert_eq!(SunShadows::at(0.02, SHADOW_FADED), SunShadows::Day, "back on at the threshold");
+    }
 
     #[test]
     fn every_key_is_a_switch_and_enhanced_leaves_taa_off() {
