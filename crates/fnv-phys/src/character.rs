@@ -328,7 +328,7 @@ impl PhysWorld {
         let groups = InteractionGroups::new(CHARACTER_SOLVER, Group::ALL, InteractionTestMode::And);
         self.w.insert_collider(ColliderBuilder::new(c.shape.clone()).user_data(owner.encode()).collision_groups(groups).solver_groups(groups), Some(body));
         c.body = body;
-        self.mark_dirty();
+        self.mark_dirty(crate::refresh::DirtyReasons::CHARACTERS);
         c
     }
 

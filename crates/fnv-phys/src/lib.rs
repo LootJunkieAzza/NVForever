@@ -18,6 +18,7 @@
 //! - [`grab`]: a body held by the player's grab
 //! - [`water`]: water areas (cell water surfaces) the character swims in
 //! - [`buoyancy`]: ragdolls and gore pieces float in water
+//! - [`refresh`]: why queries had to be brought up to date between steps, counted
 //! - [`swim`]: swimming speeds (the stroke cycle)
 //!
 //! Units and axes are the game's: lengths in game units, Z up, rotations row-major 3×3
@@ -37,6 +38,7 @@ pub mod layers;
 pub mod placed;
 pub mod primitive;
 pub mod ragdoll;
+pub mod refresh;
 pub mod swim;
 pub mod terrain;
 pub mod water;
@@ -49,6 +51,7 @@ pub use convert::ConvertError;
 pub use grab::{Grip, GripOn, HoldParams};
 pub use layers::LayerSet;
 pub use ragdoll::{RagdollReport, RagdollStart};
+pub use refresh::{DirtyReasons, RefreshStats};
 pub use placed::{ref_collision, ref_collision_with, ModelCollision, RefCollision, RefCollisionOptions};
 pub use swim::Stroke;
 pub use water::{PlacedWater, WaterArea};

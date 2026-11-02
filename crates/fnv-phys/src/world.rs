@@ -10,6 +10,7 @@
 //! the order of insertion is what counts.
 
 use crate::convert::{self, arr3, vec3, ConvertError, Leaf};
+use crate::refresh::{DirtyReasons, RefreshStats};
 use fnv_collide::{CollisionObject, Iso, Motion, Shape};
 use rapier3d::math::{Pose, Vector};
 use rapier3d::parry::query::ShapeCastOptions;
@@ -308,8 +309,11 @@ pub struct PhysWorld {
     /// Contact shells (game units) of reference colliders that have one
     /// (`CollisionObject::shell` times the reference's scale).
     shells: HashMap<ColliderHandle, f32>,
-    /// Colliders changed since the broad phase was last updated.
-    dirty: bool,
+    /// Why the broad phase is stale: the changes since it was last updated (none when
+    /// it is up to date).
+    dirty: DirtyReasons,
+    /// Refreshes run by [`PhysWorld::update_queries`], by reason.
+    refresh_stats: RefreshStats,
     /// Bodies inserted since the last step (see [`PhysWorld::update_queries`]).
     new_bodies: Vec<RigidBodyHandle>,
     /// Bodies struck ([`PhysWorld::push_ref`], [`PhysWorld::push_dynamic`]) or moved by
@@ -352,7 +356,8 @@ impl PhysWorld {
             gore: BTreeMap::new(),
             materials: HashMap::new(),
             shells: HashMap::new(),
-            dirty: false,
+            dirty: DirtyReasons::NONE,
+            refresh_stats: RefreshStats::default(),
             new_bodies: Vec::new(),
             struck: Vec::new(),
             pending_sleep: Vec::new(),
@@ -376,13 +381,13 @@ impl PhysWorld {
         let c = t.collider.user_data(Owner::Terrain { x: grid.0, y: grid.1 }.encode()).contact_skin(TERRAIN_SHELL * self.k);
         let h = self.w.insert_collider(c, None);
         self.terrain.insert(grid, h);
-        self.dirty = true;
+        self.mark_dirty(DirtyReasons::TERRAIN);
     }
 
     pub fn remove_terrain(&mut self, grid: (i32, i32)) -> bool {
         let Some(h) = self.terrain.remove(&grid) else { return false };
         self.w.remove_collider(h);
-        self.dirty = true;
+        self.mark_dirty(DirtyReasons::TERRAIN);
         true
     }
 
@@ -432,7 +437,7 @@ impl PhysWorld {
         }
         report.bodies = handles.len();
         if !handles.is_empty() {
-            self.dirty = true;
+            self.mark_dirty(DirtyReasons::BODIES);
         }
         report
     }
@@ -509,7 +514,7 @@ impl PhysWorld {
         for b in bodies {
             self.remove_body(b);
         }
-        self.dirty = true;
+        self.mark_dirty(DirtyReasons::BODIES);
         true
     }
 
@@ -521,7 +526,7 @@ impl PhysWorld {
             }
         }
         self.w.remove_body(b);
-        self.dirty = true;
+        self.mark_dirty(DirtyReasons::BODIES);
     }
 
     /// Move the keyframed body of collision object `object` (its index in the list given
@@ -552,7 +557,7 @@ impl PhysWorld {
         }
         body.set_position(p, true);
         body.set_next_kinematic_position(p);
-        self.dirty = true;
+        self.mark_dirty(DirtyReasons::DOORS);
         true
     }
 
@@ -577,7 +582,7 @@ impl PhysWorld {
             }
         }
         if n > 0 {
-            self.dirty = true;
+            self.mark_dirty(DirtyReasons::DOORS);
         }
         n
     }
@@ -728,20 +733,20 @@ impl PhysWorld {
     /// the step ([`PhysWorld::update_queries`]).
     pub(crate) fn body_placed(&mut self, h: RigidBodyHandle) {
         self.struck.push(h);
-        self.mark_dirty();
+        self.mark_dirty(DirtyReasons::PLACED);
     }
 
     /// Advance one fixed step.
     pub fn step(&mut self) {
         if !self.pending_sleep.is_empty() {
             // Find the contacts of bodies added asleep first (`update_queries`).
-            self.dirty = true;
+            self.mark_dirty(DirtyReasons::SLEEP);
             self.update_queries();
         }
         self.drive_grip();
         self.buoy();
         self.step_world();
-        self.dirty = false;
+        self.dirty = DirtyReasons::NONE;
         self.new_bodies.clear();
         self.struck.clear();
         self.steps += 1;
@@ -754,7 +759,8 @@ impl PhysWorld {
     /// Bring the broad phase up to date after adding or removing bodies, so that queries
     /// see them, without advancing time.
     pub fn update_queries(&mut self) {
-        if self.dirty {
+        if !self.dirty.is_empty() {
+            self.refresh_stats.record_full(self.dirty);
             self.detect();
             // rapier 0.36's collision-only pipeline consumes the change flags of bodies
             // inserted since the last step without registering them with the island
@@ -790,7 +796,7 @@ impl PhysWorld {
                     b.set_angvel(spin, true);
                 }
             }
-            self.dirty = false;
+            self.dirty = DirtyReasons::NONE;
         }
     }
 
@@ -800,8 +806,21 @@ impl PhysWorld {
         Queries { world: self }
     }
 
-    pub(crate) fn mark_dirty(&mut self) {
-        self.dirty = true;
+    /// Note that the broad phase is stale, and why (`crate::refresh`).
+    pub(crate) fn mark_dirty(&mut self, reason: DirtyReasons) {
+        self.dirty.insert(reason);
+    }
+
+    /// Why the broad phase is stale now: the changes since the last refresh or step
+    /// ([`DirtyReasons::NONE`] when it is up to date).
+    pub fn pending_refresh(&self) -> DirtyReasons {
+        self.dirty
+    }
+
+    /// The refreshes [`PhysWorld::update_queries`] has run, by the reasons that called for
+    /// them (measurement: which change makes a frame pay for collision detection).
+    pub fn refresh_stats(&self) -> &RefreshStats {
+        &self.refresh_stats
     }
 
     /// Bounding box (game units: min and max corners) of every collider on a fixed body —
@@ -872,6 +891,7 @@ impl PhysWorld {
             materials: self.materials.clone(),
             shells: self.shells.clone(),
             dirty: self.dirty,
+            refresh_stats: self.refresh_stats.clone(),
             new_bodies: self.new_bodies.clone(),
             struck: self.struck.clone(),
             pending_sleep: self.pending_sleep.clone(),

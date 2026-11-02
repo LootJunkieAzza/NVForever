@@ -12,6 +12,7 @@
 //! Sizes and bone positions come from the caller; this module keeps the shapes where it
 //! is told.
 
+use crate::refresh::DirtyReasons;
 use crate::world::{Owner, PhysWorld};
 use crate::{layers, BodyState};
 use rapier3d::math::{Pose, Rotation};
@@ -156,7 +157,7 @@ impl PhysWorld {
                 co.set_shape(SharedShape::capsule_z(half * k, radius * k));
             }
         }
-        self.mark_dirty();
+        self.mark_dirty(DirtyReasons::ACTOR_VOLUME);
     }
 
     /// One capsule per body part (step C8): `v` is the actor's overall extent (its body
@@ -204,7 +205,7 @@ impl PhysWorld {
                 }
             }
         }
-        self.mark_dirty();
+        self.mark_dirty(DirtyReasons::ACTOR_PARTS);
     }
 
     /// Remove an actor's hit volume (it left the loaded area or was disabled).
