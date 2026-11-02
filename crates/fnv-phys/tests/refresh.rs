@@ -370,3 +370,35 @@ fn anything_besides_moved_actor_colliders_takes_the_full_pass() {
         }
     }
 }
+
+/// An actor's gore pieces (and ragdoll) report the actor's own FormID: refreshing its
+/// hit capsules without a pass must not hide them from the queries.
+#[test]
+fn gore_of_an_actor_refreshed_without_a_pass_is_still_hit() {
+    use fnv_phys::gore::{GoreStart, GORE_PART};
+    let mut w = posed(31);
+    let id = ACTORS[0];
+    let piece = GoreStart {
+        id: 1,
+        actor: id,
+        translation: [0.0, 400.0, 200.0],
+        rotation: ID,
+        half_extents: [10.0, 10.0, 10.0],
+        center: [0.0; 3],
+        linvel: [0.0; 3],
+        angvel: [0.0; 3],
+        mass: 5.0,
+    };
+    w.add_gore(&piece);
+    w.step();
+    pose(&mut w, &noise(32, ACTORS.len() * PARTS * JIT), &noise(33, 10), &[true; 4]);
+    let mut full = w.snapshot();
+    w.update_queries();
+    full.update_queries_full();
+    assert_eq!(w.refresh_stats().fast, 1);
+    let down = |w: &mut PhysWorld| w.queries().ray([0.0, 400.0, 320.0], [0.0, 0.0, -1.0], 1_000.0, &Filter::default());
+    let hit = down(&mut w).expect("hits the piece");
+    assert_eq!(hit.owner, Owner::Actor { form_id: id, layer: layers::DEAD_BIP, part: GORE_PART });
+    assert_eq!(Some(hit), down(&mut full));
+    same_queries(&mut w, &mut full, &noise(34, 16 * 4));
+}

@@ -13,7 +13,6 @@
 //! the colliders keep their change flags, so the next pass updates the broad phase from
 //! them as it would have without a query.
 
-use crate::world::Owner;
 use rapier3d::parry::bounding_volume::Aabb;
 use rapier3d::prelude::ColliderHandle;
 use std::collections::BTreeMap;
@@ -146,6 +145,8 @@ impl RefreshStats {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SideCollider {
     pub form_id: u32,
+    /// Its place in the actor's capsule list (the order the caller gave the parts in).
+    pub slot: u16,
     pub handle: ColliderHandle,
     /// Its world AABB at the current pose, loosened by [`SIDE_MARGIN`] (a prefilter for
     /// the queries' direct tests; the shape test decides).
@@ -163,11 +164,14 @@ pub(crate) struct ActorPoses {
     /// Actors whose hit colliders were moved (not added, removed or rebuilt) since the
     /// last refresh, in call order, possibly repeated.
     pub touched: Vec<u32>,
-    /// Actors refreshed without a detection pass since the last one or the last step,
-    /// sorted: their colliders' broad-phase leaves are stale.
-    stale: Vec<u32>,
-    /// Those actors' colliders.
-    pub side: Vec<SideCollider>,
+    /// The colliders refreshed without a detection pass since the last one or the last
+    /// step, sorted by actor FormID, then by their place in the actor's capsule list:
+    /// the order the queries test them in, which decides exact ties among them.
+    side: Vec<SideCollider>,
+    /// Their handles (`into_raw_parts`), sorted: the broad-phase leaves the queries must
+    /// not use. By handle, not by owner: an actor's ragdoll and gore pieces report the
+    /// same FormID and their leaves are up to date.
+    hidden: Vec<(u32, u32)>,
 }
 
 impl ActorPoses {
@@ -178,28 +182,28 @@ impl ActorPoses {
     /// Forget everything: a detection pass or a step brought the broad phase up to date.
     pub fn clear(&mut self) {
         self.touched.clear();
-        self.stale.clear();
         self.side.clear();
+        self.hidden.clear();
     }
 
-    /// Replace an actor's colliders kept aside by the ones `push_side` adds next.
-    pub fn restart(&mut self, form_id: u32) {
-        if let Err(i) = self.stale.binary_search(&form_id) {
-            self.stale.insert(i, form_id);
-        } else {
-            self.side.retain(|s| s.form_id != form_id);
-        }
+    /// Replace the colliders kept aside for `actors` by `fresh`.
+    pub fn replace(&mut self, actors: &[u32], fresh: impl IntoIterator<Item = SideCollider>) {
+        self.side.retain(|s| actors.binary_search(&s.form_id).is_err());
+        self.side.extend(fresh);
+        self.side.sort_by_key(|s| (s.form_id, s.slot));
+        self.hidden.clear();
+        self.hidden.extend(self.side.iter().map(|s| s.handle.into_raw_parts()));
+        self.hidden.sort_unstable();
     }
 
-    pub fn push_side(&mut self, s: SideCollider) {
-        self.side.push(s);
+    pub fn side(&self) -> &[SideCollider] {
+        &self.side
     }
 
-    /// Whether a collider (by its `user_data`) is one kept aside, whose broad-phase leaf
-    /// the queries must not use.
-    pub fn hides(&self, user_data: u128) -> bool {
-        !self.stale.is_empty()
-            && matches!(Owner::decode(user_data), Some(Owner::Actor { form_id, .. }) if self.stale.binary_search(&form_id).is_ok())
+    /// Whether a collider is one kept aside, whose broad-phase leaf the queries must not
+    /// use.
+    pub fn hides(&self, handle: ColliderHandle) -> bool {
+        !self.hidden.is_empty() && self.hidden.binary_search(&handle.into_raw_parts()).is_ok()
     }
 }
 

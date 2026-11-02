@@ -1083,18 +1083,21 @@ impl Queries<'_> {
     fn with_filter<R>(&self, filter: &Filter, f: impl FnOnce(QueryFilter) -> R) -> R {
         let w = &self.world.w;
         let poses = &self.world.poses;
-        let pred = |_: ColliderHandle, c: &Collider| filter.accepts(c, &w.bodies) && !poses.hides(c.user_data);
+        let pred = |h: ColliderHandle, c: &Collider| filter.accepts(c, &w.bodies) && !poses.hides(h);
         f(QueryFilter::default().exclude_sensors().predicate(&pred))
     }
 
     /// The actor colliders a refresh kept aside that the query's filter accepts, with the
-    /// loosened AABB of each: the same test the broad-phase query applies to a collider
-    /// (`QueryFilter::test` with the same filter), so each query adds exactly the
-    /// colliders the full pass would have let it test.
+    /// loosened AABB of each, in the order kept (by FormID, then capsule order). The
+    /// tests are those that decide whether the full pass's query would have tested a
+    /// collider: enabled (rapier's broad phase keeps no leaf for a disabled collider,
+    /// `BroadPhaseBvh::update`, and treats a collider disabled since the last pass as
+    /// removed, `CollisionPipeline::step`; `QueryFilter::test` does not look) and passing
+    /// `QueryFilter::test` with the same filter [design: rapier3d 0.36.0].
     fn aside<'s>(&'s self, filter: &'s Filter) -> impl Iterator<Item = (ColliderHandle, &'s Collider, &'s Aabb)> + 's {
         let w = &self.world.w;
-        self.world.poses.side.iter().filter_map(move |s| {
-            let co = w.colliders.get(s.handle)?;
+        self.world.poses.side().iter().filter_map(move |s| {
+            let co = w.colliders.get(s.handle).filter(|co| co.is_enabled())?;
             let pred = |_: ColliderHandle, c: &Collider| filter.accepts(c, &w.bodies);
             QueryFilter::default().exclude_sensors().predicate(&pred).test(&w.bodies, s.handle, co).then_some((s.handle, co, &s.aabb))
         })
@@ -1167,7 +1170,7 @@ impl Queries<'_> {
         let opts = ShapeCastOptions { max_time_of_impact: 1.0, stop_at_penetration: true, ..Default::default() };
         let vel = vec3(motion) * k;
         let mut hit = self.with_filter(filter, |f| w.cast_shape(&pose, vel, shape.as_ref(), opts, f));
-        if !self.world.poses.side.is_empty() {
+        if !self.world.poses.side().is_empty() {
             // Each collider kept aside as the broad-phase traversal casts against one of
             // its parts, and kept by the same strictly-nearer rule [design:
             // `CompositeShapeRef::cast_shape` and `Bvh::find_best`, parry3d 0.31.1]; the
@@ -1206,7 +1209,7 @@ impl Queries<'_> {
         let mut out: Vec<Owner> = self.with_filter(filter, |f| {
             w.intersect_shape(pose, shape.as_ref(), f).filter_map(|(_, c)| Owner::decode(c.user_data)).collect()
         });
-        if !self.world.poses.side.is_empty() {
+        if !self.world.poses.side().is_empty() {
             // The same test `PhysicsWorld::intersect_shape` makes on each collider.
             let dispatcher = w.narrow_phase.query_dispatcher();
             let shape_aabb = shape.compute_aabb(&pose);

@@ -166,20 +166,21 @@ impl PhysWorld {
             self.poses.touched = touched;
             return false;
         }
+        let mut fresh = Vec::new();
         for &id in &touched {
             // An actor removed since it was posed is a `BODIES` change: not this path.
             let Some(a) = self.actors.get(&id) else { continue };
             let Some(body) = self.w.bodies.get(a.body) else { continue };
             let parent = *body.position();
-            self.poses.restart(id);
-            for c in &a.colliders {
+            for (slot, c) in a.colliders.iter().enumerate() {
                 let Some(co) = self.w.colliders.get_mut(c.0) else { continue };
                 let Some(local) = co.position_wrt_parent().copied() else { continue };
                 co.set_position(parent * local);
                 let aabb = co.compute_aabb().loosened(SIDE_MARGIN);
-                self.poses.push_side(SideCollider { form_id: id, handle: c.0, aabb });
+                fresh.push(SideCollider { form_id: id, slot: slot as u16, handle: c.0, aabb });
             }
         }
+        self.poses.replace(&touched, fresh);
         touched.clear();
         self.poses.touched = touched;
         true
@@ -371,5 +372,47 @@ impl PhysWorld {
     pub fn actor_volume_state(&self, form_id: u32) -> Option<BodyState> {
         let a = self.actors.get(&form_id)?;
         Some(crate::world::body_state(&self.w.bodies[a.body], self.k))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::world::{Filter, PhysParams};
+
+    fn capsules(x: f32) -> Vec<PartCapsule> {
+        vec![
+            PartCapsule { part: 0, a: [x, 0.0, 40.0], b: [x, 0.0, 100.0], radius: 15.0 },
+            PartCapsule { part: 1, a: [x, 100.0, 40.0], b: [x, 100.0, 100.0], radius: 15.0 },
+        ]
+    }
+
+    /// A collider rapier disabled (its quarantine does, for a non-finite collider) has no
+    /// broad-phase leaf after a detection pass, so no query meets it; reposed and
+    /// refreshed without a pass, it must not be met either.
+    #[test]
+    fn a_disabled_actor_collider_reposed_is_not_hit_after_a_refresh_without_a_pass() {
+        let mut w = PhysWorld::new(PhysParams::default());
+        let v = |x: f32| HitVolume { feet: [x, 0.0, 0.0], radius: 20.0, height: 128.0, dead: false };
+        w.set_actor_parts(0x10, v(200.0), &capsules(200.0));
+        w.step();
+        let disabled = w.actors[&0x10].colliders[0].0;
+        w.w.colliders[disabled].set_enabled(false);
+        w.set_actor_parts(0x10, v(210.0), &capsules(210.0));
+        let mut full = w.snapshot();
+        w.update_queries();
+        full.update_queries_full();
+        assert_eq!(w.refresh_stats().fast, 1);
+        let f = Filter::default();
+        for (o, d) in [([0.0, 0.0, 70.0], [1.0, 0.0, 0.0]), ([210.0, 0.0, 300.0], [0.0, 0.0, -1.0]), ([0.0, 100.0, 70.0], [1.0, 0.0, 0.0])] {
+            let (qa, qb) = (w.queries(), full.queries());
+            let (a, b) = (qa.ray(o, d, 1_000.0, &f), qb.ray(o, d, 1_000.0, &f));
+            assert_eq!(a, b, "{o:?}");
+            assert!(!matches!(a, Some(h) if h.owner == Owner::Actor { form_id: 0x10, layer: layers::BIPED, part: 0 }), "{a:?}");
+            assert_eq!(qa.ray_all(o, d, 1_000.0, &f), qb.ray_all(o, d, 1_000.0, &f));
+        }
+        // The enabled part is still met.
+        let hit = w.queries().ray([0.0, 100.0, 70.0], [1.0, 0.0, 0.0], 1_000.0, &f).expect("part 1");
+        assert_eq!(hit.owner, Owner::Actor { form_id: 0x10, layer: layers::BIPED, part: 1 });
     }
 }
