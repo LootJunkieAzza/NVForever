@@ -672,19 +672,23 @@ playtest list 5 item 59].
   actor hit colliders that moved (nothing added, removed or rebuilt, nothing else
   changed), `update_queries` sets their world poses (body pose times parent-relative
   pose, the product rapier's next pass computes) and the queries test them directly,
-  leaving the broad phase and every change flag for the next pass: query results are
-  those of the full pass (`update_queries_full`) [design: test
-  `tie_free_queries_match_the_full_pass_and_steps_match_an_unqueried_copy`], and the next step is
-  the one a world never queried takes. Exact-distance ties may select a different
+  leaving the broad phase and every change flag for the next pass. Eligible actor-only
+  query refreshes skip collision detection and leave deferred processing to the next
+  step. This deliberately changes contact-refresh timing versus the earlier behaviour,
+  where the detection pass ran before most first steps of a frame and rebuilt the
+  contacts of awake pairs at a zero time step without clustering; mixed changes still
+  run detection. Query results on tie-free probes are those of the full pass
+  (`update_queries_full`), and the steps after such a refresh are those of a world that
+  was not queried [design: test
+  `tie_free_queries_match_the_full_pass_and_steps_match_an_unqueried_copy`]. Exact-tie
+  selection may change: exact-distance ties may select a different
   collider than the full pass: the fast path keeps a broad-phase hit over a kept-aside
   collider at the same distance and orders kept-aside colliders by actor FormID, then
   capsule order, while the full pass takes whichever its tree traversal meets first;
   this includes distance-0 ties when a ray or sweep starts inside overlapping shapes
-  [design: test `exact_ties_follow_the_documented_order`]. What no longer happens at
-  the query: the full pass's recomputation of awake contacts at a zero time step, its
-  begin-touch wake-ups and its contact diagnostics (`ref_contacts`); they happen at the
-  next step, as in a frame with no query. Setting the same part capsules again marks
-  nothing.
+  [design: test `exact_ties_follow_the_documented_order`]. Also deferred to the next
+  step: the pass's begin-touch wake-ups and its refresh of contact diagnostics
+  (`ref_contacts`). Setting the same part capsules again marks nothing.
 - **f32 range**: a ray–sphere test from about 10,000 units away was off by about one unit
   (cancellation in the quadratic), from 100 units by under 0.01 [observed: tests]. Probes
   and activation rays should start near what they test; `fnvtool phys` starts ground rays

@@ -148,10 +148,10 @@ impl PhysWorld {
     /// `handle_user_changes_to_colliders` and `RigidBodyColliders::update_positions`,
     /// rapier3d 0.36.0], and it is kept aside for the queries. Its change flags are left
     /// for that next pass (the PARENT flag `set_position_wrt_parent` set already makes
-    /// that pass recompute the pose and add the POSITION flag `set_position` adds here),
-    /// so the broad phase, narrow phase and islands see exactly what they would have
-    /// without the refresh. False, with nothing written, when a pose is not finite: the
-    /// caller then runs the full pass.
+    /// that pass recompute the pose and add the POSITION flag `set_position` adds here):
+    /// the broad phase, narrow phase and islands are left untouched, their processing
+    /// deferred to the next step or pass. False, with nothing written, when a pose is not
+    /// finite: the caller then runs the full pass.
     pub(crate) fn refresh_actor_poses(&mut self) -> bool {
         let mut touched = std::mem::take(&mut self.poses.touched);
         touched.sort_unstable();
@@ -253,8 +253,11 @@ impl PhysWorld {
             .collect();
         let layer = v.layer();
         // Read before anything is written: the writes below go ahead either way, so rapier
-        // sees exactly the calls it always did; only the refresh is skipped when they
-        // change nothing.
+        // sees the calls it always did; only the refresh is skipped when they change
+        // nothing. (The writes put the colliders in rapier's modified set, from which the
+        // next pass builds its filtered broad-phase update workspace, whose size chooses
+        // how leaves are updated: `BroadPhaseBvh::update`, rapier3d 0.36.0
+        // broad_phase_bvh/update.rs ~79-144.)
         let unchanged = self.parts_unchanged(form_id, v, parts, &want, &locals);
         let added = self.actor_body(form_id, v);
         let rebuilt = self.ensure_colliders(form_id, &want);

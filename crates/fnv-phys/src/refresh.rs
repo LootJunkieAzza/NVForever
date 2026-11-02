@@ -9,9 +9,14 @@
 //! removed or rebuilt, nothing else), the refresh skips the collision detection pass:
 //! it writes those colliders' world poses and keeps them aside ([`ActorPoses`]), and the
 //! scene queries test them directly instead of through their stale broad-phase leaves
-//! (`crate::world::Queries`). Nothing the next step or detection pass reads is consumed:
-//! the colliders keep their change flags, so the next pass updates the broad phase from
-//! them as it would have without a query.
+//! (`crate::world::Queries`). The colliders keep their change flags, so the next step or
+//! detection pass updates the broad phase from them as it would have without a query.
+//!
+//! Eligible actor-only query refreshes skip collision detection and leave deferred
+//! processing to the next step. This deliberately changes contact-refresh timing versus
+//! the earlier behaviour (the detection pass that ran before most first steps of a frame,
+//! rebuilding the contacts of awake pairs at a zero time step without clustering); mixed
+//! changes still run detection. Exact-tie selection may change (below).
 //!
 //! Exact ties: the queries search the broad phase first, then test the kept-aside
 //! colliders in their kept order (by actor FormID, then by the order of the actor's
