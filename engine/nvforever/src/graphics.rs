@@ -450,7 +450,7 @@ fn apply_shadow_step(commands: &mut Commands, sky: &SkyState, start: (bool, f32,
 /// The moon's shadows (the sun's light below the horizon) reach this far, in one cascade
 /// of [`SHADOW_MAP`] size whatever the finer shadows say [engineering choice, owner
 /// 2026-11-02 (#1369): by night the light is dimmer and softer and the dark hides the far
-/// shadows; by day's settings they cost about 2.5 ms on the Strip at 22:00, RTX 5070 Ti].
+/// shadows; by day's settings they cost about 2.5 ms on the Strip at 22:00, RTX 4070].
 pub const MOON_SHADOW_DISTANCE: f32 = 3_000.0;
 /// Below this share of its strength (the fade at the horizon) the sun or moon casts no
 /// shadows at all: its maps are not drawn [engineering choice: at a tenth of the light the
