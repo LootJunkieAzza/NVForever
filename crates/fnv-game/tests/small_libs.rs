@@ -498,6 +498,10 @@ fn cacheui_anh_and_the_small_plugins() {
     // TTW's gene projector is the race menu, NVForever's character creator.
     q(&mut g, "TTW_ShowGeneProjector");
     assert_eq!(g.open_menu_code(), Some(fnv_game::game::menus::RACE));
+    assert!(g.race_menu_studio, "drawn in the creator's studio");
+    g.close_menu();
+    q(&mut g, "ShowRaceMenu");
+    assert!(!g.race_menu_studio, "New Vegas's race menu stays in the room");
     g.close_menu();
     q(&mut g, "SetWorldspaceMapBounds TestWorld -10 20 30 -40");
     assert_eq!(g.world_map_bounds(FormId(WORLD)), Some([-10, 20, 30, -40]));

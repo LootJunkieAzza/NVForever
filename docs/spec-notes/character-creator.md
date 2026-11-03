@@ -292,6 +292,19 @@ The rules:
   between them, is hidden while it is in the way and shown again when it is not, or
   when the creator closes (Doc Mitchell in his chair, between the camera and the bed in
   the owner's screenshot).
+- **The studio** [owner 2026-11-02: "we might need a dummy cell for this specific one the
+  hospital room you are born might be an awkward spot to show the character creator";
+  design: a picture, not a place]: when Tale of Two Wastelands' gene projector opens the
+  menu (`TTW_ShowGeneProjector`: the birth scene, the Vault 101 exit's "change your
+  face"; `Game::race_menu_studio`), the creator is drawn in a studio instead of the
+  room. The camera sees only the player's body and the studio's own layer
+  (`creator_view::STUDIO_LAYER`): a closed backdrop round the player in the interface's
+  dark tones, a floor and a paler pool of floor under the player, all of plain colour
+  and unlit, with the creator's two lights on the body. Nothing in the game moves: the
+  player stays where the scene has them, the scene and its scripts go on as for the
+  room, and the camera's layers are put back when the creator closes. The rest of the
+  game's race menus (New Vegas's ShowRaceMenu at Doc Mitchell's, the barber, the plastic
+  surgeon) stay in the room, as decided above.
 - **Nothing else over it** [owner 2026-10-17: "hide the UI so no health bar or AP or
   dialogue"]: the HUD (health, action points, compass, the weapon's condition), the
   activation prompt ("E) Talk"), the dialogue menu's line and the subtitles are not
