@@ -655,7 +655,8 @@ fn measure(
     mut shots: MessageReader<ShotFired>,
     (mut impacts, mut hits, mut booms): (MessageReader<ImpactFx>, MessageReader<ActorHit>, MessageReader<ExplosionFx>),
     (sfx, visuals): (Option<Res<Sfx>>, Option<Res<ShotVisuals>>),
-    actors: Query<Watched>,
+    // Co-op puppets (coop.rs) are other players, not watchers.
+    actors: Query<Watched, Without<crate::coop::Puppet>>,
     (point_lights, spot_lights, camera, world): Scene,
     mut gauges: Option<ResMut<nvf_play::sneak_gauges::SneakGauges>>,
 ) {

@@ -1,0 +1,557 @@
+//! Co-op lobby screens (private fork, not upstream; the network side is nvforever
+//! `coop.rs`). The pause menu's Lobby entry opens the host's screen: Create Lobby, then
+//! the code to read out to friends and who has joined. The main menu's Join Lobby entry
+//! opens the guest's: the code typed in, Join, and once the host answers, the guest's
+//! saves to choose from; only saves past the opening (out of Doc Mitchell's house, not in
+//! character creation) can join.
+//!
+//! The screen is drawn over the menu that opened it and takes the keys while it is up
+//! ([`LobbyScreen::holds_input`]); it asks the network side for things with
+//! [`LobbyRequest`] and shows what [`LobbyState`] says.
+//!
+//! Test aid `NVF_PLAY_TEST_LOBBY="<seconds>:<action>,..."` (real seconds from the start):
+//! `code=<code>` types a code, `join`, `create`, `close`, `back`, `pick=<n>` (the n-th
+//! save that can join, from 0), `shot=<file>` (a screenshot).
+
+use crate::interface::{amber, bc_supported, u};
+use crate::start_menu::{color, highlight, text, wrapped, Faces, Shade, ITEM, LINE};
+use crate::ui_pointer::{Button, PointerState};
+use crate::PlaySet;
+use bevy::image::CompressedImageFormatSupport;
+use bevy::input::keyboard::{Key, KeyboardInput};
+use bevy::prelude::*;
+use nvf_assets::GameData;
+use std::path::PathBuf;
+
+/// The screen's width and top, interface units.
+const WIDTH: f32 = 820.0;
+const TOP: f32 = 150.0;
+const PAD: f32 = 24.0;
+/// Small print's line step.
+const STEP: f32 = 30.0;
+/// Saves shown at once.
+const SAVE_ROWS: usize = 8;
+/// The longest code typed (18 characters and the dashes, with room for spaces).
+const MAX_TYPED: usize = 26;
+
+/// Which screen is up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    Host,
+    Join,
+}
+
+/// What the screen asks of the network side.
+#[derive(Message, Debug, Clone, PartialEq, Eq)]
+pub enum LobbyRequest {
+    /// Open a lobby on this game.
+    Create,
+    /// Close it (guests are told the game ended).
+    Close,
+    /// Look for the host of this code.
+    Find(String),
+    /// Stop looking (or leave the host found).
+    Cancel,
+    /// Load this save and join the host found.
+    Load { path: PathBuf, name: String },
+}
+
+/// The host's lobby.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Hosting {
+    #[default]
+    Off,
+    /// The router is being asked to open the port.
+    Opening,
+    Open {
+        code: String,
+        /// Why friends outside this network may not get in, if anything.
+        note: Option<String>,
+    },
+}
+
+/// A guest's search for its host.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Joining {
+    #[default]
+    Idle,
+    Finding,
+    /// The host answered and keeps a place.
+    Found,
+    Failed(String),
+}
+
+/// What the network side says (written by nvforever `coop.rs`).
+#[derive(Resource, Debug, Clone, Default, PartialEq, Eq)]
+pub struct LobbyState {
+    pub hosting: Hosting,
+    /// The players in the lobby, this game's first.
+    pub players: Vec<String>,
+    pub joining: Joining,
+}
+
+/// A save on the guest's list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SaveRow {
+    path: PathBuf,
+    name: String,
+    line: String,
+    /// Past the opening: it can join.
+    ok: bool,
+}
+
+/// The screen: which is up, what is typed, the saves listed.
+#[derive(Resource, Default)]
+pub struct LobbyScreen {
+    mode: Option<Mode>,
+    typed: String,
+    saves: Option<Vec<SaveRow>>,
+    selected: usize,
+    /// The frame count as of the screen's last run, and when it opened and closed: the
+    /// keys of those frames were the menu's (or are the menu's again).
+    frame: u32,
+    opened: u32,
+    closed: Option<u32>,
+}
+
+impl LobbyScreen {
+    /// Open `mode`'s screen (from a menu's entry).
+    pub fn open(&mut self, mode: Mode) {
+        info!("lobby: {mode:?} screen");
+        self.mode = Some(mode);
+        self.selected = 0;
+        self.saves = None;
+        self.opened = self.frame;
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.mode.is_some()
+    }
+
+    /// Whether the menus under it should leave the keys and the pointer alone this frame.
+    pub fn holds_input(&self) -> bool {
+        self.mode.is_some() || self.closed.is_some_and(|f| self.frame <= f + 1)
+    }
+
+    fn close(&mut self) {
+        self.mode = None;
+        self.closed = Some(self.frame);
+    }
+}
+
+/// `NVF_PLAY_TEST_LOBBY`: (seconds, action), soonest first.
+#[derive(Resource, Default)]
+struct LobbyAid(Vec<(f32, String)>);
+
+#[derive(Resource)]
+struct LobbyLook(Faces);
+
+#[derive(Component)]
+struct LobbyRoot;
+
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+enum Act {
+    Create,
+    Close,
+    Join,
+    Back,
+    Save(usize),
+}
+
+pub struct LobbyPlugin;
+
+impl Plugin for LobbyPlugin {
+    fn build(&self, app: &mut App) {
+        let mut aid = Vec::new();
+        if let Ok(v) = std::env::var("NVF_PLAY_TEST_LOBBY") {
+            for part in v.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+                match part.split_once(':').and_then(|(t, a)| Some((t.trim().parse::<f32>().ok()?, a.trim().to_string()))) {
+                    Some(x) => aid.push(x),
+                    None => warn!("NVF_PLAY_TEST_LOBBY: {part:?}: expected <seconds>:<action>"),
+                }
+            }
+            aid.sort_by(|a, b| a.0.total_cmp(&b.0));
+            // Not for the game a chosen save starts (it inherits the environment).
+            std::env::remove_var("NVF_PLAY_TEST_LOBBY");
+        }
+        app.init_resource::<LobbyScreen>()
+            .init_resource::<LobbyState>()
+            .insert_resource(LobbyAid(aid))
+            .add_message::<LobbyRequest>()
+            .add_systems(Update, (input, draw).chain().in_set(PlaySet::Ui));
+    }
+}
+
+/// The buttons and rows that can be chosen, in order.
+fn acts(screen: &LobbyScreen, state: &LobbyState) -> Vec<Act> {
+    match screen.mode {
+        None => Vec::new(),
+        Some(Mode::Host) => match state.hosting {
+            Hosting::Off => vec![Act::Create, Act::Back],
+            Hosting::Opening => vec![Act::Back],
+            Hosting::Open { .. } => vec![Act::Close, Act::Back],
+        },
+        Some(Mode::Join) => match (&state.joining, &screen.saves) {
+            (Joining::Found, Some(saves)) => saves.iter().enumerate().filter(|(_, s)| s.ok).map(|(i, _)| Act::Save(i)).chain([Act::Back]).collect(),
+            (Joining::Finding | Joining::Found, _) => vec![Act::Back],
+            (Joining::Idle | Joining::Failed(_), _) => vec![Act::Join, Act::Back],
+        },
+    }
+}
+
+/// The code-typing step of the join screen.
+fn typing(screen: &LobbyScreen, state: &LobbyState) -> bool {
+    screen.mode == Some(Mode::Join) && matches!(state.joining, Joining::Idle | Joining::Failed(_))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn input(
+    mut commands: Commands,
+    real: Res<Time<Real>>,
+    frames: Option<Res<bevy::diagnostic::FrameCount>>,
+    mut aid: ResMut<LobbyAid>,
+    mut screen: ResMut<LobbyScreen>,
+    state: Res<LobbyState>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut typed: MessageReader<KeyboardInput>,
+    buttons: Query<(&PointerState, &Act), Changed<PointerState>>,
+    mut asks: MessageWriter<LobbyRequest>,
+    cfg: Option<Res<crate::save::SaveConfig>>,
+    sim: Option<Res<crate::sim::SimState>>,
+) {
+    screen.frame = frames.map_or(screen.frame.wrapping_add(1), |f| f.0);
+    let typed: Vec<KeyboardInput> = typed.read().cloned().collect();
+    let now = real.elapsed_secs();
+    let mut aids = Vec::new();
+    while aid.0.first().is_some_and(|(t, _)| *t <= now) {
+        let (_, a) = aid.0.remove(0);
+        info!("test aid NVF_PLAY_TEST_LOBBY: {a}");
+        aids.push(a);
+    }
+    for a in aids {
+        if let Some(file) = a.strip_prefix("shot=") {
+            commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk(file.to_string()));
+        } else if let Some(code) = a.strip_prefix("code=") {
+            if screen.mode.is_none() {
+                screen.open(Mode::Join);
+            }
+            screen.typed = code.to_string();
+        } else if let Some(n) = a.strip_prefix("pick=").and_then(|n| n.parse::<usize>().ok()) {
+            let save = screen.saves.as_ref().and_then(|s| s.iter().enumerate().filter(|(_, s)| s.ok).nth(n)).map(|(i, _)| i);
+            match save {
+                Some(i) => take(&mut screen, &state, Act::Save(i), &mut asks),
+                None => warn!("NVF_PLAY_TEST_LOBBY: no save {n} can join"),
+            }
+        } else {
+            let act = match a.as_str() {
+                "join" => Some(Act::Join),
+                "create" => {
+                    if screen.mode.is_none() {
+                        screen.open(Mode::Host);
+                    }
+                    Some(Act::Create)
+                }
+                "close" => Some(Act::Close),
+                "back" => Some(Act::Back),
+                other => {
+                    warn!("NVF_PLAY_TEST_LOBBY: no action {other:?}");
+                    None
+                }
+            };
+            if let Some(act) = act {
+                take(&mut screen, &state, act, &mut asks);
+            }
+        }
+    }
+    if screen.mode.is_none() {
+        return;
+    }
+    // The saves, once the host is found.
+    if state.joining == Joining::Found && screen.saves.is_none() {
+        let intro = sim.as_deref().and_then(|s| s.refs.cell_by_edid("GSDocMitchellHouse")).map(|c| c.0);
+        let list = cfg.as_deref().and_then(|c| c.dir.as_deref()).map(fnv_save::list).unwrap_or_default();
+        let rows: Vec<SaveRow> = list
+            .into_iter()
+            .map(|(path, h)| {
+                let ok = past_opening(&path, &h, intro);
+                let place = if h.location.is_empty() { "Unknown place".to_string() } else { h.location.clone() };
+                let line = format!("{}, level {}, {place}{}", h.player_name, h.level, if ok { "" } else { " (still in the opening)" });
+                SaveRow { path, name: h.player_name.clone(), line, ok }
+            })
+            .collect();
+        info!("lobby: {} saves, {} past the opening", rows.len(), rows.iter().filter(|r| r.ok).count());
+        screen.saves = Some(rows);
+        screen.selected = 0;
+    }
+    if !matches!(state.joining, Joining::Found) && screen.saves.is_some() {
+        screen.saves = None;
+    }
+    // The frame it opened in, the keys were the menu's.
+    if screen.frame <= screen.opened + 1 {
+        return;
+    }
+    let list = acts(&screen, &state);
+    if list.is_empty() {
+        return;
+    }
+    screen.selected = screen.selected.min(list.len() - 1);
+    let mut chosen = None;
+    for (p, act) in &buttons {
+        if let Some(i) = list.iter().position(|a| a == act) {
+            match p {
+                PointerState::Hovered => screen.selected = i,
+                PointerState::Pressed => chosen = Some(*act),
+                PointerState::None => {}
+            }
+        }
+    }
+    if typing(&screen, &state) {
+        for k in typed.iter().filter(|k| k.state.is_pressed()) {
+            match &k.logical_key {
+                Key::Backspace => {
+                    screen.typed.pop();
+                }
+                Key::Enter => chosen = Some(Act::Join),
+                _ => {
+                    if let Some(t) = k.text.as_deref() {
+                        for c in t.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-') {
+                            if screen.typed.len() < MAX_TYPED {
+                                screen.typed.push(c.to_ascii_uppercase());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } else if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]) {
+        chosen = list.get(screen.selected).copied();
+    }
+    if keys.just_pressed(KeyCode::ArrowUp) {
+        screen.selected = (screen.selected + list.len() - 1) % list.len();
+    }
+    if keys.just_pressed(KeyCode::ArrowDown) {
+        screen.selected = (screen.selected + 1) % list.len();
+    }
+    if keys.just_pressed(KeyCode::Escape) {
+        chosen = Some(Act::Back);
+    }
+    if let Some(act) = chosen {
+        take(&mut screen, &state, act, &mut asks);
+    }
+}
+
+fn take(screen: &mut LobbyScreen, state: &LobbyState, act: Act, asks: &mut MessageWriter<LobbyRequest>) {
+    info!("lobby: {act:?}");
+    match act {
+        Act::Create => {
+            asks.write(LobbyRequest::Create);
+        }
+        Act::Close => {
+            asks.write(LobbyRequest::Close);
+        }
+        Act::Join => {
+            let code = screen.typed.trim().to_string();
+            if !code.is_empty() {
+                asks.write(LobbyRequest::Find(code));
+            }
+        }
+        Act::Back => match (screen.mode, &state.joining) {
+            // Back from the search or the saves: to the code again.
+            (Some(Mode::Join), Joining::Finding | Joining::Found) => {
+                asks.write(LobbyRequest::Cancel);
+                screen.selected = 0;
+            }
+            (Some(Mode::Join), _) => {
+                asks.write(LobbyRequest::Cancel);
+                screen.close();
+            }
+            _ => screen.close(),
+        },
+        Act::Save(i) => {
+            if let Some(s) = screen.saves.as_ref().and_then(|v| v.get(i)).filter(|s| s.ok) {
+                info!("lobby: joining with {}", s.path.display());
+                asks.write(LobbyRequest::Load { path: s.path.clone(), name: s.name.clone() });
+            }
+        }
+    }
+}
+
+/// A save past the opening: out of Doc Mitchell's house (`intro`, its cell) and not in
+/// character creation (SetInCharGen, saved only while on).
+fn past_opening(path: &std::path::Path, h: &fnv_save::SaveHeader, intro: Option<u32>) -> bool {
+    if intro.is_some_and(|c| h.place.interior == Some(c)) {
+        return false;
+    }
+    match fnv_save::read(path) {
+        Ok(f) => !f.body.windows(18).any(|w| w == b"\"in_chargen\":true"),
+        Err(_) => false,
+    }
+}
+
+/// What the screen shows, kept to see when it changes.
+#[derive(Debug, Clone, PartialEq)]
+enum Piece {
+    Title(String),
+    Line(String, Shade),
+    Big(String),
+    Field(String),
+    Button(Act, String),
+    Row(Act, String, Shade),
+}
+
+fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
+    use Piece::*;
+    let mut v = Vec::new();
+    match screen.mode {
+        None => {}
+        Some(Mode::Host) => {
+            v.push(Title("Co-op Lobby".into()));
+            match &state.hosting {
+                Hosting::Off => {
+                    v.push(Line("Open a lobby on this game: friends join with its code, from their main menu's Join Lobby.".into(), Shade::Bright));
+                    v.push(Button(Act::Create, "Create Lobby".into()));
+                }
+                Hosting::Opening => v.push(Line("Asking your router to let friends in...".into(), Shade::Bright)),
+                Hosting::Open { code, note } => {
+                    v.push(Line("Lobby code:".into(), Shade::Dim));
+                    v.push(Big(code.clone()));
+                    v.push(Line("Tell your friends this code. It is also in lobby-code.txt in the NVForever folder.".into(), Shade::Dim));
+                    if let Some(n) = note {
+                        v.push(Line(n.clone(), Shade::Bright));
+                    }
+                    v.push(Line(format!("Players: {}", state.players.join(", ")), Shade::Bright));
+                    v.push(Button(Act::Close, "Close Lobby".into()));
+                }
+            }
+        }
+        Some(Mode::Join) => {
+            v.push(Title("Join Lobby".into()));
+            match (&state.joining, &screen.saves) {
+                (Joining::Idle | Joining::Failed(_), _) => {
+                    v.push(Line("Type the host's lobby code:".into(), Shade::Bright));
+                    v.push(Field(screen.typed.clone()));
+                    if let Joining::Failed(why) = &state.joining {
+                        v.push(Line(why.clone(), Shade::Bright));
+                    }
+                    v.push(Button(Act::Join, "Join".into()));
+                }
+                (Joining::Finding, _) | (Joining::Found, None) => v.push(Line("Looking for the host...".into(), Shade::Bright)),
+                (Joining::Found, Some(saves)) => {
+                    v.push(Line("Found the host. Choose the save you play with:".into(), Shade::Bright));
+                    if !saves.iter().any(|s| s.ok) {
+                        v.push(Line("None of your saves is past Doc Mitchell's yet: play the opening first.".into(), Shade::Bright));
+                    }
+                    let list = acts(screen, state);
+                    // A window of the rows round the chosen one.
+                    let chosen_row = match list.get(screen.selected) {
+                        Some(Act::Save(i)) => *i,
+                        _ => 0,
+                    };
+                    let first = chosen_row.saturating_sub(SAVE_ROWS - 1).min(saves.len().saturating_sub(SAVE_ROWS));
+                    for (i, s) in saves.iter().enumerate().skip(first).take(SAVE_ROWS) {
+                        v.push(Row(Act::Save(i), s.line.clone(), if s.ok { Shade::Bright } else { Shade::Dim }));
+                    }
+                }
+            }
+        }
+    }
+    if screen.mode.is_some() {
+        v.push(Button(Act::Back, "Back".into()));
+    }
+    v
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw(
+    mut commands: Commands,
+    screen: Res<LobbyScreen>,
+    state: Res<LobbyState>,
+    look: Option<Res<LobbyLook>>,
+    data: Option<Res<GameData>>,
+    mut images: ResMut<Assets<Image>>,
+    formats: Option<Res<CompressedImageFormatSupport>>,
+    roots: Query<Entity, With<LobbyRoot>>,
+    mut last: Local<Option<(Vec<Piece>, Option<Act>)>>,
+) {
+    let now = pieces(&screen, &state);
+    let list = acts(&screen, &state);
+    let chosen = list.get(screen.selected).copied();
+    if last.as_ref().is_some_and(|(p, c)| *p == now && *c == chosen) {
+        return;
+    }
+    *last = Some((now.clone(), chosen));
+    for e in &roots {
+        commands.entity(e).despawn();
+    }
+    if now.is_empty() {
+        return;
+    }
+    let Some(look) = look else {
+        let faces = Faces::load(data.as_deref(), &mut images, bc_supported(formats.as_deref()));
+        commands.insert_resource(LobbyLook(faces));
+        // Drawn next frame, with the fonts.
+        *last = None;
+        return;
+    };
+    let f = &look.0;
+    let inner = WIDTH - 2.0 * PAD;
+    // The pieces' heights.
+    let height = |p: &Piece| match p {
+        Piece::Title(_) => ITEM + 8.0,
+        Piece::Line(t, _) => f.small.font.lines(t, Some(inner)).len().max(1) as f32 * STEP + 6.0,
+        Piece::Big(_) => ITEM + 16.0,
+        Piece::Field(_) | Piece::Button(..) => ITEM + 6.0,
+        Piece::Row(..) => ITEM,
+    };
+    let total: f32 = now.iter().map(height).sum::<f32>() + 2.0 * PAD;
+    commands.spawn((LobbyRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, GlobalZIndex(120))).with_children(|root| {
+        // The menus under it keep still (and take no pointer).
+        root.spawn((Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::BLACK.with_alpha(0.55)), Button));
+        let panel = Node {
+            position_type: PositionType::Absolute,
+            left: Val::Percent(50.0),
+            margin: UiRect::left(u(-WIDTH / 2.0)),
+            top: u(TOP),
+            width: u(WIDTH),
+            height: u(total),
+            border: UiRect::all(u(LINE)),
+            ..default()
+        };
+        root.spawn((panel, BorderColor::all(amber(200.0)), BackgroundColor(Color::BLACK.with_alpha(0.92)))).with_children(|p| {
+            let mut y = PAD;
+            for piece in &now {
+                let h = height(piece);
+                let at = |w: f32, h: f32| Node { position_type: PositionType::Absolute, left: u(PAD), top: u(y), width: u(w), height: u(h), ..default() };
+                match piece {
+                    Piece::Title(t) => {
+                        p.spawn(at(inner, ITEM)).with_children(|n| text(n, &f.entry, t, 0.0, ITEM * 0.72, color(Shade::Bright)));
+                    }
+                    Piece::Line(t, shade) => {
+                        p.spawn(at(inner, h)).with_children(|n| wrapped(n, &f.small, t, inner, STEP, color(*shade)));
+                    }
+                    Piece::Big(t) => {
+                        let w = f.entry.font.width(t);
+                        p.spawn(at(inner, ITEM + 8.0)).with_children(|n| text(n, &f.entry, t, ((inner - w) / 2.0).max(0.0), ITEM * 0.8, color(Shade::Bright)));
+                    }
+                    Piece::Field(t) => {
+                        let node = Node { border: UiRect::all(u(LINE)), ..at(inner, ITEM) };
+                        p.spawn((node, BorderColor::all(amber(200.0)))).with_children(|n| text(n, &f.entry, &format!("{t}_"), 12.0, ITEM * 0.72, color(Shade::Bright)));
+                    }
+                    Piece::Button(act, t) | Piece::Row(act, t, _) => {
+                        let shade = if let Piece::Row(_, _, s) = piece { *s } else { Shade::Bright };
+                        let (face, w) = if matches!(piece, Piece::Row(..)) { (&f.small, inner) } else { (&f.entry, 320.0) };
+                        let node = at(w, ITEM);
+                        let base = if matches!(piece, Piece::Row(..)) { ITEM * 0.66 } else { ITEM * 0.72 };
+                        let mut e = if Some(*act) == chosen { p.spawn(highlight(node)) } else { p.spawn(node) };
+                        // Rows that cannot join take no pointer.
+                        if shade == Shade::Bright {
+                            e.insert((Button, *act));
+                        }
+                        e.with_children(|n| text(n, face, t, 12.0, base, color(shade)));
+                    }
+                }
+                y += h;
+            }
+        });
+    });
+}

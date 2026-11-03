@@ -91,18 +91,21 @@ pub enum Entry {
     Continue,
     New,
     Load,
+    /// Co-op (private fork): the join screen, `crate::lobby`.
+    JoinLobby,
     Settings,
     Quit,
 }
 
 impl Entry {
-    pub const ALL: [Entry; 5] = [Entry::Continue, Entry::New, Entry::Load, Entry::Settings, Entry::Quit];
+    pub const ALL: [Entry; 6] = [Entry::Continue, Entry::New, Entry::Load, Entry::JoinLobby, Entry::Settings, Entry::Quit];
 
     pub fn label(self) -> &'static str {
         match self {
             Entry::Continue => "Continue",
             Entry::New => "New Game",
             Entry::Load => "Load Game",
+            Entry::JoinLobby => "Join Lobby",
             Entry::Settings => "Settings",
             Entry::Quit => "Quit",
         }
@@ -113,6 +116,7 @@ impl Entry {
             Entry::Continue => "continue",
             Entry::New => "new",
             Entry::Load => "load",
+            Entry::JoinLobby => "join",
             Entry::Settings => "settings",
             Entry::Quit => "quit",
         }
@@ -397,9 +401,14 @@ fn choose(
     roots: Query<Entity, With<MenuRoot>>,
     mut last_page: Local<Option<Page>>,
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
+    mut lobby: Option<ResMut<crate::lobby::LobbyScreen>>,
 ) {
     use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
     if !menu.open {
+        return;
+    }
+    // The lobby screen over it takes the keys (`crate::lobby`).
+    if lobby.as_ref().is_some_and(|l| l.holds_input()) {
         return;
     }
     // The frame a pause page goes away is not this menu's: its click or key was that page's.
@@ -474,6 +483,10 @@ fn choose(
             info!("main menu: closed, the intro film plays");
         }
         Entry::Load => request.0 = Some(Page::Load { selected: 0 }),
+        Entry::JoinLobby => match lobby.as_mut() {
+            Some(l) => l.open(crate::lobby::Mode::Join),
+            None => warn!("main menu: co-op is not in this build"),
+        },
         Entry::Settings => request.0 = Some(Page::Settings { selected: 0 }),
         Entry::Quit => {
             exit.write(AppExit::Success);
@@ -597,11 +610,11 @@ mod tests {
     fn without_saves_continue_and_load_are_skipped() {
         assert!(!Entry::Continue.enabled(0) && !Entry::Load.enabled(0));
         assert!(Entry::New.enabled(0) && Entry::Continue.enabled(1));
-        // New Game (1) down: Load is greyed, so Settings (3); up from New: round to Quit.
+        // New Game (1) down: Load is greyed, so Join Lobby (3); up from New: round to Quit.
         assert_eq!(step(1, 1, 0), 3);
-        assert_eq!(step(1, -1, 0), 4);
+        assert_eq!(step(1, -1, 0), 5);
         assert_eq!(step(1, -1, 2), 0);
-        assert_eq!(step(4, 1, 0), 1);
+        assert_eq!(step(5, 1, 0), 1);
     }
 
     #[test]

@@ -74,7 +74,7 @@ pub struct Dressed {
 /// The simulation's drawable equipment, shared by spawning, prefetch and reconciliation.
 /// `None` means no simulated inventory yet; an empty or partial set is authoritative
 /// [design: `fnv_sim::World::equipment`], including after looting or UnequipItem.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Equipment {
     pub worn: Vec<FormId>,
     pub weapon: Option<FormId>,
@@ -101,6 +101,11 @@ impl Equipment {
         Some(Self { worn, weapon, weapon_mods: weapon.map_or(0, mods) })
     }
 }
+
+/// On a co-op puppet (coop.rs): what its player wears and holds, in place of the
+/// simulation's (it has no reference there).
+#[derive(Component, Debug, Clone, PartialEq, Eq)]
+pub struct PuppetEquipment(pub Equipment);
 
 /// Resolve the same appearance for spawn, read-ahead and later outfit changes. Passing
 /// the held weapon to the resolver also applies its Hide Backpack flag [design:
@@ -173,7 +178,7 @@ pub struct CreatureArms {
 
 /// A drawn NPC whose outfit follows the rules: its root, rig, outfit, clips (none in the
 /// bind pose) and whether it is a corpse.
-type Followed<'w> = (Entity, &'w ActorRig, &'w mut Dressed, Option<&'w mut BlendPlayer>, Has<Corpse>);
+type Followed<'w> = (Entity, &'w ActorRig, &'w mut Dressed, Option<&'w mut BlendPlayer>, Has<Corpse>, Option<&'w PuppetEquipment>);
 
 #[allow(clippy::too_many_arguments)]
 fn follow_inventory(
@@ -190,8 +195,8 @@ fn follow_inventory(
     let (Some(world), Some(sim)) = (world, sim) else { return };
     let profiling = crate::profile::interval().is_some();
     let (mut replacements, mut replacement_ms) = (0, 0.0);
-    for (entity, rig, mut dressed, mut player, dead) in &mut actors {
-        let Some(equipment) = Equipment::of(&world, Some(&sim.world), rig.reference) else { continue };
+    for (entity, rig, mut dressed, mut player, dead, puppet) in &mut actors {
+        let Some(equipment) = puppet.map(|p| p.0.clone()).or_else(|| Equipment::of(&world, Some(&sim.world), rig.reference)) else { continue };
         let Equipment { ref worn, weapon, weapon_mods: mods } = equipment;
         let dressed = &mut *dressed;
         // A weapon with "Hide Backpack" taken up or put away dresses the body again
@@ -443,7 +448,7 @@ pub(crate) mod tests {
             race_facegen: false, show_disabled: false, pose: crate::actors::ActorPose::Bind,
             pose_time: None, walk_test: None, weapon_mode: crate::weapons::WeaponMode::Holstered,
             weapon_test: None, anims: Default::default(), rolls: Default::default(),
-            changes: Default::default(), levels: Default::default(),
+            changes: Default::default(), looks: Default::default(), levels: Default::default(),
         }
     }
 

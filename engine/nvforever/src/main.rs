@@ -94,6 +94,8 @@ mod provoked;
 mod weapons;
 mod lodgen;
 mod nav;
+// Co-op prototype (private fork): --host / --join.
+mod coop;
 mod object_anims;
 mod outfits;
 mod own_sounds;
@@ -430,6 +432,21 @@ struct Args {
     /// (Layer 4, nvf-play) instead of the free-fly camera.
     #[arg(long)]
     play: bool,
+    /// Co-op prototype (private fork, coop.rs): host a game for up to three guests on
+    /// this UDP port.
+    #[arg(long, requires = "play", conflicts_with = "join")]
+    host: Option<u16>,
+    /// Co-op prototype: join the game hosted at this address (`host:port`; the port
+    /// defaults to 47960). Guests are kept near the host (the leash).
+    #[arg(long, requires = "play")]
+    join: Option<String>,
+    /// Co-op prototype: the name the other players see.
+    #[arg(long, default_value = "Courier")]
+    coop_name: String,
+    /// Co-op prototype: the NPC the other players are drawn as (base FormID, hex);
+    /// Sunny Smiles by default.
+    #[arg(long, default_value = "0x104E84", value_parser = |s: &str| u32::from_str_radix(s.trim_start_matches("0x"), 16).map_err(|e| e.to_string()))]
+    coop_base: u32,
     /// The free-camera explorer (a developer's view, no player) even when no other
     /// argument chooses a world; with no such argument the game opens on its main menu.
     #[arg(long, conflicts_with = "play")]
@@ -1442,6 +1459,8 @@ fn main() -> AppExit {
             app.insert_resource(nvf_play::aim_zoom::Scope3d { on: args.scope_3d, lens: false });
             app.add_plugins(decals::DecalsPlugin);
             app.add_plugins(knockouts::KnockoutsPlugin);
+            // Co-op (private fork): idle until a lobby is opened or joined.
+            app.add_plugins(coop::CoopPlugin(coop::Config { host: args.host, join: args.join.clone(), name: args.coop_name.clone(), base: args.coop_base }));
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
             app.add_plugins(stress_sample::StressSamplePlugin);
             // The span profile (NVF_PLAY_TEST_PROFILE; nothing without it; profile.rs).

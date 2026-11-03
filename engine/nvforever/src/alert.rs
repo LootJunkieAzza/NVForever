@@ -57,7 +57,8 @@ const CHEST: f32 = 0.75;
 
 type Actors<'w> = (Entity, &'w ActorRig, Option<&'w mut WeaponHold>, Option<&'w LookOverride>, Option<&'w AlertLook>, Has<WeaponHidden>);
 
-fn show(mut commands: Commands, script: Option<Res<ScriptState>>, world: Option<Res<ActorWorld>>, mut actors: Query<Actors>) {
+// Co-op puppets (coop.rs) draw and holster as their player does.
+fn show(mut commands: Commands, script: Option<Res<ScriptState>>, world: Option<Res<ActorWorld>>, mut actors: Query<Actors, Without<crate::coop::Puppet>>) {
     let Some(game) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
     let drawn_by_default = world.is_some_and(|w| w.weapon_mode == WeaponMode::Drawn);
     for (e, rig, hold, forced, ours, hidden) in &mut actors {

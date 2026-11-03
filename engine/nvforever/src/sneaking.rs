@@ -49,7 +49,8 @@ struct SneakStats {
     no_clips: std::collections::BTreeSet<u32>,
 }
 
-fn crouch(script: Option<Res<ScriptState>>, mut actors: Query<(&ActorRig, &mut Locomotion)>, mut stats: ResMut<SneakStats>) {
+// Co-op puppets (coop.rs) crouch as their player does.
+fn crouch(script: Option<Res<ScriptState>>, mut actors: Query<(&ActorRig, &mut Locomotion), Without<crate::coop::Puppet>>, mut stats: ResMut<SneakStats>) {
     let Some(game) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
     for (rig, mut lo) in &mut actors {
         let id = FormId(rig.reference);

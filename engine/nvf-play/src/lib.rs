@@ -64,6 +64,8 @@ pub mod hud_target;
 pub mod aim_assist;
 pub mod knockouts;
 pub mod loading;
+/// Co-op lobby screens (private fork).
+pub mod lobby;
 pub mod main_menu;
 pub mod location_markers;
 pub mod lockpick;

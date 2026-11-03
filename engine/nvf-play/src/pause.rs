@@ -611,6 +611,8 @@ enum Entry {
     Continue,
     Save,
     Load,
+    /// Co-op (private fork): the host's lobby screen, `crate::lobby`.
+    Lobby,
     Settings,
     /// Only with [`ModsEntry`], before Quit [design].
     Mods,
@@ -619,7 +621,7 @@ enum Entry {
 
 /// The column's entries, with the Mods entry when `mods` ([`ModsEntry`]).
 fn entries(mods: bool) -> Vec<Entry> {
-    let mut v = vec![Entry::Continue, Entry::Save, Entry::Load, Entry::Settings];
+    let mut v = vec![Entry::Continue, Entry::Save, Entry::Load, Entry::Lobby, Entry::Settings];
     if mods {
         v.push(Entry::Mods);
     }
@@ -633,6 +635,7 @@ impl Entry {
             Entry::Continue => "Continue",
             Entry::Save => "Save",
             Entry::Load => "Load",
+            Entry::Lobby => "Lobby",
             Entry::Settings => "Settings",
             Entry::Mods => MODS_LABEL,
             Entry::Quit => "Quit",
@@ -1595,7 +1598,7 @@ fn choose(
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
     mut menu: SaveMenu,
     (mut request, main_menu, intro, mut to_main, mouse): (ResMut<PageRequest>, Option<Res<crate::main_menu::MainMenu>>, Option<Res<crate::intro::Intro>>, MessageWriter<MainMenuRequest>, Res<ButtonInput<MouseButton>>),
-    (bindings, pads, sticks, pending, mods): (Option<Res<crate::bindings::Bindings>>, Query<&Gamepad>, Option<Res<crate::pad::StickButtons>>, Option<Res<crate::settings::PendingKeep>>, Option<Res<ModsEntry>>),
+    (bindings, pads, sticks, pending, mods, mut lobby): (Option<Res<crate::bindings::Bindings>>, Query<&Gamepad>, Option<Res<crate::pad::StickButtons>>, Option<Res<crate::settings::PendingKeep>>, Option<Res<ModsEntry>>, Option<ResMut<crate::lobby::LobbyScreen>>),
     meters: Query<(&PauseButton, &RelativeCursorPosition)>,
 ) {
     use crate::bindings::{Bindings, Input, InputDevice, GAME_CONTROLS};
@@ -1603,6 +1606,10 @@ fn choose(
     use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
     // Held for the intro film, which takes the keys (`crate::intro`).
     if !paused.0 || intro.is_some_and(|i| i.is_playing()) {
+        return;
+    }
+    // The lobby screen over it takes the keys (`crate::lobby`).
+    if lobby.as_ref().is_some_and(|l| l.holds_input()) {
         return;
     }
     // Under the main menu the first page is the main menu's own (`crate::main_menu`): its
@@ -2032,6 +2039,8 @@ fn choose(
                 take = Some(Entry::Settings);
             } else if act("mods") && mods {
                 take = Some(Entry::Mods);
+            } else if act("lobby") {
+                take = Some(Entry::Lobby);
             } else if keys.just_pressed(KeyCode::Escape) {
                 take = Some(Entry::Continue);
             }
@@ -2071,6 +2080,10 @@ fn choose(
                     info!("pause menu: mods page");
                     *page = Page::Mods;
                 }
+                Some(Entry::Lobby) => match lobby.as_mut() {
+                    Some(l) => l.open(crate::lobby::Mode::Host),
+                    None => warn!("pause menu: co-op is not in this build"),
+                },
                 Some(Entry::Continue) => {
                     info!("pause menu: resume");
                     next.set(PlayState::Playing);
@@ -2596,8 +2609,8 @@ mod tests {
     #[test]
     fn the_mods_entry_stands_before_quit_only_when_a_mod_added_one() {
         let labels = |mods| entries(mods).iter().map(|e| e.label()).collect::<Vec<_>>();
-        assert_eq!(labels(false), ["Continue", "Save", "Load", "Settings", "Quit"]);
-        assert_eq!(labels(true), ["Continue", "Save", "Load", "Settings", "Mods", "Quit"]);
+        assert_eq!(labels(false), ["Continue", "Save", "Load", "Lobby", "Settings", "Quit"]);
+        assert_eq!(labels(true), ["Continue", "Save", "Load", "Lobby", "Settings", "Mods", "Quit"]);
         assert!(Page::Mods.opened_by("Mods"));
         assert!(!Page::Mods.opened_by("Settings"));
         assert_eq!(Page::Mods.settings_row(), None);

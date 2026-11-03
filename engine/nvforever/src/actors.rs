@@ -87,6 +87,9 @@ pub struct ActorWorld {
     /// The race and sex scripts gave a reference (AgeRace, SexChange;
     /// `fnv_game::appearance`, told by `appearance.rs`): drawn in place of the record's.
     pub changes: Mutex<HashMap<u32, fnv_actor::Change>>,
+    /// A chosen look a reference is drawn with when none is passed: a co-op player's
+    /// (`coop.rs`, keyed by its puppet's reference).
+    pub looks: Mutex<HashMap<u32, fnv_actor::Look>>,
     /// The level each placed actor reads its leveled lists at in the game
     /// (`fnv_game::Game::leveled_at`, told by `zones.rs`); absent: the display level 1
     /// (docs/spec-notes/encounter-zones.md §5).
@@ -124,6 +127,7 @@ impl ActorWorld {
             anims: Anims::default(),
             rolls: Mutex::new(HashMap::new()),
             changes: Mutex::new(HashMap::new()),
+            looks: Mutex::new(HashMap::new()),
             levels: Mutex::new(HashMap::new()),
         }
     }
@@ -160,6 +164,8 @@ impl ActorWorld {
     /// creator) in place of the record's.
     pub fn resolve_as(&self, base: u32, reference: u32, wearing: Option<&[FormId]>, look: Option<&fnv_actor::Look>) -> Result<Appearance, String> {
         let change = self.change(reference);
+        let kept = if look.is_none() { self.looks.lock().ok().and_then(|l| l.get(&reference).cloned()) } else { None };
+        let look = look.or(kept.as_ref());
         Resolver { actors: &self.actors, forms: &self.forms }.resolve_changed_at(FormId(base), self.seed(reference), wearing, look, change, self.level(reference)).map_err(|e| e.to_string())
     }
 
