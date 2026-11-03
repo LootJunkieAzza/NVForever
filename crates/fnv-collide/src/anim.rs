@@ -68,6 +68,41 @@ impl AnimSequence {
     pub fn drives_nodes(&self) -> bool {
         !self.tracks.is_empty()
     }
+
+    /// Seconds after the start at which the sequence stands `t` seconds after it began,
+    /// by its cycle type [documented: nif.xml CycleType]: a clamped one (2) holds its
+    /// ends, a reversing one (1) runs back and forth, a looping one (0, any other) starts
+    /// again. Non-finite `t` counts as 0.
+    pub fn cycle_time(&self, t: f32) -> f32 {
+        let t = if t.is_finite() { t } else { 0.0 };
+        let len = self.length();
+        if len <= 0.0 || !len.is_finite() {
+            return 0.0;
+        }
+        match self.cycle_type {
+            2 => t.clamp(0.0, len),
+            1 => {
+                let m = t.rem_euclid(2.0 * len);
+                if m > len {
+                    2.0 * len - m
+                } else {
+                    m
+                }
+            }
+            _ => t.rem_euclid(len),
+        }
+    }
+
+    /// Played once and held at its end (cycle type clamp).
+    pub fn once(&self) -> bool {
+        self.cycle_type == 2
+    }
+
+    /// A sequence made up in memory (tests): `tracks` by node block.
+    pub fn synthetic(name: &str, start: f32, stop: f32, cycle_type: i64, anim: &ModelAnim, tracks: Vec<(usize, TransformTrack)>) -> AnimSequence {
+        let tracks = tracks.into_iter().filter_map(|(b, t)| Some((*anim.by_block.get(&b)?, Arc::new(t)))).collect();
+        AnimSequence { name: name.to_string(), start, stop, cycle_type, text_keys: Vec::new(), tracks }
+    }
 }
 
 /// Seconds from a sequence's start to its `end` text key, else its length
@@ -172,6 +207,42 @@ impl ModelAnim {
     pub fn door(&self) -> Option<(&AnimSequence, &AnimSequence)> {
         let (o, c) = (self.sequence("Open")?, self.sequence("Close")?);
         (o.drives_nodes() && c.drives_nodes()).then_some((o, c))
+    }
+
+    /// A node hierarchy made up in memory (tests): (block, name, parent block, bind
+    /// transform); the first entry is the file's root. Sequences are added with
+    /// [`AnimSequence::synthetic`].
+    pub fn synthetic(nodes: &[(usize, &str, Option<usize>, Similarity)]) -> ModelAnim {
+        let by_block: HashMap<usize, usize> = nodes.iter().enumerate().map(|(k, n)| (n.0, k)).collect();
+        let nodes = nodes
+            .iter()
+            .enumerate()
+            .map(|(k, &(_, name, parent, bind))| Node { name: Some(name.to_string()), parent: parent.and_then(|p| by_block.get(&p).copied()), bind, root: k == 0 })
+            .collect();
+        ModelAnim { nodes, by_block, sequences: Vec::new() }
+    }
+
+    /// Whether some sequence moves the node at `block` or a node above it (the file's
+    /// root left out: its transform is the placement's), so a collision object on that
+    /// node moves with it.
+    pub fn moves_block(&self, block: usize) -> bool {
+        let Some(&start) = self.by_block.get(&block) else { return false };
+        let driven = |k: usize| self.sequences.iter().any(|s| s.tracks.iter().any(|(n, _)| *n == k));
+        let mut k = start;
+        for _ in 0..256 {
+            let n = &self.nodes[k];
+            if n.root && n.parent.is_none() {
+                return false;
+            }
+            if driven(k) {
+                return true;
+            }
+            match n.parent {
+                Some(p) => k = p,
+                None => return false,
+            }
+        }
+        false
     }
 
     /// The node at `block` in the mesh root's frame (the root's own transform left out)
@@ -367,6 +438,32 @@ mod tests {
         // Bind pose without a sequence.
         let b = anim.node_to_root(None, 0.0, 2).unwrap().apply([0.0; 3]);
         assert!((b[0] - 15.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn moved_blocks_and_cycle_times() {
+        use fnv_nif::anim::{Channel, Key, KeyKind, Keys};
+        let sim = |t: [f32; 3]| Similarity { iso: Iso { translation: t, rotation: Iso::IDENTITY.rotation }, scale: 1.0 };
+        // Root 0 → gate 3 (driven) → bar 5; root → post 7 (not driven).
+        let mut anim = ModelAnim::synthetic(&[(0, "Root", None, sim([0.0; 3])), (3, "Gate", Some(0), sim([10.0, 0.0, 0.0])), (5, "Bar", Some(3), sim([0.0, 5.0, 0.0])), (7, "Post", Some(0), sim([0.0; 3]))]);
+        let key = |time: f32, value: [f32; 3]| Key { time, value, forward: [0.0; 3], backward: [0.0; 3], tbc: [0.0; 3] };
+        let slide = Channel::Keys(Keys { kind: KeyKind::Linear, keys: vec![key(0.0, [10.0, 0.0, 0.0]), key(2.0, [10.0, 0.0, 100.0])] });
+        let track = TransformTrack { translation: slide, rotation: Channel::Static(None), euler: None, scale: Channel::Static(None) };
+        let seq = AnimSequence::synthetic("Forward", 0.0, 2.0, 2, &anim, vec![(3, track)]);
+        anim.sequences.push(seq);
+        assert!(anim.moves_block(3) && anim.moves_block(5));
+        assert!(!anim.moves_block(7) && !anim.moves_block(0) && !anim.moves_block(99));
+        let s = anim.sequence("forward").unwrap();
+        assert!(s.once());
+        assert_eq!(s.cycle_time(5.0), 2.0);
+        assert_eq!(s.cycle_time(-1.0), 0.0);
+        let bar = anim.node_to_root(Some(s), s.cycle_time(9.0), 5).unwrap().apply([0.0; 3]);
+        assert!((bar[2] - 100.0).abs() < 1e-4 && (bar[1] - 5.0).abs() < 1e-4, "{bar:?}");
+        let looping = AnimSequence { cycle_type: 0, ..s.clone() };
+        assert!((looping.cycle_time(5.0) - 1.0).abs() < 1e-6);
+        let reverse = AnimSequence { cycle_type: 1, ..s.clone() };
+        assert!((reverse.cycle_time(3.0) - 1.0).abs() < 1e-6);
+        assert_eq!(s.cycle_time(f32::NAN), 0.0);
     }
 
     #[test]

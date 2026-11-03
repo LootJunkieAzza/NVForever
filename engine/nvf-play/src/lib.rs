@@ -81,6 +81,7 @@ pub mod perk_marks;
 pub mod message_menu;
 pub mod moved;
 pub mod music;
+pub mod object_groups;
 pub mod pad;
 pub mod pause;
 pub mod phys;
@@ -327,7 +328,7 @@ impl Plugin for PlayPlugin {
             .add_plugins((ui_sounds::UiSoundsPlugin, pad::PadPlugin, rumble::RumblePlugin, script_input::ScriptInputPlugin, aim_assist::AimAssistPlugin))
             .add_plugins((chargen::ChargenPlugin, creator::CreatorPlugin, fade::FadePlugin))
             .add_plugins((levelup::LevelUpPlugin, sneak_gauges::SneakGaugesPlugin))
-            .add_plugins(perk_marks::PerkMarksPlugin)
+            .add_plugins((perk_marks::PerkMarksPlugin, object_groups::ObjectGroupsPlugin))
             .add_plugins(tiles::TilesPlugin)
             .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin)

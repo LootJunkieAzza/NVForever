@@ -75,7 +75,7 @@ fn fake_cell(job: &Job) -> Prepared {
         let obj = object(if dynamic { 15.0 } else { 50.0 }, if dynamic { Motion::Dynamic } else { Motion::Static });
         let prepared = PreparedRef::new(&params, &RefPose::from_placement(&pl), &[obj]);
         let dynamic_local = dynamic.then_some(Iso::IDENTITY);
-        refs.push(Entry { form_id: pl.form_id, placement: Some(pl), shapes: Some(RefShapes { tallies: vec!["fake"], water: Vec::new(), prepared: Some(prepared), dynamic_local, door: None, drawn: None }) });
+        refs.push(Entry { form_id: pl.form_id, placement: Some(pl), shapes: Some(RefShapes { tallies: vec!["fake"], water: Vec::new(), prepared: Some(prepared), dynamic_local, door: None, animated: None, drawn: None }) });
     }
     // A pond: a reference with only a water volume (placed water, physics.md §6.6).
     let pond = Placement {
@@ -93,7 +93,7 @@ fn fake_cell(job: &Job) -> Prepared {
         imposter: false,
     };
     let water = vec![CollisionObject { layer: fnv_phys::layers::WATER, ..object(100.0, Motion::Static) }];
-    refs.push(Entry { form_id: pond.form_id, placement: Some(pond), shapes: Some(RefShapes { tallies: vec!["water_volume"], water, prepared: None, dynamic_local: None, door: None, drawn: None }) });
+    refs.push(Entry { form_id: pond.form_id, placement: Some(pond), shapes: Some(RefShapes { tallies: vec!["water_volume"], water, prepared: None, dynamic_local: None, door: None, animated: None, drawn: None }) });
     let terrain = Some(PreparedTerrain::new(&params, (gx, gy), &heights));
     Prepared { cell: job.cell, heights: Some(heights), terrain, refs, times: LoadTimes::default() }
 }
@@ -273,7 +273,7 @@ fn bridge_cell(job: &Job) -> Prepared {
         };
         let obj = CollisionObject { shape: Shape::Box { half_extents: [600.0, 600.0, 20.0] }.into(), ..object(0.0, Motion::Static) };
         let prepared = PreparedRef::new(&PhysParams::default(), &RefPose::from_placement(&pl), &[obj]);
-        p.refs.push(Entry { form_id: pl.form_id, placement: Some(pl), shapes: Some(RefShapes { tallies: vec!["fake"], water: Vec::new(), prepared: Some(prepared), dynamic_local: None, door: None, drawn: None }) });
+        p.refs.push(Entry { form_id: pl.form_id, placement: Some(pl), shapes: Some(RefShapes { tallies: vec!["fake"], water: Vec::new(), prepared: Some(prepared), dynamic_local: None, door: None, animated: None, drawn: None }) });
     }
     p
 }
@@ -449,4 +449,111 @@ fn small_actors_get_characters_of_their_size() {
     let dog = super::npc_params(Some(80.0));
     assert!((dog.radius - 13.6).abs() < 1e-3 && dog.height == 80.0, "{dog:?}");
     assert_eq!(super::npc_params(Some(3.0)).height, super::NPC_MIN_HEIGHT);
+}
+
+/// An activator's gate (issue #1396, the Megaton gate): a node carrying a keyframed
+/// collision box that its model's "Forward" sequence (played once, 2 s) lifts 100 units.
+/// Its collision follows the group the object plays (`crate::object_groups`): not solid
+/// while it runs, held at the end and solid once it ended, in the stored pose without a
+/// group; the post on the root does not move. A DOOR's model is left to the door rule.
+#[test]
+fn an_activators_gate_collision_follows_the_group_it_plays() {
+    use fnv_collide::anim::{AnimSequence, ModelAnim};
+    use fnv_collide::nif::Similarity;
+    use fnv_nif::anim::{Channel, Key, KeyKind, Keys, TransformTrack};
+    let at = |t: [f32; 3]| Similarity { iso: Iso { translation: t, rotation: Iso::IDENTITY.rotation }, scale: 1.0 };
+    // Root 0 → gate 1 (10 east of the root).
+    let mut anim = ModelAnim::synthetic(&[(0, "MegatonGate", None, at([0.0; 3])), (1, "Gate", Some(0), at([10.0, 0.0, 0.0]))]);
+    let key = |time: f32, value: [f32; 3]| Key { time, value, forward: [0.0; 3], backward: [0.0; 3], tbc: [0.0; 3] };
+    let lift = Channel::Keys(Keys { kind: KeyKind::Linear, keys: vec![key(0.0, [10.0, 0.0, 0.0]), key(2.0, [10.0, 0.0, 100.0])] });
+    let track = TransformTrack { translation: lift, rotation: Channel::Static(None), euler: None, scale: Channel::Static(None) };
+    anim.sequences.push(AnimSequence::synthetic("Forward", 0.0, 2.0, 2, &anim, vec![(1, track)]));
+    let anim = std::sync::Arc::new(anim);
+    let gate = CollisionObject { node: Some("Gate".into()), node_block: 1, node_transform: Iso { translation: [10.0, 0.0, 0.0], rotation: Iso::IDENTITY.rotation }, ..object(20.0, Motion::Keyframed) };
+    let post = CollisionObject { node: Some("MegatonGate".into()), node_block: 0, ..object(5.0, Motion::Static) };
+    let objects = vec![gate, post];
+    // Only the gate's body moves; a DOOR base or no animation: none.
+    let bodies = prepare::animated_bodies(Some(*b"ACTI"), Some(anim.clone()), &objects).expect("the gate moves");
+    assert_eq!(bodies.objects.iter().map(|o| (o.0, o.1)).collect::<Vec<_>>(), [(0, 1)]);
+    assert!(prepare::animated_bodies(Some(*b"DOOR"), Some(anim.clone()), &objects).is_none());
+    assert!(prepare::animated_bodies(Some(*b"ACTI"), None, &objects).is_none());
+    assert!(prepare::animated_bodies(Some(*b"ACTI"), Some(anim.clone()), &objects[1..]).is_none(), "the post alone does not move");
+
+    let (d, sim) = (play_data(), sim());
+    let ctx = LoadCtx { d: &d, sim: &sim, data: None };
+    let mut p = PhysState { loader: loader::Loader::manual(), ..Default::default() };
+    let id = 0x0001_2345;
+    let cell = PhysCell::Exterior(0, 0);
+    let load = |p: &mut PhysState| {
+        let pl = placement_at([1000.0, 2000.0, 50.0], id);
+        let prepared = PreparedRef::new(&PhysParams::default(), &RefPose::from_placement(&pl), &objects);
+        let animated = prepare::animated_bodies(Some(*b"ACTI"), Some(anim.clone()), &objects);
+        let shapes = RefShapes { tallies: vec!["fake"], water: Vec::new(), prepared: Some(prepared), dynamic_local: None, door: None, animated, drawn: None };
+        p.insert(&ctx, Prepared { cell, heights: None, terrain: None, refs: vec![Entry { form_id: id, placement: Some(pl), shapes: Some(shapes) }], times: LoadTimes::default() });
+    };
+    load(&mut p);
+    assert!(p.animated.contains_key(&id));
+    let near = |a: [f32; 3], b: [f32; 3]| (0..3).all(|i| (a[i] - b[i]).abs() < 1e-2);
+    let bodies_at = |p: &PhysState| p.world.ref_bodies(id).iter().map(|b| b.translation).collect::<Vec<_>>();
+    let gate_at = |p: &PhysState, z: f32| bodies_at(p).iter().any(|&b| near(b, [1010.0, 2000.0, z]));
+    let mut groups = crate::object_groups::ObjectGroups::default();
+    // No group: the stored pose.
+    p.pose_objects(&groups);
+    assert!(gate_at(&p, 50.0), "{:?}", bodies_at(&p));
+    assert_eq!(p.animated[&id].solid, Some(true));
+    // PlayGroup Forward, 1 s in: half way up, not solid while it runs.
+    groups.play(id, 0x13, "Forward", 0.0, false);
+    groups.advance(1.0);
+    p.pose_objects(&groups);
+    assert!(gate_at(&p, 100.0), "{:?}", bodies_at(&p));
+    assert_eq!(p.animated[&id].solid, Some(false));
+    // Ended: held at the end, solid again; the post never moved.
+    groups.advance(5.0);
+    p.pose_objects(&groups);
+    assert!(gate_at(&p, 150.0), "{:?}", bodies_at(&p));
+    assert!(bodies_at(&p).iter().any(|&b| near(b, [1000.0, 2000.0, 50.0])), "the post stays: {:?}", bodies_at(&p));
+    assert_eq!(p.animated[&id].solid, Some(true));
+    // A physics step keeps it there (kinematic: it does not fall back).
+    p.world.step();
+    assert!(gate_at(&p, 150.0));
+    // Its cell unloads and loads again: still open.
+    p.unload(cell);
+    assert!(!p.animated.contains_key(&id));
+    load(&mut p);
+    p.pose_objects(&groups);
+    assert!(gate_at(&p, 150.0), "{:?}", bodies_at(&p));
+    // Saved and loaded (the save hook, into a fresh world): a fresh physics world poses it
+    // open, not closed.
+    let mut w = bevy::prelude::World::new();
+    w.insert_resource(groups);
+    let saved = (crate::object_groups::SAVE_HOOK.save)(&w).expect("the gate's group is saved");
+    let mut fresh = bevy::prelude::World::new();
+    (crate::object_groups::SAVE_HOOK.load)(&mut fresh, &saved);
+    let mut groups = fresh.remove_resource::<crate::object_groups::ObjectGroups>().expect("put back");
+    let mut q = PhysState { loader: loader::Loader::manual(), ..Default::default() };
+    load(&mut q);
+    q.pose_objects(&groups);
+    assert!(gate_at(&q, 150.0), "{:?}", bodies_at(&q));
+    assert_eq!(q.animated[&id].solid, Some(true));
+    // Reset3DState: back to the stored pose.
+    groups.reset(id);
+    q.pose_objects(&groups);
+    assert!(gate_at(&q, 50.0), "{:?}", bodies_at(&q));
+}
+
+fn placement_at(position: [f32; 3], form_id: u32) -> Placement {
+    Placement {
+        form_id,
+        sig: *b"REFR",
+        flags: 0,
+        base: None,
+        position,
+        rotation: [0.0; 3],
+        scale: 1.0,
+        enable_parent: None,
+        open_by_default: false,
+        teleport: false,
+        emittance: None,
+        imposter: false,
+    }
 }

@@ -282,6 +282,60 @@ script), and whether that base's model has a sequence named like the group.
   0.47 s), flag 1" [observed in NVForever, 2026-10-11: 50 asked (Backward 22, Forward 11,
   Left 17), 0 without a sequence of that name].
 
+### 5.3.1 Collision that follows the group (issue #1396)
+
+Before this, only doors' collision followed their animation (doors.md); an activator,
+static or moveable static whose sequence moved a node carrying a collision body moved
+only on screen: the TTW Megaton gate opened and stayed solid where it was closed
+[observed: owner report 2026-11-02].
+
+- **Which objects** (nvf-play `phys/prepare.rs` `animated_bodies`): any placed reference
+  whose base is not a DOOR and whose model has a sequence that moves the node of a
+  keyframed collision object, or a node above it (the file's root left out: it carries
+  the placement). Only those objects follow; the model's other bodies stay where they
+  were placed. Not one laid in its stored pose (XRGD). Doors keep their own rule
+  (doors.md), unchanged [design].
+- **One clock** (nvf-play `object_groups.rs`, `ObjectGroups`): the sequence each object
+  shows and how far into it it is. The renderer (`object_anims.rs`) records a group a
+  script starts, and every frame copies in the sequence and time each drawn rig shows
+  (a script's group, the object's own idle, a radio's Open) after the clips advanced;
+  the physics poses the moving bodies from it in its next update (one frame behind the
+  drawing, the physics running before the scripts in a frame) [design]. The time is
+  wrapped or held by the sequence's cycle type [documented: nif.xml CycleType]: a group
+  played once holds its end.
+- **Solid or not**: a group played once is not solid while it runs and solid again from
+  its end; a looping one stays solid and moves [hypothesis: as a door's leaf, which is
+  not solid while it swings (doors.md; owner request 2026-10-09), so a moving gate never
+  pushes or traps the player or an actor; the original's Havok may push them instead].
+  Moving keyframed bodies push dynamic clutter in their way (rapier kinematic bodies).
+- **Out of sight and saved**: a script's group is kept after it ended and while the
+  object is not drawn, its clock running on by itself [design: a gate opened out of
+  sight is open when the player comes back]; `Reset3DState` forgets it. It is saved in
+  the engine's part of the save (`object_groups`: reference, group code, sequence name,
+  seconds in) and put back on load; the physics poses the collision from it as soon as
+  the cell loads, and the renderer shows it when the object is drawn (a group played once
+  at its end, without its sound keys again) [design]. Before this, a group's end was not
+  kept across a cell reload or a load at all; scripts that replay it in OnLoad (the
+  agaves, §5.2) still do.
+- **Navigation**: the navmesh is static (navmesh.md) and does not change. `fnvtool nav`'s
+  walks build these objects' collision in their stored pose: they animate only doors that
+  open in place (`nav_path.rs`), so a walk through a gate an activator opens is not
+  modelled there [not built].
+- Log: the cells-loaded counts gain `animated_objects`.
+- **The Megaton gate** [observed: `fnvtool collide objects` and `fnvtool nif decode` on
+  TTW's `Fallout3 - Meshes.bsa`, 2026-11-03]: `architecture\megaton\megatongatehouse01.nif`
+  has keyframed collision (layer 2, AnimStatic) on its nodes `leftgate01` and
+  `rightgate01` (and `MegatonGates01`), and four sequences whose 33 controlled blocks
+  include `leftgate01` and `rightgate01`: `SpecialIdle` and `Left` (loops, 3 s) and `Forward` and `Backward`
+  (clamped, 15 s). `megatonmaingate01.nif` is one static mesh without sequences.
+- **New Vegas** [observed: `fnvtool sim activator-models` joined with `fnvtool collide
+  objects` over `Fallout - Meshes.bsa`, 2026-11-03]: 59 activator bases have a model with
+  keyframed collision and a sequence other than Open/Close; none is a gate the player
+  walks through. Most-placed: the bear trap (`traps\beartrap01.nif`, its jaws), the
+  force-field impacts, the tape machine's spinning reels, the grinding wheel, the
+  terminals (`Idle`), the Pitt's presses, the vertibirds and VMS15's B-29
+  (`b29_riseanim.nif`, `NV_B29Dam`). So no smoke scenario: no NV gate to walk through.
+
 ### 5.4 Not built, and questions for captures
 
 - Not built: `LoopGroup` (no opcode); particle, refraction and morph controllers in the
