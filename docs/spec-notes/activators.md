@@ -321,7 +321,7 @@ only on screen: the TTW Megaton gate opened and stayed solid where it was closed
   walks build these objects' collision in their stored pose: they animate only doors that
   open in place (`nav_path.rs`), so a walk through a gate an activator opens is not
   modelled there [not built].
-- Log: the cells-loaded counts gain `animated_objects`.
+- Log: the counts of the `physics cell … loaded` debug line gain `animated_objects`.
 - **The Megaton gate** [observed: `fnvtool collide objects` and `fnvtool nif decode` on
   TTW's `Fallout3 - Meshes.bsa`, 2026-11-03]: `architecture\megaton\megatongatehouse01.nif`
   has keyframed collision (layer 2, AnimStatic) on its nodes `leftgate01` and
