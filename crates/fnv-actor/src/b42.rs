@@ -11,6 +11,12 @@
 //!   once>\[<creature folder>\]1st\*.kf` beside a `cnd.ini` naming when it plays, on the
 //!   item coming into the player's inventory; `once` only the first time [observed].
 //! - **Crafting**: `meshes\b42interact\awr\edid\<recipe EditorID>\1st\*.kf` [observed].
+//! - **Activation by type** (B42 Interact itself): `meshes\b42interact\type\<form type>\
+//!   <category>\<base | key | lock | -1>\<1st | 3rd>\[<stance>\]*.kf`, played before
+//!   an activator (21), terminal (23), container (27), door (28), person (42) or creature
+//!   (43) is activated ([`Index::type_clips`]; `Config\B42Interact\Settings.ini` turns a
+//!   type off, `Blacklist.ini` names objects left out) [observed: the mod's folders, its
+//!   ini files and its script].
 //! - **Text keys** ([`cues`]): the clips call the mod's script through `ScriptLine:` keys
 //!   (attach the model in the left hand, take it away, play the item's own sound, play a
 //!   file) and kNVSE's `SoundPath:` key; [`cues`] reads the lines the packs use
@@ -24,6 +30,16 @@ use std::collections::HashMap;
 pub const INJECT_ROOT: &str = "meshes\\characters\\_male\\idleanims\\b42inject\\";
 /// Where the interact and crafting clips are.
 pub const INTERACT_ROOT: &str = "meshes\\b42interact\\";
+/// Where the clips by form type are (under [`INTERACT_ROOT`]).
+pub const TYPE_ROOT: &str = "meshes\\b42interact\\type\\";
+/// The form types the mod animates [observed: `Settings.ini` [Interactions]].
+pub const TYPES: [u32; 6] = [ACTIVATOR, TERMINAL, CONTAINER, DOOR, PERSON, CREATURE];
+pub const ACTIVATOR: u32 = 21;
+pub const TERMINAL: u32 = 23;
+pub const CONTAINER: u32 = 27;
+pub const DOOR: u32 = 28;
+pub const PERSON: u32 = 42;
+pub const CREATURE: u32 = 43;
 /// The node the clips hang the held model from, under the left hand [observed: the
 /// script inserts `Bip01 L Hand|B42AttachPointL`; the clips carry a track for it].
 pub const ATTACH_NODE: &str = "B42AttachPointL";
@@ -93,6 +109,39 @@ pub struct Index {
     interact: HashMap<String, Vec<Interact>>,
     /// Recipe EditorID lower case → clip paths.
     recipes: HashMap<String, Vec<String>>,
+    /// Type clips by their folders; all lower case.
+    types: HashMap<TypeKey, Vec<String>>,
+}
+
+/// The folders of a type clip: form type, category, variant, view, stance.
+type TypeKey = (u32, String, String, View, Option<String>);
+
+/// A lock as the player meets it, for the variant folder of a type clip [observed: the
+/// script's `Key` (the player carries the key), `Lock` (locked, within the skill) and
+/// `-1` (beyond it, or broken) folders].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LockSeen {
+    Open,
+    Key,
+    Pickable,
+    Beyond,
+}
+
+/// The weapon stance folder of a type clip, from the drawn weapon's animation type
+/// (WEAP DNAM, `GetEquippedWeaponType`), `holst` when none is drawn [observed: the
+/// script's table].
+pub fn stance(drawn: Option<i64>) -> &'static str {
+    match drawn {
+        None => "holst",
+        Some(t) if t < 2 => "h2h1hm",
+        Some(2) => "2hm",
+        Some(t) if t > 9 => "1gt",
+        Some(t) if t < 5 => "1hp",
+        Some(8) => "2hh",
+        Some(6) => "2ha",
+        Some(9) => "2hl",
+        Some(_) => "2hr",
+    }
 }
 
 impl Index {
@@ -110,6 +159,21 @@ impl Index {
                         let view = if view == "1" { View::First } else { View::Third };
                         ix.inject.entry((pa == "1", view, edid.to_string())).or_default().push(p.to_string());
                     }
+                }
+            } else if let Some(rest) = p.strip_prefix(TYPE_ROOT) {
+                let parts: Vec<&str> = rest.split('\\').collect();
+                let (code, cat, variant, view, stance, file) = match parts[..] {
+                    [c, cat, v, view, file] => (c, cat, v, view, None, file),
+                    [c, cat, v, view, st, file] => (c, cat, v, view, Some(st.to_string()), file),
+                    _ => continue,
+                };
+                let view = match view {
+                    "1st" => View::First,
+                    "3rd" => View::Third,
+                    _ => continue,
+                };
+                if let (Ok(code), true) = (code.parse::<u32>(), file.ends_with(".kf")) {
+                    ix.types.entry((code, cat.to_string(), variant.to_string(), view, stance)).or_default().push(p.to_string());
                 }
             } else if let Some(rest) = p.strip_prefix(INTERACT_ROOT) {
                 let parts: Vec<&str> = rest.split('\\').collect();
@@ -149,7 +213,7 @@ impl Index {
             // Those for one creature first, so a body's own clip wins over a general one.
             v.sort_by_key(|e| (e.creature.is_none(), e.creature.clone()));
         }
-        for v in ix.inject.values_mut().chain(ix.recipes.values_mut()) {
+        for v in ix.inject.values_mut().chain(ix.recipes.values_mut()).chain(ix.types.values_mut()) {
             v.sort();
         }
         ix
@@ -172,6 +236,53 @@ impl Index {
 
     pub fn recipe(&self, edid: &str) -> &[String] {
         self.recipes.get(&edid.to_ascii_lowercase()).map_or(&[], Vec::as_slice)
+    }
+
+    /// The form types with clips, and how many clips by type there are.
+    pub fn type_counts(&self) -> (Vec<u32>, usize) {
+        let mut codes: Vec<u32> = self.types.keys().map(|k| k.0).collect();
+        codes.sort_unstable();
+        codes.dedup();
+        (codes, self.types.values().map(Vec::len).sum())
+    }
+
+    /// A type has clips for a category (any variant or view).
+    pub fn has_category(&self, code: u32, category: &str) -> bool {
+        self.types.keys().any(|k| k.0 == code && k.1.eq_ignore_ascii_case(category))
+    }
+
+    fn has_variant(&self, code: u32, category: &str, variant: &str) -> bool {
+        self.types.keys().any(|k| k.0 == code && k.1 == category && k.2 == variant)
+    }
+
+    /// The clips to play before activating an object of form type `code` (module notes):
+    /// the variant folder of the lock (`key`, `lock`, else `base`; `key` and `lock` fall
+    /// back to `base`, `-1` does not), the view's folder (none there: no clip, as the mod
+    /// plays none for an activation it would have to switch the view for), then the
+    /// stance's folder if it has clips, else the view folder's own [observed: the script].
+    pub fn type_clips(&self, code: u32, category: &str, lock: LockSeen, view: View, stance: &str) -> &[String] {
+        let category = category.to_ascii_lowercase();
+        let wanted = match lock {
+            LockSeen::Open => "base",
+            LockSeen::Key => "key",
+            LockSeen::Pickable => "lock",
+            LockSeen::Beyond => "-1",
+        };
+        let variant = if matches!(lock, LockSeen::Key | LockSeen::Pickable) && !self.has_variant(code, &category, wanted) { "base" } else { wanted };
+        let key = |st: Option<String>| (code, category.clone(), variant.to_string(), view, st);
+        if let Some(v) = self.types.get(&key(Some(stance.to_string()))).filter(|v| !v.is_empty()) {
+            return v;
+        }
+        self.types.get(&key(None)).map_or(&[], Vec::as_slice)
+    }
+
+    /// The third-person clips of the folder a type clip came from, for another player's
+    /// puppet (the third-person folders have no stance folders [observed]).
+    pub fn type_third(&self, clip: &str) -> &[String] {
+        let Some(rest) = clip.strip_prefix(TYPE_ROOT) else { return &[] };
+        let parts: Vec<&str> = rest.split('\\').collect();
+        let (Some(code), Some(cat), Some(variant)) = (parts.first().and_then(|c| c.parse::<u32>().ok()), parts.get(1), parts.get(2)) else { return &[] };
+        self.types.get(&(code, cat.to_string(), variant.to_string(), View::Third, None)).map_or(&[], Vec::as_slice)
     }
 
     pub fn counts(&self) -> (usize, usize, usize) {
@@ -273,6 +384,13 @@ pub enum Cue {
     SoundFile(String),
     /// The item's own consume sound (held back from the use, module notes).
     ItemSound,
+    /// Activate the object now (a type clip; else at its end) [observed: `*_ACT`].
+    Activate,
+    /// The mod's control flags (`*_IntD`): 1–3 hide the HUD and block other activations,
+    /// 2 and more hold the player still (not at a door, unless a load door), 3 is a
+    /// skinning (the player is moved to the body), 4 and more let a second Activate end
+    /// it, −1 gives everything back [observed: the script's comments].
+    Controls(i32),
 }
 
 /// The cues of one text key. A `ScriptLine:` key may hold several lines, split by `%r`
@@ -284,7 +402,13 @@ pub fn cues(key: &str) -> Vec<Cue> {
     let rest = rest.trim();
     match head.as_str() {
         "sound" if rest.split_whitespace().next().is_some_and(|n| n.eq_ignore_ascii_case("B42InjectSound")) => vec![Cue::ItemSound],
-        "soundpath" if !rest.is_empty() => vec![Cue::SoundFile(rest.to_string())],
+        // Some keys repeat the head inside (`SoundPath:fx\Hit\SoundPath:fx\Hit\X.wav`):
+        // the file is after the last [observed: the crafting pack].
+        "soundpath" if !rest.is_empty() => {
+            let low = rest.to_ascii_lowercase();
+            let file = low.rfind("soundpath:").map_or(rest, |i| rest[i + "soundpath:".len()..].trim());
+            vec![Cue::SoundFile(file.to_string())]
+        }
         "scriptline" => rest.split("%r").filter_map(script_cue).collect(),
         _ => Vec::new(),
     }
@@ -301,19 +425,23 @@ fn script_cue(line: &str) -> Option<Cue> {
     let q = quoted(l);
     let first = q.first().map(|s| s.to_ascii_lowercase());
     let value = || l.rsplit(|c: char| c.is_whitespace() || c == '"').find(|s| !s.is_empty()).and_then(|v| v.parse::<f32>().ok());
+    // B42 Inject's names (`*_Inj…`), B42 Interact's (`*_Int…`, `*_ACT`) and the
+    // crafting pack's (`*AWR_…`) [observed: the installed packs' text keys].
     if low.contains("auxvarsetflt") {
         return match (first.as_deref(), value()) {
-            (Some("*_injm"), Some(1.0)) => Some(Cue::Attach),
-            (Some("*_injm"), Some(3.0)) => Some(Cue::Detach),
+            (Some("*_injm" | "*_intm" | "*awr_attach"), Some(1.0)) => Some(Cue::Attach),
+            (Some("*_injm" | "*_intm"), Some(3.0)) | (Some("*awr_attach"), Some(0.0 | 3.0)) => Some(Cue::Detach),
             (Some("*_injs"), Some(v)) if v != 0.0 => Some(Cue::ItemSound),
+            (Some("*_act"), Some(v)) if v != 0.0 => Some(Cue::Activate),
+            (Some("*_intd"), Some(v)) => Some(Cue::Controls(v as i32)),
             _ => None,
         };
     }
     if low.contains("auxvarsetstr") {
         let v = q.get(1).filter(|v| !v.is_empty())?.to_string();
         return match first.as_deref() {
-            Some("*_injmp") => Some(Cue::Model(v)),
-            Some("*_injsp") => Some(Cue::SoundFile(v)),
+            Some("*_injmp" | "*_intmp" | "*awr_model") => Some(Cue::Model(v)),
+            Some("*_injsp" | "*_intsp") => Some(Cue::SoundFile(v)),
             _ => None,
         };
     }
@@ -497,6 +625,64 @@ pub fn read_ini(text: &str, o: &mut Options) {
     }
 }
 
+/// `Config\B42Interact\Settings.ini` [Interactions]: the form types turned off
+/// (`<type>=Disabled`) [observed].
+pub fn disabled_types(text: &str) -> Vec<u32> {
+    let mut on = false;
+    let mut out = Vec::new();
+    for line in text.lines().map(str::trim) {
+        if line.starts_with('[') {
+            on = line.eq_ignore_ascii_case("[interactions]");
+            continue;
+        }
+        let Some((k, v)) = line.split_once('=').filter(|_| on && !line.starts_with(';')) else { continue };
+        if v.split(';').next().is_some_and(|v| v.trim().eq_ignore_ascii_case("disabled")) {
+            out.extend(k.trim().parse::<u32>().ok());
+        }
+    }
+    out
+}
+
+/// `Config\B42Interact\Blacklist.ini`: the EditorIDs left out (`<n>=<EditorID>`), lower case.
+pub fn blacklist(text: &str) -> Vec<String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.starts_with(';') && !l.starts_with('['))
+        .filter_map(|l| l.split_once('=').map(|(_, v)| v.split(';').next().unwrap_or("").trim().to_ascii_lowercase()))
+        .filter(|v| !v.is_empty())
+        .collect()
+}
+
+/// A KEYWORDS list (`keywords\*.ini`: `<EditorID>=<keyword>` lines under any section)
+/// [observed: the lists Idle Variety ships]: (EditorID, keyword), lower case.
+pub fn keywords(text: &str) -> Vec<(String, String)> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.starts_with(';') && !l.starts_with('['))
+        .filter_map(|l| {
+            let (k, v) = l.split_once('=')?;
+            let v = v.split(';').next()?.trim();
+            (!k.trim().is_empty() && !v.is_empty()).then(|| (k.trim().to_ascii_lowercase(), v.to_ascii_lowercase()))
+        })
+        .collect()
+}
+
+/// The category of an activator no keyword names, by the game's own names [design:
+/// KEYWORDS' lists are not installed; the harvestable plants' EditorIDs end in
+/// `Pickable`, switches and buttons are named so in the game's data]: `harvestable`,
+/// `buttons`, else `default`.
+pub fn activator_category(edid: &str, name: &str) -> &'static str {
+    let e = edid.to_ascii_lowercase();
+    let n = name.to_ascii_lowercase();
+    if e.contains("pickable") {
+        "harvestable"
+    } else if ["button", "switch", "lever"].iter().any(|w| e.contains(w) || n.contains(w)) {
+        "buttons"
+    } else {
+        "default"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -593,6 +779,15 @@ mod tests {
         assert_eq!(cues("ScriptLine: DispatchEventAlt \"B42IS\""), [Cue::ItemSound]);
         assert_eq!(cues("ScriptLine: DispatchEventAlt \"B42ISP\" \"fx\\Hit\\StimDraw.wav\""), [Cue::SoundFile("fx\\Hit\\StimDraw.wav".into())]);
         assert_eq!(cues("scriptLine: B42InjectQ.iRunDetach = 1"), [Cue::Detach]);
+        assert_eq!(cues("ScriptLine: Goo1.AuxVarSetStr \"*_IntSP\" \"fx\\Hit\\SkinningCut1.wav\""), [Cue::SoundFile("fx\\Hit\\SkinningCut1.wav".into())]);
+        assert_eq!(cues("ScriptLine: Goo1.AuxVarSetStr \"*_IntMP\" \"HitMesh\\SkinningMeat.nif\""), [Cue::Model("HitMesh\\SkinningMeat.nif".into())]);
+        assert_eq!(cues("ScriptLine: Goo1.AuxVarSetFlt \"*_IntM\" 1"), [Cue::Attach]);
+        assert_eq!(cues("ScriptLine: Goo1.AuxVarSetFlt \"*_IntM\" 3"), [Cue::Detach]);
+        assert_eq!(cues("ScriptLine: Goo1.AuxVarSetFlt \"*_ACT\" 1"), [Cue::Activate]);
+        assert_eq!(cues("ScriptLine: Goo1.AuxVarSetFlt \"*_IntD\" -1"), [Cue::Controls(-1)]);
+        assert_eq!(cues("ScriptLine: Goo1.AuxVarSetFlt \"*AWR_Attach\" 1"), [Cue::Attach]);
+        assert_eq!(cues("ScriptLine: Goo1.AuxVarSetStr \"*AWR_Model\" \"HitMesh\\CraftingAmmo45.nif\""), [Cue::Model("HitMesh\\CraftingAmmo45.nif".into())]);
+        assert_eq!(cues("SoundPath:fx\\Hit\\SoundPath:fx\\Hit\\CraftingBulletAway.wav"), [Cue::SoundFile("fx\\Hit\\CraftingBulletAway.wav".into())]);
         assert_eq!(cues("start"), []);
         assert_eq!(cues("BlendIn:1"), []);
     }
@@ -636,5 +831,54 @@ mod tests {
         let mut o = Options::default();
         read_ini("[Settings]\n;hardcore will …\nHardcore=1\n;Enable\nInjectInPA=0\n", &mut o);
         assert_eq!(o, Options { on: true, hardcore: true, in_power_armor: false });
+    }
+
+    #[test]
+    fn type_clips_follow_the_mods_folders() {
+        let root = TYPE_ROOT;
+        let paths: Vec<String> = [
+            r"28\default\base\1st\holst\holst.kf",
+            r"28\default\base\1st\1hp\a.kf",
+            r"28\default\base\1st\base.kf",
+            r"28\default\base\3rd\third.kf",
+            r"28\default\key\1st\key.kf",
+            r"27\default\base\1st\holst\loot.kf",
+            r"21\harvestable\base\1st\holst\pick.kf",
+            r"43\lootable\base\1st\holst\loot.kf",
+        ]
+        .iter()
+        .map(|p| format!("{root}{p}"))
+        .collect();
+        let ix = Index::build(paths.iter().map(String::as_str), |_| None);
+        let f = |v: &[String]| v.iter().map(|p| p.rsplit('\\').next().unwrap().to_string()).collect::<Vec<_>>();
+        assert_eq!(f(ix.type_clips(DOOR, "Default", LockSeen::Open, View::First, "holst")), ["holst.kf"]);
+        assert_eq!(f(ix.type_clips(DOOR, "default", LockSeen::Open, View::First, "1hp")), ["a.kf"]);
+        // A stance with no folder: the view folder's own.
+        assert_eq!(f(ix.type_clips(DOOR, "default", LockSeen::Open, View::First, "2hr")), ["base.kf"]);
+        assert_eq!(f(ix.type_clips(DOOR, "default", LockSeen::Key, View::First, "holst")), ["key.kf"]);
+        // No lock folder: the base one; beyond the skill: none.
+        assert_eq!(f(ix.type_clips(DOOR, "default", LockSeen::Pickable, View::First, "holst")), ["holst.kf"]);
+        assert!(ix.type_clips(DOOR, "default", LockSeen::Beyond, View::First, "holst").is_empty());
+        assert_eq!(f(ix.type_clips(DOOR, "default", LockSeen::Open, View::Third, "holst")), ["third.kf"]);
+        // No third-person folder: none.
+        assert!(ix.type_clips(CONTAINER, "default", LockSeen::Open, View::Third, "holst").is_empty());
+        assert!(ix.has_category(ACTIVATOR, "Harvestable") && !ix.has_category(ACTIVATOR, "buttons"));
+        assert_eq!(f(ix.type_third(&paths[0])), ["third.kf"]);
+        assert_eq!(ix.type_counts(), (vec![ACTIVATOR, CONTAINER, DOOR, CREATURE], 8));
+        assert_eq!(stance(None), "holst");
+        assert_eq!(stance(Some(0)), "h2h1hm");
+        assert_eq!(stance(Some(3)), "1hp");
+        assert_eq!(stance(Some(5)), "2hr");
+        assert_eq!(activator_category("BananaYuccaPickable", "Banana Yucca"), "harvestable");
+        assert_eq!(activator_category("vSwitch", "Automatic Door Override"), "buttons");
+        assert_eq!(activator_category("NVRadio", "Radio"), "default");
+    }
+
+    #[test]
+    fn the_interact_inis_are_read() {
+        let settings = "[0]\nClearOnce=0\n\n[Interactions]\n; ACTIVATORS\n21=Enabled\n23=Disabled\n27=disabled ; off\n";
+        assert_eq!(disabled_types(settings), [23, 27]);
+        assert_eq!(blacklist("[0]\n; note\n0=BlackCaveDoor\n1=CaveDoor\n"), ["blackcavedoor", "cavedoor"]);
+        assert_eq!(keywords("[0]\n;Arrogant\n188Alexander=IV_Arrogant\n"), [("188alexander".to_string(), "iv_arrogant".to_string())]);
     }
 }

@@ -52,6 +52,7 @@ impl Plugin for ActivatePlugin {
         app.init_resource::<Target>()
             .init_resource::<HudMessage>()
             .init_resource::<ActivateNext>()
+            .init_resource::<HeldActivation>()
             .insert_resource(AutoActivate::from_env())
             .add_systems(Update, (find_target, activate).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)))
             .add_systems(Update, sync_visuals.in_set(PlaySet::Sync));
@@ -82,6 +83,42 @@ pub struct Targeted {
 /// item 64).
 #[derive(Resource, Default, Debug)]
 pub struct ActivateNext(pub Option<u32>);
+
+/// An activation that waits for an animation (the co-op fork's B42 Interact; nvforever
+/// `consume_anims.rs`). E on a reference whose base record is one of `sigs` is held here
+/// instead of activating. The engine plays the object's clip and gives the activation back
+/// through [`ActivateNext`] (`release`) when the clip says so or ends, or at once when it
+/// has no clip. E again on the held reference activates it at once and ends the clip
+/// (`skipped`; the mod's double tap) [observed: B42 Interact's script].
+#[derive(Resource, Default, Debug)]
+pub struct HeldActivation {
+    /// The base records held for (`ACTI`, `TERM`, `CONT`, `DOOR`, actors); empty: none.
+    pub sigs: std::collections::HashSet<[u8; 4]>,
+    pub held: Option<HeldTarget>,
+    /// E was pressed again on the held reference: it was activated, the clip ends.
+    pub skipped: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct HeldTarget {
+    pub reference: u32,
+    /// Its base record's signature.
+    pub sig: [u8; 4],
+    pub action: Action,
+    /// Its lock as the player meets it (the clip's variant folder).
+    pub lock: fnv_actor::b42::LockSeen,
+    /// Not yet looked at by the engine.
+    pub fresh: bool,
+}
+
+impl HeldActivation {
+    /// Activate the held reference now, as the player would.
+    pub fn release(&mut self, next: &mut ActivateNext) {
+        if let Some(h) = self.held.take() {
+            next.0 = Some(h.reference);
+        }
+    }
+}
 
 /// The last placeholder line: what the engine has no message of the game's for (an
 /// item picked up, a door opened, a kill, a key that does nothing yet). It is logged
@@ -378,6 +415,35 @@ fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mu
 /// out) is prompted as a lock of its difficulty, "Locked (Easy)" (the owner,
 /// 2026-10-22; `fnv_game::terminal::still_locked`); one that opens at its menu is
 /// accessed. Without the scripts: Access.
+/// A lock as the player meets it, for a held activation's clip: the key carried, within
+/// the skill (Lockpick; Science for a terminal), or beyond it (or broken).
+fn held_lock(script: Option<&mut crate::script::ScriptState>, sim: &mut SimState, id: u32, sig: [u8; 4], action: &Action) -> fnv_actor::b42::LockSeen {
+    use fnv_actor::b42::LockSeen;
+    match *action {
+        Action::Unlock => LockSeen::Key,
+        Action::Locked { level } => {
+            let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return LockSeen::Beyond };
+            crate::script::with_world(rt, sim, |rt| {
+                let g = &mut rt.game;
+                if &sig == b"TERM" {
+                    if level <= 100 && fnv_game::lockpick::science(g) >= level as f32 {
+                        LockSeen::Pickable
+                    } else {
+                        LockSeen::Beyond
+                    }
+                } else {
+                    let skill = fnv_game::lockpick::skill(g);
+                    match fnv_game::lockpick::opening(g, FormId(id), skill) {
+                        fnv_game::lockpick::Opening::Pick { .. } => LockSeen::Pickable,
+                        _ => LockSeen::Beyond,
+                    }
+                }
+            })
+        }
+        _ => LockSeen::Open,
+    }
+}
+
 fn terminal_action(rt: Option<&mut crate::script::Runtime>, sim: &mut SimState, id: u32) -> Action {
     let (Some(rt), Some(base)) = (rt, sim.base_of(id)) else { return Action::Access };
     let lock = crate::script::with_world(rt, sim, |rt| fnv_game::terminal::still_locked(&mut rt.game, FormId(id), base));
@@ -476,8 +542,8 @@ pub(crate) fn activate(
     ),
     (mut seat, mut steal, mut ui, mut screen): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::pickpocket::OpenPickpocket>, MessageWriter<crate::ui_sounds::UiSound>, Option<ResMut<crate::loading::Loading>>),
     script: Option<ResMut<crate::script::ScriptState>>,
-    locks: Option<Res<crate::control::ControlLocks>>,
-    stats: Option<ResMut<crate::control::LockStats>>,
+    (locks, stats): (Option<Res<crate::control::ControlLocks>>, Option<ResMut<crate::control::LockStats>>),
+    mut hold: Option<ResMut<HeldActivation>>,
 ) {
     // A reference queued by a lock just opened, or by the perks' choice list answered
     // with the default action: activated as if E were pressed on it.
@@ -541,6 +607,29 @@ pub(crate) fn activate(
     if t.action == Action::Name {
         info!("activate 0x{:08X} {}: nothing to do (name only)", t.form_id, t.name);
         return;
+    }
+    // An object with an animation before its activation (`HeldActivation`): held while it
+    // plays. What comes back through `ActivateNext` is not held again.
+    if queued.is_none() {
+        if let Some(h) = hold.as_deref_mut().filter(|h| !h.sigs.is_empty()) {
+            match h.held.as_ref().map(|c| c.reference) {
+                Some(r) if r == t.form_id => {
+                    h.held = None;
+                    h.skipped = true;
+                    info!("activate 0x{:08X} {}: pressed again, its animation is skipped", t.form_id, t.name);
+                }
+                Some(_) => return,
+                None => {
+                    let sig = sim.base_of(t.form_id).and_then(|b| sim.forms.get(b)).map(|b| b.sig).filter(|s| h.sigs.contains(s));
+                    if let Some(sig) = sig.filter(|_| !matches!(t.action, Action::Take { .. } | Action::Inaccessible | Action::Disarm)) {
+                        let lock = held_lock(script.as_deref_mut(), &mut sim, t.form_id, sig, &t.action);
+                        info!("activate 0x{:08X} {} ({}): held for its animation (lock {lock:?})", t.form_id, t.name, t.action.label());
+                        h.held = Some(HeldTarget { reference: t.form_id, sig, action: t.action.clone(), lock, fresh: true });
+                        return;
+                    }
+                }
+            }
+        }
     }
     if t.action == Action::Steal {
         let refusal = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| crate::script::with_world(rt, &mut sim, |rt| rt.game.pickpocket_refusal(FormId(t.form_id))));

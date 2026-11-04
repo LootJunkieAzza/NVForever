@@ -105,9 +105,13 @@ struct Pending {
     kind: u8,
     item: FormId,
     edid: String,
-    /// Interact and crafting: the clips (first person only).
+    /// Interact and crafting: the clips (first person only, unless `view` says).
     clips: Vec<String>,
     style: Style,
+    /// The view `clips` are for (an activation's type clip); `None`: first person.
+    view: Option<View>,
+    /// The reference whose activation waits for the clip (`HeldActivation`).
+    activate: Option<u32>,
 }
 
 /// A model held in the hand while a clip plays.
@@ -137,6 +141,11 @@ struct Playing {
     age: f32,
     /// Where the player stood when it began (third person: walking off ends it).
     feet: [f32; 3],
+    /// The reference whose activation waits for this clip, and the clip asked for it.
+    activate: Option<u32>,
+    fire: bool,
+    /// It gave its activation back (its menu may be up now).
+    gave: bool,
 }
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -151,6 +160,9 @@ struct Stats {
     sent: u32,
     puppets: u32,
     attached: u32,
+    /// Activations played before (B42 Interact's type clips), and let go without one.
+    typed: u32,
+    untyped: u32,
 }
 
 #[derive(Resource, Default)]
@@ -166,6 +178,11 @@ pub struct ConsumeAnims {
     interact_items: Vec<(FormId, String)>,
     had: HashSet<String>,
     bodies: HashSet<u32>,
+    /// B42 Interact: the form types animated (Settings.ini), the EditorIDs left out
+    /// (Blacklist.ini), the KEYWORDS lists' keywords by EditorID.
+    types_on: Vec<u32>,
+    blacklist: HashSet<String>,
+    keywords: HashMap<String, Vec<String>>,
     stats: Stats,
 }
 
@@ -200,7 +217,7 @@ impl Plugin for ConsumeAnimsPlugin {
             .init_resource::<ConsumeOptions>()
             .add_message::<SendAnim>()
             .add_message::<PeerAnim>()
-            .add_systems(Update, (build, own, crafted, interact, puppets).chain().after(nvf_play::PlaySet::Scripts).before(crate::idles::drive))
+            .add_systems(Update, (build, held_activation, own, crafted, interact, puppets).chain().after(nvf_play::PlaySet::Scripts).before(crate::idles::drive))
             .add_systems(Last, report);
         register_settings(app);
     }
@@ -259,6 +276,20 @@ fn build(mut st: ResMut<ConsumeAnims>, mut opts: ResMut<ConsumeOptions>, models:
     if let Some(text) = vfs.read("config\\b42inject.ini").and_then(Result::ok) {
         b42::read_ini(&String::from_utf8_lossy(&text), &mut opts.0);
         info!("consume anim: Config\\B42Inject.ini: hardcore {}, in power armour {}", opts.0.hardcore, opts.0.in_power_armor);
+    }
+    let (codes, typed) = ix.type_counts();
+    let off: Vec<u32> = vfs.read("config\\b42interact\\settings.ini").and_then(Result::ok).map(|t| b42::disabled_types(&String::from_utf8_lossy(&t))).unwrap_or_default();
+    st.types_on = codes.into_iter().filter(|c| b42::TYPES.contains(c) && !off.contains(c)).collect();
+    st.blacklist = vfs.read("config\\b42interact\\blacklist.ini").and_then(Result::ok).map(|t| b42::blacklist(&String::from_utf8_lossy(&t)).into_iter().collect()).unwrap_or_default();
+    for path in vfs.paths(|p| p.starts_with("keywords\\") && p.ends_with(".ini")) {
+        if let Some(t) = vfs.read(&path).and_then(Result::ok) {
+            for (edid, kw) in b42::keywords(&String::from_utf8_lossy(&t)) {
+                st.keywords.entry(edid).or_default().push(kw);
+            }
+        }
+    }
+    if typed > 0 {
+        info!("consume anim: {typed} activation clips for form types {:?} (off: {off:?}), {} left out, keywords for {} EditorIDs", st.types_on, st.blacklist.len(), st.keywords.len());
     }
     let data = rt.game.data;
     let items: HashSet<u32> = ix.inject_items().filter_map(|e| data.by_edid(e)).map(|f| f.0).collect();
@@ -322,6 +353,107 @@ fn situation(now: &Now, game: &fnv_game::game::Game, sim: &nvf_play::sim::SimSta
     }
 }
 
+/// Activations held for B42 Interact's type clips (`nvf_play::activate::HeldActivation`):
+/// the records held for, and the clip of the one just held (or it goes ahead at once).
+#[allow(clippy::too_many_arguments)]
+fn held_activation(
+    mut st: ResMut<ConsumeAnims>,
+    opts: Res<ConsumeOptions>,
+    (mut hold, mut next): (ResMut<nvf_play::activate::HeldActivation>, ResMut<nvf_play::activate::ActivateNext>),
+    mut script: Option<ResMut<nvf_play::script::ScriptState>>,
+    sim: Res<nvf_play::sim::SimState>,
+    now: Now,
+    body: Res<PlayerBody>,
+) {
+    let st = &mut *st;
+    let Some(ix) = st.index.clone() else { return };
+    // The records: a type's, while the animations are on.
+    let want: HashSet<[u8; 4]> = if opts.0.on {
+        st.types_on
+            .iter()
+            .flat_map(|&c| match c {
+                b42::ACTIVATOR => vec![*b"ACTI"],
+                b42::TERMINAL => vec![*b"TERM"],
+                b42::CONTAINER => vec![*b"CONT"],
+                b42::DOOR => vec![*b"DOOR"],
+                b42::PERSON => vec![*b"NPC_", *b"LVLN"],
+                b42::CREATURE => vec![*b"CREA", *b"LVLC"],
+                _ => vec![],
+            })
+            .collect()
+    } else {
+        HashSet::new()
+    };
+    if hold.sigs != want {
+        hold.sigs = want;
+    }
+    if hold.sigs.is_empty() {
+        hold.release(&mut next);
+        return;
+    }
+    let Some(h) = hold.held.as_mut().filter(|h| h.fresh) else {
+        // Held, but no clip waits on it (it was dropped): let it go.
+        let waiting = st.own.as_ref().is_some_and(|p| p.activate.is_some()) || st.pending.iter().any(|p| p.activate.is_some());
+        if hold.held.is_some() && !waiting {
+            hold.release(&mut next);
+        }
+        return;
+    };
+    h.fresh = false;
+    let (reference, sig, lock) = (h.reference, h.sig, h.lock);
+    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else {
+        hold.release(&mut next);
+        return;
+    };
+    let game = &mut rt.game;
+    let data = game.data;
+    let base = sim.base_of(reference).unwrap_or(FormId(reference));
+    let edid = data.edid_of.get(&base).cloned().unwrap_or_default();
+    let name = sim.forms.get(base).and_then(|b| b.name.clone()).unwrap_or_default();
+    let code = match &sig {
+        b"ACTI" => b42::ACTIVATOR,
+        b"TERM" => b42::TERMINAL,
+        b"CONT" => b42::CONTAINER,
+        b"DOOR" => b42::DOOR,
+        b"NPC_" | b"LVLN" => b42::PERSON,
+        _ => b42::CREATURE,
+    };
+    let actor = matches!(code, b42::PERSON | b42::CREATURE);
+    // Another animation plays (or waits): no clip [observed: the script's checks].
+    let busy = st.own.is_some() || !st.pending.is_empty() || now.in_menu();
+    let category = if actor {
+        // The dead are looted; a person is also when the player sneaks (pickpocketing).
+        let sneaking = now.control.as_deref().is_some_and(|c| c.sneak);
+        if game.is_dead(FormId(reference)) || (code == b42::PERSON && sneaking) {
+            "lootable".to_string()
+        } else {
+            "default".to_string()
+        }
+    } else {
+        let kw = st.keywords.get(&edid.to_ascii_lowercase()).and_then(|ks| ks.iter().find(|k| ix.has_category(code, k)).cloned());
+        kw.unwrap_or_else(|| {
+            let c = if code == b42::ACTIVATOR { b42::activator_category(&edid, &name) } else { "default" };
+            if ix.has_category(code, c) { c.to_string() } else { "default".to_string() }
+        })
+    };
+    let third = now.third() || !body.first_person_drawn();
+    let view = if third { View::Third } else { View::First };
+    let drawn = now.control.as_deref().is_some_and(|c| c.weapon_out);
+    let anim_type = drawn.then(|| game.weapon_equipped(P).and_then(|w| data.weapon_anim_types.get(&w).copied()).unwrap_or(0));
+    let stance = b42::stance(anim_type);
+    let left_out = st.blacklist.contains(&edid.to_ascii_lowercase()) || name.is_empty();
+    let clips = if busy || left_out { &[][..] } else { ix.type_clips(code, &category, lock, view, stance) };
+    if clips.is_empty() {
+        st.stats.untyped += 1;
+        debug!("consume anim: {edid} ({code}\\{category}, {lock:?}, {view:?}, {stance}): no clip{}", if busy { ", another plays" } else if left_out { ", left out" } else { "" });
+        hold.release(&mut next);
+        return;
+    }
+    st.stats.typed += 1;
+    info!("consume anim: {edid} activated: type {code}\\{category}, lock {lock:?}, {view:?} person, stance {stance}: {} clips", clips.len());
+    st.pending.insert(0, Pending { kind: AnimCue::INTERACT, item: base, edid, clips: clips.to_vec(), style: Style::Handle, view: Some(view), activate: Some(reference) });
+}
+
 /// This player's uses and the animation playing.
 #[allow(clippy::too_many_arguments)]
 fn own(
@@ -335,9 +467,21 @@ fn own(
     (mut parts, mut models, world): (ResMut<ActorParts>, ModelCtx, Res<WorldData>),
     (mut sfx, mut sounds, mut send): (Option<ResMut<Sfx>>, MessageWriter<PlaySound>, MessageWriter<SendAnim>),
     mut transforms: Query<&mut Transform>,
+    (mut hold, mut next): (ResMut<nvf_play::activate::HeldActivation>, ResMut<nvf_play::activate::ActivateNext>),
 ) {
     let st = &mut *st;
     let o = opts.0;
+    // E pressed again on the held object: it was activated; its clip ends.
+    if std::mem::take(&mut hold.skipped) {
+        st.pending.retain(|p| p.activate.is_none());
+        if let Some(pl) = st.own.as_mut().filter(|pl| pl.activate.is_some()) {
+            pl.activate = None;
+            let slot = if pl.view == View::First { &mut pi.first } else { &mut pi.third };
+            if let Some(c) = slot.cur.as_mut().filter(|c| c.serial == pl.serial) {
+                c.play.stop();
+            }
+        }
+    }
     let Some(ix) = st.index.clone() else {
         used.clear();
         return;
@@ -369,7 +513,7 @@ fn own(
         match b42::decide(&s, &o) {
             Decision::Play | Decision::Wait => {
                 info!("consume anim: {edid} used{}", if s.in_menu { "; plays once the menu is closed" } else { "" });
-                st.pending.push(Pending { kind: AnimCue::CONSUME, item, edid, clips: Vec::new(), style });
+                st.pending.push(Pending { kind: AnimCue::CONSUME, item, edid, clips: Vec::new(), style, view: None, activate: None });
             }
             Decision::Skip(_) | Decision::Refuse if !has_clips => {}
             Decision::Skip(why) => {
@@ -402,7 +546,7 @@ fn own(
                 None if third => (p.style.clips().iter().map(|c| format!("{PEOPLE}{c}")).find(|c| ctx.clip(c).is_some()), true),
                 None => (None, false),
             }
-        } else if view == View::First {
+        } else if p.view.map_or(view == View::First, |v| v == view) {
             let roll = st.roll();
             (b42::pick(&p.clips, roll).cloned(), false)
         } else {
@@ -426,7 +570,7 @@ fn own(
                     _ => {}
                 }
                 info!("consume anim: {} plays {path} ({:?} person, {:.1} s)", p.edid, view, clip.length());
-                st.own = Some(Playing { item: p.item, view, serial, clip, at: None, model: None, held: None, recent: Vec::new(), keyed_sound: keyed, age: 0.0, feet: now.feet() });
+                st.own = Some(Playing { item: p.item, view, serial, clip, at: None, model: None, held: None, recent: Vec::new(), keyed_sound: keyed, age: 0.0, feet: now.feet(), activate: p.activate, fire: false, gave: false });
             }
             (Some(path), None) => warn!("consume anim: {}: {path} does not load", p.edid),
             (None, _) => {
@@ -434,6 +578,10 @@ fn own(
                     debug!("consume anim: {}: no clip for the {view:?} person view", p.edid);
                 }
             }
+        }
+        // An activation whose clip cannot play goes ahead now.
+        if p.activate.is_some() && st.own.is_none() {
+            hold.release(&mut next);
         }
         // The item's sound now unless the clip plays it.
         if p.kind == AnimCue::CONSUME && held_sound && !keyed && (st.own.is_none() || fallback) {
@@ -483,6 +631,13 @@ fn own(
         }
         None => false,
     };
+    // The clip says activate now (`*_ACT`), or it ended first.
+    if (pl.fire || !alive) && pl.activate.take().is_some() {
+        info!("consume anim: {} activated{}", pl.item, if alive { " (its clip's key)" } else { " (its clip ended)" });
+        hold.release(&mut next);
+        pl.gave = true;
+    }
+    pl.fire = false;
     if alive {
         st.own = Some(pl);
     } else {
@@ -547,6 +702,8 @@ fn step<F: bevy::ecs::query::QueryFilter>(
                     fx.sounds.write(PlaySound { sound, at: fx.at });
                 }
             }
+            Cue::Activate => pl.fire = true,
+            Cue::Controls(_) => {}
         }
     }
     if let Some(h) = &pl.held {
@@ -658,7 +815,7 @@ fn crafted(mut st: ResMut<ConsumeAnims>, opts: Res<ConsumeOptions>, menu: Option
             continue;
         }
         info!("consume anim: recipe {edid} made; its animation plays once the menu is closed");
-        st.pending.push(Pending { kind: AnimCue::CRAFT, item: r, edid, clips: clips.to_vec(), style: Style::Craft });
+        st.pending.push(Pending { kind: AnimCue::CRAFT, item: r, edid, clips: clips.to_vec(), style: Style::Craft, view: None, activate: None });
     }
 }
 
@@ -702,27 +859,38 @@ fn interact(
         // The body the item came from, when it is a dead creature drawn near by.
         let body = from.iter().find_map(|&c| {
             let (rig, gt) = rigs.iter().find(|(r, _)| r.reference == c.0)?;
-            let kind = game.creature_type(c)?;
+            // A creature a script placed (PlaceAtMe, a spawn) has its base in the live
+            // world only, not in the scripts' view of it.
+            let kind = game.creature_type(c).or_else(|| game.data.template_source(sim.world.peek(c)?.base, c, |d| d.template_stats)?.1.creature_type)?;
             let folder = rig.skeleton.rsplit('\\').nth(1)?.to_string();
             let at = crate::world::bevy_to_game(gt.translation());
             let d = (at.x - feet[0]).hypot(at.y - feet[1]).hypot(at.z - feet[2]);
             game.is_dead(c).then_some((c, folder, kind as i32, d))
         });
         let source = b42::Source { creature: body.as_ref().map(|(_, f, k, d)| (f.clone(), *k, *d)), used: body.as_ref().is_some_and(|(c, ..)| st.bodies.contains(&c.0)) };
-        let Some(entry) = ix.interact(&edid, &source, in_combat, first) else { continue };
+        let Some(entry) = ix.interact(&edid, &source, in_combat, first) else {
+            let why = from.iter().map(|&c| {
+                let rig = rigs.iter().find(|(r, _)| r.reference == c.0).map(|(r, _)| r.skeleton.clone());
+                format!("{c}: rig {rig:?}, dead {}", game.is_dead(c))
+            });
+            info!("consume anim: {edid} picked up, no interact clip (combat {in_combat}, first {first}; from {})", why.collect::<Vec<_>>().join(", "));
+            continue;
+        };
         if let Some((c, ..)) = &body {
             if entry.cond.corpse.is_some() {
                 st.bodies.insert(c.0);
             }
         }
-        if st.pending.iter().any(|p| p.kind == AnimCue::INTERACT) || st.own.is_some() {
+        // A clip that already gave its activation back (a body's loot clip, its menu up
+        // now) doesn't keep the pick-up's clip out: it plays after.
+        if st.pending.iter().any(|p| p.kind == AnimCue::INTERACT && p.activate.is_none()) || st.own.as_ref().is_some_and(|o| !o.gave) {
+            info!("consume anim: {edid} picked up while another interact clip plays or waits; none for it");
             continue;
         }
         let style = if entry.cond.corpse.is_some() { Style::Skin } else { Style::Handle };
         info!("consume anim: {edid} picked up{}; its animation plays{}", body.as_ref().map_or(String::new(), |(_, f, ..)| format!(" from a {f}")), if now.in_menu() { " once the menu is closed" } else { "" });
-        st.pending.push(Pending { kind: AnimCue::INTERACT, item, edid, clips: entry.clips.clone(), style });
+        st.pending.push(Pending { kind: AnimCue::INTERACT, item, edid, clips: entry.clips.clone(), style, view: None, activate: None });
     }
-    let _ = &mut sim;
 }
 
 /// Other players' animations on their puppets.
@@ -749,7 +917,14 @@ fn puppets(
             continue;
         };
         let roll = st.roll();
-        let own = st.index.as_ref().filter(|_| cue.kind == AnimCue::CONSUME).and_then(|ix| ix.third_for(&cue.edid, cue.power_armor, &cue.clip, roll).map(str::to_string));
+        let own = st.index.as_ref().and_then(|ix| {
+            if cue.kind == AnimCue::CONSUME {
+                ix.third_for(&cue.edid, cue.power_armor, &cue.clip, roll).map(str::to_string)
+            } else {
+                // An activation's type clip: its folder's third-person one.
+                b42::pick(ix.type_third(&cue.clip), roll).cloned()
+            }
+        });
         let style = Style::from_code(cue.style);
         let path = own.clone().filter(|p| ctx.clip(p).is_some()).or_else(|| style.clips().iter().map(|c| format!("{PEOPLE}{c}")).find(|c| ctx.clip(c).is_some()));
         let Some((path, clip)) = path.and_then(|p| Some((p.clone(), ctx.clip(&p)?))) else {
@@ -780,7 +955,7 @@ fn puppets(
         }
         st.stats.puppets += 1;
         info!("consume anim: puppet {reference:08X} plays {path} for {}", cue.edid);
-        st.puppets.insert(*reference, Playing { item: FormId(cue.item), view: View::Third, serial, clip, at: None, model: None, held: None, recent: Vec::new(), keyed_sound: keyed, age: 0.0, feet: [0.0; 3] });
+        st.puppets.insert(*reference, Playing { item: FormId(cue.item), view: View::Third, serial, clip, at: None, model: None, held: None, recent: Vec::new(), keyed_sound: keyed, age: 0.0, feet: [0.0; 3], activate: None, fire: false, gave: false });
     }
     let mut gone = Vec::new();
     for (reference, pl) in st.puppets.iter_mut() {
@@ -825,7 +1000,7 @@ fn report(mut exit: MessageReader<AppExit>, st: Res<ConsumeAnims>) {
     }
     let s = st.stats;
     info!(
-        "consume anims summary: {} aid items used, {} animations played ({} the game's idles, {} interact, {} crafting), {} not animated, {} refused (Hardcore), {} models held, {} sent to co-op, {} played on puppets",
-        s.used, s.played, s.fallback, s.interact, s.crafted, s.skipped, s.refused, s.attached, s.sent, s.puppets
+        "consume anims summary: {} aid items used, {} animations played ({} the game's idles, {} interact, {} crafting, {} before an activation), {} activations without one, {} not animated, {} refused (Hardcore), {} models held, {} sent to co-op, {} played on puppets",
+        s.used, s.played, s.fallback, s.interact, s.crafted, s.typed, s.untyped, s.skipped, s.refused, s.attached, s.sent, s.puppets
     );
 }
