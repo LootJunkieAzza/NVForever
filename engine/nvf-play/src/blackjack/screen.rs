@@ -121,12 +121,16 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&Blackj
     let bright = amber(255.0);
     let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
     let mut root = commands.spawn((BlackjackRoot, full.clone(), GlobalZIndex(106)));
-    match view {
-        Some(v) => {
+    match view.map(|v| v.image.clone()) {
+        // The table in the world: the room shows through, dimmed under the help box.
+        Some(None) => {
+            root.insert(BackgroundColor(if s.help.is_some() { Color::srgba(0.0, 0.0, 0.0, 1.0 - UNDER_HELP) } else { Color::NONE }));
+        }
+        Some(Some(image)) => {
             root.insert(BackgroundColor(Color::srgba(0.0, 0.0, 0.0, SHADE)));
             let light = if s.help.is_some() { UNDER_HELP } else { 1.0 };
             root.with_children(|r| {
-                r.spawn((full.clone(), ImageNode { color: Color::srgb(light, light, light), ..ImageNode::new(v.image.clone()) }));
+                r.spawn((full.clone(), ImageNode { color: Color::srgb(light, light, light), ..ImageNode::new(image) }));
             });
         }
         None => {

@@ -79,7 +79,9 @@ pub struct OpenBlackjack(pub BlackjackRequest);
 /// The table's picture, drawn by the engine while the menu is open.
 #[derive(Resource, Clone, Debug)]
 pub struct BlackjackView {
-    pub image: Handle<Image>,
+    /// The picture of the table drawn alone; `None` when the game's own camera shows the
+    /// table where it stands in the world (the room is the backdrop).
+    pub image: Option<Handle<Image>>,
 }
 
 #[derive(Resource, Default)]
@@ -137,6 +139,10 @@ pub struct Session {
     /// What the last round paid back (from when, how many chips): on the table at the
     /// seat until the next bet is set.
     pub paid: Option<(f32, u32)>,
+    /// The table in the world the menu is at (`crate::roulette::world_table`): the menu's
+    /// table and camera stand where it does, the room around it the backdrop (nvforever
+    /// `blackjack_view.rs`).
+    pub table_ref: Option<FormId>,
 }
 
 /// Another player's seat at a shared table, as this game shows it: its round played from
@@ -339,7 +345,7 @@ fn parse_aid(v: &str) -> Result<Vec<(f32, AidStep)>, String> {
                 "open" => {
                     let casino = FormId(parts.first().and_then(|s| hex(s)).ok_or_else(bad)?);
                     let (min_bet, max_bet) = if parts.len() >= 3 { (num(parts.get(1))? as u32, num(parts.get(2))? as u32) } else { (1, 200) };
-                    AidStep::Open(BlackjackRequest { casino, min_bet, max_bet, max_winnings: 0 })
+                    AidStep::Open(BlackjackRequest { casino, min_bet, max_bet, max_winnings: 0, table: None })
                 }
                 "stack" => AidStep::Stack(arg.split('-').map(|c| Card::parse(c.trim()).ok_or_else(bad)).collect::<Result<_, _>>()?),
                 "bet" => AidStep::Input(BlackjackInput::SetBet(num(parts.first())?.max(0) as u32)),
@@ -493,7 +499,7 @@ fn open(
     mut aid: ResMut<BlackjackAid>,
     time: AidTime,
     (mut stats, mut corner, mut sounds, bindings): (ResMut<BlackjackStats>, Option<ResMut<crate::corner_messages::CornerMessages>>, MessageWriter<UiSound>, Res<crate::bindings::Bindings>),
-    (mut tables, mut owned): (Option<ResMut<Tables>>, ResMut<SharedBlackjack>),
+    (mut tables, mut owned, play): (Option<ResMut<Tables>>, ResMut<SharedBlackjack>, Option<Res<crate::PlayWorld>>),
 ) {
     let Some(OpenBlackjack(r)) = requests.read().last().copied() else { return };
     stats.asked += 1;
@@ -570,6 +576,11 @@ fn open(
         info!("blackjack: help message {} {:?} shown (first use)", rules::HELP_MESSAGE, h.title);
     }
     let bet = table.clamp_bet(r.min_bet, chips);
+    let table_ref = crate::roulette::world_table(&sim, play.as_deref(), r.table, def.table_model.as_deref(), "blackjack");
+    match table_ref {
+        Some(t) => info!("blackjack: at the table {t} in the world (asked by {:?})", r.table),
+        None => info!("blackjack: no blackjack table near in the world; the menu draws its table alone"),
+    }
     screen.0 = Some(Session {
         casino: r.casino,
         def,
@@ -596,6 +607,7 @@ fn open(
         shared,
         others: Vec::new(),
         paid: None,
+        table_ref,
     });
     sounds.write(UiSound { menu: UiMenu::Blackjack, event: UiEvent::Opened });
     next.set(PlayState::Menu);
@@ -1243,8 +1255,8 @@ mod tests {
         let s = parse_aid("1:seed:7,1:chips:140521:500,2:open:140521,2:open:144C3F:5:50,3:stack:Ah-Kd-9c-7s,4:bet:25,5:deal,6:hit,7:stay,8:auto,9:exit,9:earnings:140521:-20").unwrap();
         assert_eq!(s[0], (1.0, AidStep::Seed(7)));
         assert_eq!(s[1], (1.0, AidStep::Chips(0x140521, 500)));
-        assert_eq!(s[2], (2.0, AidStep::Open(BlackjackRequest { casino: FormId(0x140521), min_bet: 1, max_bet: 200, max_winnings: 0 })));
-        assert_eq!(s[3], (2.0, AidStep::Open(BlackjackRequest { casino: FormId(0x144C3F), min_bet: 5, max_bet: 50, max_winnings: 0 })));
+        assert_eq!(s[2], (2.0, AidStep::Open(BlackjackRequest { casino: FormId(0x140521), min_bet: 1, max_bet: 200, max_winnings: 0, table: None })));
+        assert_eq!(s[3], (2.0, AidStep::Open(BlackjackRequest { casino: FormId(0x144C3F), min_bet: 5, max_bet: 50, max_winnings: 0, table: None })));
         assert_eq!(s[4].1, AidStep::Stack(["Ah", "Kd", "9c", "7s"].iter().map(|c| Card::parse(c).unwrap()).collect()));
         assert_eq!(s[5].1, AidStep::Input(BlackjackInput::SetBet(25)));
         assert_eq!(s[7].1, AidStep::Input(BlackjackInput::Play(Action::Hit)));
@@ -1264,6 +1276,7 @@ mod tests {
     fn session() -> Session {
         let rules = Rules { min_bet: 5, max_bet: 200, payout: 1.5, stay_soft17: true };
         Session {
+            table_ref: None,
             casino: FormId(1),
             def: CasinoDef::default(),
             chip: FormId(2),

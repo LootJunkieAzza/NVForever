@@ -5,7 +5,8 @@
 //! - **Watching.** A player near another who is at a table sees, in a panel at the top
 //!   right, that player's game: the blackjack seats' bets and hands and the dealer's cards,
 //!   the roulette bets and the pocket, the slot machine's bet and line, the darts scores,
-//!   the fillet round ([`summary`]). It shows while playing and at a table of one's own.
+//!   the fillet round ([`summary`]). It shows while playing and at a table of one's own,
+//!   but not the players at the same table (their game is on its felt).
 //! - **Sitting together.** In co-op a blackjack table is shared
 //!   (`fnv_game::blackjack::shared`): the first player to sit at a casino's table owns it,
 //!   the others near it who open blackjack at the same casino take a seat at it
@@ -904,13 +905,14 @@ fn keep_world(tables: Res<Tables>, open: Res<OpenTable>, mut keep: ResMut<KeepWo
 }
 
 /// The watchers' panel: the near players' tables.
-fn watch_panel(mut commands: Commands, time: Res<Time<Real>>, mut tables: ResMut<Tables>, mut panel: Query<(&mut Text, &mut Visibility), With<WatchPanel>>) {
+fn watch_panel(mut commands: Commands, time: Res<Time<Real>>, mut tables: ResMut<Tables>, open: Res<OpenTable>, mut panel: Query<(&mut Text, &mut Visibility), With<WatchPanel>>) {
     let now = time.elapsed_secs();
     tables.seen.retain(|_, v| now - v.3 < VIEW_STALE);
     let mut lines = Vec::new();
     if tables.on {
         for p in tables.near.clone() {
-            if let Some((_, g, b)) = tables.view(p) {
+            // A player at this player's own table is on its felt already.
+            if let Some((_, g, b)) = tables.view(p).filter(|(t, g, _)| open.0 != Some((*g, *t))) {
                 lines.extend(summary(&tables, &tables.name(p), g, b));
             }
         }

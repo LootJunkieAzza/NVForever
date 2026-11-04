@@ -174,6 +174,51 @@ struct Drawn {
     dealer_spot: Vec3,
     materials: HashMap<(Entity, Card), Handle<NifMaterial>>,
     warned: bool,
+    /// The table stands where the world's does (`nvf_play::blackjack::Session::table_ref`):
+    /// the game's own camera looks from here (Bevy space) [design].
+    camera_at: Option<Transform>,
+    /// The world's own drawing of that table, hidden meanwhile (entity, visibility before).
+    hidden: Vec<(Entity, Visibility)>,
+}
+
+impl Drawn {
+    fn in_world(&self) -> bool {
+        self.camera_at.is_some()
+    }
+
+    fn layer(&self) -> RenderLayers {
+        RenderLayers::layer(if self.in_world() { 0 } else { TABLE_LAYER })
+    }
+
+    /// The table's game space into its root's: Bevy's when drawn alone, none under the
+    /// world root.
+    fn to_root(&self) -> Mat4 {
+        if self.in_world() {
+            Mat4::IDENTITY
+        } else {
+            Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2)
+        }
+    }
+}
+
+/// What the table in the world needs: the simulation and the plugins, the world root, the
+/// references' render entities, the camera's place.
+type InWorld<'w, 's> = (
+    Option<Res<'w, nvf_play::sim::SimState>>,
+    Option<Res<'w, nvf_play::PlayWorld>>,
+    Query<'w, 's, Entity, With<crate::world::WorldRoot>>,
+    Query<'w, 's, (Entity, &'static nvf_play::RefVisual)>,
+    ResMut<'w, crate::roulette_view::TableCamera>,
+);
+
+/// The world's table the menu's stands on: the world root, the reference's place (game
+/// space), its model's bounds, the player in its model space, and what to hide.
+struct WorldTable {
+    root: Entity,
+    place: Affine3A,
+    bounds: (Vec3, Vec3),
+    player: Vec3,
+    twins: Vec<fnv_sim::FormId>,
 }
 
 fn node_index(rig: &Rig, name: &str) -> Option<usize> {
@@ -255,19 +300,47 @@ fn show(
     mut visibility: Query<&mut Visibility>,
     mut mats: Query<&mut MeshMaterial3d<NifMaterial>>,
     mut drawn: Local<Drawn>,
+    (sim, play, world_root, refs, mut table_camera): InWorld,
 ) {
     let Some(s) = screen.0.as_ref() else {
         if !drawn.entities.is_empty() || view.is_some() {
             for e in drawn.entities.drain(..) {
                 commands.entity(e).despawn();
             }
+            crate::roulette_view::unhide(&mut drawn.hidden, &mut visibility);
+            if drawn.in_world() {
+                table_camera.set_if_neq(crate::roulette_view::TableCamera(None));
+            }
             *drawn = Drawn { warned: drawn.warned, ..default() };
             commands.remove_resource::<BlackjackView>();
         }
         return;
     };
-    if drawn.entities.is_empty() && !build(&mut commands, s, &mut models, &window, &mut drawn) {
-        return;
+    if drawn.entities.is_empty() {
+        // At the table in the world: fitted onto it, as roulette's (`roulette_view::fit`).
+        let world = s.table_ref.zip(sim.as_deref()).zip(play.as_deref()).zip(world_root.single().ok()).and_then(|(((t, sim), play), root)| {
+            let place = crate::roulette_view::ref_place(sim, t)?;
+            let base = sim.world.peek(t).map(|r| r.base).or_else(|| sim.base_of(t.0))?;
+            let path = nvf_play::dropped::model_path(&play.0, base, 0)?;
+            let bounds = models.model(&format!("meshes\\{}", path.trim_start_matches("meshes\\").trim_start_matches("Meshes\\")))?.bounds?;
+            let player = sim.world.peek(fnv_sim::FormId::PLAYER_REF).map(|p| Vec3::from(p.pos))?;
+            let staff = crate::roulette_view::in_the_way(sim, play, &mut models, t);
+            info!("blackjack view: at {t} ({path}); {} things at the table hidden: {staff:?}", staff.len());
+            let twins = nvf_play::roulette::table_twins(sim, Some(play), t, "blackjack").into_iter().chain(staff).collect();
+            Some(WorldTable { root, place, bounds, player: place.inverse().transform_point3(player), twins })
+        });
+        if !build(&mut commands, s, &mut models, &window, &mut drawn, world.as_ref()) {
+            return;
+        }
+        if let Some(w) = &world {
+            for r in &w.twins {
+                let more = crate::roulette_view::hide_ref(r.0, &refs, &mut visibility);
+                drawn.hidden.extend(more);
+            }
+        }
+    }
+    if let Some(at) = drawn.camera_at {
+        table_camera.set_if_neq(crate::roulette_view::TableCamera(Some((at, FOV_DEG))));
     }
     let now = time.elapsed_secs();
     let boxes = boxes(&s.others);
@@ -292,17 +365,18 @@ fn show(
             v.set_if_neq(if split && s.table.active == i { Visibility::Inherited } else { Visibility::Hidden });
         }
     }
+    let (layer, to_root) = (drawn.layer(), drawn.to_root());
     let Drawn { models: main, seats, materials, chips: own_chips, player_spot, dealer_spot, .. } = &mut *drawn;
     faces(s, main, &s.shown, s.discard.as_ref(), model_of, materials, &mut models, &mut mats);
     if let Some(c) = own_chips {
-        chips(&mut commands, c, s.chips_shown(now), *player_spot, *dealer_spot, &mut models);
+        chips(&mut commands, c, s.chips_shown(now), *player_spot, *dealer_spot, &mut models, (&layer, to_root));
     }
     for (b, seat) in seats.iter_mut() {
         let o = at(*b);
         if let Some(o) = o {
             faces(s, &mut seat.models, &o.shown, o.discard.as_ref(), hand_of, materials, &mut models, &mut mats);
         }
-        chips(&mut commands, &mut seat.chips, o.map_or(0, |o| o.chips_shown(now)), *player_spot, *dealer_spot, &mut models);
+        chips(&mut commands, &mut seat.chips, o.map_or(0, |o| o.chips_shown(now)), *player_spot, *dealer_spot, &mut models, (&layer, to_root));
     }
 }
 
@@ -340,10 +414,10 @@ fn box_turn(angle: f32) -> Mat4 {
 /// Another seat's hands and chips, in the box `b` boxes from this player's.
 fn build_seat(commands: &mut Commands, b: i32, models: &mut ModelCtx, drawn: &Drawn) -> Option<SeatDrawn> {
     let holder = drawn.holder?;
-    let layer = RenderLayers::layer(TABLE_LAYER);
-    let to_bevy = Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2));
+    let layer = drawn.layer();
+    let tb = drawn.to_root();
+    let to_bevy = Transform::from_matrix(tb);
     let angle = (BOX_STEP_DEG * b as f32).to_radians();
-    let tb = Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2);
     let turn = Transform::from_matrix(tb * box_turn(angle) * tb.inverse());
     let root = commands.spawn((Name::new(format!("Blackjack seat {b}")), turn, Visibility::Inherited)).id();
     commands.entity(holder).add_child(root);
@@ -367,10 +441,11 @@ fn build_seat(commands: &mut Commands, b: i32, models: &mut ModelCtx, drawn: &Dr
 }
 
 /// Spawn the table, the card models, the camera and the lights.
-fn build(commands: &mut Commands, s: &Session, models: &mut ModelCtx, window: &Query<&Window, With<PrimaryWindow>>, drawn: &mut Drawn) -> bool {
+fn build(commands: &mut Commands, s: &Session, models: &mut ModelCtx, window: &Query<&Window, With<PrimaryWindow>>, drawn: &mut Drawn, world: Option<&WorldTable>) -> bool {
     let table_path = s.def.table_model.as_deref().map(|p| format!("meshes\\{p}")).unwrap_or_else(|| "meshes\\terminals\\nv_blackjack\\nv_blackjack-table.nif".into());
     let paths = [table_path.as_str(), DEALER_MODEL, HAND_MODELS[0], HAND_MODELS[1]];
     let loaded: Vec<_> = paths.iter().map(|p| models.model(p)).collect();
+    let table_bounds = loaded[0].as_ref().and_then(|m| m.bounds);
     let rigs: Option<Vec<Rig>> = loaded.iter().map(|m| m.as_ref().and_then(|m| m.rig.clone())).collect();
     let Some(mut rigs) = rigs else {
         if !drawn.warned {
@@ -379,14 +454,37 @@ fn build(commands: &mut Commands, s: &Session, models: &mut ModelCtx, window: &Q
         }
         return false;
     };
-    let size = window.single().map(|w| Extent3d { width: w.physical_width().max(1), height: w.physical_height().max(1), depth_or_array_layers: 1 }).unwrap_or(Extent3d { width: 1280, height: 720, depth_or_array_layers: 1 });
-    let mut image = Image::new_fill(size, TextureDimension::D2, &[0, 0, 0, 0], TextureFormat::Bgra8UnormSrgb, RenderAssetUsages::default());
-    image.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT;
-    let image = models.images.add(image);
-    let layer = RenderLayers::layer(TABLE_LAYER);
-    let holder = commands.spawn((Name::new("Blackjack table"), Transform::from_translation(PLACE), Visibility::Inherited)).id();
-    // Game space (Z up) into Bevy's (Y up), as the world root does.
-    let to_bevy = Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2));
+    // Where the first cards land, and the camera over them (the table's space).
+    let first_of = |rig: &Rig, name: &str| node_index(rig, name).map(|i| end_of(rig, rig.group(name), i));
+    let (Some(player_spot), Some(dealer_spot)) = (first_of(&rigs[2], "Hand1_01"), first_of(&rigs[1], "Dealer_01")) else {
+        warn!("blackjack view: the card models lack Hand1_01 or Dealer_01");
+        drawn.warned = true;
+        return false;
+    };
+    // From the dealer towards the player, flat on the felt.
+    let towards_player = Vec3::new(player_spot.x - dealer_spot.x, player_spot.y - dealer_spot.y, 0.0).normalize_or(Vec3::NEG_X);
+    let aim = player_spot.lerp(dealer_spot, AIM_TOWARDS_DEALER);
+    let eye = aim + towards_player * CAMERA_BACK + Vec3::Z * CAMERA_UP;
+    // At the table in the world: the menu's table fitted onto the world's, under the world
+    // root, seen by the game's own camera; else alone, far off, by a camera of its own.
+    let fitted = world.zip(table_bounds).map(|(w, tb)| {
+        let f = crate::roulette_view::fit(tb, w.bounds, eye, w.player);
+        info!("blackjack view: the menu's table fitted onto the world's: scale {:.3}, turned {:.0}°", f.matrix3.x_axis.length(), f.matrix3.x_axis.y.atan2(f.matrix3.x_axis.x).to_degrees());
+        (w.root, w.place * f)
+    });
+    if let Some((_, a)) = fitted {
+        let to = |p: Vec3| nvf_play::space::to_bevy(a.transform_point3(p).to_array());
+        drawn.camera_at = Some(Transform::from_translation(to(eye)).looking_at(to(aim), Vec3::Y));
+    }
+    let layer = drawn.layer();
+    let (holder, to_bevy) = match fitted {
+        Some((root, a)) => (commands.spawn((Name::new("Blackjack table (at the world's)"), Transform::from_matrix(Mat4::from(a)), Visibility::Inherited, ChildOf(root))).id(), Transform::IDENTITY),
+        // Game space (Z up) into Bevy's (Y up), as the world root does.
+        None => (
+            commands.spawn((Name::new("Blackjack table"), Transform::from_translation(PLACE), Visibility::Inherited)).id(),
+            Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
+        ),
+    };
     let hand2 = rigs.pop().unwrap();
     let hand1 = rigs.pop().unwrap();
     let dealer = rigs.pop().unwrap();
@@ -427,13 +525,27 @@ fn build(commands: &mut Commands, s: &Session, models: &mut ModelCtx, window: &Q
             }
         }
     }
-    let first = |m: &CardModel, clip: &str| end_of(&m.rig, m.clip(clip), m.cards[0].node);
-    let player_spot = first(&card_models[1], "Hand1_01");
-    let dealer_spot = first(&card_models[0], "Dealer_01");
-    // From the dealer towards the player, flat on the felt.
-    let towards_player = Vec3::new(player_spot.x - dealer_spot.x, player_spot.y - dealer_spot.y, 0.0).normalize_or(Vec3::NEG_X);
-    let aim = player_spot.lerp(dealer_spot, AIM_TOWARDS_DEALER);
-    let eye = aim + towards_player * CAMERA_BACK + Vec3::Z * CAMERA_UP;
+    let chips_root = commands.spawn((Transform::default(), Visibility::Inherited)).id();
+    commands.entity(holder).add_child(chips_root);
+    drawn.models = card_models;
+    drawn.holder = Some(holder);
+    drawn.player_spot = player_spot;
+    drawn.dealer_spot = dealer_spot;
+    drawn.chips = Some(Chips { root: chips_root, count: None });
+    drawn.arrows = arrows;
+    if let Some((_, a)) = fitted {
+        // The world's light, and a lamp over the felt (as roulette's).
+        let centre = player_spot.lerp(dealer_spot, 0.5);
+        let lamp = crate::roulette_view::table_lamp(commands, nvf_play::space::to_bevy(a.transform_point3(centre).to_array()));
+        drawn.entities = vec![holder, lamp];
+        commands.insert_resource(BlackjackView { image: None });
+        info!("blackjack view: the table built at the world's for {} ({table_path}, {shapes_total} shapes)", s.def.name);
+        return true;
+    }
+    let size = window.single().map(|w| Extent3d { width: w.physical_width().max(1), height: w.physical_height().max(1), depth_or_array_layers: 1 }).unwrap_or(Extent3d { width: 1280, height: 720, depth_or_array_layers: 1 });
+    let mut image = Image::new_fill(size, TextureDimension::D2, &[0, 0, 0, 0], TextureFormat::Bgra8UnormSrgb, RenderAssetUsages::default());
+    image.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT;
+    let image = models.images.add(image);
     let to = |p: Vec3| PLACE + nvf_play::space::to_bevy(p.to_array());
     let camera = commands
         .spawn((
@@ -466,16 +578,8 @@ fn build(commands: &mut Commands, s: &Session, models: &mut ModelCtx, window: &Q
             layer.clone(),
         ))
         .id();
-    let chips_root = commands.spawn((Transform::default(), Visibility::Inherited)).id();
-    commands.entity(holder).add_child(chips_root);
     drawn.entities = vec![holder, camera, key, fill];
-    drawn.models = card_models;
-    drawn.holder = Some(holder);
-    drawn.player_spot = player_spot;
-    drawn.dealer_spot = dealer_spot;
-    drawn.chips = Some(Chips { root: chips_root, count: None });
-    drawn.arrows = arrows;
-    commands.insert_resource(BlackjackView { image });
+    commands.insert_resource(BlackjackView { image: Some(image) });
     info!("blackjack view: the table built for {} ({table_path}, {shapes_total} shapes); first cards land at {player_spot:?} (player) and {dealer_spot:?} (dealer)", s.def.name);
     true
 }
@@ -596,7 +700,7 @@ fn faces(
 }
 
 /// A seat's chips on the table, in stacks by value in front of its cards.
-fn chips(commands: &mut Commands, c: &mut Chips, staked: u32, player_spot: Vec3, dealer_spot: Vec3, models: &mut ModelCtx) {
+fn chips(commands: &mut Commands, c: &mut Chips, staked: u32, player_spot: Vec3, dealer_spot: Vec3, models: &mut ModelCtx, (layer, to_root): (&RenderLayers, Mat4)) {
     if c.count == Some(staked) {
         return;
     }
@@ -606,7 +710,6 @@ fn chips(commands: &mut Commands, c: &mut Chips, staked: u32, player_spot: Vec3,
     let towards_player = Vec3::new(player_spot.x - dealer_spot.x, player_spot.y - dealer_spot.y, 0.0).normalize_or(Vec3::NEG_X);
     // Stacks side by side across the player's view, away from the cards.
     let side = Vec3::Z.cross(towards_player);
-    let layer = RenderLayers::layer(TABLE_LAYER);
     let mut left = staked;
     let mut stack = 0.0;
     for (value, path) in CHIPS {
@@ -625,7 +728,7 @@ fn chips(commands: &mut Commands, c: &mut Chips, staked: u32, player_spot: Vec3,
                 // In the game's space: the model's foot centre to the origin, squeezed, then
                 // to its place; into Bevy's space as the table's root does.
                 let game = Mat4::from_translation(p) * Mat4::from_scale(Vec3::new(1.0, 1.0, squeeze)) * Mat4::from_translation(-centre);
-                let tr = Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)) * Transform::from_matrix(game);
+                let tr = Transform::from_matrix(to_root * game);
                 let chip = commands.spawn((tr, Visibility::Inherited)).id();
                 commands.entity(root).add_child(chip);
                 for sh in &model.shapes {

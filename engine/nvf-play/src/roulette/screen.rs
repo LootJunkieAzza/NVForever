@@ -110,11 +110,20 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&Roulet
     let bright = amber(255.0);
     let dim = amber(DIM);
     let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
-    let mut root = commands.spawn((RouletteRoot, full.clone(), GlobalZIndex(106), BackgroundColor(Color::BLACK)));
-    if let Some(v) = view {
+    // The table in the world shows through; the table drawn alone is a picture on black.
+    let in_world = view.is_some_and(|v| v.image.is_none());
+    let back = if !in_world {
+        Color::BLACK
+    } else if s.help.is_some() {
+        Color::srgba(0.0, 0.0, 0.0, 1.0 - UNDER_HELP)
+    } else {
+        Color::NONE
+    };
+    let mut root = commands.spawn((RouletteRoot, full.clone(), GlobalZIndex(106), BackgroundColor(back)));
+    if let Some(image) = view.and_then(|v| v.image.clone()) {
         let light = if s.help.is_some() { UNDER_HELP } else { 1.0 };
         root.with_children(|r| {
-            r.spawn((full.clone(), ImageNode { color: Color::srgb(light, light, light), ..ImageNode::new(v.image.clone()) }));
+            r.spawn((full.clone(), ImageNode { color: Color::srgb(light, light, light), ..ImageNode::new(image) }));
         });
     }
     root.with_children(|r| {
