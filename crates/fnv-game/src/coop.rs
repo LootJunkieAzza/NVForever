@@ -151,6 +151,74 @@ impl Character {
     }
 }
 
+impl Character {
+    /// Put this character on the game's own player (the inverse of [`Character::of`]):
+    /// the fields that are the character's; the rest of `p` (reputation, notes read,
+    /// achievements and the like) stays as it is.
+    pub fn put_on(&self, p: &mut PlayerState) {
+        p.name = self.name.clone();
+        p.female = self.female;
+        p.look = self.look.clone();
+        p.race = self.race;
+        p.level = self.level;
+        p.xp = self.xp;
+        p.perks = self.perks.clone();
+        p.tag_skills = self.tag_skills.clone();
+        p.tag_slots = self.tag_slots.clone();
+        p.skill_points = self.skill_points.clone();
+        p.need_stages = self.need_stages.clone();
+        p.misc_stats = self.misc_stats.clone();
+        p.dead_count = self.dead_count.clone();
+        p.notes = self.notes.clone();
+        p.power_armor = self.power_armor;
+        p.caravan = self.caravan.clone();
+    }
+}
+
+impl crate::game::GameSnapshot {
+    /// A co-op guest's save (private fork): this snapshot is the guest's own game as it
+    /// was when it joined another player's world, and `now` is the game as it is in that
+    /// world. The result is this game with the player's character as `now` has it (the
+    /// actor's inventory, equipped items and S.P.E.C.I.A.L., health and every other
+    /// actor value, level, XP, perks, skills, needs, statistics, notes, Caravan cards,
+    /// the effects on the player, play time), and everything else as this one has it:
+    /// the player's cell, position and rotation, the world, quests, globals and time.
+    /// So a guest comes back to its own game where it left it, with what it gained.
+    pub fn with_character_of(mut self, now: &crate::game::GameSnapshot) -> crate::game::GameSnapshot {
+        let p = FormId::PLAYER_REF;
+        if let Some(mut actor) = now.sim.refs.get(&p).cloned() {
+            if let Some(old) = self.sim.refs.get(&p) {
+                actor.cell = old.cell;
+                actor.pos = old.pos;
+                actor.rot = old.rot;
+            }
+            self.sim.refs.insert(p, actor);
+        }
+        match now.extra.get(&p) {
+            Some(e) => {
+                self.extra.insert(p, e.clone());
+            }
+            None => {
+                self.extra.remove(&p);
+            }
+        }
+        Character::of(&now.player).put_on(&mut self.player);
+        // The player's effects as they are now, numbered after this game's own.
+        self.effects.retain(|e| e.target != p);
+        let mut next = self.next_effect.max(now.next_effect);
+        for e in now.effects.iter().filter(|e| e.target == p) {
+            let mut e = e.clone();
+            e.id = next;
+            next += 1;
+            self.effects.push(e);
+        }
+        self.next_effect = next;
+        self.time = self.time.max(now.time);
+        self.sim.next_dynamic = self.sim.next_dynamic.max(now.sim.next_dynamic);
+        self
+    }
+}
+
 impl CoopPlayer {
     /// Player `slot` as a copy of the game's own player now (its actor, values, effects
     /// and character); `None` before the player's actor exists in the world.

@@ -121,6 +121,7 @@ mod ripples;
 mod settings;
 mod iron_sights;
 mod view_sway;
+mod ads_sway;
 mod weapon_lower;
 mod setup;
 mod shadow_probe;

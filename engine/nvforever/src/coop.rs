@@ -29,6 +29,13 @@
 //! on the host: they go to its guest (`CombatStats::coop_hits`), whose game takes them on
 //! its own player, with its own armour.
 //!
+//! **A guest's own game.** As a guest is welcomed, its own game is kept as it is then
+//! (`nvf_play::save::KeepSolo`, `SoloBase`), and nothing of the host's world reaches it
+//! (the leash, the host's NPCs and clock) until it is: each save it makes in the host's
+//! world is its own game where it left it, with the character as it is now. So a player
+//! at Big MT who helps a friend in Primm loads back in at Big MT, with the XP, items and
+//! perks of the visit.
+//!
 //! **What a guest does.** A guest leaves the story to the host, as in Dying Light's co-op
 //! (`fnv_game::Game::coop_guest`): it talks to NPCs only to trade with them or to play
 //! Caravan (their own lines that do that; nobody else offers to talk, and no script
@@ -869,6 +876,7 @@ fn take_events(
     mut remote_hits: MessageWriter<RemoteHit>,
     (mut sim, mut script, mut quest_lines): (Option<ResMut<nvf_play::sim::SimState>>, Option<ResMut<nvf_play::script::ScriptState>>, Option<ResMut<nvf_play::quest_messages::QuestMessages>>),
     mut opened: MessageReader<LockOpened>,
+    solo: Option<Res<nvf_play::save::SoloBase>>,
 ) {
     let now = time.elapsed_secs();
     let coop = &mut *coop;
@@ -887,7 +895,13 @@ fn take_events(
     let mut refused = false;
     for e in link.events() {
         match e {
-            Event::Welcomed(id) => notes.push(format!("Joined the host's game as player {}", id + 1)),
+            Event::Welcomed(id) => {
+                // Keep this game as the guest's own before the host's world reaches it.
+                if !is_host {
+                    commands.insert_resource(nvf_play::save::KeepSolo);
+                }
+                notes.push(format!("Joined the host's game as player {}", id + 1));
+            }
             Event::Refused => {
                 notes.push("The host's game is full".into());
                 refused = true;
@@ -1026,7 +1040,8 @@ fn take_events(
                 }
             }
             Event::Clock(c) => {
-                if let Some(sim) = sim.as_deref_mut() {
+                // Not before this game is kept as the guest's own.
+                if let Some(sim) = sim.as_deref_mut().filter(|_| solo.is_some()) {
                     take_clock(&mut sim.world, c);
                 }
             }
@@ -1067,9 +1082,11 @@ fn leash(
     loading: Option<Res<Loading>>,
     main_menu: Option<Res<nvf_play::main_menu::MainMenu>>,
     mut travel: MessageWriter<TravelRequest>,
+    solo: Option<Res<nvf_play::save::SoloBase>>,
 ) {
-    // A downed guest stays down where it fell (it respawns by the host, `downed`).
-    if !coop.is_guest() || coop.host_lost || at_main_menu(main_menu.as_deref()) || coop.downed_at.is_some() {
+    // A downed guest stays down where it fell (it respawns by the host, `downed`). Not
+    // moved before its own game is kept (module notes).
+    if !coop.is_guest() || coop.host_lost || at_main_menu(main_menu.as_deref()) || coop.downed_at.is_some() || solo.is_none() {
         return;
     }
     let (Some(host), Some(player), Some(loc)) = (coop.host, player, loc) else { return };
@@ -1340,10 +1357,12 @@ fn follow_npcs(
     main_menu: Option<Res<nvf_play::main_menu::MainMenu>>,
     mut told: Local<usize>,
     (sfx, listener, mut sounds, mut sim, loc): (Option<Res<Sfx>>, Option<Res<Player>>, MessageWriter<PlaySound>, Option<ResMut<nvf_play::sim::SimState>>, Option<Res<Location>>),
+    solo: Option<Res<nvf_play::save::SoloBase>>,
 ) {
     let now = time.elapsed_secs();
     let coop = &mut *coop;
-    let guest = coop.link.as_ref().is_some_and(|l| !l.is_host() && l.id().is_some()) && !at_main_menu(main_menu.as_deref());
+    // The host's NPCs reach this game once it is kept as the guest's own (module notes).
+    let guest = coop.link.as_ref().is_some_and(|l| !l.is_host() && l.id().is_some()) && !at_main_menu(main_menu.as_deref()) && solo.is_some();
     let mut game = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game);
     if !guest {
         // Left the lobby: this game's world is its own again.

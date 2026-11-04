@@ -776,6 +776,47 @@ fn coop_players_round_trip_apart_from_the_player() {
     assert!(Game::restore(&f.data, world, g.cfg, &twice).is_err());
 }
 
+/// A co-op guest's save (private fork): its own game as it was when it joined, with the
+/// character as it is in the host's world; the place, quests and time stay its own.
+#[test]
+fn a_guests_save_keeps_its_own_place_and_world_with_the_character_now() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.world.get(FormId::PLAYER_REF).unwrap();
+    let solo = g.snapshot();
+    let p = FormId::PLAYER_REF;
+    let at_home = solo.sim.refs[&p].clone();
+    // In the host's world: elsewhere, a quest stage the host's story set, and progress.
+    g.set_stage(FormId(QUEST), 10);
+    let mut now = g.snapshot();
+    let actor = now.sim.refs.get_mut(&p).unwrap();
+    actor.pos = [5000.0, -3000.0, 120.0];
+    actor.rot = [0.0, 0.0, 1.5];
+    actor.inventory.get_or_insert_with(fnv_sim::Inventory::new).add(FormId(0x4242), 3);
+    now.player.xp = 750.0;
+    now.player.level = Some(4);
+    now.player.perks.insert(FormId(0xABC), 1);
+    now.extra.entry(p).or_default().av_damage.insert(16, 25.0);
+    now.time = solo.time + 600.0;
+    let merged = solo.clone().with_character_of(&now);
+    let me = &merged.sim.refs[&p];
+    assert_eq!((me.cell, me.pos, me.rot), (at_home.cell, at_home.pos, at_home.rot));
+    assert_eq!(me.inventory.as_ref().unwrap().count(FormId(0x4242)), 3);
+    assert_eq!(merged.player.xp, 750.0);
+    assert_eq!(merged.player.level, Some(4));
+    assert!(merged.player.perks.contains_key(&FormId(0xABC)));
+    assert_eq!(merged.extra[&p].av_damage.get(&16), Some(&25.0));
+    assert_eq!(merged.time, now.time);
+    assert_eq!(merged.quests, solo.quests);
+    assert_ne!(merged.quests, now.quests);
+    // It loads.
+    let world = World::restore(&f.forms, &f.refs, &merged.sim).unwrap();
+    let h = Game::restore(&f.data, world, g.cfg, &merged).unwrap();
+    assert_eq!(h.world.peek(p).unwrap().pos, at_home.pos);
+    assert_eq!(h.player.xp, 750.0);
+}
+
 #[test]
 fn a_save_made_with_another_load_order_drops_the_missing_plugins_forms() {
     // docs/design/save-load.md §4.1. The save was made with [Test.esm, Extra.esm] and is

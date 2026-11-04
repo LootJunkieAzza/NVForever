@@ -776,6 +776,8 @@ struct Motion {
     velocity: Vec2,
     /// The first-person arms' sway (`view_sway.rs`).
     sway: ViewSway,
+    /// The gun's sway while down the sights (`ads_sway.rs`).
+    ads_sway: crate::ads_sway::AdsSway,
     /// The first-person weapon lowered against a wall or a friend (`weapon_lower.rs`).
     lower: WeaponLower,
     /// The true iron sights were last reported on the eye (a smoke check).
@@ -829,6 +831,7 @@ impl Default for Motion {
             names: HashMap::new(),
             velocity: Vec2::ZERO,
             sway: ViewSway::default(),
+            ads_sway: crate::ads_sway::AdsSway::default(),
             lower: WeaponLower::default(),
             sights_told: false,
             lower_told: false,
@@ -2548,6 +2551,17 @@ fn drive_body(
         None => nvf_play::space::look_dir(player.heading, player.pitch),
     };
     let sights = sights_in.map(|s| (crate::iron_sights::ease(s), Quat::from_rotation_z(held) * Vec3::from_array(gun_dir)));
+    // Down the sights the gun gets its own sway on top (`ads_sway.rs`): the normal sway
+    // turns it about the eye, where the sights sit, so it barely shows there.
+    let ads = m.ads_sway.update(crate::ads_sway::AdsInput {
+        dt,
+        heading: player.heading,
+        pitch: player.pitch,
+        velocity: m.velocity,
+        airborne: m.falling,
+        share: sights.map_or(0.0, |(s, _)| s),
+    });
+    let sway = crate::weapon_lower::then(sway, ads);
     // The crosshair goes while the gun is on its way to the eye.
     let lined = sights.is_some();
     if let Some(t) = true_sights.as_deref_mut() {

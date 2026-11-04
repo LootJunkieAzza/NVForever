@@ -150,7 +150,9 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         // [documented: Update3D] the 3D is rebuilt [hypothesis: the engine redraws an
         // actor's look from the game state each time it loads; nothing to do here].
-        "update3d" => XVal::Num(0.0),
+        // Update3DAlt (JohnnyGuitar) is the same refresh with flags; Heart of the Mojave
+        // calls it after SetModelPath.
+        "update3d" | "update3dalt" => XVal::Num(0.0),
         // [documented: IsSpellTargetAlt] the reference is under an effect of that form.
         "isspelltargetalt" => {
             let (Some(r), Some(s)) = (subject, form(args, 0)) else { return Some(Ok(XVal::Num(0.0))) };
