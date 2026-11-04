@@ -637,7 +637,7 @@ impl Game<'_> {
     }
 
     fn hostile_to_now(&mut self, actor: FormId, other: FormId) -> bool {
-        if actor == other || actor == FormId::PLAYER_REF || !self.world.is_enabled(actor).unwrap_or(false) {
+        if actor == other || actor == FormId::PLAYER_REF || self.is_coop_actor(actor) || !self.world.is_enabled(actor).unwrap_or(false) {
             return false;
         }
         let out = |g: &Game, r: FormId| g.extra.get(&r).is_some_and(|e| e.dead || e.out_cold() || e.restrained);
@@ -648,6 +648,11 @@ impl Game<'_> {
         }
         if self.awareness.forced.contains(&(actor, other)) || self.provocations.holds(actor, other) {
             return true;
+        }
+        // Another player of a co-op game is attacked whenever the player would be
+        // (`crate::coop`) [design].
+        if self.is_coop_actor(other) {
+            return self.hostile_to(actor, FormId::PLAYER_REF);
         }
         // The player's teammates "act and react as if in the player faction for the
         // purposes of combat. Other actors will treat the actor as if he were in the
@@ -907,7 +912,7 @@ impl Game<'_> {
     /// NCRFactionNV and FiendsFactionNV, name 23 and 6 others, but not each other:
     /// observed].
     pub fn kin(&self, a: FormId, b: FormId) -> bool {
-        if a == b || a == FormId::PLAYER_REF || b == FormId::PLAYER_REF {
+        if a == b || self.as_player(a) == FormId::PLAYER_REF || self.as_player(b) == FormId::PLAYER_REF {
             return false;
         }
         if faction_relation(self, a, b) == 1 || faction_relation(self, b, a) == 1 {

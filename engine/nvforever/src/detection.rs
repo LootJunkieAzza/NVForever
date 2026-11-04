@@ -141,6 +141,7 @@ pub struct DetectionPlugin;
 impl Plugin for DetectionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<DetectionState>()
+            .add_message::<crate::coop::PuppetShot>()
             .add_systems(Update, measure.after(nvf_play::PlaySet::Scripts).before(crate::residents::drive))
             .add_systems(Last, report);
     }
@@ -653,21 +654,23 @@ fn measure(
     mut phys: Option<ResMut<PhysState>>,
     (player, intent, control, location, combat, sky, flashlight): Inputs,
     mut shots: MessageReader<ShotFired>,
-    (mut impacts, mut hits, mut booms): (MessageReader<ImpactFx>, MessageReader<ActorHit>, MessageReader<ExplosionFx>),
+    (mut impacts, mut hits, mut booms, mut puppet_shots): (MessageReader<ImpactFx>, MessageReader<ActorHit>, MessageReader<ExplosionFx>, MessageReader<crate::coop::PuppetShot>),
     (sfx, visuals): (Option<Res<Sfx>>, Option<Res<ShotVisuals>>),
-    // Co-op puppets (coop.rs) are other players, not watchers.
-    actors: Query<Watched, Without<crate::coop::Puppet>>,
+    // Co-op puppets (coop.rs) are other players: on the host, targets as the player is
+    // (their actors' AI is off, so they watch nobody); elsewhere, not measured at all.
+    actors: Query<(Watched, Has<crate::coop::Puppet>)>,
     (point_lights, spot_lights, camera, world): Scene,
     mut gauges: Option<ResMut<nvf_play::sneak_gauges::SneakGauges>>,
 ) {
     let state = &mut *state;
     // Shots, heard at the next measurement.
-    for s in shots.read() {
-        let level = combat.as_deref().and_then(|c| c.forms.weapons.get(&s.weapon)).and_then(|w| w.sound_level.as_deref());
+    // The other players' shots too (coop.rs), heard as the player's are.
+    for (shooter, weapon) in shots.read().map(|s| (s.shooter, s.weapon)).chain(puppet_shots.read().map(|s| (s.shooter, s.weapon))) {
+        let level = combat.as_deref().and_then(|c| c.forms.weapons.get(&weapon)).and_then(|w| w.sound_level.as_deref());
         let loud = level.map_or(0.0, |l| state.settings.unwrap_or_default().firing_sound(l));
-        let heard = state.shots.entry(s.shooter.0).or_default();
+        let heard = state.shots.entry(shooter.0).or_default();
         *heard = heard.max(loud);
-        state.shot_levels.insert(s.shooter.0, loud);
+        state.shot_levels.insert(shooter.0, loud);
     }
     let settings_now = state.settings.unwrap_or_default();
     let level = |l: Option<&str>| l.map(|l| settings_now.firing_sound(l));
@@ -774,8 +777,8 @@ fn measure(
         turning: turning(FormId::PLAYER_REF.0, player.heading, &mut state.headings),
         swimming: phys.as_deref().and_then(|p| p.player.as_ref()).is_some_and(|c| c.swimming),
     });
-    for (rig, g, vis, dying, corpse, name) in &actors {
-        if !vis.get() || dying || corpse || rt.game.is_dead(FormId(rig.reference)) {
+    for ((rig, g, vis, dying, corpse, name), puppet) in &actors {
+        if !vis.get() || dying || corpse || rt.game.is_dead(FormId(rig.reference)) || (puppet && !rt.game.is_coop_actor(FormId(rig.reference))) {
             continue;
         }
         let feet = bevy_to_game(g.translation()).to_array();

@@ -4,17 +4,44 @@
 //! do the same from the command line.
 //!
 //! **Lobby codes.** There is no server: the host's game is the lobby. Its code is the
-//! host's own addresses and port (`nvf_coop::code`); creating it asks the host's router
-//! to let friends in (`nvf_coop::reach`). A load restarts the game (main.rs
+//! host's own address, 8 characters (`nvf_coop::code`); friends on the host's network
+//! find it by broadcast. Creating it asks the host's router to let friends in
+//! (`nvf_coop::reach`). A load restarts the game (main.rs
 //! `restart_args`): the lobby goes with it, in [`HOST_ENV`] and [`CODE_ENV`] for a host
 //! and [`JOIN_ENV`] for a guest, which is how a guest's chosen save comes into the host's
 //! game.
 //!
-//! Each game plays its own world. Every game sends its player's place, feet and heading
-//! over `nvf_coop::net` (the host passes them between guests), and draws the other
-//! players as NPCs the network moves: engine-only puppets with a reference no load order
-//! has, so no script, AI package or physics body ever sees or fights them (the same
-//! drawing as the `--npc-travel` travellers, `nav::show_actor`).
+//! **The host's world.** The host runs the world: its NPCs are the only ones that think
+//! (packages, fights, deaths). It sends each NPC it draws (where, facing, weapon out,
+//! sneaking, aim, attacks, dead; [`share_npcs`]), and a guest's game turns its own NPCs'
+//! AI off and draws them there ([`follow_npcs`], `Residents::remote`). A guest's hits on
+//! NPCs are not applied in its game: they go to the host, which applies them as its own
+//! player's (`nvf_play::combat::RemoteHit`), so the NPC reacts once, in the one world,
+//! and every game sees it.
+//!
+//! **The other players in the host's world.** On the host each guest is also an actor of
+//! the world ([`stand_ins`]): a reference created from the player's record, its AI off,
+//! that the network puts where the guest is (disabled while the guest is elsewhere, lost
+//! or dead; deleted when it leaves, and never saved, `fnv_game::Game::coop_actors`). The
+//! world's actors take it for the player (`Game::as_player`): they detect it, hear its
+//! shots ([`PuppetShot`]), attack it whenever they would attack the player, and fight it
+//! back when its hits (applied as that actor's) provoke them. Their hits on it do nothing
+//! on the host: they go to its guest (`CombatStats::coop_hits`), whose game takes them on
+//! its own player, with its own armour.
+//!
+//! **What a guest does.** A guest leaves the story to the host, as in Dying Light's co-op
+//! (`fnv_game::Game::coop_guest`): it talks to NPCs only to trade with them or to play
+//! Caravan (their own lines that do that; nobody else offers to talk, and no script
+//! starts a conversation with it), and plays at the casino tables. Its quest list,
+//! objectives, markers and quest messages are the host's active quest ([`QuestView`],
+//! `Game::coop_host_quest`). It picks locks and hacks terminals, and so does the host:
+//! what either unlocks is unlocked for everyone (`nvf_play::lockpick::LockOpened`).
+//!
+//! Every game sends its player's place, feet and heading over `nvf_coop::net` (the host
+//! passes them between guests), and draws the other players as NPCs the network moves:
+//! engine-only puppets with a reference no load order has, so no script, AI package or
+//! physics body ever sees or fights them (the same drawing as the `--npc-travel`
+//! travellers, `nav::show_actor`).
 //!
 //! **The leash.** A guest goes where the host is: when the host is in another cell or
 //! worldspace, or outdoors farther than [`LEASH`] away, the guest travels to just behind
@@ -53,20 +80,26 @@ use fnv_sim::FormId;
 use nvf_assets::actor::ActorParts;
 use nvf_assets::model::ModelCtx;
 use nvf_coop::code::Lobby;
-use nvf_coop::net::{self, attack, flag, Event, Link, Place, PlayerState, Session};
+use crate::locomotion::Dying;
+use crate::residents::{RemotePose, Residents};
+use nvf_coop::net::{self, attack, flag, npc_flag, Event, Link, NpcState, Place, PlayerState, QuestView, Session};
+use fnv_game::coop::HostQuest;
+use nvf_play::lockpick::{LockOpened, OpenedBy};
+use nvf_play::script_events::{Objective, QuestNotice};
+use nvf_play::combat::{ActorHit, CombatStats, RelayedHit, RemoteHit};
 use nvf_coop::reach::{self, Reach};
 use nvf_play::loading::{Loading, TravelRequest};
 use nvf_play::lobby::{Hosting, Joining, LobbyRequest, LobbyState};
 use nvf_play::player::Player;
 use nvf_play::{Location, PlayState, RefVisual, Travel};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::Mutex;
 use std::time::Duration;
 
-/// The port `--join` uses when the address names none.
-pub const DEFAULT_PORT: u16 = 47_960;
+/// The port `--join` uses when the address names none (and a code without a port means).
+pub const DEFAULT_PORT: u16 = nvf_coop::code::DEFAULT_PORT;
 /// How far behind the newest state the others are drawn, so there are two to blend.
 const DELAY: f32 = 0.1;
 /// Outdoors, a guest farther than this from the host is brought back (game units; the
@@ -115,6 +148,25 @@ pub struct CoopPlugin(pub Config);
 #[derive(Component)]
 pub struct Puppet;
 
+/// On a guest's NPC that the host draws: as [`Puppet`], the systems that would drive it
+/// from this game's simulation leave it to the network.
+#[derive(Component)]
+pub struct Remote;
+
+/// Another player fired a shot (its puppet's attack with a gun), for the world's actors
+/// to hear as they hear the player's (`detection`).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct PuppetShot {
+    pub shooter: FormId,
+    pub weapon: FormId,
+}
+
+/// How far behind the host's newest NPC states a guest draws them: two rounds.
+const NPC_DELAY: f32 = 2.0 / net::NPC_HZ as f32;
+/// A guest stops following an NPC the host has not drawn for this long (seconds); it
+/// stays where it was last drawn.
+const NPC_FORGET: f32 = 3.0;
+
 impl Plugin for CoopPlugin {
     fn build(&self, app: &mut App) {
         let c = &self.0;
@@ -136,6 +188,10 @@ impl Plugin for CoopPlugin {
             join_code: None,
             joining: Joining::Idle,
             finding_since: None,
+            npcs: HashMap::new(),
+            npc_attacks: HashMap::new(),
+            ai_was_off: None,
+            host_quest: None,
         };
         if let Some(port) = c.host.or_else(|| env(HOST_ENV).and_then(|p| p.trim().parse().ok())) {
             coop.start_hosting(port);
@@ -144,8 +200,9 @@ impl Plugin for CoopPlugin {
         }
         app.add_plugins(nvf_play::lobby::LobbyPlugin)
             .insert_resource(coop)
-            .add_systems(Update, (lobby, send, take_events, leash).chain().after(nvf_play::PlaySet::Physics))
-            .add_systems(Update, draw.after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
+            .add_systems(Update, (lobby, send, take_events, share_npcs, follow_npcs, leash).chain().after(nvf_play::PlaySet::Physics))
+            .add_message::<PuppetShot>()
+            .add_systems(Update, (stand_ins, draw).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
     }
 }
 
@@ -167,10 +224,10 @@ fn host_session(port: u16) -> Option<Link> {
 
 /// A guest's session with the host a code or an address names.
 fn guest_session(at: &str, name: &str) -> Result<Link, String> {
-    let candidates = match Lobby::decode(at) {
-        Some(l) => l.candidates(),
-        None if at.contains('.') || at.contains(':') => resolve(at).into_iter().collect(),
-        None => Vec::new(),
+    let (candidates, key) = match Lobby::decode(at) {
+        Some(l) => (l.candidates(reach::local_ip()), l.key()),
+        None if at.contains('.') || at.contains(':') => (resolve(at).into_iter().collect(), 0),
+        None => (Vec::new(), 0),
     };
     if candidates.is_empty() {
         return Err("That is not a lobby code: check it with the host.".into());
@@ -191,7 +248,7 @@ fn guest_session(at: &str, name: &str) -> Result<Link, String> {
             warn!("co-op: cannot keep the session token in {}: {e}", f.display());
         }
     }
-    match Session::join(&candidates, name, token) {
+    match Session::join(&candidates, key, name, token) {
         Ok(s) => {
             info!("co-op: joining {candidates:?} as {name}");
             Ok(Link::new(s))
@@ -229,6 +286,42 @@ struct Coop {
     join_code: Option<String>,
     joining: Joining,
     finding_since: Option<f32>,
+    /// A guest's: the host's NPCs as heard, by reference.
+    npcs: HashMap<u32, NpcTrack>,
+    /// A host's: the attacks each of its NPCs began, counted (wrapping).
+    npc_attacks: HashMap<u32, u8>,
+    /// A guest following the host's world: whether this game's actors' AI was off before.
+    ai_was_off: Option<bool>,
+    /// A guest's: the host's active quest as last heard.
+    host_quest: Option<HostQuest>,
+}
+
+/// One of the host's NPCs as a guest has heard it.
+#[derive(Default)]
+struct NpcTrack {
+    samples: VecDeque<(f32, NpcState)>,
+    /// The attack counter played up to (None until the first state).
+    played: Option<u8>,
+    attacked_at: Option<f32>,
+}
+
+impl NpcTrack {
+    /// Where to draw it at `t`: feet and heading blended between the states either side.
+    fn pose(&self, t: f32) -> Option<([f32; 3], f32, bool)> {
+        let last = self.samples.back()?.1;
+        let (a, b, f) = match self.samples.iter().position(|(at, _)| *at > t) {
+            None => return Some((last.feet, last.heading, false)),
+            Some(0) => return Some((self.samples[0].1.feet, self.samples[0].1.heading, false)),
+            Some(i) => {
+                let (ta, a) = self.samples[i - 1];
+                let (tb, b) = self.samples[i];
+                (a, b, ((t - ta) / (tb - ta).max(1e-4)).clamp(0.0, 1.0))
+            }
+        };
+        let feet = std::array::from_fn(|k| a.feet[k] + (b.feet[k] - a.feet[k]) * f);
+        let turn = (b.heading - a.heading + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+        Some((feet, a.heading + turn * f, b.has(npc_flag::MOVING)))
+    }
 }
 
 impl Coop {
@@ -241,7 +334,10 @@ impl Coop {
         self.port = port;
         std::env::set_var(HOST_ENV, port.to_string());
         // After a restart the lobby's code is the one friends were given.
-        if let Some(code) = std::env::var(CODE_ENV).ok().filter(|c| Lobby::decode(c).is_some_and(|l| l.port == port)) {
+        if let Some((code, lobby)) = std::env::var(CODE_ENV).ok().and_then(|c| Some((c.clone(), Lobby::decode(&c)?))).filter(|(_, l)| l.port == port) {
+            if let Some(link) = &self.link {
+                link.set_lobby(lobby.key());
+            }
             self.code = Some(code);
             return;
         }
@@ -389,7 +485,10 @@ fn lobby(
     if let Some(r) = coop.reaching.as_ref().and_then(|rx| rx.lock().ok()?.try_recv().ok()) {
         coop.reaching = None;
         let code = r.lobby.encode();
-        info!("co-op: lobby code {code} (this network {}, internet {}, port {}; router opened it: {})", r.lobby.local, r.lobby.public, r.lobby.port, r.opened);
+        info!("co-op: lobby code {code} (address {}, this network {}, port {}; router opened it: {})", r.lobby.addr, r.local, r.lobby.port, r.opened);
+        if let Some(link) = &coop.link {
+            link.set_lobby(r.lobby.key());
+        }
         std::env::set_var(CODE_ENV, &code);
         if let Some(f) = fnv_install::EngineHome::default_root().map(|h| h.join(CODE_FILE)) {
             if let Err(e) = std::fs::write(&f, format!("{code}\n")) {
@@ -461,9 +560,17 @@ struct Peer {
     /// Its look, once heard: `Some(None)` for the player record's own (no character
     /// creator look).
     look: Option<Option<Look>>,
+    /// On the host: its actor in this world ([`stand_ins`]).
+    actor: Option<FormId>,
 }
 
 impl Peer {
+    /// The reference its puppet is drawn with: its actor's on the host, else
+    /// [`PUPPET_REF`] + its id.
+    fn reference(&self, id: u8) -> u32 {
+        self.actor.map_or(PUPPET_REF + id as u32, |r| r.0)
+    }
+
     /// The pose to draw at `t`: blended between the states either side of it.
     fn pose(&self, t: f32) -> Option<(Place, [f32; 3], f32, bool)> {
         let last = self.samples.back()?.1;
@@ -547,6 +654,7 @@ fn send(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location>>
         _ => false,
     } || doing.zoom.as_ref().is_some_and(|z| z.aimed);
     flags |= if sights && out { flag::SIGHTS } else { 0 };
+    flags |= if doing.script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.is_dead(FormId::PLAYER_REF)) { flag::DOWN } else { 0 };
     s.flags = flags;
     let worn = match (doing.actor_world.as_deref(), doing.sim.as_deref()) {
         (Some(w), Some(sim)) => Equipment::of(w, Some(&sim.world), FormId::PLAYER_REF.0),
@@ -673,10 +781,22 @@ fn take_events(
     mut fighters: ResMut<Fighters>,
     mut corner: Option<ResMut<nvf_play::corner_messages::CornerMessages>>,
     actor_world: Option<Res<ActorWorld>>,
+    mut remote_hits: MessageWriter<RemoteHit>,
+    (mut sim, mut script, mut quest_lines): (Option<ResMut<nvf_play::sim::SimState>>, Option<ResMut<nvf_play::script::ScriptState>>, Option<ResMut<nvf_play::quest_messages::QuestMessages>>),
+    mut opened: MessageReader<LockOpened>,
 ) {
     let now = time.elapsed_secs();
     let coop = &mut *coop;
-    let Some(link) = coop.link.as_ref() else { return };
+    let Some(link) = coop.link.as_ref() else {
+        opened.clear();
+        return;
+    };
+    // What this player unlocked goes to everyone (module notes).
+    for o in opened.read() {
+        info!("co-op: this player {} {:#010X}: everyone's is unlocked", o.how.word(), o.reference);
+        link.send_unlock(o.reference, o.how == OpenedBy::Hacked);
+    }
+    let mut rt = script.as_deref_mut().and_then(|s| s.rt.as_mut());
     let is_host = link.is_host();
     let mut notes = Vec::new();
     let mut refused = false;
@@ -726,7 +846,7 @@ fn take_events(
                     warn!("co-op: {} sent a look this game cannot read", label(id, &coop.peers.get(&id).map_or(String::new(), |p| p.name.clone())));
                     continue;
                 };
-                let reference = PUPPET_REF + id as u32;
+                let reference = coop.peers.get(&id).map_or(PUPPET_REF + id as u32, |p| p.reference(id));
                 if let Some(w) = actor_world.as_deref() {
                     if let Ok(mut looks) = w.looks.lock() {
                         match &look {
@@ -747,10 +867,11 @@ fn take_events(
                 p.failed = false;
             }
             Event::Left(id) => {
-                fighters.set_puppet(PUPPET_REF + id as u32, None);
+                let reference = coop.peers.get(&id).map_or(PUPPET_REF + id as u32, |p| p.reference(id));
+                fighters.set_puppet(reference, None);
                 if let Some(w) = actor_world.as_deref() {
                     if let Ok(mut looks) = w.looks.lock() {
-                        looks.remove(&(PUPPET_REF + id as u32));
+                        looks.remove(&reference);
                     }
                 }
                 if let Some(p) = coop.peers.remove(&id) {
@@ -777,6 +898,52 @@ fn take_events(
                 coop.host = None;
                 notes.push("The host's game has ended".into());
             }
+            Event::Npcs(list) => {
+                for n in list {
+                    let t = coop.npcs.entry(n.reference).or_default();
+                    t.samples.push_back((now, n));
+                    while t.samples.len() > 8 {
+                        t.samples.pop_front();
+                    }
+                }
+            }
+            // A guest's, as its actor's in this world (module notes).
+            Event::Hit { id, hit } if is_host => match decode_hit(&hit) {
+                Some(h) => {
+                    let by = coop.peers.get(&id).and_then(|p| p.actor).unwrap_or(FormId::PLAYER_REF);
+                    info!("co-op: player {} ({by}) hit {} for {:.1}", id + 1, h.target, h.dealt);
+                    remote_hits.write(RemoteHit { by, hit: h });
+                }
+                None => warn!("co-op: player {} sent a hit this game cannot read", id + 1),
+            },
+            // One of the host's actors hit this player there.
+            Event::Quest(q) => {
+                let new = host_quest(&q);
+                if let Some(rt) = rt.as_deref() {
+                    let notices = host_quest_notices(rt.game.data, coop.host_quest.as_ref(), new.as_ref());
+                    for n in notices {
+                        info!("co-op: the host's quest: {}", nvf_play::quest_messages::describe(&n));
+                        if let Some(l) = quest_lines.as_deref_mut() {
+                            l.push(n);
+                        }
+                    }
+                }
+                coop.host_quest = new;
+            }
+            Event::Unlocked { id, reference, terminal } => {
+                if let (Some(rt), Some(sim)) = (rt.as_deref_mut(), sim.as_deref_mut()) {
+                    if unlock(sim, &mut rt.game, FormId(reference), terminal) {
+                        info!("co-op: {} unlocked {reference:#010X}{}", label(id, &coop.peers.get(&id).map_or(String::new(), |p| p.name.clone())), if terminal { " (a terminal)" } else { "" });
+                    }
+                }
+            }
+            Event::Hit { hit, .. } => match decode_hurt(&hit) {
+                Some((by, h)) => {
+                    info!("co-op: {} hit this player for {:.1} in the host's world", by.map_or("something".to_string(), |b| b.to_string()), h.dealt);
+                    remote_hits.write(RemoteHit { by: by.unwrap_or(FormId(0)), hit: RelayedHit { target: FormId::PLAYER_REF, ..h } });
+                }
+                None => warn!("co-op: the host sent a hit this game cannot read"),
+            },
         }
     }
     for n in notes {
@@ -847,7 +1014,7 @@ fn draw(
     mut actors: Query<(&mut Transform, Option<&mut Locomotion>), Without<crate::furniture::OnFurniture>>,
     mut holds: Query<&mut WeaponHold>,
     dressed: Query<(Option<&PuppetEquipment>, Has<Puppet>)>,
-    (mut fighters, mut attacks, main_menu): (ResMut<Fighters>, MessageWriter<PlayAttack>, Option<Res<nvf_play::main_menu::MainMenu>>),
+    (mut fighters, mut attacks, main_menu, mut shots): (ResMut<Fighters>, MessageWriter<PlayAttack>, Option<Res<nvf_play::main_menu::MainMenu>>, MessageWriter<PuppetShot>),
 ) {
     let (Ok(world_root), Some(loc)) = (root.single(), loc) else { return };
     if at_main_menu(main_menu.as_deref()) {
@@ -873,7 +1040,7 @@ fn draw(
             p.drawn_in = None;
         }
         let visible = place == here;
-        let reference = PUPPET_REF + id as u32;
+        let reference = p.reference(id);
         let Some(&(_, newest)) = p.samples.back() else { continue };
         let base = if p.look.is_some() { PLAYER_BASE } else { base };
         let who = Who { reference, base, creature: false, scale: 1.0, strafe: true, air: newest.has(flag::AIR) };
@@ -889,11 +1056,410 @@ fn draw(
             fighters.set_puppet(reference, None);
             continue;
         };
-        act(&mut commands, e, reference, p, newest, now, actor_world.as_deref(), &mut actors, &mut holds, &dressed, &mut fighters, &mut attacks);
+        if let Some(weapon) = act(&mut commands, e, reference, p, newest, now, actor_world.as_deref(), &mut actors, &mut holds, &dressed, &mut fighters, &mut attacks) {
+            shots.write(PuppetShot { shooter: FormId(reference), weapon });
+        }
     }
 }
 
-/// Make a drawn puppet do what its player's newest state says (module notes).
+/// The host: each other player as an actor of this world (module notes), made when it
+/// is first seen, put where it is each frame, and enabled only while it is here, in
+/// touch and alive; the actors of players who left, or of a game no longer hosted, are
+/// deleted. The hits this world's actors land on them go to their games.
+#[allow(clippy::too_many_arguments)]
+fn stand_ins(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut coop: ResMut<Coop>,
+    loc: Option<Res<Location>>,
+    actor_world: Option<Res<ActorWorld>>,
+    mut sim: Option<ResMut<nvf_play::sim::SimState>>,
+    mut script: Option<ResMut<nvf_play::script::ScriptState>>,
+    (mut stats, main_menu, data_state): (ResMut<CombatStats>, Option<Res<nvf_play::main_menu::MainMenu>>, Option<Res<nvf_play::pipboy::data::DataState>>),
+) {
+    let (Some(sim), Some(rt)) = (sim.as_deref_mut(), script.as_deref_mut().and_then(|s| s.rt.as_mut())) else { return };
+    let coop = &mut *coop;
+    let host = coop.link.as_ref().is_some_and(|l| l.is_host());
+    let kept: HashSet<FormId> = if host { coop.peers.values().filter_map(|p| p.actor).collect() } else { HashSet::new() };
+    for r in rt.game.coop_actors.keys().copied().collect::<Vec<_>>() {
+        if !kept.contains(&r) {
+            let _ = sim.world.set_deleted(r, true);
+            rt.game.coop_actors.remove(&r);
+            rt.game.extra.remove(&r);
+            info!("co-op: {r}, a player's actor, is gone");
+        }
+    }
+    if !host {
+        stats.coop_hits.clear();
+        return;
+    }
+    if let Some(link) = coop.link.as_ref() {
+        for (by, h) in stats.coop_hits.drain(..) {
+            let Some((&id, _)) = coop.peers.iter().find(|(_, p)| p.actor == Some(h.target)) else { continue };
+            info!("co-op: {} hit player {} for {:.1}", by.map_or("something".to_string(), |b| b.to_string()), id + 1, h.dealt);
+            link.send_hit_to(id, encode_hurt(by, &h));
+        }
+    }
+    let Some(loc) = loc.filter(|_| !at_main_menu(main_menu.as_deref())) else { return };
+    if let Some(link) = coop.link.as_ref() {
+        link.set_quest(quest_view(data_state.as_deref(), &rt.game));
+    }
+    let here = place_of(&loc);
+    let now = time.elapsed_secs();
+    let cell = sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.cell);
+    for (&id, p) in coop.peers.iter_mut() {
+        let (Some((place, feet, yaw, _)), Some(&(_, newest))) = (p.pose(now - DELAY), p.samples.back()) else { continue };
+        let r = match p.actor {
+            Some(r) => r,
+            None => match sim.world.place(FormId(PLAYER_BASE), cell, feet, [0.0, 0.0, yaw], 1) {
+                Ok(r) => {
+                    rt.game.coop_actors.insert(r, p.name.clone());
+                    info!("co-op: {} is {r} in this world", label(id, &p.name));
+                    // Its look and its puppet go under the new reference.
+                    if let Some(w) = actor_world.as_deref() {
+                        if let Ok(mut looks) = w.looks.lock() {
+                            if let Some(l) = looks.remove(&(PUPPET_REF + id as u32)) {
+                                looks.insert(r.0, l);
+                            }
+                        }
+                    }
+                    if let Some(e) = p.root.take() {
+                        commands.entity(e).despawn();
+                    }
+                    p.spawned = false;
+                    p.drawn_in = None;
+                    p.actor = Some(r);
+                    r
+                }
+                Err(e) => {
+                    warn!("co-op: {} cannot be an actor of this world: {e}", label(id, &p.name));
+                    continue;
+                }
+            },
+        };
+        if let Ok(s) = sim.world.get(r) {
+            s.pos = feet;
+            s.rot = [0.0, 0.0, yaw];
+            s.cell = cell;
+        }
+        let _ = sim.world.set_enabled(r, place == here && !p.lost && !newest.has(flag::DOWN));
+        if let Some(n) = rt.game.coop_actors.get_mut(&r).filter(|n| **n != p.name && !p.name.is_empty()) {
+            n.clone_from(&p.name);
+        }
+        let x = rt.game.extra.entry(r).or_default();
+        x.ai_off = true;
+        x.force_sneak = newest.has(flag::SNEAKING);
+    }
+}
+
+/// A host's NPCs as it draws them, for the guests (module notes).
+#[allow(clippy::type_complexity)]
+fn share_npcs(
+    mut coop: ResMut<Coop>,
+    actors: Query<(&RefVisual, &Transform, Option<&Locomotion>, Option<&WeaponHold>, Has<Dying>, &InheritedVisibility), (With<crate::limbs::ActorRig>, Without<Puppet>)>,
+    fighters: Res<Fighters>,
+    mut attacks: MessageReader<PlayAttack>,
+    mut told: Local<usize>,
+) {
+    let coop = &mut *coop;
+    let Some(link) = coop.link.as_ref().filter(|l| l.is_host()) else {
+        attacks.clear();
+        return;
+    };
+    for a in attacks.read().filter(|a| matches!(a.kind, Move::Attack)) {
+        let c = coop.npc_attacks.entry(a.actor).or_default();
+        *c = c.wrapping_add(1);
+    }
+    if coop.peers.is_empty() {
+        return;
+    }
+    let mut npcs = Vec::new();
+    for (v, t, lo, hold, dying, seen) in &actors {
+        // The dead too, out of sight or not: a guest lays its own body down.
+        if (!seen.get() && !dying) || is_puppet(v.0) {
+            continue;
+        }
+        let r = v.0;
+        let pitch = fighters.pitch(r);
+        let mut flags = 0;
+        flags |= if lo.is_some_and(|l| l.velocity[0].hypot(l.velocity[1]) > 1.0) { npc_flag::MOVING } else { 0 };
+        flags |= if hold.is_some_and(|h| h.drawn) { npc_flag::DRAWN } else { 0 };
+        flags |= if lo.is_some_and(|l| l.sneaking) { npc_flag::SNEAKING } else { 0 };
+        flags |= if dying { npc_flag::DEAD } else { 0 };
+        flags |= if pitch.is_some() { npc_flag::AIMING } else { 0 };
+        flags |= if fighters.sights(r) { npc_flag::SIGHTS } else { 0 };
+        npcs.push(NpcState {
+            reference: r,
+            feet: t.translation.to_array(),
+            heading: crate::nav::tr_heading(t),
+            pitch: pitch.unwrap_or(0.0),
+            flags,
+            weapon: fighters.weapon(r).map_or(0, |w| w.0),
+            attacks: coop.npc_attacks.get(&r).copied().unwrap_or(0),
+        });
+    }
+    if npcs.len().abs_diff(*told) >= 5 || (*told == 0) != npcs.is_empty() {
+        *told = npcs.len();
+        info!("co-op: sending the guests {} NPCs", npcs.len());
+    }
+    link.set_npcs(npcs);
+}
+
+/// A guest's game following the host's world (module notes): its actors' AI off, its
+/// hits on them sent to the host, and its NPCs drawn as the host draws them.
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
+fn follow_npcs(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut coop: ResMut<Coop>,
+    (mut residents, mut stats, mut script): (Option<ResMut<Residents>>, ResMut<CombatStats>, Option<ResMut<nvf_play::script::ScriptState>>),
+    mut actors: Query<(Entity, &RefVisual, Option<&mut WeaponHold>, Option<&mut Locomotion>, Has<Remote>, Has<Dying>), (With<crate::limbs::ActorRig>, Without<Puppet>)>,
+    mut fighters: ResMut<Fighters>,
+    actor_world: Option<Res<ActorWorld>>,
+    (mut attacks, mut hits): (MessageWriter<PlayAttack>, MessageWriter<ActorHit>),
+    main_menu: Option<Res<nvf_play::main_menu::MainMenu>>,
+    mut told: Local<usize>,
+) {
+    let now = time.elapsed_secs();
+    let coop = &mut *coop;
+    let guest = coop.link.as_ref().is_some_and(|l| !l.is_host() && l.id().is_some()) && !at_main_menu(main_menu.as_deref());
+    let mut game = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game);
+    if !guest {
+        // Left the lobby: this game's world is its own again.
+        if let Some(was) = coop.ai_was_off.take() {
+            stats.relay = None;
+            if let Some(r) = residents.as_deref_mut() {
+                r.remote = None;
+            }
+            if let Some(g) = game {
+                g.toggles.actors_ai_off = was;
+                g.coop_guest = false;
+                g.coop_host_quest = None;
+            }
+            coop.host_quest = None;
+            for (e, v, _, _, marked, _) in &mut actors {
+                if marked {
+                    commands.entity(e).remove::<Remote>();
+                    fighters.set_puppet(v.0, None);
+                }
+            }
+            coop.npcs.clear();
+            info!("co-op: this game runs its own NPCs again");
+        }
+        return;
+    }
+    let Some(g) = game.as_deref_mut() else { return };
+    if coop.ai_was_off.is_none() {
+        coop.ai_was_off = Some(g.toggles.actors_ai_off);
+        stats.relay = Some(Vec::new());
+        info!("co-op: the host runs the world: this game's NPCs follow the host's");
+    }
+    // Kept off (a console `tai` would turn it back on).
+    g.toggles.actors_ai_off = true;
+    g.coop_guest = true;
+    if g.coop_host_quest != coop.host_quest {
+        g.coop_host_quest.clone_from(&coop.host_quest);
+    }
+    if let (Some(out), Some(link)) = (stats.relay.as_mut(), coop.link.as_ref()) {
+        for h in out.drain(..) {
+            info!("co-op: the host gets this game's hit on {} for {:.1}", h.target, h.dealt);
+            link.send_hit(encode_hit(&h));
+        }
+    }
+    coop.npcs.retain(|_, t| t.samples.back().is_some_and(|(at, _)| now - at < NPC_FORGET));
+    let poses: HashMap<u32, RemotePose> = coop.npcs.iter().filter_map(|(&r, t)| t.pose(now - NPC_DELAY).map(|(feet, heading, moving)| (r, RemotePose { feet, heading, moving }))).collect();
+    if poses.len().abs_diff(*told) >= 5 || (*told == 0) != poses.is_empty() {
+        *told = poses.len();
+        let mut some: Vec<String> = poses.keys().take(8).map(|r| format!("{r:08X}")).collect();
+        some.sort();
+        info!("co-op: following {} of the host's NPCs ({}...)", poses.len(), some.join(", "));
+    }
+    if let Some(r) = residents.as_deref_mut() {
+        r.remote = Some(poses);
+    }
+    let mut bodies = HashSet::new();
+    for (e, v, hold, lo, marked, dying) in &mut actors {
+        let r = v.0;
+        let Some(t) = coop.npcs.get_mut(&r) else {
+            if marked {
+                commands.entity(e).remove::<Remote>();
+                fighters.set_puppet(r, None);
+            }
+            continue;
+        };
+        let Some(&(_, s)) = t.samples.back() else { continue };
+        if !marked {
+            commands.entity(e).insert(Remote);
+        }
+        if !dying {
+            bodies.insert(r);
+        }
+        let drawn = s.has(npc_flag::DRAWN);
+        if let Some(mut h) = hold {
+            if h.drawn != drawn {
+                h.drawn = drawn;
+            }
+        }
+        if let Some(mut lo) = lo {
+            lo.set_sneaking(s.has(npc_flag::SNEAKING));
+        }
+        if s.has(npc_flag::DEAD) {
+            fighters.set_puppet(r, None);
+            continue;
+        }
+        let attacked = t.played.is_some_and(|a| a != s.attacks);
+        t.played = Some(s.attacks);
+        if attacked {
+            t.attacked_at = Some(now);
+        }
+        let weapon = (s.weapon != 0).then_some(FormId(s.weapon));
+        let sights = s.has(npc_flag::SIGHTS);
+        let fighting = drawn && (s.has(npc_flag::AIMING) || attacked || t.attacked_at.is_some_and(|at| now - at < AIM_AFTER_ATTACK));
+        fighters.set_puppet(r, fighting.then_some(PuppetPose { pitch: s.pitch, weapon, sights, crouched: s.has(npc_flag::SNEAKING) }));
+        if fighting && attacked {
+            let melee = is_melee(actor_world.as_deref(), weapon);
+            attacks.write(PlayAttack { actor: r, weapon, melee, sights: sights && !melee, kind: Move::Attack, power: None, swing: melee.then(SwingPick::default) });
+        }
+    }
+    // Deaths: dead here too; a body drawn now falls as the host's did (`deaths`).
+    for (&r, t) in &coop.npcs {
+        let Some(&(_, s)) = t.samples.back() else { continue };
+        if !s.has(npc_flag::DEAD) || g.is_dead(FormId(r)) {
+            continue;
+        }
+        g.extra.entry(FormId(r)).or_default().dead = true;
+        if bodies.contains(&r) {
+            hits.write(ActorHit { form_id: r, died: true, knocked_out: false, location: -1, crippled: false, part_crippled: false, torso_crippled: false, by: None, share: 1.0, guard_broken: false, weapon: None });
+        }
+    }
+}
+
+/// Whether `reference` is one of the other players' puppets (never one of the world's).
+fn is_puppet(reference: u32) -> bool {
+    reference & 0xFFFF_FF00 == PUPPET_REF
+}
+
+/// The host's active quest as its guests show it ([`QuestView`]).
+fn quest_view(st: Option<&nvf_play::pipboy::data::DataState>, g: &fnv_game::Game) -> QuestView {
+    let Some(q) = nvf_play::pipboy::data::active_quest(st, g) else { return QuestView::default() };
+    let Some(s) = g.quests.get(&q) else { return QuestView::default() };
+    let objectives = s.objectives.iter().filter(|(_, o)| o.displayed || o.completed).map(|(i, o)| (*i, o.completed)).collect();
+    QuestView { quest: q.0, completed: s.completed, failed: s.failed, objectives }
+}
+
+/// What a guest's game shows of a [`QuestView`] (`None`: the host has no quest).
+fn host_quest(q: &QuestView) -> Option<HostQuest> {
+    (q.quest != 0).then(|| HostQuest { quest: FormId(q.quest), objectives: q.objectives.iter().copied().collect(), completed: q.completed, failed: q.failed })
+}
+
+/// The quest messages a guest shows as the host's quest changes, as the host's own game
+/// showed them (`nvf_play::script_events`): a new quest is added with its open
+/// objectives; on the same quest, each objective shown or done, then its end.
+fn host_quest_notices(data: &fnv_game::data::GameData, old: Option<&HostQuest>, new: Option<&HostQuest>) -> Vec<QuestNotice> {
+    let Some(n) = new else { return Vec::new() };
+    let Some(def) = data.quests.get(&n.quest) else { return Vec::new() };
+    let name = def.name.clone().unwrap_or_default();
+    let same = old.filter(|o| o.quest == n.quest);
+    let mut out = Vec::new();
+    if same.is_none() && !n.completed && !n.failed {
+        out.push(QuestNotice::Added(name.clone()));
+    }
+    let mut objectives = Vec::new();
+    for (i, &done) in &n.objectives {
+        let before = same.and_then(|o| o.objectives.get(i).copied());
+        let tell = match before {
+            None => same.is_some() || !done,
+            Some(was) => done && !was,
+        };
+        let text = def.objectives.get(i).and_then(|o| o.text.as_deref()).map(str::trim).unwrap_or("");
+        if tell && !text.is_empty() {
+            objectives.push(Objective { quest: n.quest.0, text: text.to_string(), completed: done });
+        }
+    }
+    if !objectives.is_empty() {
+        out.push(QuestNotice::Objectives(objectives));
+    }
+    if let Some(o) = same {
+        if n.completed && !o.completed {
+            out.push(QuestNotice::Completed(name.clone()));
+        }
+        if n.failed && !o.failed {
+            out.push(QuestNotice::Failed(name));
+        }
+    }
+    out
+}
+
+/// Unlock what another player unlocked: a terminal is hacked, a door or container's lock
+/// open. Whether it was still locked here.
+fn unlock(sim: &mut nvf_play::sim::SimState, g: &mut fnv_game::Game, r: FormId, terminal: bool) -> bool {
+    use fnv_game::terminal::Access;
+    if terminal {
+        return g.terminals.access.insert(r, Access::Hacked) != Some(Access::Hacked);
+    }
+    let locked = sim.world.get(r).ok().and_then(|s| s.lock.as_ref()).is_some_and(|l| l.locked);
+    let _ = sim.world.unlock(r);
+    locked
+}
+
+/// A guest's hit as it goes to the host: the target, damage, weapon (0 for none),
+/// location, critical, then 0 or 1 and the limb's condition, share, damage and kind.
+fn encode_hit(h: &RelayedHit) -> Vec<u8> {
+    let mut b = Vec::with_capacity(40);
+    b.extend_from_slice(&h.target.0.to_le_bytes());
+    b.extend_from_slice(&h.dealt.to_le_bytes());
+    b.extend_from_slice(&h.weapon.map_or(0, |w| w.0).to_le_bytes());
+    b.extend_from_slice(&h.location.to_le_bytes());
+    b.push(h.critical as u8);
+    match h.limb {
+        Some(l) => {
+            b.push(1);
+            b.extend_from_slice(&l.condition.to_le_bytes());
+            b.extend_from_slice(&l.health_percent.to_le_bytes());
+            b.extend_from_slice(&l.damage.to_le_bytes());
+            b.push(l.points as u8);
+        }
+        None => b.push(0),
+    }
+    b
+}
+
+/// [`encode_hit`] read back; None for one that is not a hit.
+/// A hit on a guest's actor as it goes to that guest: who dealt it (0 for nobody), then
+/// the hit as [`encode_hit`] has it.
+fn encode_hurt(by: Option<FormId>, h: &RelayedHit) -> Vec<u8> {
+    let mut b = by.map_or(0, |b| b.0).to_le_bytes().to_vec();
+    b.extend(encode_hit(h));
+    b
+}
+
+fn decode_hurt(b: &[u8]) -> Option<(Option<FormId>, RelayedHit)> {
+    let by = u32::from_le_bytes(b.get(..4)?.try_into().ok()?);
+    Some((Some(FormId(by)).filter(|b| b.0 != 0), decode_hit(&b[4..])?))
+}
+
+fn decode_hit(b: &[u8]) -> Option<RelayedHit> {
+    let mut rd = Reader(b);
+    let target = FormId(rd.u32()?);
+    let dealt = f32::from_bits(rd.u32()?);
+    let weapon = Some(rd.u32()?).filter(|&w| w != 0).map(FormId);
+    let location = rd.u32()? as i32;
+    let critical = rd.u8()? != 0;
+    let limb = match rd.u8()? {
+        0 => None,
+        1 => {
+            let condition = u16::from_le_bytes([rd.u8()?, rd.u8()?]);
+            let health_percent = f64::from_bits(rd.u32()? as u64 | (rd.u32()? as u64) << 32);
+            let damage = f64::from_bits(rd.u32()? as u64 | (rd.u32()? as u64) << 32);
+            Some(fnv_game::combat::LimbHit { condition, health_percent, damage, points: rd.u8()? != 0 })
+        }
+        _ => return None,
+    };
+    (rd.0.is_empty() && dealt.is_finite()).then_some(RelayedHit { target, dealt, weapon, location, critical, limb })
+}
+
+/// Make a drawn puppet do what its player's newest state says (module notes). A new
+/// attack with a gun gives the gun, for the shot to be heard.
 #[allow(clippy::too_many_arguments)]
 fn act(
     commands: &mut Commands,
@@ -908,7 +1474,7 @@ fn act(
     dressed: &Query<(Option<&PuppetEquipment>, Has<Puppet>)>,
     fighters: &mut Fighters,
     attacks: &mut MessageWriter<PlayAttack>,
-) {
+) -> Option<FormId> {
     let weapon = (s.weapon != 0).then_some(FormId(s.weapon));
     let gear = Equipment { worn: s.worn().iter().map(|&w| FormId(w)).collect(), weapon, weapon_mods: 0 };
     if let Ok((worn, marked)) = dressed.get(e) {
@@ -943,7 +1509,7 @@ fn act(
     // The attack clips play only on an actor with an aim (attack_anims::start).
     fighters.set_puppet(reference, fighting.then_some(PuppetPose { pitch: s.pitch, weapon, sights, crouched: sneaking }));
     if !fighting {
-        return;
+        return None;
     }
     let melee = is_melee(world, weapon);
     if attacked {
@@ -961,11 +1527,35 @@ fn act(
     if reloaded && !melee {
         attacks.write(PlayAttack { actor: reference, weapon, melee: false, sights: false, kind: Move::Reload, power: None, swing: None });
     }
+    weapon.filter(|_| attacked && !melee)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_hit_round_trips_and_fits_a_packet() {
+        let limb = fnv_game::combat::LimbHit { condition: 27, health_percent: 15.5, damage: 33.25, points: true };
+        for h in [
+            RelayedHit { target: FormId(0x0010_4C3A), dealt: 12.5, weapon: Some(FormId(0x0E3778)), location: 2, critical: true, limb: Some(limb) },
+            RelayedHit { target: FormId(7), dealt: 0.0, weapon: None, location: -1, critical: false, limb: None },
+        ] {
+            let b = encode_hit(&h);
+            assert!(b.len() <= net::HIT_MAX);
+            let back = decode_hit(&b).unwrap();
+            assert_eq!(format!("{back:?}"), format!("{h:?}"));
+            // And as it goes to a guest, with who dealt it.
+            for by in [Some(FormId(0x0015_A797)), None] {
+                let b = encode_hurt(by, &h);
+                assert!(b.len() <= net::HIT_MAX);
+                let (who, back) = decode_hurt(&b).unwrap();
+                assert_eq!((who, format!("{back:?}")), (by, format!("{h:?}")));
+            }
+        }
+        assert!(decode_hit(&[1, 2, 3]).is_none());
+        assert!(decode_hurt(&[1, 2]).is_none());
+    }
 
     #[test]
     fn a_look_round_trips_and_fits_a_packet() {

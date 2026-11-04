@@ -324,12 +324,30 @@ fn actor_action(rt: Option<&mut crate::script::Runtime>, sim: &mut SimState, id:
 
 fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mut HashMap<u32, (bool, f64)>) -> Action {
     let r = FormId(id);
+    // Another player of a co-op game: only its name (there is no one to talk to).
+    if g.is_coop_actor(r) {
+        return Action::Name;
+    }
     if g.is_dead(r) {
         return Action::Search;
     }
     let fighting_player = g.awareness.get(r).is_some_and(|a| a.state.in_combat() && a.targets.contains_key(&FormId::PLAYER_REF));
     if fighting_player || g.would_attack(r, FormId::PLAYER_REF) {
         return Action::Name;
+    }
+    // A co-op guest talks only to trade and to play (`fnv_game::Game::guest_lines`).
+    if g.coop_guest {
+        let now = g.time;
+        return match talkers.get(&id) {
+            Some(&(t, at)) if (now - at).abs() < TALKER_SECONDS => t,
+            _ => {
+                let t = g.guest_can_talk(r);
+                talkers.insert(id, (t, now));
+                t
+            }
+        }
+        .then_some(Action::Talk)
+        .unwrap_or(Action::Name);
     }
     // Sneaking, the player picks pockets instead (`crate::pickpocket`); one that caught
     // the player before still shows Steal and says so on E.

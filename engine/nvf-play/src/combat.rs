@@ -745,9 +745,35 @@ pub struct NpcWeaponWear {
     pub last: f32,
 }
 
+/// A co-op guest's hit on an actor, for the host, whose world it is, to apply
+/// ([`CombatStats::relay`], [`RemoteHit`]).
+#[derive(Debug, Clone, Copy)]
+pub struct RelayedHit {
+    pub target: FormId,
+    pub dealt: f32,
+    pub weapon: Option<FormId>,
+    pub location: i32,
+    pub critical: bool,
+    pub limb: Option<fnv_game::combat::LimbHit>,
+}
+
+/// A hit from another game (a co-op guest's, [`RelayedHit`]) to apply here as `by`'s.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct RemoteHit {
+    pub by: FormId,
+    pub hit: RelayedHit,
+}
+
 /// Counts for the exit report.
 #[derive(Resource, Default, Debug, Clone)]
 pub struct CombatStats {
+    /// A co-op guest's: the host runs the world, so hits on actors other than the player
+    /// are not applied here. The player's own are kept here for the host; others (none
+    /// should land, the guest's NPCs not fighting) are dropped. `None` in any other game.
+    pub relay: Option<Vec<RelayedHit>>,
+    /// A co-op host's: hits on the other players' actors (`fnv_game::Game::coop_actors`),
+    /// each with who dealt it, for their own games to take; they do nothing here.
+    pub coop_hits: Vec<(Option<FormId>, RelayedHit)>,
     /// The player's shots that rolled for their ammo's spent item (a case, hull or
     /// drained cell), and the items given, by item.
     pub spent_rolls: u32,
@@ -1418,6 +1444,7 @@ impl Plugin for CombatPlugin {
             .init_resource::<HitMarks>()
             .init_resource::<PlayerLimbs>()
             .add_message::<ActorHit>()
+            .add_message::<RemoteHit>()
             .add_message::<ForcedHitReaction>()
             .add_message::<ActorPush>()
             .add_message::<Knockback>()
@@ -1429,7 +1456,7 @@ impl Plugin for CombatPlugin {
             .add_systems(Startup, init_combat)
             .add_systems(
                 Update,
-                (track_limbs, (perk_speed, stat_speed), player_flinch, arm_sway, weapon_state, equip_sync, run_pace, reload_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, crate::thrown::land, disarm, death_drops, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
+                (track_limbs, (perk_speed, stat_speed), player_flinch, arm_sway, weapon_state, equip_sync, run_pace, reload_pace, weapon_sounds, fire, melee, actor_attacks, (fly, remote_hits).chain(), crate::dismember::resolve, crate::mines::tick, crate::thrown::land, disarm, death_drops, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
             .add_systems(Update, (draw_marks, watch_hit_effects).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
@@ -3165,6 +3192,31 @@ pub(crate) fn crit_effect(c: &Combat, weapon: Option<FormId>) -> Option<(FormId,
     Some((w.crit_effect?, w.crit_on_death))
 }
 
+/// Hits from another game ([`RemoteHit`]: a co-op guest's on this host's actors), applied
+/// as this game's own are.
+fn remote_hits(
+    mut remote: MessageReader<RemoteHit>,
+    mut sim: ResMut<SimState>,
+    mut stats: ResMut<CombatStats>,
+    mut script: Option<ResMut<ScriptState>>,
+    mut feedback: ResMut<HitFeedback>,
+    mut messages: MessageWriter<ActorHit>,
+    combat: Option<Res<Combat>>,
+) {
+    for RemoteHit { by, hit } in remote.read().copied() {
+        let info = HitInfo { attacker: Some(by), weapon: hit.weapon, location: hit.location, critical: hit.critical, limb: hit.limb };
+        let mut dealt = hit.dealt;
+        // A hit on this player in the host's world, dealt against an actor that wears
+        // nothing there: this player's armour takes its part here, as an explosion's
+        // damage meets it (`fly`).
+        if let (FormId::PLAYER_REF, Some(c)) = (hit.target, combat.as_deref()) {
+            let (dt, dr) = target_armor(c, script.as_deref_mut(), &mut sim, FormId::PLAYER_REF);
+            dealt = (dealt - dt).max(dealt * c.tuning.dt_floor) * (1.0 - dr.clamp(0.0, c.rules.max_armor_rating) / 100.0);
+        }
+        apply_hit(script.as_deref_mut(), &mut sim, hit.target, dealt, info, &mut stats, &mut feedback, None, &mut messages, &[], false, None);
+    }
+}
+
 /// Apply `dealt` health damage through the script runtime; report and remember it. A
 /// critical hit then gives the weapon's critical effect (`crit`: the actor effect and
 /// its On Death flag; `fnv_game::Game::apply_crit_effect`).
@@ -3212,9 +3264,22 @@ fn hit_actor(
     blast: &[LimbHit],
 ) -> Option<(HitResult, Option<ActorHit>)> {
     let mine = info.attacker == Some(FormId::PLAYER_REF);
+    if target != FormId::PLAYER_REF {
+        if let Some(out) = stats.relay.as_mut() {
+            if mine {
+                out.push(RelayedHit { target, dealt, weapon: info.weapon, location: info.location, critical: info.critical, limb: info.limb });
+            }
+            return None;
+        }
+    }
     let rt = script.and_then(|s| s.rt.as_mut())?;
     if target == FormId::PLAYER_REF {
         return hit_player(rt, sim, dealt, info, stats, hud, effects, feedback, blast).map(|r| (r, None));
+    }
+    // Another player's: their game takes it, with their own armour (`remote_hits`).
+    if rt.game.is_coop_actor(target) {
+        stats.coop_hits.push((info.attacker, RelayedHit { target, dealt, weapon: info.weapon, location: info.location, critical: info.critical, limb: info.limb }));
+        return Some((HitResult { dealt: dealt as f64, immune: true, ..HitResult::default() }, None));
     }
     // The hit's effects go on before its damage (`hit_effects`).
     let span = info_span!("combat::hit_effects").entered();

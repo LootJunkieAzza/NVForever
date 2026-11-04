@@ -582,7 +582,8 @@ impl DataState {
 
 fn track(st: &mut DataState, game: &Game) {
     if let Some(rt) = game.script.as_ref().and_then(|s| s.rt.as_ref()) {
-        let mut new: Vec<u32> = rt.game.quests.iter().filter(|(q, s)| listed(&rt.game, **q, s) && !st.seen.contains_key(&q.0)).map(|(q, _)| q.0).collect();
+        // A co-op guest lists the host's quest only.
+        let mut new: Vec<u32> = rt.game.quests.iter().filter(|(q, s)| !rt.game.coop_guest && listed(&rt.game, **q, s) && !st.seen.contains_key(&q.0)).map(|(q, _)| q.0).collect();
         if !new.is_empty() {
             st.seen_count += 1;
             new.sort_unstable();
@@ -622,6 +623,28 @@ fn markers<'a>(st: &'a mut DataState, game: &Game) -> Option<&'a Vec<read::Marke
     st.markers.as_ref()
 }
 
+/// The player's quest list, in order ([`model::sort_quests`]; `st` gives when each was
+/// first seen).
+fn player_quests(st: Option<&DataState>, g: &fnv_game::game::Game) -> Vec<QuestKey> {
+    let seen = |q: u32| st.map_or(0, |st| st.seen.get(&q).copied().unwrap_or(st.seen_count + 1));
+    let mut out: Vec<QuestKey> = g.quests.iter().filter(|(q, s)| listed(g, **q, s)).map(|(q, s)| QuestKey { seen: seen(q.0), form: q.0, done: s.completed || s.failed }).collect();
+    model::sort_quests(&mut out);
+    out
+}
+
+/// The quest the player has active, as the DATA page has it whether open or not: the
+/// player's pick, else a script's ForceActiveQuest, else the newest running quest. A co-op
+/// host sends it to its guests (nvforever `coop`).
+pub fn active_quest(st: Option<&DataState>, g: &fnv_game::game::Game) -> Option<FormId> {
+    let running: Vec<u32> = player_quests(st, g).into_iter().filter(|q| !q.done).map(|q| q.form).collect();
+    let pick = st.and_then(|st| st.active_quest).filter(|a| running.contains(a));
+    let forced = g.ui.active_quest.map(|q| q.0).filter(|a| running.contains(a));
+    // A ForceActiveQuest the page has not taken yet wins, as it will there.
+    let forced_new = st.is_none_or(|st| g.ui.active_quest_count != st.forced_seen);
+    let chosen = if forced_new { forced.or(pick) } else { pick.or(forced) };
+    chosen.or(running.first().copied()).map(FormId)
+}
+
 /// Whether a quest is in the player's list: it has a name and an objective shown or done
 /// (docs/spec-notes/quest-messages.md §5).
 fn listed(g: &fnv_game::game::Game, q: FormId, s: &fnv_game::quest::QuestState) -> bool {
@@ -658,23 +681,23 @@ fn lists(st: &mut DataState, game: &Game) -> Lists {
     let mut out = Lists::default();
     let Some(rt) = game.script.as_ref().and_then(|s| s.rt.as_ref()) else { return out };
     let g = &rt.game;
-    out.quests = g
-        .quests
-        .iter()
-        .filter(|(q, s)| listed(g, **q, s))
-        .map(|(q, s)| QuestKey { seen: st.seen.get(&q.0).copied().unwrap_or(st.seen_count + 1), form: q.0, done: s.completed || s.failed })
-        .collect();
-    model::sort_quests(&mut out.quests);
+    if g.coop_guest {
+        // A co-op guest's list is the host's active quest alone (`Game::coop_host_quest`).
+        out.quests = g.coop_host_quest.iter().map(|h| QuestKey { seen: 0, form: h.quest.0, done: h.completed || h.failed }).collect();
+        st.active_quest = g.coop_host_quest.as_ref().map(|h| h.quest.0);
+    } else {
+        out.quests = player_quests(Some(st), g);
+    }
     // A script's ForceActiveQuest makes its quest the active one [documented: GECK wiki
     // ForceActiveQuest]; the player's pick afterwards wins again.
-    if g.ui.active_quest_count != st.forced_seen {
+    if !g.coop_guest && g.ui.active_quest_count != st.forced_seen {
         st.forced_seen = g.ui.active_quest_count;
         if let Some(q) = g.ui.active_quest {
             st.active_quest = Some(q.0);
             info!("pipboy data: active quest {q} (ForceActiveQuest)");
         }
     }
-    if !st.active_quest.is_some_and(|a| out.quests.iter().any(|q| q.form == a && !q.done)) {
+    if !g.coop_guest && !st.active_quest.is_some_and(|a| out.quests.iter().any(|q| q.form == a && !q.done)) {
         st.active_quest = out.quests.iter().find(|q| !q.done).map(|q| q.form);
     }
     if let Some(w) = game.world.as_ref() {
@@ -1064,17 +1087,22 @@ fn quest_name(game: &Game, q: u32) -> String {
     game.script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.data.quests.get(&FormId(q))).and_then(|d| d.name.clone()).unwrap_or_default()
 }
 
-/// The quest's objectives shown or done, with text.
+/// The quest's objectives shown or done, with text: on a co-op guest, the host's.
 fn objectives(game: &Game, q: u32) -> Vec<Row> {
     let Some(rt) = game.script.as_ref().and_then(|s| s.rt.as_ref()) else { return Vec::new() };
-    let (Some(def), Some(state)) = (rt.game.data.quests.get(&FormId(q)), rt.game.quests.get(&FormId(q))) else { return Vec::new() };
-    let mut lines: Vec<ObjectiveLine> = state
-        .objectives
-        .iter()
-        .filter(|(_, o)| o.displayed || o.completed)
-        .filter_map(|(i, o)| {
-            let text = def.objectives.get(i)?.text.clone()?;
-            (!text.trim().is_empty()).then(|| ObjectiveLine { index: *i, text: text.trim().to_string(), done: o.completed })
+    let g = &rt.game;
+    let Some(def) = g.data.quests.get(&FormId(q)) else { return Vec::new() };
+    let shown: Vec<(i32, bool)> = match (&g.coop_host_quest, g.quests.get(&FormId(q))) {
+        (Some(h), _) if g.coop_guest && h.quest.0 == q => h.objectives.iter().map(|(i, done)| (*i, *done)).collect(),
+        _ if g.coop_guest => Vec::new(),
+        (_, Some(state)) => state.objectives.iter().filter(|(_, o)| o.displayed || o.completed).map(|(i, o)| (*i, o.completed)).collect(),
+        (_, None) => Vec::new(),
+    };
+    let mut lines: Vec<ObjectiveLine> = shown
+        .into_iter()
+        .filter_map(|(i, done)| {
+            let text = def.objectives.get(&i)?.text.clone()?;
+            (!text.trim().is_empty()).then(|| ObjectiveLine { index: i, text: text.trim().to_string(), done })
         })
         .collect();
     model::sort_objectives(&mut lines);
@@ -1371,7 +1399,8 @@ pub(crate) fn refresh_quest_targets(time: Res<Time<Real>>, state: Option<ResMut<
         return;
     }
     st.target_poll = TARGET_POLL;
-    let quest = st.active_quest.map(FormId).or(rt.game.ui.active_quest);
+    // A co-op guest marks the host's quest (`Game::coop_host_quest`).
+    let quest = if rt.game.coop_guest { rt.game.coop_host_quest.as_ref().map(|h| h.quest) } else { st.active_quest.map(FormId).or(rt.game.ui.active_quest) };
     // The conditions read the world played (`crate::script::with_world`).
     let checks = quest.map(|q| crate::script::with_world(rt, &mut sim, |rt| rt.game.check_quest_targets(q))).unwrap_or_default();
     if quest != st.target_quest {

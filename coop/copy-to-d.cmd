@@ -3,7 +3,9 @@ rem Refresh the second machine's copy (D:\FNVForever\NVForever by default, or th
 rem from this fork's newest build: the program, its schemas and the licence files; then the
 rem mods: new or changed files in this PC's game Data folder go to the copy's game beside it
 rem (..\Fallout New Vegas\Data), and this PC's NVForever load order (plugins.txt) and mods
-rem folder go to its home. Its saves, settings and logs are left alone.
+rem folder go to its home. Its saves, settings and logs are left alone. Last, this PC's own
+rem co-op install (C:\NVForever\NVForever-coop) gets the same program and schemas.
+rem A copy whose drive is not plugged in is skipped; this PC's install is still updated.
 rem Build first: cargo build --release --bin nvforever
 setlocal
 set "HERE=%~dp0"
@@ -13,6 +15,7 @@ if "%TO%"=="" set "TO=D:\FNVForever\NVForever"
 set "GAME=C:\Modding\GOG-Base Installs\Fallout New Vegas\Data"
 set "HOME_FROM=%USERPROFILE%\OneDrive\Documents\My Games\NVForever"
 set "MO2_FROM=C:\NVForever"
+set "HERE_PC=%MO2_FROM%\NVForever-coop"
 if not exist "%REPO%\engine\target\release\nvforever.exe" (
   echo No build yet: run cargo build --release --bin nvforever in %REPO%\engine
   exit /b 1
@@ -20,6 +23,10 @@ if not exist "%REPO%\engine\target\release\nvforever.exe" (
 tasklist /FI "IMAGENAME eq nvforever.exe" | "%SystemRoot%\System32\find.exe" /I "nvforever.exe" >nul && (
   echo NVForever is running: close it first, the program cannot be replaced while it runs.
   exit /b 1
+)
+for %%D in ("%TO%") do if not exist "%%~dD\" (
+  echo %%~dD is not plugged in: skipped %TO%.
+  goto here_pc
 )
 if not exist "%TO%" mkdir "%TO%"
 copy /Y "%REPO%\engine\target\release\nvforever.exe" "%TO%\" >nul || exit /b 1
@@ -54,3 +61,14 @@ if exist "%MO2_FROM%\mods" if exist "%TO%\..\MO2\ModOrganizer.ini" (
   robocopy "%MO2_FROM%\profiles" "%TO%\..\MO2\profiles" /E /NFL /NDL /NJH /NJS /NP >nul
 )
 echo Updated %TO% from this build.
+:here_pc
+rem This PC's own co-op install, which its MO2 starts as "NVForever co-op".
+if exist "%HERE_PC%\nvforever.exe" (
+  copy /Y "%REPO%\engine\target\release\nvforever.exe" "%HERE_PC%\" >nul || exit /b 1
+  robocopy "%REPO%\schemas" "%HERE_PC%\schemas" /MIR /NFL /NDL /NJH /NJS /NP >nul
+  if errorlevel 8 (
+    echo Copying the schemas to %HERE_PC% failed.
+    exit /b 1
+  )
+  echo Updated %HERE_PC% from this build.
+)

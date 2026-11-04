@@ -818,11 +818,23 @@ pub struct Residents {
     /// The game state of the package choice without `--play`.
     own: Option<Box<Game<'static>>>,
     core: Core,
+    /// A co-op guest's (`crate::coop`): the host runs the world, so no actor here thinks
+    /// (no package, walk or fight); each is drawn where the host draws it, by reference.
+    /// An actor the host has not drawn stays where it is. `None` in any other game.
+    pub remote: Option<HashMap<u32, RemotePose>>,
     /// Every actor of the loaded cells.
     pub all: bool,
     started: bool,
     warned: bool,
     startup: Vec<(bool, String)>,
+}
+
+/// Where the host of a co-op game draws one of its actors ([`Residents::remote`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RemotePose {
+    pub feet: [f32; 3],
+    pub heading: f32,
+    pub moving: bool,
 }
 
 /// Standalone packages own their simulation; in play mode `SimState` owns it
@@ -996,7 +1008,7 @@ impl Residents {
             );
             Some(Box::new(game))
         };
-        Ok(Residents { own, core, all, started: false, warned: false, startup })
+        Ok(Residents { own, core, remote: None, all, started: false, warned: false, startup })
     }
 
     /// The named references the cell streamer must leave to this module (with `all` it
@@ -1977,6 +1989,27 @@ impl Core {
         self.ai.events.clear();
     }
 
+    /// A co-op guest's frame in place of [`Core::think`] (`Residents::remote`): nobody
+    /// thinks; each actor the host draws is put where the host has it, with no physics
+    /// body of its own here to walk it anywhere else.
+    fn follow(&mut self, game: &Game, remote: &HashMap<u32, RemotePose>, mut phys: Option<&mut PhysState>, blocks: Option<&mut ActorBlocks>, now: f32) {
+        self.join(game);
+        for (&id, pose) in remote {
+            let Some(a) = self.ai.agents.get_mut(&FormId(id)) else { continue };
+            a.walker.feet = pose.feet;
+            a.walker.heading = pose.heading;
+            a.walker.moving = pose.moving;
+            a.walker.turning = false;
+            a.walker.air = None;
+            a.walker.tri = fnv_nav::graph::NONE;
+            a.activity = if pose.moving { Activity::Travelling } else { Activity::There };
+            if let Some(p) = phys.as_deref_mut() {
+                p.remove_npc(id);
+            }
+        }
+        self.note(game, blocks, &HashSet::new(), now);
+    }
+
     /// Each resident's state for whoever draws and seats it, after the AI's update.
     fn note(&mut self, game: &Game, mut blocks: Option<&mut ActorBlocks>, held: &HashSet<u32>, now: f32) {
         let hour = clock_text(game);
@@ -2410,6 +2443,7 @@ pub fn drive(
                 res.core.take_cells(&world, &streamer, sim.refs);
             }
             res.core.check_rooted(&world, &models.data);
+            let remote = res.remote.as_ref();
             let core = &mut res.core;
             let (phys, blocks) = (phys.as_deref_mut(), blocks.as_deref_mut());
             let (world_ref, streamer_ref) = (&*world, &*streamer);
@@ -2435,13 +2469,17 @@ pub fn drive(
                 core.switch_navmeshes(&mut rt.game, &mut nav);
                 drop(span);
                 let _span = info_span!("ai::think").entered();
-                core.think(&mut rt.game, false, &nav, &world, &mut doors, phys, blocks, dt, now, waited)
+                match remote {
+                    Some(remote) => core.follow(&rt.game, remote, phys, blocks, now),
+                    None => core.think(&mut rt.game, false, &nav, &world, &mut doors, phys, blocks, dt, now, waited),
+                }
             });
         }
         _ => return,
     }
     let equipment_world = equipment_world(res.own.as_deref().map(|g| &g.world), sim.as_deref().map(|s| &s.world));
     let mut spawn_stats = crate::actors::ActorStats::default();
+    let remote = res.remote.as_ref();
     let core = &mut res.core;
     // Load doors used: the doors' sounds where the listener is, the body left at the door
     // fades out, the one drawn at the other side fades in (`door_fade.rs`).
@@ -2548,7 +2586,12 @@ pub fn drive(
         // (no movement this frame, so the idle clip), which made walks stop and start.
         // Without a character, standing: on the drawn ground when its feet rest on the
         // collision as a character's would.
-        let feet = phys.as_deref_mut().map_or(w.feet, |p| p.npc_drawn_feet(r.actor.0).unwrap_or_else(|| p.standing_drawn_feet(r.actor.0, w.feet)));
+        // A co-op guest's actor the host draws: where the host draws it.
+        let feet = if remote.is_some_and(|m| m.contains_key(&r.actor.0)) {
+            w.feet
+        } else {
+            phys.as_deref_mut().map_or(w.feet, |p| p.npc_drawn_feet(r.actor.0).unwrap_or_else(|| p.standing_drawn_feet(r.actor.0, w.feet)))
+        };
         let step = [feet[0] - r.drawn_feet[0], feet[1] - r.drawn_feet[1]];
         let moving = agent.activity == Activity::Travelling && step[0].hypot(step[1]) > 1e-4;
         if visible && r.spawned && !on && !core.held_now && agent.activity == Activity::Travelling {

@@ -10,6 +10,14 @@
 //! gives a known token its old id back, from whatever address it now comes from (a
 //! Wi-Fi blip, a router that changed the port). Only a deliberate Bye drops a peer at once.
 //!
+//! **The host runs the world.** The host's NPCs are the only ones that think: it sends
+//! each one it draws ([`NpcState`]) [`NPC_HZ`] times a second, and the guests draw
+//! theirs there. A guest's hits on NPCs go to the host ([`Session::send_hit`]), which
+//! applies them in its world; what they do (a fight, a death) comes back in the states.
+//! The NPCs' hits on a guest go the other way ([`Session::send_hit_to`]). The host's
+//! active quest goes to the guests too ([`QuestView`], [`QUEST_EVERY`]), and an unlocked
+//! door or terminal goes to everyone ([`Session::send_unlock`]).
+//!
 //! **Loading screens are not dropouts either.** [`Link`] runs the socket on its own
 //! thread, so heartbeats keep going while the game's frame is stalled loading a cell; the
 //! game only hands it its newest state and takes the events.
@@ -17,6 +25,7 @@
 //! Packets are little-endian: the magic `NVCO`, the protocol version, a kind byte, then
 //! the kind's fields. A packet that does not parse is dropped.
 
+use std::collections::VecDeque;
 use std::hash::{BuildHasher, Hasher};
 use std::io::ErrorKind;
 use std::net::{SocketAddr, UdpSocket};
@@ -26,7 +35,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 pub const MAGIC: [u8; 4] = *b"NVCO";
-pub const VERSION: u8 = 4;
+pub const VERSION: u8 = 6;
 pub const MAX_GUESTS: usize = 3;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -56,6 +65,58 @@ pub const LOOK_EVERY: Duration = Duration::from_secs(2);
 const RESTARTED: u32 = 200;
 pub const MAX_WORN: usize = 10;
 
+/// An NPC of the host's world as the host draws it (module notes).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct NpcState {
+    /// The placed reference: the same in every game, as they run the same load order.
+    pub reference: u32,
+    /// Feet position, game units, Z up.
+    pub feet: [f32; 3],
+    /// Facing, radians (compass: 0 north, π/2 east).
+    pub heading: f32,
+    /// Its aim up or down while it fights, radians.
+    pub pitch: f32,
+    /// [`npc_flag`] bits.
+    pub flags: u8,
+    /// The weapon it aims (WEAP FormID), 0 for none.
+    pub weapon: u32,
+    /// Attacks begun (wrapping), counted as [`PlayerState::attacks`] are.
+    pub attacks: u8,
+}
+
+impl NpcState {
+    pub fn has(&self, f: u8) -> bool {
+        self.flags & f != 0
+    }
+}
+
+/// [`NpcState::flags`] bits.
+pub mod npc_flag {
+    pub const MOVING: u8 = 1;
+    /// The weapon is out.
+    pub const DRAWN: u8 = 2;
+    pub const SNEAKING: u8 = 4;
+    pub const DEAD: u8 = 8;
+    /// Fighting: aiming at someone.
+    pub const AIMING: u8 = 16;
+    pub const SIGHTS: u8 = 32;
+}
+
+/// NPC states in one packet (30 bytes each: under 1210 bytes in all).
+pub const NPCS_PER_PACKET: usize = 40;
+/// How often the host sends its NPCs.
+pub const NPC_HZ: u32 = 10;
+/// The host sends its active quest this often, and at once when it changes.
+pub const QUEST_EVERY: Duration = Duration::from_secs(2);
+/// Objectives a [`QuestView`] carries at most.
+pub const QUEST_OBJECTIVES: usize = 64;
+/// The most a hit takes (the game's own encoding, [`Session::send_hit`]).
+pub const HIT_MAX: usize = 64;
+/// Each hit is sent this many times (the host takes it once, by its id).
+const HIT_COPIES: usize = 3;
+/// Hit ids a host remembers per guest, to take each hit once.
+const HITS_KEPT: usize = 64;
+
 /// [`PlayerState::flags`] bits.
 pub mod flag {
     /// The weapon is out (drawn, not holstered).
@@ -67,6 +128,8 @@ pub mod flag {
     pub const AIR: u8 = 8;
     /// Looking down the sights or a scope.
     pub const SIGHTS: u8 = 16;
+    /// Dead: the world's actors leave this player alone.
+    pub const DOWN: u8 = 32;
 }
 
 /// [`PlayerState::attack_kind`]: what the newest attack was.
@@ -125,7 +188,9 @@ impl PlayerState {
 
 #[derive(Clone, Debug, PartialEq)]
 enum Msg {
-    Hello { token: u64, name: String },
+    /// `lobby` is the code's [`crate::code::Lobby::key`] (0 for a guest that came by
+    /// address): a host answers only its own, as a guest asks its whole network.
+    Hello { token: u64, lobby: u32, name: String },
     Welcome { id: u8 },
     Full,
     /// The host does not know the sender: say Hello again.
@@ -136,6 +201,25 @@ enum Msg {
     Bye { id: u8 },
     /// How player `id` looks (race, face, hair...; the game's own encoding).
     Look { id: u8, look: Vec<u8> },
+    /// Some of the host's NPCs (all of one round share its `seq`).
+    Npcs { seq: u32, npcs: Vec<NpcState> },
+    /// A guest's hit on an NPC, for the host to apply (the game's own encoding).
+    Hit { id: u16, hit: Vec<u8> },
+    /// The host's active quest.
+    Quest(QuestView),
+    /// A door, container or terminal (`terminal`) was unlocked.
+    Unlock { reference: u32, terminal: bool },
+}
+
+/// The quest the host has active, as its quest list shows it: the guests show it in place
+/// of their own. `quest` 0: none.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct QuestView {
+    pub quest: u32,
+    pub completed: bool,
+    pub failed: bool,
+    /// The objectives shown or done, by index, with whether each is done.
+    pub objectives: Vec<(i32, bool)>,
 }
 
 /// What [`Link::events`] reports.
@@ -162,6 +246,15 @@ pub enum Event {
     HostGone,
     /// A peer's look, when first heard or changed.
     Look { id: u8, look: Vec<u8> },
+    /// Some of the host's NPCs, as it draws them (guests only).
+    Npcs(Vec<NpcState>),
+    /// Guest `id` hit an NPC (host only; each hit once).
+    Hit { id: u8, hit: Vec<u8> },
+    /// The host's active quest, when first heard or changed (guests only).
+    Quest(QuestView),
+    /// Player `id` unlocked a door, container or terminal (`terminal`). It may come more
+    /// than once.
+    Unlocked { id: u8, reference: u32, terminal: bool },
 }
 
 /// A peer as one side sees it.
@@ -174,11 +267,13 @@ struct Peer {
     last_seq: Option<u32>,
     lost: bool,
     look: Option<Vec<u8>>,
+    /// The ids of a guest's newest hits (host only).
+    hits: VecDeque<u16>,
 }
 
 impl Peer {
     fn new(id: u8, now: Instant) -> Self {
-        Self { id, addr: None, token: 0, last_heard: now, last_seq: None, lost: false, look: None }
+        Self { id, addr: None, token: 0, last_heard: now, last_seq: None, lost: false, look: None, hits: VecDeque::new() }
     }
 
     /// Keep `look`; whether it is new.
@@ -194,11 +289,13 @@ impl Peer {
 enum Role {
     Host,
     Guest {
-        /// Where the host may be (its lobby code's addresses: the local network's, then
-        /// the internet's); Hello goes to each until one answers, and that one is `host`.
+        /// Where the host may be (its lobby code's address, this PC, the network's
+        /// broadcast addresses); Hello goes to each until the host answers, from whatever
+        /// address it has, and that one is `host`.
         candidates: Vec<SocketAddr>,
         host: Option<SocketAddr>,
         token: u64,
+        lobby: u32,
         name: String,
         id: Option<u8>,
         last_heard: Instant,
@@ -222,6 +319,21 @@ pub struct Session {
     last_send: Option<Instant>,
     look: Option<Vec<u8>>,
     last_look: Option<Instant>,
+    /// A host's lobby key, once it has a code: Hellos for another lobby are not answered.
+    lobby: Option<u32>,
+    /// A host's NPCs to send, the last time they went and the round's number.
+    npcs: Vec<NpcState>,
+    last_npcs: Option<Instant>,
+    npc_seq: u32,
+    /// A guest's newest round of NPCs heard, and its next hit's id.
+    heard_npcs: Option<u32>,
+    hit_seq: u16,
+    /// The ids of the host's newest hits on this guest (guest only).
+    heard_hits: VecDeque<u16>,
+    /// The host's active quest, and when it was last sent; a guest's last heard.
+    quest: Option<QuestView>,
+    last_quest: Option<(Instant, QuestView)>,
+    heard_quest: Option<QuestView>,
     events: Vec<Event>,
 }
 
@@ -231,15 +343,16 @@ impl Session {
         Self::with(UdpSocket::bind(("0.0.0.0", port))?, Role::Host)
     }
 
-    /// Join the host at the first of `candidates` that answers; `name` is shown to the
-    /// others. `token` names this guest to the host across dropouts and restarts
-    /// ([`new_token`] for a new one).
-    pub fn join(candidates: &[SocketAddr], name: &str, token: u64) -> std::io::Result<Self> {
+    /// Join the host at the first of `candidates` that answers; `lobby` is the code's key
+    /// (0 for none), `name` is shown to the others. `token` names this guest to the host
+    /// across dropouts and restarts ([`new_token`] for a new one).
+    pub fn join(candidates: &[SocketAddr], lobby: u32, name: &str, token: u64) -> std::io::Result<Self> {
         let any = if candidates.iter().all(|c| c.is_ipv6()) && !candidates.is_empty() { "[::]:0" } else { "0.0.0.0:0" };
         let role = Role::Guest {
             candidates: candidates.to_vec(),
             host: None,
             token,
+            lobby,
             name: truncate(name),
             id: None,
             last_heard: Instant::now(),
@@ -248,12 +361,75 @@ impl Session {
             asked: false,
             gone: false,
         };
-        Self::with(UdpSocket::bind(any)?, role)
+        let sock = UdpSocket::bind(any)?;
+        // A host on the guest's own network is asked by broadcast.
+        let _ = sock.set_broadcast(true);
+        Self::with(sock, role)
     }
 
     fn with(sock: UdpSocket, role: Role) -> std::io::Result<Self> {
         sock.set_nonblocking(true)?;
-        Ok(Self { sock, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, events: Vec::new() })
+        Ok(Self { sock, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, events: Vec::new() })
+    }
+
+    /// The host's NPCs as it draws them now; [`Session::tick`] sends them at [`NPC_HZ`].
+    pub fn set_npcs(&mut self, npcs: Vec<NpcState>) {
+        self.npcs = npcs;
+    }
+
+    /// A guest's hit on an NPC, for the host to apply (at once, [`HIT_COPIES`] times; one
+    /// longer than [`HIT_MAX`], or before the host answered, is not sent).
+    pub fn send_hit(&mut self, hit: Vec<u8>) {
+        let Role::Guest { host: Some(host), .. } = self.role else { return };
+        if hit.len() > HIT_MAX {
+            return;
+        }
+        self.hit_seq = self.hit_seq.wrapping_add(1);
+        let msg = Msg::Hit { id: self.hit_seq, hit };
+        for _ in 0..HIT_COPIES {
+            self.sock_send(&msg, host);
+        }
+    }
+
+    /// The host's active quest now; [`Session::tick`] sends it.
+    pub fn set_quest(&mut self, quest: QuestView) {
+        self.quest = Some(quest);
+    }
+
+    /// This player unlocked `reference` (a terminal: hacked): to the host, or from the host
+    /// to every guest ([`HIT_COPIES`] times).
+    pub fn send_unlock(&mut self, reference: u32, terminal: bool) {
+        let msg = Msg::Unlock { reference, terminal };
+        let to: Vec<SocketAddr> = match &self.role {
+            Role::Host => self.peers.iter().filter_map(|p| p.addr).collect(),
+            Role::Guest { host: Some(host), .. } => vec![*host],
+            Role::Guest { .. } => Vec::new(),
+        };
+        for addr in to {
+            for _ in 0..HIT_COPIES {
+                self.sock_send(&msg, addr);
+            }
+        }
+    }
+
+    /// An NPC's hit on guest `id`, for that guest to take (as [`Session::send_hit`]; host
+    /// only).
+    pub fn send_hit_to(&mut self, id: u8, hit: Vec<u8>) {
+        if !self.is_host() || hit.len() > HIT_MAX {
+            return;
+        }
+        let Some(addr) = self.peers.iter().find(|p| p.id == id).and_then(|p| p.addr) else { return };
+        self.hit_seq = self.hit_seq.wrapping_add(1);
+        let msg = Msg::Hit { id: self.hit_seq, hit };
+        for _ in 0..HIT_COPIES {
+            self.sock_send(&msg, addr);
+        }
+    }
+
+    /// A host's lobby key ([`crate::code::Lobby::key`]): from now on only Hellos with it
+    /// (or with none) are answered.
+    pub fn set_lobby(&mut self, key: u32) {
+        self.lobby = Some(key);
     }
 
     pub fn is_host(&self) -> bool {
@@ -298,7 +474,7 @@ impl Session {
     pub fn tick(&mut self, now: Instant) {
         self.receive(now);
         self.check_peers(now);
-        if let Role::Guest { candidates, host, token, name, id, last_heard, last_hello, host_lost, asked, gone } = &mut self.role {
+        if let Role::Guest { candidates, host, token, lobby, name, id, last_heard, last_hello, host_lost, asked, gone } = &mut self.role {
             if *gone {
                 return;
             }
@@ -316,7 +492,7 @@ impl Session {
             // the host may have dropped this address, or restarted and forgotten everyone.
             if (id.is_none() || *host_lost || *asked) && last_hello.is_none_or(|t| now - t >= HELLO_EVERY) {
                 *asked = false;
-                let hello = encode(&Msg::Hello { token: *token, name: name.clone() });
+                let hello = encode(&Msg::Hello { token: *token, lobby: *lobby, name: name.clone() });
                 // Until one answers, every address the code gave; then that one.
                 for to in host.iter().chain(candidates.iter().filter(|_| host.is_none())) {
                     let _ = self.sock.send_to(&hello, to);
@@ -343,6 +519,26 @@ impl Session {
                 Role::Guest { .. } => {}
             }
             self.last_send = Some(now);
+        }
+        let npcs_due = self.last_npcs.is_none_or(|t| now - t >= Duration::from_secs(1) / NPC_HZ);
+        if npcs_due && self.is_host() && !self.npcs.is_empty() {
+            self.npc_seq = self.npc_seq.wrapping_add(1);
+            for chunk in self.npcs.chunks(NPCS_PER_PACKET) {
+                let msg = Msg::Npcs { seq: self.npc_seq, npcs: chunk.to_vec() };
+                for addr in self.peers.iter().filter_map(|p| p.addr) {
+                    self.sock_send(&msg, addr);
+                }
+            }
+            self.last_npcs = Some(now);
+        }
+        if let (true, Some(q)) = (self.is_host(), self.quest.clone()) {
+            if self.last_quest.as_ref().is_none_or(|(t, sent)| *sent != q || now - *t >= QUEST_EVERY) {
+                let msg = Msg::Quest(q.clone());
+                for addr in self.peers.iter().filter_map(|p| p.addr) {
+                    self.sock_send(&msg, addr);
+                }
+                self.last_quest = Some((now, q));
+            }
         }
         let look_due = self.last_look.is_none_or(|t| now - t >= LOOK_EVERY);
         if let (true, Some(look), Some(id)) = (look_due, self.look.clone(), self.id()) {
@@ -387,7 +583,11 @@ impl Session {
 
     fn host_handle(&mut self, msg: Msg, from: SocketAddr, now: Instant) {
         match msg {
-            Msg::Hello { token, name } => {
+            Msg::Hello { token, lobby, name } => {
+                // Another lobby's guest asking around its network.
+                if lobby != 0 && self.lobby.is_some_and(|k| k != lobby) {
+                    return;
+                }
                 // A known token is a guest coming back, from wherever it now is.
                 if let Some(p) = self.peers.iter_mut().find(|p| p.token == token) {
                     p.addr = Some(from);
@@ -460,16 +660,38 @@ impl Session {
                     self.events.push(Event::Left(id));
                 }
             }
-            Msg::Welcome { .. } | Msg::Full | Msg::Who => {}
+            Msg::Hit { id: hit_id, hit } => {
+                let Some(p) = self.peers.iter_mut().find(|p| p.addr == Some(from)) else { return };
+                if p.hits.contains(&hit_id) {
+                    return;
+                }
+                if p.hits.len() == HITS_KEPT {
+                    p.hits.pop_front();
+                }
+                p.hits.push_back(hit_id);
+                self.events.push(Event::Hit { id: p.id, hit });
+            }
+            // Applied here and passed on to the other guests.
+            Msg::Unlock { reference, terminal } => {
+                let Some(id) = self.peers.iter().find(|p| p.addr == Some(from)).map(|p| p.id) else { return };
+                self.events.push(Event::Unlocked { id, reference, terminal });
+                let msg = Msg::Unlock { reference, terminal };
+                for addr in self.peers.iter().filter(|p| p.id != id).filter_map(|p| p.addr) {
+                    self.sock_send(&msg, addr);
+                }
+            }
+            Msg::Welcome { .. } | Msg::Full | Msg::Who | Msg::Npcs { .. } | Msg::Quest(_) => {}
         }
     }
 
     fn guest_handle(&mut self, msg: Msg, from: SocketAddr, now: Instant) {
-        let Role::Guest { candidates, host, id, last_heard, last_hello, host_lost, asked, gone, .. } = &mut self.role else { return };
-        // Before an answer, any of the code's addresses may be the host; then only it.
+        let Role::Guest { host, id, last_heard, last_hello, host_lost, asked, gone, .. } = &mut self.role else { return };
+        // Before an answer, whoever answers the Hello is the host (a broadcast's answer
+        // comes from the host's own address; a host answers only its own lobby's key);
+        // then only it.
         let known = match host {
             Some(h) => *h == from,
-            None => candidates.contains(&from),
+            None => true,
         };
         if !known || *gone {
             return;
@@ -549,6 +771,32 @@ impl Session {
                     self.events.push(Event::Left(peer));
                 }
             }
+            Msg::Npcs { seq, npcs } => {
+                // A round's packets share its number; an older round is dropped.
+                if self.heard_npcs.is_some_and(|l| seq != l && !fresh(seq, l)) {
+                    return;
+                }
+                self.heard_npcs = Some(seq);
+                self.events.push(Event::Npcs(npcs));
+            }
+            // A hit on this guest, from the host (player 0).
+            Msg::Hit { id: hit_id, hit } => {
+                if self.heard_hits.contains(&hit_id) {
+                    return;
+                }
+                if self.heard_hits.len() == HITS_KEPT {
+                    self.heard_hits.pop_front();
+                }
+                self.heard_hits.push_back(hit_id);
+                self.events.push(Event::Hit { id: 0, hit });
+            }
+            Msg::Quest(q) => {
+                if self.heard_quest.as_ref() != Some(&q) {
+                    self.heard_quest = Some(q.clone());
+                    self.events.push(Event::Quest(q));
+                }
+            }
+            Msg::Unlock { reference, terminal } => self.events.push(Event::Unlocked { id: 0, reference, terminal }),
             Msg::Hello { .. } | Msg::Ping => {}
         }
     }
@@ -646,6 +894,30 @@ impl Link {
         self.with(|s| s.set_look(look));
     }
 
+    pub fn set_lobby(&self, key: u32) {
+        self.with(|s| s.set_lobby(key));
+    }
+
+    pub fn set_npcs(&self, npcs: Vec<NpcState>) {
+        self.with(|s| s.set_npcs(npcs));
+    }
+
+    pub fn send_hit(&self, hit: Vec<u8>) {
+        self.with(|s| s.send_hit(hit));
+    }
+
+    pub fn send_hit_to(&self, id: u8, hit: Vec<u8>) {
+        self.with(|s| s.send_hit_to(id, hit));
+    }
+
+    pub fn set_quest(&self, quest: QuestView) {
+        self.with(|s| s.set_quest(quest));
+    }
+
+    pub fn send_unlock(&self, reference: u32, terminal: bool) {
+        self.with(|s| s.send_unlock(reference, terminal));
+    }
+
     pub fn events(&self) -> Vec<Event> {
         self.with(|s| s.take_events())
     }
@@ -710,9 +982,10 @@ fn encode(msg: &Msg) -> Vec<u8> {
     b.extend_from_slice(&MAGIC);
     b.push(VERSION);
     match msg {
-        Msg::Hello { token, name } => {
+        Msg::Hello { token, lobby, name } => {
             b.push(1);
             b.extend_from_slice(&token.to_le_bytes());
+            b.extend_from_slice(&lobby.to_le_bytes());
             b.push(name.len() as u8);
             b.extend_from_slice(name.as_bytes());
         }
@@ -749,6 +1022,42 @@ fn encode(msg: &Msg) -> Vec<u8> {
             }
         }
         Msg::Bye { id } => b.extend_from_slice(&[5, *id]),
+        Msg::Npcs { seq, npcs } => {
+            b.push(9);
+            b.extend_from_slice(&seq.to_le_bytes());
+            b.push(npcs.len() as u8);
+            for n in npcs {
+                b.extend_from_slice(&n.reference.to_le_bytes());
+                for v in n.feet.iter().chain([&n.heading, &n.pitch]) {
+                    b.extend_from_slice(&v.to_le_bytes());
+                }
+                b.push(n.flags);
+                b.extend_from_slice(&n.weapon.to_le_bytes());
+                b.push(n.attacks);
+            }
+        }
+        Msg::Hit { id, hit } => {
+            b.push(10);
+            b.extend_from_slice(&id.to_le_bytes());
+            b.push(hit.len() as u8);
+            b.extend_from_slice(hit);
+        }
+        Msg::Quest(q) => {
+            b.push(11);
+            b.extend_from_slice(&q.quest.to_le_bytes());
+            b.push(u8::from(q.completed) | u8::from(q.failed) << 1);
+            let list = &q.objectives[..q.objectives.len().min(QUEST_OBJECTIVES)];
+            b.push(list.len() as u8);
+            for (i, done) in list {
+                b.extend_from_slice(&i.to_le_bytes());
+                b.push(u8::from(*done));
+            }
+        }
+        Msg::Unlock { reference, terminal } => {
+            b.push(12);
+            b.extend_from_slice(&reference.to_le_bytes());
+            b.push(u8::from(*terminal));
+        }
     }
     b
 }
@@ -764,11 +1073,12 @@ fn decode(b: &[u8]) -> Option<Msg> {
     let msg = match kind {
         1 => {
             let token = r.u64()?;
+            let lobby = r.u32()?;
             let len = r.u8()? as usize;
             if len > NAME_MAX {
                 return None;
             }
-            Msg::Hello { token, name: String::from_utf8_lossy(r.take(len)?).into_owned() }
+            Msg::Hello { token, lobby, name: String::from_utf8_lossy(r.take(len)?).into_owned() }
         }
         2 => Msg::Welcome { id: r.u8()? },
         3 => Msg::Full,
@@ -813,6 +1123,46 @@ fn decode(b: &[u8]) -> Option<Msg> {
             }
             Msg::Look { id, look: r.take(len)?.to_vec() }
         }
+        9 => {
+            let seq = r.u32()?;
+            let n = r.u8()? as usize;
+            if n > NPCS_PER_PACKET {
+                return None;
+            }
+            let mut npcs = Vec::with_capacity(n);
+            for _ in 0..n {
+                let reference = r.u32()?;
+                let feet = [r.f32()?, r.f32()?, r.f32()?];
+                let (heading, pitch) = (r.f32()?, r.f32()?);
+                if !feet.iter().chain([&heading, &pitch]).all(|v| v.is_finite()) {
+                    return None;
+                }
+                npcs.push(NpcState { reference, feet, heading, pitch, flags: r.u8()?, weapon: r.u32()?, attacks: r.u8()? });
+            }
+            Msg::Npcs { seq, npcs }
+        }
+        10 => {
+            let id = r.u16()?;
+            let len = r.u8()? as usize;
+            if len > HIT_MAX {
+                return None;
+            }
+            Msg::Hit { id, hit: r.take(len)?.to_vec() }
+        }
+        11 => {
+            let quest = r.u32()?;
+            let flags = r.u8()?;
+            let n = r.u8()? as usize;
+            if n > QUEST_OBJECTIVES {
+                return None;
+            }
+            let mut objectives = Vec::with_capacity(n);
+            for _ in 0..n {
+                objectives.push((r.u32()? as i32, r.u8()? != 0));
+            }
+            Msg::Quest(QuestView { quest, completed: flags & 1 != 0, failed: flags & 2 != 0, objectives })
+        }
+        12 => Msg::Unlock { reference: r.u32()?, terminal: r.u8()? != 0 },
         _ => return None,
     };
     r.0.is_empty().then_some(msg)
@@ -857,12 +1207,23 @@ mod tests {
     #[test]
     fn messages_round_trip() {
         for msg in [
-            Msg::Hello { token: 0xDEAD_BEEF_0123, name: "Courier".into() },
+            Msg::Hello { token: 0xDEAD_BEEF_0123, lobby: 0x1234_5678, name: "Courier".into() },
             Msg::Welcome { id: 2 },
             Msg::Full,
             Msg::Who,
             Msg::Ping,
             Msg::Look { id: 2, look: vec![1, 2, 3, 250] },
+            Msg::Hit { id: 65_000, hit: vec![9, 8, 7] },
+            Msg::Quest(QuestView { quest: 0x0010_4C1D, completed: false, failed: true, objectives: vec![(10, true), (-1, false), (200, false)] }),
+            Msg::Quest(QuestView::default()),
+            Msg::Unlock { reference: 0x0001_2345, terminal: true },
+            Msg::Npcs {
+                seq: 12,
+                npcs: vec![
+                    NpcState { reference: 0x0010_4C3A, feet: [1.0, -2.5, 300.0], heading: 1.5, pitch: -0.2, flags: npc_flag::DRAWN | npc_flag::AIMING, weapon: 0x0E3778, attacks: 255 },
+                    NpcState { reference: 7, feet: [0.0; 3], heading: 0.0, pitch: 0.0, flags: npc_flag::DEAD, weapon: 0, attacks: 0 },
+                ],
+            },
             Msg::State { id: 1, seq: 7, state: state(-12.5) },
             Msg::State { id: 0, seq: u32::MAX, state: PlayerState { place: Place::Interior(0x104C1C), ..state(0.0) } },
             Msg::State {
@@ -929,7 +1290,7 @@ mod tests {
     fn host_and(n: usize) -> (Session, Vec<Session>, SocketAddr) {
         let host = Session::host(0).unwrap();
         let addr: SocketAddr = format!("127.0.0.1:{}", host.local_addr().unwrap().port()).parse().unwrap();
-        let guests = (0..n).map(|i| Session::join(&[addr], &format!("G{i}"), new_token()).unwrap()).collect();
+        let guests = (0..n).map(|i| Session::join(&[addr], 0, &format!("G{i}"), new_token()).unwrap()).collect();
         (host, guests, addr)
     }
 
@@ -962,6 +1323,22 @@ mod tests {
         run(&mut [&mut host, &mut b], &mut clock, step, |seen| seen[0].contains(&Event::Left(ida)) && seen[1].contains(&Event::Left(ida)));
     }
 
+    /// A guest asking its network by broadcast is answered only by its own lobby's host.
+    #[test]
+    fn a_host_answers_only_its_own_lobby() {
+        let mut other = Session::host(0).unwrap();
+        other.set_lobby(7);
+        let mut mine = Session::host(0).unwrap();
+        mine.set_lobby(9);
+        let at = |s: &Session| -> SocketAddr { format!("127.0.0.1:{}", s.local_addr().unwrap().port()).parse().unwrap() };
+        let mut a = Session::join(&[at(&other), at(&mine)], 9, "A", new_token()).unwrap();
+        let mut clock = Instant::now();
+        run(&mut [&mut other, &mut mine, &mut a], &mut clock, Duration::from_millis(10), |seen| seen[2].iter().any(|e| matches!(e, Event::Welcomed(_))));
+        let Role::Guest { host: chosen, .. } = &a.role else { unreachable!() };
+        assert_eq!(*chosen, Some(at(&mine)));
+        assert!(other.peers.is_empty());
+    }
+
     /// A code's first address may lead nowhere (the host's local address, seen from
     /// outside its network): the guest joins through the one that answers.
     #[test]
@@ -970,7 +1347,7 @@ mod tests {
         let port = host.local_addr().unwrap().port();
         let dead: SocketAddr = "127.0.0.1:9".parse().unwrap();
         let live: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-        let mut a = Session::join(&[dead, live], "A", new_token()).unwrap();
+        let mut a = Session::join(&[dead, live], 0, "A", new_token()).unwrap();
         let mut clock = Instant::now();
         run(&mut [&mut host, &mut a], &mut clock, Duration::from_millis(10), |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))));
         let Role::Guest { host: chosen, .. } = &a.role else { unreachable!() };
@@ -986,7 +1363,7 @@ mod tests {
         let mut host = Session::host(0).unwrap();
         let port = host.local_addr().unwrap().port();
         let both: [SocketAddr; 2] = [format!("{lan}:{port}").parse().unwrap(), format!("127.0.0.1:{port}").parse().unwrap()];
-        let mut a = Session::join(&both, "A", new_token()).unwrap();
+        let mut a = Session::join(&both, 0, "A", new_token()).unwrap();
         let mut clock = Instant::now();
         let step = Duration::from_millis(50);
         run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))));
@@ -1004,6 +1381,47 @@ mod tests {
     }
 
     /// Each player's look reaches the others, the host's too, once each until it changes.
+    #[test]
+    fn npcs_reach_guests_and_hits_reach_the_host_once() {
+        let (mut host, mut g, _) = host_and(1);
+        let mut a = g.pop().unwrap();
+        let mut clock = Instant::now();
+        let step = Duration::from_millis(10);
+        run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))));
+        // More than one packet's worth.
+        let npcs: Vec<NpcState> = (0..NPCS_PER_PACKET as u32 + 5).map(|i| NpcState { reference: 0x100 + i, feet: [i as f32, 0.0, 0.0], heading: 0.0, pitch: 0.0, flags: 0, weapon: 0, attacks: 0 }).collect();
+        host.set_npcs(npcs.clone());
+        let seen = run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].iter().filter(|e| matches!(e, Event::Npcs(_))).count() >= 2);
+        let mut heard: Vec<NpcState> = Vec::new();
+        for e in &seen[1] {
+            if let Event::Npcs(n) = e {
+                heard.extend(n);
+            }
+        }
+        for n in &npcs {
+            assert!(heard.contains(n), "{n:?} not heard");
+        }
+        a.send_hit(vec![1, 2, 3]);
+        a.send_hit(vec![4]);
+        let id = a.id().unwrap();
+        let seen = run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[0].iter().filter(|e| matches!(e, Event::Hit { .. })).count() >= 2);
+        let hits: Vec<&Event> = seen[0].iter().filter(|e| matches!(e, Event::Hit { .. })).collect();
+        assert_eq!(hits, [&Event::Hit { id, hit: vec![1, 2, 3] }, &Event::Hit { id, hit: vec![4] }]);
+        // And the NPCs' hits on the guest, the other way.
+        host.send_hit_to(id, vec![5, 6]);
+        let seen = run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Hit { .. })));
+        let hits: Vec<&Event> = seen[1].iter().filter(|e| matches!(e, Event::Hit { .. })).collect();
+        assert_eq!(hits, [&Event::Hit { id: 0, hit: vec![5, 6] }]);
+        // The host's quest, once until it changes; an unlock, to the host.
+        let q = QuestView { quest: 0x0010_4C1D, completed: false, failed: false, objectives: vec![(10, false)] };
+        host.set_quest(q.clone());
+        let seen = run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Quest(_))));
+        assert_eq!(seen[1].iter().filter(|e| matches!(e, Event::Quest(_))).collect::<Vec<_>>(), [&Event::Quest(q)]);
+        a.send_unlock(0x0001_2345, false);
+        let seen = run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[0].iter().any(|e| matches!(e, Event::Unlocked { .. })));
+        assert!(seen[0].contains(&Event::Unlocked { id, reference: 0x0001_2345, terminal: false }));
+    }
+
     #[test]
     fn looks_reach_everyone_once() {
         let (mut host, mut g, _) = host_and(2);
@@ -1067,7 +1485,7 @@ mod tests {
 
         // It comes back on a fresh socket with the same token.
         let Role::Guest { token, .. } = a.role else { unreachable!() };
-        let mut back = Session::join(&[addr], "G0", token).unwrap();
+        let mut back = Session::join(&[addr], 0, "G0", token).unwrap();
         drop(a);
         back.set_state(state(2.0));
         let seen = run(&mut [&mut host, &mut back], &mut clock, step, |seen| {

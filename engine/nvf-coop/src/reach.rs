@@ -20,7 +20,10 @@ const SEARCH: Duration = Duration::from_secs(4);
 /// How the lobby can be reached.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reach {
+    /// The code's address: the internet one when it is known, else this network's.
     pub lobby: Lobby,
+    /// This PC's address on its network (friends there find the host by broadcast).
+    pub local: Ipv4Addr,
     /// The router opened the port; friends outside the host's network can come in.
     pub opened: bool,
     /// What the host should know (why friends outside may not get in), if anything.
@@ -30,20 +33,20 @@ pub struct Reach {
 /// Find the host's addresses and open `port` on its router.
 pub fn open(port: u16) -> Reach {
     let local = local_ip().unwrap_or(Ipv4Addr::LOCALHOST);
+    let reach = |addr: Ipv4Addr, opened, note| Reach { lobby: Lobby { addr, port }, local, opened, note };
     if let Some(public) = std::env::var(ADDRESS_ENV).ok().and_then(|a| a.trim().parse::<Ipv4Addr>().ok()) {
-        return Reach { lobby: Lobby { local, public, port }, opened: true, note: None };
+        return reach(public, true, None);
     }
     match open_router(local, port) {
-        Ok(public) if carrier_nat(public) => Reach {
-            lobby: Lobby { local, public: Ipv4Addr::UNSPECIFIED, port },
-            opened: false,
-            note: Some("Your internet provider shares your address (carrier NAT): only friends on your network, or on Tailscale, can join.".into()),
-        },
-        Ok(public) => Reach { lobby: Lobby { local, public, port }, opened: true, note: None },
+        Ok(public) if carrier_nat(public) => reach(
+            local,
+            false,
+            Some("Your internet provider shares your address (carrier NAT): only friends on your network, or on Tailscale, can join.".into()),
+        ),
+        Ok(public) => reach(public, true, None),
         Err(why) => {
-            let public = stun().unwrap_or(Ipv4Addr::UNSPECIFIED);
             let note = format!("Your router did not open the port ({why}): friends outside your network need UDP port {port} forwarded to this PC, or Tailscale.");
-            Reach { lobby: Lobby { local, public, port }, opened: false, note: Some(note) }
+            reach(stun().unwrap_or(local), false, Some(note))
         }
     }
 }
