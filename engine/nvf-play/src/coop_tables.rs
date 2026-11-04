@@ -10,7 +10,9 @@
 //!   (`fnv_game::blackjack::shared`): the first player to sit at a casino's table owns it,
 //!   the others near it who open blackjack at the same casino take a seat at it
 //!   (`crate::blackjack`). A darts board takes a second player instead of the opponent;
-//!   a fillet table is played one at a time, watched by the others.
+//!   a fillet table is played one at a time, watched by the others. A roulette wheel is
+//!   shared the same way: the others bet at the owner's wheel and its spin is theirs
+//!   (`crate::roulette`).
 //! - **The world goes on.** In co-op a table does not hold the world: the clock, the
 //!   residents and the fights go on behind it ([`world_runs`]).
 //!
@@ -422,13 +424,21 @@ impl BlackjackAction {
 }
 
 /// A roulette table: the bets on it (bet point, chips), and the spin.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RouletteView {
     pub bets: Vec<(String, u32)>,
     pub spinning: bool,
-    /// The last pocket the ball came to rest in.
+    /// While spinning, the pocket the ball will stop in; else the last one it came to rest in.
     pub pocket: Option<u8>,
     pub chips: u32,
+    /// The player whose wheel it is (`crate::roulette::CoopSeat`): this one, or the owner
+    /// it bets at.
+    pub owner: u8,
+    /// The owner's spins so far (a new one starts the others' wheels).
+    pub spin: u32,
+    /// The spin's sequence (1–3) and how far in it is, seconds.
+    pub clip: u8,
+    pub elapsed: f32,
 }
 
 impl RouletteView {
@@ -438,6 +448,7 @@ impl RouletteView {
         for (p, n) in self.bets.iter().take(60) {
             w.str(p).u32(*n);
         }
+        w.u8(self.owner).u32(self.spin).u8(self.clip).f32(self.elapsed);
         w.0
     }
 
@@ -451,7 +462,8 @@ impl RouletteView {
         for _ in 0..n {
             bets.push((r.str()?, r.u32()?));
         }
-        r.done().then_some(RouletteView { bets, spinning, pocket, chips })
+        let (owner, spin, clip, elapsed) = (r.u8()?, r.u32()?, r.u8()?, r.f32()?);
+        r.done().then_some(RouletteView { bets, spinning, pocket, chips, owner, spin, clip, elapsed })
     }
 }
 
@@ -838,12 +850,13 @@ fn publish(
     }
     if let Some(s) = rl.as_deref().and_then(|r| r.0.as_ref()) {
         at = Some((game::ROULETTE, s.casino.0));
-        let (spinning, pocket) = match s.phase {
-            crate::roulette::Phase::Betting => (false, s.last),
-            crate::roulette::Phase::Spinning { .. } => (true, s.last),
-            crate::roulette::Phase::Paid { pocket, .. } => (false, Some(pocket)),
+        let (spinning, pocket, clip, elapsed) = match s.phase {
+            crate::roulette::Phase::Betting => (false, s.last, 0, 0.0),
+            crate::roulette::Phase::Spinning { since, clip, pocket } => (true, Some(pocket), clip, now - since),
+            crate::roulette::Phase::Paid { pocket, clip, since, .. } => (false, Some(pocket), clip, now - since),
         };
-        let v = RouletteView { bets: s.table.bets.iter().map(|(spot, n)| (spot.point.clone(), *n)).collect(), spinning, pocket, chips: s.chips };
+        let (owner, spin) = s.coop.as_ref().map_or((me, 0), |c| (c.owner, c.spins));
+        let v = RouletteView { bets: s.table.bets.iter().map(|(spot, n)| (spot.point.clone(), *n)).collect(), spinning, pocket, chips: s.chips, owner, spin, clip, elapsed };
         out = Some((s.casino.0, game::ROULETTE, v.encode()));
     }
     if let Some(s) = sl.as_deref().and_then(|r| r.0.as_ref()) {
@@ -970,7 +983,7 @@ mod tests {
             assert_eq!(DartsAction::decode(&a.encode()), Some(a));
         }
         assert_eq!(DartsAction::decode(&DartsAction::Throw(f32::NAN, 0.0).encode()), None);
-        let r = RouletteView { bets: vec![("A01".into(), 10), ("RED".into(), 25)], spinning: true, pocket: Some(37), chips: 300 };
+        let r = RouletteView { bets: vec![("A01".into(), 10), ("RED".into(), 25)], spinning: true, pocket: Some(37), chips: 300, owner: 1, spin: 4, clip: 2, elapsed: 3.5 };
         assert_eq!(RouletteView::decode(&r.encode()), Some(r));
         let s = SlotsView { bet: 10, line: [2, 2, 6], spinning: false, won: 300, chips: 50 };
         assert_eq!(SlotsView::decode(&s.encode()), Some(s));

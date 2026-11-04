@@ -60,7 +60,8 @@ pub struct RouletteButton(pub RouletteInput);
 
 fn view_key(s: &Session, has_view: bool, view_w: f32) -> String {
     format!(
-        "{}:{}:{}:{}:{}:{:?}:{:?}:{}:{}:{has_view}:{view_w:.0}",
+        "{}:{}:{}:{}:{}:{}:{:?}:{:?}:{}:{}:{has_view}:{view_w:.0}",
+        s.table_line().unwrap_or_default(),
         s.bet,
         s.table.total(),
         s.chips,
@@ -125,6 +126,13 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&Roulet
                 c.text_in(b, FontKind::Menu, l, 0.0, i as f32 * STATUS_STEP, false, bright);
             }
         });
+        // In co-op: whose wheel it is and the others' bets, under the status [design].
+        if let Some(line) = s.table_line() {
+            let node = Node { position_type: PositionType::Absolute, left: u(STATUS.x), top: u(STATUS.y + 2.0 * STATUS_STEP), width: u(1200.0), height: u(STATUS_STEP), ..default() };
+            r.spawn(node).with_children(|b| {
+                c.text_in(b, FontKind::Menu, &line, 0.0, 0.0, false, bright);
+            });
+        }
         let main = Node { position_type: PositionType::Absolute, left: u(EDGE), right: u(EDGE), top: u(EDGE), bottom: u(EDGE), ..default() };
         r.spawn(main).with_children(|m| {
             // The information box.
@@ -151,7 +159,7 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&Roulet
             let buttons = [
                 ("Place Bet", "W)", RouletteInput::Place, betting && s.can_place()),
                 ("Remove Bet", "F)", RouletteInput::Remove, betting && any),
-                ("Finish Bet", "S)", RouletteInput::Spin, betting && any),
+                ("Finish Bet", "S)", RouletteInput::Spin, betting && s.can_spin()),
                 ("Decrease Bet", "Q)", RouletteInput::Decrease, betting && s.bet > s.table.min_bet),
                 ("Increase Bet", "E)", RouletteInput::Increase, betting && s.bet < s.table.max_bet),
                 ("Exit", "R)", RouletteInput::Exit, betting),

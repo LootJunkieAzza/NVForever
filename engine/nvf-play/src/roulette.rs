@@ -30,6 +30,14 @@
 //! `S08` …, roulette.md §3), `place`, `remove`, `pocket:<n>` makes the next spin's pocket
 //! (37 for 00), `spin`, `help` closes the help message, `exit` leaves. At exit, when the
 //! menu was asked for: "roulette summary: …".
+//!
+//! In co-op (`crate::coop_tables`) the wheel is shared [design]: the first player to open
+//! a casino's roulette owns the wheel there; the others near who open roulette at the same
+//! casino bet at it. Each player bets their own chips on the felt, and sees the others'
+//! stacks there in their colours (nvforever `roulette_view.rs`). Only the owner's Finish
+//! Bet spins, for everyone: the others' games follow its spin (the same sequence, pocket
+//! and time, [`CoopSeat`]) and each pays its own bets. A guest whose owner has gone for
+//! [`GONE_SECONDS`] owns its wheel from then on.
 
 pub mod screen;
 
@@ -40,6 +48,7 @@ use crate::sfx::PlaySound;
 use crate::sim::SimState;
 use crate::{PlaySet, PlayState};
 use bevy::prelude::*;
+use crate::coop_tables::{game, RouletteView as TableRoulette, Tables};
 use crate::ui_pointer::{Button, PointerState};
 use fnv_game::casino;
 use fnv_game::roulette::{self as rules, Refusal, Table};
@@ -61,6 +70,34 @@ pub const RESULT_SECONDS: f32 = 3.0;
 pub const REQUEST_WAIT: f32 = 3.0;
 /// The first bet point the marker stands on: 17 [design].
 pub const FIRST_POINT: &str = "D12";
+/// A guest whose wheel's owner is unheard this long owns its wheel from then on [design].
+pub const GONE_SECONDS: f32 = 4.0;
+
+/// In co-op: the wheel this player bets at; its owner spins it for everyone at it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CoopSeat {
+    pub owner: u8,
+    pub me: u8,
+    pub owner_name: String,
+    /// The owner's spins: counted by the owner; at a guest, the last one followed.
+    pub spins: u32,
+    /// When a guest's owner was first missed.
+    pub gone_since: Option<f32>,
+}
+
+impl CoopSeat {
+    pub fn owns(&self) -> bool {
+        self.owner == self.me
+    }
+}
+
+/// Another player's bets at this wheel, as that player's view shows them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OtherBets {
+    pub player: u8,
+    pub name: String,
+    pub bets: Vec<(String, u32)>,
+}
 
 /// The roulette sounds [observed: FalloutNV.esm SOUN `GAMERouletteSpin` 0x001519E2,
 /// `…InvalidBet` 0x001519E3, `…ValidBet` 0x001519E4, `…Win` 0x001519E5, `…DecreaseBet`
@@ -132,12 +169,37 @@ pub struct Session {
     /// The test aid's pocket for the next spin.
     forced: Option<u8>,
     rng: ChaCha8Rng,
+    /// In co-op: the shared wheel.
+    pub coop: Option<CoopSeat>,
+    /// The other players betting at the same wheel.
+    pub others: Vec<OtherBets>,
 }
 
 impl Session {
     /// Whether the current bet can go where the marker is.
     pub fn can_place(&self) -> bool {
         self.phase == Phase::Betting && self.table.can_place(&self.cursor, self.bet, self.chips).is_ok()
+    }
+
+    /// Whether this player spins the wheel (alone, or its co-op owner).
+    pub fn spins_wheel(&self) -> bool {
+        self.coop.as_ref().is_none_or(|c| c.owns())
+    }
+
+    /// Whether Finish Bet can spin now: this player's wheel, and bets on it from anyone.
+    pub fn can_spin(&self) -> bool {
+        self.phase == Phase::Betting && self.spins_wheel() && (!self.table.bets.is_empty() || self.others.iter().any(|o| !o.bets.is_empty()))
+    }
+
+    /// In co-op: whose wheel it is and what the others have on it.
+    pub fn table_line(&self) -> Option<String> {
+        let c = self.coop.as_ref()?;
+        let mut parts = vec![if c.owns() { "Your wheel".to_string() } else { format!("{}'s wheel", c.owner_name) }];
+        for o in &self.others {
+            let total: u32 = o.bets.iter().map(|b| b.1).sum();
+            parts.push(if total > 0 { format!("{} has {total} on the table", o.name) } else { format!("{} has no bets", o.name) });
+        }
+        Some(parts.join(", "))
     }
 
     /// The chips not on the table: while betting the bets are not taken yet; once the
@@ -262,7 +324,7 @@ impl Plugin for RoulettePlugin {
             .add_message::<RouletteInput>()
             .add_systems(
                 Update,
-                (run_aid, open, (keys, buttons, pointer, apply, step).chain().run_if(in_state(PlayState::Menu)), screen::draw)
+                (run_aid, open, (keys, buttons, pointer, apply, follow_wheel, step).chain().run_if(in_state(PlayState::Menu)), screen::draw)
                     .chain()
                     .after(crate::menu::open_menus)
                     .in_set(PlaySet::Ui),
@@ -341,7 +403,7 @@ fn open(
     script: Option<ResMut<ScriptState>>,
     aid: Res<RouletteAid>,
     time: AidTime,
-    (mut stats, mut corner, bindings): (ResMut<RouletteStats>, Option<ResMut<crate::corner_messages::CornerMessages>>, Res<crate::bindings::Bindings>),
+    (mut stats, mut corner, bindings, tables): (ResMut<RouletteStats>, Option<ResMut<crate::corner_messages::CornerMessages>>, Res<crate::bindings::Bindings>, Option<Res<Tables>>),
     mut waiting: Local<Option<(rules::RouletteRequest, f32)>>,
 ) {
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
@@ -394,6 +456,23 @@ fn open(
         if help.is_some() { "; help message shown (first use)" } else { "" }
     );
     let bet = table.clamp_bet(5);
+    // In co-op: bets at a near player's wheel at this casino, else a wheel of our own.
+    let coop = tables.as_deref().filter(|t| t.on).and_then(|t| {
+        let me = t.me?;
+        let theirs = t.near.iter().filter(|p| **p != me).find_map(|p| {
+            t.view(*p).filter(|v| v.0 == asked.casino.0 && v.1 == game::ROULETTE).and_then(|v| TableRoulette::decode(v.2)).filter(|v| v.owner == *p).map(|v| (*p, v.spin))
+        });
+        Some(match theirs {
+            Some((owner, spin)) => {
+                info!("roulette: betting at {}'s wheel (co-op)", t.name(owner));
+                CoopSeat { owner, me, owner_name: t.name(owner), spins: spin, gone_since: None }
+            }
+            None => {
+                info!("roulette: a shared wheel at {} (co-op): the others can bet at it", def.name);
+                CoopSeat { owner: me, me, owner_name: t.name(me), spins: 0, gone_since: None }
+            }
+        })
+    });
     screen.0 = Some(Session {
         casino: asked.casino,
         casino_name: def.name.clone(),
@@ -412,6 +491,8 @@ fn open(
         banned: false,
         forced: None,
         rng: ChaCha8Rng::seed_from_u64(seed(&aid, asked.casino, now)),
+        coop,
+        others: Vec::new(),
     });
     next.set(PlayState::Menu);
 }
@@ -560,27 +641,96 @@ fn apply(mut input: MessageReader<RouletteInput>, mut screen: ResMut<RouletteScr
                 Err(_) => play(sounds::INVALID),
             },
             RouletteInput::Spin => {
-                if s.table.bets.is_empty() {
+                if !s.spins_wheel() {
+                    let owner = s.coop.as_ref().map(|c| c.owner_name.clone()).unwrap_or_default();
+                    s.status = Some([format!("{owner} spins the wheel."), String::new()]);
+                    play(sounds::INVALID);
+                    continue;
+                }
+                if !s.can_spin() {
                     s.status = Some([refusal_line(Refusal::NoBets).into(), String::new()]);
                     play(sounds::INVALID);
                     continue;
                 }
-                // The chips staked leave the inventory as the wheel turns.
-                let staked = s.table.total();
-                if let Err(e) = sim.world.remove_item(FormId::PLAYER_REF, s.chip, staked as i32) {
-                    warn!("roulette: the stake of {staked} chips not taken: {e:?}");
-                    continue;
-                }
                 let pocket = s.forced.take().unwrap_or_else(|| rules::spin(&mut s.rng));
                 let clip = (rand_core::RngCore::next_u32(&mut s.rng) % 3 + 1) as u8;
-                s.chips = s.chips.saturating_sub(staked);
-                s.status = None;
-                s.phase = Phase::Spinning { since: now, clip, pocket };
+                if !start_spin(s, &mut sim, now, clip, pocket) {
+                    continue;
+                }
+                if let Some(c) = s.coop.as_mut() {
+                    c.spins += 1;
+                }
                 stats.spins += 1;
-                info!("roulette: spin (Spin_{clip}): {staked} chips on {} bets; the ball will stop in {}", s.table.bets.len(), rules::pocket_name(pocket));
                 play(sounds::SPIN);
             }
         }
+    }
+}
+
+/// The wheel starts turning (`since`, aid seconds): the chips staked leave the inventory.
+fn start_spin(s: &mut Session, sim: &mut SimState, since: f32, clip: u8, pocket: u8) -> bool {
+    let staked = s.table.total();
+    if staked > 0 {
+        if let Err(e) = sim.world.remove_item(FormId::PLAYER_REF, s.chip, staked as i32) {
+            warn!("roulette: the stake of {staked} chips not taken: {e:?}");
+            return false;
+        }
+    }
+    s.chips = s.chips.saturating_sub(staked);
+    s.status = None;
+    s.phase = Phase::Spinning { since, clip, pocket };
+    info!("roulette: spin (Spin_{clip}): {staked} chips on {} bets; the ball will stop in {}", s.table.bets.len(), rules::pocket_name(pocket));
+    true
+}
+
+/// In co-op: the others at this wheel (their bets, for the felt), and at a guest the
+/// owner's spin followed: the same sequence, pocket and start.
+#[allow(clippy::too_many_arguments)]
+fn follow_wheel(time: AidTime, tables: Option<Res<Tables>>, mut screen: ResMut<RouletteScreen>, mut sim: ResMut<SimState>, mut stats: ResMut<RouletteStats>, mut sounds: MessageWriter<PlaySound>) {
+    let Some(s) = screen.0.as_mut() else { return };
+    let Some(c) = s.coop.clone() else { return };
+    let Some(t) = tables.as_deref().filter(|t| t.on) else { return };
+    let now = time.elapsed_secs();
+    let casino = s.casino.0;
+    let views: Vec<(u8, TableRoulette)> = t
+        .near
+        .iter()
+        .filter(|p| **p != c.me)
+        .filter_map(|p| t.view(*p).filter(|v| v.0 == casino && v.1 == game::ROULETTE).and_then(|v| TableRoulette::decode(v.2)).map(|v| (*p, v)))
+        .collect();
+    let others: Vec<OtherBets> = views.iter().filter(|(p, v)| *p == c.owner || v.owner == c.owner).map(|(p, v)| OtherBets { player: *p, name: t.name(*p), bets: v.bets.clone() }).collect();
+    if s.others != others {
+        if s.others.iter().map(|o| o.player).ne(others.iter().map(|o| o.player)) {
+            info!("roulette: at the wheel with {}", others.iter().map(|o| o.name.as_str()).collect::<Vec<_>>().join(", "));
+        }
+        s.others = others;
+    }
+    if c.owns() {
+        return;
+    }
+    let owner = views.iter().find(|(p, v)| *p == c.owner && v.owner == c.owner).map(|(_, v)| v.clone());
+    let Some(v) = owner else {
+        let seat = s.coop.as_mut().expect("checked above");
+        let since = *seat.gone_since.get_or_insert(now);
+        if now - since > GONE_SECONDS && s.phase == Phase::Betting {
+            info!("roulette: {}'s wheel is gone; the wheel is this player's now", seat.owner_name);
+            seat.owner = seat.me;
+            seat.owner_name = t.name(seat.me);
+            seat.spins = 0;
+            seat.gone_since = None;
+        }
+        return;
+    };
+    s.coop.as_mut().expect("checked above").gone_since = None;
+    if !(v.spinning && v.spin != c.spins && s.phase == Phase::Betting) {
+        return;
+    }
+    let Some(pocket) = v.pocket else { return };
+    s.coop.as_mut().expect("checked above").spins = v.spin;
+    if start_spin(s, &mut sim, now - v.elapsed.max(0.0), v.clip.clamp(1, 3), pocket) {
+        info!("roulette: following {}'s spin {} ({:.1} s in)", c.owner_name, v.spin, v.elapsed);
+        stats.spins += 1;
+        sounds.write(PlaySound { sound: sounds::SPIN, at: None });
     }
 }
 
@@ -607,7 +757,9 @@ fn step(time: AidTime, mut screen: ResMut<RouletteScreen>, mut next: ResMut<Next
             } else {
                 stats.lost += (-net) as u64;
             }
-            if let Some(rt) = script.and_then(|x| x.into_inner().rt.as_mut()) {
+            // At a shared wheel a spin can come with no bets of this player's.
+            let played = !paid.is_empty();
+            if let Some(rt) = script.and_then(|x| x.into_inner().rt.as_mut()).filter(|_| played) {
                 s.earnings = casino::add_earnings(&mut rt.game, s.casino, net, s.max_winnings);
                 rt.game.count_stat(fnv_game::misc_stats::ROULETTE_GAMES_PLAYED, 1.0);
                 if casino::winnings_level(s.earnings, s.max_winnings) >= 4 {
@@ -617,6 +769,7 @@ fn step(time: AidTime, mut screen: ResMut<RouletteScreen>, mut next: ResMut<Next
             }
             let name = format!("{} {}", rules::pocket_name(pocket), rules::colour(pocket).name());
             let result = match net {
+                _ if !played => "You had no bets on this spin.".to_string(),
                 n if n > 0 => format!("You win {n} chips."),
                 0 if back > 0 => "You break even.".to_string(),
                 n => format!("You lose {} chips.", -n),

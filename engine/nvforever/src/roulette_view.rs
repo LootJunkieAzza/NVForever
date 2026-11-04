@@ -24,7 +24,9 @@
 //!   `nv_roulette-bet.nif` at the point under it (`Bet_Selector`, or `Bet_Invalid` where the
 //!   current bet cannot go [hypothesis: by the names]); each bet a stack of
 //!   `nv_roulette-chip.nif`, as tall as the chips it takes in 100s, 25s, 10s, 5s and 1s, a
-//!   tenth of the model's height a chip, at most the whole model [design].
+//!   tenth of the model's height a chip, at most the whole model [design]. In co-op the
+//!   others' bets at the same wheel (`nvf_play::roulette::OtherBets`) stand beside this
+//!   player's at their points, tinted one colour a player [design].
 //! - Lights: a key light from above the player's side and ambient light, on the render
 //!   layer of its own [design: the file's three point lights (`Omni01`–`03`, riding with
 //!   the camera) are not read].
@@ -68,6 +70,15 @@ const REACH_GRID: f32 = 1.3;
 const REACH_OUTSIDE: f32 = 4.5;
 /// The chip model's height in chips [design].
 const CHIPS_PER_MODEL: f32 = 10.0;
+/// In co-op, the other players' chips at the same wheel: tinted (multiplying the chip's
+/// picture) one colour a player, so each player's stacks can be told apart [design].
+const OTHER_TINTS: [[f32; 3]; 3] = [[0.45, 0.75, 1.0], [1.0, 0.6, 0.35], [0.75, 1.0, 0.5]];
+
+/// Where another player's stack stands from the bet point, game units: beside this
+/// player's, towards the wheel, each a little further [design].
+fn other_offset(i: usize) -> Vec3 {
+    Vec3::new(0.55, 0.55, 0.0) * (i as f32 + 1.0)
+}
 
 pub struct RouletteViewPlugin;
 
@@ -168,6 +179,8 @@ struct Drawn {
     chips: Vec<Entity>,
     chips_key: String,
     chip_model: Option<Arc<PreparedModel>>,
+    /// The chip model's materials tinted for the other players (shape, tint).
+    tinted: HashMap<(usize, usize), Handle<nvf_assets::nif_material::NifMaterial>>,
     camera: Option<Entity>,
     /// The camera in game space: eye and target, for the pointer's ray.
     eye: (Vec3, Vec3),
@@ -330,21 +343,49 @@ fn show(
         *tr = Transform::from_translation(to(eye)).looking_at(to(aim), Vec3::Y);
     }
     drawn.eye = (eye, aim);
-    // The chips.
-    let key: String = s.table.bets.iter().map(|(b, a)| format!("{}={a};", b.point)).collect();
+    // The chips: this player's at the bet points, the others' at the same wheel beside them.
+    let mut key: String = s.table.bets.iter().map(|(b, a)| format!("{}={a};", b.point)).collect();
+    for o in &s.others {
+        key.push_str(&format!("|{}:", o.player));
+        for (p, a) in &o.bets {
+            key.push_str(&format!("{p}={a};"));
+        }
+    }
     if key != drawn.chips_key {
         for e in drawn.chips.drain(..) {
             commands.entity(e).despawn();
         }
         if let (Some(space), Some(m)) = (drawn.space, drawn.chip_model.clone()) {
-            for (b, amount) in &s.table.bets {
-                let Some(&p) = drawn.points.get(&b.point) else { continue };
-                let height = (stack_chips(*amount) as f32 / CHIPS_PER_MODEL).clamp(1.0 / CHIPS_PER_MODEL, 1.0);
+            let mut stacks: Vec<(Vec3, u32, Option<usize>)> = s.table.bets.iter().filter_map(|(b, a)| drawn.points.get(&b.point).map(|p| (*p, *a, None))).collect();
+            for (i, o) in s.others.iter().enumerate() {
+                for (point, a) in &o.bets {
+                    let Some(&p) = drawn.points.get(point) else { continue };
+                    stacks.push((p + other_offset(i), *a, Some(i)));
+                }
+            }
+            for (p, amount, other) in stacks {
+                let height = (stack_chips(amount) as f32 / CHIPS_PER_MODEL).clamp(1.0 / CHIPS_PER_MODEL, 1.0);
                 // The model hangs under its origin [observed: its bounds, z −2.04 to 0]: the
                 // stack is lifted so its foot stands on the felt.
                 let lift = chip_depth(&m) * height;
                 let stack = commands.spawn((Transform::from_translation(p + Vec3::Z * lift).with_scale(Vec3::new(1.0, 1.0, height)), Visibility::Inherited, ChildOf(space))).id();
-                spawn_shapes(&mut commands, &m, stack, &layer);
+                let shapes = spawn_shapes(&mut commands, &m, stack, &layer);
+                if let Some(i) = other {
+                    let tint = OTHER_TINTS[i % OTHER_TINTS.len()];
+                    for (k, ((e, _), shape)) in shapes.iter().zip(&m.shapes).enumerate() {
+                        let handle = match drawn.tinted.get(&(k, i % OTHER_TINTS.len())) {
+                            Some(h) => h.clone(),
+                            None => {
+                                let Some(mut mat) = models.materials.get(&shape.material).cloned() else { continue };
+                                mat.base.base_color = Color::srgb(tint[0], tint[1], tint[2]);
+                                let h = models.materials.add(mat);
+                                drawn.tinted.insert((k, i % OTHER_TINTS.len()), h.clone());
+                                h
+                            }
+                        };
+                        commands.entity(*e).insert(MeshMaterial3d(handle));
+                    }
+                }
                 drawn.chips.push(stack);
             }
         }
