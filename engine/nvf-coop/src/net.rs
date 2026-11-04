@@ -22,6 +22,13 @@
 //! door or terminal goes to everyone ([`Session::send_unlock`]). A player another revives
 //! is told so through the host ([`Session::send_revive`]).
 //!
+//! **Minigame tables.** A player at a table (blackjack, roulette, slots, darts, five
+//! finger fillet) sends what it shows ([`Session::set_table`], a view: the newest wins,
+//! again every [`TABLE_EVERY`]) so the others can watch, and a table another player owns
+//! (a shared blackjack dealer, a darts match) takes actions from the others
+//! ([`Session::send_table_action`]: three copies, each taken once). The host passes both
+//! on. The blobs are the game side's (nvf-play `coop_tables`).
+//!
 //! **Loading screens are not dropouts either.** [`Link`] runs the socket on its own
 //! thread, so heartbeats keep going while the game's frame is stalled loading a cell; the
 //! game only hands it its newest state and takes the events.
@@ -41,7 +48,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 pub const MAGIC: [u8; 4] = *b"NVCO";
-pub const VERSION: u8 = 8;
+pub const VERSION: u8 = 9;
 pub const MAX_GUESTS: usize = 3;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -124,6 +131,19 @@ pub const HIT_MAX: usize = 64;
 const HIT_COPIES: usize = 3;
 /// Hit ids a host remembers per guest, to take each hit once.
 const HITS_KEPT: usize = 64;
+/// The most a table's blob takes ([`Session::set_table`]): one packet, with room to spare.
+pub const TABLE_MAX: usize = 1100;
+/// How often a table view is sent again while it stays the same (a lost one is made up
+/// for by the next; a changed one goes at once).
+pub const TABLE_EVERY: Duration = Duration::from_millis(250);
+/// The `game` bit of a table action ([`Session::send_table_action`]): sent
+/// [`HIT_COPIES`] times, each taken once. Without it the message is a view: the newest
+/// wins.
+pub const TABLE_ACTION: u8 = 0x80;
+/// The `game` of a view that says the player left the table.
+pub const TABLE_LEFT: u8 = 0;
+/// Table actions remembered per player, to take each once.
+const ACTIONS_KEPT: usize = 32;
 
 /// [`PlayerState::flags`] bits.
 pub mod flag {
@@ -223,6 +243,20 @@ enum Msg {
     Clock(ClockView),
     /// Player `by` revived player `target` (who is down).
     Revive { target: u8, by: u8 },
+    /// Player `id` at a minigame table: what it shows (a view, the newest wins) or an
+    /// action for the table's owner (`game` with [`TABLE_ACTION`]). `table` names the
+    /// table (a casino's FormID, a dartboard's reference), `blob` is the game's own
+    /// encoding. The host passes each on to the other guests.
+    Table { id: u8, table: u32, game: u8, seq: u32, blob: Vec<u8> },
+}
+
+/// What a player's table shows now ([`Session::set_table`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TableView {
+    pub table: u32,
+    /// The game (the game side's numbering; never [`TABLE_LEFT`] or with [`TABLE_ACTION`]).
+    pub game: u8,
+    pub blob: Vec<u8>,
 }
 
 /// The host's game clock, as its time globals hold it (GameYear, GameMonth, GameDay,
@@ -284,6 +318,9 @@ pub enum Event {
     Clock(ClockView),
     /// Player `by` revived this player. It may come more than once.
     Revived { by: u8 },
+    /// Player `id` at a table: a view (newest only; `game` [`TABLE_LEFT`]: it left), or
+    /// an action (`game` with [`TABLE_ACTION`], each once).
+    Table { id: u8, table: u32, game: u8, blob: Vec<u8> },
 }
 
 /// A peer as one side sees it.
@@ -368,6 +405,12 @@ pub struct Session {
     /// The host's game clock now, and when it was last sent.
     clock: Option<ClockView>,
     last_clock: Option<Instant>,
+    /// This player's table view, and when it last went.
+    table: Option<TableView>,
+    last_table: Option<Instant>,
+    table_seq: u32,
+    /// Table messages heard, by sender: the newest view's seq and the actions' seqs.
+    table_heard: Vec<(u8, Option<u32>, VecDeque<u32>)>,
     events: Vec<Event>,
 }
 
@@ -403,7 +446,7 @@ impl Session {
 
     fn with(sock: UdpSocket, role: Role) -> std::io::Result<Self> {
         sock.set_nonblocking(true)?;
-        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, events: Vec::new() })
+        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), events: Vec::new() })
     }
 
     /// Also talk over Steam: a host is reached through it by a Steam code, a guest reaches
@@ -456,6 +499,93 @@ impl Session {
                 self.sock_send(&msg, addr);
             }
         }
+    }
+
+    /// What this player's table shows now (`None`: not at one). [`Session::tick`] sends it
+    /// every [`TABLE_EVERY`], and at once when it changes; leaving says so
+    /// ([`TABLE_LEFT`], [`HIT_COPIES`] times). One longer than [`TABLE_MAX`] is not sent.
+    pub fn set_table(&mut self, view: Option<TableView>) {
+        if view.as_ref().is_some_and(|v| v.blob.len() > TABLE_MAX || v.game == TABLE_LEFT || v.game & TABLE_ACTION != 0) {
+            return;
+        }
+        if view == self.table {
+            return;
+        }
+        let Some(view) = view else {
+            if let Some(old) = self.table.take() {
+                for _ in 0..HIT_COPIES {
+                    self.send_table(old.table, TABLE_LEFT, Vec::new());
+                }
+            }
+            return;
+        };
+        self.table = Some(view);
+        self.last_table = None;
+    }
+
+    /// An action for a table's owner (its game's own encoding; `game` without
+    /// [`TABLE_ACTION`]): to everyone through the host, [`HIT_COPIES`] times, taken once.
+    pub fn send_table_action(&mut self, table: u32, game: u8, blob: Vec<u8>) {
+        if blob.len() > TABLE_MAX {
+            return;
+        }
+        let msg = self.table_msg(table, game | TABLE_ACTION, blob);
+        for _ in 0..HIT_COPIES {
+            self.to_all(msg.as_ref());
+        }
+    }
+
+    fn send_table(&mut self, table: u32, game: u8, blob: Vec<u8>) {
+        let msg = self.table_msg(table, game, blob);
+        self.to_all(msg.as_ref());
+    }
+
+    fn table_msg(&mut self, table: u32, game: u8, blob: Vec<u8>) -> Option<Msg> {
+        let id = self.id()?;
+        self.table_seq = self.table_seq.wrapping_add(1);
+        Some(Msg::Table { id, table, game, seq: self.table_seq, blob })
+    }
+
+    /// To every guest (the host), or to the host (a guest).
+    fn to_all(&self, msg: Option<&Msg>) {
+        let Some(msg) = msg else { return };
+        match &self.role {
+            Role::Host => {
+                for addr in self.peers.iter().filter_map(|p| p.addr) {
+                    self.sock_send(msg, addr);
+                }
+            }
+            Role::Guest { host: Some(host), .. } => self.sock_send(msg, *host),
+            Role::Guest { .. } => {}
+        }
+    }
+
+    /// Whether a table message from `id` is new: a view newer than the last, an action
+    /// not yet taken.
+    fn table_fresh(&mut self, id: u8, game: u8, seq: u32) -> bool {
+        let i = match self.table_heard.iter().position(|h| h.0 == id) {
+            Some(i) => i,
+            None => {
+                self.table_heard.push((id, None, VecDeque::new()));
+                self.table_heard.len() - 1
+            }
+        };
+        let h = &mut self.table_heard[i];
+        if game & TABLE_ACTION != 0 {
+            if h.2.contains(&seq) {
+                return false;
+            }
+            if h.2.len() == ACTIONS_KEPT {
+                h.2.pop_front();
+            }
+            h.2.push_back(seq);
+            return true;
+        }
+        if h.1.is_some_and(|l| !fresh(seq, l)) {
+            return false;
+        }
+        h.1 = Some(seq);
+        true
     }
 
     /// This player revives player `target` (down): to the host, which passes it on, or
@@ -609,6 +739,12 @@ impl Session {
                     self.sock_send(&msg, addr);
                 }
                 self.last_clock = Some(now);
+            }
+        }
+        if let Some(v) = self.table.clone() {
+            if self.last_table.is_none_or(|t| now - t >= TABLE_EVERY) && self.id().is_some() {
+                self.send_table(v.table, v.game, v.blob);
+                self.last_table = Some(now);
             }
         }
         let look_due = self.last_look.is_none_or(|t| now - t >= LOOK_EVERY);
@@ -773,6 +909,18 @@ impl Session {
                     self.sock_send(&Msg::Revive { target, by }, addr);
                 }
             }
+            Msg::Table { table, game, seq, blob, .. } => {
+                // The sender is the guest its address belongs to, whatever id it claims.
+                let Some(id) = self.peers.iter().find(|p| p.addr == Some(from)).map(|p| p.id) else { return };
+                if !self.table_fresh(id, game, seq) {
+                    return;
+                }
+                let relay = Msg::Table { id, table, game, seq, blob: blob.clone() };
+                for addr in self.peers.iter().filter(|p| p.id != id).filter_map(|p| p.addr) {
+                    self.sock_send(&relay, addr);
+                }
+                self.events.push(Event::Table { id, table, game, blob });
+            }
             Msg::Welcome { .. } | Msg::Full | Msg::Who | Msg::Npcs { .. } | Msg::Quest(_) | Msg::Clock(_) => {}
         }
     }
@@ -895,6 +1043,12 @@ impl Session {
                 if Some(target) == *id {
                     self.events.push(Event::Revived { by });
                 }
+            }
+            Msg::Table { id: peer, table, game, seq, blob } => {
+                if Some(peer) == *id || !self.table_fresh(peer, game, seq) {
+                    return;
+                }
+                self.events.push(Event::Table { id: peer, table, game, blob });
             }
             Msg::Hello { .. } | Msg::Ping => {}
         }
@@ -1023,6 +1177,14 @@ impl Link {
 
     pub fn send_unlock(&self, reference: u32, terminal: bool) {
         self.with(|s| s.send_unlock(reference, terminal));
+    }
+
+    pub fn set_table(&self, view: Option<TableView>) {
+        self.with(|s| s.set_table(view));
+    }
+
+    pub fn send_table_action(&self, table: u32, game: u8, blob: Vec<u8>) {
+        self.with(|s| s.send_table_action(table, game, blob));
     }
 
     pub fn events(&self) -> Vec<Event> {
@@ -1191,6 +1353,14 @@ fn encode(msg: &Msg) -> Vec<u8> {
             b.push(*target);
             b.push(*by);
         }
+        Msg::Table { id, table, game, seq, blob } => {
+            b.extend_from_slice(&[15, *id]);
+            b.extend_from_slice(&table.to_le_bytes());
+            b.push(*game);
+            b.extend_from_slice(&seq.to_le_bytes());
+            b.extend_from_slice(&(blob.len() as u16).to_le_bytes());
+            b.extend_from_slice(blob);
+        }
     }
     b
 }
@@ -1297,6 +1467,14 @@ fn decode(b: &[u8]) -> Option<Msg> {
         }
         12 => Msg::Unlock { reference: r.u32()?, terminal: r.u8()? != 0 },
         14 => Msg::Revive { target: r.u8()?, by: r.u8()? },
+        15 => {
+            let (id, table, game, seq) = (r.u8()?, r.u32()?, r.u8()?, r.u32()?);
+            let len = r.u16()? as usize;
+            if len > TABLE_MAX {
+                return None;
+            }
+            Msg::Table { id, table, game, seq, blob: r.take(len)?.to_vec() }
+        }
         13 => Msg::Clock(ClockView { year: r.f32()?, month: r.f32()?, day: r.f32()?, hour: r.f32()?, days_passed: r.f32()? }),
         _ => return None,
     };
@@ -1354,6 +1532,9 @@ mod tests {
             Msg::Unlock { reference: 0x0001_2345, terminal: true },
             Msg::Clock(ClockView { year: 2281.0, month: 9.0, day: 19.0, hour: 13.25, days_passed: 6.05 }),
             Msg::Revive { target: 2, by: 0 },
+            Msg::Table { id: 1, table: 0x0010_C1DB, game: 3, seq: 77, blob: vec![1, 2, 3] },
+            Msg::Table { id: 0, table: 7, game: 2 | TABLE_ACTION, seq: u32::MAX, blob: Vec::new() },
+            Msg::Table { id: 3, table: 7, game: 1, seq: 1, blob: vec![0xAB; TABLE_MAX] },
             Msg::Npcs {
                 seq: 12,
                 npcs: vec![
@@ -1480,6 +1661,53 @@ mod tests {
         a.bye();
         drop(a);
         run(&mut [&mut host, &mut b], &mut clock, step, |seen| seen[0].contains(&Event::Left(ida)) && seen[1].contains(&Event::Left(ida)));
+    }
+
+    /// A guest's table view reaches the host and the other guest, again while it stays;
+    /// leaving says so; an action sent three times is taken once everywhere.
+    #[test]
+    fn tables_are_relayed_and_actions_taken_once() {
+        let (mut host, mut g, _) = host_and(2);
+        let mut b = g.pop().unwrap();
+        let mut a = g.pop().unwrap();
+        let mut clock = Instant::now();
+        let step = Duration::from_millis(10);
+        run(&mut [&mut host, &mut a, &mut b], &mut clock, step, |seen| {
+            seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))) && seen[2].iter().any(|e| matches!(e, Event::Welcomed(_)))
+        });
+        let ida = a.id().unwrap();
+        let view = TableView { table: 0x0010_C1DB, game: 1, blob: vec![4, 5, 6] };
+        a.set_table(Some(view.clone()));
+        let shown = Event::Table { id: ida, table: view.table, game: 1, blob: vec![4, 5, 6] };
+        let seen = run(&mut [&mut host, &mut a, &mut b], &mut clock, step, |seen| seen[0].contains(&shown) && seen[2].contains(&shown));
+        assert!(!seen[1].iter().any(|e| matches!(e, Event::Table { .. })), "not back to its sender");
+        // Sent again while it stays: a guest that joins later sees it.
+        let again = run(&mut [&mut host, &mut a, &mut b], &mut clock, step, |seen| seen[2].contains(&shown));
+        assert!(again[2].contains(&shown));
+
+        // The host's action, to every guest, once each.
+        host.send_table_action(view.table, 1, vec![9]);
+        let act = Event::Table { id: 0, table: view.table, game: 1 | TABLE_ACTION, blob: vec![9] };
+        let seen = run(&mut [&mut host, &mut a, &mut b], &mut clock, Duration::from_millis(20), |seen| seen[1].contains(&act) && seen[2].contains(&act));
+        // A few more ticks for the copies to come in.
+        let more = run(&mut [&mut host, &mut a, &mut b], &mut clock, Duration::from_millis(20), |seen| seen[2].iter().filter(|e| **e == shown).count() >= 2);
+        for side in [1, 2] {
+            let n = seen[side].iter().chain(&more[side]).filter(|e| **e == act).count();
+            assert_eq!(n, 1, "taken once by {side}");
+        }
+
+        a.set_table(None);
+        let left = Event::Table { id: ida, table: view.table, game: TABLE_LEFT, blob: Vec::new() };
+        run(&mut [&mut host, &mut a, &mut b], &mut clock, step, |seen| seen[0].contains(&left) && seen[2].contains(&left));
+    }
+
+    #[test]
+    fn a_table_view_too_long_is_not_sent() {
+        let mut host = Session::host(0).unwrap();
+        host.set_table(Some(TableView { table: 1, game: 1, blob: vec![0; TABLE_MAX + 1] }));
+        assert!(host.table.is_none());
+        host.set_table(Some(TableView { table: 1, game: TABLE_LEFT, blob: Vec::new() }));
+        assert!(host.table.is_none(), "left is not a game");
     }
 
     /// A guest asking its network by broadcast is answered only by its own lobby's host.
