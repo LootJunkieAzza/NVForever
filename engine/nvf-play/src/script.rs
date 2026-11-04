@@ -89,6 +89,7 @@ use crate::loading::TravelRequest;
 use crate::{ItemUsed, Location, OpenContainer, PlayData, PlaySet, PlayState, PlayWorld, RefChanged};
 use bevy::prelude::*;
 use fnv_game::game::{event, menus, ActMode};
+use fnv_game::script_runner::Moment;
 use fnv_game::trace::{Event, EventKind};
 use fnv_game::{Game, GameConfig, GameData, InstKey};
 use fnv_script::vm::{ArgValue, Value};
@@ -461,6 +462,18 @@ pub(crate) fn loaded_events(rt: &mut Runtime, sim: &mut SimState, path: &std::pa
         rt.game.dispatch_event("LoadGame", vec![fnv_script::vm::XVal::Str(name)], None);
         rt.game.dispatch_event("PostLoadGame", vec![fnv_script::vm::XVal::Num(1.0)], None);
     });
+}
+
+/// JIP's Script Runner files of a moment (`fnv_game::script_runner`), in the played world;
+/// each file's outcome in the log.
+fn script_runner(rt: &mut Runtime, sim: &mut SimState, m: Moment) {
+    let runs = with_world(rt, sim, |rt| rt.game.run_script_runner(m));
+    for r in runs {
+        match r.result {
+            Ok(()) => info!("script runner: {} ran ({})", r.path, m.name()),
+            Err(e) => warn!("script runner: {} skipped ({}): {e}", r.path, m.name()),
+        }
+    }
 }
 
 /// `[Extenders] CompileSource` of NVForever.ini: which units run from their source text
@@ -1702,12 +1715,19 @@ pub(crate) fn run_scripts(
                 st.loader = None;
                 let mut rt = Runtime::new(data, &mut sim, st.new_game, play.0.packages);
                 rt.start = st.start.clone();
+                let mut restored = false;
                 if let Some(PendingGame(snap, path)) = st.pending_game.take() {
                     match rt.restore_save(&mut sim, *snap) {
                         Ok(changed_refs) => {
                             info!("load: restored {}: {} changed references, {} quests, {} script instances", path.display(), changed_refs.len(), rt.game.quests.len(), rt.game.instances.len());
+                            restored = true;
                             tiles.load(&mut rt.game, &sim.world);
+                            // The Script Runner's files after the save is in place (the
+                            // restore takes the game's state, lambdas included, from the
+                            // save): the game restart's, then the load's after LoadGame.
+                            script_runner(&mut rt, &mut sim, Moment::Restart);
                             loaded_events(&mut rt, &mut sim, &path);
+                            script_runner(&mut rt, &mut sim, Moment::Load);
                             // The frames after a load are the loading screen's for the
                             // scripts, as after travel: their `Begin MenuMode 1007`
                             // blocks run (`game::menus::LOADING`) [hypothesis].
@@ -1722,6 +1742,10 @@ pub(crate) fn run_scripts(
                 }
                 if rt.game.ui_files.is_none() {
                     tiles.load(&mut rt.game, &sim.world);
+                }
+                if !restored {
+                    script_runner(&mut rt, &mut sim, Moment::Restart);
+                    script_runner(&mut rt, &mut sim, Moment::NewGame);
                 }
                 let from_source = data.issues.count("script_compiled_from_source");
                 let failed = data.issues.count("script_source_does_not_compile");
@@ -2257,6 +2281,52 @@ fn write_final(mut exit: MessageReader<AppExit>, mut script: ResMut<ScriptState>
 /// MessageBoxEx box has no form to count from, and until 2026-10-31 counted 0 and closed.
 pub fn asks_nothing(buttons: usize) -> bool {
     buttons <= 1
+}
+
+#[cfg(test)]
+impl ScriptState {
+    /// A runtime over an empty load order, for tests of what works the open menu: nothing
+    /// has run, no menu is open.
+    pub(crate) fn over_no_plugins() -> ScriptState {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas");
+        let lo = fnv_esm::LoadOrder::new(&[]).unwrap();
+        let schema = fnv_esm::Schema::load_dir(root.join("fnv")).unwrap();
+        let functions = root.join("script/functions.json");
+        let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&functions).unwrap()).unwrap();
+        let forms: &'static fnv_sim::FormStore = Box::leak(Box::new(fnv_sim::FormStore::build(&lo, &schema)));
+        let refs: &'static RefTable = Box::leak(Box::new(RefTable::default()));
+        let data: &'static GameData = Box::leak(Box::new(GameData::build(&lo, &schema, FunctionTable::load(&functions).unwrap(), &json, refs)));
+        let game = Game::new(data, World::new(forms, refs, fnv_sim::SimConfig::default()), GameConfig::default());
+        let rt = Runtime {
+            game,
+            player_cell: None,
+            inventory: InvView::default(),
+            created_seen: None,
+            marked: BTreeSet::new(),
+            skip: BTreeSet::new(),
+            closing: None,
+            opening_pending: false,
+            wake_talk: None,
+            start: GameStart::default(),
+            location: None,
+            frozen_frames: 0,
+            triggers: Default::default(),
+            children: HashMap::new(),
+            started: Instant::now(),
+            ticked: false,
+            stats: TickStats::default(),
+            aid: crate::aid::AidStats::default(),
+            activate_again: None,
+            choices_passed: None,
+            activate_pick: None,
+        };
+        ScriptState { loader: None, rt: Some(rt), off: None, trace: None, aids: Vec::new(), aids_started: false, gates: HashMap::new(), auto_close: None, no_messages: false, on_screen: None, walks: Vec::new(), new_game: false, start: GameStart::default(), used: Vec::new(), console: Vec::new(), console_out: Vec::new(), pending_game: None }
+    }
+
+    /// The player answered the open menu: it closes after this frame's scripts.
+    pub(crate) fn answered(&self) -> bool {
+        self.rt.as_ref().is_some_and(|rt| rt.closing.is_some())
+    }
 }
 
 #[cfg(test)]

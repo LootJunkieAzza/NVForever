@@ -755,10 +755,10 @@ impl Ai {
     /// Whether the graph's obstacles were brought in line with this game's world and
     /// nothing that could change either happened since: the world's presence serial
     /// (`fnv_sim::World::presence_serial`: every write of a reference's `enabled` or
-    /// `deleted`, every state made, created or reset, a new world) and the graph's
-    /// obstacle stamp (`fnv_nav::NavGraph::obstacles_stamp`: obstacles learnt again or
-    /// switched) are the ones seen after the last poll. [`Game::present`] reads nothing
-    /// else, so a poll now would find every obstacle as the graph has it.
+    /// `deleted`, every state made unlike its placement, created or reset, a new world)
+    /// and the graph's obstacle stamp (`fnv_nav::NavGraph::obstacles_stamp`: obstacles
+    /// learnt again or switched) are the ones seen after the last poll. [`Game::present`]
+    /// reads nothing else, so a poll now would find every obstacle as the graph has it.
     pub fn obstacles_in_line(&self, game: &Game, nav: &NavGraph) -> bool {
         self.applied_obstacles == Some((game.world.presence_serial(), nav.obstacles_stamp()))
     }
@@ -1283,6 +1283,14 @@ impl Ai {
     /// - within the activate distance it "will engage in conversation with the target (or
     ///   dialogue, if the target is the player)".
     ///
+    /// An actor seated at a wait location that is furniture stays on it: it does not
+    /// go up to the target in any case, and talks from its seat once the target is
+    /// within the activate distance [observed: the owner's frame of Benny in the
+    /// Tops' presidential suite (VTopsBennyPresidentialTalk: wait location the bar
+    /// stool 0x001110C4, no trigger location, so case 3) greeting the player from his
+    /// stool, never getting up; hypothesis: that every seated waiter does so,
+    /// docs/spec-notes/packages.md §3].
+    ///
     /// The wait location's radius is not wandered in; the target is not made to stand
     /// still or to walk to the trigger location ("Do Not Control Target Movement" off).
     fn talk_step(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32) {
@@ -1290,6 +1298,8 @@ impl Ai {
         let (Some(package), Some(Goal::Talk(talk)), Some(phase)) = (a.package, a.goal.clone(), a.talk) else { return };
         let feet = Place { space: a.walker.space, pos: a.walker.feet };
         let travelling = a.activity == Activity::Travelling;
+        // Seated at a wait location that is furniture (`settle`).
+        let seated = a.using.is_some();
         let target = goal::place_of_ref(game, talk.target).filter(|_| game.present(talk.target) && !game.extra.get(&talk.target).is_some_and(|e| e.dead));
         match phase {
             Talking::ToWait | Talking::Done => return,
@@ -1301,8 +1311,9 @@ impl Ai {
                 if game.dialogue.as_ref().is_some_and(|c| c.actor == actor) || greets(game, actor) {
                     // It turns to the one it talks to [documented: unless No
                     // Headtracking, speaker and target are "forced to look at each
-                    // other by the package"; how fast is our choice].
-                    if let (Some(t), false) = (target.filter(|t| t.space == feet.space), talk.no_headtracking) {
+                    // other by the package"; how fast is our choice]. Seated, only its
+                    // head turns (the engine's), as in `update_held`.
+                    if let (Some(t), false, false) = (target.filter(|t| t.space == feet.space), talk.no_headtracking, seated) {
                         self.face(game, actor, t, dt);
                     }
                 } else {
@@ -1332,7 +1343,7 @@ impl Ai {
                 let on_the_spot = talk.trigger != goal::Trigger::None && talk.wait_radius == 0.0;
                 if near && (triggered || on_the_spot) {
                     self.talk_start(game, actor, package, &talk, away);
-                } else if triggered {
+                } else if triggered && !seated {
                     self.approach(game, nav, actor, package, &talk, target, true);
                 }
             }
@@ -1405,6 +1416,15 @@ impl Ai {
         let (Some(package), Some(Goal::Follow(mut f))) = (a.package, a.goal.clone()) else { return };
         let feet = Place { space: a.walker.space, pos: a.walker.feet };
         let travelling = a.activity == Activity::Travelling;
+        // Told to wait (Fallout 3's Wait, `fnv_game::functions::fo3`): it stands where it
+        // is until StopWaiting, then follows again.
+        if game.waits(actor) {
+            if travelling {
+                let a = self.agents.get_mut(&actor).expect("listed");
+                (a.walker.follower, a.activity, a.following) = (None, Activity::There, None);
+            }
+            return;
+        }
         let leader = goal::place_of_ref(game, f.target).filter(|_| game.present(f.target) && !game.extra.get(&f.target).is_some_and(|e| e.dead));
         // In a column: the one ahead is followed instead, nearer than the package says.
         // It runs when the leader is far, so that the line keeps together.
@@ -1824,6 +1844,23 @@ impl Ai {
         false
     }
 
+    /// Combat, a warning or flight takes the sandbox's movement and object intent
+    /// away [design]. The sandbox chooses afresh when its package next runs, without
+    /// losing its schedule or treating the interrupted object as unreachable.
+    pub(crate) fn interrupt_sandbox(&mut self, game: &Game, actor: FormId) {
+        let a = self.agents.get_mut(&actor).expect("listed");
+        if !a.sandbox.as_mut().is_some_and(Sandbox::interrupt) {
+            return;
+        }
+        a.walker.follower = None;
+        a.activity = Activity::There;
+        a.face_to = None;
+        self.set_using(game, actor, None);
+        // A pending choice or a Look-held seat can reserve furniture without using
+        // it. set_using(None) alone does not release those reservations.
+        self.taken.retain(|_, user| *user != actor);
+    }
+
     /// A sandboxing actor whose behaviour is over chooses the next one and sets off.
     pub(crate) fn sandbox_step(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
         let a = self.agents.get_mut(&actor).expect("listed");
@@ -1946,6 +1983,7 @@ impl Ai {
                     let a = self.agents.get_mut(&actor).expect("listed");
                     a.talk = Some(Talking::Waiting);
                     a.activity = Activity::There;
+                    self.settle(game, actor);
                 }
             },
             // `follow_step` sets off after the target when it is away.
@@ -2252,13 +2290,15 @@ impl Ai {
             self.sandbox_begin(game, actor, choice, travelled.max(1.0));
             return;
         }
-        // A Dialogue package: at the wait location the wait begins; at the end of the
-        // way to its target `talk_step` looks at where the target is now.
+        // A Dialogue package: at the wait location the wait begins (on it, when it is
+        // furniture: `settle`); at the end of the way to its target `talk_step` looks at
+        // where the target is now.
         if let Some(phase) = a.talk {
             a.activity = Activity::There;
             if phase == Talking::ToWait {
                 a.talk = Some(Talking::Waiting);
                 self.log(game, actor, AiEvent::Arrived { package, seconds, travelled, patrol_point: None });
+                self.settle(game, actor);
             }
             return;
         }

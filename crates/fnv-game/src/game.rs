@@ -438,6 +438,14 @@ pub struct RefExtra {
     /// reference's (`Game::merchant_container`).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub merchant_container: Option<FormId>,
+    /// Wait: the Follow or Accompany package the actor waits in, standing where it is,
+    /// until StopWaiting (`functions::fo3`; the AI's follow step reads [`Game::waits`]).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub waiting: Option<FormId>,
+    /// MatchFaceGeometry: the morphs of the actor's face towards others', in call order
+    /// (`crate::appearance::FaceMatch`; the engine draws the head with them).
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub face_matches: Vec<crate::appearance::FaceMatch>,
     /// The special idle the actor plays (IsIdlePlaying): told by whoever animates the
     /// actor ([`Game::set_idle_playing`]); not part of the saved state.
     #[serde(skip)]
@@ -525,6 +533,19 @@ pub struct FormChanges {
     /// SetCellImageSpace: cell → the image space it has instead of its XCIM.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub cell_image_spaces: BTreeMap<FormId, FormId>,
+    /// SetFactionReaction: faction → other faction → disposition modifier, in place of
+    /// FACT XNAM's (`functions::fo3`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub faction_modifiers: BTreeMap<FormId, BTreeMap<FormId, i64>>,
+    /// ResetInterior: interior cells reset at their next load (`crate::respawn`).
+    #[serde(skip_serializing_if = "std::collections::BTreeSet::is_empty", default)]
+    pub expired_cells: std::collections::BTreeSet<FormId>,
+    /// RemapWaterType: water type → the one drawn in its place ([`Game::water_type`]).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub water_remaps: BTreeMap<FormId, FormId>,
+    /// TriggerLODApocalypse has run (Megaton's destruction, `functions::fo3`).
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub lod_apocalypse: bool,
 }
 
 /// A magic effect active on an actor (docs/spec-notes/scripts.md §7.6).
@@ -1108,6 +1129,8 @@ pub struct Game<'a> {
     /// (lower case) to them.
     compiled_files: Vec<&'a Compiled>,
     compiled_paths: std::collections::HashMap<String, u32>,
+    /// JIP's Script Runner: its files and their units (`crate::script_runner`).
+    pub(crate) sr: crate::script_runner::SrState<'a>,
     /// A lambda already made, by its unit, its number in the unit and whose variables it
     /// shares ([`LambdaKey`]).
     lambda_ids: std::collections::HashMap<LambdaKey, u32>,
@@ -1175,6 +1198,8 @@ pub struct Game<'a> {
     pub traits: crate::nvse_traits::TraitState,
     /// kNVSE's animation paths and script-played sequences (`crate::nvse_anim`).
     pub anim_paths: crate::nvse_anim::AnimPaths,
+    /// kNVSE's AnimGroupOverride folders (`crate::nvse_anim_folders`).
+    pub anim_folders: crate::nvse_anim_folders::AnimFolders,
     /// kNVSE's animation clock, weights, text keys and blends (`crate::nvse_knvse`).
     pub knvse: crate::nvse_knvse::KnvseState,
     /// JIP PP LN's runtime node lists and ground requests (`crate::nvse_jippp`).
@@ -1602,6 +1627,10 @@ pub struct Game<'a> {
     empty_ref_traced: BTreeSet<(u32, u16)>,
     /// Game time of the next scan for actors whose package choice is due (`crate::ai`).
     pub(crate) package_scan_due: f64,
+    /// Actors choosing their package now (`Game::select_package`): a condition of one
+    /// of their packages that asks for the current package gets the one they had
+    /// rather than starting the choice again (`Game::current_package`). Not saved.
+    pub(crate) choosing_package: Vec<FormId>,
 }
 
 /// A lambda in a save: the unit it is written in (by key), the lambda, the instance whose
@@ -1907,6 +1936,8 @@ pub struct Session {
     pp: crate::nvse_pp::PpSession,
     /// ITR's settings that outlast a load (`crate::nvse_itr1::ItrKept`).
     itr_kept: crate::nvse_itr1::ItrKept,
+    /// The Script Runner files RegisterSRScript added (`crate::script_runner`).
+    sr_registered: Vec<String>,
 }
 
 /// An event handler: the event (lower case), the function or lambda, the filters by
@@ -1995,6 +2026,7 @@ impl<'a> Game<'a> {
             lambdas: Vec::new(),
             compiled_files: Vec::new(),
             compiled_paths: std::collections::HashMap::new(),
+            sr: Default::default(),
             lambda_ids: Default::default(),
             handlers: Vec::new(),
             handler_seq: 0,
@@ -2033,6 +2065,7 @@ impl<'a> Game<'a> {
             mod_files: Default::default(),
             traits: Default::default(),
             anim_paths: Default::default(),
+            anim_folders: Default::default(),
             knvse: Default::default(),
             jippp: Default::default(),
             vheyes: Default::default(),
@@ -2177,6 +2210,7 @@ impl<'a> Game<'a> {
             stop_run: false,
             empty_ref_traced: BTreeSet::new(),
             package_scan_due: 0.0,
+            choosing_package: Vec::new(),
         }
     }
 
@@ -2544,15 +2578,29 @@ impl<'a> Game<'a> {
     /// ([`GameEnv`]). The compiled unit lives as long as the game data (it is leaked:
     /// one per such line, a debugging aid). Returns the compiler's warnings.
     pub fn run_source(&mut self, src: &str, ctx: RunCtx) -> Result<Vec<String>, String> {
+        let (unit, warnings) = self.compile_statements(src, "console", "CONS")?;
+        self.run_statements(unit, ctx);
+        Ok(warnings)
+    }
+
+    /// `src` compiled as a result script (statements without blocks), its unit leaked so it
+    /// lives as long as the game data, named `plugin` with an owner of record type `sig`;
+    /// with the compiler's warnings. The console's lines and the Script Runner's files
+    /// (`crate::script_runner`).
+    pub(crate) fn compile_statements(&mut self, src: &str, plugin: &str, sig: &str) -> Result<(&'a Compiled, Vec<String>), String> {
         let c = fnv_script::compile::compile(src, &self.data.table, &GameEnv { g: self }, None);
         if let Some(e) = c.errors().next() {
-            return Err(format!("{}: {}", e.kind.replace('_', " "), e.detail));
+            // The console's own line needs no number.
+            return Err(match sig {
+                "CONS" => format!("{}: {}", e.kind.replace('_', " "), e.detail),
+                _ => format!("line {}: {}: {}", e.line, e.kind.replace('_', " "), e.detail),
+            });
         }
         let warnings = c.diags.iter().map(|d| format!("{}: {}", d.kind.replace('_', " "), d.detail)).collect();
         let d = fnv_script::decode(&c.bytes, &self.data.table);
         let unit = fnv_script::ScriptUnit {
-            plugin: "console".into(),
-            owner: fnv_script::UnitOwner::Other { sig: "CONS".into(), form: 0, ordinal: 0 },
+            plugin: plugin.into(),
+            owner: fnv_script::UnitOwner::Other { sig: sig.into(), form: 0, ordinal: 0 },
             kind: fnv_script::ScriptKind::Object,
             header: Default::default(),
             variables: c.variables,
@@ -2561,9 +2609,18 @@ impl<'a> Game<'a> {
             bytes: c.bytes,
             source: Some(src.to_string()),
         };
-        let unit: &'a Compiled = Box::leak(Box::new(Compiled { unit, program: d.program, raw: d.report.raw_total() }));
+        let unit: &'a Compiled = Box::leak(Box::new(Compiled::new(unit, d.program, d.report.raw_total())));
+        Ok((unit, warnings))
+    }
+
+    /// Run a unit of [`Game::compile_statements`] now, with temporary locals; its strings
+    /// and arrays are not freed when it ends (as a result script's). False when it stopped
+    /// on an error (traced as `ScriptError`).
+    pub(crate) fn run_statements(&mut self, unit: &'a Compiled, ctx: RunCtx) -> bool {
+        let errors = self.events.len();
         self.exec(unit, &unit.program.top, Locals::Temp(BTreeMap::new()), ctx);
-        Ok(warnings)
+        let key = unit.key();
+        !self.events[errors..].iter().any(|e| matches!(&e.kind, EventKind::ScriptError { unit, .. } if *unit == key))
     }
 
     /// A whole function script from source, run once as nvf_capture's query step runs one
@@ -2592,7 +2649,7 @@ impl<'a> Game<'a> {
             source: Some(src.to_string()),
         };
         // Leaked as the console's lines are: a lambda the query makes may outlive it.
-        let unit: &'a Compiled = Box::leak(Box::new(Compiled { unit, program: d.program, raw: d.report.raw_total() }));
+        let unit: &'a Compiled = Box::leak(Box::new(Compiled::new(unit, d.program, d.report.raw_total())));
         let block = unit.program.blocks.iter().find(|b| b.event == fnv_script::ir::FUNCTION_BLOCK).ok_or("the script has no Function block")?;
         let data = self.data;
         let opts = self.opts();
@@ -2642,6 +2699,13 @@ impl<'a> Game<'a> {
     /// are compiled in one game, and a new text past that is refused [decision: PR #1291
     /// review, memory bounded].
     pub(crate) fn evaluate_string(&mut self, text: &str) -> Result<bool, String> {
+        self.evaluate_on(text, None)
+    }
+
+    /// EvaluateString's test run on a reference (`this` and the functions without a
+    /// reference name it): kNVSE's AnimGroupOverride conditions
+    /// (`crate::nvse_anim_folders`). The compiled texts are EvaluateString's.
+    pub(crate) fn evaluate_on(&mut self, text: &str, on: Option<FormId>) -> Result<bool, String> {
         let id = match self.pp.evaluated.get(text) {
             Some(&id) => id,
             None => {
@@ -2655,7 +2719,8 @@ impl<'a> Game<'a> {
             }
         };
         let id = id.ok_or_else(|| format!("{text:?} does not compile"))?;
-        Ok(self.run_function(&fnv_script::vm::XVal::Ref(id), None, Vec::new(), None, RunCtx::default())?.truthy())
+        let ctx = RunCtx { self_ref: on, ..RunCtx::default() };
+        Ok(self.run_function(&fnv_script::vm::XVal::Ref(id), on.map(|f| Value::Ref(f.0)), Vec::new(), None, ctx)?.truthy())
     }
 
     /// A function script from source text, kept as CompileScript keeps its files; `None`
@@ -2684,7 +2749,7 @@ impl<'a> Game<'a> {
             bytes: c.bytes,
             source: Some(src),
         };
-        let unit: &'a Compiled = Box::leak(Box::new(Compiled { unit, program: d.program, raw: d.report.raw_total() }));
+        let unit: &'a Compiled = Box::leak(Box::new(Compiled::new(unit, d.program, d.report.raw_total())));
         let id = COMPILED_BASE + self.compiled_files.len() as u32;
         self.compiled_files.push(unit);
         Some(id)
@@ -2941,7 +3006,8 @@ impl<'a> Game<'a> {
             })
             .collect();
         let pp = self.pp_take_session();
-        Session { handlers, main_loop, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq, pp, itr_kept: std::mem::take(&mut self.other.itr.kept) }
+        let sr_registered = self.sr.take_registered();
+        Session { handlers, main_loop, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq, pp, itr_kept: std::mem::take(&mut self.other.itr.kept), sr_registered }
     }
 
     /// Take over what lasts for the session ([`Game::take_session`]).
@@ -2952,6 +3018,7 @@ impl<'a> Game<'a> {
         self.handler_seq = s.handler_seq;
         self.pp_put_session(s.pp);
         self.other.itr.kept = s.itr_kept;
+        self.sr.put_registered(s.sr_registered);
     }
 
     /// Run every handler registered for `event` whose filters match, highest priority
@@ -3252,6 +3319,8 @@ impl<'a> Game<'a> {
         self.small_tick();
         self.vheyes_tick();
         self.knvse_tick();
+        // kNVSE's AnimGroupOverride folders: which hold for each actor.
+        self.anim_folders_tick();
         // ppNVSE's CallLoop functions due (`crate::nvse_pp`).
         self.run_pp_loops();
         self.run_box_callback();
@@ -4612,7 +4681,14 @@ impl<'a> Game<'a> {
 
     /// Run an effect's script block (if its script has one) on the effect's target.
     fn effect_event(&mut self, id: u32, ev: u16, elapsed: f64) {
-        let Some(e) = self.effects.iter().find(|x| x.id == id) else { return };
+        self.effect_event_at(id, None, ev, elapsed);
+    }
+
+    /// [`Game::effect_event`] with the effect's position, if known (`hint`, checked by id:
+    /// [`effect_index`]).
+    fn effect_event_at(&mut self, id: u32, hint: Option<usize>, ev: u16, elapsed: f64) {
+        let Some(i) = effect_index(&self.effects, id, hint) else { return };
+        let e = &self.effects[i];
         let (Some(script), target, caster) = (e.script, e.target, e.caster) else { return };
         if !self.data.script(script).is_some_and(|u| u.has_block(ev)) {
             return;
@@ -4696,13 +4772,20 @@ impl<'a> Game<'a> {
             }
         }
         let ids: Vec<u32> = self.effects.iter().filter(|e| !e.inactive).map(|e| e.id).collect();
+        // Each effect is looked up once (#1389): the ids are in list order, so the next one
+        // is searched from where the last one was; its position then goes to the value
+        // change and the script, which check it by id, as a callback (a dispel, a cast)
+        // may have moved it.
+        let mut cursor = 0;
         for id in ids {
-            let Some(e) = self.effects.iter_mut().find(|x| x.id == id) else { continue };
+            let Some(i) = effect_from(&self.effects, id, cursor) else { continue };
+            cursor = i;
+            let e = &mut self.effects[i];
             let before = e.elapsed;
             e.elapsed += dt;
             let done = !e.permanent && e.elapsed + 1e-9 >= e.duration;
-            self.tick_change(id, before);
-            self.effect_event(id, event::SCRIPT_EFFECT_UPDATE, dt);
+            self.tick_change_at(id, Some(i), before);
+            self.effect_event_at(id, Some(i), event::SCRIPT_EFFECT_UPDATE, dt);
             if done {
                 self.finish_effect(id, true);
             }
@@ -4849,7 +4932,7 @@ impl<'a> Game<'a> {
 
     pub(crate) fn condition_value(&mut self, c: &Condition, on: Option<FormId>, label: &str) -> f64 {
         let ctx = Ctx {
-            unit: label.to_string(),
+            unit: label.into(),
             opcode: c.opcode(),
             on,
             self_ref: on,
@@ -4895,10 +4978,10 @@ impl<'a> Game<'a> {
             }
             None => {
                 *self.unhandled.entry(ctx.opcode).or_default() += 1;
-                if self.unhandled_seen.insert((ctx.opcode, ctx.unit.clone())) {
+                if self.unhandled_seen.insert((ctx.opcode, ctx.unit.to_string())) {
                     let n = name();
                     tracing::debug!(opcode = ctx.opcode, name = %n, unit = %ctx.unit, "unhandled script function");
-                    self.emit(EventKind::Unhandled { opcode: format!("0x{:04X}", ctx.opcode), name: n, unit: ctx.unit.clone() });
+                    self.emit(EventKind::Unhandled { opcode: format!("0x{:04X}", ctx.opcode), name: n, unit: ctx.unit.to_string() });
                 }
                 Value::ZERO
             }
@@ -4914,12 +4997,12 @@ impl<'a> Game<'a> {
             Ok(v) => {
                 // Read wrong without failing: the call went on with a default.
                 for u in unread {
-                    if self.arg_unread_seen.insert((ctx.opcode, ctx.unit.clone(), u.param)) {
+                    if self.arg_unread_seen.insert((ctx.opcode, ctx.unit.to_string(), u.param)) {
                         let n = name();
                         self.emit(EventKind::ArgUnread {
                             opcode: format!("0x{:04X}", ctx.opcode),
                             name: n,
-                            unit: ctx.unit.clone(),
+                            unit: ctx.unit.to_string(),
                             param: u.param,
                             got: u.got.into(),
                             wanted: u.wanted.into(),
@@ -4930,7 +5013,7 @@ impl<'a> Game<'a> {
             }
             Err(e) => {
                 let n = name();
-                self.emit(EventKind::CallFailed { opcode: format!("0x{:04X}", ctx.opcode), name: n, unit: ctx.unit.clone(), error: e });
+                self.emit(EventKind::CallFailed { opcode: format!("0x{:04X}", ctx.opcode), name: n, unit: ctx.unit.to_string(), error: e });
                 Value::ZERO
             }
         }
@@ -4944,10 +5027,10 @@ impl<'a> Game<'a> {
         let args: Vec<serde_json::Value> = args.iter().map(|a| arg_json(data, a)).collect();
         let on = ctx.on.or(ctx.self_ref);
         let sig = format!("{on:?}{args:?}");
-        if !self.stubs_seen.insert((ctx.opcode, ctx.unit.clone(), sig)) {
+        if !self.stubs_seen.insert((ctx.opcode, ctx.unit.to_string(), sig)) {
             return;
         }
-        self.emit(EventKind::Stub { opcode: format!("0x{:04X}", ctx.opcode), name, unit: ctx.unit.clone(), on, args });
+        self.emit(EventKind::Stub { opcode: format!("0x{:04X}", ctx.opcode), name, unit: ctx.unit.to_string(), on, args });
     }
 
     // ---- snapshots -----------------------------------------------------------------
@@ -5146,6 +5229,31 @@ pub fn arg_json(data: &GameData, a: &ArgValue) -> serde_json::Value {
     }
 }
 
+/// The position of effect `id` in `effects`: `hint` when the effect there has that id,
+/// else the first with it. Effect ids are unique [design: each is taken from
+/// `Game::next_effect`, which only grows, in `Game::apply_magic_item_with`, and a save
+/// keeps the counter], so a checked hint is the effect a search finds (#1389).
+///
+/// Known limits, where ids could repeat and a hint could pick a later copy than a search
+/// from the start: a save whose `next_effect` is at or below an id it lists (a hand-edited
+/// or broken save; the next cast reuses the id), a save that lists one id twice, and the
+/// `u32` counter wrapping after 2^32 effects. Nothing guards against them; with a
+/// repeated id, the searches before #1389 found its first copy and a hint may find another.
+pub(crate) fn effect_index(effects: &[ActiveEffect], id: u32, hint: Option<usize>) -> Option<usize> {
+    match hint {
+        Some(i) if effects.get(i).is_some_and(|e| e.id == id) => Some(i),
+        _ => effects.iter().position(|e| e.id == id),
+    }
+}
+
+/// The position of effect `id`, searched from `from` on, then before it (a callback
+/// removed effects ahead of it); with unique ids ([`effect_index`]) the same effect a
+/// search from the start finds.
+fn effect_from(effects: &[ActiveEffect], id: u32, from: usize) -> Option<usize> {
+    let from = from.min(effects.len());
+    effects[from..].iter().position(|e| e.id == id).map(|i| from + i).or_else(|| effects[..from].iter().position(|e| e.id == id))
+}
+
 /// The host the VM runs against for one script run.
 struct Exec<'g, 'a> {
     game: &'g mut Game<'a>,
@@ -5312,7 +5420,8 @@ impl Host for Exec<'_, '_> {
             None => None,
         };
         let ctx = Ctx {
-            unit: self.unit.key(),
+            // The unit's key, built once for the unit (#1389).
+            unit: std::sync::Arc::clone(self.unit.shared_key()),
             opcode,
             on,
             self_ref: self.ctx.self_ref,
@@ -5571,5 +5680,48 @@ impl Host for Exec<'_, '_> {
         let key = self.unit.key();
         let seen = if restarted { &mut self.game.restarted_seen } else { &mut self.game.loaded_seen };
         seen.insert(key)
+    }
+}
+
+#[cfg(test)]
+mod effect_lookup_tests {
+    use super::*;
+
+    fn fx(id: u32) -> ActiveEffect {
+        ActiveEffect {
+            id,
+            target: FormId::PLAYER_REF,
+            source: FormId(0x800),
+            effect: FormId(0x801),
+            index: 0,
+            magnitude: 0,
+            duration: 1.0,
+            elapsed: 0.0,
+            permanent: false,
+            caster: None,
+            script: None,
+            change: None,
+            usage: 0.0,
+            worn: None,
+            inactive: false,
+        }
+    }
+
+    /// Every hint and every starting point finds what the search from the start (the
+    /// lookup before #1389) finds, present or missing, stale hints and ends included.
+    #[test]
+    fn a_checked_hint_or_cursor_finds_the_effect_a_search_finds() {
+        let list: Vec<ActiveEffect> = [3, 5, 8, 9, 12].into_iter().map(fx).collect();
+        let search = |id: u32| list.iter().position(|e| e.id == id);
+        for id in [1, 3, 5, 8, 9, 12, 13] {
+            for hint in [None, Some(0), Some(1), Some(2), Some(3), Some(4), Some(5), Some(99)] {
+                assert_eq!(effect_index(&list, id, hint), search(id), "id {id} hint {hint:?}");
+            }
+            for from in 0..=7 {
+                assert_eq!(effect_from(&list, id, from), search(id), "id {id} from {from}");
+            }
+        }
+        assert_eq!(effect_index(&[], 3, Some(0)), None);
+        assert_eq!(effect_from(&[], 3, 2), None);
     }
 }
