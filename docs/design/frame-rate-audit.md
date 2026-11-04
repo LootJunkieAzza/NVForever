@@ -171,6 +171,10 @@ before a query). Held by furniture or flying with ToggleCollision the steps stil
   systems walk every frame, meshes or not) and `profile transforms:` (transforms written
   that frame, with a mesh, by name: about 950 of 7,200 at the Strip and Novac, nearly all
   the animated actors' skeleton nodes [observed 2026-11-02]).
+- `NVF_PLAY_TEST_TRANSFORM_ROOTS=<seconds>` (`transform_roots.rs`, #1387): `transform roots:`,
+  `transform walk:` and `transform census:` lines and their `summary` at the exit: dirty roots
+  by kind, `World`'s direct children, nodes examined and recomputed by Bevy's rule (a model
+  from outside the system) and the same with a root above `World`. Too slow to time with.
 - Test aids, off unless `=1`: `NVF_PLAY_TEST_NO_REFLECTION` (the water reflection camera
   stays off), `NVF_PLAY_TEST_NO_ARMS_SHADE` (no arms shade light, #1374),
   `NVF_PLAY_TEST_ACTOR_NO_SHADOWS` (actor meshes cast no shadows; still drawn).

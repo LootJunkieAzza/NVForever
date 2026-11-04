@@ -1,0 +1,34 @@
+# The counts of NVF_PLAY_TEST_TRANSFORM_ROOTS (issue #1387), in the scenes and at the settings
+# of campaign.toml's namesakes. The aid slows the frame, so time with those, not these:
+#
+#     python tools/profile/campaign.py run --exe <profile build> --data <Data> --only goodsprings-noon novac-noon run-goodsprings --name transform-1387-times
+#     python tools/profile/campaign.py run --exe <profile build> --data <Data> --campaign tools/profile/transform-roots.toml --name transform-1387-counts
+#
+# The counts are the `transform … summary:` lines of each scenario's log.
+
+[defaults]
+seconds = 60
+warmup = 15
+every = 5
+slow_ms = 16
+size = "1920x1080"
+graphics = "enhanced"
+
+[[scenario]]
+name = "goodsprings-noon-counts"
+group = "stand"
+args = ["--cell", "Goodsprings", "--hour", "12"]
+aids = { NVF_PLAY_TEST_TRANSFORM_ROOTS = "5" }
+
+[[scenario]]
+name = "novac-noon-counts"
+group = "stand"
+args = ["--cell", "Novac", "--hour", "12"]
+aids = { NVF_PLAY_TEST_TRANSFORM_ROOTS = "5" }
+
+[[scenario]]
+name = "run-goodsprings-counts"
+group = "move"
+seconds = 70
+args = ["--cell", "Goodsprings", "--hour", "12", "--heading", "0"]
+aids = { NVF_PLAY_TEST_MOVE = "3:1:0", NVF_PLAY_TEST_LOOK = "15:90:0,27:180:0,39:270:0,51:0:0,63:90:0", NVF_PLAY_TEST_TRANSFORM_ROOTS = "5" }
