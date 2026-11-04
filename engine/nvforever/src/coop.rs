@@ -44,19 +44,43 @@
 //! travellers, `nav::show_actor`).
 //!
 //! **The leash.** A guest goes where the host is: when the host is in another cell or
-//! worldspace, or outdoors farther than [`LEASH`] away, the guest travels to just behind
-//! the host, through the loading screen like any door.
+//! worldspace, or outdoors farther than [`LEASH`] away, the guest travels to the host's
+//! own spot, through the loading screen like any door, and the host's body lets it out
+//! as any actor's does (`nvf_play::blocking`): a spot behind the host could be inside a
+//! wall.
+//!
+//! **The host's clock.** The host sends its game clock ([`net::ClockView`]); a guest sets
+//! its own to it when they differ, so the time of day, and what NPCs do by it, is the
+//! same in every game.
+//!
+//! **The host's world on a guest.** An NPC the host draws where the guest is, the guest
+//! draws there too: one the host's story enabled (the Powder Gangers coming to
+//! Goodsprings) is enabled in the guest's world, and one it moved (Trudy to her saloon)
+//! is moved there ([`follow_npcs`]). An actor the host's scripts made has no reference
+//! the guest's world knows, and is not drawn there.
 //!
 //! **What they do.** Each state carries the weapon in hand, whether it is out, aimed or
-//! down the sights, sneaking, in the air, what is worn, and counters of the attacks and
-//! reloads begun: the puppet draws and holsters, crouches, aims (as a fighter does,
-//! `npc_combat::Fighters::set_puppet`) and plays one attack or reload for each the
-//! counter went up, so a lost packet loses none.
+//! down the sights, sneaking, in the air, the flashlight, what is worn, and counters of
+//! the attacks and reloads begun: the puppet draws and holsters, crouches, aims (as a
+//! fighter does, `npc_combat::Fighters::set_puppet`) and plays one attack or reload for
+//! each the counter went up, so a lost packet loses none. A shot is heard where it is
+//! fired (the gun's sound, near or distant, as an NPC's: [`shot_sound`]), and so is a
+//! shot of an NPC a guest follows. A puppet's flashlight is lit on it ([`peer_lights`]).
+//! A puppet's head is left to its animation: it does not turn to look at the player.
 //!
 //! **How they look.** Each game sends its player's look from the character creator
 //! (race, sex, hair, eyes, face; [`encode_look`]) every `net::LOOK_EVERY`; the others draw
 //! that player from the player's own record with it (`ActorWorld::looks`), as this game
 //! draws its own body. Until a look comes, a player is drawn as [`Config::base`].
+//!
+//! **Down, not dead.** A player whose health runs out in co-op is down ([`downed`]): the
+//! body drops as a ragdoll (here and on the others' screens) and the view stays with it,
+//! without the death camera's slow motion or fade (`death_cam::DeathCam::downed_in_coop`).
+//! Another player who comes within [`REVIVE_REACH`] and presses Activate revives them
+//! with a Stimpak of their own (one is used up): the downed player stands up where the
+//! body lies, healed (`Game::resurrect`). After [`RESPAWN_AFTER`] a downed player can
+//! press Activate to stand up again beside another player (the nearest one up, else the
+//! host) instead.
 //!
 //! **Dropouts.** A player whose link goes quiet stays where it was last seen, frozen,
 //! while the link reconnects (net.rs); only a player who quit or stayed away past
@@ -92,6 +116,7 @@ use nvf_coop::reach::{self, Reach};
 use nvf_play::loading::{Loading, TravelRequest};
 use nvf_play::lobby::{Hosting, Joining, LobbyRequest, LobbyState};
 use nvf_play::player::Player;
+use nvf_play::sfx::{PlaySound, Sfx};
 use nvf_play::{Location, PlayState, RefVisual, Travel};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -106,8 +131,6 @@ const DELAY: f32 = 0.1;
 /// Outdoors, a guest farther than this from the host is brought back (game units; the
 /// loaded cells reach about two cells, 8192 units, around a player).
 const LEASH: f32 = 6000.0;
-/// A leashed guest arrives this far behind the host.
-const BEHIND: f32 = 96.0;
 /// After a leash trip, the next waits this long (the trip's loading screen comes first).
 const LEASH_EVERY: f32 = 5.0;
 /// The puppets' references: plugin index FE, which no FNV load order uses.
@@ -115,6 +138,20 @@ const PUPPET_REF: u32 = 0xFE00_C000;
 /// The record a player with a look is drawn from: the player's own, as this game draws
 /// its own body (`player_body.rs`).
 const PLAYER_BASE: u32 = FormId::PLAYER_BASE.0;
+/// A guest takes the host's NPCs as being where it is only this long after the host
+/// came there (seconds): before, they may be the place it left.
+const HOST_SETTLE: f32 = 1.0;
+/// Where a shot is heard from, above the shooter's feet (about the gun's height).
+const GUN_HEIGHT: f32 = 100.0;
+/// A guest takes the host's clock when they differ by more than this (game hours: three
+/// game minutes, six real seconds at TimeScale 30).
+const CLOCK_SLACK: f32 = 0.05;
+/// A downed player can respawn after this long (seconds).
+const RESPAWN_AFTER: f32 = 60.0;
+/// How near a downed player another must be to revive them (game units, about 2 m).
+const REVIVE_REACH: f32 = 150.0;
+/// What reviving uses up: a Stimpak.
+const STIMPAK: FormId = FormId(0x0001_5169);
 /// A puppet holds its aim this long after an attack, aimed or not (seconds).
 const AIM_AFTER_ATTACK: f32 = 1.5;
 /// Where a guest keeps its token across the restarts loads cause.
@@ -194,6 +231,10 @@ impl Plugin for CoopPlugin {
             npc_attacks: HashMap::new(),
             ai_was_off: None,
             host_quest: None,
+            host_place: None,
+            downed_at: None,
+            told_respawn: false,
+            revive_offer: None,
         };
         if let Some(port) = c.host.or_else(|| env(HOST_ENV).and_then(|p| p.trim().parse().ok())) {
             coop.start_hosting(port);
@@ -202,9 +243,9 @@ impl Plugin for CoopPlugin {
         }
         app.add_plugins(nvf_play::lobby::LobbyPlugin)
             .insert_resource(coop)
-            .add_systems(Update, (lobby, send, take_events, share_npcs, follow_npcs, leash).chain().after(nvf_play::PlaySet::Physics))
+            .add_systems(Update, (lobby, send, take_events, share_npcs, follow_npcs, leash, downed).chain().after(nvf_play::PlaySet::Physics))
             .add_message::<PuppetShot>()
-            .add_systems(Update, (stand_ins, draw).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
+            .add_systems(Update, (stand_ins, draw, peer_lights).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
     }
 }
 
@@ -312,6 +353,14 @@ struct Coop {
     ai_was_off: Option<bool>,
     /// A guest's: the host's active quest as last heard.
     host_quest: Option<HostQuest>,
+    /// A guest's: the host's place, and since when it has been there (seconds of `Time`).
+    host_place: Option<(Place, f32)>,
+    /// This player is down: since when (seconds of `Time`), and whether it was told it
+    /// can respawn.
+    downed_at: Option<f32>,
+    told_respawn: bool,
+    /// The downed player this one was last told it can revive.
+    revive_offer: Option<u8>,
 }
 
 /// One of the host's NPCs as a guest has heard it.
@@ -593,6 +642,9 @@ struct Peer {
     look: Option<Option<Look>>,
     /// On the host: its actor in this world ([`stand_ins`]).
     actor: Option<FormId>,
+    /// Down, as last seen ([`downed`]); drawn anew (standing) on the next frame.
+    down: bool,
+    redraw: bool,
 }
 
 impl Peer {
@@ -657,6 +709,7 @@ struct Doing<'w> {
     actor_world: Option<Res<'w, ActorWorld>>,
     sim: Option<Res<'w, nvf_play::sim::SimState>>,
     script: Option<Res<'w, nvf_play::script::ScriptState>>,
+    flashlight: Option<Res<'w, nvf_play::flashlight::Flashlight>>,
 }
 
 /// Hand the link this game's newest state (it sends it on its own thread).
@@ -686,6 +739,7 @@ fn send(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location>>
     } || doing.zoom.as_ref().is_some_and(|z| z.aimed);
     flags |= if sights && out { flag::SIGHTS } else { 0 };
     flags |= if doing.script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.is_dead(FormId::PLAYER_REF)) { flag::DOWN } else { 0 };
+    flags |= if doing.flashlight.as_ref().is_some_and(|f| f.on) { flag::LIGHT } else { 0 };
     s.flags = flags;
     let worn = match (doing.actor_world.as_deref(), doing.sim.as_deref()) {
         (Some(w), Some(sim)) => Equipment::of(w, Some(&sim.world), FormId::PLAYER_REF.0),
@@ -850,6 +904,9 @@ fn take_events(
             Event::State { id, state } => {
                 if id == 0 {
                     coop.host = Some(state);
+                    if coop.host_place.is_none_or(|(p, _)| p != state.place) {
+                        coop.host_place = Some((state.place, now));
+                    }
                 }
                 let p = coop.peers.entry(id).or_default();
                 p.samples.push_back((now, state));
@@ -961,6 +1018,18 @@ fn take_events(
                 }
                 coop.host_quest = new;
             }
+            Event::Revived { by } => {
+                if let Some(rt) = rt.as_deref_mut().filter(|rt| rt.game.is_dead(FormId::PLAYER_REF)) {
+                    rt.game.resurrect(FormId::PLAYER_REF, false);
+                    coop.downed_at = None;
+                    notes.push(format!("{} revived you", label(by, &coop.peers.get(&by).map_or(String::new(), |p| p.name.clone()))));
+                }
+            }
+            Event::Clock(c) => {
+                if let Some(sim) = sim.as_deref_mut() {
+                    take_clock(&mut sim.world, c);
+                }
+            }
             Event::Unlocked { id, reference, terminal } => {
                 if let (Some(rt), Some(sim)) = (rt.as_deref_mut(), sim.as_deref_mut()) {
                     if unlock(sim, &mut rt.game, FormId(reference), terminal) {
@@ -999,7 +1068,8 @@ fn leash(
     main_menu: Option<Res<nvf_play::main_menu::MainMenu>>,
     mut travel: MessageWriter<TravelRequest>,
 ) {
-    if !coop.is_guest() || coop.host_lost || at_main_menu(main_menu.as_deref()) {
+    // A downed guest stays down where it fell (it respawns by the host, `downed`).
+    if !coop.is_guest() || coop.host_lost || at_main_menu(main_menu.as_deref()) || coop.downed_at.is_some() {
         return;
     }
     let (Some(host), Some(player), Some(loc)) = (coop.host, player, loc) else { return };
@@ -1016,9 +1086,8 @@ fn leash(
     if here == host.place && !far {
         return;
     }
-    // Behind the host: its heading 0 faces north (+Y), π/2 east (+X).
-    let (s, c) = host.yaw.sin_cos();
-    let feet = [host.feet[0] - s * BEHIND, host.feet[1] - c * BEHIND, host.feet[2]];
+    // On the host's own spot: the host's body lets the guest out (module notes).
+    let feet = host.feet;
     let (world, interior) = match host.place {
         Place::Interior(c) => (None, Some(c)),
         Place::Exterior(w) => (Some(w), None),
@@ -1046,6 +1115,7 @@ fn draw(
     mut holds: Query<&mut WeaponHold>,
     dressed: Query<(Option<&PuppetEquipment>, Has<Puppet>)>,
     (mut fighters, mut attacks, main_menu, mut shots): (ResMut<Fighters>, MessageWriter<PlayAttack>, Option<Res<nvf_play::main_menu::MainMenu>>, MessageWriter<PuppetShot>),
+    (sfx, listener, mut sounds): (Option<Res<Sfx>>, Option<Res<Player>>, MessageWriter<PlaySound>),
 ) {
     let (Ok(world_root), Some(loc)) = (root.single(), loc) else { return };
     if at_main_menu(main_menu.as_deref()) {
@@ -1061,6 +1131,14 @@ fn draw(
             continue;
         }
         let Some((place, feet, yaw, moving)) = p.pose(now - DELAY) else { continue };
+        // Up again after being down: its body was a ragdoll.
+        if std::mem::take(&mut p.redraw) {
+            if let Some(e) = p.root.take() {
+                commands.entity(e).despawn();
+            }
+            p.spawned = false;
+            p.drawn_in = None;
+        }
         // The world's entities go with the space they belong to: after a trip (here or
         // there), or once its entity is gone, the puppet is spawned again.
         if p.root.is_some_and(|e| roots.get(e).is_err()) || p.drawn_in.is_some_and(|d| d != here || d != place) {
@@ -1089,6 +1167,10 @@ fn draw(
         };
         if let Some(weapon) = act(&mut commands, e, reference, p, newest, now, actor_world.as_deref(), &mut actors, &mut holds, &dressed, &mut fighters, &mut attacks) {
             shots.write(PuppetShot { shooter: FormId(reference), weapon });
+            if let Some(s) = shot_sound(sfx.as_deref(), listener.as_deref(), weapon, feet) {
+                debug!("co-op: {} fires {weapon}: sound {}", label(id, &p.name), s.sound);
+                sounds.write(s);
+            }
         }
     }
 }
@@ -1134,6 +1216,9 @@ fn stand_ins(
     let Some(loc) = loc.filter(|_| !at_main_menu(main_menu.as_deref())) else { return };
     if let Some(link) = coop.link.as_ref() {
         link.set_quest(quest_view(data_state.as_deref(), &rt.game));
+        if let Ok(c) = sim.world.calendar() {
+            link.set_clock(net::ClockView { year: c.year, month: c.month, day: c.day, hour: c.hour, days_passed: c.days_passed });
+        }
     }
     let here = place_of(&loc);
     let now = time.elapsed_secs();
@@ -1204,10 +1289,14 @@ fn share_npcs(
     if coop.peers.is_empty() {
         return;
     }
+    // The other players' actors are drawn as puppets here (the puppet only says so once
+    // it is first posed, `act`): a guest's own stand-in, sent as an NPC, stood frozen where
+    // it was first drawn.
+    let players: HashSet<u32> = coop.peers.values().filter_map(|p| p.actor).map(|r| r.0).collect();
     let mut npcs = Vec::new();
     for (v, t, lo, hold, dying, seen) in &actors {
         // The dead too, out of sight or not: a guest lays its own body down.
-        if (!seen.get() && !dying) || is_puppet(v.0) {
+        if (!seen.get() && !dying) || is_puppet(v.0) || players.contains(&v.0) {
             continue;
         }
         let r = v.0;
@@ -1250,6 +1339,7 @@ fn follow_npcs(
     (mut attacks, mut hits): (MessageWriter<PlayAttack>, MessageWriter<ActorHit>),
     main_menu: Option<Res<nvf_play::main_menu::MainMenu>>,
     mut told: Local<usize>,
+    (sfx, listener, mut sounds, mut sim, loc): (Option<Res<Sfx>>, Option<Res<Player>>, MessageWriter<PlaySound>, Option<ResMut<nvf_play::sim::SimState>>, Option<Res<Location>>),
 ) {
     let now = time.elapsed_secs();
     let coop = &mut *coop;
@@ -1280,6 +1370,11 @@ fn follow_npcs(
         return;
     }
     let Some(g) = game.as_deref_mut() else { return };
+    // Where the host's story put the NPCs it draws here, they are here too.
+    let here = loc.as_deref().map(place_of);
+    if let (Some(sim), Some((_, since))) = (sim.as_deref_mut(), coop.host_place.filter(|(p, _)| Some(*p) == here)) {
+        place_like_host(&mut sim.world, g, &coop.npcs, since + HOST_SETTLE, now);
+    }
     if coop.ai_was_off.is_none() {
         coop.ai_was_off = Some(g.toggles.actors_ai_off);
         stats.relay = Some(Vec::new());
@@ -1350,6 +1445,10 @@ fn follow_npcs(
         if fighting && attacked {
             let melee = is_melee(actor_world.as_deref(), weapon);
             attacks.write(PlayAttack { actor: r, weapon, melee, sights: sights && !melee, kind: Move::Attack, power: None, swing: melee.then(SwingPick::default) });
+            // Its shot, heard as the host's NPC's is there (no shot is fired here).
+            if let Some(snd) = weapon.filter(|_| !melee).and_then(|w| shot_sound(sfx.as_deref(), listener.as_deref(), w, s.feet)) {
+                sounds.write(snd);
+            }
         }
     }
     // Deaths: dead here too; a body drawn now falls as the host's did (`deaths`).
@@ -1363,6 +1462,252 @@ fn follow_npcs(
             hits.write(ActorHit { form_id: r, died: true, knocked_out: false, location: -1, crippled: false, part_crippled: false, torso_crippled: false, by: None, share: 1.0, guard_broken: false, weapon: None });
         }
     }
+}
+
+/// A shot of `weapon` fired by someone standing at `feet`, heard here: its 3D shoot sound,
+/// or its distant one beyond the 3D sound's reach, as `nvf_play::combat` plays an NPC's
+/// (a puppet's gun mods are not known: the plain sound).
+fn shot_sound(sfx: Option<&Sfx>, listener: Option<&Player>, weapon: FormId, feet: [f32; 3]) -> Option<PlaySound> {
+    let sfx = sfx?;
+    let shoot = sfx.forms.weapons.get(&weapon)?.shoot_sounds(false);
+    let near_max = shoot.near.and_then(|n| sfx.forms.sounds.get(&n)).map_or(0.0, |n| n.max_distance);
+    let at = [feet[0], feet[1], feet[2] + GUN_HEIGHT];
+    let distance = listener.map_or(0.0, |p| {
+        let e = p.eye();
+        ((e[0] - at[0]).powi(2) + (e[1] - at[1]).powi(2) + (e[2] - at[2]).powi(2)).sqrt()
+    });
+    let (sound, _) = shoot.heard_at(distance, near_max);
+    Some(PlaySound { sound: sound?, at: Some(at) })
+}
+
+/// A guest takes the host's clock when they differ by more than [`CLOCK_SLACK`].
+fn take_clock(world: &mut fnv_sim::World, c: net::ClockView) {
+    let Ok(own) = world.calendar() else { return };
+    // By the date and hour, not GameDaysPassed alone: a script (or the console) can set
+    // GameHour without it.
+    let same_day = (own.year, own.month, own.day) == (c.year, c.month, c.day);
+    let off = if same_day { c.hour - own.hour } else { (c.days_passed - own.days_passed) * 24.0 };
+    if same_day && off.abs() <= CLOCK_SLACK && (c.days_passed - own.days_passed).abs() * 24.0 <= CLOCK_SLACK {
+        return;
+    }
+    if off.abs() >= 0.5 {
+        info!("co-op: the host's clock: day {} {:02}:{:02} (this game was {off:+.1} h off)", c.day, c.hour as u32, (c.hour.fract() * 60.0) as u32);
+    }
+    let cal = fnv_sim::clock::Calendar { year: c.year, month: c.month, day: c.day, hour: c.hour, days_passed: c.days_passed };
+    if let Err(e) = world.set_calendar(cal) {
+        warn_once!("co-op: cannot take the host's clock: {e}");
+    }
+}
+
+/// A guest in the host's place: each NPC the host draws, enabled here and put in this
+/// cell when the host's story enabled it or moved it (module notes). Only states heard
+/// after `after` and lately: the ones before are the place the host left (the host's NPCs
+/// there are forgotten only after [`NPC_FORGET`]). Actors the host's scripts made (`FF`
+/// references) are this game's own numbers here: left alone.
+fn place_like_host(world: &mut fnv_sim::World, g: &mut fnv_game::Game, npcs: &HashMap<u32, NpcTrack>, after: f32, now: f32) {
+    let Some(cell) = world.peek(FormId::PLAYER_REF).and_then(|s| s.cell) else { return };
+    let player_space = world.placed.world_of(cell);
+    for (&r, t) in npcs {
+        let Some(&(at, s)) = t.samples.back() else { continue };
+        if at < after || now - at > 1.0 || r >= 0xFF00_0000 || s.has(npc_flag::DEAD) {
+            continue;
+        }
+        let id = FormId(r);
+        let Ok(st) = world.get(id) else { continue };
+        if st.deleted {
+            continue;
+        }
+        let enable = !st.enabled;
+        // Elsewhere: another interior, or another worldspace, than this player's.
+        let elsewhere = st.cell.is_none_or(|c| c != cell && (player_space.is_none() || world.placed.world_of(c) != player_space));
+        if elsewhere {
+            let to = world.placed.exterior_cell_at(cell, s.feet).unwrap_or(cell);
+            if let Ok(st) = world.get(id) {
+                st.cell = Some(to);
+                st.pos = s.feet;
+                st.rot = [0.0, 0.0, s.heading];
+            }
+            g.teleported.insert(id);
+        }
+        if enable {
+            let _ = world.set_enabled(id, true);
+        }
+        if enable || elsewhere {
+            info!("co-op: {id} {} as in the host's world", match (enable, elsewhere) { (true, true) => "enabled and brought here", (true, false) => "enabled", _ => "brought here" });
+        }
+    }
+}
+
+/// Each other player's flashlight, on their puppet where its eyes are (`flashlight.rs`),
+/// while it is on and the player is in this place.
+fn peer_lights(mut commands: Commands, time: Res<Time>, coop: Res<Coop>, loc: Option<Res<Location>>, mut lights: Query<&mut Transform>, mut lit: Local<HashMap<u8, Entity>>) {
+    let here = loc.as_deref().map(place_of);
+    let now = time.elapsed_secs();
+    let mut want = HashMap::new();
+    for (&id, p) in &coop.peers {
+        let (Some((place, feet, yaw, _)), Some(&(_, s))) = (p.pose(now - DELAY), p.samples.back()) else { continue };
+        if Some(place) != here || p.lost || !s.has(flag::LIGHT) || s.has(flag::DOWN) {
+            continue;
+        }
+        let eye = [feet[0], feet[1], feet[2] + if s.has(flag::SNEAKING) { nvf_play::player::EYE_HEIGHT * 0.7 } else { nvf_play::player::EYE_HEIGHT }];
+        want.insert(id, crate::flashlight::placement(eye, yaw, s.pitch));
+    }
+    lit.retain(|id, e| {
+        let keep = want.contains_key(id);
+        if !keep {
+            commands.entity(*e).despawn();
+        }
+        keep
+    });
+    for (id, place) in want {
+        match lit.get(&id).copied() {
+            Some(e) => {
+                if let Ok(mut t) = lights.get_mut(e) {
+                    *t = place;
+                }
+            }
+            None => {
+                debug!("co-op: player {}'s flashlight is on", id + 1);
+                let e = commands.spawn((Name::new(format!("Flashlight of player {}", id + 1)), crate::flashlight::spot(), place)).id();
+                lit.insert(id, e);
+            }
+        }
+    }
+}
+
+/// Down, revived and respawned (module notes): this player down, the others' puppets
+/// lying down while they are, and reviving one in reach.
+#[allow(clippy::too_many_arguments)]
+fn downed(
+    time: Res<Time>,
+    mut coop: ResMut<Coop>,
+    (mut script, mut sim, mut phys, mut ragdolls): (Option<ResMut<nvf_play::script::ScriptState>>, Option<ResMut<nvf_play::sim::SimState>>, Option<ResMut<nvf_play::phys::PhysState>>, ResMut<crate::ragdoll::Ragdolls>),
+    player: Option<Res<Player>>,
+    loc: Option<Res<Location>>,
+    input: nvf_play::bindings::ControlInput,
+    mut corner: Option<ResMut<nvf_play::corner_messages::CornerMessages>>,
+    mut travel: MessageWriter<TravelRequest>,
+    mut hits: MessageWriter<ActorHit>,
+    mut cam: Option<ResMut<crate::death_cam::DeathCam>>,
+    main_menu: Option<Res<nvf_play::main_menu::MainMenu>>,
+) {
+    let coop = &mut *coop;
+    let in_coop = coop.link.is_some();
+    if let Some(c) = cam.as_deref_mut().filter(|c| c.downed_in_coop != in_coop) {
+        c.downed_in_coop = in_coop;
+    }
+    let (Some(rt), Some(sim), Some(player), Some(loc)) = (script.as_deref_mut().and_then(|s| s.rt.as_mut()), sim.as_deref_mut(), player, loc) else { return };
+    if !in_coop || at_main_menu(main_menu.as_deref()) {
+        coop.downed_at = None;
+        return;
+    }
+    let now = time.elapsed_secs();
+    let here = place_of(&loc);
+    let mut say = |n: String| {
+        info!("co-op: {n}");
+        if let Some(c) = corner.as_mut() {
+            c.push(n.into());
+        }
+    };
+    let g = &mut rt.game;
+    // The others' puppets: down, they lie down as the dead do; up, they are drawn anew.
+    for (&id, p) in coop.peers.iter_mut() {
+        let Some(&(_, s)) = p.samples.back() else { continue };
+        let down = s.has(flag::DOWN);
+        if down == p.down {
+            continue;
+        }
+        p.down = down;
+        let r = p.reference(id);
+        g.extra.entry(FormId(r)).or_default().dead = down;
+        if down {
+            hits.write(ActorHit { form_id: r, died: true, knocked_out: false, location: -1, crippled: false, part_crippled: false, torso_crippled: false, by: None, share: 1.0, guard_broken: false, weapon: None });
+            say(format!("{} is down: revive them with a Stimpak", label(id, &p.name)));
+        } else {
+            if let Some(ph) = phys.as_deref_mut() {
+                ph.world.remove_ragdoll(r);
+            }
+            ragdolls.rest.remove(&r);
+            p.redraw = true;
+            say(format!("{} is back up", label(id, &p.name)));
+        }
+    }
+    let key = input.bindings.get(nvf_play::bindings::Control::Activate).key.map_or("Activate".to_string(), |k| format!("{k:?}").trim_start_matches("Key").to_string());
+    let pressed = input.just_pressed(nvf_play::bindings::Control::Activate);
+    // This player.
+    if g.is_dead(FormId::PLAYER_REF) {
+        let since = *coop.downed_at.get_or_insert_with(|| {
+            say(format!("You are down: another player can revive you with a Stimpak. In {RESPAWN_AFTER:.0} seconds you can respawn"));
+            now
+        });
+        if now - since < RESPAWN_AFTER {
+            return;
+        }
+        // Beside the nearest player up, else anyone (the host first).
+        let feet = player.feet;
+        let dist = |q: &PlayerState| if q.place == here { (q.feet[0] - feet[0]).hypot(q.feet[1] - feet[1]) } else { f32::MAX / 2.0 };
+        let target = coop
+            .peers
+            .iter()
+            .filter_map(|(&id, p)| p.samples.back().map(|&(_, q)| (id, p, q)))
+            .min_by(|a, b| (a.2.has(flag::DOWN) || a.1.lost, dist(&a.2), a.0).partial_cmp(&(b.2.has(flag::DOWN) || b.1.lost, dist(&b.2), b.0)).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(id, p, q)| (label(id, &p.name), q));
+        if !coop.told_respawn {
+            coop.told_respawn = true;
+            say(format!("Press {key} to respawn{}", target.as_ref().map_or(String::new(), |(n, _)| format!(" by {n}"))));
+        }
+        if pressed {
+            g.resurrect(FormId::PLAYER_REF, false);
+            if let Some((name, q)) = target {
+                let (world, interior) = match q.place {
+                    Place::Interior(c) => (None, Some(c)),
+                    Place::Exterior(w) => (Some(w), None),
+                };
+                travel.write(TravelRequest(Travel { world, interior, feet: q.feet, heading_deg: q.yaw.to_degrees() }));
+                say(format!("You respawned by {name}"));
+            } else {
+                say("You respawned".into());
+            }
+            coop.downed_at = None;
+            coop.told_respawn = false;
+        }
+        return;
+    }
+    coop.downed_at = None;
+    coop.told_respawn = false;
+    // A downed player in reach: revive them with a Stimpak.
+    let feet = player.feet;
+    let near = coop
+        .peers
+        .iter()
+        .filter(|(_, p)| p.down && !p.lost)
+        .filter_map(|(&id, p)| {
+            let &(_, q) = p.samples.back()?;
+            let d = (q.feet[0] - feet[0]).hypot(q.feet[1] - feet[1]);
+            (q.place == here && d <= REVIVE_REACH && (q.feet[2] - feet[2]).abs() < REVIVE_REACH).then(|| (d, id, label(id, &p.name)))
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0));
+    let Some((_, id, name)) = near else {
+        coop.revive_offer = None;
+        return;
+    };
+    if coop.revive_offer != Some(id) {
+        coop.revive_offer = Some(id);
+        say(format!("Press {key} to revive {name} (uses a Stimpak)"));
+    }
+    if !pressed {
+        return;
+    }
+    let have = sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()).map_or(0, |i| i.count(STIMPAK));
+    if have < 1 {
+        say(format!("You need a Stimpak to revive {name}"));
+        return;
+    }
+    let _ = sim.world.remove_item(FormId::PLAYER_REF, STIMPAK, 1);
+    if let Some(link) = coop.link.as_ref() {
+        link.send_revive(id);
+    }
+    say(format!("You revived {name} (Stimpak used, {} left)", have - 1));
 }
 
 /// Whether `reference` is one of the other players' puppets (never one of the world's).
@@ -1510,7 +1855,8 @@ fn act(
     let gear = Equipment { worn: s.worn().iter().map(|&w| FormId(w)).collect(), weapon, weapon_mods: 0 };
     if let Ok((worn, marked)) = dressed.get(e) {
         if !marked {
-            commands.entity(e).insert(Puppet);
+            // Its head is the other player's: it does not turn to look at this one.
+            commands.entity(e).insert((Puppet, crate::head_look::NoHeadLook));
         }
         if worn.is_none_or(|w| w.0 != gear) {
             commands.entity(e).insert(PuppetEquipment(gear));

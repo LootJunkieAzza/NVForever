@@ -55,8 +55,9 @@ impl Plugin for FlashlightPlugin {
 }
 
 /// The light's place and rotation (Bevy space) for the player's eye (game space),
-/// heading and pitch.
-fn placement(eye: [f32; 3], heading: f32, pitch: f32) -> Transform {
+/// heading and pitch. Another co-op player's light goes on their puppet the same way
+/// (`coop.rs`).
+pub(crate) fn placement(eye: [f32; 3], heading: f32, pitch: f32) -> Transform {
     let at = [eye[0] + AHEAD * heading.sin(), eye[1] + AHEAD * heading.cos(), eye[2] - DOWN];
     // A spot light looks down its -z, as a camera does.
     Transform::from_translation(nvf_play::space::to_bevy(at)).with_rotation(nvf_play::space::look_rotation(heading, pitch))
@@ -80,21 +81,21 @@ fn sync(
         *t = place;
         return;
     }
-    commands.spawn((
-        Name::new("Flashlight"),
-        PlayerFlashlight,
-        SpotLight {
-            color: crate::lights::display_color(COLOUR),
-            intensity: crate::lights::lumens(BRIGHTNESS, crate::sky::light_unit()),
-            range: RANGE,
-            outer_angle: OUTER_DEG.to_radians(),
-            inner_angle: INNER_DEG.to_radians(),
-            shadow_maps_enabled: true,
-            shadow_map_near_z: NEAR,
-            ..default()
-        },
-        place,
-    ));
+    commands.spawn((Name::new("Flashlight"), PlayerFlashlight, spot(), place));
+}
+
+/// The flashlight's spot light.
+pub(crate) fn spot() -> SpotLight {
+    SpotLight {
+        color: crate::lights::display_color(COLOUR),
+        intensity: crate::lights::lumens(BRIGHTNESS, crate::sky::light_unit()),
+        range: RANGE,
+        outer_angle: OUTER_DEG.to_radians(),
+        inner_angle: INNER_DEG.to_radians(),
+        shadow_maps_enabled: true,
+        shadow_map_near_z: NEAR,
+        ..default()
+    }
 }
 
 #[cfg(test)]

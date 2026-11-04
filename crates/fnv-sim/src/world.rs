@@ -1524,6 +1524,22 @@ impl<'a> World<'a> {
         Ok(c)
     }
 
+    /// Set the clock to `c` as it stands, backwards too (a co-op guest takes the host's
+    /// clock). Nothing restocks: the time between is not lived through here.
+    pub fn set_calendar(&mut self, c: Calendar) -> Result<(), SimError> {
+        for (edid, v) in [
+            (clock::GAME_YEAR, c.year),
+            (clock::GAME_MONTH, c.month),
+            (clock::GAME_DAY, c.day),
+            (clock::GAME_HOUR, c.hour),
+            (clock::GAME_DAYS_PASSED, c.days_passed),
+        ] {
+            let (id, _) = self.time_global(edid)?;
+            self.globals.insert(id, v);
+        }
+        Ok(())
+    }
+
     /// The TimeScale global (game seconds per real second), if the plugins define it.
     pub fn time_scale(&self) -> Option<f64> {
         self.time_global(clock::TIME_SCALE).ok().map(|(_, v)| v as f64)

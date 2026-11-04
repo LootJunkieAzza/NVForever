@@ -33,6 +33,9 @@
 //!   later; it stays black while the player is dead. Real seconds, menus excluded, like
 //!   the blur: the slow motion does not stretch it. It is drawn over the blur and over
 //!   whatever fade a modifier puts on the screen (`imagespace.rs`, as sleeping's fade).
+//! - **In co-op** (private fork; `coop.rs` sets [`DeathCam::downed_in_coop`]): the
+//!   player is down, not dead, and waits to be revived or to respawn: no slow motion (the
+//!   host's clock is everyone's world) and no fade to black; the blur stays.
 //! - The player alive again (a save loaded, a script resurrecting): the ragdoll leaves
 //!   the world, the body and the view are the player's again and the clock runs at full
 //!   speed.
@@ -100,6 +103,8 @@ pub struct DeathCam {
     down: Option<Down>,
     /// Deaths shown, for the exit report.
     deaths: u32,
+    /// Co-op: a death is a downed player (module notes).
+    pub downed_in_coop: bool,
 }
 
 impl DeathCam {
@@ -124,6 +129,9 @@ impl DeathCam {
 
     /// How black the screen is now, 0 … 1 (`imagespace.rs`).
     pub fn black(&self) -> f32 {
+        if self.downed_in_coop {
+            return 0.0;
+        }
         self.down.as_ref().map_or(0.0, |d| black_at(d.real))
     }
 }
@@ -255,11 +263,11 @@ pub(crate) fn watch(
                     info!("death camera: the body is on the ground {:.1} s after the death ({:.1} s of game time)", d.real, d.game);
                 }
             }
-            if !d.fading && black_at(d.real) > 0.0 {
+            if !d.fading && !cam.downed_in_coop && black_at(d.real) > 0.0 {
                 d.fading = true;
                 info!("death camera: the screen starts fading to black {:.1} s after the death, black over {FADE_SECONDS:.1} s", d.real);
             }
-            if !d.black && black_at(d.real) >= 1.0 {
+            if !d.black && !cam.downed_in_coop && black_at(d.real) >= 1.0 {
                 d.black = true;
                 info!("death camera: the screen is black {:.1} s after the death ({:.1} s of game time)", d.real, d.game);
             }
@@ -277,7 +285,7 @@ pub(crate) fn watch(
         }
         (None, false) => {}
     }
-    let want = cam.down.as_ref().map_or(1.0, |d| slow_at(d.real));
+    let want = cam.down.as_ref().filter(|_| !cam.downed_in_coop).map_or(1.0, |d| slow_at(d.real));
     if let Some(s) = scale.as_deref_mut().filter(|s| s.0 != want) {
         s.0 = want;
     }

@@ -17,8 +17,10 @@
 //! theirs there. A guest's hits on NPCs go to the host ([`Session::send_hit`]), which
 //! applies them in its world; what they do (a fight, a death) comes back in the states.
 //! The NPCs' hits on a guest go the other way ([`Session::send_hit_to`]). The host's
-//! active quest goes to the guests too ([`QuestView`], [`QUEST_EVERY`]), and an unlocked
-//! door or terminal goes to everyone ([`Session::send_unlock`]).
+//! active quest goes to the guests too ([`QuestView`], [`QUEST_EVERY`]), so does its game
+//! clock ([`ClockView`], [`CLOCK_EVERY`]: one time of day in every game), and an unlocked
+//! door or terminal goes to everyone ([`Session::send_unlock`]). A player another revives
+//! is told so through the host ([`Session::send_revive`]).
 //!
 //! **Loading screens are not dropouts either.** [`Link`] runs the socket on its own
 //! thread, so heartbeats keep going while the game's frame is stalled loading a cell; the
@@ -39,7 +41,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 pub const MAGIC: [u8; 4] = *b"NVCO";
-pub const VERSION: u8 = 6;
+pub const VERSION: u8 = 8;
 pub const MAX_GUESTS: usize = 3;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -112,6 +114,8 @@ pub const NPCS_PER_PACKET: usize = 40;
 pub const NPC_HZ: u32 = 10;
 /// The host sends its active quest this often, and at once when it changes.
 pub const QUEST_EVERY: Duration = Duration::from_secs(2);
+/// How often the host sends its game clock.
+pub const CLOCK_EVERY: Duration = Duration::from_secs(2);
 /// Objectives a [`QuestView`] carries at most.
 pub const QUEST_OBJECTIVES: usize = 64;
 /// The most a hit takes (the game's own encoding, [`Session::send_hit`]).
@@ -134,6 +138,8 @@ pub mod flag {
     pub const SIGHTS: u8 = 16;
     /// Dead: the world's actors leave this player alone.
     pub const DOWN: u8 = 32;
+    /// The flashlight is on.
+    pub const LIGHT: u8 = 64;
 }
 
 /// [`PlayerState::attack_kind`]: what the newest attack was.
@@ -213,6 +219,21 @@ enum Msg {
     Quest(QuestView),
     /// A door, container or terminal (`terminal`) was unlocked.
     Unlock { reference: u32, terminal: bool },
+    /// The host's game clock.
+    Clock(ClockView),
+    /// Player `by` revived player `target` (who is down).
+    Revive { target: u8, by: u8 },
+}
+
+/// The host's game clock, as its time globals hold it (GameYear, GameMonth, GameDay,
+/// GameHour, GameDaysPassed): the guests set theirs to it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ClockView {
+    pub year: f32,
+    pub month: f32,
+    pub day: f32,
+    pub hour: f32,
+    pub days_passed: f32,
 }
 
 /// The quest the host has active, as its quest list shows it: the guests show it in place
@@ -259,6 +280,10 @@ pub enum Event {
     /// Player `id` unlocked a door, container or terminal (`terminal`). It may come more
     /// than once.
     Unlocked { id: u8, reference: u32, terminal: bool },
+    /// The host's game clock, each time it comes (guests only).
+    Clock(ClockView),
+    /// Player `by` revived this player. It may come more than once.
+    Revived { by: u8 },
 }
 
 /// A peer as one side sees it.
@@ -340,6 +365,9 @@ pub struct Session {
     quest: Option<QuestView>,
     last_quest: Option<(Instant, QuestView)>,
     heard_quest: Option<QuestView>,
+    /// The host's game clock now, and when it was last sent.
+    clock: Option<ClockView>,
+    last_clock: Option<Instant>,
     events: Vec<Event>,
 }
 
@@ -375,7 +403,7 @@ impl Session {
 
     fn with(sock: UdpSocket, role: Role) -> std::io::Result<Self> {
         sock.set_nonblocking(true)?;
-        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, events: Vec::new() })
+        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, events: Vec::new() })
     }
 
     /// Also talk over Steam: a host is reached through it by a Steam code, a guest reaches
@@ -409,6 +437,11 @@ impl Session {
         self.quest = Some(quest);
     }
 
+    /// The host's game clock now; [`Session::tick`] sends it every [`CLOCK_EVERY`].
+    pub fn set_clock(&mut self, clock: ClockView) {
+        self.clock = Some(clock);
+    }
+
     /// This player unlocked `reference` (a terminal: hacked): to the host, or from the host
     /// to every guest ([`HIT_COPIES`] times).
     pub fn send_unlock(&mut self, reference: u32, terminal: bool) {
@@ -419,6 +452,22 @@ impl Session {
             Role::Guest { .. } => Vec::new(),
         };
         for addr in to {
+            for _ in 0..HIT_COPIES {
+                self.sock_send(&msg, addr);
+            }
+        }
+    }
+
+    /// This player revives player `target` (down): to the host, which passes it on, or
+    /// from the host to that guest ([`HIT_COPIES`] times).
+    pub fn send_revive(&mut self, target: u8) {
+        let Some(by) = self.id() else { return };
+        let msg = Msg::Revive { target, by };
+        let to = match &self.role {
+            Role::Host => self.peers.iter().find(|p| p.id == target).and_then(|p| p.addr),
+            Role::Guest { host, .. } => *host,
+        };
+        if let Some(addr) = to {
             for _ in 0..HIT_COPIES {
                 self.sock_send(&msg, addr);
             }
@@ -551,6 +600,15 @@ impl Session {
                     self.sock_send(&msg, addr);
                 }
                 self.last_quest = Some((now, q));
+            }
+        }
+        if let (true, Some(c)) = (self.is_host(), self.clock) {
+            if self.last_clock.is_none_or(|t| now - t >= CLOCK_EVERY) {
+                let msg = Msg::Clock(c);
+                for addr in self.peers.iter().filter_map(|p| p.addr) {
+                    self.sock_send(&msg, addr);
+                }
+                self.last_clock = Some(now);
             }
         }
         let look_due = self.last_look.is_none_or(|t| now - t >= LOOK_EVERY);
@@ -704,7 +762,18 @@ impl Session {
                     self.sock_send(&msg, addr);
                 }
             }
-            Msg::Welcome { .. } | Msg::Full | Msg::Who | Msg::Npcs { .. } | Msg::Quest(_) => {}
+            Msg::Revive { target, by } => {
+                // From a known guest only; for the host, or passed on to its guest.
+                if !self.peers.iter().any(|p| p.addr == Some(from) && p.id == by) {
+                    return;
+                }
+                if target == 0 {
+                    self.events.push(Event::Revived { by });
+                } else if let Some(addr) = self.peers.iter().find(|p| p.id == target).and_then(|p| p.addr) {
+                    self.sock_send(&Msg::Revive { target, by }, addr);
+                }
+            }
+            Msg::Welcome { .. } | Msg::Full | Msg::Who | Msg::Npcs { .. } | Msg::Quest(_) | Msg::Clock(_) => {}
         }
     }
 
@@ -821,6 +890,12 @@ impl Session {
                 }
             }
             Msg::Unlock { reference, terminal } => self.events.push(Event::Unlocked { id: 0, reference, terminal }),
+            Msg::Clock(c) => self.events.push(Event::Clock(c)),
+            Msg::Revive { target, by } => {
+                if Some(target) == *id {
+                    self.events.push(Event::Revived { by });
+                }
+            }
             Msg::Hello { .. } | Msg::Ping => {}
         }
     }
@@ -932,6 +1007,14 @@ impl Link {
 
     pub fn send_hit_to(&self, id: u8, hit: Vec<u8>) {
         self.with(|s| s.send_hit_to(id, hit));
+    }
+
+    pub fn send_revive(&self, target: u8) {
+        self.with(|s| s.send_revive(target));
+    }
+
+    pub fn set_clock(&self, clock: ClockView) {
+        self.with(|s| s.set_clock(clock));
     }
 
     pub fn set_quest(&self, quest: QuestView) {
@@ -1097,6 +1180,17 @@ fn encode(msg: &Msg) -> Vec<u8> {
             b.extend_from_slice(&reference.to_le_bytes());
             b.push(u8::from(*terminal));
         }
+        Msg::Clock(c) => {
+            b.push(13);
+            for v in [c.year, c.month, c.day, c.hour, c.days_passed] {
+                b.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        Msg::Revive { target, by } => {
+            b.push(14);
+            b.push(*target);
+            b.push(*by);
+        }
     }
     b
 }
@@ -1202,6 +1296,8 @@ fn decode(b: &[u8]) -> Option<Msg> {
             Msg::Quest(QuestView { quest, completed: flags & 1 != 0, failed: flags & 2 != 0, objectives })
         }
         12 => Msg::Unlock { reference: r.u32()?, terminal: r.u8()? != 0 },
+        14 => Msg::Revive { target: r.u8()?, by: r.u8()? },
+        13 => Msg::Clock(ClockView { year: r.f32()?, month: r.f32()?, day: r.f32()?, hour: r.f32()?, days_passed: r.f32()? }),
         _ => return None,
     };
     r.0.is_empty().then_some(msg)
@@ -1256,6 +1352,8 @@ mod tests {
             Msg::Quest(QuestView { quest: 0x0010_4C1D, completed: false, failed: true, objectives: vec![(10, true), (-1, false), (200, false)] }),
             Msg::Quest(QuestView::default()),
             Msg::Unlock { reference: 0x0001_2345, terminal: true },
+            Msg::Clock(ClockView { year: 2281.0, month: 9.0, day: 19.0, hour: 13.25, days_passed: 6.05 }),
+            Msg::Revive { target: 2, by: 0 },
             Msg::Npcs {
                 seq: 12,
                 npcs: vec![
@@ -1331,6 +1429,28 @@ mod tests {
         let addr: SocketAddr = format!("127.0.0.1:{}", host.local_addr().unwrap().port()).parse().unwrap();
         let guests = (0..n).map(|i| Session::join(&[addr], 0, &format!("G{i}"), new_token()).unwrap()).collect();
         (host, guests, addr)
+    }
+
+    /// A guest's revive reaches the other guest through the host, and the host's own.
+    #[test]
+    fn revives_reach_the_one_revived() {
+        let (mut host, mut guests, _) = host_and(2);
+        let (a, b) = guests.split_at_mut(1);
+        let (a, b) = (&mut a[0], &mut b[0]);
+        let mut clock = Instant::now();
+        let step = Duration::from_millis(20);
+        run(&mut [&mut host, a, b], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))) && seen[2].iter().any(|e| matches!(e, Event::Welcomed(_))));
+        let (ida, idb) = (a.id().unwrap(), b.id().unwrap());
+        a.send_revive(idb);
+        let seen = run(&mut [&mut host, a, b], &mut clock, step, |seen| seen[2].iter().any(|e| matches!(e, Event::Revived { .. })));
+        assert!(seen[2].contains(&Event::Revived { by: ida }));
+        assert!(!seen[0].iter().any(|e| matches!(e, Event::Revived { .. })));
+        b.send_revive(0);
+        let seen = run(&mut [&mut host, a, b], &mut clock, step, |seen| seen[0].iter().any(|e| matches!(e, Event::Revived { .. })));
+        assert!(seen[0].contains(&Event::Revived { by: idb }));
+        host.send_revive(ida);
+        let seen = run(&mut [&mut host, a, b], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Revived { .. })));
+        assert!(seen[1].contains(&Event::Revived { by: 0 }));
     }
 
     /// Each guest is welcomed, the host relays one guest's state to the other, and a guest
