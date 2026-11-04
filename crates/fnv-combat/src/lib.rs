@@ -24,6 +24,7 @@
 //!   (docs/spec-notes/combat-rules.md §17).
 
 pub mod attack;
+pub mod bash;
 pub mod body_weapon;
 pub mod condition;
 pub mod damage;

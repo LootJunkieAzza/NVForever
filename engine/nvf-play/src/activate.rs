@@ -53,6 +53,7 @@ impl Plugin for ActivatePlugin {
             .init_resource::<HudMessage>()
             .init_resource::<ActivateNext>()
             .init_resource::<HeldActivation>()
+            .add_message::<PickedUp>()
             .insert_resource(AutoActivate::from_env())
             .add_systems(Update, (find_target, activate).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)))
             .add_systems(Update, sync_visuals.in_set(PlaySet::Sync));
@@ -83,6 +84,15 @@ pub struct Targeted {
 /// item 64).
 #[derive(Resource, Default, Debug)]
 pub struct ActivateNext(pub Option<u32>);
+
+/// The player picked an item up from the world (E on it): the co-op fork's B42 Loot
+/// clip plays for it (nvforever `consume_anims.rs`).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct PickedUp {
+    pub reference: u32,
+    pub item: FormId,
+    pub count: i32,
+}
 
 /// An activation that waits for an animation (the co-op fork's B42 Interact; nvforever
 /// `consume_anims.rs`). E on a reference whose base record is one of `sigs` is held here
@@ -543,7 +553,7 @@ pub(crate) fn activate(
     (mut seat, mut steal, mut ui, mut screen): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::pickpocket::OpenPickpocket>, MessageWriter<crate::ui_sounds::UiSound>, Option<ResMut<crate::loading::Loading>>),
     script: Option<ResMut<crate::script::ScriptState>>,
     (locks, stats): (Option<Res<crate::control::ControlLocks>>, Option<ResMut<crate::control::LockStats>>),
-    mut hold: Option<ResMut<HeldActivation>>,
+    (mut hold, mut picked): (Option<ResMut<HeldActivation>>, Option<ResMut<Messages<PickedUp>>>),
 ) {
     // A reference queued by a lock just opened, or by the perks' choice list answered
     // with the default action: activated as if E were pressed on it.
@@ -722,6 +732,11 @@ pub(crate) fn activate(
     if matches!(a.outcome, Outcome::Locked { .. }) {
         lockpicks.write(crate::lockpick::OpenLockpick { reference: t.form_id });
         return;
+    }
+    if let Outcome::PickedUp { item, count, .. } = a.outcome {
+        if let Some(m) = picked.as_deref_mut() {
+            m.write(PickedUp { reference: t.form_id, item, count });
+        }
     }
     let name_of = |id: FormId| sim.name(id).map_or_else(|| id.to_string(), str::to_string);
     let effects = outcome::effects(&a, t.form_id, &t.name, play.index, name_of);

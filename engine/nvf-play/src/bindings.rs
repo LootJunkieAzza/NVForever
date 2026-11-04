@@ -89,14 +89,17 @@ pub enum Control {
     /// Raise the Pip-Boy for a glance while walking on (NVForever's own;
     /// `crate::pipboy::glance`).
     PipBoyGlance,
+    /// Bash with the gun drawn (the fork's weapon bash, `crate::bash`).
+    Bash,
 }
 
 /// `[Controls]` of the owner's `FalloutPrefs.ini`: (control, INI name, value)
 /// [observed 2026-10-09], then NVForever's own controls (after [`GAME_INI_CONTROLS`],
 /// coded the same way): Lower Weapon on H [design: the owner 2026-10-27, moved off Ready
 /// Item tapped twice so a reload is not held back waiting for a second tap], Pip-Boy
-/// Glance on G [design: the real-time Pip-Boy, 2026-11-03].
-pub const GAME_CONTROLS: [(Control, &str, u32); 30] = [
+/// Glance on G [design: the real-time Pip-Boy, 2026-11-03], Weapon Bash on X (the fork's;
+/// B42 Melee Bash's default key, DIK 45).
+pub const GAME_CONTROLS: [(Control, &str, u32); 31] = [
     (Control::Forward, "Forward", 0x0011FF13),
     (Control::Back, "Back", 0x001FFF14),
     (Control::SlideLeft, "Slide Left", 0x001EFF17),
@@ -127,6 +130,7 @@ pub const GAME_CONTROLS: [(Control, &str, u32); 30] = [
     (Control::Grab, "Grab", 0x002CFF09),
     (Control::LowerWeapon, "Lower Weapon", 0x0023FFFF),
     (Control::PipBoyGlance, "Pip-Boy Glance", 0x0022FFFF),
+    (Control::Bash, "Weapon Bash", 0x002DFFFF),
 ];
 
 /// How many of [`GAME_CONTROLS`] are the game's own (the extender's control codes 0–27).
@@ -475,6 +479,7 @@ pub fn label(c: Control) -> &'static str {
         Grab => "Grab",
         LowerWeapon => "Lower Weapon",
         PipBoyGlance => "Pip-Boy Glance",
+        Bash => "Weapon Bash",
     }
 }
 
@@ -994,6 +999,7 @@ mod tests {
         assert_eq!(b.get(Control::QuickLoad).key, Some(KeyCode::F9));
         assert_eq!(b.get(Control::LowerWeapon).key, Some(KeyCode::KeyH));
         assert_eq!(b.get(Control::PipBoyGlance).key, Some(KeyCode::KeyG));
+        assert_eq!(b.get(Control::Bash).key, Some(KeyCode::KeyX));
         assert_eq!(Bindings::name(Control::Rest), "Rest");
         // Every control has a key or a button.
         for (c, _, _) in GAME_CONTROLS {

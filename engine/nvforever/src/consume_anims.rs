@@ -41,6 +41,18 @@
 //!   item's third-person clip when one is there (of the same name as the one played),
 //!   else the game's idle for its kind; its sounds where the puppet is.
 //!
+//! - **B42 Loot** (`fnv_actor::b42::LootSet`): an item picked up from the world (E on
+//!   it, `nvf_play::activate::PickedUp`) that no consume or interact clip is for plays
+//!   the mod's loot clip, holding the item's own model in the left hand where the mod's
+//!   Coord files put it (by its model, else its type). The others see the third-person
+//!   one. Not done: the item's pull to the hand from afar and the clavicle's nudge.
+//! - **B42 Melee Bash** (`fnv_actor::b42::BashClips`): nvf-play's weapon bash
+//!   (`nvf_play::bash`) asks for its clip ([`nvf_play::bash::BashCue`]); one of the mod's
+//!   for the view and the gun's type plays at once (none while another plays), its
+//!   `B42BashHitFrameDetect` key strikes ([`nvf_play::bash::BashStrike`]) and its end, or
+//!   its not playing, ends the bash ([`nvf_play::bash::BashOver`]). The others see the
+//!   third-person one.
+//!
 //! Log: `consume anim: …` per use and start; at exit `consume anims summary: …`.
 //!
 //! Not done: kNVSE's AnimGroupOverride folders (Idle Variety), a remembered "once" across
@@ -112,6 +124,8 @@ struct Pending {
     view: Option<View>,
     /// The reference whose activation waits for the clip (`HeldActivation`).
     activate: Option<u32>,
+    /// Where the held model sits under the hand (B42 Loot), instead of the clip's attach point.
+    grip: Option<Transform>,
 }
 
 /// A model held in the hand while a clip plays.
@@ -146,6 +160,10 @@ struct Playing {
     fire: bool,
     /// It gave its activation back (its menu may be up now).
     gave: bool,
+    grip: Option<Transform>,
+    /// A weapon bash's clip, and its blow's key passed this step.
+    bash: bool,
+    strike: bool,
 }
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -183,6 +201,10 @@ pub struct ConsumeAnims {
     types_on: Vec<u32>,
     blacklist: HashSet<String>,
     keywords: HashMap<String, Vec<String>>,
+    /// B42 Loot as installed.
+    loot: Arc<b42::LootSet>,
+    /// B42 Melee Bash's clips as installed.
+    bash: b42::BashClips,
     stats: Stats,
 }
 
@@ -217,7 +239,7 @@ impl Plugin for ConsumeAnimsPlugin {
             .init_resource::<ConsumeOptions>()
             .add_message::<SendAnim>()
             .add_message::<PeerAnim>()
-            .add_systems(Update, (build, held_activation, own, crafted, interact, puppets).chain().after(nvf_play::PlaySet::Scripts).before(crate::idles::drive))
+            .add_systems(Update, (build, held_activation, own, crafted, interact, loot, bash, puppets).chain().after(nvf_play::PlaySet::Scripts).before(crate::idles::drive))
             .add_systems(Last, report);
         register_settings(app);
     }
@@ -264,7 +286,7 @@ fn register_settings(app: &mut App) {
 }
 
 /// Read the folders once (and the mod's ini for the options' start).
-fn build(mut st: ResMut<ConsumeAnims>, mut opts: ResMut<ConsumeOptions>, models: ModelCtx, script: Option<Res<nvf_play::script::ScriptState>>, mut held: ResMut<nvf_play::ConsumeAnims>) {
+fn build(mut st: ResMut<ConsumeAnims>, mut opts: ResMut<ConsumeOptions>, models: ModelCtx, script: Option<Res<nvf_play::script::ScriptState>>, mut held: ResMut<nvf_play::ConsumeAnims>, mut weapon_bash: ResMut<nvf_play::bash::WeaponBash>) {
     if st.index.is_some() {
         return;
     }
@@ -303,6 +325,22 @@ fn build(mut st: ResMut<ConsumeAnims>, mut opts: ResMut<ConsumeOptions>, models:
         paths.len(),
         t.elapsed().as_secs_f64() * 1000.0
     );
+    let loot_paths = vfs.paths(|p| p.starts_with(b42::LOOT_ROOT));
+    let read = |p: &str| vfs.read(p).and_then(Result::ok).map(|b| String::from_utf8_lossy(&b).into_owned());
+    let obj: Vec<String> = vfs.paths(|p| p.starts_with("config\\b42loot\\coord\\obj\\") && p.ends_with(".ini")).iter().filter_map(|p| read(p)).collect();
+    let loot = b42::LootSet::build(loot_paths.iter().map(String::as_str), &obj, read("config\\b42loot\\coord\\types.ini").as_deref(), read("config\\b42loot\\settings.ini").as_deref());
+    if !loot.is_empty() {
+        let (clips, models, types) = loot.counts();
+        info!("consume anim: B42 Loot: {clips} clips, grips for {models} models and {types} types");
+    }
+    st.loot = Arc::new(loot);
+    let bash = b42::BashClips::build(vfs.paths(|p| p.starts_with(b42::BASH_ROOT)).iter().map(String::as_str));
+    if !bash.is_empty() {
+        let (first, third) = bash.counts();
+        info!("consume anim: B42 Melee Bash: {first} first-person and {third} third-person bash clips{}", if bash.fail.is_some() { ", the fail clip" } else { "" });
+    }
+    weapon_bash.clips = !bash.is_empty();
+    st.bash = bash;
     st.rng = 0x0B42_1A2B_3C4D;
     st.index = Some(Arc::new(ix));
 }
@@ -451,7 +489,7 @@ fn held_activation(
     }
     st.stats.typed += 1;
     info!("consume anim: {edid} activated: type {code}\\{category}, lock {lock:?}, {view:?} person, stance {stance}: {} clips", clips.len());
-    st.pending.insert(0, Pending { kind: AnimCue::INTERACT, item: base, edid, clips: clips.to_vec(), style: Style::Handle, view: Some(view), activate: Some(reference) });
+    st.pending.insert(0, Pending { kind: AnimCue::INTERACT, item: base, edid, clips: clips.to_vec(), style: Style::Handle, view: Some(view), activate: Some(reference), grip: None });
 }
 
 /// This player's uses and the animation playing.
@@ -468,6 +506,7 @@ fn own(
     (mut sfx, mut sounds, mut send): (Option<ResMut<Sfx>>, MessageWriter<PlaySound>, MessageWriter<SendAnim>),
     mut transforms: Query<&mut Transform>,
     (mut hold, mut next): (ResMut<nvf_play::activate::HeldActivation>, ResMut<nvf_play::activate::ActivateNext>),
+    (mut bash_strike, mut bash_over): (MessageWriter<nvf_play::bash::BashStrike>, MessageWriter<nvf_play::bash::BashOver>),
 ) {
     let st = &mut *st;
     let o = opts.0;
@@ -513,7 +552,7 @@ fn own(
         match b42::decide(&s, &o) {
             Decision::Play | Decision::Wait => {
                 info!("consume anim: {edid} used{}", if s.in_menu { "; plays once the menu is closed" } else { "" });
-                st.pending.push(Pending { kind: AnimCue::CONSUME, item, edid, clips: Vec::new(), style, view: None, activate: None });
+                st.pending.push(Pending { kind: AnimCue::CONSUME, item, edid, clips: Vec::new(), style, view: None, activate: None, grip: None });
             }
             Decision::Skip(_) | Decision::Refuse if !has_clips => {}
             Decision::Skip(why) => {
@@ -570,7 +609,8 @@ fn own(
                     _ => {}
                 }
                 info!("consume anim: {} plays {path} ({:?} person, {:.1} s)", p.edid, view, clip.length());
-                st.own = Some(Playing { item: p.item, view, serial, clip, at: None, model: None, held: None, recent: Vec::new(), keyed_sound: keyed, age: 0.0, feet: now.feet(), activate: p.activate, fire: false, gave: false });
+                let is_bash = path.starts_with(b42::BASH_ROOT);
+                st.own = Some(Playing { item: p.item, view, serial, clip, at: None, model: None, held: None, recent: Vec::new(), keyed_sound: keyed, age: 0.0, feet: now.feet(), activate: p.activate, fire: false, gave: false, grip: p.grip, bash: is_bash, strike: false });
             }
             (Some(path), None) => warn!("consume anim: {}: {path} does not load", p.edid),
             (None, _) => {
@@ -582,6 +622,11 @@ fn own(
         // An activation whose clip cannot play goes ahead now.
         if p.activate.is_some() && st.own.is_none() {
             hold.release(&mut next);
+        }
+        // A bash whose clip cannot play is over.
+        if st.own.is_none() && p.clips.first().is_some_and(|c| c.starts_with(b42::BASH_ROOT)) {
+            info!("consume anim: weapon bash: its clip does not play now{}", if blocked { " (busy)" } else { "" });
+            bash_over.write(nvf_play::bash::BashOver);
         }
         // The item's sound now unless the clip plays it.
         if p.kind == AnimCue::CONSUME && held_sound && !keyed && (st.own.is_none() || fallback) {
@@ -638,9 +683,15 @@ fn own(
         pl.gave = true;
     }
     pl.fire = false;
+    if std::mem::take(&mut pl.strike) && pl.bash {
+        bash_strike.write(nvf_play::bash::BashStrike);
+    }
     if alive {
         st.own = Some(pl);
     } else {
+        if pl.bash {
+            bash_over.write(nvf_play::bash::BashOver);
+        }
         detach(&mut commands, &mut pl);
     }
     let busy = st.own.is_some() || s.reloading || s.attacking || s.ragdolled;
@@ -683,7 +734,7 @@ fn step<F: bevy::ecs::query::QueryFilter>(
                 detach(commands, pl);
                 let model = pl.model.clone().or_else(|| item_model.clone());
                 if let (Some(model), Some((skel, nodes))) = (model, rig) {
-                    if let Some(h) = attach(commands, ctx, &pl.clip, t, skel, nodes, &model, layer.clone()) {
+                    if let Some(h) = attach(commands, ctx, &pl.clip, t, skel, nodes, &model, layer.clone(), pl.grip) {
                         st.stats.attached += 1;
                         info!("consume anim: holds {model}");
                         pl.held = Some(h);
@@ -703,6 +754,7 @@ fn step<F: bevy::ecs::query::QueryFilter>(
                 }
             }
             Cue::Activate => pl.fire = true,
+            Cue::Strike => pl.strike = true,
             Cue::Controls(_) => {}
         }
     }
@@ -736,15 +788,16 @@ fn track<'a>(clip: &'a Clip, name: &str) -> Option<&'a Arc<TransformTrack>> {
 
 /// Draw `model` at the attach point under the rig's left hand (module notes).
 #[allow(clippy::too_many_arguments)]
-fn attach(commands: &mut Commands, ctx: &mut ActorCtx, clip: &Clip, t: f32, skel: &nvf_assets::actor::PreparedSkeleton, nodes: &[Entity], model: &str, layer: Option<RenderLayers>) -> Option<Held> {
+fn attach(commands: &mut Commands, ctx: &mut ActorCtx, clip: &Clip, t: f32, skel: &nvf_assets::actor::PreparedSkeleton, nodes: &[Entity], model: &str, layer: Option<RenderLayers>, grip: Option<Transform>) -> Option<Held> {
     let part = ctx.part(model).or_else(|| {
         warn!("consume anim: {model} does not load");
         None
     })?;
     let hand = *skel.by_name.get(b42::HAND_NODE)?;
     let hand = *nodes.get(hand)?;
-    let point_track = track(clip, b42::ATTACH_NODE).cloned();
-    let at = point_track.as_ref().map_or(Transform::IDENTITY, |tr| sampled(tr, t, Affine3A::IDENTITY, Affine3A::IDENTITY));
+    // B42 Loot's grip is a node of its own under the hand, not moved by the clip.
+    let point_track = if grip.is_some() { None } else { track(clip, b42::ATTACH_NODE).cloned() };
+    let at = grip.unwrap_or_else(|| point_track.as_ref().map_or(Transform::IDENTITY, |tr| sampled(tr, t, Affine3A::IDENTITY, Affine3A::IDENTITY)));
     let point = commands.spawn((at, Visibility::default())).id();
     commands.entity(hand).add_child(point);
     let mut entities = vec![point];
@@ -815,7 +868,7 @@ fn crafted(mut st: ResMut<ConsumeAnims>, opts: Res<ConsumeOptions>, menu: Option
             continue;
         }
         info!("consume anim: recipe {edid} made; its animation plays once the menu is closed");
-        st.pending.push(Pending { kind: AnimCue::CRAFT, item: r, edid, clips: clips.to_vec(), style: Style::Craft, view: None, activate: None });
+        st.pending.push(Pending { kind: AnimCue::CRAFT, item: r, edid, clips: clips.to_vec(), style: Style::Craft, view: None, activate: None, grip: None });
     }
 }
 
@@ -889,7 +942,80 @@ fn interact(
         }
         let style = if entry.cond.corpse.is_some() { Style::Skin } else { Style::Handle };
         info!("consume anim: {edid} picked up{}; its animation plays{}", body.as_ref().map_or(String::new(), |(_, f, ..)| format!(" from a {f}")), if now.in_menu() { " once the menu is closed" } else { "" });
-        st.pending.push(Pending { kind: AnimCue::INTERACT, item, edid, clips: entry.clips.clone(), style, view: None, activate: None });
+        st.pending.push(Pending { kind: AnimCue::INTERACT, item, edid, clips: entry.clips.clone(), style, view: None, activate: None, grip: None });
+    }
+}
+
+/// Where B42 Loot puts `item` in the hand (module notes).
+fn loot_grip(loot: &b42::LootSet, world: &WorldData, script: Option<&nvf_play::script::ScriptState>, item: FormId) -> Option<Transform> {
+    let base = fnv_world::placed::base_object(world.lo, world.schema, item.0)?;
+    let anim = (&base.sig == b"WEAP").then(|| script.and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.data.weapon_anim_types.get(&item).copied())).flatten();
+    let code = b42::loot_type(&base.sig, anim.map(i64::from), None, false);
+    let g = loot.grip(base.model_path().as_deref(), code.as_deref())?;
+    let [rx, ry, rz] = g.turn.map(f32::to_radians);
+    Some(Transform { translation: Vec3::from(g.at), rotation: Quat::from_euler(EulerRot::XYZ, rx, ry, rz), scale: Vec3::splat(g.scale) })
+}
+
+/// B42 Loot: an item picked up from the world plays the loot clip (module notes).
+#[allow(clippy::too_many_arguments)]
+fn loot(
+    mut st: ResMut<ConsumeAnims>,
+    opts: Res<ConsumeOptions>,
+    mut picked: MessageReader<nvf_play::activate::PickedUp>,
+    mut script: Option<ResMut<nvf_play::script::ScriptState>>,
+    world: Res<WorldData>,
+    body: Res<PlayerBody>,
+    now: Now,
+) {
+    let st = &mut *st;
+    for p in picked.read() {
+        if !opts.0.on || st.loot.is_empty() {
+            continue;
+        }
+        // Another clip has it (its own interact clip, one playing or waiting).
+        if st.own.is_some() || !st.pending.is_empty() {
+            debug!("consume anim: {} picked up while another clip plays or waits: no loot clip", p.item);
+            continue;
+        }
+        let third = now.third() || !body.first_person_drawn();
+        let view = if third { View::Third } else { View::First };
+        let drawn = now.control.as_deref().is_some_and(|c| c.weapon_out);
+        let game = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game);
+        let anim = drawn.then(|| game.and_then(|g| g.weapon_equipped(P).and_then(|w| g.data.weapon_anim_types.get(&w).copied())).unwrap_or(0));
+        let Some(clip) = st.loot.clip(view, anim.map(i64::from)).map(str::to_string) else { continue };
+        let grip = loot_grip(&st.loot, &world, script.as_deref(), p.item);
+        let edid = fnv_world::placed::base_object(world.lo, world.schema, p.item.0).and_then(|b| b.edid).unwrap_or_else(|| p.item.to_string());
+        info!("consume anim: {edid} picked up: B42 Loot {clip}{}", if grip.is_some() { "" } else { " (no grip for it: held as the clip has it)" });
+        st.pending.push(Pending { kind: AnimCue::INTERACT, item: p.item, edid, clips: vec![clip], style: Style::Handle, view: Some(view), activate: None, grip });
+    }
+}
+
+/// A weapon bash's clip (module notes): first in line, or the bash is over.
+fn bash(mut st: ResMut<ConsumeAnims>, mut cues: MessageReader<nvf_play::bash::BashCue>, mut over: MessageWriter<nvf_play::bash::BashOver>, body: Res<PlayerBody>, mut pi: ResMut<PlayerIdles>, now: Now) {
+    let st = &mut *st;
+    for c in cues.read() {
+        let third = now.third() || !body.first_person_drawn();
+        let view = if third { View::Third } else { View::First };
+        let clips: Vec<String> = if c.fail {
+            st.bash.fail.iter().filter(|_| view == View::First).cloned().collect()
+        } else {
+            st.bash.clips(view, c.clip_type).to_vec()
+        };
+        // A clip that holds back no activation (an inspect, a pick-up, a use) gives way.
+        let busy = st.own.as_ref().is_some_and(|o| o.bash || o.activate.is_some());
+        if clips.is_empty() || busy {
+            info!("consume anim: weapon bash: {}", if clips.is_empty() { format!("no clip for type {} in the {view:?} person view", c.clip_type) } else { "another clip plays".to_string() });
+            over.write(nvf_play::bash::BashOver);
+            continue;
+        }
+        if let Some(o) = st.own.as_ref() {
+            let slot = if o.view == View::First { &mut pi.first } else { &mut pi.third };
+            if let Some(cur) = slot.cur.as_mut().filter(|cur| cur.serial == o.serial) {
+                cur.play.stop();
+                info!("consume anim: {}'s clip gives way to a weapon bash", o.item);
+            }
+        }
+        st.pending.insert(0, Pending { kind: AnimCue::INTERACT, item: FormId(0), edid: if c.fail { "weapon bash (no AP)".to_string() } else { "weapon bash".to_string() }, clips, style: Style::Handle, view: Some(view), activate: None, grip: None });
     }
 }
 
@@ -920,11 +1046,16 @@ fn puppets(
         let own = st.index.as_ref().and_then(|ix| {
             if cue.kind == AnimCue::CONSUME {
                 ix.third_for(&cue.edid, cue.power_armor, &cue.clip, roll).map(str::to_string)
+            } else if cue.clip.starts_with(b42::LOOT_ROOT) {
+                st.loot.clip(View::Third, None).map(str::to_string)
+            } else if cue.clip.starts_with(b42::BASH_ROOT) {
+                b42::BashClips::type_of(&cue.clip).and_then(|t| b42::pick(st.bash.clips(View::Third, t), roll).cloned())
             } else {
                 // An activation's type clip: its folder's third-person one.
                 b42::pick(ix.type_third(&cue.clip), roll).cloned()
             }
         });
+        let grip = cue.clip.starts_with(b42::LOOT_ROOT).then(|| loot_grip(&st.loot, &world, script.as_deref(), FormId(cue.item))).flatten();
         let style = Style::from_code(cue.style);
         let path = own.clone().filter(|p| ctx.clip(p).is_some()).or_else(|| style.clips().iter().map(|c| format!("{PEOPLE}{c}")).find(|c| ctx.clip(c).is_some()));
         let Some((path, clip)) = path.and_then(|p| Some((p.clone(), ctx.clip(&p)?))) else {
@@ -955,7 +1086,7 @@ fn puppets(
         }
         st.stats.puppets += 1;
         info!("consume anim: puppet {reference:08X} plays {path} for {}", cue.edid);
-        st.puppets.insert(*reference, Playing { item: FormId(cue.item), view: View::Third, serial, clip, at: None, model: None, held: None, recent: Vec::new(), keyed_sound: keyed, age: 0.0, feet: [0.0; 3], activate: None, fire: false, gave: false });
+        st.puppets.insert(*reference, Playing { item: FormId(cue.item), view: View::Third, serial, clip, at: None, model: None, held: None, recent: Vec::new(), keyed_sound: keyed, age: 0.0, feet: [0.0; 3], activate: None, fire: false, gave: false, grip, bash: false, strike: false });
     }
     let mut gone = Vec::new();
     for (reference, pl) in st.puppets.iter_mut() {

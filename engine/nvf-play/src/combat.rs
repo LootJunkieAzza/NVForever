@@ -1205,6 +1205,11 @@ impl Combat {
         self.ammo
     }
 
+    /// The weapon in hand when it is not melee or unarmed (a gun, a launcher …).
+    pub fn gun(&self) -> Option<FormId> {
+        self.weapon.filter(|_| !self.melee)
+    }
+
     /// The figures of the player's weapon `id`: the equipped one's with its mods on
     /// (`WeaponStats::modded`), any other's as the record has them.
     pub fn player_stats(&self, id: FormId) -> Option<WeaponStats> {
@@ -1456,7 +1461,7 @@ impl Plugin for CombatPlugin {
             .add_systems(Startup, init_combat)
             .add_systems(
                 Update,
-                (track_limbs, (perk_speed, stat_speed), player_flinch, arm_sway, weapon_state, equip_sync, run_pace, reload_pace, weapon_sounds, fire, melee, actor_attacks, (fly, remote_hits).chain(), crate::dismember::resolve, crate::mines::tick, crate::thrown::land, disarm, death_drops, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(crate::coop_tables::world_goes_on).run_if(resource_exists::<Combat>),
+                (track_limbs, (perk_speed, stat_speed), player_flinch, arm_sway, weapon_state, equip_sync, run_pace, reload_pace, weapon_sounds, fire, (crate::bash::tick, melee).chain(), actor_attacks, (fly, remote_hits).chain(), crate::dismember::resolve, crate::mines::tick, crate::thrown::land, disarm, death_drops, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(crate::coop_tables::world_goes_on).run_if(resource_exists::<Combat>),
             )
             .add_systems(Update, (draw_marks, watch_hit_effects).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
@@ -1584,6 +1589,25 @@ fn knock_down(script: Option<&mut ScriptState>, by: FormId, target: FormId, dir:
         info!("combat: {why}: {target} cannot be knocked down (No Knockdowns, or seated or talking)");
     }
     down
+}
+
+/// A weapon bash's knockdown roll on `target` (`fnv_combat::bash::knockdown_chance`: the
+/// player's Melee Weapons, Super Slam, the target's Endurance), in place of the Knockdown
+/// Chance perks.
+fn bash_knockdown(c: &mut Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, target: FormId, dir: V3) {
+    use fnv_game::actor_values as avs;
+    let melee = actor_av(script.as_deref_mut(), sim, FormId::PLAYER_REF, avs::MELEE_WEAPONS).unwrap_or(0.0);
+    let endurance = actor_av(script.as_deref_mut(), sim, target, avs::ENDURANCE).unwrap_or(5.0);
+    let slam = script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| {
+        rt.game.data.by_edid(fnv_combat::bash::SUPER_SLAM).is_some_and(|p| rt.game.held_perks(FormId::PLAYER_REF).iter().any(|(h, _)| *h == p))
+    });
+    let chance = fnv_combat::bash::knockdown_chance(melee, slam, endurance);
+    let roll = c.rng.next_f32();
+    if roll >= chance {
+        info!("bash: knockdown {:.0} % (Melee {melee:.0}, Endurance {endurance:.0}{}): rolled {:.0}, {target} stays up", chance * 100.0, if slam { ", Super Slam" } else { "" }, roll * 100.0);
+        return;
+    }
+    knock_down(script, FormId::PLAYER_REF, target, dir, &format!("the bash ({:.0} %, rolled {:.0})", chance * 100.0, roll * 100.0));
 }
 
 /// The Knockdown Chance perks of `attacker`'s hit with `weapon` on `target` (Super Slam
@@ -3437,109 +3461,117 @@ fn melee(
     (mut messages, mut pushes, mut broken, mut forced): (MessageWriter<ActorHit>, MessageWriter<ActorPush>, MessageWriter<WeaponBroken>, MessageWriter<ForcedHitReaction>),
     (parts, limbs): (Res<ActorParts>, Res<PlayerLimbs>),
     (sfx, mut sounds, mut impacts): (Option<Res<Sfx>>, MessageWriter<PlaySound>, MessageWriter<ImpactFx>),
-    (mut vats, mut dm, mut knocks): (Option<ResMut<crate::vats_mode::VatsMode>>, ResMut<crate::dismember::Dismemberment>, MessageWriter<Knockback>),
+    (mut vats, mut dm, mut knocks, mut bash): (Option<ResMut<crate::vats_mode::VatsMode>>, ResMut<crate::dismember::Dismemberment>, MessageWriter<Knockback>, Option<ResMut<crate::bash::WeaponBash>>),
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
+    // A weapon bash's blow due now (`crate::bash`): the gun strikes as its base melee
+    // weapon, without a swing of its own.
+    let bash_blow = bash.as_deref_mut().and_then(|b| b.strike.take());
     // VATS mode's swing due now: one tap of Use (vats-mode.md §16.2).
     let vats_tap = vats.as_deref_mut().is_some_and(|v| v.take_swing());
-    let Some(id) = c.weapon.filter(|_| c.melee) else { return };
-    if !anim.ready {
+    let Some(id) = (if let Some((gun, _)) = &bash_blow { Some(*gun) } else { c.weapon.filter(|_| c.melee) }) else { return };
+    if bash_blow.is_none() && !anim.ready {
         c.swings.reset();
         anim.swing = None;
         return;
     }
-    let w = c.player_stats(id).expect("weapon present");
-    // The clip the body timed for the swing playing; a new swing runs on the weapon's
-    // own timing until the body has read its clip (the next frame).
-    // The Modify Attack Speed perks (Slayer, Melee Hacker …) speed the swing as the
-    // weapon's own multipliers do; the body plays the swing clip at the same rate.
-    let (atk, by) = player_weapon_perk(script.as_deref_mut(), &mut sim, fnv_game::perks::MODIFY_ATTACK_SPEED, id, 1.0);
-    let atk = if atk.is_finite() && atk > 0.0 { atk } else { 1.0 };
-    let speed = w.attack_mult.max(0.01) * w.anim_mult.max(0.01) * atk;
-    if (speed - anim.attack_rate).abs() > 1e-4 {
-        if by.is_empty() {
-            info!("combat: swings at x{speed:.2} ({})", w.edid.as_deref().unwrap_or("?"));
-        } else {
-            info!("combat: swings at x{speed:.2} ({}; perks x{atk:.2}: {})", w.edid.as_deref().unwrap_or("?"), by.join(", "));
-        }
-    }
-    anim.attack_rate = speed;
-    if let Some(stem) = anim.timed.as_deref() {
-        let t = &anim.timing;
-        c.swings.set_timing(stem, SwingTiming::of(t.attack_len, t.hit_time, t.next_attack, speed, 1.0));
-    }
-    let fallback = Timing::of(&w, &ClipTiming::default(), &c.tuning).interval;
-    let first = fnv_actor::player_clips::attack_stem(anim.attack.as_deref());
-    // Both legs crippled: no directional power attacks outside VATS mode (crippled-limbs.md
-    // §4): the swing takes the standing one.
-    let (forward, right) = if limbs.both_legs() { (0.0, 0.0) } else { (intent.forward, intent.right) };
-    // The weapon's power attack override plays for the standing power attack.
-    let input = MeleeInput { trigger: control.trigger || vats_tap, dt, forward, right, first: &first, rolls: [c.swing_rng.next_f32(), c.swing_rng.next_f32()], power_override: w.power_attack_override.as_deref() };
-    let mut strike = None;
-    for e in c.swings.tick(input, &c.tuning, SwingTiming::of(None, None, None, speed, fallback)) {
-        match e {
-            MeleeEvent::Started { stem, power, chained } => {
-                // The unarmed special moves (perk-entry-points.md §11) are chosen as the
-                // swing starts, so it plays the move's own clip: a power attack in a
-                // direction whose move the player has; Scribe Counter, a plain blow begun
-                // within COUNTER_WINDOW of the player's block, a standing power attack.
-                let (mut stem, mut power) = (stem, power);
-                let unarmed = Some(id) == c.fists || script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.data.weapon_skills.get(&id).copied() == Some(fnv_game::actor_values::UNARMED as i64));
-                c.special_swing = None;
-                if unarmed {
-                    let countering = power.is_none() && c.player_blocked_at.is_some_and(|t| c.time - t <= COUNTER_WINDOW);
-                    let special = match power {
-                        Some(d) => special_move(script.as_deref_mut(), &mut sim, d),
-                        None if countering => scribe_counter(script.as_deref_mut(), &mut sim),
-                        None => None,
-                    };
-                    if let Some(m) = special {
-                        if power.is_none() {
-                            power = Some(fnv_combat::melee::PowerDir::Stand);
-                            c.player_blocked_at = None;
-                        }
-                        info!("combat: {} ({:?} power attack, unarmed): clip {}", m.name, power.unwrap_or(fnv_combat::melee::PowerDir::Stand), m.stem);
-                        if m.lunges {
-                            // Its clip carries the player (`h2hattackcustom1power.kf`
-                            // moves `Bip01` 332 units forward over its 1.6 s,
-                            // perk-entry-points.md §11.4): the body's attack clips move the
-                            // player by their root's travel, at the swing's speed
-                            // (`crate::player::Lunge`, actors.md §8.13).
-                            info!("combat: {}: the player lunges with its clip", m.name);
-                        }
-                        stem = m.stem.to_string();
-                        if let Some(s) = c.swings.swing.as_mut() {
-                            s.stem = stem.clone();
-                            s.power = power;
-                        }
-                        c.special_swing = Some(m);
-                    }
-                }
-                if power.is_some() {
-                    stats.power_attacks += 1;
-                    // Without a clip to time it, a power attack takes longer [design].
-                    if let Some(s) = c.swings.swing.as_mut() {
-                        s.timing = SwingTiming::of(None, None, None, speed, fallback * c.tuning.power_time);
-                    }
-                }
-                stats.swings += 1;
-                stats.chained_swings += u32::from(chained);
-                // The player's PowerAttack or Attack line (docs/spec-notes/combat-dialogue.md).
-                if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
-                    with_world(rt, &mut sim, |rt| rt.game.attack_line(FormId::PLAYER_REF, None, power.is_some(), false));
-                }
-                info!("combat: {} swing {stem}{}", w.edid.as_deref().unwrap_or("?"), if chained { " (chained)" } else { "" });
-                anim.swing = Some(stem);
-                anim.attacks += 1;
+    let w = match &bash_blow {
+        Some((_, b)) => b.stats.clone(),
+        None => c.player_stats(id).expect("weapon present"),
+    };
+    let mut strike = bash_blow.as_ref().map(|_| None);
+    if bash_blow.is_none() {
+        // The clip the body timed for the swing playing; a new swing runs on the weapon's
+        // own timing until the body has read its clip (the next frame).
+        // The Modify Attack Speed perks (Slayer, Melee Hacker …) speed the swing as the
+        // weapon's own multipliers do; the body plays the swing clip at the same rate.
+        let (atk, by) = player_weapon_perk(script.as_deref_mut(), &mut sim, fnv_game::perks::MODIFY_ATTACK_SPEED, id, 1.0);
+        let atk = if atk.is_finite() && atk > 0.0 { atk } else { 1.0 };
+        let speed = w.attack_mult.max(0.01) * w.anim_mult.max(0.01) * atk;
+        if (speed - anim.attack_rate).abs() > 1e-4 {
+            if by.is_empty() {
+                info!("combat: swings at x{speed:.2} ({})", w.edid.as_deref().unwrap_or("?"));
+            } else {
+                info!("combat: swings at x{speed:.2} ({}; perks x{atk:.2}: {})", w.edid.as_deref().unwrap_or("?"), by.join(", "));
             }
-            MeleeEvent::Strike { power } => strike = Some(power),
-            MeleeEvent::Ended => {}
+        }
+        anim.attack_rate = speed;
+        if let Some(stem) = anim.timed.as_deref() {
+            let t = &anim.timing;
+            c.swings.set_timing(stem, SwingTiming::of(t.attack_len, t.hit_time, t.next_attack, speed, 1.0));
+        }
+        let fallback = Timing::of(&w, &ClipTiming::default(), &c.tuning).interval;
+        let first = fnv_actor::player_clips::attack_stem(anim.attack.as_deref());
+        // Both legs crippled: no directional power attacks outside VATS mode (crippled-limbs.md
+        // §4): the swing takes the standing one.
+        let (forward, right) = if limbs.both_legs() { (0.0, 0.0) } else { (intent.forward, intent.right) };
+        // The weapon's power attack override plays for the standing power attack.
+        let input = MeleeInput { trigger: control.trigger || vats_tap, dt, forward, right, first: &first, rolls: [c.swing_rng.next_f32(), c.swing_rng.next_f32()], power_override: w.power_attack_override.as_deref() };
+        for e in c.swings.tick(input, &c.tuning, SwingTiming::of(None, None, None, speed, fallback)) {
+            match e {
+                MeleeEvent::Started { stem, power, chained } => {
+                    // The unarmed special moves (perk-entry-points.md §11) are chosen as the
+                    // swing starts, so it plays the move's own clip: a power attack in a
+                    // direction whose move the player has; Scribe Counter, a plain blow begun
+                    // within COUNTER_WINDOW of the player's block, a standing power attack.
+                    let (mut stem, mut power) = (stem, power);
+                    let unarmed = Some(id) == c.fists || script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.data.weapon_skills.get(&id).copied() == Some(fnv_game::actor_values::UNARMED as i64));
+                    c.special_swing = None;
+                    if unarmed {
+                        let countering = power.is_none() && c.player_blocked_at.is_some_and(|t| c.time - t <= COUNTER_WINDOW);
+                        let special = match power {
+                            Some(d) => special_move(script.as_deref_mut(), &mut sim, d),
+                            None if countering => scribe_counter(script.as_deref_mut(), &mut sim),
+                            None => None,
+                        };
+                        if let Some(m) = special {
+                            if power.is_none() {
+                                power = Some(fnv_combat::melee::PowerDir::Stand);
+                                c.player_blocked_at = None;
+                            }
+                            info!("combat: {} ({:?} power attack, unarmed): clip {}", m.name, power.unwrap_or(fnv_combat::melee::PowerDir::Stand), m.stem);
+                            if m.lunges {
+                                // Its clip carries the player (`h2hattackcustom1power.kf`
+                                // moves `Bip01` 332 units forward over its 1.6 s,
+                                // perk-entry-points.md §11.4): the body's attack clips move the
+                                // player by their root's travel, at the swing's speed
+                                // (`crate::player::Lunge`, actors.md §8.13).
+                                info!("combat: {}: the player lunges with its clip", m.name);
+                            }
+                            stem = m.stem.to_string();
+                            if let Some(s) = c.swings.swing.as_mut() {
+                                s.stem = stem.clone();
+                                s.power = power;
+                            }
+                            c.special_swing = Some(m);
+                        }
+                    }
+                    if power.is_some() {
+                        stats.power_attacks += 1;
+                        // Without a clip to time it, a power attack takes longer [design].
+                        if let Some(s) = c.swings.swing.as_mut() {
+                            s.timing = SwingTiming::of(None, None, None, speed, fallback * c.tuning.power_time);
+                        }
+                    }
+                    stats.swings += 1;
+                    stats.chained_swings += u32::from(chained);
+                    // The player's PowerAttack or Attack line (docs/spec-notes/combat-dialogue.md).
+                    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+                        with_world(rt, &mut sim, |rt| rt.game.attack_line(FormId::PLAYER_REF, None, power.is_some(), false));
+                    }
+                    info!("combat: {} swing {stem}{}", w.edid.as_deref().unwrap_or("?"), if chained { " (chained)" } else { "" });
+                    anim.swing = Some(stem);
+                    anim.attacks += 1;
+                }
+                MeleeEvent::Strike { power } => strike = Some(power),
+                MeleeEvent::Ended => {}
+            }
         }
     }
     if let Some(power) = strike {
         // The special move chosen as the swing started (its clip is playing).
-        let special = c.special_swing.take();
+        let special = if bash_blow.is_some() { None } else { c.special_swing.take() };
         let power_mult = power.map_or(1.0, |d| d.damage(&c.rules));
         let reach = damage::melee_reach(&c.rules, &w, 1.0);
         let eye = player.eye();
@@ -3548,7 +3580,7 @@ fn melee(
         let mut struck_world: Option<WorldHit> = None;
         // VATS mode's swing lands on its mark when the mark is still close and the first
         // thing on the line from the eye to it (100 % accuracy, vats-mode.md §16.2).
-        let vats_mark = vats.as_deref().and_then(|v| v.melee_mark());
+        let vats_mark = vats.as_deref().and_then(|v| v.melee_mark()).filter(|_| bash_blow.is_none());
         let hits = {
             let world = view(&mut phys, script.as_deref(), Some(&sim));
             let straight = vats_mark.and_then(|(target, point, close, lands)| {
@@ -3613,13 +3645,19 @@ fn melee(
                 }
             }
         }
-        if !hits.is_empty() {
+        // A bash does not wear the gun (the mod's Hardcore wear is not done).
+        if !hits.is_empty() && bash_blow.is_none() {
             wear_weapon(&c.forms, &mut sim, &mut stats, hud.as_deref_mut(), None, script.as_deref_mut(), FormId::PLAYER_REF, id, condition::weapon_wear(&c.rules, &w, &[]), None);
+        }
+        if bash_blow.is_some() {
+            info!("bash: the blow meets {} (reach {:.0})", if hits.is_empty() { "no one".to_string() } else { hits.iter().map(|(a, _)| format!("{:08X}", *a as u32)).collect::<Vec<_>>().join(", ") }, damage::melee_reach(&c.rules, &w, 1.0));
         }
         for (actor, hit) in hits {
             let target = FormId(actor as u32);
             stats.melee_hits += 1;
             let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
+            // Piercing Bash: the target's DT counts half.
+            let dt_v = bash_blow.as_ref().map_or(dt_v, |(_, b)| fnv_combat::bash::pierced_dt(dt_v, b.piercing));
             let mut a = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, &w, vats_mark.is_some());
             a.sneaking = sneak_attack(script.as_deref(), FormId::PLAYER_REF, control.sneak, target);
             let bp = body_part(c, &parts, actor, hit.part);
@@ -3687,6 +3725,8 @@ fn melee(
                 let away = player.look_dir();
                 if special.is_some_and(|m| m.knock_back) {
                     knock_down(script.as_deref_mut(), FormId::PLAYER_REF, target, away, "Legion Assault");
+                } else if bash_blow.is_some() {
+                    bash_knockdown(c, script.as_deref_mut(), &mut sim, target, away);
                 } else {
                     perk_knockdown(c, script.as_deref_mut(), &mut sim, FormId::PLAYER_REF, id, target, away);
                 }

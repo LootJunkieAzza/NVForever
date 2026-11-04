@@ -12,6 +12,7 @@
 //! [`dialogue_look`] turns the player's view to the actor they talk to.
 
 pub mod after_combat;
+pub mod bash;
 pub mod activate;
 pub mod aid;
 pub mod aim_zoom;
@@ -348,7 +349,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(tiles::TilesPlugin)
             .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin)
-            .add_plugins((coop_tables::CoopTablesPlugin, minigames::MinigamesPlugin))
+            .add_plugins((coop_tables::CoopTablesPlugin, minigames::MinigamesPlugin, bash::BashPlugin))
             .add_plugins(tutorial_menu::TutorialMenuPlugin)
             .add_plugins(credits::CreditsPlugin)
             .add_plugins(lockpick::LockpickPlugin)

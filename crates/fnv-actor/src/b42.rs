@@ -391,6 +391,8 @@ pub enum Cue {
     /// skinning (the player is moved to the body), 4 and more let a second Activate end
     /// it, −1 gives everything back [observed: the script's comments].
     Controls(i32),
+    /// A weapon bash's blow lands now (B42 Melee Bash's `Sound: B42BashHitFrameDetect`).
+    Strike,
 }
 
 /// The cues of one text key. A `ScriptLine:` key may hold several lines, split by `%r`
@@ -402,6 +404,7 @@ pub fn cues(key: &str) -> Vec<Cue> {
     let rest = rest.trim();
     match head.as_str() {
         "sound" if rest.split_whitespace().next().is_some_and(|n| n.eq_ignore_ascii_case("B42InjectSound")) => vec![Cue::ItemSound],
+        "sound" if rest.split_whitespace().next().is_some_and(|n| n.eq_ignore_ascii_case("B42BashHitFrameDetect")) => vec![Cue::Strike],
         // Some keys repeat the head inside (`SoundPath:fx\Hit\SoundPath:fx\Hit\X.wav`):
         // the file is after the last [observed: the crafting pack].
         "soundpath" if !rest.is_empty() => {
@@ -447,8 +450,8 @@ fn script_cue(line: &str) -> Option<Cue> {
     }
     if low.contains("dispatcheventalt") {
         return match first.as_deref() {
-            Some("b42ia") => Some(Cue::Attach),
-            Some("b42id") => Some(Cue::Detach),
+            Some("b42ia" | "b42ga") => Some(Cue::Attach),
+            Some("b42id" | "b42gd") => Some(Cue::Detach),
             Some("b42is") => Some(Cue::ItemSound),
             Some("b42ip") => q.get(1).map(|v| Cue::Model(v.to_string())),
             Some("b42isp") => q.get(1).map(|v| Cue::SoundFile(v.to_string())),
@@ -683,6 +686,211 @@ pub fn activator_category(edid: &str, name: &str) -> &'static str {
     }
 }
 
+// ---- B42 Loot ------------------------------------------------------------------------
+
+/// B42 Loot's clips: `meshes\b42loot\<0 third | 1 first>\loot*.kf` [observed: the mod's
+/// `ln_B42Loot.txt`, B42GL].
+pub const LOOT_ROOT: &str = "meshes\\b42loot\\";
+
+/// Where an item sits in the left hand while its loot clip plays: the mod's `B42GrbL`
+/// node under `Bip01 L Hand`, scaled, moved and turned (degrees) [observed: B42GJ,
+/// `Config\B42Loot\Coord`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Grip {
+    pub scale: f32,
+    pub at: [f32; 3],
+    pub turn: [f32; 3],
+}
+
+impl Grip {
+    /// A Coord line's value, `scale|x|y|z|rx|ry|rz`.
+    pub fn parse(v: &str) -> Option<Grip> {
+        let n: Vec<f32> = v.split('|').map(|x| x.trim().parse::<f32>()).collect::<Result<_, _>>().ok()?;
+        (n.len() == 7).then(|| Grip { scale: n[0], at: [n[1], n[2], n[3]], turn: [n[4], n[5], n[6]] })
+    }
+}
+
+/// B42 Loot as installed: its clips, and the grips by model and by type.
+#[derive(Debug, Default, Clone)]
+pub struct LootSet {
+    /// Lower-case file names (`loot5.kf`) by view.
+    first: HashMap<String, String>,
+    third: HashMap<String, String>,
+    by_model: HashMap<String, Grip>,
+    by_type: HashMap<String, Grip>,
+    /// `Config\B42Loot\Settings.ini` `Pull` (the item flies to the hand first).
+    pub pull: bool,
+}
+
+/// `key=value` lines of an ini (sections and `;` comments skipped).
+fn ini_pairs(text: &str) -> impl Iterator<Item = (String, String)> + '_ {
+    text.lines().filter_map(|l| {
+        let l = l.split(';').next()?.trim();
+        if l.starts_with('[') {
+            return None;
+        }
+        let (k, v) = l.split_once('=')?;
+        Some((k.trim().to_ascii_lowercase(), v.trim().to_string()))
+    })
+}
+
+impl LootSet {
+    /// From the data's paths under [`LOOT_ROOT`] and the mod's Coord files (`obj` the
+    /// texts of `Coord\Obj\*.ini`, `types` of `Coord\Types.ini`, `settings`).
+    pub fn build<'a>(paths: impl IntoIterator<Item = &'a str>, obj: &[String], types: Option<&str>, settings: Option<&str>) -> LootSet {
+        let mut set = LootSet::default();
+        for p in paths {
+            let low = p.to_ascii_lowercase();
+            let Some(rest) = low.strip_prefix(LOOT_ROOT) else { continue };
+            let Some((view, file)) = rest.split_once('\\') else { continue };
+            if !file.ends_with(".kf") || file.contains('\\') {
+                continue;
+            }
+            match view {
+                "1" => set.first.insert(file.to_string(), low.clone()),
+                "0" => set.third.insert(file.to_string(), low.clone()),
+                _ => None,
+            };
+        }
+        for text in obj {
+            for (k, v) in ini_pairs(text) {
+                if let Some(g) = Grip::parse(&v) {
+                    set.by_model.insert(k.trim_start_matches("meshes\\").to_string(), g);
+                }
+            }
+        }
+        for (k, v) in types.map(ini_pairs).into_iter().flatten() {
+            if let Some(g) = Grip::parse(&v) {
+                set.by_type.insert(k, g);
+            }
+        }
+        set.pull = settings.is_some_and(|t| ini_pairs(t).any(|(k, v)| k == "pull" && v.trim() != "0"));
+        set
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.first.is_empty() && self.third.is_empty()
+    }
+
+    pub fn counts(&self) -> (usize, usize, usize) {
+        (self.first.len() + self.third.len(), self.by_model.len(), self.by_type.len())
+    }
+
+    /// The clip for a pick-up [observed: B42GL]: `loot<anim type>.kf` when a weapon is
+    /// drawn and the file is there, else `loot.kf`; in first person with nothing drawn,
+    /// `lootholst.kf`.
+    pub fn clip(&self, view: View, drawn: Option<i64>) -> Option<&str> {
+        let set = if view == View::First { &self.first } else { &self.third };
+        let own = drawn.and_then(|t| set.get(&format!("loot{t}.kf")));
+        let plain = if drawn.is_none() && view == View::First { set.get("lootholst.kf").or_else(|| set.get("loot.kf")) } else { set.get("loot.kf") };
+        own.or(plain).map(String::as_str)
+    }
+
+    /// The grip for an item: by its model (path under `meshes\`), else by its type code
+    /// ([`loot_type`]) [observed: B42GH, B42GK].
+    pub fn grip(&self, model: Option<&str>, code: Option<&str>) -> Option<Grip> {
+        let m = model.map(|m| m.to_ascii_lowercase());
+        let m = m.as_deref().map(|m| m.trim_start_matches("meshes\\"));
+        m.and_then(|m| self.by_model.get(m)).or_else(|| code.and_then(|c| self.by_type.get(c))).copied()
+    }
+}
+
+/// An item's type code in the mod's Types.ini [observed: B42GK, GetType]: armour 24
+/// (upper body; 241 not, 242 power armour), book 25, misc 31, weapon 40 and its
+/// animation type (4013 a spear), ammo 41, key 46, aid 47, note 49, weapon mod 103,
+/// casino chip 108, Caravan card 115, currency 116.
+pub fn loot_type(sig: &[u8; 4], weapon_anim: Option<i64>, upper_body: Option<bool>, power_armor: bool) -> Option<String> {
+    Some(match sig {
+        b"ARMO" => match (upper_body, power_armor) {
+            (Some(false), _) => "241".into(),
+            (_, true) => "242".into(),
+            _ => "24".into(),
+        },
+        b"BOOK" => "25".into(),
+        b"MISC" => "31".into(),
+        b"WEAP" => format!("40{}", weapon_anim.unwrap_or(0)),
+        b"AMMO" => "41".into(),
+        b"KEYM" => "46".into(),
+        b"ALCH" => "47".into(),
+        b"NOTE" => "49".into(),
+        b"IMOD" => "103".into(),
+        b"CHIP" => "108".into(),
+        b"CCRD" => "115".into(),
+        b"CMNY" => "116".into(),
+        _ => return None,
+    })
+}
+
+// ---- B42 Melee Bash --------------------------------------------------------------------
+
+/// B42 Melee Bash's clips: `<root><alt>\<1 first | 0 third>\<weapon type>\*.kf` and the
+/// fail clips `<root><alt>\bashfail.kf` [observed: the mod's `B42BashS`]. Only the main set
+/// (alt 0) is used.
+pub const BASH_ROOT: &str = "meshes\\characters\\_male\\idleanims\\b42bash\\";
+
+/// B42 Melee Bash as installed: its swing clips by view and weapon type.
+#[derive(Debug, Default, Clone)]
+pub struct BashClips {
+    first: HashMap<i64, Vec<String>>,
+    third: HashMap<i64, Vec<String>>,
+    /// The first-person fail clip (no Action Points).
+    pub fail: Option<String>,
+}
+
+impl BashClips {
+    pub fn build<'a>(paths: impl IntoIterator<Item = &'a str>) -> BashClips {
+        let mut set = BashClips::default();
+        for p in paths {
+            let low = p.to_ascii_lowercase();
+            let Some(rest) = low.strip_prefix(BASH_ROOT).and_then(|r| r.strip_prefix("0\\")) else { continue };
+            if !rest.ends_with(".kf") {
+                continue;
+            }
+            let parts: Vec<&str> = rest.split('\\').collect();
+            match parts.as_slice() {
+                ["bashfail.kf"] => set.fail = Some(low.clone()),
+                [view, ty, _file] => {
+                    let Ok(ty) = ty.parse::<i64>() else { continue };
+                    let into = match *view {
+                        "1" => &mut set.first,
+                        "0" => &mut set.third,
+                        _ => continue,
+                    };
+                    into.entry(ty).or_default().push(low.clone());
+                }
+                _ => {}
+            }
+        }
+        for v in set.first.values_mut().chain(set.third.values_mut()) {
+            v.sort();
+        }
+        set
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.first.is_empty() && self.third.is_empty()
+    }
+
+    /// The swing clips for a view and clip type (`fnv_combat::bash::clip_type`).
+    pub fn clips(&self, view: View, clip_type: i64) -> &[String] {
+        let set = if view == View::First { &self.first } else { &self.third };
+        set.get(&clip_type).map_or(&[], Vec::as_slice)
+    }
+
+    /// The clip type of a clip of the set (its folder's number).
+    pub fn type_of(path: &str) -> Option<i64> {
+        let low = path.to_ascii_lowercase();
+        let rest = low.strip_prefix(BASH_ROOT)?.strip_prefix("0\\")?;
+        let mut parts = rest.split('\\');
+        parts.next()?;
+        parts.next()?.parse().ok()
+    }
+
+    pub fn counts(&self) -> (usize, usize) {
+        (self.first.values().map(Vec::len).sum(), self.third.values().map(Vec::len).sum())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -872,6 +1080,47 @@ mod tests {
         assert_eq!(activator_category("BananaYuccaPickable", "Banana Yucca"), "harvestable");
         assert_eq!(activator_category("vSwitch", "Automatic Door Override"), "buttons");
         assert_eq!(activator_category("NVRadio", "Radio"), "default");
+    }
+
+    #[test]
+    fn b42_bash_clips_by_view_and_type() {
+        let paths = [
+            r"meshes\characters\_male\idleanims\B42Bash\0\1\5\SpecialIdle_1st2hrBash.kf",
+            r"meshes\characters\_male\idleanims\B42Bash\0\1\5\SpecialIdle_1st2hrBash2.kf",
+            r"meshes\characters\_male\idleanims\B42Bash\0\0\5\SpecialIdle_3rd2hrBash.kf",
+            r"meshes\characters\_male\idleanims\B42Bash\0\BashFail.kf",
+            r"meshes\characters\_male\idleanims\B42Bash\1\1\5\SpecialIdle_1st2hrBash.kf",
+            r"meshes\characters\_male\idleanims\B42Bash\HitReaction\HitA.kf",
+        ];
+        let set = BashClips::build(paths);
+        assert_eq!(set.counts(), (2, 1));
+        assert_eq!(set.clips(View::First, 5).len(), 2);
+        assert_eq!(set.clips(View::Third, 5), [r"meshes\characters\_male\idleanims\b42bash\0\0\5\specialidle_3rd2hrbash.kf"]);
+        assert!(set.clips(View::First, 3).is_empty());
+        assert_eq!(set.fail.as_deref(), Some(r"meshes\characters\_male\idleanims\b42bash\0\bashfail.kf"));
+        assert_eq!(BashClips::type_of(&set.clips(View::First, 5)[0]), Some(5));
+        assert_eq!(cues("Sound: B42BashHitFrameDetect"), [Cue::Strike]);
+        assert!(cues("Sound: HitFrameDetect").is_empty());
+    }
+
+    #[test]
+    fn b42_loot_picks_its_clip_and_grip() {
+        let paths = [r"meshes\B42Loot\1\Loot.kf", r"meshes\B42Loot\1\Loot5.kf", r"meshes\B42Loot\1\LootHolst.kf", r"meshes\B42Loot\0\Loot.kf"];
+        let obj = vec!["[0]\r\nclutter\\food\\apple02.nif=0.9|11|5|-1|-164|-4|-180\r\n".to_string()];
+        let types = "[0]\r\n; Misc\r\n31=0.7|11|5|-2|-85|-45|-51\r\n; 2hr\r\n405=1.0|9|6|-3|174|63|-3\r\n";
+        let set = LootSet::build(paths, &obj, Some(types), Some("[0]\r\nPull=1"));
+        assert!(set.pull);
+        assert_eq!(set.clip(View::First, None), Some(r"meshes\b42loot\1\lootholst.kf"));
+        assert_eq!(set.clip(View::First, Some(5)), Some(r"meshes\b42loot\1\loot5.kf"));
+        assert_eq!(set.clip(View::First, Some(3)), Some(r"meshes\b42loot\1\loot.kf"));
+        assert_eq!(set.clip(View::Third, None), Some(r"meshes\b42loot\0\loot.kf"));
+        let apple = set.grip(Some(r"meshes\Clutter\Food\Apple02.nif"), Some("47")).unwrap();
+        assert_eq!(apple, Grip { scale: 0.9, at: [11.0, 5.0, -1.0], turn: [-164.0, -4.0, -180.0] });
+        assert_eq!(set.grip(Some(r"meshes\x.nif"), loot_type(b"WEAP", Some(5), None, false).as_deref()).unwrap().scale, 1.0);
+        assert_eq!(set.grip(None, loot_type(b"MISC", None, None, false).as_deref()).unwrap().scale, 0.7);
+        assert!(set.grip(None, loot_type(b"STAT", None, None, false).as_deref()).is_none());
+        assert_eq!(cues("ScriptLine: DispatchEventAlt \"B42GA\""), [Cue::Attach]);
+        assert_eq!(cues("ScriptLine: DispatchEventAlt \"B42GD\""), [Cue::Detach]);
     }
 
     #[test]
