@@ -205,9 +205,15 @@ const SAVE_HOOK: SaveHook = SaveHook {
 };
 
 /// Markers found since the last frame: the message, the experience, the log.
-pub(crate) fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResMut<ScriptState>>, sim: Res<SimState>, messages: Option<ResMut<QuestMessages>>) {
+pub(crate) fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResMut<ScriptState>>, sim: Res<SimState>, messages: Option<ResMut<QuestMessages>>, restoring: Option<Res<crate::save::PendingEngine>>) {
     let Some(mut state) = state else { return };
-    // Found before the game runs (the first frames): kept until it does, for the XP.
+    // Found before the game runs (the first frames): kept until it does, for the XP. A
+    // save's game runs a frame before its found markers are put back (`save::apply_engine`):
+    // kept until then too, so those the save had found are no news (no XP on each load).
+    // Scripts that cannot run never put it back (`save::Restoring::busy`).
+    if restoring.is_some() && script.as_deref().is_none_or(|s| s.off.is_none()) {
+        return;
+    }
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     // The rules hear which markers are found (GetMapMarkerVisible), also after a load.
     if rt.game.player.found_markers.len() != state.discovered().len() {
