@@ -18,4 +18,6 @@ if not "%~2"=="" call set "REST=%%REST:*%~2=%%"
 if not defined NVF_DATA set "NVF_DATA=C:\Modding\GOG-Base Installs\Fallout New Vegas\Data"
 set "NVFOREVER_HOME=%HERE%homes\%NAME%"
 set "NVF_PLAY_SCRIPT_FUNCTIONS=%HERE%..\schemas\script\functions.json"
+rem Steam's DLL beside the build (co-op over Steam), from the build's copy of the SDK.
+if not exist "%HERE%..\engine\target\release\steam_api64.dll" for /d %%B in ("%HERE%..\engine\target\release\build\steamworks-sys-*") do if exist "%%B\out\steam_api64.dll" copy /Y "%%B\out\steam_api64.dll" "%HERE%..\engine\target\release\" >nul
 "%HERE%..\engine\target\release\nvforever.exe" --play --data "%NVF_DATA%" --join %ADDR% --coop-name %NAME% %REST%

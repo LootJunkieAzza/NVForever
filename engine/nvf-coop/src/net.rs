@@ -1,4 +1,6 @@
-//! The co-op wire: one UDP socket, a host and up to [`MAX_GUESTS`] guests.
+//! The co-op wire: one UDP socket (and Steam, [`crate::steam`], when the game has it), a
+//! host and up to [`MAX_GUESTS`] guests. A peer over Steam has a stand-in address
+//! ([`crate::steam::addr`]): everything here is the same for it.
 //!
 //! The host is the hub: each game sends its own player's [`PlayerState`] to the host
 //! [`SEND_HZ`] times a second, and the host passes every guest's state on to the other
@@ -29,6 +31,8 @@ use std::collections::VecDeque;
 use std::hash::{BuildHasher, Hasher};
 use std::io::ErrorKind;
 use std::net::{SocketAddr, UdpSocket};
+
+use crate::steam::Steam;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -311,6 +315,8 @@ enum Role {
 /// One side of the link, ticked by [`Link`]'s thread (or by hand in tests).
 pub struct Session {
     sock: UdpSocket,
+    /// Steam, for peers with a stand-in address ([`Session::over_steam`]).
+    steam: Option<&'static Steam>,
     role: Role,
     /// The host's guests, or the other peers a guest has heard of (the host among them).
     peers: Vec<Peer>,
@@ -369,7 +375,14 @@ impl Session {
 
     fn with(sock: UdpSocket, role: Role) -> std::io::Result<Self> {
         sock.set_nonblocking(true)?;
-        Ok(Self { sock, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, events: Vec::new() })
+        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, events: Vec::new() })
+    }
+
+    /// Also talk over Steam: a host is reached through it by a Steam code, a guest reaches
+    /// one.
+    pub fn over_steam(mut self, steam: &'static Steam) -> Self {
+        self.steam = Some(steam);
+        self
     }
 
     /// The host's NPCs as it draws them now; [`Session::tick`] sends them at [`NPC_HZ`].
@@ -495,7 +508,7 @@ impl Session {
                 let hello = encode(&Msg::Hello { token: *token, lobby: *lobby, name: name.clone() });
                 // Until one answers, every address the code gave; then that one.
                 for to in host.iter().chain(candidates.iter().filter(|_| host.is_none())) {
-                    let _ = self.sock.send_to(&hello, to);
+                    send_raw(&self.sock, self.steam, &hello, *to);
                 }
                 *last_hello = Some(now);
             }
@@ -557,7 +570,7 @@ impl Session {
     }
 
     fn sock_send(&self, msg: &Msg, to: SocketAddr) {
-        let _ = self.sock.send_to(&encode(msg), to);
+        send_raw(&self.sock, self.steam, &encode(msg), to);
     }
 
     fn receive(&mut self, now: Instant) {
@@ -571,12 +584,23 @@ impl Session {
                 Err(e) if e.kind() == ErrorKind::ConnectionReset => continue,
                 Err(_) => break,
             };
-            if let Some(msg) = decode(&buf[..n]) {
-                if self.is_host() {
-                    self.host_handle(msg, from, now);
-                } else {
-                    self.guest_handle(msg, from, now);
-                }
+            self.handle(&buf[..n], from, now);
+        }
+        let mut steam = Vec::new();
+        if let Some(s) = self.steam {
+            s.receive(&mut steam);
+        }
+        for (bytes, from) in steam {
+            self.handle(&bytes, from, now);
+        }
+    }
+
+    fn handle(&mut self, bytes: &[u8], from: SocketAddr, now: Instant) {
+        if let Some(msg) = decode(bytes) {
+            if self.is_host() {
+                self.host_handle(msg, from, now);
+            } else {
+                self.guest_handle(msg, from, now);
             }
         }
     }
@@ -950,6 +974,21 @@ impl Drop for Link {
 }
 
 /// `a` is newer than `b`, allowing for the counter wrapping.
+/// Send `bytes` to `to`: over Steam for a stand-in address (dropped without Steam), else
+/// over UDP.
+fn send_raw(sock: &UdpSocket, steam: Option<&Steam>, bytes: &[u8], to: SocketAddr) {
+    match crate::steam::peer(to) {
+        Some(id) => {
+            if let Some(s) = steam {
+                s.send(id, bytes);
+            }
+        }
+        None => {
+            let _ = sock.send_to(bytes, to);
+        }
+    }
+}
+
 fn newer(a: u32, b: u32) -> bool {
     a != b && a.wrapping_sub(b) < u32::MAX / 2
 }

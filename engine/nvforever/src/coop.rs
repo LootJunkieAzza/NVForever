@@ -79,7 +79,8 @@ use fnv_game::chargen::Look;
 use fnv_sim::FormId;
 use nvf_assets::actor::ActorParts;
 use nvf_assets::model::ModelCtx;
-use nvf_coop::code::Lobby;
+use nvf_coop::code::{Host, Lobby};
+use nvf_coop::steam;
 use crate::locomotion::Dying;
 use crate::residents::{RemotePose, Residents};
 use nvf_coop::net::{self, attack, flag, npc_flag, Event, Link, NpcState, Place, PlayerState, QuestView, Session};
@@ -128,8 +129,9 @@ pub const JOIN_ENV: &str = "NVF_COOP_JOIN";
 pub const NAME_ENV: &str = "NVF_COOP_NAME";
 /// The code is written here in the home too, to be copied.
 const CODE_FILE: &str = "lobby-code.txt";
-/// A guest looking for its host gives up after this long without an answer (seconds).
-const FIND_FOR: f32 = 10.0;
+/// A guest looking for its host gives up after this long without an answer (seconds; a
+/// Steam route can take a few to set up).
+const FIND_FOR: f32 = 20.0;
 
 /// What the command line asked for.
 #[derive(Clone)]
@@ -213,7 +215,7 @@ fn host_session(port: u16) -> Option<Link> {
         match Session::host(port) {
             Ok(s) => {
                 info!("co-op: hosting on UDP port {port}");
-                return Some(Link::new(s));
+                return Some(Link::new(with_steam(s)));
             }
             Err(e) if attempt == 39 => error!("co-op: cannot host on UDP port {port}: {e}"),
             Err(_) => std::thread::sleep(Duration::from_millis(250)),
@@ -248,13 +250,29 @@ fn guest_session(at: &str, name: &str) -> Result<Link, String> {
             warn!("co-op: cannot keep the session token in {}: {e}", f.display());
         }
     }
+    if steam_code(at) && steam::steam().is_none() {
+        warn!("co-op: {at} is a Steam code and Steam is not running: only a host on this network can answer");
+    }
     match Session::join(&candidates, key, name, token) {
         Ok(s) => {
             info!("co-op: joining {candidates:?} as {name}");
-            Ok(Link::new(s))
+            Ok(Link::new(with_steam(s)))
         }
         Err(e) => Err(format!("Cannot open a connection: {e}")),
     }
+}
+
+/// A session that also talks over Steam when this game has it.
+fn with_steam(s: Session) -> Session {
+    match steam::steam() {
+        Some(st) => s.over_steam(st),
+        None => s,
+    }
+}
+
+/// Whether `at` is a code for a host on Steam.
+fn steam_code(at: &str) -> bool {
+    Lobby::decode(at).is_some_and(|l| matches!(l.host, Host::Steam(_)))
 }
 
 fn resolve(at: &str) -> Option<SocketAddr> {
@@ -342,19 +360,27 @@ impl Coop {
             return;
         }
         let (tx, rx) = mpsc::channel();
-        std::thread::Builder::new()
-            .name("coop-reach".into())
-            .spawn(move || {
-                let _ = tx.send(reach::open(port));
-            })
-            .ok();
+        if let Some(st) = steam::steam() {
+            // Steam's relays let anyone in: no router to ask. Friends on this network still
+            // come by broadcast, to this port.
+            info!("co-op: hosting over Steam too (relays: {})", st.relays());
+            let local = reach::local_ip().unwrap_or(std::net::Ipv4Addr::LOCALHOST);
+            let _ = tx.send(Reach { lobby: Lobby::steam(st.account(), port), local, opened: true, note: None });
+        } else {
+            std::thread::Builder::new()
+                .name("coop-reach".into())
+                .spawn(move || {
+                    let _ = tx.send(reach::open(port));
+                })
+                .ok();
+        }
         self.reaching = Some(Mutex::new(rx));
     }
 
     fn stop_hosting(&mut self, commands: &mut Commands, fighters: &mut Fighters) {
         // Dropping the link says goodbye to the guests.
         self.link = None;
-        if self.opened {
+        if self.opened && !self.code.as_deref().is_some_and(steam_code) {
             let port = self.port;
             std::thread::Builder::new().name("coop-reach".into()).spawn(move || reach::close(port)).ok();
         }
@@ -485,7 +511,7 @@ fn lobby(
     if let Some(r) = coop.reaching.as_ref().and_then(|rx| rx.lock().ok()?.try_recv().ok()) {
         coop.reaching = None;
         let code = r.lobby.encode();
-        info!("co-op: lobby code {code} (address {}, this network {}, port {}; router opened it: {})", r.lobby.addr, r.local, r.lobby.port, r.opened);
+        info!("co-op: lobby code {code} (host {}, this network {}, port {}; open to the internet: {})", r.lobby.host, r.local, r.lobby.port, r.opened);
         if let Some(link) = &coop.link {
             link.set_lobby(r.lobby.key());
         }
@@ -511,7 +537,12 @@ fn lobby(
             coop.joining = Joining::Found;
         } else if now - since > FIND_FOR {
             coop.link = None;
-            coop.joining = Joining::Failed("No answer from the host: check the code, and that their lobby is open.".into());
+            let why = if coop.join_code.as_deref().is_some_and(steam_code) && steam::steam().is_none() {
+                "This code goes through Steam: start Steam, then join again."
+            } else {
+                "No answer from the host: check the code, and that their lobby is open."
+            };
+            coop.joining = Joining::Failed(why.into());
         }
     }
     let hosting = match (&coop.code, coop.is_host(), coop.reaching.is_some()) {

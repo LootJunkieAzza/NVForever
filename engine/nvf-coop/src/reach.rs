@@ -33,7 +33,7 @@ pub struct Reach {
 /// Find the host's addresses and open `port` on its router.
 pub fn open(port: u16) -> Reach {
     let local = local_ip().unwrap_or(Ipv4Addr::LOCALHOST);
-    let reach = |addr: Ipv4Addr, opened, note| Reach { lobby: Lobby { addr, port }, local, opened, note };
+    let reach = |addr: Ipv4Addr, opened, note| Reach { lobby: Lobby::ip(addr, port), local, opened, note };
     if let Some(public) = std::env::var(ADDRESS_ENV).ok().and_then(|a| a.trim().parse::<Ipv4Addr>().ok()) {
         return reach(public, true, None);
     }
