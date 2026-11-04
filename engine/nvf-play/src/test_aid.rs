@@ -92,7 +92,8 @@
 //! With any `NVF_PLAY_TEST_*` variable set the run is unattended ([`Unattended`]): the
 //! cursor is not grabbed, so the desktop's mouse neither leaves the user nor turns the
 //! view (as with `--auto-walk`). Not the aids that only measure ([`MEASURING_AIDS`]:
-//! `NVF_PLAY_TEST_SAMPLE`, `NVF_PLAY_TEST_PROFILE`, `NVF_PLAY_TEST_PROFILE_COUNTS`, `NVF_PLAY_TEST_TRANSFORM_ROOTS`): with them alone the run is played by
+//! `NVF_PLAY_TEST_SAMPLE`, `NVF_PLAY_TEST_PROFILE`, `NVF_PLAY_TEST_PROFILE_COUNTS`,
+//! `NVF_PLAY_TEST_HITVOL_SCAN`, `NVF_PLAY_TEST_HITVOL_COMPARE`, `NVF_PLAY_TEST_TRANSFORM_ROOTS`): with them alone the run is played by
 //! hand as usual and only logs its frame times, and a load's new run keeps them
 //! (nvforever handoff.rs) [owner 2026-10-27: hitch logging for a session played from MO2].
 //! `NVF_PLAY_TEST_TRANSFORM_ROOTS` only while its value turns it on: `=0` or text that is no
@@ -356,9 +357,10 @@ fn take_due<T: Clone>(due: &mut Vec<(f32, T)>, now: f32) -> Vec<T> {
     fired.into_iter().map(|(_, v)| v).collect()
 }
 
-/// The test aids that only log what the run costs (nvforever stress_sample.rs,
-/// profile.rs and transform_roots.rs): they leave the run attended, and a load's new run keeps them.
-pub const MEASURING_AIDS: [&str; 4] = ["NVF_PLAY_TEST_SAMPLE", "NVF_PLAY_TEST_PROFILE", "NVF_PLAY_TEST_PROFILE_COUNTS", "NVF_PLAY_TEST_TRANSFORM_ROOTS"];
+/// The test aids that only log what the run costs or does (nvforever stress_sample.rs,
+/// profile.rs and transform_roots.rs, [`crate::hitvol`]): they leave the run attended, and a
+/// load's new run keeps them.
+pub const MEASURING_AIDS: [&str; 6] = ["NVF_PLAY_TEST_SAMPLE", "NVF_PLAY_TEST_PROFILE", "NVF_PLAY_TEST_PROFILE_COUNTS", "NVF_PLAY_TEST_HITVOL_SCAN", "NVF_PLAY_TEST_HITVOL_COMPARE", "NVF_PLAY_TEST_TRANSFORM_ROOTS"];
 
 /// `NVF_PLAY_TEST_TRANSFORM_ROOTS`'s window in seconds; `None`, the aid is off.
 pub fn transform_roots_window(value: &str) -> Option<f32> {
