@@ -46,9 +46,11 @@ use fnv_sim::FormId;
 use nvf_assets::GameData;
 
 /// Where the arm is held while the glance is up, seconds into the raise clip: before the
-/// clip's `Hit` (0.333 s, the screen straight before the eye) [design: the screen lower in
-/// the view, the world seen over it].
-pub const GLANCE_HOLD: f32 = 0.25;
+/// clip's `Hit` (0.333 s, the screen straight before the eye) [design: the screen low and
+/// left in the view, the world seen over it; tuned against the owner's reference
+/// screenshot, 2026-11-04, together with the arms' wider view while the glance is up
+/// (nvforever `player_body.rs` `GLANCE_FOV`)].
+pub const GLANCE_HOLD: f32 = 0.22;
 
 /// The setting's key (`crate::settings`).
 pub const SETTING_KEY: &str = "PipBoyGlance";
