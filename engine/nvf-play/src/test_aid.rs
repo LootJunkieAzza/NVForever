@@ -68,7 +68,8 @@
 //!   mouse button at each time and lets it go after the hold (default: the next frame),
 //!   through Bevy's input state, so the game's bindings (`crate::bindings`) are what
 //!   read it: `ctrl` (left Ctrl), `shift`, `space`, `tab`, `esc`, `enter`, a letter or
-//!   digit (`e`, `2`), `f1`..`f12`, or `mouse-left` / `mouse-right` / `mouse-middle`.
+//!   digit (`e`, `2`), `f1`..`f12`, the arrows (`left`, `right`, `up`, `down`), `backspace`,
+//!   `delete`, or `mouse-left` / `mouse-right` / `mouse-middle`.
 //!   Unlike `NVF_PLAY_TEST_CONTROL` it tests the key's path, not just what it does.
 //!
 //! The aids that stand in for the keys and the mouse (`NVF_PLAY_TEST_MOVE`,
@@ -275,6 +276,12 @@ pub fn real_input(rest: &str) -> Result<(RealInput, f32), String> {
         "tab" => RealInput::Key(KeyCode::Tab),
         "esc" => RealInput::Key(KeyCode::Escape),
         "enter" => RealInput::Key(KeyCode::Enter),
+        "left" => RealInput::Key(KeyCode::ArrowLeft),
+        "right" => RealInput::Key(KeyCode::ArrowRight),
+        "up" => RealInput::Key(KeyCode::ArrowUp),
+        "down" => RealInput::Key(KeyCode::ArrowDown),
+        "backspace" => RealInput::Key(KeyCode::Backspace),
+        "delete" => RealInput::Key(KeyCode::Delete),
         "mouse-left" => RealInput::Mouse(MouseButton::Left),
         "mouse-right" => RealInput::Mouse(MouseButton::Right),
         "mouse-middle" => RealInput::Mouse(MouseButton::Middle),
