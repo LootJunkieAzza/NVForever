@@ -14,7 +14,15 @@
 //!   ([`DEAL_GAP`]); the buttons wait until they are down.
 //! - The first time, the help message `HelpBlackjack` comes up over the menu, as
 //!   lockpicking's (`crate::lockpick::help`).
-//! - It is a `PlayState::Menu`: the world and the game clock stand still.
+//! - It is a `PlayState::Menu`: the world and the game clock stand still (in co-op they
+//!   go on, `crate::coop_tables`).
+//! - **In co-op the table is shared** (`fnv_game::blackjack::shared`): opened where
+//!   another player near this one already sits at the same casino's table, it takes a seat
+//!   at theirs ([`SharedSeat`]); else this game owns a new one ([`SharedBlackjack`]) that
+//!   the others can sit at. Deal says the player is ready with the bet; the round is dealt
+//!   when every seat is ready, and every seat's game plays its own seat from the owner's
+//!   log ([`follow_shared`]), with the same cards, chips and sounds as alone. The others'
+//!   hands are in the watchers' panel.
 //!
 //! Keys [documented: menus\black_jack_menu.xml `_PCButton_*`]: F Hit; W Double Down (Deal
 //! between rounds); E Split (Increase Bet); Q Switch Hands (Decrease Bet); S Surrender
@@ -42,6 +50,8 @@ use crate::PlaySet;
 use bevy::prelude::*;
 use crate::ui_pointer::PointerState;
 use fnv_game::blackjack::{self as rules, Action, BlackjackRequest, CasinoDef, Card, Closed, Event, Outcome, Phase, Refusal, Rules, Seat, Table};
+use crate::coop_tables::{game, BlackjackAction, BlackjackView as SharedView, Tables};
+use fnv_game::blackjack::shared::{Follow, Followed, Shared};
 use fnv_sim::FormId;
 use rand_chacha::ChaCha8Rng;
 use rand_core::SeedableRng;
@@ -119,7 +129,36 @@ pub struct Session {
     auto: bool,
     /// Asked to leave during a round: the menu leaves once it is over.
     leave_after: bool,
+    /// At a co-op table shared with other players.
+    pub shared: Option<SharedSeat>,
 }
+
+/// This player's seat at a shared co-op table.
+#[derive(Debug, Clone)]
+pub struct SharedSeat {
+    /// The table's owner (this player, when it is this game's [`SharedBlackjack`]).
+    pub owner: u8,
+    pub me: u8,
+    follow: Follow,
+    /// The table as this player shows it to the others (the owner's view).
+    pub view: Option<Vec<u8>>,
+    /// When a seat was last asked for; since when the owner's table is not heard.
+    asked: f32,
+    gone_since: Option<f32>,
+}
+
+impl SharedSeat {
+    pub fn owns(&self) -> bool {
+        self.owner == self.me
+    }
+}
+
+/// The shared table this game owns, if any (co-op).
+#[derive(Resource, Default)]
+pub struct SharedBlackjack(pub Option<Shared>);
+
+/// Seconds without the owner's table before a seat gives up [design].
+pub const OWNER_GONE: f32 = 4.0;
 
 impl Session {
     /// The menu's buttons wait for the cards.
@@ -279,13 +318,14 @@ impl Plugin for BlackjackPlugin {
             Err(_) => Vec::new(),
         };
         app.init_resource::<BlackjackScreen>()
+            .init_resource::<SharedBlackjack>()
             .init_resource::<BlackjackStats>()
             .insert_resource(BlackjackAid { steps, ..default() })
             .add_message::<OpenBlackjack>()
             .add_message::<BlackjackInput>()
             .add_systems(
                 Update,
-                (run_aid, scripts_open, open, (keys, buttons, auto_play, apply, step).chain().run_if(in_state(PlayState::Menu)), screen::draw, screen::fade)
+                (run_aid, scripts_open, open, (keys, buttons, auto_play, apply, follow_shared, step).chain().run_if(in_state(PlayState::Menu)), screen::draw, screen::fade)
                     .chain()
                     .after(crate::menu::open_menus)
                     .in_set(PlaySet::Ui),
@@ -395,6 +435,7 @@ fn open(
     mut aid: ResMut<BlackjackAid>,
     time: AidTime,
     (mut stats, mut corner, mut sounds, bindings): (ResMut<BlackjackStats>, Option<ResMut<crate::corner_messages::CornerMessages>>, MessageWriter<UiSound>, Res<crate::bindings::Bindings>),
+    (mut tables, mut owned): (Option<ResMut<Tables>>, ResMut<SharedBlackjack>),
 ) {
     let Some(OpenBlackjack(r)) = requests.read().last().copied() else { return };
     stats.asked += 1;
@@ -432,6 +473,25 @@ fn open(
     stats.opened += 1;
     let rng = ChaCha8Rng::seed_from_u64(aid.seed.unwrap_or_else(|| seed(r.casino, now)));
     let table_rules = Rules { min_bet: r.min_bet, max_bet: r.max_bet, payout: def.payout, stay_soft17: def.stay_soft17 };
+    // In co-op: a seat at a near player's table at this casino, else a table of our own.
+    let shared = tables.as_deref_mut().filter(|t| t.on).and_then(|t| {
+        let me = t.me?;
+        let theirs = t.near_at(r.casino.0, game::BLACKJACK).and_then(|(_, b)| SharedView::decode(b)).map(|v| v.owner).filter(|o| *o != me);
+        Some(match theirs {
+            Some(owner) => {
+                info!("blackjack: sitting at {}'s table", t.name(owner));
+                t.send(r.casino.0, game::BLACKJACK, BlackjackAction::Sit.encode());
+                SharedSeat { owner, me, follow: Follow::default(), view: None, asked: now, gone_since: None }
+            }
+            None => {
+                let mut own = Shared::new(table_rules, def.decks, def.shuffle_share, ChaCha8Rng::seed_from_u64(seed(r.casino, now + 1.0)));
+                own.sit(me);
+                owned.0 = Some(own);
+                info!("blackjack: a shared table at {} (co-op): the others can sit at it", def.name);
+                SharedSeat { owner: me, me, follow: Follow::default(), view: None, asked: now, gone_since: None }
+            }
+        })
+    });
     let mut table = Table::new(table_rules, def.decks, def.shuffle_share, rng);
     table.stack(&std::mem::take(&mut aid.stack));
     let earnings = rt.game.player.casino_earnings.get(&r.casino).copied().unwrap_or(0);
@@ -475,6 +535,7 @@ fn open(
         leaving: None,
         auto: false,
         leave_after: false,
+        shared,
     });
     sounds.write(UiSound { menu: UiMenu::Blackjack, event: UiEvent::Opened });
     next.set(PlayState::Menu);
@@ -578,6 +639,7 @@ fn apply(
     time: AidTime,
     mut stats: ResMut<BlackjackStats>,
     mut sounds: MessageWriter<UiSound>,
+    (mut tables, mut owned): (Option<ResMut<Tables>>, ResMut<SharedBlackjack>),
 ) {
     let now = time.elapsed_secs();
     for &cmd in input.read() {
@@ -599,6 +661,51 @@ fn apply(
                 continue;
             }
             _ => {}
+        }
+        // At a shared table, Deal and the choices go to the table's owner.
+        if let Some((owns, me)) = s.shared.as_ref().map(|sh| (sh.owns(), sh.me)) {
+            let casino = s.casino.0;
+            let to_owner = |tables: &mut Option<ResMut<Tables>>, owned: &mut SharedBlackjack, a: BlackjackAction| -> Result<(), Refusal> {
+                if owns {
+                    let Some(t) = owned.0.as_mut() else { return Err(Refusal::NotNow) };
+                    match a {
+                        BlackjackAction::Bet { bet, chips } => t.bet(me, bet, chips),
+                        BlackjackAction::Act { action, chips } => t.act(me, action, chips),
+                        _ => Ok(()),
+                    }
+                } else {
+                    if let Some(t) = tables.as_deref_mut() {
+                        t.send(casino, game::BLACKJACK, a.encode());
+                    }
+                    Ok(())
+                }
+            };
+            match cmd {
+                BlackjackInput::Deal if s.betting() => {
+                    s.bet = s.table.clamp_bet(s.bet, s.chips);
+                    match to_owner(&mut tables, &mut owned, BlackjackAction::Bet { bet: s.bet, chips: s.chips }) {
+                        Ok(()) => {
+                            info!("blackjack: ready with {} at the shared table", s.bet);
+                            s.status = Some("Waiting for the other players to bet.".into());
+                        }
+                        Err(Refusal::Chips) => s.status = Some(format!("You don't have enough {}s.", s.chip_name)),
+                        Err(e) => info!("blackjack: bet refused ({e:?})"),
+                    }
+                    continue;
+                }
+                BlackjackInput::Play(a) if !s.betting() => {
+                    if !s.table.legal(s.chips).allows(a) {
+                        continue;
+                    }
+                    if let Err(e) = to_owner(&mut tables, &mut owned, BlackjackAction::Act { action: a, chips: s.chips }) {
+                        info!("blackjack: {} refused ({e:?})", a.name());
+                    }
+                    // Taken when the owner's table has it (`follow_shared`).
+                    s.busy_until = now + 0.15;
+                    continue;
+                }
+                _ => {}
+            }
         }
         let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
         match cmd {
@@ -665,6 +772,123 @@ fn apply(
 }
 
 /// Chips from the player to the table.
+/// A shared table's round: the owner takes the others' actions and deals when all are
+/// ready; every seat plays its own seat from the owner's log, as `apply` plays a table
+/// alone (the chips staked as the cards come, the payout as it settles).
+#[allow(clippy::too_many_arguments)]
+fn follow_shared(
+    mut screen: ResMut<BlackjackScreen>,
+    (mut owned, mut tables): (ResMut<SharedBlackjack>, Option<ResMut<Tables>>),
+    mut sim: ResMut<SimState>,
+    mut script: Option<ResMut<ScriptState>>,
+    time: AidTime,
+    mut stats: ResMut<BlackjackStats>,
+) {
+    let Some(s) = screen.0.as_mut() else { return };
+    let Some(mut sh) = s.shared.take() else { return };
+    let now = time.elapsed_secs();
+    let casino = s.casino.0;
+    let view = if sh.owns() {
+        owned.0.as_mut().map(|t| {
+            if let Some(tb) = tables.as_deref_mut() {
+                for (from, table, blob) in tb.take_actions(game::BLACKJACK) {
+                    let Some(a) = BlackjackAction::decode(&blob).filter(|_| table == casino) else { continue };
+                    let done = match a {
+                        BlackjackAction::Sit => t.sit(from).then_some(()).ok_or(Refusal::NotNow),
+                        BlackjackAction::Leave => {
+                            t.leave(from);
+                            Ok(())
+                        }
+                        BlackjackAction::Bet { bet, chips } => t.bet(from, bet, chips),
+                        BlackjackAction::Act { action, chips } => t.act(from, action, chips),
+                    };
+                    info!("blackjack: {} at the shared table: {a:?} ({done:?})", tb.name(from));
+                }
+            }
+            if t.ready() && now >= s.busy_until {
+                let _ = t.deal();
+                info!("blackjack: shared round {} dealt to {} seats", t.round, t.seats.len());
+            }
+            SharedView::of(sh.me, t)
+        })
+    } else {
+        tables.as_deref().and_then(|t| t.view(sh.owner)).filter(|v| v.0 == casino && v.1 == game::BLACKJACK).and_then(|v| SharedView::decode(v.2)).filter(|v| v.owner == sh.owner)
+    };
+    let Some(v) = view else {
+        let since = *sh.gone_since.get_or_insert(now);
+        if now - since >= OWNER_GONE && s.leaving.is_none() {
+            // The round will never settle: the chips staked come back.
+            let back = if s.table.phase == Phase::Playing { s.table.staked() } else { 0 };
+            if back > 0 {
+                if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+                    let chip = s.chip;
+                    with_world(rt, &mut sim, |rt| {
+                        let _ = rt.game.world.add_item(FormId::PLAYER_REF, chip, back as i32);
+                    });
+                    s.chips += back;
+                }
+            }
+            info!("blackjack: the shared table's owner is gone ({back} chips back)");
+            s.status = Some("The dealer has left the table.".into());
+            s.begin_leaving(now, "the table's owner left");
+        }
+        s.shared = Some(sh);
+        return;
+    };
+    sh.gone_since = None;
+    sh.view = Some(v.encode());
+    let Some(seat) = v.seats.iter().find(|x| x.player == sh.me) else {
+        if now - sh.asked >= 1.0 {
+            if let Some(t) = tables.as_deref_mut() {
+                t.send(casino, game::BLACKJACK, BlackjackAction::Sit.encode());
+            }
+            sh.asked = now;
+            if v.seats.len() >= fnv_game::blackjack::shared::MAX_SEATS {
+                s.status = Some("The table is full.".into());
+            }
+        }
+        s.shared = Some(sh);
+        return;
+    };
+    let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else {
+        s.shared = Some(sh);
+        return;
+    };
+    let log = seat.log.clone();
+    loop {
+        let staked = if s.table.phase == Phase::Playing { s.table.staked() } else { 0 };
+        let Some(step) = sh.follow.step(&mut s.table, &log, s.chips) else { break };
+        let t = now.max(s.busy_until);
+        match step {
+            Followed::Dealt { bet, events } => {
+                if !s.shown.is_empty() {
+                    s.discard = Some((now, std::mem::take(&mut s.shown)));
+                    s.sounds.push((now, UiEvent::Collected { dealer: false }));
+                    s.sounds.push((now + 0.3, UiEvent::Collected { dealer: true }));
+                }
+                let t = if s.discard.is_some() { t + DISCARD_SECONDS } else { t };
+                s.reveal = None;
+                s.status = None;
+                s.bet = bet;
+                take_chips(rt, &mut sim, s, bet);
+                rt.game.count_stat(fnv_game::misc_stats::BLACKJACK_GAMES_PLAYED, 1.0);
+                stats.rounds += 1;
+                info!("blackjack: shared round {}: bet {bet}", log.round);
+                schedule(s, events, t, &mut stats, rt, &mut sim);
+            }
+            Followed::Acted { action, events } => {
+                let more = s.table.staked().saturating_sub(staked);
+                if more > 0 {
+                    take_chips(rt, &mut sim, s, more);
+                }
+                info!("blackjack: {} (hand {}, shared)", action.name(), s.table.active + 1);
+                schedule(s, events, t, &mut stats, rt, &mut sim);
+            }
+        }
+    }
+    s.shared = Some(sh);
+}
+
 fn take_chips(rt: &mut crate::script::Runtime, sim: &mut SimState, s: &mut Session, n: u32) {
     let chip = s.chip;
     with_world(rt, sim, |rt| {
@@ -789,8 +1013,22 @@ fn step(time: AidTime, mut screen: ResMut<BlackjackScreen>, mut next: ResMut<Nex
     }
 }
 
-fn close(mut screen: ResMut<BlackjackScreen>, script: Option<ResMut<ScriptState>>, mut sounds: MessageWriter<UiSound>, mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>) {
+fn close(
+    mut screen: ResMut<BlackjackScreen>,
+    script: Option<ResMut<ScriptState>>,
+    mut sounds: MessageWriter<UiSound>,
+    mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>,
+    (mut tables, mut owned): (Option<ResMut<Tables>>, ResMut<SharedBlackjack>),
+) {
     let Some(s) = screen.0.take() else { return };
+    // Up from a shared table: the owner's goes with it (the others see it gone).
+    if let Some(sh) = &s.shared {
+        if sh.owns() {
+            owned.0 = None;
+        } else if let Some(t) = tables.as_deref_mut() {
+            t.send(s.casino.0, game::BLACKJACK, BlackjackAction::Leave.encode());
+        }
+    }
     sounds.write(UiSound { menu: UiMenu::Blackjack, event: UiEvent::Closed });
     if s.banned_at.is_some() {
         if let Some(c) = corner.as_deref_mut() {

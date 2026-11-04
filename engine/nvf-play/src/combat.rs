@@ -132,7 +132,7 @@ use fnv_game::combat::{CombatRequest, DestructionChange, HitInfo, HitResult};
 use crate::phys::PhysState;
 use crate::player::{MoveIntent, Player, MAX_PITCH};
 use crate::sim::SimState;
-use crate::{space, PlaySet, PlayState, PlayWorld};
+use crate::{space, PlaySet, PlayWorld};
 
 mod hit_effects;
 
@@ -1456,7 +1456,7 @@ impl Plugin for CombatPlugin {
             .add_systems(Startup, init_combat)
             .add_systems(
                 Update,
-                (track_limbs, (perk_speed, stat_speed), player_flinch, arm_sway, weapon_state, equip_sync, run_pace, reload_pace, weapon_sounds, fire, melee, actor_attacks, (fly, remote_hits).chain(), crate::dismember::resolve, crate::mines::tick, crate::thrown::land, disarm, death_drops, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
+                (track_limbs, (perk_speed, stat_speed), player_flinch, arm_sway, weapon_state, equip_sync, run_pace, reload_pace, weapon_sounds, fire, melee, actor_attacks, (fly, remote_hits).chain(), crate::dismember::resolve, crate::mines::tick, crate::thrown::land, disarm, death_drops, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(crate::coop_tables::world_goes_on).run_if(resource_exists::<Combat>),
             )
             .add_systems(Update, (draw_marks, watch_hit_effects).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);

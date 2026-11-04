@@ -1,7 +1,7 @@
 //! The simulation as a resource: `fnv_sim::World` over the loaded plugins, its game clock
 //! running in real time while the player is in the world.
 
-use crate::{PlaySet, PlayState};
+use crate::PlaySet;
 use bevy::prelude::*;
 use fnv_esm::{LoadOrder, Schema};
 use fnv_sim::{FormId, FormStore, RefTable, SimConfig, World};
@@ -124,7 +124,8 @@ impl Plugin for SimPlugin {
         // order every frame; which comes first in the game is [hypothesis]: the capture of
         // docs/spec-notes/layer5-captures.md §9 only shows a quest script's own clock
         // change reaching object scripts in the same frame).
-        app.add_systems(Update, advance_clock.run_if(in_state(PlayState::Playing)).before(PlaySet::Scripts));
+        // In co-op the clock goes on behind a minigame table (`crate::coop_tables`).
+        app.add_systems(Update, advance_clock.run_if(crate::coop_tables::world_goes_on).before(PlaySet::Scripts));
     }
 }
 
