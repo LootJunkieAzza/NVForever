@@ -225,6 +225,13 @@ impl<C> IdleSlot<C> {
         self.serial
     }
 
+    /// Play a clip that is no IDLE record (the co-op fork's consume animations,
+    /// `consume_anims.rs`) as an idle `source` asked for; returns its serial.
+    pub fn start_clip(&mut self, source: IdleSource, clip: C, play: IdlePlay) -> u32 {
+        self.start(0, source, None, clip, play);
+        self.serial
+    }
+
     /// Advance by `dt` seconds.
     fn advance(&mut self, dt: f32) {
         if let Some(c) = self.cur.as_mut() {

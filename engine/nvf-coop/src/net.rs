@@ -20,7 +20,9 @@
 //! active quest goes to the guests too ([`QuestView`], [`QUEST_EVERY`]), so does its game
 //! clock ([`ClockView`], [`CLOCK_EVERY`]: one time of day in every game), and an unlocked
 //! door or terminal goes to everyone ([`Session::send_unlock`]). A player another revives
-//! is told so through the host ([`Session::send_revive`]).
+//! is told so through the host ([`Session::send_revive`]). An animation a player plays
+//! for an item (eating, a stimpak, skinning) goes to everyone through the host
+//! ([`Session::send_anim`], [`AnimCue`]); an older game drops the kind it does not know.
 //!
 //! **Loading screens are not dropouts either.** [`Link`] runs the socket on its own
 //! thread, so heartbeats keep going while the game's frame is stalled loading a cell; the
@@ -196,6 +198,55 @@ impl PlayerState {
     }
 }
 
+/// An animation a player plays for an item, for the others to show on its puppet
+/// (`consume_anims.rs` in the game). `clip` and `edid` are at most [`ANIM_TEXT_MAX`]
+/// bytes each.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AnimCue {
+    /// [`AnimCue::CONSUME`], [`AnimCue::INTERACT`] or [`AnimCue::CRAFT`].
+    pub kind: u8,
+    /// How it looks without a third-person clip (`fnv_actor::b42::Style` code).
+    pub style: u8,
+    /// Worn in power armour.
+    pub power_armor: bool,
+    /// The item (or recipe), by FormID in the load order every game runs.
+    pub item: u32,
+    /// Its EditorID: the folder the clips are in.
+    pub edid: String,
+    /// The clip the player played (its archive path).
+    pub clip: String,
+}
+
+impl AnimCue {
+    pub const CONSUME: u8 = 0;
+    pub const INTERACT: u8 = 1;
+    pub const CRAFT: u8 = 2;
+}
+
+pub const ANIM_TEXT_MAX: usize = 160;
+
+/// What a game keeps of the animations it sent and heard.
+#[derive(Default)]
+struct AnimWire {
+    seq: u16,
+    /// (player, seq) of the newest heard, so the copies count once.
+    heard: VecDeque<(u8, u16)>,
+}
+
+impl AnimWire {
+    /// Whether (`id`, `seq`) is new; noted.
+    fn first(&mut self, id: u8, seq: u16) -> bool {
+        if self.heard.contains(&(id, seq)) {
+            return false;
+        }
+        if self.heard.len() == HITS_KEPT {
+            self.heard.pop_front();
+        }
+        self.heard.push_back((id, seq));
+        true
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 enum Msg {
     /// `lobby` is the code's [`crate::code::Lobby::key`] (0 for a guest that came by
@@ -223,6 +274,8 @@ enum Msg {
     Clock(ClockView),
     /// Player `by` revived player `target` (who is down).
     Revive { target: u8, by: u8 },
+    /// Player `id` plays an animation for an item ([`AnimCue`]).
+    Anim { id: u8, seq: u16, cue: AnimCue },
 }
 
 /// The host's game clock, as its time globals hold it (GameYear, GameMonth, GameDay,
@@ -284,6 +337,8 @@ pub enum Event {
     Clock(ClockView),
     /// Player `by` revived this player. It may come more than once.
     Revived { by: u8 },
+    /// Player `id` plays an animation for an item (each once).
+    Anim { id: u8, cue: AnimCue },
 }
 
 /// A peer as one side sees it.
@@ -368,6 +423,7 @@ pub struct Session {
     /// The host's game clock now, and when it was last sent.
     clock: Option<ClockView>,
     last_clock: Option<Instant>,
+    anims: AnimWire,
     events: Vec<Event>,
 }
 
@@ -403,7 +459,7 @@ impl Session {
 
     fn with(sock: UdpSocket, role: Role) -> std::io::Result<Self> {
         sock.set_nonblocking(true)?;
-        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, events: Vec::new() })
+        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, anims: AnimWire::default(), events: Vec::new() })
     }
 
     /// Also talk over Steam: a host is reached through it by a Steam code, a guest reaches
@@ -468,6 +524,28 @@ impl Session {
             Role::Guest { host, .. } => *host,
         };
         if let Some(addr) = to {
+            for _ in 0..HIT_COPIES {
+                self.sock_send(&msg, addr);
+            }
+        }
+    }
+
+    /// This player plays an animation for an item: to the host, which passes it on, or
+    /// from the host to every guest ([`HIT_COPIES`] times). Text longer than
+    /// [`ANIM_TEXT_MAX`] is not sent.
+    pub fn send_anim(&mut self, cue: AnimCue) {
+        let Some(id) = self.id() else { return };
+        if cue.edid.len() > ANIM_TEXT_MAX || cue.clip.len() > ANIM_TEXT_MAX {
+            return;
+        }
+        self.anims.seq = self.anims.seq.wrapping_add(1);
+        let msg = Msg::Anim { id, seq: self.anims.seq, cue };
+        let to: Vec<SocketAddr> = match &self.role {
+            Role::Host => self.peers.iter().filter_map(|p| p.addr).collect(),
+            Role::Guest { host: Some(host), .. } => vec![*host],
+            Role::Guest { .. } => Vec::new(),
+        };
+        for addr in to {
             for _ in 0..HIT_COPIES {
                 self.sock_send(&msg, addr);
             }
@@ -773,6 +851,20 @@ impl Session {
                     self.sock_send(&Msg::Revive { target, by }, addr);
                 }
             }
+            Msg::Anim { id, seq, cue } => {
+                // From the guest it names only; shown here and passed on to the others.
+                if !self.peers.iter().any(|p| p.addr == Some(from) && p.id == id) || !self.anims.first(id, seq) {
+                    return;
+                }
+                let msg = Msg::Anim { id, seq, cue: cue.clone() };
+                let to: Vec<SocketAddr> = self.peers.iter().filter(|p| p.id != id).filter_map(|p| p.addr).collect();
+                for addr in to {
+                    for _ in 0..HIT_COPIES {
+                        self.sock_send(&msg, addr);
+                    }
+                }
+                self.events.push(Event::Anim { id, cue });
+            }
             Msg::Welcome { .. } | Msg::Full | Msg::Who | Msg::Npcs { .. } | Msg::Quest(_) | Msg::Clock(_) => {}
         }
     }
@@ -894,6 +986,11 @@ impl Session {
             Msg::Revive { target, by } => {
                 if Some(target) == *id {
                     self.events.push(Event::Revived { by });
+                }
+            }
+            Msg::Anim { id: player, seq, cue } => {
+                if Some(player) != *id && self.anims.first(player, seq) {
+                    self.events.push(Event::Anim { id: player, cue });
                 }
             }
             Msg::Hello { .. } | Msg::Ping => {}
@@ -1023,6 +1120,10 @@ impl Link {
 
     pub fn send_unlock(&self, reference: u32, terminal: bool) {
         self.with(|s| s.send_unlock(reference, terminal));
+    }
+
+    pub fn send_anim(&self, cue: AnimCue) {
+        self.with(|s| s.send_anim(cue));
     }
 
     pub fn events(&self) -> Vec<Event> {
@@ -1191,6 +1292,17 @@ fn encode(msg: &Msg) -> Vec<u8> {
             b.push(*target);
             b.push(*by);
         }
+        Msg::Anim { id, seq, cue } => {
+            b.extend_from_slice(&[16, *id]);
+            b.extend_from_slice(&seq.to_le_bytes());
+            b.extend_from_slice(&[cue.kind, cue.style, u8::from(cue.power_armor)]);
+            b.extend_from_slice(&cue.item.to_le_bytes());
+            for t in [&cue.edid, &cue.clip] {
+                let n = t.len().min(ANIM_TEXT_MAX);
+                b.push(n as u8);
+                b.extend_from_slice(&t.as_bytes()[..n]);
+            }
+        }
     }
     b
 }
@@ -1297,6 +1409,19 @@ fn decode(b: &[u8]) -> Option<Msg> {
         }
         12 => Msg::Unlock { reference: r.u32()?, terminal: r.u8()? != 0 },
         14 => Msg::Revive { target: r.u8()?, by: r.u8()? },
+        16 => {
+            let (id, seq) = (r.u8()?, r.u16()?);
+            let (kind, style, power_armor, item) = (r.u8()?, r.u8()?, r.u8()? != 0, r.u32()?);
+            let mut text = || -> Option<String> {
+                let len = r.u8()? as usize;
+                if len > ANIM_TEXT_MAX {
+                    return None;
+                }
+                Some(String::from_utf8_lossy(r.take(len)?).into_owned())
+            };
+            let (edid, clip) = (text()?, text()?);
+            Msg::Anim { id, seq, cue: AnimCue { kind, style, power_armor, item, edid, clip } }
+        }
         13 => Msg::Clock(ClockView { year: r.f32()?, month: r.f32()?, day: r.f32()?, hour: r.f32()?, days_passed: r.f32()? }),
         _ => return None,
     };
@@ -1354,6 +1479,8 @@ mod tests {
             Msg::Unlock { reference: 0x0001_2345, terminal: true },
             Msg::Clock(ClockView { year: 2281.0, month: 9.0, day: 19.0, hour: 13.25, days_passed: 6.05 }),
             Msg::Revive { target: 2, by: 0 },
+            Msg::Anim { id: 1, seq: 65_535, cue: AnimCue { kind: AnimCue::CONSUME, style: 2, power_armor: false, item: 0x0001_5169, edid: "Stimpak".into(), clip: "meshes\\characters\\_male\\idleanims\\b42inject\\0\\1\\stimpak\\stimpak.kf".into() } },
+            Msg::Anim { id: 0, seq: 0, cue: AnimCue::default() },
             Msg::Npcs {
                 seq: 12,
                 npcs: vec![
@@ -1451,6 +1578,38 @@ mod tests {
         host.send_revive(ida);
         let seen = run(&mut [&mut host, a, b], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Revived { .. })));
         assert!(seen[1].contains(&Event::Revived { by: 0 }));
+    }
+
+    /// A guest's animation reaches the host and the other guest once each (it goes three
+    /// times), naming the guest, and not back to it; the host's reaches the guests.
+    #[test]
+    fn animations_reach_everyone_once() {
+        let (mut host, mut guests, _) = host_and(2);
+        let (a, b) = guests.split_at_mut(1);
+        let (a, b) = (&mut a[0], &mut b[0]);
+        let mut clock = Instant::now();
+        let step = Duration::from_millis(20);
+        run(&mut [&mut host, a, b], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))) && seen[2].iter().any(|e| matches!(e, Event::Welcomed(_))));
+        let ida = a.id().unwrap();
+        let cue = AnimCue { kind: AnimCue::CONSUME, style: 0, power_armor: false, item: 0x0002_2D1C, edid: "BrahminSteak".into(), clip: "x.kf".into() };
+        let anims = |v: &[Event]| v.iter().filter(|e| matches!(e, Event::Anim { .. })).cloned().collect::<Vec<_>>();
+        a.send_anim(cue.clone());
+        let mut seen = run(&mut [&mut host, a, b], &mut clock, step, |seen| !anims(&seen[0]).is_empty() && !anims(&seen[2]).is_empty());
+        // The copies still on their way.
+        for _ in 0..20 {
+            std::thread::sleep(Duration::from_millis(3));
+            clock += step;
+            for (i, s) in [&mut host, &mut *a, &mut *b].into_iter().enumerate() {
+                s.tick(clock);
+                seen[i].extend(s.take_events());
+            }
+        }
+        assert_eq!(anims(&seen[0]), [Event::Anim { id: ida, cue: cue.clone() }]);
+        assert_eq!(anims(&seen[2]), [Event::Anim { id: ida, cue: cue.clone() }]);
+        assert!(anims(&seen[1]).is_empty(), "not back to its sender");
+        host.send_anim(cue.clone());
+        let seen = run(&mut [&mut host, a, b], &mut clock, step, |seen| !anims(&seen[1]).is_empty() && !anims(&seen[2]).is_empty());
+        assert_eq!(anims(&seen[1])[0], Event::Anim { id: 0, cue });
     }
 
     /// Each guest is welcomed, the host relays one guest's state to the other, and a guest

@@ -1660,7 +1660,7 @@ pub(crate) fn run_scripts(
     (mut changed, mut fades, mut repose): (MessageWriter<RefChanged>, MessageWriter<crate::fade::RefFade>, MessageWriter<crate::RefRepose>),
     mut travel: MessageWriter<TravelRequest>,
     mut open: MessageWriter<OpenContainer>,
-    mut used: MessageReader<ItemUsed>,
+    (mut used, mut anims): (MessageReader<ItemUsed>, ResMut<crate::ConsumeAnims>),
     mut sit: MessageWriter<crate::furniture::UseFurniture>,
     paused: Res<crate::pause::Paused>,
     (mut screen, bindings, tiles, page, mut mods_ticks): ScreenAndMenus,
@@ -1668,7 +1668,25 @@ pub(crate) fn run_scripts(
     // Items the player used up in the inventory menu (the menu already removed them),
     // kept until the runtime runs.
     let st = &mut *script;
-    st.used.extend(used.read().map(|u| (FormId(u.item), u.limb)));
+    // Hardcore consume animations (`crate::ConsumeAnims`): an aid item used while busy is
+    // given back, unused.
+    match anims.refuse {
+        Some(why) => {
+            let refused: Vec<u32> = used.read().map(|u| u.item).collect();
+            for &item in &refused {
+                let back = sim.world.add_item(FormId::PLAYER_REF, FormId(item), 1);
+                info!("aid: {item:08X} not used ({why}){}", back.err().map_or(String::new(), |e| format!("; not given back: {e:?}")));
+            }
+            if !refused.is_empty() {
+                corner.push("You can't use that right now.".to_string().into());
+            }
+            anims.refused = refused;
+        }
+        None => {
+            anims.refused.clear();
+            st.used.extend(used.read().map(|u| (FormId(u.item), u.limb)));
+        }
+    }
     if st.rt.is_none() {
         let Some(rx) = st.loader.as_ref() else { return };
         let got = rx.lock().ok().and_then(|r| r.try_recv().ok());

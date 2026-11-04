@@ -303,6 +303,18 @@ pub struct ItemUsed {
     pub limb: Option<u16>,
 }
 
+/// Aid items with an animation of their own (the co-op fork's consume animations,
+/// `consume_anims.rs` in the game): their consume sound is held back to play with the
+/// animation ([`crate::ui_sounds`]), and while `refuse` says why, Hardcore refuses any
+/// aid item (the menu's use is undone: [`crate::script`]).
+#[derive(Resource, Default, Debug, Clone)]
+pub struct ConsumeAnims {
+    pub items: std::collections::HashSet<u32>,
+    pub refuse: Option<&'static str>,
+    /// Items refused (given back) this frame, for the animations to leave alone.
+    pub refused: Vec<u32>,
+}
+
 pub struct PlayPlugin(pub PlayData);
 
 impl Plugin for PlayPlugin {
@@ -316,6 +328,7 @@ impl Plugin for PlayPlugin {
             .add_message::<OpenContainer>()
             .add_message::<RefChanged>()
             .add_message::<ItemUsed>()
+            .init_resource::<ConsumeAnims>()
             .add_message::<furniture::UseFurniture>()
             .add_message::<world_sounds::Activated>()
             .add_message::<world_sounds::DoorPassed>()

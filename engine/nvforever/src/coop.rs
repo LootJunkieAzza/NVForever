@@ -868,14 +868,19 @@ fn take_events(
     actor_world: Option<Res<ActorWorld>>,
     mut remote_hits: MessageWriter<RemoteHit>,
     (mut sim, mut script, mut quest_lines): (Option<ResMut<nvf_play::sim::SimState>>, Option<ResMut<nvf_play::script::ScriptState>>, Option<ResMut<nvf_play::quest_messages::QuestMessages>>),
-    mut opened: MessageReader<LockOpened>,
+    (mut opened, mut anims_out, mut anims_in): (MessageReader<LockOpened>, MessageReader<crate::consume_anims::SendAnim>, MessageWriter<crate::consume_anims::PeerAnim>),
 ) {
     let now = time.elapsed_secs();
     let coop = &mut *coop;
     let Some(link) = coop.link.as_ref() else {
         opened.clear();
+        anims_out.clear();
         return;
     };
+    // This player's item animations go to everyone (consume_anims.rs).
+    for a in anims_out.read() {
+        link.send_anim(a.0.clone());
+    }
     // What this player unlocked goes to everyone (module notes).
     for o in opened.read() {
         info!("co-op: this player {} {:#010X}: everyone's is unlocked", o.how.word(), o.reference);
@@ -1036,6 +1041,10 @@ fn take_events(
                         info!("co-op: {} unlocked {reference:#010X}{}", label(id, &coop.peers.get(&id).map_or(String::new(), |p| p.name.clone())), if terminal { " (a terminal)" } else { "" });
                     }
                 }
+            }
+            Event::Anim { id, cue } => {
+                let reference = coop.peers.get(&id).map_or(PUPPET_REF + id as u32, |p| p.reference(id));
+                anims_in.write(crate::consume_anims::PeerAnim { reference, cue });
             }
             Event::Hit { hit, .. } => match decode_hurt(&hit) {
                 Some((by, h)) => {
