@@ -22,7 +22,8 @@
 //!   the others can sit at. Deal says the player is ready with the bet; the round is dealt
 //!   when every seat is ready, and every seat's game plays its own seat from the owner's
 //!   log ([`follow_shared`]), with the same cards, chips and sounds as alone. The others'
-//!   hands are in the watchers' panel.
+//!   seats are played the same way for the felt ([`OtherSeat`]): their cards dealt at
+//!   their places beside this player's, their stakes in chips there.
 //!
 //! Keys [documented: menus\black_jack_menu.xml `_PCButton_*`]: F Hit; W Double Down (Deal
 //! between rounds); E Split (Increase Bet); Q Switch Hands (Decrease Bet); S Surrender
@@ -131,7 +132,51 @@ pub struct Session {
     leave_after: bool,
     /// At a co-op table shared with other players.
     pub shared: Option<SharedSeat>,
+    /// The other players' seats at a shared table, as this game shows them.
+    pub others: Vec<OtherSeat>,
+    /// What the last round paid back (from when, how many chips): on the table at the
+    /// seat until the next bet is set.
+    pub paid: Option<(f32, u32)>,
 }
+
+/// Another player's seat at a shared table, as this game shows it: its round played from
+/// the owner's log on a table of its own, its cards dealt onto the felt with the same
+/// sequences and sounds as this player's ([`follow_shared`]) [design].
+#[derive(Debug, Clone)]
+pub struct OtherSeat {
+    pub player: u8,
+    /// Where the seat is, counted from this player's: −1 the next on the left, 1 the next
+    /// on the right (the owner's seat order, the same on every screen).
+    pub place: i32,
+    follow: Follow,
+    pub table: Table,
+    pub shown: Vec<Shown>,
+    pub discard: Option<(f32, Vec<Shown>)>,
+    /// The bet the seat set for the next round, and whether it is set.
+    pub bet: u32,
+    pub ready: bool,
+    pub paid: Option<(f32, u32)>,
+    /// Its next card waits until then (aid seconds).
+    busy_until: f32,
+}
+
+impl OtherSeat {
+    /// The chips on the table at the seat now.
+    pub fn chips_shown(&self, now: f32) -> u32 {
+        if self.table.phase == Phase::Playing {
+            return self.table.staked();
+        }
+        match self.paid {
+            Some((t, _)) if now < t => self.table.staked(),
+            _ if self.ready => self.bet,
+            Some((_, n)) => n,
+            None => 0,
+        }
+    }
+}
+
+/// Seconds the chips a round paid stay before the buttons come back [design].
+pub const PAID_SECONDS: f32 = 1.2;
 
 /// This player's seat at a shared co-op table.
 #[derive(Debug, Clone)]
@@ -168,6 +213,19 @@ impl Session {
 
     pub fn betting(&self) -> bool {
         self.table.phase != Phase::Playing
+    }
+
+    /// The chips on the table at this player's seat now: the bet being set, the hands'
+    /// stakes, then what the round paid back.
+    pub fn chips_shown(&self, now: f32) -> u32 {
+        if !self.betting() {
+            return self.table.staked();
+        }
+        match self.paid {
+            Some((t, _)) if now < t => self.table.staked(),
+            Some((_, n)) => n,
+            None => self.bet,
+        }
     }
 
     /// How much of the menu is drawn: 1, down to 0 as it leaves.
@@ -536,6 +594,8 @@ fn open(
         auto: false,
         leave_after: false,
         shared,
+        others: Vec::new(),
+        paid: None,
     });
     sounds.write(UiSound { menu: UiMenu::Blackjack, event: UiEvent::Opened });
     next.set(PlayState::Menu);
@@ -661,6 +721,9 @@ fn apply(
                 continue;
             }
             _ => {}
+        }
+        if matches!(cmd, BlackjackInput::Deal | BlackjackInput::Bet { .. } | BlackjackInput::MaxBet | BlackjackInput::SetBet(_)) && s.betting() && now >= s.busy_until {
+            s.paid = None;
         }
         // At a shared table, Deal and the choices go to the table's owner.
         if let Some((owns, me)) = s.shared.as_ref().map(|sh| (sh.owns(), sh.me)) {
@@ -886,7 +949,117 @@ fn follow_shared(
             }
         }
     }
+    follow_others(s, &v, sh.me, sh.follow.round(), now);
     s.shared = Some(sh);
+}
+
+/// The other seats of the owner's table: each played on a table of its own from its log,
+/// its cards put on the felt at its place one after another as this player's are.
+fn follow_others(s: &mut Session, v: &SharedView, me: u8, my_round: u32, now: f32) {
+    let mine = v.seats.iter().position(|x| x.player == me).unwrap_or(0) as i32;
+    s.others.retain(|o| v.seats.iter().any(|x| x.player == o.player && x.player != me));
+    let n_others = v.seats.iter().filter(|x| x.player != me).count() as f32;
+    let rules = s.table.rules;
+    let mut rank = 0.0;
+    for (i, seat) in v.seats.iter().enumerate() {
+        if seat.player == me {
+            continue;
+        }
+        rank += 1.0;
+        let k = match s.others.iter().position(|o| o.player == seat.player) {
+            Some(k) => k,
+            None => {
+                info!("blackjack: {} is at the shared table too, seat {}", seat.player, i + 1);
+                s.others.push(OtherSeat {
+                    player: seat.player,
+                    place: 0,
+                    follow: Follow::default(),
+                    table: Table::new(rules, 1, 0.0, ChaCha8Rng::seed_from_u64(0)),
+                    shown: Vec::new(),
+                    discard: None,
+                    bet: seat.bet,
+                    ready: seat.ready,
+                    paid: None,
+                    busy_until: now,
+                });
+                s.others.len() - 1
+            }
+        };
+        let o = &mut s.others[k];
+        o.place = i as i32 - mine;
+        o.bet = seat.bet;
+        o.ready = seat.ready && v.phase != Phase::Playing;
+        // The other's own chips are its game's: here only the cards and the stakes.
+        while let Some(step) = o.follow.step(&mut o.table, &seat.log, u32::MAX / 4) {
+            match step {
+                Followed::Dealt { events, .. } => {
+                    let mut t = now.max(o.busy_until);
+                    if !o.shown.is_empty() {
+                        o.discard = Some((now, std::mem::take(&mut o.shown)));
+                        t += DISCARD_SECONDS;
+                    }
+                    // Dealt with this player's round: its cards between this player's.
+                    if my_round == seat.log.round {
+                        if let Some(first) = s.shown.iter().find(|c| c.seat == Seat::Hand(0) && c.index == 0) {
+                            t = first.since;
+                        }
+                    }
+                    t += DEAL_GAP * rank / (n_others + 1.0);
+                    o.paid = None;
+                    info!("blackjack: seat {} dealt (shared round {}, bet {})", seat.player, seat.log.round, seat.log.bet);
+                    show_other(o, events, t, &mut s.shown, &mut s.reveal, &mut s.sounds);
+                }
+                Followed::Acted { action, events } => {
+                    info!("blackjack: seat {}: {}", seat.player, action.name());
+                    let t = now.max(o.busy_until);
+                    show_other(o, events, t, &mut s.shown, &mut s.reveal, &mut s.sounds);
+                }
+            }
+        }
+    }
+}
+
+/// Another seat's events on the felt: its cards at its place, and the dealer's that this
+/// player's own hands did not draw (they were bust or settled) [design].
+fn show_other(o: &mut OtherSeat, events: Vec<Event>, mut t: f32, dealer: &mut Vec<Shown>, reveal: &mut Option<f32>, sounds: &mut Vec<(f32, UiEvent)>) {
+    for e in events {
+        match e {
+            Event::Card { seat: Seat::Dealer, index, card, .. } => {
+                if !dealer.iter().any(|c| c.seat == Seat::Dealer && c.index == index) {
+                    dealer.push(Shown { seat: Seat::Dealer, index, card, since: t });
+                    sounds.push((t, UiEvent::CardDealt));
+                }
+                t += DEAL_GAP;
+            }
+            Event::Card { seat, index, card, .. } => {
+                o.shown.push(Shown { seat, index, card, since: t });
+                sounds.push((t, UiEvent::CardDealt));
+                t += DEAL_GAP;
+            }
+            Event::Split => {
+                if let Some(c) = o.shown.iter_mut().find(|c| c.seat == Seat::Hand(0) && c.index == 1) {
+                    c.seat = Seat::Hand(1);
+                    c.index = 0;
+                    c.since = t;
+                }
+                sounds.push((t, UiEvent::CardDealt));
+                t += DEAL_GAP;
+            }
+            Event::Reveal(_) => {
+                if reveal.is_none() {
+                    *reveal = Some(t);
+                    sounds.push((t, UiEvent::CardFlipped));
+                }
+                t += DEAL_GAP;
+            }
+            Event::Settled { outcomes, .. } => {
+                o.paid = Some((t, outcomes.iter().map(|(_, p)| p).sum()));
+                t += PAID_SECONDS;
+            }
+            _ => {}
+        }
+    }
+    o.busy_until = o.busy_until.max(t + CARD_SECONDS - DEAL_GAP);
 }
 
 fn take_chips(rt: &mut crate::script::Runtime, sim: &mut SimState, s: &mut Session, n: u32) {
@@ -953,6 +1126,8 @@ fn schedule(s: &mut Session, events: Vec<Event>, mut t: f32, stats: &mut Blackja
                 }
                 stats.naturals += outcomes.iter().filter(|(o, _)| *o == Outcome::Blackjack).count() as u32;
                 s.pending = Some((t, line));
+                s.paid = Some((t, paid));
+                t += PAID_SECONDS;
                 if net != 0 {
                     s.sounds.push((t, UiEvent::RoundOver { won: net > 0 }));
                 }
@@ -996,6 +1171,11 @@ fn step(time: AidTime, mut screen: ResMut<BlackjackScreen>, mut next: ResMut<Nex
     }
     if s.discard.as_ref().is_some_and(|(t, _)| now - t >= DISCARD_SECONDS) {
         s.discard = None;
+    }
+    for o in &mut s.others {
+        if o.discard.as_ref().is_some_and(|(t, _)| now - t >= DISCARD_SECONDS) {
+            o.discard = None;
+        }
     }
     if s.leave_after && s.betting() && now >= s.busy_until {
         s.begin_leaving(now, "the player left after the round");
@@ -1079,6 +1259,94 @@ mod tests {
         assert_eq!(result_line(&[(Outcome::Blackjack, 25)], 16, 15), "Blackjack. Dealer has 16. +15");
         assert_eq!(result_line(&[(Outcome::Win, 20), (Outcome::Bust, 0)], 22, 0), "You win / Bust. Dealer busts. 0");
         assert_eq!(result_line(&[(Outcome::Lose, 0)], 20, -10), "Dealer wins. Dealer has 20. -10");
+    }
+
+    fn session() -> Session {
+        let rules = Rules { min_bet: 5, max_bet: 200, payout: 1.5, stay_soft17: true };
+        Session {
+            casino: FormId(1),
+            def: CasinoDef::default(),
+            chip: FormId(2),
+            chip_name: "chip".into(),
+            table: Table::new(rules, 6, 0.75, ChaCha8Rng::seed_from_u64(1)),
+            bet: 25,
+            chips: 500,
+            earnings: 0,
+            max_winnings: 0,
+            status: None,
+            help: None,
+            opened: 0.0,
+            shown: Vec::new(),
+            reveal: None,
+            discard: None,
+            busy_until: 0.0,
+            pending: None,
+            sounds: Vec::new(),
+            banned_at: None,
+            leaving: None,
+            auto: false,
+            leave_after: false,
+            shared: None,
+            others: Vec::new(),
+            paid: None,
+        }
+    }
+
+    #[test]
+    fn the_other_seats_are_dealt_at_their_places_with_their_stakes() {
+        let rules = Rules { min_bet: 5, max_bet: 200, payout: 1.5, stay_soft17: true };
+        let mut t = Shared::new(rules, 6, 0.75, ChaCha8Rng::seed_from_u64(9));
+        t.sit(0);
+        t.sit(1);
+        t.bet(0, 25, 500).unwrap();
+        t.bet(1, 40, 500).unwrap();
+        t.deal().unwrap();
+        let v = SharedView::of(0, &t);
+        // The host (seat 0) sees the guest on its right; the guest the host on its left.
+        let mut host = session();
+        follow_others(&mut host, &v, 0, 0, 10.0);
+        let mut guest = session();
+        follow_others(&mut guest, &v, 1, 0, 10.0);
+        assert_eq!((host.others.len(), host.others[0].player, host.others[0].place), (1, 1, 1));
+        assert_eq!((guest.others[0].player, guest.others[0].place), (0, -1));
+        let o = &host.others[0];
+        let cards: Vec<Card> = o.shown.iter().filter(|c| c.seat == Seat::Hand(0)).map(|c| c.card).collect();
+        assert_eq!(cards, t.seat(1).unwrap().table.as_ref().unwrap().hands[0].cards[..2]);
+        assert!(o.shown.windows(2).all(|w| w[1].since > w[0].since), "dealt one after another");
+        assert!(o.shown.iter().all(|c| c.since >= 10.0));
+        assert_eq!(host.shown.iter().filter(|c| c.seat == Seat::Dealer).count(), 2, "the dealer's cards, once, when this seat has none");
+        assert_eq!(o.chips_shown(10.0), 40, "the stake");
+        // The guest plays on; the host follows it there.
+        if t.legal(1).double {
+            t.act(1, Action::Double, 0).unwrap();
+        } else {
+            t.act(1, Action::Stay, 0).ok();
+        }
+        while t.phase == Phase::Playing {
+            t.act(0, Action::Stay, 0).unwrap();
+        }
+        let v = SharedView::of(0, &t);
+        follow_others(&mut host, &v, 0, 0, 12.0);
+        let o = &host.others[0];
+        let seat = t.seat(1).unwrap().table.clone().unwrap();
+        assert_eq!(o.table.hands, seat.hands, "the same round as the owner's");
+        let paid: u32 = seat.hands.iter().map(|h| h.paid).sum();
+        assert_eq!(o.chips_shown(100.0), paid, "what the round paid back, once it is shown");
+        assert_eq!(o.chips_shown(12.0), seat.staked(), "the stakes until then");
+        assert!(host.sounds.iter().filter(|s| s.1 == UiEvent::CardDealt).count() >= 4);
+    }
+
+    #[test]
+    fn this_seats_chips_are_the_bet_the_stakes_then_the_payout() {
+        let mut s = session();
+        assert_eq!(s.chips_shown(0.0), 25);
+        s.table.deal(25, 500).unwrap();
+        if s.table.phase == Phase::Playing {
+            assert_eq!(s.chips_shown(0.0), 25);
+        }
+        s.table.phase = Phase::Over;
+        s.paid = Some((5.0, 50));
+        assert_eq!((s.chips_shown(4.0), s.chips_shown(5.0)), (25, 50));
     }
 
     #[test]
