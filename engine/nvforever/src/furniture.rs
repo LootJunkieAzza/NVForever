@@ -717,6 +717,9 @@ pub struct BodyClip {
     /// The furniture is a bed: the body lies down, and the first-person view lies down
     /// with it (`player_body.rs`).
     pub lying: bool,
+    /// A clip played once over it, above its priority (the fillet table's stabs,
+    /// `fillet_stage.rs`); a new serial starts it again.
+    pub over: Option<(Arc<Clip>, u32)>,
 }
 
 #[derive(Resource, Default)]
@@ -844,9 +847,10 @@ pub fn drive_player(
             pos: root_at(&frames.clip, &u.plan.get_on, u.usage.t),
             heading: frames.clip.heading,
             lying,
+            over: None,
         }),
         Phase::On => Some(match &u.plan.stay {
-            Some(stay) => BodyClip { clip: stay.clone(), looped: true, serial: st.serial, pos: frames.on.pos, heading: frames.on.heading, lying },
+            Some(stay) => BodyClip { clip: stay.clone(), looped: true, serial: st.serial, pos: frames.on.pos, heading: frames.on.heading, lying, over: None },
             None => BodyClip {
                 clip: u.plan.get_on.clone(),
                 looped: false,
@@ -854,6 +858,7 @@ pub fn drive_player(
                 pos: root_at(&frames.clip, &u.plan.get_on, f32::MAX),
                 heading: frames.clip.heading,
                 lying,
+                over: None,
             },
         }),
         Phase::GettingOff if ev != Some(UseEvent::GotOff) => u.get_off.as_ref().map(|(c, _)| BodyClip {
@@ -863,6 +868,7 @@ pub fn drive_player(
             pos: root_at(&frames.clip, c, u.usage.t),
             heading: frames.clip.heading,
             lying,
+            over: None,
         }),
         Phase::GettingOff => None,
     };
