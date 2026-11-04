@@ -399,10 +399,10 @@ fn count(
         f.world_depth = ancestors.iter_ancestors(entity).count() as u64;
         f.world_global_changed_frames = u64::from(global.is_changed());
         f.world_off_local_frames = u64::from(GlobalTransform::from(*local) != *global);
+        let dirty = tree.is_changed();
+        f.world_dirty_frames += u64::from(dirty);
+        let mut any_dirty_cell = false;
         if let Some(children) = children {
-            let dirty = tree.is_changed();
-            f.world_dirty_frames += u64::from(dirty);
-            let mut any_dirty_cell = false;
             for (tree, global, below, cell, reference, mesh) in nodes.iter_many(children).matched() {
                 let k = if cell {
                     0
@@ -438,11 +438,12 @@ fn count(
                     f.stable.recomputed += 1 + under.recomputed;
                 }
             }
-            if dirty {
-                // `World` itself, then a child of the root above it.
-                f.stable.add(Walk { examined: 1, recomputed: 1 });
-                f.no_dirty_cell_frames += u64::from(!any_dirty_cell);
-            }
+        }
+        // Whether or not it has children: the wrapper's walk examines `World` itself.
+        if dirty {
+            // `World` itself, then a child of the root above it.
+            f.stable.add(Walk { examined: 1, recomputed: 1 });
+            f.no_dirty_cell_frames += u64::from(!any_dirty_cell);
         }
     }
     f.gt_changed = changed_global.iter().count() as u64;
@@ -653,6 +654,40 @@ mod tests {
         let t = step(&mut app);
         let [roots, ..] = t.lines("", 1.0, 0);
         assert!(roots.contains("model=not_applicable") && roots.contains("root_kinds=world_parent:1.00 world_depth=1.00 world_parent_children=1.00 world_global_changed_frames=0 world_off_local_frames=0 "), "{roots}");
+    }
+
+    /// Trips if `World`'s own accounting waits for it to have children: an empty, settled
+    /// `World` that is written with its own value still costs the wrapper's walk one look and
+    /// one recomputation, and `stable_root_` and `world_dirty_frames` would say 0.
+    #[test]
+    fn an_emptied_world_still_counts_itself() {
+        for wrapped in [true, false] {
+            let (mut app, _) = if wrapped { under_parent() } else { scene() };
+            let w = app.world_mut();
+            let world = w.query_filtered::<Entity, With<WorldRoot>>().single(&*w).unwrap();
+            let cells: Vec<Entity> = w.get::<Children>(world).unwrap().iter().collect();
+            for cell in cells {
+                w.despawn(cell);
+            }
+            app.update();
+            app.update();
+            let w = app.world_mut();
+            assert!(w.get::<Children>(world).is_none(), "World is empty");
+            w.get_mut::<Transform>(world).unwrap().set_changed();
+            let t = step(&mut app);
+            assert_eq!(t.world_dirty_frames, 1, "wrapped={wrapped}");
+            assert_eq!(t.no_dirty_cell_frames, 1, "wrapped={wrapped}");
+            assert_eq!(t.world_children, [0, 0, 0, 0], "wrapped={wrapped}");
+            assert_eq!(t.stable, Walk { examined: 1, recomputed: 1 }, "wrapped={wrapped}");
+            if wrapped {
+                // The real walk: the parent is dirty and reaches `World`.
+                assert_eq!(t.walk, Walk { examined: 1, recomputed: 1 });
+                assert_eq!(t.stable, t.walk);
+            } else {
+                // A childless root is not walked at all, so `World` as a root costs nothing.
+                assert_eq!((t.walk, t.as_root, t.childless_roots), (Walk::default(), Walk::default(), 1));
+            }
+        }
     }
 
     #[test]
