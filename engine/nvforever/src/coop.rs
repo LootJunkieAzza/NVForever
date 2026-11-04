@@ -115,6 +115,7 @@ use nvf_play::combat::{ActorHit, CombatStats, RelayedHit, RemoteHit};
 use nvf_coop::reach::{self, Reach};
 use nvf_play::loading::{Loading, TravelRequest};
 use nvf_play::lobby::{Hosting, Joining, LobbyRequest, LobbyState};
+use nvf_play::coop_tables::Tables;
 use nvf_play::player::Player;
 use nvf_play::sfx::{PlaySound, Sfx};
 use nvf_play::{Location, PlayState, RefVisual, Travel};
@@ -243,7 +244,7 @@ impl Plugin for CoopPlugin {
         }
         app.add_plugins(nvf_play::lobby::LobbyPlugin)
             .insert_resource(coop)
-            .add_systems(Update, (lobby, send, take_events, share_npcs, follow_npcs, leash, downed).chain().after(nvf_play::PlaySet::Physics))
+            .add_systems(Update, (lobby, send, take_events, tables, share_npcs, follow_npcs, leash, downed).chain().after(nvf_play::PlaySet::Physics))
             .add_message::<PuppetShot>()
             .add_systems(Update, (stand_ins, draw, peer_lights).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
     }
@@ -504,6 +505,7 @@ fn lobby(
     main_menu: Option<Res<nvf_play::main_menu::MainMenu>>,
     windows: Query<&mut Window, With<PrimaryWindow>>,
     mut titled: Local<Option<String>>,
+    tables: Option<Res<Tables>>,
 ) {
     let now = time.elapsed_secs();
     let coop = &mut *coop;
@@ -604,6 +606,11 @@ fn lobby(
         players.push(if coop.is_host() { format!("{} (host)", coop.name) } else { coop.name.clone() });
         for (&id, p) in &coop.peers {
             let n = label(id, &p.name);
+            // A player at a minigame table says so (the others' tables, module notes).
+            let n = match tables.as_deref().and_then(|t| t.at_table(id)) {
+                Some(g) => format!("{n} (at {})", nvf_play::coop_tables::game::word(g)),
+                None => n,
+            };
             players.push(if p.lost { format!("{n} (reconnecting)") } else { n });
         }
     }
@@ -677,6 +684,38 @@ impl Peer {
         let turn = (b.yaw - a.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
         let moved = (0..3).map(|k| (b.feet[k] - a.feet[k]).powi(2)).sum::<f32>() > 0.25;
         Some((b.place, feet, a.yaw + turn * f, moved && !self.lost))
+    }
+}
+
+/// The minigame tables between this game and the link: who is on, who is near, this
+/// player's table view out and its actions for the others' tables (nvf-play
+/// `coop_tables`).
+fn tables(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location>>, tables: Option<ResMut<Tables>>) {
+    let Some(mut tables) = tables else { return };
+    let Some(link) = coop.link.as_ref() else {
+        if tables.on {
+            *tables = Default::default();
+        }
+        return;
+    };
+    tables.on = true;
+    tables.me = link.id();
+    tables.names = coop.peers.iter().map(|(&id, p)| (id, p.name.clone())).collect();
+    let here = loc.as_deref().map(place_of);
+    tables.near = coop
+        .peers
+        .iter()
+        .filter(|(_, p)| !p.lost)
+        .filter_map(|(&id, p)| {
+            let s = p.samples.back()?.1;
+            let feet = player.as_deref()?.feet;
+            let d2 = (0..3).map(|k| (s.feet[k] - feet[k]).powi(2)).sum::<f32>();
+            (Some(s.place) == here && d2 < nvf_play::coop_tables::WATCH_RANGE.powi(2)).then_some(id)
+        })
+        .collect();
+    link.set_table(tables.out.clone().map(|(table, game, blob)| net::TableView { table, game, blob }));
+    for (table, game, blob) in std::mem::take(&mut tables.actions_out) {
+        link.send_table_action(table, game, blob);
     }
 }
 
@@ -868,7 +907,7 @@ fn take_events(
     actor_world: Option<Res<ActorWorld>>,
     mut remote_hits: MessageWriter<RemoteHit>,
     (mut sim, mut script, mut quest_lines): (Option<ResMut<nvf_play::sim::SimState>>, Option<ResMut<nvf_play::script::ScriptState>>, Option<ResMut<nvf_play::quest_messages::QuestMessages>>),
-    mut opened: MessageReader<LockOpened>,
+    (mut opened, real, mut tables): (MessageReader<LockOpened>, Res<Time<Real>>, Option<ResMut<Tables>>),
 ) {
     let now = time.elapsed_secs();
     let coop = &mut *coop;
@@ -1034,6 +1073,20 @@ fn take_events(
                 if let (Some(rt), Some(sim)) = (rt.as_deref_mut(), sim.as_deref_mut()) {
                     if unlock(sim, &mut rt.game, FormId(reference), terminal) {
                         info!("co-op: {} unlocked {reference:#010X}{}", label(id, &coop.peers.get(&id).map_or(String::new(), |p| p.name.clone())), if terminal { " (a terminal)" } else { "" });
+                    }
+                }
+            }
+            Event::Table { id, table, game, blob } => {
+                let Some(t) = tables.as_deref_mut() else { continue };
+                if game & net::TABLE_ACTION != 0 {
+                    t.actions_in.push((id, table, game & !net::TABLE_ACTION, blob));
+                } else if game == net::TABLE_LEFT {
+                    t.seen.remove(&id);
+                } else {
+                    let new = t.seen.get(&id).is_none_or(|v| v.1 != game);
+                    t.seen.insert(id, (table, game, blob, real.elapsed_secs()));
+                    if new {
+                        info!("co-op: {} is at {} ({table:#010X})", label(id, &coop.peers.get(&id).map_or(String::new(), |p| p.name.clone())), nvf_play::coop_tables::game::word(game));
                     }
                 }
             }

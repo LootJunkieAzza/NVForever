@@ -322,9 +322,13 @@ impl Follow {
     /// Play what the owner's log has that `table` has not had yet; `chips` the chips the
     /// player carries beyond those staked. A new round is dealt on `table` first.
     pub fn follow(&mut self, table: &mut Table, log: &SeatLog, chips: u32) -> Vec<Followed> {
-        let mut out = Vec::new();
+        std::iter::from_fn(|| self.step(table, log, chips)).collect()
+    }
+
+    /// The next step of the log `table` has not had, if any.
+    pub fn step(&mut self, table: &mut Table, log: &SeatLog, chips: u32) -> Option<Followed> {
         if log.round == 0 || log.cards.len() < 4 {
-            return out;
+            return None;
         }
         if log.round != self.round {
             table.clear_stack();
@@ -332,22 +336,20 @@ impl Follow {
             let events = table.deal(log.bet, log.bet.max(chips)).unwrap_or_default();
             table.clear_stack();
             *self = Follow { round: log.round, cards: 4, actions: 0 };
-            out.push(Followed::Dealt { bet: log.bet, events });
+            return Some(Followed::Dealt { bet: log.bet, events });
         }
-        while let Some(&(action, n)) = log.actions.get(self.actions) {
-            let end = self.cards + n as usize;
-            if log.cards.len() < end {
-                break;
-            }
-            table.stack(&log.cards[self.cards..end]);
-            let bet = table.hands.get(table.active).map_or(0, |h| h.bet);
-            let events = table.act(action, chips.max(bet)).unwrap_or_default();
-            table.clear_stack();
-            self.cards = end;
-            self.actions += 1;
-            out.push(Followed::Acted { action, events });
+        let &(action, n) = log.actions.get(self.actions)?;
+        let end = self.cards + n as usize;
+        if log.cards.len() < end {
+            return None;
         }
-        out
+        table.stack(&log.cards[self.cards..end]);
+        let bet = table.hands.get(table.active).map_or(0, |h| h.bet);
+        let events = table.act(action, chips.max(bet)).unwrap_or_default();
+        table.clear_stack();
+        self.cards = end;
+        self.actions += 1;
+        Some(Followed::Acted { action, events })
     }
 
     /// The round this follower has dealt.

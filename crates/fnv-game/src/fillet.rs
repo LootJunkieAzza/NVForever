@@ -21,6 +21,20 @@
 
 use rand_core::RngCore;
 
+/// A miss's damage on the player (DamageActorValue Health, as the mod's does); the health
+/// left after it.
+pub fn hurt_player(g: &mut crate::game::Game<'_>, amount: f32) -> f64 {
+    let code = crate::actor_values::HEALTH;
+    let player = fnv_sim::FormId::PLAYER_REF;
+    crate::functions::actor::add_damage(g, player, code, amount as f64);
+    crate::functions::actor::actor_value(g, player, code).unwrap_or(0.0)
+}
+
+/// The player's health now.
+pub fn player_health(g: &mut crate::game::Game<'_>) -> f64 {
+    crate::functions::actor::actor_value(g, fnv_sim::FormId::PLAYER_REF, crate::actor_values::HEALTH).unwrap_or(0.0)
+}
+
 pub const ROUNDS: u8 = 3;
 pub const MAX_MISTAKES: u8 = 3;
 pub const DAMAGE: f32 = 10.0;
@@ -149,16 +163,16 @@ impl Game {
             None => 1 + roll(rng, GAPS as u32) as u8,
             Some(last) => match self.round {
                 1 => {
-                    if self.step % 5 == 0 {
+                    if self.step.is_multiple_of(5) {
                         self.dir = if roll(rng, 2) == 0 { 1 } else { -1 };
                     }
                     wrap(last as i32 + self.dir as i32)
                 }
                 2 => {
-                    if self.step % 4 == 0 {
+                    if self.step.is_multiple_of(4) {
                         self.jump = 1 + roll(rng, 4) as u8;
                     }
-                    let by = if self.step % 2 == 0 { self.jump } else { GAPS - self.jump };
+                    let by = if self.step.is_multiple_of(2) { self.jump } else { GAPS - self.jump };
                     wrap(last as i32 + by as i32)
                 }
                 _ => wrap(last as i32 + 1 + roll(rng, 4) as i32),

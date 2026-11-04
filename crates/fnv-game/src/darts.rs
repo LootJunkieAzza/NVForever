@@ -21,6 +21,12 @@
 //!   owner keeps the [`Match`] and each player throws on its own turn (the fork's design).
 
 /// The board's numbers clockwise from the top [observed: Score, AIPlan].
+/// The player's Perception and Agility (1..10), which set the sway and the bar.
+pub fn player_special(g: &mut crate::game::Game<'_>) -> (i32, i32) {
+    let get = |g: &mut crate::game::Game<'_>, code| crate::functions::actor::actor_value(g, fnv_sim::FormId::PLAYER_REF, code).unwrap_or(5.0).round() as i32;
+    (get(g, crate::actor_values::PERCEPTION).clamp(1, 10), get(g, crate::actor_values::AGILITY).clamp(1, 10))
+}
+
 pub const SEGMENTS: [u8; 20] = [20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5];
 pub const INNER_BULL: f32 = 0.64;
 pub const OUTER_BULL: f32 = 1.28;
