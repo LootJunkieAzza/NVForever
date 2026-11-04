@@ -814,6 +814,8 @@ expect = [
   { re = 'sfx: WPN10mmSMGFire2D: (?P<n>\d+) started', range = [20, 40], label = "every shot of the 3 s burst starts its sound" },
   { re = 'sfx: WPN10mmSMGFire2D: .* (?P<n>\d+) refused at the voice limit', range = [0, 0], label = "none of the burst's shots is refused (#1098: some were)" },
   { re = 'not started at the voice limit, at most (?P<n>\d+) one-shots at once', range = [1, 64], label = "the voices stay within the limit" },
+  { re = 'sfx files: (?P<n>\d+) sounds began in the frame they were asked for, \d+ later while their file was read', range = [10, 100000], label = "#1428: the exit report's sfx files line, with at least 10 sounds of the run beginning to play in the frame they were asked for (their file already decoded; it does not check how late the others were)" },
+  { re = 'sfx files: \d+ sounds began in the frame they were asked for, \d+ later while their file was read \(\d+ more than one frame later, at most (?P<n>\d+) frames\)', range = [0, 3], label = "#1428: no sound of the run began more than 3 frames after it was asked for (start delays growing)" },
 ]
 
 [[scenario]]
@@ -18302,6 +18304,21 @@ run_seconds = 16
 expect = [
   { re = 'ai \[\d\d:\d\d\] GSChetRef: put at \(-575, 434, 544\) in GSGeneralStore by a script \(MoveTo\)', label = "Chet stands in front of the window" },
   { re = 'dialogue: conversation with GSChetRef started', label = "the dialogue camera frames his head" },
+]
+
+[[scenario]]
+name = "fo3-functions-console"
+source = "[documented + hypothesis] docs/handoff/ttw-fo3-script-audit-2026-11-02.md §1 (Outcome), functions::fo3: Fallout 3's KillQuestUpdates drops the HUD's waiting quest lines, DisableAllMines disables the player's cell's mines, GetLastPlayerAction reads 0 with nothing done, IsWaiting 0 for an actor never told to wait; TTW's own data is not a smoke data dir, so the console runs them in Goodsprings"
+areas = ["scripts", "console", "ui"]
+paths = ["crates/fnv-game/src/functions/fo3.rs", "engine/nvf-play/src/mines.rs", "engine/nvf-play/src/quest_messages.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:KillQuestUpdates;10.5:DisableAllMines;11:PrintC \"nvf fo3 last action %g\", (GetLastPlayerAction);11.5:PrintC \"nvf fo3 waiting %g\", (RingoRef.IsWaiting);12:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 16
+expect = [
+  { re = 'quest messages: \d+ waiting line\(s\) dropped \(KillQuestUpdates\)', label = "KillQuestUpdates reaches the HUD's quest lines" },
+  { re = 'mines: \d+ mine\(s\) of the player.s cell disabled \(DisableAllMines\)', label = "DisableAllMines reaches the engine's mines" },
+  { re = 'script: print "nvf fo3 last action 0(?:\.0+)?"', label = "GetLastPlayerAction reads 0 with nothing done" },
+  { re = 'script: print "nvf fo3 waiting 0(?:\.0+)?"', label = "IsWaiting reads 0 for an actor never told to wait" },
 ]
 
 [[scenario]]
