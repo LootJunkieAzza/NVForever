@@ -24,9 +24,12 @@
 //!   hand; the owner's screenshot of an unsplit hand shows none; which arrow is which hand
 //!   by their places].
 //! - In co-op, the other players at the shared table (`nvf_play::blackjack::OtherSeat`)
-//!   sit beside this one: each a copy of the `Hand1`/`Hand2` models and of the chips,
-//!   turned about the dealer's first card by [`SEAT_GAP`] a seat, the next seat in the
-//!   owner's order on the right [design: there is one player's seat in the files].
+//!   sit at the felt's other card boxes: each a copy of the `Hand1`/`Hand2` models and of
+//!   the chips, this player's seat turned about the boxes' centre ([`BOX_CENTRE`]) by
+//!   [`BOX_STEP`] a box, the next seat in the owner's order in the next box on the right
+//!   [design: there is one player's seat in the files, in the second of the five boxes].
+//!   Their cards are swept to the same discard spot as this player's: the turn is undone
+//!   as the discard sequence plays.
 //! - The camera looks from the player's side over the player's cards towards the dealer's
 //!   [design: fitted to the screenshot], with lights of its own on render layer
 //!   [`TABLE_LAYER`].
@@ -81,9 +84,14 @@ const BET_LEFT: f32 = 1.0;
 const FELT_BELOW_CARDS: f32 = 0.12;
 /// Most chips in one stack [design].
 const STACK_MAX: u32 = 20;
-/// How far apart the seats are, across the felt at the player's first card (game units)
-/// [design: fitted by eye, so that the next seat on either side is in the picture].
-const SEAT_GAP: f32 = 15.0;
+/// The felt's five card boxes lie on a circle about this point (the table's space), this
+/// far apart; this player's cards land in the second from the left [observed: the boxes
+/// in a frame of the Ultra-Luxe table, projected onto the felt: centres at 33.2 units
+/// from here, at 138.4°, 159.6°, 180.5°, 200.5° and 220.9°].
+const BOX_CENTRE: Vec2 = Vec2::new(21.3, 0.1);
+const BOX_STEP_DEG: f32 = 20.6;
+/// The boxes left and right of this player's (−1 the one on its left).
+const BOXES: [i32; 4] = [1, 2, 3, -1];
 
 pub struct BlackjackViewPlugin;
 
@@ -135,8 +143,10 @@ impl CardModel {
     }
 }
 
-/// Another player's seat as drawn: its hands' models and its chips.
+/// Another player's seat as drawn: its hands' models and its chips, and its turn from
+/// this player's seat (radians about [`BOX_CENTRE`]).
 struct SeatDrawn {
+    angle: f32,
     models: Vec<CardModel>,
     chips: Chips,
 }
@@ -151,7 +161,7 @@ struct Chips {
 struct Drawn {
     entities: Vec<Entity>,
     models: Vec<CardModel>,
-    /// The others' seats by place (-1 the next on the left).
+    /// The others' seats by box (-1 the one on the left of this player's).
     seats: HashMap<i32, SeatDrawn>,
     /// The table's root.
     holder: Option<Entity>,
@@ -190,6 +200,20 @@ fn sampled(rig: &Rig, clip: Option<&Clip>, i: usize, t: f32) -> Transform {
 /// Time `t` seconds into a clip, played once and held at its end.
 fn clip_time(clip: Option<&Clip>, t: f32) -> f32 {
     clip.map_or(0.0, |c| (c.start + t.max(0.0) * c.frequency).min(c.stop))
+}
+
+/// A node's parents' stored transforms (model space, the root left out).
+fn parent_chain(rig: &Rig, i: usize) -> Mat4 {
+    let mut chain = Vec::new();
+    let mut n = i;
+    while let Some(p) = rig.nodes[n].parent {
+        if p == 0 {
+            break;
+        }
+        chain.push(p);
+        n = p;
+    }
+    chain.iter().rev().fold(Mat4::IDENTITY, |m, &p| m * Mat4::from(rig.nodes[p].local.compute_affine()))
 }
 
 /// Where a node ends up (model space) at the end of a clip.
@@ -246,18 +270,20 @@ fn show(
         return;
     }
     let now = time.elapsed_secs();
-    for o in &s.others {
-        if !drawn.seats.contains_key(&o.place) {
-            if let Some(seat) = build_seat(&mut commands, o.place, &mut models, &drawn) {
-                drawn.seats.insert(o.place, seat);
+    let boxes = boxes(&s.others);
+    for b in &boxes {
+        if !drawn.seats.contains_key(b) {
+            if let Some(seat) = build_seat(&mut commands, *b, &mut models, &drawn) {
+                drawn.seats.insert(*b, seat);
             }
         }
     }
-    pose(&drawn.models, &s.shown, s.discard.as_ref(), s.reveal, now, model_of, &mut transforms, &mut visibility);
-    for (place, seat) in &drawn.seats {
-        let o = s.others.iter().find(|o| o.place == *place);
+    let at = |b: i32| boxes.iter().position(|x| *x == b).map(|i| &s.others[i]);
+    pose(&drawn.models, &s.shown, s.discard.as_ref(), s.reveal, now, model_of, 0.0, &mut transforms, &mut visibility);
+    for (b, seat) in &drawn.seats {
+        let o = at(*b);
         let (shown, discard) = o.map_or((&[][..], None), |o| (o.shown.as_slice(), o.discard.as_ref()));
-        pose(&seat.models, shown, discard, None, now, hand_of, &mut transforms, &mut visibility);
+        pose(&seat.models, shown, discard, None, now, hand_of, seat.angle, &mut transforms, &mut visibility);
     }
     // The arrow at the hand being played, after a split.
     let split = s.table.hands.len() == 2 && s.table.phase == fnv_game::blackjack::Phase::Playing;
@@ -271,8 +297,8 @@ fn show(
     if let Some(c) = own_chips {
         chips(&mut commands, c, s.chips_shown(now), *player_spot, *dealer_spot, &mut models);
     }
-    for (place, seat) in seats.iter_mut() {
-        let o = s.others.iter().find(|o| o.place == *place);
+    for (b, seat) in seats.iter_mut() {
+        let o = at(*b);
         if let Some(o) = o {
             faces(s, &mut seat.models, &o.shown, o.discard.as_ref(), hand_of, materials, &mut models, &mut mats);
         }
@@ -288,24 +314,38 @@ fn hand_of(seat: Seat) -> usize {
     }
 }
 
-/// The turn from this player's seat to the one at `place`, about the dealer's first card,
-/// as a transform in the table's (Bevy-turned) space.
-fn seat_turn(place: i32, player: Vec3, dealer: Vec3) -> Transform {
-    let reach = Vec2::new(player.x - dealer.x, player.y - dealer.y).length().max(1.0);
-    let angle = 2.0 * (SEAT_GAP / (2.0 * reach)).min(1.0).asin() * place as f32;
-    let pivot = Vec3::new(dealer.x, dealer.y, 0.0);
-    let game = Mat4::from_translation(pivot) * Mat4::from_rotation_z(angle) * Mat4::from_translation(-pivot);
-    let to_bevy = Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2);
-    Transform::from_matrix(to_bevy * game * to_bevy.inverse())
+/// The box each other seat sits in, counted from this player's (−1 the one on its left):
+/// its place in the owner's order when that is a box, else the first box free.
+fn boxes(others: &[nvf_play::blackjack::OtherSeat]) -> Vec<i32> {
+    let mut used: Vec<i32> = others.iter().map(|o| o.place).filter(|p| BOXES.contains(p)).collect();
+    others
+        .iter()
+        .map(|o| {
+            if BOXES.contains(&o.place) {
+                return o.place;
+            }
+            let b = BOXES.into_iter().find(|b| !used.contains(b)).unwrap_or(o.place);
+            used.push(b);
+            b
+        })
+        .collect()
 }
 
-/// Another seat's hands and chips, at its place.
-fn build_seat(commands: &mut Commands, place: i32, models: &mut ModelCtx, drawn: &Drawn) -> Option<SeatDrawn> {
+/// The turn about [`BOX_CENTRE`] by `angle`, in the table's game space.
+fn box_turn(angle: f32) -> Mat4 {
+    let c = BOX_CENTRE.extend(0.0);
+    Mat4::from_translation(c) * Mat4::from_rotation_z(angle) * Mat4::from_translation(-c)
+}
+
+/// Another seat's hands and chips, in the box `b` boxes from this player's.
+fn build_seat(commands: &mut Commands, b: i32, models: &mut ModelCtx, drawn: &Drawn) -> Option<SeatDrawn> {
     let holder = drawn.holder?;
     let layer = RenderLayers::layer(TABLE_LAYER);
     let to_bevy = Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2));
-    let turn = seat_turn(place, drawn.player_spot, drawn.dealer_spot);
-    let root = commands.spawn((Name::new(format!("Blackjack seat {place}")), turn, Visibility::Inherited)).id();
+    let angle = (BOX_STEP_DEG * b as f32).to_radians();
+    let tb = Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+    let turn = Transform::from_matrix(tb * box_turn(angle) * tb.inverse());
+    let root = commands.spawn((Name::new(format!("Blackjack seat {b}")), turn, Visibility::Inherited)).id();
     commands.entity(holder).add_child(root);
     let mut hands = Vec::new();
     for (path, prefix) in [(HAND_MODELS[0], "Hand1"), (HAND_MODELS[1], "Hand2")] {
@@ -322,8 +362,8 @@ fn build_seat(commands: &mut Commands, place: i32, models: &mut ModelCtx, drawn:
     }
     let chips_root = commands.spawn((Transform::default(), Visibility::Inherited)).id();
     commands.entity(root).add_child(chips_root);
-    info!("blackjack view: a seat for another player at place {place}");
-    Some(SeatDrawn { models: hands, chips: Chips { root: chips_root, count: None } })
+    info!("blackjack view: a seat for another player in box {b} from this player's");
+    Some(SeatDrawn { angle, models: hands, chips: Chips { root: chips_root, count: None } })
 }
 
 /// Spawn the table, the card models, the camera and the lights.
@@ -450,6 +490,7 @@ fn pose(
     reveal: Option<f32>,
     now: f32,
     slot: fn(Seat) -> usize,
+    angle: f32,
     transforms: &mut Query<&mut Transform>,
     visibility: &mut Query<&mut Visibility>,
 ) {
@@ -477,7 +518,18 @@ fn pose(
             let tr = match discard {
                 Some(t) => {
                     let clip = m.clip(&format!("{}_Discard", m.prefix));
-                    sampled(&m.rig, clip, card.node, clip_time(clip, t))
+                    let tr = sampled(&m.rig, clip, card.node, clip_time(clip, t));
+                    if angle == 0.0 {
+                        tr
+                    } else {
+                        // Another seat's: the seat's turn undone as the cards go, so that
+                        // they end on this player's discard spot.
+                        let u = clip.map_or(1.0, |c| ((clip_time(clip, t) - c.start) / (c.stop - c.start).max(1e-3)).clamp(0.0, 1.0));
+                        let u = u * u * (3.0 - 2.0 * u);
+                        let parent = parent_chain(&m.rig, card.node);
+                        let undo = parent.inverse() * box_turn(-angle * u) * parent;
+                        Transform::from_matrix(undo * Mat4::from(tr.compute_affine()))
+                    }
                 }
                 None if m.prefix == "Dealer" && k == 1 && reveal.is_some_and(|r| now >= r) => {
                     let clip = m.clip("Dealer_Reveal");
