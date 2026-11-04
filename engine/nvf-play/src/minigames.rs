@@ -593,8 +593,9 @@ fn fillet_keys(
                 f.page = FPage::Bet;
             } else if keys.just_pressed(KeyCode::Digit2) {
                 f.game = Some(fillet::Game::new(0, f.key));
-                f.settled = true;
+                f.settled = false;
                 f.page = FPage::Play;
+                f.status.clear();
             }
         }
         FPage::Bet => {
@@ -685,7 +686,12 @@ fn fillet_step(
             if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
                 give_caps(rt, &mut sim, back as i64);
             }
-            f.status = if g.state == FState::Won { format!("You won {} caps.", g.stake) } else { format!("You lost {} caps.", g.stake) };
+            f.status = match (g.state == FState::Won, g.stake) {
+                (true, 0) => "Practice won: no finger lost.".into(),
+                (false, 0) => "Practice over.".into(),
+                (true, s) => format!("You won {s} caps."),
+                (false, s) => format!("You lost {s} caps."),
+            };
             info!("fillet: game over ({:?}), {back} caps back", g.state);
         }
     }
@@ -923,7 +929,7 @@ fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, now: f32, name: &dyn Fn
         }
         FPage::Main => {
             text(p, "Five Finger Fillet", Val::Percent(36.0), Val::Percent(25.0), 40.0, AMBER);
-            text(p, "1) Play for caps\n2) Practice\nTab) Leave\n\nThree rounds of 12, 18 and 24 stabs. Press the key shown at the knife.\nThree mistakes lose; each costs 10 health.", Val::Percent(30.0), Val::Percent(35.0), 22.0, AMBER);
+            text(p, "1) Play for caps\n2) Practice\nTab) Leave\n\nThree rounds of 12, 18 and 24 stabs.\nPress the key shown at the knife.\nThree mistakes lose; each costs 10 health.", Val::Percent(30.0), Val::Percent(35.0), 22.0, AMBER);
         }
         FPage::Bet => {
             text(p, format!("Bet: {} caps ({:.0} s on the clock)", f.bet, fillet::time_limit(f.bet)), Val::Percent(34.0), Val::Percent(30.0), 30.0, AMBER);
@@ -935,7 +941,22 @@ fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, now: f32, name: &dyn Fn
             let flash = now < f.flash_until;
             p.spawn(Node { position_type: PositionType::Absolute, left: Val::Percent(52.0), top: Val::Percent(62.0), width: Val::Px(0.0), height: Val::Px(0.0), ..default() }).with_children(|b| {
                 // The hand: a palm and the fingers between the gaps.
-                disc(b, -2.6 * k, 0.5 * k, 3.3 * k, if flash { Color::srgb(0.75, 0.15, 0.1) } else { Color::srgb(0.78, 0.6, 0.48) });
+                let skin = if flash { Color::srgb(0.75, 0.15, 0.1) } else { Color::srgb(0.78, 0.6, 0.48) };
+                let palm = (-2.6, -0.5);
+                // Four fingers between the gaps, the thumb past the last one: each a row
+                // of discs from the palm out past its gaps.
+                let thumb = (GAP_AT[4].0 + 2.2, GAP_AT[4].1 - 2.6);
+                let tips = (0..4).map(|i| ((GAP_AT[i].0 + GAP_AT[i + 1].0) / 2.0, (GAP_AT[i].1 + GAP_AT[i + 1].1) / 2.0)).chain(std::iter::once(thumb));
+                for (i, (tx, ty)) in tips.enumerate() {
+                    let (dx, dy) = (tx - palm.0, ty - palm.1);
+                    let len = (dx * dx + dy * dy).sqrt();
+                    let reach = if i == 4 { 1.0 } else { 1.12 };
+                    for s in 0..=14 {
+                        let t = (2.0 + (len * reach - 2.0) * s as f32 / 14.0) / len;
+                        disc(b, (palm.0 + dx * t) * k, -(palm.1 + dy * t) * k, 0.72 * k, skin);
+                    }
+                }
+                disc(b, palm.0 * k, -palm.1 * k, 3.3 * k, skin);
                 for (i, (x, y)) in GAP_AT.iter().enumerate() {
                     let active = g.state == FState::Prompt && g.gap as usize == i + 1;
                     disc(b, x * k, -y * k, if active { 1.6 } else { 0.9 }, if active { Color::srgb(0.95, 0.9, 0.3) } else { Color::srgba(1.0, 1.0, 1.0, 0.35) });
