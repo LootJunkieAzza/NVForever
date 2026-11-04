@@ -205,3 +205,10 @@ Vanilla forms used: Caps001 0x0000000F, SOUN 0x0006FE3F UIPipBoySelect (menu cli
   base pose and state 1 (ready).
 - Unclear: the exact semantics of the JIP camera-translate/rotate mode arguments; the frame of
   the camera-translation values (player-relative world offset is likely) [hypothesis].
+- NVForever (engine/nvforever/src/fillet_stage.rs): with the feet on LFFPoseOrigin the
+  Ready pose puts "Bip01 L Hand" at (-3.0, -6.0, 2.8) in the plane's frame, on LFFRestWrist
+  [observed: 2026-11-04], and the table's collision surface lies 0.12 below the anchor
+  [observed]. A dressed player's glove and Pip-Boy then sink about 0.3-0.4 units into the
+  table on the little finger's side [observed: side view], so the body stands 0.5 higher,
+  inside the mod's own 0.5 tolerance for the wrist [engineering choice]. Whether the
+  original shows the same sinking is not known.

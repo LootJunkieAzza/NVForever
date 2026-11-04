@@ -717,7 +717,7 @@ pub fn summary(tables: &Tables, name: &str, game: u8, blob: &[u8]) -> Vec<String
                 2 => format!("round {} done", v.round),
                 3 => "won".to_string(),
                 4 => "lost".to_string(),
-                _ => format!("round {}/3, {}/{} stabs, {} mistakes", v.round, v.hits, v.required, v.mistakes),
+                _ => format!("round {}/3, {}/{} stabs, {} {}", v.round, v.hits, v.required, v.mistakes, if v.mistakes == 1 { "mistake" } else { "mistakes" }),
             };
             let clock = v.clock.map(|c| format!(", {c:.0} s left")).unwrap_or_default();
             out.push(format!("{name} at five finger fillet{}: {state}{clock}", if v.stake > 0 { format!(" for {} caps", v.stake) } else { String::new() }));

@@ -44,10 +44,18 @@ const SERIAL: u32 = 0xF111_E700;
 /// The camera's move to its place (seconds), and its pitch there (degrees down) (§9).
 const CAMERA_MOVE: f32 = 1.0;
 const CAMERA_PITCH: f32 = 60.0;
+/// How high (units) the camera's way to the table arcs above the straight line.
+const HEAD_ARC: f32 = 14.0;
 /// The table's nodes as the mod's file places them, when it cannot be read [observed:
 /// TableChalk.nif, fillet.md §8].
 const POSE_ORIGIN: Vec3 = Vec3::new(0.0, 0.0, 0.15);
 const CAMERA_TARGET: Vec3 = Vec3::new(0.0, -25.0, 44.0);
+/// How far the body stands above the pose origin: with the mod's pose the left wrist rests
+/// at `LFFRestWrist` exactly [observed: 2026-11-04, the wrist bone at (-3.0, -6.0, 2.8)],
+/// and the glove and Pip-Boy of a dressed player then sink about 0.3-0.4 units into the
+/// table on the little finger's side [observed: side view]. 0.5 lifts them clear and keeps
+/// the wrist within the 0.5 (sum of axes) the mod itself allows it (§9) [engineering choice].
+const LIFT: f32 = 0.5;
 const PROMPTS: [Vec3; 5] = [Vec3::new(-8.773, 4.081, 0.2), Vec3::new(-6.462, 8.034, 0.2), Vec3::new(-3.565, 9.525, 0.2), Vec3::new(-0.223, 9.366, 0.2), Vec3::new(3.858, 4.769, 0.2)];
 
 pub struct FilletStagePlugin;
@@ -63,6 +71,7 @@ impl Plugin for FilletStagePlugin {
 struct Clips {
     ready: Arc<Clip>,
     enter: Option<Arc<Clip>>,
+    exit: Option<Arc<Clip>>,
     win: Option<Arc<Clip>>,
     stab: [Option<Arc<Clip>>; 5],
     miss: [Option<Arc<Clip>>; 5],
@@ -86,6 +95,9 @@ struct Table {
     /// Real seconds since the table was staged, and the camera's place then.
     since: f32,
     from: Option<Transform>,
+    /// Leaving: when the exit clip ends (real seconds), and how long it runs; the camera
+    /// goes back meanwhile.
+    leaving: Option<(f32, f32)>,
 }
 
 impl Table {
@@ -130,9 +142,29 @@ fn stage(
     mut commands: Commands,
     mut visuals: Query<(&RefVisual, &mut Visibility)>,
 ) {
+    // The screen leaves the hand to this stage (no flat hand before it is on).
+    out.present = true;
+    out.flat_at = staged.failed;
     let f = screen.0.as_ref().filter(|f| f.page == FPage::Play && f.game.is_some());
-    // Leaving: the body, the view and the table's knife as they were.
-    if staged.table.as_ref().is_some_and(|t| f.is_none_or(|f| f.knife != t.knife)) {
+    let now = real.elapsed_secs();
+    // The game over at this table: the exit clip plays first (§8), then the body, the
+    // view and the table's knife are as they were. Back at the table meanwhile: stay.
+    if let Some(t) = staged.table.as_mut() {
+        let here = f.is_some_and(|f| f.knife == t.knife);
+        if here {
+            t.leaving = None;
+        } else if t.leaving.is_none() {
+            match t.clips.exit.clone() {
+                Some(c) => {
+                    t.leaving = Some((now + c.length(), c.length()));
+                    t.serial += 1;
+                    t.over = Some((c, t.serial));
+                }
+                None => t.leaving = Some((now, 0.0)),
+            }
+        }
+    }
+    if staged.table.as_ref().is_some_and(|t| t.leaving.is_some_and(|(end, _)| now >= end)) {
         let t = staged.table.take().unwrap();
         if body.0.as_ref().is_some_and(|b| b.serial == SERIAL) {
             body.0 = None;
@@ -150,6 +182,12 @@ fn stage(
         out.prompts = [None; 5];
         info!("fillet stage: left the table {:#010X}", t.knife);
     }
+    if let Some(t) = staged.table.as_mut().filter(|t| t.leaving.is_some()) {
+        // The exit clip over the base pose, where the table was.
+        let feet = t.at(t.pose_origin + Vec3::Z * LIFT);
+        body.0 = Some(BodyClip { clip: t.clips.ready.clone(), looped: true, serial: SERIAL, pos: feet.to_array(), heading: t.yaw, lying: false, over: t.over.clone() });
+        return;
+    }
     let Some(f) = f else { return };
     if staged.table.is_none() && staged.failed != Some(f.knife) {
         let (Some(sim), Some(player)) = (sim.as_deref(), player.as_deref()) else { return };
@@ -163,6 +201,7 @@ fn stage(
         let clips = Clips {
             ready,
             enter: clip("enter"),
+            exit: clip("exit"),
             win: clip("win"),
             stab: std::array::from_fn(|i| clip(&format!("stab{}", i + 1))),
             miss: std::array::from_fn(|i| clip(&format!("miss{}", i + 1))),
@@ -189,6 +228,7 @@ fn stage(
             seen_pose: f.pose.0,
             since: real.elapsed_secs(),
             from: None,
+            leaving: None,
         });
         for (r, mut v) in &mut visuals {
             if r.0 == f.knife {
@@ -211,7 +251,7 @@ fn stage(
         }
     }
     control.pov = Pov::Third;
-    let feet = t.at(t.pose_origin);
+    let feet = t.at(t.pose_origin + Vec3::Z * LIFT);
     body.0 = Some(BodyClip { clip: t.clips.ready.clone(), looped: true, serial: SERIAL, pos: feet.to_array(), heading: t.yaw, lying: false, over: t.over.clone() });
     out.on = true;
 }
@@ -253,8 +293,16 @@ fn camera(mut staged: ResMut<Staged>, real: Res<Time<Real>>, mut out: ResMut<Fil
     let pitch = CAMERA_PITCH.to_radians();
     let ahead = Vec3::new(t.yaw.sin() * pitch.cos(), t.yaw.cos() * pitch.cos(), -pitch.sin());
     let target = Transform::from_translation(at).looking_at(to_bevy((t.at(t.camera_target) + ahead).to_array()), Vec3::Y);
-    let k = smootherstep((real.elapsed_secs() - t.since) / CAMERA_MOVE);
-    *cam = Transform { translation: from.translation.lerp(target.translation, k), rotation: from.rotation.slerp(target.rotation, k), scale: Vec3::ONE };
+    // Going: back from the table to where the camera was, over the exit clip.
+    let k = match t.leaving {
+        Some((end, len)) if len > 0.0 => smootherstep((end - real.elapsed_secs()) / len),
+        Some(_) => 0.0,
+        None => smootherstep((real.elapsed_secs() - t.since) / CAMERA_MOVE),
+    };
+    // Over the posed head, not through it (the straight line from the player's eye passes
+    // inside the head and the view goes black) [engineering choice].
+    let over_head = Vec3::Y * HEAD_ARC * (k * std::f32::consts::PI).sin();
+    *cam = Transform { translation: from.translation.lerp(target.translation, k) + over_head, rotation: from.rotation.slerp(target.rotation, k), scale: Vec3::ONE };
     let size = camera.logical_viewport_size();
     let global = GlobalTransform::from(*cam);
     out.prompts = std::array::from_fn(|i| {
