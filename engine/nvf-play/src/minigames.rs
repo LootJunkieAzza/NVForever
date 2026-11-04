@@ -25,12 +25,17 @@
 //!   Space starts each round; press the key shown at the knife's gap. A miss hurts 10
 //!   health; a staked game has its clock. In co-op a table someone near is at is theirs
 //!   until they leave: the others watch (the watchers' panel) and take their turn after.
+//! - **Fillet races in co-op.** 3 on the menu sets a bet and opens a challenge at the
+//!   knife; another player who opens the same knife sees it and matches the bet (Space),
+//!   and after a countdown both play the same prompts at once, the rounds following each
+//!   other by themselves. `fnv_game::fillet::race` ranks the two ends; the winner takes
+//!   both bets, a draw gives each its own back. Leaving the race forfeits it.
 //!
 //! The mods' sounds are played from their files: `hand.wav` as a darts turn starts,
 //! `impact0..5.wav` as a dart lands (never the same twice running), `stab.wav` for a clean
 //! stab.
 
-use crate::coop_tables::{game, DartsAction, DartsView, FilletView, Tables, DARTS_AI};
+use crate::coop_tables::{game, DartsAction, DartsView, DuelView, FilletAction, FilletView, Tables, DARTS_AI};
 use crate::pause::AidTime;
 use crate::script::{with_world, ScriptState};
 use crate::sfx::PcmSound;
@@ -40,7 +45,8 @@ use bevy::audio::PlaybackSettings;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use fnv_game::darts::{self, Hit, Match, Side};
-use fnv_game::fillet::{self, Key, State as FState, Strike};
+use fnv_game::fillet::{self, Finish, Key, State as FState, Strike};
+use std::cmp::Ordering;
 use fnv_sim::FormId;
 use nvf_assets::GameData;
 use rand_chacha::ChaCha8Rng;
@@ -53,6 +59,9 @@ pub const CAPS: FormId = FormId(0xF);
 const BOARD_VH: f32 = 36.0;
 /// Seconds without the board's owner before a joined player gives up [design].
 const OWNER_GONE: f32 = 4.0;
+/// A fillet race's countdown, and the pause between its rounds (seconds) [design].
+const COUNTDOWN: f32 = 3.0;
+const ROUND_PAUSE: f32 = 1.5;
 
 /// The board's own frame [observed: docs/spec-notes/darts.md §10]: local +x the
 /// player's right, +y from the player into the board, +z up; the bull at the reference's
@@ -195,6 +204,31 @@ pub enum FPage {
     Play,
     /// Another player near is at this table: watch them.
     Busy(u8),
+    /// This player's race challenge, open until someone matches it.
+    Challenge,
+    /// Another player's open challenge at this table ([`Fillet::offer`]).
+    Offer(u8),
+}
+
+/// A fillet race (co-op), on this player's side.
+#[derive(Debug, Clone)]
+pub struct Duel {
+    pub bet: u32,
+    pub seed: u64,
+    /// The other racer (`None` while the challenge is open).
+    pub foe: Option<u8>,
+    /// When the countdown ends (aid seconds).
+    pub go_at: f32,
+    /// The other racer's table was heard racing this one (and when last).
+    pub confirmed: bool,
+    pub foe_seen: f32,
+    pub foe_view: Option<FilletView>,
+    /// When the next round starts by itself.
+    pub next_round_at: Option<f32>,
+    /// This game's end was seen (its pose played).
+    pub ended: bool,
+    /// How this racer did against the other, once both are done (or the other left).
+    pub result: Option<Ordering>,
 }
 
 pub struct Fillet {
@@ -215,6 +249,11 @@ pub struct Fillet {
     /// A stab under way: the keys pressed, and when it reaches the table and counts
     /// (fillet.md §4).
     pub pending: Option<(Vec<Key>, f32)>,
+    /// The bet page is for a race challenge.
+    pub duel_bet: bool,
+    pub duel: Option<Duel>,
+    /// The open challenge on [`FPage::Offer`]: its bet and seed.
+    pub offer: Option<(u32, u64)>,
     rng: ChaCha8Rng,
 }
 
@@ -362,11 +401,13 @@ fn open(
                 rng,
             });
         } else {
-            let busy = tables.and_then(|t| t.near_at(a.reference, game::FILLET).and_then(|(p, b)| FilletView::decode(b).filter(|v| v.state < 3).map(|_| p)));
-            info!("fillet: open at 0x{:08X}{}", a.reference, if busy.is_some() { " (another player is at it)" } else { "" });
+            let near = tables.and_then(|t| t.near_at(a.reference, game::FILLET).and_then(|(p, b)| FilletView::decode(b).map(|v| (p, v))));
+            let offer = near.as_ref().and_then(|(p, v)| v.duel.filter(|d| d.foe.is_none()).map(|d| (*p, d.bet, d.seed)));
+            let busy = near.filter(|(_, v)| v.state < 3 && offer.is_none()).map(|(p, _)| p);
+            info!("fillet: open at 0x{:08X}{}", a.reference, if offer.is_some() { " (a race challenge is open)" } else if busy.is_some() { " (another player is at it)" } else { "" });
             fscreen.0 = Some(Fillet {
                 knife: a.reference,
-                page: busy.map_or(FPage::Main, FPage::Busy),
+                page: offer.map(|o| FPage::Offer(o.0)).or(busy.map(FPage::Busy)).unwrap_or(FPage::Main),
                 bet: fillet::BET_MIN,
                 game: None,
                 key: Key::W,
@@ -378,11 +419,27 @@ fn open(
                 settled: true,
                 pose: (0, FPose::Ready),
                 pending: None,
+                duel_bet: false,
+                duel: None,
+                offer: offer.map(|o| (o.1, o.2)),
                 rng,
             });
         }
         next.set(PlayState::Menu);
     }
+}
+
+/// A fillet race begins (the bet already paid): the countdown, the same prompts as the
+/// other racer's (the shared seed).
+fn start_race(f: &mut Fillet, bet: u32, seed: u64, foe: u8, now: f32) {
+    f.duel = Some(Duel { bet, seed, foe: Some(foe), go_at: now + COUNTDOWN, confirmed: false, foe_seen: now, foe_view: None, next_round_at: None, ended: false, result: None });
+    f.game = Some(fillet::Game::new(bet, Key::W));
+    f.rng = ChaCha8Rng::seed_from_u64(seed);
+    f.settled = true;
+    f.pending = None;
+    f.page = FPage::Play;
+    f.status.clear();
+    info!("fillet: a race against player {foe} for {bet} caps");
 }
 
 fn start_match(d: &mut Darts, foe: Foe, now: f32) {
@@ -721,21 +778,47 @@ fn fillet_keys(
     mut sim: ResMut<SimState>,
     time: AidTime,
     mut files: MessageWriter<PlayFile>,
+    mut tables: Option<ResMut<Tables>>,
 ) {
     let Some(f) = screen.0.as_mut() else { return };
     let now = time.elapsed_secs();
+    let coop = tables.as_deref().is_some_and(|t| t.on);
     if keys.any_just_pressed([KeyCode::Tab, KeyCode::Escape]) {
         if f.page == FPage::Bet {
             f.page = FPage::Main;
+        } else if f.page == FPage::Challenge {
+            f.duel = None;
+            f.page = FPage::Main;
+            f.status = "Challenge withdrawn.".into();
         } else {
             f.leave = true;
         }
         return;
     }
     match f.page {
-        FPage::Busy(_) => {}
+        FPage::Busy(_) | FPage::Challenge => {}
+        FPage::Offer(p) => {
+            if !keys.any_just_pressed([KeyCode::Space, KeyCode::Enter]) {
+                return;
+            }
+            let Some((bet, seed)) = f.offer else { return };
+            let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
+            if caps(rt, &mut sim) < bet {
+                f.status = "You don't have enough caps.".into();
+                return;
+            }
+            give_caps(rt, &mut sim, -(bet as i64));
+            if let Some(t) = tables.as_deref_mut() {
+                t.send(f.knife, game::FILLET, FilletAction::Match { bet, seed }.encode());
+            }
+            start_race(f, bet, seed, p, now);
+        }
         FPage::Main => {
             if keys.just_pressed(KeyCode::Digit1) {
+                f.duel_bet = false;
+                f.page = FPage::Bet;
+            } else if keys.just_pressed(KeyCode::Digit3) && coop {
+                f.duel_bet = true;
                 f.page = FPage::Bet;
             } else if keys.just_pressed(KeyCode::Digit2) {
                 f.game = Some(fillet::Game::new(0, f.key));
@@ -753,6 +836,14 @@ fn fillet_keys(
                 let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
                 if caps(rt, &mut sim) < f.bet {
                     f.status = "You don't have enough caps.".into();
+                    return;
+                }
+                if f.duel_bet {
+                    // The bet is paid when someone matches it.
+                    f.duel = Some(Duel { bet: f.bet, seed: f.rng.next_u64(), foe: None, go_at: 0.0, confirmed: false, foe_seen: now, foe_view: None, next_round_at: None, ended: false, result: None });
+                    f.page = FPage::Challenge;
+                    f.status.clear();
+                    info!("fillet: a race challenge for {} caps", f.bet);
                     return;
                 }
                 give_caps(rt, &mut sim, -(f.bet as i64));
@@ -792,7 +883,17 @@ fn fillet_keys(
             if f.pending.is_some() {
                 return;
             }
-            if keys.just_pressed(KeyCode::Space) {
+            if let Some(d) = f.duel.as_ref() {
+                // A race: the rounds start by themselves; Space only closes the result.
+                if keys.just_pressed(KeyCode::Space) {
+                    if d.result.is_some() {
+                        f.duel = None;
+                        f.game = None;
+                        f.page = FPage::Main;
+                    }
+                    return;
+                }
+            } else if keys.just_pressed(KeyCode::Space) {
                 if g.over() {
                     f.page = FPage::Main;
                     f.key = g.key;
@@ -823,20 +924,125 @@ fn fillet_step(
     mut screen: ResMut<FilletScreen>,
     mut script: Option<ResMut<ScriptState>>,
     mut sim: ResMut<SimState>,
-    tables: Option<Res<Tables>>,
+    mut tables: Option<ResMut<Tables>>,
     time: AidTime,
     mut next: ResMut<NextState<PlayState>>,
 ) {
     let Some(f) = screen.0.as_mut() else { return };
     let dt = time.delta_secs_f64() as f32;
+    let now = time.elapsed_secs();
+    let actions = tables.as_deref_mut().map(|t| t.take_actions(game::FILLET)).unwrap_or_default();
+    let tables = tables.as_deref();
+    let me = tables.and_then(|t| t.me).unwrap_or(0);
+    let knife = f.knife;
+    // Another player's table here, as it shows.
+    let at_knife = |p: u8| tables.and_then(|t| t.view(p)).filter(|v| v.0 == knife && v.1 == game::FILLET).and_then(|v| FilletView::decode(v.2));
     if let FPage::Busy(p) = f.page {
-        let still = tables.as_deref().and_then(|t| t.view(p)).filter(|v| v.0 == f.knife && v.1 == game::FILLET).and_then(|v| FilletView::decode(v.2)).is_some_and(|v| v.state < 3);
-        if !still {
+        let v = at_knife(p);
+        if let Some(d) = v.as_ref().and_then(|v| v.duel).filter(|d| d.foe.is_none()) {
+            f.page = FPage::Offer(p);
+            f.offer = Some((d.bet, d.seed));
+        } else if !v.is_some_and(|v| v.state < 3) {
             f.page = FPage::Main;
             f.status = "Your turn at the table.".into();
         }
     }
-    if let Some(g) = f.game.as_mut() {
+    if let FPage::Offer(p) = f.page {
+        let v = at_knife(p);
+        match v.as_ref().and_then(|v| v.duel).filter(|d| d.foe.is_none()) {
+            Some(d) => f.offer = Some((d.bet, d.seed)),
+            None => {
+                f.offer = None;
+                if v.is_some_and(|v| v.state < 3) {
+                    f.page = FPage::Busy(p);
+                } else {
+                    f.page = FPage::Main;
+                    f.status = "The challenge is gone.".into();
+                }
+            }
+        }
+    }
+    // Someone matched this player's challenge: the race is on.
+    if f.page == FPage::Challenge {
+        let open = f.duel.as_ref().map(|d| (d.bet, d.seed));
+        for (from, table, blob) in &actions {
+            let Some(FilletAction::Match { bet, seed }) = FilletAction::decode(blob) else { continue };
+            if *table != knife || Some((bet, seed)) != open || f.page != FPage::Challenge {
+                continue;
+            }
+            let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { continue };
+            if caps(rt, &mut sim) < bet {
+                f.status = "You don't have the caps for your own bet any more.".into();
+                continue;
+            }
+            give_caps(rt, &mut sim, -(bet as i64));
+            start_race(f, bet, seed, *from, now);
+        }
+    }
+    if let (Some(d), Some(g)) = (f.duel.as_mut(), f.game.as_mut()) {
+        let foe = d.foe.unwrap_or(0);
+        let name = tables.map_or_else(|| format!("Player {foe}"), |t| t.name(foe));
+        if let Some(v) = at_knife(foe).filter(|v| v.duel.is_some_and(|x| x.foe == Some(me) && x.seed == d.seed)) {
+            d.confirmed = true;
+            d.foe_seen = now;
+            d.foe_view = Some(v);
+        }
+        g.tick(dt);
+        if g.state == FState::Ready && now >= d.go_at && d.confirmed {
+            g.start_round(&mut f.rng);
+        }
+        if g.state == FState::Between {
+            let at = *d.next_round_at.get_or_insert(now + ROUND_PAUSE);
+            if now >= at {
+                d.next_round_at = None;
+                g.start_round(&mut f.rng);
+            }
+        }
+        if g.over() && !d.ended {
+            d.ended = true;
+            if g.state == FState::Won {
+                f.pose = (f.pose.0 + 1, FPose::Win);
+            }
+            info!("fillet: race done ({:?}, {} mistakes, {:.2} s)", g.state, g.mistakes, g.elapsed);
+        }
+        if d.result.is_none() {
+            let mine = g.finish();
+            let theirs = d.foe_view.as_ref().filter(|v| v.state >= 3).map(|v| Finish { won: v.state == 3, mistakes: v.mistakes, seconds: v.duel.map_or(0.0, |x| x.seconds) });
+            let bet = d.bet;
+            let payout = |r: Ordering| fillet::race_payout(bet, r);
+            if !d.confirmed && now - d.go_at > OWNER_GONE - COUNTDOWN {
+                // The other side never raced this one (gone, or it took another match).
+                if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+                    give_caps(rt, &mut sim, bet as i64);
+                }
+                f.status = "The race did not start: your bet is back.".into();
+                info!("fillet: the race against {name} did not start");
+                f.duel = None;
+                f.game = None;
+                f.page = FPage::Main;
+            } else if d.confirmed && now - d.foe_seen > OWNER_GONE {
+                d.result = Some(Ordering::Greater);
+                if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+                    give_caps(rt, &mut sim, payout(Ordering::Greater) as i64);
+                }
+                f.status = format!("{name} left the race: you win {} caps.", payout(Ordering::Greater));
+                info!("fillet: {name} left the race");
+            } else if let (Some(a), Some(b)) = (mine, theirs) {
+                let r = fillet::race(&a, &b);
+                d.result = Some(r);
+                if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+                    give_caps(rt, &mut sim, payout(r) as i64);
+                }
+                let verdict = match r {
+                    Ordering::Greater => format!("You win {} caps.", payout(r)),
+                    Ordering::Equal => "A draw: your bet is back.".to_string(),
+                    Ordering::Less => format!("{name} wins."),
+                };
+                f.status = format!("You: {}. {name}: {}. {verdict}", race_end(&a), race_end(&b));
+                info!("fillet: race result {r:?} ({} vs {})", race_end(&a), race_end(&b));
+            }
+        }
+    } else if let Some(g) = f.game.as_mut() {
         g.tick(dt);
         if g.over() && !f.settled {
             f.settled = true;
@@ -867,6 +1073,12 @@ fn close(mut d: ResMut<DartsScreen>, mut f: ResMut<FilletScreen>, mut script: Op
         info!("darts: closed ({} throws)", d.throws);
     }
     if let Some(f) = f.0.take() {
+        if let Some(d) = f.duel.as_ref().filter(|d| d.foe.is_some() && !d.confirmed && d.result.is_none()) {
+            if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+                give_caps(rt, &mut sim, d.bet as i64);
+            }
+            info!("fillet: left before the race began, {} caps back", d.bet);
+        }
         if let (Some(g), false) = (&f.game, f.settled) {
             let back = g.settle();
             if back > 0 {
@@ -902,11 +1114,21 @@ pub fn darts_view(d: &Darts, me: u8, now: f32) -> Option<DartsView> {
     })
 }
 
+/// A racer's end in words.
+fn race_end(x: &Finish) -> String {
+    if x.won {
+        format!("{:.2} s, {} {}", x.seconds, x.mistakes, if x.mistakes == 1 { "mistake" } else { "mistakes" })
+    } else {
+        "out".to_string()
+    }
+}
+
 pub fn fillet_view(f: &Fillet) -> Option<FilletView> {
-    if matches!(f.page, FPage::Busy(_)) {
+    if matches!(f.page, FPage::Busy(_) | FPage::Offer(_)) {
         return None;
     }
     let g = f.game.as_ref();
+    let duel = f.duel.as_ref().map(|d| DuelView { bet: d.bet, seed: d.seed, foe: d.foe, seconds: g.map_or(0.0, |g| g.elapsed) });
     Some(FilletView {
         stake: g.map_or(0, |g| g.stake),
         round: g.map_or(0, |g| g.round),
@@ -923,6 +1145,7 @@ pub fn fillet_view(f: &Fillet) -> Option<FilletView> {
             Some(FState::Won) => 3,
             Some(FState::Lost) => 4,
         },
+        duel,
     })
 }
 
@@ -987,7 +1210,8 @@ fn draw(
         // At the table in 3D the world shows through (the mod's HUD lies over the view).
         let shade = if stage.shown(f.knife) && f.page == FPage::Play { Color::NONE } else { Color::srgba(0.05, 0.03, 0.02, 0.9) };
         let root = commands.spawn((MinigameRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(shade), GlobalZIndex(25))).id();
-        commands.entity(root).with_children(|p| draw_fillet(p, f, &stage, now, &name));
+        let coop = tables.as_deref().is_some_and(|t| t.on);
+        commands.entity(root).with_children(|p| draw_fillet(p, f, &stage, now, &name, coop));
     }
 }
 
@@ -1119,14 +1343,29 @@ fn draw_bar_and_chalk(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &
 /// [observed: TableChalk.nif LFFPrompt1..5].
 const GAP_AT: [(f32, f32); 5] = [(-8.773, 4.081), (-6.462, 8.034), (-3.565, 9.525), (-0.223, 9.366), (3.858, 4.769)];
 
-fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, now: f32, name: &dyn Fn(u8) -> String) {
+fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, now: f32, name: &dyn Fn(u8) -> String, coop: bool) {
     match f.page {
         FPage::Busy(q) => {
             text(p, format!("{} is at this table.\nWatch them, and take your turn when they are done.\n\nTab) Leave", name(q)), Val::Percent(30.0), Val::Percent(35.0), 24.0, AMBER);
         }
+        FPage::Offer(q) => {
+            let bet = f.offer.map_or(0, |o| o.0);
+            text(p, "Five Finger Fillet race", Val::Percent(34.0), Val::Percent(25.0), 40.0, AMBER);
+            text(p, format!("{} challenges you: {bet} caps each, the winner takes {}.\nYou both get the same prompts at once.\nA finish beats a loss, then fewer mistakes, then the faster time.\n\nSpace) Match the bet   Tab) Leave", name(q), bet * 2), Val::Percent(26.0), Val::Percent(36.0), 22.0, AMBER);
+        }
+        FPage::Challenge => {
+            let bet = f.duel.as_ref().map_or(0, |d| d.bet);
+            text(p, "Five Finger Fillet race", Val::Percent(34.0), Val::Percent(25.0), 40.0, AMBER);
+            text(p, format!("Your challenge is open: {bet} caps each, the winner takes {}.\nWaiting for another player to open this knife and match it.\n\nTab) Withdraw", bet * 2), Val::Percent(26.0), Val::Percent(36.0), 22.0, AMBER);
+        }
         FPage::Main => {
             text(p, "Five Finger Fillet", Val::Percent(36.0), Val::Percent(25.0), 40.0, AMBER);
-            text(p, "1) Play for caps\n2) Practice\nTab) Leave\n\nThree rounds of 12, 18 and 24 stabs.\nPress the key shown at the knife.\nThree mistakes lose; each costs 10 health.", Val::Percent(30.0), Val::Percent(35.0), 22.0, AMBER);
+            let race = if coop { "\n3) Race another player" } else { "" };
+            text(p, format!("1) Play for caps\n2) Practice{race}\nTab) Leave\n\nThree rounds of 12, 18 and 24 stabs.\nPress the key shown at the knife.\nThree mistakes lose; each costs 10 health."), Val::Percent(30.0), Val::Percent(35.0), 22.0, AMBER);
+        }
+        FPage::Bet if f.duel_bet => {
+            text(p, format!("Race bet: {} caps each", f.bet), Val::Percent(34.0), Val::Percent(30.0), 30.0, AMBER);
+            text(p, format!("Q) Decrease   E) Increase   Space) Challenge   Tab) Back\nThe winner takes {}. {:.0} s on each clock.", f.bet * 2, fillet::time_limit(f.bet)), Val::Percent(30.0), Val::Percent(40.0), 20.0, AMBER);
         }
         FPage::Bet => {
             text(p, format!("Bet: {} caps ({:.0} s on the clock)", f.bet, fillet::time_limit(f.bet)), Val::Percent(34.0), Val::Percent(30.0), 30.0, AMBER);
@@ -1180,6 +1419,10 @@ fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, no
                 p.spawn((Node { position_type: PositionType::Absolute, left: Val::Percent(33.0), top: Val::Percent(84.0), width: Val::Percent(34.0 * share), height: Val::Px(7.0), ..default() }, BackgroundColor(Color::WHITE)));
                 text(p, format!("TIME {c:.1}"), Val::Percent(43.0), Val::Percent(79.5), 20.0, CHALK);
             }
+            if let Some(d) = f.duel.as_ref() {
+                draw_race(p, d, g, now, name, &f.status);
+                return;
+            }
             let help = match g.state {
                 FState::Ready => "Space) Start   Tab) Leave".to_string(),
                 FState::Between => format!("Round {} done. Space) Next round   Tab) Leave", g.round),
@@ -1192,4 +1435,32 @@ fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, no
     if !f.status.is_empty() && f.page != FPage::Play {
         text(p, f.status.clone(), Val::Percent(30.0), Val::Percent(72.0), 20.0, AMBER);
     }
+}
+
+/// A race's own lines over the table: the countdown, both times, the other racer, the
+/// result.
+fn draw_race(p: &mut ChildSpawnerCommands, d: &Duel, g: &fillet::Game, now: f32, name: &dyn Fn(u8) -> String, status: &str) {
+    let foe = name(d.foe.unwrap_or(0));
+    if g.state == FState::Ready {
+        let left = d.go_at - now;
+        let big = if !d.confirmed && left <= 0.0 { "...".to_string() } else { format!("{}", left.ceil().max(1.0) as i32) };
+        text(p, big, Val::Percent(47.0), Val::Percent(38.0), 96.0, CHALK);
+    } else if g.round == 1 && g.hits == 0 && g.elapsed < 0.8 {
+        text(p, "GO", Val::Percent(45.0), Val::Percent(38.0), 96.0, Color::srgb(0.3, 1.0, 0.3));
+    }
+    text(p, format!("Race time {:.1} s", g.elapsed), Val::Percent(28.0), Val::Percent(19.0), 22.0, CHALK);
+    let theirs = match d.foe_view.as_ref() {
+        None => format!("{foe}: waiting"),
+        Some(v) if v.state >= 3 => format!("{foe}: {}", if v.state == 3 { format!("done, {:.2} s, {} {}", v.duel.map_or(0.0, |x| x.seconds), v.mistakes, if v.mistakes == 1 { "mistake" } else { "mistakes" }) } else { "out".to_string() }),
+        Some(v) => format!("{foe}: round {}/3, {}/{} stabs, {} {}, {:.1} s", v.round.max(1), v.hits, v.required, v.mistakes, if v.mistakes == 1 { "mistake" } else { "mistakes" }, v.duel.map_or(0.0, |x| x.seconds)),
+    };
+    text(p, theirs, Val::Percent(28.0), Val::Percent(15.0), 22.0, AMBER);
+    let help = match (d.result, g.state) {
+        (Some(_), _) => format!("{status}   Space) Done   Tab) Leave"),
+        (None, FState::Ready) => format!("A race against {foe} for {} caps each.   Tab) Forfeit", d.bet),
+        (None, FState::Between) => format!("Round {} done. The next starts by itself.   Tab) Forfeit", g.round),
+        (None, FState::Prompt) => "Press the key at the knife.   Tab) Forfeit".to_string(),
+        (None, _) => format!("Your race is done. Waiting for {foe}; leaving now forfeits."),
+    };
+    text(p, help, Val::Percent(28.0), Val::Percent(90.0), 20.0, AMBER);
 }

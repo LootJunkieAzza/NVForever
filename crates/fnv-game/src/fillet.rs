@@ -17,7 +17,10 @@
 //!   twice the stake [observed: BeginGame, Settle]. Leaving before the first round gives
 //!   the stake back; after, it is lost.
 //! - **In co-op** the others at the table watch, and take their turns at it one after
-//!   another (the fork's design).
+//!   another; or two players race (the fork's design): one sets a bet and challenges, the
+//!   other matches it, and both play the same prompts at once. A finish beats a loss;
+//!   between two finishes fewer mistakes win, then the faster time in the rounds
+//!   ([`race`]); the winner takes both bets, a draw gives each its own back.
 
 use rand_core::RngCore;
 
@@ -125,6 +128,8 @@ pub struct Game {
     pub key: Key,
     /// A staked game's seconds left (`None`: practice).
     pub clock: Option<f32>,
+    /// Seconds spent in the rounds (prompts waiting), the time a race compares.
+    pub elapsed: f32,
     pub stake: u32,
     /// The round's prompts drawn, its first included; the gap last drawn.
     step: u32,
@@ -137,7 +142,7 @@ pub struct Game {
 impl Game {
     /// A game; `stake` 0 is practice (no clock). `key` the key the table left off at.
     pub fn new(stake: u32, key: Key) -> Game {
-        Game { state: State::Ready, round: 0, hits: 0, mistakes: 0, gap: 1, key, clock: (stake > 0).then(|| time_limit(stake)), stake, step: 0, last: None, dir: 1, jump: 1 }
+        Game { state: State::Ready, round: 0, hits: 0, mistakes: 0, gap: 1, key, clock: (stake > 0).then(|| time_limit(stake)), elapsed: 0.0, stake, step: 0, last: None, dir: 1, jump: 1 }
     }
 
     /// Start the first round, or the next (from [`State::Ready`] or [`State::Between`]).
@@ -225,6 +230,7 @@ impl Game {
         if self.state != State::Prompt {
             return;
         }
+        self.elapsed += dt;
         if let Some(c) = self.clock.as_mut() {
             *c -= dt;
             if *c <= 0.0 {
@@ -246,6 +252,52 @@ impl Game {
 
     pub fn over(&self) -> bool {
         matches!(self.state, State::Won | State::Lost)
+    }
+
+    /// How the game ended, for a race; `None` while it goes on.
+    pub fn finish(&self) -> Option<Finish> {
+        self.over().then_some(Finish { won: self.state == State::Won, mistakes: self.mistakes, seconds: self.elapsed })
+    }
+}
+
+/// A raced game's end: all three rounds done (or not), its mistakes, its time.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Finish {
+    pub won: bool,
+    pub mistakes: u8,
+    pub seconds: f32,
+}
+
+/// Times this close are a tie (seconds).
+pub const RACE_TIE: f32 = 0.005;
+
+/// How `a` ranks against `b` in a race (`Greater`: `a` wins): finishing beats not
+/// finishing; between two finishes fewer mistakes win, then the faster time; two
+/// games that did not finish draw.
+pub fn race(a: &Finish, b: &Finish) -> std::cmp::Ordering {
+    use std::cmp::Ordering::*;
+    match (a.won, b.won) {
+        (true, false) => Greater,
+        (false, true) => Less,
+        (false, false) => Equal,
+        (true, true) => b.mistakes.cmp(&a.mistakes).then_with(|| {
+            if (a.seconds - b.seconds).abs() <= RACE_TIE {
+                Equal
+            } else if a.seconds < b.seconds {
+                Greater
+            } else {
+                Less
+            }
+        }),
+    }
+}
+
+/// Caps back to a racer who bet `bet`: both bets for a win, its own for a draw.
+pub fn race_payout(bet: u32, result: std::cmp::Ordering) -> u32 {
+    match result {
+        std::cmp::Ordering::Greater => bet * 2,
+        std::cmp::Ordering::Equal => bet,
+        std::cmp::Ordering::Less => 0,
     }
 }
 
@@ -275,6 +327,47 @@ mod tests {
         g.tick(1000.0);
         assert_eq!(g.strike_of(&[k]), None);
         assert_eq!(g.press(&[k], &mut r), None);
+    }
+
+    #[test]
+    fn a_race_ranks_a_finish_then_mistakes_then_time() {
+        use std::cmp::Ordering::*;
+        let f = |won, mistakes, seconds| Finish { won, mistakes, seconds };
+        assert_eq!(race(&f(true, 2, 80.0), &f(false, 0, 10.0)), Greater, "a finish beats a loss");
+        assert_eq!(race(&f(false, 3, 10.0), &f(true, 2, 80.0)), Less);
+        assert_eq!(race(&f(true, 0, 50.0), &f(true, 1, 40.0)), Greater, "fewer mistakes first");
+        assert_eq!(race(&f(true, 1, 40.0), &f(true, 1, 41.0)), Greater, "then the faster time");
+        assert_eq!(race(&f(true, 1, 41.0), &f(true, 1, 40.0)), Less);
+        assert_eq!(race(&f(true, 1, 40.0), &f(true, 1, 40.004)), Equal);
+        assert_eq!(race(&f(false, 3, 5.0), &f(false, 0, 90.0)), Equal, "two losses draw");
+        assert_eq!([race_payout(30, Greater), race_payout(30, Equal), race_payout(30, Less)], [60, 30, 0]);
+    }
+
+    #[test]
+    fn a_race_times_the_rounds_only_and_both_get_the_same_prompts() {
+        let mut a = Game::new(20, Key::W);
+        let mut b = Game::new(20, Key::W);
+        let (mut ra, mut rb) = (ChaCha8Rng::seed_from_u64(7), ChaCha8Rng::seed_from_u64(7));
+        a.tick(5.0);
+        assert_eq!(a.elapsed, 0.0, "before the first round");
+        a.start_round(&mut ra);
+        b.start_round(&mut rb);
+        for i in 0..12 {
+            assert_eq!((a.gap, a.key), (b.gap, b.key), "prompt {i}");
+            a.tick(0.5);
+            let k = a.key;
+            if i == 3 {
+                // A miss draws no new prompt: the two stay in step.
+                let wrong = Key::from_index(k.index() + 1);
+                a.press(&[wrong], &mut ra);
+                b.press(&[wrong], &mut rb);
+            }
+            a.press(&[k], &mut ra);
+            b.press(&[k], &mut rb);
+        }
+        assert_eq!(a.state, State::Between);
+        a.tick(30.0);
+        assert!((a.elapsed - 6.0).abs() < 1e-4, "between rounds the time stops: {}", a.elapsed);
     }
 
     #[test]

@@ -111,7 +111,7 @@ pub fn seat_lines(s: &Session, i: usize) -> (String, String) {
 /// The choices the bottom row offers: label, what it does, usable.
 pub fn choices(s: &Session) -> Vec<(String, PokerInput, bool)> {
     let turn = s.players_turn();
-    let legal = s.table.legal(PLAYER);
+    let legal = s.legal();
     let mut out = Vec::new();
     if s.table.street != Street::Over {
         let call = if legal.to_call == 0 { "E) CHECK".to_string() } else { format!("E) CALL {}", legal.to_call) };
@@ -125,7 +125,7 @@ pub fn choices(s: &Session) -> Vec<(String, PokerInput, bool)> {
         out.push((raise, PokerInput::Raise(None), turn && legal.raise.is_some()));
         out.push(("A) ALL IN".to_string(), PokerInput::AllIn, turn));
         out.push(("F) FOLD".to_string(), PokerInput::Fold, turn));
-    } else if s.ended.is_none() {
+    } else if s.ended.is_none() && !s.is_guest() {
         out.push(("SPACE) NEXT HAND".to_string(), PokerInput::Next, s.leaving.is_none()));
     }
     out.push(("TAB) LEAVE".to_string(), PokerInput::Exit, s.leaving.is_none()));
@@ -219,7 +219,7 @@ fn spawn(commands: &mut Commands, c: &Ctx, s: &Session, view: Option<&PokerView>
         let p = s.player();
         let bottom = 960.0 - EDGE;
         c.text(r, Font::Glow, &format!("CHIPS {}", p.stack), EDGE, bottom - 3.0 * LINE, 0.0, bright);
-        let legal = t.legal(PLAYER);
+        let legal = s.legal();
         let call_line = if t.street != Street::Over && p.in_hand() && legal.to_call > 0 { format!("TO CALL {}", legal.to_call) } else { String::new() };
         c.text(r, Font::Plain, &call_line, EDGE, bottom - 2.0 * LINE, 0.0, soft);
         let hand = if p.in_hand() { t.best_hand(PLAYER).map(|v| v.describe().to_uppercase()).unwrap_or_default() } else { String::new() };
