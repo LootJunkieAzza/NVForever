@@ -245,7 +245,7 @@ impl Plugin for CoopPlugin {
             .insert_resource(coop)
             .add_systems(Update, (lobby, send, take_events, share_npcs, follow_npcs, leash, downed).chain().after(nvf_play::PlaySet::Physics))
             .add_message::<PuppetShot>()
-            .add_systems(Update, (stand_ins, draw, peer_lights).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
+            .add_systems(Update, (stand_ins, draw, peer_lights, pipboy_share).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
     }
 }
 
@@ -710,6 +710,42 @@ struct Doing<'w> {
     sim: Option<Res<'w, nvf_play::sim::SimState>>,
     script: Option<Res<'w, nvf_play::script::ScriptState>>,
     flashlight: Option<Res<'w, nvf_play::flashlight::Flashlight>>,
+    /// The Pip-Boy up in full or for a glance (`crate::pipboy_check`).
+    pipboy: (Option<Res<'w, nvf_play::pipboy::PipBoy>>, Option<Res<'w, nvf_play::pipboy::glance::Glance>>),
+}
+
+/// The others' Pip-Boys for this game: each puppet's check (`crate::pipboy_check`), where
+/// the others are for the glance's map (`nvf_play::pipboy::glance::CoopMates`), and
+/// whether the full Pip-Boy may leave the world running (`nvf_play::menu::LiveMenu`: in a
+/// session).
+fn pipboy_share(coop: Res<Coop>, mut checks: ResMut<crate::pipboy_check::PuppetChecks>, mut mates: ResMut<nvf_play::pipboy::glance::CoopMates>, mut live: ResMut<nvf_play::menu::LiveMenu>) {
+    use nvf_play::pipboy::glance::{Check, Mate};
+    let in_session = coop.link.is_some();
+    if live.allowed != in_session {
+        live.allowed = in_session;
+    }
+    let mut want = std::collections::HashMap::new();
+    let mut seen = Vec::new();
+    for (&id, p) in &coop.peers {
+        let Some(&(_, newest)) = p.samples.back() else { continue };
+        let check = Check::from_code(newest.pipboy);
+        if check != Check::None && !p.lost {
+            want.insert(p.reference(id), check);
+        }
+        if !p.lost {
+            let (interior, world) = match newest.place {
+                Place::Interior(c) => (Some(c), 0),
+                Place::Exterior(w) => (None, w),
+            };
+            seen.push(Mate { name: label(id, &p.name), interior, world, feet: newest.feet });
+        }
+    }
+    if checks.0 != want {
+        checks.0 = want;
+    }
+    if mates.0 != seen {
+        mates.0 = seen;
+    }
 }
 
 /// Hand the link this game's newest state (it sends it on its own thread).
@@ -741,6 +777,9 @@ fn send(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location>>
     flags |= if doing.script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.is_dead(FormId::PLAYER_REF)) { flag::DOWN } else { 0 };
     flags |= if doing.flashlight.as_ref().is_some_and(|f| f.on) { flag::LIGHT } else { 0 };
     s.flags = flags;
+    if let (Some(pip), Some(glance)) = (doing.pipboy.0.as_deref(), doing.pipboy.1.as_deref()) {
+        s.pipboy = nvf_play::pipboy::glance::Check::of(pip, glance).code();
+    }
     let worn = match (doing.actor_world.as_deref(), doing.sim.as_deref()) {
         (Some(w), Some(sim)) => Equipment::of(w, Some(&sim.world), FormId::PLAYER_REF.0),
         _ => None,

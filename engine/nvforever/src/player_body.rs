@@ -113,6 +113,8 @@ const TAG_RELOAD: u32 = 75;
 const TAG_FURNITURE: u32 = 80;
 /// The Pip-Boy coming up (`pipboy_arm.rs`).
 const TAG_PIPBOY: u32 = 90;
+/// The Pip-Boy checked on the third-person body (`pipboy_check.rs`).
+const TAG_CHECK: u32 = 91;
 /// The Pip-Boy clip fades in over its first 8 frames [observed: its `Blend: 8` key;
 /// hypothesis: frames at 30 a second, as for idles] and out over its last 8 going down
 /// [design].
@@ -378,6 +380,9 @@ enum ClipKey {
     ReloadOpen(Stance, &'static str, &'static str),
     /// The Pip-Boy coming up (first person); a woman's.
     PipBoy(bool),
+    /// The Pip-Boy checked (third person, upper body only, `pipboy_check.rs`): the full
+    /// Pip-Boy's clip, else the glance's.
+    PipBoyCheck(bool),
     /// Weapon prefix and hand grip number: the grip clip (`1lmhandgrip1.kf`,
     /// `2hahandgrip1_plasmarifle.kf`).
     Grip(&'static str, u8),
@@ -408,6 +413,7 @@ impl ClipKey {
             // [observed: `_1stperson\locomotion\female\pipboyfemale.kf` beside the
             // male one]
             ClipKey::Grip(p, n) => vec![format!("{p}handgrip{n}.kf")],
+            ClipKey::PipBoyCheck(full) => vec![crate::pipboy_check::clip_of(full).to_string()],
             ClipKey::PipBoy(female) => {
                 let own = if female { vec!["locomotion\\female\\pipboyfemale.kf".to_string()] } else { Vec::new() };
                 own.into_iter().chain(["locomotion\\male\\pipboy.kf".to_string()]).collect()
@@ -674,12 +680,14 @@ impl Rig {
         }
         let found = path.and_then(|path| {
             let clip = ctx.clip(&path)?;
+            // The check keeps to the upper body: the legs walk on.
+            let clip = if matches!(key, ClipKey::PipBoyCheck(_)) { Arc::new(crate::pipboy_check::upper_clip(&clip)) } else { clip };
             Some(Arc::new(ClipInfo::new(path, clip.clone(), clip.root_speed())))
         });
         match &found {
             Some(c) if key.limping() => info!("player {:?} rig: limping {key:?} plays {}", self.view, c.path),
             Some(c) if matches!(key, ClipKey::Grip(..)) => info!("player {:?} rig: hand grip {}", self.view, c.path),
-            Some(c) if matches!(key, ClipKey::Move(..) | ClipKey::PipBoy(_)) => info!("player {:?} rig: {key:?} plays {}", self.view, c.path),
+            Some(c) if matches!(key, ClipKey::Move(..) | ClipKey::PipBoy(_) | ClipKey::PipBoyCheck(_)) => info!("player {:?} rig: {key:?} plays {}", self.view, c.path),
             // Without it the arm never comes up (#1330): said where a player's log shows it.
             None if matches!(key, ClipKey::PipBoy(_)) => warn!("player {:?} rig: {key:?}: none of {:?} in {} could be read; the Pip-Boy cannot come up", self.view, key.candidates(), self.folder),
             Some(c) => debug!("player {:?} rig: {key:?} plays {} ({:.3} s, shot at {:?}, repeats to {:?})", self.view, c.path, c.clip.length(), c.keys.hit, c.keys.loop_end),
@@ -1464,6 +1472,8 @@ struct Posed<'a> {
     special: &'a IdleSlot<Arc<Clip>>,
     /// The Pip-Boy shows: seconds into its clip (first person).
     pipboy: Option<f32>,
+    /// The Pip-Boy checked (third person): what the player does and the check playing.
+    check: Option<(nvf_play::pipboy::glance::Check, &'a mut crate::pipboy_check::CheckPlay)>,
     /// The sway of the arms (first person, `view_sway.rs`).
     sway: SwayPose,
     /// True iron sights (first person, `iron_sights.rs`): how far in (0–1), and the
@@ -1488,9 +1498,20 @@ fn land_mine_grip() -> (Quat, Vec3) {
 /// would do by itself [hypothesis: the clips of the opening share track priorities with
 /// the standing idle, so both cannot play; idles.md §4].
 fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &mut ActorCtx, transforms: &mut Query<&mut Transform>) -> Option<(Vec3, Option<Quat>)> {
-    let Posed { root, look_pitch, special, pipboy, sway, sights } = posed;
+    let Posed { root, look_pitch, special, pipboy, check, sway, sights } = posed;
     rig.carry = None;
     let pipboy = pipboy.filter(|_| rig.view == View::First).and_then(|t| Some((rig.clip(ctx, ClipKey::PipBoy(f.female))?, t)));
+    let check = check.filter(|_| rig.view == View::Third).and_then(|(want, play)| {
+        use nvf_play::pipboy::glance::Check;
+        let kind = play.clip_for(want);
+        let Some(c) = (kind != Check::None).then(|| rig.clip(ctx, ClipKey::PipBoyCheck(kind == Check::Full))).flatten() else {
+            *play = crate::pipboy_check::CheckPlay::default();
+            return None;
+        };
+        let keys = crate::pipboy_check::CheckKeys::read(c.clip.length(), &c.clip.text_keys);
+        let (t, w) = play.step(want, f.dt, keys)?;
+        Some((c, t, w))
+    });
     let draw = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, true));
     let put_away = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, false));
     let holster = rig.clip(ctx, ClipKey::Holster(f.stance, f.prefix));
@@ -1738,6 +1759,12 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         let l = &mut a.layers[i];
         (l.rate, l.time) = (0.0, *t);
     }
+    // The Pip-Boy checked: the arm's clip at its time over the upper body.
+    if let Some((c, t, _)) = &check {
+        let i = a.want(&c.clip, TAG_CHECK, 1.0, Mode::Once, 0.0);
+        let l = &mut a.layers[i];
+        (l.rate, l.time) = (0.0, *t);
+    }
     a.end();
     // Movement clips play at the speed the character actually moves [hypothesis: the
     // game matches the clip's root motion to the ground speed].
@@ -1769,6 +1796,11 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     if let Some((_, t)) = pipboy {
         for l in a.layers.iter_mut().filter(|l| l.tag == TAG_PIPBOY) {
             (l.weight, l.ease) = (1.0, pipboy_ease(t));
+        }
+    }
+    if let Some((_, _, w)) = check {
+        for l in a.layers.iter_mut().filter(|l| l.tag == TAG_CHECK) {
+            (l.weight, l.ease) = (1.0, w);
         }
     }
     a.pose();
@@ -2135,11 +2167,11 @@ fn drive_body(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     mut anim: ResMut<WeaponAnim>,
-    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d, lens_sway), (ahead, mut lunge, s1st)): (
+    (furniture, mut idles, mut seat, (pip, glance, mut check), cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d, lens_sway), (ahead, mut lunge, s1st)): (
         Res<crate::furniture::BodyOverride>,
         ResMut<PlayerIdles>,
         ResMut<nvf_play::furniture::PlayerSeat>,
-        Res<nvf_play::pipboy::PipBoy>,
+        (Res<nvf_play::pipboy::PipBoy>, Res<nvf_play::pipboy::glance::Glance>, ResMut<crate::pipboy_check::PlayerCheck>),
         Query<&Projection, With<nvf_play::PlayerCamera>>,
         Option<Res<nvf_play::free_cam::FirstPersonFov>>,
         Option<Res<nvf_play::combat::PlayerLimbs>>,
@@ -2467,7 +2499,8 @@ fn drive_body(
         *told_scale = Some(script_scale);
     }
     let root = Transform { translation: Vec3::from_array(feet) - sink, rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale * script_scale) };
-    let third = Posed { root, look_pitch: player.pitch, special: &idles.third, pipboy: None, sway: SwayPose::NONE, sights: None };
+    let want = nvf_play::pipboy::glance::Check::of(&pip, &glance);
+    let third = Posed { root, look_pitch: player.pitch, special: &idles.third, pipboy: None, check: Some((want, &mut check.0)), sway: SwayPose::NONE, sights: None };
     let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e + sink);
     // The third-person body's melee attack clip carries the player by its root's travel
     // (actors.md §8.13), turned by the heading and scaled with the body.
@@ -2486,7 +2519,8 @@ fn drive_body(
         // The character stays where the scene plays (and collides with nothing there).
         seat.hold = Some(h.feet);
     }
-    let pipboy = pip.on_arm().then_some(pip.clip_time);
+    // The arm comes up for the full Pip-Boy and for the glance (`glance::arm_clip`).
+    let pipboy = nvf_play::pipboy::glance::arm_clip(&pip, &glance);
     // The arms sway in first person by themselves: not under the Pip-Boy or an idle.
     let sway = body.first.as_ref().map_or(SwayPose::NONE, |f| {
         m.sway.update(SwayInput {
@@ -2557,7 +2591,7 @@ fn drive_body(
         m.sights_told = !m.sights_told;
         info!("true iron sights: {}", if m.sights_told { "the sights are on the eye" } else { "off the eye" });
     }
-    let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first, pipboy, sway, sights };
+    let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first, pipboy, check: None, sway, sights };
     let first = body.first.as_mut().and_then(|f| pose_rig(f, &frame, &events, first, &mut ctx, &mut transforms));
     let first_eye = first.map(|(e, _)| e);
     // The arms and the weapon are drawn as through the first-person view, narrower than
@@ -2569,12 +2603,12 @@ fn drive_body(
         });
         // The console's `fov` can ask for another first-person field of view.
         let first_fov = first_fov.and_then(|f| f.0).unwrap_or(FIRST_PERSON_FOV);
-        let k = match (pip.on_arm(), vfov) {
-            (true, Some(v)) => {
+        let k = match (pipboy, vfov) {
+            (Some(t), Some(v)) => {
                 let normal = arms_magnification(v, first_fov);
-                normal + (arms_magnification(v, PIPBOY_FOV) - normal) * pipboy_ease(pip.clip_time)
+                normal + (arms_magnification(v, PIPBOY_FOV) - normal) * pipboy_ease(t)
             }
-            (false, Some(v)) => arms_magnification(v, first_fov),
+            (None, Some(v)) => arms_magnification(v, first_fov),
             _ => 1.0,
         };
         let forward = Vec3::from_array(nvf_play::space::look_dir(player.heading, player.pitch));

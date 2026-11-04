@@ -49,6 +49,7 @@
 
 pub mod data;
 pub mod frame;
+pub mod glance;
 pub mod hotkey_panel;
 pub mod items;
 pub mod item_mod;
@@ -441,7 +442,12 @@ impl Plugin for PipBoyPlugin {
                     .chain()
                     .in_set(PlaySet::Ui),
             )
-            .add_systems(First, drive_pointer.in_set(PickingSystems::Input));
+            .add_systems(First, drive_pointer.in_set(PickingSystems::Input))
+            // The glance (`glance`): it gives way before the full Pip-Boy follows the
+            // menus; what it holds back is known before the frame's input is read.
+            .add_systems(Update, glance::hold_controls.before(PlaySet::Input))
+            .add_systems(Update, (glance::update.after(crate::menu::MenuSystems).before(follow_menu), glance::keys.run_if(takes_keys), glance::draw).chain().in_set(PlaySet::Ui));
+        glance::setup(app);
         test_aid::setup(app);
         crate::settings::add_setting(
             app,
@@ -486,8 +492,9 @@ pub fn menu_code(page: Page, repairing: bool, modding: bool) -> u16 {
 /// While the Pip-Boy is up, the scripts' open menu is its page's code ([`menu_code`];
 /// it opens as the inventory, 1002, `crate::script::engine_menu_opened`). Logged:
 /// `pipboy: menu code <code>`.
-fn report_menu(pip: Res<PipBoy>, repair: Res<repair::PipRepair>, modding: Res<item_mod::PipItemMod>, script: Option<ResMut<crate::script::ScriptState>>) {
-    if !pip.open() {
+fn report_menu(pip: Res<PipBoy>, repair: Res<repair::PipRepair>, modding: Res<item_mod::PipItemMod>, script: Option<ResMut<crate::script::ScriptState>>, live: Option<Res<crate::menu::LiveMenu>>) {
+    // Opened without a pause (co-op, `crate::menu::LiveMenu`): the scripts stay in game mode.
+    if !pip.open() || live.is_some_and(|l| l.open) {
         return;
     }
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
@@ -679,13 +686,15 @@ fn advance(time: crate::pause::AidTime, mut pip: ResMut<PipBoy>, mut control: Re
 
 /// The screen camera draws only while the Pip-Boy shows; in the screen menu onto a clear
 /// image, so the menus lie on the shade behind them and not on a black box.
-fn camera_on(pip: Res<PipBoy>, screen: Option<Res<PipBoyScreen>>, mut cams: Query<&mut Camera>) {
+fn camera_on(pip: Res<PipBoy>, glance: Res<glance::Glance>, screen: Option<Res<PipBoyScreen>>, mut cams: Query<&mut Camera>) {
     let Some(screen) = screen else { return };
+    // The glance draws into the same image (`glance::draw`).
+    let on = pip.shown() || glance.shown();
     if let Ok(mut c) = cams.get_mut(screen.camera) {
-        if c.is_active != pip.shown() {
-            c.is_active = pip.shown();
+        if c.is_active != on {
+            c.is_active = on;
         }
-        let clear = if pip.frame == Frame::Screen { Color::NONE } else { Color::BLACK };
+        let clear = if pip.shown() && pip.frame == Frame::Screen { Color::NONE } else { Color::BLACK };
         if !matches!(c.clear_color, ClearColorConfig::Custom(now) if now == clear) {
             c.clear_color = ClearColorConfig::Custom(clear);
         }

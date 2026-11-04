@@ -41,7 +41,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 pub const MAGIC: [u8; 4] = *b"NVCO";
-pub const VERSION: u8 = 8;
+pub const VERSION: u8 = 9;
 pub const MAX_GUESTS: usize = 3;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -179,12 +179,14 @@ pub struct PlayerState {
     /// Worn armour and clothing (ARMO FormIDs), the first `worn_len`.
     pub worn: [u32; MAX_WORN],
     pub worn_len: u8,
+    /// The Pip-Boy: 0 down, 1 the glance, 2 the full Pip-Boy (`nvf_play::pipboy::glance::Check`).
+    pub pipboy: u8,
 }
 
 impl PlayerState {
     /// A state with nothing in hand and nothing worn.
     pub fn at(place: Place, feet: [f32; 3], yaw: f32) -> Self {
-        Self { place, feet, yaw, pitch: 0.0, flags: 0, weapon: 0, attacks: 0, attack_kind: 0, reloads: 0, worn: [0; MAX_WORN], worn_len: 0 }
+        Self { place, feet, yaw, pitch: 0.0, flags: 0, weapon: 0, attacks: 0, attack_kind: 0, reloads: 0, worn: [0; MAX_WORN], worn_len: 0, pipboy: 0 }
     }
 
     pub fn has(&self, f: u8) -> bool {
@@ -1142,6 +1144,7 @@ fn encode(msg: &Msg) -> Vec<u8> {
             for w in worn {
                 b.extend_from_slice(&w.to_le_bytes());
             }
+            b.push(state.pipboy);
         }
         Msg::Bye { id } => b.extend_from_slice(&[5, *id]),
         Msg::Npcs { seq, npcs } => {
@@ -1243,6 +1246,7 @@ fn decode(b: &[u8]) -> Option<Msg> {
                 *w = r.u32()?;
             }
             state.worn_len = n as u8;
+            state.pipboy = r.u8()?;
             Msg::State { id, seq, state }
         }
         5 => Msg::Bye { id: r.u8()? },
@@ -1375,6 +1379,7 @@ mod tests {
                     reloads: 3,
                     worn: [1, 2, 3, 0, 0, 0, 0, 0, 0, 0],
                     worn_len: 3,
+                    pipboy: 2,
                     ..state(4.0)
                 },
             },
