@@ -209,7 +209,29 @@ pub struct Fillet {
     pub busy_until: f32,
     pub leave: bool,
     pub settled: bool,
+    /// The pose the player's hand plays now, and a count that changes with each new one
+    /// (nvforever `fillet_stage.rs` plays the mod's clips for it).
+    pub pose: (u32, FPose),
     rng: ChaCha8Rng,
+}
+
+/// The fillet table's hand poses, as the mod's clips name them (docs/spec-notes/fillet.md
+/// §8): the stab or the miss at a gap (1..5), and the win.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FPose {
+    Ready,
+    Stab(u8),
+    Miss(u8),
+    Win,
+}
+
+/// The table drawn in 3D (nvforever `fillet_stage.rs`): the screen then shows no hand of
+/// its own, and the prompted letter where the table's gap is on the screen (fractions of
+/// the window, from its top left), as the mod draws its chalk letter.
+#[derive(Resource, Default)]
+pub struct FilletStage {
+    pub on: bool,
+    pub prompts: [Option<(f32, f32)>; 5],
 }
 
 #[derive(Resource, Default)]
@@ -227,6 +249,7 @@ impl Plugin for MinigamesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<DartsScreen>()
             .init_resource::<FilletScreen>()
+            .init_resource::<FilletStage>()
             .add_message::<PlayFile>()
             .add_systems(Update, open.after(PlaySet::Activation).before(PlaySet::Ui))
             .add_systems(Update, ((darts_keys, darts_step, fillet_keys, fillet_step).chain().run_if(in_state(PlayState::Menu)), draw, play_files).chain().in_set(PlaySet::Ui))
@@ -338,6 +361,7 @@ fn open(
                 busy_until: 0.0,
                 leave: false,
                 settled: true,
+                pose: (0, FPose::Ready),
                 rng,
             });
         }
@@ -742,7 +766,9 @@ fn fillet_keys(
                 return;
             }
             let down: Vec<Key> = keys.get_pressed().filter_map(|k| key_of(*k)).collect();
+            let gap = g.gap;
             let Some(strike) = g.press(&down, &mut f.rng) else { return };
+            f.pose = (f.pose.0 + 1, if strike == Strike::Hit { FPose::Stab(gap) } else { FPose::Miss(gap) });
             match strike {
                 Strike::Hit => {
                     files.write(PlayFile("sound\\fx\\minigames\\fff\\stab.wav".into()));
@@ -788,6 +814,9 @@ fn fillet_step(
         g.tick(dt);
         if g.over() && !f.settled {
             f.settled = true;
+            if g.state == FState::Won {
+                f.pose = (f.pose.0 + 1, FPose::Win);
+            }
             let back = g.settle();
             if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
                 give_caps(rt, &mut sim, back as i64);
@@ -907,7 +936,7 @@ const CHALK: Color = Color::srgb(0.92, 0.92, 0.88);
 fn draw(
     mut commands: Commands,
     d: Res<DartsScreen>,
-    f: Res<FilletScreen>,
+    (f, stage): (Res<FilletScreen>, Res<FilletStage>),
     time: AidTime,
     tables: Option<Res<Tables>>,
     old: Query<Entity, With<MinigameRoot>>,
@@ -929,8 +958,10 @@ fn draw(
         commands.entity(root).with_children(|p| draw_darts(p, d, now, &name, aim));
     }
     if let Some(f) = f.0.as_ref() {
-        let root = commands.spawn((MinigameRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgba(0.05, 0.03, 0.02, 0.9)), GlobalZIndex(25))).id();
-        commands.entity(root).with_children(|p| draw_fillet(p, f, now, &name));
+        // At the table in 3D the world shows through (the mod's HUD lies over the view).
+        let shade = if stage.on && f.page == FPage::Play { Color::NONE } else { Color::srgba(0.05, 0.03, 0.02, 0.9) };
+        let root = commands.spawn((MinigameRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(shade), GlobalZIndex(25))).id();
+        commands.entity(root).with_children(|p| draw_fillet(p, f, &stage, now, &name));
     }
 }
 
@@ -1062,7 +1093,7 @@ fn draw_bar_and_chalk(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &
 /// [observed: TableChalk.nif LFFPrompt1..5].
 const GAP_AT: [(f32, f32); 5] = [(-8.773, 4.081), (-6.462, 8.034), (-3.565, 9.525), (-0.223, 9.366), (3.858, 4.769)];
 
-fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, now: f32, name: &dyn Fn(u8) -> String) {
+fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, now: f32, name: &dyn Fn(u8) -> String) {
     match f.page {
         FPage::Busy(q) => {
             text(p, format!("{} is at this table.\nWatch them, and take your turn when they are done.\n\nTab) Leave", name(q)), Val::Percent(30.0), Val::Percent(35.0), 24.0, AMBER);
@@ -1079,6 +1110,16 @@ fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, now: f32, name: &dyn Fn
             let Some(g) = f.game.as_ref() else { return };
             let k = 3.2;
             let flash = now < f.flash_until;
+            if stage.on {
+                // The 3D table: the letter at its gap, and a red flash for a miss.
+                if flash {
+                    p.spawn((Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgba(0.6, 0.0, 0.0, 0.25 * ((f.flash_until - now) / 0.6).clamp(0.0, 1.0)))));
+                }
+                if let Some((x, y)) = (g.state == FState::Prompt).then(|| (g.gap as usize).checked_sub(1).and_then(|i| stage.prompts.get(i).copied().flatten())).flatten() {
+                    text(p, g.key.letter(), Val::Percent(x * 100.0 - 1.2), Val::Percent(y * 100.0 - 6.5), 44.0, if now < f.hit_until { Color::srgb(0.3, 1.0, 0.3) } else { CHALK });
+                }
+            }
+            if !stage.on {
             p.spawn(Node { position_type: PositionType::Absolute, left: Val::Percent(52.0), top: Val::Percent(62.0), width: Val::Px(0.0), height: Val::Px(0.0), ..default() }).with_children(|b| {
                 // The hand: a palm and the fingers between the gaps.
                 let skin = if flash { Color::srgb(0.75, 0.15, 0.1) } else { Color::srgb(0.78, 0.6, 0.48) };
@@ -1105,6 +1146,7 @@ fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, now: f32, name: &dyn Fn
                     }
                 }
             });
+            }
             let lines = format!("Round {}/{}   Stabs {}/{}   Mistakes {}/{}", g.round.max(1), fillet::ROUNDS, g.hits, fillet::required(g.round.max(1)), g.mistakes, fillet::MAX_MISTAKES);
             text(p, lines, Val::Percent(28.0), Val::Percent(10.0), 26.0, CHALK);
             if let Some(c) = g.clock {

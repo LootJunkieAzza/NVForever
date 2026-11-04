@@ -111,6 +111,8 @@ const TAG_EQUIP: u32 = 60;
 const TAG_ATTACK: u32 = 70; // + 0 level, + 1 up, + 2 down
 const TAG_RELOAD: u32 = 75;
 const TAG_FURNITURE: u32 = 80;
+/// How far a clip over the furniture clip is raised above it (`BodyClip::over`).
+const OVER_LIFT: i32 = 1000;
 /// The Pip-Boy coming up (`pipboy_arm.rs`).
 const TAG_PIPBOY: u32 = 90;
 /// The Pip-Boy checked on the third-person body (`pipboy_check.rs`).
@@ -548,6 +550,8 @@ struct Rig {
     seen: Option<Seen>,
     /// The furniture clip it plays (`BodyClip::serial`), while it plays one.
     furniture: Option<u32>,
+    /// The clip played over it (`BodyClip::over`), by serial, while it plays.
+    furniture_over: Option<u32>,
     /// Seconds since the last attack started, and the repeated part of its clip, if it
     /// has one: from and to, seconds into the clip.
     since_attack: f32,
@@ -1407,6 +1411,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         shown: None,
         seen: None,
         furniture: None,
+        furniture_over: None,
         since_attack: f32::INFINITY,
         attack_loop: None,
         wound_up: None,
@@ -1934,6 +1939,20 @@ fn pose_furniture(rig: &mut Rig, o: &crate::furniture::BodyClip, special: &IdleS
     }
     a.begin();
     a.want(&o.clip, TAG_FURNITURE, 1.0, mode, 0.0);
+    // A clip over it, once, above its priority (the fillet table's stabs and misses).
+    match &o.over {
+        Some((clip, serial)) => {
+            if rig.furniture_over != Some(*serial) {
+                let i = a.restart(clip, TAG_FURNITURE + 1, 1.0, Mode::Once, 0.06);
+                a.lift(i, OVER_LIFT);
+                rig.furniture_over = Some(*serial);
+            }
+            if a.layer(clip, TAG_FURNITURE + 1).is_some_and(|l| !l.finished()) {
+                a.want(clip, TAG_FURNITURE + 1, 1.0, Mode::Once, 0.06);
+            }
+        }
+        None => rig.furniture_over = None,
+    }
     // Over it the idle the body plays there (a fidget on furniture, `idles.rs`), as
     // `pose_rig` lays them.
     for (p, w) in special.shown() {

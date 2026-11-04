@@ -297,6 +297,17 @@ impl Animator {
         self.push(clip, tag, weight, mode, fade_in)
     }
 
+    /// Raise the priority of layer `i`'s tracks by `by`: a clip played over another whose
+    /// tracks share its priority (a minigame's stab over its base pose) takes the bones
+    /// it drives instead of sharing them.
+    pub fn lift(&mut self, i: usize, by: i32) {
+        if let Some(l) = self.layers.get_mut(i) {
+            for b in &mut l.bound {
+                b.2 += by;
+            }
+        }
+    }
+
     /// Drop every layer of role `tag` at once (no fade).
     pub fn cut(&mut self, tag: u32) {
         self.layers.retain(|l| l.tag != tag);
