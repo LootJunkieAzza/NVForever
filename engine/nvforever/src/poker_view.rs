@@ -72,7 +72,9 @@ const FLOOR_TEXTURE: &str = "textures\\clutter\\rugs\\nvtopscasinorug_d.dds";
 /// The rail picture's bands, as fractions of its height, and the part across its width
 /// that has no chip tray [observed: the picture, docs/design/poker.md §5].
 const RAIL_PAD: (f32, f32) = (185.0 / 512.0, 345.0 / 512.0);
-const RAIL_TRIM: (f32, f32) = (30.0 / 512.0, 110.0 / 512.0);
+/// The trim band starts under the strip's "IRG CARDS" badges [observed: the picture, rows
+/// to about 60; drawn on the band they were coloured specks].
+const RAIL_TRIM: (f32, f32) = (64.0 / 512.0, 116.0 / 512.0);
 const RAIL_U: f32 = 1400.0 / 2048.0;
 /// The chips picture: six columns; a chip's face in the top 84 of 256, its stripes below
 /// [observed: the picture].
@@ -268,6 +270,11 @@ fn rail_mesh() -> Mesh {
         for k in profile.windows(2) {
             let (p0, p1) = (k[0], k[1]);
             let across = Vec2::new(p1.0 - p0.0, p1.1 - p0.1);
+            // A step that only changes the picture has no surface (and no normal: lit, it
+            // speckles).
+            if across.length() < 1e-3 {
+                continue;
+            }
             // The profile's normal (outward and up, in the plane across the rail).
             let nrm = |e: (Vec2, Vec2, f32)| (e.1 * -across.y).extend(across.x);
             let at = |e: (Vec2, Vec2, f32), q: (f32, f32, f32)| (e.0 + e.1 * q.0).extend(q.1);
@@ -287,9 +294,11 @@ fn rail_mesh() -> Mesh {
 const UNDER: f32 = -8.0;
 fn under_mesh() -> Mesh {
     let mut g = Geo::default();
-    let uv = |p: Vec2| Vec2::new(p.x / 60.0, p.y / 60.0);
+    // One plain spot of the padding: the whole picture would put the chip tray under there.
+    let uv = |_: Vec2| Vec2::new(0.25, (RAIL_PAD.0 + RAIL_PAD.1) / 2.0);
     let c = g.vertex(Vec3::new(0.0, 0.0, UNDER), -Vec3::Z, Vec2::ZERO);
-    let edge = oval(160, RAIL);
+    // A little inside the band, so its edge never shows past it.
+    let edge = oval(160, RAIL - 0.5);
     for w in edge.windows(2) {
         let a = g.vertex(w[0].0.extend(UNDER), -Vec3::Z, uv(w[0].0));
         let b = g.vertex(w[1].0.extend(UNDER), -Vec3::Z, uv(w[1].0));
@@ -719,6 +728,12 @@ const FOOT_H: f32 = 3.0;
 
 /// The table itself: felt, rail, the casino's name and the ring on the felt, the pedestal.
 fn body(commands: &mut Commands, models: &mut ModelCtx, sp: (Entity, &RenderLayers), casino: Casino, felt: Handle<NifMaterial>, rail: Handle<NifMaterial>, ink: Handle<NifMaterial>) {
+    // The rail's wood and padding are drawn from both sides: seen from standing height,
+    // the band under the cushion was culled away in places and the floor showed through.
+    if let Some(mut m) = models.materials.get_mut(&rail) {
+        m.base.cull_mode = None;
+        m.base.double_sided = true;
+    }
     part(commands, models, sp, felt_mesh(), felt, Transform::IDENTITY, false);
     part(commands, models, sp, rail_mesh(), rail.clone(), Transform::IDENTITY, true);
     part(commands, models, sp, under_mesh(), rail.clone(), Transform::IDENTITY, true);
