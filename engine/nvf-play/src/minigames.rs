@@ -212,6 +212,9 @@ pub struct Fillet {
     /// The pose the player's hand plays now, and a count that changes with each new one
     /// (nvforever `fillet_stage.rs` plays the mod's clips for it).
     pub pose: (u32, FPose),
+    /// A stab under way: the keys pressed, and when it reaches the table and counts
+    /// (fillet.md §4).
+    pub pending: Option<(Vec<Key>, f32)>,
     rng: ChaCha8Rng,
 }
 
@@ -232,6 +235,18 @@ pub enum FPose {
 pub struct FilletStage {
     pub on: bool,
     pub prompts: [Option<(f32, f32)>; 5],
+    /// A 3D stage is there to take the table (set while it runs), and the knife whose
+    /// clips it could not load: the screen then never draws its flat hand for the frame
+    /// or two before the stage is on.
+    pub present: bool,
+    pub flat_at: Option<u32>,
+}
+
+impl FilletStage {
+    /// Whether the 3D table shows (or is about to) at this knife.
+    pub fn shown(&self, knife: u32) -> bool {
+        self.on || (self.present && self.flat_at != Some(knife))
+    }
 }
 
 #[derive(Resource, Default)]
@@ -362,6 +377,7 @@ fn open(
                 leave: false,
                 settled: true,
                 pose: (0, FPose::Ready),
+                pending: None,
                 rng,
             });
         }
@@ -749,6 +765,33 @@ fn fillet_keys(
         }
         FPage::Play => {
             let Some(g) = f.game.as_mut() else { return };
+            // The stab under way reaches the table: now it counts (void if the game
+            // ended meanwhile, the clock run out).
+            if let Some((down, _)) = f.pending.take_if(|p| now >= p.1) {
+                match g.press(&down, &mut f.rng) {
+                    Some(Strike::Hit) => {
+                        files.write(PlayFile("sound\\fx\\minigames\\fff\\stab.wav".into()));
+                        f.hit_until = now + fillet::HIT_SECONDS;
+                    }
+                    Some(Strike::Miss) => {
+                        f.flash_until = now + 0.6;
+                        if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+                            let before = fillet::player_health(&mut rt.game);
+                            // A miss that would kill: the table is left first [observed: Tick].
+                            if before <= fillet::DAMAGE as f64 {
+                                f.leave = true;
+                            }
+                            let left = fillet::hurt_player(&mut rt.game, fillet::DAMAGE);
+                            info!("fillet: a miss, {} health left", left);
+                        }
+                    }
+                    None => info!("fillet: a stab too late, not counted"),
+                }
+                return;
+            }
+            if f.pending.is_some() {
+                return;
+            }
             if keys.just_pressed(KeyCode::Space) {
                 if g.over() {
                     f.page = FPage::Main;
@@ -766,29 +809,12 @@ fn fillet_keys(
                 return;
             }
             let down: Vec<Key> = keys.get_pressed().filter_map(|k| key_of(*k)).collect();
-            let gap = g.gap;
-            let Some(strike) = g.press(&down, &mut f.rng) else { return };
-            f.pose = (f.pose.0 + 1, if strike == Strike::Hit { FPose::Stab(gap) } else { FPose::Miss(gap) });
-            match strike {
-                Strike::Hit => {
-                    files.write(PlayFile("sound\\fx\\minigames\\fff\\stab.wav".into()));
-                    f.hit_until = now + fillet::HIT_SECONDS;
-                    f.busy_until = now + fillet::HIT_SECONDS * fillet::CONTACT;
-                }
-                Strike::Miss => {
-                    f.flash_until = now + 0.6;
-                    f.busy_until = now + fillet::MISS_SECONDS * fillet::CONTACT;
-                    if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
-                        let before = fillet::player_health(&mut rt.game);
-                        // A miss that would kill: the table is left first [observed: Tick].
-                        if before <= fillet::DAMAGE as f64 {
-                            f.leave = true;
-                        }
-                        let left = fillet::hurt_player(&mut rt.game, fillet::DAMAGE);
-                        info!("fillet: a miss, {} health left", left);
-                    }
-                }
-            }
+            // The stab starts now (its clip with it) and counts at its contact.
+            let Some(strike) = g.strike_of(&down) else { return };
+            f.pose = (f.pose.0 + 1, if strike == Strike::Hit { FPose::Stab(g.gap) } else { FPose::Miss(g.gap) });
+            let contact = now + fillet::Game::contact_after(strike);
+            f.busy_until = contact;
+            f.pending = Some((down, contact));
         }
     }
 }
@@ -959,7 +985,7 @@ fn draw(
     }
     if let Some(f) = f.0.as_ref() {
         // At the table in 3D the world shows through (the mod's HUD lies over the view).
-        let shade = if stage.on && f.page == FPage::Play { Color::NONE } else { Color::srgba(0.05, 0.03, 0.02, 0.9) };
+        let shade = if stage.shown(f.knife) && f.page == FPage::Play { Color::NONE } else { Color::srgba(0.05, 0.03, 0.02, 0.9) };
         let root = commands.spawn((MinigameRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(shade), GlobalZIndex(25))).id();
         commands.entity(root).with_children(|p| draw_fillet(p, f, &stage, now, &name));
     }
@@ -1110,7 +1136,7 @@ fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, no
             let Some(g) = f.game.as_ref() else { return };
             let k = 3.2;
             let flash = now < f.flash_until;
-            if stage.on {
+            if stage.shown(f.knife) {
                 // The 3D table: the letter at its gap, and a red flash for a miss.
                 if flash {
                     p.spawn((Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgba(0.6, 0.0, 0.0, 0.25 * ((f.flash_until - now) / 0.6).clamp(0.0, 1.0)))));
@@ -1119,7 +1145,7 @@ fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, no
                     text(p, g.key.letter(), Val::Percent(x * 100.0 - 1.2), Val::Percent(y * 100.0 - 6.5), 44.0, if now < f.hit_until { Color::srgb(0.3, 1.0, 0.3) } else { CHALK });
                 }
             }
-            if !stage.on {
+            if !stage.shown(f.knife) {
             p.spawn(Node { position_type: PositionType::Absolute, left: Val::Percent(52.0), top: Val::Percent(62.0), width: Val::Px(0.0), height: Val::Px(0.0), ..default() }).with_children(|b| {
                 // The hand: a palm and the fingers between the gaps.
                 let skin = if flash { Color::srgb(0.75, 0.15, 0.1) } else { Color::srgb(0.78, 0.6, 0.48) };

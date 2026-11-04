@@ -184,6 +184,21 @@ impl Game {
     }
 
     /// The keys down at a press: a hit only with the prompted key alone.
+    /// What a press of `down` would be, without counting it: the stab starts at the press
+    /// and counts at its contact ([`Self::contact_after`], [`Self::press`]).
+    pub fn strike_of(&self, down: &[Key]) -> Option<Strike> {
+        if self.state != State::Prompt || down.is_empty() {
+            return None;
+        }
+        Some(if down.len() == 1 && down[0] == self.key { Strike::Hit } else { Strike::Miss })
+    }
+
+    /// Seconds from a press to its stab's contact, where it counts (§4): 46% of 0.32 s
+    /// for a hit, of 0.60 s for a miss.
+    pub fn contact_after(strike: Strike) -> f32 {
+        CONTACT * if strike == Strike::Hit { HIT_SECONDS } else { MISS_SECONDS }
+    }
+
     pub fn press(&mut self, down: &[Key], rng: &mut impl RngCore) -> Option<Strike> {
         if self.state != State::Prompt || down.is_empty() {
             return None;
@@ -242,6 +257,24 @@ mod tests {
 
     fn rng() -> ChaCha8Rng {
         ChaCha8Rng::seed_from_u64(11)
+    }
+
+    #[test]
+    fn a_stab_counts_at_contact_not_at_the_press() {
+        let mut r = rng();
+        let mut g = Game::new(10, Key::A);
+        g.start_round(&mut r);
+        let k = g.key;
+        // Asking what a press would be changes nothing.
+        assert_eq!(g.strike_of(&[k]), Some(Strike::Hit));
+        assert_eq!(g.strike_of(&[k, if k == Key::W { Key::A } else { Key::W }]), Some(Strike::Miss));
+        assert_eq!(g.hits, 0);
+        assert!((Game::contact_after(Strike::Hit) - 0.1472).abs() < 1e-4);
+        assert!((Game::contact_after(Strike::Miss) - 0.276).abs() < 1e-4);
+        // Out of time before contact: the stab is void.
+        g.tick(1000.0);
+        assert_eq!(g.strike_of(&[k]), None);
+        assert_eq!(g.press(&[k], &mut r), None);
     }
 
     #[test]
