@@ -595,6 +595,9 @@ impl DartsAction {
     }
 }
 
+/// No player (a fillet challenge nobody has matched yet).
+const NOBODY: u8 = 255;
+
 /// A five finger fillet table as its player plays it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FilletView {
@@ -608,12 +611,56 @@ pub struct FilletView {
     pub clock: Option<f32>,
     /// `fnv_game::fillet::State` as 0 ready, 1 prompt, 2 between, 3 won, 4 lost.
     pub state: u8,
+    /// A race (`fnv_game::fillet::race`): open to a match, or under way against `foe`.
+    pub duel: Option<DuelView>,
+}
+
+/// A fillet race as one racer's table shows it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DuelView {
+    pub bet: u32,
+    /// The prompts' seed, the same for both racers.
+    pub seed: u64,
+    /// The other racer; `None` while the challenge is open.
+    pub foe: Option<u8>,
+    /// Seconds raced (in the rounds).
+    pub seconds: f32,
+}
+
+/// A player's move at another's fillet table: match its open challenge (the bet and the
+/// seed it shows).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FilletAction {
+    Match { bet: u32, seed: u64 },
+}
+
+impl FilletAction {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut w = W::default();
+        match *self {
+            FilletAction::Match { bet, seed } => w.u8(0).u32(bet).u32(seed as u32).u32((seed >> 32) as u32),
+        };
+        w.0
+    }
+
+    pub fn decode(b: &[u8]) -> Option<FilletAction> {
+        let mut r = R(b);
+        let a = match r.u8()? {
+            0 => FilletAction::Match { bet: r.u32()?, seed: r.u32()? as u64 | (r.u32()? as u64) << 32 },
+            _ => return None,
+        };
+        r.done().then_some(a)
+    }
 }
 
 impl FilletView {
     pub fn encode(&self) -> Vec<u8> {
         let mut w = W::default();
         w.u32(self.stake).u8(self.round).u32(self.hits).u32(self.required).u8(self.mistakes).u8(self.gap).u8(self.key).f32(self.clock.unwrap_or(-1.0)).u8(self.state);
+        match self.duel {
+            None => w.u8(0),
+            Some(d) => w.u8(1).u32(d.bet).u32(d.seed as u32).u32((d.seed >> 32) as u32).u8(d.foe.unwrap_or(NOBODY)).f32(d.seconds),
+        };
         w.0
     }
 
@@ -629,6 +676,10 @@ impl FilletView {
             key: r.u8()?,
             clock: Some(r.f32()?).filter(|c| *c >= 0.0),
             state: r.u8()?,
+            duel: match r.u8()? {
+                0 => None,
+                _ => Some(DuelView { bet: r.u32()?, seed: r.u32()? as u64 | (r.u32()? as u64) << 32, foe: Some(r.u8()?).filter(|f| *f != NOBODY), seconds: r.f32()? }),
+            },
         };
         r.done().then_some(v)
     }
@@ -712,6 +763,11 @@ pub fn summary(tables: &Tables, name: &str, game: u8, blob: &[u8]) -> Vec<String
         }
         game::FILLET => {
             let Some(v) = FilletView::decode(blob) else { return out };
+            if let Some(d) = v.duel.filter(|d| d.foe.is_none()) {
+                out.push(format!("{name} challenges anyone to five finger fillet for {} caps", d.bet));
+                out.push("  Open the same knife to match the bet".into());
+                return out;
+            }
             let state = match v.state {
                 0 => "about to start".to_string(),
                 2 => format!("round {} done", v.round),
@@ -719,6 +775,12 @@ pub fn summary(tables: &Tables, name: &str, game: u8, blob: &[u8]) -> Vec<String
                 4 => "lost".to_string(),
                 _ => format!("round {}/3, {}/{} stabs, {} {}", v.round, v.hits, v.required, v.mistakes, if v.mistakes == 1 { "mistake" } else { "mistakes" }),
             };
+            if let Some((d, foe)) = v.duel.and_then(|d| d.foe.map(|f| (d, f))) {
+                let state = if v.state == 0 { "the countdown".to_string() } else { state };
+                let foe = if tables.me == Some(foe) { "you".to_string() } else { tables.name(foe) };
+                out.push(format!("{name} races {foe} at five finger fillet for {} caps: {state}, {:.1} s", d.bet, d.seconds));
+                return out;
+            }
             let clock = v.clock.map(|c| format!(", {c:.0} s left")).unwrap_or_default();
             out.push(format!("{name} at five finger fillet{}: {state}{clock}", if v.stake > 0 { format!(" for {} caps", v.stake) } else { String::new() }));
         }
@@ -901,8 +963,20 @@ mod tests {
             open_seat: true,
         };
         assert_eq!(DartsView::decode(&d.encode()), Some(d.clone()));
-        let f = FilletView { stake: 20, round: 2, hits: 5, required: 18, mistakes: 1, gap: 3, key: 2, clock: Some(41.5), state: 1 };
+        let f = FilletView { stake: 20, round: 2, hits: 5, required: 18, mistakes: 1, gap: 3, key: 2, clock: Some(41.5), state: 1, duel: None };
         assert_eq!(FilletView::decode(&f.encode()), Some(f.clone()));
+        // A race: open, then under way; the seed's high half survives.
+        let open = FilletView { duel: Some(DuelView { bet: 40, seed: 0x1234_5678_9ABC_DEF0, foe: None, seconds: 0.0 }), ..f.clone() };
+        assert_eq!(FilletView::decode(&open.encode()), Some(open.clone()));
+        let mut tables = Tables::default();
+        tables.names.insert(2, "Bo".into());
+        assert!(summary(&tables, "Ann", game::FILLET, &open.encode())[0].contains("challenges anyone"));
+        let racing = FilletView { duel: Some(DuelView { foe: Some(2), seconds: 12.25, ..open.duel.unwrap() }), ..f.clone() };
+        assert_eq!(FilletView::decode(&racing.encode()), Some(racing.clone()));
+        let line = &summary(&tables, "Ann", game::FILLET, &racing.encode())[0];
+        assert!(line.contains("races Bo") && line.contains("12.2"), "{line}");
+        let m = FilletAction::Match { bet: 40, seed: 0xFEDC_BA98_7654_3210 };
+        assert_eq!(FilletAction::decode(&m.encode()), Some(m));
         let tables = Tables::default();
         assert!(summary(&tables, "Ann", game::DARTS, &d.encode())[0].contains("T20"));
         assert!(summary(&tables, "Ann", game::FILLET, &f.encode())[0].contains("5/18"));
