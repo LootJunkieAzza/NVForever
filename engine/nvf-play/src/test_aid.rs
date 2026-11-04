@@ -95,6 +95,8 @@
 //! `NVF_PLAY_TEST_SAMPLE`, `NVF_PLAY_TEST_PROFILE`, `NVF_PLAY_TEST_PROFILE_COUNTS`, `NVF_PLAY_TEST_TRANSFORM_ROOTS`): with them alone the run is played by
 //! hand as usual and only logs its frame times, and a load's new run keeps them
 //! (nvforever handoff.rs) [owner 2026-10-27: hitch logging for a session played from MO2].
+//! `NVF_PLAY_TEST_TRANSFORM_ROOTS` only while its value turns it on: `=0` or text that is no
+//! number measures nothing, so it counts as any other variable, as it did before the aid.
 //!
 //! Debug switches for a session played by hand (off unless set; development tools, not
 //! part of a release; the run stays attended):
@@ -358,10 +360,20 @@ fn take_due<T: Clone>(due: &mut Vec<(f32, T)>, now: f32) -> Vec<T> {
 /// profile.rs and transform_roots.rs): they leave the run attended, and a load's new run keeps them.
 pub const MEASURING_AIDS: [&str; 4] = ["NVF_PLAY_TEST_SAMPLE", "NVF_PLAY_TEST_PROFILE", "NVF_PLAY_TEST_PROFILE_COUNTS", "NVF_PLAY_TEST_TRANSFORM_ROOTS"];
 
-/// Whether this environment variable is a test aid that drives the run (any
-/// `NVF_PLAY_TEST_*` but the [`MEASURING_AIDS`]).
+/// `NVF_PLAY_TEST_TRANSFORM_ROOTS`'s window in seconds; `None`, the aid is off.
+pub fn transform_roots_window(value: &str) -> Option<f32> {
+    value.trim().parse::<f32>().ok().filter(|s| *s > 0.0)
+}
+
+/// Whether this environment variable, set in this run, is a test aid that drives the run
+/// (any `NVF_PLAY_TEST_*` but the [`MEASURING_AIDS`] that measure).
 pub fn drives_run(key: &str) -> bool {
-    key.starts_with("NVF_PLAY_TEST_") && !MEASURING_AIDS.contains(&key)
+    drives_run_with(key, std::env::var(key).ok().as_deref())
+}
+
+fn drives_run_with(key: &str, value: Option<&str>) -> bool {
+    let measures = if key == "NVF_PLAY_TEST_TRANSFORM_ROOTS" { value.and_then(transform_roots_window).is_some() } else { MEASURING_AIDS.contains(&key) };
+    key.starts_with("NVF_PLAY_TEST_") && !measures
 }
 
 /// Whether a test aid drives this run (some `NVF_PLAY_TEST_*` variable is set, not only
@@ -750,7 +762,13 @@ mod tests {
     fn measuring_aids_leave_the_run_attended() {
         assert!(!drives_run("NVF_PLAY_TEST_SAMPLE"));
         assert!(!drives_run("NVF_PLAY_TEST_PROFILE"));
-        assert!(!drives_run("NVF_PLAY_TEST_TRANSFORM_ROOTS"));
+        assert!(!drives_run_with("NVF_PLAY_TEST_TRANSFORM_ROOTS", Some("5")));
+        // Off, it measures nothing: exempting these would leave a run attended by a variable
+        // that does nothing. Trips if the exemption goes by the name alone.
+        for off in ["0", "-1", "", "x", "NaN"] {
+            assert!(drives_run_with("NVF_PLAY_TEST_TRANSFORM_ROOTS", Some(off)), "{off:?}");
+            assert_eq!(transform_roots_window(off), None, "{off:?}");
+        }
         assert!(drives_run("NVF_PLAY_TEST_GOD"));
         assert!(drives_run("NVF_PLAY_TEST_SAMPLE_X"), "only the exact names measure");
         assert!(!drives_run("NVF_PLAY_DEBUG_GIVE"));

@@ -5,22 +5,31 @@
 //! `NVF_PLAY_TEST_TRANSFORM_ROOTS=<seconds>`: every that many real seconds three lines of
 //! per-frame means, `key=value` as `phys-refresh:`, and the same three with `summary` at the
 //! exit over the frames after start-up, leaving out those behind a loading screen
-//! (`left_out`):
+//! (`left_out`). That is not the campaign's population: its `warmup` drops the first seconds
+//! of its timing after the first frame-time line and does not touch these lines, so a
+//! summary here can hold frames the campaign's times leave out, and the reverse:
 //!
 //! - `transform roots:` the roots with children and those without (the second are not
 //!   propagation's, `sync_simple_transforms` has them); `dirty_roots`, those whose tree has
 //!   `TransformTreeChanged` this frame; `root_kinds=<kind>:<roots>/<dirty>,…`; `World`'s
 //!   direct children, and those with a dirty subtree, in all and by kind (`cell`; `ref`, a
 //!   `RefVisual`, as actors; `mesh`, as LOD; `other`); `no_dirty_cell_frames`, frames in which
-//!   `World` was dirty with no cell dirty: only what is not in a cell moved.
+//!   `World` was dirty with no cell dirty: nothing marked in a cell. A mark is a `Transform`
+//!   written (the same value too), a parent changed or a new `GlobalTransform`, not a move.
 //! - `transform walk:` `examined` and `recomputed` (below); `gt_changed`, `GlobalTransform`s
 //!   changed, every one in the world; `marked`, `TransformTreeChanged`s set; `written`,
 //!   `Transform`s changed, and `written_same`, those whose `GlobalTransform` did not change;
 //!   `stable_root_examined` and `stable_root_recomputed`, the same two with a root that does
-//!   not change above `World` (below); `aid_ms`, this aid's own time.
-//! - `transform census:` one sample a window, walking whole subtrees: `gt_total`,
-//!   `under_world`, `under_dirty` (under `World`'s direct children with a dirty subtree),
-//!   each with its `most_`.
+//!   not change above `World` (below); `collection_ms`, the time spent counting in `count`,
+//!   without what summing, formatting and logging the numbers take: not all this aid costs.
+//! - `transform census:` a sample on a window's first frame and on the summary's first,
+//!   walking whole subtrees: `gt_total`, `under_world`, `under_dirty` (under `World`'s direct
+//!   children with a dirty subtree), each with its `most_`.
+//!
+//! With Bevy's static optimization off for any frame of the lines (`static_optimization=0`),
+//! they say `model=not_applicable` and give neither the model's numbers nor the dirty counts:
+//! no marks are set (`mark_dirty_trees`, :131) and propagation skips nothing (:524, :707), so
+//! both would read 0 while Bevy goes over everything [design].
 //!
 //! The counting is too slow for a run that times the frame: time without this aid.
 //!
@@ -57,7 +66,7 @@ use crate::world::{CellEntity, Streamer, WorldRoot};
 const VAR: &str = "NVF_PLAY_TEST_TRANSFORM_ROOTS";
 
 fn window_seconds() -> Option<f32> {
-    std::env::var(VAR).ok().and_then(|v| v.trim().parse::<f32>().ok()).filter(|s| *s > 0.0)
+    std::env::var(VAR).ok().and_then(|v| nvf_play::transform_roots_window(&v))
 }
 
 pub struct TransformRootsPlugin;
@@ -147,7 +156,9 @@ struct Tally {
     marked: u64,
     written: u64,
     written_same: u64,
-    aid_ms: f64,
+    collection_ms: f64,
+    /// Frames with Bevy's static optimization off: the model does not apply to them.
+    static_off_frames: u64,
     census_samples: u64,
     /// Totals of the census samples.
     gt_total: u64,
@@ -182,7 +193,8 @@ impl Tally {
         self.marked += other.marked;
         self.written += other.written;
         self.written_same += other.written_same;
-        self.aid_ms += other.aid_ms;
+        self.collection_ms += other.collection_ms;
+        self.static_off_frames += other.static_off_frames;
         self.census_samples += other.census_samples;
         self.gt_total += other.gt_total;
         self.under_world += other.under_world;
@@ -192,50 +204,89 @@ impl Tally {
         }
     }
 
-    fn log(&self, summary: &str, secs: f32, static_on: bool, left_out: u64) {
+    /// The three lines (the module's notes).
+    fn lines(&self, summary: &str, secs: f32, left_out: u64) -> [String; 3] {
         let frames = self.frames.max(1) as f64;
         let per = |n: u64| n as f64 / frames;
         let by_kind = |n: &[u64; CHILD_KINDS.len()]| CHILD_KINDS.iter().zip(n).map(|(k, v)| format!("{k}:{:.2}", per(*v))).collect::<Vec<_>>().join("/");
-        let kinds: Vec<String> = self.root_kinds.iter().map(|(k, (r, d))| format!("{k}:{:.2}/{:.2}", per(*r), per(*d))).collect();
-        info!(
-            "transform roots{summary}: secs={secs:.2} frames={} left_out={left_out} static_optimization={} roots={:.2} childless_roots={:.2} dirty_roots={:.2} root_kinds={} world_dirty_frames={} no_dirty_cell_frames={} world_children={:.2} world_children_by_kind={} dirty_world_children={:.2} dirty_world_children_by_kind={}",
-            self.frames,
-            u8::from(static_on),
-            per(self.roots),
-            per(self.childless_roots),
-            per(self.dirty_roots),
-            kinds.join(","),
-            self.world_dirty_frames,
-            self.no_dirty_cell_frames,
-            per(self.world_children.iter().sum()),
-            by_kind(&self.world_children),
-            per(self.dirty_world_children.iter().sum()),
-            by_kind(&self.dirty_world_children),
-        );
-        info!(
-            "transform walk{summary}: frames={} examined={:.1} recomputed={:.1} gt_changed={:.1} marked={:.1} written={:.1} written_same={:.1} stable_root_examined={:.1} stable_root_recomputed={:.1} aid_ms={:.3}",
-            self.frames,
-            per(self.walk.examined),
-            per(self.walk.recomputed),
-            per(self.gt_changed),
-            per(self.marked),
-            per(self.written),
-            per(self.written_same),
-            per(self.stable.examined),
-            per(self.stable.recomputed),
-            self.aid_ms / frames,
-        );
         let samples = self.census_samples.max(1);
-        info!(
-            "transform census{summary}: samples={} gt_total={} most_gt_total={} under_world={} most_under_world={} under_dirty={} most_under_dirty={}",
-            self.census_samples,
-            self.gt_total / samples,
-            self.most[0],
-            self.under_world / samples,
-            self.most[1],
-            self.under_dirty / samples,
-            self.most[2],
-        );
+        if self.static_off_frames > 0 {
+            let kinds: Vec<String> = self.root_kinds.iter().map(|(k, (r, _))| format!("{k}:{:.2}", per(*r))).collect();
+            return [
+                format!(
+                    "transform roots{summary}: secs={secs:.2} frames={} left_out={left_out} static_optimization=0 static_off_frames={} model=not_applicable roots={:.2} childless_roots={:.2} root_kinds={} world_children={:.2} world_children_by_kind={}",
+                    self.frames,
+                    self.static_off_frames,
+                    per(self.roots),
+                    per(self.childless_roots),
+                    kinds.join(","),
+                    per(self.world_children.iter().sum()),
+                    by_kind(&self.world_children),
+                ),
+                format!(
+                    "transform walk{summary}: frames={} model=not_applicable gt_changed={:.1} written={:.1} written_same={:.1} collection_ms={:.3}",
+                    self.frames,
+                    per(self.gt_changed),
+                    per(self.written),
+                    per(self.written_same),
+                    self.collection_ms / frames,
+                ),
+                format!(
+                    "transform census{summary}: samples={} model=not_applicable gt_total={} most_gt_total={} under_world={} most_under_world={}",
+                    self.census_samples,
+                    self.gt_total / samples,
+                    self.most[0],
+                    self.under_world / samples,
+                    self.most[1],
+                ),
+            ];
+        }
+        let kinds: Vec<String> = self.root_kinds.iter().map(|(k, (r, d))| format!("{k}:{:.2}/{:.2}", per(*r), per(*d))).collect();
+        [
+            format!(
+                "transform roots{summary}: secs={secs:.2} frames={} left_out={left_out} static_optimization=1 roots={:.2} childless_roots={:.2} dirty_roots={:.2} root_kinds={} world_dirty_frames={} no_dirty_cell_frames={} world_children={:.2} world_children_by_kind={} dirty_world_children={:.2} dirty_world_children_by_kind={}",
+                self.frames,
+                per(self.roots),
+                per(self.childless_roots),
+                per(self.dirty_roots),
+                kinds.join(","),
+                self.world_dirty_frames,
+                self.no_dirty_cell_frames,
+                per(self.world_children.iter().sum()),
+                by_kind(&self.world_children),
+                per(self.dirty_world_children.iter().sum()),
+                by_kind(&self.dirty_world_children),
+            ),
+            format!(
+                "transform walk{summary}: frames={} examined={:.1} recomputed={:.1} gt_changed={:.1} marked={:.1} written={:.1} written_same={:.1} stable_root_examined={:.1} stable_root_recomputed={:.1} collection_ms={:.3}",
+                self.frames,
+                per(self.walk.examined),
+                per(self.walk.recomputed),
+                per(self.gt_changed),
+                per(self.marked),
+                per(self.written),
+                per(self.written_same),
+                per(self.stable.examined),
+                per(self.stable.recomputed),
+                self.collection_ms / frames,
+            ),
+            format!(
+                "transform census{summary}: samples={} gt_total={} most_gt_total={} under_world={} most_under_world={} under_dirty={} most_under_dirty={}",
+                self.census_samples,
+                self.gt_total / samples,
+                self.most[0],
+                self.under_world / samples,
+                self.most[1],
+                self.under_dirty / samples,
+                self.most[2],
+            ),
+        ]
+    }
+
+    fn log(&self, summary: &str, secs: f32, left_out: u64) {
+        for line in self.lines(summary, secs, left_out) {
+            info!("{line}");
+        }
     }
 }
 
@@ -247,12 +298,11 @@ struct RootsLog {
     run_start: Option<Instant>,
     run: Tally,
     left_out: u64,
-    static_on: bool,
 }
 
 impl RootsLog {
     fn new(every: f32) -> Self {
-        RootsLog { every, window_start: None, window: Tally::default(), run_start: None, run: Tally::default(), left_out: 0, static_on: true }
+        RootsLog { every, window_start: None, window: Tally::default(), run_start: None, run: Tally::default(), left_out: 0 }
     }
 }
 
@@ -267,10 +317,12 @@ fn count(
 ) {
     let t0 = Instant::now();
     let log = &mut *log;
-    log.static_on = statics.is_enabled();
-    let mut f = Tally { frames: 1, ..default() };
-    // One census a window, on its first frame.
-    let census = log.window.census_samples == 0;
+    let mut f = Tally { frames: 1, static_off_frames: u64::from(!statics.is_enabled()), ..default() };
+    // Not the frames that load the start, nor those behind a loading screen, in the summary.
+    let counted = !(streamer.as_deref().is_some_and(|s| !s.settled) || loading.as_deref().is_some_and(|l| l.unseen_frames()));
+    // A census on a window's first frame, and on the summary's first: a loading screen can
+    // hold a window's first frame, and the summary would have none until the next window's.
+    let census = log.window.census_samples == 0 || (counted && log.run.census_samples == 0);
     for (tree, children, kind) in &roots {
         let Some(children) = children else {
             f.childless_roots += 1;
@@ -351,21 +403,20 @@ fn count(
         f.gt_total = with_global.iter().count() as u64;
         f.most = [f.gt_total, f.under_world, f.under_dirty];
     }
-    f.aid_ms = t0.elapsed().as_secs_f64() * 1000.0;
+    f.collection_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     log.window.add_frame(&f);
     let now = Instant::now();
     let start = *log.window_start.get_or_insert(now);
-    // Not the frames that load the start, nor those behind a loading screen, in the summary.
-    if streamer.as_deref().is_some_and(|s| !s.settled) || loading.as_deref().is_some_and(|l| l.unseen_frames()) {
-        log.left_out += 1;
-    } else {
+    if counted {
         log.run_start.get_or_insert(now);
         log.run.add_frame(&f);
+    } else {
+        log.left_out += 1;
     }
     let secs = now.duration_since(start).as_secs_f32();
     if secs >= log.every {
-        log.window.log("", secs, log.static_on, 0);
+        log.window.log("", secs, 0);
         log.window = Tally::default();
         log.window_start = Some(now);
     }
@@ -376,7 +427,7 @@ fn summary(mut exit: MessageReader<AppExit>, log: Res<RootsLog>) {
         return;
     }
     let secs = log.run_start.map_or(0.0, |t| t.elapsed().as_secs_f32());
-    log.run.log(" summary", secs, log.static_on, log.left_out);
+    log.run.log(" summary", secs, log.left_out);
 }
 
 #[cfg(test)]
@@ -456,5 +507,78 @@ mod tests {
         assert_eq!((t.written, t.written_same), (1, 1));
         assert_eq!(t.gt_changed, 1, "only World");
         assert_eq!(t.walk.recomputed, 5);
+    }
+
+    /// As main.rs's, but for what `count` reads: the cells around the start not in yet.
+    fn unsettled() -> Streamer {
+        Streamer {
+            radius: 0,
+            loaded: default(),
+            fades: default(),
+            fade_secs: 0.0,
+            settled: false,
+            arrival: None,
+            per_frame: 1,
+            spawning: default(),
+            dying: default(),
+            ahead: default(),
+            hide: default(),
+            interior: None,
+            light_scale: 1.0,
+            managed: default(),
+            manage_actors: false,
+            stats: default(),
+            buffer: default(),
+            centre: None,
+            waiting: default(),
+            model_overrides: default(),
+        }
+    }
+
+    /// Trips if the summary's census waits for a window's first frame: this window's was
+    /// taken before the frames it counts, so the summary would say `samples=0` over a loaded
+    /// world.
+    #[test]
+    fn the_summary_takes_its_census_though_the_windows_first_frame_was_left_out() {
+        let (mut app, _) = scene();
+        app.insert_resource(unsettled());
+        app.world_mut().resource_mut::<RootsLog>().run = Tally::default();
+        let window_samples = app.world().resource::<RootsLog>().window.census_samples;
+        assert!(window_samples > 0, "the window has its sample already");
+
+        app.update();
+        let log = app.world().resource::<RootsLog>();
+        assert_eq!((log.run.frames, log.run.census_samples, log.left_out), (0, 0, 1), "left out");
+        assert_eq!(log.window.census_samples, window_samples, "and no second sample for the window");
+
+        app.world_mut().resource_mut::<Streamer>().settled = true;
+        app.update();
+        let log = app.world().resource::<RootsLog>();
+        assert_eq!((log.run.frames, log.run.census_samples, log.run.under_world), (1, 1, 8));
+
+        app.update();
+        let log = app.world().resource::<RootsLog>();
+        assert_eq!((log.run.frames, log.run.census_samples), (2, 1), "one is enough");
+    }
+
+    /// Trips if the lines give the model's numbers (or the dirty counts, all 0 with no marks
+    /// set) with Bevy's optimization off, or if they stop giving them with it on.
+    #[test]
+    fn the_model_is_not_reported_with_static_optimization_off() {
+        let (mut app, leaf) = scene();
+        let on = step(&mut app).lines("", 1.0, 0).join("\n");
+        assert!(on.contains("static_optimization=1 ") && on.contains(" examined=") && on.contains(" dirty_roots=") && on.contains(" under_dirty="), "{on}");
+        assert!(!on.contains("model=not_applicable"), "{on}");
+
+        app.insert_resource(StaticTransformOptimizations::Disabled);
+        app.world_mut().get_mut::<Transform>(leaf).unwrap().translation.x += 1.0;
+        let t = step(&mut app);
+        assert_eq!(t.static_off_frames, 1);
+        let [roots, walk, census] = t.lines("", 1.0, 0);
+        for line in [&roots, &walk, &census] {
+            assert!(line.contains("model=not_applicable"), "{line}");
+            assert!(!line.contains("dirty") && !line.contains("examined") && !line.contains("recomputed") && !line.contains("marked"), "{line}");
+        }
+        assert!(roots.contains("static_optimization=0 ") && roots.contains("root_kinds=world:1.00 "), "{roots}");
     }
 }

@@ -174,7 +174,9 @@ before a query). Held by furniture or flying with ToggleCollision the steps stil
 - `NVF_PLAY_TEST_TRANSFORM_ROOTS=<seconds>` (`transform_roots.rs`, #1387): `transform roots:`,
   `transform walk:` and `transform census:` lines and their `summary` at the exit: dirty roots
   by kind, `World`'s direct children, nodes examined and recomputed by Bevy's rule (a model
-  from outside the system) and the same with a root above `World`. Too slow to time with.
+  from outside the system) and the same with a root above `World`. Too slow to time with. The
+  summary leaves out start-up and loading screens, not the campaign's warm-up: its frames are
+  not those of the campaign's times.
 - Test aids, off unless `=1`: `NVF_PLAY_TEST_NO_REFLECTION` (the water reflection camera
   stays off), `NVF_PLAY_TEST_NO_ARMS_SHADE` (no arms shade light, #1374),
   `NVF_PLAY_TEST_ACTOR_NO_SHADOWS` (actor meshes cast no shadows; still drawn).

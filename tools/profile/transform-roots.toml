@@ -4,7 +4,9 @@
 #     python tools/profile/campaign.py run --exe <profile build> --data <Data> --only goodsprings-noon novac-noon run-goodsprings --name transform-1387-times
 #     python tools/profile/campaign.py run --exe <profile build> --data <Data> --campaign tools/profile/transform-roots.toml --name transform-1387-counts
 #
-# The counts are the `transform … summary:` lines of each scenario's log.
+# The counts are the `transform … summary:` lines of each scenario's log. `warmup` below is the
+# campaign's, for its timing: those lines leave out only start-up and loading screens (not the
+# same frames as the times), so read them as counts of the run, not of the timed part.
 
 [defaults]
 seconds = 60
