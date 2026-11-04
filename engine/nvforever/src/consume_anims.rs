@@ -1,0 +1,831 @@
+//! Item animations of the B42 Inject and B42 Interact mods, played natively (the co-op
+//! fork's own [design: owner 2026-11-04]; the folders' conventions are
+//! `fnv_actor::b42`, docs/spec-notes/b42-anims.md). The mods leave the playing to script
+//! extender plugins this engine does not load; here the engine plays them.
+//!
+//! - **Consume.** An aid item the player uses (the inventory, the Pip-Boy, the hotkeys)
+//!   with clips in its folder plays one of them, picked at random, in the view the player
+//!   is in (`fnv_actor::b42::Index::inject`): first person on the arms rig, third person
+//!   on the body (both through `PlayerIdles`, as an idle a script asked for). Used from
+//!   the Pip-Boy or any menu, it plays once the menu is closed. In third person with no
+//!   clip of that view, the body plays the game's own idle for the kind of item
+//!   (`fnv_actor::b42::Style`: drinking, eating, the stimpak, smoking), so the body shows
+//!   what the others see. Not while swimming, ragdolled, reloading, attacking or already
+//!   playing one (`fnv_actor::b42::decide`, the mod's rule); in power armour only with the
+//!   option on.
+//! - **The item's sound** waits for the animation (`nvf_play::ConsumeAnims` holds it back
+//!   in `ui_sounds`): it plays at the clip's key for it, or at once when no animation
+//!   plays. A clip without such a key plays its own sounds (`Sound:` keys, heard by
+//!   `anim_sounds.rs`, and the files of its `SoundPath:` keys here) [observed: the
+//!   mod's script plays the item's sound only from its key].
+//! - **The model in the hand.** The clips' keys attach a model at `B42AttachPointL`
+//!   under `Bip01 L Hand` (the model they name, else the item's own) and take it away
+//!   (`fnv_actor::b42::Cue`); the attach point follows the clip's track of that name, and
+//!   the model's nodes the tracks named after them with `_B42` [observed: the clips'
+//!   tracks].
+//! - **Cut short** (not Hardcore): attacking or aiming stops it, as do swimming, a
+//!   change of view and, in third person, walking off (the body's legs are the clip's).
+//! - **Hardcore** (`Config\B42Inject.ini` `Hardcore=1`, or the settings page): while
+//!   busy (one plays, a reload, an attack, a ragdoll) an aid item is refused and given
+//!   back (`nvf_play::script`), and the animation cannot be cut short.
+//! - **Interact** (B42 Interact): an item with an interact folder coming into the
+//!   player's inventory plays its first-person clip after the menu closes, when its
+//!   `cnd.ini` holds (not in combat; a creature part from a dead creature's body near
+//!   by, each body once, the body's model folder matching the clip's folder): skinning
+//!   meat and parts off a corpse, the look a weapon gets the first time it is picked up
+//!   (`once`, for this run), an instrument. A recipe made at a workbench or a campfire
+//!   with a crafting folder (`awr\edid`) plays its clip once the recipe menu closes.
+//! - **Co-op.** Each animation this player plays goes to the others
+//!   (`nvf_coop::net::AnimCue`, through `coop.rs`), and every aid item used too: their
+//!   games play it on this player's puppet, on the upper body (it walks on), with the
+//!   item's third-person clip when one is there (of the same name as the one played),
+//!   else the game's idle for its kind; its sounds where the puppet is.
+//!
+//! Log: `consume anim: …` per use and start; at exit `consume anims summary: …`.
+//!
+//! Not done: kNVSE's AnimGroupOverride folders (Idle Variety), a remembered "once" across
+//! runs, the mods' `*_Sit` crouch, Hardcore closing the Pip-Boy during an animation.
+
+use crate::idles::{ActorIdle, PlayerIdles};
+use crate::limbs::ActorRig;
+use crate::player_body::PlayerBody;
+use crate::world::WorldData;
+use bevy::camera::visibility::RenderLayers;
+use bevy::math::Affine3A;
+use bevy::prelude::*;
+use fnv_actor::b42::{self, Cue, Decision, Index, Options, Situation, Style, View};
+use fnv_actor::idle_play::{IdleKeys, IdlePlay};
+use fnv_game::idles::IdleSource;
+use fnv_nif::anim::TransformTrack;
+use fnv_sim::FormId;
+use nvf_assets::actor::{bind_clip, ActorCtx, ActorParts};
+use nvf_assets::anim_play::Clip;
+use nvf_assets::model::ModelCtx;
+use nvf_coop::net::AnimCue;
+use nvf_play::sfx::{PlaySound, Sfx};
+use nvf_play::PlayState;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+
+const P: FormId = FormId::PLAYER_REF;
+
+/// The folder of people's clips (the fallback idles are below it).
+const PEOPLE: &str = "meshes\\characters\\_male\\";
+
+/// A puppet's animation no longer than this [design: the smoking idle loops for long].
+const PUPPET_MAX_SECONDS: f32 = 8.0;
+
+/// Synthetic SOUN FormIDs for the clips' sound files (no load order uses them)
+/// [engineering choice].
+const FILE_SOUNDS: u32 = 0xFFB4_2000;
+
+/// The same cue within this many seconds is one (the packs key a sound two ways at once)
+/// [design].
+const SAME_CUE: f32 = 0.2;
+
+/// This player's animation, for the others (`coop.rs` sends it).
+#[derive(Message, Clone, Debug)]
+pub struct SendAnim(pub AnimCue);
+
+/// Another player's animation, for its puppet (`coop.rs` reads the net's).
+#[derive(Message, Clone, Debug)]
+pub struct PeerAnim {
+    /// The puppet's reference (`ActorRig::reference`).
+    pub reference: u32,
+    pub cue: AnimCue,
+}
+
+/// The settings (the settings page; their start from `Config\B42Inject.ini`).
+#[derive(Resource, Debug, Clone, Copy, Default)]
+pub struct ConsumeOptions(pub Options);
+
+/// What to play once nothing is in the way.
+#[derive(Debug, Clone)]
+struct Pending {
+    kind: u8,
+    item: FormId,
+    edid: String,
+    /// Interact and crafting: the clips (first person only).
+    clips: Vec<String>,
+    style: Style,
+}
+
+/// A model held in the hand while a clip plays.
+struct Held {
+    entities: Vec<Entity>,
+    /// The attach point, moved by the clip's track for it.
+    point: Option<(Entity, Arc<TransformTrack>)>,
+    /// Nodes of the model moved by tracks: entity, transform above it, its rest, track.
+    moved: Vec<(Entity, Affine3A, Affine3A, Arc<TransformTrack>)>,
+}
+
+/// An animation playing, on this player or a puppet.
+struct Playing {
+    item: FormId,
+    view: View,
+    serial: u32,
+    clip: Arc<Clip>,
+    /// The clip time read up to.
+    at: Option<f32>,
+    /// The model the next attach draws.
+    model: Option<String>,
+    held: Option<Held>,
+    /// Cues heard lately (cue, seconds), for [`SAME_CUE`].
+    recent: Vec<(Cue, f32)>,
+    /// The item's sound is the clip's to play.
+    keyed_sound: bool,
+    age: f32,
+    /// Where the player stood when it began (third person: walking off ends it).
+    feet: [f32; 3],
+}
+
+#[derive(Default, Debug, Clone, Copy)]
+struct Stats {
+    used: u32,
+    played: u32,
+    fallback: u32,
+    skipped: u32,
+    refused: u32,
+    interact: u32,
+    crafted: u32,
+    sent: u32,
+    puppets: u32,
+    attached: u32,
+}
+
+#[derive(Resource, Default)]
+pub struct ConsumeAnims {
+    index: Option<Arc<Index>>,
+    pending: Vec<Pending>,
+    own: Option<Playing>,
+    puppets: HashMap<u32, Playing>,
+    file_sounds: HashMap<String, FormId>,
+    rng: u64,
+    /// Interact: items' counts as last seen, the items had (for `once`), the bodies used.
+    counts: HashMap<FormId, i32>,
+    interact_items: Vec<(FormId, String)>,
+    had: HashSet<String>,
+    bodies: HashSet<u32>,
+    stats: Stats,
+}
+
+impl ConsumeAnims {
+    fn roll(&mut self) -> f32 {
+        // SplitMix64 [engineering choice].
+        self.rng = self.rng.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.rng;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        ((z ^ (z >> 31)) >> 40) as f32 / (1u64 << 24) as f32
+    }
+
+    fn file_sound(&mut self, sfx: &mut Sfx, path: &str) -> FormId {
+        let key = fnv_vfs::normalize(path);
+        if let Some(&f) = self.file_sounds.get(&key) {
+            return f;
+        }
+        let f = FormId(FILE_SOUNDS + self.file_sounds.len() as u32);
+        let sound = fnv_combat::fx::Sound { edid: Some(format!("B42 {key}")), file: Some(key.clone()), min_distance: 100.0, max_distance: 2000.0, ..Default::default() };
+        sfx.forms.sounds.insert(f, sound);
+        self.file_sounds.insert(key, f);
+        f
+    }
+}
+
+pub struct ConsumeAnimsPlugin;
+
+impl Plugin for ConsumeAnimsPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<ConsumeAnims>()
+            .init_resource::<ConsumeOptions>()
+            .add_message::<SendAnim>()
+            .add_message::<PeerAnim>()
+            .add_systems(Update, (build, own, crafted, interact, puppets).chain().after(nvf_play::PlaySet::Scripts).before(crate::idles::drive))
+            .add_systems(Last, report);
+        register_settings(app);
+    }
+}
+
+fn register_settings(app: &mut App) {
+    use nvf_play::settings::{add_setting, Setting};
+    add_setting(
+        app,
+        Setting {
+            key: "consume-anims",
+            group: nvf_play::pause::GROUP_MENUS,
+            label: "Item animations",
+            note: "On: eating, drinking, chems, stimpaks and smoking play the B42 Inject animations installed, and B42 Interact's skinning, weapon and crafting ones; other co-op players see them. Off: items are used at once, as in the original.",
+            get: |w| w.resource::<ConsumeOptions>().0.on,
+            set: |w, on| w.resource_mut::<ConsumeOptions>().0.on = on,
+            slider: None,
+        },
+    );
+    add_setting(
+        app,
+        Setting {
+            key: "consume-anims-hardcore",
+            group: nvf_play::pause::GROUP_MENUS,
+            label: "Item animations: Hardcore",
+            note: "On: an aid item cannot be used while you reload, attack, lie ragdolled or already use one, and an animation cannot be cut short. (B42Inject.ini Hardcore)",
+            get: |w| w.resource::<ConsumeOptions>().0.hardcore,
+            set: |w, on| w.resource_mut::<ConsumeOptions>().0.hardcore = on,
+            slider: None,
+        },
+    );
+    add_setting(
+        app,
+        Setting {
+            key: "consume-anims-power-armor",
+            group: nvf_play::pause::GROUP_MENUS,
+            label: "Item animations in power armour",
+            note: "On: the animations play in power armour too. (B42Inject.ini InjectInPA)",
+            get: |w| w.resource::<ConsumeOptions>().0.in_power_armor,
+            set: |w, on| w.resource_mut::<ConsumeOptions>().0.in_power_armor = on,
+            slider: None,
+        },
+    );
+}
+
+/// Read the folders once (and the mod's ini for the options' start).
+fn build(mut st: ResMut<ConsumeAnims>, mut opts: ResMut<ConsumeOptions>, models: ModelCtx, script: Option<Res<nvf_play::script::ScriptState>>, mut held: ResMut<nvf_play::ConsumeAnims>) {
+    if st.index.is_some() {
+        return;
+    }
+    let Some(rt) = script.as_deref().and_then(|s| s.rt.as_ref()) else { return };
+    let vfs = &models.data.vfs;
+    let t = std::time::Instant::now();
+    let paths = vfs.paths(|p| p.starts_with(b42::INJECT_ROOT) || p.starts_with(b42::INTERACT_ROOT));
+    let ix = Index::build(paths.iter().map(String::as_str), |p| vfs.read(p).and_then(Result::ok).map(|b| String::from_utf8_lossy(&b).into_owned()));
+    if let Some(text) = vfs.read("config\\b42inject.ini").and_then(Result::ok) {
+        b42::read_ini(&String::from_utf8_lossy(&text), &mut opts.0);
+        info!("consume anim: Config\\B42Inject.ini: hardcore {}, in power armour {}", opts.0.hardcore, opts.0.in_power_armor);
+    }
+    let data = rt.game.data;
+    let items: HashSet<u32> = ix.inject_items().filter_map(|e| data.by_edid(e)).map(|f| f.0).collect();
+    held.items = items.clone();
+    st.interact_items = ix.interact_items().filter_map(|e| data.by_edid(e).map(|f| (f, e.to_string()))).collect();
+    let (inject, interact, crafting) = ix.counts();
+    info!(
+        "consume anim: {inject} consume clips for {} items, {interact} interact clips for {} items, {crafting} crafting clips ({} files looked at, {:.0} ms)",
+        items.len(),
+        st.interact_items.len(),
+        paths.len(),
+        t.elapsed().as_secs_f64() * 1000.0
+    );
+    st.rng = 0x0B42_1A2B_3C4D;
+    st.index = Some(Arc::new(ix));
+}
+
+/// What stops an animation now (the mod's filter).
+#[derive(bevy::ecs::system::SystemParam)]
+struct Now<'w> {
+    state: Res<'w, State<PlayState>>,
+    pip: Option<Res<'w, nvf_play::pipboy::PipBoy>>,
+    recipes: Option<Res<'w, nvf_play::crafting::RecipeMenu>>,
+    phys: Option<Res<'w, nvf_play::phys::PhysState>>,
+    knock: Option<Res<'w, crate::player_knockdown::PlayerKnockdown>>,
+    control: Option<Res<'w, nvf_play::control::PlayerControl>>,
+    player: Option<Res<'w, nvf_play::player::Player>>,
+}
+
+impl Now<'_> {
+    fn in_menu(&self) -> bool {
+        *self.state.get() != PlayState::Playing || self.pip.as_deref().is_some_and(|p| p.open() || p.on_arm()) || self.recipes.as_deref().is_some_and(|r| r.is_open())
+    }
+
+    fn swimming(&self) -> bool {
+        self.phys.as_deref().and_then(|p| p.player.as_ref()).is_some_and(|c| c.swimming)
+    }
+
+    fn third(&self) -> bool {
+        self.control.as_deref().is_some_and(|c| c.third_person_view())
+    }
+
+    fn feet(&self) -> [f32; 3] {
+        self.player.as_deref().map_or([0.0; 3], |p| p.feet)
+    }
+}
+
+fn situation(now: &Now, game: &fnv_game::game::Game, sim: &nvf_play::sim::SimState, body: &PlayerBody, pi: &PlayerIdles, st: &ConsumeAnims) -> Situation {
+    use fnv_game::anim_state::AnimAction as A;
+    let action = game.anim_state(P).and_then(|a| a.action);
+    let control = now.control.as_deref();
+    Situation {
+        swimming: now.swimming(),
+        ragdolled: now.knock.as_deref().is_some_and(|k| k.ragdolled()),
+        reloading: control.is_some_and(|c| c.reload) || matches!(action, Some(A::Reload | A::ReloadOpen)),
+        attacking: control.is_some_and(|c| c.trigger) || matches!(action, Some(A::Attack | A::FollowThrough | A::AttackReturn | A::ThrowWindUp | A::Thrown)),
+        busy: st.own.is_some() || pi.first.playing().is_some() || pi.third.playing().is_some(),
+        in_menu: now.in_menu(),
+        queued: !st.pending.is_empty(),
+        power_armor: body.worn().iter().any(|&f| sim.world.forms.item(f).is_some_and(|i| i.power_armor)),
+    }
+}
+
+/// This player's uses and the animation playing.
+#[allow(clippy::too_many_arguments)]
+fn own(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut st: ResMut<ConsumeAnims>,
+    opts: Res<ConsumeOptions>,
+    (mut held, mut used): (ResMut<nvf_play::ConsumeAnims>, MessageReader<nvf_play::ItemUsed>),
+    (script, sim, body, mut pi): (Option<Res<nvf_play::script::ScriptState>>, Res<nvf_play::sim::SimState>, Res<PlayerBody>, ResMut<PlayerIdles>),
+    now: Now,
+    (mut parts, mut models, world): (ResMut<ActorParts>, ModelCtx, Res<WorldData>),
+    (mut sfx, mut sounds, mut send): (Option<ResMut<Sfx>>, MessageWriter<PlaySound>, MessageWriter<SendAnim>),
+    mut transforms: Query<&mut Transform>,
+) {
+    let st = &mut *st;
+    let o = opts.0;
+    let Some(ix) = st.index.clone() else {
+        used.clear();
+        return;
+    };
+    let Some(rt) = script.as_deref().and_then(|s| s.rt.as_ref()) else {
+        used.clear();
+        return;
+    };
+    let game = &rt.game;
+    let data = game.data;
+    let dt = time.delta_secs();
+    let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
+    let s = situation(&now, game, &sim, &body, &pi, st);
+    let consume_sound = |item: FormId| data.ingestibles.get(&item).and_then(|d| d.consume_sound);
+
+    // Uses since the last frame (the refused were given back, `nvf_play::script`).
+    let refused = std::mem::take(&mut held.refused);
+    for u in used.read() {
+        let item = FormId(u.item);
+        let Some(def) = data.ingestibles.get(&item) else { continue };
+        if refused.contains(&u.item) {
+            st.stats.refused += 1;
+            continue;
+        }
+        st.stats.used += 1;
+        let edid = data.edid_of.get(&item).cloned().unwrap_or_default();
+        let style = b42::style_of(&edid, def.equip_type);
+        let has_clips = held.items.contains(&u.item);
+        match b42::decide(&s, &o) {
+            Decision::Play | Decision::Wait => {
+                info!("consume anim: {edid} used{}", if s.in_menu { "; plays once the menu is closed" } else { "" });
+                st.pending.push(Pending { kind: AnimCue::CONSUME, item, edid, clips: Vec::new(), style });
+            }
+            Decision::Skip(_) | Decision::Refuse if !has_clips => {}
+            Decision::Skip(why) => {
+                st.stats.skipped += 1;
+                info!("consume anim: {edid}: no animation ({why})");
+                if let Some(sound) = consume_sound(item) {
+                    sounds.write(PlaySound { sound, at: None });
+                }
+            }
+            Decision::Refuse => {}
+        }
+    }
+
+    // Start what waits, once nothing is in the way.
+    if st.own.is_none() && !now.in_menu() && !st.pending.is_empty() {
+        let p = st.pending.remove(0);
+        let s = situation(&now, game, &sim, &body, &pi, st);
+        let blocked = s.swimming || s.ragdolled || s.reloading || s.attacking || (s.power_armor && !o.in_power_armor) || !o.on;
+        let held_sound = held.items.contains(&p.item.0);
+        let third = now.third() || !body.first_person_drawn();
+        let view = if third { View::Third } else { View::First };
+        let (clip_path, fallback) = if blocked {
+            (None, false)
+        } else if p.kind == AnimCue::CONSUME {
+            let own = ix.inject(&p.edid, s.power_armor, view);
+            let own = if own.is_empty() && s.power_armor { ix.inject(&p.edid, false, view) } else { own };
+            let roll = st.roll();
+            match b42::pick(own, roll) {
+                Some(c) => (Some(c.clone()), false),
+                None if third => (p.style.clips().iter().map(|c| format!("{PEOPLE}{c}")).find(|c| ctx.clip(c).is_some()), true),
+                None => (None, false),
+            }
+        } else if view == View::First {
+            let roll = st.roll();
+            (b42::pick(&p.clips, roll).cloned(), false)
+        } else {
+            (None, false)
+        };
+        let clip = clip_path.as_deref().and_then(|c| ctx.clip(c));
+        let mut keyed = false;
+        match (&clip_path, clip) {
+            (Some(path), Some(clip)) => {
+                keyed = !fallback && clip.text_keys.iter().any(|(_, k)| b42::cues(k).contains(&Cue::ItemSound));
+                let play = IdlePlay::new(IdleKeys::read(clip.start, clip.stop, &clip.text_keys), Some(1));
+                let slot = if view == View::First { &mut pi.first } else { &mut pi.third };
+                let serial = slot.start_clip(IdleSource::Script, clip.clone(), play);
+                if fallback {
+                    st.stats.fallback += 1;
+                }
+                st.stats.played += 1;
+                match p.kind {
+                    AnimCue::INTERACT => st.stats.interact += 1,
+                    AnimCue::CRAFT => st.stats.crafted += 1,
+                    _ => {}
+                }
+                info!("consume anim: {} plays {path} ({:?} person, {:.1} s)", p.edid, view, clip.length());
+                st.own = Some(Playing { item: p.item, view, serial, clip, at: None, model: None, held: None, recent: Vec::new(), keyed_sound: keyed, age: 0.0, feet: now.feet() });
+            }
+            (Some(path), None) => warn!("consume anim: {}: {path} does not load", p.edid),
+            (None, _) => {
+                if !blocked && p.kind == AnimCue::CONSUME {
+                    debug!("consume anim: {}: no clip for the {view:?} person view", p.edid);
+                }
+            }
+        }
+        // The item's sound now unless the clip plays it.
+        if p.kind == AnimCue::CONSUME && held_sound && !keyed && (st.own.is_none() || fallback) {
+            if let Some(sound) = consume_sound(p.item) {
+                sounds.write(PlaySound { sound, at: None });
+            }
+        }
+        // The others see it (every aid item, when it is not blocked).
+        if !blocked {
+            let style = if p.kind == AnimCue::CONSUME { p.style } else if p.kind == AnimCue::CRAFT { Style::Craft } else { p.style };
+            send.write(SendAnim(AnimCue { kind: p.kind, style: style.code(), power_armor: s.power_armor, item: p.item.0, edid: p.edid.clone(), clip: clip_path.clone().filter(|_| !fallback).unwrap_or_default() }));
+            st.stats.sent += 1;
+        }
+    }
+
+    // The one playing: its keys, its model, its end.
+    let Some(mut pl) = st.own.take() else {
+        held.refuse = (o.hardcore && o.on && (s.reloading || s.attacking || s.ragdolled)).then_some("busy");
+        return;
+    };
+    pl.age += dt;
+    let slot = if pl.view == View::First { &mut pi.first } else { &mut pi.third };
+    let entry = slot.cur.as_mut().filter(|c| c.serial == pl.serial && !c.play.ended());
+    let third_now = now.third() || !body.first_person_drawn();
+    let walked = pl.view == View::Third && {
+        let f = now.feet();
+        (f[0] - pl.feet[0]).hypot(f[1] - pl.feet[1]) > 24.0
+    };
+    let cut = !o.hardcore && now.control.as_deref().is_some_and(|c| c.trigger || c.aiming);
+    let stop = now.swimming() || (third_now != (pl.view == View::Third)) || walked || cut;
+    let alive = match entry {
+        Some(c) if stop => {
+            c.play.stop();
+            info!("consume anim: cut short ({})", if cut { "attack or aim" } else if walked { "walked off" } else { "swimming or the view changed" });
+            false
+        }
+        Some(c) => {
+            let t = pl.clip.start + c.play.time();
+            let rig = body.animators().get(if pl.view == View::First { 1 } else { 0 }).map(|(_, a)| (a.skel.clone(), a.nodes.clone()));
+            let layer = RenderLayers::layer(if pl.view == View::First { crate::sky::ARMS_LAYER } else { crate::sky::BODY_LAYER });
+            let model_of = |item: FormId| fnv_world::placed::base_object(world.lo, world.schema, item.0).and_then(|b| b.model_path());
+            let item_sound = consume_sound(pl.item);
+            let fx = Fx { sfx: sfx.as_deref_mut(), sounds: &mut sounds, at: None, item_sound: item_sound.filter(|_| pl.keyed_sound) };
+            let model = model_of(pl.item);
+            step(&mut commands, st, &mut pl, t, rig.as_ref().map(|(s, n)| (&**s, n.as_slice())), Some(layer), &mut ctx, model, fx, &mut transforms);
+            true
+        }
+        None => false,
+    };
+    if alive {
+        st.own = Some(pl);
+    } else {
+        detach(&mut commands, &mut pl);
+    }
+    let busy = st.own.is_some() || s.reloading || s.attacking || s.ragdolled;
+    held.refuse = (o.hardcore && o.on && busy).then_some(if st.own.is_some() { "an animation plays" } else { "busy" });
+}
+
+/// Where the cues' sounds go.
+struct Fx<'a, 'b> {
+    sfx: Option<&'a mut Sfx>,
+    sounds: &'a mut MessageWriter<'b, PlaySound>,
+    at: Option<[f32; 3]>,
+    item_sound: Option<FormId>,
+}
+
+/// Read the keys `pl`'s clip passed up to `t`, act on them, and move the held model.
+#[allow(clippy::too_many_arguments)]
+fn step<F: bevy::ecs::query::QueryFilter>(
+    commands: &mut Commands,
+    st: &mut ConsumeAnims,
+    pl: &mut Playing,
+    t: f32,
+    rig: Option<(&nvf_assets::actor::PreparedSkeleton, &[Entity])>,
+    layer: Option<RenderLayers>,
+    ctx: &mut ActorCtx,
+    item_model: Option<String>,
+    mut fx: Fx,
+    transforms: &mut Query<&mut Transform, F>,
+) {
+    let keys: Vec<String> = fnv_actor::anim_sounds::passed(&pl.clip.text_keys, pl.clip.start, pl.at, t).map(str::to_string).collect();
+    pl.at = Some(t);
+    pl.recent.retain(|(_, at)| pl.age - at < SAME_CUE);
+    for cue in keys.iter().flat_map(|k| b42::cues(k)) {
+        if pl.recent.iter().any(|(c, _)| *c == cue) {
+            continue;
+        }
+        pl.recent.push((cue.clone(), pl.age));
+        match cue {
+            Cue::Model(m) => pl.model = Some(format!("meshes\\{}", m.trim_start_matches(['\\', '/']))),
+            Cue::Attach => {
+                detach(commands, pl);
+                let model = pl.model.clone().or_else(|| item_model.clone());
+                if let (Some(model), Some((skel, nodes))) = (model, rig) {
+                    if let Some(h) = attach(commands, ctx, &pl.clip, t, skel, nodes, &model, layer.clone()) {
+                        st.stats.attached += 1;
+                        info!("consume anim: holds {model}");
+                        pl.held = Some(h);
+                    }
+                }
+            }
+            Cue::Detach => detach(commands, pl),
+            Cue::SoundFile(path) => {
+                if let Some(sfx) = fx.sfx.as_deref_mut() {
+                    let sound = st.file_sound(sfx, &path);
+                    fx.sounds.write(PlaySound { sound, at: fx.at });
+                }
+            }
+            Cue::ItemSound => {
+                if let Some(sound) = fx.item_sound.take() {
+                    fx.sounds.write(PlaySound { sound, at: fx.at });
+                }
+            }
+        }
+    }
+    if let Some(h) = &pl.held {
+        if let Some((e, track)) = &h.point {
+            if let Ok(mut tr) = transforms.get_mut(*e) {
+                *tr = sampled(track, t, Affine3A::IDENTITY, Affine3A::IDENTITY);
+            }
+        }
+        for (e, above, rest, track) in &h.moved {
+            if let Ok(mut tr) = transforms.get_mut(*e) {
+                *tr = sampled(track, t, *above, *rest);
+            }
+        }
+    }
+}
+
+/// A node's transform with `track` sampled at `t` (its rest for channels it lacks),
+/// under `above`.
+fn sampled(track: &TransformTrack, t: f32, above: Affine3A, rest: Affine3A) -> Transform {
+    let (s0, r0, t0) = rest.to_scale_rotation_translation();
+    let tr = track.translation.sample(t).map_or(t0, Vec3::from_array);
+    let r = track.rotation_at(t).map_or(r0, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize());
+    let s = track.scale.sample(t).map_or(s0.x, |[s]| s);
+    Transform::from_matrix(Mat4::from(above * Affine3A::from_scale_rotation_translation(Vec3::splat(s), r, tr)))
+}
+
+fn track<'a>(clip: &'a Clip, name: &str) -> Option<&'a Arc<TransformTrack>> {
+    clip.tracks.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, t)| t)
+}
+
+/// Draw `model` at the attach point under the rig's left hand (module notes).
+#[allow(clippy::too_many_arguments)]
+fn attach(commands: &mut Commands, ctx: &mut ActorCtx, clip: &Clip, t: f32, skel: &nvf_assets::actor::PreparedSkeleton, nodes: &[Entity], model: &str, layer: Option<RenderLayers>) -> Option<Held> {
+    let part = ctx.part(model).or_else(|| {
+        warn!("consume anim: {model} does not load");
+        None
+    })?;
+    let hand = *skel.by_name.get(b42::HAND_NODE)?;
+    let hand = *nodes.get(hand)?;
+    let point_track = track(clip, b42::ATTACH_NODE).cloned();
+    let at = point_track.as_ref().map_or(Transform::IDENTITY, |tr| sampled(tr, t, Affine3A::IDENTITY, Affine3A::IDENTITY));
+    let point = commands.spawn((at, Visibility::default())).id();
+    commands.entity(hand).add_child(point);
+    let mut entities = vec![point];
+    let mut moved = Vec::new();
+    let mut by_node: HashMap<String, Entity> = HashMap::new();
+    let with_layer = |commands: &mut Commands, e: Entity| {
+        if let Some(l) = &layer {
+            commands.entity(e).insert(l.clone());
+        }
+    };
+    for s in part.shapes.iter().filter(|s| !s.cap) {
+        // The outermost ancestor a track moves (`<name>_B42`).
+        let found = s.ancestors.iter().enumerate().rev().find_map(|(k, (name, own))| {
+            let name = name.as_deref()?;
+            let tr = track(clip, &format!("{name}{}", b42::NODE_SUFFIX))?;
+            Some((k, name.to_string(), *own, tr.clone()))
+        });
+        let Some((k, name, rest, tr)) = found else {
+            let x = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(part.root * s.transform)))).id();
+            with_layer(commands, x);
+            commands.entity(point).add_child(x);
+            entities.push(x);
+            continue;
+        };
+        let node = match by_node.get(&name) {
+            Some(&x) => x,
+            None => {
+                let above = s.ancestors[k + 1..].iter().rev().fold(part.root, |acc, (_, a)| acc * *a);
+                let x = commands.spawn((sampled(&tr, t, above, rest), Visibility::default())).id();
+                commands.entity(point).add_child(x);
+                entities.push(x);
+                moved.push((x, above, rest, tr));
+                by_node.insert(name, x);
+                x
+            }
+        };
+        let below = s.ancestors[..k].iter().rev().fold(Affine3A::IDENTITY, |acc, (_, a)| acc * *a) * s.own;
+        let x = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(below)))).id();
+        with_layer(commands, x);
+        commands.entity(node).add_child(x);
+        entities.push(x);
+    }
+    Some(Held { entities, point: point_track.map(|tr| (point, tr)), moved })
+}
+
+fn detach(commands: &mut Commands, pl: &mut Playing) {
+    if let Some(h) = pl.held.take() {
+        // The first is the attach point: its children go with it.
+        if let Some(&root) = h.entities.first() {
+            if let Ok(mut e) = commands.get_entity(root) {
+                e.despawn();
+            }
+        }
+    }
+}
+
+/// Recipes made in the recipe menu: their crafting clips play once it is closed.
+fn crafted(mut st: ResMut<ConsumeAnims>, opts: Res<ConsumeOptions>, menu: Option<ResMut<nvf_play::crafting::RecipeMenu>>, script: Option<Res<nvf_play::script::ScriptState>>) {
+    let (Some(mut menu), Some(rt)) = (menu, script.as_deref().and_then(|s| s.rt.as_ref())) else { return };
+    let Some(open) = menu.0.as_mut() else { return };
+    let made = std::mem::take(&mut open.made);
+    let Some(ix) = st.index.clone().filter(|_| opts.0.on) else { return };
+    for r in made {
+        let Some(edid) = rt.game.data.recipes.get(&r).and_then(|d| d.edid.clone()) else { continue };
+        let clips = ix.recipe(&edid);
+        // One a menu visit.
+        if clips.is_empty() || st.pending.iter().any(|p| p.kind == AnimCue::CRAFT) {
+            continue;
+        }
+        info!("consume anim: recipe {edid} made; its animation plays once the menu is closed");
+        st.pending.push(Pending { kind: AnimCue::CRAFT, item: r, edid, clips: clips.to_vec(), style: Style::Craft });
+    }
+}
+
+/// Items with interact folders coming into the inventory (module notes).
+#[allow(clippy::too_many_arguments)]
+fn interact(
+    mut st: ResMut<ConsumeAnims>,
+    opts: Res<ConsumeOptions>,
+    script: Option<Res<nvf_play::script::ScriptState>>,
+    mut sim: ResMut<nvf_play::sim::SimState>,
+    mut taken: MessageReader<nvf_play::crime::ItemsTaken>,
+    rigs: Query<(&ActorRig, &GlobalTransform)>,
+    player: Option<Res<nvf_play::player::Player>>,
+    now: Now,
+) {
+    let st = &mut *st;
+    let Some(ix) = st.index.clone() else { return };
+    let Some(rt) = script.as_deref().and_then(|s| s.rt.as_ref()) else { return };
+    let from: Vec<FormId> = taken.read().map(|t| t.container).collect();
+    let counts: Vec<(FormId, String, i32)> = st.interact_items.iter().map(|(f, e)| (*f, e.clone(), sim.world.item_count(P, *f).unwrap_or(0))).collect();
+    let first_look = st.counts.is_empty();
+    let gained: Vec<(FormId, String)> = counts.iter().filter(|(f, _, n)| *n > st.counts.get(f).copied().unwrap_or(*n)).map(|(f, e, _)| (*f, e.clone())).collect();
+    for (f, e, n) in &counts {
+        st.counts.insert(*f, *n);
+        if *n > 0 && first_look {
+            st.had.insert(e.clone());
+        }
+    }
+    // Many at once is a load or a script's gift, not a pick-up [design].
+    if first_look || gained.len() > 3 || !opts.0.on {
+        for (_, e) in gained {
+            st.had.insert(e);
+        }
+        return;
+    }
+    let game = &rt.game;
+    let feet = player.as_deref().map_or([0.0; 3], |p| p.feet);
+    let in_combat = game.awareness.hunted(P);
+    for (item, edid) in gained {
+        let first = st.had.insert(edid.clone());
+        // The body the item came from, when it is a dead creature drawn near by.
+        let body = from.iter().find_map(|&c| {
+            let (rig, gt) = rigs.iter().find(|(r, _)| r.reference == c.0)?;
+            let kind = game.creature_type(c)?;
+            let folder = rig.skeleton.rsplit('\\').nth(1)?.to_string();
+            let at = crate::world::bevy_to_game(gt.translation());
+            let d = (at.x - feet[0]).hypot(at.y - feet[1]).hypot(at.z - feet[2]);
+            game.is_dead(c).then_some((c, folder, kind as i32, d))
+        });
+        let source = b42::Source { creature: body.as_ref().map(|(_, f, k, d)| (f.clone(), *k, *d)), used: body.as_ref().is_some_and(|(c, ..)| st.bodies.contains(&c.0)) };
+        let Some(entry) = ix.interact(&edid, &source, in_combat, first) else { continue };
+        if let Some((c, ..)) = &body {
+            if entry.cond.corpse.is_some() {
+                st.bodies.insert(c.0);
+            }
+        }
+        if st.pending.iter().any(|p| p.kind == AnimCue::INTERACT) || st.own.is_some() {
+            continue;
+        }
+        let style = if entry.cond.corpse.is_some() { Style::Skin } else { Style::Handle };
+        info!("consume anim: {edid} picked up{}; its animation plays{}", body.as_ref().map_or(String::new(), |(_, f, ..)| format!(" from a {f}")), if now.in_menu() { " once the menu is closed" } else { "" });
+        st.pending.push(Pending { kind: AnimCue::INTERACT, item, edid, clips: entry.clips.clone(), style });
+    }
+    let _ = &mut sim;
+}
+
+/// Other players' animations on their puppets.
+#[allow(clippy::too_many_arguments)]
+fn puppets(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut st: ResMut<ConsumeAnims>,
+    mut heard: MessageReader<PeerAnim>,
+    mut rigs: Query<(Entity, &ActorRig, Option<&mut ActorIdle>, &GlobalTransform)>,
+    (mut parts, mut models): (ResMut<ActorParts>, ModelCtx),
+    (mut sfx, mut sounds): (Option<ResMut<Sfx>>, MessageWriter<PlaySound>),
+    world: Res<WorldData>,
+    script: Option<Res<nvf_play::script::ScriptState>>,
+    mut transforms: Query<&mut Transform, Without<ActorRig>>,
+) {
+    let st = &mut *st;
+    let dt = time.delta_secs();
+    let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
+    let data = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| rt.game.data);
+    for PeerAnim { reference, cue } in heard.read() {
+        let Some((e, rig, idle, _)) = rigs.iter_mut().find(|(_, r, ..)| r.reference == *reference) else {
+            debug!("consume anim: no puppet {reference:08X} drawn for {}", cue.edid);
+            continue;
+        };
+        let roll = st.roll();
+        let own = st.index.as_ref().filter(|_| cue.kind == AnimCue::CONSUME).and_then(|ix| ix.third_for(&cue.edid, cue.power_armor, &cue.clip, roll).map(str::to_string));
+        let style = Style::from_code(cue.style);
+        let path = own.clone().filter(|p| ctx.clip(p).is_some()).or_else(|| style.clips().iter().map(|c| format!("{PEOPLE}{c}")).find(|c| ctx.clip(c).is_some()));
+        let Some((path, clip)) = path.and_then(|p| Some((p.clone(), ctx.clip(&p)?))) else {
+            warn!("consume anim: no clip for {}'s puppet ({:?})", cue.edid, style);
+            continue;
+        };
+        let bound = crate::npc_stimpaks::upper_body(bind_clip(&rig.skel, clip.clone()), &rig.skel.names);
+        let play = IdlePlay::new(IdleKeys::read(clip.start, clip.stop, &clip.text_keys), Some(1));
+        let serial = match idle {
+            Some(mut i) => i.0.start_clip(IdleSource::Stimpak, Arc::new(bound), play),
+            None => {
+                let mut i = ActorIdle::default();
+                let serial = i.0.start_clip(IdleSource::Stimpak, Arc::new(bound), play);
+                commands.entity(e).insert(i);
+                serial
+            }
+        };
+        if let Some(mut old) = st.puppets.remove(reference) {
+            detach(&mut commands, &mut old);
+        }
+        let keyed = own.is_some() && clip.text_keys.iter().any(|(_, k)| b42::cues(k).contains(&Cue::ItemSound));
+        // The item's sound where the puppet is, unless the clip keys it.
+        if cue.kind == AnimCue::CONSUME && !keyed {
+            if let Some(sound) = data.and_then(|d| d.ingestibles.get(&FormId(cue.item))).and_then(|d| d.consume_sound) {
+                let at = rigs.get(e).ok().map(|(.., gt)| crate::world::bevy_to_game(gt.translation()).to_array());
+                sounds.write(PlaySound { sound, at });
+            }
+        }
+        st.stats.puppets += 1;
+        info!("consume anim: puppet {reference:08X} plays {path} for {}", cue.edid);
+        st.puppets.insert(*reference, Playing { item: FormId(cue.item), view: View::Third, serial, clip, at: None, model: None, held: None, recent: Vec::new(), keyed_sound: keyed, age: 0.0, feet: [0.0; 3] });
+    }
+    let mut gone = Vec::new();
+    for (reference, pl) in st.puppets.iter_mut() {
+        pl.age += dt;
+        let Some((_, rig, idle, gt)) = rigs.iter_mut().find(|(_, r, ..)| r.reference == *reference) else {
+            gone.push(*reference);
+            continue;
+        };
+        let Some(mut idle) = idle else {
+            gone.push(*reference);
+            continue;
+        };
+        let Some(c) = idle.0.cur.as_mut().filter(|c| c.serial == pl.serial && !c.play.ended()) else {
+            gone.push(*reference);
+            continue;
+        };
+        if pl.age > PUPPET_MAX_SECONDS {
+            c.play.stop();
+        }
+        let t = pl.clip.start + c.play.time();
+        let at = crate::world::bevy_to_game(gt.translation()).to_array();
+        let item_sound = data.and_then(|d| d.ingestibles.get(&pl.item)).and_then(|d| d.consume_sound).filter(|_| pl.keyed_sound);
+        let model = fnv_world::placed::base_object(world.lo, world.schema, pl.item.0).and_then(|b| b.model_path());
+        let (skel, nodes) = (rig.skel.clone(), rig.nodes.clone());
+        let fx = Fx { sfx: sfx.as_deref_mut(), sounds: &mut sounds, at: Some(at), item_sound };
+        // `step` takes the whole state for the file sounds: lend it the parts it uses.
+        let mut lent = ConsumeAnims { file_sounds: std::mem::take(&mut st.file_sounds), ..Default::default() };
+        step(&mut commands, &mut lent, pl, t, Some((&skel, &nodes)), None, &mut ctx, model, fx, &mut transforms);
+        st.file_sounds = lent.file_sounds;
+        st.stats.attached += lent.stats.attached;
+    }
+    for r in gone {
+        if let Some(mut pl) = st.puppets.remove(&r) {
+            detach(&mut commands, &mut pl);
+        }
+    }
+}
+
+fn report(mut exit: MessageReader<AppExit>, st: Res<ConsumeAnims>) {
+    if exit.read().last().is_none() {
+        return;
+    }
+    let s = st.stats;
+    info!(
+        "consume anims summary: {} aid items used, {} animations played ({} the game's idles, {} interact, {} crafting), {} not animated, {} refused (Hardcore), {} models held, {} sent to co-op, {} played on puppets",
+        s.used, s.played, s.fallback, s.interact, s.crafted, s.skipped, s.refused, s.attached, s.sent, s.puppets
+    );
+}

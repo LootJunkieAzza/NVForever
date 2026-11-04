@@ -30,6 +30,7 @@
 //! docs/spec-notes/animation.md.
 
 pub mod anim_sounds;
+pub mod b42;
 pub mod anims;
 pub mod creator;
 pub mod facegen;

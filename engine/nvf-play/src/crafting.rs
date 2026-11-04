@@ -130,6 +130,9 @@ impl RecipeMenu {
 }
 
 pub struct Open {
+    /// The recipes made since the menu opened, oldest first: the crafting animations
+    /// take them (`consume_anims.rs` in the game).
+    pub made: Vec<FormId>,
     category: FormId,
     station: Option<FormId>,
     /// 0: all; else the subcategory at this place of the view's filters, less one.
@@ -278,7 +281,7 @@ fn scripts_open(
     }
     let Some(r) = rt.game.recipe_requests.pop() else { return };
     rt.game.recipe_requests.clear();
-    let open = Open { category: r.category, station: r.station, filter: 0, selected: 0, first: 0, drawn: None, quantity: None };
+    let open = Open { category: r.category, station: r.station, filter: 0, selected: 0, first: 0, drawn: None, quantity: None, made: Vec::new() };
     let v = view(rt, &mut sim, &open);
     let name = rt.game.data.recipe_categories.get(&r.category).map_or_else(|| r.category.to_string(), |c| c.name.clone());
     let first: Vec<&str> = v.rows.iter().take(6).map(|r| r.label.as_str()).collect();
@@ -379,7 +382,9 @@ fn keys(
             open.quantity = None;
             let chosen = v.rows.get(open.selected.min(v.rows.len().saturating_sub(1))).map(|r| r.recipe);
             if let Some(recipe) = chosen.and_then(|f| rt.game.data.recipes.get(&f)) {
-                make_recipe(rt, &mut sim, recipe, to as u32, &mut sounds, corner.as_deref_mut());
+                if make_recipe(rt, &mut sim, recipe, to as u32, &mut sounds, corner.as_deref_mut()) {
+                    open.made.push(recipe.form);
+                }
                 follow_made(rt, &mut sim, open, recipe.form);
             }
             open.drawn = None;
@@ -442,7 +447,9 @@ fn keys(
             sounds.write(UiSound { menu: UiMenu::Recipe, event: UiEvent::Opened });
             return;
         }
-        make_recipe(rt, &mut sim, recipe, 1, &mut sounds, corner.as_deref_mut());
+        if make_recipe(rt, &mut sim, recipe, 1, &mut sounds, corner.as_deref_mut()) {
+            open.made.push(recipe.form);
+        }
         follow_made(rt, &mut sim, open, recipe.form);
         // What the player has changed: draw it again.
         open.drawn = None;
@@ -460,8 +467,8 @@ fn follow_made(rt: &mut crate::script::Runtime, sim: &mut SimState, open: &mut O
 }
 
 /// Make `recipe` `times` times: the ingredients go, the outputs come, an "added" line
-/// each in the corner (module notes).
-fn make_recipe(rt: &mut crate::script::Runtime, sim: &mut SimState, recipe: &RecipeDef, times: u32, sounds: &mut MessageWriter<UiSound>, corner: Option<&mut crate::corner_messages::CornerMessages>) {
+/// each in the corner (module notes). Whether it was made.
+fn make_recipe(rt: &mut crate::script::Runtime, sim: &mut SimState, recipe: &RecipeDef, times: u32, sounds: &mut MessageWriter<UiSound>, corner: Option<&mut crate::corner_messages::CornerMessages>) -> bool {
     let forms = sim.forms;
     let made = crate::script::with_world(rt, sim, |rt| {
         let skill = recipe.skill.map_or(0.0, |(av, _)| fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, av));
@@ -499,10 +506,12 @@ fn make_recipe(rt: &mut crate::script::Runtime, sim: &mut SimState, recipe: &Rec
                     c.push(if k > 1 { format!("{name} ({k}) added") } else { format!("{name} added") }.into());
                 }
             }
+            true
         }
         Err(why) => {
             info!("recipe menu: cannot make {:?}: {why}", recipe.name);
             sounds.write(UiSound { menu: UiMenu::Recipe, event: UiEvent::Refused });
+            false
         }
     }
 }
