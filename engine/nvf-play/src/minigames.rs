@@ -12,8 +12,12 @@
 //!   50..300, Space start). Aim with the mouse: the aim sways by Perception; hold the left
 //!   button and the timing bar runs at Agility's speed, let go on the green pip for a true
 //!   throw. Space hands the turn over, R starts again, Tab leaves (a forfeit in a match).
-//!   The board is drawn flat, its rings and numbers by the rules' radii [design: the mod's
-//!   cabinet is in the world; NVForever's view of the board is its own].
+//!   It is played at the cabinet in the world, as the mod does it [observed:
+//!   docs/spec-notes/darts.md §10]: the camera stands 64 board units in front of the bull,
+//!   level, facing the board ([`darts_camera`]); the aim is where the view's ray through the
+//!   cursor meets the board's face ([`BoardFrame`]); the darts are the mod's models, flying
+//!   from the hand and stuck in the board (nvforever `darts_world.rs`). Only the scores,
+//!   the timing bar and the crosshair are drawn over the view.
 //! - **Darts in co-op.** At a board another player near is at, the menu offers their
 //!   board: Space asks to throw against them, and they play the match instead of the
 //!   opponent (no stake), each throwing on its own turn ([`crate::coop_tables::DartsAction`]).
@@ -31,7 +35,7 @@ use crate::pause::AidTime;
 use crate::script::{with_world, ScriptState};
 use crate::sfx::PcmSound;
 use crate::sim::SimState;
-use crate::{PlaySet, PlayState};
+use crate::{PlaySet, PlayState, PlayerCamera};
 use bevy::audio::PlaybackSettings;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
@@ -49,6 +53,62 @@ pub const CAPS: FormId = FormId(0xF);
 const BOARD_VH: f32 = 36.0;
 /// Seconds without the board's owner before a joined player gives up [design].
 const OWNER_GONE: f32 = 4.0;
+
+/// The board's own frame [observed: docs/spec-notes/darts.md §10]: local +x the
+/// player's right, +y from the player into the board, +z up; the bull at the reference's
+/// place; `k` game units per board unit (the reference's scale times the mod's
+/// 1.0022226774).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BoardFrame {
+    pub pos: [f32; 3],
+    /// The reference's Z angle (radians; the game turns clockwise seen from above).
+    pub theta: f32,
+    pub k: f32,
+}
+
+/// The board face the darts land on, local y [observed: Place].
+pub const FACE_Y: f32 = 1.1;
+/// Where the player stands while throwing, local (behind the camera, the bull's height:
+/// put down on the floor) [design].
+pub const LINE: [f32; 3] = [0.0, -darts::CAMERA_BACK - 8.0, 0.0];
+/// Where the camera stands, local [observed: Camera].
+pub const EYE: [f32; 3] = [0.0, -darts::CAMERA_BACK, 0.0];
+
+impl BoardFrame {
+    pub fn of(pos: [f32; 3], rot: [f32; 3], scale: Option<f32>) -> BoardFrame {
+        BoardFrame { pos, theta: rot[2], k: scale.unwrap_or(1.0) * 1.002_222_7 }
+    }
+
+    /// Local (board units) to game space.
+    pub fn to_world(&self, l: [f32; 3]) -> [f32; 3] {
+        let (s, c) = self.theta.sin_cos();
+        [self.pos[0] + self.k * (l[0] * c + l[1] * s), self.pos[1] + self.k * (-l[0] * s + l[1] * c), self.pos[2] + self.k * l[2]]
+    }
+
+    /// Game space to local (board units).
+    pub fn to_local(&self, w: [f32; 3]) -> [f32; 3] {
+        let (s, c) = self.theta.sin_cos();
+        let d = [(w[0] - self.pos[0]) / self.k, (w[1] - self.pos[1]) / self.k, (w[2] - self.pos[2]) / self.k];
+        [d[0] * c - d[1] * s, d[0] * s + d[1] * c, d[2]]
+    }
+
+    /// The game-space rotation of something placed square to the board (its +y into it).
+    pub fn rotation(&self) -> Quat {
+        Quat::from_rotation_z(-self.theta)
+    }
+
+    /// Where a game-space ray (origin, direction) meets the board's face: (x, z) local.
+    pub fn on_face(&self, origin: [f32; 3], dir: [f32; 3]) -> Option<(f32, f32)> {
+        let o = self.to_local(origin);
+        let tip = self.to_local([origin[0] + dir[0], origin[1] + dir[1], origin[2] + dir[2]]);
+        let d = [tip[0] - o[0], tip[1] - o[1], tip[2] - o[2]];
+        if d[1] <= 1e-6 {
+            return None;
+        }
+        let t = (FACE_Y - o[1]) / d[1];
+        (t > 0.0).then(|| (o[0] + d[0] * t, o[2] + d[2] * t))
+    }
+}
 
 /// Play a sound file by its path (the mods have no SOUN records).
 #[derive(Message, Clone, Debug)]
@@ -79,6 +139,10 @@ pub struct Press {
 
 pub struct Darts {
     pub board: u32,
+    /// The board's frame (its reference's place), for the camera and the darts' models.
+    pub frame: Option<BoardFrame>,
+    /// The game's clock as last stepped (the darts' models follow it).
+    pub now: f32,
     pub page: Page,
     pub bet: u32,
     pub stake: u32,
@@ -110,15 +174,15 @@ pub struct Darts {
 
 impl Darts {
     /// The side this game throws for.
-    fn mine(&self) -> usize {
+    pub fn mine(&self) -> usize {
         usize::from(self.joined.is_some())
     }
 
-    fn my_turn(&self) -> bool {
+    pub fn my_turn(&self) -> bool {
         self.page == Page::Play && self.m.up == self.mine() && self.m.winner.is_none() && !self.m.turn_over
     }
 
-    fn sway_aim(&self, now: f32) -> (f32, f32) {
+    pub fn sway_aim(&self, now: f32) -> (f32, f32) {
         let (sx, sz) = darts::sway(self.special.0, now - self.turn_since);
         ((self.aim.0 + sx).clamp(-darts::AIM_LIMIT, darts::AIM_LIMIT), (self.aim.1 + sz).clamp(-darts::AIM_LIMIT, darts::AIM_LIMIT))
     }
@@ -166,6 +230,7 @@ impl Plugin for MinigamesPlugin {
             .add_message::<PlayFile>()
             .add_systems(Update, open.after(PlaySet::Activation).before(PlaySet::Ui))
             .add_systems(Update, ((darts_keys, darts_step, fillet_keys, fillet_step).chain().run_if(in_state(PlayState::Menu)), draw, play_files).chain().in_set(PlaySet::Ui))
+            .add_systems(PostUpdate, darts_camera.before(bevy::transform::TransformSystems::Propagate))
             .add_systems(OnExit(PlayState::Menu), close);
     }
 }
@@ -202,6 +267,7 @@ fn open(
     tables: Option<Res<Tables>>,
     time: AidTime,
     mut bases: Local<Option<(Option<FormId>, Option<FormId>)>>,
+    (mut phys, mut player): (Option<ResMut<crate::phys::PhysState>>, Option<ResMut<crate::player::Player>>),
 ) {
     let (board, knife) = *bases.get_or_insert_with(|| (sim.world.forms.by_edid(DARTS_BOARD), sim.world.forms.by_edid(FILLET_KNIFE)));
     let now = time.elapsed_secs();
@@ -216,8 +282,24 @@ fn open(
             let special = script.as_mut().and_then(|s| s.rt.as_mut()).map_or((5, 5), |rt| darts::player_special(&mut rt.game));
             let joined = tables.and_then(|t| t.near_at(a.reference, game::DARTS).and_then(|(p, b)| DartsView::decode(b).filter(|v| v.owner == p && Some(p) != t.me).map(|_| p)));
             info!("darts: open at 0x{:08X} (Perception {}, Agility {}){}", a.reference, special.0, special.1, joined.map(|p| format!(", {}'s board", tables.map(|t| t.name(p)).unwrap_or_default())).unwrap_or_default());
+            let frame = sim.world.peek(FormId(a.reference)).map(|r| (r.pos, r.rot)).or_else(|| sim.refs.get(FormId(a.reference)).map(|r| (r.pos, r.rot))).map(|(pos, rot)| {
+                BoardFrame::of(pos, rot, sim.refs.get(FormId(a.reference)).and_then(|r| r.scale))
+            });
+            // The player steps up to the throw line, facing the board, so the others see them
+            // there [design: the mod leaves the player where they stood].
+            if let (Some(f), Some(phys), Some(player)) = (frame, phys.as_deref_mut(), player.as_deref_mut()) {
+                let a = phys.arrive_player(f.to_world(LINE));
+                player.feet = a.feet;
+                player.heading = f.theta;
+                player.pitch = 0.0;
+            }
+            if let Some(f) = frame {
+                info!("darts: the board at ({:.0}, {:.0}, {:.0}), facing {:.0} degrees, scale {:.3}", f.pos[0], f.pos[1], f.pos[2], f.theta.to_degrees(), f.k);
+            }
             dscreen.0 = Some(Darts {
                 board: a.reference,
+                frame,
+                now,
                 page: Page::Main,
                 bet: darts::BET_MIN,
                 stake: 0,
@@ -279,7 +361,7 @@ fn start_match(d: &mut Darts, foe: Foe, now: f32) {
 fn darts_keys(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
-    windows: Query<&Window, With<PrimaryWindow>>,
+    (windows, cams): (Query<&Window, With<PrimaryWindow>>, Query<(&Camera, &GlobalTransform), With<PlayerCamera>>),
     mut screen: ResMut<DartsScreen>,
     mut script: Option<ResMut<ScriptState>>,
     mut sim: ResMut<SimState>,
@@ -352,13 +434,8 @@ fn darts_keys(
             }
         }
         Page::Play => {
-            if let Ok(w) = windows.single() {
-                if let Some(c) = w.cursor_position() {
-                    let unit = w.height() / 100.0 * BOARD_VH / darts::EDGE;
-                    let x = (c.x - w.width() / 2.0) / unit;
-                    let z = (w.height() / 2.0 - c.y) / unit;
-                    d.aim = (x.clamp(-darts::AIM_LIMIT, darts::AIM_LIMIT), z.clamp(-darts::AIM_LIMIT, darts::AIM_LIMIT));
-                }
+            if let Some(aim) = windows.single().ok().and_then(|w| cursor_on_board(w.cursor_position()?, d.frame?, cams.single().ok()?)) {
+                d.aim = (aim.0.clamp(-darts::AIM_LIMIT, darts::AIM_LIMIT), aim.1.clamp(-darts::AIM_LIMIT, darts::AIM_LIMIT));
             }
             if d.joined.is_none() && keys.just_pressed(KeyCode::KeyR) && (d.foe == Foe::Practice || d.m.winner.is_some()) {
                 d.page = Page::Main;
@@ -402,6 +479,34 @@ fn darts_keys(
 
 const HAND: &str = "sound\\fx\\minigames\\darts\\hand.wav";
 
+/// Where the view's ray through a cursor (window pixels) meets the board's face.
+fn cursor_on_board(cursor: Vec2, frame: BoardFrame, (cam, gt): (&Camera, &GlobalTransform)) -> Option<(f32, f32)> {
+    let ray = cam.viewport_to_world(gt, cursor).ok()?;
+    let o = crate::space::to_game(ray.origin);
+    let dir = crate::space::to_game(*ray.direction);
+    frame.on_face(o, dir)
+}
+
+/// Where a point on the board's face (local x, z) is on the screen, % of the window.
+fn board_on_screen(at: (f32, f32), frame: BoardFrame, (cam, gt): (&Camera, &GlobalTransform), w: &Window) -> Option<Vec2> {
+    let p = crate::space::to_bevy(frame.to_world([at.0, FACE_Y, at.1]));
+    let v = cam.world_to_viewport(gt, p).ok()?;
+    Some(Vec2::new(v.x / w.width() * 100.0, v.y / w.height() * 100.0))
+}
+
+/// While a darts game is open the camera stands at the throw line facing the bull, as the
+/// mod's does [observed: Camera].
+fn darts_camera(screen: Res<DartsScreen>, mut cams: Query<&mut Transform, With<PlayerCamera>>) {
+    let Some(f) = screen.0.as_ref().and_then(|d| d.frame) else { return };
+    let Ok(mut t) = cams.single_mut() else { return };
+    let eye = crate::space::to_bevy(f.to_world(EYE));
+    let bull = crate::space::to_bevy(f.to_world([0.0, FACE_Y, 0.0]));
+    let out = Transform::from_translation(eye).looking_at(bull, Vec3::Y);
+    if out.translation.is_finite() && out.rotation.is_finite() {
+        *t = out;
+    }
+}
+
 /// Darts land, the opponent throws, the others' actions come in, the board is shown.
 #[allow(clippy::too_many_arguments)]
 fn darts_step(
@@ -415,6 +520,7 @@ fn darts_step(
 ) {
     let Some(d) = screen.0.as_mut() else { return };
     let now = time.elapsed_secs();
+    d.now = now;
     // At another player's board: their match, as their view has it.
     if let Some(owner) = d.joined {
         let me = tables.as_deref().and_then(|t| t.me);
@@ -791,15 +897,30 @@ fn disc(p: &mut ChildSpawnerCommands, x: f32, y: f32, r: f32, color: Color) {
 const AMBER: Color = Color::srgb(0.98, 0.78, 0.35);
 const CHALK: Color = Color::srgb(0.92, 0.92, 0.88);
 
-fn draw(mut commands: Commands, d: Res<DartsScreen>, f: Res<FilletScreen>, time: AidTime, tables: Option<Res<Tables>>, old: Query<Entity, With<MinigameRoot>>) {
+#[allow(clippy::too_many_arguments)]
+fn draw(
+    mut commands: Commands,
+    d: Res<DartsScreen>,
+    f: Res<FilletScreen>,
+    time: AidTime,
+    tables: Option<Res<Tables>>,
+    old: Query<Entity, With<MinigameRoot>>,
+    (windows, cams): (Query<&Window, With<PrimaryWindow>>, Query<(&Camera, &GlobalTransform), With<PlayerCamera>>),
+) {
     for e in &old {
         commands.entity(e).despawn();
     }
     let now = time.elapsed_secs();
     let name = |p: u8| tables.as_deref().map_or_else(|| format!("Player {p}"), |t| t.name(p));
     if let Some(d) = d.0.as_ref() {
-        let root = commands.spawn((MinigameRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgba(0.02, 0.02, 0.02, 0.88)), GlobalZIndex(25))).id();
-        commands.entity(root).with_children(|p| draw_darts(p, d, now, &name));
+        // The world shows through: the board is the cabinet's own. The menus darken it a little.
+        let shade = if d.page == Page::Play && d.frame.is_some() { 0.0 } else { 0.55 };
+        let aim = d.frame.zip(windows.single().ok()).zip(cams.single().ok()).and_then(|((fr, w), c)| {
+            let at = d.press.map_or_else(|| d.sway_aim(now), |p| p.locked);
+            board_on_screen(at, fr, c, w)
+        });
+        let root = commands.spawn((MinigameRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgba(0.02, 0.02, 0.02, shade)), GlobalZIndex(25))).id();
+        commands.entity(root).with_children(|p| draw_darts(p, d, now, &name, aim));
     }
     if let Some(f) = f.0.as_ref() {
         let root = commands.spawn((MinigameRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgba(0.05, 0.03, 0.02, 0.9)), GlobalZIndex(25))).id();
@@ -807,19 +928,8 @@ fn draw(mut commands: Commands, d: Res<DartsScreen>, f: Res<FilletScreen>, time:
     }
 }
 
-fn draw_darts(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u8) -> String) {
+fn draw_darts(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u8) -> String, aim: Option<Vec2>) {
     let k = BOARD_VH / darts::EDGE;
-    let side_name = |i: usize| -> String {
-        if i == d.mine() {
-            "You".into()
-        } else {
-            match (d.joined, d.foe) {
-                (Some(o), _) => name(o),
-                (None, Foe::Player(q)) => name(q),
-                _ => "Opponent".into(),
-            }
-        }
-    };
     match d.page {
         Page::Main => {
             text(p, "Darts", Val::Percent(40.0), Val::Percent(25.0), 40.0, AMBER);
@@ -844,8 +954,15 @@ fn draw_darts(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u
             text(p, format!("Bet: {} caps", d.bet), Val::Percent(40.0), Val::Percent(30.0), 32.0, AMBER);
             text(p, format!("Q) Decrease   E) Increase   Space) Start   Tab) Back\nThe bet sets the opponent's skill. A win pays {}.", darts::payout(d.bet)), Val::Percent(30.0), Val::Percent(40.0), 20.0, AMBER);
         }
+        Page::Play if d.frame.is_some() => {
+            // The board is the cabinet's; the crosshair sits where the aim meets it.
+            if let (true, Some(a)) = (d.my_turn(), aim) {
+                text(p, "+", Val::Percent(a.x - 0.6), Val::Percent(a.y - 2.6), 30.0, Color::WHITE);
+            }
+            draw_bar_and_chalk(p, d, now, name);
+        }
         Page::Play => {
-            // The board, centred.
+            // No board in the world (its reference has no place): drawn flat.
             p.spawn(Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), top: Val::Percent(50.0), width: Val::Px(0.0), height: Val::Px(0.0), ..default() }).with_children(|b| {
                 let rings = [
                     (darts::EDGE, Color::srgb(0.08, 0.08, 0.08)),
@@ -876,6 +993,29 @@ fn draw_darts(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u
                     text(b, "+", Val::Vh(x * k - 1.0), Val::Vh(-z * k - 2.0), 30.0, Color::WHITE);
                 }
             });
+            draw_bar_and_chalk(p, d, now, name);
+        }
+    }
+    if !d.status.is_empty() && d.page != Page::Play {
+        text(p, d.status.clone(), Val::Percent(30.0), Val::Percent(70.0), 20.0, AMBER);
+    }
+}
+
+/// The timing bar, the chalk scores and the keys' help.
+fn draw_bar_and_chalk(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u8) -> String) {
+    let side_name = |i: usize| -> String {
+        if i == d.mine() {
+            "You".into()
+        } else {
+            match (d.joined, d.foe) {
+                (Some(o), _) => name(o),
+                (None, Foe::Player(q)) => name(q),
+                _ => "Opponent".into(),
+            }
+        }
+    };
+    {
+        {
             // The timing bar.
             let bar = d.press.map(|pr| (darts::bar(d.special.1, now - pr.since), pr.pip)).or(d.last_bar.filter(|b| now - b.0 < 0.8).map(|b| (b.1, b.2)));
             if let Some((at, pip)) = bar {
@@ -903,12 +1043,12 @@ fn draw_darts(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u
             } else {
                 format!("Hold and release the left button to throw.   {}Tab) Leave", if d.foe == Foe::Practice { "R) Menu   " } else { "" })
             };
-            text(p, lines.join("\n"), Val::Percent(3.0), Val::Percent(10.0), 24.0, CHALK);
+            p.spawn((Node { position_type: PositionType::Absolute, left: Val::Percent(2.0), top: Val::Percent(9.0), padding: UiRect::all(Val::Px(10.0)), ..default() }, BackgroundColor(Color::srgba(0.05, 0.07, 0.05, 0.7))))
+                .with_children(|c| {
+                    c.spawn((Text::new(lines.join("\n")), TextFont { font_size: FontSize::Px(24.0), ..default() }, TextColor(CHALK)));
+                });
             text(p, help, Val::Percent(3.0), Val::Percent(88.0), 20.0, AMBER);
         }
-    }
-    if !d.status.is_empty() && d.page != Page::Play {
-        text(p, d.status.clone(), Val::Percent(30.0), Val::Percent(70.0), 20.0, AMBER);
     }
 }
 

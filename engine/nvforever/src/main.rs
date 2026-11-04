@@ -98,6 +98,7 @@ mod nav;
 mod coop;
 // B42 Inject / Interact item animations, seen by co-op players too (consume_anims.rs).
 mod consume_anims;
+mod darts_world;
 mod object_anims;
 mod outfits;
 mod own_sounds;
@@ -1516,6 +1517,8 @@ fn main() -> AppExit {
             app.add_plugins(npc_stimpaks::NpcStimpaksPlugin);
             // Item animations: B42 Inject and Interact (consume_anims.rs).
             app.add_plugins(consume_anims::ConsumeAnimsPlugin);
+            // Darts played at the cabinet: the darts' models in the world (darts_world.rs).
+            app.add_plugins(darts_world::DartsWorldPlugin);
             // Creatures fight with their body weapons and switch between them (body_weapons.rs).
             app.add_plugins(body_weapons::BodyWeaponsPlugin);
             // Scripted weapon use: UseWeapon, Use Weapon packages (use_weapon.rs).
