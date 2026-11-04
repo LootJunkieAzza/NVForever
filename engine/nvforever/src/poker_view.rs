@@ -69,10 +69,9 @@ const RAIL_TEXTURE: &str = "textures\\terminals\\nv_blackjack\\nv_blackjack-tabl
 const CHIPS_TEXTURE: &str = "textures\\terminals\\nv_chips\\nv_minigame-chips.dds";
 const BUTTON_TEXTURE: &str = "textures\\clutter\\platinumchip\\platinumchip.dds";
 const FLOOR_TEXTURE: &str = "textures\\clutter\\rugs\\nvtopscasinorug_d.dds";
-/// The rail picture's bands, as fractions of its height, and the part across its width
-/// that has no chip tray [observed: the picture, docs/design/poker.md §5].
+/// The rail picture's padding band, as fractions of its height, and the part across its
+/// width that has no chip tray [observed: the picture, docs/design/poker.md §5].
 const RAIL_PAD: (f32, f32) = (185.0 / 512.0, 345.0 / 512.0);
-const RAIL_TRIM: (f32, f32) = (30.0 / 512.0, 110.0 / 512.0);
 const RAIL_U: f32 = 1400.0 / 2048.0;
 /// The chips picture: six columns; a chip's face in the top 84 of 256, its stripes below
 /// [observed: the picture].
@@ -243,15 +242,16 @@ fn rail_mesh() -> Mesh {
     // It starts a little under the felt, so no slit opens between the felt's edge and the
     // cushion's lip.
     let mut profile: Vec<(f32, f32, f32)> = vec![(0.0, -0.5, RAIL_PAD.0)];
-    let pad = 12;
+    // The cushion rolls from the felt over the rail's outer edge and straight down into the
+    // apron, one surface of the padding: no dip between them, no lighter trim band (seen
+    // from standing height, that band read as the floor through a gap).
+    let pad = 16;
     for i in 0..=pad {
-        let t = i as f32 / pad as f32;
-        let h = 1.0 + 4.0 * (PI * t).sin().powf(0.7);
-        profile.push((t * (RAIL - 2.0), h, RAIL_PAD.0 + (RAIL_PAD.1 - RAIL_PAD.0) * t));
+        let a = PI * i as f32 / pad as f32;
+        let (out, h) = (RAIL / 2.0 * (1.0 - a.cos()), 1.0 + 4.0 * a.sin().powf(0.7));
+        profile.push((out, h, RAIL_PAD.0 + (RAIL_PAD.1 - RAIL_PAD.0) * i as f32 / pad as f32));
     }
-    profile.push((RAIL - 1.0, 2.6, RAIL_TRIM.0));
-    profile.push((RAIL, 1.6, RAIL_TRIM.0 + (RAIL_TRIM.1 - RAIL_TRIM.0) * 0.4));
-    profile.push((RAIL, UNDER, RAIL_TRIM.1));
+    profile.push((RAIL, UNDER, RAIL_PAD.1));
     let mut g = Geo::default();
     let edge = oval(192, 0.0);
     let length = edge.last().map_or(1.0, |e| e.2);
