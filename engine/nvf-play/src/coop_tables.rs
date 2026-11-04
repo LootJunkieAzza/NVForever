@@ -29,6 +29,7 @@ pub mod game {
     pub const SLOTS: u8 = 3;
     pub const DARTS: u8 = 4;
     pub const FILLET: u8 = 5;
+    pub const POKER: u8 = 6;
 
     /// The game's name, as the lobby and the notes say it.
     pub fn word(g: u8) -> &'static str {
@@ -38,6 +39,7 @@ pub mod game {
             SLOTS => "the slots",
             DARTS => "darts",
             FILLET => "five finger fillet",
+            POKER => "poker",
             _ => "a table",
         }
     }
@@ -784,6 +786,23 @@ pub fn summary(tables: &Tables, name: &str, game: u8, blob: &[u8]) -> Vec<String
             let clock = v.clock.map(|c| format!(", {c:.0} s left")).unwrap_or_default();
             out.push(format!("{name} at five finger fillet{}: {state}{clock}", if v.stake > 0 { format!(" for {} caps", v.stake) } else { String::new() }));
         }
+        game::POKER => match crate::poker::coop::PeerView::decode(blob) {
+            Some(crate::poker::coop::PeerView::Table(v)) => {
+                let casino = crate::poker::Casino::from_letter(&v.casino.to_string()).map_or("a card table", |c| c.title());
+                let state = if v.street == fnv_game::poker::Street::Over { "between hands".to_string() } else { format!("{}, pot {}", v.street.name(), v.pot()) };
+                out.push(format!("{name}'s poker table at {casino}: hand {}, {state}", v.hand));
+                let people: Vec<String> = v.seats.iter().filter(|s| s.player != crate::poker::coop::NOBODY && !s.out).map(|s| format!("{} {}", if tables.me == Some(s.player) { "you".to_string() } else { tables.name(s.player) }, s.stack)).collect();
+                out.push(format!("  At the table: {}", people.join(", ")));
+                if v.seats.iter().filter(|s| s.player != crate::poker::coop::NOBODY).count() < 4 {
+                    out.push("  Open poker near them to take a seat".into());
+                }
+            }
+            Some(crate::poker::coop::PeerView::Guest { owner }) => {
+                let at = if tables.me == Some(owner) { "your".to_string() } else { format!("{}'s", tables.name(owner)) };
+                out.push(format!("{name} plays at {at} poker table"));
+            }
+            None => {}
+        },
         _ => {}
     }
     out
@@ -807,7 +826,7 @@ fn publish(
     mut open: ResMut<OpenTable>,
     time: crate::pause::AidTime,
     (bj, rl, sl): (Option<Res<crate::blackjack::BlackjackScreen>>, Option<Res<crate::roulette::RouletteScreen>>, Option<Res<crate::slots::SlotsScreen>>),
-    (darts, fillet): (Option<Res<crate::minigames::DartsScreen>>, Option<Res<crate::minigames::FilletScreen>>),
+    (darts, fillet, poker): (Option<Res<crate::minigames::DartsScreen>>, Option<Res<crate::minigames::FilletScreen>>, Option<Res<crate::poker::PokerScreen>>),
 ) {
     let now = time.elapsed_secs();
     let me = tables.me.unwrap_or(0);
@@ -845,6 +864,10 @@ fn publish(
     if let Some(f) = fillet.as_deref().and_then(|f| f.0.as_ref()) {
         at = Some((game::FILLET, f.knife));
         out = crate::minigames::fillet_view(f).map(|v| (f.knife, game::FILLET, v.encode()));
+    }
+    if let Some(p) = poker.as_deref().and_then(|p| p.0.as_ref()) {
+        at = Some((game::POKER, p.casino.deck() as u32));
+        out = p.coop_view(&tables).map(|(id, blob)| (id, game::POKER, blob));
     }
     open.set_if_neq(OpenTable(at));
     if tables.out != out {
