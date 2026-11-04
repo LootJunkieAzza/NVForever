@@ -18,12 +18,15 @@
 //!   Each is a column 2 units high and 1.7 across whose top lies just under the felt, each
 //!   value at its own place [observed: the files' nodes and bounds], so the original places
 //!   them itself. NVForever draws each chip as its model squeezed to [`CHIP_THICK`], stacked
-//!   by value on the spot the 1-chip model's node marks, (−9.9, 0.25), beside the player's
-//!   cards where the owner's screenshot has the bet [hypothesis].
+//!   by value just in front of the seat's cards ([`BET_FORWARD`]) [design].
 //! - The table's two green arrows (`Hand1_Arrow:0`, `Hand1_Arrow:0@#2`) are shown only
 //!   after a split, the one at the hand being played [hypothesis: they mark the active
 //!   hand; the owner's screenshot of an unsplit hand shows none; which arrow is which hand
 //!   by their places].
+//! - In co-op, the other players at the shared table (`nvf_play::blackjack::OtherSeat`)
+//!   sit beside this one: each a copy of the `Hand1`/`Hand2` models and of the chips,
+//!   turned about the dealer's first card by [`SEAT_GAP`] a seat, the next seat in the
+//!   owner's order on the right [design: there is one player's seat in the files].
 //! - The camera looks from the player's side over the player's cards towards the dealer's
 //!   [design: fitted to the screenshot], with lights of its own on render layer
 //!   [`TABLE_LAYER`].
@@ -69,13 +72,18 @@ const FOV_DEG: f32 = 50.0;
 /// Each chip this thick, the stacks this far apart [hypothesis: by the screenshot's look].
 const CHIP_THICK: f32 = 0.3;
 const CHIP_STACK_GAP: f32 = 2.0;
-/// The bet's spot in the table's space [observed: `Chips_1`'s place in
-/// NV_Blackjack-Chip_001.NIF], and the felt's height under it [hypothesis: a little under
-/// where the cards land].
-const BET_SPOT: Vec2 = Vec2::new(-9.93, 0.25);
+/// The bet's spot: this far in front of the seat's first card (towards the player) and
+/// this far to its left [design: the chip models' own spot, `Chips_1` at (-9.9, 0.25) in
+/// NV_Blackjack-Chip_001.NIF, is by the box on the right, where the next seat's cards land
+/// in co-op]; the felt this far under the cards [hypothesis].
+const BET_FORWARD: f32 = 4.5;
+const BET_LEFT: f32 = 1.0;
 const FELT_BELOW_CARDS: f32 = 0.12;
 /// Most chips in one stack [design].
 const STACK_MAX: u32 = 20;
+/// How far apart the seats are, across the felt at the player's first card (game units)
+/// [design: fitted by eye, so that the next seat on either side is in the picture].
+const SEAT_GAP: f32 = 15.0;
 
 pub struct BlackjackViewPlugin;
 
@@ -127,16 +135,31 @@ impl CardModel {
     }
 }
 
+/// Another player's seat as drawn: its hands' models and its chips.
+struct SeatDrawn {
+    models: Vec<CardModel>,
+    chips: Chips,
+}
+
+/// A seat's chips: their root and the count drawn.
+struct Chips {
+    root: Entity,
+    count: Option<u32>,
+}
+
 #[derive(Default)]
 struct Drawn {
     entities: Vec<Entity>,
     models: Vec<CardModel>,
+    /// The others' seats by place (-1 the next on the left).
+    seats: HashMap<i32, SeatDrawn>,
+    /// The table's root.
+    holder: Option<Entity>,
     /// The table's space (its root) and where the player's first card and the dealer's
     /// land, in it.
-    chips_root: Option<Entity>,
+    chips: Option<Chips>,
     /// The table's arrows at the first and the split hand.
     arrows: [Option<Entity>; 2],
-    chips_for: Option<u32>,
     player_spot: Vec3,
     dealer_spot: Vec3,
     materials: HashMap<(Entity, Card), Handle<NifMaterial>>,
@@ -223,7 +246,19 @@ fn show(
         return;
     }
     let now = time.elapsed_secs();
-    pose(s, now, &drawn, &mut transforms, &mut visibility);
+    for o in &s.others {
+        if !drawn.seats.contains_key(&o.place) {
+            if let Some(seat) = build_seat(&mut commands, o.place, &mut models, &drawn) {
+                drawn.seats.insert(o.place, seat);
+            }
+        }
+    }
+    pose(&drawn.models, &s.shown, s.discard.as_ref(), s.reveal, now, model_of, &mut transforms, &mut visibility);
+    for (place, seat) in &drawn.seats {
+        let o = s.others.iter().find(|o| o.place == *place);
+        let (shown, discard) = o.map_or((&[][..], None), |o| (o.shown.as_slice(), o.discard.as_ref()));
+        pose(&seat.models, shown, discard, None, now, hand_of, &mut transforms, &mut visibility);
+    }
     // The arrow at the hand being played, after a split.
     let split = s.table.hands.len() == 2 && s.table.phase == fnv_game::blackjack::Phase::Playing;
     for (i, a) in drawn.arrows.iter().enumerate() {
@@ -231,8 +266,64 @@ fn show(
             v.set_if_neq(if split && s.table.active == i { Visibility::Inherited } else { Visibility::Hidden });
         }
     }
-    faces(s, &mut drawn, &mut models, &mut mats);
-    chips(&mut commands, s, &mut drawn, &mut models);
+    let Drawn { models: main, seats, materials, chips: own_chips, player_spot, dealer_spot, .. } = &mut *drawn;
+    faces(s, main, &s.shown, s.discard.as_ref(), model_of, materials, &mut models, &mut mats);
+    if let Some(c) = own_chips {
+        chips(&mut commands, c, s.chips_shown(now), *player_spot, *dealer_spot, &mut models);
+    }
+    for (place, seat) in seats.iter_mut() {
+        let o = s.others.iter().find(|o| o.place == *place);
+        if let Some(o) = o {
+            faces(s, &mut seat.models, &o.shown, o.discard.as_ref(), hand_of, materials, &mut models, &mut mats);
+        }
+        chips(&mut commands, &mut seat.chips, o.map_or(0, |o| o.chips_shown(now)), *player_spot, *dealer_spot, &mut models);
+    }
+}
+
+/// A hand's card model at another seat (they have no dealer of their own).
+fn hand_of(seat: Seat) -> usize {
+    match seat {
+        Seat::Dealer => usize::MAX,
+        Seat::Hand(h) => h.min(1),
+    }
+}
+
+/// The turn from this player's seat to the one at `place`, about the dealer's first card,
+/// as a transform in the table's (Bevy-turned) space.
+fn seat_turn(place: i32, player: Vec3, dealer: Vec3) -> Transform {
+    let reach = Vec2::new(player.x - dealer.x, player.y - dealer.y).length().max(1.0);
+    let angle = 2.0 * (SEAT_GAP / (2.0 * reach)).min(1.0).asin() * place as f32;
+    let pivot = Vec3::new(dealer.x, dealer.y, 0.0);
+    let game = Mat4::from_translation(pivot) * Mat4::from_rotation_z(angle) * Mat4::from_translation(-pivot);
+    let to_bevy = Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+    Transform::from_matrix(to_bevy * game * to_bevy.inverse())
+}
+
+/// Another seat's hands and chips, at its place.
+fn build_seat(commands: &mut Commands, place: i32, models: &mut ModelCtx, drawn: &Drawn) -> Option<SeatDrawn> {
+    let holder = drawn.holder?;
+    let layer = RenderLayers::layer(TABLE_LAYER);
+    let to_bevy = Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2));
+    let turn = seat_turn(place, drawn.player_spot, drawn.dealer_spot);
+    let root = commands.spawn((Name::new(format!("Blackjack seat {place}")), turn, Visibility::Inherited)).id();
+    commands.entity(holder).add_child(root);
+    let mut hands = Vec::new();
+    for (path, prefix) in [(HAND_MODELS[0], "Hand1"), (HAND_MODELS[1], "Hand2")] {
+        let rig = models.model(path)?.rig.clone()?;
+        let (_, shapes, by_name) = rig.spawn_nodes(commands, root, to_bevy, path, 0.0);
+        for e in &shapes {
+            commands.entity(*e).insert(layer.clone());
+        }
+        let m = CardModel::new(rig, prefix, &by_name, &shapes)?;
+        for c in &m.cards {
+            commands.entity(c.entity).insert(Visibility::Hidden);
+        }
+        hands.push(m);
+    }
+    let chips_root = commands.spawn((Transform::default(), Visibility::Inherited)).id();
+    commands.entity(root).add_child(chips_root);
+    info!("blackjack view: a seat for another player at place {place}");
+    Some(SeatDrawn { models: hands, chips: Chips { root: chips_root, count: None } })
 }
 
 /// Spawn the table, the card models, the camera and the lights.
@@ -339,32 +430,44 @@ fn build(commands: &mut Commands, s: &Session, models: &mut ModelCtx, window: &Q
     commands.entity(holder).add_child(chips_root);
     drawn.entities = vec![holder, camera, key, fill];
     drawn.models = card_models;
+    drawn.holder = Some(holder);
     drawn.player_spot = player_spot;
     drawn.dealer_spot = dealer_spot;
-    drawn.chips_root = Some(chips_root);
+    drawn.chips = Some(Chips { root: chips_root, count: None });
     drawn.arrows = arrows;
     commands.insert_resource(BlackjackView { image });
     info!("blackjack view: the table built for {} ({table_path}, {shapes_total} shapes); first cards land at {player_spot:?} (player) and {dealer_spot:?} (dealer)", s.def.name);
     true
 }
 
-/// Each card on the table posed by its sequence; the others hidden.
-fn pose(s: &Session, now: f32, drawn: &Drawn, transforms: &mut Query<&mut Transform>, visibility: &mut Query<&mut Visibility>) {
+/// Each card on the table posed by its sequence; the others hidden. `slot` says which of
+/// `models` a seat's cards are (beyond them: not drawn here).
+#[allow(clippy::too_many_arguments)]
+fn pose(
+    models: &[CardModel],
+    shown: &[Shown],
+    discard: Option<&(f32, Vec<Shown>)>,
+    reveal: Option<f32>,
+    now: f32,
+    slot: fn(Seat) -> usize,
+    transforms: &mut Query<&mut Transform>,
+    visibility: &mut Query<&mut Visibility>,
+) {
     let mut on_table: [[Option<Place>; 7]; 3] = [[None; 7]; 3];
     // The last round's cards: their discard sequence.
-    if let Some((since, cards)) = &s.discard {
+    if let Some((since, cards)) = discard {
         for c in cards {
-            if c.index < 7 {
-                on_table[model_of(c.seat)][c.index] = Some((-1.0, Some(now - since)));
+            if let Some(m) = on_table.get_mut(slot(c.seat)).filter(|_| c.index < 7) {
+                m[c.index] = Some((-1.0, Some(now - since)));
             }
         }
     }
-    for c in &s.shown {
-        if c.index < 7 && now >= c.since {
-            on_table[model_of(c.seat)][c.index] = Some((now - c.since, None));
+    for c in shown {
+        if let Some(m) = on_table.get_mut(slot(c.seat)).filter(|_| c.index < 7 && now >= c.since) {
+            m[c.index] = Some((now - c.since, None));
         }
     }
-    for (m, slots) in drawn.models.iter().zip(&on_table) {
+    for (m, slots) in models.iter().zip(&on_table) {
         for (k, (card, at)) in m.cards.iter().zip(slots).enumerate() {
             let shown = at.is_some();
             if let Ok(mut v) = visibility.get_mut(card.entity) {
@@ -376,9 +479,9 @@ fn pose(s: &Session, now: f32, drawn: &Drawn, transforms: &mut Query<&mut Transf
                     let clip = m.clip(&format!("{}_Discard", m.prefix));
                     sampled(&m.rig, clip, card.node, clip_time(clip, t))
                 }
-                None if m.prefix == "Dealer" && k == 1 && s.reveal.is_some_and(|r| now >= r) => {
+                None if m.prefix == "Dealer" && k == 1 && reveal.is_some_and(|r| now >= r) => {
                     let clip = m.clip("Dealer_Reveal");
-                    sampled(&m.rig, clip, card.node, clip_time(clip, now - s.reveal.unwrap_or(now)))
+                    sampled(&m.rig, clip, card.node, clip_time(clip, now - reveal.unwrap_or(now)))
                 }
                 None => {
                     let clip = m.clip(&format!("{}_{:02}", m.prefix, k + 1));
@@ -393,17 +496,23 @@ fn pose(s: &Session, now: f32, drawn: &Drawn, transforms: &mut Query<&mut Transf
 }
 
 /// Each card's face picture: the card it shows now.
-fn faces(s: &Session, drawn: &mut Drawn, models: &mut ModelCtx, mats: &mut Query<&mut MeshMaterial3d<NifMaterial>>) {
+#[allow(clippy::too_many_arguments)]
+fn faces(
+    s: &Session,
+    card_models: &mut [CardModel],
+    shown: &[Shown],
+    discard: Option<&(f32, Vec<Shown>)>,
+    slot: fn(Seat) -> usize,
+    materials: &mut HashMap<(Entity, Card), Handle<NifMaterial>>,
+    models: &mut ModelCtx,
+    mats: &mut Query<&mut MeshMaterial3d<NifMaterial>>,
+) {
     let mut want: [[Option<Card>; 7]; 3] = [[None; 7]; 3];
-    if let Some((_, cards)) = &s.discard {
-        for c in cards.iter().filter(|c| c.index < 7) {
-            want[model_of(c.seat)][c.index] = Some(c.card);
+    for c in discard.map(|d| d.1.as_slice()).unwrap_or_default().iter().chain(shown) {
+        if let Some(m) = want.get_mut(slot(c.seat)).filter(|_| c.index < 7) {
+            m[c.index] = Some(c.card);
         }
     }
-    for c in s.shown.iter().filter(|c: &&Shown| c.index < 7) {
-        want[model_of(c.seat)][c.index] = Some(c.card);
-    }
-    let Drawn { models: card_models, materials, .. } = drawn;
     for (m, want) in card_models.iter_mut().zip(want) {
         for (slot, card) in m.cards.iter_mut().zip(want) {
             let Some(card) = card else { continue };
@@ -434,16 +543,15 @@ fn faces(s: &Session, drawn: &mut Drawn, models: &mut ModelCtx, mats: &mut Query
     }
 }
 
-/// The chips staked, in stacks by value in front of the player's cards.
-fn chips(commands: &mut Commands, s: &Session, drawn: &mut Drawn, models: &mut ModelCtx) {
-    let staked = if s.betting() { s.bet } else { s.table.staked() };
-    if drawn.chips_for == Some(staked) {
+/// A seat's chips on the table, in stacks by value in front of its cards.
+fn chips(commands: &mut Commands, c: &mut Chips, staked: u32, player_spot: Vec3, dealer_spot: Vec3, models: &mut ModelCtx) {
+    if c.count == Some(staked) {
         return;
     }
-    drawn.chips_for = Some(staked);
-    let Some(root) = drawn.chips_root else { return };
+    c.count = Some(staked);
+    let root = c.root;
     commands.entity(root).despawn_related::<Children>();
-    let towards_player = Vec3::new(drawn.player_spot.x - drawn.dealer_spot.x, drawn.player_spot.y - drawn.dealer_spot.y, 0.0).normalize_or(Vec3::NEG_X);
+    let towards_player = Vec3::new(player_spot.x - dealer_spot.x, player_spot.y - dealer_spot.y, 0.0).normalize_or(Vec3::NEG_X);
     // Stacks side by side across the player's view, away from the cards.
     let side = Vec3::Z.cross(towards_player);
     let layer = RenderLayers::layer(TABLE_LAYER);
@@ -458,8 +566,8 @@ fn chips(commands: &mut Commands, s: &Session, drawn: &mut Drawn, models: &mut M
             n -= here;
             for i in 0..here {
                 let Some((lo, hi)) = model.bounds else { continue };
-                let felt = drawn.player_spot.z - FELT_BELOW_CARDS;
-                let p = BET_SPOT.extend(felt) + side * stack + Vec3::Z * (i as f32 * CHIP_THICK);
+                let felt = player_spot.z - FELT_BELOW_CARDS;
+                let p = Vec3::new(player_spot.x, player_spot.y, felt) + towards_player * BET_FORWARD + side * (stack - BET_LEFT) + Vec3::Z * (i as f32 * CHIP_THICK);
                 let centre = Vec3::new((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0, lo.z);
                 let squeeze = CHIP_THICK / (hi.z - lo.z).max(0.01);
                 // In the game's space: the model's foot centre to the origin, squeezed, then
