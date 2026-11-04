@@ -450,6 +450,7 @@ fn grab_cursor(
     (intro, view, creator): (Option<Res<crate::intro::Intro>>, Option<Res<ViewDriven>>, Option<Res<crate::creator::CreatorMenu>>),
     mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut wanted_before: Local<Option<(bool, bool)>>,
+    live: Option<Res<crate::menu::LiveMenu>>,
 ) {
     let Ok((window, mut cursor)) = windows.single_mut() else { return };
     let driven = d.auto_walk > 0.0 || unattended.is_some_and(|u| u.0);
@@ -458,7 +459,9 @@ fn grab_cursor(
     // kept through a loading screen: the player is back in the world after it.
     // And while the console's free camera flies, also when it holds the world.
     let creating = creator.is_some_and(|c| c.is_open());
-    let playing = !creating && (matches!(*state.get(), PlayState::Playing | PlayState::Loading) || look.is_some_and(|l| l.0) || free_cam.is_some_and(|f| f.active));
+    // The Pip-Boy open live in co-op (`crate::menu::LiveMenu`) shows the pointer as a menu does.
+    let live_menu = live.is_some_and(|l| l.open);
+    let playing = !creating && !live_menu && (matches!(*state.get(), PlayState::Playing | PlayState::Loading) || look.is_some_and(|l| l.0) || free_cam.is_some_and(|f| f.active));
     let film = intro.as_ref().is_some_and(|i| i.is_playing());
     let scene = view.is_some_and(|v| v.0) && *state.get() != PlayState::Menu && !boxed && !creating;
     let wanted = creating || ((!playing || boxed) && !film && !scene);
@@ -738,11 +741,12 @@ fn mouse_look(
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
     assist: Option<Res<crate::aim_assist::AimAssistState>>,
+    hold: Option<Res<crate::bindings::ControlHold>>,
 ) {
     // The console's free camera takes the mouse (`crate::free_cam`), and so does the
     // weapon wheel while it is open (`crate::weapon_wheel`); a playing kill camera holds
-    // it (`crate::kill_cam`).
-    if driven.is_some_and(|d| d.0) || free_cam.is_some_and(|f| f.on) || control.wheel || kill_cam.is_some_and(|k| k.active()) {
+    // it (`crate::kill_cam`), and so does the Pip-Boy open live in co-op (`crate::menu::LiveMenu`).
+    if driven.is_some_and(|d| d.0) || free_cam.is_some_and(|f| f.on) || control.wheel || kill_cam.is_some_and(|k| k.active()) || hold.is_some_and(|h| h.all) {
         return;
     }
     let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);

@@ -230,7 +230,7 @@ fn input(
     }
     for a in aids {
         if let Some(file) = a.strip_prefix("shot=") {
-            commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk(file.to_string()));
+            commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk(std::path::PathBuf::from(file)));
         } else if let Some(code) = a.strip_prefix("code=") {
             if screen.mode.is_none() {
                 screen.open(Mode::Join);

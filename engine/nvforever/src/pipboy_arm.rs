@@ -125,9 +125,12 @@ pub(crate) fn show_screen(
     mut materials: ResMut<Assets<NifMaterial>>,
     mut swapped: Local<Swapped>,
     hovered: Res<Hovered>,
+    glance: Option<Res<nvf_play::pipboy::glance::Glance>>,
 ) {
     let Some(mut screen) = screen else { return };
-    let shown = pip.on_arm() && body.first_person_drawn();
+    // The glance (`nvf_play::pipboy::glance`) draws on the same screen.
+    let glancing = glance.is_some_and(|g| g.shown());
+    let shown = (pip.on_arm() || glancing) && body.first_person_drawn();
     let model_screen = parts.iter().find(|(_, p, _)| **p == PipBoyPart::Screen).map(|(e, _, m)| (e, m.0.clone()));
     // Give back the screen's own material when the menus leave it (or the rig was rebuilt).
     if let Some((e, own)) = swapped.screen.clone() {

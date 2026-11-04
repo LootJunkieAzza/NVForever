@@ -86,13 +86,17 @@ pub enum Control {
     Grab,
     /// Lower or raise the drawn weapon by hand (NVForever's own; not in the game's INI).
     LowerWeapon,
+    /// Raise the Pip-Boy for a glance while walking on (NVForever's own;
+    /// `crate::pipboy::glance`).
+    PipBoyGlance,
 }
 
 /// `[Controls]` of the owner's `FalloutPrefs.ini`: (control, INI name, value)
 /// [observed 2026-10-09], then NVForever's own controls (after [`GAME_INI_CONTROLS`],
 /// coded the same way): Lower Weapon on H [design: the owner 2026-10-27, moved off Ready
-/// Item tapped twice so a reload is not held back waiting for a second tap].
-pub const GAME_CONTROLS: [(Control, &str, u32); 29] = [
+/// Item tapped twice so a reload is not held back waiting for a second tap], Pip-Boy
+/// Glance on G [design: the real-time Pip-Boy, 2026-11-03].
+pub const GAME_CONTROLS: [(Control, &str, u32); 30] = [
     (Control::Forward, "Forward", 0x0011FF13),
     (Control::Back, "Back", 0x001FFF14),
     (Control::SlideLeft, "Slide Left", 0x001EFF17),
@@ -122,6 +126,7 @@ pub const GAME_CONTROLS: [(Control, &str, u32); 29] = [
     (Control::QuickLoad, "QuickLoad", 0x0043FFFF),
     (Control::Grab, "Grab", 0x002CFF09),
     (Control::LowerWeapon, "Lower Weapon", 0x0023FFFF),
+    (Control::PipBoyGlance, "Pip-Boy Glance", 0x0022FFFF),
 ];
 
 /// How many of [`GAME_CONTROLS`] are the game's own (the extender's control codes 0–27).
@@ -469,6 +474,7 @@ pub fn label(c: Control) -> &'static str {
         QuickLoad => "Quick Load",
         Grab => "Grab",
         LowerWeapon => "Lower Weapon",
+        PipBoyGlance => "Pip-Boy Glance",
     }
 }
 
@@ -842,6 +848,26 @@ pub struct ControlInput<'w, 's> {
     pub blocked: Option<Res<'w, crate::script_input::ScriptBlocked>>,
     /// A playing kill camera holds the gameplay controls (`crate::kill_cam`).
     pub kill_cam: Option<Res<'w, crate::kill_cam::KillCam>>,
+    /// The real-time Pip-Boy's hold on the controls ([`ControlHold`]).
+    pub hold: Option<Res<'w, ControlHold>>,
+}
+
+/// What the real-time Pip-Boy holds back from the game's controls (`crate::pipboy::glance`):
+/// all of them while the full Pip-Boy is open with the world running on in co-op
+/// (`crate::menu::LiveMenu`: its keys are the menu's), and while the glance is up on a
+/// controller the buttons the wrist inventory takes (the D-pad, X and Y).
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ControlHold {
+    pub all: bool,
+    pub glance_pad: bool,
+}
+
+impl ControlHold {
+    /// Whether `c` is held back now; `controller` says a controller works the controls.
+    pub fn holds(&self, c: Control, controller: bool) -> bool {
+        use Control::*;
+        self.all || (self.glance_pad && controller && matches!(c, Hotkey1 | AmmoSwap | Hotkey3 | Hotkey4 | ReadyItem | Jump))
+    }
 }
 
 /// How a controller input is asked about.
@@ -861,7 +887,8 @@ impl ControlInput<'_, '_> {
     /// A playing kill camera holds `c`: every control but those that open a menu or
     /// save, so the game can still be paused or left (`crate::kill_cam`, module notes).
     pub fn held(&self, c: Control) -> bool {
-        self.kill_cam.as_ref().is_some_and(|k| k.active()) && !matches!(c, Control::MenuMode | Control::Rest | Control::QuickSave | Control::QuickLoad)
+        (self.kill_cam.as_ref().is_some_and(|k| k.active()) && !matches!(c, Control::MenuMode | Control::Rest | Control::QuickSave | Control::QuickLoad))
+            || self.hold.as_ref().is_some_and(|h| h.holds(c, self.controller()))
     }
 
     /// A controller works the controls.
@@ -941,6 +968,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn pipboy_hold() {
+        let none = ControlHold::default();
+        assert!(!none.holds(Control::Forward, false) && !none.holds(Control::Hotkey1, true));
+        let all = ControlHold { all: true, glance_pad: false };
+        assert!(all.holds(Control::Forward, false) && all.holds(Control::MenuMode, true));
+        let pad = ControlHold { all: false, glance_pad: true };
+        assert!(pad.holds(Control::Hotkey1, true) && pad.holds(Control::Jump, true));
+        assert!(!pad.holds(Control::Hotkey1, false), "the keyboard keeps its hotkeys");
+        assert!(!pad.holds(Control::Forward, true), "the glance walks on");
+    }
+
+    #[test]
     fn ini_values_decode() {
         let b = Bindings::game_defaults();
         assert_eq!(b.get(Control::Forward), Binding { key: Some(KeyCode::KeyW), mouse: None });
@@ -954,6 +993,7 @@ mod tests {
         assert_eq!(b.get(Control::AmmoSwap).key, Some(KeyCode::Digit2));
         assert_eq!(b.get(Control::QuickLoad).key, Some(KeyCode::F9));
         assert_eq!(b.get(Control::LowerWeapon).key, Some(KeyCode::KeyH));
+        assert_eq!(b.get(Control::PipBoyGlance).key, Some(KeyCode::KeyG));
         assert_eq!(Bindings::name(Control::Rest), "Rest");
         // Every control has a key or a button.
         for (c, _, _) in GAME_CONTROLS {
