@@ -38,6 +38,8 @@
 //!   inventory at the start (`World::add_item`), e.g. something to drop.
 //! - `NVF_PLAY_TEST_EQUIP=<item FormID hex>[,...]` gives the player one of each item
 //!   unless carried, and equips it (`World::equip`; a weapon for the player body to draw).
+//! - `NVF_PLAY_TEST_USE=<seconds>:<item FormID hex>[,...]` uses a carried item at each
+//!   time as its hotkey would (an aid item is used up, `crate::ItemUsed`).
 //! - `NVF_PLAY_TEST_MOVE=<seconds>:<forward>:<right>[:walk][,...]` holds the movement keys
 //!   from each time on: `forward` and `right` in −1..1 (W/S, D/A), `walk` as Shift held;
 //!   `<seconds>:0:0` stops.
@@ -393,6 +395,8 @@ struct Aids {
     /// The movement keys held since the last `moves` entry fired.
     held: Option<MoveIntent>,
     presses: Vec<(f32, Press)>,
+    /// `NVF_PLAY_TEST_USE`: items used as their hotkey would.
+    uses: Vec<(f32, FormId)>,
     /// Block held by the `aim` press (kept every frame: the real button's state is read
     /// each frame).
     aim_held: Option<bool>,
@@ -481,12 +485,15 @@ pub(crate) fn setup(app: &mut App) {
             Err(e) => warn!("NVF_PLAY_TEST_CONTROL: {e}"),
         }
     }
-    if aids.shots.is_empty() && aids.face.is_empty() && aids.looks.is_empty() && aids.gotos.is_empty() && aids.moves.is_empty() && aids.presses.is_empty() {
+    if let Some(v) = var("NVF_PLAY_TEST_USE") {
+        aids.uses = faces(&v);
+    }
+    if aids.uses.is_empty() && aids.shots.is_empty() && aids.face.is_empty() && aids.looks.is_empty() && aids.gotos.is_empty() && aids.moves.is_empty() && aids.presses.is_empty() {
         return;
     }
     app.insert_resource(aids).add_systems(
         Update,
-        (take_shots, face_reference, goto_and_look, keys_and_controls).chain().in_set(PlaySet::Input).after(crate::control::read_controls),
+        (take_shots, face_reference, goto_and_look, keys_and_controls, use_items).chain().in_set(PlaySet::Input).after(crate::control::read_controls),
     );
 }
 
@@ -637,6 +644,18 @@ fn aim_at_nearest_corpse(phys: &PhysState, player: &mut Player, cross: Option<&C
     };
     (player.heading, player.pitch) = Crosshair::aim_at(cross, eye, c);
     info!("test aid: aiming at the corpse of {id:08X} ({:.0} units away, at ({:.0}, {:.0}, {:.0}))", d2(c).sqrt(), c[0], c[1], c[2]);
+}
+
+fn use_items(time: crate::pause::AidTime, mut aids: ResMut<Aids>, mut sim: ResMut<SimState>, mut used: MessageWriter<crate::ItemUsed>) {
+    let Some(now) = time.world_secs() else { return };
+    for item in take_due(&mut aids.uses, now) {
+        let slot = crate::hotkeys::Slot { item: item.0, mods: 0 };
+        let r = crate::hotkeys::use_slot(&mut sim.world, Some(slot));
+        info!("test aid: use {item}: {}", r.describe("the item"));
+        if let crate::hotkeys::Used::UsedUp(i) = r {
+            used.write(crate::ItemUsed { item: i.0, limb: None });
+        }
+    }
 }
 
 fn take_shots(time: crate::pause::AidTime, mut aids: ResMut<Aids>, mut commands: Commands) {
