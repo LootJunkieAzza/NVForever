@@ -79,6 +79,7 @@ pub mod companion_wheel;
 pub mod caravan;
 pub mod challenges;
 pub mod poker;
+pub mod poker_tables;
 pub mod menu;
 pub mod mines;
 pub mod thrown;

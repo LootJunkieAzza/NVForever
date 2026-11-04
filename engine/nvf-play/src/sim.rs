@@ -74,6 +74,10 @@ impl SimState {
         if let Some(n) = game.and_then(|g| g.coop_actors.get(&FormId(form_id))) {
             return Some(n);
         }
+        // NVForever's poker tables (blackjack tables in the plugins).
+        if crate::poker_tables::is_poker_table(self, FormId(form_id)) {
+            return Some(crate::poker_tables::NAME);
+        }
         let base = self.base_of(form_id)?;
         let shown = game.map_or(base, |g| g.display_base(base, FormId(form_id)));
         let renamed = game.and_then(|g| g.script_name(base).or_else(|| g.script_name(shown)));

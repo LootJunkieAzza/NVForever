@@ -140,13 +140,16 @@ impl Casino {
 #[derive(Message, Clone, Copy, Debug)]
 pub struct OpenPoker {
     pub casino: Casino,
+    /// The poker table in the world it was opened at (`crate::poker_tables`), if any.
+    pub table: Option<FormId>,
 }
 
 /// The table's picture, drawn by the engine while it is open; `anchors`: where each seat's
 /// label goes, as fractions of the view from its top left (the engine projects the seats).
+/// No picture: the table stands at a table in the world, seen by the game's own camera.
 #[derive(Resource, Clone, Debug)]
 pub struct PokerView {
-    pub image: Handle<Image>,
+    pub image: Option<Handle<Image>>,
     pub anchors: Vec<Vec2>,
 }
 
@@ -182,6 +185,9 @@ pub struct Session {
     /// In co-op: this table's owner and the people at it, or the owner's table this player
     /// sits at.
     pub coop: Option<Coop>,
+    /// The poker table in the world this was opened at (`crate::poker_tables`): the engine
+    /// draws the table there, the room around it.
+    pub table_ref: Option<FormId>,
 }
 
 /// A co-op table's side (`coop`).
@@ -426,7 +432,7 @@ fn run_aid(time: AidTime, mut aid: ResMut<PokerAid>, mut sim: ResMut<SimState>, 
         info!("test aid NVF_PLAY_TEST_POKER: {step:?}");
         match step {
             AidStep::Open(casino) => {
-                open.write(OpenPoker { casino });
+                open.write(OpenPoker { casino, table: None });
             }
             AidStep::Seed(s) => aid.seed = Some(s),
             AidStep::Caps(n) => {
@@ -518,6 +524,7 @@ fn open(
             s.next_hand = None;
             s.status = Some(format!("Waiting for a seat at {}'s table", t.name(v.owner)));
             s.coop = Some(Coop::Guest(Guest { owner: v.owner, me, seat: None, legal: None, heard: now, asked: f32::NEG_INFINITY, sent: None }));
+            s.table_ref = asked.table;
             screen.0 = Some(s);
             next.set(PlayState::Menu);
             return;
@@ -539,6 +546,7 @@ fn open(
     );
     stats.opened += 1;
     let mut s = new_session(table, asked.casino, buy_in, now);
+    s.table_ref = asked.table;
     if let Some(t) = tables.as_deref().filter(|t| t.on) {
         s.coop = Some(Coop::Owner { me: t.me.unwrap_or(0), humans: Vec::new(), waiting: Vec::new() });
     }
@@ -565,6 +573,7 @@ fn new_session(table: Table, casino: Casino, buy_in: u32, now: f32) -> Session {
         hands: 0,
         won: 0,
         coop: None,
+        table_ref: None,
     }
 }
 

@@ -135,6 +135,10 @@ const EMPTY: &str = "[Empty]";
 
 /// The XATO Activation Prompt of reference `form_id`, else of its base (an ACTI).
 pub fn activation_prompt(sim: &SimState, form_id: u32) -> Option<String> {
+    // NVForever's poker tables are blackjack tables in the plugins (`crate::poker_tables`).
+    if crate::poker_tables::is_poker_table(sim, fnv_sim::FormId(form_id)) {
+        return Some("Play Poker".into());
+    }
     let own = sim.refs.get(fnv_sim::FormId(form_id)).and_then(|r| r.prompt.clone());
     own.or_else(|| sim.base_of(form_id).and_then(|b| sim.forms.get(b)).and_then(|b| b.prompt.clone()))
 }
@@ -152,7 +156,10 @@ impl Prompt {
     }
 
     pub fn of(t: &Targeted, sim: &SimState) -> Prompt {
-        let (mut action, name) = outcome::prompt(&t.name, &t.action);
+        let (mut action, mut name) = outcome::prompt(&t.name, &t.action);
+        if crate::poker_tables::is_poker_table(sim, fnv_sim::FormId(t.form_id)) {
+            name = crate::poker_tables::NAME.into();
+        }
         // An owned item is stolen, not taken [hypothesis: the game's word; owner's
         // playtest list 2 of 2026-10-12].
         if t.crime && matches!(t.action, Action::Take { .. }) {

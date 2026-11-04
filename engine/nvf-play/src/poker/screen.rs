@@ -185,10 +185,12 @@ fn spawn(commands: &mut Commands, c: &Ctx, s: &Session, view: Option<&PokerView>
     let bright = amber(255.0);
     let soft = amber(SOFT);
     let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
-    let mut root = commands.spawn((PokerRoot, full.clone(), GlobalZIndex(106), BackgroundColor(Color::BLACK)));
-    if let Some(v) = view {
+    // At a table in the world (no picture) the room shows through.
+    let in_world = view.is_some_and(|v| v.image.is_none());
+    let mut root = commands.spawn((PokerRoot, full.clone(), GlobalZIndex(106), BackgroundColor(if in_world { Color::NONE } else { Color::BLACK })));
+    if let Some(image) = view.and_then(|v| v.image.clone()) {
         root.with_children(|r| {
-            r.spawn((full.clone(), ImageNode::new(v.image.clone())));
+            r.spawn((full.clone(), ImageNode::new(image)));
         });
     }
     let t = &s.table;
