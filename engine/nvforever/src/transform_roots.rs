@@ -11,7 +11,12 @@
 //!
 //! - `transform roots:` the roots with children and those without (the second are not
 //!   propagation's, `sync_simple_transforms` has them); `dirty_roots`, those whose tree has
-//!   `TransformTreeChanged` this frame; `root_kinds=<kind>:<roots>/<dirty>,…`; `World`'s
+//!   `TransformTreeChanged` this frame; `root_kinds=<kind>:<roots>/<dirty>,…` (`world` for
+//!   `World` as a root, `world_parent` for the root above it); `world_depth`, the ancestors
+//!   `World` has, and `world_parent_children`, what the root above it holds;
+//!   `world_global_changed_frames`, frames `World`'s `GlobalTransform` changed, and
+//!   `world_off_local_frames`, those it was not `World`'s local matrix, which particles read
+//!   as the conversion. `World` is found by its marker, a root or not. `World`'s
 //!   direct children, and those with a dirty subtree, in all and by kind (`cell`; `ref`, a
 //!   `RefVisual`, as actors; `mesh`, as LOD; `other`); `no_dirty_cell_frames`, frames in which
 //!   `World` was dirty with no cell dirty: nothing marked in a cell. A mark is a `Transform`
@@ -19,9 +24,10 @@
 //! - `transform walk:` `examined` and `recomputed` (below); `gt_changed`, `GlobalTransform`s
 //!   changed, every one in the world; `marked`, `TransformTreeChanged`s set; `written`,
 //!   `Transform`s changed, and `written_same`, those whose `GlobalTransform` did not change;
-//!   `stable_root_examined` and `stable_root_recomputed`, the same two with a root that does
-//!   not change above `World` (below); `collection_ms`, the time spent counting in `count`,
-//!   without what summing, formatting and logging the numbers take: not all this aid costs.
+//!   `stable_root_examined` and `stable_root_recomputed`, the same two with `World` under a
+//!   parent that does not change, and `world_root_examined` and `world_root_recomputed`, with
+//!   `World` a root (below); `collection_ms`, the time spent counting in `count`, without what
+//!   summing, formatting and logging the numbers take: not all this aid costs.
 //! - `transform census:` a sample on a window's first frame and on the summary's first,
 //!   walking whole subtrees: `gt_total`, `under_world`, `under_dirty` (under `World`'s direct
 //!   children with a dirty subtree), each with its `most_`.
@@ -44,13 +50,19 @@
 //!   `recomputed` (a multiply and `set_if_neq`, :718), and their children are reached even if
 //!   the value came out the same.
 //!
-//! So `World`, a root, is changed in every frame anything under it moves, and that costs each
+//! So `World` as a root is changed in every frame anything under it moves, and that costs each
 //! clean direct child a multiply and each of *its* children a test; below them a clean
 //! subtree stops, as `set_if_neq` left the value alone. That is all a root above `World`
-//! would save, and the `stable_root_` numbers take exactly that away (and add `World` itself,
-//! then recomputed): with `World` unchanged, a clean direct child stops at its test. The
-//! change ticks read here run from this system's last run, not Bevy's. Only a change applied
-//! between Bevy's system and this one can make them differ, by a frame [design].
+//! saves, and the `stable_root_` numbers take exactly that away (and add `World` itself,
+//! then recomputed): with `World` unchanged, a clean direct child stops at its test.
+//!
+//! `stable_root_` and `world_root_` are worked out from `World`'s children, whatever is above
+//! it, so each run gives both arrangements: `world_depth` says which is the game's, whose two
+//! numbers are then `examined` and `recomputed` (with `World`'s global unchanged), and the
+//! other pair is the model's guess at the arrangement this run is not in.
+//!
+//! The change ticks read here run from this system's last run, not Bevy's. Only a change
+//! applied between Bevy's system and this one can make them differ, by a frame [design].
 
 use bevy::prelude::*;
 use bevy::transform::components::TransformTreeChanged;
@@ -86,7 +98,12 @@ type NodeData = (Ref<'static, TransformTreeChanged>, Ref<'static, GlobalTransfor
 /// As Bevy's: what has a `Transform` and a parent.
 type Nodes<'w, 's> = Query<'w, 's, NodeData, (With<Transform>, With<ChildOf>)>;
 type RootKind = (Has<WorldRoot>, Has<Camera>, Has<DirectionalLight>, Has<PointLight>, Has<SpotLight>, Has<Mesh3d>, Option<&'static Name>);
-type Roots<'w, 's> = Query<'w, 's, (Ref<'static, TransformTreeChanged>, Option<&'static Children>, RootKind), (With<Transform>, Without<ChildOf>)>;
+type Roots<'w, 's> = Query<'w, 's, (Entity, Ref<'static, TransformTreeChanged>, Option<&'static Children>, RootKind), (With<Transform>, Without<ChildOf>)>;
+/// `World`, a root or not, and what finds its ancestors.
+type WorldNode<'w, 's> = (
+    Query<'w, 's, (Entity, Ref<'static, TransformTreeChanged>, Ref<'static, GlobalTransform>, &'static Transform, Option<&'static Children>), With<WorldRoot>>,
+    Query<'w, 's, &'static ChildOf>,
+);
 /// Each counted by iterating it: with a `GlobalTransform`, those changed, the markers set,
 /// and the `Transform`s written with their `GlobalTransform`.
 type Counts<'w, 's> = (
@@ -101,6 +118,13 @@ type Counts<'w, 's> = (
 struct Walk {
     examined: u64,
     recomputed: u64,
+}
+
+impl Walk {
+    fn add(&mut self, other: Walk) {
+        self.examined += other.examined;
+        self.recomputed += other.recomputed;
+    }
 }
 
 /// The children of a reached node. `parent_changed`: its `GlobalTransform` changed.
@@ -150,8 +174,15 @@ struct Tally {
     world_children: [u64; CHILD_KINDS.len()],
     dirty_world_children: [u64; CHILD_KINDS.len()],
     walk: Walk,
-    /// `walk` as it would be with a root that does not change above `World`.
+    /// `walk` with a parent that does not change above `World`.
     stable: Walk,
+    /// `walk` with `World` a root.
+    as_root: Walk,
+    /// `World`'s ancestors, and what the root above it holds.
+    world_depth: u64,
+    world_parent_children: u64,
+    world_global_changed_frames: u64,
+    world_off_local_frames: u64,
     gt_changed: u64,
     marked: u64,
     written: u64,
@@ -185,10 +216,13 @@ impl Tally {
             self.world_children[i] += other.world_children[i];
             self.dirty_world_children[i] += other.dirty_world_children[i];
         }
-        self.walk.examined += other.walk.examined;
-        self.walk.recomputed += other.walk.recomputed;
-        self.stable.examined += other.stable.examined;
-        self.stable.recomputed += other.stable.recomputed;
+        self.walk.add(other.walk);
+        self.stable.add(other.stable);
+        self.as_root.add(other.as_root);
+        self.world_depth += other.world_depth;
+        self.world_parent_children += other.world_parent_children;
+        self.world_global_changed_frames += other.world_global_changed_frames;
+        self.world_off_local_frames += other.world_off_local_frames;
         self.gt_changed += other.gt_changed;
         self.marked += other.marked;
         self.written += other.written;
@@ -210,11 +244,18 @@ impl Tally {
         let per = |n: u64| n as f64 / frames;
         let by_kind = |n: &[u64; CHILD_KINDS.len()]| CHILD_KINDS.iter().zip(n).map(|(k, v)| format!("{k}:{:.2}", per(*v))).collect::<Vec<_>>().join("/");
         let samples = self.census_samples.max(1);
+        let world = format!(
+            "world_depth={:.2} world_parent_children={:.2} world_global_changed_frames={} world_off_local_frames={}",
+            per(self.world_depth),
+            per(self.world_parent_children),
+            self.world_global_changed_frames,
+            self.world_off_local_frames,
+        );
         if self.static_off_frames > 0 {
             let kinds: Vec<String> = self.root_kinds.iter().map(|(k, (r, _))| format!("{k}:{:.2}", per(*r))).collect();
             return [
                 format!(
-                    "transform roots{summary}: secs={secs:.2} frames={} left_out={left_out} static_optimization=0 static_off_frames={} model=not_applicable roots={:.2} childless_roots={:.2} root_kinds={} world_children={:.2} world_children_by_kind={}",
+                    "transform roots{summary}: secs={secs:.2} frames={} left_out={left_out} static_optimization=0 static_off_frames={} model=not_applicable roots={:.2} childless_roots={:.2} root_kinds={} {world} world_children={:.2} world_children_by_kind={}",
                     self.frames,
                     self.static_off_frames,
                     per(self.roots),
@@ -244,7 +285,7 @@ impl Tally {
         let kinds: Vec<String> = self.root_kinds.iter().map(|(k, (r, d))| format!("{k}:{:.2}/{:.2}", per(*r), per(*d))).collect();
         [
             format!(
-                "transform roots{summary}: secs={secs:.2} frames={} left_out={left_out} static_optimization=1 roots={:.2} childless_roots={:.2} dirty_roots={:.2} root_kinds={} world_dirty_frames={} no_dirty_cell_frames={} world_children={:.2} world_children_by_kind={} dirty_world_children={:.2} dirty_world_children_by_kind={}",
+                "transform roots{summary}: secs={secs:.2} frames={} left_out={left_out} static_optimization=1 roots={:.2} childless_roots={:.2} dirty_roots={:.2} root_kinds={} {world} world_dirty_frames={} no_dirty_cell_frames={} world_children={:.2} world_children_by_kind={} dirty_world_children={:.2} dirty_world_children_by_kind={}",
                 self.frames,
                 per(self.roots),
                 per(self.childless_roots),
@@ -258,7 +299,7 @@ impl Tally {
                 by_kind(&self.dirty_world_children),
             ),
             format!(
-                "transform walk{summary}: frames={} examined={:.1} recomputed={:.1} gt_changed={:.1} marked={:.1} written={:.1} written_same={:.1} stable_root_examined={:.1} stable_root_recomputed={:.1} collection_ms={:.3}",
+                "transform walk{summary}: frames={} examined={:.1} recomputed={:.1} gt_changed={:.1} marked={:.1} written={:.1} written_same={:.1} stable_root_examined={:.1} stable_root_recomputed={:.1} world_root_examined={:.1} world_root_recomputed={:.1} collection_ms={:.3}",
                 self.frames,
                 per(self.walk.examined),
                 per(self.walk.recomputed),
@@ -268,6 +309,8 @@ impl Tally {
                 per(self.written_same),
                 per(self.stable.examined),
                 per(self.stable.recomputed),
+                per(self.as_root.examined),
+                per(self.as_root.recomputed),
                 self.collection_ms / frames,
             ),
             format!(
@@ -310,10 +353,10 @@ fn count(
     mut log: ResMut<RootsLog>,
     roots: Roots,
     nodes: Nodes,
+    (world, ancestors): WorldNode,
     (with_global, changed_global, marked, written): Counts,
     statics: Res<StaticTransformOptimizations>,
-    streamer: Option<Res<Streamer>>,
-    loading: Option<Res<nvf_play::loading::Loading>>,
+    (streamer, loading): (Option<Res<Streamer>>, Option<Res<nvf_play::loading::Loading>>),
 ) {
     let t0 = Instant::now();
     let log = &mut *log;
@@ -323,7 +366,10 @@ fn count(
     // A census on a window's first frame, and on the summary's first: a loading screen can
     // hold a window's first frame, and the summary would have none until the next window's.
     let census = log.window.census_samples == 0 || (counted && log.run.census_samples == 0);
-    for (tree, children, kind) in &roots {
+    let world = world.iter().next();
+    // The root that has `World` in its tree: `World` itself, or the top of what is above it.
+    let world_top = world.as_ref().map(|(e, ..)| ancestors.iter_ancestors(*e).last().unwrap_or(*e));
+    for (root, tree, children, kind) in &roots {
         let Some(children) = children else {
             f.childless_roots += 1;
             continue;
@@ -331,65 +377,72 @@ fn count(
         f.roots += 1;
         let dirty = tree.is_changed();
         f.dirty_roots += u64::from(dirty);
-        let is_world = kind.0;
-        let e = f.root_kinds.entry(root_kind(kind)).or_default();
+        let holds_world = world_top == Some(root);
+        let above_world = holds_world && !kind.0;
+        if above_world {
+            f.world_parent_children += children.len() as u64;
+        }
+        let e = f.root_kinds.entry(if above_world { "world_parent".to_string() } else { root_kind(kind) }).or_default();
         e.0 += 1;
         e.1 += u64::from(dirty);
-        if !is_world {
-            if dirty {
-                let mut under = Walk::default();
-                walk(children, true, &nodes, &mut under);
-                f.walk.examined += under.examined;
-                f.walk.recomputed += under.recomputed;
-                f.stable.examined += under.examined;
-                f.stable.recomputed += under.recomputed;
-            }
-            continue;
-        }
-        f.world_dirty_frames += u64::from(dirty);
-        let mut any_dirty_cell = false;
-        for (tree, global, below, cell, reference, mesh) in nodes.iter_many(children).matched() {
-            let k = if cell {
-                0
-            } else if reference {
-                1
-            } else if mesh {
-                2
-            } else {
-                3
-            };
-            let child_dirty = tree.is_changed();
-            f.world_children[k] += 1;
-            f.dirty_world_children[k] += u64::from(child_dirty);
-            any_dirty_cell |= cell && child_dirty;
-            if census {
-                let size = 1 + below.map_or(0, |b| subtree_size(b, &nodes));
-                f.under_world += size;
-                f.under_dirty += if child_dirty { size } else { 0 };
-            }
-            if !dirty {
-                continue;
-            }
-            f.walk.examined += 1;
-            f.walk.recomputed += 1;
-            let mut under = Walk::default();
-            if let Some(below) = below {
-                walk(below, global.is_changed(), &nodes, &mut under);
-            }
-            f.walk.examined += under.examined;
-            f.walk.recomputed += under.recomputed;
-            // With `World` unchanged a clean child is examined and stops there.
-            f.stable.examined += 1;
-            if child_dirty {
-                f.stable.examined += under.examined;
-                f.stable.recomputed += 1 + under.recomputed;
-            }
-        }
         if dirty {
-            // `World` itself, then a child of the root above it.
-            f.stable.examined += 1;
-            f.stable.recomputed += 1;
-            f.no_dirty_cell_frames += u64::from(!any_dirty_cell);
+            let mut under = Walk::default();
+            walk(children, true, &nodes, &mut under);
+            f.walk.add(under);
+            if !holds_world {
+                f.stable.add(under);
+                f.as_root.add(under);
+            }
+        }
+    }
+    if let Some((entity, tree, global, local, children)) = world {
+        f.world_depth = ancestors.iter_ancestors(entity).count() as u64;
+        f.world_global_changed_frames = u64::from(global.is_changed());
+        f.world_off_local_frames = u64::from(GlobalTransform::from(*local) != *global);
+        if let Some(children) = children {
+            let dirty = tree.is_changed();
+            f.world_dirty_frames += u64::from(dirty);
+            let mut any_dirty_cell = false;
+            for (tree, global, below, cell, reference, mesh) in nodes.iter_many(children).matched() {
+                let k = if cell {
+                    0
+                } else if reference {
+                    1
+                } else if mesh {
+                    2
+                } else {
+                    3
+                };
+                let child_dirty = tree.is_changed();
+                f.world_children[k] += 1;
+                f.dirty_world_children[k] += u64::from(child_dirty);
+                any_dirty_cell |= cell && child_dirty;
+                if census {
+                    let size = 1 + below.map_or(0, |b| subtree_size(b, &nodes));
+                    f.under_world += size;
+                    f.under_dirty += if child_dirty { size } else { 0 };
+                }
+                if !dirty {
+                    continue;
+                }
+                let mut under = Walk::default();
+                if let Some(below) = below {
+                    walk(below, global.is_changed(), &nodes, &mut under);
+                }
+                // With `World` a root every child is recomputed.
+                f.as_root.add(Walk { examined: 1 + under.examined, recomputed: 1 + under.recomputed });
+                // With `World` unchanged a clean child is examined and stops there.
+                f.stable.examined += 1;
+                if child_dirty {
+                    f.stable.examined += under.examined;
+                    f.stable.recomputed += 1 + under.recomputed;
+                }
+            }
+            if dirty {
+                // `World` itself, then a child of the root above it.
+                f.stable.add(Walk { examined: 1, recomputed: 1 });
+                f.no_dirty_cell_frames += u64::from(!any_dirty_cell);
+            }
         }
     }
     f.gt_changed = changed_global.iter().count() as u64;
@@ -441,11 +494,24 @@ mod tests {
     /// ├ cell B ─ ref B1 ─ part, ref B2
     /// └ cell C, no children
     fn scene() -> (App, Entity) {
+        scene_with(None)
+    }
+
+    /// The same under the identity parent of `world::setup_root`.
+    fn under_parent() -> (App, Entity) {
+        scene_with(Some(Transform::IDENTITY))
+    }
+
+    fn scene_with(above: Option<Transform>) -> (App, Entity) {
         let mut app = App::new();
         app.add_plugins((TaskPoolPlugin::default(), TransformPlugin));
         app.insert_resource(RootsLog::new(1000.0)).add_systems(PostUpdate, count.after(TransformSystems::Propagate));
         let w = app.world_mut();
         let world = w.spawn((WorldRoot, Transform::from_rotation(Quat::from_rotation_x(1.0)))).id();
+        if let Some(above) = above {
+            let parent = w.spawn(above).id();
+            w.entity_mut(world).insert(ChildOf(parent));
+        }
         let cell_a = w.spawn((CellEntity, Transform::from_xyz(1.0, 0.0, 0.0), ChildOf(world))).id();
         let ref_a = w.spawn((RefVisual(1), Transform::default(), ChildOf(cell_a))).id();
         let leaf = w.spawn((Transform::default(), ChildOf(ref_a))).id();
@@ -496,7 +562,97 @@ mod tests {
         // A root above. Examined: World; cells A, B, C; ref A; the leaf. Recomputed: World,
         // cell A, ref A, the leaf.
         assert_eq!(t.stable, Walk { examined: 6, recomputed: 4 });
+        assert_eq!(t.as_root, t.walk, "World is a root, so that is the real walk");
         assert_eq!(t.under_dirty, 3);
+        assert_eq!((t.world_depth, t.world_parent_children, t.world_global_changed_frames, t.world_off_local_frames), (0, 0, 1, 0));
+    }
+
+    /// Trips if `World` stops being found under a parent: the root loop alone would count it as
+    /// an unknown kind, with no census, no direct children and `stable_root_` copying the walk.
+    #[test]
+    fn under_a_parent_a_still_tree_is_passed_by_and_world_is_still_counted() {
+        let (mut app, _) = under_parent();
+        let t = step(&mut app);
+        assert_eq!((t.roots, t.dirty_roots, t.world_dirty_frames), (1, 0, 0));
+        assert_eq!(t.root_kinds.get("world_parent"), Some(&(1, 0)));
+        assert_eq!(t.root_kinds.get("world"), None);
+        assert_eq!((t.walk, t.stable, t.as_root), (Walk::default(), Walk::default(), Walk::default()));
+        assert_eq!(t.gt_changed, 0);
+        assert_eq!(t.world_children, [3, 0, 0, 0]);
+        assert_eq!((t.gt_total, t.under_world, t.under_dirty), (10, 8, 0));
+        assert_eq!((t.world_depth, t.world_parent_children, t.world_global_changed_frames, t.world_off_local_frames), (1, 1, 0, 0));
+    }
+
+    #[test]
+    fn under_a_parent_one_moving_leaf_walks_what_the_model_said() {
+        let (mut app, leaf) = under_parent();
+        app.world_mut().get_mut::<Transform>(leaf).unwrap().translation.x += 1.0;
+        let t = step(&mut app);
+        assert_eq!((t.dirty_roots, t.world_dirty_frames, t.no_dirty_cell_frames), (1, 1, 0));
+        assert_eq!(t.root_kinds.get("world_parent"), Some(&(1, 1)));
+        assert_eq!(t.dirty_world_children, [1, 0, 0, 0]);
+        // Examined: World; cells A, B, C; ref A; the leaf. Recomputed: World, cell A, ref A,
+        // the leaf. From the root down and from `World`'s children, the same by now.
+        assert_eq!(t.walk, Walk { examined: 6, recomputed: 4 });
+        assert_eq!(t.stable, t.walk);
+        // What the other arrangement walks, as in `one_moving_leaf_counts_by_bevys_rule`.
+        assert_eq!(t.as_root, Walk { examined: 7, recomputed: 5 });
+        // The parent (assigned though the same) and the leaf: not `World`.
+        assert_eq!(t.gt_changed, 2);
+        // The leaf, ref A, cell A, World, the parent.
+        assert_eq!(t.marked, 5);
+        assert_eq!(t.under_dirty, 3);
+        assert_eq!((t.world_depth, t.world_parent_children, t.world_global_changed_frames, t.world_off_local_frames), (1, 1, 0, 0));
+    }
+
+    #[test]
+    fn under_a_parent_a_write_of_the_same_value_changes_only_the_parent() {
+        let (mut app, leaf) = under_parent();
+        app.world_mut().get_mut::<Transform>(leaf).unwrap().set_changed();
+        let t = step(&mut app);
+        assert_eq!((t.written, t.written_same), (1, 1));
+        assert_eq!(t.gt_changed, 1, "only the parent");
+        assert_eq!(t.world_global_changed_frames, 0);
+        assert_eq!(t.walk, Walk { examined: 6, recomputed: 4 });
+    }
+
+    /// Trips if a parent that moves goes unseen: `World`'s global would no longer be the
+    /// conversion particles read from its local.
+    #[test]
+    fn a_parent_that_moves_is_reported() {
+        let (mut app, _) = under_parent();
+        let w = app.world_mut();
+        let world = w.query_filtered::<Entity, With<WorldRoot>>().single(&*w).unwrap();
+        let parent = w.get::<ChildOf>(world).unwrap().parent();
+        w.get_mut::<Transform>(parent).unwrap().translation.x += 1.0;
+        let t = step(&mut app);
+        assert_eq!((t.world_global_changed_frames, t.world_off_local_frames), (1, 1));
+        // `World` and everything under it.
+        assert_eq!(t.walk, Walk { examined: 9, recomputed: 9 });
+        // Nothing under `World` is dirty, so its own numbers do not claim that walk.
+        assert_ne!(t.stable, t.walk);
+    }
+
+    /// Trips if the lines stop saying which arrangement they were counted in.
+    #[test]
+    fn the_lines_say_where_world_is() {
+        let (mut app, leaf) = under_parent();
+        app.world_mut().get_mut::<Transform>(leaf).unwrap().translation.x += 1.0;
+        let [roots, walk, census] = step(&mut app).lines("", 1.0, 0);
+        assert!(roots.contains("root_kinds=world_parent:1.00/1.00 world_depth=1.00 world_parent_children=1.00 world_global_changed_frames=0 world_off_local_frames=0 "), "{roots}");
+        assert!(walk.contains(" examined=6.0 recomputed=4.0 ") && walk.contains(" stable_root_examined=6.0 stable_root_recomputed=4.0 world_root_examined=7.0 world_root_recomputed=5.0 "), "{walk}");
+        assert!(census.contains(" under_world=8 "), "{census}");
+
+        let (mut app, _) = scene();
+        let [roots, ..] = step(&mut app).lines("", 1.0, 0);
+        assert!(roots.contains("root_kinds=world:1.00/0.00 world_depth=0.00 world_parent_children=0.00 "), "{roots}");
+
+        // The arrangement is not part of the model: it is said with the optimization off too.
+        let (mut app, _) = under_parent();
+        app.insert_resource(StaticTransformOptimizations::Disabled);
+        let t = step(&mut app);
+        let [roots, ..] = t.lines("", 1.0, 0);
+        assert!(roots.contains("model=not_applicable") && roots.contains("root_kinds=world_parent:1.00 world_depth=1.00 world_parent_children=1.00 world_global_changed_frames=0 world_off_local_frames=0 "), "{roots}");
     }
 
     #[test]
