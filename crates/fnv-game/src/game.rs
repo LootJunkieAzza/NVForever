@@ -3322,8 +3322,10 @@ impl<'a> Game<'a> {
     pub fn tick(&mut self) {
         self.frame += 1;
         self.temp_refs.clear();
-        // JIP's key events (`crate::nvse_jam`).
+        // JIP's key events (`crate::nvse_jam`); JAM's loot menu's take key follows the
+        // player's Activate.
         self.jam_key_events();
+        self.jam_take_follows_activate();
         // JIP's SetGameMainLoopCallback functions due this frame (task J6), then xNVSE's
         // delayed calls.
         self.run_main_loop();
