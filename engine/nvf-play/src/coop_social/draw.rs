@@ -1,25 +1,23 @@
 //! The interaction wheel's look: the weapon wheel's (`crate::weapon_wheel::draw`: its
 //! matte, its slice shader, its fonts) with three slices; the invitation's Y/N prompt and
-//! the duel's directions in a line under the crosshair; the trade panel.
+//! the duel's directions in a line under the crosshair. The trade is the barter menu's
+//! screen (`super::barter`).
 
 use super::duel::{Phase, Stance};
-use super::trade::AskState;
 use super::wire::Kind;
 use super::{Social, SocialMates};
 use crate::interface::{amber, at, face, plain_font, Face, Pictures};
-use crate::sim::SimState;
 use crate::weapon_wheel::draw::{slice_uniform, text, SliceMaterial, FONT_1, FONT_3, GAP, HUB, INNER, LINE, MATTE, OUTER, RAISE, RIM, SIZE};
 use crate::PlaySet;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
 use bevy::ui_render::prelude::MaterialNode;
 use bevy::window::PrimaryWindow;
-use fnv_sim::FormId;
 use nvf_assets::GameData;
 
 pub fn build(app: &mut App) {
     if app.world().contains_resource::<bevy::asset::io::embedded::EmbeddedAssetRegistry>() {
-        app.add_systems(Update, (draw_wheel, draw_banner, draw_trade).in_set(PlaySet::Ui));
+        app.add_systems(Update, (draw_wheel, draw_banner).in_set(PlaySet::Ui));
     }
 }
 
@@ -148,7 +146,9 @@ fn banner_text(social: &Social, mates: &SocialMates, now: f32) -> String {
 }
 
 fn draw_banner(mut commands: Commands, real: Res<Time<Real>>, social: Res<Social>, mates: Res<SocialMates>, mut q: Query<(&mut Text, &mut Visibility), With<Banner>>) {
-    let s = banner_text(&social, &mates, real.elapsed_secs());
+    // Under the trade's barter screen its line is the screen's own (`super::barter`).
+    let trading = social.trade.as_ref().is_some_and(|t| t.opened && t.closing.is_none());
+    let s = if trading { String::new() } else { banner_text(&social, &mates, real.elapsed_secs()) };
     match q.single_mut() {
         Ok((mut t, mut vis)) => {
             if t.0 != s {
@@ -172,79 +172,6 @@ fn draw_banner(mut commands: Commands, real: Res<Time<Real>>, social: Res<Social
         }
         Err(_) => {}
     }
-}
-
-#[derive(Component)]
-struct TradePanel;
-
-/// The trade panel's three columns: their items, this player's asks, what they asked of
-/// this player; the picked column's title and row marked.
-fn trade_text(social: &Social, sim: &SimState) -> Option<[String; 4]> {
-    let t = social.trade.as_ref().filter(|t| t.closing.is_none())?;
-    let name = |f: u32| sim.name(FormId(f)).map_or_else(|| FormId(f).to_string(), str::to_string);
-    let mark = |panel: usize, row: usize| if t.panel == panel && t.rows[panel] == row { "> " } else { "  " };
-    let title = |panel: usize, s: &str| if t.panel == panel { format!("[ {s} ]") } else { format!("  {s}") };
-    let mut a = vec![title(0, &format!("{}'s items", t.name)), String::new()];
-    if t.book.stock.is_empty() {
-        a.push("  (nothing yet)".into());
-    }
-    for (i, &(f, n)) in t.book.stock.iter().enumerate() {
-        let ask = if t.panel == 0 && t.rows[0] == i { format!("   ask {} -/+", t.count) } else { String::new() };
-        a.push(format!("{}{} ({n}){ask}", mark(0, i), name(f)));
-    }
-    let mut b = vec![title(1, "Your requests"), String::new()];
-    for (i, ask) in t.book.asks.iter().enumerate() {
-        let state = match ask.state {
-            AskState::Waiting => "waiting for a price".to_string(),
-            AskState::Priced(each) => format!("{each} each, {} caps: Enter buys", each.saturating_mul(ask.count as u32)),
-            AskState::Declined => "not for sale".to_string(),
-            AskState::Buying(_) => "buying…".to_string(),
-            AskState::Bought => "bought".to_string(),
-        };
-        b.push(format!("{}{} × {}: {state}", mark(1, i), ask.count, name(ask.item)));
-    }
-    let mut c = vec![title(2, &format!("Asked of you by {}", t.name)), String::new()];
-    for (i, o) in t.book.offers.iter().enumerate() {
-        let sent = match o.sent {
-            Some(p) if p == o.each => " (sent)",
-            Some(_) => " (changed: Enter sends)",
-            None => " (Enter sends)",
-        };
-        c.push(format!("{}{} × {}: {} caps each{sent}", mark(2, i), o.count, name(o.item), o.each));
-    }
-    let caps = super::caps_of(sim);
-    let foot = format!("Your caps: {caps}      Left/Right: column   Up/Down: item   -/+: count or price (Shift: 10)   Enter: ask, buy or price   X: decline   Esc: leave");
-    Some([a.join("\n"), b.join("\n"), c.join("\n"), foot])
-}
-
-fn draw_trade(mut commands: Commands, social: Res<Social>, sim: Res<SimState>, roots: Query<Entity, With<TradePanel>>, mut last: Local<Option<[String; 4]>>) {
-    let now = trade_text(&social, &sim);
-    if now == *last {
-        return;
-    }
-    *last = now.clone();
-    for e in &roots {
-        commands.entity(e).despawn();
-    }
-    let Some(cols) = now else { return };
-    let font = TextFont { font_size: FontSize::Px(16.0), ..default() };
-    commands
-        .spawn((
-            TradePanel,
-            Node { position_type: PositionType::Absolute, left: Val::Percent(6.0), right: Val::Percent(6.0), top: Val::Percent(10.0), bottom: Val::Percent(14.0), flex_direction: FlexDirection::Column, padding: UiRect::all(Val::Px(16.0)), row_gap: Val::Px(10.0), ..default() },
-            BackgroundColor(Color::srgba(0.02, 0.015, 0.005, 0.86)),
-            BorderColor::all(amber(160.0)),
-            GlobalZIndex(106),
-        ))
-        .with_children(|p| {
-            p.spawn((Text::new("TRADE"), TextFont { font_size: FontSize::Px(24.0), ..default() }, TextColor(amber(255.0))));
-            p.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(24.0), flex_grow: 1.0, ..default() }).with_children(|row| {
-                for col in &cols[..3] {
-                    row.spawn((Node { width: Val::Percent(33.0), overflow: Overflow::clip(), ..default() }, Text::new(col.clone()), font.clone(), TextColor(amber(230.0))));
-                }
-            });
-            p.spawn((Text::new(cols[3].clone()), TextFont { font_size: FontSize::Px(14.0), ..default() }, TextColor(amber(200.0))));
-        });
 }
 
 #[cfg(test)]

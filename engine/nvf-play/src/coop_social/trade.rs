@@ -144,6 +144,13 @@ impl Trade {
         }
     }
 
+    /// Set the price being set for offer `i` (within 1 and [`PRICE_MAX`]).
+    pub fn set_price(&mut self, i: usize, each: u32) {
+        if let Some(o) = self.offers.get_mut(i) {
+            o.each = each.clamp(1, PRICE_MAX);
+        }
+    }
+
     /// Send offer `i`'s price.
     pub fn price(&mut self, i: usize) -> Option<Msg> {
         let o = self.offers.get_mut(i)?;

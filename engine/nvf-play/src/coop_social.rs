@@ -14,7 +14,8 @@
 //!   [`Social::spares`]); the loser is knocked down and thrown a few feet back.
 //! - **Trade** ([`trade`]): Fallout 76's player vending: browse the other's inventory and
 //!   ask for items; the owner prices each item asked for (a price for one); the asker buys
-//!   for caps. A panel over the world, which runs on ([`draw`]).
+//!   for caps. On the barter menu's own screen, keys and mouse ([`barter`]); the world
+//!   runs on under it, as the Pip-Boy's does in co-op (`crate::menu::LiveMenu`).
 //! - **Play Caravan**: the caravan menu against the other player (`crate::caravan`'s
 //!   [`crate::caravan::PvpWire`]).
 //!
@@ -24,6 +25,7 @@
 //!
 //! Log lines: `co-op social: …` (invitations, wheel picks, duel phases, trades).
 
+pub mod barter;
 pub mod draw;
 pub mod duel;
 pub mod invite;
@@ -91,16 +93,17 @@ impl SocialMates {
     }
 }
 
-/// A trade open on screen.
+/// A trade going on: its book, and the barter screen it is shown on ([`barter`]).
 #[derive(Debug)]
 pub struct TradeUi {
     pub book: Trade,
     pub name: String,
-    /// 0 their items, 1 this player's asks, 2 what they asked of this player.
-    pub panel: usize,
-    pub rows: [usize; 3],
-    /// How many of the picked item of theirs to ask for.
-    pub count: u16,
+    /// The other player's puppet here (the screen's merchant).
+    pub puppet: u32,
+    /// The barter screen has been opened.
+    pub opened: bool,
+    /// What just happened, for the line under the lists, and when (real seconds).
+    pub event: Option<(String, f32)>,
     /// Closed at: waiting for the answers to buys in flight.
     pub closing: Option<f32>,
     last_stock: f32,
@@ -146,7 +149,7 @@ struct Stats {
 }
 
 impl Social {
-    /// The wheel or the trade panel has the mouse and the keys.
+    /// The wheel or the trade's screen has the mouse and the keys.
     pub fn holds_input(&self) -> bool {
         self.wheel.is_some() || self.trade.as_ref().is_some_and(|t| t.closing.is_none())
     }
@@ -229,6 +232,7 @@ impl Plugin for CoopSocialPlugin {
             .add_systems(Update, hold.after(crate::control::enforce_locks).after(PlaySet::Input).before(PlaySet::Physics))
             .add_systems(Update, target.in_set(PlaySet::Activation).after(crate::activate::find_target).before(crate::activate::activate))
             .add_systems(Update, (talk, duel_step, trade_step, caravan_bridge).chain().in_set(PlaySet::Ui))
+            .add_systems(Update, trade_screen.in_set(PlaySet::Ui).after(crate::menu::MenuSystems).after(trade_step))
             .add_systems(Last, report);
         draw::build(app);
     }
@@ -246,7 +250,7 @@ fn input(
     windows: Query<&Window, With<PrimaryWindow>>,
     mut social: ResMut<Social>,
     mut control: ResMut<crate::control::PlayerControl>,
-    (mut tables, mut sim, mates): (ResMut<Tables>, ResMut<SimState>, Res<SocialMates>),
+    (mut tables, mates): (ResMut<Tables>, Res<SocialMates>),
 ) {
     let now = real.elapsed_secs();
     let s = &mut *social;
@@ -292,17 +296,6 @@ fn input(
             }
         }
         _ => {}
-    }
-    // The trade panel.
-    let said = s.trade.as_mut().filter(|t| t.closing.is_none() && playing).and_then(|t| trade_keys(t, keys, &mut sim, &mut out));
-    if let Some(line) = said {
-        s.say(line, now);
-    }
-    if let Some(t) = s.trade.as_ref().filter(|t| t.closing.is_none() && (keys.just_pressed(KeyCode::Escape) || !playing)) {
-        let (nonce, with) = (t.book.nonce, t.book.with);
-        info!("co-op social: the trade with player {} closed", with + 1);
-        out.push((with, Msg::Quit { nonce }));
-        close_trade(s, now);
     }
     if s.holds_input() || s.frozen() {
         control.wheel = true;
@@ -385,95 +378,19 @@ fn dist2(a: [f32; 3], b: [f32; 3]) -> f32 {
     (a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)
 }
 
-/// The trade panel's keys: Left/Right the panel, Up/Down the row, +/- the count or the
-/// price (Shift: by 10), Enter asks, buys or sends the price, X declines.
-fn trade_keys(t: &mut TradeUi, keys: &ButtonInput<KeyCode>, sim: &mut SimState, out: &mut Vec<(u8, Msg)>) -> Option<String> {
-    let with = t.book.with;
-    let lens = [t.book.stock.len(), t.book.asks.len(), t.book.offers.len()];
-    if keys.just_pressed(KeyCode::ArrowRight) {
-        t.panel = (t.panel + 1) % 3;
-    }
-    if keys.just_pressed(KeyCode::ArrowLeft) {
-        t.panel = (t.panel + 2) % 3;
-    }
-    let p = t.panel;
-    if keys.just_pressed(KeyCode::ArrowDown) && lens[p] > 0 {
-        t.rows[p] = (t.rows[p] + 1) % lens[p];
-        t.count = 1;
-    }
-    if keys.just_pressed(KeyCode::ArrowUp) && lens[p] > 0 {
-        t.rows[p] = (t.rows[p] + lens[p] - 1) % lens[p];
-        t.count = 1;
-    }
-    for (i, n) in lens.iter().enumerate() {
-        t.rows[i] = t.rows[i].min(n.saturating_sub(1));
-    }
-    let step: i64 = if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) { 10 } else { 1 };
-    let plus = keys.just_pressed(KeyCode::Equal) || keys.just_pressed(KeyCode::NumpadAdd) || keys.just_pressed(KeyCode::PageUp);
-    let minus = keys.just_pressed(KeyCode::Minus) || keys.just_pressed(KeyCode::NumpadSubtract) || keys.just_pressed(KeyCode::PageDown);
-    let by = if plus { step } else if minus { -step } else { 0 };
-    let enter = keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter);
-    let row = t.rows[p];
-    match p {
-        0 => {
-            if let Some(&(item, have)) = t.book.stock.get(row) {
-                t.count = (t.count as i64 + by).clamp(1, have.max(1) as i64) as u16;
-                if enter {
-                    match t.book.request(item, t.count) {
-                        Ok(m) => {
-                            info!("co-op social: trade: asked player {} for {} × {}", with + 1, t.count, FormId(item));
-                            out.push((with, m));
-                        }
-                        Err(why) => return Some(format!("Cannot ask: {why}")),
-                    }
-                }
-            }
-        }
-        1 if enter => {
-            let caps = caps_of(sim);
-            match t.book.buy(row, caps) {
-                Ok((take, m)) => {
-                    let _ = sim.world.remove_item(FormId::PLAYER_REF, fnv_game::caravan::CAPS, take as i32);
-                    info!("co-op social: trade: buying from player {} for {take} caps (held until they answer)", with + 1);
-                    out.push((with, m));
-                }
-                Err(why) => {
-                    info!("co-op social: trade: cannot buy: {why}");
-                    return Some(format!("Cannot buy: {why}"));
-                }
-            }
-        }
-        2 => {
-            if by != 0 {
-                t.book.nudge(row, by);
-            }
-            if enter {
-                if let Some(m) = t.book.price(row) {
-                    info!("co-op social: trade: price sent to player {}: {m:?}", with + 1);
-                    out.push((with, m));
-                }
-            }
-            if keys.just_pressed(KeyCode::KeyX) && row < t.book.offers.len() {
-                if let Some(m) = t.book.decline(row) {
-                    out.push((with, m));
-                }
-            }
-        }
-        _ => {}
-    }
-    None
-}
-
 fn caps_of(sim: &SimState) -> u32 {
     sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()).map_or(0, |i| i.count(fnv_game::caravan::CAPS).max(0) as u32)
 }
 
-/// This player's tradeable stock: its inventory but caps, equipped items and quest items.
+/// This player's tradeable stock: its inventory but caps, equipped items and quest items;
+/// then its caps (the other's screen shows them as this player's caps figure).
 fn my_stock(sim: &SimState) -> Vec<(u32, u16)> {
     let Some(inv) = sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()) else { return Vec::new() };
     let equipped = inv.equipped();
     let items = inv.iter().filter(|(f, _)| !sim.forms.item(*f).is_some_and(|i| i.quest_item)).map(|(f, n)| (f.0, n, equipped.iter().filter(|e| **e == f).count() as i32)).collect::<Vec<_>>();
-    trade::tradeable(items, fnv_game::caravan::CAPS.0)
+    let mut out = trade::tradeable(items, fnv_game::caravan::CAPS.0);
+    out.push((fnv_game::caravan::CAPS.0, caps_of(sim).min(u16::MAX as u32) as u16));
+    out
 }
 
 fn close_trade(s: &mut Social, now: f32) {
@@ -499,7 +416,8 @@ fn start(s: &mut Social, with: u8, kind: Kind, nonce: u16, inviter: bool, mates:
             s.stats.trades += 1;
             let book = Trade::new(with, nonce);
             out.push((with, book.browse()));
-            s.trade = Some(TradeUi { book, name, panel: 0, rows: [0; 3], count: 1, closing: None, last_stock: f32::MIN });
+            let puppet = mates.get(with).map_or(0, |m| m.reference);
+            s.trade = Some(TradeUi { book, name, puppet, opened: false, event: None, closing: None, last_stock: f32::MIN });
         }
         Kind::Caravan => {
             s.stats.caravans += 1;
@@ -561,6 +479,7 @@ fn target(
         return;
     }
     let mut w = Wheel::new(m.id, m.name.clone());
+    let mut clear_seen = [0.0f32; 8];
     let room = phys.as_deref_mut().is_some_and(|p| {
         let mut f = p.player.as_ref().map_or_else(fnv_phys::Filter::default, |c| fnv_phys::Filter::excluding(c.key()));
         f.exclude_layers.insert(fnv_phys::layers::TRIGGER);
@@ -568,13 +487,20 @@ fn target(
         let clear: [f32; 8] = std::array::from_fn(|i| {
             let a = (i as f32 * 45.0).to_radians();
             let d = [a.sin(), a.cos(), 0.0];
-            p.world.queries().ray(from, d, duel::ROOM_CLEAR, &f).filter(|h| !matches!(h.owner, fnv_phys::Owner::Actor { .. })).map_or(duel::ROOM_CLEAR, |h| h.distance)
+            // People are no walls: actors' hit volumes and characters' capsules (the other
+            // player's puppet among them) do not count.
+            let hit = p.world.queries().ray(from, d, duel::ROOM_CLEAR, &f).filter(|h| !matches!(h.owner, fnv_phys::Owner::Actor { .. } | fnv_phys::Owner::Character { .. }));
+            if let Some(h) = hit.as_ref().filter(|h| h.distance < duel::ROOM_CLEAR) {
+                info!("co-op social: room ray {}°: {:?} at {:.0}", i * 45, h.owner, h.distance);
+            }
+            hit.map_or(duel::ROOM_CLEAR, |h| h.distance)
         });
+        clear_seen = clear;
         duel::room_for_duel(mates.interior, &clear)
     });
     let pistol = pistol_in_hand(combat.as_deref());
     w.refusals[0] = duel::duel_refusal(room, pistol).map(str::to_string);
-    info!("co-op social: wheel open on {} (player {}); duel: room {room}, pistol {pistol}", m.name, m.id + 1);
+    info!("co-op social: wheel open on {} (player {}); duel: room {room} (clear N..NW {:?}, indoors {}), pistol {pistol}", m.name, m.id + 1, clear_seen.map(|d| d.round() as i32), mates.interior);
     social.stats.wheels += 1;
     social.wheel = Some(w);
 }
@@ -815,7 +741,7 @@ fn trade_heard(s: &mut Social, m: Msg, sim: &SimState, now: f32, out: &mut Vec<(
         Msg::TradeRequest { item, count, .. } => {
             let value = sim.forms.item(FormId(item)).and_then(|i| i.value).unwrap_or(1).max(1) as u32;
             t.book.request_heard(item, count, have(item), value);
-            say = Some(format!("{} asks for {count} × {}: set your price", t.name, item_name(sim, item)));
+            say = Some(format!("{} asks for {count} x {}: set your price", t.name, item_name(sim, item)));
         }
         Msg::TradePrice { item, each, .. } => {
             t.book.price_heard(item, each);
@@ -828,7 +754,7 @@ fn trade_heard(s: &mut Social, m: Msg, sim: &SimState, now: f32, out: &mut Vec<(
             out.push((with, reply));
             if let Sale::Sell { item, count, each } = sale {
                 info!("co-op social: trade: sold {count} × {} to player {} for {} caps", FormId(item), with + 1, each * count as u32);
-                say = Some(format!("Sold {count} × {} for {} caps", item_name(sim, item), each * count as u32));
+                say = Some(format!("Sold {count} x {} for {} caps", item_name(sim, item), each * count as u32));
                 s.stats.sold += 1;
                 s.sales.push((item, count, each));
             } else {
@@ -838,7 +764,7 @@ fn trade_heard(s: &mut Social, m: Msg, sim: &SimState, now: f32, out: &mut Vec<(
         Msg::TradeSold { item, count, each, .. } => {
             if t.book.sold(item, count, each) {
                 info!("co-op social: trade: bought {count} × {} from player {}", FormId(item), with + 1);
-                say = Some(format!("Bought {count} × {} for {} caps", item_name(sim, item), each * count as u32));
+                say = Some(format!("Bought {count} x {} for {} caps", item_name(sim, item), each * count as u32));
                 s.stats.bought += 1;
             }
         }
@@ -852,6 +778,9 @@ fn trade_heard(s: &mut Social, m: Msg, sim: &SimState, now: f32, out: &mut Vec<(
         _ => {}
     }
     if let Some(line) = say {
+        if let Some(t) = s.trade.as_mut() {
+            t.event = Some((line.clone(), now));
+        }
         s.say(line, now);
     }
 }
@@ -897,6 +826,92 @@ fn trade_step(real: Res<Time<Real>>, mut social: ResMut<Social>, mut tables: Res
                 let _ = sim.world.add_item(FormId::PLAYER_REF, fnv_game::caravan::CAPS, held as i32);
             }
             s.trade = None;
+        }
+    }
+    for (to, m) in out {
+        tables.send(to as u32, game::SOCIAL, m.encode());
+    }
+}
+
+/// The trade's barter screen ([`barter`]): opened once the trade starts and no other menu
+/// is up, its commands done on the book, its lists filled from it; shut with the trade.
+fn trade_screen(
+    real: Res<Time<Real>>,
+    state: Res<State<PlayState>>,
+    mut social: ResMut<Social>,
+    mut menu: (ResMut<crate::menu::ActiveMenu>, ResMut<crate::menu::LiveMenu>, ResMut<crate::menu::FreshMenu>),
+    mut input: MessageReader<crate::menu::MenuInput>,
+    mut tables: ResMut<Tables>,
+    mut sim: ResMut<SimState>,
+) {
+    let now = real.elapsed_secs();
+    let (active, live, fresh) = (&mut menu.0, &mut menu.1, &mut menu.2);
+    let s = &mut *social;
+    let ours = active.0.as_ref().is_some_and(|m| m.coop);
+    let Some(t) = s.trade.as_mut().filter(|t| t.closing.is_none()) else {
+        input.clear();
+        if ours {
+            info!("co-op social: the trade's barter screen closes");
+            active.0 = None;
+            live.open = false;
+        }
+        return;
+    };
+    let with = t.book.with;
+    let mut out: Vec<(u8, Msg)> = Vec::new();
+    if !t.opened {
+        input.clear();
+        if active.0.is_none() && *state.get() == PlayState::Playing {
+            info!("co-op social: trade with player {}: the barter screen opens", with + 1);
+            active.0 = Some(barter::open(&t.name, t.puppet));
+            live.open = true;
+            fresh.0 = true;
+            t.opened = true;
+        }
+    } else if !ours {
+        // Shut under it (a conversation, a loading screen): the trade ends.
+        input.clear();
+        info!("co-op social: trade with player {}: the barter screen was shut, the trade ends", with + 1);
+        out.push((with, Msg::Quit { nonce: t.book.nonce }));
+        close_trade(s, now);
+    } else {
+        let mut close = false;
+        for &crate::menu::MenuInput(cmd) in input.read() {
+            let caps = caps_of(&sim);
+            let Some(m) = active.bypass_change_detection().0.as_mut() else { break };
+            let fx = barter::command(m, &mut t.book, cmd, caps, sim.forms);
+            active.set_changed();
+            for e in fx {
+                match e {
+                    barter::Effect::Send(msg) => {
+                        info!("co-op social: trade: {cmd:?}: to player {}: {msg:?}", with + 1);
+                        out.push((with, msg));
+                    }
+                    barter::Effect::TakeCaps(n) => {
+                        let _ = sim.world.remove_item(FormId::PLAYER_REF, fnv_game::caravan::CAPS, n as i32);
+                        info!("co-op social: trade: buying from player {} for {n} caps (held until they answer)", with + 1);
+                    }
+                    barter::Effect::Say(line) => {
+                        info!("co-op social: trade: {cmd:?}: {line}");
+                        t.event = Some((line, now));
+                    }
+                    barter::Effect::Close => close = true,
+                }
+            }
+        }
+        if close {
+            info!("co-op social: the trade with player {} closed", with + 1);
+            out.push((with, Msg::Quit { nonce: t.book.nonce }));
+            active.0 = None;
+            live.open = false;
+            close_trade(s, now);
+        } else {
+            let mine = my_stock(&sim);
+            if let Some(m) = active.bypass_change_detection().0.as_mut() {
+                if barter::fill(m, &t.book, &t.name, &mine, sim.forms, t.event.as_ref(), now) {
+                    active.set_changed();
+                }
+            }
         }
     }
     for (to, m) in out {

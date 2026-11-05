@@ -764,7 +764,7 @@ fn publish_menu_picks(
             e.1 = p;
         }
     };
-    if let Some(m) = active.0.as_ref() {
+    if let Some(m) = active.0.as_ref().filter(|m| !m.coop) {
         let other = match m.mode {
             Mode::Container(c) | Mode::Barter(c) => Some(c),
             Mode::Inventory => None,
@@ -808,6 +808,10 @@ fn apply_input(
     let mut script = script.map(|s| s.into_inner());
     for &MenuInput(cmd) in input.read() {
         let Some(m) = active.0.as_mut() else { return };
+        // A co-op trade's commands are `crate::coop_social::barter`'s.
+        if m.coop {
+            return;
+        }
         let before = crate::ui_sounds::MenuBefore::of(m);
         let asking = m.quantity.is_some();
         let a = m.apply(&mut sim.world, cmd);
@@ -889,6 +893,10 @@ fn apply_input(
 
 /// The line under a container menu: the note for a container that refills.
 fn note(m: &MenuModel, sim: &SimState) -> Option<String> {
+    // A co-op trade: the line its module keeps (where the selected item's trade stands).
+    if m.coop {
+        return m.status.clone();
+    }
     let refused = m.status.as_deref().filter(|s| s.ends_with("enough caps.") || s.starts_with("Cannot"));
     if let Some(s) = refused {
         return Some(s.to_string());

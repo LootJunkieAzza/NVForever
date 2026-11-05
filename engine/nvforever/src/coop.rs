@@ -731,6 +731,9 @@ struct Peer {
     /// Lost a duel to this player: its puppet lies since then (seconds of `Time`;
     /// [`duel_falls`]).
     fell_at: Option<f32>,
+    /// The throw its fallen puppet's ragdoll is still to get (game units a second, game
+    /// space), and since when it waits for the ragdoll ([`duel_falls`]).
+    fall_shove: Option<([f32; 3], f32)>,
 }
 
 impl Peer {
@@ -845,17 +848,24 @@ fn social_mates(coop: Res<Coop>, loc: Option<Res<Location>>, mut mates: ResMut<n
 /// again (seconds) [design: its own game's knockdown and get-up take about as long].
 const DUEL_FALL: f32 = 3.5;
 
+/// How long a fallen puppet's throw waits for its ragdoll before it is let go (seconds).
+const DUEL_SHOVE_WAIT: f32 = 2.0;
+
 /// The loser of a duel against this player: its puppet falls as a downed player's does
-/// ([`downed`]), and stands again after [`DUEL_FALL`].
+/// ([`downed`]), its ragdoll thrown away from this player as the loser's own game throws
+/// it (`nvf_play::coop_social::duel::throw`, the same velocity), and stands again after
+/// [`DUEL_FALL`].
 #[allow(clippy::too_many_arguments)]
 fn duel_falls(
     time: Res<Time>,
     mut coop: ResMut<Coop>,
     mut social: ResMut<nvf_play::coop_social::Social>,
+    (mates, player): (Res<nvf_play::coop_social::SocialMates>, Option<Res<nvf_play::player::Player>>),
     mut script: Option<ResMut<nvf_play::script::ScriptState>>,
     mut phys: Option<ResMut<nvf_play::phys::PhysState>>,
     mut ragdolls: ResMut<crate::ragdoll::Ragdolls>,
-    mut hits: MessageWriter<ActorHit>,
+    (mut hits, mut pushes): (MessageWriter<ActorHit>, MessageWriter<nvf_play::combat::ActorPush>),
+    mut corpses: Query<(&RefVisual, &mut crate::ragdoll::Corpse, &GlobalTransform)>,
 ) {
     let now = time.elapsed_secs();
     let mut falls: Vec<u8> = Vec::new();
@@ -871,15 +881,44 @@ fn duel_falls(
         let Some(p) = coop.peers.get_mut(&id).filter(|p| !p.down) else { continue };
         let r = p.reference(id);
         p.fell_at = Some(now);
+        // Thrown away from this player, as its own game throws it.
+        let shove = match (mates.get(id), player.as_deref()) {
+            (Some(m), Some(me)) => nvf_play::coop_social::duel::throw(m.feet, me.feet),
+            _ => [0.0, 0.0, nvf_play::coop_social::duel::THROW.1],
+        };
+        p.fall_shove = Some((shove, now));
         g.extra.entry(FormId(r)).or_default().dead = true;
         hits.write(ActorHit { form_id: r, died: true, knocked_out: false, location: -1, crippled: false, part_crippled: false, torso_crippled: false, by: None, share: 1.0, guard_broken: false, weapon: None });
-        info!("co-op: {} lost the duel: the puppet falls", label(id, &p.name));
+        info!("co-op: {} lost the duel: the puppet falls, thrown at ({:.0}, {:.0}, {:.0}) units/s", label(id, &p.name), shove[0], shove[1], shove[2]);
+    }
+    // The throw: the ragdoll starts with it, or (already in the world) is pushed by it.
+    for (&id, p) in coop.peers.iter_mut() {
+        let Some((shove, since)) = p.fall_shove else { continue };
+        let r = p.reference(id);
+        match corpses.iter_mut().find(|(v, ..)| v.0 == r) {
+            Some((_, mut c, _)) if !c.live => {
+                c.velocity = shove;
+                p.fall_shove = None;
+                info!("co-op: {}'s ragdoll starts thrown", label(id, &p.name));
+            }
+            Some((_, _, gt)) => {
+                pushes.write(nvf_play::combat::ActorPush { form_id: r, point: nvf_play::space::to_game(gt.translation()), dv: shove });
+                p.fall_shove = None;
+                info!("co-op: {}'s ragdoll is pushed by the throw", label(id, &p.name));
+            }
+            None if now - since > DUEL_SHOVE_WAIT => {
+                p.fall_shove = None;
+                info!("co-op: {}'s puppet has no ragdoll: it falls in place", label(id, &p.name));
+            }
+            None => {}
+        }
     }
     for (&id, p) in coop.peers.iter_mut() {
         if p.fell_at.is_none_or(|t| now - t < DUEL_FALL) {
             continue;
         }
         p.fell_at = None;
+        p.fall_shove = None;
         if p.down {
             continue;
         }
@@ -1433,9 +1472,10 @@ fn draw(
         let Some((place, feet, yaw, moving)) = p.pose(now - DELAY) else { continue };
         let Some(&(_, newest)) = p.samples.back() else { continue };
         // Up again after being down: its body was a ragdoll. And whatever the reason, a
-        // player who is up is never drawn lying (a body that missed getting up).
+        // player who is up is never drawn lying (a body that missed getting up); but for
+        // the loser of a duel against this player, while it lies ([`duel_falls`]).
         let lies = p.root.is_some_and(|e| lying.contains(e));
-        if std::mem::take(&mut p.redraw) || (lies && !newest.has(flag::DOWN)) {
+        if std::mem::take(&mut p.redraw) || (lies && !newest.has(flag::DOWN) && p.fell_at.is_none()) {
             if lies {
                 info!("co-op: {} is up: drawn standing", label(id, &p.name));
             }
@@ -2076,8 +2116,9 @@ fn downed(
     for (&id, p) in coop.peers.iter_mut() {
         let Some(&(_, s)) = p.samples.back() else { continue };
         let down = s.has(flag::DOWN);
-        // A player up is never dead here, whatever happened while it was down.
-        if !down && !p.down && g.is_dead(FormId(p.reference(id))) {
+        // A player up is never dead here, whatever happened while it was down; except
+        // while it lies after losing a duel to this player ([`duel_falls`] stands it up).
+        if !down && !p.down && p.fell_at.is_none() && g.is_dead(FormId(p.reference(id))) {
             g.extra.entry(FormId(p.reference(id))).or_default().dead = false;
         }
         if down == p.down {

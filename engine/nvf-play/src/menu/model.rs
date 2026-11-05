@@ -512,6 +512,8 @@ pub struct Quantity {
     /// The stack's size, the most it can move.
     pub max: i32,
     pub amount: i32,
+    /// The prompt's line instead of "How many?" (the co-op trade's price, `crate::coop_social::barter`).
+    pub label: Option<&'static str>,
 }
 
 impl Quantity {
@@ -653,6 +655,10 @@ pub struct MenuModel {
     /// Inventory: the player's Caravan cards, one entry a card, set by the engine from
     /// the scripts' game ([`MenuModel::set_cards`]).
     pub cards: Vec<FormId>,
+    /// A co-op trade between two players drawn on the barter screen
+    /// (`crate::coop_social::barter`): its rows and commands are that module's, not
+    /// [`MenuModel::apply`]'s.
+    pub coop: bool,
 }
 
 /// What a command did besides changing the model.
@@ -784,7 +790,7 @@ impl MenuModel {
         self.refresh(world)
     }
 
-    fn empty(mode: Mode, title: String) -> MenuModel {
+    pub(crate) fn empty(mode: Mode, title: String) -> MenuModel {
         MenuModel {
             mode,
             focus: Side::Player,
@@ -803,6 +809,7 @@ impl MenuModel {
             steal: None,
             folder: None,
             cards: Vec::new(),
+            coop: false,
         }
     }
 
@@ -1149,6 +1156,7 @@ impl MenuModel {
             row: self.selected[self.focus as usize],
             max: r.count,
             amount: r.count,
+            label: None,
         })
     }
 
