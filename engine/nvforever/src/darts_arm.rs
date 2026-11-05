@@ -37,6 +37,21 @@ use std::collections::HashMap;
 const UPPER: &str = "Bip01 R UpperArm";
 const FORE: &str = "Bip01 R Forearm";
 const HAND: &str = "Bip01 R Hand";
+/// The dart is pinched between the thumb's tip and the index finger's middle joint
+/// [observed: the human skeleton's bones under the right hand, about 11 units past the
+/// wrist]; without them it sits at the wrist.
+const PINCH: [&str; 2] = ["Bip01 R Thumb12", "Bip01 R Finger12"];
+/// How far the dart's tip is ahead of the pinch, towards the board: the fingers hold the
+/// barrel, not the point (the model's tip is its origin, its flights 9.3 behind
+/// [observed: practicedart.nif's bounds]) [design].
+const TIP_AHEAD: f32 = 3.5;
+
+/// Where the held dart's tip is, board-local, for the pinch at `grip` (world).
+fn tip(f: &BoardFrame, grip: Vec3) -> [f32; 3] {
+    let mut p = f.to_local(to_game(grip));
+    p[1] += TIP_AHEAD;
+    p
+}
 
 /// Where the hand goes, from the shoulder, in arm lengths: (right, towards the board, up)
 /// [design].
@@ -202,13 +217,29 @@ fn pose(
     let cf = du * (h0 - e0);
     let df = Quat::from_rotation_arc(cf.normalize(), (h - e).normalize());
     let lf2 = (ru2.inverse() * df * ru2 * lf.rotation).normalize();
+    let (u, fo) = (lu.rotation.slerp(lu2, w), lf.rotation.slerp(lf2, w));
     if let Ok(mut t) = transforms.get_mut(upper) {
-        t.rotation = lu.rotation.slerp(lu2, w);
+        t.rotation = u;
     }
     if let Ok(mut t) = transforms.get_mut(fore) {
-        t.rotation = lf.rotation.slerp(lf2, w);
+        t.rotation = fo;
     }
-    Ok(h0.lerp(h, w))
+    // Where the dart is held: the pinch, carried by the posed hand.
+    let posed = gp.mul_transform(Transform { rotation: u, ..lu }).mul_transform(Transform { rotation: fo, ..lf }).mul_transform(lh);
+    let pinch: Vec<Vec3> = PINCH.iter().filter_map(|n| node(n)).filter_map(|e| under(e, hand, parents, transforms)).collect();
+    let grip = if pinch.is_empty() { Vec3::ZERO } else { pinch.iter().sum::<Vec3>() / pinch.len() as f32 };
+    Ok(posed.transform_point(grip))
+}
+
+/// Where a bone below `hand` is in the hand's own frame, from the bones' local transforms.
+fn under(bone: Entity, hand: Entity, parents: &Query<&ChildOf>, transforms: &Query<&mut Transform>) -> Option<Vec3> {
+    let mut at = bone;
+    let mut p = Vec3::ZERO;
+    while at != hand {
+        p = transforms.get(at).ok()?.transform_point(p);
+        at = parents.get(at).ok()?.parent();
+    }
+    Some(p)
 }
 
 /// A board another player is throwing at, as this game watches it: the thrower's body,
@@ -307,7 +338,7 @@ pub fn arms(
             };
             w.weight = if t.at_line { (w.weight + dt / EASE).min(1.0) } else { (w.weight - dt / EASE).max(0.0) };
             hand.now = match pose(root, rig, &f, throw_path(&t), smooth(w.weight), &parents, &mut transforms, &globals) {
-                Ok(h) if w.weight > 0.0 => Some(f.to_local(to_game(h))),
+                Ok(h) if w.weight > 0.0 => Some(tip(&f, h)),
                 Ok(_) => None,
                 Err(why) => {
                     debug!("darts arm: the thrower at 0x{board:08X} is not posed: {why}");
@@ -392,7 +423,7 @@ fn own_board(
         hands.weight[k] = if t.at_line { (hands.weight[k] + step).min(1.0) } else { (hands.weight[k] - step).max(0.0) };
         let w = smooth(hands.weight[k]);
         match pose(root, &rig, &f, throw_path(&t), w, parents, transforms, globals) {
-            Ok(h) => hands.now[k] = Some(f.to_local(to_game(h))),
+            Ok(h) => hands.now[k] = Some(tip(&f, h)),
             Err(why) => {
                 hands.now[k] = None;
                 if !std::mem::replace(&mut hands.noted[k], true) {
