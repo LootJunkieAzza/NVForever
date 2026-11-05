@@ -54,7 +54,8 @@ pub struct RefCollision {
 /// `actor`, `no_model`, `speedtree`, `awaiting_collision`, `model_without_collision`,
 /// `model_unreadable`, `open_door_moving_parts` (an open-by-default door whose keyframed
 /// parts were left out), `water_volume` (a model with water volumes; then not also
-/// `model_without_collision`).
+/// `model_without_collision`), `volume` (a placed volume, XPRM, whose base's model is
+/// left out; cells-refs.md §6).
 pub fn ref_collision(
     lo: &LoadOrder,
     schema: &Schema,
@@ -109,6 +110,15 @@ pub fn ref_collision_with(
             }
             None => tally("bad_primitive"),
         }
+    }
+    if pl.volume && pl.base != Some(COLLISION_MARKER) {
+        // A placed volume (a trigger box or sphere) whose base names a model: the model is
+        // not in the world there, neither drawn nor solid (`Placement::volume`,
+        // cells-refs.md §6). Vault 34's `v34AmbushVolume` triggers stood as solid water
+        // tower pipes across its corridors [observed: `fnvtool phys cell --cell Vault34b
+        // --list-refs`, 2026-11-05]. Its trigger box is script_trigger's, not this.
+        tally("volume");
+        return out;
     }
     if is_actor_base(&base.sig) {
         // The skeleton's bodies are keyframed and on the Biped layer [observed:

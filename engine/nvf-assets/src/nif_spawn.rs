@@ -161,6 +161,9 @@ pub(crate) struct Props {
     /// BSShaderFlags2 bit 2 "LOD_Building" [documented: nif.xml]: object LOD block
     /// geometry, cut out by its atlas's alpha (`shape_alpha_mode`).
     lod_building: bool,
+    /// BSShaderFlags2 bit 0 "ZBuffer_Write" [documented: nif.xml]: a lit blended shape
+    /// with it writes depth ([`BLEND_DEPTH_CUT`]).
+    zbuffer_write: bool,
     /// A sequence of the model drives the shape's emissive colour or multiplier
     /// (`crate::material_anim`): its glow map is loaded even when the stored colour is
     /// black, as the radios' dials store black and light up by their "Open" sequence
@@ -333,6 +336,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         p.refraction = refracts(flags).then(|| s.float("refraction_strength").unwrap_or(0.0));
         p.fire_period = fire_period(flags, s.int("refraction_fire_period"));
         p.lod_building = s.int("shader_flags_2").unwrap_or(0) & (1 << 2) != 0;
+        p.zbuffer_write = s.int("shader_flags_2").unwrap_or(0) & 1 != 0;
         p.falloff = None;
     }
     match ty {
@@ -746,6 +750,9 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
     if props.hair && cut.is_none() && matches!(alpha_mode, AlphaMode::Blend) {
         material.extension.alpha_cut = HAIR_DEPTH_CUT;
         material.extension.depth_write = true;
+    } else if !props.unlit && props.zbuffer_write && cut.is_none() && matches!(alpha_mode, AlphaMode::Blend) {
+        material.extension.alpha_cut = BLEND_DEPTH_CUT;
+        material.extension.depth_write = true;
     }
     material.extension.add_whole = if adds_whole(props) { 1.0 } else { 0.0 };
     material.extension.decal = props.decal;
@@ -769,6 +776,19 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
 /// [engineering choice: high enough that the faint fringe of a strand leaves no outline
 /// in the smoke or flames behind it, low enough that the strands keep their soft ends].
 pub const HAIR_DEPTH_CUT: f32 = 0.25;
+
+/// The alpha from which a lit blended shape whose shader sets ZBuffer_Write (BSShaderFlags2
+/// bit 0) writes depth; fragments below it, which add nothing to the picture, are dropped
+/// (docs/spec-notes/nif.md §6 "Depth of lit blended shapes"). The flag is set on 1,254 of
+/// the 1,331 visible lit blended shapes of `Fallout - Meshes.bsa` and `Update.bsa`, glass
+/// and windows among them [observed: `crates/fnv-nif/examples/zwrite_survey.rs`]. Without
+/// depth, a blended shape is covered by every blended or additive shape drawn after it
+/// wherever only what lies behind it held depth: Heart of the Mojave's magazine vending
+/// machines (vanilla `vendmachmag.nif`, NiAlphaProperty 0x10ED, texture alpha about
+/// 253/255) showed the glows and haze behind them through their body, pink and ghostly
+/// from a few metres (playtest 2026-11-04) [engineering choice: the cut only keeps
+/// fully clear texels out of the depth buffer].
+pub const BLEND_DEPTH_CUT: f32 = 1.0 / 255.0;
 
 /// The alpha from which a hair model's shapes (the HAIR record's model) are drawn: they
 /// are cut-outs, solid at and above it and absent below ([`hair_model_cut_out`]).
@@ -1096,10 +1116,28 @@ mod tests {
         assert!(m.extension.depth_write);
         assert_eq!(m.extension.alpha_cut, HAIR_DEPTH_CUT);
         assert!(crate::nif_material::see_through(&m), "hair still casts no shadow");
-        // Other blended shapes (smoke, glass) write none and drop nothing.
+        // Other blended shapes (smoke, glass) without ZBuffer_Write write none and drop
+        // nothing.
         let (m, _) = shape_material_with(&Props { hair: false, ..hair }, &mut triangle(), &mut NoTextures);
         assert!(!m.extension.depth_write);
         assert_eq!(m.extension.alpha_cut, 0.0);
+    }
+
+    /// `vendmachmag.nif`'s shapes: lit, blended with no test (flags 4333), ZBuffer_Write
+    /// set [observed]. They write depth; an unlit blended shape with the flag (a glow, a
+    /// dust sheet) still writes none.
+    #[test]
+    fn lit_blended_shapes_with_zbuffer_write_write_depth() {
+        let vend = Props { alpha: Some((4333, 0)), zbuffer_write: true, ..Default::default() };
+        let (m, _) = shape_material_with(&vend, &mut triangle(), &mut NoTextures);
+        assert!(matches!(m.base.alpha_mode, AlphaMode::Blend));
+        assert!(m.extension.depth_write);
+        assert_eq!(m.extension.alpha_cut, BLEND_DEPTH_CUT);
+        assert!(crate::nif_material::see_through(&m), "glass still casts no shadow");
+        let (m, _) = shape_material_with(&Props { unlit: true, ..vend.clone() }, &mut triangle(), &mut NoTextures);
+        assert!(!m.extension.depth_write);
+        let (m, _) = shape_material_with(&Props { zbuffer_write: false, ..vend }, &mut triangle(), &mut NoTextures);
+        assert!(!m.extension.depth_write);
     }
 
     /// A hair model's blended shape becomes a solid cut-out (#1454); one that is already

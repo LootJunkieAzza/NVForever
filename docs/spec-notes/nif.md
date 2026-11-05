@@ -1143,6 +1143,18 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   is 0.25 or more and drop fainter fragments [engineering choice; whether the game's
   hair writes depth is not known: the file has no NiZBufferProperty, and the Z-buffer
   test flag (bit 31) above says nothing of writing]. Smoke check `hair-under-fire`.
+- **Depth of lit blended shapes** (2026-11-05): BSShaderFlags2 bit 0 is "ZBuffer_Write"
+  [documented: nif.xml]. Of the visible lit (BSShaderPPLightingProperty) shapes blended
+  SRC_ALPHA / INV_SRC_ALPHA without a test of 64 or more, 1,254 set it and 77 do not
+  (B-29 propeller blades, a grave lantern's glass, the Tesla cannon's glass); glass,
+  windows, drinking glasses and the magazine vending machine (`vendmachmag.nif`) set it
+  [observed: `crates/fnv-nif/examples/zwrite_survey.rs` over `Fallout - Meshes.bsa` and
+  `Update.bsa`]. Such a shape now writes depth where its alpha is above 1/255
+  (`nif_spawn::BLEND_DEPTH_CUT`) [hypothesis: the renderers honour the flag]. Without it
+  the vending machine (texture alpha about 253/255) was covered by every glow and haze
+  drawn after it and looked pink and see-through from a few metres. Unlit blended shapes
+  (glows, dust, smoke; 1,277 set the flag, 1,259 do not) keep writing none: one glow
+  hiding another by draw order is the larger risk there. Hair keeps its own cut above.
 - **Hair models are cut-outs** (2026-11-03, #1454): the HAIR record's model is drawn
   alpha-tested, solid where its alpha is 0.25 or more and absent below (soft edges in a
   multisampled view), not blended; beards and brows (head parts with the hair shader)
