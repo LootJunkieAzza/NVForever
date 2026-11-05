@@ -521,6 +521,12 @@ pub struct DartsView {
     /// darts it has let go this turn (watchers pose its arm, `darts_arm.rs`).
     pub draw: u8,
     pub released: u8,
+    /// The darts in the air: how long each has flown (hundredths of a second) and where it
+    /// lands (board units), so watchers draw it flying from the hand as the thrower sees it.
+    pub flights: Vec<(u8, f32, f32)>,
+    /// The game's opponent at the board (its reference; 0 for none), so watchers put its
+    /// weapon away as the thrower's game does.
+    pub foe: u32,
 }
 
 fn hit_code(w: &mut W, h: fnv_game::darts::Hit) {
@@ -550,6 +556,11 @@ impl DartsView {
             w.f32(*x).f32(*z);
         }
         w.u8(self.draw).u8(self.released);
+        w.u8(self.flights.len() as u8);
+        for (age, x, z) in &self.flights {
+            w.u8(*age).f32(*x).f32(*z);
+        }
+        w.u32(self.foe);
         w.0
     }
 
@@ -582,7 +593,13 @@ impl DartsView {
             stuck.push((r.f32()?, r.f32()?));
         }
         let (draw, released) = (r.u8()?, r.u8()?);
-        r.done().then_some(DartsView { owner, stake, sides, up, turn_over: flags & 1 != 0, winner, aim, stuck, open_seat: flags & 2 != 0, draw, released })
+        let nf = r.u8()? as usize;
+        let mut flights = Vec::new();
+        for _ in 0..nf.min(6) {
+            flights.push((r.u8()?, r.f32()?, r.f32()?));
+        }
+        let foe = r.u32()?;
+        r.done().then_some(DartsView { owner, stake, sides, up, turn_over: flags & 1 != 0, winner, aim, stuck, open_seat: flags & 2 != 0, draw, released, flights, foe })
     }
 }
 
@@ -853,7 +870,7 @@ fn publish(
     time: crate::pause::AidTime,
     (bj, rl, sl): (Option<Res<crate::blackjack::BlackjackScreen>>, Option<Res<crate::roulette::RouletteScreen>>, Option<Res<crate::slots::SlotsScreen>>),
     (darts, fillet, poker): (Option<Res<crate::minigames::DartsScreen>>, Option<Res<crate::minigames::FilletScreen>>, Option<Res<crate::poker::PokerScreen>>),
-    pvp: Option<Res<crate::caravan::PvpWire>>,
+    (pvp, foe): (Option<Res<crate::caravan::PvpWire>>, Option<Res<crate::darts_foes::DartsOpponent>>),
 ) {
     let now = time.elapsed_secs();
     let me = tables.me.unwrap_or(0);
@@ -887,7 +904,8 @@ fn publish(
     }
     if let Some(d) = darts.as_deref().and_then(|d| d.0.as_ref()) {
         at = Some((game::DARTS, d.board));
-        out = crate::minigames::darts_view(d, me, now).map(|v| (d.board, game::DARTS, v.encode()));
+        let foe = foe.as_deref().and_then(|o| o.0.as_ref()).filter(|o| o.board == d.board && !o.gone).map(|o| o.actor.0);
+        out = crate::minigames::darts_view(d, me, now, foe).map(|v| (d.board, game::DARTS, v.encode()));
     }
     if let Some(f) = fillet.as_deref().and_then(|f| f.0.as_ref()) {
         at = Some((game::FILLET, f.knife));
@@ -1018,6 +1036,8 @@ mod tests {
             open_seat: true,
             draw: 200,
             released: 2,
+            flights: vec![(12, -1.5, 3.25)],
+            foe: 0x0015_D787,
         };
         assert_eq!(DartsView::decode(&d.encode()), Some(d.clone()));
         let f = FilletView { stake: 20, round: 2, hits: 5, required: 18, mistakes: 1, gap: 3, key: 2, clock: Some(41.5), state: 1, duel: None };

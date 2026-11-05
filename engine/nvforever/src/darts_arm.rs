@@ -73,6 +73,26 @@ pub struct Hands {
     noted: [bool; 2],
 }
 
+/// The hand of whoever throws at a board near that another player plays at (co-op
+/// watchers), board-local, by board: where it is now (while posed at the line) and where
+/// each dart left it (by this game's clock, `Time::elapsed_secs`), so watchers draw the
+/// held dart and the flights as the thrower's game does.
+#[derive(Resource, Default)]
+pub struct Watching(pub HashMap<u32, WatchedHand>);
+
+#[derive(Default)]
+pub struct WatchedHand {
+    pub now: Option<[f32; 3]>,
+    pub left: Vec<(f32, [f32; 3])>,
+}
+
+impl WatchedHand {
+    /// Where the dart let go nearest `at` (this game's clock) left the hand.
+    pub fn left_near(&self, at: f32) -> Option<[f32; 3]> {
+        self.left.iter().filter(|(t, _)| (t - at).abs() < 0.5).min_by(|a, b| (a.0 - at).abs().total_cmp(&(b.0 - at).abs())).map(|l| l.1)
+    }
+}
+
 impl Hands {
     /// Where the dart thrown at `since` by `who` (0 this player, 1 the opponent) left the
     /// hand.
@@ -196,6 +216,9 @@ fn pose(
 #[derive(Default)]
 pub struct Watched {
     body: Option<Entity>,
+    /// The game's opponent's weapon node, hidden while it plays (as the thrower's game
+    /// hides it, `darts_world.rs`).
+    weapon: Option<Entity>,
     released: u8,
     at: Option<f32>,
     weight: f32,
@@ -218,7 +241,8 @@ pub fn arms(
     globals: Query<&GlobalTransform>,
     mut transforms: Query<&mut Transform>,
     mut hands: ResMut<Hands>,
-    mut watched: Local<HashMap<u32, Watched>>,
+    (mut watching, mut watched): (ResMut<Watching>, Local<HashMap<u32, Watched>>),
+    mut shown: Query<&mut Visibility>,
 ) {
     let dt = time.delta_secs();
     let own = screen.0.as_ref().map(|d| d.board);
@@ -256,21 +280,63 @@ pub fn arms(
                 debug!("darts arm: board 0x{board:08X}'s thrower is now {thrower:?}");
                 (w.body, w.weight, w.at) = (thrower, 0.0, None);
             }
+            // The game's opponent has its weapon put away from when it is brought over.
+            let foe_weapon = Some(v.foe).filter(|f| *f != 0).and_then(|f| rigs.iter().find(|(_, r, _)| r.reference == f)).and_then(|(_, r, _)| weapon_node(r));
+            if foe_weapon != w.weapon {
+                show(w.weapon.take(), &mut shown);
+                if let Some(mut vis) = foe_weapon.and_then(|n| shown.get_mut(n).ok()) {
+                    *vis = Visibility::Hidden;
+                    w.weapon = foe_weapon;
+                }
+            }
+            let hand = watching.0.entry(board).or_default();
             if v.released > w.released {
                 w.at = Some(now);
+                if let Some(at) = hand.now {
+                    hand.left.push((now, at));
+                }
             }
+            hand.left.retain(|(t, _)| now - t < 3.0);
             w.released = v.released;
             let since_release = w.at.map(|a| now - a).filter(|s| *s < BACK);
             let at_line = v.winner.is_none() && (!v.turn_over || since_release.is_some());
             let t = Throwing { at_line, draw: f32::from(v.draw) / 255.0, since_release };
-            let Some((root, rig, _)) = thrower.and_then(|e| rigs.get(e).ok()) else { continue };
+            let Some((root, rig, _)) = thrower.and_then(|e| rigs.get(e).ok()) else {
+                hand.now = None;
+                continue;
+            };
             w.weight = if t.at_line { (w.weight + dt / EASE).min(1.0) } else { (w.weight - dt / EASE).max(0.0) };
-            if let Err(why) = pose(root, rig, &f, throw_path(&t), smooth(w.weight), &parents, &mut transforms, &globals) {
-                debug!("darts arm: the thrower at 0x{board:08X} is not posed: {why}");
-            }
+            hand.now = match pose(root, rig, &f, throw_path(&t), smooth(w.weight), &parents, &mut transforms, &globals) {
+                Ok(h) if w.weight > 0.0 => Some(f.to_local(to_game(h))),
+                Ok(_) => None,
+                Err(why) => {
+                    debug!("darts arm: the thrower at 0x{board:08X} is not posed: {why}");
+                    None
+                }
+            };
         }
     }
-    watched.retain(|b, _| seen.contains(b));
+    watched.retain(|b, w| {
+        let keep = seen.contains(b);
+        if !keep {
+            show(w.weapon.take(), &mut shown);
+        }
+        keep
+    });
+    watching.0.retain(|b, _| seen.contains(b));
+}
+
+/// A body's weapon node [`crate::weapons::WEAPON_NODE`], if its skeleton has one.
+pub fn weapon_node(rig: &ActorRig) -> Option<Entity> {
+    let i = rig.skel.names.iter().position(|n| n.as_deref() == Some(crate::weapons::WEAPON_NODE))?;
+    rig.nodes.get(i).copied()
+}
+
+/// A weapon node put out of sight shown again.
+fn show(node: Option<Entity>, shown: &mut Query<&mut Visibility>) {
+    if let Some(mut v) = node.and_then(|n| shown.get_mut(n).ok()) {
+        *v = Visibility::Inherited;
+    }
 }
 
 /// This player's own board: its arm and the opponent's.

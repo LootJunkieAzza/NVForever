@@ -1251,7 +1251,8 @@ fn close(mut d: ResMut<DartsScreen>, mut f: ResMut<FilletScreen>, mut script: Op
 }
 
 /// What this game's table shows the others.
-pub fn darts_view(d: &Darts, me: u8, now: f32) -> Option<DartsView> {
+/// `foe`: the game's opponent at the board, if one plays.
+pub fn darts_view(d: &Darts, me: u8, now: f32, foe: Option<u32>) -> Option<DartsView> {
     if d.joined.is_some() {
         return None;
     }
@@ -1272,6 +1273,8 @@ pub fn darts_view(d: &Darts, me: u8, now: f32) -> Option<DartsView> {
         open_seat: d.page != Page::Play || d.foe == Foe::Practice,
         draw: (arm_draw(d, now) * 255.0).round() as u8,
         released: (d.m.sides.get(d.m.up).map_or(0, |s| s.darts.len()) + d.flights.iter().filter(|f| f.2 == d.m.up).count()) as u8,
+        foe: foe.unwrap_or(0),
+        flights: d.flights.iter().map(|(since, (x, z), _)| (((now - since) * 100.0).clamp(0.0, 255.0) as u8, *x, *z)).collect(),
     })
 }
 

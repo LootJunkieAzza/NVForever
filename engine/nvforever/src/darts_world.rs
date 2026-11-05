@@ -66,6 +66,7 @@ impl Plugin for DartsWorldPlugin {
         app.init_resource::<DartModels>()
             .init_resource::<Stage>()
             .init_resource::<Hands>()
+            .init_resource::<crate::darts_arm::Watching>()
             .add_systems(Update, stage.before(nvf_play::player::BodySet).before(crate::idles::drive))
             .add_systems(Update, opponent.after(nvf_play::PlaySet::Ui))
             .add_systems(PostUpdate, (crate::darts_arm::arms, place).chain().before(bevy::transform::TransformSystems::Propagate))
@@ -129,10 +130,7 @@ fn opponent(
     }
     // Its weapon's node, hidden once its body is drawn.
     if let Some((_, weapon @ None)) = held.as_mut() {
-        let node = rigs.iter().find(|r| r.reference == o.actor.0).and_then(|r| {
-            let i = r.skel.names.iter().position(|n| n.as_deref() == Some(crate::weapons::WEAPON_NODE))?;
-            r.nodes.get(i).copied()
-        });
+        let node = rigs.iter().find(|r| r.reference == o.actor.0).and_then(crate::darts_arm::weapon_node);
         if let Some(mut v) = node.and_then(|n| shown.get_mut(n).ok()) {
             *v = Visibility::Hidden;
             *weapon = node;
@@ -167,7 +165,7 @@ pub fn in_hand(aim: (f32, f32), draw: f32, bob: f32) -> ([f32; 3], Vec3) {
 fn place(
     mut commands: Commands,
     mut st: ResMut<DartModels>,
-    (hands, opp): (Res<Hands>, Res<nvf_play::darts_foes::DartsOpponent>),
+    (hands, opp, watching, time): (Res<Hands>, Res<nvf_play::darts_foes::DartsOpponent>, Res<crate::darts_arm::Watching>, Res<Time>),
     mut models: ModelCtx,
     screen: Res<DartsScreen>,
     tables: Option<Res<Tables>>,
@@ -224,6 +222,22 @@ fn place(
             let f = BoardFrame::of(pos, rot, placed.and_then(|r| r.scale));
             for (x, z) in &v.stuck {
                 want.push(dart_at(&f, [*x, FACE_Y, *z], STUCK));
+            }
+            // As the thrower's game draws them: each dart in the air flying from where the
+            // hand let it go, and the next in the hand at the line.
+            let now = time.elapsed_secs();
+            let hand = watching.0.get(&board);
+            for (age, x, z) in &v.flights {
+                let flown = f32::from(*age) / 100.0;
+                let from = hand.and_then(|h| h.left_near(now - flown)).unwrap_or(HAND);
+                let (at, dir) = in_flight(from, [*x, FACE_Y, *z], flown / darts::FLIGHT);
+                want.push(dart_at(&f, at, dir));
+            }
+            let left = v.sides.get(usize::from(v.up)).is_some_and(|s| s.2.len() < usize::from(darts::DARTS_PER_TURN));
+            if let (Some(h), true) = (hand.and_then(|h| h.now), v.winner.is_none() && !v.turn_over && v.flights.is_empty() && left) {
+                // The owner's dart points at its aim, the opponent's straight on.
+                let dir = if v.up == 0 { Vec3::new(v.aim.0 - h[0], FACE_Y - h[1], v.aim.1 - h[2]) } else { Vec3::Y };
+                want.push(dart_at(&f, h, dir));
             }
         }
     }
