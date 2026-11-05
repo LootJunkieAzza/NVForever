@@ -181,6 +181,11 @@ pub fn build(ui: &mut Ui) {
     }
     if let Some(tile) = find(ui, "ReticleCenter/reticle_center") {
         num(ui, tile, "depth", 1.0);
+        // A `visible` of its own, 1, which only a script changes after this [hypothesis:
+        // JAM's crosshair (JDCMainLoopEventHandler) writes
+        // `ReticleCentereticle_centerisible` 0 to hide the game's crosshair while it
+        // draws its own and 1 to give it back, so the original's copy carries one].
+        num(ui, tile, "visible", 1.0);
     }
     for (path, text) in [
         ("HitPoints/justify_left_text", "HP"),
@@ -275,6 +280,10 @@ pub(super) fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
         }
     }
     if let Some(tile) = find(ui, "ReticleCenter/reticle_center") {
+        // An alpha, 255 while the crosshair shows and 0 when not [hypothesis: JAM's
+        // crosshair copies `ReticleCentereticle_centerlpha` into its own every frame
+        // (JDCMainLoopEventHandler); its fading with the HUD is not captured].
+        num(ui, tile, "alpha", if shown.root && shown.reticle { 255.0 } else { 0.0 });
         // Keep user0/user1 as the template's strings: their numeric reads are 0
         // [observed: hud.md §14.4]. Select the loaded alternate [design].
         num(ui, tile, "systemcolor", if input.aim_hostile && !shown.aiming { 2.0 } else { 1.0 });

@@ -436,6 +436,37 @@ pub struct Piece {
     /// sRGB and alpha, 0 to 1.
     pub colour: [f32; 4],
     pub depth: f64,
+    /// The tile's `rotateangle` about its `rotateaxisx`/`rotateaxisy` ([`Turn`]).
+    pub turn: Option<Turn>,
+}
+
+/// A tile turned by its `rotateangle`, in radians and clockwise on the screen, about the
+/// point (`rotateaxisx`, `rotateaxisy`) in units from the tile's own top left
+/// [hypothesis: JAM's jdc.xml turns one arc picture by 0, 1.570796, 3.141593 and
+/// 4.712389 into the four quarters of a circle about the reticle's middle, each with its
+/// axis at that middle measured from the arc's top left; menu-xml.md §3.1.2].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Turn {
+    pub angle: f64,
+    pub axis: (f64, f64),
+}
+
+impl Turn {
+    /// The tile's turn, when it has a non-zero `rotateangle`.
+    pub fn of(tile: &fnv_ui::Tile) -> Option<Turn> {
+        let num = |n: &str| tile.get(n).map(Value::num).filter(|v| v.is_finite());
+        let angle = num("rotateangle").filter(|a| *a != 0.0)?;
+        Some(Turn { angle, axis: (num("rotateaxisx").unwrap_or(0.0), num("rotateaxisy").unwrap_or(0.0)) })
+    }
+
+    /// How far the box's middle moves, in units, when the box of `width` by `height` is
+    /// turned about the axis rather than about its middle (as Bevy turns a node).
+    pub fn shift(self, width: f64, height: f64) -> (f64, f64) {
+        let (cx, cy) = (width / 2.0, height / 2.0);
+        let (vx, vy) = (cx - self.axis.0, cy - self.axis.1);
+        let (sin, cos) = self.angle.sin_cos();
+        (vx * cos - vy * sin + self.axis.0 - cx, vx * sin + vy * cos + self.axis.1 - cy)
+    }
 }
 
 /// Which tiles of the menu draw.
@@ -543,7 +574,7 @@ fn under(ui: &Ui, id: TileId, of: &[TileId]) -> bool {
 pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Select<'_>, t15: bool) -> (Vec<Piece>, usize) {
     let roots = ui.mod_added_tiles(menu);
     let items: Vec<(Option<TileId>, layout::DrawItem)> = match select {
-        Select::Mods { .. } => roots.iter().flat_map(|&r| layout::layout(ui, r, measure, t15).into_iter().map(move |i| (Some(r), i))).collect(),
+        Select::Mods { .. } => roots.iter().flat_map(|&r| layout::layout_with(ui, r, measure, t15, layout::Clips::Ignored).into_iter().map(move |i| (Some(r), i))).collect(),
         Select::Whole { .. } => layout::layout(ui, menu, measure, t15).into_iter().map(|i| (roots.iter().copied().find(|&r| under(ui, i.tile, &[r])), i)).collect(),
     };
     let whole = matches!(select, Select::Whole { .. });
@@ -595,7 +626,7 @@ pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Sele
         let b = (c.brightness.clamp(0.0, 255.0) / 255.0) as f32;
         let [r, g, bl] = base_colour(ui, item.tile, own).map(|x| x * b);
         let alpha = (item.alpha / 255.0).clamp(0.0, 1.0) as f32;
-        out.push(Piece { tile: item.tile, look, rect: item.rect, clip: item.clip, colour: [r, g, bl, alpha], depth: item.depth });
+        out.push(Piece { tile: item.tile, look, rect: item.rect, clip: item.clip, colour: [r, g, bl, alpha], depth: item.depth, turn: Turn::of(tile) });
         if let Some(r) = root {
             drawn_roots.insert(r);
         }
@@ -695,7 +726,7 @@ pub fn change(old: &Piece, new: &Piece) -> Change {
     let size = |r: &TileRect| (r.width, r.height);
     if old == new {
         Change::Same
-    } else if old.look == new.look && size(&old.rect) == size(&new.rect) && old.clip.map(|c| size(&c)) == new.clip.map(|c| size(&c)) {
+    } else if old.look == new.look && old.turn == new.turn && size(&old.rect) == size(&new.rect) && old.clip.map(|c| size(&c)) == new.clip.map(|c| size(&c)) {
         // A model's parts take no Ink: spawned again in its new colour.
         if old.colour != new.colour && matches!(new.look, Look::Model { .. }) {
             Change::Spawn
@@ -747,6 +778,15 @@ struct Ctx<'a> {
 }
 
 fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Option<SizedPicture>, baked: Option<Baked>, strip: Option<StripWindow>, model: Option<model::Prepared>) -> Option<Entity> {
+    let id = spawn_look(p, piece, ctx, picture, baked, strip, model)?;
+    if let Some(turn) = piece.turn {
+        let (dx, dy) = turn.shift(piece.rect.width, piece.rect.height);
+        p.commands_mut().entity(id).insert(UiTransform { translation: Val2::new(u(f(dx)), u(f(dy))), rotation: Rot2::radians(f(turn.angle)), ..default() });
+    }
+    Some(id)
+}
+
+fn spawn_look(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Option<SizedPicture>, baked: Option<Baked>, strip: Option<StripWindow>, model: Option<model::Prepared>) -> Option<Entity> {
     let r = piece.rect;
     let (dx, dy) = piece.clip.map_or((0.0, 0.0), |c| (c.left, c.top));
     let [cr, cg, cb, ca] = piece.colour;
@@ -1461,7 +1501,7 @@ mod tests {
     }
 
     #[test]
-    fn depth_orders_the_drawing_and_clips_carry_to_the_pieces() {
+    fn depth_orders_the_drawing_and_mods_clips_crop_nothing() {
         let (mut ui, src) = hud();
         let menu = ui.menu(HUD_MENU).unwrap();
         assert!(ui.inject_text(
@@ -1477,8 +1517,13 @@ mod tests {
         assert_eq!(roots, 2);
         let names: Vec<_> = drawn.iter().map(|p| ui.tile(p.tile).name.as_str()).collect();
         assert_eq!(names, ["Back", "Clip", "Zero", "Front"]);
-        assert_eq!(drawn[3].clip, Some(TileRect { left: 0.0, top: 0.0, width: 40.0, height: 40.0 }));
+        // A mod's `clips` over the hand-built HUD crops nothing (`layout::Clips::Ignored`);
+        // the whole menu's drawing crops as before.
+        assert_eq!(drawn[3].clip, None);
         assert_eq!(drawn[1].clip, None);
+        let whole = pieces(&ui, menu, &plain, Select::Whole { kept: &[], strip: None }, false).0;
+        let front = whole.iter().find(|p| ui.tile(p.tile).name == "Front").unwrap();
+        assert_eq!(front.clip, Some(TileRect { left: 0.0, top: 0.0, width: 40.0, height: 40.0 }));
         assert_eq!(drawn[2].look, Look::Text { string: "x".into(), font: 1, wrap: None, alignment: Alignment::Left });
     }
 
@@ -1886,6 +1931,18 @@ mod tests {
         recolour::<&mut ImageNode, &mut BackgroundColor, &mut TextColor>(Ink::Drawn, None, None, None, now);
     }
 
+    /// A quarter of JDC's circle: an arc 64 by 32 above the middle, its axis at the
+    /// middle 40 units below its top edge, turned a quarter right lands right of the
+    /// middle (`Turn`).
+    #[test]
+    fn a_turned_tile_moves_about_its_axis() {
+        let turn = Turn { angle: std::f64::consts::FRAC_PI_2, axis: (32.0, 40.0) };
+        let (dx, dy) = turn.shift(64.0, 32.0);
+        // The arc's middle, (0, -24) from the axis, goes to (24, 0): 24 right, 24 down.
+        assert!((dx - 24.0).abs() < 1e-9 && (dy - 24.0).abs() < 1e-9, "{dx} {dy}");
+        assert_eq!(Turn { angle: 0.0, axis: (1.0, 2.0) }.shift(10.0, 10.0), (0.0, 0.0));
+    }
+
     /// A model's parts take no Ink, so its colour changing spawns it again; only moved, it
     /// is changed in place.
     #[test]
@@ -1897,6 +1954,7 @@ mod tests {
             clip: None,
             colour: [1.0, 0.7, 0.3, 1.0],
             depth: 0.0,
+            turn: None,
         };
         let mut dimmer = model.clone();
         dimmer.colour[3] = 0.5;

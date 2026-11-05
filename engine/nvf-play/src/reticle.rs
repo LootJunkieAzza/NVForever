@@ -30,6 +30,11 @@
 //!   movement flag and the texts with the rollover text flag [documented: GECK wiki
 //!   DisablePlayerControls, MovementFlag and RolloverTextFlag; controls.md §5].
 //! - Without the game's files: a small square, and the texts in Bevy's font.
+//! - **A mod's crosshair**: a script that sets the HUD's
+//!   `ReticleCenter/reticle_center/visible` to 0 hides the crosshair, the texts under it
+//!   staying ([`ScriptHidesReticle`]) [hypothesis: JAM's JDC sets it to 0 while it draws
+//!   its own reticle and to 1 to give the game's back; hud.md §14.4 read no `visible` on
+//!   that tile in the original, so only a script writes one].
 
 use crate::activate::outcome::{self, Action};
 use crate::activate::{Target, Targeted};
@@ -325,11 +330,21 @@ pub fn pipboy_hides_crosshair(full: Option<&crate::pipboy::PipBoy>, glance: Opti
     full.is_some_and(|p| p.shown()) || glance.is_some_and(|g| g.shown())
 }
 
+/// Whether a script hid the HUD's crosshair tile (module notes), set each frame by
+/// `crate::tiles` from the tile tree.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ScriptHidesReticle(pub bool);
+
+/// Whether the tile tree's crosshair tile has a `visible` a script set to false.
+pub fn script_hides(ui: &fnv_ui::Ui) -> bool {
+    ui.find_tile("HUDMainMenu/ReticleCenter/reticle_center").and_then(|t| ui.tile(t).get("visible")).is_some_and(|v| !v.truthy())
+}
+
 pub struct ReticlePlugin;
 
 impl Plugin for ReticlePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<DynamicCrosshair>().init_resource::<CrosshairStyle>().add_systems(Update, draw.in_set(PlaySet::Ui));
+        app.init_resource::<DynamicCrosshair>().init_resource::<CrosshairStyle>().init_resource::<ScriptHidesReticle>().add_systems(Update, draw.in_set(PlaySet::Ui));
         crate::settings::add_setting(
             app,
             crate::settings::Setting {
@@ -507,7 +522,7 @@ fn draw(
     sim: Res<SimState>,
     (combat, hostile, bar, camera, time, dynamic): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>, Option<Res<DynamicCrosshair>>),
     mut spread: Local<f32>,
-    mut logged: Local<(bool, i32, bool, Option<String>, Option<bool>, Option<bool>, Option<CrosshairStyle>, Option<bool>)>,
+    mut logged: Local<(bool, i32, bool, Option<String>, Option<bool>, Option<bool>, Option<CrosshairStyle>, Option<bool>, Option<bool>)>,
     (locks, bindings, creator, sights, scope, driven, kill_cam): (
         Option<Res<ControlLocks>>,
         Option<Res<crate::bindings::Bindings>>,
@@ -527,7 +542,7 @@ fn draw(
         Query<(&Cross, &mut Visibility, &mut Node, Option<&mut ImageNode>), Without<Root>>,
         Query<(&Bar, &mut Visibility, &mut Node, &mut ImageNode), (Without<Root>, Without<Cross>)>,
     ),
-    (texts, pipboy, glance): (Query<Entity, With<Texts>>, Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::pipboy::glance::Glance>>),
+    (texts, pipboy, glance, modded): (Query<Entity, With<Texts>>, Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::pipboy::glance::Glance>>, Option<Res<ScriptHidesReticle>>),
 ) {
     // Not over the character creator, whatever state the opening leaves the game in
     // [owner 2026-10-17: "E) Talk" stayed under it]. Nor while an idle holds the camera
@@ -624,8 +639,16 @@ fn draw(
         logged.5 = Some(cross);
     }
     let gap = spread.max(CROSS_REST);
+    // A mod's own crosshair in place of ours (module notes).
+    let modded = modded.is_some_and(|m| m.0);
+    if logged.8 != Some(modded) {
+        if modded || logged.8.is_some() {
+            info!("reticle: {}", if modded { "hidden: a script hid the HUD's crosshair tile" } else { "shown: the HUD's crosshair tile is visible again" });
+        }
+        logged.8 = Some(modded);
+    }
     for (b, mut v, mut node, mut image) in &mut bars {
-        v.set_if_neq(show(!locks.movement && !aimed && cross));
+        v.set_if_neq(show(!locks.movement && !modded && !aimed && cross));
         if image.color != colour {
             image.color = colour;
         }
@@ -635,7 +658,7 @@ fn draw(
     }
     let shift = (*spread - TIP).max(0.0);
     for (c, mut v, mut node, image) in &mut crosses {
-        v.set_if_neq(show(!locks.movement && c.filled == aimed && (c.filled || !cross)));
+        v.set_if_neq(show(!locks.movement && !modded && c.filled == aimed && (c.filled || !cross)));
         if let Some(mut image) = image.filter(|i| i.color != colour) {
             image.color = colour;
         }

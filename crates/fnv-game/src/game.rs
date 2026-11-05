@@ -5541,6 +5541,10 @@ impl Host for Exec<'_, '_> {
         Ok(self.game.call_function(&ctx, args))
     }
 
+    fn key_name(&mut self, code: i64) -> Option<String> {
+        Some(crate::script_input::key_name(code).to_string())
+    }
+
     fn skipped(&mut self, what: &VmError) {
         let unit = self.unit.key();
         self.game.emit(EventKind::Skipped { unit, what: what.to_string() });

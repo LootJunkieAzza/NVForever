@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 fnv-esm = { path = "../fnv-esm" }
 fnv-sim = { path = "../fnv-sim" }
+fnv-combat = { path = "../fnv-combat" }
 fnv-world = { path = "../fnv-world" }
 fnv-script = { path = "../fnv-script" }
 fnv-util = { path = "../fnv-util" }

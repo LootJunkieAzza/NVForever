@@ -521,7 +521,7 @@ fn write(
     mut told: Local<[Option<String>; 4]>,
     mut menu_tiles: MenuTiles,
     mut mods_entry: ResMut<crate::pause::ModsEntry>,
-    mut mods_back: ResMut<crate::pause::ModsOwnBack>,
+    (mut mods_back, mut reticle_hidden): (ResMut<crate::pause::ModsOwnBack>, ResMut<crate::reticle::ScriptHidesReticle>),
     mut start_names: Local<mods::KeptNames>,
     // The start menu's text sizes written (T11), then the HUD's mod texts' (below).
     mut sizes: Local<(menus::SizesWritten, menus::SizesWritten)>,
@@ -542,6 +542,10 @@ fn write(
     let back = crate::pause::ModsOwnBack(mods_now.0 && mods::own_back(&rt.game.ui_tree));
     if *mods_back != back {
         *mods_back = back;
+    }
+    let hidden = crate::reticle::ScriptHidesReticle(crate::reticle::script_hides(&rt.game.ui_tree));
+    if *reticle_hidden != hidden {
+        *reticle_hidden = hidden;
     }
     menu_tiles.write(&mut rt.game, *menus, &mut fonts, hud.sim.world.calendar().ok());
     // T11: the start menu's text sizes while its Mods page can open, as the original's
