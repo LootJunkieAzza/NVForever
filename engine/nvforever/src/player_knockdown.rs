@@ -41,6 +41,7 @@
 use crate::limbs::ActorRig;
 use crate::player_body::PlayerBody;
 use crate::ragdoll::{Corpse, PlayerRig, Ragdolls};
+use bevy::math::Affine3A;
 use bevy::prelude::*;
 use fnv_game::idles::IdleSource;
 use fnv_sim::FormId;
@@ -85,6 +86,16 @@ impl PlayerKnockdown {
         self.down.as_ref().is_some_and(|d| d.body.is_some() && matches!(d.phase, Phase::Lying | Phase::Rising { seen: false, .. }))
     }
 
+    /// The get-up's start: the ragdoll's last pose (each rig node in the space of the rig
+    /// root's parent) and how far the body has gone from it to the clip (0 to 1), while
+    /// that blend lasts ([`GETUP_BLEND`]; `player_body.rs` lays it over the clip).
+    pub fn blend_from(&self) -> Option<(&[Affine3A], f32)> {
+        let d = self.down.as_ref()?;
+        let (Phase::Rising { seen: true, .. }, Some(from), Some(at)) = (&d.phase, d.from.as_ref(), d.seen_at) else { return None };
+        let k = ((d.real - at) / GETUP_BLEND).clamp(0.0, 1.0);
+        (k < 1.0).then(|| (from.as_slice(), k * k * (3.0 - 2.0 * k)))
+    }
+
     /// The player is knocked down and this has the camera.
     pub fn active(&self) -> bool {
         self.down.is_some()
@@ -109,7 +120,17 @@ struct Down {
     chase: Option<(Vec2, Option<Transform>)>,
     /// The side the body was seen lying on.
     face_up: Option<bool>,
+    /// The ragdoll's last pose, each rig node in the space of the rig root's parent, and
+    /// that parent (Bevy world), taken as the get-up begins ([`PlayerKnockdown::blend_from`]).
+    from: Option<Vec<Affine3A>>,
+    parent: Option<Affine3A>,
+    /// When the get-up clip was first seen playing (real seconds since the fall).
+    seen_at: Option<f32>,
 }
+
+/// How long the get-up takes to go from the ragdoll's last pose to its clip (real
+/// seconds) [design: owner 2026-11-05, "play from the exact ragdoll position"].
+pub const GETUP_BLEND: f32 = 0.4;
 
 impl Down {
     /// Give the player the view they had before the fall.
@@ -190,7 +211,7 @@ fn watch(
     mut ragdolls: ResMut<Ragdolls>,
     (mut phys, mut player, death): (Option<ResMut<PhysState>>, ResMut<Player>, Res<crate::death_cam::DeathCam>),
     mut social: Option<ResMut<nvf_play::coop_social::Social>>,
-    (globals, cams): (Query<&GlobalTransform>, Query<&Transform, With<PlayerCamera>>),
+    (globals, cams, locals): (Query<&GlobalTransform>, Query<&Transform, With<PlayerCamera>>, Query<&Transform, Without<PlayerCamera>>),
     mut kd: ResMut<PlayerKnockdown>,
     mut pushes: MessageWriter<nvf_play::combat::ActorPush>,
     actor_world: Option<Res<crate::actors::ActorWorld>>,
@@ -265,7 +286,7 @@ fn watch(
         if chase.is_some() {
             info!("player knockdown: a duel lost: the camera follows the body");
         }
-        kd.down = Some(Down { was_first: was_first && body.is_some(), outside: !was_first, body, phase: Phase::Lying, real: 0.0, held, chase, face_up: None });
+        kd.down = Some(Down { was_first: was_first && body.is_some(), outside: !was_first, body, phase: Phase::Lying, real: 0.0, held, chase, face_up: None, from: None, parent: None, seen_at: None });
         return;
     }
     let d = kd.down.as_mut().expect("checked");
@@ -287,6 +308,16 @@ fn watch(
         Phase::Lying => {
             // Its time is over: the ragdoll goes and the get-up clip plays.
             let lay = d.body.as_ref().and_then(|(_, rig)| pelvis_head(rig, &globals));
+            // The ragdoll's pose as it is now, for the clip to start from: every node under
+            // the rig root's parent (which does not move when the player is placed).
+            if let Some((root, rig)) = d.body.as_ref() {
+                let parent = globals.get(*root).ok().zip(locals.get(*root).ok()).map(|(g, l)| g.affine() * Affine3A::from_scale_rotation_translation(l.scale, l.rotation, l.translation).inverse());
+                if let Some(parent) = parent.filter(|p| p.is_finite()) {
+                    let inv = parent.inverse();
+                    d.from = rig.nodes.iter().map(|&e| globals.get(e).ok().map(|g| inv * g.affine())).collect();
+                    d.parent = Some(parent);
+                }
+            }
             if let Some((root, _)) = d.body.as_ref() {
                 commands.entity(*root).remove::<(PlayerRig, Corpse)>();
                 if let Some(p) = phys.as_deref_mut() {
@@ -332,6 +363,9 @@ fn watch(
             control.pov = Pov::Third;
             let playing = rt.game.idle_playing(me);
             if playing.is_some() && playing == *idle {
+                if !*seen {
+                    d.seen_at = Some(d.real);
+                }
                 *seen = true;
                 *frames += 1;
             }
@@ -339,7 +373,8 @@ fn watch(
             // over where the ragdoll lay.
             if *seen && !*aligned && *frames >= 2 {
                 *aligned = true;
-                let got = body.third_rig().and_then(|(_, rig)| pelvis_head(&rig, &globals));
+                // The clip's own pose, not the blend from the ragdoll's drawn over it.
+                let got = body.clip_pelvis_head().zip(d.parent).map(|((p, h), par)| (space::to_game(par.transform_point3(p)), space::to_game(par.transform_point3(h))));
                 if let (Some(got), Some(want)) = (got, *lay) {
                     if let Some((heading, feet)) = lay_over(player.feet, player.heading, got, want) {
                         let turned = (heading - player.heading).to_degrees();

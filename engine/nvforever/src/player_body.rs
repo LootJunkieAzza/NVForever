@@ -873,6 +873,9 @@ pub struct PlayerBody {
     /// The third-person head's eye this frame, game space, while the view is from
     /// outside; `None` in first person or without a body.
     head_eye: Option<[f32; 3]>,
+    /// The third-person body's pelvis and head as its clips alone pose it, in the space of
+    /// the rig root's parent (the get-up's lay-over, `player_knockdown.rs`).
+    clip_pelvis_head: Option<(Vec3, Vec3)>,
     motion: Motion,
     /// Why the body could not be built (reported once).
     failed: Option<String>,
@@ -910,6 +913,10 @@ impl PlayerBody {
     /// The third-person head's eye this frame, game space, while the view is from
     /// outside (the flashlight follows it, `flashlight.rs`); `None` in first person or
     /// without a body.
+    pub fn clip_pelvis_head(&self) -> Option<(Vec3, Vec3)> {
+        self.clip_pelvis_head
+    }
+
     pub fn head_eye(&self) -> Option<[f32; 3]> {
         self.head_eye
     }
@@ -2127,6 +2134,41 @@ impl Seen {
 }
 
 /// Show the camera `seen` of the third-person rig, and the first-person rig or not.
+/// The rig's pelvis and head as its clips pose it (the animator's pose, whatever is laid
+/// over the nodes after), in the space of the rig root's parent.
+fn clip_pelvis_head(rig: &Rig, transforms: &Query<&mut Transform>) -> Option<(Vec3, Vec3)> {
+    let a = &rig.animator;
+    let r = transforms.get(rig.root).ok()?;
+    let root = Affine3A::from_scale_rotation_translation(r.scale, r.rotation, r.translation);
+    let at = |n: &str| a.skel.by_name.get(n).map(|&i| root.transform_point3(a.model_space(i).translation.into()));
+    Some((at("Bip01 Pelvis")?, at("Bip01 Head")?))
+}
+
+/// The get-up's start (`player_knockdown.rs`): the rig's nodes `k` of the way from the
+/// ragdoll's last pose `from` (each node in the space of the rig root's parent, so it stays
+/// where it lay however the player is moved) to what the clips give them.
+fn blend_from_pose(rig: &Rig, from: &[Affine3A], k: f32, transforms: &mut Query<&mut Transform>) {
+    let a = &rig.animator;
+    let Ok(r) = transforms.get(rig.root).map(|t| *t) else { return };
+    let inv_root = Affine3A::from_scale_rotation_translation(r.scale, r.rotation, r.translation).inverse();
+    let n = a.skel.parents.len().min(from.len()).min(a.nodes.len()).min(a.locals.len());
+    // Each node under the rig root, as the ragdoll left it.
+    let model: Vec<Affine3A> = from[..n].iter().map(|f| inv_root * *f).collect();
+    for i in 1..n {
+        // Node 0 is the rig root itself: its children's transforms are under the root
+        // as it stands now (the player placed and turned for the clip), not as it lay.
+        let parent = a.skel.parents[i].filter(|&p| p > 0 && p < n).map_or(Affine3A::IDENTITY, |p| model[p]);
+        let (s, q, t) = (parent.inverse() * model[i]).to_scale_rotation_translation();
+        let clip = a.locals[i];
+        let want = Transform { translation: t.lerp(clip.translation, k), rotation: q.slerp(clip.rotation, k), scale: s.lerp(clip.scale, k) };
+        if want.translation.is_finite() && want.rotation.is_finite() && want.scale.is_finite() {
+            if let Ok(mut tr) = transforms.get_mut(a.nodes[i]) {
+                *tr = want;
+            }
+        }
+    }
+}
+
 fn show_rigs(body: &mut Body, commands: &mut Commands, visibility: &mut Query<&mut Visibility>, seen: Seen, first: bool) {
     let third = &mut body.third;
     if third.seen != Some(seen) {
@@ -2534,6 +2576,11 @@ fn drive_body(
     let want = nvf_play::pipboy::glance::Check::of(&pip, &glance);
     let third = Posed { root, look_pitch: player.pitch, special: &idles.third, pipboy: None, check: Some((want, &mut check.0)), sway: SwayPose::NONE, sights: None };
     let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e + sink);
+    state.clip_pelvis_head = clip_pelvis_head(&body.third, &transforms);
+    // Getting up after a knockdown: from the ragdoll's last pose into the clip.
+    if let Some((from, k)) = knock.blend_from() {
+        blend_from_pose(&body.third, from, k, &mut transforms);
+    }
     // The third-person body's melee attack clip carries the player by its root's travel
     // (actors.md §8.13), turned by the heading and scaled with the body.
     if let Some(d) = body.third.carry.filter(|_| dt > 0.0) {

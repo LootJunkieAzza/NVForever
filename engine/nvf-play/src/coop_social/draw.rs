@@ -39,10 +39,34 @@ struct Kit {
 #[derive(Component)]
 struct SocialWheelRoot;
 
-#[allow(clippy::too_many_arguments)]
-/// The gap between the wheel's slices, interface units: the same from the hub to the rim
-/// [design: owner 2026-11-05, "equidistant and not slanted"].
-const SLICE_GAP: f32 = 10.0;
+/// A slice's picture side, interface units (the weapon wheel's item pictures are 132).
+const ICON: f32 = 132.0;
+/// A slice not picked: its picture and name this strong (the weapon wheel's).
+const DIM: f32 = 0.62;
+
+/// The slice's picture, first choice: the owner's icons, made from the owner's own
+/// pictures and installed as a mod (not in this repository: Vault Boy art), white on clear
+/// like the game's Pip-Boy pictures; else the game's own Vault Boy art
+/// (`textures\interface\icons\pipboyimages\…`, [observed] in Fallout - Textures2.bsa).
+/// Nothing is drawn when the load order has neither.
+fn icons_of(kind: Kind) -> [&'static str; 2] {
+    match kind {
+        Kind::Duel => [r"Interface\Icons\NVForever\social_duel.dds", r"Interface\Icons\PipboyImages\Perks\perk_cowboy.dds"],
+        Kind::Trade => [r"Interface\Icons\NVForever\social_trade.dds", r"Interface\Icons\PipboyImages\Perks\perk_scrounger.dds"],
+        Kind::Caravan => [r"Interface\Icons\NVForever\social_caravan.dds", r"Interface\Icons\PipboyImages\Items\item_caravan_deck.dds"],
+    }
+}
+
+/// The gap between the wheel's slices, interface units, at the slices' inner and outer
+/// edges: widening a little towards the rim, so the slices look fitted round the hub, not
+/// cut as wedges [design: owner 2026-11-05, "slight so that it's not jarring"].
+const SLICE_GAP: (f32, f32) = (8.0, 13.0);
+
+/// The gap at radius `r`, widening as [`SLICE_GAP`] says (the picked slice's rim goes on
+/// from its edge).
+fn gap_at(r: f32) -> f32 {
+    SLICE_GAP.0 + (SLICE_GAP.1 - SLICE_GAP.0) * (r - INNER) / (OUTER - INNER)
+}
 
 #[allow(clippy::too_many_arguments)]
 fn draw_wheel(
@@ -87,31 +111,42 @@ fn draw_wheel(
             }
             for i in 0..3 {
                 let mid = super::wheel::angle_of(i);
-                // The spokes between the slices; the gap is cut straight, as wide at the hub
-                // as at the rim.
+                // The spokes between the slices; the gap is cut beside them
+                // ([`SLICE_GAP`]).
                 let (from, to) = (mid - 60.0, mid + 60.0);
                 let lit = i == s.picked;
                 let refused = s.refusals[i].is_some();
-                let (fill, edge) = if lit { (bright.with_alpha(if refused { 0.12 } else { 0.27 }), bright.with_alpha(0.9)) } else { (dark.with_alpha(0.6), bright.with_alpha(0.35)) };
+                let (fill, edge) = if lit { (bright.with_alpha(if refused { 0.08 } else { 0.15 }), bright.with_alpha(0.9)) } else { (dark.with_alpha(0.6), bright.with_alpha(0.35)) };
                 m.spawn((at(0.0, 0.0, SIZE, SIZE), MaterialNode(materials.add(SliceMaterial { u: slice_uniform_gap(from, to, INNER, OUTER, fill, edge, if lit { 1.5 * LINE } else { LINE }, SLICE_GAP) }))));
                 if lit {
-                    m.spawn((at(0.0, 0.0, SIZE, SIZE), MaterialNode(materials.add(SliceMaterial { u: slice_uniform_gap(from, to, RIM[0], RIM[1], bright, bright, 0.0, SLICE_GAP) }))));
+                    m.spawn((at(0.0, 0.0, SIZE, SIZE), MaterialNode(materials.add(SliceMaterial { u: slice_uniform_gap(from, to, RIM[0], RIM[1], bright, bright, 0.0, (gap_at(RIM[0]), gap_at(RIM[1]))) }))));
                 }
             }
             m.spawn((at(0.0, 0.0, SIZE, SIZE), MaterialNode(materials.add(SliceMaterial { u: slice_uniform(0.0, 360.0, 0.0, HUB, dark.with_alpha(0.92), bright.with_alpha(0.63), LINE) }))));
             for (i, kind) in Kind::ALL.iter().enumerate() {
                 let lit = i == s.picked;
                 let refused = s.refusals[i].is_some();
-                let p = crate::weapon_wheel::point(super::wheel::angle_of(i), (INNER + OUTER) / 2.0) + Vec2::splat(c);
-                let strength = if lit { 1.0 } else { 0.62 } * if refused { 0.55 } else { 1.0 };
-                text(m, &kit.large, &kind.label().to_uppercase(), p.x, p.y - kit.large.font.size / 2.0 - if refused { 14.0 } else { 0.0 }, 0, bright.with_alpha(strength));
+                // The lower slices' pictures and names a little in towards the hub, so the
+                // longest name (PLAY CARAVAN) stays well inside its slice.
+                let r = (INNER + OUTER) / 2.0 - if i == 0 { 0.0 } else { 26.0 };
+                let p = crate::weapon_wheel::point(super::wheel::angle_of(i), r) + Vec2::splat(c);
+                let strength = if lit { 1.0 } else { DIM } * if refused { 0.5 } else { 1.0 };
+                let tint = bright.with_alpha(strength);
+                // The game's Vault Boy picture, white on clear, tinted the HUD's colour as
+                // the weapon wheel's item pictures are; under it the name, small.
+                if let Some((image, rect)) = icons_of(*kind).iter().find_map(|p| kit.pictures.picture(p, data, &mut images, bc)) {
+                    m.spawn((at(p.x - ICON / 2.0, p.y - ICON / 2.0 - 16.0, ICON, ICON), ImageNode { rect, color: tint, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image) }));
+                }
+                let size = kit.medium.font.size;
+                text(m, &kit.medium, &kind.label().to_uppercase(), p.x, p.y + ICON / 2.0 - 14.0, 0, bright.with_alpha(strength.max(0.68)));
                 if let Some(why) = &s.refusals[i] {
-                    // The reason in two lines when long.
+                    // Why it cannot be asked, in two lines when long.
                     let words: Vec<&str> = why.split(' ').collect();
-                    let half = words.len().div_ceil(2);
+                    let half = if why.len() > 24 { words.len().div_ceil(2) } else { words.len() };
                     let (a, b) = (words[..half].join(" "), words[half..].join(" "));
-                    text(m, &kit.medium, &a, p.x, p.y + 12.0, 0, bright.with_alpha(strength.max(0.6)));
-                    text(m, &kit.medium, &b, p.x, p.y + 12.0 + kit.medium.font.size, 0, bright.with_alpha(strength.max(0.6)));
+                    let y = p.y + ICON / 2.0 - 14.0 + size;
+                    text(m, &kit.medium, &a, p.x, y, 0, bright.with_alpha(0.6));
+                    text(m, &kit.medium, &b, p.x, y + size, 0, bright.with_alpha(0.6));
                 }
             }
             text(m, &kit.medium, "INTERACT", c, c - 40.0, 0, bright.with_alpha(0.7));
@@ -189,6 +224,20 @@ mod tests {
 
     fn mates() -> SocialMates {
         SocialMates { me: Some(0), interior: false, mates: vec![Mate { id: 1, name: "Veronica".into(), reference: 1, here: true, feet: [0.0; 3], yaw: 0.0, down: false, lost: false }] }
+    }
+
+    #[test]
+    fn the_gap_widens_a_little_from_the_hub_to_the_rim() {
+        use crate::weapon_wheel::draw::{slice_uniform_gap, SIZE};
+        assert!((gap_at(INNER) - SLICE_GAP.0).abs() < 1e-4 && (gap_at(OUTER) - SLICE_GAP.1).abs() < 1e-4);
+        assert!(gap_at(RIM[1]) > SLICE_GAP.1);
+        // The shader's half gap at r (parts of the half width) is half the gap asked for.
+        let u = slice_uniform_gap(0.0, 120.0, INNER, OUTER, Color::WHITE, Color::WHITE, 1.0, SLICE_GAP);
+        let half = SIZE / 2.0;
+        for (r, g) in [(INNER, SLICE_GAP.0), (OUTER, SLICE_GAP.1)] {
+            let got = (u.line.y + u.line.z * r / half) * half * 2.0;
+            assert!((got - g).abs() < 1e-3, "{r}: {got}");
+        }
     }
 
     #[test]
