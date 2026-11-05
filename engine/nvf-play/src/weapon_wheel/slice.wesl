@@ -8,7 +8,9 @@ struct Slice {
     // From and to angle (radians clockwise from straight up), inner and outer radius
     // (parts of the node's half width).
     shape: vec4<f32>,
-    // The outline's width (part of the half width).
+    // The outline's width, and half the gap to the next slices: cut straight along the
+    // spokes, as wide at the hub as at the rim (0: none, the angles alone), both parts of
+    // the half width.
     line: vec4<f32>,
 }
 
@@ -30,7 +32,14 @@ fn fragment(in: UiVertexOutput) -> @location(0) vec4<f32> {
     let span = slice.shape.y - slice.shape.x;
     let mid = slice.shape.x + span * 0.5;
     // Outside the sector by angle, as a length along the arc; by radius.
-    let off_angle = (abs(wrap(a - mid)) - span * 0.5) * r;
+    var off_angle = (abs(wrap(a - mid)) - span * 0.5) * r;
+    // A straight gap: outside either side's line, each moved into the slice by the half
+    // gap (a slice narrower than half the wheel, so the two lines bound it).
+    if slice.line.y > 0.0 && span < TAU * 0.5 {
+        let from_out = -(p.x * cos(slice.shape.x) + p.y * sin(slice.shape.x));
+        let to_out = p.x * cos(slice.shape.y) + p.y * sin(slice.shape.y);
+        off_angle = max(from_out, to_out) + slice.line.y;
+    }
     // No inner radius (the hub): no inner edge, else its outline drew a dot at the centre.
     let off_radius = select(max(slice.shape.z - r, r - slice.shape.w), r - slice.shape.w, slice.shape.z <= 0.0);
     let d = select(max(off_angle, off_radius), off_radius, span >= TAU - 1e-4);

@@ -10,8 +10,14 @@
 //!   §5.4]: while the body flies and lies the camera stays exactly where it was when the
 //!   player fell, not turning: at the eye in first person, which then shows the body from
 //!   outside (the view leaves first person), and where the third-person camera was in third
-//!   person. For the getting up the view is the third-person camera behind the player (in
-//!   first person too), and a first-person view comes back once the player stands.
+//!   person. A duel's loser (`nvf_play::coop_social`, NVForever's own) is followed
+//!   instead: the camera moves behind and above the thrown body on the winner's side
+//!   ([`CHASE_BACK`], [`CHASE_UP`]) and keeps looking at it (halfway from the pelvis to
+//!   the head), so the player sees their own fall, and getting up [design: owner
+//!   2026-11-05]. Otherwise, for the getting up the view is the third-person camera
+//!   behind the player (in first person too: the view is put in third person each frame
+//!   over the held controls' first person), and a first-person view comes back once the
+//!   player stands.
 //! - **Controls**: all held from the fall until the get-up clip is over
 //!   (`nvf_play::script::ScriptState::locks`).
 //! - **Lying**: the side the body lies on (the knocked-out NPCs' rule, `knockouts.rs`) is
@@ -72,6 +78,13 @@ impl PlayerKnockdown {
         self.down.as_ref().is_some_and(|d| matches!(d.phase, Phase::Lying) && d.body.is_some())
     }
 
+    /// The body keeps the pose its ragdoll left: lying as a ragdoll, or getting up before
+    /// the get-up clip is seen playing (its clip is read on a worker thread: the body would
+    /// otherwise stand for a frame or two).
+    pub fn holds_pose(&self) -> bool {
+        self.down.as_ref().is_some_and(|d| d.body.is_some() && matches!(d.phase, Phase::Lying | Phase::Rising { seen: false, .. }))
+    }
+
     /// The player is knocked down and this has the camera.
     pub fn active(&self) -> bool {
         self.down.is_some()
@@ -91,6 +104,9 @@ struct Down {
     real: f32,
     /// The camera as it was when the player fell: it stays there while the body lies.
     held: Option<Transform>,
+    /// A duel's loser: the camera follows the body from this side (game space, flat, unit:
+    /// towards the winner), and its last place.
+    chase: Option<(Vec2, Option<Transform>)>,
     /// The side the body was seen lying on.
     face_up: Option<bool>,
 }
@@ -119,7 +135,7 @@ pub struct PlayerKnockdownPlugin;
 impl Plugin for PlayerKnockdownPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PlayerKnockdown>()
-            .add_systems(Update, watch.before(nvf_play::player::BodySet).after(crate::death_cam::watch))
+            .add_systems(Update, watch.before(nvf_play::player::BodySet).after(crate::death_cam::watch).after(nvf_play::control::enforce_locks))
             .add_systems(Update, follow.after(crate::ragdoll::pose).run_if(resource_exists::<PhysState>))
             .add_systems(Last, report);
     }
@@ -173,6 +189,7 @@ fn watch(
     data: Option<Res<GameData>>,
     mut ragdolls: ResMut<Ragdolls>,
     (mut phys, mut player, death): (Option<ResMut<PhysState>>, ResMut<Player>, Res<crate::death_cam::DeathCam>),
+    mut social: Option<ResMut<nvf_play::coop_social::Social>>,
     (globals, cams): (Query<&GlobalTransform>, Query<&Transform, With<PlayerCamera>>),
     mut kd: ResMut<PlayerKnockdown>,
     mut pushes: MessageWriter<nvf_play::combat::ActorPush>,
@@ -240,7 +257,15 @@ fn watch(
         kd.shown += 1;
         // The camera as the player fell (the eye in first person): it stays there.
         let held = cams.single().ok().copied();
-        kd.down = Some(Down { was_first: was_first && body.is_some(), outside: !was_first, body, phase: Phase::Lying, real: 0.0, held, face_up: None });
+        // A duel lost: followed, from the side the shot came from.
+        let chase = social.as_deref_mut().and_then(|s| s.thrown.take()).filter(|_| body.is_some()).map(|v| {
+            let back = -Vec2::new(v[0], v[1]);
+            (back.try_normalize().unwrap_or(Vec2::NEG_Y), None)
+        });
+        if chase.is_some() {
+            info!("player knockdown: a duel lost: the camera follows the body");
+        }
+        kd.down = Some(Down { was_first: was_first && body.is_some(), outside: !was_first, body, phase: Phase::Lying, real: 0.0, held, chase, face_up: None });
         return;
     }
     let d = kd.down.as_mut().expect("checked");
@@ -301,6 +326,10 @@ fn watch(
             d.phase = Phase::Rising { idle, lay, aligned: false, frames: 0, since: d.real, seen: false };
         }
         Phase::Rising { idle, lay, aligned, frames, since, seen } => {
+            // Seen from outside: the controls held put the view in first person each frame
+            // (`nvf_play::control::enforce_locks`), where the body is not drawn, or stands
+            // upright under the camera (`player_body.rs`), and the clip would not show.
+            control.pov = Pov::Third;
             let playing = rt.game.idle_playing(me);
             if playing.is_some() && playing == *idle {
                 *seen = true;
@@ -336,14 +365,48 @@ fn watch(
     }
 }
 
-/// While the body lies, hold the camera where it was when the player fell (see the
-/// module notes); while the player gets up, leave it to the third-person camera.
-fn follow(mut kd: ResMut<PlayerKnockdown>, mut cams: Query<&mut Transform, With<PlayerCamera>>) {
+/// How far behind the thrown body (towards the winner) and above its middle the camera
+/// follows a duel's loser, game units [design].
+pub const CHASE_BACK: f32 = 170.0;
+pub const CHASE_UP: f32 = 70.0;
+/// How quickly the following camera closes on its place (per second) [design].
+const CHASE_RATE: f32 = 5.0;
+
+/// While the body lies, hold the camera where it was when the player fell, and while the
+/// player gets up leave it to the third-person camera; a duel's loser is followed
+/// throughout (see the module notes).
+fn follow(
+    real: Res<Time<Real>>,
+    mut kd: ResMut<PlayerKnockdown>,
+    mut phys: ResMut<PhysState>,
+    globals: Query<&GlobalTransform>,
+    mut cams: Query<&mut Transform, With<PlayerCamera>>,
+) {
     let Some(d) = kd.down.as_mut() else { return };
+    let Ok(mut t) = cams.single_mut() else { return };
+    // A duel's loser is followed through the getting up too.
+    if let Some((back, last)) = d.chase.as_mut() {
+        // Between the pelvis and the head: on the ground while the body lies, the chest
+        // once it stands.
+        let bones = d.body.as_ref().and_then(|(_, rig)| Some((bone_at(rig, &globals, "Bip01 Pelvis")?, bone_at(rig, &globals, "Bip01 Head")?)));
+        let Some((pelvis, head)) = bones else { return };
+        let pelvis = (pelvis + head) * 0.5;
+        let p = space::to_game(pelvis);
+        let at = space::to_bevy([p[0] + back.x * CHASE_BACK, p[1] + back.y * CHASE_BACK, p[2] + CHASE_UP]);
+        let at = crate::death_cam::clear(&mut phys, pelvis, at);
+        let want = Transform::from_translation(at).looking_at(pelvis, Vec3::Y);
+        let k = 1.0 - (-real.delta_secs() * CHASE_RATE).exp();
+        let from = last.unwrap_or(*t);
+        let out = Transform { translation: from.translation.lerp(want.translation, k), rotation: from.rotation.slerp(want.rotation, k).normalize(), scale: Vec3::ONE };
+        if out.translation.is_finite() && out.rotation.is_finite() {
+            *last = Some(out);
+            *t = out;
+        }
+        return;
+    }
     if !matches!(d.phase, Phase::Lying) {
         return;
     }
-    let Ok(mut t) = cams.single_mut() else { return };
     match d.held {
         Some(h) => *t = h,
         None => d.held = Some(*t),

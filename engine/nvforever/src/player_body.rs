@@ -1050,7 +1050,7 @@ fn ensure_body(
     let (Some(world), Ok(world_root)) = (world, root.single()) else { return };
     // The dead or knocked-down player's body lies as its ragdoll left it: it is not
     // rebuilt.
-    if state.failed.is_some() || death.down() || knock.ragdolled() {
+    if state.failed.is_some() || death.down() || knock.holds_pose() {
         return;
     }
     let (worn, weapon, weapon_mods) = equipped(&sim, &world);
@@ -2235,7 +2235,7 @@ fn drive_body(
         state.casing_entity = None;
         return;
     };
-    if death.down() || knock.ragdolled() {
+    if death.down() || knock.holds_pose() {
         // Dead or knocked down: the clips stop and the ragdoll has the body
         // (`death_cam.rs`, `player_knockdown.rs`). The whole body is drawn, but for its
         // head while the view is inside it (a knockdown's view is outside).
@@ -2244,7 +2244,7 @@ fn drive_body(
         anim.casing = None;
         state.muzzle_entity = None;
         state.casing_entity = None;
-        show_rigs(body, &mut commands, &mut visibility, Seen { body: true, head: death.third_person() || knock.ragdolled(), arms: true, weapon: true }, false);
+        show_rigs(body, &mut commands, &mut visibility, Seen { body: true, head: death.third_person() || knock.holds_pose(), arms: true, weapon: true }, false);
         return;
     }
     // Turbo slows the world's clock, not the player's clips (magic-archetypes.md §2).

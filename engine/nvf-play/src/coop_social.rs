@@ -134,6 +134,10 @@ pub struct Social {
     pub sweep_at: Option<f32>,
     /// Players whose puppets fall here (they lost a duel to this player).
     pub falls: Vec<u8>,
+    /// This player lost a duel and is thrown with this velocity (game units a second):
+    /// the knockdown's camera follows the body (`nvforever::player_knockdown`) and takes
+    /// this.
+    pub thrown: Option<[f32; 3]>,
     /// Attacks begun by this player as last seen (`combat::WeaponAnim::attacks`).
     attacks: Option<u32>,
     /// Caps to give back (buys the other could not honour), and sales to carry out
@@ -815,6 +819,7 @@ fn duel_step(
         let shove = duel::throw(player.feet, winner);
         if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
             let down = crate::script::with_world(rt, &mut sim, |rt| rt.game.knock_down(FormId::PLAYER_REF, None, shove));
+            s.thrown = down.then_some(shove);
             info!("co-op social: duel: this player is thrown back ({shove:?}): {}", if down { "knocked down" } else { "could not be knocked down" });
         }
     }

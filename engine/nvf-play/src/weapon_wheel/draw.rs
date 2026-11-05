@@ -108,12 +108,20 @@ pub fn build(app: &mut App) {
 /// A slice's shape and colours: `from`/`to` in degrees clockwise from up, radii in
 /// interface units.
 pub(crate) fn slice_uniform(from: f32, to: f32, inner: f32, outer: f32, fill: Color, edge: Color, line: f32) -> SliceUniform {
+    slice_uniform_gap(from, to, inner, outer, fill, edge, line, 0.0)
+}
+
+/// As [`slice_uniform`], the slice's sides cut straight `gap` interface units from the
+/// next slices', as wide at the hub as at the rim (`from`/`to` are then the spokes
+/// between the slices, without a gap of their own).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn slice_uniform_gap(from: f32, to: f32, inner: f32, outer: f32, fill: Color, edge: Color, line: f32, gap: f32) -> SliceUniform {
     let half = SIZE / 2.0;
     SliceUniform {
         fill: fill.to_linear().to_vec4(),
         edge: edge.to_linear().to_vec4(),
         shape: Vec4::new(from.to_radians(), to.to_radians(), inner / half, outer / half),
-        line: Vec4::new(line / half, 0.0, 0.0, 0.0),
+        line: Vec4::new(line / half, gap / 2.0 / half, 0.0, 0.0),
     }
 }
 

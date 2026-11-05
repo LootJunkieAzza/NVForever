@@ -7,7 +7,7 @@ use super::duel::{Phase, Stance};
 use super::wire::Kind;
 use super::{Social, SocialMates};
 use crate::interface::{amber, at, face, plain_font, Face, Pictures};
-use crate::weapon_wheel::draw::{slice_uniform, text, SliceMaterial, FONT_1, FONT_3, GAP, HUB, INNER, LINE, MATTE, OUTER, RAISE, RIM, SIZE};
+use crate::weapon_wheel::draw::{slice_uniform, slice_uniform_gap, text, SliceMaterial, FONT_1, FONT_3, HUB, INNER, LINE, MATTE, OUTER, RAISE, RIM, SIZE};
 use crate::PlaySet;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
@@ -38,6 +38,11 @@ struct Kit {
 
 #[derive(Component)]
 struct SocialWheelRoot;
+
+#[allow(clippy::too_many_arguments)]
+/// The gap between the wheel's slices, interface units: the same from the hub to the rim
+/// [design: owner 2026-11-05, "equidistant and not slanted"].
+const SLICE_GAP: f32 = 10.0;
 
 #[allow(clippy::too_many_arguments)]
 fn draw_wheel(
@@ -82,13 +87,15 @@ fn draw_wheel(
             }
             for i in 0..3 {
                 let mid = super::wheel::angle_of(i);
-                let (from, to) = (mid - 60.0 + GAP, mid + 60.0 - GAP);
+                // The spokes between the slices; the gap is cut straight, as wide at the hub
+                // as at the rim.
+                let (from, to) = (mid - 60.0, mid + 60.0);
                 let lit = i == s.picked;
                 let refused = s.refusals[i].is_some();
                 let (fill, edge) = if lit { (bright.with_alpha(if refused { 0.12 } else { 0.27 }), bright.with_alpha(0.9)) } else { (dark.with_alpha(0.6), bright.with_alpha(0.35)) };
-                m.spawn((at(0.0, 0.0, SIZE, SIZE), MaterialNode(materials.add(SliceMaterial { u: slice_uniform(from, to, INNER, OUTER, fill, edge, if lit { 1.5 * LINE } else { LINE }) }))));
+                m.spawn((at(0.0, 0.0, SIZE, SIZE), MaterialNode(materials.add(SliceMaterial { u: slice_uniform_gap(from, to, INNER, OUTER, fill, edge, if lit { 1.5 * LINE } else { LINE }, SLICE_GAP) }))));
                 if lit {
-                    m.spawn((at(0.0, 0.0, SIZE, SIZE), MaterialNode(materials.add(SliceMaterial { u: slice_uniform(from, to, RIM[0], RIM[1], bright, bright, 0.0) }))));
+                    m.spawn((at(0.0, 0.0, SIZE, SIZE), MaterialNode(materials.add(SliceMaterial { u: slice_uniform_gap(from, to, RIM[0], RIM[1], bright, bright, 0.0, SLICE_GAP) }))));
                 }
             }
             m.spawn((at(0.0, 0.0, SIZE, SIZE), MaterialNode(materials.add(SliceMaterial { u: slice_uniform(0.0, 360.0, 0.0, HUB, dark.with_alpha(0.92), bright.with_alpha(0.63), LINE) }))));
