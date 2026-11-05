@@ -91,4 +91,8 @@ haze wall with a hard edge on the kerb (playtest-bugs 2026-11-04).
 
 So a reference with XPRM draws nothing from its base (`fnv_world::placed::Placement::volume`;
 nvforever `world.rs` `spawn_ref`, nvf-play `script_draw.rs`). Its trigger and collision
-uses (script_trigger.rs, rooms.rs, fnv-phys `primitive`) are unchanged.
+uses (script_trigger.rs, rooms.rs, fnv-phys `primitive`) are unchanged. Nor is it solid:
+fnv-phys `ref_collision_with` adds none of the model's collision (`refs.counts.volume`);
+before 2026-11-05 Vault 34's ambush triggers stood as solid, unseen pipes [observed:
+`fnvtool phys cell --cell Vault34b --list-refs`, six `v34AmbushVolume` refs on the Static
+layer].
