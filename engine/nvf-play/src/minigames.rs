@@ -339,17 +339,17 @@ impl Plugin for MinigamesPlugin {
     }
 }
 
-fn seed(r: u32, now: f32) -> u64 {
+pub(crate) fn seed(r: u32, now: f32) -> u64 {
     let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(0);
     t ^ ((r as u64) << 20) ^ now.to_bits() as u64
 }
 
-fn caps(rt: &mut crate::script::Runtime, sim: &mut SimState) -> u32 {
+pub(crate) fn caps(rt: &mut crate::script::Runtime, sim: &mut SimState) -> u32 {
     with_world(rt, sim, |rt| rt.game.world.item_count(FormId::PLAYER_REF, CAPS).unwrap_or(0).max(0) as u32)
 }
 
 /// Caps to (positive) or from (negative) the player.
-fn give_caps(rt: &mut crate::script::Runtime, sim: &mut SimState, n: i64) {
+pub(crate) fn give_caps(rt: &mut crate::script::Runtime, sim: &mut SimState, n: i64) {
     with_world(rt, sim, |rt| {
         if n > 0 {
             let _ = rt.game.world.add_item(FormId::PLAYER_REF, CAPS, n as i32);

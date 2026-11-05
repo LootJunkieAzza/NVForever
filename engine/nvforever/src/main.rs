@@ -102,6 +102,7 @@ mod coop;
 mod consume_anims;
 mod darts_arm;
 mod darts_world;
+mod pool_world;
 mod object_anims;
 mod outfits;
 mod own_sounds;
@@ -1525,6 +1526,8 @@ fn main() -> AppExit {
             app.add_plugins(consume_anims::ConsumeAnimsPlugin);
             // Darts played at the cabinet: the darts' models in the world (darts_world.rs).
             app.add_plugins(darts_world::DartsWorldPlugin);
+            // Pool at the mod's tables: the balls and the cue in the world (pool_world.rs).
+            app.add_plugins(pool_world::PoolWorldPlugin);
             // Creatures fight with their body weapons and switch between them (body_weapons.rs).
             app.add_plugins(body_weapons::BodyWeaponsPlugin);
             // Scripted weapon use: UseWeapon, Use Weapon packages (use_weapon.rs).

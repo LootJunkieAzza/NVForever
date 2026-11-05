@@ -39,6 +39,8 @@ pub mod game {
     /// A caravan game against another player (`crate::caravan::PvpWire`): only open, no
     /// view (the world runs on behind it).
     pub const CARAVAN: u8 = 8;
+    /// A pool table (`crate::pool::PoolView`).
+    pub const POOL: u8 = 9;
 
     /// The game's name, as the lobby and the notes say it.
     pub fn word(g: u8) -> &'static str {
@@ -50,6 +52,7 @@ pub mod game {
             FILLET => "five finger fillet",
             POKER => "poker",
             CARAVAN => "caravan",
+            POOL => "pool",
             _ => "a table",
         }
     }
@@ -829,6 +832,7 @@ pub fn summary(tables: &Tables, name: &str, game: u8, blob: &[u8]) -> Vec<String
             let clock = v.clock.map(|c| format!(", {c:.0} s left")).unwrap_or_default();
             out.push(format!("{name} at five finger fillet{}: {state}{clock}", if v.stake > 0 { format!(" for {} caps", v.stake) } else { String::new() }));
         }
+        game::POOL => return crate::pool::summary(tables, name, blob),
         game::POKER => match crate::poker::coop::PeerView::decode(blob) {
             Some(crate::poker::coop::PeerView::Table(v)) => {
                 let casino = crate::poker::Casino::from_letter(&v.casino.to_string()).map_or("a card table", |c| c.title());
@@ -871,6 +875,7 @@ fn publish(
     (bj, rl, sl): (Option<Res<crate::blackjack::BlackjackScreen>>, Option<Res<crate::roulette::RouletteScreen>>, Option<Res<crate::slots::SlotsScreen>>),
     (darts, fillet, poker): (Option<Res<crate::minigames::DartsScreen>>, Option<Res<crate::minigames::FilletScreen>>, Option<Res<crate::poker::PokerScreen>>),
     (pvp, foe): (Option<Res<crate::caravan::PvpWire>>, Option<Res<crate::darts_foes::DartsOpponent>>),
+    pool: Option<Res<crate::pool::PoolScreen>>,
 ) {
     let now = time.elapsed_secs();
     let me = tables.me.unwrap_or(0);
@@ -910,6 +915,10 @@ fn publish(
     if let Some(f) = fillet.as_deref().and_then(|f| f.0.as_ref()) {
         at = Some((game::FILLET, f.knife));
         out = crate::minigames::fillet_view(f).map(|v| (f.knife, game::FILLET, v.encode()));
+    }
+    if let Some(p) = pool.as_deref().and_then(|p| p.0.as_ref()) {
+        at = Some((game::POOL, p.table_ref));
+        out = crate::pool::pool_view(p, me, now).map(|v| (p.table_ref, game::POOL, v.encode()));
     }
     if let Some(p) = poker.as_deref().and_then(|p| p.0.as_ref()) {
         at = Some((game::POKER, p.casino.deck() as u32));
