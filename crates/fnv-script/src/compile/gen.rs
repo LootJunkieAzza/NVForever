@@ -444,10 +444,24 @@ impl<'a> Gen<'a> {
             return Some(i);
         }
         if name.len() == 8 && name.bytes().all(|b| b.is_ascii_hexdigit()) {
-            let g = self.env.local_form(u32::from_str_radix(name, 16).ok()?)?;
-            return Some(self.env.info(g).unwrap_or(FormInfo { form: g, sig: [0; 4] }));
+            return self.hex_form(name);
         }
         None
+    }
+
+    /// A form named by its FormID in hex, as long as a form has it.
+    fn hex_form(&self, name: &str) -> Option<FormInfo> {
+        let g = self.env.local_form(u32::from_str_radix(name, 16).ok()?)?;
+        Some(self.env.info(g).unwrap_or(FormInfo { form: g, sig: [0; 4] }))
+    }
+
+    /// [`Self::form`] in the vanilla expression and parameters: a FormID in hex may also
+    /// go without its leading zeros [observed: NoticeBoard.esm's `player.additem f 25`
+    /// compiled as AddItem of 0x0000000F (Caps001), `set GenerateEvent to 0A` as a
+    /// reference to 0x0000000A]. Not in the extender's expressions, where an unknown word
+    /// is its own text (`unquoted_argument`).
+    fn vanilla_form(&self, name: &str) -> Option<FormInfo> {
+        self.form(name).or_else(|| ((1..8).contains(&name.len()) && name.bytes().all(|b| b.is_ascii_hexdigit())).then(|| self.hex_form(name)).flatten())
     }
 
     /// The reference list entry for `slot` named as `spelling`. One form named two ways
@@ -517,7 +531,7 @@ impl<'a> Gen<'a> {
                 if let Some(v) = self.var(&t.text) {
                     return Some(Val::Local { index: v.index as u16, letter: letter_of(&v.ty) });
                 }
-                let f = self.form(&t.text)?;
+                let f = self.vanilla_form(&t.text)?;
                 Some(self.form_val(f, &t.text))
             }
             _ => None,
@@ -541,7 +555,7 @@ impl<'a> Gen<'a> {
             && !lex::is_number(&t.text)
             && !is_neg_number(&t.text)
             && self.var(&t.text).is_none()
-            && self.form(&t.text).is_none()
+            && self.vanilla_form(&t.text).is_none()
             && self.function(t).is_none()
             && !self.xfunction_name(&t.text)
     }

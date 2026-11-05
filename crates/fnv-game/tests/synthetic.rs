@@ -721,6 +721,26 @@ fn snapshots_round_trip() {
     assert_eq!(g.instances, h.instances);
 }
 
+/// A save made before a plugin was added does not hold its quests: on a load, those
+/// flagged "Start game enabled" run, as in a new game (NoticeBoard.esm's dialogue quest);
+/// one the save holds stopped stays stopped.
+#[test]
+fn a_load_starts_the_start_enabled_quests_the_save_does_not_hold() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let mut s = g.snapshot();
+    s.quests.remove(&q());
+    let world = World::restore(&f.forms, &f.refs, &s.sim).unwrap();
+    let h = Game::restore(&f.data, world, g.cfg, &s).unwrap();
+    assert!(h.quest_state(q()).running);
+    g.stop_quest(q());
+    let s = g.snapshot();
+    let world = World::restore(&f.forms, &f.refs, &s.sim).unwrap();
+    let h = Game::restore(&f.data, world, g.cfg, &s).unwrap();
+    assert!(!h.quest_state(q()).running);
+}
+
 /// Players 2–4 of a co-op game (docs/design/coop-save.md): each keeps its own actor
 /// (inventory, place), values (health damage), character and effects through a save,
 /// apart from the game's own player and from each other; the quests stay shared.
