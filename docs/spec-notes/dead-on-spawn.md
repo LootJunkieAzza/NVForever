@@ -218,13 +218,14 @@ and the nine DLC masters [observed]:
 | no `XRGD`, jointed | 168 | held in the file's pose (`hold_jointed`) |
 | `skeleton` path, no ragdoll | 161 | a single static body or none (a skull, a ribcage) |
 
-The 452 refusals, by reason [observed]: 289 "a body's node is the mesh root" (a body
-hung on the root itself, which the drawing cannot pose — the globes, the hanging office
-lights, some weapons), 151 "one body, but more XRGD entries than it can hold" (a
-single-body item with extra entries), 12 "the model has no bodies" (an `XRGD` on a model
-with no collision). The code can also refuse with "fewer XRGD entries than bodies", "a
-body's node is unnamed", "an entry is not finite", "a body's node is not in the model" or
-"a node's parent comes after it"; none of those occur in the ten masters.
+The 452 refusals, by reason [observed]: 289 "a body's node is not in the model" (a body
+hung on the mesh root, whose name the drawing's below-root node list does not hold — the
+globes, the hanging office lights, some weapons), 151 "one body, but more XRGD entries
+than it can hold" (a single-body item with extra entries), 12 "the model has no bodies"
+(an `XRGD` on a model with no collision). The engine's `clutter_pose::pose` can also
+refuse with "fewer XRGD entries than bodies", "no XRGD entries", "a body's node is
+unnamed", "an entry is not finite" or "a node's parent comes after it"; none of those
+occur in the ten masters.
 
 The `not posable type` rows, by base type, with how many have a *fitting* `XRGD` (the
 count rule holds, every body on a named node below the root) [observed]:

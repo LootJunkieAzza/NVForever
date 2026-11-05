@@ -1,7 +1,7 @@
 //! `fnvtool world posed-clutter`: every placed reference whose model is ragdoll-like —
 //! two or more dynamic collision objects, or any constraint, or a model path naming a
 //! skeleton — or which carries `XRGD`, with the branch NVForever takes
-//! (docs/spec-notes/dead-on-spawn.md §5.1, issue #1400).
+//! (docs/spec-notes/dead-on-spawn.md §5.2, issue #1400).
 //!
 //! The per-reference rows are game data and are not committed; the summary counts are what
 //! the spec note records. This is observational, like `collide ragdoll`, not a lab scenario.
@@ -235,7 +235,7 @@ fn classify(ix: &WorldIndex, r: &RefRow, infos: &HashMap<String, ModelInfo>) -> 
     let base_sig = r.base_sig.as_ref().map(sig);
     // Whether the engine poses it: the shared count rule (`xrgd::matching`) holds and
     // every body's node is a named node below the mesh root (the drawing's
-    // `clutter_pose::pose`, and the collision's matching gate, dead-on-spawn.md §5.1).
+    // `clutter_pose::pose`, and the collision's matching gate, dead-on-spawn.md §5.2).
     let matched = xrgd::matching(r.xrgd, objects);
     let nodes_below_root = model.map_or(0, |m| m.nodes_below_root);
     let rooted = model.map_or(0, |m| m.rooted);
@@ -246,7 +246,9 @@ fn classify(ix: &WorldIndex, r: &RefRow, infos: &HashMap<String, ModelInfo>) -> 
     } else if has_xrgd && posable && fitting {
         ("posed", None)
     } else if has_xrgd && posable {
-        ("refused_no_fit", Some(match matched { Err(e) => e, Ok(_) if rooted > 0 => "a body's node is the mesh root", Ok(_) => "unnamed_node" }))
+        // The reason in the engine's own words (clutter_pose::pose): a body on the mesh
+        // root is one whose name the drawing's below-root node list does not hold.
+        ("refused_no_fit", Some(match matched { Err(e) => e, Ok(_) if rooted > 0 => "a body's node is not in the model", Ok(_) => "a body's node is unnamed" }))
     } else if has_xrgd {
         ("not_posable_type", None)
     } else if r.base_sig.is_some_and(|s| matches!(&s, b"STAT" | b"SCOL")) {
