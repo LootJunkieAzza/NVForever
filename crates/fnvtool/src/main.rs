@@ -775,7 +775,7 @@ pub enum WorldCmd {
         functions: Option<PathBuf>,
     },
     /// Every placed reference whose model is ragdoll-like or which carries XRGD, with the
-    /// branch NVForever takes (fnv.world.posed_clutter/1; dead-on-spawn.md §5.1).
+    /// branch NVForever takes (fnv.world.posed_clutter/1; dead-on-spawn.md §5.2).
     PosedClutter {
         #[command(flatten)]
         w: WorldArgs,

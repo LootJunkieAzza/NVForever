@@ -34,6 +34,10 @@ struct ModelInfo {
     constraints: usize,
     /// Bodies whose node is named.
     named: usize,
+    /// Bodies whose node is the mesh root (not below it); the drawing cannot pose these.
+    rooted: usize,
+    /// NiNode blocks below the mesh root (the drawing's `model.nodes.len()`).
+    nodes_below_root: usize,
     /// A visible shape is skinned (a `skin_instance` block ref).
     skinned: bool,
     /// Why the model could not be read, if it could not.
@@ -45,6 +49,12 @@ impl ModelInfo {
     fn jointed(&self) -> bool {
         self.dynamic >= 2 || self.constraints > 0
     }
+
+    /// Whether the drawing's `clutter_pose::pose` can pose it: every body on a named node
+    /// below the mesh root.
+    fn posable_pose(&self) -> bool {
+        self.named == self.objects && self.rooted == 0
+    }
 }
 
 fn read_model(data: &[u8], nif: &NifSchema) -> ModelInfo {
@@ -54,13 +64,17 @@ fn read_model(data: &[u8], nif: &NifSchema) -> ModelInfo {
     };
     let dec = Decoded::new(&file, data, nif);
     let r = ragdoll(&file, &dec);
-    let skinned = scene_objects(&file, &dec)
+    let objs = scene_objects(&file, &dec);
+    let skinned = objs
         .iter()
         .any(|o| !o.is_node && dec.blocks[o.block].as_ref().ok().and_then(|s| s.block_ref("skin_instance")).is_some_and(|b| b >= 0));
+    let roots: std::collections::HashSet<usize> = objs.iter().filter(|o| o.is_node && o.parent.is_none()).map(|o| o.block).collect();
+    let nodes_below_root = objs.iter().filter(|o| o.is_node && o.parent.is_some()).count();
     let objects = r.bodies.len();
     let dynamic = r.bodies.iter().filter(|b| b.object.motion == Motion::Dynamic).count();
     let named = r.bodies.iter().filter(|b| b.object.node.is_some()).count();
-    ModelInfo { objects, dynamic, constraints: r.joints.len(), named, skinned, unreadable: None }
+    let rooted = r.bodies.iter().filter(|b| roots.contains(&b.object.node_block)).count();
+    ModelInfo { objects, dynamic, constraints: r.joints.len(), named, rooted, nodes_below_root, skinned, unreadable: None }
 }
 
 /// One placed reference with what the sweep needs.
@@ -220,16 +234,19 @@ fn classify(ix: &WorldIndex, r: &RefRow, infos: &HashMap<String, ModelInfo>) -> 
     }
     let base_sig = r.base_sig.as_ref().map(sig);
     // Whether the engine poses it: the shared count rule (`xrgd::matching`) holds and
-    // every body's node is named (dead-on-spawn.md §5.1).
+    // every body's node is a named node below the mesh root (the drawing's
+    // `clutter_pose::pose`, and the collision's matching gate, dead-on-spawn.md §5.1).
     let matched = xrgd::matching(r.xrgd, objects);
-    let fitting = has_xrgd && matched.is_ok() && named == objects;
+    let nodes_below_root = model.map_or(0, |m| m.nodes_below_root);
+    let rooted = model.map_or(0, |m| m.rooted);
+    let fitting = has_xrgd && matched.is_ok() && model.is_some_and(|m| m.posable_pose());
 
     let (branch, refused) = if is_actor {
         ("actor", None)
     } else if has_xrgd && posable && fitting {
         ("posed", None)
     } else if has_xrgd && posable {
-        ("refused_no_fit", Some(match matched { Err(e) => e, Ok(_) => "unnamed_node" }))
+        ("refused_no_fit", Some(match matched { Err(e) => e, Ok(_) if rooted > 0 => "a body's node is the mesh root", Ok(_) => "unnamed_node" }))
     } else if has_xrgd {
         ("not_posable_type", None)
     } else if r.base_sig.is_some_and(|s| matches!(&s, b"STAT" | b"SCOL")) {
@@ -254,6 +271,8 @@ fn classify(ix: &WorldIndex, r: &RefRow, infos: &HashMap<String, ModelInfo>) -> 
         "dynamic_objects": dynamic,
         "constraints": constraints,
         "named_bodies": named,
+        "rooted_bodies": rooted,
+        "nodes_below_root": nodes_below_root,
         "skinned": skinned,
         "fitting": fitting,
         "branch": branch,
