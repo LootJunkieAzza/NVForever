@@ -149,6 +149,8 @@ struct HudTiles<'w> {
     loading: Option<Res<'w, crate::loading::Loading>>,
     bars: Option<Res<'w, crate::hud::HudView>>,
     compass: Option<Res<'w, crate::compass::CompassView>>,
+    pipboy: Option<Res<'w, crate::pipboy::PipBoy>>,
+    glance: Option<Res<'w, crate::pipboy::glance::Glance>>,
 }
 
 impl HudTiles<'_> {
@@ -173,7 +175,12 @@ impl HudTiles<'_> {
         // reticle::draw: the prompt also goes under true sights/the scope, and when
         // the enemy bar names this target; only the crosshair obeys movement [design].
         let reticle = playing && !creating && !driven && !wheel && !self.sights.as_ref().is_some_and(|s| s.0) && !self.scope.as_ref().is_some_and(|s| s.on);
-        let info = reticle && !locks.rollover && self.target.as_ref().and_then(|t| t.0.as_ref()).is_some_and(|t| !enemy.is_some_and(|e| crate::reticle::under_bar(t, e.form_id)));
+        // The Pip-Boy up while still playing (co-op's live Pip-Boy, the glance): no
+        // crosshair; no prompt under the full Pip-Boy (`reticle::draw`) [owner's playtest
+        // 2026-11-04].
+        let pip_up = crate::reticle::pipboy_hides_crosshair(self.pipboy.as_deref(), self.glance.as_deref());
+        let menu_up = self.pipboy.as_ref().is_some_and(|p| p.shown());
+        let info = reticle && !locks.rollover && !menu_up && self.target.as_ref().and_then(|t| t.0.as_ref()).is_some_and(|t| !enemy.is_some_and(|e| crate::reticle::under_bar(t, e.form_id)));
         // corner_messages::draw and quest_messages::draw [design].
         let notices = !driven && *self.state.get() != PlayState::Dialogue && !self.panel.as_ref().is_some_and(|p| p.view.is_some());
         let quest = self.quests.as_ref().and_then(|q| q.showing());
@@ -198,7 +205,7 @@ impl HudTiles<'_> {
             aiming: playing && self.zoom.as_ref().is_some_and(|z| z.aimed),
             corners,
             sneak: corners && self.control.as_ref().is_some_and(|c| c.sneak),
-            reticle: reticle && !locks.movement,
+            reticle: reticle && !locks.movement && !pip_up,
             enemy: corners && enemy.is_some(),
             quests: notices && quest.is_some() && !location,
             messages: notices && self.corner.as_ref().is_some_and(|c| c.showing().is_some()),

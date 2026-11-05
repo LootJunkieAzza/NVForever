@@ -316,6 +316,15 @@ fn style_pick(w: &mut World, name: &str) -> bool {
     }
 }
 
+/// Whether the Pip-Boy keeps the crosshair off the screen: the full Pip-Boy (Tab) or the
+/// glance (G) anywhere from coming up to gone down. Paused, the full Pip-Boy leaves
+/// `PlayState::Playing` and the crosshair goes with it; but in co-op it opens live
+/// (`crate::menu::LiveMenu`), the state stays `Playing`, and the glance never pauses, so
+/// both are asked here [owner's playtest 2026-11-04: the crosshair drew over both].
+pub fn pipboy_hides_crosshair(full: Option<&crate::pipboy::PipBoy>, glance: Option<&crate::pipboy::glance::Glance>) -> bool {
+    full.is_some_and(|p| p.shown()) || glance.is_some_and(|g| g.shown())
+}
+
 pub struct ReticlePlugin;
 
 impl Plugin for ReticlePlugin {
@@ -498,7 +507,7 @@ fn draw(
     sim: Res<SimState>,
     (combat, hostile, bar, camera, time, dynamic): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>, Option<Res<DynamicCrosshair>>),
     mut spread: Local<f32>,
-    mut logged: Local<(bool, i32, bool, Option<String>, Option<bool>, Option<bool>, Option<CrosshairStyle>)>,
+    mut logged: Local<(bool, i32, bool, Option<String>, Option<bool>, Option<bool>, Option<CrosshairStyle>, Option<bool>)>,
     (locks, bindings, creator, sights, scope, driven, kill_cam): (
         Option<Res<ControlLocks>>,
         Option<Res<crate::bindings::Bindings>>,
@@ -518,7 +527,7 @@ fn draw(
         Query<(&Cross, &mut Visibility, &mut Node, Option<&mut ImageNode>), Without<Root>>,
         Query<(&Bar, &mut Visibility, &mut Node, &mut ImageNode), (Without<Root>, Without<Cross>)>,
     ),
-    texts: Query<Entity, With<Texts>>,
+    (texts, pipboy, glance): (Query<Entity, With<Texts>>, Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::pipboy::glance::Glance>>),
 ) {
     // Not over the character creator, whatever state the opening leaves the game in
     // [owner 2026-10-17: "E) Talk" stayed under it]. Nor while an idle holds the camera
@@ -560,7 +569,20 @@ fn draw(
     if !playing || sights {
         return;
     }
-    let locks = locks.as_deref().copied().unwrap_or_default();
+    // The Pip-Boy up while still playing (co-op's live Pip-Boy, the glance): no crosshair;
+    // the prompt stays under the glance (the player still walks and acts), not under the
+    // full Pip-Boy, whose menu holds the controls.
+    let pip_up = pipboy_hides_crosshair(pipboy.as_deref(), glance.as_deref());
+    if logged.7 != Some(pip_up) {
+        if pip_up || logged.7.is_some() {
+            info!("crosshair: {}", if pip_up { "hidden under the Pip-Boy" } else { "back from under the Pip-Boy" });
+        }
+        logged.7 = Some(pip_up);
+    }
+    let menu_up = pipboy.as_deref().is_some_and(|p| p.shown());
+    let mut locks = locks.as_deref().copied().unwrap_or_default();
+    locks.movement |= pip_up;
+    locks.rollover |= menu_up;
     let aimed = target.0.is_some();
     let foe = hostile.is_some_and(|h| h.0);
     let colour = if foe || target.0.as_ref().is_some_and(|t| t.crime) { crime_colour() } else { amber(255.0) };
@@ -654,6 +676,23 @@ mod tests {
 
     fn prompt(action: &str, name: &str, figures: Option<[&str; 2]>) -> Prompt {
         Prompt { action: action.into(), name: name.into(), figures: figures.map(|f| f.map(String::from)), crime: false, key: String::new(), note: None }
+    }
+
+    #[test]
+    fn the_pipboy_up_without_a_pause_hides_the_crosshair() {
+        use crate::pipboy::{glance::Glance, Phase, PipBoy};
+        assert!(!pipboy_hides_crosshair(None, None));
+        let (mut full, mut glance) = (PipBoy::default(), Glance::default());
+        assert!(!pipboy_hides_crosshair(Some(&full), Some(&glance)), "both down");
+        for phase in [Phase::Raising, Phase::Up, Phase::Lowering] {
+            full.phase = phase;
+            assert!(pipboy_hides_crosshair(Some(&full), Some(&glance)), "the full Pip-Boy {phase:?}");
+        }
+        full.phase = Phase::Down;
+        for phase in [Phase::Raising, Phase::Up, Phase::Lowering] {
+            glance.phase = phase;
+            assert!(pipboy_hides_crosshair(Some(&full), Some(&glance)), "the glance {phase:?}");
+        }
     }
 
     #[test]

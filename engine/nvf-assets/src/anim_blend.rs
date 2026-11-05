@@ -68,6 +68,14 @@ pub struct Layer {
     pub fade_in: f32,
     /// Playback speed multiplier (Loop and Once).
     pub rate: f32,
+    /// The clip moves the held model's parts (the extra nodes, [`Animator::set_extra`])
+    /// over the clips that share its priority on them: an attack or reload clip over the
+    /// stance clip, which keys the same parts still at the same priority (0 in the
+    /// rifles' `2hraim.kf` and `2hrreloadi.kf`). Shared by weight, the caravan shotgun's
+    /// stock opened 22° of its 45° while the hands moved all the way, and the left hand
+    /// went through the gun [observed: kf_pose_compare; owner's playtest 2026-11-04;
+    /// hypothesis: the original lets the action clip move the parts alone].
+    pub parts_over: bool,
     seen: bool,
     /// Not asked for at the last [`Animator::end`]: fading out.
     leaving: bool,
@@ -331,6 +339,7 @@ impl Animator {
             ease,
             fade_in,
             rate: 1.0,
+            parts_over: false,
             seen: true,
             leaving: false,
         });
@@ -432,12 +441,15 @@ impl Animator {
     /// Blend the layers into [`Self::locals`].
     pub fn pose(&mut self) {
         let skel = &self.skel;
+        let parts_from = skel.locals.len();
         self.scratch.clear();
         for (li, l) in self.layers.iter().enumerate() {
             if l.ease <= 0.0 {
                 continue;
             }
             for &(bone, track, priority) in &l.bound {
+                // An extra node's tie goes to a `parts_over` clip ([`Layer::parts_over`]).
+                let priority = if l.parts_over && bone as usize >= parts_from { priority.saturating_add(1) } else { priority };
                 self.scratch.push(Contribution { bone, priority, weight: l.weight * l.ease, ease: l.ease, layer: li as u16, track });
             }
         }
@@ -849,6 +861,28 @@ mod tests {
         a.pose();
         assert_eq!(a.locals.len(), 4);
         assert_eq!(a.locals[2].translation, Vec3::new(1.0, 0.0, 0.0));
+    }
+
+    /// The caravan shotgun: the stance clip keys its stock still and the reload clip moves
+    /// it, both at priority 0, while the reload clip takes the arms at a higher priority.
+    /// Shared by weight the stock went half way; a `parts_over` reload moves it alone and
+    /// leaves the bones' blending as it was.
+    #[test]
+    fn an_action_clip_takes_the_weapons_parts_over_the_stance_at_a_tie() {
+        let mut a = animator();
+        let bind = Transform::from_xyz(5.0, 0.0, 0.0);
+        a.set_extra(vec![ExtraNode { name: "##Stock".into(), entity: Entity::from_raw_u32(9).unwrap(), bind }]);
+        let aim = clip(&[("A", [10.0, 0.0, 0.0], 45), ("B", [0.0, 10.0, 0.0], 45), ("##Stock", [0.0, 0.0, 0.0], 0)], 3.0);
+        let reload = clip(&[("A", [20.0, 0.0, 0.0], 55), ("B", [0.0, 20.0, 0.0], 45), ("##Stock", [40.0, 0.0, 0.0], 0)], 1.5);
+        a.want(&aim, 0, 1.0, Mode::Loop, 0.0);
+        let r = a.want(&reload, 1, 1.0, Mode::Once, 0.0);
+        a.pose();
+        assert!((a.locals[4].translation.x - 20.0).abs() < 1e-5, "shared by weight: half way");
+        a.layers[r].parts_over = true;
+        a.pose();
+        assert_eq!(a.locals[4].translation, Vec3::new(40.0, 0.0, 0.0), "the reload moves the stock alone");
+        assert_eq!(a.locals[2].translation, Vec3::new(20.0, 0.0, 0.0), "the arms as before");
+        assert!((a.locals[3].translation.y - 15.0).abs() < 1e-5, "a skeleton bone's tie is still shared");
     }
 
     /// The 9mm pistol: its draw clip cocks the hammer, the aim clip does not key it, and
