@@ -1046,6 +1046,9 @@ fn puppets(
         let own = st.index.as_ref().and_then(|ix| {
             if cue.kind == AnimCue::CONSUME {
                 ix.third_for(&cue.edid, cue.power_armor, &cue.clip, roll).map(str::to_string)
+            } else if cue.kind == AnimCue::GAME {
+                // A game's own clip (a darts throw, `darts_world.rs`), played as named.
+                Some(cue.clip.clone())
             } else if cue.clip.starts_with(b42::LOOT_ROOT) {
                 st.loot.clip(View::Third, None).map(str::to_string)
             } else if cue.clip.starts_with(b42::BASH_ROOT) {

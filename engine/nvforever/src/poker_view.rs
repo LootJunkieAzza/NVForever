@@ -770,10 +770,18 @@ pub fn table_place(sim: &nvf_play::sim::SimState, play: &nvf_play::PlayWorld, mo
 fn build(commands: &mut Commands, models: &mut ModelCtx, casino: Casino, window: Option<&Window>, world: Option<(Entity, bevy::math::Affine3A)>, player_camera: Option<Entity>) -> Option<Built> {
     let world = world.zip(player_camera);
     let layer = if world.is_some() { RenderLayers::layer(0) } else { RenderLayers::layer(POKER_LAYER) };
-    let felt = material(models, casino.felt(), Color::WHITE, AlphaMode::Opaque)?;
-    let rail = material(models, RAIL_TEXTURE, Color::WHITE, AlphaMode::Opaque)?;
-    let chips_material = material(models, CHIPS_TEXTURE, Color::WHITE, AlphaMode::Opaque)?;
-    let back = material(models, &casino.back_texture(), Color::WHITE, AlphaMode::Mask(0.5))?;
+    // A picture that does not load leaves its part a plain colour, never the whole table
+    // undrawn (a refused chips picture once left Gomorrah's screen black) [design].
+    let mut or_plain = |path: &str, alpha: AlphaMode, plain: Color| {
+        material(models, path, Color::WHITE, alpha).unwrap_or_else(|| {
+            warn!("poker view: no picture {path}; that part is drawn plain");
+            models.materials.add(nif_material(StandardMaterial { base_color: plain, perceptual_roughness: 0.85, alpha_mode: alpha, ..default() }))
+        })
+    };
+    let felt = or_plain(casino.felt(), AlphaMode::Opaque, Color::srgb(0.12, 0.3, 0.16));
+    let rail = or_plain(RAIL_TEXTURE, AlphaMode::Opaque, Color::srgb(0.25, 0.16, 0.1));
+    let chips_material = or_plain(CHIPS_TEXTURE, AlphaMode::Opaque, Color::srgb(0.7, 0.15, 0.12));
+    let back = or_plain(&casino.back_texture(), AlphaMode::Opaque, Color::srgb(0.6, 0.1, 0.1));
     let floor = material(models, FLOOR_TEXTURE, Color::srgb(0.35, 0.35, 0.35), AlphaMode::Opaque);
     let platinum = material(models, BUTTON_TEXTURE, Color::WHITE, AlphaMode::Opaque);
     let ink = models.materials.add(nif_material(StandardMaterial { base_color: Color::srgba(0.93, 0.85, 0.55, 0.35), unlit: true, alpha_mode: AlphaMode::Blend, ..default() }));

@@ -30,6 +30,8 @@ const INFO_IN: f32 = 10.0;
 const ROW_X: f32 = 20.0;
 const ROWS_Y: [f32; 3] = [35.0, 80.0, 125.0];
 const VALUE_X: f32 = INFO.x - 80.0 + ROW_X;
+/// The least room between a row's title and its value [design].
+const VALUE_GAP: f32 = 16.0;
 const THICK: f32 = 2.0;
 const FADE: f32 = 30.0;
 const BUTTONS_RIGHT: f32 = 50.0;
@@ -81,6 +83,12 @@ fn shown_bet(s: &Session) -> u32 {
     } else {
         s.table.staked()
     }
+}
+
+/// Where a row's value ends (right-aligned): at [`VALUE_X`], or further right when the
+/// title would run into it.
+fn value_right(title_w: f32, value_w: f32) -> f32 {
+    VALUE_X.max(ROW_X + title_w + VALUE_GAP + value_w)
 }
 
 fn view_width(window: Option<&Window>) -> f32 {
@@ -149,8 +157,11 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&Blackj
                 c.image(b, "interface\\shared\\line\\fade_to_right.dds", at(INFO.x - FADE - THICK, INFO.y - THICK, FADE, THICK), bright);
                 let rows = [("Current Bet:".to_string(), shown_bet(s).to_string()), ("Chips:".into(), s.chips.to_string()), (s.earnings_title(), s.earnings.to_string())];
                 for ((title, value), y) in rows.iter().zip(ROWS_Y) {
-                    c.text_in(b, FontKind::Menu, title, ROW_X, y, false, bright);
-                    c.text_in(b, FontKind::Menu, value, VALUE_X, y, true, bright);
+                    let title_w = c.text_in(b, FontKind::Menu, title, ROW_X, y, false, bright);
+                    // A long casino name ("Atomic Wrangler Earnings:") pushes its value
+                    // right, clear of the title [design].
+                    let x = value_right(title_w, c.text_width(FontKind::Menu, value));
+                    c.text_in(b, FontKind::Menu, value, x, y, true, bright);
                 }
             });
             // The buttons, while the cards are down.
@@ -211,5 +222,17 @@ pub fn fade(mut commands: Commands, screen: Res<BlackjackScreen>, time: AidTime,
                 t.0.set_alpha(a);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_long_title_pushes_its_value_clear() {
+        assert_eq!(value_right(100.0, 20.0), VALUE_X, "short titles keep the file's column");
+        let x = value_right(330.0, 30.0);
+        assert!(x - 30.0 >= ROW_X + 330.0 + VALUE_GAP, "the value starts after the title");
     }
 }
