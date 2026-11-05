@@ -289,6 +289,44 @@ fn mcm_functions_stand_for_start_menu_traits() {
     assert_eq!(n(run(&mut g, "GetUIFloat", &[s("StartMenu/MCM/_Nope")])), NOT_FOUND);
 }
 
+#[test]
+fn mcm_paths_mass_setters_and_the_mod_list() {
+    let f = fixture();
+    let mut g = game(&f);
+    let src = MemSource::default().with(
+        "menus\\start.xml",
+        r#"<menu name="StartMenu"> <rect name="MCM">
+           <rect name="Options">
+             <rect name="Option1"> <_enable> 1 </_enable> <rect name="value"> <text name="text"> <string> a </string> </text> </rect> </rect>
+             <rect name="Option2"> <_enable> 1 </_enable> <rect name="value"> <text name="text"> <string> b </string> </text> </rect> </rect>
+             <rect name="Option3"> <_enable> 1 </_enable> </rect> </rect>
+           <rect name="MCM_ModList"> <rect name="ArrowUp"> <y> 40 </y> </rect>
+             <hotrect name="Mod1"> <_enable> 0 </_enable> <_modIndex> 0 </_modIndex> <_modIndex2> 0 </_modIndex2> <text name="text"> <string> </string> <width> 88 </width> </text> </hotrect>
+           </rect> </rect> </menu>"#,
+    );
+    g.ui_tree.load_menu(&src, "menus\\start.xml").unwrap();
+    g.ui_tree.update();
+    // A setting path reaches below the tile, with or without a leading slash.
+    run(&mut g, "SetMCMString", &[XVal::Num(1.0), XVal::Num(2.0), s("value/text/string"), s("on")]);
+    assert_eq!(run(&mut g, "GetUIString", &[s("StartMenu/MCM/Options/Option2/value/text/string")]), s("on"));
+    assert_eq!(n(run(&mut g, "GetMCMFloat", &[XVal::Num(2.0), XVal::Num(0.0), s("/ArrowUp/y")])), 40.0);
+    // The mass setters run over children from..=to, past the end harmlessly.
+    run(&mut g, "SetMCMFloatMass", &[XVal::Num(1.0), XVal::Num(1.0), XVal::Num(36.0), s("_enable"), XVal::Num(0.0)]);
+    for k in 1..=3 {
+        assert_eq!(n(run(&mut g, "GetUIFloat", &[s(&format!("StartMenu/MCM/Options/Option{k}/_enable"))])), 0.0);
+    }
+    run(&mut g, "SetMCMStringMass", &[XVal::Num(1.0), XVal::Num(1.0), XVal::Num(36.0), s("value/text/string"), s("")]);
+    assert_eq!(run(&mut g, "GetUIString", &[s("StartMenu/MCM/Options/Option1/value/text/string")]), s(""));
+    // A mod-list row: its traits, shown, with a name.
+    run(&mut g, "SetMCMModList", &[XVal::Num(1.0), XVal::Num(1.0), XVal::Num(12.0), XVal::Num(3.0), s("Just Assorted Mods")]);
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("StartMenu/MCM/MCM_ModList/Mod1/_modIndex")])), 12.0);
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("StartMenu/MCM/MCM_ModList/Mod1/_modIndex2")])), 3.0);
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("StartMenu/MCM/MCM_ModList/Mod1/_enable")])), 1.0);
+    assert_eq!(run(&mut g, "GetUIString", &[s("StartMenu/MCM/MCM_ModList/Mod1/text/string")]), s("Just Assorted Mods"));
+    assert_eq!(n(run(&mut g, "GetMCMListWidth", &[XVal::Num(1.0), XVal::Num(1.0)])), 88.0);
+    assert_eq!(n(run(&mut g, "GetMCMListWidth", &[XVal::Num(2.0), XVal::Num(1.0)])), 0.0);
+}
+
 // ---- the pointer on tiles (task T8, fnv_game::ui_input, fnv_ui::input) --------------
 
 /// A synthetic menu with two buttons, a hidden target image, a plain image with an id,

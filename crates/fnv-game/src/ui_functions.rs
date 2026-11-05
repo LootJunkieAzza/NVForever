@@ -111,6 +111,41 @@ fn mcm_trait(ui: &fnv_ui::Ui, args: &[XVal]) -> Option<(fnv_ui::TileId, String)>
     Some((at, text(args, 2)))
 }
 
+/// The tile and trait name of an MCM setting path under a tile: a plain name is the
+/// tile's own trait, and `child/…/trait` (`"value/text/string"`, `"ArrowDown/y"`, a
+/// leading `/` dropped) a trait below it [observed: MCM's scripts give both forms, e.g.
+/// `SetMCMFloatMass 1 1 36 "image/visible" 0`, `GetMCMFloat 5 0 "ArrowUp/y"`].
+fn mcm_resolve(ui: &fnv_ui::Ui, at: fnv_ui::TileId, path: &str) -> Option<(fnv_ui::TileId, String)> {
+    let path = path.trim().trim_start_matches(['/', '\\']);
+    let (t, k) = ui.find_trait_in(at, path)?;
+    Some((t, ui.tile(t).traits[k].name.clone()))
+}
+
+/// MCM's setting under `StartMenu/MCM/*:child/*:grandchild` ([`mcm_trait`]) resolved
+/// to the tile that holds the trait ([`mcm_resolve`]).
+fn mcm_at(ui: &fnv_ui::Ui, args: &[XVal]) -> Option<(fnv_ui::TileId, String)> {
+    let (at, path) = mcm_trait(ui, args)?;
+    mcm_resolve(ui, at, &path)
+}
+
+/// The live children of a tile, in file order.
+fn live_kids(ui: &fnv_ui::Ui, at: fnv_ui::TileId) -> Vec<fnv_ui::TileId> {
+    ui.tile(at).children.iter().copied().filter(|&c| ui.is_live(c)).collect()
+}
+
+/// A row of MCM's mod list, `StartMenu/MCM/MCM_ModList/Mod<n>` for list 1 and
+/// `…/SubMenu<n>` for list 2 [hypothesis, from ModList.xml: Mod1..Mod23 and
+/// SubMenu1..SubMenu10 are its rows, and MCMMainScript asks `GetMCMListWidth 1` for
+/// 1..23 and `GetMCMListWidth 2` for 1.._subCount].
+fn mcm_row(ui: &fnv_ui::Ui, list: i64, n: i64) -> Option<fnv_ui::TileId> {
+    let kind = match list {
+        1 => "Mod",
+        2 => "SubMenu",
+        _ => return None,
+    };
+    ui.find_tile(&format!("StartMenu/MCM/MCM_ModList/{kind}{n}"))
+}
+
 /// GetUIFloatInherited: `x`, `y` and `depth` with the values of every parent tile whose
 /// `locus` is on added, up to the menu's root, which `exclude_root` leaves out; any other
 /// trait as GetUIFloatAlt reads it [documented: GetUIFloatInherited; observed: hud.md §14,
@@ -167,18 +202,72 @@ pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, Stri
         // they equal]. A trait that is not there reads 0, not GetUIFloat's -999 [observed:
         // the mcm set, GetMCMFloat 1 1 "_enable" 0 and GetUIFloat on StartMenu -999 with
         // the start menu closed]; SetMCMFloat returns 0 [hypothesis].
-        "getmcmfloat" => XVal::Num(mcm_trait(&g.ui_tree, args).and_then(|(t, n)| g.ui_tree.tile(t).get(&n).map(|v| v.num())).unwrap_or(0.0)),
+        "getmcmfloat" => XVal::Num(mcm_at(&g.ui_tree, args).and_then(|(t, n)| g.ui_tree.tile(t).get(&n).map(|v| v.num())).unwrap_or(0.0)),
         "setmcmfloat" => {
-            if let Some((t, n)) = mcm_trait(&g.ui_tree, args) {
-                g.ui_tree.set_existing(t, &n, fnv_ui::value::Value::Num(num(args, 3)));
+            if let Some((t, n)) = mcm_at(&g.ui_tree, args) {
+                g.ui_tree.set_existing(t, &n, Value::Num(num(args, 3)));
             }
             XVal::Num(0.0)
         }
         "setmcmstring" => {
-            if let Some((t, n)) = mcm_trait(&g.ui_tree, args) {
-                g.ui_tree.set_existing(t, &n, fnv_ui::value::Value::Str(text(args, 3)));
+            if let Some((t, n)) = mcm_at(&g.ui_tree, args) {
+                g.ui_tree.set_existing(t, &n, Value::Str(text(args, 3)));
             }
             XVal::Num(0.0)
+        }
+        // `SetMCMFloatMass menu from to "trait" value`: SetMCMFloat on children `from..=to`
+        // of MCM's child `menu` (`SetMCMFloatMass 1 1 36 "_enable" 0` clears the 36 option
+        // rows, `5 24 33` the sub-menu rows); SetMCMStringMass the same for a string, the
+        // VM having formatted it [hypothesis: the DLL's source is not public; the ranges
+        // match the files' rows].
+        "setmcmfloatmass" | "setmcmstringmass" => {
+            let v = if lname == "setmcmfloatmass" { Value::Num(num(args, 4)) } else { Value::Str(text(args, 4)) };
+            let menu = num(args, 0) as i64;
+            let (from, to) = (num(args, 1) as i64, num(args, 2) as i64);
+            let path = text(args, 3);
+            let parent = mcm_trait(&g.ui_tree, &[XVal::Num(menu as f64), XVal::Num(0.0), XVal::Str(String::new())]).map(|(t, _)| t);
+            if let Some(parent) = parent.filter(|_| menu > 0) {
+                let kids = live_kids(&g.ui_tree, parent);
+                for i in from.max(1)..=to.min(kids.len() as i64) {
+                    if let Some((t, n)) = mcm_resolve(&g.ui_tree, kids[i as usize - 1], &path) {
+                        g.ui_tree.set_existing(t, &n, v.clone());
+                    }
+                }
+            }
+            XVal::Num(0.0)
+        }
+        // `SetMCMModList slot list modIndex value ref`: row `slot` of MCM's mod list shows
+        // the ref's name and stands for the mod: `_modIndex` the mod's load-order index and
+        // `_modIndex2` its menu value, which a click copies to `_ActiveMod` and
+        // `_ActiveMenu`; `_enable` 1 shows it [hypothesis, from MCMMainScript's call
+        // `SetMCMModList iModIndex 1 iModIndex2 iModValue rRef` with iModIndex2 the ref's
+        // GetSourceModIndex and iModValue its GetValue, and ModListRect.xml's traits].
+        "setmcmmodlist" => {
+            let (slot, list) = (num(args, 0) as i64, num(args, 1) as i64);
+            if let Some(row) = mcm_row(&g.ui_tree, list, slot) {
+                let name = match args.get(4) {
+                    Some(XVal::Ref(f)) if *f != 0 => {
+                        let f = fnv_sim::FormId(*f);
+                        g.name_overrides.get(&f).or_else(|| g.data.full_names.get(&g.unclone(f))).cloned().unwrap_or_default()
+                    }
+                    Some(XVal::Str(s)) => s.clone(),
+                    _ => String::new(),
+                };
+                let ui = &mut g.ui_tree;
+                ui.set_existing(row, "_modIndex", Value::Num(num(args, 2)));
+                ui.set_existing(row, "_modIndex2", Value::Num(num(args, 3)));
+                ui.set_existing(row, "_enable", Value::Num(1.0));
+                if let Some((t, n)) = mcm_resolve(ui, row, "text/string") {
+                    ui.set_existing(t, &n, Value::Str(name));
+                }
+            }
+            XVal::Num(0.0)
+        }
+        // `GetMCMListWidth list n`: the width of row n's text, which MCM widens its list
+        // to [hypothesis, as SetMCMModList]; 0 for a row that is not there.
+        "getmcmlistwidth" => {
+            let row = mcm_row(&g.ui_tree, num(args, 0) as i64, num(args, 1) as i64);
+            XVal::Num(row.and_then(|r| mcm_resolve(&g.ui_tree, r, "text/width")).and_then(|(t, n)| g.ui_tree.tile(t).get(&n).map(|v| v.num())).unwrap_or(0.0))
         }
         "iscomponentloaded" => yes(g.ui_tree.is_loaded(&path)),
         "injectuixml" => {

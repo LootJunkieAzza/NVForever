@@ -14,6 +14,7 @@ set "TO=%~1"
 if "%TO%"=="" set "TO=D:\FNVForever\NVForever"
 set "GAME=C:\Modding\GOG-Base Installs\Fallout New Vegas\Data"
 set "HOME_FROM=%USERPROFILE%\OneDrive\Documents\My Games\NVForever"
+if defined NVFOREVER_HOME set "HOME_FROM=%NVFOREVER_HOME%"
 set "MO2_FROM=C:\NVForever"
 set "HERE_PC=%MO2_FROM%\NVForever-coop"
 if not exist "%REPO%\engine\target\release\nvforever.exe" (

@@ -15,11 +15,12 @@
 //!   (`super::input`); and the start menu's MenuMode blocks run each frame
 //!   (`Begin MenuMode 1013`, [`tick`]), as they do under the original's start menu, so a
 //!   mod's script fills in its page. Esc or Back leave it.
-//! - **What it does not do**: MCM's own page does not open this way yet. MCM's script
-//!   shows MCM only when the original's pause column, filled in by the game's code,
-//!   reports `childcount` 8, which NVForever's hand-built column does not write; and its
-//!   mod list is filled through MCM.dll functions no source describes (SetMCMModList,
-//!   GetMCMListWidth, SetMCMFloatMass, SetMCMStringMass). See the tasks doc, T11.
+//! - **MCM**: MCM's script shows its trigger only when the original's pause column,
+//!   filled in by the game's code, reports `childcount` 8; [`column`] writes that, and
+//!   the fade, into the tile tree's column while the page is up. Its mod list is filled
+//!   through MCM.dll's functions, reconstructed from MCM's scripts
+//!   (`fnv_game::ui_functions`: SetMCMModList, GetMCMListWidth, SetMCMFloatMass,
+//!   SetMCMStringMass). See the tasks doc, T11.
 
 use fnv_game::game::menus;
 use fnv_ui::Ui;
@@ -66,7 +67,72 @@ pub fn available(switch: super::vanilla::TileMenus, ui: &Ui, files: Option<&dyn 
 /// otherwise holds every script, `crate::script`]. The caller puts the played world in
 /// the game first (`crate::script::with_world`).
 pub fn tick(game: &mut fnv_game::Game<'_>) {
+    column(&mut game.ui_tree);
     game.page_tick(menus::START);
+}
+
+/// The frames of the main menu before a game is played, as the start menu's MenuMode
+/// blocks see them: [`MAIN_MENU_FRAMES`] frames of [`MAIN_MENU_FRAME_SECONDS`].
+pub const MAIN_MENU_FRAMES: u32 = 60;
+pub const MAIN_MENU_FRAME_SECONDS: f64 = 1.0 / 60.0;
+
+/// The original's main menu is the start menu too, and its `MenuMode 1013` blocks run
+/// there before a save is loaded; a mod that joins MCM's list there (JAM adds itself to
+/// MCM's `MCMMods` half a second into its block, with ListAddForm, whose changes last the
+/// session, not the save) is on it by the first pause, when MCM's script checks the list
+/// once [hypothesis: from MCMMainScript's install check, JDCMCMScript's timer and the
+/// ListAddForm page's session-only changes; NVForever starts in the played game, with no
+/// main menu of its own scripts]. A second of those frames, run once a new runtime is
+/// made, before its first GameMode frame; with `[UI] TileMenus=StartMenu` on only, so a
+/// game without it is unchanged [design].
+pub fn main_menu_frames(game: &mut fnv_game::Game<'_>) {
+    let keep = game.cfg.frame_seconds;
+    game.cfg.frame_seconds = MAIN_MENU_FRAME_SECONDS;
+    for _ in 0..MAIN_MENU_FRAMES {
+        game.main_menu_tick(menus::START);
+    }
+    game.cfg.frame_seconds = keep;
+}
+
+/// The start menu's main column, `StartMenu/NOGLOW_BRANCH/main_container`.
+pub const COLUMN: &str = "StartMenu/NOGLOW_BRANCH/main_container";
+
+/// The start menu as the game's code leaves it, written while the Mods page is up: the
+/// menu faded in, and its main column's `childcount` 8, its eight entries, and `_alpha` 255, faded in. MCM shows its
+/// trigger only on that count, and copies the trigger's place, size and fade from the
+/// column (`x`, `y` and `width` come from the file's own expressions, `_enabled` is the
+/// file's and MCM's own) [hypothesis, from MCMMainScript's MenuMode 1013 block: `if
+/// GetUIFloat "StartMenu/NOGLOW_BRANCH/main_container/childcount" == 8`; start_menu.xml
+/// says `_alpha` is "set in code by fade control"]. NVForever's own column is hand-built,
+/// so the tile tree's stands in for it.
+pub fn column(ui: &mut Ui) {
+    // The menu faded in, as the game's code fades it (`<alpha> 0 </alpha>` and
+    // `<explorefade> 0.25 </explorefade>` in start_menu.xml): every tile under it takes
+    // the root's alpha (`super::layout`) [hypothesis: the fade ends at 255].
+    if let Some(m) = ui.menu(START_MENU) {
+        ui.set_trait(m, "alpha", fnv_ui::Value::Num(255.0));
+        // MCM's tiles place themselves by `locus` (`fnv_ui::input::places_children`).
+        ui.set_trait(m, fnv_ui::input::LOCUS_ON, fnv_ui::Value::Num(1.0));
+        // And reads each click over two frames (`CLICK_TWO_FRAMES`).
+        ui.set_trait(m, fnv_ui::input::CLICK_TWO_FRAMES, fnv_ui::Value::Num(1.0));
+    }
+    let Some(c) = ui.find_tile(COLUMN) else { return };
+    ui.set_trait(c, "childcount", fnv_ui::Value::Num(8.0));
+    ui.set_trait(c, "_alpha", fnv_ui::Value::Num(255.0));
+    // MCM's trigger takes the column's `x` and `width`, and its `y` less one item's
+    // height, as its own place (MCMMainScript), counted from the menu's top-left: the
+    // `MCM` rect has no `locus`. NVForever's
+    // column is hand-built elsewhere, so the column reports the place that puts the
+    // trigger in the middle of the page, a third of the way down [design].
+    let screen = ui.screen();
+    let (sw, sh) = (ui.tile(screen).get("width").map_or(0.0, |v| v.num()), ui.tile(screen).get("height").map_or(0.0, |v| v.num()));
+    let num = |p: &str| ui.get_float(p).unwrap_or(0.0);
+    let width = num(&format!("{COLUMN}/width"));
+    let item = num("StartMenu/_item_height");
+    if sw > 0.0 && width > 0.0 {
+        ui.set_trait(c, "x", fnv_ui::Value::Num((sw - (width - 5.0)) / 2.0));
+        ui.set_trait(c, "y", fnv_ui::Value::Num(sh / 3.0 + item));
+    }
 }
 
 #[cfg(test)]
@@ -91,6 +157,22 @@ mod tests {
         assert!(ui.inject_text(&src, "StartMenu", r#"<rect name="MCM"/>"#));
         assert!(available(on, &ui, Some(&src), &mut kept));
         assert!(!available(off, &ui, Some(&src), &mut kept), "the switch is off by default");
+    }
+
+    #[test]
+    fn the_column_reports_the_originals_count_and_fade() {
+        let src = MemSource::default().with(
+            r"menus\options\start_menu.xml",
+            r#"<menu name="StartMenu"> <alpha> 0 </alpha> <rect name="NOGLOW_BRANCH"> <hotrect name="main_container"> <_alpha></_alpha> <_enabled> 1 </_enabled> </hotrect> </rect> </menu>"#,
+        );
+        let mut ui = Ui::new();
+        column(&mut ui);
+        ui.load_menu(&src, r"menus\options\start_menu.xml").unwrap();
+        column(&mut ui);
+        assert_eq!(ui.get_float("StartMenu/alpha"), Some(255.0), "faded in");
+        assert_eq!(ui.get_float(&format!("{COLUMN}/childcount")), Some(8.0));
+        assert_eq!(ui.get_float(&format!("{COLUMN}/_alpha")), Some(255.0));
+        assert_eq!(ui.get_float(&format!("{COLUMN}/_enabled")), Some(1.0), "MCM's own trait is left alone");
     }
 
     #[test]

@@ -2780,6 +2780,12 @@ impl Vm<'_, '_> {
         let format_at = match lname.as_str() {
             "addtilefromtemplate" => Some(0),
             "setuistringex" | "setuistringalt" | "injectuicomponent" | "attachuicomponent" => Some(1),
+            // MCM's: `SetMCMString menu item "trait" "format" values…` [observed: The Mod
+            // Configuration Menu.esp, `SetMCMString 1 iTemp "value/text/string" "%g"
+            // fValue`], and its Mass form a place later (`menu from to "trait" "format"`)
+            // [hypothesis: as SetMCMFloatMass's `5 24 33 "_enable" 0`].
+            "setmcmstring" => Some(3),
+            "setmcmstringmass" => Some(4),
             _ => None,
         };
         if let Some(at) = format_at {

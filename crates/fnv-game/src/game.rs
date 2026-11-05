@@ -3663,6 +3663,36 @@ impl<'a> Game<'a> {
         self.page_menu = before;
     }
 
+    /// One frame of the original's main menu, before a game is played: the clock moves a
+    /// frame and the start menu's `MenuMode code` blocks of the running quests run, each
+    /// as that quest's per-frame run, so GetSecondsPassed counts the frames there as it
+    /// counts GameMode's [hypothesis: the main menu is the start menu and its MenuMode
+    /// blocks run every frame there, as OnTrigger's do for a script without GameMode
+    /// (`Game::trigger_frame`'s rule); `nvf_play::tiles::mods::main_menu_frames`].
+    pub fn main_menu_tick(&mut self, code: u16) {
+        self.time += self.cfg.frame_seconds;
+        let data = self.data;
+        let has_block = |script: FormId| {
+            data.script(script).is_some_and(|u| {
+                u.program.blocks.iter().any(|b| {
+                    b.event == event::MENU_MODE
+                        && match b.params.as_deref() {
+                            Some([Arg::Int(c), ..]) => *c as f64 == code as f64,
+                            Some([Arg::Enum(c), ..]) => *c as f64 == code as f64,
+                            Some([Arg::Float(c), ..]) => *c == code as f64,
+                            _ => false,
+                        }
+                })
+            })
+        };
+        let quests: Vec<(FormId, FormId)> =
+            self.quests.iter().filter(|(_, s)| s.running).filter_map(|(q, _)| Some((*q, data.quests.get(q)?.script?))).filter(|(_, s)| has_block(*s)).collect();
+        for (q, script) in quests {
+            self.mark_run(InstKey::Quest { quest: q }, Some(script));
+        }
+        self.page_tick(code);
+    }
+
     /// A function asks the running script to stop as `Return` does (RemoveMe).
     pub fn request_return(&mut self) {
         self.stop_run = true;
@@ -4561,6 +4591,23 @@ impl<'a> Game<'a> {
             if mods.only.is_some_and(|o| o != index) {
                 continue;
             }
+            // SetNthEffectTraitNumeric's magnitude, area and duration stand for the
+            // record's in what the item does from then on [documented:
+            // SetNthEffectTraitNumeric changes the effect's trait; observed: JAM's sprint
+            // sets JVSEffect's AP and water drain this way before casting it].
+            let changed;
+            let e = if (0..3).any(|t| self.effect_overrides.contains_key(&(source, index, t))) {
+                let mut c = e.clone();
+                for (t, field) in [&mut c.magnitude, &mut c.area, &mut c.duration].into_iter().enumerate() {
+                    if let Some(&v) = self.effect_overrides.get(&(source, index, t)) {
+                        *field = v.max(0.0) as u32;
+                    }
+                }
+                changed = c;
+                &changed
+            } else {
+                e
+            };
             let label = format!("{} effect {index}", data.name(source));
             // A lasting effect whose conditions fail (an ability, a worn enchantment, or a
             // spell's effect with a duration) is listed inactive, to take hold when they

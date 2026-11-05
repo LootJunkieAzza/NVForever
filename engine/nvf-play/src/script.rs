@@ -1656,6 +1656,7 @@ type ScreenAndMenus<'w, 's> = (
     crate::tiles::MenuFiles<'w, 's>,
     Res<'w, crate::pause::Page>,
     Local<'s, u64>,
+    Option<Res<'w, crate::tiles::vanilla::TileMenus>>,
 );
 
 /// One frame of scripts, then their effects.
@@ -1676,7 +1677,7 @@ pub(crate) fn run_scripts(
     (mut used, mut anims): (MessageReader<ItemUsed>, ResMut<crate::ConsumeAnims>),
     mut sit: MessageWriter<crate::furniture::UseFurniture>,
     paused: Res<crate::pause::Paused>,
-    (mut screen, bindings, tiles, page, mut mods_ticks): ScreenAndMenus,
+    (mut screen, bindings, tiles, page, mut mods_ticks, tile_menus): ScreenAndMenus,
 ) {
     // Items the player used up in the inventory menu (the menu already removed them),
     // kept until the runtime runs.
@@ -1756,6 +1757,12 @@ pub(crate) fn run_scripts(
                     if let Some(s) = samples {
                         info!("scripts: sources that do not compile, for example {s}");
                     }
+                }
+                // The main menu's frames of the start menu's MenuMode blocks, before the
+                // first GameMode frame (`crate::tiles::mods::main_menu_frames`).
+                if tile_menus.is_some_and(|t| t.start) {
+                    with_world(&mut rt, &mut sim, |rt| with_ray_caster(&mut phys, || crate::tiles::mods::main_menu_frames(&mut rt.game)));
+                    info!("scripts: {} main-menu frames of the start menu's MenuMode {} blocks", crate::tiles::mods::MAIN_MENU_FRAMES, fnv_game::game::menus::START);
                 }
                 let running = rt.game.quests.values().filter(|q| q.running).count();
                 info!(

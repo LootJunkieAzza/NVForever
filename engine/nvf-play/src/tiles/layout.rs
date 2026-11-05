@@ -119,6 +119,10 @@ pub type Measure<'a> = dyn Fn(f64, &str, Option<f64>) -> (f64, f64) + 'a;
 #[derive(Clone, Copy)]
 struct Context {
     rect: Rect,
+    /// Where the children's `x`/`y` count from (`fnv_ui::input::places_children`).
+    origin: (f64, f64),
+    /// The menu has `fnv_ui::input::LOCUS_ON`.
+    locus: bool,
     depth: f64,
     alpha: f64,
     visible: bool,
@@ -128,7 +132,7 @@ struct Context {
 
 impl Default for Context {
     fn default() -> Self {
-        Self { rect: Rect::default(), depth: 0.0, alpha: 255.0, visible: true, clip: None, t15: false }
+        Self { rect: Rect::default(), origin: (0.0, 0.0), locus: false, depth: 0.0, alpha: 255.0, visible: true, clip: None, t15: false }
     }
 }
 
@@ -188,8 +192,8 @@ fn kind(tile: &Tile) -> Kind {
 
 fn place(tile: &Tile, kind: &Kind, parent: Context, measure: &Measure<'_>) -> Context {
     let mut rect = Rect {
-        left: parent.rect.left + number(tile, "x", 0.0),
-        top: parent.rect.top + number(tile, "y", 0.0),
+        left: parent.origin.0 + number(tile, "x", 0.0),
+        top: parent.origin.1 + number(tile, "y", 0.0),
         width: number(tile, "width", 0.0),
         height: number(tile, "height", 0.0),
     };
@@ -205,8 +209,11 @@ fn place(tile: &Tile, kind: &Kind, parent: Context, measure: &Measure<'_>) -> Co
             Alignment::Right => rect.width,
         };
     }
+    let origin = if fnv_ui::input::places_children(tile, parent.locus) { (rect.left, rect.top) } else { parent.origin };
     Context {
         rect,
+        origin,
+        locus: parent.locus,
         depth: parent.depth + number(tile, "depth", 0.0),
         alpha: match kind {
             // A hotrect's own `alpha` is not passed to its children [hypothesis: every
@@ -249,7 +256,8 @@ pub fn layout(ui: &Ui, root: TileId, measure: &Measure<'_>, t15: bool) -> Vec<Dr
         ancestors.push(id);
         at = ui.tile(id).parent;
     }
-    let mut context = Context { t15, ..Default::default() };
+    let locus = fnv_ui::input::locus_on(ui, ui.root_of(root));
+    let mut context = Context { t15, locus, ..Default::default() };
     for id in ancestors.into_iter().rev() {
         let tile = ui.tile(id);
         if !tile.live {

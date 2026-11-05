@@ -47,6 +47,40 @@ pub enum ClickedRule {
 /// [hypothesis: the tutorial's reading, see [`ClickedRule`]].
 pub const CLICKED_RULE: ClickedRule = ClickedRule::OneFrame;
 
+/// The private trait on a menu's root under which a click's `clicked` lasts two frames,
+/// the click's and the next, not one [hypothesis: MCM reads its clicks as `clicked` less
+/// its own `_UnClick` (MCM.xml, ModListRect.xml). Its main script handles an input and
+/// sets `_UnClick` at the end, then on the next frame only clears it; for a list row it
+/// first skips a frame ("Skip frame to let UI set variables", MCMMainScript) and its list
+/// script reads the row's `_index` on the next. One frame loses the row's click, a held
+/// or counted click opens and closes MCM's page again; two frames, as the original's
+/// traits taking a frame to follow `clicked` would give, fits both]. As [`LOCUS_ON`],
+/// only a menu that asks has it [design: the engine marks `StartMenu` for MCM, nvf-play
+/// tiles/mods.rs].
+pub const CLICK_TWO_FRAMES: &str = "_NVFClickTwoFrames";
+
+/// The private trait on a menu's root under which only a tile with a true `locus` places
+/// its children: the others' children are placed from where that tile's own parent places
+/// them [documented: GetUIFloatInherited, "parent tiles with an active locus"; observed:
+/// MCM's tiles copy `parent()`'s x and y (MCM_ModList, MCM_BG, the rows' texts) and would
+/// stand twice as far in if every parent placed its children]. Not every menu: the HUD's
+/// `Subtitles` rect has no locus and its text is placed from it [observed: the notices
+/// test], so a menu has the rule only when marked [design: the engine marks `StartMenu`
+/// for MCM, nvf-play tiles/mods.rs].
+pub const LOCUS_ON: &str = "_NVFLocus";
+
+/// Whether the menu `menu` (a root) is marked [`LOCUS_ON`].
+pub fn locus_on(ui: &Ui, menu: TileId) -> bool {
+    ui.tile(menu).get(LOCUS_ON).is_some_and(Value::truthy)
+}
+
+/// Whether `tile` places its children (they stand from its top-left), in a menu with
+/// [`LOCUS_ON`] or `locus` false without one: only a tile with a true `locus` there,
+/// every tile elsewhere.
+pub fn places_children(tile: &Tile, locus: bool) -> bool {
+    !locus || tile.get("locus").is_some_and(Value::truthy)
+}
+
 /// The controller's key traits [documented: Input, the buttons and the four directions;
 /// Hardcoded UI Shortcuts, the stick buttons `&xbuttonls;` `&xbuttonrs;`]. The arrow keys
 /// press `xup` … `xright` as the D-pad does [documented: Input].
@@ -184,18 +218,23 @@ struct Place {
     /// Target set to 1 will enforce it to its childs even if child Target is set 0";
     /// hypothesis: to all below it, not only its children].
     forced: bool,
+    /// Where this tile places its children ([`places_children`]).
+    origin: (f64, f64),
+    /// The menu has [`LOCUS_ON`].
+    locus: bool,
 }
 
 /// A tile's box, from its parent's place, as the layout places it (nvf-play
-/// tiles/layout.rs; menu-xml.md §3.1.1): `x`/`y` added to the parent's top-left,
+/// tiles/layout.rs; menu-xml.md §3.1.1): `x`/`y` added to where the parent places its
+/// children ([`places_children`]),
 /// `width`/`height` its size, a text tile measured when it has none and moved by its
 /// `justify`, `depth` added down the tree, `clips` cropping the children [design: the same
-/// rules, so the pointer finds what is drawn; `locus` is not read, as the layout does not].
+/// rules, so the pointer finds what is drawn].
 fn place(ui: &Ui, t: TileId, parent: Place, measure: &Measure<'_>) -> Place {
     let tile = ui.tile(t);
     let mut area = Area {
-        left: parent.area.left + num(ui, t, "x", 0.0),
-        top: parent.area.top + num(ui, t, "y", 0.0),
+        left: parent.origin.0 + num(ui, t, "x", 0.0),
+        top: parent.origin.1 + num(ui, t, "y", 0.0),
         width: num(ui, t, "width", 0.0),
         height: num(ui, t, "height", 0.0),
     };
@@ -213,11 +252,14 @@ fn place(ui: &Ui, t: TileId, parent: Place, measure: &Measure<'_>) -> Place {
             _ => 0.0,
         };
     }
+    let origin = if places_children(tile, parent.locus) { (area.left, area.top) } else { parent.origin };
     Place {
         area,
         depth: parent.depth + num(ui, t, "depth", 0.0),
         clip: parent.clip,
         forced: parent.forced,
+        origin,
+        locus: parent.locus,
     }
 }
 
@@ -233,7 +275,7 @@ fn candidates(ui: &Ui, menu: TileId, at: (f64, f64), measure: &Measure<'_>, out:
     if !ui.is_live(menu) || !shown(ui, menu) {
         return;
     }
-    let root = Place { area: Area::default(), depth: 0.0, clip: None, forced: false };
+    let root = Place { area: Area::default(), depth: 0.0, clip: None, forced: false, origin: (0.0, 0.0), locus: locus_on(ui, menu) };
     let mut order = 0;
     let mut stack = vec![(menu, root)];
     while let Some((id, parent)) = stack.pop() {
@@ -371,6 +413,8 @@ pub struct Pointer {
     keyed: bool,
     /// Tiles whose `clicked` (and `shiftclicked`) go back to 0 at the next step.
     pulsed: Vec<TileId>,
+    /// Pulses in a [`CLICK_TWO_FRAMES`] menu kept over one step already.
+    kept: Vec<TileId>,
     /// The scripts' clicks since the last step.
     queued: Vec<Click>,
 }
@@ -457,8 +501,14 @@ impl Pointer {
     }
 
     fn end_pulses(&mut self, ui: &mut Ui) {
+        let kept = std::mem::take(&mut self.kept);
         for t in std::mem::take(&mut self.pulsed) {
             if !ui.is_live(t) {
+                continue;
+            }
+            if !kept.contains(&t) && ui.tile(ui.root_of(t)).get(CLICK_TWO_FRAMES).is_some_and(Value::truthy) {
+                self.pulsed.push(t);
+                self.kept.push(t);
                 continue;
             }
             if CLICKED_RULE == ClickedRule::OneFrame && ui.tile(t).get(CLICKED).is_some() {

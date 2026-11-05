@@ -515,6 +515,7 @@ fn write(
     mut menu_tiles: MenuTiles,
     mut mods_entry: ResMut<crate::pause::ModsEntry>,
     mut start_names: Local<mods::KeptNames>,
+    mut start_sizes: Local<menus::SizesWritten>,
 ) {
     let Some(rt) = script.rt.as_mut() else { return };
     // T15a: the prompt over the container, barter and inventory menus builds `QuantityMenu`
@@ -530,6 +531,19 @@ fn write(
         *mods_entry = mods_now;
     }
     menu_tiles.write(&mut rt.game, *menus, &mut fonts, hud.sim.world.calendar().ok());
+    // T11: the start menu's text sizes while its Mods page can open, as the original's
+    // code writes them: MCM sizes its list rows by a hidden text's measured height
+    // (`MCM_ModList_Size`, "Pp") and widens its list by the rows' measured widths
+    // (GetMCMListWidth) [observed: MCM's ModList.xml and MCMMainScript; design: the T15a
+    // rule, `menus::write_text_sizes_of`].
+    if mods_now.0 {
+        if let Some(menu) = rt.game.ui_tree.menu(mods::START_MENU) {
+            let ui = &mut rt.game.ui_tree;
+            let texts: Vec<_> = ui.mod_added_tiles(menu).into_iter().flat_map(|r| menus::texts(ui, r)).collect();
+            let size = fonts.menu_measure(&menus::fonts_of(ui, &texts));
+            menus::write_text_sizes_of(ui, &texts, &mut start_sizes, &size);
+        }
+    }
     let shown = hud.shown(&rt.game, &files);
     let mut texts = hud.texts(&mut rt.game, shown);
     if let Some(root) = rt.game.ui_tree.find_tile("HUDMainMenu") {

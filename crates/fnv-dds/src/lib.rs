@@ -33,6 +33,9 @@ pub enum Format {
     Dxt3,
     Dxt5,
     A8R8G8B8,
+    /// 32 bits with red in the low byte (masks 000000ff / 0000ff00 / 00ff0000 / ff000000),
+    /// as some mod tools write [observed: the Notice Board mod's noticeboard.dds].
+    A8B8G8R8,
     R8G8B8,
     A4R4G4B4,
 }
@@ -44,6 +47,7 @@ impl Format {
             Format::Dxt3 => "DXT3",
             Format::Dxt5 => "DXT5",
             Format::A8R8G8B8 => "A8R8G8B8",
+            Format::A8B8G8R8 => "A8B8G8R8",
             Format::R8G8B8 => "R8G8B8",
             Format::A4R4G4B4 => "A4R4G4B4",
         }
@@ -64,7 +68,7 @@ impl Format {
             Some(b) => w.div_ceil(4).max(1) * h.div_ceil(4).max(1) * b,
             None => {
                 let bpp = match self {
-                    Format::A8R8G8B8 => 4,
+                    Format::A8R8G8B8 | Format::A8B8G8R8 => 4,
                     Format::R8G8B8 => 3,
                     _ => 2,
                 };
@@ -83,8 +87,12 @@ const CAPS2_ALL_FACES: u32 = 0xFC00;
 impl PixelFormat {
     /// The format named in dds.md §2, or a description of an unknown one.
     pub fn format(&self) -> Result<Format, String> {
-        // The rows of dds.md §2 match on the whole flags value.
-        if self.flags == PF_FOURCC {
+        // The rows of dds.md §2 match on the whole flags value, except that a FourCC
+        // format may carry other flags beside it (Alpha Pixels on a DXT1), which the FourCC
+        // overrides [observed: NV Interiors' dcintlenfant*.dds, flags 0x5 DXT1, drawn by
+        // the original; documented: DDS_PIXELFORMAT, DDPF_FOURCC "texture contains
+        // compressed RGB data; dwFourCC contains valid data"].
+        if self.flags & PF_FOURCC != 0 {
             return match &self.fourcc {
                 b"DXT1" => Ok(Format::Dxt1),
                 b"DXT3" => Ok(Format::Dxt3),
@@ -96,6 +104,7 @@ impl PixelFormat {
             let alpha = self.flags & PF_ALPHA_PIXELS != 0;
             return match (self.rgb_bits, self.masks, alpha) {
                 (32, [0x00FF_0000, 0x0000_FF00, 0x0000_00FF, 0xFF00_0000], true) => Ok(Format::A8R8G8B8),
+                (32, [0x0000_00FF, 0x0000_FF00, 0x00FF_0000, 0xFF00_0000], true) => Ok(Format::A8B8G8R8),
                 (24, [0x00FF_0000, 0x0000_FF00, 0x0000_00FF, _], false) => Ok(Format::R8G8B8),
                 (16, [0x0F00, 0x00F0, 0x000F, 0xF000], true) => Ok(Format::A4R4G4B4),
                 _ => Err(self.describe()),
@@ -209,7 +218,11 @@ impl<'a> Dds<'a> {
         let format = header.pixel_format.format().map_err(DdsError::Unsupported)?;
         let payload = &data[HEADER_LEN..];
         let expected = header.expected_size(format);
-        if payload.len() != expected || header.levels() > 32 {
+        // Bytes past the layout's end are ignored; only too few fail [observed: Heart of
+        // the Mojave's slot_machine01_d.dds and _g.dds carry 45 bytes more than their
+        // levels, and the original draws them; refusing them left the Strip's slot
+        // machines white].
+        if payload.len() < expected || header.levels() > 32 {
             return Err(DdsError::SizeMismatch { expected, actual: payload.len() });
         }
         let mut levels = Vec::new();
@@ -238,6 +251,7 @@ pub fn to_rgba8(format: Format, src: &[u8]) -> Option<Vec<u8>> {
                 out.extend_from_slice(&[p[2], p[1], p[0], p[3]]);
             }
         }
+        Format::A8B8G8R8 => out.extend_from_slice(&src[..src.len() / 4 * 4]),
         Format::R8G8B8 => {
             out.reserve(src.len() / 3 * 4);
             for p in src.as_chunks::<3>().0 {
@@ -440,6 +454,21 @@ mod tests {
         assert_eq!(to_rgba8(Format::A4R4G4B4, &[0x21, 0xF3]).unwrap(), [0x33, 0x22, 0x11, 0xFF]);
         let odd = build(1, 1, 1, PF_RGB, &[0; 4], 16, [0xF800, 0x7E0, 0x1F, 0], 0, 2);
         assert!(matches!(Dds::parse(&odd), Err(DdsError::Unsupported(_))));
+    }
+
+    /// The mods' textures the original draws: red-first 32-bit pixels, a DXT1 that also
+    /// says Alpha Pixels, and bytes past the last level; too few bytes still fail.
+    #[test]
+    fn mod_texture_quirks() {
+        let abgr = build(1, 1, 1, PF_RGB | PF_ALPHA_PIXELS, &[0; 4], 32, [0xFF, 0xFF00, 0xFF0000, 0xFF000000], 0, 4);
+        assert_eq!(Dds::parse(&abgr).unwrap().format, Format::A8B8G8R8);
+        assert_eq!(to_rgba8(Format::A8B8G8R8, &[1, 2, 3, 4]).unwrap(), [1, 2, 3, 4]);
+        let dxt1a = build(4, 4, 1, PF_FOURCC | PF_ALPHA_PIXELS, b"DXT1", 0, [0; 4], 0, 8);
+        assert_eq!(Dds::parse(&dxt1a).unwrap().format, Format::Dxt1);
+        let long = build(4, 4, 1, PF_FOURCC, b"DXT1", 0, [0; 4], 0, 8 + 45);
+        assert_eq!(Dds::parse(&long).unwrap().levels[0][0].len(), 8);
+        let short = build(4, 4, 1, PF_FOURCC, b"DXT1", 0, [0; 4], 0, 7);
+        assert!(matches!(Dds::parse(&short), Err(DdsError::SizeMismatch { expected: 8, actual: 7 })));
     }
 
     #[test]
