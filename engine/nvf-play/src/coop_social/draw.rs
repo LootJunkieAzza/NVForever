@@ -33,6 +33,8 @@ struct Shown {
 struct Kit {
     large: Face,
     medium: Face,
+    /// The medium font drawn smaller ([`SMALL`]): why a slice cannot be asked.
+    small: Face,
     pictures: Pictures,
 }
 
@@ -55,6 +57,20 @@ fn icons_of(kind: Kind) -> [&'static str; 2] {
         Kind::Trade => [r"Interface\Icons\NVForever\social_trade.dds", r"Interface\Icons\PipboyImages\Perks\perk_scrounger.dds"],
         Kind::Caravan => [r"Interface\Icons\NVForever\social_caravan.dds", r"Interface\Icons\PipboyImages\Items\item_caravan_deck.dds"],
     }
+}
+
+/// How much smaller than the medium font a refusal's reason is drawn [design: owner
+/// 2026-11-05, the duel slice's reason "too big"]; the game has no smaller font.
+const SMALL: f32 = 0.72;
+
+/// `face` drawn `k` times its size: every glyph's box and spacing scaled.
+fn scaled(face: &Face, k: f32) -> Face {
+    let mut font = face.font.clone();
+    font.size *= k;
+    for g in &mut font.glyphs {
+        (g.width, g.height, g.before, g.after, g.ascent) = (g.width * k, g.height * k, g.before * k, g.after * k, g.ascent * k);
+    }
+    Face { font, image: face.image.clone() }
 }
 
 /// The gap between the wheel's slices, interface units, at the slices' inner and outer
@@ -95,6 +111,7 @@ fn draw_wheel(
     let kit = kit.get_or_insert_with(|| Kit {
         large: face(FONT_1, plain_font(31.0, 12.0), data, &mut images, bc),
         medium: face(FONT_3, plain_font(25.0, 10.0), data, &mut images, bc),
+        small: scaled(&face(FONT_3, plain_font(25.0, 10.0), data, &mut images, bc), SMALL),
         pictures: Pictures::load(data),
     });
     let bright = amber(255.0);
@@ -142,11 +159,11 @@ fn draw_wheel(
                 if let Some(why) = &s.refusals[i] {
                     // Why it cannot be asked, in two lines when long.
                     let words: Vec<&str> = why.split(' ').collect();
-                    let half = if why.len() > 24 { words.len().div_ceil(2) } else { words.len() };
+                    let half = if why.len() > 32 { words.len().div_ceil(2) } else { words.len() };
                     let (a, b) = (words[..half].join(" "), words[half..].join(" "));
-                    let y = p.y + ICON / 2.0 - 14.0 + size;
-                    text(m, &kit.medium, &a, p.x, y, 0, bright.with_alpha(0.6));
-                    text(m, &kit.medium, &b, p.x, y + size, 0, bright.with_alpha(0.6));
+                    let (y, line) = (p.y + ICON / 2.0 - 14.0 + size, kit.small.font.size);
+                    text(m, &kit.small, &a, p.x, y, 0, bright.with_alpha(0.6));
+                    text(m, &kit.small, &b, p.x, y + line, 0, bright.with_alpha(0.6));
                 }
             }
             text(m, &kit.medium, "INTERACT", c, c - 40.0, 0, bright.with_alpha(0.7));
