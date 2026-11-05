@@ -37,10 +37,26 @@ use std::collections::HashMap;
 const UPPER: &str = "Bip01 R UpperArm";
 const FORE: &str = "Bip01 R Forearm";
 const HAND: &str = "Bip01 R Hand";
-/// The dart is pinched between the thumb's tip and the index finger's middle joint
-/// [observed: the human skeleton's bones under the right hand, about 11 units past the
-/// wrist]; without them it sits at the wrist.
-const PINCH: [&str; 2] = ["Bip01 R Thumb12", "Bip01 R Finger12"];
+/// The fingers' grip on the dart. Each finger bone's segment runs along its own +X and
+/// curls towards the palm (its +Y) by turning about its +Z [observed: the human
+/// skeleton's finger bones, children offset only in X, animated turns mostly about Z].
+/// Curl of each joint (knuckle, middle, end), radians [design]: the index finger curved
+/// over the barrel, the middle under it, the ring and little fingers in the palm.
+const FINGERS: [([&str; 3], [f32; 3]); 4] = [
+    (["Bip01 R Finger1", "Bip01 R Finger11", "Bip01 R Finger12"], [0.35, 0.60, 0.45]),
+    (["Bip01 R Finger2", "Bip01 R Finger21", "Bip01 R Finger22"], [0.80, 1.20, 0.70]),
+    (["Bip01 R Finger3", "Bip01 R Finger31", "Bip01 R Finger32"], [1.20, 1.65, 1.00]),
+    (["Bip01 R Finger4", "Bip01 R Finger41", "Bip01 R Finger42"], [1.20, 1.65, 1.00]),
+];
+/// The thumb: its base is turned so its tip meets the index finger's pad; its joints
+/// bend a little [design].
+const THUMB: [&str; 3] = ["Bip01 R Thumb1", "Bip01 R Thumb11", "Bip01 R Thumb12"];
+const THUMB_BEND: [f32; 2] = [0.15, 0.20];
+/// The last joint's length past its bone, the index pad's and the dart's half-thickness,
+/// game units [design: from the joints' spacing, about 2 to 4].
+const TIP: f32 = 2.2;
+const PAD: f32 = 0.8;
+const BARREL: f32 = 0.6;
 /// How far the dart's tip is ahead of the pinch, towards the board: the fingers hold the
 /// barrel, not the point (the model's tip is its origin, its flights 9.3 behind
 /// [observed: practicedart.nif's bounds]) [design].
@@ -55,7 +71,7 @@ fn tip(f: &BoardFrame, grip: Vec3) -> [f32; 3] {
 
 /// Where the hand goes, from the shoulder, in arm lengths: (right, towards the board, up)
 /// [design].
-pub const AIM: [f32; 3] = [0.0, 0.48, 0.22];
+pub const AIM: [f32; 3] = [0.02, 0.56, 0.21];
 pub const DRAWN: [f32; 3] = [0.04, 0.16, 0.36];
 pub const OUT: [f32; 3] = [-0.04, 0.95, 0.12];
 pub const FOLLOW: [f32; 3] = [0.0, 0.80, -0.20];
@@ -224,22 +240,62 @@ fn pose(
     if let Ok(mut t) = transforms.get_mut(fore) {
         t.rotation = fo;
     }
-    // Where the dart is held: the pinch, carried by the posed hand.
+    // Where the dart is held: between the thumb and the index finger, carried by the
+    // posed hand (the wrist without the fingers).
     let posed = gp.mul_transform(Transform { rotation: u, ..lu }).mul_transform(Transform { rotation: fo, ..lf }).mul_transform(lh);
-    let pinch: Vec<Vec3> = PINCH.iter().filter_map(|n| node(n)).filter_map(|e| under(e, hand, parents, transforms)).collect();
-    let grip = if pinch.is_empty() { Vec3::ZERO } else { pinch.iter().sum::<Vec3>() / pinch.len() as f32 };
+    let grip = pinch(&node, hand, w, parents, transforms).unwrap_or(Vec3::ZERO);
     Ok(posed.transform_point(grip))
 }
 
-/// Where a bone below `hand` is in the hand's own frame, from the bones' local transforms.
-fn under(bone: Entity, hand: Entity, parents: &Query<&ChildOf>, transforms: &Query<&mut Transform>) -> Option<Vec3> {
+/// A bone's transform in its hand's frame, from the bones' local transforms.
+fn in_hand(bone: Entity, hand: Entity, parents: &Query<&ChildOf>, transforms: &Query<&mut Transform>) -> Option<Transform> {
     let mut at = bone;
-    let mut p = Vec3::ZERO;
+    let mut t = Transform::IDENTITY;
     while at != hand {
-        p = transforms.get(at).ok()?.transform_point(p);
+        t = transforms.get(at).ok()?.mul_transform(t);
         at = parents.get(at).ok()?.parent();
     }
-    Some(p)
+    Some(t)
+}
+
+/// Turn a finger joint towards a curl of `angle` about its +Z, by `w`: a knuckle keeps
+/// its spread and twist and has only its curl replaced.
+fn curl(transforms: &mut Query<&mut Transform>, bone: Entity, angle: f32, knuckle: bool, w: f32) {
+    let Ok(mut t) = transforms.get_mut(bone) else { return };
+    let now = t.rotation;
+    let to = if knuckle { now * Quat::from_rotation_z(angle - 2.0 * now.z.clamp(-1.0, 1.0).asin()) } else { Quat::from_rotation_z(angle) };
+    t.rotation = now.slerp(to, w);
+}
+
+/// The fingers closed on the dart (by `w`): returns where it is held, in the hand's frame.
+fn pinch(node: &dyn Fn(&str) -> Option<Entity>, hand: Entity, w: f32, parents: &Query<&ChildOf>, transforms: &mut Query<&mut Transform>) -> Option<Vec3> {
+    for (names, angles) in FINGERS {
+        for (k, (n, a)) in names.iter().zip(angles).enumerate() {
+            if let Some(b) = node(n) {
+                curl(transforms, b, a, k == 0, w);
+            }
+        }
+    }
+    let [f11, f12] = [node(FINGERS[0].0[1])?, node(FINGERS[0].0[2])?];
+    let [t1, t11, t12] = [node(THUMB[0])?, node(THUMB[1])?, node(THUMB[2])?];
+    curl(transforms, t11, THUMB_BEND[0], false, w);
+    curl(transforms, t12, THUMB_BEND[1], false, w);
+    // The index finger's pad: its middle segment's palm side.
+    let (a, b) = (in_hand(f11, hand, parents, transforms)?, in_hand(f12, hand, parents, transforms)?);
+    let palm = (a.rotation * Vec3::Y).normalize();
+    let pad = (a.translation + b.translation) / 2.0 + palm * PAD;
+    // The thumb's tip brought under it, the barrel's width away.
+    let meet = pad + palm * 2.0 * BARREL;
+    if parents.get(t1).ok()?.parent() == hand {
+        let base = in_hand(t1, hand, parents, transforms)?.translation;
+        let tip = in_hand(t12, hand, parents, transforms)?.transform_point(Vec3::X * TIP);
+        let turn = Quat::from_rotation_arc((tip - base).normalize_or(Vec3::X), (meet - base).normalize_or(Vec3::X));
+        if let Ok(mut t) = transforms.get_mut(t1) {
+            t.rotation = t.rotation.slerp(turn * t.rotation, w);
+        }
+    }
+    let tip = in_hand(t12, hand, parents, transforms)?.transform_point(Vec3::X * TIP);
+    Some((pad + palm * BARREL).lerp((tip + pad) / 2.0, 0.5))
 }
 
 /// A board another player is throwing at, as this game watches it: the thrower's body,
