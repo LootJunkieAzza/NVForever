@@ -1215,7 +1215,7 @@ pub fn spawn_model(
             let posed = crate::clutter_pose::pose(&model.nodes, &bodies, &bones);
             match posed {
                 Some(_) => info!("clutter pose: 0x{r:08X} {path} drawn in its stored pose ({} bodies)", bodies.len()),
-                None => debug!("clutter pose: 0x{r:08X} {path}: {} entries do not fit {} bodies", bones.len(), bodies.len()),
+                None => crate::clutter_pose::log_refused(&path, &bones, &bodies),
             }
             posed
         });
