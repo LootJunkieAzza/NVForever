@@ -7,7 +7,6 @@
 //! This is the save format's groundwork: nothing plays these characters yet. The game
 //! keeps them ([`Game::coop`]) so that a save loaded and saved again keeps them unchanged.
 
-use crate::data::{GameData, InfoDef};
 use crate::game::{ActiveEffect, Game, PlayerState, RefExtra};
 use fnv_sim::world::RefState;
 use fnv_sim::FormId;
@@ -27,29 +26,6 @@ pub struct HostQuest {
     pub objectives: BTreeMap<i32, bool>,
     pub completed: bool,
     pub failed: bool,
-}
-
-/// ShowBarterMenu and ShowCaravanMenu (`crate::functions`).
-const SHOW_BARTER_MENU: u16 = 0x1173;
-const SHOW_CARAVAN_MENU: u16 = 0x125A;
-
-/// [`Game::guest_lines`]: the lines that trade or deal Caravan, then, until nothing more
-/// is added, the lines whose choices (TCLT) offer a topic with such a line.
-fn guest_lines(data: &GameData) -> BTreeSet<FormId> {
-    let calls = |u: crate::data::UnitId| {
-        let mut n = BTreeMap::new();
-        crate::intro::calls(&data.unit(u).program, &mut n);
-        n.contains_key(&SHOW_BARTER_MENU) || n.contains_key(&SHOW_CARAVAN_MENU)
-    };
-    let mut out: BTreeSet<FormId> = data.infos.iter().filter(|(_, d)| d.begin.into_iter().chain(d.end).any(calls)).map(|(i, _)| *i).collect();
-    loop {
-        let topics: BTreeSet<FormId> = out.iter().filter_map(|i| data.infos.get(i)?.topic).collect();
-        let more: Vec<FormId> = data.infos.iter().filter(|(i, d)| !out.contains(i) && d.choices.iter().any(|t| topics.contains(t))).map(|(i, _)| *i).collect();
-        if more.is_empty() {
-            return out;
-        }
-        out.extend(more);
-    }
 }
 
 /// One of players 2–4 as saved.
@@ -277,32 +253,6 @@ impl Game<'_> {
     pub fn remove_coop_player(&mut self, slot: u8) -> Option<CoopPlayer> {
         let i = self.coop.iter().position(|p| p.slot == slot)?;
         Some(self.coop.remove(i))
-    }
-
-    /// The lines a co-op guest may choose ([`Game::coop_guest`]), found once: those whose
-    /// result scripts open the barter menu or deal a game of Caravan, and those whose
-    /// choices lead to one [design: a guest trades and plays, and leaves the quests to
-    /// the host].
-    pub fn guest_lines(&self) -> &BTreeSet<FormId> {
-        self.guest_lines.get_or_init(|| guest_lines(self.data))
-    }
-
-    /// Whether a guest's conversation with `actor` would offer anything but Goodbye.
-    pub fn guest_can_talk(&mut self, actor: FormId) -> bool {
-        let Some(greeting) = self.data.greeting else { return false };
-        let goodbye = self.data.goodbye;
-        self.build_choices(actor, greeting, &InfoDef::default()).iter().any(|c| Some(c.topic) != goodbye)
-    }
-
-    /// A guest's choices: only [`Game::guest_lines`], and Goodbye.
-    pub(crate) fn guest_choices(&mut self, actor: FormId, mut out: Vec<crate::dialogue::Choice>) -> Vec<crate::dialogue::Choice> {
-        let goodbye = self.data.goodbye;
-        let lines = self.guest_lines();
-        out.retain(|c| lines.contains(&c.info) || Some(c.topic) == goodbye);
-        if let Some(bye) = goodbye.filter(|b| !out.iter().any(|c| c.topic == *b)) {
-            out.extend(self.offer_topic(actor, bye));
-        }
-        out
     }
 
     /// Whether `r` is another player's actor in a co-op game being played

@@ -37,9 +37,9 @@
 //! perks of the visit.
 //!
 //! **What a guest does.** A guest leaves the story to the host, as in Dying Light's co-op
-//! (`fnv_game::Game::coop_guest`): it talks to NPCs only to trade with them or to play
-//! Caravan (their own lines that do that; nobody else offers to talk, and no script
-//! starts a conversation with it), and plays at the casino tables. Its quest list,
+//! (`fnv_game::Game::coop_guest`): no script of its game starts a conversation with it,
+//! but it talks to any NPC it goes up to (a casino's cashier changes its own caps for
+//! chips), in its own game, and plays at the casino tables. Its quest list,
 //! objectives, markers and quest messages are the host's active quest ([`QuestView`],
 //! `Game::coop_host_quest`). It picks locks and hacks terminals, and so does the host:
 //! what either unlocks is unlocked for everyone (`nvf_play::lockpick::LockOpened`).
@@ -73,7 +73,8 @@
 //! Goodsprings. None of it reaches the guest's own saves (its own game is kept, below).
 //!
 //! **What the host's NPCs say.** The lines the host's NPCs are saying (a scene between
-//! two of them, a Say, a hello; `Game::speech`) go to the guests ([`net::LineView`]),
+//! two of them, a scripted Say or SayTo, a hello; `Game::speech`), and the NPC's lines
+//! of the host's own conversation ([`conversation_line`]), go to the guests ([`net::LineView`]),
 //! whose games say them as the host's does, voice and subtitles, timed by the host and
 //! without their scripts (`Game::set_remote_speech`); a line of a guest's own by one of
 //! the host's NPCs stops.
@@ -1440,7 +1441,8 @@ fn stand_ins(
             link.set_clock(net::ClockView { year: c.year, month: c.month, day: c.day, hour: c.hour, days_passed: c.days_passed });
         }
         let players: HashMap<FormId, u8> = coop.peers.iter().filter_map(|(&id, p)| Some((p.actor?, id))).collect();
-        link.set_lines(lines_out(&rt.game.speech, |r| players.get(&r).copied()));
+        let said: Vec<fnv_game::game::Speech> = rt.game.speech.iter().cloned().chain(conversation_line(&rt.game)).collect();
+        link.set_lines(lines_out(&said, |r| players.get(&r).copied()));
     }
     let here = place_of(&loc);
     let now = time.elapsed_secs();
@@ -1830,6 +1832,22 @@ fn not_in_hosts_world(drawn: &[(u32, [f32; 3])], heard: &HashSet<u32>, host: [f3
         .filter(|(r, feet)| !is_puppet(*r) && !heard.contains(r) && (feet[0] - host[0]).hypot(feet[1] - host[1]) <= reach)
         .map(|(r, _)| *r)
         .collect()
+}
+
+/// The line the NPC is saying in the host's own conversation, as a line said to the host
+/// (the guests hear it from where the NPC stands): the time left is that of the response
+/// it is at and of those after it, so a guest's game finds the same response.
+fn conversation_line(g: &fnv_game::Game) -> Option<fnv_game::game::Speech> {
+    let c = g.dialogue.as_ref()?;
+    let line = c.line.as_ref()?;
+    let order = g.data.infos.get(&line.info)?.response_order();
+    let lengths = g.response_lengths(c.actor, line.info);
+    let after: f64 = order.iter().skip(line.response + 1).map(|&r| lengths.get(r).copied().unwrap_or(0.0)).sum();
+    let mut s = lines_in(&[net::LineView { speaker: c.actor.0, target: 0, topic: line.topic.0, info: line.info.0, remaining: 1.0, flags: 0, conversation: 0 }], 0.0, None).pop()?;
+    s.target = Some(FormId::PLAYER_REF);
+    s.remaining = line.remaining.max(0.0) + after;
+    s.remote = false;
+    Some(s)
 }
 
 /// The host's lines as they go to the guests: its player as [`net::LineView::HOST`], a

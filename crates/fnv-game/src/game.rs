@@ -1441,14 +1441,12 @@ pub struct Game<'a> {
     /// player's name. Not part of the saved state: a save leaves them out.
     pub coop_actors: BTreeMap<FormId, String>,
     /// This game is a co-op guest's (`crate::coop`): the host runs the world and its
-    /// quests, so this player talks only to trade and to play ([`Game::guest_lines`]) and
-    /// no script starts a conversation with it.
+    /// quests, so no script starts a conversation with this player (it talks to whom it
+    /// goes up to).
     pub coop_guest: bool,
     /// On a guest: the host's active quest, which its quest list, objectives and markers
     /// show in place of this game's own (`None`: the host has none).
     pub coop_host_quest: Option<crate::coop::HostQuest>,
-    /// The lines a guest may choose, found once ([`Game::guest_lines`]).
-    pub(crate) guest_lines: std::sync::OnceLock<BTreeSet<FormId>>,
     /// Forms added to form lists at run time.
     pub form_lists: BTreeMap<FormId, Vec<FormId>>,
     pub loaded_cells: BTreeSet<FormId>,
@@ -2150,7 +2148,6 @@ impl<'a> Game<'a> {
             coop_actors: BTreeMap::new(),
             coop_guest: false,
             coop_host_quest: None,
-            guest_lines: std::sync::OnceLock::new(),
             form_lists: BTreeMap::new(),
             loaded_cells: BTreeSet::new(),
             moved: BTreeSet::new(),

@@ -1950,3 +1950,20 @@ fn the_hosts_lines_are_said_without_their_scripts() {
     assert!(matches!(g.speech.as_slice(), [s] if s.speaker == actor() && s.greeting && !s.remote), "{:?}", g.speech);
     assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { speaker, cut: true, .. } if speaker == FormId(NPC2_REF))));
 }
+
+/// A co-op guest talks to anyone it goes up to, as any player does (owner 2026-11-05: a
+/// casino's cashier), but no script of its game starts a conversation with it.
+#[test]
+fn a_guest_talks_as_anyone_does_but_is_never_force_greeted() {
+    let f = fixture();
+    let mut solo = game(&f);
+    let mut g = game(&f);
+    g.coop_guest = true;
+    assert_eq!(g.start_dialogue(actor(), None), solo.start_dialogue(actor(), None));
+    assert!(g.dialogue.is_some());
+    assert_eq!(g.dialogue_choices(), solo.dialogue_choices());
+    let mut h = game(&f);
+    h.coop_guest = true;
+    assert!(h.force_greet(actor(), None).is_err());
+    assert!(h.dialogue.is_none());
+}
