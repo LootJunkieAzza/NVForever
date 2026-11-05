@@ -176,6 +176,9 @@ Implemented in `crates/fnv-game/src/pool.rs` (rules, physics, opponent), nvf-pla
   instead of pushed off with physics (`ClearTable.txt`'s box: 125 by 72
   table units round the middle, 18 to 100 above it).
 - The cue's butt is lifted a fixed 9 degrees.
+- As a table opens the player steps beside its nearest long rail (112 table units from
+  the middle), facing the cloth, so their body is not over the table in the view from
+  above; the mod leaves the player where they stood.
 - Co-op: the owner's table publishes the layout at rest and each shot's strike; other
   players replay the shot with the same fixed-step physics. A second player who opens the
   same table can take the second side in place of the opponent, with no stake.

@@ -179,6 +179,8 @@ pub struct Pool {
     pub remote_aim: Option<([f32; 2], f32)>,
     pub settled: bool,
     pub leave: bool,
+    /// The player was stood beside the table ([`pool_stand`]).
+    stood: bool,
     sound_at: f32,
     pocket_at: f32,
     last_soft: u32,
@@ -255,6 +257,7 @@ impl Plugin for PoolPlugin {
             .init_resource::<PoolWatch>()
             .add_systems(Update, open.after(PlaySet::Activation).before(PlaySet::Ui))
             .add_systems(Update, (watch, (keys, step).chain().run_if(in_state(PlayState::Menu)), draw).chain().in_set(PlaySet::Ui))
+            .add_systems(Update, pool_stand.after(PlaySet::Ui))
             .add_systems(PostUpdate, pool_camera.before(bevy::transform::TransformSystems::Propagate))
             .add_systems(OnExit(PlayState::Menu), close);
     }
@@ -316,6 +319,7 @@ fn open(
             remote_aim: None,
             settled: true,
             leave: false,
+            stood: false,
             sound_at: 0.0,
             pocket_at: 0.0,
             last_soft: 9,
@@ -763,6 +767,42 @@ fn follow(p: &mut Pool, owner: u8, watch: &PoolWatch, tables: Option<&Tables>, n
     } else if let Some(w) = p.game.winner {
         p.status = if w == 1 { "You win the game.".into() } else { format!("{} wins the game.", tables.map(|t| t.name(owner)).unwrap_or_default()) };
     }
+}
+
+/// Where a player stands to play: beside the long rail nearest them, facing the cloth,
+/// table units (the rails reach 72 from the middle, ClearTable.txt) [design].
+const STAND_SIDE: f32 = 112.0;
+const STAND_ALONG: f32 = 100.0;
+
+/// Where a player at `at` (game space) stands to play, and the heading to face the cloth.
+pub fn stand_spot(f: &TableFrame, at: [f32; 3]) -> ([f32; 3], f32) {
+    let l = f.to_local(at);
+    let side = if l[1] < 0.0 { -1.0 } else { 1.0 };
+    let spot = f.to_world([l[0].clamp(-STAND_ALONG, STAND_ALONG), side * STAND_SIDE, 0.0]);
+    // Facing the table's middle: local +y from the near side, -y from the far one.
+    let heading = f.theta + if side < 0.0 { 0.0 } else { std::f32::consts::PI };
+    (spot, heading)
+}
+
+/// As a table opens the player steps to its side, so their body is beside the table in
+/// the view from above, not on it [design: the mod leaves the player where they stood,
+/// which may be over the rails (playtest 2026-11-05)].
+fn pool_stand(mut screen: ResMut<PoolScreen>, mut phys: Option<ResMut<crate::phys::PhysState>>, mut player: Option<ResMut<crate::player::Player>>) {
+    let Some(p) = screen.0.as_mut().filter(|p| !p.stood) else { return };
+    let Some(f) = p.frame else {
+        p.stood = true;
+        return;
+    };
+    let (Some(phys), Some(player)) = (phys.as_deref_mut(), player.as_deref_mut()) else { return };
+    let (mut spot, heading) = stand_spot(&f, player.feet);
+    // On the floor the table stands on.
+    spot[2] = f.pos[2];
+    phys.place_player(spot, 60.0, 200.0);
+    player.feet = phys.prev_feet;
+    player.heading = heading;
+    player.pitch = 0.0;
+    p.stood = true;
+    info!("pool: the player stands beside the table (feet {:?})", player.feet);
 }
 
 /// While a table is open the camera looks straight down on its cloth, turned with it,
@@ -1288,6 +1328,22 @@ mod tests {
         let hit = f.on_cloth([w[0], w[1], w[2] + 200.0], [0.0, 0.0, -1.0]).unwrap();
         assert!((hit[0] - 300.0).abs() < 1e-2 && (hit[1] - 120.0).abs() < 1e-2, "{hit:?}");
         assert!(f.on_cloth([w[0], w[1], w[2] + 200.0], [0.0, 0.0, 1.0]).is_none());
+    }
+
+    #[test]
+    fn the_player_stands_beside_the_table_facing_it() {
+        let f = TableFrame::of([100.0, 200.0, 0.0], [0.0, 0.0, 0.6], None);
+        // From over the rail (where the face aid put the player) to off the near side.
+        let (spot, heading) = stand_spot(&f, f.to_world([-90.0, 43.0, 30.0]));
+        let l = f.to_local(spot);
+        assert!((l[1] - STAND_SIDE).abs() < 1e-3 && (l[0] + 90.0).abs() < 1e-3, "{l:?}");
+        // Facing the middle: a step along the heading goes towards it.
+        let ahead = [spot[0] + heading.sin(), spot[1] + heading.cos(), 0.0];
+        assert!(f.to_local(ahead)[1] < l[1]);
+        // From far along the table, at the end of the side.
+        let (spot, _) = stand_spot(&f, f.to_world([300.0, -10.0, 0.0]));
+        let l = f.to_local(spot);
+        assert!((l[0] - STAND_ALONG).abs() < 1e-3 && (l[1] + STAND_SIDE).abs() < 1e-3);
     }
 
     #[test]
