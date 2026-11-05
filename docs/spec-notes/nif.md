@@ -504,6 +504,17 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   lantern's wall brighter, but Doc Mitchell's living room −0.04, the saloon up to −0.15
   with clipping). The lantern's wall still lacks the original's saturated yellow; the
   weather grade's tint (world.md §6, adapter tint amount) is the open lead.
+  **Since the display clips** (2026-11-05): from 2026-10-24 the main view shows display
+  values clipped per channel in Tony McMapface's place (world.md §8, lights.rs
+  `GAME_CLIP`), which is what the rule above imitated, but the inverse stayed in. Under
+  clipping it raised every channel above about 0.55 past white: HotM's Ultra-Luxe
+  starburst sign by the Vault 21 gift shop (`nv_ul_neonsign01.nif`, lit tubes on the
+  white `NV_UL_Decor02_G.dds`, emissive (5, 250, 57) × 3 and (192, 4, 220) × 2), with two
+  VaultGreen lights 250 units off, burned white at night and at noon, and its twins higher
+  up, with less light on them, showed cyan for green [observed: headless frames,
+  strip-neon-white]. Now the inverse applies only where the view keeps Tony McMapface
+  (`NVF_TONEMAP=tony`, which nvforever fog.rs passes in the fog's `bi.z`); otherwise the
+  lit colour plus the emitted light is left to the screen's clip.
 - **Soft intersections of small shapes** (2026-10-23). Dead Money's lantern glow
   (`SconceON:4` above) is three crossed octagonal discs, 58 units across, through the
   centre of the 14-unit glass box, vertex alpha 0.93 at the centre and 0 at the rim
