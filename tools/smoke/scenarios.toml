@@ -3607,6 +3607,27 @@ expect = [
 ]
 
 [[scenario]]
+name = "gpu-device-lost"
+source = "owner's 5-player co-op stress test 2026-11-05: the AMD driver lost the GPU device and the game panicked in Bevy on a buffer map (engine/nvforever/src/gpu_lost.rs, engine/vendor/README.md bevy_render)"
+note = "the render device is destroyed 5 s after the first frame, which wgpu reports as lost; the game autosaves (no thumbnail) and closes with no panic"
+areas = ["crash", "render"]
+paths = ["engine/nvforever/src/gpu_lost.rs", "engine/vendor/bevy_render/"]
+env = { NVFOREVER_HOME = "gpu-lost-home", NVF_PLAY_TEST_GPU_LOST = "5" }
+args = ["--play", "--cell", "Goodsprings"]
+run_seconds = 60
+# The game closes itself with the error exit after a lost device, before the run's end.
+exit = 1
+ends = "render: GPU lost: autosaved to"
+expect = [
+  { re = 'render: adapter .+ \((DiscreteGpu|IntegratedGpu|VirtualGpu|Cpu|Other), ', label = "the adapter in use is logged" },
+  "render: test aid NVF_PLAY_TEST_GPU_LOST: destroying the render device",
+  { re = 'render: the GPU device was lost .*; autosaving, then the game closes', label = "the lost device is caught by the render error handler" },
+  { re = 'render: GPU lost: autosaved to .*autosave\.nvfsave; the game closes', label = "the autosave is written before the game closes" },
+  "run log: the game exited normally",
+]
+forbid = [{ text = "panic on thread", label = "a panic after the device is lost (a crash report)" }]
+
+[[scenario]]
 name = "conversation-timer"
 source = "NPC conversation rate against the original's, docs/spec-notes/npc-behaviour-compare.md §5 (2026-10-17): one 30–60 s timer for the loaded area, not one per actor"
 note = "the player stands among Westside's citizens at 10:00; in about 90 s of play the area tries a conversation once to three times (a timer per actor tried dozens of times)"

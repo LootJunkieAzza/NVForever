@@ -34,6 +34,7 @@ mod cell_resets;
 mod alert;
 mod anim_sounds;
 mod crash;
+mod gpu_lost;
 mod creature_pace;
 mod creature_stance;
 mod creator_view;
@@ -1374,6 +1375,8 @@ fn main() -> AppExit {
     .add_systems(PostUpdate, sky::sun_casters_over_slice.after(bevy::light::SimulationLightSystems::CheckLightVisibility))
     .add_systems(PostUpdate, sky::reach_toward_sun.after(bevy::light::SimulationLightSystems::UpdateDirectionalLightCascades).before(bevy::light::SimulationLightSystems::UpdateLightFrusta))
     .add_systems(Startup, (crash::report_start, report_archives))
+    // A lost GPU device: autosave, tell the player, close (gpu_lost.rs).
+    .add_plugins(gpu_lost::GpuLostPlugin)
     .add_systems(Last, (crash::note_place, crash::report_exit, stray_commands::report));
     if let Some(probe) = actor_feet::from_env() {
         app.insert_resource(probe).add_systems(Last, actor_feet::probe);
