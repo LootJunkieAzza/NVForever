@@ -218,7 +218,7 @@ fn select(m: &mut MenuModel, side: Side, row: i64) {
 
 /// A command of the barter screen (keys, clicks, the wheel) on the trade. `my_caps` is
 /// what this player carries.
-pub fn command(m: &mut MenuModel, book: &mut Trade, cmd: Command, my_caps: u32, forms: &FormStore) -> Vec<Effect> {
+pub fn command(m: &mut MenuModel, book: &mut Trade, cmd: Command, my_caps: u32) -> Vec<Effect> {
     let mut fx = Vec::new();
     // The prompt open: only its own commands (Close cancels it).
     if let Some(mut q) = m.quantity {
@@ -262,7 +262,7 @@ pub fn command(m: &mut MenuModel, book: &mut Trade, cmd: Command, my_caps: u32, 
             select(m, side, row as i64);
             m.pointer_pick = true;
         }
-        Command::Select(side, row) if side == f && row as i64 == sel => return command(m, book, Command::One, my_caps, forms),
+        Command::Select(side, row) if side == f && row as i64 == sel => return command(m, book, Command::One, my_caps),
         Command::Select(side, row) => select(m, side, row as i64),
         Command::Category(side, by) => m.category[side as usize] = m.category[side as usize].step(by),
         Command::SetCategory(side, c) => m.category[side as usize] = c,
@@ -391,12 +391,12 @@ mod tests {
         let f = forms();
         // The buyer picks the stimpaks (a stack: "How many?"), asks for 3.
         let row = bm.lists[0].rows.iter().position(|r| r.item.0 == STIM).unwrap();
-        command(&mut bm, &mut buyer, Command::Hover(Side::Container, row), 100, &f);
-        assert!(command(&mut bm, &mut buyer, Command::One, 100, &f).is_empty());
+        command(&mut bm, &mut buyer, Command::Hover(Side::Container, row), 100);
+        assert!(command(&mut bm, &mut buyer, Command::One, 100).is_empty());
         let q = bm.quantity.unwrap();
         assert_eq!((q.max, q.amount, q.label), (5, 5, None));
-        command(&mut bm, &mut buyer, Command::AmountStep(-2), 100, &f);
-        let fx = command(&mut bm, &mut buyer, Command::AmountOk, 100, &f);
+        command(&mut bm, &mut buyer, Command::AmountStep(-2), 100);
+        let fx = command(&mut bm, &mut buyer, Command::AmountOk, 100);
         assert_eq!(sent(&fx), vec![Msg::TradeRequest { nonce: 7, item: STIM, count: 3 }]);
         fill(&mut bm, &buyer, "Owner", &[(model::CAPS.0, 100)], &f, None, 0.0);
         let r = bm.selected_row(Side::Container).unwrap();
@@ -406,12 +406,12 @@ mod tests {
         fill(&mut om, &owner, "Buyer", &[(ROUND, 20), (STIM, 5)], &f, None, 0.0);
         let mine = om.lists[1].rows.iter().position(|r| r.item.0 == STIM).unwrap();
         assert_eq!(mine, 0, "asked rows first");
-        command(&mut om, &mut owner, Command::Hover(Side::Player, mine), 300, &f);
-        command(&mut om, &mut owner, Command::One, 300, &f);
+        command(&mut om, &mut owner, Command::Hover(Side::Player, mine), 300);
+        command(&mut om, &mut owner, Command::One, 300);
         let q = om.quantity.unwrap();
         assert_eq!((q.amount, q.label), (75, Some(PRICE_LABEL)));
-        command(&mut om, &mut owner, Command::Amount(30), 300, &f);
-        let fx = command(&mut om, &mut owner, Command::AmountOk, 300, &f);
+        command(&mut om, &mut owner, Command::Amount(30), 300);
+        let fx = command(&mut om, &mut owner, Command::AmountOk, 300);
         assert_eq!(sent(&fx), vec![Msg::TradePrice { nonce: 7, item: STIM, each: 30 }]);
         // The buyer sees the price, the arrow's figure is the cost; A buys.
         buyer.price_heard(STIM, 30);
@@ -419,7 +419,7 @@ mod tests {
         assert_eq!(bm.selected_row(Side::Container).unwrap().price, Some(30.0));
         assert_eq!(bm.trade.as_ref().unwrap().balance, -90);
         assert!(bm.trade.as_ref().unwrap().affordable());
-        let fx = command(&mut bm, &mut buyer, Command::Accept, 100, &f);
+        let fx = command(&mut bm, &mut buyer, Command::Accept, 100);
         assert_eq!(fx[0], Effect::TakeCaps(90));
         assert_eq!(sent(&fx), vec![Msg::TradeBuy { nonce: 7, item: STIM, count: 3, each: 30 }]);
         assert_eq!(buyer.held(), 90);
@@ -431,22 +431,22 @@ mod tests {
         let f = forms();
         // Shift asks for the whole stack at once.
         let row = bm.lists[0].rows.iter().position(|r| r.item.0 == ROUND).unwrap();
-        command(&mut bm, &mut buyer, Command::Hover(Side::Container, row), 100, &f);
-        let fx = command(&mut bm, &mut buyer, Command::Stack, 100, &f);
+        command(&mut bm, &mut buyer, Command::Hover(Side::Container, row), 100);
+        let fx = command(&mut bm, &mut buyer, Command::Stack, 100);
         assert_eq!(sent(&fx), vec![Msg::TradeRequest { nonce: 7, item: ROUND, count: 20 }]);
         owner.request_heard(ROUND, 20, 20, 1);
         fill(&mut om, &owner, "Buyer", &[(ROUND, 20)], &f, None, 0.0);
-        command(&mut om, &mut owner, Command::Focus(Side::Player), 0, &f);
+        command(&mut om, &mut owner, Command::Focus(Side::Player), 0);
         // A prompt cancelled sends nothing; Shift+Enter refuses.
-        command(&mut om, &mut owner, Command::One, 0, &f);
-        assert!(command(&mut om, &mut owner, Command::Close, 0, &f).is_empty());
+        command(&mut om, &mut owner, Command::One, 0);
+        assert!(command(&mut om, &mut owner, Command::Close, 0).is_empty());
         assert!(om.quantity.is_none());
-        let fx = command(&mut om, &mut owner, Command::Stack, 0, &f);
+        let fx = command(&mut om, &mut owner, Command::Stack, 0);
         assert_eq!(sent(&fx), vec![Msg::TradePrice { nonce: 7, item: ROUND, each: 0 }]);
         assert!(owner.offers.is_empty());
         // Accept with nothing to settle says so; X leaves.
-        assert!(matches!(command(&mut om, &mut owner, Command::Accept, 0, &f)[..], [Effect::Say(_)]));
-        assert_eq!(command(&mut om, &mut owner, Command::Close, 0, &f), vec![Effect::Close]);
+        assert!(matches!(command(&mut om, &mut owner, Command::Accept, 0)[..], [Effect::Say(_)]));
+        assert_eq!(command(&mut om, &mut owner, Command::Close, 0), vec![Effect::Close]);
     }
 
     #[test]

@@ -24,6 +24,16 @@
 //! makes the loser's puppet fall on the winner's screen ([`Social::falls`]).
 //!
 //! Log lines: `co-op social: …` (invitations, wheel picks, duel phases, trades).
+//!
+//! Test aid `NVF_PLAY_TEST_SOCIAL=<seconds>:<step>[,...]`: `face` turns the view to the
+//! nearest other player's chest at once; `drawface` does so only once a duel's signal to
+//! draw has come, turning over [`AID_TURN_SECONDS`] (a player spinning round to shoot;
+//! for recorded demos); `drawshoot` turns so too, then after [`AID_SHOT_REACTION`]
+//! shoots (the trigger pulled [`AID_SHOT_SECONDS`] of every [`AID_SHOT_EVERY`]) while the
+//! draw lasts; `turnback` turns the back to the nearest other player over
+//! [`AID_TURNBACK_SECONDS`], only while a duel is getting into position with the two far
+//! enough apart (a duel's stance, for recorded demos: give it again and again);
+//! `pick=duel|trade|caravan` points the open wheel at a slice.
 
 pub mod barter;
 pub mod draw;
@@ -227,7 +237,9 @@ impl Plugin for CoopSocialPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Social>()
             .init_resource::<SocialMates>()
+            .init_resource::<AidShoot>()
             .add_systems(Update, social_aid.in_set(PlaySet::Input).before(input))
+            .add_systems(Update, social_aid_trigger.in_set(PlaySet::Input).after(crate::control::read_controls))
             .add_systems(Update, input.in_set(PlaySet::Input).after(crate::weapon_wheel::read).before(crate::control::read_controls))
             .add_systems(Update, hold.after(crate::control::enforce_locks).after(PlaySet::Input).before(PlaySet::Physics))
             .add_systems(Update, target.in_set(PlaySet::Activation).after(crate::activate::find_target).before(crate::activate::activate))
@@ -310,8 +322,34 @@ fn input(
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum AidStep {
     Face,
+    /// Face the other player, only once the duel's signal came, turning smoothly.
+    DrawFace,
+    /// As [`AidStep::DrawFace`], then shoot while the draw lasts.
+    DrawShoot,
+    /// Turn the back to the other player, smoothly.
+    TurnBack,
     Pick(Kind),
 }
+
+/// How long the test aid's `drawface` turn takes (seconds).
+const AID_TURN_SECONDS: f32 = 0.3;
+/// How long the test aid's `turnback` turn takes (seconds).
+const AID_TURNBACK_SECONDS: f32 = 0.8;
+/// The test aid's `drawshoot`: the trigger held this long of every [`AID_SHOT_EVERY`]
+/// seconds (a semi-automatic pistol fires once a pull).
+const AID_SHOT_SECONDS: f32 = 0.12;
+const AID_SHOT_EVERY: f32 = 0.35;
+/// The test aid's `drawshoot` waits this long once turned before its first shot (a
+/// player's reaction; the throw then shows after the signal's sweep).
+const AID_SHOT_REACTION: f32 = 0.6;
+
+/// A test aid turn under way: since (aid seconds), how long, from and to (heading,
+/// pitch), and whether `drawshoot` shoots once it ends.
+type AidTurn = (f32, f32, [f32; 2], [f32; 2], bool);
+
+/// When the test aid's `drawshoot` began shooting (aid seconds), while the draw lasts.
+#[derive(Resource, Default)]
+struct AidShoot(Option<f32>);
 
 fn aid_steps(v: &str) -> Result<Vec<(f32, AidStep)>, String> {
     crate::test_aid::timed(v)?
@@ -319,10 +357,13 @@ fn aid_steps(v: &str) -> Result<Vec<(f32, AidStep)>, String> {
         .map(|(t, rest)| {
             let step = match rest {
                 "face" => AidStep::Face,
+                "drawface" => AidStep::DrawFace,
+                "drawshoot" => AidStep::DrawShoot,
+                "turnback" => AidStep::TurnBack,
                 "pick=duel" => AidStep::Pick(Kind::Duel),
                 "pick=trade" => AidStep::Pick(Kind::Trade),
                 "pick=caravan" => AidStep::Pick(Kind::Caravan),
-                _ => return Err(format!("{rest:?}: expected face or pick=duel|trade|caravan")),
+                _ => return Err(format!("{rest:?}: expected face, drawface, drawshoot, turnback or pick=duel|trade|caravan")),
             };
             Ok((t, step))
         })
@@ -333,6 +374,7 @@ fn aid_steps(v: &str) -> Result<Vec<(f32, AidStep)>, String> {
 fn social_aid(
     time: crate::pause::AidTime,
     mut steps: Local<Option<Vec<(f32, AidStep)>>>,
+    (mut turn, mut shoot): (Local<Option<AidTurn>>, ResMut<AidShoot>),
     mut social: ResMut<Social>,
     mates: Res<SocialMates>,
     player: Option<ResMut<Player>>,
@@ -349,10 +391,54 @@ fn social_aid(
         return;
     }
     let (Some(now), Some(mut player)) = (time.world_secs(), player) else { return };
+    // A `drawface` or `turnback` turn under way: heading along the shorter way round,
+    // pitch straight.
+    if let Some((since, secs, from, to, then_shoot)) = *turn {
+        let k = ((now - since) / secs).clamp(0.0, 1.0);
+        let k = k * k * (3.0 - 2.0 * k);
+        let dh = (to[0] - from[0] + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+        (player.heading, player.pitch) = (from[0] + dh * k, from[1] + (to[1] - from[1]) * k);
+        if k >= 1.0 {
+            *turn = None;
+            if then_shoot && shoot.0.is_none() {
+                info!("test aid: social drawshoot: shooting");
+                shoot.0 = Some(now + AID_SHOT_REACTION);
+            }
+        }
+    }
     let due: Vec<AidStep> = steps.iter().filter(|(t, _)| *t <= now).map(|&(_, s)| s).collect();
     steps.retain(|(t, _)| *t > now);
     for step in due {
         match step {
+            AidStep::DrawFace | AidStep::DrawShoot => {
+                let drawing = social.duel.as_ref().is_some_and(Duel::drawing);
+                let near = mates.mates.iter().filter(|m| m.here && !m.lost).min_by(|a, b| dist2(a.feet, player.feet).total_cmp(&dist2(b.feet, player.feet)));
+                if let (true, None, Some(m)) = (drawing, *turn, near) {
+                    let chest = [m.feet[0], m.feet[1], m.feet[2] + BODY_HEIGHT * 0.6];
+                    let (h, p) = crate::control::Crosshair::aim_at(control.crosshair.as_ref(), player.eye(), chest);
+                    if (h - player.heading).abs() > 1e-3 || (p - player.pitch).abs() > 1e-3 {
+                        info!("test aid: social drawface: turning to {} over {AID_TURN_SECONDS} s", m.name);
+                        *turn = Some((now, AID_TURN_SECONDS, [player.heading, player.pitch], [h, p], step == AidStep::DrawShoot));
+                    } else if step == AidStep::DrawShoot && shoot.0.is_none() {
+                        shoot.0 = Some(now + AID_SHOT_REACTION);
+                    }
+                }
+            }
+            AidStep::TurnBack => {
+                let near = mates.mates.iter().filter(|m| m.here && !m.lost).min_by(|a, b| dist2(a.feet, player.feet).total_cmp(&dist2(b.feet, player.feet)));
+                // Only while a duel is getting into position, the two far enough apart, and
+                // not turned away already: a step given again and again turns once, in time.
+                let positioning = social.duel.as_ref().is_some_and(|d| d.phase == duel::Phase::Positioning);
+                let apart = |m: &&Mate| dist2(m.feet, player.feet) >= duel::APART.0 * duel::APART.0;
+                let Some(m) = near.filter(|m| positioning && turn.is_none() && apart(m)) else { continue };
+                let away = (player.feet[0] - m.feet[0]).atan2(player.feet[1] - m.feet[1]).rem_euclid(std::f32::consts::TAU);
+                let off = (away - player.heading + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+                if off.abs() < 0.2 {
+                    continue;
+                }
+                info!("test aid: social turnback: from {} over {AID_TURNBACK_SECONDS} s, heading {:.0}", m.name, away.to_degrees());
+                *turn = Some((now, AID_TURNBACK_SECONDS, [player.heading, player.pitch], [away, player.pitch], false));
+            }
             AidStep::Face => {
                 let near = mates.mates.iter().filter(|m| m.here && !m.lost).min_by(|a, b| dist2(a.feet, player.feet).total_cmp(&dist2(b.feet, player.feet)));
                 let Some(m) = near else {
@@ -372,6 +458,18 @@ fn social_aid(
             },
         }
     }
+}
+
+/// The test aid's `drawshoot` pulls the trigger while the draw lasts (module docs).
+fn social_aid_trigger(time: crate::pause::AidTime, mut shoot: ResMut<AidShoot>, social: Res<Social>, mut control: ResMut<crate::control::PlayerControl>) {
+    let Some(since) = shoot.0 else { return };
+    if !social.duel.as_ref().is_some_and(Duel::drawing) {
+        info!("test aid: social drawshoot: the draw is over, no more shots");
+        shoot.0 = None;
+        return;
+    }
+    let Some(now) = time.world_secs() else { return };
+    control.trigger = control.weapon_out && now >= since && (now - since).rem_euclid(AID_SHOT_EVERY) < AID_SHOT_SECONDS;
 }
 
 fn dist2(a: [f32; 3], b: [f32; 3]) -> f32 {
@@ -879,7 +977,7 @@ fn trade_screen(
         for &crate::menu::MenuInput(cmd) in input.read() {
             let caps = caps_of(&sim);
             let Some(m) = active.bypass_change_detection().0.as_mut() else { break };
-            let fx = barter::command(m, &mut t.book, cmd, caps, sim.forms);
+            let fx = barter::command(m, &mut t.book, cmd, caps);
             active.set_changed();
             for e in fx {
                 match e {
@@ -978,7 +1076,7 @@ mod tests {
 
     #[test]
     fn the_social_aid_reads_its_steps() {
-        assert_eq!(aid_steps("3:face, 4.5:pick=trade").unwrap(), vec![(3.0, AidStep::Face), (4.5, AidStep::Pick(Kind::Trade))]);
+        assert_eq!(aid_steps("3:face, 4.5:pick=trade, 6:drawface, 7:turnback, 8:drawshoot").unwrap(), vec![(3.0, AidStep::Face), (4.5, AidStep::Pick(Kind::Trade)), (6.0, AidStep::DrawFace), (7.0, AidStep::TurnBack), (8.0, AidStep::DrawShoot)]);
         assert!(aid_steps("3:wave").is_err());
     }
 
