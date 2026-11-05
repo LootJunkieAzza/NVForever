@@ -144,8 +144,10 @@ fn draw_wheel(
                 let lit = i == s.picked;
                 let refused = s.refusals[i].is_some();
                 // The lower slices' pictures and names a little in towards the hub, so the
-                // longest name (PLAY CARAVAN) stays well inside its slice.
-                let r = (INNER + OUTER) / 2.0 - if i == 0 { 0.0 } else { 26.0 };
+                // longest name (PLAY CARAVAN) stays well inside its slice; the top one's a
+                // little out towards the rim, so a refusal's line under its name clears the
+                // hub.
+                let r = (INNER + OUTER) / 2.0 + if i == 0 { 14.0 } else { -26.0 };
                 let p = crate::weapon_wheel::point(super::wheel::angle_of(i), r) + Vec2::splat(c);
                 let strength = if lit { 1.0 } else { DIM } * if refused { 0.5 } else { 1.0 };
                 let tint = bright.with_alpha(strength);
