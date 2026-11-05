@@ -321,8 +321,19 @@ docs/handoff/ui-tile-tree-tasks.md]: `x` `y` `width` `height` `depth` `alpha` `v
   [design] RGB clamps to 0–255; brightness passes unchanged. Colour does not multiply
   through ancestors. Numeric `systemcolor` is retained for the renderer to map; unknown
   named constants retain their names as well, and absence stays absent.
-- [design] `locus`, `id`, `target`, input traits, menu fades and stacking traits have
-  no extra layout effect yet. No undocumented meaning is assigned to them.
+- [design] `id`, `target`, input traits, menu fades and stacking traits have no extra
+  layout effect yet. No undocumented meaning is assigned to them.
+- `locus`, only in a menu whose root has the private trait `_NVFLocus` true
+  (`fnv_ui::input::LOCUS_ON`; the engine sets it on `StartMenu` for MCM, nvf-play
+  tiles/mods.rs): there only a tile with a true `locus` places its children from its
+  own top-left; a child of any other tile is placed from where that tile's parent
+  places its children [documented: GetUIFloatInherited, "parent tiles with an active
+  locus"; observed: MCM's tiles copy `parent()`'s x and y (MCM_ModList, MCM_BG, the
+  rows' texts) and would stand twice as far in if every parent placed its children].
+  Every other menu places children from every parent, as before: the HUD's `Subtitles`
+  rect has no locus and its text is placed from it [observed: the notices test]. The
+  rule is `fnv_ui::input::places_children`, shared by the layout (tiles/layout.rs) and
+  the pointer (`fnv_ui::input::hit`), so what is drawn is what is clicked [design].
 
 ### 3.1.2 Drawing interpretation (T5 part C)
 
@@ -525,7 +536,14 @@ Shiftclicked, Ref, Input, Hotrect, Wheelmoved pages and "Tutorial: Understanding
   the element is clicked by the mouse" (the tutorial) against "it will count how many
   times a element has been clicked" (the Clicked page). [hypothesis] The single frame
   (`fnv_ui::input::CLICKED_RULE`, `ClickedRule::OneFrame`; `Count` is the other); a
-  press, not the release, clicks. Observer check §8 item 8. `shiftclicked` is 1 for a
+  press, not the release, clicks. Observer check §8 item 8. In a menu whose root has
+  the private trait `_NVFClickTwoFrames` true (`fnv_ui::input::CLICK_TWO_FRAMES`; the
+  engine marks `StartMenu` for MCM) `clicked` lasts two frames, the click's and the
+  next [hypothesis: MCM reads a click as `clicked` less its own `_UnClick`; its main
+  script handles the input and sets `_UnClick`, and for a list row first skips a frame
+  ("Skip frame to let UI set variables", MCMMainScript), so a one-frame click loses the
+  row; two frames, as the original's traits taking a frame to follow `clicked` would
+  give, open a row on the first click and do not open and close a page again]. `shiftclicked` is 1 for a
   frame when Shift is held during the click [documented].
 - [documented: tutorial] A click sets `clicked` on a tile with an `id`; the Clicked page
   says on any target. [hypothesis] `clicked` on any target, the `id` being what the
@@ -539,8 +557,8 @@ Shiftclicked, Ref, Input, Hotrect, Wheelmoved pages and "Tutorial: Understanding
   made a target goes to the nearest tile above it whose own `target` is true.
 - [hypothesis] Boxes are the layout's (§3.1.1): `x`/`y` added to the parent's top-left,
   `width`/`height`, a text measured when it has no size and moved by its `justify`,
-  `clips` (or a `clipwindow` turned on, §3.1.1) cropping the children; `locus` is not
-  read, as the layout does not.
+  `clips` (or a `clipwindow` turned on, §3.1.1) cropping the children; `locus` as the
+  layout reads it (§3.1.1: only in a menu marked `_NVFLocus`).
 - [documented: tutorial, the higher `depth` is drawn on top] [hypothesis] Where targets
   overlap, the highest summed `depth` takes the pointer, a tie going to the one drawn
   later; a menu opened later is over an earlier one whatever their depths. Observer

@@ -890,7 +890,11 @@ impl Game<'_> {
     /// Run the OnFire blocks of the weapon `actor` fired (its object script)
     /// [documented: block name; observed: the detonator's script, `DetonatorOnFire`, is
     /// an OnFire block].
+    /// JIP's OnFireWeapon handlers get the shooter as the calling reference and the
+    /// weapon [documented: SetOnFireWeaponEventHandler; observed: JAM's JBTOnFireWeaponUDF
+    /// takes the weapon, filtered on PlayerRef].
     pub fn weapon_fired(&mut self, actor: FormId, weapon: FormId) -> bool {
+        self.jip_event("fireweapon", Some(actor), vec![fnv_script::vm::XVal::Ref(weapon.0)]);
         self.item_event(actor, weapon, event::ON_FIRE, None)
     }
 

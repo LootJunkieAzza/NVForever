@@ -3127,6 +3127,8 @@ fn out_params(lname: &str) -> Option<&'static [usize]> {
         // fz"; GetAkimboWeaponsAlt, the left and right weapons into the two variables].
         "getplayercamerarotation" => &[0, 1, 2],
         "getakimboweaponsalt" => &[1, 2],
+        // [documented: WorldToScreen, xOut yOut zOut].
+        "worldtoscreen" => &[0, 1, 2],
         _ => return None,
     })
 }

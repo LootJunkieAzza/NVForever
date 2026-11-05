@@ -640,7 +640,9 @@ pub fn read_controls(
             c.pov = Pov::Third;
         }
     }
-    if c.third_person_view() && scroll.delta.y != 0.0 && !input.suppressed() {
+    // ToggleVanityWheel 0 holds the zoom (`fnv_game::nvse_jam`).
+    let wheel_off = input.blocked.as_ref().is_some_and(|b| b.wheel);
+    if c.third_person_view() && scroll.delta.y != 0.0 && !input.suppressed() && !wheel_off {
         c.distance = zoom(c.distance, scroll.delta.y);
     }
     if let Some(m) = message {
