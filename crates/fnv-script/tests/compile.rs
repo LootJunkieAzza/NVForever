@@ -1146,3 +1146,61 @@ fn a_block_lambda_may_open_with_a_space() {
     let (c, _) = build("begin GameMode\nCallWhen ( begin function {}\nPrintC \"x\"\nend) ({}=> (GetSecondsPassed) != 0) (0b10100)\nend");
     assert!(c.errors().next().is_none(), "{:?}", c.diags);
 }
+
+// ---- Just Assorted Mods and The Mod Configuration Menu --------------------------------
+
+/// A mod's source as the engine compiles it: a function the table lacks is a call of its
+/// name ([`Seed::unknown_calls`]).
+fn build_mod(src: &str) -> (Compiled, Program) {
+    let t = table();
+    let c = compile(src, &t, &World, Some(Seed { variables: &[], refs: &[], unknown_calls: true }));
+    let errors: Vec<_> = c.errors().collect();
+    assert!(errors.is_empty(), "compile errors: {errors:?}");
+    let d = decode(&c.bytes, &t);
+    assert!(d.report.issues.is_empty(), "decoder issues: {:?}", d.report.issues);
+    assert_eq!(d.report.raw_total(), 0);
+    (c, d.program)
+}
+
+#[test]
+fn eval_runs_an_assignment() {
+    // [observed: JustAssortedMods.esp, `eval iTemp = iTemp * (1 - JBT.rTarget.GetAV …)`]
+    let h = run("float f\nbegin GameMode\nset f to 2\neval f = f * (1 + 2)\nend");
+    assert_eq!(h.0[&1], Value::Num(6.0));
+}
+
+#[test]
+fn divide_assign_without_let() {
+    // [observed: JustAssortedMods.esp, `fAP /= GetNumericGameSetting …`]
+    let h = run("float f\nbegin GameMode\nlet f := 12\nf /= 4\nend");
+    assert_eq!(h.0[&1], Value::Num(3.0));
+}
+
+#[test]
+fn every_animation_group_has_its_name() {
+    // [observed: JustAssortedMods.esp, `IsAnimPlaying JumpStart`; FalloutNV.exe's table]
+    let (c, _) = build("begin GameMode\nif IsAnimPlaying JumpStart == 0\nendif\nif IsAnimPlaying JumpLandRight\nendif\nend");
+    assert!(c.diags.iter().all(|d| !d.error), "{:?}", c.diags);
+    assert_eq!(fnv_script::table::ANIM_GROUP_NAMES[227], "JumpStart");
+    assert_eq!(fnv_script::table::ANIM_GROUP_NAMES[17], "Aim");
+}
+
+#[test]
+fn a_mods_unknown_functions_compile_as_calls() {
+    for src in [
+        // On the reference a quest variable holds (a JIP LN function the table lacks).
+        "begin GameMode\neval TestQuest.fTimer.DisableScriptedActivate 1\nend",
+        "float f\nbegin GameMode\nlet f := 1\nPlaySound (TestQuest.fTimer.GetContainerCloseSound)\nend",
+        // On an element, and standing for a value (ySI's functions).
+        "string_var s\narray_var a\nbegin GameMode\nlet s := a[0].ySIGetTagTrait \"string\"\nend",
+        "string_var s\nref r\nbegin GameMode\ns = ySIGetTagTrait \"filename\" r\nend",
+        // In a vanilla set (MCM's function).
+        "float f\nshort i\nbegin GameMode\nset f to GetMCMListWidth 2 i + 15 + i * 4\nend",
+    ] {
+        let (c, _) = build_mod(src);
+        assert!(c.diags.iter().any(|d| d.kind == "unknown_function" && !d.error), "{src}: {:?}", c.diags);
+    }
+    // The editor-parity compile keeps the error.
+    let c = compile("float f\nshort i\nbegin GameMode\nset f to GetMCMListWidth 2 i\nend", &table(), &World, None);
+    assert!(c.errors().next().is_some());
+}

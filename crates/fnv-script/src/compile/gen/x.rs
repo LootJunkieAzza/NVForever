@@ -193,7 +193,9 @@ impl Gen<'_> {
             // Chained dot syntax, NVSE Expressions `.`].
             if t.kind == XKind::Word && t.text.starts_with('.') && t.text.len() > 1 && POSTFIX >= min {
                 let name = &t.text[1..];
-                let Some(f) = self.xfunction(name) else { return self.xerr("unknown_function", name.to_string()) };
+                // (`aA[0].ySIGetTagTrait "string"`, a function of a plugin the engine does
+                // not run [observed: JustAssortedMods.esp SCPT 0x045807].)
+                let Some(f) = self.xfunction(name).or_else(|| self.unknown_fn(name)) else { return self.xerr("unknown_function", name.to_string()) };
                 p.next();
                 let args = self.xargs(p, &f)?;
                 left = XExpr::Call { call: XCall { on: Some(Box::new(left)), func: f.func, args } };
@@ -354,7 +356,11 @@ impl Gen<'_> {
         // `Quest.refVar.Function`: the function on the reference a quest variable holds
         // [observed: JustAssortedMods.esp, `JLM.rContainer.LNGetName`].
         if let Some((target, fname)) = w.rsplit_once('.').filter(|(t, _)| t.contains('.')) {
-            if let (Some(f), Some((q, v))) = (self.xfunction(fname), target.split_once('.')) {
+            // A function the table lacks, in a mod's source compiled by the engine
+            // (`JLM.rContainer.DisableScriptedActivate 1`, a JIP LN function) [observed:
+            // JustAssortedMods.esp SCPT 0x045806].
+            let f = self.xfunction(fname).or_else(|| self.unknown_fn(fname));
+            if let (Some(f), Some((q, v))) = (f, target.split_once('.')) {
                 let on = self.remote(q, v)?;
                 let args = self.xargs(p, &f)?;
                 return Some(XExpr::Call { call: XCall { on: Some(Box::new(val_expr(on))), func: f.func, args } });
@@ -410,14 +416,26 @@ impl Gen<'_> {
             // ([`super::super::Seed::unknown_calls`]) [observed: TaleOfTwoWastelands.esm
             // SCPT 001880 calls TTW_EnableRadioFix and InitRockItLauncher, plugin functions
             // the wiki does not document].
-            None if self.unknown_calls && self.call_line && !self.in_args && head.is_none() => {
-                self.diag("unknown_function", false, name.to_string());
-                let f = XFn { func: FuncId::Name(name.to_string()), params: None, opcode: None, aware: false };
+            // Also one standing for a value (`sTag = ySIGetTagTrait "filename" rItem`)
+            // [observed: JustAssortedMods.esp SCPT 0x045905].
+            None if self.unknown_calls && !self.in_args && head.is_none() => {
+                let f = self.unknown_fn(name)?;
                 let args = self.xargs(p, &f)?;
                 Some(XExpr::Call { call: XCall { on: None, func: f.func, args } })
             }
             None => self.xerr("unresolved_name", name.to_string()),
         }
+    }
+
+    /// A function the table does not have, as a call of its name that reports "not built"
+    /// when it runs, in a mod's source compiled by the engine ([`super::super::Seed::
+    /// unknown_calls`]); None elsewhere.
+    fn unknown_fn(&mut self, name: &str) -> Option<XFn> {
+        if !self.unknown_calls || name.is_empty() {
+            return None;
+        }
+        self.diag("unknown_function", false, name.to_string());
+        Some(XFn { func: FuncId::Name(name.to_string()), params: None, opcode: None, aware: false })
     }
 
     /// The function is xNVSE's (or FOSE's) and its parameter `k` is a plain string, not a

@@ -7,7 +7,7 @@
 use crate::game::{Game, RunCtx};
 use fnv_script::vm::XVal;
 use fnv_sim::FormId;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// This file's session state (not saved).
 #[derive(Debug, Default)]
@@ -19,6 +19,9 @@ pub struct Jip3State {
     pub moved_seen: HashMap<(Option<FormId>, Option<FormId>), Option<FormId>>,
     /// JohnnyGuitar's event handlers set here: (event, function, filter form or list).
     pub jg_handlers: Vec<(JgEvent, XVal, Option<FormId>)>,
+    /// The handler errors already reported: a RenderUpdate handler runs every frame, and
+    /// one that fails would report it every frame [design].
+    pub jg_errors: HashSet<String>,
     /// FreezeTime's mode: game time stands still (`Game::tick`).
     pub time_frozen: bool,
 }
@@ -91,7 +94,11 @@ impl Game<'_> {
             }
             let args = subject.map(|s| vec![XVal::Ref(s.0)]).unwrap_or_default();
             if let Err(error) = self.run_function(&f, None, args, None, RunCtx::default()) {
-                self.emit(crate::trace::EventKind::ScriptError { unit: "JohnnyGuitar event handler".into(), error });
+                // Each error once; the handler still runs each time (it may fail only at
+                // times).
+                if self.gaps.jip3.jg_errors.insert(error.clone()) {
+                    self.emit(crate::trace::EventKind::ScriptError { unit: "JohnnyGuitar event handler".into(), error });
+                }
             }
         }
     }

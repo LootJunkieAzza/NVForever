@@ -67,8 +67,10 @@ pub enum Kw {
     GoTo(i32),
 }
 
-/// The assignments the Let macro takes without `let` [documented: Let Macro].
-const MACRO_OPS: [&str; 4] = ["=", "+=", "-=", "*="];
+/// The assignments the Let macro takes without `let` [documented: Let Macro], and `/=`
+/// [observed: JustAssortedMods.esp SCPT 0x04A80B, `fAP /= GetNumericGameSetting …`
+/// beside `fAP *= …`, compiled in the original].
+const MACRO_OPS: [&str; 5] = ["=", "+=", "-=", "*=", "/="];
 
 /// A line of the extender's grammar, by its first words.
 fn extender(l: &Line) -> Option<Kw> {

@@ -171,6 +171,12 @@ impl<'a> Gen<'a> {
         for (c, n) in crate::table::SCRIPT_AV_NAMES {
             av.entry(n.to_ascii_lowercase()).or_insert(c);
         }
+        // Animation groups the shipped scripts never name (`JumpStart`) [observed:
+        // JustAssortedMods.esp; `crate::table::ANIM_GROUP_NAMES`].
+        let groups = enums.entry("anim_group".into()).or_default();
+        for (c, n) in crate::table::ANIM_GROUP_NAMES.iter().enumerate() {
+            groups.entry(n.to_ascii_lowercase()).or_insert(c as u16);
+        }
         let mut seed_edids = HashMap::new();
         if let Some(s) = seed {
             for r in s.refs {
@@ -235,6 +241,7 @@ impl<'a> Gen<'a> {
             s.kw.extended()
                 || !s.decls.is_empty()
                 || matches!(&s.kw, Kw::Call(t) if self.function(&t[0]).is_none() && self.xfunction_name(&t[0].text))
+                || matches!(&s.kw, Kw::Call(t) if t.len() > 1 && t[0].text.eq_ignore_ascii_case("eval"))
         });
         self.declare_all(&stmts);
         for s in &stmts {
@@ -524,6 +531,19 @@ impl<'a> Gen<'a> {
         } else {
             Val::Ref(r)
         }
+    }
+
+    /// A plain word the vanilla expression cannot take: not a number, a variable, a form,
+    /// a function or a dotted name.
+    fn unknown_word(&mut self, t: &Tok) -> bool {
+        t.kind == lex::Kind::Word
+            && !t.text.contains('.')
+            && !lex::is_number(&t.text)
+            && !is_neg_number(&t.text)
+            && self.var(&t.text).is_none()
+            && self.form(&t.text).is_none()
+            && self.function(t).is_none()
+            && !self.xfunction_name(&t.text)
     }
 
     fn function(&mut self, tok: &Tok) -> Option<(Option<String>, FnInfo)> {
@@ -1112,6 +1132,24 @@ impl<'a> Gen<'a> {
                 // udf.return_value, ext-bytecode.md].
                 self.emit(None, op::RETURN, &[]);
             }
+            // A mod's `set … to …` naming a function the table lacks (`set fTemp to
+            // GetMCMListWidth 2 iSubCount + 15`, MCM's own plugin's) cannot be the vanilla
+            // expression: it compiles as the `let` it means, the name a call that reports
+            // "not built" when it runs ([`Seed::unknown_calls`]) [observed: The Mod
+            // Configuration Menu.esp SCPT 0x000AE8].
+            Kw::Set { expr, .. } if self.unknown_calls && expr.iter().any(|t| self.unknown_word(t)) => {
+                let lower = self.text.to_ascii_lowercase();
+                let Some(to) = lower.find(" to ") else {
+                    self.diag("bad_set_target", true, self.text.clone());
+                    return;
+                };
+                let (lhs, rhs) = (self.text[..to].trim_start(), &self.text[to + 4..]);
+                let lhs = lhs.get(3..).unwrap_or("").trim();
+                let x = lex::xtokens(&format!("{lhs} := {rhs}"));
+                let Some(e) = self.xwhole(&x) else { return };
+                let json = serde_json::to_vec(&e).unwrap_or_default();
+                self.emit(None, op::X_LET, &json);
+            }
             Kw::Set { target, expr } => {
                 let mut body = Vec::new();
                 let tv = if target.len() == 1 { self.atom(&target[0]) } else { None };
@@ -1127,6 +1165,19 @@ impl<'a> Gen<'a> {
                 put16(&mut body, e.len() as u16);
                 body.extend_from_slice(&e);
                 self.emit(None, op::SET, &body);
+            }
+            // `eval <expression>` runs the expression for what it does, an assignment too
+            // (`eval iTemp = iTemp * (1 - JBT.rTarget.GetAV Invisibility)`) [documented:
+            // Eval; observed: JustAssortedMods.esp SCPT 0x04A806 compiles so in the
+            // original].
+            Kw::Call(toks) if self.extended && toks.len() > 1 && toks[0].text.eq_ignore_ascii_case("eval") => {
+                let x = lex::xtokens(&self.text);
+                self.call_line = true;
+                let e = self.xcall_line(&x[1..]);
+                self.call_line = false;
+                let Some(e) = e else { return };
+                let json = serde_json::to_vec(&e).unwrap_or_default();
+                self.emit(None, op::X_EVAL, &json);
             }
             Kw::Call(toks) if self.co || (self.extended && (self.function(&toks[0]).is_none() || toks.iter().any(|t| t.kind == lex::Kind::Open))) => {
                 // An inline expression among the arguments, or an extender function: the
