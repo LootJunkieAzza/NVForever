@@ -136,10 +136,25 @@ pub const PIPBOY_FOV: f32 = 47.0;
 /// screenshots, playtest list 5 item 18)].
 pub const FIRST_PERSON_FOV: f32 = 55.0;
 
+/// The field of view the arms are drawn with while the Pip-Boy glance is up, degrees as
+/// [`PIPBOY_FOV`] [design: wider than [`FIRST_PERSON_FOV`], so the raised Pip-Boy sits
+/// small in the lower left with the world over it; tuned with
+/// `nvf_play::pipboy::glance::GLANCE_HOLD` against the owner's reference screenshot,
+/// 2026-11-04 (at 55 the screen was a third too big)].
+pub const GLANCE_FOV: f32 = 70.0;
+
 /// How much of the Pip-Boy clip shows at `t` seconds into it: up over its first
 /// [`PIPBOY_BLEND`], down over its last (smoothstep).
 pub fn pipboy_ease(t: f32) -> f32 {
     let e = (t.min(nvf_play::pipboy::CLIP_SECONDS - t) / PIPBOY_BLEND).clamp(0.0, 1.0);
+    e * e * (3.0 - 2.0 * e)
+}
+
+/// As [`pipboy_ease`] for the glance, whose clip is held before [`PIPBOY_BLEND`] is over:
+/// up over its way to the hold, down over the clip's last as long.
+pub fn glance_ease(t: f32) -> f32 {
+    let over = nvf_play::pipboy::glance::GLANCE_HOLD;
+    let e = (t.min(nvf_play::pipboy::CLIP_SECONDS - t) / over).clamp(0.0, 1.0);
     e * e * (3.0 - 2.0 * e)
 }
 
@@ -2693,10 +2708,13 @@ fn drive_body(
         });
         // The console's `fov` can ask for another first-person field of view.
         let first_fov = first_fov.and_then(|f| f.0).unwrap_or(FIRST_PERSON_FOV);
+        // The full Pip-Boy narrows the view onto the screen; the glance widens it, the
+        // arm drawn smaller and lower with the world seen past it.
         let k = match (pipboy, vfov) {
             (Some(t), Some(v)) => {
                 let normal = arms_magnification(v, first_fov);
-                normal + (arms_magnification(v, PIPBOY_FOV) - normal) * pipboy_ease(t)
+                let (to, ease) = if pip.on_arm() { (PIPBOY_FOV, pipboy_ease(t)) } else { (GLANCE_FOV, glance_ease(t)) };
+                normal + (arms_magnification(v, to) - normal) * ease
             }
             (None, Some(v)) => arms_magnification(v, first_fov),
             _ => 1.0,
@@ -2841,6 +2859,18 @@ fn drive_body(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_glance_draws_the_arm_smaller_and_fully_so_at_its_hold() {
+        use nvf_play::pipboy::{glance::GLANCE_HOLD, CLIP_SECONDS, HOLD_SECONDS};
+        let v = 75f32.to_radians() * 0.75;
+        assert!(arms_magnification(v, GLANCE_FOV) < arms_magnification(v, FIRST_PERSON_FOV));
+        assert_eq!(glance_ease(0.0), 0.0);
+        assert_eq!(glance_ease(GLANCE_HOLD), 1.0);
+        // Put down from the hold (the clip mirrored past its `Hit`), still fully wide.
+        assert_eq!(glance_ease(2.0 * HOLD_SECONDS - GLANCE_HOLD), 1.0);
+        assert_eq!(glance_ease(CLIP_SECONDS), 0.0);
+    }
 
     #[test]
     fn shade_casters_near_the_line_to_the_sun() {
