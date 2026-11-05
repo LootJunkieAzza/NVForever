@@ -138,12 +138,27 @@ fn clear_cloth(screen: Res<PoolScreen>, watch: Res<PoolWatch>, sim: Option<Res<n
     };
     for (table, f) in live {
         if !cleared.iter().any(|c| c.0 == table) {
+            // Where each thing is placed (its reference, as the mod's GetPos reads it; the
+            // drawn entity's origin may sit elsewhere).
+            let placed = |r: u32| {
+                sim.as_deref().and_then(|sim| {
+                    let id = fnv_sim::FormId(r);
+                    sim.world.peek(id).map(|x| x.pos).or_else(|| sim.refs.get(id).map(|x| x.pos))
+                })
+            };
+            let mut names: Vec<String> = Vec::new();
             let found: Vec<Entity> = refs
                 .iter()
-                .filter(|(e, r, g)| r.0 != table && loose(r.0) && on_cloth(&f, nvf_play::space::to_game(g.translation())) && shown.get(*e).is_ok_and(|v| *v != Visibility::Hidden))
-                .map(|(e, _, _)| e)
+                .filter(|(e, r, _)| r.0 != table && loose(r.0) && placed(r.0).is_some_and(|at| on_cloth(&f, at)) && shown.get(*e).is_ok_and(|v| *v != Visibility::Hidden))
+                .map(|(e, r, _)| {
+                    let name = sim.as_deref().and_then(|s| s.base_of(r.0).and_then(|b| s.forms.get(b)).and_then(|b| b.edid.clone())).unwrap_or_else(|| format!("0x{:08X}", r.0));
+                    if !names.contains(&name) {
+                        names.push(name);
+                    }
+                    e
+                })
                 .collect();
-            info!("pool world: {} things cleared off table 0x{table:08X}'s cloth", found.len());
+            info!("pool world: cleared off table 0x{table:08X}'s cloth: {} ({} drawn parts)", names.join(", "), found.len());
             cleared.push((table, found));
         }
     }
