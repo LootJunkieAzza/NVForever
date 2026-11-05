@@ -529,7 +529,7 @@ fn update_grade(
         Option<Res<crate::death_cam::DeathCam>>,
         Option<Res<nvf_play::vats_mode::VatsMode>>,
     ),
-    (sim, aim, wheel): (Option<Res<nvf_play::sim::SimState>>, Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::weapon_wheel::WeaponWheel>>),
+    (sim, aim, wheel, duel, real): (Option<Res<nvf_play::sim::SimState>>, Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::weapon_wheel::WeaponWheel>>, Option<Res<nvf_play::coop_social::Social>>, Res<Time<Real>>),
     mut mods: ResMut<ScreenModifiers>,
     mut grades: Query<(&mut ImageSpaceGrade, Has<LensGrade>)>,
     sounds: Option<ResMut<Messages<nvf_play::sfx::PlaySound>>>,
@@ -617,7 +617,8 @@ fn update_grade(
         blur: effect.blur_radius.max(if wait.is_some_and(|w| w.is_open()) { WAIT_MENU_BLUR } else { 0.0 }).max(pip_blur).max(death.map_or(0.0, |d| d.blur())).max(wheel.map_or(0.0, |w| w.blur())),
         time: now,
         sharp,
-        vats: Vec4::from_array(vats_look),
+        // A co-op duel's signal to draw is VATS mode's swipe (`nvf_play::coop_social`).
+        vats: Vec4::from_array(if vats_look[3] > 0.0 { vats_look } else { duel.as_deref().map_or([0.0; 4], |d| d.sweep_look(real.elapsed_secs())) }),
         dof: Vec4::new(dof.strength, dof.distance, dof.range, focus),
         dof_mode: Vec4::new(if dof.use_target { 1.0 } else { 0.0 }, f32::from(dof.flags), near.unwrap_or(1.0), 0.0),
         motion: Vec4::new(motion, near.map_or(0.0, |n| n / MOTION_SHARP), MOTION_MAX_REACH, 0.0),

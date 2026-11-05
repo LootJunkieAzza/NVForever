@@ -168,7 +168,7 @@ impl Prompt {
         // An Activation Prompt (XATO) of the reference, else of its activator base, in
         // place of the action word; not over a lock or an inaccessible door
         // (docs/spec-notes/cells-refs.md §3) [hypothesis: which states it replaces].
-        if !matches!(t.action, Action::Locked { .. } | Action::Unlock | Action::Name | Action::Inaccessible) {
+        if !matches!(t.action, Action::Locked { .. } | Action::Unlock | Action::Name | Action::Inaccessible | Action::Player) {
             if let Some(p) = activation_prompt(sim, t.form_id) {
                 action = p;
             }

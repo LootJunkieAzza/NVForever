@@ -22,6 +22,14 @@
 //! place for the chosen one. Cards, places and buttons can be clicked. Esc leaves before
 //! the game; any key goes on from the results.
 //!
+//! - **Against another player** (the co-op fork, `crate::coop_social`): accepted from the
+//!   interaction wheel, both games open the menu at the deck builder (no bet: nothing is
+//!   staked between players). Each deck goes to the other once built ([`PvpWire`]), and
+//!   both deal the same game from the inviter's seed, the inviter's deck as side 0; the
+//!   other game swaps the sides round, so each sees itself as the player. Each sends its
+//!   own moves; the other's are applied in place of the opponent's thinking. Leaving or
+//!   forfeiting tells the other, who wins.
+//!
 //! Test aid `NVF_PLAY_TEST_CARAVAN=<seconds>:<step>[,…]`: `seed:<n>` (before `open`),
 //! `caps:<n>` (the player carries that many caps), `cards:<deck hex>` (every card of a
 //! CDCK deck given to the player, as AddCardToPlayer), `open:<actor hex>:<deck hex>[:<share>]`
@@ -69,6 +77,70 @@ pub struct OpenCaravan(pub CaravanRequest);
 
 #[derive(Resource, Default)]
 pub struct CaravanScreen(pub Option<Session>);
+
+/// A game against another player, between this menu and `crate::coop_social`.
+#[derive(Resource, Default, Debug)]
+pub struct PvpWire {
+    /// Open the menu against this player (taken when opened).
+    pub open: Option<PvpOpen>,
+    /// For the other player.
+    pub out: Vec<PvpOut>,
+    /// From the other player (moves already in this game's frame).
+    pub inbox: Vec<PvpIn>,
+    /// A game against another player is open (set by the menu).
+    pub playing: Option<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PvpOpen {
+    pub mate: u8,
+    pub name: String,
+    /// Its reference in this game (the puppet's), for the logs.
+    pub reference: FormId,
+    /// This player invited: its deck is side 0 of the dealt game.
+    pub leads: bool,
+    pub seed: u64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PvpOut {
+    Deck(Vec<FormId>),
+    Move(Move),
+    /// Gave up, or left before the game.
+    Forfeit,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PvpIn {
+    Deck(Vec<FormId>),
+    Move(Move),
+    Forfeit,
+}
+
+/// The game against another player that a [`Session`] plays.
+#[derive(Debug, Clone)]
+pub struct Pvp {
+    pub mate: u8,
+    pub leads: bool,
+    pub seed: u64,
+    /// This player's deck, sent.
+    pub mine: Option<Vec<FormId>>,
+    pub theirs: Option<Vec<FormId>>,
+}
+
+/// The game both players deal: the inviter's deck as side 0, from the inviter's seed; the
+/// other's game sees it with the sides swapped (each is its own [`PLAYER`]).
+pub fn deal_pvp(leads: bool, mine: Vec<Card>, theirs: Vec<Card>, seed: u64) -> Game {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    if leads {
+        Game::new(mine, theirs, &mut rng)
+    } else {
+        let mut g = Game::new(theirs, mine, &mut rng);
+        g.sides.swap(PLAYER, OPPONENT);
+        g.turn = Game::other(g.turn);
+        g
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage {
@@ -126,6 +198,10 @@ pub struct Session {
     /// A card form's face and back textures (under `textures\`).
     pub textures: HashMap<FormId, (Option<String>, Option<String>)>,
     rng: ChaCha8Rng,
+    /// Against another player (co-op).
+    pub pvp: Option<Pvp>,
+    /// The player's last move, for the other player (taken by `apply`).
+    sent_move: Option<Move>,
 }
 
 impl Session {
@@ -306,12 +382,13 @@ impl Plugin for CaravanPlugin {
         };
         app.init_resource::<CaravanScreen>()
             .init_resource::<CaravanStats>()
+            .init_resource::<PvpWire>()
             .insert_resource(CaravanAid { steps, ..default() })
             .add_message::<OpenCaravan>()
             .add_message::<CaravanInput>()
             .add_systems(
                 Update,
-                (run_aid, scripts_open, open, (keys, buttons, apply, step).chain().run_if(in_state(PlayState::Menu)), screen::draw, screen::fade)
+                (run_aid, scripts_open, open, open_pvp, (keys, buttons, apply, step).chain().run_if(in_state(PlayState::Menu)), screen::draw, screen::fade)
                     .chain()
                     .after(crate::menu::open_menus)
                     .in_set(PlaySet::Ui),
@@ -631,6 +708,8 @@ fn open(
         auto: false,
         textures,
         rng,
+        pvp: None,
+        sent_move: None,
     };
     s.show_help(rt, rules::Help::Betting, &bindings);
     screen.0 = Some(s);
@@ -725,7 +804,7 @@ fn apply(
     time: AidTime,
     mut stats: ResMut<CaravanStats>,
     mut sounds: MessageWriter<UiSound>,
-    bindings: Res<crate::bindings::Bindings>,
+    (bindings, mut wire): (Res<crate::bindings::Bindings>, ResMut<PvpWire>),
 ) {
     let now = time.elapsed_secs();
     let sound = |sounds: &mut MessageWriter<UiSound>, event| {
@@ -769,7 +848,12 @@ fn apply(
                 sound(&mut sounds, UiEvent::Picked);
                 s.show_help(rt, rules::Help::Deck, &bindings);
             }
-            (Stage::Bet | Stage::Deck, CaravanInput::Exit) => s.begin_leaving(now, "the player left before the game"),
+            (Stage::Bet | Stage::Deck, CaravanInput::Exit) => {
+                if s.pvp.is_some() {
+                    wire.out.push(PvpOut::Forfeit);
+                }
+                s.begin_leaving(now, "the player left before the game")
+            }
             (Stage::Deck, CaravanInput::Step(n)) => {
                 let len = s.owned.len() as i32;
                 let c = (s.cursor as i32 + n).clamp(0, (len - 1).max(0)) as usize;
@@ -810,11 +894,22 @@ fn apply(
                     sound(&mut sounds, UiEvent::Refused);
                     continue;
                 }
+                if let Some(p) = s.pvp.as_mut() {
+                    if p.mine.is_none() {
+                        p.mine = Some(s.deck.clone());
+                        rt.game.player.caravan.deck = s.deck.clone();
+                        wire.out.push(PvpOut::Deck(s.deck.clone()));
+                        info!("caravan: the player's deck of {} cards sent to {}", s.deck.len(), s.opponent_name);
+                        s.status = Some(format!("Waiting for {} to choose a deck.", s.opponent_name));
+                        sound(&mut sounds, UiEvent::Accepted);
+                    }
+                    continue;
+                }
                 start_game(s, rt, &mut sim, now, &bindings);
                 stats.games += 1;
                 sound(&mut sounds, UiEvent::Accepted);
             }
-            (Stage::Play, CaravanInput::Forfeit) => forfeit(s, rt, &mut sim, now, &mut stats, &mut sounds),
+            (Stage::Play, CaravanInput::Forfeit) => forfeit(s, rt, &mut sim, now, &mut stats, &mut sounds, &mut wire),
             (Stage::Play, CaravanInput::Cancel) => match s.pick {
                 Pick::Place { .. } | Pick::Track { .. } => {
                     s.pick = Pick::Hand;
@@ -822,7 +917,7 @@ fn apply(
                 }
                 Pick::Hand if s.game.as_ref().is_some_and(|g| g.phase != Phase::Over) => {
                     if s.forfeit_armed {
-                        forfeit(s, rt, &mut sim, now, &mut stats, &mut sounds);
+                        forfeit(s, rt, &mut sim, now, &mut stats, &mut sounds, &mut wire);
                     } else {
                         s.forfeit_armed = true;
                         s.status = Some("Press R) again to forfeit the game.".into());
@@ -836,6 +931,9 @@ fn apply(
                     s.status = None;
                 }
                 player_input(s, rt, &mut sim, cmd, now, &mut stats, &mut sounds, &bindings);
+                if let Some(m) = s.sent_move.take() {
+                    wire.out.push(PvpOut::Move(m));
+                }
             }
             (Stage::Results, CaravanInput::Continue) => s.begin_leaving(now, "the results were seen"),
             _ => {}
@@ -860,6 +958,145 @@ fn start_game(s: &mut Session, rt: &mut crate::script::Runtime, sim: &mut SimSta
     s.hand = 0;
     s.pick = Pick::Hand;
     s.think_until = now + think(&mut s.rng);
+    s.show_help(rt, rules::Help::Starting, bindings);
+}
+
+/// The menu against another player, asked for by `crate::coop_social`: at the deck
+/// builder, nothing staked.
+#[allow(clippy::too_many_arguments)]
+fn open_pvp(
+    mut wire: ResMut<PvpWire>,
+    state: Res<State<PlayState>>,
+    mut next: ResMut<NextState<PlayState>>,
+    mut screen: ResMut<CaravanScreen>,
+    mut script: Option<ResMut<ScriptState>>,
+    time: AidTime,
+    (mut stats, mut corner, mut sounds, bindings): (ResMut<CaravanStats>, Option<ResMut<crate::corner_messages::CornerMessages>>, MessageWriter<UiSound>, Res<crate::bindings::Bindings>),
+) {
+    let Some(o) = wire.open.take() else { return };
+    stats.asked += 1;
+    let refuse = |wire: &mut PvpWire, why: &str| {
+        info!("caravan: the game against {} (a player) cannot open: {why}", o.name);
+        wire.out.push(PvpOut::Forfeit);
+    };
+    if *state.get() != PlayState::Playing || screen.0.is_some() {
+        refuse(&mut wire, "the player is not in the world");
+        return;
+    }
+    let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else {
+        refuse(&mut wire, "scripts are not running");
+        return;
+    };
+    let owned = rules::owned(&rt.game);
+    if owned.len() < MIN_DECK {
+        stats.refused += 1;
+        let line = refusal_line(owned.len());
+        if let Some(c) = corner.as_deref_mut() {
+            c.push(line.into());
+        }
+        sounds.write(UiSound { menu: UiMenu::Caravan, event: UiEvent::Refused });
+        refuse(&mut wire, &format!("{} cards owned", owned.len()));
+        return;
+    }
+    stats.opened += 1;
+    let now = time.elapsed_secs();
+    let mut textures = HashMap::new();
+    for f in &owned {
+        if let Some(d) = rt.game.data.caravan_cards.get(f) {
+            textures.insert(*f, (d.face.clone(), d.back.clone()));
+        }
+    }
+    let deck = rules::saved_deck(&rt.game);
+    info!("caravan: open against {} (a player, {}): {} cards owned, a saved deck of {}; {}", o.name, o.reference, owned.len(), deck.len(), if o.leads { "this player deals" } else { "the other deals" });
+    rt.game.open_menu(MENU_CARAVAN);
+    let mut s = Session {
+        opponent: o.reference,
+        opponent_name: o.name.clone(),
+        deck_form: FormId(0),
+        opponent_deck: Vec::new(),
+        skill: 0.0,
+        stage: Stage::Deck,
+        bet: Bet::new(0, 0, 0.0),
+        owned,
+        deck,
+        cursor: 0,
+        game: None,
+        hand: 0,
+        pick: Pick::Hand,
+        forfeit_armed: false,
+        record: Record::default(),
+        status: Some(format!("A game against {}: build your deck, then Play Caravan.", o.name)),
+        help: None,
+        queued_help: Vec::new(),
+        think_until: now,
+        over_at: None,
+        leaving: None,
+        staked: false,
+        settled: false,
+        auto: false,
+        textures,
+        rng: ChaCha8Rng::seed_from_u64(o.seed ^ 0x5EED),
+        pvp: Some(Pvp { mate: o.mate, leads: o.leads, seed: o.seed, mine: None, theirs: None }),
+        sent_move: None,
+    };
+    s.show_help(rt, rules::Help::Deck, &bindings);
+    wire.playing = Some(o.mate);
+    screen.0 = Some(s);
+    sounds.write(UiSound { menu: UiMenu::Caravan, event: UiEvent::Opened });
+    next.set(PlayState::Menu);
+}
+
+/// The other player's deck, moves and forfeits; the game dealt once both decks are in.
+#[allow(clippy::too_many_arguments)]
+fn pvp_step(s: &mut Session, rt: &mut crate::script::Runtime, sim: &mut SimState, now: f32, stats: &mut CaravanStats, sounds: &mut MessageWriter<UiSound>, bindings: &crate::bindings::Bindings, wire: &mut PvpWire) {
+    for m in std::mem::take(&mut wire.inbox) {
+        match m {
+            PvpIn::Deck(d) => {
+                info!("caravan: {}'s deck of {} cards came", s.opponent_name, d.len());
+                for f in &d {
+                    if let Some(c) = rt.game.data.caravan_cards.get(f) {
+                        s.textures.entry(*f).or_insert((c.face.clone(), c.back.clone()));
+                    }
+                }
+                if let Some(p) = s.pvp.as_mut() {
+                    p.theirs = Some(d);
+                }
+            }
+            PvpIn::Move(m) => {
+                if s.game.as_ref().is_some_and(|g| g.turn == OPPONENT && g.phase != Phase::Over) {
+                    make_move(s, rt, sim, OPPONENT, m, now, stats, sounds, bindings);
+                } else {
+                    warn!("caravan: {}'s move came out of turn: {m:?}", s.opponent_name);
+                }
+            }
+            PvpIn::Forfeit => match s.game.as_mut() {
+                Some(g) if g.phase != Phase::Over => {
+                    g.forfeit(OPPONENT);
+                    info!("caravan: {} forfeits", s.opponent_name);
+                    settle(s, rt, sim, PLAYER, End::Forfeit, now, stats, sounds);
+                }
+                Some(_) => {}
+                None => {
+                    s.status = Some(format!("{} left the game.", s.opponent_name));
+                    s.begin_leaving(now + END_SECONDS - LEAVE_SECONDS, "the other player left");
+                }
+            },
+        }
+    }
+    let Some(p) = s.pvp.as_ref() else { return };
+    if s.stage != Stage::Deck || s.game.is_some() {
+        return;
+    }
+    let (Some(mine), Some(theirs)) = (p.mine.clone(), p.theirs.clone()) else { return };
+    let game = deal_pvp(p.leads, rules::cards_of(&rt.game, &mine), rules::cards_of(&rt.game, &theirs), p.seed);
+    info!("caravan: game against {} (a player): the player's deck {} cards, theirs {}; {} goes first", s.opponent_name, mine.len(), theirs.len(), if game.turn == PLAYER { "the player" } else { "the other" });
+    s.game = Some(game);
+    s.stage = Stage::Play;
+    s.status = None;
+    s.hand = 0;
+    s.pick = Pick::Hand;
+    s.think_until = now;
+    stats.games += 1;
     s.show_help(rt, rules::Help::Starting, bindings);
 }
 
@@ -949,6 +1186,9 @@ fn make_move(s: &mut Session, rt: &mut crate::script::Runtime, sim: &mut SimStat
         }
     };
     stats.moves += 1;
+    if by == PLAYER && s.pvp.is_some() {
+        s.sent_move = Some(m);
+    }
     let values: Vec<String> = (0..2).map(|side| g.sides[side].caravans.iter().map(|c| c.value().to_string()).collect::<Vec<_>>().join("/")).collect();
     info!("caravan: {} {what}; caravans player {} opponent {}; cards left {} / {}", side_name(by), values[PLAYER], values[OPPONENT], g.sides[PLAYER].cards_left(), g.sides[OPPONENT].cards_left());
     let mut over = None;
@@ -1013,12 +1253,15 @@ fn side_name(side: usize) -> &'static str {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn forfeit(s: &mut Session, rt: &mut crate::script::Runtime, sim: &mut SimState, now: f32, stats: &mut CaravanStats, sounds: &mut MessageWriter<UiSound>) {
+fn forfeit(s: &mut Session, rt: &mut crate::script::Runtime, sim: &mut SimState, now: f32, stats: &mut CaravanStats, sounds: &mut MessageWriter<UiSound>, wire: &mut PvpWire) {
     let Some(g) = s.game.as_mut() else { return };
     if g.phase == Phase::Over {
         return;
     }
     g.forfeit(PLAYER);
+    if s.pvp.is_some() {
+        wire.out.push(PvpOut::Forfeit);
+    }
     info!("caravan: the player forfeits");
     settle(s, rt, sim, OPPONENT, End::Forfeit, now, stats, sounds);
 }
@@ -1031,6 +1274,30 @@ fn settle(s: &mut Session, rt: &mut crate::script::Runtime, sim: &mut SimState, 
     }
     s.settled = true;
     s.over_at = Some(now);
+    if s.pvp.is_some() {
+        // Between players nothing is staked: the record of this sitting only.
+        if winner == PLAYER {
+            s.record.won += 1;
+            stats.won += 1;
+        } else {
+            s.record.lost += 1;
+            stats.lost += 1;
+        }
+        let name = s.opponent_name.clone();
+        let line = match (winner, end) {
+            (PLAYER, End::Sold) => "You sold two of three caravans. You win.".to_string(),
+            (PLAYER, End::OutOfCards) => format!("{name} is out of cards. You win."),
+            (PLAYER, End::Forfeit) => format!("{name} gives up. You win."),
+            (_, End::Sold) => format!("{name} sold two of three caravans. You lose."),
+            (_, End::OutOfCards) => "You are out of cards. You lose.".to_string(),
+            (_, End::Forfeit) => "You forfeit. You lose.".to_string(),
+        };
+        info!("caravan: game over against {name} (a player): {} wins ({end:?}); on screen: {line:?}", side_name(winner));
+        s.status = Some(line);
+        s.pick = Pick::Hand;
+        sounds.write(UiSound { menu: UiMenu::Caravan, event: UiEvent::RoundOver { won: winner == PLAYER } });
+        return;
+    }
     let ante = s.bet.ante;
     let (_, stock) = caps_of(sim, s.opponent);
     let opponent = s.opponent;
@@ -1085,9 +1352,14 @@ fn settle(s: &mut Session, rt: &mut crate::script::Runtime, sim: &mut SimState, 
 /// The opponent's moves (and the player's under `auto`), the results after the game,
 /// leaving.
 #[allow(clippy::too_many_arguments)]
-fn step(time: AidTime, mut screen: ResMut<CaravanScreen>, mut sim: ResMut<SimState>, mut script: Option<ResMut<ScriptState>>, mut stats: ResMut<CaravanStats>, mut sounds: MessageWriter<UiSound>, mut next: ResMut<NextState<PlayState>>, bindings: Res<crate::bindings::Bindings>) {
+fn step(time: AidTime, mut screen: ResMut<CaravanScreen>, mut sim: ResMut<SimState>, mut script: Option<ResMut<ScriptState>>, mut stats: ResMut<CaravanStats>, mut sounds: MessageWriter<UiSound>, mut next: ResMut<NextState<PlayState>>, (bindings, mut wire): (Res<crate::bindings::Bindings>, ResMut<PvpWire>)) {
     let Some(s) = screen.0.as_mut() else { return };
     let now = time.elapsed_secs();
+    if s.pvp.is_some() && s.leaving.is_none() {
+        if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+            pvp_step(s, rt, &mut sim, now, &mut stats, &mut sounds, &bindings, &mut wire);
+        }
+    }
     if let Some((since, why)) = s.leaving {
         if now - since >= LEAVE_SECONDS {
             info!("caravan: closed ({why})");
@@ -1126,18 +1398,34 @@ fn step(time: AidTime, mut screen: ResMut<CaravanScreen>, mut sim: ResMut<SimSta
     if by == PLAYER && !s.auto {
         return;
     }
+    // The other player moves for itself.
+    if by == OPPONENT && s.pvp.is_some() {
+        return;
+    }
     let skill = if by == PLAYER { AUTO_SKILL } else { s.skill };
     let Some(m) = rules::choose(g, by, skill, &mut s.rng) else { return };
     let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
     make_move(s, rt, &mut sim, by, m, now, &mut stats, &mut sounds, &bindings);
+    // The player's own move under `auto`, against another player: sent as a pressed one is.
+    if let Some(m) = s.sent_move.take() {
+        wire.out.push(PvpOut::Move(m));
+    }
 }
 
-fn close(mut screen: ResMut<CaravanScreen>, mut sim: ResMut<SimState>, script: Option<ResMut<ScriptState>>, mut stats: ResMut<CaravanStats>, mut sounds: MessageWriter<UiSound>) {
+fn close(mut screen: ResMut<CaravanScreen>, mut sim: ResMut<SimState>, script: Option<ResMut<ScriptState>>, mut stats: ResMut<CaravanStats>, mut sounds: MessageWriter<UiSound>, mut wire: ResMut<PvpWire>) {
     let Some(mut s) = screen.0.take() else { return };
+    if s.pvp.is_some() {
+        wire.playing = None;
+        wire.inbox.clear();
+        // Closed before the game was over: the other wins.
+        if !s.settled {
+            wire.out.push(PvpOut::Forfeit);
+        }
+    }
     sounds.write(UiSound { menu: UiMenu::Caravan, event: UiEvent::Closed });
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
     // Closed in the middle of a game (not by the menu): a forfeit.
-    if s.staked && !s.settled {
+    if s.staked && !s.settled && s.pvp.is_none() {
         if let Some(g) = s.game.as_mut() {
             g.forfeit(PLAYER);
         }

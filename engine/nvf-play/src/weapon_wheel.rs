@@ -232,7 +232,7 @@ impl WeaponWheel {
 
 /// The test aid's keys (module notes).
 #[derive(Resource, Default)]
-struct WheelAid {
+pub(crate) struct WheelAid {
     steps: Vec<(f32, AidStep)>,
     /// The slot whose key the aid holds down.
     held: Option<usize>,
@@ -286,7 +286,7 @@ fn parse_aid(v: &str) -> Result<Vec<(f32, AidStep)>, String> {
 
 /// What happened, for the summary.
 #[derive(Resource, Default)]
-struct WheelStats {
+pub(crate) struct WheelStats {
     taps: usize,
     opened: usize,
     chosen: Vec<usize>,
@@ -366,7 +366,7 @@ type Clocks<'w> = (Res<'w, Time<Real>>, Res<'w, Time<Virtual>>, Res<'w, State<Pl
 
 /// The frame's keys, mouse and stick into the wheel; its outcomes carried out.
 #[allow(clippy::too_many_arguments)]
-fn read(
+pub(crate) fn read(
     input: ControlInput,
     motion: Res<AccumulatedMouseMotion>,
     (real, clock, state): Clocks,
@@ -534,7 +534,7 @@ const SWAP_WAIT_MAX: f32 = 4.0;
 
 /// A weapon from a slot waiting for the weapon in hand to be put away.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
-struct SwapWait {
+pub(crate) struct SwapWait {
     slot: Option<usize>,
     waited: f32,
 }
