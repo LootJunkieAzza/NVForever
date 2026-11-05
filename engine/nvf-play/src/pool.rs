@@ -982,6 +982,9 @@ pub struct Replay {
     pub seq: u16,
     accum: f32,
     log: ShotLog,
+    /// A shot being replayed: its age when the replay began (checked against the owner's
+    /// layout once both are at rest).
+    replaying: Option<f32>,
 }
 
 /// The pool tables of the players near, replayed ([`Replay`]); nvforever `pool_world.rs`
@@ -1010,9 +1013,9 @@ fn watch(mut w: ResMut<PoolWatch>, tables: Option<Res<Tables>>, screen: Res<Pool
         }
         let Some(v) = PoolView::decode(blob) else { continue };
         live.push(p);
-        let r = w.0.entry(p).or_insert_with(|| Replay { table_ref, frame: frame_of(&sim, table_ref), view: v.clone(), table: Table::rack(), seq: v.seq.wrapping_sub(1), accum: 0.0, log: ShotLog::default() });
+        let r = w.0.entry(p).or_insert_with(|| Replay { table_ref, frame: frame_of(&sim, table_ref), view: v.clone(), table: Table::rack(), seq: v.seq.wrapping_sub(1), accum: 0.0, log: ShotLog::default(), replaying: None });
         if r.table_ref != table_ref {
-            *r = Replay { table_ref, frame: frame_of(&sim, table_ref), view: v.clone(), table: Table::rack(), seq: v.seq.wrapping_sub(1), accum: 0.0, log: ShotLog::default() };
+            *r = Replay { table_ref, frame: frame_of(&sim, table_ref), view: v.clone(), table: Table::rack(), seq: v.seq.wrapping_sub(1), accum: 0.0, log: ShotLog::default(), replaying: None };
         }
         let lay = |table: &mut Table, v: &PoolView| {
             for (b, at) in table.balls.iter_mut().zip(v.balls) {
@@ -1030,8 +1033,19 @@ fn watch(mut w: ResMut<PoolWatch>, tables: Option<Res<Tables>>, screen: Res<Pool
                 let behind = (s.age / pool::STEP).max(0.0) as u32;
                 r.table.settle(&mut r.log, behind.saturating_sub(2));
                 r.seq = v.seq;
+                r.replaying = Some(s.age);
+                info!("pool: replaying player {p}'s shot {} from {:.2} s in", v.seq, s.age);
             }
             None if r.seq != v.seq || !r.table.moving() => {
+                // A replay that ran to rest: how far its balls are from the owner's.
+                if let (Some(age), true) = (r.replaying.take(), r.seq == v.seq) {
+                    let off = r.table.balls.iter().zip(v.balls).map(|(b, at)| match (b.on, at) {
+                        (true, Some(q)) => (b.pos[0] - q[0]).hypot(b.pos[1] - q[1]),
+                        (false, None) => 0.0,
+                        _ => f32::INFINITY,
+                    });
+                    info!("pool: shot {} replayed (from {age:.2} s in): the balls end {:.4} sim units from the owner's at most", v.seq, off.fold(0.0, f32::max));
+                }
                 lay(&mut r.table, &v);
                 r.seq = v.seq;
             }
