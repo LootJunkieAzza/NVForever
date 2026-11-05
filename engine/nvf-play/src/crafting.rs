@@ -649,7 +649,7 @@ fn spawn(commands: &mut Commands, look: &RecipeLook, v: &View, words: &[String; 
         // The "How many?" prompt over the menu (module notes).
         if let Some((amount, most)) = v.quantity {
             let screen = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() };
-            let q = crate::menu::model::Quantity { cmd: crate::menu::model::Command::One, side: crate::menu::model::Side::Player, row: 0, max: most, amount };
+            let q = crate::menu::model::Quantity { cmd: crate::menu::model::Command::One, side: crate::menu::model::Side::Player, row: 0, max: most, amount, label: None };
             root.spawn(screen).with_children(|s| crate::menu::look::spawn_quantity(s, &q, words, kit, data, images, bc));
         }
     });

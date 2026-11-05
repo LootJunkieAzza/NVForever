@@ -1,25 +1,23 @@
 //! The interaction wheel's look: the weapon wheel's (`crate::weapon_wheel::draw`: its
 //! matte, its slice shader, its fonts) with three slices; the invitation's Y/N prompt and
-//! the duel's directions in a line under the crosshair; the trade panel.
+//! the duel's directions in a line under the crosshair. The trade is the barter menu's
+//! screen (`super::barter`).
 
 use super::duel::{Phase, Stance};
-use super::trade::AskState;
 use super::wire::Kind;
 use super::{Social, SocialMates};
 use crate::interface::{amber, at, face, plain_font, Face, Pictures};
-use crate::sim::SimState;
-use crate::weapon_wheel::draw::{slice_uniform, text, SliceMaterial, FONT_1, FONT_3, GAP, HUB, INNER, LINE, MATTE, OUTER, RAISE, RIM, SIZE};
+use crate::weapon_wheel::draw::{slice_uniform, slice_uniform_gap, text, SliceMaterial, FONT_1, FONT_3, HUB, INNER, LINE, MATTE, OUTER, RAISE, RIM, SIZE};
 use crate::PlaySet;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
 use bevy::ui_render::prelude::MaterialNode;
 use bevy::window::PrimaryWindow;
-use fnv_sim::FormId;
 use nvf_assets::GameData;
 
 pub fn build(app: &mut App) {
     if app.world().contains_resource::<bevy::asset::io::embedded::EmbeddedAssetRegistry>() {
-        app.add_systems(Update, (draw_wheel, draw_banner, draw_trade).in_set(PlaySet::Ui));
+        app.add_systems(Update, (draw_wheel, draw_banner).in_set(PlaySet::Ui));
     }
 }
 
@@ -35,11 +33,56 @@ struct Shown {
 struct Kit {
     large: Face,
     medium: Face,
+    /// The medium font drawn smaller ([`SMALL`]): why a slice cannot be asked.
+    small: Face,
     pictures: Pictures,
 }
 
 #[derive(Component)]
 struct SocialWheelRoot;
+
+/// A slice's picture side, interface units (the weapon wheel's item pictures are 132).
+const ICON: f32 = 132.0;
+/// A slice not picked: its picture and name this strong (the weapon wheel's).
+const DIM: f32 = 0.62;
+
+/// The slice's picture, first choice: the owner's icons, made from the owner's own
+/// pictures and installed as a mod (not in this repository: Vault Boy art), white on clear
+/// like the game's Pip-Boy pictures; else the game's own Vault Boy art
+/// (`textures\interface\icons\pipboyimages\…`, [observed] in Fallout - Textures2.bsa).
+/// Nothing is drawn when the load order has neither.
+fn icons_of(kind: Kind) -> [&'static str; 2] {
+    match kind {
+        Kind::Duel => [r"Interface\Icons\NVForever\social_duel.dds", r"Interface\Icons\PipboyImages\Perks\perk_cowboy.dds"],
+        Kind::Trade => [r"Interface\Icons\NVForever\social_trade.dds", r"Interface\Icons\PipboyImages\Perks\perk_scrounger.dds"],
+        Kind::Caravan => [r"Interface\Icons\NVForever\social_caravan.dds", r"Interface\Icons\PipboyImages\Items\item_caravan_deck.dds"],
+    }
+}
+
+/// How much smaller than the medium font a refusal's reason is drawn [design: owner
+/// 2026-11-05, the duel slice's reason "too big"]; the game has no smaller font.
+const SMALL: f32 = 0.72;
+
+/// `face` drawn `k` times its size: every glyph's box and spacing scaled.
+fn scaled(face: &Face, k: f32) -> Face {
+    let mut font = face.font.clone();
+    font.size *= k;
+    for g in &mut font.glyphs {
+        (g.width, g.height, g.before, g.after, g.ascent) = (g.width * k, g.height * k, g.before * k, g.after * k, g.ascent * k);
+    }
+    Face { font, image: face.image.clone() }
+}
+
+/// The gap between the wheel's slices, interface units, at the slices' inner and outer
+/// edges: widening a little towards the rim, so the slices look fitted round the hub, not
+/// cut as wedges [design: owner 2026-11-05, "slight so that it's not jarring"].
+const SLICE_GAP: (f32, f32) = (8.0, 13.0);
+
+/// The gap at radius `r`, widening as [`SLICE_GAP`] says (the picked slice's rim goes on
+/// from its edge).
+fn gap_at(r: f32) -> f32 {
+    SLICE_GAP.0 + (SLICE_GAP.1 - SLICE_GAP.0) * (r - INNER) / (OUTER - INNER)
+}
 
 #[allow(clippy::too_many_arguments)]
 fn draw_wheel(
@@ -68,6 +111,7 @@ fn draw_wheel(
     let kit = kit.get_or_insert_with(|| Kit {
         large: face(FONT_1, plain_font(31.0, 12.0), data, &mut images, bc),
         medium: face(FONT_3, plain_font(25.0, 10.0), data, &mut images, bc),
+        small: scaled(&face(FONT_3, plain_font(25.0, 10.0), data, &mut images, bc), SMALL),
         pictures: Pictures::load(data),
     });
     let bright = amber(255.0);
@@ -84,29 +128,44 @@ fn draw_wheel(
             }
             for i in 0..3 {
                 let mid = super::wheel::angle_of(i);
-                let (from, to) = (mid - 60.0 + GAP, mid + 60.0 - GAP);
+                // The spokes between the slices; the gap is cut beside them
+                // ([`SLICE_GAP`]).
+                let (from, to) = (mid - 60.0, mid + 60.0);
                 let lit = i == s.picked;
                 let refused = s.refusals[i].is_some();
-                let (fill, edge) = if lit { (bright.with_alpha(if refused { 0.12 } else { 0.27 }), bright.with_alpha(0.9)) } else { (dark.with_alpha(0.6), bright.with_alpha(0.35)) };
-                m.spawn((at(0.0, 0.0, SIZE, SIZE), MaterialNode(materials.add(SliceMaterial { u: slice_uniform(from, to, INNER, OUTER, fill, edge, if lit { 1.5 * LINE } else { LINE }) }))));
+                let (fill, edge) = if lit { (bright.with_alpha(if refused { 0.08 } else { 0.15 }), bright.with_alpha(0.9)) } else { (dark.with_alpha(0.6), bright.with_alpha(0.35)) };
+                m.spawn((at(0.0, 0.0, SIZE, SIZE), MaterialNode(materials.add(SliceMaterial { u: slice_uniform_gap(from, to, INNER, OUTER, fill, edge, if lit { 1.5 * LINE } else { LINE }, SLICE_GAP) }))));
                 if lit {
-                    m.spawn((at(0.0, 0.0, SIZE, SIZE), MaterialNode(materials.add(SliceMaterial { u: slice_uniform(from, to, RIM[0], RIM[1], bright, bright, 0.0) }))));
+                    m.spawn((at(0.0, 0.0, SIZE, SIZE), MaterialNode(materials.add(SliceMaterial { u: slice_uniform_gap(from, to, RIM[0], RIM[1], bright, bright, 0.0, (gap_at(RIM[0]), gap_at(RIM[1]))) }))));
                 }
             }
             m.spawn((at(0.0, 0.0, SIZE, SIZE), MaterialNode(materials.add(SliceMaterial { u: slice_uniform(0.0, 360.0, 0.0, HUB, dark.with_alpha(0.92), bright.with_alpha(0.63), LINE) }))));
             for (i, kind) in Kind::ALL.iter().enumerate() {
                 let lit = i == s.picked;
                 let refused = s.refusals[i].is_some();
-                let p = crate::weapon_wheel::point(super::wheel::angle_of(i), (INNER + OUTER) / 2.0) + Vec2::splat(c);
-                let strength = if lit { 1.0 } else { 0.62 } * if refused { 0.55 } else { 1.0 };
-                text(m, &kit.large, &kind.label().to_uppercase(), p.x, p.y - kit.large.font.size / 2.0 - if refused { 14.0 } else { 0.0 }, 0, bright.with_alpha(strength));
+                // The lower slices' pictures and names a little in towards the hub, so the
+                // longest name (PLAY CARAVAN) stays well inside its slice; the top one's a
+                // little out towards the rim, so a refusal's line under its name clears the
+                // hub.
+                let r = (INNER + OUTER) / 2.0 + if i == 0 { 14.0 } else { -26.0 };
+                let p = crate::weapon_wheel::point(super::wheel::angle_of(i), r) + Vec2::splat(c);
+                let strength = if lit { 1.0 } else { DIM } * if refused { 0.5 } else { 1.0 };
+                let tint = bright.with_alpha(strength);
+                // The game's Vault Boy picture, white on clear, tinted the HUD's colour as
+                // the weapon wheel's item pictures are; under it the name, small.
+                if let Some((image, rect)) = icons_of(*kind).iter().find_map(|p| kit.pictures.picture(p, data, &mut images, bc)) {
+                    m.spawn((at(p.x - ICON / 2.0, p.y - ICON / 2.0 - 16.0, ICON, ICON), ImageNode { rect, color: tint, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image) }));
+                }
+                let size = kit.medium.font.size;
+                text(m, &kit.medium, &kind.label().to_uppercase(), p.x, p.y + ICON / 2.0 - 14.0, 0, bright.with_alpha(strength.max(0.68)));
                 if let Some(why) = &s.refusals[i] {
-                    // The reason in two lines when long.
+                    // Why it cannot be asked, in two lines when long.
                     let words: Vec<&str> = why.split(' ').collect();
-                    let half = words.len().div_ceil(2);
+                    let half = if why.len() > 32 { words.len().div_ceil(2) } else { words.len() };
                     let (a, b) = (words[..half].join(" "), words[half..].join(" "));
-                    text(m, &kit.medium, &a, p.x, p.y + 12.0, 0, bright.with_alpha(strength.max(0.6)));
-                    text(m, &kit.medium, &b, p.x, p.y + 12.0 + kit.medium.font.size, 0, bright.with_alpha(strength.max(0.6)));
+                    let (y, line) = (p.y + ICON / 2.0 - 14.0 + size, kit.small.font.size);
+                    text(m, &kit.small, &a, p.x, y, 0, bright.with_alpha(0.6));
+                    text(m, &kit.small, &b, p.x, y + line, 0, bright.with_alpha(0.6));
                 }
             }
             text(m, &kit.medium, "INTERACT", c, c - 40.0, 0, bright.with_alpha(0.7));
@@ -148,7 +207,9 @@ fn banner_text(social: &Social, mates: &SocialMates, now: f32) -> String {
 }
 
 fn draw_banner(mut commands: Commands, real: Res<Time<Real>>, social: Res<Social>, mates: Res<SocialMates>, mut q: Query<(&mut Text, &mut Visibility), With<Banner>>) {
-    let s = banner_text(&social, &mates, real.elapsed_secs());
+    // Under the trade's barter screen its line is the screen's own (`super::barter`).
+    let trading = social.trade.as_ref().is_some_and(|t| t.opened && t.closing.is_none());
+    let s = if trading { String::new() } else { banner_text(&social, &mates, real.elapsed_secs()) };
     match q.single_mut() {
         Ok((mut t, mut vis)) => {
             if t.0 != s {
@@ -174,79 +235,6 @@ fn draw_banner(mut commands: Commands, real: Res<Time<Real>>, social: Res<Social
     }
 }
 
-#[derive(Component)]
-struct TradePanel;
-
-/// The trade panel's three columns: their items, this player's asks, what they asked of
-/// this player; the picked column's title and row marked.
-fn trade_text(social: &Social, sim: &SimState) -> Option<[String; 4]> {
-    let t = social.trade.as_ref().filter(|t| t.closing.is_none())?;
-    let name = |f: u32| sim.name(FormId(f)).map_or_else(|| FormId(f).to_string(), str::to_string);
-    let mark = |panel: usize, row: usize| if t.panel == panel && t.rows[panel] == row { "> " } else { "  " };
-    let title = |panel: usize, s: &str| if t.panel == panel { format!("[ {s} ]") } else { format!("  {s}") };
-    let mut a = vec![title(0, &format!("{}'s items", t.name)), String::new()];
-    if t.book.stock.is_empty() {
-        a.push("  (nothing yet)".into());
-    }
-    for (i, &(f, n)) in t.book.stock.iter().enumerate() {
-        let ask = if t.panel == 0 && t.rows[0] == i { format!("   ask {} -/+", t.count) } else { String::new() };
-        a.push(format!("{}{} ({n}){ask}", mark(0, i), name(f)));
-    }
-    let mut b = vec![title(1, "Your requests"), String::new()];
-    for (i, ask) in t.book.asks.iter().enumerate() {
-        let state = match ask.state {
-            AskState::Waiting => "waiting for a price".to_string(),
-            AskState::Priced(each) => format!("{each} each, {} caps: Enter buys", each.saturating_mul(ask.count as u32)),
-            AskState::Declined => "not for sale".to_string(),
-            AskState::Buying(_) => "buying…".to_string(),
-            AskState::Bought => "bought".to_string(),
-        };
-        b.push(format!("{}{} × {}: {state}", mark(1, i), ask.count, name(ask.item)));
-    }
-    let mut c = vec![title(2, &format!("Asked of you by {}", t.name)), String::new()];
-    for (i, o) in t.book.offers.iter().enumerate() {
-        let sent = match o.sent {
-            Some(p) if p == o.each => " (sent)",
-            Some(_) => " (changed: Enter sends)",
-            None => " (Enter sends)",
-        };
-        c.push(format!("{}{} × {}: {} caps each{sent}", mark(2, i), o.count, name(o.item), o.each));
-    }
-    let caps = super::caps_of(sim);
-    let foot = format!("Your caps: {caps}      Left/Right: column   Up/Down: item   -/+: count or price (Shift: 10)   Enter: ask, buy or price   X: decline   Esc: leave");
-    Some([a.join("\n"), b.join("\n"), c.join("\n"), foot])
-}
-
-fn draw_trade(mut commands: Commands, social: Res<Social>, sim: Res<SimState>, roots: Query<Entity, With<TradePanel>>, mut last: Local<Option<[String; 4]>>) {
-    let now = trade_text(&social, &sim);
-    if now == *last {
-        return;
-    }
-    *last = now.clone();
-    for e in &roots {
-        commands.entity(e).despawn();
-    }
-    let Some(cols) = now else { return };
-    let font = TextFont { font_size: FontSize::Px(16.0), ..default() };
-    commands
-        .spawn((
-            TradePanel,
-            Node { position_type: PositionType::Absolute, left: Val::Percent(6.0), right: Val::Percent(6.0), top: Val::Percent(10.0), bottom: Val::Percent(14.0), flex_direction: FlexDirection::Column, padding: UiRect::all(Val::Px(16.0)), row_gap: Val::Px(10.0), ..default() },
-            BackgroundColor(Color::srgba(0.02, 0.015, 0.005, 0.86)),
-            BorderColor::all(amber(160.0)),
-            GlobalZIndex(106),
-        ))
-        .with_children(|p| {
-            p.spawn((Text::new("TRADE"), TextFont { font_size: FontSize::Px(24.0), ..default() }, TextColor(amber(255.0))));
-            p.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(24.0), flex_grow: 1.0, ..default() }).with_children(|row| {
-                for col in &cols[..3] {
-                    row.spawn((Node { width: Val::Percent(33.0), overflow: Overflow::clip(), ..default() }, Text::new(col.clone()), font.clone(), TextColor(amber(230.0))));
-                }
-            });
-            p.spawn((Text::new(cols[3].clone()), TextFont { font_size: FontSize::Px(14.0), ..default() }, TextColor(amber(200.0))));
-        });
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,6 +243,20 @@ mod tests {
 
     fn mates() -> SocialMates {
         SocialMates { me: Some(0), interior: false, mates: vec![Mate { id: 1, name: "Veronica".into(), reference: 1, here: true, feet: [0.0; 3], yaw: 0.0, down: false, lost: false }] }
+    }
+
+    #[test]
+    fn the_gap_widens_a_little_from_the_hub_to_the_rim() {
+        use crate::weapon_wheel::draw::{slice_uniform_gap, SIZE};
+        assert!((gap_at(INNER) - SLICE_GAP.0).abs() < 1e-4 && (gap_at(OUTER) - SLICE_GAP.1).abs() < 1e-4);
+        assert!(gap_at(RIM[1]) > SLICE_GAP.1);
+        // The shader's half gap at r (parts of the half width) is half the gap asked for.
+        let u = slice_uniform_gap(0.0, 120.0, INNER, OUTER, Color::WHITE, Color::WHITE, 1.0, SLICE_GAP);
+        let half = SIZE / 2.0;
+        for (r, g) in [(INNER, SLICE_GAP.0), (OUTER, SLICE_GAP.1)] {
+            let got = (u.line.y + u.line.z * r / half) * half * 2.0;
+            assert!((got - g).abs() < 1e-3, "{r}: {got}");
+        }
     }
 
     #[test]

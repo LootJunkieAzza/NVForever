@@ -557,7 +557,18 @@ fn load(ctx: &mut ActorCtx, game: &Game, idle: FormId, rng: &mut Rng) -> Result<
     let def = game.data.idles.get(&idle).ok_or("not an idle animation")?;
     let path = clip_path(game, idle).ok_or("it names no file")?;
     let clip = ctx.clip(&path).ok_or_else(|| format!("{path} does not load"))?;
-    let keys = IdleKeys::read(clip.start, clip.stop, &clip.text_keys);
+    let mut keys = IdleKeys::read(clip.start, clip.stop, &clip.text_keys);
+    // A get-up starts from the body as its ragdoll left it, lying: no fade in from the
+    // standing pose below it (which would show the body upright for a moment)
+    // [design], unless the clip asks for one.
+    let getup = crate::player_knockdown::GETUP_IDLES.iter().any(|e| game.data.by_edid(e) == Some(idle));
+    let asks_fade = clip.text_keys.iter().flat_map(|(_, k)| k.lines()).any(|l| {
+        let l: String = l.chars().filter(|c| !c.is_whitespace()).collect::<String>().to_ascii_lowercase();
+        ["blendin:", "blenin:", "blend:"].iter().any(|p| l.starts_with(p))
+    });
+    if getup && !asks_fade {
+        keys.blend_in = 0.0;
+    }
     let passes = match def.loops(|n| rng.below(n)) {
         Loops::Forever => None,
         Loops::Times(n) => Some(n),

@@ -527,7 +527,7 @@ fn draw(
         Query<(&Cross, &mut Visibility, &mut Node, Option<&mut ImageNode>), Without<Root>>,
         Query<(&Bar, &mut Visibility, &mut Node, &mut ImageNode), (Without<Root>, Without<Cross>)>,
     ),
-    (texts, pipboy, glance): (Query<Entity, With<Texts>>, Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::pipboy::glance::Glance>>),
+    (texts, pipboy, glance, menu): (Query<Entity, With<Texts>>, Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::pipboy::glance::Glance>>, Option<Res<crate::menu::ActiveMenu>>),
 ) {
     // Not over the character creator, whatever state the opening leaves the game in
     // [owner 2026-10-17: "E) Talk" stayed under it]. Nor while an idle holds the camera
@@ -572,14 +572,16 @@ fn draw(
     // The Pip-Boy up while still playing (co-op's live Pip-Boy, the glance): no crosshair;
     // the prompt stays under the glance (the player still walks and acts), not under the
     // full Pip-Boy, whose menu holds the controls.
-    let pip_up = pipboy_hides_crosshair(pipboy.as_deref(), glance.as_deref());
+    // So does the co-op trade's barter screen, open while playing (`crate::coop_social::barter`).
+    let trading = menu.as_ref().is_some_and(|m| m.0.as_ref().is_some_and(|m| m.coop));
+    let pip_up = pipboy_hides_crosshair(pipboy.as_deref(), glance.as_deref()) || trading;
     if logged.7 != Some(pip_up) {
         if pip_up || logged.7.is_some() {
             info!("crosshair: {}", if pip_up { "hidden under the Pip-Boy" } else { "back from under the Pip-Boy" });
         }
         logged.7 = Some(pip_up);
     }
-    let menu_up = pipboy.as_deref().is_some_and(|p| p.shown());
+    let menu_up = pipboy.as_deref().is_some_and(|p| p.shown()) || trading;
     let mut locks = locks.as_deref().copied().unwrap_or_default();
     locks.movement |= pip_up;
     locks.rollover |= menu_up;
