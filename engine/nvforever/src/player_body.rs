@@ -1678,6 +1678,8 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
                 // perks, as combat times the shot.
                 let l = rig.animator.restart(&c.clip, TAG_ATTACK, aim_w[0].1, Mode::Once, ATTACK_FADE);
                 rig.animator.layers[l].rate = f.attack_rate;
+                // Its weapon parts over the stance clip's (`Layer::parts_over`), as a reload's.
+                rig.animator.layers[l].parts_over = true;
                 debug!("player {:?} rig: {} moves the weapon's {:?}", rig.view, c.path, rig.animator.extra_driven(&c.clip));
                 // The attack's own up and down forms keep the body bent with the pitch while
                 // it plays, as the aim's do [observed: `2hrattackleftup.kf`, §9.6].
@@ -1687,6 +1689,7 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
                     if let Some(v) = (rig.view == View::Third).then(|| rig.variant(ctx, &c, aim)).flatten() {
                         let l = rig.animator.restart(&v.clip, tag, w, Mode::Once, ATTACK_FADE);
                         rig.animator.layers[l].rate = f.attack_rate;
+                        rig.animator.layers[l].parts_over = true;
                     }
                 }
             }
@@ -1711,6 +1714,10 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             let layer = rig.animator.restart(&c.clip, TAG_RELOAD, 1.0, Mode::Once, fade);
             // At the player's reload rate, as the cycle times it (Agility, Rapid Reload).
             rig.animator.layers[layer].rate = f.reload_rate;
+            // The weapon's parts move as the clip has them, in step with the hands, not
+            // shared with the stance clip that keys them still at the same priority
+            // (`Layer::parts_over`; the caravan shotgun's stock).
+            rig.animator.layers[layer].parts_over = true;
             info!("player {:?} rig: {} moves the weapon's {:?} (reload at x{:.2})", rig.view, c.path, rig.animator.extra_driven(&c.clip), f.reload_rate);
         }
     }
@@ -1718,7 +1725,8 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     // reload is [observed: the clips sit beside the reload clips in both rigs' folders].
     if f.hands.in_hand && f.jam_now {
         if let Some(c) = f.jam.and_then(|j| rig.clip(ctx, ClipKey::Reload(f.stance, f.prefix, j))) {
-            rig.animator.restart(&c.clip, TAG_RELOAD, 1.0, Mode::Once, c.fade());
+            let layer = rig.animator.restart(&c.clip, TAG_RELOAD, 1.0, Mode::Once, c.fade());
+            rig.animator.layers[layer].parts_over = true;
             debug!("player {:?} rig: jam clip {}", rig.view, c.path);
         }
     }

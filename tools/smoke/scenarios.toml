@@ -18690,3 +18690,33 @@ expect = [
   { text = 'script runner: optional\gl_nvfsmoke_late.txt ran (game load)', count = 1, label = "the file gr_ registered runs at the load" },
 ]
 order = [["load: restored", "script runner: gr_nvfsmoke.txt ran", "script runner: ln_nvfsmoke.txt ran (game load)", 'script runner: optional\gl_nvfsmoke_late.txt ran']]
+
+[[scenario]]
+name = "crosshair-under-glance"
+source = "owner playtest 2026-11-04: the crosshair still drew under the Pip-Boy, the glance (G) and in co-op the full Pip-Boy, which opens without a pause (`menu::LiveMenu`) so the state stays Playing"
+note = "The glance raised with the real G key at 9 s and put down at 12 s. The co-op live Pip-Boy takes the same path (`reticle::pipboy_hides_crosshair`, unit-tested); a headless run has no co-op session"
+areas = ["hud", "pipboy"]
+paths = ["engine/nvf-play/src/reticle.rs", "engine/nvf-play/src/pipboy/glance.rs", "engine/nvf-play/src/tiles/mod.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_KEYS = "9:g,12:g", NVF_PLAY_TEST_SHOTS = "8.5:glance_before.png,10.5:glance_up.png,14:glance_down.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 15
+expect = [
+  { re = 'pipboy glance: up', label = "the glance comes up" },
+  { text = "crosshair: hidden under the Pip-Boy", label = "the crosshair goes while it is up" },
+  { text = "crosshair: back from under the Pip-Boy", label = "and comes back when it is down" },
+]
+order = [["pipboy glance: up", "crosshair: hidden under the Pip-Boy", "crosshair: back from under the Pip-Boy"]]
+manual = "glance_up.png: no crosshair over the world above the raised Pip-Boy; glance_before.png and glance_down.png have it"
+
+[[scenario]]
+name = "caravan-shotgun-reload"
+source = "owner playtest 2026-11-04 (shots/hands-through-weapon.webp): in first person the left hand went through the caravan shotgun mid-reload. The weapon's parts (##CVSHStock and the shells) are keyed at priority 0 by both the stance clip 2hraim.kf (still) and 2hrreloadi.kf (moving); shared by weight the stock opened half its 45 degrees while the hands moved all the way (`anim_blend::Layer::parts_over`)"
+areas = ["combat", "player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvf-assets/src/anim_blend.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "001735E3", NVF_PLAY_TEST_GIVE = "000E86F2:20", NVF_PLAY_TEST_LOOK = "9:46:-4", NVF_PLAY_TEST_CONTROL = "9:weapon,12:fire,13.5:reload", NVF_PLAY_TEST_SHOTS = "13.4:caravan_held.png,13.8:caravan_reload_1.png,14.1:caravan_reload_2.png,14.4:caravan_reload_3.png,14.7:caravan_reload_4.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 16
+expect = [
+  { re = 'player First rig: \S*2hrreloadi\.kf moves the weapon.s \[.*"##CVSHStock"', label = "the first-person reload clip moves the stock" },
+]
+manual = "caravan_reload_1.png to caravan_reload_4.png: the action broken open its full turn, the left hand holding the barrels from below, not through them"
