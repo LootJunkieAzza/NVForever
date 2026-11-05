@@ -787,7 +787,12 @@ fn engine_snapshot(world: &World) -> EngineSnapshot {
     }
     e.flashlight = world.get_resource::<crate::flashlight::Flashlight>().is_some_and(|f| f.on);
     e.magazine = world.get_resource::<crate::combat::Combat>().and_then(|c| c.magazine_for_save());
-    e.active_quest = world.get_resource::<crate::pipboy::data::DataState>().and_then(|d| d.active_quest());
+    // The quest active as the DATA page has it whether it was ever opened or not: the page's
+    // own pick is set only once it lists the quests, and without one a load made the newest
+    // form the active quest (a co-op host then told its guests of the wrong quest).
+    let data = world.get_resource::<crate::pipboy::data::DataState>();
+    let running = world.get_resource::<ScriptState>().and_then(|s| s.rt.as_ref()).filter(|rt| !rt.game.coop_guest);
+    e.active_quest = running.and_then(|rt| crate::pipboy::data::active_quest(data, &rt.game)).map(|q| q.0).or_else(|| data.and_then(|d| d.active_quest()));
     e.coop = world.get_resource::<CoopEngineState>().map(|c| c.0.clone()).unwrap_or_default();
     let hooks = world.resource::<SaveHooks>().0.clone();
     for h in hooks {

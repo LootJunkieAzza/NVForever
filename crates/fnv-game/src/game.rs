@@ -2574,7 +2574,10 @@ impl<'a> Game<'a> {
     pub fn run_result(&mut self, unit: UnitId, ctx: RunCtx) {
         let c = self.data.unit(unit);
         self.cover_result(|| c.key());
+        // What it gives the player is its quest's co-op reward (`crate::coop_rewards`).
+        let before = self.coop_rewards.paying(ctx.quest);
         self.exec(c, &c.program.top, Locals::Temp(BTreeMap::new()), ctx);
+        self.coop_rewards.paying(before);
     }
 
     /// Run `stmts` as statements of `unit` with temporary locals (the sweep's call probe,

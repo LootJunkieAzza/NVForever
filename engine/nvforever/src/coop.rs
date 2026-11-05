@@ -266,6 +266,7 @@ impl Plugin for CoopPlugin {
             npc_attacks: HashMap::new(),
             ai_was_off: None,
             host_quest: None,
+            quest_untold: None,
             host_place: None,
             downed_at: None,
             told_respawn: false,
@@ -395,6 +396,10 @@ struct Coop {
     ai_was_off: Option<bool>,
     /// A guest's: the host's active quest as last heard.
     host_quest: Option<HostQuest>,
+    /// A guest's: the host's quest as its messages last told it, while messages for a
+    /// newer one wait for this game's scripts (a guest joins while its game still loads,
+    /// and the host sends its quest again only when it changes).
+    quest_untold: Option<Option<HostQuest>>,
     /// A guest's: the host's place, and since when it has been there (seconds of `Time`).
     host_place: Option<(Place, f32)>,
     /// This player is down: since when (seconds of `Time`), and whether it was told it
@@ -1143,6 +1148,17 @@ fn take_events(
     let is_host = link.is_host();
     let mut notes = Vec::new();
     let mut refused = false;
+    // The host's quest messages, once this game's scripts are there to name them (a quest
+    // heard while the game still loaded is told then).
+    if let (Some(told), Some(rt)) = (coop.quest_untold.as_ref(), rt.as_deref()) {
+        for n in host_quest_notices(rt.game.data, told.as_ref(), coop.host_quest.as_ref()) {
+            info!("co-op: the host's quest: {}", nvf_play::quest_messages::describe(&n));
+            if let Some(l) = quest_lines.as_deref_mut() {
+                l.push(n);
+            }
+        }
+        coop.quest_untold = None;
+    }
     for e in link.events() {
         match e {
             Event::Welcomed(id) => {
@@ -1267,17 +1283,10 @@ fn take_events(
             },
             // One of the host's actors hit this player there.
             Event::Quest(q) => {
-                let new = host_quest(&q);
-                if let Some(rt) = rt.as_deref() {
-                    let notices = host_quest_notices(rt.game.data, coop.host_quest.as_ref(), new.as_ref());
-                    for n in notices {
-                        info!("co-op: the host's quest: {}", nvf_play::quest_messages::describe(&n));
-                        if let Some(l) = quest_lines.as_deref_mut() {
-                            l.push(n);
-                        }
-                    }
-                }
-                coop.host_quest = new;
+                // Told from the quest last told, even when messages for a later one wait.
+                let told = coop.quest_untold.take().unwrap_or_else(|| coop.host_quest.clone());
+                coop.host_quest = host_quest(&q);
+                coop.quest_untold = Some(told);
             }
             Event::Revived { by } => {
                 if let Some(rt) = rt.as_deref_mut().filter(|rt| rt.game.is_dead(FormId::PLAYER_REF)) {
@@ -1683,6 +1692,7 @@ fn follow_npcs(
             coop.unheard.clear();
             coop.host_lines = None;
             coop.host_quest = None;
+            coop.quest_untold = None;
             for (e, v, _, _, marked, _, _) in &mut actors {
                 if marked {
                     commands.entity(e).remove::<Remote>();
