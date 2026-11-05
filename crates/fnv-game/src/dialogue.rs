@@ -569,11 +569,21 @@ impl<'a> Game<'a> {
             return Err(format!("{} is unconscious", data.name(actor)));
         }
         let topic = topic.or(data.greeting).ok_or("the load order has no GREETING topic")?;
-        // A co-op guest talks to anyone it goes up to (owner, 2026-11-05: a casino's
-        // cashier, whose exchange is its own), but no script of its game starts a
-        // conversation with it: the host's world runs the story (`crate::coop`).
-        if self.coop_guest && forced {
-            return Err(format!("{} does not start conversations with a co-op guest", data.name(actor)));
+        // A co-op guest is spoken to by no script, and greeted by no line (their scripts
+        // could move the quests, which are the host's): its conversation opens on the
+        // choices, which trade, play and change chips only (`crate::coop`).
+        if self.coop_guest {
+            if forced {
+                return Err(format!("{} does not start conversations with a co-op guest", data.name(actor)));
+            }
+            let choices = self.build_choices(actor, topic, &InfoDef::default());
+            if !choices.iter().any(|c| Some(c.topic) != data.goodbye) {
+                return Err(format!("{} has nothing to trade or play with a co-op guest", data.name(actor)));
+            }
+            let first = choices[0].info;
+            self.dialogue = Some(Conversation { actor, through, line: None, choices, lines: 0, then: None, ending: false });
+            self.emit(EventKind::DialogueStarted { actor, topic });
+            return Ok(first);
         }
         let listener = Some(FormId::PLAYER_REF);
         // IsActorTalkingThroughActivator holds while its lines are chosen.
@@ -827,7 +837,10 @@ impl<'a> Game<'a> {
         let mut links = self.links_after(topic, def);
         if !def.choices.is_empty() {
             links.sort_by(|a, b| priority(&b.topic).total_cmp(&priority(&a.topic)));
-            let out = self.offer(actor, &links);
+            let mut out = self.offer(actor, &links);
+            if self.coop_guest {
+                out = self.guest_choices(actor, out);
+            }
             return self.itr_menu(actor, out);
         }
         let mut listed: Vec<Link> = data.top_level.iter().map(|&t| Link { topic: t, from: None }).collect();
@@ -852,8 +865,17 @@ impl<'a> Game<'a> {
                 out.extend(self.offer(actor, &[Link { topic: bye, from: None }]));
             }
         }
+        // A co-op guest trades, plays and changes chips only (`crate::coop`).
+        if self.coop_guest {
+            out = self.guest_choices(actor, out);
+        }
         // ITR's hide and order rules and custom entries (`crate::nvse_itr2`).
         self.itr_menu(actor, out)
+    }
+
+    /// The entry for `topic`, if the actor has a line for it ([`Game::offer`]).
+    pub(crate) fn offer_topic(&mut self, actor: FormId, topic: FormId) -> Vec<Choice> {
+        self.offer(actor, &[Link { topic, from: None }])
     }
 
     /// The entries for the topics of `links` the actor has a line for ([`Game::link_line`]),
