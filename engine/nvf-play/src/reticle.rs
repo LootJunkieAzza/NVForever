@@ -35,6 +35,11 @@
 //!   staying ([`ScriptHidesReticle`]) [hypothesis: JAM's JDC sets it to 0 while it draws
 //!   its own reticle and to 1 to give the game's back; hud.md §14.4 read no `visible` on
 //!   that tile in the original, so only a script writes one].
+//! - **A mod's prompt**: a script that sets the HUD's `Info/visible` to 0 between two
+//!   frames of the HUD's own writes hides the texts under the crosshair
+//!   ([`ScriptHidesPrompt`]) [hypothesis: JAM's loot menu, with its "hide prompt" setting
+//!   on (the default), sets it to 0 every frame while it shows its own key hints, and the
+//!   original's code writes the piece's `visible` each frame, hud.md §14.1].
 
 use crate::activate::outcome::{self, Action};
 use crate::activate::{Target, Targeted};
@@ -340,11 +345,21 @@ pub fn script_hides(ui: &fnv_ui::Ui) -> bool {
     ui.find_tile("HUDMainMenu/ReticleCenter/reticle_center").and_then(|t| ui.tile(t).get("visible")).is_some_and(|v| !v.truthy())
 }
 
+/// Whether a script hid the HUD's prompt tile (module notes), set each frame by
+/// `crate::tiles` before the HUD's own writes.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ScriptHidesPrompt(pub bool);
+
+/// The HUD's prompt tile's `visible`, when the tree has it.
+pub fn prompt_visible(ui: &fnv_ui::Ui) -> Option<bool> {
+    ui.find_tile("HUDMainMenu/Info").and_then(|t| ui.tile(t).get("visible")).map(|v| v.truthy())
+}
+
 pub struct ReticlePlugin;
 
 impl Plugin for ReticlePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<DynamicCrosshair>().init_resource::<CrosshairStyle>().init_resource::<ScriptHidesReticle>().add_systems(Update, draw.in_set(PlaySet::Ui));
+        app.init_resource::<DynamicCrosshair>().init_resource::<CrosshairStyle>().init_resource::<ScriptHidesReticle>().init_resource::<ScriptHidesPrompt>().add_systems(Update, draw.in_set(PlaySet::Ui));
         crate::settings::add_setting(
             app,
             crate::settings::Setting {
@@ -542,7 +557,7 @@ fn draw(
         Query<(&Cross, &mut Visibility, &mut Node, Option<&mut ImageNode>), Without<Root>>,
         Query<(&Bar, &mut Visibility, &mut Node, &mut ImageNode), (Without<Root>, Without<Cross>)>,
     ),
-    (texts, pipboy, glance, modded): (Query<Entity, With<Texts>>, Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::pipboy::glance::Glance>>, Option<Res<ScriptHidesReticle>>),
+    (texts, pipboy, glance, modded, no_prompt): (Query<Entity, With<Texts>>, Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::pipboy::glance::Glance>>, Option<Res<ScriptHidesReticle>>, Option<Res<ScriptHidesPrompt>>),
 ) {
     // Not over the character creator, whatever state the opening leaves the game in
     // [owner 2026-10-17: "E) Talk" stayed under it]. Nor while an idle holds the camera
@@ -672,7 +687,8 @@ fn draw(
         }
     }
     let barred = |t: &Targeted| bar.as_ref().and_then(|b| b.0.as_ref()).is_some_and(|b| under_bar(t, b.form_id));
-    let want = target.0.as_ref().filter(|t| !locks.rollover && !barred(t)).map(|t| Prompt::bound(t, &sim, bindings.as_deref()));
+    let no_prompt = no_prompt.is_some_and(|p| p.0);
+    let want = target.0.as_ref().filter(|t| !locks.rollover && !no_prompt && !barred(t)).map(|t| Prompt::bound(t, &sim, bindings.as_deref()));
     if *shown != want {
         let Ok(e) = texts.single() else { return };
         commands.entity(e).despawn_related::<Children>().with_children(|p| {

@@ -521,7 +521,9 @@ fn write(
     mut told: Local<[Option<String>; 4]>,
     mut menu_tiles: MenuTiles,
     mut mods_entry: ResMut<crate::pause::ModsEntry>,
-    (mut mods_back, mut reticle_hidden): (ResMut<crate::pause::ModsOwnBack>, ResMut<crate::reticle::ScriptHidesReticle>),
+    (mut mods_back, mut reticle_hidden, mut prompt_hidden): (ResMut<crate::pause::ModsOwnBack>, ResMut<crate::reticle::ScriptHidesReticle>, ResMut<crate::reticle::ScriptHidesPrompt>),
+    // Whether the HUD's last write left its prompt tile visible (`ScriptHidesPrompt`).
+    mut info_written: Local<bool>,
     mut start_names: Local<mods::KeptNames>,
     // The start menu's text sizes written (T11), then the HUD's mod texts' (below).
     mut sizes: Local<(menus::SizesWritten, menus::SizesWritten)>,
@@ -585,7 +587,15 @@ fn write(
         return;
     }
     rt.game.ui_hud_pending = None;
+    // A script's 0 on the prompt tile since the last write hides the hand-built prompt
+    // (`crate::reticle::ScriptHidesPrompt`), read before this write puts the HUD's back.
+    let hidden = crate::reticle::ScriptHidesPrompt(*info_written && crate::reticle::prompt_visible(&rt.game.ui_tree) == Some(false));
+    if *prompt_hidden != hidden {
+        info!("reticle: prompt {}", if hidden.0 { "hidden: a script hid the HUD's prompt tile" } else { "shown again" });
+        *prompt_hidden = hidden;
+    }
     fnv_game::ui_hud::write(&mut rt.game.ui_tree, shown, &texts);
+    *info_written = crate::reticle::prompt_visible(&rt.game.ui_tree) == Some(true);
     // The text tiles' widths from the strings just written, before scripts read them
     // [design: ui-tile-tree.md §4.1; observed widths: hud.md §14.1].
     if rt.game.ui_files.is_some() {

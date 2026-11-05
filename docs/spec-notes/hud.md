@@ -957,6 +957,12 @@ with the pistol drawn and three quick shots. Names from `hudtemplates.xml` and
   hides the hand-built crosshair while the tile's `visible` is false, its prompt texts
   staying (`nvf_play::reticle::ScriptHidesReticle`) [hypothesis: the original's copy has
   both, since the mod reads and writes them; their values in the original are not read].
+- **A mod's prompt** (2026-11-05). JAM's loot menu, its "hide prompt" setting on (the
+  default), writes `Info/visible` 0 every frame while its own key hints show [observed:
+  JLMMainLoopEventHandler]. Ours writes the piece's `visible` each frame too (§14.1), so a
+  0 found before that write, where the last write left it shown, hides the hand-built
+  prompt (`nvf_play::reticle::ScriptHidesPrompt`) [hypothesis: the mod rewrites it each
+  frame because the original's code does too].
 
 
 ### 14.5 The compass's scale and centre (2026-10-29)
