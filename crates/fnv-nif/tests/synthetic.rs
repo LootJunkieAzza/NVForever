@@ -85,6 +85,12 @@ fn strips_data() -> Vec<u8> {
 }
 
 fn build(blocks: &[(&str, Vec<u8>)], strings: &[&str], roots: &[i32]) -> Vec<u8> {
+    let sizes: Vec<u32> = blocks.iter().map(|(_, b)| b.len() as u32).collect();
+    build_with_sizes(blocks, strings, roots, &sizes)
+}
+
+/// Like [`build`], with the block-size table given (a wrong one, as some mod tools write).
+fn build_with_sizes(blocks: &[(&str, Vec<u8>)], strings: &[&str], roots: &[i32], sizes: &[u32]) -> Vec<u8> {
     let mut types: Vec<&str> = Vec::new();
     for (t, _) in blocks {
         if !types.contains(t) {
@@ -102,8 +108,8 @@ fn build(blocks: &[(&str, Vec<u8>)], strings: &[&str], roots: &[i32]) -> Vec<u8>
     for (t, _) in blocks {
         w.u16(types.iter().position(|x| x == t).unwrap() as u16);
     }
-    for (_, b) in blocks {
-        w.u32(b.len() as u32);
+    for &size in sizes {
+        w.u32(size);
     }
     w.u32(strings.len() as u32).u32(strings.iter().map(|s| s.len()).max().unwrap_or(0) as u32);
     for s in strings {
@@ -179,6 +185,32 @@ fn unknown_and_short_blocks_are_reported_not_fatal() {
     assert!(f.decode_block(&s, &data, 0).is_ok());
     assert_eq!(f.decode_block(&s, &data, 1).unwrap_err().code(), "unknown");
     assert_eq!(f.decode_block(&s, &data, 2).unwrap_err().code(), "short");
+}
+
+/// A block-size table that leaves out a NiTriStripsData's strip points (Heart of the
+/// Mojave's `ultraluxhotelfront.nif`) or claims more bytes than a block has (NV Interiors'
+/// `hulagirl1.nif`): the blocks are split by decoding them instead. (Errors that cancel
+/// out, so the footer still lands at the end of the file, are not noticed.)
+#[test]
+fn wrong_block_sizes_are_split_by_the_schema() {
+    let s = schema();
+    let blocks = [("BSFadeNode", node(1)), ("NiTriStrips", tri_strips(2)), ("NiTriStripsData", strips_data())];
+    let real: Vec<u32> = blocks.iter().map(|(_, b)| b.len() as u32).collect();
+    for sizes in [vec![real[0], real[1], real[2] - 8], vec![real[0], real[1] + 6, real[2]]] {
+        let data = build_with_sizes(&blocks, &["Root", "Shape"], &[0], &sizes);
+        let f = NifFile::parse(&data, Some(&s)).unwrap_or_else(|e| panic!("{sizes:?}: {e}"));
+        assert_eq!(f.footer.roots, [0], "{sizes:?}");
+        assert_eq!(f.trailing, 0);
+        for i in 0..3 {
+            assert_eq!(f.blocks[i].range.len() as u32, real[i], "{sizes:?} block {i}");
+            assert!(f.decode_block(&s, &data, i).is_ok(), "{sizes:?} block {i}");
+        }
+        // The header now holds the true sizes, so a rewrite is a valid file.
+        let fixed = f.rewrite(&data);
+        let g = NifFile::parse(&fixed, Some(&s)).unwrap();
+        assert_eq!(g.header.block_sizes.as_deref(), Some(&real[..]));
+        assert_eq!(g.rewrite(&fixed), fixed);
+    }
 }
 
 #[test]

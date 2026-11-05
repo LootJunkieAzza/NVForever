@@ -1293,7 +1293,7 @@ fn main() -> AppExit {
     .init_resource::<TerrainCache>()
     .init_resource::<imposters::Imposters>()
     .insert_resource(Streamer {
-        radius: args.radius,
+        radius: world::load_radius(args.radius, world.index.worldspaces.get(&world.world).and_then(|w| w.edid.as_deref())),
         loaded: Default::default(),
         fades: Default::default(),
         fade_secs: args.cell_fade.max(0.0),

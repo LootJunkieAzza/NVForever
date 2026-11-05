@@ -137,6 +137,30 @@ pub fn enabled(lo: &LoadOrder, schema: &EsmSchema, p: &Placement, depth: usize) 
     }
 }
 
+/// The fewest grid steps around the camera's cell loaded in the Freeside worldspaces.
+/// The base game walls Freeside's streets in, so `--radius` (2, the game's
+/// uGridsToLoad=5) reaches everything a player sees; with the streets opened up (the
+/// owner's "Simple Open Freeside") a player sees across the whole district, whose
+/// references stand in cells x -2..2, y -3..1 of `FreesideWorld` [observed: `fnvtool
+/// world cells`, cells holding more than 20 references, base game with Simple Open
+/// Freeside: 24 cells, 4,243 references], so from one end the other is 4 cells away
+/// (owner, playtest 2026-11-04: "Freeside needs a further view/load distance"). The
+/// cells beyond are empty desert edges, so the larger square costs little [design].
+pub const FREESIDE_RADIUS: i32 = 4;
+
+/// The worldspaces drawn with [`FREESIDE_RADIUS`] (Editor IDs, lower case).
+const FREESIDE_WORLDS: [&str; 3] = ["freesideworld", "freesidenorthworld", "freesidefortworld"];
+
+/// Grid steps of cells loaded around the camera in worldspace `edid`: `--radius`, or
+/// more in Freeside ([`FREESIDE_RADIUS`]).
+pub fn load_radius(base: i32, edid: Option<&str>) -> i32 {
+    if edid.is_some_and(|e| FREESIDE_WORLDS.contains(&e.to_ascii_lowercase().as_str())) {
+        base.max(FREESIDE_RADIUS)
+    } else {
+        base
+    }
+}
+
 /// Marks the root that maps game space (Z up) to Bevy space (Y up).
 #[derive(Component)]
 pub struct WorldRoot;
@@ -1493,6 +1517,15 @@ mod tests {
         assert!((bevy_to_game(b) - g).length() < 1e-5);
         // Game up (z) is Bevy up (y).
         assert!((t.transform_point(Vec3::Z) - Vec3::Y).length() < 1e-5);
+    }
+
+    #[test]
+    fn freeside_loads_further() {
+        assert_eq!(load_radius(2, Some("FreesideWorld")), FREESIDE_RADIUS);
+        assert_eq!(load_radius(2, Some("freesidenorthworld")), FREESIDE_RADIUS);
+        assert_eq!(load_radius(6, Some("FreesideFortWorld")), 6);
+        assert_eq!(load_radius(2, Some("WastelandNV")), 2);
+        assert_eq!(load_radius(2, None), 2);
     }
 
     #[test]
