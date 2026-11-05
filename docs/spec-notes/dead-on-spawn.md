@@ -211,15 +211,15 @@ and the nine DLC masters [observed]:
 | Branch | References | What NVForever does |
 |---|---|---|
 | actor (ACHR/ACRE) | 7,681 (441 with `XRGD`) | the corpse path, not clutter (§3, §5) |
-| posed | 1,840 | `posable` type, `XRGD` fits (1,580 multi-body, 260 single-body) |
-| refused — count mismatch | 327 | `posable` type, `XRGD` entries ≠ bodies (left in the file's pose) |
-| not posable type | 313 | `XRGD` on a base type outside MSTT/STAT/MISC |
+| posed | 2,008 | `posable` type, `XRGD` fits (one entry per body, or a part's first entries) |
+| refused — does not fit | 163 | `posable` type, `XRGD` refused (151 single bodies with more entries, 12 models with no bodies) |
+| not posable type | 309 | `XRGD` on a base type outside MSTT/STAT/MISC/CONT |
 | STAT fixed | 236 | STAT/SCOL, ragdoll-like, no `XRGD` (§4.3.2) |
 | no `XRGD`, jointed | 168 | held in the file's pose (`hold_jointed`) |
 | `skeleton` path, no ragdoll | 161 | a single static body or none (a skull, a ribcage) |
 
 The `not posable type` rows, by base type, with how many have a *fitting* `XRGD` (entry
-count equal to the model's collision objects, every body named) [observed]:
+count matching the model's collision objects, every body named) [observed]:
 
 | Base type | References | Fitting | The models |
 |---|---|---|---|
@@ -227,23 +227,21 @@ count equal to the model's collision objects, every body named) [observed]:
 | WEAP | 111 | 111 | single-body weapons lying in the world |
 | ACTI | 37 | 36 | swinging traps (16/8 bodies) and single-body static plants/benches |
 | ALCH | 19 | 17 | single-body bottles |
-| CONT | 4 | 4 | the whole clothed skeleton (15 bodies) and a headless corpse |
 | PROJ | 3 | 3 | single-body mines |
 
 The skeleton clutter itself [observed: `fnvtool collide ragdoll`, `world posed-clutter`]:
 
 - `skeletonwholebodyclothed.nif` (15 bodies, 14 constraints): 270 references, 269 posed
-  (MSTT/STAT/MISC) and one placed as a CONT, refused as not posable.
+  (MSTT/STAT/MISC) and one placed as a CONT (now posed — CONT is a posable type).
 - `skeletontorsonaked.nif` (5 bodies): 249 references. 88 carry a 5-entry `XRGD` and pose;
-  161 carry the whole skeleton's 15-entry `XRGD` and were refused as a count mismatch.
+  161 carry the whole skeleton's 15-entry `XRGD`, which the first five entries now pose.
   `skeletontorsomaleclothes.nif` and `…02.nif` add one each: 163 torso references in all.
 - The arm and leg parts (`skeletonleftarmnaked.nif` 3 bodies, `…leftleg…` 3, `…rightleg…` 4,
   and their `maleclothes` copies) each carry an `XRGD` with one entry per body and pose.
 - `skeletonmale50scasual.nif` (16 bodies) and `skeletonfemale50scasual.nif` (17 bodies) pose.
 
-So every skeleton part except the 163 torso references already posed; those 163 hang in
-the file's pose because their `XRGD` was copied from the whole clothed skeleton (15
-entries) onto a five-body part.
+Every skeleton part now poses: the 163 torso references were refused only because their
+`XRGD` was copied from the whole clothed skeleton (15 entries) onto a five-body part.
 
 **The fix** [design, issue #1400]:
 

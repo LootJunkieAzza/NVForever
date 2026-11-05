@@ -213,23 +213,23 @@ fn classify(ix: &WorldIndex, r: &RefRow, infos: &HashMap<String, ModelInfo>) -> 
     let skeleton_path = r.model.as_deref().is_some_and(|m| m.contains("skeleton"));
     let has_xrgd = r.xrgd > 0;
     let posable = r.base_sig.as_ref().is_some_and(xrgd::posable);
-    // The match the drawing and the collision both require (dead-on-spawn.md §5.1):
-    // one entry per body, and every body's node named.
-    let fitting = has_xrgd && objects > 0 && r.xrgd == objects && named == objects;
     let is_actor = matches!(&r.sig, b"ACHR" | b"ACRE");
     // Out of scope: not an actor, not ragdoll-like, no `skeleton` path, no XRGD.
     if !is_actor && !has_xrgd && !jointed && !skeleton_path {
         return None;
     }
     let base_sig = r.base_sig.as_ref().map(sig);
+    // Whether the engine poses it: the shared count rule (`xrgd::matching`) holds and
+    // every body's node is named (dead-on-spawn.md §5.1).
+    let matched = xrgd::matching(r.xrgd, objects);
+    let fitting = has_xrgd && matched.is_ok() && named == objects;
 
     let (branch, refused) = if is_actor {
         ("actor", None)
     } else if has_xrgd && posable && fitting {
         ("posed", None)
     } else if has_xrgd && posable {
-        let why = if r.xrgd != objects { "count_mismatch" } else if named != objects { "unnamed_node" } else { "empty" };
-        ("refused_no_fit", Some(why))
+        ("refused_no_fit", Some(match matched { Err(e) => e, Ok(_) => "unnamed_node" }))
     } else if has_xrgd {
         ("not_posable_type", None)
     } else if r.base_sig.is_some_and(|s| matches!(&s, b"STAT" | b"SCOL")) {
