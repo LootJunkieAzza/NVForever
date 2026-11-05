@@ -1204,3 +1204,26 @@ fn a_mods_unknown_functions_compile_as_calls() {
     let c = compile("float f\nshort i\nbegin GameMode\nset f to GetMCMListWidth 2 i\nend", &table(), &World, None);
     assert!(c.errors().next().is_some());
 }
+
+// ---- NoticeBoard.esm ------------------------------------------------------------------
+
+#[test]
+fn move_to_marker_is_move_to() {
+    // [observed: NoticeBoard.esm, `xxxBonus01Mutant01.movetomarker xxxNoticeMarkerRSFoxtrot`
+    // compiled as MoveTo]
+    let t = table();
+    assert_eq!(t.by_name("MoveToMarker"), t.by_name("MoveTo"));
+    assert!(t.by_name("MoveTo").is_some());
+    let (c, _) = build("begin GameMode\nTestDoorREF.movetomarker TestDoorREF\nend");
+    assert_eq!(c.refs, [RefSlot::Form(DOOR)]);
+}
+
+#[test]
+fn a_short_hex_form_id_names_its_form() {
+    // [observed: NoticeBoard.esm, `player.additem f 25` compiled as AddItem of 0x0000000F;
+    // `set GenerateEvent to 0A` as a reference to 0x0000000A]
+    let (c, _) = build("begin GameMode\nplayer.additem f 25\nend");
+    assert_eq!(c.refs, [RefSlot::Form(PLAYER), RefSlot::Form(CAPS)]);
+    let (c, _) = build("short s\nbegin GameMode\nset s to 0A\nend");
+    assert_eq!(c.refs, [RefSlot::Form(0x0A)]);
+}

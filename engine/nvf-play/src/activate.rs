@@ -415,8 +415,13 @@ fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mu
         Some(&(t, at)) if (now - at).abs() < TALKER_SECONDS => t,
         _ => {
             // A creature is talked to when it is flagged Allow PC Dialogue and has a
-            // greeting to say (docs/spec-notes/actor-flags.md §4) [hypothesis: both].
-            let t = g.allows_pc_dialogue(r) && g.has_greeting(r);
+            // greeting to say (docs/spec-notes/actor-flags.md §4) [hypothesis: both],
+            // or when its script has an OnActivate block, which E runs instead of the
+            // conversation (`script::by_hand`): NoticeBoard.esm's Concern Exchange Bot
+            // opens its recipe menu so and has no greeting [observed in the plugin:
+            // SCPT 0x010098A6] [hypothesis: the original offers it to the player].
+            let on_activate = g.ref_script(r).and_then(|s| g.data.script(s)).is_some_and(|u| u.has_block(fnv_game::game::event::ON_ACTIVATE));
+            let t = on_activate || (g.allows_pc_dialogue(r) && g.has_greeting(r));
             talkers.insert(id, (t, now));
             t
         }

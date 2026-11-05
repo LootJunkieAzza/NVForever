@@ -5171,6 +5171,14 @@ impl<'a> Game<'a> {
         }
         g.nx = s.nx.clone();
         g.quests = s.quests.clone();
+        // A quest the save does not know (its plugin added since) starts as in a new
+        // game: one flagged "Start game enabled" runs. A new game puts every such quest
+        // in the map, so a save made with the plugin has its entry, running or stopped
+        // [hypothesis: the original takes a form the save does not hold as its plugin
+        // has it; a plugin's start-enabled quests run after it is added to a game].
+        for q in data.quests.values().filter(|q| q.start_enabled() && !s.quests.contains_key(&q.form)) {
+            g.quests.insert(q.form, QuestState { running: true, ..Default::default() });
+        }
         g.instances = s.instances.iter().cloned().collect();
         g.extra = s.extra.clone();
         g.player = s.player.clone();

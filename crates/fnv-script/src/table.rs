@@ -362,6 +362,16 @@ impl FunctionTable {
                 }
             }
         }
+        // Spellings mods' source uses that shipped source never does (so the catalogue's
+        // `observed_spellings` lacks them), each with the function its compiled bytes call.
+        for &(spelling, name) in MOD_SPELLINGS {
+            if let Some(op) = t.by_name(name) {
+                if let Some(f) = t.functions.get_mut(&op) {
+                    f.observed_spellings.push(spelling.to_string());
+                }
+                t.by_name.entry(spelling.to_ascii_lowercase()).or_insert(op);
+            }
+        }
         Ok(t)
     }
 
@@ -392,6 +402,12 @@ impl FunctionTable {
         self.enums.get(kind)?.get(&code).map(String::as_str)
     }
 }
+
+/// Function spellings seen only in mods' source, with the function the editor compiled
+/// them to. `MoveToMarker` is MoveTo (0x109E) [observed: NoticeBoard.esm, e.g. SCPT
+/// 0x100094AC, whose source lines `<ref>.movetomarker <marker>` are compiled as MoveTo
+/// calls on that reference in its SCDA].
+pub const MOD_SPELLINGS: &[(&str, &str)] = &[("MoveToMarker", "MoveTo")];
 
 /// The names of the actor value codes 0–76 [documented: xEdit `ActorValue`,
 /// `schemas/fnv/common.json`].
