@@ -1186,6 +1186,8 @@ pub struct Game<'a> {
     /// The N7–N9 functions' session state and what the engine tells them
     /// (`crate::nvse_jip2`).
     pub jip2: crate::nvse_jip2::Jip2State,
+    /// Just Assorted Mods' functions (`crate::nvse_jam`).
+    pub jam: crate::nvse_jam::JamState,
     /// The most called functions no earlier set built (`crate::nvse_gaps`).
     pub gaps: crate::nvse_gaps::GapsState,
     /// The HUD reads and the scripted weapon draws (`crate::nvse_hud`).
@@ -2059,6 +2061,7 @@ impl<'a> Game<'a> {
             udf_value_set: false,
             package_overrides: std::collections::HashMap::new(),
             jip2: Default::default(),
+            jam: Default::default(),
             gaps: Default::default(),
             hud: Default::default(),
             showoff: Default::default(),
@@ -3310,6 +3313,8 @@ impl<'a> Game<'a> {
     pub fn tick(&mut self) {
         self.frame += 1;
         self.temp_refs.clear();
+        // JIP's key events (`crate::nvse_jam`).
+        self.jam_key_events();
         // JIP's SetGameMainLoopCallback functions due this frame (task J6), then xNVSE's
         // delayed calls.
         self.run_main_loop();
@@ -4327,6 +4332,8 @@ impl<'a> Game<'a> {
                 let ran = self.ref_event(target, event::ON_ACTIVATE, Some(Value::Ref(actor.0)), Some(actor));
                 Ok(serde_json::json!({"result": "script", "ran": ran}))
             }
+            // DisableScriptedActivate holds the default action (`crate::nvse_jam`).
+            _ if self.scripted_activate_off(target) => Ok(serde_json::json!({"result": "scripted activate disabled"})),
             ActMode::Hand | ActMode::Block | ActMode::Default => self.default_activation(actor, target, mode == ActMode::Hand),
         }
     }

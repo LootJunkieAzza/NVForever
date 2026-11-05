@@ -376,6 +376,16 @@ pub fn holds_in_place(source: IdleSource, section: u8, idle: &Clip, walk: Option
         }
 }
 
+/// Whether a first-person idle plays while the player keeps moving and looking: one of
+/// the Movement section (`IDLE` DATA, [`fnv_game::data::IDLE_SECTION_MOVEMENT`]) does not
+/// take the view or hold the player (§4) [hypothesis: Just Assorted Mods' sprint plays
+/// `SpecialIdleSprint`, a looping Movement idle with a `Camera1st` track, with PlayIdle
+/// on every sprint, and stops sprinting when the player is not moving the next frame
+/// (`IsMoving`): it needs the player to run on under it].
+fn moves_with_player(game: &Game, idle: FormId) -> bool {
+    game.data.idles.get(&idle).is_some_and(|d| d.section == fnv_game::data::IDLE_SECTION_MOVEMENT)
+}
+
 /// The clip an actor walks on: its stance's forward walk, else its run.
 fn walk_clip(lo: &Locomotion) -> Option<&Clip> {
     use fnv_actor::locomotion::Move;
@@ -1052,7 +1062,7 @@ pub fn drive(
             let what = describe(game, idle, &play);
             if actor.0 == player_ref {
                 let first = clip.tracks.iter().any(|(n, _)| n == CAMERA_NODE);
-                if first && pi.held.is_none() {
+                if first && pi.held.is_none() && !moves_with_player(game, idle) {
                     pi.held = player.as_deref().map(|p| Held { feet: p.placed.unwrap_or(p.feet), free: p.feet, heading: p.heading, pitch: p.pitch });
                 }
                 let started = if first { &mut pi.first } else { &mut pi.third }.start(idle.0, source, owner, clip, play);

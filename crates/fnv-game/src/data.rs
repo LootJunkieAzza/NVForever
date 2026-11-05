@@ -1115,6 +1115,10 @@ pub struct IdleDef {
 /// wbIdleAnam].
 pub const IDLE_SECTION_UPPER_BODY: u8 = 21;
 
+/// The "Movement" animation group section ([`IdleDef::section`]) [documented: xEdit
+/// wbIdleAnam].
+pub const IDLE_SECTION_MOVEMENT: u8 = 1;
+
 impl IdleDef {
     /// From the decoded `MODL` (the name) and `DATA` (schema `gameplay.json` IDLE:
     /// animation group section, loop minimum and maximum, replay delay, flags

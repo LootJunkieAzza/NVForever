@@ -56,6 +56,11 @@ pub struct TileMenus {
 }
 
 impl TileMenus {
+    /// The switches when neither the test aid nor the INI gives a list: only `StartMenu`.
+    pub fn by_default() -> TileMenus {
+        TileMenus { start: true, ..TileMenus::default() }
+    }
+
     /// A comma-separated list of menu names (case does not matter, blanks around a name
     /// neither): the switches, and the names not acted on.
     pub fn parse(list: &str) -> (TileMenus, Vec<String>) {
@@ -97,7 +102,10 @@ impl TileMenus {
 pub(crate) fn setup(app: &mut App) {
     let unattended = crate::test_aid::Unattended::from_env().0;
     let list = TileMenus::list_for_run(std::env::var(AID).ok(), &SettingsFile::for_run(unattended));
-    let (menus, other) = list.as_ref().map_or_else(|| (TileMenus::default(), Vec::new()), |(l, _)| TileMenus::parse(l));
+    // Without a list the start menu's Mods page is on (the co-op build: MCM and the mods
+    // it configures work out of the box); its entry shows only when a mod added tiles to
+    // the start menu, so an unmodded game sees no change [design]. A list says it all.
+    let (menus, other) = list.as_ref().map_or_else(|| (TileMenus::by_default(), Vec::new()), |(l, _)| TileMenus::parse(l));
     app.insert_resource(menus);
     app.add_systems(Startup, move || {
         let Some((list, from)) = &list else { return };

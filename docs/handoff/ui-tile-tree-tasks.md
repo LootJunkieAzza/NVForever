@@ -356,15 +356,47 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       entry's rule, a reskin), `pause` (the entries, the page), fnv-game
       `a_page_tick_runs_only_the_start_menus_blocks_and_keeps_the_open_menu`; smoke
       `pause-mods-page` (MCM's own 1013 block clears its `iInstallCheck`).
-    - **Blocked: MCM's own page** (step 5). MCM's ESP shows MCM only when
-      `StartMenu/NOGLOW_BRANCH/main_container/childcount` is 8 (the original's pause
-      column, filled in by the game's code; NVForever's column is hand-built and the
-      rule is not documented), places its trigger from that column's x/y/width, and
-      fills its mod list with MCM.dll functions no source describes (SetMCMModList,
-      GetMCMListWidth, SetMCMFloatMass, SetMCMStringMass: `{{Incomplete}}` wiki stubs,
-      not in functions.json). Until a source for those turns up (an observer capture of
-      the start menu's `main_container` traits, the functions' effects on the tree), the
-      Mods page shows only what a mod's own MenuMode script draws.
+    - **Step 5, MCM's own page** (co-op build, 2026-11-04/05; was blocked on the column
+      and MCM.dll's functions). `tiles::mods::column` writes the original's pause column
+      as MCM's script waits for it (`StartMenu/NOGLOW_BRANCH/main_container/childcount`
+      8, `_alpha` 255) while the page is up, and MCM.dll's functions are reconstructed
+      from MCM's scripts (`fnv_game::ui_functions`: SetMCMModList, GetMCMListWidth,
+      SetMCMFloatMass, SetMCMStringMass) [hypothesis: the DLL's source is not public].
+      Two rules only `StartMenu` gets, as the engine marks it (menu-xml.md §3.1.1 and
+      §8): `_NVFLocus` (only a tile with a true `locus` places its children; MCM's
+      tiles copy `parent()`'s x and y) and `_NVFClickTwoFrames` (`clicked` lasts two
+      frames, so MCM's list rows open on the first click and a page does not open and
+      close again). The pause menu's Mods page is on by default in the co-op build
+      (`tiles::vanilla::TileMenus::by_default`: `StartMenu` drawn from tiles when
+      neither `[UI] TileMenus=` nor the aid names menus). [observed 2026-11-05, headless,
+      MCM 1.5 and JAM loaded, 2560 × 1440: one click on "Mod Configuration" opens MCM
+      and lists "Just Mods" (JAM adds itself after its MenuMode 1013 block has run
+      0.5 s); one click on it shows JAM's page of switches; one click on "Enable Bullet
+      Time" checks it.]
+      - Just Assorted Mods' extender functions and events (`fnv_game::nvse_jam`,
+        2026-11-05): JIP's OnKeyDown/OnKeyUp (from the keys and mouse buttons held,
+        the wheel as 264/265, a disabled key too) and OnFireWeapon events,
+        DisableScriptedActivate, GetContainerOpen/CloseSound, SetDefaultOpen (no
+        catalogue opcode: by name), FakeScriptEvent, GetAnimSequenceFrequency (the
+        engine reads the model's sequences, nvf-play `script_input`),
+        ToggleVanityWheel (the third-person zoom held), ToggleDisableSaves (saving
+        refused), WorldToScreen (the player camera's projection; x and y as fractions
+        of the screen) and HighlightBodyPartAlt/DeactivateAllHighlightsAlt (no
+        outline drawn). Tests: fnv-game `tests/jam_functions.rs`.
+      - Still different from the original: the VATS body-part outline JBT asks for is
+        not drawn; JWH (the weapon wheel, off in the owner's JAM) needs GetCursorPos,
+        SetCursorPos, ToggleHUDCursor, TogglePipBoy and ShowQuantityMenu, not built;
+        `SetOn…EventHandler f 0` without filters removes only a registration without
+        filters (JIP's page does not say whether it removes all of them).
+        On MCM's page [observed 2026-11-05]: the option titles are drawn left of the
+        panel (from the screen's left edge) while their switches sit in the panel;
+        "Back" is drawn twice (ours and MCM's, offset) and the list's scroll arrows
+        twice; the help line keeps "Select a mod to configure…" on a mod's page.
+      - JAM's sprint (2026-11-05): needed the key events above, and a first-person idle
+        of the Movement section no longer holds the player (idles.md §4): JVS plays
+        `SpecialIdleSprint` on each sprint and ended it the frame `IsMoving` read 0.
+        Observed headless: 175% run speed while Left Shift is held, AP 80 → 9 in 6 s,
+        about 580 units/s against 344 running.
 8. **T12. The vanilla HUD on tiles**, behind `[UI] TileMenus=HUDMainMenu`. Compare
     with the hud.md screenshots; keep the old HUD the default until the owner agrees.
     - **T12a done** 2026-10-29 (claude/t12-hud-tiles): the switch and the drawing.

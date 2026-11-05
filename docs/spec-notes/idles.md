@@ -145,7 +145,14 @@ below 30).
   nvforever `player_body.rs` while `PlayerIdles::held` is set; logged as "player view:
   driven by an idle's camera node …" and "… back to the player"). The first-person rig
   keeps the heading and pitch the view had when the idle started. When the last idle is
-  over, the view's heading and pitch are taken from where the animation left it. The
+  over, the view's heading and pitch are taken from where the animation left it.
+  A first-person idle of the Movement section (`IDLE` DATA section 1 [documented: xEdit
+  wbIdleAnam]) does not take the view or hold the player: it plays on the first-person
+  rig while the player moves and looks as usual [hypothesis, from a mod that works in the
+  original: Just Assorted Mods' sprint plays `SpecialIdleSprint` (Movement, looping,
+  with a `Camera1st` track) with PlayIdle each time the player sprints, and ends the
+  sprint as soon as `IsMoving` reads 0; held in place, ours ended it after four frames
+  (2026-11-05)]. `idles.rs` `moves_with_player`. The
   original's scripts leave looking on during the wake-up (VCG01 stage 0
   `EnablePlayerControls 0 0 0 0 1`, then `DisablePlayerControls 1 1 1 1 0 0 1`
   [observed]), so the original may let the mouse turn the view there; until 2026-10-11

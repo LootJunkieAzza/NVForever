@@ -485,6 +485,10 @@ fn not_now(world: &World) -> Option<String> {
     if rt.game.menu.is_some() || rt.game.message_box.is_some() {
         return Some("a script's menu or message box is open".into());
     }
+    // ToggleDisableSaves 1 (`fnv_game::nvse_jam`).
+    if rt.game.jam.saves_disabled {
+        return Some("a script disabled saving".into());
+    }
     let state = *world.resource::<State<PlayState>>().get();
     let paused = world.resource::<crate::pause::Paused>().0;
     let console = world.get_resource::<crate::console::Console>().is_some_and(|c| c.open);
