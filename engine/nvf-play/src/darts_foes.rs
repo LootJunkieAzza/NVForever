@@ -31,16 +31,21 @@ pub const MAX_REGULARS: usize = 4;
 pub const MIN_PLAYERS: usize = 3;
 /// How fast an opponent walks, units a second [hypothesis: about the original's walk].
 pub const WALK: f32 = 110.0;
+/// Further than this from where it is going, an opponent runs, this fast (game units a
+/// second) [design: the people's running clip moves about 350 a second].
+pub const RUN_BEYOND: f32 = 400.0;
+pub const RUN: f32 = 330.0;
 /// From the start of the throw to the dart leaving the hand, seconds: the arm draws back
 /// meanwhile (`darts_arm.rs`) [design].
 pub const RELEASE: f32 = 0.42;
 /// Where the opponent waits on the player's turn, local: beside the line on the left,
 /// out of the view [design].
 pub const OPP_WAIT: [f32; 3] = [-64.0, LINE[1] - 12.0, 0.0];
-/// How far from the line a regular may be found (game units, across the floor), and
-/// how far below and above the bull its feet may be: the line's floor is about 110 below
-/// the bull [observed: the Atomic Wrangler's board, bull at 13705, floor 13593; design:
-/// the one room].
+/// How far from the line a regular may be found outdoors (game units, across the floor;
+/// indoors the whole room is the board's: the Boomers' mess hall at Nellis is 4000 across,
+/// owner 2026-11-05), and how far below and above the bull its feet may be: the line's
+/// floor is about 110 below the bull [observed: the Atomic Wrangler's board, bull at
+/// 13705, floor 13593; design].
 pub const REACH: f32 = 1400.0;
 pub const BELOW: f32 = 200.0;
 pub const ABOVE: f32 = 60.0;
@@ -69,19 +74,20 @@ fn mix(a: u32, b: u32) -> u64 {
     z ^ (z >> 31)
 }
 
-/// Whether actor `r` (a placed actor of `cell`) can come over to play at a board whose
-/// line is at `line`: still in the cell, on the line's floor, and [`fits`].
-fn regular(g: &mut Game, r: FormId, cell: FormId, line: [f32; 3]) -> bool {
-    let Some(p) = g.world.placed.get(r).filter(|p| p.sig == *b"ACHR") else { return false };
+/// How far actor `r` (a placed actor of `cell`) is from a board whose line is at `line`,
+/// across the floor from where the data places it (the same in every save), when it can
+/// come over to play: still in the cell, on the line's floor, within `reach`, and
+/// [`fits`].
+fn regular(g: &mut Game, r: FormId, cell: FormId, line: [f32; 3], reach: f32) -> Option<f32> {
+    let p = g.world.placed.get(r).filter(|p| p.sig == *b"ACHR")?;
+    let placed = p.pos;
     let (c, pos) = match g.world.peek(r) {
         Some(s) => (s.cell, s.pos),
         None => (p.cell, p.pos),
     };
-    c == Some(cell) && near(Some(pos), line) && fits(g, r)
-}
-
-fn near(pos: Option<[f32; 3]>, line: [f32; 3]) -> bool {
-    pos.is_some_and(|p| (p[0] - line[0]).hypot(p[1] - line[1]) < REACH && (-BELOW..ABOVE).contains(&(p[2] - line[2])))
+    let across = (placed[0] - line[0]).hypot(placed[1] - line[1]);
+    let floor = (-BELOW..ABOVE).contains(&(pos[2] - line[2]));
+    (c == Some(cell) && floor && across < reach && fits(g, r)).then_some(across)
 }
 
 fn fits(g: &mut Game, r: FormId) -> bool {
@@ -108,9 +114,12 @@ pub fn roster(g: &mut Game, board: FormId, frame: &BoardFrame) -> Vec<Pick> {
     let Some(cell) = g.world.peek(board).and_then(|s| s.cell).or_else(|| g.world.placed.get(board).and_then(|p| p.cell)) else { return Vec::new() };
     let line = frame.to_world(UP);
     let here: Vec<FormId> = g.world.placed.by_cell.get(&cell).cloned().unwrap_or_default();
-    let mut regulars: Vec<FormId> = here.into_iter().filter(|r| regular(g, *r, cell, line)).collect();
+    // Indoors the room's people, outdoors those near; the nearest few, in a fixed order.
+    let reach = if g.world.worldspace_of(board).is_none() { f32::INFINITY } else { REACH };
+    let mut near: Vec<(FormId, f32)> = here.into_iter().filter_map(|r| regular(g, r, cell, line, reach).map(|d| (r, d))).collect();
+    near.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.0.cmp(&b.0.0)));
+    let mut regulars: Vec<FormId> = near.into_iter().take(MAX_REGULARS).map(|(r, _)| r).collect();
     regulars.sort_by_key(|r| mix(board.0, r.0));
-    regulars.truncate(MAX_REGULARS);
     let mut out: Vec<Pick> = regulars.into_iter().map(Pick::Regular).collect();
     if out.len() < 2 {
         let edid = g.data.name(cell);
@@ -249,11 +258,13 @@ pub fn send_off(g: &mut Game, o: &Opponent) {
     let _ = g.world.set_deleted(r, true);
 }
 
-/// One step of the walk to `target` (game space) at [`WALK`]; facing `face` there.
+/// One step of the walk to `target` (game space) at [`WALK`] (at [`RUN`] while far);
+/// facing `face` there.
 pub fn step_to(o: &mut Opponent, target: [f32; 3], face: f32, dt: f32) {
     let (dx, dy) = (target[0] - o.feet[0], target[1] - o.feet[1]);
     let d = dx.hypot(dy);
-    let step = WALK * dt.max(0.0);
+    // Far off it runs (its gait follows its speed), near it walks.
+    let step = (if d > RUN_BEYOND { RUN } else { WALK }) * dt.max(0.0);
     if d <= step.max(1.0) {
         o.feet = target;
         o.heading = face;

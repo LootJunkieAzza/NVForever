@@ -97,13 +97,23 @@ fn stage(mut st: ResMut<Stage>, screen: Res<DartsScreen>, mut control: ResMut<Pl
 }
 
 /// The darts opponent's body: held where the game walks it and let go after (a new one,
-/// or none, lets the last go).
-fn opponent(opp: Res<nvf_play::darts_foes::DartsOpponent>, mut residents: Option<ResMut<crate::residents::Residents>>, mut held: Local<Option<u32>>) {
+/// or none, lets the last go). Its weapon is put out of sight meanwhile: a Boomer's
+/// launcher on its back filled the view from behind the line (owner 2026-11-05).
+fn opponent(
+    opp: Res<nvf_play::darts_foes::DartsOpponent>,
+    mut residents: Option<ResMut<crate::residents::Residents>>,
+    mut held: Local<Option<(u32, Option<Entity>)>>,
+    rigs: Query<&crate::limbs::ActorRig>,
+    mut shown: Query<&mut Visibility>,
+) {
     let o = opp.0.as_ref().filter(|o| !o.gone);
-    if let Some(id) = *held {
+    if let Some((id, weapon)) = *held {
         if o.is_none_or(|o| o.actor.0 != id) {
             if let Some(r) = residents.as_deref_mut() {
                 r.release_pose(id);
+            }
+            if let Some(mut v) = weapon.and_then(|w| shown.get_mut(w).ok()) {
+                *v = Visibility::Inherited;
             }
             info!("darts opponent: 0x{id:08X} is its AI's again");
             *held = None;
@@ -115,7 +125,18 @@ fn opponent(opp: Res<nvf_play::darts_foes::DartsOpponent>, mut residents: Option
     }
     if held.is_none() {
         info!("darts opponent: 0x{:08X} ({}) is walked by the game", o.actor.0, o.name);
-        *held = Some(o.actor.0);
+        *held = Some((o.actor.0, None));
+    }
+    // Its weapon's node, hidden once its body is drawn.
+    if let Some((_, weapon @ None)) = held.as_mut() {
+        let node = rigs.iter().find(|r| r.reference == o.actor.0).and_then(|r| {
+            let i = r.skel.names.iter().position(|n| n.as_deref() == Some(crate::weapons::WEAPON_NODE))?;
+            r.nodes.get(i).copied()
+        });
+        if let Some(mut v) = node.and_then(|n| shown.get_mut(n).ok()) {
+            *v = Visibility::Hidden;
+            *weapon = node;
+        }
     }
 }
 
