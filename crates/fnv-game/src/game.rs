@@ -1447,6 +1447,9 @@ pub struct Game<'a> {
     /// On a guest: the host's active quest, which its quest list, objectives and markers
     /// show in place of this game's own (`None`: the host has none).
     pub coop_host_quest: Option<crate::coop::HostQuest>,
+    /// On a co-op host: what its scripts gave the player around each completed quest, for
+    /// the guests (`crate::coop_rewards`). Not saved.
+    pub coop_rewards: crate::coop_rewards::RewardLedger,
     /// Forms added to form lists at run time.
     pub form_lists: BTreeMap<FormId, Vec<FormId>>,
     pub loaded_cells: BTreeSet<FormId>,
@@ -2148,6 +2151,7 @@ impl<'a> Game<'a> {
             coop_actors: BTreeMap::new(),
             coop_guest: false,
             coop_host_quest: None,
+            coop_rewards: crate::coop_rewards::RewardLedger::default(),
             form_lists: BTreeMap::new(),
             loaded_cells: BTreeSet::new(),
             moved: BTreeSet::new(),
@@ -2220,6 +2224,10 @@ impl<'a> Game<'a> {
             EventKind::ItemAdded { to: FormId::PLAYER_REF, item, count, .. } => Some((item, count)),
             _ => None,
         };
+        // Caps for the player: part of a completed quest's reward for co-op guests.
+        if let Some((crate::coop_rewards::CAPS, count)) = acquired {
+            self.coop_rewards.gain(self.frame, 0.0, count);
+        }
         self.events.push(Event { frame: self.frame, kind });
         // Items coming to the player count towards the acquire challenges (`crate::challenges`).
         if let Some((item, count)) = acquired {

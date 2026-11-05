@@ -3623,3 +3623,29 @@ fn console_plm_clm_s1st_setvel_and_the_small_ones() {
     run(&mut g, "TestRaceSexTerimnal", &none, &[]).unwrap();
     assert_eq!(g.race_menu, fnv_game::game::RaceMenu::Creator);
 }
+
+/// A co-op guest takes a quest's reward the host completed (private fork): the XP as
+/// RewardXP gives it. On a host, caps that reach the player count towards the reward of
+/// a quest completed around then (`coop_rewards`). (The fixture has no caps form, so the
+/// caps go in as the event AddItem emits.)
+#[test]
+fn a_guest_takes_the_hosts_quest_reward() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let caps = fnv_game::coop_rewards::CAPS;
+    let xp0 = g.player.xp;
+    assert_eq!(g.take_coop_reward(250.0, 0).unwrap(), 250.0);
+    assert_eq!(g.player.xp, xp0 + 250.0);
+    let paid = |g: &mut Game| g.emit(fnv_game::trace::EventKind::ItemAdded { to: FormId::PLAYER_REF, item: caps, count: 40, silent: false });
+    // Off (a guest, a game alone): nothing kept.
+    paid(&mut g);
+    assert!(g.coop_rewards.due(u64::MAX).is_empty());
+    // A host: the caps a script gives count.
+    g.coop_rewards.on = true;
+    paid(&mut g);
+    let frame = g.frame;
+    g.coop_rewards.completed(frame, FormId(QUEST));
+    let due = g.coop_rewards.due(frame + fnv_game::coop_rewards::AFTER);
+    assert_eq!(due, [fnv_game::coop_rewards::QuestReward { quest: FormId(QUEST), xp: 0.0, caps: 40 }]);
+}

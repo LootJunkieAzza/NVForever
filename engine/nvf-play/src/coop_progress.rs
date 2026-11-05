@@ -1,0 +1,421 @@
+//! Shared co-op progression (private fork, not upstream; owner's asks of 2026-11-04):
+//!
+//! - **Quest rewards.** When the host completes a quest, each guest gets that quest's XP
+//!   and caps (`fnv_game::coop_rewards`: the host's game measures what its scripts gave
+//!   for it; a guest takes it with `Game::take_coop_reward`). Item rewards stay the
+//!   host's: they belong to a later "synced progression" option, not built.
+//! - **A save by anyone saves everyone** (anti-exploit: nobody keeps a save the others
+//!   lack). A save this game makes is announced ([`Shared::Save`] out), and a save
+//!   another player made is followed: this game saves the same kind as soon as saving is
+//!   allowed (`save::not_now`). A followed save is not announced again, and an autosave
+//!   (or system save) within [`AUTO_QUIET`] seconds of the last shared save is not
+//!   announced either, so a trip that autosaves in every game does not set off rounds of
+//!   saves. A guest's save is still its own game where it left it, with the character as
+//!   it is now (`save::SoloBase`, commit f83a276a).
+//! - **Everyone down: back to the last shared save.** When every player is down at once
+//!   (the others lost or down: nobody left to revive) for [`DOWN_HOLD`] seconds, the
+//!   host tells every game to load its last shared save ([`Shared::Reload`]) and loads
+//!   its own [`RELOAD_DELAY`] seconds later, so the message is out before its game starts
+//!   again. A load restarts the game with its lobby (nvforever `coop`), so the guests
+//!   come back into the host's world as it was at that save. The last shared save's path
+//!   is kept in [`SHARED_ENV`] across those restarts.
+//!
+//! nvforever's `coop` moves the messages: it sets [`CoopProgress::role`] and
+//! [`CoopProgress::everyone_down`], puts what it heard in `inbox` and sends `outbox`.
+
+use crate::save::{LoadRequest, SaveConfig, SaveDone, SaveRequest};
+use crate::script::ScriptState;
+use bevy::prelude::*;
+use fnv_save::SaveKind;
+use fnv_sim::FormId;
+use std::path::{Path, PathBuf};
+
+/// An autosave or system save this soon (seconds) after the last shared save is not
+/// announced.
+pub const AUTO_QUIET: f64 = 20.0;
+/// Everyone must stay down this long before the host reloads (a revive in flight).
+pub const DOWN_HOLD: f64 = 3.0;
+/// The host loads this long after telling the guests to.
+pub const RELOAD_DELAY: f64 = 0.5;
+/// The last shared save's path, kept across the restart a load makes.
+pub const SHARED_ENV: &str = "NVF_COOP_SHARED_SAVE";
+
+/// This game's part in a co-op session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Role {
+    #[default]
+    Solo,
+    Host,
+    Guest,
+}
+
+/// Shared progression between the games (nvf-coop `net::Progress`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shared {
+    Reward { quest: u32, xp: u32, caps: u32 },
+    Save { stamp: u32, kind: SaveKind },
+    Reload { stamp: u32 },
+}
+
+/// The mailbox between this module and nvforever's `coop`.
+#[derive(Resource, Debug, Default)]
+pub struct CoopProgress {
+    pub role: Role,
+    /// Every player is down now (the host's view; module notes).
+    pub everyone_down: bool,
+    /// Heard from player `id`.
+    pub inbox: Vec<(u8, Shared)>,
+    /// To send.
+    pub outbox: Vec<Shared>,
+    pub saves: SharedSaves,
+}
+
+/// What a game does about its own save just written ([`SharedSaves::saved`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Announce {
+    /// Tell the others to save too.
+    Tell,
+    /// One another player asked for: already shared.
+    Followed,
+    /// An autosave right after a shared save: not told.
+    Quiet,
+}
+
+/// What the host's all-down watch asks for ([`SharedSaves::down`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DownStep {
+    Wait,
+    /// Tell the guests to load their last shared save.
+    TellReload,
+    /// Load this game's last shared save.
+    Load(PathBuf),
+    /// Everyone is down and there is no shared save to go back to.
+    NoSave,
+}
+
+/// The shared saves' bookkeeping (module notes); pure, so it is tested alone.
+#[derive(Debug, Clone, Default)]
+pub struct SharedSaves {
+    /// Saves another player asked for, still to be asked of the save system.
+    pub waiting: Vec<SaveKind>,
+    /// Saves asked for because another player saved: not announced when written.
+    following: Vec<PathBuf>,
+    /// The last shared save, and when it was written (seconds).
+    pub last: Option<PathBuf>,
+    last_at: Option<f64>,
+    /// The host's all-down watch: since when everyone is down, and when the reload was told.
+    down_since: Option<f64>,
+    told_at: Option<f64>,
+    loaded: bool,
+    told_no_save: bool,
+}
+
+impl SharedSaves {
+    /// Another player saved `kind`: this game saves it too (once, however often heard
+    /// before it could).
+    pub fn heard_save(&mut self, kind: SaveKind) {
+        if !self.waiting.contains(&kind) {
+            self.waiting.push(kind);
+        }
+    }
+
+    /// A followed save was asked for, to be written at `path`.
+    pub fn following(&mut self, path: PathBuf) {
+        self.following.push(path);
+    }
+
+    /// This game wrote the save at `path` (`auto`: an autosave or system save) at `now`.
+    pub fn saved(&mut self, path: &Path, auto: bool, now: f64) -> Announce {
+        let what = if let Some(i) = self.following.iter().position(|p| p == path) {
+            self.following.remove(i);
+            Announce::Followed
+        } else if auto && self.last_at.is_some_and(|t| now - t < AUTO_QUIET) {
+            Announce::Quiet
+        } else {
+            Announce::Tell
+        };
+        if what != Announce::Quiet {
+            self.last = Some(path.to_path_buf());
+            self.last_at = Some(now);
+        }
+        what
+    }
+
+    /// The host's watch, each frame: `all_down` now, at `now` (seconds).
+    pub fn down(&mut self, all_down: bool, now: f64) -> DownStep {
+        if !all_down {
+            self.down_since = None;
+            self.told_at = None;
+            self.loaded = false;
+            self.told_no_save = false;
+            return DownStep::Wait;
+        }
+        let since = *self.down_since.get_or_insert(now);
+        if self.loaded || now - since < DOWN_HOLD {
+            return DownStep::Wait;
+        }
+        let Some(path) = self.last.clone() else {
+            if self.told_no_save {
+                return DownStep::Wait;
+            }
+            self.told_no_save = true;
+            return DownStep::NoSave;
+        };
+        match self.told_at {
+            None => {
+                self.told_at = Some(now);
+                DownStep::TellReload
+            }
+            Some(t) if now - t >= RELOAD_DELAY => {
+                self.loaded = true;
+                DownStep::Load(path)
+            }
+            Some(_) => DownStep::Wait,
+        }
+    }
+}
+
+/// Every player is down: this one, and each other one down or lost (nobody left to
+/// revive); `others` is (down, lost) per other player, and there must be one.
+pub fn everyone_down(me_down: bool, others: impl IntoIterator<Item = (bool, bool)>) -> bool {
+    let mut any = false;
+    for (down, lost) in others {
+        any = true;
+        if !down && !lost {
+            return false;
+        }
+    }
+    me_down && any
+}
+
+/// The save request a followed save of `kind` makes (a manual save gets a new name).
+fn follow_request(kind: SaveKind, cfg: &SaveConfig) -> SaveRequest {
+    let name = match kind {
+        SaveKind::Quick => fnv_save::QUICK_NAME.to_string(),
+        SaveKind::Auto => fnv_save::AUTO_NAME.to_string(),
+        SaveKind::System => fnv_save::SYSTEM_NAME.to_string(),
+        SaveKind::Manual => crate::pause::new_save_name(cfg),
+    };
+    SaveRequest { name, kind }
+}
+
+fn stamp() -> u32 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u32)
+}
+
+pub struct CoopProgressPlugin;
+
+impl Plugin for CoopProgressPlugin {
+    fn build(&self, app: &mut App) {
+        let mut p = CoopProgress::default();
+        p.saves.last = std::env::var_os(SHARED_ENV).map(PathBuf::from).filter(|p| p.exists());
+        app.insert_resource(p).add_systems(Update, (take_inbox, rewards, announce_saves, all_down).chain().in_set(crate::PlaySet::Ui)).add_systems(Update, follow_saves.after(crate::PlaySet::Ui));
+    }
+}
+
+fn say(corner: &mut Option<ResMut<crate::corner_messages::CornerMessages>>, n: String) {
+    info!("co-op: {n}");
+    if let Some(c) = corner.as_mut() {
+        c.push(n.into());
+    }
+}
+
+/// What the other players sent: rewards taken, saves to follow, the reload.
+fn take_inbox(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>, mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>, mut load: MessageWriter<LoadRequest>) {
+    let p = &mut *p;
+    let mut script = script;
+    for (id, what) in std::mem::take(&mut p.inbox) {
+        match what {
+            Shared::Reward { quest, xp, caps } if p.role == Role::Guest && id == 0 => {
+                let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else {
+                    warn!("co-op: a quest reward came before the scripts run: {xp} XP, {caps} caps lost");
+                    continue;
+                };
+                let name = rt.game.data.name(FormId(quest));
+                match rt.game.take_coop_reward(xp as f64, caps as i32) {
+                    Ok(gained) => say(&mut corner, format!("The host completed {name}: +{gained} XP{}", if caps > 0 { format!(", +{caps} caps") } else { String::new() })),
+                    Err(e) => warn!("co-op: the reward for {name} could not be given: {e}"),
+                }
+            }
+            Shared::Save { kind, .. } if p.role != Role::Solo => {
+                info!("co-op: player {} saved ({kind:?}): this game saves too", id + 1);
+                p.saves.heard_save(kind);
+            }
+            Shared::Reload { .. } if p.role == Role::Guest && id == 0 => match p.saves.last.clone() {
+                Some(path) => {
+                    say(&mut corner, "Everyone is down: back to the last shared save".into());
+                    load.write(LoadRequest { path });
+                }
+                None => say(&mut corner, "Everyone is down, and this game has no shared save to go back to".into()),
+            },
+            other => debug!("co-op: dropped {other:?} from player {}", id + 1),
+        }
+    }
+}
+
+/// The host: rewards of the quests it completed, for the guests.
+fn rewards(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>) {
+    let Some(mut st) = script else { return };
+    let Some(rt) = st.rt.as_mut() else { return };
+    let host = p.role == Role::Host;
+    if rt.game.coop_rewards.on != host {
+        rt.game.coop_rewards = fnv_game::coop_rewards::RewardLedger::default();
+        rt.game.coop_rewards.on = host;
+    }
+    if !host {
+        return;
+    }
+    for r in rt.game.coop_rewards.due(rt.game.frame) {
+        info!("co-op: {} completed: {} XP and {} caps to the guests", rt.game.data.name(r.quest), r.xp, r.caps);
+        p.outbox.push(Shared::Reward { quest: r.quest.0, xp: r.xp.max(0.0) as u32, caps: r.caps.max(0) as u32 });
+    }
+}
+
+/// This game's saves: announced to the others unless followed or quiet.
+fn announce_saves(mut p: ResMut<CoopProgress>, mut done: MessageReader<SaveDone>, cfg: Res<SaveConfig>, time: Res<Time>) {
+    let now = time.elapsed_secs_f64();
+    for d in done.read() {
+        if d.result.is_err() || p.role == Role::Solo {
+            continue;
+        }
+        let slot = |n: &str| cfg.path_of(n).ok();
+        let kind = if Some(&d.path) == slot(fnv_save::QUICK_NAME).as_ref() {
+            SaveKind::Quick
+        } else if Some(&d.path) == slot(fnv_save::AUTO_NAME).as_ref() {
+            SaveKind::Auto
+        } else if Some(&d.path) == slot(fnv_save::SYSTEM_NAME).as_ref() {
+            SaveKind::System
+        } else {
+            SaveKind::Manual
+        };
+        let what = p.saves.saved(&d.path, matches!(kind, SaveKind::Auto | SaveKind::System), now);
+        if what != Announce::Quiet {
+            std::env::set_var(SHARED_ENV, &d.path);
+        }
+        if what == Announce::Tell {
+            let stamp = stamp();
+            info!("co-op: saved {} ({kind:?}): every game saves too (shared save {stamp:08x})", d.path.display());
+            p.outbox.push(Shared::Save { stamp, kind });
+        }
+    }
+}
+
+/// Saves another player made, written here as soon as saving is allowed.
+fn follow_saves(world: &mut World) {
+    if world.get_resource::<CoopProgress>().is_none_or(|p| p.saves.waiting.is_empty()) || world.contains_resource::<crate::save::PendingEngine>() {
+        return;
+    }
+    if crate::save::not_now(world).is_some() {
+        return;
+    }
+    let cfg = world.resource::<SaveConfig>().clone();
+    let kinds = std::mem::take(&mut world.resource_mut::<CoopProgress>().saves.waiting);
+    for kind in kinds {
+        let r = follow_request(kind, &cfg);
+        match cfg.path_of(&r.name) {
+            Ok(path) => {
+                info!("save: a co-op save: {:?} because another player saved", r.name);
+                world.resource_mut::<CoopProgress>().saves.following(path);
+                world.write_message(r);
+            }
+            Err(e) => warn!("save: a co-op save cannot be made: {e}"),
+        }
+    }
+}
+
+/// The host: everyone down for [`DOWN_HOLD`]: every game back to its last shared save.
+fn all_down(mut p: ResMut<CoopProgress>, time: Res<Time>, mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>, mut load: MessageWriter<LoadRequest>) {
+    let p = &mut *p;
+    if p.role != Role::Host {
+        return;
+    }
+    match p.saves.down(p.everyone_down, time.elapsed_secs_f64()) {
+        DownStep::Wait => {}
+        DownStep::TellReload => {
+            say(&mut corner, "Everyone is down: back to the last shared save".into());
+            p.outbox.push(Shared::Reload { stamp: stamp() });
+        }
+        DownStep::Load(path) => {
+            info!("co-op: everyone down: loading the last shared save {}", path.display());
+            load.write(LoadRequest { path });
+        }
+        DownStep::NoSave => say(&mut corner, "Everyone is down, and there is no shared save to go back to".into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn path(s: &str) -> PathBuf {
+        PathBuf::from(s)
+    }
+
+    #[test]
+    fn own_saves_are_told_followed_ones_are_not() {
+        let mut s = SharedSaves::default();
+        assert_eq!(s.saved(&path("a.nvs"), false, 0.0), Announce::Tell);
+        assert_eq!(s.last, Some(path("a.nvs")));
+        // Another player saved: this game follows, and does not tell again.
+        s.heard_save(SaveKind::Quick);
+        s.heard_save(SaveKind::Quick);
+        assert_eq!(s.waiting, [SaveKind::Quick], "one save however often heard");
+        s.following(path("quick.nvs"));
+        assert_eq!(s.saved(&path("quick.nvs"), false, 100.0), Announce::Followed);
+        assert_eq!(s.last, Some(path("quick.nvs")));
+        // The same slot written again by this player's own hand: told.
+        assert_eq!(s.saved(&path("quick.nvs"), false, 101.0), Announce::Tell);
+    }
+
+    #[test]
+    fn autosaves_right_after_a_shared_save_are_quiet() {
+        let mut s = SharedSaves::default();
+        // The first autosave of a session is told.
+        assert_eq!(s.saved(&path("auto.nvs"), true, 0.0), Announce::Tell);
+        // The trip's autosave in each game: not another round.
+        assert_eq!(s.saved(&path("auto.nvs"), true, 5.0), Announce::Quiet);
+        // A manual save is always told.
+        assert_eq!(s.saved(&path("Save 3.nvs"), false, 6.0), Announce::Tell);
+        assert_eq!(s.last, Some(path("Save 3.nvs")));
+        assert_eq!(s.saved(&path("auto.nvs"), true, 6.0 + AUTO_QUIET), Announce::Tell);
+    }
+
+    #[test]
+    fn everyone_down_needs_every_player() {
+        assert!(everyone_down(true, [(true, false), (false, true)]), "a lost player cannot revive");
+        assert!(!everyone_down(true, [(true, false), (false, false)]));
+        assert!(!everyone_down(false, [(true, false)]));
+        assert!(!everyone_down(true, []), "alone: not a co-op wipe");
+    }
+
+    #[test]
+    fn all_down_tells_then_loads_once() {
+        let mut s = SharedSaves::default();
+        s.saved(&path("shared.nvs"), false, 0.0);
+        assert_eq!(s.down(true, 10.0), DownStep::Wait);
+        assert_eq!(s.down(true, 10.0 + DOWN_HOLD - 0.1), DownStep::Wait);
+        // A revive in time: the watch starts again.
+        assert_eq!(s.down(false, 12.0), DownStep::Wait);
+        assert_eq!(s.down(true, 20.0), DownStep::Wait);
+        assert_eq!(s.down(true, 20.0 + DOWN_HOLD), DownStep::TellReload);
+        assert_eq!(s.down(true, 20.0 + DOWN_HOLD + 0.1), DownStep::Wait, "the message goes out first");
+        assert_eq!(s.down(true, 20.0 + DOWN_HOLD + RELOAD_DELAY), DownStep::Load(path("shared.nvs")));
+        assert_eq!(s.down(true, 30.0), DownStep::Wait, "once");
+    }
+
+    #[test]
+    fn all_down_without_a_shared_save_says_so_once() {
+        let mut s = SharedSaves::default();
+        s.down(true, 0.0);
+        assert_eq!(s.down(true, DOWN_HOLD), DownStep::NoSave);
+        assert_eq!(s.down(true, DOWN_HOLD + 1.0), DownStep::Wait);
+    }
+
+    #[test]
+    fn a_followed_manual_save_gets_a_new_name() {
+        let cfg = SaveConfig { dir: None, autosave_travel: true, autosave_fast_travel: true, autosave_wait: true, autosave_sleep: true, autosave_scripts: true };
+        assert_eq!(follow_request(SaveKind::Quick, &cfg).name, fnv_save::QUICK_NAME);
+        assert_eq!(follow_request(SaveKind::Auto, &cfg).kind, SaveKind::Auto);
+        assert_eq!(follow_request(SaveKind::Manual, &cfg).kind, SaveKind::Manual);
+    }
+}

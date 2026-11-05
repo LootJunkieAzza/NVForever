@@ -26,6 +26,9 @@
 //! The lines the host's NPCs are saying (a scene between two of them, a Say, a hello) go
 //! to the guests ([`LineView`], every [`LINES_EVERY`] and at once when they change), who
 //! hear them and see their subtitles as the host does.
+//! Shared progression goes the same way ([`Session::send_progress`], [`Progress`]): a
+//! quest the host completed pays each guest its XP and caps, a save by anyone saves every
+//! game, and the host tells everyone to load the last shared save when all are down.
 //!
 //! **Minigame tables.** A player at a table (blackjack, roulette, slots, darts, five
 //! finger fillet) sends what it shows ([`Session::set_table`], a view: the newest wins,
@@ -53,7 +56,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 pub const MAGIC: [u8; 4] = *b"NVCO";
-pub const VERSION: u8 = 13;
+pub const VERSION: u8 = 14;
 pub const MAX_GUESTS: usize = 3;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -314,6 +317,37 @@ enum Msg {
     Table { id: u8, table: u32, game: u8, seq: u32, blob: Vec<u8> },
     /// Player `id` plays an animation for an item ([`AnimCue`]).
     Anim { id: u8, seq: u16, cue: AnimCue },
+    /// Shared progression from player `id` ([`Progress`]).
+    Progress { id: u8, seq: u16, what: Progress },
+}
+
+/// Shared progression (co-op progression, [`Session::send_progress`]). Each is sent
+/// [`HIT_COPIES`] times and taken once.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Progress {
+    /// The host completed `quest` (FormID in the load order every game runs): each guest
+    /// gets its `xp` (as `RewardXP` gives it) and `caps`. Only the host's are taken.
+    Reward { quest: u32, xp: u32, caps: u32 },
+    /// The sender saved: every game saves now, so nobody keeps a save the others lack.
+    /// `stamp` names this shared save (the sender's choice, for the logs); `kind` is
+    /// the sender's save kind ([`Progress::MANUAL`], [`Progress::QUICK`],
+    /// [`Progress::AUTO`], [`Progress::SYSTEM`]): each game saves the same kind.
+    Save { stamp: u32, kind: u8 },
+    /// Every player is down with nobody left to revive: every game loads its last shared
+    /// save. Only the host's are taken.
+    Reload { stamp: u32 },
+}
+
+impl Progress {
+    pub const MANUAL: u8 = 0;
+    pub const QUICK: u8 = 1;
+    pub const AUTO: u8 = 2;
+    pub const SYSTEM: u8 = 3;
+
+    /// Only the host may send it (a guest's is dropped).
+    pub fn host_only(&self) -> bool {
+        !matches!(self, Progress::Save { .. })
+    }
 }
 
 /// What a player's table shows now ([`Session::set_table`]).
@@ -429,6 +463,9 @@ pub enum Event {
     Table { id: u8, table: u32, game: u8, blob: Vec<u8> },
     /// Player `id` plays an animation for an item (each once).
     Anim { id: u8, cue: AnimCue },
+    /// Shared progression from player `id` (each once; [`Progress::host_only`] ones only
+    /// from the host).
+    Progress { id: u8, what: Progress },
 }
 
 /// A peer as one side sees it.
@@ -525,6 +562,8 @@ pub struct Session {
     /// Table messages heard, by sender: the newest view's seq and the actions' seqs.
     table_heard: Vec<(u8, Option<u32>, VecDeque<u32>)>,
     anims: AnimWire,
+    /// Shared progression sent and heard (the same bookkeeping as the animations').
+    progress: AnimWire,
     events: Vec<Event>,
 }
 
@@ -560,7 +599,7 @@ impl Session {
 
     fn with(sock: UdpSocket, role: Role) -> std::io::Result<Self> {
         sock.set_nonblocking(true)?;
-        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), events: Vec::new() })
+        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), events: Vec::new() })
     }
 
     /// Also talk over Steam: a host is reached through it by a Steam code, a guest reaches
@@ -735,6 +774,28 @@ impl Session {
         }
         self.anims.seq = self.anims.seq.wrapping_add(1);
         let msg = Msg::Anim { id, seq: self.anims.seq, cue };
+        let to: Vec<SocketAddr> = match &self.role {
+            Role::Host => self.peers.iter().filter_map(|p| p.addr).collect(),
+            Role::Guest { host: Some(host), .. } => vec![*host],
+            Role::Guest { .. } => Vec::new(),
+        };
+        for addr in to {
+            for _ in 0..HIT_COPIES {
+                self.sock_send(&msg, addr);
+            }
+        }
+    }
+
+    /// Shared progression ([`Progress`]): to the host, which passes it on, or from the
+    /// host to every guest ([`HIT_COPIES`] times). A guest's [`Progress::host_only`] one is
+    /// not sent.
+    pub fn send_progress(&mut self, what: Progress) {
+        let Some(id) = self.id() else { return };
+        if what.host_only() && id != 0 {
+            return;
+        }
+        self.progress.seq = self.progress.seq.wrapping_add(1);
+        let msg = Msg::Progress { id, seq: self.progress.seq, what };
         let to: Vec<SocketAddr> = match &self.role {
             Role::Host => self.peers.iter().filter_map(|p| p.addr).collect(),
             Role::Guest { host: Some(host), .. } => vec![*host],
@@ -1093,6 +1154,21 @@ impl Session {
                 }
                 self.events.push(Event::Anim { id, cue });
             }
+            Msg::Progress { id, seq, what } => {
+                // From the guest it names only, never a host's kind; taken here and passed
+                // on to the others.
+                if what.host_only() || !self.peers.iter().any(|p| p.addr == Some(from) && p.id == id) || !self.progress.first(id, seq) {
+                    return;
+                }
+                let msg = Msg::Progress { id, seq, what };
+                let to: Vec<SocketAddr> = self.peers.iter().filter(|p| p.id != id).filter_map(|p| p.addr).collect();
+                for addr in to {
+                    for _ in 0..HIT_COPIES {
+                        self.sock_send(&msg, addr);
+                    }
+                }
+                self.events.push(Event::Progress { id, what });
+            }
             Msg::Welcome { .. } | Msg::Full | Msg::Who | Msg::Npcs { .. } | Msg::Quest(_) | Msg::Clock(_) | Msg::Lines { .. } => {}
         }
     }
@@ -1232,6 +1308,11 @@ impl Session {
             Msg::Anim { id: player, seq, cue } => {
                 if Some(player) != *id && self.anims.first(player, seq) {
                     self.events.push(Event::Anim { id: player, cue });
+                }
+            }
+            Msg::Progress { id: player, seq, what } => {
+                if Some(player) != *id && (player == 0 || !what.host_only()) && self.progress.first(player, seq) {
+                    self.events.push(Event::Progress { id: player, what });
                 }
             }
             Msg::Hello { .. } | Msg::Ping => {}
@@ -1377,6 +1458,10 @@ impl Link {
 
     pub fn send_anim(&self, cue: AnimCue) {
         self.with(|s| s.send_anim(cue));
+    }
+
+    pub fn send_progress(&self, what: Progress) {
+        self.with(|s| s.send_progress(what));
     }
 
     pub fn events(&self) -> Vec<Event> {
@@ -1578,6 +1663,27 @@ fn encode(msg: &Msg) -> Vec<u8> {
                 b.extend_from_slice(&t.as_bytes()[..n]);
             }
         }
+        Msg::Progress { id, seq, what } => {
+            b.extend_from_slice(&[18, *id]);
+            b.extend_from_slice(&seq.to_le_bytes());
+            match what {
+                Progress::Reward { quest, xp, caps } => {
+                    b.push(0);
+                    for v in [quest, xp, caps] {
+                        b.extend_from_slice(&v.to_le_bytes());
+                    }
+                }
+                Progress::Save { stamp, kind } => {
+                    b.push(1);
+                    b.extend_from_slice(&stamp.to_le_bytes());
+                    b.push(*kind);
+                }
+                Progress::Reload { stamp } => {
+                    b.push(2);
+                    b.extend_from_slice(&stamp.to_le_bytes());
+                }
+            }
+        }
     }
     b
 }
@@ -1706,6 +1812,16 @@ fn decode(b: &[u8]) -> Option<Msg> {
             let (edid, clip) = (text()?, text()?);
             Msg::Anim { id, seq, cue: AnimCue { kind, style, power_armor, item, edid, clip } }
         }
+        18 => {
+            let (id, seq) = (r.u8()?, r.u16()?);
+            let what = match r.u8()? {
+                0 => Progress::Reward { quest: r.u32()?, xp: r.u32()?, caps: r.u32()? },
+                1 => Progress::Save { stamp: r.u32()?, kind: r.u8()? },
+                2 => Progress::Reload { stamp: r.u32()? },
+                _ => return None,
+            };
+            Msg::Progress { id, seq, what }
+        }
         13 => Msg::Clock(ClockView { year: r.f32()?, month: r.f32()?, day: r.f32()?, hour: r.f32()?, days_passed: r.f32()? }),
         17 => {
             let seq = r.u32()?;
@@ -1793,6 +1909,9 @@ mod tests {
             Msg::Table { id: 3, table: 7, game: 1, seq: 1, blob: vec![0xAB; TABLE_MAX] },
             Msg::Anim { id: 1, seq: 65_535, cue: AnimCue { kind: AnimCue::CONSUME, style: 2, power_armor: false, item: 0x0001_5169, edid: "Stimpak".into(), clip: "meshes\\characters\\_male\\idleanims\\b42inject\\0\\1\\stimpak\\stimpak.kf".into() } },
             Msg::Anim { id: 0, seq: 0, cue: AnimCue::default() },
+            Msg::Progress { id: 0, seq: 9, what: Progress::Reward { quest: 0x0010_4C1D, xp: 250, caps: 100 } },
+            Msg::Progress { id: 2, seq: 65_535, what: Progress::Save { stamp: u32::MAX, kind: Progress::SYSTEM } },
+            Msg::Progress { id: 0, seq: 0, what: Progress::Reload { stamp: 7 } },
             Msg::Npcs {
                 seq: 12,
                 npcs: vec![
@@ -1869,6 +1988,41 @@ mod tests {
         let addr: SocketAddr = format!("127.0.0.1:{}", host.local_addr().unwrap().port()).parse().unwrap();
         let guests = (0..n).map(|i| Session::join(&[addr], 0, &format!("G{i}"), new_token()).unwrap()).collect();
         (host, guests, addr)
+    }
+
+    /// A guest's save reaches the host and the other guest once; the host's reward and
+    /// reload reach every guest; a guest's reward is not sent.
+    #[test]
+    fn progress_reaches_everyone_once() {
+        let (mut host, mut guests, _) = host_and(2);
+        let (a, b) = guests.split_at_mut(1);
+        let (a, b) = (&mut a[0], &mut b[0]);
+        let mut clock = Instant::now();
+        let step = Duration::from_millis(20);
+        run(&mut [&mut host, a, b], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))) && seen[2].iter().any(|e| matches!(e, Event::Welcomed(_))));
+        let ida = a.id().unwrap();
+        let progress = |v: &[Event]| v.iter().filter(|e| matches!(e, Event::Progress { .. })).cloned().collect::<Vec<_>>();
+        // A guest may not pay the others.
+        a.send_progress(Progress::Reward { quest: 1, xp: 1, caps: 1 });
+        a.send_progress(Progress::Save { stamp: 42, kind: Progress::QUICK });
+        let mut seen = run(&mut [&mut host, a, b], &mut clock, step, |seen| !progress(&seen[0]).is_empty() && !progress(&seen[2]).is_empty());
+        for _ in 0..20 {
+            std::thread::sleep(Duration::from_millis(3));
+            clock += step;
+            for (i, s) in [&mut host, &mut *a, &mut *b].into_iter().enumerate() {
+                s.tick(clock);
+                seen[i].extend(s.take_events());
+            }
+        }
+        let saved = Event::Progress { id: ida, what: Progress::Save { stamp: 42, kind: Progress::QUICK } };
+        assert_eq!(progress(&seen[0]), std::slice::from_ref(&saved));
+        assert_eq!(progress(&seen[2]), [saved]);
+        assert!(progress(&seen[1]).is_empty(), "not back to its sender");
+        let reward = Progress::Reward { quest: 0x0010_4C1D, xp: 250, caps: 100 };
+        host.send_progress(reward);
+        host.send_progress(Progress::Reload { stamp: 9 });
+        let seen = run(&mut [&mut host, a, b], &mut clock, step, |seen| progress(&seen[1]).len() == 2 && progress(&seen[2]).len() == 2);
+        assert_eq!(progress(&seen[1]), [Event::Progress { id: 0, what: reward }, Event::Progress { id: 0, what: Progress::Reload { stamp: 9 } }]);
     }
 
     /// A guest's revive reaches the other guest through the host, and the host's own.

@@ -29,6 +29,7 @@ pub mod console;
 pub mod container_anim;
 pub mod control;
 pub mod coop_tables;
+pub mod coop_progress;
 pub mod minigames;
 pub mod corner_messages;
 pub mod crafting;
