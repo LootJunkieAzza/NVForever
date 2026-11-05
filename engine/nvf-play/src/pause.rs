@@ -1571,13 +1571,15 @@ fn open(
     mut status: ResMut<PauseStatus>,
     mut next: ResMut<NextState<PlayState>>,
     wheel: Option<Res<crate::weapon_wheel::WeaponWheel>>,
+    social: Option<Res<crate::coop_social::Social>>,
 ) {
     let by_aid = fire(&mut aid.open, time.elapsed_secs());
     if !keys.just_pressed(KeyCode::Escape) && !by_aid {
         return;
     }
-    // Esc closes the weapon wheel (`crate::weapon_wheel`), not the game.
-    if wheel.is_some_and(|w| w.holds_input()) && !by_aid {
+    // Esc closes the weapon wheel (`crate::weapon_wheel`), not the game; the co-op
+    // interaction wheel and trade panel too (`crate::coop_social`).
+    if (wheel.is_some_and(|w| w.holds_input()) || social.is_some_and(|s| s.holds_input())) && !by_aid {
         return;
     }
     if by_aid {

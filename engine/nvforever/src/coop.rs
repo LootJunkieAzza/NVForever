@@ -285,7 +285,7 @@ impl Plugin for CoopPlugin {
         }
         app.add_plugins((nvf_play::lobby::LobbyPlugin, nvf_play::coop_progress::CoopProgressPlugin))
             .insert_resource(coop)
-            .add_systems(Update, (lobby, send, take_events, tables, share_npcs, follow_npcs, leash, downed, progress).chain().after(nvf_play::PlaySet::Physics))
+            .add_systems(Update, (lobby, send, take_events, tables, social_mates, share_npcs, follow_npcs, leash, downed, progress, duel_falls).chain().after(nvf_play::PlaySet::Physics))
             .add_message::<PuppetShot>()
             .add_systems(Update, (stand_ins, draw, peer_lights, pipboy_share).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
     }
@@ -728,6 +728,9 @@ struct Peer {
     /// Every body of this player in the world is taken away before it is drawn again
     /// ([`Peer::undraw`]).
     purge: bool,
+    /// Lost a duel to this player: its puppet lies since then (seconds of `Time`;
+    /// [`duel_falls`]).
+    fell_at: Option<f32>,
 }
 
 impl Peer {
@@ -808,6 +811,85 @@ fn tables(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location
     link.set_table(tables.out.clone().map(|(table, game, blob)| net::TableView { table, game, blob }));
     for (table, game, blob) in std::mem::take(&mut tables.actions_out) {
         link.send_table_action(table, game, blob);
+    }
+}
+
+/// The other players for the interaction wheel (`nvf_play::coop_social`): who they are,
+/// where, and whether this player is indoors.
+fn social_mates(coop: Res<Coop>, loc: Option<Res<Location>>, mut mates: ResMut<nvf_play::coop_social::SocialMates>) {
+    use nvf_play::coop_social::{Mate, SocialMates};
+    let want = match (coop.link.as_ref(), loc.as_deref()) {
+        (Some(link), Some(loc)) => {
+            let here = place_of(loc);
+            SocialMates {
+                me: link.id(),
+                interior: loc.interior.is_some(),
+                mates: coop
+                    .peers
+                    .iter()
+                    .filter_map(|(&id, p)| {
+                        let &(_, s) = p.samples.back()?;
+                        Some(Mate { id, name: label(id, &p.name), reference: p.reference(id), here: s.place == here, feet: s.feet, yaw: s.yaw, down: s.has(flag::DOWN), lost: p.lost })
+                    })
+                    .collect(),
+            }
+        }
+        _ => SocialMates::default(),
+    };
+    if *mates != want {
+        *mates = want;
+    }
+}
+
+/// How long the loser of a duel lies on the winner's screen before its puppet stands
+/// again (seconds) [design: its own game's knockdown and get-up take about as long].
+const DUEL_FALL: f32 = 3.5;
+
+/// The loser of a duel against this player: its puppet falls as a downed player's does
+/// ([`downed`]), and stands again after [`DUEL_FALL`].
+#[allow(clippy::too_many_arguments)]
+fn duel_falls(
+    time: Res<Time>,
+    mut coop: ResMut<Coop>,
+    mut social: ResMut<nvf_play::coop_social::Social>,
+    mut script: Option<ResMut<nvf_play::script::ScriptState>>,
+    mut phys: Option<ResMut<nvf_play::phys::PhysState>>,
+    mut ragdolls: ResMut<crate::ragdoll::Ragdolls>,
+    mut hits: MessageWriter<ActorHit>,
+) {
+    let now = time.elapsed_secs();
+    let mut falls: Vec<u8> = Vec::new();
+    social.falls.retain(|&f| {
+        if f == u8::MAX {
+            return true;
+        }
+        falls.push(f);
+        false
+    });
+    let Some(g) = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game) else { return };
+    for id in falls {
+        let Some(p) = coop.peers.get_mut(&id).filter(|p| !p.down) else { continue };
+        let r = p.reference(id);
+        p.fell_at = Some(now);
+        g.extra.entry(FormId(r)).or_default().dead = true;
+        hits.write(ActorHit { form_id: r, died: true, knocked_out: false, location: -1, crippled: false, part_crippled: false, torso_crippled: false, by: None, share: 1.0, guard_broken: false, weapon: None });
+        info!("co-op: {} lost the duel: the puppet falls", label(id, &p.name));
+    }
+    for (&id, p) in coop.peers.iter_mut() {
+        if p.fell_at.is_none_or(|t| now - t < DUEL_FALL) {
+            continue;
+        }
+        p.fell_at = None;
+        if p.down {
+            continue;
+        }
+        let r = p.reference(id);
+        g.extra.entry(FormId(r)).or_default().dead = false;
+        if let Some(ph) = phys.as_deref_mut() {
+            ph.world.remove_ragdoll(r);
+        }
+        ragdolls.rest.remove(&r);
+        p.redraw = true;
     }
 }
 
@@ -1415,6 +1497,7 @@ fn stand_ins(
     mut sim: Option<ResMut<nvf_play::sim::SimState>>,
     mut script: Option<ResMut<nvf_play::script::ScriptState>>,
     (mut stats, main_menu, data_state): (ResMut<CombatStats>, Option<Res<nvf_play::main_menu::MainMenu>>, Option<Res<nvf_play::pipboy::data::DataState>>),
+    social: Option<Res<nvf_play::coop_social::Social>>,
 ) {
     let (Some(sim), Some(rt)) = (sim.as_deref_mut(), script.as_deref_mut().and_then(|s| s.rt.as_mut())) else { return };
     let coop = &mut *coop;
@@ -1435,6 +1518,12 @@ fn stand_ins(
     if let Some(link) = coop.link.as_ref() {
         for (by, h) in stats.coop_hits.drain(..) {
             let Some((&id, _)) = coop.peers.iter().find(|(_, p)| p.actor == Some(h.target)) else { continue };
+            // A duel does no damage (`nvf_play::coop_social`): this player's shots at its
+            // opponent are dropped.
+            if by == Some(FormId::PLAYER_REF) && social.as_deref().is_some_and(|s| s.spares(id)) {
+                info!("co-op: a hit on player {} dropped: they are dueling", id + 1);
+                continue;
+            }
             info!("co-op: {} hit player {} for {:.1}", by.map_or("something".to_string(), |b| b.to_string()), id + 1, h.dealt);
             link.send_hit_to(id, encode_hurt(by, &h));
         }

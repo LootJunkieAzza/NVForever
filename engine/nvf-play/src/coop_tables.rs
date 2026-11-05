@@ -33,6 +33,12 @@ pub mod game {
     pub const DARTS: u8 = 4;
     pub const FILLET: u8 = 5;
     pub const POKER: u8 = 6;
+    /// The interaction wheel's messages between two players (`crate::coop_social::wire`;
+    /// actions only, their table the player they are for).
+    pub const SOCIAL: u8 = 7;
+    /// A caravan game against another player (`crate::caravan::PvpWire`): only open, no
+    /// view (the world runs on behind it).
+    pub const CARAVAN: u8 = 8;
 
     /// The game's name, as the lobby and the notes say it.
     pub fn word(g: u8) -> &'static str {
@@ -43,6 +49,7 @@ pub mod game {
             DARTS => "darts",
             FILLET => "five finger fillet",
             POKER => "poker",
+            CARAVAN => "caravan",
             _ => "a table",
         }
     }
@@ -840,6 +847,7 @@ fn publish(
     time: crate::pause::AidTime,
     (bj, rl, sl): (Option<Res<crate::blackjack::BlackjackScreen>>, Option<Res<crate::roulette::RouletteScreen>>, Option<Res<crate::slots::SlotsScreen>>),
     (darts, fillet, poker): (Option<Res<crate::minigames::DartsScreen>>, Option<Res<crate::minigames::FilletScreen>>, Option<Res<crate::poker::PokerScreen>>),
+    pvp: Option<Res<crate::caravan::PvpWire>>,
 ) {
     let now = time.elapsed_secs();
     let me = tables.me.unwrap_or(0);
@@ -882,6 +890,9 @@ fn publish(
     if let Some(p) = poker.as_deref().and_then(|p| p.0.as_ref()) {
         at = Some((game::POKER, p.casino.deck() as u32));
         out = p.coop_view(&tables).map(|(id, blob)| (id, game::POKER, blob));
+    }
+    if let Some(mate) = pvp.and_then(|w| w.playing) {
+        at = Some((game::CARAVAN, mate as u32));
     }
     open.set_if_neq(OpenTable(at));
     if tables.out != out {

@@ -46,6 +46,9 @@ pub enum Action {
     /// A door whose reference is flagged Inaccessible (header bit 8): it shows its name
     /// with "Inaccessible" and E does nothing (docs/spec-notes/cells-refs.md §2).
     Inaccessible,
+    /// Another player in co-op (the fork): E opens the interaction wheel
+    /// (`crate::coop_social`), not the world's activation.
+    Player,
 }
 
 /// A lock level by the name the game gives it: the levels the editor offers, 0 Very Easy,
@@ -98,6 +101,8 @@ impl Action {
             Action::Name => String::new(),
             // [hypothesis: the flag's name, cells-refs.md §2]
             Action::Inaccessible => "Inaccessible".into(),
+            // [design: the owner's "an interact prompt (like Talk on NPCs)", 2026-11-04]
+            Action::Player => "Interact".into(),
         }
     }
 }

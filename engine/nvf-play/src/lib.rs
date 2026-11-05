@@ -28,6 +28,7 @@ pub mod compass_strip;
 pub mod console;
 pub mod container_anim;
 pub mod control;
+pub mod coop_social;
 pub mod coop_tables;
 pub mod coop_progress;
 pub mod minigames;
@@ -355,7 +356,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(tiles::TilesPlugin)
             .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin)
-            .add_plugins((coop_tables::CoopTablesPlugin, minigames::MinigamesPlugin, bash::BashPlugin))
+            .add_plugins((coop_tables::CoopTablesPlugin, coop_social::CoopSocialPlugin, minigames::MinigamesPlugin, bash::BashPlugin))
             .add_plugins(tutorial_menu::TutorialMenuPlugin)
             .add_plugins(credits::CreditsPlugin)
             .add_plugins(lockpick::LockpickPlugin)

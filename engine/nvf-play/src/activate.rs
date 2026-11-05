@@ -613,6 +613,10 @@ pub(crate) fn activate(
     }
     // An actor shown by name only (hostile, or a creature with nothing to say): E does
     // nothing (playtest list 4, item 19).
+    // Another player (co-op): the interaction wheel takes E (`crate::coop_social`).
+    if t.action == Action::Player {
+        return;
+    }
     if t.action == Action::Name {
         info!("activate 0x{:08X} {}: nothing to do (name only)", t.form_id, t.name);
         return;
