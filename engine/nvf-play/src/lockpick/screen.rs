@@ -259,6 +259,11 @@ impl Ctx<'_> {
         (rise, fall)
     }
 
+    /// How wide one line of text is in a font.
+    pub fn text_width(&self, kind: FontKind, s: &str) -> f32 {
+        text_line(self.face(kind).0, s).width
+    }
+
     /// Text in font 7 with its top at `top`; `right`: `x` is its right end. Its width.
     fn text(&mut self, p: &mut ChildSpawnerCommands, s: &str, x: f32, top: f32, right: bool, color: Color) -> f32 {
         self.text_in(p, FontKind::Menu, s, x, top, right, color)

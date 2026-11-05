@@ -82,6 +82,9 @@ const CHIP_STACK_GAP: f32 = 2.0;
 const BET_FORWARD: f32 = 4.5;
 const BET_LEFT: f32 = 1.0;
 const FELT_BELOW_CARDS: f32 = 0.12;
+/// The least distance from one card of a hand to the next, so each card's corner shows
+/// [design: fitted by eye; the felt's boxes are about 12 units apart].
+const CARD_SPREAD: f32 = 1.5;
 /// Most chips in one stack [design].
 const STACK_MAX: u32 = 20;
 /// The felt's five card boxes lie on a circle about this point (the table's space), this
@@ -112,14 +115,19 @@ struct CardModel {
 
 struct CardSlot {
     node: usize,
+    /// Moved this far (the card's parent space) once dealt, so the hand fans out.
+    spread: Vec3,
     entity: Entity,
     faces: Vec<Entity>,
     showing: Option<Card>,
 }
 
 impl CardModel {
-    fn new(rig: Rig, prefix: &'static str, by_name: &HashMap<String, Entity>, shapes: &[Entity]) -> Option<CardModel> {
+    /// `across`: the way a hand fans out when its sequences leave the cards in one place
+    /// (the table's space, flat).
+    fn new(rig: Rig, prefix: &'static str, by_name: &HashMap<String, Entity>, shapes: &[Entity], across: Vec3) -> Option<CardModel> {
         let mut cards = Vec::new();
+        let spreads = spreads(&rig, prefix, across);
         for n in 1..=7 {
             let name = format!("{prefix}_{n:02}");
             let node = node_index(&rig, &name)?;
@@ -133,7 +141,8 @@ impl CardModel {
                 .filter(|(s, _)| rig.nodes[s.node].name.as_deref().is_some_and(|m| m.to_ascii_lowercase().starts_with(&face_prefix)) || (s.node == node))
                 .map(|(_, e)| *e)
                 .collect();
-            cards.push(CardSlot { node, entity, faces, showing: None });
+            let spread = spreads.get(n - 1).copied().unwrap_or(Vec3::ZERO);
+            cards.push(CardSlot { node, entity, spread, faces, showing: None });
         }
         Some(CardModel { rig, prefix, cards })
     }
@@ -141,6 +150,31 @@ impl CardModel {
     fn clip(&self, name: &str) -> Option<&Clip> {
         self.rig.group(name)
     }
+}
+
+/// Each card's move (its parent's space) that puts it at least [`CARD_SPREAD`] past the
+/// one before, along the way the deal sequences lay the hand out (the first card towards
+/// the second, flat on the felt), else `across` [design: the sequences leave the cards
+/// almost on top of each other, so only the top one reads; the owner's screenshot].
+fn spreads(rig: &Rig, prefix: &str, across: Vec3) -> Vec<Vec3> {
+    let ends: Vec<Option<(usize, Vec3)>> = (1..=7)
+        .map(|n| {
+            let name = format!("{prefix}_{n:02}");
+            node_index(rig, &name).map(|i| (i, end_of(rig, rig.group(&name), i)))
+        })
+        .collect();
+    let (Some((_, first)), Some((_, second))) = (ends[0], ends[1]) else { return Vec::new() };
+    let flat = |v: Vec3| Vec3::new(v.x, v.y, 0.0);
+    let dir = flat(second - first).try_normalize().filter(|_| flat(second - first).length() > 0.05).unwrap_or(across);
+    ends.iter()
+        .enumerate()
+        .map(|(k, e)| {
+            let Some((i, at)) = *e else { return Vec3::ZERO };
+            let along = (at - first).dot(dir);
+            let more = (k as f32 * CARD_SPREAD - along).max(0.0);
+            parent_chain(rig, i).inverse().transform_vector3(dir * more)
+        })
+        .collect()
 }
 
 /// Another player's seat as drawn: its hands' models and its chips, and its turn from
@@ -172,6 +206,8 @@ struct Drawn {
     arrows: [Option<Entity>; 2],
     player_spot: Vec3,
     dealer_spot: Vec3,
+    /// Across the table, left to right as the player sees it (the table's space).
+    across: Vec3,
     materials: HashMap<(Entity, Card), Handle<NifMaterial>>,
     warned: bool,
     /// The table stands where the world's does (`nvf_play::blackjack::Session::table_ref`):
@@ -428,7 +464,7 @@ fn build_seat(commands: &mut Commands, b: i32, models: &mut ModelCtx, drawn: &Dr
         for e in &shapes {
             commands.entity(*e).insert(layer.clone());
         }
-        let m = CardModel::new(rig, prefix, &by_name, &shapes)?;
+        let m = CardModel::new(rig, prefix, &by_name, &shapes, drawn.across)?;
         for c in &m.cards {
             commands.entity(c.entity).insert(Visibility::Hidden);
         }
@@ -463,6 +499,7 @@ fn build(commands: &mut Commands, s: &Session, models: &mut ModelCtx, window: &Q
     };
     // From the dealer towards the player, flat on the felt.
     let towards_player = Vec3::new(player_spot.x - dealer_spot.x, player_spot.y - dealer_spot.y, 0.0).normalize_or(Vec3::NEG_X);
+    let across = towards_player.cross(Vec3::Z);
     let aim = player_spot.lerp(dealer_spot, AIM_TOWARDS_DEALER);
     let eye = aim + towards_player * CAMERA_BACK + Vec3::Z * CAMERA_UP;
     // At the table in the world: the menu's table fitted onto the world's, under the world
@@ -510,7 +547,7 @@ fn build(commands: &mut Commands, s: &Session, models: &mut ModelCtx, window: &Q
         for e in &shapes {
             commands.entity(*e).insert(layer.clone());
         }
-        match CardModel::new(rig, prefix, &by_name, &shapes) {
+        match CardModel::new(rig, prefix, &by_name, &shapes, across) {
             Some(m) => {
                 for c in &m.cards {
                     commands.entity(c.entity).insert(Visibility::Hidden);
@@ -531,6 +568,7 @@ fn build(commands: &mut Commands, s: &Session, models: &mut ModelCtx, window: &Q
     drawn.holder = Some(holder);
     drawn.player_spot = player_spot;
     drawn.dealer_spot = dealer_spot;
+    drawn.across = across;
     drawn.chips = Some(Chips { root: chips_root, count: None });
     drawn.arrows = arrows;
     if let Some((_, a)) = fitted {
@@ -619,10 +657,14 @@ fn pose(
                 v.set_if_neq(if shown { Visibility::Inherited } else { Visibility::Hidden });
             }
             let Some((dealt, discard)) = *at else { continue };
+            // How much of the hand's fan the card has: growing as it is dealt, going as
+            // it is swept off.
+            let progress = |clip: Option<&Clip>, t: f32| clip.map_or(1.0, |c| ((clip_time(clip, t) - c.start) / (c.stop - c.start).max(1e-3)).clamp(0.0, 1.0));
             let tr = match discard {
                 Some(t) => {
                     let clip = m.clip(&format!("{}_Discard", m.prefix));
-                    let tr = sampled(&m.rig, clip, card.node, clip_time(clip, t));
+                    let mut tr = sampled(&m.rig, clip, card.node, clip_time(clip, t));
+                    tr.translation += card.spread * (1.0 - progress(clip, t));
                     if angle == 0.0 {
                         tr
                     } else {
@@ -637,11 +679,15 @@ fn pose(
                 }
                 None if m.prefix == "Dealer" && k == 1 && reveal.is_some_and(|r| now >= r) => {
                     let clip = m.clip("Dealer_Reveal");
-                    sampled(&m.rig, clip, card.node, clip_time(clip, now - reveal.unwrap_or(now)))
+                    let mut tr = sampled(&m.rig, clip, card.node, clip_time(clip, now - reveal.unwrap_or(now)));
+                    tr.translation += card.spread;
+                    tr
                 }
                 None => {
                     let clip = m.clip(&format!("{}_{:02}", m.prefix, k + 1));
-                    sampled(&m.rig, clip, card.node, clip_time(clip, dealt))
+                    let mut tr = sampled(&m.rig, clip, card.node, clip_time(clip, dealt));
+                    tr.translation += card.spread * progress(clip, dealt);
+                    tr
                 }
             };
             if let Ok(mut t) = transforms.get_mut(card.entity) {

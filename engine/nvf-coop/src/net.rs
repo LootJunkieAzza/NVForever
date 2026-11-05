@@ -243,6 +243,8 @@ impl AnimCue {
     pub const CONSUME: u8 = 0;
     pub const INTERACT: u8 = 1;
     pub const CRAFT: u8 = 2;
+    /// A clip of the game's own, played on the puppet as named (`clip`): a darts throw.
+    pub const GAME: u8 = 3;
 }
 
 pub const ANIM_TEXT_MAX: usize = 160;

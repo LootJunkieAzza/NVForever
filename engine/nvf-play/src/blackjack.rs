@@ -119,6 +119,8 @@ pub struct Session {
     /// When the last round's cards started to be swept away (they are gone after
     /// [`DISCARD_SECONDS`]).
     pub discard: Option<(f32, Vec<Shown>)>,
+    /// When the settled round's cards are swept off (aid seconds).
+    pub collect_at: Option<f32>,
     /// The buttons wait until then (aid seconds): the cards are still coming.
     pub busy_until: f32,
     /// The round's result line, shown from then.
@@ -158,6 +160,7 @@ pub struct OtherSeat {
     pub table: Table,
     pub shown: Vec<Shown>,
     pub discard: Option<(f32, Vec<Shown>)>,
+    pub collect_at: Option<f32>,
     /// The bet the seat set for the next round, and whether it is set.
     pub bet: u32,
     pub ready: bool,
@@ -183,6 +186,24 @@ impl OtherSeat {
 
 /// Seconds the chips a round paid stay before the buttons come back [design].
 pub const PAID_SECONDS: f32 = 1.2;
+/// Seconds a settled round's cards stay to be read before they are swept off; the chips
+/// stay until the next bet [design: the owner, 2026-11-04].
+pub const COLLECT_SECONDS: f32 = 1.5;
+
+/// The cards on the table swept off from `now` (none when there are none).
+fn sweep(shown: &mut Vec<Shown>, discard: &mut Option<(f32, Vec<Shown>)>, now: f32) -> bool {
+    if shown.is_empty() {
+        return false;
+    }
+    *discard = Some((now, std::mem::take(shown)));
+    true
+}
+
+/// When a new deal's first card may leave the shoe: after the cards being swept off are
+/// gone (they are the same cards of the models).
+fn after_discard(discard: &Option<(f32, Vec<Shown>)>, t: f32) -> f32 {
+    discard.as_ref().map_or(t, |(d, _)| t.max(d + DISCARD_SECONDS))
+}
 
 /// This player's seat at a shared co-op table.
 #[derive(Debug, Clone)]
@@ -606,6 +627,7 @@ fn open(
         shown: Vec::new(),
         reveal: None,
         discard: None,
+        collect_at: None,
         busy_until: now,
         pending: None,
         sounds: Vec::new(),
@@ -815,12 +837,12 @@ fn apply(
                 match s.table.deal(bet, chips) {
                     Ok(events) => {
                         // Last round's cards are swept off first.
-                        let mut t = now.max(s.busy_until);
-                        if !s.shown.is_empty() {
-                            s.discard = Some((now, std::mem::take(&mut s.shown)));
+                        let mut t = after_discard(&s.discard, now.max(s.busy_until));
+                        s.collect_at = None;
+                        if sweep(&mut s.shown, &mut s.discard, now) {
                             s.sounds.push((now, UiEvent::Collected { dealer: false }));
                             s.sounds.push((now + 0.3, UiEvent::Collected { dealer: true }));
-                            t += DISCARD_SECONDS;
+                            t = after_discard(&s.discard, t);
                         }
                         s.reveal = None;
                         s.status = None;
@@ -945,12 +967,12 @@ fn follow_shared(
         let t = now.max(s.busy_until);
         match step {
             Followed::Dealt { bet, events } => {
-                if !s.shown.is_empty() {
-                    s.discard = Some((now, std::mem::take(&mut s.shown)));
+                s.collect_at = None;
+                if sweep(&mut s.shown, &mut s.discard, now) {
                     s.sounds.push((now, UiEvent::Collected { dealer: false }));
                     s.sounds.push((now + 0.3, UiEvent::Collected { dealer: true }));
                 }
-                let t = if s.discard.is_some() { t + DISCARD_SECONDS } else { t };
+                let t = after_discard(&s.discard, t);
                 s.reveal = None;
                 s.status = None;
                 s.bet = bet;
@@ -998,6 +1020,7 @@ fn follow_others(s: &mut Session, v: &SharedView, me: u8, my_round: u32, now: f3
                     table: Table::new(rules, 1, 0.0, ChaCha8Rng::seed_from_u64(0)),
                     shown: Vec::new(),
                     discard: None,
+                    collect_at: None,
                     bet: seat.bet,
                     ready: seat.ready,
                     paid: None,
@@ -1014,11 +1037,9 @@ fn follow_others(s: &mut Session, v: &SharedView, me: u8, my_round: u32, now: f3
         while let Some(step) = o.follow.step(&mut o.table, &seat.log, u32::MAX / 4) {
             match step {
                 Followed::Dealt { events, .. } => {
-                    let mut t = now.max(o.busy_until);
-                    if !o.shown.is_empty() {
-                        o.discard = Some((now, std::mem::take(&mut o.shown)));
-                        t += DISCARD_SECONDS;
-                    }
+                    o.collect_at = None;
+                    sweep(&mut o.shown, &mut o.discard, now);
+                    let mut t = after_discard(&o.discard, now.max(o.busy_until));
                     // Dealt with this player's round: its cards between this player's.
                     if my_round == seat.log.round {
                         if let Some(first) = s.shown.iter().find(|c| c.seat == Seat::Hand(0) && c.index == 0) {
@@ -1075,6 +1096,7 @@ fn show_other(o: &mut OtherSeat, events: Vec<Event>, mut t: f32, dealer: &mut Ve
             }
             Event::Settled { outcomes, .. } => {
                 o.paid = Some((t, outcomes.iter().map(|(_, p)| p).sum()));
+                o.collect_at = Some(t + COLLECT_SECONDS);
                 t += PAID_SECONDS;
             }
             _ => {}
@@ -1148,6 +1170,7 @@ fn schedule(s: &mut Session, events: Vec<Event>, mut t: f32, stats: &mut Blackja
                 stats.naturals += outcomes.iter().filter(|(o, _)| *o == Outcome::Blackjack).count() as u32;
                 s.pending = Some((t, line));
                 s.paid = Some((t, paid));
+                s.collect_at = Some(t + COLLECT_SECONDS);
                 t += PAID_SECONDS;
                 if net != 0 {
                     s.sounds.push((t, UiEvent::RoundOver { won: net > 0 }));
@@ -1193,7 +1216,20 @@ fn step(time: AidTime, mut screen: ResMut<BlackjackScreen>, mut next: ResMut<Nex
     if s.discard.as_ref().is_some_and(|(t, _)| now - t >= DISCARD_SECONDS) {
         s.discard = None;
     }
+    // A settled round's cards are swept off once read (the chips stay until the next bet).
+    if s.collect_at.is_some_and(|t| t <= now) {
+        s.collect_at = None;
+        if sweep(&mut s.shown, &mut s.discard, now) {
+            s.reveal = None;
+            s.sounds.push((now, UiEvent::Collected { dealer: false }));
+            s.sounds.push((now + 0.3, UiEvent::Collected { dealer: true }));
+        }
+    }
     for o in &mut s.others {
+        if o.collect_at.is_some_and(|t| t <= now) {
+            o.collect_at = None;
+            sweep(&mut o.shown, &mut o.discard, now);
+        }
         if o.discard.as_ref().is_some_and(|(t, _)| now - t >= DISCARD_SECONDS) {
             o.discard = None;
         }
@@ -1301,6 +1337,7 @@ mod tests {
             shown: Vec::new(),
             reveal: None,
             discard: None,
+            collect_at: None,
             busy_until: 0.0,
             pending: None,
             sounds: Vec::new(),
@@ -1356,6 +1393,23 @@ mod tests {
         assert_eq!(o.chips_shown(100.0), paid, "what the round paid back, once it is shown");
         assert_eq!(o.chips_shown(12.0), seat.staked(), "the stakes until then");
         assert!(host.sounds.iter().filter(|s| s.1 == UiEvent::CardDealt).count() >= 4);
+        // Its cards are swept off once the round settled and was read.
+        let (paid_at, _) = o.paid.unwrap();
+        assert_eq!(o.collect_at, Some(paid_at + COLLECT_SECONDS));
+    }
+
+    #[test]
+    fn a_settled_rounds_cards_are_swept_and_the_next_deal_waits_for_them() {
+        let card = |i| Shown { seat: Seat::Hand(0), index: i, card: Card::new(10, 0), since: 0.0 };
+        let (mut shown, mut discard) = (vec![card(0), card(1)], None);
+        assert!(sweep(&mut shown, &mut discard, 5.0));
+        assert!(shown.is_empty() && discard.as_ref().is_some_and(|d| d.0 == 5.0 && d.1.len() == 2));
+        assert!(!sweep(&mut shown, &mut discard, 6.0), "nothing left to sweep");
+        assert_eq!(discard.as_ref().unwrap().0, 5.0, "the sweep under way is kept");
+        // A deal at 5.5 waits for the cards to be gone; one later goes at once.
+        assert_eq!(after_discard(&discard, 5.5), 5.0 + DISCARD_SECONDS);
+        assert_eq!(after_discard(&discard, 9.0), 9.0);
+        assert_eq!(after_discard(&None, 5.5), 5.5);
     }
 
     #[test]

@@ -251,6 +251,9 @@ fn stage(
         }
     }
     control.pov = Pov::Third;
+    // Only the mod's knife is in the hand: a weapon out goes away (the body hides one
+    // still in the hand while it plays the table's clips, `player_body.rs`).
+    control.weapon_out = false;
     let feet = t.at(t.pose_origin + Vec3::Z * LIFT);
     body.0 = Some(BodyClip { clip: t.clips.ready.clone(), looped: true, serial: SERIAL, pos: feet.to_array(), heading: t.yaw, lying: false, over: t.over.clone() });
     out.on = true;

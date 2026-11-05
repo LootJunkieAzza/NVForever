@@ -2365,7 +2365,9 @@ fn drive_body(
         anim.casing = None;
         state.muzzle_entity = None;
         state.casing_entity = None;
-        show_rigs(body, &mut commands, &mut visibility, Seen { body: third_view || own_body, head: third_view, arms: true, weapon: true }, false);
+        // A weapon still in the hand is not drawn: the furniture's clips (and the fillet
+        // table's, which put the mod's knife in that hand) do not hold it.
+        show_rigs(body, &mut commands, &mut visibility, Seen { body: third_view || own_body, head: third_view, arms: true, weapon: !m.hands.in_hand }, false);
         return;
     }
     if body.third.furniture.take().is_some() {

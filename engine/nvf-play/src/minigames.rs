@@ -77,11 +77,19 @@ pub struct BoardFrame {
 
 /// The board face the darts land on, local y [observed: Place].
 pub const FACE_Y: f32 = 1.1;
-/// Where the player stands while throwing, local (behind the camera, the bull's height:
-/// put down on the floor) [design].
+/// The throw line, local (the bull's height: put down on the floor) [design].
 pub const LINE: [f32; 3] = [0.0, -darts::CAMERA_BACK - 8.0, 0.0];
-/// Where the camera stands, local [observed: Camera].
-pub const EYE: [f32; 3] = [0.0, -darts::CAMERA_BACK, 0.0];
+/// Where the player whose turn it is stands: at the line, a little left of the bull so
+/// the throwing hand is in front of it [design: owner 2026-11-04, each player steps up].
+pub const UP: [f32; 3] = [-22.0, LINE[1], 0.0];
+/// Where the player waiting for their turn stands: back from the line and to the left,
+/// out of the view [design].
+pub const WAIT: [f32; 3] = [-48.0, LINE[1] - 50.0, 0.0];
+/// Where the camera stands, local: fixed behind the line and to the right of the
+/// thrower, a little above the bull, looking at it [design: owner 2026-11-04; the mod's
+/// camera stood 64 in front of the bull, where a co-op friend at the line stood in the
+/// view].
+pub const EYE: [f32; 3] = [16.0, LINE[1] - 36.0, 8.0];
 
 impl BoardFrame {
     pub fn of(pos: [f32; 3], rot: [f32; 3], scale: Option<f32>) -> BoardFrame {
@@ -177,6 +185,10 @@ pub struct Darts {
     pub asking: Vec<u8>,
     pub settled: bool,
     pub leave: bool,
+    /// This player's throws so far (the engine plays the body's throw for each).
+    pub thrown: u32,
+    /// Where this player stands now: at the line (true) or waiting (false).
+    pub stands_up: Option<bool>,
     last_impact: u32,
     rng: ChaCha8Rng,
 }
@@ -307,6 +319,7 @@ impl Plugin for MinigamesPlugin {
             .add_message::<PlayFile>()
             .add_systems(Update, open.after(PlaySet::Activation).before(PlaySet::Ui))
             .add_systems(Update, ((darts_keys, darts_step, fillet_keys, fillet_step).chain().run_if(in_state(PlayState::Menu)), draw, play_files).chain().in_set(PlaySet::Ui))
+            .add_systems(Update, darts_stand.after(PlaySet::Ui))
             .add_systems(PostUpdate, darts_camera.before(bevy::transform::TransformSystems::Propagate))
             .add_systems(OnExit(PlayState::Menu), close);
     }
@@ -344,7 +357,6 @@ fn open(
     tables: Option<Res<Tables>>,
     time: AidTime,
     mut bases: Local<Option<(Option<FormId>, Option<FormId>)>>,
-    (mut phys, mut player): (Option<ResMut<crate::phys::PhysState>>, Option<ResMut<crate::player::Player>>),
 ) {
     let (board, knife) = *bases.get_or_insert_with(|| (sim.world.forms.by_edid(DARTS_BOARD), sim.world.forms.by_edid(FILLET_KNIFE)));
     let now = time.elapsed_secs();
@@ -362,14 +374,6 @@ fn open(
             let frame = sim.world.peek(FormId(a.reference)).map(|r| (r.pos, r.rot)).or_else(|| sim.refs.get(FormId(a.reference)).map(|r| (r.pos, r.rot))).map(|(pos, rot)| {
                 BoardFrame::of(pos, rot, sim.refs.get(FormId(a.reference)).and_then(|r| r.scale))
             });
-            // The player steps up to the throw line, facing the board, so the others see them
-            // there [design: the mod leaves the player where they stood].
-            if let (Some(f), Some(phys), Some(player)) = (frame, phys.as_deref_mut(), player.as_deref_mut()) {
-                let a = phys.arrive_player(f.to_world(LINE));
-                player.feet = a.feet;
-                player.heading = f.theta;
-                player.pitch = 0.0;
-            }
             if let Some(f) = frame {
                 info!("darts: the board at ({:.0}, {:.0}, {:.0}), facing {:.0} degrees, scale {:.3}", f.pos[0], f.pos[1], f.pos[2], f.theta.to_degrees(), f.k);
             }
@@ -397,6 +401,8 @@ fn open(
                 asking: Vec::new(),
                 settled: true,
                 leave: false,
+                thrown: 0,
+                stands_up: None,
                 last_impact: 9,
                 rng,
             });
@@ -568,6 +574,7 @@ fn darts_keys(
                     let land = (p.locked.0 + mx, p.locked.1 + mz);
                     let side = d.mine();
                     d.flights.push((now, land, side));
+                    d.thrown += 1;
                 }
             }
         }
@@ -591,8 +598,33 @@ fn board_on_screen(at: (f32, f32), frame: BoardFrame, (cam, gt): (&Camera, &Glob
     Some(Vec2::new(v.x / w.width() * 100.0, v.y / w.height() * 100.0))
 }
 
-/// While a darts game is open the camera stands at the throw line facing the bull, as the
-/// mod's does [observed: Camera].
+/// Whether this player stands at the line now: their side is up (in practice and on the
+/// menus always), else they wait back from it for the other side's turn.
+pub fn stands_up(d: &Darts) -> bool {
+    d.page != Page::Play || d.m.up == d.mine() || d.m.winner.is_some()
+}
+
+/// The player steps up to the line on their turn, facing the board, and back to wait on
+/// the other side's, so the others see them there and the view behind the line is clear
+/// [design: owner 2026-11-04; the mod leaves the player where they stood].
+fn darts_stand(mut screen: ResMut<DartsScreen>, mut phys: Option<ResMut<crate::phys::PhysState>>, mut player: Option<ResMut<crate::player::Player>>) {
+    let Some(d) = screen.0.as_mut() else { return };
+    let Some(f) = d.frame else { return };
+    let up = stands_up(d);
+    if d.stands_up == Some(up) {
+        return;
+    }
+    let (Some(phys), Some(player)) = (phys.as_deref_mut(), player.as_deref_mut()) else { return };
+    let a = phys.arrive_player(f.to_world(if up { UP } else { WAIT }));
+    player.feet = a.feet;
+    player.heading = f.theta;
+    player.pitch = 0.0;
+    d.stands_up = Some(up);
+    info!("darts: this player {} the line", if up { "steps up to" } else { "waits back from" });
+}
+
+/// While a darts game is open the camera stands behind the throw line, fixed, looking at
+/// the bull [design: owner 2026-11-04].
 fn darts_camera(screen: Res<DartsScreen>, mut cams: Query<&mut Transform, With<PlayerCamera>>) {
     let Some(f) = screen.0.as_ref().and_then(|d| d.frame) else { return };
     let Ok(mut t) = cams.single_mut() else { return };
