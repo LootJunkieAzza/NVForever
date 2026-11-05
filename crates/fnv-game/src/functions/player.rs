@@ -12,6 +12,8 @@ pub fn reward_xp(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         return none();
     }
     crate::experience::award(g, crate::experience::Source::Script, n);
+    // Part of a completed quest's reward for co-op guests (`crate::coop_rewards`).
+    g.coop_rewards.gain(g.frame, n, 0);
     none()
 }
 

@@ -243,15 +243,16 @@ impl Plugin for CoopPlugin {
             downed_at: None,
             told_respawn: false,
             revive_offer: None,
+            progress_in: Vec::new(),
         };
         if let Some(port) = c.host.or_else(|| env(HOST_ENV).and_then(|p| p.trim().parse().ok())) {
             coop.start_hosting(port);
         } else if let Some(join) = c.join.clone().or_else(|| env(JOIN_ENV)) {
             coop.start_joining(&join);
         }
-        app.add_plugins(nvf_play::lobby::LobbyPlugin)
+        app.add_plugins((nvf_play::lobby::LobbyPlugin, nvf_play::coop_progress::CoopProgressPlugin))
             .insert_resource(coop)
-            .add_systems(Update, (lobby, send, take_events, tables, share_npcs, follow_npcs, leash, downed).chain().after(nvf_play::PlaySet::Physics))
+            .add_systems(Update, (lobby, send, take_events, tables, share_npcs, follow_npcs, leash, downed, progress).chain().after(nvf_play::PlaySet::Physics))
             .add_message::<PuppetShot>()
             .add_systems(Update, (stand_ins, draw, peer_lights, pipboy_share).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
     }
@@ -369,6 +370,8 @@ struct Coop {
     told_respawn: bool,
     /// The downed player this one was last told it can revive.
     revive_offer: Option<u8>,
+    /// Shared progression heard, for [`progress`].
+    progress_in: Vec<(u8, net::Progress)>,
 }
 
 /// One of the host's NPCs as a guest has heard it.
@@ -1153,6 +1156,8 @@ fn take_events(
                 let reference = coop.peers.get(&id).map_or(PUPPET_REF + id as u32, |p| p.reference(id));
                 anims_in.write(crate::consume_anims::PeerAnim { reference, cue });
             }
+            // For `progress` (crate::coop_progress).
+            Event::Progress { id, what } => coop.progress_in.push((id, what)),
             Event::Hit { hit, .. } => match decode_hurt(&hit) {
                 Some((by, h)) => {
                     info!("co-op: {} hit this player for {:.1} in the host's world", by.map_or("something".to_string(), |b| b.to_string()), h.dealt);
@@ -1828,6 +1833,56 @@ fn downed(
         link.send_revive(id);
     }
     say(format!("You revived {name} (Stimpak used, {} left)", have - 1));
+}
+
+/// Shared progression between the link and `nvf_play::coop_progress` (quest rewards, a
+/// save by anyone saving everyone, everyone down loading the last shared save): this
+/// game's role, whether every player is down (the host's view), what was heard and what
+/// to send.
+fn progress(mut coop: ResMut<Coop>, mut p: ResMut<nvf_play::coop_progress::CoopProgress>, script: Option<Res<nvf_play::script::ScriptState>>, main_menu: Option<Res<nvf_play::main_menu::MainMenu>>) {
+    use nvf_play::coop_progress::{Role, Shared};
+    let coop = &mut *coop;
+    let role = match coop.link.as_ref() {
+        None => Role::Solo,
+        Some(l) if l.is_host() => Role::Host,
+        Some(_) => Role::Guest,
+    };
+    p.role = role;
+    let me_down = !at_main_menu(main_menu.as_deref()) && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.is_dead(FormId::PLAYER_REF));
+    p.everyone_down = role == Role::Host && nvf_play::coop_progress::everyone_down(me_down, coop.peers.values().map(|q| (q.down, q.lost)));
+    let kind_in = |k: u8| match k {
+        net::Progress::QUICK => fnv_save::SaveKind::Quick,
+        net::Progress::AUTO => fnv_save::SaveKind::Auto,
+        net::Progress::SYSTEM => fnv_save::SaveKind::System,
+        _ => fnv_save::SaveKind::Manual,
+    };
+    for (id, what) in coop.progress_in.drain(..) {
+        p.inbox.push((
+            id,
+            match what {
+                net::Progress::Reward { quest, xp, caps } => Shared::Reward { quest, xp, caps },
+                net::Progress::Save { stamp, kind } => Shared::Save { stamp, kind: kind_in(kind) },
+                net::Progress::Reload { stamp } => Shared::Reload { stamp },
+            },
+        ));
+    }
+    let out = std::mem::take(&mut p.outbox);
+    let Some(link) = coop.link.as_ref() else { return };
+    for what in out {
+        link.send_progress(match what {
+            Shared::Reward { quest, xp, caps } => net::Progress::Reward { quest, xp, caps },
+            Shared::Save { stamp, kind } => net::Progress::Save {
+                stamp,
+                kind: match kind {
+                    fnv_save::SaveKind::Quick => net::Progress::QUICK,
+                    fnv_save::SaveKind::Auto => net::Progress::AUTO,
+                    fnv_save::SaveKind::System => net::Progress::SYSTEM,
+                    fnv_save::SaveKind::Manual => net::Progress::MANUAL,
+                },
+            },
+            Shared::Reload { stamp } => net::Progress::Reload { stamp },
+        });
+    }
 }
 
 /// Whether `reference` is one of the other players' puppets (never one of the world's).
