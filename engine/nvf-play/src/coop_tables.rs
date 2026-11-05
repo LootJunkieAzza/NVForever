@@ -39,6 +39,8 @@ pub mod game {
     /// A caravan game against another player (`crate::caravan::PvpWire`): only open, no
     /// view (the world runs on behind it).
     pub const CARAVAN: u8 = 8;
+    /// A pool table (`crate::pool::PoolView`).
+    pub const POOL: u8 = 9;
 
     /// The game's name, as the lobby and the notes say it.
     pub fn word(g: u8) -> &'static str {
@@ -50,6 +52,7 @@ pub mod game {
             FILLET => "five finger fillet",
             POKER => "poker",
             CARAVAN => "caravan",
+            POOL => "pool",
             _ => "a table",
         }
     }
@@ -517,6 +520,16 @@ pub struct DartsView {
     pub stuck: Vec<(f32, f32)>,
     /// A player asked to throw against the owner (a match not started).
     pub open_seat: bool,
+    /// The thrower at the line: how far its dart is drawn back (0..255), and how many
+    /// darts it has let go this turn (watchers pose its arm, `darts_arm.rs`).
+    pub draw: u8,
+    pub released: u8,
+    /// The darts in the air: how long each has flown (hundredths of a second) and where it
+    /// lands (board units), so watchers draw it flying from the hand as the thrower sees it.
+    pub flights: Vec<(u8, f32, f32)>,
+    /// The game's opponent at the board (its reference; 0 for none), so watchers put its
+    /// weapon away as the thrower's game does.
+    pub foe: u32,
 }
 
 fn hit_code(w: &mut W, h: fnv_game::darts::Hit) {
@@ -545,6 +558,12 @@ impl DartsView {
         for (x, z) in &self.stuck {
             w.f32(*x).f32(*z);
         }
+        w.u8(self.draw).u8(self.released);
+        w.u8(self.flights.len() as u8);
+        for (age, x, z) in &self.flights {
+            w.u8(*age).f32(*x).f32(*z);
+        }
+        w.u32(self.foe);
         w.0
     }
 
@@ -576,7 +595,14 @@ impl DartsView {
         for _ in 0..ns.min(3) {
             stuck.push((r.f32()?, r.f32()?));
         }
-        r.done().then_some(DartsView { owner, stake, sides, up, turn_over: flags & 1 != 0, winner, aim, stuck, open_seat: flags & 2 != 0 })
+        let (draw, released) = (r.u8()?, r.u8()?);
+        let nf = r.u8()? as usize;
+        let mut flights = Vec::new();
+        for _ in 0..nf.min(6) {
+            flights.push((r.u8()?, r.f32()?, r.f32()?));
+        }
+        let foe = r.u32()?;
+        r.done().then_some(DartsView { owner, stake, sides, up, turn_over: flags & 1 != 0, winner, aim, stuck, open_seat: flags & 2 != 0, draw, released, flights, foe })
     }
 }
 
@@ -806,6 +832,7 @@ pub fn summary(tables: &Tables, name: &str, game: u8, blob: &[u8]) -> Vec<String
             let clock = v.clock.map(|c| format!(", {c:.0} s left")).unwrap_or_default();
             out.push(format!("{name} at five finger fillet{}: {state}{clock}", if v.stake > 0 { format!(" for {} caps", v.stake) } else { String::new() }));
         }
+        game::POOL => return crate::pool::summary(tables, name, blob),
         game::POKER => match crate::poker::coop::PeerView::decode(blob) {
             Some(crate::poker::coop::PeerView::Table(v)) => {
                 let casino = crate::poker::Casino::from_letter(&v.casino.to_string()).map_or("a card table", |c| c.title());
@@ -847,7 +874,8 @@ fn publish(
     time: crate::pause::AidTime,
     (bj, rl, sl): (Option<Res<crate::blackjack::BlackjackScreen>>, Option<Res<crate::roulette::RouletteScreen>>, Option<Res<crate::slots::SlotsScreen>>),
     (darts, fillet, poker): (Option<Res<crate::minigames::DartsScreen>>, Option<Res<crate::minigames::FilletScreen>>, Option<Res<crate::poker::PokerScreen>>),
-    pvp: Option<Res<crate::caravan::PvpWire>>,
+    (pvp, foe): (Option<Res<crate::caravan::PvpWire>>, Option<Res<crate::darts_foes::DartsOpponent>>),
+    pool: Option<Res<crate::pool::PoolScreen>>,
 ) {
     let now = time.elapsed_secs();
     let me = tables.me.unwrap_or(0);
@@ -881,11 +909,16 @@ fn publish(
     }
     if let Some(d) = darts.as_deref().and_then(|d| d.0.as_ref()) {
         at = Some((game::DARTS, d.board));
-        out = crate::minigames::darts_view(d, me, now).map(|v| (d.board, game::DARTS, v.encode()));
+        let foe = foe.as_deref().and_then(|o| o.0.as_ref()).filter(|o| o.board == d.board && !o.gone).map(|o| o.actor.0);
+        out = crate::minigames::darts_view(d, me, now, foe).map(|v| (d.board, game::DARTS, v.encode()));
     }
     if let Some(f) = fillet.as_deref().and_then(|f| f.0.as_ref()) {
         at = Some((game::FILLET, f.knife));
         out = crate::minigames::fillet_view(f).map(|v| (f.knife, game::FILLET, v.encode()));
+    }
+    if let Some(p) = pool.as_deref().and_then(|p| p.0.as_ref()) {
+        at = Some((game::POOL, p.table_ref));
+        out = crate::pool::pool_view(p, me, now).map(|v| (p.table_ref, game::POOL, v.encode()));
     }
     if let Some(p) = poker.as_deref().and_then(|p| p.0.as_ref()) {
         at = Some((game::POKER, p.casino.deck() as u32));
@@ -1010,6 +1043,10 @@ mod tests {
             aim: (0.5, 6.9),
             stuck: vec![(0.0, 7.0)],
             open_seat: true,
+            draw: 200,
+            released: 2,
+            flights: vec![(12, -1.5, 3.25)],
+            foe: 0x0015_D787,
         };
         assert_eq!(DartsView::decode(&d.encode()), Some(d.clone()));
         let f = FilletView { stake: 20, round: 2, hits: 5, required: 18, mistakes: 1, gap: 3, key: 2, clock: Some(41.5), state: 1, duel: None };

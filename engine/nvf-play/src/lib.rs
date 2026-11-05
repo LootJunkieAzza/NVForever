@@ -31,6 +31,7 @@ pub mod control;
 pub mod coop_social;
 pub mod coop_tables;
 pub mod coop_progress;
+pub mod darts_foes;
 pub mod minigames;
 pub mod corner_messages;
 pub mod crafting;
@@ -81,6 +82,7 @@ pub mod companion_wheel;
 pub mod caravan;
 pub mod challenges;
 pub mod poker;
+pub mod pool;
 pub mod poker_tables;
 pub mod menu;
 pub mod mines;
@@ -356,7 +358,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(tiles::TilesPlugin)
             .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin)
-            .add_plugins((coop_tables::CoopTablesPlugin, coop_social::CoopSocialPlugin, minigames::MinigamesPlugin, bash::BashPlugin))
+            .add_plugins((coop_tables::CoopTablesPlugin, coop_social::CoopSocialPlugin, minigames::MinigamesPlugin, pool::PoolPlugin, bash::BashPlugin))
             .add_plugins(tutorial_menu::TutorialMenuPlugin)
             .add_plugins(credits::CreditsPlugin)
             .add_plugins(lockpick::LockpickPlugin)

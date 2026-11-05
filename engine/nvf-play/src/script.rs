@@ -2164,7 +2164,7 @@ fn hold_player(
     active: Res<ActiveMenu>,
     (paused, wait): (Res<crate::pause::Paused>, Res<crate::wait::WaitMenu>),
     (terminal, lockpick, console, recipe, roulette, repair): EngineMenus,
-    (blackjack, poker, caravan, wheel, slots, darts, fillet): (Option<Res<crate::blackjack::BlackjackScreen>>, Res<crate::poker::PokerScreen>, Option<Res<crate::caravan::CaravanScreen>>, Option<Res<crate::companion_wheel::WheelScreen>>, Option<Res<crate::slots::SlotsScreen>>, Option<Res<crate::minigames::DartsScreen>>, Option<Res<crate::minigames::FilletScreen>>),
+    (blackjack, poker, caravan, wheel, slots, darts, fillet, pool): (Option<Res<crate::blackjack::BlackjackScreen>>, Res<crate::poker::PokerScreen>, Option<Res<crate::caravan::CaravanScreen>>, Option<Res<crate::companion_wheel::WheelScreen>>, Option<Res<crate::slots::SlotsScreen>>, Option<Res<crate::minigames::DartsScreen>>, Option<Res<crate::minigames::FilletScreen>>, Option<Res<crate::pool::PoolScreen>>),
     state: Res<State<PlayState>>,
     mut next: ResMut<NextState<PlayState>>,
 ) {
@@ -2172,9 +2172,9 @@ fn hold_player(
     // So are the wait menu (`crate::wait`), a terminal (`crate::terminal`), the
     // lockpicking menu (`crate::lockpick`), the console (`crate::console`), the recipe
     // menu (`crate::crafting`), the repair services (`crate::repair`), the blackjack table (`crate::blackjack`), the roulette
-    // table (`crate::roulette`), the slot machines (`crate::slots`), the poker table (`crate::poker`), the Caravan table (`crate::caravan`) and the
+    // table (`crate::roulette`), the slot machines (`crate::slots`), the poker table (`crate::poker`), the pool table (`crate::pool`), the Caravan table (`crate::caravan`) and the
     // companion wheel (`crate::companion_wheel`).
-    let table = blackjack.is_some_and(|b| b.0.is_some()) || roulette.is_some_and(|r| r.0.is_some()) || poker.0.is_some() || caravan.is_some_and(|c| c.0.is_some()) || wheel.is_some_and(|w| w.0.is_some()) || slots.is_some_and(|s| s.0.is_some()) || darts.is_some_and(|d| d.0.is_some()) || fillet.is_some_and(|f| f.0.is_some());
+    let table = blackjack.is_some_and(|b| b.0.is_some()) || roulette.is_some_and(|r| r.0.is_some()) || poker.0.is_some() || caravan.is_some_and(|c| c.0.is_some()) || wheel.is_some_and(|w| w.0.is_some()) || slots.is_some_and(|s| s.0.is_some()) || darts.is_some_and(|d| d.0.is_some()) || fillet.is_some_and(|f| f.0.is_some()) || pool.is_some_and(|p| p.0.is_some());
     if active.0.is_some() || paused.0 || wait.is_open() || terminal.0.is_some() || lockpick.0.is_some() || console.open || recipe.is_some_and(|r| r.is_open()) || repair.is_some_and(|r| r.is_open()) || table {
         return;
     }
