@@ -523,7 +523,8 @@ fn write(
     mut mods_entry: ResMut<crate::pause::ModsEntry>,
     mut mods_back: ResMut<crate::pause::ModsOwnBack>,
     mut start_names: Local<mods::KeptNames>,
-    mut start_sizes: Local<menus::SizesWritten>,
+    // The start menu's text sizes written (T11), then the HUD's mod texts' (below).
+    mut sizes: Local<(menus::SizesWritten, menus::SizesWritten)>,
 ) {
     let Some(rt) = script.rt.as_mut() else { return };
     // T15a: the prompt over the container, barter and inventory menus builds `QuantityMenu`
@@ -553,7 +554,7 @@ fn write(
             let ui = &mut rt.game.ui_tree;
             let texts: Vec<_> = ui.mod_added_tiles(menu).into_iter().flat_map(|r| menus::texts(ui, r)).collect();
             let size = fonts.menu_measure(&menus::fonts_of(ui, &texts));
-            menus::write_text_sizes_of(ui, &texts, &mut start_sizes, &size);
+            menus::write_text_sizes_of(ui, &texts, &mut sizes.0, &size);
         }
     }
     let shown = hud.shown(&rt.game, &files);
@@ -585,6 +586,20 @@ fn write(
     // [design: ui-tile-tree.md §4.1; observed widths: hud.md §14.1].
     if rt.game.ui_files.is_some() {
         fonts.write_widths(&mut rt.game.ui_tree);
+        // The mods' HUD texts' sizes, as the start menu's above: JAM's loot menu sizes
+        // its rows by their texts' heights, rows made from a template by its script, and
+        // clips each row to that height [hypothesis: the original's code writes a text's
+        // width and height as it lays it out, menus::write_text_sizes_of; observed in
+        // NVForever 2026-11-05: unmeasured, the rows were 10 high and their texts clipped
+        // away].
+        if mod_tiles {
+            if let Some(menu) = rt.game.ui_tree.menu(draw::HUD_MENU) {
+                let ui = &mut rt.game.ui_tree;
+                let texts: Vec<_> = ui.mod_added_tiles(menu).into_iter().flat_map(|r| menus::texts(ui, r)).collect();
+                let size = fonts.menu_measure(&menus::fonts_of(ui, &texts));
+                menus::write_text_sizes_of(ui, &texts, &mut sizes.1, &size);
+            }
+        }
         if menus.hud {
             let corner = hud.corner(shown, &mut fonts);
             vanilla::write_corners(&mut rt.game.ui_tree, &corner);

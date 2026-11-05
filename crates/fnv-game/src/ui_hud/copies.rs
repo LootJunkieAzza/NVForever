@@ -264,6 +264,16 @@ pub(super) fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
     if let Some(tile) = find(ui, "ActionPoints/justify_right_text:1") {
         string(ui, tile, &input.ammo);
     }
+    // The AP corner's texts carry an alpha: 255 while the corner shows, 0 when not
+    // [hypothesis: JAM's loot menu copies `ActionPoints\justify_right_text:1\alpha` into
+    // its own fade every frame (JLMMainLoopEventHandler), so the original's code writes
+    // one; its fading in and out with the HUD is not captured].
+    let corner = if shown.root && shown.corners { 255.0 } else { 0.0 };
+    for k in 0..3 {
+        if let Some(tile) = find(ui, &format!("ActionPoints/justify_right_text:{k}")) {
+            num(ui, tile, "alpha", corner);
+        }
+    }
     if let Some(tile) = find(ui, "ReticleCenter/reticle_center") {
         // Keep user0/user1 as the template's strings: their numeric reads are 0
         // [observed: hud.md §14.4]. Select the loaded alternate [design].
