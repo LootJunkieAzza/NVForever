@@ -125,7 +125,8 @@ fn dormant_in(play: &PlayWorld, sim: &SimState, cell: RenderCell) -> Vec<Dormant
     ids.into_iter()
         .filter_map(|r| {
             let p = placement(play.lo, play.schema, r.0)?;
-            if &p.sig != b"REFR" || p.deleted() || enabled_at_start(play, &p, 0) {
+            // A placed volume's base model is not drawn (`Placement::volume`).
+            if &p.sig != b"REFR" || p.deleted() || p.volume || enabled_at_start(play, &p, 0) {
                 return None;
             }
             let b = base_object(play.lo, play.schema, p.base?)?;

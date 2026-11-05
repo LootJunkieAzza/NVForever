@@ -201,8 +201,8 @@ fn wrong_block_sizes_are_split_by_the_schema() {
         let f = NifFile::parse(&data, Some(&s)).unwrap_or_else(|e| panic!("{sizes:?}: {e}"));
         assert_eq!(f.footer.roots, [0], "{sizes:?}");
         assert_eq!(f.trailing, 0);
-        for i in 0..3 {
-            assert_eq!(f.blocks[i].range.len() as u32, real[i], "{sizes:?} block {i}");
+        for (i, &size) in real.iter().enumerate() {
+            assert_eq!(f.blocks[i].range.len() as u32, size, "{sizes:?} block {i}");
             assert!(f.decode_block(&s, &data, i).is_ok(), "{sizes:?} block {i}");
         }
         // The header now holds the true sizes, so a rewrite is a valid file.

@@ -73,3 +73,22 @@ activated, a door within 16 units behind it is the target (`pick::door_behind`) 
 the reach; the original's picking rule is not known]. Only doors are looked for, so items
 behind a wall stay out of reach. This may also be why the 2026-10-22 doors above were never
 targeted; not retried.
+
+## 6. Placed volumes (REFR XPRM)
+
+A reference with a placed primitive (XPRM, a box or a sphere) is a volume: a trigger, a
+collision marker, a room or portal [documented: xEdit wbDefinitionsFNV.pas REFR XPRM].
+Its base can still name a model: 64 trigger references in FalloutNV.esm (Vault 34's
+`v34AmbushVolume`, `RSCharlieQuestTrigger`, `AbandonedSewerValve01`) place an activator
+whose model is `Architecture\Wasteland\WaterTowerPipes01.NIF` [observed 2026-11-05: every
+REFR with XPRM in FalloutNV.esm and its base's MODL], and no water tower pipes stand in
+those corridors in the original [hypothesis: the editor's trigger tool keeps the base it
+was made from; the game draws the primitive, never the model]. Simple Open Strip's two Tops
+promoter triggers (`NVStripTopsPromoter1Trigger`, `…2Trigger`) do the same with
+`Architecture\Strip\NVStripLightPollution.NIF`, the Strip's distant light-pollution haze,
+in boxes up to 5,380 units long across the street [observed]; drawn, it was the blinding
+haze wall with a hard edge on the kerb (playtest-bugs 2026-11-04).
+
+So a reference with XPRM draws nothing from its base (`fnv_world::placed::Placement::volume`;
+nvforever `world.rs` `spawn_ref`, nvf-play `script_draw.rs`). Its trigger and collision
+uses (script_trigger.rs, rooms.rs, fnv-phys `primitive`) are unchanged.
