@@ -217,7 +217,17 @@ pub fn early_exit(why: &str) {
 /// (a test aid drives them; they would wait on it) or in a handoff's new run, whose old
 /// run shows the reason it reads from this run's log (handoff.rs).
 pub fn tell_player_at_start(text: &str, handoff: bool) {
-    if handoff || std::env::vars_os().any(|(k, _)| k.to_str().is_some_and(nvf_play::drives_run)) {
+    if handoff {
+        return;
+    }
+    tell_player(text);
+}
+
+/// A message box the player must see before the game ends (a reason it stops, such as a
+/// lost GPU device, gpu_lost.rs). None in unattended runs (a test aid drives them; they
+/// would wait on it).
+pub fn tell_player(text: &str) {
+    if cfg!(test) || std::env::vars_os().any(|(k, _)| k.to_str().is_some_and(nvf_play::drives_run)) {
         return;
     }
     // rfd is a Windows-only dependency; elsewhere the error line carries the reason.
@@ -256,13 +266,29 @@ fn set_hook() {
         }
         let thread = std::thread::current();
         let thread = thread.name().unwrap_or("unnamed").to_string();
-        let message = info
+        let mut message = info
             .payload()
             .downcast_ref::<&str>()
             .map(|s| s.to_string())
             .or_else(|| info.payload().downcast_ref::<String>().cloned())
             .unwrap_or_else(|| "(not text)".to_string());
         let location = info.location().map_or_else(|| "unknown".to_string(), |l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
+        // Closing after a lost GPU device, the save written: a panic now is the dead
+        // device's objects being released (gpu_lost.rs). Logged; the process ends at once
+        // with the error exit, with no crash report and no further teardown.
+        if crate::gpu_lost::closing() {
+            warn!("render: a panic while the lost GPU device was released at exit, ignored: {message} at {location}");
+            if let Some(l) = RUN_LOG.get() {
+                if let Some(f) = l.writer.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+                    let _ = f.flush();
+                }
+            }
+            std::process::exit(1);
+        }
+        // A panic left on a path the vendored bevy_render does not cover (gpu_lost.rs).
+        if crate::gpu_lost::device_lost() {
+            message.push_str(" [after the GPU device was lost]");
+        }
         let place = PLACE.try_lock().map(|p| p.clone()).unwrap_or_default();
         let backtrace = std::backtrace::Backtrace::force_capture().to_string();
         let text = report_text(&thread, &message, &location, &place, COMMAND.get().map_or("", |s| s.as_str()), run_log_path(), &backtrace);
@@ -304,12 +330,21 @@ const VALIDATION_ERRORS_LET_THROUGH: u32 = 20;
 /// the images made from files are checked before they reach the GPU
 /// (nvf_assets::texture::checked_image), so a validation error left is most likely one
 /// broken file's: it is logged and the game goes on. One that keeps coming back stops
-/// the game as before, rather than flash the screen frame after frame; so do running out
-/// of GPU memory and a lost device.
+/// the game, rather than flash the screen frame after frame; so do running out of GPU
+/// memory and a lost device. Stopping autosaves first and tells the player
+/// (gpu_lost.rs). Once stopped, every later error keeps rendering stopped (the errors a
+/// lost device's invalid objects raise must not start it again).
 fn render_error(error: &bevy::render::error_handler::RenderError, main: &mut World, _: &mut World) -> bevy::render::error_handler::RenderErrorPolicy {
     use bevy::render::error_handler::{ErrorType, RenderErrorPolicy};
     use std::sync::atomic::{AtomicU32, Ordering};
     static SEEN: AtomicU32 = AtomicU32::new(0);
+    if main.contains_resource::<crate::gpu_lost::RenderLost>() {
+        return RenderErrorPolicy::StopRendering;
+    }
+    if matches!(error.ty, ErrorType::DeviceLost) || crate::gpu_lost::device_lost() {
+        crate::gpu_lost::lost(main, format!("the GPU device was lost (the graphics driver stopped it): {}", error.description));
+        return RenderErrorPolicy::StopRendering;
+    }
     if matches!(error.ty, ErrorType::Validation) {
         let n = SEEN.fetch_add(1, Ordering::Relaxed) + 1;
         if n <= VALIDATION_ERRORS_LET_THROUGH {
@@ -317,8 +352,7 @@ fn render_error(error: &bevy::render::error_handler::RenderError, main: &mut Wor
             return RenderErrorPolicy::Ignore;
         }
     }
-    error!("render: {:?} GPU error, the game stops: {}", error.ty, error.description);
-    main.write_message(AppExit::error());
+    crate::gpu_lost::lost(main, format!("{:?} GPU error, rendering stopped: {}", error.ty, error.description));
     RenderErrorPolicy::StopRendering
 }
 

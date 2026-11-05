@@ -27,6 +27,30 @@ single slow frame charged to a render system that only writes a buffer
 (`upload_light_probes`, `write_binned_instance_buffers`) can be matched to a new memory
 block. `std` is linked for the clock (wgpu-hal turns the crate's `std` feature off).
 
+## bevy_render 0.20.1 (MIT OR Apache-2.0, bevyengine/bevy)
+
+Why: in the owner's 5-player co-op stress test (2026-11-05) the AMD driver dropped the GPU
+device (`Caught DeviceLost error: ... driver implementation is at fault`), and 40 ms later,
+before Bevy's error handler had run, the game panicked: wgpu's `create_buffer_init` on a
+storage buffer (`Failed to get mapped range for buffer created with mapped_at_creation`)
+and the readback map callback (`gpu_readback.rs` `Failed to map buffer: BufferAsyncError`).
+Every object of a lost device is invalid, so these maps fail; upstream unwraps them. The
+changes, each marked `NVForever` in the source:
+
+- `renderer/render_device.rs` `create_buffer_with_data`: wgpu's `create_buffer_init`
+  written out, with a mapping that fails leaving the buffer unfilled (the first five
+  logged) instead of panicking.
+- `gpu_readback.rs` `map_buffers`, `view/window/screenshot.rs` `collect_screenshots`: a
+  failed map or mapped range drops that readback or screenshot, logged.
+- `slab_allocator.rs` (large mesh slabs), `storage.rs` (shader storage buffers),
+  `diagnostic/internal.rs` (render diagnostics): a failed mapped range is skipped.
+- `error_handler.rs`: the device-lost callback sets a flag, `device_was_lost()`, read by
+  the game's render error handler and its panic hook (engine/nvforever/src/gpu_lost.rs),
+  and keeps a second report instead of asserting there is none (a panic).
+
+What the game then does (autosave, a message, a clean error exit): gpu_lost.rs. Drop the
+patch when upstream Bevy handles map failures on a lost device without panicking.
+
 ## Dropped
 
 - bevy_pbr 0.19.1 (#903, PR #905): the bindless index-table comparator in
