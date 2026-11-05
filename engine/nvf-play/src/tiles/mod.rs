@@ -521,6 +521,7 @@ fn write(
     mut told: Local<[Option<String>; 4]>,
     mut menu_tiles: MenuTiles,
     mut mods_entry: ResMut<crate::pause::ModsEntry>,
+    mut mods_back: ResMut<crate::pause::ModsOwnBack>,
     mut start_names: Local<mods::KeptNames>,
     mut start_sizes: Local<menus::SizesWritten>,
 ) {
@@ -536,6 +537,10 @@ fn write(
     if *mods_entry != mods_now {
         info!("tiles: {}", if mods_now.0 { "a mod's tiles in StartMenu: the pause menu has a Mods entry" } else { "no Mods entry in the pause menu" });
         *mods_entry = mods_now;
+    }
+    let back = crate::pause::ModsOwnBack(mods_now.0 && mods::own_back(&rt.game.ui_tree));
+    if *mods_back != back {
+        *mods_back = back;
     }
     menu_tiles.write(&mut rt.game, *menus, &mut fonts, hud.sim.world.calendar().ok());
     // T11: the start menu's text sizes while its Mods page can open, as the original's

@@ -162,6 +162,16 @@ impl TileId {
     }
 }
 
+/// How a path's `:N` counts ([`Ui::find_trait_nvse`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Count {
+    /// From 0, from the last matching child [observed: menu-xml.md §5].
+    FromLast,
+    /// `*:N` among file-made children from 1, from the first; else as `FromLast`
+    /// [hypothesis: menu-xml.md §5].
+    FilesFromFirst,
+}
+
 /// [design] Creator of a tile; descendants retain that creator across includes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Origin {
@@ -795,11 +805,28 @@ impl Ui {
     /// The tile and trait a path names: [`Ui::find_tile`] of all but the last segment,
     /// and the last a trait of it.
     pub fn find_trait(&self, path: &str) -> Option<(TileId, usize)> {
+        self.find_trait_counted(path, Count::FromLast)
+    }
+
+    /// [`Ui::find_trait`] as xNVSE's GetUIFloat, SetUIFloat, GetUIString, SetUIString and
+    /// SetUIStringEx read a path: `*:N` among children that all came from the menu files
+    /// counts from 1 in file order [hypothesis: MCM 1.5 and JAM write
+    /// `StartMenu/MCM/*:1/_optionID`, `*:5/SubMenu1/_enable` and `*:8/SubTitle1/string`
+    /// with these functions for `MCM_Options`, `MCM_ModList` and `MCM_ModTitle`, the 1st,
+    /// 5th and 8th children of mcm.xml's `MCM` rect, the numbers MCM's own GetMCMFloat
+    /// shorthands use; JIP's GetUIFloatAlt counted the HUD's file-made `QuestReminder`
+    /// children and its code-made copies from the last, from 0 (observed, hud.md §14);
+    /// menu-xml.md §5]. Every other path reads as [`Ui::find_trait`].
+    pub fn find_trait_nvse(&self, path: &str) -> Option<(TileId, usize)> {
+        self.find_trait_counted(path, Count::FilesFromFirst)
+    }
+
+    fn find_trait_counted(&self, path: &str, count: Count) -> Option<(TileId, usize)> {
         let segs = split(path);
         let (name, tiles) = segs.split_last()?;
         let (first, rest) = tiles.split_first()?;
         let root = self.root_named(first)?;
-        self.walk_to_trait(root, rest, name)
+        self.walk_to_trait(root, rest, name, count)
     }
 
     /// A trait by a path under a tile: `Tile/…/trait` from `at`'s children, or a trait of
@@ -808,7 +835,7 @@ impl Ui {
     pub fn find_trait_in(&self, at: TileId, path: &str) -> Option<(TileId, usize)> {
         let segs = split(path);
         let (name, tiles) = segs.split_last()?;
-        self.walk_to_trait(at, tiles, name)
+        self.walk_to_trait(at, tiles, name, Count::FromLast)
     }
 
     fn root_named(&self, seg: &str) -> Option<TileId> {
@@ -816,7 +843,7 @@ impl Ui {
     }
 
     /// The children of `at` a segment matches, in order.
-    fn matching(&self, at: TileId, seg: &str) -> Vec<TileId> {
+    fn matching(&self, at: TileId, seg: &str, count: Count) -> Vec<TileId> {
         let (name, index) = match seg.rsplit_once(':') {
             Some((n, k)) if k.trim().parse::<usize>().is_ok() => (n, k.trim().parse::<usize>().ok()),
             _ => (seg, None),
@@ -824,20 +851,30 @@ impl Ui {
         let all = self.tile(at).children.iter().copied();
         let named: Vec<TileId> = all.filter(|&c| name == "*" || self.tile(c).name.eq_ignore_ascii_case(name)).collect();
         match index {
+            // `*:N` read by xNVSE's functions ([`Ui::find_trait_nvse`]).
+            Some(k) if count == Count::FilesFromFirst && name == "*" && !named.is_empty() && named.iter().all(|&c| self.made_from_files(c)) => {
+                k.checked_sub(1).and_then(|k| named.get(k)).copied().into_iter().collect()
+            }
             Some(k) => named.iter().rev().nth(k).copied().into_iter().collect(),
             None => named,
         }
     }
 
-    fn walk(&self, at: TileId, segs: &[&str]) -> Option<TileId> {
-        let Some((seg, rest)) = segs.split_first() else { return Some(at) };
-        self.matching(at, seg).into_iter().find_map(|c| self.walk(c, rest))
+    /// Whether a tile came from a menu file (its own or an injected one), not from the
+    /// game's code or a template.
+    fn made_from_files(&self, id: TileId) -> bool {
+        matches!(self.tile(id).origin, Origin::File { .. } | Origin::Injected)
     }
 
-    fn walk_to_trait(&self, at: TileId, segs: &[&str], name: &str) -> Option<(TileId, usize)> {
+    fn walk(&self, at: TileId, segs: &[&str]) -> Option<TileId> {
+        let Some((seg, rest)) = segs.split_first() else { return Some(at) };
+        self.matching(at, seg, Count::FromLast).into_iter().find_map(|c| self.walk(c, rest))
+    }
+
+    fn walk_to_trait(&self, at: TileId, segs: &[&str], name: &str, count: Count) -> Option<(TileId, usize)> {
         match segs.split_first() {
             None => self.tile(at).trait_index(name).map(|k| (at, k)),
-            Some((seg, rest)) => self.matching(at, seg).into_iter().find_map(|c| self.walk_to_trait(c, rest, name)),
+            Some((seg, rest)) => self.matching(at, seg, count).into_iter().find_map(|c| self.walk_to_trait(c, rest, name, count)),
         }
     }
 
@@ -882,6 +919,19 @@ impl Ui {
     /// exists for that]. The value holds until what the trait's expression reads changes.
     pub fn set(&mut self, path: &str, v: Value) -> bool {
         let Some((t, k)) = self.find_trait(path) else { return false };
+        self.set_at(t, k, v);
+        true
+    }
+
+    /// [`Ui::get`] by xNVSE's count ([`Ui::find_trait_nvse`]).
+    pub fn get_nvse(&self, path: &str) -> Option<&Value> {
+        let (t, k) = self.find_trait_nvse(path)?;
+        Some(&self.tile(t).traits[k].value)
+    }
+
+    /// [`Ui::set`] by xNVSE's count ([`Ui::find_trait_nvse`]).
+    pub fn set_nvse(&mut self, path: &str, v: Value) -> bool {
+        let Some((t, k)) = self.find_trait_nvse(path) else { return false };
         self.set_at(t, k, v);
         true
     }

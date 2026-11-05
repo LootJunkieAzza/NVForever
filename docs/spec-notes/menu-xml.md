@@ -690,6 +690,20 @@ pages]
   matching child**, reversing file/creation order [observed: private jobs hud_hardcore
   hc0, hud_xp_limbs all, hud_prompt2 p0-p8; hud.md §14.8]. Unindexed matching still
   searches in file order [hypothesis].
+- `*:N` among children that **all came from the menu files** counts from **1 in file
+  order** instead [hypothesis, 2026-11-05: MCM 1.5 and JAM write
+  `StartMenu/MCM/*:1/_optionID`, `*:5/SubMenu1/_enable`, `*:8/SubTitle1/string` and
+  `*:2/_setting1` for `MCM_Options`, `MCM_ModList`, `MCM_ModTitle` and `MCM_Scale`, the
+  1st, 5th, 8th and 2nd children of mcm.xml's `MCM` rect, the numbers MCM's own
+  GetMCMFloat shorthands use (17 is `MCM_Images`, 9 `MCM_Info`); counted from the last
+  they name tiles without those children, and JAM's sub-menus never list, which they do
+  in the original]. Every observed from-the-last read was of children the game's code
+  made (the HUD's template copies, hud.md §14.8). Another reading fits too: those reads
+  used JIP's GetUIFloatAlt, MCM's and JAM's use xNVSE's GetUIFloat/SetUIFloat, so the
+  count may depend on the function (observer check 6). `name:N` is unchanged.
+- `src="me"` without brackets is `me()` [hypothesis: MCM 1.5's options.xml places its
+  option column with `<copy src="me" trait="x"/>`; read as a tile named "me" every
+  option stood at the screen's left edge].
 - With `*`, the first child that leads to a full match is taken [hypothesis].
 - GetUIFloat returns -999 when the trait is not found [documented: GetUIFloat];
   SetUIFloatAlt, ModUIFloat return 1 on a change and 0 otherwise [documented].
@@ -847,6 +861,10 @@ What the original can settle (copied to docs/handoff/observer-checks.md):
    hud.md §14.8]. These reads used JIP GetUIFloatAlt; deprecated xNVSE GetUIFloat
    parity remains untested [hypothesis]. No contrary vanilla menu/script dependency
    was established by these captures; other menus/scripts still need checking.
+   **Reopened 2026-11-05 for file-made children**: MCM's and JAM's `*:N` paths only make
+   sense counted from 1 in file order (§5). To check: in the original, with MCM open,
+   `GetUIFloat "StartMenu/MCM/*:1/_columns"` (1 when `*:1` is `MCM_Options`) and the
+   same with GetUIFloatAlt.
 7. **Which target takes the pointer where two overlap.** Ours: the highest summed `depth`,
    a tie to the one drawn later; a later menu over an earlier one (§3.2). In a menu with
    overlapping buttons (the level-up menu's list over its buttons, or two tiles injected
@@ -948,10 +966,7 @@ read.
   trait only the `MCM` rect has) and `GetMCMFloat 1 0 "_optionID"` (the row under the
   pointer) and sets `SetMCMFloat 0 0 "_NewValue" 0`. The GECK wiki writes `SetMCMFloat
   1 1 "_enable" 1` as `SetUIFloat "StartMenu/MCM/*:1/*:1/_enable" 1` [documented:
-  SetMCMFloat], but NVForever's `*:N` counts from the last child (§5, observed on the
-  HUD), which would reach `MCM_Version`, so the shorthands do not go through `*:N`
-  (`fnv_game::ui_functions::mcm_trait`). Which of the two the original's `*:N` really does
-  for MCM is an observer check (§8). A trait or place that is not there reads 0; the
+  SetMCMFloat], which NVForever's `*:N` now reads the same way for MCM's file-made tiles (§5, a hypothesis; observer check 6). The shorthands go straight to the children all the same (`fnv_game::ui_functions::mcm_trait`). A trait or place that is not there reads 0; the
   setters make nothing (as SetUIFloat, §5) [hypothesis].
 - **A mod's menu script** [observed: FOV Slider's source]: a quest script with a
   `Begin MenuMode 1013` block (the start menu, `fnv_game::game::menus::START`). It
