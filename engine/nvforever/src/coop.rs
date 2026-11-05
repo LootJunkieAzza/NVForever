@@ -97,8 +97,10 @@
 //! body drops as a ragdoll (here and on the others' screens) and the view stays with it,
 //! without the death camera's slow motion or fade (`death_cam::DeathCam::downed_in_coop`).
 //! Another player who comes within [`REVIVE_REACH`] and presses Activate revives them
-//! with a Stimpak of their own (one is used up): the downed player stands up where the
-//! body lies, healed (`Game::resurrect`). After [`RESPAWN_AFTER`] a downed player can
+//! with a Stimpak of their own (one is used up): the downed player, healed
+//! (`Game::resurrect`), gets up from where the body lies as a duel's loser does: knocked
+//! down in that pose, the camera following the body, the get-up clip from the ragdoll's
+//! pose (`player_knockdown.rs`, [`crate::player_knockdown::PlayerKnockdown::revived`]). After [`RESPAWN_AFTER`] a downed player can
 //! press Activate to stand up again beside another player (the nearest one up, else the
 //! host) instead.
 //!
@@ -1160,7 +1162,7 @@ fn take_events(
     mut remote_hits: MessageWriter<RemoteHit>,
     (mut sim, mut script, mut quest_lines): (Option<ResMut<nvf_play::sim::SimState>>, Option<ResMut<nvf_play::script::ScriptState>>, Option<ResMut<nvf_play::quest_messages::QuestMessages>>),
     (mut opened, real, mut tables, mut anims_out, mut anims_in): (MessageReader<LockOpened>, Res<Time<Real>>, Option<ResMut<Tables>>, MessageReader<crate::consume_anims::SendAnim>, MessageWriter<crate::consume_anims::PeerAnim>),
-    solo: Option<Res<nvf_play::save::SoloBase>>,
+    (solo, mut knock): (Option<Res<nvf_play::save::SoloBase>>, Option<ResMut<crate::player_knockdown::PlayerKnockdown>>),
 ) {
     let now = time.elapsed_secs();
     let coop = &mut *coop;
@@ -1321,6 +1323,11 @@ fn take_events(
             Event::Revived { by } => {
                 if let Some(rt) = rt.as_deref_mut().filter(|rt| rt.game.is_dead(FormId::PLAYER_REF)) {
                     rt.game.resurrect(FormId::PLAYER_REF, false);
+                    // Up from where the body lies, as a duel's loser gets up
+                    // (`player_knockdown.rs`).
+                    if let Some(k) = knock.as_deref_mut() {
+                        k.revived = true;
+                    }
                     coop.downed_at = None;
                     notes.push(format!("{} revived you", label(by, &coop.peers.get(&by).map_or(String::new(), |p| p.name.clone()))));
                 }

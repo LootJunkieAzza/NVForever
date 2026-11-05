@@ -71,6 +71,12 @@ pub struct PlayerKnockdown {
     /// Knockdowns shown and get-up clips played, for the exit report.
     shown: u32,
     clips: u32,
+    /// Co-op: another player revived this one where the body lies (`coop.rs`). The next
+    /// frame knocks the player down in that pose, so they get up as a duel's loser does,
+    /// the camera following the body.
+    pub revived: bool,
+    /// The knockdown being started is that revive's.
+    reviving: bool,
 }
 
 impl PlayerKnockdown {
@@ -218,8 +224,18 @@ fn watch(
 ) {
     let me = FormId::PLAYER_REF;
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
-    let knocked = rt.game.knockout(me);
     let kd = &mut *kd;
+    // Revived in co-op: down again at once, in the pose the body lies in (no shove), to
+    // get up from it. Not while still dead or the death camera still has the body.
+    if kd.revived && !rt.game.is_dead(me) && !death.down() {
+        kd.revived = false;
+        if kd.down.is_none() && rt.game.knock_down(me, None, [0.0; 3]) {
+            kd.reviving = true;
+            kd.outside_before = false;
+            info!("player knockdown: revived where the body lies: the player gets up from it");
+        }
+    }
+    let knocked = rt.game.knockout(me);
     // Killed while down, or the knockdown gone (a load, ResurrectActor): let go.
     if kd.down.is_some() && (rt.game.is_dead(me) || death.down() || knocked.is_none()) {
         let d = kd.down.take().expect("checked");
@@ -278,13 +294,18 @@ fn watch(
         kd.shown += 1;
         // The camera as the player fell (the eye in first person): it stays there.
         let held = cams.single().ok().copied();
-        // A duel lost: followed, from the side the shot came from.
-        let chase = social.as_deref_mut().and_then(|s| s.thrown.take()).filter(|_| body.is_some()).map(|v| {
-            let back = -Vec2::new(v[0], v[1]);
-            (back.try_normalize().unwrap_or(Vec2::NEG_Y), None)
-        });
+        // A duel lost: followed, from the side the shot came from; a revive: from the
+        // side the camera already looks from.
+        let reviving = std::mem::take(&mut kd.reviving);
+        let thrown = social.as_deref_mut().and_then(|s| s.thrown.take()).map(|v| -Vec2::new(v[0], v[1]));
+        let from_camera = || {
+            let pelvis = body.as_ref().and_then(|(_, rig)| bone_at(rig, &globals, "Bip01 Pelvis"))?;
+            let (c, p) = (space::to_game(held?.translation), space::to_game(pelvis));
+            Some(Vec2::new(c[0] - p[0], c[1] - p[1]))
+        };
+        let chase = thrown.or_else(|| reviving.then(from_camera).flatten().or(reviving.then_some(Vec2::NEG_Y))).filter(|_| body.is_some()).map(|back| (back.try_normalize().unwrap_or(Vec2::NEG_Y), None));
         if chase.is_some() {
-            info!("player knockdown: a duel lost: the camera follows the body");
+            info!("player knockdown: {}: the camera follows the body", if reviving { "a revive" } else { "a duel lost" });
         }
         kd.down = Some(Down { was_first: was_first && body.is_some(), outside: !was_first, body, phase: Phase::Lying, real: 0.0, held, chase, face_up: None, from: None, parent: None, seen_at: None });
         return;
