@@ -431,6 +431,13 @@ impl Page {
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ModsEntry(pub bool);
 
+/// Whether the mod's page shows a Back of its own (`crate::tiles::mods::own_back`): then
+/// the pause menu's Back is not drawn over it, so one Back shows [design: the original's
+/// start menu shows no Back on its first column, where MCM's page opens; MCM draws its
+/// `MCM_Back` at the screen's bottom right, observed in its mcm.xml].
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ModsOwnBack(pub bool);
+
 /// Whether the Mods page is up: the pause menu open on [`Page::Mods`].
 pub fn mods_open(paused: &Paused, page: &Page) -> bool {
     paused.0 && *page == Page::Mods
@@ -901,6 +908,8 @@ struct Drawn {
     dropdown: Option<Dropdown>,
     /// The keep question: its row's label, the seconds left and the chosen answer.
     keep: Option<(&'static str, u32, usize)>,
+    /// The mod's page has its own Back ([`ModsOwnBack`]).
+    mod_back: bool,
     /// The load page's delete question: the row it asks about.
     delete_ask: Option<usize>,
     /// The view's width in interface units (960 high), rounded.
@@ -1026,6 +1035,7 @@ impl Plugin for PausePlugin {
             .init_resource::<PauseStatus>()
             .init_resource::<PauseView>()
             .init_resource::<ModsEntry>()
+            .init_resource::<ModsOwnBack>()
             .add_message::<MainMenuRequest>()
             .init_resource::<MenuPause>()
             .init_resource::<PlayClock>()
@@ -1179,7 +1189,7 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
             Page::Mods => {}
         }
         // Back (and Defaults) at the bottom right.
-        if d.page != Page::Main {
+        if d.page != Page::Main && !(d.page == Page::Mods && d.mod_back) {
             right_entry(root, &f.entry, "Back", from_right(RIGHT, BACK_TOP, 200.0, ITEM), 200.0, Shade::Bright, false, PauseButton::Back);
             if matches!(d.page, Page::Settings { .. } | Page::Controls { .. }) {
                 right_entry(root, &f.entry, "Defaults", from_right(RIGHT, BACK_TOP - ITEM, 200.0, ITEM), 200.0, Shade::Bright, false, PauseButton::Defaults);
@@ -2544,6 +2554,7 @@ fn drawn_now(world: &mut World) -> Drawn {
         dropdown: view.dropdown.filter(|_| matches!(page, Page::Settings { .. })),
         keep,
         delete_ask: view.delete_ask.filter(|_| matches!(page, Page::Load { .. })),
+        mod_back: page == Page::Mods && world.get_resource::<ModsOwnBack>().is_some_and(|b| b.0),
         view_w,
     }
 }
@@ -2827,7 +2838,7 @@ mod tests {
             list.saves.push((PathBuf::from(format!("{name}.nvfsave")), h));
         }
         app.insert_resource(list);
-        let drawn = Drawn { page: Page::Load { selected: 1 }, main_selected: 0, confirm: None, states: vec![], status: String::new(), column: entries(false).iter().map(|e| (e.label(), true)).collect(), under_main: false, thumb: None, controls: vec![], device: ("Keyboard and Mouse", false), rumble: true, invert_y: false, sensitivity: 1.0, scroll: 0, lists: vec![], dropdown: None, keep: None, delete_ask: None, view_w: VIEW_W as u32 };
+        let drawn = Drawn { page: Page::Load { selected: 1 }, main_selected: 0, confirm: None, states: vec![], status: String::new(), column: entries(false).iter().map(|e| (e.label(), true)).collect(), under_main: false, thumb: None, controls: vec![], device: ("Keyboard and Mouse", false), rumble: true, invert_y: false, sensitivity: 1.0, scroll: 0, lists: vec![], dropdown: None, keep: None, delete_ask: None, mod_back: false, view_w: VIEW_W as u32 };
         app.world_mut().run_system_cached_with(|In(d): In<Drawn>, mut commands: Commands, list: Res<LoadList>| spawn_page(&mut commands, &d, &PauseLook::plain(), &[], &list), drawn).unwrap();
         let world = app.world_mut();
         let mut rows = world.query::<(&PauseButton, &BorderColor)>();

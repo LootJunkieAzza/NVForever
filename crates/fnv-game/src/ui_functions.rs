@@ -96,8 +96,9 @@ fn click(g: &mut Game, tile: Option<fnv_ui::TileId>, times: usize) -> bool {
 /// MCM_Options, MCM's first child, each with `_optionID` 1..36; FOV Slider reads
 /// `GetMCMFloat 0 0 "_ActiveMod"`, a trait of the MCM rect, and `GetMCMFloat 1 0
 /// "_optionID"`, the one MCM_Options works out from its rows]. The wiki gives `SetMCMFloat
-/// 1 1` as `SetUIFloat "StartMenu/MCM/*:1/*:1/…"` [documented]; NVForever's `*:N` counts
-/// from the last child [observed on the HUD, menu-xml.md §5], so it is not used here.
+/// 1 1` as `SetUIFloat "StartMenu/MCM/*:1/*:1/…"` [documented]; NVForever's `*:N` reads
+/// file-made children that way too (menu-xml.md §5), but code-made ones from the last
+/// [observed on the HUD], so the children are counted here directly.
 fn mcm_trait(ui: &fnv_ui::Ui, args: &[XVal]) -> Option<(fnv_ui::TileId, String)> {
     let mut at = ui.find_tile("StartMenu/MCM")?;
     for k in [0, 1] {
@@ -191,11 +192,16 @@ pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, Stri
         crate::ui_hud::flush(g);
     }
     Some(Ok(match lname.as_str() {
-        "getuifloat" | "getuifloatalt" => XVal::Num(g.ui_tree.get_float(&path).unwrap_or(NOT_FOUND)),
+        // xNVSE's functions count a path's `*:N` among file-made children from the
+        // first, JIP's `…Alt` ones from the last (`fnv_ui::Ui::find_trait_nvse`).
+        "getuifloat" => XVal::Num(g.ui_tree.get_nvse(&path).map_or(NOT_FOUND, Value::num)),
+        "getuifloatalt" => XVal::Num(g.ui_tree.get_float(&path).unwrap_or(NOT_FOUND)),
         "getuifloatinherited" => XVal::Num(inherited(&g.ui_tree, &path, num(args, 1) != 0.0).unwrap_or(NOT_FOUND)),
-        "getuistring" => XVal::Str(g.ui_tree.get_string(&path).unwrap_or_default()),
-        "setuifloat" | "setuifloatalt" => yes(g.ui_tree.set_float(&path, num(args, 1))),
-        "setuistring" | "setuistringalt" | "setuistringex" => yes(g.ui_tree.set_string(&path, &text(args, 1))),
+        "getuistring" => XVal::Str(g.ui_tree.get_nvse(&path).map(Value::text).unwrap_or_default()),
+        "setuifloat" => yes(g.ui_tree.set_nvse(&path, Value::Num(num(args, 1)))),
+        "setuifloatalt" => yes(g.ui_tree.set_float(&path, num(args, 1))),
+        "setuistring" | "setuistringex" => yes(g.ui_tree.set_nvse(&path, Value::Str(text(args, 1)))),
+        "setuistringalt" => yes(g.ui_tree.set_string(&path, &text(args, 1))),
         "moduifloat" => yes(g.ui_tree.mod_float(&path, num(args, 1))),
         // MCM's shorthands for the traits of `StartMenu/MCM/*:child/*:grandchild/setting`
         // [documented: SetMCMFloat and SetMCMString give the SetUIFloat and SetUIString
@@ -258,7 +264,17 @@ pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, Stri
                 ui.set_existing(row, "_modIndex2", Value::Num(num(args, 3)));
                 ui.set_existing(row, "_enable", Value::Num(1.0));
                 if let Some((t, n)) = mcm_resolve(ui, row, "text/string") {
-                    ui.set_existing(t, &n, Value::Str(name));
+                    ui.set_existing(t, &n, Value::Str(name.clone()));
+                }
+                // The page's heading: `MCM_ModTitle/Title<slot>` (`SubTitle<slot>` for the
+                // sub-menu list) shows while that row is chosen, and no script writes its
+                // string, so the call does, with the row's name [hypothesis: MCM's
+                // ModTitleRect.xml shows Title<n> while `MCM_ModList/_selected` is its
+                // `_titleID` n and leaves `string` blank; MCMMainScript and JAM's scripts
+                // never set it].
+                let title = if list == 2 { "SubTitle" } else { "Title" };
+                if let Some(t) = ui.find_tile(&format!("StartMenu/MCM/MCM_ModTitle/{title}{slot}")) {
+                    ui.set_existing(t, "string", Value::Str(name));
                 }
             }
             XVal::Num(0.0)

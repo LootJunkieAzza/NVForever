@@ -113,6 +113,14 @@ fn paths_with_wildcards_and_indexes() {
     assert_eq!(ui.get_float("TestMenu/*/Gauge/_Fill"), Some(0.0));
     assert_eq!(ui.get_float("TestMenu/*:0/*:0/x"), Some(392.0));
     assert_eq!(ui.get_float("TestMenu/Panel/*:2/_Fill"), Some(0.0));
+    // xNVSE's count: `*:N` among the file's own children from 1 in file order
+    // (menu-xml.md §5); `name:N` as above.
+    let nvse = |p: &str| ui.get_nvse(p).map(Value::num);
+    assert_eq!(nvse("TestMenu/*/*:1/_Fill"), Some(0.0));
+    assert_eq!(nvse("TestMenu/*/*:2/_Fill"), Some(1.0));
+    assert_eq!(nvse("TestMenu/*:1/*:3/x"), Some(392.0));
+    assert!(nvse("TestMenu/Panel/*:0/x").is_none());
+    assert_eq!(nvse("TestMenu/Panel/Gauge:0/_Fill"), Some(1.0));
     assert!(ui.get("TestMenu/Panel/Gauge:2/_Fill").is_none());
     assert!(ui.get("TestMenu/Panel/*:3/_Fill").is_none());
     assert!(ui.find_tile("TestMenu/Panel/*:18446744073709551615").is_none());

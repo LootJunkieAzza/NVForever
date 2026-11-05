@@ -128,11 +128,29 @@ struct Context {
     visible: bool,
     clip: Option<Rect>,
     t15: bool,
+    /// Whether a true `clips` crops the children ([`Clips`]).
+    clips: Clips,
+}
+
+/// What a true `clips` does in this drawing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Clips {
+    /// Crops the tile's children to its box (menu-xml.md §3.1.1).
+    #[default]
+    Children,
+    /// Crops nothing; a turned-on `clipwindow` still does. For mods' tiles drawn over the
+    /// hand-built HUD and on the pause menu's Mods page [hypothesis: JAM's loot menu
+    /// (jlm.xml) sets `clips` on its root and centres its title on the root's top edge,
+    /// half outside the box, and its rows hide themselves past the list by their own
+    /// `visible`, so the original does not crop a `clips` tile's children there;
+    /// design: as `clipwindow`, the reading changes only where mods' tiles draw over
+    /// the default game, menu-xml.md §3.1.1].
+    Ignored,
 }
 
 impl Default for Context {
     fn default() -> Self {
-        Self { rect: Rect::default(), origin: (0.0, 0.0), locus: false, depth: 0.0, alpha: 255.0, visible: true, clip: None, t15: false }
+        Self { rect: Rect::default(), origin: (0.0, 0.0), locus: false, depth: 0.0, alpha: 255.0, visible: true, clip: None, t15: false, clips: Clips::Children }
     }
 }
 
@@ -234,12 +252,17 @@ fn place(tile: &Tile, kind: &Kind, parent: Context, measure: &Measure<'_>) -> Co
         visible: parent.visible && tile.get("visible").is_none_or(Value::truthy),
         clip: parent.clip,
         t15: parent.t15,
+        clips: parent.clips,
     }
 }
 
 fn children_context(tile: &Tile, mut context: Context) -> Context {
     // `clips`, or a `clipwindow` its menu turned on: the same rule as under the pointer.
-    if fnv_ui::input::clips_children(tile) {
+    let crops = match context.clips {
+        Clips::Children => fnv_ui::input::clips_children(tile),
+        Clips::Ignored => tile.get("clipwindow").is_some_and(Value::truthy) && tile.get(fnv_ui::input::CLIP_WINDOW_ON).is_some_and(Value::truthy),
+    };
+    if crops {
         context.clip = Some(context.clip.map_or(context.rect, |clip| clip.intersect(context.rect)));
     }
     context
@@ -250,6 +273,11 @@ fn children_context(tile: &Tile, mut context: Context) -> Context {
 /// Hidden items retain visible=false; menu/hotrect containers emit no item.
 /// `t15` is `tiles::interface_screen`'s switch gate for the hotrect-alpha hypothesis.
 pub fn layout(ui: &Ui, root: TileId, measure: &Measure<'_>, t15: bool) -> Vec<DrawItem> {
+    layout_with(ui, root, measure, t15, Clips::Children)
+}
+
+/// [`layout`] with what a true `clips` does ([`Clips`]).
+pub fn layout_with(ui: &Ui, root: TileId, measure: &Measure<'_>, t15: bool, clips: Clips) -> Vec<DrawItem> {
     let mut ancestors = Vec::new();
     let mut at = ui.tile(root).parent;
     while let Some(id) = at {
@@ -257,7 +285,7 @@ pub fn layout(ui: &Ui, root: TileId, measure: &Measure<'_>, t15: bool) -> Vec<Dr
         at = ui.tile(id).parent;
     }
     let locus = fnv_ui::input::locus_on(ui, ui.root_of(root));
-    let mut context = Context { t15, locus, ..Default::default() };
+    let mut context = Context { t15, locus, clips, ..Default::default() };
     for id in ancestors.into_iter().rev() {
         let tile = ui.tile(id);
         if !tile.live {

@@ -388,10 +388,19 @@ owner to add to its pull request or issue (owner, 2026-10-29).
         SetCursorPos, ToggleHUDCursor, TogglePipBoy and ShowQuantityMenu, not built;
         `SetOn…EventHandler f 0` without filters removes only a registration without
         filters (JIP's page does not say whether it removes all of them).
-        On MCM's page [observed 2026-11-05]: the option titles are drawn left of the
-        panel (from the screen's left edge) while their switches sit in the panel;
-        "Back" is drawn twice (ours and MCM's, offset) and the list's scroll arrows
-        twice; the help line keeps "Select a mod to configure…" on a mod's page.
+      - MCM's page layout (fixed 2026-11-05, observed headless with MCM 1.5 + JAM): the
+        option titles stood at the screen's left edge because options.xml's
+        `src="me"` (no brackets) was read as a tile named "me"; it is `me()` now
+        (menu-xml.md §5). The page had no heading: SetMCMModList writes the row's name
+        to `MCM_ModTitle/Title<slot>` too. JAM's sub-menus (Crosshair … Bullet Time) did
+        not list and their headings stayed blank because `*:5`/`*:8` counted from the
+        last child; `*:N` among file-made children counts from 1 in file order now
+        (menu-xml.md §5, observer check 6 reopened). The pause menu's Back is not drawn
+        while MCM shows its own `MCM_Back` (`crate::pause::ModsOwnBack`). The help line
+        shows only while the pointer is on an option (JAM's script), as it should.
+        Not checked against the original: the list's two down-arrows at its foot show
+        while JAM's sub-menus are listed (MCM's own formula, `_visible + _subVisible +
+        _offset < _count + _subCount`).
       - JAM's sprint (2026-11-05): needed the key events above, and a first-person idle
         of the Movement section no longer holds the player (idles.md §4): JVS plays
         `SpecialIdleSprint` on each sprint and ended it the frame `IsMoving` read 0.

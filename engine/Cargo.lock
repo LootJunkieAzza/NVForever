@@ -2986,6 +2986,7 @@ name = "fnv-game"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "fnv-combat",
  "fnv-esm",
  "fnv-install",
  "fnv-save",

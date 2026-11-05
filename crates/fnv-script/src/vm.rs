@@ -166,6 +166,11 @@ pub trait Host {
     fn call(&mut self, opcode: u16, on: Option<Value>, args: &[ArgValue]) -> Result<Value, String>;
     /// An opcode that is not in the function table was skipped (non-strict runs).
     fn skipped(&mut self, _what: &VmError) {}
+    /// A key or mouse button code's name, as GetKeyName gives it, for a format string's
+    /// `%k`; `None` writes the code's number.
+    fn key_name(&mut self, _code: i64) -> Option<String> {
+        None
+    }
     /// Whether the last call ended the run the way `Return` does (a function such as
     /// `RemoveMe`, which "acts like a return" [documented: catalogue notes]). The VM
     /// asks after every statement; answering true also clears the request.
@@ -2171,8 +2176,10 @@ impl Vm<'_, '_> {
 
     /// Expand a format string with its values [documented: String Formatting; ext-format.md
     /// §2–3]. `%B`/`%b` (console colours) write nothing here [decision: NVForever's console
-    /// has no colours]; `%k` writes the scancode's number [hypothesis until the scancode
-    /// table is in the export]; `%c` and the `%p` pronouns need form data (task D4) and
+    /// has no colours]; `%k` writes the key's name as GetKeyName gives it ([`Host::key_name`];
+    /// [hypothesis: "key description from DX scancode" is that name; JAM's loot menu
+    /// writes "%k)" for its key hints]), the number where the host has none; `%c` and the
+    /// `%p` pronouns need form data (task D4) and
     /// write nothing yet.
     fn format(&mut self, fmt: &str, values: &[XVal]) -> Result<String, VmError> {
         let cs: Vec<char> = fmt.chars().collect();
@@ -2234,7 +2241,10 @@ impl Vm<'_, '_> {
                     XVal::Str(s) => s,
                     other => self.text_of(&other)?,
                 },
-                'k' => format!("{}", next("key")?.num()? as i64),
+                'k' => {
+                    let code = next("key")?.num()? as i64;
+                    self.host.key_name(code).unwrap_or_else(|| code.to_string())
+                }
                 'c' => {
                     next("form")?;
                     next("index")?;

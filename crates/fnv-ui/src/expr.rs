@@ -38,6 +38,13 @@ impl Src {
     pub fn parse(s: &str) -> Src {
         let t = s.trim();
         let Some(open) = t.find('(') else {
+            // `me` without brackets is the tile itself [hypothesis: MCM 1.5's options.xml
+            // writes `<copy src="me" trait="x"/>` for its option column's `_x1` and `_x2`,
+            // and its options draw inside the panel in the original; read as a tile named
+            // "me", they stood at the menu's left edge (observed in NVForever, 2026-11-05)].
+            if t.eq_ignore_ascii_case("me") {
+                return Src::Me;
+            }
             return Src::Named(t.to_string());
         };
         let head = t[..open].trim().to_ascii_lowercase();
@@ -152,10 +159,19 @@ pub struct Op {
 /// it names (`&-sName;`, looked up by `string`); otherwise the text with any game
 /// strings put in.
 pub fn literal(nodes: &[Node], string: &dyn Fn(&str) -> Option<String>) -> Value {
+    // `&sName;` without the `-` reads as `&-sName;` when it names a string setting the
+    // load order or the built-in table answers [hypothesis: JAM's loot menu (jlm.xml)
+    // writes `&sTargetTypeTake;`, `&sSteal;` and `&sTargetTypeOpen;` for its key hints
+    // and MCM's scale.xml `&sAccept;` and `&sCancel;`, beside the `&-…;` names of the
+    // same files; menu-xml.md §2.4]; otherwise it stays a constant's name.
+    let setting = |e: &str| if e.starts_with('s') { string(e) } else { None };
     let pieces: Vec<&Node> = nodes.iter().filter(|n| !matches!(n, Node::Text(t) if t.trim().is_empty())).collect();
     if let [Node::Entity(e)] = pieces.as_slice() {
         if !e.starts_with('-') {
-            return Value::Sym(e.to_ascii_lowercase());
+            return match setting(e) {
+                Some(text) => Value::literal(&text),
+                None => Value::Sym(e.to_ascii_lowercase()),
+            };
         }
     }
     let mut text = String::new();
@@ -164,7 +180,10 @@ pub fn literal(nodes: &[Node], string: &dyn Fn(&str) -> Option<String>) -> Value
             Node::Text(t) => text.push_str(t),
             Node::Entity(e) => match e.strip_prefix('-') {
                 Some(name) => text.push_str(&string(name).unwrap_or_default()),
-                None => text.push_str(&format!("&{e};")),
+                None => match setting(e) {
+                    Some(t) => text.push_str(&t),
+                    None => text.push_str(&format!("&{e};")),
+                },
             },
             Node::Element(_) => {}
         }
@@ -238,6 +257,7 @@ mod tests {
         assert_eq!(Src::parse("parent(CWM_MainRect)"), Src::Ancestor("CWM_MainRect".into()));
         assert_eq!(Src::parse("gloabls()"), Src::Globals);
         assert_eq!(Src::parse("StatsMenu"), Src::Named("StatsMenu".into()));
+        assert_eq!(Src::parse("me"), Src::Me);
     }
 
     #[test]
@@ -267,5 +287,11 @@ mod tests {
         assert_eq!(literal(&e.children, &s), Value::Sym("false".into()));
         let e = first("<a> x &true; </a>");
         assert_eq!(literal(&e.children, &s), Value::Str("x &true;".into()));
+        // Without the `-`, a name the table answers is its text; one it does not
+        // answer stays a constant (menu-xml.md §2.4).
+        let e = first("<string> &sHowMany; </string>");
+        assert_eq!(literal(&e.children, &s), Value::Str("How many?".into()));
+        let e = first("<a>&sNoSuch;</a>");
+        assert_eq!(literal(&e.children, &s), Value::Sym("snosuch".into()));
     }
 }

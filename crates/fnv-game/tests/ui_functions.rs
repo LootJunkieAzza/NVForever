@@ -82,7 +82,7 @@ fn get_set_and_mod_by_path() {
     assert_eq!(n(run(&mut g, "getuifloat", &[s("HUDMenu\\Bars\\Fill\\width")])), 150.0);
     assert_eq!(n(run(&mut g, "ModUIFloat", &[s("HUDMenu/Bars/width"), XVal::Num(-100.0)])), 1.0);
     g.ui_tree.update();
-    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("HUDMenu/*/*:0/width")])), 100.0);
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("HUDMenu/*/*:1/width")])), 100.0);
     assert_eq!(n(run(&mut g, "SetUIStringAlt", &[s("HUDMenu/Bars/Fill/string"), s("x")])), 0.0);
     assert!(call(&mut g, "GetPlayerName", &[]).is_none());
 }

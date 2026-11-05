@@ -33,6 +33,9 @@ pub struct JamState {
     pub view: Option<ViewTold>,
     /// Keys and buttons held last frame, for the key events.
     pub keys_down: BTreeSet<u16>,
+    /// The key the loot menu's take key was last set to from the player's Activate
+    /// binding ([`Game::jam_take_follows_activate`]).
+    pub take_followed: Option<f32>,
     /// Each model's sequences (name lower case, frequency), from the engine's hook.
     sequences: HashMap<String, Option<Vec<(String, f32)>>>,
 }
@@ -234,6 +237,36 @@ impl Game<'_> {
     /// hypothesis: the moment, and that a key a script disabled sends them too: JLM
     /// disables its keys so the game's controls ignore them and reads them from its
     /// handler].
+    /// JAM's loot menu takes with its "1st Key" (the global `JLMKey1`), 18 by default,
+    /// the original's Activate key E, while the player's Activate opens the container
+    /// [observed: JLMScript registers its key handler on JLMKey1 and DisableKeys it while
+    /// the menu shows]. While that key is still the default (or the one set here last),
+    /// it follows the player's own Activate binding, and the menu takes its settings
+    /// again (`JLM.iSettingUpdate` 1: handlers registered anew, the key hint rewritten);
+    /// a key the player picked on JAM's page stays [owner 2026-11-05: "follow interact set
+    /// by player"; design].
+    pub fn jam_take_follows_activate(&mut self) {
+        const DEFAULT: f32 = 18.0;
+        const ACTIVATE: usize = 5;
+        let Some(global) = self.world.forms.by_edid("JLMKey1") else { return };
+        let Some(key) = self.input.bindings.get(ACTIVATE).and_then(|b| b.0) else { return };
+        let key = f32::from(key);
+        let Ok(now) = self.world.global(global) else { return };
+        if now == key || !(now == DEFAULT || Some(now) == self.jam.take_followed) {
+            return;
+        }
+        if self.world.set_global(global, key).is_err() {
+            return;
+        }
+        self.jam.take_followed = Some(key);
+        let quest = self.world.forms.by_edid("JLM");
+        if let Some((inst, script)) = quest.and_then(|q| self.instance_of(q)) {
+            if let Some(index) = self.data.script(script).and_then(|s| s.var_index("iSettingUpdate")) {
+                self.store_raw(inst, Some(script), index, Value::Num(1.0));
+            }
+        }
+    }
+
     pub fn jam_key_events(&mut self) {
         if !self.jam_keys_changed() {
             return;
