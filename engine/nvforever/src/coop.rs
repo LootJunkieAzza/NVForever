@@ -37,9 +37,9 @@
 //! perks of the visit.
 //!
 //! **What a guest does.** A guest leaves the story to the host, as in Dying Light's co-op
-//! (`fnv_game::Game::coop_guest`): it talks to NPCs only to trade with them or to play
-//! Caravan (their own lines that do that; nobody else offers to talk, and no script
-//! starts a conversation with it), and plays at the casino tables. Its quest list,
+//! (`fnv_game::Game::coop_guest`): no script of its game starts a conversation with it,
+//! but it talks to any NPC it goes up to (a casino's cashier changes its own caps for
+//! chips), in its own game, and plays at the casino tables. Its quest list,
 //! objectives, markers and quest messages are the host's active quest ([`QuestView`],
 //! `Game::coop_host_quest`). It picks locks and hacks terminals, and so does the host:
 //! what either unlocks is unlocked for everyone (`nvf_play::lockpick::LockOpened`).
@@ -64,7 +64,20 @@
 //! draws there too: one the host's story enabled (the Powder Gangers coming to
 //! Goodsprings) is enabled in the guest's world, and one it moved (Trudy to her saloon)
 //! is moved there ([`follow_npcs`]). An actor the host's scripts made has no reference
-//! the guest's world knows, and is not drawn there.
+//! the guest's world knows, and is not drawn there. The host's world wins whatever the
+//! guest's save did: an NPC dead in the guest's game but alive in the host's stands up
+//! again ([`place_like_host`]), and an actor the guest's game draws near the host that the
+//! host's world does not have (dead or disabled there, not there yet) is disabled for as
+//! long as the guest is in the host's world ([`not_in_hosts_world`]). So a guest whose
+//! save has done everything joins a host who is just starting and sees the host's
+//! Goodsprings. None of it reaches the guest's own saves (its own game is kept, below).
+//!
+//! **What the host's NPCs say.** The lines the host's NPCs are saying (a scene between
+//! two of them, a scripted Say or SayTo, a hello; `Game::speech`), and the NPC's lines
+//! of the host's own conversation ([`conversation_line`]), go to the guests ([`net::LineView`]),
+//! whose games say them as the host's does, voice and subtitles, timed by the host and
+//! without their scripts (`Game::set_remote_speech`); a line of a guest's own by one of
+//! the host's NPCs stops.
 //!
 //! **What they do.** Each state carries the weapon in hand, whether it is out, aimed or
 //! down the sights, sneaking, in the air, the flashlight, what is worn, and counters of
@@ -88,6 +101,12 @@
 //! body lies, healed (`Game::resurrect`). After [`RESPAWN_AFTER`] a downed player can
 //! press Activate to stand up again beside another player (the nearest one up, else the
 //! host) instead.
+//!
+//! **Loading a save while hosting.** A load hands over to a new run of the game, which
+//! starts while this one still shows the loading screen (`crate::handoff`). The host
+//! lets go of its port then, without a goodbye ([`lobby`]), so the new run opens the lobby
+//! on it at once and the guests come back to it; if the new run fails, this one opens
+//! the lobby again.
 //!
 //! **Dropouts.** A player whose link goes quiet stays where it was last seen, frozen,
 //! while the link reconnects (net.rs); only a player who quit or stayed away past
@@ -213,6 +232,14 @@ const NPC_DELAY: f32 = 2.0 / net::NPC_HZ as f32;
 /// A guest stops following an NPC the host has not drawn for this long (seconds); it
 /// stays where it was last drawn.
 const NPC_FORGET: f32 = 3.0;
+/// How often every body of the other players is checked for strays (seconds, [`draw`]).
+const SWEEP_EVERY: f32 = 1.0;
+/// A guest's own actor this near the host (game units, across the floor), which the
+/// host's NPCs have not included for [`HIDE_AFTER`] seconds (and the host has been in
+/// the place that long), is not in the host's world there ([`not_in_hosts_world`]).
+/// Well inside the cells the host draws around it.
+const HIDE_REACH: f32 = 3000.0;
+const HIDE_AFTER: f32 = 3.0;
 
 impl Plugin for CoopPlugin {
     fn build(&self, app: &mut App) {
@@ -243,6 +270,12 @@ impl Plugin for CoopPlugin {
             downed_at: None,
             told_respawn: false,
             revive_offer: None,
+            strays: Vec::new(),
+            swept_at: 0.0,
+            unheard: HashMap::new(),
+            hidden: HashSet::new(),
+            host_lines: None,
+            handed_off: false,
         };
         if let Some(port) = c.host.or_else(|| env(HOST_ENV).and_then(|p| p.trim().parse().ok())) {
             coop.start_hosting(port);
@@ -369,6 +402,18 @@ struct Coop {
     told_respawn: bool,
     /// The downed player this one was last told it can revive.
     revive_offer: Option<u8>,
+    /// References whose every body in the world is taken away on the next frame ([`draw`]:
+    /// players who left), and when the bodies were last checked for strays.
+    strays: Vec<u32>,
+    swept_at: f32,
+    /// A guest's: its own actors near the host that the host's world does not have, since
+    /// when each has not been heard of, and those it disabled ([`not_in_hosts_world`]).
+    unheard: HashMap<u32, f32>,
+    hidden: HashSet<FormId>,
+    /// A guest's: the lines the host's NPCs are saying, and when they came.
+    host_lines: Option<(f32, Vec<net::LineView>)>,
+    /// A host that let go of its port for a load's new run ([`lobby`]).
+    handed_off: bool,
 }
 
 /// One of the host's NPCs as a guest has heard it.
@@ -481,6 +526,7 @@ impl Coop {
             if let Some(e) = p.root {
                 commands.entity(e).despawn();
             }
+            self.strays.extend(p.references(id));
         }
     }
 
@@ -513,6 +559,7 @@ fn lobby(
     windows: Query<&mut Window, With<PrimaryWindow>>,
     mut titled: Local<Option<String>>,
     tables: Option<Res<Tables>>,
+    handoff: Option<Res<crate::handoff::Handoff>>,
 ) {
     let now = time.elapsed_secs();
     let coop = &mut *coop;
@@ -522,6 +569,22 @@ fn lobby(
             c.push(n.into());
         }
     };
+    // A load's new run takes over (module notes): it hosts on this port, so this run lets
+    // go of it now, without a goodbye (the guests wait for the host to come back), rather
+    // than holding it until the new run is up, which waits on it. If the new run failed,
+    // this one hosts again.
+    let leaving = handoff.as_deref().is_some_and(|h| h.leaving());
+    if leaving && coop.is_host() {
+        if let Some(link) = coop.link.take() {
+            info!("co-op: a new run takes over: port {} handed over to it", coop.port);
+            link.abandon();
+            coop.handed_off = true;
+        }
+    } else if !leaving && coop.handed_off {
+        coop.handed_off = false;
+        info!("co-op: the new run did not take over: hosting again");
+        coop.start_hosting(coop.port);
+    }
     for ask in asks.read() {
         match ask {
             LobbyRequest::Create if coop.is_guest() => say("You are in another player's lobby: leave it to open your own".into()),
@@ -659,6 +722,9 @@ struct Peer {
     /// Down, as last seen ([`downed`]); drawn anew (standing) on the next frame.
     down: bool,
     redraw: bool,
+    /// Every body of this player in the world is taken away before it is drawn again
+    /// ([`Peer::undraw`]).
+    purge: bool,
 }
 
 impl Peer {
@@ -666,6 +732,22 @@ impl Peer {
     /// [`PUPPET_REF`] + its id.
     fn reference(&self, id: u8) -> u32 {
         self.actor.map_or(PUPPET_REF + id as u32, |r| r.0)
+    }
+
+    /// The references its bodies can have: its puppet's, and its actor's on the host.
+    fn references(&self, id: u8) -> impl Iterator<Item = u32> {
+        std::iter::once(PUPPET_REF + id as u32).chain(self.actor.map(|r| r.0))
+    }
+
+    /// Take its body away, to be drawn anew. Not only the root it knows: a body spawned
+    /// in the frames before its root is found (or one left lying when it got up) would
+    /// stay behind, frozen where it was; [`draw`] takes every body of its references away
+    /// first ([`Peer::purge`]).
+    fn undraw(&mut self) {
+        self.root = None;
+        self.spawned = false;
+        self.drawn_in = None;
+        self.purge = true;
     }
 
     /// The pose to draw at `t`: blended between the states either side of it.
@@ -1044,11 +1126,7 @@ fn take_events(
                 info!("co-op: {} looks {}", label(id, &p.name), look.as_ref().map_or("as the player record does".to_string(), |l| format!("race {}, {}", l.race, if l.female { "female" } else { "male" })));
                 p.look = Some(look);
                 // Drawn again, as it now looks.
-                if let Some(e) = p.root.take() {
-                    commands.entity(e).despawn();
-                }
-                p.spawned = false;
-                p.drawn_in = None;
+                p.undraw();
                 p.failed = false;
             }
             Event::Left(id) => {
@@ -1063,6 +1141,7 @@ fn take_events(
                     if let Some(e) = p.root {
                         commands.entity(e).despawn();
                     }
+                    coop.strays.extend(p.references(id));
                     if id != 0 {
                         notes.push(format!("{} left", label(id, &p.name)));
                     }
@@ -1122,6 +1201,7 @@ fn take_events(
                     notes.push(format!("{} revived you", label(by, &coop.peers.get(&by).map_or(String::new(), |p| p.name.clone()))));
                 }
             }
+            Event::Lines(lines) => coop.host_lines = Some((now, lines)),
             Event::Clock(c) => {
                 // Not before this game is kept as the guest's own.
                 if let Some(sim) = sim.as_deref_mut().filter(|_| solo.is_some()) {
@@ -1216,7 +1296,7 @@ fn leash(
 }
 
 /// Draw each other player where the link last put it, in this game's space only.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn draw(
     mut commands: Commands,
     time: Res<Time>,
@@ -1233,14 +1313,29 @@ fn draw(
     mut holds: Query<&mut WeaponHold>,
     dressed: Query<(Option<&PuppetEquipment>, Has<Puppet>)>,
     (mut fighters, mut attacks, main_menu, mut shots): (ResMut<Fighters>, MessageWriter<PlayAttack>, Option<Res<nvf_play::main_menu::MainMenu>>, MessageWriter<PuppetShot>),
-    (sfx, listener, mut sounds): (Option<Res<Sfx>>, Option<Res<Player>>, MessageWriter<PlaySound>),
+    (sfx, listener, mut sounds, lying): (Option<Res<Sfx>>, Option<Res<Player>>, MessageWriter<PlaySound>, Query<(), Or<(With<Dying>, With<crate::ragdoll::Corpse>)>>),
 ) {
     let (Ok(world_root), Some(loc)) = (root.single(), loc) else { return };
     if at_main_menu(main_menu.as_deref()) {
         return;
     }
-    let here = place_of(&loc);
     let now = time.elapsed_secs();
+    // Bodies to take away: of players who left, of players drawn anew, and (once a
+    // second) any body of a player that is not its puppet: a stray left behind.
+    let sweep = now - coop.swept_at >= SWEEP_EVERY;
+    if sweep {
+        coop.swept_at = now;
+    }
+    let mut keep: HashMap<u32, Option<Entity>> = coop.strays.drain(..).map(|r| (r, None)).collect();
+    for (&id, p) in coop.peers.iter_mut() {
+        if std::mem::take(&mut p.purge) {
+            keep.extend(p.references(id).map(|r| (r, None)));
+        } else if sweep && p.root.is_some() {
+            keep.extend(p.references(id).map(|r| (r, p.root)));
+        }
+    }
+    despawn_bodies(&mut commands, &roots, world_root, &keep);
+    let here = place_of(&loc);
     let dt = time.delta_secs().min(0.1);
     let mut stats = crate::actors::ActorStats::default();
     let base = coop.base;
@@ -1249,26 +1344,35 @@ fn draw(
             continue;
         }
         let Some((place, feet, yaw, moving)) = p.pose(now - DELAY) else { continue };
-        // Up again after being down: its body was a ragdoll.
-        if std::mem::take(&mut p.redraw) {
-            if let Some(e) = p.root.take() {
-                commands.entity(e).despawn();
+        let Some(&(_, newest)) = p.samples.back() else { continue };
+        // Up again after being down: its body was a ragdoll. And whatever the reason, a
+        // player who is up is never drawn lying (a body that missed getting up).
+        let lies = p.root.is_some_and(|e| lying.contains(e));
+        if std::mem::take(&mut p.redraw) || (lies && !newest.has(flag::DOWN)) {
+            if lies {
+                info!("co-op: {} is up: drawn standing", label(id, &p.name));
             }
-            p.spawned = false;
-            p.drawn_in = None;
+            p.undraw();
         }
         // The world's entities go with the space they belong to: after a trip (here or
         // there), or once its entity is gone, the puppet is spawned again.
-        if p.root.is_some_and(|e| roots.get(e).is_err()) || p.drawn_in.is_some_and(|d| d != here || d != place) {
-            if let Some(e) = p.root.take().filter(|e| roots.get(*e).is_ok()) {
-                commands.entity(e).despawn();
-            }
-            p.spawned = false;
-            p.drawn_in = None;
+        if p.root.is_some_and(|e| roots.get(e).is_err()) {
+            p.root = None;
+            p.undraw();
+        } else if p.drawn_in.is_some_and(|d| d != here || d != place) {
+            p.undraw();
         }
         let visible = place == here;
+        // Not here: no body of it here either (one spawned but not yet found as its root
+        // would stay frozen where it was).
+        if !visible && (p.spawned || p.root.is_some()) {
+            p.undraw();
+        }
+        // Taken away now, before it is spawned again below.
+        if std::mem::take(&mut p.purge) {
+            despawn_bodies(&mut commands, &roots, world_root, &p.references(id).map(|r| (r, None)).collect());
+        }
         let reference = p.reference(id);
-        let Some(&(_, newest)) = p.samples.back() else { continue };
         let base = if p.look.is_some() { PLAYER_BASE } else { base };
         let who = Who { reference, base, creature: false, scale: 1.0, strafe: true, air: newest.has(flag::AIR) };
         let sim_world = sim.as_deref().map(|s| &s.world);
@@ -1299,7 +1403,6 @@ fn draw(
 /// deleted. The hits this world's actors land on them go to their games.
 #[allow(clippy::too_many_arguments)]
 fn stand_ins(
-    mut commands: Commands,
     time: Res<Time>,
     mut coop: ResMut<Coop>,
     loc: Option<Res<Location>>,
@@ -1337,6 +1440,9 @@ fn stand_ins(
         if let Ok(c) = sim.world.calendar() {
             link.set_clock(net::ClockView { year: c.year, month: c.month, day: c.day, hour: c.hour, days_passed: c.days_passed });
         }
+        let players: HashMap<FormId, u8> = coop.peers.iter().filter_map(|(&id, p)| Some((p.actor?, id))).collect();
+        let said: Vec<fnv_game::game::Speech> = rt.game.speech.iter().cloned().chain(conversation_line(&rt.game)).collect();
+        link.set_lines(lines_out(&said, |r| players.get(&r).copied()));
     }
     let here = place_of(&loc);
     let now = time.elapsed_secs();
@@ -1357,11 +1463,7 @@ fn stand_ins(
                             }
                         }
                     }
-                    if let Some(e) = p.root.take() {
-                        commands.entity(e).despawn();
-                    }
-                    p.spawned = false;
-                    p.drawn_in = None;
+                    p.undraw();
                     p.actor = Some(r);
                     r
                 }
@@ -1451,7 +1553,7 @@ fn follow_npcs(
     time: Res<Time>,
     mut coop: ResMut<Coop>,
     (mut residents, mut stats, mut script): (Option<ResMut<Residents>>, ResMut<CombatStats>, Option<ResMut<nvf_play::script::ScriptState>>),
-    mut actors: Query<(Entity, &RefVisual, Option<&mut WeaponHold>, Option<&mut Locomotion>, Has<Remote>, Has<Dying>), (With<crate::limbs::ActorRig>, Without<Puppet>)>,
+    mut actors: Query<(Entity, &RefVisual, Option<&mut WeaponHold>, Option<&mut Locomotion>, Has<Remote>, Has<Dying>, &Transform), (With<crate::limbs::ActorRig>, Without<Puppet>)>,
     mut fighters: ResMut<Fighters>,
     actor_world: Option<Res<ActorWorld>>,
     (mut attacks, mut hits): (MessageWriter<PlayAttack>, MessageWriter<ActorHit>),
@@ -1476,9 +1578,18 @@ fn follow_npcs(
                 g.toggles.actors_ai_off = was;
                 g.coop_guest = false;
                 g.coop_host_quest = None;
+                g.set_remote_speech(Vec::new(), |_| false);
             }
+            // What the host's world hid of this one's is back.
+            if let Some(sim) = sim.as_deref_mut() {
+                for r in coop.hidden.drain() {
+                    let _ = sim.world.set_enabled(r, true);
+                }
+            }
+            coop.unheard.clear();
+            coop.host_lines = None;
             coop.host_quest = None;
-            for (e, v, _, _, marked, _) in &mut actors {
+            for (e, v, _, _, marked, _, _) in &mut actors {
                 if marked {
                     commands.entity(e).remove::<Remote>();
                     fighters.set_puppet(v.0, None);
@@ -1492,9 +1603,37 @@ fn follow_npcs(
     let Some(g) = game.as_deref_mut() else { return };
     // Where the host's story put the NPCs it draws here, they are here too.
     let here = loc.as_deref().map(place_of);
-    if let (Some(sim), Some((_, since))) = (sim.as_deref_mut(), coop.host_place.filter(|(p, _)| Some(*p) == here)) {
-        place_like_host(&mut sim.world, g, &coop.npcs, since + HOST_SETTLE, now);
+    let settled = coop.host_place.filter(|(p, _)| Some(*p) == here).map(|(_, since)| since);
+    if let (Some(sim), Some(since)) = (sim.as_deref_mut(), settled) {
+        for r in place_like_host(&mut sim.world, g, &coop.npcs, since + HOST_SETTLE, now) {
+            coop.hidden.remove(&r);
+            coop.unheard.remove(&r.0);
+        }
     }
+    // This game's own actors near the host that the host's world does not have: hidden
+    // (module notes). Only once the host's NPCs come, and the host has been here a while.
+    match (sim.as_deref_mut(), settled.filter(|s| now - s >= HIDE_AFTER), coop.host) {
+        (Some(sim), Some(_), Some(host)) if !coop.npcs.is_empty() => {
+            let drawn: Vec<(u32, [f32; 3])> = actors.iter().map(|(_, v, _, _, _, _, t)| (v.0, t.translation.to_array())).collect();
+            let heard: HashSet<u32> = coop.npcs.keys().copied().collect();
+            let missing = not_in_hosts_world(&drawn, &heard, host.feet, HIDE_REACH);
+            coop.unheard.retain(|r, _| missing.contains(r));
+            for r in missing {
+                let since = *coop.unheard.entry(r).or_insert(now);
+                if now - since < HIDE_AFTER || !coop.hidden.insert(FormId(r)) {
+                    continue;
+                }
+                info!("co-op: {} is not in the host's world here: hidden", g.data.name(FormId(r)));
+                let _ = sim.world.set_enabled(FormId(r), false);
+            }
+        }
+        _ => coop.unheard.clear(),
+    }
+    // The lines the host's NPCs are saying, as long as each lasts.
+    let me = coop.link.as_ref().and_then(|l| l.id());
+    let lines = coop.host_lines.as_ref().map_or_else(Vec::new, |(at, lines)| lines_in(lines, now - at, me));
+    let npcs = &coop.npcs;
+    g.set_remote_speech(lines, |r| npcs.contains_key(&r.0));
     if coop.ai_was_off.is_none() {
         coop.ai_was_off = Some(g.toggles.actors_ai_off);
         stats.relay = Some(Vec::new());
@@ -1524,7 +1663,7 @@ fn follow_npcs(
         r.remote = Some(poses);
     }
     let mut bodies = HashSet::new();
-    for (e, v, hold, lo, marked, dying) in &mut actors {
+    for (e, v, hold, lo, marked, dying, _) in &mut actors {
         let r = v.0;
         let Some(t) = coop.npcs.get_mut(&r) else {
             if marked {
@@ -1623,9 +1762,11 @@ fn take_clock(world: &mut fnv_sim::World, c: net::ClockView) {
 /// cell when the host's story enabled it or moved it (module notes). Only states heard
 /// after `after` and lately: the ones before are the place the host left (the host's NPCs
 /// there are forgotten only after [`NPC_FORGET`]). Actors the host's scripts made (`FF`
-/// references) are this game's own numbers here: left alone.
-fn place_like_host(world: &mut fnv_sim::World, g: &mut fnv_game::Game, npcs: &HashMap<u32, NpcTrack>, after: f32, now: f32) {
-    let Some(cell) = world.peek(FormId::PLAYER_REF).and_then(|s| s.cell) else { return };
+/// references) are this game's own numbers here: left alone. One dead in this game but
+/// alive in the host's stands up again (`Game::resurrect`). Returns those it enabled.
+fn place_like_host(world: &mut fnv_sim::World, g: &mut fnv_game::Game, npcs: &HashMap<u32, NpcTrack>, after: f32, now: f32) -> Vec<FormId> {
+    let mut enabled = Vec::new();
+    let Some(cell) = world.peek(FormId::PLAYER_REF).and_then(|s| s.cell) else { return enabled };
     let player_space = world.placed.world_of(cell);
     for (&r, t) in npcs {
         let Some(&(at, s)) = t.samples.back() else { continue };
@@ -1637,6 +1778,11 @@ fn place_like_host(world: &mut fnv_sim::World, g: &mut fnv_game::Game, npcs: &Ha
         if st.deleted {
             continue;
         }
+        if g.is_dead(id) {
+            info!("co-op: {} is alive in the host's world: up again here", g.data.name(id));
+            g.resurrect(id, false);
+        }
+        let Ok(st) = world.get(id) else { continue };
         let enable = !st.enabled;
         // Elsewhere: another interior, or another worldspace, than this player's.
         let elsewhere = st.cell.is_none_or(|c| c != cell && (player_space.is_none() || world.placed.world_of(c) != player_space));
@@ -1651,11 +1797,113 @@ fn place_like_host(world: &mut fnv_sim::World, g: &mut fnv_game::Game, npcs: &Ha
         }
         if enable {
             let _ = world.set_enabled(id, true);
+            enabled.push(id);
         }
         if enable || elsewhere {
             info!("co-op: {id} {} as in the host's world", match (enable, elsewhere) { (true, true) => "enabled and brought here", (true, false) => "enabled", _ => "brought here" });
         }
     }
+    enabled
+}
+
+/// Despawn the bodies (actor roots under the world root) of the references in `keep`,
+/// except the one each keeps.
+fn despawn_bodies(commands: &mut Commands, roots: &Query<(Entity, &RefVisual, &ChildOf)>, world_root: Entity, keep: &HashMap<u32, Option<Entity>>) {
+    if keep.is_empty() {
+        return;
+    }
+    for (e, v, parent) in roots {
+        if parent.parent() != world_root {
+            continue;
+        }
+        if let Some(k) = keep.get(&v.0).filter(|k| **k != Some(e)) {
+            info!("co-op: a body of {:08X} taken away{}", v.0, if k.is_some() { " (a stray: not its puppet)" } else { "" });
+            commands.entity(e).try_despawn();
+        }
+    }
+}
+
+/// A guest's own actors drawn within `reach` of the host's feet (across the floor) that
+/// the host's NPCs (`heard`) do not include: not in the host's world there (module
+/// notes). The other players' puppets are not actors of either world.
+fn not_in_hosts_world(drawn: &[(u32, [f32; 3])], heard: &HashSet<u32>, host: [f32; 3], reach: f32) -> HashSet<u32> {
+    drawn
+        .iter()
+        .filter(|(r, feet)| !is_puppet(*r) && !heard.contains(r) && (feet[0] - host[0]).hypot(feet[1] - host[1]) <= reach)
+        .map(|(r, _)| *r)
+        .collect()
+}
+
+/// The line the NPC is saying in the host's own conversation, as a line said to the host
+/// (the guests hear it from where the NPC stands): the time left is that of the response
+/// it is at and of those after it, so a guest's game finds the same response.
+fn conversation_line(g: &fnv_game::Game) -> Option<fnv_game::game::Speech> {
+    let c = g.dialogue.as_ref()?;
+    let line = c.line.as_ref()?;
+    let order = g.data.infos.get(&line.info)?.response_order();
+    let lengths = g.response_lengths(c.actor, line.info);
+    let after: f64 = order.iter().skip(line.response + 1).map(|&r| lengths.get(r).copied().unwrap_or(0.0)).sum();
+    let mut s = lines_in(&[net::LineView { speaker: c.actor.0, target: 0, topic: line.topic.0, info: line.info.0, remaining: 1.0, flags: 0, conversation: 0 }], 0.0, None).pop()?;
+    s.target = Some(FormId::PLAYER_REF);
+    s.remaining = line.remaining.max(0.0) + after;
+    s.remote = false;
+    Some(s)
+}
+
+/// The host's lines as they go to the guests: its player as [`net::LineView::HOST`], a
+/// guest's actor (`player`) as that guest; a line by an actor the host's scripts made
+/// (a reference no other game has) is not sent, nor a listener of that kind.
+fn lines_out(speech: &[fnv_game::game::Speech], player: impl Fn(FormId) -> Option<u8>) -> Vec<net::LineView> {
+    let map = |r: FormId| match (r, player(r)) {
+        (FormId::PLAYER_REF, _) => Some(net::LineView::HOST),
+        (_, Some(id)) => Some(net::LineView::guest(id)),
+        (r, None) if r.0 >= 0xFF00_0000 => None,
+        (r, None) => Some(r.0),
+    };
+    use net::LineView as L;
+    speech
+        .iter()
+        .filter(|s| !s.remote)
+        .filter_map(|s| {
+            let speaker = map(s.speaker).filter(|r| !is_puppet(*r))?;
+            let mut flags = 0;
+            for (on, f) in [(s.say_to, L::SAY_TO), (s.greeting, L::GREETING), (s.hello, L::HELLO), (s.force_subtitles, L::FORCE_SUBTITLES), (s.two_d, L::TWO_D)] {
+                flags |= if on { f } else { 0 };
+            }
+            Some(L { speaker, target: s.target.and_then(map).unwrap_or(0), topic: s.topic.0, info: s.info.0, remaining: s.remaining as f32, flags, conversation: s.conversation.unwrap_or(0).min(u16::MAX as u32) as u16 })
+        })
+        .take(net::LINES_MAX)
+        .collect()
+}
+
+/// The host's lines as a guest says them, `ago` seconds after they came: each with the
+/// time it has left (those over are gone), this player (`me`) for its own id, the
+/// others' puppets for theirs.
+fn lines_in(lines: &[net::LineView], ago: f32, me: Option<u8>) -> Vec<fnv_game::game::Speech> {
+    use net::LineView as L;
+    let map = |r: u32| if me.is_some_and(|m| r == L::guest(m)) { FormId::PLAYER_REF } else { FormId(r) };
+    lines
+        .iter()
+        .filter(|l| l.remaining - ago > 0.0)
+        .map(|l| fnv_game::game::Speech {
+            speaker: map(l.speaker),
+            target: (l.target != 0).then(|| map(l.target)),
+            topic: FormId(l.topic),
+            info: FormId(l.info),
+            remaining: (l.remaining - ago) as f64,
+            say_to: l.has(L::SAY_TO),
+            greeting: l.has(L::GREETING),
+            conversation: (l.conversation != 0).then_some(l.conversation as u32),
+            earlier_topics: Vec::new(),
+            hello: l.has(L::HELLO),
+            look: fnv_game::game::LineLook::Both,
+            response: 0,
+            force_subtitles: l.has(L::FORCE_SUBTITLES),
+            two_d: l.has(L::TWO_D),
+            end_ran: false,
+            remote: true,
+        })
+        .collect()
 }
 
 /// Each other player's flashlight, on their puppet where its eyes are (`flashlight.rs`),
@@ -1734,6 +1982,10 @@ fn downed(
     for (&id, p) in coop.peers.iter_mut() {
         let Some(&(_, s)) = p.samples.back() else { continue };
         let down = s.has(flag::DOWN);
+        // A player up is never dead here, whatever happened while it was down.
+        if !down && !p.down && g.is_dead(FormId(p.reference(id))) {
+            g.extra.entry(FormId(p.reference(id))).or_default().dead = false;
+        }
         if down == p.down {
             continue;
         }
@@ -2030,6 +2282,64 @@ fn act(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn speech(speaker: u32, target: Option<u32>, remaining: f64) -> fnv_game::game::Speech {
+        let mut s = lines_in(&[net::LineView { speaker, target: 0, topic: 0x10, info: 0x11, remaining: 1.0, flags: 0, conversation: 0 }], 0.0, None).remove(0);
+        s.target = target.map(FormId);
+        s.remaining = remaining;
+        s.remote = false;
+        s
+    }
+
+    /// The host's lines reach a guest as the host says them: its player is the host's
+    /// puppet there, a guest's actor that guest's player (or its puppet on another
+    /// guest); a line by an actor the host's scripts made is not sent; the time left
+    /// counts down from when they came.
+    #[test]
+    fn the_hosts_lines_reach_a_guest_with_its_people() {
+        let stand_in = FormId(0xFF00_0812);
+        let mut scene = speech(0x0010_4C3A, Some(0x0010_4C1D), 4.0);
+        scene.conversation = Some(3);
+        scene.say_to = true;
+        let hello = speech(0x0010_4C3A, Some(FormId::PLAYER_REF.0), 2.0);
+        let to_guest = speech(0x0010_4C1D, Some(stand_in.0), 1.0);
+        let made = speech(0xFF00_0900, None, 5.0);
+        let mut own_remote = speech(0x0010_4C1D, None, 5.0);
+        own_remote.remote = true;
+        let out = lines_out(&[scene.clone(), hello, to_guest, made, own_remote], |r| (r == stand_in).then_some(1));
+        assert_eq!(out.len(), 3, "{out:?}");
+        assert_eq!((out[1].target, out[2].target), (net::LineView::HOST, net::LineView::guest(1)));
+        // On guest 1, half a second later.
+        let heard = lines_in(&out, 0.5, Some(1));
+        assert_eq!(heard.len(), 3);
+        assert!(heard.iter().all(|s| s.remote));
+        assert_eq!((heard[0].speaker, heard[0].target, heard[0].conversation, heard[0].say_to), (scene.speaker, scene.target, Some(3), true));
+        assert!((heard[0].remaining - 3.5).abs() < 1e-6);
+        assert_eq!(heard[1].target, Some(FormId(PUPPET_REF)));
+        assert_eq!(heard[2].target, Some(FormId::PLAYER_REF));
+        // On guest 2, the line to guest 1 turns to guest 1's puppet; past its end, gone.
+        let other = lines_in(&out, 0.5, Some(2));
+        assert_eq!(other[2].target, Some(FormId(PUPPET_REF + 1)));
+        assert_eq!(lines_in(&out, 1.5, Some(2)).len(), 2);
+        assert!(lines_in(&out, 4.5, Some(2)).is_empty());
+    }
+
+    /// A guest hides its own actors near the host that the host's world does not draw;
+    /// not the host's NPCs, not those far off, not the other players' puppets.
+    #[test]
+    fn what_the_host_does_not_have_near_it_is_hidden() {
+        let host = [1000.0, 1000.0, 50.0];
+        let drawn = [
+            (0x0010_4C3A, [1100.0, 900.0, 0.0]),
+            (0x0010_4C1D, [1200.0, 1000.0, 0.0]),
+            (0x0010_5000, [9000.0, 1000.0, 0.0]),
+            (PUPPET_REF, [1000.0, 1000.0, 50.0]),
+            (0xFF00_0123, [1000.0, 1500.0, 0.0]),
+        ];
+        let heard: HashSet<u32> = [0x0010_4C3A].into();
+        let hidden = not_in_hosts_world(&drawn, &heard, host, HIDE_REACH);
+        assert_eq!(hidden, [0x0010_4C1D, 0xFF00_0123].into());
+    }
 
     #[test]
     fn a_hit_round_trips_and_fits_a_packet() {

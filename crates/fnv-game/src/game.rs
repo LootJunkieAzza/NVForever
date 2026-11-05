@@ -1064,6 +1064,10 @@ pub struct Speech {
     /// `Game::wheel_command`): it does not run again when the line ends.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub end_ran: bool,
+    /// Said in a co-op host's world, heard here ([`Game::set_remote_speech`]): the host
+    /// times it and runs its scripts; this game only says it. Never saved.
+    #[serde(skip)]
+    pub remote: bool,
 }
 
 /// Who a line said to someone ([`Speech::target`]) turns to whom ([`Game::facings`]).
@@ -1437,14 +1441,12 @@ pub struct Game<'a> {
     /// player's name. Not part of the saved state: a save leaves them out.
     pub coop_actors: BTreeMap<FormId, String>,
     /// This game is a co-op guest's (`crate::coop`): the host runs the world and its
-    /// quests, so this player talks only to trade and to play ([`Game::guest_lines`]) and
-    /// no script starts a conversation with it.
+    /// quests, so no script starts a conversation with this player (it talks to whom it
+    /// goes up to).
     pub coop_guest: bool,
     /// On a guest: the host's active quest, which its quest list, objectives and markers
     /// show in place of this game's own (`None`: the host has none).
     pub coop_host_quest: Option<crate::coop::HostQuest>,
-    /// The lines a guest may choose, found once ([`Game::guest_lines`]).
-    pub(crate) guest_lines: std::sync::OnceLock<BTreeSet<FormId>>,
     /// Forms added to form lists at run time.
     pub form_lists: BTreeMap<FormId, Vec<FormId>>,
     pub loaded_cells: BTreeSet<FormId>,
@@ -2146,7 +2148,6 @@ impl<'a> Game<'a> {
             coop_actors: BTreeMap::new(),
             coop_guest: false,
             coop_host_quest: None,
-            guest_lines: std::sync::OnceLock::new(),
             form_lists: BTreeMap::new(),
             loaded_cells: BTreeSet::new(),
             moved: BTreeSet::new(),
@@ -3969,7 +3970,7 @@ impl<'a> Game<'a> {
         self.emit(EventKind::LineStarted { speaker, target, topic, info, seconds });
         self.cover_info(info);
         let (say_to, greeting, hello) = (kind == LineKind::SayTo, kind == LineKind::Greeting, kind == LineKind::Hello);
-        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, conversation, earlier_topics: Vec::new(), hello, look: LineLook::Both, response: 0, force_subtitles: false, two_d: false, end_ran: false });
+        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, conversation, earlier_topics: Vec::new(), hello, look: LineLook::Both, response: 0, force_subtitles: false, two_d: false, end_ran: false, remote: false });
         if let Some(&first) = def.response_order().first() {
             self.ask_response_idles(speaker, target, info, first);
         }
@@ -3977,6 +3978,42 @@ impl<'a> Game<'a> {
             self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(speaker) });
             self.run_result(u, RunCtx { self_ref: Some(speaker), action_ref: None, quest: def.quest });
         }
+    }
+
+    /// A co-op guest: the lines the host's world is saying now ([`Speech::remote`]), in
+    /// place of those it said before. A line of this game's own whose speaker says one of
+    /// them, or for which `hosts` holds (an actor the host's world runs), stops without
+    /// its end script: the host's world is the one heard. A Goodbye greeting or a hello
+    /// at this player is left alone.
+    pub fn set_remote_speech(&mut self, lines: Vec<Speech>, hosts: impl Fn(FormId) -> bool) {
+        let speaking: std::collections::HashSet<FormId> = lines.iter().map(|l| l.speaker).collect();
+        let own: Vec<FormId> = self
+            .speech
+            .iter()
+            .filter(|s| !s.remote && (speaking.contains(&s.speaker) || hosts(s.speaker)))
+            .filter(|s| !((s.greeting || s.hello) && s.target == Some(FormId::PLAYER_REF)))
+            .map(|s| s.speaker)
+            .collect();
+        for speaker in own {
+            if let Some(k) = self.speech.iter().position(|s| s.speaker == speaker && !s.remote) {
+                let s = self.speech.remove(k);
+                self.emit(EventKind::LineEnded { speaker, info: s.info, cut: true });
+                if let (Some(lines), Some(target)) = (s.conversation, s.target) {
+                    self.emit(EventKind::ActorConversationEnded { speaker, target, reason: crate::dialogue::ended::CUT, lines });
+                }
+            }
+        }
+        // A line already being said keeps the response it is at (the voice follows it).
+        let mut kept: Vec<Speech> = Vec::with_capacity(lines.len());
+        for mut l in lines {
+            l.remote = true;
+            if let Some(old) = self.speech.iter().find(|s| s.remote && s.speaker == l.speaker && s.info == l.info) {
+                l.response = old.response;
+            }
+            kept.push(l);
+        }
+        self.speech.retain(|s| !s.remote);
+        self.speech.extend(kept);
     }
 
     /// The lines being said outside a conversation move on to their next responses as
@@ -4074,7 +4111,8 @@ impl<'a> Game<'a> {
         self.speech_responses();
         // A Death line goes on after its speaker died (`crate::combat_lines`).
         let death = self.data.by_edid("Death");
-        for s in self.speech.iter_mut().filter(|s| only.is_none_or(|o| o == s.speaker)) {
+        // The host's lines (co-op) end when the host says so (`Game::set_remote_speech`).
+        for s in self.speech.iter_mut().filter(|s| !s.remote && only.is_none_or(|o| o == s.speaker)) {
             s.remaining -= dt;
             let here = self.world.peek(s.speaker).is_none_or(|w| !w.deleted) && self.world.is_enabled(s.speaker).unwrap_or(false);
             // A Goodbye greeting at the player whose speaker is drawn into a fight ends at

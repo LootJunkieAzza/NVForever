@@ -1904,3 +1904,66 @@ fn known_topics_newest_first() {
     let old: KnownTopics = serde_json::from_value(json!([FormId(1).to_string(), FormId(2).to_string(), FormId(3).to_string()])).unwrap();
     assert_eq!(ids(&old), vec![1, 2, 3]);
 }
+
+/// A co-op guest says the host's lines (`Game::set_remote_speech`): the host times them,
+/// so they never end here on their own and their end scripts do not run here; the next
+/// list replaces them. A line of the guest's own by an actor the host runs stops; its own
+/// Goodbye greeting at the player does not.
+#[test]
+fn the_hosts_lines_are_said_without_their_scripts() {
+    use fnv_game::game::{LineLook, Speech};
+    let f = fixture();
+    let mut g = game(&f);
+    set_global(&mut g, G_GATE, 7.0);
+    g.frames(3);
+    let line = |speaker: FormId, remaining: f64| Speech {
+        speaker,
+        target: None,
+        topic: FormId(GREETING),
+        info: FormId(A_BARK),
+        remaining,
+        say_to: false,
+        greeting: false,
+        conversation: None,
+        earlier_topics: Vec::new(),
+        hello: false,
+        look: LineLook::Both,
+        response: 0,
+        force_subtitles: false,
+        two_d: false,
+        end_ran: false,
+        remote: false,
+    };
+    let before = out(&g);
+    g.set_remote_speech(vec![line(actor(), 0.05)], |_| false);
+    g.frames(200);
+    assert!(matches!(g.speech.as_slice(), [s] if s.remote && s.speaker == actor()), "{:?}", g.speech);
+    assert_eq!(out(&g), before, "no end script here");
+    g.set_remote_speech(Vec::new(), |_| false);
+    assert!(g.speech.is_empty());
+    assert_eq!(out(&g), before);
+    // The guest's own line by an actor the host runs stops; its greeting at the player stays.
+    g.speech.push(line(FormId(NPC2_REF), 30.0));
+    assert_eq!(g.start_dialogue(actor(), None), Ok(FormId(A_BARK)));
+    assert_eq!(g.speech.len(), 2);
+    g.set_remote_speech(Vec::new(), |_| true);
+    assert!(matches!(g.speech.as_slice(), [s] if s.speaker == actor() && s.greeting && !s.remote), "{:?}", g.speech);
+    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { speaker, cut: true, .. } if speaker == FormId(NPC2_REF))));
+}
+
+/// A co-op guest talks to anyone it goes up to, as any player does (owner 2026-11-05: a
+/// casino's cashier), but no script of its game starts a conversation with it.
+#[test]
+fn a_guest_talks_as_anyone_does_but_is_never_force_greeted() {
+    let f = fixture();
+    let mut solo = game(&f);
+    let mut g = game(&f);
+    g.coop_guest = true;
+    assert_eq!(g.start_dialogue(actor(), None), solo.start_dialogue(actor(), None));
+    assert!(g.dialogue.is_some());
+    assert_eq!(g.dialogue_choices(), solo.dialogue_choices());
+    let mut h = game(&f);
+    h.coop_guest = true;
+    assert!(h.force_greet(actor(), None).is_err());
+    assert!(h.dialogue.is_none());
+}

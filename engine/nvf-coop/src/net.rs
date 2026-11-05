@@ -23,6 +23,9 @@
 //! is told so through the host ([`Session::send_revive`]). An animation a player plays
 //! for an item (eating, a stimpak, skinning) goes to everyone through the host
 //! ([`Session::send_anim`], [`AnimCue`]); an older game drops the kind it does not know.
+//! The lines the host's NPCs are saying (a scene between two of them, a Say, a hello) go
+//! to the guests ([`LineView`], every [`LINES_EVERY`] and at once when they change), who
+//! hear them and see their subtitles as the host does.
 //!
 //! **Minigame tables.** A player at a table (blackjack, roulette, slots, darts, five
 //! finger fillet) sends what it shows ([`Session::set_table`], a view: the newest wins,
@@ -50,7 +53,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 pub const MAGIC: [u8; 4] = *b"NVCO";
-pub const VERSION: u8 = 12;
+pub const VERSION: u8 = 13;
 pub const MAX_GUESTS: usize = 3;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -123,6 +126,10 @@ pub const NPCS_PER_PACKET: usize = 40;
 pub const NPC_HZ: u32 = 10;
 /// The host sends its active quest this often, and at once when it changes.
 pub const QUEST_EVERY: Duration = Duration::from_secs(2);
+/// How often the host sends the lines its NPCs are saying (and at once when they change).
+pub const LINES_EVERY: Duration = Duration::from_millis(250);
+/// Lines sent at most.
+pub const LINES_MAX: usize = 24;
 /// How often the host sends its game clock.
 pub const CLOCK_EVERY: Duration = Duration::from_secs(2);
 /// Objectives a [`QuestView`] carries at most.
@@ -296,6 +303,8 @@ enum Msg {
     Unlock { reference: u32, terminal: bool },
     /// The host's game clock.
     Clock(ClockView),
+    /// The lines the host's NPCs are saying now (the newest `seq` wins).
+    Lines { seq: u32, lines: Vec<LineView> },
     /// Player `by` revived player `target` (who is down).
     Revive { target: u8, by: u8 },
     /// Player `id` at a minigame table: what it shows (a view, the newest wins) or an
@@ -338,6 +347,44 @@ pub struct QuestView {
     pub objectives: Vec<(i32, bool)>,
 }
 
+/// A line one of the host's NPCs is saying, as the host's game has it (`fnv_game`'s
+/// `Speech`): the guests say it too. References are the load order's, which every game
+/// runs; the host's player is [`LineView::HOST`], a guest's actor in the host's world is
+/// [`LineView::guest`] of its id.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LineView {
+    pub speaker: u32,
+    /// The listener, 0 for none.
+    pub target: u32,
+    pub topic: u32,
+    pub info: u32,
+    /// Seconds (game time) left until it ends, as the host sent it.
+    pub remaining: f32,
+    /// [`LineView::SAY_TO`] and the others.
+    pub flags: u8,
+    /// A line of a conversation between two actors: its number in it, 0 for none.
+    pub conversation: u16,
+}
+
+impl LineView {
+    pub const SAY_TO: u8 = 1;
+    pub const GREETING: u8 = 2;
+    pub const HELLO: u8 = 4;
+    pub const FORCE_SUBTITLES: u8 = 8;
+    pub const TWO_D: u8 = 16;
+    /// The host's player as a speaker or listener.
+    pub const HOST: u32 = 0xFE00_C000;
+
+    /// Player `id` as a speaker or listener (the host is id 0: [`LineView::HOST`]).
+    pub fn guest(id: u8) -> u32 {
+        Self::HOST + id as u32
+    }
+
+    pub fn has(&self, f: u8) -> bool {
+        self.flags & f != 0
+    }
+}
+
 /// What [`Link::events`] reports.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
@@ -373,6 +420,8 @@ pub enum Event {
     Unlocked { id: u8, reference: u32, terminal: bool },
     /// The host's game clock, each time it comes (guests only).
     Clock(ClockView),
+    /// The lines the host's NPCs are saying now, each time they come (guests only).
+    Lines(Vec<LineView>),
     /// Player `by` revived this player. It may come more than once.
     Revived { by: u8 },
     /// Player `id` at a table: a view (newest only; `game` [`TABLE_LEFT`]: it left), or
@@ -464,6 +513,11 @@ pub struct Session {
     /// The host's game clock now, and when it was last sent.
     clock: Option<ClockView>,
     last_clock: Option<Instant>,
+    /// The host's NPCs' lines, and the last sent (when, which); a guest's newest heard.
+    lines: Vec<LineView>,
+    last_lines: Option<(Instant, Vec<(u32, u32)>)>,
+    lines_seq: u32,
+    heard_lines: Option<u32>,
     /// This player's table view, and when it last went.
     table: Option<TableView>,
     last_table: Option<Instant>,
@@ -506,7 +560,7 @@ impl Session {
 
     fn with(sock: UdpSocket, role: Role) -> std::io::Result<Self> {
         sock.set_nonblocking(true)?;
-        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), events: Vec::new() })
+        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), events: Vec::new() })
     }
 
     /// Also talk over Steam: a host is reached through it by a Steam code, a guest reaches
@@ -543,6 +597,13 @@ impl Session {
     /// The host's game clock now; [`Session::tick`] sends it every [`CLOCK_EVERY`].
     pub fn set_clock(&mut self, clock: ClockView) {
         self.clock = Some(clock);
+    }
+
+    /// The lines the host's NPCs are saying now; [`Session::tick`] sends them every
+    /// [`LINES_EVERY`], and at once when a line starts or ends. At most [`LINES_MAX`].
+    pub fn set_lines(&mut self, mut lines: Vec<LineView>) {
+        lines.truncate(LINES_MAX);
+        self.lines = lines;
     }
 
     /// This player unlocked `reference` (a terminal: hacked): to the host, or from the host
@@ -823,6 +884,21 @@ impl Session {
                 self.last_clock = Some(now);
             }
         }
+        if self.is_host() {
+            let said: Vec<(u32, u32)> = self.lines.iter().map(|l| (l.speaker, l.info)).collect();
+            let due = match &self.last_lines {
+                None => !said.is_empty(),
+                Some((t, sent)) => *sent != said || (!said.is_empty() && now - *t >= LINES_EVERY),
+            };
+            if due {
+                self.lines_seq = self.lines_seq.wrapping_add(1);
+                let msg = Msg::Lines { seq: self.lines_seq, lines: self.lines.clone() };
+                for addr in self.peers.iter().filter_map(|p| p.addr) {
+                    self.sock_send(&msg, addr);
+                }
+                self.last_lines = Some((now, said));
+            }
+        }
         if let Some(v) = self.table.clone() {
             if self.last_table.is_none_or(|t| now - t >= TABLE_EVERY) && self.id().is_some() {
                 self.send_table(v.table, v.game, v.blob);
@@ -1017,7 +1093,7 @@ impl Session {
                 }
                 self.events.push(Event::Anim { id, cue });
             }
-            Msg::Welcome { .. } | Msg::Full | Msg::Who | Msg::Npcs { .. } | Msg::Quest(_) | Msg::Clock(_) => {}
+            Msg::Welcome { .. } | Msg::Full | Msg::Who | Msg::Npcs { .. } | Msg::Quest(_) | Msg::Clock(_) | Msg::Lines { .. } => {}
         }
     }
 
@@ -1135,6 +1211,13 @@ impl Session {
             }
             Msg::Unlock { reference, terminal } => self.events.push(Event::Unlocked { id: 0, reference, terminal }),
             Msg::Clock(c) => self.events.push(Event::Clock(c)),
+            Msg::Lines { seq, lines } => {
+                if self.heard_lines.is_some_and(|l| !fresh(seq, l)) {
+                    return;
+                }
+                self.heard_lines = Some(seq);
+                self.events.push(Event::Lines(lines));
+            }
             Msg::Revive { target, by } => {
                 if Some(target) == *id {
                     self.events.push(Event::Revived { by });
@@ -1270,6 +1353,10 @@ impl Link {
 
     pub fn set_clock(&self, clock: ClockView) {
         self.with(|s| s.set_clock(clock));
+    }
+
+    pub fn set_lines(&self, lines: Vec<LineView>) {
+        self.with(|s| s.set_lines(lines));
     }
 
     pub fn set_quest(&self, quest: QuestView) {
@@ -1454,6 +1541,19 @@ fn encode(msg: &Msg) -> Vec<u8> {
                 b.extend_from_slice(&v.to_le_bytes());
             }
         }
+        Msg::Lines { seq, lines } => {
+            b.push(17);
+            b.extend_from_slice(&seq.to_le_bytes());
+            b.push(lines.len() as u8);
+            for l in lines {
+                for v in [l.speaker, l.target, l.topic, l.info] {
+                    b.extend_from_slice(&v.to_le_bytes());
+                }
+                b.extend_from_slice(&l.remaining.to_le_bytes());
+                b.push(l.flags);
+                b.extend_from_slice(&l.conversation.to_le_bytes());
+            }
+        }
         Msg::Revive { target, by } => {
             b.push(14);
             b.push(*target);
@@ -1607,6 +1707,23 @@ fn decode(b: &[u8]) -> Option<Msg> {
             Msg::Anim { id, seq, cue: AnimCue { kind, style, power_armor, item, edid, clip } }
         }
         13 => Msg::Clock(ClockView { year: r.f32()?, month: r.f32()?, day: r.f32()?, hour: r.f32()?, days_passed: r.f32()? }),
+        17 => {
+            let seq = r.u32()?;
+            let n = r.u8()? as usize;
+            if n > LINES_MAX {
+                return None;
+            }
+            let mut lines = Vec::with_capacity(n);
+            for _ in 0..n {
+                let (speaker, target, topic, info) = (r.u32()?, r.u32()?, r.u32()?, r.u32()?);
+                let remaining = r.f32()?;
+                if !remaining.is_finite() {
+                    return None;
+                }
+                lines.push(LineView { speaker, target, topic, info, remaining, flags: r.u8()?, conversation: r.u16()? });
+            }
+            Msg::Lines { seq, lines }
+        }
         _ => return None,
     };
     r.0.is_empty().then_some(msg)
@@ -1663,6 +1780,14 @@ mod tests {
             Msg::Unlock { reference: 0x0001_2345, terminal: true },
             Msg::Clock(ClockView { year: 2281.0, month: 9.0, day: 19.0, hour: 13.25, days_passed: 6.05 }),
             Msg::Revive { target: 2, by: 0 },
+            Msg::Lines { seq: 3, lines: Vec::new() },
+            Msg::Lines {
+                seq: u32::MAX,
+                lines: vec![
+                    LineView { speaker: 0x0010_4C3A, target: LineView::HOST, topic: 0x0011_2233, info: 0x0011_2244, remaining: 3.25, flags: LineView::SAY_TO | LineView::TWO_D, conversation: 0 },
+                    LineView { speaker: 0x0010_4C1D, target: 0x0010_4C3A, topic: 1, info: 2, remaining: 0.5, flags: 0, conversation: 4 },
+                ],
+            },
             Msg::Table { id: 1, table: 0x0010_C1DB, game: 3, seq: 77, blob: vec![1, 2, 3] },
             Msg::Table { id: 0, table: 7, game: 2 | TABLE_ACTION, seq: u32::MAX, blob: Vec::new() },
             Msg::Table { id: 3, table: 7, game: 1, seq: 1, blob: vec![0xAB; TABLE_MAX] },
@@ -1766,6 +1891,34 @@ mod tests {
         host.send_revive(ida);
         let seen = run(&mut [&mut host, a, b], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Revived { .. })));
         assert!(seen[1].contains(&Event::Revived { by: 0 }));
+    }
+
+    /// The host's NPCs' lines reach every guest, again while they last and at once when
+    /// they change; an empty list goes once, so the lines end on the guests too.
+    #[test]
+    fn the_hosts_lines_reach_the_guests() {
+        let (mut host, mut guests, _) = host_and(2);
+        let (a, b) = guests.split_at_mut(1);
+        let (a, b) = (&mut a[0], &mut b[0]);
+        let mut clock = Instant::now();
+        let step = Duration::from_millis(20);
+        run(&mut [&mut host, a, b], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))) && seen[2].iter().any(|e| matches!(e, Event::Welcomed(_))));
+        let line = LineView { speaker: 0x0010_4C3A, target: 0x0010_4C1D, topic: 1, info: 2, remaining: 4.0, flags: 0, conversation: 1 };
+        host.set_lines(vec![line]);
+        let heard = |seen: &[Event], want: &[LineView]| seen.iter().any(|e| *e == Event::Lines(want.to_vec()));
+        let seen = run(&mut [&mut host, a, b], &mut clock, step, |seen| heard(&seen[1], &[line]) && heard(&seen[2], &[line]));
+        assert!(!seen[0].iter().any(|e| matches!(e, Event::Lines(_))), "the host does not hear its own");
+        // Sent again while it lasts.
+        run(&mut [&mut host, a, b], &mut clock, step, |seen| seen[1].iter().filter(|e| matches!(e, Event::Lines(_))).count() >= 2);
+        host.set_lines(Vec::new());
+        run(&mut [&mut host, a, b], &mut clock, step, |seen| heard(&seen[1], &[]) && heard(&seen[2], &[]));
+        // Once only: nothing is said now.
+        let mut ticks = 0;
+        let quiet = run(&mut [&mut host, a, b], &mut clock, step, |_| {
+            ticks += 1;
+            ticks > 40
+        });
+        assert!(!quiet[1].iter().any(|e| matches!(e, Event::Lines(_))), "{:?}", quiet[1]);
     }
 
     /// A guest's animation reaches the host and the other guest once each (it goes three
