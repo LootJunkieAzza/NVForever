@@ -517,6 +517,10 @@ pub struct DartsView {
     pub stuck: Vec<(f32, f32)>,
     /// A player asked to throw against the owner (a match not started).
     pub open_seat: bool,
+    /// The thrower at the line: how far its dart is drawn back (0..255), and how many
+    /// darts it has let go this turn (watchers pose its arm, `darts_arm.rs`).
+    pub draw: u8,
+    pub released: u8,
 }
 
 fn hit_code(w: &mut W, h: fnv_game::darts::Hit) {
@@ -545,6 +549,7 @@ impl DartsView {
         for (x, z) in &self.stuck {
             w.f32(*x).f32(*z);
         }
+        w.u8(self.draw).u8(self.released);
         w.0
     }
 
@@ -576,7 +581,8 @@ impl DartsView {
         for _ in 0..ns.min(3) {
             stuck.push((r.f32()?, r.f32()?));
         }
-        r.done().then_some(DartsView { owner, stake, sides, up, turn_over: flags & 1 != 0, winner, aim, stuck, open_seat: flags & 2 != 0 })
+        let (draw, released) = (r.u8()?, r.u8()?);
+        r.done().then_some(DartsView { owner, stake, sides, up, turn_over: flags & 1 != 0, winner, aim, stuck, open_seat: flags & 2 != 0, draw, released })
     }
 }
 
@@ -1010,6 +1016,8 @@ mod tests {
             aim: (0.5, 6.9),
             stuck: vec![(0.0, 7.0)],
             open_seat: true,
+            draw: 200,
+            released: 2,
         };
         assert_eq!(DartsView::decode(&d.encode()), Some(d.clone()));
         let f = FilletView { stake: 20, round: 2, hits: 5, required: 18, mistakes: 1, gap: 3, key: 2, clock: Some(41.5), state: 1, duel: None };

@@ -722,6 +722,9 @@ struct Core {
     /// Actors an idle holds in place (`idles::IdleHolds`, docs/spec-notes/idles.md §15):
     /// they stand as a staggering actor does while it shows.
     posed: HashSet<u32>,
+    /// Actors a game places itself (a darts opponent, `darts_world.rs`): their AI does
+    /// not walk them; each is drawn where the game puts it ([`Residents::hold_pose`]).
+    scripted: HashMap<u32, RemotePose>,
     /// Of those, the ones whose idle carries the body away from the reference
     /// (`idles::IdleHolds::carried_off`): they are drawn facing as they did when it began.
     carried_off: HashSet<u32>,
@@ -843,6 +846,19 @@ pub struct Residents {
     startup: Vec<(bool, String)>,
 }
 
+impl Residents {
+    /// A game places actor `id` itself from now on, here: its AI does not walk it until
+    /// [`Residents::release_pose`] (a darts opponent, `darts_world.rs`) [design].
+    pub fn hold_pose(&mut self, id: u32, pose: RemotePose) {
+        self.core.scripted.insert(id, pose);
+    }
+
+    /// Actor `id` is its AI's to walk again, from where it was last placed.
+    pub fn release_pose(&mut self, id: u32) {
+        self.core.scripted.remove(&id);
+    }
+}
+
 /// Where the host of a co-op game draws one of its actors ([`Residents::remote`]).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RemotePose {
@@ -958,6 +974,7 @@ impl Residents {
             held_now: false,
             staggering: HashSet::new(),
             posed: HashSet::new(),
+            scripted: HashMap::new(),
             carried_off: HashSet::new(),
             breaking: HashSet::new(),
             travel: HashMap::new(),
@@ -1730,6 +1747,7 @@ impl Core {
         // [design: owner 2026-10-31].
         self.breaking = self.posed.iter().copied().filter(|id| !held.contains(id) && self.ai.agents.get(&FormId(*id)).is_some_and(|a| a.activity == Activity::Travelling)).collect();
         held.extend(self.posed.iter().copied());
+        held.extend(self.scripted.keys().copied());
         if !self.prepared {
             self.prepared = true;
             game.cfg.package_interval = Some(PACKAGE_INTERVAL);
@@ -2083,6 +2101,25 @@ impl Core {
             }
         }
         self.note(game, blocks, &HashSet::new(), now);
+    }
+
+    /// The actors a game places ([`Core::scripted`]) put where it has them, as a co-op
+    /// guest's are put where the host has them ([`Core::follow`]): no physics body walks
+    /// them meanwhile; one is made again where it stands once it is let go (`coast`).
+    fn place_scripted(&mut self, mut phys: Option<&mut PhysState>) {
+        for (&id, pose) in &self.scripted {
+            let Some(a) = self.ai.agents.get_mut(&FormId(id)) else { continue };
+            a.walker.feet = pose.feet;
+            a.walker.heading = pose.heading;
+            a.walker.moving = pose.moving;
+            a.walker.turning = false;
+            a.walker.air = None;
+            a.walker.tri = fnv_nav::graph::NONE;
+            a.activity = if pose.moving { Activity::Travelling } else { Activity::There };
+            if let Some(p) = phys.as_deref_mut() {
+                p.remove_npc(id);
+            }
+        }
     }
 
     /// Each resident's state for whoever draws and seats it, after the AI's update.
@@ -2545,9 +2582,10 @@ pub fn drive(
                 drop(span);
                 let _span = info_span!("ai::think").entered();
                 match remote {
-                    Some(remote) => core.follow(&rt.game, remote, phys, blocks, now),
-                    None => core.think(&mut rt.game, false, &nav, &world, &mut doors, phys, blocks, dt, now, waited),
+                    Some(remote) => core.follow(&rt.game, remote, phys.as_deref_mut(), blocks, now),
+                    None => core.think(&mut rt.game, false, &nav, &world, &mut doors, phys.as_deref_mut(), blocks, dt, now, waited),
                 }
+                core.place_scripted(phys);
             });
         }
         _ => return,

@@ -35,6 +35,7 @@
 //! `impact0..5.wav` as a dart lands (never the same twice running), `stab.wav` for a clean
 //! stab.
 
+use crate::darts_foes::{self, DartsOpponent};
 use crate::coop_tables::{game, DartsAction, DartsView, DuelView, FilletAction, FilletView, Tables, DARTS_AI};
 use crate::pause::AidTime;
 use crate::script::{with_world, ScriptState};
@@ -90,6 +91,8 @@ pub const WAIT: [f32; 3] = [-48.0, LINE[1] - 50.0, 0.0];
 /// camera stood 64 in front of the bull, where a co-op friend at the line stood in the
 /// view].
 pub const EYE: [f32; 3] = [16.0, LINE[1] - 36.0, 8.0];
+/// Seconds a held throw takes to draw the dart all the way back [design].
+pub const DRAW_SECONDS: f32 = 0.35;
 
 impl BoardFrame {
     pub fn of(pos: [f32; 3], rot: [f32; 3], scale: Option<f32>) -> BoardFrame {
@@ -185,10 +188,20 @@ pub struct Darts {
     pub asking: Vec<u8>,
     pub settled: bool,
     pub leave: bool,
-    /// This player's throws so far (the engine plays the body's throw for each).
+    /// This player's throws so far.
     pub thrown: u32,
     /// Where this player stands now: at the line (true) or waiting (false).
     pub stands_up: Option<bool>,
+    /// Where the player stood when the board was opened (a stranger opponent comes from
+    /// there, `darts_foes`).
+    pub came_from: Option<[f32; 3]>,
+    /// Matches against the board's players so far (the next one is the next of its
+    /// roster, `darts_foes::roster`).
+    pub met: usize,
+    /// The name of whom the player is playing (`darts_foes`), for the chalk.
+    pub foe_name: Option<String>,
+    /// When the opponent's dart is to leave its hand (it is drawing back till then).
+    pub foe_release: Option<f32>,
     last_impact: u32,
     rng: ChaCha8Rng,
 }
@@ -316,10 +329,11 @@ impl Plugin for MinigamesPlugin {
         app.init_resource::<DartsScreen>()
             .init_resource::<FilletScreen>()
             .init_resource::<FilletStage>()
+            .init_resource::<DartsOpponent>()
             .add_message::<PlayFile>()
             .add_systems(Update, open.after(PlaySet::Activation).before(PlaySet::Ui))
             .add_systems(Update, ((darts_keys, darts_step, fillet_keys, fillet_step).chain().run_if(in_state(PlayState::Menu)), draw, play_files).chain().in_set(PlaySet::Ui))
-            .add_systems(Update, darts_stand.after(PlaySet::Ui))
+            .add_systems(Update, (darts_stand, darts_opponent_walk).after(PlaySet::Ui))
             .add_systems(PostUpdate, darts_camera.before(bevy::transform::TransformSystems::Propagate))
             .add_systems(OnExit(PlayState::Menu), close);
     }
@@ -403,6 +417,10 @@ fn open(
                 leave: false,
                 thrown: 0,
                 stands_up: None,
+                came_from: None,
+                met: 0,
+                foe_name: None,
+                foe_release: None,
                 last_impact: 9,
                 rng,
             });
@@ -471,6 +489,7 @@ fn darts_keys(
     mut tables: Option<ResMut<Tables>>,
     time: AidTime,
     mut files: MessageWriter<PlayFile>,
+    mut opp: ResMut<DartsOpponent>,
 ) {
     let Some(d) = screen.0.as_mut() else { return };
     let now = time.elapsed_secs();
@@ -533,6 +552,7 @@ fn darts_keys(
                 d.stake = d.bet;
                 info!("darts: a match against the opponent for {} caps", d.stake);
                 start_match(d, Foe::Opponent, now);
+                call_opponent(d, &mut opp, rt, &mut sim);
                 files.write(PlayFile(HAND.into()));
             }
         }
@@ -615,12 +635,84 @@ fn darts_stand(mut screen: ResMut<DartsScreen>, mut phys: Option<ResMut<crate::p
         return;
     }
     let (Some(phys), Some(player)) = (phys.as_deref_mut(), player.as_deref_mut()) else { return };
-    let a = phys.arrive_player(f.to_world(if up { UP } else { WAIT }));
-    player.feet = a.feet;
+    d.came_from.get_or_insert(player.feet);
+    // The spots are at the bull's height: the feet go on the floor under them (looked for
+    // from where the player stood). Not the arrival rule: it stands the player on top of
+    // the opponent when it is still at the line (playtest 2026-11-05, "floating after
+    // the first turn"); the floor's search passes through actors.
+    let mut spot = f.to_world(if up { UP } else { WAIT });
+    let floor = d.came_from.map_or(player.feet[2], |c| c[2]);
+    spot[2] = floor;
+    phys.place_player(spot, 60.0, 200.0);
+    player.feet = phys.prev_feet;
     player.heading = f.theta;
     player.pitch = 0.0;
     d.stands_up = Some(up);
-    info!("darts: this player {} the line", if up { "steps up to" } else { "waits back from" });
+    info!("darts: this player {} the line (feet {:?})", if up { "steps up to" } else { "waits back from" }, player.feet);
+}
+
+/// The next of the board's players comes over for a match against the opponent
+/// (`darts_foes`); one still out from the last match at this board comes back instead.
+fn call_opponent(d: &mut Darts, opp: &mut DartsOpponent, rt: &mut crate::script::Runtime, sim: &mut SimState) {
+    if let Some(o) = opp.0.as_mut().filter(|o| o.board == d.board && !o.gone) {
+        o.skill = darts_foes::match_skill(o.own, darts::skill(d.stake));
+        d.status = format!("{} plays you again.", o.name);
+        d.foe_name = Some(o.name.clone());
+        return;
+    }
+    // One still out from another board goes now (a stranger is removed).
+    if let Some(old) = opp.0.take().filter(|o| !o.gone) {
+        with_world(rt, sim, |rt| darts_foes::send_off(&mut rt.game, &old));
+    }
+    let Some(f) = d.frame else { return };
+    let (nth, bet, from) = (d.met, darts::skill(d.stake), d.came_from);
+    let Some(mut o) = with_world(rt, sim, |rt| darts_foes::bring(&mut rt.game, FormId(d.board), f, nth, bet, from)) else {
+        info!("darts: nobody to play at 0x{:08X}; the opponent throws unseen", d.board);
+        return;
+    };
+    d.met += 1;
+    o.name = sim.ref_name(Some(&rt.game), o.actor.0).map(str::to_string).unwrap_or_else(|| "The opponent".into());
+    info!("darts: {} (0x{:08X}, {}) comes to the line, skill {:.2}", o.name, o.actor.0, if o.spawned { "a stranger" } else { "a regular" }, o.skill);
+    d.status = format!("{} steps up to play you.", o.name);
+    d.foe_name = Some(o.name.clone());
+    opp.0 = Some(o);
+}
+
+/// The opponent walks: to the line on its turn, beside it on the player's, and home when
+/// the match is over or the player has left; home, it is let go (a stranger removed).
+fn darts_opponent_walk(
+    screen: Res<DartsScreen>,
+    mut opp: ResMut<DartsOpponent>,
+    mut phys: Option<ResMut<crate::phys::PhysState>>,
+    mut script: Option<ResMut<ScriptState>>,
+    mut sim: ResMut<SimState>,
+    time: Res<Time>,
+) {
+    let Some(o) = opp.0.as_mut() else { return };
+    let live = screen.0.as_ref().filter(|d| d.board == o.board && d.page == Page::Play && d.foe == Foe::Opponent && d.m.winner.is_none());
+    o.to = match live {
+        Some(d) if d.m.up == 1 || o.release.is_some() => darts_foes::Spot::Line,
+        Some(_) => darts_foes::Spot::Waiting,
+        None => darts_foes::Spot::Home,
+    };
+    let f = o.frame;
+    let (target, face) = match o.to {
+        darts_foes::Spot::Line => (f.to_world(UP), f.theta),
+        darts_foes::Spot::Waiting => (f.to_world(darts_foes::OPP_WAIT), f.theta),
+        darts_foes::Spot::Home => (o.home, o.home_heading),
+    };
+    // On the floor there (the line's points are at the bull's height put down).
+    let z = if o.to == darts_foes::Spot::Home { target[2] } else { phys.as_deref_mut().and_then(|p| p.ground_below([target[0], target[1], o.home[2]], 60.0, 200.0)).map_or(o.home[2], |h| h.point[2]) };
+    darts_foes::step_to(o, [target[0], target[1], z], face, time.delta_secs());
+    if o.to == darts_foes::Spot::Home && !o.moving {
+        o.gone = true;
+        info!("darts: {} is back where they were", o.name);
+        if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+            let o = o.clone();
+            with_world(rt, &mut sim, |rt| darts_foes::send_off(&mut rt.game, &o));
+        }
+        opp.0 = None;
+    }
 }
 
 /// While a darts game is open the camera stands behind the throw line, fixed, looking at
@@ -628,8 +720,16 @@ fn darts_stand(mut screen: ResMut<DartsScreen>, mut phys: Option<ResMut<crate::p
 fn darts_camera(screen: Res<DartsScreen>, mut cams: Query<&mut Transform, With<PlayerCamera>>) {
     let Some(f) = screen.0.as_ref().and_then(|d| d.frame) else { return };
     let Ok(mut t) = cams.single_mut() else { return };
-    let eye = crate::space::to_bevy(f.to_world(EYE));
-    let bull = crate::space::to_bevy(f.to_world([0.0, FACE_Y, 0.0]));
+    // Test aid `NVF_PLAY_TEST_DARTS_EYE=x,y,z,ax,ay,az`: the camera at (x, y, z) looking at
+    // (ax, ay, az), board-local (to see the throwers from the side).
+    static AID: std::sync::OnceLock<Option<([f32; 3], [f32; 3])>> = std::sync::OnceLock::new();
+    let aid = AID.get_or_init(|| {
+        let v: Vec<f32> = std::env::var("NVF_PLAY_TEST_DARTS_EYE").ok()?.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+        (v.len() == 6).then(|| ([v[0], v[1], v[2]], [v[3], v[4], v[5]]))
+    });
+    let (eye, at) = aid.unwrap_or((EYE, [0.0, FACE_Y, 0.0]));
+    let eye = crate::space::to_bevy(f.to_world(eye));
+    let bull = crate::space::to_bevy(f.to_world(at));
     let out = Transform::from_translation(eye).looking_at(bull, Vec3::Y);
     if out.translation.is_finite() && out.rotation.is_finite() {
         *t = out;
@@ -646,6 +746,7 @@ fn darts_step(
     time: AidTime,
     mut files: MessageWriter<PlayFile>,
     mut next: ResMut<NextState<PlayState>>,
+    mut opp: ResMut<DartsOpponent>,
 ) {
     let Some(d) = screen.0.as_mut() else { return };
     let now = time.elapsed_secs();
@@ -766,11 +867,37 @@ fn darts_step(
                 d.turn_since = now;
                 files.write(PlayFile(HAND.into()));
             } else {
-                let skill = darts::skill(d.stake);
-                let (ax, az) = darts::plan(d.m.sides[1].score, skill, d.rng.next_u32() % 100);
-                let (sx, sz) = darts::scatter(skill, d.rng.next_u32() % 100, d.rng.next_u32() % 100);
-                d.flights.push((now, (ax + sx, az + sz), 1));
-                d.ai_at = now + darts::FLIGHT + darts::AI_GAP;
+                // With a body, the opponent throws once it stands at the line: the throw
+                // starts and the dart leaves its hand [`darts_foes::RELEASE`] later.
+                let body = opp.0.as_mut().filter(|o| o.board == d.board && !o.gone);
+                let skill = body.as_ref().map_or(darts::skill(d.stake), |o| o.skill);
+                let ready = body.as_ref().is_none_or(|o| o.at_line() && o.release.is_none());
+                if ready {
+                    let (ax, az) = darts::plan(d.m.sides[1].score, skill, d.rng.next_u32() % 100);
+                    let (sx, sz) = darts::scatter(skill, d.rng.next_u32() % 100, d.rng.next_u32() % 100);
+                    match body {
+                        Some(o) => {
+                            o.throws += 1;
+                            o.release = Some((now + darts_foes::RELEASE, (ax + sx, az + sz)));
+                            d.foe_release = Some(now + darts_foes::RELEASE);
+                            d.ai_at = f32::INFINITY;
+                        }
+                        None => {
+                            d.flights.push((now, (ax + sx, az + sz), 1));
+                            d.ai_at = now + darts::FLIGHT + darts::AI_GAP;
+                        }
+                    }
+                }
+            }
+        }
+        // The opponent's dart leaves its hand.
+        if let Some(o) = opp.0.as_mut().filter(|o| o.board == d.board) {
+            if let Some((at, land)) = o.release.filter(|(at, _)| now >= *at) {
+                o.release = None;
+                d.foe_release = None;
+                d.flights.push((now, land, 1));
+                d.ai_at = now + darts::FLIGHT + darts_foes::throw_gap(o.skill, d.rng.next_u32() % 100);
+                debug!("darts: {} lets go ({:.2} s late)", o.name, now - at);
             }
         }
         if let (Some(w), false) = (d.m.winner, d.settled) {
@@ -1143,7 +1270,21 @@ pub fn darts_view(d: &Darts, me: u8, now: f32) -> Option<DartsView> {
         aim: d.sway_aim(now),
         stuck: d.stuck.clone(),
         open_seat: d.page != Page::Play || d.foe == Foe::Practice,
+        draw: (arm_draw(d, now) * 255.0).round() as u8,
+        released: (d.m.sides.get(d.m.up).map_or(0, |s| s.darts.len()) + d.flights.iter().filter(|f| f.2 == d.m.up).count()) as u8,
     })
+}
+
+/// How far the dart of whoever is at the line is drawn back (0..1): this player's while
+/// the button is held, the opponent's before it lets go [design: `darts_arm.rs` poses
+/// the arm by it].
+pub fn arm_draw(d: &Darts, now: f32) -> f32 {
+    let x = if d.m.up == d.mine() {
+        d.press.map_or(0.0, |p| (now - p.since) / DRAW_SECONDS)
+    } else {
+        d.foe_release.map_or(0.0, |at| (now - (at - darts_foes::RELEASE)) / (darts_foes::RELEASE * 0.8))
+    };
+    x.clamp(0.0, 1.0)
 }
 
 /// A racer's end in words.
@@ -1329,7 +1470,7 @@ fn draw_bar_and_chalk(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &
             match (d.joined, d.foe) {
                 (Some(o), _) => name(o),
                 (None, Foe::Player(q)) => name(q),
-                _ => "Opponent".into(),
+                _ => d.foe_name.clone().unwrap_or_else(|| "Opponent".into()),
             }
         }
     };

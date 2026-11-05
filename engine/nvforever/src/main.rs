@@ -100,6 +100,7 @@ mod nav;
 mod coop;
 // B42 Inject / Interact item animations, seen by co-op players too (consume_anims.rs).
 mod consume_anims;
+mod darts_arm;
 mod darts_world;
 mod object_anims;
 mod outfits;

@@ -31,6 +31,7 @@ pub mod control;
 pub mod coop_social;
 pub mod coop_tables;
 pub mod coop_progress;
+pub mod darts_foes;
 pub mod minigames;
 pub mod corner_messages;
 pub mod crafting;
