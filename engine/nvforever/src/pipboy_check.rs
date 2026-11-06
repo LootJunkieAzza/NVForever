@@ -103,6 +103,14 @@ pub struct CheckPlay {
 }
 
 impl CheckPlay {
+    /// Whether the weapon in the hand is put out of sight: while the Pip-Boy is up, from
+    /// the check's start until it is put away [design, owner playtest 2026-11-06: the other
+    /// player's weapon stayed in hand while they looked at their Pip-Boy; it is to be
+    /// hidden while the Pip-Boy is up and come back when it goes down].
+    pub fn hides_weapon(&self) -> bool {
+        self.kind != Check::None && !self.closing
+    }
+
     /// The check whose clip is wanted now: the one going down until it is gone, else what
     /// the player does.
     pub fn clip_for(&self, want: Check) -> Check {
@@ -177,6 +185,8 @@ pub struct PuppetChecks(pub HashMap<u32, Check>);
 pub struct CheckAnim {
     pub play: CheckPlay,
     pub layer: Option<Layer>,
+    /// Its weapon in the hand was put out of sight ([`hide_weapons`]).
+    pub weapon_hidden: bool,
 }
 
 impl CheckAnim {
@@ -200,7 +210,7 @@ pub struct PipBoyCheckPlugin;
 
 impl Plugin for PipBoyCheckPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<PlayerCheck>().init_resource::<PuppetChecks>().init_resource::<PuppetClips>().add_systems(Update, puppets.before(crate::locomotion::drive));
+        app.init_resource::<PlayerCheck>().init_resource::<PuppetChecks>().init_resource::<PuppetClips>().add_systems(Update, (puppets, hide_weapons).chain().before(crate::locomotion::drive));
     }
 }
 
@@ -259,6 +269,24 @@ fn puppets(
     }
 }
 
+/// A puppet's weapon in the hand is out of sight while its player has the Pip-Boy up
+/// ([`CheckPlay::hides_weapon`]): its `Weapon` node is hidden, and shown again after.
+/// A holstered weapon stays seen.
+fn hide_weapons(mut actors: Query<(&ActorRig, &mut CheckAnim, &crate::weapons::WeaponHold, &BlendPlayer), With<crate::coop::Puppet>>, mut visibility: Query<&mut Visibility>) {
+    for (rig, mut anim, hold, player) in &mut actors {
+        let hide = anim.play.hides_weapon() && hold.in_hand();
+        if hide == anim.weapon_hidden {
+            continue;
+        }
+        let Some(&node) = player.nodes.get(hold.stance.weapon_node) else { continue };
+        if let Ok(mut v) = visibility.get_mut(node) {
+            *v = if hide { Visibility::Hidden } else { Visibility::Inherited };
+            anim.weapon_hidden = hide;
+            info!("pipboy check: player {:08X}'s weapon {}", rig.reference, if hide { "put out of sight (Pip-Boy up)" } else { "seen again" });
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -310,6 +338,21 @@ mod tests {
             assert!(n < 100);
         }
         assert_eq!(p, CheckPlay::default());
+    }
+
+    #[test]
+    fn the_weapon_is_hidden_while_the_pipboy_is_up() {
+        let k = examine();
+        let mut p = CheckPlay::default();
+        assert!(!p.hides_weapon());
+        p.step(Check::Glance, 0.1, k);
+        assert!(p.hides_weapon(), "from the start");
+        for _ in 0..50 {
+            p.step(Check::Glance, 0.1, k);
+        }
+        assert!(p.hides_weapon(), "while up");
+        p.step(Check::None, 0.1, k);
+        assert!(!p.hides_weapon(), "back as soon as it is put away");
     }
 
     #[test]
