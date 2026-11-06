@@ -22,6 +22,11 @@
 //!   is found in the set's speaker's voice folder, and lasts its file's length ÷ the set's
 //!   rate ([`Game::line_rate`]); the engine plays it at that speed (pitch and speed move
 //!   together).
+//! - **Lines carried with their sound** ([`SetLine::file`], [`add_packed_lines`]): a voiced
+//!   follower mod's lines are taken without its plugin, which would put the follower in
+//!   the world. Such a line names its sound file (shipped beside the set, in the same mod
+//!   folder) and its subtitle; when the data is built each becomes an INFO of its own,
+//!   numbered from [`PACKED_BASE`], with [`GameData::voice_files`] naming its sound.
 
 use crate::data::GameData;
 use crate::game::Game;
@@ -55,6 +60,8 @@ pub struct VoiceSet {
     #[serde(default)]
     pub blurb: String,
     /// The actor (NPC or creature base) whose voice type holds the files: `<plugin>|<id>`.
+    /// Empty for a set whose lines all carry their sound ([`SetLine::file`]).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub speaker: String,
     /// Playback speed, which moves the pitch with it: a vanilla voice plays a little off
     /// 1.0 so it is not taken for the companion [owner 2026-11-06].
@@ -92,9 +99,58 @@ pub struct SetLine {
     /// Off: kept in the file for review only.
     #[serde(default = "yes", rename = "use", skip_serializing_if = "is_true")]
     pub use_line: bool,
-    /// Why the draft tagged it so (never the line's text).
+    /// Why the draft tagged it so.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub note: String,
+    /// The line's sound, a path in the data (`sound\voice\<plugin>\<voice type>\<file>`),
+    /// for a line taken without its plugin; `info` then only says where it came from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+    /// Its subtitle, with [`SetLine::file`] (the mod author's words, credited in the mod
+    /// folder's `mods-used.txt`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
+/// The first FormID of the INFOs made for lines carried with their sound: load-order
+/// index 0xFE, which no plugin has (the game loads at most 255 files, and 0xFF is the
+/// index of references made while playing) [design].
+pub const PACKED_BASE: u32 = 0xFE00_0000;
+
+/// The Player's base form: the speaker of a set whose lines all carry their sound.
+const PLAYER_BASE: FormId = FormId(0x0000_0007);
+
+/// Make an INFO for every line of `sets` that carries its sound ([`SetLine::file`]), in
+/// set id order then line order, so every game with the same sets numbers them alike
+/// (co-op). Each has one response with the line's text and the topic of its event when
+/// one has that Editor ID. Returns how many were made.
+pub fn add_packed_lines(data: &mut GameData, sets: &[VoiceSet]) -> usize {
+    let mut order: Vec<&VoiceSet> = sets.iter().collect();
+    order.sort_by(|a, b| a.id.cmp(&b.id));
+    let mut next = PACKED_BASE + data.voice_files.len() as u32;
+    let mut made = 0;
+    for set in order {
+        for (k, line) in set.lines.iter().enumerate() {
+            let Some(file) = line.file.as_ref().filter(|f| !f.is_empty()) else { continue };
+            if data.packed_lines.contains_key(&(set.id.clone(), k)) || next > PACKED_BASE + 0x00FF_FFFF {
+                continue;
+            }
+            let id = FormId(next);
+            next += 1;
+            let text = line.text.clone().unwrap_or_default();
+            let def = crate::data::InfoDef {
+                topic: data.by_edid(&line.event).filter(|t| data.topic_defs.contains_key(t)),
+                response_chars: vec![text.chars().count()],
+                responses: vec![crate::data::Response { number: 1, text, ..Default::default() }],
+                ..Default::default()
+            };
+            data.infos.insert(id, def);
+            data.voice_files.insert(id, file.replace('/', "\\").to_ascii_lowercase());
+            data.packed_lines.insert((set.id.clone(), k), id);
+            made += 1;
+        }
+    }
+    made
 }
 
 /// `<plugin>|<id>` written for a load-order FormID.
@@ -144,13 +200,18 @@ impl PlayerVoice {
         if set.format != FORMAT {
             return Err(format!("voice set {}: format {:?}, expected {FORMAT}", set.id, set.format));
         }
-        let base = resolve_ref(data, &set.speaker).ok_or_else(|| format!("voice set {}: speaker {} is not in the load order", set.id, set.speaker))?;
+        let base = if set.speaker.is_empty() {
+            PLAYER_BASE
+        } else {
+            resolve_ref(data, &set.speaker).ok_or_else(|| format!("voice set {}: speaker {} is not in the load order", set.id, set.speaker))?
+        };
         let rate = if set.rate.is_finite() && set.rate > 0.0 { set.rate.clamp(0.5, 2.0) } else { 1.0 };
         let mut v = PlayerVoice::new(&set.id, &set.name, base, rate);
         v.companion = set.companion.as_deref().and_then(|c| resolve_ref(data, c));
         let mut missing = 0;
-        for l in set.lines.iter().filter(|l| l.use_line) {
-            let Some(info) = resolve_ref(data, &l.info).filter(|i| data.infos.contains_key(i)) else {
+        for (k, l) in set.lines.iter().enumerate().filter(|(_, l)| l.use_line) {
+            let info = if l.file.is_some() { data.packed_lines.get(&(set.id.clone(), k)).copied() } else { resolve_ref(data, &l.info) };
+            let Some(info) = info.filter(|i| data.infos.contains_key(i)) else {
                 missing += 1;
                 continue;
             };
@@ -288,7 +349,7 @@ mod tests {
             speaker: "FalloutNV.esm|133FDD".into(),
             rate: 1.06,
             companion: Some("FalloutNV.esm|133FDD".into()),
-            lines: vec![SetLine { info: "FalloutNV.esm|0ABCDE".into(), event: "Hit".into(), first_person: true, use_line: true, note: String::new() }],
+            lines: vec![SetLine { info: "FalloutNV.esm|0ABCDE".into(), event: "Hit".into(), first_person: true, use_line: true, note: String::new(), file: None, text: None }],
         };
         let j = serde_json::to_string(&s).unwrap();
         assert!(!j.contains("\"use\""), "use is written only when off");

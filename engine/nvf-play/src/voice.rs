@@ -502,7 +502,7 @@ fn play(
         // A fixed speaker that is the placed base is no other actor: its file is in the
         // record's own voice, not the one the actor speaks with (issue #1051).
         let fixed = g.data.infos.get(&s.info).and_then(|d| d.speaker).filter(|f| Some(*f) != base && Some(*f) != placed);
-        let file = base.and_then(|b| bank.file(s.info.0, k, b.0)).or_else(|| fixed.and_then(|f| bank.file(s.info.0, k, f.0)));
+        let file = base.and_then(|b| bank.file(s.info.0, k, b.0)).or_else(|| fixed.and_then(|f| bank.file(s.info.0, k, f.0))).or_else(|| carried_file(g, &bank, s.info));
         // A line outside the conversation is heard from where it is said, or not at all;
         // a 2D one (Say's is2D) as the conversation's.
         let heard = if s.conversation || s.two_d { None } else { Some(player.and_then(|p| hearing(&sim, p, s.speaker))) };
@@ -606,6 +606,12 @@ fn play(
 /// set's first-person lines, its first response, played flat at the set's rate; a preview
 /// still playing is stopped. `voice: preview <id>: <path> at speed <r>`.
 #[allow(clippy::too_many_arguments)]
+/// The sound of a line a voice set carries with it (`GameData::voice_files`), when the data
+/// has that file.
+fn carried_file(g: &Game, bank: &VoiceBank, info: FormId) -> Option<String> {
+    g.data.voice_files.get(&info).filter(|p| bank.vfs().exists(p)).cloned()
+}
+
 fn preview(
     mut commands: Commands,
     mut asked: MessageReader<crate::player_voice::PreviewVoice>,
@@ -627,7 +633,8 @@ fn preview(
     };
     // Every first-person line with its file, in a fixed order; each preview takes the next
     // of a stride through them, so pressing again gives another line.
-    let mut lines: Vec<FormId> = v.first_person.iter().copied().filter(|i| bank.file(i.0, 0, v.base.0).is_some()).collect();
+    let file = |i: FormId| bank.file(i.0, 0, v.base.0).or_else(|| carried_file(g, bank, i));
+    let mut lines: Vec<FormId> = v.first_person.iter().copied().filter(|&i| file(i).is_some()).collect();
     lines.sort();
     if lines.is_empty() {
         info!("voice: preview {}: no first-person line with a file", ask.id);
@@ -635,7 +642,7 @@ fn preview(
     }
     *turn = turn.wrapping_add(1);
     let info = lines[(*turn as usize * 7919) % lines.len()];
-    let Some(path) = bank.file(info.0, 0, v.base.0) else { return };
+    let Some(path) = file(info) else { return };
     if let Some(e) = last.take() {
         commands.entity(e).try_despawn();
     }

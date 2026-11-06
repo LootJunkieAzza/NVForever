@@ -95,6 +95,10 @@ pub enum VoiceCmd {
         /// commit the output).
         #[arg(long)]
         text: bool,
+        /// Each line carries its sound's path and its subtitle, so the set works without
+        /// the speaker's plugin (a voiced follower mod's lines; only one-response lines).
+        #[arg(long)]
+        pack: bool,
     },
     /// Voice sets against the load order: every line in use resolves and has its file in
     /// the set's voice (fnv.voice.set_check/1; fails otherwise).
@@ -104,6 +108,10 @@ pub enum VoiceCmd {
         /// A voice set file (repeat for more).
         #[arg(long = "set", required = true)]
         sets: Vec<PathBuf>,
+        /// A folder whose loose files stand beside the data for lines that carry their
+        /// sound (the MO2 mod folder `NVForever Player Voices`).
+        #[arg(long)]
+        mod_dir: Option<PathBuf>,
     },
     /// Loose `.lip` files decoded (fnv.voice.lip/1 each).
     LipFile {
@@ -134,11 +142,11 @@ pub fn run(cmd: VoiceCmd) -> anyhow::Result<Value> {
         VoiceCmd::Coverage { lo, lengths } => with_bank(&lo, |bank, _| Ok(fnv_voice::coverage::coverage(bank, lengths))),
         VoiceCmd::Lip { lo, path, info, response, speaker } => with_bank(&lo, |bank, lo| lip(bank, lo, path.as_deref(), info, response, speaker.as_deref())),
         VoiceCmd::LipCoverage { lo, lengths } => with_bank(&lo, |bank, _| Ok(fnv_voice::lip_coverage::lip_coverage(bank, lengths))),
-        VoiceCmd::SetDraft { a, speaker, id, name, sex, rate, companion, out, text } => crate::voice_set_cmd::draft(
+        VoiceCmd::SetDraft { a, speaker, id, name, sex, rate, companion, out, text, pack } => crate::voice_set_cmd::draft(
             &a,
-            crate::voice_set_cmd::DraftArgs { speaker: &speaker, id: &id, name: &name, sex: &sex, rate, companion, out: out.as_deref(), text },
+            crate::voice_set_cmd::DraftArgs { speaker: &speaker, id: &id, name: &name, sex: &sex, rate, companion, out: out.as_deref(), text, pack },
         ),
-        VoiceCmd::SetCheck { a, sets } => crate::voice_set_cmd::check(&a, &sets),
+        VoiceCmd::SetCheck { a, sets, mod_dir } => crate::voice_set_cmd::check(&a, &sets, mod_dir.as_deref()),
         VoiceCmd::LipFile { files } => {
             let rows: Vec<Value> = files
                 .iter()

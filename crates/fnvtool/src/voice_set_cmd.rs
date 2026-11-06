@@ -80,7 +80,7 @@ fn draft_line(l: &Loaded, info: FormId, d: &InfoDef) -> Option<Drafted> {
     others_sorted.dedup();
     let note = if others_sorted.is_empty() { String::new() } else { format!("conditions: {}", others_sorted.join(", ")) };
     let combat = matches!(d.info_type, topic_type::COMBAT | topic_type::DETECTION);
-    let line = |event: String, first_person: bool, use_line: bool, note: String| SetLine { info: form_ref(&l.data, info), event, first_person, use_line, note };
+    let line = |event: String, first_person: bool, use_line: bool, note: String| SetLine { info: form_ref(&l.data, info), event, first_person, use_line, note, file: None, text: None };
     if combat && COMBAT_EVENTS.contains(&topic.as_str()) {
         // Only the speaker's identity in its conditions: said in the voice as it is.
         let plain = others.is_empty();
@@ -115,6 +115,7 @@ pub struct DraftArgs<'a> {
     pub companion: bool,
     pub out: Option<&'a Path>,
     pub text: bool,
+    pub pack: bool,
 }
 
 /// `fnvtool voice set-draft`.
@@ -124,11 +125,13 @@ pub fn draft(a: &ScriptArgs, d: DraftArgs<'_>) -> anyhow::Result<Value> {
         let bank = VoiceBank::build(&l.lo, vfs);
         let base = form(l, d.speaker)?;
         let vt = l.data.actors.get(&base).and_then(|x| x.voice);
-        let mut infos: Vec<(&FormId, &InfoDef)> = l.data.infos.iter().filter(|(_, def)| said_by(l, def, base, vt)).collect();
+        // A follower mod's voice type is its own: every line with a file in it is the
+        // speaker's, also those its quest's conditions give it rather than the line's.
+        let mut infos: Vec<(&FormId, &InfoDef)> = l.data.infos.iter().filter(|(i, def)| said_by(l, def, base, vt) || (d.pack && bank.file(i.0, 0, base.0).is_some())).collect();
         infos.sort_by_key(|(i, _)| i.0);
         let mut lines = Vec::new();
         let mut texts = Vec::new();
-        let (mut no_file, mut skipped) = (0, 0);
+        let (mut no_file, mut skipped, mut multi) = (0, 0, 0);
         for (&info, def) in infos {
             let Some(dr) = draft_line(l, info, def) else {
                 skipped += 1;
@@ -138,6 +141,16 @@ pub fn draft(a: &ScriptArgs, d: DraftArgs<'_>) -> anyhow::Result<Value> {
             if !(0..def.responses.len()).all(|k| bank.file(info.0, k, base.0).is_some()) {
                 no_file += 1;
                 continue;
+            }
+            let mut dr = dr;
+            if d.pack {
+                // One response only: a carried line is one sound and one subtitle.
+                if def.responses.len() != 1 {
+                    multi += 1;
+                    continue;
+                }
+                dr.line.file = bank.file(info.0, 0, base.0);
+                dr.line.text = Some(def.responses[0].text.clone());
             }
             if d.text {
                 let t: Vec<&str> = def.response_order().into_iter().map(|r| def.responses[r].text.as_str()).collect();
@@ -151,9 +164,9 @@ pub fn draft(a: &ScriptArgs, d: DraftArgs<'_>) -> anyhow::Result<Value> {
             name: d.name.into(),
             sex: d.sex.into(),
             blurb: String::new(),
-            speaker: form_ref(&l.data, base),
+            speaker: if d.pack { String::new() } else { form_ref(&l.data, base) },
             rate: d.rate,
-            companion: d.companion.then(|| form_ref(&l.data, base)),
+            companion: (d.companion && !d.pack).then(|| form_ref(&l.data, base)),
             lines,
         };
         let mut by_event: BTreeMap<String, [u32; 2]> = BTreeMap::new();
@@ -173,6 +186,7 @@ pub fn draft(a: &ScriptArgs, d: DraftArgs<'_>) -> anyhow::Result<Value> {
             "lines": set.lines.len(),
             "without_file": no_file,
             "not_for_a_set": skipped,
+            "more_than_one_response": multi,
             "by_event": by_event.iter().map(|(k, [n, used])| (k.clone(), json!({"lines": n, "in_use": used}))).collect::<serde_json::Map<_, _>>(),
             "written": d.out.map(|p| p.display().to_string()),
         });
@@ -187,7 +201,7 @@ pub fn draft(a: &ScriptArgs, d: DraftArgs<'_>) -> anyhow::Result<Value> {
 
 /// `fnvtool voice set-check`: each set resolves against the load order, and every
 /// response of every line in use has its file in the set's speaker's voice.
-pub fn check(a: &ScriptArgs, files: &[std::path::PathBuf]) -> anyhow::Result<Value> {
+pub fn check(a: &ScriptArgs, files: &[std::path::PathBuf], mod_dir: Option<&Path>) -> anyhow::Result<Value> {
     let vfs = Arc::new(crate::voice_cmd::open_vfs(&a.lo.data_dir, &a.lo.plugins)?);
     with_data(a, |l| {
         let bank = VoiceBank::build(&l.lo, vfs);
@@ -195,7 +209,26 @@ pub fn check(a: &ScriptArgs, files: &[std::path::PathBuf]) -> anyhow::Result<Val
         let mut bad = 0;
         for f in files {
             let text = std::fs::read_to_string(f).with_context(|| f.display().to_string())?;
-            let set: VoiceSet = serde_json::from_str(&text).with_context(|| f.display().to_string())?;
+            let full: VoiceSet = serde_json::from_str(&text).with_context(|| f.display().to_string())?;
+            // Lines that carry their sound: their file is in the data or the mod folder,
+            // and they have a subtitle. The rest resolve against the load order.
+            let mut missing = Vec::new();
+            let mut carried = 0;
+            let mut carried_events: BTreeMap<String, usize> = BTreeMap::new();
+            for x in full.lines.iter().filter(|x| x.use_line) {
+                let Some(file) = &x.file else { continue };
+                carried += 1;
+                *carried_events.entry(x.event.clone()).or_default() += 1;
+                let there = bank.vfs().exists(file) || mod_dir.is_some_and(|m| m.join(file.replace('\\', "/")).is_file());
+                if !there {
+                    missing.push(format!("{} ({file})", x.info));
+                }
+                if x.text.as_deref().is_none_or(str::is_empty) {
+                    missing.push(format!("{}: no subtitle", x.info));
+                }
+            }
+            let mut set = full.clone();
+            set.lines.retain(|x| x.file.is_none());
             let (v, unresolved) = match PlayerVoice::resolve(&set, &l.data) {
                 Ok(x) => x,
                 Err(e) => {
@@ -204,8 +237,7 @@ pub fn check(a: &ScriptArgs, files: &[std::path::PathBuf]) -> anyhow::Result<Val
                     continue;
                 }
             };
-            let mut missing = Vec::new();
-            let mut responses = 0;
+            let mut responses = carried;
             for &info in &v.lines {
                 let n = l.data.infos.get(&info).map_or(0, |d| d.responses.len());
                 for k in 0..n {
@@ -215,14 +247,15 @@ pub fn check(a: &ScriptArgs, files: &[std::path::PathBuf]) -> anyhow::Result<Val
                     }
                 }
             }
-            let mut events: BTreeMap<&str, usize> = BTreeMap::new();
+            let mut events = carried_events;
             for (e, ls) in &v.by_event {
-                events.insert(e, ls.len());
+                *events.entry(e.clone()).or_default() += ls.len();
             }
+            let first_person = v.first_person.len() + full.lines.iter().filter(|x| x.use_line && x.file.is_some() && x.first_person).count();
             bad += usize::from(!missing.is_empty() || unresolved > 0);
             rows.push(json!({
                 "file": f.display().to_string(), "id": v.id, "speaker": l.data.name(v.base), "rate": v.rate,
-                "lines_in_use": v.lines.len(), "first_person": v.first_person.len(), "responses": responses,
+                "lines_in_use": v.lines.len() + carried, "carried": carried, "first_person": first_person, "responses": responses,
                 "unresolved": unresolved, "missing_files": missing, "by_event": events,
             }));
         }

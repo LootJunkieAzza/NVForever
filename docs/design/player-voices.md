@@ -1,6 +1,6 @@
 # Player voices: co-op characters that talk like companions
 
-Status: **phases 0 and 1 built (2026-11-06)**: the voice set format and `fnvtool voice set-draft`/`set-check`, four vanilla sets (Cass, Boone, Raul, Arcade) in the MO2 mod `NVForever Player Voices`, the creator's Voice row with a preview, first-person combat quips at the set's rate, and the two Gameplay settings. Phases 2-6 (co-op quips, the companion 50/50, the Nexus voices, place and quest comments) await the owner.
+Status: **phases 0, 1 and 5 built (2026-11-06)**: the voice set format and `fnvtool voice set-draft`/`set-check`; nine voices in the MO2 mod `NVForever Player Voices`, four vanilla (Cass, Boone, Raul, Arcade) and five from Nexus followers (Willow, Delilah, Niner, Cook, Molerat), the Nexus lines carried with their own sound and subtitle; the creator's Voice row with a preview; first-person combat quips at the set's rate; the two Gameplay settings. Phases 2-4 (co-op quips, reactions and the companion 50/50, place and quest comments) are not started.
 
 The owner's outline (2026-11-05): "A new option in the character creator for voice. We pull
 voice files from nexus mods or other companions in game (and would probably use tools to
@@ -141,11 +141,38 @@ so a set does not depend on the load order.
   folder `NVForever Player Voices` (`nvforever/voices/<id>.json`), not in the repository. For a
   Nexus voice the folder also holds the extracted files the map uses
   (`sound/voice/<plugin>/<voice type>/...`, with their `.lip`) and `mods-used.txt`
-  (credits). Whether the mod's plugin must still be loaded for its INFOs, or the map
-  carries what the lines need, is decided in phase 5. Whether
+  (credits). Whether
   vanilla maps (FormID lists) may be committed is the owner's call; until then they stay
   private like other game-derived files.
 - The menu name and personality blurb are NVForever's own words (LEGAL.md).
+- **A Nexus voice's lines carry their sound and subtitle** (phase 5, decided 2026-11-06).
+  Loading the follower's plugin to reach its INFOs would put the follower in the world
+  (and every player would need the mod and its masters), so a line of a mod set names
+  its sound and subtitle itself, and the set has no `speaker`:
+
+  ```json
+  { "info": "Molerat.esm|00E61D", "event": "NormalToCombat", "first_person": true,
+    "file": "sound\\voice\\molerat.esm\\aaamoleratvoicetype\\<file>.ogg", "text": "<subtitle>" }
+  ```
+
+  `info` then only says where the line came from. When the script data is built, each
+  such line becomes an INFO of its own, numbered from `0xFE000000` (a load-order index no
+  plugin has) in set id order, then line order, so two games with the same sets number
+  them alike (co-op). Its one response has the subtitle; `GameData::voice_files` names
+  its sound, which plays from the data (the MO2 folder), lasts its file's length and has
+  its `.lip` beside it (`fnv_game::player_voice::add_packed_lines`). The subtitle is the
+  mod author's text, credited in `mods-used.txt` with the mod, its page and the files
+  taken; acting notes in braces are dropped.
+- **Drafting a mod voice**: `fnvtool voice set-draft <dir> <masters...> <mod plugin>
+  --speaker <npc> --pack` on a scratch folder holding the masters, the mod's plugin and
+  its `sound/voice` folder. With `--pack` every line with a file in the speaker's voice
+  type is the speaker's (the mods put the speaker's condition on the quest), only
+  one-response lines are kept, and each line gets its `file` and `text`. A review then
+  tags the mod's own topics (`00VDCombatBarks` as NormalToCombat, and so on), and only the
+  lines in use and their files go into the mod folder. `set-check --mod-dir <folder>`
+  checks a carried line's file in that folder.
+- `NVF_MOD_DIR=<folder>` (for tests): the folder's loose files stand over the
+  data, as MO2 puts a mod folder (headless runs read the plain game Data).
 
 ## 4. Events
 
@@ -252,9 +279,12 @@ has a line for it.
 4. **Place and quest comments.** `place.enter`, `quest.stage` (host-assigned), chattiness,
    no repeats. Hand-picked lines for the vanilla voices. *Done when:* entering the Strip
    with a Cass voice gives one Strip comment, not again for 20 minutes.
-5. **Nexus voices.** Maps for Willow, Delilah, Molerat, Niner, Cook (Cook as a thin, combat-
-   less set, or folded into another, the owner decides). *Done when:* each checks clean
-   and previews in the creator.
+5. **Nexus voices** (built 2026-11-06, ahead of 2-4 at the owner's word). Sets for Willow
+   (29 lines), Delilah (10), Niner (16), Cook (6) and Molerat (30), combat only; their
+   place, quest and idle lines wait for phase 4. Cook has no combat lines of his own: his
+   set is six lines of his that fit a fight's start, a grenade and its end. *Done when:*
+   each checks clean and previews in the creator; a fight with a Nexus voice plays its
+   lines (smoke `player-voice-nexus-combat`, `player-voice-nexus-creator`).
 6. Later, not planned: dialogue-choice reactions; more voices; a third female Nexus voice.
 
 ## 9. Open questions for the owner
@@ -262,4 +292,5 @@ has a line for it.
 - May the vanilla maps (FormID and tag lists, no text) be committed, or do they stay in
   the private mod folder?
 - Voice as its own creator tab, or a row on the first tab?
-- Cook: a set of its own despite having no combat lines?
+- Cook: kept as a thin set of six lines (phase 5); enough, or folded into another voice?
+- The authors of Niner, Cook and Molerat for `mods-used.txt` (their plugins name none and the Nexus pages could not be read here).

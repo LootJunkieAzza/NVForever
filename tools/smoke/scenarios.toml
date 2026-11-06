@@ -18789,3 +18789,38 @@ order = [[
   { re = 'voice: preview vanilla\.cass: ', label = "P plays another preview" },
   "creator: done (test aid NVF_PLAY_TEST_CREATOR)",
 ]]
+
+[[scenario]]
+name = "player-voice-nexus-combat"
+source = "owner 2026-11-06: the Nexus voiced followers as player voices, their lines taken without their plugins (docs/design/player-voices.md phase 5)"
+note = "combat-voice with the player given Molerat's voice (nexus.molerat), read with the sound files from the mod folder NVForever Player Voices (NVF_MOD_DIR, as MO2 would put it over the data): the set's lines carry their sound and subtitle, so Molerat.esm is not loaded; the dogs bite the player down and the health and combat lines play from molerat.esm's voice folder"
+areas = ["combat", "dialogue", "audio"]
+paths = ["crates/fnv-game/src/player_voice.rs", "crates/fnv-game/src/voice.rs", "crates/fnv-vfs/src/lib.rs", "engine/nvf-play/src/player_voice.rs", "engine/nvf-play/src/voice.rs", "engine/nvf-play/src/script.rs", "engine/nvf-assets/src/data.rs"]
+requires = ["NVF_MOD_DIR"]
+env = { NVF_PLAY_TEST_VOICE = "nexus.molerat", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "00004337", NVF_PLAY_TEST_CONTROL = "3:weapon,6:aimflat,6.1:fire,7.6:fire,8.4:aimflat,8.5:fire,8.6:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 22
+expect = [
+  { re = 'NVF_MOD_DIR: \d+ loose files of .+ over the data', label = "the mod folder stands over the data" },
+  { re = 'player voices: \d+ lines carried by voice sets', label = "the Nexus sets' lines become lines of their own" },
+  { re = 'player voice: Molerat \(nexus\.molerat\): \d+ lines in use', label = "the player has Molerat's voice" },
+  { re = 'voice: playing sound.voice.molerat\.esm.aaamoleratvoicetype.\S+ \([\d.]+ s\) \S+ line 0xFE', label = "a carried line plays from Molerat's voice folder" },
+]
+
+[[scenario]]
+name = "player-voice-nexus-creator"
+source = "owner 2026-11-06: the Nexus voices in the character creator's Voice row (docs/design/player-voices.md phase 5)"
+note = "the character-creator setup with the mod folder over the data (NVF_MOD_DIR): the Voice row lists the women first by name (Cass, Delilah, Willow); two steps choose Delilah, whose preview plays from delilah.esp's voice folder; Done keeps her"
+areas = ["chargen", "menus", "audio"]
+paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/player_voice.rs", "engine/nvf-play/src/voice.rs"]
+requires = ["NVF_MOD_DIR"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "9:next:Voice,9.5:next:Voice,11:preview,13:done", NVF_PLAY_TEST_SHOTS = "10:creator_voice_delilah.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play"]
+run_seconds = 18
+order = [[
+  "creator: Voice Delilah (F)",
+  "creator: voice nexus.delilah",
+  { re = 'voice: preview nexus\.delilah: sound.voice.delilah\.esp.00delilahvoicetype.\S+ at speed 1\.00', label = "a preview line in Delilah's voice" },
+  { re = 'player voice: Delilah \(nexus\.delilah\)', label = "the game takes the voice" },
+  "creator: done (test aid NVF_PLAY_TEST_CREATOR)",
+]]

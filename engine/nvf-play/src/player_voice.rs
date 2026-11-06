@@ -68,15 +68,12 @@ pub struct PreviewVoice {
     pub id: String,
 }
 
-fn read_sets(mut sets: ResMut<VoiceSets>, assets: Option<Res<nvf_assets::GameData>>) {
-    if sets.read {
-        return;
-    }
-    let Some(assets) = assets else { return };
-    sets.read = true;
+/// Every voice set of the data and of `NVF_VOICE_SETS`, each id once (the first read).
+/// Problems are logged.
+pub fn read_set_files(vfs: &fnv_vfs::Vfs) -> Vec<VoiceSet> {
     let mut found: Vec<(String, Vec<u8>)> = Vec::new();
-    for p in assets.vfs.paths(|p| p.starts_with(SETS_DIR) && p.ends_with(".json")) {
-        if let Some(Ok(b)) = assets.vfs.read(&p) {
+    for p in vfs.paths(|p| p.starts_with(SETS_DIR) && p.ends_with(".json")) {
+        if let Some(Ok(b)) = vfs.read(&p) {
             found.push((p, b));
         }
     }
@@ -91,13 +88,24 @@ fn read_sets(mut sets: ResMut<VoiceSets>, assets: Option<Res<nvf_assets::GameDat
         }
     }
     let mut ids = HashSet::new();
+    let mut sets = Vec::new();
     for (path, bytes) in found {
         match serde_json::from_slice::<VoiceSet>(&bytes) {
-            Ok(s) if ids.insert(s.id.clone()) => sets.sets.push(s),
+            Ok(s) if ids.insert(s.id.clone()) => sets.push(s),
             Ok(s) => info!("player voices: {path}: {} was read before; left out", s.id),
             Err(e) => warn!("player voices: {path}: not a voice set: {e}"),
         }
     }
+    sets
+}
+
+fn read_sets(mut sets: ResMut<VoiceSets>, assets: Option<Res<nvf_assets::GameData>>) {
+    if sets.read {
+        return;
+    }
+    let Some(assets) = assets else { return };
+    sets.read = true;
+    sets.sets = read_set_files(&assets.vfs);
     let names: Vec<&str> = sets.sets.iter().map(|s| s.id.as_str()).collect();
     info!("player voices: {} sets: {}", names.len(), names.join(", "));
 }

@@ -320,7 +320,7 @@ pub struct TickStats {
 }
 
 impl ScriptState {
-    fn new(d: PlayData, refs: &'static RefTable, new_game: bool, unattended: bool, no_messages: bool) -> ScriptState {
+    fn new(d: PlayData, refs: &'static RefTable, new_game: bool, unattended: bool, no_messages: bool, voice_sets: Vec<fnv_game::player_voice::VoiceSet>) -> ScriptState {
         let off = match std::env::var("NVF_PLAY_SCRIPTS").as_deref() {
             Ok("0") | Ok("off") | Ok("false") => Some("NVF_PLAY_SCRIPTS=0".to_string()),
             _ => None,
@@ -366,7 +366,7 @@ impl ScriptState {
         let own_home = std::env::var_os(fnv_install::HOME_ENV).is_some_and(|h| !h.is_empty());
         let write = (!unattended || own_home).then(|| fnv_install::EngineHome::default_root().map(|r| fnv_install::EngineHome::new(r).mods())).flatten();
         fnv_game::mod_files::update_roots(|r| r.write = write);
-        let loader = off.is_none().then(|| Mutex::new(start_loading(d, refs)));
+        let loader = off.is_none().then(|| Mutex::new(start_loading(d, refs, voice_sets)));
         ScriptState { loader, rt: None, off, trace, aids, aids_started: false, gates: HashMap::new(), auto_close, no_messages, on_screen: None, walks: Vec::new(), new_game, start: GameStart::default(), used: Vec::new(), console: Vec::new(), console_out: Vec::new(), pending_game: None }
     }
 
@@ -496,7 +496,7 @@ fn source_compile_mode(unattended: bool) {
 
 /// Build the script data on its own thread (decoding every unit takes about a second;
 /// render streaming and physics start meanwhile).
-fn start_loading(d: PlayData, refs: &'static RefTable) -> Receiver<Loaded> {
+fn start_loading(d: PlayData, refs: &'static RefTable, voice_sets: Vec<fnv_game::player_voice::VoiceSet>) -> Receiver<Loaded> {
     let (tx, rx) = mpsc::channel();
     let spawned = std::thread::Builder::new().name("nvf-scripts".into()).spawn(move || {
         let t = Instant::now();
@@ -505,7 +505,14 @@ fn start_loading(d: PlayData, refs: &'static RefTable) -> Receiver<Loaded> {
             let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
             let json: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
             let table = FunctionTable::load(&path).map_err(|e| e.to_string())?;
-            let data: &'static GameData = Box::leak(Box::new(GameData::build(d.lo, d.schema, table, &json, refs)));
+            let mut data = GameData::build(d.lo, d.schema, table, &json, refs);
+            // Voice sets' lines carried with their sound become lines of their own
+            // (fnv_game::player_voice, docs/design/player-voices.md).
+            let carried = fnv_game::player_voice::add_packed_lines(&mut data, &voice_sets);
+            if carried > 0 {
+                info!("player voices: {carried} lines carried by voice sets");
+            }
+            let data: &'static GameData = Box::leak(Box::new(data));
             Ok((data, t.elapsed().as_secs_f64()))
         })();
         let _ = tx.send(r);
@@ -1447,7 +1454,8 @@ impl Plugin for ScriptPlugin {
         let new_game = app.world().contains_resource::<NewGame>();
         let unattended = crate::test_aid::Unattended::from_env().0;
         let no_messages = app.world().contains_resource::<NoMessages>();
-        let mut st = ScriptState::new(d, refs, new_game, unattended, no_messages);
+        let voice_sets = app.world().get_resource::<nvf_assets::GameData>().map(|a| crate::player_voice::read_set_files(&a.vfs)).unwrap_or_default();
+        let mut st = ScriptState::new(d, refs, new_game, unattended, no_messages, voice_sets);
         st.start = GameStart::of_app(app);
         app.insert_resource(st)
             .insert_resource(crate::pause::WorldAidClock::from_env())

@@ -239,6 +239,29 @@ impl Vfs {
         Ok(vfs)
     }
 
+    /// Index the loose files under `dir` above every source opened so far, as a mod
+    /// manager's folder stands over the data (a test aid: a mod folder used without MO2).
+    /// Returns how many files it added.
+    pub fn add_loose_dir(&mut self, dir: &Path) -> usize {
+        let dir = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
+        let mut files = Vec::new();
+        walk(&dir, &dir, &mut files, &mut self.skipped);
+        let mut n = 0;
+        for rel in files {
+            let key = normalize(&rel.to_string_lossy());
+            if !key.contains('\\') {
+                continue;
+            }
+            if let Some(under @ Location::Archive { .. }) = self.index.insert(key.clone(), Location::Loose) {
+                self.under_loose.insert(key.clone(), under);
+            }
+            // An absolute path: `data_dir.join` keeps it as it is.
+            self.loose.insert(key, dir.join(rel));
+            n += 1;
+        }
+        n
+    }
+
     /// Default setup: the INI archive list, `Update.bsa`, and the base + DLC plugins.
     ///
     /// Diagnostic override: when the environment variable [`ARCHIVE_ORDER_ENV`] is set, its
