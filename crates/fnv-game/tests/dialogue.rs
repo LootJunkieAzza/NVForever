@@ -1950,3 +1950,42 @@ fn the_hosts_lines_are_said_without_their_scripts() {
     assert!(matches!(g.speech.as_slice(), [s] if s.speaker == actor() && s.greeting && !s.remote), "{:?}", g.speech);
     assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { speaker, cut: true, .. } if speaker == FormId(NPC2_REF))));
 }
+
+/// A co-op guest: an update of the host's line that comes a little late does not take its
+/// time left back up (that starts the sound over), a line said again does.
+#[test]
+fn a_hosts_line_come_late_is_not_said_again() {
+    use fnv_game::game::{LineLook, Speech, REMOTE_SAID_AGAIN};
+    let f = fixture();
+    let mut g = game(&f);
+    let line = |remaining: f64| Speech {
+        speaker: actor(),
+        target: None,
+        topic: FormId(GREETING),
+        info: FormId(A_BARK),
+        remaining,
+        say_to: false,
+        greeting: false,
+        conversation: None,
+        earlier_topics: Vec::new(),
+        hello: false,
+        look: LineLook::Both,
+        response: 0,
+        force_subtitles: false,
+        two_d: false,
+        end_ran: false,
+        remote: false,
+    };
+    let left = |g: &fnv_game::Game| g.speech.iter().find(|s| s.remote).map(|s| s.remaining);
+    g.set_remote_speech(vec![line(4.0)], |_| false);
+    g.set_remote_speech(vec![line(3.5)], |_| false);
+    // Late by 0.1 s: stays where it was.
+    g.set_remote_speech(vec![line(3.6)], |_| false);
+    assert_eq!(left(&g), Some(3.5));
+    // Down: taken.
+    g.set_remote_speech(vec![line(3.2)], |_| false);
+    assert_eq!(left(&g), Some(3.2));
+    // Said again from the start: taken.
+    g.set_remote_speech(vec![line(3.2 + REMOTE_SAID_AGAIN + 1.0)], |_| false);
+    assert_eq!(left(&g), Some(3.2 + REMOTE_SAID_AGAIN + 1.0));
+}
