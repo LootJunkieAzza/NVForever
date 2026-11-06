@@ -363,8 +363,8 @@ the gender of the character" [owner 2026-11-06].
 - **The creator** offers only the sets that fit the look (`VoiceSet::fits`: the same race
   kind, and `female` for a woman, `male` for a man; `other` fits nobody). Changing Sex or
   Origin drops a chosen voice that no longer fits (back to None), and a saved voice that
-  does not fit is not shown as chosen. A set whose speaker is a plugin's actor is offered
-  only with that plugin loaded.
+  does not fit is not shown as chosen. A set whose speaker is a plugin's actor (the
+  vanilla ones) is offered only with that plugin loaded.
 - **In the game** a voice that does not fit the character (an old save, a SexChange) is
   not used: `player voice: <id> is a <race> <sex> voice and the character a ...; the
   player stays silent`. The choice stays in the save. The test aid's voice is not checked.
@@ -375,12 +375,13 @@ the gender of the character" [owner 2026-11-06].
     Hit 7, CombatToNormal 4, CombatToLost 4, AvoidThreat 1, reactions 8. Two Followers of
     the Apocalypse lines are off. Rate 1.04.
   - `nexus.mikey` (male ghoul, Big Mike, Nexus 54027, carried): 13 lines.
-  - `nexus.deathblow` (male ghoul, Deathblow, Nexus 93930): its page asks for permission
-    before its assets are used, so nothing is carried; the set names the mod's lines and
-    is offered only with "Deathblow - A Slave Companion.esm" loaded. 4 fight lines (its
-    own CombatStart and CombatEnd topics, mapped by hand) and 44 place comments (its
-    advice topic; `set-places` now also places carried lines, keeping only the cells of
-    other plugins).
+  - `nexus.deathblow` (male ghoul, Deathblow, Nexus 93930, carried like the other Nexus
+    voices: no companion mod is installed, only the voice files the sets use [owner
+    2026-11-06]): 4 fight lines (its own CombatStart and CombatEnd topics, mapped by hand)
+    and 44 place comments (its advice topic; `set-places` now also places carried lines,
+    keeping only the cells of other plugins). Its page asks for permission before its
+    assets are used: the files are in the owner's private install only, and
+    `mods-used.txt` says to ask the author before the folder is shared.
 - **Not used.** Odessa, Crash, Rodney and Greasy Doc John (Deathblow's other ghouls) have
   0 to 2 lines outside conversations. Scratch (Nexus 83135) is a human child (child head,
   FemaleChildScratch), not a ghoul.

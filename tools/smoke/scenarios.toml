@@ -18861,17 +18861,19 @@ expect = [
 [[scenario]]
 name = "player-voice-ghoul-creator"
 source = "owner 2026-11-06: ghouls as a playable race (the Playable Ghoul mod), each offered only the voices of its race and sex (docs/design/player-voices.md §11)"
-note = "the character-creator setup with PlayableGhoul.esp loaded and NVF_MOD_DIR naming both the Playable Ghoul folder and the NVForever Player Voices folder (';' between, as MO2 lays both over the data): Ghoul is an Origin; as a ghoul man the Voice row offers the ghoul men (Mikey, Raul); made a woman, the chosen voice goes and the row offers Beatrix; the hair tab steps a ghoul hair; Done keeps a Female Ghoul with Beatrix's voice"
+note = "the character-creator setup with PlayableGhoul.esp loaded and NVF_MOD_DIR naming both the Playable Ghoul folder and the NVForever Player Voices folder (';' between, as MO2 lays both over the data): Ghoul is an Origin; as a ghoul man the Voice row offers the ghoul men (Deathblow, Mikey, Raul; Deathblow's and Mikey's lines carried in the voices mod, without their plugins); made a woman, the chosen voice goes and the row offers Beatrix; the hair tab steps a ghoul hair; Done keeps a Female Ghoul with Beatrix's voice"
 areas = ["chargen", "menus", "audio"]
 paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/creator/model.rs", "engine/nvf-play/src/player_voice.rs", "crates/fnv-game/src/player_voice.rs", "crates/fnv-vfs/src/lib.rs", "engine/nvforever/src/world.rs", "engine/nvf-assets/src/data.rs", "crates/fnv-actor/src/creator.rs"]
 requires = ["NVF_MOD_DIR"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "9:next:Origin,11:next:Voice,12:next:Sex,12.5:next:Voice,13:preview,14:tab:hair,14.5:next:Hair style,16:done", NVF_PLAY_TEST_SHOTS = "8.5:creator_human.png,11.5:creator_ghoul_male.png,13.5:creator_ghoul_female.png,15.5:creator_ghoul_hair.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "9:next:Origin,10.5:next:Voice,11:next:Voice,12:next:Sex,12.5:next:Voice,13:preview,14:tab:hair,14.5:next:Hair style,16:done", NVF_PLAY_TEST_SHOTS = "8.5:creator_human.png,11.5:creator_ghoul_male.png,13.5:creator_ghoul_female.png,15.5:creator_ghoul_hair.png" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--plugins", "FalloutNV.esm", "PlayableGhoul.esp"]
 run_seconds = 21
 order = [[
   "creator: Origin Ghoul",
+  "creator: Voice Deathblow (M)",
+  { re = 'voice: preview nexus\.deathblow: sound.voice.deathblow - a slave companion\.esm.dddsdeathblowvoice.\S+', label = "Deathblow's line plays from the voices mod, his plugin not loaded" },
   "creator: Voice Mikey (M)",
-  { re = 'player voice: Mikey \(nexus\.mikey\): 13 lines in use', label = "a ghoul man's first voice: Mikey (Mikey, Raul)" },
+  { re = 'player voice: Mikey \(nexus\.mikey\): 13 lines in use', label = "the next ghoul man's voice: Mikey" },
   "creator: Sex Female",
   { text = "creator: voice none", label = "a man's voice goes with the change of sex" },
   "creator: Voice Beatrix (F)",
