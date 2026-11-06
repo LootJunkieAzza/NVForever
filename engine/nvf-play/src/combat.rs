@@ -203,6 +203,11 @@ pub struct WeaponAnim {
     /// Set by the body: the weapon's attack clip has an `Eject` key, so its casings
     /// leave when the clip reaches it (the action worked), not at the shot.
     pub ejects_on_key: bool,
+    /// Set by combat while no reload runs: the magazine still holds rounds, so a reload
+    /// would be a partial one (a mod's `…Reload…_Partial.kf` plays instead of the plain
+    /// clip; Another Millenia's AnimGroupOverride folders [hypothesis: from the file names
+    /// only, docs/spec-notes/knvse-anim-folders.md §4]).
+    pub partial: bool,
     /// Counted up by the body when the attack clip of the rig in view passes its
     /// `Eject` key; combat throws a casing from [`Self::casing`] then.
     pub ejects: u32,
@@ -2618,10 +2623,18 @@ pub(crate) fn fire(
         c.vats_cone = None;
         return;
     }
-    let Some(w) = c.weapon.and_then(|id| c.player_stats(id)) else {
+    let Some(mut w) = c.weapon.and_then(|id| c.player_stats(id)) else {
         c.vats_cone = None;
         return;
     };
+    // The speeds a script set on the weapon (SetWeaponAnimMult, SetWeaponAnimAttackMult,
+    // SetWeaponFireRate: `Game::record_number_edit`).
+    if let (Some(g), Some(id)) = (script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game), c.weapon) {
+        let edit = |f: &str| g.record_number_edit(id, f).map(|x| x as f32).filter(|x| *x > 0.0);
+        w.anim_mult = edit("DNAM/animation_multiplier").unwrap_or(w.anim_mult);
+        w.attack_mult = edit("DNAM/animation_attack_multiplier").unwrap_or(w.attack_mult);
+        w.fire_rate = edit("DNAM/fire_rate").unwrap_or(w.fire_rate);
+    }
     let (Some(id), Some(cycle)) = (c.weapon, c.cycle.as_mut()) else { return };
     if !anim.ready {
         if vats_shot.is_some() {
@@ -2652,6 +2665,9 @@ pub(crate) fn fire(
         }
     }
     anim.attack_rate = clip_rate;
+    if !cycle.reloading() {
+        anim.partial = !cycle.no_ammo && cycle.magazine > 0;
+    }
     cycle.timing = Timing::of(&w, &anim.timing, &c.tuning).with_reload_rate(rate).with_attack_rate(atk);
     // A VATS mode shot leaves now, whatever the weapon's cooldown or wind-up (the owner's
     // "faster than the weapon's normal rate"), unless it is reloading, jammed or empty.

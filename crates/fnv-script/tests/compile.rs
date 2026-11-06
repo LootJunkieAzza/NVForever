@@ -1227,3 +1227,13 @@ fn a_short_hex_form_id_names_its_form() {
     let (c, _) = build("short s\nbegin GameMode\nset s to 0A\nend");
     assert_eq!(c.refs, [RefSlot::Form(0x0A)]);
 }
+
+#[test]
+fn a_block_lambdas_lines_may_call_unknown_functions() {
+    // ln_ISControl.txt: a handler's line starts with a function the wiki does not document
+    // and hands it variables declared in parentheses; the lambda is an argument, its lines
+    // are not.
+    let src = "begin GameMode\nSetEventHandlerAlt \"ISCe1\" (begin Function {float xlY}\nGetCameraMovement (float xmE) (float xmD)\nxlY -= xmE * 0.2\nend)\nend";
+    let (c, _) = build_mod(src);
+    assert!(c.variables.iter().any(|v| v.name == "xmE"), "{:?}", c.variables);
+}

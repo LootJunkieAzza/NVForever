@@ -142,6 +142,18 @@ fn weapon_field(name: &str) -> Option<(&'static str, &'static str)> {
 }
 
 impl Game<'_> {
+    /// A number a script set on a record field this session with a `SetWeapon…`
+    /// setter (`DNAM/fire_rate`): `None` when no script set it. Combat reads the weapon's
+    /// speeds through this (Hit's Anims `gr_hitAMattackanimmult` sets
+    /// SetWeaponAnimAttackMult on the guns it animates) [documented: the setters' pages
+    /// say they change the weapon; hypothesis: the shot cycle follows].
+    pub fn record_number_edit(&self, form: FormId, field: &str) -> Option<f64> {
+        match self.field_overrides.get(&(form, field.to_string()))? {
+            XVal::Num(x) if x.is_finite() => Some(*x),
+            _ => None,
+        }
+    }
+
     /// The members of a form list, with the session's ListAddForm/ListRemove… edits.
     pub(crate) fn edited_list(&mut self, list: FormId) -> &mut Vec<FormId> {
         if !self.list_edits.contains_key(&list) {

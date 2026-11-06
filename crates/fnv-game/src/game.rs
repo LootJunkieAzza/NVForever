@@ -2605,9 +2605,14 @@ impl<'a> Game<'a> {
     /// `src` compiled as a result script (statements without blocks), its unit leaked so it
     /// lives as long as the game data, named `plugin` with an owner of record type `sig`;
     /// with the compiler's warnings. The console's lines and the Script Runner's files
-    /// (`crate::script_runner`).
+    /// (`crate::script_runner`). A Script Runner file's line that starts with a function
+    /// nothing documents compiles as a call that reports "not built" when it runs, as a
+    /// mod's SCPT source does (`fnv_script::compile::Seed::unknown_calls`): one plugin
+    /// function the wiki lacks no longer costs the whole file (ln_ISControl.txt's
+    /// `GetCameraMovement`).
     pub(crate) fn compile_statements(&mut self, src: &str, plugin: &str, sig: &str) -> Result<(&'a Compiled, Vec<String>), String> {
-        let c = fnv_script::compile::compile(src, &self.data.table, &GameEnv { g: self }, None);
+        let seed = (sig == "SR").then_some(fnv_script::compile::Seed { variables: &[], refs: &[], unknown_calls: true });
+        let c = fnv_script::compile::compile(src, &self.data.table, &GameEnv { g: self }, seed);
         if let Some(e) = c.errors().next() {
             // The console's own line needs no number.
             return Err(match sig {
@@ -2724,14 +2729,23 @@ impl<'a> Game<'a> {
     /// EvaluateString's test run on a reference (`this` and the functions without a
     /// reference name it): kNVSE's AnimGroupOverride conditions
     /// (`crate::nvse_anim_folders`). The compiled texts are EvaluateString's.
-    pub(crate) fn evaluate_on(&mut self, text: &str, on: Option<FormId>) -> Result<bool, String> {
+    pub fn evaluate_on(&mut self, text: &str, on: Option<FormId>) -> Result<bool, String> {
         let id = match self.pp.evaluated.get(text) {
             Some(&id) => id,
             None => {
                 if self.pp.evaluated.len() >= crate::nvse_pp::EVALUATE_MAX {
                     return Err(format!("{text:?}: more than {} distinct texts in one game", crate::nvse_pp::EVALUATE_MAX));
                 }
-                let src = format!("Begin Function {{ }}\nif {text}\nSetFunctionValue 1\nendif\nEnd\n");
+                // A unary `!` (not `!=`) is the extender's grammar: the classic `if` has no
+                // such operator and compiled `!0` as false (Another Millenia's PKM entry,
+                // `!GetIsCreature`, never held) [hypothesis: the text is read as the
+                // extender's expression where only that grammar fits].
+                let not = text.char_indices().any(|(i, c)| c == '!' && !text[i + 1..].starts_with('='));
+                let src = if not {
+                    format!("Begin Function {{ }}\nif eval ({text})\nSetFunctionValue 1\nendif\nEnd\n")
+                } else {
+                    format!("Begin Function {{ }}\nif {text}\nSetFunctionValue 1\nendif\nEnd\n")
+                };
                 let id = self.compile_source("EvaluateString", src);
                 self.pp.evaluated.insert(text.to_string(), id);
                 id
