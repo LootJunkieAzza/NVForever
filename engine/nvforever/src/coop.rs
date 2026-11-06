@@ -741,6 +741,9 @@ struct Peer {
     /// Its look, once heard: `Some(None)` for the player record's own (no character
     /// creator look).
     look: Option<Option<Look>>,
+    /// Its character's name, once its look brought one: then its `name`, whatever
+    /// co-op name it joined with.
+    character: Option<String>,
     /// On the host: its actor in this world ([`stand_ins`]).
     actor: Option<FormId>,
     /// Down, as last seen ([`downed`]); drawn anew (standing) on the next frame.
@@ -1070,14 +1073,32 @@ fn send(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location>>
     }
     link.set_state(s);
     // The link sends it again only when it changes (and every LOOK_EVERY).
-    let look = doing.script.as_deref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.player.look.as_ref());
-    link.set_look(encode_look(look));
+    let rt = doing.script.as_deref().and_then(|s| s.rt.as_ref());
+    let look = rt.and_then(|rt| rt.game.player.look.as_ref());
+    // The character's own name (the name menu's), for the others to call this player by.
+    let name = rt.and_then(|rt| rt.game.player.name.as_deref()).unwrap_or_default();
+    link.set_look(encode_look(look, name));
 }
 
 /// A look as it goes over the link: 0 for the player record's own; else 1, the race, sex,
 /// hair (0 for bald), hair colour (a flag and RGB), eyes (0 for the race's), the head
-/// parts, and the three FaceGen lists, each list a count and its items.
-pub fn encode_look(look: Option<&Look>) -> Vec<u8> {
+/// parts, and the three FaceGen lists, each list a count and its items. After it the
+/// character's name: its length and its UTF-8 bytes (at most [`NAME_MAX`]; 0 for none).
+pub fn encode_look(look: Option<&Look>, name: &str) -> Vec<u8> {
+    let mut b = look_only(look);
+    let mut end = name.len().min(NAME_MAX);
+    while !name.is_char_boundary(end) {
+        end -= 1;
+    }
+    b.push(end as u8);
+    b.extend_from_slice(&name.as_bytes()[..end]);
+    b
+}
+
+/// The longest character name sent (bytes) [design: the name menu's names fit].
+pub const NAME_MAX: usize = 48;
+
+fn look_only(look: Option<&Look>) -> Vec<u8> {
     let Some(l) = look else { return vec![0] };
     let mut b = vec![1];
     let id = |b: &mut Vec<u8>, f: Option<FormId>| b.extend_from_slice(&f.map_or(0, |f| f.0).to_le_bytes());
@@ -1104,14 +1125,28 @@ pub fn encode_look(look: Option<&Look>) -> Vec<u8> {
     b
 }
 
-/// [`encode_look`] read back; None for one that is not a look.
-pub fn decode_look(b: &[u8]) -> Option<Option<Look>> {
-    match *b.first()? {
-        0 => return Some(None),
-        1 => {}
-        _ => return None,
-    }
+/// [`encode_look`] read back, the look and the name (empty for none, and from a game
+/// that sent no name); None for one that is not a look.
+pub fn decode_look(b: &[u8]) -> Option<(Option<Look>, String)> {
     let mut rd = Reader(b.get(1..)?);
+    let look = match *b.first()? {
+        0 => None,
+        1 => Some(read_look(&mut rd)?),
+        _ => return None,
+    };
+    let name = if rd.0.is_empty() {
+        String::new()
+    } else {
+        let n = rd.u8()? as usize;
+        if rd.0.len() != n {
+            return None;
+        }
+        String::from_utf8_lossy(rd.0).into_owned()
+    };
+    Some((look, name))
+}
+
+fn read_look(rd: &mut Reader) -> Option<Look> {
     let race = FormId(rd.u32()?);
     let female = rd.u8()? != 0;
     let hair = Some(rd.u32()?).filter(|&h| h != 0).map(FormId);
@@ -1124,8 +1159,8 @@ pub fn decode_look(b: &[u8]) -> Option<Option<Look>> {
         let n = rd.u8()? as usize;
         (0..n).map(|_| rd.u32().map(f32::from_bits)).collect()
     };
-    let (fggs, fgga, fgts) = (list(&mut rd)?, list(&mut rd)?, list(&mut rd)?);
-    rd.0.is_empty().then_some(Some(Look { race, female, hair, hair_color, eyes, head_parts, fggs, fgga, fgts }))
+    let (fggs, fgga, fgts) = (list(rd)?, list(rd)?, list(rd)?);
+    Some(Look { race, female, hair, hair_color, eyes, head_parts, fggs, fgga, fgts })
 }
 
 struct Reader<'a>(&'a [u8]);
@@ -1229,7 +1264,7 @@ fn take_events(
             }
             Event::Joined { id, name } => {
                 let p = coop.peers.entry(id).or_default();
-                if !name.is_empty() {
+                if !name.is_empty() && p.character.is_none() {
                     p.name = name;
                 }
                 if is_host {
@@ -1265,7 +1300,7 @@ fn take_events(
                 }
             }
             Event::Look { id, look } => {
-                let Some(look) = decode_look(&look) else {
+                let Some((look, character)) = decode_look(&look) else {
                     warn!("co-op: {} sent a look this game cannot read", label(id, &coop.peers.get(&id).map_or(String::new(), |p| p.name.clone())));
                     continue;
                 };
@@ -1279,11 +1314,20 @@ fn take_events(
                     }
                 }
                 let p = coop.peers.entry(id).or_default();
-                info!("co-op: {} looks {}", label(id, &p.name), look.as_ref().map_or("as the player record does".to_string(), |l| format!("race {}, {}", l.race, if l.female { "female" } else { "male" })));
-                p.look = Some(look);
-                // Drawn again, as it now looks.
-                p.undraw();
-                p.failed = false;
+                // Called by its character's name from here on (the name menu's), not the
+                // co-op name it joined with.
+                if !character.is_empty() && p.character.as_deref() != Some(character.as_str()) {
+                    info!("co-op: {} is called {character}", label(id, &p.name));
+                    p.name = character.clone();
+                    p.character = Some(character);
+                }
+                // The link sends the look again now and then: drawn again only when it changed.
+                if p.look.as_ref() != Some(&look) {
+                    info!("co-op: {} looks {}", label(id, &p.name), look.as_ref().map_or("as the player record does".to_string(), |l| format!("race {}, {}", l.race, if l.female { "female" } else { "male" })));
+                    p.look = Some(look);
+                    p.undraw();
+                    p.failed = false;
+                }
             }
             Event::Left(id) => {
                 let reference = coop.peers.get(&id).map_or(PUPPET_REF + id as u32, |p| p.reference(id));
@@ -2790,10 +2834,15 @@ mod tests {
             fgga: vec![-0.5; 30],
             fgts: (0..50).map(|i| -(i as f32)).collect(),
         };
-        let b = encode_look(Some(&l));
+        let name = "Ñ".repeat(40);
+        let b = encode_look(Some(&l), &name);
         assert!(b.len() <= net::LOOK_MAX, "{} bytes", b.len());
-        assert_eq!(decode_look(&b), Some(Some(l)));
-        assert_eq!(decode_look(&encode_look(None)), Some(None));
+        // Cut to whole characters within NAME_MAX bytes.
+        assert_eq!(decode_look(&b), Some((Some(l.clone()), "Ñ".repeat(NAME_MAX / 2))));
+        assert_eq!(decode_look(&encode_look(None, "")), Some((None, String::new())));
+        assert_eq!(decode_look(&encode_look(None, "Cass")), Some((None, "Cass".into())));
+        // A look from a game that sends no name.
+        assert_eq!(decode_look(&look_only(Some(&l))), Some((Some(l), String::new())));
         assert_eq!(decode_look(&b[..b.len() - 1]), None);
         assert_eq!(decode_look(&[9]), None);
     }
