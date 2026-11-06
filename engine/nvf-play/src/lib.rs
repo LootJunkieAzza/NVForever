@@ -74,6 +74,7 @@ pub mod loading;
 pub mod lobby;
 pub mod main_menu;
 pub mod location_markers;
+pub mod safe_zone;
 pub mod world_marks;
 pub mod lockpick;
 pub mod roulette;
@@ -374,6 +375,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(console::ConsolePlugin)
             .add_plugins(location_markers::LocationMarkersPlugin)
             .add_plugins(world_marks::WorldMarksPlugin)
+            .add_plugins(safe_zone::SafeZonePlugin)
             .add_plugins(free_cam::FreeCamPlugin)
             .add_plugins(aim_zoom::AimZoomPlugin)
             .add_plugins(save::SavePlugin)

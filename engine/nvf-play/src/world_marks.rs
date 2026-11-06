@@ -312,6 +312,7 @@ fn draw(
     data: Option<Res<GameData>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     mut images: ResMut<Assets<Image>>,
+    mut zone: ResMut<crate::safe_zone::SafeZone>,
     mut kit: Local<Option<Kit>>,
     mut last: Local<Vec<(Shown, Entity)>>,
 ) {
@@ -352,6 +353,25 @@ fn draw(
             want.push((Shown { kind: MarkKind::Ping, label: p.label.clone(), distance: Some(format!("{feet} ft")), focus: focus(s) }, s));
         }
     }
+    let bc = crate::interface::bc_supported(formats.as_deref());
+    if !want.is_empty() && kit.is_none() {
+        let face = face(FONT_FILES[2], plain_font(20.0, 10.0), data.as_deref(), &mut images, bc);
+        let arrow = data.as_deref().and_then(|d| crate::interface::texture(ARROW, d, &mut images, bc)).map(|(h, _)| h);
+        info!("world marks: {}", if arrow.is_some() { "JAM's JVO arrow found: pings use it" } else { "no JVO arrow in the load order: pings use a diamond" });
+        *kit = Some(Kit { face, arrow });
+    }
+    // Off the HUD's pieces (`crate::safe_zone`): each mark's box over its point.
+    if !want.is_empty() {
+        zone.want();
+    }
+    if let Some(kit) = kit.as_ref() {
+        for (shown, s) in want.iter_mut() {
+            let area = mark_box(kit, shown);
+            let p = *s * size;
+            let d = zone.clear(Rect { min: p + area.min, max: p + area.max });
+            *s = (p + d) / size;
+        }
+    }
     let same = want.len() == last.len() && want.iter().zip(last.iter()).all(|(a, b)| a.0 == b.0);
     if same {
         // Only moved: place the roots again.
@@ -366,19 +386,13 @@ fn draw(
     if want.is_empty() {
         return;
     }
-    let bc = crate::interface::bc_supported(formats.as_deref());
-    let kit = kit.get_or_insert_with(|| {
-        let face = face(FONT_FILES[2], plain_font(20.0, 10.0), data.as_deref(), &mut images, bc);
-        let arrow = data.as_deref().and_then(|d| crate::interface::texture(ARROW, d, &mut images, bc)).map(|(h, _)| h);
-        info!("world marks: {}", if arrow.is_some() { "JAM's JVO arrow found: pings use it" } else { "no JVO arrow in the load order: pings use a diamond" });
-        Kit { face, arrow }
-    });
+    let Some(kit) = kit.as_ref() else { return };
     for (shown, s) in &want {
         let alpha = if shown.focus { 1.0 } else { AWAY_ALPHA };
         let color = amber(255.0).with_alpha(alpha);
         let line_h = kit.face.font.size.max(16.0);
         let base = crate::interface::line_base(&kit.face);
-        let root = commands.spawn((MarkRoot, root_node(*s, size), GlobalZIndex(3))).id();
+        let root = commands.spawn((MarkRoot, crate::safe_zone::SafeZoneIgnore, root_node(*s, size), GlobalZIndex(3))).id();
         last.push((shown.clone(), root));
         commands.entity(root).with_children(|p| {
             let mut top = 0.0;
@@ -410,6 +424,28 @@ fn draw(
             }
         });
     }
+}
+
+/// A mark's box about its point (logical pixels): the arrow (pings) with its tip on the
+/// point, then each line over it, as [`draw`] lays them out.
+fn mark_box(kit: &Kit, shown: &Shown) -> Rect {
+    let line_h = kit.face.font.size.max(16.0);
+    let (mut top, mut half) = (0.0f32, 0.0f32);
+    if shown.kind == MarkKind::Ping {
+        if kit.arrow.is_some() {
+            top -= ARROW_SIZE.y;
+            half = ARROW_SIZE.x / 2.0;
+        } else {
+            top = -14.0 * 2.2;
+            half = 7.0 * std::f32::consts::SQRT_2;
+        }
+    }
+    for text in shown.distance.iter().chain(std::iter::once(&shown.label)) {
+        let Some(line) = kit.face.font.lines(text.trim(), None).into_iter().next() else { continue };
+        top -= line_h;
+        half = half.max(line.width / 2.0);
+    }
+    Rect { min: Vec2::new(-half, top), max: Vec2::new(half, 0.0) }
 }
 
 /// A mark's root: a zero-size node at its point on the screen.

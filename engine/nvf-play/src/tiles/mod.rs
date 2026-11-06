@@ -767,7 +767,7 @@ impl Plugin for TilesPlugin {
             .add_systems(Update, write.after(PlaySet::Physics).after(crate::compass::place).before(PlaySet::Activation))
             // T8: the pointer and keys after the engine's writes, before scripts (§4.1 step 1).
             .add_systems(Update, input::feed.after(write).before(PlaySet::Activation))
-            .add_systems(Update, update.after(PlaySet::Scripts).before(PlaySet::Ui))
+            .add_systems(Update, update.after(PlaySet::Scripts).after(crate::safe_zone::clear_jvo).before(PlaySet::Ui))
             .add_systems(Update, (draw::draw, draw::scroll, model::animate).chain().in_set(PlaySet::Ui))
             .add_systems(PostUpdate, vanilla::hide_hand_built.before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate));
     }

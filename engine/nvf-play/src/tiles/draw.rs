@@ -1135,7 +1135,7 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, pieces: Vec<Piece>, scale: 
     }
     let root = *drawn.root.get_or_insert_with(|| {
         let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
-        commands.spawn((TileRoot, full, GlobalZIndex(z), Pickable::IGNORE)).id()
+        commands.spawn((TileRoot, crate::safe_zone::SafeZoneIgnore, full, GlobalZIndex(z), Pickable::IGNORE)).id()
     });
     // A new size: the tiled pictures are set for the old one, so every piece again.
     if scale != drawn.scale {
