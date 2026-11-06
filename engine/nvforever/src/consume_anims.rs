@@ -22,7 +22,8 @@
 //!   under `Bip01 L Hand` (the model they name, else the item's own) and take it away
 //!   (`fnv_actor::b42::Cue`); the attach point follows the clip's track of that name, and
 //!   the model's nodes the tracks named after them with `_B42` [observed: the clips'
-//!   tracks].
+//!   tracks]. In first person it is drawn with the arms' depth, as the weapon in the hand
+//!   (the hands drew through it before, owner's report 2026-11-06).
 //! - **Cut short** (not Hardcore): attacking or aiming stops it, as do swimming, a
 //!   change of view and, in third person, walking off (the body's legs are the clip's).
 //! - **Hardcore** (`Config\B42Inject.ini` `Hardcore=1`, or the settings page): while
@@ -808,6 +809,11 @@ fn attach(commands: &mut Commands, ctx: &mut ActorCtx, clip: &Clip, t: f32, skel
             commands.entity(e).insert(l.clone());
         }
     };
+    // In the first-person view the held model takes the arms' material, as the weapon in
+    // the hand does (`player_body::arms_material`): the arms' depth is squeezed in front
+    // of the world, and with the model's own the hands drew through it.
+    let first_person = layer.as_ref().is_some_and(|l| *l == RenderLayers::layer(crate::sky::ARMS_LAYER));
+    let mut material = |m: &Handle<nvf_assets::nif_material::NifMaterial>| if first_person { crate::player_body::arms_material(&mut ctx.models.materials, m) } else { m.clone() };
     for s in part.shapes.iter().filter(|s| !s.cap) {
         // The outermost ancestor a track moves (`<name>_B42`).
         let found = s.ancestors.iter().enumerate().rev().find_map(|(k, (name, own))| {
@@ -816,7 +822,7 @@ fn attach(commands: &mut Commands, ctx: &mut ActorCtx, clip: &Clip, t: f32, skel
             Some((k, name.to_string(), *own, tr.clone()))
         });
         let Some((k, name, rest, tr)) = found else {
-            let x = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(part.root * s.transform)))).id();
+            let x = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(material(&s.material)), Transform::from_matrix(Mat4::from(part.root * s.transform)))).id();
             with_layer(commands, x);
             commands.entity(point).add_child(x);
             entities.push(x);
@@ -835,7 +841,7 @@ fn attach(commands: &mut Commands, ctx: &mut ActorCtx, clip: &Clip, t: f32, skel
             }
         };
         let below = s.ancestors[..k].iter().rev().fold(Affine3A::IDENTITY, |acc, (_, a)| acc * *a) * s.own;
-        let x = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(below)))).id();
+        let x = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(material(&s.material)), Transform::from_matrix(Mat4::from(below)))).id();
         with_layer(commands, x);
         commands.entity(node).add_child(x);
         entities.push(x);
