@@ -257,6 +257,10 @@ impl Mover for PhysMover<'_> {
         open_door(self.doors, door)
     }
 
+    fn stand(&mut self, actor: FormId) {
+        stop_body(self.phys.as_deref_mut(), actor.0);
+    }
+
     fn walk(&mut self, actor: FormId, walker: &mut Walker, _nav: &NavGraph, dt: f32) -> Option<WalkEvent> {
         let id = actor.0;
         if self.held.contains(&id) {
@@ -2023,6 +2027,7 @@ impl Core {
                 AiEvent::Trip { .. }
                 | AiEvent::Unreachable { .. }
                 | AiEvent::DoorRefused { .. }
+                | AiEvent::DoorHeldForIdle { .. }
                 | AiEvent::Resumed { .. }
                 | AiEvent::Approach { .. }
                 | AiEvent::Follow { .. }
@@ -2222,6 +2227,7 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         AiEvent::PushedBack { package, away } => format!("was pushed {away:.0} units from the place of {}: goes back", n(package)),
         AiEvent::Door { door, .. } => format!("used door {door}"),
         AiEvent::DoorRefused { door } => format!("was not let through door {door} by its script: plans again"),
+        AiEvent::DoorHeldForIdle { door, idle } => format!("waits at load door {door} until its idle {idle} is over"),
         AiEvent::Resumed { package, patrol_point: Some(p), .. } => format!("goes on with {} at patrol point {} (from the save)", n(package), n(p)),
         AiEvent::Resumed { package, .. } => format!("goes on with {}, its sandbox day as saved", n(package)),
         AiEvent::Arrived { seconds, travelled, .. } => format!("arrived after {seconds:.1}s, {travelled:.0} units"),

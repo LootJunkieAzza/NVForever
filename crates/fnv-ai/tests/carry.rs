@@ -2975,3 +2975,81 @@ fn sandbox_interrupt_preserves_a_valid_chat_approach_and_wait_until_combat() {
         sandbox_resumes(&mut s, who);
     }
 }
+
+/// An actor never goes through a load door in the middle of an idle (a stimpak): it
+/// stands near the door until the idle is over, then goes through (owner's overnight
+/// queue 2026-11-05, Dixon left the player's sight 0.35 s into his stimpak idle).
+#[test]
+fn an_actor_waits_at_a_load_door_until_its_idle_is_over() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    const STIMPAK_IDLE: u32 = 0x0009_070F;
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    s.game.set_idle_playing(actor, Some(FormId(STIMPAK_IDLE)));
+    // Long enough to reach the door, short of the hold's limit once there.
+    let mut held_at = None;
+    for _ in 0..80 {
+        s.run(0.5);
+        if held_at.is_none() && s.events(R_TRAVEL).iter().any(|e| matches!(e, AiEvent::DoorHeldForIdle { .. })) {
+            held_at = Some(s.game.time);
+        }
+        if held_at.is_some_and(|t| s.game.time - t > 4.0) {
+            break;
+        }
+    }
+    let ev = s.events(R_TRAVEL);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::DoorHeldForIdle { door, idle } if door.0 == DOOR_A && idle.0 == STIMPAK_IDLE)), "{ev:?}");
+    assert!(!ev.iter().any(|e| matches!(e, AiEvent::Door { .. })), "{ev:?}");
+    assert_eq!(s.ai.agents[&actor].walker.space, A);
+    let held = s.feet(R_TRAVEL);
+    s.run(2.0);
+    assert_eq!(s.feet(R_TRAVEL), held, "it stands while held");
+    assert_eq!(s.events(R_TRAVEL).iter().filter(|e| matches!(e, AiEvent::DoorHeldForIdle { .. })).count(), 1, "logged once");
+    // The idle over: through the door.
+    s.game.set_idle_playing(actor, None);
+    s.run(10.0);
+    assert!(s.events(R_TRAVEL).iter().any(|e| matches!(e, AiEvent::Door { door, .. } if door.0 == DOOR_A)));
+    assert_eq!(s.ai.agents[&actor].walker.space, B);
+}
+
+/// An idle that never ends (a loop) holds an actor at a load door no longer than
+/// `IDLE_DOOR_HOLD_MAX`.
+#[test]
+fn a_looping_idle_holds_an_actor_at_a_load_door_only_so_long() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    s.run(1.0);
+    s.game.set_idle_playing(actor, Some(FormId(0x0008_3518)));
+    s.run(60.0);
+    let ev = s.events(R_TRAVEL);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::DoorHeldForIdle { .. })), "{ev:?}");
+    assert_eq!(s.ai.agents[&actor].walker.space, B, "{ev:?}");
+}
+
+/// An actor whose flight had already got it where it fled to (through a door into
+/// another cell, say) and then leaves the loaded area takes up its package afresh at its
+/// next update instead of standing there until its package is next chosen (owner's
+/// overnight queue 2026-11-05: Dixon stood in the Freeside sewers for an hour of game
+/// time after he calmed down).
+#[test]
+fn an_actor_that_fled_and_left_the_loaded_area_takes_up_its_package_again() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_RADIUS]);
+    let actor = FormId(R_RADIUS);
+    s.run(30.0);
+    let feet = s.feet(R_RADIUS);
+    let a = s.ai.agents.get_mut(&actor).unwrap();
+    a.walker.follower = None;
+    a.activity = Activity::There;
+    a.search = Some(fnv_ai::alert::Search::Fled { from: FormId::PLAYER_REF, at: feet });
+    let before = s.events(R_RADIUS).len();
+    s.ai.set_high(&s.game, actor, false);
+    assert!(s.ai.agents[&actor].search.is_none());
+    assert_eq!(s.ai.agents[&actor].activity, Activity::None);
+    s.run(fnv_ai::LOW_PROCESS_SECONDS as f64 + 1.0);
+    let ev = s.events(R_RADIUS);
+    assert!(ev[before..].iter().any(|e| matches!(e, AiEvent::Package { .. } | AiEvent::Trip { .. } | AiEvent::AlreadyThere { .. })), "{:?}", &ev[before..]);
+}
