@@ -1450,6 +1450,19 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
     exponent unused) is the next candidate. Outdoors by day the frames came out a little
     bluer than the original (the weather's bluish ambient takes a larger share).
 
+- **Lights of unloaded cells; streamed lights.** The game draws no light of an unloaded
+  cell: its distant LOD is meshes only (§7) [hypothesis]. Lamp posts a mod adds with no
+  `_lod` mesh (ELECTRO-CITY - Highways and Byways, 762 of its and CompletedWorkorders'
+  LIGH references in WastelandNV [observed: `fnvtool world refs`]) are then invisible at
+  night past the loaded cells, and each light came on at full strength as its cell
+  loaded [observed: owner's playtest 2026-11-06]. NVForever's own rule [design,
+  `engine/nvforever/src/distant_lights.rs`]: a streamed light is scaled by its cell's
+  draw level, so it comes up over the cell's fade with the cell's meshes; and the LIGH
+  references of cells within 12 cells of the camera that are not drawn yet show at
+  night as small additive glows in the light's colour (a few pixels wide at any
+  distance), fading as the cell fades in, with the daylight, and over the last fifth of
+  the range. `--no-distant-lights` turns the glows off.
+
 ## 9. Open questions
 
 1. Engine-defined base objects (FormIDs < 0x800): which are visible? (Assumed none.)

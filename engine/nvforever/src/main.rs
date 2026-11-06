@@ -137,6 +137,7 @@ mod shadow_thin;
 mod shafts;
 mod imagespace;
 mod imposters;
+mod distant_lights;
 mod sky;
 mod weather_fx;
 mod limping;
@@ -263,6 +264,10 @@ struct Args {
     /// Do not draw distant LOD.
     #[arg(long)]
     no_lod: bool,
+    /// Do not draw the lights beyond the loaded cells as glows at night
+    /// (distant_lights.rs).
+    #[arg(long)]
+    no_distant_lights: bool,
     /// Draw every room of an interior: no room and portal culling (rooms.rs).
     #[arg(long)]
     no_room_culling: bool,
@@ -1295,6 +1300,7 @@ fn main() -> AppExit {
     .insert_resource(TerrainSettings { tile: args.terrain_tile })
     .init_resource::<TerrainCache>()
     .init_resource::<imposters::Imposters>()
+    .insert_resource(distant_lights::DistantLights::new(!args.no_distant_lights))
     .insert_resource(Streamer {
         radius: world::load_radius(args.radius, world.index.worldspaces.get(&world.world).and_then(|w| w.edid.as_deref())),
         loaded: Default::default(),
@@ -1339,7 +1345,7 @@ fn main() -> AppExit {
     })
     .insert_resource(args.clone())
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
-    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::weather_region, sky::update_sky, sky::interior_clip, sky::update_clouds, sky::update_night_sky, world::stream, imposters::update, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
+    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::weather_region, sky::update_sky, sky::interior_clip, sky::update_clouds, sky::update_night_sky, world::stream, imposters::update, fade::fade_cells, distant_lights::fade_cell_lights, distant_lights::update, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
     .add_systems(Update, cell_buffer::remember.after(world::stream))
     .add_systems(Update, world::draw_waiting_actors.after(world::stream))
     // Actors of the next ring of cells read and prepared before they come into range.

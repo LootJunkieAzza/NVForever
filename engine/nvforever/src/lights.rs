@@ -348,6 +348,14 @@ fn noise(x: f32) -> f32 {
     hash(i) + (hash(i + 1.0) - hash(i)) * f
 }
 
+/// On a light spawned with a cell: its full intensity and the exterior cell it stands in,
+/// whose draw level it is faded by (`distant_lights::fade_cell_lights`).
+#[derive(Component, Debug, Clone, Copy)]
+pub struct CellLight {
+    pub full: f32,
+    pub cell: Option<(i32, i32)>,
+}
+
 /// On a placed light that flickers or pulses: its motion, full intensity and phase.
 #[derive(Component, Debug, Clone, Copy)]
 pub struct MovingLight {
@@ -563,6 +571,7 @@ pub fn spawn_light(
     let intensity = lumens(l.fade.max(0.0) * scale, crate::sky::light_unit());
     let radius = if matches!(LightMotion::of(l.flags), Some(LightMotion::Flicker | LightMotion::FlickerSlow)) { radius * FLAME_REACH } else { radius };
     let t = Transform::from_translation(at);
+    let cell_light = CellLight { full: intensity, cell: Some(fnv_world::cell_of(placed.position[0], placed.position[1])) };
     // Lights out of step with each other: a phase from the reference.
     let moving = LightMotion::of(l.flags).map(|motion| MovingLight { motion, full: intensity, seed: (placed.form_id.wrapping_mul(2_654_435_761) >> 8) as f32 / 16_777_216.0 });
     // Neither kind casts shadows. If one ever does, give it the sun's render layers
@@ -574,6 +583,7 @@ pub fn spawn_light(
             SpotLight { color, intensity, range: radius, outer_angle: a, inner_angle: a * 0.8, shadow_maps_enabled: false, ..default() },
             t.looking_to(-Vec3::Z, Vec3::Y),
             ChildOf(cell_e),
+            cell_light,
         ));
         if let Some(d) = driven {
             e.insert(d);
@@ -585,7 +595,7 @@ pub fn spawn_light(
             e.insert(m);
         }
     } else {
-        let mut e = commands.spawn((PointLight { color, intensity, range: radius, shadow_maps_enabled: false, ..default() }, t, ChildOf(cell_e)));
+        let mut e = commands.spawn((PointLight { color, intensity, range: radius, shadow_maps_enabled: false, ..default() }, t, ChildOf(cell_e), cell_light));
         if let Some(d) = driven {
             e.insert(d);
         }
