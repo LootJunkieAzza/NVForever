@@ -336,6 +336,15 @@ pub(crate) fn find_target(
         let empty = holds_nothing(game, &mut sim, form_id, &action);
         Targeted { form_id, name, action, distance, source, crime, empty }
     });
+    // GetCrosshairRef reads what the prompt targets when there is one: a body the ray
+    // passes (a ragdoll found by its drawn bounds, `pick::choose`) is the reference under
+    // the crosshair too [hypothesis: the original's prompt and GetCrosshairRef name the
+    // same reference; observed: JAM's loot menu, which reads GetCrosshairRef each frame,
+    // stayed off over a jackal's body the prompt offered to search, owner's playtest
+    // 2026-11-05].
+    if let (Some(t), Some(rt)) = (new.as_ref(), script.as_deref_mut().and_then(|s| s.rt.as_mut())) {
+        rt.game.senses.crosshair_ref = Some(FormId(t.form_id));
+    }
     let key = |t: &Option<Targeted>| t.as_ref().map(|t| (t.form_id, t.action.clone(), t.crime, t.empty));
     if key(&target.0) != key(&new) {
         match &new {
