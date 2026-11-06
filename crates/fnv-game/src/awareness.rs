@@ -749,6 +749,22 @@ impl Game<'_> {
         a.observe(target, det, at, now, &t);
     }
 
+    /// `actor` measures no one (it is out of the loaded area, where nobody detects anyone):
+    /// every target it knows counts as hidden from it from now on, so a Lost actor out
+    /// there goes back to Normal once its alarms run out, as one in the loaded area does
+    /// when it sees nobody [design: owner's overnight queue 2026-11-05, Dixon fled
+    /// through a manhole and stayed Lost in the sewers, his last measurement of the
+    /// player (Noticed) kept for ever; the original's rule is not known].
+    pub fn out_of_reach(&mut self, actor: FormId) {
+        let now = self.time;
+        if let Some(a) = self.awareness.actors.get_mut(&actor) {
+            for x in a.targets.values_mut().filter(|x| x.band != Band::Hidden) {
+                x.band = Band::Hidden;
+                x.hidden_since.get_or_insert(now);
+            }
+        }
+    }
+
     /// Raise a detection event for the engine to measure (CreateDetectionEvent, an
     /// impact, an explosion).
     pub fn queue_detection_event(&mut self, ev: DetectionEvent) {
