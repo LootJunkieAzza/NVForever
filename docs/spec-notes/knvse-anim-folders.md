@@ -76,7 +76,8 @@ A file is a list of entries, or one entry; 59 files are empty. An entry's keys:
   was seen in an archive].
 - **A set's files:** every `.kf` under its `_male` (third person) and `_1stPerson` (first
   person) folders, at any depth, except under `Mod1`–`Mod3` (left for a follow-up).
-- **Which hold:** four times a second, for the player and each actor the engine draws: the
+- **Which hold:** four times a second for each actor the engine draws, every frame for
+  the player (a last-shot entry, `GetCurrentAmmoRounds == 1`, must hold at its shot): the
   entries for the actor's reference, its base or its equipped weapon, and those for every
   actor, whose condition holds on the actor (EvaluateString's compiler; a condition that
   fails to compile or run counts as false and is logged once). [decision: the original
@@ -96,12 +97,27 @@ A file is a list of entries, or one entry; 59 files are empty. An entry's keys:
   (`engine/nvforever/src/anim_paths.rs`). A file's group is read from its name, not its
   sequence [hypothesis, as knvse-anim.md §2; the mods' `1hpReloadL v2.14.kf` shows names
   can differ].
+- **The player's two rigs** (`engine/nvforever/src/player_body.rs`, first person from
+  `_1stPerson`, third person from `_male`) take every clip choice from the files too:
+  locomotion, equip and unequip, aim and aim down the sights, attacks, reloads, jams. A
+  file's name is matched to the rig's own clip names (`1hpreloadl.kf`) by its stem: lower
+  case, without `.kf`, up to its first space (`1hpReloadL v1.6.kf`, `1hpAttackRight
+  last.kf`) [observed: Another Millenia's and Hit's Anims' files; hypothesis: the words
+  after the space are the author's notes]. A file for any of a choice's names beats every
+  file of the rig's own (a mod's plain `1hpreloadl` plays while sneaking even where the
+  game has `sneak1hpreloadl`). Within one folder a plain name beats a spaced one
+  (`1hpEquip.kf` over `1hpEquip Combat.kf`) [hypothesis]; across entries the later wins.
+  A reload with rounds still in the magazine plays the `…_Partial` file first
+  [hypothesis: from the file names only; 173 such files]. The log says `plays override
+  <path>` for each choice so taken.
 
 ## 4. Not built (follow-ups)
 
-- The engine plays no first-person override, no weapon group (attacks, reloads, aims,
-  equips) and no idle from them: it has no player for SetWeaponAnimationPath's either.
-  Weapon sets are read and matched game-side, ready for it.
+- NPCs' weapon clips (attacks, reloads) from the folders: only their locomotion is
+  replaced.
+- `_hurt` files (143 in the Millenia and Hit packs) are left out [hypothesis: played
+  while the actor is hurt]; `_A`/`_B`/`_1`/`_2` variants of an attack are not picked at
+  random (the plain file plays; a WEAP attack animation naming the variant plays it).
 - The group of a file from its sequence name instead of its file name; several files of
   one group (`2haJamF.kf`, `2haJamF_a.kf`) and `chances.txt` [hypothesis: variants picked
   at random].

@@ -511,6 +511,13 @@ struct Rig {
     clips: HashMap<ClipKey, Option<Arc<ClipInfo>>>,
     /// The up and down forms of clips, by path (failures too).
     variants: HashMap<String, Option<Arc<ClipInfo>>>,
+    /// The AnimGroupOverride and SetActorAnimationPath files the game gives the player
+    /// for this view (`Game::anim_overrides`), and from them, by clip stem, the file that
+    /// plays instead of the rig's own ([`override_stems`]).
+    overrides: Vec<String>,
+    by_stem: HashMap<String, String>,
+    /// A reload now would be a partial one (`WeaponAnim::partial`).
+    partial: bool,
     /// Third person: the head bone and the eye in its space.
     head: Option<usize>,
     eye_local: Vec3,
@@ -690,7 +697,10 @@ impl Rig {
         if let Some(c) = self.clips.get(&key) {
             return c.clone();
         }
-        let mut path = key.candidates().into_iter().map(|c| format!("{}{c}", self.folder)).find(|p| ctx.models.data.vfs.exists(p));
+        // A mod's file for any of the choice's names beats every file of the rig's own.
+        let over = self.override_for(key).filter(|p| ctx.models.data.vfs.exists(p));
+        let from_override = over.is_some();
+        let mut path = over.or_else(|| key.candidates().into_iter().map(|c| format!("{}{c}", self.folder)).find(|p| ctx.models.data.vfs.exists(p)));
         // A grip clip may carry the weapon's name after its number
         // (`2hrhandgrip3_combatshotgun.kf`): the folder's one for that prefix and number.
         if let (None, ClipKey::Grip(p, n)) = (&path, key) {
@@ -704,6 +714,7 @@ impl Rig {
             Some(Arc::new(ClipInfo::new(path, clip.clone(), clip.root_speed())))
         });
         match &found {
+            Some(c) if from_override => info!("player {:?} rig: {key:?} plays override {}", self.view, c.path),
             Some(c) if key.limping() => info!("player {:?} rig: limping {key:?} plays {}", self.view, c.path),
             Some(c) if matches!(key, ClipKey::Grip(..)) => info!("player {:?} rig: hand grip {}", self.view, c.path),
             Some(c) if matches!(key, ClipKey::Move(..) | ClipKey::PipBoy(_) | ClipKey::PipBoyCheck(_)) => info!("player {:?} rig: {key:?} plays {}", self.view, c.path),
@@ -714,6 +725,44 @@ impl Rig {
         }
         self.clips.insert(key, found.clone());
         found
+    }
+
+    /// The file a mod gives for clip choice `key` ([`Self::by_stem`]): the first of its
+    /// names that has one, a partial reload's `_partial` form before the plain one.
+    fn override_for(&self, key: ClipKey) -> Option<String> {
+        if self.by_stem.is_empty() {
+            return None;
+        }
+        let partial = self.partial && matches!(key, ClipKey::Reload(..) | ClipKey::ReloadOpen(..));
+        key.candidates()
+            .iter()
+            .find_map(|c| {
+                let stem = clip_stem(c);
+                partial.then(|| self.by_stem.get(&format!("{stem}_partial"))).flatten().or_else(|| self.by_stem.get(&stem)).cloned()
+            })
+            .map(|p| format!("meshes\\{p}"))
+    }
+
+    /// Take the game's override files for this view; the clips are chosen again when
+    /// they change.
+    fn set_overrides(&mut self, list: Vec<String>) {
+        if list == self.overrides {
+            return;
+        }
+        self.by_stem = override_stems(&list);
+        info!("player {:?} rig: {} override file(s), {} clip name(s) replaced", self.view, list.len(), self.by_stem.len());
+        self.overrides = list;
+        self.clips.clear();
+        self.variants.clear();
+    }
+
+    /// Whether a reload now is a partial one; the reload clips are chosen again when it
+    /// changes.
+    fn set_partial(&mut self, partial: bool) {
+        if partial != self.partial {
+            self.partial = partial;
+            self.clips.retain(|k, _| !matches!(k, ClipKey::Reload(..) | ClipKey::ReloadOpen(..)));
+        }
     }
 
     /// The up or down form of clip `c` (`2hrattackleftup.kf` beside `2hrattackleft.kf`),
@@ -998,7 +1047,7 @@ impl Plugin for PlayerBodyPlugin {
             .init_resource::<crate::furniture::BodyOverride>()
             .init_resource::<crate::furniture::PlayerUse>()
             .init_resource::<crate::weapon_lower::Ahead>()
-            .add_systems(Update, (crate::furniture::drive_player, ensure_body, crate::weapon_lower::sense, drive_body, drive_weapon_emitters, shade_light).chain().in_set(nvf_play::player::BodySet))
+            .add_systems(Update, (crate::furniture::drive_player, ensure_body, crate::weapon_lower::sense, take_overrides, drive_body, drive_weapon_emitters, shade_light).chain().in_set(nvf_play::player::BodySet))
             .add_systems(PostUpdate, near_shade_casters.after(bevy::light::SimulationLightSystems::CheckLightVisibility))
             .add_systems(Last, report);
     }
@@ -1409,6 +1458,9 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         animator,
         clips: HashMap::new(),
         variants: HashMap::new(),
+        overrides: Vec::new(),
+        by_stem: HashMap::new(),
+        partial: false,
         head,
         eye_local,
         looking,
@@ -2239,6 +2291,56 @@ fn drive_weapon_emitters(state: Res<PlayerBody>, mut emitters: Query<&mut crate:
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+/// A clip file's stem for override matching: its name without folder and `.kf`, lower
+/// case, up to its first space (`1hpReloadL v1.6.kf`, `1hpEquip Combat.kf`,
+/// `1hpAttackRight last.kf` [observed: Another Millenia's AnimGroupOverride files,
+/// 2026-11-06]).
+fn clip_stem(file: &str) -> String {
+    let name = file.rsplit(['\\', '/']).next().unwrap_or("").to_ascii_lowercase();
+    let name = name.strip_suffix(".kf").unwrap_or(&name);
+    name.split(' ').next().unwrap_or("").to_string()
+}
+
+/// The files that replace the rig's clips, by [`clip_stem`]: a later file wins, but within
+/// one override folder a plain name (`1hpEquip.kf`) beats one with words after a space
+/// (`1hpEquip Combat.kf`) [hypothesis: the spaced ones are a mod's alternatives]. `_hurt`
+/// files are left out [hypothesis: played while hurt; not done]. Paths are under meshes.
+fn override_stems(paths: &[String]) -> HashMap<String, String> {
+    let mut out: HashMap<String, (String, String, bool)> = HashMap::new();
+    for p in paths {
+        let p = p.replace('/', "\\");
+        let name = p.rsplit('\\').next().unwrap_or("").to_ascii_lowercase();
+        if !name.ends_with(".kf") {
+            continue;
+        }
+        let stem = clip_stem(&name);
+        if stem.is_empty() || stem.contains("_hurt") {
+            continue;
+        }
+        let exact = !name.contains(' ');
+        let lower = p.to_ascii_lowercase();
+        let folder = ["\\_1stperson\\", "\\_male\\"].iter().find_map(|v| lower.find(v)).map_or(lower.clone(), |i| lower[..i].to_string());
+        if matches!(out.get(&stem), Some((_, f, true)) if *f == folder && !exact) {
+            continue;
+        }
+        out.insert(stem, (p, folder, exact));
+    }
+    out.into_iter().map(|(k, (p, ..))| (k, p)).collect()
+}
+
+/// kNVSE's AnimGroupOverride folders and SetActorAnimationPath on the player's rigs
+/// (`fnv_game::nvse_anim_folders`): each view takes the files the game gives it now, and
+/// whether a reload would be partial.
+fn take_overrides(script: Option<Res<nvf_play::script::ScriptState>>, anim: Res<WeaponAnim>, mut state: ResMut<PlayerBody>) {
+    let Some(body) = state.body.as_mut() else { return };
+    let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+    for rig in std::iter::once(&mut body.third).chain(body.first.as_mut()) {
+        let list = game.map(|g| g.anim_overrides(FormId::PLAYER_REF, rig.view == View::First)).unwrap_or_default();
+        rig.set_overrides(list);
+        rig.set_partial(anim.partial);
+    }
+}
+
 fn drive_body(
     mut commands: Commands,
     (time, turbo, sim, mut told_scale): (Res<Time>, Option<Res<nvf_play::script::PlayerTimeScale>>, Option<Res<nvf_play::sim::SimState>>, Local<Option<f32>>),
@@ -2858,6 +2960,27 @@ fn drive_body(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn override_files_replace_clips_by_stem() {
+        let f = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let m = super::override_stems(&f(&[
+            "AnimGroupOverride\\Ani_1911\\_1stPerson\\1hpEquip Combat.kf",
+            "AnimGroupOverride\\Ani_1911\\_1stPerson\\1hpEquip.kf",
+            "AnimGroupOverride\\Ani_1911\\_1stPerson\\1hpReloadL_Partial.kf",
+            "AnimGroupOverride\\Ani_1911\\_1stPerson\\1hpReloadL_hurt.kf",
+            "AnimGroupOverride\\Ani_1911\\_male\\1hpReloadL v1.6.kf",
+            "AnimGroupOverride\\Ani_1911\\_1stPerson\\1hpAttackRight.kf",
+            "AnimGroupOverride\\Ani_1911\\LastShot\\_1stPerson\\1hpAttackRight last.kf",
+        ]));
+        assert_eq!(m["1hpequip"], "AnimGroupOverride\\Ani_1911\\_1stPerson\\1hpEquip.kf");
+        assert!(m.contains_key("1hpreloadl_partial"));
+        assert_eq!(m["1hpreloadl"], "AnimGroupOverride\\Ani_1911\\_male\\1hpReloadL v1.6.kf");
+        assert!(!m.keys().any(|k| k.contains("hurt")));
+        // A later folder's (the last-shot entry's) file wins, spaced or not.
+        assert_eq!(m["1hpattackright"], "AnimGroupOverride\\Ani_1911\\LastShot\\_1stPerson\\1hpAttackRight last.kf");
+        assert_eq!(super::clip_stem("sneak1hpreloadl.kf"), "sneak1hpreloadl");
+    }
+
     use super::*;
 
     #[test]

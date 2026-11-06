@@ -180,12 +180,19 @@ impl Game<'_> {
 
     /// Read the folders once (when the Data folder is known), then every
     /// [`REFRESH_FRAMES`] the entries of the player and each actor the engine draws.
+    /// The player's entries are checked every frame: a last-shot entry
+    /// (`GetCurrentAmmoRounds == 1`, Another Millenia's `LastShot` folders) must hold at
+    /// the shot it is for, which a quarter-second check misses in automatic fire.
     pub(crate) fn anim_folders_tick(&mut self) {
         self.load_anim_folders();
-        if self.anim_folders.entries.is_empty() || self.frame % REFRESH_FRAMES != 1 {
+        if self.anim_folders.entries.is_empty() {
             return;
         }
-        self.refresh_anim_folders();
+        if self.frame % REFRESH_FRAMES == 1 {
+            self.refresh_anim_folders();
+        } else {
+            self.refresh_anim_folders_of(&[FormId::PLAYER_REF], false);
+        }
     }
 
     /// Read the folders, once the Data folder is known.
@@ -202,9 +209,18 @@ impl Game<'_> {
         if !actors.contains(&FormId::PLAYER_REF) {
             actors.push(FormId::PLAYER_REF);
         }
+        self.refresh_anim_folders_of(&actors, true);
+    }
+
+    /// The entries that hold for `actors` now; `all`: the others' are dropped (they are
+    /// no longer drawn), else kept.
+    pub fn refresh_anim_folders_of(&mut self, actors: &[FormId], all: bool) {
         let entries = std::mem::take(&mut self.anim_folders.entries);
-        let mut active = HashMap::new();
-        for a in actors {
+        let mut active = if all { HashMap::new() } else { std::mem::take(&mut self.anim_folders.active) };
+        for &a in actors {
+            for first in [false, true] {
+                active.remove(&(a, first));
+            }
             let base = crate::functions::base_of(self, a);
             let weapon = crate::functions::items::equipped_weapon(self, a);
             let mut hold: Vec<&FolderEntry> = Vec::new();
