@@ -135,6 +135,8 @@ pub struct Ping {
     pub label: String,
     pub at: f32,
     pub until: f32,
+    /// Its sound was played ([`ping_sound`]).
+    pub sounded: bool,
 }
 
 /// The pings shown now.
@@ -146,7 +148,7 @@ impl Pings {
     pub fn take(&mut self, from: u8, msg: PingMsg, label: String, now: f32) {
         self.0.retain(|p| p.from != from);
         if !msg.clear {
-            self.0.push(Ping { from, msg, label, at: now, until: now + PING_SECONDS });
+            self.0.push(Ping { from, msg, label, at: now, until: now + PING_SECONDS, sounded: false });
         }
     }
 
@@ -183,7 +185,7 @@ impl Plugin for WorldMarksPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<NameTags>().init_resource::<Pings>().add_systems(Update, ping_input.in_set(PlaySet::Input).after(crate::control::read_controls)).add_systems(
             Update,
-            (take_pings, draw).chain().in_set(PlaySet::Ui),
+            (take_pings, ping_sound, draw).chain().in_set(PlaySet::Ui),
         );
         add_setting(
             app,
@@ -250,6 +252,43 @@ fn ping_input(
     pings.take(me, msg, label(name, thing.as_deref()), now);
     tables.send(EVERYONE, game::PING, msg.encode());
 }
+
+/// Each new ping in this player's place is heard from its direction: the Pip-Boy radio's
+/// "signal found" (`UIRadioSignalFound`) [design: the owner's ask of 2026-11-06; the base
+/// game has no sound for a custom map marker, observed: no such SOUN in FalloutNV.esm].
+/// An interface sound plays flat; this one is panned toward the ping
+/// (`crate::sfx::Sfx::placed_2d`), at its record's level at any distance. Behind and in
+/// front sound alike (the engine's panning is left and right).
+fn ping_sound(
+    mut pings: ResMut<Pings>,
+    loc: Option<Res<Location>>,
+    sfx: Option<ResMut<crate::sfx::Sfx>>,
+    player: Option<Res<crate::player::Player>>,
+    mut out: MessageWriter<crate::sfx::PlaySound>,
+    mut sound: Local<Option<Option<fnv_sim::FormId>>>,
+) {
+    let (Some(loc), Some(mut sfx)) = (loc, sfx) else { return };
+    let sound = *sound.get_or_insert_with(|| {
+        let id = sfx.forms.sounds.iter().find(|(_, s)| s.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(PING_SOUND))).map(|(id, _)| *id);
+        match id {
+            Some(id) => {
+                sfx.placed_2d.insert(id);
+            }
+            None => info!("world marks: no {PING_SOUND} in the load order: pings are silent"),
+        }
+        id
+    });
+    for p in pings.0.iter_mut().filter(|p| !p.sounded) {
+        p.sounded = true;
+        let Some(s) = sound.filter(|_| p.msg.here(&loc)) else { continue };
+        let [l, r] = player.as_deref().map_or([1.0, 1.0], |pl| crate::sfx::pan_gains(pl.eye(), pl.heading, p.msg.pos));
+        info!("world marks: ping heard from ({:.0}, {:.0}, {:.0}), left {l:.2} right {r:.2}", p.msg.pos[0], p.msg.pos[1], p.msg.pos[2]);
+        out.write(crate::sfx::PlaySound { sound: s, at: Some(p.msg.pos) });
+    }
+}
+
+/// The ping's sound's SOUN ([`ping_sound`]).
+pub const PING_SOUND: &str = "UIRadioSignalFound";
 
 fn label(who: &str, thing: Option<&str>) -> String {
     match thing.filter(|t| !t.is_empty()) {
