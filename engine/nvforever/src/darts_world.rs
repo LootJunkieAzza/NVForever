@@ -4,9 +4,10 @@
 //! §10, the mod's darts placed square to the board on its face; design: the hand, the
 //! pull-back while the throw is held and the arc].
 //!
-//! - **The stage** [design: owner 2026-11-04]: the camera stands fixed behind the throw
-//!   line (`nvf_play::minigames::EYE`) and the player's own body is seen in third person,
-//!   the weapon put away. The player whose turn it is steps up to the line
+//! - **The stage** [design: owner 2026-11-04, 2026-11-05]: first person at the line on
+//!   the player's own turn (`nvf_play::minigames::OWN_EYE`); otherwise the camera stands
+//!   fixed behind the throw line (`EYE`) and the player's own body is seen in third
+//!   person. The weapon is put away throughout. The player whose turn it is steps up to the line
 //!   (`minigames::UP`), the other waits back from it (`WAIT`).
 //! - **The throwers' arms** (`darts_arm.rs`): posed for each throw, the player's and the
 //!   opponent's alike; each held dart is drawn in its thrower's hand and flies from where
@@ -80,7 +81,8 @@ struct Stage {
     pov: Option<Pov>,
 }
 
-/// Third person with the weapon away while a game at a board is open.
+/// The weapon away while a game at a board is open; first person on the player's own
+/// turn, third person otherwise (`minigames::first_person`).
 fn stage(mut st: ResMut<Stage>, screen: Res<DartsScreen>, mut control: ResMut<PlayerControl>) {
     if screen.0.as_ref().filter(|d| d.frame.is_some()).is_none() {
         if let Some(pov) = st.pov.take() {
@@ -91,9 +93,14 @@ fn stage(mut st: ResMut<Stage>, screen: Res<DartsScreen>, mut control: ResMut<Pl
     }
     if st.pov.is_none() {
         st.pov = Some(control.pov);
-        info!("darts stage: third person behind the line, the weapon away");
+        info!("darts stage: the weapon away; first person on this player's turn, third otherwise");
     }
-    control.pov = Pov::Third;
+    let own = screen.0.as_ref().is_some_and(nvf_play::minigames::first_person);
+    let pov = if own { Pov::First } else { Pov::Third };
+    if control.pov != pov {
+        info!("darts stage: {}", if own { "first person, this player's turn" } else { "third person behind the line" });
+    }
+    control.pov = pov;
     control.weapon_out = false;
 }
 
