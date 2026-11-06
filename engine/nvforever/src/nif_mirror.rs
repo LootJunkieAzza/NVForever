@@ -36,7 +36,7 @@ struct Held {
     scale: Option<f32>,
 }
 
-type NodeQuery<'w, 's> = Query<'w, 's, (Option<&'static Name>, &'static mut Transform, Option<&'static Children>, Has<NifHidden>)>;
+type NodeQuery<'w, 's> = Query<'w, 's, (Option<&'static Name>, &'static mut Transform, Option<&'static Children>, Has<NifHidden>, Option<&'static GlobalTransform>)>;
 
 /// The root entity of a reference's drawing.
 fn root_of(r: u32, actors: &Query<(Entity, &ActorRig)>, visuals: &Query<(Entity, &RefVisual, Option<&ChildOf>)>) -> Option<Entity> {
@@ -50,13 +50,13 @@ fn root_of(r: u32, actors: &Query<(Entity, &ActorRig)>, visuals: &Query<(Entity,
 fn walk(root: Entity, nodes: &NodeQuery) -> Vec<(Entity, Option<usize>)> {
     let mut out = Vec::new();
     let mut stack: Vec<(Entity, Option<usize>)> = Vec::new();
-    if let Ok((_, _, Some(ch), _)) = nodes.get(root) {
+    if let Ok((_, _, Some(ch), _, _)) = nodes.get(root) {
         stack.extend(ch.iter().rev().map(|c| (c, None)));
     }
     while let Some((e, parent)) = stack.pop() {
         let at = out.len();
         out.push((e, parent));
-        if let Ok((_, _, Some(ch), _)) = nodes.get(e) {
+        if let Ok((_, _, Some(ch), _, _)) = nodes.get(e) {
             stack.extend(ch.iter().rev().map(|c| (c, Some(at))));
         }
     }
@@ -183,7 +183,7 @@ fn mirror(
             .into_iter()
             .filter_map(|(e, parent)| {
                 let base = name_of(e, &nodes, &rig);
-                let (_, t, _, hidden) = nodes.get(e).ok()?;
+                let (_, t, _, hidden, global) = nodes.get(e).ok()?;
                 // A name seen before gets ":0", ":1" … [observed: "Object", "Object:0"].
                 let n = seen.entry(base.to_ascii_lowercase()).or_insert(0);
                 let shown = if *n == 0 { base.clone() } else { format!("{base}:{}", *n - 1) };
@@ -196,6 +196,9 @@ fn mirror(
                     rotation: [x.to_degrees(), y.to_degrees(), z.to_degrees()],
                     scale: t.scale.x,
                     flags: u32::from(hidden),
+                    // Last frame's: the mirror runs before this frame's transforms are
+                    // carried down the tree.
+                    world: global.map_or([0.0; 3], |g| crate::world::bevy_to_game(g.translation()).to_array()),
                 })
             })
             .collect();
