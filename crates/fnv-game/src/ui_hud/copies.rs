@@ -146,6 +146,13 @@ pub fn build(ui: &mut Ui) {
         code_copy(ui, &format!("HUDMainMenu/{parent}"), template, name);
     }
     let window = "HUDMainMenu/HitPoints/compass_window";
+    // An `alpha` of its own, 255 [observed: hud.md §14.4, the original's copy reads an
+    // alpha that stayed the same at every heading, where the traits it lacks read -999;
+    // hypothesis: 255, the HUD at full strength]. JAM's quest markers (JVO, with its
+    // alpha setting 0) take theirs from it; without it they were drawn at -599, unseen.
+    if let Some(tile) = ui.find_tile(window) {
+        num(ui, tile, "alpha", 255.0);
+    }
     for _ in 0..2 {
         if let Some(group) = code_copy(ui, window, "template_compass_icon_group", "compass_icon_group") {
             num(ui, group, "y", 30.0); // [observed: hud.md §14.4].
