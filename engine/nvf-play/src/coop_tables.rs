@@ -41,6 +41,8 @@ pub mod game {
     pub const CARAVAN: u8 = 8;
     /// A pool table (`crate::pool::PoolView`).
     pub const POOL: u8 = 9;
+    /// A ping (`crate::world_marks`): actions only, their table `world_marks::EVERYONE`.
+    pub const PING: u8 = 10;
 
     /// The game's name, as the lobby and the notes say it.
     pub fn word(g: u8) -> &'static str {

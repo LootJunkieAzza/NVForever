@@ -18753,3 +18753,19 @@ expect = [
   { json = "refs.counts.volume", schema = "fnv.phys.cell/1", equals = 20, label = "Vault34b's 20 placed volumes add no model collision" },
   { json = "refs.counts.collision_primitive", schema = "fnv.phys.cell/1", equals = 13, label = "its CollisionMarker boxes stay solid" },
 ]
+
+[[scenario]]
+name = "world-marks-quest-links-ping"
+source = "the owner's report of 2026-11-06 (JAM's JVO world markers never showed): GetCurrentQuestObjectiveTeleportLinks gives one array per marked target, the doors from the player's place then the target (crates/fnv-game/src/nvse_other.rs, quest_targets.rs DoorGraph::door_path); the HUD's compass_window copy has an alpha of 255 for JVO to read (crates/fnv-game/src/ui_hud/copies.rs); the fork's pings (engine/nvf-play/src/world_marks.rs, control Ping on C)"
+areas = ["scripts", "quests", "hud", "coop"]
+paths = ["crates/fnv-game/src/nvse_other.rs", "crates/fnv-game/src/quest_targets.rs", "crates/fnv-game/src/ui_hud/copies.rs", "engine/nvf-play/src/world_marks.rs", "engine/nvf-play/src/bindings.rs"]
+note = "Goodsprings outside: VCG02 objective 3 (Sunny Smiles, inside the Prospector Saloon) shown and made active, so its one path is the saloon's door then Sunny (2 entries); at 20 s C pings the ground ahead; without JAM's arrow in the load order the ping is a diamond"
+env = { NVF_PLAY_TEST_CONSOLE = "10:startquest VCG02;10.5:setobjectivedisplayed VCG02 3 1;11:forceactivequest VCG02;12:PrintC \"links %g\" (Ar_Size (GetCurrentQuestObjectiveTeleportLinks));12.5:PrintC \"path %g\" (Ar_Size ((GetCurrentQuestObjectiveTeleportLinks)[0]));13:PrintC \"compass alpha %g\" (GetUIFloatAlt \"HUDMainMenu/HitPoints/compass_window/alpha\");13.5:close", NVF_PLAY_TEST_LOOK = "16:270:-8", NVF_PLAY_TEST_KEYS = "20:c" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 26
+expect = [
+  { text = "console: links 1", label = "one marked target" },
+  { text = "console: path 2", label = "its path: the saloon's door, then Sunny" },
+  { text = "console: compass alpha 255", label = "the compass window's copy has an alpha for JVO" },
+  { re = 'world marks: ping at \(-?\d+, -?\d+, -?\d+\)', label = "C pings the point under the crosshair" },
+]
