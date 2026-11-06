@@ -312,6 +312,12 @@ impl<'a> Gen<'a> {
             });
         }
         let saved = (std::mem::take(&mut self.out), self.stmts, std::mem::take(&mut self.chains), self.block.take(), self.loops, self.line, self.text.clone());
+        // The body's lines are statements of their own, not the argument the lambda is
+        // read as: a line there starting with a name the table lacks is a call of it
+        // ([`super::Seed::unknown_calls`]), as at the top of the unit (ln_ISControl.txt's
+        // `GetCameraMovement (float xmE) (float xmD)` inside a handler read as the text
+        // "GetCameraMovement" followed by a syntax error).
+        let flags = (std::mem::take(&mut self.in_args), std::mem::take(&mut self.in_arg_any), std::mem::take(&mut self.in_paren), std::mem::take(&mut self.call_line));
         self.stmts = 0;
         self.loops = 0;
         let mut stmts = Vec::new();
@@ -336,6 +342,7 @@ impl<'a> Gen<'a> {
         self.loops = saved.4;
         self.line = saved.5;
         self.text = saved.6;
+        (self.in_args, self.in_arg_any, self.in_paren, self.call_line) = flags;
         let body = crate::decode::decode(&bytes, self.table).program.top;
         let index = self.next_lambda();
         Some(crate::ir::XExpr::Lambda { params, body, value: None, index })
