@@ -160,6 +160,17 @@ expect = [
 ]
 
 [[scenario]]
+name = "distant-lights-night"
+source = "overnight queue 2026-11-06 item 16: lights beyond the loaded cells show at night as glows (distant_lights.rs); streamed lights fade in with their cell"
+areas = ["renderer"]
+paths = ["engine/nvforever/src/distant_lights.rs", "engine/nvforever/src/lights.rs"]
+args = ["--cell", "Goodsprings", "--hour", "23"]
+run_seconds = 20
+expect = [
+  { re = 'distant lights: (\d+) glows in \d+ more cells around', range = [1, 100000], label = "the LIGH references of the cells around the loaded ones are drawn as glows at night (184 on the ELECTRO-CITY highway east of Goodsprings, 390 above North Vegas, 2026-11-06)" },
+]
+
+[[scenario]]
 name = "auto-fly"
 source = "CLAUDE.md: after renderer changes, the moving-camera smoke test (cell streaming and LOD rebuilds)"
 areas = ["renderer"]
