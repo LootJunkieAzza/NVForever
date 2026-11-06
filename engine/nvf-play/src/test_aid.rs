@@ -862,6 +862,13 @@ mod tests {
         assert!(!drives_run("NVF_PLAY_TEST_PROFILE_HITCH_MS"));
         assert!(!drives_run("NVF_PLAY_TEST_PROFILE_HITCH_SPANS"));
         assert!(!drives_run("NVF_PLAY_TEST_TILE_COUNTS"));
+        assert!(!drives_run_with("NVF_PLAY_TEST_TRANSFORM_ROOTS", Some("5")));
+        // Off, it measures nothing: exempting these would leave a run attended by a variable
+        // that does nothing. Trips if the exemption goes by the name alone.
+        for off in ["0", "-1", "", "x", "NaN"] {
+            assert!(drives_run_with("NVF_PLAY_TEST_TRANSFORM_ROOTS", Some(off)), "{off:?}");
+            assert_eq!(transform_roots_window(off), None, "{off:?}");
+        }
         assert!(drives_run("NVF_PLAY_TEST_UNATTENDED"));
         assert!(drives_run("NVF_PLAY_TEST_GOD"));
         assert!(drives_run("NVF_PLAY_TEST_SAMPLE_X"), "only the exact names measure");
