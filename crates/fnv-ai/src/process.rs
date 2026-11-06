@@ -64,10 +64,16 @@
 //! loaded area, not even for hours passed in the Wait menu.
 //!
 //! Going low ends what needs the loaded area: a random conversation it walks to or waits
-//! for (the other one goes back to its package), a search. Low actors' updates are
+//! for (the other one goes back to its package), a search. An actor whose flight is
+//! dropped takes up its package afresh at its next update, also when it had already got
+//! where it fled to: one that fled through a door into another
+//! cell walks back to its package from there instead of standing where it fled to until
+//! its package is next chosen [design: owner's overnight queue 2026-11-05, Dixon stood
+//! in the Freeside sewers for an hour of game time after he calmed down]. Low actors' updates are
 //! spread over the interval (each starts with a share of it owed, by its FormID), so a
 //! crowd leaving the loaded area is not updated in one frame.
 
+use crate::alert::Search;
 use crate::carry::{Activity, Ai, Mover};
 use crate::social::Chat;
 use fnv_game::game::Game;
@@ -303,6 +309,11 @@ impl Ai {
             a.walker.follower = None;
             a.activity = Activity::None;
             // Its package is taken up afresh at its next update.
+            a.package = None;
+        } else if matches!(search, Some(Search::Fleeing { .. } | Search::Fled { .. })) && a.using.is_none() {
+            // At the spot it fled to (perhaps through a door): its package is taken up
+            // afresh at its next update, from there (module notes).
+            a.activity = Activity::None;
             a.package = None;
         }
         let partner = match chat {

@@ -139,6 +139,18 @@ impl Follower {
         (hdist(feet, *leg.points.last()?) <= reach).then_some(d.door)
     }
 
+    /// The load door that ends the current leg (one into another space), when the actor at
+    /// `feet` is within `reach` (horizontal units) of the leg's end and no door that opens
+    /// in place stands before it on the leg. Doors that open in place are not counted.
+    pub fn load_door_ahead(&self, feet: [f32; 3], reach: f32) -> Option<u32> {
+        let leg = self.path.legs.get(self.leg)?;
+        if self.stop < leg.door_stops.len() {
+            return None;
+        }
+        let d = leg.door?;
+        (hdist(feet, *leg.points.last()?) <= reach).then_some(d.door)
+    }
+
     /// The door that ended the current leg was used: go on with the next leg.
     pub fn door_used(&mut self) {
         self.leg += 1;

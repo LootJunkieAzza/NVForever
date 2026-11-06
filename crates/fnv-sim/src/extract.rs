@@ -106,6 +106,11 @@ impl Issues {
         self.counts.is_empty()
     }
 
+    /// The samples kept of one kind (at most a few).
+    pub fn samples(&self, kind: &str) -> &[String] {
+        self.samples.get(kind).map_or(&[], Vec::as_slice)
+    }
+
     pub fn merge(&mut self, other: Issues) {
         for (k, n) in other.counts {
             *self.counts.entry(k).or_default() += n;

@@ -182,6 +182,9 @@ pub enum AiEvent {
     /// Already where the package wants it.
     AlreadyThere { package: FormId },
     Door { door: FormId, to_door: FormId },
+    /// At a load door with an idle playing on it (a stimpak): it stands there until the
+    /// idle is over before it goes through ([`Ai::idle_holds_at_door`]).
+    DoorHeldForIdle { door: FormId, idle: FormId },
     /// After a load, the package goes on where the save had it (`crate::progress`): at
     /// this patrol point, or with the sandbox's day as it was.
     Resumed { package: FormId, patrol_point: Option<FormId>, sandbox: bool },
@@ -445,6 +448,12 @@ const REPLAN_SECONDS: f64 = 0.5;
 /// many units beyond the step it takes (`fnv_game::npc_doors`) [design].
 const DOOR_ASK_MARGIN: f32 = 96.0;
 
+/// The longest an actor stands at a load door waiting for the idle it plays to end
+/// before it goes through anyway (a looping idle would hold it for ever), seconds
+/// [design: longer than the longest stimpak idle, 5 s, observed: stimpaks module notes
+/// in nvforever's `npc_stimpaks.rs`].
+pub const IDLE_DOOR_HOLD_MAX: f64 = 8.0;
+
 /// An actor pushed aside goes back to where its package has it once nothing has pushed
 /// it for this long, seconds [our choice; whether and when the game's actors go back is
 /// the capture `pc_actor_push`].
@@ -490,6 +499,10 @@ pub trait Mover {
     fn coast(&mut self, _actor: FormId, _walker: &mut Walker, _dt: f32) -> bool {
         false
     }
+
+    /// `actor` stands where it is for this update (held at a door): whatever moves it
+    /// besides the walker stops it too.
+    fn stand(&mut self, _actor: FormId) {}
 }
 
 /// [`Ai::pass_time`]'s mover: the walker's own steps, every door open.
@@ -510,6 +523,9 @@ pub struct Agent {
     pub(crate) trip_from: f32,
     /// The door that opens in place the actor is standing at, waiting for it to open.
     pub waiting_at: Option<u32>,
+    /// Since when (`Game::time`) the actor has stood at a load door because an idle
+    /// plays on it ([`Ai::idle_holds_at_door`]).
+    pub(crate) idle_door_hold: Option<f64>,
     /// The furniture the actor uses, or is to use where it stands (a seat, a bed): the
     /// engine sits it down and gets it up; headless it is only known.
     pub using: Option<FormId>,
@@ -813,7 +829,7 @@ impl Ai {
             own_turning(&mut walker, s);
         }
         walker.pace = self.paces.get(&actor).copied().unwrap_or(1.0);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None, backing: None });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, idle_door_hold: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None, backing: None });
         Ok(())
     }
 
@@ -1833,6 +1849,34 @@ impl Ai {
     /// takes up its package afresh from where it stands, as when a door on its way is
     /// locked ([`Ai::apply_door_locks`]). `reach`: how near the door the actor is asked.
     /// Whether it may walk on.
+    /// An actor never goes through a load door in the middle of an idle (a stimpak, a
+    /// gesture): within `reach` of the door with an idle playing on it, it stands there
+    /// until the idle is over, at most [`IDLE_DOOR_HOLD_MAX`] seconds [design: owner's
+    /// overnight queue 2026-11-05, Dixon took a door 0.35 s into his stimpak idle and
+    /// left the player's sight with it; the original's rule is not known]. Doors that
+    /// open in place are not held for: the actor stays in the same space. `true`: held
+    /// in this update.
+    fn idle_holds_at_door(&mut self, game: &Game, actor: FormId, reach: f32, mover: &mut dyn Mover) -> bool {
+        let now = game.time;
+        let a = self.agents.get_mut(&actor).expect("listed");
+        let door = a.walker.follower.as_ref().and_then(|f| f.load_door_ahead(a.walker.feet, reach));
+        let (Some(door), Some(idle)) = (door, game.idle_playing(actor)) else {
+            a.idle_door_hold = None;
+            return false;
+        };
+        let since = *a.idle_door_hold.get_or_insert(now);
+        if now - since > IDLE_DOOR_HOLD_MAX {
+            return false;
+        }
+        a.walker.moving = false;
+        a.walker.turning = false;
+        mover.stand(actor);
+        if since == now {
+            self.log(game, actor, AiEvent::DoorHeldForIdle { door: FormId(door), idle });
+        }
+        true
+    }
+
     fn ask_door(&mut self, game: &mut Game, actor: FormId, reach: f32) -> bool {
         let a = self.agents.get_mut(&actor).expect("listed");
         let Some(door) = a.walker.follower.as_ref().and_then(|f| f.door_ahead(a.walker.feet, reach)) else { return true };
@@ -2230,6 +2274,9 @@ impl Ai {
     fn walk(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32, mover: &mut dyn Mover) {
         // Within this step's reach of the next door, and a margin [design].
         let reach = self.agents[&actor].walker.moving_speed() * dt + DOOR_ASK_MARGIN;
+        if self.idle_holds_at_door(game, actor, reach, mover) {
+            return;
+        }
         if !self.ask_door(game, actor, reach) {
             return;
         }

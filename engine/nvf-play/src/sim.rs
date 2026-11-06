@@ -19,6 +19,10 @@ impl SimState {
     pub fn new(lo: &LoadOrder, schema: &Schema, index: &WorldIndex) -> SimState {
         let forms: &'static FormStore = Box::leak(Box::new(FormStore::build(lo, schema)));
         let refs: &'static RefTable = Box::leak(Box::new(RefTable::from_index(lo, schema, index)));
+        let moved = refs.issues.count(fnv_sim::refs::XTEL_MOVED);
+        if moved > 0 {
+            bevy::log::info!("doors: {moved} XTEL marker(s) moved with their destination door (a later plugin moved the door): {}", refs.issues.samples(fnv_sim::refs::XTEL_MOVED).join("; "));
+        }
         SimState { forms, refs, world: World::new(forms, refs, SimConfig::default()) }
     }
 

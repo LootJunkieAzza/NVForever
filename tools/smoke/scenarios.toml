@@ -988,6 +988,19 @@ expect = [
 ]
 
 [[scenario]]
+name = "strip-gate-arrival"
+source = "owner's overnight queue 2026-11-05, Freeside to Strip arrival; docs/spec-notes/doors.md §6: through Freeside's gate to the Strip the player arrives at the door's XTEL marker; with FalloutNV.esm alone the marker is used as stored (with a load order whose later plugins moved the Strip's gate, the marker moves with it: fnv_world::teleport)"
+areas = ["doors"]
+paths = ["crates/fnv-world/src/teleport.rs", "crates/fnv-sim/src/refs.rs", "crates/fnv-nav/src/graph.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GIVE = "00119875:1", NVF_PLAY_TEST_SCRIPT = "1:activate:FreesideGateToStripREF", NVF_PLAY_TEST_TALK = "0:*=leave" }
+args = ["--play", "--plugins", "FalloutNV.esm", "--world", "FreesideWorld", "--pos=-6850,-10120,1040", "--heading", "220", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { re = 'travel to worldspace 0013B308 \(TheStripWorldNew\): feet \(100[0-9], 87[12][0-9], ', label = "arrives at the vanilla marker, 242 units in front of the Strip's gate to Freeside" },
+  { text = "XTEL marker(s) moved", count = 0, label = "no vanilla marker is moved" },
+]
+
+[[scenario]]
 name = "residents"
 source = "CLAUDE.md: after changes to fnv-ai or the engine's residents, the residents smoke test"
 areas = ["ai", "residents"]

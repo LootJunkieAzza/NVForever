@@ -174,3 +174,29 @@ to the player.
 - Not saved: after a load the doors are asked again.
 - Open, for a capture: whether the original's NPCs wait at a refusing door, take another
   way or never plan through it; whether a refusal is remembered.
+
+## 6. Teleport markers left behind by the load order (built 2026-11-06, `fnv_world::teleport`)
+
+- **The data** [documented: xEdit's XTEL]: a load door's XTEL holds its destination door
+  and the marker (position, rotation) where whoever goes through arrives. The marker sits
+  on the door one leaves from, so moving the destination door means overriding the door
+  one leaves from too.
+- **The case** [observed: the owner's load order, 2026-11-05]: FreesideGateToStripREF
+  (0x00116425) leads to the Strip's gate to Freeside (0x0013BB0D). FalloutNV.esm puts
+  that door at (1246, 8743) and the marker at (1004, 8722), 242 units away. The Strip -
+  2023 Lite moves the door to (3425, 10746) and its own XTEL to (3074, 10766). HOTM.esm
+  (with The Strip - 2023 Lite as a master) moves the door to (3927, 10830) but keeps the
+  vanilla marker. Simple Open Freeside (FalloutNV.esm its only master), loaded last,
+  overrides the gate with the vanilla marker. The marker that wins is about 3,400 units
+  from the door, partway down the Strip.
+- **The original** [hypothesis]: it uses the winning XTEL as stored. Load orders like this
+  one need a patch plugin there.
+- **NVForever** [design: owner's overnight queue 2026-11-05]: the plugin whose XTEL wins
+  saw the destination door as the latest version among that plugin and its direct
+  masters. When the winning version of the door differs from that one (moved 1 unit or
+  more, or turned 0.001 radians or more), the marker moves with the door. It keeps its
+  offset and heading from the door as that plugin saw it, turned by the door's change of
+  z rotation (clockwise seen from above, world.md §4). In the owner's case the arrival is
+  (3686, 10809), 242 units in front of HOTM's door. Markers whose plugin saw the door
+  where it wins are used as stored. The player's doors (`fnv_sim` reference table) and
+  the NPCs' door links (`fnv_nav::graph::door_teleport`) use the same rule.

@@ -33,6 +33,7 @@ pub mod loadscreen;
 pub mod placed;
 pub mod radio;
 pub mod sky;
+pub mod teleport;
 pub mod transform;
 pub mod xrgd;
 

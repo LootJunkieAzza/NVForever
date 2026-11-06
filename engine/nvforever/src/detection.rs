@@ -895,6 +895,12 @@ fn measure(
         // What the scripts read of movement, sneaking and swimming (IsMoving, IsRunning,
         // IsSneaking, IsSwimming): the people measured now; the others are forgotten.
         g.senses.motion.retain(|k, _| people.iter().any(|p| p.id == k.0));
+        // Actors out of the loaded area measure no one (module notes): what they fought
+        // or searched for is hidden from them (`Game::out_of_reach`).
+        let away: Vec<FormId> = g.awareness.actors.keys().copied().filter(|a| !people.iter().any(|p| p.id == a.0)).collect();
+        for a in away {
+            g.out_of_reach(a);
+        }
         for p in &people {
             // The player's speed mode is the Walk toggle, moving or not (IsRunning).
             let run_mode = if p.id == FormId::PLAYER_REF.0 { player_run_mode } else { p.running };
