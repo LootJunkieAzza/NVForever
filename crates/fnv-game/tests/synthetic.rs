@@ -652,22 +652,45 @@ fn reset_quest_keeps_the_set_quest_delay() {
 }
 
 /// ResetQuest from another script stops the quest (o41, issue #1232); from the quest's
-/// own script it keeps running (the Emergency Radio's self-reset, not observed).
+/// own script it keeps running (the Emergency Radio's self-reset, not observed). A quest
+/// flagged "Start game enabled" runs after a reset from any script (NoticeBoard.esm's
+/// notice quests, hypothesis), stopped before or not.
 #[test]
-fn reset_quest_stops_the_quest_unless_its_own_script() {
+fn reset_quest_stops_the_quest_unless_its_own_script_or_start_enabled() {
     const RESET_QUEST: u16 = 0x11DB;
-    let f = fixture();
-    let mut g = game(&f);
+    const PLAIN: u32 = 0xB00;
+    const STARTS: u32 = 0xB01;
+    let data = |flags: u8| sub(b"DATA", [vec![flags, 0, 0, 0], 0f32.to_le_bytes().to_vec()].concat());
+    let plain = [sub(b"EDID", z("PlainQuest")), data(0)];
+    let starts = [sub(b"EDID", z("StartsQuest")), data(0x19)];
+    let bytes = [tes4(), top(b"QUST", &[record(b"QUST", 0, PLAIN, &plain), record(b"QUST", 0, STARTS, &starts)].concat())].concat();
+    let plugins = vec![Plugin::parse(&bytes, "Test.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = schema();
+    let (table, j) = catalogue();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let d = GameData::build(&lo, &schema, table, &j, &refs);
+    let world = World::new(&forms, &refs, SimConfig::default());
+    let mut g = Game::new(&d, world, GameConfig { strict: true, ..GameConfig::default() });
     g.new_game();
-    let reset = |g: &mut Game, from: Option<FormId>| {
+    let reset = |g: &mut Game, quest: u32, from: Option<FormId>| {
         let ctx = Ctx { unit: "test".into(), opcode: RESET_QUEST, on: None, self_ref: None, action_ref: None, quest: from, inst: None, in_condition: false };
-        g.call_function(&ctx, &[ArgValue::Value(Value::Ref(QUEST))]);
+        g.call_function(&ctx, &[ArgValue::Value(Value::Ref(quest))]);
     };
-    g.quest(q()).running = true;
-    reset(&mut g, Some(q()));
-    assert!(g.quest(q()).running, "a self-reset keeps the quest running");
-    reset(&mut g, None);
-    assert!(!g.quest(q()).running, "a reset from another script stops it");
+    let (p, st) = (FormId(PLAIN), FormId(STARTS));
+    g.quest(p).running = true;
+    reset(&mut g, PLAIN, Some(p));
+    assert!(g.quest(p).running, "a self-reset keeps the quest running");
+    reset(&mut g, PLAIN, None);
+    assert!(!g.quest(p).running, "a reset from another script stops it");
+    assert!(g.quest(st).running, "a start-enabled quest runs from the new game");
+    g.set_stage(st, 0);
+    reset(&mut g, STARTS, None);
+    assert!(g.quest(st).running, "a start-enabled quest keeps running after a reset from elsewhere");
+    g.stop_quest(st);
+    reset(&mut g, STARTS, None);
+    assert!(g.quest(st).running, "and runs again after one when it was stopped");
 }
 
 #[test]

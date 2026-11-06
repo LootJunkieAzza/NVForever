@@ -144,11 +144,16 @@ pub fn complete_all_objectives(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Val
 /// [observed: o41, GetQuestRunning 0 and no GameMode run until StartQuest, from a job
 /// script; layer5-captures.md §5.7, issue #1232]. A reset from the quest's own script or
 /// stage result leaves it running [hypothesis, not observed: the Emergency Radio resets
-/// itself in its MenuMode and goes on to the supply drop].
+/// itself in its MenuMode and goes on to the supply drop]. A quest flagged "Start game
+/// enabled" goes back to its start, which is running, from any script [hypothesis, not
+/// observed: o41's VMQ03aTimer is not so flagged; NoticeBoard.esm's notice quests are,
+/// and a notice line's result script resets one with `ResetQuest` and sets its
+/// `GenerateEvent` for its GameMode block to act on, which works in the original].
 pub fn reset_quest(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let q = quest(g, a, 0)?;
     let (running, delay) = g.quests.get(&q).map_or((false, None), |s| (s.running, s.delay));
-    let running = running && ctx.quest == Some(q);
+    let start_enabled = g.data.quests.get(&q).is_some_and(|d| d.start_enabled());
+    let running = (running && ctx.quest == Some(q)) || start_enabled;
     g.quests.insert(q, crate::quest::QuestState { running, delay, ..Default::default() });
     g.instances.remove(&InstKey::Quest { quest: q });
     none()
