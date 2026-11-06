@@ -1,0 +1,193 @@
+//! Player voices in the game (docs/design/player-voices.md, `fnv_game::player_voice`).
+//!
+//! - **Sets.** Read once the data is mounted: every `nvforever\voices\*.json` of the data
+//!   (the MO2 mod folder `NVForever Player Voices`), then every `*.json` in the folder
+//!   `NVF_VOICE_SETS` names (tests, a set being reviewed). A set with the id of one read
+//!   before is left out. Log: `player voices: <n> sets: <ids>`.
+//! - **The character's voice.** Each frame the voice the player chose
+//!   (`PlayerState::voice`, the creator's Voice row, saved with the game) is resolved
+//!   against the load order into `Game::player_voice` when it changed, or when a load
+//!   brought a new game (`player voice: <name> (<id>): <n> lines, rate <r>`). A set that
+//!   does not resolve is said once (`player voice: <id>: ...`) and leaves the player silent.
+//! - **Settings** (Gameplay): First Person Quips (the player's own character says its
+//!   voice's lines; `Game::quips`) and Party Quips (the other players' lines in co-op,
+//!   read by the co-op code).
+//! - **Preview** ([`PreviewVoice`]): the creator asks for a line of a voice; one of its
+//!   first-person lines is played flat at the voice's rate (`crate::voice`).
+//! - **Test aid** `NVF_PLAY_TEST_VOICE=<set id>`: the player has that voice from the start.
+
+use crate::script::ScriptState;
+use crate::PlaySet;
+use bevy::prelude::*;
+use fnv_game::player_voice::{PlayerVoice, VoiceSet, SETS_DIR};
+use std::collections::HashSet;
+
+/// The voice sets found.
+#[derive(Resource, Default)]
+pub struct VoiceSets {
+    pub sets: Vec<VoiceSet>,
+    read: bool,
+}
+
+impl VoiceSets {
+    pub fn get(&self, id: &str) -> Option<&VoiceSet> {
+        self.sets.iter().find(|s| s.id == id)
+    }
+
+    /// The creator's list: female, male, then the others, each by name.
+    pub fn options(&self) -> Vec<crate::creator::model::VoiceOption> {
+        let rank = |s: &str| match s {
+            "female" => 0,
+            "male" => 1,
+            _ => 2,
+        };
+        let mut v: Vec<&VoiceSet> = self.sets.iter().collect();
+        v.sort_by(|a, b| (rank(&a.sex), &a.name).cmp(&(rank(&b.sex), &b.name)));
+        v.into_iter().map(|s| crate::creator::model::VoiceOption { id: s.id.clone(), name: s.name.clone(), sex: s.sex.clone() }).collect()
+    }
+}
+
+/// The quip switches of the settings page.
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct QuipSwitches {
+    /// First Person Quips.
+    pub first_person: bool,
+    /// Party Quips: hear the other players' quips (co-op).
+    pub party: bool,
+}
+
+impl Default for QuipSwitches {
+    fn default() -> Self {
+        QuipSwitches { first_person: true, party: true }
+    }
+}
+
+/// Play a line of voice set `id` once, flat (the creator's preview).
+#[derive(Message, Clone, Debug)]
+pub struct PreviewVoice {
+    pub id: String,
+}
+
+fn read_sets(mut sets: ResMut<VoiceSets>, assets: Option<Res<nvf_assets::GameData>>) {
+    if sets.read {
+        return;
+    }
+    let Some(assets) = assets else { return };
+    sets.read = true;
+    let mut found: Vec<(String, Vec<u8>)> = Vec::new();
+    for p in assets.vfs.paths(|p| p.starts_with(SETS_DIR) && p.ends_with(".json")) {
+        if let Some(Ok(b)) = assets.vfs.read(&p) {
+            found.push((p, b));
+        }
+    }
+    if let Ok(dir) = std::env::var("NVF_VOICE_SETS") {
+        let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(&dir).map(|r| r.filter_map(|e| e.ok().map(|e| e.path())).collect()).unwrap_or_default();
+        files.sort();
+        for f in files.into_iter().filter(|f| f.extension().is_some_and(|e| e.eq_ignore_ascii_case("json"))) {
+            match std::fs::read(&f) {
+                Ok(b) => found.push((f.display().to_string(), b)),
+                Err(e) => warn!("player voices: {}: {e}", f.display()),
+            }
+        }
+    }
+    let mut ids = HashSet::new();
+    for (path, bytes) in found {
+        match serde_json::from_slice::<VoiceSet>(&bytes) {
+            Ok(s) if ids.insert(s.id.clone()) => sets.sets.push(s),
+            Ok(s) => info!("player voices: {path}: {} was read before; left out", s.id),
+            Err(e) => warn!("player voices: {path}: not a voice set: {e}"),
+        }
+    }
+    let names: Vec<&str> = sets.sets.iter().map(|s| s.id.as_str()).collect();
+    info!("player voices: {} sets: {}", names.len(), names.join(", "));
+}
+
+/// The voice the player chose, resolved into the game; the switches, into the game.
+fn apply(sets: Res<VoiceSets>, switches: Res<QuipSwitches>, mut script: ResMut<ScriptState>, mut failed: Local<Option<String>>, mut aid: Local<Option<Option<String>>>) {
+    if !sets.read {
+        return;
+    }
+    let Some(rt) = script.rt.as_mut() else { return };
+    let g = &mut rt.game;
+    // The test aid, once there is a game.
+    let aid = aid.get_or_insert_with(|| std::env::var("NVF_PLAY_TEST_VOICE").ok().filter(|v| !v.is_empty()));
+    if let Some(id) = aid.take() {
+        info!("test aid: the player's voice is {id}");
+        g.player.voice = Some(id);
+    }
+    g.quips.first_person = switches.first_person;
+    let want = g.player.voice.clone();
+    let have = g.player_voice.as_ref().map(|v| v.id.clone());
+    if want == have {
+        return;
+    }
+    let Some(id) = want else {
+        g.player_voice = None;
+        info!("player voice: none (silent)");
+        return;
+    };
+    if failed.as_deref() == Some(id.as_str()) && have.is_none() {
+        return;
+    }
+    let Some(set) = sets.get(&id) else {
+        warn!("player voice: {id}: no such voice set is installed; the player stays silent");
+        g.player_voice = None;
+        *failed = Some(id);
+        return;
+    };
+    match PlayerVoice::resolve(set, g.data) {
+        Ok((v, missing)) => {
+            let fp = v.first_person.len();
+            let events = v.by_event.len();
+            info!(
+                "player voice: {} ({}): {} lines in use ({fp} first person) over {events} events, rate {:.2}, voice of {}{}",
+                v.name,
+                v.id,
+                v.lines.len(),
+                v.rate,
+                g.data.name(v.base),
+                if missing > 0 { format!(", {missing} lines not in the load order") } else { String::new() }
+            );
+            g.player_voice = Some(v);
+            *failed = None;
+        }
+        Err(e) => {
+            warn!("player voice: {e}; the player stays silent");
+            g.player_voice = None;
+            *failed = Some(id);
+        }
+    }
+}
+
+pub struct PlayerVoicePlugin;
+
+impl Plugin for PlayerVoicePlugin {
+    fn build(&self, app: &mut App) {
+        use crate::settings::{add_setting, Setting};
+        app.init_resource::<VoiceSets>().init_resource::<QuipSwitches>().add_message::<PreviewVoice>().add_systems(Update, (read_sets, apply).chain().in_set(PlaySet::Scripts));
+        add_setting(
+            app,
+            Setting {
+                key: "first-person-quips",
+                group: crate::pause::GROUP_MENUS,
+                label: "First Person Quips",
+                note: "On: your character says its voice's lines (chosen in the character creator) when it fights, is hurt or runs dry. Generic lines only, nothing about the story. Your friends hear you by their own Party Quips.",
+                get: |w| w.resource::<QuipSwitches>().first_person,
+                set: |w, on| w.resource_mut::<QuipSwitches>().first_person = on,
+                slider: None,
+            },
+        );
+        add_setting(
+            app,
+            Setting {
+                key: "party-quips",
+                group: crate::pause::GROUP_MENUS,
+                label: "Party Quips",
+                note: "On: in co-op you hear the other players' characters speak in their voices. Off: their lines are silent and have no subtitles.",
+                get: |w| w.resource::<QuipSwitches>().party,
+                set: |w, on| w.resource_mut::<QuipSwitches>().party = on,
+                slider: None,
+            },
+        );
+    }
+}

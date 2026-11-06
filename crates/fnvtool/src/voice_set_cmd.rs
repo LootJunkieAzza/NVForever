@@ -1,0 +1,239 @@
+//! `fnvtool voice set-draft` / `set-check`: player voice sets (docs/design/player-voices.md,
+//! `fnv_game::player_voice`). A draft lists the lines one actor can say, tagged with the
+//! event each answers; a person then reviews it. Sets hold FormIDs and tags, never text:
+//! `--text` prints the texts beside the result for the review only (game data, never to
+//! commit).
+
+use crate::dialogue_cmd::{form, with_data, Loaded};
+use crate::script_cmd::ScriptArgs;
+use anyhow::{bail, Context};
+use fnv_game::cond::{Cmp, Operand, RunOn};
+use fnv_game::data::{topic_type, InfoDef};
+use fnv_game::player_voice::{form_ref, PlayerVoice, SetLine, VoiceSet, FORMAT};
+use fnv_script::vm::{ArgValue, Value as Arg};
+use fnv_sim::FormId;
+use fnv_voice::VoiceBank;
+use serde_json::{json, Value};
+use std::collections::BTreeMap;
+use std::path::Path;
+use std::sync::Arc;
+
+/// The Combat-tab and Detection topics a player's voice says for what happens to it
+/// (`fnv_game::combat_lines`). Crime, yield and trespass topics are the world's answers to
+/// the player, not the player's, and are left out [design].
+pub const COMBAT_EVENTS: &[&str] = &[
+    "Attack", "PowerAttack", "FireExplosive", "Hit", "HealthHalf", "HealthQuarter", "Crippled", "Death", "NoAmmo", "WeaponBroke", "OnFire",
+    "Poisoned", "ArmorIneffective", "WeaponIneffective", "Regenerating", "NormalToCombat", "AlertToCombat", "LostToCombat", "CombatToNormal",
+    "CombatToLost", "StartCombatResponse", "AttackResponse", "DeathResponse", "AvoidThreat", "Flee", "KnockedBack",
+];
+
+/// Conditions that only say who the speaker is: a set's line drops them, since the
+/// player says it in that voice [design].
+const IDENTITY: &[&str] = &["GetIsID", "GetIsVoiceType", "GetIsSex", "GetIsRace", "GetIsReference", "GetPlayerTeammate", "GetRandomPercent", "GetIsCreature"];
+
+/// Conditions that tie a line to a place.
+const PLACE: &[&str] = &["GetInCell", "GetInWorldspace", "GetIsCurrentWorldspace", "GetInZone", "GetIsInRegion", "GetIsCurrentLocation", "GetInSameCell"];
+
+/// Conditions that tie a line to quest progress.
+const QUEST: &[&str] = &["GetStage", "GetStageDone", "GetQuestCompleted", "GetQuestRunning", "GetObjectiveCompleted", "GetObjectiveDisplayed"];
+
+fn ref_arg(a: &ArgValue) -> Option<FormId> {
+    match a {
+        ArgValue::Value(Arg::Ref(r)) if *r != 0 => Some(FormId(*r)),
+        _ => None,
+    }
+}
+
+fn function_name(l: &Loaded, opcode: u16) -> String {
+    l.data.table.get(opcode).map(|f| f.name.clone()).unwrap_or_else(|| format!("0x{opcode:04X}"))
+}
+
+/// Whether the line is said by `base` (or anyone with voice type `vt`): its fixed speaker,
+/// or a `GetIsID base == 1` / `GetIsVoiceType vt == 1` on the subject.
+fn said_by(l: &Loaded, d: &InfoDef, base: FormId, vt: Option<FormId>) -> bool {
+    if d.speaker == Some(base) {
+        return true;
+    }
+    d.conditions.iter().any(|c| {
+        let name = function_name(l, c.opcode());
+        let is_one = c.cmp == Cmp::Eq && c.rhs == Operand::Value(1.0) && c.run_on == RunOn::Subject;
+        let arg = c.params.first().and_then(ref_arg);
+        is_one && ((name == "GetIsID" && arg == Some(base)) || (name == "GetIsVoiceType" && vt.is_some() && arg == vt))
+    })
+}
+
+/// A draft line and why it was tagged so.
+struct Drafted {
+    line: SetLine,
+    topic: String,
+}
+
+fn draft_line(l: &Loaded, info: FormId, d: &InfoDef) -> Option<Drafted> {
+    let topic = d.topic.map(|t| l.data.name(t)).unwrap_or_default();
+    // Lines of a conversation (choices or a prompt) answer the player in dialogue.
+    if !d.choices.is_empty() || d.prompt.as_ref().is_some_and(|p| !p.is_empty()) || d.responses.is_empty() {
+        return None;
+    }
+    let others: Vec<String> = d.conditions.iter().map(|c| function_name(l, c.opcode())).filter(|n| !IDENTITY.contains(&n.as_str())).collect();
+    let mut others_sorted = others.clone();
+    others_sorted.sort();
+    others_sorted.dedup();
+    let note = if others_sorted.is_empty() { String::new() } else { format!("conditions: {}", others_sorted.join(", ")) };
+    let combat = matches!(d.info_type, topic_type::COMBAT | topic_type::DETECTION);
+    let line = |event: String, first_person: bool, use_line: bool, note: String| SetLine { info: form_ref(&l.data, info), event, first_person, use_line, note };
+    if combat && COMBAT_EVENTS.contains(&topic.as_str()) {
+        // Only the speaker's identity in its conditions: said in the voice as it is.
+        let plain = others.is_empty();
+        return Some(Drafted { line: line(topic.clone(), plain, plain, note), topic });
+    }
+    if combat {
+        return None;
+    }
+    if let Some(rest) = topic.strip_prefix("PLAYER") {
+        // A companion's word on what the player does: one player's word on another's.
+        return Some(Drafted { line: line(format!("react.{}", rest.to_ascii_lowercase()), false, others.is_empty(), note), topic });
+    }
+    let has = |set: &[&str]| others.iter().any(|n| set.contains(&n.as_str()));
+    let event = if has(PLACE) {
+        "place"
+    } else if has(QUEST) {
+        "quest"
+    } else {
+        "idle"
+    };
+    // Place, quest and idle lines wait for a person's review (phase 4).
+    Some(Drafted { line: line(event.to_string(), false, false, note), topic })
+}
+
+/// The arguments of `set-draft`.
+pub struct DraftArgs<'a> {
+    pub speaker: &'a str,
+    pub id: &'a str,
+    pub name: &'a str,
+    pub sex: &'a str,
+    pub rate: f32,
+    pub companion: bool,
+    pub out: Option<&'a Path>,
+    pub text: bool,
+}
+
+/// `fnvtool voice set-draft`.
+pub fn draft(a: &ScriptArgs, d: DraftArgs<'_>) -> anyhow::Result<Value> {
+    let vfs = Arc::new(crate::voice_cmd::open_vfs(&a.lo.data_dir, &a.lo.plugins)?);
+    with_data(a, |l| {
+        let bank = VoiceBank::build(&l.lo, vfs);
+        let base = form(l, d.speaker)?;
+        let vt = l.data.actors.get(&base).and_then(|x| x.voice);
+        let mut infos: Vec<(&FormId, &InfoDef)> = l.data.infos.iter().filter(|(_, def)| said_by(l, def, base, vt)).collect();
+        infos.sort_by_key(|(i, _)| i.0);
+        let mut lines = Vec::new();
+        let mut texts = Vec::new();
+        let (mut no_file, mut skipped) = (0, 0);
+        for (&info, def) in infos {
+            let Some(dr) = draft_line(l, info, def) else {
+                skipped += 1;
+                continue;
+            };
+            // Every response must have its file in the speaker's voice.
+            if !(0..def.responses.len()).all(|k| bank.file(info.0, k, base.0).is_some()) {
+                no_file += 1;
+                continue;
+            }
+            if d.text {
+                let t: Vec<&str> = def.response_order().into_iter().map(|r| def.responses[r].text.as_str()).collect();
+                texts.push(json!({"info": dr.line.info, "topic": dr.topic, "event": dr.line.event, "use": dr.line.use_line, "text": t.join(" / ")}));
+            }
+            lines.push(dr.line);
+        }
+        let set = VoiceSet {
+            format: FORMAT.into(),
+            id: d.id.into(),
+            name: d.name.into(),
+            sex: d.sex.into(),
+            blurb: String::new(),
+            speaker: form_ref(&l.data, base),
+            rate: d.rate,
+            companion: d.companion.then(|| form_ref(&l.data, base)),
+            lines,
+        };
+        let mut by_event: BTreeMap<String, [u32; 2]> = BTreeMap::new();
+        for x in &set.lines {
+            let e = by_event.entry(x.event.clone()).or_default();
+            e[0] += 1;
+            e[1] += u32::from(x.use_line);
+        }
+        if let Some(out) = d.out {
+            let body = serde_json::to_string_pretty(&set)?;
+            std::fs::write(out, body + "\n").with_context(|| out.display().to_string())?;
+        }
+        let mut v = json!({
+            "format": "fnv.voice.set_draft/1",
+            "speaker": l.data.name(base),
+            "voice_type": vt.map(|t| l.data.name(t)),
+            "lines": set.lines.len(),
+            "without_file": no_file,
+            "not_for_a_set": skipped,
+            "by_event": by_event.iter().map(|(k, [n, used])| (k.clone(), json!({"lines": n, "in_use": used}))).collect::<serde_json::Map<_, _>>(),
+            "written": d.out.map(|p| p.display().to_string()),
+        });
+        if d.text {
+            v["texts"] = json!(texts);
+        } else {
+            v["set"] = serde_json::to_value(&set)?;
+        }
+        Ok(v)
+    })
+}
+
+/// `fnvtool voice set-check`: each set resolves against the load order, and every
+/// response of every line in use has its file in the set's speaker's voice.
+pub fn check(a: &ScriptArgs, files: &[std::path::PathBuf]) -> anyhow::Result<Value> {
+    let vfs = Arc::new(crate::voice_cmd::open_vfs(&a.lo.data_dir, &a.lo.plugins)?);
+    with_data(a, |l| {
+        let bank = VoiceBank::build(&l.lo, vfs);
+        let mut rows = Vec::new();
+        let mut bad = 0;
+        for f in files {
+            let text = std::fs::read_to_string(f).with_context(|| f.display().to_string())?;
+            let set: VoiceSet = serde_json::from_str(&text).with_context(|| f.display().to_string())?;
+            let (v, unresolved) = match PlayerVoice::resolve(&set, &l.data) {
+                Ok(x) => x,
+                Err(e) => {
+                    bad += 1;
+                    rows.push(json!({"file": f.display().to_string(), "error": e}));
+                    continue;
+                }
+            };
+            let mut missing = Vec::new();
+            let mut responses = 0;
+            for &info in &v.lines {
+                let n = l.data.infos.get(&info).map_or(0, |d| d.responses.len());
+                for k in 0..n {
+                    responses += 1;
+                    if bank.file(info.0, k, v.base.0).is_none() {
+                        missing.push(format!("{} response {k}", form_ref(&l.data, info)));
+                    }
+                }
+            }
+            let mut events: BTreeMap<&str, usize> = BTreeMap::new();
+            for (e, ls) in &v.by_event {
+                events.insert(e, ls.len());
+            }
+            bad += usize::from(!missing.is_empty() || unresolved > 0);
+            rows.push(json!({
+                "file": f.display().to_string(), "id": v.id, "speaker": l.data.name(v.base), "rate": v.rate,
+                "lines_in_use": v.lines.len(), "first_person": v.first_person.len(), "responses": responses,
+                "unresolved": unresolved, "missing_files": missing, "by_event": events,
+            }));
+        }
+        if bad > 0 {
+            eprintln!("voice set-check: {bad} set(s) with problems");
+        }
+        let v = json!({"format": "fnv.voice.set_check/1", "sets": rows, "ok": bad == 0});
+        if bad > 0 {
+            println!("{}", serde_json::to_string_pretty(&v)?);
+            bail!("{bad} voice set(s) do not check");
+        }
+        Ok(v)
+    })
+}

@@ -177,6 +177,8 @@ enum Op {
     Pan(f32, f32),
     Zoom(f32),
     ViewReset,
+    /// Hear a line of the chosen voice (P).
+    Preview,
 }
 
 #[derive(Resource, Default)]
@@ -210,6 +212,7 @@ fn parse_aid(s: &str) -> Result<Vec<(f32, Op)>, String> {
             None if rest == "undo" => Op::Act(Action::Undo),
             None if rest == "reset" => Op::Act(Action::Reset),
             None if rest == "done" => Op::Act(Action::Done),
+            None if rest == "preview" => Op::Preview,
             _ => return Err(format!("{item:?}: unknown step")),
         };
         out.push((t, op));
@@ -268,7 +271,13 @@ fn row_label(m: &Model, r: Row) -> Vec<String> {
     out
 }
 
-fn sync(mut st: ResMut<CreatorMenu>, data: Option<Res<CreatorData>>, script: Option<Res<ScriptState>>, mut control: ResMut<crate::control::PlayerControl>) {
+fn sync(
+    mut st: ResMut<CreatorMenu>,
+    data: Option<Res<CreatorData>>,
+    script: Option<Res<ScriptState>>,
+    mut control: ResMut<crate::control::PlayerControl>,
+    voices: Option<Res<crate::player_voice::VoiceSets>>,
+) {
     let open = script.as_deref().and_then(crate::chargen::open_code) == Some(menus::RACE) && data.is_some();
     if open == st.model.is_some() {
         return;
@@ -297,7 +306,8 @@ fn sync(mut st: ResMut<CreatorMenu>, data: Option<Res<CreatorData>>, script: Opt
         return;
     };
     let kind = rt.game.race_menu;
-    let m = Model::of_kind(data.0.clone(), start, kind);
+    let offered = voices.map(|v| v.options()).unwrap_or_default();
+    let m = Model::of_kind(data.0.clone(), start, kind).with_voices(offered, rt.game.player.voice.as_deref());
     if let Some(p) = &data.0.ctl_problem {
         warn!("creator: {p}; no sliders");
     }
@@ -368,6 +378,7 @@ fn input(
         ([KeyR, KeyR], Op::Act(Action::Reset)),
         ([Enter, NumpadEnter], Op::Enter),
         ([KeyC, Home], Op::ViewReset),
+        ([KeyP, KeyP], Op::Preview),
     ] {
         if keys.any_just_pressed(k) {
             ops.push((op, "key"));
@@ -576,6 +587,10 @@ fn apply(st: &mut CreatorMenu, script: &mut Option<ResMut<ScriptState>>, sim: &m
             }
             return None;
         }
+        Op::Preview => {
+            m.preview = true;
+            return None;
+        }
         Op::Adjust(by, fine) => {
             let shown = m.chosen_row().map(|r| m.view(r));
             if m.adjust(by, fine) && m.on_actions.is_none() {
@@ -735,8 +750,28 @@ fn describe(m: &Model) -> String {
     format!("{}, {}, hair colour {:?}", m.caption(), parts.join(", "), m.look.hair_color)
 }
 
-/// Write the look into the game when it changed.
-fn write_look(mut st: ResMut<CreatorMenu>, mut script: Option<ResMut<ScriptState>>) {
+/// Write the look into the game when it changed, and the voice (a new voice plays a line
+/// of it, as P does).
+fn write_look(mut st: ResMut<CreatorMenu>, mut script: Option<ResMut<ScriptState>>, mut preview: MessageWriter<crate::player_voice::PreviewVoice>) {
+    let Some(m) = st.model.as_mut() else { return };
+    let voice = m.voice_id().map(str::to_string);
+    let asked = std::mem::take(&mut m.preview);
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()).filter(|_| !st.answered) {
+        if rt.game.player.voice != voice {
+            info!("creator: voice {}", voice.as_deref().unwrap_or("none"));
+            rt.game.player.voice = voice.clone();
+            if let Some(id) = &voice {
+                preview.write(crate::player_voice::PreviewVoice { id: id.clone() });
+            }
+        } else if asked {
+            match &voice {
+                Some(id) => {
+                    preview.write(crate::player_voice::PreviewVoice { id: id.clone() });
+                }
+                None => info!("creator: preview: no voice chosen"),
+            }
+        }
+    }
     let Some(m) = st.model.as_ref() else { return };
     if st.answered || st.written.as_ref() == Some(&m.look) {
         return;

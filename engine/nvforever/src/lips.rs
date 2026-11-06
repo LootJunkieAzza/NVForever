@@ -473,6 +473,8 @@ struct Speaking {
     /// Real seconds the sound has been held so far (`nvf_play::voice::Spoken::held_secs`):
     /// the mouth's time is `now - started_at - held_secs`.
     held_secs: f64,
+    /// Playback speed (`nvf_play::voice::Spoken::rate`): the mouth runs as fast.
+    rate: f32,
     lip: Arc<Lip>,
     /// Real time at which the voice stopped saying the response (its end, or a cut).
     released_at: Option<f64>,
@@ -771,14 +773,14 @@ fn drive(
     // line, the pause menu): the mouth holds and goes on with the sound.
     // Switched off while a face moves (the settings page): no response counts as said, so
     // the faces ease out and are let go.
-    let spoken: Vec<(FormId, String, f64, f64, f64, FormId, usize)> = if st.enabled {
-        voice.spoken().filter_map(|s| Some((s.speaker, s.path?.to_string(), s.started_at, s.ends_at, s.held_secs, s.info, s.response))).collect()
+    let spoken: Vec<(FormId, String, f64, f64, f64, FormId, usize, f32)> = if st.enabled {
+        voice.spoken().filter_map(|s| Some((s.speaker, s.path?.to_string(), s.started_at, s.ends_at, s.held_secs, s.info, s.response, s.rate))).collect()
     } else {
         Vec::new()
     };
 
     // Responses that started: animate them, or say why not.
-    for (speaker, path, started_at, ends_at, _, info, response) in &spoken {
+    for (speaker, path, started_at, ends_at, _, info, response, rate) in &spoken {
         if st.seen.get(speaker).is_some_and(|(p, t)| p == path && t == started_at) {
             continue;
         }
@@ -844,7 +846,7 @@ fn drive(
         );
         st.speaking.insert(
             *speaker,
-            Speaking { path: path.clone(), started_at: *started_at, ends_at: *ends_at, held_secs: 0.0, lip, released_at: None, emotion: shown, emotion_from },
+            Speaking { path: path.clone(), started_at: *started_at, ends_at: *ends_at, held_secs: 0.0, rate: *rate, lip, released_at: None, emotion: shown, emotion_from },
         );
     }
 
@@ -926,7 +928,7 @@ fn drive(
             face.turn = head_turn(&h);
         } else if let Some(sp) = st.speaking.get(&FormId(reference)) {
             speech = sp.ease(now);
-            let lip = weights_at(&sp.lip, now - sp.started_at - sp.held_secs, speech);
+            let lip = weights_at(&sp.lip, (now - sp.started_at - sp.held_secs) * f64::from(sp.rate), speech);
             w[..CHANNELS].copy_from_slice(&lip);
             face.turn = head_turn(&lip);
             w[HEAD_PITCH..=HEAD_YAW].fill(0.0);

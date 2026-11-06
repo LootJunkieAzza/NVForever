@@ -1,0 +1,265 @@
+# Player voices: co-op characters that talk like companions
+
+Status: **phases 0 and 1 built (2026-11-06)**: the voice set format and `fnvtool voice set-draft`/`set-check`, four vanilla sets (Cass, Boone, Raul, Arcade) in the MO2 mod `NVForever Player Voices`, the creator's Voice row with a preview, first-person combat quips at the set's rate, and the two Gameplay settings. Phases 2-6 (co-op quips, the companion 50/50, the Nexus voices, place and quest comments) await the owner.
+
+The owner's outline (2026-11-05): "A new option in the character creator for voice. We pull
+voice files from nexus mods or other companions in game (and would probably use tools to
+alter them to fit). The primary function is to make your friends playing with you feel more
+like actual Fallout companions, having reactions to certain events in the story or quests."
+Loosely after Dying Light: every player is a different version of Courier 6, and picking
+a voice also picks a personality.
+
+Decisions taken with the owner (2026-11-05 planning session):
+
+- Sources: vanilla companions and five Nexus voiced companions the owner chose (§2). Two
+  female Nexus voices is enough for now.
+- Content: generic quips (combat, reactions to the player) plus place and quest comments
+  that something Courier 6 would know could say. No lines about the companion's own life.
+- Hearing: everyone in hearing range, positional from the speaker's body, like an NPC line.
+- Dialogue-choice reactions: not planned now ("want to see how the simpler quippy kinda
+  stuff goes first").
+- Chattiness: Normal by default, a setting per player.
+- Several players may pick the same voice.
+- Vanilla voices play slightly shifted in pitch and speed, by a fixed amount per voice that
+  NVForever sets (no slider; owner 2026-11-06). When that companion is with the
+  group, each quip for that voice goes 50/50 to the player or the companion (§6).
+- Two Gameplay settings: **First Person Quips** (your own character's quips, generic only,
+  nothing story-related) and **Party Quips** (the other players' quips) (§7).
+- Editing recordings means trimming, pitch, speed and effects on the existing files.
+  Generating new speech in a real actor's voice (voice cloning) is out of scope.
+
+## 1. What already exists [observed in the code, 2026-11-05]
+
+- **Voice playback** `engine/nvf-play/src/voice.rs`: plays a response's file from the
+  archives where its speaker stands, with hearing range (`DIALOG_MIN_DISTANCE` 600 /
+  `DIALOG_MAX_DISTANCE` 2000), pan, voice filter and reverb. It hides the subtitle when a
+  line is not heard. Lip sync comes from the `.lip` beside the file
+  (`engine/nvforever/src/lips.rs`). The voice type comes from the speaker's base form
+  (`voice_base`, `fnv_voice::voice_path`).
+- **Combat barks** `crates/fnv-game/src/combat_lines.rs`: Hit, HealthHalf/Quarter,
+  Crippled, Death and DeathResponse, Attack, NoAmmo, OnFire, Poisoned, the detection
+  changes, with the game's own chances and timers.
+- **Co-op lines** `engine/nvf-coop/src/net.rs`: `Msg::Lines` sends `LineView { speaker,
+  target, topic, info, remaining, flags }` from the host to guests. Players already have
+  speaker ids (`LineView::HOST`, `LineView::guest(id)`). Looks travel as `Msg::Look`
+  (`encode_look` in `engine/nvforever/src/coop.rs`). The protocol is at `VERSION` 15.
+- **Character creator** `engine/nvf-play/src/creator.rs`, rows and tabs in
+  `creator/model.rs`. The look it edits is `fnv_game::chargen::Look` (serde, saved with
+  the game).
+- **Settings** `crate::settings::add_setting` with `group: crate::pause::GROUP_MENUS`
+  ("Gameplay"), for example in `dialogue_look.rs`.
+- Not wired anywhere yet: the PLAYER* reaction topics (PLAYERFIREWEAPON,
+  PLAYERTHROWGRENADE, PLAYERLAYMINE, PLAYERINIRONSITES, PLAYERLOCKEDOBJECT).
+- Guest-side NPC voice range and repeat bugs from the 2026-11-05 playtest are being fixed
+  on the coop-progression branch. Player voices build on that fixed path. They start
+  after it merges.
+
+## 2. The voices
+
+Counted with `fnvtool dialogue lines` over FalloutNV.esm and the four story DLCs, plus each
+mod's plugin [observed 2026-11-05; the counts come from a rough classifier, so read them as
+sizes, not exact numbers].
+
+**Vanilla** (in everyone's archives already):
+
+| Voice | Combat and detection | Reacting to the player | Place, quest and idle | Note |
+|---|---|---|---|---|
+| Cass (F) | 125 | 17 | ~270 (186 `VCassLocation*`) | Richest vanilla set |
+| Veronica (F) | 66 | 4 | ~110 | Many lines name her own people: hand-pick |
+| Lily (F) | 95 | 10 | ~40 | Novelty voice ("Leo", "Grandma") |
+| Boone (M) | 84 | 8 | ~50 | Terse; skip his past |
+| Raul (M) | 92 | 10 | ~45 | "Boss" humour |
+| Arcade (M) | 57 | 6 | ~60 | Skip the Followers/Enclave story |
+| Joshua Graham (M, HH) | 64 | 6 | few | Combat voice |
+| Follows-Chalk (M, HH) | 74 | 0 | few | Combat voice |
+| Waking Cloud (F, HH) | 73 | 0 | few | Combat voice |
+| Dean Domino (M, DM) | 60 | 3 | Sierra Madre only | Combat voice |
+
+Not usable: Christine (mute), ED-E and Rex (beeps, barks), Dog/God (a novelty; maybe later).
+
+**Nexus** (the owner's downloads; every player installs them through MO2):
+
+| Mod | Files | Lines | Combat | Place and quest | Personality |
+|---|---|---|---|---|---|
+| NVWillow 1.10 (F), 41779 | 1,693 ogg + lip, BSA | 1,452 | 59 | 130 place, `AWDTimed*` per location | Warm, flirty, chatty |
+| Delilah 1.7 (F), 50641 | 340 ogg + lip | 434 | own `00VDCombatBarks` | `00VDDelilahAt*`, timed chatter | Upbeat medic |
+| Molerat 1.4.1 (M), 75128 | 424 ogg + lip | 321 | 40, 14 kinds | place plus story reactions (BoS, Omertas, Ulysses) | Folksy cowpoke |
+| Niner 1.4 (M), 48002 | 510 ogg + lip | 333 | 16 | few | Crude, cheerful junkie, British |
+| Cook 1.2 (M), 86274 | 140 WAV + lip | 67 | none | none; 4 reactions | Gruff marksman; thin |
+
+**Permissions** [owner, 2026-11-06: "Nexus page says it's fine with credit"]: the files a
+voice set uses may be taken from the mod and kept in our own mod folder, with credit. So
+the voice tool extracts only the files a map uses into `NVForever Player Voices`, next
+to a `mods-used.txt` naming each mod, its author, its Nexus page and the version (§3).
+They are never committed to the repository.
+
+## 3. A voice set and its voice map
+
+A **voice set** is a voice (an id such as `vanilla.cass` or `nexus.willow`) and its
+**voice map**: a JSON file (`nvforever.voice_set/1`, `fnv_game::player_voice::VoiceSet`)
+saying which lines answer which event. FormIDs are written `<plugin>|<id in the plugin>`,
+so a set does not depend on the load order.
+
+```json
+{
+  "format": "nvforever.voice_set/1",
+  "id": "vanilla.cass",
+  "name": "Cass",
+  "sex": "female",
+  "blurb": "Whiskey-rough caravaneer: blunt, profane, never short of a comeback.",
+  "speaker": "FalloutNV.esm|133FDD",
+  "rate": 0.95,
+  "companion": "FalloutNV.esm|133FDD",
+  "lines": [
+    { "info": "FalloutNV.esm|15C37D", "event": "NoAmmo", "first_person": true },
+    { "info": "FalloutNV.esm|15CA6A", "event": "react.inironsites", "first_person": false },
+    { "info": "FalloutNV.esm|1234AB", "event": "place", "use": false, "note": "conditions: GetInCell" }
+  ]
+}
+```
+
+- `speaker`: the actor whose voice type holds the files (its folder is looked up through
+  the game's own rule, `fnv_voice::VoiceBank::file`). `event`: a Combat-tab topic's
+  Editor ID for combat lines, `react.<what>` for the PLAYER* topics, `place`, `quest`,
+  `idle` for the rest. `first_person`: the line suits the speaker's own ears (First
+  Person Quips). `use: false`: kept for review, not said. `note`: why the draft tagged it
+  so, never the line's text.
+- **Vanilla maps are drafted by a tool** (`fnvtool voice set-draft`, phase 0). It takes
+  every line the actor says (fixed speaker, or `GetIsID` / `GetIsVoiceType` of it on the
+  subject), leaves out conversation lines (choices, prompts) and lines without a file in
+  the voice, and tags the rest. Combat lines with nothing but identity in their conditions
+  are in use. Place, quest and idle lines are drafted from their conditions (GetInCell,
+  GetStage...) and wait for review. `--text` prints the texts for the review (never
+  saved). A person then drops lines about the companion's own life (`use: false`) and
+  lines that ask a leader for something (`first_person: false`, the party still hears
+  them). `fnvtool voice set-check --set <file>...` resolves each set and checks every
+  response has its file.
+- **Mod maps are hand-made from a draft.** The mods use their own topics
+  (`AWDTimedTheStrip`, `00VDCombatBarks`), so the tool only lists the lines with their
+  conditions, and the map tags them.
+- **Maps hold FormIDs and tags only**: no line text, no audio. They live in the MO2 mod
+  folder `NVForever Player Voices` (`nvforever/voices/<id>.json`), not in the repository. For a
+  Nexus voice the folder also holds the extracted files the map uses
+  (`sound/voice/<plugin>/<voice type>/...`, with their `.lip`) and `mods-used.txt`
+  (credits). Whether the mod's plugin must still be loaded for its INFOs, or the map
+  carries what the lines need, is decided in phase 5. Whether
+  vanilla maps (FormID lists) may be committed is the owner's call; until then they stay
+  private like other game-derived files.
+- The menu name and personality blurb are NVForever's own words (LEGAL.md).
+
+## 4. Events
+
+Tags, with who decides them in co-op:
+
+| Tag | When | Decided by |
+|---|---|---|
+| `combat.start`, `combat.end`, `combat.lost` | the speaker's detection state changes | the speaker's game |
+| `hit`, `health.half`, `health.quarter`, `crippled` | the speaker is hurt | the speaker's game |
+| `kill`, `ally.down` | the speaker kills; another player goes down | the speaker's game / host |
+| `attack`, `explosive`, `no.ammo`, `poisoned`, `on.fire`, `stimpak` | as the combat topics | the speaker's game |
+| `react.grenade`, `react.mine`, `react.aimed_at`, `react.shot_near`, `react.lockpick` | **another player** does it near the speaker (the companion PLAYER* lines, turned around) | the speaker's game, from that player's state (attacks counter, weapon, worn) |
+| `place.enter` | the speaker enters a mapped place (cell, worldspace or map marker) | the speaker's game |
+| `quest.stage` | a mapped quest stage is set | the host (it owns quest state) |
+| `idle` | nothing has happened for a while, out of combat | the speaker's game (Chatty only) |
+
+Barks follow the game's own chances and timers (`combat_lines.rs`). On top of that:
+
+- a **group cooldown**: no new quip starts while another player's quip is playing in
+  hearing range, plus 2 s after it;
+- **Normal**: at most one `place.*` or `quest.*` comment per player every 150 s, and each
+  INFO at most once per 20 minutes for that player (no repeats);
+- **Quiet**: combat start, health.quarter, `place.enter` for named places, `quest.stage`;
+- **Chatty**: Normal plus `idle` about every 60 s.
+
+A `quest.stage` comment is given to one player: a random player in hearing range whose voice
+has a line for it.
+
+## 5. Co-op
+
+- **Same data on every machine.** Co-op already needs one load order. The Nexus voice mods
+  and `NVForever Player Voices` join the shared MO2 list (`C:\NVForever\mods`). The lobby
+  check refuses a voice set a peer doesn't have: that player is heard silently, with
+  subtitles only.
+- **The choice** goes with the look: `Look` gets `voice: Option<String>` (the set's id)
+  (serde default, so old saves load). `encode_look` adds trailing bytes; old decoders stop
+  before them.
+- **A quip** is a new message `Msg::Quip { id, seq, info }`: the speaker's game sends
+  it to the host, and the host relays it to the others (the same route as `Msg::Anim`).
+  Every game then plays the INFO's files from its own archives. No audio goes over the
+  network. Protocol `VERSION` +1 (take the highest on merge, as for `Progress`).
+- **Playback** reuses `voice.rs` with the speaker set to the player's puppet (or the local
+  player): position from `PlayerState.feet`, mouth at `MOUTH_HEIGHT`, hearing range,
+  pan, helmet voice filter (power armour helmets), reverb. Speaker names come from the
+  voice set, not from the player's base form.
+- **Subtitles** show the player's name, and follow the hearing rule and the game's subtitle
+  setting.
+- **Lip sync** on the speaker's puppet face from the `.lip`, its timeline scaled by `rate`.
+  On your own character: only in third person.
+
+## 6. Pitch, speed and the real companion
+
+- **Rate.** A voice plays at `rate` (Bevy playback speed): pitch and speed move together, so
+  the line stays natural and the `.lip` timeline is just scaled. Vanilla voices default to
+  0.94 or 1.06 (whichever suits the voice), never 1.0, so a player's Cass is not mistaken
+  for Cass. The rate is the voice map's; there is no slider [owner 2026-11-06]. Whether
+  Bevy's speed goes through the pan/filter/reverb chain unchanged is checked in phase 1
+  [hypothesis].
+- **Line lengths.** The line's length is the file length ÷ rate (`VoiceBank` hook).
+- **The companion is here.** When the NPC a vanilla voice belongs to is a follower of the
+  group, within hearing range, and the speaker's event has a line in the companion's own
+  topics: a 50/50 coin flip. Either the player says it (at their rate), or the companion
+  says its own line at 1.0. The player's quip and the companion's own bark for that event
+  share one cooldown, so the event is never heard twice.
+- Trims and effects for mod voices, if ever needed, are a per-line `trim` and per-voice
+  `filter` in the map, applied at playback. NVForever never rewrites the mod's files.
+
+## 7. Character creator and settings
+
+- **Creator**: a **Voice** tab (or a row on the first tab, the owner's pick in phase 1):
+  - **Voice**: the sets found (Left/Right), grouped Female / Male / Other, with the
+    personality blurb; "None" (the default) keeps the character silent;
+  
+  - **Preview** (button, P key, controller X): plays a random `first_person` line from
+    the set at its rate, flat, with its subtitle; again for another line.
+  - Saved with the look (Done, the save file), shown to others in the lobby.
+- **Gameplay settings** (`add_setting`, group "Gameplay"):
+  - **First Person Quips**: on/off. Your own character's quips play for you. Generic
+    lines only (`first_person = true`): combat and reactions, nothing story-related. This
+    works in single player too.
+  - **Party Quips**: on/off. The other players' quips. Off: silent and no subtitles.
+  - **Quip chattiness**: Quiet / Normal / Chatty (§4).
+  - Turning off First Person Quips doesn't stop your friends from hearing you. What each
+    player hears is up to that player's own settings.
+
+## 8. Phases (each needs the owner's go-ahead)
+
+0. **Voice map tool.** `fnvtool voice set draft <plugin> --voice-type <vt> | --speaker
+   <npc>`: lists a voice's lines with draft event tags (§3). `fnvtool voice set check`:
+   reads a map, checks every INFO exists and has files in the load order. Draft maps for
+   Cass, Boone, Raul and Arcade, reviewed. *Done when:* the four maps check clean against the
+   owner's install.
+1. **Combat quips, vanilla voices, solo first.** `Look.voice`, the creator's Voice row and Preview, the events `combat.*`, `hit`, `health.*`, `kill`, `no.ammo` for your own
+   character, the rate and lip scaling, the three settings. *Done when:* in single
+   player, First Person Quips on, a fight gives Cass-at-1.06 barks with subtitles; a smoke
+   scenario checks the log lines.
+2. **Co-op.** `Msg::Quip`, relay, puppet playback with range, pan, subtitles and lip sync,
+   the lobby's check for missing sets, the group cooldown. *Done when:* in a two-game
+   session the guest hears the host's quips from the host's body and loses them out of
+   range.
+3. **Reactions and the real companion.** `react.*` from the other players' state, the 50/50
+   companion rule. *Done when:* a grenade thrown by one player gets a "Grenade!" from a
+   friend's voice; with Cass following, a Cass-voiced player and Cass share the event.
+4. **Place and quest comments.** `place.enter`, `quest.stage` (host-assigned), chattiness,
+   no repeats. Hand-picked lines for the vanilla voices. *Done when:* entering the Strip
+   with a Cass voice gives one Strip comment, not again for 20 minutes.
+5. **Nexus voices.** Maps for Willow, Delilah, Molerat, Niner, Cook (Cook as a thin, combat-
+   less set, or folded into another, the owner decides). *Done when:* each checks clean
+   and previews in the creator.
+6. Later, not planned: dialogue-choice reactions; more voices; a third female Nexus voice.
+
+## 9. Open questions for the owner
+
+- May the vanilla maps (FormID and tag lists, no text) be committed, or do they stay in
+  the private mod folder?
+- Voice as its own creator tab, or a row on the first tab?
+- Cook: a set of its own despite having no combat lines?

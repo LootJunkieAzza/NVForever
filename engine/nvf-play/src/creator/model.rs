@@ -185,6 +185,8 @@ const HAIR_GROUPS: [&str; 2] = ["Beard", "Eyebrows"];
 pub enum Row {
     Sex,
     Race,
+    /// The character's voice (docs/design/player-voices.md): None or a voice set.
+    Voice,
     /// The race's starting faces (NPC_ "Is CharGen Face Preset").
     Preset,
     /// Which group of the tab's sliders is shown.
@@ -270,6 +272,21 @@ pub struct Model {
     pub view: View,
     /// Which function opened the menu: what may be changed.
     pub kind: RaceMenu,
+    /// The voices to choose from (`crate::player_voice`), and the chosen one: 0 is None,
+    /// `k` the voice `voices[k - 1]`.
+    pub voices: Vec<VoiceOption>,
+    pub voice: usize,
+    /// A preview of the chosen voice is asked for (P, the test aid's `preview`).
+    pub preview: bool,
+}
+
+/// A voice the creator offers.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VoiceOption {
+    pub id: String,
+    pub name: String,
+    /// `female`, `male`, `other`.
+    pub sex: String,
 }
 
 fn tab_index(t: Tab) -> usize {
@@ -307,7 +324,22 @@ impl Model {
             on_actions: None,
             view: if kind == RaceMenu::Barber { View::default() } else { View::face_on(Tab::Basics) },
             kind,
+            voices: Vec::new(),
+            voice: 0,
+            preview: false,
         }
+    }
+
+    /// The voices offered, and the one the character has (`None`: silent).
+    pub fn with_voices(mut self, voices: Vec<VoiceOption>, chosen: Option<&str>) -> Model {
+        self.voice = chosen.and_then(|c| voices.iter().position(|v| v.id == c)).map_or(0, |i| i + 1);
+        self.voices = voices;
+        self
+    }
+
+    /// The chosen voice's id (`None`: silent).
+    pub fn voice_id(&self) -> Option<&str> {
+        self.voice.checked_sub(1).and_then(|i| self.voices.get(i)).map(|v| v.id.as_str())
     }
 
     /// The tabs this menu shows.
@@ -397,7 +429,12 @@ impl Model {
                 r
             }
             Tab::Basics => {
-                let mut r = vec![Row::Sex, Row::Race, Row::Preset];
+                let mut r = vec![Row::Sex, Row::Race];
+                // The character creator only, and only with voices installed.
+                if self.kind == RaceMenu::Creator && !self.voices.is_empty() {
+                    r.push(Row::Voice);
+                }
+                r.push(Row::Preset);
                 r.extend(age.map(Row::Slider));
                 r
             }
@@ -550,6 +587,12 @@ impl Model {
                 let f = self.slider_fraction(i);
                 return self.set_slider(i, f + f64::from(by) * step);
             }
+            // Not part of the look: Undo and Reset leave it.
+            Row::Voice => {
+                let n = self.voices.len() + 1;
+                self.voice = cycle(self.voice, by, n);
+                return n > 1;
+            }
             _ => {}
         }
         self.remember(row);
@@ -628,7 +671,7 @@ impl Model {
                     self.look.eyes = Some(e.id);
                 }
             }
-            Row::Group | Row::Slider(_) => {}
+            Row::Group | Row::Slider(_) | Row::Voice => {}
         }
         self.look != before || row == Row::Preset
     }
@@ -765,6 +808,17 @@ impl Model {
         let choice = |label: &str, value: String, at: usize, of: usize| RowView::Choice { label: label.into(), value, at, of };
         match row {
             Row::Sex => choice("Sex", if self.look.female { "Female".into() } else { "Male".into() }, sex + 1, 2),
+            Row::Voice => {
+                let value = match self.voice.checked_sub(1).and_then(|i| self.voices.get(i)) {
+                    Some(v) => match v.sex.as_str() {
+                        "female" => format!("{} (F)", v.name),
+                        "male" => format!("{} (M)", v.name),
+                        _ => v.name.clone(),
+                    },
+                    None => "None".to_string(),
+                };
+                choice("Voice", value, self.voice, self.voices.len() + 1)
+            }
             Row::Race => {
                 let races = &self.data.catalogue.races;
                 let i = races.iter().position(|r| r.id == self.look.race);
@@ -946,6 +1000,25 @@ mod tests {
         // Each part's shading under its row, no Region switch.
         let hair = vec![Row::Hair, Row::HairColour, Row::HairTone(0), Row::HairTone(1), Row::HairTone(2)];
         assert_eq!(m.rows(), [hair, vec![Row::FacialHair, Row::Slider(6), Row::Brows, Row::Slider(7)]].concat());
+    }
+
+    #[test]
+    fn the_voice_row_cycles_through_none_and_the_voices_and_leaves_the_look() {
+        let v = |id: &str, name: &str, sex: &str| VoiceOption { id: id.into(), name: name.into(), sex: sex.into() };
+        let voices = vec![v("vanilla.cass", "Cass", "female"), v("vanilla.boone", "Boone", "male")];
+        let mut m = Model::new(data(), look()).with_voices(voices.clone(), Some("vanilla.boone"));
+        assert_eq!(m.rows(), vec![Row::Sex, Row::Race, Row::Voice, Row::Preset, Row::Slider(0)]);
+        assert_eq!(m.voice_id(), Some("vanilla.boone"));
+        assert_eq!(m.view(Row::Voice), RowView::Choice { label: "Voice".into(), value: "Boone (M)".into(), at: 2, of: 3 });
+        let before = m.look.clone();
+        assert!(m.adjust_row(Row::Voice, 1, false));
+        assert_eq!(m.voice_id(), None, "after the last voice comes None");
+        assert!(m.adjust_row(Row::Voice, 1, false));
+        assert_eq!(m.voice_id(), Some("vanilla.cass"));
+        assert_eq!(m.look, before, "the voice is no part of the look");
+        // Without voices installed there is no row; the barber never has it.
+        assert!(!Model::new(data(), look()).rows().contains(&Row::Voice));
+        assert!(!Model::of_kind(data(), look(), RaceMenu::Surgeon).with_voices(voices, None).rows().contains(&Row::Voice));
     }
 
     #[test]
