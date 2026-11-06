@@ -73,7 +73,11 @@
 //! that are other references' enable parents) goes as its world's presence: every placed
 //! reference whose own enabled flag differs from its plugin's ([`presence_of`],
 //! `net::Msg::Presence`); a guest takes those flags, and once it has the whole list puts
-//! back its plugin's flag on what only its own game changed ([`follow_presence`]). So a
+//! back its plugin's flag on what only its own game changed ([`follow_presence`]). Doors
+//! go the same way ([`share_doors`]): one a player opens or closes (the host: or its
+//! world, a script's SetOpenState, an NPC) goes to everyone at once (`net::Msg::Door`),
+//! and the host's doors whose open flag differs from their plugin's go as a list, for a
+//! guest who joins or arrives later; a guest's door swings as the host's does. So a
 //! guest whose save has done everything joins a host who is just starting and sees the
 //! host's Goodsprings. None of it reaches the guest's own saves (its own game is kept, below).
 //!
@@ -285,6 +289,12 @@ impl Plugin for CoopPlugin {
             presence: HostPresence::default(),
             presence_was: HashMap::new(),
             presence_made: None,
+            doors_seen: HashMap::new(),
+            door_used: HashMap::new(),
+            doors_in: Vec::new(),
+            doors_heard: HostPresence::default(),
+            doors_was: HashMap::new(),
+            doors_made: None,
             host_lines: None,
             handed_off: false,
             progress_in: Vec::new(),
@@ -296,7 +306,7 @@ impl Plugin for CoopPlugin {
         }
         app.add_plugins((nvf_play::lobby::LobbyPlugin, nvf_play::coop_progress::CoopProgressPlugin))
             .insert_resource(coop)
-            .add_systems(Update, (lobby, send, take_events, tables, social_mates, share_npcs, follow_npcs, leash, downed, progress, duel_falls).chain().after(nvf_play::PlaySet::Physics))
+            .add_systems(Update, (lobby, send, take_events, share_doors, tables, social_mates, share_npcs, follow_npcs, leash, downed, progress, duel_falls).chain().after(nvf_play::PlaySet::Physics))
             .add_message::<PuppetShot>()
             .add_systems(Update, (stand_ins, draw, peer_lights, pipboy_share).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
     }
@@ -432,6 +442,16 @@ struct Coop {
     presence_was: HashMap<FormId, bool>,
     /// A host's: its world's presence serial when the list was last made, and when.
     presence_made: Option<(u64, f32)>,
+    /// Doors ([`share_doors`]): each door's open flag as last seen here, the doors this
+    /// player used lately (and when), the doors others opened or closed (who, the door,
+    /// open) not yet applied; a guest's: the host's doors' list as heard and the flags it
+    /// changed here, as they were; a host's: when its list was last made.
+    doors_seen: HashMap<u32, bool>,
+    door_used: HashMap<u32, f32>,
+    doors_in: Vec<(u8, u32, bool)>,
+    doors_heard: HostPresence,
+    doors_was: HashMap<FormId, bool>,
+    doors_made: Option<f32>,
     /// A guest's: the lines the host's NPCs are saying, and when they came.
     host_lines: Option<(f32, Vec<net::LineView>)>,
     /// A host that let go of its port for a load's new run ([`lobby`]).
@@ -1356,7 +1376,10 @@ fn take_events(
                 }
             }
             Event::Lines(lines) => coop.host_lines = Some((now, lines)),
-            Event::Presence { serial, page, pages, refs } => coop.presence.hear(serial, page, pages, refs),
+            Event::Presence { list: net::LIST_ENABLED, serial, page, pages, refs } => coop.presence.hear(serial, page, pages, refs),
+            Event::Presence { list: net::LIST_OPEN, serial, page, pages, refs } => coop.doors_heard.hear(serial, page, pages, refs),
+            Event::Presence { .. } => {}
+            Event::Door { id, reference, open } => coop.doors_in.push((id, reference, open)),
             Event::Clock(c) => {
                 // Not before this game is kept as the guest's own.
                 if let Some(sim) = sim.as_deref_mut().filter(|_| solo.is_some()) {
@@ -1614,7 +1637,7 @@ fn stand_ins(
         let serial = sim.world.presence_serial();
         if coop.presence_made.is_none_or(|(s, at)| s != serial || now - at >= PRESENCE_REMAKE) {
             coop.presence_made = Some((serial, now));
-            link.set_presence(presence_of(&sim.world));
+            link.set_presence(net::LIST_ENABLED, presence_of(&sim.world, Flag::Enabled));
         }
     }
     let here = place_of(&loc);
@@ -1665,7 +1688,7 @@ fn stand_ins(
 #[allow(clippy::type_complexity)]
 fn share_npcs(
     mut coop: ResMut<Coop>,
-    actors: Query<(&RefVisual, &Transform, Option<&Locomotion>, Option<&WeaponHold>, Has<Dying>, &InheritedVisibility), (With<crate::limbs::ActorRig>, Without<Puppet>)>,
+    actors: Query<(&RefVisual, &Transform, Option<&Locomotion>, Option<&WeaponHold>, Has<Dying>, &InheritedVisibility, Option<&crate::furniture::OnFurniture>), (With<crate::limbs::ActorRig>, Without<Puppet>)>,
     fighters: Res<Fighters>,
     mut attacks: MessageReader<PlayAttack>,
     mut told: Local<usize>,
@@ -1687,7 +1710,7 @@ fn share_npcs(
     // it was first drawn.
     let players: HashSet<u32> = coop.peers.values().filter_map(|p| p.actor).map(|r| r.0).collect();
     let mut npcs = Vec::new();
-    for (v, t, lo, hold, dying, seen) in &actors {
+    for (v, t, lo, hold, dying, seen, on) in &actors {
         // The dead too, out of sight or not: a guest lays its own body down.
         if (!seen.get() && !dying) || is_puppet(v.0) || players.contains(&v.0) {
             continue;
@@ -1701,6 +1724,7 @@ fn share_npcs(
         flags |= if dying { npc_flag::DEAD } else { 0 };
         flags |= if pitch.is_some() { npc_flag::AIMING } else { 0 };
         flags |= if fighters.sights(r) { npc_flag::SIGHTS } else { 0 };
+        flags |= if on.is_some_and(|f| f.seated()) { npc_flag::SEATED } else { 0 };
         npcs.push(NpcState {
             reference: r,
             feet: t.translation.to_array(),
@@ -1709,6 +1733,7 @@ fn share_npcs(
             flags,
             weapon: fighters.weapon(r).map_or(0, |w| w.0),
             attacks: coop.npc_attacks.get(&r).copied().unwrap_or(0),
+            furniture: on.map_or(0, |f| f.furniture()),
         });
     }
     if npcs.len().abs_diff(*told) >= 5 || (*told == 0) != npcs.is_empty() {
@@ -1795,12 +1820,12 @@ fn follow_npcs(
         let (npcs, hidden) = (&coop.npcs, &coop.hidden);
         let skip = |r: FormId| npcs.contains_key(&r.0) || hidden.contains(&r);
         let fresh = std::mem::take(&mut coop.presence.fresh);
-        let n = follow_presence(&mut sim.world, &fresh, &skip, &mut coop.presence_was);
+        let n = follow_presence(&mut sim.world, Flag::Enabled, &fresh, &skip, &mut coop.presence_was);
         if n > 0 {
             info!("co-op: {n} references enabled or disabled as in the host's world");
         }
         if let Some(host) = coop.presence.whole.take() {
-            let n = undo_own_presence(&mut sim.world, &host, &skip, &mut coop.presence_was);
+            let n = undo_own_presence(&mut sim.world, Flag::Enabled, &host, &skip, &mut coop.presence_was);
             if n > 0 {
                 info!("co-op: {n} references this game alone enabled or disabled take the plugins' flags again");
             }
@@ -1848,7 +1873,15 @@ fn follow_npcs(
         }
     }
     coop.npcs.retain(|_, t| t.samples.back().is_some_and(|(at, _)| now - at < NPC_FORGET));
-    let poses: HashMap<u32, RemotePose> = coop.npcs.iter().filter_map(|(&r, t)| t.pose(now - NPC_DELAY).map(|(feet, heading, moving)| (r, RemotePose { feet, heading, moving }))).collect();
+    let poses: HashMap<u32, RemotePose> = coop
+        .npcs
+        .iter()
+        .filter_map(|(&r, t)| {
+            // Its furniture as the host has it now (a chair, a bed, a cross: module notes).
+            let furniture = t.samples.back().map(|(_, s)| s).filter(|s| s.furniture != 0).map(|s| (s.furniture, s.has(npc_flag::SEATED)));
+            t.pose(now - NPC_DELAY).map(|(feet, heading, moving)| (r, RemotePose { feet, heading, moving, furniture }))
+        })
+        .collect();
     if poses.len().abs_diff(*told) >= 5 || (*told == 0) != poses.is_empty() {
         *told = poses.len();
         let mut some: Vec<String> = poses.keys().take(8).map(|r| format!("{r:08X}")).collect();
@@ -1985,54 +2018,172 @@ impl HostPresence {
     }
 }
 
-/// A placed reference's own enabled flag as its plugin gives it; `None` for what takes no
-/// part in presence (the player, references made at run time, unknown ones).
-fn authored_enabled(world: &fnv_sim::World, r: FormId) -> Option<bool> {
-    if r == FormId::PLAYER_REF || r.0 >= 0xFF00_0000 {
-        return None;
-    }
-    world.placed.get(r).map(|p| !p.initially_disabled())
+/// The flag a host's list carries (`net::LIST_ENABLED`, `net::LIST_OPEN`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Flag {
+    /// A reference's own enabled flag (its enable parent's is resolved apart).
+    Enabled,
+    /// A door's open flag (a door that opens in place: a load door has none).
+    Open,
 }
 
-/// A host's world's presence (module notes): each placed reference whose own enabled flag
-/// differs from its plugin's, with the flag, in FormID order.
-fn presence_of(world: &fnv_sim::World) -> Vec<(u32, bool)> {
-    world.changed().filter(|(r, st)| authored_enabled(world, *r).is_some_and(|a| a != st.enabled)).map(|(r, st)| (r.0, st.enabled)).collect()
+impl Flag {
+    /// A placed reference's flag as its plugin gives it; `None` for what takes no part
+    /// in the list (the player, references made at run time, unknown ones, load doors).
+    fn authored(self, world: &fnv_sim::World, r: FormId) -> Option<bool> {
+        if r == FormId::PLAYER_REF || r.0 >= 0xFF00_0000 {
+            return None;
+        }
+        let p = world.placed.get(r)?;
+        match self {
+            Flag::Enabled => Some(!p.initially_disabled()),
+            Flag::Open => p.teleport.is_none().then_some(p.open_by_default),
+        }
+    }
+
+    fn of(self, st: &fnv_sim::world::RefState) -> bool {
+        match self {
+            Flag::Enabled => st.enabled,
+            Flag::Open => st.open,
+        }
+    }
+
+    fn set(self, world: &mut fnv_sim::World, r: FormId, on: bool) {
+        match self {
+            Flag::Enabled => {
+                let _ = world.set_enabled(r, on);
+            }
+            Flag::Open => {
+                if let Ok(st) = world.get(r) {
+                    st.open = on;
+                }
+            }
+        }
+    }
+}
+
+/// A host's list (module notes): each placed reference whose `flag` differs from its
+/// plugin's, with the flag, in FormID order.
+fn presence_of(world: &fnv_sim::World, flag: Flag) -> Vec<(u32, bool)> {
+    world.changed().filter(|(r, st)| flag.authored(world, *r).is_some_and(|a| a != flag.of(st))).map(|(r, st)| (r.0, flag.of(st))).collect()
 }
 
 /// A guest takes the host's flags (`refs`), except for what `skip` holds; what it changes
 /// is kept in `was` as it was first. Returns how many it changed.
-fn follow_presence(world: &mut fnv_sim::World, refs: &[(u32, bool)], skip: &dyn Fn(FormId) -> bool, was: &mut HashMap<FormId, bool>) -> usize {
+fn follow_presence(world: &mut fnv_sim::World, flag: Flag, refs: &[(u32, bool)], skip: &dyn Fn(FormId) -> bool, was: &mut HashMap<FormId, bool>) -> usize {
     let mut n = 0;
     for &(r, on) in refs {
         let r = FormId(r);
-        if skip(r) || authored_enabled(world, r).is_none() {
+        if skip(r) || flag.authored(world, r).is_none() {
             continue;
         }
         let Ok(st) = world.get(r) else { continue };
-        if st.enabled != on {
-            was.entry(r).or_insert(st.enabled);
-            let _ = world.set_enabled(r, on);
+        let now = flag.of(st);
+        if now != on {
+            was.entry(r).or_insert(now);
+            flag.set(world, r, on);
             n += 1;
         }
     }
     n
 }
 
-/// A guest with the host's whole list (`host`): what its own game alone enabled or
-/// disabled (not on the list, not in `skip`) takes its plugin's flag again, kept in `was`
-/// as it was first. Returns how many it changed.
-fn undo_own_presence(world: &mut fnv_sim::World, host: &HashSet<u32>, skip: &dyn Fn(FormId) -> bool, was: &mut HashMap<FormId, bool>) -> usize {
+/// A guest with the host's whole list (`host`): what its own game alone changed (not on
+/// the list, not in `skip`) takes its plugin's flag again, kept in `was` as it was first.
+/// Returns how many it changed.
+fn undo_own_presence(world: &mut fnv_sim::World, flag: Flag, host: &HashSet<u32>, skip: &dyn Fn(FormId) -> bool, was: &mut HashMap<FormId, bool>) -> usize {
     let own: Vec<(FormId, bool)> = world
         .changed()
         .filter(|(r, _)| !host.contains(&r.0) && !skip(*r))
-        .filter_map(|(r, st)| authored_enabled(world, r).filter(|a| *a != st.enabled).map(|a| (r, a)))
+        .filter_map(|(r, st)| flag.authored(world, r).filter(|a| *a != flag.of(st)).map(|a| (r, a)))
         .collect();
     for &(r, authored) in &own {
         was.entry(r).or_insert(!authored);
-        let _ = world.set_enabled(r, authored);
+        flag.set(world, r, authored);
     }
     own.len()
+}
+
+/// A host makes its doors' list again this often (seconds); the doors loaded here go at
+/// once when they move.
+const DOORS_REMAKE: f32 = 0.5;
+/// A door this player used is its own this long (seconds): what this game does to it is
+/// sent, and the host's list does not undo it before the host has heard.
+const DOOR_HELD: f32 = 2.0;
+
+/// A door's open flag here: its state's, or as its plugin places it.
+fn door_open(world: &fnv_sim::World, r: FormId) -> Option<bool> {
+    world.peek(r).map(|s| s.open).or_else(|| Flag::Open.authored(world, r))
+}
+
+/// Doors in co-op (module notes): what others opened or closed is done here; a door
+/// loaded here that moved goes to everyone (a guest: only one its player used lately); the
+/// host makes its list, a guest follows it.
+fn share_doors(
+    mut coop: ResMut<Coop>,
+    time: Res<Time>,
+    doors: Option<Res<nvf_play::doors::Doors>>,
+    sim: Option<ResMut<nvf_play::sim::SimState>>,
+    mut used: MessageReader<nvf_play::world_sounds::Activated>,
+) {
+    let now = time.elapsed_secs();
+    let coop = &mut *coop;
+    let (Some(link), Some(mut sim)) = (coop.link.as_ref(), sim) else {
+        used.clear();
+        if coop.link.is_none() && !coop.doors_seen.is_empty() {
+            coop.doors_seen.clear();
+            coop.door_used.clear();
+            coop.doors_in.clear();
+            coop.doors_heard = HostPresence::default();
+            coop.doors_was.clear();
+            coop.doors_made = None;
+        }
+        return;
+    };
+    let is_host = link.is_host();
+    for u in used.read() {
+        coop.door_used.insert(u.reference, now);
+    }
+    coop.door_used.retain(|_, at| now - *at < DOOR_HELD);
+    for (id, r, open) in coop.doors_in.drain(..) {
+        let r = FormId(r);
+        if door_open(&sim.world, r).is_some_and(|was| was != open) {
+            if !is_host {
+                coop.doors_was.entry(r).or_insert(!open);
+            }
+            Flag::Open.set(&mut sim.world, r, open);
+            info!("co-op: {} {} door {:#010X}", if id == 0 { "the host".to_string() } else { label(id, &coop.peers.get(&id).map_or(String::new(), |p| p.name.clone())) }, if open { "opened" } else { "closed" }, r.0);
+        }
+        coop.doors_seen.insert(r.0, open);
+    }
+    if is_host {
+        if coop.doors_made.is_none_or(|at| now - at >= DOORS_REMAKE) {
+            coop.doors_made = Some(now);
+            link.set_presence(net::LIST_OPEN, presence_of(&sim.world, Flag::Open));
+        }
+    } else {
+        let used = &coop.door_used;
+        let skip = |r: FormId| used.contains_key(&r.0);
+        let fresh = std::mem::take(&mut coop.doors_heard.fresh);
+        let mut n = follow_presence(&mut sim.world, Flag::Open, &fresh, &skip, &mut coop.doors_was);
+        if let Some(host) = coop.doors_heard.whole.take() {
+            n += undo_own_presence(&mut sim.world, Flag::Open, &host, &skip, &mut coop.doors_was);
+        }
+        if n > 0 {
+            info!("co-op: {n} doors opened or closed as in the host's world");
+        }
+    }
+    // The doors loaded here that moved: this game's own doing (what came from the others
+    // is noted as seen above, and what the host's list did is not this player's).
+    let Some(doors) = doors else { return };
+    for id in doors.ids() {
+        let Some(open) = door_open(&sim.world, FormId(id)) else { continue };
+        let moved = coop.doors_seen.insert(id, open).is_some_and(|was| was != open);
+        if moved && (is_host || coop.door_used.contains_key(&id)) {
+            info!("co-op: this {} {} door {id:#010X}: everyone's does", if is_host { "host's world" } else { "player" }, if open { "opened" } else { "closed" });
+            link.send_door(id, open);
+        }
+    }
 }
 
 /// A guest in the host's place: each NPC the host draws, enabled here and put in this
@@ -2687,7 +2838,7 @@ mod tests {
         host.set_enabled(FormId(PARENT), true).unwrap();
         host.set_enabled(FormId(CRATE), false).unwrap();
         let _ = host.get(FormId(BOTTLE)).unwrap();
-        let list = presence_of(&host);
+        let list = presence_of(&host, Flag::Enabled);
         assert_eq!(list, vec![(CRATE, false), (PARENT, true)]);
 
         let mut guest = fnv_sim::World::new(&forms, &table, Default::default());
@@ -2698,10 +2849,10 @@ mod tests {
         heard.hear(1, 0, 1, list);
         let skip = |r: FormId| r == FormId(GECKO);
         let mut was = HashMap::new();
-        assert_eq!(follow_presence(&mut guest, &std::mem::take(&mut heard.fresh), &skip, &mut was), 2);
+        assert_eq!(follow_presence(&mut guest, Flag::Enabled, &std::mem::take(&mut heard.fresh), &skip, &mut was), 2);
         assert!(guest.is_enabled(FormId(BOTTLE)).unwrap(), "the bottles come with their parent");
         assert!(!guest.is_enabled(FormId(CRATE)).unwrap());
-        assert_eq!(undo_own_presence(&mut guest, &heard.whole.take().unwrap(), &skip, &mut was), 1);
+        assert_eq!(undo_own_presence(&mut guest, Flag::Enabled, &heard.whole.take().unwrap(), &skip, &mut was), 1);
         assert!(!guest.is_enabled(FormId(SIGN)).unwrap());
         assert!(guest.is_enabled(FormId(GECKO)).unwrap(), "skipped");
         // Leaving co-op: as it was.
@@ -2709,6 +2860,42 @@ mod tests {
             guest.set_enabled(r, on).unwrap();
         }
         assert!(guest.is_enabled(FormId(SIGN)).unwrap() && guest.is_enabled(FormId(CRATE)).unwrap() && !guest.is_enabled(FormId(BOTTLE)).unwrap());
+    }
+
+    /// The host's doors reach a guest's: a door the host opened opens, one only the
+    /// guest's game opened closes again, except the one its player just used; a load door
+    /// takes no part.
+    #[test]
+    fn the_hosts_doors_win_on_a_guest() {
+        const OPENED: u32 = 0x0010_0D01;
+        const OWN: u32 = 0x0010_0D02;
+        const USED: u32 = 0x0010_0D03;
+        const LOAD: u32 = 0x0010_0D04;
+        let mut table = fnv_sim::RefTable::default();
+        let mut load = placed(LOAD, false);
+        load.teleport = Some(fnv_sim::refs::Teleport { door: FormId(0x0010_0D05), pos: [0.0; 3], rot: [0.0; 3], no_alarm: false });
+        for p in [placed(OPENED, false), placed(OWN, false), placed(USED, false), load] {
+            table.refs.insert(p.id, p);
+        }
+        let forms = fnv_sim::FormStore::default();
+        let mut host = fnv_sim::World::new(&forms, &table, Default::default());
+        host.get(FormId(OPENED)).unwrap().open = true;
+        host.get(FormId(LOAD)).unwrap().open = true;
+        let list = presence_of(&host, Flag::Open);
+        assert_eq!(list, vec![(OPENED, true)]);
+
+        let mut guest = fnv_sim::World::new(&forms, &table, Default::default());
+        guest.get(FormId(OWN)).unwrap().open = true;
+        guest.get(FormId(USED)).unwrap().open = true;
+        let mut heard = HostPresence::default();
+        heard.hear(1, 0, 1, list);
+        let skip = |r: FormId| r == FormId(USED);
+        let mut was = HashMap::new();
+        assert_eq!(follow_presence(&mut guest, Flag::Open, &std::mem::take(&mut heard.fresh), &skip, &mut was), 1);
+        assert_eq!(undo_own_presence(&mut guest, Flag::Open, &heard.whole.take().unwrap(), &skip, &mut was), 1);
+        let open = |r: u32| door_open(&guest, FormId(r)).unwrap();
+        assert!(open(OPENED) && !open(OWN) && open(USED));
+        assert_eq!(door_open(&guest, FormId(LOAD)), None, "a load door");
     }
 
     /// A guest has the host's whole list only once every page of one serial came; a new

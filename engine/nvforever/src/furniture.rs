@@ -457,6 +457,18 @@ pub struct OnFurniture {
     stay_left: Option<f32>,
 }
 
+impl OnFurniture {
+    /// The furniture reference used.
+    pub fn furniture(&self) -> u32 {
+        self.plan.furniture
+    }
+
+    /// On it (getting on, staying or getting off), not walking up to it.
+    pub fn seated(&self) -> bool {
+        matches!(self.stage, Stage::Using(_))
+    }
+}
+
 /// Drawn actors not yet told to sit.
 type Unseated = (With<ActorRig>, Without<SitOn>);
 

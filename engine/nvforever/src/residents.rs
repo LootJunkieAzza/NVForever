@@ -865,6 +865,9 @@ pub struct RemotePose {
     pub feet: [f32; 3],
     pub heading: f32,
     pub moving: bool,
+    /// The furniture the host has it use (a chair, a bed, a cross), and whether it is on
+    /// it already (not walking up to it): a guest sits it there too.
+    pub furniture: Option<(u32, bool)>,
 }
 
 /// Standalone packages own their simulation; in play mode `SimState` owns it
@@ -2096,6 +2099,15 @@ impl Core {
             a.walker.air = None;
             a.walker.tri = fnv_nav::graph::NONE;
             a.activity = if pose.moving { Activity::Travelling } else { Activity::There };
+            // On the furniture the host has it on: the drawing sits it there
+            // ([`Core::note`] makes it the one it wants), at once when it is on already
+            // (the crucified on their crosses, a sitter on a chair).
+            a.using = pose.furniture.map(|(f, _)| FormId(f));
+            if let (Some((f, on)), Some(r)) = (pose.furniture, self.list.iter_mut().find(|r| r.actor.0 == id)) {
+                if r.seat == Seat::None {
+                    r.seat = Seat::Wanted(f, on);
+                }
+            }
             if let Some(p) = phys.as_deref_mut() {
                 p.remove_npc(id);
             }
@@ -2226,6 +2238,7 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         AiEvent::Resumed { package, .. } => format!("goes on with {}, its sandbox day as saved", n(package)),
         AiEvent::Arrived { seconds, travelled, .. } => format!("arrived after {seconds:.1}s, {travelled:.0} units"),
         AiEvent::Unreachable { package, why } => format!("cannot reach the place of {}: {why}", n(package)),
+        AiEvent::Straight { package, length } => format!("no navmesh on the way to the place of {}: walks straight there, {length:.0} units", n(package)),
         AiEvent::NotCarriedOut { package, why } => format!("stays: {} is {why}, not carried out yet", n(package)),
         AiEvent::Furniture { furniture: Some(f) } => format!("is to use furniture {f}"),
         AiEvent::Furniture { furniture: None } => "leaves its furniture".into(),
