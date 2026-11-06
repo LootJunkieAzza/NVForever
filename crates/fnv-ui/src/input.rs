@@ -272,6 +272,22 @@ fn hittable_kind(kind: &str) -> bool {
 
 /// One menu's candidates under `at`, as (tile, depth, drawing order).
 fn candidates(ui: &Ui, menu: TileId, at: (f64, f64), measure: &Measure<'_>, out: &mut Vec<(TileId, f64, usize)>) {
+    walk(ui, menu, at, measure, out, &mut Vec::new());
+}
+
+/// A hotrect with no `target` trait at all: not a target, but the game still sets its
+/// `mouseover` while the pointer is over it [hypothesis, from MCM's ModList.xml:
+/// `ArrowUp`, `ArrowDown` and `ModList_Scroll` are hotrects with no `target`, and MCM's
+/// main script reads their `mouseover` to scroll its mod list, by a click (the raw mouse
+/// button, `IsKeyPressed 256`, never their `clicked`) and by the wheel; the arrows light
+/// on it; documented: Target, a tile needs `target` to react to the pointer, which these
+/// would not if `mouseover` needed it too].
+fn bare_hotrect(tile: &Tile) -> bool {
+    tile.kind == "hotrect" && tile.get("target").is_none()
+}
+
+/// [`candidates`], and the [`bare_hotrect`]s under `at` into `bare`.
+fn walk(ui: &Ui, menu: TileId, at: (f64, f64), measure: &Measure<'_>, out: &mut Vec<(TileId, f64, usize)>, bare: &mut Vec<TileId>) {
     if !ui.is_live(menu) || !shown(ui, menu) {
         return;
     }
@@ -287,8 +303,12 @@ fn candidates(ui: &Ui, menu: TileId, at: (f64, f64), measure: &Measure<'_>, out:
         let here = place(ui, id, parent, measure);
         order += 1;
         let own = targets(ui, id);
-        if (own || here.forced) && hittable_kind(&tile.kind) && here.area.contains(at) && here.clip.is_none_or(|c| c.contains(at)) {
+        let under = here.area.contains(at) && here.clip.is_none_or(|c| c.contains(at));
+        if (own || here.forced) && hittable_kind(&tile.kind) && under {
             out.push((id, here.depth, order));
+        }
+        if under && !here.forced && bare_hotrect(tile) {
+            bare.push(id);
         }
         let mut below = here;
         below.forced |= own && tile.kind == "hotrect";
@@ -323,6 +343,17 @@ pub fn hit(ui: &Ui, menus: &[TileId], at: (f64, f64), measure: &Measure<'_>) -> 
         }
     }
     None
+}
+
+/// The [`bare_hotrect`]s under the pointer at `at` in `menus`, every one of them, not
+/// only the top one [hypothesis: MCM reads `ModList_Scroll`'s `mouseover` for the wheel
+/// with its rows over it, and the rows' own `mouseover` as well; either serves it].
+pub fn bare_hotrects(ui: &Ui, menus: &[TileId], at: (f64, f64), measure: &Measure<'_>) -> Vec<TileId> {
+    let mut bare = Vec::new();
+    for &menu in menus {
+        walk(ui, menu, at, measure, &mut Vec::new(), &mut bare);
+    }
+    bare
 }
 
 /// The first tile of an `id` in a menu, in file order [documented: ClickMenuButton,
@@ -417,6 +448,8 @@ pub struct Pointer {
     kept: Vec<TileId>,
     /// The scripts' clicks since the last step.
     queued: Vec<Click>,
+    /// The [`bare_hotrect`]s whose `mouseover` is 1.
+    bare: Vec<TileId>,
 }
 
 impl Pointer {
@@ -456,6 +489,18 @@ impl Pointer {
             let new = input.at.and_then(|at| hit(ui, menus, at, measure)).map(|h| h.tile);
             self.highlight(ui, new, &mut report);
         }
+        let bare = input.at.map(|at| bare_hotrects(ui, menus, at, measure)).unwrap_or_default();
+        for &t in self.bare.iter().filter(|t| !bare.contains(t)) {
+            if ui.is_live(t) {
+                ui.set_trait(t, MOUSEOVER, Value::Num(0.0));
+            }
+        }
+        for &t in &bare {
+            if ui.tile(t).get(MOUSEOVER).is_none_or(|v| !v.truthy()) {
+                ui.set_trait(t, MOUSEOVER, Value::Num(1.0));
+            }
+        }
+        self.bare = bare;
         if input.press {
             if let Some(t) = self.over {
                 report.clicks.push(self.click(ui, t, input.shift, By::Pointer));
@@ -748,6 +793,50 @@ mod tests {
         assert!(!clips_children(ui.tile(long)));
         ui.set_trait(long, "clips", Value::Num(1.0));
         assert!(clips_children(ui.tile(long)));
+    }
+
+    /// MCM's mod list in small: a scroll area (a hotrect with no `target`) under a row
+    /// (a target hotrect) and an arrow (no `target`) that only shows when scrolled.
+    const SCROLLED_LIST: &str = r#"<menu name="ListMenu">
+      <rect name="List"> <width> 200 </width> <height> 300 </height> <_offset> 0 </_offset>
+        <hotrect name="Scroll"> <depth> 12 </depth> <width> 200 </width> <height> 300 </height> </hotrect>
+        <hotrect name="Row"> <depth> 13 </depth> <target> 1 </target> <y> 30 </y> <width> 200 </width> <height> 30 </height> </hotrect>
+        <hotrect name="ArrowUp"> <depth> 13 </depth> <visible> <copy src="parent()" trait="_offset"/> </visible> <width> 200 </width> <height> 20 </height> </hotrect>
+      </rect>
+    </menu>"#;
+
+    #[test]
+    fn a_hotrect_without_target_is_moused_over_but_takes_no_click() {
+        let src = MemSource::default().with("menus\\list.xml", SCROLLED_LIST);
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "menus\\list.xml").unwrap();
+        ui.update();
+        let row = id(&ui, "ListMenu/List/Row");
+        let mut p = Pointer::default();
+        // Over the row: the row takes the pointer, the scroll area under it is moused over too.
+        p.step(&mut ui, &[menu], &at(50.0, 40.0), &no_measure);
+        assert_eq!(p.over, Some(row));
+        assert_eq!(ui.get_float("ListMenu/List/Row/mouseover"), Some(1.0));
+        assert_eq!(ui.get_float("ListMenu/List/Scroll/mouseover"), Some(1.0));
+        // The hidden arrow is not.
+        assert_eq!(ui.get_float("ListMenu/List/ArrowUp/mouseover"), None);
+        // Below the row: no target there, the scroll area alone; a press clicks nothing.
+        let r = p.step(&mut ui, &[menu], &Input { at: Some((50.0, 200.0)), press: true, ..Input::default() }, &no_measure);
+        assert_eq!(p.over, None);
+        assert!(r.clicks.is_empty());
+        assert_eq!(ui.get_float("ListMenu/List/Scroll/mouseover"), Some(1.0));
+        assert_eq!(ui.get_float("ListMenu/List/Scroll/clicked"), None);
+        assert_eq!(ui.get_float("ListMenu/List/Row/mouseover"), Some(0.0));
+        // Scrolled: the arrow shows and is moused over with the scroll area.
+        let list = id(&ui, "ListMenu/List");
+        ui.set_trait(list, "_offset", Value::Num(1.0));
+        ui.update();
+        p.step(&mut ui, &[menu], &at(50.0, 10.0), &no_measure);
+        assert_eq!(ui.get_float("ListMenu/List/ArrowUp/mouseover"), Some(1.0));
+        // Off the list: all back to 0.
+        p.step(&mut ui, &[menu], &at(500.0, 500.0), &no_measure);
+        assert_eq!(ui.get_float("ListMenu/List/ArrowUp/mouseover"), Some(0.0));
+        assert_eq!(ui.get_float("ListMenu/List/Scroll/mouseover"), Some(0.0));
     }
 
     #[test]

@@ -779,9 +779,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, a
             let l = as_form(args.first()).unwrap_or(FormId(0));
             let Some(f) = as_form(args.get(1)) else { return Some(Ok(XVal::Num(-1.0))) };
             let at = int_of(args.get(2), -2);
-            let dupes = args.get(3).is_some_and(XVal::truthy);
+            // A form already on the list is not added again, whatever `checkForDupes` says
+            // [design: owner decision 2026-11-06. JAM adds itself to MCM's list in the
+            // start menu's main-menu frames and again after GetGameRestarted; listed twice,
+            // MCM counted two mods under one row, let the wheel scroll its only row away and
+            // never listed it again (its rebuild skips a form equal to the last one listed).
+            // Whether the original adds a duplicate without the flag is open: the page gives
+            // `checkForDupes` as optional; observer check].
             let list = g.edited_list(l);
-            if dupes && list.contains(&f) {
+            if list.contains(&f) {
                 return Some(Ok(XVal::Num(-1.0)));
             }
             // -2 or past the end: at the end [documented]; another negative index fails
