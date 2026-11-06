@@ -13,8 +13,9 @@
 //!   button and the timing bar runs at Agility's speed, let go on the green pip for a true
 //!   throw. Space hands the turn over, R starts again, Tab leaves (a forfeit in a match).
 //!   It is played at the cabinet in the world, as the mod does it [observed:
-//!   docs/spec-notes/darts.md §10]: the camera stands 64 board units in front of the bull,
-//!   level, facing the board ([`darts_camera`]); the aim is where the view's ray through the
+//!   docs/spec-notes/darts.md §10]: the camera stands fixed, facing the board
+//!   ([`darts_camera`]): at the player's eyes on their own turn, behind the line in third
+//!   person otherwise; the aim is where the view's ray through the
 //!   cursor meets the board's face ([`BoardFrame`]); the darts are the mod's models, flying
 //!   from the hand and stuck in the board (nvforever `darts_world.rs`). Only the scores,
 //!   the timing bar and the crosshair are drawn over the view.
@@ -91,6 +92,10 @@ pub const WAIT: [f32; 3] = [-48.0, LINE[1] - 50.0, 0.0];
 /// camera stood 64 in front of the bull, where a co-op friend at the line stood in the
 /// view].
 pub const EYE: [f32; 3] = [16.0, LINE[1] - 36.0, 8.0];
+/// Where the camera stands on this player's own turn, local: their eyes at the line, a
+/// little right of the body at [`UP`] over the throwing hand, at about the bull's height
+/// [design: owner 2026-11-05, first person on one's own turn, third on the other's].
+pub const OWN_EYE: [f32; 3] = [UP[0] + 8.0, LINE[1] + 3.0, 5.0];
 /// Seconds a held throw takes to draw the dart all the way back [design].
 pub const DRAW_SECONDS: f32 = 0.35;
 
@@ -469,6 +474,14 @@ fn start_race(f: &mut Fillet, bet: u32, seed: u64, foe: u8, now: f32) {
 fn start_match(d: &mut Darts, foe: Foe, now: f32) {
     d.foe = foe;
     d.m = Match::new(if foe == Foe::Practice { 1 } else { 2 });
+    // Test aid `NVF_PLAY_TEST_DARTS_START=n`: every side starts on n instead of 301, to
+    // reach a checkout or a bust in a short run.
+    if let Some(n) = std::env::var("NVF_PLAY_TEST_DARTS_START").ok().and_then(|v| v.trim().parse().ok()) {
+        for s in &mut d.m.sides {
+            (s.score, s.turn_start) = (n, n);
+        }
+        info!("darts: test aid: every side starts on {n}");
+    }
     d.page = Page::Play;
     d.turn_since = now;
     d.stuck.clear();
@@ -624,6 +637,13 @@ pub fn stands_up(d: &Darts) -> bool {
     d.page != Page::Play || d.m.up == d.mine() || d.m.winner.is_some()
 }
 
+/// Whether the view is this player's own eyes: in a game, at the line on their own turn
+/// (third person behind the line on the menus, the other side's turn and after the match)
+/// [design: owner 2026-11-05].
+pub fn first_person(d: &Darts) -> bool {
+    d.page == Page::Play && d.stands_up == Some(true) && d.m.up == d.mine() && d.m.winner.is_none()
+}
+
 /// The player steps up to the line on their turn, facing the board, and back to wait on
 /// the other side's, so the others see them there and the view behind the line is clear
 /// [design: owner 2026-11-04; the mod leaves the player where they stood].
@@ -715,10 +735,11 @@ fn darts_opponent_walk(
     }
 }
 
-/// While a darts game is open the camera stands behind the throw line, fixed, looking at
-/// the bull [design: owner 2026-11-04].
+/// While a darts game is open the camera stands fixed, looking at the bull: at this
+/// player's eyes on their own turn ([`OWN_EYE`]), else behind the throw line ([`EYE`])
+/// [design: owner 2026-11-04, 2026-11-05].
 fn darts_camera(screen: Res<DartsScreen>, mut cams: Query<&mut Transform, With<PlayerCamera>>) {
-    let Some(f) = screen.0.as_ref().and_then(|d| d.frame) else { return };
+    let Some((f, own)) = screen.0.as_ref().and_then(|d| d.frame.map(|f| (f, first_person(d)))) else { return };
     let Ok(mut t) = cams.single_mut() else { return };
     // Test aid `NVF_PLAY_TEST_DARTS_EYE=x,y,z,ax,ay,az`: the camera at (x, y, z) looking at
     // (ax, ay, az), board-local (to see the throwers from the side).
@@ -727,7 +748,7 @@ fn darts_camera(screen: Res<DartsScreen>, mut cams: Query<&mut Transform, With<P
         let v: Vec<f32> = std::env::var("NVF_PLAY_TEST_DARTS_EYE").ok()?.split(',').filter_map(|s| s.trim().parse().ok()).collect();
         (v.len() == 6).then(|| ([v[0], v[1], v[2]], [v[3], v[4], v[5]]))
     });
-    let (eye, at) = aid.unwrap_or((EYE, [0.0, FACE_Y, 0.0]));
+    let (eye, at) = aid.unwrap_or((if own { OWN_EYE } else { EYE }, [0.0, FACE_Y, 0.0]));
     let eye = crate::space::to_bevy(f.to_world(eye));
     let bull = crate::space::to_bevy(f.to_world(at));
     let out = Transform::from_translation(eye).looking_at(bull, Vec3::Y);

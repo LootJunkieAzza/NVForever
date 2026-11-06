@@ -246,3 +246,8 @@ Other edits in those cells [observed: ESP; base names looked up in FalloutNV.esm
 - Darts are placed with yaw = board yaw, no pitch/roll, scale k.
 - Unclear: the exact meaning of the JIP camera-rotate mode arguments used to lock the view; only
   the end result (fixed view at the position above) is clear.
+- **NVForever's view** [design: owner 2026-11-04, 2026-11-05]: not the mod's free camera.
+  On the player's own turn the view is their eyes at the throw line, first person, and the dart
+  is drawn only once it leaves the hand, so nothing stands between the eye and the board. On
+  the other side's turn, on the menus and after the match, a fixed camera behind the line shows
+  the throwers in third person.
