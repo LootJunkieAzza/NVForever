@@ -4025,12 +4025,21 @@ impl<'a> Game<'a> {
                 }
             }
         }
-        // A line already being said keeps the response it is at (the voice follows it).
+        // A line already being said keeps the response it is at (the voice follows it),
+        // and its time left never rises by less than [`REMOTE_SAID_AGAIN`]: the host's
+        // updates come late by a little more or less each time, and a rise is what starts
+        // the line's sound over (`nvf_play::voice::step`) [until 2026-11-06 the guest
+        // restarted the host's lines at random points; owner playtest, guest logs with
+        // one response started four times in seven seconds]. A larger rise is the line
+        // said again.
         let mut kept: Vec<Speech> = Vec::with_capacity(lines.len());
         for mut l in lines {
             l.remote = true;
             if let Some(old) = self.speech.iter().find(|s| s.remote && s.speaker == l.speaker && s.info == l.info) {
                 l.response = old.response;
+                if l.remaining > old.remaining && l.remaining < old.remaining + REMOTE_SAID_AGAIN {
+                    l.remaining = old.remaining;
+                }
             }
             kept.push(l);
         }
@@ -5310,6 +5319,12 @@ impl<'a> Game<'a> {
 /// characters 10 s from the stage before them to the stage their end script set,
 /// layer5-captures.md §10.2–10.3; the fit gives 2.9, 15.4 and 10.3 s].
 pub const LINE_BASE_SECONDS: f64 = 1.1;
+
+/// A co-op guest: how much more time left (seconds) a host's line must have than it had
+/// here to be taken as said again rather than as an update come late
+/// ([`Game::set_remote_speech`]) [design: well above the spread of a network delay, below
+/// the shortest voiced lines, about half a second].
+pub const REMOTE_SAID_AGAIN: f64 = 0.3;
 pub const LINE_SECONDS_PER_CHAR: f64 = 1.0 / 16.0;
 
 /// The fitted length of one response of `chars` characters ([`LINE_BASE_SECONDS`],

@@ -2818,7 +2818,8 @@ fn drive_body(
     let seen = if frame.upright {
         Seen { body: true, head: false, arms: !arms_up, weapon: !m.hands.in_hand }
     } else {
-        Seen { body: third_view || !has_first, head: third_view || has_first, arms: true, weapon: true }
+        // The Pip-Boy checked: the weapon in the hand is not seen (`pipboy_check.rs`).
+        Seen { body: third_view || !has_first, head: third_view || has_first, arms: true, weapon: !(m.hands.in_hand && check.0.hides_weapon()) }
     };
     // Through a scope the arms rig is not drawn (docs/spec-notes/weapon-scopes.md §2),
     // unless the scope is shown in its lens (3D scopes).

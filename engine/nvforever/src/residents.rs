@@ -2084,8 +2084,13 @@ impl Core {
 
     /// A co-op guest's frame in place of [`Core::think`] (`Residents::remote`): nobody
     /// thinks; each actor the host draws is put where the host has it, with no physics
-    /// body of its own here to walk it anywhere else.
-    fn follow(&mut self, game: &Game, remote: &HashMap<u32, RemotePose>, mut phys: Option<&mut PhysState>, blocks: Option<&mut ActorBlocks>, now: f32) {
+    /// body of its own here to walk it anywhere else. The game is told that place too:
+    /// what is measured from the actor (where its lines are heard, `nvf_play::voice`;
+    /// a script's GetDistance) is measured from where it is drawn [until 2026-11-06 only
+    /// the drawn body moved, so a guest heard the host's NPCs from where its own game
+    /// last had them, often thousands of units off: "only when standing very close",
+    /// Swanick not at all; owner playtest].
+    fn follow(&mut self, game: &mut Game, remote: &HashMap<u32, RemotePose>, mut phys: Option<&mut PhysState>, blocks: Option<&mut ActorBlocks>, now: f32) {
         self.join(game);
         for (&id, pose) in remote {
             let Some(a) = self.ai.agents.get_mut(&FormId(id)) else { continue };
@@ -2096,6 +2101,10 @@ impl Core {
             a.walker.air = None;
             a.walker.tri = fnv_nav::graph::NONE;
             a.activity = if pose.moving { Activity::Travelling } else { Activity::There };
+            let place = fnv_nav::path::Place { space: a.walker.space, pos: pose.feet };
+            // Its cell as the walker's space gives it, or the one it has (no cell found).
+            let cell = fnv_ai::goal::cell_of_place(game.world.placed, &place).or_else(|| game.world.peek(FormId(id)).and_then(|s| s.cell));
+            let _ = game.set_actor_place(FormId(id), cell, pose.feet, pose.heading);
             if let Some(p) = phys.as_deref_mut() {
                 p.remove_npc(id);
             }
@@ -2582,7 +2591,7 @@ pub fn drive(
                 drop(span);
                 let _span = info_span!("ai::think").entered();
                 match remote {
-                    Some(remote) => core.follow(&rt.game, remote, phys.as_deref_mut(), blocks, now),
+                    Some(remote) => core.follow(&mut rt.game, remote, phys.as_deref_mut(), blocks, now),
                     None => core.think(&mut rt.game, false, &nav, &world, &mut doors, phys.as_deref_mut(), blocks, dt, now, waited),
                 }
                 core.place_scripted(phys);
