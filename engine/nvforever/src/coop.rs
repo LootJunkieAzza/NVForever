@@ -68,9 +68,14 @@
 //! guest's save did: an NPC dead in the guest's game but alive in the host's stands up
 //! again ([`place_like_host`]), and an actor the guest's game draws near the host that the
 //! host's world does not have (dead or disabled there, not there yet) is disabled for as
-//! long as the guest is in the host's world ([`not_in_hosts_world`]). So a guest whose
-//! save has done everything joins a host who is just starting and sees the host's
-//! Goodsprings. None of it reaches the guest's own saves (its own game is kept, below).
+//! long as the guest is in the host's world ([`not_in_hosts_world`]). What the host's
+//! scripts enabled or disabled that is not an NPC it draws (Sunny's bottles, the markers
+//! that are other references' enable parents) goes as its world's presence: every placed
+//! reference whose own enabled flag differs from its plugin's ([`presence_of`],
+//! `net::Msg::Presence`); a guest takes those flags, and once it has the whole list puts
+//! back its plugin's flag on what only its own game changed ([`follow_presence`]). So a
+//! guest whose save has done everything joins a host who is just starting and sees the
+//! host's Goodsprings. None of it reaches the guest's own saves (its own game is kept, below).
 //!
 //! **What the host's NPCs say.** The lines the host's NPCs are saying (a scene between
 //! two of them, a scripted Say or SayTo, a hello; `Game::speech`), and the NPC's lines
@@ -97,8 +102,10 @@
 //! body drops as a ragdoll (here and on the others' screens) and the view stays with it,
 //! without the death camera's slow motion or fade (`death_cam::DeathCam::downed_in_coop`).
 //! Another player who comes within [`REVIVE_REACH`] and presses Activate revives them
-//! with a Stimpak of their own (one is used up): the downed player stands up where the
-//! body lies, healed (`Game::resurrect`). After [`RESPAWN_AFTER`] a downed player can
+//! with a Stimpak of their own (one is used up): the downed player, healed
+//! (`Game::resurrect`), gets up from where the body lies as a duel's loser does: knocked
+//! down in that pose, the camera following the body, the get-up clip from the ragdoll's
+//! pose (`player_knockdown.rs`, [`crate::player_knockdown::PlayerKnockdown::revived`]). After [`RESPAWN_AFTER`] a downed player can
 //! press Activate to stand up again beside another player (the nearest one up, else the
 //! host) instead.
 //!
@@ -266,6 +273,7 @@ impl Plugin for CoopPlugin {
             npc_attacks: HashMap::new(),
             ai_was_off: None,
             host_quest: None,
+            quest_untold: None,
             host_place: None,
             downed_at: None,
             told_respawn: false,
@@ -274,6 +282,9 @@ impl Plugin for CoopPlugin {
             swept_at: 0.0,
             unheard: HashMap::new(),
             hidden: HashSet::new(),
+            presence: HostPresence::default(),
+            presence_was: HashMap::new(),
+            presence_made: None,
             host_lines: None,
             handed_off: false,
             progress_in: Vec::new(),
@@ -395,6 +406,10 @@ struct Coop {
     ai_was_off: Option<bool>,
     /// A guest's: the host's active quest as last heard.
     host_quest: Option<HostQuest>,
+    /// A guest's: the host's quest as its messages last told it, while messages for a
+    /// newer one wait for this game's scripts (a guest joins while its game still loads,
+    /// and the host sends its quest again only when it changes).
+    quest_untold: Option<Option<HostQuest>>,
     /// A guest's: the host's place, and since when it has been there (seconds of `Time`).
     host_place: Option<(Place, f32)>,
     /// This player is down: since when (seconds of `Time`), and whether it was told it
@@ -411,6 +426,12 @@ struct Coop {
     /// when each has not been heard of, and those it disabled ([`not_in_hosts_world`]).
     unheard: HashMap<u32, f32>,
     hidden: HashSet<FormId>,
+    /// A guest's: the host's world's presence as heard ([`follow_presence`]), and the
+    /// enabled flags it changed in this world, as they were (put back on leaving).
+    presence: HostPresence,
+    presence_was: HashMap<FormId, bool>,
+    /// A host's: its world's presence serial when the list was last made, and when.
+    presence_made: Option<(u64, f32)>,
     /// A guest's: the lines the host's NPCs are saying, and when they came.
     host_lines: Option<(f32, Vec<net::LineView>)>,
     /// A host that let go of its port for a load's new run ([`lobby`]).
@@ -731,6 +752,9 @@ struct Peer {
     /// Lost a duel to this player: its puppet lies since then (seconds of `Time`;
     /// [`duel_falls`]).
     fell_at: Option<f32>,
+    /// The throw its fallen puppet's ragdoll is still to get (game units a second, game
+    /// space), and since when it waits for the ragdoll ([`duel_falls`]).
+    fall_shove: Option<([f32; 3], f32)>,
 }
 
 impl Peer {
@@ -845,17 +869,24 @@ fn social_mates(coop: Res<Coop>, loc: Option<Res<Location>>, mut mates: ResMut<n
 /// again (seconds) [design: its own game's knockdown and get-up take about as long].
 const DUEL_FALL: f32 = 3.5;
 
+/// How long a fallen puppet's throw waits for its ragdoll before it is let go (seconds).
+const DUEL_SHOVE_WAIT: f32 = 2.0;
+
 /// The loser of a duel against this player: its puppet falls as a downed player's does
-/// ([`downed`]), and stands again after [`DUEL_FALL`].
+/// ([`downed`]), its ragdoll thrown away from this player as the loser's own game throws
+/// it (`nvf_play::coop_social::duel::throw`, the same velocity), and stands again after
+/// [`DUEL_FALL`].
 #[allow(clippy::too_many_arguments)]
 fn duel_falls(
     time: Res<Time>,
     mut coop: ResMut<Coop>,
     mut social: ResMut<nvf_play::coop_social::Social>,
+    (mates, player): (Res<nvf_play::coop_social::SocialMates>, Option<Res<nvf_play::player::Player>>),
     mut script: Option<ResMut<nvf_play::script::ScriptState>>,
     mut phys: Option<ResMut<nvf_play::phys::PhysState>>,
     mut ragdolls: ResMut<crate::ragdoll::Ragdolls>,
-    mut hits: MessageWriter<ActorHit>,
+    (mut hits, mut pushes): (MessageWriter<ActorHit>, MessageWriter<nvf_play::combat::ActorPush>),
+    mut corpses: Query<(&RefVisual, &mut crate::ragdoll::Corpse, &GlobalTransform)>,
 ) {
     let now = time.elapsed_secs();
     let mut falls: Vec<u8> = Vec::new();
@@ -871,15 +902,44 @@ fn duel_falls(
         let Some(p) = coop.peers.get_mut(&id).filter(|p| !p.down) else { continue };
         let r = p.reference(id);
         p.fell_at = Some(now);
+        // Thrown away from this player, as its own game throws it.
+        let shove = match (mates.get(id), player.as_deref()) {
+            (Some(m), Some(me)) => nvf_play::coop_social::duel::throw(m.feet, me.feet),
+            _ => [0.0, 0.0, nvf_play::coop_social::duel::THROW.1],
+        };
+        p.fall_shove = Some((shove, now));
         g.extra.entry(FormId(r)).or_default().dead = true;
         hits.write(ActorHit { form_id: r, died: true, knocked_out: false, location: -1, crippled: false, part_crippled: false, torso_crippled: false, by: None, share: 1.0, guard_broken: false, weapon: None });
-        info!("co-op: {} lost the duel: the puppet falls", label(id, &p.name));
+        info!("co-op: {} lost the duel: the puppet falls, thrown at ({:.0}, {:.0}, {:.0}) units/s", label(id, &p.name), shove[0], shove[1], shove[2]);
+    }
+    // The throw: the ragdoll starts with it, or (already in the world) is pushed by it.
+    for (&id, p) in coop.peers.iter_mut() {
+        let Some((shove, since)) = p.fall_shove else { continue };
+        let r = p.reference(id);
+        match corpses.iter_mut().find(|(v, ..)| v.0 == r) {
+            Some((_, mut c, _)) if !c.live => {
+                c.velocity = shove;
+                p.fall_shove = None;
+                info!("co-op: {}'s ragdoll starts thrown", label(id, &p.name));
+            }
+            Some((_, _, gt)) => {
+                pushes.write(nvf_play::combat::ActorPush { form_id: r, point: nvf_play::space::to_game(gt.translation()), dv: shove });
+                p.fall_shove = None;
+                info!("co-op: {}'s ragdoll is pushed by the throw", label(id, &p.name));
+            }
+            None if now - since > DUEL_SHOVE_WAIT => {
+                p.fall_shove = None;
+                info!("co-op: {}'s puppet has no ragdoll: it falls in place", label(id, &p.name));
+            }
+            None => {}
+        }
     }
     for (&id, p) in coop.peers.iter_mut() {
         if p.fell_at.is_none_or(|t| now - t < DUEL_FALL) {
             continue;
         }
         p.fell_at = None;
+        p.fall_shove = None;
         if p.down {
             continue;
         }
@@ -1121,7 +1181,7 @@ fn take_events(
     mut remote_hits: MessageWriter<RemoteHit>,
     (mut sim, mut script, mut quest_lines): (Option<ResMut<nvf_play::sim::SimState>>, Option<ResMut<nvf_play::script::ScriptState>>, Option<ResMut<nvf_play::quest_messages::QuestMessages>>),
     (mut opened, real, mut tables, mut anims_out, mut anims_in): (MessageReader<LockOpened>, Res<Time<Real>>, Option<ResMut<Tables>>, MessageReader<crate::consume_anims::SendAnim>, MessageWriter<crate::consume_anims::PeerAnim>),
-    solo: Option<Res<nvf_play::save::SoloBase>>,
+    (solo, mut knock): (Option<Res<nvf_play::save::SoloBase>>, Option<ResMut<crate::player_knockdown::PlayerKnockdown>>),
 ) {
     let now = time.elapsed_secs();
     let coop = &mut *coop;
@@ -1143,6 +1203,17 @@ fn take_events(
     let is_host = link.is_host();
     let mut notes = Vec::new();
     let mut refused = false;
+    // The host's quest messages, once this game's scripts are there to name them (a quest
+    // heard while the game still loaded is told then).
+    if let (Some(told), Some(rt)) = (coop.quest_untold.as_ref(), rt.as_deref()) {
+        for n in host_quest_notices(rt.game.data, told.as_ref(), coop.host_quest.as_ref()) {
+            info!("co-op: the host's quest: {}", nvf_play::quest_messages::describe(&n));
+            if let Some(l) = quest_lines.as_deref_mut() {
+                l.push(n);
+            }
+        }
+        coop.quest_untold = None;
+    }
     for e in link.events() {
         match e {
             Event::Welcomed(id) => {
@@ -1267,26 +1338,25 @@ fn take_events(
             },
             // One of the host's actors hit this player there.
             Event::Quest(q) => {
-                let new = host_quest(&q);
-                if let Some(rt) = rt.as_deref() {
-                    let notices = host_quest_notices(rt.game.data, coop.host_quest.as_ref(), new.as_ref());
-                    for n in notices {
-                        info!("co-op: the host's quest: {}", nvf_play::quest_messages::describe(&n));
-                        if let Some(l) = quest_lines.as_deref_mut() {
-                            l.push(n);
-                        }
-                    }
-                }
-                coop.host_quest = new;
+                // Told from the quest last told, even when messages for a later one wait.
+                let told = coop.quest_untold.take().unwrap_or_else(|| coop.host_quest.clone());
+                coop.host_quest = host_quest(&q);
+                coop.quest_untold = Some(told);
             }
             Event::Revived { by } => {
                 if let Some(rt) = rt.as_deref_mut().filter(|rt| rt.game.is_dead(FormId::PLAYER_REF)) {
                     rt.game.resurrect(FormId::PLAYER_REF, false);
+                    // Up from where the body lies, as a duel's loser gets up
+                    // (`player_knockdown.rs`).
+                    if let Some(k) = knock.as_deref_mut() {
+                        k.revived = true;
+                    }
                     coop.downed_at = None;
                     notes.push(format!("{} revived you", label(by, &coop.peers.get(&by).map_or(String::new(), |p| p.name.clone()))));
                 }
             }
             Event::Lines(lines) => coop.host_lines = Some((now, lines)),
+            Event::Presence { serial, page, pages, refs } => coop.presence.hear(serial, page, pages, refs),
             Event::Clock(c) => {
                 // Not before this game is kept as the guest's own.
                 if let Some(sim) = sim.as_deref_mut().filter(|_| solo.is_some()) {
@@ -1433,9 +1503,10 @@ fn draw(
         let Some((place, feet, yaw, moving)) = p.pose(now - DELAY) else { continue };
         let Some(&(_, newest)) = p.samples.back() else { continue };
         // Up again after being down: its body was a ragdoll. And whatever the reason, a
-        // player who is up is never drawn lying (a body that missed getting up).
+        // player who is up is never drawn lying (a body that missed getting up); but for
+        // the loser of a duel against this player, while it lies ([`duel_falls`]).
         let lies = p.root.is_some_and(|e| lying.contains(e));
-        if std::mem::take(&mut p.redraw) || (lies && !newest.has(flag::DOWN)) {
+        if std::mem::take(&mut p.redraw) || (lies && !newest.has(flag::DOWN) && p.fell_at.is_none()) {
             if lies {
                 info!("co-op: {} is up: drawn standing", label(id, &p.name));
             }
@@ -1537,6 +1608,14 @@ fn stand_ins(
         let players: HashMap<FormId, u8> = coop.peers.iter().filter_map(|(&id, p)| Some((p.actor?, id))).collect();
         let said: Vec<fnv_game::game::Speech> = rt.game.speech.iter().cloned().chain(conversation_line(&rt.game)).collect();
         link.set_lines(lines_out(&said, |r| players.get(&r).copied()));
+        // The host's world's presence, made again when it changed (or now and then: a
+        // load makes a new world).
+        let now = time.elapsed_secs();
+        let serial = sim.world.presence_serial();
+        if coop.presence_made.is_none_or(|(s, at)| s != serial || now - at >= PRESENCE_REMAKE) {
+            coop.presence_made = Some((serial, now));
+            link.set_presence(presence_of(&sim.world));
+        }
     }
     let here = place_of(&loc);
     let now = time.elapsed_secs();
@@ -1679,10 +1758,16 @@ fn follow_npcs(
                 for r in coop.hidden.drain() {
                     let _ = sim.world.set_enabled(r, true);
                 }
+                for (r, was) in coop.presence_was.drain() {
+                    let _ = sim.world.set_enabled(r, was);
+                }
             }
+            coop.presence_was.clear();
+            coop.presence = HostPresence::default();
             coop.unheard.clear();
             coop.host_lines = None;
             coop.host_quest = None;
+            coop.quest_untold = None;
             for (e, v, _, _, marked, _, _) in &mut actors {
                 if marked {
                     commands.entity(e).remove::<Remote>();
@@ -1702,6 +1787,23 @@ fn follow_npcs(
         for r in place_like_host(&mut sim.world, g, &coop.npcs, since + HOST_SETTLE, now) {
             coop.hidden.remove(&r);
             coop.unheard.remove(&r.0);
+        }
+    }
+    // What the host's scripts enabled or disabled, all over its world (module notes); the
+    // NPCs the host draws and the actors hidden here are left to the rest.
+    if let Some(sim) = sim.as_deref_mut() {
+        let (npcs, hidden) = (&coop.npcs, &coop.hidden);
+        let skip = |r: FormId| npcs.contains_key(&r.0) || hidden.contains(&r);
+        let fresh = std::mem::take(&mut coop.presence.fresh);
+        let n = follow_presence(&mut sim.world, &fresh, &skip, &mut coop.presence_was);
+        if n > 0 {
+            info!("co-op: {n} references enabled or disabled as in the host's world");
+        }
+        if let Some(host) = coop.presence.whole.take() {
+            let n = undo_own_presence(&mut sim.world, &host, &skip, &mut coop.presence_was);
+            if n > 0 {
+                info!("co-op: {n} references this game alone enabled or disabled take the plugins' flags again");
+            }
         }
     }
     // This game's own actors near the host that the host's world does not have: hidden
@@ -1850,6 +1952,87 @@ fn take_clock(world: &mut fnv_sim::World, c: net::ClockView) {
     if let Err(e) = world.set_calendar(cal) {
         warn_once!("co-op: cannot take the host's clock: {e}");
     }
+}
+
+/// A host makes its presence list again at least this often (seconds).
+const PRESENCE_REMAKE: f32 = 2.0;
+
+/// A guest's view of the host's world's presence (`net::Msg::Presence`), page by page.
+#[derive(Default)]
+struct HostPresence {
+    serial: u32,
+    pages: u16,
+    got: HashSet<u16>,
+    refs: HashSet<u32>,
+    /// Flags heard and not yet applied.
+    fresh: Vec<(u32, bool)>,
+    /// The whole list (every page of one serial), once, for [`undo_own_presence`].
+    whole: Option<HashSet<u32>>,
+}
+
+impl HostPresence {
+    fn hear(&mut self, serial: u32, page: u16, pages: u16, refs: Vec<(u32, bool)>) {
+        if serial != self.serial || pages != self.pages {
+            (self.serial, self.pages) = (serial, pages);
+            self.got.clear();
+            self.refs.clear();
+        }
+        self.refs.extend(refs.iter().map(|r| r.0));
+        self.fresh.extend(refs);
+        if self.got.insert(page) && self.got.len() == pages as usize {
+            self.whole = Some(self.refs.clone());
+        }
+    }
+}
+
+/// A placed reference's own enabled flag as its plugin gives it; `None` for what takes no
+/// part in presence (the player, references made at run time, unknown ones).
+fn authored_enabled(world: &fnv_sim::World, r: FormId) -> Option<bool> {
+    if r == FormId::PLAYER_REF || r.0 >= 0xFF00_0000 {
+        return None;
+    }
+    world.placed.get(r).map(|p| !p.initially_disabled())
+}
+
+/// A host's world's presence (module notes): each placed reference whose own enabled flag
+/// differs from its plugin's, with the flag, in FormID order.
+fn presence_of(world: &fnv_sim::World) -> Vec<(u32, bool)> {
+    world.changed().filter(|(r, st)| authored_enabled(world, *r).is_some_and(|a| a != st.enabled)).map(|(r, st)| (r.0, st.enabled)).collect()
+}
+
+/// A guest takes the host's flags (`refs`), except for what `skip` holds; what it changes
+/// is kept in `was` as it was first. Returns how many it changed.
+fn follow_presence(world: &mut fnv_sim::World, refs: &[(u32, bool)], skip: &dyn Fn(FormId) -> bool, was: &mut HashMap<FormId, bool>) -> usize {
+    let mut n = 0;
+    for &(r, on) in refs {
+        let r = FormId(r);
+        if skip(r) || authored_enabled(world, r).is_none() {
+            continue;
+        }
+        let Ok(st) = world.get(r) else { continue };
+        if st.enabled != on {
+            was.entry(r).or_insert(st.enabled);
+            let _ = world.set_enabled(r, on);
+            n += 1;
+        }
+    }
+    n
+}
+
+/// A guest with the host's whole list (`host`): what its own game alone enabled or
+/// disabled (not on the list, not in `skip`) takes its plugin's flag again, kept in `was`
+/// as it was first. Returns how many it changed.
+fn undo_own_presence(world: &mut fnv_sim::World, host: &HashSet<u32>, skip: &dyn Fn(FormId) -> bool, was: &mut HashMap<FormId, bool>) -> usize {
+    let own: Vec<(FormId, bool)> = world
+        .changed()
+        .filter(|(r, _)| !host.contains(&r.0) && !skip(*r))
+        .filter_map(|(r, st)| authored_enabled(world, r).filter(|a| *a != st.enabled).map(|a| (r, a)))
+        .collect();
+    for &(r, authored) in &own {
+        was.entry(r).or_insert(!authored);
+        let _ = world.set_enabled(r, authored);
+    }
+    own.len()
 }
 
 /// A guest in the host's place: each NPC the host draws, enabled here and put in this
@@ -2076,8 +2259,9 @@ fn downed(
     for (&id, p) in coop.peers.iter_mut() {
         let Some(&(_, s)) = p.samples.back() else { continue };
         let down = s.has(flag::DOWN);
-        // A player up is never dead here, whatever happened while it was down.
-        if !down && !p.down && g.is_dead(FormId(p.reference(id))) {
+        // A player up is never dead here, whatever happened while it was down; except
+        // while it lies after losing a duel to this player ([`duel_falls`] stands it up).
+        if !down && !p.down && p.fell_at.is_none() && g.is_dead(FormId(p.reference(id))) {
             g.extra.entry(FormId(p.reference(id))).or_default().dead = false;
         }
         if down == p.down {
@@ -2466,6 +2650,79 @@ mod tests {
         assert_eq!(other[2].target, Some(FormId(PUPPET_REF + 1)));
         assert_eq!(lines_in(&out, 1.5, Some(2)).len(), 2);
         assert!(lines_in(&out, 4.5, Some(2)).is_empty());
+    }
+
+    fn placed(id: u32, disabled: bool) -> fnv_sim::refs::PlacedRef {
+        fnv_sim::refs::PlacedRef {
+            id: FormId(id), sig: *b"REFR", edid: None, base: FormId(0x1F), cell: None, stored_in: None, plugin: 0,
+            flags: if disabled { fnv_sim::refs::FLAG_INITIALLY_DISABLED } else { 0 },
+            in_persistent_group: false, pos: [0.0; 3], rot: [0.0; 3], scale: None, count: None, ammo: None,
+            health: None, owner: None, lock: None, teleport: None, enable_parent: None, linked: None,
+            patrol_idle: None, patrol_topic: None, merchant_container: None, marker_reputation: None,
+            open_by_default: false, primitive: None, activate_parents: Vec::new(), parent_activate_only: false,
+            prompt: None, radiation: None, radius: None, encounter_zone: None, level_modifier: None,
+        }
+    }
+
+    /// The host's world's presence reaches a guest's (module notes): the host's own flags
+    /// that differ from the plugins' (Sunny's bottles, enabled by their disabled parent
+    /// marker; a crate it disabled) are taken; once the whole list is in, what only the
+    /// guest's game changed (its own done quest's sign) takes the plugins' flag again,
+    /// except what is skipped (the NPCs the host draws); leaving puts it all back.
+    #[test]
+    fn the_hosts_world_presence_wins_on_a_guest() {
+        const BOTTLE: u32 = 0x0010_A202;
+        const PARENT: u32 = 0x0016_8A92;
+        const CRATE: u32 = 0x0010_0001;
+        const SIGN: u32 = 0x0010_0002;
+        const GECKO: u32 = 0x0010_0003;
+        let mut table = fnv_sim::RefTable::default();
+        let mut bottle = placed(BOTTLE, false);
+        bottle.enable_parent = Some(fnv_sim::refs::EnableParent { reference: FormId(PARENT), opposite: false, pop_in: false });
+        for p in [bottle, placed(PARENT, true), placed(CRATE, false), placed(SIGN, true), placed(GECKO, true)] {
+            table.refs.insert(p.id, p);
+        }
+        let forms = fnv_sim::FormStore::default();
+        let mut host = fnv_sim::World::new(&forms, &table, Default::default());
+        host.set_enabled(FormId(PARENT), true).unwrap();
+        host.set_enabled(FormId(CRATE), false).unwrap();
+        let _ = host.get(FormId(BOTTLE)).unwrap();
+        let list = presence_of(&host);
+        assert_eq!(list, vec![(CRATE, false), (PARENT, true)]);
+
+        let mut guest = fnv_sim::World::new(&forms, &table, Default::default());
+        guest.set_enabled(FormId(SIGN), true).unwrap();
+        guest.set_enabled(FormId(GECKO), true).unwrap();
+        assert!(!guest.is_enabled(FormId(BOTTLE)).unwrap());
+        let mut heard = HostPresence::default();
+        heard.hear(1, 0, 1, list);
+        let skip = |r: FormId| r == FormId(GECKO);
+        let mut was = HashMap::new();
+        assert_eq!(follow_presence(&mut guest, &std::mem::take(&mut heard.fresh), &skip, &mut was), 2);
+        assert!(guest.is_enabled(FormId(BOTTLE)).unwrap(), "the bottles come with their parent");
+        assert!(!guest.is_enabled(FormId(CRATE)).unwrap());
+        assert_eq!(undo_own_presence(&mut guest, &heard.whole.take().unwrap(), &skip, &mut was), 1);
+        assert!(!guest.is_enabled(FormId(SIGN)).unwrap());
+        assert!(guest.is_enabled(FormId(GECKO)).unwrap(), "skipped");
+        // Leaving co-op: as it was.
+        for (r, on) in was.drain() {
+            guest.set_enabled(r, on).unwrap();
+        }
+        assert!(guest.is_enabled(FormId(SIGN)).unwrap() && guest.is_enabled(FormId(CRATE)).unwrap() && !guest.is_enabled(FormId(BOTTLE)).unwrap());
+    }
+
+    /// A guest has the host's whole list only once every page of one serial came; a new
+    /// serial starts again.
+    #[test]
+    fn the_whole_presence_list_is_every_page_of_one_serial() {
+        let mut p = HostPresence::default();
+        p.hear(4, 0, 2, vec![(1, true)]);
+        assert!(p.whole.is_none());
+        p.hear(5, 1, 2, vec![(2, true)]);
+        assert!(p.whole.is_none(), "another serial");
+        p.hear(5, 0, 2, vec![(3, false)]);
+        assert_eq!(p.whole.take(), Some(HashSet::from([2, 3])));
+        assert_eq!(p.fresh.len(), 3);
     }
 
     /// A guest hides its own actors near the host that the host's world does not draw;

@@ -137,6 +137,14 @@ fn multiply_factor(lit: vec3<f32>, emissive: vec3<f32>) -> vec3<f32> {
 // tonemapper's grey response (the same table as nvforever sky.wesl), so after the
 // tonemapper it lands where clipping would put it. Lit surfaces without emitted light
 // keep the tonemapper [hypothesis from the original's frames of Dead Money's lantern].
+// Since 2026-10-24 the main view shows display values clipped per channel in Tony
+// McMapface's place (nvforever lights.rs GAME_CLIP), and views without fog have no
+// tonemapper. There only the emitted light goes through the inverse, channel by channel
+// (its hot channels still feed the light glow: the Tropicana's MOTEL and La Concha
+// tubes), and the light falling on the surface is added as it is. Mapped together, a
+// white surface lit by street lights under a green neon emitter (HotM's Ultra-Luxe
+// starburst sign by the Vault 21 gift shop) had every channel raised past white and
+// burned white (strip-neon-white, 2026-11-05).
 const HOT_MAX: f32 = 0.95;
 const TONY_N: u32 = 24u;
 var<private> TONY_IN: array<f32, 24> = array<f32, 24>(0.0, 0.005, 0.01, 0.02, 0.04, 0.07, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.3, 1.7, 2.2, 3.0, 5.0, 8.0, 16.0, 40.0, 100.0);
@@ -157,10 +165,18 @@ fn tony_inverse(y: f32) -> f32 {
 // the emitted light's brightest channel rises from 0.8 to 1.5, so faint effect shapes
 // (window light rays, white × 1 under a warm emittance colour) and the dark parts of a
 // glow map keep the tonemapper; the lantern glass (× 10) and neon (× 25) burn.
-fn hot_light(lit: vec3<f32>, e: vec3<f32>) -> vec3<f32> {
+@if(!PREPASS_PIPELINE) fn hot_light(lit: vec3<f32>, e: vec3<f32>) -> vec3<f32> {
+    let k = smoothstep(0.8, 1.5, max(e.r, max(e.g, e.b)));
+    if !view_keeps_tony() {
+        // The display clips: only the emitted light is raised, channel by channel, as
+        // before (so a neon sign keeps the light glow its hot channels give it); the light
+        // falling on the surface is left as it is.
+        let he = min(e, vec3(HOT_MAX));
+        return lit + mix(e, vec3(tony_inverse(he.r), tony_inverse(he.g), tony_inverse(he.b)), k);
+    }
     let d = min(lit + e, vec3(HOT_MAX));
     let hot = vec3(tony_inverse(d.r), tony_inverse(d.g), tony_inverse(d.b));
-    return mix(lit + e, hot, smoothstep(0.8, 1.5, max(e.r, max(e.g, e.b))));
+    return mix(lit + e, hot, k);
 }
 
 // The linear light an additive shape (blend factors SRC_ALPHA or ONE, and ONE) of linear
@@ -196,6 +212,14 @@ fn blend_colour_scale(a: f32) -> f32 {
 @if(!PREPASS_PIPELINE) fn view_emissive_scale() -> f32 {
     @if(!PREPASS_PIPELINE && DISTANCE_FOG) return select(1.0, fog.bi.y, fog.mode == FOG_MODE_ATMOSPHERIC && fog.bi.y > 0.0);
     @if(!PREPASS_PIPELINE && !DISTANCE_FOG) return 1.0;
+}
+
+// Whether the view shows Tony McMapface's curve (the test aid NVF_TONEMAP=tony), which
+// nvforever fog.rs `falloff` puts in the game fog's `bi.z`; else display values are
+// clipped, or a view without fog has no tonemapper.
+@if(!PREPASS_PIPELINE) fn view_keeps_tony() -> bool {
+    @if(!PREPASS_PIPELINE && DISTANCE_FOG) return fog.mode == FOG_MODE_ATMOSPHERIC && fog.bi.z > 0.5;
+    @if(!PREPASS_PIPELINE && !DISTANCE_FOG) return false;
 }
 
 // Soft intersections (nif_material.rs module notes): the share of the shape kept at this

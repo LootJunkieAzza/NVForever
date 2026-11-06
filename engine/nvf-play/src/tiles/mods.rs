@@ -60,6 +60,25 @@ pub fn available(switch: super::vanilla::TileMenus, ui: &Ui, files: Option<&dyn 
     false
 }
 
+/// MCM's Back on its open page [observed: mcm.xml, `hotrect name="MCM_Back"` under the
+/// `MCM` rect, shown while the rect's `_Menu` is set].
+pub const OWN_BACK: &str = "StartMenu/MCM/MCM_Back";
+
+/// Whether the mod's page shows its own Back now: [`OWN_BACK`] is live and shown, it and
+/// every tile above it (`crate::pause::ModsOwnBack`) [design].
+pub fn own_back(ui: &Ui) -> bool {
+    let mut at = ui.find_tile(OWN_BACK);
+    let found = at.is_some();
+    while let Some(t) = at {
+        let tile = ui.tile(t);
+        if !tile.live || tile.get("visible").is_some_and(|v| !v.truthy()) {
+            return false;
+        }
+        at = tile.parent;
+    }
+    found
+}
+
 /// One frame of the start menu's scripts under the Mods page: only their `MenuMode 1013`
 /// blocks run (`Game::page_tick`; no GameMode block, no game time) and the open menu is
 /// left alone, so a box a block shows stays open [design: the original runs them under
@@ -85,7 +104,17 @@ pub const MAIN_MENU_FRAME_SECONDS: f64 = 1.0 / 60.0;
 /// main menu of its own scripts]. A second of those frames, run once a new runtime is
 /// made, before its first GameMode frame; with `[UI] TileMenus=StartMenu` on only, so a
 /// game without it is unchanged [design].
+///
+/// The start menu's tiles are built first, as the original's main menu has them: MCM's
+/// install check reads its own tiles there (`GetMCMFloat 0 0 "_MCM"`), and a save made
+/// with the check still to run runs it in these frames; with no tiles it reads 0 and
+/// shows "cannot access its menu files" [observed: the owner's run of 2026-11-05 loading
+/// an autosave]. The next tile sync drops the menu again while the game is not paused.
 pub fn main_menu_frames(game: &mut fnv_game::Game<'_>) {
+    let report = fnv_game::ui_loading::sync(game, false, true);
+    for change in &report.changes {
+        bevy::log::info!("ui: {change} (main-menu frames)");
+    }
     let keep = game.cfg.frame_seconds;
     game.cfg.frame_seconds = MAIN_MENU_FRAME_SECONDS;
     for _ in 0..MAIN_MENU_FRAMES {

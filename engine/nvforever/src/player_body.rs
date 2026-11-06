@@ -136,10 +136,25 @@ pub const PIPBOY_FOV: f32 = 47.0;
 /// screenshots, playtest list 5 item 18)].
 pub const FIRST_PERSON_FOV: f32 = 55.0;
 
+/// The field of view the arms are drawn with while the Pip-Boy glance is up, degrees as
+/// [`PIPBOY_FOV`] [design: wider than [`FIRST_PERSON_FOV`], so the raised Pip-Boy sits
+/// small in the lower left with the world over it; tuned with
+/// `nvf_play::pipboy::glance::GLANCE_HOLD` against the owner's reference screenshot,
+/// 2026-11-04 (at 55 the screen was a third too big)].
+pub const GLANCE_FOV: f32 = 70.0;
+
 /// How much of the Pip-Boy clip shows at `t` seconds into it: up over its first
 /// [`PIPBOY_BLEND`], down over its last (smoothstep).
 pub fn pipboy_ease(t: f32) -> f32 {
     let e = (t.min(nvf_play::pipboy::CLIP_SECONDS - t) / PIPBOY_BLEND).clamp(0.0, 1.0);
+    e * e * (3.0 - 2.0 * e)
+}
+
+/// As [`pipboy_ease`] for the glance, whose clip is held before [`PIPBOY_BLEND`] is over:
+/// up over its way to the hold, down over the clip's last as long.
+pub fn glance_ease(t: f32) -> f32 {
+    let over = nvf_play::pipboy::glance::GLANCE_HOLD;
+    let e = (t.min(nvf_play::pipboy::CLIP_SECONDS - t) / over).clamp(0.0, 1.0);
     e * e * (3.0 - 2.0 * e)
 }
 
@@ -873,6 +888,9 @@ pub struct PlayerBody {
     /// The third-person head's eye this frame, game space, while the view is from
     /// outside; `None` in first person or without a body.
     head_eye: Option<[f32; 3]>,
+    /// The third-person body's pelvis and head as its clips alone pose it, in the space of
+    /// the rig root's parent (the get-up's lay-over, `player_knockdown.rs`).
+    clip_pelvis_head: Option<(Vec3, Vec3)>,
     motion: Motion,
     /// Why the body could not be built (reported once).
     failed: Option<String>,
@@ -910,6 +928,10 @@ impl PlayerBody {
     /// The third-person head's eye this frame, game space, while the view is from
     /// outside (the flashlight follows it, `flashlight.rs`); `None` in first person or
     /// without a body.
+    pub fn clip_pelvis_head(&self) -> Option<(Vec3, Vec3)> {
+        self.clip_pelvis_head
+    }
+
     pub fn head_eye(&self) -> Option<[f32; 3]> {
         self.head_eye
     }
@@ -1050,7 +1072,7 @@ fn ensure_body(
     let (Some(world), Ok(world_root)) = (world, root.single()) else { return };
     // The dead or knocked-down player's body lies as its ragdoll left it: it is not
     // rebuilt.
-    if state.failed.is_some() || death.down() || knock.ragdolled() {
+    if state.failed.is_some() || death.down() || knock.holds_pose() {
         return;
     }
     let (worn, weapon, weapon_mods) = equipped(&sim, &world);
@@ -2127,6 +2149,41 @@ impl Seen {
 }
 
 /// Show the camera `seen` of the third-person rig, and the first-person rig or not.
+/// The rig's pelvis and head as its clips pose it (the animator's pose, whatever is laid
+/// over the nodes after), in the space of the rig root's parent.
+fn clip_pelvis_head(rig: &Rig, transforms: &Query<&mut Transform>) -> Option<(Vec3, Vec3)> {
+    let a = &rig.animator;
+    let r = transforms.get(rig.root).ok()?;
+    let root = Affine3A::from_scale_rotation_translation(r.scale, r.rotation, r.translation);
+    let at = |n: &str| a.skel.by_name.get(n).map(|&i| root.transform_point3(a.model_space(i).translation.into()));
+    Some((at("Bip01 Pelvis")?, at("Bip01 Head")?))
+}
+
+/// The get-up's start (`player_knockdown.rs`): the rig's nodes `k` of the way from the
+/// ragdoll's last pose `from` (each node in the space of the rig root's parent, so it stays
+/// where it lay however the player is moved) to what the clips give them.
+fn blend_from_pose(rig: &Rig, from: &[Affine3A], k: f32, transforms: &mut Query<&mut Transform>) {
+    let a = &rig.animator;
+    let Ok(r) = transforms.get(rig.root).map(|t| *t) else { return };
+    let inv_root = Affine3A::from_scale_rotation_translation(r.scale, r.rotation, r.translation).inverse();
+    let n = a.skel.parents.len().min(from.len()).min(a.nodes.len()).min(a.locals.len());
+    // Each node under the rig root, as the ragdoll left it.
+    let model: Vec<Affine3A> = from[..n].iter().map(|f| inv_root * *f).collect();
+    for i in 1..n {
+        // Node 0 is the rig root itself: its children's transforms are under the root
+        // as it stands now (the player placed and turned for the clip), not as it lay.
+        let parent = a.skel.parents[i].filter(|&p| p > 0 && p < n).map_or(Affine3A::IDENTITY, |p| model[p]);
+        let (s, q, t) = (parent.inverse() * model[i]).to_scale_rotation_translation();
+        let clip = a.locals[i];
+        let want = Transform { translation: t.lerp(clip.translation, k), rotation: q.slerp(clip.rotation, k), scale: s.lerp(clip.scale, k) };
+        if want.translation.is_finite() && want.rotation.is_finite() && want.scale.is_finite() {
+            if let Ok(mut tr) = transforms.get_mut(a.nodes[i]) {
+                *tr = want;
+            }
+        }
+    }
+}
+
 fn show_rigs(body: &mut Body, commands: &mut Commands, visibility: &mut Query<&mut Visibility>, seen: Seen, first: bool) {
     let third = &mut body.third;
     if third.seen != Some(seen) {
@@ -2235,7 +2292,7 @@ fn drive_body(
         state.casing_entity = None;
         return;
     };
-    if death.down() || knock.ragdolled() {
+    if death.down() || knock.holds_pose() {
         // Dead or knocked down: the clips stop and the ragdoll has the body
         // (`death_cam.rs`, `player_knockdown.rs`). The whole body is drawn, but for its
         // head while the view is inside it (a knockdown's view is outside).
@@ -2244,7 +2301,7 @@ fn drive_body(
         anim.casing = None;
         state.muzzle_entity = None;
         state.casing_entity = None;
-        show_rigs(body, &mut commands, &mut visibility, Seen { body: true, head: death.third_person() || knock.ragdolled(), arms: true, weapon: true }, false);
+        show_rigs(body, &mut commands, &mut visibility, Seen { body: true, head: death.third_person() || knock.holds_pose(), arms: true, weapon: true }, false);
         return;
     }
     // Turbo slows the world's clock, not the player's clips (magic-archetypes.md §2).
@@ -2534,6 +2591,11 @@ fn drive_body(
     let want = nvf_play::pipboy::glance::Check::of(&pip, &glance);
     let third = Posed { root, look_pitch: player.pitch, special: &idles.third, pipboy: None, check: Some((want, &mut check.0)), sway: SwayPose::NONE, sights: None };
     let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e + sink);
+    state.clip_pelvis_head = clip_pelvis_head(&body.third, &transforms);
+    // Getting up after a knockdown: from the ragdoll's last pose into the clip.
+    if let Some((from, k)) = knock.blend_from() {
+        blend_from_pose(&body.third, from, k, &mut transforms);
+    }
     // The third-person body's melee attack clip carries the player by its root's travel
     // (actors.md §8.13), turned by the heading and scaled with the body.
     if let Some(d) = body.third.carry.filter(|_| dt > 0.0) {
@@ -2646,10 +2708,13 @@ fn drive_body(
         });
         // The console's `fov` can ask for another first-person field of view.
         let first_fov = first_fov.and_then(|f| f.0).unwrap_or(FIRST_PERSON_FOV);
+        // The full Pip-Boy narrows the view onto the screen; the glance widens it, the
+        // arm drawn smaller and lower with the world seen past it.
         let k = match (pipboy, vfov) {
             (Some(t), Some(v)) => {
                 let normal = arms_magnification(v, first_fov);
-                normal + (arms_magnification(v, PIPBOY_FOV) - normal) * pipboy_ease(t)
+                let (to, ease) = if pip.on_arm() { (PIPBOY_FOV, pipboy_ease(t)) } else { (GLANCE_FOV, glance_ease(t)) };
+                normal + (arms_magnification(v, to) - normal) * ease
             }
             (None, Some(v)) => arms_magnification(v, first_fov),
             _ => 1.0,
@@ -2794,6 +2859,18 @@ fn drive_body(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_glance_draws_the_arm_smaller_and_fully_so_at_its_hold() {
+        use nvf_play::pipboy::{glance::GLANCE_HOLD, CLIP_SECONDS, HOLD_SECONDS};
+        let v = 75f32.to_radians() * 0.75;
+        assert!(arms_magnification(v, GLANCE_FOV) < arms_magnification(v, FIRST_PERSON_FOV));
+        assert_eq!(glance_ease(0.0), 0.0);
+        assert_eq!(glance_ease(GLANCE_HOLD), 1.0);
+        // Put down from the hold (the clip mirrored past its `Hit`), still fully wide.
+        assert_eq!(glance_ease(2.0 * HOLD_SECONDS - GLANCE_HOLD), 1.0);
+        assert_eq!(glance_ease(CLIP_SECONDS), 0.0);
+    }
 
     #[test]
     fn shade_casters_near_the_line_to_the_sun() {

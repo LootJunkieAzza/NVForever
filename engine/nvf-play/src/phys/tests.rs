@@ -68,6 +68,7 @@ fn fake_cell(job: &Job) -> Prepared {
             teleport: false,
             emittance: None,
             imposter: false,
+            volume: false,
         };
         // As `prepare::cell` does: at the simulation's pose when it holds another.
         let pose = job.pose_of(pl.form_id);
@@ -93,6 +94,7 @@ fn fake_cell(job: &Job) -> Prepared {
         teleport: false,
         emittance: None,
         imposter: false,
+        volume: false,
     };
     let water = vec![CollisionObject { layer: fnv_phys::layers::WATER, ..object(100.0, Motion::Static) }];
     refs.push(Entry { form_id: pond.form_id, placement: Some(pond), shapes: Some(RefShapes { tallies: vec!["water_volume"], water, prepared: None, dynamic_local: None, door: None, animated: None, drawn: None, model: None }) });
@@ -322,6 +324,7 @@ fn bridge_cell(job: &Job) -> Prepared {
             teleport: false,
             emittance: None,
             imposter: false,
+            volume: false,
         };
         let obj = CollisionObject { shape: Shape::Box { half_extents: [600.0, 600.0, 20.0] }.into(), ..object(0.0, Motion::Static) };
         let prepared = PreparedRef::new(&PhysParams::default(), &RefPose::from_placement(&pl), &[obj]);
@@ -542,6 +545,7 @@ fn gate_cell(job: &Job) -> Prepared {
             teleport: false,
             emittance: None,
             imposter: false,
+            volume: false,
         };
         let obj = CollisionObject { node: Some("Panel".into()), node_block: 1, shape: Shape::Box { half_extents: [50.0, 10.0, 100.0] }.into(), ..object(0.0, Motion::Keyframed) };
         let prepared = PreparedRef::new(&PhysParams::default(), &RefPose::from_placement(&pl), &[obj]);

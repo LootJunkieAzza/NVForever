@@ -30,6 +30,16 @@
 //!   movement flag and the texts with the rollover text flag [documented: GECK wiki
 //!   DisablePlayerControls, MovementFlag and RolloverTextFlag; controls.md §5].
 //! - Without the game's files: a small square, and the texts in Bevy's font.
+//! - **A mod's crosshair**: a script that sets the HUD's
+//!   `ReticleCenter/reticle_center/visible` to 0 hides the crosshair, the texts under it
+//!   staying ([`ScriptHidesReticle`]) [hypothesis: JAM's JDC sets it to 0 while it draws
+//!   its own reticle and to 1 to give the game's back; hud.md §14.4 read no `visible` on
+//!   that tile in the original, so only a script writes one].
+//! - **A mod's prompt**: a script that sets the HUD's `Info/visible` to 0 between two
+//!   frames of the HUD's own writes hides the texts under the crosshair
+//!   ([`ScriptHidesPrompt`]) [hypothesis: JAM's loot menu, with its "hide prompt" setting
+//!   on (the default), sets it to 0 every frame while it shows its own key hints, and the
+//!   original's code writes the piece's `visible` each frame, hud.md §14.1].
 
 use crate::activate::outcome::{self, Action};
 use crate::activate::{Target, Targeted};
@@ -325,11 +335,31 @@ pub fn pipboy_hides_crosshair(full: Option<&crate::pipboy::PipBoy>, glance: Opti
     full.is_some_and(|p| p.shown()) || glance.is_some_and(|g| g.shown())
 }
 
+/// Whether a script hid the HUD's crosshair tile (module notes), set each frame by
+/// `crate::tiles` from the tile tree.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ScriptHidesReticle(pub bool);
+
+/// Whether the tile tree's crosshair tile has a `visible` a script set to false.
+pub fn script_hides(ui: &fnv_ui::Ui) -> bool {
+    ui.find_tile("HUDMainMenu/ReticleCenter/reticle_center").and_then(|t| ui.tile(t).get("visible")).is_some_and(|v| !v.truthy())
+}
+
+/// Whether a script hid the HUD's prompt tile (module notes), set each frame by
+/// `crate::tiles` before the HUD's own writes.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ScriptHidesPrompt(pub bool);
+
+/// The HUD's prompt tile's `visible`, when the tree has it.
+pub fn prompt_visible(ui: &fnv_ui::Ui) -> Option<bool> {
+    ui.find_tile("HUDMainMenu/Info").and_then(|t| ui.tile(t).get("visible")).map(|v| v.truthy())
+}
+
 pub struct ReticlePlugin;
 
 impl Plugin for ReticlePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<DynamicCrosshair>().init_resource::<CrosshairStyle>().add_systems(Update, draw.in_set(PlaySet::Ui));
+        app.init_resource::<DynamicCrosshair>().init_resource::<CrosshairStyle>().init_resource::<ScriptHidesReticle>().init_resource::<ScriptHidesPrompt>().add_systems(Update, draw.in_set(PlaySet::Ui));
         crate::settings::add_setting(
             app,
             crate::settings::Setting {
@@ -507,7 +537,7 @@ fn draw(
     sim: Res<SimState>,
     (combat, hostile, bar, camera, time, dynamic): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>, Option<Res<DynamicCrosshair>>),
     mut spread: Local<f32>,
-    mut logged: Local<(bool, i32, bool, Option<String>, Option<bool>, Option<bool>, Option<CrosshairStyle>, Option<bool>)>,
+    mut logged: Local<(bool, i32, bool, Option<String>, Option<bool>, Option<bool>, Option<CrosshairStyle>, Option<bool>, Option<bool>)>,
     (locks, bindings, creator, sights, scope, driven, kill_cam): (
         Option<Res<ControlLocks>>,
         Option<Res<crate::bindings::Bindings>>,
@@ -527,7 +557,7 @@ fn draw(
         Query<(&Cross, &mut Visibility, &mut Node, Option<&mut ImageNode>), Without<Root>>,
         Query<(&Bar, &mut Visibility, &mut Node, &mut ImageNode), (Without<Root>, Without<Cross>)>,
     ),
-    (texts, pipboy, glance): (Query<Entity, With<Texts>>, Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::pipboy::glance::Glance>>),
+    (texts, pipboy, glance, menu, modded, no_prompt): (Query<Entity, With<Texts>>, Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::pipboy::glance::Glance>>, Option<Res<crate::menu::ActiveMenu>>, Option<Res<ScriptHidesReticle>>, Option<Res<ScriptHidesPrompt>>),
 ) {
     // Not over the character creator, whatever state the opening leaves the game in
     // [owner 2026-10-17: "E) Talk" stayed under it]. Nor while an idle holds the camera
@@ -572,14 +602,16 @@ fn draw(
     // The Pip-Boy up while still playing (co-op's live Pip-Boy, the glance): no crosshair;
     // the prompt stays under the glance (the player still walks and acts), not under the
     // full Pip-Boy, whose menu holds the controls.
-    let pip_up = pipboy_hides_crosshair(pipboy.as_deref(), glance.as_deref());
+    // So does the co-op trade's barter screen, open while playing (`crate::coop_social::barter`).
+    let trading = menu.as_ref().is_some_and(|m| m.0.as_ref().is_some_and(|m| m.coop));
+    let pip_up = pipboy_hides_crosshair(pipboy.as_deref(), glance.as_deref()) || trading;
     if logged.7 != Some(pip_up) {
         if pip_up || logged.7.is_some() {
             info!("crosshair: {}", if pip_up { "hidden under the Pip-Boy" } else { "back from under the Pip-Boy" });
         }
         logged.7 = Some(pip_up);
     }
-    let menu_up = pipboy.as_deref().is_some_and(|p| p.shown());
+    let menu_up = pipboy.as_deref().is_some_and(|p| p.shown()) || trading;
     let mut locks = locks.as_deref().copied().unwrap_or_default();
     locks.movement |= pip_up;
     locks.rollover |= menu_up;
@@ -624,8 +656,16 @@ fn draw(
         logged.5 = Some(cross);
     }
     let gap = spread.max(CROSS_REST);
+    // A mod's own crosshair in place of ours (module notes).
+    let modded = modded.is_some_and(|m| m.0);
+    if logged.8 != Some(modded) {
+        if modded || logged.8.is_some() {
+            info!("reticle: {}", if modded { "hidden: a script hid the HUD's crosshair tile" } else { "shown: the HUD's crosshair tile is visible again" });
+        }
+        logged.8 = Some(modded);
+    }
     for (b, mut v, mut node, mut image) in &mut bars {
-        v.set_if_neq(show(!locks.movement && !aimed && cross));
+        v.set_if_neq(show(!locks.movement && !modded && !aimed && cross));
         if image.color != colour {
             image.color = colour;
         }
@@ -635,7 +675,7 @@ fn draw(
     }
     let shift = (*spread - TIP).max(0.0);
     for (c, mut v, mut node, image) in &mut crosses {
-        v.set_if_neq(show(!locks.movement && c.filled == aimed && (c.filled || !cross)));
+        v.set_if_neq(show(!locks.movement && !modded && c.filled == aimed && (c.filled || !cross)));
         if let Some(mut image) = image.filter(|i| i.color != colour) {
             image.color = colour;
         }
@@ -649,7 +689,8 @@ fn draw(
         }
     }
     let barred = |t: &Targeted| bar.as_ref().and_then(|b| b.0.as_ref()).is_some_and(|b| under_bar(t, b.form_id));
-    let want = target.0.as_ref().filter(|t| !locks.rollover && !barred(t)).map(|t| Prompt::bound(t, &sim, bindings.as_deref()));
+    let no_prompt = no_prompt.is_some_and(|p| p.0);
+    let want = target.0.as_ref().filter(|t| !locks.rollover && !no_prompt && !barred(t)).map(|t| Prompt::bound(t, &sim, bindings.as_deref()));
     if *shown != want {
         let Ok(e) = texts.single() else { return };
         commands.entity(e).despawn_related::<Children>().with_children(|p| {

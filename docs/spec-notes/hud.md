@@ -949,6 +949,20 @@ with the pistol drawn and three quick shots. Names from `hudtemplates.xml` and
   original's crosshair does not spread** with the 9mm pistol [observed]. NVForever's
   spreading crosshair is the owner's design, on by default, with the original's look
   when "Dynamic crosshair" is off (reticle.md §6).
+- **A mod's crosshair** (2026-11-05). JAM's crosshair reads
+  `ReticleCenter/reticle_center/alpha` into its own every frame and writes that tile's
+  `visible` 0 while it draws its own reticle, 1 to give the game's back [observed:
+  JDCMainLoopEventHandler]. Ours gives the copy a `visible` of 1 when it is made and an
+  `alpha` of 255 while the crosshair shows, 0 when not (`fnv_game::ui_hud::copies`), and
+  hides the hand-built crosshair while the tile's `visible` is false, its prompt texts
+  staying (`nvf_play::reticle::ScriptHidesReticle`) [hypothesis: the original's copy has
+  both, since the mod reads and writes them; their values in the original are not read].
+- **A mod's prompt** (2026-11-05). JAM's loot menu, its "hide prompt" setting on (the
+  default), writes `Info/visible` 0 every frame while its own key hints show [observed:
+  JLMMainLoopEventHandler]. Ours writes the piece's `visible` each frame too (§14.1), so a
+  0 found before that write, where the last write left it shown, hides the hand-built
+  prompt (`nvf_play::reticle::ScriptHidesPrompt`) [hypothesis: the mod rewrites it each
+  frame because the original's code does too].
 
 
 ### 14.5 The compass's scale and centre (2026-10-29)

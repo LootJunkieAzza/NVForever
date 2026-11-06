@@ -43,6 +43,15 @@ pub struct Placement {
     /// [documented: xEdit wbDefinitionsFNV.pas REFR; GECK wiki "Reference"]; see
     /// [`crate::imposter`].
     pub imposter: bool,
+    /// XPRM present: the reference is a placed volume (a trigger box or sphere, an
+    /// activator's or a collision marker's), not an object to draw. Its base can still
+    /// name a model, which the game does not draw there [observed: 64 trigger references
+    /// in FalloutNV.esm (Vault 34's v34AmbushVolume, RSCharlieQuestTrigger) have a base
+    /// whose model is WaterTowerPipes01.NIF; Simple Open Strip's Tops promoter triggers
+    /// place NVStripLightPollution.NIF, the Strip's distant light-pollution haze, in boxes
+    /// up to 5380 units long on the street; docs/spec-notes/cells-refs.md §6 "Placed
+    /// volumes"].
+    pub volume: bool,
 }
 
 impl Placement {
@@ -75,6 +84,7 @@ pub fn placement(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Placement>
     let open_by_default = f.get(b"ONAM").is_some();
     let teleport = f.raw(b"XTEL").is_some();
     let emittance = f.formid(b"XEMI", lo).filter(|&e| e != 0);
+    let volume = f.raw(b"XPRM").is_some();
     let imposter = f.get(b"XSRF").and_then(|v| num(&v, "value")).is_some_and(|b| b as u32 & IMPOSTER != 0);
     Some(Placement {
         form_id: fid,
@@ -89,6 +99,7 @@ pub fn placement(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Placement>
         teleport,
         emittance,
         imposter,
+        volume,
     })
 }
 

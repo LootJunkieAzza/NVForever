@@ -1443,8 +1443,9 @@ pub struct Game<'a> {
     /// player's name. Not part of the saved state: a save leaves them out.
     pub coop_actors: BTreeMap<FormId, String>,
     /// This game is a co-op guest's (`crate::coop`): the host runs the world and its
-    /// quests, so no script starts a conversation with this player (it talks to whom it
-    /// goes up to).
+    /// quests, so this player talks only to trade, to play and to change chips at a casino's
+    /// cashier ([`Game::guest_lines`]) and
+    /// no script starts a conversation with it.
     pub coop_guest: bool,
     /// On a guest: the host's active quest, which its quest list, objectives and markers
     /// show in place of this game's own (`None`: the host has none).
@@ -1452,6 +1453,8 @@ pub struct Game<'a> {
     /// On a co-op host: what its scripts gave the player around each completed quest, for
     /// the guests (`crate::coop_rewards`). Not saved.
     pub coop_rewards: crate::coop_rewards::RewardLedger,
+    /// The lines a guest may choose, found once ([`Game::guest_lines`]).
+    pub(crate) guest_lines: std::sync::OnceLock<BTreeSet<FormId>>,
     /// Forms added to form lists at run time.
     pub form_lists: BTreeMap<FormId, Vec<FormId>>,
     pub loaded_cells: BTreeSet<FormId>,
@@ -2155,6 +2158,7 @@ impl<'a> Game<'a> {
             coop_guest: false,
             coop_host_quest: None,
             coop_rewards: crate::coop_rewards::RewardLedger::default(),
+            guest_lines: std::sync::OnceLock::new(),
             form_lists: BTreeMap::new(),
             loaded_cells: BTreeSet::new(),
             moved: BTreeSet::new(),
@@ -2574,7 +2578,10 @@ impl<'a> Game<'a> {
     pub fn run_result(&mut self, unit: UnitId, ctx: RunCtx) {
         let c = self.data.unit(unit);
         self.cover_result(|| c.key());
+        // What it gives the player is its quest's co-op reward (`crate::coop_rewards`).
+        let before = self.coop_rewards.paying(ctx.quest);
         self.exec(c, &c.program.top, Locals::Temp(BTreeMap::new()), ctx);
+        self.coop_rewards.paying(before);
     }
 
     /// Run `stmts` as statements of `unit` with temporary locals (the sweep's call probe,
@@ -3322,8 +3329,10 @@ impl<'a> Game<'a> {
     pub fn tick(&mut self) {
         self.frame += 1;
         self.temp_refs.clear();
-        // JIP's key events (`crate::nvse_jam`).
+        // JIP's key events (`crate::nvse_jam`); JAM's loot menu's take key follows the
+        // player's Activate.
         self.jam_key_events();
+        self.jam_take_follows_activate();
         // JIP's SetGameMainLoopCallback functions due this frame (task J6), then xNVSE's
         // delayed calls.
         self.run_main_loop();
@@ -5539,6 +5548,10 @@ impl Host for Exec<'_, '_> {
             in_condition: false,
         };
         Ok(self.game.call_function(&ctx, args))
+    }
+
+    fn key_name(&mut self, code: i64) -> Option<String> {
+        Some(crate::script_input::key_name(code).to_string())
     }
 
     fn skipped(&mut self, what: &VmError) {

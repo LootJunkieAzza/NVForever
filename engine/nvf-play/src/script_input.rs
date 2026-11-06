@@ -6,7 +6,11 @@
 //! keys scripts tapped are pressed for one frame.
 
 use crate::bindings::{dik_key, Binding, Bindings, GAME_CONTROLS, GAME_INI_CONTROLS};
+use bevy::input::keyboard::KeyboardInput;
+use bevy::input::mouse::MouseButtonInput;
+use bevy::input::ButtonState;
 use bevy::prelude::*;
+use std::collections::HashSet;
 use fnv_game::script_input::MOUSE_BASE;
 
 pub struct ScriptInputPlugin;
@@ -59,12 +63,63 @@ fn key_code(k: KeyCode) -> Option<u16> {
     (0u8..=255).find(|&c| dik_key(c) == Some(k)).map(u16::from)
 }
 
-/// Let go of a key or mouse button the scripts pressed.
-fn release(c: u16, keys: &mut ButtonInput<KeyCode>, mouse: &mut ButtonInput<MouseButton>) {
-    match c.checked_sub(MOUSE_BASE) {
-        Some(_) => mouse_of(c).into_iter().for_each(|b| mouse.release(b)),
-        None => dik_key(c as u8).into_iter().for_each(|k| keys.release(k)),
+/// The keys and mouse buttons scripts pressed that were up when they did: only these are
+/// theirs to let go. One the player presses on the device while a script holds it becomes
+/// the player's.
+#[derive(Default)]
+struct Pressed {
+    /// Last frame's taps and the keys the scripts held.
+    last: (Vec<u16>, Vec<u16>),
+    keys: HashSet<KeyCode>,
+    mouse: HashSet<MouseButton>,
+}
+
+impl Pressed {
+    fn player_pressed(&mut self, typed: &mut MessageReader<KeyboardInput>, clicked: &mut MessageReader<MouseButtonInput>) {
+        for k in typed.read().filter(|k| k.state == ButtonState::Pressed) {
+            self.keys.remove(&k.key_code);
+        }
+        for b in clicked.read().filter(|b| b.state == ButtonState::Pressed) {
+            self.mouse.remove(&b.button);
+        }
     }
+
+    fn press(&mut self, c: u16, keys: &mut ButtonInput<KeyCode>, mouse: &mut ButtonInput<MouseButton>) {
+        match c.checked_sub(MOUSE_BASE) {
+            Some(_) => mouse_of(c).into_iter().for_each(|b| {
+                if !mouse.pressed(b) {
+                    self.mouse.insert(b);
+                    mouse.press(b);
+                }
+            }),
+            None => dik_key(c as u8).into_iter().for_each(|k| {
+                if !keys.pressed(k) {
+                    self.keys.insert(k);
+                    keys.press(k);
+                }
+            }),
+        }
+    }
+
+    /// Let go of a key or mouse button the scripts pressed, unless the player holds it
+    /// [hypothesis: ReleaseControl, ReleaseKey and a tap's end let go of the script's
+    /// press only, and the key the player holds stays down. JAM's sprint holds Forward
+    /// and releases it as the sprint ends in first person, and the player holding W walks
+    /// on].
+    fn release(&mut self, c: u16, keys: &mut ButtonInput<KeyCode>, mouse: &mut ButtonInput<MouseButton>) {
+        match c.checked_sub(MOUSE_BASE) {
+            Some(_) => mouse_of(c).into_iter().filter(|b| self.mouse.remove(b)).for_each(|b| mouse.release(b)),
+            None => dik_key(c as u8).into_iter().filter(|k| self.keys.remove(k)).for_each(|k| keys.release(k)),
+        }
+    }
+}
+
+/// What the player did on the devices this frame: key and button presses, the wheel.
+#[derive(bevy::ecs::system::SystemParam)]
+struct Devices<'w, 's> {
+    typed: MessageReader<'w, 's, KeyboardInput>,
+    clicked: MessageReader<'w, 's, MouseButtonInput>,
+    scroll: Option<Res<'w, bevy::input::mouse::AccumulatedMouseScroll>>,
 }
 
 fn script_input(
@@ -73,20 +128,24 @@ fn script_input(
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
     mut blocked: ResMut<ScriptBlocked>,
-    scroll: Option<Res<bevy::input::mouse::AccumulatedMouseScroll>>,
-    mut last: Local<(Vec<u16>, Vec<u16>)>,
+    mut devices: Devices,
+    mut ours: Local<Pressed>,
 ) {
+    ours.player_pressed(&mut devices.typed, &mut devices.clicked);
     // Last frame's taps and the keys the scripts held.
-    let (tapped, script_held) = &mut *last;
+    let (mut tapped, mut script_held) = std::mem::take(&mut ours.last);
     // Last frame's taps end.
     for c in tapped.drain(..) {
-        release(c, &mut keys, &mut mouse);
+        ours.release(c, &mut keys, &mut mouse);
     }
-    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else {
+        ours.last.1 = script_held;
+        return;
+    };
     let input = &mut rt.game.input;
     // Keys scripts held last frame and no longer hold (ReleaseKey, ReleaseControl) are let go.
     for c in script_held.drain(..).filter(|c| !input.script_held.contains(c)) {
-        release(c, &mut keys, &mut mouse);
+        ours.release(c, &mut keys, &mut mouse);
     }
     // SetControl's changes reach the player's controls first.
     if let Some(b) = bindings.as_deref_mut() {
@@ -104,7 +163,7 @@ fn script_input(
     input.held = keys.get_pressed().filter_map(|&k| key_code(k)).chain(mouse.get_pressed().filter_map(|&b| mouse_code(b))).collect();
     // The wheel turned this frame is held for the frame (IsKeyPressed 264/265, JIP's key
     // events) [hypothesis: one frame a notch].
-    match scroll.map_or(0.0, |s| s.delta.y) {
+    match devices.scroll.map_or(0.0, |s| s.delta.y) {
         d if d > 0.0 => _ = input.held.insert(WHEEL_UP),
         d if d < 0.0 => _ = input.held.insert(WHEEL_DOWN),
         _ => {}
@@ -120,15 +179,13 @@ fn script_input(
     }
     set_blocked(&mut blocked, input);
     for c in std::mem::take(&mut input.taps).into_iter().chain(input.script_held.iter().copied()) {
-        match c.checked_sub(MOUSE_BASE) {
-            Some(_) => mouse_of(c).into_iter().for_each(|b| mouse.press(b)),
-            None => dik_key(c as u8).into_iter().for_each(|k| keys.press(k)),
-        }
+        ours.press(c, &mut keys, &mut mouse);
         if !input.script_held.contains(&c) {
             tapped.push(c);
         }
     }
     script_held.extend(input.script_held.iter().copied());
+    ours.last = (tapped, script_held);
 }
 
 /// The keys and buttons the player's controls leave out: those scripts disabled.

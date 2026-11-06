@@ -18741,3 +18741,15 @@ expect = [
   { re = 'player First rig: \S*2hrreloadi\.kf moves the weapon.s \[.*"##CVSHStock"', label = "the first-person reload clip moves the stock" },
 ]
 manual = "caravan_reload_1.png to caravan_reload_4.png: the action broken open its full turn, the left hand holding the barrels from below, not through them"
+
+[[scenario]]
+name = "phys-trigger-volume-not-solid"
+kind = "tool"
+source = "strip-rendering 2026-11-05, docs/spec-notes/cells-refs.md §6: a placed volume (REFR XPRM) whose base names a model gets none of the model's collision; Vault 34's six v34AmbushVolume triggers in Vault34b stood as solid, unseen water tower pipes"
+areas = ["physics"]
+paths = ["crates/fnv-phys/src/placed.rs", "crates/fnv-world/src/placed.rs"]
+commands = [["phys", "cell", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--cell", "Vault34b", "--seconds", "0.1"]]
+expect = [
+  { json = "refs.counts.volume", schema = "fnv.phys.cell/1", equals = 20, label = "Vault34b's 20 placed volumes add no model collision" },
+  { json = "refs.counts.collision_primitive", schema = "fnv.phys.cell/1", equals = 13, label = "its CollisionMarker boxes stay solid" },
+]

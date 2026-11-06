@@ -315,7 +315,7 @@ fn place_of(a: &Affine3A) -> (Vec3, Quat) {
 }
 
 /// `to`, or short of it in front of what lies between `from` and it (Bevy space).
-fn clear(phys: &mut PhysState, from: Vec3, to: Vec3) -> Vec3 {
+pub(crate) fn clear(phys: &mut PhysState, from: Vec3, to: Vec3) -> Vec3 {
     let d = to - from;
     let len = d.length();
     if len < 1e-3 {

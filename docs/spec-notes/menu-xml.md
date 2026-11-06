@@ -231,6 +231,18 @@ The names with no record in the vanilla masters, by spelling:
 `sVatsBodyPart`, `sVatsSelect`, `sVatsTarget`, `sWinLossText`, `sXPProgressMarker`,
 `squit`.
 
+**Without the `-`** (2026-11-05). A mod's file can write a setting's name as a constant,
+`&sName;`: JAM's loot menu (`jlm.xml`) writes `&sTargetTypeTake;`, `&sSteal;` and
+`&sTargetTypeOpen;` for its key hints, beside `&-sTakeAll;` and `&-sInventoryEquip;`, and
+MCM's `scale.xml` writes `&sAccept;` and `&sCancel;` [observed: the files]. No vanilla
+file does. Ours reads such a name as `&-sName;` when the load order or the built-in table
+answers it, and as a constant's name otherwise (`fnv_ui::expr::literal`) [hypothesis: the
+mods' hints read as words in the original; how its reader tells a constant from a
+setting is not known]. The three JAM names have no vanilla use and no GMST record, so
+the table holds NVForever's own labels for them too ("Take", "Steal", "Open"); and
+`sInventoryWeight` is now "WG", short as its headline-card neighbours "HP", "DR", "DT",
+since JAM's loot menu leaves the label 50 units before the load figure [design].
+
 ## 3. Traits
 
 - A trait holds a number or a string; in the original it is both at once [documented:
@@ -285,6 +297,16 @@ docs/handoff/ui-tile-tree-tasks.md]: `x` `y` `width` `height` `depth` `alpha` `v
   child cannot override a hidden parent.
 - [hypothesis] True `clips` crops children to this tile's rectangle. Nested ancestor
   clips intersect; a disjoint intersection is empty. The tile's own box is unchanged.
+  **Not for mods' tiles over the default HUD and on the Mods page** (2026-11-05,
+  `tiles::layout::Clips::Ignored`): JAM's loot menu sets `clips` on its root and centres
+  its title on the root's top edge (`y` = minus half the text's height), half outside the
+  box, and hides its own rows past the list by their `visible` [observed: jlm.xml]; a
+  crop there would cut the title in two, which the mod's author would have seen
+  [hypothesis: the original does not crop a `clips` tile's children, or not there; its
+  meter pictures that carry `clips` and no children suggest it crops the tile's own
+  picture]. Whole menus drawn from tiles still crop as above until checked [design: as
+  `clipwindow` below, the reading changes only where mods' tiles draw over the default
+  game]. Observer check 12.
 - [observed] True `clipwindow` crops a tile's descendants to its rectangle in the
   drawing: the tutorial menu's scrolled text stops part way through a line at the column's
   top and bottom edges (private capture hud_tutorial_more, 1280 x 720, shots
@@ -423,6 +445,14 @@ NVForever's own HUD, from the layout of §3.1.1. What it takes the traits to mea
   prefab's own expression, the child's width plus `_horbuf` [documented: text_box.xml])
   and `RadiationMeter/radiation_text_value` (`fnv_game::ui_hud::write_text_widths`),
   only with the game's fonts. A tile without a `string` keeps its width [design].
+- [hypothesis] `rotateangle` turns a tile's picture, in radians, clockwise on the screen,
+  about the point (`rotateaxisx`, `rotateaxisy`) measured from the tile's own top left
+  (`tiles::draw::Turn`): JAM's crosshair (`jdc.xml`) draws one arc picture four times
+  with 0, 1.570796, 3.141593 and 4.712389, each axis at the reticle's middle measured
+  from that arc's top left, and its four bars the same way, to make a circle and a cross
+  [observed: the file; the drawn circle closes, 2026-11-05]. The trait names are read
+  without case (the file writes `Rotateaxisx`). The box is placed as before and turned
+  as a whole; what turning does to the pointer is not done.
 
 ### 3.1.3 The whole menu, `zoom`, `tile`, `texatlas` (T12a)
 
@@ -690,6 +720,20 @@ pages]
   matching child**, reversing file/creation order [observed: private jobs hud_hardcore
   hc0, hud_xp_limbs all, hud_prompt2 p0-p8; hud.md §14.8]. Unindexed matching still
   searches in file order [hypothesis].
+- `*:N` among children that **all came from the menu files** counts from **1 in file
+  order** instead [hypothesis, 2026-11-05: MCM 1.5 and JAM write
+  `StartMenu/MCM/*:1/_optionID`, `*:5/SubMenu1/_enable`, `*:8/SubTitle1/string` and
+  `*:2/_setting1` for `MCM_Options`, `MCM_ModList`, `MCM_ModTitle` and `MCM_Scale`, the
+  1st, 5th, 8th and 2nd children of mcm.xml's `MCM` rect, the numbers MCM's own
+  GetMCMFloat shorthands use (17 is `MCM_Images`, 9 `MCM_Info`); counted from the last
+  they name tiles without those children, and JAM's sub-menus never list, which they do
+  in the original]. Every observed from-the-last read was of children the game's code
+  made (the HUD's template copies, hud.md §14.8). Another reading fits too: those reads
+  used JIP's GetUIFloatAlt, MCM's and JAM's use xNVSE's GetUIFloat/SetUIFloat, so the
+  count may depend on the function (observer check 6). `name:N` is unchanged.
+- `src="me"` without brackets is `me()` [hypothesis: MCM 1.5's options.xml places its
+  option column with `<copy src="me" trait="x"/>`; read as a tile named "me" every
+  option stood at the screen's left edge].
 - With `*`, the first child that leads to a full match is taken [hypothesis].
 - GetUIFloat returns -999 when the trait is not found [documented: GetUIFloat];
   SetUIFloatAlt, ModUIFloat return 1 on a change and 0 otherwise [documented].
@@ -847,6 +891,10 @@ What the original can settle (copied to docs/handoff/observer-checks.md):
    hud.md §14.8]. These reads used JIP GetUIFloatAlt; deprecated xNVSE GetUIFloat
    parity remains untested [hypothesis]. No contrary vanilla menu/script dependency
    was established by these captures; other menus/scripts still need checking.
+   **Reopened 2026-11-05 for file-made children**: MCM's and JAM's `*:N` paths only make
+   sense counted from 1 in file order (§5). To check: in the original, with MCM open,
+   `GetUIFloat "StartMenu/MCM/*:1/_columns"` (1 when `*:1` is `MCM_Options`) and the
+   same with GetUIFloatAlt.
 7. **Which target takes the pointer where two overlap.** Ours: the highest summed `depth`,
    a tie to the one drawn later; a later menu over an earlier one (§3.2). In a menu with
    overlapping buttons (the level-up menu's list over its buttons, or two tiles injected
@@ -870,6 +918,13 @@ What the original can settle (copied to docs/handoff/observer-checks.md):
     `StartMenu/MCM/MCM_Options/Option1/_optionID`, and `GetMCMFloat 1 1 "_optionID"`,
     `GetMCMFloat 1 0 "_optionID"` with the pointer on the first row (ours: the
     shorthands count from 1 in file order, 0 stopping, §10; `*:N` from the last child).
+12. **What `clips` crops** (2026-11-05). With JAM's loot menu open on a container,
+    whether its title "Refrigerator"-style headline shows whole above the box's top line
+    or cut along it (ours: whole, §3.1.1); and whether a long item name runs past the
+    row's right edge.
+13. **`&sName;` without the `-`, and `%k`.** JAM's loot menu's key hints under the box:
+    the action words (ours: "Take", "Open") and the key before them (ours: GetKeyName's
+    text, "E)"), §2.4.
 
 ## 9. The rest of the tile functions (task T9)
 
@@ -948,10 +1003,7 @@ read.
   trait only the `MCM` rect has) and `GetMCMFloat 1 0 "_optionID"` (the row under the
   pointer) and sets `SetMCMFloat 0 0 "_NewValue" 0`. The GECK wiki writes `SetMCMFloat
   1 1 "_enable" 1` as `SetUIFloat "StartMenu/MCM/*:1/*:1/_enable" 1` [documented:
-  SetMCMFloat], but NVForever's `*:N` counts from the last child (§5, observed on the
-  HUD), which would reach `MCM_Version`, so the shorthands do not go through `*:N`
-  (`fnv_game::ui_functions::mcm_trait`). Which of the two the original's `*:N` really does
-  for MCM is an observer check (§8). A trait or place that is not there reads 0; the
+  SetMCMFloat], which NVForever's `*:N` now reads the same way for MCM's file-made tiles (§5, a hypothesis; observer check 6). The shorthands go straight to the children all the same (`fnv_game::ui_functions::mcm_trait`). A trait or place that is not there reads 0; the
   setters make nothing (as SetUIFloat, §5) [hypothesis].
 - **A mod's menu script** [observed: FOV Slider's source]: a quest script with a
   `Begin MenuMode 1013` block (the start menu, `fnv_game::game::menus::START`). It
