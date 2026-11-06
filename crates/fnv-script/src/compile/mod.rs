@@ -58,6 +58,11 @@ pub struct Seed<'a> {
     /// not cost a mod's whole script [decision: for the engine's compile of mods' source;
     /// the editor-parity compile keeps the error].
     pub unknown_calls: bool,
+    /// With [`Self::unknown_calls`]: an unknown name standing for a value (`set x to
+    /// GetMCMListWidth 2`, `sTag = ySIGetTagTrait …`) is such a call too. Off, only a call
+    /// line's unknown name is, and an unknown operand fails the unit as before (the
+    /// Script Runner files: `set x to SRNoSuchForm` must not compile).
+    pub unknown_operands: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

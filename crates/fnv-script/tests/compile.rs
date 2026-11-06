@@ -150,7 +150,7 @@ fn a_seed_keeps_the_units_indices() {
     let t = table();
     let vars = vec![VarDecl { index: 7, name: "a".into(), ty: VarType::Int }];
     let refs = vec![RefSlot::Form(CAPS)];
-    let c = compile("short a\nbegin GameMode\nset a to 1\nplayer.AddItem Caps001 a\nend", &t, &World, Some(Seed { variables: &vars, refs: &refs, unknown_calls: false }));
+    let c = compile("short a\nbegin GameMode\nset a to 1\nplayer.AddItem Caps001 a\nend", &t, &World, Some(Seed { variables: &vars, refs: &refs, unknown_calls: false, unknown_operands: false }));
     assert_eq!(c.variables, vars);
     assert_eq!(c.refs, [RefSlot::Form(CAPS), RefSlot::Form(PLAYER)]);
     assert!(c.diags.iter().any(|d| d.kind == "reference_added"));
@@ -1153,7 +1153,7 @@ fn a_block_lambda_may_open_with_a_space() {
 /// name ([`Seed::unknown_calls`]).
 fn build_mod(src: &str) -> (Compiled, Program) {
     let t = table();
-    let c = compile(src, &t, &World, Some(Seed { variables: &[], refs: &[], unknown_calls: true }));
+    let c = compile(src, &t, &World, Some(Seed { variables: &[], refs: &[], unknown_calls: true, unknown_operands: true }));
     let errors: Vec<_> = c.errors().collect();
     assert!(errors.is_empty(), "compile errors: {errors:?}");
     let d = decode(&c.bytes, &t);
@@ -1236,4 +1236,18 @@ fn a_block_lambdas_lines_may_call_unknown_functions() {
     let src = "begin GameMode\nSetEventHandlerAlt \"ISCe1\" (begin Function {float xlY}\nGetCameraMovement (float xmE) (float xmD)\nxlY -= xmE * 0.2\nend)\nend";
     let (c, _) = build_mod(src);
     assert!(c.variables.iter().any(|v| v.name == "xmE"), "{:?}", c.variables);
+}
+
+#[test]
+fn without_unknown_operands_only_a_call_line_may_name_an_unknown_function() {
+    // The Script Runner's seed: ln_ISControl.txt's handler line compiles, an unknown
+    // operand (`set x to SRNoSuchForm`, the runner tests' broken file) does not.
+    let t = table();
+    let seed = Some(Seed { variables: &[], refs: &[], unknown_calls: true, unknown_operands: false });
+    let ok = compile("begin GameMode\nSetEventHandlerAlt \"ISCe1\" (begin Function {float xlY}\nGetCameraMovement (float xmE) (float xmD)\nend)\nend", &t, &World, seed);
+    assert!(ok.errors().next().is_none(), "{:?}", ok.diags);
+    let bad = compile("short x\nbegin GameMode\nset x to SRNoSuchForm\nend", &t, &World, seed);
+    assert!(bad.errors().next().is_some());
+    let bad = compile("int x\nbegin GameMode\nlet x := SRNoSuchForm\nend", &t, &World, seed);
+    assert!(bad.errors().next().is_some());
 }

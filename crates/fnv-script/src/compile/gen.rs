@@ -90,8 +90,9 @@ pub(super) struct Gen<'a> {
     /// The spelling each reference list entry was first used with.
     claims: Vec<Option<String>>,
     seeded: bool,
-    /// [`Seed::unknown_calls`].
+    /// [`Seed::unknown_calls`], [`Seed::unknown_operands`].
     unknown_calls: bool,
+    unknown_operands: bool,
     /// Lower-case names of the locals the source declares `ref`.
     ref_vars: std::collections::HashSet<String>,
     /// Seed reference list forms by lower-case Editor ID.
@@ -195,6 +196,7 @@ impl<'a> Gen<'a> {
             claims: Vec::new(),
             seeded: seed.is_some(),
             unknown_calls: seed.is_some_and(|s| s.unknown_calls),
+            unknown_operands: seed.is_some_and(|s| s.unknown_calls && s.unknown_operands),
             ref_vars: Default::default(),
             seed_edids,
             blocks,
@@ -1158,7 +1160,7 @@ impl<'a> Gen<'a> {
             // expression: it compiles as the `let` it means, the name a call that reports
             // "not built" when it runs ([`Seed::unknown_calls`]) [observed: The Mod
             // Configuration Menu.esp SCPT 0x000AE8].
-            Kw::Set { expr, .. } if self.unknown_calls && expr.iter().any(|t| self.unknown_word(t)) => {
+            Kw::Set { expr, .. } if self.unknown_operands && expr.iter().any(|t| self.unknown_word(t)) => {
                 let lower = self.text.to_ascii_lowercase();
                 let Some(to) = lower.find(" to ") else {
                     self.diag("bad_set_target", true, self.text.clone());
