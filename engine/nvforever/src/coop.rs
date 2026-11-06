@@ -1491,7 +1491,10 @@ fn draw(
             keep.extend(p.references(id).map(|r| (r, p.root)));
         }
     }
-    despawn_bodies(&mut commands, &roots, world_root, &keep);
+    // Bodies despawned this frame are still in the queries until its end: never taken
+    // for a puppet's body again (a body found for one frame, then lost, is drawn anew:
+    // a puppet spawned again every frame, never dressed or animated).
+    let mut gone = despawn_bodies(&mut commands, &roots, world_root, &keep);
     let here = place_of(&loc);
     let dt = time.delta_secs().min(0.1);
     let mut stats = crate::actors::ActorStats::default();
@@ -1528,7 +1531,10 @@ fn draw(
         }
         // Taken away now, before it is spawned again below.
         if std::mem::take(&mut p.purge) {
-            despawn_bodies(&mut commands, &roots, world_root, &p.references(id).map(|r| (r, None)).collect());
+            gone.extend(despawn_bodies(&mut commands, &roots, world_root, &p.references(id).map(|r| (r, None)).collect()));
+        }
+        if p.root.is_some_and(|e| gone.contains(&e)) {
+            p.root = None;
         }
         let reference = p.reference(id);
         let base = if p.look.is_some() { PLAYER_BASE } else { base };
@@ -1537,6 +1543,9 @@ fn draw(
         if let Err(e) = show_actor(&mut commands, world_root, visible, actor_world.as_deref(), sim_world, &mut ahead, &mut stats, &mut parts, &mut models, &roots, &mut actors, who, (&mut p.spawned, &mut p.root), (feet, yaw), moving, dt) {
             warn!("co-op: {} cannot be drawn as {base:#010X}: {e}", label(id, &p.name));
             p.failed = true;
+        }
+        if p.root.is_some_and(|e| gone.contains(&e)) {
+            p.root = None;
         }
         if visible && p.spawned {
             p.drawn_in = Some(here);
@@ -2084,10 +2093,11 @@ fn place_like_host(world: &mut fnv_sim::World, g: &mut fnv_game::Game, npcs: &Ha
 }
 
 /// Despawn the bodies (actor roots under the world root) of the references in `keep`,
-/// except the one each keeps.
-fn despawn_bodies(commands: &mut Commands, roots: &Query<(Entity, &RefVisual, &ChildOf)>, world_root: Entity, keep: &HashMap<u32, Option<Entity>>) {
+/// except the one each keeps; the bodies despawned.
+fn despawn_bodies(commands: &mut Commands, roots: &Query<(Entity, &RefVisual, &ChildOf)>, world_root: Entity, keep: &HashMap<u32, Option<Entity>>) -> HashSet<Entity> {
+    let mut gone = HashSet::new();
     if keep.is_empty() {
-        return;
+        return gone;
     }
     for (e, v, parent) in roots {
         if parent.parent() != world_root {
@@ -2096,8 +2106,10 @@ fn despawn_bodies(commands: &mut Commands, roots: &Query<(Entity, &RefVisual, &C
         if let Some(k) = keep.get(&v.0).filter(|k| **k != Some(e)) {
             info!("co-op: a body of {:08X} taken away{}", v.0, if k.is_some() { " (a stray: not its puppet)" } else { "" });
             commands.entity(e).try_despawn();
+            gone.insert(e);
         }
     }
+    gone
 }
 
 /// A guest's own actors drawn within `reach` of the host's feet (across the floor) that
