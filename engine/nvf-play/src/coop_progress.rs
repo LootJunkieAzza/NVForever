@@ -221,7 +221,7 @@ fn say(corner: &mut Option<ResMut<crate::corner_messages::CornerMessages>>, n: S
 }
 
 /// What the other players sent: rewards taken, saves to follow, the reload.
-fn take_inbox(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>, mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>, mut load: MessageWriter<LoadRequest>) {
+fn take_inbox(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>, mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>, mut load: MessageWriter<LoadRequest>, mates: Option<Res<crate::coop_social::SocialMates>>) {
     let p = &mut *p;
     let mut script = script;
     for (id, what) in std::mem::take(&mut p.inbox) {
@@ -233,7 +233,8 @@ fn take_inbox(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>, 
                 };
                 let name = rt.game.data.name(FormId(quest));
                 match rt.game.take_coop_reward(xp as f64, caps as i32) {
-                    Ok(gained) => say(&mut corner, format!("The host completed {name}: +{gained} XP{}", if caps > 0 { format!(", +{caps} caps") } else { String::new() })),
+                    // The host by its character's name (`coop_social::SocialMates`).
+                    Ok(gained) => say(&mut corner, format!("{} completed {name}: +{gained} XP{}", mates.as_deref().and_then(|m| m.get(0)).map_or("The host", |m| m.name.as_str()), if caps > 0 { format!(", +{caps} caps") } else { String::new() })),
                     Err(e) => warn!("co-op: the reward for {name} could not be given: {e}"),
                 }
             }

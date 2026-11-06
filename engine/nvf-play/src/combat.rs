@@ -1821,7 +1821,9 @@ struct DeathDrops {
 /// picks the one reference up (`RefState::dropped_by`; #1032) [hypothesis: the
 /// original's corpses list the weapon lying beside them; owner's report]. Only deaths seen in play count: an actor dead when it
 /// is drawn was never seen holding a weapon, so a corpse laid out by the game keeps its
-/// own (`Game::starts_dead`).
+/// own (`Game::starts_dead`). Another co-op player's actor drops nothing: its weapon is
+/// that player's, in its own game, and it lies only while it is down or has lost a duel
+/// (a dropped copy could be picked up here) [design].
 fn death_drops(
     mut st: Local<DeathDrops>,
     mut sim: ResMut<SimState>,
@@ -1832,7 +1834,7 @@ fn death_drops(
 ) {
     let Some(rt) = script.as_deref().and_then(|s| s.rt.as_ref()) else { return };
     for (&id, p) in &parts.by_ref {
-        if id == FormId::PLAYER_REF.0 || rt.game.is_dead(FormId(id)) {
+        if id == FormId::PLAYER_REF.0 || rt.game.is_dead(FormId(id)) || rt.game.coop_actors.contains_key(&FormId(id)) {
             continue;
         }
         match p.weapon {
