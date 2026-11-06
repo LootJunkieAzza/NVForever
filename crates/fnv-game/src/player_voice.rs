@@ -78,7 +78,7 @@ pub struct VoiceSet {
 }
 
 /// What a race is for the voices: `ghoul` for the ghoul races (the editor id has "ghoul"
-/// in it: Ghoul, made playable by the Playable Ghoul mod; a follower mod's
+/// in it: Ghoul, made playable by a ghoul race mod (Fully Functional Ghoul Race); a follower mod's
 /// WillowsGhoulRace), otherwise `human` [design].
 pub fn race_kind(race_edid: &str) -> &'static str {
     if race_edid.to_ascii_lowercase().contains("ghoul") {
