@@ -474,6 +474,8 @@ impl Coop {
             self.note = Some(format!("Cannot open UDP port {port} on this PC: is another game using it?"));
             return;
         };
+        // The guests are told the host's name (`net::Msg::Names`).
+        link.set_name(&self.name);
         self.link = Some(link);
         self.port = port;
         std::env::set_var(HOST_ENV, port.to_string());
@@ -1263,6 +1265,10 @@ fn take_events(
                 if id != 0 || is_host {
                     notes.push(format!("{} reconnected", label(id, &p.name)));
                 }
+            }
+            Event::Named { id, name } => {
+                info!("co-op: player {} is {name}", id + 1);
+                coop.peers.entry(id).or_default().name = name;
             }
             Event::Look { id, look } => {
                 let Some(look) = decode_look(&look) else {

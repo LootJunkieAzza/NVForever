@@ -139,6 +139,9 @@ pub const PRESENCE_EVERY: Duration = Duration::from_millis(200);
 pub const PRESENCE_PAGE: usize = 200;
 /// How often the host sends its game clock.
 pub const CLOCK_EVERY: Duration = Duration::from_secs(2);
+/// How often the host sends every player's name ([`Msg::Names`]), and at once after a
+/// guest joins.
+pub const NAMES_EVERY: Duration = Duration::from_secs(2);
 /// Objectives a [`QuestView`] carries at most.
 pub const QUEST_OBJECTIVES: usize = 64;
 /// The most a hit takes (the game's own encoding, [`Session::send_hit`]).
@@ -298,6 +301,9 @@ enum Msg {
     /// "Still here", from a game with no state to send (a guest choosing its save).
     Ping,
     Bye { id: u8 },
+    /// Every player's name, from the host (the host is id 0): a guest learns the host's
+    /// and the other guests' names from it.
+    Names { names: Vec<(u8, String)> },
     /// How player `id` looks (race, face, hair...; the game's own encoding).
     Look { id: u8, look: Vec<u8> },
     /// Some of the host's NPCs (all of one round share its `seq`).
@@ -451,6 +457,8 @@ pub enum Event {
     HostGone,
     /// A peer's look, when first heard or changed.
     Look { id: u8, look: Vec<u8> },
+    /// A player's name, when first heard or changed (guests only; [`Msg::Names`]).
+    Named { id: u8, name: String },
     /// Some of the host's NPCs, as it draws them (guests only).
     Npcs(Vec<NpcState>),
     /// Guest `id` hit an NPC (host only; each hit once).
@@ -489,13 +497,16 @@ struct Peer {
     last_seq: Option<u32>,
     lost: bool,
     look: Option<Vec<u8>>,
+    /// Its name: the host's record of a guest's (its Hello), a guest's of another player's
+    /// (the host's [`Msg::Names`]).
+    name: String,
     /// The ids of a guest's newest hits (host only).
     hits: VecDeque<u16>,
 }
 
 impl Peer {
     fn new(id: u8, now: Instant) -> Self {
-        Self { id, addr: None, token: 0, last_heard: now, last_seq: None, lost: false, look: None, hits: VecDeque::new() }
+        Self { id, addr: None, token: 0, last_heard: now, last_seq: None, lost: false, look: None, name: String::new(), hits: VecDeque::new() }
     }
 
     /// Keep `look`; whether it is new.
@@ -561,6 +572,9 @@ pub struct Session {
     /// The host's game clock now, and when it was last sent.
     clock: Option<ClockView>,
     last_clock: Option<Instant>,
+    /// The host's own name, and when every player's names last went.
+    own_name: String,
+    last_names: Option<Instant>,
     /// The host's NPCs' lines, and the last sent (when, which); a guest's newest heard.
     lines: Vec<LineView>,
     last_lines: Option<(Instant, Vec<(u32, u32)>)>,
@@ -616,7 +630,7 @@ impl Session {
 
     fn with(sock: UdpSocket, role: Role) -> std::io::Result<Self> {
         sock.set_nonblocking(true)?;
-        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, presence: Vec::new(), presence_serial: 0, presence_page: 0, last_presence: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), events: Vec::new() })
+        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, own_name: String::new(), last_names: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, presence: Vec::new(), presence_serial: 0, presence_page: 0, last_presence: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), events: Vec::new() })
     }
 
     /// Also talk over Steam: a host is reached through it by a Steam code, a guest reaches
@@ -653,6 +667,15 @@ impl Session {
     /// The host's game clock now; [`Session::tick`] sends it every [`CLOCK_EVERY`].
     pub fn set_clock(&mut self, clock: ClockView) {
         self.clock = Some(clock);
+    }
+
+    /// The host's own name, for the guests ([`Msg::Names`]).
+    pub fn set_name(&mut self, name: &str) {
+        let name = truncate(name);
+        if name != self.own_name {
+            self.own_name = name;
+            self.last_names = None;
+        }
     }
 
     /// The lines the host's NPCs are saying now; [`Session::tick`] sends them every
@@ -972,6 +995,14 @@ impl Session {
                 self.last_clock = Some(now);
             }
         }
+        if self.is_host() && !self.peers.is_empty() && self.last_names.is_none_or(|t| now - t >= NAMES_EVERY) {
+            let names = std::iter::once((0, self.own_name.clone())).chain(self.peers.iter().map(|p| (p.id, p.name.clone()))).collect();
+            let msg = Msg::Names { names };
+            for addr in self.peers.iter().filter_map(|p| p.addr) {
+                self.sock_send(&msg, addr);
+            }
+            self.last_names = Some(now);
+        }
         if self.is_host() && !self.peers.is_empty() && self.last_presence.is_none_or(|t| now - t >= PRESENCE_EVERY) {
             let pages = self.presence.len().div_ceil(PRESENCE_PAGE).max(1);
             let page = self.presence_page % pages;
@@ -1069,6 +1100,8 @@ impl Session {
                     p.last_heard = now;
                     // A game started again counts its states from the start.
                     p.last_seq = None;
+                    p.name = truncate(&name);
+                    self.last_names = None;
                     let id = p.id;
                     if std::mem::take(&mut p.lost) {
                         self.events.push(Event::Back(id));
@@ -1080,7 +1113,8 @@ impl Session {
                     self.sock_send(&Msg::Full, from);
                     return;
                 };
-                self.peers.push(Peer { addr: Some(from), token, ..Peer::new(id, now) });
+                self.peers.push(Peer { addr: Some(from), token, name: truncate(&name), ..Peer::new(id, now) });
+                self.last_names = None;
                 self.sock_send(&Msg::Welcome { id }, from);
                 self.events.push(Event::Joined { id, name });
             }
@@ -1207,7 +1241,7 @@ impl Session {
                 }
                 self.events.push(Event::Progress { id, what });
             }
-            Msg::Welcome { .. } | Msg::Full | Msg::Who | Msg::Npcs { .. } | Msg::Quest(_) | Msg::Clock(_) | Msg::Lines { .. } | Msg::Presence { .. } => {}
+            Msg::Welcome { .. } | Msg::Full | Msg::Who | Msg::Npcs { .. } | Msg::Quest(_) | Msg::Clock(_) | Msg::Lines { .. } | Msg::Presence { .. } | Msg::Names { .. } => {}
         }
     }
 
@@ -1325,6 +1359,25 @@ impl Session {
             }
             Msg::Unlock { reference, terminal } => self.events.push(Event::Unlocked { id: 0, reference, terminal }),
             Msg::Clock(c) => self.events.push(Event::Clock(c)),
+            Msg::Names { names } => {
+                for (peer, name) in names {
+                    if Some(peer) == *id || name.is_empty() {
+                        continue;
+                    }
+                    let p = match self.peers.iter().position(|p| p.id == peer) {
+                        Some(i) => &mut self.peers[i],
+                        None => {
+                            self.peers.push(Peer::new(peer, now));
+                            self.events.push(Event::Joined { id: peer, name: String::new() });
+                            self.peers.last_mut().unwrap()
+                        }
+                    };
+                    if p.name != name {
+                        p.name = name.clone();
+                        self.events.push(Event::Named { id: peer, name });
+                    }
+                }
+            }
             Msg::Presence { serial, page, pages, refs } => self.events.push(Event::Presence { serial, page, pages, refs }),
             Msg::Lines { seq, lines } => {
                 if self.heard_lines.is_some_and(|l| !fresh(seq, l)) {
@@ -1475,6 +1528,10 @@ impl Link {
         self.with(|s| s.set_clock(clock));
     }
 
+    pub fn set_name(&self, name: &str) {
+        self.with(|s| s.set_name(name));
+    }
+
     pub fn set_lines(&self, lines: Vec<LineView>) {
         self.with(|s| s.set_lines(lines));
     }
@@ -1597,6 +1654,15 @@ fn encode(msg: &Msg) -> Vec<u8> {
         Msg::Full => b.push(3),
         Msg::Who => b.push(6),
         Msg::Ping => b.push(7),
+        Msg::Names { names } => {
+            let names: Vec<_> = names.iter().take(MAX_GUESTS + 1).collect();
+            b.extend_from_slice(&[20, names.len() as u8]);
+            for (id, name) in names {
+                let name = truncate(name);
+                b.extend_from_slice(&[*id, name.len() as u8]);
+                b.extend_from_slice(name.as_bytes());
+            }
+        }
         Msg::Look { id, look } => {
             b.extend_from_slice(&[8, *id]);
             b.extend_from_slice(&(look.len() as u16).to_le_bytes());
@@ -1905,6 +1971,22 @@ fn decode(b: &[u8]) -> Option<Msg> {
             }
             Msg::Presence { serial, page, pages, refs }
         }
+        20 => {
+            let n = r.u8()? as usize;
+            if n > MAX_GUESTS + 1 {
+                return None;
+            }
+            let mut names = Vec::with_capacity(n);
+            for _ in 0..n {
+                let id = r.u8()?;
+                let len = r.u8()? as usize;
+                if len > NAME_MAX {
+                    return None;
+                }
+                names.push((id, String::from_utf8_lossy(r.take(len)?).into_owned()));
+            }
+            Msg::Names { names }
+        }
         _ => return None,
     };
     r.0.is_empty().then_some(msg)
@@ -1951,6 +2033,7 @@ mod tests {
         for msg in [
             Msg::Hello { token: 0xDEAD_BEEF_0123, lobby: 0x1234_5678, name: "Courier".into() },
             Msg::Welcome { id: 2 },
+            Msg::Names { names: vec![(0, "Alpha".into()), (2, "Bravo".into()), (3, String::new())] },
             Msg::Full,
             Msg::Who,
             Msg::Ping,
@@ -2092,6 +2175,27 @@ mod tests {
         assert_eq!(progress(&seen[1]), [Event::Progress { id: 0, what: reward }, Event::Progress { id: 0, what: Progress::Reload { stamp: 9 } }]);
     }
 
+    /// Each guest learns the host's name and the other guest's, never its own.
+    #[test]
+    fn guests_learn_every_players_name() {
+        let (mut host, mut guests, _) = host_and(2);
+        host.set_name("Alpha");
+        let (a, b) = guests.split_at_mut(1);
+        let (a, b) = (&mut a[0], &mut b[0]);
+        let mut clock = Instant::now();
+        let step = Duration::from_millis(20);
+        let named = |v: &[Event]| v.iter().filter_map(|e| if let Event::Named { id, name } = e { Some((*id, name.clone())) } else { None }).collect::<Vec<_>>();
+        let seen = run(&mut [&mut host, a, b], &mut clock, step, |seen| named(&seen[1]).len() >= 2 && named(&seen[2]).len() >= 2);
+        let (ida, idb) = (a.id().unwrap(), b.id().unwrap());
+        let sorted = |mut v: Vec<(u8, String)>| {
+            v.sort();
+            v
+        };
+        assert_eq!(sorted(named(&seen[1])), sorted(vec![(0, "Alpha".into()), (idb, "G1".into())]));
+        assert_eq!(sorted(named(&seen[2])), sorted(vec![(0, "Alpha".into()), (ida, "G0".into())]));
+        assert!(named(&seen[0]).is_empty(), "the host has the names from the guests' Hello");
+    }
+
     /// A guest's revive reaches the other guest through the host, and the host's own.
     #[test]
     fn revives_reach_the_one_revived() {
@@ -2214,7 +2318,7 @@ mod tests {
         let mut a = g.pop().unwrap();
         let mut clock = Instant::now();
         let step = Duration::from_millis(10);
-        run(&mut [&mut host, &mut a, &mut b], &mut clock, step, |seen| {
+        let welcomed = run(&mut [&mut host, &mut a, &mut b], &mut clock, step, |seen| {
             seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))) && seen[2].iter().any(|e| matches!(e, Event::Welcomed(_)))
         });
         let (ida, idb) = (a.id().unwrap(), b.id().unwrap());
@@ -2227,7 +2331,9 @@ mod tests {
                 && seen[2].contains(&Event::State { id: ida, state: state(10.0) })
                 && seen[1].contains(&Event::State { id: 0, state: state(99.0) })
         });
-        assert!(seen[2].contains(&Event::Joined { id: ida, name: String::new() }));
+        // From its state, or earlier from the host's names (`Msg::Names`).
+        let joined = Event::Joined { id: ida, name: String::new() };
+        assert!(seen[2].contains(&joined) || welcomed[2].contains(&joined));
 
         a.bye();
         drop(a);
