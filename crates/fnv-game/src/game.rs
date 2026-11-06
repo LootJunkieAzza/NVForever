@@ -2609,9 +2609,10 @@ impl<'a> Game<'a> {
     /// nothing documents compiles as a call that reports "not built" when it runs, as a
     /// mod's SCPT source does (`fnv_script::compile::Seed::unknown_calls`): one plugin
     /// function the wiki lacks no longer costs the whole file (ln_ISControl.txt's
-    /// `GetCameraMovement`).
+    /// `GetCameraMovement`). An unknown name as an operand (`set x to NoSuchForm`) still
+    /// fails the file.
     pub(crate) fn compile_statements(&mut self, src: &str, plugin: &str, sig: &str) -> Result<(&'a Compiled, Vec<String>), String> {
-        let seed = (sig == "SR").then_some(fnv_script::compile::Seed { variables: &[], refs: &[], unknown_calls: true });
+        let seed = (sig == "SR").then_some(fnv_script::compile::Seed { variables: &[], refs: &[], unknown_calls: true, unknown_operands: false });
         let c = fnv_script::compile::compile(src, &self.data.table, &GameEnv { g: self }, seed);
         if let Some(e) = c.errors().next() {
             // The console's own line needs no number.

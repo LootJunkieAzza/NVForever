@@ -142,7 +142,7 @@ pub(crate) fn apply(lo: &LoadOrder<'_>, table: &FunctionTable, units: &mut [(fnv
         .map(|&i| {
             let u = &units[i].1.unit;
             let env = ix.env(ix.plugin_index(&u.plugin).unwrap_or(0));
-            let c = compile(u.source.as_deref().unwrap_or(""), table, &env, Some(Seed { variables: &u.variables, refs: &u.refs, unknown_calls: true }));
+            let c = compile(u.source.as_deref().unwrap_or(""), table, &env, Some(Seed { variables: &u.variables, refs: &u.refs, unknown_calls: true, unknown_operands: true }));
             let first = c.errors().next().map(|e| format!("{}: line {}: {} {}", u.key(), e.line, e.kind, e.detail));
             let r = match first {
                 Some(e) => Err(e),

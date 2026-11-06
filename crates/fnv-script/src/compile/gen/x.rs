@@ -418,7 +418,8 @@ impl Gen<'_> {
             // the wiki does not document].
             // Also one standing for a value (`sTag = ySIGetTagTrait "filename" rItem`)
             // [observed: JustAssortedMods.esp SCPT 0x045905].
-            None if self.unknown_calls && !self.in_args && head.is_none() => {
+            // Without [`super::super::Seed::unknown_operands`] only on a call line.
+            None if self.unknown_calls && !self.in_args && head.is_none() && (self.unknown_operands || self.call_line) => {
                 let f = self.unknown_fn(name)?;
                 let args = self.xargs(p, &f)?;
                 Some(XExpr::Call { call: XCall { on: None, func: f.func, args } })
