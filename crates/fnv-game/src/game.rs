@@ -5423,7 +5423,14 @@ impl Host for Exec<'_, '_> {
         }
         let g = &*self.game;
         let named = |x: FormId| g.name_overrides.get(&x).or_else(|| g.data.full_names.get(&g.unclone(x))).cloned();
-        named(f).or_else(|| crate::functions::base_of(g, f).and_then(named))
+        // A placed actor's name is its template's when its own record has none, as the
+        // prompt shows it (`Game::display_base`) [observed: VSpawnSpecialJackalMale01Ivanpah
+        // has no FULL and shows "Jackal Gang Member"; JAM's loot menu skips a reference
+        // whose `$ref` reads "<no name>", owner's playtest 2026-11-05].
+        named(f).or_else(|| {
+            let base = crate::functions::base_of(g, f)?;
+            named(base).or_else(|| named(g.display_base(base, f)))
+        })
     }
 
     fn get_var(&mut self, var: &VarRef) -> Result<Value, String> {
