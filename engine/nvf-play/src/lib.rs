@@ -118,6 +118,7 @@ pub mod script_hud;
 pub mod script_trigger;
 pub mod settings;
 pub mod start_menu;
+pub mod mod_defaults;
 pub mod sim;
 pub mod space;
 pub mod terminal;
