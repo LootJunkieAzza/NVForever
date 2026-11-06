@@ -145,8 +145,12 @@ pub struct Social {
     refund: u32,
     sales: Vec<(u32, u16, u32)>,
     rng: Option<rand_chacha::ChaCha8Rng>,
-    /// The wheel was open this frame: its E press is not also the prompt's ([`target`]).
+    /// The wheel was open this frame: its Activate press is not also the prompt's
+    /// ([`target`]).
     wheel_had_input: bool,
+    /// The wheel closed and the attack and aim buttons are still down: they stay the
+    /// wheel's until let go (the click that asked does not also fire).
+    wheel_release: bool,
     stats: Stats,
 }
 
@@ -313,7 +317,14 @@ fn input(
         }
         _ => {}
     }
-    if s.holds_input() || s.frozen() {
+    // Closed by a click or a key: that press is not the game's, nor is the button held on.
+    if s.wheel_had_input && s.wheel.is_none() {
+        s.wheel_release = true;
+    }
+    if s.wheel_release && !input.pressed(Control::Use) && !input.pressed(Control::Block) && !input.mouse.pressed(MouseButton::Left) && !input.mouse.pressed(MouseButton::Right) {
+        s.wheel_release = false;
+    }
+    if s.holds_input() || s.frozen() || s.wheel_release {
         control.wheel = true;
         (control.trigger, control.aiming) = (false, false);
     }

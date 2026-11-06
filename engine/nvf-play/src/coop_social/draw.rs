@@ -28,6 +28,8 @@ struct Shown {
     name: String,
     refusals: [Option<String>; 3],
     width: i32,
+    /// The Activate control's key or button, as the prompts name it.
+    key: String,
 }
 
 struct Kit {
@@ -93,11 +95,15 @@ fn draw_wheel(
     (data, formats): (Option<Res<GameData>>, Option<Res<CompressedImageFormatSupport>>),
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<SliceMaterial>>,
+    bindings: Option<Res<crate::bindings::Bindings>>,
     mut last: Local<Option<Shown>>,
     mut kit: Local<Option<Kit>>,
 ) {
     let width = windows.single().map_or(1280.0, |w| 960.0 * w.width() / w.height().max(1.0));
-    let now = social.wheel.as_ref().map(|w| Shown { picked: w.picked, name: w.name.clone(), refusals: w.refusals.clone(), width: width.round() as i32 });
+    // Asking is the Activate control (`coop_social::input`): named as it is bound, as the
+    // crosshair's prompts name it ("F)").
+    let key = bindings.as_deref().map_or_else(|| "E".to_string(), |b| b.prompt(crate::bindings::Control::Activate).trim_end_matches(')').to_string());
+    let now = social.wheel.as_ref().map(|w| Shown { picked: w.picked, name: w.name.clone(), refusals: w.refusals.clone(), width: width.round() as i32, key: key.clone() });
     if now == *last {
         return;
     }
@@ -171,8 +177,8 @@ fn draw_wheel(
             text(m, &kit.medium, "INTERACT", c, c - 40.0, 0, bright.with_alpha(0.7));
             text(m, &kit.large, &s.name, c, c - 10.0, 0, bright);
         });
-        let hint = "Mouse: pick      Click or E: ask      Esc: cancel";
-        text(r, &kit.medium, hint, width / 2.0, top + SIZE - 10.0, 0, bright.with_alpha(0.8));
+        let hint = format!("Mouse: pick      Click or {}: ask      Esc: cancel", s.key);
+        text(r, &kit.medium, &hint, width / 2.0, top + SIZE - 10.0, 0, bright.with_alpha(0.8));
     });
 }
 
