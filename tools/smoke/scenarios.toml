@@ -18753,3 +18753,19 @@ expect = [
   { json = "refs.counts.volume", schema = "fnv.phys.cell/1", equals = 20, label = "Vault34b's 20 placed volumes add no model collision" },
   { json = "refs.counts.collision_primitive", schema = "fnv.phys.cell/1", equals = 13, label = "its CollisionMarker boxes stay solid" },
 ]
+
+[[scenario]]
+name = "menu-box-text"
+source = "overnight queue 2026-11-06 item 4: a script's MessageBoxEx at the main menu showed \"(message 0x00000000)\" (Heartbeat Sensor Framework's requirement warning from its ln_ Script Runner file); in game the same box showed its text"
+note = "The fixture home's gr_ file shows a form-less box as the scripts load, under the main menu. The box is queued at once, but the events carrying its text are read only once the player is in the world (script::run_scripts); script_hud::box_view now reads a box not yet read from those events (pending_box)"
+areas = ["scripts", "extender", "ui"]
+paths = ["engine/nvf-play/src/script_hud.rs", "engine/nvf-play/src/message_menu.rs", "tools/smoke/fixtures/menu-box-home/"]
+env = { NVFOREVER_HOME = "{repo}/tools/smoke/fixtures/menu-box-home", NVF_PLAY_TEST_SCRIPT_MENUS = "60", NVF_PLAY_TEST_MAIN_MENU = "13:shot" }
+args = ["--play", "--menu", "--no-voice"]
+run_seconds = 15
+expect = [
+  { text = "script runner: gr_nvfsmoke_menubox.txt ran (game restart)", count = 1 },
+  { text = "message box on screen: 00000000 NVForever smoke: a box at the main menu / second line", label = "the box shows its own text" },
+]
+forbid = [{ text = "(message 0x00000000)", label = "not the placeholder" }]
+manual = "main_menu.png: the box over the main menu reads the two lines"

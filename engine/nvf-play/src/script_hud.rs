@@ -74,7 +74,17 @@ impl ScriptHud {
     }
 
     /// The text of a message box as shown, else as the message record has it.
+    ///
+    /// A box shown since the scripts' effects were last read is queued (`Game::boxes`)
+    /// before its text reaches [`Self::message_box`]: at the main menu the effects wait
+    /// for the world (`crate::script::run_scripts`), so a Script Runner file's
+    /// MessageBoxEx there (Heartbeat's requirement warning, no message record) showed
+    /// "(message 0x00000000)" [owner's playtest 2026-11-05]. Its text is then taken
+    /// from the events not yet read ([`pending_box`]).
     pub fn box_view(&self, message: FormId, script: &ScriptState) -> BoxMessage {
+        if let Some(b) = script.rt.as_ref().and_then(|rt| pending_box(&rt.game.events, message)) {
+            return b;
+        }
         if let Some(b) = self.shown.get(&message.0) {
             return b.clone();
         }
@@ -99,6 +109,17 @@ impl ScriptHud {
     pub fn remember_line(&mut self, info: FormId, responses: Vec<String>) {
         self.lines.insert(info.0, responses);
     }
+}
+
+/// The first box of `message` among `events` not yet read, as the effects would give it
+/// to [`ScriptHud::message_box`] (`crate::script_events::effects`): its text and buttons.
+pub fn pending_box(events: &[fnv_game::trace::Event], message: FormId) -> Option<BoxMessage> {
+    events.iter().find_map(|e| match &e.kind {
+        fnv_game::trace::EventKind::MessageShown { message: m, text, buttons, hidden } if *m == message => {
+            Some(BoxMessage { message: m.0, text: text.clone().unwrap_or_default(), buttons: buttons.clone(), hidden: hidden.clone() })
+        }
+        _ => None,
+    })
 }
 
 /// A character-creation menu's name for the placeholder panel.
@@ -305,6 +326,12 @@ fn draw(
     if creator_menu.is_some_and(|c| c.is_open()) {
         subs.on_screen.clear();
     }
+    // The box on screen, once per change: the text it is drawn with (smoke `menu-box-text`).
+    if front.as_ref().map(|b| (b.message, &b.text)) != hud.on_screen.as_ref().map(|b| (b.message, &b.text)) {
+        if let Some(b) = &front {
+            info!("message box on screen: {:08X} {}", b.message, b.text.replace("\r\n", "\n").replace(['\r', '\n'], " / "));
+        }
+    }
     hud.on_screen = front;
     if hud.wheel_line != subs.wheel {
         hud.wheel_line = subs.wheel.clone();
@@ -403,6 +430,17 @@ pub fn menu_keys(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_box_not_yet_read_gives_its_text_from_the_events() {
+        use fnv_game::trace::{Event, EventKind};
+        let shown = |m: u32, t: &str| Event { frame: 0, kind: EventKind::MessageShown { message: FormId(m), text: Some(t.into()), buttons: vec!["Ok".into()], hidden: Vec::new() } };
+        let other = Event { frame: 0, kind: EventKind::ScriptError { unit: "x".into(), error: "y".into() } };
+        let events = [other, shown(0, "Heartbeat Sensor Framework missing requirement!"), shown(0, "second")];
+        let b = pending_box(&events, FormId(0)).expect("the form-less box");
+        assert_eq!((b.message, b.text.as_str(), b.buttons.as_slice()), (0, "Heartbeat Sensor Framework missing requirement!", &["Ok".to_string()][..]), "the first one queued is the one on screen");
+        assert!(pending_box(&events, FormId(0x1234)).is_none());
+    }
 
     #[test]
     fn subtitles_are_centred_lines_of_the_hud_rect() {
