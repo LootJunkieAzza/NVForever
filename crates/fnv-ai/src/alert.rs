@@ -37,7 +37,9 @@
 //! - **Posts** (§12.1): a place the combat AI wants a fighter at (cover, a peek out of
 //!   it, a flank, a step aside, a step back; `fnv_game::combat_group::Post`): it goes
 //!   there, running unless it aims down its sights, and stands facing its target. A post
-//!   it has no way to is dropped and it closes in as before.
+//!   it has no way to is dropped and it closes in as before. So is one whose way ends, or
+//!   runs out of time, with the actor still [`POST_ARRIVAL`] or more from it: it holds or
+//!   closes in on that same update, and what comes next is the combat AI's to choose.
 //! - **Shared searches** (§12.5) [documented: GECK wiki Combat Search]: a hostile only
 //!   noticed is searched for midway between the actor and it; the comrades searching for
 //!   the same actor's alarm (`Game::search_party`) each take their own sector of the
@@ -58,17 +60,76 @@ use crate::carry::{Activity, AiEvent};
 use crate::goal;
 use crate::Ai;
 use fnv_game::awareness::{Cause, State};
-use fnv_game::combat_group::{FleeBy, Flight, Post, PostKind};
+use fnv_game::combat_group::{FleeBy, Flight, Post, PostKind, POST_ARRIVAL};
 use fnv_game::game::Game;
 use fnv_nav::{NavGraph, Place, Space};
 use fnv_sim::FormId;
 use serde::Serialize;
 
-/// A fighter turns to face its target this many times faster than the standing turn
-/// rate (240 degrees a second): the engine's gunmen fire only facing their target
-/// (nvforever npc_combat, owner's playtest list 5 item 33), and at the standing rate a
-/// turn to a new target held their fire for up to 1.5 s [design].
-pub const COMBAT_TURN: f32 = 2.0;
+/// A creature in combat turns to face its target this many times faster than the
+/// standing turn rate (240 degrees a second, its own × 1.25 on top): the engine's gunmen
+/// fire only facing their target (nvforever npc_combat, owner's playtest list 5 item
+/// 33), and at the standing rate a turn to a new target held their fire for up to 1.5 s
+/// [design]. Kept for creatures when people took the measured rates below (#1352): only
+/// a person was measured [hypothesis: a creature's combat turn is unmeasured].
+pub const COMBAT_TURN_CREATURE: f32 = 2.0;
+
+/// A person standing in combat turns to face its target at this rate, radians a second,
+/// while the target is within a quarter turn of its heading (225 degrees a second), and
+/// at [`COMBAT_TURN_WIDE`] beyond: an NCR trooper given StartCombat 45° and 90° off its
+/// bearing to the player turned 3.5° a game loop, steadily up to the bearing, and 135°
+/// (and 180°) off, 4.3° a loop [observed 2026-11-06, capture o25_turn,
+/// docs/spec-notes/actors.md §8.9; hypothesis: the threshold between 90° and 135° lies at
+/// 90°, and the rate goes by the angle still to turn: the original may pick it when the
+/// turn begins, and the data cannot tell the two apart]. No ease-out: the slower end of a
+/// long turn came from stepping off while turning (the walk's own turn rate).
+pub const COMBAT_TURN_NEAR: f32 = 225.0 * std::f32::consts::PI / 180.0;
+/// The combat turn rate with the target more than a quarter turn off (275 degrees a
+/// second), [`COMBAT_TURN_NEAR`].
+pub const COMBAT_TURN_WIDE: f32 = 275.0 * std::f32::consts::PI / 180.0;
+/// Seconds a fighter stands on its heading after it goes into Combat (from Normal or
+/// Alert) before it turns to its target and sets off: the trooper above stood still on
+/// its first heading for about 1.1 s after StartCombat, already in combat [observed
+/// 2026-11-06, capture o25_turn; hypothesis: the same when it goes into combat by
+/// detecting its target]. People only ([`combat_began`]): creatures turn and charge at
+/// once as before [hypothesis: a creature's reaction is unmeasured; o25's spawned
+/// coyotes were in combat at once].
+pub const COMBAT_REACTION_SECONDS: f64 = 1.1;
+
+/// The combat turn rate ([`COMBAT_TURN_NEAR`], [`COMBAT_TURN_WIDE`]) with `off` radians
+/// still to turn.
+pub fn combat_turn_rate(off: f32) -> f32 {
+    if off.abs() > std::f32::consts::FRAC_PI_2 {
+        COMBAT_TURN_WIDE
+    } else {
+        COMBAT_TURN_NEAR
+    }
+}
+
+/// The combat turn as a share of the standing turn rate ([`fnv_nav::follow::SPOT_TURN_RATE`];
+/// a walker's own standing rate, a creature's × 1.25, scales with it).
+pub fn combat_turn(off: f32) -> f32 {
+    combat_turn_rate(off) / fnv_nav::follow::SPOT_TURN_RATE
+}
+
+/// Whether `actor` is a creature by its record (`fnv_game::nvse_nx::is_creature`); an
+/// actor of no known record counts as a person.
+pub fn creature(game: &Game, actor: FormId) -> bool {
+    fnv_game::nvse_nx::is_creature(game, actor) == Some(true)
+}
+
+/// When a person went into Combat (`Awareness::combat_began`), for the moment it stands
+/// ([`COMBAT_REACTION_SECONDS`]); `None` for a creature, which does not stand.
+pub fn combat_began(game: &Game, actor: FormId) -> Option<f64> {
+    let aw = game.awareness.get(actor)?;
+    (aw.state == State::Combat && !creature(game, actor)).then_some(aw.combat_began).flatten()
+}
+
+/// Whether a person in Combat is still in its moment after going into it
+/// ([`COMBAT_REACTION_SECONDS`]): it stands on its heading. Never a creature.
+pub fn reacting(game: &Game, actor: FormId) -> bool {
+    combat_began(game, actor).is_some_and(|t| game.time - t < COMBAT_REACTION_SECONDS)
+}
 
 /// Seconds an actor looks about where it searched before it searches on
 /// [engineering choice].
@@ -102,12 +163,26 @@ pub const SEARCH_POINTS: u32 = 3;
 /// A post that moved less than this from where the way to it was planned is kept, game
 /// units [design].
 pub const POST_SLACK: f32 = 48.0;
+/// One that has arrived goes on counting as there until it is this far from the post, game
+/// units; past that it goes back [design: wider than [`POST_ARRIVAL`], so an actor shoved
+/// about at the edge does not go back and forth between the two].
+pub const POST_RETAINED: f32 = 96.0;
 /// A flight or a walk to a post that has not arrived after this long ends where it is
 /// [design].
 pub const FLEE_WALK_SECONDS: f64 = 30.0;
 /// Behind a cover edge a fleeing actor stands this far in from it, game units [design:
 /// about an actor's width].
 pub const COVER_STANDOFF: f32 = 48.0;
+
+/// Why a walk to a post ended away from it ([`AiEvent::PostFailed`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PostFailure {
+    /// [`FLEE_WALK_SECONDS`] passed with the actor still on its way.
+    TimedOut,
+    /// The way ended, or the actor stopped walking it, too far from the post.
+    StoppedShort,
+}
 
 /// Where an actor in a combat state is ([`crate::Agent::search`]).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -175,6 +250,9 @@ impl Ai {
             }
             return false;
         }
+        // Relinquish the sandbox before any combat movement (or an early return
+        // without a target). Repeated updates keep the new combat walk intact.
+        self.interrupt_sandbox(game, actor);
         // Off furniture first: the engine gets it up, and its walk waits until it has.
         if self.agents[&actor].using.is_some() {
             self.set_using(game, actor, None);
@@ -194,6 +272,16 @@ impl Ai {
         let a = &self.agents[&actor];
         let space = a.walker.space;
         if state == State::Combat {
+            // Just in combat it stands a moment on its heading before it turns and sets
+            // off ([`COMBAT_REACTION_SECONDS`]).
+            if reacting(game, actor) {
+                let a = self.agents.get_mut(&actor).expect("listed");
+                if a.activity == Activity::Travelling {
+                    a.walker.follower = None;
+                    a.activity = Activity::There;
+                }
+                return true;
+            }
             // The target it detects; just after losing it, the one detected last.
             let latest = aw.targets.iter().filter(|(_, t)| t.detected.is_some()).max_by(|x, y| x.1.detected.unwrap_or(0.0).total_cmp(&y.1.detected.unwrap_or(0.0)));
             let Some((target, at)) = aw.combat_target().or(latest.map(|(id, t)| (*id, t))).map(|(id, t)| (id, t.at)) else { return true };
@@ -252,7 +340,7 @@ impl Ai {
                 }
             }
             if self.agents[&actor].activity != Activity::Travelling {
-                self.face(game, actor, Place { space, pos: at }, dt * COMBAT_TURN);
+                self.combat_face(game, actor, Place { space, pos: at }, dt);
             }
             return true;
         }
@@ -319,10 +407,8 @@ impl Ai {
         }
         if a.search != Some(Search::Warning { target }) {
             let away = goal::dist(a.walker.feet, at.pos);
+            self.interrupt_sandbox(game, actor);
             let a = self.agents.get_mut(&actor).expect("listed");
-            if let Some(s) = a.sandbox.as_mut() {
-                s.pending = None;
-            }
             a.wait_until = None;
             a.walker.follower = None;
             a.activity = Activity::There;
@@ -342,10 +428,6 @@ impl Ai {
         let speed = self.alert_speeds(actor).walk;
         let now = game.time;
         let a = self.agents.get_mut(&actor).expect("listed");
-        // A sandbox's own walk is given up; it chooses again after the search.
-        if let Some(s) = a.sandbox.as_mut() {
-            s.pending = None;
-        }
         a.wait_until = None;
         let space = a.walker.space;
         let from = a.walker.feet;
@@ -420,7 +502,9 @@ impl Ai {
     }
 
     /// Go to the combat AI's `post`, or stand there facing `target` (at `at`). Returns
-    /// false when there is no way to it (the post is dropped).
+    /// false when the post is dropped: there is no way to it, or the walk there ended
+    /// [`POST_ARRIVAL`] or more from it. The caller then holds or closes in; there is no
+    /// retry here, the combat AI sees the post gone and chooses again.
     #[allow(clippy::too_many_arguments)]
     fn post_step(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, target: FormId, at: [f32; 3], post: Post, dt: f32) -> bool {
         let now = game.time;
@@ -428,13 +512,27 @@ impl Ai {
         let space = a.walker.space;
         match a.search {
             Some(Search::Posted { kind, to, since, .. }) if kind == post.kind && flat(to, post.at) < POST_SLACK => {
-                if a.activity != Activity::Travelling || now - since > FLEE_WALK_SECONDS {
+                let stopped = a.activity != Activity::Travelling;
+                if stopped || now - since > FLEE_WALK_SECONDS {
                     let a = self.agents.get_mut(&actor).expect("listed");
                     a.walker.follower = None;
                     a.activity = Activity::There;
                     let feet = a.walker.feet;
+                    let off = flat(feet, post.at);
+                    // A door it was waiting at stays shut for all it knows: it did not pass.
+                    if let Some(door) = a.waiting_at.take() {
+                        self.log(game, actor, AiEvent::DoorWaitCancelled { door: FormId(door) });
+                    }
+                    let a = self.agents.get_mut(&actor).expect("listed");
+                    if off >= POST_ARRIVAL {
+                        a.search = None;
+                        game.awareness.tactics.posts.remove(&actor);
+                        let reason = if stopped { PostFailure::StoppedShort } else { PostFailure::TimedOut };
+                        self.log(game, actor, AiEvent::PostFailed { post: kind, target, at: post.at, feet, off, elapsed: (now - since) as f32, reason });
+                        return false;
+                    }
                     a.search = Some(Search::AtPost { kind, target, at: post.at });
-                    self.log(game, actor, AiEvent::AtPost { post: kind, target, off: flat(feet, post.at) });
+                    self.log(game, actor, AiEvent::AtPost { post: kind, target, off, at: post.at, feet });
                 } else {
                     // Sights raised or lowered on the way change its pace there.
                     let speed = self.post_speed(game, actor, post);
@@ -447,8 +545,9 @@ impl Ai {
                 }
                 return true;
             }
-            Some(Search::AtPost { kind, at: here, .. }) if kind == post.kind && flat(here, post.at) < POST_SLACK => {
-                self.face(game, actor, Place { space, pos: at }, dt * COMBAT_TURN);
+            // Moved off it (shoved, say), it goes back: the way below ends here or fails.
+            Some(Search::AtPost { kind, at: here, .. }) if kind == post.kind && flat(here, post.at) < POST_SLACK && flat(a.walker.feet, post.at) < POST_RETAINED => {
+                self.combat_face(game, actor, Place { space, pos: at }, dt);
                 return true;
             }
             _ => {}
@@ -509,15 +608,14 @@ impl Ai {
 
     /// Choose a flee spot away from `threat` and set off there, running (module notes).
     pub(crate) fn flee_from(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, from: FormId, threat: [f32; 3]) {
+        // Spectators also enter here while Normal, outside alert_step's takeover.
+        self.interrupt_sandbox(game, actor);
         let params = self.path_params(game, actor);
         let gs = game.group_settings();
         let now = game.time;
         let speed = self.alert_speeds(actor).run * game.awareness.pace_of(actor);
         let a = self.agents.get_mut(&actor).expect("listed");
         let (space, feet) = (a.walker.space, a.walker.feet);
-        if let Some(s) = a.sandbox.as_mut() {
-            s.pending = None;
-        }
         a.wait_until = None;
         a.walker.speed = speed;
         let mut tries: Vec<(Place, FleeBy)> = Vec::new();

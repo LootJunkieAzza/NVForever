@@ -42,6 +42,10 @@ pub struct Stance {
     pub drawn: String,
     /// Skeleton node indices of `Weapon` and of every bone the weapon can hang from.
     pub weapon_node: usize,
+    /// The skeleton has no `Weapon` node and `weapon_node` is its root: a stance only
+    /// for body weapons, which have no model to hang (a protectron's lasers,
+    /// `body_weapons`); never one to hold a weapon in (#1535).
+    pub no_weapon_node: bool,
     pub bones: HashMap<String, usize>,
     /// Where the equip clip leaves the `Weapon` node: its rest pose while in the hand
     /// ([`WeaponHold::rest`]).
@@ -78,7 +82,14 @@ impl Stance {
     /// The stance `prefix` for the skeleton at `skeleton` (archive path), or why not; also
     /// a report line.
     pub fn load(ctx: &mut impl ClipSource, skeleton: &str, skel: &PreparedSkeleton, prefix: &str) -> Result<(Stance, String), String> {
-        let weapon_node = *skel.by_name.get(WEAPON_NODE).ok_or("the skeleton has no Weapon node")?;
+        // A skeleton without a `Weapon` node: its root stands in (`no_weapon_node`). The
+        // protectron's has none; its Hand and Head Lasers are body parts that fire from
+        // their own projectile nodes [observed: creatures\protectron\skeleton.nif, its
+        // 1hp and 2hl clips in specialanims; #1535].
+        let (weapon_node, no_weapon_node) = match skel.by_name.get(WEAPON_NODE) {
+            Some(&i) => (i, false),
+            None => (skel.parents.iter().position(Option::is_none).ok_or("the skeleton has no root")?, true),
+        };
         let s = fnv_vfs::normalize(skeleton);
         let folder = s.rfind('\\').map_or("", |i| &s[..i]).to_string();
         let mut clips = BTreeMap::new();
@@ -120,18 +131,22 @@ impl Stance {
             sneak.keys().collect::<Vec<_>>(),
             bones.len()
         );
-        let weapon_only = clips.iter().map(|(c, b)| (*c, Arc::new(weapon_track_only(b, weapon_node)))).collect();
-        let sneak_weapon_only = sneak.iter().map(|(c, b)| (*c, Arc::new(weapon_track_only(b, weapon_node)))).collect();
-        let weapon_rest = clips.get(&EquipClip::Equip).and_then(|c| track_end(c, weapon_node, skel.locals[weapon_node]));
-        let sneak_weapon_rest = sneak.get(&EquipClip::Equip).and_then(|c| track_end(c, weapon_node, skel.locals[weapon_node])).or(weapon_rest);
+        // Without a `Weapon` node nothing hangs, rests or is gripped: the root's own track
+        // stays the clips' (`no_weapon_node`).
+        let real = !no_weapon_node;
+        let weapon_only = clips.iter().filter(|_| real).map(|(c, b)| (*c, Arc::new(weapon_track_only(b, weapon_node)))).collect();
+        let sneak_weapon_only = sneak.iter().filter(|_| real).map(|(c, b)| (*c, Arc::new(weapon_track_only(b, weapon_node)))).collect();
+        let weapon_rest = clips.get(&EquipClip::Equip).filter(|_| real).and_then(|c| track_end(c, weapon_node, skel.locals[weapon_node]));
+        let sneak_weapon_rest = sneak.get(&EquipClip::Equip).filter(|_| real).and_then(|c| track_end(c, weapon_node, skel.locals[weapon_node])).or(weapon_rest);
         let line = match (weapon_rest, sneak.contains_key(&EquipClip::Equip).then_some(sneak_weapon_rest).flatten()) {
             (Some(a), Some(b)) => format!("{line}; weapon rest crouched {:.1} units and {:.0} degrees from standing", a.translation.distance(b.translation), a.rotation.angle_between(b.rotation).to_degrees()),
             _ => line,
         };
-        let grip = clips.get(&EquipClip::Equip).and_then(|c| left_grip(skel, c, weapon_node));
-        let sneak_grip = sneak.get(&EquipClip::Equip).and_then(|c| left_grip(skel, c, weapon_node)).or(grip);
+        let grip = clips.get(&EquipClip::Equip).filter(|_| real).and_then(|c| left_grip(skel, c, weapon_node));
+        let sneak_grip = sneak.get(&EquipClip::Equip).filter(|_| real).and_then(|c| left_grip(skel, c, weapon_node)).or(grip);
         let holstered_off = clips.get(&EquipClip::Holster).map_or_else(Vec::new, |c| holstered_off(&c.clip));
-        Ok((Stance { prefix: prefix.to_string(), clips, weapon_only, facts, holster, drawn, weapon_node, bones, weapon_rest, sneak_weapon_rest, grip, sneak_grip, holstered_off, moves: Arc::new(moves), folder, sneak, sneak_weapon_only, sneak_facts }, line))
+        let line = if no_weapon_node { format!("{line}; no Weapon node: for body weapons only") } else { line };
+        Ok((Stance { prefix: prefix.to_string(), clips, weapon_only, facts, holster, drawn, weapon_node, no_weapon_node, bones, weapon_rest, sneak_weapon_rest, grip, sneak_grip, holstered_off, moves: Arc::new(moves), folder, sneak, sneak_weapon_only, sneak_facts }, line))
     }
 
     /// The left hand's grip standing or crouched ([`Stance::grip`]).
@@ -418,6 +433,12 @@ pub fn spawn_muzzle(commands: &mut Commands, actor: &SpawnedActor, weapon_node: 
 /// A weapon that broke leaves its actor's hand (docs/spec-notes/combat-rules.md §17):
 /// its model is taken off the skeleton and the weapon clips stop. The weapon itself now
 /// lies on the ground as a dropped reference (`nvf_play::dropped` draws it).
+///
+/// Only while the actor still holds that weapon: an NPC's outfit follows its inventory
+/// (`outfits::follow_inventory`), which takes the dropped weapon off and puts the fists
+/// on. Taking the hold away after that left a disarmed NPC with no arm clips at all,
+/// running with its arms out in the bind pose (#1714). This runs before it, so a drop
+/// seen in the same frame is cleared first and the fists come after.
 pub fn drop_broken(
     mut commands: Commands,
     mut broken: MessageReader<WeaponBroken>,
@@ -425,6 +446,10 @@ pub fn drop_broken(
     mut holds: Query<(Entity, &crate::limbs::ActorRig, &mut BlendPlayer, &WeaponHold)>,
 ) {
     for b in broken.read() {
+        if !held.iter().any(|(_, h)| h.reference == b.form_id && h.weapon == b.weapon) {
+            info!("weapons: {:08X}'s {} is no longer in its hand: its hold now is left alone", b.form_id, b.weapon);
+            continue;
+        }
         for (e, _) in held.iter().filter(|(_, h)| h.reference == b.form_id) {
             commands.entity(e).despawn();
         }
@@ -480,6 +505,9 @@ pub fn spawn_model(
         let bone = names().find_map(|n| skel.by_name.get(bones.get(n)?.trim()).copied());
         let tr = Transform::from_matrix(Mat4::from(part.root * s.transform));
         let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), tr)).id();
+        if let Some((_, names)) = &s.skin {
+            nvf_assets::actor::skin_in_place(commands, e, names.len());
+        }
         // Named, so the holder's clips can drive its glow (`##FrontBulbs:0` in
         // `1hpattack3.kf`; actor_materials.rs).
         if let Some(n) = &s.name {
@@ -558,7 +586,9 @@ pub fn reparent(mut commands: Commands, mut q: Query<(&mut WeaponHold, &BlendPla
             }
             w.parts_in_hand = Some(in_hand);
         }
-        let Some(p) = w.parent_node() else { continue };
+        // Without a `Weapon` node the root stands in (`Stance::no_weapon_node`): it hangs
+        // from nothing, or the root would become its own bone's child.
+        let Some(p) = w.parent_node().filter(|_| !w.stance.no_weapon_node) else { continue };
         if p != w.parent {
             commands.entity(player.nodes[p]).add_child(player.nodes[w.stance.weapon_node]);
             w.parent = p;
@@ -580,7 +610,7 @@ mod tests {
             (EquipClip::Unequip, f(0.5, "Bip01 Pelvis")),
         ]);
         let bones = HashMap::from([("Bip01 Pelvis".to_string(), 3), ("Bip01 R Hand".to_string(), 7)]);
-        Arc::new(Stance { prefix: "1hp".into(), clips: BTreeMap::new(), weapon_only: BTreeMap::new(), sneak_facts: facts.clone(), facts, holster: "Bip01 Pelvis".into(), drawn: "Bip01 R Hand".into(), weapon_node: 8, bones, weapon_rest: None, sneak_weapon_rest: None, grip: None, sneak_grip: None, holstered_off: Vec::new(), moves: Arc::default(), folder: r"meshes\characters\_male".into(), sneak: BTreeMap::new(), sneak_weapon_only: BTreeMap::new() })
+        Arc::new(Stance { prefix: "1hp".into(), clips: BTreeMap::new(), weapon_only: BTreeMap::new(), sneak_facts: facts.clone(), facts, holster: "Bip01 Pelvis".into(), drawn: "Bip01 R Hand".into(), weapon_node: 8, no_weapon_node: false, bones, weapon_rest: None, sneak_weapon_rest: None, grip: None, sneak_grip: None, holstered_off: Vec::new(), moves: Arc::default(), folder: r"meshes\characters\_male".into(), sneak: BTreeMap::new(), sneak_weapon_only: BTreeMap::new() })
     }
 
     #[test]

@@ -773,6 +773,39 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       again after them (the prefab's own value counts clicks from 0 in this tree); the
       hand-built keys stay, W presses Wait through the file. Interface `screen()` units
       while it is switched on (`interface_screen`). Tests: `tiles::wait_menu`,
-      `tiles::vanilla` (the switch). Smoke: `tiles-sleep-wait`. **Left for part 2: the
-      tutorial menu**: `tutorial_menu.xml`'s text scrolls inside `TM_text_container`, a
-      `clipwindow` hotrect, and the tile renderer clips nothing yet; that comes first.
+      `tiles::vanilla` (the switch). Smoke: `tiles-sleep-wait`.
+    - **Pip-Boy, first slice built** 2026-11-04, checked 2026-11-06 (`pipboy-tiles-1513`, part of issue #1513): STATS'
+      S.P.E.C.I.A.L. tab from `stats_menu.xml` behind `[UI] TileMenus=StatsMenu`
+      (`tiles/stats_menu.rs`, pipboy.md §5.1.1). The first tile menu not in the window: `paint`
+      takes a `Target` (camera, canvas, scales, level). The other STATS tabs stay fully hand-built.
+      `stats::prepare` holds the page's model, so a page with no hand-built body keeps its keys,
+      test aid and log lines. `StatsTiles::ready` is the one decision for painting, hand-built
+      suppression and input. Left out on purpose: the other tabs, ITEMS, DATA, list scrolling,
+      compositing. Unit fixtures are synthetic; the `tiles-stats-special*` smoke scenarios check
+      structure and hits on the real file, and their logs cannot prove pixels. Not closed: the
+      capture list at the end of pipboy.md §5.1.1.
+    - **T15b, part 2 built** 2026-11-04 (`tutorial-menu-978`, issue #978): the tutorial menu
+      from `tutorial_menu.xml` behind `[UI] TileMenus=TutorialMenu`, in the same shape
+      (`tiles/tutorial_menu.rs`, tutorial-menu.md §5). Its text scrolls inside
+      `TM_text_container`, a `clipwindow` hotrect. The tile renderer already clipped (`clips`,
+      a clipping node, and the pointer's hit test); `clipwindow` is a new source of the same
+      clip context in both [hypothesis on its meaning], read only where a menu's model turned
+      it on (`fnv_ui::input::mark_clip_windows`), as mods' HUD tiles and the list prefabs carry
+      it too; reading it everywhere is left to the other menus' tasks. The layout moves
+      nothing: the file moves the text by the scrollbar's value. The model writes the page's
+      strings, the count's and buttons' state, the symbol's `filewidth`, the background's
+      opacity and the scroll every tiled frame; the sizes and range are the file's from the
+      measured text; clicks are the hand-built menu's commands
+      (`crate::tutorial_menu::TutorialInput`). Tests: `tiles::tutorial_menu`, `tiles::input`,
+      `tiles::layout`, `fnv_ui::input`. Smoke: `tiles-tutorial`, `tutorial-default-drawing`.
+    - **T15c, the first of the template lists: the container menu built as a candidate**
+      2026-11-04 (`tile-container-menu`, issue #1468), behind `[UI] TileMenus=ContainerMenu`,
+      not the default. `tiles/container_menu.rs` (the view),
+      `tiles/list.rs` (rows by what they stand for, counts, scroll, highlight, bar pieces, the
+      marker's drag; for the barter, inventory, recipe and repair lists next),
+      `tiles/item_card.rs` (`item_stats_display.xml`), the marks `_NVFOwnAlpha` and
+      `_NVFHotrectFill`. The model, keys and wheel stay the hand-built menu's. Notes and the
+      captured numbers: barter-menu.md §8. Smoke: `tiles-container`,
+      `tiles-container-quantity`, `container-default-drawing`. **Left**: the comparison with
+      the original's shots (parts b to g of the capture retaken), DAM/DPS's fade, then the
+      barter menu on the same pieces.

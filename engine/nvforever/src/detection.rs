@@ -331,6 +331,26 @@ fn unseen() -> bool {
     *UNSEEN.get_or_init(|| std::env::var("NVF_PLAY_TEST_UNSEEN").is_ok_and(|v| v == "1"))
 }
 
+/// An actor's eyes, game space: `eye` above its feet (its origin), but for a body that is
+/// drawn clear of its origin and ends below that eye height (its hit volume starts more
+/// than [`LIFTED`] above the origin), halfway up that body. A ceiling turret's eyes were
+/// 112 units over its origin, above its own top (body 7807–7853 for HELIOSOneTower's
+/// LvlTurretCeiling2048Robot at z 7760 [observed in NVForever]) and past the ceiling, so
+/// it never saw the player below and never turned or fired (#1537). Anyone on its feet,
+/// standing or crouched, keeps the eye height (a crouched body is shorter than 112 but
+/// starts at its feet).
+pub(crate) fn eyes_of(phys: Option<&PhysState>, id: u32, feet: [f32; 3], eye: f32) -> [f32; 3] {
+    let lifted = phys.and_then(|p| p.world.actor_volume(id)).filter(|v| v.height > 0.0 && v.feet[2] > feet[2] + LIFTED && v.feet[2] + v.height < feet[2] + eye);
+    match lifted {
+        Some(v) => [v.feet[0], v.feet[1], v.feet[2] + v.height / 2.0],
+        None => [feet[0], feet[1], feet[2] + eye],
+    }
+}
+
+/// How far above its origin a body must start to have its eyes on it, game units
+/// [design: the ceiling turret's starts 47 up; feet and a crouch start at 0].
+const LIFTED: f32 = 16.0;
+
 /// Whether the collision world lets `from` see `to` (also the combat AI's cover test,
 /// `combat_tactics`).
 pub(crate) fn clear_sight(phys: Option<&mut PhysState>, from: [f32; 3], to: [f32; 3]) -> bool {
@@ -495,6 +515,11 @@ struct SightCounts {
     shared_differs: usize,
     kept_would: usize,
     kept_differs: usize,
+    /// Lines of sight over a measurement's [`SIGHT_BUDGET`]: answered from their last
+    /// measurement, or out of sight when there is none, and how many measurements had any.
+    deferred: usize,
+    deferred_new: usize,
+    over_budget: usize,
 }
 
 /// Two points as bits, the same whichever comes first: the key of a line of sight that
@@ -594,6 +619,8 @@ struct KeptSight {
     eyes: [f32; 3],
     clear: bool,
     cast: bool,
+    /// Measurements since it was cast (0: cast at this one).
+    age: u32,
 }
 
 /// A pair's line of sight is kept for the next measurement when neither the detector's
@@ -603,6 +630,17 @@ struct KeptSight {
 /// between two shows at most one measurement late [design: 4 units, about 6 cm, less
 /// than a step].
 const STILL: f32 = 4.0;
+
+/// The most lines of sight a measurement casts besides the always-cast pairs below
+/// [design, #1426: at 118 actors (the stress battle at 50 a side) every pair's line was
+/// cast in one measurement, about 6,900, and `detection::measure` took 140-166 ms in its
+/// slow frames, 21.6 ms a frame on average; with 1,024 it took 7.3 ms on average and
+/// about 70 in a measurement's frame, with 512 5.0 ms and at most 39, no longer among the
+/// slow frames' causes (profile build, battle-50, 2026-11-06)]. The pairs with the player and those whose
+/// detector fights the target are always cast; over the budget the others are cast oldest
+/// answer first, and the rest keep their last answer for this measurement (out of sight
+/// when they have none). Under it nothing changes.
+const SIGHT_BUDGET: usize = 512;
 
 impl KeptSight {
     fn still(&self, from: [f32; 3], chest: [f32; 3], eyes: [f32; 3]) -> bool {
@@ -785,7 +823,7 @@ fn measure(
         // "Actor 0010634A EasyPete" → "EasyPete 0010634A".
         let edid = name.and_then(|n| n.as_str().split_whitespace().nth(2)).unwrap_or("");
         let label = format!("{edid} {:08X}", rig.reference).trim().to_string();
-        let eyes = [feet[0], feet[1], feet[2] + EYE_HEIGHT * scale];
+        let eyes = eyes_of(phys.as_deref(), rig.reference, feet, EYE_HEIGHT * scale);
         people.push(Person {
             id: rig.reference,
             label,
@@ -867,9 +905,14 @@ fn measure(
     let (mut pairs, mut far_pairs, mut far_detected) = (0, 0, 0);
     let land = &mut state.land;
     let mut counts = state.stats.sight;
-    let kept_before = std::mem::take(&mut state.kept);
-    // Kept lines of sight serve the measurement right after theirs only.
-    let kept_before = if now - kept_before.at <= INTERVAL * 1.5 { kept_before.sights } else { HashMap::new() };
+    let kept_all = std::mem::take(&mut state.kept);
+    // Kept lines of sight serve still pairs at the measurement right after theirs only;
+    // over the budget ([`SIGHT_BUDGET`]) a pair keeps its last answer however old, or
+    // after a slow frame every pair would read as never measured and be out of sight.
+    let fresh = now - kept_all.at <= INTERVAL * 1.5;
+    let last_answers = kept_all.sights;
+    let empty = HashMap::new();
+    let kept_before = if fresh { &last_answers } else { &empty };
     let mut kept_now: HashMap<(u32, u32, bool), KeptSight> = HashMap::new();
     let check = sight_check();
     let world = world.as_deref();
@@ -920,6 +963,13 @@ fn measure(
         // chest, else its eyes; for the player also the camera's, where the target is in
         // the camera's view.
         // A still pair's line of sight of the last measurement serves again ([`STILL`]).
+        // Pairs whose line is cast first when a measurement has more than its budget: the
+        // player's, and a fighter's on its combat target ([`SIGHT_BUDGET`]).
+        let first: Vec<bool> = ordered
+            .iter()
+            .map(|&(i, j)| i == 0 || j == 0 || g.awareness.get(FormId(people[i].id)).is_some_and(|a| a.state.in_combat() && a.targets.contains_key(&FormId(people[j].id))))
+            .collect();
+        let mut budget = SIGHT_BUDGET;
         let mut look = |asked: Vec<(usize, [f32; 3], bool)>, answers: &mut Vec<bool>| {
             let mut cast = Vec::new();
             let mut would = Vec::new();
@@ -931,7 +981,7 @@ fn measure(
                     Some(s) if !check => {
                         answers[k] = s.clear;
                         counts.kept += 1;
-                        kept_now.insert(key, KeptSight { cast: false, ..*s });
+                        kept_now.insert(key, KeptSight { cast: false, age: s.age + 1, ..*s });
                     }
                     kept => {
                         if let Some(s) = kept {
@@ -941,10 +991,33 @@ fn measure(
                     }
                 }
             }
+            // Over the budget: the first pairs, then the oldest answers, are cast; the
+            // others keep their last answer (out of sight without one) and are older next
+            // time, so every pair is cast in turn.
+            let firsts = cast.iter().filter(|c| first[c.0]).count();
+            if cast.len() > budget.max(firsts) {
+                counts.over_budget += 1;
+                let age = |key: &(u32, u32, bool)| last_answers.get(key).map_or(u32::MAX, |s| s.age);
+                cast.sort_by_key(|&(k, _, key, ..)| (!first[k], std::cmp::Reverse(age(&key))));
+                for (k, _, key, ..) in cast.split_off(budget.max(firsts)) {
+                    match last_answers.get(&key) {
+                        Some(s) => {
+                            answers[k] = s.clear;
+                            kept_now.insert(key, KeptSight { cast: false, age: s.age.saturating_add(1), ..*s });
+                        }
+                        None => {
+                            answers[k] = false;
+                            counts.deferred_new += 1;
+                        }
+                    }
+                    counts.deferred += 1;
+                }
+            }
+            budget = budget.saturating_sub(cast.len());
             let asks: Vec<_> = cast.iter().map(|&(_, from, _, chest, eyes)| (from, [chest, eyes])).collect();
             for (&(k, from, key, chest, eyes), clear) in cast.iter().zip(sights(phys.as_deref_mut(), land, world, exterior, &asks, &mut counts)) {
                 answers[k] = clear;
-                kept_now.insert(key, KeptSight { from, chest, eyes, clear, cast: true });
+                kept_now.insert(key, KeptSight { from, chest, eyes, clear, cast: true, age: 0 });
             }
             counts.kept_would += would.len();
             counts.kept_differs += would.iter().filter(|&&(k, clear)| answers[k] != clear).count();
@@ -1247,11 +1320,14 @@ fn report(mut exit: MessageReader<AppExit>, state: Res<DetectionState>) {
     );
     let c = &s.sight;
     info!(
-        "detection summary, lines of sight: {} asked through the collision world, {} answered by a line cast for another asker, {} kept for still pairs; {} rays cast{}",
+        "detection summary, lines of sight: {} asked through the collision world, {} answered by a line cast for another asker, {} kept for still pairs; {} rays cast; {} over the budget of {SIGHT_BUDGET} a measurement ({} without a last answer, in {} measurements){}",
         c.asked,
         c.shared,
         c.kept,
         c.rays,
+        c.deferred,
+        c.deferred_new,
+        c.over_budget,
         if sight_check() {
             format!(
                 "; sight check: the old way cast {} rays, {} answers differ from it, {} shared answers differ from the asker's own ray; {} still pairs could have been kept, {} of them would have answered otherwise",
@@ -1291,5 +1367,29 @@ mod tests {
         let dim = ([0.0, 0.0, 0.0], 200.0, 0.2);
         assert!((light_at(None, &[dim], [100.0, 0.0, 0.0], true) - 65.0).abs() < 1e-4);
         assert!((light_at(None, &[dim], [300.0, 0.0, 0.0], true) - 50.0).abs() < 1e-6);
+    }
+
+    /// People keep main's eye height, standing or crouched, at any scale: their hit
+    /// volume starts at their feet, so `eyes_of` gives feet + eye, as before #1537. Only a
+    /// body drawn clear of its origin and ending below its eyes (a ceiling turret) has
+    /// its eyes on it.
+    #[test]
+    fn eyes_of_keeps_people_at_their_eye_height_and_puts_a_turrets_on_its_body() {
+        let main = |feet: [f32; 3], eye: f32| [feet[0], feet[1], feet[2] + eye];
+        let mut phys = PhysState::default();
+        let feet = [100.0, -50.0, 20.0];
+        let crouch = EYE_HEIGHT * crate::combat_stance::CROUCH_EYE;
+        // Standing (128 tall), crouched (80 tall, below the 112 eye height), crouched
+        // with bounds a little off the ground (an animation's feet), and scaled up.
+        for (id, lo, height, eye) in [(1, 0.0, 128.0, EYE_HEIGHT), (2, 0.0, 80.0, EYE_HEIGHT), (3, 0.0, 80.0, crouch), (4, 6.0, 74.0, EYE_HEIGHT), (5, 0.0, 154.0, EYE_HEIGHT * 1.2)] {
+            phys.world.set_actor_volume(id, fnv_phys::HitVolume { feet: [feet[0] + 3.0, feet[1], feet[2] + lo], radius: 20.0, height, dead: false });
+            assert_eq!(eyes_of(Some(&phys), id, feet, eye), main(feet, eye), "actor {id}");
+        }
+        // No volume, or no physics: as on main.
+        assert_eq!(eyes_of(Some(&phys), 99, feet, EYE_HEIGHT), main(feet, EYE_HEIGHT));
+        assert_eq!(eyes_of(None, 1, feet, EYE_HEIGHT), main(feet, EYE_HEIGHT));
+        // The ceiling turret: body 47-93 over its origin [observed, #1537], eyes halfway up.
+        phys.world.set_actor_volume(6, fnv_phys::HitVolume { feet: [0.0, 0.0, 7807.0], radius: 20.0, height: 46.0, dead: false });
+        assert_eq!(eyes_of(Some(&phys), 6, [0.0, 0.0, 7760.0], EYE_HEIGHT), [0.0, 0.0, 7830.0]);
     }
 }

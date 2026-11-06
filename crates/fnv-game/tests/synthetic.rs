@@ -162,11 +162,13 @@ const TOPIC: u32 = 0x930;
 const INFO_A: u32 = 0x931;
 const INFO_B: u32 = 0x932;
 const CELL: u32 = 0x200;
+const OTHER_CELL: u32 = 0x201;
 const ACT_REF: u32 = 0x300;
 const TRIG_REF: u32 = 0x301;
 const NPC_REF: u32 = 0x320;
 const NPC_AUTO_REF: u32 = 0x321;
 const PATROL_REF: u32 = 0x330;
+const OTHER_REF: u32 = 0x331;
 
 const SET_STAGE: u16 = 0x1039;
 const GET_SECONDS_PASSED: u16 = 0x100C;
@@ -412,6 +414,10 @@ fn plugin_bytes() -> Vec<u8> {
         .concat(),
     );
     let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[refr, trig_ref, achr, achr_auto, patrol_ref].concat()));
+    // A second cell, with one unscripted reference to move things to.
+    let other_cell = record(b"CELL", 0, OTHER_CELL, &[sub(b"EDID", z("TestOtherCell"))]);
+    let other_ref = record(b"REFR", 0, OTHER_REF, &[sub(b"EDID", z("TestOtherREF")), sub(b"NAME", MARKER.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
+    let other_children = group(OTHER_CELL.to_le_bytes(), 6, &group(OTHER_CELL.to_le_bytes(), 9, &other_ref));
     [
         tes4(),
         top(b"GLOB", &glob),
@@ -423,7 +429,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"PACK", &pack),
         top(b"QUST", &qust),
         top(b"DIAL", &dial),
-        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children, other_cell, other_children].concat()))),
     ]
     .concat()
 }
@@ -485,6 +491,21 @@ fn data_reads_quest_stages_conditions_and_units() {
     assert_eq!(d.script_of_base(FormId(ACTIVATOR)), Some(FormId(ACT_SCRIPT)));
     assert_eq!(d.scripted_by_cell[&FormId(CELL)], vec![FormId(ACT_REF), FormId(TRIG_REF), FormId(NPC_REF)]);
     assert_eq!(d.messages[&FormId(MESSAGE)].buttons, vec!["Yes", "No"]);
+}
+
+/// An answered box its script never reads stays in `message_box` but no longer waits
+/// (#1649: saving was refused for a whole session after a mod's start-up warning box).
+#[test]
+fn an_answered_box_no_longer_waits_though_its_button_is_unread() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.activate(FormId::PLAYER_REF, FormId(ACT_REF), ActMode::Hand).unwrap();
+    assert!(g.message_box.as_ref().is_some_and(|b| b.waiting()));
+    g.press_button(0).unwrap();
+    let b = g.message_box.as_ref().expect("kept for its script's GetButtonPressed");
+    assert_eq!(b.pressed, Some(0));
+    assert!(!b.waiting());
 }
 
 #[test]
@@ -774,6 +795,41 @@ fn coop_players_round_trip_apart_from_the_player() {
     twice.coop.push(twice.coop[0].clone());
     let world = World::restore(&f.forms, &f.refs, &twice.sim).unwrap();
     assert!(Game::restore(&f.data, world, g.cfg, &twice).is_err());
+}
+
+/// A change that spoils a snapshot.
+type SnapshotChange<'a> = Box<dyn Fn(&mut fnv_game::game::GameSnapshot) + 'a>;
+
+/// What a load asks before it starts anything from a save says what the restores would
+/// say (#1590): a good snapshot passes, and each refusal is the restores' own.
+#[test]
+fn a_snapshot_says_whether_the_restores_take_it() {
+    use fnv_game::coop::CoopPlayer;
+    use fnv_game::game::GameSnapshot;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.world.get(FormId::PLAYER_REF).unwrap();
+    let p2 = CoopPlayer::copy_of_player(&g, 2).unwrap();
+    let good = g.snapshot();
+    let restores = |s: &GameSnapshot| World::restore(&f.forms, &f.refs, &s.sim).and_then(|w| Game::restore(&f.data, w, g.cfg, s).map(|_| ()));
+    assert_eq!(good.check(), Ok(()));
+    assert_eq!(restores(&good), Ok(()));
+    let bad: [(&str, SnapshotChange<'_>); 6] = [
+        ("unsupported snapshot format \"fnv.game.state/2\"", Box::new(|s| s.format = "fnv.game.state/2".into())),
+        ("unsupported snapshot format \"fnv.sim.state/2\"", Box::new(|s| s.sim.format = "fnv.sim.state/2".into())),
+        ("bad rng_word_pos \"x\"", Box::new(|s| s.rng_word_pos = "x".into())),
+        ("bad rng_word_pos \"y\"", Box::new(|s| s.sim.rng_word_pos = "y".into())),
+        ("given twice", Box::new(|s| s.coop = vec![p2.clone(), p2.clone()])),
+        ("slots are", Box::new(|s| s.coop = vec![CoopPlayer { slot: 1, ..p2.clone() }])),
+    ];
+    for (why, change) in bad {
+        let mut s = good.clone();
+        change(&mut s);
+        let e = s.check().unwrap_err();
+        assert!(e.contains(why), "{why}: {e}");
+        assert_eq!(restores(&s), Err(e));
+    }
 }
 
 #[test]
@@ -1116,6 +1172,132 @@ fn a_disabled_reference_runs_on_load_when_its_cell_loads() {
     assert_eq!(loads(&g), 2.0);
     g.tick();
     assert_eq!(loads(&g), 2.0);
+}
+
+/// How many times `r`'s OnLoad block has run (the activator script's nOnLoad).
+fn on_loads(g: &Game, r: FormId) -> f64 {
+    match g.var(InstKey::Ref { reference: r }, 7) {
+        Value::Num(x) => x,
+        v => panic!("{v:?}"),
+    }
+}
+
+fn load_only(g: &mut Game, cell: u32) {
+    g.set_loaded([FormId(cell)].into_iter().collect());
+}
+
+/// OnLoad at a cell load goes by the cell a reference is in now: a moved one runs it when
+/// its new cell loads, not when its old one does (issue #1577; the same reading as
+/// `Game::active_refs`, which picks the references whose GameMode blocks run).
+#[test]
+fn a_moved_reference_runs_on_load_with_its_new_cell() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let act = FormId(ACT_REF);
+    load_only(&mut g, CELL);
+    assert_eq!(on_loads(&g, act), 1.0);
+    load_only(&mut g, OTHER_CELL);
+    assert_eq!(on_loads(&g, act), 1.0, "not in the other cell yet");
+    g.run_source("TestActivatorREF.MoveTo TestOtherREF", Default::default()).unwrap();
+    assert_eq!(g.cell_of(act), Some(FormId(OTHER_CELL)));
+    assert_eq!(on_loads(&g, act), 1.0, "moving into a loaded cell is no cell load");
+    load_only(&mut g, CELL);
+    assert_eq!(on_loads(&g, act), 1.0, "its old cell loads without it");
+    load_only(&mut g, OTHER_CELL);
+    assert_eq!(on_loads(&g, act), 2.0, "its new cell loads with it, once");
+    // Moved back, it goes by its first cell again.
+    g.run_source("TestActivatorREF.MoveTo TestPatrolPointREF", Default::default()).unwrap();
+    load_only(&mut g, CELL);
+    assert_eq!(on_loads(&g, act), 3.0);
+}
+
+/// Disabled references run OnLoad in the cell they moved to, as in their own
+/// (`a_disabled_reference_runs_on_load_when_its_cell_loads`); deleted ones run none.
+#[test]
+fn a_moved_reference_keeps_the_disabled_and_deleted_rules() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let act = FormId(ACT_REF);
+    g.run_source("TestActivatorREF.MoveTo TestOtherREF", Default::default()).unwrap();
+    g.world.set_enabled(act, false).unwrap();
+    load_only(&mut g, OTHER_CELL);
+    assert_eq!(on_loads(&g, act), 1.0);
+    load_only(&mut g, CELL);
+    g.world.set_deleted(act, true).unwrap();
+    load_only(&mut g, OTHER_CELL);
+    assert_eq!(on_loads(&g, act), 1.0);
+}
+
+/// A reference made at run time is in no cell's placed list: it runs OnLoad when its cell
+/// loads later (issue #1577).
+#[test]
+fn a_created_reference_runs_on_load_when_its_cell_loads_later() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    load_only(&mut g, CELL);
+    let made = g.create_at(FormId(ACTIVATOR), Some(FormId(OTHER_CELL)), [0.0; 3], [0.0; 3]).unwrap();
+    g.tick();
+    assert_eq!(on_loads(&g, made), 0.0, "its cell is not loaded");
+    load_only(&mut g, OTHER_CELL);
+    assert_eq!(on_loads(&g, made), 1.0);
+    load_only(&mut g, CELL);
+    assert_eq!(on_loads(&g, made), 1.0);
+    load_only(&mut g, OTHER_CELL);
+    assert_eq!(on_loads(&g, made), 2.0);
+}
+
+/// A scripted player runs no OnLoad at a cell load, MoveTo or not.
+#[test]
+fn a_moved_player_runs_no_on_load_at_a_cell_load() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    load_only(&mut g, CELL);
+    g.other.scripts.insert(FormId::PLAYER_BASE, Some(FormId(ACT_SCRIPT)));
+    g.run_source("player.MoveTo TestOtherREF", Default::default()).unwrap();
+    assert!(g.loaded_cells.contains(&FormId(OTHER_CELL)));
+    assert_eq!(on_loads(&g, FormId::PLAYER_REF), 0.0);
+}
+
+/// An OnLoad event handler that counts in TestGlobal: 1 for the activator, 10 for the
+/// trigger, 100 for the unscripted reference of the other cell.
+const COUNT_ON_LOADS: &str = "SetEventHandler \"OnLoad\" (begin function {ref rOn, ref rSame}\nif rOn == TestActivatorREF\nlet TestGlobal := TestGlobal + 1\nelseif rOn == TestTriggerREF\nlet TestGlobal := TestGlobal + 10\nelseif rOn == TestOtherREF\nlet TestGlobal := TestGlobal + 100\nendif\nend)";
+
+/// The extender's handlers hear each reference of a loaded cell once, by the cell it is in
+/// now, scripted or not.
+#[test]
+fn on_load_handlers_hear_a_moved_reference_once_with_its_new_cell() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    load_only(&mut g, OTHER_CELL);
+    g.run_source("TestActivatorREF.MoveTo TestOtherREF", Default::default()).unwrap();
+    g.run_source(COUNT_ON_LOADS, Default::default()).unwrap();
+    g.world.set_global(FormId(GLOBAL), 0.0).unwrap();
+    load_only(&mut g, CELL);
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 10.0, "the trigger stayed; the activator left");
+    g.world.set_global(FormId(GLOBAL), 0.0).unwrap();
+    load_only(&mut g, OTHER_CELL);
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 101.0, "the activator and the unscripted reference, once each");
+    assert_eq!(on_loads(&g, FormId(ACT_REF)), 1.0);
+}
+
+/// A block moving a reference during the load gives it one OnLoad, not one per cell: the
+/// references are chosen before any block runs.
+#[test]
+fn a_reference_moved_during_the_load_runs_on_load_once() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.run_source(COUNT_ON_LOADS, Default::default()).unwrap();
+    g.run_source("SetEventHandler \"OnLoad\" (begin function {ref rOn, ref rSame}\nif rOn == TestActivatorREF\nTestTriggerREF.MoveTo TestOtherREF\nendif\nend)", Default::default()).unwrap();
+    g.world.set_global(FormId(GLOBAL), 0.0).unwrap();
+    g.set_loaded([FormId(CELL), FormId(OTHER_CELL)].into_iter().collect());
+    assert_eq!(g.cell_of(FormId(TRIG_REF)), Some(FormId(OTHER_CELL)));
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 111.0, "the activator, the trigger and the other cell's reference, once each");
 }
 
 #[test]
@@ -1667,6 +1849,131 @@ fn a_hired_companions_kill_earns_the_player_xp() {
     assert!(r.died && r.xp == 20.0, "{r:?}");
 }
 
+/// GetKillingBlowLimb and GetCauseofDeath answer from the hit that killed, not from an
+/// earlier wound; GetHitLocation still reads the last hit (#1588).
+#[test]
+fn only_the_hit_that_killed_is_the_killing_blow() {
+    use fnv_game::combat::HitInfo;
+    const HIT_LOCATION: u16 = 0x1187;
+    const CAUSE: u16 = 0x118D;
+    const KILLING_BLOW_LIMB: u16 = 0x11F0;
+    const KILL_ACTOR: u16 = 0x108B;
+    let f = fixture();
+    let npc = FormId(NPC_REF);
+    let call = |g: &mut Game, op: u16, args: &[ArgValue]| {
+        let ctx = Ctx { unit: "test".into(), opcode: op, on: Some(npc), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+        g.call_function(&ctx, args).num()
+    };
+    let wound = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 3, critical: true, limb: None };
+
+    // A wound, then a KillActor with no cause: no hit killed.
+    let mut g = game(&f);
+    g.new_game();
+    assert!(!g.hit(npc, 10.0, wound).died);
+    assert_eq!((call(&mut g, KILLING_BLOW_LIMB, &[]), call(&mut g, CAUSE, &[])), (-1.0, -1.0), "alive");
+    call(&mut g, KILL_ACTOR, &[]);
+    assert!(g.is_dead(npc));
+    assert_eq!((call(&mut g, KILLING_BLOW_LIMB, &[]), call(&mut g, CAUSE, &[])), (-1.0, -1.0), "the wound did not kill");
+    assert_eq!(call(&mut g, HIT_LOCATION, &[]), 3.0, "still its last hit");
+    assert!(!g.kill_outcome(npc).critical, "the wound's critical is not the kill's");
+
+    // KillActor's own cause still counts, and it is no killing blow.
+    let mut g = game(&f);
+    g.new_game();
+    g.hit(npc, 10.0, wound);
+    call(&mut g, KILL_ACTOR, &[ArgValue::Value(Value::Ref(FormId::PLAYER_REF.0)), ArgValue::Value(Value::Num(-1.0)), ArgValue::Value(Value::Num(1.0))]);
+    assert_eq!((call(&mut g, KILLING_BLOW_LIMB, &[]), call(&mut g, CAUSE, &[])), (-1.0, 1.0));
+
+    // A wound, then a fatal hit: the fatal one, which a hit on the corpse does not replace.
+    let mut g = game(&f);
+    g.new_game();
+    g.hit(npc, 10.0, wound);
+    assert!(g.hit(npc, 500.0, HitInfo { location: 1, ..wound }).died);
+    g.hit(npc, 5.0, HitInfo { location: 7, critical: false, ..wound });
+    assert_eq!((call(&mut g, KILLING_BLOW_LIMB, &[]), call(&mut g, CAUSE, &[])), (1.0, 4.0));
+    assert!(g.kill_outcome(npc).critical);
+
+    // A save keeps the record.
+    let snap = serde_json::to_value(g.snapshot()).unwrap();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_value(snap.clone()).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let mut h = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!((call(&mut h, KILLING_BLOW_LIMB, &[]), call(&mut h, CAUSE, &[])), (1.0, 4.0));
+
+    // A save from before the record: what killed is unknown, not taken from the last hit.
+    let mut old = snap;
+    for e in old["extra"].as_object_mut().unwrap().values_mut() {
+        e.as_object_mut().unwrap().remove("killing_hit");
+    }
+    let old: fnv_game::game::GameSnapshot = serde_json::from_value(old).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &old.sim).unwrap();
+    let mut o = Game::restore(&f.data, world, g.cfg, &old).unwrap();
+    assert!(o.is_dead(npc));
+    assert_eq!((call(&mut o, KILLING_BLOW_LIMB, &[]), call(&mut o, CAUSE, &[])), (-1.0, -1.0));
+    assert_eq!(call(&mut o, HIT_LOCATION, &[]), 1.0);
+
+    // Back from the dead the record is gone: a later death without a hit reads none.
+    g.resurrect(npc, false);
+    assert_eq!(g.extra[&npc].killing_hit, None);
+    assert_eq!(call(&mut g, KILLING_BLOW_LIMB, &[]), -1.0);
+    call(&mut g, KILL_ACTOR, &[]);
+    assert_eq!((call(&mut g, KILLING_BLOW_LIMB, &[]), call(&mut g, CAUSE, &[])), (-1.0, -1.0));
+}
+
+/// The player's death is no kill: not by their own hit, a companion's or their own
+/// KillActor; the same kills of an NPC still count (#1614) [design].
+#[test]
+fn a_players_death_earns_no_kill_credit() {
+    use fnv_game::challenges::{kind, ChallengeDef};
+    use fnv_game::combat::HitInfo;
+    use fnv_game::misc_stats::{PEOPLE_KILLED, TOTAL_THINGS_KILLED};
+    const KILL_ACTOR: u16 = 0x108B;
+    const HEALTH: u16 = 16;
+    let p = FormId::PLAYER_REF;
+    let (npc, mate, chal) = (FormId(NPC_REF), FormId(NPC_AUTO_REF), FormId(0x9990));
+    let mut f = fixture();
+    let def = ChallengeDef { form: chal, kind: kind::KILL_CATEGORY, threshold: 100, flags: 0, interval: 0, value1: 0, value2: 0, value3: 0, form1: None, form2: None, name: None, description: None };
+    f.data.challenge_defs.insert(chal, def);
+    let by_player = HitInfo { attacker: Some(p), weapon: None, location: 0, critical: false, limb: None };
+    let credit = |g: &Game| (g.player.xp, g.misc_stat(PEOPLE_KILLED), g.misc_stat(TOTAL_THINGS_KILLED), g.player.challenges.get(&chal).map_or(0, |c| c.progress));
+    let start = || {
+        let mut g = game(&f);
+        g.new_game();
+        g.extra.entry(mate).or_default().teammate = true;
+        fnv_game::functions::set_actor_value_current(&mut g, p, HEALTH, 100.0).unwrap();
+        g
+    };
+
+    // The controls: the player's kill and a hired companion's.
+    let mut g = start();
+    assert!(g.hit(npc, 500.0, by_player).died);
+    assert_eq!(credit(&g), (20.0, 1.0, 1.0, 1));
+    let mut g = start();
+    assert!(g.hit(npc, 500.0, HitInfo { attacker: Some(mate), ..by_player }).died);
+    assert_eq!(credit(&g), (20.0, 0.0, 0.0, 0));
+
+    // By the player's own hit (their own blast's, in play).
+    let mut g = start();
+    let r = g.hit(p, 500.0, by_player);
+    assert!(r.died && r.xp == 0.0, "{r:?}");
+    assert_eq!(g.extra[&p].killer, Some(p), "the killer stays");
+    assert_eq!(credit(&g), (0.0, 0.0, 0.0, 0));
+
+    // By a hired companion's.
+    let mut g = start();
+    let r = g.hit(p, 500.0, HitInfo { attacker: Some(mate), ..by_player });
+    assert!(r.died && r.xp == 0.0, "{r:?}");
+    assert_eq!(g.extra[&p].killer, Some(mate));
+    assert_eq!(credit(&g), (0.0, 0.0, 0.0, 0));
+
+    // By their own KillActor.
+    let mut g = start();
+    let ctx = Ctx { unit: "test".into(), opcode: KILL_ACTOR, on: Some(p), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    g.call_function(&ctx, &[ArgValue::Value(Value::Ref(p.0))]);
+    assert!(g.is_dead(p));
+    assert_eq!(credit(&g), (0.0, 0.0, 0.0, 0));
+}
+
 /// Gone parts: IsLimbGone, GetKillingBlowLimb, KillActor's limb, the Dismembered Limbs
 /// statistic (docs/spec-notes/dismemberment.md §5).
 #[test]
@@ -1847,28 +2154,49 @@ fn limb_hits_lower_conditions_and_cripple() {
     assert_eq!(r.health, 40.0);
 }
 
-/// An explosion damages every limb it is given at once, crippling those whose pool it
-/// empties; the player's limbs take half; nothing on a dead actor
-/// (docs/spec-notes/crippled-limbs.md §5).
+/// An explosion's limb damage follows the original's shares (docs/spec-notes/crippled-
+/// limbs.md §5): for the five measured blasts (o25_limbs, Ringo; Health lost, then the
+/// torso's and the legs' condition points lost) the torso loses 1/30 of the Health
+/// damage and the legs 0.24 together, the head, arms and brain nothing [observed];
+/// nothing on a dead actor. The points come straight off the condition, whatever the
+/// actor's maximum Health [hypothesis: measured only at 5000 Health, on an NPC].
 #[test]
-fn blasts_damage_every_limb() {
-    use fnv_game::combat::{LimbHit, LEFT_MOBILITY, RIGHT_MOBILITY};
+fn blasts_take_the_measured_limb_shares() {
+    use fnv_game::combat::{blast_limb_shares, HEAD, LEFT_ARM, LEFT_MOBILITY, RIGHT_ARM, RIGHT_MOBILITY, TORSO};
+    const BRAIN: u16 = 31;
     let f = fixture();
+    let npc = FormId(NPC_REF);
+    let human = [LEFT_MOBILITY, RIGHT_MOBILITY, TORSO, RIGHT_ARM, LEFT_ARM, HEAD, BRAIN];
+    // (Health lost, torso, left leg + right leg) [observed 2026-11-06].
+    let measured = [(99.95, 3.33, 23.99), (96.99, 3.27, 23.52), (98.97, 3.33, 24.00), (98.00, 3.27, 23.52), (123.0, 4.10, 29.52)];
+    for (health, torso, legs) in measured {
+        let mut g = game(&f);
+        g.new_game();
+        let hurt = g.blast_limbs(npc, None, &blast_limb_shares(&human, health));
+        let lost = |c: u16| 100.0 - hurt.iter().find(|h| h.0 == c).map_or(100.0, |h| h.1);
+        let close = |ours: f64, theirs: f64| (ours - theirs).abs() <= theirs * 0.015;
+        assert!(close(lost(TORSO), torso), "torso {} against {torso} for {health}", lost(TORSO));
+        assert!(close(lost(LEFT_MOBILITY) + lost(RIGHT_MOBILITY), legs), "legs against {legs} for {health}: {hurt:?}");
+        for c in [HEAD, LEFT_ARM, RIGHT_ARM, BRAIN] {
+            assert_eq!(lost(c), 0.0, "{c} for {health}");
+            assert!(!g.is_crippled(npc, c));
+        }
+        // The left leg takes two thirds of the legs' share [hypothesis].
+        assert!((lost(LEFT_MOBILITY) - 2.0 * lost(RIGHT_MOBILITY)).abs() < 1e-9);
+    }
+    // A blast big enough cripples the left leg first; never an arm or the head.
     let mut g = game(&f);
     g.new_game();
-    let npc = FormId(NPC_REF);
-    // Maximum health 55: a head at 10 % has a pool of 5.5, a leg at 25 % one of 13.75.
-    let limb = |condition: u16, health_percent: f64| LimbHit { condition, health_percent, damage: 11.0, points: false };
-    let limbs = [limb(25, 10.0), limb(LEFT_MOBILITY, 25.0), limb(RIGHT_MOBILITY, 25.0)];
-    let hurt = g.blast_limbs(npc, None, &limbs);
-    assert_eq!(hurt, vec![(25, 0.0, true), (LEFT_MOBILITY, 20.0, false), (RIGHT_MOBILITY, 20.0, false)]);
-    assert!(g.is_crippled(npc, 25) && !g.is_crippled(npc, LEFT_MOBILITY));
-    // The player's limbs take fCombatPlayerLimbDamageMult (0.5) of it.
-    let hurt = g.blast_limbs(FormId::PLAYER_REF, None, &limbs[1..2]);
-    assert_eq!(hurt.len(), 1);
-    assert!(hurt[0].1 > 20.0 && hurt[0].1 < 100.0 && !hurt[0].2, "{hurt:?}");
+    let hurt = g.blast_limbs(npc, None, &blast_limb_shares(&human, 700.0));
+    assert_eq!(hurt.iter().filter(|h| h.2).map(|h| h.0).collect::<Vec<_>>(), vec![LEFT_MOBILITY]);
+    // One leg in the data takes the whole 0.24; no torso, no limb damage there.
+    let one = blast_limb_shares(&[RIGHT_MOBILITY], 100.0);
+    assert_eq!(one.len(), 1);
+    assert!((one[0].damage - 24.0).abs() < 1e-9 && one[0].points);
+    assert!(blast_limb_shares(&[HEAD, LEFT_ARM], 100.0).is_empty());
+    assert!(blast_limb_shares(&human, 0.0).is_empty());
     g.kill(npc, None);
-    assert!(g.blast_limbs(npc, None, &limbs).is_empty());
+    assert!(g.blast_limbs(npc, None, &blast_limb_shares(&human, 100.0)).is_empty());
 }
 
 /// A fall's leg (docs/spec-notes/physics.md §6.12): limb damage in condition points comes
@@ -2355,6 +2683,24 @@ fn a_scripts_call_on_an_empty_reference_is_traced_once() {
         g.run_source("ref r\nr.Disable", Default::default()).expect("compiles");
     }
     assert_eq!(failed(&g), 3);
+}
+
+#[test]
+fn a_call_on_an_empty_reference_gives_0_and_the_script_goes_on() {
+    // [observed: o5_00, a function script went on to its next line; the Nellis artillery
+    // (issue #1600) fires in the original although its script calls GetDead on an unset
+    // reference every frame]. Until 2026-11-05 the call stopped the script.
+    let f = udf_fixture();
+    assert_eq!(global_after(&f, "ref r
+r.Disable
+let TestGlobal := 7"), 7.0);
+    assert_eq!(global_after(&f, "ref r
+if r.GetDisabled == 0
+  let TestGlobal := 8
+endif"), 8.0);
+    // Behind a classic `&&` (EDEScript's shape), the line after it runs too.
+    assert_eq!(global_after(&f, "let TestGlobal := Call TestEmpty 1
+let TestGlobal := 9"), 9.0);
 }
 
 #[test]

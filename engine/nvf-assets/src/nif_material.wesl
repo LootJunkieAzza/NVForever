@@ -33,7 +33,9 @@
 //
 // Holes (nif_material.rs "Holes"): where `surface.holes.x` is 0 or more, the holes
 // texture's alpha (0-255) at or above it leaves a hole and the band of `surface.holes.y`
-// below it is drawn in `surface.holes_edge`; at 255 or more there are none.
+// below it is drawn in `surface.holes_edge`; at 255 or more there are none. With
+// `surface.holes.z` 1 the test is turned round (a cut-out): alpha below it leaves a
+// hole, and there is no band.
 //
 // FACEGEN_TINT (an NPC's face and skin shapes, main pass; nif_material.rs "FaceGen tint"):
 // the `.egt` colour offset is added to the diffuse texture's stored sRGB value (0-255)
@@ -363,10 +365,11 @@ fn nif_fragment(
     var holes_band = 0.0;
     @if(VERTEX_UVS_A) if surface.holes.x >= 0.0 && surface.holes.x < 255.0 {
         let h = holes_alpha(in.instance_index, in.uv) * 255.0;
-        if h >= surface.holes.x {
+        let cut_out = (surface.holes.z > 0.5);
+        if select((h >= surface.holes.x), (h < surface.holes.x), cut_out) {
             discard;
         }
-        holes_band = select(0.0, 1.0, h >= surface.holes.x - surface.holes.y);
+        holes_band = select(select(0.0, 1.0, h >= surface.holes.x - surface.holes.y), 0.0, cut_out);
     }
     var pbr_input = pbr_input_from_standard_material(in, is_front);
     @if(FACEGEN_TINT && VERTEX_UVS_A) if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_BASE_COLOR_TEXTURE_BIT) != 0u {
@@ -499,16 +502,25 @@ fn nif_fragment(
         // faded only by the view-angle falloff.
         let add_a = select(out.color.a, falloff, surface.add_whole > 0.5);
         let fogged = main_pass_post_lighting_processing(pbr_input, vec4(out.color.rgb, 1.0));
-        let behind = textureSampleLevel(view_transmission_texture, view_transmission_sampler, frag_coord_to_uv(in.position.xy), 0.0).rgb;
-        out.color = vec4(add_display(fogged.rgb, add_a, behind), 0.0);
+        @if(!ADD_LINEAR) let behind = textureSampleLevel(view_transmission_texture, view_transmission_sampler, frag_coord_to_uv(in.position.xy), 0.0).rgb;
+        @if(!ADD_LINEAR) out.color = vec4(add_display(fogged.rgb, add_a, behind), 0.0);
+        // NifSurface::add_linear: the colour added as it is, in linear light.
+        @if(ADD_LINEAR) out.color = vec4(fogged.rgb * saturate(add_a), 0.0);
     } else {
         out.color = main_pass_post_lighting_processing(pbr_input, out.color);
     }
+    // NifSurface::pipboy_screen: linear red's ceiling, fitted so a bar's red stays near the
+    // original's 206 (nvf-play pipboy/device_screen.rs). Before the post-lighting step, which
+    // tone maps here when the view has no HDR (the Glow setting off).
+    @if(PIPBOY_SCREEN) out.color.r = min(out.color.r, 0.67);
     @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && !BLEND_PREMULTIPLIED_ALPHA) out.color = main_pass_post_lighting_processing(pbr_input, out.color);
     @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY) let blend_mode = pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
     @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY) if blend_mode == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND && (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) != 0u {
         out.color = vec4(out.color.rgb * blend_colour_scale(out.color.a), out.color.a);
     }
+    // NifSurface::pipboy_screen: the mark that keeps these pixels out of the image-space grade
+    // (imagespace.wesl SCREEN_MARK).
+    @if(PIPBOY_SCREEN) out.color.a = 0.25;
     @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && SOFT_EDGES) out.color.a = edge;
     return out;
 }

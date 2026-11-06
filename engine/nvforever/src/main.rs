@@ -15,6 +15,14 @@
 //! switches what `settings.rs` and `nvf_play::settings` list while the game runs) and
 //! closes the open menu. `--play --menu` opens on the main menu (`nvf_play::main_menu`).
 
+/// The console lines written before the log is up, with the player's home folder hidden
+/// like every logged line (crash.rs, Privacy). Shadows `std::eprintln!` in this crate.
+macro_rules! eprintln {
+    ($($t:tt)*) => {
+        $crate::crash::eprint_line(format_args!($($t)*))
+    };
+}
+
 mod activators;
 mod nif_mirror;
 mod anim_paths;
@@ -71,6 +79,7 @@ mod lights;
 mod limbs;
 mod lips;
 mod memory_budget;
+mod pipeline_gate;
 mod lockpick_view;
 mod roulette_view;
 mod blackjack_view;
@@ -98,6 +107,7 @@ mod object_anims;
 mod outfits;
 mod own_sounds;
 mod pipboy_arm;
+mod pipboy_controls;
 mod player_body;
 mod stealth_field;
 mod stray_commands;
@@ -145,6 +155,7 @@ mod effect_shaders;
 mod tree;
 mod treelod;
 mod underwater;
+mod vigor_view;
 mod water;
 mod window_icon;
 mod window_mode;
@@ -233,6 +244,9 @@ struct Args {
     /// lists it (not a pin, unlike --weather).
     #[arg(skip)]
     start_weather: Option<String>,
+    /// A loaded game's GameDaysPassed, for the sky alone ([`start_days`]).
+    #[arg(skip)]
+    sky_day: Option<f32>,
     /// Override the weather's fog distances: "near,far" in game units.
     #[arg(long)]
     fog: Option<String>,
@@ -273,7 +287,9 @@ struct Args {
     /// Generated terrain: mesh vertex step in landscape grid vertices (1, 2, 4, 8, 16 or 32).
     #[arg(long, default_value_t = 2)]
     lodgen_step: usize,
-    /// Game days passed, for the moon phase (default: the GameDaysPassed global).
+    /// Game days passed at the start of a new game, whole days (default: the GameDaysPassed
+    /// global). A loaded save keeps its own game day; only the sky of a save made before
+    /// saves held the day starts on this, until it follows the game.
     #[arg(long)]
     day: Option<f32>,
     /// Do not apply the image-space grade (the worldspace's image space and the weather's
@@ -349,7 +365,8 @@ struct Args {
     #[arg(long, default_value = "1280x800")]
     size: String,
     /// The window: `windowed` (of --size) or `borderless` (borderless full screen on the
-    /// current monitor). With --play the settings page's Display group switches it too.
+    /// display chosen in Display settings, the first display until one is chosen). With
+    /// --play the settings page's Display group switches it too.
     #[arg(long, value_enum, default_value_t = window_mode::WindowChoice::Windowed)]
     window: window_mode::WindowChoice,
     /// The game's field-of-view setting in degrees (fDefaultFOV, default 75): the horizontal
@@ -552,8 +569,8 @@ struct Args {
     new_game: bool,
     /// With --play: load a save (a name in NVForever's saves folder, or a path to a
     /// .nvfsave): start at its place and put its state back (nvf_play::save,
-    /// docs/design/save-load.md); --cell, --pos, --heading, --pitch, --hour, --weather and
-    /// --world are taken from the save.
+    /// docs/design/save-load.md); --cell, --pos, --heading, --pitch, --hour, --day, --weather
+    /// and --world are taken from the save.
     #[arg(long, requires = "play", conflicts_with = "new_game")]
     load: Option<String>,
     /// With --play: open on the main menu (nvf_play::main_menu): Continue, New Game, Load
@@ -561,6 +578,10 @@ struct Args {
     /// game, held until New Game.
     #[arg(long, requires = "play", conflicts_with_all = ["new_game", "load"])]
     menu: bool,
+    /// With --menu: why the run before could not restore the save it was given, for the
+    /// message box (a run that fails so starts this one, handoff.rs).
+    #[arg(long, requires = "menu")]
+    load_refused: Option<String>,
     /// Open the window with its outer top-left corner here on the desktop, "X,Y" in
     /// pixels (a new run taking over a load keeps the old window's place, handoff.rs).
     #[arg(long, value_parser = |s: &str| handoff::parse_at(s).ok_or("expected X,Y"))]
@@ -792,6 +813,19 @@ fn command_line() -> Vec<String> {
     COMMAND_LINE.get().map_or_else(|| std::env::args().skip(1).collect(), |a| a[1..].to_vec())
 }
 
+/// Bevy's task pools. Test aid `NVF_PLAY_TEST_ASYNC_THREADS=<n>` sets the async compute
+/// pool's size, which is 25 % of the cores and 1 to 4 threads otherwise [documented:
+/// bevy_app 0.20.1 `task_pool_plugin.rs`], to compare with a smaller machine's.
+fn task_pools() -> TaskPoolPlugin {
+    let mut task_pool_options = bevy::app::TaskPoolOptions::default();
+    if let Some(n) = std::env::var("NVF_PLAY_TEST_ASYNC_THREADS").ok().and_then(|v| v.parse::<usize>().ok()) {
+        task_pool_options.async_compute.min_threads = n;
+        task_pool_options.async_compute.max_threads = n;
+        info!("test aid NVF_PLAY_TEST_ASYNC_THREADS: {n}");
+    }
+    TaskPoolPlugin { task_pool_options }
+}
+
 fn main() -> AppExit {
     let mut line = with_default_mode(std::env::args().collect());
     if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(std::path::Path::to_path_buf)) {
@@ -820,6 +854,12 @@ fn main() -> AppExit {
             return AppExit::error();
         }
     }
+    // The languages of NVForever's own words (#1443): beside the program, in the home.
+    let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(std::path::Path::to_path_buf));
+    let home = fnv_install::EngineHome::default_root();
+    for problem in fnv_util::words::load(&fnv_util::words::dirs(exe_dir.as_deref(), home.as_deref())) {
+        eprintln!("warning: language file skipped: {problem}");
+    }
     // The game's folder: `--data`, NVForever.ini or asked for; its files checked (setup.rs).
     let install = match setup::game_install(args.data.as_deref()) {
         Ok(g) => g,
@@ -829,6 +869,7 @@ fn main() -> AppExit {
         }
     };
     args.data = Some(install.data.clone());
+    setup::install_fonts(&install);
     // Every `fnv_install::guard_write` from here on refuses writes into this install,
     // also where the writer has none at hand (saves, test aids; #994).
     fnv_install::remember_game(&install);
@@ -864,10 +905,14 @@ fn main() -> AppExit {
     args.plugins = opened.plugins.iter().map(|p| p.name.clone()).collect();
     // `--load`: the save's place decides where the world starts (its worldspace before
     // the world is opened); its body waits for the scripts (nvf_play::save). It is read
-    // in full now, remapped to the plugins opened (nvf_play::save::read_for_load): a save
-    // that cannot be loaded opens the main menu instead, and the player is told why once
-    // the window is up [owner 2026-11-01, #1357] (`handoff::LoadFailed`).
-    let mut load_failed = None;
+    // in full now, remapped to the plugins opened and checked as the restore will
+    // (nvf_play::save::read_for_load): a save that cannot be loaded opens the main menu
+    // instead, and the player is told why once the window is up [owner 2026-11-01, #1357]
+    // (`handoff::LoadFailed`). So does a run a failed restore started (`--load-refused`).
+    let mut load_failed = args.load_refused.clone();
+    if let Some(why) = &load_failed {
+        eprintln!("load: {why}; opening the main menu");
+    }
     let pending = match args.load.clone() {
         Some(name) => match start_from_save(&name, &opened, &mut args) {
             Ok(p) => Some(p),
@@ -984,6 +1029,9 @@ fn main() -> AppExit {
             Err(_) => return fail(e),
         },
     };
+    if let Some(saved) = pending.as_ref().and_then(|p| p.body.engine.extra.get(sky::SAVE_HOOK.key)) {
+        sky_state.restore_saved(saved);
+    }
     sky_state.shadows = (args.sun_shadows || (args.play && !args.no_sun_shadows)) && args.shadow_distance > 0.0;
     if args.shadow_distance > 0.0 {
         sky_state.shadow_distance = args.shadow_distance;
@@ -1002,7 +1050,8 @@ fn main() -> AppExit {
         None => None,
     };
     sky_state.time_scale = args.time_scale.max(0.0);
-    sky_state.days_passed = args.day.or_else(|| sky::find_global(&world, "GameDaysPassed")).unwrap_or(0.0).floor();
+    let (start_day, sky_day) = start_days(args.day, args.sky_day, sky::find_global(&world, "GameDaysPassed"));
+    sky_state.days_passed = sky_day;
     if let Some(dir) = &args.timelapse {
         if let Err(e) = fnv_install::guard_write(dir, None) {
             return fail(format!("--timelapse {}: {e}", dir.display()));
@@ -1071,6 +1120,7 @@ fn main() -> AppExit {
             Err(e) => return fail(e),
         }
     };
+    let lod_origin = lod::grid_origin(&game, &world);
     let actor_world = (!args.no_actors).then(|| {
         let t0 = std::time::Instant::now();
         let mut a = actors::ActorWorld::build(world.lo, world.schema);
@@ -1121,12 +1171,12 @@ fn main() -> AppExit {
     if let Some(p) = play.as_mut() {
         p.packages = !npc_packages.is_empty();
     }
-    let residents = if npc_packages.is_empty() {
+    let mut residents = if npc_packages.is_empty() {
         None
     } else {
         // Game hours per second: the sky's rate when it runs, else the NPCs' own.
         let rate = if sky_state.time_scale > 0.0 { sky_state.time_scale as f64 } else { args.npc_timescale.max(0.0) as f64 / 3600.0 };
-        let clock = residents::Clock { hour: sky_state.hour, days_passed: sky_state.days_passed, rate };
+        let clock = residents::Clock { hour: sky_state.hour, days_passed: start_day, rate };
         match residents::Residents::build(&world, &npc_packages, clock, args.npc_speed, args.play) {
             Ok(mut r) => {
                 r.set_keep_apart(!args.actors_pass_through);
@@ -1139,8 +1189,11 @@ fn main() -> AppExit {
     let mut trips = args.npc_travel.clone();
     let furnishings = if args.play || !args.npc_sit.is_empty() || residents.is_some() {
         match furniture::Furnishings::build(&world, &game, &args.npc_sit, trips.len()) {
-            Ok((f, sit_trips)) => {
+            Ok((mut f, sit_trips)) => {
                 trips.extend(sit_trips);
+                if let Some(r) = residents.as_mut() {
+                    r.set_furniture_facts(std::sync::Arc::new(f.asset_facts(&game)));
+                }
                 Some(f)
             }
             Err(e) => return fail(e),
@@ -1181,6 +1234,7 @@ fn main() -> AppExit {
     app.set_error_handler(stray_commands::handler);
     app.add_plugins(
         DefaultPlugins
+            .set(task_pools())
             .set(ImagePlugin {
                 default_sampler: ImageSamplerDescriptor {
                     address_mode_u: ImageAddressMode::Repeat,
@@ -1216,7 +1270,7 @@ fn main() -> AppExit {
             .disable::<bevy::ui_widgets::TabPlugin>()
             .disable::<bevy::input_focus::pointer_focus::PointerFocusPlugin>()
             // The console's lines go to the run log too (crash.rs).
-            .set(bevy::log::LogPlugin { custom_layer: crash::file_layer, ..default() })
+            .set(bevy::log::LogPlugin { custom_layer: crash::file_layer, fmt_layer: crash::console_layer, ..default() })
             .set(WindowPlugin {
                 // Scale factor 1 so screenshots are exactly --size pixels on any display.
                 primary_window: Some(Window {
@@ -1266,7 +1320,7 @@ fn main() -> AppExit {
     .insert_resource(sky_state)
     .insert_resource(screen_modifiers)
     .insert_resource(fly::AutoFly(args.auto_fly))
-    .insert_resource(lod::LodState::new(&world, lod_settings(&args), !args.no_lod && interior.is_none(), lodgen))
+    .insert_resource(lod::LodState::new(&world, lod_settings(&args), !args.no_lod && interior.is_none(), lodgen).with_origin(lod_origin))
     .insert_resource(TerrainSettings { tile: args.terrain_tile })
     .init_resource::<TerrainCache>()
     .init_resource::<imposters::Imposters>()
@@ -1314,12 +1368,12 @@ fn main() -> AppExit {
     })
     .insert_resource(args.clone())
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
-    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::weather_region, sky::update_sky, sky::interior_clip, sky::update_clouds, sky::update_night_sky, world::stream, imposters::update, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
+    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::weather_region, sky::update_sky, sky::interior_clip, sky::update_clouds, sky::update_night_sky, world::stream.run_if(world::world_not_held), imposters::update, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
     .add_systems(Update, cell_buffer::remember.after(world::stream))
     .add_systems(Update, world::draw_waiting_actors.after(world::stream))
     // Actors of the next ring of cells read and prepared before they come into range.
     .insert_resource(readahead::ReadAhead::from_env())
-    .add_systems(Update, readahead::read_ahead.after(world::stream).after(world::draw_waiting_actors))
+    .add_systems(Update, readahead::read_ahead.run_if(world::world_not_held).after(world::stream).after(world::draw_waiting_actors))
     .add_systems(Last, readahead::report)
     .init_resource::<AnimCost>()
     .add_systems(Update, advance_animations)
@@ -1394,6 +1448,7 @@ fn main() -> AppExit {
         // the renderer is done: both this frame.
         app.add_plugins(nvf_play::PlayPlugin(data))
             .add_systems(Update, (worldspace::switch, world::travel, world::cell_image_space).chain().after(nvf_play::PlaySet::Input).before(world::stream))
+            .add_plugins(pipeline_gate::PipelineGatePlugin)
             .add_systems(Update, world::loading_gate.after(world::stream))
             .configure_sets(Update, nvf_play::PlaySet::Physics.before(world::stream));
         // Animation groups scripts play on objects (object_anims.rs).
@@ -1439,6 +1494,8 @@ fn main() -> AppExit {
         if play.is_some() {
             // The player's own body (player_body.rs): needs the actor records.
             app.add_plugins(creator_view::CreatorViewPlugin { light_scale: args.light_scale });
+            // The Vigor Tester's machine: its camera and lights, the room behind it.
+            app.add_plugins(vigor_view::VigorViewPlugin);
             app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body, weapon_sway: !args.no_weapon_sway, weapon_lower: !args.no_weapon_lower, true_iron_sights: !args.no_true_iron_sights }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, swing_traps::SwingTrapsPlugin, wrecks::WrecksPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin, dismember::DismemberPlugin));
             app.insert_resource(nvf_play::aim_zoom::Scope3d { on: args.scope_3d, lens: false });
             app.add_plugins(decals::DecalsPlugin);
@@ -1552,6 +1609,7 @@ fn main() -> AppExit {
             app.insert_resource(r)
                 .add_systems(Startup, residents::log_startup)
                 .add_systems(Update, residents::drive.after(world::stream).after(readahead::read_ahead).after(nvf_play::PlaySet::Scripts).before(nav::drive))
+                .add_systems(Update, residents::melee_knockback::arrange.after(residents::drive).run_if(resource_exists::<nvf_play::MeleeKnockbackAid>))
                 .add_systems(Last, residents::report);
             // Patrols and sandboxes go on after a load where the save had them.
             if play.is_some() {
@@ -1672,7 +1730,7 @@ fn main() -> AppExit {
     if play.is_some() {
         settings::register(&mut app);
         console_toggles::register(&mut app);
-        app.init_resource::<handoff::Handoff>().add_systems(Update, (handoff::leave, handoff::reveal.after(world::loading_gate)));
+        app.init_resource::<handoff::Handoff>().add_systems(Update, (handoff::leave, handoff::reveal.after(world::loading_gate), handoff::hold_restore.after(handoff::reveal)));
         handoff::add_end_now(&mut app);
         if let Some(why) = load_failed {
             app.insert_resource(handoff::LoadFailed(why)).add_systems(Update, handoff::tell_load_failed);
@@ -1723,6 +1781,7 @@ fn start_from_save(name: &str, opened: &world::OpenedPlugins, args: &mut Args) -
     args.heading = pl.heading_deg;
     args.pitch = pl.pitch_deg;
     args.hour = header.game_hour;
+    args.sky_day = header.game_days_passed;
     if header.weather.is_some() && args.weather.is_none() {
         args.start_weather = header.weather.clone();
     }
@@ -1731,11 +1790,20 @@ fn start_from_save(name: &str, opened: &world::OpenedPlugins, args: &mut Args) -
     Ok(nvf_play::save::PendingLoad { path, body, order })
 }
 
+/// The whole days a run starts on: the game's start clock (`--day`, else the plugins'), and
+/// the sky's, which a save's day overrides. A save's day stays out of the start clock, which
+/// only a new game takes (`Core::prepare` in residents.rs); a save that cannot be restored
+/// plays no game at all, it opens the main menu [owner 2026-11-01, #1357].
+fn start_days(day: Option<f32>, sky_day: Option<f32>, plugins: Option<f32>) -> (f32, f32) {
+    let game = day.or(plugins).unwrap_or(0.0).floor();
+    (game, sky_day.map_or(game, f32::floor))
+}
+
 /// The arguments of this run without those a save or the window decide (with their
 /// values, in both the `--flag value` and `--flag=value` forms), for the run that takes
 /// over a load (handoff.rs).
 fn restart_args(args: &[String]) -> Vec<String> {
-    const VALUED: [&str; 12] = ["--load", "--cell", "--pos", "--heading", "--pitch", "--hour", "--weather", "--world", "--eye-height", "--size", "--window-at", "--handoff"];
+    const VALUED: [&str; 13] = ["--load", "--load-refused", "--cell", "--pos", "--heading", "--pitch", "--hour", "--weather", "--world", "--eye-height", "--size", "--window-at", "--handoff"];
     let mut out = Vec::new();
     let mut i = 0;
     while i < args.len() {
@@ -2086,7 +2154,7 @@ fn screenshot_and_exit(
 
 #[cfg(test)]
 mod tests {
-    use super::{restart_args, vertical_fov, with_default_mode, with_schemas_beside, Args};
+    use super::{restart_args, start_days, vertical_fov, with_default_mode, with_schemas_beside, Args};
     use clap::Parser;
 
     fn parse(a: &[&str]) -> Args {
@@ -2123,6 +2191,23 @@ mod tests {
     }
 
     #[test]
+    fn a_refused_load_is_told_on_the_main_menu_only() {
+        assert_eq!(parse(&["--play", "--menu", "--load-refused=old: why"]).load_refused.as_deref(), Some("old: why"));
+        assert!(Args::try_parse_from(["nvforever", "--play", "--load-refused=old: why"]).is_err());
+    }
+
+    #[test]
+    fn a_saves_day_starts_the_sky_and_not_the_game() {
+        // A save's day, over --day for the sky, never in the game's start clock (#1607).
+        assert_eq!(start_days(None, Some(25.375), Some(5.0)), (5.0, 25.0));
+        assert_eq!(start_days(Some(30.0), Some(25.375), Some(5.0)), (30.0, 25.0));
+        // A save without the day, and a new game: both on --day, else the plugins' day.
+        assert_eq!(start_days(Some(30.5), None, Some(5.0)), (30.0, 30.0));
+        assert_eq!(start_days(None, None, Some(5.5)), (5.0, 5.0));
+        assert_eq!(start_days(None, None, None), (0.0, 0.0));
+    }
+
+    #[test]
     fn schemas_beside_the_program() {
         let dir = std::env::temp_dir().join(format!("nvf-schemas-beside-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("schemas/fnv")).unwrap();
@@ -2135,7 +2220,7 @@ mod tests {
 
     #[test]
     fn a_restart_for_a_load_drops_what_the_save_decides() {
-        let a: Vec<String> = ["--data", "D", "--cell", "Goodsprings", "--play", "--menu", "--pos=-1,2,3", "--new-game", "--hour", "9", "--no-music", "--load", "old", "--size", "1600x900", "--window-at=-8,0", "--window-maximized", "--handoff", "f"].map(String::from).to_vec();
+        let a: Vec<String> = ["--data", "D", "--cell", "Goodsprings", "--play", "--menu", "--pos=-1,2,3", "--new-game", "--hour", "9", "--no-music", "--load", "old", "--load-refused=old: why", "--size", "1600x900", "--window-at=-8,0", "--window-maximized", "--handoff", "f"].map(String::from).to_vec();
         assert_eq!(restart_args(&a), ["--data", "D", "--play", "--no-music"]);
     }
 

@@ -102,14 +102,13 @@ the spec it links to.
     formula's base force). Our reading of the formula, not measured in the original:
     more, less, only on power attacks, and should a block take the push too?
     ([combat-rules, Knockback](spec-notes/combat-rules.md))
-41. **Explosions hit every limb in full (#1338).** A blast that leaves its target alive
-    takes its damage after armour (× the weapon's Limb Dmg Mult) off every limb at once,
-    so nearly any frag mine or grenade cripples most of an NPC's limbs, head included;
-    the player's limbs take half. The original does damage limbs with blasts, but how it
-    shares the damage is not known yet (observer check 74). Until then: keep it, or
-    spread a share (say a sixth) over the limbs? A crippling blast staggers once (no
-    stagger when it knocks the actor down) and a crippled arm disarms.
-    ([crippled-limbs §5](spec-notes/crippled-limbs.md))
+46. **NPC automatic fire comes in bursts (#1448).** An NPC's automatic gun (Securitrons'
+    and other embedded weapons too) fires a V.A.T.S.-sized burst (0.4 s of its fire rate,
+    3 to 8 rounds), then lets go for 0.5–1.5 s (scaled by the combat style's semi-auto
+    delay multipliers) before the next. Before, it held the trigger for as long as it saw
+    its target. The original's rule is unknown (the WEAP Short/Long Burst flags are not
+    understood). Longer or shorter bursts, longer pauses, or Long Burst weapons firing
+    longer? ([combat-ai](design/combat-ai.md), `fnv_combat::burst`)
 
 ## Tier 2: movement and controls feel
 
@@ -155,6 +154,22 @@ the spec it links to.
     original's PC file gives it; the controller drops with X. A keyboard-only player can't
     drop. If you want a key, name it and it drops one (Shift with it the stack); free on
     that page are, for example, G or Delete. ([pipboy §6](spec-notes/pipboy.md))
+48. **Controller buttons for menus whose files are not read (#1662).** Menu hints now
+    name the controller button that presses their key. Where no menu file gives a button,
+    these are guesses: Caravan bet Accept A, Auto Match Y, Raise RT, Exit B; deck Add A,
+    Remove X, Randomize Y, Play Caravan RT (B leaves); game Select A, Discard Card X,
+    Discard Track Y, Cancel B. Poker Check/Call A, Raise RT, All In Y, Fold X, Next Hand
+    A, Leave B. The pause menu's X deletes (a save on the Load page, a binding on the
+    Controls tab). The STATS page's RAD view: RadAway A, Rad-X X. Right buttons?
+    ([controller §3](design/controller.md))
+49. **PlayStation button names (#1452).** With a controller, Button style Auto (settings
+    page, Controller group) shows Cross/Circle/Square/Triangle, L1-R3, Select/Start when
+    the pad says it is a PlayStation one (DualSense, DualShock, "Wireless Controller",
+    PS3/PS4/PS5, Sony), else the Xbox names; Xbox or PlayStation forces them. The INI keeps
+    the Xbox names. The crosshair prompt draws NVForever's own outline glyphs for the four
+    face buttons; menu hints write the names (the game fonts have no symbols). Select and
+    Start rather than Share/Create and Options. Right choices, and do the glyphs look
+    right? ([controller §3a](design/controller.md))
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 
@@ -246,6 +261,17 @@ the spec it links to.
    roof right at the head shade the arms. If you rule it out, the light goes (12.4 →
    about 11.4 ms there) and the arms take only the sun's shadows from past the body.
    See [player-body.md §1.6](design/player-body.md).
+45. **A second tutorial message: pages or replace.** NVForever keeps each message
+    `ShowTutorialMenu` shows as a page, with a count, Next and Previous, so none goes
+    unread. In the original the second replaces the first, with none of those. Keep the pages,
+    or follow the original? ([tutorial-menu §4](spec-notes/tutorial-menu.md))
+47. **Nobody picks a cross on their own (#1522).** Sandboxes and Sleep or Eat searches leave
+    the crucifix (marker 10) out for everyone, people as well as creatures. A package that
+    names a cross or links to one still works, so the crucified stay on theirs. This is
+    [design]: whether a person in the original sandboxes onto an empty cross is still
+    unanswered ([observer check 86](handoff/observer-checks.md)). If you want people choosing
+    crosses again, the exclusion can apply to creatures alone.
+    ([furniture.md §9](spec-notes/furniture.md))
 
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 

@@ -258,7 +258,7 @@ fn clutter_on_the_terrain_shell_falls_asleep() {
 }
 
 #[test]
-fn fixed_bounds_cover_static_collision_only() {
+fn fixed_bounds_cover_static_and_keyframed_collision_only() {
     let mut w = PhysWorld::new(PhysParams::default());
     assert_eq!(w.fixed_bounds(), None);
     w.add_ref(&at(1, [100.0, 0.0, 500.0]), &[object(boxed([50.0, 20.0, 10.0]), Motion::Static)]);
@@ -1353,6 +1353,40 @@ fn keyframed_door_blocks_until_posed_open() {
     assert!((b.translation[0] - 150.0).abs() < 0.5, "{:?}", b.translation);
 }
 
+/// A keyframed body is teleported into place (never moved smoothly), so it is a fixed
+/// body. As a kinematic body it broke the character controller: rapier's "carried by a
+/// kinematic body" rule froze a character walking down its slope (the Prospector Saloon's
+/// broken door 0x00108BD7, issue #1485; the same model also let a degenerate collision
+/// mesh's centre of mass become a phantom velocity that flung a character). A character
+/// walking down a keyframed slope must move normally.
+#[test]
+fn keyframed_slope_does_not_freeze_the_character() {
+    // A slab tilted so its top descends eastward, keyframed as door parts are.
+    let a = 5.0f32.to_radians();
+    let (s, c) = a.sin_cos();
+    let rot = [c, 0.0, s, 0.0, 1.0, 0.0, -s, 0.0, c];
+    let half = [200.0, 200.0, 5.0];
+    let west = [-half[0], 0.0, half[2]];
+    let rw = [rot[0] * west[0] + rot[2] * west[2], 0.0, rot[6] * west[0] + rot[8] * west[2]];
+    let mut panel = object(boxed(half), Motion::Keyframed);
+    panel.shell = 0.7;
+    let mut w = ground();
+    w.add_ref(&RefPose { form_id: 1, position: [0.0 - rw[0], 0.0, 100.0 - rw[2]], rotation: rot, scale: 1.0 }, &[panel]);
+    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 100.0, 120.0]);
+    settle(&mut w, &mut c, 60);
+    let dt = w.params.dt;
+    let mut min_speed = f32::INFINITY;
+    let mut prev = c.feet;
+    for _ in 0..120 {
+        let s = w.move_character(&mut c, CharacterInput { velocity: [0.0, -344.0], ..Default::default() });
+        w.step();
+        let speed = ((s.feet[0] - prev[0]).powi(2) + (s.feet[1] - prev[1]).powi(2)).sqrt() / dt;
+        min_speed = min_speed.min(speed);
+        prev = s.feet;
+    }
+    assert!(min_speed > 50.0, "froze on the keyframed slope: min {min_speed:.1} units/s");
+}
+
 #[test]
 fn explosions_push_dynamic_bodies_away() {
     let mut w = ground();
@@ -1696,9 +1730,9 @@ fn clutter_added_asleep_on_a_shelf_it_overlaps_stays_asleep() {
 
 #[test]
 fn clutter_asleep_on_a_keyframed_lid_stays_asleep() {
-    // A container's keyframed lid added with the cell (asleep), a bottle overlapping it.
+    // A container's keyframed lid (a fixed body), a bottle overlapping it.
     let mut w = ground();
-    let lid = PreparedRef::new(&w.params, &at(0x9C, [100.0, 100.0, 290.0]), &[object(boxed([50.0, 50.0, 10.0]), Motion::Keyframed)]).asleep();
+    let lid = PreparedRef::new(&w.params, &at(0x9C, [100.0, 100.0, 290.0]), &[object(boxed([50.0, 50.0, 10.0]), Motion::Keyframed)]);
     w.insert_ref(lid);
     add_asleep(&mut w, 0x99, [100.0, 100.0, 304.0], [5.0, 5.0, 5.0]);
     for _ in 0..120 {
@@ -1843,19 +1877,18 @@ fn loose_items_float_or_sink_by_material() {
 //
 // Each scenario drives a world with attached part capsules and one with standalone ones
 // (`PhysWorld::set_standalone_hit_volumes`, both set explicitly) through the same script and
-// compares every answer. Exact ties are built on purpose: first-hit `ray`/`sweep` keep the
-// first of equal costs in tree-traversal order [design: parry3d 0.31.1
-// `partitioning/bvh/bvh_traverse.rs:393`], `ray_all` breaks equal distances only by owner
-// [design: crates/fnv-phys/src/world.rs:1226], and several segments can share a part id
-// [design: engine/nvforever/src/limbs.rs:334].
+// compares every answer. Exact ties are built on purpose: before #1459 first-hit `ray`/`sweep`
+// kept the first of equal costs in tree-traversal order [design: parry3d 0.31.1
+// `partitioning/bvh/bvh_traverse.rs:393`] and `ray_all` broke equal distances only by owner;
+// several segments can share a part id [design: engine/nvforever/src/limbs.rs:334]. Now all
+// three break ties by owner, segment and hit geometry (`first_hit`, physics.md §5.1).
 //
 // Every scenario runs twice: `hitvol_diff_*` compares to the bit (owner, part, normal,
 // point, distance, hit order); `hitvol_ties_*` compares what a tie cannot change (a ray's
 // distance and point, the set of `ray_all` hits, a sweep's fraction, overlaps, aim points,
 // body states, the character), and every answer it lets through that differs to the bit
-// must be an exact tie shown in both worlds (`tied`). A `hitvol_diff_*` marked `#[ignore]`
-// is a divergence found (the observed values are in its comment), kept as the record, not
-// loosened.
+// must be an exact tie shown in both worlds (`tied`). The comments above six `hitvol_diff_*`
+// keep the divergences observed before #1459, when they were `#[ignore]`d.
 
 /// One query answer: what was asked, the answer as printed, every float in it to the bit,
 /// the part of it no exact tie can change (`loose`), and what shows that a difference
@@ -2260,7 +2293,7 @@ fn one_actor_ties(exact: bool) {
     p.finish();
 }
 
-// Observed 2026-11-03: 29 of 105 answers differ (ray 16, ray_all 12, sweep 1), none on the
+// Observed 2026-11-03 (before #1459): 29 of 105 answers differ (ray 16, ray_all 12, sweep 1), none on the
 // first write, all from the first move on (and after the step). Inside parts 0 and 7
 // (distance 0) the attached world answers part 0, the standalone one part 7 (after the move;
 // after the step these agree); the sweep from there returns
@@ -2268,9 +2301,9 @@ fn one_actor_ties(exact: bool) {
 // the attached world gives normal y +0.3 first, the standalone one -0.3, in `ray` and in
 // `ray_all`'s order; on the part 3 / part 4 pair (d 20.460594) attached part 4, standalone
 // part 3. Distances, points, hit sets and fractions agree (`hitvol_ties_*` passes).
-// Tie: an exact-TOI tie between coincident (parts 0/7) or mirrored (part 2, parts 3/4) capsules, whose winner was already traversal-order dependent before this change.
+// Tie: an exact-TOI tie (coincident or mirrored capsules); kept `#[ignore]`d until #1459, whose
+// canonical tie-break (owner, segment, hit geometry; physics.md §5.1) makes both worlds agree.
 #[test]
-#[ignore = "diverges on exact ties: first hit and ray_all order (part 0 vs 7, part-2 normal +-0.3, part 4 vs 3); see comment"]
 fn hitvol_diff_overlapping_and_equidistant_parts_of_one_actor() {
     one_actor_ties(true);
 }
@@ -2278,6 +2311,50 @@ fn hitvol_diff_overlapping_and_equidistant_parts_of_one_actor() {
 #[test]
 fn hitvol_ties_overlapping_and_equidistant_parts_of_one_actor() {
     one_actor_ties(false);
+}
+
+/// The canonical tie-break (#1459, physics.md §5.1): coincident actors written in either
+/// order answer the same, the lower form id, then the lower part, then the earlier segment.
+#[test]
+fn first_hit_ties_break_by_owner_then_segment_whatever_the_order() {
+    let make = |order: &[u32]| {
+        let mut w = ground();
+        for &id in order {
+            let mut parts = tie_parts(0.0);
+            if id == 0x11 {
+                // Part 7 listed first, so the tree and the handles differ between the worlds.
+                parts.reverse();
+            }
+            w.set_actor_parts(id, person([200.0, 0.0, 0.0], false), &parts);
+        }
+        w
+    };
+    let (mut w1, mut w2) = (make(&[0x10, 0x11]), make(&[0x11, 0x10]));
+    let f = Filter::default();
+    let ball = Shape::Sphere { radius: 4.0 };
+    for w in [&mut w1, &mut w2] {
+        let q = w.queries();
+        // Inside parts 0 and 7 of both actors: four candidates at distance 0.
+        let h = q.ray([200.0, 0.0, 85.0], [1.0, 0.0, 0.0], 1000.0, &f).unwrap();
+        assert_eq!((h.owner, h.distance), (Owner::Actor { form_id: 0x10, layer: layers::BIPED, part: 0 }, 0.0));
+        // The two part-2 segments of 0x10 at one distance: the first listed (y = +3, so the
+        // ray at y = 0 meets it on its -y side).
+        let h = q.ray([230.0, 0.0, 60.0], [1.0, 0.0, 0.0], 1000.0, &f).unwrap();
+        assert_eq!(h.owner, Owner::Actor { form_id: 0x10, layer: layers::BIPED, part: 2 });
+        assert!(h.normal[1] < 0.0, "{h:?}");
+        let s = q.sweep(&ball, &place([200.0, 0.0, 85.0]), [50.0, 0.0, 0.0], &f).unwrap().unwrap();
+        assert_eq!(s.owner, Owner::Actor { form_id: 0x10, layer: layers::BIPED, part: 0 });
+    }
+    let q1 = w1.queries();
+    let q2 = w2.queries();
+    for (o, d) in tie_probe(0.0, &[]).rays {
+        let (a, b) = (q1.ray(o, d, 1000.0, &f), q2.ray(o, d, 1000.0, &f));
+        assert_eq!(format!("{a:?}"), format!("{b:?}"), "ray {o:?} {d:?}");
+        assert_eq!(format!("{:?}", q1.ray_all(o, d, 1000.0, &f)), format!("{:?}", q2.ray_all(o, d, 1000.0, &f)), "ray_all {o:?} {d:?}");
+    }
+    for (s, from, m, filter) in tie_probe(0.0, &[]).sweeps {
+        assert_eq!(format!("{:?}", q1.sweep(&s, &from, m, &filter).unwrap()), format!("{:?}", q2.sweep(&s, &from, m, &filter).unwrap()), "sweep {from:?}");
+    }
 }
 
 /// Scenario 2: Two actors whose capsules coincide exactly.
@@ -2306,16 +2383,16 @@ fn two_actors_coincide(exact: bool) {
     p.finish();
 }
 
-// Observed 2026-11-03: 29 of 148 answers differ (ray 16, ray_all 12, sweep 1), none after the
+// Observed 2026-11-03 (before #1459): 29 of 148 answers differ (ray 16, ray_all 12, sweep 1), none after the
 // first write or the -0.0 rewrite, all from the move on. Inside parts 0 and 7 (distance 0):
 // attached 0x11 part 0, standalone 0x10 part 7. On the part-2 segments (d 20.460611):
 // attached 0x11 normal y +0.3, standalone 0x10 normal y -0.3; `ray_all` lists 0x10's two
 // part-2 hits (same owner, same distance) in opposite orders. On the part 3 / 4 pair
 // (d 20.460594): attached 0x11 part 4, standalone 0x10 part 3. The sweep from inside part 0/7
 // picks a different capsule. Overlaps agree; `hitvol_ties_*` passes.
-// Tie: an exact-TOI tie between coincident capsules, whose winner was already traversal-order dependent before this change.
+// Tie: an exact-TOI tie (coincident or mirrored capsules); kept `#[ignore]`d until #1459, whose
+// canonical tie-break (owner, segment, hit geometry; physics.md §5.1) makes both worlds agree.
 #[test]
-#[ignore = "diverges on exact ties between coincident actors: first hit owner (0x10 vs 0x11), sweep winner; see comment"]
 fn hitvol_diff_two_actors_coincide() {
     two_actors_coincide(true);
 }
@@ -2377,14 +2454,14 @@ fn pending_into_step(exact: bool) {
     p.finish();
 }
 
-// Observed 2026-11-03: 10 of 148 answers differ, none on the first write stepped and none
+// Observed 2026-11-03 (before #1459): 10 of 148 answers differ, none on the first write stepped and none
 // after three writes and three steps; after "move stepped" and "two writes stepped" the ray
 // starting inside parts 0 and 7 (4 directions, distance 0) answers part 0 attached vs part 7
 // standalone, and the sweep from there part 0 (witness z 85.9849) vs part 7 (85.729836).
 // Boxes and state digest agree on every step.
-// Tie: an exact-TOI tie between coincident capsules, whose winner was already traversal-order dependent before this change.
+// Tie: an exact-TOI tie (coincident or mirrored capsules); kept `#[ignore]`d until #1459, whose
+// canonical tie-break (owner, segment, hit geometry; physics.md §5.1) makes both worlds agree.
 #[test]
-#[ignore = "diverges on the zero-distance tie after a write flushed into step: part 0 vs part 7; see comment"]
 fn hitvol_diff_pending_pose_flushed_straight_into_step() {
     pending_into_step(true);
 }
@@ -2428,16 +2505,16 @@ fn snapshot_pending(exact: bool) {
     p.finish();
 }
 
-// Observed 2026-11-03: 66 of 187 answers differ (ray 34, ray_all 24, sweep 8), none on the
+// Observed 2026-11-03 (before #1459): 66 of 187 answers differ (ray 34, ray_all 24, sweep 8), none on the
 // first write or in the copy stepped while pending; in the originals after the snapshot, in
 // the restored copies and after their step. Restored, the ray from (213.5, 0, 85) along +x:
 // attached 0x10 part 7, standalone 0x10 part 0 (d 0); from (0, 0, 60) along +x: attached
 // 0x11 part 0, standalone 0x10 part 0 (d 198.5); the controller-capsule sweep from
 // (113.5, 0, 0.5): attached 0x11, standalone 0x10 (f 0.22333331). Boxes and digest agree;
 // `hitvol_ties_*` passes.
-// Tie: an exact-TOI tie between coincident capsules, whose winner was already traversal-order dependent before this change.
+// Tie: an exact-TOI tie (coincident or mirrored capsules); kept `#[ignore]`d until #1459, whose
+// canonical tie-break (owner, segment, hit geometry; physics.md §5.1) makes both worlds agree.
 #[test]
-#[ignore = "diverges on exact ties before and after restoring a snapshot taken with poses pending; see comment"]
 fn hitvol_diff_snapshot_taken_with_poses_pending() {
     snapshot_pending(true);
 }
@@ -2634,13 +2711,13 @@ fn hitvol_ties_crowd_of_twenty_over_fifty_frames() {
     crowd(false, false);
 }
 
-// Observed 2026-11-03: 205 of 7350 answers differ (ray 173, sweep 32), all first hits and winners
+// Observed 2026-11-03 (before #1459): 205 of 7350 answers differ (ray 173, sweep 32), all first hits and winners
 // that pick the other twin at the same distance (e.g. frame 1, ray from (0, -150, 30) along
 // +x: attached 0x100 part 5, standalone 0x112 part 5, both d 127.61765); boxes, digest,
 // character, overlaps and ray_all agree.
-// Tie: an exact-TOI tie between coincident capsules, whose winner was already traversal-order dependent before this change.
+// Tie: an exact-TOI tie (coincident or mirrored capsules); kept `#[ignore]`d until #1459, whose
+// canonical tie-break (owner, segment, hit geometry; physics.md §5.1) makes both worlds agree.
 #[test]
-#[ignore = "diverges on coincident twins in a full tree: first hit / sweep winner picks the other twin; see comment"]
 fn hitvol_diff_crowd_with_coincident_twins() {
     crowd(true, true);
 }
@@ -2729,7 +2806,7 @@ fn skipped_vs_forced(exact: bool) {
     println!("{asked} answers, all equal{}", if exact { " to the bit".to_string() } else { format!(" modulo {ties} exact ties, each shown") });
 }
 
-// Observed 2026-11-03: 61 of 585 answers differ (ray 46, sweep 15), all of them "attached
+// Observed 2026-11-03 (before #1459): 61 of 585 answers differ (ray 46, sweep 15), all of them "attached
 // forced" against "attached skipped" (standalone skipped and standalone forced both answer as
 // attached skipped, to the bit): from frame 1
 // on, the first hits on every tie pick the other coincident actor, e.g. the ray from
@@ -2737,9 +2814,9 @@ fn skipped_vs_forced(exact: bool) {
 // (0, 0, 60) along +x: skipped 0x11 part 0, forced 0x10 part 0, both d 185.00002; sweeps
 // likewise. So the skip (A) changes which of two exactly tied hits wins compared with the
 // old always-write behaviour: not a zero change on exact ties.
-// Tie: an exact-TOI tie between coincident capsules, whose winner was already traversal-order dependent before this change.
+// Tie: an exact-TOI tie (coincident or mirrored capsules); kept `#[ignore]`d until #1459, whose
+// canonical tie-break (owner, segment, hit geometry; physics.md §5.1) makes both worlds agree.
 #[test]
-#[ignore = "diverges: attached forced vs attached skipped pick different tie winners (0x10 vs 0x11); standalone matches skipped; see comment"]
 fn hitvol_diff_skipped_write_answers_as_a_forced_one() {
     skipped_vs_forced(true);
 }
@@ -2747,4 +2824,231 @@ fn hitvol_diff_skipped_write_answers_as_a_forced_one() {
 #[test]
 fn hitvol_ties_skipped_write_answers_as_a_forced_one() {
     skipped_vs_forced(false);
+}
+
+/// An actor's character standing at the origin of [`ground`], for where it can be put.
+fn spot_character(w: &mut PhysWorld) -> Character {
+    w.add_character(1, CharacterParams { max_slope_deg: 60.0, ..CharacterParams::default() }, [0.0, 0.0, 10.0])
+}
+
+const SPOT: [f32; 3] = [500.0, -500.0, 0.0];
+
+#[test]
+fn a_spot_on_open_ground_is_where_a_character_rests_and_stays() {
+    let mut w = ground();
+    let mut c = spot_character(&mut w);
+    let feet = w.character_spot(&c, SPOT).unwrap();
+    assert!((feet[0], feet[1]) == (SPOT[0], SPOT[1]));
+    assert!((feet[2] - TERRAIN_SHELL).abs() < 1e-3, "{feet:?}");
+    w.place_character(&mut c, feet);
+    settle(&mut w, &mut c, 30);
+    assert!((c.feet[2] - feet[2]).abs() < 0.5, "{:?} from {feet:?}", c.feet);
+}
+
+#[test]
+fn a_prop_in_the_way_leaves_no_room_for_the_body_and_a_way_past_is_not_asked_for() {
+    let mut w = ground();
+    let c = spot_character(&mut w);
+    // A wall between the character and the place does not count.
+    w.add_ref(&at(60, [250.0, -250.0, 80.0]), &[object(boxed([20.0, 200.0, 80.0]), Motion::Static)]);
+    assert!(w.character_spot(&c, SPOT).is_ok());
+    // A pillar beside the place, closer than the body's radius: no room.
+    w.add_ref(&at(61, [SPOT[0] + 30.0, SPOT[1], 80.0]), &[object(boxed([20.0, 20.0, 80.0]), Motion::Static)]);
+    assert_eq!(w.character_spot(&c, SPOT), Err(SpotRefused::NoRoom));
+    // Further along: room again.
+    assert!(w.character_spot(&c, [SPOT[0] - 40.0, SPOT[1], 0.0]).is_ok());
+}
+
+#[test]
+fn a_ceiling_lower_than_the_body_leaves_no_room() {
+    let mut w = ground();
+    let c = spot_character(&mut w);
+    // The underside 100 up, above the ray's start (48): the ground is found, the body
+    // does not fit under it.
+    w.add_ref(&at(60, [SPOT[0], SPOT[1], 110.0]), &[object(boxed([100.0, 100.0, 10.0]), Motion::Static)]);
+    assert_eq!(w.character_spot(&c, SPOT), Err(SpotRefused::NoRoom));
+    // A lower one, the ray's start above it: the ground is still the level asked for,
+    // and the body does not stand on top of what is over it instead.
+    let mut w = ground();
+    let c = spot_character(&mut w);
+    w.add_ref(&at(61, [SPOT[0], SPOT[1], 25.0]), &[object(boxed([100.0, 100.0, 5.0]), Motion::Static)]);
+    assert_eq!(w.character_spot(&c, SPOT), Err(SpotRefused::NoRoom));
+    // Higher than the body: room under it.
+    let mut w = ground();
+    let c = spot_character(&mut w);
+    w.add_ref(&at(62, [SPOT[0], SPOT[1], 150.0]), &[object(boxed([100.0, 100.0, 10.0]), Motion::Static)]);
+    assert!(w.character_spot(&c, SPOT).is_ok());
+}
+
+#[test]
+fn a_spot_is_on_the_level_asked_for_of_those_stacked() {
+    let mut w = ground();
+    let c = spot_character(&mut w);
+    // A floor 200 above the ground: each height asked for gets its own.
+    w.add_ref(&at(60, [SPOT[0], SPOT[1], 195.0]), &[object(boxed([60.0, 60.0, 5.0]), Motion::Static)]);
+    let upper = w.character_spot(&c, [SPOT[0], SPOT[1], 200.0]).unwrap();
+    assert!((upper[2] - 200.0).abs() < 2.0, "{upper:?}");
+    let lower = w.character_spot(&c, [SPOT[0], SPOT[1], 5.0]).unwrap();
+    assert!((lower[2] - TERRAIN_SHELL).abs() < 1e-3, "{lower:?}");
+    // Two floors of one mesh, 30 apart inside the window: one ray meets only the upper.
+    let mut w = ground();
+    let c = spot_character(&mut w);
+    let plate = |z: f32, base: u32| ([[-80.0, -80.0, z], [80.0, -80.0, z], [80.0, 80.0, z], [-80.0, 80.0, z]], [[base, base + 1, base + 2], [base, base + 2, base + 3]]);
+    let (upper, ut) = plate(0.0, 0);
+    let (under, lt) = plate(-30.0, 4);
+    let vertices = upper.iter().chain(&under).copied().collect();
+    let shape = Shape::TriMesh { vertices, triangles: vec![ut[0], ut[1], lt[0], lt[1]], materials: vec![0; 4] };
+    w.add_ref(&at(70, [SPOT[0], SPOT[1], 300.0]), &[object(shape, Motion::Static)]);
+    let on = w.character_spot(&c, [SPOT[0], SPOT[1], 302.0]);
+    assert!(matches!(on, Ok(f) if (f[2] - 300.0).abs() < 2.0), "{on:?}");
+    assert_eq!(w.character_spot(&c, [SPOT[0], SPOT[1], 272.0]), Err(SpotRefused::NoRoom), "under the upper floor");
+    // With two surfaces inside the window, the one nearer the height asked for.
+    let mut w = ground();
+    let c = spot_character(&mut w);
+    w.add_ref(&at(61, [SPOT[0], SPOT[1], 195.0]), &[object(boxed([60.0, 60.0, 5.0]), Motion::Static)]);
+    w.add_ref(&at(62, [SPOT[0], SPOT[1], 135.0]), &[object(boxed([60.0, 60.0, 5.0]), Motion::Static)]);
+    let lower = w.character_spot(&c, [SPOT[0], SPOT[1], 145.0]);
+    assert_eq!(lower, Err(SpotRefused::NoRoom), "on the lower slab, 60 under the upper");
+    let upper = w.character_spot(&c, [SPOT[0], SPOT[1], 198.0]).unwrap();
+    assert!((upper[2] - 200.0).abs() < 2.0, "{upper:?}");
+}
+
+#[test]
+fn nothing_to_stand_on_near_the_height_is_refused() {
+    let mut w = ground();
+    let c = spot_character(&mut w);
+    // The terrain is 500 below: too far to be the level asked for.
+    assert_eq!(w.character_spot(&c, [SPOT[0], SPOT[1], 500.0]), Err(SpotRefused::NoSupport));
+    assert_eq!(w.character_spot(&c, [f32::NAN, 0.0, 0.0]), Err(SpotRefused::NoSupport));
+    // A wall's steep face is no support either.
+    let mut w = PhysWorld::new(PhysParams::default());
+    let c = spot_character(&mut w);
+    let (s, co) = 80f32.to_radians().sin_cos();
+    let rot = [co, 0.0, -s, 0.0, 1.0, 0.0, s, 0.0, co];
+    w.add_ref(&RefPose { form_id: 60, position: [0.0, 0.0, 0.0], rotation: rot, scale: 1.0 }, &[object(boxed([100.0, 100.0, 5.0]), Motion::Static)]);
+    assert_eq!(w.character_spot(&c, [0.0, 0.0, 0.0]), Err(SpotRefused::NoSupport));
+}
+
+#[test]
+fn other_characters_block_a_spot_and_the_body_itself_does_not() {
+    let mut w = ground();
+    let c = spot_character(&mut w);
+    // Its own place: it does not stand in its own way.
+    assert!(w.character_spot(&c, [0.0, 0.0, 0.0]).is_ok());
+    let other = w.add_character(2, CharacterParams::default(), [SPOT[0] + 10.0, SPOT[1], TERRAIN_SHELL]);
+    assert_eq!(w.character_spot(&c, SPOT), Err(SpotRefused::NoRoom));
+    assert_eq!(w.queries().character_overlap(&c, [SPOT[0], SPOT[1], TERRAIN_SHELL]), vec![Owner::Character { id: 2 }]);
+    w.remove_character(other);
+    assert!(w.character_spot(&c, SPOT).is_ok());
+}
+
+#[test]
+fn only_what_a_character_cannot_push_blocks_a_spot() {
+    let mut w = ground();
+    let c = spot_character(&mut w);
+    // A crate it would push aside.
+    let mut light = object(boxed([10.0, 10.0, 10.0]), Motion::Dynamic);
+    light.mass = 20.0;
+    w.add_ref(&at(60, [SPOT[0], SPOT[1], 10.5]), &[light]);
+    let feet = w.character_spot(&c, SPOT).unwrap();
+    assert!((feet[2] - TERRAIN_SHELL).abs() < 1e-3, "not on top of it: {feet:?}");
+    // A car it stops at.
+    let mut w = ground();
+    let c = spot_character(&mut w);
+    let mut heavy = object(boxed([60.0, 30.0, 30.0]), Motion::Dynamic);
+    heavy.mass = 800.0;
+    w.add_ref(&at(61, [SPOT[0], SPOT[1], 30.5]), &[heavy]);
+    assert_eq!(w.character_spot(&c, SPOT), Err(SpotRefused::NoRoom));
+}
+
+#[test]
+fn a_slope_it_can_walk_has_room_for_the_controllers_own_shape() {
+    // A capsule's round bottom at the gap kept would sink into a slope this steep; the
+    // controller's cone does not.
+    let mut w = PhysWorld::new(PhysParams::default());
+    let c = spot_character(&mut w);
+    ramp(&mut w, 45.0);
+    let (x, z) = (300.0, 200.0);
+    let feet = w.character_spot(&c, [x, 0.0, z]).unwrap();
+    assert!((feet[2] - z).abs() < 26.0, "{feet:?}");
+    let capsule = Shape::Capsule { a: [0.0, 0.0, 22.0], b: [0.0, 0.0, 106.9], radius: 22.0 };
+    let pose = Iso { translation: [x, 0.0, z + 0.5], ..Iso::IDENTITY };
+    assert!(!w.queries().overlap(&capsule, &pose, &Filter::excluding(c.key())).unwrap().is_empty());
+}
+
+#[test]
+fn a_stair_is_stood_on_at_the_height_its_next_step_lifts_the_body_to() {
+    let mut w = ground();
+    let mut c = spot_character(&mut w);
+    // Steps 16 high and 16 deep, rising to the east from x = 0: the ray finds the tread
+    // under the feet, the cone meets the next step's edge at that height.
+    for i in 0..10u32 {
+        let top = 16.0 * (i + 1) as f32;
+        let x = 16.0 * i as f32 + 8.0;
+        w.add_ref(&at(70 + i, [SPOT[0] + x, SPOT[1], top / 2.0]), &[object(boxed([8.0, 100.0, top / 2.0]), Motion::Static)]);
+    }
+    let at_step = [SPOT[0] + 40.0, SPOT[1], 48.0];
+    let feet = w.character_spot(&c, at_step).unwrap();
+    assert!(feet[2] > 48.0, "{feet:?}");
+    assert!(feet[2] <= 48.5 + c.params.step_height, "{feet:?}");
+    // It stays about there.
+    w.place_character(&mut c, feet);
+    settle(&mut w, &mut c, 30);
+    assert!((c.feet[0] - feet[0]).abs() < 30.0 && (c.feet[2] - feet[2]).abs() < 40.0, "{:?} from {feet:?}", c.feet);
+}
+
+#[test]
+fn a_steep_hill_it_can_walk_has_ground_and_room_and_a_body_in_the_hill_has_none() {
+    let mut w = PhysWorld::new(PhysParams::default());
+    let heights: Vec<f32> = (0..SIDE * SIDE).map(|i| ((i % SIDE) as f32 * 128.0).min(1200.0)).collect();
+    w.add_terrain((0, 0), &heights);
+    let c = spot_character(&mut w);
+    let (x, y) = (1000.0, 2000.0);
+    let z = height_at(&heights, x, y).unwrap();
+    let got = w.character_spot(&c, [x, y, z]);
+    // Slope 45 degrees (rise of one per unit), within this character's 60.
+    assert!(got.is_ok(), "{got:?}");
+    let feet = got.unwrap();
+    assert!((feet[2] - z).abs() <= c.params.step_height + TERRAIN_SHELL + 1.0, "{feet:?} on {z}");
+    assert_eq!(w.queries().character_overlap(&c, [x, y, z - 40.0]), vec![Owner::Terrain { x: 0, y: 0 }]);
+}
+
+/// Put down over a light crate with no room to get out of the way (against a wall): the
+/// body is accepted, as it is over any clutter it would push aside, so this has to come
+/// out sanely. Nothing flies off or goes through the wall, and it walks away.
+#[test]
+fn a_character_put_over_light_clutter_pinned_against_a_wall_walks_on() {
+    let mut w = ground();
+    let mut c = spot_character(&mut w);
+    let wall_face = SPOT[0] + 26.0;
+    w.add_ref(&at(60, [wall_face + 10.0, SPOT[1], 100.0]), &[object(boxed([10.0, 200.0, 100.0]), Motion::Static)]);
+    let mut crate_ = object(boxed([10.0, 10.0, 10.0]), Motion::Dynamic);
+    crate_.mass = 20.0;
+    w.add_ref(&at(61, [SPOT[0] + 15.0, SPOT[1], 10.0 + TERRAIN_SHELL]), &[crate_]);
+    for _ in 0..120 {
+        w.step();
+    }
+    let rest = w.ref_bodies(61)[0];
+    assert!(rest.translation[0] + 10.0 <= wall_face + 0.5, "{rest:?}");
+    let feet = w.character_spot(&c, SPOT).unwrap();
+    assert!((feet[2] - TERRAIN_SHELL).abs() < 1e-3, "{feet:?}");
+    // It does overlap the crate.
+    let capsule = Shape::Capsule { a: [0.0, 0.0, 22.0], b: [0.0, 0.0, 106.9], radius: 22.0 };
+    let pose = Iso { translation: feet, ..Iso::IDENTITY };
+    assert!(w.queries().overlap(&capsule, &pose, &Filter::excluding(c.key())).unwrap().iter().any(|o| matches!(o, Owner::Ref { form_id: 61, .. })));
+    w.place_character(&mut c, feet);
+    for _ in 0..240 {
+        w.move_character(&mut c, CharacterInput::default());
+        w.step();
+        let b = w.ref_bodies(61)[0];
+        assert!(b.translation.iter().chain(&b.linvel).chain(&c.feet).all(|v| v.is_finite()), "{b:?} {:?}", c.feet);
+        assert!(b.linvel.iter().all(|v| v.abs() < 2000.0), "flung: {b:?}");
+        assert!(b.translation[0] + 10.0 < wall_face + 5.0 && b.translation[2] > 0.0, "through something: {b:?}");
+        assert!((c.feet[0] - feet[0]).abs() < 30.0 && (c.feet[1] - feet[1]).abs() < 30.0 && (c.feet[2] - feet[2]).abs() < 40.0, "{:?} from {feet:?}", c.feet);
+    }
+    // Along the wall, the way a path past it would go.
+    let from = c.feet;
+    walk(&mut w, &mut c, [0.0, 150.0], 120);
+    assert!(c.feet[1] - from[1] > 50.0, "{:?} from {from:?}", c.feet);
+    assert!((c.feet[2] - from[2]).abs() < 40.0, "{:?} from {from:?}", c.feet);
 }
