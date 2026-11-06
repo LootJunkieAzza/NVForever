@@ -27,6 +27,8 @@ fn line(event: &str, file: Option<&str>, text: &str, first_person: bool) -> SetL
         note: String::new(),
         file: file.map(str::to_string),
         text: Some(text.into()),
+        near: vec![],
+        inside: vec![],
     }
 }
 

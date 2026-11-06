@@ -1,6 +1,6 @@
 # Player voices: co-op characters that talk like companions
 
-Status: **phases 0, 1 and 5 built (2026-11-06)**: the voice set format and `fnvtool voice set-draft`/`set-check`; nine voices in the MO2 mod `NVForever Player Voices`, four vanilla (Cass, Boone, Raul, Arcade) and five from Nexus followers (Willow, Delilah, Niner, Cook, Molerat), the Nexus lines carried with their own sound and subtitle; the creator's Voice row with a preview; first-person combat quips at the set's rate; the two Gameplay settings. Phases 2-4 (co-op quips, reactions and the companion 50/50, place and quest comments) are not started.
+Status: **phases 0-5 built (2026-11-06)**: the voice set format and `fnvtool voice set-draft`/`set-places`/`set-check`; nine voices in the MO2 mod `NVForever Player Voices`, four vanilla (Cass, Boone, Raul, Arcade) and five from Nexus followers (Willow, Delilah, Niner, Cook, Molerat), the Nexus lines carried with their own sound and subtitle; the creator's Voice row with a preview; first-person combat quips at the set's rate; the two Gameplay settings; co-op quips heard from the speaker's character (phase 2); reactions to the other players and the companion 50/50 (phase 3); place and quest comments (phase 4). What phases 2-4 built differs from the plan below in places: §10.
 
 The owner's outline (2026-11-05): "A new option in the character creator for voice. We pull
 voice files from nexus mods or other companions in game (and would probably use tools to
@@ -285,6 +285,7 @@ has a line for it.
    set is six lines of his that fit a fight's start, a grenade and its end. *Done when:*
    each checks clean and previews in the creator; a fight with a Nexus voice plays its
    lines (smoke `player-voice-nexus-combat`, `player-voice-nexus-creator`).
+   Phases 2-4 were built the same day (§10).
 6. Later, not planned: dialogue-choice reactions; more voices; a third female Nexus voice.
 
 ## 9. Open questions for the owner
@@ -294,3 +295,51 @@ has a line for it.
 - Voice as its own creator tab, or a row on the first tab?
 - Cook: kept as a thin set of six lines (phase 5); enough, or folded into another voice?
 - The authors of Niner, Cook and Molerat for `mods-used.txt` (their plugins name none and the Nexus pages could not be read here).
+
+## 10. Phases 2-4 as built (2026-11-06)
+
+- **Co-op transport** [design]: a quip is a table action of the co-op tables
+  (`nvf-play/src/coop_tables.rs`, game `VOICE` = 10, table 0): the set's id and the INFO,
+  sent to everyone through the host, each copy taken once. No new `Msg` and no protocol
+  bump. The receiver resolves the set itself (same sets and load order on every machine),
+  refuses a line that is not one of the set's, and plays it at the speaker's feet plus
+  `MOUTH_HEIGHT`, by distance (`voice_gain`, nothing past `DIALOG_MAX_DISTANCE` or in
+  another place) and side (`pan_gains`), at the set's rate, with a subtitle "Name: text"
+  (`ScriptHud::party_lines`). Party Quips off: not heard, no subtitle. Not built: the lobby
+  check for a missing set (the receiver logs it and stays silent), lip sync on the puppet,
+  the voice filter and reverb for another player's quip (`engine/nvf-play/src/party_quips.rs`).
+- **Who picks what** (`fnv_game::player_voice`): alone, a quip is picked among the
+  first-person lines only. In co-op (`QuipSettings::coop`, set while others are in the
+  session) it is picked among all the voice's lines and sent; this player hears it only
+  when it is a first-person line and First Person Quips is on, else it says its usual
+  line. The group cooldown: while another player's quip plays, plus `GROUP_COOLDOWN` (2 s),
+  no quip of this player starts (`QuipState::hold_until`).
+- **Reactions** (phase 3): each game looks at the other players near it (`SocialMates`,
+  now with each player's weapon, attack counter and sights flag): an attack with a grenade
+  (WEAP animation type 10), a mine (11, 12) or a gun out of a fight (3-9), or sights held
+  on this player for `AIMED_AT_SECONDS` within about 10 degrees and `REACT_RANGE`. The
+  answer is a `react.*` line of this player's voice, at most every `REACT_EVERY` (20 s),
+  sent to the others. The vanilla sets' PLAYER* lines are in use for this.
+- **The companion 50/50** (phase 3): when the voice's companion follows the player within
+  `PLACE_RADIUS`, a coin flip gives each of the player's combat lines to the companion,
+  who says its own line for the topic at its own speed, and the player says nothing.
+- **Place comments** (phase 4): a `place` line names references it is said near (`near`,
+  the trigger boxes whose scripts start it) or the cells, worldspaces and map regions it
+  is said in (`inside`). `fnvtool voice set-places` fills them: references from the
+  scripts that name the topic, and `--place TOPIC=EDID,...` for a topic a script starts
+  after testing the player's region. Cass's 29 location topics are started that way by her
+  quest scripts (`IsPlayerInRegion` on the vMap regions, `GetInWorldspace` for the Strip
+  and Freeside) [observed: FalloutNV.esm, VCassTimerGeneralBarkScript and
+  VCassTimerRegionBarkScript source]; Raul's by trigger boxes and a package. Willow's
+  location comments (AWDTimed*) are mapped by hand to the same regions. A comment is said
+  on coming into the place, out of a fight, if its conditions pass but the ones that only
+  say who speaks (`IDENTITY`), at most one every `COMMENT_EVERY` (150 s), each line at
+  most every `COMMENT_AGAIN` (20 min). Lines in use: Cass 152 (her own story, her sex and
+  earlier visits left out), Raul 2, Willow 23, Delilah 1.
+- **Quest comments** (phase 4): a `quest` line is a candidate when a stage of a quest its
+  conditions name was just set (`Game::note_stage_for_voice`), tested as a place comment.
+  Built, but no set has one in use: the vanilla `quest` lines are conversation replies and
+  the Nexus ones depend on the follower's own quest variables. Each player's own game
+  decides its comments (not the host, as planned): quest stages are shared in co-op.
+- **Chattiness**: Normal only; there is no setting, and no `idle` comments.
+

@@ -110,6 +110,34 @@ pub struct SetLine {
     /// folder's `mods-used.txt`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// A `place` line's places: references (`<plugin>|<id>`) near which it is a comment on
+    /// where the speaker is. In the original, the trigger boxes whose scripts start the
+    /// companion's line ([`PLACE_RADIUS`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub near: Vec<String>,
+    /// A `place` line's cells, worldspaces or map regions (`<plugin>|<id>`): it is a
+    /// comment on being in one of them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inside: Vec<String>,
+}
+
+/// Condition functions that only say who the speaker is or pick by chance, which a set's
+/// comment drops when it is tested: the player says it in that voice [design].
+pub const IDENTITY: &[&str] = &["GetIsID", "GetIsVoiceType", "GetIsSex", "GetIsRace", "GetIsReference", "GetPlayerTeammate", "GetIsCreature", "GetInFaction", "GetRandomPercent", "GetIsPlayableRace"];
+
+fn only_identity(data: &GameData, c: &crate::cond::Condition) -> bool {
+    let name = data.table.functions.get(&c.opcode()).map(|f| f.name.as_str()).unwrap_or("");
+    IDENTITY.iter().any(|n| n.eq_ignore_ascii_case(name))
+}
+
+/// Whether a condition names one of `forms` among its parameters.
+fn names_any(c: &crate::cond::Condition, forms: &[FormId]) -> bool {
+    use fnv_script::vm::{ArgValue, Value};
+    c.params.iter().any(|p| matches!(p, ArgValue::Value(Value::Ref(r)) if forms.contains(&FormId(*r))))
+}
+
+fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
+    ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
 }
 
 /// The first FormID of the INFOs made for lines carried with their sound: load-order
@@ -173,6 +201,10 @@ pub fn resolve_ref(data: &GameData, r: &str) -> Option<FormId> {
 #[derive(Debug, Clone)]
 pub struct PlayerVoice {
     pub id: String,
+    /// The set's `place` lines: the references near which each is said, and the cells or
+    /// worldspaces in which.
+    pub near: HashMap<FormId, Vec<FormId>>,
+    pub inside: HashMap<FormId, Vec<FormId>>,
     pub name: String,
     /// The base form whose voice type the lines are heard in.
     pub base: FormId,
@@ -190,7 +222,19 @@ pub struct PlayerVoice {
 impl PlayerVoice {
     /// A voice with no lines yet.
     pub fn new(id: &str, name: &str, base: FormId, rate: f32) -> PlayerVoice {
-        PlayerVoice { id: id.into(), name: name.into(), base, rate, companion: None, by_event: HashMap::new(), lines: HashSet::new(), first_person: HashSet::new(), recent: VecDeque::new() }
+        PlayerVoice {
+            id: id.into(),
+            near: HashMap::new(),
+            inside: HashMap::new(),
+            name: name.into(),
+            base,
+            rate,
+            companion: None,
+            by_event: HashMap::new(),
+            lines: HashSet::new(),
+            first_person: HashSet::new(),
+            recent: VecDeque::new(),
+        }
     }
 
     /// The set against the load order: its speaker must be loaded; lines whose plugin is
@@ -217,6 +261,14 @@ impl PlayerVoice {
             };
             v.by_event.entry(l.event.clone()).or_default().push(info);
             v.lines.insert(info);
+            let near: Vec<FormId> = l.near.iter().filter_map(|r| resolve_ref(data, r)).collect();
+            if !near.is_empty() {
+                v.near.insert(info, near);
+            }
+            let inside: Vec<FormId> = l.inside.iter().filter_map(|r| resolve_ref(data, r)).collect();
+            if !inside.is_empty() {
+                v.inside.insert(info, inside);
+            }
             if l.first_person {
                 v.first_person.insert(info);
             }
@@ -253,26 +305,286 @@ impl PlayerVoice {
 pub struct QuipSettings {
     /// First Person Quips: the player's own character says its voice's lines.
     pub first_person: bool,
+    /// Other players hear this one (a co-op session with others in it): quips are picked
+    /// among every line of the voice, the party-only ones too, and sent ([`QuipState::out`]).
+    pub coop: bool,
 }
 
 impl Default for QuipSettings {
     fn default() -> Self {
-        QuipSettings { first_person: true }
+        QuipSettings { first_person: true, coop: false }
     }
+}
+
+/// How near one of a `place` line's references the player must be for the line, and how
+/// near a companion must be to share its voice's lines (game units) [design: about the
+/// size of the trigger boxes the original starts its place comments from].
+pub const PLACE_RADIUS: f32 = 1500.0;
+/// At most one place or quest comment per player this often (game seconds) [owner
+/// 2026-11-05: chattiness Normal; design: the value].
+pub const COMMENT_EVERY: f64 = 150.0;
+/// The same comment is not said again for this long (game seconds) [design].
+pub const COMMENT_AGAIN: f64 = 20.0 * 60.0;
+/// How often the player's places are looked at (game seconds) [design].
+pub const PLACE_LOOK_EVERY: f64 = 1.0;
+/// Another player this near is reacted to (game units) [design: within a shout].
+pub const REACT_RANGE: f32 = 1500.0;
+/// At most one reaction this often (game seconds) [design].
+pub const REACT_EVERY: f64 = 20.0;
+/// How long another player must hold its sights on this one before it is told off
+/// (seconds) [design].
+pub const AIMED_AT_SECONDS: f64 = 1.0;
+/// A quip waits this long after another player's quip has ended [owner plan 2026-11-05:
+/// the group cooldown].
+pub const GROUP_COOLDOWN: f64 = 2.0;
+
+/// What another player does near this one, for a `react.*` line (the companions'
+/// PLAYER* topics turned round: one player's word on another's deed).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Deed {
+    /// Fired a gun outside a fight (PLAYERFIREWEAPON).
+    FireWeapon,
+    /// Threw a grenade (PLAYERTHROWGRENADE).
+    ThrowGrenade,
+    /// Laid a mine (PLAYERLAYMINE).
+    LayMine,
+    /// Held its sights on this player (PLAYERINIRONSITES).
+    AimedAt,
+}
+
+impl Deed {
+    /// The set's event for it.
+    pub fn event(self) -> &'static str {
+        match self {
+            Deed::FireWeapon => "react.fireweapon",
+            Deed::ThrowGrenade => "react.throwgrenade",
+            Deed::LayMine => "react.laymine",
+            Deed::AimedAt => "react.inironsites",
+        }
+    }
+
+    /// The deed of an attack with a weapon of animation type `anim` (WEAP DNAM, xEdit's
+    /// weapon animation type enumeration [documented]: 3-9 guns and launchers, 10 grenade
+    /// throw, 11 land mine, 12 mine drop): `None` for a melee or thrown weapon, or fists.
+    pub fn of_attack(anim: Option<i64>) -> Option<Deed> {
+        match anim? {
+            3..=9 => Some(Deed::FireWeapon),
+            10 => Some(Deed::ThrowGrenade),
+            11 | 12 => Some(Deed::LayMine),
+            _ => None,
+        }
+    }
+}
+
+/// The player's quips as they go (not saved).
+#[derive(Debug, Clone, Default)]
+pub struct QuipState {
+    /// Lines the player's voice said or picked, for the other players: the engine sends
+    /// them ([`QuipSettings::coop`]).
+    pub out: Vec<FormId>,
+    /// Game seconds until which no quip of this player starts: another player's quip is
+    /// playing in hearing (the group cooldown, set by the engine).
+    pub hold_until: f64,
+    /// The `place` lines whose place the player was in at the last look.
+    pub at: HashSet<FormId>,
+    pub next_look: f64,
+    /// When the last place or quest comment was said.
+    pub last_comment: Option<f64>,
+    /// Comment line -> when it was said.
+    pub said_at: HashMap<FormId, f64>,
+    /// Quests whose stage was set since the last look.
+    pub stages: Vec<FormId>,
+    /// When the last reaction was said.
+    pub last_react: Option<f64>,
+    /// Comments and reactions said, for the log: (event, line).
+    pub said: Vec<(String, FormId)>,
 }
 
 impl Game<'_> {
     /// A line of the player's voice for the Combat-tab topic `topic`, marked said; `None`
     /// without a voice, a line for it, or First Person Quips (module notes).
+    ///
+    /// In co-op ([`QuipSettings::coop`]) the line is picked among all the voice's lines and
+    /// sent to the others ([`QuipState::out`]); this player hears it only when it is a
+    /// first-person line and First Person Quips is on (else `None`, and the player says
+    /// its own line as without a voice). While another player's quip plays nearby none is
+    /// picked (the group cooldown).
     pub fn player_quip(&mut self, topic: &str) -> Option<FormId> {
-        if !self.quips.first_person {
+        let coop = self.quips.coop;
+        if (!coop && !self.quips.first_person) || self.time < self.quip.hold_until {
             return None;
         }
         let roll = self.rng.next_u32();
         let v = self.player_voice.as_mut()?;
-        let info = v.pick(topic, true, roll)?;
+        let info = v.pick(topic, !coop, roll)?;
         v.said(info);
+        let local = self.quips.first_person && v.first_person.contains(&info);
+        if coop {
+            self.quip.out.push(info);
+        }
+        local.then_some(info)
+    }
+
+    /// The real companion the player's voice belongs to, when it follows the player within
+    /// [`PLACE_RADIUS`]: its reference.
+    pub fn voice_companion_here(&self) -> Option<FormId> {
+        let c = self.player_voice.as_ref()?.companion?;
+        let me = crate::awareness::position(self, FormId::PLAYER_REF)?;
+        self.teammates().into_iter().find(|&r| {
+            crate::functions::base_of(self, r) == Some(c) && crate::awareness::position(self, r).is_some_and(|p| distance(p, me) < PLACE_RADIUS)
+        })
+    }
+
+    /// The player would say a combat line of `topic` while its voice's companion is here:
+    /// a coin flip gives it to the companion, who says its own line of the topic (at its
+    /// own speed) while the player says nothing [owner 2026-11-05: split 50/50]. `Some`
+    /// when the companion took it.
+    pub(crate) fn companion_takes(&mut self, topic: FormId) -> Option<FormId> {
+        let companion = self.voice_companion_here()?;
+        if self.rng.next_u32() & 1 == 0 {
+            return None;
+        }
+        let line = self.say(companion, None, topic, false)?;
+        self.quip.said.push((format!("companion.{}", self.data.name(topic)), line));
+        Some(line)
+    }
+
+    /// Another player did `deed` near this one: this player's voice answers it with a
+    /// `react.*` line, at most every [`REACT_EVERY`] seconds, sent to the others (who hear
+    /// this player's character say it) and heard here when it is a first-person line. A
+    /// fired gun is answered out of a fight only (in a fight everyone shoots).
+    pub fn player_reacts(&mut self, deed: Deed, in_combat: bool) -> Option<FormId> {
+        if deed == Deed::FireWeapon && in_combat {
+            return None;
+        }
+        if self.time < self.quip.hold_until || self.quip.last_react.is_some_and(|t| self.time - t < REACT_EVERY) {
+            return None;
+        }
+        let roll = self.rng.next_u32();
+        let v = self.player_voice.as_mut()?;
+        let info = v.pick(deed.event(), false, roll)?;
+        v.said(info);
+        self.quip.last_react = Some(self.time);
+        self.quip.said.push((deed.event().to_string(), info));
+        self.speak_quip(info);
         Some(info)
+    }
+
+    /// `info`, a line of the player's voice, is said: sent to the others in co-op, and
+    /// heard here when it is a first-person line and First Person Quips is on.
+    fn speak_quip(&mut self, info: FormId) {
+        if self.quips.coop {
+            self.quip.out.push(info);
+        }
+        let local = self.quips.first_person && self.player_voice.as_ref().is_some_and(|v| v.first_person.contains(&info));
+        if local {
+            let topic = self.data.infos.get(&info).and_then(|d| d.topic).unwrap_or(FormId(0));
+            self.say_line(FormId::PLAYER_REF, None, topic, info, crate::game::LineKind::Say);
+        }
+    }
+
+    /// Where `r` is: its cell and position (materialised or as placed).
+    fn place_of(&self, r: FormId) -> Option<(Option<FormId>, [f32; 3])> {
+        match self.world.peek(r) {
+            Some(s) => Some((s.cell, s.pos)),
+            None => self.world.placed.get(r).map(|p| (p.cell, p.pos)),
+        }
+    }
+
+    /// The `place` lines whose place the player is in now.
+    fn voice_places_here(&self) -> HashSet<FormId> {
+        let mut here = HashSet::new();
+        let (Some(v), Some((cell, pos))) = (self.player_voice.as_ref(), self.place_of(FormId::PLAYER_REF)) else { return here };
+        let world = cell.and_then(|c| self.world.placed.world_of(c));
+        for (&info, refs) in &v.near {
+            let near = refs.iter().any(|&r| {
+                self.place_of(r).is_some_and(|(c, p)| {
+                    let same = (c.is_some() && c == cell) || (world.is_some() && c.and_then(|c| self.world.placed.world_of(c)) == world);
+                    same && distance(p, pos) < PLACE_RADIUS
+                })
+            });
+            if near {
+                here.insert(info);
+            }
+        }
+        for (&info, places) in &v.inside {
+            let in_region = |x: FormId| self.data.regions.contains_key(&x) && crate::functions::objects::player_in_region(self, x).unwrap_or(false);
+            if places.iter().any(|&x| Some(x) == cell || Some(x) == world || in_region(x)) {
+                here.insert(info);
+            }
+        }
+        here
+    }
+
+    /// Place and quest comments (docs/design/player-voices.md §4), looked at every
+    /// [`PLACE_LOOK_EVERY`] seconds: a `place` line whose place the player has just come
+    /// into, or a `quest` line naming a quest whose stage was just set, whose conditions
+    /// pass but for the ones that only say who the speaker is ([`IDENTITY`]). Out of a
+    /// fight, at most one comment every [`COMMENT_EVERY`] seconds, each line at most every
+    /// [`COMMENT_AGAIN`]. Returns the line said.
+    pub fn player_comments(&mut self, in_combat: bool) -> Option<FormId> {
+        if self.player_voice.is_none() || self.time < self.quip.next_look {
+            return None;
+        }
+        self.quip.next_look = self.time + PLACE_LOOK_EVERY;
+        let stages = std::mem::take(&mut self.quip.stages);
+        let here = self.voice_places_here();
+        let new_places: Vec<FormId> = here.iter().copied().filter(|i| !self.quip.at.contains(i)).collect();
+        self.quip.at = here;
+        let data = self.data;
+        let quest_lines: Vec<FormId> = match (stages.is_empty(), self.player_voice.as_ref()) {
+            (false, Some(v)) => v
+                .by_event
+                .get("quest")
+                .into_iter()
+                .flatten()
+                .copied()
+                .filter(|i| data.infos.get(i).is_some_and(|d| d.conditions.iter().any(|c| names_any(c, &stages))))
+                .collect(),
+            _ => Vec::new(),
+        };
+        if in_combat || self.time < self.quip.hold_until || self.quip.last_comment.is_some_and(|t| self.time - t < COMMENT_EVERY) {
+            return None;
+        }
+        let mut candidates: Vec<(&'static str, FormId)> = new_places.into_iter().map(|i| ("place", i)).chain(quest_lines.into_iter().map(|i| ("quest", i))).collect();
+        candidates.retain(|(_, i)| self.quip.said_at.get(i).is_none_or(|t| self.time - t >= COMMENT_AGAIN));
+        // Alone, a comment for the others' ears has nobody to hear it.
+        let (coop, own) = (self.quips.coop, self.quips.first_person);
+        if let Some(v) = self.player_voice.as_ref() {
+            candidates.retain(|(_, i)| coop || (own && v.first_person.contains(i)));
+        }
+        candidates.sort_by_key(|(_, i)| *i);
+        let mut passing = Vec::new();
+        for (event, info) in candidates {
+            let conds: Vec<crate::cond::Condition> = data.infos.get(&info).map(|d| d.conditions.iter().filter(|c| !only_identity(data, c)).cloned().collect()).unwrap_or_default();
+            if self.conditions_pass(&conds, Some(FormId::PLAYER_REF), None, "player voice comment") {
+                passing.push((event, info));
+            }
+        }
+        if passing.is_empty() {
+            return None;
+        }
+        let (event, info) = passing[self.rng.next_u32() as usize % passing.len()];
+        self.quip.last_comment = Some(self.time);
+        self.quip.said_at.insert(info, self.time);
+        self.quip.said.push((event.to_string(), info));
+        if let Some(v) = self.player_voice.as_mut() {
+            v.said(info);
+        }
+        self.speak_quip(info);
+        Some(info)
+    }
+
+    /// Whether anyone fights the player now (an actor in combat with it as a target).
+    pub fn player_fought(&self) -> bool {
+        self.awareness.actors.values().any(|a| a.state.in_combat() && a.targets.contains_key(&FormId::PLAYER_REF))
+    }
+
+    /// A quest's stage was set: its comments are looked at next ([`Game::player_comments`]).
+    pub(crate) fn note_stage_for_voice(&mut self, quest: FormId) {
+        if self.player_voice.as_ref().is_some_and(|v| v.by_event.contains_key("quest")) && !self.quip.stages.contains(&quest) {
+            self.quip.stages.push(quest);
+        }
     }
 
     /// The base form whose voice `r` says `info` in: the player's voice set's speaker for
@@ -349,7 +661,7 @@ mod tests {
             speaker: "FalloutNV.esm|133FDD".into(),
             rate: 1.06,
             companion: Some("FalloutNV.esm|133FDD".into()),
-            lines: vec![SetLine { info: "FalloutNV.esm|0ABCDE".into(), event: "Hit".into(), first_person: true, use_line: true, note: String::new(), file: None, text: None }],
+            lines: vec![SetLine { info: "FalloutNV.esm|0ABCDE".into(), event: "Hit".into(), first_person: true, use_line: true, note: String::new(), file: None, text: None, near: vec![], inside: vec![] }],
         };
         let j = serde_json::to_string(&s).unwrap();
         assert!(!j.contains("\"use\""), "use is written only when off");

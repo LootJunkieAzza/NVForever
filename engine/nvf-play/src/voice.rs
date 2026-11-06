@@ -602,16 +602,16 @@ fn play(
     }
 }
 
-/// The creator's preview of a voice ([`crate::player_voice::PreviewVoice`]): one of the
-/// set's first-person lines, its first response, played flat at the set's rate; a preview
-/// still playing is stopped. `voice: preview <id>: <path> at speed <r>`.
-#[allow(clippy::too_many_arguments)]
 /// The sound of a line a voice set carries with it (`GameData::voice_files`), when the data
 /// has that file.
 fn carried_file(g: &Game, bank: &VoiceBank, info: FormId) -> Option<String> {
     g.data.voice_files.get(&info).filter(|p| bank.vfs().exists(p)).cloned()
 }
 
+/// The creator's preview of a voice ([`crate::player_voice::PreviewVoice`]): one of the
+/// set's first-person lines, its first response, played flat at the set's rate; a preview
+/// still playing is stopped. `voice: preview <id>: <path> at speed <r>`.
+#[allow(clippy::too_many_arguments)]
 fn preview(
     mut commands: Commands,
     mut asked: MessageReader<crate::player_voice::PreviewVoice>,

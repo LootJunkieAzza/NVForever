@@ -63,6 +63,9 @@ pub struct ScriptHud {
     /// The response the companion wheel's companion says now, drawn by the wheel
     /// (`crate::companion_wheel`) instead of here.
     pub wheel_line: Option<String>,
+    /// The other players' quips heard now (co-op, `crate::party_quips`): "Name", the
+    /// text, and until when it is shown.
+    pub party_lines: Vec<(String, String, std::time::Instant)>,
 }
 
 impl ScriptHud {
@@ -270,6 +273,14 @@ fn subtitles(hud: &ScriptHud, g: &fnv_game::Game<'_>, sim: &SimState, player: Op
         subs.push(format!("{who}: {text}{}", if talking { " (not drawn: in dialogue)" } else { "" }));
         if !talking {
             on_screen.push(text);
+        }
+    }
+    // The other players' quips (co-op), drawn like any line said nearby.
+    let now = std::time::Instant::now();
+    for (who, text, _) in hud.party_lines.iter().filter(|l| l.2 > now) {
+        subs.push(format!("{who}: {text}{}", if talking { " (not drawn: in dialogue)" } else { "" }));
+        if !talking {
+            on_screen.push(text.clone());
         }
     }
     // The response being said in the conversation with the player: drawn by the dialogue

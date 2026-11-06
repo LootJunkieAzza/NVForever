@@ -242,7 +242,7 @@ mod tests {
     use crate::coop_social::{Mate, SocialMates};
 
     fn mates() -> SocialMates {
-        SocialMates { me: Some(0), interior: false, mates: vec![Mate { id: 1, name: "Veronica".into(), reference: 1, here: true, feet: [0.0; 3], yaw: 0.0, down: false, lost: false }] }
+        SocialMates { me: Some(0), interior: false, mates: vec![Mate { id: 1, name: "Veronica".into(), reference: 1, here: true, feet: [0.0; 3], yaw: 0.0, down: false, lost: false, weapon: 0, attacks: 0, sights: false, pitch: 0.0 }] }
     }
 
     #[test]

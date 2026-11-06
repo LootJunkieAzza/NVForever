@@ -2012,7 +2012,13 @@ pub(crate) fn run_scripts(
         log_event(rt.game.data, e);
         if let EventKind::LineStarted { info, .. } = &e.kind {
             if !hud.knows_line(*info) {
-                hud.remember_line(*info, responses(&play, *info));
+                // A line a voice set carries has no record: its text is the set's
+                // (`fnv_game::player_voice::add_packed_lines`).
+                let mut texts = responses(&play, *info);
+                if texts.is_empty() {
+                    texts = rt.game.data.infos.get(info).map(|d| d.responses.iter().map(|r| r.text.clone()).collect()).unwrap_or_default();
+                }
+                hud.remember_line(*info, texts);
             }
         }
     }

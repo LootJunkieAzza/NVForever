@@ -1407,6 +1407,9 @@ pub struct Game<'a> {
     pub player_voice: Option<crate::player_voice::PlayerVoice>,
     /// The player's quip switches (`crate::player_voice::QuipSettings`). Not saved.
     pub quips: crate::player_voice::QuipSettings,
+    /// The player's quips as they go: lines to send, the group cooldown, place and quest
+    /// comments (`crate::player_voice::QuipState`). Not saved.
+    pub quip: crate::player_voice::QuipState,
     /// What switched radio receivers on and off (`crate::radio`); the engine plays the
     /// stations. Not part of the saved state.
     pub radio: crate::radio::Radios,
@@ -2147,6 +2150,7 @@ impl<'a> Game<'a> {
             combat_lines: Default::default(),
             player_voice: None,
             quips: Default::default(),
+            quip: Default::default(),
             radio: Default::default(),
             terminals: Default::default(),
             locks: Default::default(),
@@ -2408,6 +2412,7 @@ impl<'a> Game<'a> {
             }
         }
         self.emit(EventKind::StageSet { quest: q, stage, entries: ran.clone() });
+        self.note_stage_for_voice(q);
         self.cover_stage(q, stage);
         // JIP's quest-stage handlers, before the result scripts, which a registration
         // with skipScript keeps from running [documented: SetOnQuestStageEventHandler].

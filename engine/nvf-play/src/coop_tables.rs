@@ -41,6 +41,9 @@ pub mod game {
     pub const CARAVAN: u8 = 8;
     /// A pool table (`crate::pool::PoolView`).
     pub const POOL: u8 = 9;
+    /// A player's quip, for the others to hear (`crate::party_quips`; actions only, to
+    /// everyone, table 0).
+    pub const VOICE: u8 = 10;
 
     /// The game's name, as the lobby and the notes say it.
     pub fn word(g: u8) -> &'static str {

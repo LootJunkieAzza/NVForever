@@ -100,6 +100,25 @@ pub enum VoiceCmd {
         #[arg(long)]
         pack: bool,
     },
+    /// A set's place comments found: each line of a topic whose Editor ID starts with one
+    /// of `--topic` becomes a `place` line in use, with the references whose script starts
+    /// that topic (`near`: trigger boxes) or else the cells and worldspaces its conditions
+    /// name (`inside`). Lines with neither are left as they were. Writes the set back.
+    SetPlaces {
+        #[command(flatten)]
+        a: crate::script_cmd::ScriptArgs,
+        /// The voice set file.
+        #[arg(long = "set")]
+        set: PathBuf,
+        /// A topic Editor ID prefix (repeat for more): `VCassLocation`, `RaulHooverDam`.
+        #[arg(long = "topic", required = true)]
+        topics: Vec<String>,
+        /// `TOPIC=EDID,EDID`: the cells, worldspaces or regions a topic is said in, where
+        /// no condition or trigger says it (a script that tests the player's region
+        /// before it starts the topic). Repeat for more.
+        #[arg(long = "place")]
+        places: Vec<String>,
+    },
     /// Voice sets against the load order: every line in use resolves and has its file in
     /// the set's voice (fnv.voice.set_check/1; fails otherwise).
     SetCheck {
@@ -146,6 +165,7 @@ pub fn run(cmd: VoiceCmd) -> anyhow::Result<Value> {
             &a,
             crate::voice_set_cmd::DraftArgs { speaker: &speaker, id: &id, name: &name, sex: &sex, rate, companion, out: out.as_deref(), text, pack },
         ),
+        VoiceCmd::SetPlaces { a, set, topics, places } => crate::voice_set_cmd::places(&a, &set, &topics, &places),
         VoiceCmd::SetCheck { a, sets, mod_dir } => crate::voice_set_cmd::check(&a, &sets, mod_dir.as_deref()),
         VoiceCmd::LipFile { files } => {
             let rows: Vec<Value> = files

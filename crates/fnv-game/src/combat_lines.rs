@@ -227,6 +227,13 @@ impl Game<'_> {
     fn say_combat(&mut self, actor: FormId, about: Option<FormId>, topic: &'static str) -> Option<FormId> {
         let data = self.data;
         let t = data.by_edid(topic).filter(|t| data.topic_defs.contains_key(t))?;
+        // The voice's own companion, when here, takes half the player's lines.
+        if actor == FormId::PLAYER_REF {
+            if let Some(line) = self.companion_takes(t) {
+                self.combat_lines.said.push((topic, actor, Some(line)));
+                return Some(line);
+            }
+        }
         // The player's voice set says its own line for the topic (crate::player_voice).
         let quip = if actor == FormId::PLAYER_REF { self.player_quip(topic) } else { None };
         let line = match quip {

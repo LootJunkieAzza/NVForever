@@ -80,7 +80,7 @@ fn draft_line(l: &Loaded, info: FormId, d: &InfoDef) -> Option<Drafted> {
     others_sorted.dedup();
     let note = if others_sorted.is_empty() { String::new() } else { format!("conditions: {}", others_sorted.join(", ")) };
     let combat = matches!(d.info_type, topic_type::COMBAT | topic_type::DETECTION);
-    let line = |event: String, first_person: bool, use_line: bool, note: String| SetLine { info: form_ref(&l.data, info), event, first_person, use_line, note, file: None, text: None };
+    let line = |event: String, first_person: bool, use_line: bool, note: String| SetLine { info: form_ref(&l.data, info), event, first_person, use_line, note, file: None, text: None, near: vec![], inside: vec![] };
     if combat && COMBAT_EVENTS.contains(&topic.as_str()) {
         // Only the speaker's identity in its conditions: said in the voice as it is.
         let plain = others.is_empty();
@@ -196,6 +196,83 @@ pub fn draft(a: &ScriptArgs, d: DraftArgs<'_>) -> anyhow::Result<Value> {
             v["set"] = serde_json::to_value(&set)?;
         }
         Ok(v)
+    })
+}
+
+/// `fnvtool voice set-places` (see its help).
+pub fn places(a: &ScriptArgs, file: &Path, prefixes: &[String], given: &[String]) -> anyhow::Result<Value> {
+    let text = std::fs::read_to_string(file).with_context(|| file.display().to_string())?;
+    let mut set: VoiceSet = serde_json::from_str(&text).with_context(|| file.display().to_string())?;
+    with_data(a, |l| {
+        let d = &l.data;
+        let wanted = |t: FormId| {
+            let name = d.name(t);
+            prefixes.iter().any(|p| name.to_ascii_lowercase().starts_with(&p.to_ascii_lowercase()))
+        };
+        // Scripts naming each wanted topic, the bases that run them, their references.
+        let mut scripts_of: BTreeMap<FormId, Vec<FormId>> = BTreeMap::new();
+        for (&scpt, &unit) in &d.scripts {
+            for slot in &d.unit(unit).unit.refs {
+                if let fnv_script::unit::RefSlot::Form(t) = slot {
+                    if d.topic_defs.contains_key(&FormId(*t)) && wanted(FormId(*t)) {
+                        scripts_of.entry(FormId(*t)).or_default().push(scpt);
+                    }
+                }
+            }
+        }
+        let mut bases_of_script: BTreeMap<FormId, Vec<FormId>> = BTreeMap::new();
+        for (&base, &scpt) in &d.form_script {
+            bases_of_script.entry(scpt).or_default().push(base);
+        }
+        let mut refs_of_base: BTreeMap<FormId, Vec<FormId>> = BTreeMap::new();
+        for (&r, p) in &l.refs.refs {
+            refs_of_base.entry(p.base).or_default().push(r);
+        }
+        let mut rows = Vec::new();
+        for line in set.lines.iter_mut().filter(|x| x.file.is_none()) {
+            let Some(info) = fnv_game::player_voice::resolve_ref(d, &line.info) else { continue };
+            let Some(def) = d.infos.get(&info) else { continue };
+            let Some(topic) = def.topic.filter(|&t| wanted(t)) else { continue };
+            let mut near: Vec<FormId> = scripts_of
+                .get(&topic)
+                .into_iter()
+                .flatten()
+                .flat_map(|s| bases_of_script.get(s).into_iter().flatten())
+                .flat_map(|b| refs_of_base.get(b).into_iter().flatten())
+                .copied()
+                .collect();
+            near.sort();
+            near.dedup();
+            let mut inside: Vec<FormId> = def
+                .conditions
+                .iter()
+                .filter(|c| matches!(function_name(l, c.opcode()).as_str(), "GetInCell" | "GetInWorldspace" | "GetIsCurrentWorldspace"))
+                .filter_map(|c| c.params.first().and_then(ref_arg))
+                .collect();
+            if let Some((_, list)) = given.iter().filter_map(|g| g.split_once('=')).find(|(t, _)| t.eq_ignore_ascii_case(&d.name(topic))) {
+                for e in list.split(',').map(str::trim).filter(|e| !e.is_empty()) {
+                    match d.edids.get(&e.to_ascii_lowercase()) {
+                        Some(&f) => inside.push(f),
+                        None => bail!("--place {}: no record {e}", d.name(topic)),
+                    }
+                }
+            }
+            inside.sort();
+            inside.dedup();
+            if near.is_empty() && inside.is_empty() {
+                let conds: Vec<String> = def.conditions.iter().map(|c| format!("{}({})", function_name(l, c.opcode()), c.params.iter().filter_map(ref_arg).map(|r| d.name(r)).collect::<Vec<_>>().join(","))).collect();
+                rows.push(json!({"info": line.info, "topic": d.name(topic), "found": "nothing", "conditions": conds}));
+                continue;
+            }
+            line.event = "place".into();
+            line.use_line = true;
+            line.near = near.iter().map(|&r| form_ref(d, r)).collect();
+            line.inside = inside.iter().map(|&r| form_ref(d, r)).collect();
+            rows.push(json!({"info": line.info, "topic": d.name(topic), "near": near.iter().map(|&r| d.name(r)).collect::<Vec<_>>(), "inside": inside.iter().map(|&r| d.name(r)).collect::<Vec<_>>()}));
+        }
+        std::fs::write(file, serde_json::to_string_pretty(&set)? + "
+").with_context(|| file.display().to_string())?;
+        Ok(json!({"format": "fnv.voice.set_places/1", "set": set.id, "lines": rows}))
     })
 }
 

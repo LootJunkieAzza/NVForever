@@ -62,6 +62,10 @@ impl Default for QuipSwitches {
     }
 }
 
+/// The player's voice is resolved into the game this frame (systems that use it run after).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Applied;
+
 /// Play a line of voice set `id` once, flat (the creator's preview).
 #[derive(Message, Clone, Debug)]
 pub struct PreviewVoice {
@@ -172,7 +176,7 @@ pub struct PlayerVoicePlugin;
 impl Plugin for PlayerVoicePlugin {
     fn build(&self, app: &mut App) {
         use crate::settings::{add_setting, Setting};
-        app.init_resource::<VoiceSets>().init_resource::<QuipSwitches>().add_message::<PreviewVoice>().add_systems(Update, (read_sets, apply).chain().in_set(PlaySet::Scripts));
+        app.init_resource::<VoiceSets>().init_resource::<QuipSwitches>().add_message::<PreviewVoice>().add_systems(Update, (read_sets, apply).chain().in_set(PlaySet::Scripts).in_set(Applied));
         add_setting(
             app,
             Setting {
