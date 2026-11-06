@@ -3716,6 +3716,20 @@ impl<'a> Game<'a> {
         self.page_tick(code);
     }
 
+    /// The animation file an idle plays: the path SetIdleAnimPath (or JIP's setter) gave
+    /// it this session, else its record's `MODL` [documented: SetIdleAnimPath sets the
+    /// idle's animation path; observed: JAM's sprint sets SpecialIdleSprint's path per
+    /// weapon type before each PlayIdle, and the record's own clip played for every
+    /// weapon until the setter was read, owner's report 2026-11-05].
+    pub fn idle_model(&self, idle: FormId) -> Option<String> {
+        if let Some(fnv_script::vm::XVal::Str(p)) = self.field_overrides.get(&(idle, "MODL/".to_string())) {
+            if !p.is_empty() {
+                return Some(p.clone());
+            }
+        }
+        self.data.idles.get(&idle)?.model.clone()
+    }
+
     /// A function asks the running script to stop as `Return` does (RemoveMe).
     pub fn request_return(&mut self) {
         self.stop_run = true;
