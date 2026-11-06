@@ -485,3 +485,31 @@ fn a_form_already_on_a_list_is_not_added_again() {
     assert_eq!(num(&mut g, "ListAddForm GunList Scrap"), -1.0);
     assert_eq!(num(&mut g, "ListGetCount GunList"), 2.0);
 }
+
+/// GetNifBlockTranslation with `getWorld` 1 gives the node's place in the world, not its
+/// own offset (JVO's marker over an actor's head); either form of the call.
+#[test]
+fn a_nif_block_translation_in_the_world() {
+    use fnv_game::nif_blocks::SceneNode;
+    let f = fixture();
+    let mut g = game(&f);
+    let node = |name: &str, parent, translation, world| SceneNode { name: name.into(), parent, translation, rotation: [0.0; 3], scale: 1.0, flags: 0, world };
+    g.scene.set_tree(FormId(NPC_REF), vec![node("Bip01", None, [0.0, 0.0, 60.0], [100.0, 200.0, 60.0]), node("Bip01 Head", Some(0), [5.59, 0.0, 0.0], [100.0, 200.0, 120.0])]);
+    assert_eq!(num(&mut g, "TestNpcRef.GetNifBlockTranslation \"Bip01 Head\" X"), f64::from(5.59f32));
+    assert_eq!(num(&mut g, "TestNpcRef.GetNifBlockTranslation \"Bip01 Head\" Z 1"), 120.0);
+    assert_eq!(get(&mut g, "", "TestNpcRef.GetNifBlockTranslation \"Bip01 Head\" 1", "[1]"), XVal::Num(200.0));
+    assert_eq!(get(&mut g, "", "TestNpcRef.GetNifBlockTranslation \"Bip01 Head\"", "[0]"), XVal::Num(f64::from(5.59f32)));
+}
+
+/// The quest scripts read as active is the one the Pip-Boy marks (JAM's JVO followed the
+/// last forced quest after the player picked another).
+#[test]
+fn the_active_quest_is_the_pip_boys() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.ui.active_quest = Some(FormId(0x900));
+    assert_eq!(form(&mut g, "GetActiveQuest"), 0x900);
+    g.ui.shown_quest = Some(FormId(0x901));
+    assert_eq!(form(&mut g, "GetActiveQuest"), 0x901);
+    assert_eq!(form(&mut g, "GetCurrentQuest"), 0x901);
+}

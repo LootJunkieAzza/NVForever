@@ -23,6 +23,8 @@ pub struct SceneNode {
     pub scale: f32,
     /// The NiAVObject flags; bit 0 hides it.
     pub flags: u32,
+    /// Where the node is in the world (game units, game space), as last drawn.
+    pub world: [f32; 3],
 }
 
 /// A change a script made, for the engine to apply to the drawn nodes.
@@ -197,11 +199,22 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             list(g, out)
         }
         // `block [axis]`: an axis gives that number; otherwise the three as an array
-        // [observed: JIP 57.3 gives [5.59, 0, 0] for Bip01 Head].
+        // [observed: JIP 57.3 gives [5.59, 0, 0] for Bip01 Head]. `getWorld` 1 (JIP's
+        // second argument; after the axis in the older form) gives the translation in the
+        // world instead of the node's own [documented: GetNifBlockTranslation, `getWorld`;
+        // JVO aims its marker at `GetNifBlockTranslation "Bip01 Head" 1` less the actor's
+        // GetPos, so the local [5.59, 0, 0] put the marker near the world's origin]. The
+        // world rotation is not built: `getWorld` gives the node's own there [design].
         "getnifblocktranslation" | "getnifblockrotation" => {
             let Some(t) = g.scene.tree(r) else { return Some(Ok(XVal::Array(0))) };
             let Some(i) = find(t, &text(args, 0)) else { return Some(Ok(XVal::Array(0))) };
-            let v = if name == "getnifblocktranslation" { t[i].translation } else { t[i].rotation };
+            let world_at = if axis(args.get(1)).is_some() { 2 } else { 1 };
+            let world = num(args, world_at, 0.0) != 0.0;
+            let v = match name {
+                "getnifblocktranslation" if world => t[i].world,
+                "getnifblocktranslation" => t[i].translation,
+                _ => t[i].rotation,
+            };
             match axis(args.get(1)) {
                 Some(a) => XVal::Num(f64::from(v[a])),
                 None => {
@@ -314,7 +327,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                     Some(n) => (true, n.to_string()),
                     None => (false, what.to_string()),
                 };
-                let node = SceneNode { name: nm.clone(), parent: if as_parent { t[i].parent } else { Some(i) }, translation: [0.0; 3], rotation: [0.0; 3], scale: 1.0, flags: 0 };
+                let node = SceneNode { name: nm.clone(), parent: if as_parent { t[i].parent } else { Some(i) }, translation: [0.0; 3], rotation: [0.0; 3], scale: 1.0, flags: 0, world: t[i].world };
                 t.push(node);
                 if as_parent {
                     let new = t.len() - 1;
