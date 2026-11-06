@@ -469,3 +469,19 @@ fn recipes_containers_duplicates_races_and_menus() {
     assert!(g.other.itr2.primitives_shown);
     assert_eq!(num(&mut g, "CenterOnCellAlt \"CellB\""), 1.0);
 }
+
+/// ListAddForm of a form already on the list adds nothing and returns -1, with or
+/// without `checkForDupes` (owner decision 2026-11-06: JAM joins MCM's list twice);
+/// another form still goes on.
+#[test]
+fn a_form_already_on_a_list_is_not_added_again() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(num(&mut g, "ListGetCount GunList"), 1.0);
+    assert_eq!(num(&mut g, "ListAddForm GunList Gun"), -1.0);
+    assert_eq!(num(&mut g, "ListAddForm GunList Gun -2 1"), -1.0);
+    assert_eq!(num(&mut g, "ListGetCount GunList"), 1.0);
+    assert_eq!(num(&mut g, "ListAddForm GunList Scrap"), 1.0);
+    assert_eq!(num(&mut g, "ListAddForm GunList Scrap"), -1.0);
+    assert_eq!(num(&mut g, "ListGetCount GunList"), 2.0);
+}
