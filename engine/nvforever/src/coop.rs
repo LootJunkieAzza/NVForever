@@ -878,7 +878,7 @@ fn social_mates(coop: Res<Coop>, loc: Option<Res<Location>>, mut mates: ResMut<n
                     .iter()
                     .filter_map(|(&id, p)| {
                         let &(_, s) = p.samples.back()?;
-                        Some(Mate { id, name: label(id, &p.name), reference: p.reference(id), here: s.place == here, feet: s.feet, yaw: s.yaw, down: s.has(flag::DOWN), lost: p.lost })
+                        Some(Mate { id, name: label(id, &p.name), reference: p.reference(id), here: s.place == here, feet: s.feet, yaw: s.yaw, down: s.has(flag::DOWN), lost: p.lost, weapon: s.weapon, attacks: s.attacks, sights: s.has(flag::SIGHTS), pitch: s.pitch })
                     })
                     .collect(),
             }

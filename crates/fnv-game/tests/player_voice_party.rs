@@ -1,0 +1,158 @@
+//! The player's voice in co-op, its reactions and its place comments
+//! (docs/design/player-voices.md §4-§6, `fnv_game::player_voice`): what is picked, what is
+//! sent to the other players, what is heard here, and how often. No game data: the lines
+//! are carried lines made from the sets themselves.
+
+use fnv_esm::{LoadOrder, Schema};
+use fnv_game::game::{Game, GameConfig};
+use fnv_game::player_voice::{add_packed_lines, Deed, PlayerVoice, SetLine, VoiceSet, COMMENT_AGAIN, COMMENT_EVERY, FORMAT, REACT_EVERY};
+use fnv_game::GameData;
+use fnv_script::FunctionTable;
+use fnv_sim::{FormId, FormStore, RefTable, SimConfig, World};
+use serde_json::Value as Json;
+
+struct Loaded {
+    data: GameData,
+    forms: FormStore,
+    refs: RefTable,
+}
+
+fn line(event: &str, file: &str, first_person: bool) -> SetLine {
+    SetLine {
+        info: "Mod.esp|000ABC".into(),
+        event: event.into(),
+        first_person,
+        use_line: true,
+        note: String::new(),
+        file: Some(file.into()),
+        text: Some(format!("{event} line")),
+        near: vec![],
+        inside: vec![],
+    }
+}
+
+fn set() -> VoiceSet {
+    VoiceSet {
+        format: FORMAT.into(),
+        id: "nexus.t".into(),
+        name: "T".into(),
+        sex: "female".into(),
+        race: String::new(),
+        blurb: String::new(),
+        speaker: String::new(),
+        rate: 1.0,
+        companion: None,
+        lines: vec![
+            line("Hit", "a.ogg", true),
+            line("Attack", "b.ogg", false),
+            line("react.throwgrenade", "c.ogg", true),
+            line("react.fireweapon", "d.ogg", false),
+            line("place", "e.ogg", true),
+        ],
+    }
+}
+
+fn load() -> Loaded {
+    let lo = LoadOrder::new(&[]).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let refs = RefTable::build(&lo, &schema);
+    let forms = FormStore::build(&lo, &schema);
+    let mut data = GameData::build(&lo, &schema, FunctionTable::load(&p).unwrap(), &j, &refs);
+    add_packed_lines(&mut data, &[set()]);
+    Loaded { data, forms, refs }
+}
+
+fn game(l: &Loaded) -> Game<'_> {
+    let world = World::new(&l.forms, &l.refs, SimConfig::default());
+    let mut g = Game::new(&l.data, world, GameConfig::default());
+    g.new_game();
+    let (v, missing) = PlayerVoice::resolve(&set(), &l.data).unwrap();
+    assert_eq!(missing, 0);
+    g.player_voice = Some(v);
+    g
+}
+
+fn info(l: &Loaded, k: usize) -> FormId {
+    l.data.packed_lines[&("nexus.t".to_string(), k)]
+}
+
+#[test]
+fn in_coop_every_line_is_sent_and_only_first_person_ones_are_heard_here() {
+    let l = load();
+    let mut g = game(&l);
+    // Alone: a party-only line is never picked.
+    assert_eq!(g.player_quip("Attack"), None);
+    assert!(g.quip.out.is_empty());
+    assert_eq!(g.player_quip("Hit"), Some(info(&l, 0)));
+    assert!(g.quip.out.is_empty(), "nothing is sent without others");
+    // In co-op the party-only line goes to the others and the player says its own.
+    g.quips.coop = true;
+    assert_eq!(g.player_quip("Attack"), None);
+    assert_eq!(g.quip.out, vec![info(&l, 1)]);
+    assert_eq!(g.player_quip("Hit"), Some(info(&l, 0)));
+    assert_eq!(g.quip.out, vec![info(&l, 1), info(&l, 0)]);
+    // With First Person Quips off the others still hear it; the player does not.
+    g.quips.first_person = false;
+    assert_eq!(g.player_quip("Hit"), None);
+    assert_eq!(g.quip.out.len(), 3);
+    // Another player's quip plays: nobody else starts one (the group cooldown).
+    g.quips.first_person = true;
+    g.quip.hold_until = g.time + 5.0;
+    assert_eq!(g.player_quip("Hit"), None);
+    assert_eq!(g.quip.out.len(), 3);
+}
+
+#[test]
+fn a_deed_is_answered_at_most_every_react_every_and_gunfire_not_in_a_fight() {
+    let l = load();
+    let mut g = game(&l);
+    g.quips.coop = true;
+    assert_eq!(g.player_reacts(Deed::FireWeapon, true), None, "in a fight everyone shoots");
+    assert_eq!(g.player_reacts(Deed::ThrowGrenade, false), Some(info(&l, 2)));
+    assert_eq!(g.quip.out, vec![info(&l, 2)]);
+    assert_eq!(g.player_reacts(Deed::FireWeapon, false), None, "too soon after the last");
+    g.time += REACT_EVERY;
+    assert_eq!(g.player_reacts(Deed::FireWeapon, false), Some(info(&l, 3)));
+    assert_eq!(g.player_reacts(Deed::LayMine, false), None, "no line for it");
+    assert_eq!(Deed::of_attack(Some(10)), Some(Deed::ThrowGrenade));
+    assert_eq!(Deed::of_attack(Some(5)), Some(Deed::FireWeapon));
+    assert_eq!(Deed::of_attack(Some(1)), None, "melee");
+}
+
+#[test]
+fn a_place_comment_is_said_on_coming_in_once_per_comment_every() {
+    let l = load();
+    let mut g = game(&l);
+    let place = info(&l, 4);
+    let cell = FormId(0x0001_2345);
+    g.player_voice.as_mut().unwrap().inside.insert(place, vec![cell]);
+    g.player_voice.as_mut().unwrap().by_event.insert("place".into(), vec![place]);
+    // Not there: nothing.
+    assert_eq!(g.player_comments(false), None);
+    // Coming in: said once.
+    g.world.get(FormId::PLAYER_REF).unwrap().cell = Some(cell);
+    g.time += 1.0;
+    assert_eq!(g.player_comments(false), Some(place));
+    assert_eq!(g.quip.said.last().map(|s| s.0.as_str()), Some("place"));
+    // Staying: not again.
+    g.time += COMMENT_AGAIN + 1.0;
+    assert_eq!(g.player_comments(false), None);
+    // Leaving and coming back soon after: within COMMENT_AGAIN not again.
+    g.world.get(FormId::PLAYER_REF).unwrap().cell = Some(FormId(0x0001_0001));
+    g.time += 1.0;
+    assert_eq!(g.player_comments(false), None);
+    g.world.get(FormId::PLAYER_REF).unwrap().cell = Some(cell);
+    g.time += 1.0;
+    let said = g.quip.said_at[&place];
+    assert!(g.time - said > COMMENT_EVERY);
+    assert_eq!(g.player_comments(false), Some(place), "COMMENT_AGAIN has passed since it was said");
+    // In a fight a new place is not commented on.
+    g.world.get(FormId::PLAYER_REF).unwrap().cell = None;
+    g.time += 1.0;
+    g.player_comments(false);
+    g.world.get(FormId::PLAYER_REF).unwrap().cell = Some(cell);
+    g.time += COMMENT_AGAIN + 1.0;
+    assert_eq!(g.player_comments(true), None);
+}

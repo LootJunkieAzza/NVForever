@@ -46,6 +46,7 @@ mod sim_cmd;
 mod source;
 mod ui_cmd;
 mod voice_cmd;
+mod voice_set_cmd;
 mod world_alt_textures;
 mod world_audio;
 mod world_radio;

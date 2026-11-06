@@ -64,7 +64,8 @@ pub fn open_plugins(data_dir: &Path, names: &[String]) -> OpenedPlugins {
     for n in names {
         // The file whatever its case on disk (a case-sensitive copy may hold
         // `deadmoney.esm`; #995); the plugin keeps the name the load order gives it.
-        let path = fnv_install::child_ci(data_dir, n).unwrap_or_else(|| data_dir.join(n));
+        // A plugin not in Data may be in a test aid's mod folder (fnv_vfs::MOD_DIR_ENV).
+        let path = fnv_install::child_ci(data_dir, n).or_else(|| fnv_vfs::mod_dir_file(n)).unwrap_or_else(|| data_dir.join(n));
         match EsmPlugin::open(path) {
             Ok(mut p) => {
                 p.name = n.clone();

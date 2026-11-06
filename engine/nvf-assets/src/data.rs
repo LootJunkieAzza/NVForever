@@ -21,7 +21,13 @@ impl GameData {
     /// [`GameData::open`] with the archives of `plugins` (load order): mods' archives
     /// over the base game's, loose files over both.
     pub fn open_for_plugins<S: AsRef<str>>(data_dir: &Path, plugins: &[S], schema_dir: &Path) -> Result<GameData, String> {
-        let vfs = Vfs::open_for_plugins(data_dir, plugins).map_err(|e| e.to_string())?;
+        let mut vfs = Vfs::open_for_plugins(data_dir, plugins).map_err(|e| e.to_string())?;
+        // NVF_MOD_DIR (tests): a mod folder's loose files over the data, as
+        // MO2 would put them (headless runs read the plain game Data).
+        for dir in fnv_vfs::mod_dirs() {
+            let n = vfs.add_loose_dir(&dir);
+            eprintln!("NVF_MOD_DIR: {} loose files of {} over the data", n, dir.display());
+        }
         let schema = Schema::load_dir(schema_dir).map_err(|e| e.to_string())?;
         Ok(GameData { vfs: Arc::new(vfs), schema: Arc::new(schema) })
     }

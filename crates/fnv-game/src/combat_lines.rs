@@ -227,7 +227,22 @@ impl Game<'_> {
     fn say_combat(&mut self, actor: FormId, about: Option<FormId>, topic: &'static str) -> Option<FormId> {
         let data = self.data;
         let t = data.by_edid(topic).filter(|t| data.topic_defs.contains_key(t))?;
-        let line = self.say(actor, about, t, false);
+        // The voice's own companion, when here, takes half the player's lines.
+        if actor == FormId::PLAYER_REF {
+            if let Some(line) = self.companion_takes(t) {
+                self.combat_lines.said.push((topic, actor, Some(line)));
+                return Some(line);
+            }
+        }
+        // The player's voice set says its own line for the topic (crate::player_voice).
+        let quip = if actor == FormId::PLAYER_REF { self.player_quip(topic) } else { None };
+        let line = match quip {
+            Some(info) => {
+                self.say_line(actor, about, t, info, crate::game::LineKind::Say);
+                Some(info)
+            }
+            None => self.say(actor, about, t, false),
+        };
         self.combat_lines.said.push((topic, actor, line));
         if line.is_some() {
             self.queue_response(actor, topic);
@@ -344,7 +359,8 @@ impl Game<'_> {
         let topics: &[&'static str] = if topic == "Attack" { &["Attack"] } else { &[topic, "Attack"] };
         for &name in topics {
             let Some(t) = data.by_edid(name).filter(|t| data.topic_defs.contains_key(t)) else { continue };
-            let Some(info) = self.select_line(actor, listener, t) else {
+            let quip = if actor == FormId::PLAYER_REF { self.player_quip(name) } else { None };
+            let Some(info) = quip.or_else(|| self.select_line(actor, listener, t)) else {
                 self.emit(crate::trace::EventKind::NoLine { speaker: actor, topic: t });
                 self.combat_lines.said.push((name, actor, None));
                 continue;

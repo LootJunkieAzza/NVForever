@@ -726,6 +726,10 @@ pub struct PlayerState {
     /// `None` keeps the player record's.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub look: Option<crate::chargen::Look>,
+    /// The voice chosen in the character creator: a voice set's id
+    /// (`crate::player_voice`); `None` is silent, as the original's player.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub voice: Option<String>,
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub tag_skills: BTreeSet<u16>,
     /// The tag skills SetPlayerTagSkill put in its four slots, by slot (0–3); the
@@ -1398,6 +1402,14 @@ pub struct Game<'a> {
     /// Combat-tab lines: attack timers, health marks, DeathResponse lines due
     /// (`crate::combat_lines`). Not part of the saved state.
     pub combat_lines: crate::combat_lines::CombatLines,
+    /// The player's voice set, resolved by the engine from [`PlayerState::voice`]
+    /// (`crate::player_voice`). Not part of the saved state.
+    pub player_voice: Option<crate::player_voice::PlayerVoice>,
+    /// The player's quip switches (`crate::player_voice::QuipSettings`). Not saved.
+    pub quips: crate::player_voice::QuipSettings,
+    /// The player's quips as they go: lines to send, the group cooldown, place and quest
+    /// comments (`crate::player_voice::QuipState`). Not saved.
+    pub quip: crate::player_voice::QuipState,
     /// What switched radio receivers on and off (`crate::radio`); the engine plays the
     /// stations. Not part of the saved state.
     pub radio: crate::radio::Radios,
@@ -2136,6 +2148,9 @@ impl<'a> Game<'a> {
             nav_switches: Default::default(),
             frame_switches: Default::default(),
             combat_lines: Default::default(),
+            player_voice: None,
+            quips: Default::default(),
+            quip: Default::default(),
             radio: Default::default(),
             terminals: Default::default(),
             locks: Default::default(),
@@ -2397,6 +2412,7 @@ impl<'a> Game<'a> {
             }
         }
         self.emit(EventKind::StageSet { quest: q, stage, entries: ran.clone() });
+        self.note_stage_for_voice(q);
         self.cover_stage(q, stage);
         // JIP's quest-stage handlers, before the result scripts, which a registration
         // with skipScript keeps from running [documented: SetOnQuestStageEventHandler].

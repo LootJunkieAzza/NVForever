@@ -14,6 +14,12 @@ pub trait VoiceLengths: Send + Sync {
     /// `InfoDef::response_chars`) of line `info`, said by an actor or talking activator
     /// whose base form is `speaker_base`. `None`: no sound is known for it.
     fn response_seconds(&self, info: FormId, response: usize, speaker_base: Option<FormId>) -> Option<f64>;
+
+    /// Seconds of the sound at `path` in the data (a line a voice set carries with its
+    /// sound, `GameData::voice_files`). `None`: no such sound.
+    fn file_seconds(&self, _path: &str) -> Option<f64> {
+        None
+    }
 }
 
 impl Game<'_> {
@@ -43,6 +49,10 @@ impl Game<'_> {
     /// back the voice the actor does not have (issue #1051).
     pub fn response_seconds_voiced(&self, placed_base: Option<FormId>, voice_base: Option<FormId>, info: FormId, response: usize) -> f64 {
         let voice = self.voice.as_ref();
+        if let Some(path) = self.data.voice_files.get(&info) {
+            let chars = self.data.infos.get(&info).and_then(|d| d.response_chars.get(response)).copied().unwrap_or(0);
+            return voice.and_then(|v| v.file_seconds(path)).unwrap_or_else(|| fitted_seconds(chars));
+        }
         let sound = voice.and_then(|v| v.response_seconds(info, response, voice_base)).or_else(|| {
             let fixed = self.data.infos.get(&info).and_then(|d| d.speaker).filter(|s| Some(*s) != voice_base && Some(*s) != placed_base)?;
             voice?.response_seconds(info, response, Some(fixed))
@@ -56,7 +66,9 @@ impl Game<'_> {
     /// The length of each response of a line, in record order. A line without responses
     /// lasts as one empty response does ([`Game::line_seconds`] is their sum).
     pub fn response_lengths(&self, speaker: FormId, info: FormId) -> Vec<f64> {
-        self.response_lengths_voiced(crate::functions::base_of(self, speaker), self.speaker_voice_base(speaker), info)
+        let rate = f64::from(self.line_rate(speaker, info));
+        let lengths = self.response_lengths_voiced(crate::functions::base_of(self, speaker), self.line_voice(speaker, info), info);
+        lengths.into_iter().map(|s| s / rate).collect()
     }
 
     /// [`Game::response_lengths`] for a speaker placed with `placed_base` speaking with
@@ -70,6 +82,13 @@ impl Game<'_> {
     /// ([`Game::voice_base`] of its base).
     pub fn speaker_voice_base(&self, speaker: FormId) -> Option<FormId> {
         crate::functions::base_of(self, speaker).map(|b| self.voice_base(b, speaker))
+    }
+
+    /// The base form whose voice `speaker` says `info` in: [`Game::speaker_voice_base`],
+    /// or the voice set's speaker for a line of the player's voice
+    /// (`Game::line_voice_base`, docs/design/player-voices.md).
+    pub fn line_voice(&self, speaker: FormId, info: FormId) -> Option<FormId> {
+        crate::functions::base_of(self, speaker).map(|b| self.line_voice_base(&self.world, b, speaker, info))
     }
 
     /// [`Game::response_lengths`] for a speaker given by its base form.

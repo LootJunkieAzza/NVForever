@@ -18809,3 +18809,133 @@ expect = [
   { text = "console: compass alpha 255", label = "the compass window's copy has an alpha for JVO" },
   { re = 'world marks: ping at \(-?\d+, -?\d+, -?\d+\)', label = "C pings the point under the crosshair" },
 ]
+
+[[scenario]]
+name = "player-voice-combat"
+source = "owner 2026-11-05/06: a player character may speak with a companion's voice (docs/design/player-voices.md phase 1, fnv_game::player_voice)"
+note = "combat-voice with the player given Cass's voice set (NVF_PLAY_TEST_VOICE=vanilla.cass; the set from NVF_VOICE_SETS, the MO2 folder NVForever Player Voices, nvforever/voices): the dogs bite the player down and kill it; HealthHalf, HealthQuarter and Death are said from Cass's set in FemaleUniqueCass at speed 0.95. The light Hit grunt and the PowerAttack stay the player's own (companions have no such lines)"
+areas = ["combat", "dialogue", "audio"]
+paths = ["crates/fnv-game/src/player_voice.rs", "crates/fnv-game/src/combat_lines.rs", "engine/nvf-play/src/player_voice.rs", "engine/nvf-play/src/voice.rs"]
+requires = ["NVF_VOICE_SETS"]
+env = { NVF_PLAY_TEST_VOICE = "vanilla.cass", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "00004337", NVF_PLAY_TEST_CONTROL = "3:weapon,6:aimflat,6.1:fire,7.6:fire,8.4:aimflat,8.5:fire,8.6:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 22
+expect = [
+  { re = 'player voices: \d+ sets: .*vanilla\.cass', label = "the voice sets are read" },
+  { re = 'player voice: Cass \(vanilla\.cass\): \d+ lines in use', label = "the player has Cass's voice" },
+  { re = 'voice: playing \S+femaleuniquecass.\S+ \([\d.]+ s\) \S+ line \S+ response \d+ at speed 0\.95', label = "a line of Cass's set plays in her voice at the set's speed" },
+  { re = 'voice: playing \S+playervoicemale.genericplayer_powerattack_', label = "the power attack keeps the player's own sound (Cass has none)" },
+]
+
+[[scenario]]
+name = "player-voice-creator"
+source = "owner 2026-11-05/06: a Voice option in the character creator, with a preview (docs/design/player-voices.md phase 1)"
+note = "the character-creator setup with voice sets installed (NVF_VOICE_SETS): the Basics tab has a Voice row; the character made a woman, stepping it chooses the first woman's voice (Cass), which plays a preview line; P (the aid's preview) plays another; Done keeps the voice. The row offers only the voices of the look's race and sex (owner 2026-11-06)"
+areas = ["chargen", "menus", "audio"]
+paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/creator/model.rs", "engine/nvf-play/src/player_voice.rs", "engine/nvf-play/src/voice.rs"]
+requires = ["NVF_VOICE_SETS"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "8.5:next:Sex,9:next:Voice,11:preview,13:done", NVF_PLAY_TEST_SHOTS = "10:creator_voice.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play"]
+run_seconds = 18
+order = [[
+  "creator: Voice Cass (F)",
+  "creator: voice vanilla.cass",
+  { re = 'voice: preview vanilla\.cass: \S+femaleuniquecass.\S+ at speed 0\.95', label = "a preview line in Cass's voice" },
+  { re = 'player voice: Cass \(vanilla\.cass\)', label = "the game takes the voice at once" },
+  { re = 'voice: preview vanilla\.cass: ', label = "P plays another preview" },
+  "creator: done (test aid NVF_PLAY_TEST_CREATOR)",
+]]
+
+[[scenario]]
+name = "player-voice-nexus-combat"
+source = "owner 2026-11-06: the Nexus voiced followers as player voices, their lines taken without their plugins (docs/design/player-voices.md phase 5)"
+note = "combat-voice with the player given Molerat's voice (nexus.molerat), read with the sound files from the mod folder NVForever Player Voices (NVF_MOD_DIR, as MO2 would put it over the data): the set's lines carry their sound and subtitle, so Molerat.esm is not loaded; the dogs bite the player down and the health and combat lines play from molerat.esm's voice folder"
+areas = ["combat", "dialogue", "audio"]
+paths = ["crates/fnv-game/src/player_voice.rs", "crates/fnv-game/src/voice.rs", "crates/fnv-vfs/src/lib.rs", "engine/nvf-play/src/player_voice.rs", "engine/nvf-play/src/voice.rs", "engine/nvf-play/src/script.rs", "engine/nvf-assets/src/data.rs"]
+requires = ["NVF_MOD_DIR"]
+env = { NVF_PLAY_TEST_VOICE = "nexus.molerat", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "00004337", NVF_PLAY_TEST_CONTROL = "3:weapon,6:aimflat,6.1:fire,7.6:fire,8.4:aimflat,8.5:fire,8.6:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 22
+expect = [
+  { re = 'NVF_MOD_DIR: \d+ loose files of .+ over the data', label = "the mod folder stands over the data" },
+  { re = 'player voices: \d+ lines carried by voice sets', label = "the Nexus sets' lines become lines of their own" },
+  { re = 'player voice: Molerat \(nexus\.molerat\): \d+ lines in use', label = "the player has Molerat's voice" },
+  { re = 'voice: playing sound.voice.molerat\.esm.aaamoleratvoicetype.\S+ \([\d.]+ s\) \S+ line 0xFE', label = "a carried line plays from Molerat's voice folder" },
+]
+
+[[scenario]]
+name = "player-voice-nexus-creator"
+source = "owner 2026-11-06: the Nexus voices in the character creator's Voice row (docs/design/player-voices.md phase 5)"
+note = "the character-creator setup with the mod folder over the data (NVF_MOD_DIR): the character made a woman, the Voice row lists the human women by name (Cass, Delilah, Willow); two steps choose Delilah, whose preview plays from delilah.esp's voice folder; Done keeps her"
+areas = ["chargen", "menus", "audio"]
+paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/player_voice.rs", "engine/nvf-play/src/voice.rs"]
+requires = ["NVF_MOD_DIR"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "8.5:next:Sex,9:next:Voice,9.5:next:Voice,11:preview,13:done", NVF_PLAY_TEST_SHOTS = "10:creator_voice_delilah.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play"]
+run_seconds = 18
+order = [[
+  "creator: Voice Delilah (F)",
+  "creator: voice nexus.delilah",
+  { re = 'voice: preview nexus\.delilah: sound.voice.delilah\.esp.00delilahvoicetype.\S+ at speed 1\.00', label = "a preview line in Delilah's voice" },
+  { re = 'player voice: Delilah \(nexus\.delilah\)', label = "the game takes the voice" },
+  "creator: done (test aid NVF_PLAY_TEST_CREATOR)",
+]]
+
+[[scenario]]
+name = "player-voice-place-comment"
+source = "owner 2026-11-05/06: a voice comments on places Courier 6 would know (docs/design/player-voices.md phase 4)"
+note = "the player with Cass's voice (vanilla.cass) stands in Goodsprings, in no fight: Cass's set has her Goodsprings comments (VCassLocationGoodsprings, said in the original when the player is in VMapGoodspringsRegion), so within the first look the player says one of its first-person ones, at speed 0.95, and no second comment follows"
+areas = ["dialogue", "audio"]
+paths = ["crates/fnv-game/src/player_voice.rs", "engine/nvf-play/src/party_quips.rs", "engine/nvf-play/src/player_voice.rs"]
+requires = ["NVF_VOICE_SETS"]
+env = { NVF_PLAY_TEST_VOICE = "vanilla.cass", NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'player voice: Cass \(vanilla\.cass\): \d+ lines in use', label = "the player has Cass's voice" },
+  { re = 'player voice: in the place of [1-9]\d* comment', label = "the player is in Goodsprings' map region" },
+  { re = 'player voice: comment place \S+: "', label = "a place comment is said in Goodsprings" },
+  { re = 'voice: playing \S+femaleuniquecass.\S*vcassloca\S+ \([\d.]+ s\) \S+ line \S+ response \d+ at speed 0\.95', label = "it plays in Cass's voice at the set's speed" },
+]
+
+[[scenario]]
+name = "player-voice-companion-split"
+source = "owner 2026-11-05/06: with the voice's own companion following, the player and the companion share the lines 50/50 (docs/design/player-voices.md phase 3)"
+note = "the player with Raul's voice (vanilla.raul) next to Raul (RaulREF, BlackMountainPrison, as perk-teammate-attack-speed), who is made a teammate at 3 s and set on the player (god mode) at 5 s: of the player's combat lines about half are said by Raul himself in his own voice at speed 1, the rest by the player from Raul's set at 1.05. A fight with the companion stands in for a fight beside it: what counts is who says the player's line"
+areas = ["combat", "dialogue", "audio"]
+paths = ["crates/fnv-game/src/player_voice.rs", "crates/fnv-game/src/combat_lines.rs", "engine/nvf-play/src/party_quips.rs"]
+requires = ["NVF_VOICE_SETS"]
+env = { NVF_PLAY_TEST_VOICE = "vanilla.raul", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NEAR = "000E6105", NVF_PLAY_TEST_CONSOLE = "3:RaulREF.setplayerteammate 1;3.3:close", NVF_PLAY_TEST_SCRIPT = "5:combat:RaulREF:player" }
+args = ["--cell", "BlackMountainPrison", "--play", "--hour", "12", "--no-messages", "--npc-packages", "RaulREF"]
+run_seconds = 24
+expect = [
+  { re = 'player voice: Raul \(vanilla\.raul\): \d+ lines in use', label = "the player has Raul's voice" },
+  { re = '''player voice: the voice's companion takes the player's \S+ line''', label = "Raul says one of the player's lines himself" },
+  { re = 'voice: playing \S+uniqueraul\S+ \([\d.]+ s\) 0x00000014 line \S+ response \d+ at speed 1\.05', label = "the player says another from Raul's set at its speed" },
+]
+
+[[scenario]]
+name = "player-voice-ghoul-creator"
+source = "owner 2026-11-06: ghouls as a playable race (the Playable Ghoul mod), each offered only the voices of its race and sex (docs/design/player-voices.md §11)"
+note = "the character-creator setup with PlayableGhoul.esp loaded and NVF_MOD_DIR naming both the Playable Ghoul folder and the NVForever Player Voices folder (';' between, as MO2 lays both over the data): Ghoul is an Origin; as a ghoul man the Voice row offers the ghoul men (Deathblow, Mikey, Raul; Deathblow's and Mikey's lines carried in the voices mod, without their plugins); made a woman, the chosen voice goes and the row offers Beatrix; the hair tab steps a ghoul hair; Done keeps a Female Ghoul with Beatrix's voice"
+areas = ["chargen", "menus", "audio"]
+paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/creator/model.rs", "engine/nvf-play/src/player_voice.rs", "crates/fnv-game/src/player_voice.rs", "crates/fnv-vfs/src/lib.rs", "engine/nvforever/src/world.rs", "engine/nvf-assets/src/data.rs", "crates/fnv-actor/src/creator.rs"]
+requires = ["NVF_MOD_DIR"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "9:next:Origin,10.5:next:Voice,11:next:Voice,12:next:Sex,12.5:next:Voice,13:preview,14:tab:hair,14.5:next:Hair style,16:done", NVF_PLAY_TEST_SHOTS = "8.5:creator_human.png,11.5:creator_ghoul_male.png,13.5:creator_ghoul_female.png,15.5:creator_ghoul_hair.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--plugins", "FalloutNV.esm", "PlayableGhoul.esp"]
+run_seconds = 21
+order = [[
+  "creator: Origin Ghoul",
+  "creator: Voice Deathblow (M)",
+  { re = 'voice: preview nexus\.deathblow: sound.voice.deathblow - a slave companion\.esm.dddsdeathblowvoice.\S+', label = "Deathblow's line plays from the voices mod, his plugin not loaded" },
+  "creator: Voice Mikey (M)",
+  { re = 'player voice: Mikey \(nexus\.mikey\): 13 lines in use', label = "the next ghoul man's voice: Mikey" },
+  "creator: Sex Female",
+  { text = "creator: voice none", label = "a man's voice goes with the change of sex" },
+  "creator: Voice Beatrix (F)",
+  "creator: voice vanilla.beatrix",
+  "creator: done (test aid NVF_PLAY_TEST_CREATOR): Female Ghoul",
+]]
+expect = [
+  { re = 'creator: data: 5 races', label = "Ghoul is a playable race with the plugin" },
+]

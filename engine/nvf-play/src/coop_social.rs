@@ -86,6 +86,13 @@ pub struct Mate {
     pub yaw: f32,
     pub down: bool,
     pub lost: bool,
+    /// Its weapon (base FormID, 0: fists), its attacks so far (a counter), whether it
+    /// looks down its sights, and its eye's pitch: what it does, for the others' quips
+    /// (`crate::party_quips`).
+    pub weapon: u32,
+    pub attacks: u16,
+    pub sights: bool,
+    pub pitch: f32,
 }
 
 /// The co-op session as the wheel needs it.

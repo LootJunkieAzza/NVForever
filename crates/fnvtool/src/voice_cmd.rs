@@ -63,6 +63,82 @@ pub enum VoiceCmd {
         #[arg(long)]
         speaker: Option<String>,
     },
+    /// A player voice set drafted from the lines one actor says, each tagged with the
+    /// event it answers (fnv.voice.set_draft/1; nvforever.voice_set/1 with --out;
+    /// docs/design/player-voices.md). Combat lines with nothing but the speaker's identity
+    /// in their conditions are in use; place, quest and idle lines wait for review.
+    SetDraft {
+        #[command(flatten)]
+        a: crate::script_cmd::ScriptArgs,
+        /// The actor whose lines and voice the set takes (Editor ID or hex FormID).
+        #[arg(long)]
+        speaker: String,
+        /// The set's id (`vanilla.cass`).
+        #[arg(long)]
+        id: String,
+        /// The name the character creator shows.
+        #[arg(long)]
+        name: String,
+        /// female, male or other.
+        #[arg(long, default_value = "other")]
+        sex: String,
+        /// Playback speed (pitch moves with it).
+        #[arg(long, default_value_t = 1.0)]
+        rate: f32,
+        /// The speaker is a companion (the set names it as one).
+        #[arg(long)]
+        companion: bool,
+        /// Write the set here.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Print the lines' texts for the review instead of the set (game data: never
+        /// commit the output).
+        #[arg(long)]
+        text: bool,
+        /// Each line carries its sound's path and its subtitle, so the set works without
+        /// the speaker's plugin (a voiced follower mod's lines; only one-response lines).
+        #[arg(long)]
+        pack: bool,
+        /// Also every line with a file in the speaker's voice, whoever its conditions name:
+        /// the barks a generic voice type shares with everyone who has it (Beatrix
+        /// Russell's FemaleGenericGhoul). --pack does this too.
+        #[arg(long)]
+        voice_lines: bool,
+    },
+    /// A set's place comments found: each line of a topic whose Editor ID starts with one
+    /// of `--topic` becomes a `place` line in use, with the references whose script starts
+    /// that topic (`near`: trigger boxes) or else the cells and worldspaces its conditions
+    /// name (`inside`). Lines with neither are left as they were. A line that carries its
+    /// sound keeps only the cells and worldspaces of plugins other than its own (it is said
+    /// without the follower's plugin). Writes the set back.
+    SetPlaces {
+        #[command(flatten)]
+        a: crate::script_cmd::ScriptArgs,
+        /// The voice set file.
+        #[arg(long = "set")]
+        set: PathBuf,
+        /// A topic Editor ID prefix (repeat for more): `VCassLocation`, `RaulHooverDam`.
+        #[arg(long = "topic", required = true)]
+        topics: Vec<String>,
+        /// `TOPIC=EDID,EDID`: the cells, worldspaces or regions a topic is said in, where
+        /// no condition or trigger says it (a script that tests the player's region
+        /// before it starts the topic). Repeat for more.
+        #[arg(long = "place")]
+        places: Vec<String>,
+    },
+    /// Voice sets against the load order: every line in use resolves and has its file in
+    /// the set's voice (fnv.voice.set_check/1; fails otherwise).
+    SetCheck {
+        #[command(flatten)]
+        a: crate::script_cmd::ScriptArgs,
+        /// A voice set file (repeat for more).
+        #[arg(long = "set", required = true)]
+        sets: Vec<PathBuf>,
+        /// A folder whose loose files stand beside the data for lines that carry their
+        /// sound (the MO2 mod folder `NVForever Player Voices`).
+        #[arg(long)]
+        mod_dir: Option<PathBuf>,
+    },
     /// Loose `.lip` files decoded (fnv.voice.lip/1 each).
     LipFile {
         #[arg(required = true)]
@@ -92,6 +168,12 @@ pub fn run(cmd: VoiceCmd) -> anyhow::Result<Value> {
         VoiceCmd::Coverage { lo, lengths } => with_bank(&lo, |bank, _| Ok(fnv_voice::coverage::coverage(bank, lengths))),
         VoiceCmd::Lip { lo, path, info, response, speaker } => with_bank(&lo, |bank, lo| lip(bank, lo, path.as_deref(), info, response, speaker.as_deref())),
         VoiceCmd::LipCoverage { lo, lengths } => with_bank(&lo, |bank, _| Ok(fnv_voice::lip_coverage::lip_coverage(bank, lengths))),
+        VoiceCmd::SetDraft { a, speaker, id, name, sex, rate, companion, out, text, pack, voice_lines } => crate::voice_set_cmd::draft(
+            &a,
+            crate::voice_set_cmd::DraftArgs { speaker: &speaker, id: &id, name: &name, sex: &sex, rate, companion, out: out.as_deref(), text, pack, voice_lines },
+        ),
+        VoiceCmd::SetPlaces { a, set, topics, places } => crate::voice_set_cmd::places(&a, &set, &topics, &places),
+        VoiceCmd::SetCheck { a, sets, mod_dir } => crate::voice_set_cmd::check(&a, &sets, mod_dir.as_deref()),
         VoiceCmd::LipFile { files } => {
             let rows: Vec<Value> = files
                 .iter()
