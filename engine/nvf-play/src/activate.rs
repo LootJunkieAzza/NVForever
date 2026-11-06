@@ -389,6 +389,20 @@ fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mu
     if fighting_player || g.would_attack(r, FormId::PLAYER_REF) {
         return Action::Name;
     }
+    // A co-op guest talks only to trade, to play and to change chips at a cashier
+    // (`fnv_game::Game::guest_lines`).
+    if g.coop_guest {
+        let now = g.time;
+        let talks = match talkers.get(&id) {
+            Some(&(t, at)) if (now - at).abs() < TALKER_SECONDS => t,
+            _ => {
+                let t = g.guest_can_talk(r);
+                talkers.insert(id, (t, now));
+                t
+            }
+        };
+        return if talks { Action::Talk } else { Action::Name };
+    }
     // Sneaking, the player picks pockets instead (`crate::pickpocket`); one that caught
     // the player before still shows Steal and says so on E.
     if g.is_sneaking(FormId::PLAYER_REF) && g.pickpocket_refusal(r) != Some(fnv_game::pickpocket::Refusal::NotAllowed) {

@@ -57,7 +57,7 @@
 //!   legs for limb hits; `aimnpc=<share>@<n>` at that height over body part `n`'s centre,
 //!   e.g. the forehead of a leaning NPC whose head is off the body's middle), `aimpart=<n>` (at the nearest NPC's body part `n`, its index in
 //!   the NPC's BPTD, step C8), `aimref=<FormID hex>` (at the collision body of a placed
-//!   object, e.g. a bottle to shoot), `equip=<FormID hex>` (give one unless carried and
+//!   object, e.g. a bottle to shoot, or at a placed actor's aim point), `equip=<FormID hex>` (give one unless carried and
 //!   equip it, as `NVF_PLAY_TEST_EQUIP`) and `condition=<percent>` (set the condition of
 //!   everything the player has equipped, e.g. a weapon about to break). `aimpart=254`
 //!   aims at the weapon the nearest NPC holds drawn (`hitvol::WEAPON_PART`). The `aim…`
@@ -632,10 +632,11 @@ fn aim_at_nearest_actor(phys: &PhysState, player: &mut Player, cross: Option<&Cr
     info!("test aid: aiming at actor {id:08X} ({:.0} units away{line})", d2(c).sqrt());
 }
 
-/// Aim at the collision body of a placed object (its first body's centre of mass).
+/// Aim at the collision body of a placed object (its first body's centre of mass), else
+/// at the aim point of the actor it is (`PhysWorld::actor_aim_point`).
 fn aim_at_ref(phys: &PhysState, player: &mut Player, cross: Option<&Crosshair>, id: u32) {
-    let Some(c) = phys.world.ref_center(id) else {
-        warn!("test aid: aimref: {id:08X} has no collision body");
+    let Some(c) = phys.world.ref_center(id).or_else(|| phys.world.actor_aim_point(id)) else {
+        warn!("test aid: aimref: {id:08X} has no collision body and is no actor with a hit volume");
         return;
     };
     let eye = player.eye();

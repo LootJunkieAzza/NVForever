@@ -151,6 +151,7 @@ pub mod package;
 pub mod perks;
 pub mod pickpocket;
 pub mod poker;
+pub mod pool;
 pub mod provocation;
 pub mod revision;
 pub mod quest;

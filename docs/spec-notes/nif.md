@@ -504,6 +504,25 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   lantern's wall brighter, but Doc Mitchell's living room −0.04, the saloon up to −0.15
   with clipping). The lantern's wall still lacks the original's saturated yellow; the
   weather grade's tint (world.md §6, adapter tint amount) is the open lead.
+  **Since the display clips** (2026-11-05): from 2026-10-24 the main view shows display
+  values clipped per channel in Tony McMapface's place (world.md §8, lights.rs
+  `GAME_CLIP`), which is what the rule above imitated, but the inverse stayed in. Under
+  clipping it raised every channel above about 0.55 past white: HotM's Ultra-Luxe
+  starburst sign by the Vault 21 gift shop (`nv_ul_neonsign01.nif`, lit tubes on the
+  white `NV_UL_Decor02_G.dds`, emissive (5, 250, 57) × 3 and (192, 4, 220) × 2), with two
+  VaultGreen lights 250 units off, burned white at night and at noon, and its twins higher
+  up, with less light on them, showed cyan [observed: headless frames,
+  strip-neon-white]. The cause is the light falling on the surface (white texture × the
+  street lights) going through the inverse with the emitted light. Now, where the display
+  clips, only the emitted light goes through it, channel by channel, and the lit colour
+  is added as it is; the old rule stays where the view keeps Tony McMapface
+  (`NVF_TONEMAP=tony`, which nvforever fog.rs passes in the fog's `bi.z`). Leaving the
+  inverse out altogether was tried: the sign was right, but the Tropicana's MOTEL and La
+  Concha tubes, a faint emissive tint (about 0.44 × the Strip's night Emissive Mult) on a
+  lit texture, lost the light glow their hot channels gave them (owner: "you removed the
+  lights on the motel sign"). With the rule here the Tropicana, Mick & Ralph's and the
+  Prospector Saloon match the old frames (mean difference under 0.3/255) and the sign
+  shows green and magenta tubes at noon, cyan and magenta at night like its twins.
 - **Soft intersections of small shapes** (2026-10-23). Dead Money's lantern glow
   (`SconceON:4` above) is three crossed octagonal discs, 58 units across, through the
   centre of the 14-unit glass box, vertex alpha 0.93 at the centre and 0 at the rim
@@ -1143,6 +1162,18 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   is 0.25 or more and drop fainter fragments [engineering choice; whether the game's
   hair writes depth is not known: the file has no NiZBufferProperty, and the Z-buffer
   test flag (bit 31) above says nothing of writing]. Smoke check `hair-under-fire`.
+- **Depth of lit blended shapes** (2026-11-05): BSShaderFlags2 bit 0 is "ZBuffer_Write"
+  [documented: nif.xml]. Of the visible lit (BSShaderPPLightingProperty) shapes blended
+  SRC_ALPHA / INV_SRC_ALPHA without a test of 64 or more, 1,254 set it and 77 do not
+  (B-29 propeller blades, a grave lantern's glass, the Tesla cannon's glass); glass,
+  windows, drinking glasses and the magazine vending machine (`vendmachmag.nif`) set it
+  [observed: `crates/fnv-nif/examples/zwrite_survey.rs` over `Fallout - Meshes.bsa` and
+  `Update.bsa`]. Such a shape now writes depth where its alpha is above 1/255
+  (`nif_spawn::BLEND_DEPTH_CUT`) [hypothesis: the renderers honour the flag]. Without it
+  the vending machine (texture alpha about 253/255) was covered by every glow and haze
+  drawn after it and looked pink and see-through from a few metres. Unlit blended shapes
+  (glows, dust, smoke; 1,277 set the flag, 1,259 do not) keep writing none: one glow
+  hiding another by draw order is the larger risk there. Hair keeps its own cut above.
 - **Hair models are cut-outs** (2026-11-03, #1454): the HAIR record's model is drawn
   alpha-tested, solid where its alpha is 0.25 or more and absent below (soft edges in a
   multisampled view), not blended; beards and brows (head parts with the hair shader)

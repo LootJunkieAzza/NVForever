@@ -8,7 +8,12 @@
 //! caps added to the player) and gives the gains around a completion to that quest: the
 //! ones of the last [`BEFORE`] frames (a dialogue result script that pays before it sets
 //! the completing stage), and the ones of the next [`AFTER`] frames (a quest script that
-//! pays on its next run) [design]. The engine takes the rewards that are due
+//! pays on its next run) [design]. Gains a result script of a quest gives (its stages',
+//! its dialogue lines') are that quest's and wait for its completion however long it
+//! takes: Sunny Smiles pays Back in the Saddle's caps in the end script of a VCG02 line
+//! and the quest completes some seconds later, after the next lines [observed: a co-op
+//! run 2026-11-05, caps paid 5 s before VCG02 completed; FalloutNV.esm INFO 0x0010B3DA's
+//! end script `Player.AddItem Caps001 50`] [design]. The engine takes the rewards that are due
 //! ([`RewardLedger::due`]) and sends them to the guests, which take them with
 //! [`Game::take_coop_reward`]. Item rewards stay the host's: they are for a later
 //! "synced progression" option (owner, 2026-11-04).
@@ -22,6 +27,9 @@ pub const BEFORE: u64 = 30;
 /// Gains this many frames after a completion are its reward too (about a second); the
 /// reward is due then.
 pub const AFTER: u64 = 60;
+
+/// Gains held for quests to complete kept at most (the oldest go first).
+const HELD_MAX: usize = 256;
 
 /// The caps item (`Caps001`).
 pub const CAPS: FormId = FormId(0xF);
@@ -51,6 +59,11 @@ pub struct RewardLedger {
     recent: VecDeque<(u64, f64, i32)>,
     /// Completed quests whose reward is still growing, with the frame it is due.
     open: Vec<(QuestReward, u64)>,
+    /// The quest whose result script runs now ([`RewardLedger::paying`]).
+    paying: Option<FormId>,
+    /// Gains a quest's result scripts gave, waiting for that quest's completion:
+    /// (frame, quest, XP, caps).
+    held: Vec<(u64, FormId, f64, i32)>,
 }
 
 impl RewardLedger {
@@ -66,19 +79,42 @@ impl RewardLedger {
             r.caps += caps;
             return;
         }
+        if let Some(q) = self.paying {
+            self.held.push((frame, q, xp, caps));
+            // Pay of quests that never complete (the freeform ones) is not kept for ever.
+            if self.held.len() > HELD_MAX {
+                self.held.remove(0);
+            }
+            return;
+        }
         self.recent.push_back((frame, xp, caps));
         while self.recent.front().is_some_and(|g| g.0 + BEFORE < frame) {
             self.recent.pop_front();
         }
     }
 
-    /// `quest` was completed in `frame`: it takes the gains of the last [`BEFORE`] frames,
-    /// and those of the next [`AFTER`].
+    /// A result script of `quest` starts running (`Some`), or the one that ran before it
+    /// is back (what this returned): its gains are held for `quest`'s completion.
+    pub fn paying(&mut self, quest: Option<FormId>) -> Option<FormId> {
+        std::mem::replace(&mut self.paying, quest)
+    }
+
+    /// `quest` was completed in `frame`: it takes what was held for it, the gains of the
+    /// last [`BEFORE`] frames (held for another quest or not: a result script may pay,
+    /// move one quest on and complete another), and those of the next [`AFTER`].
     pub fn completed(&mut self, frame: u64, quest: FormId) {
         if !self.on {
             return;
         }
         let mut r = QuestReward { quest, xp: 0.0, caps: 0 };
+        self.held.retain(|&(f, q, xp, caps)| {
+            let mine = q == quest || f + BEFORE >= frame;
+            if mine {
+                r.xp += xp;
+                r.caps += caps;
+            }
+            !mine
+        });
         for (f, xp, caps) in self.recent.drain(..) {
             if f + BEFORE >= frame {
                 r.xp += xp;
@@ -131,6 +167,50 @@ mod tests {
 
     fn ledger() -> RewardLedger {
         RewardLedger { on: true, ..RewardLedger::default() }
+    }
+
+    #[test]
+    fn pay_from_a_quests_line_waits_for_its_completion() {
+        let mut l = ledger();
+        // A line of Q1 pays 50 caps in its result scripts ...
+        let before = l.paying(Some(Q1));
+        l.gain(100, 0.0, 30);
+        l.gain(101, 0.0, 20);
+        l.paying(before);
+        // ... a line of Q2 pays the host alone, and Q1 completes 5 s later with its XP.
+        l.paying(Some(Q2));
+        l.gain(200, 0.0, 5);
+        l.paying(None);
+        l.gain(400, 50.0, 0);
+        l.completed(400, Q1);
+        assert_eq!(l.due(400 + AFTER), vec![QuestReward { quest: Q1, xp: 50.0, caps: 50 }]);
+        // Held caps are given once.
+        l.completed(500, Q1);
+        assert_eq!(l.due(500 + AFTER), vec![]);
+    }
+
+    #[test]
+    fn a_completion_takes_pay_held_for_another_quest_in_its_frame() {
+        let mut l = ledger();
+        // A line of Q2 pays and completes Q1.
+        l.paying(Some(Q2));
+        l.gain(100, 0.0, 25);
+        l.gain(100, 75.0, 0);
+        l.paying(None);
+        l.completed(100, Q1);
+        assert_eq!(l.due(100 + AFTER), vec![QuestReward { quest: Q1, xp: 75.0, caps: 25 }]);
+        l.completed(300, Q2);
+        assert_eq!(l.due(300 + AFTER), vec![]);
+    }
+
+    #[test]
+    fn a_gain_outside_the_quests_scripts_is_not_held() {
+        let mut l = ledger();
+        l.paying(Some(Q1));
+        l.paying(None);
+        l.gain(101, 0.0, 40);
+        l.completed(400, Q1);
+        assert_eq!(l.due(400 + AFTER), vec![]);
     }
 
     #[test]

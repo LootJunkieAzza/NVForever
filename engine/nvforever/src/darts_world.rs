@@ -7,27 +7,27 @@
 //! - **The stage** [design: owner 2026-11-04]: the camera stands fixed behind the throw
 //!   line (`nvf_play::minigames::EYE`) and the player's own body is seen in third person,
 //!   the weapon put away. The player whose turn it is steps up to the line
-//!   (`minigames::UP`), the other waits back from it (`WAIT`); each throw plays the body's
-//!   throw ([`THROW_CLIP`]), on the player's puppet in the others' games too
-//!   (`AnimCue::GAME`). The AI opponent has no body: its darts leave from the line.
-//! - **The hand** ([`HAND`]): the thrower's at the line, the dart pointing at the aim.
-//!   Holding the button draws it back ([`PULL`]); letting go throws it.
+//!   (`minigames::UP`), the other waits back from it (`WAIT`).
+//! - **The throwers' arms** (`darts_arm.rs`): posed for each throw, the player's and the
+//!   opponent's alike; each held dart is drawn in its thrower's hand and flies from where
+//!   the hand was when it let go.
+//! - **The opponent** (`nvf_play::darts_foes`): one of the board's people, held where the
+//!   game walks it (`Residents::hold_pose`) and let go after the match.
+//! - **The hand** ([`HAND`]): where a held dart is drawn when its thrower's hand is not
+//!   known (no body drawn), the dart pointing at the aim. Holding the button draws it
+//!   back ([`PULL`]); letting go throws it.
 //! - **The flight**: [`fnv_game::darts::FLIGHT`] seconds from the hand of whoever is at
 //!   the line to the landing point on an arc [`ARC`] high, the dart turned along its way.
 //! - **Watchers**: a co-op player near a board another player is throwing at sees that
 //!   board's darts too (its view's darts this turn, `nvf_play::coop_tables::DartsView`).
 
-use crate::idles::PlayerIdles;
+use crate::darts_arm::Hands;
 use crate::world::WorldRoot;
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use fnv_actor::idle_play::{IdleKeys, IdlePlay};
 use fnv_game::darts;
-use fnv_game::idles::IdleSource;
 use fnv_sim::FormId;
-use nvf_assets::actor::{ActorCtx, ActorParts};
 use nvf_assets::model::{ModelCtx, PreparedModel};
-use nvf_coop::net::AnimCue;
 use nvf_play::control::{PlayerControl, Pov};
 use nvf_play::coop_tables::{game, DartsView, Tables};
 use nvf_play::minigames::{BoardFrame, DartsScreen, Page, FACE_Y};
@@ -38,9 +38,6 @@ const DART: &str = "meshes\\minigames\\darts\\practicedart.nif";
 /// Where the thrower at the line holds the dart, board units in the board's frame: right
 /// of and in front of the body at `minigames::UP`, a little under the bull [design].
 pub const HAND: [f32; 3] = [-6.0, -60.0, -4.0];
-/// The body's throw: the game's one-handed grenade throw [design: the nearest clip the
-/// game has; observed: the file in Fallout - Meshes.bsa].
-pub const THROW_CLIP: &str = "meshes\\characters\\_male\\1gtattackthrow.kf";
 /// How far a held throw draws the dart back, board units, at full draw [design].
 pub const PULL: f32 = 3.5;
 /// A stuck dart's way into the board: its tip a little down, its flights up, as darts
@@ -68,58 +65,77 @@ impl Plugin for DartsWorldPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<DartModels>()
             .init_resource::<Stage>()
+            .init_resource::<Hands>()
+            .init_resource::<crate::darts_arm::Watching>()
             .add_systems(Update, stage.before(nvf_play::player::BodySet).before(crate::idles::drive))
-            .add_systems(PostUpdate, place.before(bevy::transform::TransformSystems::Propagate))
+            .add_systems(Update, opponent.after(nvf_play::PlaySet::Ui))
+            .add_systems(PostUpdate, (crate::darts_arm::arms, place).chain().before(bevy::transform::TransformSystems::Propagate))
             .add_systems(Last, report);
     }
 }
 
-/// The view and the body while a darts game is open: what the player had before, the
-/// throws played.
+/// The view while a darts game is open: what the player had before.
 #[derive(Resource, Default)]
 struct Stage {
     pov: Option<Pov>,
-    thrown: u32,
-    clip_missing: bool,
 }
 
-/// Third person with the weapon away while a game at a board is open; the body's throw
-/// for each of this player's throws, sent to the others for its puppet.
-fn stage(
-    mut st: ResMut<Stage>,
-    screen: Res<DartsScreen>,
-    mut control: ResMut<PlayerControl>,
-    mut pi: ResMut<PlayerIdles>,
-    (mut parts, mut models): (ResMut<ActorParts>, ModelCtx),
-    mut send: MessageWriter<crate::consume_anims::SendAnim>,
-) {
-    let Some(d) = screen.0.as_ref().filter(|d| d.frame.is_some()) else {
+/// Third person with the weapon away while a game at a board is open.
+fn stage(mut st: ResMut<Stage>, screen: Res<DartsScreen>, mut control: ResMut<PlayerControl>) {
+    if screen.0.as_ref().filter(|d| d.frame.is_some()).is_none() {
         if let Some(pov) = st.pov.take() {
             control.pov = pov;
             info!("darts stage: the view is the player's again");
         }
         return;
-    };
+    }
     if st.pov.is_none() {
         st.pov = Some(control.pov);
-        st.thrown = d.thrown;
         info!("darts stage: third person behind the line, the weapon away");
     }
     control.pov = Pov::Third;
     control.weapon_out = false;
-    if d.thrown == st.thrown {
-        return;
-    }
-    st.thrown = d.thrown;
-    let Some(clip) = (ActorCtx { cache: &mut parts, models: &mut models }).clip(THROW_CLIP) else {
-        if !std::mem::replace(&mut st.clip_missing, true) {
-            warn!("darts stage: {THROW_CLIP} does not load; the throws play no animation");
+}
+
+/// The darts opponent's body: held where the game walks it and let go after (a new one,
+/// or none, lets the last go). Its weapon is put out of sight meanwhile: a Boomer's
+/// launcher on its back filled the view from behind the line (owner 2026-11-05).
+fn opponent(
+    opp: Res<nvf_play::darts_foes::DartsOpponent>,
+    mut residents: Option<ResMut<crate::residents::Residents>>,
+    mut held: Local<Option<(u32, Option<Entity>)>>,
+    rigs: Query<&crate::limbs::ActorRig>,
+    mut shown: Query<&mut Visibility>,
+) {
+    let o = opp.0.as_ref().filter(|o| !o.gone);
+    if let Some((id, weapon)) = *held {
+        if o.is_none_or(|o| o.actor.0 != id) {
+            if let Some(r) = residents.as_deref_mut() {
+                r.release_pose(id);
+            }
+            if let Some(mut v) = weapon.and_then(|w| shown.get_mut(w).ok()) {
+                *v = Visibility::Inherited;
+            }
+            info!("darts opponent: 0x{id:08X} is its AI's again");
+            *held = None;
         }
-        return;
-    };
-    let play = IdlePlay::new(IdleKeys::read(clip.start, clip.stop, &clip.text_keys), Some(1));
-    pi.third.start_clip(IdleSource::Script, clip, play);
-    send.write(crate::consume_anims::SendAnim(AnimCue { kind: AnimCue::GAME, style: 0, power_armor: false, item: 0, edid: "darts".into(), clip: THROW_CLIP.into() }));
+    }
+    let Some(o) = o else { return };
+    if let Some(r) = residents.as_deref_mut() {
+        r.hold_pose(o.actor.0, crate::residents::RemotePose { feet: o.feet, heading: o.heading, moving: o.moving });
+    }
+    if held.is_none() {
+        info!("darts opponent: 0x{:08X} ({}) is walked by the game", o.actor.0, o.name);
+        *held = Some((o.actor.0, None));
+    }
+    // Its weapon's node, hidden once its body is drawn.
+    if let Some((_, weapon @ None)) = held.as_mut() {
+        let node = rigs.iter().find(|r| r.reference == o.actor.0).and_then(crate::darts_arm::weapon_node);
+        if let Some(mut v) = node.and_then(|n| shown.get_mut(n).ok()) {
+            *v = Visibility::Hidden;
+            *weapon = node;
+        }
+    }
 }
 
 /// A dart square to the board at a local point, pointing along `dir` (local).
@@ -149,6 +165,7 @@ pub fn in_hand(aim: (f32, f32), draw: f32, bob: f32) -> ([f32; 3], Vec3) {
 fn place(
     mut commands: Commands,
     mut st: ResMut<DartModels>,
+    (hands, opp, watching, time): (Res<Hands>, Res<nvf_play::darts_foes::DartsOpponent>, Res<crate::darts_arm::Watching>, Res<Time>),
     mut models: ModelCtx,
     screen: Res<DartsScreen>,
     tables: Option<Res<Tables>>,
@@ -164,9 +181,17 @@ fn place(
                 want.push(dart_at(&f, [*x, FACE_Y, *z], STUCK));
             }
             // Whoever throws stands at the line.
-            for (since, (x, z), _) in &d.flights {
-                let (at, dir) = in_flight(HAND, [*x, FACE_Y, *z], (now - since) / darts::FLIGHT);
+            for (since, (x, z), side) in &d.flights {
+                let who = usize::from(*side != d.mine());
+                let from = hands.left(*since, who).unwrap_or(HAND);
+                let (at, dir) = in_flight(from, [*x, FACE_Y, *z], (now - since) / darts::FLIGHT);
                 want.push(dart_at(&f, at, dir));
+            }
+            // The opponent's next dart, in its hand at the line.
+            let at_line = opp.0.as_ref().is_some_and(|o| o.board == d.board && o.at_line()) && d.m.up == 1 && d.m.winner.is_none();
+            let to_throw = !d.flights.iter().any(|fl| fl.2 == 1) && d.m.sides.get(1).is_some_and(|s| s.darts.len() < usize::from(darts::DARTS_PER_TURN));
+            if let (true, true, Some(at)) = (at_line, to_throw, hands.now[1]) {
+                want.push(dart_at(&f, at, Vec3::Y));
             }
             let mine_in_air = d.flights.iter().any(|fl| fl.2 == d.mine());
             let thrown = d.m.sides.get(d.mine()).map_or(0, |s| s.darts.len());
@@ -174,6 +199,11 @@ fn place(
                 let aim = d.press.map_or_else(|| d.sway_aim(now), |p| p.locked);
                 let draw = d.press.map_or(0.0, |p| ((now - p.since) / DRAW).clamp(0.0, 1.0));
                 let (at, dir) = in_hand(aim, draw, 0.12 * (now * 2.1).sin());
+                // In the hand when the body is drawn, pointing at the aim.
+                let (at, dir) = match hands.now[0] {
+                    Some(h) => (h, Vec3::new(aim.0 - h[0], FACE_Y - h[1], aim.1 - h[2])),
+                    None => (at, dir),
+                };
                 want.push(dart_at(&f, at, dir));
             }
         }
@@ -192,6 +222,22 @@ fn place(
             let f = BoardFrame::of(pos, rot, placed.and_then(|r| r.scale));
             for (x, z) in &v.stuck {
                 want.push(dart_at(&f, [*x, FACE_Y, *z], STUCK));
+            }
+            // As the thrower's game draws them: each dart in the air flying from where the
+            // hand let it go, and the next in the hand at the line.
+            let now = time.elapsed_secs();
+            let hand = watching.0.get(&board);
+            for (age, x, z) in &v.flights {
+                let flown = f32::from(*age) / 100.0;
+                let from = hand.and_then(|h| h.left_near(now - flown)).unwrap_or(HAND);
+                let (at, dir) = in_flight(from, [*x, FACE_Y, *z], flown / darts::FLIGHT);
+                want.push(dart_at(&f, at, dir));
+            }
+            let left = v.sides.get(usize::from(v.up)).is_some_and(|s| s.2.len() < usize::from(darts::DARTS_PER_TURN));
+            if let (Some(h), true) = (hand.and_then(|h| h.now), v.winner.is_none() && !v.turn_over && v.flights.is_empty() && left) {
+                // The owner's dart points at its aim, the opponent's straight on.
+                let dir = if v.up == 0 { Vec3::new(v.aim.0 - h[0], FACE_Y - h[1], v.aim.1 - h[2]) } else { Vec3::Y };
+                want.push(dart_at(&f, h, dir));
             }
         }
     }

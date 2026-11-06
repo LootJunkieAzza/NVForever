@@ -56,7 +56,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 pub const MAGIC: [u8; 4] = *b"NVCO";
-pub const VERSION: u8 = 14;
+pub const VERSION: u8 = 15;
 pub const MAX_GUESTS: usize = 3;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -133,6 +133,10 @@ pub const QUEST_EVERY: Duration = Duration::from_secs(2);
 pub const LINES_EVERY: Duration = Duration::from_millis(250);
 /// Lines sent at most.
 pub const LINES_MAX: usize = 24;
+/// How often the host sends a page of its world's presence ([`Msg::Presence`]).
+pub const PRESENCE_EVERY: Duration = Duration::from_millis(200);
+/// References one presence page carries at most (5 bytes each: 1000 bytes).
+pub const PRESENCE_PAGE: usize = 200;
 /// How often the host sends its game clock.
 pub const CLOCK_EVERY: Duration = Duration::from_secs(2);
 /// Objectives a [`QuestView`] carries at most.
@@ -308,6 +312,10 @@ enum Msg {
     Clock(ClockView),
     /// The lines the host's NPCs are saying now (the newest `seq` wins).
     Lines { seq: u32, lines: Vec<LineView> },
+    /// Page `page` of `pages` of the host's world's presence: each placed reference whose
+    /// own enabled flag differs from the one its plugin gives it, with the flag. `serial`
+    /// changes when the list does; the pages go round, one at a time.
+    Presence { serial: u32, page: u16, pages: u16, refs: Vec<(u32, bool)> },
     /// Player `by` revived player `target` (who is down).
     Revive { target: u8, by: u8 },
     /// Player `id` at a minigame table: what it shows (a view, the newest wins) or an
@@ -456,6 +464,9 @@ pub enum Event {
     Clock(ClockView),
     /// The lines the host's NPCs are saying now, each time they come (guests only).
     Lines(Vec<LineView>),
+    /// A page of the host's world's presence, each time it comes (guests only;
+    /// [`Msg::Presence`]).
+    Presence { serial: u32, page: u16, pages: u16, refs: Vec<(u32, bool)> },
     /// Player `by` revived this player. It may come more than once.
     Revived { by: u8 },
     /// Player `id` at a table: a view (newest only; `game` [`TABLE_LEFT`]: it left), or
@@ -555,6 +566,12 @@ pub struct Session {
     last_lines: Option<(Instant, Vec<(u32, u32)>)>,
     lines_seq: u32,
     heard_lines: Option<u32>,
+    /// The host's world's presence ([`Msg::Presence`]), its serial, the next page to send
+    /// and when the last went.
+    presence: Vec<(u32, bool)>,
+    presence_serial: u32,
+    presence_page: usize,
+    last_presence: Option<Instant>,
     /// This player's table view, and when it last went.
     table: Option<TableView>,
     last_table: Option<Instant>,
@@ -599,7 +616,7 @@ impl Session {
 
     fn with(sock: UdpSocket, role: Role) -> std::io::Result<Self> {
         sock.set_nonblocking(true)?;
-        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), events: Vec::new() })
+        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, presence: Vec::new(), presence_serial: 0, presence_page: 0, last_presence: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), events: Vec::new() })
     }
 
     /// Also talk over Steam: a host is reached through it by a Steam code, a guest reaches
@@ -643,6 +660,16 @@ impl Session {
     pub fn set_lines(&mut self, mut lines: Vec<LineView>) {
         lines.truncate(LINES_MAX);
         self.lines = lines;
+    }
+
+    /// The host's world's presence now ([`Msg::Presence`]); [`Session::tick`] sends a page
+    /// of it every [`PRESENCE_EVERY`], from the first page again when it changed.
+    pub fn set_presence(&mut self, refs: Vec<(u32, bool)>) {
+        if refs != self.presence {
+            self.presence = refs;
+            self.presence_serial = self.presence_serial.wrapping_add(1);
+            self.presence_page = 0;
+        }
     }
 
     /// This player unlocked `reference` (a terminal: hacked): to the host, or from the host
@@ -945,6 +972,17 @@ impl Session {
                 self.last_clock = Some(now);
             }
         }
+        if self.is_host() && !self.peers.is_empty() && self.last_presence.is_none_or(|t| now - t >= PRESENCE_EVERY) {
+            let pages = self.presence.len().div_ceil(PRESENCE_PAGE).max(1);
+            let page = self.presence_page % pages;
+            let refs = self.presence.iter().skip(page * PRESENCE_PAGE).take(PRESENCE_PAGE).copied().collect();
+            let msg = Msg::Presence { serial: self.presence_serial, page: page as u16, pages: pages as u16, refs };
+            for addr in self.peers.iter().filter_map(|p| p.addr) {
+                self.sock_send(&msg, addr);
+            }
+            self.presence_page = (page + 1) % pages;
+            self.last_presence = Some(now);
+        }
         if self.is_host() {
             let said: Vec<(u32, u32)> = self.lines.iter().map(|l| (l.speaker, l.info)).collect();
             let due = match &self.last_lines {
@@ -1169,7 +1207,7 @@ impl Session {
                 }
                 self.events.push(Event::Progress { id, what });
             }
-            Msg::Welcome { .. } | Msg::Full | Msg::Who | Msg::Npcs { .. } | Msg::Quest(_) | Msg::Clock(_) | Msg::Lines { .. } => {}
+            Msg::Welcome { .. } | Msg::Full | Msg::Who | Msg::Npcs { .. } | Msg::Quest(_) | Msg::Clock(_) | Msg::Lines { .. } | Msg::Presence { .. } => {}
         }
     }
 
@@ -1287,6 +1325,7 @@ impl Session {
             }
             Msg::Unlock { reference, terminal } => self.events.push(Event::Unlocked { id: 0, reference, terminal }),
             Msg::Clock(c) => self.events.push(Event::Clock(c)),
+            Msg::Presence { serial, page, pages, refs } => self.events.push(Event::Presence { serial, page, pages, refs }),
             Msg::Lines { seq, lines } => {
                 if self.heard_lines.is_some_and(|l| !fresh(seq, l)) {
                     return;
@@ -1438,6 +1477,10 @@ impl Link {
 
     pub fn set_lines(&self, lines: Vec<LineView>) {
         self.with(|s| s.set_lines(lines));
+    }
+
+    pub fn set_presence(&self, refs: Vec<(u32, bool)>) {
+        self.with(|s| s.set_presence(refs));
     }
 
     pub fn set_quest(&self, quest: QuestView) {
@@ -1637,6 +1680,17 @@ fn encode(msg: &Msg) -> Vec<u8> {
                 b.extend_from_slice(&l.remaining.to_le_bytes());
                 b.push(l.flags);
                 b.extend_from_slice(&l.conversation.to_le_bytes());
+            }
+        }
+        Msg::Presence { serial, page, pages, refs } => {
+            b.push(19);
+            b.extend_from_slice(&serial.to_le_bytes());
+            b.extend_from_slice(&page.to_le_bytes());
+            b.extend_from_slice(&pages.to_le_bytes());
+            b.extend_from_slice(&(refs.len() as u16).to_le_bytes());
+            for (r, on) in refs {
+                b.extend_from_slice(&r.to_le_bytes());
+                b.push(u8::from(*on));
             }
         }
         Msg::Revive { target, by } => {
@@ -1840,6 +1894,17 @@ fn decode(b: &[u8]) -> Option<Msg> {
             }
             Msg::Lines { seq, lines }
         }
+        19 => {
+            let (serial, page, pages, n) = (r.u32()?, r.u16()?, r.u16()?, r.u16()? as usize);
+            if n > PRESENCE_PAGE || page >= pages {
+                return None;
+            }
+            let mut refs = Vec::with_capacity(n);
+            for _ in 0..n {
+                refs.push((r.u32()?, r.u8()? != 0));
+            }
+            Msg::Presence { serial, page, pages, refs }
+        }
         _ => return None,
     };
     r.0.is_empty().then_some(msg)
@@ -1896,6 +1961,8 @@ mod tests {
             Msg::Unlock { reference: 0x0001_2345, terminal: true },
             Msg::Clock(ClockView { year: 2281.0, month: 9.0, day: 19.0, hour: 13.25, days_passed: 6.05 }),
             Msg::Revive { target: 2, by: 0 },
+            Msg::Presence { serial: 7, page: 0, pages: 1, refs: Vec::new() },
+            Msg::Presence { serial: 8, page: 2, pages: 3, refs: vec![(0x0010_A202, true), (0x0016_8A92, false)] },
             Msg::Lines { seq: 3, lines: Vec::new() },
             Msg::Lines {
                 seq: u32::MAX,
@@ -2073,6 +2140,37 @@ mod tests {
             ticks > 40
         });
         assert!(!quiet[1].iter().any(|e| matches!(e, Event::Lines(_))), "{:?}", quiet[1]);
+    }
+
+    /// The host's world's presence reaches the guests page by page, round and round, a
+    /// new serial when it changes; an empty one goes too (a guest then knows the host
+    /// changed nothing).
+    #[test]
+    fn the_hosts_presence_reaches_the_guests_page_by_page() {
+        type Page = (u16, u16, Vec<(u32, bool)>);
+        let (mut host, mut guests, _) = host_and(1);
+        let a = &mut guests[0];
+        let mut clock = Instant::now();
+        let step = Duration::from_millis(20);
+        run(&mut [&mut host, a], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))));
+        let refs: Vec<(u32, bool)> = (0..PRESENCE_PAGE as u32 + 5).map(|i| (0x0010_0000 + i, i % 2 == 0)).collect();
+        host.set_presence(refs.clone());
+        let pages = |seen: &[Event], serial: u32| -> Vec<Page> {
+            seen.iter()
+                .filter_map(|e| match e {
+                    Event::Presence { serial: s, page, pages, refs } if *s == serial => Some((*page, *pages, refs.clone())),
+                    _ => None,
+                })
+                .collect()
+        };
+        let seen = run(&mut [&mut host, a], &mut clock, step, |seen| pages(&seen[1], 1).len() >= 3);
+        let got = pages(&seen[1], 1);
+        assert_eq!((got[0].0, got[0].1, got[1].0, got[2].0), (0, 2, 1, 0), "round and round");
+        assert_eq!([got[0].2.clone(), got[1].2.clone()].concat(), refs);
+        assert!(!seen[0].iter().any(|e| matches!(e, Event::Presence { .. })), "not to the host");
+        host.set_presence(Vec::new());
+        let seen = run(&mut [&mut host, a], &mut clock, step, |seen| !pages(&seen[1], 2).is_empty());
+        assert_eq!(pages(&seen[1], 2)[0], (0, 1, Vec::new()));
     }
 
     /// A guest's animation reaches the host and the other guest once each (it goes three

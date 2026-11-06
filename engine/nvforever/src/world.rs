@@ -650,7 +650,7 @@ fn cell_models(lo: &LoadOrder, schema: &EsmSchema, refs: &[u32], hide: &[String]
     let mut out = Vec::new();
     for &r in refs {
         let Some(p) = placement(lo, schema, r) else { continue };
-        if p.imposter || !enabled(lo, schema, &p, 0) {
+        if p.imposter || p.volume || !enabled(lo, schema, &p, 0) {
             continue;
         }
         let Some(base) = p.base.and_then(|b| base_object(lo, schema, b)) else { continue };
@@ -1023,6 +1023,13 @@ fn spawn_ref(
         *stats.skipped_types.entry(t).or_default() += 1;
         return;
     };
+    // A placed volume (trigger box or sphere): its base's model is not drawn there
+    // (`Placement::volume`, cells-refs.md §6).
+    if p.volume {
+        stats.refs_skipped_type += 1;
+        *stats.skipped_types.entry("volume".into()).or_default() += 1;
+        return;
+    }
     if &base.sig == b"LIGH"
         && crate::lights::spawn_light(
             commands,
