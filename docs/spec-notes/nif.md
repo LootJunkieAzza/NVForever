@@ -511,10 +511,18 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   starburst sign by the Vault 21 gift shop (`nv_ul_neonsign01.nif`, lit tubes on the
   white `NV_UL_Decor02_G.dds`, emissive (5, 250, 57) × 3 and (192, 4, 220) × 2), with two
   VaultGreen lights 250 units off, burned white at night and at noon, and its twins higher
-  up, with less light on them, showed cyan for green [observed: headless frames,
-  strip-neon-white]. Now the inverse applies only where the view keeps Tony McMapface
-  (`NVF_TONEMAP=tony`, which nvforever fog.rs passes in the fog's `bi.z`); otherwise the
-  lit colour plus the emitted light is left to the screen's clip.
+  up, with less light on them, showed cyan [observed: headless frames,
+  strip-neon-white]. The cause is the light falling on the surface (white texture × the
+  street lights) going through the inverse with the emitted light. Now, where the display
+  clips, only the emitted light goes through it, channel by channel, and the lit colour
+  is added as it is; the old rule stays where the view keeps Tony McMapface
+  (`NVF_TONEMAP=tony`, which nvforever fog.rs passes in the fog's `bi.z`). Leaving the
+  inverse out altogether was tried: the sign was right, but the Tropicana's MOTEL and La
+  Concha tubes, a faint emissive tint (about 0.44 × the Strip's night Emissive Mult) on a
+  lit texture, lost the light glow their hot channels gave them (owner: "you removed the
+  lights on the motel sign"). With the rule here the Tropicana, Mick & Ralph's and the
+  Prospector Saloon match the old frames (mean difference under 0.3/255) and the sign
+  shows green and magenta tubes at noon, cyan and magenta at night like its twins.
 - **Soft intersections of small shapes** (2026-10-23). Dead Money's lantern glow
   (`SconceON:4` above) is three crossed octagonal discs, 58 units across, through the
   centre of the 14-unit glass box, vertex alpha 0.93 at the centre and 0 at the rim
