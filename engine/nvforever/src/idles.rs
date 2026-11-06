@@ -576,9 +576,10 @@ fn load(ctx: &mut ActorCtx, game: &Game, idle: FormId, rng: &mut Rng) -> Result<
     Ok((clip, IdlePlay::new(keys, passes)))
 }
 
-/// The KF file an idle plays, as its record names it.
+/// The KF file an idle plays: as its record names it, or as a script set it
+/// (`Game::idle_model`).
 fn clip_path(game: &Game, idle: FormId) -> Option<String> {
-    Some(meshes_path(game.data.idles.get(&idle)?.model.as_deref()?))
+    Some(meshes_path(&game.idle_model(idle)?))
 }
 
 /// Whether the clip of `idle` is loaded (or known not to load), so starting it reads no
@@ -598,7 +599,8 @@ fn describe(game: &Game, idle: FormId, play: &IdlePlay) -> String {
     let k = play.keys;
     let loops = if play.endless() { ", looping until replaced" } else { "" };
     let range = k.loop_range.map_or(String::new(), |(a, b)| format!(", loop {a:.2}-{b:.2} s"));
-    format!("{} ({:.2} s{range}{loops}, fades {:.2} / {:.2} s)", game.data.name(idle), k.length, k.blend_in, k.blend_out)
+    let file = clip_path(game, idle).unwrap_or_default();
+    format!("{} ({file}, {:.2} s{range}{loops}, fades {:.2} / {:.2} s)", game.data.name(idle), k.length, k.blend_in, k.blend_out)
 }
 
 /// What [`drive`] reads and writes of a drawn actor.
