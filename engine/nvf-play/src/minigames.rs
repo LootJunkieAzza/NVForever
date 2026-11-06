@@ -474,6 +474,14 @@ fn start_race(f: &mut Fillet, bet: u32, seed: u64, foe: u8, now: f32) {
 fn start_match(d: &mut Darts, foe: Foe, now: f32) {
     d.foe = foe;
     d.m = Match::new(if foe == Foe::Practice { 1 } else { 2 });
+    // Test aid `NVF_PLAY_TEST_DARTS_START=n`: every side starts on n instead of 301, to
+    // reach a checkout or a bust in a short run.
+    if let Some(n) = std::env::var("NVF_PLAY_TEST_DARTS_START").ok().and_then(|v| v.trim().parse().ok()) {
+        for s in &mut d.m.sides {
+            (s.score, s.turn_start) = (n, n);
+        }
+        info!("darts: test aid: every side starts on {n}");
+    }
     d.page = Page::Play;
     d.turn_since = now;
     d.stuck.clear();

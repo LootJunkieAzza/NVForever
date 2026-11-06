@@ -31,7 +31,7 @@ use fnv_sim::FormId;
 use nvf_assets::model::{ModelCtx, PreparedModel};
 use nvf_play::control::{PlayerControl, Pov};
 use nvf_play::coop_tables::{game, DartsView, Tables};
-use nvf_play::minigames::{BoardFrame, DartsScreen, Page, FACE_Y};
+use nvf_play::minigames::{first_person, BoardFrame, DartsScreen, Page, FACE_Y, OWN_EYE};
 use nvf_play::sim::SimState;
 use std::sync::Arc;
 
@@ -39,6 +39,11 @@ const DART: &str = "meshes\\minigames\\darts\\practicedart.nif";
 /// Where the thrower at the line holds the dart, board units in the board's frame: right
 /// of and in front of the body at `minigames::UP`, a little under the bull [design].
 pub const HAND: [f32; 3] = [-6.0, -60.0, -4.0];
+/// Where this player's darts leave the hand in first person (the player's own turn),
+/// board units in the board's frame: in front of `minigames::OWN_EYE`, low and to the
+/// right. The held dart itself is not drawn there [design: owner 2026-11-05; the body's
+/// hand is under the bottom of that view, and the model is 9.3 long behind its tip].
+pub const OWN_HAND: [f32; 3] = [OWN_EYE[0] + 7.0, OWN_EYE[1] + 24.0, OWN_EYE[2] - 6.0];
 /// How far a held throw draws the dart back, board units, at full draw [design].
 pub const PULL: f32 = 3.5;
 /// A stuck dart's way into the board: its tip a little down, its flights up, as darts
@@ -162,8 +167,8 @@ pub fn in_flight(from: [f32; 3], to: [f32; 3], t: f32) -> ([f32; 3], Vec3) {
 }
 
 /// The held dart: in the hand, drawn back by `draw` (0..1), pointing at the aim.
-pub fn in_hand(aim: (f32, f32), draw: f32, bob: f32) -> ([f32; 3], Vec3) {
-    let at = [HAND[0], HAND[1] - PULL * draw, HAND[2] + 0.4 * draw + bob];
+pub fn in_hand(hand: [f32; 3], aim: (f32, f32), draw: f32, bob: f32) -> ([f32; 3], Vec3) {
+    let at = [hand[0], hand[1] - PULL * draw, hand[2] + 0.4 * draw + bob];
     let dir = Vec3::new(aim.0 - at[0], FACE_Y - at[1], aim.1 - at[2]);
     (at, dir)
 }
@@ -184,13 +189,15 @@ fn place(
     if let Some(d) = screen.0.as_ref() {
         if let (Some(f), Page::Play) = (d.frame, d.page) {
             let now = d.now;
+            let own = first_person(d);
             for (x, z) in &d.stuck {
                 want.push(dart_at(&f, [*x, FACE_Y, *z], STUCK));
             }
             // Whoever throws stands at the line.
             for (since, (x, z), side) in &d.flights {
                 let who = usize::from(*side != d.mine());
-                let from = hands.left(*since, who).unwrap_or(HAND);
+                // In first person this player's darts fly from the hand in view.
+                let from = if own && who == 0 { OWN_HAND } else { hands.left(*since, who).unwrap_or(HAND) };
                 let (at, dir) = in_flight(from, [*x, FACE_Y, *z], (now - since) / darts::FLIGHT);
                 want.push(dart_at(&f, at, dir));
             }
@@ -202,14 +209,16 @@ fn place(
             }
             let mine_in_air = d.flights.iter().any(|fl| fl.2 == d.mine());
             let thrown = d.m.sides.get(d.mine()).map_or(0, |s| s.darts.len());
-            if d.my_turn() && !mine_in_air && thrown < usize::from(darts::DARTS_PER_TURN) {
+            // Not drawn in first person: the held dart stood in the view of the board, the
+            // reason for that view (owner 2026-11-05); it shows once it leaves the hand.
+            if !own && d.my_turn() && !mine_in_air && thrown < usize::from(darts::DARTS_PER_TURN) {
                 let aim = d.press.map_or_else(|| d.sway_aim(now), |p| p.locked);
                 let draw = d.press.map_or(0.0, |p| ((now - p.since) / DRAW).clamp(0.0, 1.0));
-                let (at, dir) = in_hand(aim, draw, 0.12 * (now * 2.1).sin());
+                let bob = 0.12 * (now * 2.1).sin();
                 // In the hand when the body is drawn, pointing at the aim.
                 let (at, dir) = match hands.now[0] {
                     Some(h) => (h, Vec3::new(aim.0 - h[0], FACE_Y - h[1], aim.1 - h[2])),
-                    None => (at, dir),
+                    None => in_hand(HAND, aim, draw, bob),
                 };
                 want.push(dart_at(&f, at, dir));
             }
@@ -326,8 +335,8 @@ mod tests {
 
     #[test]
     fn a_held_throw_draws_the_dart_back() {
-        let (rest, _) = in_hand((0.0, 0.0), 0.0, 0.0);
-        let (drawn, dir) = in_hand((0.0, 0.0), 1.0, 0.0);
+        let (rest, _) = in_hand(HAND, (0.0, 0.0), 0.0, 0.0);
+        let (drawn, dir) = in_hand(HAND, (0.0, 0.0), 1.0, 0.0);
         assert!((rest[1] - drawn[1] - PULL).abs() < 1e-4);
         // Into the board, and across from the hand towards the aim at the centre.
         assert!(dir.y > 0.0 && dir.x * HAND[0] < 0.0);
