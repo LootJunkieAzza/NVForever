@@ -52,6 +52,26 @@ pub enum VfsError {
 /// (diagnostics only; see there).
 pub const ARCHIVE_ORDER_ENV: &str = "NVF_ARCHIVE_ORDER";
 
+/// Test aid: mod folders (separated by `;`) laid over the data as MO2 lays a mod's folder
+/// over it: their plugins open as if in Data ([`mod_dir_file`]), their archives mount
+/// with the plugins' ([`Vfs::archive_order`]), their loose files over everything
+/// ([`Vfs::add_loose_dir`], engine nvf-assets). Headless runs read the plain game Data,
+/// which NVForever never writes into.
+pub const MOD_DIR_ENV: &str = "NVF_MOD_DIR";
+
+/// The folders [`MOD_DIR_ENV`] names, in order (later ones win, as lower MO2 mods do).
+pub fn mod_dirs() -> Vec<PathBuf> {
+    std::env::var_os(MOD_DIR_ENV).map(|v| v.to_string_lossy().split(';').map(str::trim).filter(|d| !d.is_empty()).map(PathBuf::from).collect()).unwrap_or_default()
+}
+
+/// A file at the top of a [`MOD_DIR_ENV`] folder (a plugin, an archive), whatever its
+/// case; the last folder that has it wins.
+pub fn mod_dir_file(name: &str) -> Option<PathBuf> {
+    mod_dirs().iter().rev().find_map(|d| {
+        std::fs::read_dir(d).ok()?.filter_map(|e| e.ok()).find(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(name)).map(|e| e.path())
+    })
+}
+
 static ARCHIVE_LIST: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
 
 /// Set the run's base archive list (an `SArchiveList` from NVForever's own INI, or
@@ -162,6 +182,17 @@ impl Vfs {
             })
             .unwrap_or_default();
         let find = |name: &str| present.iter().find(|p| p.eq_ignore_ascii_case(name)).cloned();
+        // The mod folders' archives, by their absolute path (`data_dir.join` keeps it),
+        // matched by file name like the Data folder's ([`MOD_DIR_ENV`]).
+        let mut extra: Vec<(String, String)> = Vec::new();
+        for d in mod_dirs() {
+            for e in std::fs::read_dir(&d).into_iter().flatten().filter_map(|e| e.ok()) {
+                let n = e.file_name().to_string_lossy().into_owned();
+                if n.to_ascii_lowercase().ends_with(".bsa") {
+                    extra.push((n, std::path::absolute(e.path()).unwrap_or(e.path()).to_string_lossy().into_owned()));
+                }
+            }
+        }
         let mut order: Vec<String> = Vec::new();
         let push = |n: Option<String>, order: &mut Vec<String>| {
             if let Some(n) = n {
@@ -188,6 +219,9 @@ impl Vfs {
                 .cloned()
                 .collect();
             own.sort_by_key(|n| n.to_ascii_lowercase());
+            let mut theirs: Vec<&(String, String)> = extra.iter().filter(|(n, _)| claims(stem, n) && !stems.iter().any(|o| o.len() > stem.len() && claims(o, n))).collect();
+            theirs.sort_by_key(|(n, _)| n.to_ascii_lowercase());
+            own.extend(theirs.into_iter().map(|(_, abs)| abs.clone()));
             for n in own {
                 push(Some(n), &mut order);
             }

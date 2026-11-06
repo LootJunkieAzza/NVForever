@@ -33,7 +33,7 @@ fn line(event: &str, file: Option<&str>, text: &str, first_person: bool) -> SetL
 }
 
 fn set(id: &str, lines: Vec<SetLine>) -> VoiceSet {
-    VoiceSet { format: FORMAT.into(), id: id.into(), name: id.into(), sex: "female".into(), blurb: String::new(), speaker: String::new(), rate: 1.0, companion: None, lines }
+    VoiceSet { format: FORMAT.into(), id: id.into(), name: id.into(), sex: "female".into(), race: String::new(), blurb: String::new(), speaker: String::new(), rate: 1.0, companion: None, lines }
 }
 
 #[test]

@@ -18774,11 +18774,11 @@ expect = [
 [[scenario]]
 name = "player-voice-creator"
 source = "owner 2026-11-05/06: a Voice option in the character creator, with a preview (docs/design/player-voices.md phase 1)"
-note = "the character-creator setup with voice sets installed (NVF_VOICE_SETS): the Basics tab has a Voice row; stepping it chooses the first voice (female first: Cass), which plays a preview line; P (the aid's preview) plays another; Done keeps the voice"
+note = "the character-creator setup with voice sets installed (NVF_VOICE_SETS): the Basics tab has a Voice row; the character made a woman, stepping it chooses the first woman's voice (Cass), which plays a preview line; P (the aid's preview) plays another; Done keeps the voice. The row offers only the voices of the look's race and sex (owner 2026-11-06)"
 areas = ["chargen", "menus", "audio"]
 paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/creator/model.rs", "engine/nvf-play/src/player_voice.rs", "engine/nvf-play/src/voice.rs"]
 requires = ["NVF_VOICE_SETS"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "9:next:Voice,11:preview,13:done", NVF_PLAY_TEST_SHOTS = "10:creator_voice.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "8.5:next:Sex,9:next:Voice,11:preview,13:done", NVF_PLAY_TEST_SHOTS = "10:creator_voice.png" }
 args = ["--cell", "GSDocMitchellHouse", "--play"]
 run_seconds = 18
 order = [[
@@ -18810,11 +18810,11 @@ expect = [
 [[scenario]]
 name = "player-voice-nexus-creator"
 source = "owner 2026-11-06: the Nexus voices in the character creator's Voice row (docs/design/player-voices.md phase 5)"
-note = "the character-creator setup with the mod folder over the data (NVF_MOD_DIR): the Voice row lists the women first by name (Cass, Delilah, Willow); two steps choose Delilah, whose preview plays from delilah.esp's voice folder; Done keeps her"
+note = "the character-creator setup with the mod folder over the data (NVF_MOD_DIR): the character made a woman, the Voice row lists the human women by name (Cass, Delilah, Willow); two steps choose Delilah, whose preview plays from delilah.esp's voice folder; Done keeps her"
 areas = ["chargen", "menus", "audio"]
 paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/player_voice.rs", "engine/nvf-play/src/voice.rs"]
 requires = ["NVF_MOD_DIR"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "9:next:Voice,9.5:next:Voice,11:preview,13:done", NVF_PLAY_TEST_SHOTS = "10:creator_voice_delilah.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "8.5:next:Sex,9:next:Voice,9.5:next:Voice,11:preview,13:done", NVF_PLAY_TEST_SHOTS = "10:creator_voice_delilah.png" }
 args = ["--cell", "GSDocMitchellHouse", "--play"]
 run_seconds = 18
 order = [[
@@ -18856,4 +18856,28 @@ expect = [
   { re = 'player voice: Raul \(vanilla\.raul\): \d+ lines in use', label = "the player has Raul's voice" },
   { re = '''player voice: the voice's companion takes the player's \S+ line''', label = "Raul says one of the player's lines himself" },
   { re = 'voice: playing \S+uniqueraul\S+ \([\d.]+ s\) 0x00000014 line \S+ response \d+ at speed 1\.05', label = "the player says another from Raul's set at its speed" },
+]
+
+[[scenario]]
+name = "player-voice-ghoul-creator"
+source = "owner 2026-11-06: ghouls as a playable race (the Playable Ghoul mod), each offered only the voices of its race and sex (docs/design/player-voices.md §11)"
+note = "the character-creator setup with PlayableGhoul.esp loaded and NVF_MOD_DIR naming both the Playable Ghoul folder and the NVForever Player Voices folder (';' between, as MO2 lays both over the data): Ghoul is an Origin; as a ghoul man the Voice row offers the ghoul men (Mikey, Raul); made a woman, the chosen voice goes and the row offers Beatrix; the hair tab steps a ghoul hair; Done keeps a Female Ghoul with Beatrix's voice"
+areas = ["chargen", "menus", "audio"]
+paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/creator/model.rs", "engine/nvf-play/src/player_voice.rs", "crates/fnv-game/src/player_voice.rs", "crates/fnv-vfs/src/lib.rs", "engine/nvforever/src/world.rs", "engine/nvf-assets/src/data.rs", "crates/fnv-actor/src/creator.rs"]
+requires = ["NVF_MOD_DIR"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "9:next:Origin,11:next:Voice,12:next:Sex,12.5:next:Voice,13:preview,14:tab:hair,14.5:next:Hair style,16:done", NVF_PLAY_TEST_SHOTS = "8.5:creator_human.png,11.5:creator_ghoul_male.png,13.5:creator_ghoul_female.png,15.5:creator_ghoul_hair.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--plugins", "FalloutNV.esm", "PlayableGhoul.esp"]
+run_seconds = 21
+order = [[
+  "creator: Origin Ghoul",
+  "creator: Voice Mikey (M)",
+  { re = 'player voice: Mikey \(nexus\.mikey\): 13 lines in use', label = "a ghoul man's first voice: Mikey (Mikey, Raul)" },
+  "creator: Sex Female",
+  { text = "creator: voice none", label = "a man's voice goes with the change of sex" },
+  "creator: Voice Beatrix (F)",
+  "creator: voice vanilla.beatrix",
+  "creator: done (test aid NVF_PLAY_TEST_CREATOR): Female Ghoul",
+]]
+expect = [
+  { re = 'creator: data: 5 races', label = "Ghoul is a playable race with the plugin" },
 ]

@@ -9,12 +9,17 @@
 //!   against the load order into `Game::player_voice` when it changed, or when a load
 //!   brought a new game (`player voice: <name> (<id>): <n> lines, rate <r>`). A set that
 //!   does not resolve is said once (`player voice: <id>: ...`) and leaves the player silent.
+//!   So does a voice that does not fit the character's race and sex (a saved choice, a
+//!   SexChange; `player voice: <id> is a <race> <sex> voice ...`): a ghoul speaks only
+//!   with a ghoul voice, each sex with its own [owner 2026-11-06]. The choice stays in the
+//!   save; the creator offers only the voices that fit.
 //! - **Settings** (Gameplay): First Person Quips (the player's own character says its
 //!   voice's lines; `Game::quips`) and Party Quips (the other players' lines in co-op,
 //!   read by the co-op code).
 //! - **Preview** ([`PreviewVoice`]): the creator asks for a line of a voice; one of its
 //!   first-person lines is played flat at the voice's rate (`crate::voice`).
-//! - **Test aid** `NVF_PLAY_TEST_VOICE=<set id>`: the player has that voice from the start.
+//! - **Test aid** `NVF_PLAY_TEST_VOICE=<set id>`: the player has that voice from the start,
+//!   whatever the character's race and sex.
 
 use crate::script::ScriptState;
 use crate::PlaySet;
@@ -34,16 +39,18 @@ impl VoiceSets {
         self.sets.iter().find(|s| s.id == id)
     }
 
-    /// The creator's list: female, male, then the others, each by name.
-    pub fn options(&self) -> Vec<crate::creator::model::VoiceOption> {
+    /// The creator's list: female, male, then the others, each by name. A set that speaks
+    /// through a plugin's actor is offered only with that plugin loaded (a follower mod's
+    /// voice whose sounds are not carried: the player installs the mod).
+    pub fn options(&self, data: &fnv_game::data::GameData) -> Vec<crate::creator::model::VoiceOption> {
         let rank = |s: &str| match s {
             "female" => 0,
             "male" => 1,
             _ => 2,
         };
-        let mut v: Vec<&VoiceSet> = self.sets.iter().collect();
+        let mut v: Vec<&VoiceSet> = self.sets.iter().filter(|s| s.speaker.is_empty() || fnv_game::player_voice::resolve_ref(data, &s.speaker).is_some()).collect();
         v.sort_by(|a, b| (rank(&a.sex), &a.name).cmp(&(rank(&b.sex), &b.name)));
-        v.into_iter().map(|s| crate::creator::model::VoiceOption { id: s.id.clone(), name: s.name.clone(), sex: s.sex.clone() }).collect()
+        v.into_iter().map(|s| crate::creator::model::VoiceOption { id: s.id.clone(), name: s.name.clone(), sex: s.sex.clone(), race: s.race_kind().to_string() }).collect()
     }
 }
 
@@ -115,7 +122,7 @@ fn read_sets(mut sets: ResMut<VoiceSets>, assets: Option<Res<nvf_assets::GameDat
 }
 
 /// The voice the player chose, resolved into the game; the switches, into the game.
-fn apply(sets: Res<VoiceSets>, switches: Res<QuipSwitches>, mut script: ResMut<ScriptState>, mut failed: Local<Option<String>>, mut aid: Local<Option<Option<String>>>) {
+fn apply(sets: Res<VoiceSets>, switches: Res<QuipSwitches>, mut script: ResMut<ScriptState>, mut failed: Local<Option<String>>, mut aid: Local<Option<Option<String>>>, mut aided: Local<Option<String>>, mut told: Local<Option<String>>) {
     if !sets.read {
         return;
     }
@@ -124,11 +131,30 @@ fn apply(sets: Res<VoiceSets>, switches: Res<QuipSwitches>, mut script: ResMut<S
     // The test aid, once there is a game.
     let aid = aid.get_or_insert_with(|| std::env::var("NVF_PLAY_TEST_VOICE").ok().filter(|v| !v.is_empty()));
     if let Some(id) = aid.take() {
-        info!("test aid: the player's voice is {id}");
-        g.player.voice = Some(id);
+        info!("test aid: the player's voice is {id} (its race and sex are not checked)");
+        g.player.voice = Some(id.clone());
+        *aided = Some(id);
     }
     g.quips.first_person = switches.first_person;
-    let want = g.player.voice.clone();
+    // A voice that does not fit the character is not used (the test aid's is).
+    let female = g.actor_female(fnv_sim::FormId::PLAYER_REF);
+    let kind = fnv_game::player_voice::race_kind(g.actor_race(fnv_sim::FormId::PLAYER_REF).and_then(|r| g.data.edid_of.get(&r)).map_or("", |s| s.as_str()));
+    let unfit = g.player.voice.as_deref().filter(|id| aided.as_deref() != Some(*id)).and_then(|id| sets.get(id)).filter(|s| !s.fits(kind, female));
+    let want = if unfit.is_some() { None } else { g.player.voice.clone() };
+    if let Some(s) = unfit {
+        if told.as_deref() != Some(s.id.as_str()) {
+            warn!(
+                "player voice: {} is a {} {} voice and the character a {kind} {}; the player stays silent",
+                s.id,
+                s.race_kind(),
+                s.sex,
+                if female { "female" } else { "male" }
+            );
+            *told = Some(s.id.clone());
+        }
+    } else {
+        *told = None;
+    }
     let have = g.player_voice.as_ref().map(|v| v.id.clone());
     if want == have {
         return;

@@ -343,3 +343,44 @@ has a line for it.
   decides its comments (not the host, as planned): quest stages are shared in co-op.
 - **Chattiness**: Normal only; there is no setting, and no `idle` comments.
 
+
+## 11. Ghouls and voices by race and sex (2026-11-06)
+
+The owner: "when you select a ghoul you have only ghoul voices to choose from, ... when
+you're a human you only have access to human lines. Make sure lines are only available to
+the gender of the character" [owner 2026-11-06].
+
+- **Ghoul as a race.** The Playable Ghoul mod (Nexus 35531) turns on the playable flag of
+  the vanilla Ghoul race (RACE 0x003B3E, DATA flags) and brings its hairs, a few first
+  person hand textures and its traits [observed: PlayableGhoul.esp read record by record,
+  its archive listed with `fnvtool bsa list`]. The creator lists every playable race of the
+  load order, so with the plugin loaded Ghoul is an Origin like the others; nothing in
+  NVForever names it.
+- **A set's race.** A voice set has `race`, `human` or `ghoul` (empty is human):
+  `fnv_game::player_voice::race_kind` makes a race `ghoul` when its editor id has "ghoul"
+  in it (Ghoul, a follower mod's WillowsGhoulRace), otherwise `human` [design].
+  `fnvtool voice set-draft` writes the speaker's race and prints it with the speaker's sex.
+- **The creator** offers only the sets that fit the look (`VoiceSet::fits`: the same race
+  kind, and `female` for a woman, `male` for a man; `other` fits nobody). Changing Sex or
+  Origin drops a chosen voice that no longer fits (back to None), and a saved voice that
+  does not fit is not shown as chosen. A set whose speaker is a plugin's actor is offered
+  only with that plugin loaded.
+- **In the game** a voice that does not fit the character (an old save, a SexChange) is
+  not used: `player voice: <id> is a <race> <sex> voice and the character a ...; the
+  player stays silent`. The choice stays in the save. The test aid's voice is not checked.
+- **New sets.**
+  - `vanilla.beatrix` (female ghoul): Beatrix Russell speaks with FemaleGenericGhoul, so
+    her fight lines are that voice type's shared barks; `set-draft --voice-lines` takes
+    every line with a file in the speaker's voice. 34 in use: Attack 6, PowerAttack 4,
+    Hit 7, CombatToNormal 4, CombatToLost 4, AvoidThreat 1, reactions 8. Two Followers of
+    the Apocalypse lines are off. Rate 1.04.
+  - `nexus.mikey` (male ghoul, Big Mike, Nexus 54027, carried): 13 lines.
+  - `nexus.deathblow` (male ghoul, Deathblow, Nexus 93930): its page asks for permission
+    before its assets are used, so nothing is carried; the set names the mod's lines and
+    is offered only with "Deathblow - A Slave Companion.esm" loaded. 4 fight lines (its
+    own CombatStart and CombatEnd topics, mapped by hand) and 44 place comments (its
+    advice topic; `set-places` now also places carried lines, keeping only the cells of
+    other plugins).
+- **Not used.** Odessa, Crash, Rodney and Greasy Doc John (Deathblow's other ghouls) have
+  0 to 2 lines outside conversations. Scratch (Nexus 83135) is a human child (child head,
+  FemaleChildScratch), not a ghoul.

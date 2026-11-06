@@ -37,6 +37,7 @@ fn set() -> VoiceSet {
         id: "nexus.t".into(),
         name: "T".into(),
         sex: "female".into(),
+        race: String::new(),
         blurb: String::new(),
         speaker: String::new(),
         rate: 1.0,

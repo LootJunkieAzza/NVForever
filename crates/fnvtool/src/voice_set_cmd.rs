@@ -116,6 +116,8 @@ pub struct DraftArgs<'a> {
     pub out: Option<&'a Path>,
     pub text: bool,
     pub pack: bool,
+    /// Every line with a file in the speaker's voice (a generic voice type's barks).
+    pub voice_lines: bool,
 }
 
 /// `fnvtool voice set-draft`.
@@ -127,7 +129,7 @@ pub fn draft(a: &ScriptArgs, d: DraftArgs<'_>) -> anyhow::Result<Value> {
         let vt = l.data.actors.get(&base).and_then(|x| x.voice);
         // A follower mod's voice type is its own: every line with a file in it is the
         // speaker's, also those its quest's conditions give it rather than the line's.
-        let mut infos: Vec<(&FormId, &InfoDef)> = l.data.infos.iter().filter(|(i, def)| said_by(l, def, base, vt) || (d.pack && bank.file(i.0, 0, base.0).is_some())).collect();
+        let mut infos: Vec<(&FormId, &InfoDef)> = l.data.infos.iter().filter(|(i, def)| said_by(l, def, base, vt) || ((d.pack || d.voice_lines) && bank.file(i.0, 0, base.0).is_some())).collect();
         infos.sort_by_key(|(i, _)| i.0);
         let mut lines = Vec::new();
         let mut texts = Vec::new();
@@ -158,11 +160,14 @@ pub fn draft(a: &ScriptArgs, d: DraftArgs<'_>) -> anyhow::Result<Value> {
             }
             lines.push(dr.line);
         }
+        // The race the voice is offered to is the speaker's ([`fnv_game::player_voice::race_kind`]).
+        let race_edid = l.data.actors.get(&base).and_then(|x| x.race).and_then(|r| l.data.edid_of.get(&r).cloned()).unwrap_or_default();
         let set = VoiceSet {
             format: FORMAT.into(),
             id: d.id.into(),
             name: d.name.into(),
             sex: d.sex.into(),
+            race: fnv_game::player_voice::race_kind(&race_edid).into(),
             blurb: String::new(),
             speaker: if d.pack { String::new() } else { form_ref(&l.data, base) },
             rate: d.rate,
@@ -183,6 +188,8 @@ pub fn draft(a: &ScriptArgs, d: DraftArgs<'_>) -> anyhow::Result<Value> {
             "format": "fnv.voice.set_draft/1",
             "speaker": l.data.name(base),
             "voice_type": vt.map(|t| l.data.name(t)),
+            "race": race_edid,
+            "speaker_female": l.data.actors.get(&base).map(|x| x.female),
             "lines": set.lines.len(),
             "without_file": no_file,
             "not_for_a_set": skipped,
@@ -229,7 +236,11 @@ pub fn places(a: &ScriptArgs, file: &Path, prefixes: &[String], given: &[String]
             refs_of_base.entry(p.base).or_default().push(r);
         }
         let mut rows = Vec::new();
-        for line in set.lines.iter_mut().filter(|x| x.file.is_none()) {
+        for line in set.lines.iter_mut() {
+            // A line that carries its sound (a follower mod's) is said without the mod's
+            // plugin: its places are only the cells and worldspaces of other plugins.
+            let carried = line.file.is_some();
+            let own_plugin = line.info.split_once('|').map(|(p, _)| p.to_ascii_lowercase()).unwrap_or_default();
             let Some(info) = fnv_game::player_voice::resolve_ref(d, &line.info) else { continue };
             let Some(def) = d.infos.get(&info) else { continue };
             let Some(topic) = def.topic.filter(|&t| wanted(t)) else { continue };
@@ -243,6 +254,9 @@ pub fn places(a: &ScriptArgs, file: &Path, prefixes: &[String], given: &[String]
                 .collect();
             near.sort();
             near.dedup();
+            if carried {
+                near.clear();
+            }
             let mut inside: Vec<FormId> = def
                 .conditions
                 .iter()
@@ -259,6 +273,9 @@ pub fn places(a: &ScriptArgs, file: &Path, prefixes: &[String], given: &[String]
             }
             inside.sort();
             inside.dedup();
+            if carried {
+                inside.retain(|&r| !form_ref(d, r).to_ascii_lowercase().starts_with(&format!("{own_plugin}|")));
+            }
             if near.is_empty() && inside.is_empty() {
                 let conds: Vec<String> = def.conditions.iter().map(|c| format!("{}({})", function_name(l, c.opcode()), c.params.iter().filter_map(ref_arg).map(|r| d.name(r)).collect::<Vec<_>>().join(","))).collect();
                 rows.push(json!({"info": line.info, "topic": d.name(topic), "found": "nothing", "conditions": conds}));

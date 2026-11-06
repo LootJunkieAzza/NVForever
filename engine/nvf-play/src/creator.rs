@@ -306,7 +306,7 @@ fn sync(
         return;
     };
     let kind = rt.game.race_menu;
-    let offered = voices.map(|v| v.options()).unwrap_or_default();
+    let offered = voices.map(|v| v.options(rt.game.data)).unwrap_or_default();
     let m = Model::of_kind(data.0.clone(), start, kind).with_voices(offered, rt.game.player.voice.as_deref());
     if let Some(p) = &data.0.ctl_problem {
         warn!("creator: {p}; no sliders");

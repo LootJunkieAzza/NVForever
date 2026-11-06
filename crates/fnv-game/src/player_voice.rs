@@ -56,6 +56,10 @@ pub struct VoiceSet {
     /// `female`, `male` or `other`: how the creator groups the voices.
     #[serde(default)]
     pub sex: String,
+    /// `human` or `ghoul`: the characters the voice is offered to ([`VoiceSet::fits`]);
+    /// empty is human.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub race: String,
     /// One line on the personality, NVForever's own words.
     #[serde(default)]
     pub blurb: String,
@@ -71,6 +75,41 @@ pub struct VoiceSet {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub companion: Option<String>,
     pub lines: Vec<SetLine>,
+}
+
+/// What a race is for the voices: `ghoul` for the ghoul races (the editor id has "ghoul"
+/// in it: Ghoul, made playable by the Playable Ghoul mod; a follower mod's
+/// WillowsGhoulRace), otherwise `human` [design].
+pub fn race_kind(race_edid: &str) -> &'static str {
+    if race_edid.to_ascii_lowercase().contains("ghoul") {
+        "ghoul"
+    } else {
+        "human"
+    }
+}
+
+impl VoiceSet {
+    /// `human` or `ghoul` (an empty tag is human).
+    pub fn race_kind(&self) -> &str {
+        if self.race.is_empty() {
+            "human"
+        } else {
+            &self.race
+        }
+    }
+
+    /// The voice is offered to a character of this race kind ([`race_kind`]) and sex: a
+    /// ghoul gets only ghoul voices, a human only human ones, each of its own sex [owner
+    /// 2026-11-06]. A voice of sex `other` fits nobody.
+    pub fn fits(&self, race_kind: &str, female: bool) -> bool {
+        voice_fits(&self.sex, self.race_kind(), race_kind, female)
+    }
+}
+
+/// [`VoiceSet::fits`] on the tags alone (the creator's list has no sets).
+pub fn voice_fits(sex: &str, race: &str, race_kind: &str, female: bool) -> bool {
+    let race = if race.is_empty() { "human" } else { race };
+    sex == if female { "female" } else { "male" } && race == race_kind
 }
 
 fn one() -> f32 {
@@ -651,12 +690,28 @@ mod tests {
     }
 
     #[test]
+    fn a_voice_fits_its_own_race_and_sex_only() {
+        assert_eq!(race_kind("Ghoul"), "ghoul");
+        assert_eq!(race_kind("GhoulOld"), "ghoul");
+        assert_eq!(race_kind("WillowsGhoulRace"), "ghoul");
+        assert_eq!(race_kind("Caucasian"), "human");
+        assert_eq!(race_kind("AfricanAmericanOld"), "human");
+        assert!(voice_fits("male", "ghoul", "ghoul", false));
+        assert!(!voice_fits("male", "ghoul", "human", false), "no ghoul voice for a human");
+        assert!(!voice_fits("male", "ghoul", "ghoul", true), "no man's voice for a woman");
+        assert!(voice_fits("female", "", "human", true), "untagged is human");
+        assert!(!voice_fits("female", "", "ghoul", true));
+        assert!(!voice_fits("other", "human", "human", false) && !voice_fits("other", "human", "human", true));
+    }
+
+    #[test]
     fn a_set_reads_and_writes_without_text() {
         let s = VoiceSet {
             format: FORMAT.into(),
             id: "vanilla.cass".into(),
             name: "Cass".into(),
             sex: "female".into(),
+            race: String::new(),
             blurb: String::new(),
             speaker: "FalloutNV.esm|133FDD".into(),
             rate: 1.06,

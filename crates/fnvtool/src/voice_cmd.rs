@@ -99,11 +99,18 @@ pub enum VoiceCmd {
         /// the speaker's plugin (a voiced follower mod's lines; only one-response lines).
         #[arg(long)]
         pack: bool,
+        /// Also every line with a file in the speaker's voice, whoever its conditions name:
+        /// the barks a generic voice type shares with everyone who has it (Beatrix
+        /// Russell's FemaleGenericGhoul). --pack does this too.
+        #[arg(long)]
+        voice_lines: bool,
     },
     /// A set's place comments found: each line of a topic whose Editor ID starts with one
     /// of `--topic` becomes a `place` line in use, with the references whose script starts
     /// that topic (`near`: trigger boxes) or else the cells and worldspaces its conditions
-    /// name (`inside`). Lines with neither are left as they were. Writes the set back.
+    /// name (`inside`). Lines with neither are left as they were. A line that carries its
+    /// sound keeps only the cells and worldspaces of plugins other than its own (it is said
+    /// without the follower's plugin). Writes the set back.
     SetPlaces {
         #[command(flatten)]
         a: crate::script_cmd::ScriptArgs,
@@ -161,9 +168,9 @@ pub fn run(cmd: VoiceCmd) -> anyhow::Result<Value> {
         VoiceCmd::Coverage { lo, lengths } => with_bank(&lo, |bank, _| Ok(fnv_voice::coverage::coverage(bank, lengths))),
         VoiceCmd::Lip { lo, path, info, response, speaker } => with_bank(&lo, |bank, lo| lip(bank, lo, path.as_deref(), info, response, speaker.as_deref())),
         VoiceCmd::LipCoverage { lo, lengths } => with_bank(&lo, |bank, _| Ok(fnv_voice::lip_coverage::lip_coverage(bank, lengths))),
-        VoiceCmd::SetDraft { a, speaker, id, name, sex, rate, companion, out, text, pack } => crate::voice_set_cmd::draft(
+        VoiceCmd::SetDraft { a, speaker, id, name, sex, rate, companion, out, text, pack, voice_lines } => crate::voice_set_cmd::draft(
             &a,
-            crate::voice_set_cmd::DraftArgs { speaker: &speaker, id: &id, name: &name, sex: &sex, rate, companion, out: out.as_deref(), text, pack },
+            crate::voice_set_cmd::DraftArgs { speaker: &speaker, id: &id, name: &name, sex: &sex, rate, companion, out: out.as_deref(), text, pack, voice_lines },
         ),
         VoiceCmd::SetPlaces { a, set, topics, places } => crate::voice_set_cmd::places(&a, &set, &topics, &places),
         VoiceCmd::SetCheck { a, sets, mod_dir } => crate::voice_set_cmd::check(&a, &sets, mod_dir.as_deref()),
