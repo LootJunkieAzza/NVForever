@@ -68,6 +68,8 @@ fn key_code(k: KeyCode) -> Option<u16> {
 /// the player's.
 #[derive(Default)]
 struct Pressed {
+    /// Last frame's taps and the keys the scripts held.
+    last: (Vec<u16>, Vec<u16>),
     keys: HashSet<KeyCode>,
     mouse: HashSet<MouseButton>,
 }
@@ -112,26 +114,34 @@ impl Pressed {
     }
 }
 
+/// What the player did on the devices this frame: key and button presses, the wheel.
+#[derive(bevy::ecs::system::SystemParam)]
+struct Devices<'w, 's> {
+    typed: MessageReader<'w, 's, KeyboardInput>,
+    clicked: MessageReader<'w, 's, MouseButtonInput>,
+    scroll: Option<Res<'w, bevy::input::mouse::AccumulatedMouseScroll>>,
+}
+
 fn script_input(
     mut script: Option<ResMut<crate::script::ScriptState>>,
     mut bindings: Option<ResMut<Bindings>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
     mut blocked: ResMut<ScriptBlocked>,
-    scroll: Option<Res<bevy::input::mouse::AccumulatedMouseScroll>>,
-    mut last: Local<(Vec<u16>, Vec<u16>)>,
-    mut typed: MessageReader<KeyboardInput>,
-    mut clicked: MessageReader<MouseButtonInput>,
+    mut devices: Devices,
     mut ours: Local<Pressed>,
 ) {
-    ours.player_pressed(&mut typed, &mut clicked);
+    ours.player_pressed(&mut devices.typed, &mut devices.clicked);
     // Last frame's taps and the keys the scripts held.
-    let (tapped, script_held) = &mut *last;
+    let (mut tapped, mut script_held) = std::mem::take(&mut ours.last);
     // Last frame's taps end.
     for c in tapped.drain(..) {
         ours.release(c, &mut keys, &mut mouse);
     }
-    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else {
+        ours.last.1 = script_held;
+        return;
+    };
     let input = &mut rt.game.input;
     // Keys scripts held last frame and no longer hold (ReleaseKey, ReleaseControl) are let go.
     for c in script_held.drain(..).filter(|c| !input.script_held.contains(c)) {
@@ -153,7 +163,7 @@ fn script_input(
     input.held = keys.get_pressed().filter_map(|&k| key_code(k)).chain(mouse.get_pressed().filter_map(|&b| mouse_code(b))).collect();
     // The wheel turned this frame is held for the frame (IsKeyPressed 264/265, JIP's key
     // events) [hypothesis: one frame a notch].
-    match scroll.map_or(0.0, |s| s.delta.y) {
+    match devices.scroll.map_or(0.0, |s| s.delta.y) {
         d if d > 0.0 => _ = input.held.insert(WHEEL_UP),
         d if d < 0.0 => _ = input.held.insert(WHEEL_DOWN),
         _ => {}
@@ -175,6 +185,7 @@ fn script_input(
         }
     }
     script_held.extend(input.script_held.iter().copied());
+    ours.last = (tapped, script_held);
 }
 
 /// The keys and buttons the player's controls leave out: those scripts disabled.
