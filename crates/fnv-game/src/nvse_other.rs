@@ -41,6 +41,9 @@ pub struct OtherState {
     /// AddPackageAt's, RemovePackageAt's and RemoveAllPackages' package lists, by actor
     /// base form (`Game::package_list`).
     pub package_lists: HashMap<FormId, Vec<FormId>>,
+    /// The places joined by load doors, built the first time a script asks for a way
+    /// (GetCurrentQuestObjectiveTeleportLinks).
+    pub door_graph: Option<crate::quest_targets::DoorGraph>,
     /// SetFlagsLow/High's record flags.
     pub flags: HashMap<FormId, u32>,
     /// Con_SCOF's file name (nothing is written).
@@ -452,17 +455,40 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let dir = crate::mod_files::data_dir().and_then(|d| d.parent().map(|p| p.to_path_buf()));
             XVal::Str(dir.map(|d| format!("{}\\", d.display().to_string().trim_end_matches('\\'))).unwrap_or_default())
         }
-        // The current objective's targets, without the doors between [documented:
-        // GetCurrentQuestObjectiveTeleportLinks; observed: one entry with the target in
-        // the player's own space; hypothesis: the door path is not built].
+        // The way to each marked target of the active quest: one array per target (the
+        // targets of the objectives shown and not done, whose conditions pass), each the
+        // doors from the player's place in the order they are passed, then the target
+        // [documented: GetCurrentQuestObjectiveTeleportLinks, "an array of zero or more
+        // teleportLink followed by the target"; observed: JAM's JVO reads each element as
+        // an array, its first entry as where to draw the marker and its last as the
+        // target; hypothesis: one array per target, the targets of every objective shown,
+        // as the compass marks them]. A target with no known way is left out.
         "getcurrentquestobjectiveteleportlinks" => {
             let q = g.ui.active_quest.unwrap_or(FormId(0));
-            let st = g.quest_state(q);
-            let cur = st.objectives.iter().find(|(_, o)| o.displayed && !o.completed).map(|(&i, _)| i);
-            let targets: Vec<XVal> = cur
-                .and_then(|i| g.data.quests.get(&q)?.objectives.get(&i).map(|o| o.targets.iter().filter_map(|t| t.target).map(|t| XVal::Ref(t.0)).collect()))
-                .unwrap_or_default();
-            let entries = targets.into_iter().enumerate().map(|(i, v)| (XKey::Num(i as f64), v)).collect();
+            let checks: Vec<_> = g.check_quest_targets(q).into_iter().filter(|c| c.shown).collect();
+            let here = g.cell_of(FormId::PLAYER_REF).map(|c| crate::quest_targets::Place::of_cell(g.world.placed, c));
+            if g.other.door_graph.is_none() && !checks.is_empty() {
+                g.other.door_graph = Some(crate::quest_targets::DoorGraph::build(g.world.placed));
+            }
+            let mut paths = Vec::new();
+            for c in checks {
+                let Some(cell) = g.cell_of(c.target) else { continue };
+                let there = crate::quest_targets::Place::of_cell(g.world.placed, cell);
+                let doors = match (here, g.other.door_graph.as_ref()) {
+                    (Some(h), Some(graph)) => graph.door_path(&g.world, h, there, c.ignores_locks),
+                    _ => None,
+                };
+                let Some(doors) = doors else { continue };
+                paths.push(doors.into_iter().chain([c.target]).map(|r| XVal::Ref(r.0)).collect::<Vec<_>>());
+            }
+            let entries: Vec<_> = paths
+                .into_iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    let inner = p.into_iter().enumerate().map(|(k, v)| (XKey::Num(k as f64), v)).collect();
+                    (XKey::Num(i as f64), XVal::Array(g.ext.new_array(ArrayKind::List, inner)))
+                })
+                .collect();
             XVal::Array(g.ext.new_array(ArrayKind::List, entries))
         }
         // [documented: OutputLocalMapPicturesOverride; SetOutputLocalMapPicturesGrids]

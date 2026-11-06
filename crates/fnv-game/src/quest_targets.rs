@@ -139,6 +139,56 @@ impl DoorGraph {
         self.search(from, to, |_| true)
     }
 
+    /// The doors of the shortest way from `from` to `to` (at most [`MARKER_DOORS_MAX`]),
+    /// in the order they are passed: empty when the two are one place, `None` when no way
+    /// is known; a way without locked doors when there is one, unless `ignores_locks`
+    /// (as [`DoorGraph::first_door`]).
+    pub fn door_path(&self, world: &World, from: Place, to: Place, ignores_locks: bool) -> Option<Vec<FormId>> {
+        if !ignores_locks {
+            if let Some(p) = self.path(from, to, |d| !door_locked(world, d)) {
+                return Some(p);
+            }
+        }
+        self.path(from, to, |_| true)
+    }
+
+    /// Breadth-first as [`DoorGraph::search`], keeping the whole way.
+    pub fn path(&self, from: Place, to: Place, open: impl Fn(FormId) -> bool) -> Option<Vec<FormId>> {
+        if from == to {
+            return Some(Vec::new());
+        }
+        let mut came: std::collections::BTreeMap<Place, (Place, FormId)> = Default::default();
+        let mut frontier = vec![from];
+        for _ in 0..MARKER_DOORS_MAX {
+            let mut next_frontier = Vec::new();
+            for place in frontier {
+                for &(d, next) in self.edges.get(&place).into_iter().flatten() {
+                    if !open(d) || next == from || came.contains_key(&next) {
+                        continue;
+                    }
+                    came.insert(next, (place, d));
+                    if next == to {
+                        let mut doors = Vec::new();
+                        let mut at = to;
+                        while at != from {
+                            let (prev, door) = came[&at];
+                            doors.push(door);
+                            at = prev;
+                        }
+                        doors.reverse();
+                        return Some(doors);
+                    }
+                    next_frontier.push(next);
+                }
+            }
+            if next_frontier.is_empty() {
+                return None;
+            }
+            frontier = next_frontier;
+        }
+        None
+    }
+
     /// Breadth-first over the places from `from`: the first door of the shortest way to
     /// `to` through doors that `open` allows; doors in FormID order, so ties go to the
     /// lowest.
@@ -205,5 +255,19 @@ mod tests {
         // There already, and a door shut on the only way.
         assert_eq!(g.search(c, c, |_| true), None);
         assert_eq!(g.search(w, b2, |d| d != FormId(0x111)), None);
+    }
+
+    #[test]
+    fn a_door_path_lists_every_door_of_the_shortest_way_in_order() {
+        let g = graph();
+        let (w, b2, c) = (Place::World(FormId(1)), Place::Interior(FormId(11)), Place::Interior(FormId(20)));
+        assert_eq!(g.path(c, b2, |_| true), Some(vec![FormId(0x130), FormId(0x100), FormId(0x111)]));
+        assert_eq!(g.path(w, b2, |_| true), Some(vec![FormId(0x100), FormId(0x111)]));
+        assert_eq!(g.path(c, c, |_| true), Some(vec![]));
+        assert_eq!(g.path(w, b2, |d| d != FormId(0x111)), None);
+        // Its first door is the marker door.
+        for (a, b) in [(c, b2), (w, b2), (b2, c)] {
+            assert_eq!(g.path(a, b, |_| true).and_then(|p| p.first().copied()), g.search(a, b, |_| true));
+        }
     }
 }

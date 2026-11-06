@@ -74,6 +74,8 @@ pub mod loading;
 pub mod lobby;
 pub mod main_menu;
 pub mod location_markers;
+pub mod safe_zone;
+pub mod world_marks;
 pub mod lockpick;
 pub mod roulette;
 pub mod slots;
@@ -117,6 +119,7 @@ pub mod script_hud;
 pub mod script_trigger;
 pub mod settings;
 pub mod start_menu;
+pub mod mod_defaults;
 pub mod sim;
 pub mod space;
 pub mod terminal;
@@ -371,6 +374,8 @@ impl Plugin for PlayPlugin {
             .add_plugins((crime::CrimePlugin, reputation::ReputationPlugin, knockouts::KnockoutsPlugin, after_combat::AfterCombatPlugin))
             .add_plugins(console::ConsolePlugin)
             .add_plugins(location_markers::LocationMarkersPlugin)
+            .add_plugins(world_marks::WorldMarksPlugin)
+            .add_plugins(safe_zone::SafeZonePlugin)
             .add_plugins(free_cam::FreeCamPlugin)
             .add_plugins(aim_zoom::AimZoomPlugin)
             .add_plugins(save::SavePlugin)

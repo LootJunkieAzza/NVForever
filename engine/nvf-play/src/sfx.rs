@@ -556,6 +556,10 @@ pub struct Sfx {
     frame: u64,
     /// How long requests waited for their files (the exit report).
     pub waits: Waits,
+    /// Sounds a module places itself though their record is 2D (an interface sound given
+    /// a direction, `crate::world_marks`' ping): panned toward their place, at their
+    /// record's level at any distance [design].
+    pub placed_2d: std::collections::HashSet<FormId>,
     /// The age limit in force ([`MAX_ONE_SHOT_WAIT`]; the tests' real decodes on a busy
     /// machine would otherwise run into it).
     one_shot_wait: Duration,
@@ -601,6 +605,7 @@ impl Sfx {
     fn new(forms: FxForms) -> Sfx {
         Sfx {
             forms,
+            placed_2d: Default::default(),
             files: HashMap::new(),
             decoding: Vec::new(),
             folders: HashMap::new(),
@@ -1385,7 +1390,8 @@ fn one_shot_ready(out: &mut Out, sfx: &mut Sfx, r: &Resolved, handle: Handle<Pcm
     let (settings, eye) = (out.settings, out.player.map(Player::eye));
     let placed = at.zip(out.player).map(|(at, p)| SoundAt::new(at, Some(p)));
     let distance = at.zip(eye).map(|(at, e)| ((at[0] - e[0]).powi(2) + (at[1] - e[1]).powi(2) + (at[2] - e[2]).powi(2)).sqrt());
-    let gain = static_gain(s) * distance.map_or(1.0, |d| distance_gain(s, d)) * settings.volume.max(0.0);
+    let own_place = sfx.placed_2d.contains(&sound);
+    let gain = static_gain(s) * distance.filter(|_| !own_place).map_or(1.0, |d| distance_gain(s, d)) * settings.volume.max(0.0);
     let mut speed = 1.0 + s.frequency_adjust_percent / 100.0;
     if s.has("Random Frequency Shift") {
         speed *= 0.95 + 0.1 * sfx.rng.next_f32();
@@ -1400,7 +1406,7 @@ fn one_shot_ready(out: &mut Out, sfx: &mut Sfx, r: &Resolved, handle: Handle<Pcm
         return (seconds, None);
     }
     let placed = match placed {
-        Some(_) if s.has("2D") => {
+        Some(_) if s.has("2D") && !own_place => {
             sfx.flat_2d += 1;
             None
         }

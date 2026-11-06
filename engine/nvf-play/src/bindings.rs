@@ -91,6 +91,9 @@ pub enum Control {
     PipBoyGlance,
     /// Bash with the gun drawn (the fork's weapon bash, `crate::bash`).
     Bash,
+    /// Mark the point under the crosshair for every player (the fork's,
+    /// `crate::world_marks`).
+    Ping,
 }
 
 /// `[Controls]` of the owner's `FalloutPrefs.ini`: (control, INI name, value)
@@ -98,8 +101,9 @@ pub enum Control {
 /// coded the same way): Lower Weapon on H [design: the owner 2026-10-27, moved off Ready
 /// Item tapped twice so a reload is not held back waiting for a second tap], Pip-Boy
 /// Glance on G [design: the real-time Pip-Boy, 2026-11-03], Weapon Bash on X (the fork's;
-/// B42 Melee Bash's default key, DIK 45).
-pub const GAME_CONTROLS: [(Control, &str, u32); 31] = [
+/// B42 Melee Bash's default key, DIK 45), Ping on C or the mouse's back button [design:
+/// the fork's world marks, 2026-11-06; middle mouse is Toggle POV's].
+pub const GAME_CONTROLS: [(Control, &str, u32); 32] = [
     (Control::Forward, "Forward", 0x0011FF13),
     (Control::Back, "Back", 0x001FFF14),
     (Control::SlideLeft, "Slide Left", 0x001EFF17),
@@ -131,6 +135,7 @@ pub const GAME_CONTROLS: [(Control, &str, u32); 31] = [
     (Control::LowerWeapon, "Lower Weapon", 0x0023FFFF),
     (Control::PipBoyGlance, "Pip-Boy Glance", 0x0022FFFF),
     (Control::Bash, "Weapon Bash", 0x002DFFFF),
+    (Control::Ping, "Ping", 0x002E03FF),
 ];
 
 /// How many of [`GAME_CONTROLS`] are the game's own (the extender's control codes 0–27).
@@ -492,6 +497,7 @@ pub fn label(c: Control) -> &'static str {
         LowerWeapon => "Lower Weapon",
         PipBoyGlance => "Pip-Boy Glance",
         Bash => "Weapon Bash",
+        Ping => "Ping",
     }
 }
 

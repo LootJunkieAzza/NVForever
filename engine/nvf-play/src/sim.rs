@@ -17,7 +17,10 @@ pub struct SimState {
 impl SimState {
     /// Build the simulation's tables from the plugins (they live for the whole run).
     pub fn new(lo: &LoadOrder, schema: &Schema, index: &WorldIndex) -> SimState {
-        let forms: &'static FormStore = Box::leak(Box::new(FormStore::build(lo, schema)));
+        let mut forms = FormStore::build(lo, schema);
+        // The mods' settings NVForever ships different (`crate::mod_defaults`).
+        crate::mod_defaults::apply(&mut forms);
+        let forms: &'static FormStore = Box::leak(Box::new(forms));
         let refs: &'static RefTable = Box::leak(Box::new(RefTable::from_index(lo, schema, index)));
         let moved = refs.issues.count(fnv_sim::refs::XTEL_MOVED);
         if moved > 0 {

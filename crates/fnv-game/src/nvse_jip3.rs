@@ -163,11 +163,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // JohnnyGuitar: interacting with it is a crime or an attack: an actor hostile to
         // the player, or something someone else owns [documented: IsCrimeOrEnemy, "the
-        // same checks that are used to determine red color of the crosshair"].
+        // same checks that are used to determine red color of the crosshair"]. As the
+        // crosshair's prompt (nvf-play `activate::owned_by_other`), owning makes it a
+        // crime only for an item to take, a container to open or a lock to pick: an
+        // owned door that is not locked is not (JAM's JVO drew the way out of a shop
+        // red) [observed: NVForever 2026-11-06, Goodsprings General Store's door].
         "iscrimeorenemy" => {
             let Some(r) = subject else { return Some(Ok(zero)) };
-            let enemy = g.crime_enemy(r) || crate::rest::hostile_to_player(g, r);
-            yes(enemy || g.owned_by_other(r).is_some())
+            yes(is_crime_or_enemy(g, r))
         }
         // `[count] [clearOwner] [target]`: the inventory reference's items leave their
         // container, to `target` when given [documented: RemoveMeIRAlt; count <= 0 or
@@ -433,4 +436,22 @@ fn pick_val(g: &mut Game, p: Option<crate::game::MenuPick>) -> XVal {
         Some(crate::game::MenuPick::Form(f)) => XVal::Ref(f.0),
         None => XVal::Ref(0),
     }
+}
+
+/// IsCrimeOrEnemy: an actor hostile to the player, or something someone else owns that
+/// it would be a crime to use ([`crime_to_use`]).
+pub fn is_crime_or_enemy(g: &mut Game, r: FormId) -> bool {
+    g.crime_enemy(r) || crate::rest::hostile_to_player(g, r) || (g.owned_by_other(r).is_some() && crime_to_use(g, r))
+}
+
+/// Whether using an owned reference is a crime (IsCrimeOrEnemy): taking it (an item),
+/// opening it (a container) or picking its lock (a locked door, container or terminal).
+fn crime_to_use(g: &Game, r: FormId) -> bool {
+    let Some(base) = crate::functions::base_of(g, r) else { return false };
+    let forms = g.world.forms;
+    let item = forms.item(base).is_some();
+    let container = forms.get(base).is_some_and(|b| matches!(b.data, fnv_sim::forms::BaseData::Container(_)));
+    let terminal = g.data.terminals.contains_key(&base);
+    let locked = if terminal { crate::terminal::locked(g, r) > 0 } else { g.world.lock_status(r).is_ok_and(|l| l > 0) };
+    item || container || locked
 }
