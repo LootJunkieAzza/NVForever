@@ -157,7 +157,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             }
         }
         // [documented: GetCurrentQuest] the player's active quest.
-        "getcurrentquest" => XVal::Ref(g.ui.active_quest.map_or(0, |q| q.0)),
+        "getcurrentquest" => XVal::Ref(g.ui.current_quest().map_or(0, |q| q.0)),
         // [documented: IsRefInList] the exact form's index, else its base form's; -1.
         "isrefinlist" => {
             let m = crate::functions::list_members(g, form(args, 0).unwrap_or(FormId(0)));

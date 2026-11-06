@@ -301,7 +301,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // [documented: GetCurrentObjective] the active quest's first objective shown and
         // not done [hypothesis: which objective counts as current], else -1 [hypothesis].
         "getcurrentobjective" => {
-            let q = g.ui.active_quest.unwrap_or(FormId(0));
+            let q = g.ui.current_quest().unwrap_or(FormId(0));
             let st = g.quest_state(q);
             XVal::Num(st.objectives.iter().find(|(_, o)| o.displayed && !o.completed).map_or(-1.0, |(&i, _)| f64::from(i)))
         }
@@ -464,7 +464,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // target; hypothesis: one array per target, the targets of every objective shown,
         // as the compass marks them]. A target with no known way is left out.
         "getcurrentquestobjectiveteleportlinks" => {
-            let q = g.ui.active_quest.unwrap_or(FormId(0));
+            let q = g.ui.current_quest().unwrap_or(FormId(0));
             let checks: Vec<_> = g.check_quest_targets(q).into_iter().filter(|c| c.shown).collect();
             let here = g.cell_of(FormId::PLAYER_REF).map(|c| crate::quest_targets::Place::of_cell(g.world.placed, c));
             if g.other.door_graph.is_none() && !checks.is_empty() {

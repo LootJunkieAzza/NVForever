@@ -1486,6 +1486,9 @@ pub(crate) fn refresh_quest_targets(time: Res<Time<Real>>, state: Option<ResMut<
     // A co-op guest marks the host's quest (`Game::coop_host_quest`).
     let quest = if rt.game.coop_guest { rt.game.coop_host_quest.as_ref().map(|h| h.quest) } else { st.active_quest.map(FormId).or(rt.game.ui.active_quest) };
     // The conditions read the world played (`crate::script::with_world`).
+    // The scripts' active quest is this one too (GetCurrentQuestObjectiveTeleportLinks
+    // for JAM's JVO, GetActiveQuest …).
+    rt.game.ui.shown_quest = quest;
     let checks = quest.map(|q| crate::script::with_world(rt, &mut sim, |rt| rt.game.check_quest_targets(q))).unwrap_or_default();
     if quest != st.target_quest {
         st.target_quest = quest;
