@@ -865,6 +865,9 @@ pub struct RemotePose {
     pub feet: [f32; 3],
     pub heading: f32,
     pub moving: bool,
+    /// The furniture the host has it use (a chair, a bed, a cross), and whether it is on
+    /// it already (not walking up to it): a guest sits it there too.
+    pub furniture: Option<(u32, bool)>,
 }
 
 /// Standalone packages own their simulation; in play mode `SimState` owns it
@@ -2105,6 +2108,15 @@ impl Core {
             // Its cell as the walker's space gives it, or the one it has (no cell found).
             let cell = fnv_ai::goal::cell_of_place(game.world.placed, &place).or_else(|| game.world.peek(FormId(id)).and_then(|s| s.cell));
             let _ = game.set_actor_place(FormId(id), cell, pose.feet, pose.heading);
+            // On the furniture the host has it on: the drawing sits it there
+            // ([`Core::note`] makes it the one it wants), at once when it is on already
+            // (the crucified on their crosses, a sitter on a chair).
+            a.using = pose.furniture.map(|(f, _)| FormId(f));
+            if let (Some((f, on)), Some(r)) = (pose.furniture, self.list.iter_mut().find(|r| r.actor.0 == id)) {
+                if r.seat == Seat::None {
+                    r.seat = Seat::Wanted(f, on);
+                }
+            }
             if let Some(p) = phys.as_deref_mut() {
                 p.remove_npc(id);
             }
@@ -2235,6 +2247,7 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         AiEvent::Resumed { package, .. } => format!("goes on with {}, its sandbox day as saved", n(package)),
         AiEvent::Arrived { seconds, travelled, .. } => format!("arrived after {seconds:.1}s, {travelled:.0} units"),
         AiEvent::Unreachable { package, why } => format!("cannot reach the place of {}: {why}", n(package)),
+        AiEvent::Straight { package, length } => format!("no navmesh on the way to the place of {}: walks straight there, {length:.0} units", n(package)),
         AiEvent::NotCarriedOut { package, why } => format!("stays: {} is {why}, not carried out yet", n(package)),
         AiEvent::Furniture { furniture: Some(f) } => format!("is to use furniture {f}"),
         AiEvent::Furniture { furniture: None } => "leaves its furniture".into(),

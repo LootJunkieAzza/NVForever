@@ -192,6 +192,9 @@ pub enum AiEvent {
     Arrived { package: FormId, seconds: f64, travelled: f32, patrol_point: Option<FormId> },
     /// No way to the package's location: the package is set aside.
     Unreachable { package: FormId, why: String },
+    /// No navmesh near it or its package's place, which is close by: it walks straight
+    /// there (`length` units) ([`STRAIGHT_REACH`]).
+    Straight { package: FormId, length: f32 },
     NotCarriedOut { package: FormId, why: &'static str },
     /// The actor uses this furniture now (`None`: it leaves the furniture it used).
     Furniture { furniture: Option<FormId> },
@@ -617,6 +620,12 @@ fn own_turning(w: &mut Walker, s: &ActorSpeeds) {
         w.spot_turn_start = t;
     }
 }
+
+/// How far an actor walks straight to its package's place where the navmesh has no
+/// triangle near it or the place (game units), and how far up or down [design: the
+/// plazas without navmesh met so far have their seats within 150 units of the sitters].
+pub const STRAIGHT_REACH: f32 = 512.0;
+pub const STRAIGHT_RISE: f32 = 128.0;
 
 fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
     (a[0] - b[0]).hypot(a[1] - b[1])
@@ -2067,10 +2076,22 @@ impl Ai {
         let speed = self.pace(game, actor, running);
         let a = self.agents.get_mut(&actor).expect("listed");
         a.walker.speed = speed;
-        match a.walker.go_to(nav, to, &params) {
-            Ok(path) => {
-                let doors = path.legs.iter().filter_map(|l| l.door.map(|d| FormId(d.door))).collect();
-                let event = AiEvent::Trip { package, to: to.pos, space: to.space, length: path.length, doors, running, patrol_point };
+        let found = a.walker.go_to(nav, to, &params).map(|path| (path.length, path.legs.iter().filter_map(|l| l.door.map(|d| FormId(d.door))).collect::<Vec<_>>()));
+        // No navmesh where it stands or where it goes (a mod's plaza left without one: the
+        // Heart of the Mojave sitters of Gomorrah's benches, overnight queue item 3), and the
+        // place is close by in the same space: it walks straight there [design].
+        let found = match found {
+            Err(fnv_nav::path::PathError::NoTriangle { .. }) if to.space == a.walker.space && hdist(a.walker.feet, to.pos) <= STRAIGHT_REACH && (a.walker.feet[2] - to.pos[2]).abs() <= STRAIGHT_RISE => {
+                let length = a.walker.go_straight(to.pos).length;
+                self.log(game, actor, AiEvent::Straight { package, length });
+                Ok((length, Vec::new()))
+            }
+            other => other,
+        };
+        let a = self.agents.get_mut(&actor).expect("listed");
+        match found {
+            Ok((length, doors)) => {
+                let event = AiEvent::Trip { package, to: to.pos, space: to.space, length, doors, running, patrol_point };
                 a.activity = Activity::Travelling;
                 a.trip_started = game.time;
                 a.trip_from = a.walker.travelled;

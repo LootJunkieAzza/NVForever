@@ -103,6 +103,11 @@ impl Doors {
         self.map.get(&id).map(|d| d.motion.is_open())
     }
 
+    /// Every door known here (co-op shares the ones that move, nvforever `coop.rs`).
+    pub fn ids(&self) -> impl Iterator<Item = u32> + '_ {
+        self.map.keys().copied()
+    }
+
     pub fn len(&self) -> usize {
         self.map.len()
     }

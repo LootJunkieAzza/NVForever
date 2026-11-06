@@ -7,7 +7,7 @@
 
 use crate::graph::{DoorEdge, NavGraph, Space, NONE};
 use crate::jump::Flight;
-use crate::path::{LedgeHop, Path, PathError, PathParams, Place};
+use crate::path::{Leg, LedgeHop, Path, PathError, PathParams, Place};
 use serde::Serialize;
 
 /// What to do next.
@@ -576,6 +576,17 @@ impl Walker {
         Ok(&self.follower.as_ref().expect("just set").path)
     }
 
+    /// Walk straight to `to` in the walker's space, off the navmesh: a path of one segment
+    /// (its height along the segment where no triangle is under it, [`Walker::update`]).
+    /// For a short way where the navmesh has no triangle near the start or the goal (a
+    /// mod's plaza left without one) [design: the game's own walk there is not known].
+    pub fn go_straight(&mut self, to: [f32; 3]) -> &Path {
+        let leg = Leg { space: self.space, points: vec![self.feet, to], corridor: Vec::new(), door: None, door_stops: Vec::new(), hops: Vec::new() };
+        let path = Path { legs: vec![leg], length: hdist(self.feet, to), expanded: 0, start_snap: 0.0, goal_snap: 0.0 };
+        self.follower = Some(Follower::new(path));
+        &self.follower.as_ref().expect("just set").path
+    }
+
     /// Move for `dt` seconds, passing doors that open in place as if they were open.
     pub fn update(&mut self, nav: &NavGraph, dt: f32) -> WalkEvent {
         self.update_with(nav, dt, &mut |_| true)
@@ -1013,6 +1024,25 @@ mod tests {
         }
         assert!((t - 1.4).abs() < 0.11, "{t}");
         assert!(heading_delta(w.heading, PI).abs() < 1e-4);
+    }
+
+    /// Off the navmesh, a walker sent straight to a place gets there along the segment,
+    /// its height following it (a mod's plaza without navmesh, overnight queue item 3).
+    #[test]
+    fn a_walker_goes_straight_where_there_is_no_navmesh() {
+        let mut w = Walker::new(Space::Interior(1), [0.0, 0.0, 1009.0], 0.0, 100.0);
+        let g = NavGraph::default();
+        assert!(w.go_to(&g, Place { space: Space::Interior(1), pos: [36.0, 131.0, 1025.0] }, &PathParams::default()).is_err());
+        assert!((w.go_straight([36.0, 131.0, 1025.0]).length - 135.9).abs() < 0.1);
+        let mut arrived = false;
+        for _ in 0..600 {
+            if w.update(&g, 1.0 / 60.0) == WalkEvent::Arrived {
+                arrived = true;
+                break;
+            }
+        }
+        assert!(arrived && w.follower.is_none(), "{:?}", w.feet);
+        assert!((w.feet[0] - 36.0).abs() < 1.5 && (w.feet[1] - 131.0).abs() < 1.5 && (w.feet[2] - 1025.0).abs() < 1.0, "{:?}", w.feet);
     }
 
     #[test]

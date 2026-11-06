@@ -19,7 +19,9 @@
 //! The NPCs' hits on a guest go the other way ([`Session::send_hit_to`]). The host's
 //! active quest goes to the guests too ([`QuestView`], [`QUEST_EVERY`]), so does its game
 //! clock ([`ClockView`], [`CLOCK_EVERY`]: one time of day in every game), and an unlocked
-//! door or terminal goes to everyone ([`Session::send_unlock`]). A player another revives
+//! door or terminal goes to everyone ([`Session::send_unlock`]), and so does a door one
+//! opens or closes ([`Session::send_door`]); the host's world's presence and its doors'
+//! open flags go to the guests as lists ([`Msg::Presence`]). A player another revives
 //! is told so through the host ([`Session::send_revive`]). An animation a player plays
 //! for an item (eating, a stimpak, skinning) goes to everyone through the host
 //! ([`Session::send_anim`], [`AnimCue`]); an older game drops the kind it does not know.
@@ -56,7 +58,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 pub const MAGIC: [u8; 4] = *b"NVCO";
-pub const VERSION: u8 = 15;
+pub const VERSION: u8 = 16;
 pub const MAX_GUESTS: usize = 3;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -103,6 +105,9 @@ pub struct NpcState {
     pub weapon: u32,
     /// Attacks begun (wrapping), counted as [`PlayerState::attacks`] are.
     pub attacks: u8,
+    /// The furniture reference it is using or walking up to (a chair, a bed, a cross), 0
+    /// for none; [`npc_flag::SEATED`] once it is on it.
+    pub furniture: u32,
 }
 
 impl NpcState {
@@ -121,10 +126,12 @@ pub mod npc_flag {
     /// Fighting: aiming at someone.
     pub const AIMING: u8 = 16;
     pub const SIGHTS: u8 = 32;
+    /// On its furniture ([`NpcState::furniture`]), not walking up to it.
+    pub const SEATED: u8 = 64;
 }
 
-/// NPC states in one packet (30 bytes each: under 1210 bytes in all).
-pub const NPCS_PER_PACKET: usize = 40;
+/// NPC states in one packet (34 bytes each: under 1200 bytes in all).
+pub const NPCS_PER_PACKET: usize = 35;
 /// How often the host sends its NPCs.
 pub const NPC_HZ: u32 = 10;
 /// The host sends its active quest this often, and at once when it changes.
@@ -137,6 +144,13 @@ pub const LINES_MAX: usize = 24;
 pub const PRESENCE_EVERY: Duration = Duration::from_millis(200);
 /// References one presence page carries at most (5 bytes each: 1000 bytes).
 pub const PRESENCE_PAGE: usize = 200;
+/// The host's lists ([`Msg::Presence`]): each placed reference whose own enabled flag
+/// differs from its plugin's ...
+pub const LIST_ENABLED: u8 = 0;
+/// ... and each whose open flag (a door) differs from its plugin's.
+pub const LIST_OPEN: u8 = 1;
+/// How many lists there are.
+pub const LISTS: usize = 2;
 /// How often the host sends its game clock.
 pub const CLOCK_EVERY: Duration = Duration::from_secs(2);
 /// Objectives a [`QuestView`] carries at most.
@@ -312,10 +326,14 @@ enum Msg {
     Clock(ClockView),
     /// The lines the host's NPCs are saying now (the newest `seq` wins).
     Lines { seq: u32, lines: Vec<LineView> },
-    /// Page `page` of `pages` of the host's world's presence: each placed reference whose
-    /// own enabled flag differs from the one its plugin gives it, with the flag. `serial`
-    /// changes when the list does; the pages go round, one at a time.
-    Presence { serial: u32, page: u16, pages: u16, refs: Vec<(u32, bool)> },
+    /// Page `page` of `pages` of one of the host's lists (`list`: [`LIST_ENABLED`], each
+    /// placed reference whose own enabled flag differs from the one its plugin gives it,
+    /// with the flag; [`LIST_OPEN`], the same for the open flag). `serial` changes when
+    /// the list does; the pages go round, one at a time.
+    Presence { list: u8, serial: u32, page: u16, pages: u16, refs: Vec<(u32, bool)> },
+    /// A door was opened (`open`) or closed by a player (to the host, and from it to
+    /// everyone) or in the host's world.
+    Door { reference: u32, open: bool },
     /// Player `by` revived player `target` (who is down).
     Revive { target: u8, by: u8 },
     /// Player `id` at a minigame table: what it shows (a view, the newest wins) or an
@@ -464,9 +482,12 @@ pub enum Event {
     Clock(ClockView),
     /// The lines the host's NPCs are saying now, each time they come (guests only).
     Lines(Vec<LineView>),
-    /// A page of the host's world's presence, each time it comes (guests only;
+    /// A page of one of the host's lists, each time it comes (guests only;
     /// [`Msg::Presence`]).
-    Presence { serial: u32, page: u16, pages: u16, refs: Vec<(u32, bool)> },
+    Presence { list: u8, serial: u32, page: u16, pages: u16, refs: Vec<(u32, bool)> },
+    /// Player `id` (0: the host's world) opened (`open`) or closed a door. It may come
+    /// more than once.
+    Door { id: u8, reference: u32, open: bool },
     /// Player `by` revived this player. It may come more than once.
     Revived { by: u8 },
     /// Player `id` at a table: a view (newest only; `game` [`TABLE_LEFT`]: it left), or
@@ -530,6 +551,15 @@ enum Role {
     },
 }
 
+/// One of the host's paged lists ([`Msg::Presence`]): the list, its serial and the next
+/// page to send.
+#[derive(Default)]
+struct Paged {
+    refs: Vec<(u32, bool)>,
+    serial: u32,
+    page: usize,
+}
+
 /// One side of the link, ticked by [`Link`]'s thread (or by hand in tests).
 pub struct Session {
     sock: UdpSocket,
@@ -566,11 +596,8 @@ pub struct Session {
     last_lines: Option<(Instant, Vec<(u32, u32)>)>,
     lines_seq: u32,
     heard_lines: Option<u32>,
-    /// The host's world's presence ([`Msg::Presence`]), its serial, the next page to send
-    /// and when the last went.
-    presence: Vec<(u32, bool)>,
-    presence_serial: u32,
-    presence_page: usize,
+    /// The host's lists ([`Msg::Presence`]), and when the last pages went.
+    lists: [Paged; LISTS],
     last_presence: Option<Instant>,
     /// This player's table view, and when it last went.
     table: Option<TableView>,
@@ -616,7 +643,7 @@ impl Session {
 
     fn with(sock: UdpSocket, role: Role) -> std::io::Result<Self> {
         sock.set_nonblocking(true)?;
-        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, presence: Vec::new(), presence_serial: 0, presence_page: 0, last_presence: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), events: Vec::new() })
+        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, lists: Default::default(), last_presence: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), events: Vec::new() })
     }
 
     /// Also talk over Steam: a host is reached through it by a Steam code, a guest reaches
@@ -662,13 +689,30 @@ impl Session {
         self.lines = lines;
     }
 
-    /// The host's world's presence now ([`Msg::Presence`]); [`Session::tick`] sends a page
-    /// of it every [`PRESENCE_EVERY`], from the first page again when it changed.
-    pub fn set_presence(&mut self, refs: Vec<(u32, bool)>) {
-        if refs != self.presence {
-            self.presence = refs;
-            self.presence_serial = self.presence_serial.wrapping_add(1);
-            self.presence_page = 0;
+    /// One of the host's lists now (`list`, [`Msg::Presence`]); [`Session::tick`] sends a
+    /// page of each every [`PRESENCE_EVERY`], from the first page again when it changed.
+    pub fn set_presence(&mut self, list: u8, refs: Vec<(u32, bool)>) {
+        let Some(l) = self.lists.get_mut(list as usize) else { return };
+        if refs != l.refs {
+            l.refs = refs;
+            l.serial = l.serial.wrapping_add(1);
+            l.page = 0;
+        }
+    }
+
+    /// This player opened (`open`) or closed door `reference` (the host: or its world
+    /// did): to the host, or from the host to every guest ([`HIT_COPIES`] times).
+    pub fn send_door(&mut self, reference: u32, open: bool) {
+        let msg = Msg::Door { reference, open };
+        let to: Vec<SocketAddr> = match &self.role {
+            Role::Host => self.peers.iter().filter_map(|p| p.addr).collect(),
+            Role::Guest { host: Some(host), .. } => vec![*host],
+            Role::Guest { .. } => Vec::new(),
+        };
+        for addr in to {
+            for _ in 0..HIT_COPIES {
+                self.sock_send(&msg, addr);
+            }
         }
     }
 
@@ -973,14 +1017,17 @@ impl Session {
             }
         }
         if self.is_host() && !self.peers.is_empty() && self.last_presence.is_none_or(|t| now - t >= PRESENCE_EVERY) {
-            let pages = self.presence.len().div_ceil(PRESENCE_PAGE).max(1);
-            let page = self.presence_page % pages;
-            let refs = self.presence.iter().skip(page * PRESENCE_PAGE).take(PRESENCE_PAGE).copied().collect();
-            let msg = Msg::Presence { serial: self.presence_serial, page: page as u16, pages: pages as u16, refs };
-            for addr in self.peers.iter().filter_map(|p| p.addr) {
-                self.sock_send(&msg, addr);
+            for list in 0..LISTS {
+                let l = &self.lists[list];
+                let pages = l.refs.len().div_ceil(PRESENCE_PAGE).max(1);
+                let page = l.page % pages;
+                let refs = l.refs.iter().skip(page * PRESENCE_PAGE).take(PRESENCE_PAGE).copied().collect();
+                let msg = Msg::Presence { list: list as u8, serial: l.serial, page: page as u16, pages: pages as u16, refs };
+                for addr in self.peers.iter().filter_map(|p| p.addr) {
+                    self.sock_send(&msg, addr);
+                }
+                self.lists[list].page = (page + 1) % pages;
             }
-            self.presence_page = (page + 1) % pages;
             self.last_presence = Some(now);
         }
         if self.is_host() {
@@ -1155,6 +1202,14 @@ impl Session {
                     self.sock_send(&msg, addr);
                 }
             }
+            Msg::Door { reference, open } => {
+                let Some(id) = self.peers.iter().find(|p| p.addr == Some(from)).map(|p| p.id) else { return };
+                self.events.push(Event::Door { id, reference, open });
+                let msg = Msg::Door { reference, open };
+                for addr in self.peers.iter().filter(|p| p.id != id).filter_map(|p| p.addr) {
+                    self.sock_send(&msg, addr);
+                }
+            }
             Msg::Revive { target, by } => {
                 // From a known guest only; for the host, or passed on to its guest.
                 if !self.peers.iter().any(|p| p.addr == Some(from) && p.id == by) {
@@ -1325,7 +1380,8 @@ impl Session {
             }
             Msg::Unlock { reference, terminal } => self.events.push(Event::Unlocked { id: 0, reference, terminal }),
             Msg::Clock(c) => self.events.push(Event::Clock(c)),
-            Msg::Presence { serial, page, pages, refs } => self.events.push(Event::Presence { serial, page, pages, refs }),
+            Msg::Presence { list, serial, page, pages, refs } => self.events.push(Event::Presence { list, serial, page, pages, refs }),
+            Msg::Door { reference, open } => self.events.push(Event::Door { id: 0, reference, open }),
             Msg::Lines { seq, lines } => {
                 if self.heard_lines.is_some_and(|l| !fresh(seq, l)) {
                     return;
@@ -1479,8 +1535,12 @@ impl Link {
         self.with(|s| s.set_lines(lines));
     }
 
-    pub fn set_presence(&self, refs: Vec<(u32, bool)>) {
-        self.with(|s| s.set_presence(refs));
+    pub fn set_presence(&self, list: u8, refs: Vec<(u32, bool)>) {
+        self.with(|s| s.set_presence(list, refs));
+    }
+
+    pub fn send_door(&self, reference: u32, open: bool) {
+        self.with(|s| s.send_door(reference, open));
     }
 
     pub fn set_quest(&self, quest: QuestView) {
@@ -1639,6 +1699,7 @@ fn encode(msg: &Msg) -> Vec<u8> {
                 b.push(n.flags);
                 b.extend_from_slice(&n.weapon.to_le_bytes());
                 b.push(n.attacks);
+                b.extend_from_slice(&n.furniture.to_le_bytes());
             }
         }
         Msg::Hit { id, hit } => {
@@ -1682,8 +1743,9 @@ fn encode(msg: &Msg) -> Vec<u8> {
                 b.extend_from_slice(&l.conversation.to_le_bytes());
             }
         }
-        Msg::Presence { serial, page, pages, refs } => {
+        Msg::Presence { list, serial, page, pages, refs } => {
             b.push(19);
+            b.push(*list);
             b.extend_from_slice(&serial.to_le_bytes());
             b.extend_from_slice(&page.to_le_bytes());
             b.extend_from_slice(&pages.to_le_bytes());
@@ -1692,6 +1754,11 @@ fn encode(msg: &Msg) -> Vec<u8> {
                 b.extend_from_slice(&r.to_le_bytes());
                 b.push(u8::from(*on));
             }
+        }
+        Msg::Door { reference, open } => {
+            b.push(20);
+            b.extend_from_slice(&reference.to_le_bytes());
+            b.push(u8::from(*open));
         }
         Msg::Revive { target, by } => {
             b.push(14);
@@ -1818,7 +1885,7 @@ fn decode(b: &[u8]) -> Option<Msg> {
                 if !feet.iter().chain([&heading, &pitch]).all(|v| v.is_finite()) {
                     return None;
                 }
-                npcs.push(NpcState { reference, feet, heading, pitch, flags: r.u8()?, weapon: r.u32()?, attacks: r.u8()? });
+                npcs.push(NpcState { reference, feet, heading, pitch, flags: r.u8()?, weapon: r.u32()?, attacks: r.u8()?, furniture: r.u32()? });
             }
             Msg::Npcs { seq, npcs }
         }
@@ -1895,16 +1962,17 @@ fn decode(b: &[u8]) -> Option<Msg> {
             Msg::Lines { seq, lines }
         }
         19 => {
-            let (serial, page, pages, n) = (r.u32()?, r.u16()?, r.u16()?, r.u16()? as usize);
-            if n > PRESENCE_PAGE || page >= pages {
+            let (list, serial, page, pages, n) = (r.u8()?, r.u32()?, r.u16()?, r.u16()?, r.u16()? as usize);
+            if n > PRESENCE_PAGE || page >= pages || list as usize >= LISTS {
                 return None;
             }
             let mut refs = Vec::with_capacity(n);
             for _ in 0..n {
                 refs.push((r.u32()?, r.u8()? != 0));
             }
-            Msg::Presence { serial, page, pages, refs }
+            Msg::Presence { list, serial, page, pages, refs }
         }
+        20 => Msg::Door { reference: r.u32()?, open: r.u8()? != 0 },
         _ => return None,
     };
     r.0.is_empty().then_some(msg)
@@ -1961,8 +2029,9 @@ mod tests {
             Msg::Unlock { reference: 0x0001_2345, terminal: true },
             Msg::Clock(ClockView { year: 2281.0, month: 9.0, day: 19.0, hour: 13.25, days_passed: 6.05 }),
             Msg::Revive { target: 2, by: 0 },
-            Msg::Presence { serial: 7, page: 0, pages: 1, refs: Vec::new() },
-            Msg::Presence { serial: 8, page: 2, pages: 3, refs: vec![(0x0010_A202, true), (0x0016_8A92, false)] },
+            Msg::Presence { list: LIST_ENABLED, serial: 7, page: 0, pages: 1, refs: Vec::new() },
+            Msg::Presence { list: LIST_OPEN, serial: 8, page: 2, pages: 3, refs: vec![(0x0010_A202, true), (0x0016_8A92, false)] },
+            Msg::Door { reference: 0x0010_C0DE, open: true },
             Msg::Lines { seq: 3, lines: Vec::new() },
             Msg::Lines {
                 seq: u32::MAX,
@@ -1982,8 +2051,8 @@ mod tests {
             Msg::Npcs {
                 seq: 12,
                 npcs: vec![
-                    NpcState { reference: 0x0010_4C3A, feet: [1.0, -2.5, 300.0], heading: 1.5, pitch: -0.2, flags: npc_flag::DRAWN | npc_flag::AIMING, weapon: 0x0E3778, attacks: 255 },
-                    NpcState { reference: 7, feet: [0.0; 3], heading: 0.0, pitch: 0.0, flags: npc_flag::DEAD, weapon: 0, attacks: 0 },
+                    NpcState { reference: 0x0010_4C3A, feet: [1.0, -2.5, 300.0], heading: 1.5, pitch: -0.2, flags: npc_flag::DRAWN | npc_flag::AIMING, weapon: 0x0E3778, attacks: 255, furniture: 0 },
+                    NpcState { reference: 7, feet: [0.0; 3], heading: 0.0, pitch: 0.0, flags: npc_flag::DEAD | npc_flag::SEATED, weapon: 0, attacks: 0, furniture: 0x0010_C055 },
                 ],
             },
             Msg::State { id: 1, seq: 7, state: state(-12.5) },
@@ -2154,11 +2223,11 @@ mod tests {
         let step = Duration::from_millis(20);
         run(&mut [&mut host, a], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))));
         let refs: Vec<(u32, bool)> = (0..PRESENCE_PAGE as u32 + 5).map(|i| (0x0010_0000 + i, i % 2 == 0)).collect();
-        host.set_presence(refs.clone());
+        host.set_presence(LIST_ENABLED, refs.clone());
         let pages = |seen: &[Event], serial: u32| -> Vec<Page> {
             seen.iter()
                 .filter_map(|e| match e {
-                    Event::Presence { serial: s, page, pages, refs } if *s == serial => Some((*page, *pages, refs.clone())),
+                    Event::Presence { list: LIST_ENABLED, serial: s, page, pages, refs } if *s == serial => Some((*page, *pages, refs.clone())),
                     _ => None,
                 })
                 .collect()
@@ -2168,9 +2237,13 @@ mod tests {
         assert_eq!((got[0].0, got[0].1, got[1].0, got[2].0), (0, 2, 1, 0), "round and round");
         assert_eq!([got[0].2.clone(), got[1].2.clone()].concat(), refs);
         assert!(!seen[0].iter().any(|e| matches!(e, Event::Presence { .. })), "not to the host");
-        host.set_presence(Vec::new());
+        host.set_presence(LIST_ENABLED, Vec::new());
         let seen = run(&mut [&mut host, a], &mut clock, step, |seen| !pages(&seen[1], 2).is_empty());
         assert_eq!(pages(&seen[1], 2)[0], (0, 1, Vec::new()));
+        // The doors' list goes beside it, with its own serial.
+        host.set_presence(LIST_OPEN, vec![(0x0010_C0DE, true)]);
+        let seen = run(&mut [&mut host, a], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Presence { list: LIST_OPEN, serial: 1, .. })));
+        assert!(seen[1].contains(&Event::Presence { list: LIST_OPEN, serial: 1, page: 0, pages: 1, refs: vec![(0x0010_C0DE, true)] }));
     }
 
     /// A guest's animation reaches the host and the other guest once each (it goes three
@@ -2347,7 +2420,7 @@ mod tests {
         let step = Duration::from_millis(10);
         run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))));
         // More than one packet's worth.
-        let npcs: Vec<NpcState> = (0..NPCS_PER_PACKET as u32 + 5).map(|i| NpcState { reference: 0x100 + i, feet: [i as f32, 0.0, 0.0], heading: 0.0, pitch: 0.0, flags: 0, weapon: 0, attacks: 0 }).collect();
+        let npcs: Vec<NpcState> = (0..NPCS_PER_PACKET as u32 + 5).map(|i| NpcState { reference: 0x100 + i, feet: [i as f32, 0.0, 0.0], heading: 0.0, pitch: 0.0, flags: 0, weapon: 0, attacks: 0, furniture: 0 }).collect();
         host.set_npcs(npcs.clone());
         let seen = run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].iter().filter(|e| matches!(e, Event::Npcs(_))).count() >= 2);
         let mut heard: Vec<NpcState> = Vec::new();
@@ -2378,6 +2451,28 @@ mod tests {
         a.send_unlock(0x0001_2345, false);
         let seen = run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[0].iter().any(|e| matches!(e, Event::Unlocked { .. })));
         assert!(seen[0].contains(&Event::Unlocked { id, reference: 0x0001_2345, terminal: false }));
+    }
+
+    /// A door a guest opens reaches the host and the other guest, naming the guest, and
+    /// not back to it; one the host closes reaches the guests.
+    #[test]
+    fn doors_reach_everyone() {
+        let (mut host, mut g, _) = host_and(2);
+        let mut b = g.pop().unwrap();
+        let mut a = g.pop().unwrap();
+        let mut clock = Instant::now();
+        let step = Duration::from_millis(10);
+        run(&mut [&mut host, &mut a, &mut b], &mut clock, step, |seen| seen[1..].iter().all(|s| s.iter().any(|e| matches!(e, Event::Welcomed(_)))));
+        let ida = a.id().unwrap();
+        a.send_door(0x0001_D002, true);
+        let door = |seen: &[Event]| seen.iter().any(|e| matches!(e, Event::Door { .. }));
+        let seen = run(&mut [&mut host, &mut a, &mut b], &mut clock, step, |seen| door(&seen[0]) && door(&seen[2]));
+        assert!(seen[0].contains(&Event::Door { id: ida, reference: 0x0001_D002, open: true }));
+        assert!(seen[2].contains(&Event::Door { id: 0, reference: 0x0001_D002, open: true }));
+        assert!(!door(&seen[1]), "not back to the guest");
+        host.send_door(0x0001_D002, false);
+        let seen = run(&mut [&mut host, &mut a, &mut b], &mut clock, step, |seen| door(&seen[1]) && door(&seen[2]));
+        assert!(seen[1..].iter().all(|s| s.contains(&Event::Door { id: 0, reference: 0x0001_D002, open: false })));
     }
 
     #[test]
