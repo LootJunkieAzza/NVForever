@@ -584,6 +584,19 @@ fn register_graphics(app: &mut App) {
         add_setting(app, s);
     }
     nvf_play::settings::set_disabled_status(app, "anti-aliasing", |w| graphics::fsr_active(w).then_some("Off (FSR active)"));
+    add_setting(
+        app,
+        Setting {
+            key: "latency-reduction",
+            group: GROUP_GRAPHICS,
+            label: "Latency reduction",
+            note: "AMD Anti-Lag: the graphics driver keeps the game from preparing frames ahead of the graphics card, so what you do reaches the screen sooner. AMD graphics cards with Anti-Lag in their Vulkan driver (Windows: Adrenalin 24.9.1 or later; Linux: Mesa 26.3 or later). Not in the original. (--latency-reduction)",
+            get: |w| w.resource::<crate::anti_lag::LatencyReduction>().on,
+            set: |w, on| w.resource_mut::<crate::anti_lag::LatencyReduction>().on = on,
+            slider: None,
+        },
+    );
+    nvf_play::settings::set_disabled_status(app, "latency-reduction", |w| (!crate::anti_lag::available(w)).then_some("Not on this GPU"));
     let switches: [Switch; 11] = [
         (
             "ambient-occlusion",

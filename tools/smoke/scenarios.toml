@@ -22296,6 +22296,20 @@ expect = ["FSR 3.1.4: NativeAa", { re = 'blended cut-outs: drawn alpha-tested fo
 order = [["blended cut-outs: drawn alpha-tested", "blended cut-outs: drawn blended"]]
 forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error", "Validation Error"]
 
+[[scenario]]
+name = "latency-reduction"
+source = "#1778, docs/design/latency-reduction.md: --latency-reduction turns the switch on; the start says whether the GPU's Vulkan driver offers VK_AMD_anti_lag, and the game runs on either way"
+areas = ["graphics"]
+paths = ["engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/frame_pace.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--latency-reduction", "--no-voice", "--no-lodgen"]
+run_seconds = 12
+expect = [
+  { re = 'latency reduction: (AMD Anti-Lag \(VK_AMD_anti_lag\) available|not available) on ', label = "the start says whether the driver offers Anti-Lag" },
+  { re = 'latency reduction: on \((AMD Anti-Lag|not available on this GPU)\)', label = "--latency-reduction turns the switch on" },
+]
+forbid = [{ text = "Validation Error", label = "a Vulkan validation error" }, { text = "Caught rendering error", label = "a rendering error" }]
+
 # [design: issue #1803] Compare identical first raises with and without hidden draws.
 [[scenario]]
 name = "pipboy-first-open"

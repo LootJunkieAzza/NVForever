@@ -67,6 +67,7 @@ mod eye_adapt;
 mod fog;
 mod fly;
 mod foot_ik;
+mod anti_lag;
 mod fps_counter;
 mod frame_pace;
 mod frame_telemetry;
@@ -433,6 +434,11 @@ struct Args {
     /// switch wins over this flag, as for every switch.
     #[arg(long)]
     fps: bool,
+    /// Latency reduction: AMD Anti-Lag through Vulkan (AMD GPUs only), the driver keeping the
+    /// CPU from preparing frames ahead of the GPU (anti_lag.rs). Once any setting is saved,
+    /// NVForever.ini's Latency reduction switch wins over this flag, as for every switch.
+    #[arg(long)]
+    latency_reduction: bool,
     /// With --play: draw the text overlay (the developer's position, loading counts and
     /// key help), which the game leaves off (owner, list 5 item 68); the settings page's
     /// Developer group turns it on and off too.
@@ -1283,6 +1289,8 @@ fn main() -> AppExit {
     let mut app = App::new();
     // A command for an entity that is gone is logged, not fatal (stray_commands.rs).
     app.set_error_handler(stray_commands::handler);
+    // Asks for VK_AMD_anti_lag when Bevy creates the device: before DefaultPlugins (anti_lag.rs).
+    app.add_plugins(anti_lag::AntiLagInitPlugin);
     app.add_plugins(
         DefaultPlugins
             .set(task_pools(cpu_placed.pool_threads))
@@ -1345,6 +1353,7 @@ fn main() -> AppExit {
     .add_plugins(fps_counter::FpsCounterPlugin(args.fps))
     // Vsync as Bevy's default, off while frame times are measured; no frame-rate cap.
     .add_plugins(frame_pace::FramePacePlugin(frame_pace::FramePace { sync: if args.log_frame_times.is_none() { frame_pace::DisplaySync::Vsync } else { frame_pace::DisplaySync::Off }, cap: 0 }))
+    .add_plugins(anti_lag::AntiLagPlugin(args.latency_reduction))
     .add_plugins(blit_warm::BlitWarmPlugin)
     // Lights clustered on the CPU, Bevy's own fallback: its GPU clustering made about six
     // new GPU buffers a frame (10,235 in 30 s at night against 4,060 on the CPU), GPU
