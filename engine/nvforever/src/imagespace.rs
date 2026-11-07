@@ -52,6 +52,7 @@ use bevy::render::{Render, RenderApp, RenderStartup, RenderSystems};
 use bevy::shader::ShaderRef;
 use fnv_world::image_modifier::{combine, graded, image_modifier, Dof, ImageModifier, ScreenEffect, DOF_BACK, DOF_FRONT, DOF_NO_SKY};
 use fnv_world::imagespace::Hdr;
+use nvf_play::tiles::menus::TileMenuBlur;
 
 /// Grade parameters on the main camera.
 #[derive(Component, ExtractComponent, Clone, Copy, ShaderType)]
@@ -242,7 +243,8 @@ impl Plugin for ImageSpacePlugin {
             .add_plugins(FullscreenMaterialPlugin::<ImageSpaceGrade>::default())
             // A modifier's sounds: before sfx plays them.
             .add_systems(Update, update_grade.after(crate::sky::update_sky).before(nvf_play::sfx::SfxSet))
-            .add_systems(PostUpdate, update_motion.after(bevy::transform::TransformSystems::Propagate).after(bevy::camera::CameraUpdateSystems));
+            .add_systems(PostUpdate, update_motion.after(bevy::transform::TransformSystems::Propagate).after(bevy::camera::CameraUpdateSystems))
+            .add_systems(PostUpdate, tile_menu_blur);
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
         render_app
             .add_systems(RenderStartup, init_blur)
@@ -343,6 +345,15 @@ fn modifier_sounds(mods: &mut ScreenModifiers, world: &WorldData, forms: &[u32],
     }
 }
 
+/// The depth of field in a conversation (image-modifiers.md §8.4), behind the speaker only:
+/// the mix towards the blur at full zoom (past 1 it turns into the contrast effect of §8.5),
+/// what stays clean behind the face (the speaker's own body), and where the blur is full,
+/// game units [design: to tune against the original's shots: a wall close behind the
+/// speaker a little blurred, a far background strongly].
+const TALK_DOF_STRENGTH: f32 = 1.0;
+const TALK_DOF_DISTANCE: f32 = 32.0;
+const TALK_DOF_RANGE: f32 = 512.0;
+
 /// The game settings of the engine's own depth of field (image-modifiers.md §8.2, §8.4)
 /// [observed values: FalloutNV.esm GMST; the fallbacks are those values].
 #[derive(Debug, Clone, Copy)]
@@ -373,18 +384,20 @@ impl DofSettings {
 /// The engine's own depth of field (image-modifiers.md §8.4) [hypothesis]: VATS focused
 /// on the mark (`vats_focus`, its distance along the view), beyond it only, faded with
 /// the mode's look (`vats_grade`, 0 … 1); aiming down the sights by the zoom's
-/// `aim_blend`. The stronger, with the target's distance (below 0: none) and its name.
-fn engine_dof(s: &DofSettings, vats_grade: f32, vats_focus: Option<f32>, aim_blend: f32) -> Option<(Dof, f32, &'static str)> {
+/// `aim_blend`; a conversation on the speaker's face (`talk`: the zoom's blend and the face's
+/// distance from the camera), beyond it only. The strongest, with the target's distance
+/// (below 0: none) and its name.
+fn engine_dof(s: &DofSettings, vats_grade: f32, vats_focus: Option<f32>, aim_blend: f32, talk: Option<(f32, f32)>) -> Option<(Dof, f32, &'static str)> {
     let vats = vats_focus
         .filter(|_| vats_grade > 0.0 && s.vats_strength > 0.0)
         .map(|f| (Dof { strength: s.vats_strength * vats_grade, distance: 0.0, range: s.vats_range, use_target: true, flags: DOF_BACK }, f.max(0.0), "VATS"));
     let sights = (aim_blend > 0.0 && s.sights_strength > 0.0).then(|| {
         (Dof { strength: s.sights_strength * aim_blend, distance: s.sights_distance, range: s.sights_range, use_target: false, flags: 0 }, -1.0, "iron sights")
     });
-    match (vats, sights) {
-        (Some(a), Some(b)) => Some(if b.0.strength > a.0.strength { b } else { a }),
-        (a, b) => a.or(b),
-    }
+    let talk = talk.filter(|(blend, _)| *blend > 0.0).map(|(blend, f)| {
+        (Dof { strength: TALK_DOF_STRENGTH * blend, distance: TALK_DOF_DISTANCE, range: TALK_DOF_RANGE, use_target: true, flags: DOF_BACK }, f.max(0.0), "dialogue")
+    });
+    [vats, sights, talk].into_iter().flatten().reduce(|a, b| if b.0.strength > a.0.strength { b } else { a })
 }
 
 /// The log line's text for a depth of field (rounded, so a fade logs a few lines).
@@ -484,6 +497,11 @@ fn update_motion(time: Res<Time>, mut last: Local<LastViews>, mut cams: Query<(E
 /// choice: by eye against the owner's screenshot of the original menu].
 const WAIT_MENU_BLUR: f32 = 3.0;
 
+/// The blur behind a menu drawn from its tiles, in the same units, on and off at once as the
+/// wait menu's [design: the original's shots show the world blurred behind the tutorial and
+/// container menus (docs/spec-notes/tutorial-menu.md §5), not how strongly or how fast].
+const TILE_MENU_BLUR: f32 = 3.0;
+
 /// The blur of the world behind the Pip-Boy, in the same units [documented:
 /// `Fallout_default.ini` `[Pipboy] fBlurRadiusPipboy=3.5`; hypothesis: the same units as
 /// a modifier's blur radius; its `fBlurIntensityPipboy=0.25` is not used, what it scales
@@ -498,7 +516,7 @@ const PIPBOY_SHARP: f32 = 40.0;
 /// A fade colour and amount (`ScreenEffect::fade`) with black laid over it to `f` (0 …
 /// 1): the share of the screen covered grows to `f` of what was left, and the colour
 /// darkens with it.
-fn black_over(fade: [f32; 4], f: f32) -> [f32; 4] {
+pub(crate) fn black_over(fade: [f32; 4], f: f32) -> [f32; 4] {
     let f = f.clamp(0.0, 1.0);
     let a = fade[3].clamp(0.0, 1.0);
     let covered = a + (1.0 - a) * f;
@@ -522,7 +540,7 @@ fn update_grade(
         Option<Res<crate::death_cam::DeathCam>>,
         Option<Res<nvf_play::vats_mode::VatsMode>>,
     ),
-    (sim, aim, wheel): (Option<Res<nvf_play::sim::SimState>>, Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::weapon_wheel::WeaponWheel>>),
+    (sim, aim, wheel, talk): (Option<Res<nvf_play::sim::SimState>>, Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::weapon_wheel::WeaponWheel>>, Option<Res<nvf_play::dialogue_zoom::DialogueZoom>>),
     mut mods: ResMut<ScreenModifiers>,
     mut grades: Query<(&mut ImageSpaceGrade, Has<LensGrade>)>,
     sounds: Option<ResMut<Messages<nvf_play::sfx::PlaySound>>>,
@@ -567,8 +585,10 @@ fn update_grade(
     let vats_look = vats.as_deref().map_or([0.0; 4], |v| v.look());
     let vats_focus = vats.as_deref().and_then(|v| v.focus()).zip(camera).map(|(p, (_, t))| (nvf_play::space::to_bevy(p) - t.translation()).dot(*t.forward()));
     let aim_blend = aim.as_deref().map_or(0.0, |a| if a.sight.is_some() { a.blend } else { 0.0 });
+    // Straight to the face, not along the view: looking around does not move the focus.
+    let talk_focus = talk.as_deref().and_then(|z| z.face().map(|p| (z.blend(), p))).zip(camera).map(|((blend, p), (_, t))| (blend, (nvf_play::space::to_bevy(p) - t.translation()).length()));
     let (mut dof, mut focus, mut source) = (effect.dof, -1.0f32, dof_source);
-    if let Some((d, f, name)) = mods.dof_settings.as_ref().and_then(|s| engine_dof(s, vats_look[3], vats_focus, aim_blend)) {
+    if let Some((d, f, name)) = mods.dof_settings.as_ref().and_then(|s| engine_dof(s, vats_look[3], vats_focus, aim_blend, talk_focus)) {
         if d.strength > dof.strength {
             (dof, focus, source) = (d, f, name.to_string());
         }
@@ -640,6 +660,43 @@ fn update_grade(
     };
     for (mut grade, in_lens) in &mut grades {
         *grade = if in_lens { lens } else { g };
+    }
+}
+
+/// What [`tile_menu_blur`] tells of a state: this contribution, not the screen's whole blur.
+fn tile_menu_blur_text(now: TileMenuBlur) -> String {
+    let names: Vec<&str> = [(now.tutorial, nvf_play::tiles::tutorial_menu::TUTORIAL_MENU), (now.container, "ContainerMenu"), (now.traits, nvf_play::tiles::trait_menu::TRAIT_MENU)].into_iter().filter(|m| m.0).map(|m| m.1).collect();
+    if names.is_empty() {
+        "off".to_string()
+    } else {
+        format!("{} radius {TILE_MENU_BLUR}", names.join(", "))
+    }
+}
+
+/// The world blurred behind a menu drawn from its tiles: the strongest of this and what
+/// `update_grade` worked out this frame (the modifiers, the wait menu, the Pip-Boy, death, the
+/// weapon wheel), so closing the menu leaves theirs as they were [design]. After `Update`, so
+/// the drawing's decision of this frame (`nvf_play::tiles::draw`) reaches this frame's picture
+/// whatever the order of `update_grade` and the drawing; `update_grade` writes every grade
+/// afresh each frame, so nothing stays when the menu goes. A 3D scope's lens has its own
+/// grade, which holds only the lens's modifiers, and `sharp`, what the Pip-Boy keeps sharp, is
+/// left alone. With nothing drawn from tiles no grade is touched.
+fn tile_menu_blur(drawing: Option<Res<TileMenuBlur>>, mut last: Local<TileMenuBlur>, mut grades: Query<&mut ImageSpaceGrade, Without<LensGrade>>) {
+    let now = drawing.as_deref().copied().unwrap_or_default();
+    if now != *last {
+        info!("tile menu blur: {}", tile_menu_blur_text(now));
+        // What the menu had covered: the grades hold this frame's blur without the menu's.
+        let own = grades.iter().map(|g| g.blur).fold(0.0, f32::max);
+        if !now.any() && own > 0.0 {
+            info!("tile menu blur: the screen's own blur {own:.1} stays");
+        }
+        *last = now;
+    }
+    if !now.any() {
+        return;
+    }
+    for mut grade in &mut grades {
+        grade.blur = grade.blur.max(TILE_MENU_BLUR);
     }
 }
 
@@ -749,23 +806,139 @@ pub(crate) fn blur_pass(
 
 #[cfg(test)]
 mod tests {
-    use super::{black_over, dof_text, engine_dof, motion_blur, motion_frames, DofSettings, MOTION_EXPOSURE};
+    use super::{black_over, dof_text, engine_dof, motion_blur, motion_frames, tile_menu_blur, tile_menu_blur_text, DofSettings, ImageSpaceGrade, LensGrade, TileMenuBlur, MOTION_EXPOSURE, PIPBOY_BLUR, TALK_DOF_DISTANCE, TALK_DOF_RANGE, TALK_DOF_STRENGTH, WAIT_MENU_BLUR};
+    use bevy::prelude::*;
+
+    /// What `update_grade` writes this frame: the screen's own blur and what stays sharp.
+    /// (`update_grade` itself needs a `SkyState`, which only `WorldData` builds; the smoke
+    /// `tiles-tutorial` has the real one under this.)
+    #[derive(Resource, Default)]
+    struct Own(f32, f32);
+
+    fn write_own(own: Res<Own>, mut grades: Query<&mut ImageSpaceGrade, Without<LensGrade>>) {
+        for mut grade in &mut grades {
+            *grade = ImageSpaceGrade { blur: own.0, sharp: own.1, ..ImageSpaceGrade::default() };
+        }
+    }
+
+    /// The main camera's grade and a scope lens's, as `update_grade` and the blur run in a frame.
+    fn grades_app() -> (App, Entity, Entity) {
+        let mut app = App::new();
+        app.init_resource::<Own>().init_resource::<TileMenuBlur>().add_systems(Update, write_own).add_systems(PostUpdate, tile_menu_blur);
+        let main = app.world_mut().spawn(ImageSpaceGrade::default()).id();
+        let lens = app.world_mut().spawn((ImageSpaceGrade::default(), LensGrade)).id();
+        (app, main, lens)
+    }
+
+    fn frame(app: &mut App, entity: Entity, own: (f32, f32), tutorial: bool) -> (f32, f32) {
+        app.insert_resource(Own(own.0, own.1));
+        app.world_mut().resource_mut::<TileMenuBlur>().tutorial = tutorial;
+        app.update();
+        let g = app.world().get::<ImageSpaceGrade>(entity).unwrap();
+        (g.blur, g.sharp)
+    }
+
+    #[test]
+    fn a_tile_menus_blur_is_the_strongest_and_leaves_the_others_when_it_goes() {
+        for (case, own, want) in [
+            ("nothing else", 0.0, 3.0),
+            ("the wait menu", WAIT_MENU_BLUR, 3.0),
+            ("the Pip-Boy, coming up", PIPBOY_BLUR * crate::player_body::pipboy_ease(0.05), 3.0),
+            ("the Pip-Boy, up", PIPBOY_BLUR, 3.5),
+            ("death, at once", crate::death_cam::blur_at(0.0), 3.0),
+            ("death, at its strongest", crate::death_cam::blur_at(crate::death_cam::BLUR_IN), 4.0),
+        ] {
+            let (mut app, main, _) = grades_app();
+            assert_eq!(frame(&mut app, main, (own, 0.0), false).0, own, "{case}: before the menu");
+            assert_eq!(frame(&mut app, main, (own, 0.0), true).0, want, "{case}: the first tiled frame");
+            assert_eq!(frame(&mut app, main, (own, 0.0), true).0, want, "{case}: and again, not summed");
+            assert_eq!(frame(&mut app, main, (own, 0.0), false).0, own, "{case}: closed, at once");
+            assert_eq!(frame(&mut app, main, (own, 0.0), true).0, want, "{case}: reopened");
+        }
+    }
+
+    /// The Pip-Boy's near depth stays sharp under the menu's blur, and a scope's lens keeps its
+    /// own grade.
+    #[test]
+    fn a_tile_menus_blur_keeps_the_pipboys_sharp_depth_and_leaves_a_scope_lens() {
+        let (mut app, main, lens) = grades_app();
+        assert_eq!(frame(&mut app, main, (PIPBOY_BLUR, 0.25), true), (3.5, 0.25));
+        assert_eq!(frame(&mut app, main, (0.0, 0.25), true), (3.0, 0.25));
+        assert_eq!(app.world().get::<ImageSpaceGrade>(lens).unwrap().blur, 0.0);
+    }
+
+    /// With nothing drawn from tiles, or no tile drawing at all (the resource absent), the
+    /// system writes no grade: `Changed` does not fire on them.
+    #[test]
+    fn no_tile_menu_writes_no_grade() {
+        #[derive(Resource, Default)]
+        struct Changes(usize);
+        fn count(grades: Query<(), Changed<ImageSpaceGrade>>, mut changes: ResMut<Changes>) {
+            changes.0 += grades.iter().count();
+        }
+        for present in [true, false] {
+            let mut app = App::new();
+            app.init_resource::<Changes>().add_systems(PostUpdate, tile_menu_blur).add_systems(Last, count);
+            if present {
+                app.init_resource::<TileMenuBlur>();
+            }
+            app.world_mut().spawn(ImageSpaceGrade { blur: 0.5, ..ImageSpaceGrade::default() });
+            app.update();
+            app.world_mut().resource_mut::<Changes>().0 = 0;
+            app.update();
+            app.update();
+            assert_eq!(app.world().resource::<Changes>().0, 0, "resource present: {present}");
+            if present {
+                app.world_mut().resource_mut::<TileMenuBlur>().tutorial = true;
+                app.update();
+                assert_eq!(app.world().resource::<Changes>().0, 1, "drawn from tiles it does write");
+            }
+        }
+    }
+
+    #[test]
+    fn the_tile_menu_blur_lines() {
+        let tutorial = TileMenuBlur { tutorial: true, ..Default::default() };
+        let container = TileMenuBlur { container: true, ..Default::default() };
+        assert_eq!(tile_menu_blur_text(TileMenuBlur::default()), "off");
+        assert_eq!(tile_menu_blur_text(tutorial), "TutorialMenu radius 3");
+        assert_eq!(tile_menu_blur_text(container), "ContainerMenu radius 3");
+        assert_eq!(tile_menu_blur_text(TileMenuBlur { tutorial: true, container: true, ..Default::default() }), "TutorialMenu, ContainerMenu radius 3");
+        assert_eq!(tile_menu_blur_text(TileMenuBlur { traits: true, ..Default::default() }), "TraitMenu radius 3");
+    }
 
     #[test]
     fn the_engine_focuses_vats_on_the_mark() {
         let s = DofSettings { vats_range: 500.0, vats_strength: 0.6, sights_distance: 275.0, sights_range: 650.0, sights_strength: 0.0, sights_motion_blur: 0.0 };
         // No mark, or the look gone: none.
-        assert!(engine_dof(&s, 1.0, None, 0.0).is_none());
-        assert!(engine_dof(&s, 0.0, Some(800.0), 0.0).is_none());
-        let (d, f, name) = engine_dof(&s, 1.0, Some(812.0), 0.0).unwrap();
+        assert!(engine_dof(&s, 1.0, None, 0.0, None).is_none());
+        assert!(engine_dof(&s, 0.0, Some(800.0), 0.0, None).is_none());
+        let (d, f, name) = engine_dof(&s, 1.0, Some(812.0), 0.0, None).unwrap();
         assert_eq!((d.strength, d.range, f, name), (0.6, 500.0, 812.0, "VATS"));
         assert_eq!(dof_text(&d, f, name), "strength 0.6, distance 0, range 500, focus 800, back (VATS)");
         // The shipped iron sights cap is 0: no depth of field down the sights.
-        assert!(engine_dof(&s, 0.0, None, 1.0).is_none());
+        assert!(engine_dof(&s, 0.0, None, 1.0, None).is_none());
         let raised = DofSettings { sights_strength: 0.5, ..s };
-        let (d, _, name) = engine_dof(&raised, 0.0, None, 1.0).unwrap();
+        let (d, _, name) = engine_dof(&raised, 0.0, None, 1.0, None).unwrap();
         assert_eq!((d.strength, d.distance, d.range, name), (0.5, 275.0, 650.0, "iron sights"));
         assert_eq!(dof_text(&fnv_world::image_modifier::Dof::default(), -1.0, ""), "off");
+    }
+
+    #[test]
+    fn a_conversation_focuses_on_the_face_faded_with_the_zoom() {
+        let s = DofSettings { vats_range: 500.0, vats_strength: 0.6, sights_distance: 275.0, sights_range: 650.0, sights_strength: 0.0, sights_motion_blur: 0.0 };
+        // No zoom, none.
+        assert!(engine_dof(&s, 0.0, None, 0.0, Some((0.0, 90.0))).is_none());
+        let (d, f, name) = engine_dof(&s, 0.0, None, 0.0, Some((1.0, 90.0))).unwrap();
+        assert_eq!((d.strength, d.distance, d.range, f, name), (TALK_DOF_STRENGTH, TALK_DOF_DISTANCE, TALK_DOF_RANGE, 90.0, "dialogue"));
+        // Only what is behind the speaker.
+        assert_eq!(d.flags, fnv_world::image_modifier::DOF_BACK);
+        assert!(d.use_target);
+        assert_eq!(dof_text(&d, f, name), "strength 1.0, distance 32, range 512, focus 100, back (dialogue)");
+        let (half, _, _) = engine_dof(&s, 0.0, None, 0.0, Some((0.5, 90.0))).unwrap();
+        assert_eq!(half.strength, TALK_DOF_STRENGTH * 0.5);
+        // The stronger of it and VATS.
+        assert_eq!(engine_dof(&s, 1.0, Some(800.0), 0.0, Some((0.5, 90.0))).unwrap().2, "VATS");
     }
 
     #[test]

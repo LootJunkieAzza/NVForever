@@ -91,7 +91,7 @@ is unknown; to be checked by standing a probe on a steep square in-game, §6].
 | Collision object | Body | Tag |
 |---|---|---|
 | `Motion::Static` | fixed | [hypothesis] |
-| `Motion::Keyframed` | kinematic, position-driven | [hypothesis] |
+| `Motion::Keyframed` | fixed (posed by teleport, never moved smoothly) | [hypothesis] |
 | `Motion::Dynamic` | dynamic; collider densities scaled so the body mass equals `mass` (volume-derived mass kept when `mass` ≤ 0) | [hypothesis] |
 
 Friction and restitution are passed to rapier unchanged [hypothesis: Havok's coefficients
@@ -181,6 +181,14 @@ float above the ground (median bottom 115 units *below* it); read as full extent
 float (median bottom 160 units *above* it), which would leave walls the player could walk
 under. Still a [hypothesis] until checked in game (§6). Reproduce:
 `cargo run --release -p fnv-phys --example primitive_bounds -- <Data> schemas/fnv`.
+
+**Layer** (issue #1545, 2026-11-05) [hypothesis: what a CollisionMarker is for]: a
+CollisionMarker primitive without XTRI is on the **Invisible Wall** layer (27), not
+Unidentified (0). Characters collide with it, as before. Shots, VATS mode's line of fire
+and the aim ray pass it (`layers::shot_ignores`, the character's layers plus Invisible
+Wall), and so do sight (`detection.rs` `see_through`) and blast cover lines, which already
+passed layer 27. Before the change, a 10mm round fired at the box 0x00176AD0 in Goodsprings
+stopped on it (smoke `shot-passes-collision-marker`).
 
 ### 4.2 Collision layer matrix (B11): design and predictions
 
@@ -573,9 +581,8 @@ GSGeneralStore --play`, 2026-10-11], 53 of the 67 dynamic references there moved
 object stays where it was placed, inactive, until something disturbs it — the books in the
 display case, and a resting dropped item not woken by `SetPos` (§4.3, `pc_drop_fall`)]:
 
-- Placed references' dynamic bodies are added **asleep** (`PreparedRef::asleep`), and so
-  are their keyframed bodies (a container's lid would otherwise keep what stands on it
-  awake). rapier wakes both sides of every contact that starts, so a body added asleep
+- Placed references' dynamic bodies are added **asleep** (`PreparedRef::asleep`).
+  rapier wakes both sides of every contact that starts, so a body added asleep
   woke as soon as its first contacts were found; `PhysWorld` finds the contacts of bodies
   added asleep before the next step and puts them back to sleep (`update_queries`). They
   wake when a body moves against them (the player, an actor, another item falling), when
@@ -605,7 +612,8 @@ world-sounds test knocked Sunny's three bottles 117–128 units ("impacts by mat
 
 The three motorcycles outside the Goodsprings saloon could be pushed by the player; in the
 game they do not move, while tumbleweeds and Sarsaparilla crates do [observed: owner,
-playtest list 5 item 59].
+playtest list 5 item 59]. The tumbleweeds roll with the weather's wind: [wind](wind.md)
+(their model's body flag, issue #1401).
 
 - They are STAT references (`Motorcycle01Static`, 0x00106341, 0x00106342, 0x0010750C)
   [observed: `fnvtool world refs --world WastelandNV`]. Their model,
@@ -774,7 +782,37 @@ decides what the next query refresh costs.
       rejects non-ties. All 400 such differences, in the six relaxed scenarios that
       have them pass [observed: `cargo test -p fnv-phys --test synthetic hitvol`,
       2026-11-03].
-    - Canonical tie-break (time of impact, then owner): not done; issue #1459.
+    - Canonical tie-break (time of impact, then owner): not done; issue #1459. Done
+      since, see the next item.
+- **Canonical tie-break** [design, #1459]. First-hit `ray` and `sweep` now return, of all
+  candidates, the one with the smallest time of impact and, among exactly equal times
+  (the same f32), the smallest by:
+  1. owner (`Owner`'s order: kind, then for an actor's capsule form id, layer, part);
+  2. segment: which of the owner's colliders it is, stored in `user_data` bits 104..120
+     (`Owner::encode_segment`): the index of the part capsule in the list given to
+     `set_actor_parts`, or of the leaf in its collision object; 0 elsewhere (terrain,
+     characters, whole-actor capsules, ragdolls, gore);
+  3. the hit's own geometry, as bits: for a ray the normal then the sub-shape (triangle),
+     for a sweep the witness point then the normal on the hit collider. Two candidates
+     equal in all of these give the same answer, so which collider it came from no longer
+     shows.
+  - `ray_all` sorts equal distances by the same keys (owner, segment, normal, sub-shape).
+  - How: a custom leaf cost over parry's `Bvh::find_best`, not collect-all-then-sort
+    (`first_hit`, `crates/fnv-phys/src/world.rs`). The best (time, key) is kept beside the
+    traversal; a leaf the rule takes reports the next float above its time to
+    `find_best`, so nodes whose bound equals the best time are still visited and each
+    collider is asked with that bound (a tie is returned, not cut off). The key is worked
+    out only on exact ties. A sweep casts each collider with the full options, as parry's
+    composite cast does [design: parry3d 0.31.1
+    `query/shape_cast/shape_cast_composite_shape_shape.rs:15-60`], so every answer without
+    a tie is the one parry gave before.
+  - The answer no longer depends on the tree's history: the six exact tests above pass
+    without `#[ignore]` (attached and standalone capsules, skipped and forced writes,
+    snapshots, coincident twins in a crowd) [observed: `cargo test -p fnv-phys --test
+    synthetic hitvol`, 2026-11-06].
+  - Combat: with coincident actors the hit now goes to the lower form id, and inside two
+    overlapping parts to the lower part index (then the earlier segment), always. Before,
+    either could win depending on the tree.
 
 ## 6. Character controller and capture questions
 
@@ -904,9 +942,12 @@ terrain is put back on the ground (logged as a warning); indoors, §6.7.
 
 References get collision by the same rule as `fnvtool phys cell`
 (`fnv_phys::ref_collision`); whether one is in the world is the simulation's: not
-deleted, enabled following its enable parents (`World::is_enabled`), not taken; until the
-simulation holds state for a reference, its own Initially Disabled flag also keeps it out
-(as render streaming and `fnvtool phys` do). In Goodsprings' 3×3 that gives 839
+deleted, enabled following its enable parents (`World::is_enabled`), not taken, whether or
+not the simulation holds state for the reference: under an enable parent its own Initially
+Disabled flag does not count [design: `engine/nvf-play/src/phys.rs` `in_world`; that the
+original's collision follows `GetDisabled` here is [hypothesis], simulation.md §1], while
+`fnvtool phys` still lets the flag win [design: `crates/fnvtool/src/phys_cmd.rs`]. In
+Goodsprings' 3×3 that gives 839
 references with collision against `fnvtool phys cell`'s 849 [observed: `nvforever --play`
 debug log: 18 references not in the world, the 8 that `fnvtool` also counts as Initially
 Disabled and 10 that the simulation disables through their enable parents].
@@ -2443,7 +2484,8 @@ gains `water_volume` for references whose model holds one); probes report `swimm
 `initially_disabled`, `disabled_by_parent` (enabled itself but disabled at the start by
 its enable-parent chain, §4), `no_base`, `actor` (placed NPCs and creatures, which get no
 collision here, §4), `no_model`, `collision_primitive` (CollisionMarker
-primitives added), `bad_primitive`, `speedtree`, `model_without_collision`,
+primitives added), `bad_primitive`, `primitive_model` (a primitive, a trigger, whose
+base names a model: the model is left out, level-design.md §4.1), `speedtree`, `model_without_collision`,
 `model_unreadable`, `awaiting_collision` (meshes not loaded), `with_collision`
 (references added to the world), `colliders` (their collider count) and `object_errors`.
 `by_base_type` counts references with a readable base by its record type.

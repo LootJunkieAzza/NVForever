@@ -3,6 +3,26 @@
 
 use fnv_ui::{Tile, TileId, Ui, Value};
 
+/// The private trait of a tile that takes no `alpha` from the tiles above it. `tutorial_menu.xml`
+/// nests all its content under its background picture [documented: the file]; under that
+/// picture at alpha 193.8 the text and lines read full strength (255, 182, 66) at 1280 x 720
+/// [observed: shot 091 of hud_menus]. [observed] In the original's container menu the
+/// `StrengthReqInfo` card reads `alpha` 0 and its top line and side line still show at full
+/// strength (launchtest shot, 1280 x 720; barter-menu.md §8), the scrollbar image reads `alpha` 0
+/// with its arrows shown, and the text buttons, an image and a rect at `alpha` 0, show their
+/// words. Whether pictures pass alpha on elsewhere, or this holds outside these two menus, is
+/// not known (observer check 83; barter-menu.md §8) [hypothesis]. It drops every alpha from
+/// above, an ancestor's fade too. [design] An engine-written mark, in no game file, written by
+/// a menu's model so nothing else changes: an ordinary trait to the tree, so generic trait dumps
+/// list it and a file naming it would be read too.
+pub const OWN_ALPHA: &str = "_NVFOwnAlpha";
+
+/// The private trait of a hotrect that draws its own box filled at its `alpha` and
+/// `brightness` (the list highlight's faint fill, [documented: `list_box.xml`'s `_fill_alpha`
+/// 40 through `box.xml`]; hotrects draw nothing otherwise). [design] Written by a menu's
+/// model, so the other T15 menus' hotrects stay as they are.
+pub const HOTRECT_FILL: &str = "_NVFHotrectFill";
+
 /// [design] Rectangle in the tree's screen units, without viewport scaling.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Rect {
@@ -113,12 +133,14 @@ struct Context {
     alpha: f64,
     visible: bool,
     clip: Option<Rect>,
+    /// The crop without the parent's own window, for a tile marked outside it.
+    clip_above: Option<Rect>,
     t15: bool,
 }
 
 impl Default for Context {
     fn default() -> Self {
-        Self { rect: Rect::default(), depth: 0.0, alpha: 255.0, visible: true, clip: None, t15: false }
+        Self { rect: Rect::default(), depth: 0.0, alpha: 255.0, visible: true, clip: None, clip_above: None, t15: false }
     }
 }
 
@@ -210,18 +232,28 @@ fn place(tile: &Tile, kind: &Kind, parent: Context, measure: &Measure<'_>) -> Co
             // [design] Gate this hypothesis with `tiles::interface_screen`: default
             // play, including mod HUD tiles, retains its pre-T15 alpha products.
             // Applying it unconditionally is a candidate for a separate PR.
+            _ if tile.get(OWN_ALPHA).is_some_and(Value::truthy) => number(tile, "alpha", 255.0).clamp(0.0, 255.0),
             Kind::Hotrect if parent.t15 => parent.alpha,
             _ => parent.alpha * number(tile, "alpha", 255.0).clamp(0.0, 255.0) / 255.0,
         },
         visible: parent.visible && tile.get("visible").is_none_or(Value::truthy),
-        clip: parent.clip,
+        clip: if tile.get(fnv_ui::input::OUTSIDE_CLIP).is_some_and(Value::truthy) { parent.clip_above } else { parent.clip },
+        clip_above: parent.clip_above,
         t15: parent.t15,
     }
 }
 
-fn children_context(tile: &Tile, mut context: Context) -> Context {
-    if tile.get("clips").is_some_and(Value::truthy) {
+/// What a tile's children stand in: `context` is the tile's own, `above` its parent's.
+fn children_context(tile: &Tile, mut context: Context, above: Context) -> Context {
+    context.clip_above = context.clip;
+    // `clips`, or a `clipwindow` its menu turned on: the same rule as under the pointer.
+    if fnv_ui::input::clips_children(tile) {
         context.clip = Some(context.clip.map_or(context.rect, |clip| clip.intersect(context.rect)));
+    }
+    // A mark only a menu's model writes (`fnv_ui::input::NO_ORIGIN`), the same under the pointer.
+    if tile.get(fnv_ui::input::NO_ORIGIN).is_some_and(Value::truthy) {
+        context.rect.left = above.rect.left;
+        context.rect.top = above.rect.top;
     }
     context
 }
@@ -243,7 +275,7 @@ pub fn layout(ui: &Ui, root: TileId, measure: &Measure<'_>, t15: bool) -> Vec<Dr
         if !tile.live {
             return Vec::new();
         }
-        context = children_context(tile, place(tile, &kind(tile), context, measure));
+        context = children_context(tile, place(tile, &kind(tile), context, measure), context);
     }
     let mut out = Vec::new();
     let mut stack = vec![(root, context)];
@@ -254,7 +286,8 @@ pub fn layout(ui: &Ui, root: TileId, measure: &Measure<'_>, t15: bool) -> Vec<Dr
         }
         let kind = kind(tile);
         let context = place(tile, &kind, parent, measure);
-        if !matches!(kind, Kind::Menu | Kind::Hotrect) {
+        let fill = matches!(kind, Kind::Hotrect) && tile.get(HOTRECT_FILL).is_some_and(Value::truthy);
+        if fill || !matches!(kind, Kind::Menu | Kind::Hotrect) {
             out.push(DrawItem {
                 tile: id,
                 kind,
@@ -273,7 +306,7 @@ pub fn layout(ui: &Ui, root: TileId, measure: &Measure<'_>, t15: bool) -> Vec<Dr
                 },
             });
         }
-        let parent = children_context(tile, context);
+        let parent = children_context(tile, context, parent);
         let mut children = tile.children.clone();
         children.sort_by(|&a, &b| number(ui.tile(a), "depth", 0.0).total_cmp(&number(ui.tile(b), "depth", 0.0)));
         stack.extend(children.into_iter().rev().map(|id| (id, parent)));
@@ -296,6 +329,26 @@ mod tests {
 
     fn unmeasured(_: f64, _: &str, _: Option<f64>) -> (f64, f64) {
         panic!("this tree needs no text measurement")
+    }
+
+    #[test]
+    fn a_tile_outside_its_window_stays_inside_the_ones_above() {
+        // [design] A window in a window: the mark skips the nearest only.
+        let (mut ui, root) = tree(
+            r#"<menu name="M"><rect name="Outer"><width>100</width><height>100</height><clips>&true;</clips>
+              <rect name="Inner"><width>50</width><height>50</height><clips>&true;</clips>
+                <image name="Beside"><x>50</x><width>20</width><height>20</height></image>
+                <image name="In"><width>20</width><height>20</height></image>
+              </rect></rect></menu>"#,
+        );
+        let beside = ui.find_tile("M/Outer/Inner/Beside").unwrap();
+        let clip = |ui: &Ui, t: TileId| layout(ui, root, &unmeasured, true).into_iter().find(|i| i.tile == t).unwrap().clip.unwrap();
+        assert_eq!(clip(&ui, beside).width, 50.0, "both windows");
+        ui.set_trait(beside, fnv_ui::input::OUTSIDE_CLIP, Value::Num(1.0));
+        ui.update();
+        assert_eq!(clip(&ui, beside).width, 100.0, "the outer window still crops it");
+        let inside = ui.find_tile("M/Outer/Inner/In").unwrap();
+        assert_eq!(clip(&ui, inside).width, 50.0, "its neighbour keeps both");
     }
 
     #[test]
@@ -386,6 +439,109 @@ mod tests {
         assert_eq!(items[1].rect.width, 200.0);
         assert_eq!(items[3].clip.unwrap().width, 0.0);
         assert_eq!(layout(&ui, items[1].tile, &unmeasured, false), items[1..2]);
+    }
+
+    #[test]
+    fn a_marked_tile_takes_no_alpha_from_above() {
+        let xml = r#"<menu name="M"><image name="B"><alpha>51</alpha><width>9</width><height>9</height>
+            <rect name="R"><image name="I"><alpha>127.5</alpha></image></rect></image></menu>"#;
+        let (mut ui, root) = tree(xml);
+        let alpha = |ui: &Ui, name: &str| layout(ui, root, &unmeasured, false).into_iter().find(|i| ui.tile(i.tile).name == name).unwrap().alpha;
+        assert_eq!(alpha(&ui, "I"), 25.5, "unmarked, the product through the picture, 0 to 255");
+        let r = ui.find_tile("M/B/R").unwrap();
+        ui.set_trait(r, OWN_ALPHA, Value::Num(1.0));
+        assert_eq!(alpha(&ui, "B"), 51.0, "the picture keeps its own");
+        assert_eq!(alpha(&ui, "R"), 255.0, "the mark starts again at full strength");
+        assert_eq!(alpha(&ui, "I"), 127.5, "under the mark, only what is below it");
+    }
+
+    /// A marked tile keeps its own place, and its children stand from where it stands.
+    #[test]
+    fn a_tile_marked_no_origin_gives_its_children_no_place() {
+        let src = MemSource::default().with("n.xml", r#"<menu name="N"><rect name="Line"><x>11</x><y>23</y><hotrect name="Tab"><x>101</x><y>53</y><image name="Inner"><x>101</x><y>53</y></image></hotrect></rect></menu>"#);
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "n.xml").unwrap();
+        ui.update();
+        let inner = ui.find_tile("N/Line/Tab/Inner").unwrap();
+        let place = |ui: &Ui| layout(ui, menu, &|_, _, _| (0.0, 0.0), true).into_iter().find(|i| i.tile == inner).map(|i| (i.rect.left, i.rect.top));
+        assert_eq!(place(&ui), Some((213.0, 129.0)), "unmarked, twice over");
+        let tab = ui.find_tile("N/Line/Tab").unwrap();
+        ui.set_trait(tab, fnv_ui::input::NO_ORIGIN, Value::Num(1.0));
+        assert_eq!(place(&ui), Some((112.0, 76.0)));
+        // From a subtree too: what stands above it counts the same.
+        let from_tab = layout(&ui, tab, &|_, _, _| (0.0, 0.0), true);
+        assert_eq!(from_tab.iter().find(|i| i.tile == inner).map(|i| (i.rect.left, i.rect.top)), Some((112.0, 76.0)));
+    }
+
+    #[test]
+    fn scrollbar_children_are_visible() {
+        // [design] A scrollbar as an image at alpha 0 over its pieces, the marker's alpha copied.
+        let xml = r#"<menu name="M"><hotrect name="L"><alpha>0</alpha>
+            <image name="lb_scrollbar"><alpha>0</alpha><_marker_alpha>255</_marker_alpha>
+              <image name="scrollbar_vert_marker"><filename>m.dds</filename><alpha><copy src="parent()" trait="_marker_alpha"/></alpha></image>
+            </image></hotrect></menu>"#;
+        let (mut ui, root) = tree(xml);
+        let marker = ui.find_tile("M/L/lb_scrollbar/scrollbar_vert_marker").unwrap();
+        let alpha = |ui: &Ui| layout(ui, root, &unmeasured, true).into_iter().find(|i| i.tile == marker).unwrap().alpha;
+        assert_eq!(alpha(&ui), 0.0, "unmarked, the image's alpha hides it");
+        ui.set_trait(marker, OWN_ALPHA, Value::Num(1.0));
+        assert_eq!(alpha(&ui), 255.0, "on the 0-255 scale, what `draw::pieces` divides by 255");
+    }
+
+    #[test]
+    fn a_hotrect_draws_its_fill_only_when_marked() {
+        let (mut ui, root) = tree(r#"<menu name="M"><hotrect name="H"><alpha>40</alpha><width>9</width><height>9</height><image name="I"/></hotrect></menu>"#);
+        let h = ui.find_tile("M/H").unwrap();
+        assert!(layout(&ui, root, &unmeasured, true).iter().all(|i| i.tile != h), "a hotrect draws nothing");
+        ui.set_trait(h, HOTRECT_FILL, Value::Num(1.0));
+        ui.set_trait(h, OWN_ALPHA, Value::Num(1.0));
+        let items = layout(&ui, root, &unmeasured, true);
+        let item = items.iter().find(|i| i.tile == h).unwrap();
+        assert_eq!((item.alpha, &item.kind), (40.0, &Kind::Hotrect));
+    }
+
+    #[test]
+    fn clipwindow_clips_hotrect_descendants() {
+        let (mut ui, root) = tree(
+            r#"<menu name="M"><hotrect name="W"><x>10</x><y>20</y><width>100</width><height>80</height><clipwindow>&true;</clipwindow>
+            <text name="T"><string>t</string><y>-30</y><width>90</width><height>400</height></text>
+          </hotrect></menu>"#,
+        );
+        // Not turned on: nothing is cropped, as in every menu that did not ask for it.
+        let t = ui.find_tile("M/W/T").unwrap();
+        let of = |ui: &Ui| layout(ui, root, &unmeasured, true).into_iter().find(|i| i.tile == t).unwrap();
+        assert_eq!(of(&ui).clip, None);
+        fnv_ui::input::mark_clip_windows(&mut ui, root);
+        let item = of(&ui);
+        assert_eq!(item.clip, Some(Rect { left: 10.0, top: 20.0, width: 100.0, height: 80.0 }));
+        // The crop moves nothing: the text stands where its own `y` puts it.
+        assert_eq!((item.rect.top, item.rect.height), (-10.0, 400.0));
+    }
+
+    #[test]
+    fn clipwindow_intersects_clips_and_survives_subtree_layout() {
+        let (mut ui, root) = tree(
+            r#"<menu name="M"><rect name="C"><x>10</x><y>10</y><width>50</width><height>50</height><clips>&true;</clips>
+            <hotrect name="W"><x>20</x><y>20</y><width>100</width><height>100</height><clipwindow>1</clipwindow>
+              <image name="I"><width>500</width><height>500</height></image>
+            </hotrect>
+            <hotrect name="Off"><clipwindow>0</clipwindow><image name="J"><width>5</width><height>5</height></image></hotrect>
+            <hotrect name="Apart"><x>500</x><width>9</width><height>9</height><clipwindow>1</clipwindow><image name="K"/></hotrect>
+          </rect></menu>"#,
+        );
+        fnv_ui::input::mark_clip_windows(&mut ui, root);
+        let items = layout(&ui, root, &unmeasured, true);
+        let at = |name: &str| items.iter().find(|i| ui.tile(i.tile).name == name).unwrap();
+        // The window's box less what the outer clip leaves of it.
+        let both = Some(Rect { left: 30.0, top: 30.0, width: 30.0, height: 30.0 });
+        assert_eq!(at("I").clip, both);
+        // A false `clipwindow` adds nothing to the clip above it.
+        assert_eq!(at("J").clip, Some(Rect { left: 10.0, top: 10.0, width: 50.0, height: 50.0 }));
+        // A window outside the clip leaves nothing.
+        assert_eq!(at("K").clip.unwrap().width, 0.0);
+        // Laid out alone, the image still has both ancestors' crop.
+        let i = at("I").tile;
+        assert_eq!(layout(&ui, i, &unmeasured, true)[0].clip, both);
     }
 
     #[test]

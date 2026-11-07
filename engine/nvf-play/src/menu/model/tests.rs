@@ -5,6 +5,8 @@
 use super::*;
 use fnv_esm::raw::{write_subrecords, Subrecord};
 use fnv_esm::{LoadOrder, Plugin, Schema};
+use bevy::app::{App, Update};
+use bevy::state::app::AppExtStates;
 use fnv_sim::SimConfig;
 
 fn sub(sig: &[u8; 4], data: Vec<u8>) -> Subrecord {
@@ -68,6 +70,7 @@ const CAPS: u32 = 0x101; // MISC "Bottle Cap", value 1, weight 0
 const ANVIL: u32 = 0x102; // MISC "anvil", value 1, weight 250
 const PISTOL: u32 = 0x170; // WEAP "Pistol", value 100, weight 3
 const RIFLE: u32 = 0x171; // WEAP "Varmint Rifle", value 300, weight 8
+const SCOPE: u32 = 0x178; // IMOD "Rifle Scope", value 125: RIFLE's mod slot 2
 const AID: u32 = 0x175; // ALCH "Aid", weight 0.5
 const BULLETS: u32 = 0x176; // AMMO "Ammo", weight 0.1 (Hardcore only)
 const CHIP: u32 = 0x177; // MISC "Platinum Chip" with the "Quest Item" header flag (bit 10)
@@ -89,7 +92,15 @@ fn plugin_bytes() -> Vec<u8> {
         &misc(ANVIL, "TestAnvil", "anvil", 1, 250.0),
         &quest_misc(CHIP, "TestChip", "Platinum Chip"),
     ]);
-    let weaps = cat(&[&weap(PISTOL, "TestPistol", "Pistol", 100, 3.0), &weap(RIFLE, "TestRifle", "Varmint Rifle", 300, 8.0)]);
+    // The rifle's mod slot 2 holds SCOPE (WMI2).
+    let rifle = {
+        let [e, f] = named("TestRifle", "Varmint Rifle");
+        let data = cat(&[&300i32.to_le_bytes(), &100i32.to_le_bytes(), &8f32.to_le_bytes(), &10i16.to_le_bytes(), &[12u8]]);
+        record(b"WEAP", 0, RIFLE, &[e, f, sub(b"WMI2", SCOPE.to_le_bytes().to_vec()), sub(b"DATA", data)])
+    };
+    let weaps = cat(&[&weap(PISTOL, "TestPistol", "Pistol", 100, 3.0), &rifle]);
+    let [e, f] = named("TestScope", "Rifle Scope");
+    let imod = record(b"IMOD", 0, SCOPE, &[e, f, sub(b"DATA", cat(&[&125i32.to_le_bytes(), &0f32.to_le_bytes()]))]);
     let enit = cat(&[&20i32.to_le_bytes(), &[0u8, 0, 0, 0], &0u32.to_le_bytes(), &0f32.to_le_bytes(), &0u32.to_le_bytes()]);
     let [e, f] = named("TestAid", "Aid");
     let alch = record(b"ALCH", 0, AID, &[e, f, sub(b"DATA", 0.5f32.to_le_bytes().to_vec()), sub(b"ENIT", enit)]);
@@ -139,6 +150,7 @@ fn plugin_bytes() -> Vec<u8> {
         &top(b"MISC", &miscs),
         &top(b"CONT", &cont),
         &top(b"WEAP", &weaps),
+        &top(b"IMOD", &imod),
         &top(b"ALCH", &alch),
         &top(b"AMMO", &ammo),
         &top(b"KEYM", &keys),
@@ -400,6 +412,29 @@ fn non_playable_items_are_not_listed_and_stay_in_containers() {
 }
 
 #[test]
+fn nameless_items_are_listed_nowhere() {
+    // #1603: DONOTUSEBookGeneric07 has no FULL; its row read as the Editor ID.
+    let mut f = fixture();
+    let anvil = f.forms.bases.get_mut(&FormId(ANVIL)).unwrap();
+    assert!(anvil.edid.is_some(), "the fixture's anvil has an Editor ID to fall back on");
+    anvil.name = None;
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut m = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    assert!(m.list(Side::Container).rows.iter().all(|r| r.item != FormId(ANVIL)));
+    m.apply(&mut w, Command::TakeAll);
+    assert_eq!(count(&mut w, BOX_REF, ANVIL), 1, "the nameless item stays");
+    // Carried, it is not listed either, the player's inventory included.
+    w.add_item(PLAYER, FormId(ANVIL), 1).unwrap();
+    let inv = MenuModel::open_inventory(&mut w).unwrap();
+    assert!(inv.list(Side::Player).rows.iter().all(|r| r.item != FormId(ANVIL)));
+    // A blank name is no name.
+    f.forms.bases.get_mut(&FormId(ANVIL)).unwrap().name = Some("  ".into());
+    let w = World::new(&f.forms, &f.refs, SimConfig::default());
+    assert!(!crate::menu::model::shown(w.forms, FormId(ANVIL), true));
+    assert!(crate::menu::model::shown(w.forms, FormId(RIFLE), false), "a named item is shown");
+}
+
+#[test]
 fn non_playable_weapons_show_only_in_the_players_inventory() {
     let mut f = fixture();
     // The rifle stands in for a companion's non-playable weapon (Boone's rifle).
@@ -554,6 +589,7 @@ fn categories_filter_each_list() {
     m.apply(&mut w, Command::Category(Side::Container, 1));
     assert_eq!(m.category[0], Category::Weapons);
     assert_eq!(names(m.list(Side::Container)), vec![("Varmint Rifle", 1)]);
+    assert_eq!(m.filtered[Side::Container as usize], 3, "what the category leaves out");
     // The player's list keeps its own.
     assert_eq!(m.list(Side::Player).rows.len(), 4);
     m.apply(&mut w, Command::Category(Side::Container, -2));
@@ -788,7 +824,7 @@ fn a_modded_row_takes_the_modded_unit() {
     modded(&mut m, Side::Container);
     m.apply(&mut w, Command::One);
     assert_eq!(rifles(&m, Side::Player)[0], (1, 2, true));
-    w.add_item(PLAYER, FormId(CAPS), 400).unwrap();
+    w.add_item(PLAYER, FormId(CAPS), 1000).unwrap(); // the scope (slot 2, 125) adds to its price
     m.refresh(&mut w).unwrap();
     m.apply(&mut w, Command::Accept);
     assert!(m.status.as_deref().unwrap_or("").starts_with("Traded"), "{:?}", m.status);
@@ -881,7 +917,7 @@ fn a_weapon_dropped_beside_its_holder_is_one_item_in_the_menu_and_the_world() {
     select(&mut m, Side::Container, "Varmint Rifle");
     let a = m.apply(&mut w, Command::One);
     assert_eq!(a.picked, vec![r]);
-    assert!(w.peek(r).unwrap().deleted);
+    assert!(w.peek(r).unwrap().deleted());
     assert_eq!((count(&mut w, BOX_REF, RIFLE), count(&mut w, 0x14, RIFLE)), (0, 1));
     assert!(!names(m.list(Side::Container)).contains(&("Varmint Rifle", 1)));
     // The other way: picked up from the ground, it is no longer listed.
@@ -897,4 +933,106 @@ fn a_weapon_dropped_beside_its_holder_is_one_item_in_the_menu_and_the_world() {
     let a = m.apply(&mut w, Command::TakeAll);
     assert_eq!(a.picked, vec![r]);
     assert_eq!(count(&mut w, 0x14, RIFLE), 1);
+}
+
+/// `crate::menu::apply_input` over the box, as the game runs it.
+fn app_on_the_box() -> App {
+    let f: &'static Fixture = Box::leak(Box::new(fixture()));
+    let mut world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let m = MenuModel::open_container(&mut world, FormId(BOX_REF)).unwrap();
+    let mut app = App::new();
+    app.add_plugins(bevy::state::app::StatesPlugin)
+        .insert_state(crate::PlayState::Menu)
+        .insert_resource(crate::sim::SimState { forms: &f.forms, refs: &f.refs, world })
+        .insert_resource(crate::menu::ActiveMenu(Some(m)))
+        .init_resource::<crate::menu::PromptKeys>()
+        .add_message::<crate::menu::MenuInput>()
+        .add_message::<crate::RefChanged>()
+        .add_message::<crate::ItemUsed>()
+        .add_message::<crate::ui_sounds::UiSound>()
+        .add_message::<crate::crime::ItemsTaken>()
+        .add_message::<crate::pickpocket::Pickpocketed>()
+        .add_systems(Update, crate::menu::apply_input);
+    app
+}
+
+fn send(app: &mut App, commands: &[Command]) {
+    for &c in commands {
+        app.world_mut().write_message(crate::menu::MenuInput(c));
+    }
+    app.update();
+}
+
+fn in_box(app: &mut App, item: u32) -> i32 {
+    count(&mut app.world_mut().resource_mut::<crate::sim::SimState>().world, BOX_REF, item)
+}
+
+/// The guard the tile input sends with a click on the container's row `index`.
+fn guard_of(app: &App, index: usize, selected: bool, then: u8) -> RowGuard {
+    let m = app.world().resource::<crate::menu::ActiveMenu>().0.as_ref().unwrap();
+    RowGuard { mode: m.mode, side: Side::Container, index, key: RowKey::at(&m.list(Side::Container).rows, index).unwrap(), selected, then }
+}
+
+fn row_of(app: &App, name: &str) -> usize {
+    let m = app.world().resource::<crate::menu::ActiveMenu>().0.as_ref().unwrap();
+    m.list(Side::Container).rows.iter().position(|r| r.name == name).unwrap()
+}
+
+#[test]
+fn a_queued_category_leaves_a_clicked_row_to_nothing() {
+    // The hazard: unguarded, the category's refresh puts the rifle at the index clicked.
+    let mut app = app_on_the_box();
+    assert_ne!(row_of(&app, "Varmint Rifle"), 0);
+    send(&mut app, &[Command::Category(Side::Container, 1), Command::Hover(Side::Container, 0), Command::One]);
+    assert_eq!(in_box(&mut app, RIFLE), 0, "the other row went");
+    // Guarded, by what the click saw: nothing moves, the category does change, and the next
+    // command is the menu's own again.
+    let mut app = app_on_the_box();
+    let guard = guard_of(&app, 0, false, 2);
+    send(&mut app, &[Command::Category(Side::Container, 1), Command::Expect(guard), Command::Hover(Side::Container, 0), Command::One]);
+    assert_eq!(in_box(&mut app, RIFLE), 1);
+    assert_eq!(app.world().resource::<crate::menu::ActiveMenu>().0.as_ref().unwrap().category[0], Category::Weapons);
+    send(&mut app, &[Command::Hover(Side::Container, 0), Command::One]);
+    assert_eq!(in_box(&mut app, RIFLE), 0);
+}
+
+#[test]
+fn a_guarded_click_on_a_row_still_there_acts() {
+    let mut app = app_on_the_box();
+    let can = row_of(&app, "tin can");
+    let guard = guard_of(&app, can, false, 2);
+    send(&mut app, &[Command::Expect(guard), Command::Hover(Side::Container, can), Command::One]);
+    assert_eq!(in_box(&mut app, CAN), 1, "one of the two");
+    // A click on the selected row, the selection moved before it applies: nothing.
+    let can = row_of(&app, "tin can");
+    let guard = guard_of(&app, can, true, 1);
+    send(&mut app, &[Command::Up, Command::Expect(guard), Command::Select(Side::Container, can)]);
+    assert_eq!(in_box(&mut app, CAN), 1);
+    assert_eq!(app.world().resource::<crate::menu::ActiveMenu>().0.as_ref().unwrap().selected[Side::Container as usize], can - 1, "not selected again");
+    // Another menu's row.
+    let guard = RowGuard { mode: Mode::Inventory, ..guard_of(&app, 0, false, 2) };
+    let first = app.world().resource::<crate::menu::ActiveMenu>().0.as_ref().unwrap().list(Side::Container).rows[0].item.0;
+    let held = in_box(&mut app, first);
+    send(&mut app, &[Command::Expect(guard), Command::Hover(Side::Container, 0), Command::Stack]);
+    assert_eq!(in_box(&mut app, first), held);
+}
+
+/// A modded weapon's value is its own at its condition plus its mods' values, which the
+/// condition does not lower [observed: o26_value 2026-11-06, a Varmint Rifle 75 with all
+/// three mods (300) read 326 at 50 % condition; issue #982].
+#[test]
+fn a_modded_weapon_is_worth_its_mods_on_top() {
+    use fnv_sim::inventory::Extra;
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    w.add_item_extra(PLAYER, FormId(RIFLE), 1, Extra { mods: 2, condition: Some(0.5), ..Extra::default() }).unwrap();
+    let inv = MenuModel::open_inventory(&mut w).unwrap();
+    let r = inv.list(Side::Player).rows.iter().find(|r| r.item == FormId(RIFLE) && r.mods == 2).expect("a modded row");
+    assert_eq!(r.mods_value, 125);
+    let p = Prices::default();
+    let worth = r.worth(&p).unwrap();
+    assert!((worth - (p.value_at(300, Some(0.5)) + 125.0)).abs() < 1e-3, "{worth}");
+    // Slot 1 is empty: its flag adds nothing.
+    assert_eq!(f.forms.mods_value(FormId(RIFLE), 1), 0);
+    assert_eq!(f.forms.mods_value(FormId(RIFLE), 3), 125);
 }

@@ -536,12 +536,16 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
                 }
             }
         }
-        // The hair model is drawn as a cut-out, solid like the original's
-        // (`nif_spawn::hair_model_cut_out`, #1454).
+        // The hair model is drawn as a solid cut-out core (`nif_spawn::hair_model_cut_out`,
+        // #1454) with its fainter texels blended over it from a second draw
+        // (`nif_spawn::hair_model_layer`, #1576): shaved sides stay see-through.
+        let mut layers = Vec::new();
         if p.role == "hair" {
+            layers = vec![None; part.shapes.len()];
             for (i, _) in part.shapes.iter().enumerate().filter(|(_, s)| !s.cap) {
                 let Some(mut m) = ctx.models.materials.get(&materials[i]).cloned() else { continue };
                 if matches!(m.base.alpha_mode, AlphaMode::Blend) {
+                    layers[i] = nvf_assets::nif_spawn::hair_model_layer(&m).map(|l| ctx.models.materials.add(l));
                     nvf_assets::nif_spawn::hair_model_cut_out(&mut m);
                     materials[i] = ctx.models.materials.add(m);
                 }
@@ -552,7 +556,7 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
         // The Pip-Boy light's glow shows only with the light on, which is not built, and
         // outfits hold a left sleeve for wearing a Pip-Boy and one for not (actors.md §1.2).
         hidden_shapes.extend(part.shapes.iter().filter_map(|s| s.name.clone().filter(|n| fnv_actor::mesh::hidden_for_pipboy(n, pipboy))));
-        uses.push((pi, PartUse { meshes, part, materials, hidden_shapes, by_ancestor: false }));
+        uses.push((pi, PartUse { meshes, part, materials, layers, hidden_shapes, by_ancestor: false }));
     }
     uses
 }
@@ -599,7 +603,7 @@ pub fn spawn(
     commands.entity(spawned.root).insert((
         Name::new(format!("Actor {reference:08X} {}", a.edid.as_deref().unwrap_or(""))),
         RefVisual(reference),
-        ActorRig { reference, base, body: base, skeleton: a.skeleton.clone(), skel: skel.clone(), nodes: spawned.nodes.clone() },
+        ActorRig { reference, base, body: base, skeleton: a.skeleton.clone(), skel: skel.clone(), nodes: spawned.nodes.clone(), base_scale: 1.0 },
         // What it wears and holds follows its inventory (`outfits.rs`).
         crate::outfits::Dressed::new(world, &a, &part_index, &spawned),
     ));
@@ -704,15 +708,19 @@ pub fn spawn_creature(
         };
         let materials = part.shapes.iter().map(|s| s.material.clone()).collect();
         let meshes = vec![None; part.shapes.len()];
-        uses.push(PartUse { meshes, part, materials, hidden_shapes: Vec::new(), by_ancestor: true });
+        uses.push(PartUse { meshes, part, materials, layers: Vec::new(), hidden_shapes: Vec::new(), by_ancestor: true });
     }
     // The creature's base scale (BNAM) on top of the reference's [hypothesis, §10.1].
     let rt = rt * Affine3A::from_scale(Vec3::splat(c.base_scale as f32));
     let spawned = spawn_actor(commands, parent, Transform::from_matrix(Mat4::from(rt)), &skel, &uses);
+    // Where its body weapons fire from, when a body part holds the node (#1535).
+    for p in &c.parts {
+        crate::body_weapons::spawn_part_projectile_nodes(commands, ctx.models, &p.model, &skel, &spawned.nodes);
+    }
     commands.entity(spawned.root).insert((
         Name::new(format!("Creature {reference:08X} {}", c.edid.as_deref().unwrap_or(""))),
         RefVisual(reference),
-        ActorRig { reference, base, body: c.body.0, skeleton: c.skeleton.clone(), skel: skel.clone(), nodes: spawned.nodes.clone() },
+        ActorRig { reference, base, body: c.body.0, skeleton: c.skeleton.clone(), skel: skel.clone(), nodes: spawned.nodes.clone(), base_scale: c.base_scale as f32 },
     ));
     for e in &spawned.drawn {
         commands.entity(*e).insert(RefVisual(reference));
@@ -776,7 +784,7 @@ pub(crate) fn arm(
 ) -> Option<WeaponHold> {
     let held = if world.weapon_mode == WeaponMode::None { None } else { arm_weapon(commands, spawned, skel, &a.skeleton, a.weapon, a.weapon_mods, reference, world, ctx, player, stats) };
     held.or_else(|| {
-        let stance = world.anims.stance(ctx, &a.skeleton, skel, AnimType::HandToHand.prefix())?;
+        let stance = world.anims.stance(ctx, &a.skeleton, skel, AnimType::HandToHand.prefix()).filter(|s| !s.no_weapon_node)?;
         let skel_parent = skel.parents[stance.weapon_node].unwrap_or(0);
         let mut hold = WeaponHold::new(stance, world.weapon_mode == WeaponMode::Drawn, skel_parent);
         if let Some(period) = world.weapon_test {
@@ -809,7 +817,8 @@ pub(crate) fn arm_weapon(
     let prefix = w.anim_type.as_deref().and_then(AnimType::from_name)?.prefix();
     // A modded weapon's own model (weapon-mods.md §3 "In the world").
     let model = w.model_for(false, weapon_mods)?;
-    let stance = world.anims.stance(ctx, skeleton, skel, prefix);
+    // A stance without a `Weapon` node is for body weapons only (`Stance::no_weapon_node`).
+    let stance = world.anims.stance(ctx, skeleton, skel, prefix).filter(|s| !s.no_weapon_node);
     // With the weapon's alternate textures (texture-swaps.md §4).
     let swaps = weapon.map_or(&[][..], |id| world.actors.weapon_alt_textures(id, false, weapon_mods));
     let (Some(stance), Some(part)) = (stance, ctx.part_swapped(&fnv_actor::resolve::mesh_path(model), swaps)) else {
@@ -834,6 +843,12 @@ pub(crate) fn arm_weapon(
     let mut hold = WeaponHold::new(stance, world.weapon_mode == WeaponMode::Drawn, skel_parent);
     if !shapes.back.is_empty() || !shapes.gun.is_empty() {
         info!("actor weapons: {reference:08X} {path}: {} shape(s) on the back, {} gun shape(s) the clips show and hide", shapes.back.len(), shapes.gun.len());
+    }
+    // The weapon's own hand models (WEAP BIPL: the power fist's metal hand), drawn as
+    // worn parts in place of the bare hand (`fnv_actor::Resolver::resolve_wearing`).
+    if !w.addons.is_empty() {
+        let models: Vec<&str> = w.addons.iter().filter_map(|a| world.actors.armors.get(a)).filter_map(|a| a.worn[0].as_deref()).collect();
+        info!("actor weapons: {reference:08X} {path}: worn with its hand model(s) {models:?} in place of the bare hand");
     }
     hold.gun = shapes.gun.into_iter().map(|(e, n)| (e, n, None)).collect();
     hold.back = shapes.back;

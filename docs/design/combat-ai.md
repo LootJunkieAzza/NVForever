@@ -67,8 +67,14 @@ fists (the default draws it holstered).
   and in sight (detection.md), after a reaction time of 0.6 s from first seeing it in
   this fight, with its weapon drawn (alerted actors draw it, alert.md §5).
 - **Guns** keep their own `fnv_combat::attack::Cycle`, as the player's: the weapon's fire
-  rate, magazine and reload. The trigger is held for automatic weapons and pulled again
-  for each shot of the others.
+  rate, magazine and reload. An automatic weapon's trigger is held for a burst and let
+  go for a pause (`fnv_combat::burst`, issue #1448) [design: the original's rule is not
+  known]: a burst is the V.A.T.S. burst's rounds (0.4 s of the fire rate, 3 to 8), the
+  pause 0.5–1.5 s with each end scaled by the combat style's Semi-Auto Firing Delay Mult
+  (min, max); a burst cut short (sight lost, a wall, a reload) starts afresh without a
+  pause. Embedded weapons (Securitrons, sentry bots) burst too. The trigger is pulled
+  again for each shot of the others. Log: `npc combat: <name> fires a burst of N rounds
+  at <target>, then lets go for S s`.
 - **Reloads** (owner 2026-10-17: NPCs never reloaded in test runs): an empty magazine is
   reloaded at once, fired at or not, with the weapon's reload clips (the player's:
   `1hpreloada.kf`; round by round the opening clip `1hpreloadxstart.kf`, then
@@ -95,7 +101,8 @@ closes in again (`Awarenesses::engage`):
 | Fighting with | Stops at | Closes in again beyond |
 |---|---|---|
 | a gun | 80 % of its reach (§16: WEAP max range × style mult, within the projectile's range), between 400 and 2,500 units, clear of its own blast, never beyond 90 % of its reach | its reach (at most 3,125) |
-| melee, creature | its body 6 units from the target's | a 24-unit gap |
+| melee, a person | 6 units short of its reach (`fCombatDistance` 107 × scale × WEAP Reach) plus the two bodies' radii (two people's, 44, until the bodies are known), centre to centre, never nearer than a 6-unit gap between the bodies; the walk ends 10 % inside that, where it mostly swings (a lead pipe 170, the original 180: combat-rules.md §10, open) | its reach plus the radii (at least a 24-unit gap): a knife 97.5, a lead pipe 178 against the original's 95 and 180 [observed: o14_reach, 2026-11-01, combat-rules.md §10] |
+| melee, a creature | 6 units short of (RNAM + its skeleton's reach beyond it) × scale, centre to centre, never nearer than a 6-unit gap | (RNAM + its skeleton's reach beyond it) × scale: a gecko 81, a bighorner bull 232, as the original's swing starts [observed: o14_reach, o12_reach; npc-behaviour-compare.md §3] |
 | melee without bodies to measure | 80 % of its reach | its reach |
 
 The bodies are the blocks `nvf_play::blocking` keeps (a dog's reaches well in front of
@@ -383,7 +390,8 @@ NPCs should not be able to move at full speed whilst aiming" (the player's half 
 ### 10.7 Melee reaches low targets
 
 The owner could not hit a gecko with a machete. The player's swing was a fan of rays
-from the eye at eye height, as long as the reach (fCombatDistance 150 × Reach): a gecko
+from the eye at eye height, as long as the reach (then fCombatDistance 150 × Reach; 107 × Reach plus the player's
+radius since #1334): a gecko
 at the player's feet lies under the fan, and a ray pitched down to it spends most of
 the reach on the drop from the eye. `fnv_combat::projectile::swing_reaching` adds every
 actor whose centre is within the reach across the ground (plus 24 units for its body),
@@ -517,6 +525,34 @@ fighter: behind cover, a peek out of it, a flank place, a step aside, a step bac
 facing its target; a post comes before closing in (§5). A post it has no way to is
 dropped (`has no way to …: closes in instead`) and the combat AI gives no post of that
 kind for 3 s (`NO_POST_SECONDS`); cover it could not reach is not chosen again [design].
+
+Arriving is measured at the actor's feet [design]. When the way to a post ends, or after
+30 s (`FLEE_WALK_SECONDS`) since it was planned, feet within 64 units horizontally of the
+point the post asks for (`combat_group::POST_ARRIVAL`, the engine's `AT_POST`; a way that
+ends short of a point off the navmesh counts while it is within that) are arrival:
+`AiEvent::AtPost`, with the point and the feet. Farther off, it failed:
+`AiEvent::PostFailed` says why (`TimedOut`, `StoppedShort`), with the point, the feet, the
+distance and the seconds; the post is released and the actor holds or closes in (§5) on
+that same update. `fnv_ai` keeps no failed state and makes no automatic retry after
+release; the recovery is the engine's, as for a post with no way to it (the 3 s above, the
+cover discarded, a melee fighter's guard or bound ended). A later try at the place is a new
+request from the combat AI. This says nothing about what the place is good for: 64 units
+is nearness, not sight or cover. A door wait given up with the walk is told as that
+(`AiEvent::DoorWaitCancelled`), not as a passage. The failure is logged for every fighter
+(`post failed: <post> (timed out|stopped short) after …`).
+
+The point is the one asked for now, not the one the way was planned to or the place the
+way ends: the engine's tactics measure to it too (`AT_POST`), so arrival here means the same
+to them. `POST_SLACK` (48 units) only decides whether a new request still is the post the
+way was planned to, so a request moved within it plus a way that ended short of the first
+request can add up past 64 and fail a way walked to its end.
+
+A separate case is a walk within one assignment. Standing at its post, an actor stays there
+until its feet are 96 units from the point (`POST_RETAINED`, wider than arrival so an actor
+shoved about near 64 does not flip between the states and fill the log). Past that it plans
+the way back to the same post: not a retry after release, as the post was never released.
+That walk has its own 30 s and ends in arrival or in the failure above, so it cannot loop on
+a way that stops short.
 
 ### 12.2 Fleeing [documented: GECK wiki Confidence, Combat Flee]
 
@@ -939,6 +975,18 @@ The owner's list 4, items 14, 18, 19 and 20 (`docs/handoff/archive/playtest-list
   weapon or stance every 2-2.5 s; the owner judged that a quirk (2026-10-25): NVForever's
   draw once and hold it, and say a GuardTrespass line at each warning (the Detection
   lines' cooldown does not hold warnings back).
+- **Spawned actors do not warn** (#1341, built 2026-11-06) [observed: capture
+  o25_coyote, original game, docs/handoff/observer-checks.md item 2]: a CrCoyote
+  PlaceAtMe'd at the spot of the placed VERGSCoyote6REF, the player 700 units off (of
+  1,024), was in combat at the first sample with no warning, where the placed coyote
+  warned for 14.9 s first; the base has the same aggro radius and packages. Spawned
+  coyotes on the airport runway did the same at 250 and 700 units (o16_air). So an actor
+  created at run time (a dynamic reference, FormID 0xFF……) that the aggro rules above
+  would warn attacks at once instead, as one inside half its radius does; who, the
+  package, the radius stay as for placed ones [hypothesis: every created actor, people
+  too, which no capture tried; why: a PlaceAtMe'd actor has no editor location for the
+  radius to be kept around, or it starts alerted]. Placed ones keep warning. Smoke
+  `aggro-spawned-no-warning`.
 - **Guard packages do not warn** (built 2026-10-24, taken out 2026-10-25): Gomorrah's
   room guards on vGomorrahGuardPackage, with no aggro radius of their own, neither
   warned nor fought the player by the door they guard [observed: capture `warnings2`].
@@ -1699,6 +1747,17 @@ bloatfly and protectron folders also keep stance clips there.
   per second; at most one switch every 1.5 s, the new arm's equip clip played before it
   attacks. Mister Handy: saw within 192, flamer beyond. Mister Gutsy: flamer within 512,
   plasma gun beyond 600, and between the two the one in use.
+- **A gun suits no target within its own blast** [design, #1621]: a gun whose projectile
+  explodes counts its explosion radius as one more Min Range (a fresh choice wants the
+  target 15 % beyond it, the arm in use keeps to the radius itself), unless the
+  creature's combat style has Ignore Damaging Self (the exception `npc_combat`'s blast
+  hold makes, §16). Before (observed 2026-11-05, testing #1585): a Hardened Sentry Bot
+  (CrSentryBotMGHard: SentryBotMinigun2HR 500–2000, 9 × 15/s; SentryBotMissileLauncher2HL
+  500–2000, 20 × 1.58/s, MissileExplosion radius 1000) nearer than both Min Ranges took
+  the launcher (the tie on the smallest Min Range went to it), held fire within the
+  blast and kept it, so it stopped attacking. Now it fires its minigun at any distance
+  (its damage per second is higher) and takes up the launcher only beyond 1000 units
+  with the minigun lost to a crippled limb.
 - The first choice in a fight is made at once, and a creature with a melee arm does not
   step back from a target within `BACK_OFF_WITHIN` (256) [design]. Before (2026-10-25,
   full smoke on main 8ec4062d): Mister Handy, drawn with its flamer, stepped back from the
@@ -1740,7 +1799,8 @@ checked against the original (observer-checks.md item 20):
   90 s at 426-1,595 units, nor at 76-667 in 24 s; the one that spawned holding its
   dynamite threw it once at about 1,225 units within a second, then drew a gun and threw
   no more]. In ours a held weapon always comes before a thrown one (actors.md §9.3) and
-  re-arming passes grenades over, so no NPC throws until drawing a grenade is built.
+  re-arming passes grenades over. An actor with only drawable thrown weapons can hold
+  a grenade (`fnv_actor::weapon::choose_weapon`); a gunman does not swap to one for a throw.
 - **Frag grenades** (2026-11-01, observer check 20, o18_air and o24_air, god-mode
   player) [observed]: a trooper holding a frag grenade (6 carried, nothing else) threw
   from 800 units within a second of combat and again at about 1.8, 5.4, 7.2 and 9.2 s,
@@ -1750,24 +1810,36 @@ checked against the original (observer-checks.md item 20):
   carrying 5 frags threw none in 27 s at 600 units. So a held grenade is thrown every
   1.6-3.6 s from the start, from 800 units at least (not from 300), against ours' first
   throw after 4-10 s, one every 12-25 s and nothing within 990 units [issue #1351].
-- **When**: holding it, not fleeing, ready on a target it sees; the first throw 4 to 10 s
-  after it is first ready on that target, then one every 12 to 25 s, rolled on the
-  grenade rolls' own sequence [design; the original's one throw came within a second].
-- **Where**: only at a target beyond 1.1 times the blast's radius (a frag grenade's
-  blast radius is 900 units, so beyond 990) and within the throw's reach:
+- **When** (since 2026-11-06, #1351): holding it, not fleeing, ready on a target it sees;
+  the first throw 0 to 1 s after it is first ready on that target, then one every 1.6 to
+  3.6 s, rolled on the grenade rolls' own sequence [observed: the frag captures above].
+  It was 4 to 10 s, then 12 to 25 s [design].
+- **Where**: only at a target beyond 550 units [design: between the observed 300 (no
+  throw) and 800 (thrown); the original's floor is not pinned. Until #1351 it was 1.1
+  times the blast's radius, 990 for a frag] and within the throw's reach:
   the low arc's under the projectile's gravity, at most 1,500 units. Held when a comrade
   or a bystander would be caught, by the combat style's Ignore Damaging flags as an
   explosive shot is (§17.6).
 - **How**: from the eyes on the low arc that lands on the target's feet (VATS mode's
   `lob_dir`), 2° of spread, the grenade's own attack clip asked for, the FireExplosive line
-  tried on the attack timer; the gun is not put away for the throw. The live grenade is
+  tried on the attack timer. The live grenade is
   run from by those it threatens (§17.7).
 - Log: `npc combat: X throws W at T (D units, blast R); N left`, `X keeps its grenade: K
   would be caught …`; summary `N grenades thrown, M kept for a comrade or a bystander`.
   Smoke `combat-npc-grenades`: Violet, given three frag grenades, fights with her gun and
   throws none.
-- Not built: drawing a grenade (and back to the gun after the throw, as the original's
-  ganger did), throwing from the clip's release key, grenades for creatures, mines.
+- **Execution ownership** (#1498) [design]: holding a grenade uses a dedicated
+  controller, with no firearm magazine, reload or queued shot. Before the deadline,
+  while a throw is denied, and after depletion, it cannot fall through to gun firing.
+  Switching from a firearm discards any pending firearm wind-up; a firearm retained
+  across target changes still keeps its own cycle. The chosen grenade's item must be
+  removed successfully before its shot, animation, success counter or bark is emitted.
+  Lowest-FormID inventory selection remains the policy above: the selected grenade
+  supplies the projectile, ballistic parameters, animation and consumed item, even
+  when another grenade type is held. This fixes execution and inventory ownership;
+  it does not retune timing toward the original or redefine mines and other throws.
+- Not built: choosing to swap from a gun to a grenade for one throw, throwing from the
+  clip's release key, grenades for creatures, mines.
 
 ## 21. NPCs use their stimpaks (owner request 2026-10-25)
 
@@ -1921,7 +1993,8 @@ target through every phase of the attack and fired only once turned to it
 - **The lock** (`npc_combat::Fighters::lock_on`): each frame, a person the AI runs, in combat,
   that sees its target and does not run from it (a flight away or by a door; a flight to cover keeps
   it) is locked on where that target is drawn this frame. `residents` draws it facing that
-  place, turning at the combat turn rate (240° a second standing, 360° walking) and, once
+  place, turning at the combat turn rate (standing 225° a second with its target within a
+  quarter turn, 275° beyond; walking 180°; #1352, below) and, once
   within 10° (`LOCK_HOLD`), following it exactly; once held it stays on that target even
   when the target sweeps more than 10° in one frame (2026-11-01, #1162 [design]: melee
   Fiends circling troopers 70–340 units away, and long frames, slipped out of the hold and
@@ -1929,6 +2002,23 @@ target through every phase of the attack and fired only once turned to it
   [observed: smoke logs of #1292]); a new target is still turned to at the turn rate. On its way to cover, a post or a flee
   spot it strafes or backs away with its target in front. Out of sight it faces the
   target's AI place as before (`Core::aims`).
+- **The turn onto a target** (#1352, built 2026-11-06 from capture o25_turn,
+  docs/spec-notes/actors.md §8.9 [observed]): a person going into Combat from Normal or
+  Alert stands on its heading for 1.1 s (`fnv_ai::alert::COMBAT_REACTION_SECONDS`;
+  `Awareness::combat_began`), neither turning, setting off nor locked on, then turns at
+  225°/s while its target is within 90° of its heading and 275°/s beyond
+  (`combat_turn_rate`), steadily with no ease-out, and walking at the walk's own turn
+  rate (180°/s). Before, it turned at once at 240°/s standing and 360°/s walking. Back in
+  Combat from Lost it does not stand again [hypothesis: not measured; nor is the delay
+  when combat starts by detection rather than StartCombat]. `combat_turn_rate` picks the
+  rate from the angle still left to turn; the original may set it when the turn begins,
+  and the data cannot tell the two apart [hypothesis]. Creatures are unchanged
+  (`fnv_ai::alert::creature`, `combat_began` is `None` for them): no stand, and their
+  standing combat turn is still twice the standing rate with their own × 1.25
+  (`COMBAT_TURN_CREATURE`) [hypothesis: a creature's reaction and turn are unmeasured;
+  only a human trooper was, and o25's spawned coyotes were in combat at once]. The facing summary (`npc_combat`, smoke battle-ncr-fiends,
+  combat-violet) gives a fighter its 0.6 s to turn (`REACTION_SECONDS`) from the end of
+  that moment, not from first seeing its target, and does not count it locked meanwhile.
 - **Why it slipped**: the drawn facing used the target's AI place, which for a charging
   Fiend was 110 units from where it was drawn; a trooper shooting at it faced 16° off.
   Flights to cover were not turned to the target at all.

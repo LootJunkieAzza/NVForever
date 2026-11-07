@@ -19,7 +19,8 @@ engine if needed, and delete the item here.
 - **Unattended, from the saves we have** (a session can run them): 1, 2, the rest of 3,
   5 (weapon health around scripted shots), 6 (nvftest, Sunny), the rest of 8, 11 (72 h at a raised
   TimeScale), 13, 15, 20, 21, 22 (dialogue events), the rest of 33, 35, 36, 52, 53, and
-  #1076 (melee reach; measured 2026-11-01, o14_reach: combat-rules §8).
+  #1076 (melee reach; measured 2026-11-01, o14_reach: combat-rules §10; built in #1334),
+  92.
 - **A save from the owner** (quest or character state no save has yet):
   - Hardcore on: done (nvfHardcore).
   - Boone, Rex and ED-E hired (19, 22's complaints, 18's wheel): Boone done (nvfBoone).
@@ -37,6 +38,17 @@ engine if needed, and delete the item here.
   `SetNumericINISetting "bGeneralSubtitles:Interface" 1` showed no subtitles; a timed
   cleanup by sample count can miss a session's end (samples run 15-60 a second) and
   `GameHour >= 10.13` fired at once (sessions start near 10.1, not 10.0).
+- **Observer notes from o26 (2026-11-06):** sessions of one campaign run in one game, one
+  after another: the save is loaded once, so each session starts where the last left
+  off (reset in a `timed` item). A `timed` script naming a ref variable `rW` or `rO`
+  did not compile ("script did not compile" for every hook), the same lines with
+  `rItem`, `rBase` did (like `fW` before). Values a script works out go to the header
+  through the player's `Variable01`-`Variable10` (`player.SetAV VariableNN x`, read as
+  `player.GetAV VariableNN`); they come back as whole numbers. Real time from a header:
+  `floor(days) × 24 + hour` (GameDaysPassed is fractional). `IsHardcore` and
+  `SetHardcore` need `player.` in a script. The capture job's `query` steps with a full
+  script all failed again (plugin version 10, o26_setav steps), so read through the
+  observer.
 - **Screenshots or video** (window in front, both locks): 7 (casino menus by key taps),
   12 (Ringo, Nash, Red Lucy, Doc Mitchell: nvftest/nvfdoc have them), 16, 17, 26, 27, 54.
 
@@ -95,6 +107,18 @@ engine if needed, and delete the item here.
    the player, placed (not spawned) animals, warnings, allies, onlookers, escorts.
    (killall between sessions left the earlier spawns standing: later sessions had them
    around too.)
+   Placed against spawned, 2026-11-06 (o25_coyote, Goodsprings at VERGSCoyote6REF
+   0x00157B38, the player in god mode MoveTo'd 700 units off, one run each) [observed]:
+   the placed coyote warned for 14.9 s (0.124 game h under a package made at run time,
+   FF0011EA, GetCurrentAIPackage 35, procedure 44, drawing and holstering about every
+   2 s), then OnStartCombat and bit the player 7 times. A CrCoyote spawned at the same
+   spot by the placed one's PlaceAtMe, the placed one disabled, was already in combat
+   (package type 5, procedure 13) at the first sample and bit 12 times, with no warning.
+   The CrCoyote base has Aggro Radius Behavior on with radius 1,024 and the same two
+   packages as the coyotes placed around it [observed: `fnvtool esm decode`], so the
+   difference is placed against spawned, not the spot or the record. Why [hypothesis]:
+   a PlaceAtMe'd actor has no editor location for the aggro radius to be kept around,
+   or it starts alerted. Answers #1341's question.
 3. **Damage numbers.** Ours:
    - Power attacks do 3× standing and 2× moving.
    - A damage type uses its resistance in place of DR (capped at 85 %, after DT).
@@ -132,7 +156,11 @@ engine if needed, and delete the item here.
      [observed, unexplained; one case].
    - `IsHardcore` read 0 in this Hardcore save, so it does not tell whether Hardcore is
      on. SetHardcore 1 on nvfairport still did nothing: the needs stayed 0 for two hours
-     (o6_00-01).
+     (o6_00-01). Explained 2026-11-06 (o26_stim): both need the player as calling
+     reference in a script. `IsHardcore` alone does not compile ("requires a calling
+     reference") and `SetHardcore 1` alone fails; `player.IsHardcore` reads 1 on
+     `nvfHardcore`, and `player.SetHardcore 1` / `0` switches it on `nvfairport` and
+     `nvfHardcore`. The needs-over-two-hours run could be redone that way.
    - Beer and Nuka-Cola, drunk by EquipItem, raised Dehydration by no more than the
      normal rate over 11 s (14, 14, 15 and 15, 15, 16) [observed]. The job had `tgm` on
      at the time (o7_00 steps 6 to 101; it went off before the Stimpak) [observed: the
@@ -287,7 +315,8 @@ engine if needed, and delete the item here.
     - Greetings flagged Goodbye are said at you; when an actor starts the conversation
       they hold you for one line.
     - A generic Goodbye is added where the only Goodbye has an end script (100+ lists).
-    - Tab leaves only where a Goodbye is offered.
+    - Tab leaves only where a Goodbye is offered, or at any topic list (#1595: Julie
+      Farkas's has none; how does the original leave her?).
     - A skipped line still runs its end script.
     - Spent Say Once questions vanish.
     - No pause is added between voiced lines (scenes run 0.3–0.4 s short per line).
@@ -302,8 +331,10 @@ engine if needed, and delete the item here.
     Speed Mult × their skeleton's share). Still open, ours:
     - People turn ≤180°/s walking, 120°/s standing; creatures 300°/s × scale (measured
       on cazadors only); the CREA Turning Speed field is unused. People's combat turns
-      measured 2026-11-01: about 270°/s at first, easing out (actors §8.9, issue #1352);
-      a package turn out of combat is still unmeasured.
+      measured 2026-11-01 and 2026-11-06 (o25_turn): about 1.1 s after StartCombat, a
+      steady 225°/s for 45° and 90° and 275°/s at first for 135° and 180°, slower only once
+      it steps forward (actors §8.9, issue #1352); a package turn out of combat is still
+      unmeasured.
     - Speed Mult on people: answered 2026-11-01 (o18_air): a trooper ran 305 units/s at
       100 and about 460 at 150, proportional as ours (actors §8.10); Cook-Cook (110, ran
       as if 100) stays the one exception, asked in owner-review.md.
@@ -320,8 +351,10 @@ engine if needed, and delete the item here.
     - A call on an empty ref is skipped — partly answered 2026-10-31 (o5_00): in a
       function script run through xNVSE's CallFunction, `rE.GetDisabled` on an unset
       `ref`, alone or as an `if` condition, let the script go on (the next line ran). Ours
-      stops the script (game.rs `stop_run`, scripts.md §4.2). Still open: the same in a
-      quest or object script run by the game itself, before ours changes.
+      stopped the script (scripts.md §4.2). An object script run by the game goes on too:
+      the Nellis artillery trigger's script makes such a call every frame and the
+      original's barrage fires (issue #1600). Ours goes on since 2026-11-05. Still open:
+      a quest script.
     - Return ends one block only.
     - Scripted items in other inventories don't run.
     - Message boxes don't freeze the player, and MenuMode 1002 is our guess.
@@ -599,7 +632,11 @@ The numbers above stay put so links to them hold; each item here gives its own p
     High-Roller Suite", whose fixed speaker is the entrance Victor (Lucky38VictorEntrance)
     [observed]; later talks to him open with his usual elevator greeting, as a Say
     Once line should. Ours does the same (dialogue.rs `can_say_as`). Still open: lines with a
-    fixed speaker and no GetIsID condition (the Dead Money end slides, #965). The
+    fixed speaker and no GetIsID condition (the Dead Money intro and end slides, #965);
+    ours lets a script's Say/SayTo say them when no line of the topic passes the check
+    (dialogue.md §4, [hypothesis]); finishing Dead Money (and starting it, IntroSlide02)
+    and seeing whether Elijah's and Vera's narration plays, and in whose voice, would
+    settle it. The
     Boomers' end slide (VEndingBoomers, ANAM NellisPete, GetIsID Narrator) plays in the
     child Pete's voice, not the narrator's (owner, nvfSlides) [observed]; ours says it
     as the narrator with the fixed speaker's file (voice.rs), which matches. Also: the penthouse elevator can only be
@@ -1090,44 +1127,15 @@ The numbers above stay put so links to them hold; each item here gives its own p
     `…/x`, `…/y`, `…/width`, `…/_alpha`, `…/_enabled`, and `StartMenu/_isPauseMenu`; then
     the same with the Settings page open.
 
-## Added 2026-11-01 (explosions' limb damage, issue #1338)
+## Added 2026-11-01 (explosions' limb damage, issue #1338; open part since 2026-11-06, #1741)
 
-74. **How much of a blast reaches each limb?** (P2; crippled-limbs.md §5.) Blasts damage
-    limbs [documented: GetHitLimbDamage returns 0 for an explosion "even if the explosion
-    dealt limb damage"], and NVForever takes the full blast damage after armour off every
-    limb [hypothesis]. In the original, with a fresh NPC of known Health (e.g. an NCR
-    trooper at the airport, `nvfairport`, tgm on the player): read all seven limb
-    conditions (GetAV PerceptionCondition, EnduranceCondition, LeftAttackCondition,
-    RightAttackCondition, LeftMobilityCondition, RightMobilityCondition,
-    BrainCondition) and Health; `PlaceAtMe MineFragExplosion` at known distances (0, 64,
-    128 units) and read them again. Repeat with a Frag Grenade thrown by the player, and
-    once on the player. The answer: which limbs lose condition, how much each against the
-    Health lost, and whether distance or the side facing the blast matters.
-
-## Added 2026-11-02 (the player's Speed Mult and armour, issue #1364)
-
-75. **Does Speed Mult, and body armour, change the player's speed?** (P2; actors.md
-    §8.10, The player.) NVForever now multiplies the player's walk and run by its current
-    Speed Mult / 100 and by its body armour's share (medium 0.925, heavy 0.85), as
-    measured on people [hypothesis for the player]. In the original (`nvfairport`, the
-    runway, holstered, light or no armour): run 1,500 units forward and time it at
-    `player.setav speedmult 100`, `150` and `50`; then at 100 in medium armour
-    (ArmorNVNCRTrooper*) and in metal armour (ArmorMetal 0003307F). Also once with
-    `player.modav speedmult 50` (whether a modifier counts as SetAV does), and whether the
-    run clip plays faster at 150 or the feet slide. The answer: the speeds in units/s.
-
-## Added 2026-11-03 (a Stimpak's Hardcore effects outside Hardcore, issue #1438)
-
-76. **Does an aid effect whose conditions fail still count down its duration?** (P3;
-    aid-items.md §6.) The Stimpak's Health effects split by IsHardcore. NVForever now
-    holds a lasting effect whose conditions fail as inactive and lets its time run, so
-    outside Hardcore the Stimpak's 6 s heal over time is gone 6 s after the use
-    [hypothesis]. In the original (`nvfstrip`, Hardcore off): `player.damageav health
-    60`, use a Stimpak, wait 3 s, `SetHardcore 1` (or the settings switch), and log
-    `player.getav health` each second for 10 s: whether Health rises after Hardcore comes
-    on (the held effect taking hold) or not. Then again with 10 s between the use and
-    Hardcore on. Also whether STATS EFF lists the Stimpak at any point outside Hardcore.
-    The answer: the Health log and the EFF screenshots.
+74. **How much of a blast reaches each limb, at stock Health and on the player?** (P2;
+    crippled-limbs.md §5.) Answered in part 2026-11-06 (o25_limbs) [observed]: on Ringo at
+    `SetAV Health 5000` the torso lost 1/30 of the Health damage and the legs 0.24 of it,
+    nothing else; NVForever takes those as condition points. Still open: rerun on an NPC at
+    its stock Health (100–200) and once on the player, to tell condition points straight
+    off the condition from a share of the limb's pool (of maximum Health), and whether the
+    player's limbs take `fCombatPlayerLimbDamageMult`.
 
 ## Added 2026-11-03 (collision of animated objects, issue #1396)
 
@@ -1212,3 +1220,184 @@ The numbers above stay put so links to them hold; each item here gives its own p
     whether (a)'s handler prints, and what (c) returns. If (a) is refused, the drop goes
     and ln_B42Optics.txt is the mod's own error. If (b) compiles, dropped arguments are not
     read. If (c) differs from `5 0 0`, the catalogue needs the fourth parameter.
+
+## Added 2026-11-04 (the tutorial menu from its file, issue #978)
+
+82. **What does `clipwindow` do?** (P3; menu-xml.md §3.1.1.) Answered in part (private
+    capture hud_tutorial_more, 1280 x 720) [observed]: in the drawing it is a rectangular
+    crop of the descendants, a scrolled line stopping part way at the column's top and bottom
+    edges. Still open: whether a click below the column's edge reaches a tile inside it (a
+    list's row scrolled out, in a menu with `list_box.xml`).
+83. **Does a picture's `alpha` reach the tiles inside it?** (P3; tutorial-menu.md §5.) The
+    tutorial menu's content under its background of alpha 193.8 reads full strength, so
+    NVForever marks that one tile; other tiles still multiply through a picture. A menu or
+    a test tile with a text inside a half-alpha picture answers whether this holds for
+    pictures generally.
+84. **The tutorial menu with two pages.** (P3; tutorial-menu.md §4, §5.) Answered (private
+    capture hud_tutorial_more, 1280 x 720) [observed]: a second `ShowTutorialMenu` replaces the
+    first, `TM_page` stays hidden, Next and Previous stay hidden and not targets, and
+    `ClickMenuButton` on them returned 1 with the text unchanged. The keys A and S were not
+    tried: the job taps them only when that call returns 0. NVForever's pages differ;
+    owner-review.md item 45 asks which to keep. Close's text reads alpha 255 and brightness 255
+    [observed], which rules out those two traits of its own for its (206, 147, 53), not an
+    opacity from above it or the compositing; font 2's texels [hypothesis].
+
+## Added 2026-11-05 (items without a name, issue #1603)
+
+85. **Does the original list an item that has no name?** (P3; engine/nvf-play/src/menu/model.rs,
+    `shown`.) NVForever leaves an item out of every inventory list (the player's, containers,
+    barter) when its record has no FULL or a blank one [hypothesis]. The vanilla
+    DONOTUSEBookGeneric07 (0x000199BB, BOOK, no FULL) is in SublistBooks100, under the
+    household and library clutter lists. A capture: `player.additem 000199BB 1`, then open the
+    Pip-Boy's Misc page and a container holding one. Is it absent, a blank row, or shown by
+    another name?
+
+## Added 2026-11-05 (creatures and furniture, issue #1522)
+
+86. **Does a sandboxing creature near free furniture ever use it?** (P2; furniture.md §9.)
+    Answered in part, minutes of watching and not days [observed, 2026-11-04 and 05, the
+    original over Moonlight]: no creature read as on furniture in any of these.
+    - Super mutants `001744C1` to `C4` among `SuperMutantBed` and `FloorSitMarker`: 534 s,
+      hours 12 and 23; `DefaultSandboxEditorLocation512` for at least the first, and `C4` was
+      under Sandbox in 0 of 111 samples.
+    - Colmillo and GibsonDog01 under `Sandbox256` the whole time: 358 s, within 98 to 168
+      units of `OldLadyGibsonChair`, probably free at hour 20 [hypothesis]. People in the
+      loaded area did read as on furniture, so the reads fire.
+    - Three rats near `Outhouse0000`: 355 s, partly in combat, so weak.
+    - Neil: 533 s, never under a sandbox package, so weak.
+    - The Nipton mongrels `0016B483` and `0016B484` under `DefaultSandboxEditorLocation1024`:
+      596 s, hours 12 to 15 and 18 to 20, no combat, one of them 226 units from the free cross
+      `00139FD6` for most of it. The cross's record carries XIBS (Ignored By Sandbox) [documented:
+      `fnvtool` over the record], so this no may be the flag and not the creature; the dogs and mutants above, whose furniture has no XIBS,
+      carry the question.
+
+    **Pending**: a person sandboxing near an empty cross. NVForever
+    keeps a creature off furniture the tree gives it no clip for, and leaves crosses out of a
+    sandbox's choices [design]. If a creature does use furniture, say which, on what, and
+    with which clip: the rule in §9 changes.
+
+## Added 2026-11-05 (placed particle scale, issue #1547)
+
+87. **Does a placed reference's scale size its particles?** (P2; particles.md §7.7.) The
+    Ultra-Luxe fountain's ULFountainFX (0x0016566E) is placed at scale 0.5. Take a frame of the
+    original at hour 12 from about (1176, -700, 1080), facing north, and the same frame in
+    NVForever. Check the size of the drops against the basin, how high the spray goes, and
+    whether it comes out of the spout. If the original's spray is the file's full size, the
+    rule in §7.7 is wrong and the cause of the misplaced spray lies elsewhere.
+
+## Added 2026-11-05 (leveled rolls and locks, issue #1567)
+
+88. **Does a leveled door lock change with the player's level?** (P3; simulation.md §5,
+    `fnv_sim::World::lock_read_level`.) NVForever hardens a leveled lock only from a level
+    fixed at its cell's load, so a door keeps its authored level [design]; the GECK tutorial
+    calls the checkbox deprecated [documented, encounter-zones.md §7], and nothing says the
+    original hardens at all [hypothesis]. The 26 leveled locks are all in the add-ons (Dead
+    Money 22, Old World Blues 3, Honest Hearts 1; simulation.md §5). A capture at a door with
+    the flag, never activated: `GetLockLevel` on it at the save's level, `player.SetLevel 31`,
+    `GetLockLevel` again, then the same on a flagged container, and on both after leaving the
+    area and coming back. Does the number move, by how much, and from which level?
+
+## Added 2026-11-05 (DamageActorValue past zero, issue #1568)
+
+89. **Does DamageAV past zero kill at all, and what of the player, an essential actor and the
+    kill's credit?** (P3; unconscious.md §2.2.) NVForever kills [hypothesis]. Check 22's two
+    super mutants died after DamageAV 300 with NCR troopers firing, no GetDead read and their
+    Health not read, so it does not isolate the cause. In the original, first: a lone
+    non-essential NPC with nobody shooting, `getav health`, `damageav health 9999`, `getdead`
+    at once and 5 s later, `getav health`. Then, each in its own run: `player.damageav health
+    9999` (does the player die?); on an essential NPC the same (knocked out, or dead, or
+    standing at a negative Health, and GetDead); on the lone NPC, the player's XP and karma
+    before and after (is the kill anyone's?). Also: does Health stay negative or stop at 0?
+    The answer: the logs.
+
+## Added 2026-11-04 (the container menu from its file, issue #1468)
+
+90. **The container menu: what the reads could not show.** (P3; barter-menu.md §8; the capture
+    `hud_container_*`, parts c, d and g retaken since, with shots.) With a long list on both
+    sides at 1280 x 720: (a) does a selected row show a faint fill beside its lines, and how
+    faint against NVForever's `_NVFHotrectFill`? (b) DAM and DPS on a weapon's card: do they
+    fade into each other at one place, how fast, and is DPS ever above DAM? (c) what does
+    `CNDArrows` (`repair_meter_pips.dds`) show at a weapon's and armour's condition, and does it
+    move with it? (d) keys: do the arrow keys and W/S move a row, A the Take All only?
+    (e) the wheel: does `_wheelmoved` move the list and not the selection, and by what? (f)
+    the marker's drag: `dragstarty`, `dragy` and `dragoffsety` through a drag and after it.
+    (g) how dark is the backing at 193.8 compared with NVForever's at that value?
+
+## Added 2026-11-06 (the trait menu from its file, issue #1519)
+
+91. **The trait menu: what the capture could not take.** (P3; chargen.md §4.1.) In character
+    creation at 1280 x 720: (a) take a trait, then a second: how do `_CurrPoints`, the row's mark
+    and the counter follow? (b) what does Reset restore with traits taken? (c) `_TextAlpha` and
+    `_enabled` on a trait that cannot be taken. (d) a real wheel over the list. (e) the
+    description scrolled to value 8. (f) why did the capture's list lack two traits?
+92. **The player's melee reach, and the deathclaw's.** (P2; combat-rules.md §10,
+    npc-behaviour-compare.md §3.) Ours now reaches `fCombatDistance` 107 × Reach from the
+    player's body (fitted to the NPCs' swings), so long weapons reach less than before (a
+    lead pipe 156 units from the eye, was 188). In `nvfairport`, a standing settler: the
+    farthest centre-to-centre distance at which the player's knife, sledgehammer and lead
+    pipe swings still land (GetHealthPercentage or OnHit per swing, the player backing off
+    5 units a swing). And a deathclaw (VCrTier4DeathClawMed) on the standing god-mode
+    player again: o12_reach had one start at 88 units, far nearer than its RNAM 192 gives.
+
+## Added 2026-11-06 (observer batch o27: issues #970, #986, #1401)
+
+Answered [observed, 2026-11-06, `nvfairport`]: the light at an actor (#970, o27_light:
+the brightest channel of the sunlight outdoors, of the cell's ambient indoors;
+detection.md §3) and the tumbleweeds (#1401, o27_tumble: awake after a load, rolling
+north-north-west until they rest; wind.md §2). Open:
+
+93. **The light at an actor where something shades it, and a lamp's share.** (P3;
+    detection.md §3.) `player.GetActorLightAmount` at noon under a roof outdoors (the
+    Goodsprings gas station's canopy, SCOLgsGasStation at (-75584, 4562)), and indoors
+    at set distances from one lamp of known radius (a dark interior such as
+    SLGoodspringsCaveINT, which reads 36.08 away from its lamps). NVForever gives a
+    shaded target the weather's ambient and adds the lamps' brightest channel ×
+    (1 − (d/r)²) [hypothesis].
+94. **Tumbleweeds against the wind's speed, and whether they start again.** (P3; wind.md
+    §4.) Force HVDustStorm (127) and then load the save (or `coc` away and back) so the
+    tumbleweeds wake under it; compare their speeds with o27_tumble's 150–210 units a
+    second under 50. Then watch one at rest for an hour of game time at TimeScale 30.
+95. **Holotapes: subtitles and the radio.** (P2; holotapes.md §3, #986.) Tried
+    2026-11-06 (o27_holotape, `nvfairport`): the job gives VMQ01BeagleJournalNote and
+    waits; the Pip-Boy was to be driven by hand (computer use) with the game's sound
+    recorded by loopback (the `soundcard` module records the default output device), but
+    the input was interrupted before the Pip-Boy opened, so the run was stopped. Still to
+    do: tune the Pip-Boy radio to Radio New Vegas, play the note from DATA > Misc, close
+    the Pip-Boy; screenshots during the tape show whether a subtitle is drawn (the
+    owner's INI has dialogue subtitles on, general subtitles off), and the recording
+    whether the radio goes quiet under the tape, ducks or plays on, and comes back
+    after. The plugin cannot pick a menu entry, so this needs the owner or hand input.
+
+## Added 2026-11-06 (observer batch o28, sound: issues #989, #990, #992)
+
+Answered in this batch (audio.md §15.5, §16.1): talking activators' lines are not
+filtered by the original and their files are already processed (#992); a creature's Idle,
+Aware and Attack sounds play only from clip keys, and the Securitrons' siren played in
+none of the five situations tried (#989); no shipped master sets an acoustic space's walla
+(#990). Tools for this batch (scratchpad, not committed): JIP `IsSoundPlaying <sound>
+<ref>` read every sample through the player's `Variable01`-`09`, and the WASAPI loopback
+recorded with Python `soundcard` (ffmpeg has no loopback device on this machine), fitted
+to the decoded file by cross-correlation and a per-band transfer estimate.
+
+96. **When does a Securitron sound its siren (`NPCSecuritronSiren`, CREA sound type 21)?**
+    (P3; audio.md §16.1.) Not on spawning, standing 20 s, `StartCombat`, an assault or
+    trespass alarm, nor while hurt to death (o28_creature_sounds, o28_creature_sounds2).
+    Left to try: a Strip Securitron reacting to a crime it sees for itself in `nvfstrip`
+    (the player shooting a Strip NPC by `FireWeapon`, IsSoundPlaying without a ref), a
+    Securitron switching to its Mk II (Lucky 38 upgrade), and the Hoover Dam battle's
+    Securitrons (VHDSecuritronBattle…). If none, it is unused data.
+97. **Does the original filter a helmet wearer's voice?** (P3; audio.md §15.5.) A line
+    said by an NPC given a power armour helmet (Modulates Voice) recorded on the loopback
+    beside the same line bare-headed, fitted to the file as o28_intercom was. Needs a
+    line the observer can make an NPC say with a known file (`SayTo player <topic>` with
+    a topic whose line has conditions only on the speaker).
+
+## Added 2026-11-06 (the power fist's hand, issue #1586)
+
+99. **The power fist's hand on Veronica: what is left open.** (P3; actors.md §9.2.) Capture
+    `pf_h2h_rest3` (nvfairport, Veronica at her placed spot at the 188, power fist drawn
+    with SetAlert, AI off, first-person camera 110 units off in front, to her right and to
+    her side; brass knuckles the same way): the gauntlet sits on the forearm where
+    NVForever puts it. At its front the original shows the weapon's metal hand (the WEAP's
+    BIPL addon `ARMAPowerfist`), not her bare hand. Still to look at: the same with the
+    weapon holstered, and in the player's first person.

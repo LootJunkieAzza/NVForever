@@ -26,6 +26,13 @@
 //! rifle and "Magical Companion Ammo" do not show in his]. Take All leaves them in the
 //! container [hypothesis: hidden items stay where they are].
 //!
+//! Items whose record has no name (no FULL, or a blank one) are not listed in any
+//! inventory, the player's included ([`shown`]), so a row never reads as an Editor ID
+//! (#1603: the vanilla book leveled list SublistBooks100 holds the nameless
+//! DONOTUSEBookGeneric07 0x000199BB, which household and library clutter lists hand out)
+//! [hypothesis: mods use nameless items as hidden tokens because the original's menus
+//! leave them out; observer check in docs/handoff/observer-checks.md].
+//!
 //! Quest items (`World::is_quest_item`: the record's "Quest Item" header flag, or a
 //! script's SetQuestObject) are listed and marked; dropping one is refused by the
 //! simulation and the status line says so [documented: GECK wiki Category:Items, the
@@ -110,6 +117,9 @@ pub struct Row {
     /// A weapon's attached mods (`Extra::mods`): its units are a row of their own, named
     /// with " +" (docs/spec-notes/weapon-mods.md §3).
     pub mods: u8,
+    /// What the attached mods add to one unit's value: their IMOD values, which its
+    /// condition does not lower (`FormStore::mods_value`, issue #982).
+    pub mods_value: i32,
     /// The Misc tab's folder rows (the keyring, the caravan cards, and "Back" inside
     /// one): no item of their own ([`Folder`]).
     pub folder: Option<FolderRow>,
@@ -165,7 +175,7 @@ impl Row {
             FolderRow::Open(f) => f.name().to_string(),
             FolderRow::Back => BACK.to_string(),
         };
-        Row { item: FormId(0), at: None, name, count, weight: None, value: None, kind: None, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, mods: 0, folder: Some(f), reference: None }
+        Row { item: FormId(0), at: None, name, count, weight: None, value: None, kind: None, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, mods: 0, mods_value: 0, folder: Some(f), reference: None }
     }
 }
 
@@ -203,6 +213,14 @@ pub fn modded_name(name: String, mods: u8) -> String {
     }
 }
 
+/// Whether a menu lists `item` in an inventory, the player's (`players`) or another
+/// holder's: a playable item by `Item::listed`, and one with a name (module notes). A form
+/// the store does not know is listed, by its FormID.
+pub fn shown(forms: &FormStore, item: FormId, players: bool) -> bool {
+    let Some(b) = forms.get(item) else { return true };
+    b.name.as_deref().is_some_and(|n| !n.trim().is_empty()) && forms.item(item).is_none_or(|i| i.listed(players))
+}
+
 /// Display name of a form: its FULL name, else its Editor ID, else its FormID.
 pub fn display_name(forms: &FormStore, id: FormId) -> String {
     match forms.get(id) {
@@ -229,6 +247,13 @@ pub fn plain_error(forms: &FormStore, e: &SimError) -> String {
 pub type Units = (FormId, Option<u32>, u8);
 
 impl Row {
+    /// One unit's value before a trade's multiplier: the item's value at its condition
+    /// plus what its attached mods add, which the condition does not lower [observed:
+    /// o26_value 2026-11-06, `FormStore::mods_value`; issue #982].
+    pub fn worth(&self, prices: &Prices) -> Option<f32> {
+        self.value.map(|v| prices.value_at(v, self.condition) + self.mods_value as f32)
+    }
+
     pub fn units(&self) -> Units {
         (self.item, self.at.map(f32::to_bits), self.mods)
     }
@@ -258,7 +283,7 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
     // The holder's perks (Pack Rat, Heavyweight) in the total (perk-entry-points.md §7).
     let rules = world.weight_rules(holder);
     let s = world.get(holder)?;
-    if s.deleted {
+    if s.deleted() {
         return Err(SimError::Deleted(holder));
     }
     let inv = s.inventory.as_ref().ok_or(SimError::NoInventory(holder))?;
@@ -267,7 +292,7 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
     let mut hidden = 0;
     for (item, extra, count) in inv.groups() {
         let it = forms.item(item);
-        if it.is_some_and(|i| !i.listed(holder == PLAYER)) {
+        if !shown(forms, item, holder == PLAYER) {
             hidden += 1;
             continue;
         }
@@ -294,6 +319,7 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
             price: None,
             bartered: false,
             mods: extra.mods,
+            mods_value: forms.mods_value(item, extra.mods),
             folder: None,
             reference: None,
         });
@@ -302,7 +328,7 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
         r.quest = world.is_quest_item(r.item);
     }
     sort_rows(&mut rows);
-    let value = rows.iter().map(|r| r.value.unwrap_or(0) as i64 * r.count as i64).sum();
+    let value = rows.iter().map(|r| (r.value.unwrap_or(0) + r.mods_value) as i64 * r.count as i64).sum();
     Ok(Listing { rows, weight: totals.weight, value, hidden })
 }
 
@@ -316,7 +342,7 @@ fn add_dropped_beside(world: &World<'_>, holder: FormId, l: &mut Listing) {
     for r in world.dropped_beside(holder) {
         let Some(s) = world.peek(r) else { continue };
         let it = forms.item(s.base);
-        if it.is_some_and(|i| !i.listed(false)) {
+        if !shown(forms, s.base, false) {
             continue;
         }
         let kind = it.map(|i| i.kind);
@@ -336,11 +362,12 @@ fn add_dropped_beside(world: &World<'_>, holder: FormId, l: &mut Listing) {
             price: None,
             bartered: false,
             mods: s.extra.mods,
+            mods_value: forms.mods_value(s.base, s.extra.mods),
             folder: None,
             reference: Some(r),
         };
         l.weight += f64::from(row.weight.unwrap_or(0.0)) * f64::from(row.count);
-        l.value += row.value.unwrap_or(0) as i64 * row.count as i64;
+        l.value += (row.value.unwrap_or(0) + row.mods_value) as i64 * row.count as i64;
         l.rows.push(row);
         added = true;
     }
@@ -439,10 +466,47 @@ pub enum Mode {
     Barter(FormId),
 }
 
+/// What a row stands for: its units, the reference a corpse's dropped weapon is, and which of
+/// rows alike it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RowKey {
+    pub units: Units,
+    pub reference: Option<FormId>,
+    pub nth: u32,
+}
+
+impl RowKey {
+    /// The key of `rows[index]`.
+    pub fn at(rows: &[Row], index: usize) -> Option<RowKey> {
+        let row = rows.get(index)?;
+        let (units, reference) = (row.units(), row.reference);
+        let nth = rows[..index].iter().filter(|r| r.units() == units && r.reference == reference).count() as u32;
+        Some(RowKey { units, reference, nth })
+    }
+}
+
+/// [design] A row as the input that clicked or came onto it saw it: the commands after
+/// [`Command::Expect`] are for this row of this menu, and for no other row a command queued
+/// before them leaves at its index.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RowGuard {
+    pub mode: Mode,
+    pub side: Side,
+    pub index: usize,
+    pub key: RowKey,
+    /// The commands act on the row as the selected one.
+    pub selected: bool,
+    /// How many commands follow the guard.
+    pub then: u8,
+}
+
 /// What the player asks the menu to do (keys, mouse and the test aid all go through
 /// this).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
+    /// The next commands hold only if the row is still there ([`MenuModel::row_is`]);
+    /// `crate::menu::apply_input` drops them otherwise.
+    Expect(RowGuard),
     Up,
     Down,
     PageUp,
@@ -628,6 +692,11 @@ pub struct MenuModel {
     /// where they are (only the wheel and the keys scroll them; owner's playtest list 7,
     /// item 11). The menu keeps `scroll` at the rows it draws (`look::drawn_first`).
     pub pointer_pick: bool,
+    /// Counts the keys' and the wheel's moves of the selection, also one that ends on the same
+    /// row: asked to move, the tile menu shows the selected row again.
+    pub navigated: u32,
+    /// By column: the rows the category leaves out (the file's `_num_filtered`).
+    pub filtered: [usize; 2],
     /// Rows per column; the container column is empty in the inventory menu.
     pub lists: [Listing; 2],
     /// The category each column shows.
@@ -791,6 +860,8 @@ impl MenuModel {
             selected: [0; 2],
             scroll: [0; 2],
             pointer_pick: false,
+            navigated: 0,
+            filtered: [0; 2],
             lists: [Listing::default(), Listing::default()],
             category: [Category::All; 2],
             encumbrance: Err(String::new()),
@@ -854,7 +925,9 @@ impl MenuModel {
                     add_dropped_beside(world, holder, &mut l);
                 }
                 let forms = world.forms;
+                let all = l.rows.len();
                 l.rows.retain(|r| self.category[side as usize].holds_item(r.kind, forms.item(r.item)));
+                self.filtered[side as usize] = all - l.rows.len();
                 if side == Side::Container && self.steal.is_some() {
                     l.rows.retain(|r| !r.equipped);
                 }
@@ -901,7 +974,7 @@ impl MenuModel {
                     why.is_none()
                 })
                 .map(|mut r| {
-                    r.price = r.value.map(|v| prices.value_at(v, r.condition) * mult);
+                    r.price = r.worth(&prices).map(|v| v * mult);
                     r
                 })
                 .collect();
@@ -979,6 +1052,7 @@ impl MenuModel {
                                 price: None,
                                 bartered: false,
                                 mods: 0,
+                                mods_value: 0,
                                 folder: None,
                                 reference: None,
                             }),
@@ -1052,6 +1126,9 @@ impl MenuModel {
             return self.apply_quantity(world, cmd);
         }
         let page = self.page() as i64 - 1;
+        if matches!(cmd, Command::Up | Command::Down | Command::PageUp | Command::PageDown | Command::Scroll(_)) {
+            self.navigated = self.navigated.wrapping_add(1);
+        }
         match cmd {
             Command::Hover(..) => self.pointer_pick = true,
             Command::Up | Command::Down | Command::PageUp | Command::PageDown | Command::Scroll(_) | Command::Select(..) | Command::SetCategory(..) => {
@@ -1139,6 +1216,14 @@ impl MenuModel {
         out
     }
 
+    /// Whether `g`'s row is still the row its input saw, in this menu and with no prompt over it.
+    pub fn row_is(&self, g: &RowGuard) -> bool {
+        self.mode == g.mode
+            && self.quantity.is_none()
+            && RowKey::at(&self.list(g.side).rows, g.index) == Some(g.key)
+            && (!g.selected || (self.focus == g.side && self.selected[g.side as usize] == g.index))
+    }
+
     /// The prompt asked for by `cmd` on the selected row, if its stack is large enough.
     fn asks_quantity(&self, cmd: Command) -> Option<Quantity> {
         let asks = matches!((self.mode, cmd), (Mode::Container(_) | Mode::Barter(_), Command::One) | (Mode::Inventory, Command::Drop));
@@ -1186,7 +1271,7 @@ impl MenuModel {
         match (self.mode, cmd) {
             (Mode::Container(_), Command::TakeAll) if self.steal.is_some() => Ok("Take items one at a time to steal them".into()),
             (Mode::Container(c), Command::TakeAll) => {
-                // The listed stacks only: non-playable items stay hidden in the container.
+                // The listed stacks only: non-playable and nameless items stay hidden in the container.
                 let mut moved = Vec::new();
                 for r in &self.lists[Side::Container as usize].rows {
                     let n = match r.reference {
@@ -1397,7 +1482,7 @@ pub fn nearest_container(
     candidates
         .filter_map(|p| {
             let (base, at, gone) = match world.peek(p.id) {
-                Some(s) => (s.base, s.pos, s.deleted),
+                Some(s) => (s.base, s.pos, s.deleted()),
                 None => (p.base, p.pos, false),
             };
             let is_container = matches!(forms.get(base).map(|b| &b.data), Some(BaseData::Container(_)));
