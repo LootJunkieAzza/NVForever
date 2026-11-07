@@ -103,6 +103,67 @@ screen's height):
 - At vendor skill 100 every item's condition after the repair is full.
 - The item's figure is DAM for a weapon (Varmint Rifle 8 → 11, 9mm Pistol 7 → 9).
 
+### 3.1 The menu drawn from its file
+
+Behind `[UI] TileMenus=RepairServicesMenu`, off by default, the menu is drawn from
+`menus\repair_services_menu.xml` (issue #1468) [design: `engine/nvf-play/src/tiles/repair_services_menu.rs`,
+the card pair in `tiles/repair_cards.rs`, in the shape of the barter menu, barter-menu.md §9].
+Off, nothing here runs and the hand-built menu above is unchanged. The rules, the keys,
+sounds, refusals and log lines stay `engine/nvf-play/src/repair.rs`'s: the adapter writes
+what the model shows and sends what a click asks (`RepairServicesInput`). The world is
+blurred behind it, as behind the container's, in place of the hand-built backing the maintainer
+asked for (`top_menu_backing`, playtest list 7 item 2), which the default keeps [design].
+
+**The words**, each with its source [design: LEGAL.md]:
+
+| Tile | What it shows | Source |
+| --- | --- | --- |
+| `RSM_Headline_Title` | not written | the file's `sRepairServicesTitle` |
+| `RSM_EmptyRepairListText` | only `visible` | the file's `sNoItemsToRepair` |
+| the three buttons' `button_text` | not written | the file's `sRepairItem`, `sRepairAllItems`, `sDone` |
+| `RSM_VendorSkillLabel` | setting, two spaces, number | `sRepairSkill` |
+| `RSM_CapsLabel` | setting, two spaces, number | `sInventoryCaps` |
+| `_PCButtonText` of Repair All, Done | hint | `sPCMenuHintA`, `sPCMenuHintE` (a controller's button name, `pad::game_hint`) |
+| a row's `ListItemText` | item's name and count | the record's name; "(n)" is ours |
+| `RSM_RepairCostText` | setting, two spaces, number, " each" for several units | `sInventoryCaps`; "each" is ours |
+| `RSM_ErrorText` | one sentence | ours (`repair::BEYOND_WORDS`), the original's is in its code |
+| the condition cards' `_Title` | the file's; only where the file has none | `sInventoryCondition` |
+| the stat cards' `_Title` | setting | `sInventoryDamage` for a weapon, `sInventoryDamageThreshold` for armour |
+| the stat cards' `_Value`, the two gains | numbers, "+" and "%" | the model |
+
+Words the hand-built menu shows that this one does not: "Cost:" and the "caps" after the
+figure, on the original's screen alone and not in the strings table [observed: §3's
+screenshots; `crates/fnv-ui/src/strings.rs` has no such setting], so the line reads the
+setting and the figure; the short card titles "CND" and "DAM" from the same screenshots,
+for the settings above; and the total after Repair All, below.
+
+**Open for the capture** (all [hypothesis] until then; none of it comes from this menu's
+own read):
+
+- `RSM_Template_Meter`'s fill as `width` = condition x the back's `width`; the log line's
+  `meter W of B` says what the tree holds.
+- How dim a row is: `alpha` 165, on the row, its text, fill and square (the file leaves
+  the rows' `alpha` to code, §3; the number is the hand-built menu's). The back keeps the
+  file's alpha.
+- The two labels' separator (two spaces, as the hand-built menu).
+- Repair All's total: the hand-built button shows "Repair All (285)" [observed: §3], and
+  the file's words are shown alone until the capture says whether the original's code
+  appends it to `button_text`.
+- `RSM_RepairButton`: `visible` and `target` while the selected row can be repaired. The
+  file has it on the Xbox only (§3), so on a PC it may stay hidden.
+- `RSM_RepairCostText`'s wording and whether a count's "each" exists; `RSM_ErrorText`'s rule.
+- `RSM_BrokenItemHealthMeter/_Value` as 0 to 1 (as `ConditionInfo`'s `user5`,
+  barter-menu.md §8).
+- Repair All's dim: `brightness` 128 as barter's Accept. §3 reads the file as drawing the
+  button at alpha 128 unless it can be used: if it does this from `target`, the dim is
+  applied twice.
+- **`RSM_Background/alpha` 193.8, the container's measure.** This menu's own evidence is
+  against it: §3 reads the file's value as 32 of 255 and the screenshot as no sheet edge,
+  where the hand-built menu's 0.75 drew a hard box. The number follows the container until
+  a capture of this menu answers.
+- The rows' `_y`, height and `_scroll_delta`; the places of the file are all that places
+  anything, and the first run reads them (`tiles: pointer over`).
+
 ## 4. The vendor's rules
 
 - **What is listed**: the player's weapons and armour worn below full condition, one row

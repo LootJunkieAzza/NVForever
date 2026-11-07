@@ -21698,3 +21698,48 @@ run_seconds = 18
 expect = ["FSR 3.1.4: NativeAa", { re = 'blended cut-outs: drawn alpha-tested for FSR \((\d+) materials changed\)', range = [1, 100000], label = "the corn rows' material cut when FSR comes on" }, { re = 'blended cut-outs: drawn blended \((\d+) materials changed\)', range = [1, 100000], label = "and blended again when it goes off" }]
 order = [["blended cut-outs: drawn alpha-tested", "blended cut-outs: drawn blended"]]
 forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error", "Validation Error"]
+
+[[scenario]]
+name = "tiles-repair-services"
+source = "[design] repair.md section 3.1, issue #1468: the vendor's repair services menu from its file, its rows, labels, cards, buttons and blur, the model's rules and sounds unchanged; the worn weapons of repair-services"
+note = "[hypothesis] The pointer only moves on this first version: nobody has this file's places yet. The steps guess them from the hand-built menu's numbers centred at 1280x720 (rows at x 500, y 225 and 285; Repair All, Done at x 1293, y 215, 262, 310). The tiles: pointer over lines of a first run say what they land on, then the clicks and their expectations (Repair, All and Done on its tiles) come in. The model's aid acts meanwhile, so the rules run on a tiled menu. All aids use the start clock. Shots: the open menu, the second row chosen, the figures after a repair."
+areas = ["ui", "repair", "menus"]
+paths = ["engine/nvf-play/src/tiles/repair_services_menu.rs", "engine/nvf-play/src/tiles/repair_cards.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/tiles/item_menu.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/repair.rs", "crates/fnv-game/src/repair.rs", "engine/nvforever/src/imagespace.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_TILE_MENUS = "RepairServicesMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "10:call:player:AddItem:Caps001:150,10.2:call:player:AddItemHealthPercent:WeapNV9mmPistol:1:0.35,10.4:call:player:AddItemHealthPercent:WeapNVVarmintRifle:1:0.34,10.6:call:player:AddItem:WeapNVStraightRazor:1,11:call:RaulREF:ShowRepairMenu", NVF_PLAY_TEST_POINTER = "14:500:225,15:500:285,16:1293:215,17:1293:262,18:1293:310,19:off", NVF_PLAY_TEST_REPAIR = "20:up,21:repair,23:down,24:all,26:done", NVF_PLAY_TEST_SHOTS = "13:tiles_repair_open.png,15.5:tiles_repair_row.png,22:tiles_repair_repaired.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 29
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=RepairServicesMenu .*RepairServicesMenu drawn from tiles', label = "opt-in switch" },
+  { re = 'tiles: RepairServicesMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', label = "file with code rows" },
+  { text = "RepairServicesMenu drawn by hand:", count = 0, label = "complete file" },
+  { re = 'tiles: RepairServicesMenu drawn from tiles: 2 rows, [0-2] ready; selected "(9mm Pistol|Varmint Rifle)"', label = "the two worn weapons, the razor at full condition not" },
+  { re = 'repair menu: repaired 9mm Pistol 35% -> \d+% for \d+ caps', label = "the model's aid repairs on a tiled menu" },
+  { text = "ui sounds: repair services row or button picked: UIRepairWeapon", label = "with the model's sound" },
+  "repair menu: done",
+  "repair menu: closed",
+  "tile menu blur: RepairServicesMenu radius 3",
+  "tile menu blur: off",
+  { text = "tiles: RepairServicesMenu Hover(1) on its tiles", label = "the pointer comes onto the second row (a guessed place, see the note)" },
+  { text = "tiles: RecipeMenu", count = 0, label = "repair only" },
+  { text = "tiles: BarterMenu", count = 0, label = "repair only" },
+]
+order = [["repair menu: open", "tiles: RepairServicesMenu drawn from tiles:", "repair menu: repaired 9mm Pistol", "repair menu: done", "repair menu: closed"]]
+
+[[scenario]]
+name = "repair-services-default-drawing"
+source = "[design] repair.md section 3.1, issue #1468: with the tile switch empty the hand-built repair services menu stays the default; the same weapons, keys and shots as tiles-repair-services for the comparison"
+note = "The model's aid only, on the start clock, at 1280x720. No pointer aid."
+areas = ["ui", "repair", "menus"]
+paths = ["engine/nvf-play/src/tiles/repair_services_menu.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/repair.rs", "crates/fnv-game/src/repair.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "10:call:player:AddItem:Caps001:150,10.2:call:player:AddItemHealthPercent:WeapNV9mmPistol:1:0.35,10.4:call:player:AddItemHealthPercent:WeapNVVarmintRifle:1:0.34,10.6:call:player:AddItem:WeapNVStraightRazor:1,11:call:RaulREF:ShowRepairMenu", NVF_PLAY_TEST_REPAIR = "20:up,21:repair,23:down,24:all,26:done", NVF_PLAY_TEST_SHOTS = "13:default_repair_open.png,22:default_repair_repaired.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 29
+expect = [
+  { text = "tiles: RepairServicesMenu", count = 0, label = "no repair adapter runs" },
+  { text = "tile menu blur:", count = 0, label = "no tile blur" },
+  { re = 'repair menu: open, vendor RaulREF \(Repair \d+\), player caps \d+: 2 listed, [0-2] repairable', label = "the two worn weapons" },
+  { re = 'repair menu: repaired 9mm Pistol 35% -> \d+% for \d+ caps', label = "the pistol is repaired for caps" },
+  "repair menu: done",
+  "repair menu: closed",
+]
+order = [["repair menu: open", "repair menu: repaired 9mm Pistol", "repair menu: done", "repair menu: closed"]]
