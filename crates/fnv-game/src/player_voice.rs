@@ -360,16 +360,30 @@ impl Default for QuipSettings {
 /// size of the trigger boxes the original starts its place comments from].
 pub const PLACE_RADIUS: f32 = 1500.0;
 /// At most one place or quest comment per player this often (game seconds) [owner
-/// 2026-11-05: chattiness Normal; design: the value].
-pub const COMMENT_EVERY: f64 = 150.0;
+/// 2026-11-05: chattiness Normal; design: the value; overnight item 64, 2026-11-07: 150
+/// was too rare ("barely heard any chatter"), now 60].
+pub const COMMENT_EVERY: f64 = 60.0;
 /// The same comment is not said again for this long (game seconds) [design].
 pub const COMMENT_AGAIN: f64 = 20.0 * 60.0;
 /// How often the player's places are looked at (game seconds) [design].
 pub const PLACE_LOOK_EVERY: f64 = 1.0;
 /// Another player this near is reacted to (game units) [design: within a shout].
 pub const REACT_RANGE: f32 = 1500.0;
-/// At most one reaction this often (game seconds) [design].
-pub const REACT_EVERY: f64 = 20.0;
+/// At most one reaction this often (game seconds) [design; item 64: 20 was too rare].
+pub const REACT_EVERY: f64 = 10.0;
+/// No line of the player's voice starts sooner than this after the last one began (game
+/// seconds), so lines never pile up [design, item 64]. A Death line is not held back.
+pub const QUIP_GAP: f64 = 4.0;
+/// A fight is over for the player's remark on it (CombatToNormal) once nobody has fought
+/// the player for this long (game seconds) [design, item 64].
+pub const FIGHT_OVER_SECONDS: f64 = 4.0;
+/// The topics whose line the player's voice says as a fight with it begins, in the order
+/// tried (the first with a line in the set): the companions' and NPCs' Detection lines on
+/// starting to fight [design, item 64: before, the player never said them, though most
+/// sets have them as first-person lines].
+pub const FIGHT_START: [&str; 4] = ["NormalToCombat", "AlertToCombat", "LostToCombat", "StartCombatResponse"];
+/// The same as a fight ends.
+pub const FIGHT_END: [&str; 3] = ["CombatToNormal", "LostToNormal", "AlertToNormal"];
 /// How long another player must hold its sights on this one before it is told off
 /// (seconds) [design].
 pub const AIMED_AT_SECONDS: f64 = 1.0;
@@ -437,6 +451,13 @@ pub struct QuipState {
     pub last_react: Option<f64>,
     /// Comments and reactions said, for the log: (event, line).
     pub said: Vec<(String, FormId)>,
+    /// Triggers that said nothing, for the log: (event, why) [item 64].
+    pub skipped: Vec<(String, String)>,
+    /// When the last line of the player's voice was said (any kind).
+    pub last_line: Option<f64>,
+    /// Whether someone fought the player at the last look, and since when nobody has.
+    pub fighting: bool,
+    pub calm_since: Option<f64>,
 }
 
 impl Game<'_> {
@@ -449,19 +470,98 @@ impl Game<'_> {
     /// its own line as without a voice). While another player's quip plays nearby none is
     /// picked (the group cooldown).
     pub fn player_quip(&mut self, topic: &str) -> Option<FormId> {
+        self.player_voice.as_ref()?;
         let coop = self.quips.coop;
-        if (!coop && !self.quips.first_person) || self.time < self.quip.hold_until {
-            return None;
+        if !coop && !self.quips.first_person {
+            return self.quip_skipped(topic, "First Person Quips is off and no co-op");
+        }
+        if let Some(why) = self.quip_held(topic) {
+            return self.quip_skipped(topic, why);
         }
         let roll = self.rng.next_u32();
         let v = self.player_voice.as_mut()?;
-        let info = v.pick(topic, !coop, roll)?;
+        let Some(info) = v.pick(topic, !coop, roll) else {
+            let why = if v.by_event.contains_key(topic) { "the set's lines for it are not first-person (heard only by others in co-op)" } else { "the set has no line for it" };
+            return self.quip_skipped(topic, why);
+        };
         v.said(info);
         let local = self.quips.first_person && v.first_person.contains(&info);
         if coop {
             self.quip.out.push(info);
         }
+        self.quip.last_line = Some(self.time);
         local.then_some(info)
+    }
+
+    /// Why a line of the player's voice for `event` waits now: another player's quip is
+    /// playing ([`GROUP_COOLDOWN`]) or the last line began less than [`QUIP_GAP`] ago (not
+    /// for Death).
+    fn quip_held(&self, event: &str) -> Option<&'static str> {
+        if self.time < self.quip.hold_until {
+            return Some("another player's quip is playing");
+        }
+        if event != "Death" && self.quip.last_line.is_some_and(|t| self.time - t < QUIP_GAP) {
+            return Some("too soon after the last line");
+        }
+        None
+    }
+
+    /// Notes that a trigger said nothing, for the log; `None`.
+    fn quip_skipped(&mut self, event: &str, why: &str) -> Option<FormId> {
+        self.quip.skipped.push((event.to_string(), why.to_string()));
+        None
+    }
+
+    /// The player's word as a fight with it begins or ends (item 64): called every frame
+    /// with whether anyone fights the player ([`Game::player_fought`]). The first fight
+    /// frame says a line of [`FIGHT_START`]; [`FIGHT_OVER_SECONDS`] without one says a
+    /// line of [`FIGHT_END`]. Heard here when first-person, sent in co-op. Returns the
+    /// line said.
+    pub fn player_fight_lines(&mut self, fought: bool) -> Option<FormId> {
+        self.player_voice.as_ref()?;
+        // The dead say nothing of the fight that killed them.
+        if self.is_dead(FormId::PLAYER_REF) {
+            self.quip.fighting = false;
+            self.quip.calm_since = None;
+            return None;
+        }
+        let (name, topics): (&str, &[&str]) = match (self.quip.fighting, fought) {
+            (false, true) => {
+                self.quip.fighting = true;
+                self.quip.calm_since = None;
+                ("fight start", &FIGHT_START)
+            }
+            (true, true) => {
+                self.quip.calm_since = None;
+                return None;
+            }
+            (true, false) => {
+                let since = *self.quip.calm_since.get_or_insert(self.time);
+                if self.time - since < FIGHT_OVER_SECONDS {
+                    return None;
+                }
+                self.quip.fighting = false;
+                self.quip.calm_since = None;
+                ("fight end", &FIGHT_END)
+            }
+            (false, false) => return None,
+        };
+        let coop = self.quips.coop;
+        if !coop && !self.quips.first_person {
+            return self.quip_skipped(name, "First Person Quips is off and no co-op");
+        }
+        if let Some(why) = self.quip_held(name) {
+            return self.quip_skipped(name, why);
+        }
+        let roll = self.rng.next_u32();
+        let v = self.player_voice.as_mut()?;
+        let Some(info) = topics.iter().find_map(|t| v.pick(t, !coop, roll)) else {
+            return self.quip_skipped(name, "the set has no first-person line for it");
+        };
+        v.said(info);
+        self.quip.said.push((name.to_string(), info));
+        self.speak_quip(info);
+        Some(info)
     }
 
     /// The real companion the player's voice belongs to, when it follows the player within
@@ -496,12 +596,17 @@ impl Game<'_> {
         if deed == Deed::FireWeapon && in_combat {
             return None;
         }
-        if self.time < self.quip.hold_until || self.quip.last_react.is_some_and(|t| self.time - t < REACT_EVERY) {
-            return None;
+        if let Some(why) = self.quip_held(deed.event()) {
+            return self.quip_skipped(deed.event(), why);
+        }
+        if self.quip.last_react.is_some_and(|t| self.time - t < REACT_EVERY) {
+            return self.quip_skipped(deed.event(), "a reaction was said less than REACT_EVERY ago");
         }
         let roll = self.rng.next_u32();
         let v = self.player_voice.as_mut()?;
-        let info = v.pick(deed.event(), false, roll)?;
+        let Some(info) = v.pick(deed.event(), false, roll) else {
+            return self.quip_skipped(deed.event(), "the set has no line for it");
+        };
         v.said(info);
         self.quip.last_react = Some(self.time);
         self.quip.said.push((deed.event().to_string(), info));
@@ -512,6 +617,7 @@ impl Game<'_> {
     /// `info`, a line of the player's voice, is said: sent to the others in co-op, and
     /// heard here when it is a first-person line and First Person Quips is on.
     fn speak_quip(&mut self, info: FormId) {
+        self.quip.last_line = Some(self.time);
         if self.quips.coop {
             self.quip.out.push(info);
         }
@@ -582,8 +688,16 @@ impl Game<'_> {
                 .collect(),
             _ => Vec::new(),
         };
-        if in_combat || self.time < self.quip.hold_until || self.quip.last_comment.is_some_and(|t| self.time - t < COMMENT_EVERY) {
-            return None;
+        let fresh = !new_places.is_empty() || !quest_lines.is_empty();
+        let why = if in_combat {
+            Some("in a fight")
+        } else if self.quip.last_comment.is_some_and(|t| self.time - t < COMMENT_EVERY) {
+            Some("a comment was said less than COMMENT_EVERY ago")
+        } else {
+            self.quip_held("comment")
+        };
+        if let Some(why) = why {
+            return if fresh { self.quip_skipped("comment", why) } else { None };
         }
         let mut candidates: Vec<(&'static str, FormId)> = new_places.into_iter().map(|i| ("place", i)).chain(quest_lines.into_iter().map(|i| ("quest", i))).collect();
         candidates.retain(|(_, i)| self.quip.said_at.get(i).is_none_or(|t| self.time - t >= COMMENT_AGAIN));
@@ -601,7 +715,7 @@ impl Game<'_> {
             }
         }
         if passing.is_empty() {
-            return None;
+            return if fresh { self.quip_skipped("comment", "no line for the new place or quest stage passes (said lately, not first-person solo, or its conditions)") } else { None };
         }
         let (event, info) = passing[self.rng.next_u32() as usize % passing.len()];
         self.quip.last_comment = Some(self.time);

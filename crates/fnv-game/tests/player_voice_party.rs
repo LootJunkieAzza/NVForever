@@ -5,7 +5,7 @@
 
 use fnv_esm::{LoadOrder, Schema};
 use fnv_game::game::{Game, GameConfig};
-use fnv_game::player_voice::{add_packed_lines, Deed, PlayerVoice, SetLine, VoiceSet, COMMENT_AGAIN, COMMENT_EVERY, FORMAT, REACT_EVERY};
+use fnv_game::player_voice::{add_packed_lines, Deed, PlayerVoice, SetLine, VoiceSet, COMMENT_AGAIN, COMMENT_EVERY, FIGHT_OVER_SECONDS, FORMAT, QUIP_GAP, REACT_EVERY};
 use fnv_game::GameData;
 use fnv_script::FunctionTable;
 use fnv_sim::{FormId, FormStore, RefTable, SimConfig, World};
@@ -48,6 +48,8 @@ fn set() -> VoiceSet {
             line("react.throwgrenade", "c.ogg", true),
             line("react.fireweapon", "d.ogg", false),
             line("place", "e.ogg", true),
+            line("NormalToCombat", "f.ogg", true),
+            line("CombatToNormal", "g.ogg", true),
         ],
     }
 }
@@ -89,17 +91,21 @@ fn in_coop_every_line_is_sent_and_only_first_person_ones_are_heard_here() {
     assert!(g.quip.out.is_empty(), "nothing is sent without others");
     // In co-op the party-only line goes to the others and the player says its own.
     g.quips.coop = true;
+    g.time += QUIP_GAP;
     assert_eq!(g.player_quip("Attack"), None);
     assert_eq!(g.quip.out, vec![info(&l, 1)]);
+    g.time += QUIP_GAP;
     assert_eq!(g.player_quip("Hit"), Some(info(&l, 0)));
     assert_eq!(g.quip.out, vec![info(&l, 1), info(&l, 0)]);
     // With First Person Quips off the others still hear it; the player does not.
     g.quips.first_person = false;
+    g.time += QUIP_GAP;
     assert_eq!(g.player_quip("Hit"), None);
     assert_eq!(g.quip.out.len(), 3);
     // Another player's quip plays: nobody else starts one (the group cooldown).
     g.quips.first_person = true;
     g.quip.hold_until = g.time + 5.0;
+    g.time += QUIP_GAP;
     assert_eq!(g.player_quip("Hit"), None);
     assert_eq!(g.quip.out.len(), 3);
 }
@@ -155,4 +161,35 @@ fn a_place_comment_is_said_on_coming_in_once_per_comment_every() {
     g.world.get(FormId::PLAYER_REF).unwrap().cell = Some(cell);
     g.time += COMMENT_AGAIN + 1.0;
     assert_eq!(g.player_comments(true), None);
+}
+
+/// A fight with the player begins: its voice says a NormalToCombat line; once nobody has
+/// fought it for FIGHT_OVER_SECONDS, a CombatToNormal line (item 64). Solo, heard here.
+/// No two lines of the voice within QUIP_GAP, and each trigger that said nothing is
+/// logged with why.
+#[test]
+fn a_fight_is_remarked_on_as_it_begins_and_ends_with_a_gap_between_lines() {
+    let l = load();
+    let mut g = game(&l);
+    assert_eq!(g.player_fight_lines(false), None, "no fight");
+    assert_eq!(g.player_fight_lines(true), Some(info(&l, 5)), "the fight begins");
+    assert_eq!(g.quip.said.last().map(|s| s.0.as_str()), Some("fight start"));
+    assert_eq!(g.player_fight_lines(true), None, "still fighting");
+    // A Hit line right after is held back by the gap, and the reason is logged.
+    g.time += 1.0;
+    assert_eq!(g.player_quip("Hit"), None);
+    assert_eq!(g.quip.skipped.last().map(|s| s.1.as_str()), Some("too soon after the last line"));
+    g.time += QUIP_GAP;
+    assert_eq!(g.player_quip("Hit"), Some(info(&l, 0)));
+    // Nobody fights it any more: not over at once, over after FIGHT_OVER_SECONDS.
+    g.time += QUIP_GAP;
+    assert_eq!(g.player_fight_lines(false), None);
+    g.time += FIGHT_OVER_SECONDS;
+    assert_eq!(g.player_fight_lines(false), Some(info(&l, 6)), "the fight is over");
+    assert_eq!(g.player_fight_lines(false), None, "only once");
+    // A set without the lines says nothing, and says why.
+    g.player_voice.as_mut().unwrap().by_event.remove("NormalToCombat");
+    g.time += QUIP_GAP;
+    assert_eq!(g.player_fight_lines(true), None);
+    assert_eq!(g.quip.skipped.last().map(|s| (s.0.as_str(), s.1.as_str())), Some(("fight start", "the set has no first-person line for it")));
 }

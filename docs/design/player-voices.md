@@ -385,3 +385,30 @@ the gender of the character" [owner 2026-11-06].
 - **Not used.** Odessa, Crash, Rodney and Greasy Doc John (Deathblow's other ghouls) have
   0 to 2 lines outside conversations. Scratch (Nexus 83135) is a human child (child head,
   FemaleChildScratch), not a ghoul.
+
+## 12. How often the voice speaks (overnight item 64, 2026-11-07)
+
+The owner heard almost no chatter in co-op and none solo (2026-11-06 late playtest).
+Why, from the code and the installed sets [observed]:
+- Solo, only first-person lines are heard. The sets' biggest pools are not: the `idle`
+  lines (109-273 per vanilla set) wait for review (`use_line` false) and nothing triggers
+  them; `react.*` lines need another player; most `place` and `quest` lines are not
+  first-person (Cass and Willow are the exceptions).
+- The player never said the Detection lines on starting or ending a fight
+  (NormalToCombat, CombatToNormal ...), though nearly every set has them as first-person
+  lines (all six of Cook's lines are of that kind, so Cook was never heard).
+- Comments waited 150 s between them, reactions 20 s.
+
+What changed [design]:
+- `Game::player_fight_lines`: a line of NormalToCombat (else AlertToCombat, LostToCombat,
+  StartCombatResponse) as a fight with the player begins, of CombatToNormal (else
+  LostToNormal, AlertToNormal) `FIGHT_OVER_SECONDS` (4) after nobody fights it any more.
+- `COMMENT_EVERY` 150 -> 60 s, `REACT_EVERY` 20 -> 10 s.
+- `QUIP_GAP` (4 s): no line of the player's voice begins sooner after the last one (not
+  for Death), so the extra lines do not pile up. A held combat line falls back to the
+  player's own grunt, as without a voice.
+- Every trigger that said nothing is logged with its reason.
+
+Still open (owner): the `idle` lines are the one large pool that could make the voice
+talk out of a fight; they need a review pass (which are fine said by the player, alone or
+to the others) before an idle timer can use them.
