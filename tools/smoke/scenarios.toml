@@ -21618,7 +21618,7 @@ source = "[design] pipboy.md section 5.1.2, issue 1513: with [UI] TileMenus=Stat
 note = "the points are canvas units on the page as run [hypothesis until the first run: rows 52 high from the list top as S.P.E.C.I.A.L.'s, the list's down arrow at the hand-built place, the tab by its text]; S selects at 29 s, the pointer on row 2 at 30.5 s, a click on row 4 at 32 s, the list's down arrow at 34 s, the wheel at 35 s, the Perks tab at 36 s, back by the aid. The rows are in name order, as the hand-built list's [observed: pipboy.md section 5.1]. Shots: compare tiles_skills_device with tiles_skills_off_device at the same time."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_KEYS = "29:s,35:wheel-down", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=2,30.5:point=200:240,32:click=200:344,33.5:point=off,34:click=50:570,36:click=640:651,38:tab=2,39:close", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu", NVF_PLAY_TEST_SHOTS = "28:tiles_skills_device.png,31:tiles_skills_device_row.png,35.5:tiles_skills_device_scrolled.png" }
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_KEYS = "29:s,35:wheel-down", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=2,30.5:point=250:240,31.3:point=250:292,32:click=250:344,33.5:point=off,34:click=51:570,36:click=645:652,38:tab=2,39:close", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu", NVF_PLAY_TEST_SHOTS = "28:tiles_skills_device.png,31:tiles_skills_device_row.png,35.5:tiles_skills_device_scrolled.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 44
 expect = [
@@ -21630,6 +21630,7 @@ expect = [
   { text = "StatsMenu drawn by hand", count = 0, label = "the file has every name the tab needs, and thirteen rows do not send it back" },
   { re = 'tiles: pointer over StatsMenu/\S*stats_skills_container/Explosives \(id -1\)', min = 1, label = "a tile hit on row 2, on the canvas: its tile has the row's name and id -1" },
   { text = "tiles: StatsMenu Row(4) on its tiles", count = 1, label = "the click on row 4 acted once, through its tile" },
+  { re = 'tiles: StatsMenu Skills from tiles: 13 rows, "Guns" selected, .*badge \S*weap_skill_icon_sm_arms\.dds, device$', min = 1, label = "a weapon skill's mark on its row" },
   { text = "tiles: StatsMenu ListBar(Down) on its tiles", count = 1, label = "the list's own arrow, through its tile" },
   { re = 'tiles: StatsMenu list scrolled to 1 of [1-9]', min = 1, label = "the arrow's step is the model's value, read back from the tree" },
   { re = 'tiles: StatsMenu list scrolled to 2 of [1-9]', min = 1, label = "the wheel's step too" },
@@ -21647,7 +21648,7 @@ source = "[design] pipboy.md section 5.1.2: without the switch the Skills tab is
 note = "the same steps and times as tiles-stats-skills, at the hand-built places. Shots to compare with it."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_KEYS = "29:s,35:wheel-down", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=2,30.5:point=200:240,32:click=200:344,33.5:point=off,34:click=50:570,36:click=640:651,38:tab=2,39:close", NVF_PLAY_TEST_SHOTS = "28:tiles_skills_off_device.png,31:tiles_skills_off_device_row.png,35.5:tiles_skills_off_device_scrolled.png" }
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_KEYS = "29:s,35:wheel-down", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=2,30.5:point=250:240,31.3:point=250:292,32:click=250:344,33.5:point=off,34:click=51:570,36:click=645:652,38:tab=2,39:close", NVF_PLAY_TEST_SHOTS = "28:tiles_skills_off_device.png,31:tiles_skills_off_device_row.png,35.5:tiles_skills_off_device_scrolled.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 44
 expect = [
@@ -21661,20 +21662,20 @@ expect = [
 [[scenario]]
 name = "tiles-stats-skills-scroll"
 source = "[design] pipboy.md section 5.1.2: the model's first row moves the file's rows: with the list scrolled the row under a place is another, a pointer that moved there selects it, and its box stands where it is scrolled to"
-note = "the aid's scroll=4 at 29 s, then the pointer on the list's first place [hypothesis until the first run: rows 52 high from the list top], where the row five down of name order must now stand. Screen menu, as tiles-stats-special-scroll. Logs only: tiles_skills_scrolled shows the rows themselves."
+note = "the pointer on the list's first place at 31 s (rows 52 from y 110, observed in the original), then the aid's scroll=4 at 33 s with it still there: the row five down of name order comes under it, and takes the selection, as the original's does. Screen menu, as tiles-stats-special-scroll. Logs only: tiles_skills_scrolled shows the rows themselves."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu", NVF_PLAY_TEST_PIPBOY = "22:frame=screen,25:open,26:page=stats,27:tab=2,31:point=200:136,36:close", NVF_PLAY_TEST_PIPBOY_STATS = "29:scroll=4", NVF_PLAY_TEST_SHOTS = "33:tiles_skills_scrolled.png" }
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu", NVF_PLAY_TEST_PIPBOY = "22:frame=screen,25:open,26:page=stats,27:tab=2,31:point=250:136,36:close", NVF_PLAY_TEST_PIPBOY_STATS = "33:scroll=4", NVF_PLAY_TEST_SHOTS = "33:tiles_skills_scrolled.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 40
 expect = [
   { re = 'tiles: StatsMenu list scrolled to 4 of [1-9]', min = 1, label = "the model's value, read back from the tree" },
   { re = 'tiles: pointer over StatsMenu/\S*stats_skills_container/Lockpick \(id -1\)', min = 1, label = "the row at the list's first place is the fifth: the file moved the rows by the value and the step code wrote" },
-  { re = 'pipboy stats: Skills: Lockpick \d+\S* ?\S* ?selected', label = "the pointer that moved onto it selects it" },
+  { re = 'pipboy stats: Skills: Lockpick \d+\S* ?\S* ?selected', label = "the row that came under the still pointer selects" },
   { re = 'tiles: StatsMenu Skills from tiles: 13 rows, "Lockpick" selected, value \d+, boxed at 0,', min = 1, label = "its box where the row stands after the scroll" },
   { text = "StatsMenu drawn by hand", count = 0, label = "a scrolled list keeps the page on its tiles: the rows out of sight are not asked to fit" },
 ]
-order = [[{ re = 'list scrolled to 4 of [1-9]' }, { re = 'pipboy stats: Skills: Lockpick' }]]
+order = [[{ re = 'pipboy stats: Skills: Barter' }, { re = 'list scrolled to 4 of [1-9]' }, { re = 'pipboy stats: Skills: Lockpick' }]]
 
 [[scenario]]
 name = "tiles-stats-skills-missing-list"
@@ -21682,7 +21683,7 @@ source = "[design] pipboy.md section 5.1.2: a file short of a tab's list keeps t
 note = "NVF_PLAY_TEST_STATS_TILE_CUT takes the list as missing, so no changed game file is needed; the hand-built places, as tiles-stats-skills-off."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_KEYS = "29:s", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=2,30.5:point=200:240,33:close", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu", NVF_PLAY_TEST_STATS_TILE_CUT = "stats_skills_container" }
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_KEYS = "29:s", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=2,30.5:point=250:240,33:close", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu", NVF_PLAY_TEST_STATS_TILE_CUT = "stats_skills_container" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 36
 expect = [
@@ -21712,7 +21713,7 @@ source = "[design] pipboy.md section 5.1.2, issue 1513: with [UI] TileMenus=Stat
 note = "the aid gives two perks before the page opens [hypothesis until the first run: 00044CB1 is a perk of ranks, read.rs's Intense Training, 00031DB7 Light Step of one, traps.md; both playable and not hidden, name order as that]; the points are canvas units [hypothesis: rows 52 high from the list top]: the pointer on row 1 at 30 s, a click on row 0 at 32 s. Shots: compare tiles_perks_device with tiles_perks_off_device at the same time."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY_STATS = "20:perk=00044CB1,20.1:perk=00031DB7", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=3,30:point=200:188,32:click=200:136,34:close", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu", NVF_PLAY_TEST_SHOTS = "29:tiles_perks_device.png,31:tiles_perks_device_row.png" }
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY_STATS = "20:perk=00044CB1,20.1:perk=00031DB7", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=3,30:point=250:188,32:click=250:136,34:close", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu", NVF_PLAY_TEST_SHOTS = "29:tiles_perks_device.png,31:tiles_perks_device_row.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 38
 expect = [
@@ -21730,7 +21731,7 @@ source = "[design] pipboy.md section 5.1.2: without the switch the Perks tab is 
 note = "the same steps and times as tiles-stats-perks, at the hand-built places. Shots to compare with it."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY_STATS = "20:perk=00044CB1,20.1:perk=00031DB7", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=3,30:point=200:188,32:click=200:136,34:close", NVF_PLAY_TEST_SHOTS = "29:tiles_perks_off_device.png,31:tiles_perks_off_device_row.png" }
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY_STATS = "20:perk=00044CB1,20.1:perk=00031DB7", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=3,30:point=250:188,32:click=250:136,34:close", NVF_PLAY_TEST_SHOTS = "29:tiles_perks_off_device.png,31:tiles_perks_off_device_row.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 38
 expect = [
@@ -21757,19 +21758,21 @@ expect = [
 [[scenario]]
 name = "tiles-stats-general"
 source = "[design] pipboy.md section 5.1.2, issue 1513: with [UI] TileMenus=StatsMenu the General tab is drawn from stats_menu.xml: the reputations first, then the statistics with the karma's side by the file's switch, one list and side at a time, the statistics scrolling"
-note = "the aid gives fame with a reputation (RepNVGoodsprings, reputation.md); the points are canvas units on the page as run [hypothesis until the first run: the switch at the hand-built place, the list's page area at the hand-built track]; the switch at 30 s, the wheel at 32 s, the page area at 33 s, R back at 36 s. The mode's trait is a hypothesis too: the shots show whether the file agrees. Shots: compare tiles_general_* with tiles_general_off_* at the same times."
+note = "the aid gives fame with a reputation (RepNVGoodsprings, reputation.md); the points are canvas units on the page as run [the original's places: rows 52 from y 100, the switch, the list's bar]; the switch at 30 s, a row at 31.3 s, the wheel at 32 s, the page area at 33 s, R back at 36 s. Shots: compare tiles_general_* with tiles_general_off_* at the same times."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY_STATS = "20:fame=00104C22=4", NVF_PLAY_TEST_KEYS = "32:wheel-down,36:r", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=4,30:click=840:120,33:click=56:300,39:close", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu", NVF_PLAY_TEST_SHOTS = "29:tiles_general_reputation.png,31:tiles_general_statistics.png,35:tiles_general_scrolled.png" }
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY_STATS = "20:fame=00104C22=4", NVF_PLAY_TEST_KEYS = "32:wheel-down,36:r", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=4,30:click=840:120,31.3:point=250:230,33:click=56:300,39:close", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu", NVF_PLAY_TEST_SHOTS = "29:tiles_general_reputation.png,31:tiles_general_statistics.png,35:tiles_general_scrolled.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 42
 expect = [
-  { re = 'tiles: StatsMenu General \(Reputation\) from tiles: 1 rows, "[^"]+" selected, value none,', min = 2, label = "the file's first mode, one reputation, no number; and again after R" },
+  { re = 'tiles: StatsMenu General \(Reputation\) from tiles: 1 rows, "[^"]+" selected, value none, .*switch General, device$', min = 2, label = "the file's first mode, one reputation, no number, the switch's word the setting's; and again after R" },
   { text = "tiles: StatsMenu Switch on its tiles", count = 1, label = "the switch through its tile; the physical R does not click it as well" },
-  { re = 'tiles: StatsMenu General \(General\) from tiles: 43 rows, .*karma picture .*karma_[a-z]+\.dds, device$', min = 1, label = "the statistics, the karma's picture in the model's name" },
-  { re = 'tiles: StatsMenu list scrolled to 1 of [1-9]', min = 1, label = "the wheel scrolls the list, the value read back from the tree" },
+  { re = 'tiles: StatsMenu General \(General\) from tiles: 43 rows, .*karma picture .*karma_[a-z]+\.dds, karma title \S.*, switch Reputation, device$', min = 1, label = "the statistics, the karma's picture and a title from a setting, and NVForever's word on the switch" },
+  { re = 'tiles: pointer over StatsMenu/\S*stats_general_container/People Killed \(id -1\)', min = 1, label = "row 2 at y 100 + 2.5 rows, the file's place for this list" },
+  { text = "&-s", count = 0, label = "no setting's name left unresolved in what the log says of the page" },
+  { re = 'tiles: StatsMenu list scrolled to 1 of 33$', min = 1, label = "the wheel scrolls the list, the value read back from the tree" },
   { text = "tiles: StatsMenu ListBar(PageDown) on its tiles", count = 1, label = "the list's page area, through its tile" },
-  { re = 'tiles: StatsMenu list scrolled to [2-9]\d* of [1-9]', min = 1, label = "by the file's own jump" },
+  { re = 'tiles: StatsMenu list scrolled to ([2-9]|[1-9]\d+) of 33$', min = 1, label = "by the file's own jump, in a range the file's height gives: ten whole rows of 43" },
   { re = 'pipboy stats: General \(General\): Quests Completed \d+ selected', label = "the model's log line in the new mode" },
   { text = "StatsMenu drawn by hand", count = 0, label = "the file has every name the tab needs" },
 ]
@@ -21781,7 +21784,7 @@ source = "[design] pipboy.md section 5.1.2: without the switch the General tab i
 note = "the same steps and times as tiles-stats-general, at the hand-built places. Shots to compare with it."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY_STATS = "20:fame=00104C22=4", NVF_PLAY_TEST_KEYS = "32:wheel-down,36:r", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=4,30:click=840:120,33:click=56:300,39:close", NVF_PLAY_TEST_SHOTS = "29:tiles_general_off_reputation.png,31:tiles_general_off_statistics.png,35:tiles_general_off_scrolled.png" }
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY_STATS = "20:fame=00104C22=4", NVF_PLAY_TEST_KEYS = "32:wheel-down,36:r", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=4,30:click=840:120,31.3:point=250:230,33:click=56:300,39:close", NVF_PLAY_TEST_SHOTS = "29:tiles_general_off_reputation.png,31:tiles_general_off_statistics.png,35:tiles_general_off_scrolled.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 42
 expect = [

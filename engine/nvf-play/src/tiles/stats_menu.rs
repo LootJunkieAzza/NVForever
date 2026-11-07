@@ -13,10 +13,10 @@
 //!   the text sizes and row heights written here.
 //! - **Page content only**: the page paints into the Pip-Boy's image, whose background and
 //!   scanlines are the shell's, so the file's `background_layout` stays hidden in both frames.
-//! - **General** ([`GeneralPaths`]) shows one of two lists by `StatsView::reputation`, each with
-//!   its own side; it has no display, so that is left empty. Which trait the file reads for the
-//!   mode is [hypothesis: `stats_genrep_container/user0`]: it is written, and the two sides
-//!   shown and hidden by `visible` as well, until a capture says ([`show_mode`], pipboy.md §5.1.2).
+//! - **General** ([`GeneralPaths`]): both lists hold their rows; `stats_genrep_container/user0`
+//!   picks the list and its side, by the file, from `StatsView::reputation` [observed: private
+//!   job run07_stats_tabs]. It has no display, so that is left empty. The input acts on the rows
+//!   of the list shown ([`Written::rows`]).
 //! - **The other tabs** stay fully hand-built. The menu persists across tabs and reopenings, and
 //!   its rows while their list is the one shown ([`Written`]); going to another list unloads
 //!   them, as a new tree would, and a new menu tile (a rebuilt tree) starts over.
@@ -39,7 +39,8 @@
 //!   click on a row selects it; a tab sends `PipBoyInput::Tab`; the list's and the description's
 //!   arrows, page areas and markers become `StatsView` commands. The values are the model's:
 //!   written back after input, and the wheel stays `crate::pipboy::stats::prepare`'s, so nothing
-//!   acts twice. Rows that come under a pointer that has not moved do not take the selection. The
+//!   acts twice. A row that comes under a still pointer as the list moves takes the selection,
+//!   as the original's does [observed: run07]; a row drawn under one when the page comes up does not. The
 //!   keys stay the hand-built ones ([`HAND_BUILT_KEYS`]): a file's binding for one does not act
 //!   for a physical press, a script's click does. The screen menu's header stays hand-built, and
 //!   no tile lies under it to take its click; nor do the file's hover sounds play here, so a
@@ -91,9 +92,19 @@ const REP_IMAGE: &str = "stats_reputation_image";
 const REP_TITLE: &str = "stats_reputation_title";
 const REP_NAME: &str = "stats_reputation_rep_title";
 const SWITCH: &str = "stats_genrep_button";
+const BUTTON_TEXT: &str = "button_text";
 /// The setting with the words after General's switch: as Take All's
 /// (`super::container_menu::TAKE_ALL_HINT`), R being its key too.
 const SWITCH_HINT: &str = "sPCMenuHintR";
+/// The setting the file means for the switch with the reputations up. Its one use on this button
+/// lacks the closing `;`, so the reader keeps the characters as they stand (menu-xml.md §2.4):
+/// code says the word, as with `stats_title` ([`write_model`]) [observed: run07, the label shows].
+const SWITCH_GENERAL: &str = "sStatsGeneral";
+/// The switch's word with the statistics up: no setting has it [observed: FalloutNV.esm has no
+/// GMST named for reputations; the file has no such word], so it is NVForever's own: the list's
+/// name, as the hand-built page has written it since before any shot of this page (§5.1).
+const SWITCH_REPUTATION: &str = "Reputation";
+const BADGE: &str = "stats_icon_badge";
 const ROW_TEMPLATE: &str = "stats_list_template";
 const ROW_TEXT: &str = "ListItemText";
 const DISPLAY: &str = "stats_display_rect";
@@ -134,6 +145,8 @@ pub struct GeneralPaths {
     pub rep_title: TileId,
     pub rep_name: TileId,
     pub button: TileId,
+    /// The button's words.
+    pub button_text: Option<TileId>,
     /// Which list these were last used for ([`Paths::in_mode`]).
     pub showing_reputation: bool,
 }
@@ -155,6 +168,8 @@ pub struct Paths {
     pub tab: TabPaths,
     pub menu: TileId,
     pub icon: TileId,
+    /// A weapon skill's mark, in a file that has it.
+    pub badge: Option<TileId>,
     pub desc_rect: TileId,
     pub desc: TileId,
     pub bar: TileId,
@@ -174,6 +189,14 @@ impl Paths {
             TabPaths::List { list } => list,
             TabPaths::General(g) if g.showing_reputation => g.reputation,
             TabPaths::General(g) => g.general,
+        }
+    }
+
+    /// General's list that is not shown.
+    fn other_list(&self) -> Option<TileId> {
+        match self.tab {
+            TabPaths::General(g) => Some(if g.showing_reputation { g.general } else { g.reputation }),
+            _ => None,
         }
     }
 
@@ -202,7 +225,7 @@ impl Paths {
     }
 
     fn live(&self, ui: &Ui) -> bool {
-        [self.menu, self.icon, self.desc_rect, self.desc, self.bar, self.title, self.line].into_iter().chain(self.tab_tiles()).chain(self.tabs).chain(self.background).chain(self.tab_inners.into_iter().flatten()).all(|t| ui.is_live(t))
+        [self.menu, self.icon, self.desc_rect, self.desc, self.bar, self.title, self.line].into_iter().chain(self.tab_tiles()).chain(self.tabs).chain(self.background).chain(self.badge).chain(self.tab_inners.into_iter().flatten()).all(|t| ui.is_live(t))
     }
 }
 
@@ -269,6 +292,7 @@ pub fn paths(ui: &Ui, page: usize, cut: Option<&str>) -> Result<Paths, String> {
             rep_title: get(REP_TITLE)?,
             rep_name: get(REP_NAME)?,
             button: get(SWITCH)?,
+            button_text: get(SWITCH).ok().and_then(|b| find_named(ui, b, BUTTON_TEXT)),
             showing_reputation: true,
         })
     } else {
@@ -292,6 +316,7 @@ pub fn paths(ui: &Ui, page: usize, cut: Option<&str>) -> Result<Paths, String> {
         tab,
         menu,
         icon: get(ICON)?,
+        badge: get(BADGE).ok(),
         desc_rect: get(DESC_RECT)?,
         desc: get(DESC)?,
         bar: get(BAR)?,
@@ -419,10 +444,11 @@ pub struct GeneralShown {
     pub rep_title: String,
     pub rep_name: String,
     pub hint: String,
+    pub switch_word: String,
 }
 
 impl GeneralShown {
-    fn of(snap: &Snapshot, at: At, hint: &str) -> GeneralShown {
+    fn of(snap: &Snapshot, at: At, words: &PageWords) -> GeneralShown {
         let standing = snap.standings.get(at.selected).filter(|_| at.reputation);
         GeneralShown {
             karma_word: snap.karma.map_or("--".to_string(), |k| k.1.to_string()),
@@ -431,7 +457,8 @@ impl GeneralShown {
             rep_picture: standing.and_then(|s| s.icon.clone()).unwrap_or_default(),
             rep_title: standing.map_or(String::new(), |s| s.title.to_string()),
             rep_name: standing.map_or(String::new(), |s| s.name.clone()),
-            hint: hint.to_string(),
+            hint: words.switch_hint.clone(),
+            switch_word: if at.reputation { words.switch_general.clone() } else { SWITCH_REPUTATION.to_string() },
         }
     }
 }
@@ -449,11 +476,11 @@ pub struct Shown {
 }
 
 impl Shown {
-    pub fn of(snap: &Snapshot, at: At, hint: &str) -> Shown {
+    pub fn of(snap: &Snapshot, at: At, words: &PageWords) -> Shown {
         Shown {
             at,
             rows: rows_of(snap, at.tab, at.reputation).into_owned(),
-            general: (at.tab == GENERAL_TAB).then(|| GeneralShown::of(snap, at, hint)),
+            general: (at.tab == GENERAL_TAB).then(|| GeneralShown::of(snap, at, words)),
             level: level_text(snap),
             hp: stats::figures(snap.hp),
             ap: stats::figures(snap.ap),
@@ -462,14 +489,29 @@ impl Shown {
     }
 
     /// Whether this is what `snap` shows, without copying its rows.
-    fn same(&self, snap: &Snapshot, at: At, hint: &str) -> bool {
+    fn same(&self, snap: &Snapshot, at: At, words: &PageWords) -> bool {
         self.at == at
             && self.rows.as_slice() == rows_of(snap, at.tab, at.reputation).as_ref()
-            && (at.tab != GENERAL_TAB || self.general.as_ref() == Some(&GeneralShown::of(snap, at, hint)))
+            && (at.tab != GENERAL_TAB || self.general.as_ref() == Some(&GeneralShown::of(snap, at, words)))
             && self.level == level_text(snap)
             && self.hp == stats::figures(snap.hp)
             && self.ap == stats::figures(snap.ap)
             && self.xp == stats::figures(snap.xp)
+    }
+}
+
+/// A list's rows, as §5.1.1 has them.
+fn write_rows(ui: &mut Ui, rows: &[MadeRow], data: &[Row]) {
+    for (i, (made, row)) in rows.iter().zip(data).enumerate() {
+        ui.write_changed(made.tile, "listindex", Value::Num(i as f64));
+        // [observed: private job pipboy_special_a]
+        ui.write_changed(made.tile, "id", Value::Num(-1.0));
+        ui.write_changed(made.tile, "string", Value::Str(row.name.clone()));
+        // A text value keeps the "--" of a game without scripts (`Value::text`); -1 hides the
+        // number [observed: the template's own value].
+        ui.write_changed(made.tile, "user1", row.value.clone().map_or(Value::Num(-1.0), Value::Str));
+        ui.write_changed(made.tile, "user0", flag(row.mark.is_some()));
+        ui.write_changed(made.tile, "user2", Value::Str(row.mark.unwrap_or_default().to_string()));
     }
 }
 
@@ -491,23 +533,21 @@ pub fn write_model(ui: &mut Ui, p: &Paths, rows: &[MadeRow], s: &Shown) {
     if let (TabPaths::General(g), Some(side)) = (&p.tab, &s.general) {
         write_general(ui, g, side, s.at.reputation);
     }
-    for (i, (made, row)) in rows.iter().zip(&s.rows).enumerate() {
-        ui.write_changed(made.tile, "listindex", Value::Num(i as f64));
-        // [observed: private job pipboy_special_a]
-        ui.write_changed(made.tile, "id", Value::Num(-1.0));
-        ui.write_changed(made.tile, "string", Value::Str(row.name.clone()));
-        // A text value keeps the "--" of a game without scripts (`Value::text`); -1 hides the
-        // number [observed: the template's own value].
-        ui.write_changed(made.tile, "user1", row.value.clone().map_or(Value::Num(-1.0), Value::Str));
-        ui.write_changed(made.tile, "user0", flag(row.mark.is_some()));
-        ui.write_changed(made.tile, "user2", Value::Str(row.mark.unwrap_or_default().to_string()));
-    }
+    write_rows(ui, rows, &s.rows);
     // A row without a picture keeps `visible` with an empty `filename`: the line and the text
     // follow it in the file, and the hand-built page draws them without a picture.
     // General has no display: left empty, so nothing of another tab's row stands in it.
     let selected = s.rows.get(s.at.selected).filter(|_| s.at.tab != GENERAL_TAB);
     ui.write_changed(p.icon, "filename", Value::Str(selected.and_then(|r| r.icon.clone()).unwrap_or_default()));
     ui.write_changed(p.icon, "visible", flag(selected.is_some()));
+    // Only `visible` counts: the original's name goes stale on a row with none [observed: run07].
+    if let Some(badge) = p.badge {
+        let mark = selected.and_then(|r| r.badge.clone());
+        ui.write_changed(badge, "visible", flag(mark.is_some()));
+        if let Some(file) = mark {
+            ui.write_changed(badge, "filename", Value::Str(file));
+        }
+    }
     ui.write_changed(p.desc, "string", Value::Str(selected.map(|r| r.description.clone()).unwrap_or_default()));
     // Only a name the reader left unresolved: a replacement's or a script's words stand.
     if ui.tile(p.title).get("string").is_some_and(|v| v.text().trim_start().starts_with('&')) {
@@ -515,26 +555,24 @@ pub fn write_model(ui: &mut Ui, p: &Paths, rows: &[MadeRow], s: &Shown) {
     }
 }
 
-/// General's side and switch. The mode's trait is [hypothesis: the list's parent's `user0`, 1 the
-/// reputations, the file's first value (`StatsView::reputation`)]; the button's words stay the
-/// file's, its key's are the setting's or the pad's ([`SWITCH_HINT`]).
+/// General's side and switch. The mode's trait is the list's parent's `user0`, 1 the reputations
+/// [observed: run07]: the file shows each list and side from it. Each picture and word is shown
+/// as it has something to show [observed: run07, the reputation's picture hidden with none]; the
+/// switch writes a word, never its key alone, and the key is the setting's or the pad's
+/// ([`SWITCH_HINT`]).
 fn write_general(ui: &mut Ui, g: &GeneralPaths, s: &GeneralShown, reputation: bool) {
     ui.write_changed(g.container, "user0", flag(reputation));
-    ui.write_changed(g.karma_alignment, "string", Value::Str(s.karma_word.clone()));
-    ui.write_changed(g.karma_image, "filename", Value::Str(s.karma_picture.clone()));
-    ui.write_changed(g.karma_title, "string", Value::Str(s.karma_title.clone()));
-    ui.write_changed(g.rep_image, "filename", Value::Str(s.rep_picture.clone()));
-    ui.write_changed(g.rep_title, "string", Value::Str(s.rep_title.clone()));
-    ui.write_changed(g.rep_name, "string", Value::Str(s.rep_name.clone()));
+    for (tile, text) in [(g.karma_alignment, &s.karma_word), (g.karma_title, &s.karma_title), (g.rep_title, &s.rep_title), (g.rep_name, &s.rep_name)] {
+        ui.write_changed(tile, "string", Value::Str(text.clone()));
+        ui.write_changed(tile, "visible", flag(!text.is_empty()));
+    }
+    for (tile, file) in [(g.karma_image, &s.karma_picture), (g.rep_image, &s.rep_picture)] {
+        ui.write_changed(tile, "filename", Value::Str(file.clone()));
+        ui.write_changed(tile, "visible", flag(!file.is_empty()));
+    }
     ui.write_changed(g.button, "_PCButtonText", Value::Str(s.hint.clone()));
-}
-
-/// The mode's list and side shown and the other's hidden, on every pass over what the file works
-/// out [design, provisional until a capture: pipboy.md §5.1.2].
-fn show_mode(ui: &mut Ui, g: &GeneralPaths) {
-    let r = g.showing_reputation;
-    for (t, on) in [(g.general, !r), (g.karma_rect, !r), (g.reputation, r), (g.rep_rect, r)] {
-        ui.set_trait(t, "visible", flag(on));
+    if let Some(words) = g.button_text {
+        ui.write_changed(words, "string", Value::Str(s.switch_word.clone()));
     }
 }
 
@@ -616,20 +654,27 @@ pub struct Geometry {
     pub counts: Option<Counts>,
 }
 
-/// Rows the file's list shows at once: its `_number_of_visible_items`, else the hand-built count.
-fn rows_visible(ui: &Ui, list: TileId) -> usize {
-    let file = num(ui, list, "_number_of_visible_items");
-    if file >= 1.0 {
-        file as usize
-    } else {
-        stats::VISIBLE
+/// How many whole rows of `tallest` a list shows and how high it is: `_number_of_visible_items`
+/// rows when the file gives them, else what fits the height the file gives (General's, read as
+/// 542 and ten whole rows [observed: run07]), else the hand-built count.
+fn list_window(ui: &Ui, list: TileId, tallest: f64) -> (usize, f64) {
+    let count = num(ui, list, "_number_of_visible_items").floor();
+    if count >= 1.0 {
+        return (count as usize, count * tallest);
+    }
+    let own = num(ui, list, "height");
+    match (own > 0.0, tallest > 0.0) {
+        (true, true) => (((own / tallest).floor() as usize).max(1), own),
+        (true, false) => (stats::VISIBLE, own),
+        (false, _) => (stats::VISIBLE, stats::VISIBLE as f64 * tallest),
     }
 }
 
-/// [`Geometry`] from the sizes measured, `visible` rows shown from `top`; the reason when no
-/// usable layout comes of them. A list that scrolls moves by whole rows of one height: rows of
-/// another height leave it to the hand-built page.
-pub fn geometry(ui: &Ui, p: &Paths, rows: &[MadeRow], selected: usize, highlight: bool, visible: usize, top: usize) -> Result<Geometry, String> {
+/// [`Geometry`] of `list` from the sizes measured, shown from `top`; the reason when no usable
+/// layout comes of them. A list that scrolls moves by whole rows of one height, each value by
+/// `list::counts`' step (the row's height on most lists, a little less on General's [observed:
+/// run07]): rows of another height leave it to the hand-built page.
+pub fn geometry(ui: &Ui, p: &Paths, list: TileId, rows: &[MadeRow], selected: usize, highlight: bool, top: usize) -> Result<Geometry, String> {
     let mut places = Vec::with_capacity(rows.len());
     let mut y = 0.0;
     let mut tallest: f64 = 0.0;
@@ -647,7 +692,8 @@ pub fn geometry(ui: &Ui, p: &Paths, rows: &[MadeRow], selected: usize, highlight
         y += h;
         tallest = tallest.max(h);
     }
-    let counts = (rows.len() > visible).then(|| list::counts(&places.iter().map(|r| r.0).collect::<Vec<f64>>(), visible as f64 * tallest));
+    let (visible, height) = list_window(ui, list, tallest);
+    let counts = (rows.len() > visible).then(|| list::counts(&places.iter().map(|r| r.0).collect::<Vec<f64>>(), height));
     if counts.is_some() && places.iter().any(|r| tallest - r.0 > 0.5) {
         return Err("a list that scrolls has rows of different heights".into());
     }
@@ -665,18 +711,20 @@ pub fn geometry(ui: &Ui, p: &Paths, rows: &[MadeRow], selected: usize, highlight
     // The box where its row stands after the scroll; none on a row scrolled out of sight, as the
     // hand-built list has none (`crate::pipboy::stats::list`).
     let box_at = places.get(selected).filter(|_| highlight && (top..top + visible).contains(&selected)).map_or((-1.0, 0.0), |&(h, y)| (y - top as f64 * delta, h));
-    Ok(Geometry { rows: places, list: visible as f64 * tallest, highlight: box_at, desc_bound, visible, top, counts })
+    Ok(Geometry { rows: places, list: height, highlight: box_at, desc_bound, visible, top, counts })
 }
 
-fn write_geometry(ui: &mut Ui, p: &Paths, rows: &[MadeRow], g: &Geometry, counted: &mut Vec<(TileId, f64)>) {
-    let list = p.list();
+fn write_geometry(ui: &mut Ui, p: &Paths, list: TileId, rows: &[MadeRow], g: &Geometry, counted: &mut Vec<(TileId, f64)>) {
     for (row, &(h, y)) in rows.iter().zip(&g.rows) {
         if !row.explicit {
             ui.write_changed(row.tile, "height", Value::Num(h));
         }
         ui.write_changed(row.tile, "_y", Value::Num(y));
     }
-    ui.write_changed(list, "height", Value::Num(g.list));
+    // A height the file gives stands.
+    if num(ui, list, "height") != g.list {
+        ui.write_changed(list, "height", Value::Num(g.list));
+    }
     ui.write_changed(list, "_highlight_y", Value::Num(g.highlight.0));
     ui.write_changed(list, "_selected_height", Value::Num(g.highlight.1));
     // A list that fits and was never counted keeps the file's counts [hypothesis: pipboy.md
@@ -785,9 +833,15 @@ fn inside(ui: &Ui, t: TileId, of: TileId) -> bool {
 pub(crate) struct Written {
     menu: Option<TileId>,
     paths: Option<Paths>,
-    /// The list the rows are under.
+    /// The list the rows are under: the one shown.
     rows_in: Option<TileId>,
     rows: Vec<MadeRow>,
+    /// General's other list, its rows and what was written of them.
+    other_rows: Vec<MadeRow>,
+    other_shown: Option<Vec<Row>>,
+    other_geometry: Option<Geometry>,
+    /// The switch's words as the file has them, read once a menu.
+    file_switch_word: Option<String>,
     /// Each list code has counted for its scroll bar, and the `_scroll_delta` the file gave it.
     counted: Vec<(TileId, f64)>,
     shown: Option<Shown>,
@@ -829,10 +883,18 @@ pub struct StatsTiles {
     pub modal: bool,
     /// Another menu took this frame's tile input (`super::input::feed`).
     pub others: bool,
-    /// What General's switch writes for its key ([`SWITCH_HINT`]), found where the game's
-    /// settings are.
-    pub switch_hint: String,
+    /// Words of the settings, found where the game is.
+    pub words: PageWords,
     written: Written,
+}
+
+/// What the page writes from the game's settings ([`pass`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PageWords {
+    /// General's switch's key ([`SWITCH_HINT`]).
+    pub switch_hint: String,
+    /// Its word with the reputations up ([`SWITCH_GENERAL`]).
+    pub switch_general: String,
 }
 
 impl StatsTiles {
@@ -865,7 +927,7 @@ impl PageFonts for FontKit<'_> {
 /// drawing; the other, before the scripts, does the sizes only for a model that changed.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, tab: usize, device: bool, late: bool, tiles: &mut StatsTiles, fonts: &mut dyn PageFonts) -> Result<TileId, String> {
-    let hint = tiles.switch_hint.clone();
+    let mut words = tiles.words.clone();
     let w = &mut tiles.written;
     let p = match w.paths.filter(|c| c.page == tab && c.live(ui) && ui.menu(STATS_MENU) == Some(c.menu)) {
         Some(p) => p,
@@ -878,16 +940,29 @@ pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, tab: usiz
         *w = Written { menu: Some(p.menu), fallbacks, ..Default::default() };
     }
     w.paths = Some(p);
-    let list = p.list();
-    // Another list: its rows are its own, as with a new tree.
+    let (list, other) = (p.list(), p.other_list());
+    // Another list: its rows are its own, as with a new tree; General's two keep theirs.
     if w.rows_in != Some(list) {
-        for r in std::mem::take(&mut w.rows) {
-            ui.unload_tile(r.tile);
+        if other.is_some() && w.rows_in == other {
+            std::mem::swap(&mut w.rows, &mut w.other_rows);
+        } else {
+            for r in std::mem::take(&mut w.rows).into_iter().chain(std::mem::take(&mut w.other_rows)) {
+                ui.unload_tile(r.tile);
+            }
         }
         w.rows_in = Some(list);
         w.shown = None;
         w.geometry = None;
+        w.other_shown = None;
+        w.other_geometry = None;
         w.list_drawn = None;
+    }
+    // A word of the file's own stands; a name the reader left as it is, or none, is the setting's.
+    if let TabPaths::General(g) = &p.tab {
+        let file = w.file_switch_word.get_or_insert_with(|| g.button_text.and_then(|t| ui.tile(t).get("string")).map(|v| v.text().to_string()).unwrap_or_default());
+        if !file.trim().is_empty() && !file.trim_start().starts_with('&') {
+            words.switch_general = file.clone();
+        }
     }
     let at = At { tab, reputation: view.reputation, selected: view.selected[tab], device };
     let rows = rows_of(snap, tab, at.reputation);
@@ -897,9 +972,24 @@ pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, tab: usiz
         w.shown = None;
         w.geometry = None;
     }
-    let changed = !w.shown.as_ref().is_some_and(|s| s.same(snap, at, &hint)) || w.highlight != view.highlight;
+    // General's other list keeps its rows too [observed: run07, the 43 in both modes].
+    let mut changed = false;
+    if let Some(other) = other {
+        let data = rows_of(snap, tab, !at.reputation);
+        let wanted: Vec<(RowKey, &str)> = data.iter().map(|r| (r.key, r.name.as_str())).collect();
+        if ensure_rows(ui, other, &mut w.other_rows, &wanted)? {
+            w.other_shown = None;
+            w.other_geometry = None;
+        }
+        if w.other_shown.as_deref() != Some(&*data) {
+            write_rows(ui, &w.other_rows, &data);
+            w.other_shown = Some(data.into_owned());
+            changed = true;
+        }
+    }
+    let changed = changed || !w.shown.as_ref().is_some_and(|s| s.same(snap, at, &words)) || w.highlight != view.highlight;
     if changed {
-        let shown = Shown::of(snap, at, &hint);
+        let shown = Shown::of(snap, at, &words);
         write_model(ui, &p, &w.rows, &shown);
         w.shown = Some(shown);
         w.highlight = view.highlight;
@@ -919,18 +1009,26 @@ pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, tab: usiz
         write_tabs(ui, &p, &mut w.tabs_marked);
         write_frame(ui, &p, device, &mut w.flat);
         ui.update();
+        let g = geometry(ui, &p, list, &w.rows, at.selected, view.highlight, view.top[tab])?;
         // The file's count of the rows, for the model's scroll; what it held is kept in range.
-        let visible = rows_visible(ui, list);
-        view.set_rows_shown(tab, visible);
-        let g = geometry(ui, &p, &w.rows, at.selected, view.highlight, visible, view.top[tab])?;
+        view.set_rows_shown(tab, g.visible);
         if view.desc_bound() != g.desc_bound {
             view.set_desc_bound(g.desc_bound);
         }
         if w.geometry.as_ref() != Some(&g) {
-            write_geometry(ui, &p, &w.rows, &g, &mut w.counted);
+            write_geometry(ui, &p, list, &w.rows, &g, &mut w.counted);
             ui.update();
             w.geometry = Some(g);
             w.tell = true;
+        }
+        // The other list is out of sight: what it cannot lay out sends nothing back.
+        if let Some(g) = other.and_then(|o| geometry(ui, &p, o, &w.other_rows, 0, false, 0).ok().map(|g| (o, g))) {
+            if w.other_geometry.as_ref() != Some(&g.1) {
+                write_geometry(ui, &p, g.0, &w.other_rows, &g.1, &mut w.counted);
+                list::write_value(ui, g.0, 0.0);
+                ui.update();
+                w.other_geometry = Some(g.1);
+            }
         }
         // On every drawn frame, so a window injected or enabled later crops too.
         fnv_ui::input::mark_clip_windows(ui, p.menu);
@@ -941,8 +1039,8 @@ pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, tab: usiz
     if let Some(most) = list_most {
         list::write_value(ui, list, (view.top[tab] as f64).min(most));
     }
-    if let TabPaths::General(g) = &p.tab {
-        show_mode(ui, g);
+    if let Some(o) = other.filter(|_| w.other_geometry.as_ref().is_some_and(|g| g.counts.is_some())) {
+        list::write_value(ui, o, 0.0);
     }
     if late {
         ui.update();
@@ -985,7 +1083,12 @@ fn describe(ui: &Ui, p: &Paths, w: &Written) -> String {
         (GENERAL_TAB, false) => "General (General)".to_string(),
         (tab, _) => Page::Stats.tabs()[tab].to_string(),
     };
-    let side = s.general.as_ref().map_or(String::new(), |g| if s.at.reputation { format!("reputation picture {}, ", g.rep_picture) } else { format!("karma picture {}, ", g.karma_picture) });
+    let side = match (&s.general, s.rows.get(s.at.selected).and_then(|r| r.badge.as_deref())) {
+        (Some(g), _) if s.at.reputation => format!("reputation picture {}, switch {}, ", g.rep_picture, g.switch_word),
+        (Some(g), _) => format!("karma picture {}, karma title {}, switch {}, ", g.karma_picture, g.karma_title, g.switch_word),
+        (None, Some(badge)) => format!("badge {badge}, "),
+        (None, None) => String::new(),
+    };
     format!(
         "tiles: {STATS_MENU} {name} from tiles: {} rows, \"{}\" selected, value {}, boxed at {}, list height {}, row height {}, description {} high, scrolls {}, {side}{}",
         s.rows.len(),
@@ -1030,9 +1133,12 @@ fn pass(p: &mut StatsPage<'_>, late: bool) -> Option<Result<TileId, String>> {
     if tab == GENERAL_TAB {
         // The load order's setting over NVForever's label; with a controller the button that
         // switches (`crate::pad::menu_buttons`), as the hand-built page says.
-        let hint = crate::pad::game_hint(&fnv_game::ui_loading::game_string(game, SWITCH_HINT), &[KeyCode::KeyR], crate::pad::MenuAt { code: Some(fnv_game::game::menus::STATS), tab });
-        if p.tiles.switch_hint != hint {
-            p.tiles.switch_hint = hint;
+        let words = PageWords {
+            switch_hint: crate::pad::game_hint(&fnv_game::ui_loading::game_string(game, SWITCH_HINT), &[KeyCode::KeyR], crate::pad::MenuAt { code: Some(fnv_game::game::menus::STATS), tab }),
+            switch_general: fnv_game::ui_loading::game_string(game, SWITCH_GENERAL),
+        };
+        if p.tiles.words != words {
+            p.tiles.words = words;
         }
     }
     let Some(snap) = p.prepared.as_deref().and_then(|x| x.snap.as_ref()) else {
@@ -1214,8 +1320,6 @@ pub(crate) struct Feed {
     /// The row the pointer last selected, while it stays on it.
     acted: Option<usize>,
     drag: Option<MarkerDrag>,
-    /// The first row the list showed last frame.
-    top: Option<usize>,
     /// Where the pointer was last frame, and the tile under it then.
     last_at: Option<(f64, f64)>,
     under: Option<TileId>,
@@ -1299,13 +1403,6 @@ pub(crate) fn feed(
     if pointer != state.drawn_at {
         state.drawn_at = None;
     }
-    // Rows that came under a pointer that has not moved do not take the selection, as a row drawn
-    // under it does not.
-    let top = view.top[tab];
-    if state.top.is_some_and(|t| t != top) {
-        state.drawn_at = pointer;
-    }
-    state.top = Some(top);
     let settled = state.drawn_at.is_none() || pointer.is_none();
     // The test aid's click (`crate::pipboy::drive_pointer`): 1 is its press's frame.
     let aid_press = aid.click == 1 && !aid.right;
@@ -1470,20 +1567,20 @@ mod tests {
         </image>
       </hotrect>
       <hotrect name="stats_perks_container"><x>12</x><y>30</y><width>200</width><clipwindow>&true;</clipwindow><_number_of_visible_items>9</_number_of_visible_items><_offset>0</_offset></hotrect>
-      <hotrect name="stats_genrep_container"><x>20</x><y>50</y>
-        <hotrect name="stats_general_container"><width>300</width><clipwindow>&true;</clipwindow><_number_of_visible_items>6</_number_of_visible_items><_scroll_delta>9</_scroll_delta>
+      <hotrect name="stats_genrep_container"><x>20</x><y>50</y><user0>1</user0>
+        <hotrect name="stats_general_container"><visible><copy>1</copy><sub src="parent()" trait="user0"/></visible><width>300</width><clipwindow>&true;</clipwindow><_number_of_visible_items>6</_number_of_visible_items><_scroll_delta>9</_scroll_delta>
           <_offset><copy src="child(lb_scrollbar)" trait="_current_value"/><mul src="me()" trait="_scroll_delta"/></_offset>
           <image name="lb_scrollbar"><x>280</x><_step_size>1</_step_size><_jump_size>2</_jump_size>
             <hotrect name="scrollbar_vert_down"><target>&true;</target><width>12</width><height>12</height></hotrect>
           </image>
         </hotrect>
-        <rect name="stats_karma_rect"><x>330</x><text name="stats_karma_alignment"/><image name="stats_karma_image"/><text name="stats_karma_title"/></rect>
-        <hotrect name="stats_reputation_container"><width>300</width><clipwindow>&true;</clipwindow><_number_of_visible_items>6</_number_of_visible_items><_offset>0</_offset></hotrect>
-        <rect name="stats_reptitle_rect"><x>330</x><image name="stats_reputation_image"/><text name="stats_reputation_title"/><text name="stats_reputation_rep_title"/></rect>
-        <hotrect name="stats_genrep_button"><target>&true;</target><x>500</x><width>60</width><height>30</height></hotrect>
+        <rect name="stats_karma_rect"><visible><copy>1</copy><sub src="parent()" trait="user0"/></visible><x>330</x><text name="stats_karma_alignment"/><image name="stats_karma_image"/><text name="stats_karma_title"/></rect>
+        <hotrect name="stats_reputation_container"><visible><copy src="parent()" trait="user0"/></visible><width>300</width><clipwindow>&true;</clipwindow><_number_of_visible_items>6</_number_of_visible_items><_offset>0</_offset></hotrect>
+        <rect name="stats_reptitle_rect"><visible><copy src="parent()" trait="user0"/></visible><x>330</x><image name="stats_reputation_image"/><text name="stats_reputation_title"/><text name="stats_reputation_rep_title"/></rect>
+        <hotrect name="stats_genrep_button"><target>&true;</target><x>500</x><width>60</width><height>30</height><text name="button_text"><string>&-sLeftOpen</string></text></hotrect>
       </hotrect>
       <rect name="stats_display_rect"><x>400</x><y>34</y>
-        <image name="stats_icon"/>
+        <image name="stats_icon"/><image name="stats_icon_badge"><filename>pics\\none.dds</filename></image>
         <hotrect name="stats_description_rect"><y>100</y><width>200</width><height>60</height>
           <text name="stats_description"/>
           <rect name="Pulse"><user3>0</user3></rect>
@@ -1520,18 +1617,18 @@ mod tests {
     }
 
     fn rows() -> Vec<Row> {
-        (0..7).map(|i| Row { key: RowKey::Av(i), name: format!("Stat {i}"), value: Some((i + 1).to_string()), mark: None, description: "one|two".into(), icon: Some(format!("pics\\{i}.dds")) }).collect()
+        (0..7).map(|i| Row { key: RowKey::Av(i), name: format!("Stat {i}"), value: Some((i + 1).to_string()), mark: None, description: "one|two".into(), icon: Some(format!("pics\\{i}.dds")), badge: None }).collect()
     }
 
     fn skills() -> Vec<Row> {
-        (0..13).map(|i| Row { key: RowKey::Av(100 + i), name: format!("Skill {i}"), value: Some((i + 1).to_string()), mark: None, description: "one".into(), icon: None }).collect()
+        (0..13).map(|i| Row { key: RowKey::Av(100 + i), name: format!("Skill {i}"), value: Some((i + 1).to_string()), description: "one".into(), badge: (i == 3).then(|| "pics\\mark.dds".to_string()), ..Row::default() }).collect()
     }
 
     /// A perk of ranks, and one of none.
     fn perks() -> Vec<Row> {
         vec![
-            Row { key: RowKey::Perk(fnv_sim::FormId(0x20)), name: "Perk A".into(), value: Some("2".into()), mark: None, description: "about a".into(), icon: Some("pics\\a.dds".into()) },
-            Row { key: RowKey::Perk(fnv_sim::FormId(0x10)), name: "Perk B".into(), value: None, mark: None, description: "about b".into(), icon: None },
+            Row { key: RowKey::Perk(fnv_sim::FormId(0x20)), name: "Perk A".into(), value: Some("2".into()), description: "about a".into(), icon: Some("pics\\a.dds".into()), ..Row::default() },
+            Row { key: RowKey::Perk(fnv_sim::FormId(0x10)), name: "Perk B".into(), description: "about b".into(), ..Row::default() },
         ]
     }
 
@@ -1971,47 +2068,54 @@ mod tests {
         assert_eq!(rows_under(&ui, list), 0, "the last taken away too");
     }
 
-    /// One list and its side at a time, the file's first mode first, each with its own rows and
-    /// the other's gone; no display of its own; the switch's key from what the page was told.
+    /// Both lists hold their rows, the mode's trait shows one and its side (by this fixture's own
+    /// expressions), the input acts on that one; no display of its own.
     #[test]
-    fn general_shows_the_modes_list_and_side() {
-        let (mut ui, mut v, mut t) = (tree(), StatsView::with_lens([0, 7, 13, 2, 1]), StatsTiles { switch_hint: "<key>".into(), ..Default::default() });
+    fn general_fills_both_lists_and_the_mode_shows_one() {
+        let words = PageWords { switch_hint: "<key>".into(), switch_general: "A word".into() };
+        let (mut ui, mut v, mut t) = (tree(), StatsView::with_lens([0, 7, 13, 2, 1]), StatsTiles { words, ..Default::default() });
         let s = general_snap();
         let menu = run_tab(&mut ui, &s, &mut v, 4, &mut t).unwrap();
         assert_eq!(num(&ui, menu, "user0"), 4.0, "the tab");
-        let (general, reputation) = (list_named(&ui, "stats_general_container"), list_named(&ui, "stats_reputation_container"));
         let name = list_named;
-        assert_eq!((rows_under(&ui, general), rows_under(&ui, reputation)), (0, 1));
+        let (general, reputation) = (name(&ui, "stats_general_container"), name(&ui, "stats_reputation_container"));
+        assert_eq!((rows_under(&ui, general), rows_under(&ui, reputation)), (20, 1));
         assert_eq!(t.written.rows[0].key, RowKey::Rep(fnv_sim::FormId(0x40)));
         assert_eq!(num(&ui, name(&ui, "stats_genrep_container"), "user0"), 1.0);
-        assert_eq!((num(&ui, general, "visible"), num(&ui, reputation, "visible")), (0.0, 1.0));
-        assert_eq!((num(&ui, name(&ui, "stats_karma_rect"), "visible"), num(&ui, name(&ui, "stats_reptitle_rect"), "visible")), (0.0, 1.0));
+        assert_eq!((num(&ui, general, "visible"), num(&ui, reputation, "visible")), (0.0, 1.0), "the fixture's expression, from what code wrote");
         assert_eq!(text(&ui, name(&ui, "stats_reputation_rep_title"), "string"), "Town");
         assert_eq!(text(&ui, name(&ui, "stats_reputation_title"), "string"), "A title");
         assert_eq!(text(&ui, name(&ui, "stats_reputation_image"), "filename"), "pics\\town.dds");
+        assert_eq!(num(&ui, name(&ui, "stats_reputation_image"), "visible"), 1.0);
         assert_eq!(text(&ui, name(&ui, "stats_genrep_button"), "_PCButtonText"), "<key>");
         let p = paths(&ui, 4, None).unwrap();
         assert_eq!((num(&ui, p.icon, "visible"), text(&ui, p.desc, "string")), (0.0, String::new()), "no display on this tab");
         assert_eq!((t.desc_area, v.desc_bound()), (None, 0));
         let line = describe(&ui, t.written.paths.as_ref().unwrap(), &t.written);
         assert!(line.contains("General (Reputation) from tiles: 1 rows, \"Town\" selected, value none,"), "{line}");
-        assert!(line.contains("reputation picture pics\\town.dds, device"), "{line}");
-        // Switched: the statistics, scrolling, and the karma's side.
+        assert!(line.contains("reputation picture pics\\town.dds, switch A word, device"), "{line}");
+        // The other list's rows stand where they are, its bar counted, at its top.
+        let made_general = t.written.other_rows.clone();
+        assert_eq!(num(&ui, general, "_scroll_delta"), ROW);
+        assert_eq!(num(&ui, made_general[3].tile, "_y"), 3.0 * ROW);
+        assert_eq!(list::value_shown(&ui, general), Some(0.0));
+        // Switched: the same tiles, the input's now.
         v = general_view(20);
         run_tab(&mut ui, &s, &mut v, 4, &mut t).unwrap();
-        assert_eq!((rows_under(&ui, general), rows_under(&ui, reputation)), (20, 0));
+        assert_eq!((rows_under(&ui, general), rows_under(&ui, reputation)), (20, 1));
+        assert_eq!(t.written.rows, made_general, "kept across the switch");
         assert_eq!(t.written.rows[3].key, RowKey::Stat(3));
         assert_eq!(num(&ui, name(&ui, "stats_genrep_container"), "user0"), 0.0);
         assert_eq!((num(&ui, general, "visible"), num(&ui, reputation, "visible")), (1.0, 0.0));
         assert_eq!((num(&ui, name(&ui, "stats_karma_rect"), "visible"), num(&ui, name(&ui, "stats_reptitle_rect"), "visible")), (1.0, 0.0));
         assert_eq!(text(&ui, name(&ui, "stats_karma_alignment"), "string"), "A word", "the word alone, no label of the hand-built page");
         assert_eq!(text(&ui, name(&ui, "stats_karma_image"), "filename"), stats::karma_picture("a_picture"));
+        assert_eq!((num(&ui, name(&ui, "stats_karma_image"), "visible"), num(&ui, name(&ui, "stats_karma_title"), "visible")), (1.0, 1.0));
         assert_eq!(text(&ui, name(&ui, "stats_karma_title"), "string"), "From a setting");
-        assert_eq!(num(&ui, general, "_scroll_delta"), ROW);
         assert_eq!(v.list_most(4), 14);
         let line = describe(&ui, t.written.paths.as_ref().unwrap(), &t.written);
         assert!(line.contains("General (General) from tiles: 20 rows,"), "{line}");
-        assert!(line.contains("karma picture "), "{line}");
+        assert!(line.contains("karma title From a setting, switch Reputation, device"), "{line}");
         // Its scroll by the model, its own bar told apart.
         v.scroll(4, 3);
         run_tab(&mut ui, &s, &mut v, 4, &mut t).unwrap();
@@ -2019,6 +2123,77 @@ mod tests {
         let p = t.written.paths.unwrap();
         let down = find_named(&ui, general, list::DOWN).unwrap();
         assert_eq!(stats_tile(&ui, &p, &t.written.rows, down), Some(StatsTile::ListBar(BarPiece::Down)));
+        // Going to another tab takes both lists' rows away.
+        run(&mut ui, &snap(), &mut v, true, &mut t).unwrap();
+        assert_eq!((rows_under(&ui, general), rows_under(&ui, reputation)), (0, 0));
+    }
+
+    /// A name the reader kept as plain text is never shown: the switch has the setting's word with
+    /// the reputations up and NVForever's with the statistics, and a word of a file's own stands.
+    #[test]
+    fn the_switch_always_has_a_word() {
+        let words = PageWords { switch_hint: "<key>".into(), switch_general: "From a setting".into() };
+        let button_text = |ui: &Ui| text(ui, find_named(ui, list_named(ui, "stats_genrep_button"), "button_text").unwrap(), "string");
+        let (mut ui, mut v, mut t) = (tree(), StatsView::with_lens([0, 7, 13, 2, 1]), StatsTiles { words: words.clone(), ..Default::default() });
+        let s = general_snap();
+        run_tab(&mut ui, &s, &mut v, 4, &mut t).unwrap();
+        assert_eq!(button_text(&ui), "From a setting");
+        v.switch();
+        run_tab(&mut ui, &s, &mut v, 4, &mut t).unwrap();
+        assert_eq!(button_text(&ui), SWITCH_REPUTATION);
+        v.switch();
+        run_tab(&mut ui, &s, &mut v, 4, &mut t).unwrap();
+        assert_eq!(button_text(&ui), "From a setting", "and back");
+        let (mut ui, mut v, mut t) = (tree_changed(|x| x.replace("&-sLeftOpen", "Its own")), StatsView::with_lens([0, 7, 13, 2, 1]), StatsTiles { words, ..Default::default() });
+        run_tab(&mut ui, &s, &mut v, 4, &mut t).unwrap();
+        assert_eq!(button_text(&ui), "Its own");
+        v.switch();
+        run_tab(&mut ui, &s, &mut v, 4, &mut t).unwrap();
+        assert_eq!(button_text(&ui), SWITCH_REPUTATION);
+        v.switch();
+        run_tab(&mut ui, &s, &mut v, 4, &mut t).unwrap();
+        assert_eq!(button_text(&ui), "Its own");
+    }
+
+    /// With no count of rows, the height the file gives holds as many whole rows as fit, and a
+    /// step is what is left over by the positions after the first, not a row's height.
+    #[test]
+    fn a_list_with_a_height_of_its_own_keeps_it() {
+        let own = |x: &str| x.replace("<_number_of_visible_items>6</_number_of_visible_items>", "<height>200</height>");
+        let (mut ui, mut v, mut t) = (tree_changed(own), general_view(20), StatsTiles::default());
+        run_tab(&mut ui, &general_snap(), &mut v, 4, &mut t).unwrap();
+        let list = list_named(&ui, "stats_general_container");
+        assert_eq!(num(&ui, list, "height"), 200.0, "stands");
+        assert_eq!(v.list_most(4), 15, "five whole rows of 36");
+        let bar = list::child(&ui, list, list::SCROLLBAR).unwrap();
+        assert_eq!(num(&ui, bar, "_number_of_items"), 16.0);
+        let step = (20.0 * ROW - 200.0) / 15.0;
+        assert!((num(&ui, list, "_scroll_delta") - step).abs() < 1e-9);
+        // The box is where the row stands by that step.
+        v.highlight = true;
+        v.select(4, 4);
+        v.scroll(4, 3);
+        run_tab(&mut ui, &general_snap(), &mut v, 4, &mut t).unwrap();
+        assert!((num(&ui, list, "_highlight_y") - (4.0 * ROW - 3.0 * step)).abs() < 1e-9);
+    }
+
+    /// A weapon skill's mark shows by `visible`; a row with none hides it, and on other tabs too.
+    #[test]
+    fn the_badge_shows_only_on_a_row_with_one() {
+        let (mut ui, mut v, mut t) = (tree(), view(), StatsTiles::default());
+        run_tab(&mut ui, &snap(), &mut v, 2, &mut t).unwrap();
+        let badge = list_named(&ui, "stats_icon_badge");
+        assert_eq!(num(&ui, badge, "visible"), 0.0);
+        v.select(2, 3);
+        run_tab(&mut ui, &snap(), &mut v, 2, &mut t).unwrap();
+        assert_eq!((num(&ui, badge, "visible"), text(&ui, badge, "filename")), (1.0, "pics\\mark.dds".to_string()));
+        assert!(describe(&ui, t.written.paths.as_ref().unwrap(), &t.written).contains("badge pics\\mark.dds, "));
+        v.select(2, 4);
+        run_tab(&mut ui, &snap(), &mut v, 2, &mut t).unwrap();
+        assert_eq!(num(&ui, badge, "visible"), 0.0, "only visible counts");
+        // A file without one serves as well.
+        let (mut ui, mut v, mut t) = (tree_changed(|x| x.replace("stats_icon_badge", "other")), view(), StatsTiles::default());
+        assert!(run_tab(&mut ui, &snap(), &mut v, 2, &mut t).is_ok());
     }
 
     /// A title the plugins do not hold has no words here: the table's are from no data file.
@@ -2496,25 +2671,27 @@ mod tests {
     fn what_is_shown_is_compared_without_a_copy_of_the_rows() {
         let s = snap();
         let at = At { tab: PAGE, reputation: false, selected: 1, device: true };
-        let shown = Shown::of(&s, at, "");
-        assert!(shown.same(&s, at, ""));
-        assert!(!shown.same(&s, At { selected: 2, ..at }, ""));
-        assert!(!shown.same(&s, At { device: false, ..at }, ""));
-        assert!(!shown.same(&s, At { tab: 2, ..at }, ""));
+        let none = PageWords::default();
+        let shown = Shown::of(&s, at, &none);
+        assert!(shown.same(&s, at, &none));
+        assert!(!shown.same(&s, At { selected: 2, ..at }, &none));
+        assert!(!shown.same(&s, At { device: false, ..at }, &none));
+        assert!(!shown.same(&s, At { tab: 2, ..at }, &none));
         let mut hurt = s.clone();
         hurt.hp = Some((10.0, 40.0));
-        assert!(!shown.same(&hurt, at, ""));
+        assert!(!shown.same(&hurt, at, &none));
         let mut other = s.clone();
         other.special[6].name = "Other".into();
-        assert!(!shown.same(&other, at, ""));
+        assert!(!shown.same(&other, at, &none));
         // General's side and its key are what it shows too.
         let at = At { tab: GENERAL_TAB, reputation: false, selected: 0, device: true };
         let s = general_snap();
-        let shown = Shown::of(&s, at, "<key>");
-        assert!(shown.same(&s, at, "<key>"));
-        assert!(!shown.same(&s, at, "<other>"));
+        let key = PageWords { switch_hint: "<key>".into(), ..PageWords::default() };
+        let shown = Shown::of(&s, at, &key);
+        assert!(shown.same(&s, at, &key));
+        assert!(!shown.same(&s, at, &none));
         let mut word = s.clone();
         word.karma = Some((5.0, "Another", "a_picture"));
-        assert!(!shown.same(&word, at, "<key>"));
+        assert!(!shown.same(&word, at, &key));
     }
 }

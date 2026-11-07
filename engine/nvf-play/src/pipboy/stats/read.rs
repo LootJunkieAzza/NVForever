@@ -223,7 +223,15 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
     let karma_limits = ["KarmaVeryEvil", "KarmaEvil", "KarmaGood", "KarmaVeryGood"].map(|g| sim.forms.global_by_edid(g).map(|v| v.1 as f64));
     // The lists' words do not need the game.
     s.special = SPECIALS.map(|c| av_row(forms, c)).collect();
-    let mut skills: Vec<Row> = SKILLS.filter(|&c| c != av::BIG_GUNS).map(|c| av_row(forms, c)).collect();
+    // A weapon skill has its mark, as a weapon has on the ITEMS page (`items::skill_badge`)
+    // [observed: private job run07_stats_tabs, Guns' and Melee Weapons'; hypothesis: the others].
+    let mut skills: Vec<Row> = SKILLS
+        .filter(|&c| c != av::BIG_GUNS)
+        .map(|c| {
+            let row = av_row(forms, c);
+            Row { badge: crate::pipboy::items::skill_badge(&row.name).map(str::to_string), ..row }
+        })
+        .collect();
     s.general = model::MISC_STATS.iter().enumerate().map(|(i, n)| Row { key: RowKey::Stat(i as u8), name: n.to_string(), value: Some("--".into()), ..Row::default() }).collect();
     let Some(rt) = script.and_then(|s| s.rt.as_mut()) else {
         skills.sort_by(|a, b| a.name.cmp(&b.name));
@@ -284,7 +292,7 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
                 continue;
             }
             let t = forms.text(perk.0).clone();
-            perks.push(Row { key: RowKey::Perk(perk), name: t.name, value: (d.ranks > 1).then(|| rank.to_string()), mark: None, description: t.description, icon: t.icon });
+            perks.push(Row { key: RowKey::Perk(perk), name: t.name, value: (d.ranks > 1).then(|| rank.to_string()), mark: None, description: t.description, icon: t.icon, badge: None });
         }
         perks.sort_by(|a, b| a.name.cmp(&b.name));
         s.perks = perks;
@@ -416,7 +424,7 @@ fn short(forms: &mut Forms, code: u16) -> String {
 /// A list row of an actor value, its figure not read yet.
 fn av_row(forms: &mut Forms, code: u16) -> Row {
     let t = forms.value(code);
-    Row { key: RowKey::Av(code), name: t.name, value: Some("--".into()), mark: None, description: t.description, icon: t.icon }
+    Row { key: RowKey::Av(code), name: t.name, value: Some("--".into()), mark: None, description: t.description, icon: t.icon, badge: None }
 }
 
 impl Forms {
