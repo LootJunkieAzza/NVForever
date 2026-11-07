@@ -416,7 +416,8 @@ pub(super) fn hit<K, T: Copy>(ui: &Ui, tile: TileId, lists: &[(&str, &[RowTile<K
             return Hit::Target(*what);
         }
         for (list, (name, _)) in lists.iter().enumerate() {
-            if ui.tile(t).name.eq_ignore_ascii_case(name) {
+            // A one-sided menu's other list has no name; an unnamed tile is not that list.
+            if !name.is_empty() && ui.tile(t).name.eq_ignore_ascii_case(name) {
                 return piece.map_or(Hit::Other, |p| Hit::Bar(list, p));
             }
         }
