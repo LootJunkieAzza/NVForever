@@ -192,10 +192,14 @@ pub fn karma_column(alignment: &str) -> usize {
 /// `sKarmicTitle<Good|Neutral|Evil><level>` where the plugins hold it (`setting`), else
 /// [`KARMA_TITLES`]. Levels above 30 take 30's title, below 1 level 1's.
 pub fn karma_title(level: i64, alignment: &str, setting: impl Fn(&str) -> Option<String>) -> String {
+    karma_title_setting(level, alignment, setting).unwrap_or_else(|| KARMA_TITLES[level.clamp(1, 30) as usize - 1][karma_column(alignment)].to_string())
+}
+
+/// [`karma_title`]'s setting alone, without the table.
+pub fn karma_title_setting(level: i64, alignment: &str, setting: impl Fn(&str) -> Option<String>) -> Option<String> {
     let level = level.clamp(1, 30) as usize;
-    let column = karma_column(alignment);
-    let name = format!("sKarmicTitle{}{level}", ["Good", "Neutral", "Evil"][column]);
-    setting(&name).filter(|s| !s.is_empty()).unwrap_or_else(|| KARMA_TITLES[level - 1][column].to_string())
+    let name = format!("sKarmicTitle{}{level}", ["Good", "Neutral", "Evil"][karma_column(alignment)]);
+    setting(&name).filter(|s| !s.is_empty())
 }
 
 /// The title of a reputation from the levels (0–3) of fame and infamy
@@ -298,6 +302,9 @@ pub struct Snapshot {
     pub karma: Option<(f64, &'static str, &'static str)>,
     /// The karma title for the player's level and alignment ([`karma_title`]).
     pub karma_title: Option<String>,
+    /// That title when a setting holds it ([`karma_title_setting`]): a view drawn from the menu
+    /// file writes only this, the table's words being from no data file [design: LEGAL.md].
+    pub karma_setting_title: Option<String>,
 }
 
 impl Snapshot {
@@ -410,6 +417,8 @@ mod tests {
         assert_eq!(karma_title(1, "Good", |_| None), "Samaritan");
         assert_eq!(karma_title(45, "Evil", |_| None), "Devil");
         assert_eq!(karma_title(7, "Neutral", |_| None), "Vagabond of the Wastes");
+        assert_eq!(karma_title_setting(29, "Very Evil", esm).as_deref(), Some("Demon Spawn"));
+        assert_eq!(karma_title_setting(29, "Neutral", esm), None);
         assert_eq!(reputation_title(0, 0), "Neutral");
         assert_eq!(reputation_title(3, 0), "Idolized");
         assert_eq!(reputation_title(1, 1), "Mixed");

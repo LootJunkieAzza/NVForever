@@ -304,7 +304,9 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
         if let (Some((karma, _)), [Some(ve), Some(e), Some(go), Some(vg)]) = (value(g, av::KARMA), karma_limits) {
             let (word, picture) = model::karma_alignment(karma, ve, e, go, vg);
             s.karma = Some((karma, word, picture));
-            s.karma_title = Some(model::karma_title(level as i64, word, |n| karma_titles.get(&n.to_ascii_lowercase()).cloned()));
+            let setting = |n: &str| karma_titles.get(&n.to_ascii_lowercase()).cloned();
+            s.karma_title = Some(model::karma_title(level as i64, word, setting));
+            s.karma_setting_title = model::karma_title_setting(level as i64, word, setting);
         }
         // Aid items taking effect now (ALCH sources of active effects), after the worn
         // apparel [hypothesis: the order]. An effect whose conditions fail (a Stimpak's

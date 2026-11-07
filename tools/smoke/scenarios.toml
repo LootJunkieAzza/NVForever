@@ -21753,3 +21753,54 @@ expect = [
   { text = "pipboy stats: Perks: empty", min = 1, label = "the model says so" },
   { text = "tiles: StatsMenu Tab(2) on its tiles", count = 1, label = "the tab line works on the empty page, through its tile" },
 ]
+
+[[scenario]]
+name = "tiles-stats-general"
+source = "[design] pipboy.md section 5.1.2, issue 1513: with [UI] TileMenus=StatsMenu the General tab is drawn from stats_menu.xml: the reputations first, then the statistics with the karma's side by the file's switch, one list and side at a time, the statistics scrolling"
+note = "the aid gives fame with a reputation (RepNVGoodsprings, reputation.md); the points are canvas units on the page as run [hypothesis until the first run: the switch at the hand-built place, the list's page area at the hand-built track]; the switch at 30 s, the wheel at 32 s, the page area at 33 s, R back at 36 s. The mode's trait is a hypothesis too: the shots show whether the file agrees. Shots: compare tiles_general_* with tiles_general_off_* at the same times."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY_STATS = "20:fame=00104C22=4", NVF_PLAY_TEST_KEYS = "32:wheel-down,36:r", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=4,30:click=840:120,33:click=56:300,39:close", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu", NVF_PLAY_TEST_SHOTS = "29:tiles_general_reputation.png,31:tiles_general_statistics.png,35:tiles_general_scrolled.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 42
+expect = [
+  { re = 'tiles: StatsMenu General \(Reputation\) from tiles: 1 rows, "[^"]+" selected, value none,', min = 2, label = "the file's first mode, one reputation, no number; and again after R" },
+  { text = "tiles: StatsMenu Switch on its tiles", count = 1, label = "the switch through its tile; the physical R does not click it as well" },
+  { re = 'tiles: StatsMenu General \(General\) from tiles: 43 rows, .*karma picture .*karma_[a-z]+\.dds, device$', min = 1, label = "the statistics, the karma's picture in the model's name" },
+  { re = 'tiles: StatsMenu list scrolled to 1 of [1-9]', min = 1, label = "the wheel scrolls the list, the value read back from the tree" },
+  { text = "tiles: StatsMenu ListBar(PageDown) on its tiles", count = 1, label = "the list's page area, through its tile" },
+  { re = 'tiles: StatsMenu list scrolled to [2-9]\d* of [1-9]', min = 1, label = "by the file's own jump" },
+  { re = 'pipboy stats: General \(General\): Quests Completed \d+ selected', label = "the model's log line in the new mode" },
+  { text = "StatsMenu drawn by hand", count = 0, label = "the file has every name the tab needs" },
+]
+order = [[{ re = 'General \(Reputation\) from tiles: 1 rows' }, { text = "tiles: StatsMenu Switch on its tiles" }, { re = 'General \(General\) from tiles: 43 rows' }, { re = 'list scrolled to 1 of [1-9]' }, { re = 'General \(Reputation\) from tiles: 1 rows', label = "R back, once" }, "pipboy: down"]]
+
+[[scenario]]
+name = "tiles-stats-general-off"
+source = "[design] pipboy.md section 5.1.2: without the switch the General tab is the hand-built one: nothing of the tile page runs, and its button, wheel and R work as before"
+note = "the same steps and times as tiles-stats-general, at the hand-built places. Shots to compare with it."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY_STATS = "20:fame=00104C22=4", NVF_PLAY_TEST_KEYS = "32:wheel-down,36:r", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=4,30:click=840:120,33:click=56:300,39:close", NVF_PLAY_TEST_SHOTS = "29:tiles_general_off_reputation.png,31:tiles_general_off_statistics.png,35:tiles_general_off_scrolled.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 42
+expect = [
+  { re = 'tiles: StatsMenu|StatsMenu drawn by hand', count = 0, label = "switch off: nothing of the tile page runs without its switch" },
+  { re = 'pipboy stats: General \(Reputation\): .+ selected', min = 2, label = "switch off: the first mode, and again after R" },
+  { re = 'pipboy stats: General \(General\): Quests Completed \d+ selected', label = "switch off: the button goes to the statistics" },
+]
+
+[[scenario]]
+name = "tiles-stats-general-missing-switch"
+source = "[design] pipboy.md section 5.1.2: a file short of General's switch keeps that tab hand-built and says why once; the page tab before it stays on its tiles"
+note = "NVF_PLAY_TEST_STATS_TILE_CUT takes the switch as missing, so no changed game file is needed."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=1,29:tab=4,33:close", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu", NVF_PLAY_TEST_STATS_TILE_CUT = "stats_genrep_button" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 36
+expect = [
+  { text = "StatsMenu drawn by hand: stats_genrep_button missing", count = 1, label = "the reason, once" },
+  { re = 'tiles: StatsMenu page from tiles: 7 rows', min = 1, label = "S.P.E.C.I.A.L. does not need it" },
+  { re = 'tiles: StatsMenu General ', count = 0, label = "not drawn from tiles" },
+]

@@ -1061,7 +1061,7 @@ fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Sna
         let h = 270.0 + 2.0 * th;
         let top = r.min.y + (GENERAL_HEIGHT - h) / 2.0;
         centred(p, c, &format!("Karma: {word}"), mid, top, bw);
-        let path = format!("Interface\\Icons\\PipboyImages\\Karma Icons\\{picture}.dds");
+        let path = karma_picture(picture);
         c.image_cut(p, &path, bx - 32.0, top - 60.0, 256.0 * ICON_ZOOM, 310.0, ICON_ZOOM, bright());
         let mut y = top + 270.0;
         if let Some(title) = &s.karma_title {
@@ -1093,6 +1093,12 @@ fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Sna
     for (r, sp) in spots {
         spot(p, r, sp);
     }
+}
+
+/// The file of a karma's picture ([`model::karma_alignment`]'s name), as every view of the page
+/// reads it.
+pub fn karma_picture(picture: &str) -> String {
+    format!("Interface\\Icons\\PipboyImages\\Karma Icons\\{picture}.dds")
 }
 
 /// `s` broken at `wrap`, each line centred on `mid`.

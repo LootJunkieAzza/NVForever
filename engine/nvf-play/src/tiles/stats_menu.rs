@@ -13,6 +13,10 @@
 //!   the text sizes and row heights written here.
 //! - **Page content only**: the page paints into the Pip-Boy's image, whose background and
 //!   scanlines are the shell's, so the file's `background_layout` stays hidden in both frames.
+//! - **General** ([`GeneralPaths`]) shows one of two lists by `StatsView::reputation`, each with
+//!   its own side; it has no display, so that is left empty. Which trait the file reads for the
+//!   mode is [hypothesis: `stats_genrep_container/user0`]: it is written, and the two sides
+//!   shown and hidden by `visible` as well, until a capture says ([`show_mode`], pipboy.md §5.1.2).
 //! - **The other tabs** stay fully hand-built. The menu persists across tabs and reopenings, and
 //!   its rows while their list is the one shown ([`Written`]); going to another list unloads
 //!   them, as a new tree would, and a new menu tile (a rebuilt tree) starts over.
@@ -63,7 +67,7 @@ use std::collections::{HashMap, HashSet};
 /// The menu's name [documented: stats_menu.xml].
 pub const STATS_MENU: &str = "StatsMenu";
 /// The tabs drawn from tiles; a tab not here stays hand-built with the switch on.
-pub const TILED_TABS: [usize; 3] = [1, 2, 3];
+pub const TILED_TABS: [usize; 4] = [1, 2, 3, 4];
 /// Test aid: a tile or template of the file to take as missing, so a smoke scenario sees the
 /// fallback of a cut-down file without a changed game file: `<name>`, or `<name>@<seconds>` to
 /// stop at that time, for the page's recovery.
@@ -73,6 +77,23 @@ pub const CUT_AID: &str = "NVF_PLAY_TEST_STATS_TILE_CUT";
 /// docs/spec-notes/pipboy.md §5.1.1]. They are looked for by name under the menu, so a file
 /// that nests them otherwise still serves.
 const LISTS: [&str; 3] = ["stats_special_container", "stats_skills_container", "stats_perks_container"];
+/// General's tab, and the tiles it has of its own.
+const GENERAL_TAB: usize = 4;
+const GENREP: &str = "stats_genrep_container";
+const GENERAL_LIST: &str = "stats_general_container";
+const REPUTATION_LIST: &str = "stats_reputation_container";
+const KARMA_RECT: &str = "stats_karma_rect";
+const KARMA_ALIGNMENT: &str = "stats_karma_alignment";
+const KARMA_IMAGE: &str = "stats_karma_image";
+const KARMA_TITLE: &str = "stats_karma_title";
+const REP_RECT: &str = "stats_reptitle_rect";
+const REP_IMAGE: &str = "stats_reputation_image";
+const REP_TITLE: &str = "stats_reputation_title";
+const REP_NAME: &str = "stats_reputation_rep_title";
+const SWITCH: &str = "stats_genrep_button";
+/// The setting with the words after General's switch: as Take All's
+/// (`super::container_menu::TAKE_ALL_HINT`), R being its key too.
+const SWITCH_HINT: &str = "sPCMenuHintR";
 const ROW_TEMPLATE: &str = "stats_list_template";
 const ROW_TEXT: &str = "ListItemText";
 const DISPLAY: &str = "stats_display_rect";
@@ -98,11 +119,32 @@ fn flag(on: bool) -> Value {
     Value::Num(f64::from(u8::from(on)))
 }
 
+/// What General has of its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GeneralPaths {
+    pub container: TileId,
+    pub general: TileId,
+    pub reputation: TileId,
+    pub karma_rect: TileId,
+    pub karma_alignment: TileId,
+    pub karma_image: TileId,
+    pub karma_title: TileId,
+    pub rep_rect: TileId,
+    pub rep_image: TileId,
+    pub rep_title: TileId,
+    pub rep_name: TileId,
+    pub button: TileId,
+    /// Which list these were last used for ([`Paths::in_mode`]).
+    pub showing_reputation: bool,
+}
+
 /// What a tab has of its own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TabPaths {
     /// S.P.E.C.I.A.L., Skills, Perks: a list beside the display.
     List { list: TileId },
+    /// General: two lists, one shown.
+    General(GeneralPaths),
 }
 
 /// The tiles found, by name, for one tab.
@@ -128,20 +170,35 @@ pub struct Paths {
 impl Paths {
     /// The list the tab shows.
     pub fn list(&self) -> TileId {
-        let TabPaths::List { list } = self.tab;
-        list
+        match self.tab {
+            TabPaths::List { list } => list,
+            TabPaths::General(g) if g.showing_reputation => g.reputation,
+            TabPaths::General(g) => g.general,
+        }
+    }
+
+    /// These paths for General's list `reputation` says; any other tab's are as they are.
+    fn in_mode(mut self, reputation: bool) -> Paths {
+        if let TabPaths::General(g) = &mut self.tab {
+            g.showing_reputation = reputation;
+        }
+        self
     }
 
     /// Whether `t` is a list of this tab.
     fn is_list(&self, t: TileId) -> bool {
-        let TabPaths::List { list } = self.tab;
-        t == list
+        match self.tab {
+            TabPaths::List { list } => t == list,
+            TabPaths::General(g) => t == g.general || t == g.reputation,
+        }
     }
 
     /// The tab's own tiles.
     fn tab_tiles(&self) -> Vec<TileId> {
-        let TabPaths::List { list } = self.tab;
-        vec![list]
+        match self.tab {
+            TabPaths::List { list } => vec![list],
+            TabPaths::General(g) => vec![g.container, g.general, g.reputation, g.karma_rect, g.karma_alignment, g.karma_image, g.karma_title, g.rep_rect, g.rep_image, g.rep_title, g.rep_name, g.button],
+        }
     }
 
     fn live(&self, ui: &Ui) -> bool {
@@ -198,14 +255,35 @@ pub fn paths(ui: &Ui, page: usize, cut: Option<&str>) -> Result<Paths, String> {
         found.remove(c);
     }
     let get = |name: &str| found.get(&name.to_ascii_lowercase()).copied().ok_or_else(|| format!("{name} missing"));
-    let name = page.checked_sub(1).and_then(|i| LISTS.get(i)).ok_or_else(|| format!("tab {page} has no list"))?;
-    let tab = TabPaths::List { list: get(name)? };
+    let tab = if page == GENERAL_TAB {
+        TabPaths::General(GeneralPaths {
+            container: get(GENREP)?,
+            general: get(GENERAL_LIST)?,
+            reputation: get(REPUTATION_LIST)?,
+            karma_rect: get(KARMA_RECT)?,
+            karma_alignment: get(KARMA_ALIGNMENT)?,
+            karma_image: get(KARMA_IMAGE)?,
+            karma_title: get(KARMA_TITLE)?,
+            rep_rect: get(REP_RECT)?,
+            rep_image: get(REP_IMAGE)?,
+            rep_title: get(REP_TITLE)?,
+            rep_name: get(REP_NAME)?,
+            button: get(SWITCH)?,
+            showing_reputation: true,
+        })
+    } else {
+        let name = page.checked_sub(1).and_then(|i| LISTS.get(i)).ok_or_else(|| format!("tab {page} has no list"))?;
+        TabPaths::List { list: get(name)? }
+    };
     get(DISPLAY)?;
     let mut tabs = [menu; 5];
     for (t, name) in tabs.iter_mut().zip(TABS) {
         *t = get(name)?;
     }
-    let TabPaths::List { list } = tab;
+    let list = match tab {
+        TabPaths::List { list } => list,
+        TabPaths::General(g) => g.general,
+    };
     if cut.as_deref() == Some(&ROW_TEMPLATE.to_ascii_lowercase()) || !has_template(ui, list) {
         return Err(format!("{ROW_TEMPLATE} missing"));
     }
@@ -328,11 +406,42 @@ pub struct At {
     pub device: bool,
 }
 
+/// What General shows beside its list, as written last. No word here comes from the hand-built
+/// page's own: its "Karma: " before the alignment, its button's names and its empty list's line
+/// are not carried over, and a karma title is the setting's alone [design: the string rule,
+/// LEGAL.md]. "--" is the figures' without the scripts' game.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GeneralShown {
+    pub karma_word: String,
+    pub karma_picture: String,
+    pub karma_title: String,
+    pub rep_picture: String,
+    pub rep_title: String,
+    pub rep_name: String,
+    pub hint: String,
+}
+
+impl GeneralShown {
+    fn of(snap: &Snapshot, at: At, hint: &str) -> GeneralShown {
+        let standing = snap.standings.get(at.selected).filter(|_| at.reputation);
+        GeneralShown {
+            karma_word: snap.karma.map_or("--".to_string(), |k| k.1.to_string()),
+            karma_picture: snap.karma.map_or(String::new(), |k| stats::karma_picture(k.2)),
+            karma_title: snap.karma_setting_title.clone().unwrap_or_else(|| if snap.karma.is_some() { String::new() } else { "--".to_string() }),
+            rep_picture: standing.and_then(|s| s.icon.clone()).unwrap_or_default(),
+            rep_title: standing.map_or(String::new(), |s| s.title.to_string()),
+            rep_name: standing.map_or(String::new(), |s| s.name.clone()),
+            hint: hint.to_string(),
+        }
+    }
+}
+
 /// What the model shows, as written last.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Shown {
     pub at: At,
     pub rows: Vec<Row>,
+    pub general: Option<GeneralShown>,
     pub level: String,
     pub hp: String,
     pub ap: String,
@@ -340,10 +449,11 @@ pub struct Shown {
 }
 
 impl Shown {
-    pub fn of(snap: &Snapshot, at: At) -> Shown {
+    pub fn of(snap: &Snapshot, at: At, hint: &str) -> Shown {
         Shown {
             at,
             rows: rows_of(snap, at.tab, at.reputation).into_owned(),
+            general: (at.tab == GENERAL_TAB).then(|| GeneralShown::of(snap, at, hint)),
             level: level_text(snap),
             hp: stats::figures(snap.hp),
             ap: stats::figures(snap.ap),
@@ -352,9 +462,10 @@ impl Shown {
     }
 
     /// Whether this is what `snap` shows, without copying its rows.
-    fn same(&self, snap: &Snapshot, at: At) -> bool {
+    fn same(&self, snap: &Snapshot, at: At, hint: &str) -> bool {
         self.at == at
             && self.rows.as_slice() == rows_of(snap, at.tab, at.reputation).as_ref()
+            && (at.tab != GENERAL_TAB || self.general.as_ref() == Some(&GeneralShown::of(snap, at, hint)))
             && self.level == level_text(snap)
             && self.hp == stats::figures(snap.hp)
             && self.ap == stats::figures(snap.ap)
@@ -377,6 +488,9 @@ pub fn write_model(ui: &mut Ui, p: &Paths, rows: &[MadeRow], s: &Shown) {
     if matches!(s.at.tab, 1 | 2) {
         ui.write_changed(p.list(), "user0", flag(s.rows.iter().any(|r| r.mark.is_some())));
     }
+    if let (TabPaths::General(g), Some(side)) = (&p.tab, &s.general) {
+        write_general(ui, g, side, s.at.reputation);
+    }
     for (i, (made, row)) in rows.iter().zip(&s.rows).enumerate() {
         ui.write_changed(made.tile, "listindex", Value::Num(i as f64));
         // [observed: private job pipboy_special_a]
@@ -390,13 +504,37 @@ pub fn write_model(ui: &mut Ui, p: &Paths, rows: &[MadeRow], s: &Shown) {
     }
     // A row without a picture keeps `visible` with an empty `filename`: the line and the text
     // follow it in the file, and the hand-built page draws them without a picture.
-    let selected = s.rows.get(s.at.selected);
+    // General has no display: left empty, so nothing of another tab's row stands in it.
+    let selected = s.rows.get(s.at.selected).filter(|_| s.at.tab != GENERAL_TAB);
     ui.write_changed(p.icon, "filename", Value::Str(selected.and_then(|r| r.icon.clone()).unwrap_or_default()));
     ui.write_changed(p.icon, "visible", flag(selected.is_some()));
     ui.write_changed(p.desc, "string", Value::Str(selected.map(|r| r.description.clone()).unwrap_or_default()));
     // Only a name the reader left unresolved: a replacement's or a script's words stand.
     if ui.tile(p.title).get("string").is_some_and(|v| v.text().trim_start().starts_with('&')) {
         ui.set_trait(p.title, "string", Value::Str(Page::Stats.title().to_string()));
+    }
+}
+
+/// General's side and switch. The mode's trait is [hypothesis: the list's parent's `user0`, 1 the
+/// reputations, the file's first value (`StatsView::reputation`)]; the button's words stay the
+/// file's, its key's are the setting's or the pad's ([`SWITCH_HINT`]).
+fn write_general(ui: &mut Ui, g: &GeneralPaths, s: &GeneralShown, reputation: bool) {
+    ui.write_changed(g.container, "user0", flag(reputation));
+    ui.write_changed(g.karma_alignment, "string", Value::Str(s.karma_word.clone()));
+    ui.write_changed(g.karma_image, "filename", Value::Str(s.karma_picture.clone()));
+    ui.write_changed(g.karma_title, "string", Value::Str(s.karma_title.clone()));
+    ui.write_changed(g.rep_image, "filename", Value::Str(s.rep_picture.clone()));
+    ui.write_changed(g.rep_title, "string", Value::Str(s.rep_title.clone()));
+    ui.write_changed(g.rep_name, "string", Value::Str(s.rep_name.clone()));
+    ui.write_changed(g.button, "_PCButtonText", Value::Str(s.hint.clone()));
+}
+
+/// The mode's list and side shown and the other's hidden, on every pass over what the file works
+/// out [design, provisional until a capture: pipboy.md §5.1.2].
+fn show_mode(ui: &mut Ui, g: &GeneralPaths) {
+    let r = g.showing_reputation;
+    for (t, on) in [(g.general, !r), (g.karma_rect, !r), (g.reputation, r), (g.rep_rect, r)] {
+        ui.set_trait(t, "visible", flag(on));
     }
 }
 
@@ -515,11 +653,15 @@ pub fn geometry(ui: &Ui, p: &Paths, rows: &[MadeRow], selected: usize, highlight
     }
     let top = top.min(rows.len().saturating_sub(visible));
     let delta = counts.and_then(|c| c.delta).unwrap_or(0.0);
-    let window = num(ui, p.desc_rect, "height");
-    if window <= 0.0 {
-        return Err(format!("{DESC_RECT} has no height"));
-    }
-    let desc_bound = ((num(ui, p.desc, "height") - window) / f64::from(stats::DESC_STEP)).ceil().max(0.0) as usize;
+    let desc_bound = if p.page == GENERAL_TAB {
+        0
+    } else {
+        let window = num(ui, p.desc_rect, "height");
+        if window <= 0.0 {
+            return Err(format!("{DESC_RECT} has no height"));
+        }
+        ((num(ui, p.desc, "height") - window) / f64::from(stats::DESC_STEP)).ceil().max(0.0) as usize
+    };
     // The box where its row stands after the scroll; none on a row scrolled out of sight, as the
     // hand-built list has none (`crate::pipboy::stats::list`).
     let box_at = places.get(selected).filter(|_| highlight && (top..top + visible).contains(&selected)).map_or((-1.0, 0.0), |&(h, y)| (y - top as f64 * delta, h));
@@ -687,6 +829,9 @@ pub struct StatsTiles {
     pub modal: bool,
     /// Another menu took this frame's tile input (`super::input::feed`).
     pub others: bool,
+    /// What General's switch writes for its key ([`SWITCH_HINT`]), found where the game's
+    /// settings are.
+    pub switch_hint: String,
     written: Written,
 }
 
@@ -720,11 +865,13 @@ impl PageFonts for FontKit<'_> {
 /// drawing; the other, before the scripts, does the sizes only for a model that changed.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, tab: usize, device: bool, late: bool, tiles: &mut StatsTiles, fonts: &mut dyn PageFonts) -> Result<TileId, String> {
+    let hint = tiles.switch_hint.clone();
     let w = &mut tiles.written;
     let p = match w.paths.filter(|c| c.page == tab && c.live(ui) && ui.menu(STATS_MENU) == Some(c.menu)) {
         Some(p) => p,
         None => paths(ui, tab, tiles.cut.as_deref())?,
-    };
+    }
+    .in_mode(view.reputation);
     // A new menu tile (the tree built again): its rows, sizes and writes are all to do again.
     if w.menu != Some(p.menu) {
         let fallbacks = std::mem::take(&mut w.fallbacks);
@@ -750,9 +897,9 @@ pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, tab: usiz
         w.shown = None;
         w.geometry = None;
     }
-    let changed = !w.shown.as_ref().is_some_and(|s| s.same(snap, at)) || w.highlight != view.highlight;
+    let changed = !w.shown.as_ref().is_some_and(|s| s.same(snap, at, &hint)) || w.highlight != view.highlight;
     if changed {
-        let shown = Shown::of(snap, at);
+        let shown = Shown::of(snap, at, &hint);
         write_model(ui, &p, &w.rows, &shown);
         w.shown = Some(shown);
         w.highlight = view.highlight;
@@ -794,6 +941,9 @@ pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, tab: usiz
     if let Some(most) = list_most {
         list::write_value(ui, list, (view.top[tab] as f64).min(most));
     }
+    if let TabPaths::General(g) = &p.tab {
+        show_mode(ui, g);
+    }
     if late {
         ui.update();
         // Every final pass, so readiness is about the tree that is about to be painted.
@@ -829,9 +979,15 @@ fn describe(ui: &Ui, p: &Paths, w: &Written) -> String {
     let (Some(s), Some(g)) = (w.shown.as_ref(), w.geometry.as_ref()) else { return format!("tiles: {STATS_MENU} page written") };
     let row = s.rows.get(s.at.selected);
     // The first tab's words are the first slice's, which its scenarios read.
-    let name = if p.page == 1 { "page" } else { Page::Stats.tabs()[p.page] };
+    let name = match (p.page, s.at.reputation) {
+        (1, _) => "page".to_string(),
+        (GENERAL_TAB, true) => "General (Reputation)".to_string(),
+        (GENERAL_TAB, false) => "General (General)".to_string(),
+        (tab, _) => Page::Stats.tabs()[tab].to_string(),
+    };
+    let side = s.general.as_ref().map_or(String::new(), |g| if s.at.reputation { format!("reputation picture {}, ", g.rep_picture) } else { format!("karma picture {}, ", g.karma_picture) });
     format!(
-        "tiles: {STATS_MENU} {name} from tiles: {} rows, \"{}\" selected, value {}, boxed at {}, list height {}, row height {}, description {} high, scrolls {}, {}",
+        "tiles: {STATS_MENU} {name} from tiles: {} rows, \"{}\" selected, value {}, boxed at {}, list height {}, row height {}, description {} high, scrolls {}, {side}{}",
         s.rows.len(),
         row.map_or("", |r| r.name.as_str()),
         row.and_then(|r| r.value.as_deref()).unwrap_or("none"),
@@ -871,6 +1027,14 @@ fn pass(p: &mut StatsPage<'_>, late: bool) -> Option<Result<TileId, String>> {
     let (tab, device) = (pip.tab(), pip.frame == Frame::Device);
     let game = &mut p.script.as_mut()?.rt.as_mut()?.game;
     game.ui_files.as_ref()?;
+    if tab == GENERAL_TAB {
+        // The load order's setting over NVForever's label; with a controller the button that
+        // switches (`crate::pad::menu_buttons`), as the hand-built page says.
+        let hint = crate::pad::game_hint(&fnv_game::ui_loading::game_string(game, SWITCH_HINT), &[KeyCode::KeyR], crate::pad::MenuAt { code: Some(fnv_game::game::menus::STATS), tab });
+        if p.tiles.switch_hint != hint {
+            p.tiles.switch_hint = hint;
+        }
+    }
     let Some(snap) = p.prepared.as_deref().and_then(|x| x.snap.as_ref()) else {
         return late.then(|| Err("nothing to show yet".to_string()));
     };
@@ -922,8 +1086,9 @@ pub(crate) fn settle(mut p: StatsPage) {
 
 /// The keys the hand-built page acts on itself (`crate::pipboy::stats::keys`,
 /// `crate::pipboy::keys`), by the tile input's names, and the controller's triggers standing in
-/// for its pages' keys (`crate::pad::menu_buttons`).
-pub const HAND_BUILT_KEYS: [&str; 10] = ["W", "S", "A", "D", "xup", "xdown", "xleft", "xright", "xbuttonlt", "xbuttonrt"];
+/// for its pages' keys (`crate::pad::menu_buttons`). R and the controller's X are General's
+/// switch: the file's root binds R [documented: its `_PCButton_R`], which would switch twice.
+pub const HAND_BUILT_KEYS: [&str; 12] = ["W", "S", "A", "D", "R", "xup", "xdown", "xleft", "xright", "xbuttonlt", "xbuttonrt", "xbuttonx"];
 
 /// Whether the open menu is one over the Pip-Boy's pages and not one of them.
 pub fn modal_over(open: Option<u16>) -> bool {
@@ -952,10 +1117,12 @@ pub enum StatsTile {
     Marker,
     /// A piece of the list's own scroll bar.
     ListBar(BarPiece),
+    /// General's switch between its lists.
+    Switch,
 }
 
-/// What `tile` stands for: a row the page made, a tab, or a piece of the description's or the
-/// list's scroll bar [documented: scrollbar_vert.xml's names].
+/// What `tile` stands for: a row the page made, a tab, General's switch, or a piece of the
+/// description's or the list's scroll bar [documented: scrollbar_vert.xml's names].
 pub fn stats_tile(ui: &Ui, p: &Paths, rows: &[MadeRow], tile: TileId) -> Option<StatsTile> {
     let mut at = Some(tile);
     let (mut in_bar, mut in_list) = (false, false);
@@ -971,6 +1138,9 @@ pub fn stats_tile(ui: &Ui, p: &Paths, rows: &[MadeRow], tile: TileId) -> Option<
         }
         if let Some(i) = p.tabs.iter().position(|&x| x == t) {
             return Some(StatsTile::Tab(i));
+        }
+        if matches!(p.tab, TabPaths::General(g) if g.button == t) {
+            return Some(StatsTile::Switch);
         }
         if in_bar {
             match ui.tile(t).name.to_ascii_lowercase().as_str() {
@@ -1166,6 +1336,11 @@ pub(crate) fn feed(
         }
     }
     let under = state.under;
+    // The switch under the pointer, as the hand-built page has it (`Spot::Switch`).
+    let over_switch = under.and_then(what) == Some(StatsTile::Switch);
+    if over_switch != (view.hover == Some(stats::Spot::Switch)) {
+        view.hover = over_switch.then_some(stats::Spot::Switch);
+    }
     let under_row = under.and_then(what).and_then(|w| if let StatsTile::Row(i) = w { Some(i) } else { None });
     // Only a real change touches the view, which the page's other readers watch.
     match follow_hover(&mut state.acted, under_row, settled) {
@@ -1205,6 +1380,7 @@ pub(crate) fn feed(
                 pressed_marker = true;
                 state.drag = at.filter(|_| held && matches!(c.by, fnv_ui::input::By::Pointer)).and_then(|(_, y)| marker_grab(ui, &p, BarOf::Description, y));
             }
+            StatsTile::Switch => view.switch(),
             StatsTile::ListBar(BarPiece::Up) => view.scroll(tab, -1),
             StatsTile::ListBar(BarPiece::Down) => view.scroll(tab, 1),
             StatsTile::ListBar(piece @ (BarPiece::PageUp | BarPiece::PageDown)) => {
@@ -1294,6 +1470,18 @@ mod tests {
         </image>
       </hotrect>
       <hotrect name="stats_perks_container"><x>12</x><y>30</y><width>200</width><clipwindow>&true;</clipwindow><_number_of_visible_items>9</_number_of_visible_items><_offset>0</_offset></hotrect>
+      <hotrect name="stats_genrep_container"><x>20</x><y>50</y>
+        <hotrect name="stats_general_container"><width>300</width><clipwindow>&true;</clipwindow><_number_of_visible_items>6</_number_of_visible_items><_scroll_delta>9</_scroll_delta>
+          <_offset><copy src="child(lb_scrollbar)" trait="_current_value"/><mul src="me()" trait="_scroll_delta"/></_offset>
+          <image name="lb_scrollbar"><x>280</x><_step_size>1</_step_size><_jump_size>2</_jump_size>
+            <hotrect name="scrollbar_vert_down"><target>&true;</target><width>12</width><height>12</height></hotrect>
+          </image>
+        </hotrect>
+        <rect name="stats_karma_rect"><x>330</x><text name="stats_karma_alignment"/><image name="stats_karma_image"/><text name="stats_karma_title"/></rect>
+        <hotrect name="stats_reputation_container"><width>300</width><clipwindow>&true;</clipwindow><_number_of_visible_items>6</_number_of_visible_items><_offset>0</_offset></hotrect>
+        <rect name="stats_reptitle_rect"><x>330</x><image name="stats_reputation_image"/><text name="stats_reputation_title"/><text name="stats_reputation_rep_title"/></rect>
+        <hotrect name="stats_genrep_button"><target>&true;</target><x>500</x><width>60</width><height>30</height></hotrect>
+      </hotrect>
       <rect name="stats_display_rect"><x>400</x><y>34</y>
         <image name="stats_icon"/>
         <hotrect name="stats_description_rect"><y>100</y><width>200</width><height>60</height>
@@ -1345,6 +1533,25 @@ mod tests {
             Row { key: RowKey::Perk(fnv_sim::FormId(0x20)), name: "Perk A".into(), value: Some("2".into()), mark: None, description: "about a".into(), icon: Some("pics\\a.dds".into()) },
             Row { key: RowKey::Perk(fnv_sim::FormId(0x10)), name: "Perk B".into(), value: None, mark: None, description: "about b".into(), icon: None },
         ]
+    }
+
+    /// A view on General's statistics, `rows` long.
+    fn general_view(rows: usize) -> StatsView {
+        let mut v = StatsView::with_lens([0, 7, 13, 2, rows]);
+        v.reputation = false;
+        v
+    }
+
+    /// Rows and a side of this test's own for General.
+    fn general_snap() -> Snapshot {
+        Snapshot {
+            general: (0..20).map(|i| Row { key: RowKey::Stat(i), name: format!("Count {i}"), value: Some(i.to_string()), ..Row::default() }).collect(),
+            standings: vec![crate::pipboy::stats::model::Standing { form: fnv_sim::FormId(0x40), name: "Town".into(), title: "A title", fame: 1.0, infamy: 0.0, icon: Some("pics\\town.dds".into()) }],
+            karma: Some((5.0, "A word", "a_picture")),
+            karma_title: Some("From the table".into()),
+            karma_setting_title: Some("From a setting".into()),
+            ..snap()
+        }
     }
 
     fn snap() -> Snapshot {
@@ -1764,6 +1971,115 @@ mod tests {
         assert_eq!(rows_under(&ui, list), 0, "the last taken away too");
     }
 
+    /// One list and its side at a time, the file's first mode first, each with its own rows and
+    /// the other's gone; no display of its own; the switch's key from what the page was told.
+    #[test]
+    fn general_shows_the_modes_list_and_side() {
+        let (mut ui, mut v, mut t) = (tree(), StatsView::with_lens([0, 7, 13, 2, 1]), StatsTiles { switch_hint: "<key>".into(), ..Default::default() });
+        let s = general_snap();
+        let menu = run_tab(&mut ui, &s, &mut v, 4, &mut t).unwrap();
+        assert_eq!(num(&ui, menu, "user0"), 4.0, "the tab");
+        let (general, reputation) = (list_named(&ui, "stats_general_container"), list_named(&ui, "stats_reputation_container"));
+        let name = list_named;
+        assert_eq!((rows_under(&ui, general), rows_under(&ui, reputation)), (0, 1));
+        assert_eq!(t.written.rows[0].key, RowKey::Rep(fnv_sim::FormId(0x40)));
+        assert_eq!(num(&ui, name(&ui, "stats_genrep_container"), "user0"), 1.0);
+        assert_eq!((num(&ui, general, "visible"), num(&ui, reputation, "visible")), (0.0, 1.0));
+        assert_eq!((num(&ui, name(&ui, "stats_karma_rect"), "visible"), num(&ui, name(&ui, "stats_reptitle_rect"), "visible")), (0.0, 1.0));
+        assert_eq!(text(&ui, name(&ui, "stats_reputation_rep_title"), "string"), "Town");
+        assert_eq!(text(&ui, name(&ui, "stats_reputation_title"), "string"), "A title");
+        assert_eq!(text(&ui, name(&ui, "stats_reputation_image"), "filename"), "pics\\town.dds");
+        assert_eq!(text(&ui, name(&ui, "stats_genrep_button"), "_PCButtonText"), "<key>");
+        let p = paths(&ui, 4, None).unwrap();
+        assert_eq!((num(&ui, p.icon, "visible"), text(&ui, p.desc, "string")), (0.0, String::new()), "no display on this tab");
+        assert_eq!((t.desc_area, v.desc_bound()), (None, 0));
+        let line = describe(&ui, t.written.paths.as_ref().unwrap(), &t.written);
+        assert!(line.contains("General (Reputation) from tiles: 1 rows, \"Town\" selected, value none,"), "{line}");
+        assert!(line.contains("reputation picture pics\\town.dds, device"), "{line}");
+        // Switched: the statistics, scrolling, and the karma's side.
+        v = general_view(20);
+        run_tab(&mut ui, &s, &mut v, 4, &mut t).unwrap();
+        assert_eq!((rows_under(&ui, general), rows_under(&ui, reputation)), (20, 0));
+        assert_eq!(t.written.rows[3].key, RowKey::Stat(3));
+        assert_eq!(num(&ui, name(&ui, "stats_genrep_container"), "user0"), 0.0);
+        assert_eq!((num(&ui, general, "visible"), num(&ui, reputation, "visible")), (1.0, 0.0));
+        assert_eq!((num(&ui, name(&ui, "stats_karma_rect"), "visible"), num(&ui, name(&ui, "stats_reptitle_rect"), "visible")), (1.0, 0.0));
+        assert_eq!(text(&ui, name(&ui, "stats_karma_alignment"), "string"), "A word", "the word alone, no label of the hand-built page");
+        assert_eq!(text(&ui, name(&ui, "stats_karma_image"), "filename"), stats::karma_picture("a_picture"));
+        assert_eq!(text(&ui, name(&ui, "stats_karma_title"), "string"), "From a setting");
+        assert_eq!(num(&ui, general, "_scroll_delta"), ROW);
+        assert_eq!(v.list_most(4), 14);
+        let line = describe(&ui, t.written.paths.as_ref().unwrap(), &t.written);
+        assert!(line.contains("General (General) from tiles: 20 rows,"), "{line}");
+        assert!(line.contains("karma picture "), "{line}");
+        // Its scroll by the model, its own bar told apart.
+        v.scroll(4, 3);
+        run_tab(&mut ui, &s, &mut v, 4, &mut t).unwrap();
+        assert_eq!(list::value_shown(&ui, general), Some(3.0));
+        let p = t.written.paths.unwrap();
+        let down = find_named(&ui, general, list::DOWN).unwrap();
+        assert_eq!(stats_tile(&ui, &p, &t.written.rows, down), Some(StatsTile::ListBar(BarPiece::Down)));
+    }
+
+    /// A title the plugins do not hold has no words here: the table's are from no data file.
+    /// Without the scripts' game the side says so as the figures do.
+    #[test]
+    fn a_karma_title_is_a_settings_or_none() {
+        let (mut ui, mut v, mut t) = (tree(), general_view(20), StatsTiles::default());
+        let mut s = general_snap();
+        s.karma_setting_title = None;
+        run_tab(&mut ui, &s, &mut v, 4, &mut t).unwrap();
+        let (title, word) = (list_named(&ui, "stats_karma_title"), list_named(&ui, "stats_karma_alignment"));
+        assert_eq!(text(&ui, title, "string"), "");
+        s.karma = None;
+        s.karma_title = None;
+        run_tab(&mut ui, &s, &mut v, 4, &mut t).unwrap();
+        assert_eq!((text(&ui, title, "string"), text(&ui, word, "string")), ("--".to_string(), "--".to_string()));
+        assert_eq!(text(&ui, list_named(&ui, "stats_karma_image"), "filename"), "");
+    }
+
+    #[test]
+    fn generals_switch_takes_the_pointer_and_the_physical_key_is_the_models() {
+        let (mut ui, mut v, mut t) = (tree(), StatsView::with_lens([0, 7, 13, 2, 1]), StatsTiles::default());
+        let menu = run_tab(&mut ui, &general_snap(), &mut v, 4, &mut t).unwrap();
+        let p = paths(&ui, 4, None).unwrap();
+        let hit = fnv_ui::input::hit(&ui, &[menu], (20.0 + 510.0, 50.0 + 10.0), &no_measure).unwrap();
+        assert_eq!(stats_tile(&ui, &p, &t.written.rows, hit.tile), Some(StatsTile::Switch));
+        assert!(!menus::key_click_acts(STATS_MENU, "R", &["R"]), "the hand-built key switches: a file's binding would switch back");
+        assert!(menus::key_click_acts(STATS_MENU, "R", &[]), "a script's tap");
+        // Off the tab no tile is the switch.
+        let other = paths(&ui, PAGE, None).unwrap();
+        assert_eq!(stats_tile(&ui, &other, &[], p_button(&p)), None);
+    }
+
+    fn p_button(p: &Paths) -> TileId {
+        match p.tab {
+            TabPaths::General(g) => g.button,
+            TabPaths::List { list } => list,
+        }
+    }
+
+    /// No reputations yet: the list empty, the page standing; nothing of the hand-built line.
+    #[test]
+    fn general_with_no_reputations_stands() {
+        let (mut ui, mut v, mut t) = (tree(), StatsView::with_lens([0, 7, 13, 2, 0]), StatsTiles::default());
+        let mut s = general_snap();
+        s.standings.clear();
+        run_tab(&mut ui, &s, &mut v, 4, &mut t).unwrap();
+        assert_eq!(rows_under(&ui, list_named(&ui, "stats_reputation_container")), 0);
+        assert_eq!(text(&ui, list_named(&ui, "stats_reputation_rep_title"), "string"), "");
+    }
+
+    #[test]
+    fn a_file_short_of_generals_tiles_leaves_that_tab_hand_built() {
+        for name in ["stats_genrep_container", "stats_general_container", "stats_reputation_container", "stats_karma_title", "stats_reputation_image", "stats_genrep_button"] {
+            let (mut ui, mut v) = (tree(), StatsView::with_lens([0, 7, 13, 2, 1]));
+            let mut t = StatsTiles { cut: Some(name.into()), ..Default::default() };
+            assert_eq!(run_tab(&mut ui, &general_snap(), &mut v, 4, &mut t).unwrap_err(), format!("{name} missing"));
+            assert!(run(&mut ui, &snap(), &mut StatsView::with_lens([0, 7, 13, 2, 1]), true, &mut t).is_ok(), "{name}: not the other tabs'");
+        }
+    }
+
     #[test]
     fn the_lists_bar_is_told_from_the_descriptions() {
         let (mut ui, mut v, mut t) = (tree(), view(), StatsTiles::default());
@@ -2180,16 +2496,25 @@ mod tests {
     fn what_is_shown_is_compared_without_a_copy_of_the_rows() {
         let s = snap();
         let at = At { tab: PAGE, reputation: false, selected: 1, device: true };
-        let shown = Shown::of(&s, at);
-        assert!(shown.same(&s, at));
-        assert!(!shown.same(&s, At { selected: 2, ..at }));
-        assert!(!shown.same(&s, At { device: false, ..at }));
-        assert!(!shown.same(&s, At { tab: 2, ..at }));
+        let shown = Shown::of(&s, at, "");
+        assert!(shown.same(&s, at, ""));
+        assert!(!shown.same(&s, At { selected: 2, ..at }, ""));
+        assert!(!shown.same(&s, At { device: false, ..at }, ""));
+        assert!(!shown.same(&s, At { tab: 2, ..at }, ""));
         let mut hurt = s.clone();
         hurt.hp = Some((10.0, 40.0));
-        assert!(!shown.same(&hurt, at));
+        assert!(!shown.same(&hurt, at, ""));
         let mut other = s.clone();
         other.special[6].name = "Other".into();
-        assert!(!shown.same(&other, at));
+        assert!(!shown.same(&other, at, ""));
+        // General's side and its key are what it shows too.
+        let at = At { tab: GENERAL_TAB, reputation: false, selected: 0, device: true };
+        let s = general_snap();
+        let shown = Shown::of(&s, at, "<key>");
+        assert!(shown.same(&s, at, "<key>"));
+        assert!(!shown.same(&s, at, "<other>"));
+        let mut word = s.clone();
+        word.karma = Some((5.0, "Another", "a_picture"));
+        assert!(!shown.same(&word, at, "<key>"));
     }
 }
