@@ -209,6 +209,8 @@ pub(crate) struct View {
     pub(crate) made_at: String,
     /// Skill name, the player's value, the level needed.
     pub(crate) skill: Option<(String, u32, u32)>,
+    /// The skill's name in its record (`fnv_game::chargen::skill_name`), for the tiles.
+    pub(crate) skill_record: Option<String>,
     /// The ingredient, its name, have, need.
     pub(crate) ingredients: Vec<(FormId, String, u32, u32)>,
     pub(crate) weight: Option<f32>,
@@ -285,6 +287,7 @@ pub(crate) fn view(rt: &mut crate::script::Runtime, sim: &mut SimState, open: &O
         let name = |id: FormId| crate::menu::model::display_name(forms, id);
         let made_at = chosen.and_then(|r| r.category).and_then(|c| data.recipe_categories.get(&c)).map_or_else(String::new, |c| c.name.clone());
         let skill = chosen.and_then(|r| r.skill).map(|(av, level)| (skill_name(av).to_string(), fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, av).max(0.0).floor() as u32, level));
+        let skill_record = chosen.and_then(|r| r.skill).map(|(av, _)| fnv_game::chargen::skill_name(&rt.game, av));
         let ingredients = chosen.map(|r| r.ingredients.iter().map(|&(i, n)| (i, name(i), have(rt, i).max(0) as u32, n)).collect()).unwrap_or_default();
         let item = chosen.and_then(|r| r.outputs.first()).and_then(|o| match forms.get(o.0).map(|b| &b.data) {
             Some(fnv_sim::forms::BaseData::Item(it)) => Some((it.weight, it.value, it.icon.clone())),
@@ -293,7 +296,7 @@ pub(crate) fn view(rt: &mut crate::script::Runtime, sim: &mut SimState, open: &O
         let (weight, value, icon) = item.map_or((None, None, None), |i| (i.0, i.1, i.2));
         let first = keep_in_view(open.first, selected, rows.len(), ROWS);
         let filtered = known - rows.len();
-        View { title, rows, filters: subs.len(), subcategory, filtered, selected, first, made_at, skill, ingredients, weight, value, icon, effects: None, quantity: open.quantity, labels: crate::pad::labels() }
+        View { title, rows, filters: subs.len(), subcategory, filtered, selected, first, made_at, skill, skill_record, ingredients, weight, value, icon, effects: None, quantity: open.quantity, labels: crate::pad::labels() }
     })
 }
 

@@ -21705,7 +21705,7 @@ source = "[design] crafting.md section 4, issue #1468: where the recipe menu's t
 note = "[observed 2026-11-07, first run at 1280x720, interface units] Rows at 600:186 and 600:238, and the bar's page area 362:480 were read from the pointer lines. [observed, the original's capture, where they were clicked by id] The arrows 400:107 and 543:107, the title 468:109, Accept 1304:693 and Exit 1321:740. Move-only: the lines name what is under each place. Accept takes the pointer only while the selected recipe can be made (its target), so Survival is set first and the pointer is back on the first row before it. No click, so nothing here changes the model but the hover."
 areas = ["ui", "crafting", "menus"]
 paths = ["engine/nvf-play/src/tiles/recipe_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/crafting.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_TILE_MENUS = "RecipeMenu", NVF_PLAY_TEST_GIVE = "0002210F:10,0013B2B8:10", NVF_PLAY_TEST_CONSOLE = "5:player.setav survival 60;5.3:close", NVF_PLAY_TEST_SCRIPT = "10:call:player:ShowRecipeMenu:CampfireRecipes", NVF_PLAY_TEST_POINTER = "13:600:238,14:400:107,14.5:543:107,15:468:109,16:362:480,17:600:186,18:1304:693,19:1321:740,21:off", NVF_PLAY_TEST_RECIPE = "20:exit", NVF_PLAY_TEST_SHOTS = "12:tiles_recipe_places.png" }
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_TILE_MENUS = "RecipeMenu", NVF_PLAY_TEST_GIVE = "0002210F:10,0013B2B8:10", NVF_PLAY_TEST_CONSOLE = "5:player.setav survival 60;5.3:close", NVF_PLAY_TEST_SCRIPT = "10:call:player:ShowRecipeMenu:CampfireRecipes", NVF_PLAY_TEST_POINTER = "13:600:238,14:400:107,14.5:543:107,15:468:109,16:362:480,16.5:1100:396,17:600:186,18:1304:693,19:1321:740,21:off", NVF_PLAY_TEST_RECIPE = "20:exit", NVF_PLAY_TEST_SHOTS = "12:tiles_recipe_places.png" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
 run_seconds = 23
 expect = [
@@ -21718,6 +21718,7 @@ expect = [
   { re = 'tiles: pointer over RecipeMenu/.*/lb_scrollbar/scrollbar_vert_page_down', label = "the bar's page area" },
   { re = 'tiles: pointer over RecipeMenu/NOGLOW_BRANCH/RM_ButtonRect/RM_ButtonX', label = "Accept" },
   { re = 'tiles: pointer over RecipeMenu/NOGLOW_BRANCH/RM_ButtonRect/RM_ButtonB', label = "Exit" },
+  { re = 'tiles: pointer over RecipeMenu/.*RM_Items_IngredientList', count = 0, label = "an ingredient row takes no pointer" },
   "recipe menu: closed",
 ]
 
@@ -21727,7 +21728,7 @@ source = "[design] crafting.md section 4, issue #1468: the recipe menu from its 
 note = "[observed 2026-11-07] Places as tiles-recipe-places reads them. The console sets Survival, which the first recipe needs [observed: 15 of 40 refuses it]; the script aid's SetActorValue takes no name. All aids use the start clock. Hover 1 and 0, Select 1 and 0, Accept on its button with 2 made through the prompt, Accept by the selected row whose prompt blocks a click on another row and is then cancelled, the title's filter, the left key back, the bar's page, a key's move, Exit. Shots show the open menu, a row, the prompt, the filter and the scroll."
 areas = ["ui", "crafting", "menus"]
 paths = ["engine/nvf-play/src/tiles/recipe_menu.rs", "engine/nvf-play/src/tiles/item_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/tiles/item_card.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/crafting.rs", "crates/fnv-game/src/crafting.rs", "engine/nvforever/src/imagespace.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_TILE_MENUS = "RecipeMenu", NVF_PLAY_TEST_GIVE = "0002210F:10,0013B2B8:10", NVF_PLAY_TEST_CONSOLE = "5:player.setav survival 60;5.3:close", NVF_PLAY_TEST_SCRIPT = "10:call:player:ShowRecipeMenu:CampfireRecipes", NVF_PLAY_TEST_POINTER = "13:600:238,14:600:186,15:600:238:click,16:600:186:click,17:1304:693,17.5:1304:693:click,20:600:186:click,21:600:238:click,22:468:109:click,25:362:480:click,28:1321:740,28.5:1321:740:click,29.5:off", NVF_PLAY_TEST_RECIPE = "18:more,19:accept,21.5:cancel", NVF_PLAY_TEST_KEYS = "24:left,26:down", NVF_PLAY_TEST_SHOTS = "12:tiles_recipe_open.png,14.5:tiles_recipe_row.png,18.5:tiles_recipe_prompt.png,23:tiles_recipe_filtered.png,25.5:tiles_recipe_scrolled.png" }
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_TILE_MENUS = "RecipeMenu", NVF_PLAY_TEST_GIVE = "0002210F:10,0013B2B8:10", NVF_PLAY_TEST_CONSOLE = "5:player.setav survival 60;5.3:close", NVF_PLAY_TEST_SCRIPT = "10:call:player:ShowRecipeMenu:CampfireRecipes", NVF_PLAY_TEST_POINTER = "13:600:238,14:600:186,15:600:238:click,16:600:186:click,17:1304:693,17.5:1304:693:click,20:600:186:click,21:600:238:click,22:468:109:click,25:362:480:click,27:1100:396:click,28:1321:740,28.5:1321:740:click,29.5:off", NVF_PLAY_TEST_RECIPE = "18:more,19:accept,21.5:cancel", NVF_PLAY_TEST_KEYS = "24:left,26:down", NVF_PLAY_TEST_SHOTS = "12:tiles_recipe_open.png,14.5:tiles_recipe_row.png,18.5:tiles_recipe_prompt.png,23:tiles_recipe_filtered.png,25.5:tiles_recipe_scrolled.png" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
 run_seconds = 32
 expect = [
@@ -21749,6 +21750,7 @@ expect = [
   { text = "tiles: RecipeMenu PageDown on its tiles", label = "the bar is the view's" },
   { re = 'tiles: RecipeMenu recipes list scrolled to [1-9]', label = "the bar scrolls" },
   { re = 'tiles: RecipeMenu \w+ list drawn at', count = 0, label = "the scroll drawn is the one written" },
+  { re = '(pointer over|clicked) RecipeMenu/.*RM_Items_IngredientList', count = 0, label = "a click on an ingredient row reaches nothing" },
   { text = "tiles: RecipeMenu Exit on its tiles", count = 1, label = "Exit once" },
   "recipe menu: closed",
   "tile menu blur: RecipeMenu radius 3",

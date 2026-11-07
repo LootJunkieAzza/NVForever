@@ -110,7 +110,7 @@ marker hidden. A click on another row selects it, a click on the selected row ac
 | `ListItemText` of a recipe | the name, and "(n)" when more than one is made | the record; a number |
 | `RM_ItemsTitle` | nothing without a filter; the subcategory's name with one, the file's back after it | the file's `sRecipes`; the record |
 | `RM_MadeAtVariable` | the category's name | the record |
-| `RM_SkillRequirement` | "{skill} ({have}/{need})", empty with none | `fnv_game::crafting::skill_name`, as the hand-built menu; numbers |
+| `RM_SkillRequirement` | "{skill} ({have}/{need})", empty with none | the AVIF record (`fnv_game::chargen::skill_name`); numbers |
 | `ListItemText` of an ingredient | "{name} ({have}/{need})" | the record; numbers |
 | the card's `_Value` | WG, VAL, effects | the output's record; the Pip-Boy's effects text |
 | the buttons' `_PCButtonText` | the key hint | `sPCMenuHintA`, `sPCMenuHintX` through `pad::game_hint` |
@@ -126,12 +126,18 @@ recipes" has no tile: an empty list is empty.
   tiled menu takes it and the tile blur in place of the hand-built `top_menu_backing` the owner
   chose for that drawing (playtest list 7 item 2; the default keeps it). This is a look
   difference for the maintainer to see.
-- The skill line's `alpha` is 127 short and 255 met. Its `visible` reads 1 in every state, the
-  text empty with no row. A row that cannot be made measures about half of a bright one, 0.52,
-  highlighted or not, so `ListItemText` takes the same alpha [hypothesis: the row text's own
-  traits were not read]. Each ingredient dims on its own.
-- Accept: only `target` is written. The file ties `_line_alpha` to it and its text's `alpha` to
-  that [documented: `text_box.xml`], and brightness stays 255. Both buttons' `visible` read 1.
+- Dimming: `alpha` 127 short and 255 met, at `brightness` 255, on a recipe's and an
+  ingredient's `ListItemText` and on the skill line, each by its own measure. The skill line's
+  `visible` reads 1 in every state, the text empty with no row.
+- Accept: only `target` is written. The file ties `_line_alpha` to it, 128 or 255, and its
+  text's `alpha` to that [documented: `text_box.xml`], and brightness stays 255. Both buttons'
+  `visible` read 1. The key hint is the file's child `PCShortcutLabel`, right of the box, from
+  `_PCButtonText`.
+- The ingredients: rows of the one template in the hotrect `RM_Items_IngredientList` (a `text`
+  of that name stands before it [documented: the file], so the path counts from the last,
+  `:0`), the whole of "name (have/need)" in `ListItemText`, `ItemValue` empty. The pointer on
+  one does nothing, no hover and no box, though a row reads `target` 1 under a list reading 0.
+  This tree's hit test would answer such a row, so the adapter writes its `target` 0.
 - `_IsContainerListSelected` reads -1 in every state, the file's, with the list's `_enabled` 1,
   so nothing writes it.
 - The title: the file's without a filter, the record's name in its own case with one, and the
@@ -145,19 +151,12 @@ chosen and stays so. A row that comes under a still pointer takes the choice the
 (owner 2026-10-22, for the item menus). Its prompt opens on the most that can be made and the
 menu closes after making; here the prompt opens on 1 and the menu stays (the owner's note of
 2026-10-26 says no change either way on the prompt). The original keeps a filtered row's tile
-with `listindex` -1; here it goes.
+with `listindex` -1; here it goes. The pointer off the rows, an ingredient's among them, takes
+the original's box away; here the choice stays.
 
-**Still open**, each [hypothesis] until a further capture:
-
-- The ingredients as rows of the file's one template in the hotrect
-  `RM_Items_IngredientList`, the whole of "name (have/need)" in `ListItemText`: the shots agree
-  (rows 52 apart, the words at its place), but every read of them took the `text` of that name
-  [documented: the file has both], so the path counts from the last (`:0`). Their `_enabled`,
-  `target` and hover are not known; here a click on one does nothing.
-- A row text's own `alpha` and `brightness` on a dim and a bright row.
-- A recipe with no skill: the header stays and the line is empty here.
-- One ingredient short with the skill met; a one-making recipe's prompt; the arrows' wrap, the
-  wheel on the heading, the filter on reopening; the list's true bottom.
+**Still open** [hypothesis]: a recipe with no skill (the header stays and the line is empty
+here); how a long list of ingredients scrolls, and a two-line ingredient row's height. The model
+would write the same for each.
 
 **Not built**. The prompt from `QuantityMenu`'s tiles (it stays hand-built over the tiles),
 `RM_Items_TitleButton` and `RM_Container_TitleButton`, the headline images and the mod cards.

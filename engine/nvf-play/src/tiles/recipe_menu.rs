@@ -12,8 +12,10 @@
 //! - **What is left to the file**: the titles' words (`sMadeAt`, `sSkillRequirement`,
 //!   `sIngredients`, `sRecipes`, Accept's and Exit's), every place and picture. A subcategory's
 //!   name replaces the list's title while it filters; the file's title comes back after it.
-//! - **The original was captured at 1280 x 720** (crafting.md section 4). What it could not
-//!   read stays [hypothesis]: a row text's own alpha, the ingredient rows' traits.
+//! - **The original was captured at 1280 x 720** (crafting.md section 4).
+//! - **An ingredient's row takes no pointer** [observed: no hover and no box, though its `target`
+//!   reads 1 under a list with `target` 0]. This tree's hit test would answer it, so its `target`
+//!   is written 0 here, and its rows stay out of [`list::hit`].
 //! - **What the file does itself is not written**: it dims Accept from `target` through
 //!   `_line_alpha`, and `_IsContainerListSelected` keeps the file's value [observed].
 
@@ -53,9 +55,8 @@ const LIST_NAMES: [&str; 2] = ["RM_Items_InventoryList", "RM_Items_IngredientLis
 pub const RECIPES: usize = 0;
 const INGREDIENTS: usize = 1;
 
-/// The `alpha` of a requirement the player cannot meet yet [observed: the skill line reads 127
-/// short, 255 met]. Of a row or an ingredient too [hypothesis: their text measures about half
-/// of a bright one's in the shots, 0.52; their text's alpha was not read].
+/// The `alpha` of a requirement the player cannot meet yet: a recipe's or an ingredient's
+/// `ListItemText` and the skill line, at `brightness` 255 [observed]. Accept's 128 is the file's.
 const DIM: f64 = 127.0;
 
 /// [design: `crate::crafting::keys`, `crate::pad::menu_buttons`] Physical keys the model's
@@ -167,7 +168,7 @@ impl Snapshot {
             filter: open.filter as u32,
             subcategory: v.subcategory.clone(),
             made_at: v.made_at.clone(),
-            skill: v.skill.as_ref().map(|(name, have, need)| (format!("{name} ({have}/{need})"), have >= need)),
+            skill: v.skill.as_ref().zip(v.skill_record.as_ref()).map(|((_, have, need), name)| (format!("{name} ({have}/{need})"), have >= need)),
             ingredients: v.ingredients.iter().map(|(key, name, have, need)| RowShown { key: *key, name: name.clone(), text: format!("{name} ({have}/{need})"), ready: have >= need }).collect(),
             card,
             icon: v.icon.clone(),
@@ -227,12 +228,13 @@ impl RecipeTiles {
         if !ui.is_live(tile) || ui.root_of(tile) != menu {
             return None;
         }
-        let lists = [(LIST_NAMES[RECIPES], self.rows[RECIPES].as_slice()), (LIST_NAMES[INGREDIENTS], self.rows[INGREDIENTS].as_slice())];
+        // An ingredient's rows are not given: they stand for nothing (module notes).
+        let lists = [(LIST_NAMES[RECIPES], self.rows[RECIPES].as_slice()), (LIST_NAMES[INGREDIENTS], [].as_slice())];
         Some(match list::hit(ui, tile, &lists, &TARGETS) {
-            Hit::Row(RECIPES, index) => RecipeTile::Row(index),
+            Hit::Row(_, index) => RecipeTile::Row(index),
             Hit::Bar(at, piece) => RecipeTile::Bar(at, piece),
             Hit::Target(what) => what,
-            Hit::Row(..) | Hit::Other => RecipeTile::Other,
+            Hit::Other => RecipeTile::Other,
         })
     }
 
@@ -324,10 +326,13 @@ fn write_rows(ui: &mut Ui, path: &str, rows: &mut Vec<RowTile<FormId>>, shown: &
     }
 }
 
-/// The ingredients as rows of the one template, in one place should the capture show one text
-/// [hypothesis: crafting.md section 4].
+/// The ingredients as rows of the one template, the whole of each in its `ListItemText`
+/// [observed: crafting.md section 4].
 fn write_ingredients(ui: &mut Ui, s: &Snapshot, st: &mut RecipeTiles) {
     write_rows(ui, LISTS[INGREDIENTS], &mut st.rows[INGREDIENTS], &s.ingredients);
+    for row in &st.rows[INGREDIENTS] {
+        ui.set_trait(row.tile, "target", on(false));
+    }
 }
 
 /// A subcategory's name over the file's title while it filters; the file's again after it.
@@ -591,6 +596,9 @@ mod tests {
         assert_eq!(ui.tile(list::child(&ui, made, ROW_VALUE).unwrap()).get("string").unwrap().text(), "");
         assert!(!ui.tile(list::child(&ui, made, ROW_MARK).unwrap()).get("visible").unwrap().truthy());
         let (enough, short) = (st.rows[INGREDIENTS][0].tile, st.rows[INGREDIENTS][1].tile);
+        assert!(fnv_ui::input::targets(&ui, made), "a recipe's row takes the pointer");
+        assert!(!fnv_ui::input::targets(&ui, enough), "an ingredient's does not");
+        assert!(!fnv_ui::input::targets(&ui, short));
         assert_eq!(ui.tile(enough).parent, ui.find_tile(LISTS[INGREDIENTS]));
         assert!(text(&ui, enough, "alpha", &Value::Num(255.0).text()));
         assert!(text(&ui, short, "string", "Thing 8"));
