@@ -14,6 +14,9 @@
 //!   is moved for good].
 //! - **Watchers**: a co-op player near a table another player plays sees its balls too, as
 //!   replayed from each shot's strike (`nvf_play::pool::PoolWatch`).
+//! - **The lamp** ([`table_light`]): a soft warm downlight over the cloth while a table is
+//!   played (one's own or one watched), fading in as the game starts and out after, so the
+//!   balls read in dim rooms [design: owner 2026-11-06].
 
 use crate::world::WorldRoot;
 use bevy::prelude::*;
@@ -59,7 +62,7 @@ impl Plugin for PoolWorldPlugin {
             .init_resource::<Stage>()
             .add_systems(Update, stage.before(nvf_play::player::BodySet).before(crate::idles::drive))
             .add_systems(PostUpdate, place.before(bevy::transform::TransformSystems::Propagate))
-            .add_systems(Update, clear_cloth);
+            .add_systems(Update, (clear_cloth, table_light));
     }
 }
 
@@ -97,16 +100,23 @@ fn cue_at(f: &TableFrame, white: [f32; 2], dir: [f32; 2], power: f32) -> Transfo
     Transform { translation: Vec3::from(tip), rotation: f.rotation() * local, scale: Vec3::splat(f.k) }
 }
 
-/// Whether a placed thing lies on a table's cloth, as the mod clears it [observed:
-/// ClearTable.txt].
-fn on_cloth(f: &TableFrame, at: [f32; 3]) -> bool {
-    let l = f.to_local(at);
-    l[0].abs() <= 125.0 && l[1].abs() <= 72.0 && (18.0..=100.0).contains(&l[2])
+/// The lamp's height over the cloth's middle, table units [design].
+const LAMP_UP: f32 = 120.0;
+/// Its brightness in the game's light units (as a LIGH's fade) and reach [design: soft,
+/// the poker table's lamp is 1.25].
+const LAMP: f32 = 0.9;
+const LAMP_RANGE: f32 = 300.0;
+/// Seconds to fade in or out.
+const LAMP_FADE: f32 = 0.6;
+
+#[derive(Component)]
+struct TableLamp {
+    table: u32,
+    level: f32,
 }
 
-/// The loose things on each table being played are out of sight (found once as its game
-/// starts), and shown again once it is over.
-fn clear_cloth(screen: Res<PoolScreen>, watch: Res<PoolWatch>, sim: Option<Res<nvf_play::sim::SimState>>, mut cleared: Local<Vec<(u32, Vec<Entity>)>>, refs: Query<(Entity, &nvf_play::RefVisual, &GlobalTransform)>, mut shown: Query<&mut Visibility>) {
+/// The tables being played here: one's own (its play page) and those watched.
+fn played_tables(screen: &PoolScreen, watch: &PoolWatch) -> Vec<(u32, TableFrame)> {
     let mut live: Vec<(u32, TableFrame)> = Vec::new();
     if let Some(p) = screen.0.as_ref().filter(|p| p.page == nvf_play::pool::Page::Play) {
         if let Some(f) = p.frame {
@@ -118,13 +128,74 @@ fn clear_cloth(screen: Res<PoolScreen>, watch: Res<PoolWatch>, sim: Option<Res<n
             live.push((r.table_ref, f));
         }
     }
+    live
+}
+
+/// A warm spot over each table being played, fading in and out, gone when faded out.
+fn table_light(
+    mut commands: Commands,
+    screen: Res<PoolScreen>,
+    watch: Res<PoolWatch>,
+    time: Res<Time>,
+    root: Query<Entity, With<WorldRoot>>,
+    mut lamps: Query<(Entity, &mut TableLamp, &mut SpotLight)>,
+) {
+    let live = played_tables(&screen, &watch);
+    let step = time.delta_secs() / LAMP_FADE;
+    let full = crate::lights::lumens(LAMP, crate::sky::light_unit());
+    for (e, mut l, mut spot) in &mut lamps {
+        let on = live.iter().any(|t| t.0 == l.table);
+        l.level = if on { (l.level + step).min(1.0) } else { l.level - step };
+        if l.level <= 0.0 {
+            commands.entity(e).despawn();
+            info!("pool world: the lamp over table 0x{:08X} is out", l.table);
+            continue;
+        }
+        spot.intensity = full * l.level * l.level * (3.0 - 2.0 * l.level);
+    }
+    let Ok(root) = root.single() else { return };
+    for (table, f) in live {
+        if lamps.iter().any(|(_, l, _)| l.table == table) {
+            continue;
+        }
+        let top = Vec3::from(f.to_world([0.0, 0.0, pool::BALL_Z + LAMP_UP]));
+        let mid = Vec3::from(f.to_world([0.0, 0.0, pool::BALL_Z]));
+        // Wide enough for the cloth and its rails (half-diagonal ~150 at 120 below).
+        commands.spawn((
+            Name::new("Pool table lamp"),
+            TableLamp { table, level: 0.0 },
+            SpotLight { color: Color::srgb(1.0, 0.9, 0.75), intensity: 0.0, range: LAMP_RANGE * f.k, radius: 8.0, shadow_maps_enabled: true, inner_angle: 0.6, outer_angle: 0.95, ..default() },
+            Transform::from_translation(top).looking_at(mid, Vec3::Y),
+            ChildOf(root),
+        ));
+        info!("pool world: a lamp over table 0x{table:08X}");
+    }
+}
+
+/// Whether a placed thing lies on a table's cloth, as the mod clears it [observed:
+/// ClearTable.txt].
+fn on_cloth(f: &TableFrame, at: [f32; 3]) -> bool {
+    let l = f.to_local(at);
+    l[0].abs() <= 125.0 && l[1].abs() <= 72.0 && (18.0..=100.0).contains(&l[2])
+}
+
+/// The loose things on each table being played are out of sight (found once as its game
+/// starts), and shown again once it is over.
+#[allow(clippy::too_many_arguments)]
+fn clear_cloth(screen: Res<PoolScreen>, watch: Res<PoolWatch>, sim: Option<Res<nvf_play::sim::SimState>>, script: Option<Res<nvf_play::script::ScriptState>>, mut cleared: Local<Vec<(u32, Vec<(Entity, u32)>)>>, refs: Query<(Entity, &nvf_play::RefVisual, &GlobalTransform)>, mut shown: Query<&mut Visibility>) {
+    let live = played_tables(&screen, &watch);
+    // Whether the game draws a reference now (enabled, not culled by a script): what is put
+    // back is shown only if so, and only drawn things are taken off. Putting every one back
+    // as shown drew references the game hides (owner's playtest 2026-11-06: grey slabs over
+    // the Lucky 38 table on the guest after a game).
+    let drawn = |r: u32| sim.as_deref().is_some_and(|sim| nvf_play::activate::drawn(sim, script.as_deref(), r));
     cleared.retain(|(table, hidden)| {
         if live.iter().any(|l| l.0 == *table) {
             return true;
         }
-        for e in hidden {
+        for (e, r) in hidden {
             if let Ok(mut v) = shown.get_mut(*e) {
-                v.set_if_neq(Visibility::Inherited);
+                v.set_if_neq(if drawn(*r) { Visibility::Inherited } else { Visibility::Hidden });
             }
         }
         info!("pool world: the things on table 0x{table:08X}'s cloth are back ({})", hidden.len());
@@ -147,15 +218,15 @@ fn clear_cloth(screen: Res<PoolScreen>, watch: Res<PoolWatch>, sim: Option<Res<n
                 })
             };
             let mut names: Vec<String> = Vec::new();
-            let found: Vec<Entity> = refs
+            let found: Vec<(Entity, u32)> = refs
                 .iter()
-                .filter(|(e, r, _)| r.0 != table && loose(r.0) && placed(r.0).is_some_and(|at| on_cloth(&f, at)) && shown.get(*e).is_ok_and(|v| *v != Visibility::Hidden))
+                .filter(|(e, r, _)| r.0 != table && loose(r.0) && drawn(r.0) && placed(r.0).is_some_and(|at| on_cloth(&f, at)) && shown.get(*e).is_ok_and(|v| *v != Visibility::Hidden))
                 .map(|(e, r, _)| {
                     let name = sim.as_deref().and_then(|s| s.base_of(r.0).and_then(|b| s.forms.get(b)).and_then(|b| b.edid.clone())).unwrap_or_else(|| format!("0x{:08X}", r.0));
                     if !names.contains(&name) {
                         names.push(name);
                     }
-                    e
+                    (e, r.0)
                 })
                 .collect();
             info!("pool world: cleared off table 0x{table:08X}'s cloth: {} ({} drawn parts)", names.join(", "), found.len());
@@ -163,7 +234,7 @@ fn clear_cloth(screen: Res<PoolScreen>, watch: Res<PoolWatch>, sim: Option<Res<n
         }
     }
     for (_, hidden) in cleared.iter() {
-        for e in hidden {
+        for (e, _) in hidden {
             if let Ok(mut v) = shown.get_mut(*e) {
                 v.set_if_neq(Visibility::Hidden);
             }

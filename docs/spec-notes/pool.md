@@ -182,5 +182,8 @@ Implemented in `crates/fnv-game/src/pool.rs` (rules, physics, opponent), nvf-pla
 - Co-op: the owner's table publishes the layout at rest and each shot's strike; other
   players replay the shot with the same fixed-step physics. A second player who opens the
   same table can take the second side in place of the opponent, with no stake.
+- A lamp over a table while it is played or watched [design: owner 2026-11-06]: a warm
+  spot 120 units over the balls, lighting the cloth and rails, fading in over 0.6 s as the
+  game opens and out as it closes, then removed. The rooms' own lights are not changed.
 - Test aid `NVF_PLAY_TEST_POOL_CURSOR=<seconds>:<x>:<y>,...` puts the cursor on the cloth
   (sim units) for scripted runs.

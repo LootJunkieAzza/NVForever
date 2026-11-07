@@ -811,7 +811,7 @@ type AllVisuals<'w, 's> = Query<'w, 's, (&'static RefVisual, &'static mut Visibi
 /// hidden actor has no hit volume (`crate::hitvol`) and its corpse leaves the physics world
 /// (nvforever `ragdoll.rs`): "cull its 3D, and remove its Havok data" [documented: GECK
 /// wiki SetCriticalStage].
-pub(crate) fn drawn(sim: &SimState, script: Option<&crate::script::ScriptState>, id: u32) -> bool {
+pub fn drawn(sim: &SimState, script: Option<&crate::script::ScriptState>, id: u32) -> bool {
     sim.present(id) && !script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.culled(FormId(id)))
 }
 
