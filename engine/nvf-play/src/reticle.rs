@@ -105,6 +105,8 @@ const ACTION_BASE: f32 = 326.5;
 const LINE_PITCH: f32 = 40.0;
 /// From the key's end to the action's start.
 const KEY_GAP: f32 = 11.0;
+/// Between the first action's word and the second action's key [design].
+const SECOND_GAP: f32 = 24.0;
 /// The divider picture's top under the name's line; its stem's middle, across.
 const DIVIDER_BELOW: f32 = 8.5;
 const STEM_X: f32 = -4.0;
@@ -138,6 +140,9 @@ pub struct Prompt {
     pub key: String,
     /// A line under the name: [`EMPTY`] for a container or body with nothing in it.
     pub note: Option<String>,
+    /// A second action on the action line, its key ("R)") and word: a campfire's
+    /// "Light fire" (`crate::campfire`).
+    pub second: Option<(String, String)>,
 }
 
 /// Under the name of an empty container or body [owner 2026-10-27].
@@ -163,6 +168,15 @@ impl Prompt {
     pub(crate) fn bound(t: &Targeted, sim: &SimState, bindings: Option<&crate::bindings::Bindings>) -> Prompt {
         let key = bindings.map(|b| b.prompt(crate::bindings::Control::Activate)).unwrap_or_default();
         Prompt { key, ..Prompt::of(t, sim) }
+    }
+
+    /// With the second action of a campfire (`crate::campfire`): Activate is "Craft".
+    pub(crate) fn with_second(mut self, t: &Targeted, sim: &SimState, campfires: Option<&crate::campfire::Campfires>, bindings: Option<&crate::bindings::Bindings>) -> Prompt {
+        if let Some(second) = crate::campfire::second_action(campfires, sim, t.form_id, bindings) {
+            self.action = crate::campfire::CRAFT.into();
+            self.second = Some(second);
+        }
+        self
     }
 
     pub fn of(t: &Targeted, sim: &SimState) -> Prompt {
@@ -192,7 +206,7 @@ impl Prompt {
             _ => None,
         });
         let note = t.empty.then(|| EMPTY.to_string());
-        Prompt { action, name, figures, crime: t.crime, key: String::new(), note }
+        Prompt { action, name, figures, crime: t.crime, key: String::new(), note, second: None }
     }
 }
 
@@ -237,11 +251,30 @@ pub fn layout(p: &Prompt, font: &Font) -> Layout {
     let mut texts = if p.action.is_empty() {
         vec![set(name.clone(), NAME_X - name.width / 2.0, name_base)]
     } else {
-        vec![
-            set(key.clone(), action_x - KEY_GAP - key.width, ACTION_BASE),
-            set(action, action_x, ACTION_BASE),
-            set(name.clone(), NAME_X - name.width / 2.0, name_base),
-        ]
+        match p.second.as_ref() {
+            None => vec![
+                set(key.clone(), action_x - KEY_GAP - key.width, ACTION_BASE),
+                set(action, action_x, ACTION_BASE),
+                set(name.clone(), NAME_X - name.width / 2.0, name_base),
+            ],
+            // Two actions: "F) Craft   R) Light fire", side by side as JAM's loot menu
+            // shows its two, the pair centred where the one action is [design].
+            Some((second_key, second_action)) => {
+                let (key2, action2) = (line(second_key), line(second_action));
+                let width = key.width + KEY_GAP + action.width + SECOND_GAP + key2.width + KEY_GAP + action2.width;
+                let x = ACTION_X - width / 2.0;
+                let action_x = x + key.width + KEY_GAP;
+                let key2_x = action_x + action.width + SECOND_GAP;
+                let action2_x = key2_x + key2.width + KEY_GAP;
+                vec![
+                    set(key.clone(), x, ACTION_BASE),
+                    set(action.clone(), action_x, ACTION_BASE),
+                    set(key2, key2_x, ACTION_BASE),
+                    set(action2, action2_x, ACTION_BASE),
+                    set(name.clone(), NAME_X - name.width / 2.0, name_base),
+                ]
+            }
+        }
     };
     // The note on its own line under the name, centred as the name is [design].
     if let Some(note) = p.note.as_deref().map(line) {
@@ -557,7 +590,7 @@ fn draw(
         Query<(&Cross, &mut Visibility, &mut Node, Option<&mut ImageNode>), Without<Root>>,
         Query<(&Bar, &mut Visibility, &mut Node, &mut ImageNode), (Without<Root>, Without<Cross>)>,
     ),
-    (texts, pipboy, glance, menu, modded, no_prompt): (Query<Entity, With<Texts>>, Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::pipboy::glance::Glance>>, Option<Res<crate::menu::ActiveMenu>>, Option<Res<ScriptHidesReticle>>, Option<Res<ScriptHidesPrompt>>),
+    (texts, pipboy, glance, menu, modded, no_prompt, campfires): (Query<Entity, With<Texts>>, Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::pipboy::glance::Glance>>, Option<Res<crate::menu::ActiveMenu>>, Option<Res<ScriptHidesReticle>>, Option<Res<ScriptHidesPrompt>>, Option<Res<crate::campfire::Campfires>>),
 ) {
     // Not over the character creator, whatever state the opening leaves the game in
     // [owner 2026-10-17: "E) Talk" stayed under it]. Nor while an idle holds the camera
@@ -690,7 +723,7 @@ fn draw(
     }
     let barred = |t: &Targeted| bar.as_ref().and_then(|b| b.0.as_ref()).is_some_and(|b| under_bar(t, b.form_id));
     let no_prompt = no_prompt.is_some_and(|p| p.0);
-    let want = target.0.as_ref().filter(|t| !locks.rollover && !no_prompt && !barred(t)).map(|t| Prompt::bound(t, &sim, bindings.as_deref()));
+    let want = target.0.as_ref().filter(|t| !locks.rollover && !no_prompt && !barred(t)).map(|t| Prompt::bound(t, &sim, bindings.as_deref()).with_second(t, &sim, campfires.as_deref(), bindings.as_deref()));
     if *shown != want {
         let Ok(e) = texts.single() else { return };
         commands.entity(e).despawn_related::<Children>().with_children(|p| {
@@ -700,7 +733,10 @@ fn draw(
         });
         // What the prompt says, once per change (docs/spec-notes/cells-refs.md §3).
         if let Some(p) = &want {
-            info!("reticle: prompt \"{}\" on \"{}\"", p.action, p.name);
+            match &p.second {
+                Some((key, second)) => info!("reticle: prompt \"{}\" and \"{key} {second}\" on \"{}\"", p.action, p.name),
+                None => info!("reticle: prompt \"{}\" on \"{}\"", p.action, p.name),
+            }
         }
         *shown = want;
     }
@@ -716,7 +752,7 @@ mod tests {
     }
 
     fn prompt(action: &str, name: &str, figures: Option<[&str; 2]>) -> Prompt {
-        Prompt { action: action.into(), name: name.into(), figures: figures.map(|f| f.map(String::from)), crime: false, key: String::new(), note: None }
+        Prompt { action: action.into(), name: name.into(), figures: figures.map(|f| f.map(String::from)), crime: false, key: String::new(), note: None, second: None }
     }
 
     #[test]
@@ -753,6 +789,16 @@ mod tests {
         let [_, _, name, note] = &l.texts[..] else { panic!("{:?}", l.texts) };
         assert_eq!((note.x + note.line.width / 2.0, note.base), (NAME_X, name.base + LINE_PITCH));
         assert_eq!(layout(&prompt("Open", "Footlocker", None), &font()).texts.len(), 3);
+        // A second action: both keys and words on the action line, left to right, the
+        // pair centred on the one action's place.
+        let two = Prompt { second: Some(("R)".into(), "Light fire".into())), ..prompt("Craft", "Campfire", None) };
+        let l = layout(&two, &font());
+        assert_eq!(l.texts.len(), 5);
+        let xs: Vec<f32> = l.texts[..4].iter().map(|t| t.x).collect();
+        assert!(xs.windows(2).all(|w| w[0] < w[1]), "{xs:?}");
+        assert!(l.texts[..4].iter().all(|t| t.base == ACTION_BASE));
+        let (left, right) = (l.texts[0].x, l.texts[3].x + l.texts[3].line.width);
+        assert!(((left + right) / 2.0 - ACTION_X).abs() < 0.01);
     }
 
     #[test]

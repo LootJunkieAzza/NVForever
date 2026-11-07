@@ -1303,7 +1303,18 @@ pub const WAKE_TALK_SECONDS: f64 = 8.0;
 /// The player activates `target` by hand (E): through the scripts when they run.
 pub fn activate_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target: u32) -> Result<ByHand, String> {
     match script.and_then(|s| s.rt.as_mut()) {
-        Some(rt) => with_world(rt, sim, |rt| rt.by_hand(FormId(target))),
+        Some(rt) => with_world(rt, sim, |rt| {
+            // A burning campfire of Burning Campfire Redone keeps its fires: those its
+            // script places again are taken away (`fnv_game::campfire`).
+            let campfire = rt.game.is_campfire(FormId(target));
+            let before = if campfire { rt.game.campfire_fires(FormId(target)) } else { Vec::new() };
+            let done = rt.by_hand(FormId(target));
+            let removed = rt.game.keep_first_fires(FormId(target), &before);
+            if campfire && !before.is_empty() {
+                info!("campfire 0x{target:08X}: burning already ({} fires): {} fires its script placed again taken away, the burning ones start again", before.len(), removed.len());
+            }
+            done
+        }),
         None => sim.world.activate(FormId::PLAYER_REF, FormId(target)).map(ByHand::Default).map_err(|e| e.to_string()),
     }
 }
