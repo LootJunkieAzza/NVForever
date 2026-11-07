@@ -21698,3 +21698,179 @@ run_seconds = 18
 expect = ["FSR 3.1.4: NativeAa", { re = 'blended cut-outs: drawn alpha-tested for FSR \((\d+) materials changed\)', range = [1, 100000], label = "the corn rows' material cut when FSR comes on" }, { re = 'blended cut-outs: drawn blended \((\d+) materials changed\)', range = [1, 100000], label = "and blended again when it goes off" }]
 order = [["blended cut-outs: drawn alpha-tested", "blended cut-outs: drawn blended"]]
 forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error", "Validation Error"]
+
+[[scenario]]
+name = "tiles-items"
+source = "[design] pipboy.md section 5.2.1, issues 1513 and 1468: with [UI] TileMenus=InventoryMenu the ITEMS page is drawn from inventory_menu.xml into the Pip-Boy's image on the device, its rows, tabs and figures through its tiles; the pointer's move, a click on the selected row, a tab and the right click send what the hand-built page sends"
+note = "the points are canvas units on the page as run [hypothesis until the first run: rows 52 high from the list's top at 125, the file's place for the hand-built list; the last tab by the tab line's right end]. A revolver and 000E3778, two weapons, and 24 rounds are given; the pointer goes onto row 2 at 30 s, a click on row 1 at 32 s (the pointer's coming selects it, the click on the selected row equips it), the Ammo tab at 34 s, back by the aid, a right click on row 2 at 38 s drops it. Shots: compare tiles_items_device with tiles_items_off_device at the same times."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/tiles/item_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/tiles/item_card.rs", "engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/hotkey_panel.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvforever/src/pipboy_arm.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "22.5:player.equipitem 00015038;22.8:close", NVF_PLAY_TEST_GIVE = "0008F216:1,000E3778:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=items,27:tab=0,30:point=260:202,32:click=260:150,34:click=840:651,36:tab=0,38:rclick=260:202,40:close", NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_SHOTS = "28:tiles_items_device.png,31:tiles_items_device_row.png,35:tiles_items_device_ammo.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 44
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=InventoryMenu \(from test aid NVF_PLAY_TEST_TILE_MENUS\): InventoryMenu drawn from tiles; its QuantityMenu prompt follows', label = "on the device: the switch is read from the test aid" },
+  { text = "pipboy: frame Device", min = 1, label = "on the device: on the device" },
+  { re = 'tiles: InventoryMenu page from tiles: \d+ rows, "[^"]*" selected, tab \d, Wg \S+, HP \S+, DT \S+, Caps \d+, figures: .*, device$', min = 1, label = "on the device: the model's rows and figures, the device's layout" },
+  { re = 'tiles: InventoryMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', count = 1, label = "on the device: structure only, no pixels: the menu goes to the painter, once for the run: it is kept and its tabs with it" },
+  { re = '''tiles: InventoryMenu set out for the Pip-Boy's image: [1-9]\d* pieces, [1-9]\d* row names''', min = 1, label = "on the device: structure only, logs cannot prove pixels (the shots do): pieces of the file go to the painter, row names among them" },
+  { text = "InventoryMenu drawn by hand", count = 0, label = "on the device: the file has every name the page needs, and its rows and tabs take the pointer" },
+  { text = "pipboy items: ", count = 0, label = "on the device: no hand-built body" },
+  { text = "tiles: InventoryMenu Hover(Player, 1) on its tiles", min = 2, label = "on the device: the pointer onto row 2 selects it, and the right click comes with it" },
+  { text = "tiles: InventoryMenu Hover(Player, 0) on its tiles", count = 1, label = "on the device: the pointer onto row 1 selects it, once" },
+  { text = "tiles: InventoryMenu Select(Player, 0) on its tiles", count = 1, label = "on the device: a click on the selected row, what the hand-built row sends" },
+  { re = 'menu: Select\(Player, 0\): Equipped \.357 Magnum Revolver', count = 1, label = "on the device: and the model equips it" },
+  { text = "tiles: InventoryMenu Tab(4) on its tiles", count = 1, label = "on the device: the click on the last tab, through its made tile" },
+  { text = "pipboy: ITEMS Ammo", min = 1, label = "on the device: it reaches the page" },
+  { text = "tiles: InventoryMenu Drop on its tiles", count = 1, label = "on the device: a right click on a row drops one [owner 2026-11-02, #1393]" },
+  { re = 'menu: Drop: Dropped \S', count = 1, label = "on the device: the model drops it" },
+  { text = "pipboy mod: open", count = 0, label = "on the device: the mod menu stays closed" },
+]
+order = [["pipboy: frame Device", { text = "tiles: InventoryMenu Hover(Player, 1) on its tiles" }, { text = "tiles: InventoryMenu Select(Player, 0) on its tiles" }, { text = "tiles: InventoryMenu Tab(4) on its tiles" }, "pipboy: ITEMS Ammo", { text = "tiles: InventoryMenu Drop on its tiles" }]]
+
+[[scenario]]
+name = "tiles-items-screen"
+source = "[design] pipboy.md section 5.2.1, the owner 2026-10-31: the same page in the screen menu: no title, no background or scanlines from the shell, and the page names' header still takes clicks, with no tile under it"
+note = "the points as tiles-items [hypothesis until the first run]; a click on the header's STATS at 33.5 s goes there by the shell, the aid brings ITEMS back. Shots: compare tiles_items_screen with tiles_items_off_screen."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/tiles/item_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0008F216:1,000E3778:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "22:frame=screen,25:open,26:page=items,27:tab=0,30:point=260:202,32:click=260:150,33.5:click=stats,34.5:page=items,35:click=840:651,37:tab=0,38.5:rclick=260:202,40:close", NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_SHOTS = "28:tiles_items_screen.png,31:tiles_items_screen_row.png,36:tiles_items_screen_ammo.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 44
+expect = [
+  { text = "pipboy: frame Screen", min = 1, label = "in the screen menu: the screen menu" },
+  { re = 'tiles: InventoryMenu page from tiles: .*, screen menu$', min = 1, label = "in the screen menu: the screen menu's layout" },
+  { re = 'pipboy: STATS ', min = 1, label = "in the screen menu: the header's click reached the hand-built shell over the tile page" },
+  { text = "InventoryMenu drawn by hand", count = 0, label = "in the screen menu: the file has every name the page needs" },
+  { text = "tiles: InventoryMenu Select(Player, 0) on its tiles", count = 1, label = "in the screen menu: a click on the selected row" },
+  { text = "tiles: InventoryMenu Tab(4) on its tiles", count = 1, label = "in the screen menu: the click on the last tab" },
+  { text = "tiles: InventoryMenu Drop on its tiles", count = 1, label = "in the screen menu: the right click" },
+]
+
+[[scenario]]
+name = "tiles-items-off"
+source = "[design] pipboy.md section 5.2.1: without the switch the page is the hand-built one on the device: nothing of the tile page runs, and its pointer, tabs, click and right click work as before"
+note = "the same steps and times as tiles-items, at the hand-built places. Shots to compare with it."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/hotkey_panel.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/menu.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "22.5:player.equipitem 00015038;22.8:close", NVF_PLAY_TEST_GIVE = "0008F216:1,000E3778:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=items,27:tab=0,30:point=260:202,32:click=260:150,34:click=840:651,36:tab=0,38:rclick=260:202,40:close", NVF_PLAY_TEST_SHOTS = "28:tiles_items_off_device.png,31:tiles_items_off_device_row.png,35:tiles_items_off_device_ammo.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 44
+expect = [
+  { re = 'tiles: InventoryMenu|InventoryMenu drawn by hand', count = 0, label = "switch off, on the device: nothing of the tile page runs without its switch" },
+  { re = 'pipboy items: heading HP \S+, DT \S+; rows \d+\.\. of \d+ drawn', min = 1, label = "switch off, on the device: the hand-built body draws" },
+  { re = 'menu: Select\(Player, 0\): Equipped \.357 Magnum Revolver', count = 1, label = "switch off, on the device: a click on the selected row equips it" },
+  { text = "pipboy: ITEMS Ammo", min = 1, label = "switch off, on the device: a click on the tab line" },
+  { re = 'menu: Drop: Dropped \S', count = 1, label = "switch off, on the device: the right click drops one" },
+]
+
+[[scenario]]
+name = "tiles-items-off-screen"
+source = "[design] pipboy.md section 5.2.1: without the switch the screen menu's page is the hand-built one"
+note = "the same steps and times as tiles-items-screen. Shots to compare with it."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0008F216:1,000E3778:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "22:frame=screen,25:open,26:page=items,27:tab=0,30:point=260:202,32:click=260:150,33.5:click=stats,34.5:page=items,35:click=840:651,37:tab=0,38.5:rclick=260:202,40:close", NVF_PLAY_TEST_SHOTS = "28:tiles_items_off_screen.png,31:tiles_items_off_screen_row.png,36:tiles_items_off_screen_ammo.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 44
+expect = [
+  { re = 'tiles: InventoryMenu|InventoryMenu drawn by hand', count = 0, label = "switch off, in the screen menu: nothing of the tile page runs" },
+  { text = "pipboy: frame Screen", min = 1, label = "switch off, in the screen menu: the screen menu" },
+  { re = 'pipboy: STATS ', min = 1, label = "switch off, in the screen menu: the header's click" },
+  { re = 'menu: Drop: Dropped \S', count = 1, label = "switch off, in the screen menu: the right click drops one" },
+]
+
+[[scenario]]
+name = "tiles-items-scroll"
+source = "[design] pipboy.md section 5.2.1, plan section 5: a list longer than its window scrolls and the page stays usable, its rows outside the window passed over; the keys' pick brings its row into view, the bar's page area moves the list, and the frame's counts say what a pass costs (NVF_PLAY_TEST_TILE_COUNTS)"
+note = "twelve weapons given by script over what the player carries; ten rows' steps by the aid's key; the bar's page area at 51:500 [hypothesis until the first run: the bar at the list's left, 32 wide, under the marker]. For the counts' figures read the log's lines at 30 s (the list at its top) and 35 s; the counts' own line lies outside micros."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/tiles/item_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/layout.rs"]
+env = { NVFOREVER_HOME = "tiles-items-scroll-home", NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:WeapNV357Revolver:1,9.2:call:player:AddItem:Weap10mmPistol:1,9.4:call:player:AddItem:WeapNV9mmPistol:1,9.6:call:player:AddItem:WeapNVDynamite:1,9.8:call:player:AddItem:WeapSniperRifle:1,10:call:player:AddItem:WeapNVStraightRazor:1,10.2:call:player:AddItem:WeapNVServiceRifle:1,10.4:call:player:AddItem:WeapNVRebarClub:1,10.6:call:player:AddItem:WeapNVHuntingShotgun:1,10.8:call:player:AddItem:WeapLeadPipe:1,11:call:player:AddItem:WeapGrenadeFrag:1,11.2:call:player:AddItem:VFSWeapLaserRifleVanGraff:1", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=items,27:tab=0,29:key=down,29.2:key=down,29.4:key=down,29.6:key=down,29.8:key=down,30:key=down,30.2:key=down,30.4:key=down,30.6:key=down,30.8:key=down,32:tab=0,33:click=51:500,35:close", NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_TILE_COUNTS = "1", NVF_PLAY_TEST_SHOTS = "31.5:tiles_items_scrolled.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 39
+expect = [
+  { text = "InventoryMenu drawn by hand", count = 0, label = "a scrolled list keeps the page: its rows outside the window are passed over" },
+  { re = 'tiles: InventoryMenu player list scrolled to [1-9]\d* of [1-9]\d*', min = 1, label = "the keys' pick moved the list" },
+  { re = 'tiles: InventoryMenu player list drawn at', count = 0, label = "what is drawn is the value written, whatever the file's own count of the clicks does" },
+  { text = "tiles: InventoryMenu Bar(PageDown) on its tiles", count = 1, label = "the bar's page area, through its tile" },
+  { re = 'tile counts: InventoryMenu pass=late writes=\d+ changed=\d+ micros=\d+ rows=[1-9]\d* rows_in_clip=[1-9]\d* hit_tests=[1-9]\d* candidates=[1-9]\d* pieces=[1-9]\d*', min = 1, label = "the late pass's counts" },
+  { re = 'tile counts: InventoryMenu pass=early writes=\d+ changed=\d+ micros=\d+', min = 1, label = "the early pass's counts" },
+]
+
+[[scenario]]
+name = "tiles-items-quantity"
+source = "[design] pipboy.md section 5.2.1, ui-tile-tree.md: with the ITEMS page drawn from its tiles the \"How many?\" prompt is drawn from QuantityMenu's, on the window, with no switch of its own; the page takes nothing under it"
+note = "nine Stimpaks are given; the drop aid opens the Pip-Boy at 25 s, turns to the Aid tab and asks; a click on a row of the page at 27.5 s acts on nothing; the prompt's A answers."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/menu.rs", "engine/nvf-play/src/menu/**"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "00015169:9", NVF_PLAY_TEST_DROP = "25:00015169:ask", NVF_PLAY_TEST_PIPBOY = "27.5:click=260:150", NVF_PLAY_TEST_KEYS = "29:a", NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_SHOTS = "27:tiles_items_quantity.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 33
+expect = [
+  { re = 'how many\? \(\d+ of \d+\)', count = 1, label = "the prompt asks once" },
+  { re = 'tiles: QuantityMenu drawn from tiles: amount \d+ of \d+', min = 1, label = "written from the model" },
+  { re = 'tiles: QuantityMenu drawn from tiles \(\d+ file tiles, 0 code tiles\)', label = "with InventoryMenu alone, the prompt's tree draws" },
+  { text = "test aid: pipboy clicked the screen", label = "the click under the prompt was made" },
+  { text = "tiles: InventoryMenu Select", count = 0, label = "no click goes past the prompt to a row" },
+  { re = 'menu: AmountOk: Dropped Stimpak x\d+', count = 1, label = "the prompt's OK drops the amount" },
+  { text = "InventoryMenu drawn by hand", count = 0, label = "the page stays from its tiles" },
+]
+order = [[{ re = 'tiles: InventoryMenu page from tiles' }, { re = 'how many\?' }, { text = "test aid: pipboy clicked the screen" }, { re = 'menu: AmountOk: Dropped' }]]
+
+[[scenario]]
+name = "tiles-items-hotkey"
+source = "[design] pipboy.md section 5.2.1, owner 2026-10-26: behind the switch a hotkey is still assigned by holding its key and left-clicking a row, the panel showing from the file's tiles; the same assignments and refusals as pipboy-hotkey-assign"
+note = "pipboy-hotkey-assign's steps 13 s later, the switch on. The screenshot shows the panel with key 3 held; what its boxes show is the shots', the panel's traits being [hypothesis until the capture]."
+areas = ["ui", "hotkeys", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/pipboy/hotkey_panel.rs", "engine/nvf-play/src/hotkeys.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0008F216:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=items,26.5:tab=0,27:point=260:150,28:hotkey=3,29:click=260:150,30.5:hotkey=4,31:click=260:150,32:hotkey=2,32.5:click=260:150,33:hotkey=off,34:tab=4,35:hotkey=5,35.5:click=260:150,36.5:hotkey=off,37:close", NVF_PLAY_TEST_HOTKEYS = "40:tap:4", NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_SHOTS = "30:tiles_items_hotkeys.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--hour", "14", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 45
+expect = [
+  "pipboy hotkeys: key 3 held",
+  { text = "tiles: InventoryMenu hotkey panel shown, key 3", label = "the panel shows while key 3 is held" },
+  { re = 'hotkeys: slot 3 holds \.357 Magnum Revolver \(0x0008F216\)', label = "behind the switch: a click with 3 held puts the revolver in slot 3" },
+  { re = 'hotkeys: slot 4 holds \.357 Magnum Revolver \(0x0008F216\) \(moved from slot 3\)', label = "behind the switch: with 4 held it moves to slot 4" },
+  { re = 'hotkeys: slot 2 is Ammo Swap: \.357 Magnum Revolver not assigned', label = "behind the switch: key 2 takes no item" },
+  { re = 'hotkeys: .* cannot be hotkeyed', label = "behind the switch: ammunition cannot be hotkeyed" },
+  "pipboy hotkeys: let go",
+  { text = "tiles: InventoryMenu hotkey panel hidden", min = 1, label = "letting go hides it" },
+  { text = "tiles: InventoryMenu Select", count = 0, label = "with a key held a click assigns, it does not select or use" },
+  { text = "InventoryMenu drawn by hand", count = 0, label = "the page stays from its tiles" },
+  { re = 'hotkeys: slot 4: equipped \.357 Magnum Revolver', label = "behind the switch: a tap of 4 after closing equips the revolver" },
+]
+order = [["pipboy hotkeys: key 3 held", "hotkeys: slot 3 holds", "moved from slot 3", "slot 2 is Ammo Swap", "cannot be hotkeyed", "hotkeys: slot 4: equipped"]]
+
+[[scenario]]
+name = "tiles-items-repair-fallback"
+source = "[design] pipboy.md section 5.2.1: the repair list has its own file, not read here: while it is open the page is not eligible and the hand-built body draws it, with no warning; when it closes the page is drawn from its tiles again"
+note = "pipboy-repair's two worn pistols; the Repair button's click is not tried here: its place is the file's."
+areas = ["ui", "repair", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/pipboy/repair.rs", "engine/nvf-play/src/pipboy/frame.rs"]
+env = { NVFOREVER_HOME = "tiles-items-repair-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,9.5:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.3", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=items,27:tab=0,29:repair=open,31:repair=cancel,33:close", NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_SHOTS = "30:tiles_items_repair_list.png,32:tiles_items_after_repair_list.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 36
+expect = [
+  { re = 'pipboy repair: open 10mm Pistol at [34]0% \(Repair \d+\): 10mm Pistol [34]0%', label = "the aid opens the list, the hand-built way" },
+  { text = "InventoryMenu drawn by hand", count = 0, label = "not eligible is no failure" },
+  { re = 'tiles: InventoryMenu page from tiles: ', min = 2, label = "from its tiles before the list and after it" },
+]
+order = [[{ re = 'tiles: InventoryMenu page from tiles: ' }, "pipboy repair: open", { re = 'tiles: InventoryMenu page from tiles: ', label = "written again when the list closes" }]]
+
+[[scenario]]
+name = "tiles-items-missing-template"
+source = "[design] pipboy.md section 5.2.1: a file short of what the page needs keeps the whole hand-built page, says why once, and draws no tile of it; when the name is there again the page comes from its tiles"
+note = "NVF_PLAY_TEST_INVENTORY_TILE_CUT takes the row template as missing until 31 s, so no changed game file is needed; the hand-built places until then."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/tiles/item_menu.rs", "engine/nvf-play/src/pipboy/frame.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0008F216:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=items,27:tab=0,30:point=260:150,34:close", NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_INVENTORY_TILE_CUT = "IM_InventoryListTemplate@31", NVF_PLAY_TEST_SHOTS = "29:tiles_items_cut.png,33:tiles_items_recovered.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 37
+expect = [
+  { text = "InventoryMenu drawn by hand: IM_InventoryListTemplate missing", count = 1, label = "the template cut, by hand: the reason, once" },
+  { re = 'pipboy items: heading HP \S+, DT \S+; rows \d+\.\. of \d+ drawn', min = 1, label = "the template cut, by hand: the hand-built body draws" },
+  { text = "test aid: NVF_PLAY_TEST_INVENTORY_TILE_CUT over", count = 1, label = "the aid stops" },
+  { re = 'tiles: InventoryMenu page from tiles: ', min = 1, label = "and the page comes from its tiles" },
+]
+order = [["InventoryMenu drawn by hand: IM_InventoryListTemplate missing", "test aid: NVF_PLAY_TEST_INVENTORY_TILE_CUT over", { re = 'tiles: InventoryMenu page from tiles: ' }]]

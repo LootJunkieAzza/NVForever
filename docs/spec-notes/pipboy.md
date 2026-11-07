@@ -641,6 +641,94 @@ words and the title show at all before code writes them; any of the above at oth
 None of these stops a first working slice with a complete fallback; they cannot be called verified
 when parity is declared.
 
+### 5.2.1 ITEMS from its file: what the code writes
+
+The ITEMS page drawn from `menus\main\inventory_menu.xml`, in the Pip-Boy's image, behind
+`[UI] TileMenus=InventoryMenu`, off by default (`tiles/inventory_menu.rs`; issues #1513, #1468).
+Off, nothing of it runs. The rules stay `menu::model`'s and `pipboy::items`'; the module writes
+values and says what a tile stands for [design]. Tile names and where they stand are
+[documented: the file, by `fnvtool ui tree`]; what the file does with a written value is
+[hypothesis] until the capture below, and a value the file does not read costs nothing but
+what the shots will show.
+
+**The one decision**: `InventoryTiles::ready`, as `StatsTiles::ready` (§5.1.1): the switch on,
+ITEMS showing, the repair list and the mod menu closed, the file's tiles there, the tabs made and
+a usable measured layout. A failure leaves the whole hand-built page, says why once, and is tried
+again the next frame. While the Pip-Boy goes down the page stays as last written, the model being
+gone [design].
+
+**Usable** differs from §5.1.1 in one way: a scrolled list stands partly outside its window by
+design, so the check asks of the rows whose words lie whole on the canvas and inside the list's
+window, and of at least one when there are rows; an empty tab is a page. A list that scrolls must
+have a window. Every tab's words must show whole. The rows asked of and the tabs but the one
+showing must take the pointer at their middles, by one walk of the menu however many rows there are
+[design].
+
+| Model | Tile, trait | Notes |
+|---|---|---|
+| The tab (`PipBoy::tab`) | `IM_Tabline`: `_ButtonCount` 5, `_CurrentTab`; five tiles from `TabButtonTemplate` under it, each `listindex`, `string`, and `string` on its `button_text` | Template rows, unlike STATS' fixed tabs [documented]. Which of the two `string`s the template reads, how it places and marks a tab, and `_LeftLineLength` are [hypothesis]: a tab that does not show or take the pointer is a fallback. As STATS' tabs, a tab with an `stb_text_box` gives its children no place [hypothesis]. |
+| Wg, HP, DT, Caps (`items::wg_text`, `hp_text`, `dt_text`) | `IM_Headline_Player{WG,HP,DT,Caps}Info/_Value` | The titles are the file's. `IM_Headline_PlayerDRInfo` stays hidden. |
+| Title, heading line | `IM_Headline_Title` hidden in the screen menu, `IM_Headline_h2` run on [design: the owner, 2026-10-31]; both as the file on the device | The title's words are the file's, never written. |
+| The rows (`MenuModel`'s player list) | `IM_InventoryListTemplate` rows under `IM_InventoryList`, by `item_menu`: `ListItemText/string` (`look::row_text`), `IM_Template_ItemMarker/visible` (equipped), `_y`, `height`, `_scroll_delta`, the bar's counts, `_highlight_y`, `_selected_height` | As the container's, one side. Folder rows and "Back" are rows like any other. `IM_EquipItemMarker` stays hidden until known. |
+| The selected row's picture, badge, skill | `IM_ItemIcon/filename,visible`; `IM_ItemIconBadge/filename,visible`; `IM_StrReq/string,visible` (the number only) | Hidden with the panel. |
+| The figures (`items::info_of`, no DPS on this page) | `item_card::write` under `IM_ItemInfoRect` | The same cards as the container's; `ModInfoOne` to `Three` unwritten (not in `Info`). |
+| The buttons | `visible`: Equip a row selected; Drop a row selected, no quest item and no folder; Repair `repair::current` is some; Mod `Info::mod_hint`; Cancel always; Hotkey never. `_PCButtonText` below. `brightness` 128 on Repair and its two texts while R does nothing, as the hand-built hint's dim | The words are the file's: the hand-built hint's "Maintain" at full condition (`repair::hint`) is not transplanted [design; a difference behind the switch]. |
+| Root | `_EquippableItem` (a weapon, armour or aid row), `_KeyringOpen` (a Misc folder open) | [hypothesis] |
+| The hotkey panel (`HotkeyHold`, `Hotkeys`) | `IM_HotKeyWheel/visible`, `_SelectedHotkey` (the slot from 0), `_SelectedText` (`hotkey_panel::panel_line`); `HK_Item_n/_HotKeyIcon,_HotKeyNumber,_HotKeyAssigned`, n the slot, none for Ammo Swap's slot, which has `IM_AmmoSwap`; `IM_HotkeyIcon/filename,visible`; `IM_ButtonRect/visible` the panel's opposite | Shows while a key is held [design: the owner 2026-10-26]. It stands at the file's place, not the 420 the owner chose for the hand-built panel (`hotkey_panel::PANEL`) [design; say so in the PR]. |
+| `IM_Background` | hidden in both frames | The shell's background and scanlines, as §5.1.1. |
+| The prompt | nothing in the image: `QuantityMenu` on the window (`menus::quantity_tiled`) | As the container's. |
+| The repair list, the mod menu | not eligible: the hand-built body draws them | Their own files are other work. |
+
+**Every string written, and where it comes from** [design: LEGAL.md]:
+
+| Written | Source |
+|---|---|
+| The tabs: "Weapons", "Armor", "Aid", "Misc", "Ammo" (`TAB_WORDS`) | NVForever's own words, the kind of item each tab holds (`fnv_sim::forms::ItemKind`). `Page::tabs`' words are from the original's screen and are not reused. No setting is known; if the capture finds one, the load order's GMST wins. |
+| Row names | Record data (`look::row_text`, the count in brackets). |
+| Cards' values, the headline's values, `IM_StrReq` | Figures from the model and record data; "--" for what is unread, as the hand-built page. |
+| `AmmoInfo`'s title | Record data, or armour's class by the model's word (`item_card`, `info_of`), as the container's. |
+| `_SelectedText` | An item's name, or the panel's own words "Empty", "Ammo Swap", "Key 2 is Ammo Swap", "Can't hotkey ..." (`hotkey_panel`). |
+| `_PCButtonText` | Repair `sPCMenuHintR`, Mod `sPCMenuHintX`, Drop `sPCMenuHintRMB` (the strings table or the load order's), with a controller the button's name; Equip and Cancel the key's name in brackets (`pad::hint_bracketed`: Enter and Esc, or the controller's). |
+
+**Input** (`inventory_menu::feed`): the pointer is `PipBoyScreen::pointer`, read and never written;
+nothing else here touches the hand-built pointer [design]. It takes nothing under the prompt, with
+a menu over the page, or with another tile menu taking the frame. The commands are the hand-built
+page's:
+
+| What | Sends |
+|---|---|
+| The pointer moves onto a row, the wheel not holding the selection | `Hover(Player, i)`, behind a guard |
+| A click on a row | `Select(Player, i)`, behind a guard: on the selected row the model acts, on another it only selects, as `items::on_row_click`. Not `item_menu::row_commands`, whose click acts at once on any row: the container's |
+| A click on a row with a hotkey's key held | `hotkey_panel::assign_row` [owner 2026-10-26] |
+| A right click on a row, no key held | `Hover` then `Drop`, with Shift `DropStack` [owner 2026-11-02, #1393] |
+| A tab | `PipBoyInput::Tab(i)`; the pointer onto it, `TabHovered(i)` |
+| Equip, Drop, Cancel | `One`, `Drop`, `Close` |
+| Repair, Mod | `RepairInput::Open`, `ModInput::Open` |
+| The bar's arrows, page areas, marker | The list's view, no command of the model's |
+
+The keys and the wheel stay `items::keys`', `repair::keys`', `item_mod::keys`' and `pipboy::keys`'
+(`HAND_BUILT_KEYS`): a file's binding acts for a script's tap, not for a physical press, and never
+for a controller's button, which only a real press can make (the X drop would act twice).
+
+**Measuring**: `NVF_PLAY_TEST_TILE_COUNTS=1` adds a line a frame for each pass while the page is up,
+`tile counts: InventoryMenu pass=<early|late> writes= changed= micros=`, the late one with `rows=
+rows_in_clip= hit_tests= candidates= pieces=`.
+
+**Unit coverage given up** (#1512): the test fixture is written for the tests. It cannot prove how
+the file's expressions read what is written: the tab template's inside, `_CurrentTab`,
+`_LeftLineLength`, a tab's `_selected`, `_EquippableItem`, `_KeyringOpen`, the panel's traits, what
+`IM_EquipItemMarker` shows, the headline's `_Value`s, or the file's own places. The smoke scenarios
+`tiles-items*` check structure and hits on the real file; their logs cannot prove pixels, only their
+shots can.
+
+**Not known; capture**: `IM_Tabline`'s `_ButtonCount`, `_CurrentTab`, `_LeftLineLength`, the made
+tabs' names, `listindex`, `_selected`, and where a tab's words come from; settings for the five tab
+words; what `IM_EquipItemMarker` shows; root `_EquippableItem` and `_KeyringOpen` with a weapon, an
+aid item, inside the keyring; the six buttons' `visible` and `_PCButtonText` with nothing, a weapon
+and armour selected; `IM_HotKeyWheel`'s traits with the panel up; `IM_InventoryList`'s counts with
+about 15 rows; the headline `_Value`s' text. None of these stops a working slice with a complete
+fallback; they cannot be called verified when parity is declared.
+
 ### 5.3 DATA
 
 `data.rs` (the page: state, input, what is shown and its drawing), `data/model.rs` (plain

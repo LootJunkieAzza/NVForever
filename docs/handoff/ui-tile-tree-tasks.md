@@ -774,6 +774,14 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       hand-built keys stay, W presses Wait through the file. Interface `screen()` units
       while it is switched on (`interface_screen`). Tests: `tiles::wait_menu`,
       `tiles::vanilla` (the switch). Smoke: `tiles-sleep-wait`.
+    - **Pip-Boy, ITEMS written** 2026-11-07, not run yet (`pipboy-items-1513`, issues #1513 and
+      #1468; stands on the barter draft): the ITEMS page from `inventory_menu.xml` behind
+      `[UI] TileMenus=InventoryMenu` (`tiles/inventory_menu.rs`, pipboy.md §5.2.1), in the image
+      as the first slice below. Its tabs are template rows, its words NVForever's own; its
+      `usable` asks only of the rows inside the list's window. The repair list and the mod
+      menu stay hand-built over it. Unit fixtures are synthetic; the `tiles-items*` smoke
+      scenarios check structure and hits on the real file. Not closed: the capture list at the
+      end of pipboy.md §5.2.1.
     - **Pip-Boy, first slice built** 2026-11-04, checked 2026-11-06 (`pipboy-tiles-1513`, part of issue #1513): STATS'
       S.P.E.C.I.A.L. tab from `stats_menu.xml` behind `[UI] TileMenus=StatsMenu`
       (`tiles/stats_menu.rs`, pipboy.md §5.1.1). The first tile menu not in the window: `paint`
