@@ -63,7 +63,7 @@ use std::collections::{HashMap, HashSet};
 /// The menu's name [documented: stats_menu.xml].
 pub const STATS_MENU: &str = "StatsMenu";
 /// The tabs drawn from tiles; a tab not here stays hand-built with the switch on.
-pub const TILED_TABS: [usize; 2] = [1, 2];
+pub const TILED_TABS: [usize; 3] = [1, 2, 3];
 /// Test aid: a tile or template of the file to take as missing, so a smoke scenario sees the
 /// fallback of a cut-down file without a changed game file: `<name>`, or `<name>@<seconds>` to
 /// stop at that time, for the page's recovery.
@@ -243,11 +243,9 @@ pub struct MadeRow {
 /// unwanted, renamed or missing its text is unloaded whole, so no root is left without its
 /// parts. A failure makes none and leaves none of its own: a retry cannot double them.
 /// Returns whether anything was unloaded, made or put in another order: what was written of the
-/// rows is then out of date, and with it what was measured and checked.
+/// rows is then out of date, and with it what was measured and checked. No rows wanted is a list
+/// that shows none, as the hand-built one: a player with no perks keeps the page [design].
 fn ensure_rows(ui: &mut Ui, list: TileId, rows: &mut Vec<MadeRow>, wanted: &[(RowKey, &str)]) -> Result<bool, String> {
-    if wanted.is_empty() {
-        return Err("no rows to show".into());
-    }
     let mut changed = false;
     rows.retain(|r| {
         let whole = ui.is_live(r.tile) && ui.is_live(r.text);
@@ -1295,6 +1293,7 @@ mod tests {
           <image name="scrollbar_vert_marker"><target>&true;</target><x>14</x><width>6</width><height>10</height><_step_height>11</_step_height></image>
         </image>
       </hotrect>
+      <hotrect name="stats_perks_container"><x>12</x><y>30</y><width>200</width><clipwindow>&true;</clipwindow><_number_of_visible_items>9</_number_of_visible_items><_offset>0</_offset></hotrect>
       <rect name="stats_display_rect"><x>400</x><y>34</y>
         <image name="stats_icon"/>
         <hotrect name="stats_description_rect"><y>100</y><width>200</width><height>60</height>
@@ -1340,12 +1339,20 @@ mod tests {
         (0..13).map(|i| Row { key: RowKey::Av(100 + i), name: format!("Skill {i}"), value: Some((i + 1).to_string()), mark: None, description: "one".into(), icon: None }).collect()
     }
 
+    /// A perk of ranks, and one of none.
+    fn perks() -> Vec<Row> {
+        vec![
+            Row { key: RowKey::Perk(fnv_sim::FormId(0x20)), name: "Perk A".into(), value: Some("2".into()), mark: None, description: "about a".into(), icon: Some("pics\\a.dds".into()) },
+            Row { key: RowKey::Perk(fnv_sim::FormId(0x10)), name: "Perk B".into(), value: None, mark: None, description: "about b".into(), icon: None },
+        ]
+    }
+
     fn snap() -> Snapshot {
-        Snapshot { level: Some(3), hp: Some((20.0, 40.0)), ap: Some((5.0, 6.0)), xp: Some((7.0, 8.0)), special: rows(), skills: skills(), ..Default::default() }
+        Snapshot { level: Some(3), hp: Some((20.0, 40.0)), ap: Some((5.0, 6.0)), xp: Some((7.0, 8.0)), special: rows(), skills: skills(), perks: perks(), ..Default::default() }
     }
 
     fn view() -> StatsView {
-        StatsView::with_lens([0, 7, 13, 0, 0])
+        StatsView::with_lens([0, 7, 13, 2, 0])
     }
 
     /// A measure of 10 a character and 30 a line, lines parted by `|`.
@@ -1699,6 +1706,62 @@ mod tests {
         assert_eq!(t.written.rows[1].tile, moved, "kept");
         assert_eq!(num(&ui, moved, "listindex"), 1.0);
         assert_eq!(num(&ui, moved, "_y"), ROW);
+    }
+
+    /// Perks are known by their records and stand as the model has them, whatever their
+    /// numbers; a rank is the value, none hides it; the list has no mark to speak of.
+    #[test]
+    fn a_perk_row_shows_its_rank_or_none() {
+        let (mut ui, mut v, mut t) = (tree(), view(), StatsTiles::default());
+        let menu = run_tab(&mut ui, &snap(), &mut v, 3, &mut t).unwrap();
+        assert_eq!(num(&ui, menu, "user0"), 3.0, "the tab");
+        let list = list_named(&ui, "stats_perks_container");
+        let made = t.written.rows.clone();
+        assert_eq!(rows_under(&ui, list), 2);
+        assert_eq!(made[0].key, RowKey::Perk(fnv_sim::FormId(0x20)));
+        assert_eq!((text(&ui, made[0].tile, "string"), text(&ui, made[0].tile, "user1")), ("Perk A".to_string(), "2".to_string()));
+        assert_eq!((text(&ui, made[1].tile, "string"), num(&ui, made[1].tile, "user1")), ("Perk B".to_string(), -1.0));
+        assert_eq!(text(&ui, made[1].tile, "user2"), "");
+        assert!(ui.tile(list).get("user0").is_none(), "this list has no such trait to write");
+        let p = paths(&ui, 3, None).unwrap();
+        assert_eq!(text(&ui, p.icon, "filename"), "pics\\a.dds");
+        assert_eq!(text(&ui, p.desc, "string"), "about a");
+        // A perk gained keeps the others' tiles, in the model's order.
+        let mut s = snap();
+        s.perks.insert(1, Row { key: RowKey::Perk(fnv_sim::FormId(0x30)), name: "Perk Aa".into(), ..Row::default() });
+        run_tab(&mut ui, &s, &mut v, 3, &mut t).unwrap();
+        assert_eq!(t.written.rows[0], made[0]);
+        assert_eq!(t.written.rows[2], made[1]);
+        assert_eq!(num(&ui, made[1].tile, "listindex"), 2.0);
+        assert_eq!(num(&ui, made[1].tile, "_y"), 2.0 * ROW);
+    }
+
+    /// A player with no perks: the page stands with no rows and no display, its tabs at work;
+    /// the first perk gained is made in place.
+    #[test]
+    fn an_empty_list_is_a_page_of_its_own() {
+        let (mut ui, mut v, mut t) = (tree(), StatsView::with_lens([0, 7, 13, 0, 0]), StatsTiles::default());
+        let mut s = snap();
+        s.perks.clear();
+        let menu = run_tab(&mut ui, &s, &mut v, 3, &mut t).unwrap();
+        let list = list_named(&ui, "stats_perks_container");
+        let p = paths(&ui, 3, None).unwrap();
+        assert_eq!(rows_under(&ui, list), 0);
+        assert_eq!(num(&ui, p.icon, "visible"), 0.0);
+        assert_eq!(text(&ui, p.desc, "string"), "");
+        assert_eq!(t.desc_area, None);
+        assert_eq!((num(&ui, list, "_highlight_y"), num(&ui, list, "_selected_height")), (-1.0, 0.0));
+        let tab = fnv_ui::input::hit(&ui, &[menu], (140.0, 505.0), &no_measure).unwrap();
+        assert_eq!(stats_tile(&ui, &p, &t.written.rows, tab.tile), Some(StatsTile::Tab(2)));
+        // And twice over, and with rows after.
+        assert!(run_tab(&mut ui, &s, &mut v, 3, &mut t).is_ok());
+        assert_eq!(rows_under(&ui, list), 0);
+        s.perks = perks();
+        run_tab(&mut ui, &s, &mut v, 3, &mut t).unwrap();
+        assert_eq!(rows_under(&ui, list), 2);
+        s.perks.clear();
+        run_tab(&mut ui, &s, &mut v, 3, &mut t).unwrap();
+        assert_eq!(rows_under(&ui, list), 0, "the last taken away too");
     }
 
     #[test]

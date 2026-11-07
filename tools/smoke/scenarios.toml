@@ -21705,3 +21705,51 @@ expect = [
   { text = "StatsMenu drawn by hand: stats_skills_container missing", count = 1, label = "the reason, once" },
 ]
 order = [["StatsMenu drawn by hand: stats_skills_container missing", "test aid: NVF_PLAY_TEST_STATS_TILE_CUT over", { re = 'tiles: StatsMenu Skills from tiles: 13 rows' }, "pipboy: down"]]
+
+[[scenario]]
+name = "tiles-stats-perks"
+source = "[design] pipboy.md section 5.1.2, issue 1513: with [UI] TileMenus=StatsMenu the Perks tab is drawn from stats_menu.xml: a row per perk from the shared template, the rank as the value where a perk has ranks"
+note = "the aid gives two perks before the page opens [hypothesis until the first run: 00044CB1 is a perk of ranks, read.rs's Intense Training, 00031DB7 Light Step of one, traps.md; both playable and not hidden, name order as that]; the points are canvas units [hypothesis: rows 52 high from the list top]: the pointer on row 1 at 30 s, a click on row 0 at 32 s. Shots: compare tiles_perks_device with tiles_perks_off_device at the same time."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY_STATS = "20:perk=00044CB1,20.1:perk=00031DB7", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=3,30:point=200:188,32:click=200:136,34:close", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu", NVF_PLAY_TEST_SHOTS = "29:tiles_perks_device.png,31:tiles_perks_device_row.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 38
+expect = [
+  { re = 'tiles: StatsMenu Perks from tiles: 2 rows, "[^"]+" selected, value \d+, boxed at -1,', label = "two rows; the first selected, its rank the value" },
+  { re = 'tiles: StatsMenu Perks from tiles: 2 rows, "[^"]+" selected, value none, boxed at [0-9]', label = "the pointer on the other, which has no rank: no value" },
+  { re = 'tiles: pointer over StatsMenu/\S*stats_perks_container/.+ \(id -1\)', min = 1, label = "a tile hit on a row, its tile with id -1" },
+  { text = "tiles: StatsMenu Row(0) on its tiles", count = 1, label = "the click on row 0 acted once, through its tile" },
+  { re = 'pipboy stats: Perks: .+ selected', min = 2, label = "the page's own log line, for each row selected" },
+  { text = "StatsMenu drawn by hand", count = 0, label = "the file has every name the tab needs" },
+]
+
+[[scenario]]
+name = "tiles-stats-perks-off"
+source = "[design] pipboy.md section 5.1.2: without the switch the Perks tab is the hand-built one: nothing of the tile page runs"
+note = "the same steps and times as tiles-stats-perks, at the hand-built places. Shots to compare with it."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY_STATS = "20:perk=00044CB1,20.1:perk=00031DB7", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=3,30:point=200:188,32:click=200:136,34:close", NVF_PLAY_TEST_SHOTS = "29:tiles_perks_off_device.png,31:tiles_perks_off_device_row.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 38
+expect = [
+  { re = 'tiles: StatsMenu|StatsMenu drawn by hand', count = 0, label = "switch off: nothing of the tile page runs without its switch" },
+  { re = 'pipboy stats: Perks: .+ selected', min = 2, label = "switch off: the page's own log line, for each row selected" },
+]
+
+[[scenario]]
+name = "tiles-stats-perks-empty"
+source = "[design] pipboy.md section 5.1.2: a player with no perks: the Perks tab stays on its tiles with no rows, and its tabs still work"
+note = "a new run's character has no perks [hypothesis until the first run]; the tab's point is canvas units, as tiles-stats-special's."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=3,30:click=500:651,33:close", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu", NVF_PLAY_TEST_SHOTS = "29:tiles_perks_empty.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 36
+expect = [
+  { re = 'tiles: StatsMenu Perks from tiles: 0 rows,', min = 1, label = "a page with no rows" },
+  { text = "StatsMenu drawn by hand", count = 0, label = "no rows is no fallback" },
+  { text = "pipboy stats: Perks: empty", min = 1, label = "the model says so" },
+  { text = "tiles: StatsMenu Tab(2) on its tiles", count = 1, label = "the tab line works on the empty page, through its tile" },
+]
