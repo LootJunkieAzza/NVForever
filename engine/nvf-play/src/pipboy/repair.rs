@@ -33,6 +33,9 @@
 //! - The repair list's rows are silent [documented: the template's `&nosound;`]; a repair
 //!   plays `UIRepairWeapon` (`crate::ui_sounds`, as the vendor's).
 //! - Test aid: the Pip-Boy aid's `repair=open|down|up|use|cancel` (`test_aid.rs`).
+//! - Behind `[UI] TileMenus=RepairMenu` the list is drawn from its file instead
+//!   (`crate::tiles::repair_menu`, repair.md §5.1): the rules, sounds and log lines here stay, and
+//!   what the tiles are asked comes in as [`RepairInput`].
 
 use super::frame::{self, Align, Card, Ctx, LINE, MAIN, TEXT};
 use super::{Page, PipBoy};
@@ -373,7 +376,7 @@ pub fn draw_hint(p: &mut ChildSpawnerCommands, c: &mut Ctx, o: Option<&Offer>) {
 
 /// The figure a card shows for an item at a condition: damage or DT by our condition
 /// rules (combat-rules.md §17).
-fn stat(combat: Option<&crate::combat::Combat>, o: &Offer, condition: f32) -> Option<(&'static str, i32)> {
+pub(crate) fn stat(combat: Option<&crate::combat::Combat>, o: &Offer, condition: f32) -> Option<(&'static str, i32)> {
     let c = combat?;
     match o.gear {
         Gear::Weapon => c.forms.weapons.get(&o.item).filter(|w| w.base_damage > 0).map(|w| ("DAM", (w.base_damage as f32 * fnv_combat::damage::condition_mult(condition)).round() as i32)),

@@ -39,6 +39,7 @@
 pub mod container_menu;
 pub mod barter_menu;
 pub mod repair_cards;
+pub mod repair_menu;
 pub mod repair_services_menu;
 mod item_menu;
 pub mod dialog_menu;
@@ -119,7 +120,7 @@ impl MenuFiles<'_, '_> {
 /// interface units [observed: hud_menus capture 2026-10-31, three window sizes]; applying them
 /// unconditionally is a follow-up.
 pub fn interface_screen(menus: vanilla::TileMenus) -> bool {
-    if menus.repair_services {
+    if menus.repair_services || menus.repair_menu {
         return true;
     }
     menus.message || menus.quantity || menus.sleep_wait || menus.tutorial || menus.container || menus.barter || menus.traits || menus.start || menus.stats || menus.dialog
@@ -915,6 +916,7 @@ impl Plugin for TilesPlugin {
             .init_resource::<container_menu::ContainerTiles>()
             .init_resource::<barter_menu::BarterTiles>()
             .init_resource::<repair_services_menu::RepairServicesTiles>()
+            .init_resource::<repair_menu::RepairTiles>()
             .add_message::<crate::repair::RepairServicesInput>()
             .init_resource::<container_menu::TileWheelTitle>()
             .init_resource::<trait_menu::TraitTiles>()
@@ -940,6 +942,11 @@ impl Plugin for TilesPlugin {
             .add_systems(Update, stats_menu::feed.after(input::feed).after(crate::pipboy::PointerSet).before(PlaySet::Activation))
             .add_systems(Update, stats_menu::write.after(stats_menu::feed).before(PlaySet::Activation))
             .add_systems(Update, stats_menu::settle.in_set(PlaySet::Ui).after(crate::pipboy::stats::prepare).before(crate::pipboy::frame::draw))
+            // The Pip-Boy's repair page, in the same three steps; its model's keys have run by
+            // `prepare`, in the Pip-Boy's chain.
+            .add_systems(Update, repair_menu::feed.after(input::feed).after(crate::pipboy::PointerSet).before(PlaySet::Activation))
+            .add_systems(Update, repair_menu::write_system.after(repair_menu::feed).before(PlaySet::Activation))
+            .add_systems(Update, repair_menu::settle.in_set(PlaySet::Ui).after(crate::pipboy::stats::prepare).before(crate::pipboy::frame::draw))
             // The dialogue menu (`dialog_menu`): what the model says, at each of the runtime's
             // transitions and before the frame's scripts; then what they left measured and
             // placed, worked out by `update`, and what can be hit as it is then drawn.
@@ -1041,6 +1048,7 @@ mod tests {
         assert!(interface_screen(vanilla::TileMenus { container: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { barter: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { repair_services: true, ..Default::default() }));
+        assert!(interface_screen(vanilla::TileMenus { repair_menu: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { traits: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { dialog: true, ..Default::default() }));
         write_screen(&mut ui, 1280.0, 720.0, true);

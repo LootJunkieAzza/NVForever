@@ -40,6 +40,8 @@
 //!   canvas (`crate::pipboy::PipBoyScreen::pointer`), so its input is its own system,
 //!   `super::stats_menu::feed`, on a frame no other menu takes input; this one then leaves
 //!   the frame's one step to it.
+//! - **The Pip-Boy's repair page** (`super::repair_menu`): likewise, by its own system,
+//!   `super::repair_menu::feed`.
 //! - **The container menu** (T15c, `super::container_menu`): a row the pointer comes onto is
 //!   selected, unless the wheel holds the selection; a click on a row, a heading or its arrow,
 //!   Take All and Exit send the hand-built menu's commands (`crate::menu::MenuInput`), to
@@ -221,6 +223,9 @@ pub(crate) struct MenuInputs<'w, 's> {
     /// T15c: the container menu's state, the writer's and this input's.
     container: ResMut<'w, super::container_menu::ContainerTiles>,
     barter: Option<ResMut<'w, super::barter_menu::BarterTiles>>,
+    /// The Pip-Boy's repair page's decision, and whether its list is open.
+    repair_page: Option<ResMut<'w, super::repair_menu::RepairTiles>>,
+    repair_list: Option<Res<'w, crate::pipboy::repair::PipRepair>>,
     /// The vendor's repair menu's state, and what the tiles ask of its model.
     repair_services: Option<ResMut<'w, super::repair_services_menu::RepairServicesTiles>>,
     repair_commands: MessageWriter<'w, crate::repair::RepairServicesInput>,
@@ -814,10 +819,18 @@ pub(crate) fn feed(
     if let Some(s) = stats.as_mut().filter(|s| s.others != others) {
         s.others = others;
     }
+    if let Some(r) = inputs.repair_page.as_mut().filter(|r| r.others != others) {
+        r.others = others;
+    }
     if taking.is_empty() {
         // The Pip-Boy's page has the frame's step (`super::stats_menu::feed`).
         let is_paused = paused.as_ref().is_some_and(|p| p.0);
         if stats.as_deref().zip(pip.as_deref()).is_some_and(|(s, p)| super::stats_menu::takes(s, *menus, p, &rt.game, is_paused).is_some()) {
+            return;
+        }
+        // Likewise the repair page's (`super::repair_menu::feed`).
+        let list_open = inputs.repair_list.as_ref().is_some_and(|r| r.is_open());
+        if inputs.repair_page.as_deref().zip(pip.as_deref()).is_some_and(|(r, p)| super::repair_menu::takes(r, *menus, p, list_open, &rt.game, is_paused).is_some()) {
             return;
         }
         // A highlight left from the last menu that took input goes (mouseover back to 0),

@@ -428,12 +428,15 @@ pub fn draw(
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     tiles: Option<Res<crate::tiles::stats_menu::StatsTiles>>,
+    repair_tiles: Option<Res<crate::tiles::repair_menu::RepairTiles>>,
     mut shown: Local<Option<(Page, usize, Frame, bool)>>,
 ) {
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
     let Some(screen) = screen else { return };
     let tiled = tiles.is_some_and(|t| t.ready.is_some());
+    // The repair page likewise (`crate::tiles::repair_menu::RepairTiles::ready`).
+    let tiled = tiled || repair_tiles.is_some_and(|t| t.ready.is_some());
     let want = pip.shown().then(|| (pip.page, pip.tab(), pip.frame, tiled));
     if want == *shown && (want.is_none() || !roots.is_empty()) {
         return;
