@@ -224,7 +224,7 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
     // The lists' words do not need the game.
     s.special = SPECIALS.map(|c| av_row(forms, c)).collect();
     // A weapon skill has its mark, as a weapon has on the ITEMS page (`items::skill_badge`)
-    // [observed: private job run07_stats_tabs, Guns' and Melee Weapons'; hypothesis: the others].
+    // [observed: private job run07b_stats, these five skills' and no others'].
     let mut skills: Vec<Row> = SKILLS
         .filter(|&c| c != av::BIG_GUNS)
         .map(|c| {

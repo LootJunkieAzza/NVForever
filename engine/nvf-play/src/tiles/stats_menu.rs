@@ -20,9 +20,10 @@
 //! - **Status** ([`StatusPaths`], [`StatusShown`]): the sub-page by
 //!   `stats_status_container/user0`, code writing what the file leaves to it: the limbs' meters
 //!   and pictures, the hints' lines, the rads and the effects' rows. The bars and "crippled" words
-//!   are the Stimpak's targets on a limb [owner 2026-10-23], which the file does not make them.
+//!   are the Stimpak's targets on a limb [owner 2026-10-23], which the file does not make them,
+//!   as are the limb's picture, and over the head the face, which it does while hurt.
 //!   The hand-built page's box on a limb pointed at or chosen has no tile: lost behind the switch.
-//!   H2O, FOD and SLP are written on RAD's shape [hypothesis: no capture saw them drawn].
+//!   H2O, FOD and SLP are written on RAD's shape [observed: run07b, the same places and scale].
 //! - **The tabs not listed** stay fully hand-built. The menu persists across tabs and reopenings, and
 //!   its rows while their list is the one shown ([`Written`]); going to another list unloads
 //!   them, as a new tree would, and a new menu tile (a rebuilt tree) starts over.
@@ -572,6 +573,8 @@ pub struct At {
     pub reputation: bool,
     /// The status page's button.
     pub status: usize,
+    /// A row is boxed: a key or the pointer has it.
+    pub highlight: bool,
     pub selected: usize,
     pub device: bool,
 }
@@ -594,7 +597,9 @@ pub struct GeneralShown {
 
 impl GeneralShown {
     fn of(snap: &Snapshot, at: At, words: &PageWords) -> GeneralShown {
-        let standing = snap.standings.get(at.selected).filter(|_| at.reputation);
+        // Nothing on this side until a row is pointed at, unlike the other lists' display [observed:
+        // run07b]; [hypothesis: and none after the pointer leaves].
+        let standing = snap.standings.get(at.selected).filter(|_| at.reputation && at.highlight);
         GeneralShown {
             karma_word: snap.karma.map_or("--".to_string(), |k| k.1.to_string()),
             karma_picture: snap.karma.map_or(String::new(), |k| stats::karma_picture(k.2)),
@@ -608,7 +613,8 @@ impl GeneralShown {
     }
 }
 
-/// What Status shows besides its rows, as written last. A hint's line is a count, the item's name
+/// What Status shows besides its rows, as written last. [hypothesis: the root's `user1` holds a
+/// need's value on its page as it does the rads on RAD.] A hint's line is a count, the item's name
 /// from its record, and the key (`model::hint_text`, [`PageWords`]); the name under the Vault Boy
 /// has his level by the setting's word; every other word is the file's. Its "Crippled",
 /// "RAD RESIST" and "No Effects" on the hand-built page are not carried over [design: the string
@@ -620,7 +626,7 @@ pub struct StatusShown {
     pub name: String,
     pub hints: [StatusHint; 4],
     pub resist: String,
-    /// The value of the meter on the sub-page showing: the rads, or a need [hypothesis].
+    /// The value of the meter on the sub-page showing: the rads, or a need.
     pub meter: f64,
     pub rads: String,
     pub needs: [String; 3],
@@ -633,7 +639,8 @@ pub struct StatusShown {
 pub struct StatusHint {
     pub words: String,
     pub key: String,
-    /// Drawn bright [design: owner's request 2026-10-27, `model::Hints::lit`].
+    /// Bright and taking the pointer [design: owner's request 2026-10-27, `model::Hints::lit`, when;
+    /// observed: run07b, how: `target`, the file's alpha following it].
     pub lit: bool,
     pub shown: bool,
 }
@@ -715,16 +722,26 @@ impl Shown {
     }
 }
 
+/// What a row says. A perk's rank is in its own words, after its name, from 2 [observed: private
+/// job run07b_stats, `(2)` on three perks, no number tile]; [hypothesis: none at a rank of 1 of more].
+fn row_string(row: &Row) -> String {
+    match (row.key, row.value.as_deref()) {
+        (RowKey::Perk(_), Some(rank)) if rank != "1" => format!("{} ({rank})", row.name),
+        _ => row.name.clone(),
+    }
+}
+
 /// A list's rows, as §5.1.1 has them.
 fn write_rows(ui: &mut Ui, rows: &[MadeRow], data: &[Row]) {
     for (i, (made, row)) in rows.iter().zip(data).enumerate() {
         ui.write_changed(made.tile, "listindex", Value::Num(i as f64));
         // [observed: private job pipboy_special_a]
         ui.write_changed(made.tile, "id", Value::Num(-1.0));
-        ui.write_changed(made.tile, "string", Value::Str(row.name.clone()));
+        ui.write_changed(made.tile, "string", Value::Str(row_string(row)));
         // A text value keeps the "--" of a game without scripts (`Value::text`); -1 hides the
-        // number [observed: the template's own value].
-        ui.write_changed(made.tile, "user1", row.value.clone().map_or(Value::Num(-1.0), Value::Str));
+        // number [observed: the template's own value; run07b, on every Perks row].
+        let number = row.value.clone().filter(|_| !matches!(row.key, RowKey::Perk(_)));
+        ui.write_changed(made.tile, "user1", number.map_or(Value::Num(-1.0), Value::Str));
         ui.write_changed(made.tile, "user0", flag(row.mark.is_some()));
         ui.write_changed(made.tile, "user2", Value::Str(row.mark.unwrap_or_default().to_string()));
     }
@@ -735,6 +752,9 @@ fn write_rows(ui: &mut Ui, rows: &[MadeRow], data: &[Row]) {
 fn write_effect_rows(ui: &mut Ui, rows: &[MadeRow], data: &[Row]) {
     for (i, (made, row)) in rows.iter().zip(data).enumerate() {
         ui.write_changed(made.tile, "listindex", Value::Num(i as f64));
+        // A line under each row but the last: the file ties it to this [documented: the file;
+        // observed: run07b, 3 rows, 2 lines].
+        ui.write_changed(made.tile, "user2", flag(i + 1 < rows.len()));
         ui.write_changed(made.text, "string", Value::Str(row.name.clone()));
         if let Some(text) = find_named(ui, made.tile, EFFECT_TEXT) {
             ui.write_changed(text, "string", Value::Str(row.value.clone().unwrap_or_default()));
@@ -811,8 +831,8 @@ fn write_general(ui: &mut Ui, g: &GeneralPaths, s: &GeneralShown, reputation: bo
 }
 
 /// Status: the sub-page, the root's meter, CND's limbs and hints, RAD's figures, the needs' on the
-/// same shape [hypothesis], and the three buttons Hardcore shows, whose `visible` the file leaves
-/// to code [observed: run07]. pipboy.md §5.1.3.
+/// same shape, and the three buttons Hardcore shows, whose `visible` the file leaves to code
+/// [observed: run07, run07b]. pipboy.md §5.1.3.
 fn write_status(ui: &mut Ui, menu: TileId, st: &StatusPaths, s: &StatusShown, sub: usize) {
     use crate::pipboy::stats::model::whole;
     ui.write_changed(st.container, "user0", Value::Num(sub as f64));
@@ -834,11 +854,8 @@ fn write_status(ui: &mut Ui, menu: TileId, st: &StatusPaths, s: &StatusShown, su
         ui.write_changed(h.button, "visible", flag(line.shown));
         ui.write_changed(h.words, "string", Value::Str(line.words.clone()));
         ui.write_changed(h.button, "_PCButtonText", Value::Str(line.key.clone()));
-        // As the barter menu's Accept: the text inherits no parent's brightness [hypothesis].
-        let brightness = Value::Num(if line.lit { 255.0 } else { 128.0 });
-        for t in [h.button, h.words, h.key] {
-            ui.write_changed(t, "brightness", brightness.clone());
-        }
+        // The file's alpha follows it; a dim hint lets the pointer through [observed: run07b].
+        ui.write_changed(h.button, "target", flag(line.lit));
     }
     ui.write_changed(st.resist, "string", Value::Str(s.resist.clone()));
     ui.write_changed(st.rads, "string", Value::Str(s.rads.clone()));
@@ -1134,7 +1151,6 @@ pub(crate) struct Written {
     /// Each list code has counted for its scroll bar, and the `_scroll_delta` the file gave it.
     counted: Vec<(TileId, f64)>,
     shown: Option<Shown>,
-    highlight: bool,
     geometry: Option<Geometry>,
     sizes: SizesWritten,
     flat: Option<FlatChanges>,
@@ -1260,7 +1276,7 @@ pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, tab: usiz
     if tab == STATUS_TAB {
         view.set_status_pages(if snap.hardcore { SUB_BUTTONS.len() } else { 3 });
     }
-    let at = At { tab, reputation: view.reputation, status: view.status, selected: view.selected[tab], device };
+    let at = At { tab, reputation: view.reputation, status: view.status, highlight: view.highlight, selected: view.selected[tab], device };
     let rows = rows_of(snap, tab, at.reputation, at.status);
     let wanted: Vec<(RowKey, &str)> = rows.iter().map(|r| (r.key, r.name.as_str())).collect();
     let row_parts = p.row_parts();
@@ -1284,12 +1300,11 @@ pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, tab: usiz
             changed = true;
         }
     }
-    let changed = changed || !w.shown.as_ref().is_some_and(|s| s.same(snap, at, &words)) || w.highlight != view.highlight;
+    let changed = changed || !w.shown.as_ref().is_some_and(|s| s.same(snap, at, &words));
     if changed {
         let shown = Shown::of(snap, at, &words);
         write_model(ui, &p, &w.rows, &shown);
         w.shown = Some(shown);
-        w.highlight = view.highlight;
         w.tell = true;
     }
     if changed || late {
@@ -1355,6 +1370,9 @@ pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, tab: usiz
             if w.list_drawn != Some(drawn) {
                 let n = |x: f64| Value::Num(x).text();
                 info!("tiles: {STATS_MENU} list scrolled to {} of {}", n(drawn), n(most));
+                if let Some(marker) = list::child(ui, list, list::SCROLLBAR).and_then(|b| list::child(ui, b, list::MARKER)) {
+                    info!("tiles: {STATS_MENU} list marker {} high, {} a step", n(num(ui, marker, "height")), n(num(ui, marker, "_step_height")));
+                }
                 w.list_drawn = Some(drawn);
             }
         }
@@ -1373,6 +1391,7 @@ fn describe(ui: &Ui, p: &Paths, w: &Written) -> String {
     let n = |x: f64| Value::Num(x).text();
     let (Some(s), Some(g)) = (w.shown.as_ref(), w.geometry.as_ref()) else { return format!("tiles: {STATS_MENU} page written") };
     let row = s.rows.get(s.at.selected);
+    let says = row.map_or(String::new(), row_string);
     // The first tab's words are the first slice's, which its scenarios read.
     let name = match (p.page, s.at.reputation) {
         (STATUS_TAB, _) => format!("Status {}", stats::STATUS_PAGES[s.at.status.min(5)]),
@@ -1395,7 +1414,7 @@ fn describe(ui: &Ui, p: &Paths, w: &Written) -> String {
     format!(
         "tiles: {STATS_MENU} {name} from tiles: {} rows, \"{}\" selected, value {}, boxed at {}, list height {}, row height {}, description {} high, scrolls {}, {status}{side}{}",
         s.rows.len(),
-        row.map_or("", |r| r.name.as_str()),
+        says,
         row.and_then(|r| r.value.as_deref()).unwrap_or("none"),
         n(g.highlight.0),
         n(g.list),
@@ -1539,7 +1558,7 @@ pub enum StatsTile {
     Sub(usize),
     /// A hint on Status.
     Hint(usize),
-    /// A limb's bar or its word on CND: the Stimpak's target [owner 2026-10-23].
+    /// A limb's bar, its word or its picture on CND: the Stimpak's target [owner 2026-10-23].
     Limb(usize),
 }
 
@@ -1569,8 +1588,12 @@ pub fn stats_tile(ui: &Ui, p: &Paths, rows: &[MadeRow], tile: TileId) -> Option<
             if let Some(i) = st.hints.iter().position(|h| h.button == t) {
                 return Some(StatsTile::Hint(i));
             }
-            if let Some(i) = st.limbs.iter().position(|l| l.pct == t || l.crippled == t) {
+            if let Some(i) = st.limbs.iter().position(|l| l.pct == t || l.crippled == t || l.picture == t) {
                 return Some(StatsTile::Limb(i));
+            }
+            // Over the head the pointer has the face [observed: run07b, id 24 and not 12].
+            if st.face == t {
+                return Some(StatsTile::Limb(0));
             }
         }
         if let Some(i) = p.tabs.iter().position(|&x| x == t) {
@@ -2401,7 +2424,7 @@ mod tests {
         let made = t.written.rows.clone();
         assert_eq!(rows_under(&ui, list), 2);
         assert_eq!(made[0].key, RowKey::Perk(fnv_sim::FormId(0x20)));
-        assert_eq!((text(&ui, made[0].tile, "string"), text(&ui, made[0].tile, "user1")), ("Perk A".to_string(), "2".to_string()));
+        assert_eq!((text(&ui, made[0].tile, "string"), num(&ui, made[0].tile, "user1")), ("Perk A (2)".to_string(), -1.0), "a rank in its words, the number hidden");
         assert_eq!((text(&ui, made[1].tile, "string"), num(&ui, made[1].tile, "user1")), ("Perk B".to_string(), -1.0));
         assert_eq!(text(&ui, made[1].tile, "user2"), "");
         assert!(ui.tile(list).get("user0").is_none(), "this list has no such trait to write");
@@ -2461,6 +2484,10 @@ mod tests {
         assert_eq!(t.written.rows[0].key, RowKey::Rep(fnv_sim::FormId(0x40)));
         assert_eq!(num(&ui, name(&ui, "stats_genrep_container"), "user0"), 1.0);
         assert_eq!((num(&ui, general, "visible"), num(&ui, reputation, "visible")), (0.0, 1.0), "the fixture's expression, from what code wrote");
+        // Nothing on the side until a row is pointed at.
+        assert_eq!((num(&ui, name(&ui, "stats_reputation_image"), "visible"), num(&ui, name(&ui, "stats_reputation_title"), "visible")), (0.0, 0.0));
+        v.highlight = true;
+        run_tab(&mut ui, &s, &mut v, 4, &mut t).unwrap();
         assert_eq!(text(&ui, name(&ui, "stats_reputation_rep_title"), "string"), "Town");
         assert_eq!(text(&ui, name(&ui, "stats_reputation_title"), "string"), "A title");
         assert_eq!(text(&ui, name(&ui, "stats_reputation_image"), "filename"), "pics\\town.dds");
@@ -2613,9 +2640,10 @@ mod tests {
         assert_eq!(text(&ui, st.name, "string"), "Player - Lv 3", "the setting's word");
         assert_eq!(text(&ui, st.hints[0].words, "string"), "(2) Item A");
         assert_eq!(text(&ui, st.hints[0].button, "_PCButtonText"), "<S>");
+        assert!(ui.tile(st.hints[0].words).get("brightness").is_none(), "not the signal");
         assert_eq!((num(&ui, st.hints[0].button, "visible"), num(&ui, st.hints[1].button, "visible")), (1.0, 1.0));
         assert_eq!((num(&ui, st.hints[2].button, "visible"), num(&ui, st.hints[3].button, "visible")), (0.0, 0.0), "RAD's");
-        assert_eq!((num(&ui, st.hints[0].words, "brightness"), num(&ui, st.hints[1].words, "brightness")), (255.0, 128.0), "lit while usable");
+        assert_eq!((num(&ui, st.hints[0].button, "target"), num(&ui, st.hints[1].button, "target")), (1.0, 0.0), "lit while usable");
         assert_eq!(num(&ui, st.subs[3], "visible"), 0.0, "Hardcore's");
         assert_eq!(rows_under(&ui, st.effects), 0);
         // No display on this tab.
@@ -2662,6 +2690,7 @@ mod tests {
         assert_eq!(text(&ui, find_named(&ui, first.tile, "stats_effect_string").unwrap(), "string"), "a +2");
         assert_eq!(num(&ui, st.effects, "height"), 80.0, "the rows' total");
         assert_eq!(num(&ui, t.written.rows[1].tile, "_y"), 40.0);
+        assert_eq!((num(&ui, first.tile, "user2"), num(&ui, t.written.rows[1].tile, "user2")), (1.0, 0.0), "a line under each but the last");
         assert_eq!(num(&ui, st.no_effects, "visible"), 0.0);
         // More than the area holds are cut, not scrolled; none says so; another sub-page has none.
         s.effects = (0..5).map(|i| crate::pipboy::stats::model::EffectLine { name: format!("L{i}"), text: "x".into() }).collect();
@@ -2715,9 +2744,12 @@ mod tests {
             assert_eq!(tile_at(&ui, 705.0 + i as f64 * 20.0, 355.0), Some(StatsTile::Limb(i)), "the bar");
             assert_eq!(tile_at(&ui, 705.0 + i as f64 * 20.0, 375.0), Some(StatsTile::Limb(i)), "the word");
         }
-        for i in 0..2 {
-            assert_eq!(tile_at(&ui, 705.0 + i as f64 * 20.0, 205.0), Some(StatsTile::Hint(i)));
-        }
+        assert_eq!(tile_at(&ui, 705.0, 205.0), Some(StatsTile::Hint(0)));
+        assert_eq!(tile_at(&ui, 725.0, 205.0), None, "a dim hint lets the pointer through");
+        // The picture and, over the head, the face: the file makes them targets while hurt.
+        let st = status_paths(&ui);
+        assert_eq!(stats_tile(&ui, &p, &[], st.limbs[3].picture), Some(StatsTile::Limb(3)));
+        assert_eq!(stats_tile(&ui, &p, &[], st.face), Some(StatsTile::Limb(0)));
     }
 
     #[test]
@@ -3210,7 +3242,7 @@ mod tests {
     #[test]
     fn what_is_shown_is_compared_without_a_copy_of_the_rows() {
         let s = snap();
-        let at = At { tab: PAGE, reputation: false, status: 0, selected: 1, device: true };
+        let at = At { tab: PAGE, reputation: false, status: 0, highlight: false, selected: 1, device: true };
         let none = PageWords::default();
         let shown = Shown::of(&s, at, &none);
         assert!(shown.same(&s, at, &none));
@@ -3224,7 +3256,7 @@ mod tests {
         other.special[6].name = "Other".into();
         assert!(!shown.same(&other, at, &none));
         // General's side and its key are what it shows too.
-        let at = At { tab: GENERAL_TAB, reputation: false, status: 0, selected: 0, device: true };
+        let at = At { tab: GENERAL_TAB, reputation: false, status: 0, highlight: false, selected: 0, device: true };
         let s = general_snap();
         let key = PageWords { switch_hint: "<key>".into(), ..PageWords::default() };
         let shown = Shown::of(&s, at, &key);
