@@ -168,6 +168,7 @@ args = ["--cell", "Goodsprings", "--hour", "23"]
 run_seconds = 20
 expect = [
   { re = 'distant lights: (\d+) glows in \d+ more cells around', range = [1, 100000], label = "the LIGH references of the cells around the loaded ones are drawn as glows at night (184 on the ELECTRO-CITY highway east of Goodsprings, 390 above North Vegas, 2026-11-06)" },
+  { re = 'distant lights: (\d+) lamp lights added around', range = [1, 100000], label = "the glows within 8 cells also light their surroundings, so a distant lamp post is lit under its glow (overnight queue 2026-11-06 item 35)" },
 ]
 
 [[scenario]]
