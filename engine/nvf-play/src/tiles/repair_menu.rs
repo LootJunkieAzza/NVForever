@@ -835,7 +835,7 @@ mod tests {
                   <image name="scrollbar_vert_marker"/><image name="scrollbar_vert_up"/><image name="scrollbar_vert_down"/>
                   <hotrect name="scrollbar_vert_page_up"/><hotrect name="scrollbar_vert_page_down"/>
                 </image>
-                <rect name="RM_LeftBracket"/><rect name="RM_RightBracket"/>
+                <image name="RM_LeftBracket"/><image name="RM_RightBracket"/>
               </hotrect>
               <image name="RM_ItemIcon"/>
               <rect name="RM_CompareRect"><x>300</x><y>300</y>{}{}<image name="RM_ArrowIcon"/><text name="RM_HealthImprovementText"/><text name="RM_StatImprovementText"/><text name="RM_ChooseItemText"/>{}{}</rect>
@@ -950,14 +950,15 @@ mod tests {
         let paths = [ICON.to_owned(), LEFT_BRACKET.to_owned(), cards("RM_ArrowIcon"), format!("{CANCEL}/TestPicture")];
         let pictures: Vec<_> = paths.iter().map(|p| ui.find_tile(p).unwrap()).chain([row_picture]).collect();
         for &t in &pictures {
+            assert_eq!(ui.tile(t).kind, "image", "{} must be a picture", ui.path_of(t));
             ui.set_trait(t, "filename", Value::Str("pics\\button.dds".into()));
             ui.set_trait(t, "zoom", Value::Num(125.0));
         }
         // [design: `page`] A late pass sees changes even when the model did not change.
         run(&mut ui, shown(1, true), &mut tiles).unwrap();
         for &t in &pictures {
-            assert_eq!(ui.tile(t).get("filewidth").unwrap().num(), 40.0);
-            assert_eq!(ui.tile(t).get("fileheight").unwrap().num(), 30.0);
+            assert_eq!(ui.tile(t).get("filewidth").map(Value::num), Some(40.0), "{} filewidth", ui.path_of(t));
+            assert_eq!(ui.tile(t).get("fileheight").map(Value::num), Some(30.0), "{} fileheight", ui.path_of(t));
         }
         let icon = pictures[0];
         ui.set_trait(icon, "zoom", Value::Num(50.0));

@@ -374,6 +374,10 @@ The fixtures use their own picture dimensions and expressions to cover a hidden
 picture sizing a button, a shortcut sorted before its words, changed files and zoom,
 and a covering target; they do not reproduce the game's layout (#1512) [design:
 `tiles/repair_menu.rs::tests`].
+The sizing fixture uses image tiles for both brackets and checks that every picture
+under test is an image: a rect with a filename is still excluded by the sizing walk.
+This also makes the atlas exclusion check exercise an image [design:
+`tiles/repair_menu.rs::write_file_sizes`, `tests::picture_sizes_cover_the_page_and_follow_file_and_zoom_changes`].
 
 **Open** [hypothesis]: a real repair on a part in the original, and what follows it (the model's
 rule stands, §5); a row the skill cannot use (none dims here); a two-line row and the brackets on
