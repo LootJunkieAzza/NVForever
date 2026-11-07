@@ -967,7 +967,7 @@ pub(crate) struct MenusDrawn {
     start: Drawn,
     sleep_wait: Drawn,
     tutorial: Drawn,
-    /// The Pip-Boy's STATS list tabs, in the Pip-Boy's image.
+    /// The Pip-Boy's STATS page, in the Pip-Boy's image.
     stats: Drawn,
     container: Drawn,
     traits: Drawn,
@@ -1067,7 +1067,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
     hud(&mut commands, &script, &view, &mut kit, &mut drawn, &mut nodes, scale * interface::ui_scale(), heading);
 }
 
-/// The Pip-Boy's STATS list tab showing, in the Pip-Boy's image, while it is ready
+/// The Pip-Boy's STATS page, in the Pip-Boy's image, while it is ready
 /// (`super::stats_menu::StatsTiles::ready`, decided before this drawing). What was painted is
 /// published for the next frame's tile input, which acts on what the player saw. Logged when it
 /// changes: how many pieces go to the painter, and how many of them are the rows' names. That

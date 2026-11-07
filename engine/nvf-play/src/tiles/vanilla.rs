@@ -6,7 +6,7 @@
 //!   and `QuantityMenu` (`super::menus`; the prompt also follows a container menu drawn from
 //!   its tiles, `super::menus::quantity_tiled`), and since T11 `StartMenu` (the pause menu's
 //!   Mods page, `crate::pause::ModsEntry`, `super::mods`), `TraitMenu` (`super::trait_menu`),
-//!   `StatsMenu` (the Pip-Boy's STATS list tabs, `super::stats_menu`) and `DialogMenu`
+//!   `StatsMenu` (the Pip-Boy's STATS page, `super::stats_menu`) and `DialogMenu`
 //!   (`super::dialog_menu`) are acted on. It is
 //!   read once at start, from the INI the settings page uses
 //!   (`crate::settings::SettingsFile`: an unattended run in the player's own home reads
@@ -57,8 +57,8 @@ pub struct TileMenus {
     /// `TutorialMenu` (T15b): the tutorial menu from its file, the hand-built drawing
     /// (`crate::tutorial_menu`) not spawned (`super::tutorial_menu`).
     pub tutorial: bool,
-    /// `StatsMenu`: the Pip-Boy's STATS list tabs from their file, in the Pip-Boy's image,
-    /// Status hand-built (`super::stats_menu`).
+    /// `StatsMenu`: the Pip-Boy's STATS page from its file, in the Pip-Boy's image
+    /// (`super::stats_menu`).
     pub stats: bool,
     /// `ContainerMenu` (T15c): the container menu from its file, the hand-built one
     /// (`crate::menu::look`) not spawned (`super::container_menu`), and its prompt from

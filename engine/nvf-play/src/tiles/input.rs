@@ -36,7 +36,7 @@
 //!   past it [documented: `&no_click_past;`]. The wheel stays the hand-built menu's. On the
 //!   frame it is first built, when the hand-built buttons of the frame before still stand, it
 //!   takes nothing, so a press acts once, on what was on screen [design].
-//! - **The Pip-Boy's STATS list tabs** (`super::stats_menu`): take the pointer on its own
+//! - **The Pip-Boy's STATS page** (`super::stats_menu`): takes the pointer on its own
 //!   canvas (`crate::pipboy::PipBoyScreen::pointer`), so its input is its own system,
 //!   `super::stats_menu::feed`, on a frame no other menu takes input; this one then leaves
 //!   the frame's one step to it.
