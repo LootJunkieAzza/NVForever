@@ -13,19 +13,28 @@
 //!   [`RANGE_CELLS`] cells of the camera that its cell does not draw (not loaded, or
 //!   still fading in) is a camera-facing additive sprite in the light's colour, about
 //!   [`PIXEL_ANGLE`] wide on screen however far, never under [`MIN_SIZE`] units. Its
-//!   strength is the night (1 − `SkyState::daylight`) × the part of its cell not yet
-//!   drawn (1 − `Streamer::cell_level`) × a fade over the last fifth of the range, so a
+//!   strength is [`lamps_on`] (0 while the sun is up, 1 just after sunset) × the part
+//!   of its cell not yet drawn (1 − `Streamer::cell_level`) × a fade over the last fifth of the range, so a
 //!   lamp's glow gives way to the lamp and its light as the cell fades in, and glows
 //!   come up at dusk. Lights the game would not light are left out by
 //!   `lights::spawn_light`'s rules (Negative, Off by Default, no radius, black). The
 //!   light's model colour (black LIGH colours) is not read: such lights get no glow.
 //!   Enable state is read once (initially disabled, enable parents), not followed
 //!   when a script changes it later.
+//! - **Lamp light** [design]: the glows within [`LIT_CELLS`] cells of the camera's cell
+//!   also light their surroundings with the light the cell would draw (the same colour,
+//!   brightness, range and spot cone as `lights::spawn_light`, no shadows), at the
+//!   glow's strength without the range fade, faded out over the last two cells of
+//!   [`LIT_CELLS`]. Without it the distant lamp posts (object LOD, the owner's lamp LOD
+//!   blocks) stood unlit in the night ambient under their glows and could not be seen
+//!   (owner's playtest 2026-11-06, `lamp-lod-missing-night.webp`, overnight queue item
+//!   35). As the cell fades in, its own lights come up by the cell's level while these
+//!   go down by the same amount, so the light under a lamp does not pop.
 //! - **Cell lights** [design]: [`CellLight`] holds a streamed light's full brightness;
 //!   [`fade_cell_lights`] scales it by its cell's draw level, so it comes up over the
 //!   cell's fade (`--cell-fade`) together with the cell's meshes instead of at once.
 
-use crate::lights::{CellLight, MovingLight};
+use crate::lights::{display_color, lumens, CellLight, LightMotion, MovingLight, FLAME_REACH};
 use crate::world::{bevy_to_game, Streamer, WorldData, WorldRoot};
 use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageSampler, ImageSamplerDescriptor};
@@ -46,6 +55,12 @@ const MIN_SIZE: f32 = 48.0;
 /// Glow brightness per unit of light colour × fade [design, by eye against the lit
 /// lamps of a loaded cell; above 1 so the bloom picks it up].
 const STRENGTH: f32 = 2.5;
+/// Cells around the camera's whose glows also light their surroundings (see the module
+/// notes) [design: the lamp posts out to about where a post is still a few pixels wide;
+/// a light per lamp costs more than a glow].
+pub const LIT_CELLS: i32 = 8;
+/// Cells over which the lamp light fades out at the end of [`LIT_CELLS`] [design].
+const LIT_FADE_CELLS: f32 = 2.0;
 /// Steps the strength is rounded to before materials are touched again.
 const LEVELS: f32 = 32.0;
 
@@ -63,6 +78,21 @@ pub struct Glow {
     pub at: Vec3,
     /// Display colour (0..1) × the light's fade.
     pub color: [f32; 3],
+    /// The light the cell would draw for it.
+    pub lamp: Lamp,
+}
+
+/// The light a distant lamp sheds, as `lights::spawn_light` would draw it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Lamp {
+    /// Display colour (0..1) of the light record.
+    pub color: [f32; 3],
+    /// Full brightness (Bevy lumens).
+    pub intensity: f32,
+    /// Range (game units).
+    pub range: f32,
+    /// Spot lights: the cone's half angle (radians).
+    pub spot: Option<f32>,
 }
 
 /// A glow's entity, its material and the light it stands for.
@@ -85,6 +115,8 @@ pub struct DistantLights {
     drawn: HashMap<(i32, i32), Vec<DrawnGlow>>,
     /// The strength step each cell was last drawn at.
     applied: HashMap<(i32, i32), u32>,
+    /// Each cell's lamp lights (children of the world root) and their full brightness.
+    lit: HashMap<(i32, i32), Vec<(Entity, f32)>>,
     quad: Option<Handle<Mesh>>,
     texture: Option<Handle<Image>>,
 }
@@ -106,9 +138,37 @@ pub fn cell_glows(world: &WorldData, c: (i32, i32)) -> Vec<Glow> {
                 return None;
             }
             let fade = l.fade.clamp(0.0, 4.0);
-            Some(Glow { at: Vec3::from_array(p.position), color: l.color.map(|b| b as f32 / 255.0 * fade) })
+            let flame = matches!(LightMotion::of(l.flags), Some(LightMotion::Flicker | LightMotion::FlickerSlow));
+            let lamp = Lamp {
+                color: l.color.map(|b| b as f32 / 255.0),
+                intensity: lumens(l.fade.max(0.0) * p.scale, crate::sky::light_unit()),
+                range: if flame { radius * FLAME_REACH } else { radius },
+                spot: (l.flags & light_flags::SPOT != 0).then(|| (l.fov.clamp(1.0, 179.0) / 2.0).to_radians()),
+            };
+            Some(Glow { at: Vec3::from_array(p.position), color: l.color.map(|b| b as f32 / 255.0 * fade), lamp })
         })
         .collect()
+}
+
+/// Sun elevations (degrees) between which lamps come on: off with the sun at or above
+/// the first, fully on at or below the second. The lamps are off by day (owner,
+/// 2026-11-06, overnight queue items 16 and 34: glows showed at part strength all
+/// morning and afternoon while this followed the 40° daylight ramp) [design].
+const LAMPS_ON_DEG: (f32, f32) = (4.0, -4.0);
+
+/// How far the lamps are on (0..1) for a sun elevation in degrees: 0 while the sun is
+/// up, rising through sunset to 1 at [`LAMPS_ON_DEG`]`.1`.
+pub fn lamps_on(sun_elevation: f32) -> f32 {
+    let (a, b) = LAMPS_ON_DEG;
+    let t = ((a - sun_elevation) / (a - b)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// How much of its light a distant lamp sheds (0..1) at `d` horizontal game units from
+/// the camera: all of it out to [`LIT_FADE_CELLS`] cells short of [`LIT_CELLS`], none at it.
+pub fn lit_reach(d: f32) -> f32 {
+    let (end, fade) = (LIT_CELLS as f32 * CELL_SIZE, LIT_FADE_CELLS * CELL_SIZE);
+    (1.0 - (d - (end - fade)) / fade).clamp(0.0, 1.0)
 }
 
 /// A glow's strength (0..1): night × the part of its cell not drawn × the fade at the
@@ -146,14 +206,15 @@ pub fn update(
     mut state: ResMut<DistantLights>,
     root: Query<Entity, With<WorldRoot>>,
     camera: Query<&GlobalTransform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
-    mut glows: Query<&mut Transform>,
+    mut glows: Query<&mut Transform, Without<DistantLamp>>,
+    mut lamp_lights: Query<(Option<&mut PointLight>, Option<&mut SpotLight>), With<DistantLamp>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let (Ok(root), Ok(cam)) = (root.single(), camera.single()) else { return };
     let state = &mut *state;
-    let night = 1.0 - sky.daylight();
+    let night = lamps_on(sky.sun_elevation());
     let off = !state.enabled || streamer.interior.is_some() || night <= 0.0;
     let eye = bevy_to_game(cam.translation());
     let centre = cell_of(eye.x, eye.y);
@@ -166,6 +227,11 @@ pub fn update(
             }
         }
         state.applied.clear();
+        for (_, list) in state.lit.drain() {
+            for (e, _) in list {
+                commands.entity(e).despawn();
+            }
+        }
         state.chosen = None;
         if state.read_world != world.world {
             state.read.clear();
@@ -220,6 +286,30 @@ pub fn update(
         if cells > 0 {
             info!("distant lights: {added} glows in {cells} more cells around {centre:?} ({} cells drawn)", state.drawn.len());
         }
+        // Lamp lights for the cells near the camera.
+        let near = |c: &(i32, i32)| (c.0 - centre.0).abs().max((c.1 - centre.1).abs()) <= LIT_CELLS;
+        let gone: Vec<(i32, i32)> = state.lit.keys().filter(|c| !near(c)).copied().collect();
+        for c in gone {
+            for (e, _) in state.lit.remove(&c).unwrap_or_default() {
+                commands.entity(e).despawn();
+            }
+        }
+        let mut lamps = 0;
+        for x in centre.0 - LIT_CELLS..=centre.0 + LIT_CELLS {
+            for y in centre.1 - LIT_CELLS..=centre.1 + LIT_CELLS {
+                let c = (x, y);
+                if state.lit.contains_key(&c) {
+                    continue;
+                }
+                let list = state.read.get(&c).cloned().unwrap_or_default();
+                let spawned: Vec<(Entity, f32)> = list.iter().map(|g| (spawn_lamp(&mut commands, root, g), g.lamp.intensity)).collect();
+                lamps += spawned.len();
+                state.lit.insert(c, spawned);
+            }
+        }
+        if lamps > 0 {
+            info!("distant lights: {lamps} lamp lights added around {centre:?} ({} lit in all)", state.lit.values().map(Vec::len).sum::<usize>());
+        }
         state.chosen = Some(key);
     }
     // Strength per cell, materials touched only when its step changes.
@@ -239,6 +329,25 @@ pub fn update(
             commands.entity(*e).insert(if step == 0 { Visibility::Hidden } else { Visibility::Inherited });
         }
     }
+    // Lamp light: the glow's strength without the range fade, faded by `lit_reach`.
+    for (c, list) in &state.lit {
+        let mid = Vec2::new((c.0 as f32 + 0.5) * CELL_SIZE, (c.1 as f32 + 0.5) * CELL_SIZE);
+        let k = (night * (1.0 - streamer.cell_level(*c)) * lit_reach(mid.distance(eye.truncate()))).clamp(0.0, 1.0);
+        for (e, full) in list {
+            let Ok((point, spot)) = lamp_lights.get_mut(*e) else { continue };
+            let i = full * k;
+            if let Some(mut p) = point {
+                if p.intensity != i {
+                    p.intensity = i;
+                }
+            }
+            if let Some(mut s) = spot {
+                if s.intensity != i {
+                    s.intensity = i;
+                }
+            }
+        }
+    }
     // Face the camera, sized to a few pixels.
     for list in state.drawn.values() {
         for (e, _, g) in list {
@@ -251,6 +360,32 @@ pub fn update(
             t.rotation = Quat::from_rotation_arc(Vec3::Z, to_eye / d);
             t.scale = Vec3::splat((d * PIXEL_ANGLE).max(MIN_SIZE));
         }
+    }
+}
+
+/// A distant lamp's light (see the module notes).
+#[derive(Component)]
+pub struct DistantLamp;
+
+/// Spawn the light of distant lamp `g` under the world root, dark until `update` sets it.
+fn spawn_lamp(commands: &mut Commands, root: Entity, g: &Glow) -> Entity {
+    let l = &g.lamp;
+    let color = display_color(l.color);
+    let t = Transform::from_translation(g.at);
+    match l.spot {
+        // Spot lights point down their reference's -z [hypothesis, as `spawn_light`].
+        Some(a) => commands
+            .spawn((
+                Name::new("Distant lamp"),
+                SpotLight { color, intensity: 0.0, range: l.range, outer_angle: a, inner_angle: a * 0.8, shadow_maps_enabled: false, ..default() },
+                t.looking_to(-Vec3::Z, Vec3::Y),
+                ChildOf(root),
+                DistantLamp,
+            ))
+            .id(),
+        None => commands
+            .spawn((Name::new("Distant lamp"), PointLight { color, intensity: 0.0, range: l.range, shadow_maps_enabled: false, ..default() }, t, ChildOf(root), DistantLamp))
+            .id(),
     }
 }
 
@@ -299,6 +434,28 @@ mod tests {
         assert!((strength(1.0, 0.0, 0.9 * range) - 0.5).abs() < 1e-4);
         assert!(strength(1.0, 0.0, range) < 1e-4);
         assert_eq!(strength(1.0, 0.0, 1.1 * range), 0.0);
+    }
+
+    #[test]
+    fn lamp_light_fades_over_the_last_lit_cell() {
+        let end = LIT_CELLS as f32 * CELL_SIZE;
+        assert_eq!(lit_reach(0.0), 1.0);
+        assert_eq!(lit_reach(end - LIT_FADE_CELLS * CELL_SIZE), 1.0);
+        assert!((lit_reach(end - 0.5 * LIT_FADE_CELLS * CELL_SIZE) - 0.5).abs() < 1e-4);
+        assert_eq!(lit_reach(end), 0.0);
+        assert_eq!(lit_reach(2.0 * end), 0.0);
+    }
+
+    #[test]
+    fn lamps_are_off_while_the_sun_is_up() {
+        for e in [4.0, 10.0, 20.0, 39.0, 60.0] {
+            assert_eq!(lamps_on(e), 0.0, "sun at {e}°");
+        }
+        assert_eq!(lamps_on(-4.0), 1.0);
+        assert_eq!(lamps_on(-30.0), 1.0);
+        let mid = lamps_on(0.0);
+        assert!(mid > 0.4 && mid < 0.6, "{mid}");
+        assert!(lamps_on(2.0) < lamps_on(-2.0));
     }
 
     #[test]

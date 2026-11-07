@@ -1691,6 +1691,15 @@ const FOG_SUN: f32 = 0.5;
 /// Sun elevation (degrees) at which daylight reaches full strength.
 const DAYLIGHT_DEG: f32 = 40.0;
 
+/// Whether an interior's lighting (XCLL, or its template) fogs the view: only when fog far
+/// is beyond fog near. A cell with fog 0..0 (HOTM's Monte Carlo Club, `aaMontecarlo`, which
+/// inherits only the clip distance from its template) has no fog, as a weather with an
+/// unset range has none (module doc; world.md §6) [hypothesis: drawn as fog total from the eye, the
+/// whole club was one flat fog colour; owner's playtest 2026-11-06, overnight queue 57].
+pub fn interior_fog_on(near: f32, far: f32) -> bool {
+    far > near
+}
+
 fn to_color(c: [f32; 3]) -> Color {
     Color::LinearRgba(LinearRgba::rgb(c[0], c[1], c[2]))
 }
@@ -1786,9 +1795,10 @@ pub fn update_sky(
             light.color = crate::lights::display_color(shown(l.directional));
             light.illuminance = PI * unit * l.directional_fade.clamp(0.0, 1.0) * INTERIOR_DIRECTIONAL_SHARE;
         }
-        fog.color = c(l.fog_color);
+        let fogged = interior_fog_on(l.fog_near, l.fog_far);
+        fog.color = c(l.fog_color).with_alpha(if fogged { 1.0 } else { 0.0 });
         fog.falloff = crate::fog::falloff(l.fog_near.max(0.0), l.fog_far, l.fog_power, false, 1.0);
-        info!("interior lighting: fog {:.0}..{:.0} power {:.2}", l.fog_near, l.fog_far, l.fog_power);
+        info!("interior lighting: fog {:.0}..{:.0} power {:.2}{}", l.fog_near, l.fog_far, l.fog_power, if fogged { "" } else { " (no fog: far not beyond near)" });
         return;
     }
     let (h, c) = (sky.hour, &sky.climate);
@@ -1911,6 +1921,13 @@ pub fn initial_fog() -> DistanceFog {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn interior_fog_needs_a_range() {
+        assert!(!interior_fog_on(0.0, 0.0));
+        assert!(!interior_fog_on(500.0, 200.0));
+        assert!(interior_fog_on(0.0, 4_000.0));
+    }
+
     use super::*;
 
     #[test]

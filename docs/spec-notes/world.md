@@ -1271,7 +1271,10 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   LGTM records decode exactly]) and `LNAM` holds "inherit" flags, one per field
   [documented]. The renderer takes a field from the template when its bit is set
   [hypothesis]. The two rotation angles are read as azimuth about z and elevation, in
-  degrees [hypothesis].
+  degrees [hypothesis]. An interior whose fog far is not beyond its fog near (HOTM's
+  Monte Carlo Club `aaMontecarlo`: 0..0, inheriting only the clip distance) has no fog,
+  as a weather with an unset range has none; drawn as fog total from the eye, the whole
+  room was one flat fog colour [hypothesis; observed: owner's playtest 2026-11-06].
 - **Lights (LIGH DATA)**: time i32, radius u32, colour (RGBA bytes), flags u32
   (dynamic, can be carried, negative, flicker, off by default, flicker slow, pulse,
   pulse slow, spot, spot shadow, ...), falloff exponent f32, FOV f32, value u32, weight
@@ -1460,8 +1463,13 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   draw level, so it comes up over the cell's fade with the cell's meshes; and the LIGH
   references of cells within 12 cells of the camera that are not drawn yet show at
   night as small additive glows in the light's colour (a few pixels wide at any
-  distance), fading as the cell fades in, with the daylight, and over the last fifth of
-  the range. `--no-distant-lights` turns the glows off.
+  distance), fading as the cell fades in and over the last fifth of the range. They are
+  off while the sun is up and come on as it sets (sun +4° to −4°), as lamps are off by
+  day (owner, 2026-11-06). Within 8 cells of the camera each glow also sheds the light
+  its cell would draw (colour, brightness, range, spot cone; no shadows), going down as
+  the cell's own lights come up, so a distant lamp post (object LOD) is lit under its
+  glow instead of standing unseen in the night ambient (owner's playtest 2026-11-06,
+  overnight queue item 35). `--no-distant-lights` turns the glows and their light off.
 
 ## 9. Open questions
 

@@ -1041,6 +1041,17 @@ impl ModelSink for Deferred {
 /// A model prepared on a worker thread, waiting for the main thread.
 type Fetched = (Result<PreparedModel, String>, DeferredAssets);
 
+/// Whether `path` is an object LOD block (`meshes\landscape\lod\<world>\blocks\…`). A
+/// block shape whose base texture cannot be found is left out: drawn untextured it shows
+/// as a white shape on the horizon (overnight queue 2026-11-06, item 27: an xLODGen block
+/// whose sassafras trees name `nvsassafrasbark_lod.dds`, which no file of the load order
+/// has; xLODGen itself warns that shapes off its atlas will be missing in the game)
+/// [design].
+pub fn is_object_lod_block(path: &str) -> bool {
+    let p = path.to_ascii_lowercase().replace('/', "\\");
+    p.contains("landscape\\lod\\") && p.contains("\\blocks\\")
+}
+
 /// The cache key of a model: its normalised path, marked for the copy that keeps CPU
 /// meshes, for the first-person copy and for a list of alternate textures (by the list's
 /// hash). The CPU mark keeps a copy without CPU meshes from answering
@@ -1597,7 +1608,11 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
                 cycle: OwnCycle { start: g.start_time, stop: g.stop_time, frequency: g.frequency.max(1e-6), phase: g.phase, cycle_type: (g.flags >> 1) & 3 },
             })
         });
-        let (material, _missing) = shape_material_with(&props, &mut mesh, sink);
+        let (material, missing) = shape_material_with(&props, &mut mesh, sink);
+        if let Some(tex) = missing.as_deref().filter(|_| is_object_lod_block(path)) {
+            info!("{path}: a shape left out, its texture {tex} cannot be found (drawn white otherwise)");
+            continue;
+        }
         if let Some(VertexAttributeValues::Float32x3(p)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
             for v in p {
                 let q = (out.root * t).transform_point3(Vec3::from_array(*v));
@@ -1685,6 +1700,14 @@ fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, firs
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn object_lod_blocks_by_path() {
+        assert!(is_object_lod_block("meshes\\landscape\\lod\\wastelandnv\\blocks\\wastelandnv.level4.x0.y0.nif"));
+        assert!(is_object_lod_block("Meshes/Landscape/LOD/WastelandNV/Blocks/WastelandNV.Level4.X0.Y0.NIF"));
+        assert!(!is_object_lod_block("meshes\\landscape\\lod\\wastelandnv\\wastelandnv.level4.x0.y0.nif"));
+        assert!(!is_object_lod_block("meshes\\scol\\electrocitylamppost01_lod.nif"));
+    }
+
     use super::*;
     use fnv_nif::scene::Transform as NifTransform;
 
