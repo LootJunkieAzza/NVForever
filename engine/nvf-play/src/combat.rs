@@ -246,6 +246,9 @@ pub struct ActorFire {
     /// The shot does no damage (a weapon use's Do No Damage, nvforever `use_weapon`):
     /// it flies, strikes and is seen and heard as any other.
     pub harmless: bool,
+    /// A weapon use's Always Hit: its target, which the shot's hit goes to whatever it
+    /// strikes ([By::always_hit]).
+    pub always_hit: Option<FormId>,
 }
 
 /// An actor other than the player strikes `target` within its reach (combat AI): with
@@ -283,6 +286,10 @@ pub struct By {
     pub ammo: Option<FormId>,
     /// It does no damage ([`ActorFire::harmless`]).
     pub harmless: bool,
+    /// Always Hit (nvforever `use_weapon`): the target its hit counts on, even when it
+    /// strikes something else [documented: GECK wiki Use Weapon Package, Always Hit:
+    /// "treated as having hit the target, even if they hit something else"].
+    pub always_hit: Option<FormId>,
     /// A marked shot of VATS mode (`crate::vats_mode`): its hit counts as a VATS attack
     /// (the critical chance bonus, docs/design/vats-mode.md §9.2).
     pub vats: bool,
@@ -2899,7 +2906,7 @@ pub(crate) fn fire(
                     let dir = vec::normalize(p.vel);
                     c.next_visual += 1;
                     let from_muzzle = anim.muzzle.is_some() && leaving.seen.at(leaving.origin, 0.0) != eye;
-                    let by = By { actor: FormId::PLAYER_REF, weapon: id, ammo: c.ammo, harmless: false, vats: vats_shot.is_some(), sneaking: control.sneak };
+                    let by = By { actor: FormId::PLAYER_REF, weapon: id, ammo: c.ammo, harmless: false, always_hit: None, vats: vats_shot.is_some(), sneaking: control.sneak };
                     c.flying.push(Flying { p, id: c.next_visual, proj, shown, dir, from_muzzle, origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None });
                 }
                 let seen_from = leaving.seen.at(leaving.origin, 0.0);
@@ -3960,7 +3967,7 @@ fn actor_attacks(
             }
         }
         let (tracer_chance, force) = c.forms.projectiles.get(&proj).map_or((0.0, 0.0), |p| (p.tracer_chance, p.impact_force));
-        let by = By { actor: s.shooter, weapon: s.weapon, ammo, harmless: s.harmless, vats: false, sneaking: false };
+        let by = By { actor: s.shooter, weapon: s.weapon, ammo, harmless: s.harmless, always_hit: s.always_hit, vats: false, sneaking: false };
         let rng = &mut c.rng;
         let mut rand = || rng.next_f32();
         let mut ps = shot::fire(&c.forms, &chain, leaving.origin, leaving.aim, s.cone, Some(own), gravity, &c.tuning, &mut rand);
@@ -4128,7 +4135,7 @@ fn script_shot(sim: &SimState, from: FormId, weapon: FormId) -> Option<ActorFire
     let [x, _, z] = rot;
     let aim = [z.sin() * x.cos(), z.cos() * x.cos(), -x.sin()];
     let origin = [pos[0], pos[1], pos[2] + if actor { 64.0 } else { 0.0 }];
-    Some(ActorFire { shooter: from, weapon, origin, aim, cone: 0.0, muzzle: None, harmless: false })
+    Some(ActorFire { shooter: from, weapon, origin, aim, cone: 0.0, muzzle: None, harmless: false, always_hit: None })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -4591,6 +4598,20 @@ fn fly(
             let hit = p.actor.map(|a| a as u32).or(p.object.map(|o| o as u32));
             effects.4.write(crate::world_sounds::log_impact(s, hit, p.actor.is_some(), p.material, material, impact));
         }
+        // Always Hit: a shot that struck something other than its target (the cliff
+        // edge before a White Leg on a ledge in the Zion ambush) is seen and heard
+        // where it struck and hits the target [documented: GECK wiki Use Weapon
+        // Package, Always Hit]; on no body part the page names [design: as no part].
+        // The weapon the target holds is something else too: its shot wore Jed's
+        // pistol and never ran his OnHit, so the ambush never killed him [design].
+        if let Some(t) = p.by.always_hit {
+            let target = if t == FormId::PLAYER_REF { PLAYER } else { u64::from(t.0) };
+            if (p.actor != Some(target) || p.part == Some(WEAPON_PART)) && sim.world.peek(t).is_some() {
+                p.actor = Some(target);
+                p.object = None;
+                p.part = None;
+            }
+        }
         // A harmless shot is seen and heard where it lands, and does nothing more.
         if p.by.harmless {
             stats.harmless_hits += 1;
@@ -4991,7 +5012,7 @@ mod tests {
 
     #[test]
     fn a_blast_hit_is_its_causes_not_the_players() {
-        let by = By { actor: FormId(0x000F5704), weapon: FormId(0x000906DA), ammo: None, harmless: false, vats: false, sneaking: false };
+        let by = By { actor: FormId(0x000F5704), weapon: FormId(0x000906DA), ammo: None, harmless: false, always_hit: None, vats: false, sneaking: false };
         let info = blast_hit_info(Some(Cause::of(&by)));
         assert_eq!((info.attacker, info.weapon, info.location, info.critical), (Some(FormId(0x000F5704)), Some(FormId(0x000906DA)), -1, false));
         let none = blast_hit_info(None);

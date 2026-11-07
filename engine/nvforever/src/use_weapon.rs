@@ -16,8 +16,9 @@
 //!   other weapon, or none, swings (**Melee** below) [design]. Its drawn model is the one it was spawned with: a use
 //!   naming another weapon fires that weapon's shots from the model it holds (models are
 //!   not swapped live yet).
-//! - **Always Hit**: no spread at all, aimed straight at the target's chest [design: the
-//!   shot can still meet cover between them]. Shots aim at the target's body as posed
+//! - **Always Hit**: no spread at all, aimed straight at the target's chest; a shot that
+//!   meets cover or another actor still hits the target (`nvf_play::combat::By::always_hit`)
+//!   [documented: GECK wiki Use Weapon Package, "even if they hit something else"]. Shots aim at the target's body as posed
 //!   (its widest part capsule, `fnv_phys` `actor_aim_point`), so a kneeling or seated
 //!   target is hit where it is [design]; without a posed body, at its standing chest. **Do No Damage**: the shots are harmless
 //!   (`nvf_play::combat::ActorFire::harmless`). **Crouch To Reload**: it crouches
@@ -91,6 +92,9 @@ struct Shooter {
     wait: f32,
     /// What it last waited for, told once each time it changes.
     held: Option<&'static str>,
+    /// Its target's feet at the last frame, for the target's velocity (an always-hit
+    /// shot leads a moving target).
+    last_target: Option<V3>,
 }
 
 /// One actor carrying out a melee weapon use (module notes).
@@ -264,7 +268,7 @@ pub(crate) fn shoot(
             let fresh = s.by.get(&id).is_none_or(|x| x.seq != w.seq || x.weapon != gun);
             if fresh {
                 let timing = Timing::of(ws, &ClipTiming::default(), &c.tuning);
-                s.by.insert(id, Shooter { seq: w.seq, weapon: gun, cycle: Cycle::new(ws, timing, false, ws.clip_size.max(1)), pulled: false, wait: 0.0, held: None });
+                s.by.insert(id, Shooter { seq: w.seq, weapon: gun, cycle: Cycle::new(ws, timing, false, ws.clip_size.max(1)), pulled: false, wait: 0.0, held: None, last_target: None });
                 s.stats.actors.insert(id, name.clone());
                 match w.source {
                     Source::Script => s.stats.from_scripts += 1,
@@ -289,6 +293,11 @@ pub(crate) fn shoot(
             }
             let shooter = s.by.get_mut(&id).expect("inserted");
             shooter.wait = (shooter.wait - dt).max(0.0);
+            let target_vel = match shooter.last_target {
+                Some(was) if dt > 0.0 => vec::scale(vec::sub(tfeet, was), 1.0 / dt),
+                _ => [0.0; 3],
+            };
+            shooter.last_target = Some(tfeet);
             let tchest = [tfeet[0], tfeet[1], tfeet[2] + (teyes[2] - tfeet[2]) * CHEST];
             // What holds its fire this frame.
             let restrained = g.extra.get(&me).is_some_and(|e| e.restrained);
@@ -343,7 +352,25 @@ pub(crate) fn shoot(
                         // wall, so his OnHit never ran and the scene stopped).
                         let at = phys.as_deref().and_then(|p| p.world.actor_aim_point(w.target.0)).unwrap_or(tchest);
                         let to = vec::sub(at, eyes);
-                        let aim = vec::scale(to, 1.0 / vec::len(to).max(1.0));
+                        let mut aim = vec::scale(to, 1.0 / vec::len(to).max(1.0));
+                        // Always Hit with a slow or falling projectile (a thrown
+                        // tomahawk): aimed at where the target will be when it gets
+                        // there, on the projectile's arc (`fnv_combat::vats::lob_dir`, as
+                        // the combat AI throws grenades). Aimed straight, the White Leg's
+                        // tomahawks at the running caravan guard in Zion fell short and
+                        // the ambush waited for his death for ever (owner 2026-11-07)
+                        // [design: "always hit" read as a hit wherever the target goes].
+                        if w.always_hit {
+                            let proj = c.forms.chain(gun, None).and_then(|ch| ch.projectile).and_then(|p| c.forms.projectiles.get(&p));
+                            if let Some(p) = proj.filter(|p| p.speed > 0.0) {
+                                let gravity = p.gravity * phys.as_deref().map_or(686.0, |x| x.world.params.gravity);
+                                let flight = vec::len(to) / p.speed;
+                                let ahead = vec::add(at, vec::scale([target_vel[0], target_vel[1], 0.0], flight));
+                                if let Some(d) = fnv_combat::vats::lob_dir(eyes, ahead, p.speed, gravity) {
+                                    aim = d;
+                                }
+                            }
+                        }
                         let origin = vec::add(eyes, vec::scale(aim, MUZZLE_AHEAD));
                         let cone = if w.always_hit {
                             0.0
@@ -353,7 +380,7 @@ pub(crate) fn shoot(
                             let stance = Stance { aiming: false, moving: false, running: false, sneaking: false, airborne: false, skill, strength, aiming_move_divisor: 1.0, ..Stance::default() };
                             spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, ws, &stance), 0.0, ws, &[])
                         };
-                        fire.write(ActorFire { shooter: me, weapon: gun, origin, aim, cone, muzzle, harmless: w.no_damage });
+                        fire.write(ActorFire { shooter: me, weapon: gun, origin, aim, cone, muzzle, harmless: w.no_damage, always_hit: w.always_hit.then_some(w.target) });
                         anims.write(PlayAttack { actor: id, weapon: Some(gun), melee: false, sights: false, kind: Default::default(), power: None, swing: None });
                         s.stats.shots += 1;
                         s.stats.sure += usize::from(w.always_hit);
