@@ -598,6 +598,10 @@ pub(crate) trait PageFonts {
     fn write_sizes(&mut self, ui: &mut Ui, texts: &[TileId], written: &mut SizesWritten) -> usize;
     /// The menu's pieces, as the drawing paints them.
     fn set_out(&mut self, ui: &Ui, menu: TileId) -> Vec<Piece>;
+    /// A picture's own file's size in texels, when the page needs it.
+    fn picture_texels(&mut self, _name: &str) -> Option<(f64, f64)> {
+        None
+    }
 }
 
 impl PageFonts for FontKit<'_> {
@@ -607,6 +611,9 @@ impl PageFonts for FontKit<'_> {
     }
     fn set_out(&mut self, ui: &Ui, menu: TileId) -> Vec<Piece> {
         super::draw::whole_pieces(ui, menu, self, true)
+    }
+    fn picture_texels(&mut self, name: &str) -> Option<(f64, f64)> {
+        self.picture_size(name).map(|s| (f64::from(s.x), f64::from(s.y)))
     }
 }
 

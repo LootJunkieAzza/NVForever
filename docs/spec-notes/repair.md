@@ -353,6 +353,28 @@ pictures]:
 The model always has a row chosen, so "off any row" here is row 0 chosen with the pointer on none:
 a pointer leaving the rows chooses the item again [design].
 
+**Layout inputs and the Cancel check** [design: `tiles/repair_menu.rs::write_file_sizes`,
+`usable`; `tiles/menus.rs::write_text_sizes_of`; `fnv_ui::input::hit_candidates`]: the page
+writes each non-atlas picture's `filewidth` and `fileheight` from its file's texels and
+current numeric zoom (100 for absent, symbolic or nonpositive zoom), including hidden
+pictures. The walk covers the buttons, item icon, brackets, cards and generated rows.
+Text measurement also includes hidden text; neither measurement depends on what is painted.
+The file retains its expressions for button sizes and places. No inner-origin mark is
+added to the buttons: their text is directly under the image, unlike the STATS tabs'
+inner rects [documented: repair_menu.xml's tile outline].
+
+Cancel's shortcut label stands outside its button [observed: private job
+run07c_repair_menu, 1280x720]. The usability check probes `button_text` specifically,
+rather than the first text descendant in painting order, which can be the shortcut.
+An image's target does not extend to its children, so the external shortcut need not
+take the pointer [design: `fnv_ui::input::hit_candidates`]. Cancel's words and every
+whole visible row must still take it; an obstruction keeps the hand-built fallback
+and its warning names the tile that took the hit, or says nothing did [design].
+The fixtures use their own picture dimensions and expressions to cover a hidden
+picture sizing a button, a shortcut sorted before its words, changed files and zoom,
+and a covering target; they do not reproduce the game's layout (#1512) [design:
+`tiles/repair_menu.rs::tests`].
+
 **Open** [hypothesis]: a real repair on a part in the original, and what follows it (the model's
 rule stands, §5); a row the skill cannot use (none dims here); a two-line row and the brackets on
 it; a long list, the brackets moving with the scroll; the choose text's period (2 s here).

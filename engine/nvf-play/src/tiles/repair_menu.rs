@@ -49,7 +49,7 @@ use fnv_game::repair::{gain_percent, merged_condition};
 use fnv_sim::inventory::Extra;
 use fnv_sim::FormId;
 use fnv_ui::{TileId, Ui, Value};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// [documented: repair_menu.xml] The menu and the paths written by this adapter.
 pub const REPAIR_MENU: &str = "RepairMenu";
@@ -238,6 +238,7 @@ struct Written {
     view: ListView<RowKey>,
     shown: Option<Shown>,
     sizes: SizesWritten,
+    pictures: HashMap<String, Option<(f64, f64)>>,
     flat: Option<FlatChanges>,
     /// What is shown changed since the log last said so.
     tell: bool,
@@ -393,6 +394,35 @@ fn write_meters(ui: &mut Ui, rows: &[RowTile<RowKey>], shown: &[RowShown]) {
     }
 }
 
+/// [design: `pipboy-stats-tabs-1513:engine/nvf-play/src/tiles/stats_menu.rs::write_file_sizes`;
+/// `draw::FontKit::picture_size`]
+/// Supply the picture dimensions the file can read, including hidden button pictures. Walk the
+/// whole page so its icon, brackets, cards and rows get the same writes. Atlas pieces have no own
+/// file size. Keep file texels cached, applying the current zoom on every pass.
+fn write_file_sizes(ui: &mut Ui, menu: TileId, pictures: &mut HashMap<String, Option<(f64, f64)>>, fonts: &mut dyn PageFonts) {
+    let mut stack = vec![menu];
+    while let Some(t) = stack.pop() {
+        let tile = ui.tile(t);
+        if !tile.live {
+            continue;
+        }
+        stack.extend(tile.children.iter().copied());
+        if tile.kind != "image" || tile.get("texatlas").is_some() {
+            continue;
+        }
+        let name = tile.get("filename").map(|v| v.text().trim().to_string()).unwrap_or_default();
+        if name.is_empty() {
+            continue;
+        }
+        let zoom = tile.get("zoom").filter(|v| !matches!(v, Value::Sym(_))).map_or(100.0, Value::num);
+        let zoom = if zoom > 0.0 { zoom / 100.0 } else { 1.0 };
+        if let Some((width, height)) = *pictures.entry(name.clone()).or_insert_with(|| fonts.picture_texels(&name)) {
+            ui.write_changed(t, "filewidth", Value::Num(width * zoom));
+            ui.write_changed(t, "fileheight", Value::Num(height * zoom));
+        }
+    }
+}
+
 /// The brackets frame the item's row, whatever is hovered: `y` and `height` are code's, and the
 /// height is the row's less one [documented: the file; observed: private job run07c_repair_menu,
 /// 1280x720, 51 on a row of 52, y 0; hypothesis: they move with the scroll, no long list was seen].
@@ -427,13 +457,17 @@ pub fn usable(ui: &Ui, menu: TileId, tiles: &RepairTiles, pieces: &[Piece]) -> R
     if wanted.is_empty() {
         return Err("no row shows whole".into());
     }
-    let cancel = ui.find_tile(CANCEL).ok_or_else(|| format!("{CANCEL} missing"))?;
-    let words = pieces.iter().filter(is_text).find(|x| super::stats_menu::inside(ui, x.tile, cancel)).ok_or("Cancel is not shown")?;
+    // [design: fnv_ui::input::hit_candidates; documented: repair.md §5.1] Cancel is an image,
+    // so its children do not inherit its target. Probe its button words explicitly: the shortcut
+    // label stands outside the button and may sort before them by depth.
+    let cancel_text = ui.find_tile(&format!("{CANCEL}/button_text"));
+    let words = pieces.iter().filter(is_text).find(|x| Some(x.tile) == cancel_text).ok_or("Cancel is not shown")?;
     wanted.push((RepairTile::Cancel, shows_whole(words).ok_or("Cancel does not fit")?));
     for (what, at) in wanted {
         let hit = fnv_ui::input::hit(ui, &[menu], at, &fnv_ui::input::no_measure);
         if hit.and_then(|h| tiles.clicked(ui, h.tile)) != Some(what) {
-            return Err(format!("{what:?} does not take the pointer"));
+            let took = hit.map_or_else(|| "nothing does".into(), |h| format!("{} takes it under {}", ui.path_of(h.tile), ui.path_of(h.under)));
+            return Err(format!("{what:?} does not take the pointer: {took}"));
         }
     }
     Ok(())
@@ -472,6 +506,8 @@ pub(crate) fn page(ui: &mut Ui, s: Shown, device: bool, late: bool, secs: f64, t
     }
     if changed || late {
         let Some(s) = w.shown.take() else { return Err("nothing written".into()) };
+        ui.update();
+        write_file_sizes(ui, menu, &mut w.pictures, fonts);
         ui.update();
         write_meters(ui, &w.rows, &s.rows);
         let texts = menus::texts(ui, menu);
@@ -782,7 +818,13 @@ mod tests {
     fn fixture(change: impl FnOnce(String) -> String) -> Ui {
         let card = |name: &str, inner: &str| format!(r#"<rect name="{name}"><text name="CI_TitleText"/><text name="CI_ValueText"/>{inner}</rect>"#);
         let meter = |name: &str| format!(r#"<rect name="{name}"><image name="MeterImage"/></rect>"#);
-        let button = |name: &str, words: &str, y: u32, hide: &str| format!(r#"<image name="{name}"><y>{y}</y><width>90</width><height>30</height><target>1</target>{hide}<text name="button_text"><string>{words}</string></text><text name="PCShortcutLabel"/></image>"#);
+        let button = |name: &str, words: &str, y: u32, hide: &str| format!(r#"<image name="{name}"><y>{y}</y>
+            <width><copy src="child(button_text)" trait="width"/><add>12</add></width>
+            <height><copy src="child(TestPicture)" trait="fileheight"/><add>6</add></height>
+            <target>1</target>{hide}<text name="button_text"><y>2</y><string>{words}</string></text>
+            <image name="TestPicture"><visible>0</visible><filename>pics\button.dds</filename></image>
+            <text name="PCShortcutLabel"><depth>-3</depth><x><copy src="parent()" trait="width"/><add>8</add></x>
+              <string><copy src="parent()" trait="_PCButtonText"/></string></text></image>"#);
         let xml = format!(
             r#"<menu name="RepairMenu"><rect name="NOGLOW_BRANCH"/><rect name="GLOW_BRANCH"><image name="RM_Background"/><rect name="RM_MainRect"><x>30</x><y>40</y>
               <rect name="RM_HeadlineRect"><text name="RM_Headline_Title"><string>Own title</string></text><image name="RM_Headline_h2"><x>200</x><_length>300</_length></image>{}</rect>
@@ -858,6 +900,13 @@ mod tests {
         fn set_out(&mut self, ui: &Ui, menu: TileId) -> Vec<Piece> {
             super::super::draw::pieces(ui, menu, &measure, super::super::draw::Select::Whole { kept: &[], strip: None }, true).0
         }
+        fn picture_texels(&mut self, name: &str) -> Option<(f64, f64)> {
+            match name {
+                "pics\\button.dds" => Some((32.0, 24.0)),
+                "pics\\other.dds" => Some((48.0, 36.0)),
+                _ => None,
+            }
+        }
     }
 
     fn run(ui: &mut Ui, s: Shown, tiles: &mut RepairTiles) -> Result<TileId, String> {
@@ -874,6 +923,60 @@ mod tests {
 
     fn cards(name: &str) -> String {
         format!("{COMPARE}/{name}")
+    }
+
+    #[test]
+    fn cancel_checks_its_words_and_sizes_hidden_button_pictures() {
+        let (mut ui, mut tiles) = (fixture(|s| s), RepairTiles::default());
+        let menu = run(&mut ui, shown(0, false), &mut tiles).unwrap();
+        assert_eq!(number(&ui, CANCEL, "width"), 76.0);
+        assert_eq!(number(&ui, CANCEL, "height"), 30.0);
+        assert_eq!(number(&ui, &format!("{REPAIR}/TestPicture"), "fileheight"), 24.0, "hidden ancestors still need sizes");
+        let cancel = ui.find_tile(CANCEL).unwrap();
+        let texts: Vec<_> = tiles.pieces.iter().filter(|p| matches!(p.look, Look::Text { .. }) && super::super::stats_menu::inside(&ui, p.tile, cancel)).collect();
+        assert_eq!(ui.tile(texts[0].tile).name, "PCShortcutLabel", "the first descendant is the external hint");
+        assert!(fnv_ui::input::hit(&ui, &[menu], shows_whole(texts[0]).unwrap(), &fnv_ui::input::no_measure).is_none(), "the external hint has no pointer target");
+        let words = texts.iter().find(|p| ui.tile(p.tile).name == "button_text").unwrap();
+        let hit = fnv_ui::input::hit(&ui, &[menu], shows_whole(words).unwrap(), &fnv_ui::input::no_measure).unwrap();
+        assert_eq!(tiles.clicked(&ui, hit.tile), Some(RepairTile::Cancel));
+        assert_eq!(number(&ui, &format!("{REPAIR}/button_text"), "width"), 64.0, "hidden button text is measured too");
+    }
+
+    #[test]
+    fn picture_sizes_cover_the_page_and_follow_file_and_zoom_changes() {
+        let (mut ui, mut tiles) = (fixture(|s| s), RepairTiles::default());
+        run(&mut ui, shown(1, true), &mut tiles).unwrap();
+        let row_picture = list::child(&ui, tiles.written.rows[0].tile, ROW_MARK).unwrap();
+        let paths = [ICON.to_owned(), LEFT_BRACKET.to_owned(), cards("RM_ArrowIcon"), format!("{CANCEL}/TestPicture")];
+        let pictures: Vec<_> = paths.iter().map(|p| ui.find_tile(p).unwrap()).chain([row_picture]).collect();
+        for &t in &pictures {
+            ui.set_trait(t, "filename", Value::Str("pics\\button.dds".into()));
+            ui.set_trait(t, "zoom", Value::Num(125.0));
+        }
+        // [design: `page`] A late pass sees changes even when the model did not change.
+        run(&mut ui, shown(1, true), &mut tiles).unwrap();
+        for &t in &pictures {
+            assert_eq!(ui.tile(t).get("filewidth").unwrap().num(), 40.0);
+            assert_eq!(ui.tile(t).get("fileheight").unwrap().num(), 30.0);
+        }
+        let icon = pictures[0];
+        ui.set_trait(icon, "zoom", Value::Num(50.0));
+        ui.set_trait(icon, "filename", Value::Str("pics\\other.dds".into()));
+        let atlas = pictures[1];
+        ui.set_trait(atlas, "texatlas", Value::Str("test.tai".into()));
+        ui.set_trait(atlas, "filewidth", Value::Num(7.0));
+        run(&mut ui, shown(1, true), &mut tiles).unwrap();
+        assert_eq!(ui.tile(icon).get("filewidth").unwrap().num(), 24.0);
+        assert_eq!(ui.tile(icon).get("fileheight").unwrap().num(), 18.0);
+        assert_eq!(ui.tile(atlas).get("filewidth").unwrap().num(), 7.0);
+    }
+
+    #[test]
+    fn a_covered_cancel_still_falls_back_and_names_what_took_the_pointer() {
+        let (mut ui, mut tiles) = (fixture(|s| s.replace("<rect name=\"RM_ButtonRect\"><x>500</x><y>70</y>", r#"<rect name="RM_ButtonRect"><x>500</x><y>70</y><hotrect name="TestCover"><target>1</target><depth>8</depth><y>40</y><width>100</width><height>30</height></hotrect>"#)), RepairTiles::default());
+        let reason = run(&mut ui, shown(0, false), &mut tiles).unwrap_err();
+        assert!(reason.starts_with("Cancel does not take the pointer:"), "{reason}");
+        assert!(reason.contains("RM_ButtonRect/TestCover takes it"), "{reason}");
     }
 
     #[test]
