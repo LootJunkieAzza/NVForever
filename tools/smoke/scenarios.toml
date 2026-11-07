@@ -580,6 +580,30 @@ expect = [
 ]
 
 [[scenario]]
+name = "transform-roots-goodsprings"
+source = "issue #1387, engine/nvforever/src/transform_roots.rs: NVF_PLAY_TEST_TRANSFORM_ROOTS logs what transform propagation has to look at, every window and at the exit, standing in Goodsprings. World sits directly under one identity parent and its tree holds Goodsprings' animated people, so it is dirty in the summary's frames while its GlobalTransform stays as it is [design: nav.rs show_actor, world.rs setup_root]. The bounds only say the numbers are there; the summary lines are what the issue compares"
+areas = ["profiling", "transforms"]
+paths = ["engine/nvforever/src/transform_roots.rs", "engine/nvforever/src/world.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_TRANSFORM_ROOTS = "5" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "14"]
+run_seconds = 25
+expect = [
+  "test aid NVF_PLAY_TEST_TRANSFORM_ROOTS: transform propagation counts every 5 s",
+  { re = 'transform roots: secs=', min = 2, label = "a line of root counts each window" },
+  { re = 'transform walk: frames=', min = 2, label = "a line of node counts each window" },
+  { re = 'transform census: samples=', min = 2, label = "a census each window" },
+  { re = 'transform roots summary: secs=[\d.]+ frames=(?P<n>\d+) ', range = [10, 100000000], label = "the exit's summary counts the frames after start-up" },
+  { re = 'transform roots summary: .* static_optimization=1 ', min = 1, label = "Bevy's static optimization is on, the rule the counts model" },
+  { re = 'transform roots summary: .* root_kinds=[^ ]*world_parent:1\.00/', min = 1, label = "the root above World is there in every frame counted" },
+  { re = 'transform roots summary: .* world_depth=1\.00 world_parent_children=1\.00 world_global_changed_frames=0 world_off_local_frames=0 ', min = 1, label = "World is directly under the parent, alone there, its global unchanged and equal to its local" },
+  { re = 'transform roots summary: .* world_dirty_frames=(?P<n>\d+) ', range = [1, 100000000], label = "and its tree is dirty when something under it moves" },
+  { re = 'transform walk summary: frames=\d+ examined=(?P<n>[\d.]+) ', range = [1, 100000000], label = "nodes examined a frame" },
+  { re = 'transform walk summary: .* stable_root_examined=(?P<n>[\d.]+) ', range = [1, 100000000], label = "and with a root above World" },
+  { re = 'transform walk summary: .* world_root_examined=(?P<n>[\d.]+) ', range = [1, 100000000], label = "and with World a root" },
+  { re = 'transform census summary: samples=\d+ gt_total=\d+ most_gt_total=\d+ under_world=(?P<n>\d+) ', range = [100, 100000000], label = "the census sees the loaded world under World" },
+]
+
+[[scenario]]
 name = "shadow-probe"
 source = "engine/nvforever/src/shadow_probe.rs (playtest list 4 item 5, the first-person shadow flicker; found 2026-10-26): the debug probe NVF_PLAY_DEBUG_SHADOWS runs and finds no stretched skin, lost joint, wrong skin slot or moved mesh outside Doc Mitchell's house in first person with a weapon out, the hidden third-person body stays body-sized, and switching view four times leaves no two render views with one key (player_body.rs shade_light)"
 areas = ["renderer", "player-body"]
