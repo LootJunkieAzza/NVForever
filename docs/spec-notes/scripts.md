@@ -531,7 +531,9 @@ function does. Tests run the VM in strict mode; the game runs it in lenient mode
   entries read the local variable), then `Host::call`. **A call on an empty reference
   variable stops the script for this run**, silently in the game [documented: GECK wiki
   Ref Variable, Eval and Let pages, owner export 2026-10-09; docs/spec-notes/script-language.md §7.3 row
-  1]; here it is traced as `call_failed`, once per (script record, function): a record's
+  1]; here it stops the block it is in, and the later blocks of the same event still run
+  [hypothesis, fit to EDEScript, script-language.md §7.3 row 1]; it is traced as
+  `call_failed`, once per (script record, function): a record's
   script runs every frame, so a repeated failure would trace every frame (#1112); result,
   stage and console scripts trace every time [design]. A `Set` whose expression stopped the script
   leaves its variable unchanged [documented: Let, "a failed set stops the script"].

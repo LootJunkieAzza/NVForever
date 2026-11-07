@@ -285,8 +285,15 @@ impl<'a> Game<'a> {
             }
         }
         // A voice type without Allow Default Dialog says only lines conditioned on it; not
-        // the player's own lines (its voice types lack the flag, observed).
-        if says == Says::Actor && speaker != FormId::PLAYER_REF && def.speaker.is_none() && self.voice_without_default(speaker) && !def.conditions.iter().any(|c| VOICE_GATE_FUNCTIONS.contains(&c.function)) {
+        // the player's own lines (its voice types lack the flag, observed). The line's
+        // quest's dialogue conditions count as the line's [hypothesis, fit to the data:
+        // ED-E's only greeting, 001579D7 of vDialogueEDE, has no conditions of its own and
+        // its quest's are GetIsID on the three ED-E bases; its voice RobotEDE lacks the
+        // flag, and the greeting's begin script is what gives the player's controls back
+        // after the repair (overnight queue item 52); actor-flags.md §9].
+        let gated = |c: &crate::cond::Condition| VOICE_GATE_FUNCTIONS.contains(&c.function);
+        let quest_gated = def.quest.and_then(|q| data.quests.get(&q)).is_some_and(|d| d.conditions.iter().any(gated));
+        if says == Says::Actor && speaker != FormId::PLAYER_REF && def.speaker.is_none() && self.voice_without_default(speaker) && !def.conditions.iter().any(gated) && !quest_gated {
             return false;
         }
         self.conditions_pass(&def.conditions, Some(speaker), listener, &format!("INFO {info}"))
@@ -1234,6 +1241,38 @@ impl<'a> Game<'a> {
             return;
         }
         end(self, ended::NO_LINKS)
+    }
+
+    /// A line said by SayTo or Say (`said`, its end script and SayToDone blocks run) that
+    /// is a Conversation line with the next speaker Self and no Goodbye flag: the speaker
+    /// goes on with the first line after it in the topic's order that it can say to the
+    /// same listener, said the same way (SayTo or Say) [documented: xEdit wbNextSpeaker,
+    /// the names; hypothesis: what Self means outside a conversation, fit to the data:
+    /// Honest Hearts' arrival at Zion has Stella's dialogue package say
+    /// NVDLC02StellaForceGreetTOPIC to Jed, whose first line 0x0201118A (Self) ends with
+    /// no script that says the topic again, and only its second line 0x0201118B (Goodbye)
+    /// sets NVDLC02ZionArrivalBox's iJedConvo to 4, the step Jed's goodbye line waits
+    /// for; overnight queue item 26]. Nothing is said when a SayToDone block already
+    /// made the speaker talk again (the REPCONN tour's SayToDone blocks say the topic
+    /// themselves), or when no later line can be said.
+    pub(crate) fn continue_own_line(&mut self, said: &Speech) {
+        let data = self.data;
+        let speaker = said.speaker;
+        let Some(def) = data.infos.get(&said.info) else { return };
+        if !between_actors(def) || def.next_speaker != 1 || def.goodbye {
+            return;
+        }
+        if !self.present(speaker) || self.extra.get(&speaker).is_some_and(|e| e.dead) || self.is_talking(speaker) {
+            return;
+        }
+        let lines = data.lines_tried(said.topic);
+        let Some(at) = lines.iter().position(|&i| i == said.info) else { return };
+        let later: Vec<FormId> = lines[at + 1..].to_vec();
+        let listener = said.target.or(Some(FormId::PLAYER_REF));
+        let Some(info) = self.select_among(speaker, listener, &later, &|_: &InfoDef| true, false, Says::Actor) else { return };
+        let kind = if said.say_to { LineKind::SayTo } else { LineKind::Say };
+        self.say_line(speaker, said.target, said.topic, info, kind);
+        self.set_line_look(speaker, said.look);
     }
 
     /// The actor the player is in a conversation with.

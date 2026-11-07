@@ -228,7 +228,11 @@ Where the documentation and a capture disagree, the capture wins; every differen
   Runtime: `Game::active_refs` runs GameMode and MenuMode for disabled references
   (MenuMode with them is [hypothesis]); `Game::set_loaded` runs OnLoad at a cell load
   for disabled references too [observed for VMS15's rising plane, layer5-captures.md
-  §8.3 d]; see §7.2 row 5.
+  §8.3 d], except disabled actors, whose OnLoad waits for their enable [hypothesis: data
+  fit, EDEScript (SCPT 00151D03) on the three ED-E refs placed disabled in
+  PrimmNashResidence counts its 2-second unrestrain timer from OnLoad, so a cell-load
+  OnLoad lets the timer run out before the repair enables ED-E, which then stays
+  restrained with the controls off; overnight queue item 52, 2026-11-07]; see §7.2 row 5.
 - **Quest scripts** run only while the quest runs, at its delay; a tiny delay (0.01, or
   0.001 in another page) amounts to every frame [documented: Quest scripts; Scripting for
   Beginners]. Captured the same (quests-dialogue.md §5).
@@ -284,8 +288,9 @@ Where the documentation and a capture disagree, the capture wins; every differen
 - **Failures are silent**: a `set` whose assignment fails stops the script without a
   message [documented: Let]; an `if` that calls a function on an empty `ref` fails the
   same way [documented: Eval]; a reference function called on an unset `ref` variable
-  stops the script [documented: Ref Variable]. Runtime: the call stops the script for
-  this run, with a `call_failed` trace event (§7.3 row 1, scripts.md §4.2).
+  stops the script [documented: Ref Variable]. Runtime: the call stops its block for
+  this run (the later blocks of the event still run), with a `call_failed` trace event
+  (§7.3 row 1, scripts.md §4.2).
 - A source line is limited to 512 characters [documented: Inline Expression; Lambda].
   A compiler limit; the runtime reads bytecode only.
 
@@ -356,14 +361,14 @@ function results as arguments.
 | 2 | Float variable precision | single, about 7 digits (Category:Variables) | double: 16777217, 0.1, 123456789.123 unchanged [observed: §5.5] | double (follows the capture) |
 | 3 | Out-of-range and literal integers | not covered | out of range → −2147483648; whole literals saturate at 2147483647 [observed: §5.5] | as captured |
 | 4 | Declarations inside a block | not allowed (Scripting for Beginners) | six SCPT units compile with one, skip count one too large [observed: scripts.md §2.6] | structured reading |
-| 5 | Disabled references | object scripts run even when disabled (Object scripts) | OnActivate ran on disabled, dead ED-E when activated with the run-OnActivate flag [observed: §8.3 c]; GameMode ran for the disabled skull at its enabled rate [observed: `od_09a_disabled_ref_script`, 2026-10-18, owner-decision-captures.md] | GameMode runs for disabled references (agrees; since 2026-10-09, test `a_disabled_reference_runs_its_game_mode_block`); no cell-load OnLoad for them [hypothesis, not captured]; OnActivate runs |
+| 5 | Disabled references | object scripts run even when disabled (Object scripts) | OnActivate ran on disabled, dead ED-E when activated with the run-OnActivate flag [observed: §8.3 c]; GameMode ran for the disabled skull at its enabled rate [observed: `od_09a_disabled_ref_script`, 2026-10-18, owner-decision-captures.md] | GameMode runs for disabled references (agrees; since 2026-10-09, test `a_disabled_reference_runs_its_game_mode_block`); cell-load OnLoad for disabled activators, not for disabled actors (their OnLoad comes with the enable) [hypothesis, not captured; §6 above]; OnActivate runs |
 | 6 | Scripted items in inventories | run while the holder is loaded (Scripting for Beginners) | captured only for the player's inventory [observed: §8.3 d] | only the player's items run GameMode. **Candidate** (§8 item 2) |
 
 ### 7.3 Documented rules the runtime does not implement or contradicts (no capture yet)
 
 | # | Documented | Runtime |
 |---|---|---|
-| 1 | A reference function on an unset `ref`, a failed `set` or a failed call in an `if` stops the script silently (Ref Variable; Let; Eval) | the call stops the script for this run (`call_failed`, game.rs `stop_run`; scripts.md §4.2). In the original with xNVSE 6.4.9 a function script run through CallFunction went on after such a call, alone and in an `if` [observed: o5_00, 2026-10-31]; not yet captured in a quest or object script. Failed calls that are not on an empty ref did stop it: SetReputation axis 2 (o5_00), an `if` leaving two values (#908) |
+| 1 | A reference function on an unset `ref`, a failed `set` or a failed call in an `if` stops the script silently (Ref Variable; Let; Eval) | the call stops the block it is in (`call_failed`, game.rs `stop_run`, `stop_block_only`; scripts.md §4.2); the later blocks of the same event still run [hypothesis, fit to the data: EDEScript (SCPT 0x00151D03) makes such a call every frame in its first GameMode block in the original too (check 51), and its second GameMode block's timer still unrestrains the repaired ED-E there; overnight queue item 52, 2026-11-07]. In the original with xNVSE 6.4.9 a function script run through CallFunction went on after such a call, alone and in an `if` [observed: o5_00, 2026-10-31]; not yet captured in a quest or object script. Failed calls that are not on an empty ref did stop it: SetReputation axis 2 (o5_00), an `if` leaving two values (#908) |
 | 2 | Return ends the script for this frame (Adding an Options Menu) | ends the current block only. 12 SCPT units have a Return in an earlier block of an event that has a later block of the same event [observed: `fnvtool script decode`]. Both blocks can run in one frame in five: LonesomeRoad 0x0400DEBA and 0x0400DEBB (two GameMode blocks), FalloutNV 0x00143E27 (two OnActivate blocks), 0x001347D1 (OnHit for one reference, then OnHit for any) and 0x00125AEF (OnDeath for any, then for one killer). In the other seven the blocks' parameters differ (MenuMode 1 and 1056 in 0x00104C01 and 0x00059C86; OnTriggerEnter for two different references in 0x00154219–0x0015421C and 0x00127467) |
 | 3 | Result-script locals overwrite the quest script's variable of the same index (Category:Dialogue) | fresh temporary locals; 150 embedded units of the masters declare locals (§2.5) |
 | 4 | Constant globals reset on load; plugin values apply only on first load (Globals) | not modelled (Layer 7) |

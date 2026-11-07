@@ -47,7 +47,10 @@ not done; a package's not while the actor is in combat):
   gunmen: automatic weapons hold the trigger, others wait their semi-auto delay; aimed
   from the eyes at the chest, drawn from the muzzle. Each shot is counted on the use
   (`WeaponUse::shot`): more, a pause, or done.
-- **Always Hit**: a cone of 0 (straight at the chest; cover between can still stop it).
+- **Always Hit**: a cone of 0 (straight at the chest; cover between can still stop it). Every
+  shot aims at the target's posed body (the centre of its widest part capsule), else its
+  standing chest, so a kneeling target (the Silver Rush volunteer, 00124122) is not shot
+  over [design; overnight queue item 40, 2026-11-07].
 - **Do No Damage**: `ActorFire::harmless` → `By::harmless`: the projectile flies, strikes,
   shows its impact and plays its sound, but no damage, no hit events and no explosion.
 - **Crouch To Reload**: `WeaponUse::crouched` while the cycle reloads; `Game::sneaks` reads it.
