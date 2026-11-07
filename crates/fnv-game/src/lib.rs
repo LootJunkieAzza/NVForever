@@ -48,6 +48,7 @@ pub mod blackjack;
 pub mod breath;
 pub mod camera_paths;
 pub mod books;
+pub mod campfire;
 pub mod caravan;
 pub mod challenges;
 pub mod casino;

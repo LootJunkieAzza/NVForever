@@ -63,8 +63,9 @@
 //! - **Loudness** [design]: the sound's static attenuation (songs, loops), DJ lines at
 //!   full level; by distance from a receiver or actor the radio template's (the station's
 //!   `INAM`, else the receiver's) minimum and maximum distance and attenuation curve as
-//!   `crate::sfx::distance_gain` uses them; without either template 150 and 1800 units
-//!   (the AMLRadio template's). Receivers and actors are panned as the sound effects are
+//!   `crate::sfx::distance_gain` uses them, times the template's static attenuation
+//!   ([`by_template`], queue item 48, 2026-11-07); without either template 150 and 1800
+//!   units and 13 dB (the AMLRadio template's). Receivers and actors are panned as the sound effects are
 //!   (`crate::sfx::Panned`, `SoundAt`); the Pip-Boy plays flat, at the listener. A
 //!   receiver is heard only within that maximum distance.
 //! - **No subtitles**: a station's talk lines are heard, never subtitled (owner, list 5
@@ -101,9 +102,11 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Minimum and maximum distance without a radio template [design: AMLRadio's values].
+/// Minimum and maximum distance and static attenuation without a radio template [design:
+/// AMLRadio's values, the template of the receivers' commonest station].
 const DEFAULT_MIN: f32 = 150.0;
 const DEFAULT_MAX: f32 = 1800.0;
+const DEFAULT_DB: f32 = 13.0;
 /// A receiver stops once the player is this many times its maximum distance away.
 const LEAVE: f32 = 1.05;
 /// Seconds a station with nothing to say waits before it asks again.
@@ -499,7 +502,18 @@ fn template(places: &RadioPlaces, sfx: &Sfx, station: u32, receiver_base: Option
     let base = receiver_base.and_then(|b| places.forms.receivers.get(&b));
     let id = places.forms.stations.get(&station).and_then(|s| s.template).or_else(|| base.and_then(|b| b.template));
     let found = id.and_then(|id| sfx.forms.sounds.get(&FormId(id))).filter(|s| s.max_distance > 0.0);
-    found.cloned().unwrap_or(Sound { min_distance: DEFAULT_MIN, max_distance: DEFAULT_MAX, ..Sound::default() })
+    found.cloned().unwrap_or(Sound { min_distance: DEFAULT_MIN, max_distance: DEFAULT_MAX, static_attenuation_db: DEFAULT_DB, ..Sound::default() })
+}
+
+/// How loud a radio heard by `template` is `distance` units away: its curve between its
+/// two distances times its static attenuation [hypothesis: the template's attenuation
+/// applies; owner's playtest 2026-11-06 (queue item 48): music in many Vegas places
+/// louder than the original's, where the casinos' and Freeside's music comes from
+/// receivers of stations with AMLRadio (13 dB), AMLRadioLarge and AMLRadioTheTops
+/// templates, all heard ~13 dB louder before this]. The Pip-Boy has no template and
+/// plays as before.
+pub fn by_template(template: &Sound, distance: f32) -> f32 {
+    distance_gain(template, distance) * static_gain(template)
 }
 
 fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
@@ -850,7 +864,7 @@ fn play(
         if !on || !sim.world.is_enabled(id).unwrap_or(!r.initially_disabled) || !places.station_ref.contains_key(&r.station) {
             continue;
         }
-        heard.push((r.ref_id, r.station, distance_gain(&t, d), false, Some(r.position)));
+        heard.push((r.ref_id, r.station, by_template(&t, d), false, Some(r.position)));
     }
     if settings.play && table.is_none() {
         for (&actor, &station_ref) in &rt.game.radio.npc_radios {
@@ -869,7 +883,7 @@ fn play(
             if radio.npc_heard.insert(actor.0) {
                 info!("radio: {actor} plays {} (SetNPCRadio)", name(&places, base));
             }
-            heard.push((actor.0, base, distance_gain(&t, d), false, Some(s.pos)));
+            heard.push((actor.0, base, by_template(&t, d), false, Some(s.pos)));
         }
         if let (Some((_, base)), Some(share)) = (pip_station, pip_share) {
             heard.push((PIPBOY, base, 1.0 - share, true, None));
@@ -1169,6 +1183,17 @@ impl Plugin for RadioPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A receiver is heard at its template's static attenuation as well as its curve; no
+    /// template: AMLRadio's 150 / 1800 units and 13 dB.
+    #[test]
+    fn receivers_take_their_templates_attenuation() {
+        let large = Sound { min_distance: 20.0, max_distance: 2500.0, static_attenuation_db: 13.22, ..Default::default() };
+        assert!((by_template(&large, 10.0) - 10f32.powf(-13.22 / 20.0)).abs() < 1e-4);
+        assert_eq!(by_template(&large, 2600.0), 0.0);
+        let none = Sound { min_distance: DEFAULT_MIN, max_distance: DEFAULT_MAX, static_attenuation_db: DEFAULT_DB, ..Sound::default() };
+        assert!((by_template(&none, 100.0) - 0.2239).abs() < 1e-3);
+    }
 
     /// A radio song plays at full level whatever its record's static attenuation (#1077).
     #[test]

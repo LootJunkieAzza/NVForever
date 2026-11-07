@@ -3672,3 +3672,53 @@ fn a_guest_takes_the_hosts_quest_reward() {
     let due = g.coop_rewards.due(frame + fnv_game::coop_rewards::AFTER);
     assert_eq!(due, [fnv_game::coop_rewards::QuestReward { quest: FormId(QUEST), xp: 0.0, caps: 40 }]);
 }
+
+/// Burning Campfire Redone's campfires (`fnv_game::campfire`): the second action lights
+/// a campfire of the plugin's list once; again, the fires start over instead of
+/// stacking; after the plugin's own activation of a burning campfire the fires it added
+/// are taken away.
+#[test]
+fn a_campfire_is_lit_once_and_its_fires_do_not_stack() {
+    const CAMPFIRE: u32 = 0xC00;
+    const OTHER: u32 = 0xC01;
+    const FIRE: u32 = 0xC02;
+    const QUIET: u32 = 0xC03;
+    const LIST: u32 = 0xC04;
+    let acti = |id: u32, edid: &str| record(b"ACTI", 0, id, &[sub(b"EDID", z(edid))]);
+    let list = record(b"FLST", 0, LIST, &[sub(b"EDID", z(fnv_game::campfire::VALID_LIST)), sub(b"LNAM", CAMPFIRE.to_le_bytes().to_vec())]);
+    let actis = [acti(CAMPFIRE, "CampfireTest"), acti(OTHER, "NotACampfire"), acti(FIRE, fnv_game::campfire::FIRE_SOUND), acti(QUIET, fnv_game::campfire::FIRE_QUIET)].concat();
+    let bytes = [tes4(), top(b"ACTI", &actis), top(b"FLST", &list)].concat();
+    let plugins = vec![Plugin::parse(&bytes, "Test.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = schema();
+    let (table, j) = catalogue();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let d = GameData::build(&lo, &schema, table, &j, &refs);
+    let world = World::new(&forms, &refs, SimConfig::default());
+    let mut g = Game::new(&d, world, GameConfig { strict: true, ..GameConfig::default() });
+    g.new_game();
+    assert_eq!(g.campfire_bases(), vec![FormId(CAMPFIRE)]);
+    let fire_place = g.create_at(FormId(CAMPFIRE), None, [100.0, 200.0, 0.0], [0.0; 3]).unwrap();
+    let other = g.create_at(FormId(OTHER), None, [500.0, 200.0, 0.0], [0.0; 3]).unwrap();
+    assert!(g.is_campfire(fire_place) && !g.is_campfire(other));
+    assert!(g.light_campfire(other).is_err(), "only the list's campfires are lit");
+    let placed = match g.light_campfire(fire_place).unwrap() {
+        fnv_game::campfire::Lit::Placed(p) => p,
+        lit => panic!("{lit:?}"),
+    };
+    assert_eq!(placed.len(), 1 + fnv_game::campfire::QUIET_COUNT);
+    assert_eq!(g.world.peek(placed[0]).unwrap().base, FormId(FIRE));
+    assert!(placed[1..].iter().all(|&f| g.world.peek(f).unwrap().base == FormId(QUIET)));
+    assert_eq!(g.campfire_fires(fire_place), placed);
+    assert_eq!(g.light_campfire(fire_place).unwrap(), fnv_game::campfire::Lit::Restarted(placed.clone()), "lit again: no more flames");
+    assert_eq!(g.campfire_fires(fire_place).len(), placed.len());
+    // The plugin's script places five more as Craft runs it on the burning campfire.
+    let before = g.campfire_fires(fire_place);
+    let again: Vec<FormId> = (0..5).map(|_| g.create_at(FormId(QUIET), None, [100.0, 200.0, 0.0], [0.0; 3]).unwrap()).collect();
+    assert_eq!(g.keep_first_fires(fire_place, &before), again);
+    assert_eq!(g.campfire_fires(fire_place), placed, "the first fires burn on, alone");
+    assert!(again.iter().all(|&f| g.world.peek(f).is_none_or(|s| s.deleted && !s.enabled)));
+    // Unlit before: nothing is taken away.
+    assert!(g.keep_first_fires(other, &[]).is_empty());
+}

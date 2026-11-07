@@ -558,6 +558,7 @@ pub fn read_controls(
     state: Res<State<PlayState>>,
     mut control: ResMut<PlayerControl>,
     hud: Option<ResMut<HudMessage>>,
+    campfire: Option<Res<crate::campfire::SecondAction>>,
 ) {
     if *state.get() != PlayState::Playing {
         control.aiming = false;
@@ -578,8 +579,9 @@ pub fn read_controls(
     if input.just_pressed(Control::AutoMove) {
         c.auto_move = !c.auto_move;
     }
-    // Ready Item: draw at once; with the weapon out, tap to reload, hold to holster.
-    if input.just_pressed(Control::ReadyItem) {
+    // Ready Item: draw at once; with the weapon out, tap to reload, hold to holster. Not
+    // a press that lit a campfire (`crate::campfire`).
+    if input.just_pressed(Control::ReadyItem) && !campfire.is_some_and(|c| c.took) {
         if c.weapon_out {
             c.ready_held = Some(0.0);
         } else {
