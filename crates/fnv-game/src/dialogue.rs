@@ -577,7 +577,7 @@ impl<'a> Game<'a> {
             if forced {
                 return Err(format!("{} does not start conversations with a co-op guest", data.name(actor)));
             }
-            let choices = self.build_choices(actor, topic, &InfoDef::default());
+            let choices = self.guest_opening(actor, topic);
             if !choices.iter().any(|c| Some(c.topic) != data.goodbye) {
                 return Err(format!("{} has nothing to trade or play with a co-op guest", data.name(actor)));
             }
