@@ -22276,3 +22276,39 @@ expect = [
 ]
 forbid = ["pipboy: warm-up start", "pipboy: warm-up asked", "pipboy: first raise held", "menu request ignored"]
 manual = "This control must ask new pipelines at the first raise; otherwise the comparison is inconclusive. Compare its first_a through first_d with the warm run for the old screen fault. Pipeline compile durations and the last screen/glare ready lines determine the faulty interval; do not infer an unmeasured duration from the shot schedule. The shader-defs line for the last screen/glare pipeline to become ready identifies the candidate variant in the blue/brown depth fight; confirm against the corresponding shots."
+
+
+[[scenario]]
+name = "pipboy-world-map-child-family"
+source = "[observed: run08 captures of MapMenu traits, 2026-11-07] A child using its parent's map shows the whole map family's markers with each worldspace's own ONAM transform (docs/spec-notes/pipboy.md World Map)"
+note = "FreesideNorthGate is the exterior cell named in docs/design/layer4-play.md; ShowAllMapMarkers and Pip-Boy steps follow pipboy-tmm-discovered. More than 100 shown markers from other worldspaces proves the child is using the family."
+areas = ["pipboy", "fast-travel"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/read.rs", "engine/nvf-play/src/pipboy/data/model.rs", "docs/spec-notes/pipboy.md", "docs/spec-notes/fast-travel.md"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:-:ShowAllMapMarkers:1", NVF_PLAY_TEST_PIPBOY = "8:open,9:page=data,10:tab=1,13:close" }
+args = ["--cell", "FreesideNorthGate", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 20
+order = [[
+  "script: test aid calls ShowAllMapMarkers",
+  { re = 'pipboy data: world map shows (\d+) of \d+ markers', range = [100, 100000], label = "the child displays the family's markers" },
+]]
+expect = [
+  { re = 'pipboy data: world map shows \d+ of (\d+) markers', range = [100, 100000], label = "the total counts the map family" },
+  { re = 'pipboy data: world map shows .*; map family \S+, (\d+) shown from other worldspaces', range = [100, 100000], label = "the child includes more than 100 shown markers from other family worldspaces" },
+]
+
+[[scenario]]
+name = "pipboy-world-map-root-family"
+source = "[observed: run08 captures of MapMenu traits, 2026-11-07] The main map includes markers placed in children with PNAM Use Map Data, not just the root's own markers (docs/spec-notes/pipboy.md World Map)"
+note = "Goodsprings is on the main map; a nonzero count of shown markers from other worldspaces proves child markers enter the rendered list used for highlighting and travel."
+areas = ["pipboy", "fast-travel"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/read.rs", "engine/nvf-play/src/pipboy/data/model.rs", "docs/spec-notes/pipboy.md", "docs/spec-notes/fast-travel.md"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:-:ShowAllMapMarkers:1", NVF_PLAY_TEST_PIPBOY = "8:open,9:page=data,10:tab=1,13:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 20
+order = [[
+  "script: test aid calls ShowAllMapMarkers",
+  { re = 'pipboy data: world map shows (\d+) of \d+ markers', range = [100, 100000], label = "the main map displays the family's markers" },
+]]
+expect = [
+  { re = 'pipboy data: world map shows .*; map family \S+, (\d+) shown from other worldspaces', range = [1, 100000], label = "the main map counts shown child-worldspace markers" },
+]
