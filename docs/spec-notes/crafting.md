@@ -108,9 +108,9 @@ marker hidden. A click on another row selects it, a click on the selected row ac
 | Tile | What is written | Source |
 |---|---|---|
 | `ListItemText` of a recipe | the name, and "(n)" when more than one is made | the record; a number |
-| `RM_ItemsTitle` | nothing without a filter; the subcategory's name with one | the file's `sRecipes`; the record |
+| `RM_ItemsTitle` | nothing without a filter; the subcategory's name with one, the file's back after it | the file's `sRecipes`; the record |
 | `RM_MadeAtVariable` | the category's name | the record |
-| `RM_SkillRequirement` | "{skill} ({have}/{need})" | `fnv_game::crafting::skill_name`, as the hand-built menu; numbers |
+| `RM_SkillRequirement` | "{skill} ({have}/{need})", empty with none | `fnv_game::crafting::skill_name`, as the hand-built menu; numbers |
 | `ListItemText` of an ingredient | "{name} ({have}/{need})" | the record; numbers |
 | the card's `_Value` | WG, VAL, effects | the output's record; the Pip-Boy's effects text |
 | the buttons' `_PCButtonText` | the key hint | `sPCMenuHintA`, `sPCMenuHintX` through `pad::game_hint` |
@@ -119,22 +119,45 @@ The titles "Crafted At", "Skill Needed", "Ingredients", Accept's and Exit's word
 settings (`fnv_ui::strings`, or the load order's) and are never written. The hand-built "No
 recipes" has no tile: an empty list is empty.
 
-**What the capture has to answer**, each [hypothesis] until then:
+**What the original does** [observed: a private capture at 1280 x 720, the menu opened by
+`ShowRecipeMenu` from a script; shots and reads].
 
-- The backing: `RM_Background`'s alpha is the container's 193.8, with the tile blur, in place
-  of the hand-built `top_menu_backing` the owner chose for that drawing (playtest list 7 item
-  2; the default keeps it). This is a look difference for the maintainer to see.
-- A recipe that cannot be made: brightness 190 on the row and its text, from the hand-built
-  `NOT_READY`. The same for a requirement or an ingredient short.
+- The backing: `RM_Background`'s alpha reads the container's 193.8, once, at the opening. The
+  tiled menu takes it and the tile blur in place of the hand-built `top_menu_backing` the owner
+  chose for that drawing (playtest list 7 item 2; the default keeps it). This is a look
+  difference for the maintainer to see.
+- The skill line's `alpha` is 127 short and 255 met. Its `visible` reads 1 in every state, the
+  text empty with no row. A row that cannot be made measures about half of a bright one, 0.52,
+  highlighted or not, so `ListItemText` takes the same alpha [hypothesis: the row text's own
+  traits were not read]. Each ingredient dims on its own.
+- Accept: only `target` is written. The file ties `_line_alpha` to it and its text's `alpha` to
+  that [documented: `text_box.xml`], and brightness stays 255. Both buttons' `visible` read 1.
+- `_IsContainerListSelected` reads -1 in every state, the file's, with the list's `_enabled` 1,
+  so nothing writes it.
+- The title: the file's without a filter, the record's name in its own case with one, and the
+  scroll back to 0 on a change.
+- The list's counts fit `list::counts` (barter-menu.md section 8): 41 rows gave 37 items and
+  delta 60.75.
+
+**What NVForever does otherwise, in the model, unchanged here** [design: `crafting.rs`]. The
+original's list opens with no row chosen and its box leaves with the pointer; here row 0 is
+chosen and stays so. A row that comes under a still pointer takes the choice there, not here
+(owner 2026-10-22, for the item menus). Its prompt opens on the most that can be made and the
+menu closes after making; here the prompt opens on 1 and the menu stays (the owner's note of
+2026-10-26 says no change either way on the prompt). The original keeps a filtered row's tile
+with `listindex` -1; here it goes.
+
+**Still open**, each [hypothesis] until a further capture:
+
 - The ingredients as rows of the file's one template in the hotrect
-  `RM_Items_IngredientList`. A `text` of that name stands before it in the file [documented:
-  the file], so the path counts from the last (`:0`). If the capture shows plain text, the one
-  function that writes them changes.
-- The title's case while a subcategory filters: the record's own here.
-- `_IsContainerListSelected` 0 and `_ArrowDirection` empty, written because barter's lists read
-  them [observed there], and the buttons' `visible` 1 and Accept's `target` as barter's.
-- Accept's brightness 128 when nothing can be made, as barter's.
-- The rows' places and `_scroll_delta` as `tiles/list.rs` reads the container's.
+  `RM_Items_IngredientList`, the whole of "name (have/need)" in `ListItemText`: the shots agree
+  (rows 52 apart, the words at its place), but every read of them took the `text` of that name
+  [documented: the file has both], so the path counts from the last (`:0`). Their `_enabled`,
+  `target` and hover are not known; here a click on one does nothing.
+- A row text's own `alpha` and `brightness` on a dim and a bright row.
+- A recipe with no skill: the header stays and the line is empty here.
+- One ingredient short with the skill met; a one-making recipe's prompt; the arrows' wrap, the
+  wheel on the heading, the filter on reopening; the list's true bottom.
 
 **Not built**. The prompt from `QuantityMenu`'s tiles (it stays hand-built over the tiles),
 `RM_Items_TitleButton` and `RM_Container_TitleButton`, the headline images and the mod cards.

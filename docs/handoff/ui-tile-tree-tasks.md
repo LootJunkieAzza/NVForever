@@ -828,7 +828,7 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       `tiles/recipe_menu.rs`, crafting.md section 4]. A first refactor commit moves a list's view,
       its settling, the tile walk and the template check into `tiles/list.rs` for menus with no
       `MenuModel`. The rules, keys, wheel and sounds stay `crate::crafting`'s, asked through
-      `crafting::RecipeInput`; the "How many?" prompt stays hand-built over the tiles. Numbers
-      reused from the container or the hand-built menu are [hypothesis] until the capture
-      (crafting.md section 4). Smoke `tiles-recipe-places`, `tiles-recipe`,
+      `crafting::RecipeInput`; the "How many?" prompt stays hand-built over the tiles. Checked
+      against a capture of the original at 1280 x 720; what it left open, the ingredient rows'
+      traits first, is in crafting.md section 4. Smoke `tiles-recipe-places`, `tiles-recipe`,
       `recipe-default-drawing`.

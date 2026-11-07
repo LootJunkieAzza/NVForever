@@ -12,9 +12,10 @@
 //! - **What is left to the file**: the titles' words (`sMadeAt`, `sSkillRequirement`,
 //!   `sIngredients`, `sRecipes`, Accept's and Exit's), every place and picture. A subcategory's
 //!   name replaces the list's title while it filters; the file's title comes back after it.
-//! - **Numbers from the container, or read from the hand-built menu, are [hypothesis] until
-//!   the capture answers** (crafting.md section 4): the backing's alpha, the brightness of a
-//!   recipe that cannot be made, the ingredients as rows of the one template.
+//! - **The original was captured at 1280 x 720** (crafting.md section 4). What it could not
+//!   read stays [hypothesis]: a row text's own alpha, the ingredient rows' traits.
+//! - **What the file does itself is not written**: it dims Accept from `target` through
+//!   `_line_alpha`, and `_IsContainerListSelected` keeps the file's value [observed].
 
 use super::item_menu::{mark_menu, on, set};
 use super::list::{self, BarPiece, Drag, Hit, ListView, RowTile, Wanted};
@@ -52,9 +53,10 @@ const LIST_NAMES: [&str; 2] = ["RM_Items_InventoryList", "RM_Items_IngredientLis
 pub const RECIPES: usize = 0;
 const INGREDIENTS: usize = 1;
 
-/// A row or a requirement the player cannot meet yet [hypothesis: the hand-built menu's
-/// `crate::crafting::NOT_READY`; how the original dims it waits for the capture].
-const DIM: f64 = 190.0;
+/// The `alpha` of a requirement the player cannot meet yet [observed: the skill line reads 127
+/// short, 255 met]. Of a row or an ingredient too [hypothesis: their text measures about half
+/// of a bright one's in the shots, 0.52; their text's alpha was not read].
+const DIM: f64 = 127.0;
 
 /// [design: `crate::crafting::keys`, `crate::pad::menu_buttons`] Physical keys the model's
 /// handler already takes. A script's MenuTapKey still follows the file's bindings.
@@ -309,14 +311,9 @@ fn write_rows(ui: &mut Ui, path: &str, rows: &mut Vec<RowTile<FormId>>, shown: &
     let wanted: Vec<Wanted<'_, FormId>> = shown.iter().map(|r| Wanted { key: &r.key, name: &r.name }).collect();
     list::reconcile(ui, path, TEMPLATE, rows, &wanted);
     for (row, r) in rows.iter().zip(shown) {
-        // [hypothesis] Written on the row and its text: a row's text inherits no brightness
-        // here, as the barter buttons'.
-        let bright = Value::Num(if r.ready { 255.0 } else { DIM });
-        ui.set_trait(row.tile, "brightness", bright.clone());
         if let Some(t) = list::child(ui, row.tile, ROW_TEXT) {
             ui.set_trait(t, "string", Value::Str(r.text.clone()));
-            ui.set_trait(t, "alpha", Value::Num(255.0));
-            ui.set_trait(t, "brightness", bright);
+            ui.set_trait(t, "alpha", Value::Num(if r.ready { 255.0 } else { DIM }));
         }
         if let Some(t) = list::child(ui, row.tile, ROW_VALUE) {
             ui.set_trait(t, "string", Value::Str(String::new()));
@@ -356,32 +353,26 @@ fn write(ui: &mut Ui, s: &Snapshot, st: &mut RecipeTiles) {
     write_ingredients(ui, s, st);
     set(ui, LISTS[RECIPES], "_num_filtered", Value::Num(s.filtered as f64));
     write_title(ui, s, st);
-    // The recipes' list is the one with the focus [hypothesis: a list's `_enabled` may read it,
-    // as barter's do, barter-menu.md section 9; the file leaves both to code].
-    set(ui, RECIPE_MENU, "_IsContainerListSelected", on(false));
-    set(ui, RECIPE_MENU, "_ArrowDirection", Value::Str(String::new()));
     set(ui, MADE_AT, "string", Value::Str(s.made_at.clone()));
-    set(ui, SKILL_HEADER, "visible", on(s.skill.is_some()));
-    set(ui, SKILL, "visible", on(s.skill.is_some()));
-    if let Some((text, met)) = &s.skill {
-        set(ui, SKILL, "string", Value::Str(text.clone()));
-        set(ui, SKILL, "brightness", Value::Num(if *met { 255.0 } else { DIM }));
-    }
-    // The file leaves both buttons' `visible` to code, as barter's [observed there; hypothesis here].
+    // Both stay shown, the skill's text empty with nothing to say [observed: `visible` 1 on the
+    // skill line in every state read; a recipe needing no skill was not seen].
+    set(ui, SKILL_HEADER, "visible", on(true));
+    set(ui, SKILL, "visible", on(true));
+    let (skill, met) = s.skill.as_ref().map_or(("", true), |(text, met)| (text.as_str(), *met));
+    set(ui, SKILL, "string", Value::Str(skill.to_owned()));
+    set(ui, SKILL, "alpha", Value::Num(if met { 255.0 } else { DIM }));
+    // [observed] Both buttons' `visible` 1 always. Accept's `target` is all it takes: the file
+    // dims it from there [documented: text_box.xml; observed: its brightness stays 255].
     set(ui, ACCEPT, "visible", on(true));
     set(ui, EXIT, "visible", on(true));
     set(ui, ACCEPT, "target", on(s.ready()));
     for (button, hint) in [ACCEPT, EXIT].into_iter().zip(&s.hints) {
         set(ui, button, "_PCButtonText", Value::Str(hint.clone()));
     }
-    // [hypothesis] As with barter's, the text inherits no parent alpha or brightness.
-    for path in [ACCEPT.to_string(), format!("{ACCEPT}/button_text"), format!("{ACCEPT}/PCShortcutLabel")] {
-        set(ui, &path, "brightness", Value::Num(if s.ready() { 255.0 } else { 128.0 }));
-    }
     set(ui, ICON, "visible", on(s.card.is_some() && s.icon.is_some()));
     set(ui, ICON, "filename", Value::Str(s.icon.clone().unwrap_or_default()));
     super::item_card::write(ui, CARD, s.card.as_ref());
-    // [hypothesis] The container's measurement until the recipe capture arrives.
+    // [observed] The recipe capture reads the container's number here too, once, at the opening.
     set(ui, BACKGROUND, "alpha", Value::Num(super::container_menu::BACKGROUND_ALPHA));
 }
 
@@ -499,7 +490,7 @@ mod tests {
             let extra = if card == "ConditionInfo" { r#"<rect name="ConditionMeter"><image name="MeterImage"/></rect><image name="CNDArrows"/>"# } else { "" };
             format!(r#"<rect name="{card}"><_Title>Own label</_Title><text name="CI_TitleText"/><text name="CI_ValueText"/>{extra}</rect>"#)
         }).collect();
-        let xml = format!(r#"<menu name="RecipeMenu"><rect name="NOGLOW_BRANCH">
+        let xml = format!(r#"<menu name="RecipeMenu"><_IsContainerListSelected>-3</_IsContainerListSelected><rect name="NOGLOW_BRANCH">
           <image name="RM_Background"/>
           <rect name="RM_ItemsRect"><x>30</x>
             <image name="RM_Items_LeftFilterArrow"/><text name="RM_ItemsTitle"><string>Own title</string></text><image name="RM_Items_RightFilterArrow"/>
@@ -594,16 +585,16 @@ mod tests {
         assert!(text(&ui, made, "string", "Thing 1"));
         assert_eq!(ui.tile(made).name, "Thing 1");
         assert_eq!(ui.tile(made).parent, ui.find_tile(LISTS[RECIPES]));
-        assert!(text(&ui, not, "brightness", &Value::Num(DIM).text()), "a recipe that cannot be made, on its text too");
-        assert_eq!(ui.tile(not).get("brightness").map(Value::num), Some(DIM));
-        assert_eq!(ui.tile(made).get("brightness").map(Value::num), Some(255.0));
+        assert!(text(&ui, not, "alpha", &Value::Num(DIM).text()), "a recipe that cannot be made");
+        assert!(text(&ui, made, "alpha", &Value::Num(255.0).text()));
+        assert!(ui.tile(not).get("brightness").is_none());
         assert_eq!(ui.tile(list::child(&ui, made, ROW_VALUE).unwrap()).get("string").unwrap().text(), "");
         assert!(!ui.tile(list::child(&ui, made, ROW_MARK).unwrap()).get("visible").unwrap().truthy());
         let (enough, short) = (st.rows[INGREDIENTS][0].tile, st.rows[INGREDIENTS][1].tile);
         assert_eq!(ui.tile(enough).parent, ui.find_tile(LISTS[INGREDIENTS]));
-        assert!(text(&ui, enough, "brightness", &Value::Num(255.0).text()));
+        assert!(text(&ui, enough, "alpha", &Value::Num(255.0).text()));
         assert!(text(&ui, short, "string", "Thing 8"));
-        assert!(text(&ui, short, "brightness", &Value::Num(DIM).text()));
+        assert!(text(&ui, short, "alpha", &Value::Num(DIM).text()), "each ingredient on its own");
         assert!(number(&ui, LISTS[RECIPES], "_selected_height") > 0.0, "the recipes' list has the highlight");
         assert_eq!(number(&ui, LISTS[INGREDIENTS], "_selected_height"), 0.0, "the ingredients' has none");
         assert_eq!(number(&ui, LISTS[INGREDIENTS], "_highlight_y"), -1.0);
@@ -615,7 +606,7 @@ mod tests {
         frame(&mut ui, &s, &mut st);
         assert_eq!(string(&ui, MADE_AT, "string"), "Own bench");
         assert_eq!(string(&ui, SKILL, "string"), "Own skill (3/9)");
-        assert_eq!(number(&ui, SKILL, "brightness"), DIM);
+        assert_eq!(number(&ui, SKILL, "alpha"), DIM);
         assert_eq!(number(&ui, SKILL_HEADER, "visible"), 1.0);
         assert_eq!(string(&ui, SKILL_HEADER, "string"), "Own skill words", "the file's words stay");
         assert_eq!(string(&ui, CARD, "WeightInfo/_Value"), "1.5");
@@ -630,19 +621,20 @@ mod tests {
         assert_eq!(number(&ui, ACCEPT, "visible"), 1.0);
         assert_eq!(number(&ui, EXIT, "visible"), 1.0);
         assert_eq!(number(&ui, ACCEPT, "target"), 1.0);
-        assert_eq!(number(&ui, ACCEPT, "button_text/brightness"), 255.0);
-        assert_eq!(number(&ui, RECIPE_MENU, "_IsContainerListSelected"), 0.0);
-        assert_eq!(string(&ui, RECIPE_MENU, "_ArrowDirection"), "");
+        assert_eq!(ui.get_float(&format!("{RECIPE_MENU}/_IsContainerListSelected")), Some(-3.0), "the file's");
         // A recipe that cannot be made, one needing no skill.
         s.selected = Some(1);
         s.skill = None;
         s.icon = None;
         frame(&mut ui, &s, &mut st);
         assert_eq!(number(&ui, ACCEPT, "target"), 0.0);
-        assert_eq!(number(&ui, ACCEPT, "brightness"), 128.0);
-        assert_eq!(number(&ui, ACCEPT, "PCShortcutLabel/brightness"), 128.0);
-        assert_eq!(number(&ui, SKILL, "visible"), 0.0);
-        assert_eq!(number(&ui, SKILL_HEADER, "visible"), 0.0);
+        for path in [ACCEPT.to_string(), format!("{ACCEPT}/button_text"), format!("{ACCEPT}/PCShortcutLabel")] {
+            assert!(ui.get_float(&format!("{path}/brightness")).is_none(), "{path}: the file dims it");
+        }
+        assert_eq!(number(&ui, SKILL, "visible"), 1.0);
+        assert_eq!(number(&ui, SKILL_HEADER, "visible"), 1.0);
+        assert_eq!(string(&ui, SKILL, "string"), "", "nothing to say");
+        assert_eq!(number(&ui, SKILL, "alpha"), 255.0);
         assert_eq!(number(&ui, ICON, "visible"), 0.0);
         // An empty list: no card, nothing to accept, no row selected.
         s.rows.clear();
