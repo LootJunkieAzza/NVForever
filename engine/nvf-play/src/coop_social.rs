@@ -179,6 +179,12 @@ impl Social {
         self.wheel.is_some() || self.trade.as_ref().is_some_and(|t| t.closing.is_none())
     }
 
+    /// The wheel closed this frame (Esc, a click, a key): that press is the wheel's, so
+    /// the pause menu does not also open on it (`crate::pause`).
+    pub fn closed_now(&self) -> bool {
+        self.wheel_had_input && self.wheel.is_none()
+    }
+
     /// The duel's countdown: this player is held still, its view too.
     pub fn frozen(&self) -> bool {
         self.duel.as_ref().is_some_and(Duel::frozen)
@@ -325,7 +331,7 @@ fn input(
         _ => {}
     }
     // Closed by a click or a key: that press is not the game's, nor is the button held on.
-    if s.wheel_had_input && s.wheel.is_none() {
+    if s.closed_now() {
         s.wheel_release = true;
     }
     if s.wheel_release && !input.pressed(Control::Use) && !input.pressed(Control::Block) && !input.mouse.pressed(MouseButton::Left) && !input.mouse.pressed(MouseButton::Right) {
@@ -575,6 +581,9 @@ fn target(
         .filter(|m| m.here && !m.lost && !m.down)
         .filter_map(|m| ray_meets_body(eye, dir, m.feet, INTERACT_REACH).filter(|d| wall.is_none_or(|w| *d <= w + 8.0)).map(|d| (d, m)))
         .min_by(|a, b| a.0.total_cmp(&b.0));
+    // An invitation waiting for Y or N, or a duel under way: the message box stands where
+    // the prompt would (`draw`, mockup 1B), and E there would only open the wheel over it.
+    let near = near.filter(|_| social.invites.shown().is_none() && social.duel.is_none());
     let Some((d, m)) = near else {
         // A stand-in actor the world's targeting found (the host): not Talk.
         if found.0.as_ref().is_some_and(|t| mates.mates.iter().any(|m| m.reference == t.form_id)) {

@@ -11,9 +11,9 @@ pub const INVITE_SECONDS: f32 = 20.0;
 /// The prompt's line: the sender's real name (the owner's words, 2026-11-04).
 pub fn invite_line(name: &str, kind: Kind) -> String {
     match kind {
-        Kind::Duel => format!("{name} would like to duel you"),
-        Kind::Trade => format!("{name} would like to trade with you"),
-        Kind::Caravan => format!("{name} would like to play a hand of caravan"),
+        Kind::Duel => format!("{name} would like to duel"),
+        Kind::Trade => format!("{name} would like to trade"),
+        Kind::Caravan => format!("{name} would like to play caravan"),
     }
 }
 
@@ -170,9 +170,9 @@ mod tests {
 
     #[test]
     fn the_prompt_names_the_sender() {
-        assert_eq!(invite_line("Courier Six", Kind::Duel), "Courier Six would like to duel you");
-        assert_eq!(invite_line("Benny", Kind::Trade), "Benny would like to trade with you");
-        assert_eq!(invite_line("Ana", Kind::Caravan), "Ana would like to play a hand of caravan");
+        assert_eq!(invite_line("Courier Six", Kind::Duel), "Courier Six would like to duel");
+        assert_eq!(invite_line("Benny", Kind::Trade), "Benny would like to trade");
+        assert_eq!(invite_line("Ana", Kind::Caravan), "Ana would like to play caravan");
     }
 
     /// Two players' invitations, their messages passed by hand.

@@ -1597,8 +1597,9 @@ fn open(
         return;
     }
     // Esc closes the weapon wheel (`crate::weapon_wheel`), not the game; the co-op
-    // interaction wheel and trade panel too (`crate::coop_social`).
-    if (wheel.is_some_and(|w| w.holds_input()) || social.is_some_and(|s| s.holds_input())) && !by_aid {
+    // interaction wheel and trade panel too (`crate::coop_social`), also on the frame the
+    // wheel shut on that Esc (its input runs first).
+    if (wheel.is_some_and(|w| w.holds_input()) || social.is_some_and(|s| s.holds_input() || s.closed_now())) && !by_aid {
         return;
     }
     if by_aid {
