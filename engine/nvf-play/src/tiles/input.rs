@@ -1044,6 +1044,7 @@ mod tests {
             .add_message::<bevy::input::mouse::MouseWheel>()
             .add_message::<crate::menu::MenuInput>()
             .add_message::<crate::wait::WaitInput>()
+            .add_message::<crate::repair::RepairServicesInput>()
             .add_plugins(TutorialMenuPlugin)
             .add_systems(Update, (feed, keys).chain().before(crate::PlaySet::Ui));
         app
