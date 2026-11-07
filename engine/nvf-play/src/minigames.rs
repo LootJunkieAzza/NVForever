@@ -503,7 +503,7 @@ fn start_match(d: &mut Darts, foe: Foe, now: f32) {
 fn darts_keys(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
-    (windows, cams): (Query<&Window, With<PrimaryWindow>>, Query<(&Camera, &GlobalTransform), With<PlayerCamera>>),
+    (windows, cams): crate::minigames::ViewQueries,
     mut screen: ResMut<DartsScreen>,
     mut script: Option<ResMut<ScriptState>>,
     mut sim: ResMut<SimState>,
@@ -623,6 +623,9 @@ fn darts_keys(
         }
     }
 }
+
+/// The window and the player's camera, for a screen point on a table or board.
+pub type ViewQueries<'w, 's> = (Query<'w, 's, &'static Window, With<PrimaryWindow>>, Query<'w, 's, (&'static Camera, &'static GlobalTransform), With<PlayerCamera>>);
 
 const HAND: &str = "sound\\fx\\minigames\\darts\\hand.wav";
 
@@ -1446,7 +1449,7 @@ fn draw(
     time: AidTime,
     tables: Option<Res<Tables>>,
     old: Query<Entity, With<MinigameRoot>>,
-    (windows, cams): (Query<&Window, With<PrimaryWindow>>, Query<(&Camera, &GlobalTransform), With<PlayerCamera>>),
+    (windows, cams): crate::minigames::ViewQueries,
 ) {
     for e in &old {
         commands.entity(e).despawn();

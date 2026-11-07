@@ -33,7 +33,6 @@ use crate::script::ScriptState;
 use crate::sim::SimState;
 use crate::{PlaySet, PlayState, PlayerCamera};
 use bevy::prelude::*;
-use bevy::window::PrimaryWindow;
 use fnv_game::pool::{self, Game, Notice, Plan, ShotLog, ShotStart, Table};
 use fnv_sim::FormId;
 use rand_chacha::ChaCha8Rng;
@@ -404,7 +403,7 @@ fn put_white(p: &mut Pool, at: [f32; 2]) {
 fn keys(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
-    (windows, cams): (Query<&Window, With<PrimaryWindow>>, Query<(&Camera, &GlobalTransform), With<PlayerCamera>>),
+    (windows, cams): crate::minigames::ViewQueries,
     mut screen: ResMut<PoolScreen>,
     mut script: Option<ResMut<ScriptState>>,
     mut sim: ResMut<SimState>,
@@ -1161,7 +1160,7 @@ fn draw(
     tables: Option<Res<Tables>>,
     time: AidTime,
     old: Query<Entity, With<PoolRoot>>,
-    (windows, cams): (Query<&Window, With<PrimaryWindow>>, Query<(&Camera, &GlobalTransform), With<PlayerCamera>>),
+    (windows, cams): crate::minigames::ViewQueries,
 ) {
     for e in &old {
         commands.entity(e).despawn();
