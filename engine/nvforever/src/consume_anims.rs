@@ -54,6 +54,10 @@
 //!   its not playing, ends the bash ([`nvf_play::bash::BashOver`]). The others see the
 //!   third-person one.
 //!
+//! - **The weapon drawn** is not seen while an item clip plays (not a bash or an
+//!   activation's clip, made with it in hand), on the player and on puppets
+//!   (`hide_weapons`).
+//!
 //! Log: `consume anim: …` per use and start; at exit `consume anims summary: …`.
 //!
 //! Not done: kNVSE's AnimGroupOverride folders (Idle Variety), a remembered "once" across
@@ -206,6 +210,8 @@ pub struct ConsumeAnims {
     loot: Arc<b42::LootSet>,
     /// B42 Melee Bash's clips as installed.
     bash: b42::BashClips,
+    /// The drawn weapons hidden while an item clip plays, with their visibility before.
+    hidden: HashMap<Entity, Visibility>,
     stats: Stats,
 }
 
@@ -240,7 +246,7 @@ impl Plugin for ConsumeAnimsPlugin {
             .init_resource::<ConsumeOptions>()
             .add_message::<SendAnim>()
             .add_message::<PeerAnim>()
-            .add_systems(Update, (build, held_activation, own, crafted, interact, loot, bash, puppets).chain().after(nvf_play::PlaySet::Scripts).before(crate::idles::drive))
+            .add_systems(Update, (build, held_activation, own, crafted, interact, loot, bash, puppets, hide_weapons).chain().after(nvf_play::PlaySet::Scripts).before(crate::idles::drive))
             .add_systems(Last, report);
         register_settings(app);
     }
@@ -1130,6 +1136,51 @@ fn puppets(
     for r in gone {
         if let Some(mut pl) = st.puppets.remove(&r) {
             detach(&mut commands, &mut pl);
+        }
+    }
+}
+
+/// While an item clip plays (not a weapon bash nor an activation's clip, which are made
+/// with the weapon in hand), the weapon drawn is not seen: B42 Inject and Interact put it
+/// away for the clip [observed: the mods' clips leave the right hand empty or holding
+/// the item; owner's report 2026-11-06, the machete and a rifle drawn through a stimpak
+/// and an inspect clip]. The player's (both rigs) and the puppets' with a clip; back
+/// as they were once it ends.
+fn hide_weapons(
+    mut st: ResMut<ConsumeAnims>,
+    body: Res<PlayerBody>,
+    control: Option<Res<nvf_play::control::PlayerControl>>,
+    rigs: Query<(&ActorRig, Option<&crate::weapons::WeaponHold>)>,
+    held: Query<(Entity, &crate::weapons::HeldWeapon)>,
+    mut visibility: Query<&mut Visibility>,
+) {
+    let st = &mut *st;
+    let item_clip = |pl: &Playing| pl.activate.is_none() && !pl.bash;
+    let mut want: Vec<Entity> = Vec::new();
+    if st.own.as_ref().is_some_and(item_clip) && control.as_deref().is_some_and(|c| c.weapon_out) {
+        want.extend(body.weapon_holders());
+    }
+    for (reference, _) in st.puppets.iter().filter(|(_, pl)| item_clip(pl)) {
+        let drawn = rigs.iter().any(|(r, hold)| r.reference == *reference && hold.is_some_and(|h| h.in_hand()));
+        if drawn {
+            want.extend(held.iter().filter(|(_, h)| h.reference == *reference).map(|(e, _)| e));
+        }
+    }
+    // Back as they were: those no longer to hide.
+    let back: Vec<Entity> = st.hidden.keys().filter(|e| !want.contains(e)).copied().collect();
+    for e in back {
+        if let (Some(v), Ok(mut now)) = (st.hidden.remove(&e), visibility.get_mut(e)) {
+            *now = v;
+        }
+    }
+    for e in want {
+        let Ok(mut v) = visibility.get_mut(e) else { continue };
+        if *v != Visibility::Hidden {
+            if let std::collections::hash_map::Entry::Vacant(slot) = st.hidden.entry(e) {
+                slot.insert(*v);
+                debug!("consume anim: the weapon drawn ({e:?}) hidden for the clip");
+            }
+            *v = Visibility::Hidden;
         }
     }
 }

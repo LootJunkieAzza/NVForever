@@ -580,10 +580,13 @@ impl Style {
     /// `3rdPSpecialIdleStimpak` → `3rdP_SpecialIdle_Stempak.kf`; `EatIdle.kf` in the
     /// meshes archive; IDLE models `3rdP_SpecialIdle_RepairingFlr01.kf` and
     /// `3rdP_SpecialIdle_Workbench01.kf`; which suits which is design], first that loads
-    /// wins.
+    /// wins. Not `EatIdle.kf`: it bends the body forward about 90 degrees at the waist
+    /// [observed 2026-11-06, a standing third-person player], a pose for eating off the
+    /// ground, not a bite while standing; food takes the hand-to-mouth drinking idle
+    /// [design].
     pub fn clips(self) -> &'static [&'static str] {
         match self {
-            Style::Eat => &["idleanims\\eatidle.kf", "idleanims\\drinkingstandinga.kf"],
+            Style::Eat => &["idleanims\\drinkingstandinga.kf"],
             Style::Drink => &["idleanims\\drinkingstandinga.kf"],
             Style::Inject => &["idleanims\\3rdp_specialidle_stempak.kf"],
             Style::Smoke => &["idleanims\\smokingstanding.kf"],
@@ -606,7 +609,7 @@ pub fn style_of(edid: &str, equip_type: i64) -> Style {
     } else if equip_type == ETYP_STIMPAK || has(&["stim", "medx", "psycho", "hydra", "slasher", "syringe", "bloodpack", "antivenom", "stealthboy"]) {
         Style::Inject
     } else if equip_type == ETYP_ALCOHOL
-        || has(&["water", "nuka", "cola", "sarsaparilla", "beer", "whiskey", "scotch", "vodka", "wine", "milk", "juice", "moonshine", "tequila", "absinthe", "rum", "brew", "drink", "coffee", "sunset", "vim"])
+        || has(&["water", "nuka", "cola", "sarsaparilla", "beer", "whiskey", "scotch", "vodka", "wine", "milk", "juice", "moonshine", "tequila", "absinthe", "rum", "brew", "drink", "coffee", "sunset", "vim", "bottle"])
     {
         Style::Drink
     } else {
@@ -1028,6 +1031,8 @@ mod tests {
         assert_eq!(style_of("AidCigar", 10), Style::Smoke);
         assert_eq!(style_of("BrahminSteak", 12), Style::Eat);
         assert_eq!(style_of("Buffout", 10), Style::Eat);
+        assert_eq!(style_of("SSBottleFull", 12), Style::Drink);
+        assert!(!Style::Eat.clips().iter().any(|c| c.contains("eatidle")), "EatIdle bends the body over");
         for s in [Style::Eat, Style::Drink, Style::Inject, Style::Smoke, Style::Skin, Style::Craft, Style::Handle] {
             assert_eq!(Style::from_code(s.code()), s);
             assert!(!s.clips().is_empty());
