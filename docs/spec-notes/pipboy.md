@@ -452,8 +452,8 @@ is the top left 85 × 92 of `head.dds`) [observed].
   the pointer is on it; R switches General. The pointer selects the row it moves onto
   (not a row drawn under a pointer that has not moved) and clicks the buttons and arrows.
 - **Checking it**: `NVF_PLAY_TEST_PIPBOY_STATS=<seconds>:<step>,...` with `sub=<0-2>`,
-  `down`, `up`, `mode`, `desc=down|up`, and `perk=<FormID>` / `fame=<FormID>=<n>` to give
-  the player something to show; each step and each selection is logged ("pipboy stats:
+  `down`, `up`, `mode`, `desc=down|up`, `scroll=<n>` (the first row a list shows), and
+  `perk=<FormID>` / `fame=<FormID>=<n>` to give the player something to show; each step and each selection is logged ("pipboy stats:
   Skills: Science 15 selected"), and a summary when a tab is drawn ("pipboy stats: LVL 1,
   HP 200/200, AP 80/80, XP 0/200; 7 S.P.E.C.I.A.L., 13 skills, …").
 - **Open**: the game settings the page's words come from (`sStatsCrippled`,
@@ -520,7 +520,7 @@ Left/Right in `pipboy::keys` [design].
 **The list**, `stats_special_container`, a `list_box.xml` [observed: by fnvtool bsa extract: the
 prefab's comments give `_highlight_y`, `_selected_height`, `_scroll_delta`, `_num_filtered` and
 the scroll bar's `_number_of_items` to code, and say that with `_number_of_visible_items` set
-code overwrites `height` and `_scroll_delta`]:
+code overwrites `height` and `_scroll_delta`; what a list longer than it shows gets: §5.1.2]:
 
 | Trait | Code writes | From [design] |
 |---|---|---|
@@ -532,8 +532,7 @@ The scroll bar's `_number_of_items`, `_scroll_delta` and `_num_filtered` stay th
 scrolls with seven rows of the file's visible count. That a list which fits keeps its bar hidden
 is a [hypothesis]: what the original writes to these on this page is not known, and what a
 container list does says nothing certain about it. A row count that does not fit (a replacement's
-taller rows, fewer visible rows) is not handled: list scrolling is not in this slice, so the page
-falls back to the hand-built one [design].
+taller rows, fewer visible rows) scrolls as the other lists do (§5.1.2) [design].
 
 **The rows**: template `stats_list_template` [observed: the vanilla files, by fnvtool ui tree,
 `templates`], one per row under `stats_special_container`. Its hotrect `stats_list_template_item`
@@ -640,6 +639,86 @@ description scroll bar's count; whether the other tabs' ids act as id 1's does; 
 words and the title show at all before code writes them; any of the above at other window sizes.
 None of these stops a first working slice with a complete fallback; they cannot be called verified
 when parity is declared.
+
+### 5.1.2 STATS: the other list tabs from their file: what the code writes
+
+The contract for the second part of issue #1513, under the same switch and the same module: tabs
+2 Skills, 3 Perks and 4 General (`TILED_TABS`, `tiles/stats_menu.rs`). Tab 0 Status stays hand-built
+with the switch on, until a capture answers what it needs. **Implemented, not verified**: every
+write below is our design and no finding about the original; nothing here was compared with the
+original, and no run of it is recorded in this note. Sources, as in §5.1.1: the tree by `fnvtool ui
+tree`, read privately; places and sizes the file works out at run time. What §5.1.1 says of the
+root, a row, the display and a tab's inner rect holds here too; the root's `user0` is the tab.
+
+A tab is found alone (`paths(ui, tab, cut)`): a file short of one tab's list leaves that tab
+hand-built, with its reason once, and the others tiled. Going to another list unloads the rows of
+the last, as a new tree would; they are known by what they stand for (`model::RowKey`, filled in
+`stats/read.rs`), never by their words. The rows stand in the model's order.
+
+**A list longer than it shows** [design]: the model's scroll stays `StatsView::top`, whole rows,
+and the view gives it its count of rows (`StatsView::set_rows_shown`), so the keys, the wheel and
+the selection's keeping in view work out for the file's count. A list that has never scrolled keeps
+the file's counts, as §5.1.1; once it does, it gets them as `tiles/list.rs` writes them and has the
+file's `_scroll_delta` back when its rows fit again.
+
+| Tile and trait | Code writes | From [design] |
+|---|---|---|
+| list `height` | the file's visible rows times the tallest row, as §5.1.1 | `_number_of_visible_items`, else `stats::VISIBLE` |
+| list `_scroll_delta` | a row's height, when the rows do not all show | `list::counts`; so every row of such a list must have one height. Rows of different heights (a wrapped name) keep the hand-built page, with that reason |
+| `lb_scrollbar/_number_of_items`, `_number_of_visible_items` | rows less visible rows and 1, and 1 | the same |
+| `lb_scrollbar/_current_value`, `_SetInCode` | `StatsView::top[tab]`, on every pass after the input, then a poke | as the description's bar, §5.1.1 |
+| list `_highlight_y`, `_selected_height` | the selected row's place after the scroll and its height while boxed; -1 and 0 on a row out of sight, the selection staying | `StatsView::selected[tab]`, `highlight`; the hand-built list has no box on a row it does not show |
+
+The file moves the rows by the bar's value and `_scroll_delta` [documented: `list_box_template.xml`,
+`tiles/list.rs`]; nothing here moves them again. Only rows in sight are asked to fit and to take the
+pointer. The bar's pieces are `StatsTile::ListBar` and become `StatsView::scroll`, a page by the
+file's `_jump_size`, the marker by its `_step_height`; the wheel stays `stats::prepare`'s. Rows that
+come under a pointer that has not moved do not take the selection, as with a row drawn under it.
+
+**Skills**: `stats_skills_container`, rows as §5.1.1, thirteen in the model's name order. **Perks**:
+`stats_perks_container`; the row's `user1` is the rank where the perk has ranks, else -1. That list
+has no `user0` of its own in the tree, and none is written [documented: the tree]. A player with no
+perks has a tile page with no rows and an empty display, not a fallback [design]: the hand-built
+page shows nothing there either.
+
+`stats_icon_badge` stays hidden on these tabs too; capture.
+
+**General**, `stats_genrep_container`: two lists, one at a time, by `StatsView::reputation`, with no
+display, whose picture and text are left empty so nothing of another tab's row stands there.
+
+| Tile and trait | Code writes | From [design] |
+|---|---|---|
+| `stats_genrep_container/user0` | 1 for the reputations, 0 for the statistics. **[hypothesis]**: the trait's being the mode, and which way round, rests on its name in the tree and the file's first value (`StatsView::reputation`) | `StatsView::reputation` |
+| `stats_general_container` or `stats_reputation_container` | the mode's rows from the shared template; the other has none | `Snapshot::general` (43, the code's place as key), `Snapshot::rows(4, true)` |
+| `visible` of each list, `stats_karma_rect`, `stats_reptitle_rect` | the mode's shown, the other's hidden, on every pass. **Provisional** until a capture says whether the file does this from the trait above | the same |
+| `stats_karma_alignment/string` | the alignment's word; no label of the hand-built page's | `model::karma_alignment`, "--" without the scripts' game |
+| `stats_karma_image/filename` | the karma's picture | `stats::karma_picture`, [hypothesis: §5.1's names] |
+| `stats_karma_title/string` | the title **where a setting holds it**, else empty: `KARMA_TITLES` is no data file's and is not written behind the switch | `Snapshot::karma_setting_title`, "--" without the scripts' game |
+| `stats_reputation_image/filename`, `stats_reputation_title/string`, `stats_reputation_rep_title/string` | the selected reputation's picture, title and name | `Standing` |
+| `stats_genrep_button/_PCButtonText` | the switch's key: `sPCMenuHintR`, with a controller the button's name, as Take All's | `pad::game_hint` |
+
+The button's own words stay the file's: `sReputationSwap` reads empty in the original too
+(`fnv_ui::strings`), so it may show its key alone [hypothesis]. A click is `StatsTile::Switch` and
+`StatsView::switch`; R stays `stats::keys`, and R and the controller's X join `HAND_BUILT_KEYS`, since
+the root binds R [documented: its `_PCButton_R`], and it would switch twice.
+
+Left on the hand-built page and not carried over: "Karma: " before the word, the karma's number (no
+tile in the file holds it), the button's "General" and "Reputation", the line of an empty list and
+"Fame n, Infamy n" (§5.1).
+
+**Words written** on these tabs, by source: record data (AVIF, PERK and REPU FULL, DESC, ICON); the
+setting `sKarmicTitle…`; the setting `sPCMenuHintR` or the pad's own names; figures, and the "--" of
+§5.1.1. From the model and no data file, as on the hand-built page: the 43 statistics' names
+(`misc_stats::NAMES`) [documented: GECK wiki GetPCMiscStat, a script function's argument],
+reputation titles (`reputation::TITLES`) [documented: GECK wiki GetReputationThreshold, and the
+Fallout wiki's table], the alignment's words spelled from the globals' Editor IDs
+(`model::karma_alignment`) [hypothesis], "(+)" and "(-)" (`model::modified_mark`, §5.1.1). They
+stay until the maintainer settles the words or a capture finds a setting for them.
+
+**Not known; capture**, for these tabs: each list's `_number_of_visible_items`, `_scroll_delta` and
+bar counts with its rows; whether the bar shows and where; row heights; a row's `_selected` and
+what a Perks row's `user0` to `user2` hold; what shows General's two lists and sides (the trait
+above), what `stats_karma_alignment` reads, `stats_genrep_button`'s words; `stats_icon_badge`.
 
 ### 5.3 DATA
 

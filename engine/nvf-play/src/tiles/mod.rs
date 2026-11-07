@@ -917,7 +917,7 @@ impl Plugin for TilesPlugin {
             // T8: the pointer and keys after the engine's writes, before scripts (§4.1 step 1).
             .add_systems(Update, input::feed.after(write).after(crate::menu::WheelHoldSet).before(PlaySet::Activation))
             .add_systems(Update, update.after(PlaySet::Scripts).before(PlaySet::Ui))
-            // The Pip-Boy's S.P.E.C.I.A.L.: written after the tile input and before the scripts;
+            // The Pip-Boy's STATS list tabs: written after the tile input and before the scripts;
             // again after its keys and decided before the frame and the tile drawing read it.
             .add_systems(Update, stats_menu::feed.after(input::feed).after(crate::pipboy::PointerSet).before(PlaySet::Activation))
             .add_systems(Update, stats_menu::write.after(stats_menu::feed).before(PlaySet::Activation))
