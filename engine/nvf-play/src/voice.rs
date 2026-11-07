@@ -496,6 +496,11 @@ fn play(
         // A line of the player's voice set plays at its rate: pitch and speed together,
         // the line as much shorter (docs/design/player-voices.md §6).
         let rate = g.line_rate(s.speaker, s.info);
+        // The player's own lines are said in its own voice type, by sex and race
+        // (`Game::player_own_voice_type`): PlayerVoiceFemale for a woman, the ghoul
+        // voices for a ghoul; the record's file stands in where that voice has none.
+        let own_voice = g.line_voice_type(s.speaker, s.info);
+        let own_file = own_voice.and_then(|v| bank.file_for_voice(s.info.0, k, v.0));
         let fitted = g.response_seconds_voiced(placed, base, s.info, k) / f64::from(rate);
         let who = g.data.name(s.speaker);
         let number = bank.index.lines.get(&s.info.0).and_then(|l| l.responses.get(k)).map_or(0, |r| r.number);
@@ -507,7 +512,7 @@ fn play(
         // A fixed speaker that is the placed base is no other actor: its file is in the
         // record's own voice, not the one the actor speaks with (issue #1051).
         let fixed = g.data.infos.get(&s.info).and_then(|d| d.speaker).filter(|f| Some(*f) != base && Some(*f) != placed);
-        let file = base.and_then(|b| bank.file(s.info.0, k, b.0)).or_else(|| fixed.and_then(|f| bank.file(s.info.0, k, f.0))).or_else(|| carried_file(g, &bank, s.info));
+        let file = own_file.or_else(|| base.and_then(|b| bank.file(s.info.0, k, b.0))).or_else(|| fixed.and_then(|f| bank.file(s.info.0, k, f.0))).or_else(|| carried_file(g, &bank, s.info));
         // A line outside the conversation is heard from where it is said, or not at all;
         // a 2D one (Say's is2D) as the conversation's.
         let heard = if s.conversation || s.two_d { None } else { Some(player.and_then(|p| hearing(&sim, p, s.speaker))) };
@@ -594,7 +599,7 @@ fn play(
                 if let Some(why) = &out_of_hearing {
                     info!("voice: {who} line {} response {number} is out of hearing ({why}): no subtitle", g.data.name(s.info));
                 }
-                let voice = base.and_then(|b| bank.index.voice_of(b.0)).and_then(|v| bank.index.voice_types.get(&v));
+                let voice = own_voice.map(|v| v.0).or_else(|| base.and_then(|b| bank.index.voice_of(b.0))).and_then(|v| bank.index.voice_types.get(&v));
                 info!("voice: no file for {who} line {} response {number} (voice type {})", g.data.name(s.info), voice.map_or("none", |v| v.as_str()));
                 (None, fitted)
             }

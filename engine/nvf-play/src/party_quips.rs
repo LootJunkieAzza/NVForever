@@ -20,6 +20,12 @@
 //! - **Comments** (phase 4): every frame the game looks at its place and quest comments
 //!   (`Game::player_comments`); also without co-op. Log: `player voice: comment <event>
 //!   <line>: <text>`.
+//! - **Fight remarks** (item 64, 2026-11-07): as a fight with the player begins and a few
+//!   seconds after it ends (`Game::player_fight_lines`); also solo. Log: `player voice:
+//!   fight start|fight end <line>: <text>`.
+//! - Every trigger that said nothing is logged with why: `player voice: <event>: nothing
+//!   said: <why>` (another quip playing, too soon after the last line, the set has no
+//!   first-person line for it, ...).
 
 use crate::coop_social::SocialMates;
 use crate::coop_tables::{game, Tables, R, W};
@@ -262,6 +268,7 @@ fn comments(mut script: ResMut<ScriptState>, mut sim: ResMut<SimState>, mut part
     }
     crate::script::with_world(rt, &mut sim, |rt| {
         let fought = rt.game.player_fought();
+        rt.game.player_fight_lines(fought);
         rt.game.player_comments(fought)
     });
     let g = &rt.game;
@@ -275,11 +282,17 @@ fn comments(mut script: ResMut<ScriptState>, mut sim: ResMut<SimState>, mut part
     for (event, info) in g.quip.said.iter().skip(party.logged) {
         if event == "place" || event == "quest" {
             info!("player voice: comment {event} {}: \"{}\"", g.data.name(*info), first_text(g, *info));
+        } else if event.starts_with("fight ") {
+            info!("player voice: {event} {}: \"{}\"", g.data.name(*info), first_text(g, *info));
         } else if let Some(topic) = event.strip_prefix("companion.") {
             info!("player voice: the voice's companion takes the player's {topic} line: {} \"{}\"", g.data.name(*info), first_text(g, *info));
         }
     }
     party.logged = g.quip.said.len();
+    // Every trigger that said nothing, and why (item 64).
+    for (event, why) in std::mem::take(&mut rt.game.quip.skipped) {
+        info!("player voice: {event}: nothing said: {why}");
+    }
 }
 
 pub struct PartyQuipsPlugin;

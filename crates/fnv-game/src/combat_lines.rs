@@ -241,13 +241,39 @@ impl Game<'_> {
                 self.say_line(actor, about, t, info, crate::game::LineKind::Say);
                 Some(info)
             }
-            None => self.say(actor, about, t, false),
+            None => match self.own_voice_line(actor, about, t) {
+                Some(info) => {
+                    self.say_line(actor, about, t, info, crate::game::LineKind::Say);
+                    Some(info)
+                }
+                None => self.say(actor, about, t, false),
+            },
         };
         self.combat_lines.said.push((topic, actor, line));
         if line.is_some() {
             self.queue_response(actor, topic);
         }
         line
+    }
+
+    /// The line of `topic` the player says in its own voice type
+    /// ([`Game::player_own_voice_type`]) when the topic's lines are picked only among
+    /// those that voice has a file for: a ghoul player has no GenericPlayer files, so it
+    /// says the generic ghoul voice's Hit, PowerAttack and Death lines [observed:
+    /// Voices1.bsa; design]. A human player keeps the plain pick (every GenericPlayer
+    /// line has a file in both player voices [observed]). `None` (the plain pick) for
+    /// another actor, a human player, without the voice files, or when no line has a file.
+    fn own_voice_line(&mut self, actor: FormId, about: Option<FormId>, topic: FormId) -> Option<FormId> {
+        if actor != FormId::PLAYER_REF || !self.player_is_ghoul() {
+            return None;
+        }
+        let vt = self.player_own_voice_type()?;
+        let voice = self.voice.clone()?;
+        let lines: Vec<FormId> = self.data.lines_tried(topic).into_iter().filter(|&i| voice.voice_type_seconds(i, 0, vt).is_some()).collect();
+        if lines.is_empty() {
+            return None;
+        }
+        self.select_line_from(actor, about.or(Some(FormId::PLAYER_REF)), &lines)
     }
 
     /// `speaker` said a line of `topic`: when the topic is one of [`ANSWERS`], the nearest

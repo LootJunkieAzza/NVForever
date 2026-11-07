@@ -18828,6 +18828,51 @@ expect = [
 ]
 
 [[scenario]]
+name = "player-voice-fight-remarks"
+source = "owner 2026-11-06 late playtest (overnight item 64): almost no player voice chatter, none solo"
+note = "combat-voice solo with Cook's voice set (NVF_PLAY_TEST_VOICE=nexus.cook; all six of his lines are fight start/end or AvoidThreat lines, which the player never said before): as the dogs attack, the player says one of his NormalToCombat lines from his carried files (Game::player_fight_lines); triggers that say nothing are logged with why"
+areas = ["combat", "dialogue", "audio"]
+paths = ["crates/fnv-game/src/player_voice.rs", "engine/nvf-play/src/party_quips.rs"]
+requires = ["NVF_VOICE_SETS", "NVF_MOD_DIR"]
+env = { NVF_PLAY_TEST_VOICE = "nexus.cook", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "00004337", NVF_PLAY_TEST_CONTROL = "3:weapon,6:aimflat,6.1:fire,7.6:fire,8.4:aimflat,8.5:fire,8.6:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 22
+expect = [
+  { re = 'player voice: Cook \(nexus\.cook\): \d+ lines in use', label = "the player has Cook's voice" },
+  { re = 'player voice: fight start \S+: "', label = "the player remarks as the fight begins" },
+  { re = 'voice: playing \S+cookvoice.01cookcomp_\S+', label = "the remark plays in Cook's voice" },
+  { re = 'player voice: fight end', max = 0, label = "no remark on the fight after the player is killed" },
+]
+
+[[scenario]]
+name = "player-voice-female-grunts"
+source = "owner 2026-11-06 evening playtest (overnight item 21): a female character made the male grunts"
+note = "combat-voice with no voice set and the player made a woman (console player.sexchange): the dogs bite her down and kill her; her own hit, power-attack and death sounds are PlayerVoiceFemale's GenericPlayer files (Game::player_own_voice_type), never PlayerVoiceMale's"
+areas = ["combat", "dialogue", "audio"]
+paths = ["crates/fnv-game/src/player_voice.rs", "crates/fnv-game/src/combat_lines.rs", "crates/fnv-game/src/functions/actor.rs", "crates/fnv-game/src/voice.rs", "engine/nvf-play/src/voice.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "1:player.sexchange;1.5:close", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "00004337", NVF_PLAY_TEST_CONTROL = "3:weapon,6:aimflat,6.1:fire,7.6:fire,8.4:aimflat,8.5:fire,8.6:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 22
+expect = [
+  { re = 'voice: playing \S+playervoicefemale.genericplayer_\S+', label = "the player's own grunts play from PlayerVoiceFemale" },
+  { re = 'voice: playing \S+playervoicemale.genericplayer_', max = 0, label = "no male grunt from a woman" },
+]
+
+[[scenario]]
+name = "player-voice-male-grunts"
+source = "owner 2026-11-06 evening playtest (overnight item 21): a male character keeps his grunts"
+note = "combat-voice with no voice set and the record's male player: his own grunts are PlayerVoiceMale's GenericPlayer files, never PlayerVoiceFemale's"
+areas = ["combat", "dialogue", "audio"]
+paths = ["crates/fnv-game/src/player_voice.rs", "crates/fnv-game/src/combat_lines.rs", "crates/fnv-game/src/functions/actor.rs", "crates/fnv-game/src/voice.rs", "engine/nvf-play/src/voice.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "00004337", NVF_PLAY_TEST_CONTROL = "3:weapon,6:aimflat,6.1:fire,7.6:fire,8.4:aimflat,8.5:fire,8.6:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 22
+expect = [
+  { re = 'voice: playing \S+playervoicemale.genericplayer_\S+', label = "the player's own grunts play from PlayerVoiceMale" },
+  { re = 'voice: playing \S+playervoicefemale.genericplayer_', max = 0, label = "no female grunt from a man" },
+]
+
+[[scenario]]
 name = "player-voice-creator"
 source = "owner 2026-11-05/06: a Voice option in the character creator, with a preview (docs/design/player-voices.md phase 1)"
 note = "the character-creator setup with voice sets installed (NVF_VOICE_SETS): the Basics tab has a Voice row; the character made a woman, stepping it chooses the first woman's voice (Cass), which plays a preview line; P (the aid's preview) plays another; Done keeps the voice. The row offers only the voices of the look's race and sex (owner 2026-11-06)"

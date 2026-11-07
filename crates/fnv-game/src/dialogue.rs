@@ -341,6 +341,11 @@ impl<'a> Game<'a> {
         self.select_line_as(speaker, listener, topic, keep, Says::Actor)
     }
 
+    /// [`Game::select_line`] among `lines` (some of a topic's lines, in the topic's order).
+    pub(crate) fn select_line_from(&mut self, speaker: FormId, listener: Option<FormId>, lines: &[FormId]) -> Option<FormId> {
+        self.select_among(speaker, listener, lines, &|_| true, false, Says::Actor)
+    }
+
     /// [`Game::select_line_where`] for an actor or a radio station ([`Game::can_say_as`]).
     pub(crate) fn select_line_as(&mut self, speaker: FormId, listener: Option<FormId>, topic: FormId, keep: impl Fn(&InfoDef) -> bool, says: Says) -> Option<FormId> {
         let data = self.data;
