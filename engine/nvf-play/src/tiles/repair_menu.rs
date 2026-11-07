@@ -74,8 +74,8 @@ const ROW_TEXT: &str = "ListItemText";
 const ROW_METER_BACK: &str = "RM_Template_MeterBackground";
 const ROW_METER: &str = "RM_Template_Meter";
 const ROW_MARK: &str = "RM_Template_ItemMarker";
-/// The square of an equipped row where the file names no picture [documented: the hand-built
-/// list's, `crate::pipboy::repair`].
+/// The square of an equipped row where the file names no picture [design: the hand-built list's,
+/// `crate::pipboy::repair`].
 const MARK_PICTURE: &str = "interface\\shared\\marker\\square_filled.dds";
 
 /// The line while the item's own row is hovered [design: LEGAL.md; the original's are in its code,
@@ -86,6 +86,9 @@ pub const CHOOSE_WORDS: &str = "Choose a part to use.";
 const PULSE_LOW: f64 = 64.0;
 /// Its period in seconds [hypothesis: the reads do not give it].
 const PULSE_SECONDS: f64 = 2.0;
+/// Final passes the page waits for its tree before the hand-built list has the pointer: it is
+/// built the frame after the code is set, unless the file cannot be built [design].
+const TREE_WAIT: u8 = 2;
 
 /// [design: `crate::pipboy::repair::keys`, `crate::pipboy::keys`, `crate::pad::menu_buttons`] What
 /// the model takes itself, by the tile input's names: R, W, S, E, the Pip-Boy's A and D, the
@@ -256,6 +259,12 @@ pub struct RepairTiles {
     pub modal: bool,
     /// Another menu took this frame's tile input (`super::input::feed`).
     pub others: bool,
+    /// The list is open and the page has not decided yet: the hand-built list that stands
+    /// meanwhile takes no hover, so a pointer at rest cannot choose a part before the page opens
+    /// (`crate::pipboy::repair`).
+    pub waiting: bool,
+    /// Final passes with no tree yet.
+    waited: u8,
     /// The pointer is on a row, or the keys have left the item's row (module notes).
     on_rows: bool,
     /// The row the pointer last asked for, to know the keys' moves from its.
@@ -273,6 +282,8 @@ pub struct RepairTiles {
 impl RepairTiles {
     /// The list closed: what the next opening starts from. The tree goes with it.
     fn closed(&mut self) {
+        self.waiting = false;
+        self.waited = 0;
         self.on_rows = false;
         self.asked = None;
         self.selected = None;
@@ -280,7 +291,15 @@ impl RepairTiles {
         self.drag = None;
     }
 
-    /// The model's selection now: who moved it.
+    /// A final pass that found no tree for the open list.
+    fn no_tree_yet(&mut self) {
+        self.waited = self.waited.saturating_add(1);
+        self.waiting = self.waited <= TREE_WAIT;
+    }
+
+    /// The model's selection now: who moved it. A change onto a part puts the page on the rows;
+    /// an unchanged one says nothing, as the pointer may have just left them and its `Hover(0)`
+    /// not been applied yet.
     fn follow_model(&mut self, selected: usize) {
         if self.selected != Some(selected) {
             if self.asked == Some(selected) {
@@ -290,9 +309,9 @@ impl RepairTiles {
                 self.navigated = self.navigated.wrapping_add(1);
             }
             self.selected = Some(selected);
-        }
-        if selected != 0 {
-            self.on_rows = true;
+            if selected != 0 {
+                self.on_rows = true;
+            }
         }
     }
 
@@ -540,8 +559,12 @@ fn pass(p: &mut RepairPage<'_>, late: bool) -> Option<Result<TileId, String>> {
     let game = &mut p.script.as_mut()?.rt.as_mut()?.game;
     game.ui_files.as_ref()?;
     if !game.menu_open(codes::REPAIR) || game.ui_tree.menu(REPAIR_MENU).is_none() {
+        if late {
+            p.tiles.no_tree_yet();
+        }
         return None;
     }
+    p.tiles.waiting = false;
     p.tiles.follow_model(session.selected);
     let stat_at = |c: f32| crate::pipboy::repair::stat(combat, &session.offer, c);
     let shown = Shown::of(session, p.tiles.on_rows, p.tiles.pointer_pick, p.tiles.navigated, &stat_at, &Words::read(game));
@@ -1014,6 +1037,39 @@ mod tests {
         tiles.closed();
         assert!(!tiles.on_rows);
         assert_eq!(tiles.selected, None);
+    }
+
+    #[test]
+    fn leaving_the_rows_returns_the_page_off_any_row() {
+        let mut tiles = RepairTiles::default();
+        tiles.follow_model(0);
+        tiles.follow_model(2);
+        assert!(tiles.on_rows);
+        // What `feed` does as the pointer leaves, then the pass before the model's keys apply its
+        // `Hover(0)`, then the one after.
+        tiles.on_rows = false;
+        tiles.asked = Some(0);
+        tiles.follow_model(2);
+        assert!(!tiles.on_rows, "an unchanged selection says nothing");
+        tiles.follow_model(0);
+        assert!(!tiles.on_rows);
+        let s = Shown::of(&session(0), tiles.on_rows, tiles.pointer_pick, tiles.navigated, &stat, &words());
+        assert_eq!((s.highlight, s.choose), (None, false));
+    }
+
+    #[test]
+    fn the_hand_built_list_waits_for_the_tree_only_so_long() {
+        let mut tiles = RepairTiles::default();
+        assert!(!tiles.waiting, "nothing to wait for with the switch off or the list shut");
+        tiles.no_tree_yet();
+        assert!(tiles.waiting);
+        tiles.no_tree_yet();
+        assert!(tiles.waiting);
+        tiles.no_tree_yet();
+        assert!(!tiles.waiting, "a file that cannot be built leaves the hand-built list the pointer");
+        tiles.closed();
+        tiles.no_tree_yet();
+        assert!(tiles.waiting, "the next opening waits again");
     }
 
     #[test]

@@ -107,7 +107,13 @@ struct RepairCancel;
 
 /// Only a row not chosen yet: choosing redraws the list, and the new row under the pointer
 /// would come over it again every frame, so a press and its release never met one row.
-fn on_row_over(over: On<PointerOver>, rows: Query<&RepairRow>, repair: Res<PipRepair>, mut out: MessageWriter<RepairInput>) {
+///
+/// Not while the page drawn from its file has yet to decide (`crate::tiles::repair_menu::RepairTiles::waiting`):
+/// this list stands for that frame, and a pointer at rest would open the page on a part.
+fn on_row_over(over: On<PointerOver>, rows: Query<&RepairRow>, repair: Res<PipRepair>, tiles: Option<Res<crate::tiles::repair_menu::RepairTiles>>, mut out: MessageWriter<RepairInput>) {
+    if tiles.is_some_and(|t| t.waiting) {
+        return;
+    }
     let (Ok(r), Some(s)) = (rows.get(over.entity), repair.0.as_ref()) else { return };
     if s.selected != r.0 {
         out.write(RepairInput::Hover(r.0));

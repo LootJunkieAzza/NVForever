@@ -21752,10 +21752,10 @@ order = [["repair menu: open", "repair menu: repaired 9mm Pistol", "repair menu:
 [[scenario]]
 name = "tiles-pipboy-repair"
 source = "[design] repair.md section 5.1, issue #1468: the Pip-Boy's repair page from its file, in the Pip-Boy's image: the three states, a repair on a part by the pointer that the list stays open after, Cancel; the rules and sounds of pipboy-repair-repeat unchanged"
-note = "[hypothesis until a first run] The points are the canvas's, added up from the parents' places the capture read: rows at x 250, y 151 and 203; Cancel 855:148. The pointer goes onto the item (the choose text), onto the part (the figures), off the rows, then clicks the part to choose it and again to use it; one part of the two is left, so the list stays and Cancel closes it. The Pip-Boy aid's click is three frames, its press the first. Shots: opening, on the item, on the part, after the repair."
+note = "[hypothesis until a first run] The points are the canvas's, added up from the parents' places the capture read: rows at x 250, y 151 and 203; Cancel 855:148. The pointer goes onto the item (the choose text), onto the part (the figures), off the rows, then clicks the part: the Pip-Boy aid's click stands a frame on the spot before its press, so the part is chosen by then and the click uses it. One part of the two is left, so the list stays and Cancel closes it. Shots: opening, on the item, on the part, after the repair."
 areas = ["ui", "repair", "pipboy", "menus"]
 paths = ["engine/nvf-play/src/tiles/repair_menu.rs", "engine/nvf-play/src/tiles/repair_cards.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/pipboy/repair.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "crates/fnv-game/src/repair.rs"]
-env = { NVFOREVER_HOME = "tiles-pipboy-repair-home", NVF_PLAY_TEST_TILE_MENUS = "RepairMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,9.5:call:player:AddItemHealthPercent:Weap10mmPistol:2:0.3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:repair=open,17:point=250:151,19:point=250:203,21:point=700:120,23:click=250:203,25:click=250:203,27:point=855:148,28:click=855:148,30:close", NVF_PLAY_TEST_SHOTS = "16:tiles_pipboy_repair_open.png,18:tiles_pipboy_repair_item.png,20:tiles_pipboy_repair_part.png,26.5:tiles_pipboy_repair_repaired.png" }
+env = { NVFOREVER_HOME = "tiles-pipboy-repair-home", NVF_PLAY_TEST_TILE_MENUS = "RepairMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,9.5:call:player:AddItemHealthPercent:Weap10mmPistol:2:0.3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:repair=open,17:point=250:151,19:point=250:203,21:point=700:120,23:click=250:203,27:point=855:148,28:click=855:148,30:close", NVF_PLAY_TEST_SHOTS = "16:tiles_pipboy_repair_open.png,18:tiles_pipboy_repair_item.png,20:tiles_pipboy_repair_part.png,26.5:tiles_pipboy_repair_repaired.png" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
 run_seconds = 33
 expect = [
@@ -21767,7 +21767,7 @@ expect = [
   { re = 'tiles: RepairMenu drawn from tiles: \d+ rows; .*; choose true', label = "the item's row shows the choose text" },
   { re = 'tiles: RepairMenu drawn from tiles: \d+ rows; item "10mm Pistol"; highlight "10mm Pistol \(2\)"; choose false; .*\+\d+%', label = "a part shows its gains" },
   { text = "tiles: RepairMenu Hover(1) on its tiles", label = "the pointer chooses the part" },
-  { text = "tiles: RepairMenu Click(1) on its tiles", count = 2, label = "a click chooses, the next uses" },
+  { text = "tiles: RepairMenu Click(1) on its tiles", count = 1, label = "a click on the part the pointer chose uses it, once" },
   { re = 'pipboy repair: 10mm Pistol [34]0% with 10mm Pistol \(2\) 30% -> \d+% \(Repair \d+\)', label = "the model repairs" },
   { text = "ui sounds: repair services row or button picked: UIRepairWeapon", label = "with the model's sound" },
   "pipboy repair: stays open:",
