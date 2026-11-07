@@ -10249,7 +10249,7 @@ order = [["caravan: bet accepted: ante", "caravan: the player's ante", "caravan:
 name = "caravan"
 source = "docs/spec-notes/caravan.md: ShowCaravanMenu against Ringo with his deck (as his dialogue line) is refused with no cards; given his deck's 30 cards the bet opens with its help, Auto Match and Accept, the deck builder's random deck of 30, then the game plays out by itself (the player's side by the opponent's rules) to a winner, the pot settles and the results close"
 areas = ["caravan", "menus"]
-paths = ["crates/fnv-game/src/caravan.rs", "engine/nvf-play/src/caravan.rs", "engine/nvf-play/src/caravan/**", "crates/fnv-game/src/functions/misc.rs"]
+paths = ["crates/fnv-game/src/caravan.rs", "engine/nvf-play/src/caravan.rs", "engine/nvf-play/src/caravan/**", "crates/fnv-game/src/functions/misc.rs", "engine/nvforever/src/caravan_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CARAVAN = "1:seed:7,14:caps:200,14.5:open:104C7D:15D7A2:0.25,15:cards:15D7A2,16:open:104C7D:15D7A2:0.25,18:help,19:match,20:accept,21:help,22:randomize,23:play,24:auto", NVF_PLAY_TEST_SHOTS = "17:caravan_bet.png,22.5:caravan_deck.png,33:caravan_game.png" }
 args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
 run_seconds = 130
@@ -10271,8 +10271,13 @@ expect = [
   { re = 'caravan: open against Ringo .* bid (?P<n>\d+) of', range = [0, 100000], label = "Ringo bids a quarter of his caps" },
   { re = 'caravan: opponent plays .* on its caravan', label = "the opponent lays numbered cards" },
   { re = 'caravan summary: 2 asked, 1 opened \(1 refused\); 1 games: [01] won, [01] lost', label = "the summary" },
+  { text = "caravan view: the table built", label = "the game is drawn on the 3D table" },
+  { text = "caravan view: the table put away", label = "the 3D table goes with the game" },
 ]
-forbid = [{ text = "move refused", label = "every move the sides choose is legal" }]
+forbid = [
+  { text = "move refused", label = "every move the sides choose is legal" },
+  { text = "caravan view: no card picture", label = "every card's picture is found" },
+]
 
 [[scenario]]
 name = "enable-disable-fade"

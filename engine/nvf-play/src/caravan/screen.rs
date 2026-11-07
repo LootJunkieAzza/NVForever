@@ -6,8 +6,13 @@
 //! height, in a frame 16:9 wide centred in the view, made smaller to fit a narrower view)
 //! [observed]; the fonts, lines and help
 //! box are the lockpicking menu's (`crate::lockpick::screen`).
+//!
+//! While nvforever draws the game's table in 3D ([`super::CaravanView`]), the game screen
+//! shows that picture instead of the planks and cards drawn here; its cards lie where
+//! [`table_cards`] puts them, so everything this screen still draws over them (names,
+//! values, outlines, buttons) falls in place [design].
 
-use super::{CaravanInput, CaravanScreen, Pick, Session, Stage};
+use super::{CaravanInput, CaravanScreen, CaravanView, Pick, Session, Stage};
 use crate::interface::{amber, at, u};
 use crate::lockpick::screen::{Ctx, FontKind, Kit};
 use crate::pause::AidTime;
@@ -18,17 +23,18 @@ use bevy::window::PrimaryWindow;
 use fnv_game::caravan::{Caravan, Game, Move, Phase, OPPONENT, PLAYER, SOLD_MAX, TRACKS};
 use fnv_sim::FormId;
 use nvf_assets::GameData;
+use std::collections::HashMap;
 
 /// The frame's width: 16:9 of the 960 high view.
-const FRAME_W: f32 = 960.0 * 16.0 / 9.0;
+pub const FRAME_W: f32 = 960.0 * 16.0 / 9.0;
 const PLANKS: &str = "terminals\\nv_caravan\\nv_caravan-table01.dds";
 const SIGN: &str = "terminals\\nv_caravan\\nv_caravan-table02.dds";
 /// The sign's square, its left and top [observed: the screenshots' sign, -20 to 960 px
 /// across, the top cut off].
 const SIGN_AT: (f32, f32, f32) = (-27.0, -60.0, 1310.0);
 /// A card on the table, in the hand, in the builder's rows and the builder's middle card.
-const CARD: Vec2 = Vec2::new(111.0, 147.0);
-const HAND_CARD: Vec2 = Vec2::new(125.0, 165.0);
+pub const CARD: Vec2 = Vec2::new(111.0, 147.0);
+pub const HAND_CARD: Vec2 = Vec2::new(125.0, 165.0);
 const ROW_CARD: Vec2 = Vec2::new(150.0, 200.0);
 const MIDDLE_CARD: Vec2 = Vec2::new(216.0, 299.0);
 /// The middle of each track's caravan: the opponent's and the player's.
@@ -85,7 +91,7 @@ pub struct CaravanButton(pub CaravanInput);
 #[derive(Component, Clone, Copy)]
 pub struct DrawnAlpha(f32);
 
-fn view_key(s: &Session, view_w: f32) -> String {
+fn view_key(s: &Session, view_w: f32, table: bool) -> String {
     let g = s.game.as_ref().map(|g| {
         let side = |i: usize| g.sides[i].caravans.iter().map(|c| c.cards.iter().map(|p| format!("{}{}", p.card.short(), p.faces.len())).collect::<String>()).collect::<Vec<_>>().join("|");
         format!("{}:{}:{}:{}:{}:{:?}", side(0), side(1), g.sides[0].hand.len(), g.sides[1].hand.len(), g.sides[0].deck.len() * 100 + g.sides[1].deck.len(), g.turn)
@@ -104,10 +110,10 @@ fn view_key(s: &Session, view_w: f32) -> String {
         s.players_turn(),
         s.record.won,
         s.leaving.is_some(),
-    )
+    ) + if table { ":3d" } else { "" }
 }
 
-fn view_width(window: Option<&Window>) -> f32 {
+pub fn view_width(window: Option<&Window>) -> f32 {
     window.map_or(FRAME_W, |w| 960.0 * w.width() / w.height().max(1.0))
 }
 
@@ -117,6 +123,7 @@ pub fn draw(
     screen: Res<CaravanScreen>,
     data: Option<Res<GameData>>,
     window: Query<&Window, With<PrimaryWindow>>,
+    view: Option<Res<CaravanView>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     roots: Query<Entity, With<CaravanRoot>>,
@@ -124,7 +131,8 @@ pub fn draw(
     (mut kit, mut shown): (Local<Option<Kit>>, Local<Option<String>>),
 ) {
     let view_w = view_width(window.single().ok());
-    let key = screen.0.as_ref().map(|s| view_key(s, view_w));
+    let table = view.as_ref().map(|v| v.image.clone()).filter(|_| screen.0.as_ref().is_some_and(|s| s.stage == Stage::Play));
+    let key = screen.0.as_ref().map(|s| view_key(s, view_w, table.is_some()));
     if key == *shown {
         return;
     }
@@ -136,7 +144,7 @@ pub fn draw(
     let bc = crate::interface::bc_supported(formats.as_deref());
     let kit = kit.get_or_insert_with(|| Kit::load(data.as_deref(), &mut images, bc));
     let mut c = Ctx { kit, data: data.as_deref(), images: &mut images, bc };
-    spawn(&mut commands, &mut c, s, view_w);
+    spawn(&mut commands, &mut c, s, view_w, table);
 }
 
 fn texture(s: &Session, f: FormId, face: bool) -> String {
@@ -144,18 +152,24 @@ fn texture(s: &Session, f: FormId, face: bool) -> String {
     (if face { front } else { back }).unwrap_or_default()
 }
 
-fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view_w: f32) {
+fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view_w: f32, table: Option<Handle<Image>>) {
     let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
     let dim = if s.help.is_some() { 0.47 } else { 1.0 };
+    let flat = table.is_none();
     commands.spawn((CaravanRoot, full.clone(), GlobalZIndex(106), BackgroundColor(Color::BLACK))).with_children(|r| {
-        c.image(r, PLANKS, full.clone(), Color::srgb(0.78 * dim, 0.74 * dim, 0.68 * dim));
+        match table {
+            Some(image) => {
+                r.spawn((full.clone(), ImageNode { color: Color::srgb(dim, dim, dim), ..ImageNode::new(image) }));
+            }
+            None => c.image(r, PLANKS, full.clone(), Color::srgb(0.78 * dim, 0.74 * dim, 0.68 * dim)),
+        }
         // A view narrower than 16:9 (16:10, 4:3) shows the whole frame, smaller.
         let frame = Node { position_type: PositionType::Absolute, left: u((view_w - FRAME_W) / 2.0), top: u(0.0), width: u(FRAME_W), height: u(960.0), ..default() };
         let fit = UiTransform { scale: Vec2::splat((view_w / FRAME_W).min(1.0)), ..default() };
         r.spawn((frame, fit)).with_children(|f| match s.stage {
             Stage::Bet => bet(f, c, s, dim),
             Stage::Deck => deck(f, c, s, dim),
-            Stage::Play => play(f, c, s, dim),
+            Stage::Play => play(f, c, s, dim, flat),
             Stage::Results => results(f, c, s, dim),
         });
         if let Some(h) = &s.help {
@@ -328,7 +342,84 @@ fn marks(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, g: &Game) {
     }
 }
 
-fn play(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32) {
+/// A card the game screen shows: its key (its place: `c<side>:<track>:<n>`, a face card on
+/// it `…:f<j>`; a hand's `h<side>:<form>:<copy>`; a deck's top `d<side>`), its form, face
+/// up or down, its top left and size in the frame's units, raised (chosen in the hand).
+/// Listed bottom to top.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TableCard {
+    pub key: String,
+    pub form: FormId,
+    pub face_up: bool,
+    pub at: Vec2,
+    pub size: Vec2,
+    pub raised: bool,
+}
+
+/// Every card of the game screen, where the flat screen draws it (shared with the 3D
+/// table so the two agree).
+pub fn table_cards(s: &Session) -> Vec<TableCard> {
+    let mut out = Vec::new();
+    let Some(g) = s.game.as_ref() else { return out };
+    let mut push = |key: String, form: FormId, face_up: bool, at: Vec2, size: Vec2, raised: bool| out.push(TableCard { key, form, face_up, at, size, raised });
+    // The opponent's caravans first: the player's lie over them.
+    for side in [OPPONENT, PLAYER] {
+        for (t, k) in g.sides[side].caravans.iter().enumerate() {
+            for (i, placed) in k.cards.iter().enumerate() {
+                let at0 = place(side, t, i);
+                push(format!("c{side}:{t}:{i}"), placed.card.form, true, at0, CARD, false);
+                for (j, f) in placed.faces.iter().enumerate() {
+                    push(format!("c{side}:{t}:{i}:f{j}"), f.form, true, at0 + FACE_STEP * (j + 1) as f32, CARD, false);
+                }
+            }
+        }
+    }
+    let hand_keys = |hand: &[fnv_game::caravan::Card], side: usize| {
+        let mut seen: HashMap<FormId, usize> = HashMap::new();
+        hand.iter()
+            .map(|c| {
+                let n = seen.entry(c.form).or_default();
+                *n += 1;
+                format!("h{side}:{:08X}:{}", c.form.0, *n - 1)
+            })
+            .collect::<Vec<_>>()
+    };
+    let (ox, oy, ostep) = OPPONENT_HAND;
+    for (i, (card_, key)) in g.sides[OPPONENT].hand.iter().zip(hand_keys(&g.sides[OPPONENT].hand, OPPONENT)).enumerate() {
+        push(key, card_.form, false, Vec2::new(ox + ostep * i as f32, oy), CARD, false);
+    }
+    if let Some(top) = g.sides[OPPONENT].deck.last() {
+        push(format!("d{OPPONENT}"), top.form, false, Vec2::new(OPPONENT_DECK.0, OPPONENT_DECK.1), CARD, false);
+    }
+    let (hx, hy, hstep) = PLAYER_HAND;
+    let mine = s.players_turn();
+    let chosen = chosen_card(s);
+    let hand = &g.sides[PLAYER].hand;
+    for (i, (card_, key)) in hand.iter().zip(hand_keys(hand, PLAYER)).enumerate() {
+        let raised = mine && (i == s.hand || chosen == Some(i));
+        let y = hy - if raised { 28.0 } else { 0.0 };
+        push(key, card_.form, true, Vec2::new(hx + hstep * i as f32, y), HAND_CARD, raised);
+    }
+    if let Some(top) = g.sides[PLAYER].deck.last() {
+        push(format!("d{PLAYER}"), top.form, false, Vec2::new(PLAYER_DECK.0, PLAYER_DECK.1), HAND_CARD, false);
+    }
+    out
+}
+
+/// The hand's card a place is being picked for.
+fn chosen_card(s: &Session) -> Option<usize> {
+    match &s.pick {
+        Pick::Place { moves, .. } => moves.first().and_then(|m| if let Move::Play { card, .. } = m { Some(*card) } else { None }),
+        _ => None,
+    }
+}
+
+/// A card's face or back texture (under `textures\`), for the 3D table.
+pub fn card_texture(s: &Session, f: FormId, face: bool) -> String {
+    texture(s, f, face)
+}
+
+fn play(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32, flat: bool) {
     let Some(g) = s.game.as_ref() else { return };
     let b = amber(255.0);
     // The carved names and the caravans' values.
@@ -341,38 +432,41 @@ fn play(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32) {
         }
     }
     // The opponent's caravans are drawn first: the player's lie over them.
-    for side in [OPPONENT, PLAYER] {
-        for (t, k) in g.sides[side].caravans.iter().enumerate() {
-            caravan(p, c, s, side, t, k, dim);
+    if flat {
+        for side in [OPPONENT, PLAYER] {
+            for (t, k) in g.sides[side].caravans.iter().enumerate() {
+                caravan(p, c, s, side, t, k, dim);
+            }
         }
     }
     // Hands and decks.
     let (ox, oy, ostep) = OPPONENT_HAND;
-    for (i, card_) in g.sides[OPPONENT].hand.iter().enumerate() {
-        card(p, c, &texture(s, card_.form, false), ox + ostep * i as f32, oy, CARD, dim);
-    }
-    if let Some(top) = g.sides[OPPONENT].deck.last() {
-        card(p, c, &texture(s, top.form, false), OPPONENT_DECK.0, OPPONENT_DECK.1, CARD, dim);
+    if flat {
+        for (i, card_) in g.sides[OPPONENT].hand.iter().enumerate() {
+            card(p, c, &texture(s, card_.form, false), ox + ostep * i as f32, oy, CARD, dim);
+        }
+        if let Some(top) = g.sides[OPPONENT].deck.last() {
+            card(p, c, &texture(s, top.form, false), OPPONENT_DECK.0, OPPONENT_DECK.1, CARD, dim);
+        }
     }
     c.text_in(p, FontKind::Menu, &g.sides[OPPONENT].deck.len().to_string(), OPPONENT_DECK.0 + CARD.x + 22.0, OPPONENT_DECK.1 + CARD.y - 40.0, true, b);
     let (hx, hy, hstep) = PLAYER_HAND;
     let mine = s.players_turn();
-    let chosen = match &s.pick {
-        Pick::Place { moves, .. } => moves.first().and_then(|m| if let Move::Play { card, .. } = m { Some(*card) } else { None }),
-        _ => None,
-    };
+    let chosen = chosen_card(s);
     let hand = &g.sides[PLAYER].hand;
     for (i, card_) in hand.iter().enumerate() {
         let raised = mine && (i == s.hand || chosen == Some(i));
         let y = hy - if raised { 28.0 } else { 0.0 };
         let x = hx + hstep * i as f32;
-        card(p, c, &texture(s, card_.form, true), x, y, HAND_CARD, if raised || !mine { dim } else { 0.85 * dim });
+        if flat {
+            card(p, c, &texture(s, card_.form, true), x, y, HAND_CARD, if raised || !mine { dim } else { 0.85 * dim });
+        }
         let w = if i + 1 == hand.len() { HAND_CARD.x } else { hstep };
         if mine {
             p.spawn((Button, CaravanButton(CaravanInput::PickCard(i)), at(x, y, w, HAND_CARD.y)));
         }
     }
-    if let Some(top) = g.sides[PLAYER].deck.last() {
+    if let Some(top) = g.sides[PLAYER].deck.last().filter(|_| flat) {
         card(p, c, &texture(s, top.form, false), PLAYER_DECK.0, PLAYER_DECK.1, HAND_CARD, dim);
     }
     c.text_in(p, FontKind::Menu, &g.sides[PLAYER].deck.len().to_string(), PLAYER_DECK.0 + HAND_CARD.x + 25.0, PLAYER_DECK.1 + HAND_CARD.y - 40.0, true, b);

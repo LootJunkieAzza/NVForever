@@ -188,8 +188,19 @@ Misc statistics: Caravan Games Won and Caravan Games Lost are counted (misc-stat
 
 ## 8. Not built
 
-- The original's 3D table, its card models and its dealing sequences (the menu is drawn
-  flat from the same textures).
+- The original's own 3D table layout. Its models are in `meshes\terminals\nv_caravan\`:
+  the table, one model per caravan place of each side (`player_<track>_<n>`,
+  `opponent_<track>_<n>`, seven places a track) holding four cards each (the card and up to
+  three face cards over it, each a quarter card to the right), the decks and the hands; they
+  have no animation sequences, and where the original puts them at run time is not known
+  (the player's places lie off the table model) [observed: the files' nodes]. NVForever's
+  game screen is drawn in 3D its own way instead (nvforever `caravan_view.rs`) [design]:
+  the planks (`nv_caravan-table01.dds` and its normal map) and the cards' own textures as
+  lit, shadowed cards, seen straight down where the flat screen puts them, so the screen's
+  names, values, outlines and buttons lie over them; a warm lamp above the table's left.
+  Moves slide: a card played goes from the hand to its place (the opponent's turns face up
+  on the way), a card drawn comes from the deck, a card thrown away leaves off the left.
+  The bet, deck building and results screens stay flat.
 - The Caravan challenges (NVChallengeCaravanWin, …Lost, …Master).
 - The help messages are shown once each, over the screen they explain (betting, deck
   building, the opening, the contract war) [hypothesis: the original's tutorial timing
