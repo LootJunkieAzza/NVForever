@@ -322,7 +322,31 @@ impl Game<'_> {
     pub fn guest_can_talk(&mut self, actor: FormId) -> bool {
         let Some(greeting) = self.data.greeting else { return false };
         let goodbye = self.data.goodbye;
-        self.build_choices(actor, greeting, &InfoDef::default()).iter().any(|c| Some(c.topic) != goodbye)
+        self.guest_opening(actor, greeting).iter().any(|c| Some(c.topic) != goodbye)
+    }
+
+    /// What a guest's conversation with `actor` opens on: the choices `topic` (the
+    /// greeting) offers by itself, and before them those of the line of it the actor would
+    /// say, the first it can say (no random draw), whose words the guest does not hear.
+    /// Many vendors offer their trade only there: Genaro's "Need some grub?" greeting (INFO
+    /// 0012936A) lists the topic whose line opens his barter menu (0012936A's choices,
+    /// VFreeformFreesideVFSGenaroTopic000) [observed: FalloutNV.esm], and no top-level topic
+    /// does, so a guest was offered nothing (queue 2026-11-07 items 31, 39, 47).
+    pub(crate) fn guest_opening(&mut self, actor: FormId, topic: FormId) -> Vec<crate::dialogue::Choice> {
+        let data = self.data;
+        let own = self.build_choices(actor, topic, &InfoDef::default());
+        let said = data.lines_tried(topic).iter().copied().find(|&i| self.can_say(actor, Some(FormId::PLAYER_REF), i));
+        let Some(def) = said.and_then(|i| data.infos.get(&i)).filter(|d| !d.choices.is_empty()) else { return own };
+        let mut out = self.build_choices(actor, topic, def);
+        for c in own {
+            if !out.iter().any(|o| o.info == c.info || o.topic == c.topic) {
+                out.push(c);
+            }
+        }
+        // Goodbye last.
+        let goodbye = data.goodbye;
+        out.sort_by_key(|c| Some(c.topic) == goodbye);
+        out
     }
 
     /// A guest's choices: only [`Game::guest_lines`], and Goodbye.

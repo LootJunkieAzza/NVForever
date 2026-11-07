@@ -2336,3 +2336,20 @@ fn a_later_plugin_moves_and_deletes_references_into_one_cell_each() {
     // Untouched references stay where the master put them.
     assert_eq!(cells_of(SAFE_REF), vec![(id(CELL_A), 1)]);
 }
+
+/// `World::place_as`: a co-op guest's copy of a reference the host's game created, under
+/// the host's number; a number taken, or not a dynamic one, is refused, and the guest's
+/// own references are numbered from where it moved its counter.
+#[test]
+fn a_reference_placed_under_a_chosen_number_keeps_it() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let host = FormId(0xFF00_0643);
+    assert_eq!(w.place_as(host, id(GUARD), None, [1.0, 2.0, 3.0], [0.0; 3]), Ok(host));
+    assert_eq!(w.peek(host).map(|s| (s.base, s.pos)), Some((id(GUARD), [1.0, 2.0, 3.0])));
+    assert!(w.inventory_mut(host).unwrap().is_equipped(id(LONG_GUN)), "outfitted as a created actor is");
+    assert_eq!(w.place_as(host, id(GUARD), None, [0.0; 3], [0.0; 3]), Err(SimError::Taken(host)));
+    assert_eq!(w.place_as(id(GUARD), id(GUARD), None, [0.0; 3], [0.0; 3]), Err(SimError::Taken(id(GUARD))));
+    w.number_created_from(0xFF80_0000);
+    assert_eq!(w.place(id(GUARD), None, [0.0; 3], [0.0; 3], 1), Ok(FormId(0xFF80_0000)));
+}

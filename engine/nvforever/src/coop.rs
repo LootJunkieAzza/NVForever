@@ -63,8 +63,11 @@
 //! **The host's world on a guest.** An NPC the host draws where the guest is, the guest
 //! draws there too: one the host's story enabled (the Powder Gangers coming to
 //! Goodsprings) is enabled in the guest's world, and one it moved (Trudy to her saloon)
-//! is moved there ([`follow_npcs`]). An actor the host's scripts made has no reference
-//! the guest's world knows, and is not drawn there. The host's world wins whatever the
+//! is moved there ([`follow_npcs`]). An actor the host's scripts made (a dynamic
+//! reference) is made in the guest's world under the host's number, of the host's base,
+//! and every NPC's leveled picks are read at the host's level and rolls, so each looks
+//! the same on every screen ([`follow_looks`]); the guest's own created references are
+//! numbered above the host's ([`GUEST_CREATED`]). The host's world wins whatever the
 //! guest's save did: an NPC dead in the guest's game but alive in the host's stands up
 //! again ([`place_like_host`]), and an actor the guest's game draws near the host that the
 //! host's world does not have (dead or disabled there, not there yet) is disabled for as
@@ -251,6 +254,9 @@ const SWEEP_EVERY: f32 = 1.0;
 /// Well inside the cells the host draws around it.
 const HIDE_REACH: f32 = 3000.0;
 const HIDE_AFTER: f32 = 3.0;
+/// A guest's own references created at run time are numbered from here, above the
+/// host's, which it makes under the host's numbers ([`follow_looks`]).
+const GUEST_CREATED: u32 = 0xFF80_0000;
 
 impl Plugin for CoopPlugin {
     fn build(&self, app: &mut App) {
@@ -295,6 +301,8 @@ impl Plugin for CoopPlugin {
             doors_heard: HostPresence::default(),
             doors_was: HashMap::new(),
             doors_made: None,
+            looks_taken: HashMap::new(),
+            numbered: false,
             host_lines: None,
             handed_off: false,
             progress_in: Vec::new(),
@@ -306,7 +314,7 @@ impl Plugin for CoopPlugin {
         }
         app.add_plugins((nvf_play::lobby::LobbyPlugin, nvf_play::coop_progress::CoopProgressPlugin))
             .insert_resource(coop)
-            .add_systems(Update, (lobby, send, take_events, share_doors, tables, social_mates, share_npcs, follow_npcs, leash, downed, progress, duel_falls).chain().after(nvf_play::PlaySet::Physics))
+            .add_systems(Update, (lobby, send, take_events, share_doors, tables, social_mates, share_npcs, follow_looks, follow_npcs, leash, downed, progress, duel_falls).chain().after(nvf_play::PlaySet::Physics))
             .add_message::<PuppetShot>()
             .add_systems(Update, (stand_ins, draw, peer_lights, pipboy_share).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
     }
@@ -452,6 +460,11 @@ struct Coop {
     doors_heard: HostPresence,
     doors_was: HashMap<FormId, bool>,
     doors_made: Option<f32>,
+    /// A guest's: the host's level, all-levels flag and rolls taken for each NPC
+    /// ([`follow_looks`]), and whether its own created references are numbered from
+    /// [`GUEST_CREATED`] yet.
+    looks_taken: HashMap<u32, (u16, bool, u8)>,
+    numbered: bool,
     /// A guest's: the lines the host's NPCs are saying, and when they came.
     host_lines: Option<(f32, Vec<net::LineView>)>,
     /// A host that let go of its port for a load's new run ([`lobby`]).
@@ -1010,6 +1023,8 @@ struct Doing<'w> {
     flashlight: Option<Res<'w, nvf_play::flashlight::Flashlight>>,
     /// The Pip-Boy up in full or for a glance (`crate::pipboy_check`).
     pipboy: (Option<Res<'w, nvf_play::pipboy::PipBoy>>, Option<Res<'w, nvf_play::pipboy::glance::Glance>>),
+    /// The furniture holding the player (`nvf_play::furniture`).
+    seat: Option<Res<'w, nvf_play::furniture::PlayerSeat>>,
 }
 
 /// The others' Pip-Boys for this game: each puppet's check (`crate::pipboy_check`), where
@@ -1088,6 +1103,7 @@ fn send(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location>>
         *slot = w.0;
         s.worn_len += 1;
     }
+    s.furniture = doing.seat.as_deref().and_then(|seat| seat.on).unwrap_or(0);
     if let Some(a) = doing.anim.as_deref() {
         s.attacks = a.attacks as u16;
         s.reloads = a.reloads as u16;
@@ -1543,7 +1559,7 @@ fn draw(
     mut holds: Query<&mut WeaponHold>,
     dressed: Query<(Option<&PuppetEquipment>, Has<Puppet>)>,
     (mut fighters, mut attacks, main_menu, mut shots): (ResMut<Fighters>, MessageWriter<PlayAttack>, Option<Res<nvf_play::main_menu::MainMenu>>, MessageWriter<PuppetShot>),
-    (sfx, listener, mut sounds, lying): (Option<Res<Sfx>>, Option<Res<Player>>, MessageWriter<PlaySound>, Query<(), Or<(With<Dying>, With<crate::ragdoll::Corpse>)>>),
+    (sfx, listener, mut sounds, lying, seats): (Option<Res<Sfx>>, Option<Res<Player>>, MessageWriter<PlaySound>, Query<(), Or<(With<Dying>, With<crate::ragdoll::Corpse>)>>, Query<(Has<crate::furniture::SitOn>, Has<crate::furniture::OnFurniture>, Has<crate::furniture::GetUp>)>),
 ) {
     let (Ok(world_root), Some(loc)) = (root.single(), loc) else { return };
     if at_main_menu(main_menu.as_deref()) {
@@ -1627,6 +1643,23 @@ fn draw(
             fighters.set_puppet(reference, None);
             continue;
         };
+        // The furniture holding the player: its puppet gets on, sits or lies there, and
+        // gets off, as an NPC does (`crate::furniture`; queue 2026-11-07 item 58: players
+        // were seen standing on beds, chairs and couches). Meanwhile the furniture, not
+        // the network, places the body (`actors` leaves it out).
+        if let Ok((sitting, on, leaving)) = seats.get(e) {
+            match newest.furniture {
+                0 if on && !leaving => {
+                    commands.entity(e).insert(crate::furniture::GetUp);
+                    info!("co-op: {} gets off its furniture", label(id, &p.name));
+                }
+                f if f != 0 && !sitting && !on => {
+                    commands.entity(e).insert(crate::furniture::SitOn { furniture: f, stay: None, at_once: false });
+                    info!("co-op: {} uses furniture {f:#010X}", label(id, &p.name));
+                }
+                _ => {}
+            }
+        }
         if let Some(weapon) = act(&mut commands, e, reference, p, newest, now, actor_world.as_deref(), &mut actors, &mut holds, &dressed, &mut fighters, &mut attacks) {
             shots.write(PuppetShot { shooter: FormId(reference), weapon });
             if let Some(s) = shot_sound(sfx.as_deref(), listener.as_deref(), weapon, feet) {
@@ -1751,6 +1784,7 @@ fn share_npcs(
     fighters: Res<Fighters>,
     mut attacks: MessageReader<PlayAttack>,
     mut told: Local<usize>,
+    (sim, actor_world): (Option<Res<nvf_play::sim::SimState>>, Option<Res<ActorWorld>>),
 ) {
     let coop = &mut *coop;
     let Some(link) = coop.link.as_ref().filter(|l| l.is_host()) else {
@@ -1768,6 +1802,9 @@ fn share_npcs(
     // it is first posed, `act`): a guest's own stand-in, sent as an NPC, stood frozen where
     // it was first drawn.
     let players: HashSet<u32> = coop.peers.values().filter_map(|p| p.actor).map(|r| r.0).collect();
+    // What decides each one's look: its base, and the level and rolls its leveled picks
+    // were drawn with ([`follow_looks`]).
+    let rolls = actor_world.as_deref().and_then(|w| w.rolls.lock().ok().map(|r| r.clone())).unwrap_or_default();
     let mut npcs = Vec::new();
     for (v, t, lo, hold, dying, seen, on) in &actors {
         // The dead too, out of sight or not: a guest lays its own body down.
@@ -1784,6 +1821,7 @@ fn share_npcs(
         flags |= if pitch.is_some() { npc_flag::AIMING } else { 0 };
         flags |= if fighters.sights(r) { npc_flag::SIGHTS } else { 0 };
         flags |= if on.is_some_and(|f| f.seated()) { npc_flag::SEATED } else { 0 };
+        let level = actor_world.as_deref().map_or(fnv_sim::zones::LevelAt::plain(0), |w| w.level(r));
         npcs.push(NpcState {
             reference: r,
             feet: t.translation.to_array(),
@@ -1793,6 +1831,10 @@ fn share_npcs(
             weapon: fighters.weapon(r).map_or(0, |w| w.0),
             attacks: coop.npc_attacks.get(&r).copied().unwrap_or(0),
             furniture: on.map_or(0, |f| f.furniture()),
+            base: sim.as_deref().and_then(|s| s.base_of(r)).map_or(0, |b| b.0),
+            level: level.level,
+            all_levels: level.all_levels,
+            rolls: rolls.get(&r).copied().unwrap_or(0).min(127) as u8,
         });
     }
     if npcs.len().abs_diff(*told) >= 5 || (*told == 0) != npcs.is_empty() {
@@ -1800,6 +1842,95 @@ fn share_npcs(
         info!("co-op: sending the guests {} NPCs", npcs.len());
     }
     link.set_npcs(npcs);
+}
+
+/// A guest's copies of the host's NPCs, made and drawn as the host's game made and draws
+/// them (module notes): an actor the host's game created (a dynamic reference: Freeside's
+/// thugs, PlaceAtMe'd by a script) is made here under the host's number, of the host's
+/// base; and each NPC's leveled picks are read at the host's level with the host's rolls
+/// (the picks are seeded by the reference, so the same number, level and rolls pick the
+/// same: `fnv_actor::resolve`), and drawn again when that changes what is drawn. Before,
+/// a guest rolled its own picks at its own player's level (queue 2026-11-07 item 28,
+/// NPCs that looked different) and never drew the host's created actors (item 38).
+#[allow(clippy::type_complexity)]
+fn follow_looks(
+    mut commands: Commands,
+    mut coop: ResMut<Coop>,
+    (mut script, mut sim, actor_world, mut residents): (Option<ResMut<nvf_play::script::ScriptState>>, Option<ResMut<nvf_play::sim::SimState>>, Option<Res<ActorWorld>>, Option<ResMut<Residents>>),
+    main_menu: Option<Res<nvf_play::main_menu::MainMenu>>,
+    solo: Option<Res<nvf_play::save::SoloBase>>,
+) {
+    let coop = &mut *coop;
+    let guest = coop.link.as_ref().is_some_and(|l| !l.is_host() && l.id().is_some()) && !at_main_menu(main_menu.as_deref()) && solo.is_some();
+    if !guest {
+        coop.looks_taken.clear();
+        coop.numbered = false;
+        return;
+    }
+    let (Some(script), Some(sim), Some(aw)) = (script.as_deref_mut(), sim.as_deref_mut(), actor_world.as_deref()) else { return };
+    let Some(rt) = script.rt.as_mut() else { return };
+    if !coop.numbered {
+        sim.world.number_created_from(GUEST_CREATED);
+        coop.numbered = true;
+        info!("co-op: this game's own created references are numbered from {GUEST_CREATED:#010X}, the host's keep theirs");
+    }
+    let newest: Vec<NpcState> = coop.npcs.values().filter_map(|t| t.samples.back().map(|&(_, s)| s)).collect();
+    let cell = sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.cell);
+    for s in newest {
+        let r = FormId(s.reference);
+        let key = (s.level, s.all_levels, s.rolls);
+        if s.base == 0 || coop.looks_taken.get(&r.0) == Some(&key) {
+            continue;
+        }
+        coop.looks_taken.insert(r.0, key);
+        let name = rt.game.data.name(FormId(s.base));
+        if r.is_dynamic() {
+            match sim.world.peek(r).map(|st| st.base) {
+                None => {
+                    let made = nvf_play::script::with_world(rt, sim, |rt| rt.game.create_as(r, FormId(s.base), cell, s.feet, [0.0, 0.0, s.heading], None));
+                    match made {
+                        Ok(_) => info!("co-op: {name} {r} made here as the host's game made it"),
+                        Err(e) => warn!("co-op: the host's {name} {r} cannot be made here: {e}"),
+                    }
+                }
+                Some(b) if b.0 != s.base => {
+                    warn!("co-op: the host's {r} is {name}, this game's own {r} is {}: it is not drawn here", rt.game.data.name(b));
+                    continue;
+                }
+                Some(_) => {}
+            }
+        }
+        let Some(base) = sim.base_of(r.0) else { continue };
+        let drawn = |aw: &ActorWorld| aw.resolve(base.0, r.0).ok().map(|a| (a.npc, a.female, a.race, a.worn));
+        let before = drawn(aw);
+        let mut changed = false;
+        let level = fnv_sim::zones::LevelAt { level: s.level, all_levels: s.all_levels };
+        if s.level != 0 && aw.level(r.0) != level {
+            // A placed actor's level is the world's (`zones::sync_levels` copies it); a
+            // created one is drawn at the display level in both games.
+            if !r.is_dynamic() {
+                sim.world.set_level(r, level);
+            }
+            if let Ok(mut l) = aw.levels.lock() {
+                l.insert(r.0, level);
+            }
+            changed = true;
+        }
+        let rolls = u32::from(s.rolls);
+        if aw.rolls.lock().map_or(0, |m| m.get(&r.0).copied().unwrap_or(0)) != rolls {
+            if let Ok(mut m) = aw.rolls.lock() {
+                m.insert(r.0, rolls);
+            }
+            rt.game.extra.entry(r).or_default().rolls = rolls;
+            changed = true;
+        }
+        let after = drawn(aw);
+        if changed && after != before {
+            let again = residents.as_deref_mut().is_some_and(|res| res.redraw(&mut commands, r.0));
+            let what = after.as_ref().map_or_else(|| "nothing".to_string(), |a| rt.game.data.name(a.0));
+            info!("co-op: {name} {r} takes the host's leveled pick ({what}, level {}, rolls {rolls}){}", s.level, if again { ": drawn again" } else { "" });
+        }
+    }
 }
 
 /// A guest's game following the host's world (module notes): its actors' AI off, its

@@ -83,22 +83,31 @@ fn topic(id: u32, edid: &str, ty: u8, flags: u8, lines: Vec<u8>) -> Vec<u8> {
 }
 
 fn plugin_bytes() -> Vec<u8> {
+    plugin_bytes_as(false)
+}
+
+/// `vendor`: the greeting offers the exchange (`T_BUY`) as its choice, and no exchange
+/// topic is top-level, as Genaro's barter is reached only from his greeting [observed:
+/// FalloutNV.esm INFO 0012936A].
+fn plugin_bytes_as(vendor: bool) -> Vec<u8> {
     let misc = record(b"MISC", 0, CASH, &[sub(b"EDID", z("TestCash")), sub(b"DATA", [1i32.to_le_bytes(), 0f32.to_le_bytes()].concat())]);
     let chip = record(b"CHIP", 0, CHIP, &[sub(b"EDID", z("TestChip"))]);
     let quest = record(b"QUST", 0, QC, &[sub(b"EDID", z("QCashier")), sub(b"DATA", [vec![1u8, 50, 0, 0], 0f32.to_le_bytes().to_vec()].concat())]);
     // The player's base form (0x7), whose reference carries the player's inventory.
     let npc = [record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))]), record(b"NPC_", 0, CASHIER, &[sub(b"EDID", z("Cashier"))])].concat();
     let top_level = 2u8;
+    let exchange_level = if vendor { 0 } else { top_level };
+    let hello_choices: &[u32] = if vendor { &[T_BUY] } else { &[] };
     let dial = [
         // A greeting without choices: the conversation lists the top-level topics, as at
         // most casinos' cashiers [observed: FalloutNV.esm vDialogueCasinoCashier].
-        topic(GREETING, "GREETING", topic_type::TOPIC, 0, info(I_HELLO, 0, "Welcome", &[], &[])),
+        topic(GREETING, "GREETING", topic_type::TOPIC, 0, info(I_HELLO, 0, "Welcome", hello_choices, &[])),
         topic(GOODBYE, "GOODBYE", topic_type::CONVERSATION, 0, info(I_BYE, info_flag::GOODBYE, "Enjoy your stay", &[], &[])),
         // Chips for cash, and cash for chips: the exchange.
         topic(T_BUY, "TestBuy", topic_type::TOPIC, 0, info(I_BUY, 0, "Here are your chips", &[], &[(REMOVE_ITEM, CASH, 10), (ADD_ITEM, CHIP, 10)])),
-        topic(T_CASH_IN, "TestCashIn", topic_type::TOPIC, top_level, info(I_CASH_IN, 0, "Here is your money", &[], &[(REMOVE_ITEM, CHIP, 4), (ADD_ITEM, CASH, 4)])),
+        topic(T_CASH_IN, "TestCashIn", topic_type::TOPIC, exchange_level, info(I_CASH_IN, 0, "Here is your money", &[], &[(REMOVE_ITEM, CHIP, 4), (ADD_ITEM, CASH, 4)])),
         // A line that leads to the exchange: the guest gets it too.
-        topic(T_MENU, "TestMenu", topic_type::TOPIC, top_level, info(I_MENU, 0, "How many chips?", &[T_BUY], &[])),
+        topic(T_MENU, "TestMenu", topic_type::TOPIC, exchange_level, info(I_MENU, 0, "How many chips?", &[T_BUY], &[])),
         // A quest line, and a line that only hands chips out (a comp, not an exchange).
         topic(T_STORY, "TestStory", topic_type::TOPIC, top_level, info(I_STORY, 0, "About the boss", &[], &[])),
         topic(T_FREE, "TestFree", topic_type::TOPIC, top_level, info(I_FREE, 0, "On the house", &[], &[(ADD_ITEM, CHIP, 50)])),
@@ -126,7 +135,11 @@ struct Fixture {
 }
 
 fn fixture() -> Fixture {
-    let plugins = vec![Plugin::parse(&plugin_bytes(), "Casino.esm".into()).unwrap()];
+    fixture_of(plugin_bytes())
+}
+
+fn fixture_of(bytes: Vec<u8>) -> Fixture {
+    let plugins = vec![Plugin::parse(&bytes, "Casino.esm".into()).unwrap()];
     let lo = LoadOrder::new(&plugins).unwrap();
     let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
     let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
@@ -237,4 +250,21 @@ fn a_guest_is_never_force_greeted() {
     let mut g = game(&f, true);
     assert!(g.force_greet(FormId(CASHIER_REF), None).is_err());
     assert!(g.dialogue.is_none());
+}
+
+/// A vendor whose trade is a choice of its greeting, and of no top-level topic: a guest
+/// is offered Talk and gets that choice, though it hears no greeting (queue 2026-11-07
+/// items 31, 39, 47: Genaro, the Tailor, travelling traders).
+#[test]
+fn a_guest_gets_the_trade_its_greeting_offers() {
+    let f = fixture_of(plugin_bytes_as(true));
+    let vendor = FormId(CASHIER_REF);
+    let mut g = game(&f, true);
+    assert!(g.guest_can_talk(vendor));
+    g.start_dialogue(vendor, None).unwrap();
+    listen(&mut g);
+    let got = offered(&g);
+    assert!(got.contains(&I_BUY), "{got:X?}");
+    assert!(!got.contains(&I_STORY) && !got.contains(&I_HELLO), "{got:X?}");
+    assert_eq!(got.last(), Some(&I_BYE), "{got:X?}");
 }

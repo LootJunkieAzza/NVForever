@@ -211,6 +211,9 @@ pub enum SimError {
     /// SetQuestObject: the player cannot drop or sell one].
     #[error("{0} is a quest item: the player cannot drop it")]
     QuestItem(FormId),
+    /// [`World::place_as`]: the FormID is not a dynamic one, or a reference has it.
+    #[error("{0} is taken, or not a dynamic FormID")]
+    Taken(FormId),
     /// Every unequipped unit of the weapon is at zero condition
     /// ([`World::equip`]) [design: the owner's rule, 2026-10-11].
     #[error("{0} is broken: it cannot be equipped until it is repaired")]
@@ -1770,11 +1773,35 @@ impl<'a> World<'a> {
         if self.forms.sig(base).is_none() {
             return Err(SimError::UnknownForm(base));
         }
+        let id = FormId(self.next_dynamic);
+        self.next_dynamic += 1;
+        self.put_new(id, base, cell, pos, rot, count)
+    }
+
+    /// [`World::place`] under a dynamic FormID the caller chooses, which no reference
+    /// has: a co-op guest's copy of a reference the host's game created, under the host's
+    /// number, so the two games name it alike (nvforever `coop.rs`). The dynamic counter
+    /// is left as it is.
+    pub fn place_as(&mut self, id: FormId, base: FormId, cell: Option<FormId>, pos: [f32; 3], rot: [f32; 3]) -> Result<FormId, SimError> {
+        if self.forms.sig(base).is_none() {
+            return Err(SimError::UnknownForm(base));
+        }
+        if !id.is_dynamic() || self.refs.contains_key(&id) || self.placed.get(id).is_some() {
+            return Err(SimError::Taken(id));
+        }
+        self.put_new(id, base, cell, pos, rot, 1)
+    }
+
+    /// Move the dynamic counter to at least `next`: references created from now on are
+    /// numbered from there (a co-op guest keeps its own above the host's, `place_as`).
+    pub fn number_created_from(&mut self, next: u32) {
+        self.next_dynamic = self.next_dynamic.max(next);
+    }
+
+    fn put_new(&mut self, id: FormId, base: FormId, cell: Option<FormId>, pos: [f32; 3], rot: [f32; 3], count: i32) -> Result<FormId, SimError> {
         let mut inventory = self.roll_inventory(base, self.cfg.player_level)?;
         // A created actor appears where the player is: it is outfitted at once.
         let outfitted = self.equip_default(base, &mut inventory);
-        let id = FormId(self.next_dynamic);
-        self.next_dynamic += 1;
         self.presence_serial += 1;
         self.refs.insert(
             id,
