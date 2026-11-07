@@ -100,7 +100,9 @@ python tools/smoke run --exe <engine target>/release/nvforever.exe --data <Data>
   would run; `check` judges the saved logs again after you edit a scenario; `--no-merge`
   runs scenarios one by one. Environment instead of arguments: `NVF_EXE`, `NVF_DATA`,
   `NVF_FNVTOOL`, `NVF_SMOKE_LOCKS` (other machines), `NVF_OBSERVER_SAMPLES` (the AI observer
-  captures).
+  captures). A game whose scenario sets no `NVFOREVER_HOME` runs in the machine's smoke home
+  (`<main checkout>\.claude\smoke-home`, its settings file removed before each launch),
+  never the player's own home, whose saved settings would win over the test aids.
 - **Stop only your own runner, by the PID you started.** Never stop processes by a
   command-line match or with `taskkill /T` on a shell you did not start: on 2026-10-24 one
   such match stopped every session's smoke runner on the machine.

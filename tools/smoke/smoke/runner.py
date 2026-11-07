@@ -413,6 +413,44 @@ def aid_free_environ(extra: dict[str, str]) -> dict[str, str]:
     return env
 
 
+HOME = "NVFOREVER_HOME"
+SMOKE_HOME = "smoke-home"
+SETTINGS = "NVForever.ini"
+
+
+def smoke_home(repo: Path) -> Path:
+    """The home a game launch uses when its scenario names none: one per machine, beside
+    the shared smoke lock (`<main checkout>/.claude/smoke-home`), so every worktree shares
+    its regenerable cache (LOD). Never the player's own home: an `NVFOREVER_HOME` set for
+    the player (the owner's user environment names `C:\\NVForever\\home`) used to reach
+    every smoke game, whose settings then won over the test aids (a saved `god-mode=0`
+    over `NVF_PLAY_TEST_GOD`, an Activate rebind over the tests' E) and whose autosave the
+    smoke games overwrote (2026-11-07)."""
+    return main_checkout(repo) / ".claude" / SMOKE_HOME
+
+
+def home_for(launch_env: dict[str, str], repo: Path) -> dict[str, str]:
+    """`launch_env` with the smoke home put in when the scenario sets no home of its own."""
+    if launch_env.get(HOME):
+        return launch_env
+    return {**launch_env, HOME: str(smoke_home(repo))}
+
+
+def fresh_settings(aids: dict[str, str], repo: Path) -> None:
+    """Just before a game starts in the smoke home: its settings file goes, so the game
+    starts from the defaults and not from what the last game (another runner's too)
+    saved at exit. A scenario's own home is left as it is (a save written by one launch
+    is read by the next)."""
+    home = smoke_home(repo)
+    if aids.get(HOME) != str(home):
+        return
+    home.mkdir(parents=True, exist_ok=True)
+    try:
+        (home / SETTINGS).unlink(missing_ok=True)
+    except OSError:
+        pass  # a game reading it at this moment: it reads the defaults it wrote
+
+
 def game_env(launch: Launch) -> dict[str, str]:
     """The test aids a game launch runs with: its own, and FROM_SCRIPTS on for `--play`."""
     env = dict(launch.env)
@@ -454,12 +492,13 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
     if launch.kind == GAME:
         cmd = [str(env.exe), "--data", str(env.data), *launch.args, "--run-seconds", fmt(launch.run_seconds)]
         # `{repo}` in a value: the repository (a fixture's path).
-        aids = {k: v.replace("{repo}", str(env.repo)) for k, v in game_env(launch).items()}
+        aids = {k: v.replace("{repo}", str(env.repo)) for k, v in home_for(game_env(launch), env.repo).items()}
         (env.out / f"{launch.name}.cmd.txt").write_text(
             "".join(f"{k}={v}\n" for k, v in sorted(aids.items())) + subprocess.list2cmdline(cmd) + "\n")
         (env.out / f"{launch.name}.stacks.txt").unlink(missing_ok=True)
         held = locks.acquire() if locks else None  # a smoke slot, or None for the old locks
         started = time.monotonic()  # the launch's own time, without waiting for the locks
+        fresh_settings(aids, env.repo)
         try:
             with open(log, "w", encoding="utf-8", errors="replace") as f:
                 p = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=env.out,

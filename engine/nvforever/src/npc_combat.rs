@@ -2359,7 +2359,7 @@ pub(crate) fn fight(
                                 None => {
                                     let lobbed = gr.gravity_mult * gravity;
                                     let aim = fnv_combat::vats::lob_dir(eyes, tfeet, gr.speed, lobbed).unwrap_or_else(|| fnv_combat::vats::lob_far(eyes, tfeet));
-                                    fire.write(ActorFire { shooter: me, weapon: gr.weapon, origin: eyes, aim, cone: GRENADE_CONE, muzzle: None, harmless: false });
+                                    fire.write(ActorFire { shooter: me, weapon: gr.weapon, origin: eyes, aim, cone: GRENADE_CONE, muzzle: None, harmless: false, always_hit: None });
                                     anims.write(PlayAttack { actor: id, weapon: Some(gr.weapon), melee: false, sights: false, kind: Move::Attack, power: None, swing: None });
                                     let _ = g.world.remove_item(me, gr.weapon, 1);
                                     let left = g.world.peek(me).and_then(|s| s.inventory.as_ref()).map_or(0, |i| i.count(gr.weapon));
@@ -2486,7 +2486,7 @@ pub(crate) fn fight(
                                 let (left_arm_crippled, right_arm_crippled, head_crippled) = (g.is_crippled(me, LEFT_ARM), g.is_crippled(me, RIGHT_ARM), g.is_crippled(me, HEAD));
                                 let st = Stance { aiming: fighter.sights, moving: false, running: false, sneaking: crouched, airborne: false, skill, strength, aiming_move_divisor: 1.0, strength_req_cut: 0.0, left_arm_crippled, right_arm_crippled, head_crippled };
                                 let cone = spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, ws, &st), 0.0, ws, &[]) + settling(fighter.firing_for);
-                                fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle, harmless: false });
+                                fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle, harmless: false, always_hit: None });
                                 anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: fighter.sights, kind: Move::Attack, power: None, swing: None });
                                 f.stats.shots += 1;
                                 f.stats.shot_offs.push(off.to_degrees());

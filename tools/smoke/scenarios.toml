@@ -19267,3 +19267,54 @@ order = [[
   { text = "NVDLC02MQ01 stage 5 set", label = "hosting: Arrival at Zion starts" },
   { text = "player controls: all enabled", label = "hosting: the controls come back" },
 ]]
+
+[[scenario]]
+name = "zion-ambush"
+source = "follow-up to overnight queue item 26 (owner 2026-11-07, \"test the white legs ambush\"): after Jed's Pt2 lines the arrival box (HonestHearts.esm SCPT 01010006) walks the caravan to the ambush (iState 3-4) and enables the White Legs one by one, each kept a ghost until the caravan member it is for dies: A for guard CM, B for guard AF (NVDLC02MQ01 10), C for Ricky, F for Stella, H for Jed, then D and E at half health for the Courier (iState 5-9) [documented: fallout.wiki Arrival at Zion; the box script's iState blocks]"
+note = "as zion-arrival, with god mode and a longer run; the player stays at the start. Real keyboard or mouse input reaching the window moves the player into the canyon triggers, and the box then takes its player-interfered branch (SCPT 01010D5C/01011182): rerun without touching the window"
+areas = ["dialogue", "scripts", "ai", "combat"]
+paths = ["crates/fnv-ai/src/carry.rs", "engine/nvforever/src/use_weapon.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NEAR = "01009406", NVF_PLAY_TEST_CONSOLE = "3:setstage NVDLC02MQ00 100;3.5:close", NVF_PLAY_TEST_TALK = "0:*;0:*;0:*;0:*;0:*;0:*" }
+args = ["--play", "--world", "NVDLC02ZionCanyon", "--plugins", "FalloutNV.esm", "HonestHearts.esm", "--hour", "8", "--no-voice", "--npc-packages", "all"]
+run_seconds = 240
+order = [[
+  { text = "NVDLC02MQ01 stage 5 set", label = "Arrival at Zion starts" },
+  { re = '0x0100F1A7 died', label = "White Leg A kills guard CM" },
+  { text = "NVDLC02MQ01 stage 10 set", label = "the ambush stage (iState 6)" },
+  { re = '0x0100F1A6 died', label = "White Leg B kills guard AF" },
+  { text = "NVDLC02WhiteLegsTribalMQ01CREF enabled", label = "White Leg C comes (iState 7)" },
+  { re = 'OnDeath of .* ran on Some\(0x0100F1A5\)', label = "Ricky dies" },
+  { text = "NVDLC02WhiteLegsTribalMQ01FREF enabled", label = "White Leg F comes (iState 8)" },
+  { re = '0x0100F1A4 died', label = "Stella dies" },
+  { text = "NVDLC02WhiteLegsTribalMQ01HREF enabled", label = "White Leg H comes (iState 9)" },
+  { re = '0x01009E7C died', label = "Jed dies" },
+  { text = "NVDLC02WhiteLegsTribalMQ01DREF enabled", label = "D comes for the Courier" },
+  { text = "NVDLC02WhiteLegsTribalMQ01EREF enabled", label = "then E" },
+]]
+forbid = [{ re = 'player entered trigger 0x0101(1180|0145)', label = "the player stayed put (no real input reached the window)" }]
+
+[[scenario]]
+name = "zion-ambush-lobby"
+source = "follow-up to overnight queue item 26 (owner 2026-11-07, \"test the white legs ambush\"): after Jed's Pt2 lines the arrival box (HonestHearts.esm SCPT 01010006) walks the caravan to the ambush (iState 3-4) and enables the White Legs one by one, each kept a ghost until the caravan member it is for dies: A for guard CM, B for guard AF (NVDLC02MQ01 10), C for Ricky, F for Stella, H for Jed, then D and E at half health for the Courier (iState 5-9) [documented: fallout.wiki Arrival at Zion; the box script's iState blocks]"
+note = "as zion-arrival, with god mode and a longer run, hosting a lobby on port 27993 with no guest; the player stays at the start. Real keyboard or mouse input reaching the window moves the player into the canyon triggers, and the box then takes its player-interfered branch (SCPT 01010D5C/01011182): rerun without touching the window"
+areas = ["dialogue", "scripts", "ai", "combat", "coop"]
+paths = ["crates/fnv-ai/src/carry.rs", "engine/nvforever/src/use_weapon.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NEAR = "01009406", NVF_PLAY_TEST_CONSOLE = "3:setstage NVDLC02MQ00 100;3.5:close", NVF_PLAY_TEST_TALK = "0:*;0:*;0:*;0:*;0:*;0:*" }
+args = ["--play", "--world", "NVDLC02ZionCanyon", "--plugins", "FalloutNV.esm", "HonestHearts.esm", "--hour", "8", "--no-voice", "--npc-packages", "all", "--host", "27993"]
+run_seconds = 240
+expect = [{ re = 'co-op: hosting on UDP port 27993', label = "hosting: the lobby is open" }]
+order = [[
+  { text = "NVDLC02MQ01 stage 5 set", label = "hosting: Arrival at Zion starts" },
+  { re = '0x0100F1A7 died', label = "hosting: White Leg A kills guard CM" },
+  { text = "NVDLC02MQ01 stage 10 set", label = "hosting: the ambush stage (iState 6)" },
+  { re = '0x0100F1A6 died', label = "hosting: White Leg B kills guard AF" },
+  { text = "NVDLC02WhiteLegsTribalMQ01CREF enabled", label = "hosting: White Leg C comes (iState 7)" },
+  { re = 'OnDeath of .* ran on Some\(0x0100F1A5\)', label = "hosting: Ricky dies" },
+  { text = "NVDLC02WhiteLegsTribalMQ01FREF enabled", label = "hosting: White Leg F comes (iState 8)" },
+  { re = '0x0100F1A4 died', label = "hosting: Stella dies" },
+  { text = "NVDLC02WhiteLegsTribalMQ01HREF enabled", label = "hosting: White Leg H comes (iState 9)" },
+  { re = '0x01009E7C died', label = "hosting: Jed dies" },
+  { text = "NVDLC02WhiteLegsTribalMQ01DREF enabled", label = "hosting: D comes for the Courier" },
+  { text = "NVDLC02WhiteLegsTribalMQ01EREF enabled", label = "hosting: then E" },
+]]
+forbid = [{ re = 'player entered trigger 0x0101(1180|0145)', label = "hosting: the player stayed put (no real input reached the window)" }]
