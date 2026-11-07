@@ -681,11 +681,11 @@ and the box follow `_CurrentTab` in the file, and a tab's word on its own `strin
 | Wg, HP, DT, Caps (`items::hp_text`, `dt_text`) | `IM_Headline_Player{WG,HP,DT,Caps}Info/_Value` | The Wg value cuts whole units off where the hand-built page rounds [observed: the capture, one case]. The titles are the file's but where noted below. `IM_Headline_PlayerDRInfo` stays hidden, the same look as the original's `alpha` 0. |
 | Title, heading line | `IM_Headline_Title` hidden in the screen menu, `IM_Headline_h2` run on [design: the owner, 2026-10-31]; both as the file on the device | The title's words are the file's, never written. |
 | The rows (`MenuModel`'s player list) | `IM_InventoryListTemplate` rows under `IM_InventoryList`, by `item_menu`: `ListItemText/string` (`look::row_text`), `IM_Template_ItemMarker/visible` (equipped), `_y`, `height`, `_scroll_delta`, the bar's counts, `_highlight_y`, `_selected_height` | As the container's, one side. Folder rows and "Back" are rows like any other. `IM_EquipItemMarker`, the hollow square by the highlighted row, is the file's, from `_EquippableItem` [observed: the capture]. |
-| The selected row's picture, badge, skill | `IM_ItemIcon/filename,visible`; `IM_ItemIconBadge/filename,visible`; `IM_StrReq/string,visible` (the number only) | Hidden with the panel. |
-| The figures (`items::info_of`, no DPS on this page) | `item_card::write` under `IM_ItemInfoRect`, whose `visible` follows having a row [observed: the capture] | The same cards as the container's; `ModInfoOne` to `Three` unwritten (not in `Info`). |
-| The buttons | `visible`: Repair on Weapons and Apparel and for any row it can act on [observed: the capture for those two; hypothesis for the others], `target` while R does something, the file dimming it; Mod `Info::mod_hint`, always lit [the owner, `items`], where the original also dims it with no row; Cancel inside a Misc folder, sending `Back` there; Equip, Drop and Hotkey never [observed: `visible` 0 on a PC; the file has them for a controller, and the hand-built page shows none] | The words are the file's, but Repair's follows the condition by `fnv_game::repair::hint`, on the button's `string`, the file's coming back [observed: the capture, two words]. |
+| The selected row's picture, badge, skill | `IM_ItemIcon/filename,visible,x,width,height`; `IM_ItemIconBadge/filename,visible`; `IM_StrReq/string,visible` (the number only) | Hidden with the panel. Ammunition's picture stands at x 410, 350 square, against 450 and 380 [observed: the capture, on ammunition no carried weapon takes; hypothesis: on all]. |
+| The figures (`items::info_of`, no DPS on this page) | `item_card::write` under `IM_ItemInfoRect`, whose `visible` follows having a row [observed: the capture] | The same cards as the container's; `user6` 1 on weapons, 0 on armour; effects on the first free row, one row up on aid, at y 110 under two rows [observed]. `ModInfoOne` to `Three` unwritten (not in `Info`). |
+| The buttons | `visible`: Repair on every tab but inside a Misc folder, `target` while R does something (a spare and something to repair), the file dimming it; Mod on the Weapons tab, `target` with a row; Cancel inside a Misc folder, in Repair's place, sending `Back` there, E or a click; Equip, Drop and Hotkey never [observed: all of it, the capture; the file has those three for a controller, and the hand-built page shows none] | The words are the file's, but Repair's follows the condition, the longer word can be lit: "Upkeep" by `fnv_game::repair::hint`'s rule, on the button's `string`, the file's coming back. With no row it holds on Weapons and Apparel, and is the file's on the others [observed: the capture]. |
 | Root | `_EquippableItem` (a weapon, armour or aid row, not broken [observed: 0 at condition 0]), `_KeyringOpen` (a Misc folder open) | Armour and aid [hypothesis]. |
-| The hotkey panel (`HotkeyHold`, `Hotkeys`) | `IM_HotKeyWheel/visible`, `_SelectedHotkey` (the slot from 0), `_SelectedText` (`hotkey_panel::panel_line`); `HK_Item_n/_HotKeyIcon,_HotKeyNumber,_HotKeyAssigned`, n the slot, none for Ammo Swap's slot, which has `IM_AmmoSwap`; `IM_HotkeyIcon/filename,visible`; `IM_ButtonRect/visible` the panel's opposite | Shows while a key is held [design: the owner 2026-10-26]. It stands at the file's place, not the 420 the owner chose for the hand-built panel (`hotkey_panel::PANEL`) [design; say so in the PR]. |
+| The hotkey panel (`HotkeyHold`, `Hotkeys`) | Nothing of the file's: `hotkey_panel::draw_over_tiles` draws the owner's panel over the page while a key is held, and `IM_ButtonRect` and the picture, badge and skill give way. `IM_HotKeyWheel` stays hidden | [the owner 2026-10-26, and 2026-10-27 for its place]. **A difference**: the capture never saw the file's wheel open, so it is not built here. |
 | `IM_Background` | hidden in both frames | The shell's background and scanlines, as §5.1.1. |
 | The prompt | nothing in the image: `QuantityMenu` on the window (`menus::quantity_tiled`) | As the container's. |
 | The repair list, the mod menu | not eligible: the hand-built body draws them | Their own files are other work. |
@@ -696,12 +696,12 @@ and the box follow `_CurrentTab` in the file, and a tab's word on its own `strin
 |---|---|
 | The tabs: "Weapons", "Apparel", "Aid", "Misc", "Ammo" (`TAB_WORDS`) | NVForever's own words for the kind of item each tab holds; "Apparel" is the data's word for armour and clothes alike [observed: FalloutNV.esm MESG `HelpApparel`, repair.md §5; #1740]. FalloutNV.esm's string settings hold none of the five [observed]. `Page::tabs` is not read. |
 | Headline and card titles where the label leaves no room: "Wt" (`IM_Headline_PlayerWGInfo`), "Str" (`StrengthReqInfo`), `sStatsCNDAbbrev` (`ConditionInfo`) | NVForever's own short words, and the strings table's, only while the title is still a built-in label: a plugin's setting stands (`Ui::built_in_label`). |
-| Repair's word on an item that needs no repair: "Maintain" | `fnv_game::repair::hint`, the hand-built hint's word [observed: repair.md §5; the data's help text says "maintained"]. |
+| Repair's word on an item that needs no repair: "Upkeep" | NVForever's own: no setting holds one, and the data's help text has only "maintained". The hand-built hint keeps its "Maintain" (`fnv_game::repair::hint`) [observed, repair.md §5]. |
 | Row names | Record data (`look::row_text`, the count in brackets). |
 | Cards' values, the headline's values, `IM_StrReq` | Figures from the model and record data; "--" for what is unread, as the hand-built page. |
 | `AmmoInfo`'s title | Record data, or armour's class by the model's word (`item_card`, `info_of`), as the container's. |
-| `_SelectedText` | An item's name, or the panel's own words "Empty", "Ammo Swap", "Key 2 is Ammo Swap", "Can't hotkey ..." (`hotkey_panel`). |
-| `_PCButtonText` | Repair `sPCMenuHintR`, Mod `sPCMenuHintX` (the strings table or the load order's), with a controller the button's name; Cancel the key's name in brackets (`pad::hint_bracketed`: Backspace, or the controller's). |
+| The panel's line | An item's name, or the panel's own words "Empty", "Ammo Swap", "Key 2 is Ammo Swap", "Can't hotkey ..." (`hotkey_panel`), drawn by that module. |
+| `_PCButtonText` | Repair `sPCMenuHintR`, Mod `sPCMenuHintX`, Cancel `sPCMenuHintE` (the strings table or the load order's), with a controller the button's name. Equip, Drop and Hotkey: none, as the original's. |
 
 **Input** (`inventory_menu::feed`): the pointer is `PipBoyScreen::pointer`, read and never written;
 nothing else here touches the hand-built pointer [design]. It takes nothing under the prompt, with
@@ -713,6 +713,7 @@ page's:
 | The pointer moves onto a row, the wheel not holding the selection | `Hover(Player, i)`, behind a guard |
 | A click on a row | `Select(Player, i)`, behind a guard: on the selected row the model acts, on another it only selects, as `items::on_row_click`. Not `item_menu::row_commands`, whose click acts at once on any row: the container's |
 | A click on a row with a hotkey's key held | `hotkey_panel::assign_row` [owner 2026-10-26] |
+| E inside a Misc folder | The file's Cancel: `Back`. Outside one E does nothing, as on the hand-built page |
 | A right click on a row, no key held | `Hover` then `Drop`, with Shift `DropStack` [owner 2026-11-02, #1393] |
 | A tab | `PipBoyInput::Tab(i)`; the pointer onto it, `TabHovered(i)` |
 | Cancel | `Back` inside a folder, else `Close` |
@@ -731,8 +732,7 @@ rows_in_clip= hit_tests= candidates= pieces=`.
 **Unit coverage given up** (#1512): the test fixture is written for the tests. It cannot prove how
 the file's expressions read what is written: the tab template's inside, `_CurrentTab`,
 `_LeftLineLength`, a tab's `_selected`, `_EquippableItem` and the marker that follows it,
-`_KeyringOpen`, a button's `target` and its dim look, the panel's traits, the headline's `_Value`s, or
-the file's own places. The smoke scenarios
+`_KeyringOpen`, a button's `target` and its dim look, the headline's `_Value`s, or the file's own places. The smoke scenarios
 `tiles-items*` check structure and hits on the real file; their logs cannot prove pixels, only their
 shots can.
 
@@ -740,12 +740,14 @@ shots can.
 device's screen about the same [observed: the first shots, cut there in both]. No tile clips them. The
 original's hints end near 934 [observed: the capture]; a longer one is cut at 955.
 
-**Not known; retake**: the other four tabs, with armour, aid, misc and ammo selected: their cards,
-`_EquippableItem`, Repair's and Mod's `visible`; `_PCButtonText` as read; `_x` itself and a tab's children;
-a scrolled row's `_highlight_y`; equip, drop and the prompt; R lit on a damaged item with a spare; the
-hot key wheel with something assigned; `_KeyringOpen` set; `_LeftLineLength` with other words. None of
-these stops a working slice with a complete fallback; they cannot be called verified when parity is
-declared.
+**Known differences behind the switch** [design]: the keyring and the Caravan cards are `Folder`s with a
+"Back" row at the top of Misc, the model's; the original's keyring row stands last, has no Back row, and
+Cancel takes you out, which is a change for the model, not this view. The hot key wheel is the owner's
+panel. Ammunition's dim rows are not built [observed: only pictures].
+
+**Not known**: the file's hot key wheel; a larger stack's drop prompt in the original; `_LeftLineLength`
+with other words. None of these stops a working slice with a complete fallback; they cannot be called
+verified when parity is declared.
 
 ### 5.3 DATA
 

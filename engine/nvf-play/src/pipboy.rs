@@ -464,6 +464,7 @@ impl Plugin for PipBoyPlugin {
                     frame::draw,
                     (device_screen::draw, device_screen::sweep).chain(),
                     (stats::draw, items::draw, data::draw),
+                    hotkey_panel::draw_over_tiles,
                     data::wave_moves,
                     stats::use_hints,
                     (data::travel::answer, data::travel::go, data::travel::depart),

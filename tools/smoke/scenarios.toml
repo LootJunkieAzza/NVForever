@@ -21705,7 +21705,7 @@ source = "[design] pipboy.md section 5.2.1, issues 1513 and 1468: with [UI] Tile
 note = "the points are canvas units on the page as run [rows 52 high from the list's top at 125; the last tab's middle as the original's, the words being the same]. A revolver and 000E3778, two weapons, and 24 rounds are given; the pointer goes onto row 2 at 30 s, a click on row 1 at 32 s (the pointer's coming selects it, the click on the selected row equips it), the Ammo tab at 34 s, back by the aid, a right click on row 2 at 38 s drops it. Shots: compare tiles_items_device with tiles_items_off_device at the same times."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/tiles/item_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/tiles/item_card.rs", "engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/hotkey_panel.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvforever/src/pipboy_arm.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "22.5:player.equipitem 00015038;22.8:close", NVF_PLAY_TEST_GIVE = "0008F216:1,000E3778:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=items,27:tab=0,30:point=260:202,32:click=260:150,34:click=797:650,36:tab=0,38:rclick=260:202,40:close", NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_SHOTS = "28:tiles_items_device.png,31:tiles_items_device_row.png,35:tiles_items_device_ammo.png" }
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "22.5:player.equipitem 00015038;22.8:close", NVF_PLAY_TEST_GIVE = "0008F216:1,000E3778:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=items,27:tab=0,30:point=250:203,32:click=250:151,34:click=797:650,36:tab=0,38:rclick=250:203,40:close", NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_SHOTS = "28:tiles_items_device.png,31:tiles_items_device_row.png,35:tiles_items_device_ammo.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 44
 expect = [
@@ -21735,7 +21735,7 @@ source = "[design] pipboy.md section 5.2.1, the owner 2026-10-31: the same page 
 note = "the points as tiles-items [hypothesis until the first run]; a click on the header's STATS at 33.5 s (172:35, on the shot of the hand-built header) goes there by the shell, the aid brings ITEMS back. Shots: compare tiles_items_screen with tiles_items_off_screen."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/tiles/item_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0008F216:1,000E3778:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "22:frame=screen,25:open,26:page=items,27:tab=0,30:point=260:202,32:click=260:150,33.5:click=172:35,34.5:page=items,35:click=797:650,37:tab=0,38.5:rclick=260:202,40:close", NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_SHOTS = "28:tiles_items_screen.png,31:tiles_items_screen_row.png,36:tiles_items_screen_ammo.png" }
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0008F216:1,000E3778:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "22:frame=screen,25:open,26:page=items,27:tab=0,30:point=250:203,32:click=250:151,33.5:click=172:35,34.5:page=items,35:click=797:650,37:tab=0,38.5:rclick=250:203,40:close", NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_SHOTS = "28:tiles_items_screen.png,31:tiles_items_screen_row.png,36:tiles_items_screen_ammo.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 44
 expect = [
@@ -21755,7 +21755,7 @@ source = "[design] pipboy.md section 5.2.1: without the switch the page is the h
 note = "the same steps and times as tiles-items, at the hand-built places. Shots to compare with it."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/hotkey_panel.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/menu.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "22.5:player.equipitem 00015038;22.8:close", NVF_PLAY_TEST_GIVE = "0008F216:1,000E3778:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=items,27:tab=0,30:point=260:202,32:click=260:150,34:click=797:650,36:tab=0,38:rclick=260:202,40:close", NVF_PLAY_TEST_SHOTS = "28:tiles_items_off_device.png,31:tiles_items_off_device_row.png,35:tiles_items_off_device_ammo.png" }
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "22.5:player.equipitem 00015038;22.8:close", NVF_PLAY_TEST_GIVE = "0008F216:1,000E3778:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=items,27:tab=0,30:point=250:203,32:click=250:151,34:click=797:650,36:tab=0,38:rclick=250:203,40:close", NVF_PLAY_TEST_SHOTS = "28:tiles_items_off_device.png,31:tiles_items_off_device_row.png,35:tiles_items_off_device_ammo.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 44
 expect = [
@@ -21772,7 +21772,7 @@ source = "[design] pipboy.md section 5.2.1: without the switch the screen menu's
 note = "the same steps and times as tiles-items-screen. Shots to compare with it."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0008F216:1,000E3778:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "22:frame=screen,25:open,26:page=items,27:tab=0,30:point=260:202,32:click=260:150,33.5:click=172:35,34.5:page=items,35:click=797:650,37:tab=0,38.5:rclick=260:202,40:close", NVF_PLAY_TEST_SHOTS = "28:tiles_items_off_screen.png,31:tiles_items_off_screen_row.png,36:tiles_items_off_screen_ammo.png" }
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0008F216:1,000E3778:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "22:frame=screen,25:open,26:page=items,27:tab=0,30:point=250:203,32:click=250:151,33.5:click=172:35,34.5:page=items,35:click=797:650,37:tab=0,38.5:rclick=250:203,40:close", NVF_PLAY_TEST_SHOTS = "28:tiles_items_off_screen.png,31:tiles_items_off_screen_row.png,36:tiles_items_off_screen_ammo.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 44
 expect = [
@@ -21806,7 +21806,7 @@ source = "[design] pipboy.md section 5.2.1, ui-tile-tree.md: with the ITEMS page
 note = "nine Stimpaks are given; the drop aid opens the Pip-Boy at 25 s, turns to the Aid tab and asks; a click on a row of the page at 27.5 s acts on nothing; the prompt's A answers."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/menu.rs", "engine/nvf-play/src/menu/**"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "00015169:9", NVF_PLAY_TEST_DROP = "25:00015169:ask", NVF_PLAY_TEST_PIPBOY = "27.5:click=260:150", NVF_PLAY_TEST_KEYS = "29:a", NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_SHOTS = "27:tiles_items_quantity.png" }
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "00015169:9", NVF_PLAY_TEST_DROP = "25:00015169:ask", NVF_PLAY_TEST_PIPBOY = "27.5:click=250:151", NVF_PLAY_TEST_KEYS = "29:a", NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_SHOTS = "27:tiles_items_quantity.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 33
 expect = [
@@ -21823,15 +21823,16 @@ order = [[{ re = 'tiles: InventoryMenu page from tiles' }, { re = 'how many\?' }
 [[scenario]]
 name = "tiles-items-hotkey"
 source = "[design] pipboy.md section 5.2.1, owner 2026-10-26: behind the switch a hotkey is still assigned by holding its key and left-clicking a row, the panel showing from the file's tiles; the same assignments and refusals as pipboy-hotkey-assign"
-note = "pipboy-hotkey-assign's steps 13 s later, the switch on. The screenshot shows the panel with key 3 held; what its boxes show is the shots', the panel's traits being [hypothesis until the capture]."
+note = "pipboy-hotkey-assign's steps 13 s later, the switch on. The screenshot shows the owner's panel over the tile page with key 3 held."
 areas = ["ui", "hotkeys", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/pipboy/hotkey_panel.rs", "engine/nvf-play/src/hotkeys.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0008F216:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=items,26.5:tab=0,27:point=260:150,28:hotkey=3,29:click=260:150,30.5:hotkey=4,31:click=260:150,32:hotkey=2,32.5:click=260:150,33:hotkey=off,34:tab=4,35:hotkey=5,35.5:click=260:150,36.5:hotkey=off,37:close", NVF_PLAY_TEST_HOTKEYS = "40:tap:4", NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_SHOTS = "30:tiles_items_hotkeys.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0008F216:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=items,26.5:tab=0,27:point=250:151,28:hotkey=3,29:click=250:151,30.5:hotkey=4,31:click=250:151,32:hotkey=2,32.5:click=250:151,33:hotkey=off,34:tab=4,35:hotkey=5,35.5:click=250:151,36.5:hotkey=off,37:close", NVF_PLAY_TEST_HOTKEYS = "40:tap:4", NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_SHOTS = "30:tiles_items_hotkeys.png" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--hour", "14", "--no-voice", "--no-messages", "--size", "1280x720"]
 run_seconds = 45
 expect = [
   "pipboy hotkeys: key 3 held",
   { text = "tiles: InventoryMenu hotkey panel shown, key 3", label = "the panel shows while key 3 is held" },
+  { re = 'pipboy hotkeys: panel drawn, key 3 chosen', min = 1, label = "behind the switch: the owner's own panel, over the page" },
   { re = 'hotkeys: slot 3 holds \.357 Magnum Revolver \(0x0008F216\)', label = "behind the switch: a click with 3 held puts the revolver in slot 3" },
   { re = 'hotkeys: slot 4 holds \.357 Magnum Revolver \(0x0008F216\) \(moved from slot 3\)', label = "behind the switch: with 4 held it moves to slot 4" },
   { re = 'hotkeys: slot 2 is Ammo Swap: \.357 Magnum Revolver not assigned', label = "behind the switch: key 2 takes no item" },
@@ -21866,7 +21867,7 @@ source = "[design] pipboy.md section 5.2.1: a file short of what the page needs 
 note = "NVF_PLAY_TEST_INVENTORY_TILE_CUT takes the row template as missing until 31 s, so no changed game file is needed; the hand-built places until then."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/tiles/item_menu.rs", "engine/nvf-play/src/pipboy/frame.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0008F216:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=items,27:tab=0,30:point=260:150,34:close", NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_INVENTORY_TILE_CUT = "IM_InventoryListTemplate@31", NVF_PLAY_TEST_SHOTS = "29:tiles_items_cut.png,33:tiles_items_recovered.png" }
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0008F216:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=items,27:tab=0,30:point=250:151,34:close", NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_INVENTORY_TILE_CUT = "IM_InventoryListTemplate@31", NVF_PLAY_TEST_SHOTS = "29:tiles_items_cut.png,33:tiles_items_recovered.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 37
 expect = [
