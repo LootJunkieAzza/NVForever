@@ -647,9 +647,9 @@ The ITEMS page drawn from `menus\main\inventory_menu.xml`, in the Pip-Boy's imag
 `[UI] TileMenus=InventoryMenu`, off by default (`tiles/inventory_menu.rs`; issues #1513, #1468).
 Off, nothing of it runs. The rules stay `menu::model`'s and `pipboy::items`'; the module writes
 values and says what a tile stands for [design]. Tile names and where they stand are
-[documented: the file, by `fnvtool ui tree`]; what the file does with a written value is
-[hypothesis] until the capture below, and a value the file does not read costs nothing but
-what the shots will show.
+[documented: the file, by `fnvtool ui tree`]. "The capture" below is the original at 1280x720 in the
+private jobs run07_inventory, run07_inventory_pipboy, run07_repair_menu, run07c_inventory and
+run07c_inventory_b [observed].
 
 **The one decision**: `InventoryTiles::ready`, as `StatsTiles::ready` (§5.1.1): the switch on,
 ITEMS showing, the repair list and the mod menu closed, the file's tiles there, the tabs made and
@@ -663,8 +663,9 @@ window, and of at least one when there are rows; an empty tab is a page. A list 
 have a window. Every tab's words must show whole. The rows asked of must take the pointer at their
 middles, by one walk of the menu however many rows there are. So must the tabs but the one showing,
 but one that does not is warned of and the page stays, the keys and the device's knob turning the
-tabs [design]. A reason is warned of on the third final pass in a row that fails, and a model not
-there yet with nothing written is no failure [design].
+tabs [design]. A reason is warned of on the third final pass in a row that fails, once by its kind
+whatever the place, and a model not there yet with nothing written is no failure. From then on the page
+is tried again when what it would show changes, not every frame [design].
 
 **The tabs' places**: a tab's `x` follows its `stb_text_box`'s, which follows `_x`, and `tabline.xml`
 says the tabs are added by code [documented: the prefabs]; unwritten, all five stood at one place,
@@ -694,14 +695,14 @@ and the box follow `_CurrentTab` in the file, and a tab's word on its own `strin
 
 | Written | Source |
 |---|---|
-| The tabs: "Weapons", "Apparel", "Aid", "Misc", "Ammo" (`TAB_WORDS`) | NVForever's own words for the kind of item each tab holds; "Apparel" is the data's word for armour and clothes alike [observed: FalloutNV.esm MESG `HelpApparel`, repair.md §5; #1740]. FalloutNV.esm's string settings hold none of the five [observed]. `Page::tabs` is not read. |
+| The tabs: "Weapons", "Apparel", "Aid", "Misc", "Ammo" (`TAB_WORDS`) | "Apparel" is the data's word [observed: FalloutNV.esm MESG `HelpApparel`, repair.md §5; #1740]. The other four cite no record: generic words for the kinds of item, chosen as NVForever's own. FalloutNV.esm's string settings hold none of the five [observed]. All five are the same as `Page::tabs`, tagged as read off the owner's screenshots; that list is not read, and the likeness is for the maintainer's eye. |
 | Headline and card titles where the label leaves no room: "Wt" (`IM_Headline_PlayerWGInfo`), "Str" (`StrengthReqInfo`), `sStatsCNDAbbrev` (`ConditionInfo`) | NVForever's own short words, and the strings table's, only while the title is still a built-in label: a plugin's setting stands (`Ui::built_in_label`). |
 | Repair's word on an item that needs no repair: "Upkeep" | NVForever's own: no setting holds one, and the data's help text has only "maintained". The hand-built hint keeps its "Maintain" (`fnv_game::repair::hint`) [observed, repair.md §5]. |
 | Row names | Record data (`look::row_text`, the count in brackets). |
 | Cards' values, the headline's values, `IM_StrReq` | Figures from the model and record data; "--" for what is unread, as the hand-built page. |
 | `AmmoInfo`'s title | Record data, or armour's class by the model's word (`item_card`, `info_of`), as the container's. |
 | The panel's line | An item's name, or the panel's own words "Empty", "Ammo Swap", "Key 2 is Ammo Swap", "Can't hotkey ..." (`hotkey_panel`), drawn by that module. |
-| `_PCButtonText` | Repair `sPCMenuHintR`, Mod `sPCMenuHintX`, Cancel `sPCMenuHintE` (the strings table or the load order's), with a controller the button's name. Equip, Drop and Hotkey: none, as the original's. |
+| `_PCButtonText` | Repair `sPCMenuHintR`, Mod `sPCMenuHintX`, Cancel `sPCMenuHintE` (the strings table or the load order's); with a controller the button's name, and none on Cancel: B closes the Pip-Boy, as on the hand-built page. Equip, Drop and Hotkey: none, as the original's. |
 
 **Input** (`inventory_menu::feed`): the pointer is `PipBoyScreen::pointer`, read and never written;
 nothing else here touches the hand-built pointer [design]. It takes nothing under the prompt, with
@@ -737,7 +738,7 @@ the file's expressions read what is written: the tab template's inside, `_Curren
 shots can.
 
 **The hints' room**: the screen menu's image shows the canvas to x 955 (`pipboy::SCREEN_CROP`) and the
-device's screen about the same [observed: the first shots, cut there in both]. No tile clips them. The
+device's screen about the same [observed: smoke `tiles-items`, 2026-11-07, cut there in both]. No tile clips them. The
 original's hints end near 934 [observed: the capture]; a longer one is cut at 955.
 
 **Known differences behind the switch** [design]: the keyring and the Caravan cards are `Folder`s with a

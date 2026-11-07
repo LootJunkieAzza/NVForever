@@ -19,14 +19,14 @@
 //!   asks of the rows whose words lie whole inside it, and of at least one.
 //! - **The tabs** are template rows here, unlike STATS' fixed tiles [documented: the file]. Their
 //!   words are [`TAB_WORDS`]. A tab's `x` follows its inner rect's, which follows `_x`, and the file
-//!   leaves `_x` to code [documented: the prefabs; observed: the capture of the original]: unwritten,
+//!   leaves `_x` to code [documented: the prefabs; observed: private job run07_inventory, 1280x720]: unwritten,
 //!   all five stood at one place, which is what the first run met. So [`place_tabs`] writes `_x` and
 //!   `_LeftLineLength` and nothing else; what shows as selected follows `_CurrentTab` in the file. A
 //!   tab that does not show is a fallback; one that does not take the pointer is warned of and the
 //!   page stays: the keys and the device's knob still turn the tabs.
 //! - **The buttons**: on a PC Repair shows on every tab and Mod on Weapons, row or not; Equip, Drop
 //!   and Hotkey are a controller's in the file, which NVForever's page does not show either; inside a
-//!   Misc folder Cancel stands in Repair's place [observed: the capture]. The original's keyring has
+//!   Misc folder Cancel stands in Repair's place [observed: private job run07c_inventory, 1280x720, private job run07c_inventory_b, 1280x720]. The original's keyring has
 //!   no "Back" row and stands last on Misc: NVForever's rows are the model's, a known difference.
 //!   Their commands stay reachable by a script's click.
 //! - **Words too wide for their card** give way where the title is still a built-in label: a
@@ -38,7 +38,7 @@
 //! - **The hotkey panel** shows while a hotkey's key is held [design: the owner 2026-10-26, `hotkey_panel`
 //!   module notes]: the owner's own panel at the owner's place (`hotkey_panel::draw_over_tiles`), over
 //!   the page, whose picture, badge, skill and buttons give way. The file's `IM_HotKeyWheel` stays
-//!   hidden: the capture never saw it open, so it is a known difference, and the Hotkey button with it.
+//!   hidden: no capture has seen it open, so it is a known difference, and the Hotkey button with it.
 //! - **The repair list and the mod menu** have their own files, not read here: while one is open
 //!   the page is not eligible and the hand-built body draws it, as it does today.
 //! - **The prompt** is `QuantityMenu`'s while the page is ready (`super::menus::quantity_tiled`),
@@ -135,24 +135,25 @@ const CONDITION_TITLE: &str = "sStatsCNDAbbrev";
 /// no setting holds one in the strings table, and the data's help text has only the verb's other
 /// form]. The hand-built hint keeps its own (`fnv_game::repair::hint`).
 const REPAIR_UPKEEP: &str = "Upkeep";
-/// The picture's place and side: `x`, side; on an ammunition row [observed: the capture, on ammunition
-/// no weapon carried takes; hypothesis: on all].
+/// The picture's place and side: `x`, side [documented: inventory_menu.xml]; on an ammunition row
+/// [observed: private job run07c_inventory, 1280x720, on ammunition no weapon carried takes; hypothesis: on all].
 const ICON_PLACE: (f64, f64) = (450.0, 380.0);
 const ICON_PLACE_AMMO: (f64, f64) = (410.0, 350.0);
-/// The effects' card under two rows of cards, where the card's own sum gives less [observed: the capture].
+/// The effects' card under two rows of cards, where the card's own sum gives less [observed: private job run07_inventory_pipboy, 1280x720].
 const EFFECTS_LOW: f64 = 110.0;
 
-/// The tabs' words: the kind of item each holds, in NVForever's own words [design: LEGAL.md; no
-/// setting of the load order holds them, observed over FalloutNV.esm's string settings, and the
-/// strings table has none, as no menu file names one]. "Apparel" is the data's own word for what
-/// the tab holds, armour and clothes alike, spelled as it spells it [observed: FalloutNV.esm MESG
-/// `HelpApparel`, repair.md §1 and §5; #1740]. `crate::pipboy::Page::tabs` holds what was read off
-/// the original's screen for the hand-built page and is not read here.
+/// The tabs' words [design: LEGAL.md]. No setting holds them: none of FalloutNV.esm's string settings
+/// [observed: read-only scan, capture notes], and the strings table has none, as no menu file names
+/// one. "Apparel" is the data's own word, spelled as it spells it [observed: FalloutNV.esm MESG
+/// `HelpApparel`, repair.md §1 and §5; #1740]. "Weapons", "Aid", "Misc" and "Ammo" cite no record: they
+/// are generic words for the kinds of item, chosen here as NVForever's own. All five are the same as
+/// `crate::pipboy::Page::tabs`, whose tag says they were read off the owner's screenshots; that list is
+/// not read here, and the likeness is for the maintainer to see in the pull request.
 pub const TAB_WORDS: [&str; 5] = ["Weapons", "Apparel", "Aid", "Misc", "Ammo"];
 
 /// NVForever's own short words for titles whose built-in label leaves a card's value no room: the
-/// value then runs into the next card, as it may not wrap with no space in it [observed: the first
-/// shots, "Weight" putting Wg's value at the title's end plus 15 and past HP's title]; the condition's
+/// value then runs into the next card, as it may not wrap with no space in it [observed: smoke `tiles-items`, 2026-11-07,
+/// "Weight" putting Wg's value at the title's end plus 15 and past HP's title]; the condition's
 /// is [`CONDITION_TITLE`]'s.
 const TIGHT_TITLES: [(&str, &str); 2] = [(HEADLINE[0], "Wt"), (main_rect!("IM_ItemInfoRect/StrengthReqInfo"), "Str")];
 const CONDITION_CARD: &str = main_rect!("IM_ItemInfoRect/ConditionInfo");
@@ -257,8 +258,8 @@ pub struct Shown {
     pub modify_lit: bool,
     /// The selected row is ammunition (the picture's place).
     pub ammo: bool,
-    /// The selected row can be worn, wielded or used, and is not broken [observed: the capture,
-    /// for weapons; hypothesis for the others]: the root's `_EquippableItem`, which the file's
+    /// The selected row can be worn, wielded or used, and is not broken [observed: private job run07_inventory_pipboy, 1280x720,
+    /// private job run07c_inventory, 1280x720]: the root's `_EquippableItem`, which the file's
     /// marker beside the highlighted row follows.
     pub equippable: bool,
     /// A Misc folder is open [hypothesis: the root's `_KeyringOpen`, which Cancel follows].
@@ -337,7 +338,7 @@ pub fn write_model(ui: &mut Ui, s: &Shown, view: &mut MenuTiles, file_repair_wor
     put(ui, INVENTORY_MENU, "_EquippableItem", on(s.equippable));
     put(ui, INVENTORY_MENU, "_KeyringOpen", on(s.keyring));
     // The panel hides the picture, the badge, the skill and the buttons; the figures stay
-    // [documented: `crate::pipboy::hotkey_panel`'s notes].
+    // [design: `crate::pipboy::hotkey_panel`'s notes].
     let panel = s.panel.is_some();
     let card = s.list.card.as_ref();
     let (icon_x, icon_side) = if s.ammo { ICON_PLACE_AMMO } else { ICON_PLACE };
@@ -353,7 +354,7 @@ pub fn write_model(ui: &mut Ui, s: &Shown, view: &mut MenuTiles, file_repair_wor
     put(ui, SKILL_REQ, "string", Value::Str(skill.map_or_else(String::new, |n| n.to_string())));
     put(ui, SKILL_REQ, "visible", on(!panel && skill.is_some()));
     item_card::write(ui, CARD, card);
-    // No row, no figures, the card rect included [observed: the capture].
+    // No row, no figures, the card rect included [observed: private job run07_inventory, 1280x720].
     put(ui, CARD, "visible", on(card.is_some()));
     if card.is_some_and(|c| c.condition.is_some() || c.beside.is_some()) {
         item_menu::set(ui, &format!("{CARD}/{}", item_card::EFFECTS), "y", Value::Num(EFFECTS_LOW));
@@ -408,7 +409,7 @@ fn write_buttons(ui: &mut Ui, s: &Shown, file_repair_word: &mut Option<String>) 
 /// The Repair button's word when it is not the file's: [`REPAIR_UPKEEP`] for an item that needs no
 /// repair, by the hand-built hint's rule (`hint`, `fnv_game::repair::hint`, "Repair" below it). With no
 /// row it stays what the last selection left on the two tabs of gear, and is the file's on the
-/// others [observed: the capture].
+/// others [observed: private job run07c_inventory, 1280x720].
 fn repair_word(hint: Option<&str>, tab: usize, last: Option<&'static str>) -> Option<&'static str> {
     match hint {
         Some("Repair") => None,
@@ -459,7 +460,7 @@ fn keep(ui: &mut Ui, t: TileId, name: &str, want: f64) {
 }
 
 /// The width of the tab line's lines, and each tab's `_x` in the line, by the tabs' own widths: a
-/// line, a tab, a line, a tab, the rest for the last line [observed: the capture, read for one set
+/// line, a tab, a line, a tab, the rest for the last line [observed: private job run07_inventory, 1280x720, read for one set
 /// of words; hypothesis: the floor].
 fn tab_xs(line_width: f64, widths: &[f64]) -> (f64, Vec<f64>) {
     let gap = ((line_width - widths.iter().sum::<f64>()) / (widths.len() + 1) as f64).floor().max(0.0);
@@ -610,6 +611,9 @@ pub(crate) struct Written {
     file_repair_word: Option<String>,
     /// Final passes in a row that failed: a state that lasts a frame or two is no fallback to warn of.
     failing: u32,
+    /// The tab and frame the last failure was for, and its reason.
+    tried: Option<(usize, bool)>,
+    reason: String,
     fallbacks: HashSet<String>,
 }
 
@@ -706,7 +710,7 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut Inve
         }
         w.counted = usable(ui, menu, &tiles.view, &w.tabs, tab, &pieces)?;
         if let Some(missed) = w.counted.tab_missed.clone() {
-            if w.fallbacks.insert(missed.clone()) {
+            if w.fallbacks.insert(told_once(&missed)) {
                 warn!("{INVENTORY_MENU}: {missed}");
             }
         }
@@ -780,14 +784,20 @@ pub fn takes(tiles: &InventoryTiles, switch: TileMenus, pip: &PipBoy, game: &fnv
 
 /// The page's keys in the hints: what works on the hand-built page, by the game's settings where
 /// they name the key [design: as `super::container_menu`'s Take All]. Cancel shows inside a Misc
-/// folder, where E goes back ([`feed`]).
+/// folder, where E goes back ([`feed`]). With a controller it has no hint: its B stands in for Esc,
+/// which closes the Pip-Boy on the hand-built page too (`pipboy::keys`), and the way out is the
+/// folder's "Back" row.
 fn hints_of(game: &fnv_game::Game<'_>) -> Hints {
     use fnv_game::ui_loading::game_string;
     let at = crate::pad::at_menu(fnv_game::game::menus::INVENTORY);
+    let cancel = match crate::pad::labels() {
+        crate::pad::Labels::Keys => game_string(game, "sPCMenuHintE"),
+        _ => String::new(),
+    };
     Hints {
         repair: crate::pad::game_hint(&game_string(game, "sPCMenuHintR"), &[KeyCode::KeyR], at),
         modify: crate::pad::game_hint(&game_string(game, "sPCMenuHintX"), &[KeyCode::KeyX], at),
-        cancel: crate::pad::game_hint(&game_string(game, "sPCMenuHintE"), &[KeyCode::KeyE, KeyCode::Escape], at),
+        cancel,
     }
 }
 
@@ -848,7 +858,14 @@ fn pass(p: &mut ItemsPage<'_, '_>, late: bool) -> Option<Result<TileId, String>>
     if model.is_none() && p.tiles.written.shown.is_none() {
         return None;
     }
-    let due = stale || p.active.as_ref().is_some_and(|a| a.is_changed()) || hold.is_some_and(|h| h.is_changed());
+    let changed = p.active.as_ref().is_some_and(|a| a.is_changed()) || hold.is_some_and(|h| h.is_changed());
+    // A page that has fallen back is tried again when what it would show changes, not every
+    // frame: a snapshot walks the inventory and asks combat for the armour.
+    let w = &p.tiles.written;
+    if w.failing >= FAILING_PASSES && !changed && w.tried == Some((tab, device)) {
+        return Some(Err(w.reason.clone()));
+    }
+    let due = stale || changed;
     // With the model gone (the Pip-Boy going down) the page stays as it was last written.
     let new = model.filter(|_| due).and_then(|m| {
         if p.forms.is_none() {
@@ -863,7 +880,7 @@ fn pass(p: &mut ItemsPage<'_, '_>, late: bool) -> Option<Result<TileId, String>>
         let hp = forms.as_mut().and_then(|f| crate::pipboy::stats::read::player_hp(f, sim, Some(&mut *script)));
         let dt = combat.map(|c| crate::combat::target_armor(c, Some(&mut *script), sim, FormId::PLAYER_REF).0);
         let caps = sim.world.item_count(FormId::PLAYER_REF, crate::menu::model::CAPS).unwrap_or(0);
-        // Whole units cut off, not rounded [observed: the capture, one case; as the container's].
+        // Whole units cut off, not rounded [observed: private job run07_repair_menu, 1280x720, one case; as the container's].
         let wg = m.encumbrance.as_ref().map_or_else(|_| "--".to_string(), |e| format!("{:.0}/{:.0}", e.weight.floor(), e.capacity));
         let figures = [wg, items::hp_text(hp), items::dt_text(dt), caps.to_string()];
         let offer = repair::current(active, sim, Some(&*script));
@@ -923,6 +940,7 @@ pub(crate) fn settle(mut p: ItemsPage) {
         p.tiles.cut = None;
         p.tiles.cut_until = None;
         p.tiles.written.checked.clear();
+        p.tiles.written.failing = 0;
     }
     let before = counts_before(&p);
     let ready = match pass(&mut p, true) {
@@ -933,11 +951,15 @@ pub(crate) fn settle(mut p: ItemsPage) {
         Some(Err(reason)) => {
             // The hand-built page has this frame in any case; the third frame in a row is no
             // layout still settling.
-            p.tiles.written.failing += 1;
+            let tried = p.pip.as_deref().map(|pip| (pip.tab(), pip.frame == Frame::Device));
+            let w = &mut p.tiles.written;
+            w.failing += 1;
+            w.tried = tried;
             let line = format!("{INVENTORY_MENU} drawn by hand: {reason}");
-            if p.tiles.written.failing >= FAILING_PASSES && p.tiles.written.fallbacks.insert(line.clone()) {
+            if w.failing >= FAILING_PASSES && w.fallbacks.insert(told_once(&line)) {
                 warn!("{line}");
             }
+            w.reason = reason;
             None
         }
         None => {
@@ -957,8 +979,15 @@ pub(crate) fn settle(mut p: ItemsPage) {
     }
 }
 
-/// Final passes in a row that fail before the reason is warned of.
+/// Final passes in a row that fail before the reason is warned of, and before the page waits for
+/// a change to try again.
 const FAILING_PASSES: u32 = 3;
+
+/// What a warning is told once by: its line without the place and the row, so a list scrolled through
+/// adds nothing to what is kept.
+fn told_once(line: &str) -> String {
+    line.split(" at (").next().unwrap_or(line).chars().filter(|c| !c.is_ascii_digit()).collect()
+}
 
 /// What [`feed`] keeps between frames.
 #[derive(Default)]
@@ -1153,8 +1182,10 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
             Some(ItemsTile::Tab(i)) => {
                 out.hovered.write(TabHovered(i));
             }
-            // The row the pointer comes onto takes the selection, unless the wheel holds it.
-            Some(ItemsTile::Row(index)) => {
+            // The row the pointer comes onto takes the selection, unless the wheel holds it. Not
+            // a row a file's own key binding moved the highlight onto: the hand-built keys moved
+            // the selection for that press, and this would mark it as the pointer's.
+            Some(ItemsTile::Row(index)) if !report.over_by_key => {
                 let already = m.selected[Side::Player as usize] == index;
                 let holds = wheel.as_ref().is_some_and(|h| h.held());
                 if !row_acted && item_menu::hover_selects(moved, holds, already) && tiles.view.row_at(m, Side::Player, index).is_some() {
@@ -1198,7 +1229,6 @@ mod tests {
         let card = |name: &str, inner: &str| format!(r#"<rect name="{name}"><_Title>{name}</_Title><_Value></_Value><visible>&false;</visible><text name="CI_TitleText"></text><text name="CI_ValueText"></text>{inner}</rect>"#);
         let cards: String = ["DAMInfo", "DamageThresholdInfo", "DPSInfo", "WeightInfo", "ValueInfo", "StrengthReqInfo", "AmmoInfo", "EffectsInfo"].iter().map(|c| card(c, "")).collect::<String>() + &card("ConditionInfo", r#"<rect name="ConditionMeter"><image name="MeterImage"></image></rect><image name="CNDArrows"></image>"#);
         let headline: String = ["WG", "HP", "DT", "DR", "Caps"].iter().map(|c| format!(r#"<rect name="IM_Headline_Player{c}Info"><_Value></_Value></rect>"#)).collect();
-        let slots: String = [0, 2, 3, 4, 5, 6, 7].iter().map(|n| format!(r#"<rect name="HK_Item_{n}"/>"#)).collect();
         let button = |name: &str, y: u32| format!(r#"<image name="{name}"><target>&true;</target><y>{y}</y><width>70</width><height>20</height><text name="button_text"><string>Go</string></text><text name="PCShortcutLabel"></text></image>"#);
         let buttons: String = [("IM_EquipButton", 0), ("IM_DropButton", 30), ("IM_RepairButton", 60), ("IM_ModButton", 90), ("IM_CancelButton", 120)].iter().map(|(n, y)| button(n, *y)).collect();
         let xml = format!(
@@ -1216,7 +1246,7 @@ mod tests {
                   <image name="scrollbar_vert_marker"/><image name="scrollbar_vert_up"/><image name="scrollbar_vert_down"/>
                 </image>
               </hotrect>
-              <rect name="IM_HotKeyWheel"><visible>&false;</visible>{slots}<image name="IM_HotkeyIcon"/></rect>
+              <rect name="IM_HotKeyWheel"><visible>&false;</visible></rect>
               <rect name="IM_ButtonRect"><x>500</x><y>300</y>{buttons}</rect>
               <image name="IM_ItemIcon"/><image name="IM_ItemIconBadge"/><text name="IM_StrReq"></text>
               <rect name="IM_ItemInfoRect"><user1>30</user1>{cards}</rect>
@@ -1494,22 +1524,30 @@ mod tests {
 
     #[test]
     fn a_tab_with_an_inner_rect_gives_it_no_place_twice() {
-        // Written for the test: the tab's place read from the inner rect's, that from `_x`.
         let mut ui = tree_changed(|x| {
             x.replace(r#"<rect name="IM_Tabline"><y>560</y></rect>"#, r#"<rect name="IM_Tabline"><y>560</y><width>800</width></rect>"#).replace(
-                r#"<x><copy src="me()" trait="_x"/></x>
-              <text name="button_text"><string><copy src="parent()" trait="string"/></string></text>"#,
-                r#"<x><copy src="child(stb_text_box)" trait="x"/></x>
-              <rect name="stb_text_box"><x><copy src="parent()" trait="_x"/></x><string><copy src="parent()" trait="string"/></string>
-              <text name="button_text"><string><copy src="parent()" trait="string"/></string></text></rect>"#,
+                r#"<text name="button_text"><string><copy src="parent()" trait="string"/></string></text>
+            </hotrect></template></menu>"#,
+                r#"<rect name="stb_text_box"><x>7</x><text name="button_text"><string>Word</string></text></rect>
+            </hotrect></template></menu>"#,
             )
         });
         let mut t = InventoryTiles::default();
         run(&mut ui, Some(shown(2, 0)), &mut t).unwrap();
         let tab = t.written.tabs[1].tile;
-        assert_eq!(num(&ui, tab, "x"), 200.0);
+        assert_eq!(num(&ui, tab, "_x"), 200.0, "the adapter's write");
         assert_eq!(num(&ui, tab, fnv_ui::input::NO_ORIGIN), 1.0);
-        assert_each_tab_takes_the_pointer(&ui, &t);
+        let words = find_named(&ui, tab, TAB_TEXT).unwrap();
+        let piece = t.pieces.iter().find(|p| p.tile == words).unwrap();
+        assert_eq!(piece.rect.left, 7.0, "from the line, not from the tab as well");
+    }
+
+    #[test]
+    fn a_warning_is_told_once_whatever_the_place_or_the_row() {
+        let line = |row: u32, y: u32| told_once(&format!("Row({row}) does not take the pointer at (51, {y}): nothing does"));
+        assert_eq!(line(1, 151), line(2, 203));
+        assert_ne!(told_once("Tab(1) does not take the pointer at (1, 2): x does"), line(1, 151));
+        assert_eq!(told_once("InventoryMenu drawn by hand: a thing missing"), "InventoryMenu drawn by hand: a thing missing");
     }
 
     #[test]
@@ -1633,7 +1671,7 @@ mod tests {
         let ui = tree_changed(|x| x.replace("name=\"TabButtonTemplate\"", "name=\"Modded\""));
         assert_eq!(built(&ui, None), Tiled::No("TabButtonTemplate missing".into()));
         // None of those the page can do without.
-        for piece in ["IM_HotkeyButton", "IM_Headline_PlayerDRInfo", "IM_HotKeyWheel", "HK_Item_5"] {
+        for piece in ["IM_HotkeyButton", "IM_Headline_PlayerDRInfo", "IM_HotKeyWheel"] {
             let ui = tree_changed(|x| x.replace(&format!("name=\"{piece}\""), "name=\"Modded\""));
             assert_eq!(built(&ui, None), Tiled::Yes, "{piece}");
         }
