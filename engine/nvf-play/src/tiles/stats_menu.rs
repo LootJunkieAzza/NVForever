@@ -1,8 +1,8 @@
-//! The Pip-Boy's S.P.E.C.I.A.L. tab (STATS, tab 1) drawn from `menus\main\stats_menu.xml`,
-//! behind `[UI] TileMenus=StatsMenu` [design: ui-tile-tree.md §6.2 step 3; the contract:
-//! docs/spec-notes/pipboy.md §5.1.1; issue #1513].
+//! The Pip-Boy's STATS list tabs ([`TILED_TABS`]) drawn from `menus\main\stats_menu.xml`,
+//! behind `[UI] TileMenus=StatsMenu` [design: ui-tile-tree.md §6.2 step 3; the contracts:
+//! docs/spec-notes/pipboy.md §5.1.1 and §5.1.2; issue #1513].
 //!
-//! - **The one decision** ([`StatsTiles::ready`]): the switch on, STATS' tab 1 showing, the
+//! - **The one decision** ([`StatsTiles::ready`]): the switch on, one of those tabs showing, the
 //!   menu files read, the file's tiles there ([`paths`]), the rows made and a usable measured
 //!   layout. Painting (`super::draw`), hand-built suppression (`crate::pipboy::frame::draw`) and
 //!   input read it and nothing else, and [`settle`] publishes it each frame before any of them.
@@ -13,8 +13,13 @@
 //!   the text sizes and row heights written here.
 //! - **Page content only**: the page paints into the Pip-Boy's image, whose background and
 //!   scanlines are the shell's, so the file's `background_layout` stays hidden in both frames.
-//! - **The other tabs** stay fully hand-built. The menu and its rows persist across tabs and
-//!   reopenings ([`Written`]); a new menu tile (a rebuilt tree) starts over.
+//! - **The other tabs** stay fully hand-built. The menu persists across tabs and reopenings, and
+//!   its rows while their list is the one shown ([`Written`]); going to another list unloads
+//!   them, as a new tree would, and a new menu tile (a rebuilt tree) starts over.
+//! - **A list longer than it shows** scrolls by the model's first row shown
+//!   (`StatsView::top`), the file moving the rows from the bar's value and `_scroll_delta`
+//!   (`super::list`). So every row of such a list must have one height; a wrapped name leaves
+//!   the page to the hand-built one [design: as `StatsView`, whose rows are whole rows].
 //! - **The order in a frame**: [`write`] after the tile input, before the scripts, so they read
 //!   this frame's model and the scroll outlasts a click's pulse; then `crate::pipboy::stats::prepare`
 //!   (keys, test aid, what is shown) and [`settle`], which writes what they changed, works the
@@ -27,9 +32,10 @@
 //!   list does, not one drawn under a pointer that has not moved; that is the tile under the
 //!   pointer itself, not the highlight, which a file's `xup` or `xdown` can move. Such a move
 //!   selects only for a key the hand-built keys did not also act on ([`keyed_row`]). A
-//!   click on a row selects it; a tab sends `PipBoyInput::Tab`; the description's arrows, page
-//!   areas and marker become `StatsView` commands. The value is the model's: written back after
-//!   input, and the wheel stays `crate::pipboy::stats::prepare`'s, so nothing acts twice. The
+//!   click on a row selects it; a tab sends `PipBoyInput::Tab`; the list's and the description's
+//!   arrows, page areas and markers become `StatsView` commands. The values are the model's:
+//!   written back after input, and the wheel stays `crate::pipboy::stats::prepare`'s, so nothing
+//!   acts twice. Rows that come under a pointer that has not moved do not take the selection. The
 //!   keys stay the hand-built ones ([`HAND_BUILT_KEYS`]): a file's binding for one does not act
 //!   for a physical press, a script's click does. The screen menu's header stays hand-built, and
 //!   no tile lies under it to take its click; nor do the file's hover sounds play here, so a
@@ -40,9 +46,10 @@
 use super::draw::{FontKit, Look, Piece};
 use super::input::{frame_keys, log_report, Devices};
 use super::layout;
+use super::list::{self, BarPiece, Counts};
 use super::menus::{self, SizesWritten};
 use super::vanilla::TileMenus;
-use crate::pipboy::stats::model::{Row, Snapshot};
+use crate::pipboy::stats::model::{Row, RowKey, Snapshot};
 use crate::pipboy::stats::{self, Prepared, StatsView};
 use crate::pipboy::sounds::TabHovered;
 use crate::pipboy::{Frame, Page, PipBoy, PipBoyAid, PipBoyInput, PipBoyScreen, CANVAS};
@@ -50,12 +57,13 @@ use crate::script::ScriptState;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use fnv_ui::{TileId, Ui, Value};
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 /// The menu's name [documented: stats_menu.xml].
 pub const STATS_MENU: &str = "StatsMenu";
-/// The tab drawn from tiles.
-pub const PAGE: usize = 1;
+/// The tabs drawn from tiles; a tab not here stays hand-built with the switch on.
+pub const TILED_TABS: [usize; 1] = [1];
 /// Test aid: a tile or template of the file to take as missing, so a smoke scenario sees the
 /// fallback of a cut-down file without a changed game file: `<name>`, or `<name>@<seconds>` to
 /// stop at that time, for the page's recovery.
@@ -64,7 +72,7 @@ pub const CUT_AID: &str = "NVF_PLAY_TEST_STATS_TILE_CUT";
 /// The tiles the model writes and the input reads, by name [observed: the vanilla files,
 /// docs/spec-notes/pipboy.md §5.1.1]. They are looked for by name under the menu, so a file
 /// that nests them otherwise still serves.
-const LIST: &str = "stats_special_container";
+const LISTS: [&str; 3] = ["stats_special_container", "stats_skills_container", "stats_perks_container"];
 const ROW_TEMPLATE: &str = "stats_list_template";
 const ROW_TEXT: &str = "ListItemText";
 const DISPLAY: &str = "stats_display_rect";
@@ -90,11 +98,20 @@ fn flag(on: bool) -> Value {
     Value::Num(f64::from(u8::from(on)))
 }
 
-/// The tiles found, by name.
+/// What a tab has of its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TabPaths {
+    /// S.P.E.C.I.A.L., Skills, Perks: a list beside the display.
+    List { list: TileId },
+}
+
+/// The tiles found, by name, for one tab.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Paths {
+    /// The tab these are for.
+    pub page: usize,
+    pub tab: TabPaths,
     pub menu: TileId,
-    pub list: TileId,
     pub icon: TileId,
     pub desc_rect: TileId,
     pub desc: TileId,
@@ -109,8 +126,26 @@ pub struct Paths {
 }
 
 impl Paths {
+    /// The list the tab shows.
+    pub fn list(&self) -> TileId {
+        let TabPaths::List { list } = self.tab;
+        list
+    }
+
+    /// Whether `t` is a list of this tab.
+    fn is_list(&self, t: TileId) -> bool {
+        let TabPaths::List { list } = self.tab;
+        t == list
+    }
+
+    /// The tab's own tiles.
+    fn tab_tiles(&self) -> Vec<TileId> {
+        let TabPaths::List { list } = self.tab;
+        vec![list]
+    }
+
     fn live(&self, ui: &Ui) -> bool {
-        [self.menu, self.list, self.icon, self.desc_rect, self.desc, self.bar, self.title, self.line].into_iter().chain(self.tabs).chain(self.background).chain(self.tab_inners.into_iter().flatten()).all(|t| ui.is_live(t))
+        [self.menu, self.icon, self.desc_rect, self.desc, self.bar, self.title, self.line].into_iter().chain(self.tab_tiles()).chain(self.tabs).chain(self.background).chain(self.tab_inners.into_iter().flatten()).all(|t| ui.is_live(t))
     }
 }
 
@@ -143,9 +178,10 @@ fn has_template(ui: &Ui, list: TileId) -> bool {
     false
 }
 
-/// Every tile the model writes or the input reads, and the row's template; the reason when
-/// one is missing (a missing or cut-down file keeps the hand-built page). `cut`: [`CUT_AID`].
-pub fn paths(ui: &Ui, cut: Option<&str>) -> Result<Paths, String> {
+/// Every tile the model writes or the input reads on tab `page`, and the row's template; the
+/// reason when one is missing (a missing or cut-down file keeps the hand-built page). `cut`:
+/// [`CUT_AID`].
+pub fn paths(ui: &Ui, page: usize, cut: Option<&str>) -> Result<Paths, String> {
     let menu = ui.menu(STATS_MENU).ok_or_else(|| format!("{STATS_MENU} is not in the tree"))?;
     let mut found: HashMap<String, TileId> = HashMap::new();
     let mut stack = vec![menu];
@@ -162,18 +198,21 @@ pub fn paths(ui: &Ui, cut: Option<&str>) -> Result<Paths, String> {
         found.remove(c);
     }
     let get = |name: &str| found.get(&name.to_ascii_lowercase()).copied().ok_or_else(|| format!("{name} missing"));
-    let list = get(LIST)?;
+    let name = page.checked_sub(1).and_then(|i| LISTS.get(i)).ok_or_else(|| format!("tab {page} has no list"))?;
+    let tab = TabPaths::List { list: get(name)? };
     get(DISPLAY)?;
     let mut tabs = [menu; 5];
     for (t, name) in tabs.iter_mut().zip(TABS) {
         *t = get(name)?;
     }
+    let TabPaths::List { list } = tab;
     if cut.as_deref() == Some(&ROW_TEMPLATE.to_ascii_lowercase()) || !has_template(ui, list) {
         return Err(format!("{ROW_TEMPLATE} missing"));
     }
     Ok(Paths {
+        page,
+        tab,
         menu,
-        list,
         icon: get(ICON)?,
         desc_rect: get(DESC_RECT)?,
         desc: get(DESC)?,
@@ -186,32 +225,33 @@ pub fn paths(ui: &Ui, cut: Option<&str>) -> Result<Paths, String> {
     })
 }
 
-/// A row made from the template, known by its actor value: it keeps that place in the list
-/// whatever else is taken away or made again. Its tile has the name the original's has, the
-/// value's AVIF name [observed: private job pipboy_special_a, `GetActiveUIComponentName` under
-/// the pointer]; scripts read that name, this code never looks a row up by it.
+/// A row made from the template, known by what it stands for: it keeps its place in the list
+/// whatever else is taken away or made again. Its tile has the name the original's has on
+/// S.P.E.C.I.A.L., the value's AVIF name [observed: private job pipboy_special_a,
+/// `GetActiveUIComponentName` under the pointer], and the row's name on the other lists
+/// [hypothesis: the same]; scripts read that name, this code never looks a row up by it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MadeRow {
-    pub av: u16,
+    pub key: RowKey,
     pub tile: TileId,
     text: TileId,
     /// The template gives its height (a number or an expression): it is kept.
     explicit: bool,
 }
 
-/// The rows `wanted`, by actor value and name, in that order; the ones whole kept. A row
+/// The rows `wanted` under `list`, by key and name, in that order; the ones whole kept. A row
 /// unwanted, renamed or missing its text is unloaded whole, so no root is left without its
 /// parts. A failure makes none and leaves none of its own: a retry cannot double them.
-/// Returns whether anything was unloaded or made: what was written of the rows is then out of
-/// date, and with it what was measured and checked.
-fn ensure_rows(ui: &mut Ui, p: &Paths, rows: &mut Vec<MadeRow>, wanted: &[(u16, &str)]) -> Result<bool, String> {
+/// Returns whether anything was unloaded, made or put in another order: what was written of the
+/// rows is then out of date, and with it what was measured and checked.
+fn ensure_rows(ui: &mut Ui, list: TileId, rows: &mut Vec<MadeRow>, wanted: &[(RowKey, &str)]) -> Result<bool, String> {
     if wanted.is_empty() {
         return Err("no rows to show".into());
     }
     let mut changed = false;
     rows.retain(|r| {
         let whole = ui.is_live(r.tile) && ui.is_live(r.text);
-        let keep = whole && wanted.iter().any(|&(av, name)| av == r.av && ui.tile(r.tile).name == name);
+        let keep = whole && wanted.iter().any(|&(key, name)| key == r.key && ui.tile(r.tile).name == name);
         if !keep {
             if ui.is_live(r.tile) {
                 ui.unload_tile(r.tile);
@@ -220,23 +260,30 @@ fn ensure_rows(ui: &mut Ui, p: &Paths, rows: &mut Vec<MadeRow>, wanted: &[(u16, 
         }
         keep
     });
-    let missing: Vec<(u16, &str)> = wanted.iter().copied().filter(|&(av, _)| !rows.iter().any(|r| r.av == av)).collect();
+    let in_order = |rows: &mut Vec<MadeRow>| {
+        let same = rows.iter().map(|r| r.key).eq(wanted.iter().map(|w| w.0));
+        if !same {
+            rows.sort_by_key(|r| wanted.iter().position(|w| w.0 == r.key));
+        }
+        !same
+    };
+    let missing: Vec<(RowKey, &str)> = wanted.iter().copied().filter(|&(key, _)| !rows.iter().any(|r| r.key == key)).collect();
     if missing.is_empty() {
-        return Ok(changed);
+        return Ok(in_order(rows) || changed);
     }
-    let at = ui.path_of(p.list);
-    let mut made: Vec<(u16, TileId)> = Vec::with_capacity(missing.len());
-    let undo = |ui: &mut Ui, made: &[(u16, TileId)]| {
+    let at = ui.path_of(list);
+    let mut made: Vec<(RowKey, TileId)> = Vec::with_capacity(missing.len());
+    let undo = |ui: &mut Ui, made: &[(RowKey, TileId)]| {
         for &(_, t) in made {
             ui.unload_tile(t);
         }
         ui.update();
     };
-    for &(av, name) in &missing {
+    for &(key, name) in &missing {
         // The template's includes were spliced in when the file was read (menu-xml.md §2.2),
         // so no files are needed to make a row.
         match ui.add_code_tile_from_template(&fnv_ui::MemSource::default(), &at, ROW_TEMPLATE, Some(name)) {
-            Some(t) => made.push((av, t)),
+            Some(t) => made.push((key, t)),
             None => {
                 undo(ui, &made);
                 return Err(format!("{ROW_TEMPLATE} made no row"));
@@ -245,17 +292,17 @@ fn ensure_rows(ui: &mut Ui, p: &Paths, rows: &mut Vec<MadeRow>, wanted: &[(u16, 
     }
     ui.update();
     let mut new = Vec::with_capacity(made.len());
-    for &(av, tile) in &made {
+    for &(key, tile) in &made {
         let Some(text) = find_named(ui, tile, ROW_TEXT) else {
             undo(ui, &made);
             return Err(format!("{ROW_TEMPLATE} has no {ROW_TEXT}"));
         };
         let row = ui.tile(tile);
         let computed = row.trait_index("height").is_some_and(|k| row.traits[k].expr.is_some());
-        new.push(MadeRow { av, tile, text, explicit: computed || num(ui, tile, "height") > 0.0 });
+        new.push(MadeRow { key, tile, text, explicit: computed || num(ui, tile, "height") > 0.0 });
     }
     rows.extend(new);
-    rows.sort_by_key(|r| r.av);
+    in_order(rows);
     Ok(true)
 }
 
@@ -263,36 +310,53 @@ fn level_text(snap: &Snapshot) -> String {
     snap.level.map_or("--".into(), |l| l.to_string())
 }
 
+/// The rows of a tab's list, without a copy where the model holds them as they are.
+fn rows_of(snap: &Snapshot, tab: usize, reputation: bool) -> Cow<'_, [Row]> {
+    match tab {
+        1 => Cow::Borrowed(&snap.special),
+        2 => Cow::Borrowed(&snap.skills),
+        3 => Cow::Borrowed(&snap.perks),
+        4 if !reputation => Cow::Borrowed(&snap.general),
+        _ => Cow::Owned(snap.rows(tab, reputation)),
+    }
+}
+
+/// Which of the model's views the page shows now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct At {
+    pub tab: usize,
+    pub reputation: bool,
+    pub selected: usize,
+    pub device: bool,
+}
+
 /// What the model shows, as written last.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Shown {
+    pub at: At,
     pub rows: Vec<Row>,
     pub level: String,
     pub hp: String,
     pub ap: String,
     pub xp: String,
-    pub selected: usize,
-    pub device: bool,
 }
 
 impl Shown {
-    pub fn of(snap: &Snapshot, selected: usize, device: bool) -> Shown {
+    pub fn of(snap: &Snapshot, at: At) -> Shown {
         Shown {
-            rows: snap.special.clone(),
+            at,
+            rows: rows_of(snap, at.tab, at.reputation).into_owned(),
             level: level_text(snap),
             hp: stats::figures(snap.hp),
             ap: stats::figures(snap.ap),
             xp: stats::figures(snap.xp),
-            selected,
-            device,
         }
     }
 
     /// Whether this is what `snap` shows, without copying its rows.
-    fn same(&self, snap: &Snapshot, selected: usize, device: bool) -> bool {
-        self.selected == selected
-            && self.device == device
-            && self.rows == snap.special
+    fn same(&self, snap: &Snapshot, at: At) -> bool {
+        self.at == at
+            && self.rows.as_slice() == rows_of(snap, at.tab, at.reputation).as_ref()
             && self.level == level_text(snap)
             && self.hp == stats::figures(snap.hp)
             && self.ap == stats::figures(snap.ap)
@@ -303,14 +367,18 @@ impl Shown {
 /// Write what the page shows ([`Shown`]), each value only when it differs from what this code
 /// wrote last, so what a script set meanwhile stands until the model changes (`Ui::write_changed`).
 pub fn write_model(ui: &mut Ui, p: &Paths, rows: &[MadeRow], s: &Shown) {
-    ui.write_changed(p.menu, "user0", Value::Num(PAGE as f64));
+    ui.write_changed(p.menu, "user0", Value::Num(s.at.tab as f64));
     if let Some(background) = p.background {
         ui.write_changed(background, "visible", flag(false));
     }
     for (name, v) in [("user8", &s.level), ("user5", &s.hp), ("user6", &s.ap), ("user7", &s.xp)] {
         ui.write_changed(p.menu, name, Value::Str(v.clone()));
     }
-    ui.write_changed(p.list, "user0", flag(s.rows.iter().any(|r| r.mark.is_some())));
+    // Only these lists' rows have marks, and only these lists have the trait [documented: the
+    // file's tree, by fnvtool ui tree].
+    if matches!(s.at.tab, 1 | 2) {
+        ui.write_changed(p.list(), "user0", flag(s.rows.iter().any(|r| r.mark.is_some())));
+    }
     for (i, (made, row)) in rows.iter().zip(&s.rows).enumerate() {
         ui.write_changed(made.tile, "listindex", Value::Num(i as f64));
         // [observed: private job pipboy_special_a]
@@ -324,7 +392,7 @@ pub fn write_model(ui: &mut Ui, p: &Paths, rows: &[MadeRow], s: &Shown) {
     }
     // A row without a picture keeps `visible` with an empty `filename`: the line and the text
     // follow it in the file, and the hand-built page draws them without a picture.
-    let selected = s.rows.get(s.selected);
+    let selected = s.rows.get(s.at.selected);
     ui.write_changed(p.icon, "filename", Value::Str(selected.and_then(|r| r.icon.clone()).unwrap_or_default()));
     ui.write_changed(p.icon, "visible", flag(selected.is_some()));
     ui.write_changed(p.desc, "string", Value::Str(selected.map(|r| r.description.clone()).unwrap_or_default()));
@@ -398,18 +466,34 @@ fn write_tabs(ui: &mut Ui, p: &Paths, marked: &mut bool) {
 }
 
 /// The places code gives the file to work from: each row's height and `_y`, the list's height,
-/// the box's place and the description's scroll steps.
+/// the box's place, the description's scroll steps, and, for a list that does not hold its rows,
+/// the scroll bar's counts.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Geometry {
     pub rows: Vec<(f64, f64)>,
     pub list: f64,
     pub highlight: (f64, f64),
     pub desc_bound: usize,
+    /// Rows shown at once, and the first of them.
+    pub visible: usize,
+    pub top: usize,
+    pub counts: Option<Counts>,
 }
 
-/// [`Geometry`] from the sizes measured; the reason when no usable layout comes of them. A list
-/// that does not hold its rows has no scrolling here: the hand-built page takes over.
-pub fn geometry(ui: &Ui, p: &Paths, rows: &[MadeRow], selected: usize, highlight: bool) -> Result<Geometry, String> {
+/// Rows the file's list shows at once: its `_number_of_visible_items`, else the hand-built count.
+fn rows_visible(ui: &Ui, list: TileId) -> usize {
+    let file = num(ui, list, "_number_of_visible_items");
+    if file >= 1.0 {
+        file as usize
+    } else {
+        stats::VISIBLE
+    }
+}
+
+/// [`Geometry`] from the sizes measured, `visible` rows shown from `top`; the reason when no
+/// usable layout comes of them. A list that scrolls moves by whole rows of one height: rows of
+/// another height leave it to the hand-built page.
+pub fn geometry(ui: &Ui, p: &Paths, rows: &[MadeRow], selected: usize, highlight: bool, visible: usize, top: usize) -> Result<Geometry, String> {
     let mut places = Vec::with_capacity(rows.len());
     let mut y = 0.0;
     let mut tallest: f64 = 0.0;
@@ -427,30 +511,52 @@ pub fn geometry(ui: &Ui, p: &Paths, rows: &[MadeRow], selected: usize, highlight
         y += h;
         tallest = tallest.max(h);
     }
-    let file = num(ui, p.list, "_number_of_visible_items");
-    let visible = if file > 0.0 { file } else { stats::VISIBLE as f64 };
-    if (rows.len() as f64) > visible {
-        return Err(format!("{} rows and the list shows {visible}", rows.len()));
+    let counts = (rows.len() > visible).then(|| list::counts(&places.iter().map(|r| r.0).collect::<Vec<f64>>(), visible as f64 * tallest));
+    if counts.is_some() && places.iter().any(|r| tallest - r.0 > 0.5) {
+        return Err("a list that scrolls has rows of different heights".into());
     }
+    let top = top.min(rows.len().saturating_sub(visible));
+    let delta = counts.and_then(|c| c.delta).unwrap_or(0.0);
     let window = num(ui, p.desc_rect, "height");
     if window <= 0.0 {
         return Err(format!("{DESC_RECT} has no height"));
     }
     let desc_bound = ((num(ui, p.desc, "height") - window) / f64::from(stats::DESC_STEP)).ceil().max(0.0) as usize;
-    let box_at = places.get(selected).filter(|_| highlight).map_or((-1.0, 0.0), |&(h, y)| (y, h));
-    Ok(Geometry { rows: places, list: visible * tallest, highlight: box_at, desc_bound })
+    // The box where its row stands after the scroll; none on a row scrolled out of sight, as the
+    // hand-built list has none (`crate::pipboy::stats::list`).
+    let box_at = places.get(selected).filter(|_| highlight && (top..top + visible).contains(&selected)).map_or((-1.0, 0.0), |&(h, y)| (y - top as f64 * delta, h));
+    Ok(Geometry { rows: places, list: visible as f64 * tallest, highlight: box_at, desc_bound, visible, top, counts })
 }
 
-fn write_geometry(ui: &mut Ui, p: &Paths, rows: &[MadeRow], g: &Geometry) {
+fn write_geometry(ui: &mut Ui, p: &Paths, rows: &[MadeRow], g: &Geometry, counted: &mut Vec<(TileId, f64)>) {
+    let list = p.list();
     for (row, &(h, y)) in rows.iter().zip(&g.rows) {
         if !row.explicit {
             ui.write_changed(row.tile, "height", Value::Num(h));
         }
         ui.write_changed(row.tile, "_y", Value::Num(y));
     }
-    ui.write_changed(p.list, "height", Value::Num(g.list));
-    ui.write_changed(p.list, "_highlight_y", Value::Num(g.highlight.0));
-    ui.write_changed(p.list, "_selected_height", Value::Num(g.highlight.1));
+    ui.write_changed(list, "height", Value::Num(g.list));
+    ui.write_changed(list, "_highlight_y", Value::Num(g.highlight.0));
+    ui.write_changed(list, "_selected_height", Value::Num(g.highlight.1));
+    // A list that fits and was never counted keeps the file's counts [hypothesis: pipboy.md
+    // §5.1.1]; one that has stopped scrolling gets them back as `super::list` writes them.
+    let was = counted.iter().position(|c| c.0 == list);
+    match (g.counts, was) {
+        (Some(c), _) => {
+            let file = was.map_or_else(|| num(ui, list, "_scroll_delta"), |i| counted[i].1);
+            if was.is_none() {
+                counted.push((list, file));
+            }
+            list::write_counts(ui, list, &c, file);
+        }
+        (None, Some(i)) => {
+            let (_, file) = counted.remove(i);
+            list::write_counts(ui, list, &list::counts(&[], 0.0), file);
+            list::write_value(ui, list, 0.0);
+        }
+        (None, None) => {}
+    }
     // Hidden at 1 [design: pipboy.md §5.1.1]; the +1 is our adaptation [design].
     ui.write_changed(p.bar, "_number_of_items", Value::Num(g.desc_bound as f64 + 1.0));
 }
@@ -482,15 +588,16 @@ fn description_window(ui: &Ui, p: &Paths, desc: &Piece) -> layout::Rect {
 }
 
 /// Whether what is about to be painted, `pieces`, can be used, on every final pass, so what a
-/// script did since is seen: every row's words and every tab's words among the pieces, whole on
-/// the canvas and inside their clips, the description's window on the canvas if it has words,
-/// and the rows and the tabs but the one showing taking the pointer at their middles, whatever
+/// script did since is seen: the words of every row in sight (`shown`: those the list scrolled
+/// to, the others being outside its window by design) and of every tab among the pieces, whole
+/// on the canvas and inside their clips, the description's window on the canvas if it has words,
+/// and those rows and the tabs but the one showing taking the pointer at their middles, whatever
 /// else came to lie over them; the tab showing need not, as a click on it does nothing. The
 /// description's area, for the wheel, or the reason for the hand-built page.
-pub fn usable(ui: &Ui, p: &Paths, rows: &[MadeRow], pieces: &[Piece]) -> Result<Option<Rect>, String> {
+pub fn usable(ui: &Ui, p: &Paths, rows: &[MadeRow], shown: std::ops::Range<usize>, pieces: &[Piece]) -> Result<Option<Rect>, String> {
     let is_text = |x: &&Piece| matches!(x.look, Look::Text { .. });
     let mut wanted: Vec<(StatsTile, (f64, f64))> = Vec::with_capacity(rows.len() + p.tabs.len());
-    for (i, row) in rows.iter().enumerate() {
+    for (i, row) in rows.iter().enumerate().filter(|(i, _)| shown.contains(i)) {
         let piece = pieces.iter().filter(is_text).find(|x| x.tile == row.text).ok_or_else(|| format!("row {i} is not shown"))?;
         let middle = shows_whole(piece).ok_or_else(|| format!("row {i} does not fit"))?;
         wanted.push((StatsTile::Row(i), middle));
@@ -499,7 +606,7 @@ pub fn usable(ui: &Ui, p: &Paths, rows: &[MadeRow], pieces: &[Piece]) -> Result<
         // A tab is a hotrect, which draws nothing of its own: its words, as they are painted.
         let piece = pieces.iter().filter(is_text).find(|x| inside(ui, x.tile, tab)).ok_or_else(|| format!("tab {i} is not shown"))?;
         let middle = shows_whole(piece).ok_or_else(|| format!("tab {i} does not fit"))?;
-        if i != PAGE {
+        if i != p.page {
             wanted.push((StatsTile::Tab(i), middle));
         }
     }
@@ -538,7 +645,11 @@ fn inside(ui: &Ui, t: TileId, of: TileId) -> bool {
 pub(crate) struct Written {
     menu: Option<TileId>,
     paths: Option<Paths>,
+    /// The list the rows are under.
+    rows_in: Option<TileId>,
     rows: Vec<MadeRow>,
+    /// Each list code has counted for its scroll bar, and the `_scroll_delta` the file gave it.
+    counted: Vec<(TileId, f64)>,
     shown: Option<Shown>,
     highlight: bool,
     geometry: Option<Geometry>,
@@ -550,6 +661,8 @@ pub(crate) struct Written {
     tell: bool,
     /// The description's scroll, the text's place and the bound last logged.
     drawn: Option<(f64, f64, usize)>,
+    /// The list's scroll last logged.
+    list_drawn: Option<f64>,
     fallbacks: HashSet<String>,
 }
 
@@ -605,13 +718,14 @@ impl PageFonts for FontKit<'_> {
     }
 }
 
-/// One pass over the page; the menu when all of it went through. `late`: the pass before the
+/// One pass over tab `tab`; the menu when all of it went through. `late`: the pass before the
 /// drawing; the other, before the scripts, does the sizes only for a model that changed.
-pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, device: bool, late: bool, tiles: &mut StatsTiles, fonts: &mut dyn PageFonts) -> Result<TileId, String> {
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, tab: usize, device: bool, late: bool, tiles: &mut StatsTiles, fonts: &mut dyn PageFonts) -> Result<TileId, String> {
     let w = &mut tiles.written;
-    let p = match w.paths.filter(|c| c.live(ui) && ui.menu(STATS_MENU) == Some(c.menu)) {
+    let p = match w.paths.filter(|c| c.page == tab && c.live(ui) && ui.menu(STATS_MENU) == Some(c.menu)) {
         Some(p) => p,
-        None => paths(ui, tiles.cut.as_deref())?,
+        None => paths(ui, tab, tiles.cut.as_deref())?,
     };
     // A new menu tile (the tree built again): its rows, sizes and writes are all to do again.
     if w.menu != Some(p.menu) {
@@ -619,16 +733,28 @@ pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, device: b
         *w = Written { menu: Some(p.menu), fallbacks, ..Default::default() };
     }
     w.paths = Some(p);
-    let wanted: Vec<(u16, &str)> = fnv_game::actor_values::SPECIALS.zip(snap.special.iter().map(|r| r.name.as_str())).collect();
-    if ensure_rows(ui, &p, &mut w.rows, &wanted)? {
+    let list = p.list();
+    // Another list: its rows are its own, as with a new tree.
+    if w.rows_in != Some(list) {
+        for r in std::mem::take(&mut w.rows) {
+            ui.unload_tile(r.tile);
+        }
+        w.rows_in = Some(list);
+        w.shown = None;
+        w.geometry = None;
+        w.list_drawn = None;
+    }
+    let at = At { tab, reputation: view.reputation, selected: view.selected[tab], device };
+    let rows = rows_of(snap, tab, at.reputation);
+    let wanted: Vec<(RowKey, &str)> = rows.iter().map(|r| (r.key, r.name.as_str())).collect();
+    if ensure_rows(ui, list, &mut w.rows, &wanted)? {
         // Rows made or gone: nothing written, measured or checked for the last set holds.
         w.shown = None;
         w.geometry = None;
     }
-    let selected = view.selected[PAGE];
-    let changed = !w.shown.as_ref().is_some_and(|s| s.same(snap, selected, device)) || w.highlight != view.highlight;
+    let changed = !w.shown.as_ref().is_some_and(|s| s.same(snap, at)) || w.highlight != view.highlight;
     if changed {
-        let shown = Shown::of(snap, selected, device);
+        let shown = Shown::of(snap, at);
         write_model(ui, &p, &w.rows, &shown);
         w.shown = Some(shown);
         w.highlight = view.highlight;
@@ -648,12 +774,15 @@ pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, device: b
         write_tabs(ui, &p, &mut w.tabs_marked);
         write_frame(ui, &p, device, &mut w.flat);
         ui.update();
-        let g = geometry(ui, &p, &w.rows, selected, view.highlight)?;
+        // The file's count of the rows, for the model's scroll; what it held is kept in range.
+        let visible = rows_visible(ui, list);
+        view.set_rows_shown(tab, visible);
+        let g = geometry(ui, &p, &w.rows, at.selected, view.highlight, visible, view.top[tab])?;
         if view.desc_bound() != g.desc_bound {
             view.set_desc_bound(g.desc_bound);
         }
         if w.geometry.as_ref() != Some(&g) {
-            write_geometry(ui, &p, &w.rows, &g);
+            write_geometry(ui, &p, &w.rows, &g, &mut w.counted);
             ui.update();
             w.geometry = Some(g);
             w.tell = true;
@@ -662,15 +791,29 @@ pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, device: b
         fnv_ui::input::mark_clip_windows(ui, p.menu);
     }
     write_scroll(ui, p.bar, view.desc);
+    // The model's first row over the file's own count of the clicks, as the description's.
+    let list_most = w.geometry.as_ref().and_then(|g| g.counts).map(|c| c.most());
+    if let Some(most) = list_most {
+        list::write_value(ui, list, (view.top[tab] as f64).min(most));
+    }
     if late {
         ui.update();
         // Every final pass, so readiness is about the tree that is about to be painted.
         let pieces = fonts.set_out(ui, p.menu);
-        tiles.desc_area = usable(ui, &p, &w.rows, &pieces)?;
+        let in_sight = w.geometry.as_ref().map_or(0..w.rows.len(), |g| g.top..g.top + g.visible);
+        tiles.desc_area = usable(ui, &p, &w.rows, in_sight, &pieces)?;
         tiles.pieces = pieces;
         let w = &mut tiles.written;
         if std::mem::take(&mut w.tell) {
             info!("{}", describe(ui, &p, w));
+        }
+        if let Some(most) = list_most {
+            let drawn = list::value_shown(ui, list).unwrap_or(0.0);
+            if w.list_drawn != Some(drawn) {
+                let n = |x: f64| Value::Num(x).text();
+                info!("tiles: {STATS_MENU} list scrolled to {} of {}", n(drawn), n(most));
+                w.list_drawn = Some(drawn);
+            }
         }
         let now = (num(ui, p.bar, "_current_value"), num(ui, p.desc, "y"), view.desc_bound());
         if w.drawn != Some(now) {
@@ -686,9 +829,11 @@ pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, device: b
 fn describe(ui: &Ui, p: &Paths, w: &Written) -> String {
     let n = |x: f64| Value::Num(x).text();
     let (Some(s), Some(g)) = (w.shown.as_ref(), w.geometry.as_ref()) else { return format!("tiles: {STATS_MENU} page written") };
-    let row = s.rows.get(s.selected);
+    let row = s.rows.get(s.at.selected);
+    // The first tab's words are the first slice's, which its scenarios read.
+    let name = if p.page == 1 { "page" } else { Page::Stats.tabs()[p.page] };
     format!(
-        "tiles: {STATS_MENU} page from tiles: {} rows, \"{}\" selected, value {}, boxed at {}, list height {}, row height {}, description {} high, scrolls {}, {}",
+        "tiles: {STATS_MENU} {name} from tiles: {} rows, \"{}\" selected, value {}, boxed at {}, list height {}, row height {}, description {} high, scrolls {}, {}",
         s.rows.len(),
         row.map_or("", |r| r.name.as_str()),
         row.and_then(|r| r.value.as_deref()).unwrap_or("none"),
@@ -697,7 +842,7 @@ fn describe(ui: &Ui, p: &Paths, w: &Written) -> String {
         n(g.rows.first().map_or(0.0, |r| r.0)),
         n(num(ui, p.desc, "height")),
         g.desc_bound,
-        if s.device { "device" } else { "screen menu" },
+        if s.at.device { "device" } else { "screen menu" },
     )
 }
 
@@ -714,9 +859,9 @@ pub(crate) struct StatsPage<'w> {
     time: crate::pause::AidTime<'w>,
 }
 
-/// Whether the page is eligible to prepare: the switch on and the tab showing.
+/// Whether the page is eligible to prepare: the switch on and a tab of [`TILED_TABS`] showing.
 pub fn eligible(switch: TileMenus, pip: &PipBoy) -> bool {
-    switch.stats && pip.shown() && pip.page == Page::Stats && pip.tab() == PAGE
+    switch.stats && pip.shown() && pip.page == Page::Stats && TILED_TABS.contains(&pip.tab())
 }
 
 /// A pass; `None` when the page is not eligible (nothing is touched then).
@@ -725,7 +870,7 @@ fn pass(p: &mut StatsPage<'_>, late: bool) -> Option<Result<TileId, String>> {
     if !eligible(p.switch.as_deref().copied().unwrap_or_default(), pip) {
         return None;
     }
-    let device = pip.frame == Frame::Device;
+    let (tab, device) = (pip.tab(), pip.frame == Frame::Device);
     let game = &mut p.script.as_mut()?.rt.as_mut()?.game;
     game.ui_files.as_ref()?;
     let Some(snap) = p.prepared.as_deref().and_then(|x| x.snap.as_ref()) else {
@@ -733,7 +878,7 @@ fn pass(p: &mut StatsPage<'_>, late: bool) -> Option<Result<TileId, String>> {
     };
     // What the page does to the view (the bound) is no new look for the hand-built page.
     let view = p.view.as_mut()?.bypass_change_detection();
-    Some(page(&mut game.ui_tree, snap, view, device, late, &mut p.tiles, &mut p.fonts))
+    Some(page(&mut game.ui_tree, snap, view, tab, device, late, &mut p.tiles, &mut p.fonts))
 }
 
 /// Before the scripts, after the tile input: this frame's model in the tree, and the scroll.
@@ -767,13 +912,14 @@ pub(crate) fn settle(mut p: StatsPage) {
         w.shown = None;
         w.geometry = None;
         w.drawn = None;
+        w.list_drawn = None;
         p.tiles.desc_area = None;
         p.tiles.pieces.clear();
     }
     if p.tiles.ready != ready {
         p.tiles.ready = ready;
     }
-    p.tiles.desc_for = ready.and(p.pip.as_deref()).map(|pip| (PAGE, pip.frame));
+    p.tiles.desc_for = ready.and(p.pip.as_deref()).map(|pip| (pip.tab(), pip.frame));
 }
 
 /// The keys the hand-built page acts on itself (`crate::pipboy::stats::keys`,
@@ -806,15 +952,18 @@ pub enum StatsTile {
     PageUp,
     PageDown,
     Marker,
+    /// A piece of the list's own scroll bar.
+    ListBar(BarPiece),
 }
 
-/// What `tile` stands for: a row the page made, a tab, or a piece of the description's scroll
-/// bar [documented: scrollbar_vert.xml's names].
+/// What `tile` stands for: a row the page made, a tab, or a piece of the description's or the
+/// list's scroll bar [documented: scrollbar_vert.xml's names].
 pub fn stats_tile(ui: &Ui, p: &Paths, rows: &[MadeRow], tile: TileId) -> Option<StatsTile> {
     let mut at = Some(tile);
-    let mut in_bar = false;
+    let (mut in_bar, mut in_list) = (false, false);
     while let Some(t) = at {
         in_bar |= t == p.bar;
+        in_list |= p.is_list(t);
         at = ui.tile(t).parent;
     }
     let mut at = Some(tile);
@@ -835,6 +984,11 @@ pub fn stats_tile(ui: &Ui, p: &Paths, rows: &[MadeRow], tile: TileId) -> Option<
                 _ => {}
             }
         }
+        if in_list {
+            if let Some(piece) = list::bar_piece(ui, t) {
+                return Some(StatsTile::ListBar(piece));
+            }
+        }
         at = ui.tile(t).parent;
     }
     None
@@ -845,20 +999,33 @@ pub fn page_steps(ui: &Ui, p: &Paths) -> i32 {
     ((num(ui, p.desc_rect, "height") / f64::from(stats::DESC_STEP)).floor() as i32 - 1).max(1)
 }
 
-/// A press on the description's marker, held: the bar's top and how far under the marker's top
-/// the pointer took it (canvas units).
+/// Which scroll bar a marker is on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BarOf {
+    Description,
+    List,
+}
+
+/// A press on a marker, held: its bar, the bar's top and how far under the marker's top the
+/// pointer took it (canvas units).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MarkerDrag {
+    of: BarOf,
     marker: TileId,
     top: f64,
     grab: f64,
 }
 
-/// The [`MarkerDrag`] of a press on the marker; worked out once a press, as the tutorial's.
-pub fn marker_grab(ui: &Ui, p: &Paths, pointer_y: f64) -> Option<MarkerDrag> {
-    let marker = find_named(ui, p.bar, "scrollbar_vert_marker")?;
+/// The [`MarkerDrag`] of a press on the marker of `bar`, in `p`'s menu; worked out once a press,
+/// as the tutorial's.
+pub fn marker_grab(ui: &Ui, p: &Paths, of: BarOf, pointer_y: f64) -> Option<MarkerDrag> {
+    let bar = match of {
+        BarOf::Description => p.bar,
+        BarOf::List => list::child(ui, p.list(), list::SCROLLBAR)?,
+    };
+    let marker = find_named(ui, bar, list::MARKER)?;
     let placed = layout::layout(ui, p.menu, &|_, _, _| (0.0, 0.0), true).into_iter().find(|i| i.tile == marker)?.rect;
-    Some(MarkerDrag { marker, top: placed.top - num(ui, marker, "y"), grab: pointer_y - placed.top })
+    Some(MarkerDrag { of, marker, top: placed.top - num(ui, marker, "y"), grab: pointer_y - placed.top })
 }
 
 /// The scroll steps with the marker held at `pointer_y`, by the file's `_step_height`
@@ -871,14 +1038,16 @@ pub fn steps_under(ui: &Ui, drag: MarkerDrag, pointer_y: f64, most: usize) -> Op
 /// What [`feed`] keeps between frames.
 #[derive(Default)]
 pub(crate) struct Feed {
-    /// The page took input last frame, in this frame of the Pip-Boy.
-    taking: Option<Frame>,
+    /// The page took input last frame, in this frame of the Pip-Boy, on this tab and list.
+    taking: Option<(Frame, usize, bool)>,
     /// The pointer when the page came up, until it moves: a row under it does not take the
     /// selection, as the hand-built list's rule.
     drawn_at: Option<Vec2>,
     /// The row the pointer last selected, while it stays on it.
     acted: Option<usize>,
     drag: Option<MarkerDrag>,
+    /// The first row the list showed last frame.
+    top: Option<usize>,
     /// Where the pointer was last frame, and the tile under it then.
     last_at: Option<(f64, f64)>,
     under: Option<TileId>,
@@ -947,18 +1116,28 @@ pub(crate) fn feed(
         tiles.modal = modal;
     }
     let is_paused = paused.as_ref().is_some_and(|p| p.0);
+    let tab = pip.tab();
     let menu = takes(&tiles, *switch, &pip, game, is_paused).filter(|_| !tiles.others);
-    let (Some(menu), Some(p), Some(mut view)) = (menu, tiles.written.paths.filter(|p| Some(p.menu) == tiles.shown), view) else {
+    // The tiles found for this tab: a tab changed before this step was not painted yet.
+    let (Some(menu), Some(p), Some(mut view)) = (menu, tiles.written.paths.filter(|p| Some(p.menu) == tiles.shown && p.page == tab), view) else {
         *state = Feed::default();
         return;
     };
     let pointer = screen.as_ref().and_then(|s| s.pointer);
-    if state.taking != Some(pip.frame) {
-        *state = Feed { taking: Some(pip.frame), drawn_at: pointer, ..Default::default() };
+    let taking = (pip.frame, tab, view.reputation);
+    if state.taking != Some(taking) {
+        *state = Feed { taking: Some(taking), drawn_at: pointer, ..Default::default() };
     }
     if pointer != state.drawn_at {
         state.drawn_at = None;
     }
+    // Rows that came under a pointer that has not moved do not take the selection, as a row drawn
+    // under it does not.
+    let top = view.top[tab];
+    if state.top.is_some_and(|t| t != top) {
+        state.drawn_at = pointer;
+    }
+    state.top = Some(top);
     let settled = state.drawn_at.is_none() || pointer.is_none();
     // The test aid's click (`crate::pipboy::drive_pointer`): 1 is its press's frame.
     let aid_press = aid.click == 1 && !aid.right;
@@ -970,7 +1149,7 @@ pub(crate) fn feed(
         shift: devices.keys.pressed(KeyCode::ShiftLeft) || devices.keys.pressed(KeyCode::ShiftRight),
         ..Default::default()
     };
-    let pad_menu = crate::pad::MenuAt { code: Some(fnv_game::game::menus::STATS), tab: PAGE };
+    let pad_menu = crate::pad::MenuAt { code: Some(fnv_game::game::menus::STATS), tab };
     let physical = frame_keys(&mut input, &devices, game, pad_menu);
     let report = fnv_game::ui_input::step(game, &[menu], &input, &fnv_ui::input::no_measure);
     let ui = &game.ui_tree;
@@ -993,14 +1172,14 @@ pub(crate) fn feed(
     // Only a real change touches the view, which the page's other readers watch.
     match follow_hover(&mut state.acted, under_row, settled) {
         Some(HoverAct::Select(i)) => {
-            view.select(PAGE, i);
+            view.select(tab, i);
             view.highlight = true;
         }
         Some(HoverAct::BoxOff) => view.highlight = false,
         None => {}
     }
     if let Some(i) = keyed_row(ui, &p, rows, &report, &physical) {
-        view.select(PAGE, i);
+        view.select(tab, i);
         view.highlight = true;
     }
     if !held {
@@ -1016,7 +1195,7 @@ pub(crate) fn feed(
         let Some(tile) = what(c.tile) else { continue };
         info!("tiles: {STATS_MENU} {tile:?} on its tiles");
         match tile {
-            StatsTile::Row(i) => view.select(PAGE, i),
+            StatsTile::Row(i) => view.select(tab, i),
             StatsTile::Tab(i) => {
                 tabs.write(PipBoyInput::Tab(i));
             }
@@ -1026,14 +1205,36 @@ pub(crate) fn feed(
             StatsTile::PageDown => view.scroll_desc(page_steps(ui, &p)),
             StatsTile::Marker => {
                 pressed_marker = true;
-                state.drag = at.filter(|_| held && matches!(c.by, fnv_ui::input::By::Pointer)).and_then(|(_, y)| marker_grab(ui, &p, y));
+                state.drag = at.filter(|_| held && matches!(c.by, fnv_ui::input::By::Pointer)).and_then(|(_, y)| marker_grab(ui, &p, BarOf::Description, y));
+            }
+            StatsTile::ListBar(BarPiece::Up) => view.scroll(tab, -1),
+            StatsTile::ListBar(BarPiece::Down) => view.scroll(tab, 1),
+            StatsTile::ListBar(piece @ (BarPiece::PageUp | BarPiece::PageDown)) => {
+                // The page's size is the file's; the model holds the value in its range.
+                let first = view.top[tab];
+                if let Some(to) = list::after_piece(ui, p.list(), piece, first as f64) {
+                    view.scroll(tab, to as i32 - first as i32);
+                }
+            }
+            StatsTile::ListBar(BarPiece::Marker) => {
+                pressed_marker = true;
+                state.drag = at.filter(|_| held && matches!(c.by, fnv_ui::input::By::Pointer)).and_then(|(_, y)| marker_grab(ui, &p, BarOf::List, y));
             }
         }
     }
     // A drag: the scroll under the pointer while the press holds.
     if let (false, Some(drag), Some((_, y))) = (pressed_marker, state.drag, at) {
-        if let Some(steps) = steps_under(ui, drag, y, view.desc_bound()).filter(|&s| s != view.desc) {
-            view.desc = steps;
+        match drag.of {
+            BarOf::Description => {
+                if let Some(steps) = steps_under(ui, drag, y, view.desc_bound()).filter(|&s| s != view.desc) {
+                    view.desc = steps;
+                }
+            }
+            BarOf::List => {
+                if let Some(first) = steps_under(ui, drag, y, view.list_most(tab)).filter(|&s| s != view.top[tab]) {
+                    view.top[tab] = first;
+                }
+            }
         }
     }
 }
@@ -1061,24 +1262,39 @@ mod tests {
     use fnv_ui::input::{no_measure, By, Input, Pointer};
     use fnv_ui::MemSource;
 
+    /// The tab the first slice drew, which most of these tests are on.
+    const PAGE: usize = 1;
+
     /// [design] A small layout written for these tests, with its own structure and numbers and
     /// plain literals; it does not come from the game's files and says nothing about them. It
     /// keeps the tile and template names the model and the input look up, which are the engine's
     /// interface ([`paths`]). Its only expressions are a row's place from what the model wrote
-    /// and a stand-in for a file's own count of clicks, read from a test tile. So these tests do
+    /// and a stand-in for a file's own count of clicks, read from a test tile; a list that
+    /// scrolls moves its rows by a value and a step, in an expression of its own. So these tests do
     /// not cover the file's own places, how its expressions read what is written (a row's text
-    /// from its `string`, the text's `y` and the marker's from the value), or whether a name is where the file has it:
-    /// the smoke scenarios `tiles-stats-special*` check those on the real file.
+    /// from its `string`, the text's `y` and the marker's from the value, a list's rows from its
+    /// bar's value and `_scroll_delta`, which list is shown by the root's `user0`), or whether a
+    /// name is where the file has it: the smoke scenarios `tiles-stats-*` check those on the real file.
     const FIXTURE: &str = r#"<menu name="StatsMenu"><rect name="Branch">
       <template name="stats_list_template"><hotrect name="TestRow"><target>&true;</target><x>8</x><width>90</width>
         <_VerticalSpacing>6</_VerticalSpacing>
-        <y><add src="me()" trait="_y"/></y>
+        <y><add src="me()" trait="_y"/><sub src="parent()" trait="_offset"/></y>
         <text name="ListItemText"><string>Row</string></text>
       </hotrect></template>
       <image name="background_layout"/>
       <text name="stats_title"><string>Words</string></text>
       <rect name="stats_headline_h2"><x>300</x><_length>40</_length></rect>
-      <hotrect name="stats_special_container"><x>12</x><y>30</y><width>200</width><clipwindow>&true;</clipwindow><_number_of_visible_items>8</_number_of_visible_items></hotrect>
+      <hotrect name="stats_special_container"><x>12</x><y>30</y><width>200</width><clipwindow>&true;</clipwindow><_number_of_visible_items>8</_number_of_visible_items><_offset>0</_offset></hotrect>
+      <hotrect name="stats_skills_container"><x>12</x><y>30</y><width>200</width><clipwindow>&true;</clipwindow><_number_of_visible_items>9</_number_of_visible_items><_scroll_delta>7</_scroll_delta>
+        <_offset><copy src="child(lb_scrollbar)" trait="_current_value"/><mul src="me()" trait="_scroll_delta"/></_offset>
+        <image name="lb_scrollbar"><x>170</x><_step_size>1</_step_size><_jump_size>3</_jump_size>
+          <hotrect name="scrollbar_vert_up"><target>&true;</target><width>12</width><height>12</height></hotrect>
+          <hotrect name="scrollbar_vert_page_up"><target>&true;</target><y>12</y><width>12</width><height>20</height></hotrect>
+          <hotrect name="scrollbar_vert_page_down"><target>&true;</target><y>32</y><width>12</width><height>20</height></hotrect>
+          <hotrect name="scrollbar_vert_down"><target>&true;</target><y>52</y><width>12</width><height>12</height></hotrect>
+          <image name="scrollbar_vert_marker"><target>&true;</target><x>14</x><width>6</width><height>10</height><_step_height>11</_step_height></image>
+        </image>
+      </hotrect>
       <rect name="stats_display_rect"><x>400</x><y>34</y>
         <image name="stats_icon"/>
         <hotrect name="stats_description_rect"><y>100</y><width>200</width><height>60</height>
@@ -1117,15 +1333,19 @@ mod tests {
     }
 
     fn rows() -> Vec<Row> {
-        (0..7).map(|i| Row { name: format!("Stat {i}"), value: Some((i + 1).to_string()), mark: None, description: "one|two".into(), icon: Some(format!("pics\\{i}.dds")) }).collect()
+        (0..7).map(|i| Row { key: RowKey::Av(i), name: format!("Stat {i}"), value: Some((i + 1).to_string()), mark: None, description: "one|two".into(), icon: Some(format!("pics\\{i}.dds")) }).collect()
+    }
+
+    fn skills() -> Vec<Row> {
+        (0..13).map(|i| Row { key: RowKey::Av(100 + i), name: format!("Skill {i}"), value: Some((i + 1).to_string()), mark: None, description: "one".into(), icon: None }).collect()
     }
 
     fn snap() -> Snapshot {
-        Snapshot { level: Some(3), hp: Some((20.0, 40.0)), ap: Some((5.0, 6.0)), xp: Some((7.0, 8.0)), special: rows(), ..Default::default() }
+        Snapshot { level: Some(3), hp: Some((20.0, 40.0)), ap: Some((5.0, 6.0)), xp: Some((7.0, 8.0)), special: rows(), skills: skills(), ..Default::default() }
     }
 
     fn view() -> StatsView {
-        StatsView::with_lens([0, 7, 0, 0, 0])
+        StatsView::with_lens([0, 7, 13, 0, 0])
     }
 
     /// A measure of 10 a character and 30 a line, lines parted by `|`.
@@ -1145,7 +1365,21 @@ mod tests {
     }
 
     fn run(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, device: bool, tiles: &mut StatsTiles) -> Result<TileId, String> {
-        page(ui, snap, view, device, true, tiles, &mut TestFonts)
+        page(ui, snap, view, PAGE, device, true, tiles, &mut TestFonts)
+    }
+
+    fn run_tab(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, tab: usize, tiles: &mut StatsTiles) -> Result<TileId, String> {
+        page(ui, snap, view, tab, true, true, tiles, &mut TestFonts)
+    }
+
+    /// The rows under a list, leaving out its own pieces.
+    fn rows_under(ui: &Ui, list: TileId) -> usize {
+        ui.tile(list).children.iter().filter(|&&c| ui.is_live(c) && ui.tile(c).get("listindex").is_some()).count()
+    }
+
+    /// The menu's list `name`.
+    fn list_named(ui: &Ui, name: &str) -> TileId {
+        find_named(ui, ui.menu(STATS_MENU).unwrap(), name).unwrap()
     }
 
     fn text(ui: &Ui, t: TileId, name: &str) -> String {
@@ -1165,9 +1399,9 @@ mod tests {
         assert_eq!(text(&ui, menu, "user5"), "20/40");
         assert_eq!(text(&ui, menu, "user6"), "5/6");
         assert_eq!(text(&ui, menu, "user7"), "7/8");
-        let p = paths(&ui, None).unwrap();
+        let p = paths(&ui, PAGE, None).unwrap();
         let made = t.written.rows.clone();
-        assert_eq!((made.len(), live_children(&ui, p.list)), (7, 7));
+        assert_eq!((made.len(), live_children(&ui, p.list())), (7, 7));
         assert_eq!(text(&ui, made[2].tile, "string"), "Stat 2");
         assert_eq!(ui.tile(made[2].tile).name, "Stat 2", "a row's tile has its name");
         assert_eq!(num(&ui, made[2].tile, "id"), -1.0);
@@ -1175,9 +1409,9 @@ mod tests {
         assert_eq!(num(&ui, made[2].tile, "listindex"), 2.0);
         assert_eq!(num(&ui, made[2].tile, "height"), ROW);
         assert_eq!(num(&ui, made[2].tile, "_y"), 2.0 * ROW);
-        assert_eq!(num(&ui, p.list, "height"), 8.0 * ROW, "the file's visible rows, not a hand-built height");
-        assert_eq!((num(&ui, p.list, "_highlight_y"), num(&ui, p.list, "_selected_height")), (-1.0, 0.0), "no box until a key or the pointer");
-        assert_eq!(num(&ui, p.list, "user0"), 0.0);
+        assert_eq!(num(&ui, p.list(), "height"), 8.0 * ROW, "the file's visible rows, not a hand-built height");
+        assert_eq!((num(&ui, p.list(), "_highlight_y"), num(&ui, p.list(), "_selected_height")), (-1.0, 0.0), "no box until a key or the pointer");
+        assert_eq!(num(&ui, p.list(), "user0"), 0.0);
         assert_eq!(text(&ui, p.icon, "filename"), "pics\\0.dds");
         assert_eq!(text(&ui, p.desc, "string"), "one|two");
     }
@@ -1195,8 +1429,8 @@ mod tests {
         assert_eq!(num(&ui, made[1].tile, "user1"), -1.0);
         assert_eq!((num(&ui, made[2].tile, "user0"), text(&ui, made[2].tile, "user2")), (1.0, "(+)".to_string()));
         assert_eq!(num(&ui, made[0].tile, "user0"), 0.0);
-        let p = paths(&ui, None).unwrap();
-        assert_eq!(num(&ui, p.list, "user0"), 1.0, "the list knows a row is marked");
+        let p = paths(&ui, PAGE, None).unwrap();
+        assert_eq!(num(&ui, p.list(), "user0"), 1.0, "the list knows a row is marked");
     }
 
     #[test]
@@ -1205,12 +1439,12 @@ mod tests {
         v.select(PAGE, 3);
         v.highlight = true;
         run(&mut ui, &snap(), &mut v, true, &mut t).unwrap();
-        let p = paths(&ui, None).unwrap();
-        assert_eq!((num(&ui, p.list, "_highlight_y"), num(&ui, p.list, "_selected_height")), (3.0 * ROW, ROW));
+        let p = paths(&ui, PAGE, None).unwrap();
+        assert_eq!((num(&ui, p.list(), "_highlight_y"), num(&ui, p.list(), "_selected_height")), (3.0 * ROW, ROW));
         assert_eq!(text(&ui, p.icon, "filename"), "pics\\3.dds");
         v.highlight = false;
         run(&mut ui, &snap(), &mut v, true, &mut t).unwrap();
-        assert_eq!(num(&ui, p.list, "_highlight_y"), -1.0);
+        assert_eq!(num(&ui, p.list(), "_highlight_y"), -1.0);
         assert_eq!(text(&ui, p.icon, "filename"), "pics\\3.dds", "the display stays filled without the box");
     }
 
@@ -1220,7 +1454,7 @@ mod tests {
         let mut s = snap();
         s.special[0].icon = None;
         run(&mut ui, &s, &mut v, true, &mut t).unwrap();
-        let p = paths(&ui, None).unwrap();
+        let p = paths(&ui, PAGE, None).unwrap();
         assert_eq!(text(&ui, p.icon, "filename"), "");
         assert_eq!(num(&ui, p.icon, "visible"), 1.0, "what follows it in the file stays shown");
         assert_eq!(text(&ui, p.desc, "string"), "one|two");
@@ -1233,7 +1467,7 @@ mod tests {
         // 150 high in a window of 60, 20 a step: 5 steps.
         s.special[0].description = "a|b|c|d|e".into();
         run(&mut ui, &s, &mut v, true, &mut t).unwrap();
-        let p = paths(&ui, None).unwrap();
+        let p = paths(&ui, PAGE, None).unwrap();
         assert_eq!(v.desc_bound(), 5);
         assert_eq!(num(&ui, p.bar, "_number_of_items"), 6.0);
         v.scroll_desc(2);
@@ -1261,13 +1495,13 @@ mod tests {
             run(&mut ui, &snap(), &mut v, true, &mut t).unwrap();
         }
         assert_eq!(t.written.rows, made);
-        let p = paths(&ui, None).unwrap();
-        assert_eq!(live_children(&ui, p.list), 7);
+        let p = paths(&ui, PAGE, None).unwrap();
+        assert_eq!(live_children(&ui, p.list()), 7);
         // The tree built again.
         let mut again = tree();
         run(&mut again, &snap(), &mut v, true, &mut t).unwrap();
-        let p = paths(&again, None).unwrap();
-        assert_eq!(live_children(&again, p.list), 7);
+        let p = paths(&again, PAGE, None).unwrap();
+        assert_eq!(live_children(&again, p.list()), 7);
         assert!(t.written.rows.iter().all(|r| again.is_live(r.tile)));
     }
 
@@ -1287,7 +1521,7 @@ mod tests {
             assert_eq!(after[i], before[i], "row {i} stays itself");
         }
         assert_ne!(after[3].tile, before[3].tile);
-        assert_eq!(after[3].av, before[3].av);
+        assert_eq!(after[3].key, before[3].key);
         assert_eq!(text(&ui, after[3].tile, "string"), "Stat 3");
         assert_eq!(text(&ui, after[3].tile, "user1"), "4");
         assert_eq!(num(&ui, after[3].tile, "listindex"), 3.0);
@@ -1304,7 +1538,7 @@ mod tests {
         ui.unload_tile(before[2].text);
         ui.update();
         run(&mut ui, &snap(), &mut v, true, &mut t).unwrap();
-        let list = paths(&ui, None).unwrap().list;
+        let list = paths(&ui, PAGE, None).unwrap().list();
         assert_eq!(live_children(&ui, list), 7);
         assert!(!ui.is_live(before[2].tile));
         assert!(ui.is_live(t.written.rows[2].text));
@@ -1316,7 +1550,7 @@ mod tests {
         for _ in 0..2 {
             let got = run(&mut ui, &snap(), &mut v, true, &mut t).unwrap_err();
             assert!(got.contains(reason), "{got}");
-            let list = ui.menu(STATS_MENU).and_then(|m| find_named(&ui, m, LIST));
+            let list = ui.menu(STATS_MENU).and_then(|m| find_named(&ui, m, LISTS[0]));
             assert!(list.is_none_or(|l| live_children(&ui, l) == 0 || reason.contains("rows")), "{reason}: rows left");
         }
     }
@@ -1329,8 +1563,176 @@ mod tests {
         falls_back(|x| x.replace("stats_tailline_perks", "other"), "stats_tailline_perks missing");
         falls_back(|x| x.replace("stats_special_container", "other"), "stats_special_container missing");
         falls_back(|x| x.replace(r#"menu name="StatsMenu""#, r#"menu name="Other""#), "StatsMenu is not in the tree");
-        // A list that does not hold its rows: no scrolling here.
-        falls_back(|x| x.replace("<_number_of_visible_items>8<", "<_number_of_visible_items>5<"), "7 rows and the list shows 5");
+    }
+
+    /// [design] A list longer than it shows, in the fixture's own numbers: the model's first row
+    /// is the bar's value, the row's height the step, and the list stands at the height of the
+    /// rows it shows.
+    #[test]
+    fn a_list_longer_than_it_shows_scrolls_by_the_models_first_row() {
+        let (mut ui, mut v, mut t) = (tree(), view(), StatsTiles::default());
+        let menu = run_tab(&mut ui, &snap(), &mut v, 2, &mut t).unwrap();
+        assert_eq!(num(&ui, menu, "user0"), 2.0, "the tab");
+        let p = paths(&ui, 2, None).unwrap();
+        let list = list_named(&ui, "stats_skills_container");
+        assert_eq!(p.list(), list);
+        let made = t.written.rows.clone();
+        assert_eq!((made.len(), rows_under(&ui, list)), (13, 13));
+        assert_eq!(ui.tile(made[3].tile).name, "Skill 3");
+        assert_eq!(num(&ui, made[12].tile, "_y"), 12.0 * ROW);
+        assert_eq!(num(&ui, list, "height"), 9.0 * ROW);
+        assert_eq!(num(&ui, list, "_scroll_delta"), ROW);
+        let bar = list::child(&ui, list, list::SCROLLBAR).unwrap();
+        assert_eq!((num(&ui, bar, "_number_of_items"), num(&ui, bar, "_number_of_visible_items")), (5.0, 1.0));
+        assert_eq!(list::value_shown(&ui, list), Some(0.0));
+        assert_eq!(v.list_most(2), 4, "the model's range, from the file's count");
+        // Two rows down: the value is the model's, the rows move by the file, and what is under
+        // the pointer goes with them.
+        v.scroll(2, 2);
+        run_tab(&mut ui, &snap(), &mut v, 2, &mut t).unwrap();
+        assert_eq!(list::value_shown(&ui, list), Some(2.0));
+        assert_eq!(t.written.geometry.as_ref().map(|g| (g.top, g.visible)), Some((2, 9)));
+        let at_top = fnv_ui::input::hit(&ui, &[menu], (50.0, 30.0 + 0.5 * ROW), &no_measure).unwrap();
+        assert_eq!(stats_tile(&ui, &p, &t.written.rows, at_top.tile), Some(StatsTile::Row(2)));
+        // A row scrolled out takes no pointer past the list's window, and is not asked to.
+        let past = fnv_ui::input::hit(&ui, &[menu], (50.0, 30.0 + 9.5 * ROW), &no_measure);
+        assert_eq!(past.and_then(|h| stats_tile(&ui, &p, &t.written.rows, h.tile)), None);
+        // The file's count of the rows, not the hand-built nine.
+        let (mut ui, mut v, mut t) = (tree_changed(|x| x.replace("<_number_of_visible_items>9<", "<_number_of_visible_items>11<")), view(), StatsTiles::default());
+        run_tab(&mut ui, &snap(), &mut v, 2, &mut t).unwrap();
+        assert_eq!(v.list_most(2), 2);
+        // The tab with the file's count too small for its rows, the first slice's refusal gone.
+        let (mut ui, mut v, mut t) = (tree_changed(|x| x.replace("<_number_of_visible_items>8<", "<_number_of_visible_items>5<")), view(), StatsTiles::default());
+        run(&mut ui, &snap(), &mut v, true, &mut t).unwrap();
+        assert_eq!(v.list_most(PAGE), 2);
+    }
+
+    #[test]
+    fn the_box_stands_where_its_row_is_scrolled_to_and_goes_with_it() {
+        let (mut ui, mut v, mut t) = (tree(), view(), StatsTiles::default());
+        v.highlight = true;
+        v.select(2, 3);
+        v.scroll(2, 2);
+        run_tab(&mut ui, &snap(), &mut v, 2, &mut t).unwrap();
+        let list = list_named(&ui, "stats_skills_container");
+        assert_eq!((num(&ui, list, "_highlight_y"), num(&ui, list, "_selected_height")), (ROW, ROW));
+        // Row 3 out of sight, the selection staying on it: no box, the display still its own.
+        v.scroll(2, 2);
+        run_tab(&mut ui, &snap(), &mut v, 2, &mut t).unwrap();
+        assert_eq!((num(&ui, list, "_highlight_y"), num(&ui, list, "_selected_height")), (-1.0, 0.0));
+        assert_eq!(v.selected[2], 3);
+    }
+
+    #[test]
+    fn a_list_that_stops_scrolling_gets_the_files_step_back() {
+        let (mut ui, mut v, mut t) = (tree(), view(), StatsTiles::default());
+        run_tab(&mut ui, &snap(), &mut v, 2, &mut t).unwrap();
+        let list = list_named(&ui, "stats_skills_container");
+        let bar = list::child(&ui, list, list::SCROLLBAR).unwrap();
+        let mut s = snap();
+        s.skills.truncate(5);
+        run_tab(&mut ui, &s, &mut v, 2, &mut t).unwrap();
+        assert_eq!(num(&ui, list, "_scroll_delta"), 7.0);
+        assert_eq!((num(&ui, bar, "_number_of_items"), list::value_shown(&ui, list)), (1.0, Some(0.0)));
+        assert_eq!(rows_under(&ui, list), 5);
+        assert!(t.written.counted.is_empty());
+        // A list that was never counted is not written.
+        let (mut ui, mut v, mut t) = (tree(), view(), StatsTiles::default());
+        run_tab(&mut ui, &s, &mut v, 2, &mut t).unwrap();
+        let bar = list::child(&ui, list_named(&ui, "stats_skills_container"), list::SCROLLBAR).unwrap();
+        assert!(ui.tile(bar).get("_number_of_items").is_none());
+    }
+
+    /// A name that wraps makes one row taller: the model's whole rows cannot scroll that list,
+    /// while a list that fits does not mind.
+    #[test]
+    fn rows_of_different_heights_cannot_scroll() {
+        let (mut ui, mut v, mut t) = (tree(), view(), StatsTiles::default());
+        run_tab(&mut ui, &snap(), &mut v, 2, &mut t).unwrap();
+        let tall = t.written.rows[3].text;
+        ui.set_trait(tall, "string", Value::Str("two|lines".into()));
+        ui.update();
+        assert!(run_tab(&mut ui, &snap(), &mut v, 2, &mut t).unwrap_err().contains("different heights"));
+        let (mut ui, mut v, mut t) = (tree(), view(), StatsTiles::default());
+        run(&mut ui, &snap(), &mut v, true, &mut t).unwrap();
+        let tall = t.written.rows[3].text;
+        ui.set_trait(tall, "string", Value::Str("two|lines".into()));
+        ui.update();
+        assert!(run(&mut ui, &snap(), &mut v, true, &mut t).is_ok());
+    }
+
+    /// Each list has its own rows, unloaded when another is shown, as a new tree would.
+    #[test]
+    fn going_to_another_list_makes_its_rows_and_takes_the_others_away() {
+        let (mut ui, mut v, mut t) = (tree(), view(), StatsTiles::default());
+        run(&mut ui, &snap(), &mut v, true, &mut t).unwrap();
+        let (special, skills) = (list_named(&ui, "stats_special_container"), list_named(&ui, "stats_skills_container"));
+        let first = t.written.rows[0].tile;
+        run_tab(&mut ui, &snap(), &mut v, 2, &mut t).unwrap();
+        assert_eq!((rows_under(&ui, special), rows_under(&ui, skills)), (0, 13));
+        assert!(!ui.is_live(first));
+        assert_eq!(t.written.paths.map(|p| p.page), Some(2));
+        let menu = run(&mut ui, &snap(), &mut v, true, &mut t).unwrap();
+        assert_eq!((rows_under(&ui, special), rows_under(&ui, skills)), (7, 0));
+        assert_eq!(num(&ui, menu, "user0"), 1.0);
+        // One list's cut leaves the other tab alone.
+        t.cut = Some("stats_skills_container".into());
+        t.written.paths = None;
+        assert!(run(&mut ui, &snap(), &mut v, true, &mut t).is_ok());
+        assert_eq!(run_tab(&mut ui, &snap(), &mut v, 2, &mut t).unwrap_err(), "stats_skills_container missing");
+        t.cut = None;
+        assert!(run_tab(&mut ui, &snap(), &mut v, 2, &mut t).is_ok(), "a failed pass is tried again");
+    }
+
+    /// Rows whose order the model changes keep their tiles, and take their new places.
+    #[test]
+    fn the_rows_stand_in_the_models_order_not_by_their_keys() {
+        let (mut ui, mut v, mut t) = (tree(), view(), StatsTiles::default());
+        let mut s = snap();
+        s.skills.reverse();
+        run_tab(&mut ui, &s, &mut v, 2, &mut t).unwrap();
+        assert_eq!(ui.tile(t.written.rows[0].tile).name, "Skill 12", "as the model has them");
+        assert_eq!(num(&ui, t.written.rows[12].tile, "_y"), 12.0 * ROW);
+        let moved = t.written.rows[0].tile;
+        s.skills.swap(0, 1);
+        run_tab(&mut ui, &s, &mut v, 2, &mut t).unwrap();
+        assert_eq!(t.written.rows[1].tile, moved, "kept");
+        assert_eq!(num(&ui, moved, "listindex"), 1.0);
+        assert_eq!(num(&ui, moved, "_y"), ROW);
+    }
+
+    #[test]
+    fn the_lists_bar_is_told_from_the_descriptions() {
+        let (mut ui, mut v, mut t) = (tree(), view(), StatsTiles::default());
+        let menu = run_tab(&mut ui, &snap(), &mut v, 2, &mut t).unwrap();
+        let p = paths(&ui, 2, None).unwrap();
+        let rows = t.written.rows.clone();
+        let mut pointer = Pointer::default();
+        // Under the list's 12, 30 and the bar's own 170 across.
+        let (bx, by) = (12.0 + 170.0 + 5.0, 30.0);
+        for (y, piece) in [(5.0, BarPiece::Up), (20.0, BarPiece::PageUp), (40.0, BarPiece::PageDown), (58.0, BarPiece::Down)] {
+            let r = at(&mut ui, &mut pointer, menu, bx, by + y, true);
+            assert_eq!(r.clicks.iter().filter_map(|c| stats_tile(&ui, &p, &rows, c.tile)).next_back(), Some(StatsTile::ListBar(piece)));
+        }
+        let r = at(&mut ui, &mut pointer, menu, 12.0 + 170.0 + 17.0, by + 5.0, true);
+        assert_eq!(r.clicks.iter().filter_map(|c| stats_tile(&ui, &p, &rows, c.tile)).next_back(), Some(StatsTile::ListBar(BarPiece::Marker)));
+        // The description's bar is still its own.
+        let r = at(&mut ui, &mut pointer, menu, 400.0 + 210.0 + 5.0, 34.0 + 100.0 + 5.0, true);
+        assert_eq!(r.clicks.iter().filter_map(|c| stats_tile(&ui, &p, &rows, c.tile)).next_back(), Some(StatsTile::StepUp));
+    }
+
+    #[test]
+    fn the_lists_marker_drags_within_the_models_range() {
+        let (mut ui, mut v, mut t) = (tree(), view(), StatsTiles::default());
+        run_tab(&mut ui, &snap(), &mut v, 2, &mut t).unwrap();
+        let p = paths(&ui, 2, None).unwrap();
+        // The bar's top is the list's 30; pressed 2 under the marker at the top.
+        let drag = marker_grab(&ui, &p, BarOf::List, 32.0).unwrap();
+        assert_eq!(drag.of, BarOf::List);
+        assert_eq!(steps_under(&ui, drag, 32.0, 4), Some(0), "held where it stands");
+        assert_eq!(steps_under(&ui, drag, 54.0, 4), Some(2), "22 lower at 11 a step");
+        assert_eq!(steps_under(&ui, drag, 900.0, 4), Some(4));
+        assert_eq!(steps_under(&ui, drag, 0.0, 4), Some(0));
     }
 
     #[test]
@@ -1362,7 +1764,7 @@ mod tests {
           </rect></hotrect>"#;
         let (mut ui, mut v, mut t) = (tree_changed(|x| x.replace(tab, nested)), view(), StatsTiles::default());
         let menu = run(&mut ui, &snap(), &mut v, true, &mut t).unwrap();
-        let p = paths(&ui, None).unwrap();
+        let p = paths(&ui, PAGE, None).unwrap();
         let items = layout::layout(&ui, menu, &|_, _, _| (0.0, 0.0), true);
         let item = |name: &str| items.iter().find(|i| ui.tile(i.tile).name == name).unwrap();
         let words = item("InnerWords");
@@ -1438,14 +1840,14 @@ mod tests {
     fn what_cannot_be_read_whole_is_no_usable_layout() {
         let (mut ui, mut v, mut t) = (tree(), view(), StatsTiles::default());
         run(&mut ui, &snap(), &mut v, true, &mut t).unwrap();
-        let p = paths(&ui, None).unwrap();
+        let p = paths(&ui, PAGE, None).unwrap();
         ui.set_trait(p.desc_rect, "y", Value::Num(2000.0));
         ui.update();
         assert!(run(&mut ui, &snap(), &mut v, true, &mut t).unwrap_err().contains("description does not fit"));
         ui.set_trait(p.desc_rect, "y", Value::Num(100.0));
         ui.update();
         assert!(run(&mut ui, &snap(), &mut v, true, &mut t).is_ok());
-        ui.set_trait(p.list, "width", Value::Num(15.0));
+        ui.set_trait(p.list(), "width", Value::Num(15.0));
         ui.update();
         assert!(run(&mut ui, &snap(), &mut v, true, &mut t).unwrap_err().contains("row 0 does not fit"));
     }
@@ -1456,12 +1858,12 @@ mod tests {
     fn what_a_script_moves_or_hides_is_seen_with_the_model_unchanged() {
         let (mut ui, mut v, mut t) = (tree(), view(), StatsTiles::default());
         run(&mut ui, &snap(), &mut v, true, &mut t).unwrap();
-        let p = paths(&ui, None).unwrap();
+        let p = paths(&ui, PAGE, None).unwrap();
         let area = t.desc_area;
-        ui.set_trait(p.list, "x", Value::Num(1020.0));
+        ui.set_trait(p.list(), "x", Value::Num(1020.0));
         ui.update();
         assert!(run(&mut ui, &snap(), &mut v, true, &mut t).unwrap_err().contains("does not fit"));
-        ui.set_trait(p.list, "x", Value::Num(12.0));
+        ui.set_trait(p.list(), "x", Value::Num(12.0));
         ui.update();
         assert!(run(&mut ui, &snap(), &mut v, true, &mut t).is_ok());
         // The row's target off: the same places, and the pointer's check runs again.
@@ -1487,7 +1889,7 @@ mod tests {
     fn the_screen_menu_has_no_title_or_background_and_gives_them_back() {
         let (mut ui, mut v, mut t) = (tree(), view(), StatsTiles::default());
         run(&mut ui, &snap(), &mut v, false, &mut t).unwrap();
-        let p = paths(&ui, None).unwrap();
+        let p = paths(&ui, PAGE, None).unwrap();
         let from = f64::from(crate::pipboy::frame::lead_line_end());
         assert_eq!(num(&ui, p.title, "visible"), 0.0);
         assert_eq!((num(&ui, p.line, "x"), num(&ui, p.line, "_length")), (from, 340.0 - from), "the line runs on from the lead line to where it ended");
@@ -1503,7 +1905,7 @@ mod tests {
         for device in [true, false] {
             let (mut ui, mut v, mut t) = (tree(), view(), StatsTiles::default());
             run(&mut ui, &snap(), &mut v, device, &mut t).unwrap();
-            let p = paths(&ui, None).unwrap();
+            let p = paths(&ui, PAGE, None).unwrap();
             assert_eq!(num(&ui, p.background.unwrap(), "visible"), 0.0, "device {device}");
         }
         let (mut ui, mut v, mut t) = (tree_changed(|x| x.replace("background_layout", "other")), view(), StatsTiles::default());
@@ -1514,10 +1916,10 @@ mod tests {
     fn only_an_unresolved_title_is_replaced() {
         let (mut ui, mut v, mut t) = (tree(), view(), StatsTiles::default());
         run(&mut ui, &snap(), &mut v, true, &mut t).unwrap();
-        let p = paths(&ui, None).unwrap();
+        let p = paths(&ui, PAGE, None).unwrap();
         assert_eq!(text(&ui, p.title, "string"), "Words", "a replacement's words stand");
         let (mut ui, mut v, mut t) = (tree(), view(), StatsTiles::default());
-        let title = paths(&ui, None).unwrap().title;
+        let title = paths(&ui, PAGE, None).unwrap().title;
         ui.set_trait(title, "string", Value::Str("&sSomeName".into()));
         run(&mut ui, &snap(), &mut v, true, &mut t).unwrap();
         assert_eq!(text(&ui, title, "string"), Page::Stats.title());
@@ -1532,7 +1934,7 @@ mod tests {
     fn canvas_points_hit_rows_tabs_and_the_description_controls() {
         let (mut ui, mut v, mut t) = (tree(), view(), StatsTiles::default());
         let menu = run(&mut ui, &snap(), &mut v, true, &mut t).unwrap();
-        let p = paths(&ui, None).unwrap();
+        let p = paths(&ui, PAGE, None).unwrap();
         let rows = t.written.rows.clone();
         let mut pointer = Pointer::default();
         // Row 2: the list's 12 + 8 across, its 30 + two rows down.
@@ -1563,9 +1965,9 @@ mod tests {
         let mut s = snap();
         s.special[0].description = "a|b|c|d|e".into();
         run(&mut ui, &s, &mut v, true, &mut t).unwrap();
-        let p = paths(&ui, None).unwrap();
+        let p = paths(&ui, PAGE, None).unwrap();
         // At value 0 the marker's top is the bar's, 134 down: pressed 2 under it.
-        let drag = marker_grab(&ui, &p, 136.0).unwrap();
+        let drag = marker_grab(&ui, &p, BarOf::Description, 136.0).unwrap();
         assert_eq!(steps_under(&ui, drag, 136.0, 5), Some(0), "held where it stands");
         assert_eq!(steps_under(&ui, drag, 142.0, 5), Some(2), "6 lower at 3 a step");
         assert_eq!(steps_under(&ui, drag, 900.0, 5), Some(5));
@@ -1599,7 +2001,7 @@ mod tests {
         let spot = (50.0, 30.0 + 1.5 * ROW);
         let (mut ui, mut v, mut t) = (tree_changed(change), view(), StatsTiles::default());
         let menu = run(&mut ui, &s, &mut v, true, &mut t).unwrap();
-        let p = paths(&ui, None).unwrap();
+        let p = paths(&ui, PAGE, None).unwrap();
         let rows = t.written.rows.clone();
         let mut pointer = Pointer::default();
         let mut step = |ui: &mut Ui, pads: &[&str]| pointer.step(ui, &[menu], &Input { at: Some(spot), pads: pads.iter().map(|k| k.to_string()).collect(), ..Default::default() }, &no_measure);
@@ -1711,15 +2113,17 @@ mod tests {
     #[test]
     fn what_is_shown_is_compared_without_a_copy_of_the_rows() {
         let s = snap();
-        let shown = Shown::of(&s, 1, true);
-        assert!(shown.same(&s, 1, true));
-        assert!(!shown.same(&s, 2, true));
-        assert!(!shown.same(&s, 1, false));
+        let at = At { tab: PAGE, reputation: false, selected: 1, device: true };
+        let shown = Shown::of(&s, at);
+        assert!(shown.same(&s, at));
+        assert!(!shown.same(&s, At { selected: 2, ..at }));
+        assert!(!shown.same(&s, At { device: false, ..at }));
+        assert!(!shown.same(&s, At { tab: 2, ..at }));
         let mut hurt = s.clone();
         hurt.hp = Some((10.0, 40.0));
-        assert!(!shown.same(&hurt, 1, true));
+        assert!(!shown.same(&hurt, at));
         let mut other = s.clone();
         other.special[6].name = "Other".into();
-        assert!(!shown.same(&other, 1, true));
+        assert!(!shown.same(&other, at));
     }
 }

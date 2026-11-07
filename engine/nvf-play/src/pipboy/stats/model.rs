@@ -211,10 +211,28 @@ pub fn reputation_title(fame: usize, infamy: usize) -> &'static str {
 /// screenshot in the private references, "pipboy stat tracking", 2026-10-14] (`fnv_game::misc_stats`).
 pub const MISC_STATS: [&str; 43] = fnv_game::misc_stats::NAMES;
 
-/// One row of a list (S.P.E.C.I.A.L., Skills, Perks, General): its name, the number at
-/// the right, the mark after it, and what the display beside the list shows of it.
+/// What a row of a list stands for, so a view that keeps tiles for its rows knows them by
+/// this and not by their words (`crate::tiles::stats_menu`) [design].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum RowKey {
+    /// A row made up for a test or a view's own use.
+    #[default]
+    None,
+    /// An actor value, by its code (S.P.E.C.I.A.L., Skills).
+    Av(u16),
+    /// A perk's record (Perks).
+    Perk(FormId),
+    /// A statistic, by its place in [`MISC_STATS`] (General).
+    Stat(u8),
+    /// A reputation's record (General's other list).
+    Rep(FormId),
+}
+
+/// One row of a list (S.P.E.C.I.A.L., Skills, Perks, General): what it stands for, its name,
+/// the number at the right, the mark after it, and what the display beside the list shows of it.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Row {
+    pub key: RowKey,
     pub name: String,
     pub value: Option<String>,
     pub mark: Option<&'static str>,
@@ -290,7 +308,7 @@ impl Snapshot {
             1 => self.special.clone(),
             2 => self.skills.clone(),
             3 => self.perks.clone(),
-            4 if reputation => self.standings.iter().map(|s| Row { name: s.name.clone(), icon: s.icon.clone(), ..Row::default() }).collect(),
+            4 if reputation => self.standings.iter().map(|s| Row { key: RowKey::Rep(s.form), name: s.name.clone(), icon: s.icon.clone(), ..Row::default() }).collect(),
             4 => self.general.clone(),
             _ => Vec::new(),
         }
@@ -395,6 +413,13 @@ mod tests {
         assert_eq!(reputation_title(0, 0), "Neutral");
         assert_eq!(reputation_title(3, 0), "Idolized");
         assert_eq!(reputation_title(1, 1), "Mixed");
+    }
+
+    #[test]
+    fn every_list_knows_its_rows_by_what_they_stand_for() {
+        let s = Snapshot { standings: vec![Standing { form: FormId(9), name: "A".into(), title: "T", fame: 1.0, infamy: 0.0, icon: None }], ..Snapshot::default() };
+        assert_eq!(s.rows(4, true)[0].key, RowKey::Rep(FormId(9)));
+        assert_eq!(Row::default().key, RowKey::None);
     }
 
     #[test]
