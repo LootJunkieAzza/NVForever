@@ -170,14 +170,17 @@ impl Open {
         self.pointer_pick = false;
     }
 
-    /// The rows the tiles' input chose, in the order asked, among `rows` rows.
+    /// The rows the tiles' input chose, in the order asked, among `rows` rows, up to a repair: it
+    /// is of the row chosen when it was asked, the one whose cost was shown.
     fn chosen_on_tiles(&mut self, asked: &[RepairServicesInput], rows: usize) {
         for a in asked {
-            if let RepairServicesInput::Hover(i) | RepairServicesInput::Select(i) = *a {
-                if i < rows {
+            match *a {
+                RepairServicesInput::Hover(i) | RepairServicesInput::Select(i) if i < rows => {
                     self.selected = i;
                     self.pointer_pick = true;
                 }
+                RepairServicesInput::Repair => return,
+                _ => {}
             }
         }
     }
@@ -747,6 +750,13 @@ mod tests {
         assert_eq!(o.selected, 1, "a row no longer there chooses nothing");
         o.keyed();
         assert_eq!((o.pointer_pick, o.navigated), (false, 1));
+    }
+
+    #[test]
+    fn a_repair_is_of_the_row_chosen_when_it_was_asked() {
+        let mut o = open();
+        o.chosen_on_tiles(&[RepairServicesInput::Select(1), RepairServicesInput::Repair, RepairServicesInput::Hover(2)], 3);
+        assert_eq!(o.selected, 1, "a pointer step after it in the frame moves nothing");
     }
 
     #[test]

@@ -133,9 +133,8 @@ asked for (`top_menu_backing`, playtest list 7 item 2), which the default keeps 
 | the stat cards' `_Value`, the two gains | numbers, "+" and "%" | the model |
 
 Words the hand-built menu shows that this one does not: "Cost:" and the "caps" after the
-figure, on the original's screen alone and not in the strings table [observed: §3's
-screenshots; `crates/fnv-ui/src/strings.rs` has no such setting], so the line reads the
-setting and the figure; the short card titles "CND" and "DAM" from the same screenshots,
+figure, on the original's screen alone [observed: §3's screenshots] and not in the strings
+table [design: `crates/fnv-ui/src/strings.rs`], so the line reads the setting and the figure; the short card titles "CND" and "DAM" from the same screenshots,
 for the settings above.
 
 **A title wider than its place**: the file's meter stands 85 in, which leaves room for a short
