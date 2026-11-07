@@ -1081,10 +1081,14 @@ fn stats_page(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view: 
     // The one measured layout the decision checked; worked out again next frame.
     let pieces = match (menu, view.stats.as_mut()) {
         (Some((ui, menu)), Some(stats)) => {
+            // Told once its rows are there, on whichever tab first has some: Status with no effects
+            // has no code tile to count.
             if drawn.told_menu != Some(menu) {
                 let (file, code) = origins(ui, menu);
-                info!("tiles: {name} drawn from tiles ({file} file tiles, {code} code tiles)");
-                drawn.told_menu = Some(menu);
+                if code > 0 {
+                    info!("tiles: {name} drawn from tiles ({file} file tiles, {code} code tiles)");
+                    drawn.told_menu = Some(menu);
+                }
             }
             let pieces = std::mem::take(&mut stats.pieces);
             let names = pieces.iter().filter(|p| matches!(p.look, Look::Text { .. }) && ui.tile(p.tile).name.eq_ignore_ascii_case("ListItemText")).count();

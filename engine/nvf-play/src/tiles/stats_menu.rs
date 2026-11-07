@@ -139,6 +139,7 @@ const EFFECT_TEMPLATE: &str = "stats_effects_template";
 const EFFECT_NAME: &str = "stats_effect_name";
 const EFFECT_TEXT: &str = "stats_effect_string";
 const NO_EFFECTS: &str = "stats_no_effects";
+const HEALING: &str = "stats_healing_mode";
 const ROW_TEMPLATE: &str = "stats_list_template";
 const ROW_TEXT: &str = "ListItemText";
 const DISPLAY: &str = "stats_display_rect";
@@ -218,6 +219,8 @@ pub struct StatusPaths {
     pub needs: [[TileId; 3]; 3],
     pub effects: TileId,
     pub no_effects: TileId,
+    /// The hidden hint's words, in a file that has them ([`write_status`]).
+    pub healing_text: Option<TileId>,
 }
 
 /// What a tab has of its own.
@@ -407,6 +410,7 @@ pub fn paths(ui: &Ui, page: usize, cut: Option<&str>) -> Result<Paths, String> {
             needs,
             effects: get(EFFECTS)?,
             no_effects: get(NO_EFFECTS)?,
+            healing_text: get(HEALING).ok().and_then(|b| find_named(ui, b, BUTTON_TEXT)),
         })
     } else if page == GENERAL_TAB {
         TabPaths::General(GeneralPaths {
@@ -867,6 +871,12 @@ fn write_status(ui: &mut Ui, menu: TileId, st: &StatusPaths, s: &StatusShown, su
         ui.write_changed(tiles[2], "string", Value::Str(whole(stats::RAD_MAX)));
     }
     ui.write_changed(st.no_effects, "visible", flag(s.no_effects));
+    // The controller's hint between the Stimpak's and the bag's keeps its place while hidden
+    // [observed: run07, the bag's y 114, two boxes of 52 down]: with no words it would measure
+    // nothing, and the bag would stand under the wrong point.
+    if let Some(words) = st.healing_text.filter(|&t| ui.tile(t).get("string").is_none_or(|v| v.text().is_empty())) {
+        ui.write_changed(words, "string", Value::Str(" ".to_string()));
+    }
 }
 
 /// What the screen menu changed of the file, to give back on the device.
@@ -921,7 +931,13 @@ fn write_tabs(ui: &mut Ui, p: &Paths, marked: &mut bool) {
     if std::mem::replace(marked, true) {
         return;
     }
-    for (tab, inner) in p.tabs.into_iter().zip(p.tab_inners) {
+    mark_inner_rects(ui, p.tabs.into_iter().zip(p.tab_inners));
+}
+
+/// The marks of [`write_tabs`] on buttons and their inner rects. The status page's six are the
+/// same prefab [documented: the file's tree]: unmarked they stand twice as far down, over each other.
+fn mark_inner_rects(ui: &mut Ui, buttons: impl IntoIterator<Item = (TileId, Option<TileId>)>) {
+    for (tab, inner) in buttons {
         let Some(inner) = inner else { continue };
         ui.set_trait(tab, fnv_ui::input::NO_ORIGIN, Value::Num(1.0));
         let mut stack = ui.tile(inner).children.clone();
@@ -1148,6 +1164,10 @@ pub(crate) struct Written {
     other_geometry: Option<Geometry>,
     /// The switch's words as the file has them, read once a menu.
     file_switch_word: Option<String>,
+    /// The file each picture's size was written for ([`write_file_sizes`]).
+    file_sizes: HashMap<TileId, String>,
+    /// What is under the status page's buttons' inner rects is marked ([`write_tabs`]).
+    subs_marked: bool,
     /// Each list code has counted for its scroll bar, and the `_scroll_delta` the file gave it.
     counted: Vec<(TileId, f64)>,
     shown: Option<Shown>,
@@ -1220,6 +1240,8 @@ pub(crate) trait PageFonts {
     fn write_sizes(&mut self, ui: &mut Ui, texts: &[TileId], written: &mut SizesWritten) -> usize;
     /// The menu's pieces, as the drawing paints them.
     fn set_out(&mut self, ui: &Ui, menu: TileId) -> Vec<Piece>;
+    /// A picture's own file's size in texels.
+    fn picture_texels(&mut self, name: &str) -> Option<(f64, f64)>;
 }
 
 impl PageFonts for FontKit<'_> {
@@ -1229,6 +1251,42 @@ impl PageFonts for FontKit<'_> {
     }
     fn set_out(&mut self, ui: &Ui, menu: TileId) -> Vec<Piece> {
         super::draw::whole_pieces(ui, menu, self, true)
+    }
+    fn picture_texels(&mut self, name: &str) -> Option<(f64, f64)> {
+        self.picture_size(name).map(|s| (f64::from(s.x), f64::from(s.y)))
+    }
+}
+
+/// `filewidth` and `fileheight` of every picture under `menu`, once for each file it shows: the
+/// file works places and sizes out from them, the RAD meter's place and the limbs' brackets' size
+/// among them, and they read nothing until written [documented: the file's comment "filewidth/
+/// fileheight already adjusted for zoom"; observed: run07, the meter's x 189.4 = 855 - 512 x 1.3, the
+/// karma's picture 384 = 256 x 1.5; design: as `super::tutorial_menu::write_symbol`]. A picture of an
+/// atlas has no file of its own.
+fn write_file_sizes(ui: &mut Ui, menu: TileId, done: &mut HashMap<TileId, String>, fonts: &mut dyn PageFonts) {
+    let mut due = Vec::new();
+    let mut stack = vec![menu];
+    while let Some(t) = stack.pop() {
+        let tile = ui.tile(t);
+        if !tile.live {
+            continue;
+        }
+        stack.extend(tile.children.iter().copied());
+        if tile.kind != "image" || tile.get("texatlas").is_some() {
+            continue;
+        }
+        let name = tile.get("filename").map(|v| v.text().trim().to_string()).unwrap_or_default();
+        if !name.is_empty() && done.get(&t) != Some(&name) {
+            let zoom = tile.get("zoom").filter(|v| !matches!(v, Value::Sym(_))).map_or(100.0, Value::num);
+            due.push((t, name, if zoom > 0.0 { zoom } else { 100.0 }));
+        }
+    }
+    for (t, name, zoom) in due {
+        if let Some((w, h)) = fonts.picture_texels(&name) {
+            ui.set_trait(t, "filewidth", Value::Num(w * zoom / 100.0));
+            ui.set_trait(t, "fileheight", Value::Num(h * zoom / 100.0));
+        }
+        done.insert(t, name);
     }
 }
 
@@ -1308,6 +1366,7 @@ pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, tab: usiz
         w.tell = true;
     }
     if changed || late {
+        write_file_sizes(ui, p.menu, &mut w.file_sizes, fonts);
         ui.update();
         let texts = menus::texts(ui, p.menu);
         // Three rounds: a size leads to a place and a place to a wrap width [design: as
@@ -1319,6 +1378,12 @@ pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, tab: usiz
             ui.update();
         }
         write_tabs(ui, &p, &mut w.tabs_marked);
+        if let TabPaths::Status(st) = &p.tab {
+            if !std::mem::replace(&mut w.subs_marked, true) {
+                let subs: Vec<(TileId, Option<TileId>)> = st.subs.iter().map(|&b| (b, find_named(ui, b, TAB_INNER))).collect();
+                mark_inner_rects(ui, subs);
+            }
+        }
         write_frame(ui, &p, device, &mut w.flat);
         ui.update();
         let g = geometry(ui, &p, list, &w.rows, at.selected, view.highlight, view.top[tab])?;
@@ -1403,7 +1468,7 @@ fn describe(ui: &Ui, p: &Paths, w: &Written) -> String {
     let status = s.status.as_ref().map_or(String::new(), |st| {
         let bars: Vec<String> = st.limbs.iter().map(|c| n(*c)).collect();
         let hints: Vec<String> = st.hints.iter().filter(|h| h.shown).map(|h| format!("{} {} {}", h.words, h.key, if h.lit { "lit" } else { "dim" })).collect();
-        format!("limbs {}, hints {}, rads {}, hardcore {}, ", bars.join(" "), hints.join(" and "), n(st.meter), if st.hardcore { "on" } else { "off" })
+        format!("limbs {}, hints {}, rads {}, hardcore {}, ", bars.join(" "), hints.join(" and "), crate::pipboy::stats::model::whole(st.meter), if st.hardcore { "on" } else { "off" })
     });
     let side = match (&s.general, s.rows.get(s.at.selected).and_then(|r| r.badge.as_deref())) {
         (Some(g), _) if s.at.reputation => format!("reputation picture {}, switch {}, ", g.rep_picture, g.switch_word),
@@ -1927,12 +1992,12 @@ mod tests {
             x += &format!(r#"<hotrect name="{name}"><target>&true;</target><x>{}</x><y>-40</y><width>18</width><height>18</height></hotrect>"#, i * 20);
         }
         for (i, name) in HINT_BUTTONS.iter().enumerate() {
-            x += &format!(r#"<hotrect name="{name}"><target>&true;</target><x>{}</x><y>-20</y><width>18</width><height>18</height><text name="button_text"/><text name="PCShortcutLabel"/></hotrect>"#, i * 20);
+            x += &format!(r#"<hotrect name="{name}"><target>&true;</target><x>{}</x><y>-20</y><width>18</width><height>18</height><text name="button_text"/><text name="PCShortcutLabel"/></hotrect>"#, i * 110);
         }
         for (i, name) in LIMB_TILES.iter().enumerate() {
             x += &format!(r#"<image name="stats_player_{name}"><x>{}</x><y>130</y><image name="stats_player_{name}_pct"><width>18</width><height>18</height><rect name="stats_player_{name}_pct_meter"/></image><text name="stats_player_{name}_crippled"><y>20</y><string>W</string></text></image>"#, i * 20);
         }
-        x += r#"<image name="stats_player_face"/><text name="stats_player_name"/><text name="stats_rad_resist_level"/><text name="stats_player_rads"/><text name="stats_rads_mid"/><text name="stats_rads_max"/>"#;
+        x += r#"<hotrect name="stats_healing_mode"><visible>0</visible><text name="button_text"/></hotrect><image name="stats_player_face"/><text name="stats_player_name"/><text name="stats_rad_resist_level"/><text name="stats_player_rads"/><text name="stats_rads_mid"/><text name="stats_rads_max"/>"#;
         for names in NEEDS {
             for name in names {
                 x += &format!(r#"<text name="{name}"/>"#);
@@ -2068,6 +2133,9 @@ mod tests {
     struct TestFonts;
 
     impl PageFonts for TestFonts {
+        fn picture_texels(&mut self, name: &str) -> Option<(f64, f64)> {
+            (name != "pics\\nofile.dds").then_some((200.0, 100.0))
+        }
         fn write_sizes(&mut self, ui: &mut Ui, texts: &[TileId], written: &mut SizesWritten) -> usize {
             menus::write_text_sizes_of(ui, texts, written, &measure)
         }
@@ -2745,11 +2813,60 @@ mod tests {
             assert_eq!(tile_at(&ui, 705.0 + i as f64 * 20.0, 375.0), Some(StatsTile::Limb(i)), "the word");
         }
         assert_eq!(tile_at(&ui, 705.0, 205.0), Some(StatsTile::Hint(0)));
-        assert_eq!(tile_at(&ui, 725.0, 205.0), None, "a dim hint lets the pointer through");
+        assert_eq!(tile_at(&ui, 815.0, 205.0), None, "a dim hint lets the pointer through");
         // The picture and, over the head, the face: the file makes them targets while hurt.
         let st = status_paths(&ui);
         assert_eq!(stats_tile(&ui, &p, &[], st.limbs[3].picture), Some(StatsTile::Limb(3)));
         assert_eq!(stats_tile(&ui, &p, &[], st.face), Some(StatsTile::Limb(0)));
+    }
+
+    /// [design] A sub-page's button as `mark_inner_rects` meets it, in numbers of this test's own:
+    /// an inner rect repeating the button's place, transparent, over words of their own.
+    #[test]
+    fn a_sub_buttons_inner_rect_neither_moves_it_twice_nor_hides_it() {
+        let plain = r#"<hotrect name="stats_RAD_button"><target>&true;</target><x>20</x><y>-40</y><width>18</width><height>18</height></hotrect>"#;
+        let nested = r#"<hotrect name="stats_RAD_button"><target>&true;</target><x>20</x><y>-40</y><width>18</width><height>18</height>
+          <rect name="stb_text_box"><target>&true;</target><x>20</x><y>-40</y><width>18</width><height>18</height><alpha>0</alpha><text name="InnerWords"><alpha>200</alpha><string>S</string></text></rect></hotrect>"#;
+        let (mut ui, mut v, mut t) = (tree_changed(|x| x.replace(plain, nested)), view(), status_tiles());
+        let menu = run_tab(&mut ui, &status_snap(), &mut v, STATUS_TAB, &mut t).unwrap();
+        let p = paths(&ui, STATUS_TAB, None).unwrap();
+        let items = layout::layout(&ui, menu, &|_, _, _| (0.0, 0.0), true);
+        let words = items.iter().find(|i| ui.tile(i.tile).name == "InnerWords").unwrap();
+        assert_eq!((words.rect.left, words.rect.top, words.alpha), (720.0, 180.0, 200.0), "at its one place, its own alpha");
+        let tile_at = |x: f64, y: f64| fnv_ui::input::hit(&ui, &[menu], (x, y), &no_measure).and_then(|h| stats_tile(&ui, &p, &[], h.tile));
+        assert_eq!(tile_at(725.0, 185.0), Some(StatsTile::Sub(1)));
+        assert_eq!(tile_at(745.0, 145.0), None, "not where the two places added would be");
+    }
+
+    /// The file works from a picture's size: written for the file it shows, its zoom in, again
+    /// when the file changes; one of an atlas, or a file not found, gets none.
+    #[test]
+    fn a_pictures_size_is_written_for_the_file_to_work_from() {
+        let extra = r#"<image name="stats_icon"/>
+          <image name="Sized"><filename>pics\a.dds</filename><zoom>150</zoom><width><copy src="me()" trait="filewidth"/></width></image>
+          <image name="Atlas"><filename>pics\b.dds</filename><texatlas>x.tai</texatlas></image>
+          <image name="Lost"><filename>pics\nofile.dds</filename></image>"#;
+        let (mut ui, mut v, mut t) = (tree_changed(|x| x.replace(r#"<image name="stats_icon"/>"#, extra)), view(), StatsTiles::default());
+        run(&mut ui, &snap(), &mut v, true, &mut t).unwrap();
+        let (sized, atlas, lost) = (list_named(&ui, "Sized"), list_named(&ui, "Atlas"), list_named(&ui, "Lost"));
+        assert_eq!((num(&ui, sized, "filewidth"), num(&ui, sized, "fileheight"), num(&ui, sized, "width")), (300.0, 150.0, 300.0));
+        assert!(ui.tile(atlas).get("filewidth").is_none());
+        assert!(ui.tile(lost).get("filewidth").is_none());
+        let icon = list_named(&ui, "stats_icon");
+        assert_eq!(num(&ui, icon, "filewidth"), 200.0, "a picture code names");
+        ui.set_trait(icon, "filewidth", Value::Num(1.0));
+        v.select(PAGE, 3);
+        run(&mut ui, &snap(), &mut v, true, &mut t).unwrap();
+        assert_eq!(num(&ui, icon, "filewidth"), 200.0, "again for another file");
+    }
+
+    /// The hidden hint keeps a box's height for what stands under it.
+    #[test]
+    fn the_hidden_hint_is_measured_with_no_words_of_its_own() {
+        let (mut ui, mut v, mut t) = (tree(), view(), status_tiles());
+        run_tab(&mut ui, &status_snap(), &mut v, STATUS_TAB, &mut t).unwrap();
+        let words = status_paths(&ui).healing_text.unwrap();
+        assert_eq!((text(&ui, words, "string"), num(&ui, words, "height")), (" ".to_string(), 30.0));
     }
 
     #[test]

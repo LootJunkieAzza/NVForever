@@ -760,7 +760,19 @@ rads [observed: the runs, 0, then 450; hypothesis: a need's on its own page], `u
 | `stats_no_effects/visible` | true on EFF with no rows [observed: the runs] | words the file's |
 
 The arrow's place is the file's from the root's two values [observed: the runs: the zero-to-full span
-over `user2`]. `stats_healing_mode` is the file's, a controller's only [documented: the file].
+over `user2`]. `stats_healing_mode` is the file's, a controller's only [documented: the file]; hidden, it
+keeps a box's height over the bag's hint [observed: the runs, the bag's y 114], so with no words of its own
+its text holds a space to be measured [design].
+
+**Pictures' sizes**, on every tab: `filewidth` and `fileheight` of each picture under the menu, its file's
+texels times its zoom, written for the file it shows (`write_file_sizes`), as the file works from them
+[documented: its comment; observed: the runs, the RAD meter's x 189.4 = 855 - 512 x 1.3, the karma's picture
+384 = 256 x 1.5]. Unwritten they read nothing: the meters stood off the canvas, and the limbs' brackets, the
+karma's and the reputation's pictures had no size to draw or be clicked in. A picture of an atlas has
+none [design].
+
+**The six buttons** are the tabs' prefab, so they get `write_tabs`' marks (`mark_inner_rects`): unmarked each
+inner rect stands twice as far down, its words hidden and over the next button.
 Input: `StatsTile::Sub`, `Hint`, `Limb`, and hover gives `StatsView::hover` for `aimed()`.
 
 **Lost behind the switch**, for the maintainer to accept: the hand-built page's box on a limb
