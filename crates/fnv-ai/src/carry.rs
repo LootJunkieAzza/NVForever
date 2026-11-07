@@ -1165,6 +1165,16 @@ impl Ai {
         } else if self.woken.remove(&actor) {
             self.agents.get_mut(&actor).expect("listed").package = None;
         }
+        // ResetAI after a Dialogue package spoke: the same package is chosen again, but
+        // "the actor's current AI behaviour" was cleared [documented: GECK wiki ResetAI],
+        // so it begins again and talks again. Its Say Once lines being said, the next
+        // line of the topic comes: Jed's and Stella's arrival lines in Zion end with
+        // their own ResetAI for this (HonestHearts.esm INFO 01011187, 01011188, 0101118A)
+        // [observed]. Only ResetAI clears the goal while the package stays the same.
+        let reset = self.agents[&actor].talk == Some(Talking::Done) && game.extra.get(&actor).is_some_and(|e| !e.package_goal_met);
+        if reset {
+            self.agents.get_mut(&actor).expect("listed").package = None;
+        }
         let current = game.current_package(actor);
         if self.agents[&actor].package != current {
             self.log(game, actor, AiEvent::Package { package: current });

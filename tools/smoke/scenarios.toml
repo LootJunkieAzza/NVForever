@@ -19193,3 +19193,77 @@ order = [[
   { re = 'use weapon: VFSJeanBaptisteCuttingREF .* uses WeapLaserRifle on VFSVanGraffVolunteerREF', label = "Jean-Baptiste shoots" },
   { re = 'OnHit of .*0x0012424D ran on Some\(0x00124122\)', label = "the shot hits the volunteer (his OnHit runs)" },
 ]]
+
+[[scenario]]
+name = "silver-rush-soren-flees"
+source = "overnight queue item 40, owner 2026-11-07: after Gloria's line 0012423E (\"; Customer runs out\", VFSVanGraffCustomerREF.StartCombat player) Mr. Soren runs out and the Van Graffs leave the player alone [documented: fallout.wiki Mr. Soren, \"Soren flees the building\"; VMS29aScript state 8 \"Customer runs away\"]. Allies stay out of a fight a script forced on a target that has not fought back (provocation.rs fight_only_forced) [hypothesis]"
+note = "Gloria's line 0012423E said by the aid at 6 s; the player does nothing"
+areas = ["ai", "combat", "scripts"]
+paths = ["crates/fnv-game/src/provocation.rs", "crates/fnv-game/src/combat_group.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "6:info:0x0012423E:VFSGloriaVanGraffREF" }
+args = ["--cell", "FreesideSilverRush", "--play", "--hour", "12", "--no-voice", "--npc-packages", "all"]
+run_seconds = 30
+order = [[
+  { re = 'OnStartCombat of FalloutNV\.esm\|SCPT 0x0012424C ran on Some\(0x00124121\)', label = "Soren's OnStartCombat runs (his flee package)" },
+  { re = "provocation: VFSVanGraffCustomerREF 0x00124121's fight with the player was started by a script", label = "his allies stay out" },
+]]
+forbid = [
+  { re = 'helps VFSVanGraffCustomerREF', label = "no Van Graff takes up his fight" },
+  { text = "VMS29a stage 200 set", label = "the quest does not fail" },
+  { re = 'OnStartCombat of FalloutNV\.esm\|SCPT 0x001251BE', label = "Jean-Baptiste does not fight" },
+]
+
+[[scenario]]
+name = "silver-rush-soren-flees-lobby"
+source = "overnight queue item 40 with a co-op lobby open (the owner's report came from a hosted game): as silver-rush-soren-flees, the host's game"
+note = "as silver-rush-soren-flees, hosting a lobby on port 27991 with no guest"
+areas = ["ai", "combat", "scripts", "coop"]
+paths = ["crates/fnv-game/src/provocation.rs", "crates/fnv-game/src/combat_group.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "6:info:0x0012423E:VFSGloriaVanGraffREF" }
+args = ["--cell", "FreesideSilverRush", "--play", "--hour", "12", "--no-voice", "--npc-packages", "all", "--host", "27991"]
+run_seconds = 30
+expect = [{ re = 'co-op: hosting', label = "the lobby is open" }]
+order = [[
+  { re = 'OnStartCombat of FalloutNV\.esm\|SCPT 0x0012424C ran on Some\(0x00124121\)', label = "hosting: Soren's OnStartCombat runs" },
+  { re = "provocation: VFSVanGraffCustomerREF 0x00124121's fight with the player was started by a script", label = "hosting: his allies stay out" },
+]]
+forbid = [
+  { re = 'helps VFSVanGraffCustomerREF', label = "hosting: no Van Graff helps him" },
+  { text = "VMS29a stage 200 set", label = "hosting: VMS29a not failed" },
+  { re = 'OnStartCombat of FalloutNV\.esm\|SCPT 0x001251BE', label = "hosting: Jean-Baptiste stays calm" },
+]
+
+[[scenario]]
+name = "zion-arrival"
+source = "overnight queue item 26 (2026-11-07): the Honest Hearts arrival stalled after Stella's first line. NVDLC02ZionArrivalCodeHolderScript (HonestHearts.esm SCPT 01010006) runs EVP on Stella at iJedConvo 3; StellaForceGreetTOPIC's 0101118A (next speaker Self, end: NVDLC02StellaREF.ResetAI) must be followed by 0101118B (Goodbye, end: iJedConvo 4), then Jed's Pt2 lines set NVDLC02MQ01 5 (iJedSequence 2, which ends Jed's SayToDone loop)"
+note = "Honest Hearts with FalloutNV.esm only; the player starts at NVDLC02StartMarker; the console sets Happy Trails 100 at 3 s (the arrival: everyone moved to their marks, iState 1); the talk aid answers each conversation a script starts, leaving when the lines are said"
+areas = ["dialogue", "scripts", "ai"]
+paths = ["crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NEAR = "01009406", NVF_PLAY_TEST_CONSOLE = "3:setstage NVDLC02MQ00 100;3.5:close", NVF_PLAY_TEST_TALK = "0:*;0:*;0:*;0:*;0:*;0:*" }
+args = ["--play", "--world", "NVDLC02ZionCanyon", "--plugins", "FalloutNV.esm", "HonestHearts.esm", "--hour", "8", "--no-voice", "--npc-packages", "all"]
+run_seconds = 90
+order = [[
+  { text = "NVDLC02MQ00 stage 100 set", label = "the arrival" },
+  { re = 'NVDLC02StellaREF says .*0x0101118A', label = "Stella's first line" },
+  { re = 'NVDLC02StellaREF says .*0x0101118B', label = "her second line follows" },
+  { text = "NVDLC02MQ01 stage 5 set", label = "Jed's Pt2 line starts Arrival at Zion (iJedSequence 2)" },
+  { text = "player controls: all enabled", label = "the controls come back" },
+]]
+
+[[scenario]]
+name = "zion-arrival-lobby"
+source = "overnight queue item 26 with a co-op lobby open (the owner's stall came from a hosted game, UDP 47960): as zion-arrival, the host's game"
+note = "as zion-arrival, hosting a lobby on port 27992 with no guest"
+areas = ["dialogue", "scripts", "ai", "coop"]
+paths = ["crates/fnv-game/src/dialogue.rs", "crates/fnv-game/src/game.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NEAR = "01009406", NVF_PLAY_TEST_CONSOLE = "3:setstage NVDLC02MQ00 100;3.5:close", NVF_PLAY_TEST_TALK = "0:*;0:*;0:*;0:*;0:*;0:*" }
+args = ["--play", "--world", "NVDLC02ZionCanyon", "--plugins", "FalloutNV.esm", "HonestHearts.esm", "--hour", "8", "--no-voice", "--npc-packages", "all", "--host", "27992"]
+run_seconds = 90
+expect = [{ re = 'co-op: hosting on UDP port 27992', label = "hosting: the lobby is open" }]
+order = [[
+  { text = "NVDLC02MQ00 stage 100 set", label = "hosting: the arrival" },
+  { re = 'NVDLC02StellaREF says .*0x0101118A', label = "hosting: Stella's first line" },
+  { re = 'NVDLC02StellaREF says .*0x0101118B', label = "hosting: then her second" },
+  { text = "NVDLC02MQ01 stage 5 set", label = "hosting: Arrival at Zion starts" },
+  { text = "player controls: all enabled", label = "hosting: the controls come back" },
+]]

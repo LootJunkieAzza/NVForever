@@ -572,6 +572,26 @@ fn a_say_to_package_says_its_line_without_a_conversation() {
     assert_eq!(s.talks(), 1);
 }
 
+/// ResetAI after a Dialogue package spoke begins the package again, so it talks again
+/// (HonestHearts.esm: Jed's and Stella's arrival lines end with their own ResetAI to say
+/// the next Say Once line; overnight queue item 26). ResetAI clears the goal while the
+/// package stays the same (`fnv_game::functions::ai_state::reset_ai`).
+#[test]
+fn reset_ai_after_a_dialogue_package_spoke_makes_it_talk_again() {
+    let f = fixture();
+    let mut s = sim(&f, R_SAY, [300.0, 100.0, 0.0]);
+    s.run(1.0);
+    assert_eq!(s.talks(), 1);
+    s.run(10.0);
+    assert_eq!(s.agent(R_SAY).talk, Some(Talking::Done));
+    // What ResetAI does to the actor's package state (the same package is chosen again).
+    s.game.extra.get_mut(&FormId(R_SAY)).unwrap().package_goal_met = false;
+    s.run(2.0);
+    assert_eq!(s.talks(), 2, "{:?}", s.events());
+    s.run(20.0);
+    assert_eq!(s.talks(), 2, "once per reset");
+}
+
 #[test]
 fn a_conversation_between_two_actors_is_not_carried_out() {
     let f = fixture();

@@ -636,7 +636,7 @@ impl Game<'_> {
         h
     }
 
-    fn hostile_to_now(&mut self, actor: FormId, other: FormId) -> bool {
+    pub(crate) fn hostile_to_now(&mut self, actor: FormId, other: FormId) -> bool {
         if actor == other || actor == FormId::PLAYER_REF || self.is_coop_actor(actor) || !self.world.is_enabled(actor).unwrap_or(false) {
             return false;
         }
