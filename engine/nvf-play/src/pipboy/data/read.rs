@@ -107,7 +107,7 @@ pub fn markers(lo: &LoadOrder, schema: &Schema, refs: &RefTable) -> Vec<Marker> 
 fn map_transform(f: &Fields) -> MapTransform {
     let floats = |sig: &[u8; 4], count: usize| -> Option<Vec<f32>> {
         let data = &f.raw(sig)?.data;
-        (data.len() >= count * 4).then(|| data.chunks_exact(4).take(count).map(|b| f32::from_le_bytes(b.try_into().unwrap())).collect())
+        (data.len() >= count * 4).then(|| data.as_chunks::<4>().0.iter().take(count).map(|b| f32::from_le_bytes(*b)).collect())
     };
     let mut t = MapTransform::default();
     if let Some(o) = floats(b"ONAM", 3) {
