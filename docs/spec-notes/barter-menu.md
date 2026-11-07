@@ -325,7 +325,7 @@ with JIP on a footlocker; interface units; parts a to g, with their shots in the
 
   [hypothesis] That is: the value's range is what overflows the list over the rows' average
   height, rounded up (885 less 365 over 59 is 8.8, so 9), and `_scroll_delta` what overflows by
-  that range, so a value's move is not a row's. It fits all 13 lists read in five menus; the
+  that range, so a value's move is not a row's. It fits all 15 lists read in five menus, which a test in `tiles/list.rs` holds; the
   rows that fit whole from the top, the first reading here, give these two as well but one
   too few on a list with a row of two lines in the Pip-Boy's inventory. A row's `y` is `_y` less value x `_scroll_delta` (-231.11 at value 4 of 57.78), by
   the file [documented].

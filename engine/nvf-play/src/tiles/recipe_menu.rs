@@ -15,9 +15,10 @@
 //! - **The original was captured at 1280 x 720** (crafting.md section 4).
 //! - **An ingredient's row takes no pointer** [observed: no hover and no box, though its `target`
 //!   reads 1 under a list with `target` 0]. This tree's hit test would answer it, so its `target`
-//!   is written 0 here, and its rows stay out of [`list::hit`].
+//!   is written 0 here, and its rows stay out of [`list::hit`] [design].
 //! - **What the file does itself is not written**: it dims Accept from `target` through
-//!   `_line_alpha`, and `_IsContainerListSelected` keeps the file's value [observed].
+//!   `_line_alpha` [documented: text_box.xml], and `_IsContainerListSelected` keeps the file's
+//!   value [observed: -1 in every state read].
 
 use super::item_menu::{mark_menu, on, set};
 use super::list::{self, BarPiece, Drag, Hit, ListView, RowTile, Wanted};
@@ -109,9 +110,10 @@ pub fn built(ui: &Ui) -> Tiled {
     list::template_has(ui, RECIPE_MENU, TEMPLATE, ROW, &[("text", ROW_TEXT), ("text", ROW_VALUE), ("image", ROW_MARK)])
 }
 
-/// [design] This decision is shared by the writer, the drawing and the input.
-pub fn tiled(on: bool, game: &fnv_game::Game<'_>, open: bool) -> bool {
-    on && open && game.ui_files.is_some() && game.menu == Some(fnv_game::crafting::RECIPE_MENU) && built(&game.ui_tree).yes()
+/// Whether this file's menu is the one up: the first half of the writer's decision, which the
+/// drawing and the input read ([`RecipeTiles::menu`]) [design].
+fn up(game: &fnv_game::Game<'_>) -> bool {
+    game.ui_files.is_some() && game.menu == Some(fnv_game::crafting::RECIPE_MENU)
 }
 
 /// A row as shown, in either list.
@@ -195,6 +197,8 @@ pub struct RecipeTiles {
     written_in: Option<TileId>,
     /// The file's title, once a subcategory's name has stood over it.
     file_title: Option<String>,
+    /// [`built`]'s answer, and the menu and tree shape it was worked out on.
+    built_on: Option<(Option<TileId>, u64, Tiled)>,
     sizes: SizesWritten,
     /// A press on a marker, held.
     pub drag: Option<Drag>,
@@ -208,6 +212,20 @@ impl RecipeTiles {
     /// The menu closed: nothing of it stays for the next (the warning does).
     fn close(&mut self) {
         *self = RecipeTiles { warned: self.warned, ..Default::default() };
+    }
+
+    /// [`built`], worked out again only when the tree's shape changed: it reads tiles' names and
+    /// the template, and writes many paths, on every frame the menu is up.
+    fn built_now(&mut self, ui: &Ui) -> Tiled {
+        let (menu, shape) = (ui.menu(RECIPE_MENU), ui.shape());
+        match &self.built_on {
+            Some((m, s, answer)) if *m == menu && *s == shape => answer.clone(),
+            _ => {
+                let answer = built(ui);
+                self.built_on = Some((menu, shape, answer.clone()));
+                answer
+            }
+        }
     }
 
     /// Whether what `s` shows differs from what was written in `menu`, and if so that it is now.
@@ -424,19 +442,23 @@ pub(super) fn write_system(
     }
     let Some(rt) = script.rt.as_ref() else { return };
     let game = &rt.game;
-    if recipe.is_open() && game.ui_files.is_some() && game.menu == Some(fnv_game::crafting::RECIPE_MENU) && !st.warned {
-        if let Tiled::No(reason) = built(&game.ui_tree) {
-            warn!("{RECIPE_MENU} drawn by hand: {reason}");
-            st.warned = true;
-        }
-    }
     if !recipe.is_open() {
         if st.menu.is_some() || st.shown.is_some() {
             st.close();
         }
         return;
     }
-    st.menu = if tiled(true, game, true) { game.ui_tree.menu(RECIPE_MENU) } else { None };
+    st.menu = None;
+    if up(game) {
+        match st.built_now(&game.ui_tree) {
+            Tiled::Yes => st.menu = game.ui_tree.menu(RECIPE_MENU),
+            Tiled::No(reason) if !st.warned => {
+                warn!("{RECIPE_MENU} drawn by hand: {reason}");
+                st.warned = true;
+            }
+            Tiled::No(_) => {}
+        }
+    }
     let Some(menu) = st.menu else { return };
     let word = |key| fnv_game::ui_loading::game_string(game, key);
     let pad = crate::pad::at_menu(fnv_game::crafting::RECIPE_MENU);
@@ -766,11 +788,18 @@ mod tests {
         game.ui_files = Some(Box::new(MemSource::default()));
         game.menu = Some(fnv_game::crafting::RECIPE_MENU);
         game.ui_tree = fixture(|s| s);
-        assert!(tiled(true, game, true));
-        assert!(!tiled(false, game, true));
-        assert!(!tiled(true, game, false));
+        assert!(up(game));
+        let mut st = RecipeTiles::default();
+        assert_eq!(st.built_now(&game.ui_tree), Tiled::Yes);
         assert_eq!(super::super::item_menu::takes_input(game.ui_tree.menu(RECIPE_MENU), true), None, "under the prompt it takes nothing");
+        // The answer stands while the shape does, and follows a tile going.
+        assert_eq!(st.built_now(&game.ui_tree), Tiled::Yes);
+        let shape = game.ui_tree.shape();
+        let icon = game.ui_tree.find_tile(ICON).unwrap();
+        game.ui_tree.unload_tile(icon);
+        assert_ne!(game.ui_tree.shape(), shape);
+        assert!(!st.built_now(&game.ui_tree).yes());
         game.menu = Some(crate::script::MENU_BARTER);
-        assert!(!tiled(true, game, true));
+        assert!(!up(game));
     }
 }

@@ -122,24 +122,24 @@ recipes" has no tile: an empty list is empty.
 **What the original does** [observed: a private capture at 1280 x 720, the menu opened by
 `ShowRecipeMenu` from a script; shots and reads].
 
-- The backing: `RM_Background`'s alpha reads the container's 193.8, once, at the opening. The
-  tiled menu takes it and the tile blur in place of the hand-built `top_menu_backing` the owner
-  chose for that drawing (playtest list 7 item 2; the default keeps it). This is a look
-  difference for the maintainer to see.
+- The backing: `RM_Background`'s alpha reads the container's 193.8, once, at the opening.
+  [design] The tiled menu takes it and the tile blur in place of the hand-built
+  `top_menu_backing` the owner chose for that drawing (playtest list 7 item 2; the default keeps
+  it). This is a look difference for the maintainer to see.
 - Dimming: `alpha` 127 short and 255 met, at `brightness` 255, on a recipe's and an
   ingredient's `ListItemText` and on the skill line, each by its own measure. The skill line's
   `visible` reads 1 in every state, the text empty with no row.
-- Accept: only `target` is written. The file ties `_line_alpha` to it, 128 or 255, and its
-  text's `alpha` to that [documented: `text_box.xml`], and brightness stays 255. Both buttons'
-  `visible` read 1. The key hint is the file's child `PCShortcutLabel`, right of the box, from
+- Accept: the file ties `_line_alpha` to its `target`, 128 or 255, and its text's `alpha` to
+  that [documented: `text_box.xml`], and brightness stays 255, so the adapter writes only `target`
+  [design]. Both buttons' `visible` read 1. The key hint is the file's child `PCShortcutLabel`, right of the box, from
   `_PCButtonText`.
 - The ingredients: rows of the one template in the hotrect `RM_Items_IngredientList` (a `text`
   of that name stands before it [documented: the file], so the path counts from the last,
   `:0`), the whole of "name (have/need)" in `ListItemText`, `ItemValue` empty. The pointer on
   one does nothing, no hover and no box, though a row reads `target` 1 under a list reading 0.
-  This tree's hit test would answer such a row, so the adapter writes its `target` 0.
-- `_IsContainerListSelected` reads -1 in every state, the file's, with the list's `_enabled` 1,
-  so nothing writes it.
+  [design] This tree's hit test would answer such a row, so the adapter writes its `target` 0.
+- `_IsContainerListSelected` reads -1 in every state, the file's, with the list's `_enabled` 1.
+  [design] The adapter leaves it.
 - The title: the file's without a filter, the record's name in its own case with one, and the
   scroll back to 0 on a change.
 - The list's counts fit `list::counts` (barter-menu.md section 8): 41 rows gave 37 items and

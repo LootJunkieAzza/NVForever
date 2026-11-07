@@ -131,9 +131,9 @@ impl Counts {
 /// capture, 15 rows 885 high: 10 items, delta 57.78; 16 rows 937 high: 11, 57.20, twice;
 /// lists that fit: 1 item; the recipe capture, 41 rows: 37 items, delta 60.75]. The positions
 /// after the first are what overflows over the rows' average height, rounded up [hypothesis:
-/// it fits all 13 lists read in five menus; counting the rows whole from the top, as this did,
-/// fits most of them but is one short on an inventory list with one row of two lines, 8 items
-/// read]. A list that fits has no delta of its own here: the capture read the file's 26
+/// it fits all 15 lists read, the test `the_counts_fit_the_lists_read_in_the_original` holds
+/// them; counting the rows whole from the top, as this did, fits most of them but is one short
+/// on an inventory list with one row of two lines, 8 items read]. A list that fits has no delta of its own here: the capture read the file's 26
 /// on a right list with nothing filtered and 57.2 on one with 15 of 16 rows filtered [observed];
 /// and the recipe capture's last filter, 7 rows that fit, read the 60.75 of the list before it;
 /// that every list keeps its last delta so is [hypothesis] from those two (the caller's
@@ -627,6 +627,40 @@ mod tests {
         ui.update();
         assert_eq!(shown(&ui, rows[0].tile), Some(-50.0));
         assert_eq!(shown(&ui, rows[2].tile), Some(60.0));
+    }
+
+    /// [observed: the numbers read from the original at 1280 x 720, in the private jobs named]
+    /// The rows are 52 high, 87 with two lines; where the two-line rows were not read one by
+    /// one (the recipe's filters) their number is worked back from the delta read [hypothesis].
+    /// No list here comes from a menu file's expressions, only what the running game read.
+    #[test]
+    fn the_counts_fit_the_lists_read_in_the_original() {
+        // The job, the rows, how many have two lines, the list's height, items, delta.
+        let lists: [(&str, usize, usize, f64, f64, f64); 15] = [
+            ("container capture, left", 15, 3, 365.0, 10.0, 57.78),
+            ("container capture, right", 16, 3, 365.0, 11.0, 57.20),
+            ("run07_recipe, no filter", 41, 12, 365.0, 37.0, 60.75),
+            ("run07_recipe, filter 1", 7, 1, 365.0, 2.0, 34.0),
+            ("run07_recipe, filter 2", 19, 11, 365.0, 15.0, 72.0),
+            ("run07_recipe, filter 3", 8, 0, 365.0, 2.0, 51.0),
+            ("run07_inventory, Weapons", 15, 1, 468.0, 8.0, 49.57),
+            ("run07_inventory_pipboy, Weapons", 13, 1, 468.0, 6.0, 48.60),
+            ("run07_repair_menu, Weapons", 12, 1, 468.0, 5.0, 47.75),
+            ("run07_inventory, Apparel", 8, 2, 468.0, 2.0, 18.0),
+            ("run07c_inventory, Weapons", 12, 0, 468.0, 4.0, 52.0),
+            ("run07_repair_services", 16, 0, 580.0, 6.0, 50.40),
+            ("run07b_stats, Skills", 13, 0, 468.0, 5.0, 52.0),
+            ("run07b_stats, Perks", 14, 0, 468.0, 6.0, 52.0),
+            ("run07b_stats, General", 43, 0, 542.0, 34.0, 51.33),
+        ];
+        for (job, rows, two_lines, page, items, delta) in lists {
+            let heights: Vec<f64> = (0..rows).map(|i| if i < two_lines { 87.0 } else { 52.0 }).collect();
+            let c = counts(&heights, page);
+            assert_eq!((c.items, c.visible), (items, 1.0), "{job}");
+            assert!((c.delta.unwrap() - delta).abs() < 0.005, "{job}: {:?}", c.delta);
+        }
+        // Lists that fit: 1 item, and no delta of their own (run07c_recipe, the last filter).
+        assert_eq!(counts(&[52.0; 7], 365.0), Counts { items: 1.0, visible: 1.0, delta: None });
     }
 
     #[test]
