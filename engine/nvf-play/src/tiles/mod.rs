@@ -51,6 +51,8 @@ pub mod model;
 pub mod mods;
 pub mod notices;
 pub mod stats_menu;
+pub(crate) mod selection_menu;
+pub mod tag_menu;
 pub mod trait_menu;
 pub mod tutorial_menu;
 pub mod vanilla;
@@ -107,7 +109,7 @@ impl MenuFiles<'_, '_> {
 }
 
 /// Whether `screen()` is written in interface units ([`write_screen`]): only while a T15
-/// menu (`MessageMenu`, `QuantityMenu`, `SleepWaitMenu`, `TutorialMenu`, `ContainerMenu`, `TraitMenu`, `DialogMenu`) or the start menu's Mods page
+/// menu (`MessageMenu`, `QuantityMenu`, `SleepWaitMenu`, `TutorialMenu`, `ContainerMenu`, `TraitMenu`, `CharGenMenu`, `DialogMenu`) or the start menu's Mods page
 /// (T11, `mods`) is switched on, whose files centre their boxes by `screen()` (MCM's `x`
 /// and `y`, menu-xml.md §10), or `StatsMenu`, whose lines take their thickness from the
 /// converter and whose hotrects' `alpha` 0 this same gate lets pass (pipboy.md §5.1.1). The
@@ -118,7 +120,7 @@ impl MenuFiles<'_, '_> {
 /// interface units [observed: hud_menus capture 2026-10-31, three window sizes]; applying them
 /// unconditionally is a follow-up.
 pub fn interface_screen(menus: vanilla::TileMenus) -> bool {
-    menus.message || menus.quantity || menus.sleep_wait || menus.tutorial || menus.container || menus.barter || menus.recipe || menus.traits || menus.start || menus.stats || menus.dialog
+    menus.message || menus.quantity || menus.sleep_wait || menus.tutorial || menus.container || menus.barter || menus.recipe || menus.traits || menus.tags || menus.start || menus.stats || menus.dialog
 }
 
 /// Write `screen()`'s traits for a window `window_width` x `window_height` (logical
@@ -864,7 +866,8 @@ fn write_container(
 /// Works the tree out after the scripts; nothing to do on a frame where nothing changed
 /// it (`fnv_ui::Ui::update`). The scripts' gradual changes step first, on real time
 /// (`fnv_game::ui_gradients`, task T9).
-fn update(mut script: ResMut<ScriptState>, time: Res<Time<Real>>, mut wait_check: ResMut<input::WaitSliderCheck>, mut tutorial_check: ResMut<TutorialScrollCheck>, mut container: ResMut<container_menu::ContainerTiles>, mut barter: ResMut<barter_menu::BarterTiles>, mut recipe: ResMut<recipe_menu::RecipeTiles>, mut traits: ResMut<trait_menu::TraitTiles>) {
+#[allow(clippy::too_many_arguments)]
+fn update(mut script: ResMut<ScriptState>, time: Res<Time<Real>>, mut wait_check: ResMut<input::WaitSliderCheck>, mut tutorial_check: ResMut<TutorialScrollCheck>, mut container: ResMut<container_menu::ContainerTiles>, mut barter: ResMut<barter_menu::BarterTiles>, mut recipe: ResMut<recipe_menu::RecipeTiles>, mut traits: ResMut<trait_menu::TraitTiles>, mut tags: ResMut<tag_menu::TagTiles>) {
     let Some(rt) = script.rt.as_mut() else { return };
     rt.game.ui_gradients.step(&mut rt.game.ui_tree, f64::from(time.delta_secs()));
     if rt.game.ui_files.is_some() {
@@ -888,6 +891,10 @@ fn update(mut script: ResMut<ScriptState>, time: Res<Time<Real>>, mut wait_check
         if traits.menu.is_some() {
             trait_menu::mark_tiles(&mut rt.game.ui_tree);
             traits.check_drawn(&rt.game.ui_tree, &mut |line| info!("{line}"));
+        }
+        if tags.menu.is_some() {
+            selection_menu::mark_tiles::<{ fnv_game::game::menus::TAG_SKILLS }>(&mut rt.game.ui_tree);
+            tags.check_drawn(&rt.game.ui_tree, &mut |line| info!("{line}"));
         }
         // Once, if something changes the tree's shape every frame (#1061).
         if let Some(line) = rt.game.ui_tree.take_reshape_warning() {
@@ -916,6 +923,8 @@ impl Plugin for TilesPlugin {
             .init_resource::<barter_menu::BarterTiles>()
             .init_resource::<recipe_menu::RecipeTiles>()
             .init_resource::<container_menu::TileWheelTitle>()
+            .init_resource::<tag_menu::TagTiles>()
+            .insert_resource(tag_menu::aid_from_env())
             .init_resource::<trait_menu::TraitTiles>()
             .insert_resource(trait_menu::aid_from_env())
             .init_resource::<menus::TileMenuBlur>()
@@ -928,8 +937,9 @@ impl Plugin for TilesPlugin {
             .add_systems(Update, write_container.after(write).before(input::feed))
             .add_systems(Update, barter_menu::write_system.after(write).before(input::feed))
             .add_systems(Update, recipe_menu::write_system.after(write).before(input::feed))
-            // The trait menu's, likewise.
+            // [design] The trait and tag-skill lists, likewise.
             .add_systems(Update, trait_menu::write_system.after(write).before(input::feed))
+            .add_systems(Update, selection_menu::write_system::<{ fnv_game::game::menus::TAG_SKILLS }>.after(write).before(input::feed))
             // T8: the pointer and keys after the engine's writes, before scripts (§4.1 step 1).
             .add_systems(Update, input::feed.after(write).after(crate::menu::WheelHoldSet).before(PlaySet::Activation))
             .add_systems(Update, update.after(PlaySet::Scripts).before(PlaySet::Ui))
@@ -1040,6 +1050,7 @@ mod tests {
         assert!(interface_screen(vanilla::TileMenus { barter: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { recipe: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { traits: true, ..Default::default() }));
+        assert!(interface_screen(vanilla::TileMenus { tags: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { dialog: true, ..Default::default() }));
         write_screen(&mut ui, 1280.0, 720.0, true);
         ui.update();
