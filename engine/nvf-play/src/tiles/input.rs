@@ -382,8 +382,12 @@ impl MenuInputs<'_, '_> {
             }
             RepairServicesTile::Other => return Some(()),
         };
-        // A repair is of the row the tree shows selected, whatever a key did this frame.
+        // A repair is of the row the tree shows selected, whatever a key did this frame, and no
+        // pointer step or other row click after it this frame chooses another.
         let selected = st.selected();
+        if ask == Ask::Repair {
+            *row_acted = true;
+        }
         if let (Ask::Repair, Some(i)) = (ask, selected) {
             self.repair_commands.write(Ask::Select(i));
         }

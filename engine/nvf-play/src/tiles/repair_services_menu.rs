@@ -54,8 +54,8 @@ const ROW_TEXT: &str = "ListItemText";
 const ROW_METER_BACK: &str = "RSM_Template_MeterBackground";
 const ROW_METER: &str = "RSM_Template_Meter";
 const ROW_MARK: &str = "RSM_Template_ItemMarker";
-/// The square of an equipped row where the file names no picture [documented: the hand-built
-/// menu's `crate::repair`, the same file's template].
+/// The square of an equipped row where the file names no picture [design: the hand-built menu's,
+/// `crate::repair`].
 const MARK_PICTURE: &str = "interface\\shared\\marker\\square_filled.dds";
 
 /// A row refused or too dear: `alpha` on its text, fill and square, `brightness` 255; the cost of
@@ -129,8 +129,7 @@ impl Words {
 #[derive(Clone, Debug, PartialEq)]
 pub struct RowShown {
     pub key: RowKey,
-    /// The item's name, the tile's [observed: a row's tile is named after its item,
-    /// `super::list::Wanted`].
+    /// The item's name, the tile's [design: as the other lists' rows, `super::list::Wanted`].
     pub name: String,
     pub text: String,
     pub equipped: bool,
@@ -162,8 +161,8 @@ pub struct Snapshot {
     pub hints: [String; 2],
 }
 
-/// A figure and its setting: "Caps  100" [observed: the same job, a gap about twice a word space;
-/// hypothesis: two spaces, the strings were not read].
+/// A figure and its setting: "Caps  100" [observed: private job run07_repair_services, 1280x720, a
+/// gap about twice a word space; hypothesis: two spaces, the strings were not read].
 fn labelled(word: &str, value: impl std::fmt::Display) -> String {
     format!("{word}  {value}")
 }
@@ -400,7 +399,8 @@ fn write(ui: &mut Ui, s: &Snapshot, st: &mut RepairServicesTiles) {
 }
 
 /// The rows' condition bars: the fill as wide as the condition of the back's width [documented:
-/// repair.md §3, "its fill as wide as the condition (set in code)"; hypothesis: by `width`]. On
+/// repair_services_menu.xml, set in code; observed: private job run07_repair_services, 1280x720,
+/// `width` condition x 60]. On
 /// the tree worked out, so a width the file computes reads true.
 fn write_meters(ui: &mut Ui, rows: &[RowTile<RowKey>], shown: &[RowShown]) {
     for (row, s) in rows.iter().zip(shown) {
@@ -505,10 +505,13 @@ pub(super) fn write_system(
     let shown = open.shown();
     st.menu = if tiled(true, game, true) && shown.is_some() { game.ui_tree.menu(REPAIR_SERVICES_MENU) } else { None };
     let (Some(menu), Some((view, pointer_pick, navigated))) = (st.menu, shown) else { return };
-    let from = (view.clone(), pointer_pick, navigated);
-    let due = st.written_in != Some(menu) || st.from.as_ref() != Some(&from);
-    let new = due.then(|| Snapshot::of(view, pointer_pick, navigated, &Words::read(game)));
-    st.from = Some(from);
+    // Compared in place, cloned only when it changed. `is_changed` would not do: the model's
+    // `keys` and `draw` take the resource mutably every open frame.
+    let same = st.written_in == Some(menu) && st.from.as_ref().is_some_and(|(v, p, n)| v == view && *p == pointer_pick && *n == navigated);
+    let new = (!same).then(|| {
+        st.from = Some((view.clone(), pointer_pick, navigated));
+        Snapshot::of(view, pointer_pick, navigated, &Words::read(game))
+    });
     let Some(rt) = script.rt.as_mut() else { return };
     let ui = &mut rt.game.ui_tree;
     let told = new.is_some_and(|s| apply(ui, menu, s, st));
