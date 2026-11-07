@@ -822,3 +822,13 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       and root arrow direction were checked against a capture of the original at 1280 x 720
       (barter-menu.md section 9). Synthetic tests cover the adapter and a model sale. Smoke
       `tiles-barter`, `tiles-barter-quantity`, `barter-default-drawing` includes 1280x720 shots.
+
+    - **T15, recipe built as a candidate** 2026-11-07 (issue #1468), behind
+      `[UI] TileMenus=RecipeMenu`, hand-built drawing still the default [design:
+      `tiles/recipe_menu.rs`, crafting.md section 4]. A first refactor commit moves a list's view,
+      its settling, the tile walk and the template check into `tiles/list.rs` for menus with no
+      `MenuModel`. The rules, keys, wheel and sounds stay `crate::crafting`'s, asked through
+      `crafting::RecipeInput`; the "How many?" prompt stays hand-built over the tiles. Numbers
+      reused from the container or the hand-built menu are [hypothesis] until the capture
+      (crafting.md section 4). Smoke `tiles-recipe-places`, `tiles-recipe`,
+      `recipe-default-drawing`.

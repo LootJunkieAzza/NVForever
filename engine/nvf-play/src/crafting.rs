@@ -38,6 +38,9 @@
 //! the menu 1024 by 800 in the middle of the screen, the list's box at (20, 20) 464 wide,
 //! the recipe's box 560 further right; the titles in font 6, the values in font 3, the
 //! rows in font 2; Accept and Exit at y 670; observed: the screenshots for the rest].
+//! With `[UI] TileMenus=RecipeMenu` the file itself draws the menu (`crate::tiles::recipe_menu`,
+//! crafting.md section 4): the rules here stay, what it asks comes as [`RecipeInput`], and
+//! [`draw`] spawns only a sheet that takes the pointer and the prompt.
 //! Test aid `NVF_PLAY_TEST_RECIPE=<seconds>:<action>[,…]`: `down`, `up`, `filter` (the
 //! right arrow), `accept`, `exit`, `more` and `less` (the prompt's amount), `cancel` (the
 //! prompt), `shot` (a screenshot `recipe_menu.png` in the working folder). Open the menu through a script, e.g. the console aid's `player.craft
@@ -109,6 +112,7 @@ impl Plugin for CraftingPlugin {
             aid.sort_by(|a, b| a.0.total_cmp(&b.0));
         }
         app.init_resource::<RecipeMenu>()
+            .add_message::<RecipeInput>()
             .insert_resource(RecipeAid(aid))
             .add_systems(Update, (scripts_open, (keys, draw).chain().run_if(in_state(PlayState::Menu))).chain().in_set(PlaySet::Ui))
             .add_systems(OnExit(PlayState::Menu), close);
@@ -129,18 +133,36 @@ impl RecipeMenu {
     }
 }
 
+/// What the menu drawn from its tiles asks (`crate::tiles::input`), read in [`keys`] beside
+/// the keys and the hand-built buttons.
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecipeInput {
+    /// The pointer came onto the row at this place.
+    Hover(usize),
+    /// A click on the row at this place, not the selected one.
+    Select(usize),
+    /// A step of the subcategory filter.
+    Filter(i32),
+    Accept,
+    Exit,
+}
+
 pub struct Open {
     category: FormId,
     station: Option<FormId>,
     /// 0: all; else the subcategory at this place of the view's filters, less one.
-    filter: usize,
-    selected: usize,
+    pub(crate) filter: usize,
+    pub(crate) selected: usize,
     /// The list's first row shown: the keys and the wheel move it to keep the choice in
     /// view, the pointer never does.
     first: usize,
-    drawn: Option<View>,
+    pub(crate) drawn: Option<View>,
     /// The "How many?" prompt: the amount and the most that can be made.
-    quantity: Option<(i32, i32)>,
+    pub(crate) quantity: Option<(i32, i32)>,
+    /// The pointer last moved the selection: a list drawn from tiles stays where it is.
+    pub(crate) pointer_pick: bool,
+    /// A count of the keys' and the wheel's moves, for that list to show its row after one.
+    pub(crate) navigated: u32,
 }
 
 /// How many times the player can make `r` with what it has: the fewest of each
@@ -163,33 +185,37 @@ enum RecipeButton {
 
 /// A row of the list.
 #[derive(Debug, Clone, PartialEq)]
-struct RowView {
-    recipe: FormId,
-    label: String,
+pub(crate) struct RowView {
+    pub(crate) recipe: FormId,
+    pub(crate) label: String,
     /// Can be made now.
-    ready: bool,
+    pub(crate) ready: bool,
 }
 
 /// Everything the menu shows: drawn again when it changes.
 #[derive(Debug, Clone, PartialEq)]
-struct View {
+pub(crate) struct View {
     title: String,
-    rows: Vec<RowView>,
+    pub(crate) rows: Vec<RowView>,
     /// The subcategories the arrows go through, by name.
     filters: usize,
-    selected: usize,
+    /// The subcategory's record name while it filters the list.
+    pub(crate) subcategory: Option<String>,
+    /// The recipes the filter leaves out.
+    pub(crate) filtered: usize,
+    pub(crate) selected: usize,
     /// The first row shown.
     first: usize,
-    made_at: String,
+    pub(crate) made_at: String,
     /// Skill name, the player's value, the level needed.
-    skill: Option<(String, u32, u32)>,
-    /// Name, have, need.
-    ingredients: Vec<(String, u32, u32)>,
-    weight: Option<f32>,
-    value: Option<i32>,
+    pub(crate) skill: Option<(String, u32, u32)>,
+    /// The ingredient, its name, have, need.
+    pub(crate) ingredients: Vec<(FormId, String, u32, u32)>,
+    pub(crate) weight: Option<f32>,
+    pub(crate) value: Option<i32>,
     /// The first output's picture and effects.
-    icon: Option<String>,
-    effects: Option<String>,
+    pub(crate) icon: Option<String>,
+    pub(crate) effects: Option<String>,
     /// The "How many?" prompt: amount and most.
     quantity: Option<(i32, i32)>,
     /// The names the hints use (`crate::pad::labels`).
@@ -225,8 +251,13 @@ fn lacks(rt: &mut crate::script::Runtime, r: &RecipeDef) -> Vec<fnv_game::crafti
     missing(r, 1, |_| skill, |i| counts.iter().find(|c| c.0 == i).map_or(0, |c| c.1))
 }
 
+/// An output's weight as the WG card says it.
+pub(crate) fn weight_text(w: f32) -> String {
+    format!("{w:.1}").trim_end_matches(".0").to_string()
+}
+
 /// What the menu shows for `open`.
-fn view(rt: &mut crate::script::Runtime, sim: &mut SimState, open: &Open) -> View {
+pub(crate) fn view(rt: &mut crate::script::Runtime, sim: &mut SimState, open: &Open) -> View {
     let forms = sim.forms;
     crate::script::with_world(rt, sim, |rt| {
         let data = rt.game.data;
@@ -236,6 +267,7 @@ fn view(rt: &mut crate::script::Runtime, sim: &mut SimState, open: &Open) -> Vie
         subs.sort();
         subs.dedup();
         let filter = subs.get(open.filter.wrapping_sub(1)).map(|s| s.1);
+        let known = all.len();
         let have = |rt: &mut crate::script::Runtime, item: FormId| rt.game.world.item_count(FormId::PLAYER_REF, item).unwrap_or(0) as i64;
         // The recipes that can be made now come first, each part by name (owner's
         // request 2026-10-26).
@@ -244,6 +276,7 @@ fn view(rt: &mut crate::script::Runtime, sim: &mut SimState, open: &Open) -> Vie
         let shown: Vec<&RecipeDef> = listed.iter().map(|l| l.0).collect();
         let rows: Vec<RowView> = listed.iter().map(|&(r, ready)| RowView { recipe: r.form, label: label(r), ready }).collect();
         let selected = open.selected.min(rows.len().saturating_sub(1));
+        let subcategory = filter.map(|_| subs[open.filter - 1].0.clone());
         let title = match filter {
             None => "RECIPES".to_string(),
             Some(_) => subs[open.filter - 1].0.to_uppercase(),
@@ -252,14 +285,15 @@ fn view(rt: &mut crate::script::Runtime, sim: &mut SimState, open: &Open) -> Vie
         let name = |id: FormId| crate::menu::model::display_name(forms, id);
         let made_at = chosen.and_then(|r| r.category).and_then(|c| data.recipe_categories.get(&c)).map_or_else(String::new, |c| c.name.clone());
         let skill = chosen.and_then(|r| r.skill).map(|(av, level)| (skill_name(av).to_string(), fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, av).max(0.0).floor() as u32, level));
-        let ingredients = chosen.map(|r| r.ingredients.iter().map(|&(i, n)| (name(i), have(rt, i).max(0) as u32, n)).collect()).unwrap_or_default();
+        let ingredients = chosen.map(|r| r.ingredients.iter().map(|&(i, n)| (i, name(i), have(rt, i).max(0) as u32, n)).collect()).unwrap_or_default();
         let item = chosen.and_then(|r| r.outputs.first()).and_then(|o| match forms.get(o.0).map(|b| &b.data) {
             Some(fnv_sim::forms::BaseData::Item(it)) => Some((it.weight, it.value, it.icon.clone())),
             _ => None,
         });
         let (weight, value, icon) = item.map_or((None, None, None), |i| (i.0, i.1, i.2));
         let first = keep_in_view(open.first, selected, rows.len(), ROWS);
-        View { title, rows, filters: subs.len(), selected, first, made_at, skill, ingredients, weight, value, icon, effects: None, quantity: open.quantity, labels: crate::pad::labels() }
+        let filtered = known - rows.len();
+        View { title, rows, filters: subs.len(), subcategory, filtered, selected, first, made_at, skill, ingredients, weight, value, icon, effects: None, quantity: open.quantity, labels: crate::pad::labels() }
     })
 }
 
@@ -280,7 +314,7 @@ fn scripts_open(
     }
     let Some(r) = rt.game.recipe_requests.pop() else { return };
     rt.game.recipe_requests.clear();
-    let open = Open { category: r.category, station: r.station, filter: 0, selected: 0, first: 0, drawn: None, quantity: None };
+    let open = Open { category: r.category, station: r.station, filter: 0, selected: 0, first: 0, drawn: None, quantity: None, pointer_pick: false, navigated: 0 };
     let v = view(rt, &mut sim, &open);
     let name = rt.game.data.recipe_categories.get(&r.category).map_or_else(|| r.category.to_string(), |c| c.name.clone());
     let first: Vec<&str> = v.rows.iter().take(6).map(|r| r.label.as_str()).collect();
@@ -318,8 +352,10 @@ fn keys(
     mut sounds: MessageWriter<UiSound>,
     mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>,
     mut moved: MessageReader<bevy::window::CursorMoved>,
+    mut asked: MessageReader<RecipeInput>,
     mut commands: Commands,
 ) {
+    let asked: Vec<RecipeInput> = asked.read().copied().collect();
     // Only a pointer that moves takes the selection: the rows drawn when the menu opens
     // (or redrawn) under a resting pointer leave the keys' choice alone (as `crate::menu`).
     let pointer_moved = moved.read().count() > 0;
@@ -398,12 +434,32 @@ fn keys(
             _ => {}
         }
     }
+    // The menu drawn from its tiles asks what the hand-built buttons would.
+    for input in asked {
+        match input {
+            RecipeInput::Hover(r) => {
+                open.selected = r;
+                open.pointer_pick = true;
+            }
+            RecipeInput::Select(r) => {
+                clicked = Some(RecipeButton::Row(r));
+                open.pointer_pick = true;
+            }
+            RecipeInput::Filter(by) => clicked = Some(if by < 0 { RecipeButton::Left } else { RecipeButton::Right }),
+            RecipeInput::Accept => clicked = Some(RecipeButton::Accept),
+            RecipeInput::Exit => clicked = Some(RecipeButton::Exit),
+        }
+    }
     let wheel = scroll.as_ref().map_or(0.0, |s| s.delta.y);
     if keys.any_just_pressed([KeyCode::ArrowUp, KeyCode::KeyW]) || wheel > 0.0 || act("up") {
         open.selected = open.selected.min(n.saturating_sub(1)).saturating_sub(1);
+        open.pointer_pick = false;
+        open.navigated = open.navigated.wrapping_add(1);
     }
     if keys.any_just_pressed([KeyCode::ArrowDown, KeyCode::KeyS]) || wheel < 0.0 || act("down") {
         open.selected = (open.selected + 1).min(n.saturating_sub(1));
+        open.pointer_pick = false;
+        open.navigated = open.navigated.wrapping_add(1);
     }
     let filters = v.filters + 1;
     if keys.just_pressed(KeyCode::ArrowRight) || clicked == Some(RecipeButton::Right) || act("filter") {
@@ -416,6 +472,9 @@ fn keys(
     }
     if let Some(RecipeButton::Row(r)) = clicked {
         open.selected = r;
+    }
+    if open.filter != before.1 {
+        open.pointer_pick = false;
     }
     open.first = keep_in_view(open.first, open.selected, n, ROWS);
     if (open.selected, open.filter) != before {
@@ -457,6 +516,7 @@ fn follow_made(rt: &mut crate::script::Runtime, sim: &mut SimState, open: &mut O
     let v = view(rt, sim, open);
     if let Some(i) = v.rows.iter().position(|r| r.recipe == recipe) {
         open.selected = i;
+        open.pointer_pick = false;
         open.first = keep_in_view(open.first, i, v.rows.len(), ROWS);
     }
 }
@@ -605,7 +665,7 @@ fn spawn(commands: &mut Commands, look: &RecipeLook, v: &View, words: &[String; 
                 });
             }
             // The output's weight and value.
-            let wg = v.weight.map_or("--".to_string(), |w| format!("{w:.1}").trim_end_matches(".0").to_string());
+            let wg = v.weight.map_or("--".to_string(), weight_text);
             let val = v.value.map_or("--".to_string(), |x| x.to_string());
             for (k, (name, s)) in [("WG", wg), ("VAL", val)].into_iter().enumerate() {
                 let x = 340.0 + k as f32 * 150.0;
@@ -631,7 +691,7 @@ fn spawn(commands: &mut Commands, look: &RecipeLook, v: &View, words: &[String; 
                 }
                 text(b, &look.title, "Ingredients", 50.0, 238.0, bright);
                 let mut y = 298.0;
-                for (name, have, need) in &v.ingredients {
+                for (_, name, have, need) in &v.ingredients {
                     let ok = have >= need;
                     y += wrapped(b, &look.row, &format!("{name} ({have}/{need})"), 110.0, y, 340.0, if ok { bright } else { amber(NOT_READY) }) + 8.0;
                 }
@@ -649,12 +709,25 @@ fn spawn(commands: &mut Commands, look: &RecipeLook, v: &View, words: &[String; 
             }
         });
         // The "How many?" prompt over the menu (module notes).
-        if let Some((amount, most)) = v.quantity {
-            let screen = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() };
-            let q = crate::menu::model::Quantity { cmd: crate::menu::model::Command::One, side: crate::menu::model::Side::Player, row: 0, max: most, amount };
-            root.spawn(screen).with_children(|s| crate::menu::look::spawn_quantity(s, &q, words, kit, data, images, bc));
+        if let Some(quantity) = v.quantity {
+            spawn_prompt(root, quantity, words, kit, data, images, bc);
         }
     });
+}
+
+/// The "How many?" prompt over the menu (module notes): the amount and the most.
+fn spawn_prompt(root: &mut ChildSpawnerCommands, (amount, most): (i32, i32), words: &[String; 2], kit: &mut crate::menu::look::Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) {
+    let screen = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() };
+    let q = crate::menu::model::Quantity { cmd: crate::menu::model::Command::One, side: crate::menu::model::Side::Player, row: 0, max: most, amount };
+    root.spawn(screen).with_children(|s| crate::menu::look::spawn_quantity(s, &q, words, kit, data, images, bc));
+}
+
+/// [`view`] with the selected output's effects (`forms`: where they are read from).
+pub(crate) fn view_with_effects(rt: &mut crate::script::Runtime, sim: &mut SimState, open: &Open, forms: Option<&mut EffectForms>) -> View {
+    let mut v = view(rt, sim, open);
+    let output = v.rows.get(v.selected).and_then(|r| rt.game.data.recipes.get(&r.recipe)).and_then(|r| r.outputs.first()).map(|o| o.0);
+    v.effects = output.zip(forms).and_then(|(o, f)| effects_of(sim, f, o));
+    v
 }
 
 /// Draw the menu again when what it shows changed.
@@ -671,6 +744,8 @@ fn draw(
     formats: Option<Res<CompressedImageFormatSupport>>,
     play: Option<Res<crate::PlayWorld>>,
     (mut forms, mut kit): (Local<Option<EffectForms>>, Local<Option<crate::menu::look::Kit>>),
+    // The tile writer's decision, and the prompt the sheet was last spawned with.
+    (tiles, mut was_tiled): (Option<Res<crate::tiles::recipe_menu::RecipeTiles>>, Local<Option<Option<(i32, i32)>>>),
 ) {
     let Some(open) = menu.0.as_mut() else { return };
     let Some(look) = look else {
@@ -682,12 +757,36 @@ fn draw(
         return;
     };
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
-    let mut v = view(rt, &mut sim, open);
+    // Drawn from its tiles: only a sheet taking the pointer, and the prompt, which stays
+    // hand-built (`crate::tiles::menus::quantity_tiled`). Its `drawn` is the tile writer's.
+    if tiles.is_some_and(|t| t.menu.is_some()) {
+        if *was_tiled == Some(open.quantity) && !roots.is_empty() {
+            return;
+        }
+        *was_tiled = Some(open.quantity);
+        for e in &roots {
+            commands.entity(e).despawn();
+        }
+        let bc = bc_supported(formats.as_deref());
+        let kit = kit.get_or_insert_with(|| crate::menu::look::Kit::load(data.as_deref(), &mut images, bc));
+        let words = crate::menu::look::quantity_words(Some(&rt.game));
+        let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
+        commands.spawn((RecipeRoot, full, GlobalZIndex(crate::interface::TOP_MENU_Z))).with_children(|root| {
+            root.spawn(crate::tiles::menus::modal_sheet());
+            if let Some(quantity) = open.quantity {
+                spawn_prompt(root, quantity, &words, kit, data.as_deref(), &mut images, bc);
+            }
+        });
+        return;
+    }
+    // Back from the tiles: the sheet alone stands, so the hand-built menu is drawn again.
+    if was_tiled.take().is_some() {
+        open.drawn = None;
+    }
     if forms.is_none() {
         *forms = play.as_ref().map(|p| crate::pipboy::stats::read::Forms::new(p.lo, p.schema));
     }
-    let output = v.rows.get(v.selected).and_then(|r| rt.game.data.recipes.get(&r.recipe)).and_then(|r| r.outputs.first()).map(|o| o.0);
-    v.effects = output.zip(forms.as_mut()).and_then(|(o, f)| effects_of(&sim, f, o));
+    let v = view_with_effects(rt, &mut sim, open, forms.as_mut());
     if open.drawn.as_ref() == Some(&v) && !roots.is_empty() {
         return;
     }
@@ -745,6 +844,12 @@ mod tests {
         assert_eq!(times_possible(&r, have), 3);
         assert_eq!(times_possible(&r, |_| 0), 0);
         assert_eq!(times_possible(&RecipeDef::default(), |_| 0), 1);
+    }
+
+    #[test]
+    fn a_weight_drops_a_whole_numbers_point() {
+        assert_eq!(weight_text(2.0), "2");
+        assert_eq!(weight_text(0.5), "0.5");
     }
 
     #[test]

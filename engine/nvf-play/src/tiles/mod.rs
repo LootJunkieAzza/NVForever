@@ -38,6 +38,7 @@
 
 pub mod container_menu;
 pub mod barter_menu;
+pub mod recipe_menu;
 mod item_menu;
 pub mod dialog_menu;
 pub mod draw;
@@ -117,7 +118,7 @@ impl MenuFiles<'_, '_> {
 /// interface units [observed: hud_menus capture 2026-10-31, three window sizes]; applying them
 /// unconditionally is a follow-up.
 pub fn interface_screen(menus: vanilla::TileMenus) -> bool {
-    menus.message || menus.quantity || menus.sleep_wait || menus.tutorial || menus.container || menus.barter || menus.traits || menus.start || menus.stats || menus.dialog
+    menus.message || menus.quantity || menus.sleep_wait || menus.tutorial || menus.container || menus.barter || menus.recipe || menus.traits || menus.start || menus.stats || menus.dialog
 }
 
 /// Write `screen()`'s traits for a window `window_width` x `window_height` (logical
@@ -863,7 +864,7 @@ fn write_container(
 /// Works the tree out after the scripts; nothing to do on a frame where nothing changed
 /// it (`fnv_ui::Ui::update`). The scripts' gradual changes step first, on real time
 /// (`fnv_game::ui_gradients`, task T9).
-fn update(mut script: ResMut<ScriptState>, time: Res<Time<Real>>, mut wait_check: ResMut<input::WaitSliderCheck>, mut tutorial_check: ResMut<TutorialScrollCheck>, mut container: ResMut<container_menu::ContainerTiles>, mut barter: ResMut<barter_menu::BarterTiles>, mut traits: ResMut<trait_menu::TraitTiles>) {
+fn update(mut script: ResMut<ScriptState>, time: Res<Time<Real>>, mut wait_check: ResMut<input::WaitSliderCheck>, mut tutorial_check: ResMut<TutorialScrollCheck>, mut container: ResMut<container_menu::ContainerTiles>, mut barter: ResMut<barter_menu::BarterTiles>, mut recipe: ResMut<recipe_menu::RecipeTiles>, mut traits: ResMut<trait_menu::TraitTiles>) {
     let Some(rt) = script.rt.as_mut() else { return };
     rt.game.ui_gradients.step(&mut rt.game.ui_tree, f64::from(time.delta_secs()));
     if rt.game.ui_files.is_some() {
@@ -879,6 +880,10 @@ fn update(mut script: ResMut<ScriptState>, time: Res<Time<Real>>, mut wait_check
         if barter.menu().is_some() {
             barter_menu::mark_tiles(&mut rt.game.ui_tree);
             barter.view.check_drawn(&rt.game.ui_tree, &mut |line| info!("{line}"));
+        }
+        if recipe.menu.is_some() {
+            recipe_menu::mark_tiles(&mut rt.game.ui_tree);
+            recipe.check_drawn(&rt.game.ui_tree, &mut |line| info!("{line}"));
         }
         if traits.menu.is_some() {
             trait_menu::mark_tiles(&mut rt.game.ui_tree);
@@ -909,6 +914,7 @@ impl Plugin for TilesPlugin {
             .init_resource::<TutorialScrollCheck>()
             .init_resource::<container_menu::ContainerTiles>()
             .init_resource::<barter_menu::BarterTiles>()
+            .init_resource::<recipe_menu::RecipeTiles>()
             .init_resource::<container_menu::TileWheelTitle>()
             .init_resource::<trait_menu::TraitTiles>()
             .insert_resource(trait_menu::aid_from_env())
@@ -921,6 +927,7 @@ impl Plugin for TilesPlugin {
             // T15c: the container menu's state for this frame's input.
             .add_systems(Update, write_container.after(write).before(input::feed))
             .add_systems(Update, barter_menu::write_system.after(write).before(input::feed))
+            .add_systems(Update, recipe_menu::write_system.after(write).before(input::feed))
             // The trait menu's, likewise.
             .add_systems(Update, trait_menu::write_system.after(write).before(input::feed))
             // T8: the pointer and keys after the engine's writes, before scripts (§4.1 step 1).
@@ -1031,6 +1038,7 @@ mod tests {
         assert!(interface_screen(vanilla::TileMenus { tutorial: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { container: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { barter: true, ..Default::default() }));
+        assert!(interface_screen(vanilla::TileMenus { recipe: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { traits: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { dialog: true, ..Default::default() }));
         write_screen(&mut ui, 1280.0, 720.0, true);

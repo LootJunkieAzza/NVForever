@@ -142,6 +142,8 @@ pub struct TileMenuBlur {
     pub container: bool,
     /// `BarterMenu` is drawn from its tiles [design: barter-menu.md section 9].
     pub barter: bool,
+    /// `RecipeMenu` is drawn from its tiles [design: crafting.md section 4].
+    pub recipe: bool,
     /// `TraitMenu` is drawn from its tiles.
     pub traits: bool,
 }
@@ -149,7 +151,7 @@ pub struct TileMenuBlur {
 impl TileMenuBlur {
     /// Any menu drawn from its tiles wants the world blurred.
     pub fn any(self) -> bool {
-        self.tutorial || self.container || self.barter || self.traits
+        self.tutorial || self.container || self.barter || self.recipe || self.traits
     }
 }
 
@@ -232,6 +234,8 @@ pub fn hand_built_takes(menu: &str, key: &str) -> bool {
         &super::container_menu::HAND_BUILT_KEYS
     } else if menu.eq_ignore_ascii_case(super::barter_menu::BARTER_MENU) {
         &super::barter_menu::HAND_BUILT_KEYS
+    } else if menu.eq_ignore_ascii_case(super::recipe_menu::RECIPE_MENU) {
+        &super::recipe_menu::HAND_BUILT_KEYS
     } else if menu.eq_ignore_ascii_case(super::trait_menu::TRAIT_MENU) {
         &super::trait_menu::HAND_BUILT_KEYS
     } else if menu.eq_ignore_ascii_case(super::dialog_menu::DIALOG_MENU) {
