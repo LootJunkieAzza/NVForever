@@ -581,6 +581,9 @@ fn target(
         .filter(|m| m.here && !m.lost && !m.down)
         .filter_map(|m| ray_meets_body(eye, dir, m.feet, INTERACT_REACH).filter(|d| wall.is_none_or(|w| *d <= w + 8.0)).map(|d| (d, m)))
         .min_by(|a, b| a.0.total_cmp(&b.0));
+    // An invitation waiting for Y or N, or a duel under way: the message box stands where
+    // the prompt would (`draw`, mockup 1B), and E there would only open the wheel over it.
+    let near = near.filter(|_| social.invites.shown().is_none() && social.duel.is_none());
     let Some((d, m)) = near else {
         // A stand-in actor the world's targeting found (the host): not Talk.
         if found.0.as_ref().is_some_and(|t| mates.mates.iter().any(|m| m.reference == t.form_id)) {

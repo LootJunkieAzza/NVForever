@@ -6,7 +6,7 @@
 use super::duel::{Phase, Stance};
 use super::wire::Kind;
 use super::{Social, SocialMates};
-use crate::interface::{amber, at, face, plain_font, Face, Pictures};
+use crate::interface::{amber, at, face, plain_font, set_line, Face, Pictures};
 use crate::weapon_wheel::draw::{slice_uniform, slice_uniform_gap, text, SliceMaterial, FONT_1, FONT_3, HUB, INNER, LINE, MATTE, OUTER, RAISE, RIM, SIZE};
 use crate::PlaySet;
 use bevy::image::CompressedImageFormatSupport;
@@ -65,15 +65,6 @@ fn icons_of(kind: Kind) -> [&'static str; 2] {
 /// 2026-11-05, the duel slice's reason "too big"]; the game has no smaller font.
 const SMALL: f32 = 0.72;
 
-/// `face` drawn `k` times its size: every glyph's box and spacing scaled.
-fn scaled(face: &Face, k: f32) -> Face {
-    let mut font = face.font.clone();
-    font.size *= k;
-    for g in &mut font.glyphs {
-        (g.width, g.height, g.before, g.after, g.ascent) = (g.width * k, g.height * k, g.before * k, g.after * k, g.ascent * k);
-    }
-    Face { font, image: face.image.clone() }
-}
 
 /// The gap between the wheel's slices, interface units, at the slices' inner and outer
 /// edges: widening a little towards the rim, so the slices look fitted round the hub, not
@@ -117,7 +108,7 @@ fn draw_wheel(
     let kit = kit.get_or_insert_with(|| Kit {
         large: face(FONT_1, plain_font(31.0, 12.0), data, &mut images, bc),
         medium: face(FONT_3, plain_font(25.0, 10.0), data, &mut images, bc),
-        small: scaled(&face(FONT_3, plain_font(25.0, 10.0), data, &mut images, bc), SMALL),
+        small: crate::interface::scaled_face(&face(FONT_3, plain_font(25.0, 10.0), data, &mut images, bc), SMALL),
         pictures: Pictures::load(data),
     });
     let bright = amber(255.0);
@@ -183,62 +174,156 @@ fn draw_wheel(
 }
 
 #[derive(Component)]
-struct Banner;
+struct BannerRoot;
 
-/// The line under the crosshair: the invitation's prompt first, then the duel's
-/// direction, then the last thing said.
-fn banner_text(social: &Social, mates: &SocialMates, now: f32) -> String {
+/// What the line under the crosshair shows: a small message box [design: the user's
+/// pick of 2026-11-06, mockup 1B], its title in the menus' glow Monofonto, and under a
+/// fading rule either the keys of an invitation or one more line in the HUD's font.
+#[derive(Debug, Clone, PartialEq)]
+struct BannerShown {
+    title: String,
+    lower: Lower,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum Lower {
+    None,
+    /// "Y) Accept" and "N) Decline", side by side.
+    Keys,
+    Line(String),
+}
+
+/// The invitation's keys, as the input reads them (`super::input`).
+const ACCEPT: &str = "Y) Accept";
+const DECLINE: &str = "N) Decline";
+
+/// Mockup 1B's measures, interface units under the view's middle: the backing's top and
+/// bottom (with and without a lower line), the title's, the rule's and the lower line's
+/// base, the room beside the widest line, the gap between the keys [design: mock.py's
+/// `soft_backing(…, 160, …, 330, 0.85, 40)`, `big.draw(…, 215)`, `rule(tw + 40)` at 240,
+/// the keys at 295, 90 apart].
+const BOX_TOP: f32 = 160.0;
+const BOX_BOTTOM: f32 = 330.0;
+const BOX_BOTTOM_TITLE_ONLY: f32 = 255.0;
+const TITLE_BASE: f32 = 215.0;
+const RULE_Y: f32 = 240.0;
+const LOWER_BASE: f32 = 295.0;
+const BOX_SIDE: f32 = 60.0;
+const KEY_GAP: f32 = 90.0;
+const RULE_OVER: f32 = 20.0;
+const BACKING: f32 = 0.85;
+const FEATHER: f32 = 40.0;
+/// The decline key a little dimmer than the accept key [design: mock.py's alpha 0.8].
+const DECLINE_DIM: f32 = 0.8;
+const RULE_ALPHA: f32 = 0.8;
+
+/// The HUD's own font (rollover prompts, corner messages) [documented: Fallout_default.ini
+/// `sFontFile_7`].
+const HUD_FONT: &str = crate::interface::FONT_FILES[6];
+
+/// The line under the crosshair: the invitation first, then the duel's direction, then
+/// the last thing said.
+fn banner(social: &Social, mates: &SocialMates, now: f32) -> Option<BannerShown> {
     if let Some(i) = social.invites.shown() {
         let name = mates.get(i.with).map_or_else(|| format!("Player {}", i.with + 1), |m| m.name.clone());
-        return format!("{}\nY) Accept      N) Decline", super::invite::invite_line(&name, i.kind));
+        return Some(BannerShown { title: super::invite::invite_line(&name, i.kind), lower: Lower::Keys });
     }
     let said = social.banner.as_ref().filter(|(_, until)| now < *until).map(|(l, _)| l.clone());
     if let Some(d) = social.duel.as_ref() {
         let name = mates.get(d.with).map_or_else(|| format!("Player {}", d.with + 1), |m| m.name.clone());
         match d.phase {
             // The countdown is never shown, nor anything else meanwhile.
-            Phase::Countdown { .. } => return String::new(),
+            Phase::Countdown { .. } => return None,
             Phase::Positioning => {
                 let dir = d.mine.hint(&name).unwrap_or_else(|| format!("In position: wait for {name}, then for the signal to draw"));
-                return match said.filter(|l| *l != dir && d.mine != Stance::Ready) {
-                    Some(l) if l.starts_with("The duel") => l,
-                    _ => format!("DUEL WITH {}\n{dir}", name.to_uppercase()),
-                };
+                return Some(match said.filter(|l| *l != dir && d.mine != Stance::Ready) {
+                    Some(l) if l.starts_with("The duel") => BannerShown { title: l, lower: Lower::None },
+                    _ => BannerShown { title: format!("DUEL WITH {}", name.to_uppercase()), lower: Lower::Line(dir) },
+                });
             }
-            Phase::Draw { .. } => return "DRAW!".into(),
+            Phase::Draw { .. } => return Some(BannerShown { title: "DRAW!".into(), lower: Lower::None }),
             _ => {}
         }
     }
-    said.unwrap_or_default()
+    said.filter(|l| !l.is_empty()).map(|title| BannerShown { title, lower: Lower::None })
 }
 
-fn draw_banner(mut commands: Commands, real: Res<Time<Real>>, social: Res<Social>, mates: Res<SocialMates>, mut q: Query<(&mut Text, &mut Visibility), With<Banner>>) {
+struct BannerKit {
+    title: Face,
+    hud: Face,
+    rule: Handle<Image>,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_banner(
+    mut commands: Commands,
+    real: Res<Time<Real>>,
+    social: Res<Social>,
+    mates: Res<SocialMates>,
+    roots: Query<Entity, With<BannerRoot>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    (data, formats): (Option<Res<GameData>>, Option<Res<CompressedImageFormatSupport>>),
+    mut images: ResMut<Assets<Image>>,
+    mut last: Local<Option<(BannerShown, i32)>>,
+    mut kit: Local<Option<BannerKit>>,
+) {
     // Under the trade's barter screen its line is the screen's own (`super::barter`).
     let trading = social.trade.as_ref().is_some_and(|t| t.opened && t.closing.is_none());
-    let s = if trading { String::new() } else { banner_text(&social, &mates, real.elapsed_secs()) };
-    match q.single_mut() {
-        Ok((mut t, mut vis)) => {
-            if t.0 != s {
-                t.0 = s.clone();
-            }
-            vis.set_if_neq(if s.is_empty() { Visibility::Hidden } else { Visibility::Inherited });
-        }
-        Err(_) if !s.is_empty() => {
-            commands
-                .spawn((Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), top: Val::Percent(58.0), justify_content: JustifyContent::Center, ..default() }, GlobalZIndex(40)))
-                .with_children(|p| {
-                    p.spawn((
-                        Banner,
-                        Node { padding: UiRect::axes(Val::Px(14.0), Val::Px(8.0)), ..default() },
-                        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.55)),
-                        Text::new(s),
-                        TextFont { font_size: FontSize::Px(20.0), ..default() },
-                        TextColor(amber(255.0)),
-                    ));
-                });
-        }
-        Err(_) => {}
+    let width = windows.single().map_or(1280.0, |w| 960.0 * w.width() / w.height().max(1.0));
+    let now = if trading { None } else { banner(&social, &mates, real.elapsed_secs()).map(|s| (s, width.round() as i32)) };
+    if now == *last {
+        return;
     }
+    *last = now.clone();
+    for e in &roots {
+        commands.entity(e).despawn();
+    }
+    let Some((s, _)) = now else { return };
+    let bc = crate::interface::bc_supported(formats.as_deref());
+    let data = data.as_deref();
+    let kit = kit.get_or_insert_with(|| BannerKit {
+        title: face(FONT_1, plain_font(31.0, 12.0), data, &mut images, bc),
+        hud: face(HUD_FONT, plain_font(25.0, 11.0), data, &mut images, bc),
+        rule: images.add(crate::interface::fading_rule_image()),
+    });
+    // The game's fonts have no ellipsis: three dots instead.
+    let line_of = |f: &Face, t: &str| f.font.lines(&t.trim().replace('\u{2026}', "..."), None).into_iter().next();
+    let Some(title) = line_of(&kit.title, &s.title) else { return };
+    let lower_w = match &s.lower {
+        Lower::None => 0.0,
+        Lower::Keys => kit.hud.font.width(ACCEPT) + KEY_GAP + kit.hud.font.width(DECLINE),
+        Lower::Line(l) => kit.hud.font.width(l),
+    };
+    let widest = title.width.max(lower_w);
+    let (cx, cy) = (width / 2.0, 480.0);
+    let bottom = if s.lower == Lower::None { BOX_BOTTOM_TITLE_ONLY } else { BOX_BOTTOM };
+    let (bw, bh) = (widest + 2.0 * BOX_SIDE, bottom - BOX_TOP);
+    let backing = images.add(crate::interface::soft_backing_image(bw, bh, FEATHER, BACKING));
+    let bright = amber(255.0);
+    let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
+    commands.spawn((BannerRoot, full, GlobalZIndex(40))).with_children(|r| {
+        r.spawn((crate::interface::soft_backing_node(cx - bw / 2.0, cy + BOX_TOP, bw, bh, FEATHER), ImageNode { image_mode: NodeImageMode::Stretch, ..ImageNode::new(backing) }));
+        set_line(r, &kit.title, &title, cx - title.width / 2.0, cy + TITLE_BASE, bright);
+        if s.lower == Lower::None {
+            return;
+        }
+        let rw = widest + 2.0 * RULE_OVER;
+        r.spawn((at(cx - rw / 2.0, cy + RULE_Y - 1.0, rw, 2.0), ImageNode { color: bright.with_alpha(RULE_ALPHA), image_mode: NodeImageMode::Stretch, ..ImageNode::new(kit.rule.clone()) }));
+        let lower = |r: &mut ChildSpawnerCommands, t: &str, x: f32, a: f32| {
+            if let Some(l) = line_of(&kit.hud, t) {
+                set_line(r, &kit.hud, &l, x, cy + LOWER_BASE, bright.with_alpha(a));
+            }
+        };
+        match &s.lower {
+            Lower::Keys => {
+                let left = cx - lower_w / 2.0;
+                lower(r, ACCEPT, left, 1.0);
+                lower(r, DECLINE, left + kit.hud.font.width(ACCEPT) + KEY_GAP, DECLINE_DIM);
+            }
+            Lower::Line(l) => lower(r, l, cx - lower_w / 2.0, 1.0),
+            Lower::None => {}
+        }
+    });
 }
 
 #[cfg(test)]
@@ -271,14 +356,29 @@ mod tests {
         let mut s = Social::default();
         let mut sink = Vec::new();
         s.invites.heard(0, 1, Kind::Trade, 1 << 12 | 1, 0.0, false, &mut sink);
-        assert_eq!(banner_text(&s, &m, 0.0), "Veronica would like to trade with you\nY) Accept      N) Decline");
+        assert_eq!(banner(&s, &m, 0.0), Some(BannerShown { title: "Veronica would like to trade".into(), lower: Lower::Keys }));
         s.invites.asked.clear();
         let mut d = Duel::new(0, 1, 1, true, 0.0);
         d.step(0.0, Stance::Facing, "Veronica", 0);
         s.duel = Some(d);
-        assert_eq!(banner_text(&s, &m, 0.0), "DUEL WITH VERONICA\nTurn your back to Veronica");
+        assert_eq!(banner(&s, &m, 0.0), Some(BannerShown { title: "DUEL WITH VERONICA".into(), lower: Lower::Line("Turn your back to Veronica".into()) }));
         s.duel.as_mut().unwrap().phase = Phase::Countdown { draw_at: 3.0 };
         s.banner = Some(("anything".into(), 99.0));
-        assert_eq!(banner_text(&s, &m, 1.0), "", "the countdown is never shown");
+        assert_eq!(banner(&s, &m, 1.0), None, "the countdown is never shown");
+    }
+
+    #[test]
+    fn the_backing_fades_out_past_its_box_and_the_rule_towards_its_ends() {
+        let img = crate::interface::soft_backing_image(400.0, 200.0, 40.0, 0.85);
+        let (w, h) = (img.width() as usize, img.height() as usize);
+        let alpha = |x: usize, y: usize| img.data.as_ref().unwrap()[(y * w + x) * 4 + 3];
+        assert_eq!((w, h), (560, 360), "the box and 2 feathers around it");
+        assert!((alpha(w / 2, h / 2) as f32 - 0.85 * 255.0).abs() < 2.0, "full in the middle");
+        assert!(alpha(0, 0) < 3 && alpha(w / 2, 0) < 3, "nothing at the image's edge: no border");
+        let edge = alpha(w / 2, 80);
+        assert!((100..=117).contains(&edge), "about half on the box's own edge: {edge}");
+        let rule = crate::interface::fading_rule_image();
+        let a = |x: usize| rule.data.as_ref().unwrap()[x * 4 + 3];
+        assert!(a(0) < 10 && a(63) < 10 && a(32) == 255 && a(16) == 255 && a(8) < 200);
     }
 }
