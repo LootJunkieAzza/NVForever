@@ -199,6 +199,16 @@ impl Plugin for DroppedPlugin {
 
 type Cells<'w, 's> = Query<'w, 's, (Entity, &'static RenderCell, &'static Transform), Without<DroppedRoot>>;
 
+/// An add-on node (`BSValueNode`) of a created reference's model, ADDN node `index`:
+/// nvforever's particles (`particles.rs`) make it emit that add-on's particle effect, as
+/// a placed reference's does. Before 2026-11-07 created references emitted none, so the
+/// fire Burning Campfire Redone places was its flame cards alone.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct AddonNode {
+    pub reference: u32,
+    pub index: i32,
+}
+
 /// Bring the drawn created references in line with the simulation ([`plan`]).
 #[allow(clippy::too_many_arguments)]
 fn sync_drawn(
@@ -269,10 +279,21 @@ fn sync_drawn(
         // parts (`crate::mines::MineLight`).
         let shapes = match &model.rig {
             Some(rig) if rig.door.is_some() || rig.idle.as_ref().map_or(!rig.groups.is_empty(), |c| !c.only_free_motion()) => {
-                let (r, drawn_shapes) = rig.spawn(&mut commands, root, Transform::IDENTITY, &path);
+                let (r, drawn_shapes, by_name) = rig.spawn_nodes(&mut commands, root, Transform::IDENTITY, &path, 0.0);
                 commands.entity(r).insert(RefVisual(id));
                 for e in &drawn_shapes {
                     commands.entity(*e).insert(RefVisual(id));
+                }
+                // Its billboards turn and its add-on nodes emit from its own nodes, as a
+                // placed reference's do (nvforever world.rs).
+                for n in &model.nodes {
+                    let Some(&e) = n.name.as_ref().and_then(|k| by_name.get(k)) else { continue };
+                    if let Some(mode) = n.billboard {
+                        commands.entity(e).insert(crate::billboards::Billboard { mode, bind: Transform::from_matrix(Mat4::from(n.local)).rotation });
+                    }
+                    if let Some(index) = n.addon {
+                        commands.entity(e).insert(AddonNode { reference: id, index });
+                    }
                 }
                 drawn_shapes.len()
             }
@@ -282,6 +303,17 @@ fn sync_drawn(
                     if let Some(l) = crate::mines::MineLight::of(s.name.as_deref(), &s.ancestors) {
                         commands.entity(e).insert(l);
                     }
+                }
+                // Its add-on nodes: an entity at each, where the model places it.
+                for n in &model.nodes {
+                    let Some(index) = n.addon else { continue };
+                    let mut at = n.local;
+                    let mut up = n.parent;
+                    while let Some(p) = up {
+                        at = model.nodes[p].local * at;
+                        up = model.nodes[p].parent;
+                    }
+                    commands.spawn((Transform::from_matrix(Mat4::from(at)), Visibility::Inherited, AddonNode { reference: id, index }, ChildOf(root)));
                 }
                 model.shapes.len()
             }

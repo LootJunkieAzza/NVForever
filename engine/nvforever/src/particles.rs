@@ -471,7 +471,15 @@ pub struct ParticlesPlugin;
 
 impl Plugin for ParticlesPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Particles>().add_systems(Update, (script_drawn, script_drawn_rig, staged_addons, emit, simulate, draw).chain().after(crate::shot_fx::ShotFxSet)).add_systems(Last, report);
+        app.init_resource::<Particles>().add_systems(Update, (script_drawn, script_drawn_rig, dropped_addons, staged_addons, emit, simulate, draw).chain().after(crate::shot_fx::ShotFxSet)).add_systems(Last, report);
+    }
+}
+
+/// A created reference's add-on nodes (`nvf_play::dropped::AddonNode`) emit as a placed
+/// reference's do: the flames and sparks of the fire Burning Campfire Redone places.
+fn dropped_addons(mut commands: Commands, added: Query<(Entity, &nvf_play::dropped::AddonNode), Added<nvf_play::dropped::AddonNode>>) {
+    for (e, a) in &added {
+        commands.entity(e).insert(AddonEmitter::placed(a.index, a.reference));
     }
 }
 

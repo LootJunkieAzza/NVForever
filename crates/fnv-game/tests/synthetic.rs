@@ -3789,4 +3789,13 @@ fn a_campfire_is_lit_once_and_its_fires_do_not_stack() {
     assert!(again.iter().all(|&f| g.world.peek(f).is_none_or(|s| s.deleted && !s.enabled)));
     // Unlit before: nothing is taken away.
     assert!(g.keep_first_fires(other, &[]).is_empty());
+    // Co-op: held, its silent fires out as the host's are, then all out.
+    assert!(g.campfire_full(fire_place));
+    assert_eq!(g.hold_campfire(fire_place), placed.len());
+    assert_eq!(g.put_out_campfire(fire_place, true), fnv_game::campfire::QUIET_COUNT);
+    assert!(!g.campfire_full(fire_place));
+    assert_eq!(g.campfire_fires(fire_place), vec![placed[0]], "the fire with the sound burns on");
+    assert_eq!(g.put_out_campfire(fire_place, false), 1);
+    assert!(g.campfire_fires(fire_place).is_empty());
+    assert!(matches!(g.light_campfire(fire_place).unwrap(), fnv_game::campfire::Lit::Placed(_)), "out: lit anew");
 }

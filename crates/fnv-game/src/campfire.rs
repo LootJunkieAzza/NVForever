@@ -21,6 +21,10 @@
 //! - [`Game::campfire_fires`] before the plugin's own activation (Craft) and
 //!   [`Game::keep_first_fires`] after it: when the campfire burned before, the fires that
 //!   activation placed are removed with their lights and the burning ones start again.
+//! - Co-op (`nvforever::coop::campfires`): a guest keeps the fires of a campfire burning in
+//!   the host's game ([`Game::hold_campfire`]) and puts them out with the host's
+//!   ([`Game::put_out_campfire`]; [`Game::campfire_full`] says whether the silent ones
+//!   still burn).
 //! - Without the plugin's forms nothing here applies ([`Game::campfire_forms`] is `None`).
 
 use crate::game::Game;
@@ -119,13 +123,37 @@ impl Game<'_> {
         }
         let added: Vec<FormId> = self.campfire_fires(r).into_iter().filter(|f| !before.contains(f)).collect();
         for &fire in &added {
-            if let Some(light) = self.ref_var_named(fire, "MyLight").map(|v| FormId(v as u32)).filter(|l| l.0 != 0) {
-                self.remove_placed(light);
-            }
-            self.remove_placed(fire);
+            self.remove_fire(fire);
         }
         self.restart_fires(before);
         added
+    }
+
+    /// Whether campfire `r` still has a silent fire burning beside the one with the sound
+    /// (the silent ones burn out first).
+    pub fn campfire_full(&self, r: FormId) -> bool {
+        let Some(f) = self.campfire_forms() else { return false };
+        self.campfire_fires(r).iter().any(|&fire| self.world.peek(fire).is_some_and(|s| s.base == f.quiet))
+    }
+
+    /// Co-op: campfire `r` burns in the host's game, so its fires here keep burning (their
+    /// timers start again) until the host's go out. Returns the fires held.
+    pub fn hold_campfire(&mut self, r: FormId) -> usize {
+        let fires = self.campfire_fires(r);
+        self.restart_fires(&fires);
+        fires.len()
+    }
+
+    /// Co-op: the fires at campfire `r` go out here, with the lights they placed, as their
+    /// own script ends them: all of them, or (`quiet_only`) the silent ones. Returns how
+    /// many went out.
+    pub fn put_out_campfire(&mut self, r: FormId, quiet_only: bool) -> usize {
+        let Some(f) = self.campfire_forms() else { return 0 };
+        let fires: Vec<FormId> = self.campfire_fires(r).into_iter().filter(|&fire| !quiet_only || self.world.peek(fire).is_some_and(|s| s.base == f.quiet)).collect();
+        for &fire in &fires {
+            self.remove_fire(fire);
+        }
+        fires.len()
     }
 
     /// Each fire's `Timer` back to 0: it burns its whole time again.
@@ -135,6 +163,14 @@ impl Game<'_> {
             let Some(index) = self.data.script(script).and_then(|s| s.var_index("Timer")) else { continue };
             self.store(key, Some(script), index, fnv_script::vm::Value::Num(0.0), "campfire", false);
         }
+    }
+
+    /// A fire and the light it placed (its `MyLight`) taken away.
+    fn remove_fire(&mut self, fire: FormId) {
+        if let Some(light) = self.ref_var_named(fire, "MyLight").map(|v| FormId(v as u32)).filter(|l| l.0 != 0) {
+            self.remove_placed(light);
+        }
+        self.remove_placed(fire);
     }
 
     /// Disabled and deleted, as the fire's own script ends it.
