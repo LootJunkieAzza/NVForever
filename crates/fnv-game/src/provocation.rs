@@ -182,6 +182,9 @@ pub enum Note {
     AggroAttacks { actor: FormId, distance: f64, radius: f64 },
     /// `helper` stays out of `victim`'s fight: its confidence is Cowardly (module notes).
     StaysOut { helper: FormId, victim: FormId },
+    /// `victim` fights `foe` only because a script told it to (StartCombat) and `foe` has
+    /// not fought back, so its allies leave that fight alone ([`Game::fight_only_forced`]).
+    ForcedOnly { victim: FormId, foe: FormId },
 }
 
 /// The grudges, friendly hits and forgiveness of every actor. The grudges and the
@@ -206,6 +209,8 @@ pub struct Provocations {
     pub aggro_inside: std::collections::BTreeSet<FormId>,
     /// (helper, victim) pairs whose staying out was noted ([`Note::StaysOut`], once).
     pub stayed_out: std::collections::BTreeSet<(FormId, FormId)>,
+    /// (victim, foe) pairs whose forced-only fight was noted ([`Note::ForcedOnly`], once).
+    pub forced_only: std::collections::BTreeSet<(FormId, FormId)>,
 }
 
 impl Provocations {
@@ -443,6 +448,9 @@ impl Game<'_> {
                     if attacker == helper || self.provocations.holds(helper, attacker) || self.would_attack(helper, attacker) {
                         continue;
                     }
+                    if self.fight_only_forced(victim, attacker) {
+                        continue;
+                    }
                     // Never against its own allies and friends [documented: they "cannot
                     // attack each other under any circumstances"].
                     if matches!(self.reaction_to(helper, attacker), ALLY | FRIEND) {
@@ -517,6 +525,46 @@ impl Game<'_> {
             }
         }
         joined
+    }
+
+    /// Whether `victim` fights `foe` only because a script told it to (StartCombat) and
+    /// `foe` has not fought back. That is: the pair was forced; `victim` holds no grudge
+    /// against `foe`; `foe` is not attacking it (in a combat state with `victim` on its
+    /// target list, or having hurt it: [`Self::attackers_of`]); and `victim`'s records
+    /// would not set it on `foe` without the StartCombat.
+    ///
+    /// Allies and alarms leave such a fight alone. This is a [hypothesis] taken from
+    /// VMS29a (docs/design/combat-ai.md §10.3):
+    /// - Gloria's line 0012423E ends with `VFSVanGraffCustomerREF.StartCombat player`
+    ///   under the comment "; Customer runs out";
+    /// - VMS29aScript names that state "8 = Customer runs away";
+    /// - Mr. Soren (0012411C) is Unaggressive and Cowardly, and his OnStartCombat only
+    ///   adds his flee package;
+    /// - every Van Graff (VanGraffFaction, Ally of itself) has Helps Allies, yet Jean-
+    ///   Baptiste's OnStartCombat player reads "If the player pisses him off, the Van
+    ///   Graffs go hostile!" and fails the quest;
+    /// - the wiki says Soren flees the building.
+    ///
+    /// Once `foe` fights back, the fight is an ordinary one and the allies take it up.
+    pub fn fight_only_forced(&mut self, victim: FormId, foe: FormId) -> bool {
+        if !self.awareness.forced.contains(&(victim, foe)) || self.provocations.holds(victim, foe) {
+            return false;
+        }
+        let attacks = self.awareness.get(foe).is_some_and(|a| a.state.in_combat() && a.targets.contains_key(&victim));
+        let hurt = self.awareness.get(victim).is_some_and(|a| a.alarms.iter().any(|x| x.cause == Cause::Hurt && x.owner == foe));
+        if attacks || hurt {
+            return false;
+        }
+        self.awareness.forced.remove(&(victim, foe));
+        let by_records = self.hostile_to_now(victim, foe);
+        self.awareness.forced.insert((victim, foe));
+        if by_records {
+            return false;
+        }
+        if self.provocations.forced_only.insert((victim, foe)) {
+            self.provocations.notes.push(Note::ForcedOnly { victim, foe });
+        }
+        true
     }
 
     /// Who attacks `victim`, with where they are: every actor in a combat state with

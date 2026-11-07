@@ -924,6 +924,39 @@ fn a_cowardly_ally_stays_out_of_fights() {
 }
 
 #[test]
+fn allies_stay_out_of_a_fight_a_script_forced_until_the_target_fights_back() {
+    // Overnight queue item 40 (Silver Rush, VMS29a): Gloria's line makes Mr. Soren
+    // StartCombat the player so that he runs out; the Van Graffs (his allies, Helps
+    // Allies) do not join [hypothesis: Game::fight_only_forced]. Once the player hurts
+    // him, it is an ordinary fight and they do.
+    use fnv_game::awareness::Change;
+    let f = fixture();
+    let mut g = game(&f);
+    let (own, helper, player) = (FormId(OWN_REF), FormId(HELPER_REF), FormId::PLAYER_REF);
+    only_near(&mut g, &[OWN_REF, HELPER_REF]);
+    assert!(!g.would_attack(own, player), "neutral to the player by its records");
+    g.start_combat(own, player);
+    assert!(g.would_attack(own, player));
+    g.detection.pairs.insert((helper, own), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, g.time));
+    assert_eq!(g.call_allies(), 0);
+    assert!(!g.would_attack(helper, player));
+    let notes = g.provocations.take_notes();
+    assert_eq!(notes.iter().filter(|n| matches!(n, Note::ForcedOnly { victim, foe } if *victim == own && *foe == player)).count(), 1);
+    // No alarm either.
+    let now = g.time;
+    g.awareness.changes.push(Change { actor: own, from: State::Normal, to: State::Combat, time: now, about: Some(player), cause: None, at: Some([500.0, 0.0, 0.0]), value: Some(5.0) });
+    let near: std::collections::BTreeMap<FormId, [f32; 3]> = [(own, [0.0; 3]), (helper, [300.0, 0.0, 0.0]), (player, [500.0, 0.0, 0.0])].into_iter().collect();
+    assert_eq!(g.raise_alarms(&near), 0);
+    assert!(!g.would_attack(helper, player));
+    // The player fights back (a hit: attacked_by, then hurt_by as the engine calls
+    // them): the ally joins.
+    g.attacked_by(own, player);
+    assert!(g.hurt_by(own, player, [500.0, 0.0, 0.0]));
+    assert_eq!(g.call_allies(), 1);
+    assert!(g.would_attack(helper, player));
+}
+
+#[test]
 fn an_actor_warns_then_attacks_a_player_inside_its_aggro_radius() {
     // Playtest list 4, item 18 (`fnv_game::aggro`): unaggressive and neutral to the
     // player, Aggro Radius Behavior on, radius 650. Two warnings 5 s apart (iGuardWarnings,
