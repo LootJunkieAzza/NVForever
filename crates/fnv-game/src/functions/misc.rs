@@ -207,10 +207,10 @@ pub fn zero(_g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
 /// its greeting to its end [owner statement 2026-10-10: such a dialogue pauses the game;
 /// documented: GECK wiki GetMenuTargetRef, owner export, for the code 1009]. `MenuMode 1`
 /// is any of the Pip-Boy's menus; a loading screen is a menu (1007) [hypothesis]; the
-/// codes: `Game::menu_open`, `game::menus`.
+/// codes: `Game::menu_open`, `game::menus`. A live menu (`Game::live_menu`) counts.
 pub fn menu_mode(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     Ok(Value::bool(match a.num(0).ok().filter(|c| *c != 0.0) {
-        None => g.in_menu() || g.loading,
+        None => g.in_menu() || g.loading || g.live_menu.is_some(),
         Some(c) => c.fract() == 0.0 && (0.0..=u16::MAX as f64).contains(&c) && g.menu_open(c as u16),
     }))
 }

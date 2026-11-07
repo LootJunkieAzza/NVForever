@@ -114,6 +114,9 @@ pub struct TileFonts {
     /// The faces' fonts, owned, for the text widths a frame keeps back
     /// ([`fnv_game::ui_hud::defer`]); made again when a face is read.
     measure: Option<fnv_game::ui_hud::Measure>,
+    /// The faces' fonts, owned, for the texts a script measures between frames
+    /// ([`fnv_game::ui_hud::size_texts`]); made again when a face is read.
+    text_size: Option<fnv_game::ui_hud::TextSize>,
     /// What each notice text copy's width was last measured from
     /// ([`super::notices::write_widths`]).
     notice_widths: super::notices::WidthsWritten,
@@ -135,6 +138,7 @@ impl FontKit<'_> {
             let f = face(FONT_FILES[n as usize - 1], plain_font(31.0, 15.0), self.data.as_deref(), &mut self.images, bc);
             self.fonts.faces.insert(n, f);
             self.fonts.measure = None;
+            self.fonts.text_size = None;
         }
     }
 
@@ -220,6 +224,21 @@ impl FontKit<'_> {
         }
         let faces = &self.fonts.faces;
         move |font: f64, text: &str, wrap: Option<f64>| faces.get(&font_number(font)).map_or((0.0, 0.0), |face| measure_written(&face.font, font_number(font), text, wrap))
+    }
+
+    /// [`FontKit::menu_measure`] owned, for the game to measure the mods' HUD texts
+    /// between frames ([`fnv_game::ui_hud::TextSizer`]), its `fonts` loaded first.
+    pub(crate) fn text_size(&mut self, fonts: &[f64]) -> fnv_game::ui_hud::TextSize {
+        for &font in fonts {
+            self.load(font);
+        }
+        if let Some(size) = &self.fonts.text_size {
+            return size.clone();
+        }
+        let owned: HashMap<u8, Font> = self.fonts.faces.iter().map(|(&n, face)| (n, face.font.clone())).collect();
+        let size: fnv_game::ui_hud::TextSize = std::sync::Arc::new(move |font: f64, text: &str, wrap: Option<f64>| owned.get(&font_number(font)).map_or((0.0, 0.0), |f| measure_written(f, font_number(font), text, wrap)));
+        self.fonts.text_size = Some(size.clone());
+        size
     }
 
     /// A picture's own file's size in texels, read once by the one who asks (the tutorial
@@ -891,6 +910,21 @@ pub(crate) struct View<'w, 's> {
     /// The pause menu and its page, for the Mods page (T11, `super::mods`).
     paused: Option<Res<'w, crate::pause::Paused>>,
     page: Option<Res<'w, crate::pause::Page>>,
+    /// The Pip-Boy and its glance, which hide the mods' HUD tiles ([`mods_hidden`]).
+    pipboy: Option<Res<'w, crate::pipboy::PipBoy>>,
+    glance: Option<Res<'w, crate::pipboy::glance::Glance>>,
+}
+
+/// Whether the mods' tiles in the HUD are not drawn: the HUD menu hidden (`visible` 0,
+/// as the engine writes it in menus, dialogue and loading screens, or a script), whose
+/// children go with it [hypothesis: docs/spec-notes/menu-xml.md, a false `visible` hides
+/// the whole subtree; JAM's loot menu and JVO's marks are `HUDMainMenu` children, and
+/// JAM's handlers return on `MenuMode` without hiding them], or the
+/// Pip-Boy up over a running game (co-op's live Pip-Boy, the glance), which leaves the
+/// HUD's state alone [design: owner's playtest 2026-11-06, JAM's loot menu, its key hints
+/// and JVO's marks drew over the Pip-Boy].
+pub fn mods_hidden(ui: &Ui, menu: TileId, pipboy_up: bool) -> bool {
+    pipboy_up || ui.tile(menu).get("visible").is_some_and(|v| !v.truthy())
 }
 
 /// The colours an [`Ink`] node may carry.
@@ -1080,7 +1114,7 @@ fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut Fon
     // With the tile HUD off and no mod tiles in the HUD (the default game), nothing to
     // walk or lay out (`fnv_ui::Ui::has_mod_added_tiles`, a kept count) [design: #938].
     let (pieces, roots) = match menu {
-        Some((ui, menu)) if whole || ui.has_mod_added_tiles(menu) => {
+        Some((ui, menu)) if whole || (ui.has_mod_added_tiles(menu) && !mods_hidden(ui, menu, crate::reticle::pipboy_hides_crosshair(view.pipboy.as_deref(), view.glance.as_deref()))) => {
             // The fonts of the text tiles drawn, read before measuring.
             let mut stack = if whole { vec![menu] } else { ui.mod_added_tiles(menu) };
             while let Some(t) = stack.pop() {

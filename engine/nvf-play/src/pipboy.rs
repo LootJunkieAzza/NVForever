@@ -493,12 +493,18 @@ pub fn menu_code(page: Page, repairing: bool, modding: bool) -> u16 {
 /// it opens as the inventory, 1002, `crate::script::engine_menu_opened`). Logged:
 /// `pipboy: menu code <code>`.
 fn report_menu(pip: Res<PipBoy>, repair: Res<repair::PipRepair>, modding: Res<item_mod::PipItemMod>, script: Option<ResMut<crate::script::ScriptState>>, live: Option<Res<crate::menu::LiveMenu>>) {
-    // Opened without a pause (co-op, `crate::menu::LiveMenu`): the scripts stay in game mode.
-    if !pip.open() || live.is_some_and(|l| l.open) {
-        return;
-    }
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
     let code = menu_code(pip.page, repair.is_open(), modding.is_open());
+    // Opened without a pause (co-op, `crate::menu::LiveMenu`): the scripts stay in game
+    // mode, only the MenuMode function answers (`fnv_game::Game::live_menu`).
+    let live_now = (pip.open() && live.is_some_and(|l| l.open)).then_some(code);
+    if rt.game.live_menu != live_now {
+        info!("pipboy: live menu code {}", live_now.map_or("none".into(), |c| c.to_string()));
+        rt.game.live_menu = live_now;
+    }
+    if !pip.open() || live_now.is_some() {
+        return;
+    }
     if rt.game.menu != Some(code) && rt.game.set_pipboy_menu(code) {
         info!("pipboy: menu code {code}");
     }

@@ -337,6 +337,9 @@ fn on_screen(cam: &Camera, t: &GlobalTransform, size: Vec2, p: [f32; 3]) -> Opti
     Some((s, in_front))
 }
 
+/// The play state and the Pip-Boy (full and glance), which hide the marks.
+type PlayAndPipBoy<'w> = (Res<'w, State<PlayState>>, Option<Res<'w, crate::pipboy::PipBoy>>, Option<Res<'w, crate::pipboy::glance::Glance>>);
+
 #[allow(clippy::too_many_arguments)]
 fn draw(
     mut commands: Commands,
@@ -345,7 +348,7 @@ fn draw(
     mates: Res<SocialMates>,
     loc: Option<Res<Location>>,
     sim: Option<Res<SimState>>,
-    state: Res<State<PlayState>>,
+    (state, pipboy, glance): PlayAndPipBoy,
     cameras: Query<(&Camera, &GlobalTransform), With<PlayerCamera>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     data: Option<Res<GameData>>,
@@ -355,7 +358,10 @@ fn draw(
     mut kit: Local<Option<Kit>>,
     mut last: Local<Vec<(Shown, Entity)>>,
 ) {
-    let playing = matches!(*state.get(), PlayState::Playing);
+    // Not over a menu: the paused ones leave `Playing`; the Pip-Boy up over a running game
+    // (co-op's live Pip-Boy, the glance) hides them too, as JVO hides its own on
+    // `MenuMode` [design: owner's playtest 2026-11-06, marks drew over the Pip-Boy].
+    let playing = matches!(*state.get(), PlayState::Playing) && !crate::reticle::pipboy_hides_crosshair(pipboy.as_deref(), glance.as_deref());
     let (Some(loc), Ok((cam, ct)), Ok(window)) = (loc.as_deref(), cameras.single(), windows.single()) else {
         for (_, e) in last.drain(..) {
             commands.entity(e).despawn();
