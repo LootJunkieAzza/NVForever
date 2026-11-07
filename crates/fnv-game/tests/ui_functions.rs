@@ -548,3 +548,28 @@ fn a_huge_click_count_is_capped() {
     assert_eq!(n(run(&mut g, "ClickMenuButton", &[s("TestMenu#2"), XVal::Num(5.0)])), 1.0);
     assert_eq!(ui_input::idle(&mut g).expect("clicks to report").clicks.len(), 5);
 }
+
+/// A script that sets a HUD text's string and reads a size made from it reads the new
+/// size, measured then by the engine's measure (`ui_hud::size_texts`): JAM's loot menu
+/// sets its rows and sizes its box from their widths in one go.
+#[test]
+fn a_text_set_and_read_in_one_go_is_measured_then() {
+    let f = fixture();
+    let mut g = game(&f);
+    let src = MemSource::default().with(
+        "menus/hud_main_menu.xml",
+        r#"<menu name="HUDMainMenu"> <rect name="Row"> <_TextWidth> <copy src="child(Name)" trait="width"/> <add> 4 </add> </_TextWidth>
+           <string> Old </string>
+           <text name="Name"> <string> <copy src="parent()" trait="string"/> </string> <font> 1 </font> </text> </rect> </menu>"#,
+    );
+    g.ui_tree.load_menu(&src, "menus/hud_main_menu.xml").unwrap();
+    g.ui_tree.update();
+    let name = g.ui_tree.find_tile("HUDMainMenu/Row/Name").unwrap();
+    // Ten per letter, twenty high a line.
+    let size: fnv_game::ui_hud::TextSize = std::sync::Arc::new(|_, text: &str, _| (text.len() as f64 * 10.0, 20.0));
+    g.ui_sizer = Some(fnv_game::ui_hud::TextSizer::new(size, vec![name]));
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("HUDMainMenu/Row/_TextWidth")])), 34.0);
+    run(&mut g, "SetUIStringEx", &[s("HUDMainMenu/Row/string"), s("A much longer name")]);
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("HUDMainMenu/Row/_TextWidth")])), 184.0);
+    assert_eq!(n(run(&mut g, "GetUIFloat", &[s("HUDMainMenu/Row/Name/height")])), 20.0);
+}

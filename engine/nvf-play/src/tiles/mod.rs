@@ -610,8 +610,21 @@ fn write(
             if let Some(menu) = rt.game.ui_tree.menu(draw::HUD_MENU) {
                 let ui = &mut rt.game.ui_tree;
                 let texts: Vec<_> = ui.mod_added_tiles(menu).into_iter().flat_map(|r| menus::texts(ui, r)).collect();
-                let size = fonts.menu_measure(&menus::fonts_of(ui, &texts));
-                menus::write_text_sizes_of(ui, &texts, &mut sizes.1, &size);
+                let used = menus::fonts_of(ui, &texts);
+                {
+                    let size = fonts.menu_measure(&used);
+                    menus::write_text_sizes_of(ui, &texts, &mut sizes.1, &size);
+                }
+                // The same measure for a script that sets a string and reads a size made
+                // from it before the next frame (`fnv_game::ui_hud::size_texts`).
+                let text_size = fonts.text_size(&used);
+                match rt.game.ui_sizer.as_mut() {
+                    Some(s) => {
+                        s.size = text_size;
+                        s.texts = texts;
+                    }
+                    None => rt.game.ui_sizer = Some(fnv_game::ui_hud::TextSizer::new(text_size, texts)),
+                }
             }
         }
         if menus.hud {

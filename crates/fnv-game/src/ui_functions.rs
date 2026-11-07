@@ -190,6 +190,9 @@ pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, Stri
         // writes them every frame from here on (`crate::ui_hud::defer`) [design].
         g.ui_used = true;
         crate::ui_hud::flush(g);
+        if lname.starts_with("getui") {
+            crate::ui_hud::size_texts(g);
+        }
     }
     Some(Ok(match lname.as_str() {
         // xNVSE's functions count a path's `*:N` among file-made children from the

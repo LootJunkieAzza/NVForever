@@ -1266,10 +1266,21 @@ pub struct Game<'a> {
     pub ui_files: Option<Box<dyn fnv_ui::Source + Send + Sync>>,
     /// The menu an engine page stands for while [`Game::page_tick`] runs its blocks.
     page_menu: Option<u16>,
+    /// A menu open over a running game: co-op's live Pip-Boy (nvf-play `menu::LiveMenu`),
+    /// by its page's code. The `MenuMode` function and GetActiveMenuMode read it, but the
+    /// game is not paused for it and no MenuMode block runs: GameMode blocks go on
+    /// [design: owner 2026-11-03, the real-time Pip-Boy; the function answers so mods
+    /// hide their HUD and take no keys while it is up, as JAM's loot menu and JVO do on
+    /// `MenuMode`, owner's playtest 2026-11-06]. Not saved.
+    pub live_menu: Option<u16>,
     /// This frame's HUD writes, kept back while nothing reads the HUD's traits
     /// (`crate::ui_hud::defer`); the first UI function call makes them
     /// (`crate::ui_hud::flush`).
     pub ui_hud_pending: Option<Box<crate::ui_hud::Pending>>,
+    /// The engine's measure of the mods' HUD texts, for a script's read made after it set
+    /// a string (`crate::ui_hud::size_texts`). `None` headless and before the engine has
+    /// fonts. Not saved.
+    pub ui_sizer: Option<crate::ui_hud::TextSizer>,
     /// A script called a UI function that reads or changes the tree: the engine writes
     /// the HUD every frame from then on.
     pub ui_used: bool,
@@ -2104,7 +2115,9 @@ impl<'a> Game<'a> {
             ui_lifetime: crate::ui_loading::MenuLifetime::default(),
             ui_files: None,
             page_menu: None,
+            live_menu: None,
             ui_hud_pending: None,
+            ui_sizer: None,
             ui_used: false,
             ui_taps: Vec::new(),
             ui_gradients: Default::default(),
@@ -3686,7 +3699,7 @@ impl<'a> Game<'a> {
 
     pub fn menu_open(&self, code: u16) -> bool {
         let open = |m: Option<u16>| m.is_some_and(|m| menus::answers(code, m));
-        open(self.menu) || open(self.menu_under) || open(self.side_menu()) || (code == menus::DIALOGUE && self.dialogue.is_some())
+        open(self.menu) || open(self.menu_under) || open(self.side_menu()) || open(self.live_menu) || (code == menus::DIALOGUE && self.dialogue.is_some())
     }
 
     /// A menu code that holds beside the open menu: the loading menu (1007) under a

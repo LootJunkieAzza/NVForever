@@ -1376,7 +1376,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // NVForever is no 32-bit program [observed: gaps4, 0].
         "getislaa" => zero,
         // The open menu's code, 0 in game mode [observed: gaps3, 0].
-        "getactivemenumode" => XVal::Num(g.menu.map_or(0.0, f64::from)),
+        "getactivemenumode" => XVal::Num(g.menu.or(g.live_menu).map_or(0.0, f64::from)),
         // [observed: gaps3, 1]
         "getglobaltimemultiplier" => XVal::Num(g.ui.time_multiplier.unwrap_or(1.0)),
         // No water under the crosshair here [observed: gaps2, 0; hypothesis: the engine

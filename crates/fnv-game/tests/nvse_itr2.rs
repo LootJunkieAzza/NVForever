@@ -513,3 +513,21 @@ fn the_active_quest_is_the_pip_boys() {
     assert_eq!(form(&mut g, "GetActiveQuest"), 0x901);
     assert_eq!(form(&mut g, "GetCurrentQuest"), 0x901);
 }
+
+/// Co-op's live Pip-Boy: the MenuMode function answers for it (JAM's loot menu and JVO
+/// hide on it) while the game stays unpaused and in game mode.
+#[test]
+fn a_live_menu_answers_menu_mode_without_pausing() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(num(&mut g, "MenuMode"), 0.0);
+    g.live_menu = Some(1002);
+    assert_eq!(num(&mut g, "MenuMode"), 1.0);
+    assert_eq!(num(&mut g, "MenuMode 1002"), 1.0);
+    assert_eq!(num(&mut g, "MenuMode 1"), 1.0);
+    assert_eq!(num(&mut g, "MenuMode 1009"), 0.0);
+    assert_eq!(num(&mut g, "GetActiveMenuMode"), 1002.0);
+    assert!(!g.in_menu() && !g.paused());
+    g.live_menu = None;
+    assert_eq!(num(&mut g, "MenuMode"), 0.0);
+}
