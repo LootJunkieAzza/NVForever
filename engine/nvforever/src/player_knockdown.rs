@@ -80,6 +80,12 @@ pub struct PlayerKnockdown {
 }
 
 impl PlayerKnockdown {
+    /// Revived in co-op, the body still lies: about to get up (`coop.rs`, the others'
+    /// copies of this player wait for it, `coop/revive.rs`).
+    pub fn revive_lying(&self) -> bool {
+        self.revived || self.reviving || self.down.as_ref().is_some_and(|d| d.revive && matches!(d.phase, Phase::Lying))
+    }
+
     /// The body lies as a ragdoll: `player_body.rs` leaves it alone.
     pub fn ragdolled(&self) -> bool {
         self.down.as_ref().is_some_and(|d| matches!(d.phase, Phase::Lying) && d.body.is_some())
@@ -132,6 +138,8 @@ struct Down {
     parent: Option<Affine3A>,
     /// When the get-up clip was first seen playing (real seconds since the fall).
     seen_at: Option<f32>,
+    /// A co-op revive's knockdown.
+    revive: bool,
 }
 
 /// How long the get-up takes to go from the ragdoll's last pose to its clip (real
@@ -307,7 +315,7 @@ fn watch(
         if chase.is_some() {
             info!("player knockdown: {}: the camera follows the body", if reviving { "a revive" } else { "a duel lost" });
         }
-        kd.down = Some(Down { was_first: was_first && body.is_some(), outside: !was_first, body, phase: Phase::Lying, real: 0.0, held, chase, face_up: None, from: None, parent: None, seen_at: None });
+        kd.down = Some(Down { was_first: was_first && body.is_some(), outside: !was_first, body, phase: Phase::Lying, real: 0.0, held, chase, face_up: None, from: None, parent: None, seen_at: None, revive: reviving });
         return;
     }
     let d = kd.down.as_mut().expect("checked");

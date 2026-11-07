@@ -637,7 +637,8 @@ pub(crate) fn activate(
     // An actor shown by name only (hostile, or a creature with nothing to say): E does
     // nothing (playtest list 4, item 19).
     // Another player (co-op): the interaction wheel takes E (`crate::coop_social`).
-    if t.action == Action::Player {
+    // A downed player: the revive takes E (`nvforever`'s `coop.rs`).
+    if matches!(t.action, Action::Player | Action::Revive { .. }) {
         return;
     }
     if t.action == Action::Name {

@@ -104,12 +104,17 @@
 //!
 //! **Down, not dead.** A player whose health runs out in co-op is down ([`downed`]): the
 //! body drops as a ragdoll (here and on the others' screens) and the view stays with it,
-//! without the death camera's slow motion or fade (`death_cam::DeathCam::downed_in_coop`).
-//! Another player who comes within [`REVIVE_REACH`] and presses Activate revives them
+//! without the death camera's slow motion (`death_cam::DeathCam::downed_in_coop`) but
+//! fading to black, where the downed screen says how to respawn or that someone revives
+//! (`nvf_play::coop_downed`, queue item 46). Another player who aims at the body where it
+//! lies on their screen (its pelvis, [`revive`]) gets the game's own rollover, "E) Revive"
+//! over the name (`nvf_play::coop_social::target`), and pressing Activate revives them
 //! with a Stimpak of their own (one is used up): the downed player, healed
 //! (`Game::resurrect`), gets up from where the body lies as a duel's loser does: knocked
 //! down in that pose, the camera following the body, the get-up clip from the ragdoll's
-//! pose (`player_knockdown.rs`, [`crate::player_knockdown::PlayerKnockdown::revived`]). After [`RESPAWN_AFTER`] a downed player can
+//! pose (`player_knockdown.rs`, [`crate::player_knockdown::PlayerKnockdown::revived`]);
+//! on the others' screens its puppet plays the get-up clip from its own ragdoll's pose
+//! ([`revive`]). After [`RESPAWN_AFTER`] a downed player can
 //! press Activate to stand up again beside another player (the nearest one up, else the
 //! host) instead.
 //!
@@ -162,6 +167,8 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::Mutex;
 use std::time::Duration;
 
+mod revive;
+
 /// The port `--join` uses when the address names none (and a code without a port means).
 pub const DEFAULT_PORT: u16 = nvf_coop::code::DEFAULT_PORT;
 /// How far behind the newest state the others are drawn, so there are two to blend.
@@ -186,10 +193,6 @@ const GUN_HEIGHT: f32 = 100.0;
 const CLOCK_SLACK: f32 = 0.05;
 /// A downed player can respawn after this long (seconds).
 const RESPAWN_AFTER: f32 = 60.0;
-/// How near a downed player another must be to revive them (game units, about 2 m).
-const REVIVE_REACH: f32 = 150.0;
-/// What reviving uses up: a Stimpak.
-const STIMPAK: FormId = FormId(0x0001_5169);
 /// A puppet holds its aim this long after an attack, aimed or not (seconds).
 const AIM_AFTER_ATTACK: f32 = 1.5;
 /// Where a guest keeps its token across the restarts loads cause.
@@ -282,6 +285,7 @@ impl Plugin for CoopPlugin {
             downed_at: None,
             told_respawn: false,
             revive_offer: None,
+            revived_by: None,
             strays: Vec::new(),
             swept_at: 0.0,
             unheard: HashMap::new(),
@@ -306,7 +310,7 @@ impl Plugin for CoopPlugin {
         }
         app.add_plugins((nvf_play::lobby::LobbyPlugin, nvf_play::coop_progress::CoopProgressPlugin))
             .insert_resource(coop)
-            .add_systems(Update, (lobby, send, take_events, share_doors, tables, social_mates, share_npcs, follow_npcs, leash, downed, progress, duel_falls).chain().after(nvf_play::PlaySet::Physics))
+            .add_systems(Update, (lobby, send, take_events, share_doors, tables, social_mates, share_npcs, follow_npcs, leash, downed, revive::bodies, progress, duel_falls).chain().after(nvf_play::PlaySet::Physics))
             .add_message::<PuppetShot>()
             .add_systems(Update, (stand_ins, draw, peer_lights, pipboy_share).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
     }
@@ -428,6 +432,8 @@ struct Coop {
     told_respawn: bool,
     /// The downed player this one was last told it can revive.
     revive_offer: Option<u8>,
+    /// Revived by this player (name), shown on the black until it lifts.
+    revived_by: Option<String>,
     /// References whose every body in the world is taken away on the next frame ([`draw`]:
     /// players who left), and when the bodies were last checked for strays.
     strays: Vec<u32>,
@@ -780,6 +786,10 @@ struct Peer {
     /// The throw its fallen puppet's ragdoll is still to get (game units a second, game
     /// space), and since when it waits for the ragdoll ([`duel_falls`]).
     fall_shove: Option<([f32; 3], f32)>,
+    /// Down: where its puppet's body lies here (pelvis, game space; [`revive`]).
+    body: Option<[f32; 3]>,
+    /// Revived: its puppet getting up from where the body lay ([`revive`]).
+    rising: Option<revive::Rising>,
 }
 
 impl Peer {
@@ -844,6 +854,7 @@ fn tables(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location
     };
     tables.on = true;
     tables.me = link.id();
+    tables.host = link.is_host();
     tables.names = coop.peers.iter().map(|(&id, p)| (id, p.name.clone())).collect();
     let here = loc.as_deref().map(place_of);
     tables.near = coop
@@ -878,7 +889,7 @@ fn social_mates(coop: Res<Coop>, loc: Option<Res<Location>>, mut mates: ResMut<n
                     .iter()
                     .filter_map(|(&id, p)| {
                         let &(_, s) = p.samples.back()?;
-                        Some(Mate { id, name: label(id, &p.name), reference: p.reference(id), here: s.place == here, feet: s.feet, yaw: s.yaw, down: s.has(flag::DOWN), lost: p.lost, weapon: s.weapon, attacks: s.attacks, sights: s.has(flag::SIGHTS), pitch: s.pitch })
+                        Some(Mate { id, name: label(id, &p.name), reference: p.reference(id), here: s.place == here, feet: s.feet, yaw: s.yaw, down: s.has(flag::DOWN), body: p.body.filter(|_| s.has(flag::DOWN)), lost: p.lost, weapon: s.weapon, attacks: s.attacks, sights: s.has(flag::SIGHTS), pitch: s.pitch })
                     })
                     .collect(),
             }
@@ -1010,6 +1021,7 @@ struct Doing<'w> {
     flashlight: Option<Res<'w, nvf_play::flashlight::Flashlight>>,
     /// The Pip-Boy up in full or for a glance (`crate::pipboy_check`).
     pipboy: (Option<Res<'w, nvf_play::pipboy::PipBoy>>, Option<Res<'w, nvf_play::pipboy::glance::Glance>>),
+    knockdown: Option<Res<'w, crate::player_knockdown::PlayerKnockdown>>,
 }
 
 /// The others' Pip-Boys for this game: each puppet's check (`crate::pipboy_check`), where
@@ -1074,6 +1086,7 @@ fn send(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location>>
     flags |= if sights && out { flag::SIGHTS } else { 0 };
     flags |= if doing.script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.is_dead(FormId::PLAYER_REF)) { flag::DOWN } else { 0 };
     flags |= if doing.flashlight.as_ref().is_some_and(|f| f.on) { flag::LIGHT } else { 0 };
+    flags |= if doing.knockdown.as_ref().is_some_and(|k| k.revive_lying()) { flag::LYING } else { 0 };
     s.flags = flags;
     if let (Some(pip), Some(glance)) = (doing.pipboy.0.as_deref(), doing.pipboy.1.as_deref()) {
         s.pipboy = nvf_play::pipboy::glance::Check::of(pip, glance).code();
@@ -1413,16 +1426,24 @@ fn take_events(
                 coop.host_quest = host_quest(&q);
                 coop.quest_untold = Some(told);
             }
-            Event::Revived { by } => {
+            Event::Revived { by, perks } => {
                 if let Some(rt) = rt.as_deref_mut().filter(|rt| rt.game.is_dead(FormId::PLAYER_REF)) {
                     rt.game.resurrect(FormId::PLAYER_REF, false);
+                    // The reviver's Healing Hands (`fnv_game::coop_perks`).
+                    if perks & net::revive_perk::CURE_RADS != 0 {
+                        let rads = fnv_game::coop_perks::cure_rads(&mut rt.game);
+                        info!("co-op: revived with Healing Hands: {rads:.0} rads cured");
+                        notes.push(format!("Healing Hands: {rads:.0} rads cured"));
+                    }
                     // Up from where the body lies, as a duel's loser gets up
                     // (`player_knockdown.rs`).
                     if let Some(k) = knock.as_deref_mut() {
                         k.revived = true;
                     }
                     coop.downed_at = None;
-                    notes.push(format!("{} revived you", label(by, &coop.peers.get(&by).map_or(String::new(), |p| p.name.clone()))));
+                    let name = label(by, &coop.peers.get(&by).map_or(String::new(), |p| p.name.clone()));
+                    coop.revived_by = Some(name.clone());
+                    notes.push(format!("{name} revived you"));
                 }
             }
             Event::Lines(lines) => coop.host_lines = Some((now, lines)),
@@ -1582,6 +1603,10 @@ fn draw(
         // player who is up is never drawn lying (a body that missed getting up); but for
         // the loser of a duel against this player, while it lies ([`duel_falls`]).
         let lies = p.root.is_some_and(|e| lying.contains(e));
+        // Getting up after a revive ([`revive`]): its body plays the clip where it lay.
+        if p.rising.is_some() && p.root.is_some() && !p.redraw {
+            continue;
+        }
         if std::mem::take(&mut p.redraw) || (lies && !newest.has(flag::DOWN) && p.fell_at.is_none()) {
             if lies {
                 info!("co-op: {} is up: drawn standing", label(id, &p.name));
@@ -2439,7 +2464,7 @@ fn peer_lights(mut commands: Commands, time: Res<Time>, coop: Res<Coop>, loc: Op
 fn downed(
     time: Res<Time>,
     mut coop: ResMut<Coop>,
-    (mut script, mut sim, mut phys, mut ragdolls): (Option<ResMut<nvf_play::script::ScriptState>>, Option<ResMut<nvf_play::sim::SimState>>, Option<ResMut<nvf_play::phys::PhysState>>, ResMut<crate::ragdoll::Ragdolls>),
+    (mut script, mut sim): (Option<ResMut<nvf_play::script::ScriptState>>, Option<ResMut<nvf_play::sim::SimState>>),
     player: Option<Res<Player>>,
     loc: Option<Res<Location>>,
     input: nvf_play::bindings::ControlInput,
@@ -2448,26 +2473,67 @@ fn downed(
     mut hits: MessageWriter<ActorHit>,
     mut cam: Option<ResMut<crate::death_cam::DeathCam>>,
     main_menu: Option<Res<nvf_play::main_menu::MainMenu>>,
+    (target, mut screen, kit): (Res<nvf_play::activate::Target>, ResMut<nvf_play::coop_downed::DownedScreen>, Res<nvf_play::coop_social::ReviveKit>),
 ) {
     let coop = &mut *coop;
     let in_coop = coop.link.is_some();
     if let Some(c) = cam.as_deref_mut().filter(|c| c.downed_in_coop != in_coop) {
         c.downed_in_coop = in_coop;
     }
-    let (Some(rt), Some(sim), Some(player), Some(loc)) = (script.as_deref_mut().and_then(|s| s.rt.as_mut()), sim.as_deref_mut(), player, loc) else { return };
+    // What the downed screen says this frame (set below while this player is down, or
+    // revived while the black lifts).
+    let mut shown: Option<nvf_play::coop_downed::Downed> = None;
+    if cam.as_deref().is_some_and(|c| c.revived_hold()) {
+        shown = coop.revived_by.clone().map(|by| nvf_play::coop_downed::Downed::Reviving { by });
+    } else if cam.as_deref().is_none_or(|c| !c.down()) {
+        coop.revived_by = None;
+    }
+    let (Some(rt), Some(sim), Some(player), Some(loc)) = (script.as_deref_mut().and_then(|s| s.rt.as_mut()), sim.as_deref_mut(), player, loc) else {
+        if screen.0 != shown {
+            screen.0 = shown;
+        }
+        return;
+    };
+    // The co-op perks can be taken with another player in the session
+    // (`fnv_game::coop_perks`).
+    rt.game.coop_session = in_coop && !coop.peers.is_empty();
     if !in_coop || at_main_menu(main_menu.as_deref()) {
         coop.downed_at = None;
+        if screen.0.is_some() {
+            screen.0 = None;
+        }
         return;
     }
     let now = time.elapsed_secs();
-    let here = place_of(&loc);
+    downed_body(coop, &mut rt.game, sim, &player, &loc, &input, (&target, &kit), &mut corner, &mut travel, &mut hits, &mut shown, now);
+    if screen.0 != shown {
+        screen.0 = shown;
+    }
+}
+
+/// [`downed`]'s work once the game runs in a session.
+#[allow(clippy::too_many_arguments)]
+fn downed_body(
+    coop: &mut Coop,
+    g: &mut fnv_game::Game<'static>,
+    sim: &mut nvf_play::sim::SimState,
+    player: &Player,
+    loc: &Location,
+    input: &nvf_play::bindings::ControlInput,
+    (target, kit): (&nvf_play::activate::Target, &nvf_play::coop_social::ReviveKit),
+    corner: &mut Option<ResMut<nvf_play::corner_messages::CornerMessages>>,
+    travel: &mut MessageWriter<TravelRequest>,
+    hits: &mut MessageWriter<ActorHit>,
+    shown: &mut Option<nvf_play::coop_downed::Downed>,
+    now: f32,
+) {
+    let here = place_of(loc);
     let mut say = |n: String| {
         info!("co-op: {n}");
         if let Some(c) = corner.as_mut() {
             c.push(n.into());
         }
     };
-    let g = &mut rt.game;
     // The others' puppets: down, they lie down as the dead do; up, they are drawn anew.
     for (&id, p) in coop.peers.iter_mut() {
         let Some(&(_, s)) = p.samples.back() else { continue };
@@ -2485,25 +2551,24 @@ fn downed(
         g.extra.entry(FormId(r)).or_default().dead = down;
         if down {
             hits.write(ActorHit { form_id: r, died: true, knocked_out: false, location: -1, crippled: false, part_crippled: false, torso_crippled: false, by: None, share: 1.0, guard_broken: false, weapon: None });
-            say(format!("{} is down: revive them with a Stimpak", label(id, &p.name)));
+            say(format!("{} is down: go to them and revive them", label(id, &p.name)));
         } else {
-            if let Some(ph) = phys.as_deref_mut() {
-                ph.world.remove_ragdoll(r);
-            }
-            ragdolls.rest.remove(&r);
-            p.redraw = true;
+            // Revived: its body gets up from where it lies ([`revive`]); a body this game
+            // cannot raise is drawn anew standing there.
+            p.rising = Some(revive::Rising::Start { since: now });
+            p.body = None;
             say(format!("{} is back up", label(id, &p.name)));
         }
     }
-    let key = input.bindings.get(nvf_play::bindings::Control::Activate).key.map_or("Activate".to_string(), |k| format!("{k:?}").trim_start_matches("Key").to_string());
     let pressed = input.just_pressed(nvf_play::bindings::Control::Activate);
     // This player.
     if g.is_dead(FormId::PLAYER_REF) {
         let since = *coop.downed_at.get_or_insert_with(|| {
-            say(format!("You are down: another player can revive you with a Stimpak. In {RESPAWN_AFTER:.0} seconds you can respawn"));
+            info!("co-op: you are down: another player can revive you with a Stimpak; in {RESPAWN_AFTER:.0} seconds you can respawn");
             now
         });
         if now - since < RESPAWN_AFTER {
+            *shown = Some(nvf_play::coop_downed::Downed::Waiting { seconds: (RESPAWN_AFTER - (now - since)).ceil().max(1.0) as u32 });
             return;
         }
         // Beside the nearest player up, else anyone (the host first).
@@ -2517,8 +2582,9 @@ fn downed(
             .map(|(id, p, q)| (label(id, &p.name), q));
         if !coop.told_respawn {
             coop.told_respawn = true;
-            say(format!("Press {key} to respawn{}", target.as_ref().map_or(String::new(), |(n, _)| format!(" by {n}"))));
+            info!("co-op: you can respawn{}", target.as_ref().map_or(String::new(), |(n, _)| format!(" by {n}")));
         }
+        *shown = Some(nvf_play::coop_downed::Downed::Ready { by: target.as_ref().map(|(n, _)| n.clone()) });
         if pressed {
             g.resurrect(FormId::PLAYER_REF, false);
             if let Some((name, q)) = target {
@@ -2533,44 +2599,45 @@ fn downed(
             }
             coop.downed_at = None;
             coop.told_respawn = false;
+            *shown = None;
         }
         return;
     }
     coop.downed_at = None;
     coop.told_respawn = false;
-    // A downed player in reach: revive them with a Stimpak.
-    let feet = player.feet;
-    let near = coop
-        .peers
-        .iter()
-        .filter(|(_, p)| p.down && !p.lost)
-        .filter_map(|(&id, p)| {
-            let &(_, q) = p.samples.back()?;
-            let d = (q.feet[0] - feet[0]).hypot(q.feet[1] - feet[1]);
-            (q.place == here && d <= REVIVE_REACH && (q.feet[2] - feet[2]).abs() < REVIVE_REACH).then(|| (d, id, label(id, &p.name)))
-        })
-        .min_by(|a, b| a.0.total_cmp(&b.0));
-    let Some((_, id, name)) = near else {
+    // A downed player aimed at where the body lies: the crosshair's "Revive" rollover
+    // (`nvf_play::coop_social::target`); Activate revives them with a Stimpak.
+    let aimed = target.0.as_ref().filter(|t| matches!(t.action, nvf_play::activate::outcome::Action::Revive { .. })).map(|t| t.form_id);
+    let near = aimed.and_then(|r| coop.peers.iter().find(|(&id, p)| p.down && !p.lost && p.reference(id) == r)).map(|(&id, p)| (id, label(id, &p.name)));
+    let Some((id, name)) = near else {
         coop.revive_offer = None;
         return;
     };
     if coop.revive_offer != Some(id) {
         coop.revive_offer = Some(id);
-        say(format!("Press {key} to revive {name} (uses a Stimpak)"));
+        info!("co-op: aiming at {name}'s body: Revive");
     }
     if !pressed {
         return;
     }
-    let have = sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()).map_or(0, |i| i.count(STIMPAK));
+    // What the revive uses: the crosshair's rollover named it (`ReviveKit`: a Stimpak,
+    // or a drink with Quack Surgeon, `fnv_game::coop_perks`).
+    let Some((item, item_name)) = kit.0.clone() else {
+        say(format!("You need a Stimpak to revive {name}"));
+        return;
+    };
+    let have = sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()).map_or(0, |i| i.count(item));
     if have < 1 {
         say(format!("You need a Stimpak to revive {name}"));
         return;
     }
-    let _ = sim.world.remove_item(FormId::PLAYER_REF, STIMPAK, 1);
+    let _ = sim.world.remove_item(FormId::PLAYER_REF, item, 1);
+    // Healing Hands goes with the revive: the revived is cured of its rads.
+    let perks = if fnv_game::coop_perks::has(g, fnv_game::coop_perks::HEALING_HANDS) { net::revive_perk::CURE_RADS } else { 0 };
     if let Some(link) = coop.link.as_ref() {
-        link.send_revive(id);
+        link.send_revive(id, perks);
     }
-    say(format!("You revived {name} (Stimpak used, {} left)", have - 1));
+    say(format!("You revived {name} ({item_name} used, {} left){}", have - 1, if perks & net::revive_perk::CURE_RADS != 0 { ": Healing Hands flushes their rads" } else { "" }));
 }
 
 /// Shared progression between the link and `nvf_play::coop_progress` (quest rewards, a

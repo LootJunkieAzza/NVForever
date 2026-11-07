@@ -138,10 +138,16 @@ pub struct Prompt {
     pub key: String,
     /// A line under the name: [`EMPTY`] for a container or body with nothing in it.
     pub note: Option<String>,
+    /// Drawn greyed: E would do nothing (a revive with nothing to revive with).
+    pub grey: bool,
 }
 
 /// Under the name of an empty container or body [owner 2026-10-27].
 const EMPTY: &str = "[Empty]";
+/// Under the name of a downed player one has nothing to revive with (co-op) [design].
+const NOTHING_TO_REVIVE_WITH: &str = "[No Stimpak]";
+/// A greyed prompt's strength [design].
+const GREY: f32 = 0.45;
 
 /// The XATO Activation Prompt of reference `form_id`, else of its base (an ACTI).
 pub fn activation_prompt(sim: &SimState, form_id: u32) -> Option<String> {
@@ -178,7 +184,7 @@ impl Prompt {
         // An Activation Prompt (XATO) of the reference, else of its activator base, in
         // place of the action word; not over a lock or an inaccessible door
         // (docs/spec-notes/cells-refs.md §3) [hypothesis: which states it replaces].
-        if !matches!(t.action, Action::Locked { .. } | Action::Unlock | Action::Name | Action::Inaccessible | Action::Player) {
+        if !matches!(t.action, Action::Locked { .. } | Action::Unlock | Action::Name | Action::Inaccessible | Action::Player | Action::Revive { .. }) {
             if let Some(p) = activation_prompt(sim, t.form_id) {
                 action = p;
             }
@@ -191,8 +197,14 @@ impl Prompt {
             BaseData::Item(i) => Some([weight_text(i.weight), value_text(i.worth())]),
             _ => None,
         });
-        let note = t.empty.then(|| EMPTY.to_string());
-        Prompt { action, name, figures, crime: t.crime, key: String::new(), note }
+        let mut note = t.empty.then(|| EMPTY.to_string());
+        // A revive with nothing to revive with says so, greyed [design: the owner,
+        // 2026-11-06, "as the game shows a missing key"].
+        let grey = matches!(t.action, Action::Revive { with: None });
+        if grey {
+            note = Some(NOTHING_TO_REVIVE_WITH.into());
+        }
+        Prompt { action, name, figures, crime: t.crime, key: String::new(), note, grey }
     }
 }
 
@@ -520,6 +532,7 @@ fn spawn(commands: &mut Commands, kit: &Kit) {
 
 fn spawn_texts(p: &mut ChildSpawnerCommands, kit: &Kit, prompt: &Prompt) {
     let color = if prompt.crime { crime_colour() } else { amber(255.0) };
+    let color = if prompt.grey { color.with_alpha(GREY) } else { color };
     let l = layout(prompt, &kit.face.font);
     if let (Some(corner), Some(picture)) = (l.divider, kit.divider.clone()) {
         p.spawn((at(corner.x, corner.y, DIVIDER_SIZE.x, DIVIDER_SIZE.y), picture_node(picture, color)));
@@ -716,7 +729,7 @@ mod tests {
     }
 
     fn prompt(action: &str, name: &str, figures: Option<[&str; 2]>) -> Prompt {
-        Prompt { action: action.into(), name: name.into(), figures: figures.map(|f| f.map(String::from)), crime: false, key: String::new(), note: None }
+        Prompt { action: action.into(), name: name.into(), figures: figures.map(|f| f.map(String::from)), crime: false, key: String::new(), note: None, grey: false }
     }
 
     #[test]

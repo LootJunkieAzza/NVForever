@@ -46,6 +46,15 @@ pub mod game {
     /// A player's quip, for the others to hear (`crate::party_quips`; actions only, to
     /// everyone, table 0).
     pub const VOICE: u8 = 11;
+    /// A player's choice in a conversation, for the others' subtitles
+    /// (`crate::coop_subtitles`; actions only, to everyone, table 0).
+    pub const CHOICE: u8 = 12;
+    /// Music and radio on one timeline (`crate::coop_audio`): the host's clock, its
+    /// stations' lines, the stations a game hears, a player's Pip-Boy station.
+    pub const AUDIO: u8 = 13;
+    /// Each player's Charisma and Ferocious Loyalty, for the others' companion perks
+    /// (`crate::coop_companions`).
+    pub const PERKS: u8 = 14;
 
     /// The game's name, as the lobby and the notes say it.
     pub fn word(g: u8) -> &'static str {
@@ -75,6 +84,8 @@ pub struct Tables {
     pub on: bool,
     /// This player's id in it.
     pub me: Option<u8>,
+    /// This game hosts the session.
+    pub host: bool,
     pub names: HashMap<u8, String>,
     /// The players near this one (same place, within [`WATCH_RANGE`]).
     pub near: Vec<u8>,

@@ -509,6 +509,8 @@ fn start_loading(d: PlayData, refs: &'static RefTable, voice_sets: Vec<fnv_game:
             // Voice sets' lines carried with their sound become lines of their own
             // (fnv_game::player_voice, docs/design/player-voices.md).
             let carried = fnv_game::player_voice::add_packed_lines(&mut data, &voice_sets);
+            // The co-op perks (fnv_game::coop_perks): NVForever's own records.
+            fnv_game::coop_perks::add(&mut data);
             if carried > 0 {
                 info!("player voices: {carried} lines carried by voice sets");
             }

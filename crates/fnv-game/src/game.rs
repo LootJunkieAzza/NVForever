@@ -1459,6 +1459,12 @@ pub struct Game<'a> {
     /// cashier ([`Game::guest_lines`]) and
     /// no script starts a conversation with it.
     pub coop_guest: bool,
+    /// A co-op session is on (host or guest), with another player in it: the co-op
+    /// perks can be taken (`crate::coop_perks`).
+    pub coop_session: bool,
+    /// What the other co-op players' companion perks give the player
+    /// (`crate::coop_perks::FromOthers`).
+    pub coop_from_others: crate::coop_perks::FromOthers,
     /// On a guest: the host's active quest, which its quest list, objectives and markers
     /// show in place of this game's own (`None`: the host has none).
     pub coop_host_quest: Option<crate::coop::HostQuest>,
@@ -2171,6 +2177,8 @@ impl<'a> Game<'a> {
             coop: Vec::new(),
             coop_actors: BTreeMap::new(),
             coop_guest: false,
+            coop_session: false,
+            coop_from_others: Default::default(),
             coop_host_quest: None,
             coop_rewards: crate::coop_rewards::RewardLedger::default(),
             guest_lines: std::sync::OnceLock::new(),
