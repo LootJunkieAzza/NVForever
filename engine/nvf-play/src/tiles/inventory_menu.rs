@@ -18,12 +18,17 @@
 //!   tile answers to. A scrolled list stands partly outside its window by design, so [`usable`]
 //!   asks of the rows whose words lie whole inside it, and of at least one.
 //! - **The tabs** are template rows here, unlike STATS' fixed tiles [documented: the file]. Their
-//!   words are [`TAB_WORDS`], NVForever's own. Five tiles from one template have no place of their
-//!   own, and a first run found each tab's words under another tab or no target [observed: smoke
-//!   2026-11-07, `Tab(1) does not take the pointer`; which of the two is not known yet]. So
-//!   [`place_tabs`] stands them along the line as the hand-built tab line does and makes them
-//!   targets [design]. A tab that does not show is a fallback; one that still does not take the
-//!   pointer is warned of and the page stays: the keys and the device's knob still turn the tabs.
+//!   words are [`TAB_WORDS`]. A tab's `x` follows its inner rect's, which follows `_x`, and the file
+//!   leaves `_x` to code [documented: the prefabs; observed: the capture of the original]: unwritten,
+//!   all five stood at one place, which is what the first run met. So [`place_tabs`] writes `_x` and
+//!   `_LeftLineLength` and nothing else; what shows as selected follows `_CurrentTab` in the file. A
+//!   tab that does not show is a fallback; one that does not take the pointer is warned of and the
+//!   page stays: the keys and the device's knob still turn the tabs.
+//! - **The buttons**: on a PC only Repair and Mod show [observed: the capture]; Equip, Drop and
+//!   Hotkey are a controller's in the file, which NVForever's page does not show either, and Cancel
+//!   shows inside a Misc folder. Their commands stay reachable by a script's click.
+//! - **Words too wide for their card** give way where the title is still a built-in label: a
+//!   plugin's setting stands. [`TIGHT_TITLES`].
 //! - **Page content only**, as `super::stats_menu`: the page paints into the Pip-Boy's image, whose
 //!   background and scanlines are the shell's, so `IM_Background` stays hidden in both frames.
 //!   The screen menu has no title and its heading line runs on [design: the owner, 2026-10-31,
@@ -106,9 +111,6 @@ const HEADLINE: [&str; 4] = [
 /// file without it serves.
 const HEADLINE_DR: &str = main_rect!("IM_HeadlineRect/IM_Headline_PlayerDRInfo");
 const LIST: &str = main_rect!("IM_InventoryList");
-/// A picture under the list, not in a row: what it shows is not known yet, so it stays hidden
-/// [hypothesis until the capture].
-const EQUIP_MARKER: &str = main_rect!("IM_InventoryList/IM_EquipItemMarker");
 const WHEEL: &str = main_rect!("IM_HotKeyWheel");
 const WHEEL_ICON: &str = main_rect!("IM_HotKeyWheel/IM_HotkeyIcon");
 const BUTTON_RECT: &str = main_rect!("IM_ButtonRect");
@@ -126,16 +128,26 @@ const TAB_TEMPLATE: &str = "TabButtonTemplate";
 const TAB_ROW: &str = "TabButton";
 /// Inside a tab, as STATS' fixed tabs have them [hypothesis for the template's: the same prefab].
 const TAB_INNER: &str = "stb_text_box";
-const TAB_TEXT: &str = "button_text";
+/// The setting whose word fits the condition card's room before its meter.
+const CONDITION_TITLE: &str = "sStatsCNDAbbrev";
 /// The hotkey slots' tiles: every slot's but Ammo Swap's, which has its own picture in the file
 /// [documented: the file names `HK_Item_` 0 and 2 to 7, and `IM_AmmoSwap`].
 const SLOT_PREFIX: &str = "HK_Item_";
 
 /// The tabs' words: the kind of item each holds, in NVForever's own words [design: LEGAL.md; no
-/// setting of the load order is known for them, and the strings table has none, as no menu file
-/// names one; capture question Q10]. `crate::pipboy::Page::tabs` holds what was read off the
-/// original's screen for the hand-built page: those are not reused here.
-pub const TAB_WORDS: [&str; 5] = ["Weapons", "Armor", "Aid", "Misc", "Ammo"];
+/// setting of the load order holds them, observed over FalloutNV.esm's string settings, and the
+/// strings table has none, as no menu file names one]. "Apparel" is the data's own word for what
+/// the tab holds, armour and clothes alike, spelled as it spells it [observed: FalloutNV.esm MESG
+/// `HelpApparel`, repair.md §1 and §5; #1740]. `crate::pipboy::Page::tabs` holds what was read off
+/// the original's screen for the hand-built page and is not read here.
+pub const TAB_WORDS: [&str; 5] = ["Weapons", "Apparel", "Aid", "Misc", "Ammo"];
+
+/// NVForever's own short words for titles whose built-in label leaves a card's value no room: the
+/// value then runs into the next card, as it may not wrap with no space in it [observed: the first
+/// shots, "Weight" putting Wg's value at the title's end plus 15 and past HP's title]; the condition's
+/// is [`CONDITION_TITLE`]'s.
+const TIGHT_TITLES: [(&str, &str); 2] = [(HEADLINE[0], "Wt"), (main_rect!("IM_ItemInfoRect/StrengthReqInfo"), "Str")];
+const CONDITION_CARD: &str = main_rect!("IM_ItemInfoRect/ConditionInfo");
 
 /// The buttons, by their tiles' names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -221,11 +233,19 @@ pub struct Panel {
     pub centre: Option<&'static str>,
 }
 
-/// The keys' hints beside the buttons' words (`_PCButtonText`), as the buttons' order.
+/// The Repair button as shown.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RepairButton {
+    pub shown: bool,
+    /// R does something: lit, the file dimming it otherwise by `target`.
+    pub usable: bool,
+    /// The word when it is not the file's (`fnv_game::repair::hint`, the hand-built hint's rule).
+    pub word: Option<&'static str>,
+}
+
+/// The keys' hints beside the buttons' words (`_PCButtonText`), for the buttons that show.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Hints {
-    pub equip: String,
-    pub drop: String,
     pub repair: String,
     pub modify: String,
     pub cancel: String,
@@ -240,23 +260,24 @@ pub struct Shown {
     pub device: bool,
     /// Wg, HP, DT and Caps.
     pub figures: [String; 4],
-    pub equip: bool,
-    pub drop: bool,
-    /// The Repair button: shown, and whether R does anything then (dim if not).
-    pub repair: Option<bool>,
+    pub repair: RepairButton,
     pub modify: bool,
-    /// The selected row can be worn, wielded or used [hypothesis: the root's `_EquippableItem`].
+    /// The selected row can be worn, wielded or used, and is not broken [observed: the capture,
+    /// for weapons; hypothesis for the others]: the root's `_EquippableItem`, which the file's
+    /// marker beside the highlighted row follows.
     pub equippable: bool,
-    /// A Misc folder is open [hypothesis: the root's `_KeyringOpen`].
+    /// A Misc folder is open [hypothesis: the root's `_KeyringOpen`, which Cancel follows].
     pub keyring: bool,
     pub hints: Hints,
+    /// [`CONDITION_TITLE`]'s word.
+    pub condition_title: String,
     pub panel: Option<Panel>,
 }
 
 impl Shown {
     /// What `m` shows; `card` the selected row's figures, without DPS as on the hand-built page.
     #[allow(clippy::too_many_arguments)]
-    pub fn of(m: &MenuModel, card: Option<Info>, tab: usize, device: bool, figures: [String; 4], repair: Option<bool>, hints: Hints, panel: Option<Panel>) -> Shown {
+    pub fn of(m: &MenuModel, card: Option<Info>, tab: usize, device: bool, figures: [String; 4], repair: RepairButton, (hints, condition_title): (Hints, String), panel: Option<Panel>) -> Shown {
         let selected = m.selected_row(Side::Player);
         let list = ListShown {
             rows: item_menu::rows_shown(&m.list(Side::Player).rows),
@@ -283,13 +304,12 @@ impl Shown {
             tab,
             device,
             figures,
-            equip: selected.is_some(),
-            drop: selected.is_some_and(|r| !r.quest && r.folder.is_none()),
             repair,
             modify,
-            equippable: selected.is_some_and(|r| matches!(r.kind, Some(ItemKind::Weapon | ItemKind::Armor | ItemKind::Aid))),
+            equippable: selected.is_some_and(|r| matches!(r.kind, Some(ItemKind::Weapon | ItemKind::Armor | ItemKind::Aid)) && r.condition.is_none_or(|c| c > 0.0)),
             keyring: m.folder.is_some(),
             hints,
+            condition_title,
             panel,
         }
     }
@@ -309,11 +329,11 @@ fn text(s: &str) -> Value {
 
 /// Write what the page shows of `s`. A list's places are `item_menu::settle`'s, once the texts
 /// are measured.
-pub fn write_model(ui: &mut Ui, s: &Shown, view: &mut MenuTiles) {
+pub fn write_model(ui: &mut Ui, s: &Shown, view: &mut MenuTiles, file_repair_word: &mut Option<String>) {
     item_menu::write_lists(ui, &s.list, view);
     put(ui, BACKGROUND, "visible", on(false));
     put(ui, HEADLINE_DR, "visible", on(false));
-    put(ui, EQUIP_MARKER, "visible", on(false));
+    write_tight_titles(ui, &s.condition_title);
     for (card, figure) in HEADLINE.iter().zip(&s.figures) {
         put(ui, card, "_Value", text(figure));
     }
@@ -332,35 +352,51 @@ pub fn write_model(ui: &mut Ui, s: &Shown, view: &mut MenuTiles) {
     put(ui, SKILL_REQ, "string", Value::Str(skill.map_or_else(String::new, |n| n.to_string())));
     put(ui, SKILL_REQ, "visible", on(!panel && skill.is_some()));
     item_card::write(ui, CARD, card);
-    write_buttons(ui, s);
+    // No row, no figures, the card rect included [observed: the capture].
+    put(ui, CARD, "visible", on(card.is_some()));
+    write_buttons(ui, s, file_repair_word);
     write_panel(ui, s.panel.as_ref());
 }
 
-/// The buttons' `visible` and hints; their words are the file's.
-fn write_buttons(ui: &mut Ui, s: &Shown) {
-    for (name, button) in BUTTONS {
-        let (shown, hint) = match button {
-            Button::Equip => (s.equip, &s.hints.equip),
-            Button::Drop => (s.drop, &s.hints.drop),
-            Button::Repair => (s.repair.is_some(), &s.hints.repair),
-            Button::Mod => (s.modify, &s.hints.modify),
-            Button::Cancel => (true, &s.hints.cancel),
-            // The hotkeys are held digits [design: the owner 2026-10-26, `hotkey_panel`].
-            Button::Hotkey => {
-                put(ui, &button_path(name), "visible", on(false));
-                continue;
-            }
-        };
-        let path = button_path(name);
-        put(ui, &path, "visible", on(shown));
-        put(ui, &path, "_PCButtonText", text(hint));
+/// Titles too wide for their card ([`TIGHT_TITLES`]), once, only while the title is the strings
+/// table's label: a plugin's setting or a script's word stands (`Ui::built_in_label`).
+fn write_tight_titles(ui: &mut Ui, condition: &str) {
+    for (path, word) in TIGHT_TITLES.into_iter().chain([(CONDITION_CARD, condition)]) {
+        let Some(t) = ui.find_tile(path) else { continue };
+        if ui.built_in_label(t, "_Title").is_some() {
+            ui.set_trait(t, "_Title", text(word));
+        }
     }
-    // Dim while R does nothing, as the hand-built hint (`repair::draw_hint`); the text inherits
-    // no parent's brightness [hypothesis: as barter's Accept, `super::barter_menu`].
-    let repair = button_path("IM_RepairButton");
-    let brightness = if s.repair == Some(false) { 128.0 } else { 255.0 };
-    for path in [repair.clone(), format!("{repair}/button_text"), format!("{repair}/PCShortcutLabel")] {
-        put(ui, &path, "brightness", Value::Num(brightness));
+}
+
+/// The buttons' `visible`, hints and Repair's word and `target` [observed: the capture: on a PC only
+/// Repair and Mod show; the file dims by `target`]. Equip, Drop and Hotkey are never shown: the file
+/// has them for a controller, the hand-built page shows none either [design]. Repair shows on the
+/// tabs read, with a row at full condition and with none, and for any row it can act on [hypothesis
+/// for the other tabs until the retake]; Mod only for a weapon with mods, always lit, the owner's
+/// rule for the hand-built hint (`items`), where the original also dims it with no row.
+fn write_buttons(ui: &mut Ui, s: &Shown, file_repair_word: &mut Option<String>) {
+    for (name, button) in BUTTONS {
+        let path = button_path(name);
+        let (shown, hint) = match button {
+            Button::Repair => (s.repair.shown, Some(&s.hints.repair)),
+            Button::Mod => (s.modify, Some(&s.hints.modify)),
+            Button::Cancel => (s.keyring, Some(&s.hints.cancel)),
+            Button::Equip | Button::Drop | Button::Hotkey => (false, None),
+        };
+        put(ui, &path, "visible", on(shown));
+        if let Some(hint) = hint {
+            put(ui, &path, "_PCButtonText", text(hint));
+        }
+    }
+    let path = button_path("IM_RepairButton");
+    put(ui, &path, "target", on(s.repair.usable));
+    let Some(button) = ui.find_tile(&path) else { return };
+    // The file's word (a setting's, a plugin's) is kept to come back to.
+    let file_word = file_repair_word.get_or_insert_with(|| ui.tile(button).get("string").map_or_else(String::new, |v| v.text().to_string()));
+    let word = s.repair.word.unwrap_or(file_word.as_str());
+    if ui.tile(button).get("string").map(Value::text).as_deref() != Some(word) {
+        ui.set_trait(button, "string", text(word));
     }
 }
 
@@ -396,19 +432,13 @@ fn ensure_tabs(ui: &mut Ui, tabs: &mut Vec<RowTile<usize>>) -> Result<bool, Stri
 }
 
 /// What the tab line is told, and the same marks as STATS' tabs have (`stats_menu::write_tabs`):
-/// the tab gives its children no place. The word goes on the tab and on its text: which of them
-/// the template reads is [hypothesis until the capture, Q9].
+/// the tab gives its children no place. The word goes on the tab, whose inner tiles copy it
+/// [documented: the prefabs], as `_selected` and its look follow `_CurrentTab`.
 fn write_tabs(ui: &mut Ui, tabs: &[RowTile<usize>], tab: usize) {
     put(ui, TABLINE, "_ButtonCount", Value::Num(TAB_WORDS.len() as f64));
     put(ui, TABLINE, "_CurrentTab", Value::Num(tab as f64));
-    put(ui, TABLINE, "_enabled", on(true));
     for row in tabs {
-        ui.write_changed(row.tile, "_enabled", on(true));
-        let word = text(TAB_WORDS[row.key]);
-        ui.write_changed(row.tile, "string", word.clone());
-        if let Some(t) = find_named(ui, row.tile, TAB_TEXT) {
-            ui.write_changed(t, "string", word);
-        }
+        ui.write_changed(row.tile, "string", text(TAB_WORDS[row.key]));
         if find_named(ui, row.tile, TAB_INNER).is_some() {
             ui.write_changed(row.tile, fnv_ui::input::NO_ORIGIN, Value::Num(1.0));
         }
@@ -427,29 +457,33 @@ fn keep(ui: &mut Ui, t: TileId, name: &str, want: f64) {
     }
 }
 
-/// Stands the tabs along the line by their measured words, the hand-built tab line's rule
-/// (`frame::tab_boxes`, even lines between them), and makes them targets, the file leaving both to
-/// code [hypothesis: nothing in a tile from one template tells it from its sisters but
-/// `listindex`]. A tab and its inner rect repeat one place (module `stats_menu::write_tabs`), so
-/// both get it; with the mark `write_tabs` gives, the two are not added. `y` stays the file's.
+/// The width of the tab line's lines, and each tab's `_x` in the line, by the tabs' own widths: a
+/// line, a tab, a line, a tab, the rest for the last line [observed: the capture, read for one set
+/// of words; hypothesis: the floor].
+fn tab_xs(line_width: f64, widths: &[f64]) -> (f64, Vec<f64>) {
+    let gap = ((line_width - widths.iter().sum::<f64>()) / (widths.len() + 1) as f64).floor().max(0.0);
+    let mut x = gap;
+    let xs = widths
+        .iter()
+        .map(|w| {
+            let here = x;
+            x += w + gap;
+            here
+        })
+        .collect();
+    (gap, xs)
+}
+
+/// What the file leaves to code of the tabs' places: each tab's `_x`, from which its inner rect's
+/// and its own `x` follow [documented: the prefabs], and the line's `_LeftLineLength`. On every pass,
+/// as a tab's width follows its measured word.
 fn place_tabs(ui: &mut Ui, tabs: &[RowTile<usize>]) {
     let Some(line) = ui.find_tile(TABLINE) else { return };
-    let widths: Vec<f32> = tabs.iter().map(|r| find_named(ui, r.tile, TAB_TEXT).map_or(0.0, |t| num(ui, t, "width")) as f32).collect();
-    let (boxes, gap) = crate::pipboy::frame::tab_boxes(&widths);
-    let mut left = 0.0;
-    let mut at = Some(line);
-    while let Some(t) = at {
-        left += num(ui, t, "x");
-        at = ui.tile(t).parent;
-    }
-    keep(ui, line, "_LeftLineLength", f64::from(gap));
-    for (row, b) in tabs.iter().zip(&boxes) {
-        let x = f64::from(b.min.x) - left;
-        keep(ui, row.tile, "x", x);
-        if let Some(inner) = find_named(ui, row.tile, TAB_INNER) {
-            keep(ui, inner, "x", x);
-        }
-        keep(ui, row.tile, "target", 1.0);
+    let widths: Vec<f64> = tabs.iter().map(|r| num(ui, r.tile, "width")).collect();
+    let (gap, xs) = tab_xs(num(ui, line, "width"), &widths);
+    keep(ui, line, "_LeftLineLength", gap);
+    for (row, x) in tabs.iter().zip(xs) {
+        keep(ui, row.tile, "_x", x);
     }
 }
 
@@ -571,6 +605,8 @@ pub(crate) struct Written {
     counted: Checked,
     /// The tabs' places last logged.
     places_told: Option<String>,
+    /// The Repair button's word in the file, before any of ours.
+    file_repair_word: Option<String>,
     /// Final passes in a row that failed: a state that lasts a frame or two is no fallback to warn of.
     failing: u32,
     fallbacks: HashSet<String>,
@@ -636,7 +672,7 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut Inve
     if let Some(s) = new {
         let list_new = tiles.view.is_new(menu, &s.list);
         if list_new || w.shown.as_ref() != Some(&s) {
-            write_model(ui, &s, &mut tiles.view);
+            write_model(ui, &s, &mut tiles.view, &mut w.file_repair_word);
             w.shown = Some(s);
             w.tell = true;
             changed = true;
@@ -742,21 +778,15 @@ pub fn takes(tiles: &InventoryTiles, switch: TileMenus, pip: &PipBoy, game: &fnv
 }
 
 /// The page's keys in the hints: what works on the hand-built page, by the game's settings where
-/// they name the key [design: as `super::container_menu`'s Take All]. The Equip key has no setting;
-/// a pointer's right click is the keyboard's Drop, the controller's X.
+/// they name the key [design: as `super::container_menu`'s Take All]. Cancel, inside a Misc folder,
+/// goes back: Backspace there (`items::keys`), which no setting names.
 fn hints_of(game: &fnv_game::Game<'_>) -> Hints {
     use fnv_game::ui_loading::game_string;
     let at = crate::pad::at_menu(fnv_game::game::menus::INVENTORY);
-    let drop = match crate::pad::labels() {
-        crate::pad::Labels::Keys => game_string(game, "sPCMenuHintRMB"),
-        l => format!("[{}]", crate::pad::pad_label(crate::pad::PadInput::Button(GamepadButton::West), l)),
-    };
     Hints {
-        equip: crate::pad::hint_bracketed(&[KeyCode::Enter], at),
-        drop,
         repair: crate::pad::game_hint(&game_string(game, "sPCMenuHintR"), &[KeyCode::KeyR], at),
         modify: crate::pad::game_hint(&game_string(game, "sPCMenuHintX"), &[KeyCode::KeyX], at),
-        cancel: crate::pad::hint_bracketed(&[KeyCode::Escape], at),
+        cancel: crate::pad::hint_bracketed(&[KeyCode::Backspace], at),
     }
 }
 
@@ -834,8 +864,12 @@ fn pass(p: &mut ItemsPage<'_, '_>, late: bool) -> Option<Result<TileId, String>>
         let hp = forms.as_mut().and_then(|f| crate::pipboy::stats::read::player_hp(f, sim, Some(&mut *script)));
         let dt = combat.map(|c| crate::combat::target_armor(c, Some(&mut *script), sim, FormId::PLAYER_REF).0);
         let caps = sim.world.item_count(FormId::PLAYER_REF, crate::menu::model::CAPS).unwrap_or(0);
-        let figures = [items::wg_text(m), items::hp_text(hp), items::dt_text(dt), caps.to_string()];
-        let repair = repair::current(active, sim, Some(&*script)).map(|o| o.usable());
+        // Whole units cut off, not rounded [observed: the capture, one case; as the container's].
+        let wg = m.encumbrance.as_ref().map_or_else(|_| "--".to_string(), |e| format!("{:.0}/{:.0}", e.weight.floor(), e.capacity));
+        let figures = [wg, items::hp_text(hp), items::dt_text(dt), caps.to_string()];
+        let offer = repair::current(active, sim, Some(&*script));
+        let word = offer.as_ref().map(|o| fnv_game::repair::hint(o.gear, o.condition)).filter(|w| *w != "Repair");
+        let repair = RepairButton { shown: tab <= 1 || offer.is_some(), usable: offer.as_ref().is_some_and(|o| o.usable()), word };
         let panel = hold.zip(hotkeys).and_then(|(hold, hotkeys)| {
             let slot = hold.slot?;
             let icon = |item: u32| hotkey_panel::icon_of(FormId(item), sim, combat);
@@ -846,8 +880,9 @@ fn pass(p: &mut ItemsPage<'_, '_>, late: bool) -> Option<Result<TileId, String>>
                 centre: selected.and_then(|r| hotkey_panel::icon_of(r.item, sim, combat)),
             })
         });
-        let hints = hints_of(&script.rt.as_ref()?.game);
-        Some(Shown::of(m, card, tab, device, figures, repair, hints, panel))
+        let game = &script.rt.as_ref()?.game;
+        let words = (hints_of(game), fnv_game::ui_loading::game_string(game, CONDITION_TITLE));
+        Some(Shown::of(m, card, tab, device, figures, repair, words, panel))
     });
     let rt = script.rt.as_mut()?;
     Some(page(&mut rt.game.ui_tree, new, late, &mut p.tiles, &mut p.fonts))
@@ -1085,8 +1120,9 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
             ItemsTile::Button(Button::Mod) => {
                 out.modding.write(ModInput::Open);
             }
+            // It shows inside a Misc folder, where the hand-built page's way out is `Back`.
             ItemsTile::Button(Button::Cancel) => {
-                out.commands.write(MenuInput(Command::Close));
+                out.commands.write(MenuInput(if m.folder.is_some() { Command::Back } else { Command::Close }));
             }
             ItemsTile::Button(Button::Hotkey) => {}
             ItemsTile::Bar(BarPiece::Marker) => {
@@ -1151,15 +1187,18 @@ mod tests {
     use crate::menu::model::{Category, RowKey};
     use fnv_ui::MemSource;
 
+    /// The text inside a tab in the tests' layout.
+    const TAB_TEXT: &str = "button_text";
+
     /// [design] A small layout written for these tests, with its own structure, numbers and
     /// expressions; it does not come from the game's files and says nothing about them. It keeps
     /// the tile, template and path names the model and the input look up, which are the engine's
     /// interface ([`required_paths`]), and only the dependencies the tests exercise: a row stands at
-    /// its `_y` less its list's scroll, a tab at its `listindex`'s place with its words in a text
-    /// under it. So these tests do not cover the file's own places, how its expressions read what
+    /// its `_y` less its list's scroll, a tab at its `_x` with its `string` in a text under it. So
+    /// these tests do not cover the file's own places, how its expressions read what
     /// is written (the tab template's inside, `_CurrentTab`, `_LeftLineLength`, a tab's `_selected`,
-    /// `_EquippableItem`, `_KeyringOpen`, the panel's traits, `IM_EquipItemMarker`, the headline
-    /// cards' `_Value`), or whether a name is where the file has it: the smoke scenarios
+    /// `_EquippableItem` and the marker that follows it, `_KeyringOpen`, a button's `target` and its
+    /// dim look, the panel's traits, the headline cards' `_Value`), or whether a name is where the file has it: the smoke scenarios
     /// `tiles-items*` check those on the real file, and their shots what they look like.
     fn tree_changed(change: impl FnOnce(String) -> String) -> Ui {
         let card = |name: &str, inner: &str| format!(r#"<rect name="{name}"><_Title>{name}</_Title><_Value></_Value><visible>&false;</visible><text name="CI_TitleText"></text><text name="CI_ValueText"></text>{inner}</rect>"#);
@@ -1182,7 +1221,6 @@ mod tests {
                   <hotrect name="scrollbar_vert_page_up"/><hotrect name="scrollbar_vert_page_down"/>
                   <image name="scrollbar_vert_marker"/><image name="scrollbar_vert_up"/><image name="scrollbar_vert_down"/>
                 </image>
-                <image name="IM_EquipItemMarker"/>
               </hotrect>
               <rect name="IM_HotKeyWheel"><visible>&false;</visible>{slots}<image name="IM_HotkeyIcon"/></rect>
               <rect name="IM_ButtonRect"><x>500</x><y>300</y>{buttons}</rect>
@@ -1196,9 +1234,9 @@ mod tests {
               <y><copy src="me()" trait="_y"/><sub src="parent()" trait="_offset"/></y>
               <text name="ListItemText"></text><image name="IM_Template_ItemMarker"/>
             </hotrect></template>
-            <template name="TabButtonTemplate"><hotrect name="TabButton"><target>&true;</target><width>100</width><height>30</height><_pitch>120</_pitch>
-              <x><copy src="me()" trait="listindex"/><mul src="me()" trait="_pitch"/></x>
-              <text name="button_text"></text>
+            <template name="TabButtonTemplate"><hotrect name="TabButton"><target>&true;</target><width>100</width><height>30</height><_x>0</_x>
+              <x><copy src="me()" trait="_x"/></x>
+              <text name="button_text"><string><copy src="parent()" trait="string"/></string></text>
             </hotrect></template></menu>"#
         );
         let mut ui = Ui::new();
@@ -1238,13 +1276,12 @@ mod tests {
             tab: 0,
             device: true,
             figures: ["52/200".into(), "90/100".into(), "8.0".into(), "1234".into()],
-            equip: selected < rows,
-            drop: selected < rows,
-            repair: None,
+            repair: RepairButton { shown: true, usable: false, word: None },
             modify: false,
             equippable: true,
             keyring: false,
-            hints: Hints { equip: "[Enter]".into(), drop: "[Right Click]".into(), repair: "[R]".into(), modify: "[X]".into(), cancel: "[Esc]".into() },
+            hints: Hints { repair: "[R]".into(), modify: "[X]".into(), cancel: "[Back]".into() },
+            condition_title: "Short".into(),
             panel: None,
         }
     }
@@ -1296,7 +1333,6 @@ mod tests {
         }
         assert_eq!(at(&ui, HEADLINE_DR, "visible"), 0.0, "this page has no DR card");
         assert_eq!(at(&ui, BACKGROUND, "visible"), 0.0);
-        assert_eq!(at(&ui, EQUIP_MARKER, "visible"), 0.0);
         // The rows, named after their items, the list's own places.
         assert_eq!(rows(&t).len(), 3);
         assert_eq!(ui.tile(rows(&t)[2].tile).name, "Item 3");
@@ -1312,7 +1348,7 @@ mod tests {
         for (row, word) in tabs.iter().zip(TAB_WORDS) {
             assert_eq!(ui.tile(row.tile).get("string").map(|v| v.text().to_string()).as_deref(), Some(word));
             let inner = find_named(&ui, row.tile, TAB_TEXT).unwrap();
-            assert_eq!(ui.tile(inner).get("string").map(|v| v.text().to_string()).as_deref(), Some(word));
+            assert_eq!(ui.tile(inner).get("string").map(|v| v.text().to_string()).as_deref(), Some(word), "the file copies it down");
         }
         assert_eq!((at(&ui, TABLINE, "_ButtonCount"), at(&ui, TABLINE, "_CurrentTab")), (5.0, 0.0));
         // The picture, the badge, the skill, the figures, the buttons.
@@ -1321,12 +1357,12 @@ mod tests {
         assert_eq!(words(&ui, BADGE, "filename"), "pics\\badge.dds");
         assert_eq!(words(&ui, SKILL_REQ, "string"), "25");
         assert_eq!(words(&ui, &format!("{CARD}/WeightInfo"), "_Value"), "5.00");
-        assert_eq!(at(&ui, &button_path("IM_EquipButton"), "visible"), 1.0);
-        assert_eq!(words(&ui, &button_path("IM_EquipButton"), "_PCButtonText"), "[Enter]");
-        assert_eq!(at(&ui, &button_path("IM_RepairButton"), "visible"), 0.0);
-        assert_eq!(at(&ui, &button_path("IM_ModButton"), "visible"), 0.0);
-        assert_eq!(words(&ui, &button_path("IM_DropButton"), "_PCButtonText"), "[Right Click]");
-        assert_eq!(at(&ui, &button_path("IM_CancelButton"), "visible"), 1.0);
+        for hidden in ["IM_EquipButton", "IM_DropButton", "IM_CancelButton", "IM_ModButton"] {
+            assert_eq!(at(&ui, &button_path(hidden), "visible"), 0.0, "{hidden}");
+        }
+        assert_eq!(at(&ui, &button_path("IM_RepairButton"), "visible"), 1.0);
+        assert_eq!(words(&ui, &button_path("IM_RepairButton"), "_PCButtonText"), "[R]");
+        assert_eq!(at(&ui, CARD, "visible"), 1.0);
         assert_eq!((at(&ui, INVENTORY_MENU, "_EquippableItem"), at(&ui, INVENTORY_MENU, "_KeyringOpen")), (1.0, 0.0));
         assert_eq!(at(&ui, WHEEL, "visible"), 0.0);
         assert_eq!(at(&ui, BUTTON_RECT, "visible"), 1.0);
@@ -1378,8 +1414,9 @@ mod tests {
         assert!(rows(&t).is_empty());
         assert_eq!((at(&ui, LIST, "_highlight_y"), at(&ui, LIST, "_selected_height")), (-1.0, 0.0));
         assert_eq!(at(&ui, ICON, "visible"), 0.0);
-        assert_eq!(at(&ui, &button_path("IM_EquipButton"), "visible"), 0.0);
-        assert_eq!(at(&ui, &button_path("IM_CancelButton"), "visible"), 1.0);
+        assert_eq!(at(&ui, CARD, "visible"), 0.0, "no row, no figures");
+        assert_eq!(at(&ui, &button_path("IM_RepairButton"), "visible"), 1.0);
+        assert_eq!(at(&ui, &button_path("IM_RepairButton"), "target"), 0.0);
     }
 
     #[test]
@@ -1439,48 +1476,80 @@ mod tests {
     }
 
     #[test]
-    fn tabs_the_file_stands_at_one_place_are_set_along_the_line() {
-        // A template that tells its tiles nothing apart: each tab's words under the last tab.
-        let mut ui = tree_changed(|x| x.replace("<_pitch>120</_pitch>", "<_pitch>0</_pitch>"));
-        let mut t = InventoryTiles::default();
+    fn the_tabs_follow_the_x_code_gives_them() {
+        // Written for the test: unwritten, the fixture's tabs all stand at its `_x` of 0.
+        let (mut ui, mut t) = (tree_changed(|x| x.replace(r#"<rect name="IM_Tabline"><y>560</y></rect>"#, r#"<rect name="IM_Tabline"><y>560</y><width>800</width></rect>"#)), InventoryTiles::default());
         run(&mut ui, Some(shown(2, 0)), &mut t).unwrap();
         assert_eq!(t.written.counted.tab_missed, None);
         assert_each_tab_takes_the_pointer(&ui, &t);
-        // In order along the line, the hand-built rule: 75 between boxes of the words and 35.
+        // Five tabs of 100 in 800: 300 over six lines.
         let xs: Vec<f64> = t.written.tabs.iter().map(|r| num(&ui, r.tile, "x")).collect();
-        assert_eq!(xs, [125.0, 305.0, 465.0, 605.0, 755.0]);
-        assert_eq!(at(&ui, TABLINE, "_LeftLineLength"), 75.0);
-        // Worked out again by the file, put right on the next pass.
-        let first = t.written.tabs[0].tile;
-        ui.set_trait(first, "x", Value::Num(0.0));
-        run(&mut ui, None, &mut t).unwrap();
-        assert_eq!(num(&ui, first, "x"), 125.0);
+        assert_eq!(xs, [50.0, 200.0, 350.0, 500.0, 650.0]);
+        assert_eq!(at(&ui, TABLINE, "_LeftLineLength"), 50.0);
     }
 
     #[test]
-    fn the_line_s_own_place_is_taken_off_and_an_inner_rect_repeats_the_tab_s() {
+    fn a_line_and_a_tab_by_turns_the_rest_at_the_end() {
+        let (gap, xs) = tab_xs(100.0, &[10.0, 20.0, 15.0]);
+        assert_eq!(gap, 13.0, "whole lines: 55 over 4");
+        assert_eq!(xs, [13.0, 36.0, 69.0]);
+        assert_eq!(tab_xs(10.0, &[20.0]), (0.0, vec![0.0]), "too wide: no line");
+    }
+
+    #[test]
+    fn a_tab_with_an_inner_rect_gives_it_no_place_twice() {
+        // Written for the test: the tab's place read from the inner rect's, that from `_x`.
         let mut ui = tree_changed(|x| {
-            x.replace(r#"<rect name="IM_Tabline"><y>560</y></rect>"#, r#"<rect name="IM_Tabline"><x>50</x><y>560</y></rect>"#)
-                .replace(r#"<text name="button_text"></text>
-            </hotrect></template></menu>"#, r#"<rect name="stb_text_box"><text name="button_text"></text></rect>
-            </hotrect></template></menu>"#)
+            x.replace(r#"<rect name="IM_Tabline"><y>560</y></rect>"#, r#"<rect name="IM_Tabline"><y>560</y><width>800</width></rect>"#).replace(
+                r#"<x><copy src="me()" trait="_x"/></x>
+              <text name="button_text"><string><copy src="parent()" trait="string"/></string></text>"#,
+                r#"<x><copy src="child(stb_text_box)" trait="x"/></x>
+              <rect name="stb_text_box"><x><copy src="parent()" trait="_x"/></x><string><copy src="parent()" trait="string"/></string>
+              <text name="button_text"><string><copy src="parent()" trait="string"/></string></text></rect>"#,
+            )
         });
         let mut t = InventoryTiles::default();
         run(&mut ui, Some(shown(2, 0)), &mut t).unwrap();
         let tab = t.written.tabs[1].tile;
-        let inner = find_named(&ui, tab, TAB_INNER).unwrap();
-        assert_eq!((num(&ui, tab, "x"), num(&ui, inner, "x")), (255.0, 255.0));
+        assert_eq!(num(&ui, tab, "x"), 200.0);
         assert_eq!(num(&ui, tab, fnv_ui::input::NO_ORIGIN), 1.0);
         assert_each_tab_takes_the_pointer(&ui, &t);
     }
 
     #[test]
-    fn a_template_that_leaves_target_to_code_gets_it() {
-        let mut ui = tree_changed(|x| x.replace(r#"<hotrect name="TabButton"><target>&true;</target>"#, r#"<hotrect name="TabButton">"#));
-        let mut t = InventoryTiles::default();
+    fn a_built_in_title_too_wide_gives_way_and_a_setting_stands() {
+        let loaded = |built_in: &[&str]| {
+            let mut xml = String::new();
+            let _ = tree_changed(|x| {
+                xml = x.replace("<_Value></_Value></rect>", "<_Title>&-sInventoryWeight;</_Title><_Value></_Value></rect>");
+                x
+            });
+            let mut src = MemSource::default().with("i.xml", &xml);
+            src.strings.insert("sInventoryWeight".into(), "Long Word".into());
+            src.built_in_strings = built_in.iter().map(|n| n.to_ascii_lowercase()).collect();
+            let mut ui = Ui::new();
+            ui.load_menu(&src, "i.xml").unwrap();
+            ui.update();
+            ui
+        };
+        let (mut ui, mut t) = (loaded(&["sInventoryWeight"]), InventoryTiles::default());
         run(&mut ui, Some(shown(2, 0)), &mut t).unwrap();
-        assert_eq!(t.written.counted.tab_missed, None);
-        assert_each_tab_takes_the_pointer(&ui, &t);
+        assert_eq!(words(&ui, HEADLINE[0], "_Title"), "Wt", "the strings table's label");
+        let (mut ui, mut t) = (loaded(&[]), InventoryTiles::default());
+        run(&mut ui, Some(shown(2, 0)), &mut t).unwrap();
+        assert_eq!(words(&ui, HEADLINE[0], "_Title"), "Long Word", "a plugin's setting");
+    }
+
+    #[test]
+    fn cancel_shows_in_a_folder_and_equip_and_drop_never() {
+        let (mut ui, mut t) = (tree(), InventoryTiles::default());
+        let mut s = shown(2, 0);
+        s.keyring = true;
+        run(&mut ui, Some(s), &mut t).unwrap();
+        assert_eq!(at(&ui, &button_path("IM_CancelButton"), "visible"), 1.0);
+        assert_eq!(words(&ui, &button_path("IM_CancelButton"), "_PCButtonText"), "[Back]");
+        assert_eq!(at(&ui, &button_path("IM_EquipButton"), "visible"), 0.0);
+        assert_eq!(at(&ui, INVENTORY_MENU, "_KeyringOpen"), 1.0);
     }
 
     #[test]
@@ -1496,7 +1565,7 @@ mod tests {
 
     #[test]
     fn tabs_without_words_fall_back() {
-        let mut ui = tree_changed(|x| x.replace(r#"<text name="button_text"></text>
+        let mut ui = tree_changed(|x| x.replace(r#"<text name="button_text"><string><copy src="parent()" trait="string"/></string></text>
             </hotrect></template></menu>"#, r#"</hotrect></template></menu>"#));
         let mut t = InventoryTiles::default();
         // The fixture's tab then holds no text tile: its word is written on the tab alone.
@@ -1562,17 +1631,20 @@ mod tests {
     }
 
     #[test]
-    fn a_repair_that_does_nothing_is_dim() {
-        let (mut ui, mut t) = (tree(), InventoryTiles::default());
+    fn repair_shows_dim_by_target_and_its_word_follows_the_condition() {
+        let mut ui = tree_changed(|x| x.replace(r#"<image name="IM_RepairButton"><target>&true;</target>"#, r#"<image name="IM_RepairButton"><string>File</string><target>&true;</target>"#));
+        let mut t = InventoryTiles::default();
         let mut s = shown(2, 0);
-        s.repair = Some(false);
+        s.repair = RepairButton { shown: true, usable: false, word: Some("Other") };
         run(&mut ui, Some(s.clone()), &mut t).unwrap();
         let repair = button_path("IM_RepairButton");
-        assert_eq!((at(&ui, &repair, "visible"), at(&ui, &repair, "brightness")), (1.0, 128.0));
-        assert_eq!(at(&ui, &format!("{repair}/button_text"), "brightness"), 128.0);
-        s.repair = Some(true);
+        assert_eq!((at(&ui, &repair, "visible"), at(&ui, &repair, "target")), (1.0, 0.0));
+        assert_eq!(words(&ui, &repair, "string"), "Other");
+        // Back to the file's own, whatever it is.
+        s.repair = RepairButton { shown: true, usable: true, word: None };
         run(&mut ui, Some(s), &mut t).unwrap();
-        assert_eq!(at(&ui, &repair, "brightness"), 255.0);
+        assert_eq!(at(&ui, &repair, "target"), 1.0);
+        assert_eq!(words(&ui, &repair, "string"), "File");
     }
 
     #[test]
@@ -1627,12 +1699,9 @@ mod tests {
 
     #[test]
     fn every_hint_and_word_written_has_its_source() {
-        // [design] The tab words are NVForever's own: not the words read off the original's
-        // screen for the hand-built page wherever the two differ.
         assert_eq!(TAB_WORDS.len(), crate::pipboy::items::TABS.len());
-        assert_ne!(TAB_WORDS, crate::pipboy::Page::Items.tabs());
-        // The settings the hints read are in the strings table.
-        for name in ["sPCMenuHintR", "sPCMenuHintX", "sPCMenuHintRMB"] {
+        // The settings the hints and the condition's title read are in the strings table.
+        for name in ["sPCMenuHintR", "sPCMenuHintX", CONDITION_TITLE] {
             assert!(fnv_ui::strings::built_in(name).is_some(), "{name}");
         }
     }
