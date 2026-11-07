@@ -205,6 +205,16 @@ pub mod flag {
     pub const DOWN: u8 = 32;
     /// The flashlight is on.
     pub const LIGHT: u8 = 64;
+    /// Revived, the body still lies before getting up (the others' copies of it start
+    /// their get-up when this clears).
+    pub const LYING: u8 = 128;
+}
+
+/// [`Msg::Revive`]'s `perks` bits: the reviver's co-op perks that act on the revived
+/// (`fnv_game::coop_perks`).
+pub mod revive_perk {
+    /// Healing Hands: the revived is cured of all radiation.
+    pub const CURE_RADS: u8 = 1;
 }
 
 /// [`PlayerState::attack_kind`]: what the newest attack was.
@@ -355,8 +365,9 @@ enum Msg {
     /// A door was opened (`open`) or closed by a player (to the host, and from it to
     /// everyone) or in the host's world.
     Door { reference: u32, open: bool },
-    /// Player `by` revived player `target` (who is down).
-    Revive { target: u8, by: u8 },
+    /// Player `by` revived player `target` (who is down); `perks`: the reviver's co-op
+    /// perks that act on the revived ([`revive_perk`]).
+    Revive { target: u8, by: u8, perks: u8 },
     /// Player `id` at a minigame table: what it shows (a view, the newest wins) or an
     /// action for the table's owner (`game` with [`TABLE_ACTION`]). `table` names the
     /// table (a casino's FormID, a dartboard's reference), `blob` is the game's own
@@ -511,8 +522,9 @@ pub enum Event {
     /// Player `id` (0: the host's world) opened (`open`) or closed a door. It may come
     /// more than once.
     Door { id: u8, reference: u32, open: bool },
-    /// Player `by` revived this player. It may come more than once.
-    Revived { by: u8 },
+    /// Player `by` revived this player, with its co-op perks ([`revive_perk`]). It may
+    /// come more than once.
+    Revived { by: u8, perks: u8 },
     /// Player `id` at a table: a view (newest only; `game` [`TABLE_LEFT`]: it left), or
     /// an action (`game` with [`TABLE_ACTION`], each once).
     Table { id: u8, table: u32, game: u8, blob: Vec<u8> },
@@ -859,9 +871,9 @@ impl Session {
 
     /// This player revives player `target` (down): to the host, which passes it on, or
     /// from the host to that guest ([`HIT_COPIES`] times).
-    pub fn send_revive(&mut self, target: u8) {
+    pub fn send_revive(&mut self, target: u8, perks: u8) {
         let Some(by) = self.id() else { return };
-        let msg = Msg::Revive { target, by };
+        let msg = Msg::Revive { target, by, perks };
         let to = match &self.role {
             Role::Host => self.peers.iter().find(|p| p.id == target).and_then(|p| p.addr),
             Role::Guest { host, .. } => *host,
@@ -1259,15 +1271,15 @@ impl Session {
                     self.sock_send(&msg, addr);
                 }
             }
-            Msg::Revive { target, by } => {
+            Msg::Revive { target, by, perks } => {
                 // From a known guest only; for the host, or passed on to its guest.
                 if !self.peers.iter().any(|p| p.addr == Some(from) && p.id == by) {
                     return;
                 }
                 if target == 0 {
-                    self.events.push(Event::Revived { by });
+                    self.events.push(Event::Revived { by, perks });
                 } else if let Some(addr) = self.peers.iter().find(|p| p.id == target).and_then(|p| p.addr) {
-                    self.sock_send(&Msg::Revive { target, by }, addr);
+                    self.sock_send(&Msg::Revive { target, by, perks }, addr);
                 }
             }
             Msg::Table { table, game, seq, blob, .. } => {
@@ -1457,9 +1469,9 @@ impl Session {
                 self.heard_lines = Some(seq);
                 self.events.push(Event::Lines(lines));
             }
-            Msg::Revive { target, by } => {
+            Msg::Revive { target, by, perks } => {
                 if Some(target) == *id {
-                    self.events.push(Event::Revived { by });
+                    self.events.push(Event::Revived { by, perks });
                 }
             }
             Msg::Table { id: peer, table, game, seq, blob } => {
@@ -1591,8 +1603,8 @@ impl Link {
         self.with(|s| s.send_hit_to(id, hit));
     }
 
-    pub fn send_revive(&self, target: u8) {
-        self.with(|s| s.send_revive(target));
+    pub fn send_revive(&self, target: u8, perks: u8) {
+        self.with(|s| s.send_revive(target, perks));
     }
 
     pub fn set_clock(&self, clock: ClockView) {
@@ -1845,10 +1857,11 @@ fn encode(msg: &Msg) -> Vec<u8> {
             b.extend_from_slice(&reference.to_le_bytes());
             b.push(u8::from(*open));
         }
-        Msg::Revive { target, by } => {
+        Msg::Revive { target, by, perks } => {
             b.push(14);
             b.push(*target);
             b.push(*by);
+            b.push(*perks);
         }
         Msg::Table { id, table, game, seq, blob } => {
             b.extend_from_slice(&[15, *id]);
@@ -1998,7 +2011,8 @@ fn decode(b: &[u8]) -> Option<Msg> {
             Msg::Quest(QuestView { quest, completed: flags & 1 != 0, failed: flags & 2 != 0, objectives })
         }
         12 => Msg::Unlock { reference: r.u32()?, terminal: r.u8()? != 0 },
-        14 => Msg::Revive { target: r.u8()?, by: r.u8()? },
+        // A build before the perks byte sends two bytes.
+        14 => Msg::Revive { target: r.u8()?, by: r.u8()?, perks: r.u8().unwrap_or(0) },
         15 => {
             let (id, table, game, seq) = (r.u8()?, r.u32()?, r.u8()?, r.u32()?);
             let len = r.u16()? as usize;
@@ -2132,7 +2146,7 @@ mod tests {
             Msg::Quest(QuestView::default()),
             Msg::Unlock { reference: 0x0001_2345, terminal: true },
             Msg::Clock(ClockView { year: 2281.0, month: 9.0, day: 19.0, hour: 13.25, days_passed: 6.05 }),
-            Msg::Revive { target: 2, by: 0 },
+            Msg::Revive { target: 2, by: 0, perks: revive_perk::CURE_RADS },
             Msg::Presence { list: LIST_ENABLED, serial: 7, page: 0, pages: 1, refs: Vec::new() },
             Msg::Presence { list: LIST_OPEN, serial: 8, page: 2, pages: 3, refs: vec![(0x0010_A202, true), (0x0016_8A92, false)] },
             Msg::Door { reference: 0x0010_C0DE, open: true },
@@ -2297,16 +2311,16 @@ mod tests {
         let step = Duration::from_millis(20);
         run(&mut [&mut host, a, b], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))) && seen[2].iter().any(|e| matches!(e, Event::Welcomed(_))));
         let (ida, idb) = (a.id().unwrap(), b.id().unwrap());
-        a.send_revive(idb);
+        a.send_revive(idb, revive_perk::CURE_RADS);
         let seen = run(&mut [&mut host, a, b], &mut clock, step, |seen| seen[2].iter().any(|e| matches!(e, Event::Revived { .. })));
-        assert!(seen[2].contains(&Event::Revived { by: ida }));
+        assert!(seen[2].contains(&Event::Revived { by: ida, perks: revive_perk::CURE_RADS }));
         assert!(!seen[0].iter().any(|e| matches!(e, Event::Revived { .. })));
-        b.send_revive(0);
+        b.send_revive(0, 0);
         let seen = run(&mut [&mut host, a, b], &mut clock, step, |seen| seen[0].iter().any(|e| matches!(e, Event::Revived { .. })));
-        assert!(seen[0].contains(&Event::Revived { by: idb }));
-        host.send_revive(ida);
+        assert!(seen[0].contains(&Event::Revived { by: idb, perks: 0 }));
+        host.send_revive(ida, 0);
         let seen = run(&mut [&mut host, a, b], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Revived { .. })));
-        assert!(seen[1].contains(&Event::Revived { by: 0 }));
+        assert!(seen[1].contains(&Event::Revived { by: 0, perks: 0 }));
     }
 
     /// The host's NPCs' lines reach every guest, again while they last and at once when

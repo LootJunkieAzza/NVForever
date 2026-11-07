@@ -29,7 +29,11 @@ pub mod console;
 pub mod container_anim;
 pub mod control;
 pub mod campfire;
+pub mod coop_audio;
+pub mod coop_companions;
+pub mod coop_downed;
 pub mod coop_social;
+pub mod coop_subtitles;
 pub mod coop_tables;
 pub mod coop_progress;
 pub mod darts_foes;
@@ -364,7 +368,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(tiles::TilesPlugin)
             .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin)
-            .add_plugins((coop_tables::CoopTablesPlugin, coop_social::CoopSocialPlugin, minigames::MinigamesPlugin, pool::PoolPlugin, bash::BashPlugin))
+            .add_plugins((coop_tables::CoopTablesPlugin, coop_social::CoopSocialPlugin, coop_downed::CoopDownedPlugin, coop_audio::CoopAudioPlugin, coop_companions::CoopCompanionsPlugin, coop_subtitles::CoopSubtitlesPlugin, minigames::MinigamesPlugin, pool::PoolPlugin, bash::BashPlugin))
             .add_plugins(tutorial_menu::TutorialMenuPlugin)
             .add_plugins(campfire::CampfirePlugin)
             .add_plugins(credits::CreditsPlugin)

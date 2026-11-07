@@ -49,6 +49,11 @@ pub enum Action {
     /// Another player in co-op (the fork): E opens the interaction wheel
     /// (`crate::coop_social`), not the world's activation.
     Player,
+    /// Another player down in co-op, aimed at where the body lies: E revives them
+    /// (`nvforever`'s `coop.rs`), not the world's activation, using `with` (its name: a
+    /// Stimpak, or a drink with Quack Surgeon, `fnv_game::coop_perks::revive_item`);
+    /// `None`: this player has nothing to revive with.
+    Revive { with: Option<String> },
 }
 
 /// A lock level by the name the game gives it: the levels the editor offers, 0 Very Easy,
@@ -103,6 +108,8 @@ impl Action {
             Action::Inaccessible => "Inaccessible".into(),
             // [design: the owner's "an interact prompt (like Talk on NPCs)", 2026-11-04]
             Action::Player => "Interact".into(),
+            // [design: queue item 29, the game's own rollover with the verb]
+            Action::Revive { .. } => "Revive".into(),
         }
     }
 }
@@ -115,6 +122,8 @@ pub fn prompt(name: &str, action: &Action) -> (String, String) {
     match action {
         Action::Take { count } if *count > 1 => (action.label(), format!("{name} ({count})")),
         Action::Travel { to: Some(to) } => ("Open".into(), to.clone()),
+        // [design: the owner, 2026-11-06: "E) Revive <name> (Stimpak)"]
+        Action::Revive { with: Some(with) } => (action.label(), format!("{name} ({with})")),
         _ => (action.label(), name.to_string()),
     }
 }

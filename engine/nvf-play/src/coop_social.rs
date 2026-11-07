@@ -85,6 +85,9 @@ pub struct Mate {
     pub feet: [f32; 3],
     pub yaw: f32,
     pub down: bool,
+    /// Down: where its body lies here (its puppet's pelvis, game space), which is where it
+    /// is revived ([`target`]); `None` while not known (its feet stand in).
+    pub body: Option<[f32; 3]>,
     pub lost: bool,
     /// Its weapon (base FormID, 0: fists), its attacks so far (a counter), whether it
     /// looks down its sights, and its eye's pitch: what it does, for the others' quips
@@ -234,6 +237,27 @@ pub fn sweep_look(since: Option<f32>) -> [f32; 4] {
 
 /// Where along the view ray (`eye`, `dir` unit) it passes through a standing body at
 /// `feet`, if it does within `reach`.
+/// Where the crosshair's ray passes a downed body's point `at` (its pelvis) within
+/// [`DOWN_RADIUS`]: the distance along the ray, within `reach`.
+pub fn ray_meets_lying(eye: [f32; 3], dir: [f32; 3], at: [f32; 3], reach: f32) -> Option<f32> {
+    let len = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt().max(1e-6);
+    let d = [dir[0] / len, dir[1] / len, dir[2] / len];
+    let to = [at[0] - eye[0], at[1] - eye[1], at[2] - eye[2]];
+    let t = (to[0] * d[0] + to[1] * d[1] + to[2] * d[2]).max(0.0);
+    let off = [to[0] - d[0] * t, to[1] - d[1] * t, to[2] - d[2] * t];
+    let off = (off[0] * off[0] + off[1] * off[1] + off[2] * off[2]).sqrt();
+    (off <= DOWN_RADIUS && t <= reach).then_some(t)
+}
+
+/// How near the crosshair's ray must pass a downed body's pelvis to aim at it (game
+/// units) [design: about the body's half length, lying].
+pub const DOWN_RADIUS: f32 = 45.0;
+
+/// How far a downed body can be revived from, along the crosshair (game units) [design:
+/// the interact reach, a little more than [`INTERACT_REACH`]'s standing body as the body
+/// lies lower].
+pub const REVIVE_REACH: f32 = 240.0;
+
 pub fn ray_meets_body(eye: [f32; 3], dir: [f32; 3], feet: [f32; 3], reach: f32) -> Option<f32> {
     let flat = dir[0] * dir[0] + dir[1] * dir[1];
     let (fx, fy) = (feet[0] - eye[0], feet[1] - eye[1]);
@@ -258,7 +282,9 @@ impl Plugin for CoopSocialPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Social>()
             .init_resource::<SocialMates>()
+            .init_resource::<ReviveKit>()
             .init_resource::<AidShoot>()
+            .add_systems(Update, revive_kit.in_set(PlaySet::Activation).before(target))
             .add_systems(Update, social_aid.in_set(PlaySet::Input).before(input))
             .add_systems(Update, social_aid_trigger.in_set(PlaySet::Input).after(crate::control::read_controls))
             .add_systems(Update, input.in_set(PlaySet::Input).after(crate::weapon_wheel::read).before(crate::control::read_controls))
@@ -555,6 +581,31 @@ fn start(s: &mut Social, with: u8, kind: Kind, nonce: u16, inviter: bool, mates:
 
 /// The Interact prompt on another player in reach, and E on it opens the wheel.
 #[allow(clippy::too_many_arguments)]
+/// What this player revives a downed player with (co-op, queue item 65): the item and
+/// its name; `None`: nothing. A Stimpak, or with Quack Surgeon a drink first
+/// (`fnv_game::coop_perks::revive_item`). Kept while another player is down; read by the
+/// crosshair's "Revive" rollover and by the revive (`nvforever`'s `coop.rs`).
+#[derive(Resource, Default, Debug, Clone, PartialEq)]
+pub struct ReviveKit(pub Option<(fnv_sim::FormId, String)>);
+
+fn revive_kit(script: Res<crate::script::ScriptState>, sim: Option<Res<crate::sim::SimState>>, mates: Res<SocialMates>, mut kit: ResMut<ReviveKit>) {
+    let (Some(rt), Some(sim)) = (script.rt.as_ref(), sim.as_deref()) else { return };
+    if !mates.mates.iter().any(|m| m.down) {
+        if kit.0.is_some() {
+            kit.0 = None;
+        }
+        return;
+    }
+    let carried: Vec<(fnv_sim::FormId, i32)> = sim.world.peek(fnv_sim::FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()).map(|i| i.iter().collect()).unwrap_or_default();
+    let item = fnv_game::coop_perks::revive_item(&rt.game, carried);
+    let named = item.map(|f| (f, rt.game.data.full_names.get(&f).cloned().unwrap_or_else(|| rt.game.data.name(f))));
+    if kit.0 != named {
+        info!("co-op: a revive would use {}", named.as_ref().map_or("nothing (no Stimpak)", |(_, n)| n.as_str()));
+        kit.0 = named;
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn target(
     input: ControlInput,
     real: Res<Time<Real>>,
@@ -563,7 +614,7 @@ fn target(
     control: Res<crate::control::PlayerControl>,
     mates: Res<SocialMates>,
     mut found: ResMut<crate::activate::Target>,
-    (mut social, combat): (ResMut<Social>, Option<Res<crate::combat::Combat>>),
+    (mut social, combat, kit): (ResMut<Social>, Option<Res<crate::combat::Combat>>, Res<ReviveKit>),
 ) {
     let Some(player) = player else { return };
     if mates.me.is_none() || social.holds_input() {
@@ -575,6 +626,25 @@ fn target(
         f.exclude_layers.insert(fnv_phys::layers::TRIGGER);
         p.world.queries().ray(eye, dir, INTERACT_REACH, &f).filter(|h| !matches!(h.owner, fnv_phys::Owner::Actor { .. })).map(|h| h.distance)
     });
+    // A downed player, aimed at where the body lies here: the game's own rollover with
+    // the verb, "E) Revive" over the name; E is taken by the revive (`nvforever`'s
+    // `coop.rs`, which reads this target) [queue item 29].
+    let down = mates
+        .mates
+        .iter()
+        .filter(|m| m.here && !m.lost && m.down)
+        .filter_map(|m| {
+            let at = m.body.unwrap_or([m.feet[0], m.feet[1], m.feet[2] + 15.0]);
+            ray_meets_lying(eye, dir, at, REVIVE_REACH).filter(|d| wall.is_none_or(|w| *d <= w + DOWN_RADIUS)).map(|d| (d, m))
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0));
+    if let Some((d, m)) = down {
+        let t = crate::activate::Targeted { form_id: m.reference, name: m.name.clone(), action: crate::activate::outcome::Action::Revive { with: kit.0.as_ref().map(|(_, n)| n.clone()) }, distance: d, source: crate::activate::pick::Source::Collision, crime: false, empty: false };
+        if found.0.as_ref() != Some(&t) {
+            found.0 = Some(t);
+        }
+        return;
+    }
     let near = mates
         .mates
         .iter()

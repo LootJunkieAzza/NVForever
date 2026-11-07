@@ -3009,8 +3009,10 @@ pub(crate) fn target_armor(c: &Combat, mut script: Option<&mut ScriptState>, sim
     // The actor's own Damage Threshold (76) and Damage Resistance (18) actor values:
     // nothing until a script changes them (abilities are not applied yet).
     let own_dt = actor_av(script.as_deref_mut(), sim, target, 76).unwrap_or(0.0);
-    let own_dr = actor_av(script, sim, target, 18).unwrap_or(0.0);
-    (dt + own_dt, dr + own_dr)
+    let own_dr = actor_av(script.as_deref_mut(), sim, target, 18).unwrap_or(0.0);
+    // In co-op, another player's Ferocious Loyalty (`fnv_game::coop_perks`).
+    let loyalty = if target == FormId::PLAYER_REF { script.and_then(|s| s.rt.as_ref()).map_or(0.0, |rt| rt.game.coop_from_others.dr as f32) } else { 0.0 };
+    (dt + own_dt, dr + own_dr + loyalty)
 }
 
 /// `target`'s value, in percent, of the resistance weapon `w`'s damage type names
@@ -3270,6 +3272,10 @@ fn remote_hits(
         // damage meets it (`fly`).
         if let (FormId::PLAYER_REF, Some(c)) = (hit.target, combat.as_deref()) {
             let (dt, dr) = target_armor(c, script.as_deref_mut(), &mut sim, FormId::PLAYER_REF);
+            // The other players' Companion Nerve raises them as a companion's
+            // (`fnv_game::coop_perks`, damage.rs: DT and DR × (1 + nerve)).
+            let nerve = companion_nerve(script.as_deref_mut(), &mut sim, FormId::PLAYER_REF);
+            let (dt, dr) = (dt * (1.0 + nerve), dr * (1.0 + nerve));
             dealt = (dealt - dt).max(dealt * c.tuning.dt_floor) * (1.0 - dr.clamp(0.0, c.rules.max_armor_rating) / 100.0);
         }
         apply_hit(script.as_deref_mut(), &mut sim, hit.target, dealt, info, &mut stats, &mut feedback, None, &mut messages, &[], false, None);

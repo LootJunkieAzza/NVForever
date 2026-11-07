@@ -48,6 +48,10 @@
 //!   [observed: the record and its file; hypothesis: that the death plays it, by its
 //!   name]. No music plays while the player is dead; alive again, the place's music
 //!   comes back [design].
+//! - **Co-op** (`crate::coop_audio`): a marker's set is the one the session's seed picks
+//!   for it, and the place's music starts at the shared clock's point in its files, so
+//!   the players in one place hear the same music at the same point [design]. Battle,
+//!   script, death and incidental music stay each game's own.
 //! - Music goes on in menus and behind loading screens [design].
 //! - Not built: the main menu's music (no main menu yet; `SMainMenuMusicTrack`), the
 //!   controllers' retrigger delay and `NAM1` (not understood), `IsMusicPlaying`-style
@@ -148,6 +152,9 @@ pub struct LayeredMusic {
     /// Where the first playing starts, as a part of the first file's length (a SOUN's
     /// Start at Random Position, audio.md §15.2); later rounds start at the start.
     start: f32,
+    /// In co-op, the shared clock when it was made (`crate::coop_audio`): the first
+    /// playing starts at the clock's point in the first file, the clock modulo its length.
+    shared: Option<(f64, std::time::Instant)>,
 }
 
 impl LayeredMusic {
@@ -156,7 +163,7 @@ impl LayeredMusic {
     pub(crate) fn single(bytes: Arc<[u8]>, looping: bool) -> Option<(LayeredMusic, Arc<[AtomicU32; 3]>)> {
         let d = open(&bytes)?;
         let levels: Arc<[AtomicU32; 3]> = Arc::new([AtomicU32::new(0), AtomicU32::new(0), AtomicU32::new(0)]);
-        Some((LayeredMusic { stems: vec![(0, bytes)], levels: levels.clone(), channels: d.channels(), rate: d.sample_rate(), looping, start: 0.0 }, levels))
+        Some((LayeredMusic { stems: vec![(0, bytes)], levels: levels.clone(), channels: d.channels(), rate: d.sample_rate(), looping, start: 0.0, shared: None }, levels))
     }
 
     /// Start the first playing `part` (0 to 1) of the way into the first file.
@@ -227,7 +234,15 @@ impl Decodable for LayeredMusic {
         let mut stems = LayeredDecoder::open(self);
         // A file whose length is not known starts at its start [design].
         let length = stems.first().and_then(|(_, s)| s.as_ref()).and_then(Source::total_duration);
-        if let Some(at) = length.filter(|_| self.start > 0.0).map(|l| l.mul_f32(self.start)) {
+        let shared = match (self.shared, length) {
+            (Some((t, made)), Some(l)) if l.as_secs_f64() > 0.0 => Some(Duration::from_secs_f64((t + made.elapsed().as_secs_f64()).rem_euclid(l.as_secs_f64()))),
+            (Some(_), None) => {
+                warn!("music: a file of unknown length starts at its start, not at the co-op clock");
+                None
+            }
+            _ => None,
+        };
+        if let Some(at) = shared.or_else(|| length.filter(|_| self.start > 0.0).map(|l| l.mul_f32(self.start))) {
             for stem in stems.iter_mut().filter_map(|(_, s)| s.as_mut()) {
                 let _ = stem.try_seek(at);
             }
@@ -405,6 +420,8 @@ struct Track {
     /// When each layer last came in (real seconds).
     on_since: [f32; 3],
     layer_names: [&'static str; 3],
+    /// Started at the co-op clock's point, at this clock epoch (`crate::coop_audio`).
+    synced: Option<u32>,
 }
 
 #[derive(Component)]
@@ -438,6 +455,9 @@ pub struct Music {
     regions: HashMap<u32, Option<u32>>,
     current: Option<Track>,
     leaving: Vec<Track>,
+    /// The co-op clock (and its epoch) the next track [`Music::start`]s at
+    /// (`crate::coop_audio`).
+    next_shared: Option<(f64, u32)>,
     /// The music a script asked for.
     script: Option<Track>,
     /// The marker the player is in, the faction's standing towards the player there and
@@ -472,6 +492,7 @@ impl Default for Music {
             regions: HashMap::new(),
             current: None,
             leaving: Vec::new(),
+            next_shared: None,
             script: None,
             marker: None,
             battle: Battle::default(),
@@ -664,8 +685,9 @@ impl Music {
             }
             stems.push((k, bytes));
         }
+        let shared = self.next_shared.take();
         let entity = format.map(|(channels, rate)| {
-            let music = assets.add(LayeredMusic { stems, levels: levels.clone(), channels, rate, looping: w.looping, start: 0.0 });
+            let music = assets.add(LayeredMusic { stems, levels: levels.clone(), channels, rate, looping: w.looping, start: 0.0, shared: shared.map(|(t, _)| (t, std::time::Instant::now())) });
             commands.spawn((AudioPlayer::<LayeredMusic>(music), PlaybackSettings::DESPAWN, MusicSound, SoundCategory::Music)).id()
         });
         self.started += 1;
@@ -686,6 +708,7 @@ impl Music {
             min_on: w.min_on,
             on_since: [now; 3],
             layer_names: w.layers,
+            synced: shared.map(|(_, e)| e),
         }
     }
 
@@ -719,7 +742,7 @@ fn stinger(sounds: &mut MessageWriter<PlaySound>, sound: Option<u32>, what: &str
 /// The world the music reads: where the player is, the clock, the game files.
 type Where<'a> = (Res<'a, PlayWorld>, Res<'a, Location>, Res<'a, SimState>, Option<Res<'a, Player>>, Option<Res<'a, nvf_assets::GameData>>);
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn play(
     mut commands: Commands,
     time: Res<Time<Real>>,
@@ -731,7 +754,7 @@ fn play(
     mut sounds: MessageWriter<PlaySound>,
     state: Res<State<PlayState>>,
     mut assets: ResMut<Assets<LayeredMusic>>,
-    (main_menu, intro): (Option<Res<crate::main_menu::MainMenu>>, Option<Res<crate::intro::Intro>>),
+    (main_menu, intro, shared): (Option<Res<crate::main_menu::MainMenu>>, Option<Res<crate::intro::Intro>>, Option<Res<crate::coop_audio::SharedAudio>>),
     sfx: Option<Res<crate::sfx::Sfx>>,
     poker: Option<Res<crate::poker::PokerScreen>>,
 ) {
@@ -786,7 +809,9 @@ fn play(
         let same_marker = music.marker.map(|m| m.0) == at.map(|(m, _)| m.ref_id);
         music.marker = at.map(|(m, _)| {
             let sets = controller.map_or(&[][..], |c| c.sets_for(relation));
-            (m.ref_id, relation, music.pick(sets))
+            // In co-op every game picks the same set for the marker (`crate::coop_audio`).
+            let shared_pick = shared.as_deref().and_then(|s| s.pick(m.ref_id, relation, sets.len())).map(|i| sets[i]);
+            (m.ref_id, relation, shared_pick.or_else(|| music.pick(sets)))
         });
         let standing = |r: Option<i64>| match r {
             Some(1) => "enemy",
@@ -952,6 +977,18 @@ fn play(
         place(music)
     };
 
+    // In co-op, the place's music started before the shared clock was known starts again
+    // at the clock's point (`crate::coop_audio`).
+    let shared_now = shared.as_deref().and_then(|s| s.now(time.elapsed_secs_f64()).map(|t| (t, s.epoch)));
+    if let Some((_, epoch)) = shared_now.filter(|_| music.current.as_ref().is_some_and(|t| !matches!(t.key, Key::Battle(_)))) {
+        if music.current.as_ref().is_some_and(|t| t.synced != Some(epoch)) {
+            if let Some(mut old) = music.current.take() {
+                info!("music: {} starts again at the co-op clock", old.name);
+                old.target = [0.0; 3];
+                music.leaving.push(old);
+            }
+        }
+    }
     // A change of music: what plays fades out, what is wanted starts. A battle loop
     // takes over within its own fade time.
     if music.current.as_ref().map(|t| t.key) != wanted.as_ref().map(|w| w.key) {
@@ -966,6 +1003,10 @@ fn play(
         if let Some(w) = &wanted {
             if matches!(w.key, Key::Battle(_)) {
                 music.battle_sets += 1;
+            } else if let Some((t, epoch)) = shared_now {
+                // The place's music at the co-op clock's point (`crate::coop_audio`).
+                info!("music: {} at the co-op clock ({t:.1} s)", w.name);
+                music.next_shared = Some((t, epoch));
             }
             let t = music.start(&mut commands, &data.vfs, &mut assets, w, now);
             music.current = Some(t);
@@ -1210,7 +1251,7 @@ mod tests {
         let (a, b) = (wav(&[8192, 16384, -8192, 0]), wav(&[16384, 16384, 16384, 16384]));
         let first = open(&a).expect("the test's WAV decodes");
         let levels: Arc<[AtomicU32; 3]> = Arc::new([AtomicU32::new(1f32.to_bits()), AtomicU32::new(0), AtomicU32::new(0.5f32.to_bits())]);
-        let music = LayeredMusic { stems: vec![(0, a), (2, b)], levels: levels.clone(), channels: first.channels(), rate: first.sample_rate(), looping: true, start: 0.0 };
+        let music = LayeredMusic { stems: vec![(0, a), (2, b)], levels: levels.clone(), channels: first.channels(), rate: first.sample_rate(), looping: true, start: 0.0, shared: None };
         let mut d = music.decoder();
         let got: Vec<f32> = (0..6).map(|_| d.next().unwrap()).collect();
         // The first file at full level and the third at half; then both from the start.

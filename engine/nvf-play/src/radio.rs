@@ -72,6 +72,12 @@
 //!   item 27).
 //! - The Esc pause menu and a loading screen hold the radios and the programmes, as for
 //!   the placed loops (`crate::ambient`).
+//! - **Co-op** (`crate::coop_audio`): the host's game says the programmes, a guest's
+//!   stations say the lines the host sends, joined where they have got to, and run no
+//!   line scripts of their own; a guest's script conversations are left to the host's
+//!   game, and its stations play no static loop between lines [design]. The other
+//!   players' Pip-Boys are heard from their bodies, unless this Pip-Boy plays the same
+//!   station.
 //! - Test aid: `NVF_PLAY_TEST_RADIO=<seconds>:<next|previous|on|off|tune=<station>>[,...]`
 //!   presses `]` or `[`, turns the Pip-Boy radio on or off, or tunes it as a script's
 //!   `PipBoyRadio 1 <station>` does (a placed station or its base, by Editor ID or hex
@@ -119,6 +125,8 @@ const JOIN: f64 = 0.25;
 const PIPBOY: u32 = u32::MAX;
 const PIPBOY_STATIC: u32 = u32::MAX - 1;
 const TABLE: u32 = u32::MAX - 2;
+/// Another co-op player's Pip-Boy: this less the player's id (`crate::coop_audio`).
+const MATE_PIPBOY: u32 = u32::MAX - 16;
 
 /// A station heard at the listener, flat, wherever the player is: the casino's music at
 /// NVForever's poker table (`crate::poker`, docs/design/poker.md §4). While it is set
@@ -402,6 +410,10 @@ pub struct Radio {
     /// Seconds the programmes have run (stands still while held).
     clock: f64,
     programmes: HashMap<u32, Programme>,
+    /// The topic of the line each station says last put on the air (co-op).
+    topics: HashMap<u32, u32>,
+    /// The host's line each station last took (co-op guests).
+    adopted: HashMap<u32, crate::coop_audio::HostLine>,
     playing: HashMap<u32, Playing>,
     files: HashMap<String, Option<Arc<[u8]>>>,
     lengths: HashMap<String, f64>,
@@ -590,6 +602,7 @@ fn put_on_air(radio: &mut Radio, places: &RadioPlaces, g: &fnv_game::Game, sfx: 
             .join(", ")
     );
     let now = radio.clock;
+    radio.topics.insert(st, topic.0);
     let p = radio.programmes.entry(st).or_default();
     p.last = Some(info);
     p.on_air = if parts.is_empty() { None } else { Some(OnAir { info, parts, part: 0, started: start }) };
@@ -749,6 +762,7 @@ fn play(
     data: Option<Res<nvf_assets::GameData>>,
     (mut assets, mut panned): (ResMut<Assets<RadioSound>>, ResMut<Assets<Panned<RadioSound>>>),
     (sinks, mut placed): (Query<&AudioSink, With<RadioEntity>>, Query<&mut SoundAt, With<RadioEntity>>),
+    (mut shared, mates): (Option<ResMut<crate::coop_audio::SharedAudio>>, Option<Res<crate::coop_social::SocialMates>>),
 ) {
     let (Some(places), Some(sfx), Some(player), Some(data)) = (places, sfx, player, data) else { return };
     let Some(bank) = voice.bank.clone() else { return };
@@ -791,7 +805,12 @@ fn play(
     }
 
     // Conversations scripts started.
+    let follows = shared.as_deref().is_some_and(|s| s.follows_host());
     for (station_ref, topic) in rt.game.take_radio_conversations() {
+        if follows {
+            info!("radio: StartRadioConversation on {station_ref} left to the host's game (co-op)");
+            continue;
+        }
         let Some(base) = places.base_of(station_ref.0) else {
             warn!("radio: StartRadioConversation on {station_ref}, which is not a placed station");
             continue;
@@ -888,13 +907,85 @@ fn play(
         if let (Some((_, base)), Some(share)) = (pip_station, pip_share) {
             heard.push((PIPBOY, base, 1.0 - share, true, None));
         }
+        // The other co-op players' Pip-Boys, from their bodies (`crate::coop_audio`); not
+        // one tuned to the station this Pip-Boy plays.
+        let own = pip_station.filter(|_| pip_share.is_some()).map(|(_, b)| b);
+        if let (Some(sh), Some(m)) = (shared.as_deref(), mates.as_deref()) {
+            for mate in m.mates.iter().filter(|m| m.here) {
+                let Some(&base) = sh.pipboys.get(&mate.id) else { continue };
+                if Some(base) == own || !places.station_ref.contains_key(&base) {
+                    continue;
+                }
+                let at = [mate.feet[0], mate.feet[1], mate.feet[2] + crate::coop_audio::PIPBOY_HEIGHT];
+                let gain = crate::coop_audio::pipboy_gain(distance(at, eye));
+                if gain > 0.0 {
+                    heard.push((MATE_PIPBOY - u32::from(mate.id), base, gain, false, Some(at)));
+                }
+            }
+        }
+    }
+    if let Some(sh) = shared.as_deref_mut() {
+        sh.heard = heard.iter().map(|h| h.1).collect();
+        sh.pipboy = pip_station.map(|(_, b)| b);
     }
 
     // The programmes move on: of the stations heard, of every station heard before, and
     // of those a script started a conversation on.
     let mut stations: BTreeSet<u32> = heard.iter().map(|h| h.1).collect();
     stations.extend(radio.programmes.keys().copied());
-    if !held {
+    if let Some(sh) = shared.as_deref().filter(|s| s.on && s.host) {
+        stations.extend(sh.asked.keys().copied().filter(|b| places.station_ref.contains_key(b)));
+    }
+    // A guest's stations say the host's lines (`crate::coop_audio`).
+    let host_now = shared.as_deref().and_then(|s| s.now(time.elapsed_secs_f64()));
+    if let (true, Some(sh), Some(host_now)) = (follows, shared.as_deref(), host_now) {
+        if !held {
+            for &st in &stations {
+                let Some(line) = sh.lines.get(&st).copied() else { continue };
+                // Each line the host sends is taken once; one already over is not.
+                if radio.adopted.get(&st) == Some(&line) {
+                    continue;
+                }
+                radio.adopted.insert(st, line);
+                let into = host_now - line.started;
+                let p = radio.programmes.entry(st).or_default();
+                let same = p.on_air.as_ref().is_some_and(|on| on.info.0 == line.info && on.part == usize::from(line.part));
+                if same {
+                    continue;
+                }
+                put_on_air(radio, &places, &rt.game, &sfx, &bank, &data.vfs, st, FormId(line.topic), FormId(line.info), now - into);
+                let p = radio.programmes.entry(st).or_default();
+                if let Some(on) = p.on_air.as_mut() {
+                    on.part = usize::from(line.part).min(on.parts.len() - 1);
+                    if into >= on.parts[on.part].seconds {
+                        // Over already here: the host's next line comes.
+                        p.on_air = None;
+                        continue;
+                    }
+                }
+                info!("co-op radio: {} from the host: {} part {} at {into:.1} s", name(&places, st), FormId(line.info), line.part);
+            }
+        }
+    }
+    if !held && follows {
+        // The host's line plays out; the next comes from the host.
+        for &st in &stations {
+            let p = radio.programmes.entry(st).or_default();
+            if let Some(on) = p.on_air.as_mut() {
+                let secs = on.parts[on.part].seconds;
+                if now >= on.started + secs {
+                    if on.part + 1 < on.parts.len() {
+                        on.started += secs;
+                        on.part += 1;
+                    } else {
+                        p.on_air = None;
+                    }
+                }
+            }
+            p.quiet = false;
+        }
+    }
+    if !held && !follows {
         for &st in &stations {
             let Some(&sref) = places.station_ref.get(&st) else { continue };
             let station_ref = FormId(sref);
@@ -977,6 +1068,16 @@ fn play(
             }
             let p = radio.programmes.entry(st).or_default();
             p.quiet = !broadcasting && !p.conversation && p.on_air.is_none();
+        }
+        // The host's lines, for the guests (`crate::coop_audio`).
+        if let (Some(sh), Some(host_now)) = (shared.as_deref_mut().filter(|s| s.on && s.host), host_now) {
+            for (&st, p) in &radio.programmes {
+                if let Some(on) = p.on_air.as_ref().filter(|_| !p.quiet) {
+                    let topic = radio.topics.get(&st).copied().unwrap_or(0);
+                    let line = crate::coop_audio::HostLine { topic, info: on.info.0, part: on.part as u8, started: host_now - (now - on.started) };
+                    sh.lines_out.push((st, line));
+                }
+            }
         }
     }
 
@@ -1063,6 +1164,7 @@ fn play(
             PIPBOY => "the Pip-Boy".to_string(),
             PIPBOY_STATIC => "the Pip-Boy's static".to_string(),
             TABLE => "the poker table".to_string(),
+            k if k <= MATE_PIPBOY && k > MATE_PIPBOY - 256 => format!("player {}'s Pip-Boy", MATE_PIPBOY - k),
             k => format!("{k:08X}"),
         };
         let what = match (&w.track, w.response) {
@@ -1078,6 +1180,7 @@ fn play(
         match w.key {
             PIPBOY => radio.pipboy_parts += 1,
             PIPBOY_STATIC | TABLE => {}
+            k if k <= MATE_PIPBOY && k > MATE_PIPBOY - 256 => {}
             k if rt.game.radio.npc_radios.contains_key(&FormId(k)) => {}
             k => {
                 radio.heard.insert(k);

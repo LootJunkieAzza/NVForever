@@ -283,7 +283,14 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
             if !d.playable || d.hidden {
                 continue;
             }
-            let t = forms.text(perk.0).clone();
+            let mut t = forms.text(perk.0).clone();
+            // A perk no plugin has (NVForever's co-op perks, `fnv_game::coop_perks`): its
+            // words and picture from the game's data.
+            if t.name.is_empty() {
+                if let Some(p) = g.data.perks.get(&perk) {
+                    t = Text { name: p.name.clone(), description: p.description.clone(), icon: p.icon.clone(), short: None };
+                }
+            }
             perks.push(Row { name: t.name, value: (d.ranks > 1).then(|| rank.to_string()), mark: None, description: t.description, icon: t.icon });
         }
         perks.sort_by(|a, b| a.name.cmp(&b.name));
