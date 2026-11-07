@@ -10,6 +10,10 @@
 //! weapon ([`SecondAction::took`], read by `crate::control::read_controls`). Without the
 //! plugin, campfires keep their single action.
 //!
+//! What this player lit (either action) is queued in
+//! [`crate::script::ScriptState::campfires_lit`] for co-op, which keeps lit campfires the
+//! same in every player's game (`nvforever::coop`, `share_campfires`).
+//!
 //! Log: `campfire 0x… <name>: lit, N fires placed` or `…: burning already, N fires start
 //! again`.
 
@@ -95,8 +99,13 @@ fn light(
     let Some(rt) = script.rt.as_mut() else { return };
     let (id, name) = (t.form_id, t.name.clone());
     match with_world(rt, &mut sim, |rt| rt.game.light_campfire(FormId(id))) {
-        Ok(Lit::Placed(fires)) => info!("campfire 0x{id:08X} {name}: lit, {} fires placed", fires.len()),
-        Ok(Lit::Restarted(fires)) => info!("campfire 0x{id:08X} {name}: burning already, {} fires start again", fires.len()),
+        Ok(lit) => {
+            match lit {
+                Lit::Placed(fires) => info!("campfire 0x{id:08X} {name}: lit, {} fires placed", fires.len()),
+                Lit::Restarted(fires) => info!("campfire 0x{id:08X} {name}: burning already, {} fires start again", fires.len()),
+            }
+            script.campfires_lit.push(id);
+        }
         Err(e) => warn!("campfire 0x{id:08X} {name}: not lit: {e}"),
     }
 }

@@ -236,6 +236,9 @@ pub struct ScriptState {
     new_game: bool,
     /// What a new game starts with (`crate::game_start`, the INI's `[General]`).
     start: GameStart,
+    /// Campfires of Burning Campfire Redone this player lit or kept burning (the second
+    /// action, or Craft), not yet taken by co-op (`crate::campfire`).
+    pub campfires_lit: Vec<u32>,
     /// Aid items the player used that the runtime has not taken yet (used before the
     /// scripts were ready, or under a loading screen or the pause menu).
     used: Vec<(FormId, Option<u16>)>,
@@ -367,7 +370,7 @@ impl ScriptState {
         let write = (!unattended || own_home).then(|| fnv_install::EngineHome::default_root().map(|r| fnv_install::EngineHome::new(r).mods())).flatten();
         fnv_game::mod_files::update_roots(|r| r.write = write);
         let loader = off.is_none().then(|| Mutex::new(start_loading(d, refs, voice_sets)));
-        ScriptState { loader, rt: None, off, trace, aids, aids_started: false, gates: HashMap::new(), auto_close, no_messages, on_screen: None, walks: Vec::new(), new_game, start: GameStart::default(), used: Vec::new(), console: Vec::new(), console_out: Vec::new(), pending_game: None }
+        ScriptState { loader, rt: None, off, trace, aids, aids_started: false, gates: HashMap::new(), auto_close, no_messages, on_screen: None, walks: Vec::new(), new_game, start: GameStart::default(), used: Vec::new(), campfires_lit: Vec::new(), console: Vec::new(), console_out: Vec::new(), pending_game: None }
     }
 
     /// The player answers the script's open menu: `Some(b)` picks button b (0 = first) of
@@ -1304,7 +1307,11 @@ pub const WAKE_TALK_SECONDS: f64 = 8.0;
 
 /// The player activates `target` by hand (E): through the scripts when they run.
 pub fn activate_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target: u32) -> Result<ByHand, String> {
-    match script.and_then(|s| s.rt.as_mut()) {
+    let (rt, lit) = match script {
+        Some(ScriptState { rt: Some(rt), campfires_lit, .. }) => (Some(rt), Some(campfires_lit)),
+        _ => (None, None),
+    };
+    match rt {
         Some(rt) => with_world(rt, sim, |rt| {
             // A burning campfire of Burning Campfire Redone keeps its fires: those its
             // script places again are taken away (`fnv_game::campfire`).
@@ -1314,6 +1321,11 @@ pub fn activate_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, ta
             let removed = rt.game.keep_first_fires(FormId(target), &before);
             if campfire && !before.is_empty() {
                 info!("campfire 0x{target:08X}: burning already ({} fires): {} fires its script placed again taken away, the burning ones start again", before.len(), removed.len());
+            }
+            if campfire && !rt.game.campfire_fires(FormId(target)).is_empty() {
+                if let Some(lit) = lit {
+                    lit.push(target);
+                }
             }
             done
         }),
@@ -2354,7 +2366,7 @@ impl ScriptState {
             choices_passed: None,
             activate_pick: None,
         };
-        ScriptState { loader: None, rt: Some(rt), off: None, trace: None, aids: Vec::new(), aids_started: false, gates: HashMap::new(), auto_close: None, no_messages: false, on_screen: None, walks: Vec::new(), new_game: false, start: GameStart::default(), used: Vec::new(), console: Vec::new(), console_out: Vec::new(), pending_game: None }
+        ScriptState { loader: None, rt: Some(rt), off: None, trace: None, aids: Vec::new(), aids_started: false, gates: HashMap::new(), auto_close: None, no_messages: false, on_screen: None, walks: Vec::new(), new_game: false, start: GameStart::default(), used: Vec::new(), campfires_lit: Vec::new(), console: Vec::new(), console_out: Vec::new(), pending_game: None }
     }
 
     /// The player answered the open menu: it closes after this frame's scripts.

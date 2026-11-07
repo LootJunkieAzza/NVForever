@@ -1208,6 +1208,10 @@ pub fn spawn_model(
             if let Some((index, &e)) = n.addon.zip(n.name.as_ref().and_then(|k| nodes.get(k))) {
                 crate::particles::place_addon(commands, e, r, &model.nodes, i, index);
             }
+            // Its billboards turn to the camera (`nvf_play::billboards`).
+            if let Some((mode, &e)) = n.billboard.zip(n.name.as_ref().and_then(|k| nodes.get(k))) {
+                commands.entity(e).insert(nvf_play::billboards::Billboard { mode, bind: Transform::from_matrix(Mat4::from(n.local)).rotation });
+            }
         }
         // A light whose model's sequences drive it: the reference's light hangs from the
         // node holding it and takes its keys (lights.rs, docs/spec-notes/model-lights.md).

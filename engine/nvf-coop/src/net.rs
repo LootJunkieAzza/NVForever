@@ -161,8 +161,12 @@ pub const PRESENCE_PAGE: usize = 200;
 pub const LIST_ENABLED: u8 = 0;
 /// ... and each whose open flag (a door) differs from its plugin's.
 pub const LIST_OPEN: u8 = 1;
+/// ... and each campfire of Burning Campfire Redone burning in the host's game, with
+/// whether its silent fires still burn beside the one with the sound
+/// (`fnv_game::campfire`).
+pub const LIST_CAMPFIRE: u8 = 2;
 /// How many lists there are.
-pub const LISTS: usize = 2;
+pub const LISTS: usize = 3;
 /// How often the host sends its game clock.
 pub const CLOCK_EVERY: Duration = Duration::from_secs(2);
 /// How often the host sends every player's name ([`Msg::Names`]), and at once after a
@@ -365,6 +369,9 @@ enum Msg {
     /// A door was opened (`open`) or closed by a player (to the host, and from it to
     /// everyone) or in the host's world.
     Door { reference: u32, open: bool },
+    /// A guest lit campfire `reference` (or kept it burning): to the host, which lights it
+    /// and lists it ([`LIST_CAMPFIRE`]).
+    Campfire { reference: u32 },
     /// Player `by` revived player `target` (who is down); `perks`: the reviver's co-op
     /// perks that act on the revived ([`revive_perk`]).
     Revive { target: u8, by: u8, perks: u8 },
@@ -522,6 +529,8 @@ pub enum Event {
     /// Player `id` (0: the host's world) opened (`open`) or closed a door. It may come
     /// more than once.
     Door { id: u8, reference: u32, open: bool },
+    /// Guest `id` lit campfire `reference` (host only). It may come more than once.
+    Campfire { id: u8, reference: u32 },
     /// Player `by` revived this player, with its co-op perks ([`revive_perk`]). It may
     /// come more than once.
     Revived { by: u8, perks: u8 },
@@ -763,6 +772,16 @@ impl Session {
             for _ in 0..HIT_COPIES {
                 self.sock_send(&msg, addr);
             }
+        }
+    }
+
+    /// This guest lit campfire `reference`: to the host ([`HIT_COPIES`] times). A host
+    /// sends nothing: its list says it ([`LIST_CAMPFIRE`]).
+    pub fn send_campfire(&mut self, reference: u32) {
+        let Role::Guest { host: Some(host), .. } = &self.role else { return };
+        let (host, msg) = (*host, Msg::Campfire { reference });
+        for _ in 0..HIT_COPIES {
+            self.sock_send(&msg, host);
         }
     }
 
@@ -1263,6 +1282,10 @@ impl Session {
                     self.sock_send(&msg, addr);
                 }
             }
+            Msg::Campfire { reference } => {
+                let Some(id) = self.peers.iter().find(|p| p.addr == Some(from)).map(|p| p.id) else { return };
+                self.events.push(Event::Campfire { id, reference });
+            }
             Msg::Door { reference, open } => {
                 let Some(id) = self.peers.iter().find(|p| p.addr == Some(from)).map(|p| p.id) else { return };
                 self.events.push(Event::Door { id, reference, open });
@@ -1490,7 +1513,8 @@ impl Session {
                     self.events.push(Event::Progress { id: player, what });
                 }
             }
-            Msg::Hello { .. } | Msg::Ping => {}
+            // A guest's request, for the host only.
+            Msg::Hello { .. } | Msg::Ping | Msg::Campfire { .. } => {}
         }
     }
 
@@ -1633,6 +1657,10 @@ impl Link {
 
     pub fn send_unlock(&self, reference: u32, terminal: bool) {
         self.with(|s| s.send_unlock(reference, terminal));
+    }
+
+    pub fn send_campfire(&self, reference: u32) {
+        self.with(|s| s.send_campfire(reference));
     }
 
     pub fn set_table(&self, view: Option<TableView>) {
@@ -1851,6 +1879,10 @@ fn encode(msg: &Msg) -> Vec<u8> {
                 b.extend_from_slice(&r.to_le_bytes());
                 b.push(u8::from(*on));
             }
+        }
+        Msg::Campfire { reference } => {
+            b.push(22);
+            b.extend_from_slice(&reference.to_le_bytes());
         }
         Msg::Door { reference, open } => {
             b.push(20);
@@ -2074,6 +2106,7 @@ fn decode(b: &[u8]) -> Option<Msg> {
             Msg::Presence { list, serial, page, pages, refs }
         }
         20 => Msg::Door { reference: r.u32()?, open: r.u8()? != 0 },
+        22 => Msg::Campfire { reference: r.u32()? },
         21 => {
             let n = r.u8()? as usize;
             if n > MAX_GUESTS + 1 {
@@ -2150,6 +2183,8 @@ mod tests {
             Msg::Presence { list: LIST_ENABLED, serial: 7, page: 0, pages: 1, refs: Vec::new() },
             Msg::Presence { list: LIST_OPEN, serial: 8, page: 2, pages: 3, refs: vec![(0x0010_A202, true), (0x0016_8A92, false)] },
             Msg::Door { reference: 0x0010_C0DE, open: true },
+            Msg::Campfire { reference: 0x000C_DB59 },
+            Msg::Presence { list: LIST_CAMPFIRE, serial: 1, page: 0, pages: 1, refs: vec![(0x000C_DB59, true)] },
             Msg::Lines { seq: 3, lines: Vec::new() },
             Msg::Lines {
                 seq: u32::MAX,
