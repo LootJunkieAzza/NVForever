@@ -958,6 +958,13 @@ impl PlayerBody {
         std::iter::once((b.third.root, &b.third.animator)).chain(b.first.as_ref().map(|f| (f.root, &f.animator))).collect()
     }
 
+    /// The held weapon's model on each rig (its holder entity), for hiding it while an
+    /// item clip plays (`consume_anims.rs`).
+    pub fn weapon_holders(&self) -> Vec<Entity> {
+        let Some(b) = self.body.as_ref() else { return Vec::new() };
+        std::iter::once(&b.third).chain(b.first.as_ref()).filter_map(|r| r.weapon_model).collect()
+    }
+
     /// Whether the first-person rig is drawn (`pipboy_arm.rs`).
     pub fn first_person_drawn(&self) -> bool {
         self.body.as_ref().and_then(|b| b.first.as_ref()).is_some_and(|f| f.shown == Some(true))
@@ -2356,7 +2363,7 @@ fn drive_body(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     mut anim: ResMut<WeaponAnim>,
-    (furniture, mut idles, mut seat, (pip, glance, mut check), cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d, lens_sway), (ahead, mut lunge, s1st)): (
+    (furniture, mut idles, mut seat, (pip, glance, mut check), cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d, lens_sway), (ahead, mut lunge, s1st, script)): (
         Res<crate::furniture::BodyOverride>,
         ResMut<PlayerIdles>,
         ResMut<nvf_play::furniture::PlayerSeat>,
@@ -2366,7 +2373,7 @@ fn drive_body(
         Option<Res<nvf_play::combat::PlayerLimbs>>,
         (Res<crate::death_cam::DeathCam>, Res<crate::player_knockdown::PlayerKnockdown>),
         (Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::combat::Combat>>, Option<ResMut<nvf_play::aim_zoom::TrueSights>>, Option<Res<nvf_play::aim_zoom::Scope>>, Option<ResMut<nvf_play::aim_zoom::Scope3d>>, Option<Res<nvf_play::aim_zoom::LensSway>>),
-        (Res<crate::weapon_lower::Ahead>, ResMut<nvf_play::player::Lunge>, Option<Res<nvf_play::console::ShowFirstPerson>>),
+        (Res<crate::weapon_lower::Ahead>, ResMut<nvf_play::player::Lunge>, Option<Res<nvf_play::console::ShowFirstPerson>>, Option<Res<nvf_play::script::ScriptState>>),
     ),
     mut driven: ResMut<nvf_play::player::ViewDriven>,
 ) {
@@ -2928,7 +2935,12 @@ fn drive_body(
     let scoped = scope.as_deref().is_some_and(|s| s.on && !s.lens_3d);
     // The console's Show1stPerson shows it in third person too, at the eye.
     let s1st = s1st.is_some_and(|s| s.0);
-    show_rigs(body, &mut commands, &mut visibility, seen, (!third_view || s1st) && !scoped);
+    // The Vigor Tester's menu draws the machine's model in front of the camera
+    // (`nvf_play::chargen::vigor`): the arms rig, drawn in front of the world, is not
+    // drawn over it [observed 2026-11-06: an activation clip's reaching hand stayed over
+    // the machine's screen].
+    let vigor = script.as_deref().and_then(nvf_play::chargen::open_code) == Some(fnv_game::game::menus::LOVE_TESTER);
+    show_rigs(body, &mut commands, &mut visibility, seen, (!third_view || s1st) && !scoped && !vigor);
 
     m.log_elapsed += dt;
     if m.log_elapsed >= 1.0 {
