@@ -198,8 +198,9 @@ pub fn karma_title(level: i64, alignment: &str, setting: impl Fn(&str) -> Option
 /// [`karma_title`]'s setting alone, without the table.
 pub fn karma_title_setting(level: i64, alignment: &str, setting: impl Fn(&str) -> Option<String>) -> Option<String> {
     let level = level.clamp(1, 30) as usize;
-    let name = format!("sKarmicTitle{}{level}", ["Good", "Neutral", "Evil"][karma_column(alignment)]);
-    setting(&name).filter(|s| !s.is_empty())
+    // FalloutNV.esm spells levels below 10 with two digits (`sKarmicTitleNeutral01`) [documented: `fnvtool esm inventory`].
+    let column = ["Good", "Neutral", "Evil"][karma_column(alignment)];
+    [format!("sKarmicTitle{column}{level:02}"), format!("sKarmicTitle{column}{level}")].iter().find_map(|name| setting(name).filter(|s| !s.is_empty()))
 }
 
 /// The title of a reputation from the levels (0–3) of fame and infamy
