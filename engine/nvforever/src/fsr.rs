@@ -73,14 +73,14 @@ impl Default for FsrUpscaling {
 }
 
 #[derive(Component, Clone, Copy)]
-struct FsrCamera {
+pub(crate) struct FsrCamera {
     settings: FsrUpscaling,
     translation: Vec3,
     rotation: Quat,
-    near: f32,
-    fov: f32,
+    pub(crate) near: f32,
+    pub(crate) fov: f32,
     frame: u32,
-    delta_ms: f32,
+    pub(crate) delta_ms: f32,
     loading_generation: u32,
     play_state: Option<nvf_play::PlayState>,
 }
@@ -241,7 +241,7 @@ fn extract(
 /// logged: [`prepare`] meets it every frame and says so once, until the view is usable
 /// again or FSR is switched off.
 #[derive(Component)]
-struct UnsuitableViewWarned;
+pub(crate) struct UnsuitableViewWarned;
 
 #[derive(Resource, Default)]
 pub(crate) struct FsrRenderer(Option<(FsrContext, AuxiliaryPipelines)>);
@@ -249,13 +249,16 @@ pub(crate) struct FsrRenderer(Option<(FsrContext, AuxiliaryPipelines)>);
 #[derive(Component)]
 pub(crate) struct PreparedFsr {
     view: Mutex<FsrView>,
-    render_size: UVec2,
-    output_size: UVec2,
-    camera: FsrCamera,
-    reset: bool,
+    pub(crate) render_size: UVec2,
+    pub(crate) output_size: UVec2,
+    pub(crate) camera: FsrCamera,
+    /// A camera cut this frame (`FsrCamera::cut_from`).
+    pub(crate) reset: bool,
     opaque: wgpu::Texture,
     reactive: wgpu::Texture,
-    fsr_depth: wgpu::Texture,
+    /// The depth FSR reads (render size, first-person depth unsqueezed); frame
+    /// generation's prepare pass reads it too.
+    pub(crate) fsr_depth: wgpu::Texture,
     expanded_depth: wgpu::Texture,
     dilated_depth: wgpu::Texture,
     dilated_motion: wgpu::Texture,
@@ -264,15 +267,17 @@ pub(crate) struct PreparedFsr {
     dispatch_logged: AtomicBool,
     reference_logged: AtomicBool,
     sky_logged: AtomicBool,
-    history_valid: AtomicBool,
+    /// FSR reconstructed this frame (not its spatial fallback).
+    pub(crate) history_valid: AtomicBool,
 }
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
-fn prepare(
+pub(crate) fn prepare(
     mut commands: Commands,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     mut renderer: ResMut<FsrRenderer>,
+    frame_generation: Option<Res<crate::frame_gen::FrameGenRequest>>,
     mut views: Query<(
         Entity, &ExtractedView, &FsrCamera, &Msaa, &mut CameraMainTextureUsages,
         &mut TemporalJitter, &mut MipBias, Option<&mut PreparedFsr>, Option<&mut crate::ssao::AmbientOcclusion>,
@@ -330,12 +335,16 @@ fn prepare(
                 old.camera = *camera;
             }
             _ => {
-                info!("FSR 3.1.4: {:?}, {}x{} -> {}x{}, frame generation off", camera.settings.quality, render_size.x, render_size.y, output_size.x, output_size.y);
+                info!("FSR 3.1.4: {:?}, {}x{} -> {}x{}, frame generation {}", camera.settings.quality, render_size.x, render_size.y, output_size.x, output_size.y, on_off(frame_generation.as_ref().is_some_and(|f| f.on())));
                 commands.entity(entity).insert(PreparedFsr::new(context, &device, &queue, *camera, render_size, output_size));
             }
         }
         commands.entity(entity).insert(MainPassResolutionOverride(render_size));
     }
+}
+
+fn on_off(on: bool) -> &'static str {
+    if on { "on" } else { "off" }
 }
 
 impl PreparedFsr {
@@ -469,7 +478,7 @@ fn sky_range(sort_keys: impl Iterator<Item = f32>) -> Range<usize> {
 #[allow(clippy::type_complexity)]
 pub(crate) fn fsr_pass(
     view: ViewQuery<(&ViewTarget, &PreparedFsr, Option<&ViewPrepassTextures>, &TemporalJitter)>,
-    renderer: Res<FsrRenderer>, device: Res<RenderDevice>, mut ctx: RenderContext,
+    renderer: Res<FsrRenderer>, device: Res<RenderDevice>, frame_generation: Option<Res<crate::frame_gen::FrameGenRequest>>, mut ctx: RenderContext,
 ) {
     let (target, prepared, prepass, jitter) = view.into_inner();
     let Some((context, auxiliary)) = &renderer.0 else { return };
@@ -512,7 +521,7 @@ pub(crate) fn fsr_pass(
             target.post_process_write();
             prepared.history_valid.store(true, Ordering::Relaxed);
             if !prepared.dispatch_logged.swap(true, Ordering::Relaxed) {
-                info!("FSR dispatch active: 3.1.4, {}x{} -> {}x{}, Vulkan source shaders, frame generation off", prepared.render_size.x, prepared.render_size.y, prepared.output_size.x, prepared.output_size.y);
+                info!("FSR dispatch active: 3.1.4, {}x{} -> {}x{}, Vulkan source shaders, frame generation {}", prepared.render_size.x, prepared.render_size.y, prepared.output_size.x, prepared.output_size.y, on_off(frame_generation.as_ref().is_some_and(|f| f.on())));
             }
         }
         Err(error) => {

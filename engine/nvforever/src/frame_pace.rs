@@ -195,8 +195,9 @@ fn wait_left(last: Instant, cap: u32, now: Instant) -> Option<Duration> {
 }
 
 /// Hold the frame until a frame's time at the cap has passed since the last.
-pub(crate) fn cap_rate(pace: Res<FramePace>, refresh: Res<Refresh>, mut last: Local<Option<Instant>>) {
-    let cap = effective_cap(pace.cap, refresh.vrr_cap);
+pub(crate) fn cap_rate(pace: Res<FramePace>, refresh: Res<Refresh>, frame_generation: Option<Res<crate::frame_gen::FrameGenCap>>, mut last: Local<Option<Instant>>) {
+    // Frame generation shows each real frame twice: at most half the refresh rate of them.
+    let cap = effective_cap(effective_cap(pace.cap, refresh.vrr_cap), frame_generation.map_or(0, |c| c.0));
     if cap == 0 {
         *last = None;
         return;

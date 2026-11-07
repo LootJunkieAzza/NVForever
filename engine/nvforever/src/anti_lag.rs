@@ -123,6 +123,15 @@ fn supported(adapter: &wgpu::hal::vulkan::Adapter) -> bool {
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LatencyReduction {
     pub on: bool,
+    /// Frame generation turns it on while it runs (`frame_gen.rs`), whatever the switch says.
+    pub by_frame_generation: bool,
+}
+
+impl LatencyReduction {
+    /// Whether the driver is asked to pace frames.
+    pub fn active(&self) -> bool {
+        self.on || self.by_frame_generation
+    }
 }
 
 /// The driver's `vkAntiLagUpdateAMD` for the render device, present only when the device was
@@ -168,7 +177,7 @@ pub struct AntiLagPlugin(pub bool);
 
 impl Plugin for AntiLagPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(LatencyReduction { on: self.0 })
+        app.insert_resource(LatencyReduction { on: self.0, by_frame_generation: false })
             .init_resource::<Frames>()
             .add_systems(First, begin_frame)
             .add_systems(Update, log_switch)
@@ -216,12 +225,12 @@ fn begin_frame(mut frames: ResMut<Frames>) {
 fn announce_input(switch: Res<LatencyReduction>, driver: Option<Res<AntiLagDriver>>, mut frames: ResMut<Frames>) {
     frames.next = frames.current + 1;
     if let Some(driver) = driver {
-        driver.send(switch.on, STAGE_INPUT, frames.next);
+        driver.send(switch.active(), STAGE_INPUT, frames.next);
     }
 }
 
 fn extract(mut presenting: ResMut<Presenting>, switch: Extract<Res<LatencyReduction>>, frames: Extract<Res<Frames>>) {
-    *presenting = Presenting { frame: frames.current, on: switch.on };
+    *presenting = Presenting { frame: frames.current, on: switch.active() };
 }
 
 fn announce_present(presenting: Res<Presenting>, driver: Option<Res<AntiLagDriver>>) {
@@ -232,13 +241,15 @@ fn announce_present(presenting: Res<Presenting>, driver: Option<Res<AntiLagDrive
 
 /// Says when the switch turns on or off (and that it does nothing where the driver lacks it).
 fn log_switch(switch: Res<LatencyReduction>, driver: Option<Res<AntiLagDriver>>, mut said: Local<Option<bool>>) {
-    if *said == Some(switch.on) || (said.is_none() && !switch.on) {
-        *said = Some(switch.on);
+    let on = switch.active();
+    if *said == Some(on) || (said.is_none() && !on) {
+        *said = Some(on);
         return;
     }
-    *said = Some(switch.on);
+    *said = Some(on);
     let how = if driver.is_some() { "AMD Anti-Lag" } else { "not available on this GPU" };
-    info!("latency reduction: {} ({how})", if switch.on { "on" } else { "off" });
+    let why = if switch.by_frame_generation && !switch.on { ", with frame generation" } else { "" };
+    info!("latency reduction: {} ({how}{why})", if on { "on" } else { "off" });
 }
 
 #[cfg(test)]
@@ -269,7 +280,7 @@ mod tests {
     #[test]
     fn each_frame_is_announced_at_input_then_at_present() {
         let mut world = World::new();
-        world.insert_resource(LatencyReduction { on: true });
+        world.insert_resource(LatencyReduction { on: true, by_frame_generation: false });
         world.init_resource::<Frames>();
         world.insert_resource(AntiLagDriver { device: vk::Device::null(), update: record });
         // Three main-world updates; each frame is presented while the next update runs.
@@ -300,5 +311,12 @@ mod tests {
             ],
             "frame n is announced at input (end of update n - 1) before its present"
         );
+    }
+
+    #[test]
+    fn frame_generation_turns_latency_reduction_on_whatever_the_switch_says() {
+        assert!(!LatencyReduction { on: false, by_frame_generation: false }.active());
+        assert!(LatencyReduction { on: false, by_frame_generation: true }.active());
+        assert!(LatencyReduction { on: true, by_frame_generation: false }.active());
     }
 }

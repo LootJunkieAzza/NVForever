@@ -6,7 +6,8 @@ resolution from this frame and its history. It is the temporal follow-up that #1
 (FSR 1, spatial) leaves out of scope: it brings the per-object motion vectors that issue
 names as missing. The upscaler is the MIT-licensed wgpu-ffx port of the FidelityFX SDK 1.1.4
 shaders, as SPIR-V, vendored with its shader sources and compile tool
-(engine/vendor/README.md). No AMD DLL is used and there is no frame generation. What FSR
+(engine/vendor/README.md). No AMD DLL is used. Frame generation, built on top of it, is
+[frame-generation](frame-generation.md). What FSR
 needs and what the engine gives it: [spec notes](../spec-notes/fsr-upscaling.md).
 
 ## Using it

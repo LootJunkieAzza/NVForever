@@ -540,7 +540,7 @@ fn register_graphics(app: &mut App) {
             key: "fsr-upscaling",
             group: GROUP_GRAPHICS,
             label: "FSR 3.1 upscaling",
-            note: "Reconstruct the world at display resolution; Native AA keeps full resolution. Disables MSAA, FXAA, SMAA and TAA while active. Menus stay sharp. Requires Vulkan; unsupported devices keep native rendering. Sharpening controls FSR sharpening. No frame generation. (--fsr)",
+            note: "Reconstruct the world at display resolution; Native AA keeps full resolution. Disables MSAA, FXAA, SMAA and TAA while active. Menus stay sharp. Requires Vulkan; unsupported devices keep native rendering. Sharpening controls FSR sharpening. Frame generation is the row below. (--fsr)",
             get: |_| false,
             set: |_, _| {},
             slider: None,
@@ -584,6 +584,19 @@ fn register_graphics(app: &mut App) {
         add_setting(app, s);
     }
     nvf_play::settings::set_disabled_status(app, "anti-aliasing", |w| graphics::fsr_active(w).then_some("Off (FSR active)"));
+    add_setting(
+        app,
+        Setting {
+            key: "frame-generation",
+            group: GROUP_GRAPHICS,
+            label: "Frame generation",
+            note: "FSR 3.1 frame generation: a frame made between each two real frames, so motion looks twice as smooth; what you do reaches the screen a little later. Needs FSR 3.1 upscaling (any mode) and vertical sync or variable refresh; real frames are held to half the refresh rate, and latency reduction turns on with it. The HUD and menus are not generated; menus, loading screens and camera cuts show real frames only. Best from 60 real frames a second. Not in the original. (--frame-generation)",
+            get: |w| w.resource::<crate::frame_gen::FrameGeneration>().on,
+            set: |w, on| w.resource_mut::<crate::frame_gen::FrameGeneration>().on = on,
+            slider: None,
+        },
+    );
+    nvf_play::settings::set_disabled_status(app, "frame-generation", crate::frame_gen::unavailable_reason);
     add_setting(
         app,
         Setting {
