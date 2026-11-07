@@ -1233,3 +1233,12 @@ The numbers above stay put so links to them hold; each item here gives its own p
     owner-review.md item 45 asks which to keep. Close's text reads alpha 255 and brightness 255
     [observed], which rules out those two traits of its own for its (206, 147, 53), not an
     opacity from above it or the compositing; font 2's texels [hypothesis].
+
+## Added 2026-11-06 (LeveledListAddForm called every quest tick, Qwib's Accessory Pack)
+
+85. **Does LeveledListAddForm add the same entry twice?** (P2; crates/fnv-game/src/nvse_leveled.rs.)
+    NVForever skips an add whose form, level, count and health equal an entry already in the
+    list [hypothesis]: Qwib's Accessory Pack adds 15 entries from a start-game-enabled quest's
+    GameMode block with no StopQuest, and that makes sense only if a repeat changes nothing.
+    Probe: `LeveledListAddForm` the caps into a list at level 1, count 1, health 1.0, three
+    times, then `GetNumLevItems`; then once with count 2.
