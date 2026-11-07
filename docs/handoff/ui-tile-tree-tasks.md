@@ -829,8 +829,8 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       `tiles/list.rs` (`settle_list`, `ListView`, `hit`, `template_has`), its card pair is
       `tiles/repair_cards.rs` for the Pip-Boy's repair page to take later. Rules, keys, sounds
       and refusals stay `repair.rs`'s, reached through `RepairServicesInput`. Strings are listed
-      in repair.md §3.1: settings, record names, numbers or our own words; "Cost:" and Repair
-      All's total are not shown. Every number reused from the container or the hand-built menu
-      is [hypothesis] until a capture of this menu; the list is in the same section. Synthetic
-      tests cover the adapter. Smoke `tiles-repair-services` (its pointer only moves until the
-      file's places are read from a first run), `repair-services-default-drawing`.
+      in repair.md §3.1: settings, record names, numbers or our own words; "Cost:" is not shown.
+      A first capture of the original corrected the meters, the Repair button and Repair All; its
+      vendor refused every row, so what a repair shows stays [hypothesis] until a retake (the
+      same section). Synthetic tests cover the adapter. Smoke `tiles-repair-services`,
+      `repair-services-default-drawing`.

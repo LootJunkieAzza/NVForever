@@ -120,7 +120,8 @@ asked for (`top_menu_backing`, playtest list 7 item 2), which the default keeps 
 | --- | --- | --- |
 | `RSM_Headline_Title` | not written | the file's `sRepairServicesTitle` |
 | `RSM_EmptyRepairListText` | only `visible` | the file's `sNoItemsToRepair` |
-| the three buttons' `button_text` | not written | the file's `sRepairItem`, `sRepairAllItems`, `sDone` |
+| Repair's, Done's `button_text` | not written | the file's `sRepairItem`, `sDone` |
+| Repair All's `button_text` | the file's words, a space, the total in brackets | the file's `sRepairAllItems`, the model's figure |
 | `RSM_VendorSkillLabel` | setting, two spaces, number | `sRepairSkill` |
 | `RSM_CapsLabel` | setting, two spaces, number | `sInventoryCaps` |
 | `_PCButtonText` of Repair All, Done | hint | `sPCMenuHintA`, `sPCMenuHintE` (a controller's button name, `pad::game_hint`) |
@@ -135,34 +136,38 @@ Words the hand-built menu shows that this one does not: "Cost:" and the "caps" a
 figure, on the original's screen alone and not in the strings table [observed: §3's
 screenshots; `crates/fnv-ui/src/strings.rs` has no such setting], so the line reads the
 setting and the figure; the short card titles "CND" and "DAM" from the same screenshots,
-for the settings above; and the total after Repair All, below.
+for the settings above.
 
-**Open for the capture** (all [hypothesis] until then; none of it comes from this menu's
-own read):
+**A title wider than its place**: the file's meter stands 85 in, which leaves room for a short
+word, and the label NVForever supplies for `sInventoryCondition` is longer. The meter then
+starts 10 past the title and keeps its right end, so it is shorter than the original's while
+that label is in use; a plugin's shorter setting leaves the file's place [design].
 
-- `RSM_Template_Meter`'s fill as `width` = condition x the back's `width`; the log line's
-  `meter W of B` says what the tree holds.
-- How dim a row is: `alpha` 165, on the row, its text, fill and square (the file leaves
-  the rows' `alpha` to code, §3; the number is the hand-built menu's). The back keeps the
-  file's alpha.
-- The two labels' separator (two spaces, as the hand-built menu).
-- Repair All's total: the hand-built button shows "Repair All (285)" [observed: §3], and
-  the file's words are shown alone until the capture says whether the original's code
-  appends it to `button_text`.
-- `RSM_RepairButton`: `visible` and `target` while the selected row can be repaired. The
-  file has it on the Xbox only (§3), so on a PC it may stay hidden.
-- `RSM_RepairCostText`'s wording and whether a count's "each" exists; `RSM_ErrorText`'s rule.
-- `RSM_BrokenItemHealthMeter/_Value` as 0 to 1 (as `ConditionInfo`'s `user5`,
-  barter-menu.md §8).
-- Repair All's dim: `brightness` 128 as barter's Accept. §3 reads the file as drawing the
-  button at alpha 128 unless it can be used: if it does this from `target`, the dim is
-  applied twice.
-- **`RSM_Background/alpha` 193.8, the container's measure.** This menu's own evidence is
-  against it: §3 reads the file's value as 32 of 255 and the screenshot as no sheet edge,
-  where the hand-built menu's 0.75 drew a hard box. The number follows the container until
-  a capture of this menu answers.
-- The rows' `_y`, height and `_scroll_delta`; the places of the file are all that places
-  anything, and the first run reads them (`tiles: pointer over`).
+**What the capture said** [observed: private job run07_repair_services, 1280x720, a vendor who
+refused every row, read and in its pictures]:
+
+- The meters: a row's `RSM_Template_Meter/width` is condition x 60, the back's width; a card's
+  meter follows the card's `user0`, which is what is written (the file makes the meter's
+  `_Value` copy it).
+- `RSM_RepairButton` stays hidden on a PC, by the file, and Repair All takes its place. Its
+  `target` reads 1 with no row and 0 on a refused one.
+- Repair All shows the file's words, a space and "(0)". It dims by the file's `alpha` from
+  `target`; `brightness` stays 255.
+- A refused row's text stands at 0.53 of a bright one and its fill at about 128 over its back.
+  The file leaves the text's `alpha` to code and the square copies it, so the text and the fill
+  are written, at 128 [hypothesis: the number; the alpha itself was not read].
+- `RSM_Background/alpha` reads 193.8, as the container's: the file's 32 is replaced while the
+  game runs. The arrow shows on a refused row too.
+- The labels' gap is about twice a word space [hypothesis: two spaces].
+- A selection the pointer leaves hides the cards and the picture in the original. The model
+  always has a row selected, so here they stay [design: the model's rule].
+
+**Still open** (a retake with items under the vendor's limit; all [hypothesis] until then): the
+cards after a repair as drawn, the gains' form, `RSM_RepairCostText`'s wording and whether a
+count's "each" exists; a bright row; `RSM_RepairButton/target` on a row it can repair; Repair All
+above 0 and lit, its total's form; how the dim cost line looks; what a click, Enter and Repair
+All do in the original; the empty list. The original's refusal at a vendor's limit does not fit
+the model's rule (§4's "How far"): that is the maintainer's to weigh, nothing here changes it.
 
 ## 4. The vendor's rules
 

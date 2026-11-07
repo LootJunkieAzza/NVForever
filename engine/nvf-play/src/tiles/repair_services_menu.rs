@@ -13,11 +13,12 @@
 //!   tree is one whole state of the view, as `super::container_menu` has it.
 //! - **The words**: a setting through the strings table, a record's name or a number, or the
 //!   one sentence of NVForever's own the model already has ([`crate::repair::BEYOND_WORDS`]).
-//!   The headline, the empty list's text and the buttons' words are the file's and are never
-//!   written; the words the hand-built menu shows from the original's screen are not read here
-//!   (repair.md §3.1, a list of every string).
-//! - **The numbers the captures have not answered** are [hypothesis] where they stand, and
-//!   the list of questions is in repair.md §3.1.
+//!   The headline, the empty list's text and the buttons' words are the file's; Repair All's
+//!   gets its total after them. The words the hand-built menu shows from the original's screen
+//!   are not read here (repair.md §3.1, a list of every string).
+//! - **The capture so far** saw a vendor who refused every row (private job
+//!   run07_repair_services, 1280x720). What it could not see stays [hypothesis] where it stands:
+//!   the figures after a repair, the cost, a lit row and a lit Repair All (repair.md §3.1).
 
 use super::item_menu::{on, set};
 use super::list::{self, Drag, ListView, RowTile, Wanted};
@@ -57,13 +58,12 @@ const ROW_MARK: &str = "RSM_Template_ItemMarker";
 /// menu's `crate::repair`, the same file's template].
 const MARK_PICTURE: &str = "interface\\shared\\marker\\square_filled.dds";
 
-/// A row or a figure that cannot be had: as dim as the hand-built menu's [hypothesis: its 165 of
-/// 255, `crate::repair::DIM`, two thirds in the original's screenshots]. By `alpha`: the file
-/// leaves the rows' alpha to code, "true if we have enough money and vendor skill" [documented:
-/// repair.md §3]; how far is the capture's to answer.
-const DIM_ALPHA: f64 = 165.0;
-/// A button that cannot be used [hypothesis: as `super::barter_menu`'s].
-const BUTTON_DIM: f64 = 128.0;
+/// A row that cannot be had, by `alpha` on its text; the file's square copies that, and its fill
+/// is written alike [documented: the file leaves the text's alpha to code; observed: private job
+/// run07_repair_services, 1280x720, a refused row's text at 0.53 of a bright one and its fill at
+/// about 128 over its back; hypothesis: the number, the alpha itself was not read]. The cost of a
+/// repair the player cannot pay dims alike [hypothesis: not seen].
+const DIM_ALPHA: f64 = 128.0;
 
 /// [design: `crate::repair::keys`, `crate::pad::menu_buttons`] What the model takes itself: W, S,
 /// the arrows, A and E, and the controller's D-pad, A (Enter), B (Esc) and X (A). A script's
@@ -159,14 +159,13 @@ pub struct Snapshot {
     /// The chosen row is beyond the vendor's skill.
     pub beyond: bool,
     pub all_ready: bool,
-    /// What Repair All costs: for the log. The button shows the file's words alone, the total
-    /// waiting for the capture (repair.md §3.1).
+    /// What Repair All costs, after the file's words on its button.
     pub total: u32,
     pub hints: [String; 2],
 }
 
-/// A figure and its setting: "Caps  100" [hypothesis: the separator; barter's purse rule,
-/// `super::barter_menu`, with the two spaces of the hand-built menu].
+/// A figure and its setting: "Caps  100" [observed: the same job, a gap about twice a word space;
+/// hypothesis: two spaces, the strings were not read].
 fn labelled(word: &str, value: impl std::fmt::Display) -> String {
     format!("{word}  {value}")
 }
@@ -259,6 +258,9 @@ pub struct RepairServicesTiles {
     /// What the snapshot was made from, so a frame with the same makes none.
     from: Option<(View, bool, u32)>,
     pub sizes: SizesWritten,
+    /// Repair All's words as the file has them, read once in each tree: what stands before the
+    /// total.
+    all_words: Option<String>,
     /// A press on the scroll marker, held.
     pub drag: Option<Drag>,
     /// The scroll last logged as drawn.
@@ -337,24 +339,21 @@ impl RepairServicesTiles {
 }
 
 /// [design] File places and textures stay in the tree; what the file leaves to code is written.
-/// Nothing writes the headline's title, the empty list's words or the buttons' words: those are
-/// the file's settings.
+/// Nothing writes the headline's title or the empty list's words: those are the file's settings.
 fn write(ui: &mut Ui, s: &Snapshot, st: &mut RepairServicesTiles) {
     let wanted: Vec<Wanted<'_, RowKey>> = s.rows.iter().map(|r| Wanted { key: &r.key, name: &r.name }).collect();
     list::reconcile(ui, LIST, TEMPLATE, &mut st.rows, &wanted);
     for (row, shown) in st.rows.iter().zip(&s.rows) {
         let alpha = Value::Num(if shown.ready { 255.0 } else { DIM_ALPHA });
-        ui.set_trait(row.tile, "alpha", alpha.clone());
         if let Some(t) = list::child(ui, row.tile, ROW_TEXT) {
             ui.set_trait(t, "string", Value::Str(shown.text.clone()));
             ui.set_trait(t, "alpha", alpha.clone());
         }
         if let Some(t) = list::child(ui, row.tile, ROW_METER) {
-            ui.set_trait(t, "alpha", alpha.clone());
+            ui.set_trait(t, "alpha", alpha);
         }
         if let Some(t) = list::child(ui, row.tile, ROW_MARK) {
             ui.set_trait(t, "visible", on(shown.equipped));
-            ui.set_trait(t, "alpha", alpha);
             // [hypothesis] The file's picture if it has one.
             if ui.tile(t).get("filename").is_none_or(|v| v.text().is_empty()) {
                 ui.set_trait(t, "filename", Value::Str(MARK_PICTURE.into()));
@@ -377,27 +376,25 @@ fn write(ui: &mut Ui, s: &Snapshot, st: &mut RepairServicesTiles) {
     set(ui, COST, "alpha", Value::Num(if s.cost.as_ref().is_none_or(|c| c.1) { 255.0 } else { DIM_ALPHA }));
     set(ui, ERROR, "visible", on(s.beyond));
     set(ui, ERROR, "string", Value::Str(if s.beyond { crate::repair::BEYOND_WORDS.into() } else { String::new() }));
-    set(ui, ERROR, "alpha", Value::Num(DIM_ALPHA));
-    // The file leaves the buttons' `visible` to code [documented: repair.md §3 for the first;
-    // hypothesis: as `super::barter_menu`'s, for all three]. Repair stands only for a row it can
-    // repair [hypothesis: the file gives it no PC key and the original's screenshots show none
-    // with rows it cannot repair; capture question d].
-    let ready = s.selected_ready();
-    set(ui, REPAIR, "visible", on(ready));
-    set(ui, REPAIR, "target", on(ready));
+    // Repair's `visible` is the file's, for the Xbox: on a PC it stays hidden and Repair All takes
+    // its place; its `target` reads 1 with no row and 0 on a refused one [documented: the file;
+    // observed: the same job; hypothesis: 1 on a row it can repair].
+    set(ui, REPAIR, "target", on(s.selected.is_none() || s.selected_ready()));
     set(ui, REPAIR_ALL, "visible", on(true));
+    // The file dims Repair All by `alpha` from this [documented: the file, text_box.xml; observed:
+    // the same job, `brightness` 255, its text at 0.52 of Done's].
     set(ui, REPAIR_ALL, "target", on(s.all_ready));
+    let words = st.all_words.get_or_insert_with(|| ui.get_string(&format!("{REPAIR_ALL}/button_text/string")).unwrap_or_default());
+    // The file's words, a space, the total in brackets [observed: the same job, "(0)"; hypothesis:
+    // the form above 0, which the hand-built menu's screenshots agree with, repair.md §3].
+    set(ui, &format!("{REPAIR_ALL}/button_text"), "string", Value::Str(format!("{words} ({})", s.total)));
     set(ui, DONE, "visible", on(true));
     set(ui, DONE, "target", on(true));
     for (button, hint) in [REPAIR_ALL, DONE].into_iter().zip(&s.hints) {
         set(ui, button, "_PCButtonText", Value::Str(hint.clone()));
     }
-    // [hypothesis] As `super::barter_menu`'s Accept: the texts inherit no parent's brightness.
-    for path in [REPAIR_ALL.to_string(), format!("{REPAIR_ALL}/button_text"), format!("{REPAIR_ALL}/PCShortcutLabel")] {
-        set(ui, &path, "brightness", Value::Num(if s.all_ready { 255.0 } else { BUTTON_DIM }));
-    }
-    // [hypothesis] The container's measure, reused until the capture of this menu (repair.md §3.1,
-    // where the shade this menu's own screenshot shows is against it).
+    // [observed: the same job, 193.8 read here too, the file's 32 being replaced as in the
+    // container's].
     set(ui, BACKGROUND, "alpha", Value::Num(super::container_menu::BACKGROUND_ALPHA));
 }
 
@@ -418,6 +415,7 @@ fn apply(ui: &mut Ui, menu: TileId, s: Snapshot, st: &mut RepairServicesTiles) -
     if st.written_in != Some(menu) {
         st.written_in = Some(menu);
         st.shown = None;
+        st.all_words = None;
     }
     if st.shown.as_ref() == Some(&s) {
         return false;
@@ -438,6 +436,7 @@ fn settle(ui: &mut Ui, st: &mut RepairServicesTiles, write_sizes: &mut dyn FnMut
         }
         ui.update();
     }
+    repair_cards::fit_meters(ui, STATS, PREFIX);
     if let Some(list_tile) = ui.find_tile(LIST) {
         list::settle_list(ui, list_tile, &st.rows, ROW_TEXT, &mut st.view, s.selected, 0, s.pointer_pick, s.navigated);
     }
@@ -677,11 +676,12 @@ mod tests {
         assert_eq!(value(1, ROW_MARK, "visible"), 0.0);
         assert_eq!(ui.tile(child(0, ROW_MARK)).get("filename").unwrap().text(), MARK_PICTURE);
         assert_eq!(value(0, ROW_TEXT, "alpha"), 255.0);
-        assert_eq!(ui.tile(st.rows[0].tile).get("alpha").unwrap().num(), 255.0);
+        assert_eq!(value(0, ROW_METER, "alpha"), 255.0);
         assert_eq!(value(2, ROW_TEXT, "alpha"), DIM_ALPHA, "beyond the vendor's skill");
-        assert_eq!(ui.tile(st.rows[2].tile).get("alpha").unwrap().num(), DIM_ALPHA);
         assert_eq!(value(2, ROW_METER, "alpha"), DIM_ALPHA);
         assert!(ui.tile(child(2, ROW_METER_BACK)).get("alpha").is_none(), "the back keeps the file's");
+        assert!(ui.tile(child(2, ROW_MARK)).get("alpha").is_none(), "the square is the file's, from the text");
+        assert!(ui.tile(st.rows[2].tile).get("alpha").is_none(), "the row's own stays the file's");
     }
 
     #[test]
@@ -702,8 +702,8 @@ mod tests {
         assert_eq!(string(&ui, CAPS, "string"), "Coins  90");
         assert_eq!(string(&ui, COST, "string"), "Coins  40");
         assert_eq!(string(&ui, &cards("RSM_BrokenItemStat"), "_Title"), "Force", "the setting's words, for a weapon");
-        // [design: LEGAL.md] What the file holds is left alone, and Repair All shows no total.
-        assert_eq!(string(&ui, &format!("{REPAIR_ALL}/button_text"), "string"), "Own mend all");
+        // [design: LEGAL.md] What the file holds is left alone, Repair All's total after its words.
+        assert_eq!(string(&ui, &format!("{REPAIR_ALL}/button_text"), "string"), "Own mend all (61)");
         assert_eq!(string(&ui, &format!("{REPAIR}/button_text"), "string"), "Own mend");
         assert_eq!(string(&ui, &format!("{DONE}/button_text"), "string"), "Own leave");
         assert_eq!(string(&ui, EMPTY, "string"), "Own empty words");
@@ -711,6 +711,21 @@ mod tests {
         // A word from the original's screen in no string this writes.
         let all = format!("{} {} {}", string(&ui, COST, "string"), string(&ui, SKILL, "string"), string(&ui, CAPS, "string"));
         assert!(!all.contains("Cost") && !all.contains("caps"), "{all}");
+    }
+
+    #[test]
+    fn repair_alls_total_follows_the_view_and_its_words_stay_the_files() {
+        let (mut ui, mut st) = (fixture(|s| s), RepairServicesTiles::default());
+        let mut v = view();
+        frame(&mut ui, snapshot(&v), &mut st);
+        v.total = 0;
+        v.all_ready = false;
+        frame(&mut ui, snapshot(&v), &mut st);
+        assert_eq!(string(&ui, &format!("{REPAIR_ALL}/button_text"), "string"), "Own mend all (0)", "no total piles on the last");
+        // A tree built again reads its own words.
+        let mut other = fixture(|s| s.replace("Own mend all", "Other words"));
+        frame(&mut other, snapshot(&v), &mut st);
+        assert_eq!(string(&other, &format!("{REPAIR_ALL}/button_text"), "string"), "Other words (0)");
     }
 
     #[test]
@@ -731,7 +746,7 @@ mod tests {
         frame(&mut ui, snapshot(&view()), &mut st);
         assert_eq!(string(&ui, ICON, "filename"), "interface\\icons\\own.dds");
         assert_eq!(number(&ui, ICON, "visible"), 1.0);
-        assert_eq!(number(&ui, &format!("{}/RSM_BrokenItemHealthMeter", cards("RSM_BrokenItemHealth")), "_Value"), 0.25);
+        assert_eq!(number(&ui, &cards("RSM_BrokenItemHealth"), "user0"), 0.25);
         assert_eq!(string(&ui, &cards("RSM_HealthImprovementText"), "string"), "+50%");
         assert_eq!(number(&ui, COST, "visible"), 1.0);
         assert_eq!(number(&ui, COST, "alpha"), 255.0);
@@ -749,8 +764,7 @@ mod tests {
         assert_eq!(string(&ui, ERROR, "string"), crate::repair::BEYOND_WORDS);
         assert_eq!(number(&ui, COST, "visible"), 0.0);
         assert_eq!(number(&ui, &cards("RSM_FixedItemHealth"), "visible"), 0.0);
-        assert_eq!(number(&ui, &cards("RSM_ArrowIcon"), "visible"), 0.0);
-        assert_eq!(number(&ui, REPAIR, "visible"), 0.0);
+        assert!(ui.get_float(&format!("{}/visible", cards("RSM_ArrowIcon"))).is_none(), "the arrow stays the file's");
         assert_eq!(number(&ui, REPAIR, "target"), 0.0);
     }
 
@@ -765,8 +779,7 @@ mod tests {
         assert_eq!(string(&ui, COST, "string"), "Coins  40");
         assert_eq!(number(&ui, REPAIR, "target"), 0.0);
         assert_eq!(number(&ui, REPAIR_ALL, "target"), 0.0);
-        assert_eq!(number(&ui, REPAIR_ALL, "brightness"), BUTTON_DIM);
-        assert_eq!(number(&ui, &format!("{REPAIR_ALL}/button_text"), "brightness"), BUTTON_DIM);
+        assert!(ui.get_float(&format!("{REPAIR_ALL}/brightness")).is_none(), "the file dims it, from `target`");
         assert_eq!(number(&ui, DONE, "target"), 1.0, "Done can always be pressed");
     }
 
@@ -774,13 +787,29 @@ mod tests {
     fn the_buttons_stand_and_carry_the_hints() {
         let (mut ui, mut st) = (fixture(|s| s), RepairServicesTiles::default());
         frame(&mut ui, snapshot(&view()), &mut st);
-        for button in [REPAIR, REPAIR_ALL, DONE] {
+        for button in [REPAIR_ALL, DONE] {
             assert_eq!(number(&ui, button, "visible"), 1.0, "{button}");
             assert_eq!(number(&ui, button, "target"), 1.0, "{button}");
         }
         assert_eq!(string(&ui, REPAIR_ALL, "_PCButtonText"), "[A]");
         assert_eq!(string(&ui, DONE, "_PCButtonText"), "[E]");
-        assert_eq!(number(&ui, REPAIR_ALL, "brightness"), 255.0);
+    }
+
+    #[test]
+    fn repair_keeps_the_files_visible_on_a_pc() {
+        let mut ui = fixture(|s| s.replace(r#"<image name="RSM_RepairButton">"#, r#"<image name="RSM_RepairButton"><visible>0</visible>"#));
+        let mut st = RepairServicesTiles::default();
+        let mut v = view();
+        frame(&mut ui, snapshot(&v), &mut st);
+        assert_eq!(number(&ui, REPAIR, "visible"), 0.0, "a row it can repair");
+        assert_eq!(number(&ui, REPAIR, "target"), 1.0);
+        v.selected = 2;
+        frame(&mut ui, snapshot(&v), &mut st);
+        assert_eq!(number(&ui, REPAIR, "visible"), 0.0, "a refused row");
+        assert_eq!(number(&ui, REPAIR, "target"), 0.0);
+        v.rows.clear();
+        frame(&mut ui, snapshot(&v), &mut st);
+        assert_eq!(number(&ui, REPAIR, "target"), 1.0, "no row");
     }
 
     #[test]
@@ -799,7 +828,6 @@ mod tests {
         assert_eq!(number(&ui, STATS, "visible"), 0.0);
         assert_eq!(number(&ui, COST, "visible"), 0.0);
         assert_eq!(number(&ui, ERROR, "visible"), 0.0);
-        assert_eq!(number(&ui, REPAIR, "visible"), 0.0);
         assert_eq!(number(&ui, DONE, "target"), 1.0);
         assert_eq!(st.selected(), None);
     }

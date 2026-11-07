@@ -12,8 +12,16 @@
 //! - The condition card's title is the file's. It is written, from `sInventoryCondition`, only
 //!   where the file left a card without one [hypothesis: which cards have one in the original's
 //!   file is known only for the first, repair.md §3].
-//! - The meter's `_Value` runs from 0 to 1 [hypothesis: as `ConditionInfo`'s `user5`,
-//!   `super::item_card`; the capture answers it].
+//! - The meter shows the card's `user0`, 0 to 1: the file makes the meter's `_Value` copy it, so
+//!   a write on the meter would not last [documented: the files, `meter.xml`; observed: private
+//!   job run07_repair_services, 1280x720, `_Value` 0.55, 0.60, 1.00, each the row's condition].
+//! - The arrow is left to the file: it shows on a refused row too, and the Pip-Boy's file words
+//!   its own rule [observed: the same job; documented: repair_menu.xml].
+//! - **A title wider than its place** ([`fit_meters`]): the meter stands where the file puts it,
+//!   which leaves room for a short word. The setting's word NVForever supplies, "Condition"
+//!   (`fnv_ui::strings::BUILT_IN`), is longer, and the meter would cover its end; the short word
+//!   the original shows is not transcribed. So the meter gives up room from its left and keeps
+//!   its right end. A shorter word from a plugin's setting leaves the file's place [design].
 
 use super::item_menu::{on, set};
 use fnv_ui::{Ui, Value};
@@ -40,6 +48,9 @@ pub struct Figures {
     /// What the repair adds to the stat.
     pub gain_stat: Option<i32>,
 }
+
+/// Between a title and a meter moved for it [design].
+const METER_GAP: f64 = 10.0;
 
 /// The sides, in the file's words [documented: the tiles' names].
 const NOW: &str = "BrokenItem";
@@ -79,7 +90,7 @@ fn write_title_if_none(ui: &mut Ui, path: &str, title: &str) {
 }
 
 fn write_side(ui: &mut Ui, root: &str, prefix: &str, side: &str, card: Option<&Card>, figures: Option<&Figures>) {
-    let (health, stat, meter) = (health(root, prefix, side), stat(root, prefix, side), meter(root, prefix, side));
+    let (health, stat) = (health(root, prefix, side), stat(root, prefix, side));
     set(ui, &health, "visible", on(card.is_some()));
     let shown = card.and_then(|c| c.stat);
     set(ui, &stat, "visible", on(shown.is_some()));
@@ -89,7 +100,7 @@ fn write_side(ui: &mut Ui, root: &str, prefix: &str, side: &str, card: Option<&C
         set(ui, &stat, "_Title", Value::Str(f.stat_title.clone()));
     }
     set(ui, &health, "_Value", Value::Str(String::new()));
-    set(ui, &meter, "_Value", Value::Num(f64::from(card.map_or(0.0, |c| c.condition).clamp(0.0, 1.0))));
+    set(ui, &health, "user0", Value::Num(f64::from(card.map_or(0.0, |c| c.condition).clamp(0.0, 1.0))));
 }
 
 /// Write the cards under `root` whose tiles are named with `prefix`. `None`: nothing chosen, all
@@ -98,7 +109,6 @@ pub fn write(ui: &mut Ui, root: &str, prefix: &str, figures: Option<&Figures>) {
     write_side(ui, root, prefix, NOW, figures.map(|f| &f.now), figures);
     write_side(ui, root, prefix, AFTER, figures.and_then(|f| f.after.as_ref()), figures);
     let after = figures.filter(|f| f.after.is_some());
-    set(ui, &format!("{root}/{prefix}ArrowIcon"), "visible", on(after.is_some()));
     let gain = format!("{root}/{prefix}HealthImprovementText");
     set(ui, &gain, "visible", on(after.is_some()));
     set(ui, &gain, "string", Value::Str(after.map_or_else(String::new, |f| format!("+{}%", f.gain_percent))));
@@ -108,18 +118,36 @@ pub fn write(ui: &mut Ui, root: &str, prefix: &str, figures: Option<&Figures>) {
     set(ui, &gain, "string", Value::Str(gain_stat.map_or_else(String::new, |n| format!("+{n}"))));
 }
 
+/// Make room for a title wider than the file's place for it (module notes), on the texts as
+/// measured: the meter starts past the title and ends where it did. Nothing moves for a title
+/// that fits, or one that would leave the meter no room.
+pub fn fit_meters(ui: &mut Ui, root: &str, prefix: &str) {
+    for side in [NOW, AFTER] {
+        let title = ui.find_tile(&format!("{}/CI_TitleText", health(root, prefix, side)));
+        let (Some(title), Some(m)) = (title, ui.find_tile(&meter(root, prefix, side))) else { continue };
+        let read = |t, name| ui.tile(t).get(name).map_or(0.0, Value::num);
+        let start = read(title, "x") + read(title, "width") + METER_GAP;
+        let (x, end) = (read(m, "x"), read(m, "x") + read(m, "width"));
+        if start > x && start < end {
+            ui.set_trait(m, "x", Value::Num(start));
+            ui.set_trait(m, "width", Value::Num(end - start));
+        }
+    }
+}
+
 /// A line of the cards shown, for the log (smoke reads it).
 pub fn describe(ui: &Ui, root: &str, prefix: &str) -> String {
     let mut out = Vec::new();
     for side in [NOW, AFTER] {
-        for (card, meter) in [(health(root, prefix, side), Some(meter(root, prefix, side))), (stat(root, prefix, side), None)] {
+        for (card, condition) in [(health(root, prefix, side), true), (stat(root, prefix, side), false)] {
             if ui.get_float(&format!("{card}/visible")).is_none_or(|v| v == 0.0) {
                 continue;
             }
             let title = ui.get_string(&format!("{card}/_Title")).unwrap_or_default();
-            let value = match meter {
-                Some(m) => ui.get_float(&format!("{m}/_Value")).map_or_else(String::new, |v| format!("{:.0}%", v * 100.0)),
-                None => ui.get_string(&format!("{card}/_Value")).unwrap_or_default(),
+            let value = if condition {
+                ui.get_float(&format!("{card}/user0")).map_or_else(String::new, |v| format!("{:.0}%", v * 100.0))
+            } else {
+                ui.get_string(&format!("{card}/_Value")).unwrap_or_default()
             };
             out.push(format!("{title} {value}").trim().to_string());
         }
@@ -188,14 +216,15 @@ mod tests {
     fn a_repair_shows_both_pairs_the_arrow_and_the_gains() {
         let mut ui = fixture();
         write(&mut ui, "M/R", "XX_", Some(&figures()));
-        assert_eq!(number(&ui, "XX_BrokenItemHealth/XX_BrokenItemHealthMeter/_Value"), 0.25);
-        assert_eq!(number(&ui, "XX_FixedItemHealth/XX_FixedItemHealthMeter/_Value"), 0.75);
+        assert_eq!(number(&ui, "XX_BrokenItemHealth/user0"), 0.25);
+        assert_eq!(number(&ui, "XX_FixedItemHealth/user0"), 0.75);
+        assert!(ui.get_float("M/R/XX_BrokenItemHealth/XX_BrokenItemHealthMeter/_Value").is_none(), "the file's, from the card");
         assert_eq!(text(&ui, "XX_BrokenItemStat/_Value"), "4");
         assert_eq!(text(&ui, "XX_FixedItemStat/_Value"), "9");
         assert_eq!(text(&ui, "XX_FixedItemStat/_Title"), "Force");
         assert_eq!(text(&ui, "XX_HealthImprovementText/string"), "+50%");
         assert_eq!(text(&ui, "XX_StatImprovementText/string"), "+5");
-        assert_eq!(number(&ui, "XX_ArrowIcon/visible"), 1.0);
+        assert!(ui.get_float("M/R/XX_ArrowIcon/visible").is_none(), "the arrow is the file's");
         assert_eq!(describe(&ui, "M/R", "XX_"), "Own state 25%, Force 4, State 75%, Force 9, +50%, +5");
     }
 
@@ -214,7 +243,7 @@ mod tests {
         let beyond = Figures { after: None, gain_percent: 0, gain_stat: None, ..figures() };
         write(&mut ui, "M/R", "XX_", Some(&beyond));
         assert_eq!(number(&ui, "XX_BrokenItemHealth/visible"), 1.0);
-        for hidden in ["XX_FixedItemHealth", "XX_FixedItemStat", "XX_ArrowIcon", "XX_HealthImprovementText", "XX_StatImprovementText"] {
+        for hidden in ["XX_FixedItemHealth", "XX_FixedItemStat", "XX_HealthImprovementText", "XX_StatImprovementText"] {
             assert_eq!(number(&ui, &format!("{hidden}/visible")), 0.0, "{hidden}");
         }
         assert_eq!(text(&ui, "XX_HealthImprovementText/string"), "", "nothing stays of the item before");
@@ -232,6 +261,39 @@ mod tests {
         assert_eq!(number(&ui, "XX_BrokenItemStat/visible"), 0.0);
         assert_eq!(number(&ui, "XX_FixedItemStat/visible"), 0.0);
         assert_eq!(number(&ui, "XX_StatImprovementText/visible"), 0.0);
-        assert_eq!(number(&ui, "XX_BrokenItemHealth/XX_BrokenItemHealthMeter/_Value"), 1.0, "held to its range");
+        assert_eq!(number(&ui, "XX_BrokenItemHealth/user0"), 1.0, "held to its range");
+    }
+
+    /// [design] The fixture's own places, as `fixture`: a title of `width` at 3, a meter from 40
+    /// to 140 beside it.
+    fn places(ui: &mut Ui, width: f64) {
+        let title = ui.find_tile("M/R/XX_BrokenItemHealth/CI_TitleText").unwrap();
+        ui.set_trait(title, "x", Value::Num(3.0));
+        ui.set_trait(title, "width", Value::Num(width));
+        let meter = ui.find_tile("M/R/XX_BrokenItemHealth/XX_BrokenItemHealthMeter").unwrap();
+        ui.set_trait(meter, "x", Value::Num(40.0));
+        ui.set_trait(meter, "width", Value::Num(100.0));
+    }
+
+    #[test]
+    fn a_wide_title_moves_the_meter_and_keeps_its_right_end() {
+        let mut ui = fixture();
+        places(&mut ui, 60.0);
+        fit_meters(&mut ui, "M/R", "XX_");
+        let at = |ui: &Ui, name: &str| number(ui, &format!("XX_BrokenItemHealth/XX_BrokenItemHealthMeter/{name}"));
+        assert_eq!((at(&ui, "x"), at(&ui, "width")), (73.0, 67.0));
+        fit_meters(&mut ui, "M/R", "XX_");
+        assert_eq!((at(&ui, "x"), at(&ui, "width")), (73.0, 67.0), "every frame's call changes nothing");
+    }
+
+    #[test]
+    fn a_title_that_fits_or_leaves_no_room_moves_nothing() {
+        for width in [20.0, 500.0] {
+            let mut ui = fixture();
+            places(&mut ui, width);
+            fit_meters(&mut ui, "M/R", "XX_");
+            assert_eq!(number(&ui, "XX_BrokenItemHealth/XX_BrokenItemHealthMeter/x"), 40.0, "{width}");
+            assert_eq!(number(&ui, "XX_BrokenItemHealth/XX_BrokenItemHealthMeter/width"), 100.0, "{width}");
+        }
     }
 }
