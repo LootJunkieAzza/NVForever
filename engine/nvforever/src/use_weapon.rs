@@ -17,7 +17,9 @@
 //!   naming another weapon fires that weapon's shots from the model it holds (models are
 //!   not swapped live yet).
 //! - **Always Hit**: no spread at all, aimed straight at the target's chest [design: the
-//!   shot can still meet cover between them]. **Do No Damage**: the shots are harmless
+//!   shot can still meet cover between them]. Shots aim at the target's body as posed
+//!   (its widest part capsule, `fnv_phys` `actor_aim_point`), so a kneeling or seated
+//!   target is hit where it is [design]; without a posed body, at its standing chest. **Do No Damage**: the shots are harmless
 //!   (`nvf_play::combat::ActorFire::harmless`). **Crouch To Reload**: it crouches
 //!   (`Game::sneaks`) while its weapon reloads.
 //! - **The end**: all shots fired, or its target dead or gone: the game ends the use
@@ -333,7 +335,14 @@ pub(crate) fn shoot(
                 match e {
                     Event::Fired { .. } => {
                         let muzzle = muzzle_at.get(&id).copied();
-                        let to = vec::sub(tchest, eyes);
+                        // At the target's body as posed (the centre of its widest part
+                        // capsule, as `nvf_play::combat` aims), else its standing chest: a
+                        // kneeling or seated target's chest is well below a standing one's
+                        // (overnight queue item 40: Jean-Baptiste's always-hit shot at the
+                        // kneeling volunteer in the Silver Rush passed over him into the
+                        // wall, so his OnHit never ran and the scene stopped).
+                        let at = phys.as_deref().and_then(|p| p.world.actor_aim_point(w.target.0)).unwrap_or(tchest);
+                        let to = vec::sub(at, eyes);
                         let aim = vec::scale(to, 1.0 / vec::len(to).max(1.0));
                         let origin = vec::add(eyes, vec::scale(aim, MUZZLE_AHEAD));
                         let cone = if w.always_hit {

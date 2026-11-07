@@ -121,6 +121,8 @@ pub enum Step {
     Skip,
     /// Leave as Tab does (the Goodbye choice), else break off.
     Leave,
+    /// Tab exactly as the player presses it: the Goodbye choice, else refused.
+    Tab,
     /// Shift+Tab: breaks the conversation off if the debug switch allows it.
     Break,
 }
@@ -144,6 +146,7 @@ fn parse_step(s: &str) -> Step {
     }
     match s.to_ascii_lowercase().as_str() {
         "leave" => Step::Leave,
+        "tab" => Step::Tab,
         "skip" => Step::Skip,
         "break" => Step::Break,
         _ => match s.parse::<usize>() {
@@ -219,7 +222,7 @@ pub fn pick(step: &Step, offers: &[Offer]) -> Result<usize, String> {
                 _ => Err(format!("{s:?} is part of several choices (offered: {})", listed(offers))),
             }
         }
-        Step::Skip | Step::Leave | Step::Break => Err("not a choice".into()),
+        Step::Skip | Step::Leave | Step::Tab | Step::Break => Err("not a choice".into()),
     }
 }
 
@@ -694,6 +697,7 @@ fn input(
                         (Act::Leave { force: true }, "test aid")
                     }
                     Some(Step::Leave) => (Act::Leave { force: true }, "test aid"),
+                    Some(Step::Tab) => (Act::Leave { force: false }, "test aid (Tab)"),
                     Some(step) => match pick(&step, &offered) {
                         Ok(i) => {
                             info!("test aid NVF_PLAY_TEST_TALK: step {step:?} picks choice {i}");

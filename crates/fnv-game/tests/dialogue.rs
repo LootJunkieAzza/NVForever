@@ -95,6 +95,12 @@ const U_LEAD: u32 = 0xF5E;
 const U_TARGET: u32 = 0xF5F;
 const U_PLAIN: u32 = 0xF60;
 const U_ONLY: u32 = 0xF61;
+// A SayTo topic whose first Conversation line has the next speaker Self (item 26, Stella
+// at Zion): the speaker goes on with the next line.
+const T_SELF: u32 = 0x960;
+const V_SELF: u32 = 0xF62;
+const V_BYE: u32 = 0xF63;
+const V_AFTER: u32 = 0xF64;
 const A_OFF: u32 = 0xA01;
 const A_FIRST: u32 = 0xA02;
 const A_HIGH: u32 = 0xA03;
@@ -588,6 +594,21 @@ fn plugin_bytes() -> Vec<u8> {
             0,
             50.0,
             vec![L { id: S_LF_TO, quest: QA, speaker: me, responses: one("To"), link_from: vec![T_LF_FROM, T_LF_PLAIN], ..L::default() }],
+        ),
+        // SayTo with the next speaker Self: V_SELF, then V_BYE (Goodbye, TestOut 4); the
+        // Topic line after it is never reached.
+        topic(
+            T_SELF,
+            "TestSelf",
+            "TestSelf",
+            topic_type::CONVERSATION,
+            0,
+            50.0,
+            vec![
+                L { id: V_SELF, quest: QA, ty: CONV, next: 1, flags: info_flag::SAY_ONCE, speaker: me, responses: one("First"), ..L::default() },
+                L { id: V_BYE, quest: QA, ty: CONV, flags: info_flag::GOODBYE | info_flag::SAY_ONCE, speaker: me, responses: one("Second"), end: Some("4"), ..L::default() },
+                L { id: V_AFTER, quest: QA, ty: CONV, speaker: me, responses: one("Third"), ..L::default() },
+            ],
         ),
         // Between actors: TestChat's line links nowhere; TestAnswer's second line names
         // TestChat in its Link From, its first (an opener) does not.
@@ -1551,6 +1572,26 @@ fn actors_talk_to_each_other_only_with_conversation_lines() {
     assert_eq!(said, vec![K_HELLO, K_REPLY, K_LAST]);
     // A hello to the player takes the Topic line.
     assert_eq!(g.say_hello(a), Some(FormId(K_HELLO_PLAYER)));
+}
+
+/// A SayTo line to an actor that is a Conversation line with the next speaker Self: the
+/// speaker goes on with its next line of the topic, and stops at the Goodbye line (item
+/// 26: Stella's NVDLC02StellaForceGreetTOPIC at Zion).
+#[test]
+fn a_say_to_line_with_the_next_speaker_self_goes_on_with_the_next_line() {
+    let f = fixture();
+    let mut g = game(&f);
+    let (a, b) = (FormId(NPC1_REF), FormId(NPC2_REF));
+    assert_eq!(g.say(a, Some(b), FormId(T_SELF), true), Some(FormId(V_SELF)));
+    for _ in 0..20_000 {
+        if g.speech.is_empty() {
+            break;
+        }
+        g.tick();
+    }
+    let lines: Vec<(FormId, u32)> = g.events.iter().filter_map(|e| if let EventKind::LineStarted { speaker, info, .. } = e.kind { Some((speaker, info.0)) } else { None }).collect();
+    assert_eq!(lines, vec![(a, V_SELF), (a, V_BYE)]);
+    assert_eq!(out(&g), 4.0);
 }
 
 #[test]

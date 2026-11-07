@@ -255,12 +255,19 @@ fn plugin_bytes() -> Vec<u8> {
         ),
     ]
     .concat();
-    // NPC script: nDone (1, short).
+    // NPC script: nDone (1, short), nOnLoad (2, short).
     //   begin SayToDone
     //     set nDone to nDone + 1
     //   end
+    //   begin OnLoad
+    //     set nOnLoad to nOnLoad + 1
+    //   end
     let body = set(var(b's', 1), ex(&[var(b's', 1), a("1"), a("+")]));
-    let npcscript = [vec![sub(b"EDID", z("NpcScript"))], unit(0, &script(&[(0x07, None, body)]), &[(1, "nDone", 1)], &[])].concat();
+    let npcscript = [
+        vec![sub(b"EDID", z("NpcScript"))],
+        unit(0, &script(&[(0x07, None, body), (0x15, None, set(var(b's', 2), ex(&[var(b's', 2), a("1"), a("+")])))]), &[(1, "nDone", 1), (2, "nOnLoad", 1)], &[]),
+    ]
+    .concat();
     // Trigger script: fSum (1, float); no GameMode block.
     //   begin OnTrigger
     //     set fSum to fSum + GetSecondsPassed
@@ -1200,6 +1207,37 @@ fn a_disabled_reference_runs_on_load_when_its_cell_loads() {
     assert_eq!(loads(&g), 2.0);
     g.tick();
     assert_eq!(loads(&g), 2.0);
+}
+
+/// A disabled actor does not run OnLoad when its cell loads, only at the start of the
+/// frame after its Enable [hypothesis, fit to ED-E: EDEScript's OnLoad starts the timer
+/// that unrestrains the repaired robot, and its three references are placed disabled in
+/// the cell where it is repaired; docs/spec-notes/script-language.md §7.2 row 5].
+#[test]
+fn a_disabled_actor_runs_on_load_only_after_its_enable() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let npc = FormId(NPC_REF);
+    g.world.set_enabled(npc, false).unwrap();
+    let key = InstKey::Ref { reference: npc };
+    let loads = |g: &Game| match g.var(key, 2) {
+        Value::Num(x) => x,
+        v => panic!("{v:?}"),
+    };
+    g.set_loaded([FormId(CELL)].into_iter().collect());
+    assert_eq!(loads(&g), 0.0, "no OnLoad at the cell load while disabled");
+    g.tick();
+    assert_eq!(loads(&g), 0.0);
+    g.world.set_enabled(npc, true).unwrap();
+    g.note_enabled(npc);
+    g.tick();
+    assert_eq!(loads(&g), 1.0, "OnLoad the frame after its Enable");
+    // Enabled when its cell loads: OnLoad at the load, as before.
+    let mut h = game(&f);
+    h.new_game();
+    h.set_loaded([FormId(CELL)].into_iter().collect());
+    assert_eq!(loads(&h), 1.0);
 }
 
 #[test]
@@ -2339,6 +2377,20 @@ fn udf_fixture() -> Fixture {
         (0x0000_0905u32, "TestEmpty", "scn TestEmpty\nref r\nint n\nBegin Function {n}\n  if n == 1 && r.GetDisabled == 0\n  endif\nEnd\n".to_string()),
         // Functions that return a lambda (#1088): two in one unit, one in another.
         (0x0000_0906u32, "TestMaker", "scn TestMaker\nint k\nint w\nBegin Function {w}\n  if w\n    SetFunctionValue ({k} => k + 100)\n  else\n    SetFunctionValue ({k} => k * 2)\n  endif\nEnd\n".to_string()),
+        // Two GameMode blocks, the first stopped by a call on an empty reference (EDEScript's
+        // shape, overnight queue item 52).
+        (0x0000_0908u32, "TestTwoBlocks", "scn TestTwoBlocks
+ref r
+short n
+begin GameMode
+  if n == 0 && r.GetDisabled == 0
+  endif
+  set TestGlobal to 1
+end
+begin GameMode
+  set TestGlobal to TestGlobal + 10
+end
+".to_string()),
         (0x0000_0907u32, "TestMaker2", "scn TestMaker2\nint k\nBegin Function {}\n  SetFunctionValue ({k} => k - 1)\nEnd\n".to_string()),
     ] {
         // TestFact calls itself: its own name resolves through a seed reference list.
@@ -2439,6 +2491,22 @@ fn a_scripts_call_on_an_empty_reference_is_traced_once() {
         g.run_source("ref r\nr.Disable", Default::default()).expect("compiles");
     }
     assert_eq!(failed(&g), 3);
+}
+
+/// A call on an empty reference stops the block it is in, not the later blocks of the
+/// same event [hypothesis, fit to EDEScript: its first GameMode block calls GetInSameCell
+/// on an empty reference every frame, in the original too (observer-checks.md check
+/// 51), and its second GameMode block's timer still unrestrains the repaired ED-E there;
+/// docs/spec-notes/script-language.md §7.3 row 1].
+#[test]
+fn a_call_on_an_empty_reference_stops_its_block_not_the_next() {
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.cfg.strict = false;
+    let key = InstKey::Quest { quest: FormId(0x0000_0908) };
+    g.run_event(key, FormId(0x0000_0908), 0, None, Default::default());
+    // The first block stopped before its `set`; the second ran.
+    assert_eq!(g.world.global(FormId(0x0000_0800)).unwrap(), 10.0);
 }
 
 #[test]

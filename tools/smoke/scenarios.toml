@@ -19061,3 +19061,48 @@ run_seconds = 18
 expect = ["FSR 3.1.4: NativeAa", { re = 'blended cut-outs: drawn alpha-tested for FSR \((\d+) materials changed\)', range = [1, 100000], label = "the corn rows' material cut when FSR comes on" }, { re = 'blended cut-outs: drawn blended \((\d+) materials changed\)', range = [1, 100000], label = "and blended again when it goes off" }]
 order = [["blended cut-outs: drawn alpha-tested", "blended cut-outs: drawn blended"]]
 forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error", "Validation Error"]
+
+[[scenario]]
+name = "ede-repair"
+source = "overnight queue item 52 (2026-11-07): repairing ED-E in the Nash residence left the player's controls off and ED-E restrained. EDEScript (SCPT 00151D03) on EDE1Ref (001732D1, placed disabled) unrestrains ED-E 2 s after its OnLoad; a cell-load OnLoad for the disabled actor let that timer run out before the repair enabled it. A disabled actor's OnLoad now comes with its enable (Game::set_loaded, script-language.md §6)"
+note = "Repair 100 by the console at 2 s; the broken ED-E (001572E6) activated at 5 s (FalloutNV.esm alone, so no DLC or preorder-pack message boxes come first), the player starts next to it (as where it is repaired); its message boxes answered with button 1 three times (EDERepair00 twice, as the owner's log of 2026-11-07 shows, then EDERepair01: run the repair)"
+areas = ["scripts", "dialogue"]
+paths = ["crates/fnv-game/src/game.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "4", NVF_PLAY_TEST_NEAR = "001572E6", NVF_PLAY_TEST_CONSOLE = "2:player.setav repair 100;2.5:close", NVF_PLAY_TEST_SCRIPT = "5:activate:0x001572E6,6.5:button:1,8:button:1,9.5:button:1", NVF_PLAY_TEST_TALK = "0:*=leave" }
+args = ["--cell", "PrimmNashResidence", "--play", "--plugins", "FalloutNV.esm", "--hour", "12", "--no-voice"]
+run_seconds = 40
+order = [[
+  { re = 'menu 1001 \(message EDERepair01\) answered \(button 1\)', label = "the repair is run" },
+  { re = 'EDE1Ref enabled', label = "the repaired ED-E is enabled" },
+  { re = 'OnLoad of .*0x00151D03 ran on Some\(0x001732D1\)', label = "its OnLoad runs with the enable, not at the cell load" },
+  { text = "player controls: all enabled", label = "the controls come back (the greeting's begin script)" },
+]]
+
+[[scenario]]
+name = "julie-tab"
+source = "overnight queue item 49 (2026-11-07): Julie Farkas (VFSJulieFarkasREF 00115C5F) had no Goodbye choice, so Tab was refused and her conversation could not be left. Her voice type lacks Allow Default Dialog, and the GOODBYE line 00177392 (quest Generic) is gated by its quest's GetIsVoiceType conditions, not its own; quest conditions now count for that rule (actor-flags.md §9)"
+note = "starts by Julie at noon; at 8 s the aid talks to her and presses Tab at her topic list (the `tab` step: Tab as the player presses it)"
+areas = ["dialogue"]
+paths = ["crates/fnv-game/src/dialogue.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NEAR = "00115C5F", NVF_PLAY_TEST_TALK = "8:VFSJulieFarkasREF=tab" }
+args = ["--play", "--world", "FreesideFortWorld", "--hour", "12", "--no-voice"]
+run_seconds = 40
+order = [[
+  { re = 'dialogue: conversation with VFSJulieFarkasREF started', label = "the conversation starts" },
+  { re = 'dialogue: choice \d+ made: "Goodbye\." \[GOODBYE\], VFSJulieFarkasREF answers with 0x00177392', label = "Tab picks her Goodbye choice" },
+  { re = 'dialogue: conversation with VFSJulieFarkasREF ended \(goodbye', label = "the conversation ends by its goodbye" },
+]]
+
+[[scenario]]
+name = "silver-rush-volunteer"
+source = "overnight queue item 40 (2026-11-07): in the Silver Rush, Jean-Baptiste's always-hit laser shot (VFSJeanBaptisteShootVolunteerPackage) at the kneeling volunteer (VFSVanGraffVolunteerREF 00124122) passed over him into the wall, so his OnHit (SCPT 0012424D) never killed him and the scene stopped. Scripted shots now aim at the target's posed body (use_weapon.rs)"
+note = "Gloria's line 0012423F, whose end result sets Jean-Baptiste shooting, said by the aid at 6 s"
+areas = ["ai", "combat", "scripts"]
+paths = ["engine/nvforever/src/use_weapon.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "6:info:0x0012423F:VFSGloriaVanGraffREF" }
+args = ["--cell", "FreesideSilverRush", "--play", "--hour", "12", "--no-voice", "--npc-packages", "all"]
+run_seconds = 40
+order = [[
+  { re = 'use weapon: VFSJeanBaptisteCuttingREF .* uses WeapLaserRifle on VFSVanGraffVolunteerREF', label = "Jean-Baptiste shoots" },
+  { re = 'OnHit of .*0x0012424D ran on Some\(0x00124122\)', label = "the shot hits the volunteer (his OnHit runs)" },
+]]

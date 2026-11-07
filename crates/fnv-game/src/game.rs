@@ -1643,6 +1643,9 @@ pub struct Game<'a> {
     depth: u32,
     /// A function asked the running script to stop as `Return` does (RemoveMe).
     stop_run: bool,
+    /// The stop asked for was a call on an empty reference: it ends the block it is in,
+    /// not the later blocks of the same event (`Exec::call`, `Game::exec`).
+    stop_block_only: bool,
     /// The (script record, opcode) pairs whose call on an empty reference was already
     /// traced: a record's script runs every frame, so the failure is traced the first
     /// time only (`Exec::call`). Not part of the saved state.
@@ -2235,6 +2238,7 @@ impl<'a> Game<'a> {
             effect_elapsed: 0.0,
             depth: 0,
             stop_run: false,
+            stop_block_only: false,
             empty_ref_traced: BTreeSet::new(),
             package_scan_due: 0.0,
             choosing_package: Vec::new(),
@@ -2574,14 +2578,23 @@ impl<'a> Game<'a> {
         let opts = self.opts();
         let data = self.data;
         let table = &data.table;
+        self.stop_block_only = false;
         let mut ex = Exec { game: self, unit, locals, ctx };
         let r = Vm::new(table, &mut ex, opts).run(stmts);
+        // A stop by a call on an empty reference ends this block only: the later blocks
+        // of the same event still run [hypothesis, fit to the data: EDEScript (SCPT
+        // 0x00151D03) calls GetInSameCell on its empty rLogBlocker every frame in its
+        // first GameMode block, in the original too (observer-checks.md check 51), and
+        // its second GameMode block's 5 s timer still unrestrains the repaired ED-E
+        // there; stopping the whole run left ED-E restrained and the controls off,
+        // overnight queue item 52; script-language.md §7.3 row 1].
+        let block_only = std::mem::take(&mut self.stop_block_only);
         self.depth -= 1;
         if self.depth == 0 {
             self.run_deferred_deaths();
         }
         match r {
-            Ok(exit) => exit == fnv_script::vm::Exit::Returned,
+            Ok(exit) => exit == fnv_script::vm::Exit::Returned && !block_only,
             Err(e) => {
                 self.emit(EventKind::ScriptError { unit: unit.key(), error: e.to_string() });
                 false
@@ -4245,6 +4258,9 @@ impl<'a> Game<'a> {
         // SayToDone follows a line said by Say as well as by SayTo [documented: GECK
         // tutorials, docs/spec-notes/level-design.md §11.2 D1].
         self.ref_event(speaker, event::SAY_TO_DONE, Some(Value::Ref(s.topic.0)), None);
+        // A Conversation line whose next speaker is Self goes on with the speaker's next
+        // line of the topic (`crate::dialogue`, `Game::continue_own_line`).
+        self.continue_own_line(&s);
     }
 
     /// `r` was enabled: when it is in a loaded cell and its script has an OnLoad block,
@@ -4292,7 +4308,7 @@ impl<'a> Game<'a> {
     /// deleted, disabled ones included [documented: GECK wiki Object scripts, owner
     /// export: object scripts run even for disabled references; observed: capture job
     /// `od_09a_disabled_ref_script`, a disabled skull's timer kept falling]. OnLoad at a cell
-    /// load runs for disabled references too (`Game::set_loaded`).
+    /// load runs for disabled references too, except actors (`Game::set_loaded`).
     fn active_refs(&self) -> Vec<FormId> {
         let mut out: BTreeSet<FormId> = BTreeSet::new();
         for c in &self.loaded_cells {
@@ -4325,8 +4341,9 @@ impl<'a> Game<'a> {
     }
 
     /// Make `cells` the loaded set; scripted references in newly loaded cells get
-    /// OnLoad, disabled ones included [hypothesis: OnLoad runs when the reference's cell
-    /// is loaded; observed for a disabled one, below].
+    /// OnLoad, disabled ones included except actors, whose OnLoad comes with their enable
+    /// [hypothesis: OnLoad runs when the reference's cell is loaded; observed for a
+    /// disabled activator, below].
     pub fn set_loaded(&mut self, cells: BTreeSet<FormId>) {
         let new: Vec<FormId> = cells.difference(&self.loaded_cells).copied().collect();
         let left: Vec<FormId> = self.loaded_cells.difference(&cells).copied().collect();
@@ -4354,11 +4371,24 @@ impl<'a> Game<'a> {
         // layer5-captures.md §8.3 d]. Their Enable queues OnLoad again
         // (`Game::note_enabled`). References disabled through an enable parent are
         // treated the same [hypothesis: the plane was disabled by its own flag].
+        //
+        // Disabled actors are the exception: they run OnLoad at their Enable only
+        // [hypothesis, fit to the data: ED-E's three references (EDE1Ref 0x001732D1,
+        // EDE2Ref, EDE3Ref) are placed initially disabled in PrimmNashResidence, and
+        // EDEScript (SCPT 0x00151D03) starts a 5 s timer in a GameMode block once its
+        // OnLoad has set OnceOnly 1, which unrestrains ED-E; GameMode runs for disabled
+        // references, so an OnLoad at the cell load would spend the timer before the
+        // repair enables ED-E, and the repaired ED-E would stay restrained with the
+        // player's controls off (overnight queue item 52). Activators keep the cell-load
+        // OnLoad: VMS15's ballasts (0x00100637, 0x0010063A), placed disabled, enable
+        // themselves from GameMode only after their OnLoad set DestroyOnce, and nothing
+        // else enables them; docs/spec-notes/script-language.md §7.2 row 5].
         let all = self.handled("onload");
         for c in new {
             let refs = self.data.scripted_by_cell.get(&c).cloned().unwrap_or_default();
             for &r in &refs {
-                if self.world.peek(r).is_none_or(|s| !s.deleted) {
+                let asleep_actor = || !self.present(r) && crate::functions::base_of(self, r).is_some_and(|b| crate::ai::is_actor_base(self.world.forms, b));
+                if self.world.peek(r).is_none_or(|s| !s.deleted) && !asleep_actor() {
                     self.ref_event(r, event::ON_LOAD, None, None);
                 }
             }
@@ -5585,6 +5615,7 @@ impl Host for Exec<'_, '_> {
                     // observer-checks.md check 51; script-language.md §4]. A script
                     // record's failure is traced once per function, not every frame.
                     self.game.stop_run = true;
+                    self.game.stop_block_only = true;
                     if let fnv_script::UnitOwner::Script { form } = self.unit.unit.owner {
                         if !self.game.empty_ref_traced.insert((form, opcode)) {
                             return Ok(Value::ZERO);
