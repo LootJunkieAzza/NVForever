@@ -414,7 +414,8 @@ pub fn hover_boxes(mut pip: ResMut<PipBoy>, mut boxes: Query<(&TabHoverBox, &mut
 
 /// Rebuild the frame (and with it every page's body) when the Pip-Boy's page or tab
 /// changed, or it came up, or a page went over to its tiles or back. A page drawn from its
-/// file (`crate::tiles::stats_menu::StatsTiles::ready`, the one decision) keeps the shell and
+/// file (`crate::tiles::stats_menu::StatsTiles::ready` or
+/// `crate::tiles::inventory_menu::InventoryTiles::ready`, each the one decision) keeps the shell and
 /// the screen menu's header, and has none of the hand-built page: its heading and tab line are
 /// the tiles', once. The device's background and scanlines are `device_screen.rs`'s either way.
 #[allow(clippy::too_many_arguments)]
@@ -428,12 +429,13 @@ pub fn draw(
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     tiles: Option<Res<crate::tiles::stats_menu::StatsTiles>>,
+    inventory: Option<Res<crate::tiles::inventory_menu::InventoryTiles>>,
     mut shown: Local<Option<(Page, usize, Frame, bool)>>,
 ) {
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
     let Some(screen) = screen else { return };
-    let tiled = tiles.is_some_and(|t| t.ready.is_some());
+    let tiled = tiles.is_some_and(|t| t.ready.is_some()) || inventory.is_some_and(|t| t.ready.is_some());
     let want = pip.shown().then(|| (pip.page, pip.tab(), pip.frame, tiled));
     if want == *shown && (want.is_none() || !roots.is_empty()) {
         return;

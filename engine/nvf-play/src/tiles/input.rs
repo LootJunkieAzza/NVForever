@@ -39,7 +39,7 @@
 //! - **The Pip-Boy's S.P.E.C.I.A.L. page** (`super::stats_menu`): takes the pointer on its own
 //!   canvas (`crate::pipboy::PipBoyScreen::pointer`), so its input is its own system,
 //!   `super::stats_menu::feed`, on a frame no other menu takes input; this one then leaves
-//!   the frame's one step to it.
+//!   the frame's one step to it. The ITEMS page likewise (`super::inventory_menu::feed`).
 //! - **The container menu** (T15c, `super::container_menu`): a row the pointer comes onto is
 //!   selected, unless the wheel holds the selection; a click on a row, a heading or its arrow,
 //!   Take All and Exit send the hand-built menu's commands (`crate::menu::MenuInput`), to
@@ -237,7 +237,7 @@ impl MenuInputs<'_, '_> {
 
     /// The menus drawn from tiles that take input this frame, back to front: the prompt,
     /// then the message box over it.
-    fn taking(&self, menus: super::vanilla::TileMenus, game: &fnv_game::Game<'_>) -> Vec<fnv_ui::TileId> {
+    fn taking(&self, menus: super::vanilla::TileMenus, game: &fnv_game::Game<'_>, inventory_tiled: bool) -> Vec<fnv_ui::TileId> {
         use super::menus::{message_tiled, quantity_tiled, MESSAGE_MENU, QUANTITY_MENU};
         let mut out = Vec::new();
         if super::tutorial_menu::tiled(menus.tutorial, game) {
@@ -253,7 +253,7 @@ impl MenuInputs<'_, '_> {
         if self.trait_hand_built.is_empty() {
             out.extend(self.traits.as_ref().and_then(|t| t.takes()));
         }
-        if quantity_tiled(menus.quantity, game, self.quantity().is_some(), self.container.menu.is_some() || self.barter.as_ref().is_some_and(|b| b.menu().is_some())) {
+        if quantity_tiled(menus.quantity, game, self.quantity().is_some(), self.container.menu.is_some() || self.barter.as_ref().is_some_and(|b| b.menu().is_some()) || inventory_tiled) {
             out.extend(game.ui_tree.menu(QUANTITY_MENU));
         }
         if message_tiled(menus.message, game) {
@@ -622,12 +622,15 @@ pub(super) fn log_report(ui: &fnv_ui::Ui, report: &fnv_ui::input::Report) {
 }
 
 /// What else says who takes the frame's input: the pause menu and its page, and the Pip-Boy's
-/// page drawn from tiles (`super::stats_menu`).
+/// pages drawn from tiles (`super::stats_menu`, `super::inventory_menu`).
 #[derive(bevy::ecs::system::SystemParam)]
 pub(crate) struct Others<'w> {
     paused: Option<Res<'w, crate::pause::Paused>>,
     page: Option<Res<'w, crate::pause::Page>>,
     stats: Option<ResMut<'w, super::stats_menu::StatsTiles>>,
+    inventory: Option<ResMut<'w, super::inventory_menu::InventoryTiles>>,
+    repair: Option<Res<'w, crate::pipboy::repair::PipRepair>>,
+    modding: Option<Res<'w, crate::pipboy::item_mod::PipItemMod>>,
     pip: Option<Res<'w, crate::pipboy::PipBoy>>,
 }
 
@@ -640,7 +643,7 @@ pub(crate) fn feed(
     mut inputs: MenuInputs,
     others: Others,
 ) {
-    let Others { paused, page, mut stats, pip } = others;
+    let Others { paused, page, mut stats, mut inventory, repair, modding, pip } = others;
     let Some(rt) = script.rt.as_mut() else { return };
     if rt.game.ui_files.is_none() {
         return;
@@ -680,7 +683,7 @@ pub(crate) fn feed(
     // The dialogue menu, under anything over the conversation (it does not take with one up).
     let dialog_menu = inputs.dialog.as_ref().and_then(|d| d.taking(&rt.game, paused.as_ref().is_some_and(|p| p.0)));
     taking.extend(dialog_menu);
-    taking.extend(inputs.taking(*menus, &rt.game));
+    taking.extend(inputs.taking(*menus, &rt.game, inventory.as_ref().is_some_and(|i| i.ready.is_some())));
     // T11: the pause menu's Mods page takes the pointer and keys for the start menu's
     // tiles (`super::mods`).
     if menus.start && paused.as_ref().zip(page.as_ref()).is_some_and(|(p, pg)| crate::pause::mods_open(p, pg)) {
@@ -721,10 +724,18 @@ pub(crate) fn feed(
     if let Some(s) = stats.as_mut().filter(|s| s.others != others) {
         s.others = others;
     }
+    if let Some(s) = inventory.as_mut().filter(|s| s.others != others) {
+        s.others = others;
+    }
     if taking.is_empty() {
         // The Pip-Boy's page has the frame's step (`super::stats_menu::feed`).
         let is_paused = paused.as_ref().is_some_and(|p| p.0);
         if stats.as_deref().zip(pip.as_deref()).is_some_and(|(s, p)| super::stats_menu::takes(s, *menus, p, &rt.game, is_paused).is_some()) {
+            return;
+        }
+        // Likewise the ITEMS page's (`super::inventory_menu::feed`).
+        let lists_closed = super::inventory_menu::lists_closed(repair.as_deref(), modding.as_deref());
+        if inventory.as_deref().zip(pip.as_deref()).is_some_and(|(s, p)| super::inventory_menu::takes(s, *menus, p, &rt.game, is_paused, lists_closed, inputs.quantity().is_some()).is_some()) {
             return;
         }
         // A highlight left from the last menu that took input goes (mouseover back to 0),
@@ -758,7 +769,7 @@ pub(crate) fn feed(
     // The tutorial menu's triggers stand for its own keys (`crate::pad::menu_buttons`), which
     // a press of them would otherwise turn a page with twice: here and through the file.
     // [design] X stands for R in the container and A in barter (the same table).
-    let pad_menu = crate::pad::MenuAt { code: tutorial.map(|_| fnv_game::game::menus::TUTORIAL).or(inputs.container.menu.map(|_| crate::script::MENU_CONTAINER)).or(inputs.barter.as_ref().and_then(|b| b.menu()).map(|_| crate::script::MENU_BARTER)).or(inputs.traits.as_ref().and_then(|t| t.takes()).map(|_| fnv_game::game::menus::TRAITS)), tab: 0 };
+    let pad_menu = crate::pad::MenuAt { code: tutorial.map(|_| fnv_game::game::menus::TUTORIAL).or(inputs.container.menu.map(|_| crate::script::MENU_CONTAINER)).or(inputs.barter.as_ref().and_then(|b| b.menu()).map(|_| crate::script::MENU_BARTER)).or(inputs.traits.as_ref().and_then(|t| t.takes()).map(|_| fnv_game::game::menus::TRAITS)).or(inventory.as_ref().and_then(|i| i.ready).map(|_| fnv_game::game::menus::INVENTORY)), tab: 0 };
     let physical = frame_keys(&mut input, &devices, &mut rt.game, pad_menu);
     // The dialogue menu's pointer decides on what was drawn (`super::dialog_menu`).
     if let (Some(_), [_], Some(d)) = (dialog_menu, taking.as_slice(), inputs.dialog.as_ref()) {

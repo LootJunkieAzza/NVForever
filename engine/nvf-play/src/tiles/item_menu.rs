@@ -320,7 +320,7 @@ impl MenuTiles {
                 return *what;
             }
             for side in SIDES {
-                if self.paths.lists[side as usize].rsplit('/').next().is_some_and(|name| ui.tile(t).name.eq_ignore_ascii_case(name)) {
+                if self.paths.lists[side as usize].rsplit('/').next().is_some_and(|name| !name.is_empty() && ui.tile(t).name.eq_ignore_ascii_case(name)) {
                     return piece.map_or(MenuTile::Other, |p| MenuTile::Bar(side, p));
                 }
             }
