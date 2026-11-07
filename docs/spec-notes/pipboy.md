@@ -657,16 +657,26 @@ a usable measured layout. A failure leaves the whole hand-built page, says why o
 again the next frame. While the Pip-Boy goes down the page stays as last written, the model being
 gone [design].
 
-**Usable** differs from §5.1.1 in one way: a scrolled list stands partly outside its window by
+**Usable** differs from §5.1.1 in two ways: a scrolled list stands partly outside its window by
 design, so the check asks of the rows whose words lie whole on the canvas and inside the list's
 window, and of at least one when there are rows; an empty tab is a page. A list that scrolls must
-have a window. Every tab's words must show whole. The rows asked of and the tabs but the one
-showing must take the pointer at their middles, by one walk of the menu however many rows there are
-[design].
+have a window. Every tab's words must show whole. The rows asked of must take the pointer at their
+middles, by one walk of the menu however many rows there are. So must the tabs but the one showing,
+but one that does not is warned of and the page stays, the keys and the device's knob turning the
+tabs [design]. A reason is warned of on the third final pass in a row that fails, and a model not
+there yet with nothing written is no failure [design].
+
+**The tabs' places**: on the first run with the file, the page fell back on `Tab(1) does not take
+the pointer` and, on tab 4, `Tab(0)` [observed: smoke 2026-11-07]: the first tab asked each time, so
+either every made tab stands at one place, the last over the others, or none is a target; the log
+could not tell which, and the tile's traits are for the capture. So code stands them along the line
+by the hand-built rule (`frame::tab_boxes`), writing `x` on the tab and on its `stb_text_box`, and
+`target`, on every final pass where the tree differs; `y` stays the file's [design; hypothesis that
+the file leaves these to code]. The log line `tiles: InventoryMenu tabs stand:` says where they are.
 
 | Model | Tile, trait | Notes |
 |---|---|---|
-| The tab (`PipBoy::tab`) | `IM_Tabline`: `_ButtonCount` 5, `_CurrentTab`; five tiles from `TabButtonTemplate` under it, each `listindex`, `string`, and `string` on its `button_text` | Template rows, unlike STATS' fixed tabs [documented]. Which of the two `string`s the template reads, how it places and marks a tab, and `_LeftLineLength` are [hypothesis]: a tab that does not show or take the pointer is a fallback. As STATS' tabs, a tab with an `stb_text_box` gives its children no place [hypothesis]. |
+| The tab (`PipBoy::tab`) | `IM_Tabline`: `_ButtonCount` 5, `_CurrentTab`, `_enabled`, `_LeftLineLength` (the hand-built gap); five tiles from `TabButtonTemplate` under it, each `listindex`, `string`, `_enabled`, `x`, `target`, with `string` on its `button_text` and `x` on its `stb_text_box` | Template rows, unlike STATS' fixed tabs [documented]. Which of the two `string`s the template reads, how it marks a tab, and what `_LeftLineLength` and `_enabled` mean are [hypothesis]: a tab that does not show is a fallback. As STATS' tabs, a tab with an `stb_text_box` gives its children no place [hypothesis]. |
 | Wg, HP, DT, Caps (`items::wg_text`, `hp_text`, `dt_text`) | `IM_Headline_Player{WG,HP,DT,Caps}Info/_Value` | The titles are the file's. `IM_Headline_PlayerDRInfo` stays hidden. |
 | Title, heading line | `IM_Headline_Title` hidden in the screen menu, `IM_Headline_h2` run on [design: the owner, 2026-10-31]; both as the file on the device | The title's words are the file's, never written. |
 | The rows (`MenuModel`'s player list) | `IM_InventoryListTemplate` rows under `IM_InventoryList`, by `item_menu`: `ListItemText/string` (`look::row_text`), `IM_Template_ItemMarker/visible` (equipped), `_y`, `height`, `_scroll_delta`, the bar's counts, `_highlight_y`, `_selected_height` | As the container's, one side. Folder rows and "Back" are rows like any other. `IM_EquipItemMarker` stays hidden until known. |

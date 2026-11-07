@@ -21714,7 +21714,8 @@ expect = [
   { re = 'tiles: InventoryMenu page from tiles: \d+ rows, "[^"]*" selected, tab \d, Wg \S+, HP \S+, DT \S+, Caps \d+, figures: .*, device$', min = 1, label = "on the device: the model's rows and figures, the device's layout" },
   { re = 'tiles: InventoryMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', count = 1, label = "on the device: structure only, no pixels: the menu goes to the painter, once for the run: it is kept and its tabs with it" },
   { re = '''tiles: InventoryMenu set out for the Pip-Boy's image: [1-9]\d* pieces, [1-9]\d* row names''', min = 1, label = "on the device: structure only, logs cannot prove pixels (the shots do): pieces of the file go to the painter, row names among them" },
-  { text = "InventoryMenu drawn by hand", count = 0, label = "on the device: the file has every name the page needs, and its rows and tabs take the pointer" },
+  { text = "InventoryMenu drawn by hand", count = 0, label = "on the device: the file has every name the page needs, and its rows take the pointer" },
+  { text = "does not take the pointer", count = 0, label = "on the device: nor is a tab warned of: each takes the pointer at its words" },
   { text = "pipboy items: ", count = 0, label = "on the device: no hand-built body" },
   { text = "tiles: InventoryMenu Hover(Player, 1) on its tiles", min = 2, label = "on the device: the pointer onto row 2 selects it, and the right click comes with it" },
   { text = "tiles: InventoryMenu Hover(Player, 0) on its tiles", count = 1, label = "on the device: the pointer onto row 1 selects it, once" },
@@ -21731,10 +21732,10 @@ order = [["pipboy: frame Device", { text = "tiles: InventoryMenu Hover(Player, 1
 [[scenario]]
 name = "tiles-items-screen"
 source = "[design] pipboy.md section 5.2.1, the owner 2026-10-31: the same page in the screen menu: no title, no background or scanlines from the shell, and the page names' header still takes clicks, with no tile under it"
-note = "the points as tiles-items [hypothesis until the first run]; a click on the header's STATS at 33.5 s goes there by the shell, the aid brings ITEMS back. Shots: compare tiles_items_screen with tiles_items_off_screen."
+note = "the points as tiles-items [hypothesis until the first run]; a click on the header's STATS at 33.5 s (172:35, on the shot of the hand-built header) goes there by the shell, the aid brings ITEMS back. Shots: compare tiles_items_screen with tiles_items_off_screen."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/tiles/item_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0008F216:1,000E3778:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "22:frame=screen,25:open,26:page=items,27:tab=0,30:point=260:202,32:click=260:150,33.5:click=stats,34.5:page=items,35:click=840:651,37:tab=0,38.5:rclick=260:202,40:close", NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_SHOTS = "28:tiles_items_screen.png,31:tiles_items_screen_row.png,36:tiles_items_screen_ammo.png" }
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0008F216:1,000E3778:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "22:frame=screen,25:open,26:page=items,27:tab=0,30:point=260:202,32:click=260:150,33.5:click=172:35,34.5:page=items,35:click=840:651,37:tab=0,38.5:rclick=260:202,40:close", NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_SHOTS = "28:tiles_items_screen.png,31:tiles_items_screen_row.png,36:tiles_items_screen_ammo.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 44
 expect = [
@@ -21742,6 +21743,7 @@ expect = [
   { re = 'tiles: InventoryMenu page from tiles: .*, screen menu$', min = 1, label = "in the screen menu: the screen menu's layout" },
   { re = 'pipboy: STATS ', min = 1, label = "in the screen menu: the header's click reached the hand-built shell over the tile page" },
   { text = "InventoryMenu drawn by hand", count = 0, label = "in the screen menu: the file has every name the page needs" },
+  { text = "does not take the pointer", count = 0, label = "in the screen menu: nor is a tab warned of" },
   { text = "tiles: InventoryMenu Select(Player, 0) on its tiles", count = 1, label = "in the screen menu: a click on the selected row" },
   { text = "tiles: InventoryMenu Tab(4) on its tiles", count = 1, label = "in the screen menu: the click on the last tab" },
   { text = "tiles: InventoryMenu Drop on its tiles", count = 1, label = "in the screen menu: the right click" },
@@ -21770,7 +21772,7 @@ source = "[design] pipboy.md section 5.2.1: without the switch the screen menu's
 note = "the same steps and times as tiles-items-screen. Shots to compare with it."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0008F216:1,000E3778:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "22:frame=screen,25:open,26:page=items,27:tab=0,30:point=260:202,32:click=260:150,33.5:click=stats,34.5:page=items,35:click=840:651,37:tab=0,38.5:rclick=260:202,40:close", NVF_PLAY_TEST_SHOTS = "28:tiles_items_off_screen.png,31:tiles_items_off_screen_row.png,36:tiles_items_off_screen_ammo.png" }
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0008F216:1,000E3778:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "22:frame=screen,25:open,26:page=items,27:tab=0,30:point=260:202,32:click=260:150,33.5:click=172:35,34.5:page=items,35:click=840:651,37:tab=0,38.5:rclick=260:202,40:close", NVF_PLAY_TEST_SHOTS = "28:tiles_items_off_screen.png,31:tiles_items_off_screen_row.png,36:tiles_items_off_screen_ammo.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 44
 expect = [

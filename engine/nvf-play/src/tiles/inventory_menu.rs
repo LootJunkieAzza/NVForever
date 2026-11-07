@@ -18,8 +18,12 @@
 //!   tile answers to. A scrolled list stands partly outside its window by design, so [`usable`]
 //!   asks of the rows whose words lie whole inside it, and of at least one.
 //! - **The tabs** are template rows here, unlike STATS' fixed tiles [documented: the file]. Their
-//!   words are [`TAB_WORDS`], NVForever's own. How the file reads them, places them and marks the
-//!   one showing is [hypothesis]: a tab that does not show or take the pointer is a fallback.
+//!   words are [`TAB_WORDS`], NVForever's own. Five tiles from one template have no place of their
+//!   own, and a first run found each tab's words under another tab or no target [observed: smoke
+//!   2026-11-07, `Tab(1) does not take the pointer`; which of the two is not known yet]. So
+//!   [`place_tabs`] stands them along the line as the hand-built tab line does and makes them
+//!   targets [design]. A tab that does not show is a fallback; one that still does not take the
+//!   pointer is warned of and the page stays: the keys and the device's knob still turn the tabs.
 //! - **Page content only**, as `super::stats_menu`: the page paints into the Pip-Boy's image, whose
 //!   background and scanlines are the shell's, so `IM_Background` stays hidden in both frames.
 //!   The screen menu has no title and its heading line runs on [design: the owner, 2026-10-31,
@@ -397,7 +401,9 @@ fn ensure_tabs(ui: &mut Ui, tabs: &mut Vec<RowTile<usize>>) -> Result<bool, Stri
 fn write_tabs(ui: &mut Ui, tabs: &[RowTile<usize>], tab: usize) {
     put(ui, TABLINE, "_ButtonCount", Value::Num(TAB_WORDS.len() as f64));
     put(ui, TABLINE, "_CurrentTab", Value::Num(tab as f64));
+    put(ui, TABLINE, "_enabled", on(true));
     for row in tabs {
+        ui.write_changed(row.tile, "_enabled", on(true));
         let word = text(TAB_WORDS[row.key]);
         ui.write_changed(row.tile, "string", word.clone());
         if let Some(t) = find_named(ui, row.tile, TAB_TEXT) {
@@ -409,22 +415,71 @@ fn write_tabs(ui: &mut Ui, tabs: &[RowTile<usize>], tab: usize) {
     }
 }
 
+fn num(ui: &Ui, t: TileId, name: &str) -> f64 {
+    ui.tile(t).get(name).map_or(0.0, Value::num)
+}
+
+/// Puts a value right that the file may work out otherwise, on every pass, writing only when it
+/// differs, as `stats_menu::write_frame_of` does for the heading's line.
+fn keep(ui: &mut Ui, t: TileId, name: &str, want: f64) {
+    if ui.tile(t).get(name).map(Value::num) != Some(want) {
+        ui.set_trait(t, name, Value::Num(want));
+    }
+}
+
+/// Stands the tabs along the line by their measured words, the hand-built tab line's rule
+/// (`frame::tab_boxes`, even lines between them), and makes them targets, the file leaving both to
+/// code [hypothesis: nothing in a tile from one template tells it from its sisters but
+/// `listindex`]. A tab and its inner rect repeat one place (module `stats_menu::write_tabs`), so
+/// both get it; with the mark `write_tabs` gives, the two are not added. `y` stays the file's.
+fn place_tabs(ui: &mut Ui, tabs: &[RowTile<usize>]) {
+    let Some(line) = ui.find_tile(TABLINE) else { return };
+    let widths: Vec<f32> = tabs.iter().map(|r| find_named(ui, r.tile, TAB_TEXT).map_or(0.0, |t| num(ui, t, "width")) as f32).collect();
+    let (boxes, gap) = crate::pipboy::frame::tab_boxes(&widths);
+    let mut left = 0.0;
+    let mut at = Some(line);
+    while let Some(t) = at {
+        left += num(ui, t, "x");
+        at = ui.tile(t).parent;
+    }
+    keep(ui, line, "_LeftLineLength", f64::from(gap));
+    for (row, b) in tabs.iter().zip(&boxes) {
+        let x = f64::from(b.min.x) - left;
+        keep(ui, row.tile, "x", x);
+        if let Some(inner) = find_named(ui, row.tile, TAB_INNER) {
+            keep(ui, inner, "x", x);
+        }
+        keep(ui, row.tile, "target", 1.0);
+    }
+}
+
+/// Where the tabs stand as the tree holds them, for the log when it changes.
+fn tab_places(ui: &Ui, tabs: &[RowTile<usize>]) -> String {
+    let n = |x: f64| Value::Num(x).text();
+    let places: Vec<String> = tabs.iter().map(|r| format!("{} at {}, {} size {} x {} target {}", r.key, n(num(ui, r.tile, "x")), n(num(ui, r.tile, "y")), n(num(ui, r.tile, "width")), n(num(ui, r.tile, "height")), n(num(ui, r.tile, "target")))).collect();
+    places.join("; ")
+}
+
 /// What [`usable`] went through, for the frame's counts.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Checked {
     pub rows: usize,
     pub rows_in_clip: usize,
     pub hit_tests: usize,
     pub candidates: usize,
+    /// The first tab that did not take the pointer, and what did: warned of, not a fallback.
+    pub tab_missed: Option<String>,
 }
 
 /// Whether what is about to be painted, `pieces`, can be used, on every final pass, so what a
 /// script did since is seen: every tab's words among the pieces, whole on the canvas and inside
 /// their clips; the rows whose words lie whole on the canvas and inside the list's window, at
-/// least one when there are rows, and these and the tabs but the one showing taking the pointer
-/// at their middles, whatever else came to lie over them. A row wholly or partly outside the
-/// window is passed over: a scrolled list has those by design [design: plan §5]. A list that
-/// scrolls must have a window. The hit test is one walk of the menu however many rows there are.
+/// least one when there are rows, and these taking the pointer at their middles, whatever else
+/// came to lie over them. A row wholly or partly outside the window is passed over: a scrolled
+/// list has those by design [design: plan §5]. A list that scrolls must have a window. The tabs but
+/// the one showing are asked the same, and one that does not take the pointer is told in
+/// [`Checked::tab_missed`]: the page does without its click, the keys and the knob turning the tabs
+/// [design]. The hit test is one walk of the menu however many rows there are.
 pub fn usable(ui: &Ui, menu: TileId, view: &MenuTiles, tabs: &[RowTile<usize>], tab: usize, pieces: &[Piece]) -> Result<Checked, String> {
     let is_text = |x: &&Piece| matches!(x.look, Look::Text { .. });
     let texts: HashMap<TileId, &Piece> = pieces.iter().filter(is_text).map(|x| (x.tile, x)).collect();
@@ -454,13 +509,19 @@ pub fn usable(ui: &Ui, menu: TileId, view: &MenuTiles, tabs: &[RowTile<usize>], 
         }
     }
     let found = fnv_ui::input::hit_candidates(ui, menu, &fnv_ui::input::no_measure);
+    let mut tab_missed = None;
     for &(what, at) in &wanted {
         let hit = fnv_ui::input::top_hit(ui, &found, at);
         if hit.and_then(|h| items_tile(ui, view, tabs, h.tile)) != Some(what) {
-            return Err(format!("{what:?} does not take the pointer"));
+            let there = hit.map_or_else(|| "nothing".to_string(), |h| ui.path_of(h.tile));
+            let line = format!("{what:?} does not take the pointer at ({:.0}, {:.0}): {there} does", at.0, at.1);
+            match what {
+                ItemsTile::Tab(_) => tab_missed = tab_missed.or(Some(line)),
+                _ => return Err(line),
+            }
         }
     }
-    Ok(Checked { rows: rows.len(), rows_in_clip, hit_tests: wanted.len(), candidates: found.len() })
+    Ok(Checked { rows: rows.len(), rows_in_clip, hit_tests: wanted.len(), candidates: found.len(), tab_missed })
 }
 
 /// What a tile of the page stands for, by the tile or a parent.
@@ -508,6 +569,10 @@ pub(crate) struct Written {
     was_open: bool,
     /// What the last final pass went through.
     counted: Checked,
+    /// The tabs' places last logged.
+    places_told: Option<String>,
+    /// Final passes in a row that failed: a state that lasts a frame or two is no fallback to warn of.
+    failing: u32,
     fallbacks: HashSet<String>,
 }
 
@@ -583,6 +648,7 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut Inve
         write_tabs(ui, &w.tabs, tab);
         let texts = menus::texts(ui, menu);
         tiles.view.settle_shown(ui, &mut |ui: &mut Ui, sizes: &mut SizesWritten| fonts.write_sizes(ui, &texts, sizes));
+        place_tabs(ui, &w.tabs);
         let title = ui.find_tile(TITLE).ok_or("the title is gone")?;
         let line = ui.find_tile(LINE).ok_or("the heading's line is gone")?;
         stats_menu::write_frame_of(ui, title, line, device, &mut w.flat);
@@ -596,7 +662,17 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut Inve
         ui.update();
         // Every final pass, so readiness is about the tree that is about to be painted.
         let pieces = fonts.set_out(ui, menu);
+        let places = tab_places(ui, &w.tabs);
+        if w.places_told.as_ref() != Some(&places) {
+            info!("tiles: {INVENTORY_MENU} tabs stand: {places}");
+            w.places_told = Some(places);
+        }
         w.counted = usable(ui, menu, &tiles.view, &w.tabs, tab, &pieces)?;
+        if let Some(missed) = w.counted.tab_missed.clone() {
+            if w.fallbacks.insert(missed.clone()) {
+                warn!("{INVENTORY_MENU}: {missed}");
+            }
+        }
         tiles.pieces = pieces;
         if std::mem::take(&mut w.tell) {
             info!("{}", describe(ui, w));
@@ -738,6 +814,11 @@ fn pass(p: &mut ItemsPage<'_, '_>, late: bool) -> Option<Result<TileId, String>>
     let hold = p.sources.hold.as_ref();
     let hotkeys = p.sources.hotkeys.as_ref();
     let stale = p.tiles.written.shown.as_ref().is_none_or(|s| s.tab != tab || s.device != device);
+    // No model and nothing written (the Pip-Boy going down from the hand-built page, a model that
+    // comes later): nothing to decide yet, and no failure.
+    if model.is_none() && p.tiles.written.shown.is_none() {
+        return None;
+    }
     let due = stale || p.active.as_ref().is_some_and(|a| a.is_changed()) || hold.is_some_and(|h| h.is_changed()) || hotkeys.is_some_and(|h| h.is_changed());
     // With the model gone (the Pip-Boy going down) the page stays as it was last written.
     let new = model.filter(|_| due).and_then(|m| {
@@ -785,7 +866,7 @@ fn tell_counts(p: &ItemsPage<'_, '_>, before: Option<((u64, u64), std::time::Ins
     let (writes_now, changes_now) = rt.game.ui_tree.trait_write_counts();
     let (writes, changed) = (writes_now - writes, changes_now - changes);
     if late {
-        let c = p.tiles.written.counted;
+        let c = &p.tiles.written.counted;
         info!(
             "tile counts: {INVENTORY_MENU} pass=late writes={writes} changed={changed} micros={micros} rows={} rows_in_clip={} hit_tests={} candidates={} pieces={}",
             c.rows,
@@ -818,15 +899,24 @@ pub(crate) fn settle(mut p: ItemsPage) {
     }
     let before = counts_before(&p);
     let ready = match pass(&mut p, true) {
-        Some(Ok(menu)) => Some(menu),
+        Some(Ok(menu)) => {
+            p.tiles.written.failing = 0;
+            Some(menu)
+        }
         Some(Err(reason)) => {
+            // The hand-built page has this frame in any case; the third frame in a row is no
+            // layout still settling.
+            p.tiles.written.failing += 1;
             let line = format!("{INVENTORY_MENU} drawn by hand: {reason}");
-            if p.tiles.written.fallbacks.insert(line.clone()) {
+            if p.tiles.written.failing >= FAILING_PASSES && p.tiles.written.fallbacks.insert(line.clone()) {
                 warn!("{line}");
             }
             None
         }
-        None => None,
+        None => {
+            p.tiles.written.failing = 0;
+            None
+        }
     };
     tell_counts(&p, before, true, ready.is_some());
     if ready.is_none() {
@@ -839,6 +929,9 @@ pub(crate) fn settle(mut p: ItemsPage) {
         p.tiles.ready = ready;
     }
 }
+
+/// Final passes in a row that fail before the reason is warned of.
+const FAILING_PASSES: u32 = 3;
 
 /// What [`feed`] keeps between frames.
 #[derive(Default)]
@@ -1330,8 +1423,75 @@ mod tests {
         let mut ui = tree_changed(|x| x.replace(r#"<image name="IM_Background"/>"#, r#"<image name="IM_Background"/><hotrect name="Cover"><target>&true;</target><depth>500</depth><width>1000</width><height>800</height></hotrect>"#));
         let mut t = InventoryTiles::default();
         let reason = run(&mut ui, Some(shown(2, 0)), &mut t).unwrap_err();
-        assert!(reason.ends_with("does not take the pointer"), "{reason}");
+        assert!(reason.starts_with("Row(0) does not take the pointer at ("), "{reason}");
         assert!(t.pieces.is_empty(), "nothing goes to the painter");
+    }
+
+    /// The tabs' middles as painted take the pointer, each its own.
+    #[track_caller]
+    fn assert_each_tab_takes_the_pointer(ui: &Ui, t: &InventoryTiles) {
+        let menu = ui.menu(INVENTORY_MENU).unwrap();
+        for row in &t.written.tabs {
+            let words = find_named(ui, row.tile, TAB_TEXT).unwrap();
+            let hit = fnv_ui::input::hit(ui, &[menu], middle(t, words), &fnv_ui::input::no_measure).unwrap();
+            assert_eq!(items_tile(ui, &t.view, &t.written.tabs, hit.tile), Some(ItemsTile::Tab(row.key)));
+        }
+    }
+
+    #[test]
+    fn tabs_the_file_stands_at_one_place_are_set_along_the_line() {
+        // A template that tells its tiles nothing apart: each tab's words under the last tab.
+        let mut ui = tree_changed(|x| x.replace("<_pitch>120</_pitch>", "<_pitch>0</_pitch>"));
+        let mut t = InventoryTiles::default();
+        run(&mut ui, Some(shown(2, 0)), &mut t).unwrap();
+        assert_eq!(t.written.counted.tab_missed, None);
+        assert_each_tab_takes_the_pointer(&ui, &t);
+        // In order along the line, the hand-built rule: 75 between boxes of the words and 35.
+        let xs: Vec<f64> = t.written.tabs.iter().map(|r| num(&ui, r.tile, "x")).collect();
+        assert_eq!(xs, [125.0, 305.0, 465.0, 605.0, 755.0]);
+        assert_eq!(at(&ui, TABLINE, "_LeftLineLength"), 75.0);
+        // Worked out again by the file, put right on the next pass.
+        let first = t.written.tabs[0].tile;
+        ui.set_trait(first, "x", Value::Num(0.0));
+        run(&mut ui, None, &mut t).unwrap();
+        assert_eq!(num(&ui, first, "x"), 125.0);
+    }
+
+    #[test]
+    fn the_line_s_own_place_is_taken_off_and_an_inner_rect_repeats_the_tab_s() {
+        let mut ui = tree_changed(|x| {
+            x.replace(r#"<rect name="IM_Tabline"><y>560</y></rect>"#, r#"<rect name="IM_Tabline"><x>50</x><y>560</y></rect>"#)
+                .replace(r#"<text name="button_text"></text>
+            </hotrect></template></menu>"#, r#"<rect name="stb_text_box"><text name="button_text"></text></rect>
+            </hotrect></template></menu>"#)
+        });
+        let mut t = InventoryTiles::default();
+        run(&mut ui, Some(shown(2, 0)), &mut t).unwrap();
+        let tab = t.written.tabs[1].tile;
+        let inner = find_named(&ui, tab, TAB_INNER).unwrap();
+        assert_eq!((num(&ui, tab, "x"), num(&ui, inner, "x")), (255.0, 255.0));
+        assert_eq!(num(&ui, tab, fnv_ui::input::NO_ORIGIN), 1.0);
+        assert_each_tab_takes_the_pointer(&ui, &t);
+    }
+
+    #[test]
+    fn a_template_that_leaves_target_to_code_gets_it() {
+        let mut ui = tree_changed(|x| x.replace(r#"<hotrect name="TabButton"><target>&true;</target>"#, r#"<hotrect name="TabButton">"#));
+        let mut t = InventoryTiles::default();
+        run(&mut ui, Some(shown(2, 0)), &mut t).unwrap();
+        assert_eq!(t.written.counted.tab_missed, None);
+        assert_each_tab_takes_the_pointer(&ui, &t);
+    }
+
+    #[test]
+    fn a_tab_something_lies_over_is_told_and_the_page_stays() {
+        let mut ui = tree_changed(|x| x.replace(r#"<rect name="IM_Tabline">"#, r#"<hotrect name="Cover"><target>&true;</target><depth>500</depth><y>550</y><width>1000</width><height>60</height></hotrect><rect name="IM_Tabline">"#));
+        let mut t = InventoryTiles::default();
+        run(&mut ui, Some(shown(2, 0)), &mut t).unwrap();
+        let missed = t.written.counted.tab_missed.clone().unwrap();
+        assert!(missed.starts_with("Tab(1) does not take the pointer at ("), "{missed}");
+        assert!(missed.contains("Cover"), "{missed}");
+        assert!(!t.pieces.is_empty(), "the page goes to the painter");
     }
 
     #[test]
