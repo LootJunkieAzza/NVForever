@@ -762,6 +762,10 @@ pub struct RelayedHit {
     pub limb: Option<fnv_game::combat::LimbHit>,
 }
 
+/// [`RelayedHit::location`] of a shot on a placed object that is not an actor (a hit
+/// location is -1 or a body part's index): its hit blocks run on the host.
+pub const OBJECT_LOCATION: i32 = -1000;
+
 /// A hit from another game (a co-op guest's, [`RelayedHit`]) to apply here as `by`'s.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct RemoteHit {
@@ -3243,9 +3247,22 @@ fn remote_hits(
     mut script: Option<ResMut<ScriptState>>,
     mut feedback: ResMut<HitFeedback>,
     mut messages: MessageWriter<ActorHit>,
-    combat: Option<Res<Combat>>,
+    mut combat: Option<ResMut<Combat>>,
 ) {
     for RemoteHit { by, hit } in remote.read().copied() {
+        // A shot on a placed object (not an actor): its hit blocks run, as `by`'s, and it
+        // takes the damage, as a shot of this game's own does (the projectile branch).
+        if hit.location == OBJECT_LOCATION && !sim.is_actor(hit.target.0) {
+            let info = HitInfo { attacker: Some(by), weapon: hit.weapon, location: -1, critical: false, limb: None };
+            let r = hit.target;
+            let ran = script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, &mut sim, |rt| rt.game.hit_object(r, info)));
+            if let Some(c) = combat.as_deref_mut() {
+                damage_destructible(c, &mut sim, script.as_deref_mut(), r, hit.dealt, None);
+            }
+            stats.object_scripts += ran as u32;
+            info!("combat: {by}'s shot (another game's) hits {}{}", r, if ran { ", its hit blocks ran" } else { "" });
+            continue;
+        }
         let info = HitInfo { attacker: Some(by), weapon: hit.weapon, location: hit.location, critical: hit.critical, limb: hit.limb };
         let mut dealt = hit.dealt;
         // A hit on this player in the host's world, dealt against an actor that wears
@@ -4585,6 +4602,21 @@ fn fly(
             debug!("combat: shot lands at ({:.0}, {:.0}, {:.0}) on {}", p.point[0], p.point[1], p.point[2], p.object.map_or("no object".to_string(), |o| format!("{:08X}", o as u32)));
             if let Some(obj) = p.object {
                 let r = FormId(obj as u32);
+                // A co-op guest's shot on a placed object goes to the host, whose world
+                // runs the object's hit blocks and takes its damage as this player's
+                // ([`remote_hits`]; Sunny's bottles count for the host's quest, queue
+                // 2026-11-07 item 22); what that changes comes back as the host's world
+                // does. The object is still knocked here, where it is seen.
+                if shooter == FormId::PLAYER_REF && !r.is_dynamic() {
+                    if let Some(out) = stats.relay.as_mut() {
+                        let (ap, _) = hit_perks(script.as_deref_mut(), &mut sim, shooter, id, None);
+                        let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target::default(), &ap, &NoPerks, roll);
+                        out.push(RelayedHit { target: r, dealt: d.dealt, weapon: Some(id), location: OBJECT_LOCATION, critical: false, limb: None });
+                        let impulse = vec::scale(p.dir, p.force * OBJECT_PUSH * phys.world.params.units_per_metre);
+                        phys.world.push_ref(obj as u32, p.point, impulse, OBJECT_PUSH_MAX_SPEED);
+                        continue;
+                    }
+                }
                 // The object's OnHit and OnHitWith blocks, before any damage
                 // [documented: GECK wiki Event Handling] (combat-rules.md §14).
                 let info = HitInfo { attacker: Some(shooter), weapon: Some(id), location: -1, critical: false, limb: None };

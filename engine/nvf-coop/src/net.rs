@@ -58,7 +58,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 pub const MAGIC: [u8; 4] = *b"NVCO";
-pub const VERSION: u8 = 17;
+pub const VERSION: u8 = 18;
 pub const MAX_GUESTS: usize = 3;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -108,6 +108,18 @@ pub struct NpcState {
     /// The furniture reference it is using or walking up to (a chair, a bed, a cross), 0
     /// for none; [`npc_flag::SEATED`] once it is on it.
     pub furniture: u32,
+    /// Its base form as the host's world has it (an NPC, a creature or a leveled list of
+    /// them): what a guest makes it of when the host's game created it (a dynamic
+    /// reference the guest's world does not have).
+    pub base: u32,
+    /// The level its leveled lists are read at in the host's game, and whether every
+    /// entry at or under it is eligible (`fnv_sim::zones::LevelAt`); level 0: none told.
+    pub level: u16,
+    pub all_levels: bool,
+    /// How many times its leveled picks were rolled again (a resurrection: the seed,
+    /// `fnv_sim::leveled::roll_seed`), up to 127. With [`Self::level`], so a guest draws
+    /// the leveled pick the host draws.
+    pub rolls: u8,
 }
 
 impl NpcState {
@@ -130,8 +142,8 @@ pub mod npc_flag {
     pub const SEATED: u8 = 64;
 }
 
-/// NPC states in one packet (34 bytes each: under 1200 bytes in all).
-pub const NPCS_PER_PACKET: usize = 35;
+/// NPC states in one packet (41 bytes each: under 1200 bytes in all).
+pub const NPCS_PER_PACKET: usize = 29;
 /// How often the host sends its NPCs.
 pub const NPC_HZ: u32 = 10;
 /// The host sends its active quest this often, and at once when it changes.
@@ -234,12 +246,15 @@ pub struct PlayerState {
     pub worn_len: u8,
     /// The Pip-Boy: 0 down, 1 the glance, 2 the full Pip-Boy (`nvf_play::pipboy::glance::Check`).
     pub pipboy: u8,
+    /// The furniture reference holding the player (a chair, a couch, a bed), 0 for none:
+    /// the others draw the player getting on, sitting or lying there, and getting off.
+    pub furniture: u32,
 }
 
 impl PlayerState {
     /// A state with nothing in hand and nothing worn.
     pub fn at(place: Place, feet: [f32; 3], yaw: f32) -> Self {
-        Self { place, feet, yaw, pitch: 0.0, flags: 0, weapon: 0, attacks: 0, attack_kind: 0, reloads: 0, worn: [0; MAX_WORN], worn_len: 0, pipboy: 0 }
+        Self { place, feet, yaw, pitch: 0.0, flags: 0, weapon: 0, attacks: 0, attack_kind: 0, reloads: 0, worn: [0; MAX_WORN], worn_len: 0, pipboy: 0, furniture: 0 }
     }
 
     pub fn has(&self, f: u8) -> bool {
@@ -1751,6 +1766,7 @@ fn encode(msg: &Msg) -> Vec<u8> {
                 b.extend_from_slice(&w.to_le_bytes());
             }
             b.push(state.pipboy);
+            b.extend_from_slice(&state.furniture.to_le_bytes());
         }
         Msg::Bye { id } => b.extend_from_slice(&[5, *id]),
         Msg::Npcs { seq, npcs } => {
@@ -1766,6 +1782,9 @@ fn encode(msg: &Msg) -> Vec<u8> {
                 b.extend_from_slice(&n.weapon.to_le_bytes());
                 b.push(n.attacks);
                 b.extend_from_slice(&n.furniture.to_le_bytes());
+                b.extend_from_slice(&n.base.to_le_bytes());
+                b.extend_from_slice(&n.level.to_le_bytes());
+                b.push(n.rolls.min(127) | if n.all_levels { 128 } else { 0 });
             }
         }
         Msg::Hit { id, hit } => {
@@ -1924,6 +1943,7 @@ fn decode(b: &[u8]) -> Option<Msg> {
             }
             state.worn_len = n as u8;
             state.pipboy = r.u8()?;
+            state.furniture = r.u32()?;
             Msg::State { id, seq, state }
         }
         5 => Msg::Bye { id: r.u8()? },
@@ -1951,7 +1971,8 @@ fn decode(b: &[u8]) -> Option<Msg> {
                 if !feet.iter().chain([&heading, &pitch]).all(|v| v.is_finite()) {
                     return None;
                 }
-                npcs.push(NpcState { reference, feet, heading, pitch, flags: r.u8()?, weapon: r.u32()?, attacks: r.u8()?, furniture: r.u32()? });
+                let (flags, weapon, attacks, furniture, base, level, look) = (r.u8()?, r.u32()?, r.u8()?, r.u32()?, r.u32()?, r.u16()?, r.u8()?);
+                npcs.push(NpcState { reference, feet, heading, pitch, flags, weapon, attacks, furniture, base, level, all_levels: look & 128 != 0, rolls: look & 127 });
             }
             Msg::Npcs { seq, npcs }
         }
@@ -2134,8 +2155,8 @@ mod tests {
             Msg::Npcs {
                 seq: 12,
                 npcs: vec![
-                    NpcState { reference: 0x0010_4C3A, feet: [1.0, -2.5, 300.0], heading: 1.5, pitch: -0.2, flags: npc_flag::DRAWN | npc_flag::AIMING, weapon: 0x0E3778, attacks: 255, furniture: 0 },
-                    NpcState { reference: 7, feet: [0.0; 3], heading: 0.0, pitch: 0.0, flags: npc_flag::DEAD | npc_flag::SEATED, weapon: 0, attacks: 0, furniture: 0x0010_C055 },
+                    NpcState { reference: 0x0010_4C3A, feet: [1.0, -2.5, 300.0], heading: 1.5, pitch: -0.2, flags: npc_flag::DRAWN | npc_flag::AIMING, weapon: 0x0E3778, attacks: 255, furniture: 0, base: 0x0010_4C39, level: 12, all_levels: true, rolls: 3 },
+                    NpcState { reference: 7, feet: [0.0; 3], heading: 0.0, pitch: 0.0, flags: npc_flag::DEAD | npc_flag::SEATED, weapon: 0, attacks: 0, furniture: 0x0010_C055, base: 0, level: 0, all_levels: false, rolls: 0 },
                 ],
             },
             Msg::State { id: 1, seq: 7, state: state(-12.5) },
@@ -2153,6 +2174,7 @@ mod tests {
                     worn: [1, 2, 3, 0, 0, 0, 0, 0, 0, 0],
                     worn_len: 3,
                     pipboy: 2,
+                    furniture: 0x0011_C601,
                     ..state(4.0)
                 },
             },
@@ -2526,7 +2548,7 @@ mod tests {
         let step = Duration::from_millis(10);
         run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))));
         // More than one packet's worth.
-        let npcs: Vec<NpcState> = (0..NPCS_PER_PACKET as u32 + 5).map(|i| NpcState { reference: 0x100 + i, feet: [i as f32, 0.0, 0.0], heading: 0.0, pitch: 0.0, flags: 0, weapon: 0, attacks: 0, furniture: 0 }).collect();
+        let npcs: Vec<NpcState> = (0..NPCS_PER_PACKET as u32 + 5).map(|i| NpcState { reference: 0x100 + i, feet: [i as f32, 0.0, 0.0], heading: 0.0, pitch: 0.0, flags: 0, weapon: 0, attacks: 0, furniture: 0, base: 0, level: 0, all_levels: false, rolls: 0 }).collect();
         host.set_npcs(npcs.clone());
         let seen = run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].iter().filter(|e| matches!(e, Event::Npcs(_))).count() >= 2);
         let mut heard: Vec<NpcState> = Vec::new();
