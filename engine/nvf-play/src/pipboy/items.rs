@@ -465,7 +465,7 @@ pub fn draw(
     // screenshots; hypothesis: the figure is the one combat uses].
     let hp = forms.as_mut().and_then(|f| super::stats::read::player_hp(f, sim, script.as_deref_mut()));
     let dt = combat.as_deref().map(|c| crate::combat::target_armor(c, script.as_deref_mut(), sim, FormId::PLAYER_REF).0);
-    let (hp, dt) = (hp_text(hp), dt.map_or_else(|| "--".to_string(), |v| format!("{v:.1}")));
+    let (hp, dt) = (hp_text(hp), dt_text(dt));
     let offer = super::repair::current(&active, sim, script.as_deref());
     let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref());
     // The rows' heights and the first row drawn: the selection is always drawn, rows of
@@ -476,12 +476,8 @@ pub fn draw(
         info!("pipboy items: heading HP {hp}, DT {dt}; rows {first}.. of {} drawn", heights.len());
     }
     commands.entity(body).despawn_children().with_children(|p| {
-        let wg = match &m.encumbrance {
-            Ok(e) => format!("{:.0}/{:.0}", e.weight, e.capacity),
-            Err(_) => "--".into(),
-        };
         let cards = [
-            Card::new(WG.0, WG.1, "Wg", wg),
+            Card::new(WG.0, WG.1, "Wg", wg_text(m)),
             Card::new(HP.0, HP.1, "HP", hp),
             Card::new(DT.0, DT.1, "DT", dt),
             Card::new(CAPS.0, CAPS.1, "Caps", caps.to_string()),
@@ -547,8 +543,21 @@ fn item_info(p: &mut ChildSpawnerCommands, c: &mut Ctx, icon: Option<&str>, i: &
 }
 
 /// The HP card's figure: health out of its whole, "--" unread.
-fn hp_text(hp: Option<(f64, f64)>) -> String {
+pub(crate) fn hp_text(hp: Option<(f64, f64)>) -> String {
     hp.map_or_else(|| "--".to_string(), |(v, max)| format!("{}/{}", super::stats::model::whole(v), super::stats::model::whole(max)))
+}
+
+/// The DT card's figure: one decimal, "--" unread.
+pub(crate) fn dt_text(dt: Option<f32>) -> String {
+    dt.map_or_else(|| "--".to_string(), |v| format!("{v:.1}"))
+}
+
+/// The Wg card's figure: carried weight out of what the player can carry, "--" unread.
+pub(crate) fn wg_text(m: &MenuModel) -> String {
+    match &m.encumbrance {
+        Ok(e) => format!("{:.0}/{:.0}", e.weight, e.capacity),
+        Err(_) => "--".into(),
+    }
 }
 
 /// Each row's height as drawn: a name broken over more lines makes its row taller.

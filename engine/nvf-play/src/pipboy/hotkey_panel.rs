@@ -188,16 +188,20 @@ pub fn draw(p: &mut ChildSpawnerCommands, c: &mut Ctx, hotkeys: &Hotkeys, hold: 
         let h = c.line_height(TEXT_FONT);
         c.text(p, TEXT_FONT, &(slot + 1).to_string(), b.x + BOX, b.y + BOX - h + INSET, Align::Left, bright);
     }
-    let said = hold.said.clone().or_else(|| {
+    if let Some(s) = panel_line(hotkeys, hold, sim) {
+        c.text(p, TEXT_FONT, &s, o.x + TEXT_AT.x, o.y + TEXT_AT.y, Align::Centre, bright);
+    }
+}
+
+/// The line under the panel: what the last click did, else what the held slot holds.
+pub fn panel_line(hotkeys: &Hotkeys, hold: &HotkeyHold, sim: &SimState) -> Option<String> {
+    hold.said.clone().or_else(|| {
         let slot = hold.slot?;
         if slot == AMMO_SWAP {
             return Some("Ammo Swap".into());
         }
         Some(hotkeys.0[slot].map_or_else(|| "Empty".into(), |s| sim.name(FormId(s.item)).unwrap_or("?").to_string()))
-    });
-    if let Some(s) = said {
-        c.text(p, TEXT_FONT, &s, o.x + TEXT_AT.x, o.y + TEXT_AT.y, Align::Centre, bright);
-    }
+    })
 }
 
 #[cfg(test)]
