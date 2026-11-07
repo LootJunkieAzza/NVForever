@@ -63,7 +63,7 @@ use std::collections::{HashMap, HashSet};
 /// The menu's name [documented: stats_menu.xml].
 pub const STATS_MENU: &str = "StatsMenu";
 /// The tabs drawn from tiles; a tab not here stays hand-built with the switch on.
-pub const TILED_TABS: [usize; 1] = [1];
+pub const TILED_TABS: [usize; 2] = [1, 2];
 /// Test aid: a tile or template of the file to take as missing, so a smoke scenario sees the
 /// fallback of a cut-down file without a changed game file: `<name>`, or `<name>@<seconds>` to
 /// stop at that time, for the page's recovery.
@@ -2057,7 +2057,7 @@ mod tests {
         pip
     }
 
-    /// Input acts on the page painted, the tab up, with nothing over it; only tab 1 is tiled,
+    /// Input acts on the page painted, the tab up, with nothing over it; only the tabs moved are tiled,
     /// the switch off nothing takes it; a menu over the page has the frame.
     #[test]
     fn the_page_takes_input_only_while_painted_up_and_uncovered() {
@@ -2075,7 +2075,8 @@ mod tests {
         t.shown = Some(menu);
         assert_eq!(takes(&t, on, &pip, game, false), Some(menu));
         assert_eq!(takes(&t, TileMenus::default(), &pip, game, false), None, "the switch off");
-        assert_eq!(takes(&t, on, &stats_page_up(2), game, false), None, "the other tabs stay hand-built");
+        assert_eq!(takes(&t, on, &stats_page_up(2), game, false), Some(menu), "Skills");
+        assert_eq!(takes(&t, on, &stats_page_up(0), game, false), None, "the other tabs stay hand-built");
         assert_eq!(takes(&t, on, &pip, game, true), None, "paused");
         assert_eq!(takes(&t, on, &PipBoy::default(), game, false), None, "down");
         game.menu = Some(codes::TUTORIAL);
@@ -2097,11 +2098,13 @@ mod tests {
     }
 
     #[test]
-    fn only_tab_one_of_stats_is_eligible() {
+    fn only_the_tabs_moved_are_eligible() {
         let on = TileMenus { stats: true, ..Default::default() };
-        assert!(eligible(on, &stats_page_up(PAGE)));
-        assert!(!eligible(TileMenus::default(), &stats_page_up(PAGE)));
-        for tab in [0, 2, 3, 4] {
+        for tab in TILED_TABS {
+            assert!(eligible(on, &stats_page_up(tab)));
+            assert!(!eligible(TileMenus::default(), &stats_page_up(tab)), "the switch off");
+        }
+        for tab in (0..5).filter(|t| !TILED_TABS.contains(t)) {
             assert!(!eligible(on, &stats_page_up(tab)));
         }
         let mut items = stats_page_up(PAGE);

@@ -21611,3 +21611,97 @@ run_seconds = 18
 expect = ["FSR 3.1.4: NativeAa", { re = 'blended cut-outs: drawn alpha-tested for FSR \((\d+) materials changed\)', range = [1, 100000], label = "the corn rows' material cut when FSR comes on" }, { re = 'blended cut-outs: drawn blended \((\d+) materials changed\)', range = [1, 100000], label = "and blended again when it goes off" }]
 order = [["blended cut-outs: drawn alpha-tested", "blended cut-outs: drawn blended"]]
 forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error", "Validation Error"]
+
+[[scenario]]
+name = "tiles-stats-skills"
+source = "[design] pipboy.md section 5.1.2, issue 1513: with [UI] TileMenus=StatsMenu the Skills tab is drawn from stats_menu.xml into the Pip-Boy's image: thirteen rows from the shared template, the model's first row over the list's own scroll bar, its rows and bar through their tiles"
+note = "the points are canvas units on the page as run [hypothesis until the first run: rows 52 high from the list top as S.P.E.C.I.A.L.'s, the list's down arrow at the hand-built place, the tab by its text]; S selects at 29 s, the pointer on row 2 at 30.5 s, a click on row 4 at 32 s, the list's down arrow at 34 s, the wheel at 35 s, the Perks tab at 36 s, back by the aid. The rows are in name order, as the hand-built list's [observed: pipboy.md section 5.1]. Shots: compare tiles_skills_device with tiles_skills_off_device at the same time."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_KEYS = "29:s,35:wheel-down", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=2,30.5:point=200:240,32:click=200:344,33.5:point=off,34:click=50:570,36:click=640:651,38:tab=2,39:close", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu", NVF_PLAY_TEST_SHOTS = "28:tiles_skills_device.png,31:tiles_skills_device_row.png,35.5:tiles_skills_device_scrolled.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 44
+expect = [
+  { re = 'tiles: StatsMenu Skills from tiles: 13 rows, "[^"]+" selected, value \d+, boxed at -1, list height [1-9]\d*(\.\d+)?, row height [1-9]', label = "thirteen rows measured, no box at opening" },
+  { re = 'tiles: StatsMenu Skills from tiles: 13 rows, "[^"]+" selected, value \d+, boxed at [0-9]', label = "a key or the pointer boxes the row" },
+  { re = 'tiles: StatsMenu Skills from tiles: .*, device$', min = 1, label = "the device's layout" },
+  { re = 'tiles: StatsMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', count = 1, label = "structure only, no pixels: the menu goes to the painter, once for the run" },
+  { re = '''tiles: StatsMenu set out for the Pip-Boy's image: [1-9]\d* pieces, [1-9]\d* row names''', min = 1, label = "structure only, logs cannot prove pixels (the shots do): pieces of the file go to the painter, rows' names among them" },
+  { text = "StatsMenu drawn by hand", count = 0, label = "the file has every name the tab needs, and thirteen rows do not send it back" },
+  { re = 'tiles: pointer over StatsMenu/\S*stats_skills_container/Explosives \(id -1\)', min = 1, label = "a tile hit on row 2, on the canvas: its tile has the row's name and id -1" },
+  { text = "tiles: StatsMenu Row(4) on its tiles", count = 1, label = "the click on row 4 acted once, through its tile" },
+  { text = "tiles: StatsMenu ListBar(Down) on its tiles", count = 1, label = "the list's own arrow, through its tile" },
+  { re = 'tiles: StatsMenu list scrolled to 1 of [1-9]', min = 1, label = "the arrow's step is the model's value, read back from the tree" },
+  { re = 'tiles: StatsMenu list scrolled to 2 of [1-9]', min = 1, label = "the wheel's step too" },
+  { text = "tiles: StatsMenu Tab(3) on its tiles", count = 1, label = "the click on the Perks tab, through its tile" },
+  { re = 'pipboy stats: Skills: Energy Weapons \d+\S* ?\S* ?selected', label = "a key selects, the page's own keys and log line" },
+  { re = 'pipboy stats: Skills: Explosives \d+\S* ?\S* ?selected', label = "the pointer moved onto row 2 selects it" },
+  { re = 'pipboy stats: Skills: Lockpick \d+\S* ?\S* ?selected', label = "a click on row 4 selects it" },
+  { text = "pipboy: STATS Perks", min = 1, label = "a click on the tab line goes to the next tab" },
+]
+order = [[{ text = "tiles: StatsMenu ListBar(Down) on its tiles" }, { re = 'list scrolled to 1 of [1-9]' }, { re = 'list scrolled to 2 of [1-9]' }, "pipboy: STATS Perks", "pipboy: STATS Skills", { re = 'tiles: StatsMenu Skills from tiles: 13 rows', label = "back on the tab: its rows made and written again" }, "pipboy: down"]]
+
+[[scenario]]
+name = "tiles-stats-skills-off"
+source = "[design] pipboy.md section 5.1.2: without the switch the Skills tab is the hand-built one: nothing of the tile page runs, and its keys, pointer, wheel, tabs and log lines work as before"
+note = "the same steps and times as tiles-stats-skills, at the hand-built places. Shots to compare with it."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_KEYS = "29:s,35:wheel-down", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=2,30.5:point=200:240,32:click=200:344,33.5:point=off,34:click=50:570,36:click=640:651,38:tab=2,39:close", NVF_PLAY_TEST_SHOTS = "28:tiles_skills_off_device.png,31:tiles_skills_off_device_row.png,35.5:tiles_skills_off_device_scrolled.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 44
+expect = [
+  { re = 'tiles: StatsMenu|StatsMenu drawn by hand', count = 0, label = "switch off: nothing of the tile page runs without its switch" },
+  { re = 'pipboy stats: Skills: Energy Weapons \d+\S* ?\S* ?selected', label = "switch off: a key selects, the page's own keys and log line" },
+  { re = 'pipboy stats: Skills: Explosives \d+\S* ?\S* ?selected', label = "switch off: the pointer moved onto row 2 selects it" },
+  { re = 'pipboy stats: Skills: Lockpick \d+\S* ?\S* ?selected', label = "switch off: a click on row 4 selects it" },
+  { text = "pipboy: STATS Perks", min = 1, label = "switch off: a click on the tab line goes to the next tab" },
+]
+
+[[scenario]]
+name = "tiles-stats-skills-scroll"
+source = "[design] pipboy.md section 5.1.2: the model's first row moves the file's rows: with the list scrolled the row under a place is another, a pointer that moved there selects it, and its box stands where it is scrolled to"
+note = "the aid's scroll=4 at 29 s, then the pointer on the list's first place [hypothesis until the first run: rows 52 high from the list top], where the row five down of name order must now stand. Screen menu, as tiles-stats-special-scroll. Logs only: tiles_skills_scrolled shows the rows themselves."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu", NVF_PLAY_TEST_PIPBOY = "22:frame=screen,25:open,26:page=stats,27:tab=2,31:point=200:136,36:close", NVF_PLAY_TEST_PIPBOY_STATS = "29:scroll=4", NVF_PLAY_TEST_SHOTS = "33:tiles_skills_scrolled.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 40
+expect = [
+  { re = 'tiles: StatsMenu list scrolled to 4 of [1-9]', min = 1, label = "the model's value, read back from the tree" },
+  { re = 'tiles: pointer over StatsMenu/\S*stats_skills_container/Lockpick \(id -1\)', min = 1, label = "the row at the list's first place is the fifth: the file moved the rows by the value and the step code wrote" },
+  { re = 'pipboy stats: Skills: Lockpick \d+\S* ?\S* ?selected', label = "the pointer that moved onto it selects it" },
+  { re = 'tiles: StatsMenu Skills from tiles: 13 rows, "Lockpick" selected, value \d+, boxed at 0,', min = 1, label = "its box where the row stands after the scroll" },
+  { text = "StatsMenu drawn by hand", count = 0, label = "a scrolled list keeps the page on its tiles: the rows out of sight are not asked to fit" },
+]
+order = [[{ re = 'list scrolled to 4 of [1-9]' }, { re = 'pipboy stats: Skills: Lockpick' }]]
+
+[[scenario]]
+name = "tiles-stats-skills-missing-list"
+source = "[design] pipboy.md section 5.1.2: a file short of a tab's list keeps that tab hand-built, says why once, and draws no tile of it"
+note = "NVF_PLAY_TEST_STATS_TILE_CUT takes the list as missing, so no changed game file is needed; the hand-built places, as tiles-stats-skills-off."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_KEYS = "29:s", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=2,30.5:point=200:240,33:close", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu", NVF_PLAY_TEST_STATS_TILE_CUT = "stats_skills_container" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 36
+expect = [
+  { text = "StatsMenu drawn by hand: stats_skills_container missing", count = 1, label = "the reason, once" },
+  { text = "tiles: StatsMenu Skills from tiles", count = 0, label = "not drawn from tiles" },
+  { re = 'pipboy stats: Skills: Energy Weapons \d+\S* ?\S* ?selected', label = "a key selects, the page's own keys and log line" },
+  { re = 'pipboy stats: Skills: Explosives \d+\S* ?\S* ?selected', label = "the pointer moved onto row 2 selects it, on the hand-built page" },
+]
+
+[[scenario]]
+name = "tiles-stats-skills-recovery"
+source = "[design] pipboy.md section 5.1.2: a tab that failed to prepare is tried again: when its list comes back the tiles take over on the same tab, with no reopening"
+note = "NVF_PLAY_TEST_STATS_TILE_CUT ends at 33 s. Logs show the change of owner."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "22:frame=screen,25:open,26:page=stats,27:tab=2,38:close", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu", NVF_PLAY_TEST_STATS_TILE_CUT = "stats_skills_container@33" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 42
+expect = [
+  { text = "StatsMenu drawn by hand: stats_skills_container missing", count = 1, label = "the reason, once" },
+]
+order = [["StatsMenu drawn by hand: stats_skills_container missing", "test aid: NVF_PLAY_TEST_STATS_TILE_CUT over", { re = 'tiles: StatsMenu Skills from tiles: 13 rows' }, "pipboy: down"]]
