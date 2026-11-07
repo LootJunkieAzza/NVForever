@@ -23,6 +23,16 @@
 //! its place and heading relative to the door as that plugin saw it, turned by the
 //! door's change of z rotation (a z rotation turns clockwise seen from above,
 //! docs/spec-notes/world.md §4 [observed]).
+//!
+//! A destination door that was tipped over (its x or y rotation changed) was not moved
+//! for anyone to come out of: a mod knocked it out of the way to open the passage, and the
+//! marker stays as stored [observed: the owner's load order, 2026-11-07: Simple Open
+//! Freeside tilts Freeside's three gates by 0.5 to 0.65 rad on x and y, turns them and
+//! sinks them about 290 units into the ground (VFSEastGateREF 0x00116423 to
+//! (9402, -7264, 742)) and leaves the markers by the gates; moved with the door, the east
+//! gate's marker went to the far side of the wall and under the street, and the player
+//! fell and was put outside the gate (overnight queue item 37)]. [design: doors are placed
+//! upright, so a tilt is the sign of a door taken out of the way.]
 
 use crate::fields::{vec3, Fields};
 use crate::index::global_of;
@@ -54,6 +64,18 @@ pub struct Mended {
 pub const STILL_MOVE: f32 = 1.0;
 /// Radians (about 0.06°).
 pub const STILL_TURN: f32 = 0.001;
+
+/// A destination door whose x or y rotation changed by more than this (radians, about
+/// 6°) was tipped over to open the way, not moved: its marker is used as stored (module
+/// notes) [our choice: well under the 0.47 rad the smallest observed tilt has].
+pub const TIPPED: f32 = 0.1;
+
+/// The change from angle `a` to `b`, radians, in (-π, π].
+fn angle_change(a: f32, b: f32) -> f32 {
+    let tau = std::f32::consts::TAU;
+    let d = (b - a).rem_euclid(tau);
+    if d > std::f32::consts::PI { d - tau } else { d }
+}
 
 /// The XTEL of `r` (in plugin `pi`), if it has a complete one.
 pub fn xtel(lo: &LoadOrder, schema: &Schema, pi: usize, r: &Record) -> Option<Xtel> {
@@ -92,6 +114,9 @@ pub fn mend(lo: &LoadOrder, schema: &Schema, pi: usize, stored: &Xtel) -> Option
     let moved_by = ((wp[0] - sp[0]).powi(2) + (wp[1] - sp[1]).powi(2) + (wp[2] - sp[2]).powi(2)).sqrt();
     let turn = wr[2] - sr[2];
     if moved_by < STILL_MOVE && turn.abs() < STILL_TURN {
+        return None;
+    }
+    if (0..2).any(|i| angle_change(sr[i], wr[i]).abs() > TIPPED) {
         return None;
     }
     // The marker's offset from the door as seen, turned clockwise by `turn`.

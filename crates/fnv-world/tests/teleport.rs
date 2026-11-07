@@ -124,6 +124,35 @@ fn a_marker_turns_with_its_door() {
     assert!((x.rot[2] - (0.5 + quarter)).abs() < 1e-5, "{:?}", x.rot);
 }
 
+fn tipped_door(fid: u32, pos: [f32; 3], rot: [f32; 3]) -> Vec<u8> {
+    let subs = vec![sub(b"NAME", DOOR_BASE.to_le_bytes().to_vec()), sub(b"DATA", posrot(pos, rot))];
+    record(b"REFR", fid, &subs)
+}
+
+/// Overnight queue item 37 (2026-11-07): a mod opens a gate by tipping the destination
+/// door over, turning it and sinking it into the ground (Simple Open Freeside does this to
+/// Freeside's gates). The door was not moved for anyone to come out of, so the marker
+/// stays as stored: in front of where the gate stood, on the street, not swung round to
+/// the far side of the wall and under the ground.
+#[test]
+fn a_marker_stays_when_its_door_was_tipped_over_to_open_the_way() {
+    let s = schema();
+    // Simple Open Freeside's VFSEastGateREF: x 5.6295 (-0.65 rad), y 0.4718, z 5.4105 -> 2.1063,
+    // 290 units down.
+    let p = vec![
+        master(),
+        plugin("Opener.esm", &["Master.esm"], &[tipped_door(TO, [-48.0, -229.0, -290.0], [5.6295, 0.4718, 2.1063])]),
+    ];
+    let lo = LoadOrder::new(&p).unwrap();
+    assert_eq!(door_xtel(&lo, &s, FROM).unwrap().pos, VANILLA_MARKER);
+    // Tipped only a little either way (float noise, a door set on a slope): still moves.
+    for tilt in [0.05, std::f32::consts::TAU - 0.05] {
+        let p = vec![master(), plugin("Mover.esm", &["Master.esm"], &[tipped_door(TO, MOVED_DOOR, [tilt, 0.0, 0.0])])];
+        let lo = LoadOrder::new(&p).unwrap();
+        assert!(close(door_xtel(&lo, &s, FROM).unwrap().pos, [2160.0, 1980.0, 30.0]), "tilt {tilt}");
+    }
+}
+
 /// Markers whose plugin saw the destination door as it wins are used as stored: the
 /// master alone, the mover's own XTEL, and a plugin that has the mover as a master.
 #[test]
