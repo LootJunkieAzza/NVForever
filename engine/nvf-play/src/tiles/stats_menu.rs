@@ -2,6 +2,9 @@
 //! behind `[UI] TileMenus=StatsMenu` [design: ui-tile-tree.md §6.2 step 3; the contracts:
 //! docs/spec-notes/pipboy.md §5.1.1 to §5.1.3; issue #1513].
 //!
+//! "run07" and "run07b" in this file are the private jobs `run07_stats_tabs` and `run07b_stats`, the
+//! original running at 1280 x 720.
+//!
 //! - **The one decision** ([`StatsTiles::ready`]): the switch on, one of those tabs showing, the
 //!   menu files read, the file's tiles there ([`paths`]), the rows made and a usable measured
 //!   layout. Painting (`super::draw`), hand-built suppression (`crate::pipboy::frame::draw`) and
@@ -107,9 +110,9 @@ const SWITCH_HINT: &str = "sPCMenuHintR";
 /// lacks the closing `;`, so the reader keeps the characters as they stand (menu-xml.md §2.4):
 /// code says the word, as with `stats_title` ([`write_model`]) [observed: run07, the label shows].
 const SWITCH_GENERAL: &str = "sStatsGeneral";
-/// The switch's word with the statistics up: no setting has it [observed: FalloutNV.esm has no
-/// GMST named for reputations; the file has no such word], so it is NVForever's own: the list's
-/// name, as the hand-built page has written it since before any shot of this page (§5.1).
+/// The switch's word with the statistics up: no setting has it [documented: `fnvtool esm inventory`,
+/// FalloutNV.esm has no GMST named for reputations; stats_menu.xml has no such word], so it is
+/// NVForever's own [design]: the list's name, as `crate::pipboy::stats::general` writes it.
 const SWITCH_REPUTATION: &str = "Reputation";
 const BADGE: &str = "stats_icon_badge";
 /// Status's tab, and the tiles it has of its own [documented: the file's tree, by fnvtool ui tree].
@@ -554,8 +557,8 @@ fn level_text(snap: &Snapshot) -> String {
 /// The rows of a tab's list, without a copy where the model holds them as they are.
 fn rows_of(snap: &Snapshot, tab: usize, reputation: bool, status: usize) -> Cow<'_, [Row]> {
     match tab {
-        // The EFF list's lines, in name order [observed: run07, at four rows]; the hand-built page
-        // keeps the model's. On the other sub-pages it has none, so nothing is made for it.
+        // The EFF list's lines, in name order [observed: run07, at four rows]. `stats::effects`
+        // keeps the model's, and on the other sub-pages nothing is made for it [design].
         STATUS_TAB if status == 2 => {
             let mut lines: Vec<&crate::pipboy::stats::model::EffectLine> = snap.effects.iter().collect();
             lines.sort_by(|a, b| a.name.cmp(&b.name));
@@ -649,7 +652,8 @@ pub struct StatusHint {
     pub shown: bool,
 }
 
-/// The figure beside a meter: none at nothing [observed: run07, the rads' empty at 0].
+/// The figure beside a meter: none below half a unit [design], as the original's rads read empty
+/// at 0 [observed: run07].
 fn meter_figure(v: f64) -> String {
     if v >= 0.5 {
         crate::pipboy::stats::model::whole(v)
@@ -1129,8 +1133,10 @@ pub fn usable(ui: &Ui, p: &Paths, rows: &[MadeRow], shown: std::ops::Range<usize
     if area.is_some_and(|a| !wholly_on_canvas(&a)) {
         return Err("the description does not fit".into());
     }
+    // One walk of the tree serves them all.
+    let candidates = fnv_ui::input::hit_candidates(ui, p.menu, &fnv_ui::input::no_measure);
     for (what, at) in wanted {
-        let hit = fnv_ui::input::hit(ui, &[p.menu], at, &fnv_ui::input::no_measure);
+        let hit = fnv_ui::input::top_hit(ui, &candidates, at);
         if hit.and_then(|h| stats_tile(ui, p, rows, h.tile)) != Some(what) {
             return Err(format!("{what:?} does not take the pointer"));
         }
@@ -1764,6 +1770,13 @@ fn follow_hover(acted: &mut Option<usize>, under: Option<usize>, settled: bool) 
     }
 }
 
+/// The row the pointer may select by being over it: one in sight. A list's window can show a strip
+/// of the row after its last whole one; selecting that would scroll it in, bring the next under
+/// a still pointer and walk the list a row a frame. A click on it still selects [design].
+fn row_to_hover(under: Option<usize>, in_sight: &std::ops::Range<usize>) -> Option<usize> {
+    under.filter(|i| in_sight.contains(i))
+}
+
 /// The row a file's own key binding moved the highlight onto in this step, wherever it went,
 /// the row under the pointer too: the step says what moved it. Not for a press the hand-built
 /// keys act on as well, or the page would step twice.
@@ -1866,6 +1879,8 @@ pub(crate) fn feed(
         view.hover = spot;
     }
     let under_row = under.and_then(what).and_then(|w| if let StatsTile::Row(i) = w { Some(i) } else { None });
+    let in_sight = tiles.written.geometry.as_ref().map_or(0..usize::MAX, |g| g.top..g.top + g.visible);
+    let under_row = row_to_hover(under_row, &in_sight);
     // Only a real change touches the view, which the page's other readers watch.
     match follow_hover(&mut state.acted, under_row, settled) {
         Some(HoverAct::Select(i)) => {
@@ -2650,6 +2665,36 @@ mod tests {
         assert!((num(&ui, list, "_highlight_y") - (4.0 * ROW - 3.0 * step)).abs() < 1e-9);
     }
 
+    /// With a strip of the next row in the list's window, a pointer resting on it selects nothing and
+    /// moves nothing, frame after frame; a click there still brings the row in.
+    #[test]
+    fn a_strip_of_a_row_under_a_still_pointer_does_not_walk_the_list() {
+        let own = |x: &str| x.replace("<_number_of_visible_items>6</_number_of_visible_items>", "<height>200</height>");
+        let (mut ui, mut v, mut t) = (tree_changed(own), general_view(20), StatsTiles::default());
+        let s = general_snap();
+        let menu = run_tab(&mut ui, &s, &mut v, 4, &mut t).unwrap();
+        let mut acted = None;
+        for _ in 0..6 {
+            let p = t.written.paths.unwrap();
+            // Five whole rows of 36 from the list's 50 down: the strip of the sixth, to its 200.
+            let hit = fnv_ui::input::hit(&ui, &[menu], (50.0, 50.0 + 190.0), &no_measure).unwrap();
+            let under = match stats_tile(&ui, &p, &t.written.rows, hit.tile) {
+                Some(StatsTile::Row(i)) => Some(i),
+                other => panic!("{other:?}"),
+            };
+            assert_eq!(under, Some(5), "the partial row is what is there");
+            let in_sight = t.written.geometry.as_ref().map(|g| g.top..g.top + g.visible).unwrap();
+            if let Some(HoverAct::Select(i)) = follow_hover(&mut acted, row_to_hover(under, &in_sight), true) {
+                v.select(4, i);
+            }
+            run_tab(&mut ui, &s, &mut v, 4, &mut t).unwrap();
+        }
+        assert_eq!((v.top[4], v.selected[4]), (0, 0));
+        v.select(4, 5);
+        assert_eq!(v.top[4], 1, "the click's select");
+        assert_eq!(row_to_hover(Some(5), &(1..6)), Some(5), "in sight now, a row like the others");
+    }
+
     /// A weapon skill's mark shows by `visible`; a row with none hides it, and on other tabs too.
     #[test]
     fn the_badge_shows_only_on_a_row_with_one() {
@@ -2676,7 +2721,7 @@ mod tests {
         s.hints.texts = ["(2) Item A".to_string(), "(1) Item B".to_string(), "Item C".to_string(), "(3) Item D".to_string()];
         s.hints.lit = [true, false, false, false];
         s.rad_resist = Some(8.0);
-        s.rads = 450.0;
+        s.rads = 320.0;
         s
     }
 
@@ -2699,7 +2744,7 @@ mod tests {
         let st = status_paths(&ui);
         assert_eq!(num(&ui, menu, "user0"), 0.0, "the tab");
         assert_eq!(num(&ui, st.container, "user0"), 0.0, "the sub-page");
-        assert_eq!((num(&ui, menu, "user1"), num(&ui, menu, "user2")), (450.0, 1000.0));
+        assert_eq!((num(&ui, menu, "user1"), num(&ui, menu, "user2")), (320.0, 1000.0));
         assert_eq!(num(&ui, st.limbs[1].meter, "_Value"), 0.4, "a fraction");
         assert_eq!(text(&ui, st.limbs[1].picture, "filename"), stats::boy_picture("torso", false));
         assert_eq!(text(&ui, st.limbs[2].picture, "filename"), stats::boy_picture("left_arm", true), "crippled");
@@ -2720,7 +2765,7 @@ mod tests {
         let line = describe(&ui, t.written.paths.as_ref().unwrap(), &t.written);
         assert!(line.contains("Status CND from tiles: 0 rows,"), "{line}");
         assert!(line.contains("limbs 1 0.4 0 1 1 1,"), "{line}");
-        assert!(line.contains("hints (2) Item A <S> lit and (1) Item B <E> dim, rads 450, hardcore off, device"), "{line}");
+        assert!(line.contains("hints (2) Item A <S> lit and (1) Item B <E> dim, rads 320, hardcore off, device"), "{line}");
     }
 
     #[test]
@@ -2731,10 +2776,10 @@ mod tests {
         let st = status_paths(&ui);
         assert_eq!(num(&ui, st.container, "user0"), 1.0);
         assert_eq!(text(&ui, st.resist, "string"), "8%");
-        assert_eq!(text(&ui, st.rads, "string"), "450");
+        assert_eq!(text(&ui, st.rads, "string"), "320");
         assert_eq!((text(&ui, st.rads_mid, "string"), text(&ui, st.rads_max, "string")), ("500".to_string(), "1000".to_string()));
         assert_eq!((num(&ui, st.hints[0].button, "visible"), num(&ui, st.hints[2].button, "visible")), (0.0, 1.0));
-        assert_eq!(num(&ui, menu, "user1"), 450.0);
+        assert_eq!(num(&ui, menu, "user1"), 320.0);
         // Nothing at no rads.
         let mut s = status_snap();
         s.rads = 0.0;
@@ -2780,7 +2825,7 @@ mod tests {
         let (mut ui, mut v, mut t) = (tree(), view(), status_tiles());
         let mut s = status_snap();
         s.hardcore = true;
-        s.needs = [650.0, 0.0, 250.0];
+        s.needs = [710.0, 0.0, 130.0];
         v.status = 3;
         let menu = run_tab(&mut ui, &s, &mut v, STATUS_TAB, &mut t).unwrap();
         let st = status_paths(&ui);
@@ -2788,8 +2833,8 @@ mod tests {
             assert_eq!(num(&ui, st.subs[i], "visible"), 1.0);
         }
         assert_eq!(num(&ui, st.container, "user0"), 3.0);
-        assert_eq!(num(&ui, menu, "user1"), 650.0, "the page's own meter");
-        assert_eq!((text(&ui, st.needs[0][0], "string"), text(&ui, st.needs[1][0], "string")), ("650".to_string(), String::new()));
+        assert_eq!(num(&ui, menu, "user1"), 710.0, "the page's own meter");
+        assert_eq!((text(&ui, st.needs[0][0], "string"), text(&ui, st.needs[1][0], "string")), ("710".to_string(), String::new()));
         assert_eq!(text(&ui, st.needs[2][2], "string"), "1000");
         assert!(describe(&ui, t.written.paths.as_ref().unwrap(), &t.written).contains("Status H2O from tiles"));
         s.hardcore = false;

@@ -21767,7 +21767,7 @@ run_seconds = 42
 expect = [
   { re = 'tiles: StatsMenu General \(Reputation\) from tiles: 1 rows, "[^"]+" selected, value none, .*switch General, device$', min = 2, label = "the file's first mode, one reputation, no number, the switch's word the setting's; and again after R" },
   { text = "tiles: StatsMenu Switch on its tiles", count = 1, label = "the switch through its tile; the physical R does not click it as well" },
-  { re = 'tiles: StatsMenu General \(General\) from tiles: 43 rows, .*karma picture .*karma_[a-z]+\.dds, karma title [^,]*, switch Reputation, device$', min = 1, label = "the statistics, the karma's picture, a title only from a setting, and NVForever's word on the switch" },
+  { re = 'tiles: StatsMenu General \(General\) from tiles: 43 rows, .*karma picture .*karma_[a-z]+\.dds, karma title \S[^,]*, switch Reputation, device$', min = 1, label = "the statistics, the karma's picture, a title from a setting, and NVForever's word on the switch" },
   { re = 'tiles: pointer over StatsMenu/\S*stats_general_container/People Killed \(id -1\)', min = 1, label = "row 2 at y 100 + 2.5 rows, the file's place for this list" },
   { text = "&-s", count = 0, label = "no setting's name left unresolved in what the log says of the page" },
   { re = 'tiles: StatsMenu General \(Reputation\) from tiles: 1 rows, .*reputation picture , switch General', min = 1, label = "nothing on the side until a row is pointed at" },
@@ -21814,10 +21814,10 @@ expect = [
 [[scenario]]
 name = "tiles-stats-status"
 source = "[design] pipboy.md section 5.1.3, issue 1513: with [UI] TileMenus=StatsMenu the Status tab is drawn from stats_menu.xml: the limbs' meters and pictures, the hints' lines, the sub-pages through their tiles; a Stimpak by its hint and by a limb's bar [owner 2026-10-23], the Doctor's Bag by its hint"
-note = "the console gives a Stimpak's and a bag's worth, hurts the left arm to 40 and takes 50 health; the points are canvas units [the original's places, not clicked in its capture: hints at 860, sub-pages at 92; hypothesis until the first run: the left arm's bar at 600:213]. E at 39.5 s on the bag with no limb hurt: refused once. Shots: compare tiles_status_* with tiles_status_off_* at the same times."
+note = "the console gives a Stimpak's and a bag's worth, hurts the left arm to 40 and takes 50 health; the points are canvas units [the original's places, not clicked in its capture: hints at 860, sub-pages at 92, the left arm's bar in its 565.88, 194, 256 x 38]. E at 39.5 s on the bag with no limb hurt: refused once. Shots: compare tiles_status_* with tiles_status_off_* at the same times."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "22:player.AddItem 15169 3;22.3:player.AddItem CB05C 1;22.6:player.DamageAV LeftAttackCondition 60;22.9:player.DamageAV Health 50;23.5:close", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=0,29:click=860:146,31:click=600:213,33:click=860:250,35:click=92:188,37:click=92:240,39:click=92:136,41:close", NVF_PLAY_TEST_KEYS = "39.5:e", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu", NVF_PLAY_TEST_SHOTS = "28:tiles_status_cnd.png,36:tiles_status_rad.png,38:tiles_status_eff.png" }
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "22:player.AddItem 15169 3;22.3:player.AddItem CB05C 1;22.6:player.DamageAV LeftAttackCondition 60;22.9:player.DamageAV Health 50;23.5:close", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=0,29:click=860:146,31:click=650:213,33:click=860:250,35:click=92:188,37:click=92:240,39:click=92:136,41:close", NVF_PLAY_TEST_KEYS = "39.5:e", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu", NVF_PLAY_TEST_SHOTS = "28:tiles_status_cnd.png,36:tiles_status_rad.png,38:tiles_status_eff.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 44
 expect = [
@@ -21825,6 +21825,7 @@ expect = [
   { text = "StatsMenu drawn by hand", count = 0, label = "the file has every name Status needs" },
   { text = "tiles: StatsMenu Hint(0) on its tiles", count = 1, label = "the Stimpak's hint, through its tile" },
   { re = 'pipboy stats: used Stimpak on the body \(\d+ left\)', label = "used on the body" },
+  { re = 'tiles: pointer over StatsMenu/\S*stats_player_leftarm_pct ', min = 1, label = "the point is on the bar's own tile, not the container under it" },
   { text = "tiles: StatsMenu Limb(2) on its tiles", count = 1, label = "the left arm's bar, through its tile [owner 2026-10-23]" },
   { re = 'pipboy stats: used Stimpak on the left arm \(\d+ left\)', label = "a Stimpak on that limb" },
   { text = "tiles: StatsMenu Hint(1) on its tiles", count = 1, label = "the bag's hint, through its tile" },
@@ -21844,7 +21845,7 @@ source = "[design] pipboy.md section 5.1.3: without the switch the Status tab is
 note = "the same steps and times as tiles-stats-status, at the hand-built places. Shots to compare with it."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "22:player.AddItem 15169 3;22.3:player.AddItem CB05C 1;22.6:player.DamageAV LeftAttackCondition 60;22.9:player.DamageAV Health 50;23.5:close", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=0,29:click=860:146,31:click=600:213,33:click=860:250,35:click=92:188,37:click=92:240,39:click=92:136,41:close", NVF_PLAY_TEST_KEYS = "39.5:e", NVF_PLAY_TEST_SHOTS = "28:tiles_status_off_cnd.png,36:tiles_status_off_rad.png,38:tiles_status_off_eff.png" }
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "22:player.AddItem 15169 3;22.3:player.AddItem CB05C 1;22.6:player.DamageAV LeftAttackCondition 60;22.9:player.DamageAV Health 50;23.5:close", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=0,29:click=860:146,31:click=650:213,33:click=860:250,35:click=92:188,37:click=92:240,39:click=92:136,41:close", NVF_PLAY_TEST_KEYS = "39.5:e", NVF_PLAY_TEST_SHOTS = "28:tiles_status_off_cnd.png,36:tiles_status_off_rad.png,38:tiles_status_off_eff.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 44
 expect = [

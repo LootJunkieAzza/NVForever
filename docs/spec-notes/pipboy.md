@@ -677,7 +677,9 @@ take the pointer. The bar's pieces are `StatsTile::ListBar` and become `StatsVie
 by the file's `_jump_size`, the marker by its `_step_height`; the wheel stays `stats::prepare`'s. A
 row that comes under a still pointer as the list moves takes the selection, as the original's does
 [observed: the runs]; a row drawn under one when the page comes up does not. That is the tile page's
-rule: the hand-built page keeps its own. The marker's height and step are the file's, logged; the
+rule: the hand-built page keeps its own. Only a row in sight selects under the pointer: General's window
+shows a strip of the row after its last whole one, where selecting would scroll it in and bring the next
+under the pointer, down the list [design]; a click there still selects. The marker's height and step are the file's, logged; the
 original's general marker reads 32 with a step of 14.48 [observed: the runs].
 
 **Skills**: `stats_skills_container`, rows as §5.1.1, thirteen in the model's name order.
