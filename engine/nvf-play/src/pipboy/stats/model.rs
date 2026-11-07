@@ -230,6 +230,8 @@ pub enum RowKey {
     Stat(u8),
     /// A reputation's record (General's other list).
     Rep(FormId),
+    /// A line of the EFF list, by its place.
+    Effect(u16),
 }
 
 /// One row of a list (S.P.E.C.I.A.L., Skills, Perks, General): what it stands for, its name,
@@ -295,6 +297,9 @@ pub struct Snapshot {
     pub hints: Hints,
     pub rad_resist: Option<f64>,
     pub rads: f64,
+    /// Whether Hardcore mode is on, and its three needs: dehydration, hunger, sleep deprivation.
+    pub hardcore: bool,
+    pub needs: [f64; 3],
     pub effects: Vec<EffectLine>,
     pub special: Vec<Row>,
     pub skills: Vec<Row>,

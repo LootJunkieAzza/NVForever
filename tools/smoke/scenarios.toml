@@ -21807,3 +21807,100 @@ expect = [
   { re = 'tiles: StatsMenu page from tiles: 7 rows', min = 1, label = "S.P.E.C.I.A.L. does not need it" },
   { re = 'tiles: StatsMenu General ', count = 0, label = "not drawn from tiles" },
 ]
+
+[[scenario]]
+name = "tiles-stats-status"
+source = "[design] pipboy.md section 5.1.3, issue 1513: with [UI] TileMenus=StatsMenu the Status tab is drawn from stats_menu.xml: the limbs' meters and pictures, the hints' lines, the sub-pages through their tiles; a Stimpak by its hint and by a limb's bar [owner 2026-10-23], the Doctor's Bag by its hint"
+note = "the console gives a Stimpak's and a bag's worth, hurts the left arm to 40 and takes 50 health; the points are canvas units [the original's places, not clicked in its capture: hints at 860, sub-pages at 92; hypothesis until the first run: the left arm's bar at 600:213]. E at 39.5 s on the bag with no limb hurt: refused once. Shots: compare tiles_status_* with tiles_status_off_* at the same times."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "22:player.AddItem 15169 3;22.3:player.AddItem CB05C 1;22.6:player.DamageAV LeftAttackCondition 60;22.9:player.DamageAV Health 50;23.5:close", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=0,29:click=860:146,31:click=600:213,33:click=860:250,35:click=92:188,37:click=92:240,39:click=92:136,41:close", NVF_PLAY_TEST_KEYS = "39.5:e", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu", NVF_PLAY_TEST_SHOTS = "28:tiles_status_cnd.png,36:tiles_status_rad.png,38:tiles_status_eff.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 44
+expect = [
+  { re = 'tiles: StatsMenu Status CND from tiles: 0 rows, .*limbs 1 1 0\.4 1 1 1, hints \(\d+\) Stimpak \[S\] lit and \(\d+\) .*\[E\] lit, rads \d+, hardcore off, device$', min = 1, label = "the meters as fractions, each hint a count, the record's name and the key" },
+  { text = "StatsMenu drawn by hand", count = 0, label = "the file has every name Status needs" },
+  { text = "tiles: StatsMenu Hint(0) on its tiles", count = 1, label = "the Stimpak's hint, through its tile" },
+  { re = 'pipboy stats: used Stimpak on the body \(\d+ left\)', label = "used on the body" },
+  { text = "tiles: StatsMenu Limb(2) on its tiles", count = 1, label = "the left arm's bar, through its tile [owner 2026-10-23]" },
+  { re = 'pipboy stats: used Stimpak on the left arm \(\d+ left\)', label = "a Stimpak on that limb" },
+  { text = "tiles: StatsMenu Hint(1) on its tiles", count = 1, label = "the bag's hint, through its tile" },
+  { re = '''pipboy stats: used Doctor's Bag on the body''', label = "the bag used" },
+  { re = '''pipboy stats: Doctor's Bag not used: no limb is hurt''', count = 1, label = "E acted once: the file's binding of it does not use the bag a second time" },
+  { text = "tiles: StatsMenu Sub(1) on its tiles", count = 1, label = "RAD's button" },
+  { re = 'tiles: StatsMenu Status RAD from tiles: .*hints (\(\d+\) )?RadAway \[A\] dim and (\(\d+\) )?Rad-X \[X\] dim,', min = 1, label = "RAD's own hints, a count only when some are carried; not used from here, so dim" },
+  { text = "tiles: StatsMenu Sub(2) on its tiles", count = 1, label = "EFF's button" },
+  { re = 'tiles: StatsMenu Status EFF from tiles: ', min = 1, label = "EFF drawn from tiles" },
+  { text = "tiles: StatsMenu Sub(0) on its tiles", count = 1, label = "back on CND" },
+]
+order = [[{ text = "tiles: StatsMenu Hint(0) on its tiles" }, { text = "tiles: StatsMenu Limb(2) on its tiles" }, { text = "tiles: StatsMenu Hint(1) on its tiles" }, { text = "tiles: StatsMenu Sub(1) on its tiles" }, { text = "tiles: StatsMenu Sub(2) on its tiles" }, { text = "tiles: StatsMenu Sub(0) on its tiles" }, "pipboy: down"]]
+
+[[scenario]]
+name = "tiles-stats-status-off"
+source = "[design] pipboy.md section 5.1.3: without the switch the Status tab is the hand-built one: nothing of the tile page runs, and its hints, bars and buttons work as before"
+note = "the same steps and times as tiles-stats-status, at the hand-built places. Shots to compare with it."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "22:player.AddItem 15169 3;22.3:player.AddItem CB05C 1;22.6:player.DamageAV LeftAttackCondition 60;22.9:player.DamageAV Health 50;23.5:close", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=0,29:click=860:146,31:click=600:213,33:click=860:250,35:click=92:188,37:click=92:240,39:click=92:136,41:close", NVF_PLAY_TEST_KEYS = "39.5:e", NVF_PLAY_TEST_SHOTS = "28:tiles_status_off_cnd.png,36:tiles_status_off_rad.png,38:tiles_status_off_eff.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 44
+expect = [
+  { re = 'tiles: StatsMenu|StatsMenu drawn by hand', count = 0, label = "switch off: nothing of the tile page runs without its switch" },
+  { re = 'pipboy stats: used Stimpak on the body \(\d+ left\)', label = "switch off: the Stimpak's hint" },
+  { re = 'pipboy stats: used Stimpak on the left arm \(\d+ left\)', label = "switch off: the left arm's bar" },
+  { re = '''pipboy stats: used Doctor's Bag on the body''', label = "switch off: the bag's hint" },
+  { re = '''pipboy stats: Doctor's Bag not used: no limb is hurt''', count = 1, label = "switch off: E once" },
+  { text = "pipboy stats: Status RAD", min = 1, label = "switch off: RAD's button" },
+  { text = "pipboy stats: Status EFF", min = 1, label = "switch off: EFF's button" },
+]
+
+[[scenario]]
+name = "tiles-stats-status-figures"
+source = "[design] pipboy.md section 5.1.3: RAD's and EFF's figures by the model: the rads on the root and beside the arrow, a crippled limb's picture and word, the worn apparel's effect as a row"
+note = "rads 450 by the script aid, a crippled arm by the console, the Vault jumpsuit worn for an effect [observed: pipboy.md section 5.1]; the sub-pages by the aid. Screen menu. Logs show the values; the shots whether the file draws them from what code wrote."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "16:set_av:player:RadiationRads:450", NVF_PLAY_TEST_CONSOLE = "22:player.DamageAV LeftAttackCondition 100;22.5:player.equipitem 00015038;22.8:close", NVF_PLAY_TEST_PIPBOY = "24:frame=screen,25:open,26:page=stats,27:tab=0,36:close", NVF_PLAY_TEST_PIPBOY_STATS = "30:sub=1,33:sub=2", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu", NVF_PLAY_TEST_SHOTS = "29:tiles_status_crippled.png,32:tiles_status_rads.png,35:tiles_status_effects.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 40
+expect = [
+  { re = 'tiles: StatsMenu Status CND from tiles: .*limbs 1 1 0 1 1 1,', min = 1, label = "the crippled arm's meter at 0" },
+  { re = 'tiles: StatsMenu Status RAD from tiles: .*, rads 450, hardcore off', min = 1, label = "the rads for the root and the figure" },
+  { re = 'tiles: StatsMenu Status EFF from tiles: [1-9]\d* rows, ', min = 1, label = "a row a source of changes" },
+  { text = "StatsMenu drawn by hand", count = 0, label = "no sub-page sends it back" },
+]
+
+[[scenario]]
+name = "tiles-stats-status-hardcore"
+source = "[design] pipboy.md section 5.1.3: in Hardcore code shows H2O, FOD and SLP, each a page on RAD's shape [hypothesis: no capture of the original saw them drawn]; out of it they are hidden"
+note = "Hardcore on by the script aid with values for the three needs, as hud-needs' scenario; a click on each button at 92 [hypothesis until the first run]. The pages' looks are for the shots and the retake of the capture."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:hardcore:1,16:set_av:player:Dehydration:650,16.2:set_av:player:Hunger:850,16.4:set_av:player:SleepDeprivation:250", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=0,29:click=92:292,31:click=92:344,33:click=92:396,35:close", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu", NVF_PLAY_TEST_SHOTS = "30:tiles_status_h2o.png,32:tiles_status_fod.png,34:tiles_status_slp.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 38
+expect = [
+  { re = 'tiles: StatsMenu Status CND from tiles: .*hardcore on', min = 1, label = "the three buttons shown" },
+  { text = "tiles: StatsMenu Sub(3) on its tiles", count = 1, label = "H2O's button" },
+  { re = 'tiles: StatsMenu Status H2O from tiles: .*rads 650,', min = 1, label = "its meter's value on the root [hypothesis]" },
+  { text = "tiles: StatsMenu Sub(4) on its tiles", count = 1, label = "FOD's button" },
+  { re = 'tiles: StatsMenu Status FOD from tiles: .*rads 850,', min = 1, label = "its value" },
+  { text = "tiles: StatsMenu Sub(5) on its tiles", count = 1, label = "SLP's button" },
+  { re = 'tiles: StatsMenu Status SLP from tiles: .*rads 250,', min = 1, label = "its value" },
+  { text = "StatsMenu drawn by hand", count = 0, label = "the file has every name these pages need" },
+]
+
+[[scenario]]
+name = "tiles-stats-status-missing"
+source = "[design] pipboy.md section 5.1.3: a file short of what Status needs keeps that tab hand-built, says why once, and the others stay tiled"
+note = "NVF_PLAY_TEST_STATS_TILE_CUT takes a button as missing, so no changed game file is needed."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=0,29:tab=1,31:tab=0,33:close", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu", NVF_PLAY_TEST_STATS_TILE_CUT = "stats_CND_button" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 36
+expect = [
+  { text = "StatsMenu drawn by hand: stats_CND_button missing", count = 1, label = "the reason, once across two visits" },
+  { re = 'tiles: StatsMenu Status ', count = 0, label = "not drawn from tiles" },
+  { re = 'tiles: StatsMenu page from tiles: 7 rows', min = 1, label = "S.P.E.C.I.A.L. does not need it" },
+]

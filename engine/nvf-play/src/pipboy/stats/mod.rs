@@ -78,7 +78,7 @@ const BOX_TEXT_DROP: f32 = 3.0;
 const HINT_KEYS: [&str; 4] = ["S)", "E)", "A)", "X)"];
 /// The keys themselves; with a controller the hints name the buttons that press them
 /// (`crate::pad::menu_buttons`: A, Y on CND; A, X on RAD) [#1662].
-const HINT_KEY_CODES: [KeyCode; 4] = [KeyCode::KeyS, KeyCode::KeyE, KeyCode::KeyA, KeyCode::KeyX];
+pub(crate) const HINT_KEY_CODES: [KeyCode; 4] = [KeyCode::KeyS, KeyCode::KeyE, KeyCode::KeyA, KeyCode::KeyX];
 
 /// The status tab's hint `i` for the device in use.
 fn hint_key(v: &StatsView, i: usize) -> String {
@@ -108,7 +108,7 @@ pub(crate) const LIMB_PIECES: [(Vec2, Vec2, &str); 4] = [
 const METER_HEIGHT: f32 = 38.0;
 const BAR_Y: f32 = 24.0;
 const BAR_LENGTH: f32 = 77.0;
-const BOY_FACE: &str = "Interface\\Stats\\face_00.dds";
+pub(crate) const BOY_FACE: &str = "Interface\\Stats\\face_00.dds";
 
 /// The RAD page (`stats_radiation_container`, zoom 130).
 const RAD_ZOOM: f32 = 1.3;
@@ -118,7 +118,7 @@ const RAD_Y: f32 = 360.0;
 /// shows [observed: 1000 on the owner's screenshot; the file leaves it to the code].
 const RAD_ZERO: f32 = 186.0;
 const RAD_FULL: f32 = 482.0;
-const RAD_MAX: f64 = 1000.0;
+pub(crate) const RAD_MAX: f64 = 1000.0;
 /// The arrow (`pointer_tail.dds`): 22 × 40 zoomed, 30 down.
 const RAD_ARROW: (f32, f32, f32) = (22.0, 40.0, 30.0);
 const RAD_BRACKET: &str = "Interface\\stats\\rad_effects_bracket.dds";
@@ -207,7 +207,7 @@ pub enum Spot {
 /// pointer is over.
 #[derive(Resource, Debug, Clone, PartialEq)]
 pub struct StatsView {
-    /// 0 CND, 1 RAD, 2 EFF.
+    /// 0 CND, 1 RAD, 2 EFF; on the tiles in Hardcore also 3 H2O, 4 FOD, 5 SLP.
     pub status: usize,
     pub selected: [usize; 5],
     pub top: [usize; 5],
@@ -236,11 +236,13 @@ pub struct StatsView {
     /// the others; the file gives its list the area's height, 542 from 100 down, which would
     /// reach the tab line].
     rows_shown: [usize; 5],
+    /// How many of the status page's buttons the view that draws it has.
+    status_pages: usize,
 }
 
 impl Default for StatsView {
     fn default() -> StatsView {
-        StatsView { status: 0, selected: [0; 5], top: [0; 5], desc: 0, reputation: true, hover: None, limb: None, highlight: false, drawn_at: None, lens: [0; 5], desc_max: 0, rows_shown: [VISIBLE; 5] }
+        StatsView { status: 0, selected: [0; 5], top: [0; 5], desc: 0, reputation: true, hover: None, limb: None, highlight: false, drawn_at: None, lens: [0; 5], desc_max: 0, rows_shown: [VISIBLE; 5], status_pages: 3 }
     }
 }
 
@@ -314,6 +316,13 @@ impl StatsView {
     /// Choose a limb by key; the same one again chooses the whole body.
     pub fn choose_limb(&mut self, i: usize) {
         self.limb = if self.limb == Some(i) { None } else { Some(i) };
+    }
+
+    /// How many of the status page's buttons the view that draws it has: each view gives its own,
+    /// and the page chosen stays among them.
+    pub fn set_status_pages(&mut self, pages: usize) {
+        self.status_pages = pages.max(1);
+        self.status = self.status.min(self.status_pages - 1);
     }
 
     /// Switch General between its two lists.
@@ -580,13 +589,16 @@ pub fn figures(v: Option<(f64, f64)>) -> String {
     v.map_or("--".to_string(), |(a, b)| format!("{}/{}", model::whole(a), model::whole(b)))
 }
 
+/// The status page's buttons, for the log.
+pub(crate) const STATUS_PAGES: [&str; 6] = ["CND", "RAD", "EFF", "H2O", "FOD", "SLP"];
+
 /// One line for the log: what the tab shows selected.
 fn describe(view: &StatsView, snap: &Snapshot, tab: usize) -> String {
     let name = Page::Stats.tabs()[tab];
     match tab {
         0 => {
             let limb = view.limb.filter(|_| view.status == 0).map_or(String::new(), |i| format!(" ({} chosen)", model::LIMB_NAMES[i]));
-            format!("{name} {}{limb}", ["CND", "RAD", "EFF"][view.status.min(2)])
+            format!("{name} {}{limb}", STATUS_PAGES[view.status.min(5)])
         }
         _ => {
             let rows = snap.rows(tab, view.reputation);
@@ -613,7 +625,7 @@ fn keys(keys: &ButtonInput<KeyCode>, view: &mut StatsView, tab: usize) -> Option
         if keys.just_pressed(ArrowUp) && view.status > 0 {
             view.status -= 1;
         }
-        if keys.just_pressed(ArrowDown) && view.status < 2 {
+        if keys.just_pressed(ArrowDown) && view.status + 1 < view.status_pages {
             view.status += 1;
         }
         if view.status == 0 {
@@ -652,7 +664,7 @@ fn keys(keys: &ButtonInput<KeyCode>, view: &mut StatsView, tab: usize) -> Option
 
 /// A hint's key or button: the item to use (the Stimpak on the limb aimed at), or `None`
 /// for RadAway and Rad-X, which are not used from here.
-fn hint_pressed(view: &StatsView, hint: usize) -> Option<UseHint> {
+pub(crate) fn hint_pressed(view: &StatsView, hint: usize) -> Option<UseHint> {
     match hint {
         model::STIMPAK => Some(UseHint { hint, limb: view.aimed() }),
         model::DOCTORS_BAG => Some(UseHint { hint, limb: None }),
@@ -741,6 +753,7 @@ fn box_text_top(c: &Ctx, top: f32, h: f32) -> f32 {
 }
 
 fn status(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snapshot) {
+    v.set_status_pages(3);
     let o = STATUS.min;
     let h = c.line_height(2) + SUB_VERBUF;
     let mut spots = Vec::new();
@@ -798,7 +811,7 @@ fn condition(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &StatsView, s: &Snaps
     let head = Vec2::new(STATUS.min.x + (STATUS.width() - head_size.x) / 2.0, STATUS.min.y + HEAD_Y);
     let crippled = |i: usize| s.limbs[i] <= 0.0;
     // A crippled piece by its "_broken" picture [hypothesis: the files' names].
-    let piece = |name: &str, broken: bool| format!("Interface\\Stats\\{name}{}.dds", if broken { "_broken" } else { "" });
+    let piece = boy_picture;
     c.image_cut(p, &piece("head", crippled(0)), head.x, head.y, head_size.x, head_size.y, z, bright());
     // The face [hypothesis: face_00, the smile on the owner's screenshot; when the
     // others (01–04, 10) show is not known], centred in the head's height and 16 lower.
@@ -1095,6 +1108,13 @@ fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Sna
     }
 }
 
+/// The file of a piece of the Vault Boy, a crippled one by its "_broken" picture, as every view of
+/// the page reads it [hypothesis: the names of the head's and the others'; observed:
+/// `left_leg_broken.dds`, private job run07_stats_tabs].
+pub fn boy_picture(name: &str, broken: bool) -> String {
+    format!("Interface\\Stats\\{name}{}.dds", if broken { "_broken" } else { "" })
+}
+
 /// The file of a karma's picture ([`model::karma_alignment`]'s name), as every view of the page
 /// reads it.
 pub fn karma_picture(picture: &str) -> String {
@@ -1171,7 +1191,7 @@ pub fn use_hints(
 
 // ---- test aid -------------------------------------------------------------------------
 
-/// `NVF_PLAY_TEST_PIPBOY_STATS=<seconds>:<step>,...`: `sub=<0-2>` (CND, RAD, EFF),
+/// `NVF_PLAY_TEST_PIPBOY_STATS=<seconds>:<step>,...`: `sub=<0-5>` (CND, RAD, EFF, H2O, FOD, SLP),
 /// `down`, `up` (the list's selection), `mode` (General's lists), `desc=down|up`; and to
 /// have something to show, `perk=<FormID hex>` (the player gains a rank of it, as
 /// AddPerk) and `fame=<FormID hex>=<points>` (fame with a reputation); on CND
@@ -1216,7 +1236,7 @@ fn parse_aid(v: &str) -> Vec<(f32, AidStep)> {
                 "use=bag" => Some(AidStep::Use(model::DOCTORS_BAG)),
                 s => match s.split_once('=') {
                     Some(("limb", n)) => n.trim().parse().ok().filter(|n| *n < 6).map(|n| AidStep::Limb(Some(n))),
-                    Some(("sub", n)) => n.trim().parse().ok().filter(|n| *n < 3).map(AidStep::Sub),
+                    Some(("sub", n)) => n.trim().parse().ok().filter(|n| *n < 6).map(AidStep::Sub),
                     Some(("scroll", n)) => n.trim().parse().ok().map(AidStep::Scroll),
                     Some(("perk", f)) => u32::from_str_radix(f.trim().trim_start_matches("0x"), 16).ok().map(AidStep::Perk),
                     Some(("fame", r)) => r.split_once('=').and_then(|(f, n)| Some(AidStep::Fame(u32::from_str_radix(f.trim().trim_start_matches("0x"), 16).ok()?, n.trim().parse().ok()?))),
@@ -1316,6 +1336,17 @@ mod tests {
         assert_eq!(aid.top[2], 3);
         apply_aid(&mut aid, 2, AidStep::Scroll(30));
         assert_eq!(aid.top[2], 4, "within its range");
+    }
+
+    #[test]
+    fn each_view_gives_the_status_page_its_buttons() {
+        let mut v = StatsView::default();
+        v.status = 2;
+        v.set_status_pages(6);
+        assert_eq!(v.status, 2);
+        v.status = 5;
+        v.set_status_pages(3);
+        assert_eq!(v.status, 2, "Hardcore off, or the hand-built page: among those it has");
     }
 
     #[test]

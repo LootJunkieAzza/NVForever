@@ -274,6 +274,8 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
         }
         s.rad_resist = value(g, av::RAD_RESISTANCE).map(|v| v.0);
         s.rads = value(g, 54).map_or(0.0, |v| v.0.max(0.0));
+        s.hardcore = hardcore;
+        s.needs = [fnv_game::aid::DEHYDRATION, fnv_game::aid::HUNGER, fnv_game::aid::SLEEP_DEPRIVATION].map(|code| value(g, code).map_or(0.0, |v| v.0.max(0.0)));
         for (rows, codes) in [(&mut s.special, SPECIALS.collect::<Vec<_>>()), (&mut skills, SKILLS.filter(|&c| c != av::BIG_GUNS).collect())] {
             for (row, code) in rows.iter_mut().zip(codes) {
                 if let Some((shown, permanent)) = value(g, code) {
