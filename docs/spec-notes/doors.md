@@ -200,3 +200,12 @@ to the player.
   (3686, 10809), 242 units in front of HOTM's door. Markers whose plugin saw the door
   where it wins are used as stored. The player's doors (`fnv_sim` reference table) and
   the NPCs' door links (`fnv_nav::graph::door_teleport`) use the same rule.
+- **Doors tipped over to open the way** [observed: the owner's load order, 2026-11-07]:
+  Simple Open Freeside opens Freeside's gates by tilting each gate door 0.5 to 0.65 rad on
+  x and y, turning it and sinking it about 290 units into the ground. VFSEastGateREF
+  (0x00116423) goes from (9450, -7036, 1032) to (9402, -7264, 742). FreesideGateToStripREF
+  (0x00116425) goes to (-6792, -10346, 708). The mod leaves the markers by the gates. Moved
+  with the door, the east gate's marker swung round to the far side of the wall and went
+  under the street: the player fell and was put outside the gate (overnight queue item
+  37). **NVForever** [design]: a destination door whose x or y rotation changed by more
+  than 0.1 rad was taken out of the way, not moved, so its marker is used as stored.

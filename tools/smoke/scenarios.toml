@@ -1001,6 +1001,42 @@ expect = [
 ]
 
 [[scenario]]
+name = "freeside-east-gate-arrival"
+source = "owner's overnight queue 2026-11-07 item 37, Freeside arrival: through the East Gate the player lands standing on the street just inside the gate, at FreesideEastGateREF's XTEL marker (9246, -7138, 1013) in FreesideNorthWorld [observed: FalloutNV.esm; Simple Open Freeside moves the gate into FreesideWorld]; docs/spec-notes/doors.md §6 (a gate a mod tipped over keeps its marker: fnv_world::teleport)"
+areas = ["doors"]
+paths = ["crates/fnv-world/src/teleport.rs", "crates/fnv-sim/src/refs.rs", "crates/fnv-nav/src/graph.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "1:activate:FreesideEastGateREF", NVF_PLAY_TEST_TALK = "0:*=leave" }
+args = ["--play", "--plugins", "FalloutNV.esm", "--world", "WastelandNV", "--pos=-9700,102850,4360", "--heading", "130", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { re = 'travel to worldspace 0012D94D \(FreesideNorthWorld\): feet \(924[0-9], -713[0-9], [0-9.]+\), floor z', label = "arrives at the marker inside the East Gate, standing on a floor" },
+]
+
+[[scenario]]
+name = "freeside-north-gate-arrival"
+source = "owner's overnight queue 2026-11-07 item 37, Freeside arrival: through the North Gate the player lands standing on the street just inside the gate, at ExteriorGateToFreesideREF's XTEL marker (8288, 6896, 1008) in FreesideNorthWorld [observed: FalloutNV.esm]; docs/spec-notes/doors.md §6"
+areas = ["doors"]
+paths = ["crates/fnv-world/src/teleport.rs", "crates/fnv-sim/src/refs.rs", "crates/fnv-nav/src/graph.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "1:activate:ExteriorGateToFreesideREF", NVF_PLAY_TEST_TALK = "0:*=leave" }
+args = ["--play", "--plugins", "FalloutNV.esm", "--world", "WastelandNV", "--pos=-9800,111800,4360", "--heading", "270", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { re = 'travel to worldspace 0012D94D \(FreesideNorthWorld\): feet \(828[0-9], 689[0-9], [0-9.]+\), floor z', label = "arrives at the marker inside the North Gate, standing on a floor" },
+]
+
+[[scenario]]
+name = "strip-to-freeside-arrival"
+source = "owner's overnight queue 2026-11-07 item 37, Freeside arrival: from the Strip, the Strip's gate to Freeside (0x0013BB0D) puts the player on the street just inside Freeside's gate, at its XTEL marker (-6711, -10197, 1033) [observed: FalloutNV.esm]; docs/spec-notes/doors.md §6"
+areas = ["doors"]
+paths = ["crates/fnv-world/src/teleport.rs", "crates/fnv-sim/src/refs.rs", "crates/fnv-nav/src/graph.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "1:activate:0x0013BB0D", NVF_PLAY_TEST_TALK = "0:*=leave" }
+args = ["--play", "--plugins", "FalloutNV.esm", "--world", "TheStripWorldNew", "--pos=1004,8722,1030", "--heading", "45", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { re = 'travel to worldspace 0010BEEA \(FreesideWorld\): feet \(-671[0-9], -1019[0-9], [0-9.]+\), floor z', label = "arrives at the marker inside Freeside's gate to the Strip, standing on a floor" },
+]
+
+[[scenario]]
 name = "residents"
 source = "CLAUDE.md: after changes to fnv-ai or the engine's residents, the residents smoke test"
 areas = ["ai", "residents"]
