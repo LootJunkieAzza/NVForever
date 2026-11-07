@@ -6,7 +6,7 @@ use crate::terrain::{prepare_terrain, spawn_terrain, TerrainCtx, TerrainMaterial
 use crate::water::{water_material, WaterCtx};
 use bevy::math::Affine3A;
 use bevy::prelude::*;
-use bevy::tasks::{futures::check_ready, AsyncComputeTaskPool, Task, TaskPool};
+use bevy::tasks::{futures::check_ready, Task};
 use fnv_esm::{LoadOrder, Plugin as EsmPlugin, Schema as EsmSchema};
 use fnv_world::imposter::ImposterRegions;
 use fnv_world::placed::{base_object, placement, BaseObject, Placement};
@@ -583,7 +583,7 @@ fn read_ahead(world: &WorldData, streamer: &mut Streamer, centre: (i32, i32), ri
             refs.extend(world.persistent_by_grid.get(&c).into_iter().flatten());
             let land = cell.land;
             let (lo, schema, hide) = (world.lo, world.schema, hide.clone());
-            let task = AsyncComputeTaskPool::get_or_init(TaskPool::default).spawn(async move {
+            let task = nvf_assets::read_pool::read_pool().spawn(async move {
                 CellAhead {
                     models: cell_models(lo, schema, &refs, &hide),
                     terrain: land.and_then(|l| prepare_terrain(lo, schema, l, c, tile)),
@@ -778,7 +778,9 @@ pub fn loading_gate(
     }
     // Pipelines not ready: what they would draw is missing from the view, which keeps the
     // clear colour (`pipeline_gate`). Before the first render frame nothing has asked yet.
-    let pipelines = gate.frames() == 0 || gate.busy() > 0;
+    // The start's screen waits for all of them, a travel under it included.
+    let busy_now = if loading.travelling() && !loading.starting() { gate.busy_for_travel() } else { gate.busy() };
+    let pipelines = gate.frames() == 0 || busy_now > 0;
     if loading.pipelines_busy != pipelines {
         loading.pipelines_busy = pipelines;
     }
@@ -1232,18 +1234,20 @@ pub fn spawn_model(
         stats.refs_animated += 1;
         return;
     }
-    // A jointed object left posed by its designer (`XRGD`, clutter_pose.rs).
-    let posed = (crate::clutter_pose::posable(&base.sig) && model.nodes.len() > 1)
+    // A jointed object left posed by its designer (`XRGD`, clutter_pose.rs). Whether it
+    // poses is decided by `clutter_pose::pose` (the matching rule and every body on a
+    // named node below the model's root), the same condition the collision uses.
+    let posed = crate::clutter_pose::posable(&base.sig)
         .then(|| crate::clutter_pose::stored(world.lo, r))
         .flatten()
         .and_then(|bones| {
             let bodies = crate::clutter_pose::body_nodes(&models.data, &path)?;
             let posed = crate::clutter_pose::pose(&model.nodes, &bodies, &bones);
-            match posed {
-                Some(_) => info!("clutter pose: 0x{r:08X} {path} drawn in its stored pose ({} bodies)", bodies.len()),
-                None => debug!("clutter pose: 0x{r:08X} {path}: {} entries do not fit {} bodies", bones.len(), bodies.len()),
+            match &posed {
+                Ok(_) => info!("clutter pose: 0x{r:08X} {path} drawn in its stored pose ({} bodies)", bodies.len()),
+                Err(why) => crate::clutter_pose::log_refused(&path, why, &bones, &bodies),
             }
-            posed
+            posed.ok()
         });
     stats.refs_posed += usize::from(posed.is_some());
     for s in &model.shapes {
