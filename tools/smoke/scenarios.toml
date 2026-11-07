@@ -21622,6 +21622,7 @@ env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", N
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 44
 expect = [
+  { text = "tiles: StatsMenu list bar pictures to paint: up true, down true, marker true", min = 1, label = "structure only: all three sized scrollbar pictures reach the painter; shots check pixels" },
   { re = 'tiles: StatsMenu Skills from tiles: 13 rows, "[^"]+" selected, value \d+, boxed at -1, list height [1-9]\d*(\.\d+)?, row height [1-9]', label = "thirteen rows measured, no box at opening" },
   { re = 'tiles: StatsMenu Skills from tiles: 13 rows, "[^"]+" selected, value \d+, boxed at [0-9]', label = "a key or the pointer boxes the row" },
   { re = 'tiles: StatsMenu Skills from tiles: .*, device$', min = 1, label = "the device's layout" },

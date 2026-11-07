@@ -952,6 +952,13 @@ fn mark_inner_rects(ui: &mut Ui, buttons: impl IntoIterator<Item = (TileId, Opti
     }
 }
 
+/// The list bar's pictures [design: `super::list` names; `super::layout::OWN_ALPHA`
+/// lets each keep its own alpha under the transparent bar, as in `super::dialog_menu::own_tiles`].
+fn list_bar_pictures(ui: &Ui, list: TileId) -> [Option<TileId>; 3] {
+    let bar = list::child(ui, list, list::SCROLLBAR);
+    [list::UP, list::DOWN, list::MARKER].map(|name| bar.and_then(|b| list::child(ui, b, name)))
+}
+
 /// The places code gives the file to work from: each row's height and `_y`, the list's height,
 /// the box's place, the description's scroll steps, and, for a list that does not hold its rows,
 /// the scroll bar's counts.
@@ -1413,6 +1420,11 @@ pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, tab: usiz
                 w.other_geometry = Some(g.1);
             }
         }
+        // [design: layout::OWN_ALPHA] Only the pictures' alpha is independent; the bar's
+        // visibility still hides them when the list fits. Cover pictures injected later too.
+        for picture in list_bar_pictures(ui, list).into_iter().flatten() {
+            ui.write_changed(picture, layout::OWN_ALPHA, Value::Num(1.0));
+        }
         // On every drawn frame, so a window injected or enabled later crops too.
         fnv_ui::input::mark_clip_windows(ui, p.menu);
     }
@@ -1441,6 +1453,10 @@ pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, tab: usiz
             if w.list_drawn != Some(drawn) {
                 let n = |x: f64| Value::Num(x).text();
                 info!("tiles: {STATS_MENU} list scrolled to {} of {}", n(drawn), n(most));
+                let [up, down, marker] = list_bar_pictures(ui, list).map(|t| {
+                    t.is_some_and(|tile| tiles.pieces.iter().any(|p| p.tile == tile && matches!(p.look, Look::Picture { .. }) && p.rect.width > 0.0 && p.rect.height > 0.0))
+                });
+                info!("tiles: {STATS_MENU} list bar pictures to paint: up {up}, down {down}, marker {marker}");
                 if let Some(marker) = list::child(ui, list, list::SCROLLBAR).and_then(|b| list::child(ui, b, list::MARKER)) {
                     info!("tiles: {STATS_MENU} list marker {} high, {} a step", n(num(ui, marker, "height")), n(num(ui, marker, "_step_height")));
                 }
@@ -2436,6 +2452,57 @@ mod tests {
         run_tab(&mut ui, &s, &mut v, 2, &mut t).unwrap();
         let bar = list::child(&ui, list_named(&ui, "stats_skills_container"), list::SCROLLBAR).unwrap();
         assert!(ui.tile(bar).get("_number_of_items").is_none());
+    }
+
+    /// [design] Pictures and a count-driven visibility rule written for this test (#1512),
+    /// with independent sizes and alpha values; no layout or expression from a menu file.
+    #[test]
+    fn list_bar_pictures_keep_their_alpha_and_hide_when_the_rows_fit() {
+        const BAR_PICTURES: &str = r#"<image name="lb_scrollbar"><alpha>0</alpha><x>150</x><width>8</width><height>70</height>
+          <_number_of_items>1</_number_of_items><_current_value>0</_current_value>
+          <visible><copy src="me()" trait="_number_of_items"/><gt>1</gt></visible>
+          <image name="scrollbar_vert_up"><filename>test_up.dds</filename><y>3</y><width>8</width><height>5</height><alpha>210</alpha></image>
+          <image name="scrollbar_vert_down"><filename>test_down.dds</filename><y>65</y><width>8</width><height>5</height><alpha>180</alpha></image>
+          <image name="scrollbar_vert_marker"><filename>test_marker.dds</filename><y>20</y><width>3</width><height>9</height><alpha>150</alpha></image>
+        </image>"#;
+        for tab in [2, GENERAL_TAB] {
+            let (mut ui, mut s, mut t) = (tree(), general_snap(), StatsTiles::default());
+            let mut v = if tab == GENERAL_TAB { general_view(s.general.len()) } else { view() };
+            let list = paths(&ui, tab, None).unwrap().in_mode(false).list();
+            ui.unload_tile(list::child(&ui, list, list::SCROLLBAR).unwrap());
+            assert!(ui.inject_text(&MemSource::default(), &ui.path_of(list), BAR_PICTURES));
+            let bar = list::child(&ui, list, list::SCROLLBAR).unwrap();
+            let pictures = list_bar_pictures(&ui, list).map(|p| p.unwrap());
+            ui.set_trait(bar, "_number_of_items", Value::Num(2.0));
+            ui.update();
+            let before = TestFonts.set_out(&ui, ui.menu(STATS_MENU).unwrap());
+            assert!(before.iter().all(|p| !pictures.contains(&p.tile)), "unmarked pictures inherit zero alpha");
+
+            run_tab(&mut ui, &s, &mut v, tab, &mut t).unwrap();
+            let painted = |tiles: &StatsTiles| pictures.map(|id| tiles.pieces.iter().find(|p| p.tile == id).map(|p| p.colour[3]));
+            let alphas = [Some(210.0 / 255.0), Some(180.0 / 255.0), Some(150.0 / 255.0)];
+            assert_eq!(painted(&t), alphas, "all three pictures reach the painter at their own alpha");
+            assert_eq!(num(&ui, bar, "alpha"), 0.0);
+            for picture in pictures {
+                assert_eq!(num(&ui, picture, layout::OWN_ALPHA), 1.0);
+                let piece = t.pieces.iter().find(|p| p.tile == picture).unwrap();
+                assert!(matches!(piece.look, Look::Picture { .. }) && piece.rect.width > 0.0 && piece.rect.height > 0.0);
+            }
+            v.scroll(tab, 1);
+            run_tab(&mut ui, &s, &mut v, tab, &mut t).unwrap();
+            assert_eq!(list::value_shown(&ui, list), Some(1.0));
+            assert_eq!(painted(&t), alphas, "scrolling keeps the pictures in the paint set");
+            ui.set_trait(pictures[2], "alpha", Value::Num(0.0));
+            run_tab(&mut ui, &s, &mut v, tab, &mut t).unwrap();
+            assert_eq!(painted(&t), [alphas[0], alphas[1], None], "a picture's own zero alpha still hides it");
+            ui.set_trait(pictures[2], "alpha", Value::Num(150.0));
+            s.skills.truncate(3);
+            s.general.truncate(3);
+            run_tab(&mut ui, &s, &mut v, tab, &mut t).unwrap();
+            assert_eq!(num(&ui, bar, "_number_of_items"), 1.0);
+            assert_eq!(num(&ui, bar, "visible"), 0.0);
+            assert_eq!(painted(&t), [None; 3], "the bar's visibility still hides all three pictures");
+        }
     }
 
     /// A name that wraps makes one row taller: the model's whole rows cannot scroll that list,

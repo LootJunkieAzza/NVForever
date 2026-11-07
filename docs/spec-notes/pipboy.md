@@ -663,6 +663,14 @@ runs, 0 visible items, 500 x 542]. The original's counts agree with `list::count
 rows 34 and 51.33]. A list that has never scrolled keeps the file's counts, as §5.1.1; once it does,
 it has the file's `_scroll_delta` back when its rows fit again.
 
+The list bar's up arrow, down arrow and marker use `layout::OWN_ALPHA`, so each picture
+keeps its own alpha under the bar's zero alpha [design: `tiles/stats_menu.rs::page`,
+`list_bar_pictures`; the same mark as `tiles/container_menu.rs::mark_tiles`]. The bar's
+`visible` still hides its pictures when the list fits. The scroll log reports which of the
+three sized pictures are in the final paint set; this checks pieces, while shots check pixels
+[design: `tiles/stats_menu.rs::page`; test `list_bar_pictures_keep_their_alpha_and_hide_when_the_rows_fit`,
+using a fixture written for the test, covers Skills and General].
+
 | Tile and trait | Code writes | From [design] |
 |---|---|---|
 | list `height` | the visible rows times the tallest row where the file counts them; otherwise left as the file gives it | `_number_of_visible_items`, else the file's `height`, else `stats::VISIBLE` |
