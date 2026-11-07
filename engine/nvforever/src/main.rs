@@ -76,6 +76,7 @@ mod memory_budget;
 mod lockpick_view;
 mod roulette_view;
 mod blackjack_view;
+mod caravan_view;
 mod body_weapons;
 mod terminal_view;
 mod scope_lens;
@@ -1457,6 +1458,8 @@ fn main() -> AppExit {
         app.add_plugins(scope_view::ScopeViewPlugin);
         // The poker table (poker_view.rs).
         app.add_plugins(poker_view::PokerViewPlugin);
+        // The Caravan table in 3D (caravan_view.rs).
+        app.add_plugins(caravan_view::CaravanViewPlugin);
     }
     if let Some(a) = actor_world {
         if let Some(c) = creator_data.take() {

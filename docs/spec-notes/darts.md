@@ -251,3 +251,16 @@ Other edits in those cells [observed: ESP; base names looked up in FalloutNV.esm
   is drawn only once it leaves the hand, so nothing stands between the eye and the board. On
   the other side's turn, on the menus and after the match, a fixed camera behind the line shows
   the throwers in third person.
+- **First person, square to the board** [design: owner 2026-11-06]: on the player's own turn
+  the eye is straight in front of the bull (board x 0), so the board is centred and seen
+  square; the body stands 8 units to the left of the eye's line, a little right of where it
+  waits in third person.
+- **The aim's mark** [design]: a crosshair drawn centred on the aim's point (the bar's own
+  thickness, a dark edge), not a text "+", whose glyph sat above and left of the point; a
+  throw let go on the pip lands under its middle.
+- **No pointer while throwing** [design: owner 2026-11-06]: the window's mouse pointer is
+  hidden while the match page is up and shown again on the menus.
+- **The opponent stays** [design: owner 2026-11-06]: once the match is over the opponent
+  waits by the board until the player leaves the menu, then walks back.
+- Test aids: `NVF_PLAY_TEST_DARTS_START=<n>` starts every side on n; `NVF_PLAY_TEST_DARTS_AIM=x,z`
+  holds the aim at a board point with no sway and lets every throw go on the pip.

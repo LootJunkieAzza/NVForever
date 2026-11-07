@@ -45,7 +45,7 @@ use crate::sim::SimState;
 use crate::{PlaySet, PlayState, PlayerCamera};
 use bevy::audio::PlaybackSettings;
 use bevy::prelude::*;
-use bevy::window::PrimaryWindow;
+use bevy::window::{CursorOptions, PrimaryWindow};
 use fnv_game::darts::{self, Hit, Match, Side};
 use fnv_game::fillet::{self, Finish, Key, State as FState, Strike};
 use std::cmp::Ordering;
@@ -92,10 +92,15 @@ pub const WAIT: [f32; 3] = [-48.0, LINE[1] - 50.0, 0.0];
 /// camera stood 64 in front of the bull, where a co-op friend at the line stood in the
 /// view].
 pub const EYE: [f32; 3] = [16.0, LINE[1] - 36.0, 8.0];
-/// Where the camera stands on this player's own turn, local: their eyes at the line, a
-/// little right of the body at [`UP`] over the throwing hand, at about the bull's height
+/// Where the camera stands on this player's own turn, local: their eyes at the line,
+/// straight in front of the bull (the body at [`OWN_UP`]), at about the bull's height
 /// [design: owner 2026-11-05, first person on one's own turn, third on the other's].
-pub const OWN_EYE: [f32; 3] = [UP[0] + 8.0, LINE[1] + 3.0, 5.0];
+pub const OWN_EYE: [f32; 3] = [0.0, LINE[1] + 3.0, 5.0];
+/// Where this player stands on their own turn (first person): right of [`UP`] so the eyes
+/// ([`OWN_EYE`]) are straight in front of the bull and the board is square to the view
+/// [design: owner 2026-11-06, "stand the player a little more to the right"; from UP the
+/// view met the board at a slant].
+pub const OWN_UP: [f32; 3] = [OWN_EYE[0] - 8.0, LINE[1], 0.0];
 /// Seconds a held throw takes to draw the dart all the way back [design].
 pub const DRAW_SECONDS: f32 = 0.35;
 
@@ -197,6 +202,8 @@ pub struct Darts {
     pub thrown: u32,
     /// Where this player stands now: at the line (true) or waiting (false).
     pub stands_up: Option<bool>,
+    /// Whether they stand at the first-person spot ([`OWN_UP`]) rather than [`UP`].
+    pub stands_own: bool,
     /// Where the player stood when the board was opened (a stranger opponent comes from
     /// there, `darts_foes`).
     pub came_from: Option<[f32; 3]>,
@@ -222,7 +229,7 @@ impl Darts {
     }
 
     pub fn sway_aim(&self, now: f32) -> (f32, f32) {
-        let (sx, sz) = darts::sway(self.special.0, now - self.turn_since);
+        let (sx, sz) = if test_aim().is_some() { (0.0, 0.0) } else { darts::sway(self.special.0, now - self.turn_since) };
         ((self.aim.0 + sx).clamp(-darts::AIM_LIMIT, darts::AIM_LIMIT), (self.aim.1 + sz).clamp(-darts::AIM_LIMIT, darts::AIM_LIMIT))
     }
 }
@@ -338,7 +345,7 @@ impl Plugin for MinigamesPlugin {
             .add_message::<PlayFile>()
             .add_systems(Update, open.after(PlaySet::Activation).before(PlaySet::Ui))
             .add_systems(Update, ((darts_keys, darts_step, fillet_keys, fillet_step).chain().run_if(in_state(PlayState::Menu)), draw, play_files).chain().in_set(PlaySet::Ui))
-            .add_systems(Update, (darts_stand, darts_opponent_walk).after(PlaySet::Ui))
+            .add_systems(Update, (darts_stand, darts_opponent_walk, darts_pointer).after(PlaySet::Ui))
             .add_systems(PostUpdate, darts_camera.before(bevy::transform::TransformSystems::Propagate))
             .add_systems(OnExit(PlayState::Menu), close);
     }
@@ -422,6 +429,7 @@ fn open(
                 leave: false,
                 thrown: 0,
                 stands_up: None,
+                stands_own: false,
                 came_from: None,
                 met: 0,
                 foe_name: None,
@@ -495,7 +503,7 @@ fn start_match(d: &mut Darts, foe: Foe, now: f32) {
 fn darts_keys(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
-    (windows, cams): (Query<&Window, With<PrimaryWindow>>, Query<(&Camera, &GlobalTransform), With<PlayerCamera>>),
+    (windows, cams): crate::minigames::ViewQueries,
     mut screen: ResMut<DartsScreen>,
     mut script: Option<ResMut<ScriptState>>,
     mut sim: ResMut<SimState>,
@@ -570,7 +578,8 @@ fn darts_keys(
             }
         }
         Page::Play => {
-            if let Some(aim) = windows.single().ok().and_then(|w| cursor_on_board(w.cursor_position()?, d.frame?, cams.single().ok()?)) {
+            let aid = test_aim();
+            if let Some(aim) = aid.or_else(|| windows.single().ok().and_then(|w| cursor_on_board(w.cursor_position()?, d.frame?, cams.single().ok()?))) {
                 d.aim = (aim.0.clamp(-darts::AIM_LIMIT, darts::AIM_LIMIT), aim.1.clamp(-darts::AIM_LIMIT, darts::AIM_LIMIT));
             }
             if d.joined.is_none() && keys.just_pressed(KeyCode::KeyR) && (d.foe == Foe::Practice || d.m.winner.is_some()) {
@@ -600,7 +609,8 @@ fn darts_keys(
             }
             if mouse.just_released(MouseButton::Left) {
                 if let Some(p) = d.press.take() {
-                    let at = darts::bar(d.special.1, now - p.since);
+                    // The aid's throws go on the pip: true, landing on the crosshair.
+                    let at = if aid.is_some() { p.pip } else { darts::bar(d.special.1, now - p.since) };
                     let (mx, mz) = darts::miss(at, p.pip, darts::miss_turn(now, d.throws));
                     d.throws += 1;
                     d.last_bar = Some((now, at, p.pip));
@@ -614,7 +624,21 @@ fn darts_keys(
     }
 }
 
+/// The window and the player's camera, for a screen point on a table or board.
+pub type ViewQueries<'w, 's> = (Query<'w, 's, &'static Window, With<PrimaryWindow>>, Query<'w, 's, (&'static Camera, &'static GlobalTransform), With<PlayerCamera>>);
+
 const HAND: &str = "sound\\fx\\minigames\\darts\\hand.wav";
+
+/// Test aid `NVF_PLAY_TEST_DARTS_AIM=x,z`: the aim is held at (x, z) on the board's face
+/// (board units, the bull at 0,0) instead of following the mouse, and every throw is let
+/// go on the pip with no sway, so every dart lands exactly where the crosshair stands.
+fn test_aim() -> Option<(f32, f32)> {
+    static AIM: std::sync::OnceLock<Option<(f32, f32)>> = std::sync::OnceLock::new();
+    *AIM.get_or_init(|| {
+        let v: Vec<f32> = std::env::var("NVF_PLAY_TEST_DARTS_AIM").ok()?.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+        (v.len() == 2).then(|| (v[0], v[1]))
+    })
+}
 
 /// Where the view's ray through a cursor (window pixels) meets the board's face.
 fn cursor_on_board(cursor: Vec2, frame: BoardFrame, (cam, gt): (&Camera, &GlobalTransform)) -> Option<(f32, f32)> {
@@ -651,7 +675,9 @@ fn darts_stand(mut screen: ResMut<DartsScreen>, mut phys: Option<ResMut<crate::p
     let Some(d) = screen.0.as_mut() else { return };
     let Some(f) = d.frame else { return };
     let up = stands_up(d);
-    if d.stands_up == Some(up) {
+    // On their own turn at [`OWN_UP`], where the first-person view is square to the board.
+    let own = up && d.page == Page::Play && d.m.up == d.mine() && d.m.winner.is_none();
+    if d.stands_up == Some(up) && d.stands_own == own {
         return;
     }
     let (Some(phys), Some(player)) = (phys.as_deref_mut(), player.as_deref_mut()) else { return };
@@ -660,7 +686,7 @@ fn darts_stand(mut screen: ResMut<DartsScreen>, mut phys: Option<ResMut<crate::p
     // from where the player stood). Not the arrival rule: it stands the player on top of
     // the opponent when it is still at the line (playtest 2026-11-05, "floating after
     // the first turn"); the floor's search passes through actors.
-    let mut spot = f.to_world(if up { UP } else { WAIT });
+    let mut spot = f.to_world(if own { OWN_UP } else if up { UP } else { WAIT });
     let floor = d.came_from.map_or(player.feet[2], |c| c[2]);
     spot[2] = floor;
     phys.place_player(spot, 60.0, 200.0);
@@ -668,6 +694,7 @@ fn darts_stand(mut screen: ResMut<DartsScreen>, mut phys: Option<ResMut<crate::p
     player.heading = f.theta;
     player.pitch = 0.0;
     d.stands_up = Some(up);
+    d.stands_own = own;
     info!("darts: this player {} the line (feet {:?})", if up { "steps up to" } else { "waits back from" }, player.feet);
 }
 
@@ -709,9 +736,13 @@ fn darts_opponent_walk(
     time: Res<Time>,
 ) {
     let Some(o) = opp.0.as_mut() else { return };
-    let live = screen.0.as_ref().filter(|d| d.board == o.board && d.page == Page::Play && d.foe == Foe::Opponent && d.m.winner.is_none());
-    o.to = match live {
-        Some(d) if d.m.up == 1 || o.release.is_some() => darts_foes::Spot::Line,
+    // It stays at the board while the player has its menu open, the result screen and
+    // the menus after a match included, and goes home only once they leave it (playtest
+    // 2026-11-06: it walked off as the match ended). In play it throws from the line and
+    // waits beside it; otherwise it waits beside it, the player being at the line.
+    let at_board = screen.0.as_ref().filter(|d| d.board == o.board);
+    o.to = match at_board {
+        Some(d) if d.page == Page::Play && d.foe == Foe::Opponent && d.m.winner.is_none() && (d.m.up == 1 || o.release.is_some()) => darts_foes::Spot::Line,
         Some(_) => darts_foes::Spot::Waiting,
         None => darts_foes::Spot::Home,
     };
@@ -732,6 +763,21 @@ fn darts_opponent_walk(
             with_world(rt, &mut sim, |rt| darts_foes::send_off(&mut rt.game, &o));
         }
         opp.0 = None;
+    }
+}
+
+/// The menu's pointer (the game's amber arrow) is hidden while darts are thrown: the aim
+/// has its own crosshair. The darts menus before and after show it, and so does
+/// everything once darts close [design: owner 2026-11-06].
+fn darts_pointer(screen: Res<DartsScreen>, mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>, mut hid: Local<bool>) {
+    let throwing = screen.0.as_ref().is_some_and(|d| d.page == Page::Play);
+    let Ok(mut c) = cursor.single_mut() else { return };
+    if throwing && c.visible {
+        c.visible = false;
+        *hid = true;
+    } else if !throwing && std::mem::take(&mut *hid) {
+        // Back only where darts hid it; leaving to the world, the game grabs it as usual.
+        c.visible = true;
     }
 }
 
@@ -1375,6 +1421,23 @@ fn disc(p: &mut ChildSpawnerCommands, x: f32, y: f32, r: f32, color: Color) {
     ));
 }
 
+/// The aim's crosshair, centred exactly on (left, top): two thin white bars with a dark
+/// edge. A "+" glyph placed by fixed offsets sat above the point by a part of its line
+/// height that changed with the window's size, so a true throw landed under it
+/// (playtest 2026-11-06).
+fn crosshair(p: &mut ChildSpawnerCommands, left: Val, top: Val) {
+    const ARM: f32 = 1.3;
+    const THICK: f32 = 0.22;
+    const EDGE: f32 = 0.12;
+    p.spawn(Node { position_type: PositionType::Absolute, left, top, width: Val::Px(0.0), height: Val::Px(0.0), ..default() }).with_children(|c| {
+        for (w, h, color) in [(ARM + EDGE, THICK + EDGE, Color::srgba(0.0, 0.0, 0.0, 0.6)), (ARM, THICK, Color::WHITE)] {
+            for (bw, bh) in [(2.0 * w, h), (h, 2.0 * w)] {
+                c.spawn((Node { position_type: PositionType::Absolute, left: Val::Vh(-bw / 2.0), top: Val::Vh(-bh / 2.0), width: Val::Vh(bw), height: Val::Vh(bh), ..default() }, BackgroundColor(color)));
+            }
+        }
+    });
+}
+
 const AMBER: Color = Color::srgb(0.98, 0.78, 0.35);
 const CHALK: Color = Color::srgb(0.92, 0.92, 0.88);
 
@@ -1386,7 +1449,7 @@ fn draw(
     time: AidTime,
     tables: Option<Res<Tables>>,
     old: Query<Entity, With<MinigameRoot>>,
-    (windows, cams): (Query<&Window, With<PrimaryWindow>>, Query<(&Camera, &GlobalTransform), With<PlayerCamera>>),
+    (windows, cams): crate::minigames::ViewQueries,
 ) {
     for e in &old {
         commands.entity(e).despawn();
@@ -1441,7 +1504,7 @@ fn draw_darts(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u
         Page::Play if d.frame.is_some() => {
             // The board is the cabinet's; the crosshair sits where the aim meets it.
             if let (true, Some(a)) = (d.my_turn(), aim) {
-                text(p, "+", Val::Percent(a.x - 0.6), Val::Percent(a.y - 2.6), 30.0, Color::WHITE);
+                crosshair(p, Val::Percent(a.x), Val::Percent(a.y));
             }
             draw_bar_and_chalk(p, d, now, name);
         }
@@ -1474,7 +1537,7 @@ fn draw_darts(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u
                 }
                 if d.my_turn() {
                     let (x, z) = d.press.map_or_else(|| d.sway_aim(now), |p| p.locked);
-                    text(b, "+", Val::Vh(x * k - 1.0), Val::Vh(-z * k - 2.0), 30.0, Color::WHITE);
+                    crosshair(b, Val::Vh(x * k), Val::Vh(-z * k));
                 }
             });
             draw_bar_and_chalk(p, d, now, name);

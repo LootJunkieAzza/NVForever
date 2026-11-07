@@ -78,6 +78,15 @@ pub struct OpenCaravan(pub CaravanRequest);
 #[derive(Resource, Default)]
 pub struct CaravanScreen(pub Option<Session>);
 
+/// The game's table drawn in 3D (nvforever `caravan_view.rs`): the picture the game screen
+/// shows in place of its flat planks and cards, laid out as [`screen::table_cards`] says
+/// so the names, values and outlines drawn over it fall on its cards. Present only while
+/// the table is built.
+#[derive(Resource)]
+pub struct CaravanView {
+    pub image: Handle<Image>,
+}
+
 /// A game against another player, between this menu and `crate::coop_social`.
 #[derive(Resource, Default, Debug)]
 pub struct PvpWire {
