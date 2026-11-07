@@ -20,6 +20,13 @@ pub trait VoiceLengths: Send + Sync {
     fn file_seconds(&self, _path: &str) -> Option<f64> {
         None
     }
+
+    /// Seconds of response `response` of `info` in the folder of voice type
+    /// `voice_type` (the player's own voice, `Game::line_voice_type`). `None`: no such
+    /// sound.
+    fn voice_type_seconds(&self, _info: FormId, _response: usize, _voice_type: FormId) -> Option<f64> {
+        None
+    }
 }
 
 impl Game<'_> {
@@ -67,7 +74,15 @@ impl Game<'_> {
     /// lasts as one empty response does ([`Game::line_seconds`] is their sum).
     pub fn response_lengths(&self, speaker: FormId, info: FormId) -> Vec<f64> {
         let rate = f64::from(self.line_rate(speaker, info));
-        let lengths = self.response_lengths_voiced(crate::functions::base_of(self, speaker), self.line_voice(speaker, info), info);
+        let mut lengths = self.response_lengths_voiced(crate::functions::base_of(self, speaker), self.line_voice(speaker, info), info);
+        // The player's own voice type (by sex and race) has its own files.
+        if let (Some(vt), Some(voice)) = (self.line_voice_type(speaker, info), self.voice.as_ref()) {
+            for (k, s) in lengths.iter_mut().enumerate() {
+                if let Some(own) = voice.voice_type_seconds(info, k, vt) {
+                    *s = own;
+                }
+            }
+        }
         lengths.into_iter().map(|s| s / rate).collect()
     }
 

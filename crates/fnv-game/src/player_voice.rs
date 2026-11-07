@@ -635,6 +635,47 @@ impl Game<'_> {
         }
     }
 
+    /// The voice type the player's own lines (not a voice set's) are said in, by the
+    /// player's sex and race now (the creator's choice, SexChange, a race change):
+    /// PlayerVoiceFemale for a woman, PlayerVoiceMale for a man, the generic ghoul
+    /// voices for a ghoul (overnight item 21, 2026-11-07).
+    /// - [observed: the Player record (0x7) lists VTCK PlayerVoiceMale whatever the sex
+    ///   chosen; Voices1.bsa has every GenericPlayer line (hit, power attack, death) in
+    ///   both PlayerVoiceMale and PlayerVoiceFemale, under the same INFO ids, so the female
+    ///   set is meant for a female player; hypothesis: the original picks the folder by
+    ///   the player's sex].
+    /// - [observed: no RACE lists a player voice, and no ghoul voice type has GenericPlayer
+    ///   files; MaleGenericGhoul and FemaleGenericGhoul have the Generic quest's Hit,
+    ///   PowerAttack and Death lines; design: a ghoul player says those].
+    ///
+    /// `None` when the data has no such voice type (the record's own voice is used).
+    pub fn player_own_voice_type(&self) -> Option<FormId> {
+        let female = self.actor_female(FormId::PLAYER_REF);
+        let edid = match (self.player_is_ghoul(), female) {
+            (true, true) => "FemaleGenericGhoul",
+            (true, false) => "MaleGenericGhoul",
+            (false, true) => "PlayerVoiceFemale",
+            (false, false) => "PlayerVoiceMale",
+        };
+        self.data.by_edid(edid).filter(|&v| self.data.sig(v) == Some(*b"VTYP"))
+    }
+
+    /// Whether the player's race now is a ghoul race ([`race_kind`]).
+    pub fn player_is_ghoul(&self) -> bool {
+        self.actor_race(FormId::PLAYER_REF).and_then(|r| self.data.edid_of.get(&r)).is_some_and(|e| race_kind(e) == "ghoul")
+    }
+
+    /// The voice type `r` says `info` in when it is not the one of `r`'s record: the
+    /// player's own voice type ([`Game::player_own_voice_type`]) for a line the player
+    /// says that is not one of the voice set's. `None` otherwise (the voice of
+    /// [`Game::line_voice_base`]).
+    pub fn line_voice_type(&self, r: FormId, info: FormId) -> Option<FormId> {
+        if r != FormId::PLAYER_REF || self.player_voice.as_ref().is_some_and(|v| v.lines.contains(&info)) {
+            return None;
+        }
+        self.player_own_voice_type()
+    }
+
     /// The speed `r` says `info` at: the set's rate for a line of the player's voice, else 1.
     pub fn line_rate(&self, r: FormId, info: FormId) -> f32 {
         match self.player_voice.as_ref() {

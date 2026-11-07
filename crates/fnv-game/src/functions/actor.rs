@@ -601,7 +601,9 @@ fn forget_factions(g: &Game, r: FormId) {
 pub fn get_is_voice_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let v = a.form(0)?;
-    let Some(voice) = g.traits_def(r).and_then(|d| d.voice) else { return yes(false) };
+    // The player speaks in its own voice type by sex and race (`Game::player_own_voice_type`).
+    let own = if r == FormId::PLAYER_REF { g.player_own_voice_type() } else { None };
+    let Some(voice) = own.or_else(|| g.traits_def(r).and_then(|d| d.voice)) else { return yes(false) };
     yes(voice == v || super::refs::list_members(g, v).contains(&voice))
 }
 
