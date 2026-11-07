@@ -192,10 +192,12 @@ pub fn karma_column(alignment: &str) -> usize {
 /// `sKarmicTitle<Good|Neutral|Evil><level>` where the plugins hold it (`setting`), else
 /// [`KARMA_TITLES`]. Levels above 30 take 30's title, below 1 level 1's.
 pub fn karma_title(level: i64, alignment: &str, setting: impl Fn(&str) -> Option<String>) -> String {
-    karma_title_setting(level, alignment, setting).unwrap_or_else(|| KARMA_TITLES[level.clamp(1, 30) as usize - 1][karma_column(alignment)].to_string())
+    // The hand-built page reads the name unpadded, so levels below 10 take the table; left as it is [design].
+    let name = format!("sKarmicTitle{}{}", ["Good", "Neutral", "Evil"][karma_column(alignment)], level.clamp(1, 30));
+    setting(&name).filter(|s| !s.is_empty()).unwrap_or_else(|| KARMA_TITLES[level.clamp(1, 30) as usize - 1][karma_column(alignment)].to_string())
 }
 
-/// [`karma_title`]'s setting alone, without the table.
+/// The setting alone, without the table, for a view drawn from the menu's file. Unlike [`karma_title`] it also finds the two-digit names.
 pub fn karma_title_setting(level: i64, alignment: &str, setting: impl Fn(&str) -> Option<String>) -> Option<String> {
     let level = level.clamp(1, 30) as usize;
     // FalloutNV.esm spells levels below 10 with two digits (`sKarmicTitleNeutral01`) [documented: `fnvtool esm inventory`].
@@ -427,6 +429,9 @@ mod tests {
         assert_eq!(karma_title(7, "Neutral", |_| None), "Vagabond of the Wastes");
         assert_eq!(karma_title_setting(29, "Very Evil", esm).as_deref(), Some("Demon Spawn"));
         assert_eq!(karma_title_setting(29, "Neutral", esm), None);
+        let padded = |n: &str| (n == "sKarmicTitleNeutral01").then(|| "From the plugin".to_string());
+        assert_eq!(karma_title_setting(1, "Neutral", padded).as_deref(), Some("From the plugin"));
+        assert_ne!(karma_title(1, "Neutral", padded), "From the plugin", "the hand-built page keeps the table");
         assert_eq!(reputation_title(0, 0), "Neutral");
         assert_eq!(reputation_title(3, 0), "Idolized");
         assert_eq!(reputation_title(1, 1), "Mixed");
