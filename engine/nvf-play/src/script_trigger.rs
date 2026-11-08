@@ -69,6 +69,8 @@ pub struct Triggers {
     pub inside: BTreeSet<(FormId, FormId)>,
     /// A co-op guest's game: its story triggers are held ([`Triggers::held_for_guest`]).
     guest: bool,
+    /// This game has been a co-op guest's (`Game::coop_guest` set) since it joined.
+    was_guest: bool,
     /// Candidates whose volumes come from their model's trigger shapes (traps: bear
     /// traps, tripwires, pressure plates), not from a placed primitive.
     from_model: std::collections::HashSet<FormId>,
@@ -90,7 +92,16 @@ impl Triggers {
     /// accessed" (queue 2026-11-07 item 83, the guest-side gate). Nothing is entered,
     /// run or left while held, and what was inside is forgotten, so a game that stops
     /// being a guest enters what it stands in afresh (as after a load).
-    pub fn held_for_guest(&mut self, guest: bool) -> bool {
+    ///
+    /// `joining`: the host welcomed this game as a guest (`crate::save::KeepSolo`). The
+    /// game is flagged a guest only once its own game was kept (`crate::save::SoloBase`),
+    /// a moment after the host's world moved its player: before, its player entered its
+    /// own copy of a story trigger on that first frame (two-window check 2026-11-08). So
+    /// it is held from the welcome until the flag first comes, and after that by the flag
+    /// alone (a game that leaves the host's world runs its triggers again).
+    pub fn held_for_guest(&mut self, guest: bool, joining: bool) -> bool {
+        self.was_guest |= guest;
+        let guest = guest || (joining && !self.was_guest);
         if guest != self.guest {
             self.guest = guest;
             if guest {
@@ -201,8 +212,8 @@ fn actors(rt: &mut Runtime, phys: &PhysState, player: Capsule) -> Vec<(FormId, C
 
 /// Test the actors against the triggers of the loaded cells and run the blocks. `player`
 /// is the player's capsule; `None` when the player has no position yet.
-pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Option<Capsule>) {
-    let guest = rt.triggers.held_for_guest(rt.game.coop_guest);
+pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Option<Capsule>, joining: bool) {
+    let guest = rt.triggers.held_for_guest(rt.game.coop_guest, joining);
     let Some(player) = player else { return };
     let data = rt.game.data;
     let mut candidates: Vec<FormId> = Vec::new();
@@ -312,13 +323,15 @@ mod tests {
     fn a_guests_triggers_are_held() {
         let mut t = Triggers::default();
         t.inside.insert((FormId(0x0300_326F), FormId::PLAYER_REF));
-        assert!(!t.held_for_guest(false));
+        assert!(!t.held_for_guest(false, false));
         assert_eq!(t.inside.len(), 1, "solo: as before");
-        assert!(t.held_for_guest(true));
+        // Welcomed, not flagged a guest yet: held already.
+        assert!(t.held_for_guest(false, true));
         assert!(t.inside.is_empty(), "forgotten: no Leave runs for them");
         t.inside.insert((FormId(0x0200_A7CC), FormId::PLAYER_REF));
-        assert!(t.held_for_guest(true));
-        assert!(!t.held_for_guest(false));
+        assert!(t.held_for_guest(true, true));
+        // Left the host's world: the welcome stays, the flag goes, triggers run again.
+        assert!(!t.held_for_guest(false, true));
         assert!(t.inside.is_empty(), "entered afresh after");
     }
 }

@@ -1708,7 +1708,7 @@ pub(crate) fn run_scripts(
     mut travel: MessageWriter<TravelRequest>,
     mut open: MessageWriter<OpenContainer>,
     (mut used, mut anims): (MessageReader<ItemUsed>, ResMut<crate::ConsumeAnims>),
-    mut sit: MessageWriter<crate::furniture::UseFurniture>,
+    (mut sit, joining): (MessageWriter<crate::furniture::UseFurniture>, Option<Res<crate::save::KeepSolo>>),
     paused: Res<crate::pause::Paused>,
     (mut screen, bindings, tiles, page, mut mods_ticks, tile_menus): ScreenAndMenus,
 ) {
@@ -1960,7 +1960,7 @@ pub(crate) fn run_scripts(
         // A conversation with the player pauses the game: nobody moves, and no trigger
         // block runs (OnTrigger would, every frame) until it is over.
         if rt.game.dialogue.is_none() {
-            crate::script_trigger::update(rt, &play, &phys, player_capsule);
+            crate::script_trigger::update(rt, &play, &phys, player_capsule, joining.is_some());
         }
         rt.game.loading = loading;
         rt.game.cfg.frame_seconds = dt;
