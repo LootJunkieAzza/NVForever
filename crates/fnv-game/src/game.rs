@@ -1477,6 +1477,8 @@ pub struct Game<'a> {
     /// A co-op session is on (host or guest), with another player in it: the co-op
     /// perks can be taken (`crate::coop_perks`).
     pub coop_session: bool,
+    /// What the host's story gave or took from this guest's player (`crate::coop_story`).
+    pub coop_story: crate::coop_story::CoopStory,
     /// What the other co-op players' companion perks give the player
     /// (`crate::coop_perks::FromOthers`).
     pub coop_from_others: crate::coop_perks::FromOthers,
@@ -2198,6 +2200,7 @@ impl<'a> Game<'a> {
             coop_actors: BTreeMap::new(),
             coop_guest: false,
             coop_session: false,
+            coop_story: Default::default(),
             coop_from_others: Default::default(),
             coop_host_quest: None,
             coop_rewards: crate::coop_rewards::RewardLedger::default(),

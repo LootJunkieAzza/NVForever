@@ -1153,7 +1153,12 @@ fn play(
         }
         let looping = matches!(w.track, Track::Loop(_));
         let Some(bytes) = radio.bytes(&data.vfs, &w.path) else { continue };
-        let from = if w.into > JOIN { w.into } else { 0.0 };
+        // A part is joined where it has got to as the sound starts, not where it was at the
+        // frame's start: in a long frame (loading a place, a hitch) the two are apart by the
+        // frame's length, and a guest started its line that much late (queue item 69,
+        // observed 0.47 s) [observed 2026-11-08, `co-op radio sync` log].
+        let into = if looping { w.into } else { w.into + time.last_update().map_or(0.0, |t| t.elapsed().as_secs_f64()) };
+        let from = if into > JOIN { into } else { 0.0 };
         let Some((sound, level)) = RadioSound::new(bytes, from, looping) else {
             if radio.reported.insert(w.path.clone()) {
                 warn!("radio: {}: not decoded", w.path);
@@ -1188,6 +1193,12 @@ fn play(
             w.path,
             if from > 0.0 { format!(" from {from:.1} s") } else { String::new() },
         );
+        // In co-op, where this part's beginning falls on the computer's clock: two games on
+        // one computer that play the same part in step log the same time (queue item 69).
+        if !looping && shared.as_deref().is_some_and(|s| s.on) {
+            let wall = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
+            info!("co-op radio sync: {who} {} begins at {:.3} on the computer's clock (from {from:.2} s, host clock {:.2})", w.path, wall - from, host_now.map_or(-1.0, |h| h - from));
+        }
         match w.key {
             PIPBOY => radio.pipboy_parts += 1,
             PIPBOY_STATIC | TABLE => {}
