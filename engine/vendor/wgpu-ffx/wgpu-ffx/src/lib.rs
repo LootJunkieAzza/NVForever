@@ -78,6 +78,8 @@ pub struct FsrContext {
     pass_debug_view: pass::FsrPass,
 
     flags: FsrContextFlags,
+    // NVForever (2026-11-08): the half-precision variants run ([`FsrContextFlags::ALLOW_FP16`]).
+    fp16: bool,
 }
 
 /// Per-resolution, per-camera state for FSR3 upscaling.
@@ -113,33 +115,8 @@ impl FsrContext {
         let buffer_clearer = clear_buffer::BufferClearer::new(&info.device);
 
         let flags = info.flags;
-        let shaders = wgpu_ffx_shaders_spv::fsr3upscaler::choose_shaders(
-            if flags.contains(FsrContextFlags::HIGH_DYNAMIC_RANGE) {
-                Fsr3upscalerOptionHdrColorInput::On
-            } else {
-                Fsr3upscalerOptionHdrColorInput::Off
-            },
-            if flags.contains(FsrContextFlags::DEPTH_INVERTED) {
-                Fsr3upscalerOptionInvertedDepth::On
-            } else {
-                Fsr3upscalerOptionInvertedDepth::Off
-            },
-            if flags.contains(FsrContextFlags::MOTION_VECTORS_JITTER_CANCELLATION) {
-                Fsr3upscalerOptionJitteredMotionVectors::On
-            } else {
-                Fsr3upscalerOptionJitteredMotionVectors::Off
-            },
-            if flags.contains(FsrContextFlags::DISPLAY_RESOLUTION_MOTION_VECTORS) {
-                Fsr3upscalerOptionLowResolutionMotionVectors::Off
-            } else {
-                Fsr3upscalerOptionLowResolutionMotionVectors::On
-            },
-            // LUT vs reference lanczos. LUT is used on GPUs with 32-64 wave lane range;
-            // since we don't query this from wgpu yet, default to reference (Off).
-            Fsr3upscalerOptionReprojectUseLanczosType::Off,
-            Half::Off,
-            Wave64::Off,
-        );
+        let fp16 = flags.contains(FsrContextFlags::ALLOW_FP16) && info.device.features().contains(FP16_FEATURES);
+        let shaders = context_shaders(flags, fp16);
 
         let pass_prepare_inputs = pass::FsrPass::new(
             &info.device,
@@ -222,6 +199,7 @@ impl FsrContext {
             pass_debug_view,
 
             flags: info.flags,
+            fp16,
         }
     }
 
@@ -887,6 +865,140 @@ bitflags::bitflags! {
         const AUTO_EXPOSURE = 1 << 5;
         /// A bit indicating that the application uses dynamic resolution scaling.
         const DYNAMIC_RESOLUTION = 1 << 6;
+        /// Use AMD's half-precision shader variants (`FFX_HALF`) where the device has
+        /// [`FP16_FEATURES`]; full precision otherwise. Not one of AMD's flags: AMD's host code
+        /// takes FP16 whenever the device reports `shaderFloat16`. Only the accumulate pass
+        /// (reprojection, upsampling) runs in half precision: the two SPD pyramids' FP16
+        /// variants are stubs in SDK 1.1.4 ([`FsrContext::new`]), and the other passes do not
+        /// read `FFX_HALF` (RCAS only on Xbox).
+        // NVForever (2026-11-08): added to the port.
+        const ALLOW_FP16 = 1 << 16;
+    }
+}
+
+/// The upscaler's shaders for the context's flags, the half-precision ones where `fp16`.
+fn context_shaders(flags: FsrContextFlags, fp16: bool) -> Shaders {
+    let choose = |half: Half| {
+        wgpu_ffx_shaders_spv::fsr3upscaler::choose_shaders(
+            if flags.contains(FsrContextFlags::HIGH_DYNAMIC_RANGE) {
+                Fsr3upscalerOptionHdrColorInput::On
+            } else {
+                Fsr3upscalerOptionHdrColorInput::Off
+            },
+            if flags.contains(FsrContextFlags::DEPTH_INVERTED) {
+                Fsr3upscalerOptionInvertedDepth::On
+            } else {
+                Fsr3upscalerOptionInvertedDepth::Off
+            },
+            if flags.contains(FsrContextFlags::MOTION_VECTORS_JITTER_CANCELLATION) {
+                Fsr3upscalerOptionJitteredMotionVectors::On
+            } else {
+                Fsr3upscalerOptionJitteredMotionVectors::Off
+            },
+            if flags.contains(FsrContextFlags::DISPLAY_RESOLUTION_MOTION_VECTORS) {
+                Fsr3upscalerOptionLowResolutionMotionVectors::Off
+            } else {
+                Fsr3upscalerOptionLowResolutionMotionVectors::On
+            },
+            // LUT vs reference lanczos. LUT is used on GPUs with 32-64 wave lane range;
+            // since we don't query this from wgpu yet, default to reference (Off).
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            half,
+            Wave64::Off,
+        )
+    };
+    let full = choose(Half::Off);
+    if !fp16 {
+        return full;
+    }
+    // NVForever (2026-11-08): SDK 1.1.4's FFX_HALF callbacks of the two SPD pyramids
+    // (ffx_fsr3upscaler_luma_pyramid.h, ffx_fsr3upscaler_shading_change_pyramid.h) are
+    // stubs: their loads return zero and their stores write nothing, so those variants
+    // compile to a pass that leaves the pyramids, the exposure and the frame info unwritten.
+    // They stay full precision.
+    Shaders {
+        luma_pyramid: full.luma_pyramid,
+        luma_pyramid_sharpen: full.luma_pyramid_sharpen,
+        shading_change_pyramid: full.shading_change_pyramid,
+        shading_change_pyramid_sharpen: full.shading_change_pyramid_sharpen,
+        ..choose(Half::On)
+    }
+}
+
+#[cfg(test)]
+mod fp16_tests {
+    use super::*;
+
+    fn bindings(spirv: &[u8]) -> Vec<u32> {
+        fg_pass::spirv::bindings(&fg_pass::spirv::words(spirv))
+    }
+
+    /// Every combination of the flags that choose a shader variant.
+    fn variant_flags() -> impl Iterator<Item = FsrContextFlags> {
+        let each = [
+            FsrContextFlags::HIGH_DYNAMIC_RANGE,
+            FsrContextFlags::DEPTH_INVERTED,
+            FsrContextFlags::MOTION_VECTORS_JITTER_CANCELLATION,
+            FsrContextFlags::DISPLAY_RESOLUTION_MOTION_VECTORS,
+        ];
+        (0..16u32).map(move |bits| {
+            each.iter().enumerate().filter(|(i, _)| bits & (1 << i) != 0).fold(FsrContextFlags::empty(), |f, (_, b)| f | *b)
+        })
+    }
+
+    #[test]
+    fn half_precision_accumulation_binds_as_full_precision_and_the_pyramids_stay_full() {
+        for flags in variant_flags() {
+            let full = context_shaders(flags, false);
+            let half = context_shaders(flags, true);
+            for (name, f, h) in [("accumulate", full.accumulate, half.accumulate), ("accumulate_sharpen", full.accumulate_sharpen, half.accumulate_sharpen)] {
+                assert!(!std::ptr::eq(f, h), "{flags:?}: {name} has no FP16 variant");
+                assert_eq!(bindings(f), bindings(h), "{flags:?}: {name}");
+            }
+            for (f, h) in [
+                (full.luma_pyramid, half.luma_pyramid),
+                (full.luma_pyramid_sharpen, half.luma_pyramid_sharpen),
+                (full.shading_change_pyramid, half.shading_change_pyramid),
+                (full.shading_change_pyramid_sharpen, half.shading_change_pyramid_sharpen),
+                (full.prepare_inputs, half.prepare_inputs),
+                (full.rcas, half.rcas),
+            ] {
+                assert!(std::ptr::eq(f, h), "{flags:?}: a pass without a working FP16 variant changed");
+            }
+        }
+    }
+
+    /// Why the pyramids stay full precision: AMD's FP16 SPD callbacks are stubs, so its FP16
+    /// pyramids bind almost nothing. Fails, and can go, once a newer SDK fills them in.
+    #[test]
+    fn amds_half_precision_pyramids_are_stubs() {
+        let half = wgpu_ffx_shaders_spv::fsr3upscaler::choose_shaders(
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::On,
+            Wave64::Off,
+        );
+        let full = context_shaders(FsrContextFlags::HIGH_DYNAMIC_RANGE | FsrContextFlags::DEPTH_INVERTED, false);
+        assert_eq!(bindings(full.luma_pyramid).len(), 7);
+        assert_eq!(bindings(full.shading_change_pyramid).len(), 12);
+        assert_eq!(bindings(half.luma_pyramid).len(), 2);
+        assert_eq!(bindings(half.shading_change_pyramid).len(), 2);
+    }
+}
+
+/// The device features AMD's FP16 variants need: 16-bit floats, and 16-bit integers, which
+/// AMD's GLSL half path also uses ("Shaders currently require u16 support to use f16").
+// NVForever (2026-11-08): added to the port.
+pub const FP16_FEATURES: wgpu::Features = wgpu::Features::SHADER_F16.union(wgpu::Features::SHADER_I16);
+
+impl FsrContext {
+    /// Whether this context runs the half-precision variants ([`FsrContextFlags::ALLOW_FP16`]).
+    // NVForever (2026-11-08): added to the port.
+    pub fn uses_fp16(&self) -> bool {
+        self.fp16
     }
 }
 

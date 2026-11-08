@@ -107,6 +107,18 @@ Changes:
   upscaler's tuning constants as FidelityFX SDK 1.1.4's `FfxFsr3UpscalerConfigureKey` sets
   them (`ffx_fsr3upscaler.h`: names, descriptions, defaults and ranges). The engine keeps
   AMD's defaults; `tools/fsr-validation` (`ghosting.rs`) uses it to measure them.
+- **Half precision** (2026-11-08): the upscaler's `perm.toml` compiles `FFX_HALF = [0, 1]`
+  (shaderc 2026.4, Vulkan SDK 1.4.363.0, `--only fsr3upscaler`). The committed FP32 SPIR-V
+  is kept byte for byte (the Half::Off arms of `fsr3upscaler/mod.rs` name the same files);
+  26 FP16 files are added, for the accumulate pass and the two pyramids. `lib.rs`:
+  `FsrContextFlags::ALLOW_FP16` (not one of AMD's flags) and `FP16_FEATURES` (`SHADER_F16`
+  and `SHADER_I16`: the FP16 SPIR-V declares `Float16` and, in 8 accumulate variants,
+  `Int16`). The pyramids stay full precision: SDK 1.1.4's FFX_HALF SPD callbacks in
+  `ffx_fsr3upscaler_luma_pyramid.h` and `ffx_fsr3upscaler_shading_change_pyramid.h` return
+  zero and store nothing, and those variants compile to passes that bind 2 resources where
+  the FP32 ones bind 7 and 12 [observed 2026-11-08, spirv-dis]. The FP16 accumulate variants
+  bind the same sets, bindings and image formats as their FP32 slots [observed 2026-11-08,
+  from the SPIR-V's decorations].
 - **Frame generation** (2026-11-07, #1778), new code ported from AMD's MIT host sources of
   FidelityFX SDK 1.1.4 (`sdk/src/components/opticalflow/ffx_opticalflow.cpp`,
   `sdk/src/components/frameinterpolation/ffx_frameinterpolation.cpp`, and the parameters

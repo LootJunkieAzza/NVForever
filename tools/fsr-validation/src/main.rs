@@ -243,6 +243,9 @@ fn main() {
                 "READS_VIEW_TRANSMISSION_TEXTURE",
             ],
         ),
+        // The ambient occlusion, before FSR (entry `multiply`) and after tonemapping.
+        ("nvforever/ssao.wesl", &[]),
+        ("nvforever/ssao.wesl", &["MULTISAMPLED"]),
     ];
     for (i, (name, extra)) in variants.iter().enumerate() {
         let mut defs: Vec<ShaderDefVal> = common

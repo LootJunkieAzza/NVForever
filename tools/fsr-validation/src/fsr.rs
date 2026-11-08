@@ -1,7 +1,7 @@
 //! Numerical checks of the exact source FSR backend used by the engine.
 use half::f16;
 use wgpu::*;
-use wgpu_ffx::{FsrContext, FsrContextFlags, FsrContextInfo, FsrDispatchFlags, FsrDispatchInfo};
+use wgpu_ffx::{FsrContext, FsrContextInfo, FsrDispatchFlags, FsrDispatchInfo};
 
 fn image(device: &Device, format: TextureFormat, side: u32, usage: TextureUsages) -> Texture {
     device.create_texture(&TextureDescriptor {
@@ -49,14 +49,12 @@ pub fn run(device: &Device, queue: &Queue) {
     let render = 64;
     let upscale = 96; // Quality, 1.5x per dimension.
     let output_side = 104; // A guard outside the requested output rectangle.
-    let flags = FsrContextFlags::HIGH_DYNAMIC_RANGE
-        | FsrContextFlags::DEPTH_INVERTED
-        | FsrContextFlags::DEPTH_INFINITE
-        | FsrContextFlags::AUTO_EXPOSURE;
+    let flags = crate::gpu::fsr_flags();
     let context = FsrContext::new(FsrContextInfo {
         device: device.clone(),
         flags,
     });
+    println!("FSR context: {}", if context.uses_fp16() { "half precision (accumulate pass)" } else { "full precision" });
     let sampled = TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST;
     let storage = TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
     let color = image(device, TextureFormat::Rgba16Float, upscale, sampled);

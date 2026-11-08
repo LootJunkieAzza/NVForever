@@ -165,6 +165,20 @@ pub(crate) fn read(
 
 /// The Vulkan device every check runs on. `WGPU_VALIDATION=1` turns on the Khronos
 /// validation layer (Vulkan SDK); any wgpu validation error stops the run.
+/// `NVF_FSR_FP16=1`: the FSR dispatches use AMD's half-precision accumulate pass (the
+/// engine's default where the GPU has 16-bit shader floats and integers); full precision
+/// otherwise.
+pub fn fp16_requested() -> bool {
+    std::env::var("NVF_FSR_FP16").is_ok_and(|v| v.trim() == "1")
+}
+
+/// The engine's FSR context flags (fsr.rs `prepare`), with `ALLOW_FP16` when requested.
+pub fn fsr_flags() -> wgpu_ffx::FsrContextFlags {
+    use wgpu_ffx::FsrContextFlags as F;
+    let flags = F::HIGH_DYNAMIC_RANGE | F::DEPTH_INVERTED | F::DEPTH_INFINITE | F::AUTO_EXPOSURE;
+    if fp16_requested() { flags | F::ALLOW_FP16 } else { flags }
+}
+
 pub fn device() -> (Device, Queue) {
     let instance = Instance::new(InstanceDescriptor {
         backends: Backends::VULKAN,
@@ -204,6 +218,15 @@ pub fn device() -> (Device, Queue) {
             .flags
             .contains(TextureFormatFeatureFlags::STORAGE_READ_WRITE));
     }
+    let fp16 = fp16_requested();
+    if fp16 {
+        assert!(
+            adapter.features().contains(wgpu_ffx::FP16_FEATURES),
+            "NVF_FSR_FP16=1 but the adapter lacks {:?}",
+            wgpu_ffx::FP16_FEATURES - adapter.features()
+        );
+    }
+    let required = if fp16 { required | wgpu_ffx::FP16_FEATURES } else { required };
     let (device, queue) = pollster::block_on(adapter.request_device(&DeviceDescriptor {
         required_features: required,
         required_limits: adapter.limits(),

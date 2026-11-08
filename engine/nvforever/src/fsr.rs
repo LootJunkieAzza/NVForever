@@ -137,6 +137,11 @@ static MIP_BIAS_OFFSET: std::sync::LazyLock<f32> = std::sync::LazyLock::new(|| {
     offset.unwrap_or(-1.0)
 });
 
+/// AMD's half-precision variant of FSR's accumulate pass where the GPU has 16-bit shader
+/// floats and integers (wgpu-ffx `FsrContextFlags::ALLOW_FP16`); `NVF_FSR_FP16=0` keeps full
+/// precision, for comparisons.
+static FP16: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| !std::env::var("NVF_FSR_FP16").is_ok_and(|v| v.trim() == "0"));
+
 /// Whether this device can execute the audited Vulkan SPIR-V shader path.
 #[derive(Resource, Clone, Copy, Default)]
 pub struct FsrSupport(pub bool);
@@ -346,11 +351,20 @@ pub(crate) fn prepare(
             continue;
         }
         let (context, _) = renderer.0.get_or_insert_with(|| {
-            let context = FsrContext::new(FsrContextInfo {
-                device: device.wgpu_device().clone(),
-                flags: FsrContextFlags::HIGH_DYNAMIC_RANGE | FsrContextFlags::DEPTH_INVERTED
-                    | FsrContextFlags::DEPTH_INFINITE | FsrContextFlags::AUTO_EXPOSURE,
-            });
+            let mut flags = FsrContextFlags::HIGH_DYNAMIC_RANGE | FsrContextFlags::DEPTH_INVERTED
+                | FsrContextFlags::DEPTH_INFINITE | FsrContextFlags::AUTO_EXPOSURE;
+            if *FP16 {
+                flags |= FsrContextFlags::ALLOW_FP16;
+            }
+            let context = FsrContext::new(FsrContextInfo { device: device.wgpu_device().clone(), flags });
+            let shaders = if context.uses_fp16() {
+                "half precision (accumulate pass)"
+            } else if *FP16 {
+                "full precision (the GPU lacks 16-bit shader floats or integers)"
+            } else {
+                "full precision (NVF_FSR_FP16=0)"
+            };
+            info!("FSR 3.1 shaders: {shaders}");
             (context, AuxiliaryPipelines::new(device.wgpu_device()))
         });
         usages.0 |= wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC;
@@ -359,12 +373,18 @@ pub(crate) fn prepare(
         // Bevy applies its projection jitter with the opposite displacement sign.
         jitter.offset = -offset;
         bias.0 = (render_size.x as f32 / output_size.x as f32).log2() + *MIP_BIAS_OFFSET;
-        // The depth prepass is drawn at the render size and expanded by nearest texels
-        // ([`AuxiliaryPipelines::expand_depth`]); the ambient occlusion takes its normals
-        // from neighbouring texels as drawn (ssao.wesl `normal_at`). Before the uniforms are
-        // written (RenderSystems::PrepareResources); the extraction resets it every frame.
-        if let Some(mut ao) = ao.filter(|_| render_size != output_size) {
-            ao.render_scale = Vec4::new(render_size.x as f32, render_size.y as f32, output_size.x as f32, output_size.y as f32);
+        // The ambient occlusion: at the render size before FSR (ssao.rs `ao_before_fsr`), or
+        // with `NVF_AO_BEFORE_FSR=0` after tonemapping, from the depth prepass drawn at the
+        // render size and expanded by nearest texels ([`AuxiliaryPipelines::expand_depth`]),
+        // its normals taken from neighbouring texels as drawn (ssao.wesl `normal_at`). Before
+        // the uniforms are written (RenderSystems::PrepareResources); the extraction resets
+        // it every frame.
+        if let Some(mut ao) = ao {
+            if *crate::ssao::AO_BEFORE_FSR {
+                ao.before_fsr(render_size, output_size);
+            } else if render_size != output_size {
+                ao.render_scale = Vec4::new(render_size.x as f32, render_size.y as f32, output_size.x as f32, output_size.y as f32);
+            }
         }
         match old {
             Some(mut old) if old.render_size == render_size && old.output_size == output_size => {
@@ -391,6 +411,12 @@ fn on_off(on: bool) -> &'static str {
 }
 
 impl PreparedFsr {
+    /// The opaque copy the masks compare the finished frame with (display-sized; the render
+    /// rectangle is used): the ambient occlusion before FSR darkens it as it does the frame.
+    pub(crate) fn opaque(&self) -> &wgpu::Texture {
+        &self.opaque
+    }
+
     fn new(context: &FsrContext, device: &RenderDevice, queue: &RenderQueue, camera: FsrCamera, render_size: UVec2, output_size: UVec2, jitter: Vec2) -> Self {
         let device = device.wgpu_device();
         let texture = |label, size: UVec2, format, usage| device.create_texture(&wgpu::TextureDescriptor {

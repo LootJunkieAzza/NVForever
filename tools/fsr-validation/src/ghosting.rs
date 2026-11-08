@@ -27,7 +27,7 @@
 //! Fine detail (`Kind::Fence`) is for the opt-in diagnostics below.
 use half::f16;
 use wgpu::{util::DeviceExt, *};
-use wgpu_ffx::{FsrConfigureKey, FsrContext, FsrContextFlags, FsrContextInfo, FsrDispatchFlags, FsrDispatchInfo};
+use wgpu_ffx::{FsrConfigureKey, FsrContext, FsrContextInfo, FsrDispatchFlags, FsrDispatchInfo};
 
 const RENDER: u32 = 128;
 /// Quality: 1.5x per axis.
@@ -545,8 +545,9 @@ fn sweep(context: &FsrContext, device: &Device, queue: &Queue, pipelines: (&Mask
 pub fn run(device: &Device, queue: &Queue, mask_shader: &str, fallback_shader: &str) {
     let context = FsrContext::new(FsrContextInfo {
         device: device.clone(),
-        flags: FsrContextFlags::HIGH_DYNAMIC_RANGE | FsrContextFlags::DEPTH_INVERTED | FsrContextFlags::DEPTH_INFINITE | FsrContextFlags::AUTO_EXPOSURE,
+        flags: crate::gpu::fsr_flags(),
     });
+    println!("FSR context: {}", if context.uses_fp16() { "half precision (accumulate pass)" } else { "full precision" });
     let pipeline = mask_pipelines(device, mask_shader);
     let luma_pipeline = crate::gpu::pipeline(device, fallback_shader, "luma", Some(TextureFormat::R16Float));
     if std::env::var("NVF_GHOST_DEBUG").is_ok() {

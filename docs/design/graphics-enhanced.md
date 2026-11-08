@@ -76,7 +76,7 @@ Code: `graphics.rs` (preset, switches, applying them), `ssao.rs`/`ssao.wesl`,
 `sky.rs` (`shadow_reach`), `nvf_assets::texture::set_anisotropy`, `frame_pace.rs`, the rows in
 `settings.rs`.
 
-Pass order after the main pass: tonemapping → ambient occlusion → temporal anti-aliasing, FXAA or
+Pass order after the main pass (under FSR 3.1 the ambient occlusion comes before FSR, §3.1): tonemapping → ambient occlusion → temporal anti-aliasing, FXAA or
 SMAA → sun shafts → bloom and sharpening → the game's image-space blur and grade (imagespace.rs) → UI. So the game's grade and its modifiers
 (fades, blur, double vision) work on top of the improvements exactly as on the vanilla picture,
 and nothing repeats them.
@@ -104,6 +104,11 @@ fog takes over). The sky is left alone: the dome is opaque and in the depth prep
 Known limits: it darkens sunlit creases too (a post-process cannot tell ambient from direct
 light); water is not in the depth prepass, so the lake bed's occlusion shows faintly through
 the water surface; the first-person arms take a little occlusion from their own folds.
+
+While FSR 3.1 upscales (since 2026-11-08) the same pass runs before FSR instead, at FSR's
+render size, multiplied into the HDR picture FSR then accumulates
+([fsr-upscaling](fsr-upscaling.md), "Ambient occlusion"); `NVF_AO_BEFORE_FSR=0` keeps it
+after tonemapping.
 
 ### 3.2 Longer sun shadows (`fine-shadows`)
 

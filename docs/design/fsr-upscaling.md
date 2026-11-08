@@ -287,10 +287,22 @@ keeps the history at 15 frames a second and up (unit test
 
 ## Ambient occlusion
 
-`ssao.wesl` runs after FSR on the expanded depth, where one render texel covers 1.5 to 3
-pixels. It took each normal from the neighbouring pixels, and there it found the same texel
-again, with no depth step. So the normal faced the camera, and every surface seen at an
-angle occluded itself.
+**Since 2026-11-08 it runs before FSR** (`ssao.rs` `ao_before_fsr`): at FSR's render size,
+from the depth prepass as drawn (before `expand_depth`), at half that size, and multiplied
+into the render rectangle of the HDR picture FSR reads, through a blend (`ssao.wesl`
+`multiply`). The same factor goes into FSR's opaque copy, so the masks compare the two as
+before. FSR then accumulates the occlusion with everything else: it is jittered with the
+scene and smoothed by FSR instead of being worked out again, unsmoothed, on every frame of
+the upscaled picture. Its largest radius on the screen is scaled to the render size, so it
+covers what it did at the display size. It darkens the HDR light before tonemapping, so
+bright surfaces lose less of their brightness than when it is multiplied into the
+tonemapped picture. `NVF_AO_BEFORE_FSR=0` brings back the way below, for comparisons;
+without FSR the pass is unchanged.
+
+Before: `ssao.wesl` ran after FSR on the expanded depth, where one render texel covers 1.5
+to 3 pixels. It took each normal from the neighbouring pixels, and there it found the same
+texel again, with no depth step. So the normal faced the camera, and every surface seen at
+an angle occluded itself.
 
 [observed 2026-11-06, AO-on and AO-off screenshots of one still view at Goodsprings, FSR
 Performance, 1280x720] This laid a grey veil over the scene: a mean AO factor of 0.958,
@@ -304,8 +316,9 @@ unchanged.
 
 What FSR saves is GPU time, and only in the passes drawn at the render size: the depth
 prepass and the opaque and transparent passes. Bloom, the exposure, tonemapping, the grade
-and the UI run at the window's size after it; the ambient occlusion too, a little cheaper
-(`render_scale`). FSR itself costs about the same in every scene. NVForever's scenes are cheap
+and the UI run at the window's size after it; the ambient occlusion ran there too until
+2026-11-08 and now runs before FSR at the render size (below). FSR itself costs about the
+same in every scene. NVForever's scenes are cheap
 to draw for a GPU of today, so that fixed cost takes much of the saving, and in a light scene
 all of it.
 
@@ -341,15 +354,72 @@ share above. Where something else sets it, it does not move:
   ms a frame. Measure FSR by GPU time.
 
 On a GPU several times slower than this one the same shares apply where it sets the frame
-[hypothesis: the passes' costs were not measured on other GPUs]. NVForever's own passes run
-full-precision render passes over the render or window size; AMD's shaders also exist in
-FP16 variants, which this port does not compile ("Limits").
+[hypothesis: the passes' costs were not measured on other GPUs].
+
+### Half precision and the ambient occlusion before FSR (2026-11-08)
+
+Two changes cut the GPU time under FSR: AMD's half-precision (FP16) variant of the
+accumulate pass, where the GPU has 16-bit shader floats and integers (wgpu `SHADER_F16` and
+`SHADER_I16`; `NVF_FSR_FP16=0` keeps full precision), and the ambient occlusion before FSR
+("Ambient occlusion" above). Only the accumulate pass has a working FP16 variant: the luma
+and shading-change pyramids' FFX_HALF code is empty in SDK 1.1.4, and the other passes do
+not read FFX_HALF (engine/vendor/README.md).
+
+[observed 2026-11-08, RTX 5090, 3840x2160 borderless, `--graphics enhanced`, clear weather,
+frame generation off; GPU time a frame over all top-level passes, medians of 9 periods of
+4 s, the builds interleaved and the first run again at the end of each block
+(`dev\tools\fsr-compare-perf.ps1`); runs whose window lost focus (held to 60 frames a
+second by the driver, which also lowered the GPU's clocks: 2.99 ms against 2.80-2.83) were
+run again]
+
+| GPU ms a frame | Off | Quality before | Quality now | Performance before | Performance now |
+|---|---|---|---|---|---|
+| Goodsprings, noon | 3.67 | 2.81 | 2.68 (−5%) | 2.40 | 2.18 (−9%) |
+| Novac, noon | 3.10 | 2.73 | 2.61 (−4%) | 2.38 | 2.24 (−6%) |
+| Primm, noon | 3.52 | 2.72 | 2.52 (−7%) | 2.18 | 2.08 (−5%) |
+| The Strip, 21:00 | 1.93 | 2.13 | 2.01 (−5%) | 1.84 | 1.72 (−6%) |
+
+Most of it is the ambient occlusion: 0.14-0.18 ms after FSR at the display size, 0.08-0.09
+at Quality's render size and 0.05 at Performance's. FP16 makes AMD's upscale 0.02-0.03 ms
+cheaper (0.51-0.52 → 0.49-0.50 ms at Quality, 0.44-0.45 → 0.42-0.43 at Performance); on this
+GPU 16-bit arithmetic runs at the 32-bit rate, so the gain is registers and bandwidth only
+[hypothesis: GPUs with double-rate packed FP16, AMD's RDNA among them, may gain more; not
+measured]. The whole frame of identical runs differs by up to 0.26 ms, so the totals rest on
+the passes' own spans.
+
+On the picture [observed, frame-exact captures in the four towns at 1280x720, Quality,
+against FSR off at 2560x1440 with 8x MSAA scaled down, `dev\tools\town-capture.ps1`,
+`fp16_ao_metrics.py`]:
+
+- **FP16 changes nothing measurable.** Error, flicker and detail against the reference are
+  the same as full precision's in every town, still and moving; the frames differ per pixel
+  as much as two runs of one build do (Goodsprings 2.5 and 2.3/255). In the GPU harness the
+  panning cases' background error rises from 0.0054 to 0.0059 with FP16 and the trails
+  shrink a little (`tools/fsr-validation`, `NVF_FSR_FP16=1`).
+- **The occlusion no longer shimmers.** After FSR it was worked out again on every frame
+  from the jittered depth, unsmoothed; before FSR, FSR accumulates it. The flicker of still
+  frames against the reference: Goodsprings 0.33 → 0.22, Novac 0.25 → 0.17, Primm 0.33 →
+  0.24, the Strip 0.54 → 0.47, the same as with no ambient occlusion at all (0.21, 0.17,
+  0.24, 0.47); at Performance 0.33 → 0.19 at Goodsprings. Moving frames are unchanged.
+- **The exposure moves a little.** With the occlusion in the HDR picture, eye adaptation
+  meters a slightly different average, and Bevy's 8-bit, point-sampled compensation curve
+  turns that into a step: Primm 3 % darker, Goodsprings 1 % brighter than without it (with
+  the light glow and eye adaptation off, the occlusion darkens exactly as after FSR). The
+  steps come from the curve, not the occlusion ("Limits").
 
 ## Limits
 
-- **Backend and speed.** Vulkan only, with full-precision shader variants (no FP16). The
-  gain depends on how busy the GPU is; a CPU-bound scene gains nothing, and a light one can
-  cost more than it saves ("Performance").
+- **Backend and speed.** Vulkan only. AMD's FP16 variants only for the accumulate pass, and
+  only on GPUs with 16-bit shader floats and integers; frame generation's passes stay full
+  precision. The gain depends on how busy the GPU is; a CPU-bound scene gains nothing, and a
+  light one can cost more than it saves ("Performance").
+- **Eye adaptation's exposure steps.** Bevy reads its exposure compensation curve from an
+  8-bit table of 256 entries without interpolation, so NVForever's curve (eye_adapt.rs, which
+  should leave daylight unchanged) leaves it 0 to about 0.15 EV too dark, by where the
+  metered average falls, and steps when that crosses an entry. Any change to what is metered
+  moves the brightness by a few per cent; the ambient occlusion before FSR is one [observed
+  2026-11-08; read in Bevy 0.20.1's `auto_exposure.wesl` and `compensation_curve.rs`]. Not
+  fixed here.
 - **Surfaces whose picture changes by itself** have no mask of their own: animated textures
   and render-to-texture screens (the Pip-Boy's, terminals, a scope's lens). The masks' light
   term catches a change that brightens or darkens most of a 3x3 area, not detail that moves
