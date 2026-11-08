@@ -132,17 +132,24 @@ pub(super) fn share_scene(
     loading: Option<Res<Loading>>,
     mut travel: MessageWriter<TravelRequest>,
     solo: Option<Res<nvf_play::save::SoloBase>>,
+    mut sim: Option<ResMut<nvf_play::sim::SimState>>,
 ) {
     let now = time.elapsed_secs();
     let coop = &mut *coop;
     let Some(mut script) = script else { return };
     let Some(rt) = script.rt.as_mut() else { return };
-    let g = &mut rt.game;
+    // The places' world lives in `SimState` and is lent to the scripts' game only inside
+    // `with_world`: the player's inventory (what it wears, the story gear) is read and
+    // changed there.
     if coop.is_host() {
-        g.coop_host_locks = [false; 7];
+        rt.game.coop_host_locks = [false; 7];
         coop.scene = Shared::default();
         if let Some(link) = coop.link.as_ref() {
-            link.set_scene(scene_view(g));
+            let view = match sim.as_deref_mut() {
+                Some(sim) => nvf_play::script::with_world(rt, sim, |rt| scene_view(&rt.game)),
+                None => scene_view(&rt.game),
+            };
+            link.set_scene(view);
         }
         return;
     }
@@ -157,9 +164,16 @@ pub(super) fn share_scene(
     let view = heard.unwrap_or_default();
     // The host's story gear: kept while the host is only lost a moment (a dropout is not
     // a leave), taken off when this game is no guest.
-    if guest && solo.is_some() && (s.heard.is_some() || !g.coop_story_gear.is_empty()) {
-        let host_gear: Option<Vec<(FormId, bool)>> = s.heard.as_ref().map(|(v, _)| v.worn.iter().map(|&(i, l)| (FormId(i), l)).collect());
-        if let Some(gear) = host_gear {
+    let gear: Option<Vec<(FormId, bool)>> = if guest && solo.is_some() && (s.heard.is_some() || !rt.game.coop_story_gear.is_empty()) {
+        s.heard.as_ref().map(|(v, _)| v.worn.iter().map(|&(i, l)| (FormId(i), l)).collect())
+    } else if !rt.game.coop_story_gear.is_empty() {
+        Some(Vec::new())
+    } else {
+        None
+    };
+    if let (Some(gear), Some(sim)) = (gear, sim.as_deref_mut()) {
+        nvf_play::script::with_world(rt, sim, |rt| {
+            let g = &mut rt.game;
             let (on, off) = g.follow_story_gear(&gear);
             for i in on {
                 info!("co-op: the host's story puts {} ({:#010X}) on this player too", g.data.name(i), i.0);
@@ -167,11 +181,9 @@ pub(super) fn share_scene(
             for i in off {
                 info!("co-op: {} ({:#010X}) taken off: the host's story no longer has it on", g.data.name(i), i.0);
             }
-        }
-    } else if !g.coop_story_gear.is_empty() {
-        let (_, off) = g.follow_story_gear(&[]);
-        info!("co-op: not a guest now: the host's story gear taken off ({} item(s))", off.len());
+        });
     }
+    let g = &mut rt.game;
     let held = locks_of(view.locks);
     if held != s.held {
         if held.iter().any(|h| *h) {
