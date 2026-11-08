@@ -8144,9 +8144,10 @@ SUP7_PROBES = (
      # Which type is the translation and the rotation [observed 2026-11-08: the scale is
      # type 0, a rotation found by type 1]: each started from the block as it is to the
      # same place (calcStart, no visible change), the three types searched as digits (type
-     # 0 hundreds, 1 tens, 2 units), then all stopped by Stop without arguments and the
-     # block searched. Array elements go into floats first: as a command's arguments they
-     # do not compile [observed]. Hypothesis: "1 0 0" and "10 0 0".
+     # 0 hundreds, 1 tens, 2 units), then Stop without arguments and the block searched.
+     # Array elements go into floats first: as a command's arguments they do not compile
+     # [observed]. "101 0 1" and "111 0 1" [observed 2026-11-08, second run]: the scale of
+     # scale.start still runs, the translation is type 2, a bare Stop stops nothing.
      _sup7("types.translation", "let aR := PlayerREF.GetNifBlockTranslation \"Bip01 Head\"\nlet fA := aR[0]\nlet fB := aR[1]\nlet fC := aR[2]\n"
            "PlayerREF.NifBlockInterpolateTranslation \"Bip01 Head\" 0 0 0 fA fB fC 5 0 0 0 1\n"
            "let fD := (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 0) * 100 + (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 1) * 10 + (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 2)\n"
@@ -8157,9 +8158,9 @@ SUP7_PROBES = (
            "let fD := (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 0) * 100 + (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 1) * 10 + (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 2)\n"
            "let fA := PlayerREF.NifBlockInterpolateStop\n"
            "SetFunctionValue (sv_Construct \"%g %g %g\" fD fA (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\"))"),
-     # Stop and the trait with nothing running; the trait on a running one, trait 0 and an
-     # unknown trait 5 (hypothesis: "-1 0 0 0"; the first run, with the scale of
-     # scale.start still running, gave "1 0 0 0" [observed 2026-11-08]).
+     # Stop on the block (the earlier steps' interpolations still running), the trait with
+     # none; the trait on a running one, trait 0 and an unknown trait 5: "1 0 0 0"
+     # [observed 2026-11-08, both runs].
      _sup7("trait", "let fA := PlayerREF.NifBlockInterpolateStop \"Bip01 Head\"\nlet fB := PlayerREF.NifBlockInterpolateSetTrait 0 1\n"
            "PlayerREF.NifBlockInterpolateScale \"Bip01 Head\" 1 1 5 0 0 0\n"
            "let fC := PlayerREF.NifBlockInterpolateSetTrait 0 1 \"Bip01 Head\"\n"

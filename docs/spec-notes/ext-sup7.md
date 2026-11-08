@@ -22,7 +22,7 @@ below.
 | NifBlockInterpolateTranslation `block x0 y0 z0 x1 y1 z1 timer mode world pc calcStart` | the block's translation from start to end in `timer` seconds by mode [documented]; 1 when it runs, 0 without a reference or a block name [hypothesis] |
 | NifBlockInterpolateRotation `block x0 y0 z0 x1 y1 z1 timer mode pc calcStart` | the rotation (degrees, as GetNifBlockRotation) the same way [documented] |
 | NifBlockInterpolateScale `block s0 s1 timer mode pc calcStart` | the scale the same way [documented] |
-| NifBlockInterpolateStop `[block] [type] [pc]` | stops the matching ones; 1 when one matched [hypothesis: "success:bool"], -1 when none [observed]; without arguments every one of the reference, 0 [observed: the result; documented: "Will stop all interpolations"]; the block keeps the value it had [hypothesis] |
+| NifBlockInterpolateStop `[block] [type] [pc]` | stops the matching ones; 1 when one matched [hypothesis: "success:bool"], -1 when none [observed]; without arguments 0 and nothing stopped [observed]; the block keeps the value it had [hypothesis] |
 | IsNifBlockInterpolated `[block] [type] [pc]` | 1 when one matches [documented]; without a block 0 [observed: with a scale running, against the page's example] |
 | NifBlockInterpolateSetTrait `trait value [block] [type] [pc]` | trait 0: the start value set again when it ends [documented]; 0 [observed: on a running one and for trait 5] |
 | SetSUPOnInterpolateFinishEvent `udf [loops]` | the handler, called `{ref, block, type, fromLoop, pcNode}` when one ends (pcNode 1 on the player's third-person model [observed]; read as "the reference is the player" [hypothesis: the name]), and with `loops` at each loop's end too [documented: the handler skeleton]; the same handler again changes its loops flag [hypothesis] |
@@ -37,8 +37,9 @@ below.
   [documented: NifBlockInterpolateStop's example; observed], 2 the translation
   [hypothesis: the one left; a translation is not type 0, observed]; -1 any [documented: "if type -1 specified - it
   will be ignored"].
-- **Searches**: no block: Stop stops every interpolation of the reference [documented],
-  IsNifBlockInterpolated finds none [observed]; a block without pc is the third-person model's [documented:
+- **Searches**: no block finds none: Stop gives 0 and stops nothing, IsNifBlockInterpolated
+  gives 0 [observed: sup7 second run, the block still interpolated after a bare Stop;
+  against the pages' "Will stop all interpolations on Player"]; a block without pc is the third-person model's [documented:
   "third person by default"].
 - **One of each type a block** [hypothesis: the pages allow "many types of interpolations at
   the same time"]: a new one of the same type on the same block and model replaces the old.
@@ -124,15 +125,17 @@ taken into floats first), and HudBarSetValueScriptVar in every form tried at run
 (`bars` now probes the UDF source only; the variable source needs a script compiled into
 a plugin, an open question for the owner). Second run: questions in §6.
 
-## 6. Probe questions (set sup7, second run)
+## 6. Second run (2026-11-08, head ba45d6dc0)
 
-On the player's third-person "Bip01 Head"; every interpolation stopped, the scale set back
-to 1, the handler removed, the bar destroyed.
+All 11 rows compiled; lab 7 of 11 before the last fixes. What it added [observed]:
+`types.translation` `101 0 1` and `types.rotation` `111 0 1`: the scale of scale.start
+was still running (scale.next's Stops named other types), the translation is type 2, and
+a Stop without arguments gives 0 and stops nothing (the block still interpolated after
+it), so the earlier interpolations kept running; `trait` `1 0 0 0` follows from that; the
+`bars` UDF source gives 1 on a made bar and -1 on a missing one. `verts` gave -2 for
+"Bip01 Head" where a run without a drawn tree (fnvtool) gave -1: a reference with no tree
+yet now reads its model file for the block's name (an actor's skeleton is its base's
+model), -2 when it names it.
 
-1. `types.translation`, `types.rotation`: the type digits (type 0 hundreds, 1 tens, 2
-   units), Stop without arguments, the block searched after (hypothesis `1 0 0` and
-   `10 0 0`).
-2. `trait`: with scale.start's scale stopped by scale.next now, Stop with none running
-   (hypothesis `-1 0 0 0`).
-3. `bars`: the UDF source on a made bar and a missing one (hypothesis `1 -1`).
-4. The rows above again, to confirm the fixes.
+Still open: HudBarSetValueScriptVar did not compile at run time in any form; it needs a
+script compiled into a plugin to probe.

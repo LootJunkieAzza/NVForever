@@ -137,6 +137,9 @@ fn a_back_and_forth_loop_stops_when_asked() {
     // Another type on the block stops nothing, -1 [observed: sup7 scale.next]; the
     // scale's type does.
     assert_eq!(n(&mut g, r#"PlayerREF.NifBlockInterpolateStop "Bip01 Head" 1"#), -1.0);
+    // A bare Stop gives 0 and stops nothing [observed: sup7 second run].
+    assert_eq!(n(&mut g, "PlayerREF.NifBlockInterpolateStop"), 0.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.IsNifBlockInterpolated "Bip01 Head""#), 1.0);
     assert_eq!(n(&mut g, r#"PlayerREF.NifBlockInterpolateStop "Bip01 Head" 0"#), 1.0);
     g.tick();
     assert!(scales(&mut g).is_empty());

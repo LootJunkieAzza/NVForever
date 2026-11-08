@@ -246,6 +246,12 @@ fn matches(it: &Interp, r: FormId, block: Option<&str>, kind: Option<f64>, pc: O
         && pc.is_none_or(|p| it.first_person == (p != 0.0))
 }
 
+/// Whether the reference's model file names the block, for a reference whose drawn tree
+/// is not known (not drawn yet, or no engine): an actor's skeleton is its base's model.
+fn model_names(g: &Game, r: FormId, node: &str) -> bool {
+    crate::nif_blocks::model_of(g, r).and_then(|m| crate::mod_files::read_data(&format!("meshes\\{m}"))).is_some_and(|b| crate::mod_files::nif_has_name(&b, node))
+}
+
 /// `[block] [type] [pc]` as the searches take them: a named block without pc is the
 /// third-person model's [documented: the pages, "third person by default"]; no block,
 /// every one [documented: "Will stop all interpolations on Player"].
@@ -306,18 +312,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // Is: 1 when one matches; without a block 0 [observed: sup7 scale.start and
         // event.wait, 0 with a scale running, against the page's example]. Stop: 1 when
         // one matched [hypothesis: "success:bool"], -1 when none [observed: sup7
-        // scale.next, types 1 and 2 beside a running scale]; without arguments 0
-        // [observed: a diagnostic form], every one of the reference stopped
-        // [documented: "Will stop all interpolations on Player"]. A stopped block keeps
-        // the value it had [hypothesis].
+        // scale.next, types 1 and 2 beside a running scale]; without arguments 0 and
+        // nothing stopped [observed: sup7 types.translation, the block still interpolated
+        // after it, against the page's "Will stop all interpolations on Player"]. A
+        // stopped block keeps the value it had [hypothesis].
         "nifblockinterpolatestop" | "isnifblockinterpolated" => {
             let Some(r) = on else { return Some(Ok(zero)) };
             let (block, kind, pc) = search(args, 0);
             let stop = name == "nifblockinterpolatestop";
             if block.is_none() {
-                if stop {
-                    g.sup7.interps.retain(|it| it.r != r);
-                }
                 return Some(Ok(zero));
             }
             let hit = |it: &Interp| matches(it, r, block.as_deref(), kind, pc);
@@ -378,7 +381,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             if name == "getnifblocknumverticles" {
                 match verts.filter(|v| !v.is_empty()) {
                     Some(v) => XVal::Num(v.len() as f64),
-                    None if g.scene.node_now(r, &node).is_some() => XVal::Num(-2.0),
+                    None if g.scene.node_now(r, &node).is_some() || model_names(g, r, &node) => XVal::Num(-2.0),
                     None => XVal::Num(-1.0),
                 }
             } else {
