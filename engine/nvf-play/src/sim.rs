@@ -18,6 +18,7 @@ impl SimState {
     /// Build the simulation's tables from the plugins (they live for the whole run).
     pub fn new(lo: &LoadOrder, schema: &Schema, index: &WorldIndex) -> SimState {
         let forms: &'static FormStore = Box::leak(Box::new(FormStore::build(lo, schema)));
+        crate::pipboy::labels::set(&forms.settings);
         let refs: &'static RefTable = Box::leak(Box::new(RefTable::from_index(lo, schema, index)));
         SimState { forms, refs, world: World::new(forms, refs, SimConfig::default()) }
     }

@@ -1072,12 +1072,12 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
     let mut buttons = Vec::new();
     let body = match tab {
         LOCAL | WORLD => {
-            buttons.push(Button { text: "Place Marker".into(), key: None, kind: ButtonKind::PlaceMarker });
+            buttons.push(Button { text: super::labels::label("sPlaceMarker", "Place Marker").into(), key: None, kind: ButtonKind::PlaceMarker });
             Body::Map(if tab == WORLD { world_map(st, game, pointer) } else { local_map(st, game, pointer) })
         }
         QUESTS => {
             if !l.quests.is_empty() {
-                buttons.push(Button { text: "Show Location".into(), key: None, kind: ButtonKind::ShowLocation });
+                buttons.push(Button { text: super::labels::label("sShowLocation", "Show Location").into(), key: None, kind: ButtonKind::ShowLocation });
             }
             let rows = l
                 .quests
