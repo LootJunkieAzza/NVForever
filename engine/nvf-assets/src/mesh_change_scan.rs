@@ -229,6 +229,30 @@ mod tests {
         /// e0..e9, see step 0 and step 22.
         e: Vec<Entity>,
         bulk: Vec<Entity>,
+        /// Every entity the edits spawned, in order: an entity's place here is what the two
+        /// apps are compared by, as their `Entity` values need not match: resources are
+        /// entities in Bevy 0.20 (`bevy_ecs` `resource.rs` `IS_RESOURCE`), and the reference
+        /// app makes two the other does not (`AssetChanges<Mesh>`, `AssetChanges<Mat>`, at
+        /// its first `PostUpdate`) while the other makes one of its own
+        /// (`BevyMeshMarkReplaced`), so later spawns get other indices.
+        spawned: Vec<Entity>,
+    }
+
+    impl Fixture {
+        /// The places in `spawned` of `entities`, sorted. Panics on an entity the edits did
+        /// not spawn: no system under test may flag one.
+        fn labels(&self, entities: &[Entity]) -> Vec<usize> {
+            let mut labels: Vec<usize> = entities
+                .iter()
+                .map(|entity| self.spawned.iter().position(|e| e == entity).unwrap_or_else(|| panic!("{entity} was not spawned by the edits")))
+                .collect();
+            labels.sort();
+            labels
+        }
+
+        fn label_frame(&self, frame: &Frame) -> [Vec<usize>; 3] {
+            [self.labels(&frame.specialize), self.labels(&frame.unspecialize), self.labels(&frame.mesh_changed)]
+        }
     }
 
     fn new_mesh() -> Mesh {
@@ -243,7 +267,7 @@ mod tests {
         let _ = world.resource_mut::<Assets<Mat>>().get_mut(material).unwrap().into_inner();
     }
 
-    fn spawn(world: &mut World, mesh: Option<&Handle<Mesh>>, material: Option<&Handle<Mat>>) -> Entity {
+    fn spawn(world: &mut World, spawned: &mut Vec<Entity>, mesh: Option<&Handle<Mesh>>, material: Option<&Handle<Mat>>) -> Entity {
         let mut entity = world.spawn_empty();
         if let Some(mesh) = mesh {
             entity.insert(Mesh3d(mesh.clone()));
@@ -251,6 +275,7 @@ mod tests {
         if let Some(material) = material {
             entity.insert(MeshMaterial3d(material.clone()));
         }
+        spawned.push(entity.id());
         entity.id()
     }
 
@@ -262,19 +287,19 @@ mod tests {
             0 => {
                 f.meshes = (0..6).map(|_| world.resource_mut::<Assets<Mesh>>().add(new_mesh())).collect();
                 f.materials = (0..4).map(|_| world.resource_mut::<Assets<Mat>>().add(Mat::default())).collect();
-                let (m, s) = (&f.meshes, &f.materials);
+                let (m, s) = (f.meshes.clone(), f.materials.clone());
                 f.e = vec![
-                    spawn(world, Some(&m[0]), Some(&s[0])), // e0 shares m0 and s0 with e1
-                    spawn(world, Some(&m[0]), Some(&s[0])), // e1
-                    spawn(world, Some(&m[1]), Some(&s[1])), // e2
-                    spawn(world, Some(&m[2]), Some(&s[0])), // e3
-                    spawn(world, Some(&m[0]), None),        // e4: a mesh without a material
-                    spawn(world, None, Some(&s[2])),        // e5: a material without a mesh
-                    spawn(world, Some(&m[3]), Some(&s[1])), // e6
-                    spawn(world, Some(&m[4]), Some(&s[3])), // e7
-                    spawn(world, Some(&m[4]), Some(&s[3])), // e8
+                    spawn(world, &mut f.spawned, Some(&m[0]), Some(&s[0])), // e0 shares m0 and s0 with e1
+                    spawn(world, &mut f.spawned, Some(&m[0]), Some(&s[0])), // e1
+                    spawn(world, &mut f.spawned, Some(&m[1]), Some(&s[1])), // e2
+                    spawn(world, &mut f.spawned, Some(&m[2]), Some(&s[0])), // e3
+                    spawn(world, &mut f.spawned, Some(&m[0]), None),        // e4: a mesh without a material
+                    spawn(world, &mut f.spawned, None, Some(&s[2])),        // e5: a material without a mesh
+                    spawn(world, &mut f.spawned, Some(&m[3]), Some(&s[1])), // e6
+                    spawn(world, &mut f.spawned, Some(&m[4]), Some(&s[3])), // e7
+                    spawn(world, &mut f.spawned, Some(&m[4]), Some(&s[3])), // e8
                 ];
-                f.bulk = (0..50).map(|_| spawn(world, Some(&m[5]), Some(&s[3]))).collect();
+                f.bulk = (0..50).map(|_| spawn(world, &mut f.spawned, Some(&m[5]), Some(&s[3]))).collect();
             }
             2 => touch_mesh(world, &m[0]),
             3 => touch_material(world, &s[1]),
@@ -335,7 +360,7 @@ mod tests {
                     world.despawn(entity);
                 }
                 for _ in 0..10 {
-                    let entity = spawn(world, Some(&m[5]), Some(&s[3]));
+                    let entity = spawn(world, &mut f.spawned, Some(&m[5]), Some(&s[3]));
                     f.bulk.push(entity);
                 }
             }
@@ -343,7 +368,8 @@ mod tests {
             22 => {
                 touch_mesh(world, &m[5]);
                 let lone = world.resource_mut::<Assets<Mesh>>().add(new_mesh());
-                let e9 = world.spawn((Mesh3d(lone), MeshMaterial3d(s[2].clone()))).id();
+                let e9 = spawn(world, &mut f.spawned, Some(&lone), Some(&s[2]));
+                drop(lone); // e9 holds the only handle now
                 f.e.push(e9);
             }
             // Its last handle dropped: `Unused` and `Removed` on the next frame.
@@ -387,16 +413,22 @@ mod tests {
         for mark_first in [true, false] {
             let (mut upstream, mut indexed) = (test_app(true, mark_first), test_app(false, mark_first));
             let (mut fu, mut fi) = (Fixture::default(), Fixture::default());
+            let mut compared = 0;
             for n in 0..30 {
                 step(upstream.world_mut(), &mut fu, n);
                 step(indexed.world_mut(), &mut fi, n);
-                assert_eq!(fu.e, fi.e, "the two apps spawn the same entities");
-                assert_eq!(fu.bulk, fi.bulk);
+                // The same edits: as many entities spawned, the same ones named and alive.
+                assert_eq!(fu.spawned.len(), fi.spawned.len(), "frame {n}: the two apps spawn as many entities");
+                assert_eq!(fu.labels(&fu.e), fi.labels(&fi.e), "frame {n}");
+                assert_eq!(fu.labels(&fu.bulk), fi.labels(&fi.bulk), "frame {n}");
+                let alive = |app: &App, f: &Fixture| f.spawned.iter().map(|&e| app.world().get_entity(e).is_ok()).collect::<Vec<_>>();
+                assert_eq!(alive(&upstream, &fu), alive(&indexed, &fi), "frame {n}: the same entities alive");
                 upstream.update();
                 indexed.update();
                 let expected = upstream.world().resource::<Frames>().0.last().cloned().unwrap();
                 let got = indexed.world().resource::<Frames>().0.last().cloned().unwrap();
-                assert_eq!(got, expected, "frame {n} (material mark first: {mark_first})");
+                assert_eq!(fi.label_frame(&got), fu.label_frame(&expected), "frame {n} (material mark first: {mark_first})");
+                compared += 1;
 
                 // The reference itself, on a few frames, so the comparison is not vacuous.
                 let e = &fu.e;
@@ -413,6 +445,7 @@ mod tests {
                     _ => {}
                 }
             }
+            assert_eq!(compared, 30, "every frame compared");
             assert!(post_update_system_names(&upstream).iter().any(|n| n.contains("mark_3d_meshes_as_changed_if_their_assets_changed")));
             let names = post_update_system_names(&indexed);
             assert!(!names.iter().any(|n| n.contains("mark_3d_meshes_as_changed_if_their_assets_changed")), "Bevy's mesh mark is out");
