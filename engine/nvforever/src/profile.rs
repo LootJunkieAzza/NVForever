@@ -558,8 +558,11 @@ fn user_label(e: Entity, parents: &Query<&ChildOf>, labels: &UserLabels) -> Stri
 /// Meshes: the moving faces (`lips`), the vertex morphs, the particle systems, the
 /// effect-shader bursts, the sky dome. Game materials: the see-through copies of fading
 /// meshes (`nvf_play::fade`), the effect shaders' overlay and hole copies, the copies a
-/// rig's clips drive (`material_anim`, `RigMaterials` slots it owns), the copies an
-/// actor's clips drive (`actor_materials`), the emittance copies. These are the assets
+/// rig's clips drive (`material_anim`, `RigMaterials` slots it owns), the materials an
+/// actor's clips drive (`actor_materials`: each driven shape's own copy and the material
+/// it wears now, which is what posing writes while the shape fades or is drawn faded by
+/// actor alpha; NPCs' rigs and the player's, `PlayerRigMaterials`), the emittance copies.
+/// These are the assets
 /// each system writes, but holding is not writing: an asset two of them hold is counted
 /// under the first in that order (an actor's material copy that is fading is written by
 /// the fade and may be by `actor_materials` too: it counts as a fade), and a write by any
@@ -577,11 +580,12 @@ fn classify_changes(
         Option<Res<crate::effect_shaders::Shaders>>,
         Option<Res<crate::emittance::EmittanceState>>,
     ),
-    (domes, fading, rigs, actors): (
+    (domes, fading, rigs, actors, player_rigs): (
         Query<&Mesh3d, With<crate::sky::SkyDome>>,
         Query<&nvf_play::fade::Fading>,
         Query<&nvf_assets::material_anim::RigMaterials>,
         Query<&crate::actor_materials::ActorMaterials>,
+        Option<Res<crate::actor_materials::PlayerRigMaterials>>,
     ),
     mesh_users: Query<(Entity, &Mesh3d)>,
     material_users: Query<(Entity, &MeshMaterial3d<nvf_assets::NifMaterial>)>,
@@ -621,7 +625,13 @@ fn classify_changes(
             ("fades", fading.iter().map(|f| f.copy().id()).collect::<Vec<_>>()),
             ("effect shaders", shaders.iter().flat_map(|s| s.active.values().flat_map(|a| a.materials()).collect::<Vec<_>>()).collect()),
             ("rig material animation", rigs.iter().flat_map(|r| r.slots.iter().filter(|s| s.own).map(|s| s.handle.id())).collect()),
-            ("actor material animation", actors.iter().flat_map(|a| a.written()).collect()),
+            ("actor material animation", {
+                // Each driven shape's own copy and the material it wears now (a faded
+                // shape's posing writes that one), NPCs' and the player's rigs alike.
+                let player = player_rigs.iter().flat_map(|p| p.0.values());
+                let shapes = actors.iter().chain(player).flat_map(|a| a.shapes());
+                shapes.flat_map(|(e, mine)| mine.into_iter().chain(material_users.get(e).ok().map(|(_, m)| m.0.id()))).collect()
+            }),
             ("emittance", emittance.iter().flat_map(|e| e.copies()).collect()),
         ];
         let ids = std::mem::take(&mut c.frame_materials);
@@ -1013,6 +1023,28 @@ mod tests {
         ];
         assert_eq!(sources_text(&items, 10.0, 2), "faces 4.00, other 2.60 (ref 00000002 2.00, ref 00000001 0.50, 1 more)");
         assert_eq!(sources_text(&[], 10.0, 2), "none");
+    }
+
+    #[test]
+    fn actor_material_writes_count_under_their_writer_faded_or_the_player_s() {
+        use crate::actor_materials::{ActorMaterials, PlayerRigMaterials};
+        use bevy::ecs::system::RunSystemOnce;
+        let h = |n: u128| Handle::<nvf_assets::NifMaterial>::Uuid(bevy::asset::uuid::Uuid::from_u128(n), Default::default());
+        let mut world = World::new();
+        // An NPC's driven shape with no copy of its own: drawn faded (actor alpha), posing
+        // writes the see-through material it wears.
+        let faded = world.spawn(MeshMaterial3d(h(1))).id();
+        world.spawn(ActorMaterials::with_shape(faded));
+        // The player's weapon in hand, driven by the first-person rig's clips.
+        let weapon = world.spawn(MeshMaterial3d(h(2))).id();
+        let mut player = PlayerRigMaterials::default();
+        player.0.insert(Entity::PLACEHOLDER, ActorMaterials::with_shape(weapon));
+        world.insert_resource(player);
+        world.insert_resource(ChangedAssets { frame_materials: vec![h(1).id(), h(2).id(), h(3).id()], ..default() });
+        world.run_system_once(classify_changes).unwrap();
+        let c = world.resource::<ChangedAssets>();
+        assert_eq!(c.materials.get(&("actor material animation", String::new())), Some(&2));
+        assert_eq!(c.materials.get(&(OTHER, "(no user)".to_string())), Some(&1));
     }
 
     #[test]

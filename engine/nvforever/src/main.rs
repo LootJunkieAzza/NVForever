@@ -1430,6 +1430,7 @@ fn main() -> AppExit {
     .add_systems(Update, (locomotion::walk_test, locomotion::turn_to, locomotion::drive, weapons::reparent).chain())
     // Clips that drive actors' part materials (the Securitron screens), once posed.
     .add_systems(Update, actor_materials::pose.after(locomotion::drive))
+    .init_resource::<actor_materials::PlayerRigMaterials>()
     .add_systems(Update, actor_materials::pose_player.after(nvf_play::player::BodySet))
     .add_systems(Update, timelapse.after(sky::update_sky))
     // The sun's cascades reach behind the player's body (sky::SUN_REACH_BACK).
