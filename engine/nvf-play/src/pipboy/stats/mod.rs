@@ -17,7 +17,7 @@
 //!   or on the limb chosen; a click on a limb's bar uses one on that limb; the Doctor's
 //!   Bag (E, or its hint) heals the limbs ([`use_hints`], `model::refusal` says when an
 //!   item is not used, `fnv_game::aid::PARTS_LIMB_SHARE` what a Stimpak gives the limbs).
-//!   Using RadAway and Rad-X from here is not built.
+//!   RadAway (A) uses the carried item without leaving RAD; Rad-X is not built.
 //! - **S.P.E.C.I.A.L., Skills, Perks**: a list at the left (nine rows at once, a scroll bar
 //!   when longer), the selected row's picture and description at the right.
 //! - **General**: the Reputation list (the file's first mode) or the General list of
@@ -25,7 +25,8 @@
 //! - **Keys** [design]: Up/Down (W/S) select in a list, the arrows choose CND, RAD, EFF
 //!   (S is the Stimpak's key there, E the Doctor's Bag's; 1-6 choose the head, torso,
 //!   left arm, right arm, left leg or right leg for the Stimpak, the same key again the
-//!   whole body; the pointer on a limb's bar chooses it while there), Page Up/Down
+//!   whole body; X cycles through the limbs and body; the pointer on a limb's bar
+//!   chooses it while there), Page Up/Down
 //!   scroll the description, the wheel
 //!   scrolls the list or, over it, the description; R switches General's lists. The
 //!   pointer selects the row it moves onto (as the list boxes do), clicks the buttons and
@@ -38,6 +39,9 @@
 
 pub mod model;
 pub mod read;
+
+#[cfg(test)]
+mod input_tests;
 
 use super::frame::{self, Align, Card, Ctx, Kit, DIMMED, FADE, FILL, LINE, TEXT, THICK};
 use super::{Page, PageBody, PipBoy, PipBoyScreen};
@@ -77,8 +81,9 @@ const BOX_TEXT_DROP: f32 = 3.0;
 /// screenshots; documented: `_PCButton_S` and the others name these buttons].
 const HINT_KEYS: [&str; 4] = ["S)", "E)", "A)", "X)"];
 /// The keys themselves; with a controller the hints name the buttons that press them
-/// (`crate::pad::menu_buttons`: A, Y on CND; A, X on RAD) [#1662].
-const HINT_KEY_CODES: [KeyCode; 4] = [KeyCode::KeyS, KeyCode::KeyE, KeyCode::KeyA, KeyCode::KeyX];
+/// (`crate::pad::menu_buttons`: A, X, Y on CND; A, X on RAD) [design: #1662, #1898].
+const HINT_KEY_CODES: [KeyCode; 5] = [KeyCode::KeyS, KeyCode::KeyE, KeyCode::KeyA, KeyCode::KeyX, KeyCode::KeyX];
+const SWITCH_LIMBS: usize = 4;
 
 /// The status tab's hint `i` for the device in use.
 fn hint_key(v: &StatsView, i: usize) -> String {
@@ -190,7 +195,7 @@ pub enum Spot {
     Sub(usize),
     /// A row of the tab's list.
     Row(usize),
-    /// Stimpak, Doctor's Bag, RadAway, Rad-X.
+    /// Stimpak, Doctor's Bag, RadAway, Rad-X, limb switch.
     Hint(usize),
     /// A limb's bar on CND (`model::LIMB_NAMES`).
     Limb(usize),
@@ -217,7 +222,7 @@ pub struct StatsView {
     /// it in the reputation mode, `user0` 1].
     pub reputation: bool,
     pub hover: Option<Spot>,
-    /// The limb chosen by key on CND for the Stimpak (`model::LIMB_NAMES`); `None` the
+    /// The limb chosen by keyboard or controller on CND for the Stimpak (`model::LIMB_NAMES`); `None` the
     /// whole body.
     pub limb: Option<usize>,
     /// The selected row is boxed: after a key moved the selection or while the pointer
@@ -297,6 +302,16 @@ impl StatsView {
     /// Choose a limb by key; the same one again chooses the whole body.
     pub fn choose_limb(&mut self, i: usize) {
         self.limb = if self.limb == Some(i) { None } else { Some(i) };
+    }
+
+    /// [design] Body, then the six limbs in model order, then body again.
+    pub fn cycle_limb(&mut self) {
+        self.limb = match self.aimed() {
+            None => Some(0),
+            Some(i) if i + 1 < model::LIMB_NAMES.len() => Some(i + 1),
+            _ => None,
+        };
+        self.hover = None;
     }
 
     /// Switch General between its two lists.
@@ -607,6 +622,9 @@ fn keys(keys: &ButtonInput<KeyCode>, view: &mut StatsView, tab: usize) -> Option
             view.status += 1;
         }
         if view.status == 0 {
+            if keys.just_pressed(KeyX) {
+                view.cycle_limb();
+            }
             for (i, k) in [Digit1, Digit2, Digit3, Digit4, Digit5, Digit6].into_iter().enumerate() {
                 if keys.just_pressed(k) {
                     view.choose_limb(i);
@@ -641,11 +659,12 @@ fn keys(keys: &ButtonInput<KeyCode>, view: &mut StatsView, tab: usize) -> Option
 }
 
 /// A hint's key or button: the item to use (the Stimpak on the limb aimed at), or `None`
-/// for RadAway and Rad-X, which are not used from here.
+/// for Rad-X, which is not used from here, or the separate limb-switch hint.
 fn hint_pressed(view: &StatsView, hint: usize) -> Option<UseHint> {
     match hint {
         model::STIMPAK => Some(UseHint { hint, limb: view.aimed() }),
-        model::DOCTORS_BAG => Some(UseHint { hint, limb: None }),
+        model::DOCTORS_BAG | model::RADAWAY => Some(UseHint { hint, limb: None }),
+        SWITCH_LIMBS => None,
         _ => {
             info!("pipboy stats: {} (using it from the STATS page is not built)", HINT_KEYS[hint]);
             None
@@ -658,13 +677,14 @@ fn hint_pressed(view: &StatsView, hint: usize) -> Option<UseHint> {
 fn on_over(over: On<PointerOver>, spots: Query<&Spot>, view: Option<ResMut<StatsView>>, pip: Res<PipBoy>, screen: Option<Res<PipBoyScreen>>) {
     let (Ok(&spot), Some(mut view)) = (spots.get(over.entity), view) else { return };
     let tab = pip.tab();
+    // [design] A redraw under a stationary pointer must not take back a limb chosen
+    // by the controller, just as it must not take back a list's keyboard selection.
+    let at = screen.as_ref().and_then(|s| s.pointer);
+    if matches!(spot, Spot::Row(_) | Spot::Limb(_)) && at.is_some() && at == view.drawn_at {
+        return;
+    }
     match spot {
         Spot::Row(i) => {
-            // A row drawn under a pointer that has not moved keeps the selection.
-            let at = screen.as_ref().and_then(|s| s.pointer);
-            if at.is_some() && at == view.drawn_at {
-                return;
-            }
             change(&mut view, |v| {
                 v.select(tab, i);
                 v.highlight = true;
@@ -701,6 +721,7 @@ fn on_click(click: On<PointerClick>, spots: Query<&Spot>, view: Option<ResMut<St
         Spot::Sub(i) => v.status = i,
         Spot::Row(i) => v.select(tab, i),
         Spot::Switch => v.switch(),
+        Spot::Hint(SWITCH_LIMBS) => v.cycle_limb(),
         Spot::DescUp => v.scroll_desc(-1),
         Spot::DescDown => v.scroll_desc(1),
         Spot::ListUp => v.scroll(tab, -1),
@@ -730,6 +751,14 @@ fn box_text_top(c: &Ctx, top: f32, h: f32) -> f32 {
     top + (h - c.line_height(2)) / 2.0 + BOX_TEXT_DROP
 }
 
+fn status_hints(status: usize) -> &'static [(usize, usize)] {
+    match status {
+        0 => &[(0, 0), (SWITCH_LIMBS, 1), (1, 2)],
+        1 => &[(2, 0), (3, 1)],
+        _ => &[],
+    }
+}
+
 fn status(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snapshot) {
     let o = STATUS.min;
     let h = c.line_height(2) + SUB_VERBUF;
@@ -744,15 +773,9 @@ fn status(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snap
         c.text(p, 2, name, r.min.x + SUB_HORBUF / 2.0, box_text_top(c, r.min.y, h), Align::Left, bright());
         spots.push((r, Spot::Sub(i)));
     }
-    // The hints at the top right, in the file's slots: Stimpak, (the controller's healing
-    // mode), Doctor's Bag; or RadAway, Rad-X.
-    let shown: &[(usize, usize)] = match v.status {
-        0 => &[(0, 0), (1, 2)],
-        1 => &[(2, 0), (3, 1)],
-        _ => &[],
-    };
-    for &(i, slot) in shown {
-        let text = &s.hints.texts[i];
+    // Keep the existing slots: Stimpak, limb switch, Doctor's Bag; or RadAway, Rad-X.
+    for &(i, slot) in status_hints(v.status) {
+        let text = if i == SWITCH_LIMBS { &s.switch_limbs } else { &s.hints.texts[i] };
         let size = text_box(c, text, HINT_HORBUF, HINT_VERBUF);
         let right = o.x + HINT_X;
         let top = o.y + HINT_Y + size.y * slot as f32;
@@ -761,7 +784,12 @@ fn status(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snap
         // Dim unless pointed at or usable [observed: dim on all three screenshots;
         // hypothesis: bright with its box when pointed at; design: owner 2026-10-27, a
         // Stimpak or Doctor's Bag that would heal is lit (`Hints::lit`)].
-        let colour = if hovered || s.hints.lit[i] { bright() } else { amber(DIMMED) };
+        let lit = match i {
+            SWITCH_LIMBS => true,
+            model::RADAWAY => s.hints.counts[i] > 0,
+            _ => s.hints.lit[i],
+        };
+        let colour = if hovered || lit { bright() } else { amber(DIMMED) };
         if hovered {
             c.boxed(p, r, amber(LINE), None);
         }
@@ -1092,7 +1120,7 @@ fn centred(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &str, mid: f32, top: f3
 
 // ---- using the hints' items -------------------------------------------------------------
 
-/// Use a CND hint's item ([`model::STIMPAK`], [`model::DOCTORS_BAG`]) from the STATS
+/// Use a hint's item ([`model::STIMPAK`], [`model::DOCTORS_BAG`], [`model::RADAWAY`]) from the STATS
 /// page; `limb` the body part a Stimpak goes on (`model::LIMB_NAMES`), `None` the body.
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct UseHint {
@@ -1125,11 +1153,18 @@ pub fn use_hints(
         };
         let name = sim.name(item).unwrap_or("?").to_string();
         let count = sim.world.item_count(FormId::PLAYER_REF, item).unwrap_or(0);
-        let Some((hp, limbs, hardcore)) = read::condition(&mut sim, script.as_mut().map(|s| s.bypass_change_detection())) else {
-            info!("pipboy stats: {name} not used: the scripts' game is not running");
-            continue;
+        let why = if hint == model::RADAWAY {
+            // [design] Like the inventory's aid action, carried RadAway can be used
+            // regardless of health or limb condition; no item means a dim hint.
+            (count <= 0).then(|| "none carried".to_string())
+        } else {
+            let Some((hp, limbs, hardcore)) = read::condition(&mut sim, script.as_mut().map(|s| s.bypass_change_detection())) else {
+                info!("pipboy stats: {name} not used: the scripts' game is not running");
+                continue;
+            };
+            model::refusal(hint, limb, count, hp, &limbs, hardcore)
         };
-        if let Some(why) = model::refusal(hint, limb, count, hp, &limbs, hardcore) {
+        if let Some(why) = why {
             info!("pipboy stats: {name} not used: {why}");
             sounds.write(UiSound { menu: UiMenu::Inventory, event: UiEvent::Refused });
             continue;
@@ -1255,7 +1290,7 @@ mod tests {
         v.hover = None;
         v.choose_limb(4);
         assert_eq!(v.aimed(), None);
-        assert_eq!(hint_pressed(&v, 2), None);
+        assert_eq!(hint_pressed(&v, model::RADAWAY), Some(UseHint { hint: model::RADAWAY, limb: None }));
     }
 
     #[test]

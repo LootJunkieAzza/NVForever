@@ -208,6 +208,12 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
         texts[i] = model::hint_text(&name, counts[i]);
     }
     s.hints = Hints { texts, counts, lit: [false; 4] };
+    // [design] As the engine's other menu words: the running game's strings, then
+    // the repository's own string-table label (menu::look::quantity_words).
+    s.switch_limbs = match script.as_ref().and_then(|s| s.rt.as_ref()) {
+        Some(rt) => fnv_game::ui_loading::game_string(&rt.game, "sSwitchLimbs"),
+        None => fnv_ui::strings::built_in("sSwitchLimbs").unwrap_or_default().to_owned(),
+    };
     let xp_base = sim.forms.setting_f32("iXPBase").unwrap_or(200.0) as f64;
     let xp_bump = sim.forms.setting_f32("iXPBumpBase").unwrap_or(150.0) as f64;
     // The karma titles the plugins hold (`model::karma_title`).

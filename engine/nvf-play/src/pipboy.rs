@@ -811,7 +811,7 @@ fn close_keys(
     }
 }
 
-fn keys(keys: Res<ButtonInput<KeyCode>>, prompt: Res<crate::menu::PromptKeys>, active: Res<ActiveMenu>, mut out: MessageWriter<PipBoyInput>) {
+fn keys(keys: Res<ButtonInput<KeyCode>>, prompt: Res<crate::menu::PromptKeys>, active: Res<ActiveMenu>, pip: Res<PipBoy>, stats: Option<Res<stats::StatsView>>, mut out: MessageWriter<PipBoyInput>) {
     use KeyCode::*;
     if prompt.held(&active) || keys.any_just_pressed([Tab, Escape]) {
         return;
@@ -821,7 +821,10 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, prompt: Res<crate::menu::PromptKeys>, a
             out.write(PipBoyInput::Page(p));
         }
     }
-    if keys.any_just_pressed([KeyA, ArrowLeft]) {
+    // [design] RAD owns keyboard A too, even with no RadAway carried. The arrows
+    // still step tabs; no other STATS view owns A/D or Left/Right (stats::keys).
+    let rad = pip.page == Page::Stats && pip.tab() == 0 && stats.is_some_and(|s| s.status == 1);
+    if keys.just_pressed(ArrowLeft) || (keys.just_pressed(KeyA) && !rad) {
         out.write(PipBoyInput::StepTab(-1));
     }
     if keys.any_just_pressed([KeyD, ArrowRight]) {

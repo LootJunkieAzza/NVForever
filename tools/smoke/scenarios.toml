@@ -22451,3 +22451,37 @@ expect = [
 ]
 order = [["nvf type middle", "nvf type active", "nvf type suppressed", "nvf type replaced", "nvf type removed", "nvf type final"]]
 manual = "ui_typewriter_middle.png: a partially faded letter A in the blue box above the amber bar; ui_typewriter_final.png: the same letter fully visible with the replacement callback's pink colour. Verify the text and alpha links affect the rendered result."
+
+
+[[scenario]]
+name = "pipboy-stats-rad-radaway"
+source = "[design] #1899: hand-built Status RAD owns keyboard/controller A while its RadAway hint is shown; use the carried aid item and keep the tab (engine/nvf-play/src/pipboy.rs, pipboy/stats/mod.rs; docs/spec-notes/pipboy.md 5.1)"
+areas = ["pipboy", "aid"]
+paths = ["engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/test_aid.rs"]
+env = { NVFOREVER_HOME = "pipboy-stats-rad-radaway-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:RadAway:1", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=stats,22:tab=0,26:close", NVF_PLAY_TEST_PIPBOY_STATS = "23:sub=1", NVF_PLAY_TEST_KEYS = "24:a" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 28
+expect = [
+  "pipboy stats: Status RAD",
+  "test aid: real input Key(KeyA) pressed",
+  { re = 'pipboy stats: used RadAway on the body \(\d+ left\)', label = "the RAD action consumes RadAway" },
+  "aid: the player used RadAway",
+]
+forbid = ["pipboy stats: General", "pipboy: STATS General", "pipboy stats: RadAway not used"]
+order = [["pipboy stats: Status RAD", "test aid: real input Key(KeyA) pressed", "pipboy stats: used RadAway", "aid: the player used RadAway"]]
+
+[[scenario]]
+name = "pipboy-stats-cnd-limb-pad"
+source = "[design] #1898: controller X on hand-built Status CND cycles the Stimpak target through the existing pad key routing; the middle hint uses sSwitchLimbs (engine/nvf-play/src/pipboy/stats/mod.rs, pad.rs, test_aid.rs; docs/spec-notes/pipboy.md 5.1)"
+areas = ["pipboy", "controller"]
+paths = ["engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/test_aid.rs"]
+env = { NVFOREVER_HOME = "pipboy-stats-cnd-limb-pad-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=stats,22:tab=0,27:close", NVF_PLAY_TEST_PIPBOY_STATS = "23:sub=0", NVF_PLAY_TEST_KEYS = "24:pad-X,25:pad-X" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 29
+expect = [
+  { text = "test aid: real input Pad(West) pressed", count = 2, label = "two controller X presses" },
+  "pipboy stats: Status CND (head chosen)",
+  "pipboy stats: Status CND (torso chosen)",
+]
+forbid = ["pipboy stats: used", "pipboy stats: Status RAD", "pipboy stats: General"]
+order = [["test aid: real input Pad(West) pressed", "pipboy stats: Status CND (head chosen)", "pipboy stats: Status CND (torso chosen)"]]
