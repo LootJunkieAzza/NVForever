@@ -3799,3 +3799,43 @@ fn a_campfire_is_lit_once_and_its_fires_do_not_stack() {
     assert!(g.campfire_fires(fire_place).is_empty());
     assert!(matches!(g.light_campfire(fire_place).unwrap(), fnv_game::campfire::Lit::Placed(_)), "out: lit anew");
 }
+
+/// Co-op replication, phase 4 (docs/design/coop-replication.md §11): a guest's game runs
+/// none of the world's logic. The story's quests (its plugins in `story_plugins`) and the
+/// world references' GameMode and OnLoad blocks stop; a mod's quest goes on; with the gate
+/// off (solo and the host) everything runs as before.
+#[test]
+fn a_replication_guest_runs_no_world_logic() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.set_loaded([FormId(CELL)].into_iter().collect());
+    let act = InstKey::Ref { reference: FormId(ACT_REF) };
+    let num = |v: Value| match v {
+        Value::Num(x) => x,
+        v => panic!("{v:?}"),
+    };
+    g.tick();
+    let frames = num(g.var(act, 3));
+    // The guest: the reference's GameMode stops, and the story quest's timer with it.
+    g.world_logic_off = true;
+    g.story_plugins = vec![0];
+    g.set_stage(q(), 10);
+    g.frames(120);
+    assert_eq!(num(g.var(act, 3)), frames, "a world reference's GameMode ran on a guest");
+    assert!(!g.quest_state(q()).stages_done.contains(&20), "a story quest's script ran on a guest");
+    // Its OnLoad does not run when the cell loads again.
+    let loads = num(g.var(act, 7));
+    g.set_loaded(Default::default());
+    g.set_loaded([FormId(CELL)].into_iter().collect());
+    g.tick();
+    assert_eq!(num(g.var(act, 7)), loads);
+    // A mod's quest (not a story plugin) runs on the guest.
+    g.story_plugins = vec![5];
+    g.frames(120);
+    assert!(g.quest_state(q()).stages_done.contains(&20));
+    // The gate off: the reference runs again.
+    g.world_logic_off = false;
+    g.tick();
+    assert_eq!(num(g.var(act, 3)), frames + 1.0);
+}

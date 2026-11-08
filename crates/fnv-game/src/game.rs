@@ -1470,6 +1470,20 @@ pub struct Game<'a> {
     /// cashier ([`Game::guest_lines`]) and
     /// no script starts a conversation with it.
     pub coop_guest: bool,
+    /// Co-op replication (docs/design/coop-replication.md §11 phase 4): this game is a
+    /// guest's that draws the host's world and runs none of its logic (R3). Its own
+    /// player's carried-item scripts and menus go on; the story's quests (those of the
+    /// plugins in [`Game::story_plugins`]), world references' scripts and OnLoad blocks,
+    /// combat blocks, activate children, packages and door OnOpen/OnClose do not: the
+    /// host runs them and sends what they did. Off (the default, and always solo).
+    pub world_logic_off: bool,
+    /// The load-order indices whose quests are the host's story ([`Game::world_logic_off`]):
+    /// the official masters. A mod's quest scripts keep running on a guest (its menus,
+    /// LListAddForm edits a guest's looks read).
+    pub story_plugins: Vec<u8>,
+    /// Co-op replication, the host's: the located script sounds and music its scripts
+    /// asked for since the replication layer last took them (`None`: not hosting).
+    pub coop_effects: Option<Vec<crate::sound::CoopEffect>>,
     /// A co-op session is on (host or guest), with another player in it: the co-op
     /// perks can be taken (`crate::coop_perks`).
     pub coop_session: bool,
@@ -2193,6 +2207,9 @@ impl<'a> Game<'a> {
             coop: Vec::new(),
             coop_actors: BTreeMap::new(),
             coop_guest: false,
+            world_logic_off: false,
+            story_plugins: Vec::new(),
+            coop_effects: None,
             coop_session: false,
             coop_from_others: Default::default(),
             coop_host_quest: None,
@@ -3471,28 +3488,37 @@ impl<'a> Game<'a> {
         if self.script_looks.fades.len() > 256 {
             self.script_looks.fades.drain(..128);
         }
+        // A replication guest runs no world logic (`Game::world_logic_off`): only its own
+        // player's.
+        let world_logic = !self.world_logic_off;
         for r in std::mem::take(&mut self.pending_onload) {
-            if self.present(r) && self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c)) {
+            if (world_logic || r == FormId::PLAYER_REF) && self.present(r) && self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c)) {
                 self.ref_event(r, event::ON_LOAD, None, None);
             }
         }
         for (r, ev, by) in std::mem::take(&mut self.queued_ref_events) {
-            self.ref_event(r, ev, Some(Value::Ref(r.0)), by);
+            if world_logic || r == FormId::PLAYER_REF {
+                self.ref_event(r, ev, Some(Value::Ref(r.0)), by);
+            }
         }
-        self.combat_blocks();
-        // Activate children whose delay passed (`crate::traps`).
-        self.activate_due_children();
-        // Fighting NPCs take up the weapon their combat style allows (`crate::style_weapon`).
-        self.arm_by_style();
+        if world_logic {
+            self.combat_blocks();
+            // Activate children whose delay passed (`crate::traps`).
+            self.activate_due_children();
+            // Fighting NPCs take up the weapon their combat style allows (`crate::style_weapon`).
+            self.arm_by_style();
+        }
         let ev = if in_menu { event::MENU_MODE } else { event::GAME_MODE };
         let subject = self.open_menu_code().map(|m| Value::Num(m as f64));
         let data = self.data;
         // ToggleScripts: no per-frame block runs (`functions::toggles`).
         let scripts = !self.toggles.scripts_off;
+        let story = if self.world_logic_off { self.story_plugins.clone() } else { Vec::new() };
         let due: Vec<(FormId, FormId)> = self
             .quests
             .iter_mut()
             .filter(|(_, s)| scripts && s.running)
+            .filter(|(q, _)| !story.contains(&((q.0 >> 24) as u8)))
             .filter_map(|(q, s)| {
                 let def = data.quests.get(q)?;
                 let script = def.script.filter(|s| data.scripts.contains_key(s))?;
@@ -3521,7 +3547,7 @@ impl<'a> Game<'a> {
             }
             self.run_event(key, script, ev, subject, RunCtx { quest: Some(q), ..Default::default() });
         }
-        let active = if scripts { self.active_refs() } else { Vec::new() };
+        let active = if scripts && world_logic { self.active_refs() } else { Vec::new() };
         // Doors opened or closed since the last frame, by anyone (OnOpen, OnClose).
         self.watch_doors(&active);
         for r in active {
@@ -3577,7 +3603,9 @@ impl<'a> Game<'a> {
         // another menu on top of it (a message box) holds it.
         if self.menu.is_none() {
             self.update_dialogue(dt);
-            self.tick_packages();
+            if world_logic {
+                self.tick_packages();
+            }
             self.update_image_modifiers(dt);
         }
     }
@@ -4405,6 +4433,8 @@ impl<'a> Game<'a> {
         // themselves from GameMode only after their OnLoad set DestroyOnce, and nothing
         // else enables them; docs/spec-notes/script-language.md §7.2 row 5].
         let all = self.handled("onload");
+        // A replication guest runs no world reference's OnLoad (`Game::world_logic_off`).
+        let new = if self.world_logic_off { Vec::new() } else { new };
         for c in new {
             let refs = self.data.scripted_by_cell.get(&c).cloned().unwrap_or_default();
             for &r in &refs {
