@@ -27,6 +27,11 @@ single slow frame charged to a render system that only writes a buffer
 (`upload_light_probes`, `write_binned_instance_buffers`) can be matched to a new memory
 block. `std` is linked for the clock (wgpu-hal turns the crate's `std` feature off).
 
+Third change (queue item 97), in `src/vulkan/mod.rs`: the number of empty general blocks
+kept is `set_keep_empty_general_blocks` (default 2). The driver counts kept blocks as the
+process's use of the GPU budget, so nvforever `memory_budget.rs` sets 0 on a GPU with a
+budget under 6 GB (two 256 MiB blocks are a sixth of a 4 GB laptop card's 3367 MB).
+
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, bevyengine/bevy)
 
 Why: in the owner's 5-player co-op stress test (2026-11-05) the AMD driver dropped the GPU

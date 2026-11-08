@@ -696,7 +696,7 @@ impl MemoryType {
         // allocation, or a block supporting sub-allocations that is not the last one (ensuring
         // there's always at least one block/allocator readily available).
         let is_dedicated_or_not_last_general_block = !mem_block.sub_allocator.supports_general_allocations()
-            || (self.active_general_blocks > 1 && empty_general_others >= KEEP_EMPTY_GENERAL_BLOCKS);
+            || (self.active_general_blocks > 1 && empty_general_others >= keep_empty_general_blocks());
         if mem_block.sub_allocator.is_empty() && is_dedicated_or_not_last_general_block {
             let block = self.memory_blocks[block_idx]
                 .take()
@@ -714,8 +714,21 @@ impl MemoryType {
 }
 
 /// Empty general blocks kept per memory type for reuse besides the one upstream keeps
-/// (NVForever patch, see `MemoryType::free`).
+/// (NVForever patch, see `MemoryType::free`), unless the game sets another number.
 const KEEP_EMPTY_GENERAL_BLOCKS: usize = 2;
+
+static KEEP_EMPTY: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(KEEP_EMPTY_GENERAL_BLOCKS);
+
+/// NVForever (#gpu-vram): how many emptied general blocks of each memory type are kept for
+/// reuse besides the one upstream keeps. The driver counts kept blocks as the process's
+/// use, so a GPU with a small memory budget keeps none (nvforever `memory_budget.rs`).
+pub fn set_keep_empty_general_blocks(n: usize) {
+    KEEP_EMPTY.store(n, core::sync::atomic::Ordering::Relaxed);
+}
+
+fn keep_empty_general_blocks() -> usize {
+    KEEP_EMPTY.load(core::sync::atomic::Ordering::Relaxed)
+}
 
 /// NVForever (#1429): a vkAllocateMemory at least this long (milliseconds) is logged.
 const SLOW_ALLOCATE_MS: f64 = 1.0;
