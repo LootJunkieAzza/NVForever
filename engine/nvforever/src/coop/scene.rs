@@ -1,0 +1,261 @@
+//! The host's script scenes, shared with the guests (overnight items 66, 80, 83,
+//! 2026-11-08) [design].
+//!
+//! A scene on the host (a DLC's opening slideshow, Elijah's broadcast, the Sink's
+//! arrival) holds the host's player with DisablePlayerControls, plays fades with
+//! ApplyImageSpaceModifier and moves the host with MoveTo. A guest's game does not run
+//! the host's trigger scripts (`nvf_play::script_trigger`, coop-world-sync's gate), so
+//! without this it would stand free while the host is held, or (before the gate) run the
+//! scene on its own and stay locked after it. The host sends what its scripts do to its
+//! player ([`net::SceneView`]) and each guest shares it:
+//!
+//! - **Held as the host is.** The control groups the host's scripts hold (every lock
+//!   `Game::controls_locked` reads, the NVSE Alt locks included) hold the guest too
+//!   (`fnv_game::Game::coop_host_locks`), and let go when the host's do. A host that has
+//!   not been heard for [`STALE`] seconds holds nothing: a guest is never left locked by a
+//!   lost host.
+//! - **The same fades.** While the host is held, the image space modifiers on its screen
+//!   are put on the guest's (`Game::apply_image_modifier`), again when the host's starts
+//!   again, and taken off when the host's goes. Outside a scene they are not sent: the
+//!   host's drugs, hits and the like are its own.
+//! - **Beside the host.** A guest whose movement the host's scene has held for [`SETTLE`]
+//!   seconds and that stands more than [`NEAR`] units from the host in the same place is
+//!   brought beside it (the host's right, [`BESIDE`] units off), as the leash brings it
+//!   to another place (`super::leash`); so every player watches the scene from the same
+//!   spot.
+//!
+//! - **Dressed as the host.** What the host's scripts put on the host's player
+//!   (EquipItem, `Game::script_worn`) and it still wears goes too: each guest wears it,
+//!   given one if it has none, locked on if the host's is, and it goes again when the
+//!   host's goes or the guest leaves (`Game::follow_story_gear`; overnight items 81 and
+//!   84: Dead Money's collar and jumpsuit, Old World Blues' gown). Gear a story takes
+//!   (Dead Money's RemoveAllItems) is not followed: the owner's Mojave and DLC
+//!   inventories come first (morning-report designs\coop-dlc-inventory.md).
+//!
+//! Not shared: a scene's camera and the player packages its scripts give the host's
+//! player (the guests' copies of the host are drawn where the host is, and a guest held
+//! still needs no package).
+//!
+//! Log: `co-op: the host's scene holds this player (…)`, `co-op: the host's scene lets
+//! this player go`, `co-op: the host's scene: image space modifier 0x… on this screen`,
+//! `co-op: scene: beside the host at …`.
+
+use super::{place_of, Coop};
+use bevy::prelude::*;
+use fnv_sim::FormId;
+use nvf_coop::net::{self, Place, SceneView};
+use nvf_play::loading::{Loading, TravelRequest};
+use nvf_play::player::Player;
+use nvf_play::{Location, Travel};
+use std::collections::HashMap;
+
+/// A host's scene not heard for this long (seconds) holds nothing.
+const STALE: f32 = 3.0;
+/// A guest is brought beside the host once its movement has been held this long
+/// (seconds): a lock of a moment does not move anyone.
+const SETTLE: f32 = 1.0;
+/// Farther than this from the host (game units) in the host's place, a held guest is
+/// brought beside it.
+const NEAR: f32 = 400.0;
+/// How far to the host's right a guest is put (game units).
+const BESIDE: f32 = 72.0;
+/// A modifier on the host's screen whose seconds went back by more than this started
+/// again.
+const RESTARTED: f32 = 0.1;
+
+/// What co-op keeps of the host's scene ([`Coop::scene`]).
+#[derive(Default)]
+pub(super) struct Shared {
+    /// A guest's: the host's scene as last heard, and when (seconds of `Time`).
+    pub(super) heard: Option<(SceneView, f32)>,
+    /// The control groups held here for the host, as last set.
+    held: [bool; 7],
+    /// Since when the host has held this player's movement, and whether this player was
+    /// turned to face as the host since.
+    moving_held_since: Option<f32>,
+    turned: bool,
+    /// The modifiers put on this screen for the host, with the host's seconds for each as
+    /// last heard.
+    mods: HashMap<u32, f32>,
+}
+
+/// The groups held, as [`SceneView::locks`] bits.
+pub(super) fn lock_bits(locks: [bool; 7]) -> u8 {
+    locks.iter().enumerate().filter(|(_, l)| **l).fold(0, |b, (i, _)| b | 1 << i)
+}
+
+fn locks_of(bits: u8) -> [bool; 7] {
+    std::array::from_fn(|i| bits & 1 << i != 0)
+}
+
+/// A host's scene now: its scripts' locks, and its screen's modifiers while one is held.
+/// (A host holds nothing for another: `coop_host_locks` is clear.)
+pub(super) fn scene_view(g: &fnv_game::Game) -> SceneView {
+    let locks = lock_bits(g.controls_locked());
+    let mods = if locks == 0 { Vec::new() } else { g.image_modifiers.iter().map(|m| (m.modifier.0, m.elapsed as f32)).take(net::SCENE_MODS_MAX).collect() };
+    let worn = g.story_gear().into_iter().map(|(i, l)| (i.0, l)).take(net::SCENE_MODS_MAX).collect();
+    SceneView { locks, mods, worn }
+}
+
+/// What the modifiers on the host's screen ask of this one: the modifiers to put on
+/// (new, or started again on the host's) and those to take off (gone from the host's).
+/// `given` is updated to the host's list.
+fn follow_mods(given: &mut HashMap<u32, f32>, host: &[(u32, f32)]) -> (Vec<u32>, Vec<u32>) {
+    let mut on = Vec::new();
+    for &(m, at) in host {
+        if given.get(&m).is_none_or(|&was| at + RESTARTED < was) {
+            on.push(m);
+        }
+        given.insert(m, at);
+    }
+    let off: Vec<u32> = given.keys().copied().filter(|m| !host.iter().any(|(h, _)| h == m)).collect();
+    for m in &off {
+        given.remove(m);
+    }
+    (on, off)
+}
+
+/// Where a guest stands beside the host: [`BESIDE`] units to the host's right (yaw is a
+/// compass bearing: 0 north, +Y; π/2 east, +X).
+fn beside(feet: [f32; 3], yaw: f32) -> [f32; 3] {
+    let right = yaw + std::f32::consts::FRAC_PI_2;
+    [feet[0] + right.sin() * BESIDE, feet[1] + right.cos() * BESIDE, feet[2]]
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn share_scene(
+    mut coop: ResMut<Coop>,
+    time: Res<Time>,
+    script: Option<ResMut<nvf_play::script::ScriptState>>,
+    player: Option<ResMut<Player>>,
+    loc: Option<Res<Location>>,
+    loading: Option<Res<Loading>>,
+    mut travel: MessageWriter<TravelRequest>,
+    solo: Option<Res<nvf_play::save::SoloBase>>,
+) {
+    let now = time.elapsed_secs();
+    let coop = &mut *coop;
+    let Some(mut script) = script else { return };
+    let Some(rt) = script.rt.as_mut() else { return };
+    let g = &mut rt.game;
+    if coop.is_host() {
+        g.coop_host_locks = [false; 7];
+        coop.scene = Shared::default();
+        if let Some(link) = coop.link.as_ref() {
+            link.set_scene(scene_view(g));
+        }
+        return;
+    }
+    let (guest, lost) = (coop.is_guest(), coop.host_lost);
+    let s = &mut coop.scene;
+    // The host's scene now: none when not a guest (left the lobby), the host is lost or
+    // not heard lately, or this game is not yet kept as the guest's own.
+    let heard = s.heard.as_ref().filter(|(_, at)| guest && !lost && solo.is_some() && now - at < STALE).map(|(v, _)| v.clone());
+    if !guest {
+        s.heard = None;
+    }
+    let view = heard.unwrap_or_default();
+    // The host's story gear: kept while the host is only lost a moment (a dropout is not
+    // a leave), taken off when this game is no guest.
+    if guest && solo.is_some() && (s.heard.is_some() || !g.coop_story_gear.is_empty()) {
+        let host_gear: Option<Vec<(FormId, bool)>> = s.heard.as_ref().map(|(v, _)| v.worn.iter().map(|&(i, l)| (FormId(i), l)).collect());
+        if let Some(gear) = host_gear {
+            let (on, off) = g.follow_story_gear(&gear);
+            for i in on {
+                info!("co-op: the host's story puts {} ({:#010X}) on this player too", g.data.name(i), i.0);
+            }
+            for i in off {
+                info!("co-op: {} ({:#010X}) taken off: the host's story no longer has it on", g.data.name(i), i.0);
+            }
+        }
+    } else if !g.coop_story_gear.is_empty() {
+        let (_, off) = g.follow_story_gear(&[]);
+        info!("co-op: not a guest now: the host's story gear taken off ({} item(s))", off.len());
+    }
+    let held = locks_of(view.locks);
+    if held != s.held {
+        if held.iter().any(|h| *h) {
+            info!("co-op: the host's scene holds this player (controls {held:?})");
+        } else {
+            info!("co-op: the host's scene lets this player go");
+        }
+        s.held = held;
+    }
+    g.coop_host_locks = held;
+    let (on, off) = follow_mods(&mut s.mods, &view.mods);
+    for m in on {
+        info!("co-op: the host's scene: image space modifier {m:#010X} on this screen");
+        g.apply_image_modifier(FormId(m));
+    }
+    for m in off {
+        g.remove_image_modifier(FormId(m));
+    }
+    // Beside the host while its movement is held.
+    s.moving_held_since = if held[0] { s.moving_held_since.or(Some(now)) } else { None };
+    if s.moving_held_since.is_none() {
+        s.turned = false;
+    }
+    let settled = s.moving_held_since.is_some_and(|t| now - t >= SETTLE);
+    let (Some(host), Some(mut player), Some(loc)) = (coop.host, player, loc) else { return };
+    // Looking held too (a slideshow, a speech): this player faces the way the host does,
+    // once, so it sees what the host is shown.
+    if settled && held[4] && !s.turned && place_of(&loc) == host.place {
+        player.heading = host.yaw;
+        player.pitch = host.pitch;
+        s.turned = true;
+        info!("co-op: scene: this player faces as the host ({:.0} deg)", host.yaw.to_degrees());
+    }
+    if !settled || loading.is_some_and(|l| l.active()) || coop.downed_at.is_some() || coop.last_leash.is_some_and(|t| now - t < super::LEASH_EVERY) {
+        return;
+    }
+    let (dx, dy) = (player.feet[0] - host.feet[0], player.feet[1] - host.feet[1]);
+    // Another place is the leash's (`super::leash`).
+    if place_of(&loc) != host.place || dx * dx + dy * dy <= NEAR * NEAR {
+        return;
+    }
+    let feet = beside(host.feet, host.yaw);
+    let (world, interior) = match host.place {
+        Place::Interior(c) => (None, Some(c)),
+        Place::Exterior(w) => (Some(w), None),
+    };
+    info!("co-op: scene: beside the host at {:?} {feet:?}", host.place);
+    travel.write(TravelRequest(Travel { world, interior, feet, heading_deg: host.yaw.to_degrees() }));
+    coop.last_leash = Some(now);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lock_bits_round_trip() {
+        let l = [true, false, true, false, false, false, true];
+        assert_eq!(lock_bits(l), 0b100_0101);
+        assert_eq!(locks_of(lock_bits(l)), l);
+        assert_eq!(lock_bits([false; 7]), 0);
+    }
+
+    #[test]
+    fn mods_follow_the_host() {
+        let mut given = HashMap::new();
+        // A fade starts on the host's screen: on here.
+        assert_eq!(follow_mods(&mut given, &[(0x0101_013B, 0.1)]), (vec![0x0101_013B], vec![]));
+        // It plays on: nothing to do.
+        assert_eq!(follow_mods(&mut given, &[(0x0101_013B, 0.6)]), (vec![], vec![]));
+        // It starts again (the next line's fade): on again.
+        assert_eq!(follow_mods(&mut given, &[(0x0101_013B, 0.05)]), (vec![0x0101_013B], vec![]));
+        // It is gone from the host's: off here.
+        assert_eq!(follow_mods(&mut given, &[]), (vec![], vec![0x0101_013B]));
+        assert!(given.is_empty());
+    }
+
+    #[test]
+    fn beside_is_to_the_right() {
+        // Facing north, the right is east (+X).
+        let f = beside([0.0, 0.0, 10.0], 0.0);
+        assert!((f[0] - BESIDE).abs() < 1e-3 && f[1].abs() < 1e-3 && f[2] == 10.0);
+        // Facing east, the right is south (-Y).
+        let f = beside([0.0, 0.0, 0.0], std::f32::consts::FRAC_PI_2);
+        assert!(f[0].abs() < 1e-3 && (f[1] + BESIDE).abs() < 1e-3);
+    }
+}

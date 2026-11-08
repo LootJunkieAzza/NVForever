@@ -366,6 +366,75 @@ impl Game<'_> {
         self.coop_actors.contains_key(&r)
     }
 
+    /// What scripts put on the player that it still wears ([`Game::script_worn`]), with
+    /// whether locked on: a co-op host's story gear, for the guests to wear too.
+    pub fn story_gear(&self) -> Vec<(FormId, bool)> {
+        let worn = |item: FormId| self.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()).is_some_and(|i| i.is_equipped(item));
+        self.script_worn.iter().filter(|(item, _)| worn(**item)).map(|(item, locked)| (*item, *locked)).collect()
+    }
+
+    /// A co-op guest wears what the host's story put on the host's player (`host`, the
+    /// host's [`Game::story_gear`]), and takes off what it no longer wears: a DLC start
+    /// dresses every player alike (overnight item 84: Dead Money's collar and jumpsuit,
+    /// QUST 0x01000FBF stage 5; Old World Blues' patient gown, QUST 0x03002FCB stage 10)
+    /// [observed: `fnvtool script decompile`; design: the owner's rule]. An item the
+    /// player lacks is added (as AddItem gives it, 99.9% health); a locked one is locked
+    /// on here too. Taken off, an added item is taken away again, so nothing the host's
+    /// story gave stays with the guest ([`Game::coop_story_gear`]). `host` empty takes
+    /// everything off (the guest left). Returns the items put on and taken off.
+    pub fn follow_story_gear(&mut self, host: &[(FormId, bool)]) -> (Vec<FormId>, Vec<FormId>) {
+        let me = FormId::PLAYER_REF;
+        let mut on = Vec::new();
+        for &(item, locked) in host {
+            if self.coop_story_gear.contains_key(&item) {
+                continue;
+            }
+            let had = self.world.item_count(me, item).unwrap_or(0) > 0;
+            if !had && self.world.add_item_at_condition(me, item, 1, Some(0.999)).is_err() {
+                continue;
+            }
+            let _ = self.world.lock_equip(me, item, None);
+            if self.world.equip(me, item).is_ok() {
+                if locked {
+                    let _ = self.world.lock_equip(me, item, Some(fnv_sim::world::EquipLock::NoUnequip));
+                }
+                on.push(item);
+            }
+            self.coop_story_gear.insert(item, !had);
+        }
+        let gone: Vec<FormId> = self.coop_story_gear.keys().copied().filter(|i| !host.iter().any(|(h, _)| h == i)).collect();
+        for &item in &gone {
+            let added = self.coop_story_gear.remove(&item).unwrap_or(false);
+            let _ = self.world.lock_equip(me, item, None);
+            let _ = self.world.unequip(me, item);
+            if added {
+                let _ = self.world.remove_item(me, item, 1);
+            }
+        }
+        if !on.is_empty() || !gone.is_empty() {
+            self.sync_actor_effects(me);
+        }
+        (on, gone)
+    }
+
+    /// Whether `event` on `r`'s own script is left to the host's world in a co-op
+    /// guest's game: `r` is an NPC or creature placed in the world (ACHR, ACRE), not the
+    /// player's teammate, and the block is not OnActivate (the guest's own use of it).
+    /// The host's world runs its NPCs (a guest's actors' AI is off and they follow the
+    /// host's, nvforever `coop`); their scripts' GameMode, OnDeath, OnHit and the rest
+    /// run there, on the host's story. Run here as well they act on the guest's own
+    /// story: Jed's GameMode (Honest Hearts SCPT 0x01009F67) shows "Jed's Dead, Baby!"
+    /// and fails Happy Trails (stage 255) when he is dead before its stage 100, and in a
+    /// guest's game that has not taken the trip the host's ambush is exactly that
+    /// (overnight item 68, 2026-11-07) [observed: `fnvtool script decompile`; design].
+    pub fn host_runs_script_of(&self, r: FormId, event: u16) -> bool {
+        self.coop_guest
+            && event != crate::game::event::ON_ACTIVATE
+            && r != FormId::PLAYER_REF
+            && self.world.placed.get(r).is_some_and(|p| &p.sig == b"ACHR" || &p.sig == b"ACRE")
+            && !self.is_teammate(r)
+    }
+
     /// `r`, or the player for another player's actor: whom the world's actors take it
     /// for in friendship and enmity [design: the players are one side].
     pub fn as_player(&self, r: FormId) -> FormId {

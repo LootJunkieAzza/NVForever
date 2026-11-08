@@ -83,7 +83,9 @@
 //! guest who joins or arrives later; a guest's door swings as the host's does. Lit
 //! campfires of Burning Campfire Redone go the same way ([`campfires`]): the host lists
 //! those burning in its game, a guest lights and puts out its own to match, and asks the
-//! host to light one it lit. So a
+//! host to light one it lit. The host's script scenes go too ([`scene`]): a guest is held
+//! as the host's scripts hold the host, sees the same fades and is brought beside the
+//! host. So a
 //! guest whose save has done everything joins a host who is just starting and sees the
 //! host's Goodsprings. None of it reaches the guest's own saves (its own game is kept, below).
 //!
@@ -174,6 +176,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 mod campfires;
+mod scene;
 mod revive;
 
 /// The port `--join` uses when the address names none (and a code without a port means).
@@ -315,6 +318,7 @@ impl Plugin for CoopPlugin {
             handed_off: false,
             progress_in: Vec::new(),
             campfires: Default::default(),
+            scene: Default::default(),
         };
         if let Some(port) = c.host.or_else(|| env(HOST_ENV).and_then(|p| p.trim().parse().ok())) {
             coop.start_hosting(port);
@@ -323,7 +327,7 @@ impl Plugin for CoopPlugin {
         }
         app.add_plugins((nvf_play::lobby::LobbyPlugin, nvf_play::coop_progress::CoopProgressPlugin))
             .insert_resource(coop)
-            .add_systems(Update, (lobby, send, take_events, share_doors, campfires::share_campfires, tables, social_mates, share_npcs, follow_looks, follow_npcs, leash, downed, revive::bodies, progress, duel_falls).chain().after(nvf_play::PlaySet::Physics))
+            .add_systems(Update, (lobby, send, take_events, share_doors, campfires::share_campfires, tables, social_mates, share_npcs, follow_looks, follow_npcs, leash, scene::share_scene, downed, revive::bodies, progress, duel_falls).chain().after(nvf_play::PlaySet::Physics))
             .add_message::<PuppetShot>()
             .add_systems(Update, (stand_ins, draw, peer_lights, pipboy_share).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
     }
@@ -484,6 +488,8 @@ struct Coop {
     progress_in: Vec<(u8, net::Progress)>,
     /// Lit campfires ([`campfires::share_campfires`]).
     campfires: campfires::Shared,
+    /// The host's script scenes ([`scene::share_scene`]).
+    scene: scene::Shared,
 }
 
 /// One of the host's NPCs as a guest has heard it.
@@ -1476,6 +1482,7 @@ fn take_events(
             Event::Presence { .. } => {}
             Event::Campfire { id, reference } => coop.campfires.asked.push((id, reference)),
             Event::Door { id, reference, open } => coop.doors_in.push((id, reference, open)),
+            Event::Scene(v) => coop.scene.heard = Some((v, time.elapsed_secs())),
             Event::Clock(c) => {
                 // Not before this game is kept as the guest's own.
                 if let Some(sim) = sim.as_deref_mut().filter(|_| solo.is_some()) {
