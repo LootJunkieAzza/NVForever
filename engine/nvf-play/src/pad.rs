@@ -798,7 +798,7 @@ pub fn set_hint_marked(
             Some((image, aspect)) => {
                 let side = face.font.size * glyph_share(g);
                 let w = side * aspect;
-                let corner = Vec2::new(x + width, base - crate::interface::line_base(face) / 2.0 - side / 2.0);
+                let corner = Vec2::new(x + width, base - crate::interface::x_height(face) / 2.0 - side / 2.0);
                 p.spawn((crate::interface::at(corner.x, corner.y, w, side), ImageNode { color, ..ImageNode::new(image) }, mark.clone()));
                 width += w;
             }
@@ -830,7 +830,7 @@ pub fn set_button(
         Some((g, image, aspect)) => {
             let side = face.font.size * glyph_share(g);
             let w = side * aspect;
-            let corner = Vec2::new(x, base - crate::interface::line_base(face) / 2.0 - side / 2.0);
+            let corner = Vec2::new(x, base - crate::interface::x_height(face) / 2.0 - side / 2.0);
             p.spawn((crate::interface::at(corner.x, corner.y, w, side), ImageNode { color, ..ImageNode::new(image) }));
             w
         }

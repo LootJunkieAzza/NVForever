@@ -508,6 +508,13 @@ pub fn line_base(face: &Face) -> f32 {
     face.font.glyphs.iter().skip(0x20).take(0x5F).filter(|g| g.drawn()).map(|g| g.ascent).fold(0.0, f32::max).max(face.font.size * 0.75)
 }
 
+/// The font's x-height: the tallest lowercase letter's rise, the band the eye centres on
+/// for mixed-case text (so a button glyph next to "Yes" sits on it, not on the cap height)
+/// [design]. Floored at half the font size.
+pub fn x_height(face: &Face) -> f32 {
+    face.font.glyphs.iter().skip(0x61).take(0x1A).filter(|g| g.drawn()).map(|g| g.ascent).fold(0.0, f32::max).max(face.font.size * 0.5)
+}
+
 /// Draw a line of text at `origin` (what its `x` and `base` are measured from). Every
 /// node that carries the colour also gets `mark`.
 pub fn set_text(p: &mut ChildSpawnerCommands, face: &Face, set: &Set, origin: Vec2, color: Color, mark: impl Bundle + Clone) {
