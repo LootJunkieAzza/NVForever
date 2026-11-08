@@ -712,6 +712,9 @@ pub struct MenuModel {
     /// The two columns change category together (the Matching Categories tweak, set
     /// by `crate::tweaks`).
     pub sync_categories: bool,
+    /// The player cannot offer items in a barter (the No Selling tweak, set by
+    /// `crate::tweaks`).
+    pub no_selling: bool,
     /// The player's encumbrance, or why it is unknown.
     pub encumbrance: Result<Encumbrance, String>,
     /// Heading: the container's or merchant's name, or "Inventory".
@@ -879,6 +882,7 @@ impl MenuModel {
             lists: [Listing::default(), Listing::default()],
             category: [Category::All; 2],
             sync_categories: false,
+            no_selling: false,
             encumbrance: Err(String::new()),
             title,
             status: None,
@@ -1361,6 +1365,10 @@ impl MenuModel {
                         t.offered[from].remove(&r.units());
                     }
                     return Ok(format!("Took back {} x{want}", name(&r)));
+                }
+                // The player's tweak: nothing of the player's is sold [design: docs/design/tweaks.md].
+                if self.focus == Side::Player && self.no_selling {
+                    return Ok("You cannot sell here.".into());
                 }
                 *t.offered[self.focus as usize].entry(r.units()).or_insert(0) += want;
                 let verb = if self.focus == Side::Player { "Selling" } else { "Buying" };

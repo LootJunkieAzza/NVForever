@@ -508,6 +508,7 @@ fn read_input(
     mut intent: ResMut<MoveIntent>,
     mut seat: ResMut<crate::furniture::PlayerSeat>,
     driven: Option<Res<ViewDriven>>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     if *state.get() != PlayState::Playing {
         *intent = MoveIntent::default();
@@ -548,7 +549,9 @@ fn read_input(
         }
     }
     intent.sneak = control.sneak;
-    if input.just_pressed(Control::Jump) {
+    // The player's tweak: holding Jump jumps again on landing [design: docs/design/tweaks.md].
+    let repeat = tweaks.as_ref().is_some_and(|t| t.repeat_jumping);
+    if input.just_pressed(Control::Jump) || (repeat && input.pressed(Control::Jump)) {
         intent.jump = true;
     }
 }
@@ -563,8 +566,9 @@ const MOVE_CHUNK: usize = 4;
 /// running, and the body walks [design: the owner's wish, playtest of 2026-10-11, "reduced
 /// to walk speed while aiming"; the original's rule is not captured]. Sneaking still
 /// slows the walk. NPCs that aim are for the combat AI (docs/design/combat-ai.md, open).
-pub fn aiming_walks(control: Res<PlayerControl>, mut intent: ResMut<MoveIntent>, mut was: Local<bool>) {
-    let aiming = control.aiming && control.weapon_out;
+pub fn aiming_walks(control: Res<PlayerControl>, mut intent: ResMut<MoveIntent>, mut was: Local<bool>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
+    // The player's tweak keeps the pace while aiming or blocking [design: docs/design/tweaks.md].
+    let aiming = control.aiming && control.weapon_out && !tweaks.is_some_and(|t| t.no_aiming_slowdown);
     if aiming && !intent.walk {
         intent.walk = true;
     }

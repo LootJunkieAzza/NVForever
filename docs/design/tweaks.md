@@ -154,6 +154,21 @@ saves load, and the frame's sync sets them from the settings again.
 | No Travel on a Crippled Leg | `bNoFastTravelIfLegsCrippled` | `travel::answer`, `Refusal::CrippledLeg` (own text) |
 | Wait Only When Seated | `bOnlyAllowWaitWhileSitting` | `wait::refusal`, `Refusal::NotSeated` (own text) |
 
+## Ninth batch (2026-11-08)
+
+| Row | INI key | Where |
+|---|---|---|
+| No Selling | `bDisableSellingItems` | `MenuModel` barter offer (`no_selling`, set by `tweaks::sync`) |
+| Own Skill Points Rule (+ two sliders) | `bModifySkillPointsEarned` | `levelup::points_for` (`custom_skill_points`) |
+| No Unconscious Message | `bNoUnconciousMessage` | `script_events::effects` |
+| No Helmet Voice Filter | `bNoAudioDistortion` | `voice::play` |
+| No Skipping Lines | `bNoSkipDialog` | `dialogue::input` |
+| Mouse Turns the Lock | `bLockpickAllowMouse` | `lockpick::step` |
+| No Casino Bet Limit | `bNoMaxCasinoBet` | the Show…Menu script functions (`functions::misc`) |
+| Full Pace While Aiming | `bAimingSpeed` | `player::aiming_walks` |
+| Hold to Keep Jumping | `bRepeatJumping` | `player::read_input` |
+| Hold to Sneak | `bHoldCrouchToSneak` | `control::read_controls` |
+
 Menu tweaks that code holding the game reads (the Pip-Boy's item info, crafting, the
 level-up menu, the terminal's timers) are kept in `fnv_game::tweaks` too, so no system
 needs another parameter; the catalogue's notes say where NVForever already does what a
@@ -170,8 +185,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 92 |
-| to do | 511 |
+| done | 105 |
+| to do | 498 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -180,6 +195,7 @@ game's Data folder, read-only).
 
 | INI key | Status | VNV on | Options | Note |
 |---|---|---|---|---|
+| `bAimingSpeed` | done |  | 2 | Full Pace While Aiming (aiming and blocking together) |
 | `bCustomSpecialPoints` | done |  | 1 | S.P.E.C.I.A.L. Points (30 to 70; a script's own total still wins) |
 | `bDisableFastTravel` | done |  |  | No Fast Travel |
 | `bDisableReloadingNonEmptyClip` | done |  | 2 | Reload Only When Empty (the energy-only and looping options not built) |
@@ -187,6 +203,7 @@ game's Data folder, read-only).
 | `bJumpingCostsAP` | done |  | 3 | Action Points per Jump (slider 0-50; the combat-only and jump-anyway options not built) |
 | `bJumpWhileOverencumbered` | done |  |  | already so: NVForever never refuses the jump when over-encumbered |
 | `bLootUnconsciousVictims` | done |  |  | Search the Unconscious |
+| `bModifySkillPointsEarned` | done |  | 2 | Own Skill Points Rule (switch + base and per-Intelligence sliders) |
 | `bNoDialogueZoom` | done |  |  | already a row: Gameplay tab, dialogue-zoom |
 | `bNoFastTravelIfLegsCrippled` | done |  | 1 | No Travel on a Crippled Leg (NVForever's own refusal text) |
 | `bNoLockFailedTerminals` | done |  |  | No Terminal Lockout |
@@ -205,7 +222,6 @@ game's Data folder, read-only).
 | `bAdjustableScopeZoom` | to do |  | 14 |  |
 | `bAgilityScalesJumpHeight` | to do |  | 1 | jump height is a fixed character param; needs a small system with Agility |
 | `bAgilityScalesMovementSpeed` | to do |  | 3 |  |
-| `bAimingSpeed` | to do |  | 2 |  |
 | `bAimingUnholstersWeapons` | to do |  |  |  |
 | `bAllowAidAtMaxHealth` | to do |  | 3 |  |
 | `bAllowSleepWaitWithReducedMaxHealth` | to do |  |  |  |
@@ -258,7 +274,6 @@ game's Data folder, read-only).
 | `bLuckDoesntAffectGambling` | to do |  | 1 | already so? no Luck in the gambling rules found; check the original first |
 | `bMapSelectableCompanions` | to do |  | 2 |  |
 | `bMarkNearbyLocationsOnMap` | to do |  | 1 |  |
-| `bModifySkillPointsEarned` | to do |  | 2 | levelup::points_for has the game; two numbers to choose |
 | `bMousewheelScrollsWeaponHotkeys` | to do |  | 1 |  |
 | `bMovementPenalties` | to do |  | 11 |  |
 | `bNoAmmoFromTakingNPCWeapon` | to do |  |  |  |
@@ -267,7 +282,7 @@ game's Data folder, read-only).
 | `bNoDamageMeleeWeaponIfTargetDead` | to do |  |  |  |
 | `bNoEnvironmentRadiationInFullPowerArmor` | to do |  |  |  |
 | `bNoFreeBarterItems` | to do |  | 1 |  |
-| `bNoGrabOwnedItems` | to do |  |  |  |
+| `bNoGrabOwnedItems` | to do |  |  | grab::grab, with activate::owned_by_other |
 | `bNoLockEncounterZoneLevels` | unsure, skipped |  |  | encounter-zone level locking not yet checked in NVForever |
 | `bNoPlayerStaggerAnims` | to do |  |  |  |
 | `bNoSkillTags` | to do |  | 6 |  |
@@ -294,7 +309,7 @@ game's Data folder, read-only).
 | `bReloadingWithFullClipSwitchesAmmoType` | to do |  |  |  |
 | `bReloadJamsAffectedByAgility` | to do |  |  |  |
 | `bReloadWhileFiring` | to do |  |  |  |
-| `bRememberBobbyPinHealth` | to do |  |  |  |
+| `bRememberBobbyPinHealth` | to do |  |  | Picking::new starts a full pin; needs a stored health |
 | `bRepairScalesCraftingCondition` | to do |  |  |  |
 | `bRepairsRewardXP` | to do |  | 1 |  |
 | `bReviveUnconsciousCompanions` | to do |  | 3 |  |
@@ -319,7 +334,7 @@ game's Data folder, read-only).
 | `bUnequipWeaponMods` | to do |  | 7 |  |
 | `bUseArmorRepairKitsInRepairMenu` | to do |  |  |  |
 | `bUseCustomBarterPriceMultipliers` | to do |  | 13 |  |
-| `bUseCustomSniperZoomRate` | to do |  | 2 |  |
+| `bUseCustomSniperZoomRate` | to do |  | 2 | aim_zoom ZOOM_SECONDS is a constant |
 | `bUseWeaponRepairKitsInRepairMenu` | to do |  | 2 |  |
 | `bUsingKeysRewardsXP` | to do |  | 3 |  |
 | `bUsingNotesRewardsXP` | to do |  | 3 |  |
@@ -344,12 +359,12 @@ game's Data folder, read-only).
 | `bBloodyMessGibTargetedLimbOnly` | to do |  |  |  |
 | `bCharacterMeleeDamageIgnoresScale` | to do |  |  |  |
 | `bCharacterNonMeleeDamageIgnoresScale` | to do |  |  |  |
-| `bChargedAttacksCostAP` | to do |  | 4 |  |
+| `bChargedAttacksCostAP` | to do |  | 4 | combat::melee power branch; power attacks cost no AP yet |
 | `bClipSizeMatters` | to do |  |  |  |
 | `bDifficultyDoesntAffectNPCToNPCDamage` | to do |  | 3 |  |
-| `bEnteringVATSCostsAP` | to do |  | 4 |  |
+| `bEnteringVATSCostsAP` | to do |  | 4 | vats_mode::try_enter (plain fn, has the game) |
 | `bFatalNonSneakCritsAlwaysGib` | to do |  | 1 |  |
-| `bFirstPersonVATS` | to do |  |  |  |
+| `bFirstPersonVATS` | to do |  |  | VATS keeps the current view; forcing one goes in vats_mode |
 | `bHoldAndReleaseThrowables` | to do |  | 1 |  |
 | `bIgnoreCompanionsVATS` | to do |  | 1 |  |
 | `bLocationalMeleeDamage` | to do |  | 3 |  |
@@ -357,7 +372,7 @@ game's Data folder, read-only).
 | `bNoCompanionKillXP` | to do |  | 1 |  |
 | `bNoDisarmCompanions` | to do |  |  |  |
 | `bNoHealingInCombat` | to do |  | 1 | the refusal belongs before MenuModel::apply takes the item |
-| `bNoPipBoyInCombat` | to do |  | 5 |  |
+| `bNoPipBoyInCombat` | to do |  | 5 | menu::open_menus is where; needs a message for the refusal |
 | `bNoScaleNpcDamageByCondition` | to do |  |  |  |
 | `bNoScaleNpcDamageResistanceByCondition` | to do |  |  |  |
 | `bNoScaleNpcDamageThresholdByCondition` | to do |  |  |  |
@@ -407,11 +422,13 @@ game's Data folder, read-only).
 | `bVatsExitKey` | done | yes | 1 | Skip Kill Camera (right click; Tab is the Pip-Boy key here) |
 | `bDisableCompanionKillcam` | done |  |  | already so: only the player's VATS kills start a kill camera |
 | `bDisableExplosionInFaceIMOD` | done |  |  | No Explosion Blur |
+| `bHoldCrouchToSneak` | done |  |  | Hold to Sneak |
 | `bMidairFastTravel` | done |  |  | Fast Travel in the Air |
 | `bNoMapMarkerAddedPopup` | done |  |  | already so: NVForever shows no marker-added popup |
 | `bNoReputationMessages` | done |  | 5 | Quiet Reputation (box and sound together; per-kind options not built) |
 | `bRandomizeKillcamMode` | done |  |  | n/a: NVForever has one kill camera kind |
 | `bRemoveChemWarnOffIMOD` | done |  |  | No Chem Wore-Off Effect |
+| `bRepeatJumping` | done |  |  | Hold to Keep Jumping |
 | `bBetterPickupPrompt` | to do | yes |  | the prompt shows one unit; needs the stack count and the encumbrance |
 | `bDoubleTapReloadToChangeAmmoType` | to do | yes | 2 | the owner moved Lower Weapon off a double tap because it held reloads back; ask first |
 | `bFasterControllerPOVRotate` | to do | yes |  |  |
@@ -424,10 +441,10 @@ game's Data folder, read-only).
 | `bActivatingDoesntStandUp` | to do |  |  |  |
 | `bAddItemUsesItemIcon` | unsure, skipped |  |  | needs an icon replacer |
 | `bAddNightVisionToggle` | to do |  | 4 |  |
-| `bAllowActivateWhileAnimPlays` | to do |  |  |  |
+| `bAllowActivateWhileAnimPlays` | to do |  |  | NVForever never refuses activating during a reload; check what the original refuses |
 | `bAllowFiringWhileLanding` | to do |  |  |  |
 | `bAllowOpenPipboyDuringCameraShake` | to do |  |  |  |
-| `bAllowUnsafeFastTravel` | to do |  | 1 |  |
+| `bAllowUnsafeFastTravel` | to do |  | 1 | only cells flagged Can't Travel From Here refuse; the tweak would skip that flag |
 | `bAllowVATSWhileAnimsPlay` | to do |  |  |  |
 | `bAllowWeaponHotkeysAndPipBoyWhileReloading` | to do |  |  |  |
 | `bAllowWeaponHotkeysWhileEquipping` | to do |  |  |  |
@@ -437,14 +454,13 @@ game's Data folder, read-only).
 | `bDisableInteriorFog` | to do |  | 1 |  |
 | `bDisableTutorialMessages` | to do |  |  |  |
 | `bDisableWeaponFOV` | to do |  | 1 |  |
-| `bDontSetQuestWhenCompletingObjectives` | to do |  |  |  |
-| `bDontSetQuestWhenObjectivesAdded` | to do |  |  |  |
+| `bDontSetQuestWhenCompletingObjectives` | to do |  |  | pipboy data::lists picks an active quest whenever none is |
+| `bDontSetQuestWhenObjectivesAdded` | to do |  |  | pipboy data::lists picks an active quest whenever none is |
 | `bEnteringVATSDoesntUnholsterWeapon` | to do |  |  |  |
-| `bEquipBrokenItems` | to do |  |  |  |
+| `bEquipBrokenItems` | to do |  |  | broken weapons are refused in fnv_sim equip_at; needs a World flag like power armour |
 | `bFireWhileAiming` | to do |  |  |  |
 | `bForceHiResWeaponModels` | to do |  |  |  |
 | `bHideMiscQuestItems` | to do |  | 1 |  |
-| `bHoldCrouchToSneak` | to do |  |  |  |
 | `bHoldWaitKeyToShowMenu` | to do |  | 1 |  |
 | `bHotkeyHolstersWeaponIfEquipped` | to do |  | 1 |  |
 | `bHUDRotatesWithVanityCam` | to do |  |  |  |
@@ -457,14 +473,14 @@ game's Data folder, read-only).
 | `bLockpickHackingMessageShowsCurrentSkill` | to do |  | 2 |  |
 | `bMinBloodSplatterHealthDamage` | to do |  | 1 |  |
 | `bMinigamesPlayXPSoundAtMaxLevel` | to do |  |  |  |
-| `bMoveDuringOpenPipboyAnim` | to do |  |  |  |
+| `bMoveDuringOpenPipboyAnim` | to do |  |  | the Pip-Boy is a menu; the game leaves Playing at once |
 | `bMoveDuringVATSPlayback` | to do |  |  |  |
-| `bNoAutoContinueDialog` | to do |  |  |  |
+| `bNoAutoContinueDialog` | to do |  |  | Game::update_dialogue would hold the line timer |
 | `bNoDropWeaponSoundOnPlayerDeath` | to do |  |  |  |
-| `bNoEquippedWeaponMovementPenalty` | to do |  |  |  |
+| `bNoEquippedWeaponMovementPenalty` | to do |  |  | combat::run_pace slows two-handed weapons only |
 | `bNoExteriorLoadScreens` | to do |  |  |  |
 | `bNoFoodWornOffMessage` | to do |  | 1 |  |
-| `bNoKillcamKillSound` | to do |  |  |  |
+| `bNoKillcamKillSound` | to do |  |  | NVForever plays no sound when a kill camera starts |
 | `bNoKnockdownInGodmode` | to do |  |  |  |
 | `bNoLTRTOnPipboy` | n/a |  |  | the original's controller texture swap |
 | `bNoPipboyIdleAnims` | to do |  |  |  |
@@ -472,14 +488,13 @@ game's Data folder, read-only).
 | `bNoScreenshotPopup` | to do |  | 3 | NVForever shows no screenshot message yet |
 | `bNPCsDropWeaponHolsteredWeapon` | to do |  |  |  |
 | `bPauseOnSaveLoad` | to do |  |  |  |
-| `bPickLocksEvenWithKey` | to do |  | 1 |  |
+| `bPickLocksEvenWithKey` | to do |  | 1 | activate::activate before activate_by_hand |
 | `bPopupMenusDontMoveCursor` | to do |  |  |  |
 | `bPreventBushPassthroughSounds` | to do |  |  |  |
 | `bQuestTextVisibleWhileAiming` | to do |  |  |  |
 | `bRemoveFollowerTopics` | to do |  |  |  |
-| `bRemoveLandingAnim` | to do |  |  |  |
+| `bRemoveLandingAnim` | to do |  |  | fnv_actor jump::JumpState plays the landing clip |
 | `bRepairRequiresWeaponSkill` | to do |  |  |  |
-| `bRepeatJumping` | to do |  |  |  |
 | `bRobotCompanionsHealWithScrapMetal` | to do |  | 4 |  |
 | `bScaleExplosionShake` | to do |  | 2 |  |
 | `bScopeVisibilityDelay` | to do |  | 4 |  |
@@ -500,10 +515,12 @@ game's Data folder, read-only).
 |---|---|---|---|---|
 | `bAddRGBSliders` | done | yes | 1 | already a row: Interface tab, hud-red / hud-green / hud-blue |
 | `bHideRedCrosshairOnDistantInvisibleTargets` | done | yes |  | Invisible Foes Stay Hidden (at any distance) |
+| `bNoCrippleCriticalMessages` | done |  | 3 | already so: no crippled or critical popups about the target are shown |
 | `bNoKarmaMessages` | done |  | 7 | Quiet Karma (messages and sounds together; no thresholds yet) |
 | `bNoLocationPopup` | done |  |  | No Location Banner |
 | `bNoQuestFailedPopup` | done |  | 1 | No Quest Failed Banner |
 | `bNoRedCrosshairOnEnemies` | done |  |  | No Red Crosshair (native and tile HUD alike) |
+| `bNoUnconciousMessage` | done |  |  | No Unconscious Message |
 | `bNoXPMessages` | done |  | 7 | Quiet Experience (all sources at once; LEVEL UP still shows) |
 | `bRemoveQuestObjectiveAddedText` | done |  | 1 | No Objective List |
 | `bRemoveSneakLabel` | done |  |  | No Sneak Label (native and tile HUD) |
@@ -517,7 +534,7 @@ game's Data folder, read-only).
 | `bCompanionPipColorChange` | to do |  | 1 |  |
 | `bCompassFadeLeftSide` | to do |  |  |  |
 | `bCompassLocationDistanceBasedAlpha` | to do |  |  |  |
-| `bCompassNPCDistanceBasedAlpha` | to do |  |  |  |
+| `bCompassNPCDistanceBasedAlpha` | to do |  |  | the compass draws no alpha yet |
 | `bCompassQuestHeightIndicator` | to do |  |  |  |
 | `bCriticalHitMessagesIncludeLimbName` | to do |  |  |  |
 | `bCustomAddToInventoryMessageTimer` | to do |  | 1 |  |
@@ -527,29 +544,27 @@ game's Data folder, read-only).
 | `bDisableGrenadeIndicator` | to do |  |  |  |
 | `bDisableHUDCrippledLimbIndicator` | to do |  |  |  |
 | `bDisableNeedsMessages` | to do |  | 4 | those messages are the game's own scripts; needs a filter by message |
-| `bDistanceBasedQuestMarkerVisibilty` | to do |  | 2 |  |
+| `bDistanceBasedQuestMarkerVisibilty` | to do |  | 2 | compass::gather quest loop |
 | `bExplodingDestructibleIndicator` | to do |  |  |  |
 | `bHideAmmoLabel` | to do |  | 1 |  |
 | `bHideCapsAddedMessages` | to do |  |  |  |
 | `bHideCrosshairInFirstPerson` | to do |  |  | the crosshair and the prompt share a root in reticle.rs |
 | `bHideCrosshairInThirdPerson` | to do |  |  | the crosshair and the prompt share a root in reticle.rs |
 | `bHideCrosshairWhileReloading` | to do |  |  |  |
-| `bHideInvisibleUndiscoveredLocations` | to do |  |  |  |
-| `bHideUnknownNPCNames` | to do |  | 1 |  |
+| `bHideInvisibleUndiscoveredLocations` | to do |  |  | compass::gather marker loop; markers_of does not carry the map rule |
+| `bHideUnknownNPCNames` | to do |  | 1 | activate::find_target with extra.talked_to_pc; needs a label for the unnamed |
 | `bHostilesUseNeutralColorOnCompass` | to do |  |  |  |
 | `bHUDFatigueIndicator` | to do |  |  |  |
 | `bHUDMarkerNameIndicator` | to do |  | 7 |  |
 | `bHUDShowRegionNames` | to do |  | 1 |  |
 | `bHUDWeaponNameLabel` | unsure, skipped |  | 5 | needs the plugin's own menu XML |
-| `bKeepCrosshairWhenAiming` | to do |  |  |  |
+| `bKeepCrosshairWhenAiming` | to do |  |  | reticle::draw is at 16 parameters; goes into a tuple |
 | `bLocationDiscoveredCornerMessage` | to do |  |  |  |
 | `bMoveAmmoTypeLabel` | to do |  |  |  |
 | `bNoCompassPipsIfNotInDanger` | to do |  |  |  |
-| `bNoCrippleCriticalMessages` | to do |  | 3 |  |
 | `bNoHUDHotkeyPopup` | to do |  |  |  |
-| `bNoUnconciousMessage` | to do |  |  |  |
 | `bNoXPBarInCombat` | to do |  | 1 |  |
-| `bPatchUnseenCellName` | to do |  | 3 |  |
+| `bPatchUnseenCellName` | to do |  | 3 | activate::find_target with game.forms.visited_cells |
 | `bPlacedMarkerHeightIndicator` | to do |  | 1 |  |
 | `bRaceMenuAllowFemaleFacialHair` | to do |  |  |  |
 | `bRecentlyDeadNPCIndicator` | to do |  | 4 |  |
@@ -561,7 +576,7 @@ game's Data folder, read-only).
 | `bShowSneakLabelWhileStanding` | to do |  |  |  |
 | `bShowUsePasswordOnTerminalsWithNote` | to do |  | 1 |  |
 | `bSubtitlesShowActorNames` | to do |  |  |  |
-| `bTalkWhileSneakingIfShiftIsHeld` | to do |  |  |  |
+| `bTalkWhileSneakingIfShiftIsHeld` | to do |  |  | activate::actor_action_in needs the Shift state |
 | `bWaterSourcesShowH2O` | to do |  | 1 |  |
 | `iDateFormat` | to do |  | 1 |  |
 | `iHUDMaxCompassNPCTicks` | to do |  | 1 |  |
@@ -585,6 +600,7 @@ game's Data folder, read-only).
 | `bSynchronizeContainerCategories` | done | yes | 1 | Matching Categories (the option for emptying a category not built) |
 | `bTakeAllInCompanionContainers` | done | yes |  | already so: Take All shows for companions |
 | `bDisableLoadingScreenTips` | done |  |  | No Loading Tips |
+| `bLockpickAllowMouse` | done |  |  | Mouse Turns the Lock |
 | `bNoExitConfirm` | done |  |  | already so: the main menu's Quit asks nothing |
 | `bSavingDoesntClosePauseMenu` | done |  |  | already so: saving leaves the pause menu open |
 | `bBarterShowCapsChange` | to do | yes | 1 | half_figure has no settings to read; pass the tweak in |
@@ -604,7 +620,7 @@ game's Data folder, read-only).
 | `bSortEquipableAmmo` | to do | yes |  | rows sort by name (menu/model.rs sort_rows) |
 | `b12HourPipboyClock` | to do |  |  |  |
 | `b24HourSleepWaitClock` | to do |  |  |  |
-| `bAddInventoryDropItemHotkey` | to do |  |  |  |
+| `bAddInventoryDropItemHotkey` | to do |  |  | right click drops already; a key in pipboy::items::keys |
 | `bAllowRebindNumkeys` | to do |  |  |  |
 | `bAmmoLabelUseLongName` | unsure, skipped |  | 1 | needs a UI mod |
 | `bBarterQuantityMenuShowsPrice` | to do |  |  |  |
@@ -647,17 +663,16 @@ game's Data folder, read-only).
 | `bKarmaTitleShowsValue` | to do |  |  |  |
 | `bKeyRepeatAcceleration` | to do |  | 4 |  |
 | `bLocalMapRespawnedCellIndicator` | to do |  | 2 |  |
-| `bLockpickAllowMouse` | to do |  |  |  |
 | `bLockPickMenuKeyboardMovement` | to do |  | 3 |  |
 | `bMapLocationDisplayDistance` | to do |  | 3 |  |
 | `bMapMarkersShowFactionName` | to do |  | 1 |  |
 | `bMapRecenterHotkey` | to do |  | 2 |  |
-| `bMapShowUnconsciousCompanions` | to do |  |  |  |
+| `bMapShowUnconsciousCompanions` | to do |  |  | companions are not drawn on the world map yet |
 | `bMarkNotesUnread` | to do |  |  |  |
 | `bMoreDetailedStatsMenu` | to do |  | 1 |  |
 | `bNoCapitaliseContainerCategories` | to do |  |  |  |
-| `bNoExitHacking` | to do |  | 1 |  |
-| `bNoMinCompanionMapDistance` | to do |  |  |  |
+| `bNoExitHacking` | to do |  | 1 | terminal::apply Back/Exit while hacking |
+| `bNoMinCompanionMapDistance` | to do |  |  | companions are not drawn on the world map yet |
 | `bNoPlaceMarkerPopup` | to do |  | 2 |  |
 | `bNoteMenuShowSeparateMenu` | unsure, skipped |  | 1 | needs another mod (Book Menu Restored) |
 | `bPauseHolotapes` | to do |  | 1 |  |
@@ -690,7 +705,7 @@ game's Data folder, read-only).
 | `bStatsMenuShowEffectTimeRemaining` | to do |  | 1 |  |
 | `bTabBackInStartMenu` | to do |  |  |  |
 | `bTabClosesPipboyFromKeyAndLimbMenus` | to do |  |  |  |
-| `bTabClosesTerminals` | to do |  |  |  |
+| `bTabClosesTerminals` | to do |  |  | Tab is Back; from the top menu it closes already |
 | `bTakeAllConfirmation` | to do |  | 2 |  |
 | `bTerminalGreyReadNotes` | to do |  |  |  |
 | `bTerminalInstantDisplayHotkey` | to do |  |  |  |
@@ -740,6 +755,7 @@ game's Data folder, read-only).
 | `bFastTravelWithEnemiesNearby` | done |  |  | Fast Travel Near Enemies |
 | `bHackTerminalsWithoutSkill` | done |  |  | Hack Any Terminal |
 | `bNoCasinoBans` | done |  |  | No Casino Bans |
+| `bNoMaxCasinoBet` | done |  |  | No Casino Bet Limit (no limit; the 500-step option not built) |
 | `bPickpocketWornItems` | done |  | 1 | Pickpocket Worn Items (the holstered-weapons-only option not built) |
 | `bSleepInOwnedBeds` | done |  |  | Sleep in Owned Beds |
 | `bWeightlessAidItems` | done |  |  | covered by Weightless Aid (in Hardcore too) |
@@ -749,7 +765,6 @@ game's Data folder, read-only).
 | `bDebugLockpickMenu` | to do |  |  |  |
 | `bGodModeAllowsCraftingWithoutRequirements` | to do |  |  |  |
 | `bNoHackingRetryDelay` | to do |  |  |  |
-| `bNoMaxCasinoBet` | to do |  |  |  |
 | `bReallocateSkillPointsOnLevelup` | to do |  |  |  |
 | `bSleepWaitAnywhere` | to do |  | 6 |  |
 
@@ -762,7 +777,12 @@ game's Data folder, read-only).
 | `bMeleeImpactEffectsFollowTarget` | done | yes |  | already so: decals on actors hang from a bone |
 | `bPowerArmorPreventsScreenBlood` | done | yes |  | No Screen Blood in Power Armor (any hit while power armor is worn on the body; hits are not told apart by body part here) |
 | `bRadioStaticDecreasesSongVolume` | done | yes |  | already so: the song fades as the static rises |
+| `bDisableSellingItems` | done |  |  | No Selling |
+| `bKeepPipboyLightOnCellChange` | done |  | 1 | already so: the light stays on through cell changes |
+| `bNoAudioDistortion` | done |  | 1 | No Helmet Voice Filter (the apply-to-everything option not built) |
 | `bNoFastTravelTimeChange` | done |  |  | Fast Travel Takes No Time |
+| `bNoScrollwheelPOVChange` | done |  | 2 | already so: the wheel only zooms the third-person camera |
+| `bNoSkipDialog` | done |  |  | No Skipping Lines |
 | `bAllowKeyboardAndMouseWithControllerConnected` | to do | yes |  | the Input Device setting picks one device; needs both at once |
 | `bArmorPreventsBloodDecals` | to do | yes |  | the impact is sent before DT is worked out |
 | `bArmorSoundsPlayIn3D` | to do | yes |  | the player's foley plays at the listener (anim_sounds player_keys) |
@@ -802,28 +822,23 @@ game's Data folder, read-only).
 | `bDisableControllerDeadzones` | to do |  | 2 |  |
 | `bDisableGodmodeOnLoad` | to do |  |  |  |
 | `bDisableRegionBordersKeepMessage` | to do |  |  |  |
-| `bDisableSellingItems` | to do |  |  | MenuModel::apply has no game; a flag set at barter open |
 | `bDisableStealthEffectInPipboy` | to do |  |  |  |
 | `bDisableWeaponHotkeys` | to do |  |  |  |
 | `bDisarmingMinesPicksThemUp` | to do |  |  |  |
-| `bDontOpenDoorsAfterLockpick` | to do |  |  |  |
-| `bDontShowContainerAfterLockpick` | to do |  |  |  |
+| `bDontOpenDoorsAfterLockpick` | to do |  |  | NVForever opens the door after a pick (lockpick::close ActivateNext) |
+| `bDontShowContainerAfterLockpick` | to do |  |  | NVForever opens the container after a pick (lockpick::close ActivateNext) |
 | `bExtraConsoleDetails (enabled by default)` | to do |  | 4 |  |
 | `bHapticPipboy` | to do |  |  |  |
 | `bInvalidBSFadeNodePrints` | n/a |  |  | the plugin's own warning |
 | `bInvertCameraX` | to do |  |  |  |
-| `bKeepPipboyLightOnCellChange` | to do |  | 1 |  |
 | `bKeepSelectedConsoleRef` | to do |  |  |  |
 | `bLethalHitsIncreaseLimbChallenges` | to do |  |  |  |
 | `bMenuFadesIgnoreTimescale` | to do |  |  |  |
 | `bNoAltTabPause` | to do |  | 1 |  |
 | `bNoAmmoCasings` | to do |  |  | NVForever gives no casings yet |
-| `bNoAudioDistortion` | to do |  | 1 |  |
 | `bNoHotkeyEquipSounds` | to do |  |  |  |
 | `bNoPipboyOnAltTab` | n/a |  |  | the original's alt-tab handling |
-| `bNoScrollwheelPOVChange` | to do |  | 2 |  |
 | `bNoSkillBooksAbove100` | to do |  |  | the refusal belongs before equip_at takes the book (Pip-Boy, hotkeys, EquipItem) |
-| `bNoSkipDialog` | to do |  |  |  |
 | `bNoTurningAnim` | to do |  |  |  |
 | `bOnlyChangeCameraHeightIfPOVKeyHeld` | to do |  |  |  |
 | `bOpenPipboyToInventoryByDefault` | to do |  | 1 |  |

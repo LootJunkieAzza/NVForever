@@ -86,6 +86,20 @@ pub struct Tweaks {
     /// `bOnlyAllowWaitWhileSitting`: waiting is refused unless the player sits (or is in
     /// god mode).
     pub wait_only_seated: bool,
+    /// `bModifySkillPointsEarned`: a level-up's skill points are `base` + Intelligence ×
+    /// `per_int` (rounded up) instead of the game's rule; `None` changes nothing.
+    pub skill_points: Option<(i32, f64)>,
+    // ---- batch 9 ----
+    /// `bNoUnconciousMessage`: no "<name> is unconscious." line.
+    pub no_unconscious_message: bool,
+    /// `bNoAudioDistortion`: no helmet or speaker filter on voices.
+    pub no_voice_filter: bool,
+    /// `bNoSkipDialog`: a click does not cut a spoken line short.
+    pub no_skip_dialogue: bool,
+    /// `bLockpickAllowMouse`: the left mouse button turns the screwdriver too.
+    pub lockpick_mouse_turn: bool,
+    /// `bNoMaxCasinoBet`: the casino games take any bet the player can pay.
+    pub no_max_casino_bet: bool,
 }
 
 impl Default for Tweaks {
@@ -117,6 +131,12 @@ impl Default for Tweaks {
             weightless_worn_power_armor: false,
             kill_reward_ap: 0.0,
             wait_only_seated: false,
+            skill_points: None,
+            no_unconscious_message: false,
+            no_voice_filter: false,
+            no_skip_dialogue: false,
+            lockpick_mouse_turn: false,
+            no_max_casino_bet: false,
         }
     }
 }

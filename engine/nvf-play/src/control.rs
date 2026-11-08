@@ -592,7 +592,14 @@ pub fn read_controls(
     }
     let mut message: Option<String> = None;
     let c = &mut *control;
-    if input.just_pressed(Control::CrouchSneak) {
+    // The player's tweak: sneak while the key is held, not by toggling [design: docs/design/tweaks.md].
+    if tweaks.as_ref().is_some_and(|t| t.hold_to_sneak) {
+        let held = input.pressed(Control::CrouchSneak);
+        if held != c.sneak && (input.just_pressed(Control::CrouchSneak) || input.just_released(Control::CrouchSneak)) {
+            c.sneak = held;
+            info!("Crouch/Sneak held: sneaking {} asked", if c.sneak { "on" } else { "off" });
+        }
+    } else if input.just_pressed(Control::CrouchSneak) {
         c.sneak = !c.sneak;
         info!("Crouch/Sneak pressed: sneaking {} asked", if c.sneak { "on" } else { "off" });
     }

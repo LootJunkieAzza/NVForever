@@ -751,7 +751,9 @@ fn step(
     if s.aid_torque_until.is_some() && !aid {
         s.aid_torque_until = None;
     }
-    let torque = torque_held(&input) || aid;
+    // The player's tweak: the left mouse button turns the screwdriver too [design: docs/design/tweaks.md].
+    let mouse_turns = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.lockpick_mouse_turn);
+    let torque = torque_held(&input) || aid || (mouse_turns && input.mouse.pressed(MouseButton::Left));
     let strained = s.game.stopped;
     let reference = s.reference;
     let events = s.game.step(dt, torque);

@@ -895,7 +895,9 @@ pub(crate) fn input(
                 act = Some((Act::BreakOff, "Shift+Tab"));
             }
         } else if speaking.is_some() {
-            if confirm || controls.mouse.just_pressed(MouseButton::Left) || asked.skip {
+            // The player's tweak: spoken lines are not cut short by the player [design: docs/design/tweaks.md].
+            let no_skip = rt.game.tweaks.no_skip_dialogue;
+            if !no_skip && (confirm || controls.mouse.just_pressed(MouseButton::Left) || asked.skip) {
                 act = Some((Act::Skip, if asked.skip { "tile click" } else { "key or click" }));
             }
         } else if choosing {

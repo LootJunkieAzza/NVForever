@@ -349,6 +349,8 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
             // An essential actor knocked out, or the player trying to talk to an
             // unconscious one: "<Name> is unconscious." (docs/spec-notes/unconscious.md
             // §4); a fatigue knockout shows nothing [owner request 2026-10-17].
+            // The player's tweak keeps this line off [design: docs/design/tweaks.md].
+            EventKind::KnockedOut { cause: "essential", .. } | EventKind::TalkedToUnconscious { .. } if ctx.tweaks().is_some_and(|t| t.no_unconscious_message) => {}
             EventKind::KnockedOut { actor, cause: "essential" } | EventKind::TalkedToUnconscious { actor } => out.push(ScriptEffect::Notify(unconscious_line(ctx, *actor).into())),
             EventKind::MessageShown { message, text, buttons, hidden } => {
                 let text = text.clone().unwrap_or_default();

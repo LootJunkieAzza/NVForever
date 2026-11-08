@@ -102,6 +102,31 @@ pub struct TweakSettings {
     pub jump_ap_cost: f32,
     /// `bRunningCostsAP`: Action Points running costs a second; 0 changes nothing.
     pub run_ap_per_second: f32,
+    /// `bDisableSellingItems`: the player cannot sell in a barter.
+    pub no_selling: bool,
+    /// The Own Skill Points Rule's numbers, kept while the rule is off.
+    pub skill_point_base: i32,
+    pub skill_points_per_int: f64,
+    /// `bAimingSpeed`: aiming or blocking does not slow the player to a walk.
+    pub no_aiming_slowdown: bool,
+    /// `bRepeatJumping`: holding Jump jumps again on landing.
+    pub repeat_jumping: bool,
+    /// `bHoldCrouchToSneak`: sneak while the key is held.
+    pub hold_to_sneak: bool,
+}
+
+/// The Own Skill Points Rule's numbers until the player sets them: the game's rule
+/// without its odd-level point (10 + Intelligence / 2) [design].
+const SKILL_POINTS_START: (i32, f64) = (10, 0.5);
+const SKILL_BASES: usize = 31;
+
+impl TweakSettings {
+    /// Hand the skill-point numbers to the rule while it is on.
+    fn apply_skill_points(&mut self) {
+        if self.game.skill_points.is_some() {
+            self.game.skill_points = Some((self.skill_point_base, self.skill_points_per_int));
+        }
+    }
 }
 
 /// Whether `actor` wears power armour on the upper body.
@@ -155,6 +180,12 @@ impl Default for TweakSettings {
             no_travel_crippled_leg: false,
             jump_ap_cost: 0.0,
             run_ap_per_second: 0.0,
+            no_selling: false,
+            skill_point_base: SKILL_POINTS_START.0,
+            skill_points_per_int: SKILL_POINTS_START.1,
+            no_aiming_slowdown: false,
+            repeat_jumping: false,
+            hold_to_sneak: false,
         }
     }
 }
@@ -441,6 +472,74 @@ impl Plugin for TweaksPlugin {
         amount!(app, "kill-reward-ap", "Action Points per Kill", "Action Points a kill by the player gives back; 0 changes nothing. (Stewie's Tweaks bKillsRewardAP)", 50.0, f64, game.kill_reward_ap);
         amount!(app, "jump-ap-cost", "Action Points per Jump", "Action Points a jump costs; with too few the player cannot jump. 0 changes nothing. (Stewie's Tweaks bJumpingCostsAP)", 50.0, f32, jump_ap_cost);
         amount!(app, "run-ap-cost", "Action Points per Second Running", "Action Points running costs each second; with none left the player walks. 0 changes nothing. (Stewie's Tweaks bRunningCostsAP)", 20.0, f32, run_ap_per_second);
+        // ---- batch 9 ----
+        switch!(app, "no-selling", "No Selling", "The player cannot sell items in a barter (buying still works). (Stewie's Tweaks bDisableSellingItems)", no_selling);
+        add_setting(
+            app,
+            Setting {
+                key: "tweak-custom-skill-points",
+                group: GROUP,
+                label: "Own Skill Points Rule",
+                note: "A level-up gives the base below plus Intelligence times the amount below (rounded up) instead of the game's rule. (Stewie's Tweaks bModifySkillPointsEarned)",
+                get: |w| w.get_resource::<TweakSettings>().is_some_and(|t| t.game.skill_points.is_some()),
+                set: |w, on| {
+                    if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                        let numbers = (t.skill_point_base, t.skill_points_per_int);
+                        t.game.skill_points = on.then_some(numbers);
+                    }
+                },
+                slider: None,
+            },
+        );
+        add_setting(
+            app,
+            Setting::slider(
+                "tweak-skill-point-base",
+                GROUP,
+                "Skill Points: Base",
+                "The base of the Own Skill Points Rule (0 to 30). (Stewie's Tweaks iSkillPointBase)",
+                Slider::choice(
+                    SKILL_BASES,
+                    |w| choice_part(w.get_resource::<TweakSettings>().map_or(SKILL_POINTS_START.0, |t| t.skill_point_base) as usize, SKILL_BASES),
+                    |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.skill_point_base = choice_index(v, SKILL_BASES) as i32;
+                            t.apply_skill_points();
+                        }
+                    },
+                    |v| choice_index(v, SKILL_BASES).to_string(),
+                ),
+            ),
+        );
+        add_setting(
+            app,
+            Setting::slider(
+                "tweak-skill-points-per-int",
+                GROUP,
+                "Skill Points: per Intelligence",
+                "Points per point of Intelligence in the Own Skill Points Rule (0 to 2). (Stewie's Tweaks fPointsPerInt)",
+                Slider {
+                    get: |w| (w.get_resource::<TweakSettings>().map_or(SKILL_POINTS_START.1, |t| t.skill_points_per_int) / 2.0) as f32,
+                    set: |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.skill_points_per_int = f64::from(v) * 2.0;
+                            t.apply_skill_points();
+                        }
+                    },
+                    min: 0.0,
+                    step: 0.05,
+                    shown: Some(|v| format!("{:.1}", v * 2.0)),
+                },
+            ),
+        );
+        switch!(app, "no-unconscious-message", "No Unconscious Message", "No line saying an actor is unconscious. (Stewie's Tweaks bNoUnconciousMessage)", game.no_unconscious_message);
+        switch!(app, "no-voice-filter", "No Helmet Voice Filter", "Voices from behind helmets and speakers play unfiltered. (Stewie's Tweaks bNoAudioDistortion)", game.no_voice_filter);
+        switch!(app, "no-skip-dialogue", "No Skipping Lines", "A click or key does not cut a spoken line short. (Stewie's Tweaks bNoSkipDialog)", game.no_skip_dialogue);
+        switch!(app, "lockpick-mouse", "Mouse Turns the Lock", "In lockpicking, the left mouse button turns the screwdriver as the movement keys do. (Stewie's Tweaks bLockpickAllowMouse)", game.lockpick_mouse_turn);
+        switch!(app, "no-max-casino-bet", "No Casino Bet Limit", "Blackjack, roulette and the slots take any bet the player can pay. (Stewie's Tweaks bNoMaxCasinoBet)", game.no_max_casino_bet);
+        switch!(app, "no-aiming-slowdown", "Full Pace While Aiming", "Aiming or blocking does not slow the player to a walk. (Stewie's Tweaks bAimingSpeed)", no_aiming_slowdown);
+        switch!(app, "repeat-jumping", "Hold to Keep Jumping", "Holding Jump jumps again on landing. (Stewie's Tweaks bRepeatJumping)", repeat_jumping);
+        switch!(app, "hold-to-sneak", "Hold to Sneak", "Sneak only while the Crouch/Sneak key is held. (Stewie's Tweaks bHoldCrouchToSneak)", hold_to_sneak);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -506,6 +605,9 @@ fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, que
     if let Some(m) = active.as_deref_mut().and_then(|a| a.0.as_mut()) {
         if m.sync_categories != tweaks.sync_categories {
             m.sync_categories = tweaks.sync_categories;
+        }
+        if m.no_selling != tweaks.no_selling {
+            m.no_selling = tweaks.no_selling;
         }
     }
     if let Some(mut c) = console {

@@ -41,6 +41,12 @@ pub fn skill_points(intelligence: i32, level: i32) -> i32 {
     base + i32::from(level % 2 == 0 && intelligence % 2 == 0)
 }
 
+/// The Custom Skill Points tweak's rule: `base` + Intelligence × `per_int`, rounded up
+/// (the plugin's readme gives the formula) [documented: Stewie's Tweaks readme].
+pub fn custom_skill_points(base: i32, per_int: f64, intelligence: i32) -> i32 {
+    base + (f64::from(intelligence) * per_int).ceil() as i32
+}
+
 /// The skill points the player gets for reaching `level`: [`skill_points`], then the
 /// perks' Adjust Gained Skill Points entry point (Educated +2, Logan's Loophole 0 past
 /// level 30; `crate::perks::ADJUST_GAINED_SKILL_POINTS`), never under 0 [hypothesis: whole
@@ -49,7 +55,11 @@ pub fn skill_points(intelligence: i32, level: i32) -> i32 {
 /// points (<base> before <perk>, ...)` when a perk changed them.
 pub fn points_for(g: &mut Game, level: i32) -> i32 {
     let int = actor::actor_value_base(g, FormId::PLAYER_REF, INTELLIGENCE).round() as i32;
-    let base = skill_points(int, level);
+    // The player's tweak: its own base and points per Intelligence [design: docs/design/tweaks.md].
+    let base = match g.tweaks.skill_points {
+        Some((b, per_int)) => custom_skill_points(b, per_int, int),
+        None => skill_points(int, level),
+    };
     let (v, by) = g.entry_point(FormId::PLAYER_REF, crate::perks::ADJUST_GAINED_SKILL_POINTS, f64::from(base));
     let points = ((v * 1000.0).round() / 1000.0).trunc().max(0.0) as i32;
     if !by.is_empty() {
@@ -341,6 +351,13 @@ Ranks: {ranks}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_custom_skill_points_round_up() {
+        assert_eq!(custom_skill_points(10, 0.5, 5), 13);
+        assert_eq!(custom_skill_points(10, 0.5, 6), 13);
+        assert_eq!(custom_skill_points(0, 0.0, 9), 0);
+    }
 
     #[test]
     fn points_per_level_follow_the_skill_rate() {
