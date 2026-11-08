@@ -630,7 +630,7 @@ fn lobby(
     main_menu: Option<Res<nvf_play::main_menu::MainMenu>>,
     windows: Query<&mut Window, With<PrimaryWindow>>,
     mut titled: Local<Option<String>>,
-    tables: Option<Res<Tables>>,
+    (tables, script): (Option<Res<Tables>>, Option<Res<nvf_play::script::ScriptState>>),
     handoff: Option<Res<crate::handoff::Handoff>>,
 ) {
     let now = time.elapsed_secs();
@@ -667,6 +667,13 @@ fn lobby(
                 say("Lobby closed".into());
             }
             LobbyRequest::Close => {}
+            // A guest leaves its host's lobby (dropping the link says goodbye) and plays on
+            // alone in its own world.
+            LobbyRequest::Leave if coop.is_guest() => {
+                coop.stop_joining(&mut commands, &mut fighters);
+                say("You left the lobby".into());
+            }
+            LobbyRequest::Leave => {}
             LobbyRequest::Find(code) => {
                 if coop.is_host() {
                     say("Close your own lobby to join another".into());
@@ -745,9 +752,13 @@ fn lobby(
     };
     let mut players = Vec::new();
     if coop.link.is_some() {
-        players.push(if coop.is_host() { format!("{} (host)", coop.name) } else { coop.name.clone() });
+        // This player by its character's name, as the others call it (item 19).
+        let me = script.as_deref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.player.name.clone()).filter(|n| !n.trim().is_empty()).unwrap_or_else(|| coop.name.clone());
+        players.push(if coop.is_host() { format!("{me} (host, you)") } else { format!("{me} (you)") });
         for (&id, p) in &coop.peers {
             let n = label(id, &p.name);
+            // The host is player 0 (`nvf_coop`): marked on a guest's list.
+            let n = if id == 0 && n != "The host" { format!("{n} (host)") } else { n };
             // A player at a minigame table says so (the others' tables, module notes).
             let n = match tables.as_deref().and_then(|t| t.at_table(id)) {
                 Some(g) => format!("{n} (at {})", nvf_play::coop_tables::game::word(g)),
@@ -756,7 +767,7 @@ fn lobby(
             players.push(if p.lost { format!("{n} (reconnecting)") } else { n });
         }
     }
-    state.set_if_neq(LobbyState { hosting, players, joining: coop.joining.clone() });
+    state.set_if_neq(LobbyState { hosting, players, joining: coop.joining.clone(), guest: coop.is_guest() });
     // The window's title says what this game is in co-op.
     let what = match coop.link.as_ref().map(|l| (l.is_host(), l.id())) {
         None => "NVForever".to_string(),
