@@ -8,7 +8,8 @@
 //!   tabs made and a usable measured layout ([`usable`]). Painting (`super::draw`), hand-built
 //!   suppression (`crate::pipboy::frame::draw`), the prompt and input read it and nothing else,
 //!   and [`settle`] publishes it each frame before any of them. A pass that fails leaves the whole
-//!   hand-built page, says why once, and is tried again the next frame.
+//!   hand-built page, says why once, and is tried again the next frame; after
+//!   [`FAILING_PASSES`] in a row, only when what it would show or the tree changes ([`TreeMark`]).
 //! - **The rules stay the hand-built page's** (`crate::menu::model`, `crate::pipboy::items`,
 //!   `crate::pipboy::repair`, `crate::pipboy::item_mod`, `crate::pipboy::hotkey_panel`). This module
 //!   writes values as the file's "set in code" traits and says what a tile stands for; commands,
@@ -611,8 +612,9 @@ pub(crate) struct Written {
     file_repair_word: Option<String>,
     /// Final passes in a row that failed: a state that lasts a frame or two is no fallback to warn of.
     failing: u32,
-    /// The tab and frame the last failure was for, and its reason.
+    /// The tab and frame the last failure was for, the tree it met, and its reason.
     tried: Option<(usize, bool)>,
+    tried_tree: Option<TreeMark>,
     reason: String,
     fallbacks: HashSet<String>,
 }
@@ -861,8 +863,11 @@ fn pass(p: &mut ItemsPage<'_, '_>, late: bool) -> Option<Result<TileId, String>>
     let changed = p.active.as_ref().is_some_and(|a| a.is_changed()) || hold.is_some_and(|h| h.is_changed());
     // A page that has fallen back is tried again when what it would show changes, not every
     // frame: a snapshot walks the inventory and asks combat for the armour.
+    // Nor while the tree stays as it was: a script that puts a missing tile back, or a menu
+    // built again, is a repair to try.
+    let tree = TreeMark::of(&script.rt.as_ref()?.game.ui_tree);
     let w = &p.tiles.written;
-    if w.failing >= FAILING_PASSES && !changed && w.tried == Some((tab, device)) {
+    if w.waits(tab, device, tree, changed) {
         return Some(Err(w.reason.clone()));
     }
     let due = stale || changed;
@@ -940,7 +945,12 @@ pub(crate) fn settle(mut p: ItemsPage) {
         p.tiles.cut = None;
         p.tiles.cut_until = None;
         p.tiles.written.checked.clear();
-        p.tiles.written.failing = 0;
+        // The cut never touched the tree, so its end alone is no change the page waits on: the
+        // menu is built again from its file, a real change of the tree, and the page recovers
+        // only through [`Written::waits`] seeing it.
+        if let Some(game) = p.script.as_mut().and_then(|s| s.bypass_change_detection().rt.as_mut()).map(|rt| &mut rt.game) {
+            rebuild_menu(game);
+        }
     }
     let before = counts_before(&p);
     let ready = match pass(&mut p, true) {
@@ -952,9 +962,9 @@ pub(crate) fn settle(mut p: ItemsPage) {
             // The hand-built page has this frame in any case; the third frame in a row is no
             // layout still settling.
             let tried = p.pip.as_deref().map(|pip| (pip.tab(), pip.frame == Frame::Device));
+            let tree = p.script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| TreeMark::of(&rt.game.ui_tree));
             let w = &mut p.tiles.written;
-            w.failing += 1;
-            w.tried = tried;
+            w.failed(tried, tree);
             let line = format!("{INVENTORY_MENU} drawn by hand: {reason}");
             if w.failing >= FAILING_PASSES && w.fallbacks.insert(told_once(&line)) {
                 warn!("{line}");
@@ -982,6 +992,48 @@ pub(crate) fn settle(mut p: ItemsPage) {
 /// Final passes in a row that fail before the reason is warned of, and before the page waits for
 /// a change to try again.
 const FAILING_PASSES: u32 = 3;
+
+/// What the tree was at a failed pass: the menu's tile (a new one when the menu is built again)
+/// and the tree's shape (`Ui::shape`: a tile made, unloaded or renamed) [design]. Taken after the
+/// pass, so what the page itself made in it counts as no change.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TreeMark {
+    menu: Option<TileId>,
+    shape: u64,
+}
+
+impl TreeMark {
+    fn of(ui: &Ui) -> TreeMark {
+        TreeMark { menu: ui.menu(INVENTORY_MENU), shape: ui.shape() }
+    }
+}
+
+impl Written {
+    /// A final pass failed, for this tab and frame, in this tree.
+    fn failed(&mut self, tried: Option<(usize, bool)>, tree: Option<TreeMark>) {
+        self.failing += 1;
+        self.tried = tried;
+        self.tried_tree = tree;
+    }
+
+    /// The page has fallen back and waits: nothing it would show changed, the tab and frame are the
+    /// failure's, and the tree is as that failure met it.
+    fn waits(&self, tab: usize, device: bool, tree: TreeMark, changed: bool) -> bool {
+        self.failing >= FAILING_PASSES && !changed && self.tried == Some((tab, device)) && self.tried_tree == Some(tree)
+    }
+}
+
+/// [`CUT_AID`]'s end: the menu built again from its file, as at load (`fnv_game::ui_loading::load`).
+fn rebuild_menu(game: &mut fnv_game::Game<'_>) {
+    let (Some(files), Some(path)) = (game.ui_files.as_deref(), game.ui_menus.path(INVENTORY_MENU)) else { return };
+    match game.ui_tree.load_menu(files, path) {
+        Ok(_) => {
+            game.ui_tree.update();
+            info!("test aid: {INVENTORY_MENU} built again from {path}");
+        }
+        Err(e) => warn!("test aid: {INVENTORY_MENU} not built again: {e}"),
+    }
+}
 
 /// What a warning is told once by: its line without the place and the row, so a list scrolled through
 /// adds nothing to what is kept.
@@ -1226,6 +1278,20 @@ mod tests {
     /// dim look, the panel's traits, the headline cards' `_Value`), or whether a name is where the file has it: the smoke scenarios
     /// `tiles-items*` check those on the real file, and their shots what they look like.
     fn tree_changed(change: impl FnOnce(String) -> String) -> Ui {
+        let mut ui = Ui::new();
+        ui.load_menu(&MemSource::default().with("i.xml", &fixture_xml(change)), "i.xml").unwrap();
+        ui.update();
+        ui
+    }
+
+    /// The fixture's menu built again whole in `ui`, as a menu loaded again replaces the one of its name.
+    fn rebuild_fixture(ui: &mut Ui) {
+        ui.load_menu(&MemSource::default().with("i.xml", &fixture_xml(|x| x)), "i.xml").unwrap();
+        ui.update();
+    }
+
+    /// The fixture's text, changed by `change`.
+    fn fixture_xml(change: impl FnOnce(String) -> String) -> String {
         let card = |name: &str, inner: &str| format!(r#"<rect name="{name}"><_Title>{name}</_Title><_Value></_Value><visible>&false;</visible><text name="CI_TitleText"></text><text name="CI_ValueText"></text>{inner}</rect>"#);
         let cards: String = ["DAMInfo", "DamageThresholdInfo", "DPSInfo", "WeightInfo", "ValueInfo", "StrengthReqInfo", "AmmoInfo", "EffectsInfo"].iter().map(|c| card(c, "")).collect::<String>() + &card("ConditionInfo", r#"<rect name="ConditionMeter"><image name="MeterImage"></image></rect><image name="CNDArrows"></image>"#);
         let headline: String = ["WG", "HP", "DT", "DR", "Caps"].iter().map(|c| format!(r#"<rect name="IM_Headline_Player{c}Info"><_Value></_Value></rect>"#)).collect();
@@ -1263,10 +1329,7 @@ mod tests {
               <text name="button_text"><string><copy src="parent()" trait="string"/></string></text>
             </hotrect></template></menu>"#
         );
-        let mut ui = Ui::new();
-        ui.load_menu(&MemSource::default().with("i.xml", &change(xml)), "i.xml").unwrap();
-        ui.update();
-        ui
+        change(xml)
     }
 
     fn tree() -> Ui {
@@ -1687,6 +1750,39 @@ mod tests {
         assert_eq!(run(&mut ui, Some(shown(2, 0)), &mut t), Err(format!("{ICON} missing")));
         t.cut = None;
         assert!(run(&mut ui, Some(shown(2, 0)), &mut t).is_ok());
+    }
+
+    /// Three failed passes and the page waits while nothing changes; a tile a script puts back, or
+    /// the menu built again, is a change of the tree, and the next pass tries again.
+    #[test]
+    fn a_page_that_fell_back_tries_again_when_the_tree_changes() {
+        let mut ui = tree_changed(|x| x.replace(r#"<image name="IM_ItemIcon"/>"#, r#"<image name="Modded"/>"#));
+        let mut t = InventoryTiles::default();
+        let fail = |ui: &mut Ui, t: &mut InventoryTiles| {
+            let reason = run(ui, Some(shown(2, 0)), t).unwrap_err();
+            t.written.failed(Some((0, false)), Some(TreeMark::of(ui)));
+            reason
+        };
+        for _ in 0..FAILING_PASSES {
+            assert_eq!(fail(&mut ui, &mut t), format!("{ICON} missing"));
+        }
+        assert!(t.written.waits(0, false, TreeMark::of(&ui), false), "an unchanged tree waits");
+        assert!(!t.written.waits(0, false, TreeMark::of(&ui), true), "a changed model is tried");
+        // A script puts the missing picture back: same menu, another shape.
+        assert!(ui.inject_text(&MemSource::default(), "InventoryMenu/GLOW_BRANCH/IM_MainRect", r#"<image name="IM_ItemIcon"/>"#));
+        assert!(!t.written.waits(0, false, TreeMark::of(&ui), false), "a tile put back is tried again");
+        // The same again, the menu built again whole this time.
+        let mut ui = tree_changed(|x| x.replace(r#"<image name="IM_ItemIcon"/>"#, r#"<image name="Modded"/>"#));
+        let mut t = InventoryTiles::default();
+        for _ in 0..FAILING_PASSES {
+            fail(&mut ui, &mut t);
+        }
+        assert!(t.written.waits(0, false, TreeMark::of(&ui), false));
+        let menu = ui.menu(INVENTORY_MENU);
+        rebuild_fixture(&mut ui);
+        assert_ne!(ui.menu(INVENTORY_MENU), menu, "a new menu tile");
+        assert!(!t.written.waits(0, false, TreeMark::of(&ui), false), "a menu built again is tried again");
+        assert!(run(&mut ui, Some(shown(2, 0)), &mut t).is_ok(), "and it comes from its tiles");
     }
 
     #[test]

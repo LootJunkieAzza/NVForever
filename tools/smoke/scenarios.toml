@@ -22503,7 +22503,7 @@ order = [[{ re = 'tiles: InventoryMenu page from tiles: ' }, "pipboy repair: ope
 [[scenario]]
 name = "tiles-items-missing-template"
 source = "[design] pipboy.md section 5.2.1: a file short of what the page needs keeps the whole hand-built page, says why once, and draws no tile of it; when the name is there again the page comes from its tiles"
-note = "NVF_PLAY_TEST_INVENTORY_TILE_CUT takes the row template as missing until 31 s, so no changed game file is needed; the hand-built places until then."
+note = "NVF_PLAY_TEST_INVENTORY_TILE_CUT takes the row template as missing until 31 s, so no changed game file is needed; the hand-built places until then. At its end the aid builds the menu again from its file and does not reset the page's failures: the page recovers only because it tries again when the tree changes."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/tiles/item_menu.rs", "engine/nvf-play/src/pipboy/frame.rs"]
 env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0008F216:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=items,27:tab=0,30:point=250:151,34:close", NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_INVENTORY_TILE_CUT = "IM_InventoryListTemplate@31", NVF_PLAY_TEST_SHOTS = "29:tiles_items_cut.png,33:tiles_items_recovered.png" }
@@ -22513,9 +22513,10 @@ expect = [
   { text = "InventoryMenu drawn by hand: IM_InventoryListTemplate missing", count = 1, label = "the template cut, by hand: the reason, once" },
   { re = 'pipboy items: heading HP \S+, DT \S+; rows \d+\.\. of \d+ drawn', min = 1, label = "the template cut, by hand: the hand-built body draws" },
   { text = "test aid: NVF_PLAY_TEST_INVENTORY_TILE_CUT over", count = 1, label = "the aid stops" },
+  { re = 'test aid: InventoryMenu built again from \S', count = 1, label = "the tree changes: the menu built again from its file" },
   { re = 'tiles: InventoryMenu page from tiles: ', min = 1, label = "and the page comes from its tiles" },
 ]
-order = [["InventoryMenu drawn by hand: IM_InventoryListTemplate missing", "test aid: NVF_PLAY_TEST_INVENTORY_TILE_CUT over", { re = 'tiles: InventoryMenu page from tiles: ' }]]
+order = [["InventoryMenu drawn by hand: IM_InventoryListTemplate missing", "test aid: NVF_PLAY_TEST_INVENTORY_TILE_CUT over", { re = 'test aid: InventoryMenu built again from \S' }, { re = 'tiles: InventoryMenu page from tiles: ' }]]
 
 
 [[scenario]]
