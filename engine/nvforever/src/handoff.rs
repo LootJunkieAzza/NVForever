@@ -18,6 +18,13 @@
 //!    window over the old one, takes the focus and writes the file; it loads behind its
 //!    screen from then on, alone. (Holding its script data build until then took the
 //!    swap's peak from 7.6 to 6.1 GB but the load from 6-12 s to 16 s: not done.)
+//!    Its world (`world::stream`, `readahead::read_ahead`) waits until the old process
+//!    has ended ([`OldRun`]; at most [`OLD_RUN_WAIT_SECS`] after the file is written),
+//!    so the two runs never hold a world each: before that, streaming went on in the
+//!    frames before the window was shown, and on a 4 GB laptop card a lobby join held
+//!    both runs' games for 13 s and lost both GPU devices [owner's playtest
+//!    2026-11-08]. The old run lets its caches go as soon as the new run has started
+//!    (`memory_budget::flush_now`).
 //! 3. This run sees the file and ends: the frame's exit logs are written (`Last`), then
 //!    the process ends at once ([`EndNow`]) instead of taking its world apart piece by
 //!    piece, which held its memory for about 2 s more.
@@ -37,7 +44,10 @@
 //! only measure (`nvf_play::MEASURING_AIDS`), so a session played by hand logs its hitches
 //! after a load.
 //!
-//! Log: `load: handing over to a new run with --load <path>` (`with --menu`), `load:
+//! Log: `handoff: the world waits for the old run (process <pid>) to end`, `handoff: the
+//! old run has ended after <s> s; the world loads` (or `... is still going <s> s after it
+//! was told; the world loads anyway`),
+//! `load: handing over to a new run with --load <path>` (`with --menu`), `load:
 //! <why>; opening the main menu` (the new run's, a save it could not load), `handoff: window shown after <s>
 //! s` (`, before its screen was up` past the time limit), `load: the new run is up after
 //! <s> s; ending this one`, `load: the new run ended (<status>) before it was ready[:
@@ -51,6 +61,7 @@ use nvf_play::loading::{CoverRequest, Loading, Uncover};
 use nvf_play::save::{LoadRequest, Restoring, SaveWrites};
 use std::path::{Path, PathBuf};
 use std::process::Child;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 /// Real seconds (and at least [`SETTLE_FRAMES`] frames) the new run stays hidden after
@@ -219,6 +230,7 @@ fn ready_file() -> PathBuf {
 /// A save not yet on disk (its thumbnail, its writer thread) is waited for.
 #[allow(clippy::too_many_arguments)]
 pub fn leave(
+    mut commands: Commands,
     (mut asked, mut to_menu): (MessageReader<LoadRequest>, MessageReader<nvf_play::pause::MainMenuRequest>),
     (writes, hold): (Res<SaveWrites>, Option<Res<crate::coop::HoldLeave>>),
     mut handoff: ResMut<Handoff>,
@@ -267,6 +279,9 @@ pub fn leave(
             match started {
                 Ok(child) => {
                     info!("load: handing over to a new run with {}", r.as_ref().map_or("--menu".to_string(), |r| format!("--load {}", r.path.display())));
+                    // What this run's caches hold goes at once: the new run's world
+                    // waits for this process to end (`OldRun`), but its start overlaps.
+                    commands.insert_resource(crate::memory_budget::flush_now());
                     let settings = winit.clone();
                     *winit = WinitSettings { focused_mode: UpdateMode::reactive_low_power(WAIT_TICK), unfocused_mode: UpdateMode::reactive_low_power(WAIT_TICK) };
                     *h = Leaving::Waiting(Successor { child, file, started: Instant::now(), settings, handed_over: false });
@@ -368,6 +383,123 @@ impl Hidden {
     }
 }
 
+/// The new run waits this long for the old one to end after telling it, then loads its
+/// world anyway (a warning) [engineering choice: the old run ends within a frame or two
+/// of seeing the file; this only covers one that hangs].
+pub const OLD_RUN_WAIT_SECS: f64 = 10.0;
+
+/// False while a new run's world waits for the old run to end ([`OldRun`]).
+static OLD_RUN_GONE: AtomicBool = AtomicBool::new(true);
+
+/// Whether the world may load: no old run is still holding its memory (module notes,
+/// step 2). `world::stream` and `readahead::read_ahead` do nothing until then.
+pub fn old_run_gone() -> bool {
+    OLD_RUN_GONE.load(Ordering::Relaxed)
+}
+
+/// The old run's process id, from the file name it gave ([`ready_file`]).
+pub fn old_pid(file: &Path) -> Option<u32> {
+    let name = file.file_name()?.to_str()?;
+    let rest = name.strip_prefix("nvforever-handoff-")?;
+    rest.split_once('-')?.0.parse().ok()
+}
+
+/// The new run's hold on the old one (`--handoff`): the old process, opened at the start
+/// so a later process with the same id is never taken for it. Until it has ended, this
+/// run's world does not load ([`old_run_gone`]), so the two runs never hold a world each
+/// [owner's playtest 2026-11-08: a lobby join on a 4 GB laptop card ran both out of GPU
+/// memory, the new run streaming its world in for 13 s while the old run's game was
+/// still there].
+#[derive(Resource)]
+pub struct OldRun {
+    /// The process handle (`HANDLE`, as an integer to be `Send`).
+    handle: usize,
+    pid: u32,
+    opened: Instant,
+    /// When this run wrote the file (or its window was shown without one).
+    told: Option<Instant>,
+}
+
+impl OldRun {
+    /// Open the old run named by `file`; `None` when it cannot be (it has ended already,
+    /// or not on Windows): the world loads at once.
+    pub fn open(file: &Path) -> Option<OldRun> {
+        let pid = old_pid(file)?;
+        let handle = open_process(pid)?;
+        OLD_RUN_GONE.store(false, Ordering::Relaxed);
+        info!("handoff: the world waits for the old run (process {pid}) to end");
+        Some(OldRun { handle, pid, opened: Instant::now(), told: None })
+    }
+}
+
+impl Drop for OldRun {
+    fn drop(&mut self) {
+        close_process(self.handle);
+        OLD_RUN_GONE.store(true, Ordering::Relaxed);
+    }
+}
+
+#[cfg(windows)]
+fn open_process(pid: u32) -> Option<usize> {
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE};
+    // SAFETY: plain Win32 call; a null handle is checked.
+    let h = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+    (!h.is_null()).then_some(h as usize)
+}
+
+#[cfg(not(windows))]
+fn open_process(_pid: u32) -> Option<usize> {
+    None
+}
+
+/// Whether the process behind `handle` has ended.
+#[cfg(windows)]
+fn process_ended(handle: usize) -> bool {
+    use windows_sys::Win32::Foundation::{HANDLE, WAIT_TIMEOUT};
+    use windows_sys::Win32::System::Threading::WaitForSingleObject;
+    // SAFETY: the handle is open until `close_process`.
+    unsafe { WaitForSingleObject(handle as HANDLE, 0) != WAIT_TIMEOUT }
+}
+
+#[cfg(not(windows))]
+fn process_ended(_handle: usize) -> bool {
+    true
+}
+
+#[cfg(windows)]
+fn close_process(handle: usize) {
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    // SAFETY: closed once, from `OldRun`'s drop.
+    unsafe { CloseHandle(handle as HANDLE) };
+}
+
+#[cfg(not(windows))]
+fn close_process(_handle: usize) {}
+
+/// Whether the old run has ended or the wait is over: `Some(true)` it ended, `Some(false)`
+/// this run stops waiting.
+fn old_run_done(ended: bool, told: Option<Instant>, now: Instant) -> Option<bool> {
+    if ended {
+        return Some(true);
+    }
+    told.filter(|t| now.duration_since(*t).as_secs_f64() >= OLD_RUN_WAIT_SECS).map(|_| false)
+}
+
+/// The new run's side, each frame until the old run has ended: then the world loads.
+pub fn watch_old_run(mut commands: Commands, old: Option<ResMut<OldRun>>, hidden: Option<Res<Hidden>>) {
+    let Some(mut old) = old else { return };
+    let now = Instant::now();
+    if old.told.is_none() && hidden.is_none_or(|h| h.told) {
+        old.told = Some(now);
+    }
+    match old_run_done(process_ended(old.handle), old.told, now) {
+        Some(true) => info!("handoff: the old run has ended after {:.2} s; the world loads", old.opened.elapsed().as_secs_f64()),
+        Some(false) => warn!("handoff: the old run (process {}) is still going {OLD_RUN_WAIT_SECS} s after it was told; the world loads anyway", old.pid),
+        None => return,
+    }
+    commands.remove_resource::<OldRun>();
+}
+
 /// Whether a hidden new run's screen is up, and for how long; `Some(late)` once the window
 /// is to be shown (`late`: the time limit was reached first).
 fn settle(h: &mut Hidden, up: bool, now: Instant) -> Option<bool> {
@@ -443,6 +575,27 @@ pub fn reveal(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_new_run_finds_the_old_runs_process_in_the_file_name() {
+        let f = std::env::temp_dir().join("nvforever-handoff-44808-1762617963920963000.ready");
+        assert_eq!(old_pid(&f), Some(44808));
+        assert_eq!(old_pid(Path::new("ready")), None);
+        assert_eq!(old_pid(Path::new("nvforever-handoff-x-1.ready")), None);
+        let f = ready_file();
+        assert_eq!(old_pid(&f), Some(std::process::id()), "{}", f.display());
+    }
+
+    #[test]
+    fn the_world_waits_for_the_old_run_or_gives_up_after_telling_it() {
+        let t0 = Instant::now();
+        let s = |secs: f64| t0 + Duration::from_secs_f64(secs);
+        assert_eq!(old_run_done(true, None, s(0.0)), Some(true));
+        // Not told yet: waits however long the start takes.
+        assert_eq!(old_run_done(false, None, s(300.0)), None);
+        assert_eq!(old_run_done(false, Some(s(5.0)), s(5.0 + OLD_RUN_WAIT_SECS - 0.1)), None);
+        assert_eq!(old_run_done(false, Some(s(5.0)), s(5.0 + OLD_RUN_WAIT_SECS)), Some(false));
+    }
 
     #[test]
     fn the_new_run_opens_where_the_old_window_is() {

@@ -476,7 +476,7 @@ fn watch_loads(
 }
 
 /// Let go now of every cached model, actor part and texture nothing uses.
-fn flush_now() -> nvf_assets::release::ReleaseNow {
+pub(crate) fn flush_now() -> nvf_assets::release::ReleaseNow {
     nvf_assets::release::ReleaseNow { passes: 2, keep: KeepLimits { secs: 0.0, max: 0 } }
 }
 

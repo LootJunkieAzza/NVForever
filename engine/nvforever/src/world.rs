@@ -332,6 +332,10 @@ pub fn stream(
     loading: Option<Res<nvf_play::loading::Loading>>,
     children: Query<&Children>,
 ) {
+    // A handoff's new run loads nothing while the old run still holds its game.
+    if !crate::handoff::old_run_gone() {
+        return;
+    }
     let (Ok(root), Ok(cam)) = (root.single(), camera.single()) else { return };
     let before = (streamer.stats.actors.equipment_spawns, streamer.stats.actors.record_spawns);
     let frame_start = std::time::Instant::now();

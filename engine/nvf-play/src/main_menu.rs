@@ -505,8 +505,15 @@ fn slideshow(
     textures: Option<ResMut<TextureCache>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
+    loading: Option<Res<crate::loading::Loading>>,
 ) {
     let Some(phase) = menu.phase.filter(|_| menu.open) else { return };
+    // Under a loading screen (the lobby's join, which leaves the menu open behind it
+    // until a new run takes over) no slide turns: each new one is a texture loaded for
+    // nothing while the new run needs the memory.
+    if loading.is_some_and(|l| l.active()) {
+        return;
+    }
     let Ok((mut img, mut node, mut vis)) = slides.single_mut() else { return };
     if menu.slides.is_empty() {
         return;
