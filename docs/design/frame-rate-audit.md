@@ -639,8 +639,15 @@ What is built now [design: `particles.rs` and `effect_particles.rs`, module note
   frusta are updated (and the reflection camera switched on or off), before visibility
   propagation and before the asset events. A system coming into view is therefore rebuilt
   and shown in the frame it is first drawn. The camera basis the squares face is still
-  taken in `Update` where the draw took it, so a visible system's geometry is bit for bit
-  what it was.
+  taken in `Update` where the draw took it, so a visible system's vertices, and their
+  order, are bit for bit what they were. Hiding and showing a system takes its blended
+  draw out of and back into the renderer's sorted list, so overlapping blended surfaces at
+  exactly the same sort distance may swap order, as with any visibility change [design:
+  Bevy sorts the blended phase by distance only].
+- The world camera is found by its marker (`FlyCam`) instead of as the only 3D camera
+  beside the reflection's. The draw used to stop, every system frozen as it was, while a
+  scope's or a menu view's camera existed; particles now keep animating, and are culled
+  and shown again, with a scope up (an intended change).
 - No distance cut-off was added, and the fades and `NoFrustumCulling` stay.
 - `NVF_PLAY_TEST_PROFILE` logs `profile particles: <n> frames; per frame: regular <p>
   published, <c> culled; effect …` (profile.rs). Smoke scenario

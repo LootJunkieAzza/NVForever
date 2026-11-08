@@ -24,8 +24,9 @@
 //! - **End**: no births once the play ends; the particles alive live out their time.
 //! - **Built only where a camera may see it** (issue #1417), as `particles.rs`'s systems
 //!   are (its module notes, "Built only where a camera may see it" and "When"): births and
-//!   motion stay in [`draw`] in `Update`, which ends by taking the main camera's basis as
-//!   it did before; [`build`] makes the squares in `PostUpdate`
+//!   motion stay in [`draw`] in `Update`, which ends by taking the world camera's basis
+//!   (`particles::WorldCamera`; it no longer stops while a scope's camera is up) where it
+//!   took it before; [`build`] makes the squares in `PostUpdate`
 //!   (`particles::ParticleDrawSet`) only for a burst whose live particles' box
 //!   ([`burst_bounds`]) some active camera drawing its layers may see this frame, and
 //!   hides the others' render entities meanwhile.
@@ -150,7 +151,7 @@ pub fn draw(
     bounds: Query<&Aabb>,
     shown: Query<&InheritedVisibility>,
     layers: Query<&bevy::camera::visibility::RenderLayers>,
-    camera: Query<&Transform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
+    camera: Query<&Transform, crate::particles::WorldCamera>,
 ) {
     st.basis = None;
     let Ok((root, root_at)) = root.single() else { return };
@@ -515,5 +516,98 @@ mod tests {
         let now = positions(&world);
         world.run_system_once(build).unwrap();
         assert_eq!(positions(&world), now);
+    }
+
+    /// Culling changes nothing of the bursts' births, motion and deaths: a play giving
+    /// birth all the time on a covered mesh, its particles living 0.1-0.5 s, run with the
+    /// world camera facing it and facing away; the particles, the random state and the
+    /// counts are the same, and only the one facing it is drawn.
+    #[test]
+    fn effect_simulation_is_the_same_with_the_burst_culled_or_drawn() {
+        use bevy::camera::primitives::Frustum;
+        use bevy::ecs::system::RunSystemOnce;
+        use fnv_world::effect_shader::{AlphaCycle, EffectShader};
+        let run = |facing: Quat| {
+            let mut world = World::new();
+            crate::particles::model_ctx_resources(&mut world);
+            world.insert_resource(Time::<()>::default());
+            let root_t = crate::world::game_to_bevy();
+            let root = world.spawn((WorldRoot, root_t, GlobalTransform::from(root_t))).id();
+            let projection = Projection::Perspective(PerspectiveProjection { fov: 75f32.to_radians(), aspect_ratio: 16.0 / 9.0, near: 5.0, ..default() });
+            let t = Transform::from_rotation(facing);
+            let g = GlobalTransform::from(t);
+            let f: Frustum = projection.compute_frustum(&g);
+            world.spawn((Camera3d::default(), Camera::default(), projection.clone(), t, g, f, crate::fly::FlyCam { yaw: 0.0, pitch: 0.0, speed: 0.0 }));
+            // The covered mesh 500 units ahead of a camera with no turn (Bevy -z), a box
+            // for the births.
+            let covered = world.spawn((GlobalTransform::from_translation(Vec3::new(0.0, 0.0, -500.0)), Aabb::from_min_max(Vec3::splat(-20.0), Vec3::splat(20.0)))).id();
+            let mesh = world.resource_mut::<Assets<Mesh>>().add(particle_mesh());
+            let entity = world.spawn((Visibility::Hidden, Transform::IDENTITY, GlobalTransform::from(root_t), ChildOf(root))).id();
+            let def = ParticleShader {
+                full_ratio: 25.0,
+                persistent_ratio: 25.0,
+                full_time: 1000.0,
+                lifetime: 0.3,
+                lifetime_range: 0.2,
+                speed_normal: 30.0,
+                speed_normal_range: 10.0,
+                accel: [0.0, 0.0, 15.0],
+                scale_keys: [(5.0, 0.2), (30.0, 1.0)],
+                rotation_range: 90.0,
+                spin: 20.0,
+                spin_range: 10.0,
+                frames: [2, 2],
+                ..default()
+            };
+            let shader = EffectShader {
+                form_id: 1,
+                edid: "TestShader".into(),
+                flags: 0,
+                fill_texture: None,
+                particle_texture: Some("fx\\test.dds".into()),
+                source_blend: 0,
+                blend_op: 0,
+                z_test: 0,
+                dest_blend: 0,
+                fill_color: [0; 3],
+                fill: AlphaCycle::default(),
+                fill_speed: [0.0; 2],
+                edge_color: [0; 3],
+                edge: AlphaCycle::default(),
+                edge_fall_off: 0.0,
+                particles: Some(def.clone()),
+                holes: None,
+                addons: None,
+            };
+            let key = Source::Script(1);
+            let mut shaders = Shaders::default();
+            shaders.active.insert(key, crate::effect_shaders::Active::for_test(0x0001_2345, shader, 0.0, &[covered]));
+            world.insert_resource(shaders);
+            let mut st = EffectParticles::default();
+            // The burst made already (its texture is not looked up again).
+            st.bursts.insert(key, Burst { def, edid: "TestShader".into(), particles: Vec::new(), mesh, entity, owed: 0.0, playing: true });
+            world.insert_resource(st);
+            let mut most = 0;
+            for k in 0..150 {
+                let dt = 0.004 + (k % 7) as f32 * 0.003;
+                world.resource_mut::<Time>().advance_by(std::time::Duration::from_secs_f32(dt));
+                world.run_system_once(draw).unwrap();
+                world.run_system_once(build).unwrap();
+                most = most.max(world.resource::<EffectParticles>().bursts.values().next().map_or(0, |b| b.particles.len()));
+            }
+            let st = world.resource::<EffectParticles>();
+            let b = st.bursts.values().next().expect("the burst lives on while it plays");
+            let particles: Vec<_> = b.particles.iter().map(|q| (q.pos.to_array().map(f32::to_bits), q.vel.to_array().map(f32::to_bits), q.age.to_bits(), q.life.to_bits(), q.angle.to_bits(), q.spin.to_bits(), q.frame)).collect();
+            let shown = *world.get::<Visibility>(entity).unwrap() == Visibility::Inherited;
+            ((particles, st.rng.0, st.born, st.most_alive, b.owed.to_bits()), shown, most)
+        };
+        let (seen, seen_shown, most) = run(Quat::IDENTITY);
+        let (culled, culled_shown, _) = run(Quat::from_rotation_y(std::f32::consts::PI));
+        assert!(seen_shown && !culled_shown, "drawn facing it, culled facing away");
+        assert_eq!(seen, culled);
+        // Births and deaths both happened: far more born than ever alive at once.
+        let born = seen.2;
+        assert!(born > 40 && (most as u64) < born, "born {born}, most alive {most}");
+        assert!(!seen.0.is_empty());
     }
 }

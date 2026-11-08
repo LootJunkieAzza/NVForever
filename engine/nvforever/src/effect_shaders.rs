@@ -67,6 +67,29 @@ impl Plugin for EffectShadersPlugin {
     }
 }
 
+#[cfg(test)]
+impl Active {
+    /// A play of `shader` on reference `on` since `since` (persistent), covering the meshes
+    /// `covered`, without overlays: for tests of the effect particles.
+    pub(crate) fn for_test(on: u32, shader: EffectShader, since: f32, covered: &[Entity]) -> Active {
+        Active {
+            on,
+            shader: Box::new(shader),
+            since,
+            until: None,
+            persist: true,
+            fill: None,
+            edge: None,
+            cut: HashMap::new(),
+            covered: covered.iter().map(|e| (*e, Vec::new())).collect(),
+            camera_sees: None,
+            holes_texture: None,
+            holed: HashMap::new(),
+            addons: Vec::new(),
+        }
+    }
+}
+
 /// What a play comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Source {
