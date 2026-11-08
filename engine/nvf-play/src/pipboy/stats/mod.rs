@@ -1340,8 +1340,7 @@ mod tests {
 
     #[test]
     fn each_view_gives_the_status_page_its_buttons() {
-        let mut v = StatsView::default();
-        v.status = 2;
+        let mut v = StatsView { status: 2, ..StatsView::default() };
         v.set_status_pages(6);
         assert_eq!(v.status, 2);
         v.status = 5;

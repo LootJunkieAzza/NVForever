@@ -227,6 +227,8 @@ pub struct StatusPaths {
 }
 
 /// What a tab has of its own.
+// Found once per tab and copied around; boxing the larger variants would lose `Copy`.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TabPaths {
     /// S.P.E.C.I.A.L., Skills, Perks: a list beside the display.
