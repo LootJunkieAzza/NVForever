@@ -174,6 +174,8 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 mod campfires;
+mod leave;
+pub use leave::HoldLeave;
 mod revive;
 
 /// The port `--join` uses when the address names none (and a code without a port means).
@@ -315,8 +317,16 @@ impl Plugin for CoopPlugin {
             handed_off: false,
             progress_in: Vec::new(),
             campfires: Default::default(),
+            ended: false,
+            leaving: Default::default(),
         };
-        if let Some(port) = c.host.or_else(|| env(HOST_ENV).and_then(|p| p.trim().parse().ok())) {
+        // The main menu's run after a lobby ended neither hosts nor joins, whatever the
+        // command line it was started with says (`leave`).
+        let ended = env(leave::NO_LOBBY_ENV).is_some();
+        std::env::remove_var(leave::NO_LOBBY_ENV);
+        if ended {
+            info!("co-op: the lobby ended in the run before: not hosting or joining");
+        } else if let Some(port) = c.host.or_else(|| env(HOST_ENV).and_then(|p| p.trim().parse().ok())) {
             coop.start_hosting(port);
         } else if let Some(join) = c.join.clone().or_else(|| env(JOIN_ENV)) {
             coop.start_joining(&join);
@@ -324,6 +334,9 @@ impl Plugin for CoopPlugin {
         app.add_plugins((nvf_play::lobby::LobbyPlugin, nvf_play::coop_progress::CoopProgressPlugin))
             .insert_resource(coop)
             .add_systems(Update, (lobby, send, take_events, share_doors, campfires::share_campfires, tables, social_mates, share_npcs, follow_looks, follow_npcs, leash, downed, revive::bodies, progress, duel_falls).chain().after(nvf_play::PlaySet::Physics))
+            .init_resource::<HoldLeave>()
+            .add_systems(Update, (leave::guest_leaves.before(crate::handoff::leave), leave::tell_ended))
+            .add_systems(Last, leave::host_ends)
             .add_message::<PuppetShot>()
             .add_systems(Update, (stand_ins, draw, peer_lights, pipboy_share).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
     }
@@ -484,6 +497,11 @@ struct Coop {
     progress_in: Vec<(u8, net::Progress)>,
     /// Lit campfires ([`campfires::share_campfires`]).
     campfires: campfires::Shared,
+    /// A guest's: the host ended the lobby (told, or gone too long), not yet acted on
+    /// ([`leave::guest_leaves`]).
+    ended: bool,
+    /// A guest's way out while it autosaves ([`leave`]).
+    leaving: leave::Leaving,
 }
 
 /// One of the host's NPCs as a guest has heard it.
@@ -1422,6 +1440,7 @@ fn take_events(
             }
             Event::HostGone => {
                 coop.host = None;
+                coop.ended = true;
                 notes.push("The host's game has ended".into());
             }
             Event::Npcs(list) => {
@@ -2087,6 +2106,9 @@ fn follow_npcs(
     // Kept off (a console `tai` would turn it back on).
     g.toggles.actors_ai_off = true;
     g.coop_guest = true;
+    // Test aid `NVF_COOP_TEST_CONSOLE_STORY=1`: the console's lines count as the host's
+    // story (`fnv_game::coop_story`), to check what a guest's save keeps (queue item 81).
+    g.coop_story.console_counts = std::env::var_os("NVF_COOP_TEST_CONSOLE_STORY").is_some();
     if g.coop_host_quest != coop.host_quest {
         g.coop_host_quest.clone_from(&coop.host_quest);
     }

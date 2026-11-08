@@ -265,7 +265,15 @@ fn exchange(time: Res<Time<Real>>, mut tables: Option<ResMut<Tables>>, mut share
             Message::Clock { seconds, seed } if !shared.host => {
                 // A message that came late makes the offset smaller: the largest one heard
                 // is the truest. One far smaller several times over is a new host clock.
-                let offset = seconds - local;
+                // This game's real clock as the message is read, not at the frame's start:
+                // a long frame (loading) reads messages that came during it, and the
+                // frame's start would put the host's clock seconds ahead, kept for good as
+                // the largest (queue item 69, guest 1-2 s ahead) [hypothesis, measured
+                // with the `co-op radio sync` log].
+                // Test aid `NVF_COOP_CLOCK_FRAME_START=1`: the old reading (to measure).
+                let since_frame = time.last_update().map_or(0.0, |t| t.elapsed().as_secs_f64());
+                let read_at = if std::env::var_os("NVF_COOP_CLOCK_FRAME_START").is_some() { local } else { local + since_frame };
+                let offset = seconds - read_at;
                 let take = match shared.offset {
                     None => true,
                     Some(o) if offset > o + CLOCK_SLACK => true,

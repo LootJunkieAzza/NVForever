@@ -1242,3 +1242,12 @@ The numbers above stay put so links to them hold; each item here gives its own p
     GameMode block with no StopQuest, and that makes sense only if a repeat changes nothing.
     Probe: `LeveledListAddForm` the caps into a list at level 1, count 1, health 1.0, three
     times, then `GetNumLevItems`; then once with count 2.
+
+## Added 2026-11-08 (companion perks on the Pip-Boy, queue item 67)
+
+86. **Does the Pip-Boy's Perks tab list perks no level-up offers?** (P2;
+    engine/nvf-play/src/pipboy/stats/read.rs.) Companion perks (Spotting, Better Healing,
+    Whiskey Rose, Scribe Assistant) have DATA playable 0, hidden 0 [observed, FalloutNV.esm].
+    NVForever now lists every perk the player has that is not flagged hidden [hypothesis].
+    Probe: hire Boone, open STATS > Perks, look for Spotting; then `player.addperk` a perk
+    flagged hidden and look again.

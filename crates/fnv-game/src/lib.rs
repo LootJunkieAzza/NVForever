@@ -60,6 +60,7 @@ pub mod combat_style;
 pub mod companion_wheel;
 pub mod coop;
 pub mod coop_perks;
+pub mod coop_story;
 pub mod coop_rewards;
 pub mod player_voice;
 pub mod cond;

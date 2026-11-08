@@ -178,6 +178,11 @@ pub const QUEST_OBJECTIVES: usize = 64;
 pub const HIT_MAX: usize = 64;
 /// Each hit is sent this many times (the host takes it once, by its id).
 const HIT_COPIES: usize = 3;
+/// A goodbye is sent this many times ([`Session::bye`]) [design: as [`HIT_COPIES`]].
+pub const BYE_COPIES: usize = HIT_COPIES;
+/// Between the copies of a goodbye [design: apart enough that one burst of loss does not
+/// take them all, short enough that quitting does not wait].
+const BYE_GAP: Duration = Duration::from_millis(15);
 /// Hit ids a host remembers per guest, to take each hit once.
 const HITS_KEPT: usize = 64;
 /// The most a table's blob takes ([`Session::set_table`]): one packet, with room to spare.
@@ -1424,6 +1429,8 @@ impl Session {
                     self.events.push(Event::Look { id: peer, look });
                 }
             }
+            // Every copy of the host's goodbye after the first finds it gone already.
+            Msg::Bye { id: 0 } if *gone => {}
             Msg::Bye { id: 0 } => {
                 *gone = true;
                 for p in self.peers.drain(..) {
@@ -1545,12 +1552,20 @@ impl Session {
         }
     }
 
-    /// Say goodbye, so the others drop this player at once rather than after [`GRACE`].
+    /// Say goodbye, so the others drop this player at once rather than after [`GRACE`]:
+    /// [`BYE_COPIES`] times, [`BYE_GAP`] apart, as a hit is sent more than once, so one
+    /// lost packet does not leave the others waiting (queue item 90: a host that ends
+    /// the lobby must reach every guest).
     fn bye(&self) {
-        match &self.role {
-            Role::Host => self.relay_bye(0),
-            Role::Guest { host: Some(host), id: Some(id), gone: false, .. } => self.sock_send(&Msg::Bye { id: *id }, *host),
-            Role::Guest { .. } => {}
+        for i in 0..BYE_COPIES {
+            if i > 0 {
+                std::thread::sleep(BYE_GAP);
+            }
+            match &self.role {
+                Role::Host => self.relay_bye(0),
+                Role::Guest { host: Some(host), id: Some(id), gone: false, .. } => self.sock_send(&Msg::Bye { id: *id }, *host),
+                Role::Guest { .. } => return,
+            }
         }
     }
 }
