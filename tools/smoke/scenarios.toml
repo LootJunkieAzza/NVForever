@@ -3670,10 +3670,10 @@ expect = [
 [[scenario]]
 name = "gpu-vram-cap"
 source = "queue item 97 (owner 2026-11-08): the laptop's 4 GB card ran out of memory at every cell change; the texture cap follows VK_EXT_memory_budget at each cell load, the caches are flushed before the new place uploads, and an out-of-memory error makes the textures smaller and goes on (engine/nvforever/src/memory_budget.rs)"
-note = "the GPU budget is taken as the laptop's 3367 MB; Doc Mitchell's door out to Goodsprings, then coc into the Prospector Saloon; at about 40 s the out-of-memory path runs (test aid, no memory filled)"
+note = "the GPU budget is taken as the laptop's 3367 MB; Doc Mitchell's door out to Goodsprings, then coc into the Prospector Saloon; soon after the saloon is in the out-of-memory path runs (test aid, no memory filled) and makes its textures again"
 areas = ["memory", "render"]
 paths = ["engine/nvforever/src/memory_budget.rs", "engine/nvf-assets/src/texture.rs", "engine/nvf-assets/src/release.rs", "engine/vendor/gpu-allocator/"]
-env = { NVF_PLAY_TEST_VRAM_MB = "3367", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "10:00103E61", NVF_PLAY_TEST_ACTIVATE = "12", NVF_PLAY_TEST_CONSOLE = "28:coc GSProspectorSaloonInterior", NVF_PLAY_TEST_GPU_OOM = "40" }
+env = { NVF_PLAY_TEST_VRAM_MB = "3367", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "10:00103E61", NVF_PLAY_TEST_ACTIVATE = "12", NVF_PLAY_TEST_CONSOLE = "28:coc GSProspectorSaloonInterior", NVF_PLAY_TEST_GPU_OOM = "35" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 60
 order = [[
@@ -3687,6 +3687,7 @@ order = [[
 ]]
 expect = [
   { re = 'memory budget: world textures at most \d+ px, mesh slabs at most 105 MiB, 0 emptied GPU memory blocks kept per memory type', label = "a 3367 MB budget: 105 MiB slabs, no kept empty blocks" },
+  { re = 'memory budget: out of GPU memory: going on with world textures at most 1024 px; caches flushed, (?P<n>\d+) textures made again', range = [1, 5000], label = "the saloon's textures made again after the out-of-memory error" },
 ]
 forbid = [{ text = "GPU lost", label = "the game closed for the GPU" }, { text = "panic on thread", label = "a panic" }]
 
