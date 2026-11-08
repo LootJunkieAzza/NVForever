@@ -180,6 +180,11 @@ SetStageAlt, perks and factions, script variables added at run time (saved), scr
 blocks switched off, FakeScriptEvent, linked and enable children, the references' extra data
 (saved), script map markers, the text files through NVForever's layer; probed once, set jip10,
 6 of 21 before the fixes that follow it, jip-scripts-10.md §7). Census after it: JIP 178 → 142.
+SUP batch 7: 12 (#1008, ext-sup7.md: the NIF block interpolations run frame by frame through the
+scene mirror's edits, their finish events, the vertices told by the engine's `nif_mirror.rs`,
+the HUD bars' script-variable (a variable handed over by place, `Host::var_place`) and UDF
+sources; not probed yet, set sup7). Census after it: SUP 29 → 17 (the 17 of batch 4).
+With both JIP batch 10 and SUP batch 7 merged: JIP 142, SUP 17 [hypothesis: 378 − 36 − 12 = 330 in all; the extender_census test decides].
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,
