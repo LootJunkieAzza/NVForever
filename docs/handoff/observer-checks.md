@@ -1242,3 +1242,16 @@ The numbers above stay put so links to them hold; each item here gives its own p
     GameMode block with no StopQuest, and that makes sense only if a repeat changes nothing.
     Probe: `LeveledListAddForm` the caps into a list at level 1, count 1, health 1.0, three
     times, then `GetNumLevItems`; then once with count 2.
+
+## Added 2026-11-08 (DX10/BC7 textures from mods)
+
+86. **Does the original draw a DX10-header BC7 texture?** (P2; docs/spec-notes/dds.md §6.)
+    NVForever now reads them [design]. The owner's load order has three loose files:
+    - `textures\LVC\DesertInn1.dds` and `WestwardHo1.dds` (a Las Vegas signs mod);
+    - `textures\HotM\parkbrick_lod.dds`.
+
+    Capture the Desert Inn sign by Freeside's wall (FreesideWorld, reference 0x0F0025AD near
+    -9325, -8242, 1790) at night and at noon, with the same mods enabled. The checks:
+    - does its blue face with the cactus show;
+    - is it drawn white, as untextured;
+    - or is it not drawn at all?

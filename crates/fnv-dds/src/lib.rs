@@ -4,7 +4,9 @@
 //! and checks it against the payload size. Block-compressed (DXT) data is meant to be
 //! uploaded to the GPU as is; the three uncompressed layouts in the game convert to
 //! RGBA8 here, and [`decode_blocks`] decodes DXT1/3/5 on the CPU for the few uses that
-//! need the pixels themselves (the mouse pointer).
+//! need the pixels themselves (the mouse pointer). Files with the DX10 extension header
+//! (FourCC `DX10`, a DXGI format after the 128-byte header; dds.md §6) are read for the
+//! DXGI formats that name one of the layouts above, and for BC7.
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum DdsError {
@@ -38,6 +40,9 @@ pub enum Format {
     A8B8G8R8,
     R8G8B8,
     A4R4G4B4,
+    /// BC7 (DXGI_FORMAT_BC7_UNORM / _SRGB, 98 / 99), only behind a DX10 header
+    /// [documented: Microsoft, "BC7 Format"; dds.md §6].
+    Bc7,
 }
 
 impl Format {
@@ -50,6 +55,7 @@ impl Format {
             Format::A8B8G8R8 => "A8B8G8R8",
             Format::R8G8B8 => "R8G8B8",
             Format::A4R4G4B4 => "A4R4G4B4",
+            Format::Bc7 => "BC7",
         }
     }
 
@@ -57,7 +63,7 @@ impl Format {
     pub fn block_bytes(self) -> Option<usize> {
         match self {
             Format::Dxt1 => Some(8),
-            Format::Dxt3 | Format::Dxt5 => Some(16),
+            Format::Dxt3 | Format::Dxt5 | Format::Bc7 => Some(16),
             _ => None,
         }
     }
@@ -127,6 +133,26 @@ impl PixelFormat {
     }
 }
 
+/// The DXGI formats read from a DX10 extension header, by number [documented: Microsoft,
+/// "DXGI_FORMAT enumeration"]: BC1-BC3 and BC7 (typeless, UNORM and SRGB alike: whether a
+/// texture is colour is the caller's choice, as for the legacy formats), and the two
+/// 8-bit RGBA orders. Others are not read.
+pub fn dxgi_format(dxgi: u32) -> Option<Format> {
+    match dxgi {
+        70..=72 => Some(Format::Dxt1),
+        73..=75 => Some(Format::Dxt3),
+        76..=78 => Some(Format::Dxt5),
+        97..=99 => Some(Format::Bc7),
+        27..=29 => Some(Format::A8B8G8R8),
+        87 | 90 | 91 => Some(Format::A8R8G8B8),
+        _ => None,
+    }
+}
+
+/// Bytes of the DX10 extension header after the 128-byte header [documented: MS DDS,
+/// DDS_HEADER_DXT10: five u32 values].
+pub const DX10_HEADER_LEN: usize = 20;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DdsHeader {
     pub flags: u32,
@@ -137,6 +163,8 @@ pub struct DdsHeader {
     pub mip_count: u32,
     pub pixel_format: PixelFormat,
     pub caps: [u32; 4],
+    /// The DXGI format of a DX10 extension header (FourCC `DX10`), when the file has one.
+    pub dxgi: Option<u32>,
 }
 
 pub const HEADER_LEN: usize = 128;
@@ -168,7 +196,23 @@ impl DdsHeader {
                 masks: [u32_at(data, 92), u32_at(data, 96), u32_at(data, 100), u32_at(data, 104)],
             },
             caps: [u32_at(data, 108), u32_at(data, 112), u32_at(data, 116), u32_at(data, 120)],
+            dxgi: (&data[84..88] == b"DX10" && data.len() >= HEADER_LEN + DX10_HEADER_LEN).then(|| u32_at(data, HEADER_LEN)),
         })
+    }
+
+    /// The pixel format: the DX10 header's DXGI format ([`dxgi_format`]) when the file has
+    /// one, else the legacy pixel format's ([`PixelFormat::format`]).
+    pub fn format(&self) -> Result<Format, String> {
+        match self.dxgi {
+            Some(d) => dxgi_format(d).ok_or_else(|| format!("DX10 header, DXGI format {d}")),
+            None if self.pixel_format.fourcc == *b"DX10" && self.pixel_format.flags & PF_FOURCC != 0 => Err("DX10 header cut short".into()),
+            None => self.pixel_format.format(),
+        }
+    }
+
+    /// Where the pixel data starts: after the DX10 extension header when there is one.
+    pub fn data_offset(&self) -> usize {
+        HEADER_LEN + if self.dxgi.is_some() { DX10_HEADER_LEN } else { 0 }
     }
 
     /// Mip levels in the file: the stored count, or 1 when it is 0 (dds.md §3).
@@ -215,8 +259,8 @@ pub struct Dds<'a> {
 impl<'a> Dds<'a> {
     pub fn parse(data: &'a [u8]) -> Result<Dds<'a>, DdsError> {
         let header = DdsHeader::parse(data)?;
-        let format = header.pixel_format.format().map_err(DdsError::Unsupported)?;
-        let payload = &data[HEADER_LEN..];
+        let format = header.format().map_err(DdsError::Unsupported)?;
+        let payload = &data[header.data_offset()..];
         let expected = header.expected_size(format);
         // Bytes past the layout's end are ignored; only too few fail [observed: Heart of
         // the Mojave's slot_machine01_d.dds and _g.dds carry 45 bytes more than their
@@ -396,6 +440,34 @@ mod tests {
         let px = decode_blocks(Format::Dxt3, 4, 4, &b).unwrap();
         assert_eq!((px[3], px[7]), (0, 255));
         assert!(decode_blocks(Format::A8R8G8B8, 4, 4, &b).is_none());
+    }
+
+    /// A DX10-header BC7 file (the Las Vegas signs mod's `DesertInn1.dds`: DXGI 98, 2D, one
+    /// array element) parses with its levels after the extension header; an unknown DXGI
+    /// format and a header cut short are refused by name.
+    #[test]
+    fn dx10_headers_name_their_dxgi_format() {
+        let dx10 = |dxgi: u32, payload: usize| {
+            let mut d = build(8, 8, 2, PF_FOURCC, b"DX10", 0, [0; 4], 0, 0);
+            for v in [dxgi, 3, 0, 1, 0] {
+                d.extend_from_slice(&v.to_le_bytes());
+            }
+            d.resize(HEADER_LEN + DX10_HEADER_LEN + payload, 0xCD);
+            d
+        };
+        // 8x8 BC7: 4 blocks of 16 bytes, then 1 block for 4x4.
+        let d = dx10(98, 80);
+        let dds = Dds::parse(&d).unwrap();
+        assert_eq!(dds.format, Format::Bc7);
+        assert_eq!((dds.levels[0][0].len(), dds.levels[0][1].len()), (64, 16));
+        assert!(dds.levels[0][0].iter().all(|&b| b == 0xCD));
+        assert_eq!(Dds::parse(&dx10(72, 40)).unwrap().format, Format::Dxt1);
+        assert_eq!(Dds::parse(&dx10(28, 320)).unwrap().format, Format::A8B8G8R8);
+        assert!(matches!(Dds::parse(&dx10(95, 80)), Err(DdsError::Unsupported(e)) if e.contains("95")));
+        assert!(matches!(Dds::parse(&dx10(98, 79)), Err(DdsError::SizeMismatch { .. })));
+        let short = build(8, 8, 2, PF_FOURCC, b"DX10", 0, [0; 4], 0, 10);
+        assert!(matches!(Dds::parse(&short), Err(DdsError::Unsupported(_))));
+        assert!(decode_blocks(Format::Bc7, 8, 8, dds.levels[0][0]).is_none());
     }
 
     #[allow(clippy::too_many_arguments)]
