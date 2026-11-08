@@ -2164,8 +2164,10 @@ impl Core {
                     b.standing.insert(r.actor.0, [agent.walker.feet[0], agent.walker.feet[1]]);
                 }
             }
-            // The furniture it is to use, once it stands there.
-            r.wants = agent.using.filter(|_| agent.activity == Activity::There).map(|f| f.0);
+            // The furniture it is to use, once it stands there. Not while a game walks it
+            // ([`Core::scripted`]): standing where that game has it is not its package's
+            // place (a darts opponent at the line was sat back on its chair, item 92).
+            r.wants = agent.using.filter(|_| agent.activity == Activity::There && !self.scripted.contains_key(&r.actor.0)).map(|f| f.0);
             let still = agent.activity != Activity::Travelling && agent.walker.follower.is_none() && agent.using.is_none() && agent.talk.is_none();
             r.stand = still.then(|| match agent.sandbox.as_ref().map(|s| s.doing) {
                 Some(Doing::AtIdleMarker(m)) => game.world.placed.get(m).map(|p| p.base),

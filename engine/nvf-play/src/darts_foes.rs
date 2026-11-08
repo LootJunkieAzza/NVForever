@@ -11,10 +11,16 @@
 //!   with fewer than two (a mod's board in an empty room) gets strangers made from the
 //!   original game's generic records for the area ([`CITY`], [`WASTELAND`]): made for the
 //!   match and removed after it [design].
-//! - **The walk** ([`walk`]): the opponent walks from where it was to the line on its
+//! - **The walk** ([`follow`]): the opponent walks from where it was to the line on its
 //!   turn, to [`OPP_WAIT`] beside it on the player's, and back to where it came from when
 //!   the match is over or the player leaves; its AI does not walk it meanwhile
 //!   (`nvforever` `residents.rs` `Residents::hold_pose`, applied by `darts_world.rs`).
+//!   It goes the navmesh's way ([`Opponent::route`], planned by `darts_world.rs`), round
+//!   the pool tables, stools and counters between, not straight through them; one sitting
+//!   down gets up first and sets off from where it stood up ([`Opponent::seated`]). Only
+//!   when no way is found in [`ROUTE_WAIT`] does it walk straight [design: item 92, the
+//!   Prospector Saloon's settler, seated at a table, was drawn on his chair while the
+//!   game had him throwing, then jumped to the line].
 //! - **Skill** ([`own_skill`], [`throw_gap`]): an opponent's Agility and Perception make
 //!   half its skill, the bet the other half (the mod's opponent plays better for a
 //!   bigger bet [observed: darts.md]). A skilled one throws with a steady rhythm and a
@@ -38,6 +44,11 @@ pub const RUN: f32 = 330.0;
 /// From the start of the throw to the dart leaving the hand, seconds: the arm draws back
 /// meanwhile (`darts_arm.rs`) [design].
 pub const RELEASE: f32 = 0.42;
+/// How long the walk waits for its way to be planned before it goes straight, seconds
+/// (no navmesh, or none planned: a run without the engine) [design].
+pub const ROUTE_WAIT: f32 = 0.5;
+/// A corner of the way counts as reached this near, game units [design].
+const CORNER: f32 = 6.0;
 /// Where the opponent waits on the player's turn, local: beside the line on the left,
 /// out of the view [design].
 pub const OPP_WAIT: [f32; 3] = [-64.0, LINE[1] - 12.0, 0.0];
@@ -184,6 +195,18 @@ pub struct Opponent {
     pub release: Option<(f32, (f32, f32))>,
     /// Back home after the match: the engine lets it go, and a stranger is removed.
     pub gone: bool,
+    /// On furniture (sitting, getting up): the engine says so, and keeps [`Self::feet`]
+    /// and [`Self::home`] where its body is; the walk waits till it is up.
+    pub seated: bool,
+    /// Where the walk goes now (game space, on the floor), for the engine to plan
+    /// [`Self::route`] to.
+    pub target: [f32; 3],
+    /// The corners of the navmesh's way to [`Self::route_for`] still ahead, the last at
+    /// it (the engine plans it, `darts_world.rs`); empty with `route_for` set: straight.
+    pub route: Vec<[f32; 3]>,
+    pub route_for: Option<[f32; 3]>,
+    /// Seconds waited for a way to the target.
+    pub route_wait: f32,
 }
 
 impl Opponent {
@@ -242,6 +265,11 @@ pub fn bring(g: &mut Game, board: FormId, frame: BoardFrame, nth: usize, bet_ski
         throws: 0,
         release: None,
         gone: false,
+        seated: false,
+        target: feet,
+        route: Vec::new(),
+        route_for: None,
+        route_wait: 0.0,
     })
 }
 
@@ -256,6 +284,38 @@ pub fn send_off(g: &mut Game, o: &Opponent) {
     }
     g.extra.entry(r).or_default().marked_for_delete = true;
     let _ = g.world.set_deleted(r, true);
+}
+
+/// One step of the walk to `target` (game space): along [`Opponent::route`] once it is
+/// planned for it, straight if none comes in [`ROUTE_WAIT`]; standing while seated.
+pub fn follow(o: &mut Opponent, target: [f32; 3], face: f32, dt: f32) {
+    o.target = target;
+    if o.seated {
+        o.moving = false;
+        return;
+    }
+    if o.route_for != Some(target) {
+        o.route_wait += dt.max(0.0);
+        if o.route_wait < ROUTE_WAIT {
+            o.moving = false;
+            return;
+        }
+        // No way planned in time: straight there.
+        o.route.clear();
+        o.route_for = Some(target);
+    }
+    o.route_wait = 0.0;
+    while o.route.first().is_some_and(|c| (c[0] - o.feet[0]).hypot(c[1] - o.feet[1]) < CORNER) {
+        o.route.remove(0);
+    }
+    match o.route.first().copied().filter(|_| o.route.len() > 1) {
+        // A corner on the way: on through it, not stopping.
+        Some(corner) => {
+            step_to(o, corner, o.heading, dt);
+            o.moving = true;
+        }
+        None => step_to(o, target, face, dt),
+    }
 }
 
 /// One step of the walk to `target` (game space) at [`WALK`] (at [`RUN`] while far);
@@ -318,6 +378,11 @@ mod tests {
             throws: 0,
             release: None,
             gone: false,
+            seated: false,
+            target: [0.0; 3],
+            route: Vec::new(),
+            route_for: None,
+            route_wait: 0.0,
         };
         let target = f.to_world(UP);
         step_to(&mut o, target, 0.5, 0.1);
@@ -328,6 +393,57 @@ mod tests {
             step_to(&mut o, target, 0.5, 0.1);
         }
         assert!(!o.moving && o.feet == target && o.heading == 0.5);
+    }
+
+    #[test]
+    fn the_walk_follows_its_way_and_waits_while_seated() {
+        let f = BoardFrame::of([0.0, 0.0, 0.0], [0.0, 0.0, 0.0], None);
+        let mut o = Opponent {
+            actor: FormId(1),
+            spawned: false,
+            name: String::new(),
+            own: 0.5,
+            skill: 0.5,
+            board: 2,
+            frame: f,
+            feet: [0.0, -300.0, 0.0],
+            heading: 0.0,
+            moving: false,
+            home: [0.0, -300.0, 0.0],
+            home_heading: 0.0,
+            to: Spot::Line,
+            throws: 0,
+            release: None,
+            gone: false,
+            seated: true,
+            target: [0.0; 3],
+            route: Vec::new(),
+            route_for: None,
+            route_wait: 0.0,
+        };
+        let target = [0.0, -72.0, 0.0];
+        // Seated: it stays put.
+        follow(&mut o, target, 0.0, 0.1);
+        assert!(!o.moving && o.feet == [0.0, -300.0, 0.0] && o.target == target);
+        // Up, with a way round something: through the corner, then to the spot.
+        o.seated = false;
+        o.route = vec![[100.0, -200.0, 0.0], target];
+        o.route_for = Some(target);
+        let mut passed = false;
+        for _ in 0..200 {
+            follow(&mut o, target, 0.5, 0.05);
+            passed |= o.feet[0] > 90.0;
+        }
+        assert!(passed, "it went by the corner");
+        assert!(!o.moving && o.feet == target && o.heading == 0.5);
+        // No way planned: it waits a little, then goes straight.
+        let back = [0.0, -300.0, 0.0];
+        follow(&mut o, back, 0.0, 0.1);
+        assert!(!o.moving && o.feet == target);
+        for _ in 0..100 {
+            follow(&mut o, back, 0.0, 0.1);
+        }
+        assert!(o.feet == back);
     }
 
     #[test]

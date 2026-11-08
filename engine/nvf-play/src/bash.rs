@@ -177,7 +177,7 @@ pub(crate) fn tick(
     let Some(gun) = c.gun() else { return refuse(b, "not a gun") };
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let Some(weapon_type) = rt.game.data.weapon_anim_types.get(&gun).copied() else { return refuse(b, "the gun has no type") };
-    let Some(clip_type) = rules::clip_type(i64::from(weapon_type)) else { return refuse(b, "this weapon does not bash") };
+    let Some(clip_type) = rules::clip_type(weapon_type) else { return refuse(b, "this weapon does not bash") };
     let base_edid = rules::base_weapon(clip_type);
     let Some(base) = rt.game.data.by_edid(base_edid).and_then(|id| c.forms.weapons.get(&id)) else { return refuse(b, "no base weapon") };
     let weight = c.forms.weapons.get(&gun).map_or(0.0, |w| w.weight);
