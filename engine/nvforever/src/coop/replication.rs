@@ -259,13 +259,16 @@ pub(super) fn replicate(
     };
     let host = link.is_host();
     let Some(sim) = sim.as_deref_mut() else { return };
-    if host {
-        for id in host_side(coop, sim, script.as_deref_mut(), actor_world.as_deref(), now) {
-            repose.write(nvf_play::RefRepose { form_id: id });
-        }
+    // What this game's physics carries goes to the other players: a guest's to the host,
+    // the host's to every guest.
+    send_carry(coop, grab.as_deref(), phys.as_deref(), now);
+    let moved = if host {
+        host_side(coop, sim, script.as_deref_mut(), actor_world.as_deref(), now)
     } else {
-        send_carry(coop, grab.as_deref(), phys.as_deref(), now);
-        guest_side(&mut commands, coop, sim, script.as_deref_mut(), residents.as_deref_mut(), loc.as_deref(), player.as_deref(), now);
+        guest_side(&mut commands, coop, sim, script.as_deref_mut(), residents.as_deref_mut(), loc.as_deref(), player.as_deref(), now)
+    };
+    for id in moved {
+        repose.write(nvf_play::RefRepose { form_id: id });
     }
     let ms = started.elapsed().as_secs_f32() * 1000.0;
     coop.repl.perf.add_spent(ms);
@@ -285,7 +288,7 @@ fn send_carry(coop: &mut Coop, grab: Option<&nvf_play::grab::GrabState>, phys: O
     match (held, r.carrying) {
         (Some(id), Some((was, _))) if id == was => r.carrying = Some((id, None)),
         (Some(id), _) => {
-            info!("replication: carrying {id:#010X}: its pose goes to the host");
+            info!("replication: carrying {id:#010X}: its pose goes to the other players");
             r.carrying = Some((id, None));
         }
         (None, Some((id, None))) => r.carrying = Some((id, Some(now))),
@@ -304,7 +307,7 @@ fn send_carry(coop: &mut Coop, grab: Option<&nvf_play::grab::GrabState>, phys: O
     link.send_reliable(None, repl::pack_carry(&repl::Carry { reference: id, pos, rot, done }));
     r.carries_sent += 1;
     if done {
-        info!("replication: {id:#010X} at rest at {pos:?}: its last pose went to the host");
+        info!("replication: {id:#010X} at rest at {pos:?}: its last pose went to the other players");
         r.carrying = None;
     }
 }
@@ -489,8 +492,10 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
 }
 
 #[allow(clippy::too_many_arguments)]
-fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Option<&mut nvf_play::script::ScriptState>, mut residents: Option<&mut Residents>, loc: Option<&Location>, player: Option<&Player>, now: f32) {
-    let Some(link) = coop.link.as_ref() else { return };
+fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Option<&mut nvf_play::script::ScriptState>, mut residents: Option<&mut Residents>, loc: Option<&Location>, player: Option<&Player>, now: f32) -> Vec<u32> {
+    // The references whose place changed here (their collision follows).
+    let mut moved = Vec::new();
+    let Some(link) = coop.link.as_ref() else { return moved };
     let r = &mut coop.repl;
     for e in std::mem::take(&mut r.inbox) {
         match e {
@@ -506,7 +511,27 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                         r.applied += 1;
                         if apply(sim, &mut r.slow, &c, residents.as_deref_mut(), commands) {
                             r.corrections += 1;
+                            if c.value.comp() == comp::PLACE && !moved.contains(&c.reference) {
+                                moved.push(c.reference);
+                            }
                         }
+                    }
+                } else if let Some(c) = repl::unpack_carry(&item) {
+                    // The host carries this object: this game's copy goes where the
+                    // host has it (not one this game holds itself).
+                    if r.carrying.is_some_and(|(id, _)| id == c.reference) {
+                        continue;
+                    }
+                    let rf = FormId(c.reference);
+                    let Ok(s) = sim.world.get(rf) else { continue };
+                    s.pos = c.pos;
+                    s.rot = c.rot;
+                    r.carries_heard += 1;
+                    if !moved.contains(&c.reference) {
+                        moved.push(c.reference);
+                    }
+                    if c.done {
+                        info!("replication: the host put {} {rf} down at {:?}", sim.ref_name(None, rf.0).unwrap_or("?"), c.pos);
                     }
                 } else if let Some(effects) = repl::unpack_effects(&item) {
                     // Played as this game's own scripts' would be (the sound at the
@@ -560,7 +585,7 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
     // The digest of what this game holds near its player.
     if now - r.last_digest >= DIGEST_EVERY {
         r.last_digest = now;
-        let (Some(loc), Some(player)) = (loc, player) else { return };
+        let (Some(loc), Some(player)) = (loc, player) else { return moved };
         let place = place_of(loc);
         let feet = player.feet;
         // Not this game's own created references, nor its actors hidden as not in the
@@ -579,6 +604,7 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
             link.send_reliable(None, item);
         }
     }
+    moved
 }
 
 /// Apply one of the host's changes here; whether it changed anything.
