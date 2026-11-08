@@ -3867,6 +3867,29 @@ forbid = [
   { re = 'combat: FireWeapon: 0x00139520 fires', label = "its shotgun stays quiet" },
 ]
 
+[[scenario]]
+name = "grenade-bouquet-self-damage"
+source = "[design] #1819; docs/spec-notes/combat-rules.md, object destruction: Cap Damage stops the first crossing hit, then self-damage must pass it; the issue's supplied data lists bouquet 0016526B at health 20 with stages 98/95/75 percent"
+note = "In TestTraps the player moves onto plate 0016526C, the activate parent of bouquet 0016526B. Require all three stages, its stage explosion and disabled/destroyed state; a loose model or resting wreck alone is insufficient. [hypothesis] The issue's roughly 4.6 seconds follows from its data; ordered logs allow frame scheduling variation without requiring that duration."
+areas = ["traps", "scripts", "combat"]
+paths = ["crates/fnv-game/src/combat.rs", "crates/fnv-game/src/functions/objects.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "8:moveto:player:0x0016526C", NVF_PLAY_TEST_CONSOLE = "22:0016526B.getdestructionstage;0016526B.getdisabled;0016526B.getdestroyed;22.5:close" }
+args = ["--cell", "TestTraps", "--pos=2700,6004,8700", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 24
+order = [[
+  "script: activate parent 0x0016526C sets off 0x0016526B after 0.00 s",
+  "combat: 0x0016526B destruction stage -1 -> 0",
+  "combat: 0x0016526B destruction stage 0 -> 1",
+  "combat: 0x0016526B destruction stage 1 -> 2, destroyed, disabled, 1 explosion(s)",
+  "combat: explosion GrenadeFragExplosion at ",
+  "console: GetDestructionStage on 0x0016526B >> 2.00",
+  "console: GetDisabled on 0x0016526B >> 1.00",
+  "console: GetDestroyed on 0x0016526B >> 1.00",
+]]
+expect = [
+  { text = "combat: 0x0016526B destruction stage", count = 3, label = "each of the bouquet's stages is reached exactly once" },
+]
+
 # ------------------------------------------------------------------ dialogue, Pip-Boy, terminals
 
 [[scenario]]

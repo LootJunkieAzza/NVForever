@@ -900,6 +900,20 @@ module notes).
   - the stages' explosions go off 40 units above the object [design] and can damage
     other objects.
 
+  [design] Numerical policy (`crates/fnv-game/src/combat.rs`,
+  `destruction_damage_threshold` / `destruction_threshold_reached`;
+  `crates/fnv-game/src/functions/objects.rs`, `destruction_stage`): compute the required
+  damage as `health * (100 - percentage) / 100`. Both stage lookup and Cap Damage
+  consider that threshold reached within `8 * f64::EPSILON * health` damage points.
+  Cap only when the damage after the hit reaches it and the damage before does not;
+  the stage index alone cannot establish a crossing, since stage 0 also represents
+  damage above every threshold. Self-damage and subsequent hits pass an already
+  reached cap. The tolerance covers floating-point rounding, including damage saved
+  with the former `health * (1 - percentage / 100)` calculation, without a gameplay
+  percentage margin (at health 20 it is about 3.6e-14 damage points). Reached caps are
+  derived from saved `RefExtra.damage`; `burning` preserves self-damage on restore
+  (`crates/fnv-game/src/game.rs`, `RefExtra`, `Game::snapshot` / `Game::restore`).
+
   Bullets damage the destructible they hit with the hit's damage (no armour). The
   stages' damaged models are not drawn yet (logged); of the `BSDamageStage` nodes only
   the add-on nodes below them follow the stage (smoke, fire: `destruction-stages.md`).

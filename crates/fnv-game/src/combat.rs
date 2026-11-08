@@ -89,6 +89,17 @@ pub struct DestructionChange {
     pub debris: Vec<(FormId, i32)>,
 }
 
+pub(crate) fn destruction_damage_threshold(health: f64, percent: u8) -> f64 {
+    health * (100.0 - f64::from(percent)) / 100.0
+}
+
+pub(crate) fn destruction_threshold_reached(damage: f64, health: f64, percent: u8) -> bool {
+    // [design] Eight f64 epsilons scaled by health cover rounding (including old saves'
+    // health * (1 - percent / 100)) without swallowing real damage intervals; see
+    // docs/spec-notes/combat-rules.md, object destruction.
+    damage >= destruction_damage_threshold(health, percent) - 8.0 * f64::EPSILON * health
+}
+
 /// What a hit did.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct HitResult {
@@ -931,12 +942,12 @@ impl Game<'_> {
             // Cap Damage: a stage newly reached stops the hit at its threshold.
             let mut by_pct: Vec<&crate::data::DestructionStage> = def.stages.iter().collect();
             by_pct.sort_by_key(|s| std::cmp::Reverse(s.health_percent));
-            let pct_after = 100.0 * (health - total) / health;
-            let pct_before = 100.0 * (health - had) / health;
             for s in by_pct {
-                let p = s.health_percent as f64;
-                if s.flags & crate::data::DestructionStage::CAP_DAMAGE != 0 && pct_after <= p && pct_before > p {
-                    total = total.min(health * (1.0 - p / 100.0));
+                if s.flags & crate::data::DestructionStage::CAP_DAMAGE != 0
+                    && destruction_threshold_reached(total, health, s.health_percent)
+                    && !destruction_threshold_reached(had, health, s.health_percent)
+                {
+                    total = total.min(destruction_damage_threshold(health, s.health_percent));
                     break;
                 }
             }
