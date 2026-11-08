@@ -941,6 +941,10 @@ pub mod menus {
     /// scripts test `MenuMode 1007 || MenuMode 1013` for a load, observed in the masters].
     /// Not reported: scripts do not run under NVForever's pause menu (`nvf_play::script`).
     pub const START: u16 = 1013;
+    /// The main menu, before a game is played (`Begin MenuMode 4`) [documented: GECK
+    /// wiki Globals, "the main menu (MenuMode 4)"]. Holds only in the main-menu frames
+    /// (`Game::main_menu_tick`), not under the pause menu during play [hypothesis].
+    pub const MAIN_MENU: u16 = 4;
     /// The Pip-Boy's DATA page (the map, quests, notes) [documented: GECK wiki
     /// GetSelectedItemRef, "Pipboy DATA Menu (1023) - Quest/Note/Challenge";
     /// GetMenuTargetRef, "1023 The Map Marker on which the mouse is over"].
@@ -3760,7 +3764,7 @@ impl<'a> Game<'a> {
     pub fn main_menu_tick(&mut self, code: u16) {
         self.time += self.cfg.frame_seconds;
         let data = self.data;
-        let has_block = |script: FormId| {
+        let has_block = |script: FormId, code: u16| {
             data.script(script).is_some_and(|u| {
                 u.program.blocks.iter().any(|b| {
                     b.event == event::MENU_MODE
@@ -3773,12 +3777,26 @@ impl<'a> Game<'a> {
                 })
             })
         };
-        let quests: Vec<(FormId, FormId)> =
-            self.quests.iter().filter(|(_, s)| s.running).filter_map(|(q, _)| Some((*q, data.quests.get(q)?.script?))).filter(|(_, s)| has_block(*s)).collect();
+        let quests: Vec<(FormId, FormId)> = self
+            .quests
+            .iter()
+            .filter(|(_, s)| s.running)
+            .filter_map(|(q, _)| Some((*q, data.quests.get(q)?.script?)))
+            .filter(|(_, s)| has_block(*s, code) || has_block(*s, menus::MAIN_MENU))
+            .collect();
         for (q, script) in quests {
             self.mark_run(InstKey::Quest { quest: q }, Some(script));
         }
         self.page_tick(code);
+        // `Begin MenuMode 4` is the main menu's own block [documented: GECK wiki Globals,
+        // "the main menu (MenuMode 4)", script-language.md §2.4]. Another Millenia
+        // (mil.esp, mil_Add-On.esp) adds its 2,384 leveled-list and form-list entries in
+        // one, after `if GetGameRestarted == 0 return` [observed in the plugins]; before,
+        // only the 1013 blocks ran here and those entries were never added. Run after the
+        // 1013 blocks of the same frame [hypothesis: the order within a frame].
+        let before = self.page_menu.replace(menus::MAIN_MENU);
+        self.side_blocks(menus::MAIN_MENU);
+        self.page_menu = before;
     }
 
     /// The animation file an idle plays: the path SetIdleAnimPath (or JIP's setter) gave

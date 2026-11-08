@@ -117,6 +117,13 @@ pub(super) struct Gen<'a> {
     /// Inside a compiler-override block (`Begin _GameMode` … `End`): every line is read
     /// with the extender's grammar (task A12, script-compiler.md §8).
     co: bool,
+    /// A vanilla `if`, `elseif` or `set` line read with the extender's grammar because it
+    /// calls an extender function ([`Gen::statement`]): its operators stay outside an
+    /// NVSE-aware function's arguments, so `if GetINIFloat_Cached "S:k" "F.ini" == 1`
+    /// compares the call's value with 1 [observed: Another Millenia's mil.esp, SCPT
+    /// 0x061F45, compiled by the GECK with xNVSE: `if <0x3D29>("S:k" "F.ini") 1 ==`, the
+    /// comparison after the call's two strings].
+    vanilla_x: bool,
     /// Parsing a function's arguments (not inside brackets of one): a signed number after
     /// a space starts the next argument ([`lex::XTok::sign`]).
     in_args: bool,
@@ -211,6 +218,7 @@ impl<'a> Gen<'a> {
             extended: false,
             text: String::new(),
             co: false,
+            vanilla_x: false,
             in_args: false,
             in_arg_any: false,
             in_paren: false,
@@ -987,7 +995,10 @@ impl<'a> Gen<'a> {
                 _ => None,
             };
             if let Some(m) = mapped {
-                return self.statement_inner(&m);
+                let was = std::mem::replace(&mut self.vanilla_x, !self.co);
+                self.statement_inner(&m);
+                self.vanilla_x = was;
+                return;
             }
         }
         self.statement_inner(kw)
