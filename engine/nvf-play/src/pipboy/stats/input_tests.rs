@@ -129,6 +129,8 @@ fn cnd_pad_x_cycles_all_limbs_and_wraps_to_the_body() {
 
 #[test]
 fn cnd_draws_three_hints_in_the_existing_slots() {
+    // The page lays out in the Pip-Boy screen's own units, as `prepare` draws it (#1631).
+    let _canvas = crate::interface::original_units();
     let mut world = World::new();
     world.run_system_once(|mut commands: Commands| {
         let mut kit = Kit::default();
@@ -143,9 +145,13 @@ fn cnd_draws_three_hints_in_the_existing_slots() {
     hints.sort_by_key(|(i, _)| *i);
     assert_eq!(hints.len(), 3);
     let top = |i| hints.iter().find(|(hint, _)| *hint == i).unwrap().1;
-    let (Val::Px(first), Val::Px(middle), Val::Px(last)) = (top(0), top(SWITCH_LIMBS), top(1)) else { panic!("hint positions must be pixels") };
+    // Spots are placed in interface units (`crate::interface::at`, a part of the view's
+    // height), not pixels.
+    let (Val::Vh(first), Val::Vh(middle), Val::Vh(last)) = (top(0), top(SWITCH_LIMBS), top(1)) else { panic!("hint positions must be interface units") };
+    // The first hint sits in the page's first hint slot, the others one slot below each.
+    assert_eq!(Val::Vh(first), crate::interface::u(STATUS.min.y + HINT_Y));
     assert!(first < middle && middle < last);
-    assert_eq!(middle - first, last - middle);
+    assert!((middle - first - (last - middle)).abs() < 1e-4, "{first} {middle} {last}");
     for (labels, expected) in [(crate::pad::Labels::Keys, ["S)", "X)", "E)"]), (crate::pad::Labels::Xbox, ["A)", "X)", "Y)"]), (crate::pad::Labels::PlayStation, ["Cross)", "Square)", "Triangle)"])] {
         crate::pad::set_labels(labels);
         assert_eq!([hint_key(&StatsView::default(), 0), hint_key(&StatsView::default(), SWITCH_LIMBS), hint_key(&StatsView::default(), 1)], expected);
