@@ -877,6 +877,8 @@ fn main() -> AppExit {
     }
     let mut args = Args::parse_from(&line);
     let _ = COMMAND_LINE.set(line);
+    // Taking over a load: tell the old run at once that this run takes part (#1903).
+    let handoff_marked = args.handoff.as_deref().map(handoff::mark_started);
     // On a processor with L3 domains of different sizes, the game's threads on the largest
     // (cpu_placement.rs): before any thread pool or other thread starts, so all of them
     // start there. Logged once the log is up.
@@ -1791,6 +1793,10 @@ fn main() -> AppExit {
             app.insert_resource(handoff::LoadFailed(why)).add_systems(Update, handoff::tell_load_failed);
         }
         if let Some(file) = args.handoff.clone() {
+            match &handoff_marked {
+                Some(Err(e)) => warn!("handoff: started as the new run, but cannot tell the old run so ({}: {e}); it ends after {} s", handoff::started_marker(&file).display(), handoff::JOIN_WAIT_SECS),
+                _ => info!("handoff: started as the new run (ready file {})", file.display()),
+            }
             app.insert_resource(handoff::Hidden::new(file, args.window_maximized));
         }
         nvf_play::save::add_save_hook(&mut app, sky::SAVE_HOOK);
