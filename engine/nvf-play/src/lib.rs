@@ -123,6 +123,7 @@ pub use test_aid::{drives_run, MEASURING_AIDS};
 pub mod sfx;
 pub mod start_read;
 pub mod sneak_gauges;
+pub mod sound_grid;
 pub mod ui_colour;
 pub mod language;
 pub mod ui_sounds;
