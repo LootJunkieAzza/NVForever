@@ -420,6 +420,7 @@ pub fn draw(
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
+    glyphs: Res<crate::pad::PadGlyphs>,
     combat: Option<Res<crate::combat::Combat>>,
     play: Option<Res<crate::PlayWorld>>,
     mut forms: Local<Option<super::stats::read::Forms>>,
@@ -439,13 +440,13 @@ pub fn draw(
     if let Some(s) = modding.0.as_ref() {
         let chosen = s.selected.checked_sub(1).and_then(|i| s.offer.choices.get(i));
         let desc = chosen.zip(forms.as_mut()).map(|(ch, f)| f.text(ch.item.0).description.clone());
-        let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref());
+        let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref(), &glyphs);
         commands.entity(body).despawn_children().with_children(|p| super::item_mod::draw_list(p, &mut c, s, combat.as_deref(), desc.as_deref()));
         return;
     }
     // The repair list in place of the page's body (`super::repair`).
     if let Some(s) = repair.0.as_ref() {
-        let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref());
+        let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref(), &glyphs);
         commands.entity(body).despawn_children().with_children(|p| super::repair::draw_list(p, &mut c, s, combat.as_deref()));
         return;
     }
@@ -467,7 +468,7 @@ pub fn draw(
     let dt = combat.as_deref().map(|c| crate::combat::target_armor(c, script.as_deref_mut(), sim, FormId::PLAYER_REF).0);
     let (hp, dt) = (hp_text(hp), dt.map_or_else(|| "--".to_string(), |v| format!("{v:.1}")));
     let offer = super::repair::current(&active, sim, script.as_deref());
-    let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref());
+    let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref(), &glyphs);
     // The rows' heights and the first row drawn: the selection is always drawn, rows of
     // two lines taking more room (owner's playtest list 7 item 15).
     let heights = row_heights(&mut c, m);

@@ -326,6 +326,7 @@ pub fn draw(
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
+    glyphs: Res<crate::pad::PadGlyphs>,
 ) {
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
@@ -346,7 +347,7 @@ pub fn draw(
         fx.announced = false;
         return;
     }
-    let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref());
+    let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref(), &glyphs);
     fx.bake(c.data, &mut *c.images);
     let (rgb, kept) = (pipboy_rgb(), fx.kept);
     fx.rgb = rgb;

@@ -329,6 +329,7 @@ pub struct Drawing<'w> {
     data: Option<Res<'w, GameData>>,
     images: ResMut<'w, Assets<Image>>,
     formats: Option<Res<'w, CompressedImageFormatSupport>>,
+    glyphs: Res<'w, crate::pad::PadGlyphs>,
 }
 
 #[derive(SystemParam)]
@@ -543,7 +544,7 @@ pub fn draw(
     if !new && !view.is_changed() && last.as_ref() == Some(snap) {
         return;
     }
-    let mut c = Ctx::new(&mut d.kit, d.data.as_deref(), &mut d.images, d.formats.as_deref());
+    let mut c = Ctx::new(&mut d.kit, d.data.as_deref(), &mut d.images, d.formats.as_deref(), &d.glyphs);
     let v = view.bypass_change_detection();
     v.drawn_at = screen.as_ref().and_then(|s| s.pointer);
     commands.entity(body).despawn_children().with_children(|p| {
