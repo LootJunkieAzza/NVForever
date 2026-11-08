@@ -293,6 +293,48 @@ pub struct VoiceOption {
     pub race: String,
 }
 
+/// The name the Preset row shows for a race's starting face: the records have none
+/// (FULL is `raceCaucasianF06` and the like [observed: FalloutNV.esm CGPreset NPC_]),
+/// so NVForever names them itself [owner 2026-11-07: "give them all names"], by the race
+/// and sex and the face's place in the race's list. A list that runs out numbers its names.
+pub fn face_name(race_edid: &str, female: bool, i: usize) -> String {
+    const NAMES: [(&str, [&str; 10], [&str; 10]); 4] = [
+        (
+            "caucasian",
+            ["Walter", "Harold", "Eugene", "Frank", "Clyde", "Russell", "Lloyd", "Vernon", "Earl", "Douglas"],
+            ["Dorothy", "Betty", "Margaret", "Evelyn", "Lorraine", "Shirley", "Peggy", "Ruth", "Doris", "Marjorie"],
+        ),
+        (
+            "africanamerican",
+            ["Marcus", "Isaiah", "Clarence", "Otis", "Solomon", "Roscoe", "Thaddeus", "Cornelius", "Jerome", "Wendell"],
+            ["Hattie", "Josephine", "Loretta", "Odessa", "Mae", "Coretta", "Beatrice", "Ida", "Ernestine", "Lucille"],
+        ),
+        (
+            "asian",
+            ["Kenji", "Haruto", "Wei", "Jun", "Minh", "Tak", "Kazuo", "Sung", "Ming", "Hideo"],
+            ["Mei", "Yuki", "Lan", "Akiko", "Hana", "Mai", "Sumi", "Kyoko", "Lin", "Noriko"],
+        ),
+        (
+            "hispanic",
+            ["Mateo", "Rafael", "Diego", "Ernesto", "Joaquin", "Alejandro", "Ramon", "Luis", "Arturo", "Esteban"],
+            ["Rosa", "Elena", "Lucia", "Marisol", "Carmen", "Inez", "Pilar", "Graciela", "Beatriz", "Paloma"],
+        ),
+    ];
+    const OTHER: ([&str; 10], [&str; 10]) = (
+        ["Gus", "Mort", "Abe", "Cy", "Hank", "Rudy", "Sal", "Wes", "Ike", "Lou"],
+        ["Edna", "Mabel", "Opal", "Pearl", "Vera", "Hazel", "Myrtle", "Agnes", "Iris", "Fern"],
+    );
+    let e = race_edid.to_ascii_lowercase();
+    // A ghoul race takes the general list.
+    let (m, f) = NAMES
+        .iter()
+        .find(|(k, ..)| e.contains(k) && !e.contains("ghoul"))
+        .map_or((&OTHER.0, &OTHER.1), |(_, m, f)| (m, f));
+    let list = if female { f } else { m };
+    let name = list[i % list.len()];
+    if i < list.len() { name.to_string() } else { format!("{name} {}", i / list.len() + 1) }
+}
+
 fn tab_index(t: Tab) -> usize {
     TABS.iter().position(|&x| x == t).unwrap_or(0)
 }
@@ -898,7 +940,7 @@ impl Model {
                 let list = self.preset_list(&self.data);
                 let value = match self.preset.checked_sub(1).and_then(|i| list.get(i).map(|p| (i, p))) {
                     None => "Your own".to_string(),
-                    Some((i, _)) if i < race_faces => format!("Face {}", i + 1),
+                    Some((i, _)) if i < race_faces => face_name(race.map_or("", |r| r.edid.as_str()), self.look.female, i),
                     Some((_, p)) => p.name.clone().unwrap_or_default(),
                 };
                 choice("Preset", value, self.preset, list.len())
@@ -1219,7 +1261,7 @@ mod tests {
         assert!(m.adjust_row(Row::Preset, 1, false));
         assert_eq!(m.look.facegen.fggs[3], 2.0);
         assert_eq!((m.look.hair, m.look.eyes), (Some(FormId(11)), Some(FormId(31))));
-        assert_eq!(m.view(Row::Preset), RowView::Choice { label: "Preset".into(), value: "Face 1".into(), at: 1, of: 2 });
+        assert_eq!(m.view(Row::Preset), RowView::Choice { label: "Preset".into(), value: "Walter".into(), at: 1, of: 2 });
         // Back to "Your own": the face the menu opened with.
         m.adjust_row(Row::Preset, -1, false);
         assert_eq!(m.look.facegen.fggs[3], 0.0);
