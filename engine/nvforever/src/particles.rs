@@ -1159,7 +1159,9 @@ pub struct FrameViews {
 
 impl FrameViews {
     pub fn new(views: Vec<(Frustum, RenderLayers)>) -> FrameViews {
-        let unset = |f: &Frustum| f.half_spaces[..4].iter().any(|h| !(h.normal().length_squared() > 0.25));
+        // A side plane whose normal is not clearly unit length (zero, tiny or NaN) means the
+        // frustum was never set: NaN compares as None, so it counts as unset too.
+        let unset = |f: &Frustum| f.half_spaces[..4].iter().any(|h| h.normal().length_squared().partial_cmp(&0.25) != Some(std::cmp::Ordering::Greater));
         let unsure = views.is_empty() || views.iter().any(|(f, _)| unset(f));
         FrameViews { views, unsure, layer0: RenderLayers::default() }
     }
