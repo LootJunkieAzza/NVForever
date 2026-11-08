@@ -379,6 +379,13 @@ run again]
 | Primm, noon | 3.52 | 2.72 | 2.52 (−7%) | 2.18 | 2.08 (−5%) |
 | The Strip, 21:00 | 1.93 | 2.13 | 2.01 (−5%) | 1.84 | 1.72 (−6%) |
 
+With the sun's shadows on, as in play (`--sun-shadows`; the views above have none), the same
+0.1-0.15 ms is a smaller share: Quality 3.16 → 3.12 ms at Goodsprings, 3.15 → 3.06 at Novac,
+2.96 → 2.86 at Primm, 2.25 → 2.12 on the Strip; Performance 2.65 → 2.51, 2.77 → 2.63, 2.56
+→ 2.44, 1.96 → 1.83 (FSR off: 4.27, 3.56, 3.77, 2.09). On this machine none of it reaches
+the frame rate: frames stay at the 160 Hz the presents are held to, and at Goodsprings with
+FSR off something other than the GPU sets the frame (9.5 ms against 4.27 of GPU time).
+
 Most of it is the ambient occlusion: 0.14-0.18 ms after FSR at the display size, 0.08-0.09
 at Quality's render size and 0.05 at Performance's. FP16 makes AMD's upscale 0.02-0.03 ms
 cheaper (0.51-0.52 → 0.49-0.50 ms at Quality, 0.44-0.45 → 0.42-0.43 at Performance); on this
