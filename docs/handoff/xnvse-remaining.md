@@ -153,6 +153,11 @@ temporary ingestible effects, available perks, hotkey slots, the owner's trespas
 visited and expired cells, lighting template cells, the moon phase, radios, talking
 activator actors, prompt overrides, primitives, effect shaders, armed mines, CallPerRef and
 CallPerMobileObject; probe set jg6 written, not run yet). JohnnyGuitar 184 → 147.
+JohnnyGuitar batch 7: 38 (#1007, ext-jg7.md: the combat music, level-up menu, menu arrow key,
+yield timer, viewmodel clip, NiLOD and save switches, UI update sounds, reputation and map
+marker icons, barter hiding, the queued cinematic and objective texts, TogglePipBoy, the
+engine requests, HSVtoRGB and RGBtoHSV into script variables, GetJohnnyPatch,
+GetDefaultHeapSize, IsMenuPaused; probe set jg7 written, not run yet). JohnnyGuitar 147 → 109.
 ShowOff batch 5: the last 37 (#1010, ext-showoff.md §8: the level-up and pause menus on request, live
 explosions, the shot switches, fast travel, detection and combat counts, VATS and item values, the
 player's small states; from the pages, not probed). Census after it, beside batch 4: 565 (ShowOff 71 → 34;
