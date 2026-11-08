@@ -1038,8 +1038,10 @@ pub fn menu_buttons(at: MenuAt) -> &'static [(GamepadButton, KeyCode)] {
         menus::STATS if at.tab == 0 => &[(South, KeyS), (North, KeyE), (West, KeyX), (LeftTrigger2, F3), (RightTrigger2, F2)],
         menus::STATS if at.tab == 4 => &[(West, KeyR), (LeftTrigger2, F3), (RightTrigger2, F2)],
         menus::STATS => &[(LeftTrigger2, F3), (RightTrigger2, F2)],
-        // map_menu.xml: the Challenges toggle Y (R on the Notes tab).
-        menus::MAP => &[(North, KeyR), (LeftTrigger2, F2), (RightTrigger2, F1)],
+        // map_menu.xml: the Challenges toggle Y (R on the Notes tab); each page's X button
+        // (Place Marker, Show Location, the notes' filter; `fnv_ui::strings` names them as
+        // the file's X button titles) presses X, the DATA page's key for it [design, #1897].
+        menus::MAP => &[(North, KeyR), (West, KeyX), (LeftTrigger2, F2), (RightTrigger2, F1)],
         // recipe_menu.xml: Accept X.
         fnv_game::crafting::RECIPE_MENU => &[(West, KeyA)],
         // repair_services_menu.xml: Repair All X.
@@ -1393,6 +1395,8 @@ mod tests {
             (caravan(CARAVAN_PLAY), &[KeyR], "R", "B"),
             (HELP_AT, &[KeyE, Escape], "E", "B"),
             (MenuAt { code: Some(menus::MAP), tab: 3 }, &[KeyR], "R", "Y"),
+            (at_menu(menus::MAP), &[KeyX], "X", "X"),
+            (at_menu(menus::MAP), &[Enter], "Enter", "A"),
             (at_menu(menus::INVENTORY), &[KeyX], "X", "LB"),
             (at_menu(menus::INVENTORY), &[KeyR], "R", "Y"),
             (at_menu(menus::INVENTORY), &[KeyE, Escape], "E", "B"),

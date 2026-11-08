@@ -194,7 +194,10 @@ being modded (Inventory Reference)"]. NVForever counts it among the Pip-Boy's co
   name, with the count in brackets when more than one is carried. Under each mod's name
   its effect in words ("Ammunition capacity + 4", "Weight - 1.5", "Rate of fire + 20%",
   "Silenced": `item_mod::effect_text`) [design: the owner's picture of a modded menu,
-  2026-10-27]. Under "Exit E)" on a mod: "Attach Enter)" or "Remove Enter)", clickable.
+  2026-10-27]. Under "Exit E)" the Mod button's hint "Mod Enter)" (with a controller
+  "Exit B)" and "Mod A)"; `sExit`, `sInventoryMod`, else "Exit", "Mod"), dim on the
+  weapon's own row and clickable on a mod (#1896; until 2026-11-08 "Attach Enter)" or
+  "Remove Enter)" on a mod only).
 - On the weapon's row: its picture and the top cards (its condition, and DAM). On a mod's
   row: the mod's picture and description, the top cards for the weapon as it is (CND and
   the figure the effect changes: DAM, Clip, Spread, WG, CND max, Rate, Zoom, Beams), the

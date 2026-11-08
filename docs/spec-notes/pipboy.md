@@ -261,6 +261,18 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
   masters define none of them [observed: FalloutNV.esm and the add-ons], so an English
   install shows NVForever's own words; a plugin that defines one is drawn with its
   text (`pipboy::labels`) [design].
+- **The hints' words** (#1896, #1897). The ITEMS and DATA hints and the mod menu's read
+  their settings the same way: `sInventoryRepair`, `sMaintainItem`, `sInventoryMod`,
+  `sExit`, `sPlaceMarker`, `sShowLocation`, `sShowActiveNotes`, `sShowAllNotes` with the
+  pages' own words beside them ("Repair", "Maintain", "Mod", "Exit", "Place Marker",
+  "Show Location", "Show Active Quest Notes", "Show All Notes"); `sInventoryEquip`,
+  `sInventoryDrop`, `sInventoryHotKey`, `sTravel`, `sMakeActiveQuest`, `sTune`, for
+  which the pages had no word, with NVForever's labels in the game strings table
+  (`fnv_ui::strings`: "Equip", "Drop", "Hotkey", "Travel", "Set Active", "Tune In";
+  `labels::built_in_label`) [documented: the setting names and the menus that use them,
+  as that table cites them; design: the words]. "Use" (aid, books), "Unequip" (what is
+  worn), "Challenges" and "Notes" have no setting named and stay NVForever's own words
+  [design].
 
 ## 5. The pages
 
@@ -336,6 +348,22 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
       click drops (§6) [design: owner 2026-11-02, #1393].
     - The repair hint ("Repair R)" / "Maintain R)") is built (repair.md §5), and the
       repair list takes the pointer (repair.md §5).
+  - **Every tab's hints** (2026-11-08, #1896; `items.rs::page_hints`): one under the other,
+    47 apart from the Repair hint's place, right-aligned 10 short of 855: the repair
+    action ("Repair R)", "Maintain R)" at full condition; "Repair R)" dim on what
+    nothing repairs: aid, misc, ammo), on Weapons "Mod X)" (dim on a weapon without mod
+    slots), then the equip action ("Equip Enter)", "Unequip Enter)" on what is worn,
+    "Use Enter)" on aid and books), "Drop Right Mouse)" and "Hotkey 1-8)". With a
+    controller the keys are its buttons: Y, LB, A, X; the hotkey keeps "1-8)", no button
+    assigns hotkeys yet [design]. Dim also: equip and hotkey on misc and ammo (Enter does
+    nothing there; the kinds a hotkey can hold, weapon-wheel.md), drop on a quest item or
+    a folder row, every hint on an empty tab [design]. [documented: the Repair and Mod
+    places, `IM_DropButton`'s X; observed: the issue's report of the original's sets per
+    tab, the order there not followed; design: the order Repair, Mod, Equip, Drop, Hotkey
+    and the places after Mod, which our notes of `inventory_menu.xml` do not give.] The
+    hotkey panel still hides them all. Log: one `pipboy hints: items <tab>: <hint>, …`
+    line, "(dim)" after a dim hint, whenever the set changes; the item's own `pipboy
+    items: <name> Repair R)` and `… Mod X)` lines stay.
   - The mod menu (`item_mod.rs`): weapon-mods.md §5.
   - The flat image (no model's screen) shows only once the Pip-Boy is all the way up:
     before, it flashed for a frame or more on every Tab while the body took the screen
@@ -693,10 +721,31 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
   shown [hypothesis: the marker's look].
 - **Buttons at the right** [documented: map_menu.xml, text_box.xml]: right-aligned at
   855, from 75 down, each its font-2 text with 20 across and 15 up and down, the text 10
-  under the middle of the spare height, a PC key's label 5 after the box. Their words are
-  game settings the masters do not hold (§1): "Place Marker", "Show Location", "Show
-  Active Quest Notes", "Challenges" with "R)" [observed]; "Show All Notes" [hypothesis:
-  the setting `sShowAllNotes`]. The hover box is not drawn.
+  under the middle of the spare height. The file puts a PC key's label 5 after the box;
+  here the key is part of the text, inside the box, so a hint ends at the menus' right
+  edge (before 2026-11-08 "Challenges" with its key after the box ran off the 1280 × 720
+  screen, #1897) [design]. Their words are game settings the masters do not hold (§1):
+  "Place Marker", "Show Location", "Show Active Quest Notes", "Challenges" with "R)"
+  [observed]; "Show All Notes" [hypothesis: the setting `sShowAllNotes`]. The hover box
+  is not drawn.
+  - **Each tab's hints** (2026-11-08, #1897; `data.rs::tab_buttons`), each the A or X
+    button's title of that page [documented: `fnv_ui::strings` names `sTravel`,
+    `sMakeActiveQuest`, `sTune` as the file's A button titles and `sPlaceMarker`,
+    `sShowLocation`, `sShowActiveNotes`, `sShowAllNotes` as its X button titles]:
+    Local Map "Place Marker X)"; World Map "Travel Enter)" and "Place Marker X)"; Quests
+    "Set Active Enter)" and "Show Location X)"; Misc "Show Active Quest Notes X)" (or
+    "Show All Notes X)") and "Challenges R)" ("Notes R)" while the challenges show);
+    Radio "Tune In Enter)". With a controller A, X and Y. Dim [design]: Place Marker
+    always (not built), Travel with no marker under the highlight box, the make-active
+    hint on a quest done or with none selected, Show Location with no quests, the notes'
+    filter with no notes (it is now shown then too), Tune with no station. A click on a
+    hint does what its key does.
+  - **Keys** [design, #1897]: X is each page's X button (Place Marker, which logs that it
+    is not built; Show Location; the notes' filter), on the controller X
+    (`crate::pad::menu_buttons`' map entry). Enter on the World Map asks to travel to the
+    marker under the highlight box, as the controller's A and a click do; A presses Enter
+    too, and the two ask once. Log: one `pipboy hints: data <tab>: <hint>, …` line,
+    "(dim)" after a dim hint, whenever the set changes.
 - **Quests**: the quests with a name and an objective shown or done (quest-messages.md §5);
   running quests before those done (completed or failed), each part newest first, quests
   first seen together by FormID from the highest [hypothesis: fits the screenshot's
@@ -833,7 +882,8 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     `docs/owner-review.md`].
   - A click on a marker (the button pressed and let go without the pointer moving
     more than 6 units [design]) asks whether to travel there: fast travel,
-    `fast-travel.md`.
+    `fast-travel.md`. Enter, Space or the Travel hint ask for the marker under the
+    highlight box too (#1897) [design].
 - **Local Map**: the same window, markers, arrow, quest markers (kept inside the window
   [documented]) and highlight box, on an empty map at 28 game units to a unit [observed:
   fitted, the gas station's door and the saloon's door 168 px apart on the screenshot; the

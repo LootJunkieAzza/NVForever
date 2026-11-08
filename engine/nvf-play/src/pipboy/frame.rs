@@ -43,6 +43,36 @@ const CARD_VALUE_IN: f32 = 10.0;
 /// [documented: `text_box.xml` `button_text` y; the original's "Maintain R)" sits there
 /// on the owner's ITEMS screenshot].
 pub const BUTTON_TEXT_Y: f32 = 15.0 / 2.0 + 10.0;
+
+/// One button hint of a page: its words, the key's part after them ("R)", with a
+/// controller "Y)"), and whether it is drawn dim (it does nothing now) (#1896, #1897).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Hint {
+    pub word: &'static str,
+    pub key: String,
+    pub dim: bool,
+}
+
+impl Hint {
+    pub fn new(word: &'static str, key: String, dim: bool) -> Hint {
+        Hint { word, key, dim }
+    }
+
+    /// As drawn: "Repair R)".
+    pub fn text(&self) -> String {
+        format!("{} {}", self.word, self.key)
+    }
+
+    /// The colour it is drawn in: bright, or dimmed.
+    pub fn color(&self) -> Color {
+        amber(if self.dim { DIMMED } else { TEXT })
+    }
+}
+
+/// A page's hints for the log, in drawing order: "Repair R) (dim), Equip Enter)".
+pub fn hints_line<'a>(hints: impl IntoIterator<Item = &'a Hint>) -> String {
+    hints.into_iter().map(|h| if h.dim { format!("{} (dim)", h.text()) } else { h.text() }).collect::<Vec<_>>().join(", ")
+}
 /// The tab line: 650 down, as wide as the menus; a tab is its text and 35 across, 15 up
 /// and down; the lines between the tabs are as long as each other [hypothesis: the files
 /// leave their length to code; it fills the line evenly, as on the owner's screenshots].

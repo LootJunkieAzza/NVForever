@@ -48,7 +48,7 @@ mod outline;
 pub(crate) mod read;
 pub mod travel;
 
-use super::frame::{Align, Ctx, Kit, FADE, FILL, LINE, MAIN, TEXT, THICK};
+use super::frame::{Align, Ctx, Hint, Kit, FADE, FILL, LINE, MAIN, TEXT, THICK};
 use super::{Page, PageBody, PipBoy, PipBoyAid, PipBoyInput, PipBoyScreen};
 use crate::interface::{pipboy_amber as amber, at, u};
 use crate::menu::model::Command;
@@ -123,13 +123,13 @@ const MARK_AT: Vec2 = Vec2::new(15.0, 20.0);
 const MARK: f32 = 25.0;
 const WRAP: f32 = 310.0;
 /// The buttons at the right: right-aligned at 855, from 75 down, each its text with 20
-/// across and 15 up and down; the text 10 under the middle of the box's spare height;
-/// a PC key's label 5 after the box.
+/// across and 15 up and down; the text 10 under the middle of the box's spare height
+/// [documented]. The file puts a PC key's label 5 after the box; here the key is part of
+/// the text, inside the box ([`button_boxes`], #1897) [design].
 const BUTTONS: Vec2 = Vec2::new(855.0, 75.0);
 const BUTTON_HORBUF: f32 = 20.0;
 const BUTTON_VERBUF: f32 = 15.0;
 const BUTTON_TEXT_DROP: f32 = 10.0;
-const KEY_GAP: f32 = 5.0;
 /// The item data at the right: 400 wide at the menus' right edge, under the buttons'
 /// place (75 + 120) less a button's height; a note's text 17 left of it and 20 down,
 /// 400 × 385, in font 1, scrolled 20 a step; an image note's picture 360 square at its
@@ -258,6 +258,11 @@ enum ButtonKind {
     ShowLocation,
     NotesFilter,
     Challenges,
+    /// The A button's actions (Enter): travel to the marker under the highlight box, make
+    /// the selected quest the active one, tune to the selected station (#1897).
+    Travel,
+    MakeActive,
+    Tune,
 }
 
 /// A place name's cell: worldspace, interior, grid square.
@@ -373,8 +378,7 @@ enum Right {
 
 #[derive(Debug, Clone, PartialEq)]
 struct Button {
-    text: String,
-    key: Option<String>,
+    hint: Hint,
     kind: ButtonKind,
 }
 
@@ -537,6 +541,9 @@ pub fn draw(
         advance_outline(st, &mut game, &mut tools.images);
     }
     let view = build(st, tab, &lists, &game, pointer);
+    if st.shown.as_ref().is_none_or(|s| s.tab != view.tab || s.buttons != view.buttons) {
+        info!("pipboy hints: data {}: {}", TAB_NAMES[view.tab.min(RADIO)], super::frame::hints_line(view.buttons.iter().map(|b| &b.hint)));
+    }
     if added.get(body).is_err() && st.shown.as_ref() == Some(&view) {
         return;
     }
@@ -816,6 +823,15 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
     if tab == NOTES && input.keys.just_pressed(KeyR) {
         st.acts.push(Act::Button(ButtonKind::Challenges));
     }
+    // X (with a controller X, `crate::pad::menu_buttons`) is the tab's X button (#1897).
+    if input.keys.just_pressed(KeyX) {
+        match tab {
+            LOCAL | WORLD => st.acts.push(Act::Button(ButtonKind::PlaceMarker)),
+            QUESTS if !l.quests.is_empty() => st.acts.push(Act::Button(ButtonKind::ShowLocation)),
+            NOTES if l.challenges.is_none() => st.acts.push(Act::Button(ButtonKind::NotesFilter)),
+            _ => {}
+        }
+    }
     if tab == NOTES {
         if input.keys.just_pressed(PageDown) {
             st.text_first += TEXT_H;
@@ -873,11 +889,16 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
                 st.sel[tab] = i;
                 use_row(st, tab, i, l, game);
             }
+            // The A button's hints do what Enter does on the tab.
+            Act::Button(ButtonKind::Travel | ButtonKind::MakeActive | ButtonKind::Tune) => use_it = true,
             Act::Button(k) => button(st, k, input),
             _ => {}
         }
     }
     st.text_first = st.text_first.clamp(0.0, st.text_max.max(0.0));
+    // On the World Map Enter (or Space, or the Travel hint's click) asks to travel to the
+    // marker under the highlight box, as the controller's A does (#1897).
+    let travel = tab == WORLD && (use_it || crate::pad::menu_button(&input.pads, input.bindings.as_deref(), GamepadButton::South));
     if use_it && len > 0 {
         use_row(st, tab, st.sel[tab].min(len - 1), l, game);
     }
@@ -904,8 +925,9 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
         st.press = None;
     }
     // The controller's A (the confirm button) on a highlighted marker asks to travel
-    // there, as a click does [observed: the original; docs/design/controller.md §3].
-    if tab == WORLD && crate::pad::menu_button(&input.pads, input.bindings.as_deref(), GamepadButton::South) {
+    // there, as a click does [observed: the original; docs/design/controller.md §3]. A
+    // also presses Enter (`crate::pad`), so the two ask once.
+    if travel {
         if let Some(m) = st.cursor_marker {
             input.ask.write(FastTravelAsk(m));
         }
@@ -1052,6 +1074,8 @@ fn button(st: &mut DataState, k: ButtonKind, input: &mut Input) {
             info!("pipboy data: {} shown", if st.challenges { "challenges" } else { "notes" });
         }
         ButtonKind::PlaceMarker => info!("pipboy data: {k:?} is not built"),
+        // Taken as Enter in `take_input`.
+        ButtonKind::Travel | ButtonKind::MakeActive | ButtonKind::Tune => {}
     }
 }
 
@@ -1075,16 +1099,9 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
     let pointer = pointer.filter(|_| st.popup.is_none());
     let place = place(st, game);
     let when = game.sim.as_ref().and_then(|s| s.world.calendar().ok()).map(|c| model::date_time(&c)).unwrap_or_default();
-    let mut buttons = Vec::new();
     let body = match tab {
-        LOCAL | WORLD => {
-            buttons.push(Button { text: super::labels::label("sPlaceMarker", "Place Marker").into(), key: None, kind: ButtonKind::PlaceMarker });
-            Body::Map(if tab == WORLD { world_map(st, game, pointer) } else { local_map(st, game, pointer) })
-        }
+        LOCAL | WORLD => Body::Map(if tab == WORLD { world_map(st, game, pointer) } else { local_map(st, game, pointer) }),
         QUESTS => {
-            if !l.quests.is_empty() {
-                buttons.push(Button { text: super::labels::label("sShowLocation", "Show Location").into(), key: None, kind: ButtonKind::ShowLocation });
-            }
             let rows = l
                 .quests
                 .iter()
@@ -1094,9 +1111,6 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
             Body::List { rows, first: st.first[QUESTS], boxed: st.boxed.then_some(st.sel[QUESTS]), right }
         }
         NOTES if l.challenges.is_some() => {
-            // The challenges in place of the notes; R goes back [hypothesis: the button's
-            // word then].
-            buttons.push(Button { text: "Notes".into(), key: Some(challenges_hint()), kind: ButtonKind::Challenges });
             let list = l.challenges.as_deref().unwrap_or_default();
             let rows = list.iter().map(|c| Row { text: c.name.clone(), mark: Mark::None, done: c.completed }).collect();
             let right = list.get(st.sel[NOTES]).map_or(Right::None, |c| {
@@ -1106,11 +1120,6 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
             Body::List { rows, first: st.first[NOTES], boxed: st.boxed.then_some(st.sel[NOTES]), right }
         }
         NOTES => {
-            let text = if st.notes_of_active { "Show All Notes" } else { "Show Active Quest Notes" };
-            if !l.notes.is_empty() || st.notes_of_active {
-                buttons.push(Button { text: text.into(), key: None, kind: ButtonKind::NotesFilter });
-            }
-            buttons.push(Button { text: "Challenges".into(), key: Some(challenges_hint()), kind: ButtonKind::Challenges });
             let rows = l.notes.iter().map(|n| Row { text: n.name.clone(), mark: Mark::None, done: false }).collect();
             let right = match l.notes.get(st.sel[NOTES]) {
                 Some(n) if n.kind == 1 => Right::Text { text: n.text.clone().unwrap_or_default(), first: st.text_first },
@@ -1128,7 +1137,83 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
             Body::List { rows, first: st.first[RADIO], boxed: st.boxed.then_some(st.sel[RADIO]), right: Right::Wave { on: l.playing.is_some() } }
         }
     };
+    // The hints after the body: the World Map's marker under the highlight box is found
+    // while its map is gathered.
+    let facts = HintFacts {
+        marker: st.cursor_marker.is_some(),
+        quests: !l.quests.is_empty(),
+        quest_done: l.quests.get(st.sel[QUESTS]).map(|q| q.done),
+        notes: !l.notes.is_empty(),
+        notes_of_active: st.notes_of_active,
+        challenges: l.challenges.is_some(),
+        stations: !l.stations.is_empty(),
+    };
+    let buttons = tab_buttons(tab, &facts);
     View { tab, place, when, buttons, body, popup: st.popup.clone() }
+}
+
+/// What a tab's hints depend on ([`tab_buttons`]).
+#[derive(Debug, Default, Clone, Copy)]
+struct HintFacts {
+    /// The World Map's highlight box is on a marker.
+    marker: bool,
+    /// Quests are listed, and whether the selected one is done.
+    quests: bool,
+    quest_done: Option<bool>,
+    /// Notes are listed; "Show Active Quest Notes" is on; Misc shows the challenges.
+    notes: bool,
+    notes_of_active: bool,
+    challenges: bool,
+    /// The Pip-Boy receives a station here.
+    stations: bool,
+}
+
+/// The names of the tabs, for the log.
+const TAB_NAMES: [&str; 5] = ["local map", "world map", "quests", "misc", "radio"];
+
+/// The A button's key: Enter, with a controller A (the shared menu buttons,
+/// `crate::pad`).
+fn a_key() -> String {
+    crate::pad::hint(&[KeyCode::Enter], crate::pad::at_menu(fnv_game::game::menus::MAP))
+}
+
+/// The X button's key: X, with a controller X (`crate::pad::menu_buttons`' map entry,
+/// #1897).
+fn x_key() -> String {
+    crate::pad::hint(&[KeyCode::KeyX], crate::pad::at_menu(fnv_game::game::menus::MAP))
+}
+
+/// A tab's hints at the right, top to bottom (#1897): each the A or X button's title on
+/// that page in `map_menu.xml` [documented: the setting names `sTravel`,
+/// `sMakeActiveQuest`, `sTune` (A) and `sPlaceMarker`, `sShowLocation`,
+/// `sShowActiveNotes`, `sShowAllNotes` (X), `fnv_ui::strings`], and Misc's Challenges (R,
+/// with a controller Y). The words are the settings' texts, else the page's own words
+/// ("Place Marker", "Show Location", "Show Active Quest Notes", "Show All Notes",
+/// "Challenges", "Notes") or NVForever's labels for the settings it had none for
+/// (`fnv_ui::strings`). A hint that does nothing now is dim: Travel with no marker under
+/// the highlight box, Place Marker (not built), the make-active hint on a quest done or
+/// with none, Show Location and the notes' filter with nothing listed, Tune with no
+/// station [design].
+fn tab_buttons(tab: usize, f: &HintFacts) -> Vec<Button> {
+    use super::labels::{built_in_label, label};
+    let b = |word, key, dim, kind| Button { hint: Hint::new(word, key, dim), kind };
+    let place_marker = || b(label("sPlaceMarker", "Place Marker"), x_key(), true, ButtonKind::PlaceMarker);
+    match tab {
+        LOCAL => vec![place_marker()],
+        WORLD => vec![b(built_in_label("sTravel"), a_key(), !f.marker, ButtonKind::Travel), place_marker()],
+        QUESTS => vec![
+            b(built_in_label("sMakeActiveQuest"), a_key(), f.quest_done != Some(false), ButtonKind::MakeActive),
+            b(label("sShowLocation", "Show Location"), x_key(), !f.quests, ButtonKind::ShowLocation),
+        ],
+        // The challenges in place of the notes; R goes back [hypothesis: the button's word
+        // then].
+        NOTES if f.challenges => vec![b("Notes", challenges_hint(), false, ButtonKind::Challenges)],
+        NOTES => {
+            let filter = if f.notes_of_active { label("sShowAllNotes", "Show All Notes") } else { label("sShowActiveNotes", "Show Active Quest Notes") };
+            vec![b(filter, x_key(), !f.notes && !f.notes_of_active, ButtonKind::NotesFilter), b("Challenges", challenges_hint(), false, ButtonKind::Challenges)]
+        }
+        _ => vec![b(built_in_label("sTune"), a_key(), !f.stations, ButtonKind::Tune)],
+    }
 }
 
 fn quest_name(game: &Game, q: u32) -> String {
@@ -1687,20 +1772,28 @@ fn challenges_hint() -> String {
     crate::pad::hint(&[KeyCode::KeyR], crate::pad::at_menu(fnv_game::game::menus::MAP))
 }
 
+/// Where each button at the right goes (canvas): its box, one under the other, and its
+/// text's top. The key stands in the text, after the words, so the whole hint ends inside
+/// the box at the menus' right edge and never runs off the screen (#1897: "Challenges"
+/// with its key after the box ran past the 1280 x 720 screen's edge) [design].
+fn button_boxes(c: &Ctx, list: &[Button]) -> Vec<(Rect, f32)> {
+    let h = button_height(c);
+    let right = MAIN.min.x + BUTTONS.x;
+    list.iter()
+        .enumerate()
+        .map(|(k, b)| {
+            let w = crate::pad::hint_width(c.kit.face(2), &b.hint.text(), c.glyphs) + BUTTON_HORBUF;
+            let top = MAIN.min.y + BUTTONS.y + h * k as f32;
+            (Rect::new(right - w, top, right, top + h), top + (h - c.line_height(2)) / 2.0 + BUTTON_TEXT_DROP)
+        })
+        .collect()
+}
+
 /// The buttons at the right, one under the other.
 fn buttons(p: &mut ChildSpawnerCommands, c: &mut Ctx, list: &[Button]) {
-    let bright = amber(TEXT);
-    let h = button_height(c);
-    for (k, b) in list.iter().enumerate() {
-        let w = c.width(2, &b.text) + BUTTON_HORBUF;
-        let right = MAIN.min.x + BUTTONS.x;
-        let top = MAIN.min.y + BUTTONS.y + h * k as f32;
-        let text_top = top + (h - c.line_height(2)) / 2.0 + BUTTON_TEXT_DROP;
-        c.text(p, 2, &b.text, right - BUTTON_HORBUF / 2.0, text_top, Align::Right, bright);
-        if let Some(key) = &b.key {
-            c.text(p, 2, key, right + KEY_GAP, text_top, Align::Left, bright);
-        }
-        p.spawn((at(right - w, top, w, h), ButtonHit(b.kind), Pickable::default())).observe(on_button_click);
+    for (b, (r, text_top)) in list.iter().zip(button_boxes(c, list)) {
+        c.text(p, 2, &b.hint.text(), r.max.x - BUTTON_HORBUF / 2.0, text_top, Align::Right, b.hint.color());
+        p.spawn((at(r.min.x, r.min.y, r.width(), r.height()), ButtonHit(b.kind), Pickable::default())).observe(on_button_click);
     }
 }
 
@@ -2047,6 +2140,72 @@ mod tests {
         let shown = world_map(&mut st, &game, None);
         assert_eq!(shown.marks.len(), 2);
         assert_eq!(st.world_logged, Some((1, 2, 2, 1, 1)));
+    }
+
+    fn shown(tab: usize, f: &HintFacts) -> Vec<(String, bool)> {
+        tab_buttons(tab, f).iter().map(|b| (b.hint.text(), b.hint.dim)).collect()
+    }
+
+    fn hint(text: &str, dim: bool) -> (String, bool) {
+        (text.to_string(), dim)
+    }
+
+    /// Each tab's hints with their keys (#1897; keyboard keys, the tests' labels).
+    #[test]
+    fn each_tab_shows_its_hints_with_their_keys() {
+        let all = HintFacts { marker: true, quests: true, quest_done: Some(false), notes: true, stations: true, ..HintFacts::default() };
+        assert_eq!(shown(LOCAL, &all), [hint("Place Marker X)", true)]);
+        assert_eq!(shown(WORLD, &all), [hint("Travel Enter)", false), hint("Place Marker X)", true)]);
+        assert_eq!(shown(QUESTS, &all), [hint("Set Active Enter)", false), hint("Show Location X)", false)]);
+        assert_eq!(shown(NOTES, &all), [hint("Show Active Quest Notes X)", false), hint("Challenges R)", false)]);
+        assert_eq!(shown(NOTES, &HintFacts { notes_of_active: true, ..all }), [hint("Show All Notes X)", false), hint("Challenges R)", false)]);
+        assert_eq!(shown(NOTES, &HintFacts { challenges: true, ..all }), [hint("Notes R)", false)]);
+        assert_eq!(shown(RADIO, &all), [hint("Tune In Enter)", false)]);
+        // With a controller: A, X and Y.
+        crate::pad::set_labels(crate::pad::Labels::Xbox);
+        let keys: Vec<String> = [WORLD, NOTES].iter().flat_map(|&t| tab_buttons(t, &all)).map(|b| b.hint.key).collect();
+        crate::pad::set_labels(crate::pad::Labels::Keys);
+        assert_eq!(keys, ["A)", "X)", "X)", "Y)"]);
+    }
+
+    /// What does nothing now is dim (#1897): Travel without a marker under the highlight
+    /// box, the make-active hint on a quest done or with none selected, Show Location and
+    /// the notes' filter with nothing listed, Tune with no station.
+    #[test]
+    fn hints_that_do_nothing_are_dim() {
+        let none = HintFacts::default();
+        assert_eq!(shown(WORLD, &none)[0], hint("Travel Enter)", true));
+        assert_eq!(shown(WORLD, &HintFacts { marker: true, ..none })[0], hint("Travel Enter)", false));
+        assert!(shown(QUESTS, &none).iter().all(|h| h.1));
+        assert!(shown(QUESTS, &HintFacts { quests: true, quest_done: Some(true), ..none })[0].1);
+        assert_eq!(shown(NOTES, &none), [hint("Show Active Quest Notes X)", true), hint("Challenges R)", false)]);
+        assert!(shown(RADIO, &none)[0].1);
+    }
+
+    /// Misc's hints fit their place: each ends 10 short of the menus' right edge (inside
+    /// what the 1280 x 720 screen shows of the canvas, `super::super::SCREEN_CROP`) and
+    /// starts right of the list, with every set of labels, a PlayStation button's name
+    /// written out (the glyphs not loaded) too (#1897: "Challenges" ran off the screen).
+    #[test]
+    fn the_misc_hints_fit_their_width() {
+        let mut kit = Kit::default();
+        let mut images = Assets::<Image>::default();
+        let glyphs = crate::pad::PadGlyphs::default();
+        let c = Ctx::new(&mut kit, None, &mut images, None, &glyphs);
+        let facts = HintFacts { notes: true, ..HintFacts::default() };
+        for labels in [crate::pad::Labels::Keys, crate::pad::Labels::Xbox, crate::pad::Labels::PlayStation] {
+            crate::pad::set_labels(labels);
+            for f in [facts, HintFacts { notes_of_active: true, ..facts }] {
+                let list = tab_buttons(NOTES, &f);
+                for (b, (r, _)) in list.iter().zip(button_boxes(&c, &list)) {
+                    let text_right = r.max.x - BUTTON_HORBUF / 2.0;
+                    let text_left = text_right - crate::pad::hint_width(c.kit.face(2), &b.hint.text(), c.glyphs);
+                    assert!(r.max.x <= MAIN.max.x && text_right < super::super::SCREEN_CROP.x, "{labels:?} {:?} ends at {}", b.hint, r.max.x);
+                    assert!(text_left > MAIN.min.x + LIST.max.x, "{labels:?} {:?} starts at {text_left}", b.hint);
+                }
+            }
+        }
+        crate::pad::set_labels(crate::pad::Labels::Keys);
     }
 
     #[test]
