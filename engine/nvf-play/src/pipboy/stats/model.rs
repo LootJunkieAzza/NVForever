@@ -95,15 +95,21 @@ pub const DOCTORS_BAG: usize = 1;
 /// doctor is required"]; a Doctor's Bag when no limb is hurt. `hp` is current and whole,
 /// `limbs` each part's condition from 0 to 1 (as [`Snapshot::limbs`]).
 pub fn refusal(hint: usize, limb: Option<usize>, count: i32, hp: (f64, f64), limbs: &[f64; 6], hardcore: bool) -> Option<String> {
+    refusal_with(hint, limb, count, hp, limbs, hardcore, false)
+}
+
+/// [`refusal`], with the player's Aid at Full Health tweak: nothing hurt is no reason
+/// [design: docs/design/tweaks.md].
+pub fn refusal_with(hint: usize, limb: Option<usize>, count: i32, hp: (f64, f64), limbs: &[f64; 6], hardcore: bool, at_full: bool) -> Option<String> {
     const WHOLE: f64 = 1.0 - 1e-6;
     if count <= 0 {
         return Some("none carried".into());
     }
     match (hint, limb) {
         (STIMPAK, Some(_)) if hardcore => Some("a Stimpak mends no limb in Hardcore mode".into()),
-        (STIMPAK, Some(i)) if limbs.get(i).is_none_or(|&c| c >= WHOLE) => Some(format!("the {} is not hurt", LIMB_NAMES.get(i).unwrap_or(&"limb"))),
-        (STIMPAK, None) if hp.0 >= hp.1 - 1e-6 => Some("health is full".into()),
-        (DOCTORS_BAG, _) if limbs.iter().all(|&c| c >= WHOLE) => Some("no limb is hurt".into()),
+        (STIMPAK, Some(i)) if !at_full && limbs.get(i).is_none_or(|&c| c >= WHOLE) => Some(format!("the {} is not hurt", LIMB_NAMES.get(i).unwrap_or(&"limb"))),
+        (STIMPAK, None) if !at_full && hp.0 >= hp.1 - 1e-6 => Some("health is full".into()),
+        (DOCTORS_BAG, _) if !at_full && limbs.iter().all(|&c| c >= WHOLE) => Some("no limb is hurt".into()),
         (STIMPAK | DOCTORS_BAG, _) => None,
         _ => Some("not used from the STATS page".into()),
     }

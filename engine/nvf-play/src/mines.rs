@@ -227,7 +227,13 @@ pub(crate) fn tick(
             // Set 0, so no part chance is rolled].
             let mut by = None;
             for (a, d) in near {
-                let chance = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map_or(1.0, |rt| with_world(rt, &mut sim, |rt| rt.game.entry_point(a, fnv_game::perks::CALCULATE_MINE_EXPLODE_CHANCE, 1.0).0));
+                // The player's tweak: a teammate is spared when the player would be [design: docs/design/tweaks.md].
+                let chance = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map_or(1.0, |rt| {
+                    with_world(rt, &mut sim, |rt| {
+                        let who = if rt.game.tweaks.light_step_companions && rt.game.is_teammate(a) { FormId::PLAYER_REF } else { a };
+                        rt.game.entry_point(who, fnv_game::perks::CALCULATE_MINE_EXPLODE_CHANCE, 1.0).0
+                    })
+                });
                 if chance <= 0.0 {
                     if m.spared.insert((id, a)) {
                         info!("mines: {a} does not set off mine {id} at {d:.0} units (Calculate Mine Explode Chance {chance}: Light Step)");

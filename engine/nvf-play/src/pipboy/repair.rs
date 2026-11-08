@@ -328,6 +328,11 @@ pub fn keys(
                 if done {
                     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
                         rt.game.count_stat(fnv_game::misc_stats::ITEMS_REPAIRED, 1.0);
+                        // The player's tweak: a repair gives experience [design: docs/design/tweaks.md].
+                        let xp = rt.game.tweaks.repair_xp;
+                        if xp > 0.0 {
+                            fnv_game::experience::award(&mut rt.game, fnv_game::experience::Source::Repair, xp);
+                        }
                     }
                     info!("pipboy repair: {} {}% with {} {}% -> {}% (Repair {:.0})", o.name, fnv_combat::condition::percent(o.condition), part.name, fnv_combat::condition::percent(part.condition), fnv_combat::condition::percent(to), s.skill);
                     sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Picked });

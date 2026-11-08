@@ -262,7 +262,7 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
         let hardcore = g.hardcore();
         for hint in [model::STIMPAK, model::DOCTORS_BAG] {
             let hp = s.hp.unwrap_or((0.0, 0.0));
-            s.hints.lit[hint] = model::refusal(hint, None, s.hints.counts[hint], hp, &s.limbs, hardcore).is_none();
+            s.hints.lit[hint] = model::refusal_with(hint, None, s.hints.counts[hint], hp, &s.limbs, hardcore, g.tweaks.aid_at_full_health).is_none();
         }
         s.rad_resist = value(g, av::RAD_RESISTANCE).map(|v| v.0);
         s.rads = value(g, 54).map_or(0.0, |v| v.0.max(0.0));
@@ -343,10 +343,14 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
 /// modifier) [design: worn enchantments do not change the game's actor values yet
 /// (`fnv_game::functions::actor`, the temporary modifier); the page adds them so that
 /// it reads as the original's].
+/// The player's health (now, most), limb conditions, Hardcore, and the Aid at Full
+/// Health tweak.
+pub type Condition = ((f64, f64), [f64; 6], bool, bool);
+
 /// The player's health (current and whole, as the heading), limb conditions (0 to 1, as
 /// the CND bars) and whether Hardcore mode is on: what the CND page's hints are judged
 /// by; `None` without the scripts' game.
-pub fn condition(sim: &mut SimState, script: Option<&mut ScriptState>) -> Option<((f64, f64), [f64; 6], bool)> {
+pub fn condition(sim: &mut SimState, script: Option<&mut ScriptState>) -> Option<Condition> {
     let rt = script?.rt.as_mut()?;
     Some(crate::script::with_world(rt, sim, |rt| {
         let g = &mut rt.game;
@@ -358,7 +362,7 @@ pub fn condition(sim: &mut SimState, script: Option<&mut ScriptState>) -> Option
                 limbs[i] = (v / max).clamp(0.0, 1.0);
             }
         }
-        (hp, limbs, g.hardcore())
+        (hp, limbs, g.hardcore(), g.tweaks.aid_at_full_health)
     }))
 }
 

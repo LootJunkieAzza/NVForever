@@ -45,6 +45,8 @@ pub enum Source {
     Discovery,
     /// `RewardXP` (quests, challenges, dialogue result scripts).
     Script,
+    /// A Pip-Boy repair (the Repairs Give XP tweak, `crate::tweaks`).
+    Repair,
 }
 
 impl Source {
@@ -57,6 +59,7 @@ impl Source {
             Source::SpeechChallenge => "a speech challenge",
             Source::Discovery => "a place found",
             Source::Script => "a script",
+            Source::Repair => "a repair",
         }
     }
 }

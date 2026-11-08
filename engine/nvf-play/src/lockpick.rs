@@ -476,6 +476,12 @@ fn open(
         Opening::Refused(r) => {
             stats.refused += 1;
             let line = refusal_line(r);
+            // The player's tweak names the key a lock needs [design: docs/design/tweaks.md].
+            let key = matches!(r, Refusal::RequiresKey).then(|| rt.game.tweaks.lock_needs_key_name).unwrap_or(false).then(|| rt.game.world.peek(reference).and_then(|s| s.lock).and_then(|l| l.key)).flatten();
+            let line = match key.and_then(|k| sim.name(k)) {
+                Some(k) => format!("{}: {k}.", line.trim_end_matches('.')),
+                None => line,
+            };
             info!("lockpick: {reference} {name} refused (Lockpick {skill:.0}): on screen: {line:?}");
             // A top-left corner message (owner, list 5 item 45).
             if let Some(c) = corner.as_deref_mut() {

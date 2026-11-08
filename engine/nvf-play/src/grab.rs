@@ -399,6 +399,15 @@ fn grab(
     if let Some((c, by)) = start {
         let id = c.on.form_id();
         let name = name_of(&sim, script.as_deref(), id);
+        // The player's tweak: grabbing someone else's thing is stealing it [design: docs/design/tweaks.md].
+        if let (GripOn::Ref(_), Some(rt)) = (c.on, script.as_deref_mut().and_then(|s| s.rt.as_mut())) {
+            if rt.game.tweaks.grabbing_is_theft && crate::activate::owned_by_other(Some(&rt.game), &sim, id, &crate::activate::outcome::Action::Take { count: 1 }) {
+                if let Some(base) = sim.base_of(id) {
+                    let seen = crate::script::with_world(rt, &mut sim, |rt| rt.game.player_stole(Some(FormId(id)), None, base, 1));
+                    info!("grab: {name} is someone else's: stolen (tweak){}", if seen { ", seen" } else { "" });
+                }
+            }
+        }
         let mass = phys.world.grip_mass(c.on, c.at).unwrap_or(0.0);
         if mass > max_walk {
             info!("grab: {name} is too heavy to pick up ({mass:.1} kg, the limit {max_walk:.0})");

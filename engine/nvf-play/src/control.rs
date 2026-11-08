@@ -613,6 +613,9 @@ pub fn read_controls(
     if input.just_pressed(Control::ReadyItem) {
         if c.weapon_out {
             c.ready_held = Some(0.0);
+        } else if tweaks.as_ref().is_some_and(|t| t.ready_does_not_draw) {
+            // The player's tweak: Ready Item does not draw [design: docs/design/tweaks.md].
+            info!("Ready Item pressed: not drawn (tweak)");
         } else {
             c.weapon_out = true;
             info!("Ready Item pressed: the weapon drawn");

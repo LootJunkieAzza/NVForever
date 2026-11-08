@@ -250,8 +250,10 @@ fn repair_one(rt: &mut crate::script::Runtime, vendor: FormId, r: &RowView) -> R
     }
     if cost > 0 && vendor != FormId::PLAYER_REF {
         rt.game.world.remove_item(FormId::PLAYER_REF, CAPS, cost as i32).map_err(|e| format!("{e:?}"))?;
-        // A vendor without an inventory keeps nothing [design].
-        let _ = rt.game.world.add_item(vendor, CAPS, cost as i32);
+        // A vendor without an inventory keeps nothing [design]. The player's tweak puts
+        // the caps in the merchant's container, out of a pickpocket's reach [design: docs/design/tweaks.md].
+        let to = if rt.game.tweaks.repair_caps_to_container { rt.game.merchant_container(vendor).unwrap_or(vendor) } else { vendor };
+        let _ = rt.game.world.add_item(to, CAPS, cost as i32);
     }
     Ok((to, cost))
 }

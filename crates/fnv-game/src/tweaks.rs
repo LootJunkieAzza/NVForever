@@ -131,6 +131,35 @@ pub struct Tweaks {
     pub knockdown_by_strength: bool,
     /// `bDrowningDrainsAP`: drowning takes Action Points before health.
     pub drowning_drains_ap: bool,
+    // ---- batch 13 ----
+    /// `bAllowAidAtMaxHealth`: the STATS page's Stimpak and Doctor's Bag are used at full
+    /// health and with no limb hurt.
+    pub aid_at_full_health: bool,
+    /// `bGrabbingItemsIsCrime`: grabbing someone else's thing counts as stealing it.
+    pub grabbing_is_theft: bool,
+    /// `bLockNeedsKeyShowName`: "requires a key" names the key.
+    pub lock_needs_key_name: bool,
+    /// `bNoSkillTags`: dialogue topics show no [Speech 50]-style tag.
+    pub no_skill_tags: bool,
+    /// `bPreventNPCAddiction`: only the player becomes addicted.
+    pub no_npc_addiction: bool,
+    /// `bPickpocketFleeingActors`: a fleeing actor can be pickpocketed.
+    pub pickpocket_fleeing: bool,
+    /// `bReloadingWithFullClipSwitchesAmmoType`: reloading a full magazine swaps ammo.
+    pub full_reload_swaps_ammo: bool,
+    /// `bScalePlayerMeleeReach`/`fReachMult`: the player's melee reach multiplier.
+    pub melee_reach_mult: f32,
+    /// `bRepairsRewardXP`/`iRepairRewardXP`: experience a Pip-Boy repair gives.
+    pub repair_xp: f64,
+    /// `bPreventStealingCapsAfterRepair`: a repairer's caps go into its merchant container.
+    pub repair_caps_to_container: bool,
+    /// `bNoDamageMeleeWeaponIfTargetDead`: hitting only the dead does not wear the weapon.
+    pub no_wear_on_dead: bool,
+    /// `bNoAPRegenWhileOverencumbered`/`fOverencumberedAPRegenScale`: Action Points come
+    /// back this much as fast while over-encumbered; 1 changes nothing.
+    pub encumbered_ap_regen: f64,
+    /// `bLightStepAffectsCompanions`: teammates are spared mines when the player is.
+    pub light_step_companions: bool,
 }
 
 impl Default for Tweaks {
@@ -181,6 +210,19 @@ impl Default for Tweaks {
             god_mode_no_jams: false,
             knockdown_by_strength: false,
             drowning_drains_ap: false,
+            aid_at_full_health: false,
+            grabbing_is_theft: false,
+            lock_needs_key_name: false,
+            no_skill_tags: false,
+            no_npc_addiction: false,
+            pickpocket_fleeing: false,
+            full_reload_swaps_ammo: false,
+            melee_reach_mult: 1.0,
+            repair_xp: 0.0,
+            repair_caps_to_container: false,
+            no_wear_on_dead: false,
+            encumbered_ap_regen: 1.0,
+            light_step_companions: false,
         }
     }
 }

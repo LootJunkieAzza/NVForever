@@ -1125,11 +1125,11 @@ pub fn use_hints(
         };
         let name = sim.name(item).unwrap_or("?").to_string();
         let count = sim.world.item_count(FormId::PLAYER_REF, item).unwrap_or(0);
-        let Some((hp, limbs, hardcore)) = read::condition(&mut sim, script.as_mut().map(|s| s.bypass_change_detection())) else {
+        let Some((hp, limbs, hardcore, at_full)) = read::condition(&mut sim, script.as_mut().map(|s| s.bypass_change_detection())) else {
             info!("pipboy stats: {name} not used: the scripts' game is not running");
             continue;
         };
-        if let Some(why) = model::refusal(hint, limb, count, hp, &limbs, hardcore) {
+        if let Some(why) = model::refusal_with(hint, limb, count, hp, &limbs, hardcore, at_full) {
             info!("pipboy stats: {name} not used: {why}");
             sounds.write(UiSound { menu: UiMenu::Inventory, event: UiEvent::Refused });
             continue;

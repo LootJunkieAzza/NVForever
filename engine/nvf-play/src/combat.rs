@@ -1788,12 +1788,14 @@ fn track_limbs(mut limbs: ResMut<PlayerLimbs>, mut script: Option<ResMut<ScriptS
 /// "throws off aim and interrupts attacks"; design: how]. The view is thrown off by up to
 /// `flinch_kick_deg`, a swing under way is broken off, and for `flinch_time` no attack
 /// starts (the trigger counts as released).
-fn player_flinch(mut c: ResMut<Combat>, mut feedback: ResMut<HitFeedback>, mut player: ResMut<Player>, mut control: ResMut<PlayerControl>, mut anim: ResMut<WeaponAnim>) {
+fn player_flinch(mut c: ResMut<Combat>, mut feedback: ResMut<HitFeedback>, mut player: ResMut<Player>, mut control: ResMut<PlayerControl>, mut anim: ResMut<WeaponAnim>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
+    // The player's tweak: the player never staggers [design: docs/design/tweaks.md].
+    let no_stagger = tweaks.is_some_and(|t| t.no_player_stagger);
     let c = &mut *c;
     let now = c.time;
     for h in std::mem::take(&mut feedback.player_hits) {
         let since = c.flinch_end.map(|end| now - end);
-        if now < c.flinch_until || !damage::staggers(&c.tuning, h.crippled, h.part_crippled, h.torso_crippled, since) {
+        if no_stagger || now < c.flinch_until || !damage::staggers(&c.tuning, h.crippled, h.part_crippled, h.torso_crippled, since) {
             continue;
         }
         let (yaw, pitch) = ((c.flinch_rng.next_f32() * 2.0 - 1.0) * c.tuning.flinch_kick_deg, (c.flinch_rng.next_f32() * 2.0 - 1.0) * c.tuning.flinch_kick_deg * 0.5);
@@ -2738,6 +2740,9 @@ pub(crate) fn fire(
     c.kick_just_settled |= !was_settled && c.kick.settled();
     let reload = std::mem::take(&mut control.reload);
     let swap = std::mem::take(&mut control.ammo_swap);
+    // The player's tweak: reloading a full magazine swaps the ammo [design:
+    // docs/design/tweaks.md].
+    let full_swap = reload && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.full_reload_swaps_ammo);
     c.crosshair_cone = None;
     c.player_spread = None;
     if c.melee {
@@ -2792,6 +2797,7 @@ pub(crate) fn fire(
         }
     }
     // Ammo Swap: the next carried type down the list, then a reload [design].
+    let swap = swap || (full_swap && cycle.magazine >= cycle.clip_size && cycle.clip_size > 0);
     if swap {
         if let Some(cur) = c.ammo {
             let next = c.forms.next_ammo(id, cur, |a| player_count(&sim, Some(a)) > 0);
@@ -3711,7 +3717,9 @@ fn melee(
         let special = c.special_swing.take();
         let power_mult = power.map_or(1.0, |d| d.damage(&c.rules));
         // The reach is from the body; the rays start at the eye, the capsule's middle.
-        let reach = damage::melee_reach(&c.rules, &w, 1.0) + phys.player.as_ref().map_or(0.0, |p| p.params.radius);
+        // The player's tweak scales the reach [design: docs/design/tweaks.md].
+        let reach_mult = script.as_ref().and_then(|s| s.rt.as_ref()).map_or(1.0, |rt| rt.game.tweaks.melee_reach_mult);
+        let reach = damage::melee_reach(&c.rules, &w, 1.0) * reach_mult + phys.player.as_ref().map_or(0.0, |p| p.params.radius);
         let eye = player.eye();
         // A blow that meets no one but strikes the world within reach (a wall, the
         // ground ahead) shows its impact there.
@@ -3783,7 +3791,9 @@ fn melee(
                 }
             }
         }
-        if !hits.is_empty() {
+        // The player's tweak: blows that land only on the dead do not wear the weapon [design: docs/design/tweaks.md].
+        let only_dead = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_wear_on_dead && hits.iter().all(|h| rt.game.is_dead(FormId(h.0 as u32))));
+        if !hits.is_empty() && !only_dead {
             wear_weapon(&c.forms, &mut sim, &mut stats, hud.as_deref_mut(), None, script.as_deref_mut(), FormId::PLAYER_REF, id, condition::weapon_wear(&c.rules, &w, &[]), None);
         }
         for (actor, hit) in hits {

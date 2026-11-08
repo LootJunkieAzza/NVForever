@@ -833,7 +833,9 @@ fn regenerate(script: Option<&mut ScriptState>, sim: &mut SimState, rate: f32, d
         if damage <= 0.0 {
             return None;
         }
-        let mult = g.ap_regen_mult();
+        // The player's tweak slows the return while over-encumbered [design: docs/design/tweaks.md].
+        let over = g.world.encumbrance(FormId::PLAYER_REF).is_ok_and(|e| e.over);
+        let mult = g.ap_regen_mult() * if over { g.tweaks.encumbered_ap_regen } else { 1.0 };
         let max = base + modifier + fnv_game::functions::actor_value_temporary(g, FormId::PLAYER_REF, ACTION_POINTS);
         let left = restored_damage(damage as f32, max as f32, rate * mult as f32, dt) as f64;
         fnv_game::functions::restore_actor_value_damage(g, FormId::PLAYER_REF, ACTION_POINTS, damage - left);

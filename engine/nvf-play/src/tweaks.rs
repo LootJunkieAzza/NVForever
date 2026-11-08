@@ -131,6 +131,13 @@ pub struct TweakSettings {
     /// `bCrippledLegsScaleJumpHeight`: the jump height is multiplied by this for each
     /// crippled leg; 1 changes nothing.
     pub crippled_leg_jump: f32,
+    /// `bBarterCheckActorBuySellFlags`: a merchant takes from the player only what its
+    /// list says it buys.
+    pub vendor_lists_both: bool,
+    /// `bNoPlayerStaggerAnims`: the player never staggers from a hit.
+    pub no_player_stagger: bool,
+    /// `bPreventReloadWeaponUnholstering`: Ready Item does not draw a holstered weapon.
+    pub ready_does_not_draw: bool,
 }
 
 /// The walk-angle choices: 30 to 80 degrees by 5; 45 is the physics' own.
@@ -217,6 +224,9 @@ impl Default for TweakSettings {
             aiming_draws_weapon: false,
             walk_angle: fnv_phys::CharacterParams::default().max_slope_deg,
             crippled_leg_jump: 1.0,
+            vendor_lists_both: false,
+            no_player_stagger: false,
+            ready_does_not_draw: false,
         }
     }
 }
@@ -631,6 +641,61 @@ impl Plugin for TweaksPlugin {
             ),
         );
         part!(app, "crippled-leg-jump", "Jumping on a Crippled Leg", "The jump's height for each crippled leg, as a part of the usual; 100% changes nothing. (Stewie's Tweaks bCrippledLegsScaleJumpHeight)", crippled_leg_jump);
+        // ---- batch 13 ----
+        switch!(app, "aid-at-full-health", "Aid at Full Health", "The STATS page's Stimpak and Doctor's Bag can be used with nothing hurt. (Stewie's Tweaks bAllowAidAtMaxHealth)", game.aid_at_full_health);
+        switch!(app, "grabbing-is-theft", "Grabbing Is Stealing", "Grabbing someone else's thing counts as stealing it. (Stewie's Tweaks bGrabbingItemsIsCrime)", game.grabbing_is_theft);
+        switch!(app, "vendor-lists", "Merchants Keep to Their Lists", "A merchant buys from the player only what its list says it deals in. (Stewie's Tweaks bBarterCheckActorBuySellFlags)", vendor_lists_both);
+        switch!(app, "key-name", "Name the Key", "A lock that needs a key names it. (Stewie's Tweaks bLockNeedsKeyShowName)", game.lock_needs_key_name);
+        switch!(app, "no-skill-tags", "No Skill Tags", "Dialogue topics show no skill or perk tag. (Stewie's Tweaks bNoSkillTags)", game.no_skill_tags);
+        switch!(app, "no-npc-addiction", "No NPC Addiction", "Only the player becomes addicted to chems. (Stewie's Tweaks bPreventNPCAddiction)", game.no_npc_addiction);
+        switch!(app, "pickpocket-fleeing", "Pickpocket the Fleeing", "An actor running away can be pickpocketed. (Stewie's Tweaks bPickpocketFleeingActors)", game.pickpocket_fleeing);
+        switch!(app, "full-reload-swaps", "Full Reload Swaps Ammo", "Reloading a full magazine changes to the next ammo. (Stewie's Tweaks bReloadingWithFullClipSwitchesAmmoType)", game.full_reload_swaps_ammo);
+        add_setting(
+            app,
+            Setting::slider(
+                "tweak-melee-reach",
+                GROUP,
+                "Melee Reach",
+                "The player's melee reach is multiplied by this; x1.0 changes nothing. (Stewie's Tweaks bScalePlayerMeleeReach)",
+                Slider {
+                    get: |w| part(w.get_resource::<TweakSettings>().map_or(1.0, |t| f64::from(t.game.melee_reach_mult))),
+                    set: |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.game.melee_reach_mult = factor(v) as f32;
+                        }
+                    },
+                    min: 0.0,
+                    step: 0.05,
+                    shown: Some(shown_factor),
+                },
+            ),
+        );
+        amount!(app, "repair-xp", "Experience per Repair", "Experience a Pip-Boy repair gives; 0 changes nothing. (Stewie's Tweaks bRepairsRewardXP)", 50.0, f64, game.repair_xp);
+        switch!(app, "repair-caps-container", "Repair Caps Go to the Till", "Caps paid for a repair go into the merchant's container, not its pockets. (Stewie's Tweaks bPreventStealingCapsAfterRepair)", game.repair_caps_to_container);
+        switch!(app, "no-wear-on-dead", "Spare the Blade on the Dead", "Melee blows that land only on the dead do not wear the weapon. (Stewie's Tweaks bNoDamageMeleeWeaponIfTargetDead)", game.no_wear_on_dead);
+        add_setting(
+            app,
+            Setting::slider(
+                "tweak-encumbered-ap-regen",
+                GROUP,
+                "Action Points Back When Over-Encumbered",
+                "How fast Action Points come back while over-encumbered, as a part of the usual; 100% changes nothing. (Stewie's Tweaks bNoAPRegenWhileOverencumbered)",
+                Slider {
+                    get: |w| w.get_resource::<TweakSettings>().map_or(1.0, |t| t.game.encumbered_ap_regen as f32),
+                    set: |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.game.encumbered_ap_regen = f64::from(v);
+                        }
+                    },
+                    min: 0.0,
+                    step: 0.05,
+                    shown: None,
+                },
+            ),
+        );
+        switch!(app, "light-step-companions", "Light Step for Companions", "Teammates are spared mines whenever the player would be (Light Step). (Stewie's Tweaks bLightStepAffectsCompanions)", game.light_step_companions);
+        switch!(app, "no-player-stagger", "No Player Stagger", "The player never staggers from a hit. (Stewie's Tweaks bNoPlayerStaggerAnims)", no_player_stagger);
+        switch!(app, "ready-does-not-draw", "Ready Does Not Draw", "Ready Item reloads or holsters a drawn weapon but does not draw a holstered one. (Stewie's Tweaks bPreventReloadWeaponUnholstering)", ready_does_not_draw);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -699,6 +764,9 @@ fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, que
         }
         if m.no_selling != tweaks.no_selling {
             m.no_selling = tweaks.no_selling;
+        }
+        if m.vendor_lists_both != tweaks.vendor_lists_both {
+            m.vendor_lists_both = tweaks.vendor_lists_both;
         }
     }
     if let Some(mut c) = console {

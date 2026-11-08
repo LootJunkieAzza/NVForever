@@ -715,6 +715,9 @@ pub struct MenuModel {
     /// The player cannot offer items in a barter (the No Selling tweak, set by
     /// `crate::tweaks`).
     pub no_selling: bool,
+    /// The merchant's buy and sell list holds the player's side too (the Vendors Keep to
+    /// Their Lists tweak, set by `crate::tweaks`).
+    pub vendor_lists_both: bool,
     /// The player's encumbrance, or why it is unknown.
     pub encumbrance: Result<Encumbrance, String>,
     /// Heading: the container's or merchant's name, or "Inventory".
@@ -883,6 +886,7 @@ impl MenuModel {
             category: [Category::All; 2],
             sync_categories: false,
             no_selling: false,
+            vendor_lists_both: false,
             encumbrance: Err(String::new()),
             title,
             status: None,
@@ -970,6 +974,7 @@ impl MenuModel {
     /// The barter lists: each side's own rows less what it put up, and what the other
     /// side put up; prices; the caps on each side and the trade's balance.
     fn refresh_trade(&mut self, world: &mut World<'_>) -> Result<(), SimError> {
+        let both_sides = self.vendor_lists_both;
         let Some(t) = self.trade.as_mut() else { return Ok(()) };
         let mut own: [Vec<Row>; 2] = [Vec::new(), Vec::new()];
         let mut weights = [0.0; 2];
@@ -986,7 +991,8 @@ impl MenuModel {
                 .into_iter()
                 .filter(|r| r.item != t.caps && !r.quest)
                 .filter(|r| {
-                    let why = (side == Side::Container).then(|| t.sells.as_ref().and_then(|s| (s.0)(r.item))).flatten();
+                    // The player's tweak holds the player's side to the merchant's list too [design: docs/design/tweaks.md].
+                    let why = (side == Side::Container || both_sides).then(|| t.sells.as_ref().and_then(|s| (s.0)(r.item))).flatten();
                     if let Some(w) = why.filter(|_| !withheld.iter().any(|(i, _)| *i == r.item)) {
                         withheld.push((r.item, w));
                     }

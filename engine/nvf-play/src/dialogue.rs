@@ -365,7 +365,8 @@ pub(crate) fn view_named(g: &Game, speaker: String) -> Option<MenuView> {
         .iter()
         .map(|ch| {
             let fallback = g.data.name(ch.topic);
-            let tag = ch.challenge.as_ref().map(|t| tag_of(g, t));
+            // The player's tweak leaves the skill tags off [design: docs/design/tweaks.md].
+            let tag = ch.challenge.as_ref().filter(|_| !g.tweaks.no_skill_tags).map(|t| tag_of(g, t));
             let short = ch.challenge.as_ref().is_some_and(|t| matches!((t.needed, t.have), (Some(n), Some(h)) if h < n));
             ChoiceRow { label: row_label(&g.shown_choice_text(ch), &fallback, tag), darkened: ch.darkened, short }
         })

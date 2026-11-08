@@ -184,7 +184,9 @@ impl Game<'_> {
             return Some(Refusal::NotAllowed);
         }
         let fighting_player = self.awareness.get(r).is_some_and(|a| a.state.in_combat() && a.targets.contains_key(&FormId::PLAYER_REF));
-        if fighting_player || self.would_attack(r, FormId::PLAYER_REF) {
+        // The player's tweak lets a fleeing actor's pockets be picked [design: docs/design/tweaks.md].
+        let fleeing = self.tweaks.pickpocket_fleeing && self.awareness.tactics.flights.contains_key(&r);
+        if !fleeing && (fighting_player || self.would_attack(r, FormId::PLAYER_REF)) {
             return Some(Refusal::NotAllowed);
         }
         if self.extra.get(&r).is_some_and(|e| e.caught_pickpocket) {

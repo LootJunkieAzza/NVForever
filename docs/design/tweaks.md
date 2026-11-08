@@ -203,6 +203,27 @@ saves load, and the frame's sync sets them from the settings again.
 | Steepest Walkable Slope (30–80°) | `bBillyGoatMode` | `player::step` (`max_slope_deg`) |
 | Jumping on a Crippled Leg (part) | `bCrippledLegsScaleJumpHeight` | `player::step` (`jump_height`) |
 
+## Thirteenth batch (2026-11-09)
+
+| Row | INI key | Where |
+|---|---|---|
+| Aid at Full Health | `bAllowAidAtMaxHealth` | `pipboy::stats::model::refusal_with` |
+| Grabbing Is Stealing | `bGrabbingItemsIsCrime` | `grab::grab` (`Game::player_stole`) |
+| Merchants Keep to Their Lists | `bBarterCheckActorBuySellFlags` | `MenuModel::refresh_trade` (`vendor_lists_both`) |
+| Name the Key | `bLockNeedsKeyShowName` | `lockpick::open` refusal line |
+| No Skill Tags | `bNoSkillTags` | `dialogue` topic tags |
+| No NPC Addiction | `bPreventNPCAddiction` | `Game` aid addiction chance |
+| Pickpocket the Fleeing | `bPickpocketFleeingActors` | `Game::pickpocket_refusal` |
+| Full Reload Swaps Ammo | `bReloadingWithFullClipSwitchesAmmoType` | `combat::fire` |
+| Melee Reach (x0–x2) | `bScalePlayerMeleeReach` | `combat::melee` reach |
+| Experience per Repair (0–50) | `bRepairsRewardXP` | `pipboy::repair::keys` (`Source::Repair`) |
+| Repair Caps Go to the Till | `bPreventStealingCapsAfterRepair` | `repair::repair_one` |
+| Spare the Blade on the Dead | `bNoDamageMeleeWeaponIfTargetDead` | `combat::melee` wear |
+| Action Points Back When Over-Encumbered (part) | `bNoAPRegenWhileOverencumbered` | `vats_mode::regenerate` |
+| Light Step for Companions | `bLightStepAffectsCompanions` | `mines::tick` |
+| No Player Stagger | `bNoPlayerStaggerAnims` | `combat::player_flinch` |
+| Ready Does Not Draw | `bPreventReloadWeaponUnholstering` | `control::read_controls` |
+
 Menu tweaks that code holding the game reads (the Pip-Boy's item info, crafting, the
 level-up menu, the terminal's timers) are kept in `fnv_game::tweaks` too, so no system
 needs another parameter; the catalogue's notes say where NVForever already does what a
@@ -219,8 +240,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 131 |
-| to do | 472 |
+| done | 154 |
+| to do | 449 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -233,10 +254,12 @@ game's Data folder, read-only).
 | `bAgilityScalesMovementSpeed` | done |  | 3 | Agility Moves Faster (slider, every actor; the player-only and NPC-only options not built) |
 | `bAimingSpeed` | done |  | 2 | Full Pace While Aiming (aiming and blocking together) |
 | `bAimingUnholstersWeapons` | done |  |  | Aiming Draws the Weapon |
+| `bAllowAidAtMaxHealth` | done |  | 3 | Aid at Full Health (the STATS page hints; per-item options not built) |
 | `bAllowSleepWaitWithReducedMaxHealth` | done |  |  | already so: no wait refusal looks at health |
 | `bAmmoSwapWindowMatchesReloadTime` | done |  |  | already so: an ammo swap is taken at any moment, mid-reload too |
 | `bAutoUnlockTerminals` | done |  | 2 | Skip Easy Hacks (switch + margin slider; the XP option not built) |
 | `bAutoWeaponJamWhileFiring` | done |  |  | already so: every shot rolls the jam, mid-burst too |
+| `bBarterCheckActorBuySellFlags` | done |  | 2 | Merchants Keep to Their Lists (the ammo and perk options not built) |
 | `bBillyGoatMode` | done |  | 3 | Steepest Walkable Slope (30-80 degrees; one angle for walking, jumping and auto-walk) |
 | `bCompanionsDontUseAmmo` | done |  |  | already so: NPCs carry no ammo and reload without spending any |
 | `bCrippledLegsScaleJumpHeight` | done |  | 2 | Jumping on a Crippled Leg (one part per crippled leg) |
@@ -248,22 +271,43 @@ game's Data folder, read-only).
 | `bExtendLockpickSpotRange` | done |  |  | already so: the sweet spot can sit anywhere on the half circle |
 | `bFastTravelOverencumbered` | done |  |  | Fast Travel Encumbered |
 | `bGodModePreventsJamAnims` | done |  |  | No Jams in God Mode |
+| `bGrabbingItemsIsCrime` | done |  | 1 | Grabbing Is Stealing (any value; the minimum-value option not built) |
 | `bHittingWeaponsDoesntDamageThem` | done |  |  | Shots Spare Weapons |
 | `bHoldToHolsterMeleeWeapons` | done |  |  | already so: a tap reloads, holstering needs the hold, and melee drops the reload |
 | `bJumpingCostsAP` | done |  | 3 | Action Points per Jump (slider 0-50; the combat-only and jump-anyway options not built) |
 | `bJumpWhileOverencumbered` | done |  |  | already so: NVForever never refuses the jump when over-encumbered |
+| `bLightStepAffectsCompanions` | done |  |  | Light Step for Companions |
+| `bLockNeedsKeyShowName` | done |  |  | Name the Key |
+| `bLockpickRememberBobbyPinAngle` | done |  |  | already so: a new pin keeps the angle |
 | `bLootUnconsciousVictims` | done |  |  | Search the Unconscious |
 | `bModifySkillPointsEarned` | done |  | 2 | Own Skill Points Rule (switch + base and per-Intelligence sliders) |
+| `bNoAmmoFromTakingNPCWeapon` | done |  |  | already so: taking a weapon adds only its placed ammo |
+| `bNoAPRegenWhileOverencumbered` | done |  | 2 | Action Points Back When Over-Encumbered (slider; the while-moving option not built) |
+| `bNoDamageMeleeWeaponIfTargetDead` | done |  |  | Spare the Blade on the Dead |
 | `bNoDialogueZoom` | done |  |  | already a row: Gameplay tab, dialogue-zoom |
 | `bNoFastTravelIfLegsCrippled` | done |  | 1 | No Travel on a Crippled Leg (NVForever's own refusal text) |
 | `bNoGrabOwnedItems` | done |  |  | No Grabbing Owned Items |
 | `bNoLockFailedTerminals` | done |  |  | No Terminal Lockout |
+| `bNoPlayerStaggerAnims` | done |  |  | No Player Stagger |
+| `bNoSkillTags` | done |  | 6 | No Skill Tags (the outline, percent and XP options not built) |
+| `bNPCsTakeLimbFallDamage` | done |  |  | already so: falls hit a leg for NPCs too |
 | `bOnlyAllowWaitWhileSitting` | done |  | 3 | Wait Only When Seated (NVForever's own refusal text) |
+| `bPerksAffectFistWeaponSpeed` | done |  |  | already so: the fists are the weapon the perks are asked about |
 | `bPickLocksWithoutSkill` | done |  | 1 | Pick Any Lock (the lock plays as before; the difficulty option not built) |
+| `bPickpocketFleeingActors` | done |  |  | Pickpocket the Fleeing |
 | `bPowerArmorNeedsNoTraining` | done |  |  | Power Armor Without Training |
 | `bPowerArmorScalesFallDamage` | done |  | 2 | Falls in Power Armor (slider; applies to everyone, the player-only option not built) |
+| `bPreventHittingHolsteredWeapons` | done |  | 2 | already so: only a drawn weapon has a hit part |
+| `bPreventNPCAddiction` | done |  |  | No NPC Addiction |
+| `bPreventReloadWeaponUnholstering` | done |  |  | Ready Does Not Draw |
+| `bPreventStealingCapsAfterRepair` | done |  | 1 | Repair Caps Go to the Till |
 | `bReduceXP` | done |  | 2 | Experience Earned (slider, x0 to x2) |
+| `bReloadingWithFullClipSwitchesAmmoType` | done |  |  | Full Reload Swaps Ammo |
+| `bRepairsRewardXP` | done |  | 1 | Experience per Repair (slider; Pip-Boy repairs) |
 | `bRunningCostsAP` | done |  | 8 | Action Points per Second Running (slider 0-20, a flat rate; the Endurance formula not built) |
+| `bScalePlayerMeleeReach` | done |  | 3 | Melee Reach (multiplier slider; the min and max options not built) |
+| `bSellStolenItems` | done |  |  | already so: barter never checks stolen items |
+| `bSeparateAlcoholEffects` | done |  |  | already so: effects are kept per item, so different drinks stack |
 | `bUseCustomSniperZoomRate` | done |  | 2 | Scope Zoom Time (slider; the zoom-out option not built) |
 | `bWeightlessWornArmor` | done |  | 1 | Worn Armor Weighs Nothing (weightless; the scale option not built) |
 | `bWeightlessWornPowerArmor` | done |  | 3 | Worn Power Armor Weighs Nothing (weightless; the scale and requirement options not built) |
@@ -272,10 +316,8 @@ game's Data folder, read-only).
 | `bMoreFrequentNPCLightUpdates` | unsure, skipped | yes | 1 | NVForever lights actors its own way; unclear what to change |
 | `bAdjustableScopeZoom` | to do |  | 14 | needs a zoom level in AimZoom and the wheel (now the third-person distance) |
 | `bAgilityScalesJumpHeight` | to do |  | 1 | jump height is a fixed character param; needs a small system with Agility |
-| `bAllowAidAtMaxHealth` | to do |  | 3 | only the CND page hints refuse; pass the switch to stats::model::refusal |
 | `bArmorCausesSinking` | to do |  | 4 | the physics step does not know the worn armour class |
 | `bBarterAffectsRepairCosts` | to do |  | 3 | repair::view vendor_quote; three numbers to choose |
-| `bBarterCheckActorBuySellFlags` | to do |  | 2 | menu/model.rs:989 player side; the bool on the trade at open |
 | `bCapSkillsBySPECIAL` | to do |  | 5 | SkillSheet needs a per-row cap read at three places |
 | `bCharacterRadiation` | to do |  | 1 | not built: only the player takes environment radiation |
 | `bClearNearbyPlayerMarker` | to do |  | 1 | not built: no player-placed map marker |
@@ -294,7 +336,6 @@ game's Data folder, read-only).
 | `bForceLockpickNoBreakLock` | to do |  | 3 | Picking::force; the engine apply would need the pin-broken path |
 | `bFreeWildWasteland` | to do |  |  | the trait sheet needs to know which trait is free |
 | `bFrenzyGrantsPlayerXP` | to do |  |  | kill_earns_xp is &self; the frenzy test reads an actor value |
-| `bGrabbingItemsIsCrime` | to do |  | 1 | grab::grab start; player_stole with a value threshold |
 | `bHardcoreTweaks` | to do |  | 3 | unsure which way each option goes outside Hardcore |
 | `bHipFireAnimsWhileScoped` | unsure, skipped |  |  | depends on alternate animations |
 | `bHoldToActivate` | to do |  | 9 | a hold on E is taken by grab; needs a timer and per-kind choices |
@@ -303,59 +344,39 @@ game's Data folder, read-only).
 | `bJumpSwimsUpwards` | to do |  | 2 | MoveIntent.jump is a one-shot latch; needs a held flag |
 | `bKeepFallHeightOnLoad` | to do |  |  | the fall top is not saved |
 | `bLevelDifferenceAffectsCombatXP` | to do |  | 2 | kill_xp; two numbers to choose |
-| `bLightStepAffectsCompanions` | to do |  |  |  |
-| `bLockNeedsKeyShowName` | to do |  |  |  |
-| `bLockpickForceBonusNearSweetSpot` | to do |  | 2 |  |
-| `bLockpickRememberBobbyPinAngle` | to do |  |  |  |
+| `bLockpickForceBonusNearSweetSpot` | to do |  | 2 | lockpick force_chance; a field on lockpick::Settings |
 | `bLuckDoesntAffectGambling` | to do |  | 1 | already so? no Luck in the gambling rules found; check the original first |
-| `bMapSelectableCompanions` | to do |  | 2 |  |
-| `bMarkNearbyLocationsOnMap` | to do |  | 1 |  |
-| `bMousewheelScrollsWeaponHotkeys` | to do |  | 1 |  |
-| `bMovementPenalties` | to do |  | 11 |  |
-| `bNoAmmoFromTakingNPCWeapon` | to do |  |  |  |
-| `bNoAPRegenWhileOverencumbered` | to do |  | 2 |  |
-| `bNoCompanionItemDamage` | to do |  |  |  |
-| `bNoDamageMeleeWeaponIfTargetDead` | to do |  |  |  |
-| `bNoEnvironmentRadiationInFullPowerArmor` | to do |  |  |  |
-| `bNoFreeBarterItems` | to do |  | 1 |  |
+| `bMapSelectableCompanions` | to do |  | 2 | not built: companions are not on the map and cannot be summoned |
+| `bMarkNearbyLocationsOnMap` | to do |  | 1 | compass::discover, adding to map_markers within a distance |
+| `bMousewheelScrollsWeaponHotkeys` | to do |  | 1 | needs cycle state in weapon_wheel and the wheel off the camera |
+| `bMovementPenalties` | to do |  | 11 | player::step pace chain; seven percentages to choose |
+| `bNoCompanionItemDamage` | to do |  |  | wear_weapon and wear_armor; the armour path has no game |
+| `bNoEnvironmentRadiationInFullPowerArmor` | to do |  |  | tick_radiation; needs a game-side full power armour check |
+| `bNoFreeBarterItems` | to do |  | 1 | refresh_trade price; a menu field like no_selling |
 | `bNoLockEncounterZoneLevels` | unsure, skipped |  |  | encounter-zone level locking not yet checked in NVForever |
-| `bNoPlayerStaggerAnims` | to do |  |  |  |
-| `bNoSkillTags` | to do |  | 6 |  |
-| `bNPCsDetectMineExplosions` | to do |  |  |  |
-| `bNPCsDropLiveGrenades` | to do |  |  |  |
-| `bNPCsEarnAmmoCasings` | to do |  |  |  |
-| `bNPCsTakeLimbFallDamage` | to do |  |  |  |
-| `bOverencumberedTweak` | to do |  | 8 |  |
-| `bPerBulletLoopingReloads` | to do |  | 2 |  |
-| `bPerksAffectFistWeaponSpeed` | to do |  |  |  |
-| `bPickpocketCaughtCausesDetection` | to do |  |  |  |
-| `bPickpocketFleeingActors` | to do |  |  |  |
-| `bPickpocketOverhaul` | to do |  | 15 |  |
-| `bPlantingLiveGrenadesRequiresWeaponSkill` | to do |  |  |  |
-| `bPowerArmorScalesLimbDamage` | to do |  | 3 |  |
-| `bPowerAttackIfBlocking` | to do |  | 1 |  |
-| `bPreventHittingHolsteredWeapons` | to do |  | 2 |  |
-| `bPreventNPCAddiction` | to do |  |  |  |
-| `bPreventReloadWeaponUnholstering` | to do |  |  |  |
-| `bPreventRepairIfNotAtWorkbench` | to do |  |  |  |
-| `bPreventStealingCapsAfterRepair` | to do |  | 1 |  |
-| `bQuickUse` | to do |  | 9 |  |
-| `bReloadingPreventsWeaponHotkeys` | to do |  |  |  |
-| `bReloadingWithFullClipSwitchesAmmoType` | to do |  |  |  |
-| `bReloadJamsAffectedByAgility` | to do |  |  |  |
-| `bReloadWhileFiring` | to do |  |  |  |
+| `bNPCsDetectMineExplosions` | to do |  |  | the mine trigger actor is not carried to the explosion |
+| `bNPCsDropLiveGrenades` | to do |  |  | not built: NPC grenades have no in-hand phase |
+| `bNPCsEarnAmmoCasings` | to do |  |  | actor_attacks; spent_ammo_item is player-only |
+| `bOverencumberedTweak` | to do |  | 8 | encumbered_walks and ap_costs together, with a timer |
+| `bPerBulletLoopingReloads` | to do |  | 2 | a press counter on the attack Cycle |
+| `bPickpocketCaughtCausesDetection` | to do |  |  | pickpocket_caught; needs the awareness call |
+| `bPickpocketOverhaul` | to do |  | 15 | Steal::chance needs weight, Perception and detection |
+| `bPlantingLiveGrenadesRequiresWeaponSkill` | to do |  |  | pickpocket::results; a dud when under the skill |
+| `bPowerArmorScalesLimbDamage` | to do |  | 3 | hit_limb; needs a game-side power armour check |
+| `bPowerAttackIfBlocking` | to do |  | 1 | a field on MeleeInput |
+| `bPreventRepairIfNotAtWorkbench` | to do |  |  | no notion of a workbench in reach |
+| `bQuickUse` | to do |  | 9 | two input paths that do not exist yet |
+| `bReloadingPreventsWeaponHotkeys` | to do |  |  | weapon_wheel::read with WeaponAnim.reload |
+| `bReloadJamsAffectedByAgility` | to do |  |  | combat::fire jam time by reload_rate |
+| `bReloadWhileFiring` | to do |  |  | a field on attack::Input |
 | `bRememberBobbyPinHealth` | to do |  |  | Picking::new starts a full pin; needs a stored health |
-| `bRepairScalesCraftingCondition` | to do |  |  |  |
-| `bRepairsRewardXP` | to do |  | 1 |  |
-| `bReviveUnconsciousCompanions` | to do |  | 3 |  |
-| `bRunAndGunAPInCombatOnly` | to do |  |  |  |
-| `bRunSlowerInWater` | to do |  | 1 |  |
-| `bScalePlayerMeleeReach` | to do |  | 3 |  |
-| `bScaleWeaponVolume` | to do |  | 2 |  |
-| `bScopeHoldBreath` | to do |  | 7 |  |
-| `bSellStolenItems` | to do |  |  |  |
-| `bSemiAutoQueue` | to do |  | 2 |  |
-| `bSeparateAlcoholEffects` | to do |  |  |  |
+| `bRepairScalesCraftingCondition` | to do |  |  | crafting::make_recipe output condition |
+| `bReviveUnconsciousCompanions` | to do |  | 3 | not built: no revive action |
+| `bRunAndGunAPInCombatOnly` | to do |  |  | not built: no run-and-gun AP rule |
+| `bRunSlowerInWater` | to do |  | 1 | player::step pace with the water depth |
+| `bScaleWeaponVolume` | to do |  | 2 | PlaySound has no volume |
+| `bScopeHoldBreath` | to do |  | 7 | scope_view has no input or AP |
+| `bSemiAutoQueue` | to do |  | 2 | attack::Cycle cooldown; a field on attack::Input |
 | `bSkipVeryEasyLocksAtMaxSkill` | to do |  | 2 |  |
 | `bSleepHealingMinDuration` | to do |  | 2 |  |
 | `bSleepOnChairs` | to do |  |  |  |
