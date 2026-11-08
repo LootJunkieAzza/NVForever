@@ -487,8 +487,8 @@ const RING_STROKE: f32 = 0.17;
 /// half side is 1): the square tile leaves this much room above and below the ring, so the
 /// capsule's image adds the same on its left and right so the halo is not clipped [design].
 const GLYPH_HALO: f32 = 0.32;
-/// The capsule's corner radius (a keycap, not a full pill) and the room around its label,
-/// in the same units [design].
+/// The capsule's corner radius (a keycap, not a full pill) in the glyphs' units, and the
+/// room either side of its label in pixels [design].
 const CAPSULE_CORNER: f32 = 0.25;
 const CAPSULE_PAD_X: f32 = 9.0;
 /// The capsule's minimum width-to-height ratio: a short label ("L1") still reads as a
@@ -720,8 +720,12 @@ fn load_pad_glyphs(
 }
 
 /// The PlayStation button a hint names, and the byte range of its name, when the hint has
-/// the name followed by ")" or "]" (the hint builders write "Cross)", "[Circle]").
+/// the name followed by ")" or "]" (the hint builders write "Cross)", "[Circle]"). Only
+/// under the PlayStation labels: "Start" is also an Xbox name, which stays text.
 fn find_glyph(hint: &str) -> Option<(Glyph, usize, usize)> {
+    if labels() != Labels::PlayStation {
+        return None;
+    }
     Glyph::ALL.iter().find_map(|g| {
         let name = g.name();
         hint.match_indices(name).find_map(|(i, _)| {
@@ -762,7 +766,7 @@ pub fn hint_width_font(font: &fnv_font::Font, hint: &str, glyphs: &PadGlyphs) ->
 /// The width [`set_button`] draws a bare button `name` in.
 pub fn button_width(face: &crate::interface::Face, name: &str, glyphs: &PadGlyphs) -> f32 {
     let text_w = || face.font.lines(name, None).into_iter().next().map_or(0.0, |l| l.width);
-    match Glyph::named(name).and_then(|g| glyph_drawn(g, face.font.size, glyphs)) {
+    match Glyph::named(name).filter(|_| labels() == Labels::PlayStation).and_then(|g| glyph_drawn(g, face.font.size, glyphs)) {
         Some((_, w, _)) => w,
         None => text_w(),
     }
@@ -833,7 +837,7 @@ pub fn set_button(
     color: Color,
     glyphs: &PadGlyphs,
 ) -> f32 {
-    match Glyph::named(name).and_then(|g| glyph_drawn(g, face.font.size, glyphs)) {
+    match Glyph::named(name).filter(|_| labels() == Labels::PlayStation).and_then(|g| glyph_drawn(g, face.font.size, glyphs)) {
         Some((image, w, side)) => {
             let corner = Vec2::new(x, base - crate::interface::x_height(face) / 2.0 - side / 2.0);
             p.spawn((crate::interface::at(corner.x, corner.y, w, side), ImageNode { color, ..ImageNode::new(image) }));
@@ -1619,6 +1623,7 @@ mod tests {
 
     #[test]
     fn a_hint_names_its_button_where_it_stands() {
+        set_labels(Labels::PlayStation);
         assert_eq!(find_glyph("Cross)"), Some((Glyph::Cross, 0, 5)));
         assert_eq!(find_glyph("Exit Cross)"), Some((Glyph::Cross, 5, 10)));
         assert_eq!(find_glyph("[Circle] Goodbye"), Some((Glyph::Circle, 1, 7)));
@@ -1629,6 +1634,13 @@ mod tests {
         assert_eq!(find_glyph("[B] Goodbye"), None);
         assert_eq!(find_glyph("Accept"), None);
         assert_eq!(find_glyph("Select a card"), None);
+        // "Start" is an Xbox name too: under the Xbox or keyboard labels it stays text.
+        for l in [Labels::Xbox, Labels::Keys] {
+            set_labels(l);
+            assert_eq!(find_glyph("Start)"), None, "{l:?}");
+            assert_eq!(find_glyph("Exit Cross)"), None, "{l:?}");
+        }
+        set_labels(Labels::Keys);
     }
 
     #[test]
