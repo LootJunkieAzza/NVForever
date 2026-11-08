@@ -1430,6 +1430,9 @@ impl EffectCtx for PlayCtx<'_> {
     fn is_furniture(&self, r: FormId) -> bool {
         self.sim.base_of(r.0).and_then(|b| self.sim.forms.get(b)).is_some_and(|b| matches!(b.data, fnv_sim::forms::BaseData::Furniture))
     }
+    fn is_terminal(&self, r: FormId) -> bool {
+        self.sim.base_of(r.0).and_then(|b| self.sim.forms.get(b)).is_some_and(|b| &b.sig == b"TERM")
+    }
 }
 
 /// The response texts (NAM1) of a dialogue line, in order.
@@ -1708,7 +1711,7 @@ pub(crate) fn run_scripts(
     mut travel: MessageWriter<TravelRequest>,
     mut open: MessageWriter<OpenContainer>,
     (mut used, mut anims): (MessageReader<ItemUsed>, ResMut<crate::ConsumeAnims>),
-    mut sit: MessageWriter<crate::furniture::UseFurniture>,
+    (mut sit, mut terminals, joining): (MessageWriter<crate::furniture::UseFurniture>, MessageWriter<crate::terminal::OpenTerminal>, Option<Res<crate::save::KeepSolo>>),
     paused: Res<crate::pause::Paused>,
     (mut screen, bindings, tiles, page, mut mods_ticks, tile_menus): ScreenAndMenus,
 ) {
@@ -1795,7 +1798,7 @@ pub(crate) fn run_scripts(
                 // first GameMode frame (`crate::tiles::mods::main_menu_frames`).
                 if tile_menus.is_some_and(|t| t.start) {
                     with_world(&mut rt, &mut sim, |rt| with_ray_caster(&mut phys, || crate::tiles::mods::main_menu_frames(&mut rt.game)));
-                    info!("scripts: {} main-menu frames of the start menu's MenuMode {} blocks", crate::tiles::mods::MAIN_MENU_FRAMES, fnv_game::game::menus::START);
+                    info!("scripts: {} main-menu frames of the MenuMode {} and {} blocks", crate::tiles::mods::MAIN_MENU_FRAMES, fnv_game::game::menus::START, fnv_game::game::menus::MAIN_MENU);
                 }
                 let running = rt.game.quests.values().filter(|q| q.running).count();
                 info!(
@@ -1960,7 +1963,7 @@ pub(crate) fn run_scripts(
         // A conversation with the player pauses the game: nobody moves, and no trigger
         // block runs (OnTrigger would, every frame) until it is over.
         if rt.game.dialogue.is_none() {
-            crate::script_trigger::update(rt, &play, &phys, player_capsule);
+            crate::script_trigger::update(rt, &play, &phys, player_capsule, joining.is_some());
         }
         rt.game.loading = loading;
         rt.game.cfg.frame_seconds = dt;
@@ -2133,6 +2136,10 @@ pub(crate) fn run_scripts(
             ScriptEffect::UseFurniture(reference) => {
                 info!("script: the player uses furniture {reference:08X} (a script's Activate)");
                 sit.write(crate::furniture::UseFurniture { reference });
+            }
+            ScriptEffect::OpenTerminal(reference) => {
+                info!("script: terminal {reference:08X} opens (a script's Activate)");
+                terminals.write(crate::terminal::OpenTerminal { reference });
             }
         }
     }

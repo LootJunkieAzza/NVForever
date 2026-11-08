@@ -866,6 +866,39 @@ fn a_spectator_runs_from_a_fight_that_comes_too_close() {
     assert!(s.agent(R_IDLE).search.is_none());
 }
 
+/// A spectator runs from a fight, but never through a load door (fnv-ai social.rs): the
+/// door rule is the combat flight's. Owner's overnight queue item 70 (2026-11-07):
+/// Freeside's bystanders went down the sewer manhole by Mick & Ralph's whenever a fight
+/// came near. Here a load door stands right by the spectator, away from the fight.
+#[test]
+fn a_spectator_runs_from_a_fight_but_not_through_a_load_door() {
+    use fnv_game::awareness::Timers;
+    use fnv_game::combat_group::{FleeBy, GroupSettings};
+    use fnv_game::detection::{Band, Detection};
+    let f = fixture();
+    let mut s = sim(&f, R_IDLE, [CORNER[0] + 1000.0, CORNER[1] + 1000.0, 0.0]);
+    s.game.awareness.tactics.settings = Some(GroupSettings { flee_normal: 700.0, ..GroupSettings::default() });
+    s.run_social(1.0);
+    // A load door on every triangle within 300 units of (400, 400), leading to the far
+    // corner of the room.
+    let (far, _) = s.nav.nearest(ROOM, [1150.0, 1150.0, 0.0], 100.0).unwrap();
+    let door = fnv_nav::graph::DoorEdge { door: 0xD00, to_door: 0xD01, arrival: [1150.0, 1150.0, 0.0], arrival_heading: 0.0, to: far, door_at: None };
+    for t in s.nav.triangles_near(ROOM, 400.0, 400.0, 300.0) {
+        s.nav.doors.entry(t).or_default().push(door);
+    }
+    let foe = FormId(0xF00);
+    let (now, t) = (s.game.time, Timers::default());
+    let a = s.game.awareness.actors.entry(foe).or_default();
+    a.observe(FormId::PLAYER_REF, &Detection { value: 5.0, band: Band::Detected, ..Default::default() }, [0.0; 3], now, &t);
+    a.settle(foe, now, &t, true);
+    s.player_to([10.0, 10.0, 0.0]);
+    s.run_social(0.5);
+    let ev = s.events();
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::SpectatorFlee { .. })), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Flee { .. })), "it runs: {ev:?}");
+    assert!(!ev.iter().any(|e| matches!(e, AiEvent::Flee { how: FleeBy::Door { .. }, .. })), "not through the door: {ev:?}");
+}
+
 /// Who does not run from a fight (review of #1216): nobody while its foe only searches
 /// (Alert), not the player's teammate, and a fight between residents sends a spectator
 /// running from the resident fighting.

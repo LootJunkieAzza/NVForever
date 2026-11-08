@@ -399,6 +399,9 @@ fn seed(aid: &RouletteAid, casino: FormId, now: f32) -> u64 {
     })
 }
 
+/// Roulette's stats, corner messages, key bindings, co-op tables and the play world.
+type RouletteExtras<'w> = (ResMut<'w, RouletteStats>, Option<ResMut<'w, crate::corner_messages::CornerMessages>>, Res<'w, crate::bindings::Bindings>, Option<Res<'w, Tables>>, Option<Res<'w, crate::PlayWorld>>);
+
 #[allow(clippy::too_many_arguments)]
 fn open(
     state: Res<State<PlayState>>,
@@ -409,7 +412,7 @@ fn open(
     script: Option<ResMut<ScriptState>>,
     aid: Res<RouletteAid>,
     time: AidTime,
-    (mut stats, mut corner, bindings, tables, play): (ResMut<RouletteStats>, Option<ResMut<crate::corner_messages::CornerMessages>>, Res<crate::bindings::Bindings>, Option<Res<Tables>>, Option<Res<crate::PlayWorld>>),
+    (mut stats, mut corner, bindings, tables, play): RouletteExtras,
     mut waiting: Local<Option<(rules::RouletteRequest, f32)>>,
 ) {
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };

@@ -275,12 +275,16 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
                 }
             }
         }
-        // Perks the player has, playable and not hidden [hypothesis: traits are listed
-        // with them], by name; the rank when the perk has more than one.
+        // Perks the player has that are not hidden [hypothesis: traits are listed with
+        // them], by name; the rank when the perk has more than one. Perks no level-up
+        // offers are listed too: a companion's (Spotting, Better Healing, Whiskey Rose,
+        // Scribe Assistant: DATA playable 0, hidden 0, queue item 67 "the perks also show
+        // on the Pip-Boy perk page") [hypothesis: the original lists every perk not
+        // flagged hidden; observer check].
         let mut perks: Vec<Row> = Vec::new();
         for (&perk, &rank) in &g.player.perks {
             let d = forms.perk(perk.0);
-            if !d.playable || d.hidden {
+            if d.hidden {
                 continue;
             }
             let mut t = forms.text(perk.0).clone();

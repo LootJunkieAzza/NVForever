@@ -57,6 +57,10 @@ pub fn add_perk(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         crate::perks::gain_rank(g, perk);
         let after = g.player.perks.get(&perk).copied().unwrap_or(0);
         if after != before {
+            if g.story_counts(ctx) {
+                g.coop_story.record_perk(perk, before);
+                tracing::info!("co-op story: {} gave the player perk {}", ctx.unit, g.data.name(perk));
+            }
             g.perk_event(perk, true, before, after);
         }
     }
@@ -80,7 +84,11 @@ pub fn remove_perk(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     }
     if a.num_or(1, 0.0) != 0.0 {
         g.player.teammate_perks.remove(&perk);
-    } else if g.player.perks.remove(&perk).is_some() {
+    } else if let Some(before) = g.player.perks.remove(&perk) {
+        if g.story_counts(ctx) {
+            g.coop_story.record_perk(perk, before);
+            tracing::info!("co-op story: {} took perk {} from the player", ctx.unit, g.data.name(perk));
+        }
         g.perk_event(perk, false, 0, 0);
     }
     none()

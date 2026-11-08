@@ -109,16 +109,41 @@ fn stage(mut st: ResMut<Stage>, screen: Res<DartsScreen>, mut control: ResMut<Pl
     control.weapon_out = false;
 }
 
+/// The navmesh, the world's cells and the game, for the opponent's way.
+type WayData<'w> = (Option<Res<'w, crate::nav::NavState>>, Option<Res<'w, crate::world::WorldData>>, Option<Res<'w, SimState>>);
+
 /// The darts opponent's body: held where the game walks it and let go after (a new one,
 /// or none, lets the last go). Its weapon is put out of sight meanwhile: a Boomer's
 /// launcher on its back filled the view from behind the line (owner 2026-11-05).
+/// While its body is on furniture the game's walk waits, from where the body is; once
+/// up, the way to where the walk goes is planned on the navmesh (`darts_foes::follow`).
+#[allow(clippy::too_many_arguments)]
 fn opponent(
-    opp: Res<nvf_play::darts_foes::DartsOpponent>,
+    mut opp: ResMut<nvf_play::darts_foes::DartsOpponent>,
     mut residents: Option<ResMut<crate::residents::Residents>>,
     mut held: Local<Option<(u32, Option<Entity>)>>,
-    rigs: Query<&crate::limbs::ActorRig>,
+    rigs: Query<(&crate::limbs::ActorRig, &Transform, Has<crate::furniture::OnFurniture>)>,
     mut shown: Query<&mut Visibility>,
+    (nav, world, sim): WayData,
 ) {
+    if let Some(o) = opp.0.as_mut().filter(|o| !o.gone) {
+        let body = rigs.iter().find(|(r, _, _)| r.reference == o.actor.0);
+        let seated = body.is_some_and(|(_, _, on)| on);
+        if seated != o.seated {
+            info!("darts opponent: 0x{:08X} {}", o.actor.0, if seated { "gets up first" } else { "is on its feet" });
+        }
+        o.seated = seated;
+        if let Some((_, t, true)) = body {
+            // It sets off, and comes back to, where it stands up.
+            o.feet = t.translation.to_array();
+            o.heading = crate::nav::tr_heading(t);
+            (o.home, o.home_heading) = (o.feet, o.heading);
+            o.route_for = None;
+        } else if o.route_for != Some(o.target) {
+            o.route = way(o, nav.as_deref(), world.as_deref(), sim.as_deref());
+            o.route_for = Some(o.target);
+        }
+    }
     let o = opp.0.as_ref().filter(|o| !o.gone);
     if let Some((id, weapon)) = *held {
         if o.is_none_or(|o| o.actor.0 != id) {
@@ -142,10 +167,42 @@ fn opponent(
     }
     // Its weapon's node, hidden once its body is drawn.
     if let Some((_, weapon @ None)) = held.as_mut() {
-        let node = rigs.iter().find(|r| r.reference == o.actor.0).and_then(crate::darts_arm::weapon_node);
+        let node = rigs.iter().find(|(r, _, _)| r.reference == o.actor.0).and_then(|(r, _, _)| crate::darts_arm::weapon_node(r));
         if let Some(mut v) = node.and_then(|n| shown.get_mut(n).ok()) {
             *v = Visibility::Hidden;
             *weapon = node;
+        }
+    }
+}
+
+/// The navmesh's way for the opponent from where it is to where its walk goes, as corners
+/// (the last at the target); empty (straight) when there is no navmesh or no way, or the
+/// way is much longer than the straight line (a wall between: better straight than
+/// round the building) [design].
+fn way(o: &nvf_play::darts_foes::Opponent, nav: Option<&crate::nav::NavState>, world: Option<&crate::world::WorldData>, sim: Option<&SimState>) -> Vec<[f32; 3]> {
+    let (Some(nav), Some(world), Some(sim)) = (nav, world, sim) else { return Vec::new() };
+    let Some(cell) = sim.world.peek(FormId(o.board)).and_then(|s| s.cell) else { return Vec::new() };
+    let Some(space) = crate::nav::space_of_cell(world, cell.0) else { return Vec::new() };
+    let params = fnv_nav::PathParams { doors: false, ..Default::default() };
+    let from = fnv_nav::Place { space, pos: o.feet };
+    let to = fnv_nav::Place { space, pos: o.target };
+    let straight = (o.target[0] - o.feet[0]).hypot(o.target[1] - o.feet[1]);
+    match nav.graph.find_path(from, to, &params) {
+        Ok(p) if p.length < 3.0 * straight + 200.0 => {
+            let mut pts: Vec<[f32; 3]> = p.legs.into_iter().flat_map(|l| l.points).collect();
+            // It ends on the spot itself, not where the navmesh put it.
+            pts.pop();
+            pts.push(o.target);
+            debug!("darts opponent: a way of {} corners, {:.0} units (straight {straight:.0})", pts.len(), p.length);
+            pts
+        }
+        Ok(p) => {
+            debug!("darts opponent: the way is {:.0} units against {straight:.0} straight: straight", p.length);
+            Vec::new()
+        }
+        Err(e) => {
+            debug!("darts opponent: no way on the navmesh ({e:?}): straight");
+            Vec::new()
         }
     }
 }
@@ -201,9 +258,11 @@ fn place(
                 let (at, dir) = in_flight(from, [*x, FACE_Y, *z], (now - since) / darts::FLIGHT);
                 want.push(dart_at(&f, at, dir));
             }
-            // The opponent's next dart, in its hand at the line.
-            let at_line = opp.0.as_ref().is_some_and(|o| o.board == d.board && o.at_line()) && d.m.up == 1 && d.m.winner.is_none();
-            let to_throw = !d.flights.iter().any(|fl| fl.2 == 1) && d.m.sides.get(1).is_some_and(|s| s.darts.len() < usize::from(darts::DARTS_PER_TURN));
+            // The opponent's next dart, in its hand at the line: the game's opponent's, or
+            // the other player's (its hand is known only while its arm is raised).
+            let them = 1 - d.mine();
+            let at_line = (opp.0.as_ref().is_some_and(|o| o.board == d.board && o.at_line()) || d.joined.is_some() || matches!(d.foe, nvf_play::minigames::Foe::Player(_))) && d.m.up == them && d.m.winner.is_none();
+            let to_throw = !d.flights.iter().any(|fl| fl.2 == them) && d.m.sides.get(them).is_some_and(|s| s.darts.len() < usize::from(darts::DARTS_PER_TURN));
             if let (true, true, Some(at)) = (at_line, to_throw, hands.now[1]) {
                 want.push(dart_at(&f, at, Vec3::Y));
             }

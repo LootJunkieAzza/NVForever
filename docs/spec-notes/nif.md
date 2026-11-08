@@ -1082,6 +1082,16 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   1,173 vertices, about −3e38 on 476, denormals on 129 and 1.0 on 464; drawn with them its trim boards came out flat
   pale blue (owner's fly-cam screenshot). The renderers use vertex alpha only with the
   flag, clamp colours to 0..1 and replace non-finite values by 1 [hypothesis].
+  - **Untextured blended unlit shapes** take their vertex alpha without the flag
+    [hypothesis]: a BSShaderNoLightingProperty shape that names no texture and whose
+    NiAlphaProperty blends has no other alpha source. Of the visible shapes without
+    either vertex-alpha flag (bit 3, or bit 19 on the unlit shader), 154 such shapes have
+    some vertex alpha below 1 and 526 all 1 [observed,
+    `crates/fnv-nif/examples/untextured_blend_survey.rs` over `Fallout - Meshes.bsa`]. They
+    are soft black contact shadows (the casino tables' `CardTable01:1`, `CrapsTable01:1`,
+    `RouletteTableTOPS:2`: alpha flags 0x10ED, black vertices of alpha 0.7 inside and 0
+    at the rim; the Ultra-Luxe's tables, desks and bars), which drew as hard black mats
+    with alpha 1 (owner's playtest 2026-11-07, Lucky 38 casino floor).
 - **Normal maps** use DirectX-style green: +G points *down* the image (towards
   increasing v), +R to the right [observed]. Seven texture sets in `Fallout -
   Textures.bsa` ship a parallax height map (`_p`) beside the normal map (`_n`): McCarran

@@ -191,12 +191,12 @@ fn dds_image_unguarded(bytes: &[u8], srgb: bool, bc_supported: bool, cap: u32) -
     if dds.header.is_cubemap() {
         return Err("cube map (not used by the viewer)".into());
     }
-    let block = matches!(dds.format, Format::Dxt1 | Format::Dxt3 | Format::Dxt5);
+    let block = matches!(dds.format, Format::Dxt1 | Format::Dxt3 | Format::Dxt5 | Format::Bc7);
     let skip = levels_to_skip(dds.header.width, dds.header.height, dds.levels[0].len(), cap, block);
     let (w, h) = (dds.header.width >> skip, dds.header.height >> skip);
     let levels = &dds.levels[0][skip..];
     let (format, data) = match dds.format {
-        Format::Dxt1 | Format::Dxt3 | Format::Dxt5 => {
+        Format::Dxt1 | Format::Dxt3 | Format::Dxt5 | Format::Bc7 => {
             if !bc_supported {
                 return Err("GPU lacks BC texture support".into());
             }
@@ -208,6 +208,8 @@ fn dds_image_unguarded(bytes: &[u8], srgb: bool, bc_supported: bool, cap: u32) -
                 (Format::Dxt1, false) => TextureFormat::Bc1RgbaUnorm,
                 (Format::Dxt3, true) => TextureFormat::Bc2RgbaUnormSrgb,
                 (Format::Dxt3, false) => TextureFormat::Bc2RgbaUnorm,
+                (Format::Bc7, true) => TextureFormat::Bc7RgbaUnormSrgb,
+                (Format::Bc7, false) => TextureFormat::Bc7RgbaUnorm,
                 (_, true) => TextureFormat::Bc3RgbaUnormSrgb,
                 (_, false) => TextureFormat::Bc3RgbaUnorm,
             };
@@ -584,7 +586,8 @@ pub fn alpha_shares(bytes: &[u8]) -> Option<AlphaShares> {
                 add(p[3]);
             }
         }
-        Format::R8G8B8 => return None,
+        // BC7 alpha is not decoded on the CPU: no shares (as for layouts without alpha).
+        Format::R8G8B8 | Format::Bc7 => return None,
     }
     let n = counts.iter().sum::<usize>().max(1) as f32;
     Some(AlphaShares { clear: counts[0] as f32 / n, opaque: counts[1] as f32 / n, partial: counts[2] as f32 / n })

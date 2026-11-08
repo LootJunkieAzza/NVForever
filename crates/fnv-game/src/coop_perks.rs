@@ -197,6 +197,58 @@ pub fn from_others(others: impl IntoIterator<Item = (u8, bool)>, loyalty_dr: f64
     out
 }
 
+/// The perks the player's companions give the player [observed: FalloutNV.esm
+/// VNPCFollowersQuestSCRIPT (SCPT 0x001209D1) and P04CompanionFireQuestSCRIPT
+/// (0x0017B777) take each back from the player when its companion leaves: Boone
+/// Spotting, Arcade BetterHealing, Cass WhiskeyRose, Lily StealthGirl, Veronica
+/// ScribeAssistant, Raul RegularMaintenance and FullMaintenance, Rex SearchAndMark,
+/// ED-E EnhancedSensors; LonesomeRoad.esm NVDLC04EDEHireTriggerSCRIPT (0x0100CD49)
+/// gives NVDLC04EnhancedSensors and NVDLC04EDENoMines with its ED-E. Dead Money's,
+/// Honest Hearts' and Old World Blues' companions give the player none].
+pub const COMPANION_PERKS: [&str; 11] = [
+    "Spotting",
+    "BetterHealing",
+    "WhiskeyRose",
+    "StealthGirl",
+    "ScribeAssistant",
+    "RegularMaintenance",
+    "FullMaintenance",
+    "SearchAndMark",
+    "EnhancedSensors",
+    "NVDLC04EnhancedSensors",
+    "NVDLC04EDENoMines",
+];
+
+/// The companion perks the player has now (item 67: the host's go to every guest).
+pub fn companion_perks(g: &Game) -> Vec<FormId> {
+    COMPANION_PERKS.iter().filter_map(|e| g.data.by_edid(e)).filter(|p| has(g, *p)).collect()
+}
+
+/// Give the player `perk` as the host's companion gives it (item 67), recorded as the
+/// host's story so the guest's own save never keeps it (`crate::coop_story`). False when
+/// the player had it already (then it is not this game's to take back).
+pub fn mirror_perk(g: &mut Game, perk: FormId) -> bool {
+    if has(g, perk) {
+        return false;
+    }
+    g.coop_story.record_perk(perk, 0);
+    crate::perks::gain_rank(g, perk);
+    g.perk_event(perk, true, 0, 1);
+    g.sync_perk_abilities_of(FormId::PLAYER_REF);
+    true
+}
+
+/// Take back a perk [`mirror_perk`] gave.
+pub fn unmirror_perk(g: &mut Game, perk: FormId) {
+    if g.player.perks.remove(&perk).is_some() {
+        g.perk_event(perk, false, 0, 0);
+        g.sync_perk_abilities_of(FormId::PLAYER_REF);
+    }
+    if g.coop_story.perks.get(&perk) == Some(&0) {
+        g.coop_story.perks.remove(&perk);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

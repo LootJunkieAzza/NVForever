@@ -3492,6 +3492,9 @@ fn hit_player(rt: &mut crate::script::Runtime, sim: &mut SimState, dealt: f32, i
     Some(r)
 }
 
+/// VATS mode, dismemberment, knockbacks and a weapon bash, for `melee`.
+type BlowExtras<'w> = (Option<ResMut<'w, crate::vats_mode::VatsMode>>, ResMut<'w, crate::dismember::Dismemberment>, MessageWriter<'w, Knockback>, Option<ResMut<'w, crate::bash::WeaponBash>>);
+
 /// Melee and unarmed attacks (see the module notes).
 #[allow(clippy::too_many_arguments)]
 fn melee(
@@ -3509,7 +3512,7 @@ fn melee(
     (mut messages, mut pushes, mut broken, mut forced): (MessageWriter<ActorHit>, MessageWriter<ActorPush>, MessageWriter<WeaponBroken>, MessageWriter<ForcedHitReaction>),
     (parts, limbs): (Res<ActorParts>, Res<PlayerLimbs>),
     (sfx, mut sounds, mut impacts): (Option<Res<Sfx>>, MessageWriter<PlaySound>, MessageWriter<ImpactFx>),
-    (mut vats, mut dm, mut knocks, mut bash): (Option<ResMut<crate::vats_mode::VatsMode>>, ResMut<crate::dismember::Dismemberment>, MessageWriter<Knockback>, Option<ResMut<crate::bash::WeaponBash>>),
+    (mut vats, mut dm, mut knocks, mut bash): BlowExtras,
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;

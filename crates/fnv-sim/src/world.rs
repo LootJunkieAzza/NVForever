@@ -887,6 +887,40 @@ impl<'a> World<'a> {
         Ok(done)
     }
 
+    /// Dress actor `id` in `items`, the armour and weapon another game has it wear and
+    /// hold (a co-op guest's copy of the host's NPC: each game rolls carried items from
+    /// its own random numbers, so the same NPC came out dressed apart, queue 2026-11-07
+    /// item 71). Its armour and weapon not in `items` come off, each of `items` it lacks
+    /// is given (one) and each is put on; nothing else it carries changes. Afterwards
+    /// [`World::equipment`] is `items` (but for one a script locked on or off). Returns
+    /// whether anything changed. Not for the player.
+    pub fn dress_as(&mut self, id: FormId, items: &[FormId]) -> Result<bool, SimError> {
+        if id == FormId::PLAYER_REF {
+            return Ok(false);
+        }
+        if self.get(id)?.inventory.is_none() {
+            self.get(id)?.inventory = Some(Inventory::new());
+        }
+        self.outfit(id)?;
+        let mut changed = !std::mem::replace(&mut self.get(id)?.outfitted, true);
+        let forms = self.forms;
+        let drawn = |i: FormId| forms.item(i).is_some_and(|it| matches!(it.kind, ItemKind::Armor | ItemKind::Weapon));
+        let off: Vec<FormId> = self.inventory(id)?.equipped().into_iter().filter(|&i| drawn(i) && !items.contains(&i)).collect();
+        for i in off {
+            changed |= self.unequip(id, i).unwrap_or(false);
+        }
+        for &i in items.iter().filter(|&&i| drawn(i)) {
+            if self.inventory(id)?.is_equipped(i) {
+                continue;
+            }
+            if self.inventory(id)?.count(i) <= 0 {
+                self.add_item(id, i, 1)?;
+            }
+            changed |= self.equip(id, i).is_ok();
+        }
+        Ok(changed)
+    }
+
     /// Whether `id` is a merchant container that restocks: an actor names it in XMRC and
     /// its base has the Respawns flag. [observed in game: Primm's merchant box 0x0017409C,
     /// whose base lacks the flag, never refilled in 7 days of daily reads

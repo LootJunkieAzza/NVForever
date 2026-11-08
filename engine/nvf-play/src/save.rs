@@ -561,14 +561,14 @@ fn save_now(world: &mut World, r: &SaveRequest) -> Result<(), String> {
         SaveKind::Manual => r.name.as_str(),
     };
     let path = cfg.path_of(name)?;
-    let game = world.resource_scope(|world, mut sim: Mut<SimState>| {
+    let (game, story) = world.resource_scope(|world, mut sim: Mut<SimState>| {
         let mut st = world.resource_mut::<ScriptState>();
         let rt = st.rt.as_mut().ok_or("the scripts are not running")?;
         // The extender's SaveGame event, with the save's name [documented: NVSE Event
         // Handling], before the state is taken.
         Ok::<_, String>(crate::script::with_world(rt, &mut sim, |rt| {
             rt.game.dispatch_event("SaveGame", vec![fnv_script::vm::XVal::Str(name.to_string())], None);
-            rt.game.snapshot()
+            (rt.game.snapshot(), rt.game.coop_story.clone())
         }))
     })?;
     let engine = engine_snapshot(world);
@@ -582,7 +582,13 @@ fn save_now(world: &mut World, r: &SaveRequest) -> Result<(), String> {
             (header.place, header.location, header.weather) = (h.place.clone(), h.location.clone(), h.weather.clone());
             (header.game_year, header.game_month, header.game_day, header.game_hour) = (h.game_year, h.game_month, h.game_day, h.game_hour);
             info!("save: a co-op guest's save: its own game at {} with the character as it is now", h.location);
-            (solo.game.clone().with_character_of(&game), e)
+            // Without what the host's story gave or took (`fnv_game::coop_story`).
+            let mut now = game;
+            let undone = story.undo_on(&mut now);
+            if !undone.is_empty() {
+                info!("save: the host's story taken off the guest's character: {}", undone.join("; "));
+            }
+            (solo.game.clone().with_character_of(&now), e)
         }
         None => (game, engine),
     };

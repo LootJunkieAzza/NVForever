@@ -957,6 +957,32 @@ fn allies_stay_out_of_a_fight_a_script_forced_until_the_target_fights_back() {
 }
 
 #[test]
+fn a_forced_fight_with_another_co_op_player_brings_no_allies() {
+    // Overnight item 73 (2026-11-07 co-op playtest): at the end of the Silver Rush scene
+    // the Van Graffs attacked the guest. Soren's StartCombat on the player sets him on
+    // the guest's actor too (another player is attacked whenever the player would be),
+    // and that fight is as forced as the player's: no alarm, no help.
+    use fnv_game::awareness::Change;
+    let f = fixture();
+    let mut g = game(&f);
+    let (own, helper, guest, player) = (FormId(OWN_REF), FormId(HELPER_REF), FormId(COWARD_REF), FormId::PLAYER_REF);
+    only_near(&mut g, &[OWN_REF, HELPER_REF, COWARD_REF]);
+    g.coop_actors.insert(guest, "Guest".into());
+    g.start_combat(own, player);
+    assert!(g.would_attack(own, guest), "the guest is attacked as the player is");
+    assert!(g.fight_only_forced(own, guest));
+    let now = g.time;
+    g.awareness.changes.push(Change { actor: own, from: State::Normal, to: State::Combat, time: now, about: Some(guest), cause: None, at: Some([500.0, 0.0, 0.0]), value: Some(5.0) });
+    let near: std::collections::BTreeMap<FormId, [f32; 3]> = [(own, [0.0; 3]), (helper, [300.0, 0.0, 0.0]), (guest, [500.0, 0.0, 0.0])].into_iter().collect();
+    assert_eq!(g.raise_alarms(&near), 0);
+    assert!(!g.would_attack(helper, guest) && !g.would_attack(helper, player));
+    // The guest fights back: an ordinary fight.
+    g.attacked_by(own, guest);
+    assert!(g.hurt_by(own, guest, [500.0, 0.0, 0.0]));
+    assert!(!g.fight_only_forced(own, guest));
+}
+
+#[test]
 fn an_actor_warns_then_attacks_a_player_inside_its_aggro_radius() {
     // Playtest list 4, item 18 (`fnv_game::aggro`): unaggressive and neutral to the
     // player, Aggro Radius Behavior on, radius 650. Two warnings 5 s apart (iGuardWarnings,

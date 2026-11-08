@@ -330,11 +330,12 @@ pub fn arms(
     mut hands: ResMut<Hands>,
     (mut watching, mut watched): (ResMut<Watching>, Local<HashMap<u32, Watched>>),
     mut shown: Query<&mut Visibility>,
+    puppets: Query<(), With<crate::coop::Puppet>>,
 ) {
     let dt = time.delta_secs();
     let own = screen.0.as_ref().map(|d| d.board);
     match screen.0.as_ref().filter(|d| d.page == Page::Play && d.frame.is_some()) {
-        Some(d) => own_board(d, dt, &opp, body.as_deref(), &rigs, &parents, &globals, &mut transforms, &mut hands),
+        Some(d) => own_board(d, dt, &opp, body.as_deref(), (&rigs, &puppets), &parents, &globals, &mut transforms, &mut hands),
         None => *hands = Hands::default(),
     }
 
@@ -426,14 +427,22 @@ fn show(node: Option<Entity>, shown: &mut Query<&mut Visibility>) {
     }
 }
 
-/// This player's own board: its arm and the opponent's.
+/// The co-op puppets (other players' bodies).
+type Puppets<'w, 's> = Query<'w, 's, (), With<crate::coop::Puppet>>;
+
+/// How far from the throw line the other player's body is still taken for the one at this
+/// board (it waits back from the line between its turns) [design].
+const NEAR_BOARD: f32 = 160.0;
+
+/// This player's own board: its arm and the opponent's (the game's opponent, or the other
+/// player's body when two players throw at it, item 86).
 #[allow(clippy::too_many_arguments)]
 fn own_board(
     d: &nvf_play::minigames::Darts,
     dt: f32,
     opp: &DartsOpponent,
     body: Option<&crate::player_body::PlayerBody>,
-    rigs: &Query<(Entity, &ActorRig, &GlobalTransform)>,
+    (rigs, puppets): (&Query<(Entity, &ActorRig, &GlobalTransform)>, &Puppets),
     parents: &Query<&ChildOf>,
     globals: &Query<&GlobalTransform>,
     transforms: &mut Query<&mut Transform>,
@@ -442,8 +451,22 @@ fn own_board(
     let Some(f) = d.frame else { return };
     let now = d.now;
     let opponent = opp.0.as_ref().filter(|o| o.board == d.board && !o.gone);
+    // Two players at this board: the other one's body, the co-op puppet nearest the line.
+    let two = d.joined.is_some() || matches!(d.foe, nvf_play::minigames::Foe::Player(_));
+    let line = to_bevy(f.to_world(UP));
+    let local = body.and_then(|b| b.third_rig()).map(|r| r.0);
+    let flat = |g: &GlobalTransform| Vec2::new(g.translation().x - line.x, g.translation().z - line.z).length();
+    let other = two
+        .then(|| {
+            rigs.iter()
+                .filter(|(e, _, _)| Some(*e) != local && puppets.contains(*e))
+                .map(|(e, r, g)| (e, r, flat(g)))
+                .filter(|(_, _, dist)| *dist < NEAR_BOARD)
+                .min_by(|a, b| a.2.total_cmp(&b.2))
+        })
+        .flatten();
     // Who threw each dart in the air: this player, or the opponent (the other side).
-    let who = |side: usize| if side == d.mine() { Some(0) } else if opponent.is_some() { Some(1) } else { None };
+    let who = |side: usize| if side == d.mine() { Some(0) } else if opponent.is_some() || other.is_some() { Some(1) } else { None };
     for (since, _, side) in &d.flights {
         if let Some(k) = who(*side) {
             if hands.released[k].is_none_or(|r| r < *since) {
@@ -468,6 +491,12 @@ fn own_board(
             let at_line = o.at_line() && (d.m.up == 1 || o.release.is_some() || since(1, hands).is_some());
             throwers[1] = Some((root, rig.clone(), Throwing { at_line, draw: if d.m.up == 1 { draw } else { 0.0 }, since_release: since(1, hands) }));
         }
+    } else if let Some((root, rig, dist)) = other {
+        // Its arm is raised while its turn lasts and it stands at the line, and drawn
+        // back as its game says (the owner's view; a joined player's draw is not sent).
+        let up = d.m.up != d.mine() && d.m.winner.is_none() && !d.m.turn_over;
+        let at_line = dist < AT_LINE && (up || since(1, hands).is_some());
+        throwers[1] = Some((root, rig.clone(), Throwing { at_line, draw: if up { draw } else { 0.0 }, since_release: since(1, hands) }));
     }
     for (k, t) in throwers.into_iter().enumerate() {
         let Some((root, rig, t)) = t else {
@@ -479,6 +508,8 @@ fn own_board(
         hands.weight[k] = if t.at_line { (hands.weight[k] + step).min(1.0) } else { (hands.weight[k] - step).max(0.0) };
         let w = smooth(hands.weight[k]);
         match pose(root, &rig, &f, throw_path(&t), w, parents, transforms, globals) {
+            // The other player's hand holds a dart only while its arm is raised.
+            Ok(_) if k == 1 && opponent.is_none() && hands.weight[k] <= 0.0 => hands.now[k] = None,
             Ok(h) => hands.now[k] = Some(tip(&f, h)),
             Err(why) => {
                 hands.now[k] = None;

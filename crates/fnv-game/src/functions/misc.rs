@@ -21,6 +21,12 @@ pub fn show_message(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
     if g.message_disabled(m) {
         return none();
     }
+    // A co-op guest is in the host's game: the DLCs' "has been loaded" start messages
+    // its own start quests show are not for it (owner, 2026-11-08, queue item 83). Its
+    // own save keeps none of this session's quest stages, so it sees them in its own game.
+    if g.coop_guest && g.data.edid_of.get(&m).is_some_and(|e| dlc_start_message(e)) {
+        return none();
+    }
     // Too few variables for the text: the message does not show [documented: GECK wiki
     // ShowMessage notes]. Button texts take no variables [documented: same notes].
     let vars = message_vars(a);
@@ -45,6 +51,29 @@ pub fn show_message(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
         g.queue_corner_message();
     }
     none()
+}
+
+/// The DLC start quests' messages: Dead Money's (NVDLC01LoadedMsg, NVDLC01DownloadMessage),
+/// and NVDLC02-05's LoadMessage01/02 (Honest Hearts, Old World Blues, Lonesome Road, Gun
+/// Runners' Arsenal) [observed: `fnvtool esm inventory` of the five DLC masters].
+pub fn dlc_start_message(edid: &str) -> bool {
+    let e = edid.to_ascii_lowercase();
+    e == "nvdlc01loadedmsg" || e == "nvdlc01downloadmessage" || (e.starts_with("nvdlc0") && !e.contains("reload") && (e.ends_with("loadmessage01") || e.ends_with("loadmessage02")))
+}
+
+#[cfg(test)]
+mod dlc_start_tests {
+    use super::dlc_start_message;
+
+    #[test]
+    fn the_dlc_load_messages_are_known_and_others_are_not() {
+        for e in ["NVDLC01LoadedMsg", "NVDLC01DownloadMessage", "NVDLC02LoadMessage01", "NVDLC02LoadMessage02", "NVDLC03LoadMessage01", "NVDLC04LoadMessage02", "NVDLC05LoadMessage01"] {
+            assert!(dlc_start_message(e), "{e}");
+        }
+        for e in ["NVDLC04ReloadMessage", "NVDLC01ToxicCloudStartMsg", "NVDLC01Gala02ElevatorStartMsg", "VMS21LoadMessage01"] {
+            assert!(!dlc_start_message(e), "{e}");
+        }
+    }
 }
 
 /// The numbers for a message's format specifiers: the arguments after the message. A

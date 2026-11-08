@@ -83,7 +83,9 @@
 //! guest who joins or arrives later; a guest's door swings as the host's does. Lit
 //! campfires of Burning Campfire Redone go the same way ([`campfires`]): the host lists
 //! those burning in its game, a guest lights and puts out its own to match, and asks the
-//! host to light one it lit. So a
+//! host to light one it lit. The host's script scenes go too ([`scene`]): a guest is held
+//! as the host's scripts hold the host, sees the same fades and is brought beside the
+//! host. So a
 //! guest whose save has done everything joins a host who is just starting and sees the
 //! host's Goodsprings. None of it reaches the guest's own saves (its own game is kept, below).
 //!
@@ -175,6 +177,9 @@ use std::time::Duration;
 
 mod campfires;
 mod replication;
+mod leave;
+pub use leave::HoldLeave;
+mod scene;
 mod revive;
 
 /// The port `--join` uses when the address names none (and a code without a port means).
@@ -312,21 +317,35 @@ impl Plugin for CoopPlugin {
             doors_made: None,
             looks_taken: HashMap::new(),
             numbered: false,
+            wear_heard: HashMap::new(),
+            wear_taken: HashMap::new(),
             host_lines: None,
             handed_off: false,
             progress_in: Vec::new(),
             campfires: Default::default(),
             repl: Default::default(),
             repl_hud: None,
+            ended: false,
+            leaving: Default::default(),
+            scene: Default::default(),
         };
-        if let Some(port) = c.host.or_else(|| env(HOST_ENV).and_then(|p| p.trim().parse().ok())) {
+        // The main menu's run after a lobby ended neither hosts nor joins, whatever the
+        // command line it was started with says (`leave`).
+        let ended = env(leave::NO_LOBBY_ENV).is_some();
+        std::env::remove_var(leave::NO_LOBBY_ENV);
+        if ended {
+            info!("co-op: the lobby ended in the run before: not hosting or joining");
+        } else if let Some(port) = c.host.or_else(|| env(HOST_ENV).and_then(|p| p.trim().parse().ok())) {
             coop.start_hosting(port);
         } else if let Some(join) = c.join.clone().or_else(|| env(JOIN_ENV)) {
             coop.start_joining(&join);
         }
         app.add_plugins((nvf_play::lobby::LobbyPlugin, nvf_play::coop_progress::CoopProgressPlugin))
             .insert_resource(coop)
-            .add_systems(Update, (replication::frame_clock, lobby, send, take_events, share_doors, campfires::share_campfires, tables, social_mates, share_npcs, replication::replicate, follow_looks, follow_npcs, leash, downed, revive::bodies, progress, duel_falls, replication::hud).chain().after(nvf_play::PlaySet::Physics))
+            .add_systems(Update, (replication::frame_clock, lobby, send, take_events, share_doors, campfires::share_campfires, tables, social_mates, share_npcs, replication::replicate, follow_looks, follow_npcs, leash, scene::share_scene, downed, revive::bodies, progress, duel_falls, replication::hud).chain().after(nvf_play::PlaySet::Physics))
+            .init_resource::<HoldLeave>()
+            .add_systems(Update, (leave::guest_leaves.before(crate::handoff::leave), leave::tell_ended))
+            .add_systems(Last, leave::host_ends)
             .add_message::<PuppetShot>()
             .add_systems(Update, (stand_ins, draw, peer_lights, pipboy_share).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
     }
@@ -489,6 +508,10 @@ struct Coop {
     /// [`GUEST_CREATED`] yet.
     looks_taken: HashMap<u32, (u16, bool, u8)>,
     numbered: bool,
+    /// A guest: what the host's game draws each of its NPCs wearing and holding
+    /// (`net::Msg::Wear`), and what this game last dressed each in ([`follow_looks`]).
+    wear_heard: HashMap<u32, Vec<u32>>,
+    wear_taken: HashMap<u32, Vec<u32>>,
     /// A guest's: the lines the host's NPCs are saying, and when they came.
     host_lines: Option<(f32, Vec<net::LineView>)>,
     /// A host that let go of its port for a load's new run ([`lobby`]).
@@ -501,6 +524,13 @@ struct Coop {
     /// line for the corner readout.
     repl: replication::Repl,
     repl_hud: Option<String>,
+    /// A guest's: the host ended the lobby (told, or gone too long), not yet acted on
+    /// ([`leave::guest_leaves`]).
+    ended: bool,
+    /// A guest's way out while it autosaves ([`leave`]).
+    leaving: leave::Leaving,
+    /// The host's script scenes ([`scene::share_scene`]).
+    scene: scene::Shared,
 }
 
 /// One of the host's NPCs as a guest has heard it.
@@ -647,7 +677,7 @@ fn lobby(
     main_menu: Option<Res<nvf_play::main_menu::MainMenu>>,
     windows: Query<&mut Window, With<PrimaryWindow>>,
     mut titled: Local<Option<String>>,
-    tables: Option<Res<Tables>>,
+    (tables, script): (Option<Res<Tables>>, Option<Res<nvf_play::script::ScriptState>>),
     handoff: Option<Res<crate::handoff::Handoff>>,
 ) {
     let now = time.elapsed_secs();
@@ -684,6 +714,13 @@ fn lobby(
                 say("Lobby closed".into());
             }
             LobbyRequest::Close => {}
+            // A guest leaves its host's lobby (dropping the link says goodbye) and plays on
+            // alone in its own world.
+            LobbyRequest::Leave if coop.is_guest() => {
+                coop.stop_joining(&mut commands, &mut fighters);
+                say("You left the lobby".into());
+            }
+            LobbyRequest::Leave => {}
             LobbyRequest::Find(code) => {
                 if coop.is_host() {
                     say("Close your own lobby to join another".into());
@@ -762,9 +799,13 @@ fn lobby(
     };
     let mut players = Vec::new();
     if coop.link.is_some() {
-        players.push(if coop.is_host() { format!("{} (host)", coop.name) } else { coop.name.clone() });
+        // This player by its character's name, as the others call it (item 19).
+        let me = script.as_deref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.player.name.clone()).filter(|n| !n.trim().is_empty()).unwrap_or_else(|| coop.name.clone());
+        players.push(if coop.is_host() { format!("{me} (host, you)") } else { format!("{me} (you)") });
         for (&id, p) in &coop.peers {
             let n = label(id, &p.name);
+            // The host is player 0 (`nvf_coop`): marked on a guest's list.
+            let n = if id == 0 && n != "The host" { format!("{n} (host)") } else { n };
             // A player at a minigame table says so (the others' tables, module notes).
             let n = match tables.as_deref().and_then(|t| t.at_table(id)) {
                 Some(g) => format!("{n} (at {})", nvf_play::coop_tables::game::word(g)),
@@ -773,7 +814,7 @@ fn lobby(
             players.push(if p.lost { format!("{n} (reconnecting)") } else { n });
         }
     }
-    state.set_if_neq(LobbyState { hosting, players, joining: coop.joining.clone() });
+    state.set_if_neq(LobbyState { hosting, players, joining: coop.joining.clone(), guest: coop.is_guest() });
     // The window's title says what this game is in co-op.
     let what = match coop.link.as_ref().map(|l| (l.is_host(), l.id())) {
         None => "NVForever".to_string(),
@@ -938,17 +979,19 @@ fn social_mates(coop: Res<Coop>, loc: Option<Res<Location>>, mut mates: ResMut<n
     }
 }
 
-/// How long the loser of a duel lies on the winner's screen before its puppet stands
-/// again (seconds) [design: its own game's knockdown and get-up take about as long].
-const DUEL_FALL: f32 = 3.5;
+/// The longest the loser of a duel lies on the winner's screen: its puppet gets up when
+/// the loser's own body does (`flag::LYING` ends), and is drawn standing if that has not
+/// begun by then (seconds) [design: its own knockdown lies about 2.5 s, observed
+/// 2026-11-07].
+const DUEL_FALL_MAX: f32 = 8.0;
 
 /// How long a fallen puppet's throw waits for its ragdoll before it is let go (seconds).
 const DUEL_SHOVE_WAIT: f32 = 2.0;
 
 /// The loser of a duel against this player: its puppet falls as a downed player's does
 /// ([`downed`]), its ragdoll thrown away from this player as the loser's own game throws
-/// it (`nvf_play::coop_social::duel::throw`, the same velocity), and stands again after
-/// [`DUEL_FALL`].
+/// it (`nvf_play::coop_social::duel::throw`, the same velocity), and gets up with the
+/// loser's own body (`revive::bodies`), at most [`DUEL_FALL_MAX`] after the fall.
 #[allow(clippy::too_many_arguments)]
 fn duel_falls(
     time: Res<Time>,
@@ -981,6 +1024,9 @@ fn duel_falls(
             _ => [0.0, 0.0, nvf_play::coop_social::duel::THROW.1],
         };
         p.fall_shove = Some((shove, now));
+        // It gets up when the loser's own body does, with the get-up clip from the
+        // ragdoll's pose, as a revived player's puppet does (`revive::bodies`).
+        p.rising = Some(revive::Rising::Start { since: now });
         g.extra.entry(FormId(r)).or_default().dead = true;
         hits.write(ActorHit { form_id: r, died: true, knocked_out: false, location: -1, crippled: false, part_crippled: false, torso_crippled: false, by: None, share: 1.0, guard_broken: false, weapon: None });
         info!("co-op: {} lost the duel: the puppet falls, thrown at ({:.0}, {:.0}, {:.0}) units/s", label(id, &p.name), shove[0], shove[1], shove[2]);
@@ -1007,22 +1053,33 @@ fn duel_falls(
             None => {}
         }
     }
+    // Up: the get-up has begun (or the puppet was drawn standing for want of a body, a
+    // pose or a clip, `revive::bodies`); without either by then, it stands up as it did.
     for (&id, p) in coop.peers.iter_mut() {
-        if p.fell_at.is_none_or(|t| now - t < DUEL_FALL) {
+        let Some(t) = p.fell_at else { continue };
+        let waiting = matches!(p.rising, Some(revive::Rising::Start { .. }));
+        if p.down || (waiting && now - t < DUEL_FALL_MAX) {
+            if p.down {
+                p.fell_at = None;
+                p.fall_shove = None;
+            }
             continue;
         }
         p.fell_at = None;
         p.fall_shove = None;
-        if p.down {
-            continue;
-        }
         let r = p.reference(id);
         g.extra.entry(FormId(r)).or_default().dead = false;
-        if let Some(ph) = phys.as_deref_mut() {
-            ph.world.remove_ragdoll(r);
+        if waiting {
+            info!("co-op: {}'s get-up did not start: drawn standing", label(id, &p.name));
+            p.rising = None;
+            if let Some(ph) = phys.as_deref_mut() {
+                ph.world.remove_ragdoll(r);
+            }
+            ragdolls.rest.remove(&r);
+            p.redraw = true;
+        } else {
+            info!("co-op: {} is up again here after the duel, {:.1} s after the fall", label(id, &p.name), now - t);
         }
-        ragdolls.rest.remove(&r);
-        p.redraw = true;
     }
 }
 
@@ -1098,7 +1155,7 @@ fn pipboy_share(coop: Res<Coop>, mut checks: ResMut<crate::pipboy_check::PuppetC
 }
 
 /// Hand the link this game's newest state (it sends it on its own thread).
-fn send(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location>>, state: Option<Res<State<PlayState>>>, main_menu: Option<Res<nvf_play::main_menu::MainMenu>>, doing: Doing) {
+fn send(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location>>, state: Option<Res<State<PlayState>>>, main_menu: Option<Res<nvf_play::main_menu::MainMenu>>, doing: Doing, mut was_lying: Local<bool>) {
     let (Some(link), Some(player), Some(loc)) = (coop.link.as_ref(), player, loc) else { return };
     // At the main menu there is no player yet (the link says it is there all the same).
     if at_main_menu(main_menu.as_deref()) {
@@ -1125,7 +1182,13 @@ fn send(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location>>
     flags |= if sights && out { flag::SIGHTS } else { 0 };
     flags |= if doing.script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.is_dead(FormId::PLAYER_REF)) { flag::DOWN } else { 0 };
     flags |= if doing.flashlight.as_ref().is_some_and(|f| f.on) { flag::LIGHT } else { 0 };
-    flags |= if doing.knockdown.as_ref().is_some_and(|k| k.revive_lying()) { flag::LYING } else { 0 };
+    let lying = doing.knockdown.as_ref().is_some_and(|k| k.lying());
+    flags |= if lying { flag::LYING } else { 0 };
+    if lying != *was_lying {
+        *was_lying = lying;
+        // The others' copies of this player get up when this ends (`revive::bodies`).
+        info!("co-op: sent: this player's body {}", if lying { "lies" } else { "gets up" });
+    }
     s.flags = flags;
     if let (Some(pip), Some(glance)) = (doing.pipboy.0.as_deref(), doing.pipboy.1.as_deref()) {
         s.pipboy = nvf_play::pipboy::glance::Check::of(pip, glance).code();
@@ -1439,6 +1502,7 @@ fn take_events(
             }
             Event::HostGone => {
                 coop.host = None;
+                coop.ended = true;
                 notes.push("The host's game has ended".into());
             }
             Event::Npcs(list) => {
@@ -1491,8 +1555,10 @@ fn take_events(
             Event::Presence { list: net::LIST_OPEN, serial, page, pages, refs } => coop.doors_heard.hear(serial, page, pages, refs),
             Event::Presence { list: net::LIST_CAMPFIRE, pages, refs, .. } => coop.campfires.hear(pages, refs),
             Event::Presence { .. } => {}
+            Event::Wear(npcs) => coop.wear_heard.extend(npcs),
             Event::Campfire { id, reference } => coop.campfires.asked.push((id, reference)),
             Event::Door { id, reference, open } => coop.doors_in.push((id, reference, open)),
+            Event::Scene(v) => coop.scene.heard = Some((v, time.elapsed_secs())),
             Event::Clock(c) => {
                 // Not before this game is kept as the guest's own.
                 if let Some(sim) = sim.as_deref_mut().filter(|_| solo.is_some()) {
@@ -1834,14 +1900,14 @@ fn stand_ins(
 #[allow(clippy::type_complexity)]
 fn share_npcs(
     mut coop: ResMut<Coop>,
-    actors: Query<(&RefVisual, &Transform, Option<&Locomotion>, Option<&WeaponHold>, Has<Dying>, &InheritedVisibility, Option<&crate::furniture::OnFurniture>), (With<crate::limbs::ActorRig>, Without<Puppet>)>,
+    actors: Query<(&RefVisual, &Transform, Option<&Locomotion>, Option<&WeaponHold>, Has<Dying>, &InheritedVisibility, Option<&crate::furniture::OnFurniture>, Option<&crate::outfits::Dressed>), (With<crate::limbs::ActorRig>, Without<Puppet>)>,
     fighters: Res<Fighters>,
     mut attacks: MessageReader<PlayAttack>,
     mut told: Local<usize>,
     (sim, actor_world): (Option<Res<nvf_play::sim::SimState>>, Option<Res<ActorWorld>>),
 ) {
     let coop = &mut *coop;
-    let Some(_host) = coop.link.as_ref().filter(|l| l.is_host()) else {
+    let Some(link) = coop.link.as_ref().filter(|l| l.is_host()) else {
         attacks.clear();
         return;
     };
@@ -1861,7 +1927,8 @@ fn share_npcs(
     // were drawn with ([`follow_looks`]).
     let rolls = actor_world.as_deref().and_then(|w| w.rolls.lock().ok().map(|r| r.clone())).unwrap_or_default();
     let mut npcs = Vec::new();
-    for (v, t, lo, hold, dying, seen, on) in &actors {
+    let mut wear: Vec<(u32, Vec<u32>)> = Vec::new();
+    for (v, t, lo, hold, dying, seen, on, dressed) in &actors {
         // The dead too, out of sight or not: a guest lays its own body down.
         if (!seen.get() && !dying) || is_puppet(v.0) || players.contains(&v.0) {
             continue;
@@ -1891,7 +1958,17 @@ fn share_npcs(
             all_levels: level.all_levels,
             rolls: rolls.get(&r).copied().unwrap_or(0).min(127) as u8,
         });
+        // What it is drawn wearing and holding: each game rolls carried items from its
+        // own random numbers (item 71), so the guests dress their copies in this.
+        if let Some(d) = dressed {
+            wear.push((r, d.worn.iter().map(|i| i.0).chain(d.weapon.map(|w| w.0)).collect()));
+        }
     }
+    // The replication build dresses the guests' NPCs by the change log's Look (the
+    // host's worn list, `replication`); two senders could disagree and the NPC would
+    // flip between them, so this one stays quiet here.
+    drop(wear);
+    link.set_wear(Vec::new());
     if npcs.len().abs_diff(*told) >= 5 || (*told == 0) != npcs.is_empty() {
         *told = npcs.len();
         info!("co-op: sending the guests {} NPCs", npcs.len());
@@ -1908,6 +1985,10 @@ fn share_npcs(
 /// same: `fnv_actor::resolve`), and drawn again when that changes what is drawn. Before,
 /// a guest rolled its own picks at its own player's level (queue 2026-11-07 item 28,
 /// NPCs that looked different) and never drew the host's created actors (item 38).
+/// Each is also dressed in what the host's game draws it wearing and holding
+/// (`net::Msg::Wear`, `fnv_sim::World::dress_as`): carried items, outfits among them, are
+/// rolled from each game's own random numbers, not seeded by the reference, so the same
+/// NPC came out in another suit even at the same level (item 71).
 #[allow(clippy::type_complexity)]
 fn follow_looks(
     mut commands: Commands,
@@ -1921,6 +2002,8 @@ fn follow_looks(
     if !guest {
         coop.looks_taken.clear();
         coop.numbered = false;
+        coop.wear_heard.clear();
+        coop.wear_taken.clear();
         return;
     }
     let (Some(script), Some(sim), Some(aw)) = (script.as_deref_mut(), sim.as_deref_mut(), actor_world.as_deref()) else { return };
@@ -1938,7 +2021,6 @@ fn follow_looks(
         if s.base == 0 || coop.looks_taken.get(&r.0) == Some(&key) {
             continue;
         }
-        coop.looks_taken.insert(r.0, key);
         let name = rt.game.data.name(FormId(s.base));
         if r.is_dynamic() {
             match sim.world.peek(r).map(|st| st.base) {
@@ -1956,7 +2038,9 @@ fn follow_looks(
                 Some(_) => {}
             }
         }
+        // Taken only once it is known here, so one heard before is taken again.
         let Some(base) = sim.base_of(r.0) else { continue };
+        coop.looks_taken.insert(r.0, key);
         let drawn = |aw: &ActorWorld| aw.resolve(base.0, r.0).ok().map(|a| (a.npc, a.female, a.race, a.worn));
         let before = drawn(aw);
         let mut changed = false;
@@ -1986,6 +2070,26 @@ fn follow_looks(
             let what = after.as_ref().map_or_else(|| "nothing".to_string(), |a| rt.game.data.name(a.0));
             info!("co-op: {name} {r} takes the host's leveled pick ({what}, level {}, rolls {rolls}){}", s.level, if again { ": drawn again" } else { "" });
         }
+    }
+    // Dressed as the host's game draws it (item 71): the outfits follow the inventory,
+    // so it is drawn again in it (`outfits::follow_inventory`).
+    let heard: Vec<(u32, Vec<u32>)> = coop.wear_heard.iter().filter(|(r, w)| coop.wear_taken.get(*r) != Some(*w)).map(|(r, w)| (*r, w.clone())).collect();
+    for (r, items) in heard {
+        let id = FormId(r);
+        // An actor the host's game made, not made here yet: later.
+        if sim.world.peek(id).is_none() && sim.world.placed.get(id).is_none() {
+            continue;
+        }
+        let ids: Vec<FormId> = items.iter().map(|&i| FormId(i)).collect();
+        match sim.world.dress_as(id, &ids) {
+            Ok(true) => {
+                let worn: Vec<String> = ids.iter().map(|&i| rt.game.data.name(i)).collect();
+                info!("co-op: {} {id} dressed as the host's game has it: {}", rt.game.data.name(id), worn.join(", "));
+            }
+            Ok(false) => {}
+            Err(e) => warn!("co-op: {id} cannot be dressed as the host's game has it: {e}"),
+        }
+        coop.wear_taken.insert(r, items);
     }
 }
 
@@ -2116,6 +2220,9 @@ fn follow_npcs(
         g.story_plugins = STORY_PLUGINS.get().cloned().unwrap_or_else(|| vec![0]);
         info!("replication: this guest runs no world logic (story plugins {:?}); the host's world is drawn", g.story_plugins);
     }
+    // Test aid `NVF_COOP_TEST_CONSOLE_STORY=1`: the console's lines count as the host's
+    // story (`fnv_game::coop_story`), to check what a guest's save keeps (queue item 81).
+    g.coop_story.console_counts = std::env::var_os("NVF_COOP_TEST_CONSOLE_STORY").is_some();
     if g.coop_host_quest != coop.host_quest {
         g.coop_host_quest.clone_from(&coop.host_quest);
     }

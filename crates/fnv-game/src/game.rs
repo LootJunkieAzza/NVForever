@@ -941,6 +941,10 @@ pub mod menus {
     /// scripts test `MenuMode 1007 || MenuMode 1013` for a load, observed in the masters].
     /// Not reported: scripts do not run under NVForever's pause menu (`nvf_play::script`).
     pub const START: u16 = 1013;
+    /// The main menu, before a game is played (`Begin MenuMode 4`) [documented: GECK
+    /// wiki Globals, "the main menu (MenuMode 4)"]. Holds only in the main-menu frames
+    /// (`Game::main_menu_tick`), not under the pause menu during play [hypothesis].
+    pub const MAIN_MENU: u16 = 4;
     /// The Pip-Boy's DATA page (the map, quests, notes) [documented: GECK wiki
     /// GetSelectedItemRef, "Pipboy DATA Menu (1023) - Quest/Note/Challenge";
     /// GetMenuTargetRef, "1023 The Map Marker on which the mouse is over"].
@@ -1484,9 +1488,26 @@ pub struct Game<'a> {
     /// Co-op replication, the host's: the located script sounds and music its scripts
     /// asked for since the replication layer last took them (`None`: not hosting).
     pub coop_effects: Option<Vec<crate::sound::CoopEffect>>,
+    /// A co-op guest's: the control groups the host's scripts hold on the host's player
+    /// (a scene), held on this player too ([`Game::controls_locked`]; nvforever `coop`).
+    /// Not saved.
+    pub coop_host_locks: [bool; 7],
+    /// What scripts put on the player (EquipItem on the player, until UnequipItem), with
+    /// whether locked on (NoUnequipFlag): a co-op host sends those still worn to the
+    /// guests, who wear them too (a DLC's collar, jumpsuit or gown; nvforever `coop`).
+    /// Not saved.
+    pub script_worn: BTreeMap<FormId, bool>,
+    /// A co-op guest's: what the host's story put on this player ([`Game::script_worn`]
+    /// of the host's), with whether this game added the item for it (else the player had
+    /// one). Taken off, and the added ones taken away, when the host's player no longer
+    /// wears it or the guest leaves; a save must leave the added ones out (overnight item
+    /// 81). Not saved.
+    pub coop_story_gear: BTreeMap<FormId, bool>,
     /// A co-op session is on (host or guest), with another player in it: the co-op
     /// perks can be taken (`crate::coop_perks`).
     pub coop_session: bool,
+    /// What the host's story gave or took from this guest's player (`crate::coop_story`).
+    pub coop_story: crate::coop_story::CoopStory,
     /// What the other co-op players' companion perks give the player
     /// (`crate::coop_perks::FromOthers`).
     pub coop_from_others: crate::coop_perks::FromOthers,
@@ -2210,7 +2231,11 @@ impl<'a> Game<'a> {
             world_logic_off: false,
             story_plugins: Vec::new(),
             coop_effects: None,
+            coop_host_locks: [false; 7],
+            script_worn: BTreeMap::new(),
+            coop_story_gear: BTreeMap::new(),
             coop_session: false,
+            coop_story: Default::default(),
             coop_from_others: Default::default(),
             coop_host_quest: None,
             coop_rewards: crate::coop_rewards::RewardLedger::default(),
@@ -3284,7 +3309,7 @@ impl<'a> Game<'a> {
         }
         let Some(script) = self.ref_script(r) else { return false };
         let has = self.data.script(script).is_some_and(|u| u.has_block(event));
-        if !has {
+        if !has || self.host_runs_script_of(r, event) {
             return false;
         }
         let ran = self.run_event(
@@ -3555,7 +3580,7 @@ impl<'a> Game<'a> {
                 break;
             }
             let Some(script) = self.ref_script(r) else { continue };
-            if self.data.script(script).is_some_and(|u| u.has_block(ev)) {
+            if self.data.script(script).is_some_and(|u| u.has_block(ev)) && !self.host_runs_script_of(r, ev) {
                 let key = InstKey::Ref { reference: r };
                 if !in_menu {
                     self.mark_run(key, Some(script));
@@ -3647,6 +3672,9 @@ impl<'a> Game<'a> {
         }
         for r in self.active_refs() {
             let Some(script) = self.ref_script(r).filter(|s| wants(*s)) else { continue };
+            if self.host_runs_script_of(r, event::MENU_MODE) {
+                continue;
+            }
             self.run_blocks(InstKey::Ref { reference: r }, script, event::MENU_MODE, subject, RunCtx { self_ref: Some(r), ..Default::default() }, true);
         }
     }
@@ -3788,7 +3816,7 @@ impl<'a> Game<'a> {
     pub fn main_menu_tick(&mut self, code: u16) {
         self.time += self.cfg.frame_seconds;
         let data = self.data;
-        let has_block = |script: FormId| {
+        let has_block = |script: FormId, code: u16| {
             data.script(script).is_some_and(|u| {
                 u.program.blocks.iter().any(|b| {
                     b.event == event::MENU_MODE
@@ -3801,12 +3829,26 @@ impl<'a> Game<'a> {
                 })
             })
         };
-        let quests: Vec<(FormId, FormId)> =
-            self.quests.iter().filter(|(_, s)| s.running).filter_map(|(q, _)| Some((*q, data.quests.get(q)?.script?))).filter(|(_, s)| has_block(*s)).collect();
+        let quests: Vec<(FormId, FormId)> = self
+            .quests
+            .iter()
+            .filter(|(_, s)| s.running)
+            .filter_map(|(q, _)| Some((*q, data.quests.get(q)?.script?)))
+            .filter(|(_, s)| has_block(*s, code) || has_block(*s, menus::MAIN_MENU))
+            .collect();
         for (q, script) in quests {
             self.mark_run(InstKey::Quest { quest: q }, Some(script));
         }
         self.page_tick(code);
+        // `Begin MenuMode 4` is the main menu's own block [documented: GECK wiki Globals,
+        // "the main menu (MenuMode 4)", script-language.md §2.4]. Another Millenia
+        // (mil.esp, mil_Add-On.esp) adds its 2,384 leveled-list and form-list entries in
+        // one, after `if GetGameRestarted == 0 return` [observed in the plugins]; before,
+        // only the 1013 blocks ran here and those entries were never added. Run after the
+        // 1013 blocks of the same frame [hypothesis: the order within a frame].
+        let before = self.page_menu.replace(menus::MAIN_MENU);
+        self.side_blocks(menus::MAIN_MENU);
+        self.page_menu = before;
     }
 
     /// The animation file an idle plays: the path SetIdleAnimPath (or JIP's setter) gave

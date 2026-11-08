@@ -28,6 +28,10 @@
 //! The lines the host's NPCs are saying (a scene between two of them, a Say, a hello) go
 //! to the guests ([`LineView`], every [`LINES_EVERY`] and at once when they change), who
 //! hear them and see their subtitles as the host does.
+//! What a script scene does to the host's player goes to the guests ([`SceneView`],
+//! every [`SCENE_EVERY`] and at once when it changes): the control groups the host's
+//! scripts hold and the image space modifiers on the host's screen, so a guest is held
+//! and sees the same fades while the host's scene plays.
 //! Shared progression goes the same way ([`Session::send_progress`], [`Progress`]): a
 //! quest the host completed pays each guest its XP and caps, a save by anyone saves every
 //! game, and the host tells everyone to load the last shared save when all are down.
@@ -64,7 +68,7 @@ use std::time::{Duration, Instant};
 pub const MAGIC: [u8; 4] = *b"NVCO";
 /// The replication test build (docs/design/coop-replication.md) speaks its own protocol:
 /// 100 above the normal co-op build's, so the two never join each other.
-pub const VERSION: u8 = 118;
+pub const VERSION: u8 = 120;
 pub const MAX_GUESTS: usize = 3;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -178,8 +182,18 @@ pub const LIST_OPEN: u8 = 1;
 pub const LIST_CAMPFIRE: u8 = 2;
 /// How many lists there are.
 pub const LISTS: usize = 3;
+/// How often the host sends a page of what its NPCs wear ([`Msg::Wear`]).
+pub const WEAR_EVERY: Duration = Duration::from_millis(250);
+/// NPCs one wear page carries at most.
+pub const WEAR_PAGE: usize = 32;
+/// Items one NPC's entry carries at most (its worn armour and its weapon).
+pub const WEAR_ITEMS: usize = 16;
 /// How often the host sends its game clock.
 pub const CLOCK_EVERY: Duration = Duration::from_secs(2);
+/// How often the host sends its [`SceneView`] when it has not changed.
+pub const SCENE_EVERY: Duration = Duration::from_millis(500);
+/// Image space modifiers a [`SceneView`] carries at most.
+pub const SCENE_MODS_MAX: usize = 16;
 /// How often the host sends every player's name ([`Msg::Names`]), and at once after a
 /// guest joins.
 pub const NAMES_EVERY: Duration = Duration::from_secs(2);
@@ -189,6 +203,11 @@ pub const QUEST_OBJECTIVES: usize = 64;
 pub const HIT_MAX: usize = 64;
 /// Each hit is sent this many times (the host takes it once, by its id).
 const HIT_COPIES: usize = 3;
+/// A goodbye is sent this many times ([`Session::bye`]) [design: as [`HIT_COPIES`]].
+pub const BYE_COPIES: usize = HIT_COPIES;
+/// Between the copies of a goodbye [design: apart enough that one burst of loss does not
+/// take them all, short enough that quitting does not wait].
+const BYE_GAP: Duration = Duration::from_millis(15);
 /// Hit ids a host remembers per guest, to take each hit once.
 const HITS_KEPT: usize = 64;
 /// The most a table's blob takes ([`Session::set_table`]): one packet, with room to spare.
@@ -370,6 +389,8 @@ enum Msg {
     Unlock { reference: u32, terminal: bool },
     /// The host's game clock.
     Clock(ClockView),
+    /// What the host's scripts do to the host's player now ([`SceneView`]).
+    Scene(SceneView),
     /// The lines the host's NPCs are saying now (the newest `seq` wins).
     Lines { seq: u32, lines: Vec<LineView> },
     /// Page `page` of `pages` of one of the host's lists (`list`: [`LIST_ENABLED`], each
@@ -377,6 +398,10 @@ enum Msg {
     /// with the flag; [`LIST_OPEN`], the same for the open flag). `serial` changes when
     /// the list does; the pages go round, one at a time.
     Presence { list: u8, serial: u32, page: u16, pages: u16, refs: Vec<(u32, bool)> },
+    /// What some of the host's NPCs wear and hold, as its game draws them: each NPC's
+    /// reference and its worn armour and weapon (the whole set, so each entry stands
+    /// alone). The host sends a page every [`WEAR_EVERY`], round and round.
+    Wear { npcs: Vec<(u32, Vec<u32>)> },
     /// A door was opened (`open`) or closed by a player (to the host, and from it to
     /// everyone) or in the host's world.
     Door { reference: u32, open: bool },
@@ -452,6 +477,19 @@ pub struct ClockView {
     pub day: f32,
     pub hour: f32,
     pub days_passed: f32,
+}
+
+/// What the host's scripts do to the host's player now, for the guests to share: the
+/// control groups held (`locks`, bit `i` for group `i` in the order of
+/// `fnv_game::Player::controls_disabled`: movement, Pip-Boy, fighting, POV, looking,
+/// rollover, sneaking) and the image space modifiers on the screen (IMAD FormID, seconds
+/// since applied), at most [`SCENE_MODS_MAX`]; and what the host's scripts put on the host's
+/// player and it still wears (`worn`: item FormID, locked on), at most [`SCENE_MODS_MAX`].
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SceneView {
+    pub locks: u8,
+    pub mods: Vec<(u32, f32)>,
+    pub worn: Vec<(u32, bool)>,
 }
 
 /// The quest the host has active, as its quest list shows it: the guests show it in place
@@ -540,11 +578,15 @@ pub enum Event {
     Unlocked { id: u8, reference: u32, terminal: bool },
     /// The host's game clock, each time it comes (guests only).
     Clock(ClockView),
+    /// The host's [`SceneView`], each time it comes (guests only).
+    Scene(SceneView),
     /// The lines the host's NPCs are saying now, each time they come (guests only).
     Lines(Vec<LineView>),
     /// A page of one of the host's lists, each time it comes (guests only;
     /// [`Msg::Presence`]).
     Presence { list: u8, serial: u32, page: u16, pages: u16, refs: Vec<(u32, bool)> },
+    /// What some of the host's NPCs wear and hold ([`Msg::Wear`]).
+    Wear(Vec<(u32, Vec<u32>)>),
     /// Player `id` (0: the host's world) opened (`open`) or closed a door. It may come
     /// more than once.
     Door { id: u8, reference: u32, open: bool },
@@ -679,6 +721,9 @@ pub struct Session {
     /// The host's game clock now, and when it was last sent.
     clock: Option<ClockView>,
     last_clock: Option<Instant>,
+    /// The host's scene now, and when and what it last sent.
+    scene: SceneView,
+    last_scene: Option<(Instant, SceneView)>,
     /// The host's own name, and when every player's names last went.
     own_name: String,
     last_names: Option<Instant>,
@@ -690,6 +735,11 @@ pub struct Session {
     /// The host's lists ([`Msg::Presence`]), and when the last pages went.
     lists: [Paged; LISTS],
     last_presence: Option<Instant>,
+    /// What the host's NPCs wear ([`Msg::Wear`]), the next page to send and when the
+    /// last went.
+    wear: Vec<(u32, Vec<u32>)>,
+    wear_page: usize,
+    last_wear: Option<Instant>,
     /// This player's table view, and when it last went.
     table: Option<TableView>,
     last_table: Option<Instant>,
@@ -745,7 +795,7 @@ impl Session {
 
     fn with(sock: UdpSocket, role: Role) -> std::io::Result<Self> {
         sock.set_nonblocking(true)?;
-        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, own_name: String::new(), last_names: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, lists: Default::default(), last_presence: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), events: Vec::new(), rel: Reliable::new(), host_epoch: None, actor_seq: 0, heard_actors: None, sent: RefCell::new(HashMap::new()), heard: HashMap::new(), started: Instant::now() })
+        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, scene: SceneView::default(), last_scene: None, own_name: String::new(), last_names: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, lists: Default::default(), last_presence: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), wear: Vec::new(), last_wear: None, wear_page: 0, events: Vec::new(), rel: Reliable::new(), host_epoch: None, actor_seq: 0, heard_actors: None, sent: RefCell::new(HashMap::new()), heard: HashMap::new(), started: Instant::now() })
     }
 
     /// Also talk over Steam: a host is reached through it by a Steam code, a guest reaches
@@ -784,6 +834,14 @@ impl Session {
         self.clock = Some(clock);
     }
 
+    /// The host's scene now; [`Session::tick`] sends it when it changes and every
+    /// [`SCENE_EVERY`].
+    pub fn set_scene(&mut self, mut scene: SceneView) {
+        scene.mods.truncate(SCENE_MODS_MAX);
+        scene.worn.truncate(SCENE_MODS_MAX);
+        self.scene = scene;
+    }
+
     /// The host's own name, for the guests ([`Msg::Names`]).
     pub fn set_name(&mut self, name: &str) {
         let name = truncate(name);
@@ -809,6 +867,16 @@ impl Session {
             l.serial = l.serial.wrapping_add(1);
             l.page = 0;
         }
+    }
+
+    /// What the host's NPCs wear and hold now ([`Msg::Wear`]): each one's reference and
+    /// its worn armour and weapon. [`Session::tick`] sends a page every [`WEAR_EVERY`],
+    /// round and round (a lost page comes again); an entry has at most [`WEAR_ITEMS`].
+    pub fn set_wear(&mut self, mut npcs: Vec<(u32, Vec<u32>)>) {
+        for (_, items) in &mut npcs {
+            items.truncate(WEAR_ITEMS);
+        }
+        self.wear = npcs;
     }
 
     /// This player opened (`open`) or closed door `reference` (the host: or its world
@@ -1179,6 +1247,13 @@ impl Session {
                 self.last_clock = Some(now);
             }
         }
+        if self.is_host() && !self.peers.is_empty() && self.last_scene.as_ref().is_none_or(|(t, sent)| *sent != self.scene || now - *t >= SCENE_EVERY) {
+            let msg = Msg::Scene(self.scene.clone());
+            for addr in self.peers.iter().filter_map(|p| p.addr) {
+                self.sock_send(&msg, addr);
+            }
+            self.last_scene = Some((now, self.scene.clone()));
+        }
         if self.is_host() && !self.peers.is_empty() && self.last_names.is_none_or(|t| now - t >= NAMES_EVERY) {
             let names = std::iter::once((0, self.own_name.clone())).chain(self.peers.iter().map(|p| (p.id, p.name.clone()))).collect();
             let msg = Msg::Names { names };
@@ -1200,6 +1275,17 @@ impl Session {
                 self.lists[list].page = (page + 1) % pages;
             }
             self.last_presence = Some(now);
+        }
+        if self.is_host() && !self.peers.is_empty() && !self.wear.is_empty() && self.last_wear.is_none_or(|t| now - t >= WEAR_EVERY) {
+            let pages = self.wear.len().div_ceil(WEAR_PAGE);
+            let page = self.wear_page % pages;
+            let npcs = self.wear.iter().skip(page * WEAR_PAGE).take(WEAR_PAGE).cloned().collect();
+            let msg = Msg::Wear { npcs };
+            for addr in self.peers.iter().filter_map(|p| p.addr) {
+                self.sock_send(&msg, addr);
+            }
+            self.wear_page = (page + 1) % pages;
+            self.last_wear = Some(now);
         }
         if self.is_host() {
             let said: Vec<(u32, u32)> = self.lines.iter().map(|l| (l.speaker, l.info)).collect();
@@ -1482,7 +1568,7 @@ impl Session {
                     self.events.push(Event::Reliable { id, item });
                 }
             }
-            Msg::Welcome { .. } | Msg::Full | Msg::Who | Msg::Npcs { .. } | Msg::Quest(_) | Msg::Clock(_) | Msg::Lines { .. } | Msg::Presence { .. } | Msg::Names { .. } | Msg::Actors { .. } => {}
+            Msg::Welcome { .. } | Msg::Full | Msg::Who | Msg::Npcs { .. } | Msg::Quest(_) | Msg::Clock(_) | Msg::Scene(_) | Msg::Lines { .. } | Msg::Presence { .. } | Msg::Wear { .. } | Msg::Names { .. } | Msg::Actors { .. } => {}
         }
     }
 
@@ -1560,6 +1646,8 @@ impl Session {
                     self.events.push(Event::Look { id: peer, look });
                 }
             }
+            // Every copy of the host's goodbye after the first finds it gone already.
+            Msg::Bye { id: 0 } if *gone => {}
             Msg::Bye { id: 0 } => {
                 *gone = true;
                 for p in self.peers.drain(..) {
@@ -1627,7 +1715,9 @@ impl Session {
             }
             Msg::Unlock { reference, terminal } => self.events.push(Event::Unlocked { id: 0, reference, terminal }),
             Msg::Clock(c) => self.events.push(Event::Clock(c)),
+            Msg::Scene(v) => self.events.push(Event::Scene(v)),
             Msg::Presence { list, serial, page, pages, refs } => self.events.push(Event::Presence { list, serial, page, pages, refs }),
+            Msg::Wear { npcs } => self.events.push(Event::Wear(npcs)),
             Msg::Door { reference, open } => self.events.push(Event::Door { id: 0, reference, open }),
             Msg::Names { names } => {
                 for (peer, name) in names {
@@ -1708,12 +1798,20 @@ impl Session {
         }
     }
 
-    /// Say goodbye, so the others drop this player at once rather than after [`GRACE`].
+    /// Say goodbye, so the others drop this player at once rather than after [`GRACE`]:
+    /// [`BYE_COPIES`] times, [`BYE_GAP`] apart, as a hit is sent more than once, so one
+    /// lost packet does not leave the others waiting (queue item 90: a host that ends
+    /// the lobby must reach every guest).
     fn bye(&self) {
-        match &self.role {
-            Role::Host => self.relay_bye(0),
-            Role::Guest { host: Some(host), id: Some(id), gone: false, .. } => self.sock_send(&Msg::Bye { id: *id }, *host),
-            Role::Guest { .. } => {}
+        for i in 0..BYE_COPIES {
+            if i > 0 {
+                std::thread::sleep(BYE_GAP);
+            }
+            match &self.role {
+                Role::Host => self.relay_bye(0),
+                Role::Guest { host: Some(host), id: Some(id), gone: false, .. } => self.sock_send(&Msg::Bye { id: *id }, *host),
+                Role::Guest { .. } => return,
+            }
         }
     }
 }
@@ -1798,6 +1896,10 @@ impl Link {
         self.with(|s| s.set_clock(clock));
     }
 
+    pub fn set_scene(&self, scene: SceneView) {
+        self.with(|s| s.set_scene(scene));
+    }
+
     pub fn set_name(&self, name: &str) {
         self.with(|s| s.set_name(name));
     }
@@ -1808,6 +1910,11 @@ impl Link {
 
     pub fn set_presence(&self, list: u8, refs: Vec<(u32, bool)>) {
         self.with(|s| s.set_presence(list, refs));
+    }
+
+    /// [`Session::set_wear`].
+    pub fn set_wear(&self, npcs: Vec<(u32, Vec<u32>)>) {
+        self.with(|s| s.set_wear(npcs));
     }
 
     pub fn send_door(&self, reference: u32, open: bool) {
@@ -2030,6 +2137,20 @@ fn encode(msg: &Msg) -> Vec<u8> {
                 b.extend_from_slice(&v.to_le_bytes());
             }
         }
+        Msg::Scene(v) => {
+            let mods = &v.mods[..v.mods.len().min(SCENE_MODS_MAX)];
+            b.extend_from_slice(&[24, v.locks, mods.len() as u8]);
+            for (m, at) in mods {
+                b.extend_from_slice(&m.to_le_bytes());
+                b.extend_from_slice(&at.to_le_bytes());
+            }
+            let worn = &v.worn[..v.worn.len().min(SCENE_MODS_MAX)];
+            b.push(worn.len() as u8);
+            for (item, locked) in worn {
+                b.extend_from_slice(&item.to_le_bytes());
+                b.push(u8::from(*locked));
+            }
+        }
         Msg::Lines { seq, lines } => {
             b.push(17);
             b.extend_from_slice(&seq.to_le_bytes());
@@ -2058,6 +2179,17 @@ fn encode(msg: &Msg) -> Vec<u8> {
         Msg::Campfire { reference } => {
             b.push(22);
             b.extend_from_slice(&reference.to_le_bytes());
+        }
+        Msg::Wear { npcs } => {
+            b.push(23);
+            b.push(npcs.len().min(WEAR_PAGE) as u8);
+            for (r, items) in npcs.iter().take(WEAR_PAGE) {
+                b.extend_from_slice(&r.to_le_bytes());
+                b.push(items.len().min(WEAR_ITEMS) as u8);
+                for i in items.iter().take(WEAR_ITEMS) {
+                    b.extend_from_slice(&i.to_le_bytes());
+                }
+            }
         }
         Msg::Door { reference, open } => {
             b.push(20);
@@ -2111,7 +2243,7 @@ fn encode(msg: &Msg) -> Vec<u8> {
             }
         }
         Msg::Rel { epoch, frame } => {
-            b.push(23);
+            b.push(30);
             b.extend_from_slice(&epoch.to_le_bytes());
             b.extend_from_slice(&frame.ack.to_le_bytes());
             b.extend_from_slice(&frame.first.to_le_bytes());
@@ -2122,7 +2254,7 @@ fn encode(msg: &Msg) -> Vec<u8> {
             }
         }
         Msg::Actors { seq, ms, poses } => {
-            b.push(24);
+            b.push(31);
             b.extend_from_slice(&seq.to_le_bytes());
             b.extend_from_slice(&ms.to_le_bytes());
             b.push(poses.len().min(crate::repl::ACTORS_PER_PACKET) as u8);
@@ -2153,7 +2285,7 @@ fn decode(b: &[u8]) -> Option<Msg> {
             Msg::Hello { token, lobby, name: String::from_utf8_lossy(r.take(len)?).into_owned() }
         }
         2 => Msg::Welcome { id: r.u8()? },
-        23 => {
+        30 => {
             let epoch = r.u16()?;
             let ack = r.u32()?;
             let first = r.u32()?;
@@ -2168,7 +2300,7 @@ fn decode(b: &[u8]) -> Option<Msg> {
             }
             Msg::Rel { epoch, frame: Frame { ack, first, items } }
         }
-        24 => {
+        31 => {
             let seq = r.u32()?;
             let ms = r.u32()?;
             let n = r.u8()? as usize;
@@ -2299,6 +2431,26 @@ fn decode(b: &[u8]) -> Option<Msg> {
             Msg::Progress { id, seq, what }
         }
         13 => Msg::Clock(ClockView { year: r.f32()?, month: r.f32()?, day: r.f32()?, hour: r.f32()?, days_passed: r.f32()? }),
+        24 => {
+            let locks = r.u8()?;
+            let n = r.u8()? as usize;
+            if n > SCENE_MODS_MAX {
+                return None;
+            }
+            let mut mods = Vec::with_capacity(n);
+            for _ in 0..n {
+                mods.push((r.u32()?, r.f32()?));
+            }
+            let n = r.u8()? as usize;
+            if n > SCENE_MODS_MAX {
+                return None;
+            }
+            let mut worn = Vec::with_capacity(n);
+            for _ in 0..n {
+                worn.push((r.u32()?, r.u8()? != 0));
+            }
+            Msg::Scene(SceneView { locks, mods, worn })
+        }
         17 => {
             let seq = r.u32()?;
             let n = r.u8()? as usize;
@@ -2329,6 +2481,26 @@ fn decode(b: &[u8]) -> Option<Msg> {
         }
         20 => Msg::Door { reference: r.u32()?, open: r.u8()? != 0 },
         22 => Msg::Campfire { reference: r.u32()? },
+        23 => {
+            let n = r.u8()? as usize;
+            if n > WEAR_PAGE {
+                return None;
+            }
+            let mut npcs = Vec::with_capacity(n);
+            for _ in 0..n {
+                let reference = r.u32()?;
+                let k = r.u8()? as usize;
+                if k > WEAR_ITEMS {
+                    return None;
+                }
+                let mut items = Vec::with_capacity(k);
+                for _ in 0..k {
+                    items.push(r.u32()?);
+                }
+                npcs.push((reference, items));
+            }
+            Msg::Wear { npcs }
+        }
         21 => {
             let n = r.u8()? as usize;
             if n > MAX_GUESTS + 1 {
@@ -2401,12 +2573,15 @@ mod tests {
             Msg::Quest(QuestView::default()),
             Msg::Unlock { reference: 0x0001_2345, terminal: true },
             Msg::Clock(ClockView { year: 2281.0, month: 9.0, day: 19.0, hour: 13.25, days_passed: 6.05 }),
+            Msg::Scene(SceneView::default()),
+            Msg::Scene(SceneView { locks: 0x7F, mods: vec![(0x0101_013B, 0.25), (0x0001_5D2B, 3.5)], worn: vec![(0x0100_F3A4, true), (0x0100_6E8F, false)] }),
             Msg::Revive { target: 2, by: 0, perks: revive_perk::CURE_RADS },
             Msg::Presence { list: LIST_ENABLED, serial: 7, page: 0, pages: 1, refs: Vec::new() },
             Msg::Presence { list: LIST_OPEN, serial: 8, page: 2, pages: 3, refs: vec![(0x0010_A202, true), (0x0016_8A92, false)] },
             Msg::Door { reference: 0x0010_C0DE, open: true },
             Msg::Campfire { reference: 0x000C_DB59 },
             Msg::Presence { list: LIST_CAMPFIRE, serial: 1, page: 0, pages: 1, refs: vec![(0x000C_DB59, true)] },
+            Msg::Wear { npcs: vec![(0x0010_C0DE, vec![0x0001_5EB6, 0x0008_F2E1]), (0xFF00_0643, Vec::new())] },
             Msg::Lines { seq: 3, lines: Vec::new() },
             Msg::Lines {
                 seq: u32::MAX,
@@ -2687,6 +2862,37 @@ mod tests {
         assert!(seen[1].contains(&Event::Presence { list: LIST_OPEN, serial: 1, page: 0, pages: 1, refs: vec![(0x0010_C0DE, true)] }));
     }
 
+    /// What the host's NPCs wear reaches the guests page by page, round and round, each
+    /// NPC's whole set in one entry (item 71: the same NPC dressed alike in both games).
+    #[test]
+    fn what_the_hosts_npcs_wear_reaches_the_guests() {
+        let (mut host, mut guests, _) = host_and(1);
+        let a = &mut guests[0];
+        let mut clock = Instant::now();
+        let step = Duration::from_millis(20);
+        run(&mut [&mut host, a], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))));
+        let npcs: Vec<(u32, Vec<u32>)> = (0..WEAR_PAGE as u32 + 3).map(|i| (0x0010_0000 + i, vec![0x0001_0000 + i, 0x0002_0000])).collect();
+        host.set_wear(npcs.clone());
+        let pages = |seen: &[Event]| -> Vec<Vec<(u32, Vec<u32>)>> {
+            seen.iter()
+                .filter_map(|e| match e {
+                    Event::Wear(n) => Some(n.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        let seen = run(&mut [&mut host, a], &mut clock, step, |seen| pages(&seen[1]).len() >= 3);
+        let got = pages(&seen[1]);
+        assert_eq!((got[0].len(), got[1].len()), (WEAR_PAGE, 3));
+        assert_eq!([got[0].clone(), got[1].clone()].concat(), npcs);
+        assert_eq!(got[2], got[0], "round and round");
+        assert!(!seen[0].iter().any(|e| matches!(e, Event::Wear(_))), "not to the host");
+        // An entry carries at most WEAR_ITEMS items.
+        host.set_wear(vec![(0x0010_C0DE, (0..40).collect())]);
+        let seen = run(&mut [&mut host, a], &mut clock, step, |seen| pages(&seen[1]).iter().any(|p| p[0].0 == 0x0010_C0DE));
+        assert!(pages(&seen[1]).iter().any(|p| p[0] == (0x0010_C0DE, (0..WEAR_ITEMS as u32).collect())));
+    }
+
     /// A guest's animation reaches the host and the other guest once each (it goes three
     /// times), naming the guest, and not back to it; the host's reaches the guests.
     #[test]
@@ -2916,6 +3122,28 @@ mod tests {
         host.send_door(0x0001_D002, false);
         let seen = run(&mut [&mut host, &mut a, &mut b], &mut clock, step, |seen| door(&seen[1]) && door(&seen[2]));
         assert!(seen[1..].iter().all(|s| s.contains(&Event::Door { id: 0, reference: 0x0001_D002, open: false })));
+    }
+
+    #[test]
+    fn the_hosts_scene_reaches_the_guests_and_ends() {
+        let (mut host, mut g, _) = host_and(1);
+        let mut a = g.pop().unwrap();
+        let mut clock = Instant::now();
+        let step = Duration::from_millis(10);
+        run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))));
+        let held = SceneView { locks: 0x7F, mods: vec![(0x0101_013B, 0.1)], worn: vec![(0x0100_F3A4, true)] };
+        host.set_scene(held.clone());
+        let seen = run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].contains(&Event::Scene(held.clone())));
+        assert!(!seen[0].iter().any(|e| matches!(e, Event::Scene(_))), "not back to the host");
+        // Let go: the empty scene comes at once, not after SCENE_EVERY.
+        host.set_scene(SceneView::default());
+        let mut waited = Duration::ZERO;
+        let seen = run(&mut [&mut host, &mut a], &mut clock, step, |seen| {
+            waited += step;
+            seen[1].contains(&Event::Scene(SceneView::default()))
+        });
+        assert!(seen[1].contains(&Event::Scene(SceneView::default())));
+        assert!(waited < SCENE_EVERY, "a change goes at once ({waited:?})");
     }
 
     #[test]

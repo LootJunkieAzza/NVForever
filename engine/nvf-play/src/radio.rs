@@ -64,7 +64,8 @@
 //!   full level; by distance from a receiver or actor the radio template's (the station's
 //!   `INAM`, else the receiver's) minimum and maximum distance and attenuation curve as
 //!   `crate::sfx::distance_gain` uses them, times the template's static attenuation
-//!   ([`by_template`], queue item 48, 2026-11-07); without either template 150 and 1800
+//!   ([`by_template`], queue item 48, 2026-11-07), the curve's points read as a share of
+//!   power (queue item 69, 2026-11-08); without either template 150 and 1800
 //!   units and 13 dB (the AMLRadio template's). Receivers and actors are panned as the sound effects are
 //!   (`crate::sfx::Panned`, `SoundAt`); the Pip-Boy plays flat, at the listener. A
 //!   receiver is heard only within that maximum distance.
@@ -524,8 +525,18 @@ fn template(places: &RadioPlaces, sfx: &Sfx, station: u32, receiver_base: Option
 /// receivers of stations with AMLRadio (13 dB), AMLRadioLarge and AMLRadioTheTops
 /// templates, all heard ~13 dB louder before this]. The Pip-Boy has no template and
 /// plays as before.
+///
+/// The curve's percentages are taken as a share of the sound's power, so the amplitude
+/// is their square root [hypothesis, queue item 69, owner 2026-11-07: "radio in world is
+/// loud, but also needs a wider range, its range is so short it cuts out". Read as a
+/// share of the amplitude (`crate::sfx::distance_gain`, every other placed sound),
+/// AMLRadio's curve 100, 59, 27, 7, 0 over 150-1800 units put a receiver 11 dB down at
+/// 975 units and 23 dB down at 1390, so it was gone well before its maximum distance;
+/// as power it is 5.7 dB down at 975, 11.5 dB at 1390 and fades out at 1800. How the
+/// original reads the curve is a question for the decompilation reader (results
+/// 2026-11-08); only radios take this reading until then].
 pub fn by_template(template: &Sound, distance: f32) -> f32 {
-    distance_gain(template, distance) * static_gain(template)
+    distance_gain(template, distance).sqrt() * static_gain(template)
 }
 
 fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
@@ -1142,7 +1153,12 @@ fn play(
         }
         let looping = matches!(w.track, Track::Loop(_));
         let Some(bytes) = radio.bytes(&data.vfs, &w.path) else { continue };
-        let from = if w.into > JOIN { w.into } else { 0.0 };
+        // A part is joined where it has got to as the sound starts, not where it was at the
+        // frame's start: in a long frame (loading a place, a hitch) the two are apart by the
+        // frame's length, and a guest started its line that much late (queue item 69,
+        // observed 0.47 s) [observed 2026-11-08, `co-op radio sync` log].
+        let into = if looping { w.into } else { w.into + time.last_update().map_or(0.0, |t| t.elapsed().as_secs_f64()) };
+        let from = if into > JOIN { into } else { 0.0 };
         let Some((sound, level)) = RadioSound::new(bytes, from, looping) else {
             if radio.reported.insert(w.path.clone()) {
                 warn!("radio: {}: not decoded", w.path);
@@ -1177,6 +1193,12 @@ fn play(
             w.path,
             if from > 0.0 { format!(" from {from:.1} s") } else { String::new() },
         );
+        // In co-op, where this part's beginning falls on the computer's clock: two games on
+        // one computer that play the same part in step log the same time (queue item 69).
+        if !looping && shared.as_deref().is_some_and(|s| s.on) {
+            let wall = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
+            info!("co-op radio sync: {who} {} begins at {:.3} on the computer's clock (from {from:.2} s, host clock {:.2})", w.path, wall - from, host_now.map_or(-1.0, |h| h - from));
+        }
         match w.key {
             PIPBOY => radio.pipboy_parts += 1,
             PIPBOY_STATIC | TABLE => {}
@@ -1296,6 +1318,23 @@ mod tests {
         assert_eq!(by_template(&large, 2600.0), 0.0);
         let none = Sound { min_distance: DEFAULT_MIN, max_distance: DEFAULT_MAX, static_attenuation_db: DEFAULT_DB, ..Sound::default() };
         assert!((by_template(&none, 100.0) - 0.2239).abs() < 1e-3);
+    }
+
+    /// AMLRadio's curve read as power: a gradual fade out to its maximum distance.
+    #[test]
+    fn a_receiver_fades_out_over_its_whole_range() {
+        let aml = Sound { min_distance: 150.0, max_distance: 1800.0, static_attenuation_db: 13.0, attenuation_curve: Some([100.0, 59.0, 27.0, 7.0, 0.0]), ..Default::default() };
+        let db = |d: f32| 20.0 * (by_template(&aml, d) / by_template(&aml, 100.0)).log10();
+        assert!((db(975.0) - -5.69).abs() < 0.05, "{}", db(975.0));
+        assert!((db(1387.5) - -11.55).abs() < 0.05, "{}", db(1387.5));
+        assert!(db(1700.0) > -20.0 && by_template(&aml, 1700.0) > 0.0, "still heard near its edge: {}", db(1700.0));
+        assert_eq!(by_template(&aml, 1800.0), 0.0);
+        let mut last = 1.0;
+        for d in (100..1800).step_by(50) {
+            let g = by_template(&aml, d as f32);
+            assert!(g <= last, "never louder farther out");
+            last = g;
+        }
     }
 
     /// A radio song plays at full level whatever its record's static attenuation (#1077).

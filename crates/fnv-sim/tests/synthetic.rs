@@ -2426,3 +2426,37 @@ fn an_npc_is_dressed_as_the_host_has_it() {
     // The player is never dressed so.
     assert!(!guest.wear_as(FormId::PLAYER_REF, &worn).unwrap());
 }
+
+/// A co-op guest dresses its copy of an NPC as the host's game has it (World::dress_as,
+/// queue 2026-11-07 item 71): what the host's game rolled replaces the guest's own
+/// choice, items it lacks are given, and what else it carries stays.
+#[test]
+fn an_npc_dressed_as_another_game_has_it_wears_that() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let g = w.place(id(GUARD), None, [0.0; 3], [0.0; 3], 1).unwrap();
+    let set = |v: Option<Vec<FormId>>| -> Vec<u32> {
+        let mut v: Vec<u32> = v.unwrap().into_iter().map(|i| i.0).collect();
+        v.sort();
+        v
+    };
+    // The host's game has it in the hat with the pistol drawn, no helmet, no suit.
+    let host = [id(HAT), id(PISTOL)];
+    assert_eq!(w.dress_as(g, &host), Ok(true));
+    let mut want = vec![HAT, PISTOL];
+    want.sort();
+    assert_eq!(set(w.equipment(g)), want);
+    // The helmet, suit and long gun are still carried.
+    let inv = w.inventory_mut(g).unwrap();
+    assert_eq!((inv.count(id(HELMET)), inv.count(id(SUIT)), inv.count(id(LONG_GUN))), (1, 1, 1));
+    // Again: nothing changes.
+    assert_eq!(w.dress_as(g, &host), Ok(false));
+    // An item it does not carry is given (one) and worn; the mines stay as they were.
+    w.remove_item(g, id(SUIT), 1).unwrap();
+    assert_eq!(w.dress_as(g, &[id(SUIT)]), Ok(true));
+    assert_eq!(set(w.equipment(g)), vec![SUIT]);
+    assert_eq!(w.inventory_mut(g).unwrap().count(id(SUIT)), 1);
+    assert_eq!(w.inventory_mut(g).unwrap().count(id(MINE)), 2);
+    // Never the player.
+    assert_eq!(w.dress_as(FormId::PLAYER_REF, &host), Ok(false));
+}

@@ -760,6 +760,21 @@ pub fn drive(
             slot.play.stop();
         }
     }
+    // In a conversation the player stands: an idle played while moving (the Movement
+    // section, Just Assorted Mods' sprint) ends, so the arms and the body drop out of the
+    // run. The game runs on under the dialogue screen, so the idle would loop for the
+    // whole conversation: its script returns on `MenuMode` and only stops it once the
+    // menu closes [design: owner's playtest 2026-11-07, overnight item 91; hypothesis:
+    // the original pauses the world and shows no first-person run there]. The sprint's
+    // script plays it again after the conversation if the player still sprints.
+    if game.dialogue.is_some() {
+        for c in [&mut pi.first.cur, &mut pi.third.cur].into_iter().flatten() {
+            if c.group.is_none() && !c.play.ended() && moves_with_player(game, FormId(c.idle)) {
+                info!("idle: the player's {:08X} ends as the conversation starts", c.idle);
+                c.play.stop();
+            }
+        }
+    }
     busy.insert(player_ref, pi.first.playing().is_some() || pi.third.playing().is_some());
     // An idle asked for this frame (a package's begin idle) comes before its collection.
     for r in &game.idle_requests {
