@@ -435,7 +435,7 @@ impl Glyph {
         use bevy::asset::RenderAssetUsages;
         use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
         let label = self.label().expect("a labelled button");
-        let half = LABELED_TILE as f32 / 2.0;
+        let half = GLYPH_PIXELS as f32 / 2.0;
         let stroke_px = RING_STROKE * half;
         let outer_h_px = RING_OUTER * 2.0 * half;
         // The capsule is as wide as its label needs (at least its own height), a tile
@@ -443,10 +443,10 @@ impl Glyph {
         // `label_scale`, so the capsule measures the scaled width too, or "Select" runs
         // far wider than its drawn letters.
         let (w, h) = if self.is_knob() {
-            (LABELED_TILE, LABELED_TILE)
+            (GLYPH_PIXELS, GLYPH_PIXELS)
         } else {
             let outer_w = (font.font.width(label) * label_scale(self) + 2.0 * CAPSULE_PAD_X + 2.0 * stroke_px).max(outer_h_px);
-            (outer_w.ceil() as u32, LABELED_TILE)
+            (outer_w.ceil() as u32, GLYPH_PIXELS)
         };
         let hw = w as f32 / 2.0 / half;
         // The ring's signed distance, then the soft edge and halo (the alpha), per pixel.
@@ -491,7 +491,9 @@ const CAPSULE_CORNER: f32 = 0.25;
 const CAPSULE_PAD_X: f32 = 9.0;
 /// The labelled glyph pictures' tile in pixels: a capsule is this high and a knob this
 /// square (the face symbols' tile), the ring drawn within it [design].
-const LABELED_TILE: u32 = 64;
+/// The glyph pictures' tile in pixels: a face symbol is this square and a labelled button
+/// this high, the ring drawn within it [design].
+pub const GLYPH_PIXELS: u32 = 64;
 
 /// The signed distance to a rounded rectangle of half extents `(hx, hy)` and corner radius
 /// `r`, negative inside.
@@ -628,6 +630,145 @@ fn rounded_box_distance(p: Vec2, h: f32, r: f32) -> f32 {
     let q = p.abs() - Vec2::splat(h - r);
     q.max(Vec2::ZERO).length() - r + q.x.max(q.y).min(0.0)
 }
+
+/// The PlayStation button glyph pictures, loaded once for the run and shared by every
+/// hint that draws one [design, #1829].
+#[derive(Resource)]
+pub struct PadGlyphs {
+    /// The twelve pictures, in [`Glyph::ALL`]'s order; `None` until loaded.
+    images: [Option<Handle<Image>>; 12],
+    /// Each picture's aspect ratio (width / height); the face symbols are 1.
+    aspects: [f32; 12],
+}
+
+impl Default for PadGlyphs {
+    fn default() -> Self {
+        PadGlyphs { images: std::array::from_fn(|_| None), aspects: [1.0; 12] }
+    }
+}
+
+impl PadGlyphs {
+    /// The button's picture and its aspect ratio, once loaded.
+    pub fn image(&self, g: Glyph) -> Option<(Handle<Image>, f32)> {
+        let i = Glyph::ALL.iter().position(|x| *x == g)?;
+        self.images[i].as_ref().map(|h| (h.clone(), self.aspects[i]))
+    }
+
+    /// Build the twelve pictures: the four face symbols and, from the HUD's font 7, the
+    /// eight labelled buttons.
+    fn load(data: &nvf_assets::GameData, images: &mut Assets<Image>, bc: bool) -> PadGlyphs {
+        let mut glyphs = PadGlyphs::default();
+        for (i, g) in Glyph::FACES.iter().enumerate() {
+            glyphs.images[i] = Some(images.add(g.image(GLYPH_PIXELS)));
+        }
+        // The labelled buttons' labels come from the HUD's font (the crosshair's).
+        let face = crate::interface::face(FONT7, crate::interface::plain_font(36.0, 17.0), Some(data), images, bc);
+        let tex = face.image.as_ref().and_then(|(h, _)| images.get(h)).and_then(|t| t.data.clone().map(|d| (d, t.width(), t.height())));
+        if let Some((rgba, tw, th)) = tex {
+            let font = FontImage { font: &face.font, tex: &rgba, tex_w: tw, tex_h: th };
+            for (i, g) in Glyph::LABELED.iter().enumerate() {
+                let img = g.labeled_image(&font);
+                let j = Glyph::FACES.len() + i;
+                glyphs.aspects[j] = img.width() as f32 / img.height() as f32;
+                glyphs.images[j] = Some(images.add(img));
+            }
+        }
+        glyphs
+    }
+}
+
+/// The HUD's font, whose letters the labelled buttons' labels are written in [documented:
+/// `Fallout_default.ini` `sFontFile_7`].
+const FONT7: &str = "textures\\fonts\\baked-in_monofonto_large.fnt";
+
+/// Load the PlayStation button glyph pictures once the game's data is in (the first time
+/// a hint could draw one).
+fn load_pad_glyphs(
+    data: Option<Res<nvf_assets::GameData>>,
+    mut images: ResMut<Assets<Image>>,
+    formats: Option<Res<bevy::image::CompressedImageFormatSupport>>,
+    mut glyphs: ResMut<PadGlyphs>,
+) {
+    if glyphs.images.iter().any(Option::is_some) {
+        return;
+    }
+    let Some(data) = data.as_deref() else { return };
+    let bc = crate::interface::bc_supported(formats.as_deref());
+    *glyphs = PadGlyphs::load(data, &mut images, bc);
+}
+
+/// The PlayStation button a hint names, and the byte range of its name, when the hint has
+/// the name followed by ")" or "]" (the hint builders write "Cross)", "[Circle]").
+fn find_glyph(hint: &str) -> Option<(Glyph, usize, usize)> {
+    Glyph::ALL.iter().find_map(|g| {
+        let name = g.name();
+        hint.match_indices(name).find_map(|(i, _)| {
+            let after = hint[i + name.len()..].chars().next();
+            matches!(after, Some(')') | Some(']')).then_some((*g, i, i + name.len()))
+        })
+    })
+}
+
+/// A hint split at its button: the words before, the button (if the hint names one), and
+/// the words after.
+fn hint_parts(hint: &str) -> (Option<Glyph>, &str, &str) {
+    match find_glyph(hint) {
+        Some((g, start, end)) => (Some(g), &hint[..start], &hint[end..]),
+        None => (None, hint, ""),
+    }
+}
+
+/// The width [`set_hint`] draws `hint` in, so a caller can align it before drawing.
+pub fn hint_width(face: &crate::interface::Face, hint: &str, glyphs: &PadGlyphs) -> f32 {
+    let width = |s: &str| face.font.lines(s, None).into_iter().next().map_or(0.0, |l| l.width);
+    let (glyph, before, after) = hint_parts(hint);
+    let glyph_w = glyph.map_or(0.0, |g| glyphs.image(g).map_or_else(|| width(g.name()), |(_, aspect)| face.font.size * GLYPH_SHARE * aspect));
+    width(before) + glyph_w + width(after)
+}
+
+/// Draw a hint line that may name a PlayStation button, drawing that button's glyph in
+/// place of its name. Returns the line's width. `glyphs`: the button pictures (until they
+/// are loaded the name is written).
+pub fn set_hint(
+    p: &mut ChildSpawnerCommands,
+    face: &crate::interface::Face,
+    hint: &str,
+    x: f32,
+    base: f32,
+    color: Color,
+    glyphs: &PadGlyphs,
+) -> f32 {
+    let line = |s: &str| face.font.lines(s, None).into_iter().next().unwrap_or_default();
+    let (glyph, before, after) = hint_parts(hint);
+    let before = line(before);
+    crate::interface::set_line(p, face, &before, x, base, color);
+    let mut width = before.width;
+    if let Some(g) = glyph {
+        match glyphs.image(g) {
+            Some((image, aspect)) => {
+                let side = face.font.size * GLYPH_SHARE;
+                let w = side * aspect;
+                let corner = Vec2::new(x + width, base - side * GLYPH_RISE);
+                p.spawn((crate::interface::at(corner.x, corner.y, w, side), ImageNode { color, ..ImageNode::new(image) }));
+                width += w;
+            }
+            None => {
+                // The picture is not loaded yet: write the name as text.
+                let name = line(g.name());
+                crate::interface::set_line(p, face, &name, x + width, base, color);
+                width += name.width;
+            }
+        }
+    }
+    let after = line(after);
+    crate::interface::set_line(p, face, &after, x + width, base, color);
+    width + after.width
+}
+
+/// A hint glyph's height as a share of the font's size, and how much of it stands above
+/// the line, as in the crosshair prompt (`reticle.rs`) [design, #1452].
+const GLYPH_SHARE: f32 = 0.7;
+const GLYPH_RISE: f32 = 0.92;
 
 
 /// The input of a name (without case); `None` for none or an unknown name.
@@ -1064,8 +1205,9 @@ impl Plugin for PadPlugin {
             .init_resource::<MenuKeys>()
             .init_resource::<ButtonStyle>()
             .init_resource::<PadInUse>()
+            .init_resource::<PadGlyphs>()
             .add_systems(PreUpdate, (update_stick_buttons, menu_keys, track_pad, sync_labels.after(track_pad)).after(InputSystems))
-            .add_systems(Update, log_pads);
+            .add_systems(Update, (log_pads, load_pad_glyphs.before(crate::PlaySet::Ui)));
         crate::settings::add_choice_list(
             app,
             crate::settings::Setting {
@@ -1341,6 +1483,20 @@ mod tests {
             assert!(!g.is_face() && g.label().is_some());
             assert_eq!(g.is_knob(), matches!(g, Glyph::L3 | Glyph::R3));
         }
+    }
+
+    #[test]
+    fn a_hint_names_its_button_where_it_stands() {
+        assert_eq!(find_glyph("Cross)"), Some((Glyph::Cross, 0, 5)));
+        assert_eq!(find_glyph("Exit Cross)"), Some((Glyph::Cross, 5, 10)));
+        assert_eq!(find_glyph("[Circle] Goodbye"), Some((Glyph::Circle, 1, 7)));
+        assert_eq!(find_glyph("Delete  L1)"), Some((Glyph::L1, 8, 10)));
+        assert_eq!(find_glyph("Start)"), Some((Glyph::Start, 0, 5)));
+        // The Xbox and keyboard names, and words that are not buttons, stay text.
+        assert_eq!(find_glyph("A)"), None);
+        assert_eq!(find_glyph("[B] Goodbye"), None);
+        assert_eq!(find_glyph("Accept"), None);
+        assert_eq!(find_glyph("Select a card"), None);
     }
 
     #[test]
