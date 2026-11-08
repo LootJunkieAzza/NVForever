@@ -11,8 +11,9 @@ vertices in `engine/nvforever/src/nif_mirror.rs`. Tests: `crates/fnv-game/tests/
 
 Source: the GECK wiki export [documented: the page named], in our own words. The modes'
 category page ("NifBlock Interpolation Functions (SUP)") is not in the export; the modes
-are read from the functions' examples. Not probed yet: set `sup7` of
-`tools/capture/jip_probes.py` (lab `L5.ext.sup7`), questions in §5.
+are read from the functions' examples. Probed once in the original: set `sup7` of
+`tools/capture/jip_probes.py` (lab `L5.ext.sup7`), the answers in §5 and as [observed]
+below.
 
 ## 1. The interpolations
 
@@ -21,10 +22,10 @@ are read from the functions' examples. Not probed yet: set `sup7` of
 | NifBlockInterpolateTranslation `block x0 y0 z0 x1 y1 z1 timer mode world pc calcStart` | the block's translation from start to end in `timer` seconds by mode [documented]; 1 when it runs, 0 without a reference or a block name [hypothesis] |
 | NifBlockInterpolateRotation `block x0 y0 z0 x1 y1 z1 timer mode pc calcStart` | the rotation (degrees, as GetNifBlockRotation) the same way [documented] |
 | NifBlockInterpolateScale `block s0 s1 timer mode pc calcStart` | the scale the same way [documented] |
-| NifBlockInterpolateStop `[block] [type] [pc]` | stops the matching ones; 1 when one matched [hypothesis: "success:bool"]; the block keeps the value it had [hypothesis] |
-| IsNifBlockInterpolated `[block] [type] [pc]` | 1 when one matches [documented] |
-| NifBlockInterpolateSetTrait `trait value [block] [type] [pc]` | trait 0: the start value set again when it ends [documented]; 1 when one matched, 0 for another trait [hypothesis] |
-| SetSUPOnInterpolateFinishEvent `udf [loops]` | the handler, called `{ref, block, type, fromLoop, pc}` when one ends, and with `loops` at each loop's end too [documented: the handler skeleton]; the same handler again changes its loops flag [hypothesis] |
+| NifBlockInterpolateStop `[block] [type] [pc]` | stops the matching ones; 1 when one matched [hypothesis: "success:bool"], -1 when none [observed]; without arguments every one of the reference, 0 [observed: the result; documented: "Will stop all interpolations"]; the block keeps the value it had [hypothesis] |
+| IsNifBlockInterpolated `[block] [type] [pc]` | 1 when one matches [documented]; without a block 0 [observed: with a scale running, against the page's example] |
+| NifBlockInterpolateSetTrait `trait value [block] [type] [pc]` | trait 0: the start value set again when it ends [documented]; 0 [observed: on a running one and for trait 5] |
+| SetSUPOnInterpolateFinishEvent `udf [loops]` | the handler, called `{ref, block, type, fromLoop, pcNode}` when one ends (pcNode 1 on the player's third-person model [observed]; read as "the reference is the player" [hypothesis: the name]), and with `loops` at each loop's end too [documented: the handler skeleton]; the same handler again changes its loops flag [hypothesis] |
 | RemoveSUPOnInterpolateFinishEvent `udf` | takes the handler away [documented] |
 
 - **Modes** [hypothesis: the category page is missing]: 0 start to end once (the first
@@ -32,11 +33,12 @@ are read from the functions' examples. Not probed yet: set `sup7` of
   once ("from start to end and to start again"); 2 there and back again and again ("Infinite
   amount of times … and then back"); 3 start to end again and again, the remaining case.
   Another number is clamped to 0-3.
-- **Types**: 1 is the rotation [documented: NifBlockInterpolateStop's example]; 0 the
-  translation and 2 the scale [hypothesis]; -1 any [documented: "if type -1 specified - it
+- **Types**: 0 the scale [observed: sup7 scale.start, event.read], 1 the rotation
+  [documented: NifBlockInterpolateStop's example; observed], 2 the translation
+  [hypothesis: the one left; a translation is not type 0, observed]; -1 any [documented: "if type -1 specified - it
   will be ignored"].
-- **Searches**: no block, every interpolation of the reference [documented: "Will stop all
-  interpolations on Player"]; a block without pc is the third-person model's [documented:
+- **Searches**: no block: Stop stops every interpolation of the reference [documented],
+  IsNifBlockInterpolated finds none [observed]; a block without pc is the third-person model's [documented:
   "third person by default"].
 - **One of each type a block** [hypothesis: the pages allow "many types of interpolations at
   the same time"]: a new one of the same type on the same block and model replaces the old.
@@ -70,7 +72,9 @@ are read from the functions' examples. Not probed yet: set `sup7` of
 The engine tells the vertices of the shapes a script asked for, each frame from then on,
 in the shape's own space as its mesh holds them (`SceneMirror::set_vertices`). Asked the
 first time they come with the next frame, as the JIP block functions' trees do; until then,
-and for a node or a missing block, 0 and an empty array [hypothesis]. A mesh kept only on
+GetNifBlockNumVerticles gives -2 for a block of the tree with none told and -1 for a
+missing block, NifBlockGetVerticles an empty array [observed: "Bip01 Head" -2, a made-up
+name -1, both empty]. A mesh kept only on
 the GPU tells none, and a skinned shape's are its bind pose [hypothesis; engine follow-up
 if a mod needs a posed one]. pc is not read (the drawn model only).
 
@@ -91,7 +95,7 @@ if a mod needs a posed one]. pc is not read (the drawn model only).
 - calcMax 1: the value against the bar's max as HudBarSetValueFloat [documented]; 0: "raw
   value will be passed", read as the meter's share 0.00-1.00 as HudBarSetValuePercentage,
   the value text showing the raw value [hypothesis].
-- 1 when set; -1 for a missing bar or a refused source, as the other value setters
+- 1 when set [observed: the UDF source on a made bar]; -1 for a missing bar or a refused source, as the other value setters
   [hypothesis: "success:int"]. A new source replaces the bar's old one; a destroyed bar
   takes its source with it [hypothesis].
 
@@ -100,22 +104,35 @@ if a mod needs a posed one]. pc is not read (the drawn model only).
 None. The engine follow-ups: the translation's world flag and the first-person model (§1),
 posed vertices of skinned shapes (§2).
 
-## 5. Probe questions (set sup7, not run)
+## 5. Probed in the original (2026-11-08, first run)
+
+The observer ran set `sup7` once (xNVSE 6.4.9, supNVSE, branch head 845bff7cd; golden kept
+private; write-up on PR #1911). 2 of 8 rows matched; the code above follows the answers:
+
+| row | original | what it says |
+|---|---|---|
+| scale.start | `1 1 0 0 0 0` | a scale is not type 2; IsNifBlockInterpolated without arguments 0 |
+| scale.next | `0 -1 -1 1 0` | Stop that finds none gives -1; the scale did not read above 1 a frame on [open] |
+| trait | `1 0 0 0` | SetTrait gives 0 on a running one; the Stop found the scale of scale.start, still running |
+| event.wait, event.read | `0`, `1100 1 0` | the scale is type 0; iPCNode 1 on the player's third-person model |
+| verts | `-2 -1 0 0` | a node -2, a missing block -1, empty arrays |
+
+Diagnostic forms: after a translation, type 0 does not find it; after a rotation, type 1
+does; Stop without arguments 0. Two probes did not compile there: array elements as a
+command's arguments (rewritten as `types.translation` and `types.rotation`, the elements
+taken into floats first), and HudBarSetValueScriptVar in every form tried at run time
+(`bars` now probes the UDF source only; the variable source needs a script compiled into
+a plugin, an open question for the owner). Second run: questions in §6.
+
+## 6. Probe questions (set sup7, second run)
 
 On the player's third-person "Bip01 Head"; every interpolation stopped, the scale set back
 to 1, the handler removed, the bar destroyed.
 
-1. `scale.start`: the call's result and IsNifBlockInterpolated with the block, type 2,
-   type 1, `-1 1` and no arguments (hypothesis `1 1 1 0 0 1`).
-2. `scale.next`: the scale a frame on is between the ends; Stop of type 1 then type 2; the
-   search after; whether the stopped block keeps its scale (hypothesis `1 0 1 0 1`);
-   `scale.kept` a frame later (hypothesis `1`).
-3. `types`: which type numbers the translation and the rotation are (hypothesis `100 10 1
-   0`).
-4. `trait`: Stop and SetTrait with nothing running, SetTrait 0 and 5 on a running one
-   (hypothesis `0 0 1 0`).
-5. `event.set`, `event.wait`, `event.read`: the finish event's arguments, the reference,
-   the block, the type, from-loop and pc (hypothesis `1120 0 0`).
-6. `verts`: a node's and a missing block's vertex counts and arrays (hypothesis `0 0 0 0`;
-   the original may give ar_Null, -1 for ar_Size).
-7. `bars`: a global, a number, a missing bar, a UDF (hypothesis `1 -1 -1 1`).
+1. `types.translation`, `types.rotation`: the type digits (type 0 hundreds, 1 tens, 2
+   units), Stop without arguments, the block searched after (hypothesis `1 0 0` and
+   `10 0 0`).
+2. `trait`: with scale.start's scale stopped by scale.next now, Stop with none running
+   (hypothesis `-1 0 0 0`).
+3. `bars`: the UDF source on a made bar and a missing one (hypothesis `1 -1`).
+4. The rows above again, to confirm the fixes.

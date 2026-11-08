@@ -8127,34 +8127,39 @@ def _sup7(pid, body, text=True):
 
 
 SUP7_PROBES = (
-    # A scale from 1 to 2 over 2 s: its result and the searches (hypothesis: "1 1 1 0 0 1",
-    # the call, the block, type 2 is the scale, type 1 is not, the first-person model is
-    # not, no arguments sees all).
+    # A scale from 1 to 2 over 2 s: its result and the searches. "1 1 0 0 0 0" [observed
+    # 2026-11-08]: type 2 is not the scale, no arguments finds none.
     [_sup7("scale.start", "let fA := PlayerREF.NifBlockInterpolateScale \"Bip01 Head\" 1 2 2 0 0 0\n"
            "SetFunctionValue (sv_Construct \"%g %g %g %g %g %g\" fA (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\") "
            "(PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 2) (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 1) "
            "(PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" -1 1) (PlayerREF.IsNifBlockInterpolated))"),
-     # A frame on: the scale between the ends; Stop of another type, of the type, and the
-     # search after (hypothesis: "1 0 1 0"); the scale it keeps after the stop (hypothesis:
-     # still between 1 and 2, then set back).
+     # A frame on: the scale between the ends; Stop of types 1 and 2 (neither the scale's),
+     # the search after, the scale. "0 -1 -1 1 0" [observed 2026-11-08]: a stop that finds
+     # none gives -1; the scale did not read above 1 a frame on.
      _sup7("scale.next", "let fA := PlayerREF.GetNifBlockScale \"Bip01 Head\"\nlet fB := PlayerREF.NifBlockInterpolateStop \"Bip01 Head\" 1\n"
            "let fC := PlayerREF.NifBlockInterpolateStop \"Bip01 Head\" 2\n"
            "SetFunctionValue (sv_Construct \"%g %g %g %g %g\" ((fA > 1) && (fA < 2)) fB fC (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\") "
            "((PlayerREF.GetNifBlockScale \"Bip01 Head\") > 1))"),
      _sup7("scale.kept", "SetFunctionValue (sv_Construct \"%g\" ((PlayerREF.GetNifBlockScale \"Bip01 Head\") > 1))\nPlayerREF.SetNifBlockScale \"Bip01 Head\" 1"),
-     # Which type is the translation (hypothesis: 0) and the rotation (1): each started
-     # from the block as it is to the same place (calcStart, no visible change), the three
-     # types searched as digits, then all stopped (hypothesis: "100 10 1 0").
-     _sup7("types", "let aR := PlayerREF.GetNifBlockTranslation \"Bip01 Head\"\n"
-           "PlayerREF.NifBlockInterpolateTranslation \"Bip01 Head\" 0 0 0 aR[0] aR[1] aR[2] 5 0 0 0 1\n"
-           "let fA := (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 0) * 100 + (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 1) * 10 + (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 2)\n"
-           "PlayerREF.NifBlockInterpolateStop\nlet aR := PlayerREF.GetNifBlockRotation \"Bip01 Head\"\n"
-           "PlayerREF.NifBlockInterpolateRotation \"Bip01 Head\" 0 0 0 aR[0] aR[1] aR[2] 5 0 0 1\n"
-           "let fB := (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 0) * 100 + (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 1) * 10 + (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 2)\n"
-           "let fC := PlayerREF.NifBlockInterpolateStop\n"
-           "SetFunctionValue (sv_Construct \"%g %g %g %g\" fA fB fC (PlayerREF.IsNifBlockInterpolated))"),
-     # Stop and the trait with nothing running (hypothesis: "0 0"); the trait on a running
-     # one, trait 0 and an unknown trait 5 (hypothesis: "1 0").
+     # Which type is the translation and the rotation [observed 2026-11-08: the scale is
+     # type 0, a rotation found by type 1]: each started from the block as it is to the
+     # same place (calcStart, no visible change), the three types searched as digits (type
+     # 0 hundreds, 1 tens, 2 units), then all stopped by Stop without arguments and the
+     # block searched. Array elements go into floats first: as a command's arguments they
+     # do not compile [observed]. Hypothesis: "1 0 0" and "10 0 0".
+     _sup7("types.translation", "let aR := PlayerREF.GetNifBlockTranslation \"Bip01 Head\"\nlet fA := aR[0]\nlet fB := aR[1]\nlet fC := aR[2]\n"
+           "PlayerREF.NifBlockInterpolateTranslation \"Bip01 Head\" 0 0 0 fA fB fC 5 0 0 0 1\n"
+           "let fD := (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 0) * 100 + (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 1) * 10 + (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 2)\n"
+           "let fA := PlayerREF.NifBlockInterpolateStop\n"
+           "SetFunctionValue (sv_Construct \"%g %g %g\" fD fA (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\"))"),
+     _sup7("types.rotation", "let aR := PlayerREF.GetNifBlockRotation \"Bip01 Head\"\nlet fA := aR[0]\nlet fB := aR[1]\nlet fC := aR[2]\n"
+           "PlayerREF.NifBlockInterpolateRotation \"Bip01 Head\" 0 0 0 fA fB fC 5 0 0 1\n"
+           "let fD := (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 0) * 100 + (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 1) * 10 + (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 2)\n"
+           "let fA := PlayerREF.NifBlockInterpolateStop\n"
+           "SetFunctionValue (sv_Construct \"%g %g %g\" fD fA (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\"))"),
+     # Stop and the trait with nothing running; the trait on a running one, trait 0 and an
+     # unknown trait 5 (hypothesis: "-1 0 0 0"; the first run, with the scale of
+     # scale.start still running, gave "1 0 0 0" [observed 2026-11-08]).
      _sup7("trait", "let fA := PlayerREF.NifBlockInterpolateStop \"Bip01 Head\"\nlet fB := PlayerREF.NifBlockInterpolateSetTrait 0 1\n"
            "PlayerREF.NifBlockInterpolateScale \"Bip01 Head\" 1 1 5 0 0 0\n"
            "let fC := PlayerREF.NifBlockInterpolateSetTrait 0 1 \"Bip01 Head\"\n"
@@ -8167,22 +8172,22 @@ SUP7_PROBES = (
            "PlayerREF.AuxVarSetFlt \"*sup7\" iPC 1\nEnd)\nSetSUPOnInterpolateFinishEvent rH\nPlayerREF.AuxVarSetRef \"*sup7h\" rH\n"
            "SetFunctionValue (PlayerREF.NifBlockInterpolateScale \"Bip01 Head\" 1 1 0.001 0 0 0)", False),
      _sup7("event.wait", "SetFunctionValue (PlayerREF.IsNifBlockInterpolated)", False),
-     # Hypothesis: "1120 0 0", the player, the block, type 2, not from a loop; the third
-     # person; then the handler removed.
+     # "1100 1 0" [observed 2026-11-08]: the player, the block, type 0 (the scale), not
+     # from a loop; iPCNode 1 on the player's third-person model; then the handler removed.
      _sup7("event.read", "SetFunctionValue (sv_Construct \"%g %g %g\" (PlayerREF.AuxVarGetFlt \"*sup7\" 0) (PlayerREF.AuxVarGetFlt \"*sup7\" 1) "
            "(PlayerREF.IsNifBlockInterpolated))\nlet rH := PlayerREF.AuxVarGetRef \"*sup7h\"\nRemoveSUPOnInterpolateFinishEvent rH\n"
            "PlayerREF.AuxVarErase \"*sup7\"\nPlayerREF.AuxVarErase \"*sup7h\"\nPlayerREF.SetNifBlockScale \"Bip01 Head\" 1"),
-     # Vertices of a node and of a missing block (hypothesis: "0 0 0 0", a node has
-     # none; an empty array for both).
+     # Vertices of a node and of a missing block: "-2 -1 0 0" [observed 2026-11-08].
      _sup7("verts", "let aR := PlayerREF.NifBlockGetVerticles \"Bip01 Head\"\nlet fA := ar_Size aR\nlet aR := PlayerREF.NifBlockGetVerticles \"NVFNoSuchBlock\"\n"
            "SetFunctionValue (sv_Construct \"%g %g %g %g\" (PlayerREF.GetNifBlockNumVerticles \"Bip01 Head\") "
            "(PlayerREF.GetNifBlockNumVerticles \"NVFNoSuchBlock\") fA (ar_Size aR))"),
-     # The bars' sources: a game global, a number in its place, a missing bar, a UDF
-     # (hypothesis: "1 -1 -1 1"); then the bar destroyed.
-     _sup7("bars", "HudBarCreate \"NVFProbeBar\" 100 100 0\nlet fA := HudBarSetValueScriptVar \"NVFProbeBar\" GameHour 0\n"
-           "let fB := HudBarSetValueScriptVar \"NVFProbeBar\" 5 0\nlet fC := HudBarSetValueScriptVar \"NVFNoSuchBar\" GameHour 0\n"
-           "let fD := HudBarSetValueUDF \"NVFProbeBar\" (Begin Function { }\nSetFunctionValue 0.5\nEnd) 0\n"
-           "HudBarDestroy \"NVFProbeBar\"\nSetFunctionValue (sv_Construct \"%g %g %g %g\" fA fB fC fD)")]
+     # The bars' UDF source on a made bar and on a missing one (hypothesis: "1 -1"; the
+     # first 1 [observed 2026-11-08]); then the bar destroyed. HudBarSetValueScriptVar did
+     # not compile at run time in any form tried [observed], so it is not probed here.
+     _sup7("bars", "HudBarCreate \"NVFProbeBar\" 100 100 0\n"
+           "let fA := HudBarSetValueUDF \"NVFProbeBar\" (Begin Function { }\nSetFunctionValue 0.5\nEnd) 0\n"
+           "let fB := HudBarSetValueUDF \"NVFNoSuchBar\" (Begin Function { }\nSetFunctionValue 0.5\nEnd) 0\n"
+           "HudBarDestroy \"NVFProbeBar\"\nSetFunctionValue (sv_Construct \"%g %g\" fA fB)")]
 )
 SETS.update({"sup7": SUP7_PROBES})
 WRITING_SETS |= {"sup7"}

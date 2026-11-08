@@ -30,12 +30,14 @@ fn yes(b: bool) -> XVal {
     XVal::Num(f64::from(u8::from(b)))
 }
 
-/// What an interpolation changes: 0 the translation, 1 the rotation, 2 the scale
+/// What an interpolation changes: 0 the scale, 1 the rotation, 2 the translation
 /// [documented: NifBlockInterpolateStop, "type 1" stops the rotation interpolation;
-/// hypothesis: 0 and 2, in the order the pages list the functions' see-also links].
-pub const TRANSLATION: u8 = 0;
+/// observed: sup7 scale.start and event.read, a scale is type 0 (type 2 does not find
+/// it, the finish event says 0); a rotation found by type 1, a translation not by 0;
+/// hypothesis: the translation 2, the one left].
+pub const SCALE: u8 = 0;
 pub const ROTATION: u8 = 1;
-pub const SCALE: u8 = 2;
+pub const TRANSLATION: u8 = 2;
 
 /// One running interpolation.
 #[derive(Debug, Clone, PartialEq)]
@@ -190,10 +192,13 @@ impl Game<'_> {
             // SetSUPOnInterpolateFinishEvent, a new interpolation may be set in the
             // event].
             self.sup7.interps = kept;
-            for (r, node, kind, from_loop, pc) in events {
+            // The last argument, iPCNode, is 1 on the player's third-person model
+            // [observed: sup7 event.read]; read as "the player's" [hypothesis: the name;
+            // the first-person model and other references not probed].
+            for (r, node, kind, from_loop, _pc) in events {
                 let handlers: Vec<XVal> = self.sup7.handlers.iter().filter(|(_, loops)| !from_loop || *loops).map(|(h, _)| h.clone()).collect();
                 for h in handlers {
-                    let args = vec![XVal::Ref(r.0), XVal::Str(node.clone()), XVal::Num(f64::from(kind)), yes(from_loop), yes(pc)];
+                    let args = vec![XVal::Ref(r.0), XVal::Str(node.clone()), XVal::Num(f64::from(kind)), yes(from_loop), yes(r == FormId::PLAYER_REF)];
                     let ctx = RunCtx { self_ref: Some(r), ..RunCtx::default() };
                     let _ = self.run_function(&h, Some(Value::Ref(r.0)), args, None, ctx);
                 }
@@ -297,22 +302,36 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             g.sup7.interps.push(Interp { r, node, kind, start, end, timer, mode, first_person: pc, since: g.time, reset_at_end: false, loops: 0 });
             yes(true)
         }
-        // `[block] [type] [pc]` [documented: NifBlockInterpolateStop, IsNifBlockInterpolated];
-        // 1 when one matched [hypothesis for Stop: "success:bool"]. A stopped block keeps
+        // `[block] [type] [pc]` [documented: NifBlockInterpolateStop, IsNifBlockInterpolated].
+        // Is: 1 when one matches; without a block 0 [observed: sup7 scale.start and
+        // event.wait, 0 with a scale running, against the page's example]. Stop: 1 when
+        // one matched [hypothesis: "success:bool"], -1 when none [observed: sup7
+        // scale.next, types 1 and 2 beside a running scale]; without arguments 0
+        // [observed: a diagnostic form], every one of the reference stopped
+        // [documented: "Will stop all interpolations on Player"]. A stopped block keeps
         // the value it had [hypothesis].
         "nifblockinterpolatestop" | "isnifblockinterpolated" => {
             let Some(r) = on else { return Some(Ok(zero)) };
             let (block, kind, pc) = search(args, 0);
+            let stop = name == "nifblockinterpolatestop";
+            if block.is_none() {
+                if stop {
+                    g.sup7.interps.retain(|it| it.r != r);
+                }
+                return Some(Ok(zero));
+            }
             let hit = |it: &Interp| matches(it, r, block.as_deref(), kind, pc);
             let any = g.sup7.interps.iter().any(hit);
-            if name == "nifblockinterpolatestop" {
-                g.sup7.interps.retain(|it| !hit(it));
+            if !stop {
+                return Some(Ok(yes(any)));
             }
-            yes(any)
+            g.sup7.interps.retain(|it| !hit(it));
+            XVal::Num(if any { 1.0 } else { -1.0 })
         }
         // `trait value [block] [type] [pc]`: trait 0 sets the start value again when it
-        // ends [documented: NifBlockInterpolateSetTrait]; 1 when one matched, 0 for
-        // another trait [hypothesis].
+        // ends [documented: NifBlockInterpolateSetTrait]. 0 [observed: sup7 trait, 0 on a
+        // running one named by its block, with none and for trait 5; hypothesis: the
+        // trait set all the same].
         "nifblockinterpolatesettrait" => {
             let Some(r) = on else { return Some(Ok(zero)) };
             let (t, v) = (num(args, 0, -1.0), num(args, 1, 0.0));
@@ -320,12 +339,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 return Some(Ok(zero));
             }
             let (block, kind, pc) = search(args, 2);
-            let mut any = false;
             for it in g.sup7.interps.iter_mut().filter(|it| matches(it, r, block.as_deref(), kind, pc)) {
                 it.reset_at_end = v != 0.0;
-                any = true;
             }
-            yes(any)
+            zero
         }
         // `udf [loops]` [documented: SetSUPOnInterpolateFinishEvent]; the same handler
         // again changes its loops flag [hypothesis]. Every reference's interpolations
@@ -349,15 +366,21 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `ref.… block [pc]`: the block's vertices as the engine draws them, in the
         // block's own space [documented: NifBlockGetVerticles, "3 arrays, each containing
         // X,Y,Z values"; GetNifBlockNumVerticles]. Asked once, they come with the next
-        // frame, as the JIP block functions' trees do; none known: 0 and an empty array
+        // frame, as the JIP block functions' trees do. A block with no vertices: -2, a
+        // missing block -1, both an empty array [observed: sup7 verts, "Bip01 Head" and
+        // a made-up name]; told none yet: -2 for a block in the tree, -1 otherwise
         // [hypothesis]. pc is not read: the mirror has the drawn model only.
         "getnifblocknumverticles" | "nifblockgetverticles" => {
             let (Some(r), Some(node)) = (on, text(args, 0)) else {
-                return Some(Ok(if name == "getnifblocknumverticles" { zero } else { XVal::Array(g.ext.new_array(ArrayKind::List, Vec::new())) }));
+                return Some(Ok(if name == "getnifblocknumverticles" { XVal::Num(-1.0) } else { XVal::Array(g.ext.new_array(ArrayKind::List, Vec::new())) }));
             };
             let verts = g.scene.vertices(r, &node);
             if name == "getnifblocknumverticles" {
-                XVal::Num(verts.map_or(0, |v| v.len()) as f64)
+                match verts.filter(|v| !v.is_empty()) {
+                    Some(v) => XVal::Num(v.len() as f64),
+                    None if g.scene.node_now(r, &node).is_some() => XVal::Num(-2.0),
+                    None => XVal::Num(-1.0),
+                }
             } else {
                 let verts = verts.unwrap_or_default();
                 let mut entries = Vec::new();

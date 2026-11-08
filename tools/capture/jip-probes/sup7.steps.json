@@ -23,8 +23,14 @@
    "text": true
   },
   {
-   "query": "float fA\nfloat fB\nfloat fC\nfloat fD\nref rH\narray_var aR\nBegin Function { }\nlet aR := PlayerREF.GetNifBlockTranslation \"Bip01 Head\"\nPlayerREF.NifBlockInterpolateTranslation \"Bip01 Head\" 0 0 0 aR[0] aR[1] aR[2] 5 0 0 0 1\nlet fA := (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 0) * 100 + (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 1) * 10 + (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 2)\nPlayerREF.NifBlockInterpolateStop\nlet aR := PlayerREF.GetNifBlockRotation \"Bip01 Head\"\nPlayerREF.NifBlockInterpolateRotation \"Bip01 Head\" 0 0 0 aR[0] aR[1] aR[2] 5 0 0 1\nlet fB := (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 0) * 100 + (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 1) * 10 + (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 2)\nlet fC := PlayerREF.NifBlockInterpolateStop\nSetFunctionValue (sv_Construct \"%g %g %g %g\" fA fB fC (PlayerREF.IsNifBlockInterpolated))\nEnd\n",
-   "label": "sup7.types",
+   "query": "float fA\nfloat fB\nfloat fC\nfloat fD\nref rH\narray_var aR\nBegin Function { }\nlet aR := PlayerREF.GetNifBlockTranslation \"Bip01 Head\"\nlet fA := aR[0]\nlet fB := aR[1]\nlet fC := aR[2]\nPlayerREF.NifBlockInterpolateTranslation \"Bip01 Head\" 0 0 0 fA fB fC 5 0 0 0 1\nlet fD := (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 0) * 100 + (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 1) * 10 + (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 2)\nlet fA := PlayerREF.NifBlockInterpolateStop\nSetFunctionValue (sv_Construct \"%g %g %g\" fD fA (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\"))\nEnd\n",
+   "label": "sup7.types.translation",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nfloat fB\nfloat fC\nfloat fD\nref rH\narray_var aR\nBegin Function { }\nlet aR := PlayerREF.GetNifBlockRotation \"Bip01 Head\"\nlet fA := aR[0]\nlet fB := aR[1]\nlet fC := aR[2]\nPlayerREF.NifBlockInterpolateRotation \"Bip01 Head\" 0 0 0 fA fB fC 5 0 0 1\nlet fD := (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 0) * 100 + (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 1) * 10 + (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 2)\nlet fA := PlayerREF.NifBlockInterpolateStop\nSetFunctionValue (sv_Construct \"%g %g %g\" fD fA (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\"))\nEnd\n",
+   "label": "sup7.types.rotation",
    "field": "value",
    "text": true
   },
@@ -57,7 +63,7 @@
    "text": true
   },
   {
-   "query": "float fA\nfloat fB\nfloat fC\nfloat fD\nref rH\narray_var aR\nBegin Function { }\nHudBarCreate \"NVFProbeBar\" 100 100 0\nlet fA := HudBarSetValueScriptVar \"NVFProbeBar\" GameHour 0\nlet fB := HudBarSetValueScriptVar \"NVFProbeBar\" 5 0\nlet fC := HudBarSetValueScriptVar \"NVFNoSuchBar\" GameHour 0\nlet fD := HudBarSetValueUDF \"NVFProbeBar\" (Begin Function { }\nSetFunctionValue 0.5\nEnd) 0\nHudBarDestroy \"NVFProbeBar\"\nSetFunctionValue (sv_Construct \"%g %g %g %g\" fA fB fC fD)\nEnd\n",
+   "query": "float fA\nfloat fB\nfloat fC\nfloat fD\nref rH\narray_var aR\nBegin Function { }\nHudBarCreate \"NVFProbeBar\" 100 100 0\nlet fA := HudBarSetValueUDF \"NVFProbeBar\" (Begin Function { }\nSetFunctionValue 0.5\nEnd) 0\nlet fB := HudBarSetValueUDF \"NVFNoSuchBar\" (Begin Function { }\nSetFunctionValue 0.5\nEnd) 0\nHudBarDestroy \"NVFProbeBar\"\nSetFunctionValue (sv_Construct \"%g %g\" fA fB)\nEnd\n",
    "label": "sup7.bars",
    "field": "value",
    "text": true

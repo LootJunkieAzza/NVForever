@@ -81,11 +81,13 @@ fn an_interpolation_runs_frame_by_frame_and_ends() {
     // From 1 to 3 in 2 s, once [documented: NifBlockInterpolateScale's first example].
     assert_eq!(n(&mut g, r#"PlayerREF.NifBlockInterpolateScale "Bip01 Head" 1 3 2 0 0 0"#), 1.0);
     assert_eq!(n(&mut g, r#"PlayerREF.IsNifBlockInterpolated "Bip01 Head""#), 1.0);
-    // Type 2 is the scale, 1 the rotation; the first-person model is another one.
-    assert_eq!(n(&mut g, r#"PlayerREF.IsNifBlockInterpolated "Bip01 Head" 2"#), 1.0);
+    // Type 0 is the scale, 1 the rotation; the first-person model is another one; no
+    // block finds none [observed: sup7 scale.start, `1 1 0 0 0 0` with type 2 asked].
+    assert_eq!(n(&mut g, r#"PlayerREF.IsNifBlockInterpolated "Bip01 Head" 0"#), 1.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.IsNifBlockInterpolated "Bip01 Head" 2"#), 0.0);
     assert_eq!(n(&mut g, r#"PlayerREF.IsNifBlockInterpolated "Bip01 Head" 1"#), 0.0);
     assert_eq!(n(&mut g, r#"PlayerREF.IsNifBlockInterpolated "Bip01 Head" -1 1"#), 0.0);
-    assert_eq!(n(&mut g, "PlayerREF.IsNifBlockInterpolated"), 1.0);
+    assert_eq!(n(&mut g, "PlayerREF.IsNifBlockInterpolated"), 0.0);
     scales(&mut g);
     // The frame it starts shows the start.
     g.tick();
@@ -132,9 +134,10 @@ fn a_back_and_forth_loop_stops_when_asked() {
     }
     assert_eq!(scales(&mut g), vec![1.0, 1.5, 2.0, 1.5, 1.0]);
     assert_eq!(n(&mut g, r#"PlayerREF.IsNifBlockInterpolated "Bip01 Head""#), 1.0);
-    // Another type on the block stops nothing; the scale's type does.
-    assert_eq!(n(&mut g, r#"PlayerREF.NifBlockInterpolateStop "Bip01 Head" 1"#), 0.0);
-    assert_eq!(n(&mut g, r#"PlayerREF.NifBlockInterpolateStop "Bip01 Head" 2"#), 1.0);
+    // Another type on the block stops nothing, -1 [observed: sup7 scale.next]; the
+    // scale's type does.
+    assert_eq!(n(&mut g, r#"PlayerREF.NifBlockInterpolateStop "Bip01 Head" 1"#), -1.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.NifBlockInterpolateStop "Bip01 Head" 0"#), 1.0);
     g.tick();
     assert!(scales(&mut g).is_empty());
 }
@@ -144,7 +147,8 @@ fn trait_0_sets_the_start_again_at_the_end() {
     let f = fixture();
     let mut g = game(&f);
     n(&mut g, r#"PlayerREF.NifBlockInterpolateScale "Bip01 Head" 1 3 1 0 0 0"#);
-    assert_eq!(n(&mut g, "PlayerREF.NifBlockInterpolateSetTrait 0 1"), 1.0);
+    // 0 all the same [observed: sup7 trait].
+    assert_eq!(n(&mut g, "PlayerREF.NifBlockInterpolateSetTrait 0 1"), 0.0);
     assert_eq!(n(&mut g, "PlayerREF.NifBlockInterpolateSetTrait 5 1"), 0.0);
     for _ in 0..3 {
         g.tick();
@@ -164,9 +168,9 @@ End)");
     n(&mut g, r#"PlayerREF.NifBlockInterpolateScale "Bip01 Head" 1 2 0.5 0 0 0"#);
     assert_eq!(n(&mut g, r#"PlayerREF.IsNifBlockInterpolated "Bip01 Head" 1"#), 0.0);
     g.tick();
-    assert_eq!(n(&mut g, r#"PlayerREF.IsNifBlockInterpolated "Bip01 Head" 2"#), 1.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.IsNifBlockInterpolated "Bip01 Head" 0"#), 1.0);
     g.tick();
-    assert_eq!(n(&mut g, r#"PlayerREF.IsNifBlockInterpolated "Bip01 Head" 2"#), 0.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.IsNifBlockInterpolated "Bip01 Head" 0"#), 0.0);
     assert_eq!(n(&mut g, r#"PlayerREF.IsNifBlockInterpolated "Bip01 Head" 1"#), 1.0);
 }
 
@@ -174,9 +178,10 @@ End)");
 fn vertices_come_from_the_engine() {
     let f = fixture();
     let mut g = game(&f);
-    // Not told yet: none.
-    assert_eq!(n(&mut g, r#"PlayerREF.GetNifBlockNumVerticles "Head:0""#), 0.0);
-    assert_eq!(g.scene.wanted_vertices().count(), 1);
+    // Not told yet, no such block: -1; a node with none: -2 [observed: sup7 verts].
+    assert_eq!(n(&mut g, r#"PlayerREF.GetNifBlockNumVerticles "Head:0""#), -1.0);
+    assert_eq!(n(&mut g, r#"PlayerREF.GetNifBlockNumVerticles "Bip01 Head""#), -2.0);
+    assert_eq!(g.scene.wanted_vertices().count(), 2);
     g.scene.set_vertices(P, "head:0", Some(vec![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]));
     assert_eq!(n(&mut g, r#"PlayerREF.GetNifBlockNumVerticles "Head:0""#), 2.0);
     // [documented: myarray[1][0] is the first vertex's Y].
