@@ -43,6 +43,7 @@ mod deaths;
 mod decals;
 mod dismember;
 mod knockouts;
+mod pose_watch;
 mod player_knockdown;
 mod detection;
 mod dialogue_look;
@@ -1493,6 +1494,7 @@ fn main() -> AppExit {
             app.insert_resource(nvf_play::aim_zoom::Scope3d { on: args.scope_3d, lens: false });
             app.add_plugins(decals::DecalsPlugin);
             app.add_plugins(knockouts::KnockoutsPlugin);
+            app.add_plugins(pose_watch::PoseWatchPlugin);
             // Co-op (private fork): idle until a lobby is opened or joined.
             app.add_plugins(coop::CoopPlugin(coop::Config { host: args.host, join: args.join.clone(), name: args.coop_name.clone(), base: args.coop_base }));
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
