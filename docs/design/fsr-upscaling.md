@@ -52,8 +52,10 @@ with `FsrUpscaling` (the player's camera) has its own history and textures.
 - **History resets** (`FsrCamera::cut_from`): a quality or size change, a skipped frame, a
   frame over 250 ms, a move of 400 units or more or a turn over 45° in one frame, a
   near-plane change, a magnification (tan(fov/2)) that changes by more than twice either
-  way (`LENS_CUT_RATIO`), a new loading screen, and a change of play state. A smooth zoom,
-  such as aiming down the sights, keeps the history ("Aim zoom").
+  way (`LENS_CUT_RATIO`), a new loading screen, and going into or out of dialogue or a
+  loading screen (`play_state_cut`). A smooth zoom, such as aiming down the sights, keeps the
+  history ("Aim zoom"), and so do the Pip-Boy and the other menus, which do not move the
+  camera ("Mip bias, the Pip-Boy and the Strip").
 - **After FSR**, for the passes that still read the scene on the display-size target:
   - The depth prepass is expanded to display size by nearest texels, with the first-person
     squeeze put back, for SSAO, the light shafts and the image-space blur.
@@ -158,6 +160,8 @@ The masks' pass and the output's luminance cost about 0.07 ms of GPU time a fram
 Quality, a 30 s walk in Goodsprings, `dev\tools\fg-measure.ps1`; frame rates unchanged,
 CPU-bound].
 
+See also "Mip bias, the Pip-Boy and the Strip" below, measured frame by frame in game.
+
 `NVF_FSR_DEBUG_VIEW=1` has FSR draw AMD's debug view over its output: a 3x3 grid, the
 bottom row the disocclusions, the shading change with the reactive mask, and the
 transparency/composition mask, in green. A diagnostic, not a setting.
@@ -231,6 +235,46 @@ lattices, broken-wall stones, signs and glass shards. Dirty or clear glass stays
 the reactive mean fell from 0.082 to 0.005, and the mean frame-to-frame change from 0.0040
 to 0.0008. Smoke `fsr-corn-cutouts` turns FSR on and off there and checks both switches.
 
+## Mip bias, the Pip-Boy and the Strip
+
+Players reported shimmering roofs and fences, on the Strip and in the Pip-Boy (2026-11-08).
+To compare settings in game frame by frame, `NVF_FIXED_FRAME_TIME_MS` moves the clocks on a
+fixed step every frame (Bevy's `TimeUpdateStrategy::ManualDuration`), so with
+`NVF_PLAY_AIDS_FROM_SCRIPTS=1` the test aids reach the same view on the same frame in every
+run, and `NVF_FSR_MIP_BIAS_OFFSET` replaces the −1 of AMD's mip bias. Both are diagnostics
+(`dev\tools\mip-bias-capture.ps1`, `mip_bias_metrics.py`, outside the repository). The
+reference is the same frames with FSR off at twice the size and 8x MSAA, scaled down by two.
+Two runs of the same setting differed by 0.4 of 255 on still frames and 1.7 in motion (the
+jitter's phase follows the frames since the start, which loading varies), and their scores
+by under 0.02.
+
+[observed 2026-11-08, RTX 5090, 1280x720, FSR Quality; mean |frame − reference| and
+flicker, the frame-to-frame change the reference does not have, of 255] The mip bias:
+
+| View | log2(r/d) − 1 (AMD) | − 0.5 | + 0 |
+|---|---|---|---|
+| Goodsprings roofs and fences, strafing: flicker (error) | 6.32 (6.00) | 6.32 (6.16) | 6.50 (6.46) |
+| Goodsprings roofs, still: flicker (error) | 0.41 (5.41) | 0.34 (5.79) | 0.29 (6.41) |
+| The Strip's signs, still: flicker (error) | 0.56 (3.90) | 0.53 (3.98) | 0.54 (4.19) |
+
+A softer bias only takes a little flicker off still views; in motion, where the roofs and
+fences shimmer, it does not help, and it loses texture detail everywhere. AMD's −1 stays.
+
+**The Pip-Boy.** Opening it switches the play state to `Menu`, and every change of play state
+used to count as a camera cut: each time the Pip-Boy opened or closed, FSR threw its history
+away and the whole view was rebuilt from single jittered frames for about a second. The
+Pip-Boy and the menus move no camera, so they keep the history now. On the background around
+the raised Pip-Boy (the strips it does not cover), during its raise: error 3.83 → 3.38 and
+3.10 → 2.51, flicker 0.89 → 0.79 and 0.77 → 0.69; its close the same; once it is up,
+flicker the same (0.17), the brightness 1 of 255 apart (the eye adaptation followed a
+different raise). With FSR off the raise scored 1.45 and 1.18: what is left is FSR's own
+handling of the arm's fast motion and the blur behind the Pip-Boy, which reads the jittered
+depth after FSR ("Limits"). On the screen itself, open and still, flicker was 0.08 at Quality
+and 0.13 at Performance (0.00 with FSR off): its picture is a 1280x960 texture without mip
+levels, about three times minified at Quality's render size. The screen's beam sweeps on the
+real clock (`device_screen::sweep`), so it is in different frames from run to run: compare
+the screen by eye.
+
 ## Aim zoom
 
 [observed 2026-11-06, FSR input captures, a 9mm pistol aimed in and out at Goodsprings]
@@ -272,7 +316,11 @@ unchanged.
   less accumulation (more aliasing) rather than with a trail. A moving shape with detail of its
   own (a smoke puff's texture) may still smear a little inside, where its presence stays.
 - **Fine detail in motion** (roof edges against a hill, fence slats, power lines) shimmers more
-  than when still: FSR 3.1 keeps little history on anything that moves (above).
+  than when still: FSR 3.1 keeps little history on anything that moves (above); neither its
+  velocity factor nor a softer mip bias helps ("Mip bias, the Pip-Boy and the Strip").
+- **The Pip-Boy's screen** is a texture without mip levels, minified about three times at
+  Quality (more at lower modes): its text and scanlines alias, and FSR's jitter moves that
+  aliasing a little every frame.
 - **Jittered depth after FSR.** SSAO, the light shafts and the image-space blur read a depth
   drawn with the frame's jitter, so their edges move by up to half a render texel from frame
   to frame. Computing the occlusion before FSR would fix that, but would change the look:

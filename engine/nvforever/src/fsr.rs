@@ -109,11 +109,33 @@ impl FsrCamera {
             || self.settings.quality != previous.settings.quality
             || self.delta_ms > 250.0
             || self.loading_generation != previous.loading_generation
-            || self.play_state != previous.play_state
+            || play_state_cut(previous.play_state, self.play_state)
     }
 }
 
+/// Whether a change of play state is a cut for FSR's history: into or out of dialogue (its
+/// close-up) or a loading screen. The Pip-Boy and the other menus (`PlayState::Menu`) raise
+/// over the view or stop the world without moving the camera, so the history stays: thrown
+/// away, the whole view was rebuilt from single jittered frames for about a second every time
+/// the Pip-Boy opened or closed [observed 2026-11-08, frame-exact captures of the Pip-Boy's
+/// raise at Goodsprings, docs/design/fsr-upscaling.md "History resets"]. A view the camera
+/// stops drawing resets anyway (`frame` skips).
+fn play_state_cut(before: Option<nvf_play::PlayState>, now: Option<nvf_play::PlayState>) -> bool {
+    use nvf_play::PlayState::{Dialogue, Loading};
+    before != now && [before, now].iter().any(|state| matches!(state, Some(Dialogue | Loading)))
+}
+
 pub struct FsrPlugin;
+
+/// What is added to log2(render / display) for the texture mip bias: AMD's −1 [documented:
+/// AMD's FSR 3.1 guide], or `NVF_FSR_MIP_BIAS_OFFSET` for comparisons (a diagnostic).
+static MIP_BIAS_OFFSET: std::sync::LazyLock<f32> = std::sync::LazyLock::new(|| {
+    let offset = std::env::var("NVF_FSR_MIP_BIAS_OFFSET").ok().and_then(|v| v.trim().parse::<f32>().ok()).filter(|v| v.is_finite());
+    if let Some(offset) = offset {
+        info!("FSR mip bias: log2(render / display) {offset:+} (NVF_FSR_MIP_BIAS_OFFSET)");
+    }
+    offset.unwrap_or(-1.0)
+});
 
 /// Whether this device can execute the audited Vulkan SPIR-V shader path.
 #[derive(Resource, Clone, Copy, Default)]
@@ -334,7 +356,7 @@ pub(crate) fn prepare(
         let offset = Vec2::from_array(wgpu_ffx::get_jitter_offset((camera.frame % i32::MAX as u32) as i32, phases));
         // Bevy applies its projection jitter with the opposite displacement sign.
         jitter.offset = -offset;
-        bias.0 = (render_size.x as f32 / output_size.x as f32).log2() - 1.0;
+        bias.0 = (render_size.x as f32 / output_size.x as f32).log2() + *MIP_BIAS_OFFSET;
         // The depth prepass is drawn at the render size and expanded by nearest texels
         // ([`AuxiliaryPipelines::expand_depth`]); the ambient occlusion takes its normals
         // from neighbouring texels as drawn (ssao.wesl `normal_at`). Before the uniforms are
@@ -772,6 +794,19 @@ mod tests {
         assert!(FsrCamera { delta_ms: 500.0, ..after }.cut_from(&before));
         assert!(FsrCamera { loading_generation: 1, ..after }.cut_from(&before));
         assert!(FsrCamera { play_state: Some(nvf_play::PlayState::Loading), ..after }.cut_from(&before));
+    }
+
+    #[test]
+    fn the_pip_boy_and_menus_keep_the_history_and_dialogue_and_loading_reset_it() {
+        use nvf_play::PlayState::{Dialogue, Loading, Menu, Playing};
+        let playing = FsrCamera { settings: default(), translation: Vec3::ZERO, rotation: Quat::IDENTITY, near: 5.0, fov: 1.0, frame: 10, delta_ms: 16.0, loading_generation: 0, play_state: Some(Playing) };
+        let next = |state| FsrCamera { frame: 11, play_state: Some(state), ..playing };
+        assert!(!next(Menu).cut_from(&playing), "the Pip-Boy opens");
+        assert!(!FsrCamera { play_state: Some(Playing), ..next(Menu) }.cut_from(&FsrCamera { play_state: Some(Menu), ..playing }), "and closes");
+        assert!(next(Dialogue).cut_from(&playing));
+        assert!(FsrCamera { play_state: Some(Playing), ..next(Dialogue) }.cut_from(&FsrCamera { play_state: Some(Dialogue), ..playing }));
+        assert!(next(Loading).cut_from(&playing));
+        assert!(!next(Playing).cut_from(&playing));
     }
 
     #[test]
