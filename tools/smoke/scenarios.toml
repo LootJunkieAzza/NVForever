@@ -4085,18 +4085,30 @@ order = [[
 
 [[scenario]]
 name = "pipboy-data-objectives-scroll"
-source = "#1667 (docs/spec-notes/pipboy.md §5.3): on the DATA page the right pane, a quest's objectives (Quests) and a note's text (Misc), scrolls by Page Up/Page Down (a controller's LB/RB) as one scroll, held at its top and bottom"
-note = "VCG02's objective 3 is shown at 3 s so the Quests list has a quest (the page selects the active one); VMQ01CourierNote (a text note) is added at 8 s and is the only note, so Misc shows it. Page Down then Page Up on each tab; a page down past the end stops at the bottom (when the objectives are shorter than a page, at what they can scroll, 0 when they fit), a page up at the top. The right stick's scroll has unit tests only: the test aids press no controller stick."
+source = "#1667 (docs/spec-notes/pipboy.md §5.3): on the DATA page's Quests tab a quest's objectives longer than their window scroll by Page Up/Page Down (a controller's LB/RB), held at their top"
+note = "VMQ02 started from the console at 8 s with 32 of its objectives shown (indices 1 to 113 of its data, far more than the 400-high window holds) and made the active quest, so the Quests tab opens on it. Page Down at 15 s must scroll from 0 to a positive offset of a positive range, Page Up at 16 s back from it to 0 (an empty or fitting pane, 'from 0 to 0 of 0', does not pass). The scroll bar's clicks and drag and the right stick have unit tests only: the test aids press no controller stick and the bar's place depends on the font."
 areas = ["pipboy"]
 paths = ["engine/nvf-play/src/pipboy/data.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:objective:VCG02:3", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01CourierNote;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=2,18:tab=3,22:close", NVF_PLAY_TEST_KEYS = "15:pagedown,16:pageup,19:pagedown,20:pageup" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:StartQuest VMQ02;SetObjectiveDisplayed VMQ02 1 1;SetObjectiveDisplayed VMQ02 2 1;SetObjectiveDisplayed VMQ02 3 1;SetObjectiveDisplayed VMQ02 5 1;SetObjectiveDisplayed VMQ02 6 1;SetObjectiveDisplayed VMQ02 7 1;SetObjectiveDisplayed VMQ02 8 1;SetObjectiveDisplayed VMQ02 9 1;SetObjectiveDisplayed VMQ02 10 1;SetObjectiveDisplayed VMQ02 12 1;SetObjectiveDisplayed VMQ02 15 1;SetObjectiveDisplayed VMQ02 20 1;SetObjectiveDisplayed VMQ02 22 1;SetObjectiveDisplayed VMQ02 25 1;SetObjectiveDisplayed VMQ02 30 1;SetObjectiveDisplayed VMQ02 40 1;SetObjectiveDisplayed VMQ02 41 1;SetObjectiveDisplayed VMQ02 50 1;SetObjectiveDisplayed VMQ02 53 1;SetObjectiveDisplayed VMQ02 55 1;SetObjectiveDisplayed VMQ02 60 1;SetObjectiveDisplayed VMQ02 70 1;SetObjectiveDisplayed VMQ02 75 1;SetObjectiveDisplayed VMQ02 80 1;SetObjectiveDisplayed VMQ02 85 1;SetObjectiveDisplayed VMQ02 90 1;SetObjectiveDisplayed VMQ02 100 1;SetObjectiveDisplayed VMQ02 101 1;SetObjectiveDisplayed VMQ02 110 1;SetObjectiveDisplayed VMQ02 111 1;SetObjectiveDisplayed VMQ02 112 1;SetObjectiveDisplayed VMQ02 113 1;ForceActiveQuest VMQ02;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=2,18:close", NVF_PLAY_TEST_KEYS = "15:pagedown,16:pageup" }
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--size", "1280x720", "--no-voice", "--no-messages"]
-run_seconds = 28
+run_seconds = 24
 order = [[
-  { re = 'pipboy data: objectives scrolled from 0 to (\d+) of \1\b', label = "pipboy data: Page Down scrolls the objectives, held at their end" },
-  { re = 'pipboy data: objectives scrolled from \d+ to 0 of \d+', label = "pipboy data: Page Up scrolls the objectives back, held at their top" },
-  "pipboy data: note text scrolled from 0 to … of …",
-  { re = 'pipboy data: note text scrolled from \d+ to 0 of \d+', label = "pipboy data: Page Up scrolls the note back, held at its top" },
+  { re = 'pipboy data: objectives scrolled from 0 to [1-9]\d* of [1-9]\d*', label = "pipboy data: Page Down scrolls the overflowing objectives down" },
+  { re = 'pipboy data: objectives scrolled from [1-9]\d* to 0 of [1-9]\d*', label = "pipboy data: Page Up scrolls the objectives back to their top" },
+]]
+
+[[scenario]]
+name = "pipboy-data-note-scroll"
+source = "#1667 (docs/spec-notes/pipboy.md §5.3): on the DATA page's Misc tab a note's text longer than its window scrolls by Page Up/Page Down (a controller's LB/RB), held at its top"
+note = "VMQ01CourierNote (a text note) is added at 8 s and is the only note, so Misc shows it. Page Down at 15 s must scroll from 0 to a positive offset of a positive range, Page Up at 16 s back to 0. The issue's long note, 'How To Play Caravan', would make the overflow certain; its Editor ID is not in the repository, so the courier's note stands in: if its text fits the 385-high window this fails, and the note is to be swapped, not the expectations loosened."
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy/data.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01CourierNote;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=3,18:close", NVF_PLAY_TEST_KEYS = "15:pagedown,16:pageup" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--size", "1280x720", "--no-voice", "--no-messages"]
+run_seconds = 24
+order = [[
+  { re = 'pipboy data: note text scrolled from 0 to [1-9]\d* of [1-9]\d*', label = "pipboy data: Page Down scrolls the overflowing note down" },
+  { re = 'pipboy data: note text scrolled from [1-9]\d* to 0 of [1-9]\d*', label = "pipboy data: Page Up scrolls the note back to its top" },
 ]]
 
 [[scenario]]

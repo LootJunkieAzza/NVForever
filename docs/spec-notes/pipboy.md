@@ -696,14 +696,19 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
   - The right pane (the objectives here, a note's text on Misc) scrolls when longer than
     its window, by Page Up/Down a window (400 for the objectives, 385 for a note; a
     controller's LB/RB press those keys, `pad.rs`) [design], the wheel over it 20 a step
-    [documented for a note's text; the objectives take the same step, design] and, on a
+    [documented for a note's text; the objectives take the same step, design; over the
+    objectives' 400 × 400 window only, elsewhere on Quests the wheel scrolls the list]
+    and, on a
     controller, the right stick's up and down smoothly while held, a note window (385) a
     second at a full push [observed: the original scrolls both panes with the right
     stick, issue #1667; the speed is design, as far a second as one LB/RB page]. One
     scroll serves both panes (`pipboy/data.rs` `scroll_pane`): it stops at the top and at
     the end (the last line at the window's foot) and starts at the top again when
-    another quest, note or tab is chosen [design]. The objectives' scroll bar shows the
-    part shown; the bars are drawn only, not clicked or dragged (nor is a note's).
+    another quest, note or tab is chosen [design] (Up on the first row or Down on the
+    last keeps the place). The objectives' scroll bar shows the part shown and takes the
+    pointer as the tile menus' bars do: a click on an arrow steps 20 (a wheel step), on
+    the track above or below the marker a page, and the marker held follows the pointer
+    [design]; a note's arrows step 20 a click [design].
   - "Show Location" shows the World Map [design: the quest's place is not centred].
 - **Misc**: the player's notes (AddNote; `NOTE` records) by name [hypothesis]; "(6 of 6)"
   is part of the note's name [observed: `VMQ01CourierNote` FULL "Mojave Express Delivery
