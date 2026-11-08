@@ -597,6 +597,9 @@ pub struct RegionDef {
     pub areas: Vec<Vec<[f32; 2]>>,
     /// The weather block (RDAT type 3, then RDWT), when the region has one.
     pub weathers: Option<RegionWeathers>,
+    /// The map block (RDAT type 4, then RDMP), when the region has one: its name and the
+    /// header's priority (schema `sky.json` REGN RDMP).
+    pub map: Option<(String, u8)>,
 }
 
 /// A region's weather block [documented: xEdit wbRegionDataEntries type 3; schema
@@ -868,8 +871,14 @@ pub struct GameData {
     pub table: FunctionTable,
     pub param_types: ParamTypes,
     pub load_order: Vec<String>,
+    /// The plugins (load-order indices) that hold each form more than one plugin
+    /// defines or overrides, in load order (LU's GetFormMods, [`GameData::form_plugins`]).
+    pub form_overrides: HashMap<FormId, Vec<u8>>,
     /// Each plugin's TES4 HEDR version, in load order (GetPluginHeaderVersion).
     pub plugin_versions: Vec<f32>,
+    /// Each plugin's author and description, TES4 CNAM and SNAM, `None` where the header
+    /// has none (SUP's GetModTraitSTR).
+    pub plugin_texts: Vec<(Option<String>, Option<String>)>,
     pub units: Vec<Compiled>,
     /// [`Compiled::key`] → unit (the first unit with that key), for finding a saved
     /// lambda's unit on load.
@@ -945,6 +954,9 @@ pub struct GameData {
     /// Where each inventory item form was first defined: (plugin, place among its records),
     /// for GetLoadedTypeArray's order.
     pub item_order: HashMap<FormId, (u8, u32)>,
+    /// Where each actor base (NPC_, CREA) was first defined: (plugin, place among its
+    /// records), for GetFactionMembers' order (`nvse_jg4`).
+    pub actor_order: HashMap<FormId, (u8, u32)>,
     /// OBND of the base forms that have one ([`BOUNDS_SIGS`]): min x, y, z, max x, y, z.
     pub object_bounds: HashMap<FormId, [i16; 6]>,
     /// The name the player sees (FULL) of every winning record that has one.
@@ -1565,7 +1577,7 @@ const BOUNDS_SIGS: [[u8; 4]; 20] = [
 ];
 
 /// The record types whose fields [`GameData::record_fields`] keeps.
-pub const FIELD_SIGS: [[u8; 4]; 47] = [
+pub const FIELD_SIGS: [[u8; 4]; 49] = [
     *b"PROJ", *b"EXPL", *b"AMMO", *b"WEAP", *b"ARMO", *b"LSCR", *b"NOTE", *b"PERK", *b"MESG", *b"TERM", *b"IMOD", *b"CHAL", *b"BOOK", *b"BPTD", *b"MISC", *b"ALCH", *b"KEYM",
     *b"NPC_", *b"CREA", *b"FACT", *b"RACE", *b"HAIR", *b"EYES", *b"SOUN", *b"WTHR", *b"IMGS", *b"IMAD", *b"AMEF", *b"CLMT", *b"CELL", *b"WRLD", *b"IPDS", *b"IPCT", *b"IDLE", *b"ACTI",
     // JIP batch 4 (`crate::nvse_jip4`).
@@ -1576,6 +1588,8 @@ pub const FIELD_SIGS: [[u8; 4]; 47] = [
     *b"LTEX",
     // JohnnyGuitar batch 3 (`crate::nvse_jg3`).
     *b"EFSH", *b"MSET",
+    // JIP batch 8 (`crate::nvse_jip8`): GetEffectFlag / SetEffectFlag read SPIT and ENIT flags.
+    *b"SPEL", *b"ENCH",
 ];
 
 /// The winning records of the [`FIELD_SIGS`] types, each decoded by
@@ -1617,7 +1631,11 @@ impl RecordFields {
 ///
 /// CSCR (a creature's sounds template) and NIFZ (its model list): JIP batch 6
 /// (`crate::nvse_jip6`). NAM4 (the impact material): JIP batch 7 (`crate::nvse_jip7`).
-const ACTOR_SUBS: [[u8; 4]; 19] = [*b"ACBS", *b"HNAM", *b"LNAM", *b"ENAM", *b"HCLR", *b"NAM6", *b"NAM7", *b"RNAM", *b"PNAM", *b"KFFZ", *b"VTCK", *b"DATA", *b"MODL", *b"TNAM", *b"BNAM", *b"WNAM", *b"CSCR", *b"NIFZ", *b"NAM4"];
+/// INAM (the death item), TPLT (the template), SPLO (the actor effects): JIP batch 8
+/// (`crate::nvse_jip8`).
+const ACTOR_SUBS: [[u8; 4]; 22] = [
+    *b"ACBS", *b"HNAM", *b"LNAM", *b"ENAM", *b"HCLR", *b"NAM6", *b"NAM7", *b"RNAM", *b"PNAM", *b"KFFZ", *b"VTCK", *b"DATA", *b"MODL", *b"TNAM", *b"BNAM", *b"WNAM", *b"CSCR", *b"NIFZ", *b"NAM4", *b"INAM", *b"TPLT", *b"SPLO",
+];
 
 /// A record's subrecords decoded by the schema, with each enum as its number (the
 /// decoder names them) so a script getter can return it.
@@ -1797,6 +1815,15 @@ impl GameData {
             })
             .collect();
         clock.lap("item order");
+        let actor_order: HashMap<FormId, (u8, u32)> = lo
+            .index
+            .iter()
+            .filter_map(|(&g, defs)| {
+                let first = defs.first()?;
+                let r = lo.records[first.plugin as usize][first.ordinal as usize];
+                matches!(&r.header.sig, b"NPC_" | b"CREA").then_some((FormId(g), (first.plugin, first.ordinal)))
+            })
+            .collect();
         let object_bounds: HashMap<FormId, [i16; 6]> = winners
             .par_iter()
             .filter(|(_, _, r)| BOUNDS_SIGS.contains(&r.header.sig))
@@ -1813,7 +1840,9 @@ impl GameData {
             table,
             param_types: param_types.clone(),
             load_order: lo.plugins.iter().map(|p| p.name.clone()).collect(),
+            form_overrides: lo.index.iter().filter(|(_, d)| d.len() > 1).map(|(&id, d)| (FormId(id), d.iter().map(|x| x.plugin).collect())).collect(),
             plugin_versions: lo.plugins.iter().map(|p| p.header.version).collect(),
+            plugin_texts: lo.plugins.iter().map(|p| (p.header.author.clone(), p.header.description.clone())).collect(),
             units: Vec::new(),
             unit_by_key: HashMap::new(),
             scripts: HashMap::new(),
@@ -1844,6 +1873,7 @@ impl GameData {
             edids: HashMap::new(),
             edid_of: HashMap::new(),
             item_order,
+            actor_order,
             object_bounds,
             form_flags,
             full_names: HashMap::new(),
@@ -2291,6 +2321,17 @@ impl GameData {
 
     pub fn script(&self, script: FormId) -> Option<&Compiled> {
         self.scripts.get(&script).map(|&u| &self.units[u])
+    }
+
+    /// The file names of the plugins that hold `form`, defining it or overriding it, in
+    /// load order; none for a form of no plugin (made in play).
+    pub fn form_plugins(&self, form: FormId) -> Vec<String> {
+        let idx: Vec<u8> = match self.form_overrides.get(&form) {
+            Some(v) => v.clone(),
+            None if self.sig(form).is_some() => vec![(form.0 >> 24) as u8],
+            None => Vec::new(),
+        };
+        idx.into_iter().filter_map(|i| self.load_order.get(usize::from(i)).cloned()).collect()
     }
 
     pub fn by_edid(&self, edid: &str) -> Option<FormId> {
@@ -3346,6 +3387,11 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                             })
                             .collect();
                         rg.weathers = Some(RegionWeathers { flags: num(h.and_then(|h| h.get("flags"))) as u8, priority: num(h.and_then(|h| h.get("priority"))) as u8, list });
+                    }
+                    // A map name follows a header of type 4 [observed: VMapGoodspringsRegion].
+                    b"RDMP" if num(header.and_then(|h| h.get("type"))) == 4.0 => {
+                        let name = v.as_ref().and_then(Json::as_str).unwrap_or_default().to_string();
+                        rg.map = Some((name, num(header.and_then(|h| h.get("priority"))) as u8));
                     }
                     b"WNAM" => rg.world = fid(v),
                     b"RPLI" => rg.areas.push(Vec::new()),
