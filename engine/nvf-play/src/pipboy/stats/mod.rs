@@ -381,6 +381,8 @@ pub struct StateMemory {
     page: Option<(usize, super::Frame)>,
     /// The test aid's `longdesc`.
     long: bool,
+    /// A box over the Pip-Boy held the keys last frame (`super::box_holds_keys`).
+    boxed: bool,
 }
 
 /// What [`prepare`] leaves for the views of the page, the hand-built [`draw`] and the tiles'
@@ -408,6 +410,13 @@ pub fn prepare(
 ) {
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
+    // [design] A box over the Pip-Boy (the tutorial; with the tiles, any menu over the page)
+    // holds the view's keys and the wheel on every tab, by the rule the Pip-Boy's own keys
+    // follow (`super::takes_keys`), and for the frame it closes in too: the press that closed
+    // it was the box's, so A closing a tutorial over Status > RAD uses no RadAway.
+    let menu = src.script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.menu);
+    let boxed = super::box_holds_keys(menu, input.tiles.as_deref());
+    let held = boxed || std::mem::replace(&mut mem.boxed, boxed);
     let Some(mut view) = view else {
         commands.init_resource::<StatsView>();
         return;
@@ -452,10 +461,10 @@ pub fn prepare(
         }
     }
     mem.long |= long;
-    // With the page drawn from its tiles a menu over it owns the keys and the wheel for all of
-    // the frame it closes in (`crate::tiles::stats_menu::StatsTiles::modal`).
+    // A box over the page owns the keys and the wheel, also in the frame it closes in (`held`;
+    // with the tiles, `crate::tiles::stats_menu::StatsTiles::modal` holds through that frame).
     let tiles = input.tiles.as_deref();
-    if pip.open() && !tiles.is_some_and(|t| t.modal) {
+    if pip.open() && !held {
         let mut ask = None;
         // [design] A press that opened the page or changed its tab or frame this frame
         // is spent: the view's keys (hints, X, the digits) do not act on it, so the

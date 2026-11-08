@@ -385,7 +385,12 @@ is the top left 85 × 92 of `head.dds`) [observed].
     the press uses nothing and still stays on RAD. Rad-X remains unimplemented.
     A press that opened the page or changed its tab or frame is spent: the view's
     keys do not act on that frame, so A stepping from S.P.E.C.I.A.L. back to a Status
-    left on RAD uses no RadAway [design: `stats/mod.rs::prepare`].
+    left on RAD uses no RadAway [design: `stats/mod.rs::prepare`]. A box over the
+    Pip-Boy that holds its keys (the tutorial; with the tile pages, any menu over the
+    page) holds the view's keys and the wheel too, on every tab, by the rule the
+    Pip-Boy's own keys follow, and for the frame it closes in: A closing a tutorial over
+    Status > RAD uses no RadAway [design: `pipboy.rs::box_holds_keys`,
+    `stats/mod.rs::prepare`].
   - CND: the Vault Boy at zoom 145, head 40 down and centred, face, torso, arms and legs
     placed from it as the file gives; a bracket (`vats_*_divider.dds`, 38 high) with a
     solid bar (77 × 14 at 25 or 51, 24) at each of six body parts, the bar as long as the

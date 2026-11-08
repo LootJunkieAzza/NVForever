@@ -102,6 +102,49 @@ fn tab_keys_switch_every_stats_view_that_does_not_own_them() {
 }
 
 #[test]
+fn a_tutorial_over_rad_holds_a_through_the_frame_it_closes_in() {
+    // As the plugin gates the Pip-Boy's own keys (`takes_keys`); the page's run regardless.
+    let mut state = crate::script::ScriptState::over_no_plugins();
+    state.rt.as_mut().unwrap().game.menu = Some(fnv_game::game::menus::TUTORIAL);
+    let mut app = App::new();
+    app.init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<crate::menu::PromptKeys>()
+        .init_resource::<crate::menu::ActiveMenu>()
+        .insert_resource(Time::<()>::default())
+        .init_resource::<crate::pause::PlayClock>()
+        .init_resource::<Prepared>()
+        .insert_resource(sim_with_radaway(0))
+        .insert_resource(state)
+        .insert_resource(PipBoy { page: Page::Stats, phase: super::super::Phase::Up, tabs: [0, 0, 0], ..default() })
+        .insert_resource(StatsView { status: 1, ..default() })
+        .add_message::<super::super::PipBoyInput>()
+        .add_message::<UseHint>()
+        .add_message::<MouseWheel>()
+        .add_systems(Update, ((super::super::keys, super::super::apply_input).chain().run_if(super::super::takes_keys), prepare).chain());
+    app.update();
+    let press_a = |app: &mut App| {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.reset_all();
+        keys.press(KeyCode::KeyA);
+    };
+    let asks = |app: &mut App| app.world_mut().resource_mut::<Messages<UseHint>>().drain().collect::<Vec<_>>();
+    // The tutorial is up: A is its Next.
+    press_a(&mut app);
+    app.update();
+    assert_eq!(asks(&mut app), [], "A under the tutorial uses no RadAway");
+    // The frame the tutorial closes in: its key answered it before the page's keys ran.
+    app.world_mut().resource_mut::<crate::script::ScriptState>().rt.as_mut().unwrap().game.menu = None;
+    press_a(&mut app);
+    app.update();
+    assert_eq!(asks(&mut app), [], "the press that closed the tutorial is spent");
+    assert_eq!((app.world().resource::<PipBoy>().tab(), app.world().resource::<StatsView>().status), (0, 1));
+    // The next press is the page's again.
+    press_a(&mut app);
+    app.update();
+    assert_eq!(asks(&mut app), [UseHint { hint: model::RADAWAY, limb: None }]);
+}
+
+#[test]
 fn cnd_pad_x_cycles_all_limbs_and_wraps_to_the_body() {
     let at = crate::pad::MenuAt { code: Some(fnv_game::game::menus::STATS), tab: 0 };
     let key = crate::pad::menu_buttons(at).iter().find(|(b, _)| *b == GamepadButton::West).unwrap().1;
