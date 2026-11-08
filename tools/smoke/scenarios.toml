@@ -22276,3 +22276,15 @@ expect = [
 ]
 forbid = ["pipboy: warm-up start", "pipboy: warm-up asked", "pipboy: first raise held", "menu request ignored"]
 manual = "This control must ask new pipelines at the first raise; otherwise the comparison is inconclusive. Compare its first_a through first_d with the warm run for the old screen fault. Pipeline compile durations and the last screen/glare ready lines determine the faulty interval; do not infer an unmeasured duration from the shot schedule. The shader-defs line for the last screen/glare pipeline to become ready identifies the candidate variant in the blue/brown depth fight; confirm against the corresponding shots."
+
+[[scenario]]
+name = "mesh-change-scan-replaced"
+source = "PR #1863: Bevy's mesh change mark (bevy_mesh mark_3d_meshes_as_changed_if_their_assets_changed) is replaced at startup by the indexed one (engine/nvf-assets/src/mesh_change_scan.rs); when it cannot be replaced safely, Bevy's stays and a warning says why"
+areas = ["renderer"]
+paths = ["engine/nvf-assets/src/mesh_change_scan.rs", "engine/nvf-assets/src/nif_material.rs", "engine/vendor/bevy_pbr/src/material.rs", "engine/vendor/bevy_pbr/src/specialization_scan.rs"]
+args = ["--cell", "Goodsprings"]
+run_seconds = 12
+expect = [
+  { text = "mesh change scan: Bevy's mesh mark replaced", count = 1, label = "the replacement took Bevy's mesh mark out of PostUpdate once, at startup" },
+]
+forbid = [{ text = "mesh change scan: kept Bevy's mesh mark", label = "the replacement gave up and Bevy's mesh mark stayed (the line names the reason)" }]

@@ -105,7 +105,10 @@ against it, and its own, are copied onto the replacement's set (`MeshChangeScanS
 then it is taken out of `PostUpdate` (`remove_systems_in_set`, `RemoveSystemsOnly`, which
 keeps its set and the systems ordered after it); if it has a run condition, a parent set
 or an ordering against a set that cannot be copied, it is kept and the replacement does
-not run. It reuses `AssetHolders`.
+not run, with the warning `mesh change scan: kept Bevy's mesh mark (<reason>)`; success logs
+`mesh change scan: Bevy's mesh mark replaced` (smoke scenario `mesh-change-scan-replaced`).
+The graph is read before `PostUpdate` is first built, as building moves the systems and
+their run conditions out of it. It reuses `AssetHolders`.
 
 Why: [observed 2026-11-08, `profile` build of 01df32361, standing in Goodsprings, Primm,
 Novac and Jacobstown, 3-5k mesh entities] `check_entities_needing_specialization<NifMaterial>`

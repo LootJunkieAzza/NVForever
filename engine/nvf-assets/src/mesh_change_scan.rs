@@ -32,10 +32,10 @@ use bevy::asset::{AssetEvent, AssetEventSystems, AssetId};
 use bevy::ecs::entity_disabling::Disabled;
 use bevy::ecs::query::Allow;
 use bevy::ecs::schedule::graph::Direction;
-use bevy::ecs::schedule::{InternedSystemSet, NodeId, Schedule, ScheduleCleanupPolicy, SystemSet};
+use bevy::ecs::schedule::{InternedSystemSet, NodeId, Schedule, ScheduleCleanupPolicy, SystemKey, SystemSet};
 use bevy::mesh::{mark_3d_meshes_as_changed_if_their_assets_changed, Mesh, Mesh3d};
 use bevy::pbr::specialization_scan::{clear_set, removals_missed, AssetHolders};
-use bevy::platform::collections::HashSet;
+use bevy::platform::collections::{HashMap, HashSet};
 use bevy::prelude::*;
 
 /// Replaces Bevy's mesh change mark with [`mark_3d_meshes_changed_by_index`].
@@ -72,16 +72,27 @@ pub struct BevyMeshMarkReplaced;
 /// onto [`MeshChangeScanSystems`].
 fn replace_bevy_mesh_mark(world: &mut World) {
     let replaced = world.try_schedule_scope(PostUpdate, |world, schedule| replace_in(schedule, world));
-    match replaced {
+    let kept = match replaced {
         Ok(Ok(true)) => {
+            info!("mesh change scan: Bevy's mesh mark replaced");
             world.insert_resource(BevyMeshMarkReplaced);
+            return;
         }
-        // No `MeshPlugin` (an app without meshes): nothing to replace.
-        Ok(Ok(false)) => debug!("mesh change scan: Bevy's mesh change mark is not in PostUpdate; nothing replaced"),
-        Ok(Err(why)) => warn!("mesh change scan: Bevy's mesh change mark kept: {why}"),
-        Err(e) => warn!("mesh change scan: Bevy's mesh change mark kept ({e:?})"),
-    }
+        // No `MeshPlugin` (an app without meshes): nothing to replace, nothing kept.
+        Ok(Ok(false)) => {
+            debug!("mesh change scan: Bevy's mesh mark is not in PostUpdate; nothing to replace");
+            return;
+        }
+        Ok(Err(why)) => why,
+        Err(e) => format!("{e:?}"),
+    };
+    warn!("mesh change scan: kept Bevy's mesh mark ({kept})");
+    world.insert_resource(BevyMeshMarkKept(kept));
 }
+
+/// Present when Bevy's system could not be replaced, with the reason (also logged).
+#[derive(Resource, Debug)]
+pub struct BevyMeshMarkKept(pub String);
 
 /// The work of [`replace_bevy_mesh_mark`] on the `PostUpdate` schedule: `Ok(false)` when
 /// Bevy's system is not there, `Err` (nothing changed) when it cannot be replaced safely.
@@ -92,15 +103,40 @@ fn replace_bevy_mesh_mark(world: &mut World) {
 /// not keep for us is an ordering into Bevy's system from elsewhere (`x.before(it)`, or
 /// `it.after(x)`), which would leave `x` unordered with the replacement, nor one out of
 /// the system itself (`it.before(y)`); those are copied onto [`MeshChangeScanSystems`].
+///
+/// The graph is read before the schedule is first built: building moves every system and
+/// its run conditions out of the graph into the executable (`ScheduleGraph::update_schedule`),
+/// after which they cannot be looked at here. At `PostStartup` `PostUpdate` has not run.
 fn replace_in(schedule: &mut Schedule, world: &mut World) -> Result<bool, String> {
-    schedule.initialize(world).map_err(|e| format!("{e:?}"))?;
     let original: InternedSystemSet = IntoSystemSet::into_system_set(mark_3d_meshes_as_changed_if_their_assets_changed).intern();
     let ours: InternedSystemSet = MeshChangeScanSystems.intern();
     let graph = schedule.graph();
     let Some(original_key) = graph.system_sets.get_key(original) else {
         return Ok(false);
     };
-    let members: Vec<_> = graph.systems_in_set(original).map_err(|e| format!("{e:?}"))?.iter().copied().collect();
+
+    // Each system's type set, how many systems share each, and Bevy's system's instances.
+    let mut type_set_of: HashMap<SystemKey, InternedSystemSet> = HashMap::default();
+    let mut instances: HashMap<InternedSystemSet, usize> = HashMap::default();
+    let mut members = Vec::new();
+    let mut inspected = 0;
+    for (key, system, conditions) in graph.systems.iter() {
+        inspected += 1;
+        let Some(type_set) = system.default_system_sets().into_iter().find(|set| set.system_type().is_some()) else {
+            continue;
+        };
+        *instances.entry(type_set).or_default() += 1;
+        type_set_of.insert(key, type_set);
+        if type_set == original {
+            if !conditions.is_empty() {
+                return Err("it has a run condition".into());
+            }
+            members.push(key);
+        }
+    }
+    if inspected < graph.systems.len() {
+        return Err("PostUpdate was built already, so its systems cannot be looked at".into());
+    }
     if members.is_empty() {
         return Ok(false);
     }
@@ -121,13 +157,10 @@ fn replace_in(schedule: &mut Schedule, world: &mut World) -> Result<bool, String
         match node {
             NodeId::Set(key) => Err(format!("it is ordered against the set {:?}", graph.system_sets.get(key))),
             NodeId::System(key) => {
-                let system = graph.systems.get(key).ok_or_else(|| format!("unknown system {key:?}"))?.system();
-                let type_set = system.default_system_sets().into_iter().find(|set| set.system_type().is_some()).ok_or_else(|| format!("{} has no type set", system.name()))?;
-                let instances = graph.systems_in_set(type_set).map_err(|e| format!("{e:?}"))?.len();
-                if instances == 1 {
-                    Ok(Some(type_set))
-                } else {
-                    Err(format!("{} is ordered against it and has {instances} instances", system.name()))
+                let type_set = *type_set_of.get(&key).ok_or_else(|| format!("a system ordered against it ({key:?}) has no type set"))?;
+                match instances.get(&type_set).copied().unwrap_or(0) {
+                    1 => Ok(Some(type_set)),
+                    n => Err(format!("{type_set:?} is ordered against it and has {n} instances")),
                 }
             }
         }
@@ -140,9 +173,6 @@ fn replace_in(schedule: &mut Schedule, world: &mut World) -> Result<bool, String
     }
     for &key in &members {
         let node = NodeId::System(key);
-        if graph.systems.has_conditions(key) {
-            return Err("it has a run condition".into());
-        }
         if let Some(parent) = graph.hierarchy().graph().neighbors_directed(node, Direction::Incoming).find(|&parent| parent != NodeId::Set(original_key)) {
             return Err(format!("it is in a set ({parent:?})"));
         }
@@ -794,7 +824,7 @@ mod tests {
         );
         app.update();
         app.update();
-        assert!(app.world().contains_resource::<BevyMeshMarkReplaced>());
+        assert!(app.world().contains_resource::<BevyMeshMarkReplaced>(), "kept: {:?}", app.world().get_resource::<BevyMeshMarkKept>());
         let schedule = app.world().resource::<Schedules>().get(PostUpdate).unwrap();
         let graph = schedule.graph();
         let key = |set: InternedSystemSet| NodeId::Set(graph.system_sets.get_key(set).unwrap());
