@@ -3221,6 +3221,18 @@ fn out_params(lname: &str) -> Option<&'static [usize]> {
         // fz"; GetAkimboWeaponsAlt, the left and right weapons into the two variables].
         "getplayercamerarotation" => &[0, 1, 2],
         "getakimboweaponsalt" => &[1, 2],
+        // [documented: GetTFCPosEx, GetTFCAngleEx, GetTFCRotEx, "pass … to … script
+        // variables"; GetCalculatedPos and GetCalculatedPosAlt, xOut and yOut].
+        "gettfcposex" => &[0, 1, 2],
+        "gettfcangleex" | "gettfcrotex" => &[0, 1],
+        "getcalculatedpos" | "getcalculatedposalt" => &[2, 3],
+        // [documented: GetPosEx, GetNifBlockTranslationAlt, GetNifBlockRotationAlt, "the
+        // result XYZ are placed into the 3 specified Script Variables"].
+        "getposex" => &[0, 1, 2],
+        "getnifblocktranslationalt" | "getnifblockrotationalt" => &[1, 2, 3],
+        // [documented: GetMousePosition, GetMouseMovement, "output … to fPosX and fPosY
+        // script variables"].
+        "getmouseposition" | "getmousemovement" => &[0, 1],
         _ => return None,
     })
 }

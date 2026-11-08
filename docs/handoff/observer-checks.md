@@ -1320,6 +1320,14 @@ The numbers above stay put so links to them hold; each item here gives its own p
     standing at a negative Health, and GetDead); on the lone NPC, the player's XP and karma
     before and after (is the kill anyone's?). Also: does Health stay negative or stop at 0?
     The answer: the logs.
+    Answered in part [observed: campaign o29_dmg, 2026-11-08, `nvfairport`, issue #1858]:
+    a lone trooper and the player both die in the next game loop, Health stays at the
+    negative value (-9949), OnDeath names no killer and karma does not move, as ours does
+    (unconscious.md §2.2). Still open: an essential NPC (SetEssential on a spawned leveled
+    trooper's base did not take; needs a save with a real essential NPC near) and the XP.
+    Trap: a session that kills the player loops, since the death reload reloads the save and
+    the plugin starts the pending job again; give it `--retries 0` and take its job file out
+    of `jobs\` once the first death is logged.
 
 ## Added 2026-11-04 (the container menu from its file, issue #1468)
 
@@ -1364,6 +1372,10 @@ north-north-west until they rest; wind.md §2). Open:
     SLGoodspringsCaveINT, which reads 36.08 away from its lamps). NVForever gives a
     shaded target the weather's ambient and adds the lamps' brightest channel ×
     (1 − (d/r)²) [hypothesis].
+    Lamp answered [observed: job o29_light, 2026-11-08]: a RedLight of radius 384 reads 100
+    to 192 units, about 96 at 256, 68 at 320 and only the ambient from 384 out; ours comes
+    within about 5 (detection.md §3). Shade still open: 14 spots around the gas station read
+    100, but which stood under the canopy is not known; take a frame at each next time.
 94. **Tumbleweeds against the wind's speed, and whether they start again.** (P3; wind.md
     §4.) Force HVDustStorm (127) and then load the save (or `coc` away and back) so the
     tumbleweeds wake under it; compare their speeds with o27_tumble's 150–210 units a
@@ -1442,3 +1454,17 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     Answered in part 2026-11-06 (private job ov_burn, the Prospector Saloon) [observed]: with
     the weapon holstered first person shows nothing of the burn, third person shows flames at
     the head, and back in first person nothing again. The raised weapon's arms are still open.
+
+## Added 2026-11-07 (interior light direction, issue #1645)
+
+101. **Interior lighting: which way does the cell's directional light point, and does it
+    cast shadows?** (P3; world.md §8 "Interior cells".) NVForever reads XCLL's pitch as
+    the direction the light shines in (270 straight down) [hypothesis, from the templates'
+    values]; the azimuth's zero and sense are unknown, and whether the original draws
+    shadows from it at all is too (outdoors it casts no sun shadows from the world, world.md
+    §6). Capture GSGasStation (azimuth 180, pitch 250) at hour 12 from the door, looking
+    down at the tiled floor under the hanging lamps, then up at the ceiling: (a) are there
+    shadows under the lamps, the crates and the counter, or on the ceiling beside the
+    lamps, or none; (b) which side of the crates and counter is lit brighter (that gives
+    the azimuth). The same frame of a cell with azimuth 0 and pitch 270 (a cave on
+    CavesDefaultTemplate) shows whether straight down holds.

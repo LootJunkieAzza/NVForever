@@ -284,12 +284,12 @@ the spec it links to.
     nothing in the data sets the frag grenade apart. If you want the frag grenade alone, the rule can key on
     its PROJ. ([combat-rules §5](spec-notes/combat-rules.md))
 
-51. **Corpses shot again wake for 3 s (#1798).** A corpse moves for at most 3 s and is then
-   held; a shot or blow on a held corpse shoves it and lets it move for up to 3 s more.
-   In the 50-a-side battle 79 of 141 rests were such re-wakes, about half the ragdoll
-   solver's 8–14 ms a frame. Nothing changed yet. If you rule a shorter wake after a
-   shove (say 1 s), or none for a corpse at rest a while, re-shot corpses twitch less and
-   the battle gets faster. ([ragdoll §4](spec-notes/ragdoll.md),
+51. **Corpses shot again move for 1 s (#1798), decided 2026-11-08.** A corpse moves for at
+   most 3 s and is then held. A shot or blow on a held corpse now shoves it and lets it
+   move for at most 1 s (`MAX_AWAKE_SHOVED`; it was 3 s). A blast, a fresh death, a body
+   in water or one carried keep their limits. In the 50-a-side battle the ragdoll solver
+   went from 4.4–6.2 to 3.4–3.6 ms a frame. Say if re-shot corpses should move longer
+   (or not at all). ([ragdoll §4](spec-notes/ragdoll.md),
    [frame-rate-audit §5](design/frame-rate-audit.md))
 
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
@@ -350,10 +350,11 @@ by runtime-compiled queries (tools/capture/jip_probes.py), results in the jip-* 
 - **`GetLNVersion` returns 57.3** in your game, where the wiki says it always returns 0;
   NVForever follows the game.
 - **UI functions (J8):** *answered 2026-10-26*, a tile tree (extender-compat.md §5.6 A).
-- **Three wiki pages missing from the export:** *Auxiliary Variables*, *RefMap Array* and
-  *Template:ModIndexOverride*. The game showed that a `*` name prefix makes an auxiliary
-  variable temporary. It did not show how a variable becomes private or public
-  (docs/spec-notes/jip-variable-stores.md §1). Exporting those three pages settles it.
+- **Two wiki pages missing from the export:** *Auxiliary Variables* and *RefMap Array*
+  (export them by exact title: the 2026-11-08 category exports held only the function
+  pages). *Template:ModIndexOverride* came in 2026-11-08: a private variable belongs to its
+  plugin's mod index. The `*` name prefix makes a variable temporary [observed]; what makes
+  it public is still open (docs/spec-notes/jip-variable-stores.md §1).
 - **JIP implementation choices (J4–J7, branch claude/ext-compiler, 2026-10-26).**
   *Check* any you would rather have differently:
   - An invalid regular expression is an extender run-time error (the statement fails,
