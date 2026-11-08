@@ -932,17 +932,19 @@ fn social_mates(coop: Res<Coop>, loc: Option<Res<Location>>, mut mates: ResMut<n
     }
 }
 
-/// How long the loser of a duel lies on the winner's screen before its puppet stands
-/// again (seconds) [design: its own game's knockdown and get-up take about as long].
-const DUEL_FALL: f32 = 3.5;
+/// The longest the loser of a duel lies on the winner's screen: its puppet gets up when
+/// the loser's own body does (`flag::LYING` ends), and is drawn standing if that has not
+/// begun by then (seconds) [design: its own knockdown lies about 2.5 s, observed
+/// 2026-11-07].
+const DUEL_FALL_MAX: f32 = 8.0;
 
 /// How long a fallen puppet's throw waits for its ragdoll before it is let go (seconds).
 const DUEL_SHOVE_WAIT: f32 = 2.0;
 
 /// The loser of a duel against this player: its puppet falls as a downed player's does
 /// ([`downed`]), its ragdoll thrown away from this player as the loser's own game throws
-/// it (`nvf_play::coop_social::duel::throw`, the same velocity), and stands again after
-/// [`DUEL_FALL`].
+/// it (`nvf_play::coop_social::duel::throw`, the same velocity), and gets up with the
+/// loser's own body (`revive::bodies`), at most [`DUEL_FALL_MAX`] after the fall.
 #[allow(clippy::too_many_arguments)]
 fn duel_falls(
     time: Res<Time>,
@@ -975,6 +977,9 @@ fn duel_falls(
             _ => [0.0, 0.0, nvf_play::coop_social::duel::THROW.1],
         };
         p.fall_shove = Some((shove, now));
+        // It gets up when the loser's own body does, with the get-up clip from the
+        // ragdoll's pose, as a revived player's puppet does (`revive::bodies`).
+        p.rising = Some(revive::Rising::Start { since: now });
         g.extra.entry(FormId(r)).or_default().dead = true;
         hits.write(ActorHit { form_id: r, died: true, knocked_out: false, location: -1, crippled: false, part_crippled: false, torso_crippled: false, by: None, share: 1.0, guard_broken: false, weapon: None });
         info!("co-op: {} lost the duel: the puppet falls, thrown at ({:.0}, {:.0}, {:.0}) units/s", label(id, &p.name), shove[0], shove[1], shove[2]);
@@ -1001,22 +1006,33 @@ fn duel_falls(
             None => {}
         }
     }
+    // Up: the get-up has begun (or the puppet was drawn standing for want of a body, a
+    // pose or a clip, `revive::bodies`); without either by then, it stands up as it did.
     for (&id, p) in coop.peers.iter_mut() {
-        if p.fell_at.is_none_or(|t| now - t < DUEL_FALL) {
+        let Some(t) = p.fell_at else { continue };
+        let waiting = matches!(p.rising, Some(revive::Rising::Start { .. }));
+        if p.down || (waiting && now - t < DUEL_FALL_MAX) {
+            if p.down {
+                p.fell_at = None;
+                p.fall_shove = None;
+            }
             continue;
         }
         p.fell_at = None;
         p.fall_shove = None;
-        if p.down {
-            continue;
-        }
         let r = p.reference(id);
         g.extra.entry(FormId(r)).or_default().dead = false;
-        if let Some(ph) = phys.as_deref_mut() {
-            ph.world.remove_ragdoll(r);
+        if waiting {
+            info!("co-op: {}'s get-up did not start: drawn standing", label(id, &p.name));
+            p.rising = None;
+            if let Some(ph) = phys.as_deref_mut() {
+                ph.world.remove_ragdoll(r);
+            }
+            ragdolls.rest.remove(&r);
+            p.redraw = true;
+        } else {
+            info!("co-op: {} is up again here after the duel, {:.1} s after the fall", label(id, &p.name), now - t);
         }
-        ragdolls.rest.remove(&r);
-        p.redraw = true;
     }
 }
 
@@ -1092,7 +1108,7 @@ fn pipboy_share(coop: Res<Coop>, mut checks: ResMut<crate::pipboy_check::PuppetC
 }
 
 /// Hand the link this game's newest state (it sends it on its own thread).
-fn send(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location>>, state: Option<Res<State<PlayState>>>, main_menu: Option<Res<nvf_play::main_menu::MainMenu>>, doing: Doing) {
+fn send(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location>>, state: Option<Res<State<PlayState>>>, main_menu: Option<Res<nvf_play::main_menu::MainMenu>>, doing: Doing, mut was_lying: Local<bool>) {
     let (Some(link), Some(player), Some(loc)) = (coop.link.as_ref(), player, loc) else { return };
     // At the main menu there is no player yet (the link says it is there all the same).
     if at_main_menu(main_menu.as_deref()) {
@@ -1119,7 +1135,13 @@ fn send(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location>>
     flags |= if sights && out { flag::SIGHTS } else { 0 };
     flags |= if doing.script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.is_dead(FormId::PLAYER_REF)) { flag::DOWN } else { 0 };
     flags |= if doing.flashlight.as_ref().is_some_and(|f| f.on) { flag::LIGHT } else { 0 };
-    flags |= if doing.knockdown.as_ref().is_some_and(|k| k.revive_lying()) { flag::LYING } else { 0 };
+    let lying = doing.knockdown.as_ref().is_some_and(|k| k.lying());
+    flags |= if lying { flag::LYING } else { 0 };
+    if lying != *was_lying {
+        *was_lying = lying;
+        // The others' copies of this player get up when this ends (`revive::bodies`).
+        info!("co-op: sent: this player's body {}", if lying { "lies" } else { "gets up" });
+    }
     s.flags = flags;
     if let (Some(pip), Some(glance)) = (doing.pipboy.0.as_deref(), doing.pipboy.1.as_deref()) {
         s.pipboy = nvf_play::pipboy::glance::Check::of(pip, glance).code();
