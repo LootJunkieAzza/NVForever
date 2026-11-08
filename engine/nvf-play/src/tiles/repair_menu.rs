@@ -45,7 +45,7 @@ use crate::script::ScriptState;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use fnv_game::game::menus as codes;
-use fnv_game::repair::{gain_percent, merged_condition};
+use fnv_game::repair::{gain_percent, merged_condition, Gear};
 use fnv_sim::inventory::Extra;
 use fnv_sim::FormId;
 use fnv_ui::{TileId, Ui, Value};
@@ -188,10 +188,12 @@ impl Shown {
         let part = s.selected.checked_sub(1).and_then(|i| o.parts.get(i));
         let to = part.map(|q| merged(q.condition));
         let now = stat_at(o.condition);
-        let stat_title = match now {
-            Some(("DAM", _)) => w.damage.clone(),
-            Some(_) => w.threshold.clone(),
-            None => String::new(),
+        // The card's title by the item's kind, not the figure's label: since #1902 that is
+        // the load order's (localized) setting, no longer "DAM" [design].
+        let stat_title = match (now, o.gear) {
+            (None, _) => String::new(),
+            (Some(_), Gear::Weapon) => w.damage.clone(),
+            (Some(_), Gear::Armor) => w.threshold.clone(),
         };
         let figures = Figures {
             condition_title: w.condition.clone(),
@@ -809,7 +811,7 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
 mod tests {
     use super::*;
     use crate::pipboy::repair::{Offer, Part};
-    use fnv_game::repair::{Gear, MergeSettings};
+    use fnv_game::repair::MergeSettings;
     use fnv_ui::MemSource;
 
     /// [design] A fixture written for these tests, with its own dimensions and simple dependencies
@@ -885,6 +887,21 @@ mod tests {
 
     fn shown(selected: usize, on_rows: bool) -> Shown {
         Shown::of(&session(selected), on_rows, false, 0, &stat, &words())
+    }
+
+    #[test]
+    fn the_stat_card_title_follows_the_items_kind_not_a_localized_label() {
+        // A load order whose settings name damage and DT in other words (written for the test).
+        let localized = |c: f32| Some(("SCH", (c * 20.0) as i32));
+        let weapon = Shown::of(&session(1), true, false, 0, &localized, &words());
+        assert_eq!(weapon.figures.stat_title, "Force", "a weapon's card is damage whatever its label");
+        let mut armor = session(1);
+        armor.offer.gear = Gear::Armor;
+        let localized_dt = |c: f32| Some(("SRS", (c * 10.0) as i32));
+        let armor = Shown::of(&armor, true, false, 0, &localized_dt, &words());
+        assert_eq!(armor.figures.stat_title, "Guard", "an armour's card is DT");
+        let none = Shown::of(&session(1), true, false, 0, &|_| None, &words());
+        assert_eq!(none.figures.stat_title, "", "no figure, no title");
     }
 
     struct TestFonts;
