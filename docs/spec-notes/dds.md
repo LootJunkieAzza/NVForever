@@ -69,3 +69,25 @@ six face bits set (1 when not a cube map). Sizes count the
 bytes after the 128-byte header. `error` is set when the file is not a valid DDS (bad
 magic, short header); then the other fields are `null`. Lab comparator: **keyed** on
 `path`, all fields.
+
+## 6. DX10 extension header (mods)
+
+- The game's own archives have none (§1). Some mods ship textures with one [observed, the
+  owner's load order 2026-11-07: three of 16,435 loose `.dds` files, all DXGI 98 BC7_UNORM,
+  2D, one array element: `textures\LVC\DesertInn1.dds` and `WestwardHo1.dds` (a Las Vegas
+  signs mod), `textures\HotM\parkbrick_lod.dds`].
+- Layout [documented: MS DDS, `DDS_HEADER_DXT10`]: the pixel format's FourCC is `DX10` and
+  five u32 values follow the 128-byte header: DXGI format, resource dimension, misc flags,
+  array size, misc flags 2. The pixel data starts after them (byte 148), laid out as in §3.
+- BC7 [documented: Microsoft, "BC7 Format"] stores 16 bytes per 4×4 block, like DXT5.
+  It is a Direct3D 11 format. Whether the original game, a Direct3D 9 program, draws such a
+  file at all is open (observer check).
+- NVForever reads the DX10 header [design, `crates/fnv-dds`]:
+  - DXGI 70-72 as DXT1, 73-75 as DXT3, 76-78 as DXT5 and 97-99 as BC7 (typeless, UNORM and
+    SRGB alike: colour or not is the caller's choice, as for the legacy formats);
+  - 27-29 as A8B8G8R8 and 87, 90, 91 as A8R8G8B8;
+  - other DXGI formats are refused by number.
+
+  Before this, the three files above did not load. The shapes using them drew untextured,
+  so the Desert Inn sign by Freeside's wall was a milky white-blue shape at night (owner,
+  2026-11-07, overnight queue item 87).

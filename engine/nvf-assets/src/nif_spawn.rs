@@ -501,7 +501,26 @@ pub(crate) fn shape_props(file: &NifFile, dec: &Decoded, o: &SceneObject, by_blo
             }
         }
     }
+    if untextured_blend(&props) {
+        props.vertex_alpha = true;
+    }
     props
+}
+
+/// Whether a shape is an unlit (BSShaderNoLightingProperty) shape that names no texture
+/// and blends: it takes its vertex alpha although its shader sets neither vertex-alpha
+/// flag ([`uses_vertex_alpha`]). With no texture the vertex alpha is the only alpha such a
+/// shape has, and the blend would otherwise change nothing [hypothesis]. In `Fallout -
+/// Meshes.bsa` 154 visible shapes are of this kind with some vertex alpha below 1, and
+/// 526 with all of it 1, which this leaves as they were [observed:
+/// `crates/fnv-nif/examples/untextured_blend_survey.rs`]. They are soft black contact
+/// shadows: the quad under the casino tables (`clutter\casino\cardtable01.nif`, shape
+/// `CardTable01:1`, alpha flags 0x10ED, shader flags 0x8200_0000, black vertices of alpha
+/// 0.7 inside and 0 at the edges), the Ultra-Luxe's tables, desks and bars. Drawn with
+/// alpha 1 they were hard black mats bigger than the tables (owner, 2026-11-07, overnight
+/// queue item 76).
+pub(crate) fn untextured_blend(p: &Props) -> bool {
+    p.unlit && !p.vertex_alpha && p.alpha.is_some_and(|(flags, _)| flags & 1 != 0) && p.textures.iter().all(|t| t.is_empty())
 }
 
 /// Perceptual roughness for a NiMaterialProperty glossiness, read as a Blinn-Phong
@@ -1429,6 +1448,19 @@ mod tests {
         };
         assert_eq!(get(&mesh), vec![[0.5, 1.0, 1.0, 1.0], [0.2, 0.3, 0.4, 1.0]]);
         assert_eq!(get(&flagged), vec![[0.5, 1.0, 1.0, 0.0], [0.2, 0.3, 0.4, 0.25]]);
+    }
+
+    #[test]
+    fn untextured_blended_unlit_shapes_take_their_vertex_alpha() {
+        // The casino tables' shadow quads: no texture, blended, no vertex-alpha flag.
+        let shadow = Props { unlit: true, alpha: Some((0x10ED, 0)), textures: vec![String::new()], ..Default::default() };
+        assert!(untextured_blend(&shadow));
+        // Textured, not blended, lit, or already flagged: unchanged.
+        assert!(!untextured_blend(&Props { textures: vec!["a.dds".into()], ..shadow.clone() }));
+        assert!(!untextured_blend(&Props { alpha: Some((0x10EC, 0)), ..shadow.clone() }));
+        assert!(!untextured_blend(&Props { alpha: None, ..shadow.clone() }));
+        assert!(!untextured_blend(&Props { unlit: false, ..shadow.clone() }));
+        assert!(!untextured_blend(&Props { vertex_alpha: true, ..shadow }));
     }
 
     #[test]

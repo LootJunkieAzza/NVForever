@@ -1,6 +1,6 @@
 use crate::source::process;
 use crate::DdsCmd;
-use fnv_dds::{DdsHeader, HEADER_LEN};
+use fnv_dds::DdsHeader;
 use serde_json::{json, Value};
 
 pub fn run(cmd: DdsCmd) -> anyhow::Result<Value> {
@@ -12,13 +12,13 @@ pub fn run(cmd: DdsCmd) -> anyhow::Result<Value> {
 fn row(path: &str, data: &[u8]) -> Value {
     match DdsHeader::parse(data) {
         Ok(h) => {
-            let (format, expected) = match h.pixel_format.format() {
+            let (format, expected) = match h.format() {
                 Ok(f) => (f.name().to_string(), Some(h.expected_size(f))),
                 Err(desc) => (desc, None),
             };
             json!({"path": path, "width": h.width, "height": h.height, "mip_count": h.mip_count,
                    "levels": h.levels(), "format": format, "cubemap": h.is_cubemap(), "faces": h.faces(),
-                   "expected_size": expected, "actual_size": data.len() - HEADER_LEN, "error": null})
+                   "expected_size": expected, "actual_size": data.len().saturating_sub(h.data_offset()), "error": null})
         }
         Err(e) => error_row(path, &e.to_string()),
     }
