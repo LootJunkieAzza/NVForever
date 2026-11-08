@@ -169,6 +169,10 @@ const NPC_REF: u32 = 0x320;
 const NPC_AUTO_REF: u32 = 0x321;
 const PATROL_REF: u32 = 0x330;
 const OTHER_REF: u32 = 0x331;
+const TELEPORT_DOOR: u32 = 0x940;
+const DOOR_REF: u32 = 0x340;
+const DEST_DOOR_REF: u32 = 0x341;
+const DOOR_POS: [f32; 3] = [11.0, 22.0, 33.0];
 
 const SET_STAGE: u16 = 0x1039;
 const GET_SECONDS_PASSED: u16 = 0x100C;
@@ -257,12 +261,25 @@ fn plugin_bytes() -> Vec<u8> {
         ),
     ]
     .concat();
-    // NPC script: nDone (1, short).
+    // NPC script: nDone (1), nFrames (3), nOnLoad (7), all short counters.
     //   begin SayToDone
     //     set nDone to nDone + 1
     //   end
     let body = set(var(b's', 1), ex(&[var(b's', 1), a("1"), a("+")]));
-    let npcscript = [vec![sub(b"EDID", z("NpcScript"))], unit(0, &script(&[(0x07, None, body)]), &[(1, "nDone", 1)], &[])].concat();
+    let npcscript = [
+        vec![sub(b"EDID", z("NpcScript"))],
+        unit(
+            0,
+            &script(&[
+                (0x07, None, body),
+                (0, None, set(var(b's', 3), ex(&[var(b's', 3), a("1"), a("+")]))),
+                (0x15, None, set(var(b's', 7), ex(&[var(b's', 7), a("1"), a("+")]))),
+            ]),
+            &[(1, "nDone", 1), (3, "nFrames", 1), (7, "nOnLoad", 1)],
+            &[],
+        ),
+    ]
+    .concat();
     // Trigger script: fSum (1, float); no GameMode block.
     //   begin OnTrigger
     //     set fSum to fSum + GetSecondsPassed
@@ -413,17 +430,27 @@ fn plugin_bytes() -> Vec<u8> {
         ]
         .concat(),
     );
-    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[refr, trig_ref, achr, achr_auto, patrol_ref].concat()));
+    let door = record(b"DOOR", 0, TELEPORT_DOOR, &[sub(b"EDID", z("TestTeleportDoor"))]);
+    let destination: Vec<u8> = DOOR_POS.into_iter().chain([0.0, 0.0, 0.75]).flat_map(f32::to_le_bytes).collect();
+    let door_ref = record(b"REFR", 0, DOOR_REF, &[
+        sub(b"EDID", z("TestDoorREF")), sub(b"NAME", TELEPORT_DOOR.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24]),
+        sub(b"XTEL", [DEST_DOOR_REF.to_le_bytes().to_vec(), destination].concat()),
+    ]);
+    let dest_door = record(b"REFR", 0, DEST_DOOR_REF, &[
+        sub(b"NAME", TELEPORT_DOOR.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24]),
+    ]);
+    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[refr, trig_ref, achr, achr_auto, patrol_ref, door_ref].concat()));
     // A second cell, with one unscripted reference to move things to.
     let other_cell = record(b"CELL", 0, OTHER_CELL, &[sub(b"EDID", z("TestOtherCell"))]);
     let other_ref = record(b"REFR", 0, OTHER_REF, &[sub(b"EDID", z("TestOtherREF")), sub(b"NAME", MARKER.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
-    let other_children = group(OTHER_CELL.to_le_bytes(), 6, &group(OTHER_CELL.to_le_bytes(), 9, &other_ref));
+    let other_children = group(OTHER_CELL.to_le_bytes(), 6, &group(OTHER_CELL.to_le_bytes(), 9, &[other_ref, dest_door].concat()));
     [
         tes4(),
         top(b"GLOB", &glob),
         top(b"MESG", &mesg),
         top(b"SCPT", &scpt),
         top(b"ACTI", &[acti, trig, marker].concat()),
+        top(b"DOOR", &door),
         top(b"NPC_", &[npc, npc_auto].concat()),
         top(b"WEAP", &record(b"WEAP", 0, WEAPON, &[sub(b"EDID", z("TestWeapon")), sub(b"SCRI", WEAPON_SCRIPT.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 15])])),
         top(b"PACK", &pack),
@@ -1174,7 +1201,7 @@ fn a_disabled_reference_runs_on_load_when_its_cell_loads() {
     assert_eq!(loads(&g), 2.0);
 }
 
-/// How many times `r`'s OnLoad block has run (the activator script's nOnLoad).
+/// How many times `r`'s OnLoad block has run (the fixture scripts' nOnLoad).
 fn on_loads(g: &Game, r: FormId) -> f64 {
     match g.var(InstKey::Ref { reference: r }, 7) {
         Value::Num(x) => x,
@@ -1184,6 +1211,101 @@ fn on_loads(g: &Game, r: FormId) -> f64 {
 
 fn load_only(g: &mut Game, cell: u32) {
     g.set_loaded([FormId(cell)].into_iter().collect());
+}
+
+/// [design: game.rs scripted_refs_in] A scripted door move registers an NPC for
+/// destination GameMode and OnLoad selection, including after a save is restored.
+#[test]
+fn a_scripted_npc_sent_through_a_door_runs_in_its_destination() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let npc = FormId(NPC_REF);
+    let frames = |g: &Game| g.var(InstKey::Ref { reference: npc }, 3);
+    load_only(&mut g, CELL);
+    assert_eq!(on_loads(&g, npc), 1.0);
+    g.tick();
+    assert_eq!(frames(&g), Value::Num(1.0));
+    g.events.clear();
+    g.run_source("TestDoorREF.Activate TestNpcREF", Default::default()).unwrap();
+    let s = g.world.peek(npc).unwrap();
+    assert_eq!((s.cell, s.pos, s.rot), (Some(FormId(OTHER_CELL)), DOOR_POS, [0.0, 0.0, 0.75]));
+    assert!(g.moved.contains(&npc));
+    assert_eq!(g.take_teleported(), [npc].into_iter().collect());
+    assert!(g.brought_along.is_empty());
+    assert!(!g.turned.contains(&npc));
+    assert_eq!(g.events.iter().filter(|e| matches!(e.kind, EventKind::Moved { reference, cell: Some(cell), pos }
+        if reference == npc && cell == FormId(OTHER_CELL) && pos == DOOR_POS)).count(), 1);
+    g.tick();
+    assert_eq!(frames(&g), Value::Num(1.0), "the source no longer runs the NPC");
+    load_only(&mut g, OTHER_CELL);
+    assert_eq!(on_loads(&g, npc), 2.0);
+    g.tick();
+    assert_eq!(frames(&g), Value::Num(2.0));
+    load_only(&mut g, OTHER_CELL);
+    assert_eq!(on_loads(&g, npc), 2.0, "no second load while the cell stays loaded");
+    load_only(&mut g, CELL);
+    assert_eq!(on_loads(&g, npc), 2.0, "the authored cell loads without it");
+    load_only(&mut g, OTHER_CELL);
+    assert_eq!(on_loads(&g, npc), 3.0, "once on destination reload");
+
+    let saved: fnv_game::game::GameSnapshot = serde_json::from_str(&serde_json::to_string(&g.snapshot()).unwrap()).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &saved.sim).unwrap();
+    let mut restored = Game::restore(&f.data, world, g.cfg, &saved).unwrap();
+    assert_eq!(restored.cell_of(npc), Some(FormId(OTHER_CELL)));
+    assert!(restored.moved.contains(&npc));
+    restored.tick();
+    assert_eq!(frames(&restored), Value::Num(3.0));
+    load_only(&mut restored, CELL);
+    restored.tick();
+    assert_eq!(frames(&restored), Value::Num(3.0));
+    assert_eq!(on_loads(&restored, npc), 3.0);
+    load_only(&mut restored, OTHER_CELL);
+    assert_eq!(on_loads(&restored, npc), 4.0);
+    restored.tick();
+    assert_eq!(frames(&restored), Value::Num(4.0));
+}
+
+#[test]
+fn an_unscripted_npc_door_move_is_reported_only_after_success() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    load_only(&mut g, CELL);
+    let npc = FormId(NPC_AUTO_REF);
+    g.events.clear();
+    g.world.lock(FormId(DOOR_REF), Some(50)).unwrap();
+    g.run_source("TestDoorREF.Activate TestAutoNpcREF", Default::default()).unwrap();
+    assert_eq!(g.cell_of(npc), Some(FormId(CELL)));
+    assert!(g.take_teleported().is_empty());
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::Moved { .. })));
+    g.world.unlock(FormId(DOOR_REF)).unwrap();
+    g.run_source("TestDoorREF.Activate TestAutoNpcREF", Default::default()).unwrap();
+    assert_eq!(g.cell_of(npc), Some(FormId(OTHER_CELL)));
+    assert_eq!(g.take_teleported(), [npc].into_iter().collect());
+    assert!(!g.moved.contains(&npc));
+    assert!(!g.turned.contains(&npc));
+    assert_eq!(g.loaded_cells, [FormId(CELL)].into_iter().collect());
+    assert_eq!(g.events.iter().filter(|e| matches!(e.kind, EventKind::Moved { reference, .. } if reference == npc)).count(), 1);
+}
+
+#[test]
+fn a_player_door_move_keeps_cell_entry_and_followers() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    load_only(&mut g, CELL);
+    let npc = FormId(NPC_REF);
+    g.extra.entry(npc).or_default().teammate = true;
+    g.events.clear();
+    g.run_source("TestDoorREF.Activate player", Default::default()).unwrap();
+    assert_eq!(g.cell_of(FormId::PLAYER_REF), Some(FormId(OTHER_CELL)));
+    assert_eq!(g.loaded_cells, [FormId(OTHER_CELL)].into_iter().collect());
+    assert_eq!(g.cell_of(npc), Some(FormId(OTHER_CELL)));
+    assert_eq!(g.brought_along, [npc].into_iter().collect());
+    assert_eq!(g.take_teleported(), [npc].into_iter().collect());
+    assert_eq!(g.events.iter().filter(|e| matches!(e.kind, EventKind::Moved { reference, .. } if reference == npc)).count(), 1);
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::Moved { reference: FormId::PLAYER_REF, .. })));
 }
 
 /// OnLoad at a cell load goes by the cell a reference is in now: a moved one runs it when

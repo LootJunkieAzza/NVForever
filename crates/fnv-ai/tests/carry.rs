@@ -215,6 +215,10 @@ const R_KEEPER: u32 = 0x8A0;
 const R_HUNTER: u32 = 0x8A1;
 const DOOR_A: u32 = 0x8D1;
 const DOOR_B: u32 = 0x8D2;
+const SCRIPT_DOOR_BASE: u32 = 0xF10;
+const SCRIPT_DOOR: u32 = 0xF11;
+const SCRIPT_DEST_DOOR: u32 = 0xF12;
+const SCRIPT_DEST: [f32; 3] = [5200.0, 5200.0, 50.0];
 // Cell D (furniture eligibility, issue #1522): 10 x 10 squares from (20000, 20000).
 const CELL_D: u32 = 0x8E0;
 const MARK_D: u32 = 0x8E1;
@@ -400,6 +404,12 @@ fn plugin_bytes() -> Vec<u8> {
         // The door the graph's door link names, placed so the game can lock it (away
         // from everything the tests walk to).
         placed(b"REFR", DOOR_A, "DoorA", STAT, [-2000.0, -2000.0, 0.0], None),
+        // A separate synthetic load door for script activation, off the walking route.
+        record(b"REFR", SCRIPT_DOOR, &[
+            sub(b"EDID", z("ScriptDoor")), sub(b"NAME", SCRIPT_DOOR_BASE.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24]),
+            sub(b"XTEL", [SCRIPT_DEST_DOOR.to_le_bytes().to_vec(),
+                SCRIPT_DEST.into_iter().chain([0.0, 0.0, 1.0]).flat_map(f32::to_le_bytes).collect()].concat()),
+        ]),
         placed(b"ACHR", R_TRAVEL, "TravellerRef", N_TRAVEL, START, None),
         placed(b"ACHR", R_HUNTER, "HunterRef", N_HUNTER, [150.0, 150.0, 0.0], None),
         placed(b"ACHR", R_IN, "LodgerRef", N_IN, START, None),
@@ -418,7 +428,10 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", R_SHOOTER, "ShooterRef", N_SHOOTER, START, None),
     ]
     .concat();
-    let b_refs = placed(b"REFR", MARK_B, "MarkB", STAT, [5250.0, 5250.0, 50.0], None);
+    let b_refs = [
+        placed(b"REFR", MARK_B, "MarkB", STAT, [5250.0, 5250.0, 50.0], None),
+        placed(b"REFR", SCRIPT_DEST_DOOR, "ScriptDestDoor", SCRIPT_DOOR_BASE, SCRIPT_DEST, None),
+    ].concat();
     let cell = |id: u32, edid: &str, refs: &[u8]| {
         let rec = record(b"CELL", id, &[sub(b"EDID", z(edid))]);
         [rec, group(id.to_le_bytes(), 6, &group(id.to_le_bytes(), 9, refs))].concat()
@@ -467,6 +480,7 @@ fn plugin_bytes() -> Vec<u8> {
         tes4(),
         top(b"GLOB", &globs),
         top(b"STAT", &stat),
+        top(b"DOOR", &record(b"DOOR", SCRIPT_DOOR_BASE, &[sub(b"EDID", z("ScriptDoorBase"))])),
         top(b"FURN", &furn),
         top(b"IDLM", &idlm),
         top(b"NPC_", &npcs),
@@ -1150,6 +1164,55 @@ fn a_follower_far_behind_catches_up_faster_than_it_runs() {
     assert!((catch_up(FOLLOW_RUN_BEHIND + CATCH_UP_SPAN / 2.0) - (1.0 + CATCH_UP_BOOST / 2.0)).abs() < 1e-6);
     assert_eq!(catch_up(FOLLOW_RUN_BEHIND + CATCH_UP_SPAN), 1.0 + CATCH_UP_BOOST);
     assert_eq!(catch_up(f32::INFINITY), 1.0 + CATCH_UP_BOOST);
+}
+
+/// [design: fnv-game/src/game.rs, fnv-ai/src/carry.rs] A script's door activation
+/// restarts an active walker before movement or social processing can write it back.
+#[test]
+fn a_walking_actor_sent_through_a_scripted_door_goes_on_at_the_destination() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&actor].walker.space, A);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    assert!(s.ai.agents[&actor].walker.follower.is_some());
+    assert!(s.game.take_teleported().is_empty(), "walking is no discontinuous move");
+    s.game.run_source("ScriptDoor.Activate TravellerRef", Default::default()).unwrap();
+    assert_eq!(s.game.cell_of(actor), Some(FormId(CELL_B)));
+    assert_eq!(s.game.world.peek(actor).unwrap().pos, SCRIPT_DEST);
+    assert_eq!(s.ai.moved_by_scripts(&mut s.game), vec![(actor, true)]);
+    let walker = &s.ai.agents[&actor].walker;
+    assert_eq!((walker.space, walker.feet, walker.heading), (B, SCRIPT_DEST, 1.0));
+    assert!(walker.follower.is_none(), "the source route was dropped");
+    assert!(s.ai.moved_by_scripts(&mut s.game).is_empty(), "the move is consumed once");
+    for _ in 0..20 {
+        s.run(0.5);
+        s.ai.social(&mut s.game, &s.nav, 0.5);
+        assert_eq!(s.ai.agents[&actor].walker.space, B);
+        assert_eq!(s.game.cell_of(actor), Some(FormId(CELL_B)));
+        assert_eq!(s.game.world.peek(actor).unwrap().pos, s.ai.agents[&actor].walker.feet);
+    }
+}
+
+#[test]
+fn an_actor_sent_through_a_scripted_door_before_ai_ownership_starts_there() {
+    let f = fixture();
+    let mut s = sim(&f, &[]);
+    let actor = FormId(R_TRAVEL);
+    s.game.run_source("ScriptDoor.Activate TravellerRef", Default::default()).unwrap();
+    assert_eq!(s.ai.moved_by_scripts(&mut s.game), vec![(actor, false)]);
+    assert_eq!(s.game.cell_of(actor), Some(FormId(CELL_B)));
+    s.ai.add(&s.game, actor).unwrap();
+    assert_eq!((s.ai.agents[&actor].walker.space, s.feet(R_TRAVEL)), (B, SCRIPT_DEST));
+    for _ in 0..20 {
+        s.run(0.5);
+        s.ai.social(&mut s.game, &s.nav, 0.5);
+        assert_eq!(s.ai.agents[&actor].walker.space, B);
+        assert_eq!(s.game.cell_of(actor), Some(FormId(CELL_B)));
+        assert_eq!(s.game.world.peek(actor).unwrap().pos, s.feet(R_TRAVEL));
+    }
+    assert!(s.ai.moved_by_scripts(&mut s.game).is_empty());
 }
 
 /// The player's teammate is brought along when the player changes cells (SetPlayerTeammate,
