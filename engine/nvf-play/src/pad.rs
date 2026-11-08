@@ -760,6 +760,7 @@ pub fn set_hint(
 
 /// [`set_hint`] with `mark` on every coloured node (the tile renderer marks its pieces
 /// [`crate::tiles::draw::Ink`], so they recolour in place).
+#[allow(clippy::too_many_arguments)]
 pub fn set_hint_marked(
     p: &mut ChildSpawnerCommands,
     face: &crate::interface::Face,

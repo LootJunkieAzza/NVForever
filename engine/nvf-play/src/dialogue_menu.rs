@@ -358,6 +358,7 @@ fn hint_place(line: Line, words: f32, ink: (f32, f32), width: f32, band_x: f32, 
 }
 
 /// `hint`: whether the "Goodbye hint" switch is on.
+#[allow(clippy::too_many_arguments)]
 pub fn layout(view: &MenuView, first: usize, selected: usize, width: f32, hint: bool, body: &Font, name_font: &Font, glyphs: &crate::pad::PadGlyphs) -> Layout {
     let band_x = (width - BAND_WIDTH) / 2.0;
     let name = Some(view.speaker.trim()).filter(|s| !s.is_empty()).map(|s| {

@@ -1065,6 +1065,7 @@ pub fn menu_anchor(dialog: bool) -> Vec2 {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: View, mut kit: FontKit, (mut drawn, mut others): (Local<Drawn>, Local<MenusDrawn>), mut nodes: Nodes, mut blur: ResMut<super::menus::TileMenuBlur>, glyphs: Res<crate::pad::PadGlyphs>) {
     let scale = view.windows.single().map_or(1.0, |w| w.height() / 960.0);
     let heading = view.hud.as_ref().map_or(0.0, |h| h.heading);
@@ -1134,6 +1135,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
 /// published for the next frame's tile input, which acts on what the player saw. Logged when it
 /// changes: how many pieces go to the painter, and how many of them are the rows' names. That
 /// is structure, before painting: it says nothing of the pixels, which only shots can.
+#[allow(clippy::too_many_arguments)]
 fn stats_page(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view: &mut View, kit: &mut FontKit, drawn: &mut Drawn, nodes: &mut Nodes, heading: f32, glyphs: &crate::pad::PadGlyphs) {
     let Some(target) = view.screen.as_ref().map(|s| Target::image(s.camera, crate::pipboy::CANVAS, s.scale, PIPBOY_TILES_Z)) else { return };
     let name = super::stats_menu::STATS_MENU;
