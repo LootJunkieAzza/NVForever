@@ -21,9 +21,6 @@ pub fn combat_music_off() -> bool {
     COMBAT_MUSIC_OFF.load(Ordering::Relaxed)
 }
 
-/// The caps' base form (Caps001).
-const CAPS: FormId = FormId(0xF);
-
 /// The world map's icon names by map marker type (REFR XMRK TNAM, 0 None … 14 Vault), the
 /// files `interface\icons\world map\icon_map_<name>.dds` [hypothesis: by the files'
 /// names; type 0 takes the settlement's; observed: Goodsprings (type 3) reads
@@ -112,6 +109,14 @@ impl Game<'_> {
     /// The engine's one-time requests of this batch since the last call.
     pub fn take_jg7_requests(&mut self) -> Vec<Request> {
         std::mem::take(&mut self.other.jg7.requests)
+    }
+
+    /// HideItemBarterEx's flag for `item` at `vendor`: 0 shown, 1 shown on the player's
+    /// side only, 2 on the vendor's only, 3 hidden on both [documented]; the vendor's own
+    /// entry first, then the one for every vendor [hypothesis].
+    pub fn barter_hide_flag(&self, item: FormId, vendor: Option<FormId>) -> i64 {
+        let h = &self.other.jg7.barter_hidden;
+        h.get(&(item, vendor)).or_else(|| h.get(&(item, None))).copied().unwrap_or(0)
     }
 
     /// Whether a script has disabled saving (ToggleDisableSaves) [documented].
@@ -316,12 +321,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // player's side, 2 on the vendor's, none hides it on both [documented:
         // HideItemBarterEx]. IsItemBarterHiddenEx reads 0 shown, 1 shown on the player's
         // side, 2 on the vendor's, 3 hidden on both [documented: its notes]; a vendor's
-        // own entry first, then the one for every vendor [hypothesis].
-        // The caps are never hidden: IsItemBarterHiddenEx on them read 0 after every
-        // HideItemBarterEx [observed 2026-11-08: jg7.barter on Caps001, with and without
-        // a vendor; hypothesis: the barter menu handles the caps apart, as NVForever's].
+        // own entry first, then the one for every vendor [hypothesis]; the barter menu is
+        // to read it through [`Game::barter_hide_flag`]. But IsItemBarterHiddenEx read 0
+        // after every HideItemBarterEx in the original, on the caps and on the 10mm pistol,
+        // with and without a vendor [observed 2026-11-08: jg7.barter, jg7.barter.pistol,
+        // outside the barter menu], so the script function reads 0.
         "hideitembarterex" => {
-            let Some(item) = form(args, 0).filter(|&f| f != CAPS) else { return Some(Ok(zero)) };
+            let Some(item) = form(args, 0) else { return Some(Ok(zero)) };
             let vendor = form(args, 3);
             if num(args, 1, 0.0) == 0.0 {
                 g.other.jg7.barter_hidden.remove(&(item, vendor));
@@ -335,11 +341,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
-        "isitembarterhiddenex" => {
-            let Some(item) = form(args, 0) else { return Some(Ok(zero)) };
-            let vendor = form(args, 1);
-            XVal::Num(g.other.jg7.barter_hidden.get(&(item, vendor)).or_else(|| g.other.jg7.barter_hidden.get(&(item, None))).copied().unwrap_or(0) as f64)
-        }
+        "isitembarterhiddenex" => zero,
         // `title subtitle [sound] [priority] [justification] [title font] [subtitle font]`
         // [documented: QueueCinematicText]; 2 clears what waits.
         "queuecinematictext" => {

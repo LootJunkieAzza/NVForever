@@ -116,14 +116,16 @@ fn switches() {
 fn interface_settings() {
     let f = fixture();
     let mut g = game(&f);
-    // [documented: HideItemBarterEx and IsItemBarterHiddenEx's flags].
-    assert_eq!(n(&mut g, "IsItemBarterHiddenEx TestThing"), 0.0);
+    // [documented: HideItemBarterEx's flags, kept for the barter menu; observed:
+    // IsItemBarterHiddenEx read 0 after every call, jg7.barter and jg7.barter.pistol].
+    let thing = fnv_sim::FormId(MISC);
     q(&mut g, "HideItemBarterEx TestThing 1 1");
-    assert_eq!(n(&mut g, "IsItemBarterHiddenEx TestThing"), 1.0);
-    q(&mut g, "HideItemBarterEx TestThing 1");
-    assert_eq!(n(&mut g, "IsItemBarterHiddenEx TestThing"), 3.0);
-    q(&mut g, "HideItemBarterEx TestThing 0");
+    assert_eq!(g.barter_hide_flag(thing, None), 1);
     assert_eq!(n(&mut g, "IsItemBarterHiddenEx TestThing"), 0.0);
+    q(&mut g, "HideItemBarterEx TestThing 1");
+    assert_eq!(g.barter_hide_flag(thing, None), 3);
+    q(&mut g, "HideItemBarterEx TestThing 0");
+    assert_eq!(g.barter_hide_flag(thing, None), 0);
     // [documented: SetCustomReputationChangeIcon gives 1].
     assert_eq!(n(&mut g, "SetCustomReputationChangeIcon TestReputation 2 \"icons\\sad.dds\""), 1.0);
     assert_eq!(n(&mut g, "SetCustomReputationChangeIcon TestReputation 5 \"icons\\sad.dds\""), 0.0);

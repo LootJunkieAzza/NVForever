@@ -29,7 +29,7 @@ for the process.
 | SetDisablePlayerControlsHUDVisibilityFlags `flags` | the bit mask kept [documented]; the HUD does not read it yet |
 | ToggleNthPipboyLight `button on` | 0 Stats, 1 Items, 2 Data [documented]; the Pip-Boy does not draw them yet |
 | PushUIQuestToTop `quest` | the quest kept (a QUST only) [documented]; the Pip-Boy's quest list does not read it yet |
-| HideItemBarterEx `item hide [side] [vendor]`, IsItemBarterHiddenEx `item [vendor]` | hide 0 shows the item again; side 1 keeps it shown on the player's side, 2 on the vendor's, none hides it on both; the reader gives 0 shown, 1, 2, 3 hidden on both [documented: both pages' notes]. With a vendor, that vendor's entry first, then the one for every vendor [hypothesis]. The caps are never hidden: IsItemBarterHiddenEx on Caps001 read 0 after every call, with and without a vendor [observed 2026-11-08; hypothesis: the barter menu handles the caps apart; the 10mm pistol is probed as `barter.pistol`]. The barter menu does not read it yet (follow-up) |
+| HideItemBarterEx `item hide [side] [vendor]`, IsItemBarterHiddenEx `item [vendor]` | hide 0 shows the item again; side 1 keeps it shown on the player's side, 2 on the vendor's, none hides it on both [documented: HideItemBarterEx and the reader's notes, 0 shown … 3 hidden on both]; kept for the barter menu as that flag (`Game::barter_hide_flag`; with a vendor, its own entry first, then the one for every vendor [hypothesis]). IsItemBarterHiddenEx reads 0: in the original it read 0 after every HideItemBarterEx, on the caps and on the 10mm pistol, with and without a vendor [observed 2026-11-08: jg7.barter, jg7.barter.pistol, outside the barter menu]. The barter menu does not read the flag yet (follow-up) |
 | QueueCinematicText `title subtitle [sound] [priority] [justification] [title font] [subtitle font]` | queued: priority 0 appends, 1 prepends, 2 clears the queue and shows at once; justification 0 left, 1 centre, 2 right; fonts are the [Fonts] slots [documented]. The HUD does not show the queue yet |
 | QueueObjectiveText `text [completed] [multiple]` | queued [documented: QueueObjectiveText]; the HUD does not show it yet |
 | TogglePipBoy `[tab]` | closes the Pip-Boy when it is open, else opens it on 1002 Inventory, 1003 Stats, 1023 Data [documented]; without a tab on the inventory [hypothesis: the page's "tab it closed on" is not kept by NVForever] |
@@ -61,8 +61,8 @@ camera shake, the HUD shudder).
 ## Observed 2026-11-08
 
 The first run in the original (save nvfairport, JohnnyGuitar 5.28, xNVSE 6.4.9): 6 of the 8
-rows that compiled matched; 9 of 17 probes did not compile there. Fixed since: barter on the
-caps (all 0) and the marker's default icon (above), GetNiLODLevel's default -1. The music,
+rows that compiled matched; 9 of 17 probes did not compile there. Fixed since: IsItemBarterHiddenEx (always 0; the
+rerun with the 10mm pistol read 0 too) and the marker's default icon (above), GetNiLODLevel's default -1. The music,
 levelup, yield, lod and menupaused probes wrote a zero-argument command bare as an
 sv_Construct argument, which the original's compiler refuses; they now put it in
 parentheses (diagnostic forms read IsCombatMusicEnabled 1, IsLevelUpMenuEnabled 1,
