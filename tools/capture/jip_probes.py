@@ -8115,6 +8115,75 @@ SETS.update({"jip6": JIP6_PROBES, "jip7": JIP7_PROBES, "jip6b": JIP6B_PROBES, "j
 WRITING_SETS |= {"jip6", "jip7", "jip6b", "jip7b"}
 
 
+
+
+# jip10 (writes, session only, each change put back; #1006): JIP batch 10
+# (docs/spec-notes/jip-scripts-10.md) on FalloutNV.esm forms: VMS01 (Ain't That a Kick in
+# the Head, done in the probe save), MS05's script for added variables (MS05 is not
+# started by script here; the quest's script instance takes the variable), Doc Mitchell
+# (factions, linked children), the player (perks), and a text file written and read
+# under the game's folder (NVForever writes into its own layer). The questions: which
+# elements GetQuests, GetQuestObjectives and GetActiveObjectives give (forms or indices),
+# AddScriptVariable's result for a name added twice, SetStageAlt's GetStageDone of a
+# higher stage, ReadStringFromFile's line cuts, FakeScriptEvent's result.
+J10 = {"vms01": "104C1C", "doc": "104C0C", "docref": "104C0F", "ms05": "1023A5"}
+
+
+def _j10(pid, body, text=False):
+    return (f"jip10.{pid}", "ref rP\nref rObj\nref rItem\nfloat fRes\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\n"
+            "Begin Function { }\n" + _form("rP", NF["player"]) + body, text, None, "")
+
+
+def _j10arr(pid, setup, expr):
+    return _j10(pid, setup + f"let aList := {expr}\nlet sText := \"\"\nlet fA := ar_Size aList\nif fA > 0\n"
+                "let sText := sv_Construct \"%g %z\" fA (ToString aList[0])\nelse\nlet sText := sv_Construct \"%g\" fA\nendif\n"
+                "SetFunctionValue sText", True)
+
+
+JIP10_PROBES = (
+    [_j10arr("quests.active", "", "GetQuests"),
+     _j10arr("quests.done", "", "GetQuests 1"),
+     _j10arr("objectives.active", "", "GetActiveObjectives"),
+     _j10arr("objectives.vms01.0", _form("rObj", J10["vms01"]), "GetQuestObjectives rObj 0"),
+     _j10arr("objectives.vms01.1", _form("rObj", J10["vms01"]), "GetQuestObjectives rObj 1"),
+     _j10arr("targets.vms01.10", _form("rObj", J10["vms01"]), "GetObjectiveTargets rObj 10")]
+    + [_j10arr("perks.player", "", "rP.GetAllPerks"),
+       _j10arr("perks.player.hidden", "", "rP.GetAllPerks 0 1"),
+       _j10arr("perks.player.mates", "", "rP.GetAllPerks 1"),
+       _j10arr("factions.docref", _form("rObj", J10["docref"]), "rObj.GetFactions"),
+       _j10arr("factions.doc", _form("rObj", J10["doc"]), "GetFactions rObj"),
+       _j10arr("linked.docref", _form("rObj", J10["docref"]), "rObj.GetLinkedChildren"),
+       _j10arr("enable.docref", _form("rObj", J10["docref"]), "rObj.GetEnableChildren")]
+    + [_j10("vars.add", _form("rObj", J10["docref"])
+            + 'let fRes := rObj.AddScriptVariable "nvfProbeVar"\nlet fA := rObj.AddScriptVariable "nvfProbeVar"\n'
+            'rObj.SetVariable "nvfProbeVar" 2.5\nlet fB := rObj.GetVariable "nvfProbeVar"\n'
+            'let sText := sv_Construct "%g %g %g %g" fRes fA fB (rObj.HasVariableAdded "nvfProbeVar")\n'
+            'rObj.RemoveScriptVariable "nvfProbeVar"\n'
+            'SetFunctionValue (sv_Construct "%z %g" sText (rObj.HasVariableAdded "nvfProbeVar"))', True)]
+    + [_j10("events.disabled", _form("rObj", J10["docref"])
+            + 'let fA := GetScriptEventDisabled rObj "OnHit"\nSetScriptEventDisabled rObj "OnHit OnLoad" 1\n'
+            'let fB := GetScriptEventDisabled rObj "onload"\nSetScriptEventDisabled rObj "OnHit OnLoad" 0\n'
+            'SetFunctionValue (sv_Construct "%g %g %g" fA fB (GetScriptEventDisabled rObj "OnHit"))', True),
+       _j10("fake.onadd", _form("rObj", J10["docref"]) + 'SetFunctionValue (rObj.FakeScriptEvent "OnTriggerEnter")'),
+       _j10("fake.onactivate", _form("rObj", J10["docref"]) + 'SetFunctionValue (rObj.FakeScriptEvent "OnActivate")')]
+    + [_j10("extra.data", "rP.SetRefExtraData 2 -903.5\nrP.SetRefExtraData 19 \"Girly\"\nrP.SetRefExtraData 18 7\n"
+            "let fA := rP.GetRefExtraData 2\nlet sText := rP.GetRefExtraData 19\nlet fB := rP.RefHasExtraData\n"
+            "let fRes := rP.RefHasExtraData 200\nrP.SetRefExtraData\n"
+            'SetFunctionValue (sv_Construct "%g [%z] %g %g %g" fA sText fB fRes (rP.RefHasExtraData))', True),
+       _j10("mapmarker", _form("rObj", J10["docref"]) + "rObj.AddRefMapMarker\nlet fA := rObj.RefHasMapMarker\n"
+            "rObj.RemoveRefMapMarker\n" 'SetFunctionValue (sv_Construct "%g %g" fA (rObj.RefHasMapMarker))', True)]
+    + [_j10("file.roundtrip", 'let fRes := WriteStringToFile "nvf_probe_jip10.txt" 0 "one%rtwo%rthree"\n'
+            'let fA := WriteStringToFile "nvf_probe_jip10.txt" 1 "%rfour"\n'
+            'let sText := ReadStringFromFile "nvf_probe_jip10.txt" 2 2\n'
+            'SetFunctionValue (sv_Construct "%g %g [%z] [%z]" fRes fA sText (ReadStringFromFile "nvf_probe_jip10.txt"))', True),
+       _j10("file.missing", 'SetFunctionValue (ReadStringFromFile "nvf_probe_no_such_file.txt")', True)]
+)
+
+
+SETS.update({"jip10": JIP10_PROBES})  # JIP batch 10 (#1006)
+WRITING_SETS |= {"jip10"}
+
+
 def script(body):
     if body.startswith(("ref ", "float ")):
         return body + "\nEnd\n"

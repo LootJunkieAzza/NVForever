@@ -2888,8 +2888,10 @@ impl Vm<'_, '_> {
         // [documented: SetBipedModelPathAlt `armor slot "format" values…`; observed:
         // gaps8, "NVF\Ground%g.nif" 7 reads NVF\Ground7.nif]: the format third.
         // RunScriptSnippet `delay "format" values…` likewise [documented].
-        if lname == "setformdescription" || lname == "messageexalt" || lname == "setbipedmodelpathalt" || lname == "runscriptsnippet" {
-            let at = if lname == "setbipedmodelpathalt" { 2 } else { 1 };
+        // [documented: SetObjectiveText `quest index "format" valuesâ€¦`, WriteStringToFile
+        // `path append "format" valuesâ€¦`, ModLogPrint `indent "format" valuesâ€¦`] likewise.
+        if matches!(lname.as_str(), "setformdescription" | "messageexalt" | "setbipedmodelpathalt" | "runscriptsnippet" | "setobjectivetext" | "writestringtofile" | "modlogprint") {
+            let at = if matches!(lname.as_str(), "setbipedmodelpathalt" | "setobjectivetext" | "writestringtofile") { 2 } else { 1 };
             let mut first = Vec::new();
             for e in c.args.iter().take(at) {
                 first.push(self.xeval(e)?);

@@ -254,6 +254,9 @@ pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[
     if let Some(r) = crate::nvse_jip9::call(g, ctx, name, subject, args) {
         return Some(r);
     }
+    if let Some(r) = crate::nvse_jip10::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
     if let Some(r) = crate::nvse_pp::call(g, name, subject, args) {
         return Some(r);
     }
@@ -560,7 +563,8 @@ pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[
                 _ => String::new(),
             };
             let parent = as_form(args.get(if setter { 2 } else { 1 })).or(subject).unwrap_or(FormId(0));
-            let slot = g.instance_of(parent).and_then(|(key, script)| Some((key, script, g.data.script(script)?.var_index(&var)?)));
+            // AddScriptVariable's variables too (`crate::nvse_jip10`).
+            let slot = g.instance_of(parent).and_then(|(key, script)| Some((key, script, g.data.script(script).and_then(|u| u.var_index(&var)).or_else(|| g.added_var_index(script, &var))?)));
             let Some((key, script, i)) = slot else {
                 return Some(Ok(match name {
                     "getstringvariable" => XVal::Str(String::new()),

@@ -175,6 +175,11 @@ nothing values by the owner's decisions of 2026-11-08; not probed yet, set sup5)
 it: 560 (SUP 93 → 51).
 With both ShowOff batch 4 and SUP batch 5 merged: 526 (ShowOff 37, SUP 51) [hypothesis: 602 − 34 − 42;
 the extender_census test decides].
+JIP batch 10: 36 (#1006, jip-scripts-10.md: quest objectives and their targets, the quest lists,
+SetStageAlt, perks and factions, script variables added at run time (saved), scripts and event
+blocks switched off, FakeScriptEvent, linked and enable children, the references' extra data
+(saved), script map markers, the text files through NVForever's layer; from the pages, not
+probed, set jip10). Census after it: JIP 178 → 142.
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,
