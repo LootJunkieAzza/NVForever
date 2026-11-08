@@ -5096,6 +5096,256 @@ JIP5_PROBES = (
 
 
 
+# jip8 (writes, session only, each change put back; #1006): JIP batch 8
+# (docs/spec-notes/jip-records-8.md) on FalloutNV.esm forms [observed: fnvtool esm
+# inventory and decode]: CraigBoone (PC Level Mult, ACBS raw 750, two SPLO-less factions),
+# AngelaWilliams (TPLT NCRTrooperAAMTEMPLATE, no template flags), NVMercenaryFemaleF (takes
+# its factions from NVMercenaryMale, which alone has faction 0x173EEF), CrSuperMutant1GunA
+# (INAM, two SPLO), Jet and Cateye (ALCH), WithdrawalJet (SPEL), EnchFourEyesHat (ENCH),
+# CateyeBaseEffect and ChemIncAPJet (MGEF), the assault carbine (one mod, clip) and the
+# 10mm pistol (three mods, the third Silence), RepairWall02 (IDLE), NVGecko (BPTD), Doc
+# Mitchell's house and the Prospector Saloon (CELL), NVCleanWater (WATR).
+J8 = {"boone": "92BD2", "angela": "F2746", "mercf": "165071", "mercfac": "173EEF", "merc2fac": "152E91",
+      "ncr": "A46E7", "ncrarmor": "134B6C", "boonefac": "B160C", "mutant": "1CF93", "jet": "15164",
+      "cateyealch": "7EA1B", "withdrawal": "33067", "ench": "17B78D", "cateye": "7EA1F", "apjet": "66EB8",
+      "carbine": "8F21E", "pistol": "434F", "idle": "B250F", "gecko": "10CD74", "doccell": "103DF9",
+      "saloon": "106185", "water": "1009CA", "caps": "F"}
+
+
+def _j8(pid, body, text=False):
+    return (f"jip8.{pid}", "ref rP\nref rObj\nref rOther\nref rItem\nfloat fRes\nfloat fSave\nfloat fA\nfloat fB\n"
+            "string_var sText\nstring_var sSave\nBegin Function { }\n" + _form("rP", NF["player"]) + body, text, None, "")
+
+
+def _j8v(pid, key, expr, text=False):
+    rd = f"SetFunctionValue (GetFormIDString ({expr}))" if text == "form" else f"SetFunctionValue ({expr})"
+    return _j8(pid, _form("rObj", J8[key]) + rd, bool(text))
+
+
+def _j8o(pid, key, other, expr):
+    return _j8(pid, _form("rObj", J8[key]) + _form("rOther", J8[other]) + f"SetFunctionValue ({expr})")
+
+
+# A setter's result and the value read back, then the old value put back and read again.
+def _j8set(pid, key, save, setter, read, restore):
+    return _j8(pid, _form("rObj", J8[key]) + f"let fSave := {save}\nlet fRes := {setter}\nlet fA := {read}\n"
+               f"{restore}\n" 'SetFunctionValue (sv_Construct "%g %g %g %g" fSave fRes fA (' + read + "))", True)
+
+
+JIP8_PROBES = (
+    # ---- actor base data
+    [_j8v(f"level.{k}.{t}", k, f"GetActorLevelingData {t} rObj") for k in ("boone", "angela", "mutant") for t in range(0, 4)]
+    + [_j8set("level.boone.set0", "boone", "GetActorLevelingData 0 rObj", "SetActorLevelingData 0 0.5 rObj",
+              "GetActorLevelingData 0 rObj", "SetActorLevelingData 0 fSave rObj"),
+       _j8set("level.angela.set2", "angela", "GetActorLevelingData 2 rObj", "SetActorLevelingData 2 12 rObj",
+              "GetActorLevelingData 2 rObj", "SetActorLevelingData 2 fSave rObj")]
+    + [_j8o(f"facrank.{k}.{f}", k, f, "GetBaseFactionRank rOther rObj")
+       for k, f in (("mercf", "mercfac"), ("mercf", "merc2fac"), ("mercf", "ncr"), ("angela", "ncrarmor"),
+                    ("angela", "ncr"), ("angela", "boonefac"), ("boone", "boonefac"))]
+    + [_j8v(f"deathitem.{k}", k, "GetDeathItem rObj", "form") for k in ("mutant", "angela", "boone")]
+    + [_j8v(f"template.{k}", k, "GetActorTemplate rObj", "form") for k in ("angela", "mercf", "mutant", "boone")]
+    + [_j8("deathitem.set", _form("rObj", J8["mutant"]) + _form("rOther", J8["caps"])
+           + "let rItem := GetDeathItem rObj\nlet fRes := SetDeathItem rOther rObj\nlet sText := GetFormIDString (GetDeathItem rObj)\n"
+           "SetDeathItem rItem rObj\n"
+           'SetFunctionValue (sv_Construct "%g %z %z" fRes sText (GetFormIDString (GetDeathItem rObj)))', True)]
+    + [_j8v(f"effects.num.{k}", k, "GetNumActorEffects rObj") for k in ("mutant", "boone", "angela")]
+    # GetNthActorEffect compiles only into a variable, not inside another call [observed:
+    # trial 2026-11-08]; with the calling reference and without.
+    + [_j8(f"effects.nth.{k}.{i}", _form("rObj", J8[k]) + f"let rItem := GetNthActorEffect {i} rObj\n"
+           "SetFunctionValue (GetFormIDString rItem)", True) for k in ("mutant", "boone") for i in range(0, 3)]
+    + [_j8(f"effects.nth.ref.mutant.{i}", _form("rObj", J8["mutant"]) + f"let rItem := rP.GetNthActorEffect {i} rObj\n"
+           "SetFunctionValue (GetFormIDString rItem)", True) for i in range(0, 3)]
+    + [_j8("effects.addremove", _form("rObj", J8["mutant"]) + _form("rOther", J8["withdrawal"])
+           + "let fRes := AddBaseEffectListEffect rOther rObj\nlet fA := GetNumActorEffects rObj\n"
+           "AddBaseEffectListEffect rOther rObj\nlet fB := GetNumActorEffects rObj\n"
+           "let rItem := GetNthActorEffect 2 rObj\nlet sText := GetFormIDString rItem\n"
+           "let fSave := RemoveBaseEffectListEffect rOther rObj\n"
+           'SetFunctionValue (sv_Construct "%g %g %g %z %g %g" fRes fA fB sText fSave (GetNumActorEffects rObj))', True),
+       # Not an actor effect: an ingestible.
+       _j8("effects.add.alch", _form("rObj", J8["mutant"]) + _form("rOther", J8["jet"])
+           + "let fRes := AddBaseEffectListEffect rOther rObj\nlet fA := GetNumActorEffects rObj\n"
+           "if fA > 2\nRemoveBaseEffectListEffect rOther rObj\nendif\n"
+           'SetFunctionValue (sv_Construct "%g %g %g" fRes fA (GetNumActorEffects rObj))', True)]
+    + [_j8("combat.excluded", "let fSave := rP.GetExcludedCombatActions\nlet fRes := rP.SetExcludedCombatActions 5\n"
+           "let fA := rP.GetExcludedCombatActions\nrP.SetExcludedCombatActions 2147483647\nlet fB := rP.GetExcludedCombatActions\n"
+           "rP.SetExcludedCombatActions fSave\n"
+           'SetFunctionValue (sv_Construct "%g %g %g %g %g" fSave fRes fA fB (rP.GetExcludedCombatActions))', True)]
+    # ---- ingestibles and base effects
+    + [_j8v(f"addict.chance.{k}", k, "GetAddictionChance rObj") for k in ("jet", "cateyealch")]
+    + [_j8v(f"addict.effect.{k}", k, "GetAddictionEffect rObj", "form") for k in ("jet", "cateyealch")]
+    + [_j8set(f"addict.set.{n}", "jet", "GetAddictionChance rObj", f"SetAddictionChance rObj {v}",
+              "GetAddictionChance rObj", "SetAddictionChance rObj fSave")
+       for n, v in (("half", "0.5"), ("fifty", "50"), ("over", "1.5"), ("neg", "-0.5"))]
+    + [_j8("addict.seteffect", _form("rObj", J8["cateyealch"]) + _form("rOther", J8["withdrawal"])
+           + "let rItem := GetAddictionEffect rObj\nlet fRes := SetAddictionEffect rObj rOther\n"
+           "let sText := GetFormIDString (GetAddictionEffect rObj)\nSetAddictionEffect rObj rItem\n"
+           'SetFunctionValue (sv_Construct "%g %z %z" fRes sText (GetFormIDString (GetAddictionEffect rObj)))', True)]
+    + [_j8v(f"mgef.script.{k}", k, "GetBaseEffectScript rObj", "form") for k in ("cateye", "apjet")]
+    + [_j8v(f"mgef.flag.cateye.{i}", "cateye", f"GetBaseEffectFlag rObj {i}") for i in range(0, 29)]
+    + [_j8set("mgef.setflag.2", "cateye", "GetBaseEffectFlag rObj 2", "SetBaseEffectFlag rObj 2 1",
+              "GetBaseEffectFlag rObj 2", "SetBaseEffectFlag rObj 2 fSave"),
+       # Not in the page's table.
+       _j8set("mgef.setflag.11", "cateye", "GetBaseEffectFlag rObj 11", "SetBaseEffectFlag rObj 11 1",
+              "GetBaseEffectFlag rObj 11", "SetBaseEffectFlag rObj 11 fSave")]
+    + [_j8v(f"effflag.{k}.{i}", k, f"GetEffectFlag rObj {i}") for k in ("withdrawal", "ench", "jet") for i in range(0, 8)]
+    + [_j8set(f"effflag.set.{k}.{i}", k, f"GetEffectFlag rObj {i}", f"SetEffectFlag rObj {i} (1 - fSave)",
+              f"GetEffectFlag rObj {i}", f"SetEffectFlag rObj {i} fSave")
+       for k, i in (("withdrawal", 0), ("withdrawal", 1), ("withdrawal", 2), ("withdrawal", 4), ("ench", 0),
+                    ("ench", 1), ("ench", 2), ("jet", 0), ("jet", 1), ("jet", 2), ("jet", 3))]
+    # ---- weapons
+    + [_j8v(f"weap.sound.{k}", k, "GetWeaponDetectionSoundLevel rObj") for k in ("carbine", "pistol")]
+    + [_j8set("weap.setsound", "carbine", "GetWeaponDetectionSoundLevel rObj", "SetWeaponDetectionSoundLevel rObj 2",
+              "GetWeaponDetectionSoundLevel rObj", "SetWeaponDetectionSoundLevel rObj fSave")]
+    + [_j8v(f"weap.hasmod.{k}.{t}", k, f"WeaponHasModType rObj {t}") for k in ("carbine", "pistol") for t in range(0, 16)]
+    + [_j8v(f"weap.reloadanim.{k}", k, "GetWeaponModReloadAnim rObj") for k in ("carbine", "pistol")]
+    + [_j8set("weap.setreloadanim", "carbine", "GetWeaponModReloadAnim rObj", "SetWeaponModReloadAnim rObj 3",
+              "GetWeaponModReloadAnim rObj", "SetWeaponModReloadAnim rObj fSave"),
+       _j8set("weap.setmodeffect", "carbine", "GetWeaponItemModEffect 2 rObj", "SetWeaponItemModEffect rObj 2 14",
+              "GetWeaponItemModEffect 2 rObj", "SetWeaponItemModEffect rObj 2 fSave"),
+       _j8set("weap.setmodeffect.15", "carbine", "GetWeaponItemModEffect 2 rObj", "SetWeaponItemModEffect rObj 2 15",
+              "GetWeaponItemModEffect 2 rObj", "SetWeaponItemModEffect rObj 2 fSave"),
+       _j8set("weap.onhit", "carbine", "GetWeaponOnHitSetting rObj", "SetWeaponOnHitSetting rObj 2",
+              "GetWeaponOnHitSetting rObj", "SetWeaponOnHitSetting rObj fSave"),
+       # The carbine's embedded actor value is PerceptionCondition [observed: decode]; the
+       # result only (no getter), then put back.
+       _j8("weap.embeddedav", _form("rObj", J8["carbine"]) + "let fRes := SetEmbeddedWeaponAV rObj Strength\n"
+           "let fA := SetEmbeddedWeaponAV rObj PerceptionCondition\n"
+           'SetFunctionValue (sv_Construct "%g %g" fRes fA)', True)]
+    # ---- idles and body parts
+    + [_j8v(f"idle.loop.{m}", "idle", f"GetIdleLoopTimes rObj {m}") for m in (0, 1)]
+    + [_j8("idle.setloop", _form("rObj", J8["idle"]) + "let fA := GetIdleLoopTimes rObj 0\nlet fB := GetIdleLoopTimes rObj 1\n"
+           "let fRes := SetIdleLoopTimes rObj 3 9\nlet sText := sv_Construct \"%g %g\" (GetIdleLoopTimes rObj 0) (GetIdleLoopTimes rObj 1)\n"
+           "SetIdleLoopTimes rObj 300 2\nlet sSave := sv_Construct \"%g %g\" (GetIdleLoopTimes rObj 0) (GetIdleLoopTimes rObj 1)\n"
+           "SetIdleLoopTimes rObj fA fB\n"
+           'SetFunctionValue (sv_Construct "%g %z %z %g %g" fRes sText sSave (GetIdleLoopTimes rObj 0) (GetIdleLoopTimes rObj 1))', True)]
+    + [_j8v(f"bpd.replmodel.{p}", "gecko", f"GetBodyPartReplacementModel rObj {p}", True) for p in range(0, 15)]
+    # ---- cells and water
+    + [_j8v(f"cell.flag.{k}.{i}", k, f"GetCellFlag rObj {i}") for k in ("doccell", "saloon") for i in range(0, 18)]
+    + [_j8set(f"cell.setflag.{i}", "doccell", f"GetCellFlag rObj {i}", f"SetCellFlag rObj {i} (1 - fSave)",
+              f"GetCellFlag rObj {i}", f"SetCellFlag rObj {i} fSave") for i in (1, 4, 8, 12, 16)]
+    + [_j8v(f"water.trait.{t}", "water", f"GetWaterTrait rObj {t}") for t in range(0, 53)]
+    # The colours whole (the numbers above keep six digits).
+    + [_j8v(f"water.color.{t}", "water", f'sv_Construct "%.0f" (GetWaterTrait rObj {t})', True) for t in (12, 13, 14)]
+    # SetWaterFormEffect gives no result: `let fRes := SetWaterFormEffect …` does not
+    # compile [observed: trial 2026-11-08].
+    + [_j8v("water.effect", "water", "GetWaterFormEffect rObj", "form"),
+       _j8("water.seteffect", _form("rObj", J8["water"]) + _form("rOther", J8["withdrawal"])
+           + "let rItem := GetWaterFormEffect rObj\nSetWaterFormEffect rObj rOther\n"
+           "let sText := GetFormIDString (GetWaterFormEffect rObj)\nSetWaterFormEffect rObj rItem\n"
+           'SetFunctionValue (sv_Construct "%z %z" sText (GetFormIDString (GetWaterFormEffect rObj)))', True)]
+    # Last: a string argument takes no string variable and no "" [observed: trial
+    # 2026-11-08], so the name goes back as the literal read before ("Head") and the
+    # replacement model cannot be put back for the session; nothing after reads NVGecko.
+    + [_j8("bpd.setname", _form("rObj", J8["gecko"]) + "let sSave := GetBodyPartName rObj 1\n"
+           'let fRes := SetBodyPartName rObj 1 "NvfProbe"\nlet sText := GetBodyPartName rObj 1\n'
+           'SetBodyPartName rObj 1 "Head"\n'
+           'SetFunctionValue (sv_Construct "%g [%z] [%z] [%z]" fRes sSave sText (GetBodyPartName rObj 1))', True),
+       _j8("bpd.setreplmodel", _form("rObj", J8["gecko"]) + "let sSave := GetBodyPartReplacementModel rObj 1\n"
+           'let fRes := SetBodyPartReplacementModel rObj 1 "nvfprobe.nif"\n'
+           'SetFunctionValue (sv_Construct "%g [%z] [%z] [%z]" fRes sSave (GetBodyPartReplacementModel rObj 1) '
+           "(GetBodyPartReplacementModel rObj 2))", True)]
+)
+
+
+# jg5 (writes, session only, each change put back where the plugin allows; #1007):
+# JohnnyGuitar batch 5 (docs/spec-notes/ext-jg5.md) on FalloutNV.esm forms [observed:
+# fnvtool esm inventory and decode; fnvtool world alt-textures]: VaultSuit21 (alternate
+# textures on the male biped model, index 0, and the female biped, 0 and 6),
+# ArmorRadiationSuit (none on the male biped), MS18RangerBattlearmor, WeapNVDynamiteNoDrop (indices 2, 0, 1),
+# VMapGoodspringsRegion (map name "Goodsprings") and 0x123CE3 (the other region of the
+# Goodsprings cell, no map data), CamDefaultShoot, NVGecko and DefaultBodyPartData, the
+# Stimpak, Jet, WithdrawalJet and the 10mm pistol, Doc Mitchell's reference. The player's
+# own location name needs travel (console steps) and is not in this set.
+JG5 = {"vs21": "104184", "radsuit": "33078", "dynamite": "10108D", "gsregion": "15FF5E", "gsother": "123CE3",
+       "cams": "1B2C2", "gecko": "10CD74", "defaultbpd": "1D", "stimpak": "15169", "jet": "15164",
+       "withdrawal": "33067", "pistol": "434F", "docref": "104C0F", "ranger": "23030"}
+
+
+def _jg5(pid, body, text=False):
+    return (f"jg5.{pid}", "ref rP\nref rObj\nref rOther\nref rItem\nfloat fRes\nfloat fSave\nfloat fA\nfloat fB\nfloat fC\n"
+            "float fD\nfloat fE\nstring_var sText\nstring_var sSave\narray_var aList\narray_var aKeys\nBegin Function { }\n"
+            + _form("rP", NF["player"]) + body, text, None, "")
+
+
+def _jg5v(pid, key, expr, text=False):
+    rd = f"SetFunctionValue (GetFormIDString ({expr}))" if text == "form" else f"SetFunctionValue ({expr})"
+    return _jg5(pid, _form("rObj", JG5[key]) + rd, bool(text))
+
+
+# An array or map as "size: key=form ...", keys in the array's own order.
+def _jg5arr(pid, key, expr):
+    return _jg5(pid, _form("rObj", JG5[key]) + f"let aList := {expr}\nlet aKeys := ar_Keys aList\nlet fA := ar_Size aKeys\n"
+                'let sText := sv_Construct "%g:" fA\nlet fB := 0\nwhile fB < fA\nlet fC := aKeys[fB]\nlet rItem := aList[fC]\n'
+                'let sText := sv_Construct "%z %g=%z" sText fC (GetFormIDString rItem)\nlet fB += 1\nloop\nSetFunctionValue sText', True)
+
+
+JG5_PROBES = (
+    # 1. how GetRGBColor packs the channels (whole numbers)
+    [_jg5(f"rgb.{r}.{g}.{b}", f'SetFunctionValue (sv_Construct "%.0f" (GetRGBColor {r} {g} {b}))', True)
+     for r, g, b in ((255, 128, 1), (1, 0, 0), (0, 1, 0), (0, 0, 1), (0, 0, 0), (255, 255, 255))]
+    # 2. GetTimePlayed's units, as ratios (the values themselves differ run to run): 0/1,
+    # 1/2, 3/0 and no argument/0, and whether unit 1 has a fraction.
+    + [_jg5("time.units", "let fA := GetTimePlayed 0\nlet fB := GetTimePlayed 1\nlet fC := GetTimePlayed 2\n"
+            "let fD := GetTimePlayed 3\nlet fE := GetTimePlayed\nlet sText := sv_Construct \"t\"\n"
+            'if fB > 0\nlet sText := sv_Construct "%z %.0f" sText (fA / fB)\nendif\n'
+            'if fC > 0\nlet sText := sv_Construct "%z %.0f" sText (fB / fC)\nelse\nlet sText := sv_Construct "%z c0" sText\nendif\n'
+            'if fA > 0\nlet sText := sv_Construct "%z %.2f %.2f" sText (fD / fA) (fE / fA)\nendif\n'
+            'SetFunctionValue (sv_Construct "%z %g" sText ((fB - (Floor fB)) > 0))', True)]
+    # 3. a reference's location name, without travel: Doc Mitchell in his house
+    + [_jg5("location.docref", _form("rObj", JG5["docref"]) + "SetFunctionValue (rObj.GetLocationName)", True)]
+    # 4. region map names; the region without map data keeps its new name for the session
+    + [_jg5v(f"region.name.{k}", k, "GetRegionMapName rObj", True) for k in ("gsregion", "gsother")]
+    + [_jg5("region.setname.new", _form("rObj", JG5["gsother"]) + 'let fRes := SetRegionMapName rObj "NvfProbe"\n'
+            'SetFunctionValue (sv_Construct "%g [%z]" fRes (GetRegionMapName rObj))', True),
+       _jg5("region.setname.back", _form("rObj", JG5["gsregion"]) + 'let fRes := SetRegionMapName rObj "NvfProbe"\n'
+            'let sText := GetRegionMapName rObj\nSetRegionMapName rObj "Goodsprings"\n'
+            'SetFunctionValue (sv_Construct "%g [%z] [%z]" fRes sText (GetRegionMapName rObj))', True)]
+    # 5. alternate textures of an armour: no model given, then each model, then 5
+    + [_jg5arr("alt.ex.vs21", "vs21", "GetAltTexturesEx rObj"), _jg5arr("alt.ex.radsuit", "radsuit", "GetAltTexturesEx rObj")]
+    + [_jg5arr(f"alt.ex.vs21.{m}", "vs21", f"GetAltTexturesEx rObj {m}") for m in range(0, 6)]
+    + [_jg5arr(f"alt.armor.{k}.{m}", k, f"GetArmorAltTextures rObj {m}") for k in ("vs21", "radsuit") for m in range(1, 6)]
+    # MS18RangerBattlearmor: every model's entries differ (male biped 6, 7, 1; female biped
+    # 4, 1, 5; male world 0), which tells which model the call without one reads.
+    + [_jg5arr("alt.ex.ranger", "ranger", "GetAltTexturesEx rObj")]
+    + [_jg5arr(f"alt.ex.ranger.{m}", "ranger", f"GetAltTexturesEx rObj {m}") for m in range(1, 5)]
+    + [_jg5arr("alt.weapon.dynamite", "dynamite", "GetWeaponAltTextures rObj"),
+       _jg5arr("alt.ex.dynamite", "dynamite", "GetAltTexturesEx rObj")]
+    # 6. the weapon alt-texture setters' results: clearing an index without an entry, a form
+    # that is not a texture set, and index 0's own texture set put back on it
+    + [_jg5("alt.clear.none", _form("rObj", JG5["dynamite"]) + "let fRes := ClearWeaponAltTexture rObj 5\n"
+            'SetFunctionValue (sv_Construct "%g %g" fRes (ar_Size (GetWeaponAltTextures rObj)))', True),
+       _jg5("alt.set.nottxst", _form("rObj", JG5["dynamite"]) + _form("rOther", JG5["stimpak"])
+            + "let fRes := SetWeaponAltTexture rObj 5 rOther\n"
+            'SetFunctionValue (sv_Construct "%g %g" fRes (ar_Size (GetWeaponAltTextures rObj)))', True),
+       _jg5("alt.set.same", _form("rObj", JG5["dynamite"]) + "let aList := GetAltTexturesEx rObj\nlet rOther := aList[0]\n"
+            "let fRes := SetWeaponAltTexture rObj 0 rOther\nlet aList := GetAltTexturesEx rObj\nlet rItem := aList[0]\n"
+            'SetFunctionValue (sv_Construct "%g %z %z %g" fRes (GetFormIDString rOther) (GetFormIDString rItem) '
+            "(ar_Size (GetWeaponAltTextures rObj)))", True)]
+    # 7. actor effect types
+    + [_jg5v(f"effecttype.{k}", k, "GetActorEffectType rObj") for k in ("withdrawal", "jet", "pistol")]
+    # 8. a VATS camera shot's traits and flags; trait 1 set to 7, outside its table
+    + [_jg5v(f"cams.trait.{t}", "cams", f"GetCameraShotTraitNumeric rObj {t}") for t in range(0, 10)]
+    + [_jg5v("cams.flags", "cams", "GetCameraShotFlags rObj"),
+       _jg5v("cams.imod", "cams", "GetCameraShotImageSpaceModifier rObj", "form"),
+       _jg5("cams.settrait.1.7", _form("rObj", JG5["cams"]) + "let fSave := GetCameraShotTraitNumeric rObj 1\n"
+            "let fRes := SetCameraShotTraitNumeric rObj 1 7\nlet fA := GetCameraShotTraitNumeric rObj 1\n"
+            "SetCameraShotTraitNumeric rObj 1 fSave\n"
+            'SetFunctionValue (sv_Construct "%g %g %g %g" fSave fRes fA (GetCameraShotTraitNumeric rObj 1))', True),
+       _jg5("cams.settrait.6", _form("rObj", JG5["cams"]) + "let fSave := GetCameraShotTraitNumeric rObj 6\n"
+            "let fRes := SetCameraShotTraitNumeric rObj 6 2.5\nlet fA := GetCameraShotTraitNumeric rObj 6\n"
+            "SetCameraShotTraitNumeric rObj 6 fSave\n"
+            'SetFunctionValue (sv_Construct "%g %g %g %g" fSave fRes fA (GetCameraShotTraitNumeric rObj 6))', True)]
+    # 9. body-part strings, the head (part 1) and the torso (part 0)
+    + [_jg5v(f"bpd.{k}.{p}.{t}", k, f"GetBodyPartTraitString rObj {p} {t}", True)
+       for k in ("gecko", "defaultbpd") for p in (0, 1) for t in range(0, 7)]
+    # 10. equip types: one in the table, one outside it, and -1
+    + [_jg5v("equip.stimpak", "stimpak", "GetEquipType rObj")]
+    + [_jg5(f"equip.set.{v}", _form("rObj", JG5["stimpak"]) + f"let fSave := GetEquipType rObj\nlet fRes := SetEquipType rObj {v}\n"
+            "let fA := GetEquipType rObj\nSetEquipType rObj fSave\n"
+            'SetFunctionValue (sv_Construct "%g %g %g %g" fSave fRes fA (GetEquipType rObj))', True) for v in (5, 40, -1)]
+)
+
+
 # pp (writes, session only, each change put back where the plugin allows; #1014): ppNVSE
 # (docs/spec-notes/ext-pp.md), installed as VanillaPluginsPlus.dll, on FalloutNV.esm forms
 # [observed: fnvtool esm inventory; fnvtool dialogue lines]: the baseball bat, the 10mm
@@ -5736,6 +5986,109 @@ SUP2_PROBES = (
 )
 
 
+# sup3 (writes, session only; #1008): SUP batch 3 (docs/spec-notes/ext-sup3.md): the free
+# (TFC) camera's position, angles and raw rotation, the calculated angles and positions,
+# and the INI readers. One step per game frame: the camera is turned on by Con_TFC in one
+# row and read in the next; positions are printed relative to the player's, so the rows do
+# not hang on where the save stands. The camera is turned off again in the last camera
+# row. The INI rows read the plugins' own INI files in Data\NVSE\Plugins (read only).
+def _sup3(pid, body, text=True):
+    return (f"sup3.{pid}", "ref rP\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nfloat fX\nfloat fY\nfloat fZ\nstring_var sText\n"
+            "array_var aList\nBegin Function { }\n" + _form("rP", NF["player"]) + body, text, None, "")
+
+
+def _sup3_rel():
+    """The camera's position less the player's, as text."""
+    return ("SetFunctionValue (sv_Construct \"%.1f %.1f %.1f\" ((GetTFCPos X) - (rP.GetPos X)) "
+            "((GetTFCPos Y) - (rP.GetPos Y)) ((GetTFCPos Z) - (rP.GetPos Z)))")
+
+
+_SUP3_ANGLES = ("SetFunctionValue (sv_Construct \"%.4f %.4f %.4f %.4f\" (GetTFCAngle X) (GetTFCAngle Z) "
+                "(GetTFCRot X) (GetTFCRot Y))")
+
+_SUP3_INI = {"sup": "Data/NVSE/Plugins/supNVSE.ini", "jg": "Data/NVSE/Plugins/JohnnyGuitar.ini",
+             "jip": "Data/NVSE/Plugins/jip_nvse.ini"}
+
+
+def _sup3_list(expr):
+    return (f"let aList := {expr}\nlet fA := ar_Size aList\nif fA > 0\n"
+            "SetFunctionValue (sv_Construct \"%g|%z|%z\" fA (aList[0]) (aList[fA - 1]))\nelse\n"
+            "SetFunctionValue (sv_Construct \"%g\" fA)\nendif")
+
+
+SUP3_PROBES = (
+    # The camera before it flies [documented: GetTFCPos, GetTFCAngle, GetTFCRot].
+    [_sup3("cam.off.pos", _sup3_rel()),
+     _sup3("cam.off.angles", _SUP3_ANGLES),
+     _sup3("cam.off.player", "SetFunctionValue (sv_Construct \"%.4f %.4f\" (rP.GetAngle X) (rP.GetAngle Z))"),
+     _sup3("cam.on", "Con_TFC\nSetFunctionValue 1", False),
+     _sup3("cam.on.pos", _sup3_rel()),
+     _sup3("cam.on.angles", _SUP3_ANGLES),
+     # Positions [documented: SetTFCPos, SetTFCPosEx, GetTFCPosEx].
+     _sup3("cam.setpos", "let fA := SetTFCPos X ((rP.GetPos X) + 100)\nSetTFCPos Y ((rP.GetPos Y) - 50)\n"
+           "SetTFCPos Z ((rP.GetPos Z) + 25)\n"
+           "SetFunctionValue (sv_Construct \"%g %.1f %.1f %.1f\" fA ((GetTFCPos X) - (rP.GetPos X)) "
+           "((GetTFCPos Y) - (rP.GetPos Y)) ((GetTFCPos Z) - (rP.GetPos Z)))"),
+     _sup3("cam.setpos.next", _sup3_rel()),
+     _sup3("cam.setposex", "let fX := (rP.GetPos X) + 10\nlet fY := (rP.GetPos Y) + 20\nlet fZ := (rP.GetPos Z) + 30\n"
+           "let fA := SetTFCPosEx fX fY fZ\nlet fB := GetTFCPosEx fX fY fZ\n"
+           "SetFunctionValue (sv_Construct \"%g %g %.1f %.1f %.1f\" fA fB (fX - (rP.GetPos X)) (fY - (rP.GetPos Y)) (fZ - (rP.GetPos Z)))"),
+     # Angles and the raw rotation [documented: SetTFCAngle, SetTFCRot, …Ex; GetTFCAngle's
+     # note: "not the RAW value but a rotation value converted to angle"].
+     _sup3("cam.setangle.x", "let fA := SetTFCAngle X 30\nSetFunctionValue (sv_Construct \"%g %.4f %.4f %.4f %.4f\" fA (GetTFCAngle X) (GetTFCAngle Z) (GetTFCRot X) (GetTFCRot Y))"),
+     _sup3("cam.setangle.z", "SetTFCAngle Z 45\n" + _SUP3_ANGLES),
+     _sup3("cam.setangle.next", _SUP3_ANGLES),
+     _sup3("cam.setangle.wide", "SetTFCAngle Z 400\nSetTFCAngle X -100\n" + _SUP3_ANGLES),
+     _sup3("cam.setrot.x", "let fA := SetTFCRot X 0.5\nSetFunctionValue (sv_Construct \"%g %.4f %.4f %.4f %.4f\" fA (GetTFCAngle X) (GetTFCAngle Z) (GetTFCRot X) (GetTFCRot Y))"),
+     _sup3("cam.setrot.y", "SetTFCRot Y 1\n" + _SUP3_ANGLES),
+     _sup3("cam.angleex", "SetTFCAngleEx 10 20\nlet fA := GetTFCAngleEx fA fB\nGetTFCRotEx fC fD\n"
+           "SetFunctionValue (sv_Construct \"%.4f %.4f %.4f %.4f\" fA fB fC fD)"),
+     _sup3("cam.rotex", "SetTFCRotEx 0.25 0.75\nGetTFCRotEx fC fD\nGetTFCAngleEx fA fB\n"
+           "SetFunctionValue (sv_Construct \"%.4f %.4f %.4f %.4f\" fA fB fC fD)"),
+     # The angle to look at a point from the camera [documented: GetCalculatedAngleX/Z
+     # ForTFCCamera], the camera put at the player's feet first.
+     _sup3("cam.calc.x", "let fX := rP.GetPos X\nlet fY := rP.GetPos Y\nlet fZ := rP.GetPos Z\nSetTFCPosEx fX fY fZ\n"
+           "SetFunctionValue (sv_Construct \"%.4f %.4f %.4f %.4f\" (GetCalculatedAngleXForTFCCamera (fX + 100) fY (fZ + 100)) "
+           "(GetCalculatedAngleXForTFCCamera fX (fY + 100) (fZ - 100)) (GetCalculatedAngleXForTFCCamera fX (fY + 100) fZ) "
+           "(GetCalculatedAngleXForTFCCamera fX (fY + 30) (fZ + 40)))"),
+     _sup3("cam.calc.z", "let fX := rP.GetPos X\nlet fY := rP.GetPos Y\nSetTFCPosEx fX fY (rP.GetPos Z)\n"
+           "SetFunctionValue (sv_Construct \"%.4f %.4f %.4f %.4f %.4f\" (GetCalculatedAngleZForTFCCamera (fX + 100) fY) "
+           "(GetCalculatedAngleZForTFCCamera fX (fY + 100)) (GetCalculatedAngleZForTFCCamera (fX - 100) fY) "
+           "(GetCalculatedAngleZForTFCCamera fX (fY - 100)) (GetCalculatedAngleZForTFCCamera (fX + 100) (fY + 100)))"),
+     _sup3("cam.off2", "Con_TFC\nSetFunctionValue 1", False),
+     _sup3("cam.off2.pos", _sup3_rel()),
+     _sup3("cam.off2.angles", _SUP3_ANGLES)]
+    # Positions around a reference or a point [documented: GetCalculatedPos,
+    # GetCalculatedPosAlt].
+    + [_sup3(f"calc.pos.{a}", f"rP.GetCalculatedPos {a} 25 fX fY\n"
+             "SetFunctionValue (sv_Construct \"%.3f %.3f\" (fX - (rP.GetPos X)) (fY - (rP.GetPos Y)))") for a in (0, 90, 45, -90, 180)]
+    + [_sup3(f"calc.alt.{a}", f"let fA := GetCalculatedPosAlt {a} 25 fX fY 100 200\n"
+             "SetFunctionValue (sv_Construct \"%g %.3f %.3f\" fA fX fY)") for a in (0, 90, 30)]
+    # The INI readers [documented: ReadINIFloatFromFile, …Alt, ReadINIStringFromFile,
+    # ReadINISectionKeysFromFile, ReadINISectionsFromFile].
+    + [_sup3("ini.float.bom", f"SetFunctionValue (ReadINIFloatFromFile \"{_SUP3_INI['sup']}\" \"Settings\" \"bTFCPosOnLoadFix\")", False),
+       _sup3("ini.float.case", f"SetFunctionValue (ReadINIFloatFromFile \"{_SUP3_INI['jg']}\" \"Main\" \"bFixItemStackCount\")", False),
+       _sup3("ini.float.space", f"SetFunctionValue (ReadINIFloatFromFile \"{_SUP3_INI['jip']}\" \"GamePatches\" \"bIgnoreDTDRFix\")", False),
+       _sup3("ini.float.missing", f"SetFunctionValue (ReadINIFloatFromFile \"{_SUP3_INI['jg']}\" \"MAIN\" \"bNoSuchKey\")", False),
+       _sup3("ini.alt.found", f"SetFunctionValue (ReadINIFloatFromFileAlt \"{_SUP3_INI['jg']}\" \"MAIN\" \"bFixItemStackCount\")", False),
+       _sup3("ini.alt.missing", f"let fA := ReadINIFloatFromFileAlt \"{_SUP3_INI['jg']}\" \"MAIN\" \"bNoSuchKey\"\n"
+             "SetFunctionValue (sv_Construct \"%g\" (IsNumberNAN fA))"),
+       _sup3("ini.alt.nofile", "let fA := ReadINIFloatFromFileAlt \"Data/NVSE/Plugins/NoSuchFile.ini\" \"MAIN\" \"bX\"\n"
+             "SetFunctionValue (sv_Construct \"%g\" (IsNumberNAN fA))"),
+       _sup3("ini.float.backslash", "SetFunctionValue (ReadINIFloatFromFile \"Data\\\\NVSE\\\\Plugins\\\\JohnnyGuitar.ini\" \"MAIN\" \"bFixItemStackCount\")", False),
+       _sup3("ini.string", f"SetFunctionValue (sv_Construct \"[%z]\" (ReadINIStringFromFile \"{_SUP3_INI['jip']}\" \"GamePatches\" \"bIgnoreDTDRFix\"))"),
+       _sup3("ini.string.missing", f"SetFunctionValue (sv_Construct \"[%z]\" (ReadINIStringFromFile \"{_SUP3_INI['jg']}\" \"MAIN\" \"bNoSuchKey\"))"),
+       _sup3("ini.keys", _sup3_list(f"ReadINISectionKeysFromFile \"{_SUP3_INI['jg']}\" \"MAIN\"")),
+       _sup3("ini.keys.case", _sup3_list(f"ReadINISectionKeysFromFile \"{_SUP3_INI['jg']}\" \"main\"")),
+       _sup3("ini.sections.sup", _sup3_list(f"ReadINISectionsFromFile \"{_SUP3_INI['sup']}\"")),
+       _sup3("ini.sections.jip", _sup3_list(f"ReadINISectionsFromFile \"{_SUP3_INI['jip']}\"")),
+       _sup3("ini.sections.nofile", _sup3_list("ReadINISectionsFromFile \"Data/NVSE/Plugins/NoSuchFile.ini\"")),
+       # Outside the game folder: the original may read it; NVForever reads only under the
+       # game folder (mod_files::on_disk; ext-sup3.md).
+       _sup3("ini.float.outside", "SetFunctionValue (ReadINIFloatFromFile \"../Fallout New Vegas/Data/NVSE/Plugins/supNVSE.ini\" \"Settings\" \"bTFCPosOnLoadFix\")", False)]
+)
+
+
 SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PROBES, "jip-events": EVENT_PROBES,
         "jip-hits": HIT_PROBES, "jip-records": RECORD_PROBES, "nvse-forms": NVSE_FORM_PROBES, "nvse-vars": VAR_PROBES,
         "nvse-refs": REF_PROBES, "nvse-controls": CONTROL_PROBES, "nvse-actors": ACTOR_PROBES,
@@ -5802,18 +6155,21 @@ SETS = {"jip-getters": PROBES, "jip-forms": FORM_PROBES, "jip-stores": STORE_PRO
         "tmpl1": TMPL1_PROBES,
         "jg1": JG1_PROBES,
         "jg2": JG2_PROBES,
+        "jg5": JG5_PROBES,
         "one111": ONE111_PROBES,
         "jip5": JIP5_PROBES,
+        "jip8": JIP8_PROBES,
         "pp": PP_PROBES,
         "format1": FORMAT1_PROBES,
         "tmpl2": TMPL2_PROBES,
         "tmpl3": TMPL3_PROBES,
         "itr": ITR_PROBES,
-        "sup2": SUP2_PROBES}
+        "sup2": SUP2_PROBES,
+        "sup3": SUP3_PROBES}
 # Sets whose probes write (into the session only, see STORE_PROBES, EVENT_PROBES, HIT_PROBES
 # and VAR_PROBES).
 WRITING_SETS = {"jip-stores", "jip-events", "jip-hits", "nvse-vars", "nvse-setters", "nvse-data", "nvse-inv",
-                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1", "atk1", "jip4", "rules1", "rules2", "showoff2", "jg1", "jg2", "jip5", "tmpl3", "knvse2", "itr", "one111", "pp", "jipppln", "sup2"}
+                "nvse-second", "nvse-fourth", "jip-fifth", "nvse-fifth", "nvse-sixth", "nvse-seventh", "nvse-eighth", "lu-leveled", "nvse-flags", "ini-files", "jip-n7", "player-state", "mcm", "plugin-odds", "lu-leveled2", "projectile", "sky-sound", "knvse-anim", "nif-blocks", "nvse-events", "jip-events2", "nvse-leftovers", "save-set", "save-read", "rgb-ui", "gaps1", "gaps2", "gaps3", "gaps4", "gaps5", "gaps6", "gaps7", "gaps8", "gaps9", "gaps10", "gaps11", "plugins1", "plugins2", "plugins3", "engine1", "engine2", "engine3", "glta-order", "data1", "data2", "data3", "anim1", "anim2", "reload1", "sound1", "proj1", "controls1", "hud1", "showoff1", "atk1", "jip4", "rules1", "rules2", "showoff2", "jg1", "jg2", "jg5", "jip5", "jip8", "tmpl3", "knvse2", "itr", "one111", "pp", "jipppln", "sup2", "sup3"}
 
 
 def script(body):
