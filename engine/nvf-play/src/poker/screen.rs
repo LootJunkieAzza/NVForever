@@ -133,10 +133,21 @@ pub fn choices(s: &Session) -> Vec<(String, PokerInput, bool)> {
         out.push((format!("{} ALL IN", h(KeyCode::KeyA)), PokerInput::AllIn, turn));
         out.push((format!("{} FOLD", h(KeyCode::KeyF)), PokerInput::Fold, turn));
     } else if s.ended.is_none() {
-        out.push((format!("{} NEXT HAND", h(KeyCode::Space)), PokerInput::Next, s.leaving.is_none()));
+        out.push((format!("{} NEXT HAND", upper_unless_glyph(h(KeyCode::Space))), PokerInput::Next, s.leaving.is_none()));
     }
-    out.push((format!("{} LEAVE", crate::pad::hint(&[KeyCode::Tab, KeyCode::Escape], at)), PokerInput::Exit, s.leaving.is_none()));
+    out.push((format!("{} LEAVE", upper_unless_glyph(crate::pad::hint(&[KeyCode::Tab, KeyCode::Escape], at))), PokerInput::Exit, s.leaving.is_none()));
     out
+}
+
+/// A hint in the all-caps choices row: the key's name is uppercased, but a checked button's
+/// name is left as it is, or `pad::find_glyph` (which matches "Circle)" and not "CIRCLE)")
+/// would not draw its picture.
+fn upper_unless_glyph(hint: String) -> String {
+    if crate::pad::has_glyph(&hint) {
+        hint
+    } else {
+        hint.to_uppercase()
+    }
 }
 
 /// What the screen shows; drawn again when it changes.

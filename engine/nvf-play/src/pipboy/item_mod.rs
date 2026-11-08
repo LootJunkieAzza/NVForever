@@ -447,8 +447,8 @@ pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat:
     frame::heading_named(p, c, Page::Items.title(), &o.name, NAME_RIGHT_IN);
     let by = MAIN.min.y + BUTTONS.y + frame::BUTTON_TEXT_Y;
     let exit = exit_label();
-    c.text(p, 2, &exit, MAIN.min.x + BUTTONS.x - 10.0, by, Align::Right, bright);
-    let ew = c.width(2, &exit);
+    // The drawn width, not the text's: a hint that names a button draws its picture.
+    let ew = c.text(p, 2, &exit, MAIN.min.x + BUTTONS.x - 10.0, by, Align::Right, bright);
     p.spawn((at(MAIN.min.x + BUTTONS.x - 10.0 - ew, by - 5.0, ew + 10.0, 40.0), ModExit, Pickable::default())).observe(on_exit_click);
     let chosen = s.selected.checked_sub(1).and_then(|i| o.choices.get(i));
     if let Some(ch) = chosen {

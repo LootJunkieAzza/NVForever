@@ -214,7 +214,6 @@ pub fn layout(p: &Prompt, font: &Font) -> Layout {
     let line = |s: &str| font.lines(s, None).into_iter().next().unwrap_or_default();
     let set = |line: Line, x: f32, base: f32| Set { line, x, base };
     let action = line(&p.action);
-    // A face button under the PlayStation names: its glyph, then ")" [design, #1452].
     // A face button under the PlayStation names: its glyph, then ")" [design, #1452]. The
     // labelled buttons (L1, Select…) are drawn by the menu hints, not the crosshair.
     let glyph = p.key_text().strip_suffix(')').and_then(crate::pad::Glyph::named).filter(|g| g.is_face()).filter(|_| !p.action.is_empty());

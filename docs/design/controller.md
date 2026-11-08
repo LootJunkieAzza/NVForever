@@ -102,7 +102,8 @@ Start cannot be bound.
   [observed: the original], also in `pipboy/data.rs`.
 - The prompt under the crosshair names the Activate control's own key ("E)") or, with a
   controller, its button ("A)") (`Bindings::prompt`). The original shows the button's
-  picture there (`&xbuttona;`, `general_button_a.dds`); letters are the first step.
+  picture there (`&xbuttona;`, `general_button_a.dds`): NVForever draws its own for the
+  four face buttons under the PlayStation names (§3a), and letters stand in for the rest.
 - **Menu hints follow the device** (#1662). Every hint names the key its menu answers
   ("Take All R)", "Close [E]") or, with a controller, the button that presses that key
   there (`pad::hint`, looked up in the tables above through `pad::button_for`, the
@@ -151,10 +152,10 @@ NVForever's own [design, #1452]:
   ring (L1/R1/L2/R2/Select/Start) or a circle knob (L3/R3) with the label written inside in
   the game's font, rasterized from the font's bitmap texture (`pad::Glyph::labeled_image`).
   Every menu hint draws them in place of the names — "Cross)" becomes a cross picture and
-  ")", "Take All Square)" its square (`pad::set_hint`, the crosshair prompt too) — with a
-  gap after the word and tucked against the following ")" or "]" (#1829). The hints stay
-  text with Xbox names or keys, and the stick and D-pad directions and "LB"/"RB" have no
-  glyph.
+  ")", "Take All Square)" its square (`pad::set_hint`; the crosshair prompt draws the four
+  face buttons the same way) — with a gap after the word and tucked against the following
+  ")" or "]" (#1829). The hints stay text with Xbox names or keys, and the stick and D-pad
+  directions and "LB"/"RB" have no glyph.
 
 ## 4. Rumble
 
