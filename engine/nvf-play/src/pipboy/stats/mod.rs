@@ -233,6 +233,12 @@ pub struct StatsView {
     /// The pointer when the page was drawn: a row under a pointer that has not moved
     /// since does not take the selection.
     drawn_at: Option<Vec2>,
+    /// X changed `limb` since the last draw; the next draw turns it into `keep_limb`.
+    cycled: bool,
+    /// [design] This draw followed X changing `limb`: a limb's bar drawn under the
+    /// unmoved pointer does not take the choice back (#1898). Other draws leave limb
+    /// bars hovered under an unmoved pointer, as before.
+    keep_limb: bool,
     /// How many rows each tab's list has, and the furthest the description scrolls.
     lens: [usize; 5],
     desc_max: usize,
@@ -240,7 +246,7 @@ pub struct StatsView {
 
 impl Default for StatsView {
     fn default() -> StatsView {
-        StatsView { status: 0, selected: [0; 5], top: [0; 5], desc: 0, reputation: true, hover: None, limb: None, highlight: false, drawn_at: None, lens: [0; 5], desc_max: 0 }
+        StatsView { status: 0, selected: [0; 5], top: [0; 5], desc: 0, reputation: true, hover: None, limb: None, highlight: false, drawn_at: None, cycled: false, keep_limb: false, lens: [0; 5], desc_max: 0 }
     }
 }
 
@@ -312,6 +318,7 @@ impl StatsView {
             _ => None,
         };
         self.hover = None;
+        self.cycled = true;
     }
 
     /// Switch General between its two lists.
@@ -450,7 +457,13 @@ pub fn prepare(
     let tiles = input.tiles.as_deref();
     if pip.open() && !tiles.is_some_and(|t| t.modal) {
         let mut ask = None;
-        change(&mut view, |v| ask = keys(&input.keys, v, tab));
+        // [design] A press that opened the page or changed its tab or frame this frame
+        // is spent: the view's keys (hints, X, the digits) do not act on it, so the
+        // keyboard's A stepping from S.P.E.C.I.A.L. to a Status left on RAD uses no
+        // RadAway (#1899).
+        if !new {
+            change(&mut view, |v| ask = keys(&input.keys, v, tab));
+        }
         if let Some(a) = ask {
             input.asks.write(a);
         }
@@ -561,6 +574,7 @@ pub fn draw(
     let mut c = Ctx::new(&mut d.kit, d.data.as_deref(), &mut d.images, d.formats.as_deref());
     let v = view.bypass_change_detection();
     v.drawn_at = screen.as_ref().and_then(|s| s.pointer);
+    v.keep_limb = std::mem::take(&mut v.cycled);
     commands.entity(body).despawn_children().with_children(|p| {
         let value = figures;
         let cards = [
@@ -677,10 +691,15 @@ fn hint_pressed(view: &StatsView, hint: usize) -> Option<UseHint> {
 fn on_over(over: On<PointerOver>, spots: Query<&Spot>, view: Option<ResMut<StatsView>>, pip: Res<PipBoy>, screen: Option<Res<PipBoyScreen>>) {
     let (Ok(&spot), Some(mut view)) = (spots.get(over.entity), view) else { return };
     let tab = pip.tab();
-    // [design] A redraw under a stationary pointer must not take back a limb chosen
-    // by the controller, just as it must not take back a list's keyboard selection.
+    // A row drawn under a pointer that has not moved keeps the selection; [design] so
+    // does the limb X just chose, against a limb's bar redrawn under it (`keep_limb`).
     let at = screen.as_ref().and_then(|s| s.pointer);
-    if matches!(spot, Spot::Row(_) | Spot::Limb(_)) && at.is_some() && at == view.drawn_at {
+    let kept = match spot {
+        Spot::Row(_) => true,
+        Spot::Limb(_) => view.keep_limb,
+        _ => false,
+    };
+    if kept && at.is_some() && at == view.drawn_at {
         return;
     }
     match spot {

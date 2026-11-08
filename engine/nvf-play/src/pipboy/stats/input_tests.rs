@@ -36,22 +36,24 @@ fn sim_with_radaway(count: i32) -> crate::sim::SimState {
     crate::sim::SimState { forms, refs, world }
 }
 
-fn route_stats_keys(input: Res<ButtonInput<KeyCode>>, mut view: ResMut<StatsView>, pip: Res<PipBoy>, mut asks: MessageWriter<UseHint>) {
-    if let Some(ask) = keys(&input, &mut view, pip.tab()) {
-        asks.write(ask);
-    }
-}
-
+/// The Pip-Boy's tab keys, then the page's own [`prepare`] (which routes the view's keys),
+/// as the plugin chains them; one frame with nothing pressed has shown the page already.
 fn input_app(status: usize, tab: usize) -> App {
     let mut app = App::new();
     app.init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<crate::menu::PromptKeys>()
         .init_resource::<crate::menu::ActiveMenu>()
+        .insert_resource(Time::<()>::default())
+        .init_resource::<crate::pause::PlayClock>()
+        .init_resource::<Prepared>()
+        .insert_resource(sim_with_radaway(0))
         .insert_resource(PipBoy { page: Page::Stats, phase: super::super::Phase::Up, tabs: [tab, 0, 0], ..default() })
         .insert_resource(StatsView { status, ..default() })
         .add_message::<super::super::PipBoyInput>()
         .add_message::<UseHint>()
-        .add_systems(Update, (super::super::keys, super::super::apply_input, route_stats_keys).chain());
+        .add_message::<MouseWheel>()
+        .add_systems(Update, (super::super::keys, super::super::apply_input, prepare).chain());
+    app.update();
     app
 }
 
@@ -62,7 +64,7 @@ fn rad_a_uses_one_carried_radaway_and_keeps_status_even_when_empty() {
         app.insert_resource(sim_with_radaway(count))
             .add_message::<crate::ItemUsed>()
             .add_message::<crate::ui_sounds::UiSound>()
-            .add_systems(Update, use_hints.after(route_stats_keys));
+            .add_systems(Update, use_hints.after(prepare));
         app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::KeyA);
         app.update();
         assert_eq!(app.world().resource::<PipBoy>().tab(), 0);
@@ -86,8 +88,14 @@ fn tab_keys_switch_every_stats_view_that_does_not_own_them() {
                 let mut app = input_app(status, tab);
                 app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(key);
                 app.update();
-                let expected = if status == 1 && tab == 0 && key == KeyA { 0 } else { (tab + by) % 5 };
+                let rad = status == 1 && tab == 0 && key == KeyA;
+                let expected = if rad { 0 } else { (tab + by) % 5 };
                 assert_eq!(app.world().resource::<PipBoy>().tab(), expected, "status {status} tab {tab} key {key:?}");
+                // A press that switched the tab is spent: it uses nothing on the new tab
+                // (A from S.P.E.C.I.A.L. onto a Status left on RAD, #1899).
+                let asks: Vec<_> = app.world_mut().resource_mut::<Messages<UseHint>>().drain().collect();
+                let used: &[UseHint] = if rad { &[UseHint { hint: model::RADAWAY, limb: None }] } else { &[] };
+                assert_eq!(asks, used, "status {status} tab {tab} key {key:?}");
             }
         }
     }

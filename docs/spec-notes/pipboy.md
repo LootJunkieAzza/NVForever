@@ -371,16 +371,21 @@ is the top left 85 × 92 of `head.dds`) [observed].
     (`stats::use_hints`); what it does to the limbs: aid-items.md §3.
     [design: `engine/nvf-play/src/pipboy/stats/mod.rs`, `stats/read.rs`, `pad.rs`;
     #1898] The middle hint uses `sSwitchLimbs` through `ui_loading::game_string`,
-    with the repository's string table as fallback [documented:
+    with the repository's string table as fallback (NVForever's own label) [design:
     `crates/fnv-ui/src/strings.rs`, entry `sSwitchLimbs`]. Its labels follow the other
     hints: keyboard X, Xbox X, PlayStation Square. Pressing it or clicking its hint
     cycles body → head → torso → left arm → right arm → left leg → right leg → body.
-    A pointer still on a limb is cleared when cycling so the chosen limb takes effect.
+    A pointer still on a limb is cleared when cycling so the chosen limb takes effect,
+    and a limb's bar redrawn under the unmoved pointer right after does not take it
+    back; other redraws leave a limb under the unmoved pointer hovered.
     [design: `engine/nvf-play/src/pipboy.rs::keys`, `stats/mod.rs::hint_pressed`,
     `stats/mod.rs::use_hints`; #1899] On RAD, keyboard A and controller A/Cross both
     belong to RadAway while its hint is shown: use one carried item through the inventory's
     `ItemUsed` path and stay on Status > RAD. With none carried the hint is dim and
     the press uses nothing and still stays on RAD. Rad-X remains unimplemented.
+    A press that opened the page or changed its tab or frame is spent: the view's
+    keys do not act on that frame, so A stepping from S.P.E.C.I.A.L. back to a Status
+    left on RAD uses no RadAway [design: `stats/mod.rs::prepare`].
   - CND: the Vault Boy at zoom 145, head 40 down and centred, face, torso, arms and legs
     placed from it as the file gives; a bracket (`vats_*_divider.dds`, 38 high) with a
     solid bar (77 × 14 at 25 or 51, 24) at each of six body parts, the bar as long as the
