@@ -215,6 +215,11 @@ pub trait Host {
     fn var_name(&mut self, _var: &VarRef) -> Option<String> {
         None
     }
+    /// A number for a variable the host can read again later, outside this run (SUP's
+    /// HudBarSetValueScriptVar); `None` when it cannot (a result script's locals).
+    fn var_place(&mut self, _var: &VarRef) -> Option<u32> {
+        None
+    }
     /// The UDF MessageBoxExAlt runs with the pressed button.
     fn box_callback(&mut self, _func: XVal) {}
     /// A message without a Message form (MessageEx; MessageBoxEx with its buttons).
@@ -2899,6 +2904,24 @@ impl Vm<'_, '_> {
             return match self.host.ext_call(&lname, None, &first) {
                 Some(r) => r.map_err(VmError::Host),
                 None => Ok(XVal::Num(0.0)),
+            };
+        }
+        // [documented: HudBarSetValueScriptVar `barName MyQuest.MyVariable calcMax`, the
+        // bar reading the variable later]: the variable goes to the host by its place
+        // (`Host::var_place`), as -1 - its number; anything that is no placed variable as
+        // 0, which the host refuses.
+        if lname == "hudbarsetvaluescriptvar" {
+            let mut args = Vec::with_capacity(c.args.len());
+            for (k, a) in c.args.iter().enumerate() {
+                args.push(match a {
+                    XExpr::Var { var, .. } if k == 1 => XVal::Num(self.host.var_place(var).map_or(0.0, |p| -1.0 - f64::from(p))),
+                    _ if k == 1 => XVal::Num(0.0),
+                    other => self.xeval(other)?,
+                });
+            }
+            return match self.host.ext_call(&lname, None, &args) {
+                Some(r) => r.map_err(VmError::Host),
+                None => Err(VmError::NotBuilt(format!("the extender function {name}"))),
             };
         }
         // Functions that give their results in script variables: the host answers with an

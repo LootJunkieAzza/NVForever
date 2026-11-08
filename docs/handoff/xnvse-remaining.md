@@ -175,6 +175,10 @@ nothing values by the owner's decisions of 2026-11-08; not probed yet, set sup5)
 it: 560 (SUP 93 → 51).
 With both ShowOff batch 4 and SUP batch 5 merged: 526 (ShowOff 37, SUP 51) [hypothesis: 602 − 34 − 42;
 the extender_census test decides].
+SUP batch 7: 12 (#1008, ext-sup7.md: the NIF block interpolations run frame by frame through the
+scene mirror's edits, their finish events, the vertices told by the engine's `nif_mirror.rs`,
+the HUD bars' script-variable (a variable handed over by place, `Host::var_place`) and UDF
+sources; not probed yet, set sup7). Census after it: SUP 29 → 17 (the 17 of batch 4).
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,

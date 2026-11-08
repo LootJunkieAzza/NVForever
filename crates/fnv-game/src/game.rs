@@ -1244,6 +1244,9 @@ pub struct Game<'a> {
     /// SUP batch 6's state: the mouse, the cursor, the debug texts, the lockpick menu …
     /// (`crate::nvse_sup6`; the engine fills and takes it).
     pub sup: crate::nvse_sup6::SupState,
+    /// SUP batch 7's NIF block interpolations and HUD bar sources (`crate::nvse_sup7`).
+    /// Not saved [hypothesis: the pages say a hot reload loses the variables set].
+    pub sup7: crate::nvse_sup7::Sup7State,
     /// Sound, weather and image-space traits scripts changed (`crate::nvse_traits`).
     pub traits: crate::nvse_traits::TraitState,
     /// kNVSE's animation paths and script-played sequences (`crate::nvse_anim`).
@@ -2195,6 +2198,7 @@ impl<'a> Game<'a> {
             showoff: Default::default(),
             mod_files: Default::default(),
             sup: Default::default(),
+            sup7: Default::default(),
             traits: Default::default(),
             anim_paths: Default::default(),
             anim_folders: Default::default(),
@@ -3504,6 +3508,7 @@ impl<'a> Game<'a> {
         self.projectiles_tick(dt as f32);
         self.jg_event(crate::nvse_jip3::JgEvent::RenderUpdate, None);
         self.hud_tick();
+        self.sup7_tick();
         self.expire_aux_timers();
         self.input.next_frame();
         self.turned.clear();
@@ -5980,6 +5985,22 @@ impl Host for Exec<'_, '_> {
             (None, VarSlot::Local { index, .. }) => self.unit.var_name(*index).map(str::to_string),
             _ => None,
         }
+    }
+
+    /// A global, another script's variable or a local of a script instance, kept for
+    /// SUP's HudBarSetValueScriptVar (`crate::nvse_sup7`); a result script's locals
+    /// have no place.
+    fn var_place(&mut self, var: &VarRef) -> Option<u32> {
+        use crate::nvse_sup7::VarPlace;
+        let p = match (var.on, var.var) {
+            (_, VarSlot::Global { global }) => VarPlace::Global(self.global_form(global).ok()?),
+            (None, VarSlot::Local { index, .. }) => match &self.locals {
+                Locals::Instance(k) => VarPlace::Var(*k, index),
+                Locals::Temp(_) => return None,
+            },
+            (Some(r), VarSlot::Local { index, .. }) => VarPlace::Var(self.remote(r).ok()?.0, index),
+        };
+        Some(self.game.add_var_place(p))
     }
 
     fn ext_call(&mut self, name: &str, on: Option<Value>, args: &[fnv_script::vm::XVal]) -> Option<Result<fnv_script::vm::XVal, String>> {
