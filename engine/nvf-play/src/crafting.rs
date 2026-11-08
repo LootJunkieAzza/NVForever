@@ -734,6 +734,9 @@ pub(crate) fn view_with_effects(rt: &mut crate::script::Runtime, sim: &mut SimSt
 }
 
 /// Draw the menu again when what it shows changed.
+/// The prompt the sheet was last spawned with, once it has been spawned.
+type WasTiled = Option<Option<(i32, i32)>>;
+
 #[allow(clippy::too_many_arguments)]
 fn draw(
     mut commands: Commands,
@@ -748,7 +751,7 @@ fn draw(
     play: Option<Res<crate::PlayWorld>>,
     (mut forms, mut kit): (Local<Option<EffectForms>>, Local<Option<crate::menu::look::Kit>>),
     // The tile writer's decision, and the prompt the sheet was last spawned with.
-    (tiles, mut was_tiled): (Option<Res<crate::tiles::recipe_menu::RecipeTiles>>, Local<Option<Option<(i32, i32)>>>),
+    (tiles, mut was_tiled): (Option<Res<crate::tiles::recipe_menu::RecipeTiles>>, Local<WasTiled>),
 ) {
     let Some(open) = menu.0.as_mut() else { return };
     let Some(look) = look else {
