@@ -300,6 +300,11 @@ pub(crate) mod test_world {
         }
         let mut refs = RefTable::default();
         for r in placed {
+            // In its cell's list, as `RefTable::from_index` puts it (what a cell reset
+            // walks).
+            if let Some(c) = r.cell {
+                refs.by_cell.entry(c).or_default().push(r.id);
+            }
             refs.refs.insert(r.id, r);
         }
         let forms: &'static FormStore = Box::leak(Box::new(forms));
