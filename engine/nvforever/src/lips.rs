@@ -542,6 +542,12 @@ pub struct LipState {
 }
 
 impl LipState {
+    /// The meshes the moving faces are drawn from (the profile aid's `profile change
+    /// sources:` line).
+    pub fn face_meshes(&self) -> impl Iterator<Item = AssetId<Mesh>> + '_ {
+        self.faces.values().flat_map(|f| f.shapes.iter().map(|m| m.mesh.id()))
+    }
+
     fn new(enabled: bool, idle: bool, hold: Option<Weights>) -> LipState {
         LipState {
             enabled,
