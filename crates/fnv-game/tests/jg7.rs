@@ -96,6 +96,8 @@ fn switches() {
     assert_eq!(n(&mut g, "GetViewmodelClipDistance"), 0.0);
     q(&mut g, "SetViewmodelClipDistance 2.5");
     assert_eq!(n(&mut g, "GetViewmodelClipDistance"), 2.5);
+    // [observed: GetNiLODLevel -1 before any SetNiLODLevel, jg7 diagnostics].
+    assert_eq!(n(&mut g, "GetNiLODLevel"), -1.0);
     q(&mut g, "SetNiLODLevel 2");
     assert_eq!(n(&mut g, "GetNiLODLevel"), 2.0);
     // [documented: Get/SetYieldTimer].

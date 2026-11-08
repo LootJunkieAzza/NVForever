@@ -21,6 +21,17 @@ pub fn combat_music_off() -> bool {
     COMBAT_MUSIC_OFF.load(Ordering::Relaxed)
 }
 
+/// The caps' base form (Caps001).
+const CAPS: FormId = FormId(0xF);
+
+/// The world map's icon names by map marker type (REFR XMRK TNAM, 0 None … 14 Vault), the
+/// files `interface\icons\world map\icon_map_<name>.dds` [hypothesis: by the files'
+/// names; type 0 takes the settlement's; observed: Goodsprings (type 3) reads
+/// icon_map_encampment.dds, jg7.markericon]. The engine's world map draws the same
+/// (`nvf-play` pipboy/data/model.rs).
+pub const MAP_MARKER_ICONS: [&str; 15] =
+    ["settlement", "city", "settlement", "encampment", "natural_landmark", "cave", "factory", "monument", "military", "office", "ruins_town", "ruins_urban", "ruins_sewer", "metro", "vault"];
+
 /// A cinematic text QueueCinematicText asked for [documented: QueueCinematicText].
 #[derive(Debug, Clone, PartialEq)]
 pub struct CinematicText {
@@ -69,8 +80,9 @@ pub struct Jg7State {
     pub yield_timer: Option<(f64, f64)>,
     /// SetViewmodelClipDistance (0: the default).
     pub viewmodel_clip: f64,
-    /// SetNiLODLevel's global override.
-    pub lod_level: i64,
+    /// SetNiLODLevel's global override; `None` reads -1, the default [observed:
+    /// jg7 diagnostics, GetNiLODLevel -1 before any SetNiLODLevel].
+    pub lod_level: Option<i64>,
     /// ToggleDisableSaves: the plugins (load-order index of the calling script's form)
     /// that disabled saving.
     pub saves_disabled_by: BTreeSet<u8>,
@@ -242,10 +254,10 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         "getviewmodelclipdistance" => XVal::Num(g.other.jg7.viewmodel_clip),
         "setnilodlevel" => {
-            g.other.jg7.lod_level = int(args, 0).unwrap_or(0);
+            g.other.jg7.lod_level = int(args, 0);
             zero
         }
-        "getnilodlevel" => XVal::Num(g.other.jg7.lod_level as f64),
+        "getnilodlevel" => XVal::Num(g.other.jg7.lod_level.unwrap_or(-1) as f64),
         // `on`: per plugin, the plugin of the calling script's form (its reference or
         // quest) [documented: ToggleDisableSaves, "stored on a per-mod basis"; hypothesis:
         // the form's load-order index names the mod]. Loading a save clears it.
@@ -305,8 +317,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // HideItemBarterEx]. IsItemBarterHiddenEx reads 0 shown, 1 shown on the player's
         // side, 2 on the vendor's, 3 hidden on both [documented: its notes]; a vendor's
         // own entry first, then the one for every vendor [hypothesis].
+        // The caps are never hidden: IsItemBarterHiddenEx on them read 0 after every
+        // HideItemBarterEx [observed 2026-11-08: jg7.barter on Caps001, with and without
+        // a vendor; hypothesis: the barter menu handles the caps apart, as NVForever's].
         "hideitembarterex" => {
-            let Some(item) = form(args, 0) else { return Some(Ok(zero)) };
+            let Some(item) = form(args, 0).filter(|&f| f != CAPS) else { return Some(Ok(zero)) };
             let vendor = form(args, 3);
             if num(args, 1, 0.0) == 0.0 {
                 g.other.jg7.barter_hidden.remove(&(item, vendor));
@@ -399,13 +414,19 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
-        // The path SetCustomMapMarkerIcon gave the calling marker; without one, the empty
-        // string [documented: GetCustomMapMarkerIcon, "or the default texture path";
-        // decision: that path is the executable's, not in the data files, so it is not
-        // transcribed (LEGAL.md) and the engine draws its own default].
+        // The path SetCustomMapMarkerIcon gave the calling marker, else its type's icon
+        // file [documented: GetCustomMapMarkerIcon, "or the default texture path";
+        // observed 2026-11-08: the Goodsprings marker read
+        // `Interface\Icons\World Map\icon_map_encampment.dds`, spelled so]; "" for a
+        // reference that is no map marker [hypothesis].
         "getcustommapmarkericon" => {
-            let p = subject.and_then(|r| g.other.jg7.marker_icons.get(&r).cloned()).unwrap_or_default();
-            XVal::Str(p)
+            let Some(r) = subject else { return Some(Ok(XVal::Str(String::new()))) };
+            let p = g.other.jg7.marker_icons.get(&r).cloned().or_else(|| {
+                let kind = g.world.placed.get(r)?.map_marker.as_ref()?.kind;
+                let name = MAP_MARKER_ICONS.get(kind as usize).copied().unwrap_or("settlement");
+                Some(format!("Interface\\Icons\\World Map\\icon_map_{name}.dds"))
+            });
+            XVal::Str(p.unwrap_or_default())
         }
         // [documented: GetLocationSpecificLoadScreensOnly, the switch
         // SetLocationSpecificLoadScreensOnly sets].
