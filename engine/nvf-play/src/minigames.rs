@@ -214,6 +214,9 @@ pub struct Darts {
     pub foe_name: Option<String>,
     /// When the opponent's dart is to leave its hand (it is drawing back till then).
     pub foe_release: Option<f32>,
+    /// At another player's board: how far the owner's dart is drawn back (0..1), as its
+    /// view says, for its body's arm on this screen (`darts_arm.rs`).
+    pub remote_draw: f32,
     last_impact: u32,
     rng: ChaCha8Rng,
 }
@@ -434,6 +437,7 @@ fn open(
                 met: 0,
                 foe_name: None,
                 foe_release: None,
+                remote_draw: 0.0,
                 last_impact: 9,
                 rng,
             });
@@ -618,6 +622,12 @@ fn darts_keys(
                     let side = d.mine();
                     d.flights.push((now, land, side));
                     d.thrown += 1;
+                    // At another player's board the throw is told as the dart leaves the
+                    // hand, so the owner (and whoever watches its board) sees it fly with
+                    // this player's own (item 86) [design].
+                    if d.joined.is_some() {
+                        send(&mut tables, d.board, DartsAction::Throw(land.0, land.1));
+                    }
                 }
             }
         }
@@ -754,7 +764,7 @@ fn darts_opponent_walk(
     };
     // On the floor there (the line's points are at the bull's height put down).
     let z = if o.to == darts_foes::Spot::Home { target[2] } else { phys.as_deref_mut().and_then(|p| p.ground_below([target[0], target[1], o.home[2]], 60.0, 200.0)).map_or(o.home[2], |h| h.point[2]) };
-    darts_foes::step_to(o, [target[0], target[1], z], face, time.delta_secs());
+    darts_foes::follow(o, [target[0], target[1], z], face, time.delta_secs());
     if o.to == darts_foes::Spot::Home && !o.moving {
         o.gone = true;
         info!("darts: {} is back where they were", o.name);
@@ -850,6 +860,22 @@ fn darts_step(
                     if d.m.up != 1 {
                         d.stuck = v.stuck.clone();
                     }
+                    // The owner's darts in the air (on its turn; on this player's the
+                    // view's flights are this player's own, sent back). Each keeps the
+                    // time it was first seen, so its flight and the hand it left stay put.
+                    let theirs: Vec<(f32, (f32, f32))> = if v.up == 0 { v.flights.iter().map(|(age, x, z)| (now - f32::from(*age) / 100.0, (*x, *z))).collect() } else { Vec::new() };
+                    let before = d.flights.len();
+                    d.flights.retain(|f| f.2 == 1 || theirs.iter().any(|t| t.1 == f.1));
+                    let landed = before - d.flights.len();
+                    for (since, land) in theirs {
+                        if !d.flights.iter().any(|f| f.2 == 0 && f.1 == land) {
+                            d.flights.push((since, land, 0));
+                        }
+                    }
+                    for _ in 0..landed {
+                        impact(d, &mut files);
+                    }
+                    d.remote_draw = if v.up == 0 { f32::from(v.draw) / 255.0 } else { 0.0 };
                 } else if d.page == Page::Play {
                     d.page = Page::Main;
                     d.status = "The match is over.".into();
@@ -901,24 +927,14 @@ fn darts_step(
     let mut i = 0;
     while i < d.flights.len() {
         let (since, land, side) = d.flights[i];
-        if now - since < darts::FLIGHT {
+        if now - since < darts::FLIGHT || d.joined.is_some() && side != d.mine() {
             i += 1;
             continue;
         }
         d.flights.remove(i);
-        let mut pick = d.rng.next_u32() % 6;
-        if pick == d.last_impact {
-            pick = (pick + 1) % 6;
-        }
-        d.last_impact = pick;
-        files.write(PlayFile(format!("sound\\fx\\minigames\\darts\\impact{pick}.wav")));
+        impact(d, &mut files);
         d.stuck.push(land);
         if d.joined.is_some() {
-            if side == 1 {
-                if let Some(t) = tables.as_deref_mut() {
-                    t.send(d.board, game::DARTS, DartsAction::Throw(land.0, land.1).encode());
-                }
-            }
             continue;
         }
         let hit = darts::score_at(land.0, land.1);
@@ -1317,6 +1333,16 @@ fn close(mut d: ResMut<DartsScreen>, mut f: ResMut<FilletScreen>, mut script: Op
     }
 }
 
+/// A dart going into the board: one of the six impact sounds, never the same twice running.
+fn impact(d: &mut Darts, files: &mut MessageWriter<PlayFile>) {
+    let mut pick = d.rng.next_u32() % 6;
+    if pick == d.last_impact {
+        pick = (pick + 1) % 6;
+    }
+    d.last_impact = pick;
+    files.write(PlayFile(format!("sound\\fx\\minigames\\darts\\impact{pick}.wav")));
+}
+
 /// What this game's table shows the others.
 /// `foe`: the game's opponent at the board, if one plays.
 pub fn darts_view(d: &Darts, me: u8, now: f32, foe: Option<u32>) -> Option<DartsView> {
@@ -1351,6 +1377,8 @@ pub fn darts_view(d: &Darts, me: u8, now: f32, foe: Option<u32>) -> Option<Darts
 pub fn arm_draw(d: &Darts, now: f32) -> f32 {
     let x = if d.m.up == d.mine() {
         d.press.map_or(0.0, |p| (now - p.since) / DRAW_SECONDS)
+    } else if d.joined.is_some() {
+        d.remote_draw
     } else {
         d.foe_release.map_or(0.0, |at| (now - (at - darts_foes::RELEASE)) / (darts_foes::RELEASE * 0.8))
     };
