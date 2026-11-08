@@ -2195,3 +2195,26 @@ fn a_planted_explosive_stays_an_item_on_a_child() {
     assert!(g.pickpocket.planted.is_empty());
     assert_eq!(g.plant_explosive(FormId(ADULT_REF), FormId(0x4330), frag), Ok(()));
 }
+
+#[test]
+fn generic_form_functions_edit_a_form_list_in_place() {
+    // #1845: code 13 is a form list; an edit keeps the other members.
+    use fnv_script::vm::XVal;
+    let f = fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::game::RunCtx::default;
+    let q = |g: &mut Game, body: &str| g.run_query(&format!("Begin Function {{ }}
+{body}
+End
+"), ctx()).unwrap();
+    let nth = |g: &mut Game, i: u32| q(g, &format!("SetFunctionValue (ListGetNthForm GunList {i})"));
+    let count = |g: &mut Game| q(g, "SetFunctionValue (ListGetCount GunList)");
+    q(&mut g, "GenericAddForm 13, GunList, Junk, -2");
+    assert_eq!(count(&mut g), XVal::Num(2.0));
+    assert_eq!((nth(&mut g, 0), nth(&mut g, 1)), (XVal::Ref(WEAP), XVal::Ref(MISC)), "added at the end");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericReplaceForm 13, GunList, TestHolotape, 0)"), XVal::Ref(WEAP));
+    assert_eq!((nth(&mut g, 0), nth(&mut g, 1)), (XVal::Ref(NOTE), XVal::Ref(MISC)), "replaced in place");
+    assert_eq!(q(&mut g, "SetFunctionValue (GenericDeleteForm 13, GunList, 0)"), XVal::Ref(NOTE));
+    assert_eq!(count(&mut g), XVal::Num(1.0));
+    assert_eq!(nth(&mut g, 0), XVal::Ref(MISC), "the other member stays");
+}
