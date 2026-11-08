@@ -4680,7 +4680,7 @@ args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hou
 run_seconds = 20
 order = [[
   "script: test aid calls ShowAllMapMarkers",
-  { re = 'pipboy data: world map shows \d+ of \d+ markers of this worldspace, (\d+) as discovered', range = [100, 100000], label = "pipboy data: tmm 1 draws the markers as discovered (100 or more)" },
+  { re = 'pipboy data: world map shows \d+ of \d+ markers of this map family, (\d+) as discovered', range = [100, 100000], label = "pipboy data: tmm 1 draws the markers as discovered (100 or more)" },
 ]]
 
 [[scenario]]

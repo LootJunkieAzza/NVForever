@@ -1284,7 +1284,7 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     let logged = (world, total, marks.len(), drawn_found, drawn_other);
     if st.world_logged != Some(logged) {
         st.world_logged = Some(logged);
-        info!("pipboy data: world map shows {} of {total} markers of this worldspace, {drawn_found} as discovered; map family {}, {drawn_other} shown from other worldspaces", marks.len(), FormId(m.root));
+        info!("pipboy data: world map shows {} of {total} markers of this map family, {drawn_found} as discovered; map family {}, {drawn_other} shown from other worldspaces", marks.len(), FormId(m.root));
     }
     let (cursor, label, under) = place_cursor(st, WORLD, pointer, &mut marks, &names);
     let detail = under.and_then(|i| details[i].clone());

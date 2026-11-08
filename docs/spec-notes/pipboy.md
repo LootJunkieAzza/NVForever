@@ -743,6 +743,30 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     marker's `_x`/`_y` fit exactly with no residual. This replaces the earlier
     fitted origin and span. The traits are texture coordinates 0..1 [documented:
     `map_menu.xml`].
+  - Three main-map markers, as the original reported them [observed: run08, the
+    `_x`/`_y` of MapMenu's marker tiles on the Mojave Wasteland map (WastelandNV),
+    2026-11-07; X/Y are the marker references' positions in the load order's winning
+    records (FalloutNV.esm and the four add-ons), read with fnvtool]. WastelandNV's
+    `ONAM` is scale 1 with offsets 0, so `Xmap = X`. Texels are of the 1024 picture
+    (`_x * 1024`); "old fit" is the earlier origin (0.108, 0.102) and span 0.7876.
+
+    | Marker (reference) | X, Y | Original `_x`, `_y` | In texels | Old fit, texels (off by) |
+    |---|---|---|---|---|
+    | Goodsprings (0x000CDF51) | −70992, 2560 | 0.33236843, 0.5636847 | 340.3, 577.2 | 344.2, 572.2 (+3.8, −5.1) |
+    | Hoover Dam (0x00135E5F) | 74712, 24848 | 0.79706764, 0.49260074 | 816.2, 504.4 | 814.5, 500.2 (−1.7, −4.2) |
+    | Jacobstown (0x000CDF57) | −108427.35, 96469.77 | 0.21297449, 0.26417476 | 218.1, 270.5 | 223.4, 269.0 (+5.3, −1.5) |
+
+    The rule above gives the original's `_x`/`_y` for all three to under 0.0001 texel,
+    and for all 184 markers placed in WastelandNV itself that the capture read (the
+    other five on the map are placed in child worldspaces); the old fit missed those
+    184 by 5.0 texels on average and 9.8 at most (the larger axis of each). The old fit was tuned on places on
+    the picture, not on the markers: Goodsprings' roads at (342, 575), the arc of Hoover
+    Dam at (815, 496) and the ring of Jacobstown at (225, 270). Those lie 1.7/2.2,
+    1.2/8.4 and 6.9/0.5 texels (x/y) from where the original draws the markers, which
+    is how far the new rule moves away from them. These numbers replace the screenshot
+    fit; the test `the_wasteland_map_puts_markers_where_the_original_reads_them`
+    (`engine/nvf-play/src/pipboy/data/model.rs`) checks the three rows within 0.01
+    texel, room for 32-bit rounding only.
   - The map shows every worldspace in this family, each marker projected with its
     own worldspace's numbers; inside a child it still shows the root's picture and
     the whole family's markers. The arrow uses the current worldspace's numbers;

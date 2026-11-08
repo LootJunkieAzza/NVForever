@@ -249,6 +249,28 @@ mod tests {
     }
 
     #[test]
+    fn the_wasteland_map_puts_markers_where_the_original_reads_them() {
+        // WastelandNV: MNAM usable 2048 × 2048, cells (-35, 35) to (25, -25), ONAM scale 1
+        // and offsets 0, so the transform is the identity [FalloutNV.esm's WRLD, read with fnvtool].
+        let m = WorldMap { root: 1, transform: MapTransform::default(), texture: String::new(), usable: [2048.0; 2], nw: [-35, 35], se: [25, -25] };
+        // Each marker reference's world X/Y and the `_x`/`_y` the original's MapMenu
+        // reported for its tile (pipboy.md §5.3, World Map) [observed: run08, 2026-11-07].
+        // The rule fits all 184 markers placed in WastelandNV to under 0.0001 texel of
+        // the 1024 picture; 0.01 texel leaves room for 32-bit rounding, while the old
+        // screenshot fit (origin 0.108/0.102, span 0.7876) missed these by 1.5 to 5.3 texels.
+        let places = [
+            ("Goodsprings", -70992.0, 2560.0, 0.33236843, 0.5636847),
+            ("Hoover Dam", 74712.0, 24848.0, 0.79706764, 0.49260074),
+            ("Jacobstown", -108427.35, 96469.77, 0.21297449, 0.26417476),
+        ];
+        for (name, x, y, u, v) in places {
+            let uv = m.uv(x, y);
+            let off = [(uv[0] - u) * 1024.0, (uv[1] - v) * 1024.0];
+            assert!(off[0].abs() < 0.01 && off[1].abs() < 0.01, "{name}: {uv:?} is {off:?} texels from ({u}, {v})");
+        }
+    }
+
+    #[test]
     fn a_map_stays_over_its_window_middle() {
         // A 2048 map centred on its middle point; at its edges it stops at the middle.
         assert_eq!(pan(0.5, 2048.0, 427.5), 427.5 - 1024.0);
