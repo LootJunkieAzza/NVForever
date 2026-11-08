@@ -98,6 +98,8 @@ pub struct MemoryBudget {
     /// Behind a loading screen: since when (real s), the texture count then, and the
     /// frames until the caches are flushed (the old place gone, the new not yet uploaded).
     loading: Option<LoadWatch>,
+    /// The last loading screen: when it came down (real s) and the texture count as it came up.
+    last_load: Option<(f64, u64)>,
     /// (real s, textures made by then), every half second, for [`out_of_memory`].
     marks: std::collections::VecDeque<(f64, u64)>,
 }
@@ -453,6 +455,7 @@ fn watch_loads(
         }
         (false, true) => {
             let w = budget.loading.take().expect("watched");
+            budget.last_load = Some((now, w.textures_at_start));
             let (gpu, _) = read();
             let r = released.as_deref().copied().unwrap_or_default().0;
             info!(
@@ -487,6 +490,9 @@ const OOM_BURST_SECS: f64 = 2.0;
 /// Seconds of textures made before an out-of-memory error that are made again [design: the
 /// error comes a frame or two after the upload that failed].
 const OOM_RELOAD_SECS: f64 = 3.0;
+/// An out-of-memory error this soon after a loading screen came down makes that place's
+/// textures again [design].
+const OOM_AFTER_LOAD_SECS: f64 = 10.0;
 
 /// The textures to make again after an out-of-memory error: those made after this count.
 #[derive(Resource, Clone, Copy, Debug)]
@@ -511,7 +517,13 @@ pub fn out_of_memory(main: &mut World, real_now: f64) -> bool {
     let cap = (budget.side_cap / 2).max(256);
     let steps = budget.oom_steps;
     set_cap(&mut budget, cap, &format!("out of GPU memory ({steps} time(s) this run)"));
-    let since_loading = budget.loading.as_ref().map(|w| w.textures_at_start);
+    // Under a loading screen, or soon after one came down (its textures still reaching the
+    // GPU): everything made since it came up.
+    let since_loading = budget
+        .loading
+        .as_ref()
+        .map(|w| w.textures_at_start)
+        .or(budget.last_load.filter(|(end, _)| real_now - end < OOM_AFTER_LOAD_SECS).map(|l| l.1));
     let since_marks = budget.marks.iter().rev().find(|(t, _)| real_now - t >= OOM_RELOAD_SECS).or(budget.marks.front()).map(|m| m.1);
     let since = since_loading.into_iter().chain(since_marks).min().unwrap_or(0);
     main.insert_resource(flush_now());
