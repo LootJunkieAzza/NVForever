@@ -59,30 +59,6 @@
    "text": true
   },
   {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nfloat fA\nfloat fB\nfloat fC\nfloat fH\nfloat fS\nfloat fV\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fH := 120\nlet fS := 0.5\nlet fV := 0.5\nHSVtoRGB fH fS fV fA fB fC\nSetFunctionValue (sv_Construct \"%g %g %g\" fA fB fC)\nEnd\n",
-   "label": "jg7.hsv.rgb",
-   "field": "value",
-   "text": true
-  },
-  {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nfloat fA\nfloat fB\nfloat fC\nfloat fH\nfloat fS\nfloat fV\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fH := 0\nlet fS := 1\nlet fV := 1\nHSVtoRGB fH fS fV fA fB fC\nSetFunctionValue (sv_Construct \"%g %g %g\" fA fB fC)\nEnd\n",
-   "label": "jg7.hsv.red",
-   "field": "value",
-   "text": true
-  },
-  {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nfloat fA\nfloat fB\nfloat fC\nfloat fH\nfloat fS\nfloat fV\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fH := 0\nlet fS := 0\nlet fV := 255\nRGBtoHSV fH fS fV fA fB fC\nSetFunctionValue (sv_Construct \"%g %g %g\" fA fB fC)\nEnd\n",
-   "label": "jg7.rgb.hsv",
-   "field": "value",
-   "text": true
-  },
-  {
-   "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nfloat fA\nfloat fB\nfloat fC\nfloat fH\nfloat fS\nfloat fV\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fH := 64\nlet fS := 128\nlet fV := 64\nRGBtoHSV fH fS fV fA fB fC\nSetFunctionValue (sv_Construct \"%g %g %g\" fA fB fC)\nEnd\n",
-   "label": "jg7.rgb.hsv.grey",
-   "field": "value",
-   "text": true
-  },
-  {
    "query": "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nfloat fA\nfloat fB\nfloat fC\nfloat fH\nfloat fS\nfloat fV\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (sv_Construct \"%g %g %g %g %g %g %g %g\" (GetJohnnyPatch 1) (GetJohnnyPatch 2) (GetJohnnyPatch 3) (GetJohnnyPatch 4) (GetJohnnyPatch 5) (GetJohnnyPatch 6) (GetJohnnyPatch 7) (GetJohnnyPatch 8))\nEnd\n",
    "label": "jg7.patches",
    "field": "value",

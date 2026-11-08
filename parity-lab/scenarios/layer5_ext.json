@@ -1294,7 +1294,7 @@
   {
    "id": "L5.ext.jg7",
    "layer": 5,
-   "description": "JohnnyGuitar batch 7 (#1007; docs/spec-notes/ext-jg7.md): the combat music, level-up menu, yield timer, viewmodel clip distance and LOD level switches read back, barter hiding flags, the reputation change icon's result, a map marker's icon, HSVtoRGB and RGBtoHSV into script variables, GetJohnnyPatch, GetDefaultHeapSize, IsMenuPaused, GetLocationSpecificLoadScreensOnly and RefAddr; set jg7 of tools/capture/jip_probes.py, keyed by probe id, steps in order; every change put back. Not probed yet. Oracle and candidate as L5.ext.jip.getters.",
+   "description": "JohnnyGuitar batch 7 (#1007; docs/spec-notes/ext-jg7.md): the combat music, level-up menu, yield timer, viewmodel clip distance and LOD level switches read back, barter hiding flags, the reputation change icon's result, a map marker's icon, GetJohnnyPatch, GetDefaultHeapSize, IsMenuPaused, GetLocationSpecificLoadScreensOnly and RefAddr (HSVtoRGB and RGBtoHSV do not compile at run time in the original, so they are not in the set); set jg7 of tools/capture/jip_probes.py, keyed by probe id, steps in order; every change put back. Probed 2026-11-08, 14 of 14. Oracle and candidate as L5.ext.jip.getters.",
    "oracle": {"golden": "jip/jg7.json"},
    "candidate": {
     "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",

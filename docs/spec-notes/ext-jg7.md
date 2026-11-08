@@ -71,20 +71,7 @@ RGBtoHSV compiled at run time in none of seven forms, so their conversion stays 
 hypothesis until a plugin-compiled script probes it. NVForever's compiler takes all nine
 forms the original refuses (a follow-up for the compiler, not this batch).
 
-## Probe questions (set jg7)
-
-1. `music`, `levelup`: the switches read 1 0 1 (on, off, back on).
-2. `yield`: 0 before, 5 just after SetYieldTimer 5 in the same frame, 0 after setting 0.
-3. `clip`: the default (0?), 2.5, and what 0 reads back (0 or a default distance).
-4. `lod`: the default level (0?) and 2 read back.
-5. `barter` on the caps (F) with Doc Mitchell (104C0F): 0 1 3 0, then a vendor's own
-   entry with side 2 (2), the same item without the vendor (0 or 2?), and after hide 0.
-6. `repicon` on RepNVGoodsprings (104C22): tier 2 gives 1, tier 5 gives 0?
-7. `markericon` on the Goodsprings marker (CDF51): the default path the game gives
-   (NVForever "").
-8. `hsv.rgb` (120 0.5 0.5 → 64 128 64?), `hsv.red` (255 0 0), `rgb.hsv` (240 1 1, or a
-   hue scaled to 0-1?), `rgb.hsv.grey` (120 0.5 0.501961?).
-9. `patches`: GetJohnnyPatch 1-8 with the probe game's JohnnyGuitar.ini; `heap`:
-   GetDefaultHeapSize with its nvse_config.ini.
-10. `menupaused`: IsMenuPaused outside menus, with 1002 and 1009 (1 for both?).
-11. `lsonly`: 0 by default; `refaddr`: nonzero in the original (NVForever 0).
+The rerun (head de7253958): 13 of 14 rows equal, the 10mm pistol's barter row read 0 too,
+so IsItemBarterHiddenEx now reads 0; lab `L5.ext.jg7` 14 of 14 against the private golden
+`jip/jg7.json`. HSVtoRGB and RGBtoHSV are out of the runtime set and wait for a
+plugin-compiled probe (observer-checks).

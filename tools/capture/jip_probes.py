@@ -8119,7 +8119,7 @@ WRITING_SETS |= {"jip6", "jip7", "jip6b", "jip7b"}
 # (docs/spec-notes/ext-jg7.md): the music, level-up, yield, viewmodel clip and LOD switches
 # read back, barter hiding on the caps (F) with Doc Mitchell (104C0F) as the vendor, the
 # reputation change icon on RepNVGoodsprings (104C22), the Goodsprings map marker's icon
-# (CDF51), the colour conversions, GetJohnnyPatch, the heap size, IsMenuPaused, the load
+# (CDF51), GetJohnnyPatch, the heap size, IsMenuPaused, the load
 # screen switch and RefAddr [observed: forms from fnvtool esm inventory, as FX above].
 # ToggleDisableSaves, the queued texts, the camera and HUD shakes, TogglePipBoy,
 # ExitGameAlt and RollCredits change the screen or the game and are not probed.
@@ -8130,11 +8130,6 @@ def _jg7(pid, body, text=False):
     return (f"jg7.{pid}", "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nfloat fA\nfloat fB\nfloat fC\n"
             "float fH\nfloat fS\nfloat fV\nstring_var sText\nBegin Function { }\n"
             + _form("rP", NF["player"]) + body, text, None, "")
-
-
-def _jg7c(pid, fn, a, b, c):
-    return _jg7(pid, f"let fH := {a}\nlet fS := {b}\nlet fV := {c}\n{fn} fH fS fV fA fB fC\n"
-                'SetFunctionValue (sv_Construct "%g %g %g" fA fB fC)', True)
 
 
 JG7_PROBES = (
@@ -8166,11 +8161,8 @@ JG7_PROBES = (
           + 'let fA := SetCustomReputationChangeIcon rObj 2 "interface\\icons\\nvf.dds"\n'
           + 'SetFunctionValue (sv_Construct "%g %g" fA (SetCustomReputationChangeIcon rObj 5 "interface\\icons\\nvf.dds"))', True),
      _jg7("markericon", _form("rObj", JG7["gsmarker"]) + "SetFunctionValue (rObj.GetCustomMapMarkerIcon)", True),
-     # 4. colours: the rounding and the hue's scale
-     _jg7c("hsv.rgb", "HSVtoRGB", 120, 0.5, 0.5),
-     _jg7c("hsv.red", "HSVtoRGB", 0, 1, 1),
-     _jg7c("rgb.hsv", "RGBtoHSV", 0, 0, 255),
-     _jg7c("rgb.hsv.grey", "RGBtoHSV", 64, 128, 64),
+     # 4. HSVtoRGB and RGBtoHSV compiled at run time in none of seven forms in the original
+     # (observer run 2026-11-08), so they are not in this set (docs/spec-notes/ext-jg7.md)
      # 5. the extender's own files, menus, the load screen switch, RefAddr
      _jg7("patches", 'SetFunctionValue (sv_Construct "%g %g %g %g %g %g %g %g" (GetJohnnyPatch 1) (GetJohnnyPatch 2) '
           "(GetJohnnyPatch 3) (GetJohnnyPatch 4) (GetJohnnyPatch 5) (GetJohnnyPatch 6) (GetJohnnyPatch 7) (GetJohnnyPatch 8))", True),
