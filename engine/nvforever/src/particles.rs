@@ -1984,7 +1984,9 @@ mod tests {
         fn new() -> Sched {
             use bevy::asset::{AssetApp, AssetPlugin};
             let mut app = App::new();
-            app.add_plugins((MinimalPlugins, AssetPlugin::default(), bevy::transform::TransformPlugin, bevy::camera::CameraPlugin)).init_asset::<Mesh>();
+            app.add_plugins((MinimalPlugins, AssetPlugin::default(), bevy::transform::TransformPlugin, bevy::camera::CameraPlugin)).init_asset::<Mesh>()
+                // CameraPlugin's skinned-mesh bounds system reads this store (MeshPlugin adds it in the game).
+                .init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>();
             configure_draw_set(&mut app);
             app.init_resource::<ModifiedThisFrame>()
                 .init_resource::<RaiseReflection>()
