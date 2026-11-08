@@ -471,6 +471,7 @@ pub struct Tools<'w> {
     data: Option<Res<'w, GameData>>,
     images: ResMut<'w, Assets<Image>>,
     formats: Option<Res<'w, CompressedImageFormatSupport>>,
+    glyphs: Res<'w, crate::pad::PadGlyphs>,
 }
 
 /// Keep track of the quests and markers, take the player's input while the page is
@@ -539,7 +540,7 @@ pub fn draw(
     if added.get(body).is_err() && st.shown.as_ref() == Some(&view) {
         return;
     }
-    let mut c = Ctx::new(&mut tools.kit, tools.data.as_deref(), &mut tools.images, tools.formats.as_deref());
+    let mut c = Ctx::new(&mut tools.kit, tools.data.as_deref(), &mut tools.images, tools.formats.as_deref(), &tools.glyphs);
     commands.entity(body).despawn_children().with_children(|p| show(p, &mut c, st, &view));
     st.shown = Some(view);
 }
