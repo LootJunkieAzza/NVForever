@@ -5,6 +5,9 @@
 //! saves to choose from; only saves past the opening (out of Doc Mitchell's house, not in
 //! character creation) can join.
 //!
+//! A guest in a session opens the same pause-menu entry and sees who is in the lobby, the
+//! host marked, with Leave Lobby instead of Create Lobby (queue item 82).
+//!
 //! The screen is drawn over the menu that opened it and takes the keys while it is up
 //! ([`LobbyScreen::holds_input`]); it asks the network side for things with
 //! [`LobbyRequest`] and shows what [`LobbyState`] says.
@@ -48,6 +51,8 @@ pub enum LobbyRequest {
     Create,
     /// Close it (guests are told the game ended).
     Close,
+    /// A guest leaves its host's lobby.
+    Leave,
     /// Look for the host of this code.
     Find(String),
     /// Stop looking (or leave the host found).
@@ -88,6 +93,8 @@ pub struct LobbyState {
     /// The players in the lobby, this game's first.
     pub players: Vec<String>,
     pub joining: Joining,
+    /// This game is a guest in another player's lobby.
+    pub guest: bool,
 }
 
 /// A save on the guest's list.
@@ -153,6 +160,7 @@ struct LobbyRoot;
 enum Act {
     Create,
     Close,
+    Leave,
     Join,
     Back,
     Save(usize),
@@ -186,6 +194,7 @@ impl Plugin for LobbyPlugin {
 fn acts(screen: &LobbyScreen, state: &LobbyState) -> Vec<Act> {
     match screen.mode {
         None => Vec::new(),
+        Some(Mode::Host) if state.guest => vec![Act::Leave, Act::Back],
         Some(Mode::Host) => match state.hosting {
             Hosting::Off => vec![Act::Create, Act::Back],
             Hosting::Opening => vec![Act::Back],
@@ -252,6 +261,7 @@ fn input(
                     Some(Act::Create)
                 }
                 "close" => Some(Act::Close),
+                "leave" => Some(Act::Leave),
                 "back" => Some(Act::Back),
                 other => {
                     warn!("NVF_PLAY_TEST_LOBBY: no action {other:?}");
@@ -349,6 +359,9 @@ fn take(screen: &mut LobbyScreen, state: &LobbyState, act: Act, asks: &mut Messa
         Act::Close => {
             asks.write(LobbyRequest::Close);
         }
+        Act::Leave => {
+            asks.write(LobbyRequest::Leave);
+        }
         Act::Join => {
             let code = screen.typed.trim().to_string();
             if !code.is_empty() {
@@ -404,6 +417,13 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
     let mut v = Vec::new();
     match screen.mode {
         None => {}
+        Some(Mode::Host) if state.guest => {
+            v.push(Title("Co-op Lobby".into()));
+            let host = state.players.iter().find_map(|p| p.strip_suffix(" (host)"));
+            v.push(Line(host.map_or_else(|| "You are in another player's lobby.".to_string(), |h| format!("You are in {h}'s lobby.")), Shade::Bright));
+            players(&mut v, state);
+            v.push(Button(Act::Leave, "Leave Lobby".into()));
+        }
         Some(Mode::Host) => {
             v.push(Title("Co-op Lobby".into()));
             match &state.hosting {
@@ -419,7 +439,7 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
                     if let Some(n) = note {
                         v.push(Line(n.clone(), Shade::Bright));
                     }
-                    v.push(Line(format!("Players: {}", state.players.join(", ")), Shade::Bright));
+                    players(&mut v, state);
                     v.push(Button(Act::Close, "Close Lobby".into()));
                 }
             }
@@ -460,6 +480,19 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
     }
     v
 }
+
+/// Who is in the lobby, one a line (the host and this player marked by the network side).
+fn players(v: &mut Vec<Piece>, state: &LobbyState) {
+    v.push(Piece::Line("Players:".into(), Shade::Dim));
+    for p in &state.players {
+        v.push(Piece::Line(format!("  {p}"), Shade::Bright));
+    }
+}
+
+/// The panel's backing: dark, fading out at its edges, no border [design: the owner's
+/// pick for our own UI, 2026-11-06, mockup 1B; `crate::interface::soft_backing_image`].
+const BACKING: f32 = 0.92;
+const FEATHER: f32 = 30.0;
 
 #[allow(clippy::too_many_arguments)]
 fn draw(
@@ -514,10 +547,11 @@ fn draw(
             top: u(TOP),
             width: u(WIDTH),
             height: u(total),
-            border: UiRect::all(u(LINE)),
             ..default()
         };
-        root.spawn((panel, BorderColor::all(amber(200.0)), BackgroundColor(Color::BLACK.with_alpha(0.92)))).with_children(|p| {
+        let backing = images.add(crate::interface::soft_backing_image(WIDTH, total, FEATHER, BACKING));
+        root.spawn(panel).with_children(|p| {
+            p.spawn((crate::interface::soft_backing_node(0.0, 0.0, WIDTH, total, FEATHER), ImageNode { image_mode: NodeImageMode::Stretch, ..ImageNode::new(backing) }));
             let mut y = PAD;
             for piece in &now {
                 let h = height(piece);
@@ -554,4 +588,39 @@ fn draw(
             }
         });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn opened(mode: Mode) -> LobbyScreen {
+        let mut s = LobbyScreen::default();
+        s.open(mode);
+        s
+    }
+
+    #[test]
+    fn a_guest_sees_the_players_and_can_leave_not_create() {
+        let screen = opened(Mode::Host);
+        let state = LobbyState { players: vec!["Cass (you)".into(), "Veronica (host)".into()], guest: true, ..default() };
+        assert_eq!(acts(&screen, &state), vec![Act::Leave, Act::Back]);
+        let p = pieces(&screen, &state);
+        assert!(p.contains(&Piece::Line("You are in Veronica's lobby.".into(), Shade::Bright)));
+        assert!(p.contains(&Piece::Line("  Cass (you)".into(), Shade::Bright)) && p.contains(&Piece::Line("  Veronica (host)".into(), Shade::Bright)));
+        assert!(p.contains(&Piece::Button(Act::Leave, "Leave Lobby".into())));
+        assert!(!p.iter().any(|x| matches!(x, Piece::Button(Act::Create | Act::Close, _))), "nothing of the host's");
+        // Left: the normal choice again.
+        let alone = LobbyState::default();
+        assert_eq!(acts(&screen, &alone), vec![Act::Create, Act::Back]);
+    }
+
+    #[test]
+    fn the_host_lists_the_same_players_one_a_line() {
+        let screen = opened(Mode::Host);
+        let state = LobbyState { hosting: Hosting::Open { code: "ABCD-EFGH".into(), note: None }, players: vec!["Veronica (host, you)".into(), "Cass".into()], ..default() };
+        let p = pieces(&screen, &state);
+        assert!(p.contains(&Piece::Line("  Cass".into(), Shade::Bright)));
+        assert_eq!(acts(&screen, &state), vec![Act::Close, Act::Back]);
+    }
 }

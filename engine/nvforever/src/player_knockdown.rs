@@ -86,6 +86,13 @@ impl PlayerKnockdown {
         self.revived || self.reviving || self.down.as_ref().is_some_and(|d| d.revive && matches!(d.phase, Phase::Lying))
     }
 
+    /// The body lies, about to get up: knocked down (a duel lost, a revive) and not yet
+    /// rising. Co-op tells the others (`flag::LYING`), whose copies of this player get up
+    /// when it does (`coop/revive.rs`).
+    pub fn lying(&self) -> bool {
+        self.revive_lying() || self.down.as_ref().is_some_and(|d| matches!(d.phase, Phase::Lying))
+    }
+
     /// The body lies as a ragdoll: `player_body.rs` leaves it alone.
     pub fn ragdolled(&self) -> bool {
         self.down.as_ref().is_some_and(|d| matches!(d.phase, Phase::Lying) && d.body.is_some())

@@ -236,6 +236,7 @@ pub(crate) fn find_target(
     mut script: Option<ResMut<crate::script::ScriptState>>,
     control: Option<Res<crate::control::PlayerControl>>,
     mut talkers: Local<HashMap<u32, (bool, f64)>>,
+    mut logged: Local<Option<(u32, Action, bool, bool)>>,
 ) {
     let Some(player) = player else { return };
     let crosshair = control.as_deref().and_then(|c| c.crosshair);
@@ -345,8 +346,13 @@ pub(crate) fn find_target(
     if let (Some(t), Some(rt)) = (new.as_ref(), script.as_deref_mut().and_then(|s| s.rt.as_mut())) {
         rt.game.senses.crosshair_ref = Some(FormId(t.form_id));
     }
-    let key = |t: &Option<Targeted>| t.as_ref().map(|t| (t.form_id, t.action.clone(), t.crime, t.empty));
-    if key(&target.0) != key(&new) {
+    // Logged when what this pick finds changes (the reference, its action, owned, empty),
+    // not whenever the target differs: co-op's social targeting takes back a stand-in
+    // this pick finds again every frame, which logged it every frame (queue item 95:
+    // 7,786 lines in 2 minutes).
+    let key = new.as_ref().map(|t| (t.form_id, t.action.clone(), t.crime, t.empty));
+    if *logged != key {
+        *logged = key;
         match &new {
             Some(t) => info!(
                 "target 0x{:08X} {} ({}{}{}) by {:?} at {:.0}",

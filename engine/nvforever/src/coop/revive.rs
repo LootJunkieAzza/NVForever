@@ -40,6 +40,10 @@ pub(super) enum Rising {
 /// observed 2026-11-07].
 const START_WAIT: f32 = 6.0;
 
+/// The least a body lies here before it gets up (seconds) [design: the fallen player's
+/// own ragdoll lies longer, about 2.5 s].
+const MIN_LIE: f32 = 1.0;
+
 type Body = (Entity, &'static RefVisual, &'static ActorRig, Option<&'static Locomotion>, &'static mut Transform, &'static GlobalTransform, Has<Corpse>);
 
 /// Where each downed puppet's body lies, and the revived ones' get-ups (module notes).
@@ -73,7 +77,9 @@ pub(super) fn bodies(
         };
         match rising {
             // The revived player's own body still lies (`flag::LYING`): so does this one.
-            Rising::Start { since } if now - since < START_WAIT && p.samples.back().is_some_and(|(_, s)| s.has(nvf_coop::net::flag::LYING)) => {}
+            // (At least [`MIN_LIE`]: the loser of a duel starts here at its fall, maybe
+            // before its first sample saying it lies has come.)
+            Rising::Start { since } if now - since < START_WAIT && (now - since < MIN_LIE || p.samples.back().is_some_and(|(_, s)| s.has(nvf_coop::net::flag::LYING))) => {}
             Rising::Start { since } => {
                 let lying = pelvis_head(rig, &globals);
                 let side = usize::from(face_up(rig, &globals) == Some(false));
