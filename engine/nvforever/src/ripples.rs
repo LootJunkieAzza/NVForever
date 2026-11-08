@@ -10,6 +10,14 @@
 //! for both). Starting size and dampner are not used (unknown); the drop and wake radii,
 //! rain rate and ripple height are tuned by eye. The game's own simulation (grid size,
 //! step rate) is not known.
+//!
+//! The heights reach the GPU by a write into the ripple image's one texture in the render
+//! world (`write_ripples`), not by changing the image asset: a changed image waits behind
+//! the render world's upload budget (`RenderAssetBytesPerFrame`, limited in play,
+//! world.rs), and Bevy drops the image's old texture before it waits and makes a new one
+//! after, which the water materials' bind groups (not bindless) did not see until each
+//! material was written again. With the one texture the GPU holds the heights of the frame
+//! drawn, every frame, whatever the budget [design].
 
 use crate::reflection::ReflectionCamera;
 use crate::sky::SkyState;
@@ -17,7 +25,11 @@ use crate::water::{DistantWater, WaterCache, WaterMaterial};
 use crate::world::{bevy_to_game, Streamer, WorldData};
 use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::render::render_asset::RenderAssets;
+use bevy::render::render_resource::{Extent3d, TexelCopyBufferLayout, TextureDimension, TextureFormat};
+use bevy::render::renderer::RenderQueue;
+use bevy::render::texture::GpuImage;
+use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderSystems};
 use fnv_world::cell_of;
 use fnv_world::sky::{RippleParams, Water};
 use std::collections::HashMap;
@@ -173,7 +185,13 @@ fn clear_border(buf: &mut [f32]) {
 
 #[derive(Resource)]
 pub struct Ripples {
+    /// Made once (zeros) and never changed as an asset: the heights are written into its
+    /// texture in the render world (module notes).
     pub image: Handle<Image>,
+    /// The heights last uploaded (R32Float, little-endian), and how many uploads so far:
+    /// the render world writes the bytes into the texture when the count moves.
+    bytes: Vec<u8>,
+    sent: u64,
     rain: Sim,
     wake: Sim,
     /// Game-space grid cell of index (0, 0).
@@ -192,6 +210,8 @@ impl Ripples {
     fn new(image: Handle<Image>) -> Self {
         Self {
             image,
+            bytes: vec![0; N * N * 4],
+            sent: 0,
             rain: Sim::new(),
             wake: Sim::new(),
             origin: IVec2::ZERO,
@@ -231,23 +251,25 @@ impl Ripples {
         self.texture_dirty |= rain || wake;
     }
 
-    fn upload(&mut self, images: &mut Assets<Image>) -> bool {
+    /// Put the grids' heights in [`Self::bytes`] for the render world, when they changed.
+    fn upload(&mut self) -> bool {
         if !self.texture_dirty {
             return false;
         }
-        let Some(mut img) = images.get_mut(&self.image) else { return false };
-        let bytes = img.data.get_or_insert_with(|| vec![0; N * N * 4]);
-        bytes.resize(N * N * 4, 0);
-        for ((a, b), pixel) in self.rain.cur.iter().zip(&self.wake.cur).zip(bytes.as_chunks_mut::<4>().0) {
+        for ((a, b), pixel) in self.rain.cur.iter().zip(&self.wake.cur).zip(self.bytes.as_chunks_mut::<4>().0) {
             pixel.copy_from_slice(&(a + b).to_le_bytes());
         }
+        self.sent += 1;
         self.texture_dirty = false;
         true
     }
 
-    /// Both grids at rest and their final clear uploaded: the texture holds only zeros,
-    /// so the shader's ripple slope is 0 wherever the grid lies and whatever the height
-    /// scale (`ripple_slope`, water.wesl), and the uniform need not follow the camera.
+    /// Both grids at rest and their final clear uploaded: the bytes are all zeros, and
+    /// the render world writes them into the texture in the frame they are extracted, so
+    /// the texture the frame draws with holds only zeros ([`RippleUpload`]). The shader's
+    /// ripple slope is then exactly 0 wherever the grid lies and whatever the height scale
+    /// (`ripple_slope`, water.wesl: the differences of zero heights), so the uniform need
+    /// not follow the camera.
     fn quiet(&self) -> bool {
         self.rain.at_rest && self.wake.at_rest && !self.texture_dirty
     }
@@ -273,7 +295,63 @@ pub struct RipplesPlugin;
 impl Plugin for RipplesPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup_ripples).add_systems(Update, update_ripples.after(crate::world::stream));
+        if let Some(render) = app.get_sub_app_mut(RenderApp) {
+            render
+                .init_resource::<RippleUpload>()
+                .add_systems(ExtractSchedule, extract_ripples)
+                .add_systems(Render, write_ripples.in_set(RenderSystems::PrepareResources));
+        }
     }
+}
+
+/// The render world's copy of the heights to write into the ripple texture.
+#[derive(Resource, Default)]
+struct RippleUpload {
+    image: Option<AssetId<Image>>,
+    /// [`Ripples::sent`] of the bytes held.
+    seen: u64,
+    bytes: Vec<u8>,
+    /// Not yet written into the texture.
+    pending: bool,
+}
+
+impl RippleUpload {
+    /// Take the main world's heights when they changed since the last extraction.
+    fn receive(&mut self, rp: &Ripples) {
+        self.image = Some(rp.image.id());
+        if rp.sent != self.seen {
+            self.seen = rp.sent;
+            self.bytes.clone_from(&rp.bytes);
+            self.pending = true;
+        }
+    }
+}
+
+fn extract_ripples(ripples: Extract<Option<Res<Ripples>>>, mut upload: ResMut<RippleUpload>) {
+    if let Some(rp) = ripples.as_deref() {
+        upload.receive(rp);
+    }
+}
+
+/// Write the extracted heights into the ripple image's texture, after the render assets
+/// are prepared and before the frame is drawn (the queue's writes go ahead of the frame's
+/// command buffers). The image asset never changes after it is made, so its texture is
+/// never made again and every water material's bind group keeps pointing at it. Until the
+/// image's first preparation (start-up) the write waits.
+fn write_ripples(mut upload: ResMut<RippleUpload>, images: Res<RenderAssets<GpuImage>>, queue: Res<RenderQueue>) {
+    if !upload.pending {
+        return;
+    }
+    let Some(gpu) = upload.image.and_then(|id| images.get(id)) else { return };
+    if upload.bytes.len() == N * N * 4 {
+        queue.write_texture(
+            gpu.texture.as_image_copy(),
+            &upload.bytes,
+            TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(N as u32 * 4), rows_per_image: Some(N as u32) },
+            Extent3d { width: N as u32, height: N as u32, depth_or_array_layers: 1 },
+        );
+    }
+    upload.pending = false;
 }
 
 fn setup_ripples(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
@@ -297,7 +375,6 @@ fn update_ripples(
     mut dw: ResMut<DistantWater>,
     camera: Query<&GlobalTransform, (With<Camera3d>, Without<ReflectionCamera>)>,
     ripples: Option<ResMut<Ripples>>,
-    mut images: ResMut<Assets<Image>>,
     cache: Res<WaterCache>,
     mut materials: ResMut<Assets<WaterMaterial>>,
 ) {
@@ -368,14 +445,14 @@ fn update_ripples(
         rp.last = None;
     }
 
-    rp.upload(&mut images);
+    rp.upload();
     // While the texture is clear the uniform changes nothing drawn, so the materials are
     // left alone: before, every water material was written each time the camera crossed
     // a texel (4 units), indoors too, and a written `WaterMaterial` gets a new bind group
-    // and has its entities' pipelines checked again. The next wave writes the grid's
-    // place before (or as) its texture reaches the GPU [design; the render world's upload
-    // budget can hold an image back a frame or more, which delays the cleared texture as
-    // it delays every other one].
+    // and has its entities' pipelines checked again. The first frame that is not quiet
+    // writes the grid's place, extracted in the same frame as the heights that need it;
+    // the material's new bind group binds the same texture, which is never made again
+    // (module notes) [design].
     if !rp.quiet() {
         cache.set_ripples(&mut materials, rp.uniform(streamer.interior.is_none()));
     }
@@ -385,16 +462,8 @@ fn update_ripples(
 mod tests {
     use super::*;
 
-    fn fixture() -> (Ripples, Assets<Image>) {
-        let mut images = Assets::default();
-        let image = images.add(Image::new(
-            Extent3d { width: N as u32, height: N as u32, depth_or_array_layers: 1 },
-            TextureDimension::D2,
-            vec![0; N * N * 4],
-            TextureFormat::R32Float,
-            RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
-        ));
-        (Ripples::new(image), images)
+    fn fixture() -> Ripples {
+        Ripples::new(Handle::default())
     }
 
     #[test]
@@ -414,52 +483,86 @@ mod tests {
 
     #[test]
     fn impulse_resumes_each_grid_and_idle_does_not_upload() {
-        let (mut rp, mut images) = fixture();
+        let mut rp = fixture();
         rp.step();
-        assert!(!rp.upload(&mut images));
+        assert!(!rp.upload());
         assert!(!rp.rain.impulse(128.0, 128.0, 2.0, 0.0));
         assert!(!rp.rain.impulse(N as f32 + 20.0, 128.0, 2.0, 0.1));
         assert!(rp.rain.at_rest);
         assert!(rp.rain.impulse(128.0, 128.0, 2.0, 0.1));
         assert!(!rp.rain.at_rest);
         rp.step();
-        assert!(rp.upload(&mut images));
+        assert!(rp.upload());
         assert!(rp.wake.at_rest);
-        assert!(!rp.upload(&mut images));
+        assert!(!rp.upload());
         assert!(rp.wake.impulse(100.0, 100.0, 6.0, 0.1));
         rp.step();
         assert!(!rp.wake.at_rest);
-        assert!(rp.upload(&mut images));
+        assert!(rp.upload());
+    }
+
+    /// One main-world frame's end and its extraction: what the render world will write
+    /// into the texture the frame draws with, and whether the materials were left alone.
+    fn frame(rp: &mut Ripples, gpu: &mut RippleUpload) -> bool {
+        rp.upload();
+        gpu.receive(rp);
+        // `write_ripples` writes whatever is pending in the same render frame.
+        gpu.pending = false;
+        rp.quiet()
     }
 
     #[test]
-    fn quiet_only_while_the_uploaded_texture_is_clear() {
-        let clear = |rp: &Ripples, images: &Assets<Image>| images.get(&rp.image).unwrap().data.as_ref().unwrap().iter().all(|&b| b == 0);
-        let (mut rp, mut images) = fixture();
-        assert!(rp.quiet());
+    fn quiet_only_while_the_texture_drawn_with_is_clear() {
+        let clear = |gpu: &RippleUpload| gpu.bytes.iter().all(|&b| b == 0);
+        let mut rp = fixture();
+        let mut gpu = RippleUpload::default();
+        // Before any wave the texture holds the zeros it was made with.
+        assert!(frame(&mut rp, &mut gpu));
         // A wave not yet stepped into the texture: the uniform follows again already.
         assert!(rp.rain.impulse(128.0, 128.0, 2.0, 0.1));
-        assert!(!rp.quiet());
+        assert!(!frame(&mut rp, &mut gpu));
         rp.step();
-        assert!(!rp.quiet());
-        assert!(rp.upload(&mut images));
-        assert!(!rp.quiet() && !clear(&rp, &images));
-        // Moving the wave off the grid clears it; quiet once that clear is uploaded.
+        assert!(!frame(&mut rp, &mut gpu) && !clear(&gpu));
+        // The transition: moving the wave off the grid clears it. The frame that turns
+        // quiet is the frame whose extraction carries the clear, so no frame drawn with
+        // the materials left alone has a wave in its texture.
         rp.follow(IVec2::new(N as i32, 0));
-        assert!(rp.rain.at_rest && !rp.quiet());
-        assert!(rp.upload(&mut images));
-        assert!(rp.quiet() && clear(&rp, &images));
-        // Walking on with no waves stays quiet and uploads nothing.
+        assert!(rp.rain.at_rest);
+        let sent = gpu.seen;
+        assert!(frame(&mut rp, &mut gpu));
+        assert!(gpu.seen > sent && clear(&gpu));
+        // Walking on with no waves stays quiet and sends nothing more.
         rp.follow(IVec2::new(N as i32 + 3, 2));
         rp.step();
-        assert!(!rp.upload(&mut images));
-        assert!(rp.quiet());
+        let sent = gpu.seen;
+        assert!(frame(&mut rp, &mut gpu) && gpu.seen == sent && clear(&gpu));
+        // The way out: the first wave is not quiet in the frame it lands.
+        assert!(rp.wake.impulse(100.0, 100.0, 6.0, 0.1));
+        rp.step();
+        assert!(!frame(&mut rp, &mut gpu) && !clear(&gpu));
+    }
+
+    #[test]
+    fn heights_reach_the_render_world_once_per_upload() {
+        let mut rp = fixture();
+        let mut gpu = RippleUpload::default();
+        gpu.receive(&rp);
+        assert!(!gpu.pending, "nothing sent yet: the texture keeps its zeros");
+        rp.rain.impulse(128.0, 128.0, 2.0, 0.1);
+        rp.step();
+        assert!(rp.upload());
+        gpu.receive(&rp);
+        assert!(gpu.pending && gpu.bytes == rp.bytes);
+        gpu.pending = false;
+        // No new upload: the next extraction has nothing to write.
+        gpu.receive(&rp);
+        assert!(!gpu.pending);
     }
 
     #[test]
     fn decay_uploads_one_final_clear_and_reuses_the_buffer() {
-        let (mut rp, mut images) = fixture();
-        let allocation = images.get(&rp.image).unwrap().data.as_ref().unwrap().as_ptr();
+        let mut rp = fixture();
+        let allocation = rp.bytes.as_ptr();
         // Start near the cutoff to test the decay transition without thousands
         // of steps. Both grids must finish before the texture can stay clear.
         for s in [&mut rp.rain, &mut rp.wake] {
@@ -469,42 +572,42 @@ mod tests {
         }
         rp.wake.falloff = 0.25;
         rp.step();
-        assert!(rp.upload(&mut images));
-        assert!(images.get(&rp.image).unwrap().data.as_ref().unwrap().iter().any(|&b| b != 0));
+        assert!(rp.upload());
+        assert!(rp.bytes.iter().any(|&b| b != 0));
         for _ in 0..64 {
             rp.step();
-            assert!(rp.upload(&mut images));
+            assert!(rp.upload());
             if rp.rain.at_rest && rp.wake.at_rest {
                 break;
             }
         }
         assert!(rp.rain.at_rest && rp.wake.at_rest);
-        let bytes = images.get(&rp.image).unwrap().data.as_ref().unwrap();
+        let bytes = &rp.bytes;
         assert!(bytes.iter().all(|&b| b == 0));
         assert_eq!(bytes.as_ptr(), allocation);
         rp.step();
-        assert!(!rp.upload(&mut images));
+        assert!(!rp.upload());
         assert!(!rp.texture_dirty);
         // The same grids can be woken again after the final clear.
         rp.rain.impulse(128.0, 128.0, 2.0, 0.1);
         rp.step();
-        assert!(rp.upload(&mut images));
+        assert!(rp.upload());
     }
 
     #[test]
     fn moving_the_grid_clears_stale_texture_even_without_a_step() {
         for distance in [8, N as i32] {
-            let (mut rp, mut images) = fixture();
+            let mut rp = fixture();
             rp.rain.impulse(2.0, 128.0, 1.0, 0.1);
             rp.step();
-            assert!(rp.upload(&mut images));
+            assert!(rp.upload());
             rp.follow(IVec2::new(distance, 0));
             assert!(rp.rain.at_rest && rp.wake.at_rest);
-            assert!(rp.upload(&mut images));
-            assert!(images.get(&rp.image).unwrap().data.as_ref().unwrap().iter().all(|&b| b == 0));
+            assert!(rp.upload());
+            assert!(rp.bytes.iter().all(|&b| b == 0));
             rp.follow(IVec2::new(distance + 1, 0));
             rp.step();
-            assert!(!rp.upload(&mut images));
+            assert!(!rp.upload());
         }
     }
 
@@ -597,12 +700,12 @@ mod tests {
 
     #[test]
     fn a_wave_shifted_against_the_edge_still_comes_to_rest() {
-        let (mut rp, mut images) = fixture();
+        let mut rp = fixture();
         // Production damping and wave speed (Sim::new).
         assert_eq!((rp.rain.c2, rp.rain.falloff), (0.5, 0.985));
         rp.rain.impulse(2.0, 128.0, 1.0, 0.1);
         rp.step();
-        assert!(rp.upload(&mut images));
+        assert!(rp.upload());
         // Move the grid two cells: values from x = 2 would land in the border at x = 0.
         rp.follow(IVec2::new(2, 0));
         assert!(!rp.rain.at_rest, "interior values remain after the shift");
@@ -614,9 +717,9 @@ mod tests {
             rp.step();
             steps += 1;
         }
-        assert!(rp.upload(&mut images), "the last step to rest uploads a final clear");
-        assert!(images.get(&rp.image).unwrap().data.as_ref().unwrap().iter().all(|&b| b == 0));
+        assert!(rp.upload(), "the last step to rest uploads a final clear");
+        assert!(rp.bytes.iter().all(|&b| b == 0));
         rp.step();
-        assert!(!rp.upload(&mut images));
+        assert!(!rp.upload());
     }
 }
