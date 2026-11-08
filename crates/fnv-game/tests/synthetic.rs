@@ -434,7 +434,8 @@ fn plugin_bytes() -> Vec<u8> {
     let destination: Vec<u8> = DOOR_POS.into_iter().chain([0.0, 0.0, 0.75]).flat_map(f32::to_le_bytes).collect();
     let door_ref = record(b"REFR", 0, DOOR_REF, &[
         sub(b"EDID", z("TestDoorREF")), sub(b"NAME", TELEPORT_DOOR.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24]),
-        sub(b"XTEL", [DEST_DOOR_REF.to_le_bytes().to_vec(), destination].concat()),
+        // XTEL: destination door, position and rotation, No Alarm (u32) [xEdit REFR XTEL].
+        sub(b"XTEL", [DEST_DOOR_REF.to_le_bytes().to_vec(), destination, 0u32.to_le_bytes().to_vec()].concat()),
     ]);
     let dest_door = record(b"REFR", 0, DEST_DOOR_REF, &[
         sub(b"NAME", TELEPORT_DOOR.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24]),

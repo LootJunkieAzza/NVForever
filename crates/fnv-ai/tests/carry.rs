@@ -407,8 +407,9 @@ fn plugin_bytes() -> Vec<u8> {
         // A separate synthetic load door for script activation, off the walking route.
         record(b"REFR", SCRIPT_DOOR, &[
             sub(b"EDID", z("ScriptDoor")), sub(b"NAME", SCRIPT_DOOR_BASE.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24]),
+            // XTEL: destination door, position and rotation, No Alarm (u32) [xEdit REFR XTEL].
             sub(b"XTEL", [SCRIPT_DEST_DOOR.to_le_bytes().to_vec(),
-                SCRIPT_DEST.into_iter().chain([0.0, 0.0, 1.0]).flat_map(f32::to_le_bytes).collect()].concat()),
+                SCRIPT_DEST.into_iter().chain([0.0, 0.0, 1.0]).flat_map(f32::to_le_bytes).collect(), 0u32.to_le_bytes().to_vec()].concat()),
         ]),
         placed(b"ACHR", R_TRAVEL, "TravellerRef", N_TRAVEL, START, None),
         placed(b"ACHR", R_HUNTER, "HunterRef", N_HUNTER, [150.0, 150.0, 0.0], None),
