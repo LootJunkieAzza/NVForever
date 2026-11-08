@@ -1078,6 +1078,19 @@ impl PhysState {
     /// once [observed: GetPos Z 8396.80 after SetPos Z 8461]. Collision that is not one
     /// dynamic body is left where it was (not written back, so no move is lost; it
     /// collides at the old place until its cell loads again) [engineering choice].
+    /// Where a reference with one dynamic body is now, by its body (position and angles,
+    /// as the settle write-back would put them), and whether the body sleeps. Co-op
+    /// replication sends a guest's carried object to the host with it.
+    pub fn ref_pose_now(&self, id: u32) -> Option<([f32; 3], [f32; 3], bool)> {
+        let (local, scale) = match self.created.get(&id) {
+            Some(cb) => cb.local.filter(|_| cb.dynamic).map(|l| (l, 1.0))?,
+            None => self.placed_dynamic.get(&id).map(|p| (p.local, p.scale))?,
+        };
+        let b = self.world.ref_bodies(id).first().copied()?;
+        let (pos, rot) = dropped::ref_pose_from_body(&b, &local, scale);
+        Some((pos, ref_angles(&rot), b.sleeping))
+    }
+
     pub fn repose_ref(&mut self, ctx: &LoadCtx, id: u32) {
         let single = match self.created.get(&id) {
             Some(cb) => cb.local.filter(|_| cb.dynamic).map(|l| (l, 1.0)),

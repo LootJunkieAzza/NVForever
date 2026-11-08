@@ -45,6 +45,10 @@ const PERF_EVERY: f32 = 5.0;
 const REACH: f32 = 9000.0;
 /// A standing actor's pose goes again this often, so the guest keeps it.
 const KEEP_ALIVE: f32 = 1.0;
+/// How often a guest sends the pose of what it carries (seconds).
+const CARRY_EVERY: f32 = 0.05;
+/// A dropped or thrown object is followed at most this long before its last pose goes.
+const CARRY_FALL_MAX: f32 = 10.0;
 /// The most a reliable item takes (under `rel::ITEM_MAX`).
 const ITEM: usize = 1000;
 /// Env var: the host's numbers in the window's corner.
@@ -88,6 +92,13 @@ pub(super) struct Repl {
     lag_floor: Option<i64>,
     lag: Vec<f32>,
     effects_played: u64,
+    /// The object this guest's physics moves (held, or falling after it let go), the
+    /// time it was let go, and when its pose last went to the host.
+    carrying: Option<(u32, Option<f32>)>,
+    last_carry: f32,
+    carries_sent: u64,
+    // The host's: guests' carried objects put here.
+    carries_heard: u64,
     // Both.
     perf: Perf,
 }
@@ -226,6 +237,7 @@ pub(super) fn replicate(
     (mut sim, mut script, actor_world, mut residents): (Option<ResMut<nvf_play::sim::SimState>>, Option<ResMut<nvf_play::script::ScriptState>>, Option<Res<ActorWorld>>, Option<ResMut<Residents>>),
     loc: Option<Res<Location>>,
     player: Option<Res<Player>>,
+    (grab, phys, mut repose): (Option<Res<nvf_play::grab::GrabState>>, Option<Res<nvf_play::phys::PhysState>>, MessageWriter<nvf_play::RefRepose>),
 ) {
     let started = Instant::now();
     let now = time.elapsed_secs();
@@ -248,8 +260,11 @@ pub(super) fn replicate(
     let host = link.is_host();
     let Some(sim) = sim.as_deref_mut() else { return };
     if host {
-        host_side(coop, sim, script.as_deref_mut(), actor_world.as_deref(), now);
+        for id in host_side(coop, sim, script.as_deref_mut(), actor_world.as_deref(), now) {
+            repose.write(nvf_play::RefRepose { form_id: id });
+        }
     } else {
+        send_carry(coop, grab.as_deref(), phys.as_deref(), now);
         guest_side(&mut commands, coop, sim, script.as_deref_mut(), residents.as_deref_mut(), loc.as_deref(), player.as_deref(), now);
     }
     let ms = started.elapsed().as_secs_f32() * 1000.0;
@@ -257,8 +272,47 @@ pub(super) fn replicate(
     perf_line(coop, now);
 }
 
-fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Option<&mut nvf_play::script::ScriptState>, aw: Option<&ActorWorld>, now: f32) {
-    let Some(link) = coop.link.as_ref() else { return };
+/// A guest: the pose of the object its physics moves goes to the host while held, and
+/// after it lets go until the body sleeps (a throw, a drop), so the host's game moves its
+/// own copy (the host is the world's authority; nothing else tells it).
+fn send_carry(coop: &mut Coop, grab: Option<&nvf_play::grab::GrabState>, phys: Option<&nvf_play::phys::PhysState>, now: f32) {
+    let (Some(link), Some(phys)) = (coop.link.as_ref(), phys) else { return };
+    let r = &mut coop.repl;
+    let held = grab.and_then(|g| g.held.as_ref()).and_then(|h| match h.on {
+        fnv_phys::GripOn::Ref(id) => Some(id),
+        fnv_phys::GripOn::Ragdoll(_) => None,
+    });
+    match (held, r.carrying) {
+        (Some(id), Some((was, _))) if id == was => r.carrying = Some((id, None)),
+        (Some(id), _) => {
+            info!("replication: carrying {id:#010X}: its pose goes to the host");
+            r.carrying = Some((id, None));
+        }
+        (None, Some((id, None))) => r.carrying = Some((id, Some(now))),
+        _ => {}
+    }
+    let Some((id, let_go)) = r.carrying else { return };
+    if now - r.last_carry < CARRY_EVERY {
+        return;
+    }
+    r.last_carry = now;
+    let Some((pos, rot, sleeping)) = phys.ref_pose_now(id) else {
+        r.carrying = None;
+        return;
+    };
+    let done = let_go.is_some_and(|t| sleeping || now - t >= CARRY_FALL_MAX);
+    link.send_reliable(None, repl::pack_carry(&repl::Carry { reference: id, pos, rot, done }));
+    r.carries_sent += 1;
+    if done {
+        info!("replication: {id:#010X} at rest at {pos:?}: its last pose went to the host");
+        r.carrying = None;
+    }
+}
+
+/// The host's side; the references a guest's carry moved (their collision follows).
+fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Option<&mut nvf_play::script::ScriptState>, aw: Option<&ActorWorld>, now: f32) -> Vec<u32> {
+    let mut moved = Vec::new();
+    let Some(link) = coop.link.as_ref() else { return moved };
     let r = &mut coop.repl;
     let guests: Vec<(u8, Place, [f32; 3], f32)> = coop.peers.iter().filter(|(_, p)| !p.lost).filter_map(|(&id, p)| p.samples.back().map(|(_, s)| (id, s.place, s.feet, s.yaw))).collect();
     let game = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game);
@@ -268,7 +322,7 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
         if let Some(g) = game {
             g.coop_effects = None;
         }
-        return;
+        return moved;
     }
     sim.world.set_tracking(true);
     // The script effects the host's scripts asked for go to every guest (§7, phase 4).
@@ -296,7 +350,28 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
                 info!("replication: player {} starts again: the whole area goes to it", id + 1);
             }
             Event::Reliable { id, item } => {
-                if let Some(d) = repl::unpack_digest(&item) {
+                if let Some(c) = repl::unpack_carry(&item) {
+                    // A guest carries this object: the host's copy goes where the guest
+                    // has it; the other guests get it by the change log (the write
+                    // touches it); the carrier is not sent its own move back.
+                    let rf = FormId(c.reference);
+                    let Ok(s) = sim.world.get(rf) else { continue };
+                    s.pos = c.pos;
+                    s.rot = c.rot;
+                    if !moved.contains(&c.reference) {
+                        moved.push(c.reference);
+                    }
+                    r.carries_heard += 1;
+                    if c.done {
+                        info!("replication: player {} put {} {rf} down at {:?}", id + 1, sim.ref_name(None, rf.0).unwrap_or("?"), c.pos);
+                    }
+                    if let Some(values) = world_values(&sim.world, rf) {
+                        let shadow = r.shadows.entry(id).or_default();
+                        for v in values.iter().filter(|v| v.comp() == comp::PLACE) {
+                            shadow.take(rf.0, v);
+                        }
+                    }
+                } else if let Some(d) = repl::unpack_digest(&item) {
                     let shadow = r.shadows.entry(id).or_default();
                     for (reference, theirs) in d.refs {
                         let rf = FormId(reference);
@@ -315,7 +390,7 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
         }
     }
     if now - r.last_tick < TICK {
-        return;
+        return moved;
     }
     r.last_tick = now;
     r.dirty.extend(sim.world.take_touched());
@@ -410,6 +485,7 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
         }
     }
     r.dirty.clear();
+    moved
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -422,6 +498,11 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
             Event::Reliable { item, .. } => {
                 if let Some(changes) = repl::unpack_changes(&item) {
                     for c in changes {
+                        // What this game's physics carries is its own until it is put
+                        // down (the host follows it, `send_carry`).
+                        if r.carrying.is_some_and(|(id, _)| id == c.reference) && c.value.comp() == comp::PLACE {
+                            continue;
+                        }
                         r.applied += 1;
                         if apply(sim, &mut r.slow, &c, residents.as_deref_mut(), commands) {
                             r.corrections += 1;

@@ -17,6 +17,9 @@ pub mod kind {
     pub const DIGEST: u8 = 2;
     /// Host to guest: script effects ([`super::Effect`]).
     pub const EFFECTS: u8 = 3;
+    /// Guest to host: an object the guest's physics moves (held, or falling after a
+    /// throw or a drop), with its pose.
+    pub const CARRY: u8 = 4;
 }
 
 /// The components of a reference (§6.1).
@@ -250,6 +253,43 @@ pub fn unpack_digest(item: &[u8]) -> Option<Digest> {
         refs.push((r.u32()?, r.u32()?));
     }
     Some(Digest { refs })
+}
+
+/// An object a guest's physics moves (held with Z or E, or falling after it let go):
+/// where its reference is now. The host puts its own copy there, so the host's game and
+/// the other guests see the guest carry it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Carry {
+    pub reference: u32,
+    pub pos: [f32; 3],
+    pub rot: [f32; 3],
+    /// Let go and at rest: the last of this object's poses.
+    pub done: bool,
+}
+
+pub fn pack_carry(c: &Carry) -> Vec<u8> {
+    let mut b = vec![kind::CARRY];
+    b.extend_from_slice(&c.reference.to_le_bytes());
+    for v in c.pos.iter().chain(c.rot.iter()) {
+        b.extend_from_slice(&v.to_le_bytes());
+    }
+    b.push(c.done as u8);
+    b
+}
+
+pub fn unpack_carry(item: &[u8]) -> Option<Carry> {
+    let (&k, rest) = item.split_first()?;
+    if k != kind::CARRY {
+        return None;
+    }
+    let mut r = Reader(rest);
+    let reference = r.u32()?;
+    let mut f = [0.0f32; 6];
+    for v in f.iter_mut() {
+        *v = r.f32()?;
+    }
+    let done = r.u8()? != 0;
+    Some(Carry { reference, pos: [f[0], f[1], f[2]], rot: [f[3], f[4], f[5]], done })
 }
 
 /// A visible side effect of a host script (§7), played by each guest.
@@ -498,6 +538,14 @@ mod tests {
             Change { reference: 0xFF00_0001, value: Value::Exists { base: 0x22, cell: 0x33, pos: [1.0; 3], rot: [0.5; 3] } },
             Change { reference: 0xA, value: Value::Anim { furniture: 0x44, weapon: 0x55 } },
         ]
+    }
+
+    #[test]
+    fn a_carried_object_reaches_the_host_as_sent() {
+        let c = Carry { reference: 0x0010_4C10, pos: [1.5, -2.25, 900.0], rot: [0.1, 0.0, -3.0], done: true };
+        assert_eq!(unpack_carry(&pack_carry(&c)), Some(c));
+        assert_eq!(unpack_carry(&pack_carry(&c)[..10]), None);
+        assert!(unpack_digest(&pack_carry(&c)).is_none());
     }
 
     #[test]
