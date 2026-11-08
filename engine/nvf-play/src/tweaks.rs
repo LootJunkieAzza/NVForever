@@ -138,6 +138,11 @@ pub struct TweakSettings {
     pub no_player_stagger: bool,
     /// `bPreventReloadWeaponUnholstering`: Ready Item does not draw a holstered weapon.
     pub ready_does_not_draw: bool,
+    /// `bReloadingPreventsWeaponHotkeys`: weapon hotkeys do nothing while reloading.
+    pub no_hotkeys_while_reloading: bool,
+    /// `bRunSlowerInWater`/`fWadingMovementMult`: the pace at a swimming depth of water,
+    /// as a part of the usual (shallower, less slowed); 1 changes nothing.
+    pub wading_pace: f32,
 }
 
 /// The walk-angle choices: 30 to 80 degrees by 5; 45 is the physics' own.
@@ -227,6 +232,8 @@ impl Default for TweakSettings {
             vendor_lists_both: false,
             no_player_stagger: false,
             ready_does_not_draw: false,
+            no_hotkeys_while_reloading: false,
+            wading_pace: 1.0,
         }
     }
 }
@@ -696,6 +703,18 @@ impl Plugin for TweaksPlugin {
         switch!(app, "light-step-companions", "Light Step for Companions", "Teammates are spared mines whenever the player would be (Light Step). (Stewie's Tweaks bLightStepAffectsCompanions)", game.light_step_companions);
         switch!(app, "no-player-stagger", "No Player Stagger", "The player never staggers from a hit. (Stewie's Tweaks bNoPlayerStaggerAnims)", no_player_stagger);
         switch!(app, "ready-does-not-draw", "Ready Does Not Draw", "Ready Item reloads or holsters a drawn weapon but does not draw a holstered one. (Stewie's Tweaks bPreventReloadWeaponUnholstering)", ready_does_not_draw);
+        // ---- batch 14 ----
+        switch!(app, "jam-reload-pace", "Jams at Reload Pace", "Clearing a jam takes as long as the reload's own pace makes it. (Stewie's Tweaks bReloadJamsAffectedByAgility)", game.jam_at_reload_pace);
+        switch!(app, "no-hotkeys-reloading", "No Hotkeys While Reloading", "Weapon hotkeys do nothing while reloading. (Stewie's Tweaks bReloadingPreventsWeaponHotkeys)", no_hotkeys_while_reloading);
+        part!(app, "wading-pace", "Wading Pace", "The pace in water up to swimming depth, as a part of the usual (shallower water slows less); 100% changes nothing. (Stewie's Tweaks bRunSlowerInWater)", wading_pace);
+        switch!(app, "sleep-on-chairs", "Sleep on Chairs", "Waiting while sitting on a chair is sleeping. (Stewie's Tweaks bSleepOnChairs)", game.sleep_on_chairs);
+        switch!(app, "stealing-no-alarm", "Quiet Theft", "Taking someone's things raises no alarm; pickpocketing still does. (Stewie's Tweaks bStealingSendsNoAlarm)", game.stealing_no_alarm);
+        switch!(app, "no-companion-kill-xp", "No XP for Companion Kills", "A teammate's kills give the player no experience. (Stewie's Tweaks bNoCompanionKillXP)", game.no_companion_kill_xp);
+        switch!(app, "no-disarm-companions", "Companions Keep Their Weapons", "A crippled arm does not make a teammate drop its weapon. (Stewie's Tweaks bNoDisarmCompanions)", game.no_disarm_companions);
+        switch!(app, "no-self-explosion-damage", "Own Blasts Spare the Player", "The player's own explosions do not hurt the player. (Stewie's Tweaks bNoSelfExplosionDamage)", game.no_self_explosion_damage);
+        switch!(app, "sneak-criticals-melee", "Sneak Criticals Melee Only", "Only melee and unarmed sneak attacks are criticals. (Stewie's Tweaks bSneakCriticalsOnlyMeleeWeapons)", game.sneak_criticals_melee_only);
+        switch!(app, "teammates-meltdown", "Meltdown for Companions", "Teammates' energy weapon kills use the player's Meltdown perk. (Stewie's Tweaks bAllowTeammatesUseMeltdown)", game.teammates_meltdown);
+        switch!(app, "speed-scales-jump", "Speed Scales the Jump", "The player's Speed Mult (and armour's pace) scales the jump's height. (Stewie's Tweaks bSpeedMultScalesJumpHeight)", game.speed_scales_jump);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

@@ -224,6 +224,22 @@ saves load, and the frame's sync sets them from the settings again.
 | No Player Stagger | `bNoPlayerStaggerAnims` | `combat::player_flinch` |
 | Ready Does Not Draw | `bPreventReloadWeaponUnholstering` | `control::read_controls` |
 
+## Fourteenth batch (2026-11-09)
+
+| Row | INI key | Where |
+|---|---|---|
+| Jams at Reload Pace | `bReloadJamsAffectedByAgility` | `combat::fire` jam time |
+| No Hotkeys While Reloading | `bReloadingPreventsWeaponHotkeys` | `weapon_wheel::read` |
+| Wading Pace (part) | `bRunSlowerInWater` | `player::step` pace, by depth over `swim_depth` |
+| Sleep on Chairs | `bSleepOnChairs` | `wait::open` |
+| Quiet Theft | `bStealingSendsNoAlarm` | `Game::player_stole` |
+| No XP for Companion Kills | `bNoCompanionKillXP` | `Game::kill_earns_xp` |
+| Companions Keep Their Weapons | `bNoDisarmCompanions` | `combat::hit_actor` |
+| Own Blasts Spare the Player | `bNoSelfExplosionDamage` | `combat::fly` blast loop |
+| Sneak Criticals Melee Only | `bSneakCriticalsOnlyMeleeWeapons` | `combat::fly` shots |
+| Meltdown for Companions | `bAllowTeammatesUseMeltdown` | `combat::meltdown` |
+| Speed Scales the Jump | `bSpeedMultScalesJumpHeight` | `player::step` jump height |
+
 Menu tweaks that code holding the game reads (the Pip-Boy's item info, crafting, the
 level-up menu, the terminal's timers) are kept in `fnv_game::tweaks` too, so no system
 needs another parameter; the catalogue's notes say where NVForever already does what a
@@ -240,8 +256,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 154 |
-| to do | 449 |
+| done | 177 |
+| to do | 426 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -302,13 +318,21 @@ game's Data folder, read-only).
 | `bPreventReloadWeaponUnholstering` | done |  |  | Ready Does Not Draw |
 | `bPreventStealingCapsAfterRepair` | done |  | 1 | Repair Caps Go to the Till |
 | `bReduceXP` | done |  | 2 | Experience Earned (slider, x0 to x2) |
+| `bReloadingPreventsWeaponHotkeys` | done |  |  | No Hotkeys While Reloading (the weapon wheel and its taps) |
 | `bReloadingWithFullClipSwitchesAmmoType` | done |  |  | Full Reload Swaps Ammo |
+| `bReloadJamsAffectedByAgility` | done |  |  | Jams at Reload Pace |
 | `bRepairsRewardXP` | done |  | 1 | Experience per Repair (slider; Pip-Boy repairs) |
 | `bRunningCostsAP` | done |  | 8 | Action Points per Second Running (slider 0-20, a flat rate; the Endurance formula not built) |
+| `bRunSlowerInWater` | done |  | 1 | Wading Pace (slider; deeper water slows more) |
 | `bScalePlayerMeleeReach` | done |  | 3 | Melee Reach (multiplier slider; the min and max options not built) |
 | `bSellStolenItems` | done |  |  | already so: barter never checks stolen items |
 | `bSeparateAlcoholEffects` | done |  |  | already so: effects are kept per item, so different drinks stack |
+| `bSleepOnChairs` | done |  |  | Sleep on Chairs |
+| `bSpeedMultScalesJumpHeight` | done |  |  | Speed Scales the Jump (the player; NPCs do not jump) |
+| `bStealingSendsNoAlarm` | done |  |  | Quiet Theft |
+| `bUnequipWeaponMods` | done |  | 7 | already so: attached mods can be taken off and come back (item_mod detach) |
 | `bUseCustomSniperZoomRate` | done |  | 2 | Scope Zoom Time (slider; the zoom-out option not built) |
+| `bVATSIgnoreNonExplosiveProjectiles` | done |  |  | already so: no projectile can be targeted in V.A.T.S. |
 | `bWeightlessWornArmor` | done |  | 1 | Worn Armor Weighs Nothing (weightless; the scale option not built) |
 | `bWeightlessWornPowerArmor` | done |  | 3 | Worn Power Armor Weighs Nothing (weightless; the scale and requirement options not built) |
 | `iPerksPerLevel` | done |  | 1 | Perks per Level (1 to 5) |
@@ -366,87 +390,79 @@ game's Data folder, read-only).
 | `bPowerAttackIfBlocking` | to do |  | 1 | a field on MeleeInput |
 | `bPreventRepairIfNotAtWorkbench` | to do |  |  | no notion of a workbench in reach |
 | `bQuickUse` | to do |  | 9 | two input paths that do not exist yet |
-| `bReloadingPreventsWeaponHotkeys` | to do |  |  | weapon_wheel::read with WeaponAnim.reload |
-| `bReloadJamsAffectedByAgility` | to do |  |  | combat::fire jam time by reload_rate |
 | `bReloadWhileFiring` | to do |  |  | a field on attack::Input |
 | `bRememberBobbyPinHealth` | to do |  |  | Picking::new starts a full pin; needs a stored health |
 | `bRepairScalesCraftingCondition` | to do |  |  | crafting::make_recipe output condition |
 | `bReviveUnconsciousCompanions` | to do |  | 3 | not built: no revive action |
 | `bRunAndGunAPInCombatOnly` | to do |  |  | not built: no run-and-gun AP rule |
-| `bRunSlowerInWater` | to do |  | 1 | player::step pace with the water depth |
 | `bScaleWeaponVolume` | to do |  | 2 | PlaySound has no volume |
 | `bScopeHoldBreath` | to do |  | 7 | scope_view has no input or AP |
 | `bSemiAutoQueue` | to do |  | 2 | attack::Cycle cooldown; a field on attack::Input |
-| `bSkipVeryEasyLocksAtMaxSkill` | to do |  | 2 |  |
-| `bSleepHealingMinDuration` | to do |  | 2 |  |
-| `bSleepOnChairs` | to do |  |  |  |
-| `bSlowBreathRegen` | to do |  | 2 |  |
+| `bSkipVeryEasyLocksAtMaxSkill` | to do |  | 2 | lockpick::opening like Skip Easy Hacks; the engine only logs NotLocked |
+| `bSleepHealingMinDuration` | to do |  | 2 | needs::pass_hours; the bed is not known there |
+| `bSlowBreathRegen` | to do |  | 2 | breath_rules recover rate; a rate to choose |
 | `bSneakAttackWithoutCrouching` | to do |  |  | sneaking comes from control.sneak (melee) and the projectile; both need the switch |
 | `bSneakingDoesntForcePowerAttacks` | unsure, skipped |  |  | depends on separate animations |
-| `bSpeedMultScalesJumpHeight` | to do |  |  |  |
-| `bStealingSendsNoAlarm` | to do |  |  |  |
-| `bStrengthAffectsAllThrowables` | to do |  |  |  |
-| `bTargetProjectilesInVATS` | to do |  | 1 |  |
-| `bUnequipWeaponMods` | to do |  | 7 |  |
-| `bUseArmorRepairKitsInRepairMenu` | to do |  |  |  |
-| `bUseCustomBarterPriceMultipliers` | to do |  | 13 |  |
-| `bUseWeaponRepairKitsInRepairMenu` | to do |  | 2 |  |
-| `bUsingKeysRewardsXP` | to do |  | 3 |  |
-| `bUsingNotesRewardsXP` | to do |  | 3 |  |
-| `bVATSDequeueWeaponShotsOnDisarm` | to do |  |  |  |
-| `bVATSHipFire` | to do |  |  |  |
-| `bVATSIgnoreNonExplosiveProjectiles` | to do |  |  |  |
-| `bVATSTargetPlayerProjectiles` | to do |  |  |  |
-| `bVATSThrowablesUseVisibility` | to do |  |  |  |
-| `bWeaponModdingSkillRequirement` | to do |  |  |  |
+| `bStrengthAffectsAllThrowables` | to do |  |  | not built: fThrowingStrengthPenalty is not read |
+| `bTargetProjectilesInVATS` | to do |  | 1 | not built: projectiles in flight are not targetable |
+| `bUseArmorRepairKitsInRepairMenu` | to do |  |  | the repair menu lists only parts |
+| `bUseCustomBarterPriceMultipliers` | to do |  | 13 | refresh_trade price; ten multipliers |
+| `bUseWeaponRepairKitsInRepairMenu` | to do |  | 2 | the repair menu lists only parts |
+| `bUsingKeysRewardsXP` | to do |  | 3 | activate unlocked_with; base and scale |
+| `bUsingNotesRewardsXP` | to do |  | 3 | terminal::still_locked; base and scale |
+| `bVATSDequeueWeaponShotsOnDisarm` | to do |  |  | vats_mode::shoot needs ActorParts |
+| `bVATSHipFire` | to do |  |  | a VatsMode flag set on entry |
+| `bVATSTargetPlayerProjectiles` | to do |  |  | not built: projectiles in flight are not targetable |
+| `bVATSThrowablesUseVisibility` | to do |  |  | not built: V.A.T.S. chance has no visibility term |
+| `bWeaponModdingSkillRequirement` | to do |  |  | item_mod keys needs the skill and two params |
 | `iMaxCharacterLevel` | to do |  | 1 | experience::level_cap adds 5 per story add-on; choose how the cap is set |
 
 ### Combat
 
 | INI key | Status | VNV on | Options | Note |
 |---|---|---|---|---|
+| `bAllowTeammatesUseMeltdown` | done |  |  | Meltdown for Companions |
+| `bBloodyMessGibTargetedLimbOnly` | done |  |  | already so: only the struck part is checked |
+| `bCharacterMeleeDamageIgnoresScale` | done |  |  | already so: no damage formula reads actor scale |
+| `bCharacterNonMeleeDamageIgnoresScale` | done |  |  | already so: no damage formula reads actor scale |
 | `bChargedAttacksCostAP` | done |  | 4 | Action Points per Power Attack (slider, a flat cost for every power attack; the weight factor and the refusal not built) |
+| `bClipSizeMatters` | done |  |  | already so: a shot needs a whole burst loaded (attack has_round) |
+| `bDifficultyDoesntAffectNPCToNPCDamage` | done |  | 3 | already so: difficulty applies only when the player hits or is hit |
 | `bDisableCombatMusic` | done |  |  | No Battle Music |
 | `bEnteringVATSCostsAP` | done |  | 4 | Action Points to Enter V.A.T.S. (slider; refused without them; the fail-only and no-target options not built) |
 | `bHideEnemyMarkers` | done |  | 1 | No Enemies on the Compass (the firing-enemies option is not built) |
 | `bKillsRewardAP` | done |  | 1 | Action Points per Kill (slider 0-50; given in VATS too) |
+| `bMaxVATSDistanceUsesWeaponRange` | done |  | 3 | already so: V.A.T.S. reach is the projectile range |
+| `bNoCompanionKillXP` | done |  | 1 | No XP for Companion Kills (also leaves their damage out of the kill share) |
+| `bNoDisarmCompanions` | done |  |  | Companions Keep Their Weapons |
+| `bNoSelfExplosionDamage` | done |  |  | Own Blasts Spare the Player |
 | `bNoSneakAttacksCriticals` | done |  |  | No Sneak Criticals |
-| `bAllowTeammatesUseMeltdown` | to do |  |  |  |
-| `bAutoWeaponNoFiringDelay` | to do |  | 1 |  |
-| `bBloodyMessGibTargetedLimbOnly` | to do |  |  |  |
-| `bCharacterMeleeDamageIgnoresScale` | to do |  |  |  |
-| `bCharacterNonMeleeDamageIgnoresScale` | to do |  |  |  |
-| `bClipSizeMatters` | to do |  |  |  |
-| `bDifficultyDoesntAffectNPCToNPCDamage` | to do |  | 3 |  |
-| `bFatalNonSneakCritsAlwaysGib` | to do |  | 1 |  |
+| `bNoVATSTargetInvisible` | done |  |  | already so: cloaked actors are barred without Enhanced Sensors |
+| `bPlayerMeleeDamageIgnoresScale` | done |  |  | already so: no damage formula reads actor scale |
+| `bPlayerNonMeleeDamageIgnoresScale` | done |  |  | already so: no damage formula reads actor scale |
+| `bPowerAttackWhileOverencumbered` | done |  |  | already so: nothing gates power attacks on weight |
+| `bSneakCriticalsOnlyMeleeWeapons` | done |  |  | Sneak Criticals Melee Only |
+| `bAutoWeaponNoFiringDelay` | to do |  | 1 | combat::fire Timing spin_up for automatics |
+| `bFatalNonSneakCritsAlwaysGib` | to do |  | 1 | dismember checks carry no critical flag |
 | `bFirstPersonVATS` | to do |  |  | VATS keeps the current view; forcing one goes in vats_mode |
-| `bHoldAndReleaseThrowables` | to do |  | 1 |  |
-| `bIgnoreCompanionsVATS` | to do |  | 1 |  |
-| `bLocationalMeleeDamage` | to do |  | 3 |  |
-| `bMaxVATSDistanceUsesWeaponRange` | to do |  | 3 |  |
-| `bNoCompanionKillXP` | to do |  | 1 |  |
-| `bNoDisarmCompanions` | to do |  |  |  |
+| `bHoldAndReleaseThrowables` | to do |  | 1 | not built: no hold-to-release throw |
+| `bIgnoreCompanionsVATS` | to do |  | 1 | barred and preview_target both need a teammate filter |
+| `bLocationalMeleeDamage` | to do |  | 3 | NPC blows on the player use no part yet; NPC on NPC has no part lookup |
 | `bNoHealingInCombat` | to do |  | 1 | the refusal belongs before MenuModel::apply takes the item |
 | `bNoPipBoyInCombat` | to do |  | 5 | menu::open_menus is where; needs a message for the refusal |
-| `bNoScaleNpcDamageByCondition` | to do |  |  |  |
-| `bNoScaleNpcDamageResistanceByCondition` | to do |  |  |  |
-| `bNoScaleNpcDamageThresholdByCondition` | to do |  |  |  |
-| `bNoSelfExplosionDamage` | to do |  |  |  |
-| `bNoSelfMeltdownDamage` | to do |  | 3 |  |
-| `bNoVATSTargetInvisible` | to do |  |  |  |
+| `bNoScaleNpcDamageByCondition` | to do |  |  | two condition reads in combat (blows and shots) |
+| `bNoScaleNpcDamageResistanceByCondition` | to do |  |  | target_armor computed twice for NPC targets |
+| `bNoScaleNpcDamageThresholdByCondition` | to do |  |  | target_armor computed twice for NPC targets |
+| `bNoSelfMeltdownDamage` | to do |  | 3 | the blast loop by the Meltdown explosion form |
 | `bNoWeaponConditionDamagePenalty` | to do |  |  | condition_mult is a free function; needs a Rules field (serialized) |
-| `bNPCsCanDisarmPlayer` | to do |  |  |  |
-| `bNPCsCanSneakCritPlayer` | to do |  |  |  |
-| `bPlayerMeleeDamageIgnoresScale` | to do |  |  |  |
-| `bPlayerNonMeleeDamageIgnoresScale` | to do |  |  |  |
-| `bPowerAttackWhileOverencumbered` | to do |  |  |  |
+| `bNPCsCanDisarmPlayer` | to do |  |  | the player weapon lives in Combat; dropping it is new |
+| `bNPCsCanSneakCritPlayer` | to do |  |  | sneak_attack is player-only |
 | `bRemoveWeaponDamageBuffer` | to do |  |  | condition_mult is a free function; needs a Rules field (serialized) |
 | `bScaleCriticalDamage` | to do |  | 1 | needs a field on fnv-combat Rules; check what its serialized dumps feed first |
-| `bSneakCriticalsHeadshotsOnly` | to do |  |  |  |
-| `bSneakCriticalsOnlyMeleeWeapons` | to do |  |  |  |
-| `bVATSAutoTargetHead` | to do |  |  |  |
+| `bSneakCriticalsHeadshotsOnly` | to do |  |  | both sneak_attack callers need the head part |
+| `bVATSAutoTargetHead` | to do |  |  | V.A.T.S. picks no target on entry |
 | `bVATSStopBurstIfTargetDead` | to do |  |  |  |
-| `bWeaponRequirementsMatter` | to do |  | 7 |  |
+| `bWeaponRequirementsMatter` | to do |  | 7 | equip_at has no actor values |
 
 ### Quality-of-life
 

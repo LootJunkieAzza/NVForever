@@ -160,6 +160,25 @@ pub struct Tweaks {
     pub encumbered_ap_regen: f64,
     /// `bLightStepAffectsCompanions`: teammates are spared mines when the player is.
     pub light_step_companions: bool,
+    /// `bReloadJamsAffectedByAgility`: a jam clears at the reload's own pace.
+    pub jam_at_reload_pace: bool,
+    /// `bSleepOnChairs`: waiting on a chair is sleeping.
+    pub sleep_on_chairs: bool,
+    /// `bStealingSendsNoAlarm`: taking someone's things raises no alarm (pickpocketing
+    /// still does).
+    pub stealing_no_alarm: bool,
+    /// `bNoCompanionKillXP`: a teammate's kills give the player no experience.
+    pub no_companion_kill_xp: bool,
+    /// `bNoDisarmCompanions`: a crippled arm does not disarm a teammate.
+    pub no_disarm_companions: bool,
+    /// `bNoSelfExplosionDamage`: the player's own blasts do not hurt the player.
+    pub no_self_explosion_damage: bool,
+    /// `bSneakCriticalsOnlyMeleeWeapons`: sneak criticals with melee only.
+    pub sneak_criticals_melee_only: bool,
+    /// `bAllowTeammatesUseMeltdown`: teammates' energy kills use the player's Meltdown.
+    pub teammates_meltdown: bool,
+    /// `bSpeedMultScalesJumpHeight`: the player's Speed Mult scales the jump.
+    pub speed_scales_jump: bool,
 }
 
 impl Default for Tweaks {
@@ -223,6 +242,15 @@ impl Default for Tweaks {
             no_wear_on_dead: false,
             encumbered_ap_regen: 1.0,
             light_step_companions: false,
+            jam_at_reload_pace: false,
+            sleep_on_chairs: false,
+            stealing_no_alarm: false,
+            no_companion_kill_xp: false,
+            no_disarm_companions: false,
+            no_self_explosion_damage: false,
+            sneak_criticals_melee_only: false,
+            teammates_meltdown: false,
+            speed_scales_jump: false,
         }
     }
 }

@@ -1694,7 +1694,9 @@ fn meltdown(mut c: ResMut<Combat>, mut hits: MessageReader<ActorHit>, mut script
         let energy = rt.game.data.weapon_skills.get(&weapon).copied() == Some(fnv_game::actor_values::ENERGY_WEAPONS as i64);
         let (has, explosion) = with_world(rt, &mut sim, |rt| {
             let g = &mut rt.game;
-            (energy && g.entry_point(by, fnv_game::perks::HAS_MELTDOWN, 0.0).0 != 0.0, g.data.default_object(fnv_game::data::DefaultObject::MeltdownExplosion))
+            // The player's tweak: a teammate's energy kill uses the player's Meltdown [design: docs/design/tweaks.md].
+            let who = if g.tweaks.teammates_meltdown && g.is_teammate(by) { FormId::PLAYER_REF } else { by };
+            (energy && g.entry_point(who, fnv_game::perks::HAS_MELTDOWN, 0.0).0 != 0.0, g.data.default_object(fnv_game::data::DefaultObject::MeltdownExplosion))
         });
         if !has {
             continue;
@@ -3092,6 +3094,8 @@ pub(crate) fn fire(
                     if jams {
                         // The jam clip's length, else the weapon's Jam Time, else the default.
                         let secs = anim.timing.jam_len.or(Some(w.jam_time).filter(|&t| t > 0.0)).unwrap_or(c.tuning.jam_fallback);
+                        // The player's tweak: the jam clears at the reload's pace [design: docs/design/tweaks.md].
+                        let secs = if script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.jam_at_reload_pace) && anim.reload_rate > 0.0 { secs / anim.reload_rate } else { secs };
                         cycle.jam(secs);
                         anim.jams += 1;
                         stats.jams += 1;
@@ -3489,7 +3493,9 @@ fn hit_actor(
         }
         None => blasted,
     };
-    if !r.died && !r.knocked_out && crippled.iter().any(|c| matches!(*c, fnv_game::combat::LEFT_ARM | fnv_game::combat::RIGHT_ARM)) {
+    // The player's tweak keeps teammates armed [design: docs/design/tweaks.md].
+    let spared = rt.game.tweaks.no_disarm_companions && rt.game.is_teammate(target);
+    if !spared && !r.died && !r.knocked_out && crippled.iter().any(|c| matches!(*c, fnv_game::combat::LEFT_ARM | fnv_game::combat::RIGHT_ARM)) {
         feedback.disarms.push(target);
     }
     for &code in &crippled {
@@ -4588,8 +4594,13 @@ fn fly(
         };
         let always = x.flags.iter().any(|f| f == "Knock Down - Always");
         let by_formula = x.flags.iter().any(|f| f == "Knock Down - By Formula");
+        let own_blast_spares = cause.is_some_and(|c| c.actor == FormId::PLAYER_REF) && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_self_explosion_damage);
         for b in hits {
             let target = if b.actor == PLAYER { FormId::PLAYER_REF } else { FormId(b.actor as u32) };
+            // The player's tweak: the player's own blast spares the player [design: docs/design/tweaks.md].
+            if own_blast_spares && target == FormId::PLAYER_REF {
+                continue;
+            }
             let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
             // ShowOff:OnExplosionHit's handlers may change the blast's damage first.
             let raw = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map_or(b.damage, |rt| rt.game.explosion_hit(target, f64::from(b.damage)) as f32);
@@ -4757,7 +4768,9 @@ fn fly(
         }
         let ammo_effects: Vec<&AmmoEffect> = effect_ids.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
         let mut a = attacker(script.as_deref_mut(), &mut sim, &c.rules, shooter, &w, p.by.vats);
-        a.sneaking = p.actor.is_some_and(|t| sneak_attack(script.as_deref(), shooter, p.by.sneaking, FormId(t as u32)));
+        // The player's tweak: sneak criticals with melee only [design: docs/design/tweaks.md].
+        let melee_only = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.sneak_criticals_melee_only);
+        a.sneaking = !melee_only && p.actor.is_some_and(|t| sneak_attack(script.as_deref(), shooter, p.by.sneaking, FormId(t as u32)));
         let bp = p.actor.and_then(|a| body_part(c, &parts, a, p.part)).or_else(|| {
             (p.actor == Some(PLAYER)).then(|| player_body_part(c, &phys, player.as_deref(), p.point)).flatten()
         });

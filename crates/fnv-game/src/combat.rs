@@ -484,7 +484,8 @@ impl Game<'_> {
     /// damage counts together towards the share kill XP asks for ([`Game::kill_xp`])
     /// [design].
     pub fn kill_earns_xp(&self, killer: FormId) -> bool {
-        killer == FormId::PLAYER_REF || self.is_teammate(killer)
+        // The player's tweak: a teammate's kill is not the player's [design: docs/design/tweaks.md].
+        killer == FormId::PLAYER_REF || (!self.tweaks.no_companion_kill_xp && self.is_teammate(killer))
     }
 
     /// Health damage an effect does (a burn, a poison): as a hit's, kept at 1 for an

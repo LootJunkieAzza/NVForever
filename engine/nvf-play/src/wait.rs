@@ -524,7 +524,9 @@ fn open(
         info!("wait menu: request ignored, the player is not in the world (a menu, a conversation or a loading screen is up)");
         return;
     }
-    let sleep = asked.sleep.unwrap_or(seat.bed);
+    // The player's tweak: waiting on a chair is sleeping [design: docs/design/tweaks.md].
+    let chair_sleep = seat.on.is_some() && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.sleep_on_chairs);
+    let sleep = asked.sleep.unwrap_or(seat.bed || chair_sleep);
     let bed = seat.on.filter(|_| seat.bed);
     if !asked.unchecked {
         let player = phys.player.as_ref();

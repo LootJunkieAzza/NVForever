@@ -376,7 +376,10 @@ fn read(
     mut control: ResMut<PlayerControl>,
     (hotkeys, mut sim, mut used, mut stats): (Res<Hotkeys>, ResMut<SimState>, MessageWriter<ItemUsed>, ResMut<WheelStats>),
     (mut sounds, anim, mut wait): (MessageWriter<UiSound>, Option<Res<crate::combat::WeaponAnim>>, Local<SwapWait>),
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
+    // The player's tweak: no weapon hotkeys while reloading [design: docs/design/tweaks.md].
+    let reloading_blocks = tweaks.is_some_and(|t| t.no_hotkeys_while_reloading) && anim.as_ref().is_some_and(|a| a.reload.is_some());
     // A swap waiting for the weapon in hand to go away: the clips of the last frame say
     // whether it has (`crate::combat::WeaponAnim`; no body to time it: at once).
     let away = anim.as_deref().is_none_or(|a| !a.ready && !a.drawing && !a.holstering);
@@ -434,6 +437,9 @@ fn read(
             Outcome::Cancelled => {
                 stats.cancelled += 1;
                 info!("weapon wheel: closed: nothing used");
+            }
+            Outcome::Tap(n) | Outcome::Chose(n) if reloading_blocks => {
+                info!("weapon wheel: slot {} not used while reloading (tweak)", n + 1);
             }
             Outcome::Tap(n) | Outcome::Chose(n) => {
                 if matches!(o, Outcome::Tap(_)) {

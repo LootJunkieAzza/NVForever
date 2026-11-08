@@ -607,7 +607,10 @@ impl Game<'_> {
             let name = self.data.name(item);
             self.change_karma(s.stealing, format!("stealing {name} x{count}"));
         }
-        self.witnessed(Kind::Theft, &o);
+        // The player's tweak: theft raises no alarm [design: docs/design/tweaks.md].
+        if !self.tweaks.stealing_no_alarm {
+            self.witnessed(Kind::Theft, &o);
+        }
         true
     }
 

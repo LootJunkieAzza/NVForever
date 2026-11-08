@@ -1205,6 +1205,15 @@ fn step(
             let k = k * reload_pace.as_deref().map_or(1.0, |p| p.0);
             // Speed Mult and the body armour's class, as people's (`StatSpeed`).
             let k = k * stat_pace.as_deref().map_or(1.0, |p| p.0);
+            // The player's tweak: wading slows the player, the deeper the more [design: docs/design/tweaks.md].
+            let wade = tweaks.as_deref().map_or(1.0, |t| t.wading_pace);
+            let k = if wade < 1.0 && !c.swimming {
+                let depth = p.world.water_surface_at(c.feet[0], c.feet[1]).map_or(0.0, |w| w - c.feet[2]);
+                let t = (depth / c.params.swim_depth.max(1.0)).clamp(0.0, 1.0);
+                k * (1.0 - t * (1.0 - wade))
+            } else {
+                k
+            };
             let [x, y] = velocity(&intent, player.heading, *speeds);
             // An attack's clip carries the player (`Lunge`).
             if lunge.carrying && lunge.from.is_none() {
@@ -1286,7 +1295,9 @@ fn step(
             let base = fnv_phys::CharacterParams::default();
             c.params.max_slope_deg = t.walk_angle;
             let legs = limbs.as_deref().map_or(0, |l| i32::from(l.crippled(29)) + i32::from(l.crippled(30)));
-            c.params.jump_height = base.jump_height * t.crippled_leg_jump.powi(legs);
+            // Speed Mult (and armour) scale it too with the player's tweak [design: docs/design/tweaks.md].
+            let speed = if t.game.speed_scales_jump { stat_pace.as_deref().map_or(1.0, |p| p.0) } else { 1.0 };
+            c.params.jump_height = base.jump_height * t.crippled_leg_jump.powi(legs) * speed;
         }
         let s = p.world.move_character(c, CharacterInput { velocity: go, jump: intent.jump && i == 0, vertical: vz, view });
         // The drawn body and view climb steps and bumps smoothly (`phys::step_lift`).
