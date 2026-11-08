@@ -2,7 +2,9 @@ use crate::*;
 use alloc::sync::Arc;
 // NVForever specialization scan: `AssetChanged` is no longer used here; the asset events
 // and the indexes in `specialization_scan` take its place.
-use crate::specialization_scan::{read_changed_assets, AssetHolders};
+use crate::specialization_scan::{
+    asset_events_missed, clear_set, read_changed_assets, removals_missed, AssetHolders,
+};
 use bevy_asset::{Asset, AssetEvent, AssetEventSystems, AssetId, AssetServer, UntypedAssetId};
 use bevy_camera::visibility::ViewVisibility;
 use bevy_core_pipeline::core_3d::TransparentSortingInfo3d;
@@ -17,6 +19,7 @@ use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::change_detection::Tick;
 // NVForever specialization scan: for the indexed change checks below (and `Mesh` below).
 use bevy_ecs::entity::EntityHashSet;
+use bevy_ecs::message::{MessageCursor, Messages};
 use bevy_ecs::entity_disabling::Disabled;
 use bevy_ecs::query::Allow;
 use bevy_ecs::system::SystemParam;
@@ -453,6 +456,9 @@ where
         app.init_asset::<M>()
             .register_type::<MeshMaterial3d<M>>()
             .init_resource::<EntitiesNeedingSpecialization<M>>()
+            // NVForever specialization scan: the indexes of the two change checks.
+            .init_resource::<SpecializationScan<M>>()
+            .init_resource::<MaterialMarkScan<M>>()
             .add_plugins((ErasedRenderAssetPlugin::<MeshMaterial3d<M>>::default(),))
             .add_systems(
                 PostUpdate,
@@ -750,25 +756,37 @@ pub fn mark_meshes_as_changed_if_their_materials_changed<M>(
     mut meshes: Query<&mut Mesh3d, With<MeshMaterial3d<M>>>,
     changed_materials: Query<Entity, (With<Mesh3d>, Changed<MeshMaterial3d<M>>)>,
     rehandled: Query<(Entity, &MeshMaterial3d<M>), (Changed<MeshMaterial3d<M>>, Allow<Disabled>)>,
-    holding: Query<&MeshMaterial3d<M>, Allow<Disabled>>,
-    matched: Query<&MeshMaterial3d<M>, With<Mesh3d>>,
-    mut material_events: MessageReader<AssetEvent<M>>,
+    holding: Query<(Entity, &MeshMaterial3d<M>), Allow<Disabled>>,
+    matched: Query<(Entity, &MeshMaterial3d<M>), With<Mesh3d>>,
+    material_events: Res<Messages<AssetEvent<M>>>,
     mut removed_materials: RemovedComponents<MeshMaterial3d<M>>,
-    mut scan: Local<MaterialMarkScan<M>>,
+    mut scan: ResMut<MaterialMarkScan<M>>,
 ) where
     M: Material,
 {
     let scan = &mut *scan;
+    // Messages this system never read have expired (it did not run for a while; see
+    // `specialization_scan`): rebuild the index, and mark every holder.
+    let events_missed = asset_events_missed(&scan.cursor, &material_events);
+    let rebuild = events_missed || removals_missed(&removed_materials);
 
     // Bring the index up to date: entities whose material component was replaced, mutated
     // or removed since the last run. Disabled entities are kept in it (`Allow<Disabled>`),
     // so a handle swapped while disabled is not missed once they are enabled again.
-    for entity in removed_materials.read() {
-        scan.materials
-            .set(entity, holding.get(entity).ok().map(|material| material.id()));
-    }
-    for (entity, material) in &rehandled {
-        scan.materials.set(entity, Some(material.id()));
+    if rebuild {
+        removed_materials.clear();
+        scan.materials.clear();
+        for (entity, material) in &holding {
+            scan.materials.set(entity, Some(material.id()));
+        }
+    } else {
+        for entity in removed_materials.read() {
+            let held = holding.get(entity).ok().map(|(_, material)| material.id());
+            scan.materials.set(entity, held);
+        }
+        for (entity, material) in &rehandled {
+            scan.materials.set(entity, Some(material.id()));
+        }
     }
 
     for entity in &changed_materials {
@@ -777,12 +795,22 @@ pub fn mark_meshes_as_changed_if_their_materials_changed<M>(
         }
     }
 
-    read_changed_assets(&mut material_events, &mut scan.changed);
+    read_changed_assets(&mut scan.cursor, &material_events, &mut scan.changed);
+    if events_missed {
+        for (entity, _) in &matched {
+            if let Ok(mut mesh) = meshes.get_mut(entity) {
+                mesh.set_changed();
+            }
+        }
+        return;
+    }
     for id in &scan.changed {
         for entity in scan.materials.holders(id) {
             // `matched` and `meshes` apply the default query filters as upstream's query
             // did, and the id is checked again against the component itself.
-            if matched.get(entity).is_ok_and(|material| material.id() == *id)
+            if matched
+                .get(entity)
+                .is_ok_and(|(_, material)| material.id() == *id)
                 && let Ok(mut mesh) = meshes.get_mut(entity)
             {
                 mesh.set_changed();
@@ -792,10 +820,20 @@ pub fn mark_meshes_as_changed_if_their_materials_changed<M>(
 }
 
 /// NVForever specialization scan: the state
-/// [`mark_meshes_as_changed_if_their_materials_changed`] keeps between runs.
+/// [`mark_meshes_as_changed_if_their_materials_changed`] keeps between runs (a resource,
+/// so tests can look at it).
+#[derive(Resource)]
 pub struct MaterialMarkScan<M: Material> {
     materials: AssetHolders<M>,
     changed: HashSet<AssetId<M>>,
+    cursor: MessageCursor<AssetEvent<M>>,
+}
+
+impl<M: Material> MaterialMarkScan<M> {
+    /// Every entity in the index.
+    pub fn indexed(&self) -> impl Iterator<Item = Entity> + '_ {
+        self.materials.entities()
+    }
 }
 
 impl<M: Material> Default for MaterialMarkScan<M> {
@@ -803,6 +841,7 @@ impl<M: Material> Default for MaterialMarkScan<M> {
         Self {
             materials: AssetHolders::default(),
             changed: HashSet::default(),
+            cursor: MessageCursor::default(),
         }
     }
 }
@@ -995,11 +1034,11 @@ pub fn check_entities_needing_specialization<M>(
             Allow<Disabled>,
         ),
     >,
-    holding: Query<(Option<&Mesh3d>, &MeshMaterial3d<M>), Allow<Disabled>>,
-    matched: Query<(Option<&Mesh3d>, &MeshMaterial3d<M>)>,
-    mut mesh_events: MessageReader<AssetEvent<Mesh>>,
-    mut material_events: MessageReader<AssetEvent<M>>,
-    mut scan: Local<SpecializationScan<M>>,
+    holding: Query<(Entity, Option<&Mesh3d>, &MeshMaterial3d<M>), Allow<Disabled>>,
+    matched: Query<(Entity, Option<&Mesh3d>, &MeshMaterial3d<M>)>,
+    mesh_events: Res<Messages<AssetEvent<Mesh>>>,
+    material_events: Res<Messages<AssetEvent<M>>>,
+    mut scan: ResMut<SpecializationScan<M>>,
     mut entities_needing_specialization: ResMut<EntitiesNeedingSpecialization<M>>,
     mut removed_mesh_3d_components: RemovedComponents<Mesh3d>,
     mut removed_mesh_material_3d_components: RemovedComponents<MeshMaterial3d<M>>,
@@ -1010,6 +1049,14 @@ pub fn check_entities_needing_specialization<M>(
     let needs = &mut *entities_needing_specialization;
     needs.changed.clear();
     needs.removed.clear();
+
+    // Messages this system never read have expired (it did not run for a while; see
+    // `specialization_scan`): rebuild the index, and flag every holder.
+    let events_missed = asset_events_missed(&scan.mesh_cursor, &mesh_events)
+        || asset_events_missed(&scan.material_cursor, &material_events);
+    let rebuild = events_missed
+        || removals_missed(&removed_mesh_3d_components)
+        || removals_missed(&removed_mesh_material_3d_components);
 
     // All entities that removed their `Mesh3d` or `MeshMaterial3d` components
     // need to have their specializations removed as well.
@@ -1030,20 +1077,42 @@ pub fn check_entities_needing_specialization<M>(
     // added or mutated since the last run. Disabled entities are kept in it
     // (`Allow<Disabled>`), so a handle swapped while disabled is not missed once they are
     // enabled again.
-    for &entity in &needs.removed {
-        let held = holding.get(entity).ok();
-        scan.meshes
-            .set(entity, held.and_then(|(mesh, _)| mesh).map(|mesh| mesh.id()));
-        scan.materials
-            .set(entity, held.map(|(_, material)| material.id()));
-    }
-    for (entity, mesh, material) in &rehandled {
-        scan.meshes.set(entity, mesh.map(|mesh| mesh.id()));
-        scan.materials.set(entity, Some(material.id()));
+    if rebuild {
+        scan.meshes.clear();
+        scan.materials.clear();
+        for (entity, mesh, material) in &holding {
+            scan.meshes.set(entity, mesh.map(|mesh| mesh.id()));
+            scan.materials.set(entity, Some(material.id()));
+        }
+    } else {
+        for &entity in &needs.removed {
+            let held = holding.get(entity).ok();
+            scan.meshes.set(
+                entity,
+                held.and_then(|(_, mesh, _)| mesh).map(|mesh| mesh.id()),
+            );
+            scan.materials
+                .set(entity, held.map(|(_, _, material)| material.id()));
+        }
+        for (entity, mesh, material) in &rehandled {
+            scan.meshes.set(entity, mesh.map(|mesh| mesh.id()));
+            scan.materials.set(entity, Some(material.id()));
+        }
     }
 
     // Gather all entities that need their specializations regenerated, each once.
-    scan.seen.clear();
+    clear_set(&mut *scan.seen);
+    read_changed_assets(&mut scan.mesh_cursor, &mesh_events, &mut scan.changed_meshes);
+    read_changed_assets(
+        &mut scan.material_cursor,
+        &material_events,
+        &mut scan.changed_materials,
+    );
+    if events_missed {
+        // Every holder, as upstream's per-asset ticks may name any of them.
+        needs.changed.extend(matched.iter().map(|(entity, _, _)| entity));
+        return;
+    }
     for entity in &changed_components {
         if scan.seen.insert(entity) {
             needs.changed.push(entity);
@@ -1051,24 +1120,22 @@ pub fn check_entities_needing_specialization<M>(
     }
     // `matched` applies the default query filters as upstream's query did, and each id is
     // checked again against the component itself.
-    read_changed_assets(&mut mesh_events, &mut scan.changed_meshes);
     for id in &scan.changed_meshes {
         for entity in scan.meshes.holders(id) {
             if matched
                 .get(entity)
-                .is_ok_and(|(mesh, _)| mesh.is_some_and(|mesh| mesh.id() == *id))
+                .is_ok_and(|(_, mesh, _)| mesh.is_some_and(|mesh| mesh.id() == *id))
                 && scan.seen.insert(entity)
             {
                 needs.changed.push(entity);
             }
         }
     }
-    read_changed_assets(&mut material_events, &mut scan.changed_materials);
     for id in &scan.changed_materials {
         for entity in scan.materials.holders(id) {
             if matched
                 .get(entity)
-                .is_ok_and(|(_, material)| material.id() == *id)
+                .is_ok_and(|(_, _, material)| material.id() == *id)
                 && scan.seen.insert(entity)
             {
                 needs.changed.push(entity);
@@ -1078,13 +1145,23 @@ pub fn check_entities_needing_specialization<M>(
 }
 
 /// NVForever specialization scan: the state [`check_entities_needing_specialization`]
-/// keeps between runs.
+/// keeps between runs (a resource, so tests can look at it).
+#[derive(Resource)]
 pub struct SpecializationScan<M: Material> {
     meshes: AssetHolders<Mesh>,
     materials: AssetHolders<M>,
     changed_meshes: HashSet<AssetId<Mesh>>,
     changed_materials: HashSet<AssetId<M>>,
     seen: EntityHashSet,
+    mesh_cursor: MessageCursor<AssetEvent<Mesh>>,
+    material_cursor: MessageCursor<AssetEvent<M>>,
+}
+
+impl<M: Material> SpecializationScan<M> {
+    /// Every entity in either index.
+    pub fn indexed(&self) -> impl Iterator<Item = Entity> + '_ {
+        self.meshes.entities().chain(self.materials.entities())
+    }
 }
 
 impl<M: Material> Default for SpecializationScan<M> {
@@ -1095,6 +1172,8 @@ impl<M: Material> Default for SpecializationScan<M> {
             changed_meshes: HashSet::default(),
             changed_materials: HashSet::default(),
             seen: EntityHashSet::default(),
+            mesh_cursor: MessageCursor::default(),
+            material_cursor: MessageCursor::default(),
         }
     }
 }

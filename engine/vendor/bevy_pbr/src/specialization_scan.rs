@@ -14,13 +14,33 @@
 //! system. The index is brought up to date at the start of each run from the entities
 //! whose components changed or were removed since the last run, so it always holds the
 //! handles as they are when the system runs.
+//!
+//! Gaps: the events and the removals are messages, which expire after two buffer updates;
+//! `AssetChanged` keeps a tick per asset and never loses one. A system that did not run
+//! for long enough (a run condition, a schedule not run) finds messages it never read
+//! gone ([`asset_events_missed`], [`removals_missed`]). It then rebuilds its index from
+//! the world and treats every holder as changed for that run: more entities than upstream
+//! may be flagged in that frame (each is specialized again, with the same result), none
+//! fewer.
+//!
+//! Only Bevy's `Disabled` is let into the indexes (`Allow<Disabled>`): an entity hidden by
+//! another disabling component (`World::register_disabling_component`; NVForever registers
+//! none) whose handle changes while hidden keeps a stale entry until its component changes
+//! again. The entries are checked against the component before an entity is flagged, so a
+//! stale one never flags a wrong entity; it can only miss one.
 
 use bevy_asset::{Asset, AssetEvent, AssetId};
 use bevy_ecs::{
+    component::Component,
     entity::{Entity, EntityHashMap, EntityHashSet},
-    message::MessageReader,
+    lifecycle::RemovedComponents,
+    message::{MessageCursor, Messages},
 };
 use bevy_platform::collections::{hash_map::Entry, HashMap, HashSet};
+
+/// Above this many slots, a cleared set is shrunk, so a burst (a cell load names thousands
+/// of new assets) does not leave every later frame clearing a large table.
+const KEEP_CAPACITY: usize = 1024;
 
 /// Which entities hold which asset, in one direction and the other.
 pub struct AssetHolders<A: Asset> {
@@ -60,9 +80,20 @@ impl<A: Asset> AssetHolders<A> {
         }
     }
 
+    /// Forgets every entity (before a rebuild).
+    pub fn clear(&mut self) {
+        self.by_asset.clear();
+        self.by_entity.clear();
+    }
+
     /// The entities recorded as holding `id`.
     pub fn holders(&self, id: &AssetId<A>) -> impl Iterator<Item = Entity> + '_ {
         self.by_asset.get(id).into_iter().flatten().copied()
+    }
+
+    /// Every entity recorded.
+    pub fn entities(&self) -> impl Iterator<Item = Entity> + '_ {
+        self.by_entity.keys().copied()
     }
 
     /// How many entities are recorded.
@@ -76,7 +107,30 @@ impl<A: Asset> AssetHolders<A> {
     }
 }
 
-/// Reads the asset events this system has not seen and leaves in `out` the ids that
+/// Whether messages this cursor has not read have already expired.
+pub fn asset_events_missed<A: Asset>(
+    cursor: &MessageCursor<AssetEvent<A>>,
+    events: &Messages<AssetEvent<A>>,
+) -> bool {
+    cursor.missed_messages(events) > 0
+}
+
+/// Whether removals this reader has not read have already expired.
+pub fn removals_missed<T: Component>(removed: &RemovedComponents<T>) -> bool {
+    removed
+        .messages()
+        .is_some_and(|messages| removed.reader().missed_messages(messages) > 0)
+}
+
+/// Empties a set, shrinking it when a burst left it large.
+pub fn clear_set<T: core::hash::Hash + Eq, S: core::hash::BuildHasher>(set: &mut HashSet<T, S>) {
+    set.clear();
+    if set.capacity() > KEEP_CAPACITY {
+        set.shrink_to(KEEP_CAPACITY / 4);
+    }
+}
+
+/// Reads the asset events `cursor` has not seen and leaves in `out` the ids that
 /// `AssetChanged` would call changed since the system's last run.
 ///
 /// [design, bevy_asset 0.20.1 `assets.rs` `Assets::asset_events`] `AssetChanged` looks ids
@@ -86,14 +140,16 @@ impl<A: Asset> AssetHolders<A> {
 /// than the reader's last run, which holds exactly for the ids stored by the runs since
 /// then and not dropped after. `LoadedWithDependencies` never goes through that queue (the
 /// asset server writes it straight to the messages, `server/mod.rs` `register_asset`), so
-/// it is not a change here either. A system reading these events every frame after
-/// `AssetEventSystems` sees the events of exactly those runs.
+/// it is not a change here either. A system that reads these events after
+/// `AssetEventSystems` sees the events of exactly those runs, unless some expired before
+/// it read them: callers check [`asset_events_missed`] first.
 pub fn read_changed_assets<A: Asset>(
-    events: &mut MessageReader<AssetEvent<A>>,
+    cursor: &mut MessageCursor<AssetEvent<A>>,
+    events: &Messages<AssetEvent<A>>,
     out: &mut HashSet<AssetId<A>>,
 ) {
-    out.clear();
-    for event in events.read() {
+    clear_set(out);
+    for event in cursor.read(events) {
         match event {
             AssetEvent::Added { id } | AssetEvent::Modified { id } => {
                 out.insert(*id);

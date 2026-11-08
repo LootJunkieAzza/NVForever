@@ -75,10 +75,37 @@ re-adds, despawns, a disabled entity, removed and re-inserted assets and dropped
 frame by frame, in both orders of the two systems. One upstream quirk is not reproduced:
 `AssetChanges` ticks are never clamped, so an entry left untouched for 2^32 system runs can
 read as new again for a frame; the events never do. `mark_meshes_as_changed_if_their_materials_changed`
-is made `pub` for that test. The engine side of the same fix replaces bevy_mesh's
+is made `pub` for that test.
+
+Gaps: events and removals are messages, which expire after two buffer updates, while
+`AssetChanged` keeps a tick per asset. If one of these systems does not run for long
+enough (a run condition, a schedule not run; neither happens today), it finds unread
+messages expired (`MessageCursor::missed_messages`), rebuilds its index from the world and
+treats every holder as changed for that run: it may flag more entities than upstream in
+that frame and the next (each is specialized again, with the same result), never fewer.
+`indexed_change_checks_after_a_gap_flag_at_least_what_bevys_filters_flag` covers a gap in
+the middle of a run and a late first run. Each index lives in a resource
+(`SpecializationScan<M>`, `MaterialMarkScan<M>`, added by `MaterialPlugin`) so tests can
+look at it.
+
+Limits: only Bevy's `Disabled` is let into the indexes; an entity hidden by another
+disabling component (NVForever registers none) whose handle changes while hidden keeps a
+stale entry, which can miss it but never flags a wrong one (entries are checked against
+the component). Memory: per system and material type, a map entity -> asset id and one
+asset id -> entities, about 100 bytes an entity [hypothesis, from the map layouts]: under
+1 MB for `NifMaterial` with 5k entities, three indexes in all (the check holds two, the
+material mark one) plus the mesh mark's. The sets of changed ids and of flagged entities
+keep their capacity between frames, so a cell load's burst would leave a large table to
+clear every frame; above 1024 slots they are shrunk when cleared.
+
+The engine side of the same fix replaces bevy_mesh's
 `mark_3d_meshes_as_changed_if_their_assets_changed` without patching bevy_mesh
-(`nvf-assets/src/mesh_change_scan.rs`: the system is taken out of `PostUpdate` at
-`PostStartup` and an indexed one runs in its place; it reuses `AssetHolders`).
+(`nvf-assets/src/mesh_change_scan.rs`): at `PostStartup` the orderings other systems have
+against it, and its own, are copied onto the replacement's set (`MeshChangeScanSystems`),
+then it is taken out of `PostUpdate` (`remove_systems_in_set`, `RemoveSystemsOnly`, which
+keeps its set and the systems ordered after it); if it has a run condition, a parent set
+or an ordering against a set that cannot be copied, it is kept and the replacement does
+not run. It reuses `AssetHolders`.
 
 Why: [observed 2026-11-08, `profile` build of 01df32361, standing in Goodsprings, Primm,
 Novac and Jacobstown, 3-5k mesh entities] `check_entities_needing_specialization<NifMaterial>`
@@ -89,8 +116,18 @@ frame (`profile change sources:`).
 On upgrade: if upstream's filters are unchanged, apply the change again (the test in
 nvf-assets compares against a copy of upstream's filters; update that copy from the new
 version first). If upstream indexes these checks itself or makes `AssetChanged` cheap,
-drop this change and the engine's mesh mark replacement with it. Check that
-`Assets::asset_events` still fills `AssetChanges` by the rule above.
+drop this change and the engine's mesh mark replacement with it. Check:
+- that `Assets::asset_events` still fills `AssetChanges` by the rule above, and nothing
+  else writes `Added`/`Modified` straight to `Messages<AssetEvent<…>>`;
+- how long messages live (two buffer updates in 0.20.1) and that `missed_messages` still
+  reports expired ones, for `MessageCursor` and `RemovedComponents`;
+- the default query filters (`DefaultQueryFilters`): the indexes allow only `Disabled`;
+- bevy_mesh's mark system: its dependencies, sets and run conditions (the replacement
+  gives up on a set or a condition), and who orders against it (bevy_pbr
+  `MaterialPlugin`, bevy_camera `CalculateBounds`, bevy_gizmos); the test
+  `orderings_against_bevys_mesh_mark_carry_over` checks the copying;
+- who reads `EntitiesNeedingSpecialization` and `Changed<Mesh3d>` downstream (the extract
+  systems), since an extra entry after a gap must stay harmless there.
 
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
