@@ -6,4 +6,6 @@
 pub mod code;
 pub mod net;
 pub mod reach;
+pub mod rel;
+pub mod repl;
 pub mod steam;

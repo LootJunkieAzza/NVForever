@@ -51,14 +51,20 @@ use std::hash::{BuildHasher, Hasher};
 use std::io::ErrorKind;
 use std::net::{SocketAddr, UdpSocket};
 
+use crate::rel::{Frame, Reliable};
+use crate::repl::ActorPose;
 use crate::steam::Steam;
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 pub const MAGIC: [u8; 4] = *b"NVCO";
-pub const VERSION: u8 = 18;
+/// The replication test build (docs/design/coop-replication.md) speaks its own protocol:
+/// 100 above the normal co-op build's, so the two never join each other.
+pub const VERSION: u8 = 118;
 pub const MAX_GUESTS: usize = 3;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -70,6 +76,11 @@ const HELLO_EVERY: Duration = Duration::from_millis(500);
 /// The network thread's tick.
 const TICK: Duration = Duration::from_millis(10);
 const NAME_MAX: usize = 32;
+/// IP and UDP headers, counted with each packet's bytes in [`Session::traffic`].
+const UDP_OVERHEAD: u64 = 28;
+/// The most reliable packets one stream sends per network tick (10 ms): about 110 KB/s
+/// while a join's snapshot goes, far less after.
+const REL_PACKETS: usize = 4;
 
 /// Where a player is: an interior cell, or a worldspace (exterior), by FormID in the
 /// game's load order. Both games must run the same load order for the IDs to agree.
@@ -384,6 +395,14 @@ enum Msg {
     Anim { id: u8, seq: u16, cue: AnimCue },
     /// Shared progression from player `id` ([`Progress`]).
     Progress { id: u8, seq: u16, what: Progress },
+    /// The reliable stream between the host and one guest ([`crate::rel`]), both ways;
+    /// `epoch` is the host's number for the stream, new each time the guest says Hello.
+    Rel { epoch: u16, frame: Frame },
+    /// The host's moving actors, for one guest (the compact stream, [`ActorPose`]); all
+    /// packets of one round share `seq`.
+    /// `ms`: the host's clock when the round went (its session's milliseconds), so a
+    /// guest can tell how late each round is.
+    Actors { seq: u32, ms: u32, poses: Vec<ActorPose> },
 }
 
 /// Shared progression (co-op progression, [`Session::send_progress`]). Each is sent
@@ -542,6 +561,25 @@ pub enum Event {
     /// Shared progression from player `id` (each once; [`Progress::host_only`] ones only
     /// from the host).
     Progress { id: u8, what: Progress },
+    /// An item of the reliable stream from player `id` (the host: 0), once and in order.
+    Reliable { id: u8, item: Vec<u8> },
+    /// The reliable stream with player `id` started again (a guest's Hello on the host;
+    /// a new stream from the host on a guest, id 0): what was sent on it before may be
+    /// lost, so the layer above sends its whole state again.
+    RelReset { id: u8 },
+    /// Some of the host's moving actors (guests only), with the host's clock when they
+    /// went (milliseconds) and this game's when they came.
+    Actors { ms: u32, here_ms: u32, poses: Vec<ActorPose> },
+}
+
+/// What [`Session::traffic`] reports for one player.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Traffic {
+    pub id: u8,
+    pub sent: u64,
+    pub heard: u64,
+    pub pending: usize,
+    pub resent: u64,
 }
 
 /// A peer as one side sees it.
@@ -559,11 +597,14 @@ struct Peer {
     name: String,
     /// The ids of a guest's newest hits (host only).
     hits: VecDeque<u16>,
+    /// The host's reliable stream with this guest, and its number (host only).
+    rel: Reliable,
+    epoch: u16,
 }
 
 impl Peer {
     fn new(id: u8, now: Instant) -> Self {
-        Self { id, addr: None, token: 0, last_heard: now, last_seq: None, lost: false, look: None, name: String::new(), hits: VecDeque::new() }
+        Self { id, addr: None, token: 0, last_heard: now, last_seq: None, lost: false, look: None, name: String::new(), hits: VecDeque::new(), rel: Reliable::new(), epoch: 0 }
     }
 
     /// Keep `look`; whether it is new.
@@ -659,6 +700,17 @@ pub struct Session {
     /// Shared progression sent and heard (the same bookkeeping as the animations').
     progress: AnimWire,
     events: Vec<Event>,
+    /// A guest's reliable stream with the host, and the host's number for it once heard.
+    rel: Reliable,
+    host_epoch: Option<u16>,
+    /// The host's actor rounds sent, a guest's newest heard.
+    actor_seq: u32,
+    heard_actors: Option<u32>,
+    /// Bytes sent to and heard from each address (the perf lines).
+    sent: RefCell<HashMap<SocketAddr, u64>>,
+    heard: HashMap<SocketAddr, u64>,
+    /// When this session began (the clock of [`Msg::Actors`]).
+    started: Instant,
 }
 
 impl Session {
@@ -693,7 +745,7 @@ impl Session {
 
     fn with(sock: UdpSocket, role: Role) -> std::io::Result<Self> {
         sock.set_nonblocking(true)?;
-        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, own_name: String::new(), last_names: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, lists: Default::default(), last_presence: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), events: Vec::new() })
+        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, own_name: String::new(), last_names: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, lists: Default::default(), last_presence: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), events: Vec::new(), rel: Reliable::new(), host_epoch: None, actor_seq: 0, heard_actors: None, sent: RefCell::new(HashMap::new()), heard: HashMap::new(), started: Instant::now() })
     }
 
     /// Also talk over Steam: a host is reached through it by a Steam code, a guest reaches
@@ -1001,6 +1053,48 @@ impl Session {
         self.look = Some(look);
     }
 
+    /// Queue `item` on the reliable stream: a host's to guest `to` (None: every guest), a
+    /// guest's to the host (`to` is ignored).
+    pub fn send_reliable(&mut self, to: Option<u8>, item: Vec<u8>) {
+        if self.is_host() {
+            for p in self.peers.iter_mut().filter(|p| to.is_none_or(|t| t == p.id)) {
+                p.rel.push(item.clone());
+            }
+        } else {
+            self.rel.push(item);
+        }
+    }
+
+    /// The host's moving actors for guest `to`, sent now.
+    pub fn send_actors(&mut self, to: u8, poses: &[ActorPose]) {
+        let Some(addr) = self.peers.iter().find(|p| p.id == to).and_then(|p| p.addr) else { return };
+        self.actor_seq = self.actor_seq.wrapping_add(1);
+        for chunk in poses.chunks(crate::repl::ACTORS_PER_PACKET) {
+            self.sock_send(&Msg::Actors { seq: self.actor_seq, ms: self.started.elapsed().as_millis() as u32, poses: chunk.to_vec() }, addr);
+        }
+    }
+
+    /// Bytes sent to and heard from each player (the host: 0) so far, with the items
+    /// waiting on its reliable stream and those sent again.
+    pub fn traffic(&self) -> Vec<Traffic> {
+        let sent = self.sent.borrow();
+        let of = |a: Option<SocketAddr>| a.map_or((0, 0), |a| (sent.get(&a).copied().unwrap_or(0), self.heard.get(&a).copied().unwrap_or(0)));
+        match &self.role {
+            Role::Host => self
+                .peers
+                .iter()
+                .map(|p| {
+                    let (out, inb) = of(p.addr);
+                    Traffic { id: p.id, sent: out, heard: inb, pending: p.rel.pending(), resent: p.rel.resent }
+                })
+                .collect(),
+            Role::Guest { host, .. } => {
+                let (out, inb) = of(*host);
+                vec![Traffic { id: 0, sent: out, heard: inb, pending: self.rel.pending(), resent: self.rel.resent }]
+            }
+        }
+    }
+
     pub fn take_events(&mut self) -> Vec<Event> {
         std::mem::take(&mut self.events)
     }
@@ -1128,6 +1222,25 @@ impl Session {
                 self.last_table = Some(now);
             }
         }
+        // The reliable streams: what is due, and acknowledgements.
+        if self.is_host() {
+            let mut out = Vec::new();
+            for p in self.peers.iter_mut() {
+                if let Some(addr) = p.addr.filter(|_| !p.lost) {
+                    for frame in p.rel.frames(now, REL_PACKETS) {
+                        out.push((Msg::Rel { epoch: p.epoch, frame }, addr));
+                    }
+                }
+            }
+            for (msg, addr) in out {
+                self.sock_send(&msg, addr);
+            }
+        } else if let (Some(epoch), Role::Guest { host: Some(host), id: Some(_), .. }) = (self.host_epoch, &self.role) {
+            let host = *host;
+            for frame in self.rel.frames(now, REL_PACKETS) {
+                self.sock_send(&Msg::Rel { epoch, frame }, host);
+            }
+        }
         let look_due = self.last_look.is_none_or(|t| now - t >= LOOK_EVERY);
         if let (true, Some(look), Some(id)) = (look_due, self.look.clone(), self.id()) {
             let msg = Msg::Look { id, look };
@@ -1145,7 +1258,9 @@ impl Session {
     }
 
     fn sock_send(&self, msg: &Msg, to: SocketAddr) {
-        send_raw(&self.sock, self.steam, &encode(msg), to);
+        let bytes = encode(msg);
+        *self.sent.borrow_mut().entry(to).or_default() += bytes.len() as u64 + UDP_OVERHEAD;
+        send_raw(&self.sock, self.steam, &bytes, to);
     }
 
     fn receive(&mut self, now: Instant) {
@@ -1171,6 +1286,7 @@ impl Session {
     }
 
     fn handle(&mut self, bytes: &[u8], from: SocketAddr, now: Instant) {
+        *self.heard.entry(from).or_default() += bytes.len() as u64 + UDP_OVERHEAD;
         if let Some(msg) = decode(bytes) {
             if self.is_host() {
                 self.host_handle(msg, from, now);
@@ -1196,6 +1312,11 @@ impl Session {
                     p.name = truncate(&name);
                     self.last_names = None;
                     let id = p.id;
+                    // A Hello starts the reliable stream again (the guest may have started
+                    // again, or lost what was on the way).
+                    p.epoch = p.epoch.wrapping_add(1);
+                    p.rel = Reliable::new();
+                    self.events.push(Event::RelReset { id });
                     if std::mem::take(&mut p.lost) {
                         self.events.push(Event::Back(id));
                     }
@@ -1206,10 +1327,13 @@ impl Session {
                     self.sock_send(&Msg::Full, from);
                     return;
                 };
-                self.peers.push(Peer { addr: Some(from), token, name: truncate(&name), ..Peer::new(id, now) });
+                // A stream number unlike a guest's last one in this slot.
+                let epoch = (token as u16) | 1;
+                self.peers.push(Peer { addr: Some(from), token, name: truncate(&name), epoch, ..Peer::new(id, now) });
                 self.last_names = None;
                 self.sock_send(&Msg::Welcome { id }, from);
                 self.events.push(Event::Joined { id, name });
+                self.events.push(Event::RelReset { id });
             }
             Msg::State { seq, state, .. } => {
                 // The sender is the guest its address belongs to, whatever id it claims.
@@ -1346,7 +1470,19 @@ impl Session {
                 }
                 self.events.push(Event::Progress { id, what });
             }
-            Msg::Welcome { .. } | Msg::Full | Msg::Who | Msg::Npcs { .. } | Msg::Quest(_) | Msg::Clock(_) | Msg::Lines { .. } | Msg::Presence { .. } | Msg::Names { .. } => {}
+            Msg::Rel { epoch, frame } => {
+                let Some(p) = self.peers.iter_mut().find(|p| p.addr == Some(from)) else { return };
+                // A frame of an older stream.
+                if epoch != p.epoch {
+                    return;
+                }
+                p.last_heard = now;
+                let id = p.id;
+                for item in p.rel.receive(frame) {
+                    self.events.push(Event::Reliable { id, item });
+                }
+            }
+            Msg::Welcome { .. } | Msg::Full | Msg::Who | Msg::Npcs { .. } | Msg::Quest(_) | Msg::Clock(_) | Msg::Lines { .. } | Msg::Presence { .. } | Msg::Names { .. } | Msg::Actors { .. } => {}
         }
     }
 
@@ -1461,6 +1597,33 @@ impl Session {
                     self.heard_quest = Some(q.clone());
                     self.events.push(Event::Quest(q));
                 }
+            }
+            Msg::Rel { epoch, frame } => {
+                // A new stream (the host heard this guest's Hello): what was on the old
+                // one is gone; an older stream's frame, late on the way, is dropped.
+                match self.host_epoch {
+                    Some(e) if e == epoch => {}
+                    Some(e) if epoch.wrapping_sub(e) > u16::MAX / 2 => return,
+                    was => {
+                        // The first stream keeps what was queued before it was heard
+                        // (nothing of it went yet).
+                        if was.is_some() {
+                            self.rel = Reliable::new();
+                        }
+                        self.host_epoch = Some(epoch);
+                        self.events.push(Event::RelReset { id: 0 });
+                    }
+                }
+                for item in self.rel.receive(frame) {
+                    self.events.push(Event::Reliable { id: 0, item });
+                }
+            }
+            Msg::Actors { seq, ms, poses } => {
+                if self.heard_actors.is_some_and(|h| newer(h, seq)) {
+                    return;
+                }
+                self.heard_actors = Some(seq);
+                self.events.push(Event::Actors { ms, here_ms: self.started.elapsed().as_millis() as u32, poses });
             }
             Msg::Unlock { reference, terminal } => self.events.push(Event::Unlocked { id: 0, reference, terminal }),
             Msg::Clock(c) => self.events.push(Event::Clock(c)),
@@ -1673,6 +1836,18 @@ impl Link {
 
     pub fn send_anim(&self, cue: AnimCue) {
         self.with(|s| s.send_anim(cue));
+    }
+
+    pub fn send_reliable(&self, to: Option<u8>, item: Vec<u8>) {
+        self.with(|s| s.send_reliable(to, item))
+    }
+
+    pub fn send_actors(&self, to: u8, poses: &[ActorPose]) {
+        self.with(|s| s.send_actors(to, poses))
+    }
+
+    pub fn traffic(&self) -> Vec<Traffic> {
+        self.with(|s| s.traffic())
     }
 
     pub fn send_progress(&self, what: Progress) {
@@ -1935,6 +2110,26 @@ fn encode(msg: &Msg) -> Vec<u8> {
                 }
             }
         }
+        Msg::Rel { epoch, frame } => {
+            b.push(23);
+            b.extend_from_slice(&epoch.to_le_bytes());
+            b.extend_from_slice(&frame.ack.to_le_bytes());
+            b.extend_from_slice(&frame.first.to_le_bytes());
+            b.extend_from_slice(&(frame.items.len() as u16).to_le_bytes());
+            for item in &frame.items {
+                b.extend_from_slice(&(item.len() as u16).to_le_bytes());
+                b.extend_from_slice(item);
+            }
+        }
+        Msg::Actors { seq, ms, poses } => {
+            b.push(24);
+            b.extend_from_slice(&seq.to_le_bytes());
+            b.extend_from_slice(&ms.to_le_bytes());
+            b.push(poses.len().min(crate::repl::ACTORS_PER_PACKET) as u8);
+            for p in poses.iter().take(crate::repl::ACTORS_PER_PACKET) {
+                p.write(&mut b);
+            }
+        }
     }
     b
 }
@@ -1958,6 +2153,33 @@ fn decode(b: &[u8]) -> Option<Msg> {
             Msg::Hello { token, lobby, name: String::from_utf8_lossy(r.take(len)?).into_owned() }
         }
         2 => Msg::Welcome { id: r.u8()? },
+        23 => {
+            let epoch = r.u16()?;
+            let ack = r.u32()?;
+            let first = r.u32()?;
+            let n = r.u16()? as usize;
+            if n > 1500 {
+                return None;
+            }
+            let mut items = Vec::with_capacity(n);
+            for _ in 0..n {
+                let len = r.u16()? as usize;
+                items.push(r.take(len)?.to_vec());
+            }
+            Msg::Rel { epoch, frame: Frame { ack, first, items } }
+        }
+        24 => {
+            let seq = r.u32()?;
+            let ms = r.u32()?;
+            let n = r.u8()? as usize;
+            if n > crate::repl::ACTORS_PER_PACKET {
+                return None;
+            }
+            let bytes = r.take(n * crate::repl::ACTOR_BYTES)?;
+            let mut pr = crate::repl::Reader(bytes);
+            let poses = (0..n).map(|_| ActorPose::read(&mut pr)).collect::<Option<Vec<_>>>()?;
+            Msg::Actors { seq, ms, poses }
+        }
         3 => Msg::Full,
         4 => {
             let id = r.u8()?;
@@ -2278,6 +2500,50 @@ mod tests {
         let addr: SocketAddr = format!("127.0.0.1:{}", host.local_addr().unwrap().port()).parse().unwrap();
         let guests = (0..n).map(|i| Session::join(&[addr], 0, &format!("G{i}"), new_token()).unwrap()).collect();
         (host, guests, addr)
+    }
+
+    /// Replication's streams (docs/design/coop-replication.md): the host's reliable items
+    /// reach a guest once and in order, the guest's reach the host, the compact actor
+    /// stream goes to the guest it is meant for, and the traffic is counted.
+    #[test]
+    fn the_reliable_stream_and_the_actor_stream_reach_their_guest() {
+        let (mut host, mut guests, _) = host_and(2);
+        let (a, b) = guests.split_at_mut(1);
+        let (a, b) = (&mut a[0], &mut b[0]);
+        let mut clock = Instant::now();
+        let step = Duration::from_millis(10);
+        let seen = run(&mut [&mut host, a, b], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))) && seen[2].iter().any(|e| matches!(e, Event::Welcomed(_))));
+        assert!(seen[0].iter().filter(|e| matches!(e, Event::RelReset { .. })).count() >= 2);
+        let ida = a.id().unwrap();
+        for i in 0..50u8 {
+            host.send_reliable(Some(ida), vec![7, i]);
+        }
+        host.send_reliable(None, vec![8]);
+        let pose = ActorPose { reference: 0x1234, feet: [10.0, 20.0, 30.0], heading: 1.0, pitch: 0.0, flags: 1, attacks: 0 };
+        host.send_actors(ida, &[pose]);
+        a.send_reliable(None, vec![9, 9]);
+        let seen = run(&mut [&mut host, a, b], &mut clock, step, |seen| {
+            seen[1].iter().filter(|e| matches!(e, Event::Reliable { .. })).count() == 51 && seen[0].iter().any(|e| matches!(e, Event::Reliable { .. })) && seen[2].iter().any(|e| matches!(e, Event::Reliable { .. }))
+        });
+        let at_a: Vec<Vec<u8>> = seen[1].iter().filter_map(|e| if let Event::Reliable { id: 0, item } = e { Some(item.clone()) } else { None }).collect();
+        let mut want: Vec<Vec<u8>> = (0..50u8).map(|i| vec![7, i]).collect();
+        want.push(vec![8]);
+        assert_eq!(at_a, want);
+        assert!(seen[0].iter().any(|e| *e == Event::Reliable { id: ida, item: vec![9, 9] }));
+        assert!(seen[1].iter().any(|e| matches!(e, Event::Actors { poses, .. } if poses[0].reference == 0x1234)));
+        assert!(!seen[2].iter().any(|e| matches!(e, Event::Actors { .. })));
+        assert!(seen[2].iter().any(|e| *e == Event::Reliable { id: 0, item: vec![8] }));
+        let t = host.traffic();
+        assert!(t.iter().any(|t| t.id == ida && t.sent > 0 && t.heard > 0));
+        // Everything is acknowledged in the end.
+        for _ in 0..40 {
+            clock += step;
+            for s in [&mut host, &mut *a, &mut *b] {
+                s.tick(clock);
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(host.traffic().iter().all(|t| t.pending == 0), "{:?}", host.traffic());
     }
 
     /// A guest's save reaches the host and the other guest once; the host's reward and
