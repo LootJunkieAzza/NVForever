@@ -133,9 +133,9 @@ pub fn choices(s: &Session) -> Vec<(String, PokerInput, bool)> {
         out.push((format!("{} ALL IN", h(KeyCode::KeyA)), PokerInput::AllIn, turn));
         out.push((format!("{} FOLD", h(KeyCode::KeyF)), PokerInput::Fold, turn));
     } else if s.ended.is_none() {
-        out.push((format!("{} NEXT HAND", h(KeyCode::Space).to_uppercase()), PokerInput::Next, s.leaving.is_none()));
+        out.push((format!("{} NEXT HAND", h(KeyCode::Space)), PokerInput::Next, s.leaving.is_none()));
     }
-    out.push((format!("{} LEAVE", crate::pad::hint(&[KeyCode::Tab, KeyCode::Escape], at).to_uppercase()), PokerInput::Exit, s.leaving.is_none()));
+    out.push((format!("{} LEAVE", crate::pad::hint(&[KeyCode::Tab, KeyCode::Escape], at)), PokerInput::Exit, s.leaving.is_none()));
     out
 }
 
@@ -237,8 +237,9 @@ fn spawn(commands: &mut Commands, c: &Ctx, s: &Session, view: Option<&PokerView>
         let mut x = view_w - EDGE;
         let y = 960.0 - EDGE - CHOICES_UP;
         for (label, cmd, on) in choices(s).into_iter().rev() {
-            let w = c.width(Font::Glow, &label);
-            c.text(r, Font::Glow, &label, x, y, 1.0, amber(if on { 255.0 } else { DIM }));
+            // The drawn width, not the text's: a hint that names a button draws its
+            // picture, so the click box and the gap must follow that width.
+            let w = c.text(r, Font::Glow, &label, x, y, 1.0, amber(if on { 255.0 } else { DIM }));
             if on {
                 r.spawn((Button, PokerButton(cmd), at(x - w - 8.0, y - 8.0, w + 16.0, LINE + 16.0)));
             }
