@@ -1033,6 +1033,7 @@ impl Plugin for PausePlugin {
             .add_message::<MainMenuRequest>()
             .init_resource::<MenuPause>()
             .init_resource::<PlayClock>()
+            .init_resource::<crate::graphics_resume::GraphicsResume>()
             .insert_resource(aid)
             .add_systems(Update, tick_play_clock.before(PlaySet::Input))
             .add_systems(Update, freeze_picture.after(PlaySet::Ui).before(PlaySet::Sync))
@@ -1042,7 +1043,7 @@ impl Plugin for PausePlugin {
                 // Over a conversation, a barter menu takes Esc for itself (`crate::menu`).
                 (
                     open.run_if(in_state(PlayState::Playing).or_else(in_state(PlayState::Dialogue)).and_then(crate::menu::no_menu)),
-                    (choose, show_status, draw).chain().run_if(in_state(PlayState::Menu)),
+                    (choose, finish_resume, show_status, draw).chain().run_if(in_state(PlayState::Menu)),
                 )
                     .in_set(PlaySet::Ui),
             )
@@ -1675,7 +1676,7 @@ fn choose(
     mut view: ResMut<PauseView>,
     settings: Res<Settings>,
     buttons: Query<(&PointerState, &PauseButton), Changed<PointerState>>,
-    mut next: ResMut<NextState<PlayState>>,
+    resume: Res<crate::graphics_resume::GraphicsResume>,
     mut exit: MessageWriter<AppExit>,
     mut commands: Commands,
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
@@ -1712,10 +1713,12 @@ fn choose(
         return;
     }
     let now = time.elapsed_secs();
-    if fire(&mut aid.resume, now) {
+    let by_aid = fire(&mut aid.resume, now);
+    if by_aid {
         info!("test aid NVF_PLAY_TEST_PAUSE: Esc (resume)");
-        info!("pause menu: resume");
-        next.set(PlayState::Playing);
+        if !resume.pending() {
+            commands.queue(request_resume);
+        }
         return;
     }
     let list = settings.list();
@@ -2112,10 +2115,12 @@ fn choose(
             match take {
                 Some(0) => {
                     info!("pause menu: quit to the main menu");
+                    commands.queue(reset_resume);
                     to_main.write(MainMenuRequest);
                 }
                 Some(1) => {
                     info!("pause menu: quit");
+                    commands.queue(reset_resume);
                     exit.write(AppExit::Success);
                 }
                 Some(_) => {
@@ -2192,8 +2197,9 @@ fn choose(
                     *page = Page::Mods;
                 }
                 Some(Entry::Continue) => {
-                    info!("pause menu: resume");
-                    next.set(PlayState::Playing);
+                    if !resume.pending() {
+                        commands.queue(request_resume);
+                    }
                 }
                 None => {}
             }
@@ -2392,6 +2398,7 @@ fn choose(
             }
             if let Some((path, _)) = pick.and_then(|i| menu.list.saves.get(i)) {
                 info!("pause menu: load {}", path.display());
+                commands.queue(reset_resume);
                 menu.loads.write(crate::save::LoadRequest { path: path.clone() });
             }
         }
@@ -2617,7 +2624,8 @@ fn draw(world: &mut World) {
     world.resource_mut::<PauseView>().drawn = Some(now);
 }
 
-fn close(mut commands: Commands, mut paused: ResMut<Paused>, mut page: ResMut<Page>, mut list: ResMut<LoadList>, mut view: ResMut<PauseView>, roots: Query<Entity, With<PauseRoot>>) {
+fn close(mut commands: Commands, mut paused: ResMut<Paused>, mut page: ResMut<Page>, mut list: ResMut<LoadList>, mut view: ResMut<PauseView>, roots: Query<Entity, With<PauseRoot>>, mut resume: ResMut<crate::graphics_resume::GraphicsResume>) {
+    resume.reset();
     paused.0 = false;
     *page = Page::Main;
     *list = LoadList::default();
@@ -2632,9 +2640,147 @@ fn close(mut commands: Commands, mut paused: ResMut<Paused>, mut page: ResMut<Pa
     }
 }
 
+/// Both Continue/Esc and the timed aid request the same release [design: this file].
+fn request_resume(world: &mut World) {
+    let now = world.resource::<Time<Real>>().elapsed_secs_f64();
+    if world.resource_mut::<crate::graphics_resume::GraphicsResume>().request(now) {
+        release_resume(world);
+    }
+}
+
+fn reset_resume(world: &mut World) {
+    world.resource_mut::<crate::graphics_resume::GraphicsResume>().reset();
+}
+
+fn release_resume(world: &mut World) {
+    info!("pause menu: resume");
+    world.resource_mut::<NextState<PlayState>>().set(PlayState::Playing);
+}
+
+fn finish_resume(world: &mut World) {
+    // A cover/load may start earlier in this frame, before OnExit closes this menu.
+    // Do not replace that pending transition with Playing [design: loading.rs].
+    if !world.resource::<Paused>().0
+        || matches!(world.resource::<NextState<PlayState>>(), NextState::Pending(state) if *state != PlayState::Menu)
+        || world.get_resource::<crate::loading::Loading>().is_some_and(|loading| loading.active())
+    {
+        reset_resume(world);
+        return;
+    }
+    let now = world.resource::<Time<Real>>().elapsed_secs_f64();
+    if let Some(done) = world.resource_mut::<crate::graphics_resume::GraphicsResume>().poll(now) {
+        info!("pause menu: resume after graphics change: pipelines waited {:.2} s, pending {}, capped {}", done.waited, done.pending, done.capped);
+        release_resume(world);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn resume_app() -> App {
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>().init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<Time>().init_resource::<Time<Real>>().init_resource::<PlayClock>()
+            .init_resource::<PauseAid>().insert_resource(Paused(true)).init_resource::<Page>()
+            .init_resource::<PauseView>().init_resource::<Settings>().init_resource::<NextState<PlayState>>()
+            .insert_resource(State::new(PlayState::Menu)).init_resource::<crate::graphics_resume::GraphicsResume>()
+            .init_resource::<PageRequest>().init_resource::<LoadList>().init_resource::<PauseStatus>()
+            .init_resource::<Assets<Image>>().insert_resource(crate::save::SaveConfig::with_dir(None))
+            .add_message::<crate::save::SaveRequest>().add_message::<crate::save::LoadRequest>()
+            .add_message::<MainMenuRequest>().add_message::<AppExit>().add_message::<crate::ui_sounds::UiSound>()
+            .add_systems(Update, (choose, finish_resume).chain());
+        app
+    }
+
+    #[test]
+    fn both_resume_paths_hold_the_pause_until_ready_and_unchanged_releases_immediately() {
+        // Timed aid, Esc and Continue all run through choose, including deferred requests.
+        for path in 0..3 {
+            for changed in [false, true] {
+                let mut app = resume_app();
+                if changed {
+                    app.world_mut().resource_mut::<crate::graphics_resume::GraphicsResume>().changed();
+                }
+                match path {
+                    0 => app.world_mut().resource_mut::<PauseAid>().resume.push(0.0),
+                    1 => app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Escape),
+                    _ => app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Enter),
+                }
+                app.update();
+                assert_eq!(app.world().resource::<crate::graphics_resume::GraphicsResume>().pending(), changed);
+                if changed {
+                    assert!(matches!(app.world().resource::<NextState<PlayState>>(), NextState::Unchanged));
+                    assert!(app.world().resource::<Paused>().0);
+                    assert_eq!(*app.world().resource::<State<PlayState>>().get(), PlayState::Menu);
+                    assert!(picture_held(MenuPause::Living, true, PlayState::Menu));
+                    // Repeated keys/requests do not replace the pending wait.
+                    app.update();
+                    app.world_mut().resource_mut::<crate::graphics_resume::GraphicsResume>().sample(1, 0, 0);
+                    app.update();
+                    app.world_mut().resource_mut::<Time<Real>>().advance_by(std::time::Duration::from_secs_f64(0.3));
+                    app.world_mut().resource_mut::<crate::graphics_resume::GraphicsResume>().sample(4, 0, 0);
+                    app.update();
+                }
+                assert!(matches!(app.world().resource::<NextState<PlayState>>(), NextState::Pending(PlayState::Playing)));
+                assert!(!app.world().resource::<crate::graphics_resume::GraphicsResume>().pending());
+            }
+        }
+    }
+
+    #[test]
+    fn a_quit_or_menu_closure_discards_the_pending_resume() {
+        let mut app = resume_app();
+        app.world_mut().resource_mut::<crate::graphics_resume::GraphicsResume>().changed();
+        request_resume(app.world_mut());
+        app.world_mut().resource_mut::<PauseView>().confirm = Some(1);
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Enter);
+        app.update();
+        assert!(!app.world().resource::<crate::graphics_resume::GraphicsResume>().pending());
+        assert!(matches!(app.world().resource::<NextState<PlayState>>(), NextState::Unchanged));
+        app.world_mut().resource_mut::<crate::graphics_resume::GraphicsResume>().changed();
+        request_resume(app.world_mut());
+        use bevy::ecs::system::RunSystemOnce;
+        app.world_mut().run_system_once(close).unwrap();
+        assert!(!app.world().resource::<Paused>().0);
+        assert!(app.world_mut().resource_mut::<crate::graphics_resume::GraphicsResume>().request(1.0));
+    }
+
+    #[test]
+    fn a_load_discards_the_wait_and_the_cap_releases_through_the_same_system() {
+        let mut app = resume_app();
+        app.world_mut().resource_mut::<crate::graphics_resume::GraphicsResume>().changed();
+        request_resume(app.world_mut());
+        *app.world_mut().resource_mut::<Page>() = Page::Load { selected: 0 };
+        {
+            let mut list = app.world_mut().resource_mut::<LoadList>();
+            list.saves.push((PathBuf::from("synthetic-resume-save.nvf"), SaveHeader::new(SaveKind::Manual)));
+            list.thumb = Some((0, None));
+        }
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Enter);
+        app.update();
+        assert!(!app.world().resource::<crate::graphics_resume::GraphicsResume>().pending());
+        assert!(matches!(app.world().resource::<NextState<PlayState>>(), NextState::Unchanged));
+        assert_eq!(app.world().resource::<Messages<crate::save::LoadRequest>>().len(), 1);
+
+        let mut app = resume_app();
+        app.world_mut().resource_mut::<crate::graphics_resume::GraphicsResume>().changed();
+        request_resume(app.world_mut());
+        app.world_mut().resource_mut::<crate::graphics_resume::GraphicsResume>().sample(1, 2, 2);
+        app.world_mut().resource_mut::<Time<Real>>().advance_by(std::time::Duration::from_secs_f64(crate::loading::PIPELINE_CAP_SECS));
+        app.update();
+        assert!(!app.world().resource::<crate::graphics_resume::GraphicsResume>().pending());
+        assert!(matches!(app.world().resource::<NextState<PlayState>>(), NextState::Pending(PlayState::Playing)));
+
+        let mut app = resume_app();
+        app.world_mut().resource_mut::<crate::graphics_resume::GraphicsResume>().changed();
+        request_resume(app.world_mut());
+        app.world_mut().resource_mut::<Time<Real>>().advance_by(std::time::Duration::from_secs_f64(crate::loading::PIPELINE_CAP_SECS));
+        app.world_mut().resource_mut::<NextState<PlayState>>().set(PlayState::Loading);
+        app.update();
+        assert!(!app.world().resource::<crate::graphics_resume::GraphicsResume>().pending());
+        assert!(matches!(app.world().resource::<NextState<PlayState>>(), NextState::Pending(PlayState::Loading)), "a load beats a ready or capped resume in the same frame");
+    }
 
     #[test]
     fn the_settings_page_fits_the_view() {
