@@ -241,6 +241,26 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
 - Lines are 2 thick on a PC; lines at brightness 200, text 255.
 - A text's letters stand 15/31 of the font's size under its top [hypothesis for every
   font but 2, where it was measured: message-menu.md §3].
+- **The words** (#1443). Where a menu file names a game setting for a label, the label is
+  that setting's text: the ITEMS heading `sInventoryWeight`, `sHitPointsShort`,
+  `sInventoryDamageThreshold`, `sInventoryCaps` (`inventory_menu.xml`'s
+  `IM_Headline_Player*Info`); the STATS heading `sStatsLVLAbbrev`, `sStatsHP`,
+  `sStatsAP`, `sStatsXP`, its tabs `sStatsStatus` … `sStatsGeneral` and its
+  `sStatsCNDAbbrev`, `sStatsRADAbbrev`, `sStatsEFFAbbrev` (`stats_menu.xml`); DATA's
+  title `sData` and `sPlaceMarker`, `sShowLocation` (`map_menu.xml`); the item card's
+  `sInventoryDamage`, `sInventoryWeightUpper`, `sInventoryValue`, `sInventoryStrReq`,
+  `sInventoryDamagePerSecond`, `sInventoryCondition`, `sInventoryEffects`
+  (`item_stats_display.xml`); the hints `sInventoryRepair`, `sInventoryMod`
+  [documented: the menu files]. The STATS and ITEMS titles, the ITEMS and DATA tabs,
+  Maintain and the "Level" under the player's name have settings no menu file names:
+  `sStats`, `sInventoryItems`, `sInventoryWeapons`, `sInventoryApparel`,
+  `sInventoryAid`, `sInventoryMisc`, `sInventoryAmmo`, `sLocalMapTabText`,
+  `sWorldMapTabText`, `sQuestsTabText`, `sMiscTabText`, `sCommsTabText`,
+  `sMaintainItem`, `sLevelAbbrev` [observed: a Russian install's language plugin
+  defines each, and its text there is the word of that place, 2026-11-08]. The English
+  masters define none of them [observed: FalloutNV.esm and the add-ons], so an English
+  install shows NVForever's own words; a plugin that defines one is drawn with its
+  text (`pipboy::labels`) [design].
 
 ## 5. The pages
 
