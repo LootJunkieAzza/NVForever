@@ -1105,11 +1105,14 @@ mod tests {
     /// cell borders, a reach that ends on a cell border, a negative reach, a sound not in
     /// the load order, initially disabled and disabled references, statics whose state
     /// moves (they stay at their placement), others moved by their state into reach,
-    /// moved again with nothing else changing, and their states gone with a new world.
+    /// moved again with nothing else changing, one state dropped (a cell reset) and
+    /// another made in the same frame (the number of states unchanged), a restored world
+    /// with as many states as the last, and their states gone with a new world.
     #[test]
     fn indexed_object_sources_are_the_whole_lists() {
         use crate::sim::test_world::{item_base, placed, sim};
         use crate::sound_grid::tests::Lcg;
+        use fnv_sim::forms::{BaseData, BaseForm, Container};
         use fnv_sim::refs::FLAG_INITIALLY_DISABLED;
         fn reach(s: FormId) -> Option<f32> {
             match s.0 - 0x900 {
@@ -1160,7 +1163,25 @@ mod tests {
             let kind = if i % 3 == 0 { STATIC_KIND } else { 0 };
             list.push((FIRST + i, FormId(0x900 + i % 6), kind, (kind == STATIC_KIND).then_some(pos)));
         }
-        let mut sim = sim(vec![item_base(BASE)], refs);
+        // A respawning container in a cell, beside the listener at the origin.
+        const CRATE_BASE: u32 = 0x101;
+        const CELL: FormId = FormId(0x200);
+        let crate_ref = FormId(FIRST + 900);
+        let crate_base = BaseForm {
+            id: FormId(CRATE_BASE),
+            sig: *b"CONT",
+            edid: None,
+            name: None,
+            script: None,
+            prompt: None,
+            voice_filter: false,
+            data: BaseData::Container(Container { respawns: true, entries: vec![] }),
+        };
+        let mut p = placed(crate_ref.0, CRATE_BASE);
+        (p.cell, p.pos) = (Some(CELL), [100.0, 0.0, 0.0]);
+        refs.push(p);
+        list.push((crate_ref.0, FormId(0x900), 0, None));
+        let mut sim = sim(vec![item_base(BASE), crate_base], refs);
         let mut index = SourceIndex::build(&list, &sim, reach, 6);
         let mut eyes: Vec<[f32; 3]> = (0..120).map(|_| [rng.range(-32000.0, 32000.0), rng.range(-32000.0, 32000.0), rng.range(0.0, 2000.0)]).collect();
         eyes.extend([[0.0; 3], [4096.0, -4096.0, 0.0], [f32::NAN, 0.0, 0.0]]);
@@ -1192,6 +1213,46 @@ mod tests {
         assert!(!mine(&out), "a source moved away is no longer heard");
         sim.world.get(at(4)).unwrap().pos = [eye[0], eye[1] + 50.0, eye[2]];
         check(&mut index, &list, &sim, &eyes);
+        let heard = |out: &[(u32, [f32; 3])], id: FormId| out.iter().any(|&(i, _)| list[i as usize].0 == id.0);
+        // The container gets a state where it stands, and the index sees it.
+        sim.world.get(crate_ref).unwrap();
+        check(&mut index, &list, &sim, &eyes);
+        index.heard(&list, &sim, [0.0; 3], &mut near, &mut out);
+        assert!(heard(&out, crate_ref), "the container is heard beside its listener");
+        // Between two frames, one state dropped and another made, the number of states the
+        // same: the container's state goes with its cell's reset, and a source with no
+        // state so far gets one and is moved beside a listener. A state made as placed
+        // leaves the presence serial, so only the reset's drop tells the index that the
+        // states changed.
+        let fresh = at(2);
+        assert!(sim.world.changed().all(|(id, _)| id != fresh), "a source with no state so far");
+        let states = sim.world.changed().count();
+        assert_eq!(sim.world.reset_containers(CELL), vec![crate_ref]);
+        sim.world.get(fresh).unwrap().pos = [eye[0], eye[1] + 100.0, eye[2]];
+        assert_eq!(sim.world.changed().count(), states, "as many states as before");
+        check(&mut index, &list, &sim, &eyes);
+        index.heard(&list, &sim, eye, &mut near, &mut out);
+        assert!(heard(&out, fresh), "the source with a new state is heard beside the listener");
+        // A restored world with as many states as the last (it starts from a serial no
+        // other world used): other sources have them, one beside the listener.
+        let before: Vec<FormId> = sim.world.changed().map(|(id, _)| id).collect();
+        sim.world = fnv_sim::World::new(sim.forms, sim.refs, fnv_sim::SimConfig::default());
+        let fresh: Vec<FormId> = list
+            .iter()
+            .filter(|e| e.3.is_none() && reach(e.1).is_some_and(|r| r > 0.0) && !before.contains(&FormId(e.0)) && sim.world.is_enabled(FormId(e.0)).unwrap_or(false))
+            .map(|e| FormId(e.0))
+            .collect();
+        sim.world.get(fresh[0]).unwrap().pos = [eye[0] - 100.0, eye[1], eye[2]];
+        for &id in &fresh[1..] {
+            if sim.world.changed().count() >= before.len() {
+                break;
+            }
+            sim.world.get(id).unwrap();
+        }
+        assert_eq!(sim.world.changed().count(), before.len(), "as many states as the last world");
+        check(&mut index, &list, &sim, &eyes);
+        index.heard(&list, &sim, eye, &mut near, &mut out);
+        assert!(heard(&out, fresh[0]), "a source the restored world moved is heard beside the listener");
         // A new world: every state gone, every source at its placement again.
         sim.world = fnv_sim::World::new(sim.forms, sim.refs, fnv_sim::SimConfig::default());
         check(&mut index, &list, &sim, &eyes);

@@ -1209,7 +1209,10 @@ mod tests {
                 AudioMarker { ref_id: 0x3000 + i, position, radius, controller: (i % 10 != 7).then_some(2), initially_disabled: i % 11 == 0, ..marker(0.0) }
             })
             .collect();
-        // A tie: the same place and radius as the first, later in the list.
+        // A tie: the same place and radius as the first, later in the list. Both enabled
+        // (the first would be disabled by the `i % 11` rule above), so the tie is decided
+        // by list order and checked below.
+        markers[0].initially_disabled = false;
         let twin = AudioMarker { ref_id: 0x4000, ..markers[0].clone() };
         markers.push(twin);
         let grid = marker_grid(&markers);
@@ -1220,6 +1223,10 @@ mod tests {
         }
         let enabled = |m: &AudioMarker| !m.initially_disabled;
         let (mut near, mut candidates) = (Vec::new(), Vec::new());
+        // At the twins' own place both are at distance 0: the earlier one wins, both ways.
+        let at_twins = markers[0].position;
+        assert_eq!(audio::marker_at(&markers, at_twins, enabled).map(|(m, _)| m.ref_id), Some(0x3000));
+        assert_eq!(marker_near(&grid, &markers, at_twins, enabled, &mut near, &mut candidates).map(|(m, _)| m.ref_id), Some(0x3000));
         let mut picked = 0;
         for eye in eyes {
             let whole = audio::marker_at(&markers, eye, enabled).map(|(m, d)| (m.ref_id, d.to_bits()));
