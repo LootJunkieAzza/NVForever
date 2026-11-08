@@ -178,7 +178,8 @@ fn cnd_draws_three_hints_in_the_existing_slots() {
     world.run_system_once(|mut commands: Commands| {
         let mut kit = Kit::default();
         let mut images = Assets::<Image>::default();
-        let mut c = Ctx::new(&mut kit, None, &mut images, None);
+        let glyphs = crate::pad::PadGlyphs::default();
+        let mut c = Ctx::new(&mut kit, None, &mut images, None, &glyphs);
         let s = Snapshot { switch_limbs: "Test target".into(), ..default() };
         commands.spawn(Node::default()).with_children(|p| status(p, &mut c, &mut StatsView::default(), &s));
     }).unwrap();
