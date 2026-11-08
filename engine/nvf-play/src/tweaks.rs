@@ -113,6 +113,17 @@ pub struct TweakSettings {
     pub repeat_jumping: bool,
     /// `bHoldCrouchToSneak`: sneak while the key is held.
     pub hold_to_sneak: bool,
+    /// `bChargedAttacksCostAP`/`iChargedAttackAPCost`: Action Points a power attack
+    /// costs; 0 changes nothing.
+    pub power_attack_ap: f32,
+    /// `bDistanceBasedQuestMarkerVisibilty`: quest targets farther than this are left off
+    /// the compass; 0 changes nothing.
+    pub quest_marker_reach: f32,
+    /// `bUseCustomSniperZoomRate`/`fScopeFOVTimeChange`: a scope's zoom time as a part of
+    /// the usual; 1 changes nothing.
+    pub scope_zoom_time: f32,
+    /// `bAddInventoryDropItemHotkey`: Q drops the selected Pip-Boy item.
+    pub drop_key: bool,
 }
 
 /// The Own Skill Points Rule's numbers until the player sets them: the game's rule
@@ -186,6 +197,10 @@ impl Default for TweakSettings {
             no_aiming_slowdown: false,
             repeat_jumping: false,
             hold_to_sneak: false,
+            power_attack_ap: 0.0,
+            quest_marker_reach: 0.0,
+            scope_zoom_time: 1.0,
+            drop_key: false,
         }
     }
 }
@@ -540,6 +555,12 @@ impl Plugin for TweaksPlugin {
         switch!(app, "no-aiming-slowdown", "Full Pace While Aiming", "Aiming or blocking does not slow the player to a walk. (Stewie's Tweaks bAimingSpeed)", no_aiming_slowdown);
         switch!(app, "repeat-jumping", "Hold to Keep Jumping", "Holding Jump jumps again on landing. (Stewie's Tweaks bRepeatJumping)", repeat_jumping);
         switch!(app, "hold-to-sneak", "Hold to Sneak", "Sneak only while the Crouch/Sneak key is held. (Stewie's Tweaks bHoldCrouchToSneak)", hold_to_sneak);
+        // ---- batch 10 ----
+        amount!(app, "vats-entry-ap", "Action Points to Enter V.A.T.S.", "Action Points entering V.A.T.S. costs; refused without them. 0 changes nothing. (Stewie's Tweaks bEnteringVATSCostsAP)", 50.0, f64, game.vats_entry_ap);
+        amount!(app, "power-attack-ap", "Action Points per Power Attack", "Action Points a power attack costs; 0 changes nothing. (Stewie's Tweaks bChargedAttacksCostAP)", 50.0, f32, power_attack_ap);
+        amount!(app, "quest-marker-reach", "Quest Markers Within", "Quest targets farther than this (game units) are left off the compass; 0 changes nothing. (Stewie's Tweaks bDistanceBasedQuestMarkerVisibilty)", 20000.0, f32, quest_marker_reach);
+        part!(app, "scope-zoom-time", "Scope Zoom Time", "How long a scope takes to zoom, as a part of the usual; 100% changes nothing. (Stewie's Tweaks bUseCustomSniperZoomRate)", scope_zoom_time);
+        switch!(app, "drop-key", "Q Drops Items", "In the Pip-Boy's inventory, Q drops the selected item. (Stewie's Tweaks bAddInventoryDropItemHotkey)", drop_key);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

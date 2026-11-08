@@ -322,7 +322,8 @@ pub fn keys(
     (pads, bindings): (Query<&Gamepad>, Option<Res<crate::bindings::Bindings>>),
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
-    let deselect = tweaks.is_some_and(|t| t.deselect_hotkeys);
+    let deselect = tweaks.as_ref().is_some_and(|t| t.deselect_hotkeys);
+    let drop_key = tweaks.as_ref().is_some_and(|t| t.drop_key);
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
     use KeyCode::*;
@@ -365,6 +366,10 @@ pub fn keys(
     // while "How many?" is up (the model would ignore it there too).
     let asking = active.0.as_ref().is_some_and(|m| m.quantity.is_some());
     if !asking && crate::pad::menu_button(&pads, bindings.as_deref(), GamepadButton::West) {
+        send(Command::Drop);
+    }
+    // The player's tweak: Q drops the selected item too [design: docs/design/tweaks.md].
+    if !asking && drop_key && keys.just_pressed(KeyCode::KeyQ) {
         send(Command::Drop);
     }
     for w in wheel.read() {

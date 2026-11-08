@@ -169,6 +169,16 @@ saves load, and the frame's sync sets them from the settings again.
 | Hold to Keep Jumping | `bRepeatJumping` | `player::read_input` |
 | Hold to Sneak | `bHoldCrouchToSneak` | `control::read_controls` |
 
+## Tenth batch (2026-11-09)
+
+| Row | INI key | Where |
+|---|---|---|
+| Action Points to Enter V.A.T.S. (0–50) | `bEnteringVATSCostsAP` | `vats_mode::try_enter` |
+| Action Points per Power Attack (0–50) | `bChargedAttacksCostAP` | `combat::melee` power branch |
+| Quest Markers Within (0–20000 units) | `bDistanceBasedQuestMarkerVisibilty` | `compass::gather` quest loop |
+| Scope Zoom Time (part) | `bUseCustomSniperZoomRate` | `aim_zoom::zoom` while a scope is up |
+| Q Drops Items | `bAddInventoryDropItemHotkey` | `pipboy::items::keys` |
+
 Menu tweaks that code holding the game reads (the Pip-Boy's item info, crafting, the
 level-up menu, the terminal's timers) are kept in `fnv_game::tweaks` too, so no system
 needs another parameter; the catalogue's notes say where NVForever already does what a
@@ -185,8 +195,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 105 |
-| to do | 498 |
+| done | 110 |
+| to do | 493 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -213,6 +223,7 @@ game's Data folder, read-only).
 | `bPowerArmorScalesFallDamage` | done |  | 2 | Falls in Power Armor (slider; applies to everyone, the player-only option not built) |
 | `bReduceXP` | done |  | 2 | Experience Earned (slider, x0 to x2) |
 | `bRunningCostsAP` | done |  | 8 | Action Points per Second Running (slider 0-20, a flat rate; the Endurance formula not built) |
+| `bUseCustomSniperZoomRate` | done |  | 2 | Scope Zoom Time (slider; the zoom-out option not built) |
 | `bWeightlessWornArmor` | done |  | 1 | Worn Armor Weighs Nothing (weightless; the scale option not built) |
 | `bWeightlessWornPowerArmor` | done |  | 3 | Worn Power Armor Weighs Nothing (weightless; the scale and requirement options not built) |
 | `iPerksPerLevel` | done |  | 1 | Perks per Level (1 to 5) |
@@ -334,7 +345,6 @@ game's Data folder, read-only).
 | `bUnequipWeaponMods` | to do |  | 7 |  |
 | `bUseArmorRepairKitsInRepairMenu` | to do |  |  |  |
 | `bUseCustomBarterPriceMultipliers` | to do |  | 13 |  |
-| `bUseCustomSniperZoomRate` | to do |  | 2 | aim_zoom ZOOM_SECONDS is a constant |
 | `bUseWeaponRepairKitsInRepairMenu` | to do |  | 2 |  |
 | `bUsingKeysRewardsXP` | to do |  | 3 |  |
 | `bUsingNotesRewardsXP` | to do |  | 3 |  |
@@ -350,7 +360,9 @@ game's Data folder, read-only).
 
 | INI key | Status | VNV on | Options | Note |
 |---|---|---|---|---|
+| `bChargedAttacksCostAP` | done |  | 4 | Action Points per Power Attack (slider, a flat cost for every power attack; the weight factor and the refusal not built) |
 | `bDisableCombatMusic` | done |  |  | No Battle Music |
+| `bEnteringVATSCostsAP` | done |  | 4 | Action Points to Enter V.A.T.S. (slider; refused without them; the fail-only and no-target options not built) |
 | `bHideEnemyMarkers` | done |  | 1 | No Enemies on the Compass (the firing-enemies option is not built) |
 | `bKillsRewardAP` | done |  | 1 | Action Points per Kill (slider 0-50; given in VATS too) |
 | `bNoSneakAttacksCriticals` | done |  |  | No Sneak Criticals |
@@ -359,10 +371,8 @@ game's Data folder, read-only).
 | `bBloodyMessGibTargetedLimbOnly` | to do |  |  |  |
 | `bCharacterMeleeDamageIgnoresScale` | to do |  |  |  |
 | `bCharacterNonMeleeDamageIgnoresScale` | to do |  |  |  |
-| `bChargedAttacksCostAP` | to do |  | 4 | combat::melee power branch; power attacks cost no AP yet |
 | `bClipSizeMatters` | to do |  |  |  |
 | `bDifficultyDoesntAffectNPCToNPCDamage` | to do |  | 3 |  |
-| `bEnteringVATSCostsAP` | to do |  | 4 | vats_mode::try_enter (plain fn, has the game) |
 | `bFatalNonSneakCritsAlwaysGib` | to do |  | 1 |  |
 | `bFirstPersonVATS` | to do |  |  | VATS keeps the current view; forcing one goes in vats_mode |
 | `bHoldAndReleaseThrowables` | to do |  | 1 |  |
@@ -515,6 +525,7 @@ game's Data folder, read-only).
 |---|---|---|---|---|
 | `bAddRGBSliders` | done | yes | 1 | already a row: Interface tab, hud-red / hud-green / hud-blue |
 | `bHideRedCrosshairOnDistantInvisibleTargets` | done | yes |  | Invisible Foes Stay Hidden (at any distance) |
+| `bDistanceBasedQuestMarkerVisibilty` | done |  | 2 | Quest Markers Within (slider in game units, one distance indoors and out) |
 | `bNoCrippleCriticalMessages` | done |  | 3 | already so: no crippled or critical popups about the target are shown |
 | `bNoKarmaMessages` | done |  | 7 | Quiet Karma (messages and sounds together; no thresholds yet) |
 | `bNoLocationPopup` | done |  |  | No Location Banner |
@@ -544,7 +555,6 @@ game's Data folder, read-only).
 | `bDisableGrenadeIndicator` | to do |  |  |  |
 | `bDisableHUDCrippledLimbIndicator` | to do |  |  |  |
 | `bDisableNeedsMessages` | to do |  | 4 | those messages are the game's own scripts; needs a filter by message |
-| `bDistanceBasedQuestMarkerVisibilty` | to do |  | 2 | compass::gather quest loop |
 | `bExplodingDestructibleIndicator` | to do |  |  |  |
 | `bHideAmmoLabel` | to do |  | 1 |  |
 | `bHideCapsAddedMessages` | to do |  |  |  |
@@ -599,6 +609,7 @@ game's Data folder, read-only).
 | `bSkipSkillMenuIfNoPointsToAssign` | done | yes |  | Perks First When No Points |
 | `bSynchronizeContainerCategories` | done | yes | 1 | Matching Categories (the option for emptying a category not built) |
 | `bTakeAllInCompanionContainers` | done | yes |  | already so: Take All shows for companions |
+| `bAddInventoryDropItemHotkey` | done |  |  | Q Drops Items |
 | `bDisableLoadingScreenTips` | done |  |  | No Loading Tips |
 | `bLockpickAllowMouse` | done |  |  | Mouse Turns the Lock |
 | `bNoExitConfirm` | done |  |  | already so: the main menu's Quit asks nothing |
@@ -620,7 +631,6 @@ game's Data folder, read-only).
 | `bSortEquipableAmmo` | to do | yes |  | rows sort by name (menu/model.rs sort_rows) |
 | `b12HourPipboyClock` | to do |  |  |  |
 | `b24HourSleepWaitClock` | to do |  |  |  |
-| `bAddInventoryDropItemHotkey` | to do |  |  | right click drops already; a key in pipboy::items::keys |
 | `bAllowRebindNumkeys` | to do |  |  |  |
 | `bAmmoLabelUseLongName` | unsure, skipped |  | 1 | needs a UI mod |
 | `bBarterQuantityMenuShowsPrice` | to do |  |  |  |

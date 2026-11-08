@@ -3593,6 +3593,7 @@ fn melee(
     (parts, limbs): (Res<ActorParts>, Res<PlayerLimbs>),
     (sfx, mut sounds, mut impacts): (Option<Res<Sfx>>, MessageWriter<PlaySound>, MessageWriter<ImpactFx>),
     (mut vats, mut dm, mut knocks): (Option<ResMut<crate::vats_mode::VatsMode>>, ResMut<crate::dismember::Dismemberment>, MessageWriter<Knockback>),
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -3673,6 +3674,13 @@ fn melee(
                 }
                 if power.is_some() {
                     stats.power_attacks += 1;
+                    // The player's tweak: a power attack costs Action Points [design: docs/design/tweaks.md].
+                    let cost = tweaks.as_ref().map_or(0.0, |t| t.power_attack_ap);
+                    if cost > 0.0 && !god_mode() {
+                        if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+                            crate::script::with_world(rt, &mut sim, |rt| fnv_game::functions::add_actor_value_damage(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::ACTION_POINTS, f64::from(cost)));
+                        }
+                    }
                     // Without a clip to time it, a power attack takes longer [design].
                     if let Some(s) = c.swings.swing.as_mut() {
                         s.timing = SwingTiming::of(None, None, None, speed, fallback * c.tuning.power_time);

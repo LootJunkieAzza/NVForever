@@ -100,6 +100,9 @@ pub struct Tweaks {
     pub lockpick_mouse_turn: bool,
     /// `bNoMaxCasinoBet`: the casino games take any bet the player can pay.
     pub no_max_casino_bet: bool,
+    /// `bEnteringVATSCostsAP`/`iEnterVATSAPCost`: Action Points entering V.A.T.S.
+    /// costs; 0 changes nothing.
+    pub vats_entry_ap: f64,
 }
 
 impl Default for Tweaks {
@@ -137,6 +140,7 @@ impl Default for Tweaks {
             no_skip_dialogue: false,
             lockpick_mouse_turn: false,
             no_max_casino_bet: false,
+            vats_entry_ap: 0.0,
         }
     }
 }

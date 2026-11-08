@@ -146,6 +146,7 @@ pub(crate) fn zoom(
     lens: Res<Scope3d>,
     talk: Option<Res<crate::dialogue_zoom::DialogueZoom>>,
     mut cams: Query<&mut Projection, With<PlayerCamera>>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     let Ok(mut proj) = cams.single_mut() else { return };
     // Read first: a write every frame would mark the projection changed.
@@ -165,7 +166,9 @@ pub(crate) fn zoom(
         z.sight = Some(vertical_fov(deg));
     }
     z.aimed = sight.is_some();
-    let step = time.delta_secs().min(0.25) / ZOOM_SECONDS;
+    // The player's tweak times a scope's zoom its own way [design: docs/design/tweaks.md].
+    let secs = if scope.on { ZOOM_SECONDS * tweaks.as_ref().map_or(1.0, |t| t.scope_zoom_time).max(0.1) } else { ZOOM_SECONDS };
+    let step = time.delta_secs().min(0.25) / secs;
     let was = z.blend;
     z.blend = if sight.is_some() { (z.blend + step).min(1.0) } else { (z.blend - step).max(0.0) };
     // The scope: up at full zoom in first person, down as soon as the aim is let go.

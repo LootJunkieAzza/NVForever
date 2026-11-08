@@ -286,7 +286,8 @@ fn gather(
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     // The player's tweak leaves hostile actors off the compass [design: docs/design/tweaks.md].
-    let hide_foes = tweaks.is_some_and(|t| t.hide_enemy_markers);
+    let hide_foes = tweaks.as_ref().is_some_and(|t| t.hide_enemy_markers);
+    let quest_reach = tweaks.as_ref().map_or(0.0, |t| t.quest_marker_reach);
     *poll += time.delta_secs();
     if *poll < POLL || *state.get() != PlayState::Playing {
         return;
@@ -360,6 +361,10 @@ fn gather(
         for c in st.marked_targets() {
             let graph = graph.get_or_insert_with(|| DoorGraph::build(sim.refs));
             let Some((pos, itself)) = quest_mark_at(&sim, loc, graph, c.target, c.ignores_locks) else { continue };
+            // The player's tweak: quest targets past this far are left off [design: docs/design/tweaks.md].
+            if quest_reach > 0.0 && (pos[0] - feet[0]).hypot(pos[1] - feet[1]) > quest_reach {
+                continue;
+            }
             placed += 1;
             if on_compass(offset(heading, here, [pos[0], pos[1]])) {
                 marks.push(Mark::Quest);

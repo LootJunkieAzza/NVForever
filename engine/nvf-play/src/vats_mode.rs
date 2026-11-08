@@ -870,6 +870,17 @@ fn try_enter(v: &mut VatsMode, combat: &Combat, mut script: Option<&mut ScriptSt
     if let Err(r) = v.queue.check(ap_now) {
         return refused(v, r.message(), hud, sounds);
     }
+    // The player's tweak: entering costs Action Points, and is refused without them [design: docs/design/tweaks.md].
+    let entry = script.as_ref().and_then(|s| s.rt.as_ref()).map_or(0.0, |rt| rt.game.tweaks.vats_entry_ap);
+    if entry > 0.0 && !crate::combat::god_mode() {
+        if ap_now < entry as f32 {
+            return refused(v, "Not enough Action Points to enter V.A.T.S.", hud, sounds);
+        }
+        if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+            crate::script::with_world(rt, sim, |rt| fnv_game::functions::add_actor_value_damage(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::ACTION_POINTS, entry));
+            info!("vats mode: entering cost {entry:.0} AP (tweak)");
+        }
+    }
     v.phase = Phase::Marking;
     v.spots.clear();
     v.preview = Preview::default();
