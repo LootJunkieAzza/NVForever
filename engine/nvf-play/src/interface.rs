@@ -508,11 +508,19 @@ pub fn line_base(face: &Face) -> f32 {
     face.font.glyphs.iter().skip(0x20).take(0x5F).filter(|g| g.drawn()).map(|g| g.ascent).fold(0.0, f32::max).max(face.font.size * 0.75)
 }
 
-/// The font's x-height: the tallest lowercase letter's rise, the band the eye centres on
-/// for mixed-case text (so a button glyph next to "Yes" sits on it, not on the cap height)
-/// [design]. Floored at half the font size.
+/// The font's x-height: the rise of its typical lowercase letter, the band the eye centres
+/// on for mixed-case text (so a button glyph next to "Yes" sits on it, not on the cap
+/// height) [design]. The median of the lowercase letters, so the ascenders in the range
+/// (`b`, `d`, `f`, `h`, `k`, `l`, `t`) do not pull it up to their own or the capitals'
+/// rise. A font with no lowercase letters at all — its text is all capitals — centres on
+/// its capitals instead ([`line_base`]).
 pub fn x_height(face: &Face) -> f32 {
-    face.font.glyphs.iter().skip(0x61).take(0x1A).filter(|g| g.drawn()).map(|g| g.ascent).fold(0.0, f32::max).max(face.font.size * 0.5)
+    let mut rises: Vec<f32> = face.font.glyphs.iter().skip(0x61).take(0x1A).filter(|g| g.drawn()).map(|g| g.ascent).collect();
+    if rises.is_empty() {
+        return line_base(face);
+    }
+    rises.sort_by(f32::total_cmp);
+    rises[rises.len() / 2]
 }
 
 /// Draw a line of text at `origin` (what its `x` and `base` are measured from). Every
@@ -928,5 +936,45 @@ mod tests {
                 None => assert_eq!(ui, 1.0),
             }
         }
+    }
+
+    /// A font whose capitals and lowercase ascenders rise `24`, other lowercase letters
+    /// `17`, and whose `drawn` letters carry a picture. `lowercase_off`: those letters
+    /// have no picture, as in the caps-only title font.
+    fn measured_font(lowercase_off: bool) -> Face {
+        let mut glyphs = vec![Glyph::default(); 256];
+        let mut put = |code: u8, ascent: f32| {
+            glyphs[code as usize] = Glyph { width: 10.0, height: 10.0, ascent, ..Glyph::default() };
+        };
+        for code in 0x20..0x7Fu8 {
+            let c = code as char;
+            let ascender = matches!(c, 'b' | 'd' | 'f' | 'h' | 'k' | 'l' | 't');
+            let ascent = if c.is_ascii_uppercase() || ascender { 24.0 } else { 17.0 };
+            put(code, ascent);
+        }
+        if lowercase_off {
+            for code in 0x61..=0x7Au8 {
+                glyphs[code as usize] = Glyph::default();
+            }
+        }
+        Face { font: Font { size: 31.0, texture: String::new(), glyphs }, image: None }
+    }
+
+    /// #1829: the hint glyphs sit on the x-height band, not the cap-height middle. The
+    /// lowercase ascenders (`b`, `d`, `f`, `h`, `k`, `l`, `t`) are in the lowercase range,
+    /// so taking their tallest rise would return the cap height and change nothing.
+    #[test]
+    fn the_x_height_is_the_lowercase_band_not_the_cap_height() {
+        let face = measured_font(false);
+        assert_eq!(line_base(&face), 24.0);
+        assert_eq!(x_height(&face), 17.0);
+    }
+
+    /// A font with no lowercase picture has no x-height band to centre on: all its text is
+    /// capitals, so the glyphs centre on those.
+    #[test]
+    fn a_caps_only_font_centres_its_glyphs_on_the_cap_height() {
+        let face = measured_font(true);
+        assert_eq!(x_height(&face), line_base(&face));
     }
 }
