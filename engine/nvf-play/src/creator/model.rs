@@ -187,7 +187,8 @@ pub enum Row {
     Race,
     /// The character's voice (docs/design/player-voices.md): None or a voice set.
     Voice,
-    /// The race's starting faces (NPC_ "Is CharGen Face Preset").
+    /// The race's starting faces (NPC_ "Is CharGen Face Preset"), then the named presets
+    /// of the sex (`RaceMenuPresets\*.preset` files).
     Preset,
     /// Which group of the tab's sliders is shown.
     Group,
@@ -631,12 +632,14 @@ impl Model {
                 // A face shaped for one sex reads as that sex on the other's head
                 // [observed: the record's male values on the female head, smoke run
                 // screenshot]: the other sex starts from the race's first starting face.
-                if let Some(p) = self.data.catalogue.presets(self.look.race, self.look.female).first() {
-                    self.look.facegen = p.facegen.clone();
-                    self.preset = 1;
-                }
                 // A voice is offered to its own sex only.
                 self.drop_unfitting_voice();
+                let data = self.data.clone();
+                if let Some(p) = data.catalogue.presets(self.look.race, self.look.female).first() {
+                    self.look.facegen = p.facegen.clone();
+                    self.preset = 1;
+                    self.choose_preset_voice(p);
+                }
             }
             Row::Race => {
                 let races = &self.data.catalogue.races;
@@ -649,10 +652,18 @@ impl Model {
                 self.drop_unfitting_voice();
             }
             Row::Preset => {
-                let presets = self.data.catalogue.presets(self.look.race, self.look.female);
+                let data = self.data.clone();
+                let presets = self.preset_list(&data);
                 let n = presets.len() + 1;
                 self.preset = cycle(self.preset, by, n);
-                if let Some(p) = self.preset.checked_sub(1).and_then(|i| presets.get(i)) {
+                if let Some(&p) = self.preset.checked_sub(1).and_then(|i| presets.get(i)) {
+                    if p.race != self.look.race && self.kind != RaceMenu::Surgeon {
+                        // A named preset brings its race: the list is the new race's.
+                        self.look.race = p.race;
+                        let now = self.preset_list(&data);
+                        self.preset = now.iter().position(|q| std::ptr::eq(*q, p)).map_or(0, |i| i + 1);
+                    }
+                    self.choose_preset_voice(p);
                     self.look.facegen = p.facegen.clone();
                     self.look.eyes = p.eyes.or(self.look.eyes);
                     if self.kind == RaceMenu::Surgeon {
@@ -705,6 +716,31 @@ impl Model {
             Row::Group | Row::Slider(_) | Row::Voice => {}
         }
         self.look != before || row == Row::Preset
+    }
+
+    /// The Preset row's entries: the race's starting faces, then the named presets of the
+    /// sex (the surgeon, who keeps the race, only those of the look's race).
+    fn preset_list<'a>(&self, data: &'a Creator) -> Vec<&'a fnv_actor::creator::AuthoredFace> {
+        let c = &data.catalogue;
+        let mut l = c.presets(self.look.race, self.look.female);
+        l.extend(c.named_presets(self.look.female).into_iter().filter(|f| self.kind != RaceMenu::Surgeon || f.race == self.look.race));
+        l
+    }
+
+    /// Every preset comes with a voice [owner 2026-11-07]: one of the fitting voices,
+    /// picked by the preset (the same preset gives the same voice), in the creator only.
+    fn choose_preset_voice(&mut self, p: &fnv_actor::creator::AuthoredFace) {
+        if self.kind != RaceMenu::Creator {
+            return;
+        }
+        let fit = self.fitting_voices();
+        if fit.is_empty() {
+            return;
+        }
+        let key = p.name.as_deref().filter(|_| p.npc == FormId(0)).map_or_else(|| p.npc.0.to_string(), str::to_string);
+        // FNV-1a: stable across runs and builds.
+        let h = key.bytes().fold(0x811c_9dc5_u32, |h, b| (h ^ u32::from(b)).wrapping_mul(0x0100_0193));
+        self.voice = Some(fit[h as usize % fit.len()].id.clone());
     }
 
     /// The look as SexChange with reset leaves the player (`fnv_game::appearance`): fitted
@@ -858,9 +894,14 @@ impl Model {
                 choice("Origin", race.map_or_else(|| self.look.race.to_string(), |r| r.name.clone()), i.map_or(0, |i| i + 1), races.len())
             }
             Row::Preset => {
-                let n = self.data.catalogue.presets(self.look.race, self.look.female).len();
-                let value = if self.preset == 0 { "Your own".to_string() } else { format!("Face {}", self.preset) };
-                choice("Starting face", value, self.preset, n)
+                let race_faces = self.data.catalogue.presets(self.look.race, self.look.female).len();
+                let list = self.preset_list(&self.data);
+                let value = match self.preset.checked_sub(1).and_then(|i| list.get(i).map(|p| (i, p))) {
+                    None => "Your own".to_string(),
+                    Some((i, _)) if i < race_faces => format!("Face {}", i + 1),
+                    Some((_, p)) => p.name.clone().unwrap_or_default(),
+                };
+                choice("Preset", value, self.preset, list.len())
             }
             Row::Group => {
                 let g = self.groups(self.tab);
@@ -1008,8 +1049,9 @@ mod tests {
             brows: vec![ch(50, "EyebrowM")],
             hair_colours: vec![([75, 50, 24], 9), ([10, 10, 10], 4)],
             faces: vec![face(100, 2.0), face(101, -2.0)],
+            named: vec![],
         };
-        Arc::new(Creator { catalogue, sliders: [sliders.clone(), sliders], ctl_problem: None, player: None })
+        Arc::new(Creator { catalogue, sliders: [sliders.clone(), sliders], ctl_problem: None, player: None, preset_log: Vec::new() })
     }
 
     fn look() -> Look {
@@ -1136,12 +1178,48 @@ mod tests {
     }
 
     #[test]
+    fn a_named_preset_brings_its_race_face_and_a_voice() {
+        let mut c = (*data()).clone();
+        c.catalogue.named.push(AuthoredFace {
+            npc: FormId(0),
+            preset: true,
+            name: Some("Kiri".into()),
+            race: FormId(2),
+            female: false,
+            facegen: FaceGen { fggs: vec![3.0; 50], fgga: vec![0.0; 30], fgts: vec![0.0; 50] },
+            hair: Some(FormId(10)),
+            hair_color: Some([1, 2, 3]),
+            eyes: Some(FormId(30)),
+            head_parts: vec![],
+        });
+        let v = |id: &str| VoiceOption { id: id.into(), name: id.into(), sex: "male".into(), race: "human".into() };
+        let mut m = Model::new(Arc::new(c), look()).with_voices(vec![v("a"), v("b"), v("c")], None);
+        // Two starting faces of the race, then the named one.
+        assert!(m.adjust_row(Row::Preset, -1, false));
+        assert_eq!(m.look.race, FormId(2));
+        assert_eq!(m.look.facegen.fggs[0], 3.0);
+        assert_eq!(m.look.hair_color, Some([1, 2, 3]));
+        assert_eq!(m.view(Row::Preset), RowView::Choice { label: "Preset".into(), value: "Kiri".into(), at: 1, of: 1 });
+        let voice = m.voice_id().map(str::to_string);
+        assert!(voice.is_some(), "a preset comes with a voice");
+        // The same preset gives the same voice.
+        m.adjust_row(Row::Preset, -1, false);
+        m.adjust_row(Row::Preset, 1, false);
+        assert_eq!(m.voice_id().map(str::to_string), voice);
+        // A starting face comes with a voice too.
+        m.voice = None;
+        m.adjust_row(Row::Race, -1, false);
+        m.adjust_row(Row::Preset, 1, false);
+        assert!(m.voice_id().is_some());
+    }
+
+    #[test]
     fn a_preset_brings_its_face_and_hair() {
         let mut m = Model::new(data(), look());
         assert!(m.adjust_row(Row::Preset, 1, false));
         assert_eq!(m.look.facegen.fggs[3], 2.0);
         assert_eq!((m.look.hair, m.look.eyes), (Some(FormId(11)), Some(FormId(31))));
-        assert_eq!(m.view(Row::Preset), RowView::Choice { label: "Starting face".into(), value: "Face 1".into(), at: 1, of: 2 });
+        assert_eq!(m.view(Row::Preset), RowView::Choice { label: "Preset".into(), value: "Face 1".into(), at: 1, of: 2 });
         // Back to "Your own": the face the menu opened with.
         m.adjust_row(Row::Preset, -1, false);
         assert_eq!(m.look.facegen.fggs[3], 0.0);

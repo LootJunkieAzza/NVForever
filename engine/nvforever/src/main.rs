@@ -1129,7 +1129,15 @@ fn main() -> AppExit {
     let mut creator_data = actor_world
         .as_ref()
         .filter(|_| play.is_some())
-        .map(|a| nvf_play::creator::CreatorData(std::sync::Arc::new(fnv_actor::creator::Creator::build(&a.actors, |p| game.read(p)))));
+        .map(|a| {
+            let mut c = fnv_actor::creator::Creator::build(&a.actors, |p| game.read(p));
+            // Named presets (RaceMenuPresets\*.preset, a mod's loose files).
+            let files = (game.vfs.paths(|p| p.starts_with(fnv_actor::creator::PRESET_DIR) && p.ends_with(".preset")).into_iter())
+                .filter_map(|p| game.read(&p).map(|b| (p, b)))
+                .collect();
+            c.add_named_presets(files, |name| args.plugins.iter().position(|q| q.eq_ignore_ascii_case(name)).and_then(|i| u8::try_from(i).ok()));
+            nvf_play::creator::CreatorData(std::sync::Arc::new(c))
+        });
     let open_doors = args.open_doors;
     // What the overlay system and the settings page go by.
     args.no_overlay |= args.frame_json.is_some() || (args.play && !args.overlay);

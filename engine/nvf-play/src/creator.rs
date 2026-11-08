@@ -246,6 +246,9 @@ impl Plugin for CreatorPlugin {
 
 /// What the creator has to offer, once (smoke tests read it).
 fn say_data(data: Option<Res<CreatorData>>) {
+    for line in data.as_ref().map(|d| d.0.preset_log.as_slice()).unwrap_or_default() {
+        info!("creator: preset {line}");
+    }
     match data {
         Some(d) => info!(
             "creator: data: {} races, {} sliders, {} authored faces{}",
