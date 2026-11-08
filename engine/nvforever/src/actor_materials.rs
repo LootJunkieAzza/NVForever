@@ -42,6 +42,14 @@ pub struct ActorMaterials {
     searched: Vec<String>,
 }
 
+impl ActorMaterials {
+    /// The actor's own material copies its clips write (the profile aid's `profile change
+    /// sources:` line). While a shape fades, the clips write the fade's copy instead.
+    pub fn written(&self) -> impl Iterator<Item = AssetId<NifMaterial>> + '_ {
+        self.slots.iter().filter_map(|s| s.mine.as_ref().map(Handle::id))
+    }
+}
+
 struct Slot {
     /// Lower case, as `ShapeName`.
     shape: String,
