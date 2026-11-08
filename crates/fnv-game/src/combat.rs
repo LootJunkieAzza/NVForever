@@ -824,7 +824,10 @@ impl Game<'_> {
     /// equipment change, which the owner ruled a bug (actors.md §8.10, The player).
     pub fn move_speed_mult(&mut self, r: FormId) -> f64 {
         let mult = actor::actor_value(self, r, crate::actor_values::SPEED_MULTIPLIER).unwrap_or(100.0);
-        (mult / 100.0).clamp(0.0, 10.0) * self.armor_speed_mult(r)
+        // The player's tweak: Agility above or below 5 speeds or slows everyone [design: docs/design/tweaks.md].
+        let per = self.tweaks.agility_speed_per_point;
+        let agility = if per != 0.0 { (1.0 + per * (actor::actor_value(self, r, crate::actor_values::AGILITY).unwrap_or(5.0) - 5.0)).max(0.1) } else { 1.0 };
+        (mult / 100.0).clamp(0.0, 10.0) * self.armor_speed_mult(r) * agility
     }
 
     /// An actor's limb conditions, codes 25–31 in order.

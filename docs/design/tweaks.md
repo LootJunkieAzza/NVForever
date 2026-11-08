@@ -189,6 +189,20 @@ saves load, and the frame's sync sets them from the settings again.
 | No Leaving a Hack | `bNoExitHacking` | `terminal::apply` |
 | No Grabbing Owned Items | `bNoGrabOwnedItems` | `grab::grab` (`activate::owned_by_other`) |
 
+## Twelfth batch (2026-11-09)
+
+| Row | INI key | Where |
+|---|---|---|
+| Agility Moves Faster (0–10% a point) | `bAgilityScalesMovementSpeed` | `Game::move_speed_mult` |
+| Skip Easy Hacks (+ margin) | `bAutoUnlockTerminals` | `terminal::opening` |
+| Shots Spare Weapons | `bHittingWeaponsDoesntDamageThem` | `combat::strike_weapon` |
+| No Jams in God Mode | `bGodModePreventsJamAnims` | `combat::fire` |
+| Strength Resists Blasts | `bExplosionKnockdownAvoidanceUsesStrength` | `combat::fly` knockdown |
+| Drowning Takes AP First | `bDrowningDrainsAP` | `drowning::breathe` |
+| Aiming Draws the Weapon | `bAimingUnholstersWeapons` | `control::read_controls` |
+| Steepest Walkable Slope (30–80°) | `bBillyGoatMode` | `player::step` (`max_slope_deg`) |
+| Jumping on a Crippled Leg (part) | `bCrippledLegsScaleJumpHeight` | `player::step` (`jump_height`) |
+
 Menu tweaks that code holding the game reads (the Pip-Boy's item info, crafting, the
 level-up menu, the terminal's timers) are kept in `fnv_game::tweaks` too, so no system
 needs another parameter; the catalogue's notes say where NVForever already does what a
@@ -205,8 +219,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 115 |
-| to do | 488 |
+| done | 131 |
+| to do | 472 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -215,11 +229,27 @@ game's Data folder, read-only).
 
 | INI key | Status | VNV on | Options | Note |
 |---|---|---|---|---|
+| `bActorsStickToSlopes` | done |  | 2 | already so: characters settle onto walkable ground going down (fnv-phys character) |
+| `bAgilityScalesMovementSpeed` | done |  | 3 | Agility Moves Faster (slider, every actor; the player-only and NPC-only options not built) |
 | `bAimingSpeed` | done |  | 2 | Full Pace While Aiming (aiming and blocking together) |
+| `bAimingUnholstersWeapons` | done |  |  | Aiming Draws the Weapon |
+| `bAllowSleepWaitWithReducedMaxHealth` | done |  |  | already so: no wait refusal looks at health |
+| `bAmmoSwapWindowMatchesReloadTime` | done |  |  | already so: an ammo swap is taken at any moment, mid-reload too |
+| `bAutoUnlockTerminals` | done |  | 2 | Skip Easy Hacks (switch + margin slider; the XP option not built) |
+| `bAutoWeaponJamWhileFiring` | done |  |  | already so: every shot rolls the jam, mid-burst too |
+| `bBillyGoatMode` | done |  | 3 | Steepest Walkable Slope (30-80 degrees; one angle for walking, jumping and auto-walk) |
+| `bCompanionsDontUseAmmo` | done |  |  | already so: NPCs carry no ammo and reload without spending any |
+| `bCrippledLegsScaleJumpHeight` | done |  | 2 | Jumping on a Crippled Leg (one part per crippled leg) |
 | `bCustomSpecialPoints` | done |  | 1 | S.P.E.C.I.A.L. Points (30 to 70; a script's own total still wins) |
 | `bDisableFastTravel` | done |  |  | No Fast Travel |
 | `bDisableReloadingNonEmptyClip` | done |  | 2 | Reload Only When Empty (the energy-only and looping options not built) |
+| `bDrowningDrainsAP` | done |  |  | Drowning Takes AP First |
+| `bExplosionKnockdownAvoidanceUsesStrength` | done |  |  | Strength Resists Blasts |
+| `bExtendLockpickSpotRange` | done |  |  | already so: the sweet spot can sit anywhere on the half circle |
 | `bFastTravelOverencumbered` | done |  |  | Fast Travel Encumbered |
+| `bGodModePreventsJamAnims` | done |  |  | No Jams in God Mode |
+| `bHittingWeaponsDoesntDamageThem` | done |  |  | Shots Spare Weapons |
+| `bHoldToHolsterMeleeWeapons` | done |  |  | already so: a tap reloads, holstering needs the hold, and melee drops the reload |
 | `bJumpingCostsAP` | done |  | 3 | Action Points per Jump (slider 0-50; the combat-only and jump-anyway options not built) |
 | `bJumpWhileOverencumbered` | done |  |  | already so: NVForever never refuses the jump when over-encumbered |
 | `bLootUnconsciousVictims` | done |  |  | Search the Unconscious |
@@ -240,55 +270,39 @@ game's Data folder, read-only).
 | `iPerksPerLevel` | done |  | 1 | Perks per Level (1 to 5) |
 | `bHiddenFragsFix` | to do | yes |  | NPCs' own unplayable explosives are hidden from the pickpocket list |
 | `bMoreFrequentNPCLightUpdates` | unsure, skipped | yes | 1 | NVForever lights actors its own way; unclear what to change |
-| `bActorsStickToSlopes` | to do |  | 2 |  |
-| `bAdjustableScopeZoom` | to do |  | 14 |  |
+| `bAdjustableScopeZoom` | to do |  | 14 | needs a zoom level in AimZoom and the wheel (now the third-person distance) |
 | `bAgilityScalesJumpHeight` | to do |  | 1 | jump height is a fixed character param; needs a small system with Agility |
-| `bAgilityScalesMovementSpeed` | to do |  | 3 |  |
-| `bAimingUnholstersWeapons` | to do |  |  |  |
-| `bAllowAidAtMaxHealth` | to do |  | 3 |  |
-| `bAllowSleepWaitWithReducedMaxHealth` | to do |  |  |  |
-| `bAmmoSwapWindowMatchesReloadTime` | to do |  |  |  |
-| `bArmorCausesSinking` | to do |  | 4 |  |
-| `bAutoUnlockTerminals` | to do |  | 2 |  |
-| `bAutoWeaponJamWhileFiring` | to do |  |  |  |
-| `bBarterAffectsRepairCosts` | to do |  | 3 |  |
-| `bBarterCheckActorBuySellFlags` | to do |  | 2 |  |
-| `bBillyGoatMode` | to do |  | 3 |  |
-| `bCapSkillsBySPECIAL` | to do |  | 5 |  |
-| `bCharacterRadiation` | to do |  | 1 |  |
-| `bClearNearbyPlayerMarker` | to do |  | 1 |  |
-| `bCompanionsDontUseAmmo` | to do |  |  |  |
-| `bContactMines` | to do |  | 2 |  |
-| `bCrippledLegsScaleJumpHeight` | to do |  | 2 |  |
+| `bAllowAidAtMaxHealth` | to do |  | 3 | only the CND page hints refuse; pass the switch to stats::model::refusal |
+| `bArmorCausesSinking` | to do |  | 4 | the physics step does not know the worn armour class |
+| `bBarterAffectsRepairCosts` | to do |  | 3 | repair::view vendor_quote; three numbers to choose |
+| `bBarterCheckActorBuySellFlags` | to do |  | 2 | menu/model.rs:989 player side; the bool on the trade at open |
+| `bCapSkillsBySPECIAL` | to do |  | 5 | SkillSheet needs a per-row cap read at three places |
+| `bCharacterRadiation` | to do |  | 1 | not built: only the player takes environment radiation |
+| `bClearNearbyPlayerMarker` | to do |  | 1 | not built: no player-placed map marker |
+| `bContactMines` | to do |  | 2 | mines::tick; needs a stood-on distance chosen |
 | `bCrippledLimbsPlayPainSoundWhenFalling` | to do |  | 1 |  |
-| `bCripplingDoesntDisarm` | to do |  |  |  |
-| `bCritChanceIgnoresFireRate` | to do |  |  |  |
-| `bCustomArmorConditionPenalty` | to do |  | 1 |  |
-| `bDisarmRequiresSkill` | to do |  | 2 |  |
-| `bDrowningDrainsAP` | to do |  |  |  |
-| `bEncumbranceIncludesGrabbedItems` | to do |  |  |  |
-| `bEnduranceScalesMinFallHeight` | to do |  | 2 |  |
-| `bExplosionKnockdownAvoidanceUsesStrength` | to do |  |  |  |
-| `bExplosionRadiusBuff` | to do |  | 3 |  |
-| `bExplosionsDontPushTakeableItems` | to do |  |  |  |
-| `bExtendLockpickSpotRange` | to do |  |  |  |
-| `bFallDeathsCauseDismemberment` | to do |  |  |  |
-| `bFastTravelCostsSpecialNukaBottles` | to do |  | 3 |  |
-| `bForceLockpickNoBreakLock` | to do |  | 3 |  |
+| `bCripplingDoesntDisarm` | to do |  |  | combat::disarm or the push in hit_actor; check what else disarms first |
+| `bCritChanceIgnoresFireRate` | to do |  |  | crit_chance in fnv-combat; Rules is serialized |
+| `bCustomArmorConditionPenalty` | to do |  | 1 | the condition formula is in fnv-combat condition.rs constants |
+| `bDisarmRequiresSkill` | to do |  | 2 | disarming happens in fnv_sim World::activate without skill or game |
+| `bEncumbranceIncludesGrabbedItems` | to do |  |  | encumbered_walks plus the grabbed reference weight |
+| `bEnduranceScalesMinFallHeight` | to do |  | 2 | falls::hurt; two numbers to choose |
+| `bExplosionRadiusBuff` | to do |  | 3 | explosion_damage reads CombatTuning (serialized) |
+| `bExplosionsDontPushTakeableItems` | to do |  |  | push_dynamic knows no references |
+| `bFallDeathsCauseDismemberment` | to do |  |  | falls::hurt lacks the dismember queue |
+| `bFastTravelCostsSpecialNukaBottles` | to do |  | 3 | a new refusal plus taking the bottle in travel::go |
+| `bForceLockpickNoBreakLock` | to do |  | 3 | Picking::force; the engine apply would need the pin-broken path |
 | `bFreeWildWasteland` | to do |  |  | the trait sheet needs to know which trait is free |
-| `bFrenzyGrantsPlayerXP` | to do |  |  |  |
-| `bGodModePreventsJamAnims` | to do |  |  |  |
-| `bGrabbingItemsIsCrime` | to do |  | 1 |  |
+| `bFrenzyGrantsPlayerXP` | to do |  |  | kill_earns_xp is &self; the frenzy test reads an actor value |
+| `bGrabbingItemsIsCrime` | to do |  | 1 | grab::grab start; player_stole with a value threshold |
 | `bHardcoreTweaks` | to do |  | 3 | unsure which way each option goes outside Hardcore |
 | `bHipFireAnimsWhileScoped` | unsure, skipped |  |  | depends on alternate animations |
-| `bHittingWeaponsDoesntDamageThem` | to do |  |  |  |
-| `bHoldToActivate` | to do |  | 9 |  |
-| `bHoldToHolsterMeleeWeapons` | to do |  |  |  |
-| `bHostilesPrioritizePlayer` | to do |  | 3 |  |
-| `bImprovedHacking` | to do |  | 10 |  |
-| `bJumpSwimsUpwards` | to do |  | 2 |  |
-| `bKeepFallHeightOnLoad` | to do |  |  |  |
-| `bLevelDifferenceAffectsCombatXP` | to do |  | 2 |  |
+| `bHoldToActivate` | to do |  | 9 | a hold on E is taken by grab; needs a timer and per-kind choices |
+| `bHostilesPrioritizePlayer` | to do |  | 3 | Awareness::combat_target has no game or rolls |
+| `bImprovedHacking` | to do |  | 10 | each option is its own rule in hacking.rs |
+| `bJumpSwimsUpwards` | to do |  | 2 | MoveIntent.jump is a one-shot latch; needs a held flag |
+| `bKeepFallHeightOnLoad` | to do |  |  | the fall top is not saved |
+| `bLevelDifferenceAffectsCombatXP` | to do |  | 2 | kill_xp; two numbers to choose |
 | `bLightStepAffectsCompanions` | to do |  |  |  |
 | `bLockNeedsKeyShowName` | to do |  |  |  |
 | `bLockpickForceBonusNearSweetSpot` | to do |  | 2 |  |

@@ -1063,6 +1063,7 @@ fn step(
     (mut seat, mut landed): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::rumble::Landed>),
     (mut blocks, noclip): (Option<ResMut<crate::blocking::ActorBlocks>>, Res<NoClip>),
     (mut falls, mut fell, mut lunge): (Option<ResMut<crate::falls::Falls>>, MessageWriter<crate::falls::Fell>, ResMut<Lunge>),
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     if *state.get() != PlayState::Playing {
         phys.stepper = default();
@@ -1280,6 +1281,13 @@ fn step(
         let move_span = info_span!("phys::player_move").entered();
         let was_swimming = c.swimming;
         let was_on_ground = c.grounded && !c.swimming;
+        // The player's tweaks: the steepest walkable slope, and a crippled leg's jump [design: docs/design/tweaks.md].
+        if let Some(t) = tweaks.as_deref() {
+            let base = fnv_phys::CharacterParams::default();
+            c.params.max_slope_deg = t.walk_angle;
+            let legs = limbs.as_deref().map_or(0, |l| i32::from(l.crippled(29)) + i32::from(l.crippled(30)));
+            c.params.jump_height = base.jump_height * t.crippled_leg_jump.powi(legs);
+        }
         let s = p.world.move_character(c, CharacterInput { velocity: go, jump: intent.jump && i == 0, vertical: vz, view });
         // The drawn body and view climb steps and bumps smoothly (`phys::step_lift`).
         let moved = (c.feet[0] - p.prev_feet[0]).hypot(c.feet[1] - p.prev_feet[1]);

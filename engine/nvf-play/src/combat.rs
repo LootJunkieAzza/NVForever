@@ -3076,7 +3076,9 @@ pub(crate) fn fire(
                     // does not jam [documented: the flag's name; hypothesis: the first shot;
                     // docs/spec-notes/item-fields.md §1].
                     let fresh = std::mem::take(&mut c.fresh_reload) && w.has_flag("No Jam After Reload");
-                    let jams = !fresh && vats_shot.is_none() && c.ammo.is_some() && c.rng.next_f32() < condition::jam_chance(&c.tuning, item_condition(&sim, FormId::PLAYER_REF, id));
+                    // The player's tweak: no jams in god mode [design: docs/design/tweaks.md].
+                    let no_jam = god && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.god_mode_no_jams);
+                    let jams = !no_jam && !fresh && vats_shot.is_none() && c.ammo.is_some() && c.rng.next_f32() < condition::jam_chance(&c.tuning, item_condition(&sim, FormId::PLAYER_REF, id));
                     let points = condition::weapon_wear(&c.rules, &w, &effects);
                     if wear_weapon(&c.forms, &mut sim, &mut stats, hud.as_deref_mut(), None, script.as_deref_mut(), FormId::PLAYER_REF, id, points, None).is_some_and(|w| w.broke) {
                         break;
@@ -3351,6 +3353,10 @@ fn strike_weapon(
     at: V3,
 ) {
     let Some(item) = parts.by_ref.get(&target.0).and_then(|p| p.weapon) else { return };
+    // The player's tweak: shots do not wear the weapon in hand [design: docs/design/tweaks.md].
+    if script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.weapons_unhurt_by_hits) {
+        return;
+    }
     if sim.world.inventory_mut(target).is_ok_and(|i| i.count(item) == 0) {
         let _ = sim.world.add_item(target, item, 1);
     }
@@ -4604,7 +4610,10 @@ fn fly(
             }
             if let Some(r) = r {
                 // Knockdown [documented: the EXPL flags; Explosion Knockdown Formula].
-                let agility = actor_av(script.as_deref_mut(), &mut sim, target, fnv_game::actor_values::AGILITY).unwrap_or(5.0);
+                // The player's tweak avoids it by Strength instead of Agility [design:
+                // docs/design/tweaks.md].
+                let avoid_by = if script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.knockdown_by_strength) { fnv_game::actor_values::STRENGTH } else { fnv_game::actor_values::AGILITY };
+                let agility = actor_av(script.as_deref_mut(), &mut sim, target, avoid_by).unwrap_or(5.0);
                 let chance = if r.died || r.immune {
                     0.0
                 } else if always {

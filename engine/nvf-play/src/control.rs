@@ -654,6 +654,11 @@ pub fn read_controls(
         }
     }
     c.aiming = input.pressed(Control::Block) && !c.wheel;
+    // The player's tweak: aiming draws the weapon [design: docs/design/tweaks.md].
+    if c.aiming && !c.weapon_out && tweaks.as_ref().is_some_and(|t| t.aiming_draws_weapon) {
+        c.weapon_out = true;
+        info!("Block/aim held: the weapon drawn (tweak)");
+    }
     if c.lowered && (c.aiming || c.trigger || !c.weapon_out) {
         c.lowered = false;
     }

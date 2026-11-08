@@ -114,6 +114,23 @@ pub struct Tweaks {
     pub no_exit_hacking: bool,
     /// `bNoGrabOwnedItems`: someone else's things cannot be grabbed.
     pub no_grab_owned: bool,
+    // ---- batch 12 ----
+    /// `bAgilityScalesMovementSpeed`/`fAgilityMovementSpeedMult`: every actor's speed
+    /// gains this share per point of Agility above 5 (loses it below); 0 changes nothing.
+    pub agility_speed_per_point: f64,
+    /// `bAutoUnlockTerminals`: a terminal opens to its menu without the hacking game when
+    /// the player's Science is at least its lock plus `auto_unlock_margin`.
+    pub auto_unlock_terminals: bool,
+    pub auto_unlock_margin: f32,
+    /// `bHittingWeaponsDoesntDamageThem`: a shot on a weapon in hand does not wear it.
+    pub weapons_unhurt_by_hits: bool,
+    /// `bGodModePreventsJamAnims`: the player's weapon never jams in god mode.
+    pub god_mode_no_jams: bool,
+    /// `bExplosionKnockdownAvoidanceUsesStrength`: Strength, not Agility, resists an
+    /// explosion's knockdown.
+    pub knockdown_by_strength: bool,
+    /// `bDrowningDrainsAP`: drowning takes Action Points before health.
+    pub drowning_drains_ap: bool,
 }
 
 impl Default for Tweaks {
@@ -157,6 +174,13 @@ impl Default for Tweaks {
             mark_unvisited_doors: false,
             no_exit_hacking: false,
             no_grab_owned: false,
+            agility_speed_per_point: 0.0,
+            auto_unlock_terminals: false,
+            auto_unlock_margin: 0.0,
+            weapons_unhurt_by_hits: false,
+            god_mode_no_jams: false,
+            knockdown_by_strength: false,
+            drowning_drains_ap: false,
         }
     }
 }

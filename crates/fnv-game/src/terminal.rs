@@ -114,6 +114,11 @@ pub fn opening(g: &mut Game, reference: FormId, base: FormId, sci: f32) -> Optio
     }
     let s = Settings::default();
     // The player's tweak: the skill is not asked for (the words are as before) [design: docs/design/tweaks.md].
+    // The player's tweak: Science well over the lock skips the game [design: docs/design/tweaks.md].
+    if g.tweaks.auto_unlock_terminals && hacking::Difficulty::lock_level(difficulty, &s).is_some_and(|needed| sci >= needed + g.tweaks.auto_unlock_margin) {
+        tracing::info!("terminal: {reference} opened without the hacking game (Science {sci}, tweak)");
+        return Some(Opening::Menu);
+    }
     let asked = if g.tweaks.hack_terminals_without_skill { sci.max(100.0) } else { sci };
     Some(match hacking::may_hack(asked, difficulty, &s) {
         Err(r) => Opening::Refused(r),

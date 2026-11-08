@@ -124,6 +124,19 @@ pub struct TweakSettings {
     pub scope_zoom_time: f32,
     /// `bAddInventoryDropItemHotkey`: Q drops the selected Pip-Boy item.
     pub drop_key: bool,
+    /// `bAimingUnholstersWeapons`: aiming draws a holstered weapon.
+    pub aiming_draws_weapon: bool,
+    /// `bBillyGoatMode`/`fWalkAngle`: the steepest slope the player walks up, degrees.
+    pub walk_angle: f32,
+    /// `bCrippledLegsScaleJumpHeight`: the jump height is multiplied by this for each
+    /// crippled leg; 1 changes nothing.
+    pub crippled_leg_jump: f32,
+}
+
+/// The walk-angle choices: 30 to 80 degrees by 5; 45 is the physics' own.
+const ANGLES: usize = 11;
+fn walk_angle(i: usize) -> f32 {
+    30.0 + 5.0 * i as f32
 }
 
 /// The Own Skill Points Rule's numbers until the player sets them: the game's rule
@@ -201,6 +214,9 @@ impl Default for TweakSettings {
             quest_marker_reach: 0.0,
             scope_zoom_time: 1.0,
             drop_key: false,
+            aiming_draws_weapon: false,
+            walk_angle: fnv_phys::CharacterParams::default().max_slope_deg,
+            crippled_leg_jump: 1.0,
         }
     }
 }
@@ -567,6 +583,54 @@ impl Plugin for TweaksPlugin {
         switch!(app, "mark-unvisited-doors", "Mark Unvisited Doors", "A door to a place never visited ends its prompt with a star. (Stewie's Tweaks bPatchUnseenCellName)", game.mark_unvisited_doors);
         switch!(app, "no-exit-hacking", "No Leaving a Hack", "Once a guess is made, the hacking game cannot be left before it ends. (Stewie's Tweaks bNoExitHacking)", game.no_exit_hacking);
         switch!(app, "no-grab-owned", "No Grabbing Owned Items", "Someone else's things cannot be picked up with Grab. (Stewie's Tweaks bNoGrabOwnedItems)", game.no_grab_owned);
+        // ---- batch 12 ----
+        add_setting(
+            app,
+            Setting::slider(
+                "tweak-agility-speed",
+                GROUP,
+                "Agility Moves Faster",
+                "Everyone's speed gains this much per point of Agility above 5, and loses it below; 0% changes nothing. (Stewie's Tweaks bAgilityScalesMovementSpeed)",
+                Slider {
+                    get: |w| w.get_resource::<TweakSettings>().map_or(0.0, |t| (t.game.agility_speed_per_point * 10.0) as f32),
+                    set: |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.game.agility_speed_per_point = f64::from(v) / 10.0;
+                        }
+                    },
+                    min: 0.0,
+                    step: 0.05,
+                    shown: Some(|v| format!("{:.1}%", v * 10.0)),
+                },
+            ),
+        );
+        switch!(app, "auto-unlock-terminals", "Skip Easy Hacks", "A terminal opens without the hacking game when Science is at least its lock plus the margin below. (Stewie's Tweaks bAutoUnlockTerminals)", game.auto_unlock_terminals);
+        amount!(app, "auto-unlock-margin", "Skip Easy Hacks: Margin", "How far over the lock Science must be to skip the hacking game (0 to 50). (Stewie's Tweaks bAutoUnlockTerminals, iThreshold)", 50.0, f32, game.auto_unlock_margin);
+        switch!(app, "weapons-unhurt-by-hits", "Shots Spare Weapons", "A shot that hits a weapon in hand does not wear it. (Stewie's Tweaks bHittingWeaponsDoesntDamageThem)", game.weapons_unhurt_by_hits);
+        switch!(app, "god-mode-no-jams", "No Jams in God Mode", "In god mode the player's weapon never jams. (Stewie's Tweaks bGodModePreventsJamAnims)", game.god_mode_no_jams);
+        switch!(app, "knockdown-by-strength", "Strength Resists Blasts", "An explosion's knockdown is resisted by Strength instead of Agility. (Stewie's Tweaks bExplosionKnockdownAvoidanceUsesStrength)", game.knockdown_by_strength);
+        switch!(app, "drowning-drains-ap", "Drowning Takes AP First", "Drowning takes Action Points before health. (Stewie's Tweaks bDrowningDrainsAP)", game.drowning_drains_ap);
+        switch!(app, "aiming-draws-weapon", "Aiming Draws the Weapon", "Aiming with the weapon holstered draws it. (Stewie's Tweaks bAimingUnholstersWeapons)", aiming_draws_weapon);
+        add_setting(
+            app,
+            Setting::slider(
+                "tweak-walk-angle",
+                GROUP,
+                "Steepest Walkable Slope",
+                "The steepest slope the player can walk up, in degrees; 45 is the usual. (Stewie's Tweaks bBillyGoatMode)",
+                Slider::choice(
+                    ANGLES,
+                    |w| choice_part(((w.get_resource::<TweakSettings>().map_or(45.0, |t| t.walk_angle) - 30.0) / 5.0).round().clamp(0.0, (ANGLES - 1) as f32) as usize, ANGLES),
+                    |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.walk_angle = walk_angle(choice_index(v, ANGLES));
+                        }
+                    },
+                    |v| format!("{:.0} degrees", walk_angle(choice_index(v, ANGLES))),
+                ),
+            ),
+        );
+        part!(app, "crippled-leg-jump", "Jumping on a Crippled Leg", "The jump's height for each crippled leg, as a part of the usual; 100% changes nothing. (Stewie's Tweaks bCrippledLegsScaleJumpHeight)", crippled_leg_jump);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

@@ -168,6 +168,15 @@ fn breathe(
             info!("drowning: {hit:.1} damage (immune: god mode)");
             continue;
         }
+        // The player's tweak: Action Points go before health [design: docs/design/tweaks.md].
+        if rt.game.tweaks.drowning_drains_ap {
+            let ap = with_world(rt, &mut sim, |rt| fnv_game::functions::actor_value(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::ACTION_POINTS).unwrap_or(0.0));
+            if ap > 0.0 {
+                with_world(rt, &mut sim, |rt| fnv_game::functions::add_actor_value_damage(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::ACTION_POINTS, (hit as f64).min(ap)));
+                info!("drowning: {hit:.1} taken from Action Points ({ap:.0} left before, tweak)");
+                continue;
+            }
+        }
         let r = with_world(rt, &mut sim, |rt| rt.game.hit_without_lines(FormId::PLAYER_REF, hit as f64, info));
         stats.player_damage += r.dealt as f32;
         info!("drowning: {hit:.1} damage, health {:.0}/{:.0}{}", r.health, r.max_health, if r.immune { " (immune)" } else if r.died { ", dead" } else { "" });
