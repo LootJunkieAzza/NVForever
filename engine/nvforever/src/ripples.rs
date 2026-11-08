@@ -17,7 +17,9 @@
 //! world.rs), and Bevy drops the image's old texture before it waits and makes a new one
 //! after, which the water materials' bind groups (not bindless) did not see until each
 //! material was written again. With the one texture the GPU holds the heights of the frame
-//! drawn, every frame, whatever the budget [design].
+//! drawn, every frame, whatever the budget [design]. So the profile aid's image totals
+//! (`profile changes:` images changed and MB of pixels, profile.rs) no longer count the
+//! ripple uploads: they do not go through the image asset.
 
 use crate::reflection::ReflectionCamera;
 use crate::sky::SkyState;
@@ -299,9 +301,16 @@ impl Plugin for RipplesPlugin {
             render
                 .init_resource::<RippleUpload>()
                 .add_systems(ExtractSchedule, extract_ripples)
-                .add_systems(Render, write_ripples.in_set(RenderSystems::PrepareResources));
+                .add_systems(Render, render_systems());
         }
     }
+}
+
+/// The ripples' render-world system and its place: after the render assets are prepared
+/// (`PrepareResources` follows `PrepareAssets`; the write reads the image's GPU copy,
+/// which `prepare_assets::<GpuImage>` writes, so the order holds), before the frame draws.
+fn render_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
+    write_ripples.in_set(RenderSystems::PrepareResources)
 }
 
 /// The render world's copy of the heights to write into the ripple texture.
@@ -325,6 +334,16 @@ impl RippleUpload {
             self.pending = true;
         }
     }
+
+    /// The bytes to write into the texture now: the newest received, once the image's
+    /// texture exists (`texture_ready`); until then they stay pending.
+    fn to_write(&mut self, texture_ready: bool) -> Option<&[u8]> {
+        if !self.pending || !texture_ready {
+            return None;
+        }
+        self.pending = false;
+        (self.bytes.len() == N * N * 4).then_some(self.bytes.as_slice())
+    }
 }
 
 fn extract_ripples(ripples: Extract<Option<Res<Ripples>>>, mut upload: ResMut<RippleUpload>) {
@@ -337,21 +356,20 @@ fn extract_ripples(ripples: Extract<Option<Res<Ripples>>>, mut upload: ResMut<Ri
 /// are prepared and before the frame is drawn (the queue's writes go ahead of the frame's
 /// command buffers). The image asset never changes after it is made, so its texture is
 /// never made again and every water material's bind group keeps pointing at it. Until the
-/// image's first preparation (start-up) the write waits.
+/// image's first preparation (start-up) the write waits ([`RippleUpload::to_write`]).
+/// The unit tests cover what is written when and where the system runs; the GPU write
+/// itself needs a device, and is covered by the smoke scenarios with rain and water
+/// (tools/smoke/scenarios.toml, those that list ripples.rs) [design].
 fn write_ripples(mut upload: ResMut<RippleUpload>, images: Res<RenderAssets<GpuImage>>, queue: Res<RenderQueue>) {
-    if !upload.pending {
-        return;
-    }
-    let Some(gpu) = upload.image.and_then(|id| images.get(id)) else { return };
-    if upload.bytes.len() == N * N * 4 {
-        queue.write_texture(
-            gpu.texture.as_image_copy(),
-            &upload.bytes,
-            TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(N as u32 * 4), rows_per_image: Some(N as u32) },
-            Extent3d { width: N as u32, height: N as u32, depth_or_array_layers: 1 },
-        );
-    }
-    upload.pending = false;
+    let gpu = upload.image.and_then(|id| images.get(id));
+    let Some(bytes) = upload.to_write(gpu.is_some()) else { return };
+    let Some(gpu) = gpu else { return };
+    queue.write_texture(
+        gpu.texture.as_image_copy(),
+        bytes,
+        TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(N as u32 * 4), rows_per_image: Some(N as u32) },
+        Extent3d { width: N as u32, height: N as u32, depth_or_array_layers: 1 },
+    );
 }
 
 fn setup_ripples(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
@@ -506,9 +524,49 @@ mod tests {
     fn frame(rp: &mut Ripples, gpu: &mut RippleUpload) -> bool {
         rp.upload();
         gpu.receive(rp);
-        // `write_ripples` writes whatever is pending in the same render frame.
-        gpu.pending = false;
+        // `write_ripples` writes whatever is pending in the same render frame (the
+        // texture exists in play).
+        let _ = gpu.to_write(true);
+        assert!(!gpu.pending);
         rp.quiet()
+    }
+
+    #[test]
+    fn a_write_waits_for_the_texture_and_the_newest_heights_win() {
+        let mut rp = fixture();
+        let mut gpu = RippleUpload::default();
+        rp.rain.impulse(128.0, 128.0, 2.0, 0.1);
+        rp.step();
+        assert!(rp.upload());
+        gpu.receive(&rp);
+        let first = gpu.bytes.clone();
+        // No texture yet (start-up): nothing written, still pending.
+        assert!(gpu.to_write(false).is_none() && gpu.pending);
+        // Newer heights arrive before it exists: they replace the older.
+        rp.step();
+        assert!(rp.upload());
+        gpu.receive(&rp);
+        assert!(gpu.pending && gpu.bytes == rp.bytes && gpu.bytes != first);
+        // Once the texture exists the newest are written, once.
+        assert_eq!(gpu.to_write(true), Some(rp.bytes.as_slice()));
+        assert!(!gpu.pending && gpu.to_write(true).is_none());
+    }
+
+    #[test]
+    fn the_render_write_runs_after_the_render_assets_are_prepared() {
+        use bevy::render::render_asset::prepare_assets;
+        let mut world = World::new();
+        let mut schedule = Render::base_schedule();
+        schedule.add_systems(render_systems());
+        schedule.add_systems(prepare_assets::<GpuImage>.in_set(RenderSystems::PrepareAssets));
+        schedule.initialize(&mut world).unwrap();
+        let name = |key| schedule.systems().unwrap().find(|(k, _)| *k == key).map(|(_, s)| s.name().to_string()).unwrap_or_default();
+        let in_set = schedule.graph().systems_in_set(RenderSystems::PrepareResources.intern()).unwrap();
+        assert!(in_set.iter().any(|&k| name(k).ends_with("write_ripples")), "write_ripples is in PrepareResources");
+        // The executable order is a topological order of the schedule's edges.
+        let order: Vec<String> = schedule.systems().unwrap().map(|(_, s)| s.name().to_string()).collect();
+        let at = |part: &str| order.iter().position(|n| n.contains(part)).unwrap_or_else(|| panic!("{part} not scheduled"));
+        assert!(at("prepare_assets") < at("write_ripples"), "{order:?}");
     }
 
     #[test]
