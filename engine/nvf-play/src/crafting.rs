@@ -746,7 +746,6 @@ fn tiled_key(quantity: Option<(i32, i32)>) -> (Option<(i32, i32)>, crate::pad::L
 }
 
 /// Draw the menu again when what it shows changed.
-
 #[allow(clippy::too_many_arguments)]
 fn draw(
     mut commands: Commands,
