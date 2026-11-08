@@ -28,6 +28,10 @@
 //! The lines the host's NPCs are saying (a scene between two of them, a Say, a hello) go
 //! to the guests ([`LineView`], every [`LINES_EVERY`] and at once when they change), who
 //! hear them and see their subtitles as the host does.
+//! What a script scene does to the host's player goes to the guests ([`SceneView`],
+//! every [`SCENE_EVERY`] and at once when it changes): the control groups the host's
+//! scripts hold and the image space modifiers on the host's screen, so a guest is held
+//! and sees the same fades while the host's scene plays.
 //! Shared progression goes the same way ([`Session::send_progress`], [`Progress`]): a
 //! quest the host completed pays each guest its XP and caps, a save by anyone saves every
 //! game, and the host tells everyone to load the last shared save when all are down.
@@ -58,7 +62,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 pub const MAGIC: [u8; 4] = *b"NVCO";
-pub const VERSION: u8 = 19;
+pub const VERSION: u8 = 20;
 pub const MAX_GUESTS: usize = 3;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -175,6 +179,10 @@ pub const WEAR_PAGE: usize = 32;
 pub const WEAR_ITEMS: usize = 16;
 /// How often the host sends its game clock.
 pub const CLOCK_EVERY: Duration = Duration::from_secs(2);
+/// How often the host sends its [`SceneView`] when it has not changed.
+pub const SCENE_EVERY: Duration = Duration::from_millis(500);
+/// Image space modifiers a [`SceneView`] carries at most.
+pub const SCENE_MODS_MAX: usize = 16;
 /// How often the host sends every player's name ([`Msg::Names`]), and at once after a
 /// guest joins.
 pub const NAMES_EVERY: Duration = Duration::from_secs(2);
@@ -370,6 +378,8 @@ enum Msg {
     Unlock { reference: u32, terminal: bool },
     /// The host's game clock.
     Clock(ClockView),
+    /// What the host's scripts do to the host's player now ([`SceneView`]).
+    Scene(SceneView),
     /// The lines the host's NPCs are saying now (the newest `seq` wins).
     Lines { seq: u32, lines: Vec<LineView> },
     /// Page `page` of `pages` of one of the host's lists (`list`: [`LIST_ENABLED`], each
@@ -448,6 +458,19 @@ pub struct ClockView {
     pub day: f32,
     pub hour: f32,
     pub days_passed: f32,
+}
+
+/// What the host's scripts do to the host's player now, for the guests to share: the
+/// control groups held (`locks`, bit `i` for group `i` in the order of
+/// `fnv_game::Player::controls_disabled`: movement, Pip-Boy, fighting, POV, looking,
+/// rollover, sneaking) and the image space modifiers on the screen (IMAD FormID, seconds
+/// since applied), at most [`SCENE_MODS_MAX`]; and what the host's scripts put on the host's
+/// player and it still wears (`worn`: item FormID, locked on), at most [`SCENE_MODS_MAX`].
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SceneView {
+    pub locks: u8,
+    pub mods: Vec<(u32, f32)>,
+    pub worn: Vec<(u32, bool)>,
 }
 
 /// The quest the host has active, as its quest list shows it: the guests show it in place
@@ -536,6 +559,8 @@ pub enum Event {
     Unlocked { id: u8, reference: u32, terminal: bool },
     /// The host's game clock, each time it comes (guests only).
     Clock(ClockView),
+    /// The host's [`SceneView`], each time it comes (guests only).
+    Scene(SceneView),
     /// The lines the host's NPCs are saying now, each time they come (guests only).
     Lines(Vec<LineView>),
     /// A page of one of the host's lists, each time it comes (guests only;
@@ -655,6 +680,9 @@ pub struct Session {
     /// The host's game clock now, and when it was last sent.
     clock: Option<ClockView>,
     last_clock: Option<Instant>,
+    /// The host's scene now, and when and what it last sent.
+    scene: SceneView,
+    last_scene: Option<(Instant, SceneView)>,
     /// The host's own name, and when every player's names last went.
     own_name: String,
     last_names: Option<Instant>,
@@ -715,7 +743,7 @@ impl Session {
 
     fn with(sock: UdpSocket, role: Role) -> std::io::Result<Self> {
         sock.set_nonblocking(true)?;
-        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, own_name: String::new(), last_names: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, lists: Default::default(), last_presence: None, wear: Vec::new(), wear_page: 0, last_wear: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), events: Vec::new() })
+        Ok(Self { sock, steam: None, role, peers: Vec::new(), state: None, seq: 0, last_send: None, look: None, last_look: None, lobby: None, npcs: Vec::new(), last_npcs: None, npc_seq: 0, heard_npcs: None, hit_seq: 0, heard_hits: VecDeque::new(), quest: None, last_quest: None, heard_quest: None, clock: None, last_clock: None, scene: SceneView::default(), last_scene: None, own_name: String::new(), last_names: None, lines: Vec::new(), last_lines: None, lines_seq: 0, heard_lines: None, lists: Default::default(), last_presence: None, table: None, last_table: None, table_seq: 0, table_heard: Vec::new(), anims: AnimWire::default(), progress: AnimWire::default(), wear: Vec::new(), last_wear: None, wear_page: 0, events: Vec::new() })
     }
 
     /// Also talk over Steam: a host is reached through it by a Steam code, a guest reaches
@@ -752,6 +780,14 @@ impl Session {
     /// The host's game clock now; [`Session::tick`] sends it every [`CLOCK_EVERY`].
     pub fn set_clock(&mut self, clock: ClockView) {
         self.clock = Some(clock);
+    }
+
+    /// The host's scene now; [`Session::tick`] sends it when it changes and every
+    /// [`SCENE_EVERY`].
+    pub fn set_scene(&mut self, mut scene: SceneView) {
+        scene.mods.truncate(SCENE_MODS_MAX);
+        scene.worn.truncate(SCENE_MODS_MAX);
+        self.scene = scene;
     }
 
     /// The host's own name, for the guests ([`Msg::Names`]).
@@ -1117,6 +1153,13 @@ impl Session {
                 self.last_clock = Some(now);
             }
         }
+        if self.is_host() && !self.peers.is_empty() && self.last_scene.as_ref().is_none_or(|(t, sent)| *sent != self.scene || now - *t >= SCENE_EVERY) {
+            let msg = Msg::Scene(self.scene.clone());
+            for addr in self.peers.iter().filter_map(|p| p.addr) {
+                self.sock_send(&msg, addr);
+            }
+            self.last_scene = Some((now, self.scene.clone()));
+        }
         if self.is_host() && !self.peers.is_empty() && self.last_names.is_none_or(|t| now - t >= NAMES_EVERY) {
             let names = std::iter::once((0, self.own_name.clone())).chain(self.peers.iter().map(|p| (p.id, p.name.clone()))).collect();
             let msg = Msg::Names { names };
@@ -1389,7 +1432,7 @@ impl Session {
                 }
                 self.events.push(Event::Progress { id, what });
             }
-            Msg::Welcome { .. } | Msg::Full | Msg::Who | Msg::Npcs { .. } | Msg::Quest(_) | Msg::Clock(_) | Msg::Lines { .. } | Msg::Presence { .. } | Msg::Wear { .. } | Msg::Names { .. } => {}
+            Msg::Welcome { .. } | Msg::Full | Msg::Who | Msg::Npcs { .. } | Msg::Quest(_) | Msg::Clock(_) | Msg::Scene(_) | Msg::Lines { .. } | Msg::Presence { .. } | Msg::Wear { .. } | Msg::Names { .. } => {}
         }
     }
 
@@ -1509,6 +1552,7 @@ impl Session {
             }
             Msg::Unlock { reference, terminal } => self.events.push(Event::Unlocked { id: 0, reference, terminal }),
             Msg::Clock(c) => self.events.push(Event::Clock(c)),
+            Msg::Scene(v) => self.events.push(Event::Scene(v)),
             Msg::Presence { list, serial, page, pages, refs } => self.events.push(Event::Presence { list, serial, page, pages, refs }),
             Msg::Wear { npcs } => self.events.push(Event::Wear(npcs)),
             Msg::Door { reference, open } => self.events.push(Event::Door { id: 0, reference, open }),
@@ -1687,6 +1731,10 @@ impl Link {
 
     pub fn set_clock(&self, clock: ClockView) {
         self.with(|s| s.set_clock(clock));
+    }
+
+    pub fn set_scene(&self, scene: SceneView) {
+        self.with(|s| s.set_scene(scene));
     }
 
     pub fn set_name(&self, name: &str) {
@@ -1912,6 +1960,20 @@ fn encode(msg: &Msg) -> Vec<u8> {
             b.push(13);
             for v in [c.year, c.month, c.day, c.hour, c.days_passed] {
                 b.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        Msg::Scene(v) => {
+            let mods = &v.mods[..v.mods.len().min(SCENE_MODS_MAX)];
+            b.extend_from_slice(&[24, v.locks, mods.len() as u8]);
+            for (m, at) in mods {
+                b.extend_from_slice(&m.to_le_bytes());
+                b.extend_from_slice(&at.to_le_bytes());
+            }
+            let worn = &v.worn[..v.worn.len().min(SCENE_MODS_MAX)];
+            b.push(worn.len() as u8);
+            for (item, locked) in worn {
+                b.extend_from_slice(&item.to_le_bytes());
+                b.push(u8::from(*locked));
             }
         }
         Msg::Lines { seq, lines } => {
@@ -2147,6 +2209,26 @@ fn decode(b: &[u8]) -> Option<Msg> {
             Msg::Progress { id, seq, what }
         }
         13 => Msg::Clock(ClockView { year: r.f32()?, month: r.f32()?, day: r.f32()?, hour: r.f32()?, days_passed: r.f32()? }),
+        24 => {
+            let locks = r.u8()?;
+            let n = r.u8()? as usize;
+            if n > SCENE_MODS_MAX {
+                return None;
+            }
+            let mut mods = Vec::with_capacity(n);
+            for _ in 0..n {
+                mods.push((r.u32()?, r.f32()?));
+            }
+            let n = r.u8()? as usize;
+            if n > SCENE_MODS_MAX {
+                return None;
+            }
+            let mut worn = Vec::with_capacity(n);
+            for _ in 0..n {
+                worn.push((r.u32()?, r.u8()? != 0));
+            }
+            Msg::Scene(SceneView { locks, mods, worn })
+        }
         17 => {
             let seq = r.u32()?;
             let n = r.u8()? as usize;
@@ -2269,6 +2351,8 @@ mod tests {
             Msg::Quest(QuestView::default()),
             Msg::Unlock { reference: 0x0001_2345, terminal: true },
             Msg::Clock(ClockView { year: 2281.0, month: 9.0, day: 19.0, hour: 13.25, days_passed: 6.05 }),
+            Msg::Scene(SceneView::default()),
+            Msg::Scene(SceneView { locks: 0x7F, mods: vec![(0x0101_013B, 0.25), (0x0001_5D2B, 3.5)], worn: vec![(0x0100_F3A4, true), (0x0100_6E8F, false)] }),
             Msg::Revive { target: 2, by: 0, perks: revive_perk::CURE_RADS },
             Msg::Presence { list: LIST_ENABLED, serial: 7, page: 0, pages: 1, refs: Vec::new() },
             Msg::Presence { list: LIST_OPEN, serial: 8, page: 2, pages: 3, refs: vec![(0x0010_A202, true), (0x0016_8A92, false)] },
@@ -2772,6 +2856,28 @@ mod tests {
         host.send_door(0x0001_D002, false);
         let seen = run(&mut [&mut host, &mut a, &mut b], &mut clock, step, |seen| door(&seen[1]) && door(&seen[2]));
         assert!(seen[1..].iter().all(|s| s.contains(&Event::Door { id: 0, reference: 0x0001_D002, open: false })));
+    }
+
+    #[test]
+    fn the_hosts_scene_reaches_the_guests_and_ends() {
+        let (mut host, mut g, _) = host_and(1);
+        let mut a = g.pop().unwrap();
+        let mut clock = Instant::now();
+        let step = Duration::from_millis(10);
+        run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))));
+        let held = SceneView { locks: 0x7F, mods: vec![(0x0101_013B, 0.1)], worn: vec![(0x0100_F3A4, true)] };
+        host.set_scene(held.clone());
+        let seen = run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].contains(&Event::Scene(held.clone())));
+        assert!(!seen[0].iter().any(|e| matches!(e, Event::Scene(_))), "not back to the host");
+        // Let go: the empty scene comes at once, not after SCENE_EVERY.
+        host.set_scene(SceneView::default());
+        let mut waited = Duration::ZERO;
+        let seen = run(&mut [&mut host, &mut a], &mut clock, step, |seen| {
+            waited += step;
+            seen[1].contains(&Event::Scene(SceneView::default()))
+        });
+        assert!(seen[1].contains(&Event::Scene(SceneView::default())));
+        assert!(waited < SCENE_EVERY, "a change goes at once ({waited:?})");
     }
 
     #[test]

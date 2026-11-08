@@ -16,6 +16,8 @@ use serde_json::Value as Json;
 
 const CASH: u32 = 0x700;
 const CHIP: u32 = 0x701;
+/// A body suit, as a DLC's story puts on the Courier (the Sierra Madre jumpsuit).
+const SUIT: u32 = 0x702;
 const QC: u32 = 0x900;
 const CASHIER: u32 = 0x920;
 const CASHIER_REF: u32 = 0x320;
@@ -92,6 +94,7 @@ fn plugin_bytes() -> Vec<u8> {
 fn plugin_bytes_as(vendor: bool) -> Vec<u8> {
     let misc = record(b"MISC", 0, CASH, &[sub(b"EDID", z("TestCash")), sub(b"DATA", [1i32.to_le_bytes(), 0f32.to_le_bytes()].concat())]);
     let chip = record(b"CHIP", 0, CHIP, &[sub(b"EDID", z("TestChip"))]);
+    let suit = record(b"ARMO", 0, SUIT, &[sub(b"EDID", z("TestSuit")), sub(b"BMDT", [u32s(&[1 << 2]), vec![0; 4]].concat()), sub(b"DATA", [u32s(&[1, 100]), 1f32.to_le_bytes().to_vec()].concat())]);
     let quest = record(b"QUST", 0, QC, &[sub(b"EDID", z("QCashier")), sub(b"DATA", [vec![1u8, 50, 0, 0], 0f32.to_le_bytes().to_vec()].concat())]);
     // The player's base form (0x7), whose reference carries the player's inventory.
     let npc = [record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))]), record(b"NPC_", 0, CASHIER, &[sub(b"EDID", z("Cashier"))])].concat();
@@ -120,6 +123,7 @@ fn plugin_bytes_as(vendor: bool) -> Vec<u8> {
         tes4(),
         top(b"MISC", &misc),
         top(b"CHIP", &chip),
+        top(b"ARMO", &suit),
         top(b"NPC_", &npc),
         top(b"QUST", &quest),
         top(b"DIAL", &dial),
@@ -267,4 +271,57 @@ fn a_guest_gets_the_trade_its_greeting_offers() {
     assert!(got.contains(&I_BUY), "{got:X?}");
     assert!(!got.contains(&I_STORY) && !got.contains(&I_HELLO), "{got:X?}");
     assert_eq!(got.last(), Some(&I_BYE), "{got:X?}");
+}
+
+#[test]
+fn a_guest_leaves_its_npcs_scripts_to_the_hosts_world() {
+    // Overnight item 68: the host's world runs its NPCs' scripts (GameMode, OnDeath,
+    // OnHit...); a guest's game runs only OnActivate, its own use of them.
+    use fnv_game::game::event;
+    let f = fixture();
+    let npc = FormId(CASHIER_REF);
+    let g = game(&f, true);
+    assert!(g.host_runs_script_of(npc, event::GAME_MODE));
+    assert!(g.host_runs_script_of(npc, event::ON_DEATH));
+    assert!(!g.host_runs_script_of(npc, event::ON_ACTIVATE), "the guest's own use");
+    assert!(!g.host_runs_script_of(FormId::PLAYER_REF, event::GAME_MODE));
+    assert!(!g.host_runs_script_of(FormId(CELL), event::GAME_MODE), "not an actor");
+    let solo = game(&f, false);
+    assert!(!solo.host_runs_script_of(npc, event::GAME_MODE));
+}
+
+#[test]
+fn a_guest_wears_what_the_hosts_story_put_on_and_gives_it_back() {
+    // Overnight items 81 and 84: the host's scripts dress the host (Dead Money's collar
+    // and jumpsuit, Old World Blues' gown); each guest wears them too, and they go when
+    // the host's player no longer wears them or the guest leaves.
+    let f = fixture();
+    let suit = FormId(SUIT);
+    let mut host = game(&f, false);
+    host.world.add_item(FormId::PLAYER_REF, suit, 1).unwrap();
+    host.world.equip(FormId::PLAYER_REF, suit).unwrap();
+    host.script_worn.insert(suit, true);
+    assert_eq!(host.story_gear(), vec![(suit, true)]);
+    host.world.unequip(FormId::PLAYER_REF, suit).unwrap();
+    assert!(host.story_gear().is_empty(), "taken off: no longer sent");
+    let mut g = game(&f, true);
+    let count = |g: &mut Game| g.world.item_count(FormId::PLAYER_REF, suit).unwrap();
+    let worn = |g: &Game| g.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()).is_some_and(|i| i.is_equipped(suit));
+    assert_eq!(g.follow_story_gear(&[(suit, true)]), (vec![suit], vec![]));
+    assert_eq!(count(&mut g), 1);
+    assert!(worn(&g));
+    assert_eq!(g.world.equip_lock(FormId::PLAYER_REF, suit), Some(fnv_sim::world::EquipLock::NoUnequip));
+    // Heard again: nothing more.
+    assert_eq!(g.follow_story_gear(&[(suit, true)]), (vec![], vec![]));
+    assert_eq!(count(&mut g), 1);
+    // Gone from the host: taken off and away.
+    assert_eq!(g.follow_story_gear(&[]), (vec![], vec![suit]));
+    assert_eq!(count(&mut g), 0);
+    // A guest that had one keeps it, taken off.
+    g.world.add_item(FormId::PLAYER_REF, suit, 1).unwrap();
+    g.follow_story_gear(&[(suit, false)]);
+    assert!(worn(&g));
+    g.follow_story_gear(&[]);
+    assert_eq!(count(&mut g), 1);
+    assert!(!worn(&g));
 }

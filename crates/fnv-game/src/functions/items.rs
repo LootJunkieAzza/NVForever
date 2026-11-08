@@ -181,6 +181,9 @@ pub fn equip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     if !e.consumed && hide_flag(a, 1) {
         g.world.lock_equip(actor, item, Some(EquipLock::NoUnequip)).map_err(|e| e.to_string())?;
     }
+    if !e.consumed && actor == FormId::PLAYER_REF {
+        g.script_worn.insert(item, hide_flag(a, 1));
+    }
     for u in e.unequipped {
         g.item_event(actor, u, event::ON_UNEQUIP, Some(Value::Ref(actor.0)));
     }
@@ -219,6 +222,9 @@ pub fn unequip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
     }
     if g.world.unequip(actor, item).map_err(|e| e.to_string())? {
         g.item_event(actor, item, event::ON_UNEQUIP, Some(Value::Ref(actor.0)));
+    }
+    if actor == FormId::PLAYER_REF {
+        g.script_worn.remove(&item);
     }
     if hide_flag(a, 1) {
         g.world.lock_equip(actor, item, Some(EquipLock::NoEquip)).map_err(|e| e.to_string())?;

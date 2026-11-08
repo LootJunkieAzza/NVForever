@@ -546,8 +546,14 @@ impl Game<'_> {
     /// - the wiki says Soren flees the building.
     ///
     /// Once `foe` fights back, the fight is an ordinary one and the allies take it up.
+    ///
+    /// Another co-op player's actor counts as the player ([`Game::as_player`]): a
+    /// StartCombat on the player sets `victim` on the other players too (they are
+    /// attacked whenever the player would be), and that fight is just as forced (overnight
+    /// item 73, 2026-11-07: Soren's run set the Van Graffs on a guest) [design].
     pub fn fight_only_forced(&mut self, victim: FormId, foe: FormId) -> bool {
-        if !self.awareness.forced.contains(&(victim, foe)) || self.provocations.holds(victim, foe) {
+        let side = self.as_player(foe);
+        if !self.awareness.forced.contains(&(victim, side)) || self.provocations.holds(victim, foe) || self.provocations.holds(victim, side) {
             return false;
         }
         let attacks = self.awareness.get(foe).is_some_and(|a| a.state.in_combat() && a.targets.contains_key(&victim));
@@ -555,9 +561,9 @@ impl Game<'_> {
         if attacks || hurt {
             return false;
         }
-        self.awareness.forced.remove(&(victim, foe));
+        self.awareness.forced.remove(&(victim, side));
         let by_records = self.hostile_to_now(victim, foe);
-        self.awareness.forced.insert((victim, foe));
+        self.awareness.forced.insert((victim, side));
         if by_records {
             return false;
         }

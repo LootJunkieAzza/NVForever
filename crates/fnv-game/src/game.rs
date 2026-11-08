@@ -1474,6 +1474,21 @@ pub struct Game<'a> {
     /// cashier ([`Game::guest_lines`]) and
     /// no script starts a conversation with it.
     pub coop_guest: bool,
+    /// A co-op guest's: the control groups the host's scripts hold on the host's player
+    /// (a scene), held on this player too ([`Game::controls_locked`]; nvforever `coop`).
+    /// Not saved.
+    pub coop_host_locks: [bool; 7],
+    /// What scripts put on the player (EquipItem on the player, until UnequipItem), with
+    /// whether locked on (NoUnequipFlag): a co-op host sends those still worn to the
+    /// guests, who wear them too (a DLC's collar, jumpsuit or gown; nvforever `coop`).
+    /// Not saved.
+    pub script_worn: BTreeMap<FormId, bool>,
+    /// A co-op guest's: what the host's story put on this player ([`Game::script_worn`]
+    /// of the host's), with whether this game added the item for it (else the player had
+    /// one). Taken off, and the added ones taken away, when the host's player no longer
+    /// wears it or the guest leaves; a save must leave the added ones out (overnight item
+    /// 81). Not saved.
+    pub coop_story_gear: BTreeMap<FormId, bool>,
     /// A co-op session is on (host or guest), with another player in it: the co-op
     /// perks can be taken (`crate::coop_perks`).
     pub coop_session: bool,
@@ -2199,6 +2214,9 @@ impl<'a> Game<'a> {
             coop: Vec::new(),
             coop_actors: BTreeMap::new(),
             coop_guest: false,
+            coop_host_locks: [false; 7],
+            script_worn: BTreeMap::new(),
+            coop_story_gear: BTreeMap::new(),
             coop_session: false,
             coop_story: Default::default(),
             coop_from_others: Default::default(),
@@ -3274,7 +3292,7 @@ impl<'a> Game<'a> {
         }
         let Some(script) = self.ref_script(r) else { return false };
         let has = self.data.script(script).is_some_and(|u| u.has_block(event));
-        if !has {
+        if !has || self.host_runs_script_of(r, event) {
             return false;
         }
         let ran = self.run_event(
@@ -3536,7 +3554,7 @@ impl<'a> Game<'a> {
                 break;
             }
             let Some(script) = self.ref_script(r) else { continue };
-            if self.data.script(script).is_some_and(|u| u.has_block(ev)) {
+            if self.data.script(script).is_some_and(|u| u.has_block(ev)) && !self.host_runs_script_of(r, ev) {
                 let key = InstKey::Ref { reference: r };
                 if !in_menu {
                     self.mark_run(key, Some(script));
@@ -3626,6 +3644,9 @@ impl<'a> Game<'a> {
         }
         for r in self.active_refs() {
             let Some(script) = self.ref_script(r).filter(|s| wants(*s)) else { continue };
+            if self.host_runs_script_of(r, event::MENU_MODE) {
+                continue;
+            }
             self.run_blocks(InstKey::Ref { reference: r }, script, event::MENU_MODE, subject, RunCtx { self_ref: Some(r), ..Default::default() }, true);
         }
     }
