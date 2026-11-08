@@ -734,9 +734,18 @@ pub(crate) fn view_with_effects(rt: &mut crate::script::Runtime, sim: &mut SimSt
     v
 }
 
+/// The prompt the sheet was last spawned with and the names its hints used
+/// (`crate::pad::labels`), once it has been spawned.
+type WasTiled = Option<(Option<(i32, i32)>, crate::pad::Labels)>;
+
+/// What the tiled sheet's prompt shows now: the amount and the hints' names, so a switch
+/// of controller (Auto button style: an Xbox pad, then a PlayStation one) spawns it again
+/// as the hand-built menu's `View::labels` does [design].
+fn tiled_key(quantity: Option<(i32, i32)>) -> (Option<(i32, i32)>, crate::pad::Labels) {
+    (quantity, crate::pad::labels())
+}
+
 /// Draw the menu again when what it shows changed.
-/// The prompt the sheet was last spawned with, once it has been spawned.
-type WasTiled = Option<Option<(i32, i32)>>;
 
 #[allow(clippy::too_many_arguments)]
 fn draw(
@@ -768,10 +777,11 @@ fn draw(
     // Drawn from its tiles: only a sheet taking the pointer, and the prompt, which stays
     // hand-built (`crate::tiles::menus::quantity_tiled`). Its `drawn` is the tile writer's.
     if tiles.is_some_and(|t| t.menu.is_some()) {
-        if *was_tiled == Some(open.quantity) && !roots.is_empty() {
+        let key = tiled_key(open.quantity);
+        if *was_tiled == Some(key) && !roots.is_empty() {
             return;
         }
-        *was_tiled = Some(open.quantity);
+        *was_tiled = Some(key);
         for e in &roots {
             commands.entity(e).despawn();
         }
@@ -866,5 +876,17 @@ mod tests {
         assert_eq!(label(&r("Antivenom", 2)), "Antivenom (2)");
         assert_eq!(label(&r("Conversion, Fission Battery to SEC (25)", 25)), "Conversion, Fission Battery to SEC (25)");
         assert_eq!(label(&r("Battle Brew", 1)), "Battle Brew");
+    }
+
+    #[test]
+    fn the_tiled_prompt_is_spawned_again_when_the_hints_names_change() {
+        use crate::pad::{set_labels, Labels};
+        set_labels(Labels::Xbox);
+        let was: WasTiled = Some(tiled_key(Some((1, 4))));
+        assert_eq!(was, Some(tiled_key(Some((1, 4)))), "same amount, same pad: kept");
+        set_labels(Labels::PlayStation);
+        assert_ne!(was, Some(tiled_key(Some((1, 4)))), "a PlayStation pad after an Xbox one: drawn again");
+        assert_ne!(tiled_key(Some((1, 4))), tiled_key(Some((2, 4))), "a new amount: drawn again");
+        set_labels(Labels::Keys);
     }
 }
