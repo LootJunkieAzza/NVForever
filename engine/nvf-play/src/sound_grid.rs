@@ -47,12 +47,17 @@ fn reach_class(reach: f32) -> u32 {
     reach.max(0.0).to_bits() >> 23
 }
 
+/// One entry as [`FixedGrid::build`] takes it: (index, place, reach).
+type Entry = (u32, [f32; 3], f32);
+/// A bucket's key: its exterior cell and its reach class.
+type BucketKey = ((i32, i32), u32);
+
 impl FixedGrid {
     /// A grid over `entries`: (index, place, reach). Each index appears once. The reach
     /// is the one the caller's `far` test reads (see [`FixedGrid::near`]): the distance
     /// within which the entry can be kept.
-    pub fn build(entries: impl IntoIterator<Item = (u32, [f32; 3], f32)>) -> FixedGrid {
-        let mut by: BTreeMap<((i32, i32), u32), Vec<(u32, [f32; 3], f32)>> = BTreeMap::new();
+    pub fn build(entries: impl IntoIterator<Item = Entry>) -> FixedGrid {
+        let mut by: BTreeMap<BucketKey, Vec<Entry>> = BTreeMap::new();
         let mut always = Vec::new();
         for (i, at, reach) in entries {
             if !(at.iter().all(|v| v.is_finite()) && reach.is_finite()) {
