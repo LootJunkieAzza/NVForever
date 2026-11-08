@@ -8,7 +8,7 @@
 //! settings of their own that no menu file names (`sStats`, `sInventoryItems`,
 //! `sInventoryWeapons` … `sInventoryAmmo`, `sLocalMapTabText` … `sCommsTabText`)
 //! [observed: a Russian install's language plugin defines them, and each one's text there is
-//! the word of the place it is used here, 2026-11-08, docs/spec-notes/pipboy.md §1].
+//! the word of the place it is used here, 2026-11-08, docs/spec-notes/pipboy.md §4 "The words"].
 //!
 //! The English masters define none of these settings [observed: FalloutNV.esm and the
 //! add-ons, 2026-11-08], so an English install shows NVForever's own words, the ones
