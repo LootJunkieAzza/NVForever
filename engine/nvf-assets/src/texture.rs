@@ -191,7 +191,7 @@ fn dds_image_unguarded(bytes: &[u8], srgb: bool, bc_supported: bool, cap: u32) -
     if dds.header.is_cubemap() {
         return Err("cube map (not used by the viewer)".into());
     }
-    let block = matches!(dds.format, Format::Dxt1 | Format::Dxt3 | Format::Dxt5 | Format::Bc7);
+    let block = matches!(dds.format, Format::Dxt1 | Format::Dxt3 | Format::Dxt5);
     let skip = levels_to_skip(dds.header.width, dds.header.height, dds.levels[0].len(), cap, block);
     let (w, h) = (dds.header.width >> skip, dds.header.height >> skip);
     let levels = &dds.levels[0][skip..];
