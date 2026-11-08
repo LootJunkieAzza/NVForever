@@ -409,10 +409,10 @@ pub fn detach(inv: &mut fnv_sim::inventory::Inventory, weapon: FormId, unit: Ext
 pub fn figure(effect: Option<&str>, w: &WeaponStats, condition: f32) -> Option<(&'static str, String, Option<f32>)> {
     let n = |title, v: f32, decimals: bool| Some((title, if decimals { format!("{v:.2}") } else { format!("{v:.0}") }, Some(v)));
     match effect? {
-        "Increase Weapon Damage" => n("DAM", w.base_damage as f32, false),
+        "Increase Weapon Damage" => n(super::labels::label("sInventoryDamage", "DAM"), w.base_damage as f32, false),
         "Increase Clip Capacity" => n("Clip", w.clip_size as f32, false),
         "Decrease Spread" => n("Spread", w.min_spread, true),
-        "Decrease Weight" => n("WG", w.weight, true),
+        "Decrease Weight" => n(super::labels::label("sInventoryWeightUpper", "WG"), w.weight, true),
         "Increase Max. Condition" => n("Max CND", w.health as f32, false),
         "Increase Rate of Fire" => n("DPS", super::items::weapon_dps(w, condition), false),
         "Increase Zoom" => n("Zoom", w.sight_fov, false),
@@ -508,10 +508,10 @@ pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat:
     let cr = Rect::from_corners(MAIN.min + COMPARE.min, MAIN.min + COMPARE.max);
     let half = cr.width() / 2.0;
     let cards = |p: &mut ChildSpawnerCommands, c: &mut Ctx, y: f32, ws: &WeaponStats| {
-        frame::card(p, c, cr.min.x, y, half - 5.0, "CND", "");
+        frame::card(p, c, cr.min.x, y, half - 5.0, super::labels::label("sInventoryCondition", "CND"), "");
         let m = Rect::new(cr.min.x + half - 5.0 - METER.x - 15.0, y + 17.0, cr.min.x + half - 5.0 - 15.0, y + 17.0 + METER.y);
         bar(p, m, condition, bright);
-        let shown = if effect.is_some() { figure(effect.as_deref(), ws, condition) } else { (ws.base_damage > 0).then(|| ("DAM", ws.base_damage.to_string(), None)) };
+        let shown = if effect.is_some() { figure(effect.as_deref(), ws, condition) } else { (ws.base_damage > 0).then(|| (super::labels::label("sInventoryDamage", "DAM"), ws.base_damage.to_string(), None)) };
         let (t, v) = shown.map_or(("", String::new()), |(t, v, _)| (t, v));
         frame::card(p, c, cr.min.x + half + 5.0, y, half - 5.0, t, &v);
     };

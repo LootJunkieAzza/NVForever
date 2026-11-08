@@ -42,6 +42,7 @@
 use super::frame::{self, Align, Card, Ctx, Kit, LINE, MAIN, TEXT, THICK};
 use super::hotkey_panel::HotkeyHold;
 use crate::hotkeys::Hotkeys;
+use super::labels::label;
 use super::{Page, PageBody, PipBoy};
 use crate::interface::{pipboy_amber as amber, at};
 use crate::menu::model::{self, Category, Command, MenuModel, Mode, Row, Side};
@@ -189,18 +190,18 @@ pub fn tiles_in(i: &Info, size: Vec2) -> Vec<Tile> {
     if let Some((title, v)) = &i.first {
         out.push(tile(0.0, 0.0, w, title, v.clone()));
     }
-    out.push(tile(col(1.0), 0.0, w, "WG", i.weight.clone().unwrap_or_else(|| "--".into())));
-    out.push(tile(col(2.0), 0.0, w, "VAL", i.value.clone().unwrap_or_else(|| "--".into())));
+    out.push(tile(col(1.0), 0.0, w, label("sInventoryWeightUpper", "WG"), i.weight.clone().unwrap_or_else(|| "--".into())));
+    out.push(tile(col(2.0), 0.0, w, label("sInventoryValue", "VAL"), i.value.clone().unwrap_or_else(|| "--".into())));
     if let Some(s) = i.strength {
-        out.push(tile(col(2.0), -h, w, "STR", s.to_string()));
+        out.push(tile(col(2.0), -h, w, label("sInventoryStrReq", "STR"), s.to_string()));
     }
     if let Some(d) = &i.dps {
-        out.push(tile(0.0, -h, w, "DPS", d.clone()));
+        out.push(tile(0.0, -h, w, label("sInventoryDamagePerSecond", "DPS"), d.clone()));
     }
     let mut row = 1.0;
     if i.condition.is_some() || i.beside.is_some() {
         if let Some(cnd) = i.condition {
-            out.push(Tile { meter: Some(cnd.clamp(0.0, 1.0)), ..tile(0.0, h, w, "CND", String::new()) });
+            out.push(Tile { meter: Some(cnd.clamp(0.0, 1.0)), ..tile(0.0, h, w, label("sInventoryCondition", "CND"), String::new()) });
         }
         if let Some(b) = &i.beside {
             out.push(tile(col(1.0), h, 2.0 * w + 10.0, b, String::new()));
@@ -208,7 +209,7 @@ pub fn tiles_in(i: &Info, size: Vec2) -> Vec<Tile> {
         row = 2.0;
     }
     if let Some(e) = &i.effects {
-        out.push(tile(0.0, row * h, 3.0 * w + 20.0, "EFFECTS", e.clone()));
+        out.push(tile(0.0, row * h, 3.0 * w + 20.0, label("sInventoryEffects", "EFFECTS"), e.clone()));
     }
     out
 }
@@ -240,7 +241,7 @@ pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimSta
                 let w = &w;
                 // Binoculars and the like are weapons without damage: no DAM or STR
                 // [hypothesis].
-                i.first = (w.base_damage > 0).then(|| ("DAM", w.base_damage.to_string()));
+                i.first = (w.base_damage > 0).then(|| (label("sInventoryDamage", "DAM"), w.base_damage.to_string()));
                 i.strength = (w.strength_req > 0).then_some(w.strength_req);
                 i.badge = w.skill.as_deref().and_then(skill_badge).map(str::to_string);
                 i.skill_req = i.badge.is_some().then_some(w.skill_req);
@@ -266,7 +267,7 @@ pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimSta
         }
         Some(ItemKind::Armor) => {
             if let Some(a) = cf.and_then(|f| f.armor.get(&r.item)) {
-                i.first = Some(("DT", format!("{:.0}", a.dt)));
+                i.first = Some((label("sInventoryDamageThreshold", "DT"), format!("{:.0}", a.dt)));
             }
             i.beside = sim.forms.item(r.item).map(|it| format!("{:?}", it.armor_class));
         }
@@ -482,10 +483,10 @@ pub fn draw(
             Err(_) => "--".into(),
         };
         let cards = [
-            Card::new(WG.0, WG.1, "Wg", wg),
-            Card::new(HP.0, HP.1, "HP", hp),
-            Card::new(DT.0, DT.1, "DT", dt),
-            Card::new(CAPS.0, CAPS.1, "Caps", caps.to_string()),
+            Card::new(WG.0, WG.1, label("sInventoryWeight", "Wg"), wg),
+            Card::new(HP.0, HP.1, label("sHitPointsShort", "HP"), hp),
+            Card::new(DT.0, DT.1, label("sInventoryDamageThreshold", "DT"), dt),
+            Card::new(CAPS.0, CAPS.1, label("sInventoryCaps", "Caps"), caps.to_string()),
         ];
         frame::heading(p, &mut c, Page::Items.title(), &cards);
         list(p, &mut c, m, first, &heights);
@@ -505,7 +506,7 @@ pub fn draw(
             }
             if let (false, true, Some(r)) = (panel, i.mod_hint, selected) {
                 // X, with a controller LB (`inventory_menu.xml`'s, `crate::pad::menu_buttons`).
-                let hint = format!("Mod {}", crate::pad::hint(&[KeyCode::KeyX], crate::pad::at_menu(fnv_game::game::menus::INVENTORY)));
+                let hint = format!("{} {}", label("sInventoryMod", "Mod"), crate::pad::hint(&[KeyCode::KeyX], crate::pad::at_menu(fnv_game::game::menus::INVENTORY)));
                 info!("pipboy items: {} {hint}", r.name);
                 c.text(p, 2, &hint, MAIN.min.x + MOD_HINT.x - 10.0, MAIN.min.y + MOD_HINT.y + frame::BUTTON_TEXT_Y, Align::Right, amber(TEXT));
             }
