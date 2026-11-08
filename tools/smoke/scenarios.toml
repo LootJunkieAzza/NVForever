@@ -4100,10 +4100,10 @@ order = [[
 [[scenario]]
 name = "pipboy-data-note-scroll"
 source = "#1667 (docs/spec-notes/pipboy.md §5.3): on the DATA page's Misc tab a note's text longer than its window scrolls by Page Up/Page Down (a controller's LB/RB), held at its top"
-note = "VMQ01CourierNote (a text note) is added at 8 s and is the only note, so Misc shows it. Page Down at 15 s must scroll from 0 to a positive offset of a positive range, Page Up at 16 s back to 0. The issue's long note, 'How To Play Caravan', would make the overflow certain; its Editor ID is not in the repository, so the courier's note stands in: if its text fits the 385-high window this fails, and the note is to be swapped, not the expectations loosened."
+note = "CaravanRulesNote (a text note) is added at 8 s and is the only note, so Misc shows it. Page Down at 15 s must scroll from 0 to a positive offset of a positive range, Page Up at 16 s back to 0. It is the issue's long note, 'How To Play Caravan' [observed: issue #1667; Editor ID from fnvtool esm inventory, FalloutNV.esm], so the text overflows its 385-high window."
 areas = ["pipboy"]
 paths = ["engine/nvf-play/src/pipboy/data.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01CourierNote;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=3,18:close", NVF_PLAY_TEST_KEYS = "15:pagedown,16:pageup" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote CaravanRulesNote;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=3,18:close", NVF_PLAY_TEST_KEYS = "15:pagedown,16:pageup" }
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--size", "1280x720", "--no-voice", "--no-messages"]
 run_seconds = 24
 order = [[
