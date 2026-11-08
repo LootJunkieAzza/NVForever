@@ -1036,6 +1036,7 @@ fn set_glyphs(
     data: Option<Res<nvf_assets::GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<bevy::image::CompressedImageFormatSupport>>,
+    glyphs: Res<crate::pad::PadGlyphs>,
 ) {
     if texts.is_empty() {
         return;
@@ -1068,12 +1069,11 @@ fn set_glyphs(
         let (w, h) = (size(node.width), size(node.height));
         let mut entity = commands.entity(e);
         entity.despawn_related::<Children>();
-        if let Some(line) = face.font.lines(&g.text, None).into_iter().next() {
-            let x = if g.right { w - line.width } else { (w - line.width) / 2.0 };
-            // The glyphs stand on a line a little below the middle [design].
-            let base = h / 2.0 + face.font.size * 0.3;
-            entity.with_children(|p| crate::interface::set_line(p, face, &line, x, base, now.1));
-        }
+        let width = crate::pad::hint_width(face, &g.text, &glyphs);
+        let x = if g.right { w - width } else { (w - width) / 2.0 };
+        // The glyphs stand on a line a little below the middle [design].
+        let base = h / 2.0 + face.font.size * 0.3;
+        entity.with_children(|p| { crate::pad::set_hint(p, face, &g.text, x, base, now.1, &glyphs); });
         g.drawn = Some(now);
     }
 }
