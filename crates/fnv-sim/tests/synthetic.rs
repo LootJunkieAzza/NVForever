@@ -2353,3 +2353,76 @@ fn a_reference_placed_under_a_chosen_number_keeps_it() {
     w.number_created_from(0xFF80_0000);
     assert_eq!(w.place(id(GUARD), None, [0.0; 3], [0.0; 3], 1), Ok(FormId(0xFF80_0000)));
 }
+
+// ---- co-op replication (docs/design/coop-replication.md) ------------------------
+
+#[test]
+fn a_world_keeps_no_touched_references_unless_asked() {
+    // Solo (R1): nothing is kept, and a snapshot is the same with tracking on or off.
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    assert!(!w.tracking());
+    w.set_enabled(id(KEY_REF), true).unwrap();
+    assert!(w.take_touched().is_empty());
+    let mut t = World::new(&f.forms, &f.refs, SimConfig::default());
+    t.set_tracking(true);
+    t.set_enabled(id(KEY_REF), true).unwrap();
+    assert_eq!(serde_json::to_string(&w.snapshot()).unwrap(), serde_json::to_string(&t.snapshot()).unwrap());
+}
+
+#[test]
+fn every_write_of_a_reference_is_touched() {
+    // The change log's source: a setter, a made reference, a dropped item and a reset
+    // container are all seen, and taking them empties the set.
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    w.set_tracking(true);
+    w.set_enabled(id(KEY_REF), true).unwrap();
+    w.unlock(id(SAFE_REF)).unwrap();
+    let made = w.place(id(SAFE), Some(id(CELL_A)), [0.0; 3], [0.0; 3], 1).unwrap();
+    let got = w.take_touched();
+    for r in [id(KEY_REF), id(SAFE_REF), made] {
+        assert!(got.contains(&r), "{r} not touched: {got:?}");
+    }
+    assert!(w.take_touched().is_empty());
+    w.add_item(FormId::PLAYER_REF, id(PISTOL), 1).unwrap();
+    let dropped = w.player_drop_item(id(PISTOL), 1).unwrap();
+    let got = w.take_touched();
+    assert!(got.contains(&FormId::PLAYER_REF));
+    for d in dropped {
+        assert!(got.contains(&d), "dropped {d} not touched");
+    }
+    w.set_tracking(false);
+    w.set_enabled(id(KEY_REF), false).unwrap();
+    assert!(w.take_touched().is_empty());
+}
+
+#[test]
+fn an_npc_is_dressed_as_the_host_has_it() {
+    // A guest takes the host's worn items (Look): whatever its own roll put on, it wears
+    // exactly those, the rest kept in its inventory; and two games given the same items
+    // draw the same equipment.
+    let f = fixture();
+    let mut host = World::new(&f.forms, &f.refs, SimConfig::default());
+    let g = host.place(id(GUARD), None, [0.0; 3], [0.0; 3], 1).unwrap();
+    host.unequip(g, id(SUIT)).unwrap();
+    host.equip(g, id(HAT)).unwrap();
+    let worn = host.equipment(g).unwrap();
+    let mut guest = World::new(&f.forms, &f.refs, SimConfig { seed: 99, ..SimConfig::default() });
+    let mine = guest.place_as(g, id(GUARD), None, [0.0; 3], [0.0; 3]).unwrap();
+    assert_eq!(mine, g);
+    assert!(guest.wear_as(g, &worn).unwrap());
+    let sorted = |mut v: Vec<FormId>| {
+        v.sort();
+        v
+    };
+    assert_eq!(sorted(guest.equipment(g).unwrap()), sorted(worn.clone()));
+    // The suit it no longer wears is still carried; doing it again changes nothing.
+    assert!(guest.item_count(g, id(SUIT)).unwrap() > 0);
+    assert!(!guest.wear_as(g, &worn).unwrap());
+    // An item it never carried is given to it.
+    assert!(guest.wear_as(g, &[id(SUIT), id(PISTOL)]).unwrap());
+    assert_eq!(sorted(guest.equipment(g).unwrap()), sorted(vec![id(SUIT), id(PISTOL)]));
+    // The player is never dressed so.
+    assert!(!guest.wear_as(FormId::PLAYER_REF, &worn).unwrap());
+}

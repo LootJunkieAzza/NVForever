@@ -471,6 +471,11 @@ pub struct World<'a> {
     presence_serial: u64,
     next_dynamic: u32,
     rng: ChaCha8Rng,
+    /// Co-op replication (docs/design/coop-replication.md §6.1): the references whose
+    /// state was reached for writing ([`World::get`], a reference made or taken away)
+    /// since the host last took them ([`World::take_touched`]). `None`, the default and
+    /// always in solo: nothing is kept (R1). Not saved.
+    touched: Option<std::collections::BTreeSet<FormId>>,
 }
 
 impl<'a> World<'a> {
@@ -504,7 +509,70 @@ impl<'a> World<'a> {
             presence_serial: serial,
             next_dynamic: FormId::FIRST_DYNAMIC.0,
             rng: ChaCha8Rng::seed_from_u64(cfg.seed),
+            touched: None,
         }
+    }
+
+    /// Keep (or stop keeping) the references whose state is reached for writing, for a
+    /// co-op host's change log ([`World::take_touched`]). Off in solo.
+    pub fn set_tracking(&mut self, on: bool) {
+        match (on, self.touched.is_some()) {
+            (true, false) => self.touched = Some(Default::default()),
+            (false, true) => self.touched = None,
+            _ => {}
+        }
+    }
+
+    pub fn tracking(&self) -> bool {
+        self.touched.is_some()
+    }
+
+    /// The references reached for writing since the last call (empty when not tracking):
+    /// every write of a reference's state goes through [`World::get`] or makes or takes
+    /// away a whole state here, so nothing that changes one is missed.
+    pub fn take_touched(&mut self) -> std::collections::BTreeSet<FormId> {
+        self.touched.as_mut().map(std::mem::take).unwrap_or_default()
+    }
+
+    fn touch(&mut self, id: FormId) {
+        if let Some(t) = self.touched.as_mut() {
+            t.insert(id);
+        }
+    }
+
+    /// Dress actor `id` in exactly `items` (a co-op guest drawing an NPC as the host's
+    /// game has it dressed, docs/design/coop-replication.md §6.1 `Look`): each item it
+    /// lacks is added once, each is equipped, and every other equipped item is taken off
+    /// (kept in the inventory). The actor counts as outfitted, so its own outfitting does
+    /// not dress it again. Returns whether anything changed. The player is never dressed
+    /// so; nor is a reference with no inventory.
+    pub fn wear_as(&mut self, id: FormId, items: &[FormId]) -> Result<bool, SimError> {
+        if id == FormId::PLAYER_REF {
+            return Ok(false);
+        }
+        let known: Vec<FormId> = items.iter().copied().filter(|&i| self.forms.item(i).is_some()).collect();
+        let s = self.get(id)?;
+        let Some(inv) = s.inventory.as_mut() else { return Ok(false) };
+        let mut changed = false;
+        for i in inv.equipped() {
+            if !known.contains(&i) {
+                changed |= inv.clear_equipped(i);
+            }
+        }
+        for &i in &known {
+            if inv.count(i) <= 0 {
+                inv.add(i, 1);
+                changed = true;
+            }
+            if !inv.is_equipped(i) {
+                changed |= inv.set_equipped(i);
+            }
+        }
+        if !s.outfitted {
+            s.outfitted = true;
+            changed = true;
+        }
+        Ok(changed)
     }
 
     pub fn config(&self) -> SimConfig {
@@ -553,6 +621,9 @@ impl<'a> World<'a> {
 
     /// The current state of `id`, creating it from the placement data on first use.
     pub fn get(&mut self, id: FormId) -> Result<&mut RefState, SimError> {
+        if let Some(t) = self.touched.as_mut() {
+            t.insert(id);
+        }
         if !self.refs.contains_key(&id) {
             if self.deleted_created.contains_key(&id) {
                 return Err(SimError::Deleted(id));
@@ -1179,6 +1250,7 @@ impl<'a> World<'a> {
             let id = FormId(self.next_dynamic);
             self.next_dynamic += 1;
             self.presence_serial += 1;
+            self.touch(id);
             self.refs.insert(
                 id,
                 RefState {
@@ -1672,6 +1744,9 @@ impl<'a> World<'a> {
             .filter(|id| self.refs.get(id).is_some_and(|s| respawns(s.base)))
             .collect();
         for id in &reset {
+            if let Some(t) = self.touched.as_mut() {
+                t.insert(*id);
+            }
             self.refs.remove(id);
             self.presence_serial += 1;
             // Made anew: its level is fixed again when the cell is entered.
@@ -1803,6 +1878,7 @@ impl<'a> World<'a> {
         // A created actor appears where the player is: it is outfitted at once.
         let outfitted = self.equip_default(base, &mut inventory);
         self.presence_serial += 1;
+        self.touch(id);
         self.refs.insert(
             id,
             RefState {
