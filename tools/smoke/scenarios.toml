@@ -6246,7 +6246,7 @@ expect = [
 name = "load-handoff"
 source = "owner 2026-10-16: loading a save while playing keeps the window: the old run's loading screen stays up while a new run starts behind it with its window hidden, then the new window takes over (engine/nvforever/src/handoff.rs); owner 2026-11-01 (#1357): the new window takes over as soon as its own loading screen is up, and the old run ends then instead of holding its game through the whole load"
 areas = ["save"]
-paths = ["engine/nvforever/src/handoff.rs", "engine/nvf-play/src/loading.rs", "engine/nvf-play/src/save.rs", "engine/nvf-play/src/pause.rs"]
+paths = ["engine/nvforever/src/handoff.rs", "engine/nvf-play/src/loading.rs", "engine/nvf-play/src/save.rs", "engine/nvf-play/src/pause.rs", "engine/nvforever/src/readahead.rs"]
 # The save waits past the add-on packs' message boxes (each held 0.3 s), which run to about 13 s.
 env = { NVFOREVER_HOME = "handoff-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "20:save handoff-test;22:load handoff-test", NVF_PLAY_TEST_HANDOFF_EXIT = "1" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
@@ -6265,12 +6265,19 @@ expect = [
   { re = 'the previous run did not end normally', count = 0, label = "the new run does not take the old one for a crash" },
   { re = 'before the world was in|before it was ready', count = 0, label = "no time limit or failure" },
   { text = "menu pause: the picture runs again", count = 0, label = "the world behind the loading screen stands still while the new run loads (owner 2026-10-23: a load from the main menu played the opening behind it)" },
+  { re = 'handoff: the world waits for the old run \(process \d+\) to end', count = 1, label = "the new run's world waits for the old run (owner's playtest 2026-11-08: both runs' worlds ran a 4 GB card out of memory)" },
+  { re = 'handoff: the old run has ended after [\d.]+ s; the world loads', count = 1, label = "the old run ends, then the new run's world loads" },
+  { text = "the world loads anyway", count = 0, label = "the old run does not hang past the wait" },
 ]
 order = [[
   { re = 'handoff: window shown after [\d.]+ s$', label = "the new window shows" },
   { re = 'load: the new run is up after [\d.]+ s; ending this one', label = "the old run ends once the new window shows" },
   { re = 'load: restored .*handoff-test\.nvfsave', label = "only then is the save put back (owner 2026-11-01: the old run does not stay through the load)" },
   { text = "the new run took over and its world is in; ending it", label = "and the world comes in" },
+], [
+  { re = 'load: the new run is up after [\d.]+ s; ending this one', label = "the old run ends" },
+  { re = 'handoff: the old run has ended after [\d.]+ s; the world loads', label = "the new run sees it gone" },
+  { re = 'loading screen down after [\d.]+ s \(the start', label = "only then do its cells come in and its screen come down (streaming waits for the old run)" },
 ]]
 
 [[scenario]]

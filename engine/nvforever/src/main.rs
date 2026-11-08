@@ -1751,7 +1751,10 @@ fn main() -> AppExit {
             app.insert_resource(handoff::LoadFailed(why)).add_systems(Update, handoff::tell_load_failed);
         }
         if let Some(file) = args.handoff.clone() {
-            app.insert_resource(handoff::Hidden::new(file, args.window_maximized));
+            if let Some(old) = handoff::OldRun::open(&file) {
+                app.insert_resource(old);
+            }
+            app.insert_resource(handoff::Hidden::new(file, args.window_maximized)).add_systems(First, handoff::watch_old_run);
         }
         nvf_play::save::add_save_hook(&mut app, sky::SAVE_HOOK);
     }
