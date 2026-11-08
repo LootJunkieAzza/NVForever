@@ -438,17 +438,23 @@ impl Glyph {
         let half = GLYPH_PIXELS as f32 / 2.0;
         let stroke_px = RING_STROKE * half;
         let outer_h_px = RING_OUTER * 2.0 * half;
-        // The capsule is as wide as its label needs (at least its own height), a tile
-        // high; the knob is the face symbols' square tile. The label is drawn scaled by
-        // `label_scale`, so the capsule measures the scaled width too, or "Select" runs
-        // far wider than its drawn letters.
+        // The capsule's ring is a keycap: as wide as its label needs, but at least
+        // `CAPSULE_MIN_ASPECT` times its height, so a short label ("L1") reads as a
+        // rectangle rather than a square. The label is drawn scaled by `label_scale`, so
+        // the capsule measures the scaled width too, or "Select" runs far wider than its
+        // drawn letters. The image is padded by the glow's reach on the left and right too,
+        // so the halo is not clipped (the tile's height already leaves room above and below).
+        let ring_hw = if self.is_knob() {
+            RING_OUTER
+        } else {
+            let ring_w = (font.font.width(label) * label_scale(self) + 2.0 * CAPSULE_PAD_X + 2.0 * stroke_px).max(outer_h_px * CAPSULE_MIN_ASPECT);
+            ring_w / 2.0 / half
+        };
         let (w, h) = if self.is_knob() {
             (GLYPH_PIXELS, GLYPH_PIXELS)
         } else {
-            let outer_w = (font.font.width(label) * label_scale(self) + 2.0 * CAPSULE_PAD_X + 2.0 * stroke_px).max(outer_h_px);
-            (outer_w.ceil() as u32, GLYPH_PIXELS)
+            ((2.0 * (ring_hw + GLYPH_HALO) * half).ceil() as u32, GLYPH_PIXELS)
         };
-        let hw = w as f32 / 2.0 / half;
         // The ring's signed distance, then the soft edge and halo (the alpha), per pixel.
         let mut data = vec![0u8; (w * h * 4) as usize];
         for y in 0..h {
@@ -457,7 +463,7 @@ impl Glyph {
                 let d = if self.is_knob() {
                     circle_ring(p, RING_OUTER, RING_STROKE)
                 } else {
-                    rounded_rect_ring(p, hw, RING_OUTER, CAPSULE_CORNER, RING_STROKE)
+                    rounded_rect_ring(p, ring_hw, RING_OUTER, CAPSULE_CORNER, RING_STROKE)
                 };
                 let a = (glyph_coverage(d) * 255.0).round() as u8;
                 let i = ((y * w + x) * 4) as usize;
@@ -485,12 +491,17 @@ pub struct FontImage<'a> {
 /// glyphs sit on one visual height with one stroke weight [design, #1829].
 const RING_OUTER: f32 = 0.68;
 const RING_STROKE: f32 = 0.17;
+/// How far a glyph's glow reaches past its ring, in the face glyphs' units (the tile's
+/// half side is 1): the square tile leaves this much room above and below the ring, so the
+/// capsule's image adds the same on its left and right so the halo is not clipped [design].
+const GLYPH_HALO: f32 = 0.32;
 /// The capsule's corner radius (a keycap, not a full pill) and the room around its label,
 /// in the same units [design].
 const CAPSULE_CORNER: f32 = 0.25;
 const CAPSULE_PAD_X: f32 = 9.0;
-/// The labelled glyph pictures' tile in pixels: a capsule is this high and a knob this
-/// square (the face symbols' tile), the ring drawn within it [design].
+/// The capsule's minimum width-to-height ratio: a short label ("L1") still reads as a
+/// rectangle, not a square [design].
+const CAPSULE_MIN_ASPECT: f32 = 1.35;
 /// The glyph pictures' tile in pixels: a face symbol is this square and a labelled button
 /// this high, the ring drawn within it [design].
 pub const GLYPH_PIXELS: u32 = 64;
@@ -787,7 +798,7 @@ pub fn set_hint_marked(
             Some((image, aspect)) => {
                 let side = face.font.size * glyph_share(g);
                 let w = side * aspect;
-                let corner = Vec2::new(x + width, base - side * GLYPH_RISE);
+                let corner = Vec2::new(x + width, base - crate::interface::line_base(face) / 2.0 - side / 2.0);
                 p.spawn((crate::interface::at(corner.x, corner.y, w, side), ImageNode { color, ..ImageNode::new(image) }, mark.clone()));
                 width += w;
             }
@@ -819,7 +830,7 @@ pub fn set_button(
         Some((g, image, aspect)) => {
             let side = face.font.size * glyph_share(g);
             let w = side * aspect;
-            let corner = Vec2::new(x, base - side * GLYPH_RISE);
+            let corner = Vec2::new(x, base - crate::interface::line_base(face) / 2.0 - side / 2.0);
             p.spawn((crate::interface::at(corner.x, corner.y, w, side), ImageNode { color, ..ImageNode::new(image) }));
             w
         }
@@ -841,10 +852,6 @@ fn glyph_share(g: Glyph) -> f32 {
         1.3
     }
 }
-
-/// How much of a hint glyph's height stands above the line's baseline: the glyph is
-/// centred on the text's x-height rather than raised [design].
-const GLYPH_RISE: f32 = 0.72;
 
 /// The gap a hint leaves between its words and its glyph, in pixels: the hint builders
 /// write two spaces before the button name, which [`fnv_font::Font::lines`] drops, so the
