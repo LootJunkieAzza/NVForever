@@ -515,12 +515,17 @@ pub fn line_base(face: &Face) -> f32 {
 /// rise. A font with no lowercase letters at all — its text is all capitals — centres on
 /// its capitals instead ([`line_base`]).
 pub fn x_height(face: &Face) -> f32 {
-    let mut rises: Vec<f32> = face.font.glyphs.iter().skip(0x61).take(0x1A).filter(|g| g.drawn()).map(|g| g.ascent).collect();
-    if rises.is_empty() {
+    let mut rises = [0.0f32; 0x1A];
+    let mut n = 0;
+    for g in face.font.glyphs.iter().skip(0x61).take(0x1A).filter(|g| g.drawn()) {
+        rises[n] = g.ascent;
+        n += 1;
+    }
+    if n == 0 {
         return line_base(face);
     }
-    rises.sort_by(f32::total_cmp);
-    rises[rises.len() / 2]
+    rises[..n].sort_by(f32::total_cmp);
+    rises[n / 2]
 }
 
 /// Draw a line of text at `origin` (what its `x` and `base` are measured from). Every
