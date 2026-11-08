@@ -1770,6 +1770,10 @@ pub fn interior_clip(sky: Res<SkyState>, mut cam: Query<&mut Projection, With<Fl
     }
 }
 
+/// Interior fog's far distance with the No Interior Fog tweak: farther than any room
+/// [design: docs/design/tweaks.md].
+const NO_FOG_FAR: f32 = 1_000_000.0;
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn update_sky(
     mut sky: ResMut<SkyState>,
@@ -1784,6 +1788,7 @@ pub fn update_sky(
     mut flashed: Local<bool>,
     mut dome_shown: Local<Option<DomeShown>>,
     screen: Option<Res<crate::imagespace::ScreenModifiers>>,
+    tweaks: Option<Res<nvf_play::tweaks::TweakSettings>>,
 ) {
     let mut cam = cam;
     // What the image space modifiers on the screen do to the Sunlight Dimmer and the
@@ -1824,7 +1829,9 @@ pub fn update_sky(
             light.illuminance = PI * unit * l.directional_fade.clamp(0.0, 1.0) * INTERIOR_DIRECTIONAL_SHARE;
         }
         fog.color = c(l.fog_color);
-        fog.falloff = crate::fog::falloff(l.fog_near.max(0.0), l.fog_far, l.fog_power, false, 1.0);
+        // The player's tweak pushes interior fog out of sight [design: docs/design/tweaks.md].
+        let far = if tweaks.as_ref().is_some_and(|t| t.no_interior_fog) { NO_FOG_FAR } else { l.fog_far };
+        fog.falloff = crate::fog::falloff(l.fog_near.max(0.0), far, l.fog_power, false, 1.0);
         info!("interior lighting: fog {:.0}..{:.0} power {:.2}", l.fog_near, l.fog_far, l.fog_power);
         return;
     }

@@ -288,6 +288,8 @@ fn gather(
     // The player's tweak leaves hostile actors off the compass [design: docs/design/tweaks.md].
     let hide_foes = tweaks.as_ref().is_some_and(|t| t.hide_enemy_markers);
     let quest_reach = tweaks.as_ref().map_or(0.0, |t| t.quest_marker_reach);
+    let pips_in_danger_only = tweaks.as_ref().is_some_and(|t| t.compass_pips_in_danger_only);
+    let neutral_foes = tweaks.as_ref().is_some_and(|t| t.neutral_foes_on_compass);
     *poll += time.delta_secs();
     if *poll < POLL || *state.get() != PlayState::Playing {
         return;
@@ -327,7 +329,11 @@ fn gather(
                 if hostile && hide_foes {
                     continue;
                 }
-                let mark = if hostile { Mark::Hostile } else { Mark::Actor };
+                // The player's tweaks: no pips unless in danger, and foes in the usual colour [design: docs/design/tweaks.md].
+                if pips_in_danger_only && crate::hud::sneak_now(g) != crate::hud::Sneak::Danger {
+                    continue;
+                }
+                let mark = if hostile && !neutral_foes { Mark::Hostile } else { Mark::Actor };
                 out.push((Near { mark, at: [at[0], at[1]], body: bodies.contains_key(&r.0).then_some(r.0) }, shown));
             }
             out

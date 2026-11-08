@@ -288,6 +288,10 @@ fn watch(
         let dlcs = experience::STORY_DLCS.iter().filter(|d| rt.game.data.load_order.iter().any(|p| p.eq_ignore_ascii_case(d))).count();
         info!("xp: level cap {} ({dlcs} story add-ons)", now.max);
     }
+    // The player's tweak: gains wait for the fight to end, then show together [design: docs/design/tweaks.md].
+    if tweaks.as_ref().is_some_and(|t| t.no_xp_meter_in_combat) && crate::hud::sneak_now(&rt.game) == crate::hud::Sneak::Danger {
+        return;
+    }
     let mut play = |name: &'static str| play_sound(sfx.as_deref(), &mut sound_forms, &mut sounds, name);
     match meter.observe(&now) {
         // The player's Quiet Experience tweak: a gain that earns no level is not shown

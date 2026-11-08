@@ -381,6 +381,8 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
             }
             EventKind::QuestCompleted { quest } => out.extend(ctx.quest_title(*quest).map(|n| ScriptEffect::Quest(QuestNotice::Completed(n)))),
             EventKind::QuestFailed { quest } => out.extend(ctx.quest_title(*quest).map(|n| ScriptEffect::Quest(QuestNotice::Failed(n)))),
+            // The player's tweak: no line for caps [design: docs/design/tweaks.md].
+            EventKind::ItemAdded { to, item: FormId(0xF), silent: false, .. } if *to == player && ctx.tweaks().is_some_and(|t| t.no_caps_added_message) => {}
             EventKind::ItemAdded { to, item, count, silent: false } if *to == player => match added.iter_mut().find(|(i, _)| i == item) {
                 Some((_, n)) => *n += count,
                 None => added.push((*item, *count)),

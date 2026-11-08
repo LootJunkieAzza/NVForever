@@ -253,6 +253,21 @@ saves load, and the frame's sync sets them from the settings again.
 | No Iron Sight Zoom | `bDisableWeaponFOV` | `aim_zoom::zoom` |
 | Hide Quest Items in Misc | `bHideMiscQuestItems` | `MenuModel` list refresh (`hide_misc_quest`) |
 
+## Sixteenth batch (2026-11-09)
+
+| Row | INI key | Where |
+|---|---|---|
+| Hotkey Draws and Holsters | `bHotkeyHolstersWeaponIfEquipped` | `weapon_wheel::act` on `Used::InHand` |
+| No Interior Fog | `bDisableInteriorFog` | nvforever `sky::update_sky` |
+| Mark Strangers | `bUnspokenNPCIndicator` | `activate` Talk prompt |
+| No Caps Added Line | `bHideCapsAddedMessages` | `script_events::effects` |
+| Subtitles Name the Speaker | `bSubtitlesShowActorNames` | `script_hud` |
+| Compass Pips Only in Danger | `bNoCompassPipsIfNotInDanger` | `compass::gather` |
+| Foes in the Usual Colour | `bHostilesUseNeutralColorOnCompass` | `compass::gather` |
+| Sneak Label While Standing | `bShowSneakLabelWhileStanding` | `hud::gather` |
+| No XP Meter in Combat | `bNoXPBarInCombat` | `xp_meter::watch` |
+| No Crippled Limb Figure | `bDisableHUDCrippledLimbIndicator` | `hud_limbs::watch` |
+
 Menu tweaks that code holding the game reads (the Pip-Boy's item info, crafting, the
 level-up menu, the terminal's timers) are kept in `fnv_game::tweaks` too, so no system
 needs another parameter; the catalogue's notes say where NVForever already does what a
@@ -269,8 +284,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 204 |
-| to do | 399 |
+| done | 223 |
+| to do | 380 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -513,12 +528,14 @@ game's Data folder, read-only).
 | `bDisableCompanionKillcam` | done |  |  | already so: only the player's VATS kills start a kill camera |
 | `bDisableExplosionInFaceIMOD` | done |  |  | No Explosion Blur |
 | `bDisableHolsteredWeaponFOVZoom` | done |  |  | already so: a holstered weapon gives no zoom |
+| `bDisableInteriorFog` | done |  | 1 | No Interior Fog (from the next interior; the threshold option not built) |
 | `bDisableTutorialMessages` | done |  |  | No Minigame Help (lockpick, blackjack, roulette, slots; Caravan not yet) |
 | `bDisableWeaponFOV` | done |  | 1 | No Iron Sight Zoom (the non-sighted option not built) |
 | `bFireWhileAiming` | done |  |  | already so: the trigger does not wait for the zoom |
 | `bHideMiscQuestItems` | done |  | 1 | Hide Quest Items in Misc (the star caps option not built) |
 | `bHoldCrouchToSneak` | done |  |  | Hold to Sneak |
 | `bHoldWaitKeyToShowMenu` | done |  | 1 | Hold to Wait (half a second; the hold time option not built) |
+| `bHotkeyHolstersWeaponIfEquipped` | done |  | 1 | Hotkey Draws and Holsters (the never-holster option not built) |
 | `bHUDRotatesWithVanityCam` | done |  |  | already so: the compass follows the orbiting camera |
 | `bJumpingDoesntDropGrabbedItem` | done |  |  | already so: jumping does not let go |
 | `bKeepHolotapePlayingWhenSelectingOtherNotes` | done |  |  | already so: only voice and sound notes start playing |
@@ -540,6 +557,8 @@ game's Data folder, read-only).
 | `bRandomizeKillcamMode` | done |  |  | n/a: NVForever has one kill camera kind |
 | `bRemoveChemWarnOffIMOD` | done |  |  | No Chem Wore-Off Effect |
 | `bRepeatJumping` | done |  |  | Hold to Keep Jumping |
+| `bUnspokenNPCIndicator` | done |  |  | Mark Strangers |
+| `bUseFirstPersonEmptyClipSound` | done |  |  | already so: one empty-clip sound, played at the listener |
 | `bBetterPickupPrompt` | to do | yes |  | the prompt shows one unit; needs the stack count and the encumbrance |
 | `bDoubleTapReloadToChangeAmmoType` | to do | yes | 2 | the owner moved Lower Weapon off a double tap because it held reloads back; ask first |
 | `bFasterControllerPOVRotate` | to do | yes |  | player::mouse_look orbit speed for the controller |
@@ -555,13 +574,11 @@ game's Data folder, read-only).
 | `bAllowActivateWhileAnimPlays` | to do |  |  | NVForever never refuses activating during a reload; check what the original refuses |
 | `bAllowUnsafeFastTravel` | to do |  | 1 | only cells flagged Can't Travel From Here refuse; the tweak would skip that flag |
 | `bDisableHitShader` | to do |  | 1 | NVForever draws no hit shader yet |
-| `bDisableInteriorFog` | to do |  | 1 | nvforever sky update_sky fog far distance |
 | `bDontSetQuestWhenCompletingObjectives` | to do |  |  | pipboy data::lists picks an active quest whenever none is |
 | `bDontSetQuestWhenObjectivesAdded` | to do |  |  | pipboy data::lists picks an active quest whenever none is |
 | `bEnteringVATSDoesntUnholsterWeapon` | to do |  |  | a drawn-by-VATS flag and a holster on end |
 | `bEquipBrokenItems` | to do |  |  | broken weapons are refused in fnv_sim equip_at; needs a World flag like power armour |
 | `bForceHiResWeaponModels` | to do |  |  | nvforever actors arm_weapon model_for(true); untested in the hand |
-| `bHotkeyHolstersWeaponIfEquipped` | to do |  | 1 | weapon_wheel act on Used::InHand |
 | `bKeepBrokenItemsEquipped` | to do |  |  | the break unequips at three sites; firing a broken weapon is undefined |
 | `bLessFrequentPlayerPainSounds` | to do |  | 1 | combat_lines hit_lines with a last-said time |
 | `bMoveDuringOpenPipboyAnim` | to do |  |  | the Pip-Boy is a menu; the game leaves Playing at once |
@@ -586,12 +603,10 @@ game's Data folder, read-only).
 | `bSlotsAutoSpinHotkey` | to do |  |  | slots keys; check Spin while reels turn |
 | `bSwapAmmoWithWeaponHolstered` | to do |  |  | combat::fire before the not-ready return |
 | `bToggleControllerIfAttackPressed` | to do |  | 1 | not built: the device changes only by setting |
-| `bTurnFurtherWhileSeated` | to do |  |  |  |
-| `bTurnSlowerWhileAiming` | to do |  | 2 |  |
-| `bUnequipBrokenArmor` | to do |  | 1 |  |
-| `bUnspokenNPCIndicator` | to do |  |  |  |
-| `bUseFirstPersonEmptyClipSound` | to do |  |  |  |
-| `bWeaponCycleUpDownHotkeys` | to do |  |  |  |
+| `bTurnFurtherWhileSeated` | to do |  |  | nvforever player_body NECK_TURN; drive_body is at 16 params |
+| `bTurnSlowerWhileAiming` | to do |  | 2 | player::mouse_look by AimZoom.aimed |
+| `bUnequipBrokenArmor` | to do |  | 1 | combat::wear_armor w.broke; a bool from its four callers |
+| `bWeaponCycleUpDownHotkeys` | to do |  |  | the D-pad is fixed to hotkeys; needs a current slot |
 
 ### HUD
 
@@ -599,71 +614,71 @@ game's Data folder, read-only).
 |---|---|---|---|---|
 | `bAddRGBSliders` | done | yes | 1 | already a row: Interface tab, hud-red / hud-green / hud-blue |
 | `bHideRedCrosshairOnDistantInvisibleTargets` | done | yes |  | Invisible Foes Stay Hidden (at any distance) |
+| `bDisableCompassEdgeAlpha` | done |  |  | already so: the marks are not faded at the edge |
+| `bDisableGrenadeIndicator` | done |  |  | already so: NVForever has no grenade indicator |
+| `bDisableHUDCrippledLimbIndicator` | done |  |  | No Crippled Limb Figure |
 | `bDistanceBasedQuestMarkerVisibilty` | done |  | 2 | Quest Markers Within (slider in game units, one distance indoors and out) |
+| `bHideCapsAddedMessages` | done |  |  | No Caps Added Line |
+| `bHostilesUseNeutralColorOnCompass` | done |  |  | Foes in the Usual Colour |
+| `bNoCompassPipsIfNotInDanger` | done |  |  | Compass Pips Only in Danger |
 | `bNoCrippleCriticalMessages` | done |  | 3 | already so: no crippled or critical popups about the target are shown |
 | `bNoKarmaMessages` | done |  | 7 | Quiet Karma (messages and sounds together; no thresholds yet) |
 | `bNoLocationPopup` | done |  |  | No Location Banner |
 | `bNoQuestFailedPopup` | done |  | 1 | No Quest Failed Banner |
 | `bNoRedCrosshairOnEnemies` | done |  |  | No Red Crosshair (native and tile HUD alike) |
 | `bNoUnconciousMessage` | done |  |  | No Unconscious Message |
+| `bNoXPBarInCombat` | done |  | 1 | No XP Meter in Combat (no delay option) |
 | `bNoXPMessages` | done |  | 7 | Quiet Experience (all sources at once; LEVEL UP still shows) |
 | `bPatchUnseenCellName` | done |  | 3 | Mark Unvisited Doors (a star; the rename and respawn options not built) |
+| `bRemoveDeadNPCCrippleCriticalMessages` | done |  |  | already so: no cripple or critical messages |
 | `bRemoveQuestObjectiveAddedText` | done |  | 1 | No Objective List |
 | `bRemoveSneakLabel` | done |  |  | No Sneak Label (native and tile HUD) |
+| `bScopeVisibleAPHP` | done |  | 1 | already so: HP and AP stay up while scoped |
+| `bShowSneakLabelWhileStanding` | done |  |  | Sneak Label While Standing |
+| `bSubtitlesShowActorNames` | done |  |  | Subtitles Name the Speaker |
+| `iHUDMaxCompassNPCTicks` | done |  | 1 | already so: the compass has no cap on actors |
 | `bDescriptiveMarkerAddedMessage` | to do | yes |  | NVForever shows no marker-added popup |
 | `bEnemyHealthbarShowBuffedHP` | to do | yes |  | max_health leaves out temporary modifiers; choose how bars share them |
-| `bHideGrenadeIndicatorForNoDamageExplosions` | to do | yes |  |  |
+| `bHideGrenadeIndicatorForNoDamageExplosions` | to do | yes |  | not built: no grenade indicator |
 | `bMorePreciseRadMeter` | to do | yes | 1 | unclear whether the HUD gain or the Pip-Boy total is meant |
-| `bArmorConditionLabel` | to do |  | 9 |  |
-| `bColoredHUDBars` | to do |  | 2 |  |
-| `bColorWeaponCndLabel` | to do |  | 2 |  |
-| `bCompanionPipColorChange` | to do |  | 1 |  |
-| `bCompassFadeLeftSide` | to do |  |  |  |
-| `bCompassLocationDistanceBasedAlpha` | to do |  |  |  |
+| `bArmorConditionLabel` | to do |  | 9 | no armour condition text on the HUD yet |
+| `bColoredHUDBars` | to do |  | 2 | hud::pips colour by threshold |
+| `bColorWeaponCndLabel` | to do |  | 2 | hud::draw condition bar colour |
+| `bCompanionPipColorChange` | to do |  | 1 | a companion mark kind in compass and tiles |
+| `bCompassFadeLeftSide` | to do |  |  | compass::draw alpha on both paths |
+| `bCompassLocationDistanceBasedAlpha` | to do |  |  | the compass view carries no distance |
 | `bCompassNPCDistanceBasedAlpha` | to do |  |  | the compass draws no alpha yet |
-| `bCompassQuestHeightIndicator` | to do |  |  |  |
-| `bCriticalHitMessagesIncludeLimbName` | to do |  |  |  |
-| `bCustomAddToInventoryMessageTimer` | to do |  | 1 |  |
-| `bCustomSubtitleDistance` | to do |  | 1 |  |
-| `bDetectedByWhom` | to do |  | 5 |  |
-| `bDisableCompassEdgeAlpha` | to do |  |  |  |
-| `bDisableGrenadeIndicator` | to do |  |  |  |
-| `bDisableHUDCrippledLimbIndicator` | to do |  |  |  |
+| `bCompassQuestHeightIndicator` | to do |  |  | the compass marks are 2D; needs art |
+| `bCriticalHitMessagesIncludeLimbName` | to do |  |  | not built: no critical-hit messages |
+| `bCustomAddToInventoryMessageTimer` | to do |  | 1 | script_events item-added Note seconds |
+| `bCustomSubtitleDistance` | to do |  | 1 | script_hud audible check with a distance |
+| `bDetectedByWhom` | to do |  | 5 | Sneak is a Copy enum; names need a new type |
 | `bDisableNeedsMessages` | to do |  | 4 | those messages are the game's own scripts; needs a filter by message |
-| `bExplodingDestructibleIndicator` | to do |  |  |  |
-| `bHideAmmoLabel` | to do |  | 1 |  |
-| `bHideCapsAddedMessages` | to do |  |  |  |
+| `bExplodingDestructibleIndicator` | to do |  |  | not built: no grenade indicator |
+| `bHideAmmoLabel` | to do |  | 1 | hud::gather weapon ammo text |
 | `bHideCrosshairInFirstPerson` | to do |  |  | the crosshair and the prompt share a root in reticle.rs |
 | `bHideCrosshairInThirdPerson` | to do |  |  | the crosshair and the prompt share a root in reticle.rs |
 | `bHideCrosshairWhileReloading` | to do |  |  |  |
 | `bHideInvisibleUndiscoveredLocations` | to do |  |  | compass::gather marker loop; markers_of does not carry the map rule |
 | `bHideUnknownNPCNames` | to do |  | 1 | activate::find_target with extra.talked_to_pc; needs a label for the unnamed |
-| `bHostilesUseNeutralColorOnCompass` | to do |  |  |  |
-| `bHUDFatigueIndicator` | to do |  |  |  |
-| `bHUDMarkerNameIndicator` | to do |  | 7 |  |
-| `bHUDShowRegionNames` | to do |  | 1 |  |
+| `bHUDFatigueIndicator` | to do |  |  | the needs words are a fixed five |
+| `bHUDMarkerNameIndicator` | to do |  | 7 | no such HUD text yet |
+| `bHUDShowRegionNames` | to do |  | 1 | not built: the HUD has no region text |
 | `bHUDWeaponNameLabel` | unsure, skipped |  | 5 | needs the plugin's own menu XML |
 | `bKeepCrosshairWhenAiming` | to do |  |  | reticle::draw is at 16 parameters; goes into a tuple |
-| `bLocationDiscoveredCornerMessage` | to do |  |  |  |
-| `bMoveAmmoTypeLabel` | to do |  |  |  |
-| `bNoCompassPipsIfNotInDanger` | to do |  |  |  |
-| `bNoHUDHotkeyPopup` | to do |  |  |  |
-| `bNoXPBarInCombat` | to do |  | 1 |  |
-| `bPlacedMarkerHeightIndicator` | to do |  | 1 |  |
-| `bRaceMenuAllowFemaleFacialHair` | to do |  |  |  |
-| `bRecentlyDeadNPCIndicator` | to do |  | 4 |  |
-| `bRemoveDeadNPCCrippleCriticalMessages` | to do |  |  |  |
-| `bScopeVisibleAPHP` | to do |  | 1 |  |
-| `bShowDoorsOnCompass` | to do |  | 5 |  |
-| `bShowNearestUndiscoveredLocation` | to do |  | 2 |  |
-| `bShowQuestObjectivesOnCellChange` | to do |  | 1 |  |
-| `bShowSneakLabelWhileStanding` | to do |  |  |  |
-| `bShowUsePasswordOnTerminalsWithNote` | to do |  | 1 |  |
-| `bSubtitlesShowActorNames` | to do |  |  |  |
+| `bLocationDiscoveredCornerMessage` | to do |  |  | compass::discover into CornerMessages |
+| `bMoveAmmoTypeLabel` | to do |  |  | hud::texts label position |
+| `bNoHUDHotkeyPopup` | to do |  |  | weapon_wheel step held-to-open |
+| `bPlacedMarkerHeightIndicator` | to do |  | 1 | not built: no player-placed markers |
+| `bRaceMenuAllowFemaleFacialHair` | to do |  |  | creator model female checks at four places |
+| `bRecentlyDeadNPCIndicator` | to do |  | 4 | the compass skips the dead; needs per-actor state |
+| `bShowDoorsOnCompass` | to do |  | 5 | a door mark kind, icons and gathering |
+| `bShowNearestUndiscoveredLocation` | to do |  | 2 | compass::gather after the marker loop |
+| `bShowQuestObjectivesOnCellChange` | to do |  | 1 | cell change detection and objectives for the active quest |
+| `bShowUsePasswordOnTerminalsWithNote` | to do |  | 1 | a labelled Action variant for the note |
 | `bTalkWhileSneakingIfShiftIsHeld` | to do |  |  | activate::actor_action_in needs the Shift state |
-| `bWaterSourcesShowH2O` | to do |  | 1 |  |
-| `iDateFormat` | to do |  | 1 |  |
-| `iHUDMaxCompassNPCTicks` | to do |  | 1 |  |
+| `bWaterSourcesShowH2O` | to do |  | 1 | not built: water prompts carry no line |
+| `iDateFormat` | to do |  | 1 | three date formatters |
 
 ### Menus
 
@@ -683,7 +698,10 @@ game's Data folder, read-only).
 | `bSkipSkillMenuIfNoPointsToAssign` | done | yes |  | Perks First When No Points |
 | `bSynchronizeContainerCategories` | done | yes | 1 | Matching Categories (the option for emptying a category not built) |
 | `bTakeAllInCompanionContainers` | done | yes |  | already so: Take All shows for companions |
+| `b24HourSleepWaitClock` | done |  |  | already so: the wait clock is 24-hour |
 | `bAddInventoryDropItemHotkey` | done |  |  | Q Drops Items |
+| `bAllowRebindNumkeys` | done |  |  | already so: the hotkeys and the D-pad are on the Controls tab |
+| `bChangingContainerCategoryScrollsToTop` | done |  |  | already so: a category change goes to the top |
 | `bDisableLoadingScreenTips` | done |  |  | No Loading Tips |
 | `bLockpickAllowMouse` | done |  |  | Mouse Turns the Lock |
 | `bNoExitConfirm` | done |  |  | already so: the main menu's Quit asks nothing |
@@ -704,14 +722,11 @@ game's Data folder, read-only).
 | `bSeparateHorizontalSensitivity` | to do | yes |  | one mouse sensitivity; mouse_look is at 15 parameters |
 | `bShowWeaponPoisonEffects` | to do | yes |  | NVForever has no weapon poison yet |
 | `bSortEquipableAmmo` | to do | yes |  | rows sort by name (menu/model.rs sort_rows) |
-| `b12HourPipboyClock` | to do |  |  |  |
-| `b24HourSleepWaitClock` | to do |  |  |  |
-| `bAllowRebindNumkeys` | to do |  |  |  |
+| `b12HourPipboyClock` | to do |  |  | pipboy data model date_time with a bool |
 | `bAmmoLabelUseLongName` | unsure, skipped |  | 1 | needs a UI mod |
-| `bBarterQuantityMenuShowsPrice` | to do |  |  |  |
-| `bBetterMapZoom` | to do |  |  |  |
-| `bBlackJackTotalDisplay` | to do |  |  |  |
-| `bChangingContainerCategoryScrollsToTop` | to do |  |  |  |
+| `bBarterQuantityMenuShowsPrice` | to do |  |  | the quantity box has no price |
+| `bBetterMapZoom` | to do |  |  | pipboy data take_input zoom around the pointer |
+| `bBlackJackTotalDisplay` | to do |  |  | blackjack screen rows |
 | `bClickingActiveTabTogglesSorting` | to do |  |  |  |
 | `bCompanionsUseLocationFontOnMap` | to do |  |  |  |
 | `bCompareArmorStats` | to do |  |  |  |

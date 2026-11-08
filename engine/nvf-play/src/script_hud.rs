@@ -316,7 +316,8 @@ fn subtitles(hud: &ScriptHud, g: &fnv_game::Game<'_>, sim: &SimState, player: Op
         }
         subs.push(format!("{who}: {text}{}", if talking { " (not drawn: in dialogue)" } else { "" }));
         if !talking {
-            on_screen.push(text);
+            // The player's tweak names the speaker [design: docs/design/tweaks.md].
+            on_screen.push(if g.tweaks.subtitle_names { format!("{who}: {text}") } else { text });
         }
     }
     // The response being said in the conversation with the player: drawn by the dialogue

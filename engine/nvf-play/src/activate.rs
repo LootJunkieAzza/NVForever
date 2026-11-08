@@ -291,6 +291,9 @@ pub(crate) fn find_target(
                     Action::Activate if rt.as_deref().is_some_and(|rt| rt.game.drink_water(FormId(id)).is_some()) => (n, Action::Drink),
                     Action::Talk => {
                         let name = sim.ref_name(rt.as_deref().map(|rt| &rt.game), id).map_or(n, str::to_string);
+                        // The player's tweak marks someone not yet spoken to [design: docs/design/tweaks.md].
+                        let unspoken = rt.as_deref().is_some_and(|rt| rt.game.tweaks.mark_unspoken && !rt.game.extra.get(&FormId(id)).is_some_and(|e| e.talked_to_pc));
+                        let name = if unspoken { format!("{name} *") } else { name };
                         (name, actor_action(rt.as_deref_mut(), &mut sim, id, &mut talkers))
                     }
                     Action::Access => (n, terminal_action(rt.as_deref_mut(), &mut sim, id)),

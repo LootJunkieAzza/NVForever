@@ -175,9 +175,11 @@ impl Plugin for HudLimbsPlugin {
 }
 
 /// Read the player's limbs and count the picture's time down.
-fn watch(time: Res<Time>, state: Res<State<PlayState>>, limbs: Option<Res<PlayerLimbs>>, view: Res<HudView>, mut ind: ResMut<Indicator>) {
+fn watch(time: Res<Time>, state: Res<State<PlayState>>, limbs: Option<Res<PlayerLimbs>>, view: Res<HudView>, mut ind: ResMut<Indicator>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
     let Some(limbs) = limbs else { return };
-    let now: [bool; 6] = std::array::from_fn(|i| limbs.crippled(25 + i as u16));
+    // The player's tweak keeps the crippled-limb figure off the HUD [design: docs/design/tweaks.md].
+    let off = tweaks.is_some_and(|t| t.no_limb_indicator);
+    let now: [bool; 6] = std::array::from_fn(|i| !off && limbs.crippled(25 + i as u16));
     let was = ind.shown();
     let ticking = view.shown && *state.get() == PlayState::Playing;
     if ind.update(now, time.delta_secs(), ticking) {

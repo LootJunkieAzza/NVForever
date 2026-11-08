@@ -154,6 +154,21 @@ pub struct TweakSettings {
     pub no_sight_zoom: bool,
     /// `bHideMiscQuestItems`: quest items are left out of the Pip-Boy's Misc list.
     pub hide_misc_quest: bool,
+    /// `bHotkeyHolstersWeaponIfEquipped`: the hotkey of the weapon in hand draws or
+    /// holsters it.
+    pub hotkey_toggles_in_hand: bool,
+    /// `bDisableInteriorFog`: interior fog is pushed out of sight (from the next cell).
+    pub no_interior_fog: bool,
+    /// `bNoCompassPipsIfNotInDanger`: actors are on the compass only in danger.
+    pub compass_pips_in_danger_only: bool,
+    /// `bHostilesUseNeutralColorOnCompass`: foes on the compass in the usual colour.
+    pub neutral_foes_on_compass: bool,
+    /// `bShowSneakLabelWhileStanding`: the sneak label shows while standing too.
+    pub sneak_label_standing: bool,
+    /// `bNoXPBarInCombat`: the XP meter waits for the fight to end.
+    pub no_xp_meter_in_combat: bool,
+    /// `bDisableHUDCrippledLimbIndicator`: no crippled-limb figure on the HUD.
+    pub no_limb_indicator: bool,
 }
 
 /// The walk-angle choices: 30 to 80 degrees by 5; 45 is the physics' own.
@@ -250,6 +265,13 @@ impl Default for TweakSettings {
             hold_to_wait: false,
             no_sight_zoom: false,
             hide_misc_quest: false,
+            hotkey_toggles_in_hand: false,
+            no_interior_fog: false,
+            compass_pips_in_danger_only: false,
+            neutral_foes_on_compass: false,
+            sneak_label_standing: false,
+            no_xp_meter_in_combat: false,
+            no_limb_indicator: false,
         }
     }
 }
@@ -740,6 +762,17 @@ impl Plugin for TweaksPlugin {
         switch!(app, "hold-to-wait", "Hold to Wait", "The Wait key opens the menu when held half a second, not when tapped. (Stewie's Tweaks bHoldWaitKeyToShowMenu)", hold_to_wait);
         switch!(app, "no-sight-zoom", "No Iron Sight Zoom", "Aiming down iron sights does not zoom the view (scopes still do). (Stewie's Tweaks bDisableWeaponFOV)", no_sight_zoom);
         switch!(app, "hide-misc-quest", "Hide Quest Items in Misc", "The Pip-Boy's Misc list leaves quest items out. (Stewie's Tweaks bHideMiscQuestItems)", hide_misc_quest);
+        // ---- batch 16 ----
+        switch!(app, "hotkey-toggles-in-hand", "Hotkey Draws and Holsters", "Pressing the hotkey of the weapon in hand draws or holsters it. (Stewie's Tweaks bHotkeyHolstersWeaponIfEquipped)", hotkey_toggles_in_hand);
+        switch!(app, "no-interior-fog", "No Interior Fog", "Interiors have no fog (from the next room entered). (Stewie's Tweaks bDisableInteriorFog)", no_interior_fog);
+        switch!(app, "mark-unspoken", "Mark Strangers", "Someone not yet spoken to ends their prompt with a star. (Stewie's Tweaks bUnspokenNPCIndicator)", game.mark_unspoken);
+        switch!(app, "no-caps-added", "No Caps Added Line", "Getting caps shows no line. (Stewie's Tweaks bHideCapsAddedMessages)", game.no_caps_added_message);
+        switch!(app, "subtitle-names", "Subtitles Name the Speaker", "General subtitles start with the speaker's name. (Stewie's Tweaks bSubtitlesShowActorNames)", game.subtitle_names);
+        switch!(app, "compass-pips-danger", "Compass Pips Only in Danger", "Actors show on the compass only while in danger. (Stewie's Tweaks bNoCompassPipsIfNotInDanger)", compass_pips_in_danger_only);
+        switch!(app, "neutral-foes-compass", "Foes in the Usual Colour", "Hostile actors show on the compass in the HUD colour, not red. (Stewie's Tweaks bHostilesUseNeutralColorOnCompass)", neutral_foes_on_compass);
+        switch!(app, "sneak-label-standing", "Sneak Label While Standing", "The Hidden / Detected label shows while standing too. (Stewie's Tweaks bShowSneakLabelWhileStanding)", sneak_label_standing);
+        switch!(app, "no-xp-meter-combat", "No XP Meter in Combat", "Experience gained in a fight shows once it is over, all together. (Stewie's Tweaks bNoXPBarInCombat)", no_xp_meter_in_combat);
+        switch!(app, "no-limb-indicator", "No Crippled Limb Figure", "The crippled-limb figure stays off the HUD. (Stewie's Tweaks bDisableHUDCrippledLimbIndicator)", no_limb_indicator);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

@@ -185,6 +185,12 @@ pub struct Tweaks {
     pub no_knockdown_in_god_mode: bool,
     /// `bLockpickHackingMessageShowsCurrentSkill`: "skill too low" says the player's.
     pub show_current_skill: bool,
+    /// `bUnspokenNPCIndicator`: an actor not yet spoken to ends its prompt with ` *`.
+    pub mark_unspoken: bool,
+    /// `bHideCapsAddedMessages`: no "Caps added" line.
+    pub no_caps_added_message: bool,
+    /// `bSubtitlesShowActorNames`: general subtitles name the speaker.
+    pub subtitle_names: bool,
 }
 
 impl Default for Tweaks {
@@ -260,6 +266,9 @@ impl Default for Tweaks {
             no_tutorials: false,
             no_knockdown_in_god_mode: false,
             show_current_skill: false,
+            mark_unspoken: false,
+            no_caps_added_message: false,
+            subtitle_names: false,
         }
     }
 }

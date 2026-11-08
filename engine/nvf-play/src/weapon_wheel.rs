@@ -379,13 +379,14 @@ fn read(
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     // The player's tweak: no weapon hotkeys while reloading [design: docs/design/tweaks.md].
-    let reloading_blocks = tweaks.is_some_and(|t| t.no_hotkeys_while_reloading) && anim.as_ref().is_some_and(|a| a.reload.is_some());
+    let reloading_blocks = tweaks.as_ref().is_some_and(|t| t.no_hotkeys_while_reloading) && anim.as_ref().is_some_and(|a| a.reload.is_some());
+    let toggle_in_hand = tweaks.as_ref().is_some_and(|t| t.hotkey_toggles_in_hand);
     // A swap waiting for the weapon in hand to go away: the clips of the last frame say
     // whether it has (`crate::combat::WeaponAnim`; no body to time it: at once).
     let away = anim.as_deref().is_none_or(|a| !a.ready && !a.drawing && !a.holstering);
     match wait.step(clock.delta_secs(), control.weapon_out, away) {
         Some(SwapStep::Equip(n)) => {
-            act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, true);
+            act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, true, toggle_in_hand);
         }
         Some(SwapStep::CalledOff(n)) => info!("hotkeys: slot {}: the swap called off, the weapon in hand drawn again", n + 1),
         None => {}
@@ -447,7 +448,7 @@ fn read(
                 } else {
                     stats.chosen.push(n);
                 }
-                let line = act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, false);
+                let line = act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, false, toggle_in_hand);
                 if matches!(o, Outcome::Chose(_)) {
                     info!("weapon wheel: closed: slot {}: {line}", n + 1);
                 }
@@ -486,7 +487,7 @@ fn sound_of(slot: Option<Slot>, outcome: &Used) -> Option<UiEvent> {
 /// Use slot `n` (a tap, or the wheel let go on it); returns what happened. `put_away`:
 /// a waiting swap whose weapon in hand has just gone away (`SwapWait`).
 #[allow(clippy::too_many_arguments)]
-fn act(n: usize, hotkeys: &Hotkeys, sim: &mut SimState, control: &mut PlayerControl, used: &mut MessageWriter<ItemUsed>, sounds: &mut MessageWriter<UiSound>, wait: &mut SwapWait, put_away: bool) -> String {
+fn act(n: usize, hotkeys: &Hotkeys, sim: &mut SimState, control: &mut PlayerControl, used: &mut MessageWriter<ItemUsed>, sounds: &mut MessageWriter<UiSound>, wait: &mut SwapWait, put_away: bool, toggle_in_hand: bool) -> String {
     if n == AMMO_SWAP {
         control.ammo_swap = true;
         info!("hotkeys: slot 2: Ammo Swap");
@@ -515,6 +516,12 @@ fn act(n: usize, hotkeys: &Hotkeys, sim: &mut SimState, control: &mut PlayerCont
         Used::Equipped if slot.is_some_and(|s| sim.forms.item(FormId(s.item)).is_some_and(|i| i.kind == fnv_sim::forms::ItemKind::Weapon)) => {
             holster_for_new_weapon(control);
             info!("hotkeys: slot {}: {name} equipped holstered ({})", n + 1, if put_away { "the weapon in hand put away" } else { "nothing was drawn" });
+        }
+        // The player's tweak: the hotkey of the weapon in hand draws or holsters it [design: docs/design/tweaks.md].
+        Used::InHand if toggle_in_hand => {
+            control.weapon_out = !control.weapon_out;
+            info!("hotkeys: slot {}: {name} {} (tweak)", n + 1, if control.weapon_out { "drawn" } else { "holstered" });
+            return if control.weapon_out { format!("{name} drawn") } else { format!("{name} holstered") };
         }
         _ => {}
     }

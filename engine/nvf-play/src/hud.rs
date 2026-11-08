@@ -533,7 +533,9 @@ fn gather(
         now.weapon = c.hud_weapon(&sim);
     }
     // The player's tweak leaves the sneak label off [design: docs/design/tweaks.md].
-    let sneaking = control.is_some_and(|c| c.sneak) && !tweaks.is_some_and(|t| t.no_sneak_label);
+    // The player's tweaks: the label off, or shown standing too [design: docs/design/tweaks.md].
+    let standing = tweaks.as_ref().is_some_and(|t| t.sneak_label_standing);
+    let sneaking = (control.is_some_and(|c| c.sneak) || standing) && !tweaks.is_some_and(|t| t.no_sneak_label);
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
         now.sneak = sneaking.then(|| sneak_now(&rt.game));
         (now.health, now.action_points) = with_world(rt, &mut sim, |rt| {
