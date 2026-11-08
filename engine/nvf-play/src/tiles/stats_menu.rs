@@ -1179,8 +1179,10 @@ pub(crate) struct Written {
     other_geometry: Option<Geometry>,
     /// The switch's words as the file has them, read once a menu.
     file_switch_word: Option<String>,
-    /// The file each picture's size was written for ([`write_file_sizes`]).
-    file_sizes: HashMap<TileId, String>,
+    /// The file and zoom each picture's size was written for ([`write_file_sizes`]).
+    file_sizes: HashMap<TileId, (String, f64)>,
+    /// Each file's own size in texels, zoom left out, as found ([`write_file_sizes`]).
+    file_texels: HashMap<String, Option<(f64, f64)>>,
     /// What is under the status page's buttons' inner rects is marked ([`write_tabs`]).
     subs_marked: bool,
     /// Each list code has counted for its scroll bar, and the `_scroll_delta` the file gave it.
@@ -1272,13 +1274,16 @@ impl PageFonts for FontKit<'_> {
     }
 }
 
-/// `filewidth` and `fileheight` of every picture under `menu`, once for each file it shows: the
-/// file works places and sizes out from them, the RAD meter's place and the limbs' brackets' size
-/// among them, and they read nothing until written [documented: the file's comment "filewidth/
-/// fileheight already adjusted for zoom"; observed: run07, the meter's x 189.4 = 855 - 512 x 1.3, the
-/// karma's picture 384 = 256 x 1.5; design: as `super::tutorial_menu::write_symbol`]. A picture of an
-/// atlas has no file of its own.
-fn write_file_sizes(ui: &mut Ui, menu: TileId, done: &mut HashMap<TileId, String>, fonts: &mut dyn PageFonts) {
+/// `filewidth` and `fileheight` of every picture under `menu`, once for each file and zoom it
+/// shows: the file works places and sizes out from them, the RAD meter's place and the limbs'
+/// brackets' size among them, and they read nothing until written [documented: the file's comment
+/// "filewidth/fileheight already adjusted for zoom"; observed: run07, the meter's x 189.4 = 855 -
+/// 512 x 1.3, the karma's picture 384 = 256 x 1.5; design: as `super::tutorial_menu::write_symbol`].
+/// The file's own size is kept in texels and the zoom the tile has now applied on every pass, so a
+/// zoom changed on the same file writes the sizes again [design: as
+/// `tile-repair-menu-1468:engine/nvf-play/src/tiles/repair_menu.rs::write_file_sizes`]. A picture
+/// of an atlas has no file of its own.
+fn write_file_sizes(ui: &mut Ui, menu: TileId, done: &mut HashMap<TileId, (String, f64)>, texels: &mut HashMap<String, Option<(f64, f64)>>, fonts: &mut dyn PageFonts) {
     let mut due = Vec::new();
     let mut stack = vec![menu];
     while let Some(t) = stack.pop() {
@@ -1291,17 +1296,21 @@ fn write_file_sizes(ui: &mut Ui, menu: TileId, done: &mut HashMap<TileId, String
             continue;
         }
         let name = tile.get("filename").map(|v| v.text().trim().to_string()).unwrap_or_default();
-        if !name.is_empty() && done.get(&t) != Some(&name) {
-            let zoom = tile.get("zoom").filter(|v| !matches!(v, Value::Sym(_))).map_or(100.0, Value::num);
-            due.push((t, name, if zoom > 0.0 { zoom } else { 100.0 }));
+        if name.is_empty() {
+            continue;
+        }
+        let zoom = tile.get("zoom").filter(|v| !matches!(v, Value::Sym(_))).map_or(100.0, Value::num);
+        let zoom = if zoom > 0.0 { zoom } else { 100.0 };
+        if done.get(&t).is_none_or(|(n, z)| *n != name || *z != zoom) {
+            due.push((t, name, zoom));
         }
     }
     for (t, name, zoom) in due {
-        if let Some((w, h)) = fonts.picture_texels(&name) {
+        if let Some((w, h)) = *texels.entry(name.clone()).or_insert_with(|| fonts.picture_texels(&name)) {
             ui.set_trait(t, "filewidth", Value::Num(w * zoom / 100.0));
             ui.set_trait(t, "fileheight", Value::Num(h * zoom / 100.0));
         }
-        done.insert(t, name);
+        done.insert(t, (name, zoom));
     }
 }
 
@@ -1381,7 +1390,7 @@ pub(crate) fn page(ui: &mut Ui, snap: &Snapshot, view: &mut StatsView, tab: usiz
         w.tell = true;
     }
     if changed || late {
-        write_file_sizes(ui, p.menu, &mut w.file_sizes, fonts);
+        write_file_sizes(ui, p.menu, &mut w.file_sizes, &mut w.file_texels, fonts);
         ui.update();
         let texts = menus::texts(ui, p.menu);
         // Three rounds: a size leads to a place and a place to a wrap width [design: as
@@ -2972,6 +2981,24 @@ mod tests {
         v.select(PAGE, 3);
         run(&mut ui, &snap(), &mut v, true, &mut t).unwrap();
         assert_eq!(num(&ui, icon, "filewidth"), 200.0, "again for another file");
+    }
+
+    /// A zoom changed on the same file (a mod's script) writes the sizes again with the new zoom,
+    /// and what the file works out from them follows.
+    #[test]
+    fn a_pictures_size_follows_a_new_zoom_on_the_same_file() {
+        let extra = r#"<image name="stats_icon"/>
+          <image name="Zoomed"><filename>pics\a.dds</filename><zoom>50</zoom><width><copy src="me()" trait="filewidth"/></width></image>"#;
+        let (mut ui, mut v, mut t) = (tree_changed(|x| x.replace(r#"<image name="stats_icon"/>"#, extra)), view(), StatsTiles::default());
+        run(&mut ui, &snap(), &mut v, true, &mut t).unwrap();
+        let zoomed = list_named(&ui, "Zoomed");
+        assert_eq!((num(&ui, zoomed, "filewidth"), num(&ui, zoomed, "fileheight"), num(&ui, zoomed, "width")), (100.0, 50.0, 100.0));
+        ui.set_trait(zoomed, "zoom", Value::Num(200.0));
+        run(&mut ui, &snap(), &mut v, true, &mut t).unwrap();
+        assert_eq!((num(&ui, zoomed, "filewidth"), num(&ui, zoomed, "fileheight"), num(&ui, zoomed, "width")), (400.0, 200.0, 400.0), "the same file at the new zoom");
+        ui.set_trait(zoomed, "zoom", Value::Num(100.0));
+        run(&mut ui, &snap(), &mut v, true, &mut t).unwrap();
+        assert_eq!((num(&ui, zoomed, "filewidth"), num(&ui, zoomed, "fileheight")), (200.0, 100.0), "and back");
     }
 
     /// The hidden hint keeps a box's height for what stands under it.
