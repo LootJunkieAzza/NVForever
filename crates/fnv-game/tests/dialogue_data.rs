@@ -71,8 +71,8 @@ fn the_masters_dialogue() {
     vms07_shared_greetings_remain_selectable_with_controlled_eligibility(&mut l);
 }
 
-/// [documented] The eligible pool and actor references come from issue #1895's supplied
-/// data survey. [hypothesis] Per-listing-quest insertion restores that pool in HELLO
+/// [observed: fnvtool dialogue topics/lines over FalloutNV.esm, issue #1895] The eligible
+/// pool and actor references come from the issue's data survey. [hypothesis] Per-listing-quest insertion restores that pool in HELLO
 /// (docs/spec-notes/dialogue.md §1.2); this does not establish original-game behavior.
 fn powder_ganger_hellos_keep_their_shared_random_pool(l: &Loaded) {
     use fnv_game::game::{Game, GameConfig};
@@ -262,8 +262,15 @@ fn counts(d: &GameData) {
     let partition: Vec<_> = d.shared_lines[&greeting].iter().copied()
         .filter(|i| d.infos[i].quest == Some(listing_quest) || shared.contains(i)).collect();
     let authored = d.topics[&greeting].iter().filter(|i| d.infos[i].quest == Some(listing_quest)).count();
-    let at = 11.min(authored); // A past-end index appends within the listing quest.
+    let at = 11.min(authored); // Past the quest's own lines: after its last one.
     assert_eq!(partition[at..at + 4], shared);
+    // Shared lines go in among the own lines, which keep the order lines_by_priority
+    // tries them in (dialogue.md §1.2, §4).
+    for topic in [greeting, d.by_edid("HELLO").unwrap()] {
+        let own: std::collections::HashSet<FormId> = d.topics[&topic].iter().copied().collect();
+        let own_tried: Vec<FormId> = d.lines_tried(topic).into_iter().filter(|i| own.contains(i)).collect();
+        assert_eq!(own_tried, d.lines_by_priority(topic), "{topic}");
+    }
     assert_eq!(d.infos.values().filter(|i| i.challenge_form.is_some()).count(), 1_499);
     // Quests whose own conditions gate their lines (dialogue.md §4).
     let gated: Vec<FormId> = d.quests.values().filter(|q| !q.conditions.is_empty()).map(|q| q.form).collect();

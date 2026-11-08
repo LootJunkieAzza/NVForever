@@ -1190,11 +1190,18 @@ fn shared_order_fixture(listing: Vec<u8>, source: Vec<L>) -> Fixture {
     fixture_bytes(&[plugin_bytes(), top(b"DIAL", &[listing, source].concat())].concat())
 }
 
+/// The own lines of a topic in `lines`, in the order `lines` has them.
+fn own_lines(f: &Fixture, topic: FormId, lines: &[FormId]) -> Vec<FormId> {
+    lines.iter().copied().filter(|i| f.data.topics[&topic].contains(i)).collect()
+}
+
 /// [hypothesis] Info Index belongs to the listing quest, not the entire topic
-/// (docs/spec-notes/dialogue.md §1.2). [design] Equal priorities keep each partition's
-/// authored order and Random / Random End boundaries (`GameData::lines_tried`).
+/// (docs/spec-notes/dialogue.md §1.2). [design] Each shared line goes in among its
+/// listing quest's own lines; the own lines keep their stored order, so equal priorities
+/// try them as `lines_by_priority` does, and the Random pools follow that order as in a
+/// topic without shared lines (`GameData::lines_tried`).
 #[test]
-fn shared_indices_merge_within_each_quest_without_mixing_random_pools() {
+fn shared_indices_place_lines_among_their_quests_own_lines_in_stored_order() {
     let line = |id, quest, flags| L {
         id, quest, flags, responses: vec![(1, "A synthetic line", 0)],
         conds: if quest == QA { vec![gate(EQ, 0.0)] } else { vec![] }, ..L::default()
@@ -1209,23 +1216,44 @@ fn shared_indices_merge_within_each_quest_without_mixing_random_pools() {
         line(0xB96, QA, info_flag::RANDOM), line(0xB97, QEQ, info_flag::RANDOM),
     ]);
     let topic = FormId(0xB80);
-    let expected = [0xB90, 0xB94, 0xB96, 0xB92, 0xB91, 0xB95, 0xB97, 0xB93].map(FormId);
+    // QA's list is B90, B94, B96, B92 and QEQ's B91, B95, B97, B93: each quest's shared
+    // lines go just before its second own line.
+    let expected = [0xB90, 0xB91, 0xB94, 0xB96, 0xB92, 0xB95, 0xB97, 0xB93].map(FormId);
     assert_eq!(f.data.shared_lines[&topic], expected);
     assert_eq!(f.data.lines_tried(topic), expected);
+    assert_eq!(own_lines(&f, topic, &f.data.lines_tried(topic)), f.data.lines_by_priority(topic));
     assert_eq!(f.data.topic_defs[&topic].quests, [FormId(QEQ), FormId(QA)]);
-    for (gate_value, pool) in [(0.0, [0xB90, 0xB94]), (1.0, [0xB91, 0xB95])] {
+    // The first pool runs B90, B91, B94 (Random End); QA's lines need the gate at 0.
+    for (gate_value, pool) in [(0.0, &[0xB90, 0xB91, 0xB94][..]), (1.0, &[0xB91][..])] {
         let mut seen = std::collections::BTreeSet::new();
         for seed in 0..64 {
             let mut g = game_seeded(&f, seed);
             set_global(&mut g, G_GATE, gate_value);
             for _ in 0..8 {
                 let pick = g.select_line(actor(), Some(FormId::PLAYER_REF), topic).unwrap();
-                assert!(pool.map(FormId).contains(&pick), "{seed}: {pick}");
+                assert!(pool.contains(&pick.0), "{seed}: {pick}");
                 seen.insert(pick);
             }
         }
-        assert_eq!(seen, pool.map(FormId).into_iter().collect());
+        assert_eq!(seen, pool.iter().copied().map(FormId).collect());
     }
+}
+
+/// [design] Own lines of two equal-priority quests stored interleaved (A1, B1, A2) keep
+/// that order when one of the quests also lists a shared line: the shared line goes in
+/// before B1, the quest's first own line, and A2 stays after B1 (dialogue.md §1.2, §4).
+#[test]
+fn a_shared_line_leaves_interleaved_own_lines_in_stored_order() {
+    let listing = topic_sharing(
+        0xB80, "SharedOrder", "Listing", topic_type::TOPIC, 0, 50.0,
+        &[(QEQ, 0xB94, 0)],
+        vec![L { id: 0xB90, quest: QA, ..L::default() }, L { id: 0xB91, quest: QEQ, ..L::default() }, L { id: 0xB92, quest: QA, ..L::default() }],
+    );
+    let f = shared_order_fixture(listing, vec![L { id: 0xB94, quest: QEQ, ..L::default() }]);
+    let topic = FormId(0xB80);
+    let tried = f.data.lines_tried(topic);
+    assert_eq!(own_lines(&f, topic, &tried), f.data.lines_by_priority(topic));
+    assert_eq!(tried, [0xB90, 0xB94, 0xB91, 0xB92].map(FormId));
 }
 
 #[test]
@@ -1261,8 +1289,10 @@ fn a_shared_line_is_placed_by_listing_quest_but_keeps_its_own_priority_and_gate(
     );
     let f = shared_order_fixture(listing, vec![L { id: 0xB94, quest: QHI, ..L::default() }, L { id: 0xB95, quest: QOFF, ..L::default() }]);
     let topic = FormId(0xB80);
-    assert_eq!(f.data.shared_lines[&topic], [0xB90, 0xB94, 0xB95, 0xB92, 0xB91].map(FormId));
-    assert_eq!(f.data.lines_tried(topic), [0xB95, 0xB94, 0xB90, 0xB92, 0xB91].map(FormId));
+    // QA's list is B90, B94, B95, B92: both shared lines go just before B92.
+    assert_eq!(f.data.shared_lines[&topic], [0xB90, 0xB91, 0xB94, 0xB95, 0xB92].map(FormId));
+    assert_eq!(f.data.lines_tried(topic), [0xB95, 0xB94, 0xB90, 0xB91, 0xB92].map(FormId));
+    assert_eq!(own_lines(&f, topic, &f.data.lines_tried(topic)), f.data.lines_by_priority(topic));
     assert_eq!(f.data.infos[&FormId(0xB94)].quest, Some(FormId(QHI)));
     assert_eq!(f.data.infos[&FormId(0xB94)].topic, Some(FormId(0xB81)));
     let mut g = game(&f);
