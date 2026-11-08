@@ -337,7 +337,7 @@ impl RippleUpload {
 
     /// The bytes to write into the texture now: the newest received, once the image's
     /// texture exists (`texture_ready`); until then they stay pending.
-    fn to_write(&mut self, texture_ready: bool) -> Option<&[u8]> {
+    fn take_write(&mut self, texture_ready: bool) -> Option<&[u8]> {
         if !self.pending || !texture_ready {
             return None;
         }
@@ -356,13 +356,13 @@ fn extract_ripples(ripples: Extract<Option<Res<Ripples>>>, mut upload: ResMut<Ri
 /// are prepared and before the frame is drawn (the queue's writes go ahead of the frame's
 /// command buffers). The image asset never changes after it is made, so its texture is
 /// never made again and every water material's bind group keeps pointing at it. Until the
-/// image's first preparation (start-up) the write waits ([`RippleUpload::to_write`]).
+/// image's first preparation (start-up) the write waits ([`RippleUpload::take_write`]).
 /// The unit tests cover what is written when and where the system runs; the GPU write
 /// itself needs a device, and is covered by the smoke scenarios with rain and water
 /// (tools/smoke/scenarios.toml, those that list ripples.rs) [design].
 fn write_ripples(mut upload: ResMut<RippleUpload>, images: Res<RenderAssets<GpuImage>>, queue: Res<RenderQueue>) {
     let gpu = upload.image.and_then(|id| images.get(id));
-    let Some(bytes) = upload.to_write(gpu.is_some()) else { return };
+    let Some(bytes) = upload.take_write(gpu.is_some()) else { return };
     let Some(gpu) = gpu else { return };
     queue.write_texture(
         gpu.texture.as_image_copy(),
@@ -526,7 +526,7 @@ mod tests {
         gpu.receive(rp);
         // `write_ripples` writes whatever is pending in the same render frame (the
         // texture exists in play).
-        let _ = gpu.to_write(true);
+        let _ = gpu.take_write(true);
         assert!(!gpu.pending);
         rp.quiet()
     }
@@ -541,15 +541,15 @@ mod tests {
         gpu.receive(&rp);
         let first = gpu.bytes.clone();
         // No texture yet (start-up): nothing written, still pending.
-        assert!(gpu.to_write(false).is_none() && gpu.pending);
+        assert!(gpu.take_write(false).is_none() && gpu.pending);
         // Newer heights arrive before it exists: they replace the older.
         rp.step();
         assert!(rp.upload());
         gpu.receive(&rp);
         assert!(gpu.pending && gpu.bytes == rp.bytes && gpu.bytes != first);
         // Once the texture exists the newest are written, once.
-        assert_eq!(gpu.to_write(true), Some(rp.bytes.as_slice()));
-        assert!(!gpu.pending && gpu.to_write(true).is_none());
+        assert_eq!(gpu.take_write(true), Some(rp.bytes.as_slice()));
+        assert!(!gpu.pending && gpu.take_write(true).is_none());
     }
 
     #[test]
