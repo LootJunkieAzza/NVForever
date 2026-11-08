@@ -1676,9 +1676,15 @@ impl Ai {
     /// conversation, a menu) starts when it can.
     fn talk_start(&mut self, game: &mut Game, actor: FormId, package: FormId, talk: &Talk, away: f32) {
         // A force greet needs a clear line to the target: not through a wall or a closed
-        // door (`Game::greet_sight`). The actor stays as it is (waiting, or at the end
-        // of its walk) and tries again every update.
-        if !talk.say_to && !game.greet_sight(actor, talk.target) {
+        // door (`Game::greet_sight`). So does a Say To line to the player: Officer
+        // Kendall's "There he is!" (TTW, CG04Security02Ambush, activate distance 1500)
+        // came through the walls while the player was still in bed, and its end script's
+        // stage 12 kept the wake-up's stage 3 from coming (docs/design/actor-behaviour.md).
+        // Only the player is measured, so a Say To line to an NPC is not held back. The
+        // actor stays as it is (waiting, or at the end of its walk) and tries again every
+        // update.
+        let needs_sight = !talk.say_to || talk.target == FormId::PLAYER_REF;
+        if needs_sight && !game.greet_sight(actor, talk.target) {
             if self.unseen_greets.insert(actor) {
                 self.log(game, actor, AiEvent::TalkUnseen { package, target: talk.target, away });
             }
@@ -1859,6 +1865,13 @@ impl Ai {
             self.agents.get_mut(&actor).expect("listed").sandbox = Some(sandbox);
         } else if let Some(f) = goal::package_furniture(game, &self.taken, actor, def, at, &mut self.furniture) {
             self.set_using(game, actor, Some(f));
+        } else if let Some(heading) = marker_heading(game, def) {
+            // At an xMarkerHeading it stands the way the marker faces [documented: GECK
+            // wiki, NPC population, level-design.md: the heading version "shows which way
+            // an actor standing there will face"]. Mr. Brotch's teaching spot in the
+            // G.O.A.T. (CG03MrBrotchTeachMarker, 22°) faces the desks; before, he kept the
+            // heading he walked in with and taught the wall.
+            self.agents.get_mut(&actor).expect("listed").face_to = Some(heading);
         }
     }
 
@@ -2560,6 +2573,18 @@ impl Ai {
             }
         }
     }
+}
+
+/// The engine's xMarkerHeading base (`XMarkerHeading`, `meshes\markerxheading.nif`)
+/// [observed: Fallout3.esm and FalloutNV.esm references name it; the base is the
+/// engine's own, in no plugin].
+const X_MARKER_HEADING: FormId = FormId(0x0000_0034);
+
+/// The heading of the xMarkerHeading a package's location names ("near reference"), if
+/// it names one.
+fn marker_heading(game: &Game, def: &fnv_game::package::PackageDef) -> Option<f32> {
+    let fnv_game::package::LocationKind::NearReference(Some(r)) = def.location.as_ref()?.kind else { return None };
+    game.world.placed.get(r).filter(|p| p.base == X_MARKER_HEADING).map(|p| p.rot[2])
 }
 
 /// The actor is where its package wants it: the package's goal is met, or, for a Use

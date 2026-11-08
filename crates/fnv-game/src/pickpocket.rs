@@ -31,6 +31,7 @@ use crate::crime::{Kind, Note, Ownership};
 use crate::functions::{actor, base_of};
 use crate::game::Game;
 use fnv_sim::FormId;
+use serde::{Deserialize, Serialize};
 
 /// The pickpocket settings, with the wiki's defaults (FalloutNV.esm sets all but the two
 /// bases and the bounds to these values [observed]).
@@ -109,7 +110,7 @@ pub enum Refusal {
 /// What the engine knows of a planted explosive's blast: its explosion's damage (EXPL
 /// Damage), the weapon's damage type (WEAP DNAM Resist, as an actor value code; `None`
 /// for None and Damage Resistance) and the explosion's object effect (EXPL EITM).
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub struct Explosive {
     pub damage: f64,
     pub resist: Option<u16>,
@@ -117,7 +118,7 @@ pub struct Explosive {
 }
 
 /// A live explosive placed in an actor's inventory.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Planted {
     pub victim: FormId,
     pub item: FormId,
@@ -155,6 +156,9 @@ pub struct State {
     /// While a planted explosive's kill is judged: those who saw the player while it was
     /// live, witnesses besides those who see the player now (`Game::crime_witnesses`).
     pub blast_witnesses: Vec<FormId>,
+    /// ShowOff's SetPlayerCanPickpocketEquippedItems: the player may take equipped items
+    /// too (none from a child) [documented: Get/SetPlayerCanPickpocketEquippedItems].
+    pub worn_items: bool,
 }
 
 impl Game<'_> {
@@ -202,6 +206,13 @@ impl Game<'_> {
         let rules = self.pickpocket_rules();
         let (thief, target) = self.pickpocket_skills(victim);
         rules.chance(thief, target, value)
+    }
+
+    /// Whether the pickpocket menu lists `victim`'s equipped items: SetPlayerCanPickpocket-
+    /// EquippedItems 1, and the victim is no child ("Child actors still cannot have their
+    /// equipped items stolen" [documented: SetPlayerCanPickpocketEquippedItems]).
+    pub fn pickpocket_worn(&self, victim: FormId) -> bool {
+        self.pickpocket.worn_items && !self.actor_race(victim).is_some_and(|race| self.data.child_races.contains(&race))
     }
 
     /// The rules as read from the load order.
