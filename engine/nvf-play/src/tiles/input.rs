@@ -1059,6 +1059,7 @@ mod tests {
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>()
             .init_resource::<Assets<Image>>()
+            .init_resource::<crate::pad::PadGlyphs>()
             .init_resource::<MessageClick>()
             .init_resource::<WaitSliderCheck>()
             .init_resource::<PointerAid>()
