@@ -185,6 +185,8 @@ pub(crate) fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVa
             if l.entries.contains(&entry) {
                 return Some(Ok(zero));
             }
+            // Once per entry (a repeat stops above), so a mod's adds can be seen to land.
+            tracing::info!("leveled list: {} gains {} (level {level}, count {count}) by a script", g.data.name(f), g.data.name(item));
             l.entries.insert(0, entry);
             zero
         }

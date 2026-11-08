@@ -511,7 +511,12 @@ impl Gen<'_> {
                 }
             }
             let enc = f.opcode.map(|o| self.table.param_enc(o, args.len())).unwrap_or(ParamEnc::Value);
-            let min = if f.aware {
+            // On a vanilla line an aware function's argument stops at a comparison, as
+            // inside a compiler-override block ([`super::Gen::vanilla_x`]); arithmetic
+            // still binds into it [hypothesis: only the comparison was seen].
+            let min = if f.aware && self.vanilla_x {
+                ARG_IN_OVERRIDE
+            } else if f.aware {
                 ARG_OVERRIDE
             } else if self.co {
                 ARG_IN_OVERRIDE

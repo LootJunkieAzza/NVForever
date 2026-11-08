@@ -1795,7 +1795,7 @@ pub(crate) fn run_scripts(
                 // first GameMode frame (`crate::tiles::mods::main_menu_frames`).
                 if tile_menus.is_some_and(|t| t.start) {
                     with_world(&mut rt, &mut sim, |rt| with_ray_caster(&mut phys, || crate::tiles::mods::main_menu_frames(&mut rt.game)));
-                    info!("scripts: {} main-menu frames of the start menu's MenuMode {} blocks", crate::tiles::mods::MAIN_MENU_FRAMES, fnv_game::game::menus::START);
+                    info!("scripts: {} main-menu frames of the MenuMode {} and {} blocks", crate::tiles::mods::MAIN_MENU_FRAMES, fnv_game::game::menus::START, fnv_game::game::menus::MAIN_MENU);
                 }
                 let running = rt.game.quests.values().filter(|q| q.running).count();
                 info!(
