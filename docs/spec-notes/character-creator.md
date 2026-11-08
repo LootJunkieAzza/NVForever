@@ -305,6 +305,17 @@ The rules:
   room, and the camera's layers are put back when the creator closes. The rest of the
   game's race menus (New Vegas's ShowRaceMenu at Doc Mitchell's, the barber, the plastic
   surgeon) stay in the room, as decided above.
+  - **Seen in game, 2026-11-08** (owner: "pure black"; the studio commit had been pushed
+    after #1407 merged and is brought back here). Two things kept it dark: the creator's
+    lights were on the world's render layer only, and a light lights only the views whose
+    layers meet its own, so the studio's camera (body and studio layers) got none of them;
+    and the scene's image-space modifiers stayed on the picture (in the birth scene
+    CG00BirthBaseISFX, Bright Scale ×2 and Bright Clamp ×0.2, with the eye adaptation it
+    drives), leaving the player a silhouette. Now the lights are on the world's and the
+    body's layers, and while the studio stands the scene's modifiers are left off the
+    grade (`imagespace.rs`; they go on playing and are back when it closes), the cell's own
+    grade kept [design]. Checked in the birth scene with stage 60 set once the black
+    opening modifier had run out: the face lit, the backdrop and floor seen.
 - **Nothing else over it** [owner 2026-10-17: "hide the UI so no health bar or AP or
   dialogue"]: the HUD (health, action points, compass, the weapon's condition), the
   activation prompt ("E) Talk"), the dialogue menu's line and the subtitles are not

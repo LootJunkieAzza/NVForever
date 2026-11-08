@@ -200,7 +200,16 @@ fn lights(
         let unit = crate::sky::light_unit();
         for (i, (f, c)) in [(KEY, crate::lights::display_color([1.0, 0.94, 0.85])), (FILL, crate::lights::display_color([0.82, 0.88, 1.0]))].into_iter().enumerate() {
             let intensity = crate::lights::lumens(f * scale.0, unit);
-            commands.spawn((Name::new("Creator light"), CreatorLight, PointLight { color: c, intensity, range: RANGE, shadow_maps_enabled: false, ..default() }, Transform::from_translation(places[i])));
+            // On the world's layer and the body's: a light lights only the views whose layers
+            // meet its own, and the studio's camera sees the body's and the studio's only
+            // (before, the studio had none of the creator's light).
+            commands.spawn((
+                Name::new("Creator light"),
+                CreatorLight,
+                PointLight { color: c, intensity, range: RANGE, shadow_maps_enabled: false, ..default() },
+                Transform::from_translation(places[i]),
+                RenderLayers::from_layers(&[0, crate::sky::BODY_LAYER]),
+            ));
         }
         info!("creator view: lights on (key {KEY}, fill {FILL}, reach {RANGE})");
         return;
