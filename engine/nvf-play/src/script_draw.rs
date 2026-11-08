@@ -153,9 +153,10 @@ type Cells<'w, 's> = Query<'w, 's, (Entity, &'static RenderCell, &'static Transf
 /// Move the roots of the references physics moved this frame
 /// (`PhysState::settle_placed`), or a script's Rotate turned or SetScale resized
 /// (`Game::turned`), to the simulation's pose and scale.
-fn follow(sim: Res<SimState>, phys: Res<PhysState>, script: Res<ScriptState>, state: Res<ScriptDrawn>, cells: Cells, mut roots: Query<&mut Transform, With<ScriptDrawnRoot>>) {
+fn follow(sim: Res<SimState>, phys: Res<PhysState>, script: Res<ScriptState>, state: Res<ScriptDrawn>, cells: Cells, mut roots: Query<&mut Transform, With<ScriptDrawnRoot>>, mut repose: MessageReader<crate::RefRepose>) {
     let turned = script.rt.iter().flat_map(|rt| rt.game.turned.iter().map(|r| r.0));
-    for id in phys.moved_now.iter().copied().chain(turned) {
+    let reposed: Vec<u32> = repose.read().map(|m| m.form_id).collect();
+    for id in phys.moved_now.iter().copied().chain(turned).chain(reposed) {
         let Some(&(root, cell_e)) = state.drawn.get(&id) else { continue };
         let (Ok((_, _, cell)), Ok(mut t), Some(p)) = (cells.get(cell_e), roots.get_mut(root), sim.refs.get(FormId(id))) else { continue };
         let (pos, rot) = sim.moved_pose(id).unwrap_or((p.pos, p.rot));
