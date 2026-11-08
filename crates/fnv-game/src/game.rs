@@ -1547,6 +1547,10 @@ pub struct Game<'a> {
     /// barber and the plastic surgeon, which change different parts of the look
     /// (docs/spec-notes/character-creator.md §10). Not saved.
     pub race_menu: RaceMenu,
+    /// The race menu was opened by Tale of Two Wastelands' gene projector
+    /// (`TTW_ShowGeneProjector`): the engine draws the creator in a studio instead of the
+    /// room (docs/spec-notes/character-creator.md §5). Not saved.
+    pub race_menu_studio: bool,
     /// The menu under the one open, when the tutorial menu opened over it (the Pip-Boy
     /// under CGTutorial's crippled-limb tutorial): it is the open menu again once the
     /// tutorial closes [hypothesis]. Saved.
@@ -2292,6 +2296,7 @@ impl<'a> Game<'a> {
             condition_target: None,
             menu: None,
             race_menu: RaceMenu::Creator,
+            race_menu_studio: false,
             menu_under: None,
             ui_prompt: None,
             tutorial: Vec::new(),
