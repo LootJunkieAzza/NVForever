@@ -633,7 +633,7 @@ fn rounded_box_distance(p: Vec2, h: f32, r: f32) -> f32 {
 
 /// The PlayStation button glyph pictures, loaded once for the run and shared by every
 /// hint that draws one [design, #1829].
-#[derive(Resource)]
+#[derive(Resource, Clone)]
 pub struct PadGlyphs {
     /// The twelve pictures, in [`Glyph::ALL`]'s order; `None` until loaded.
     images: [Option<Handle<Image>>; 12],
@@ -720,10 +720,22 @@ fn hint_parts(hint: &str) -> (Option<Glyph>, &str, &str) {
 
 /// The width [`set_hint`] draws `hint` in, so a caller can align it before drawing.
 pub fn hint_width(face: &crate::interface::Face, hint: &str, glyphs: &PadGlyphs) -> f32 {
-    let width = |s: &str| face.font.lines(s, None).into_iter().next().map_or(0.0, |l| l.width);
+    hint_width_font(&face.font, hint, glyphs)
+}
+
+/// [`hint_width`] on a font, for the pure layouts that measure without a
+/// [`crate::interface::Face`] (the dialogue menu's [`crate::dialogue_menu::layout`]).
+pub fn hint_width_font(font: &fnv_font::Font, hint: &str, glyphs: &PadGlyphs) -> f32 {
+    let width = |s: &str| font.lines(s, None).into_iter().next().map_or(0.0, |l| l.width);
     let (glyph, before, after) = hint_parts(hint);
-    let glyph_w = glyph.map_or(0.0, |g| glyphs.image(g).map_or_else(|| width(g.name()), |(_, aspect)| face.font.size * GLYPH_SHARE * aspect));
+    let glyph_w = glyph.map_or(0.0, |g| glyphs.image(g).map_or_else(|| width(g.name()), |(_, aspect)| font.size * GLYPH_SHARE * aspect));
     width(before) + glyph_w + width(after)
+}
+
+/// The width [`set_button`] draws a bare button `name` in.
+pub fn button_width(face: &crate::interface::Face, name: &str, glyphs: &PadGlyphs) -> f32 {
+    let text_w = || face.font.lines(name, None).into_iter().next().map_or(0.0, |l| l.width);
+    Glyph::named(name).and_then(|g| glyphs.image(g)).map_or_else(text_w, |(_, aspect)| face.font.size * GLYPH_SHARE * aspect)
 }
 
 /// Draw a hint line that may name a PlayStation button, drawing that button's glyph in
@@ -738,10 +750,25 @@ pub fn set_hint(
     color: Color,
     glyphs: &PadGlyphs,
 ) -> f32 {
+    set_hint_marked(p, face, hint, x, base, color, glyphs, ())
+}
+
+/// [`set_hint`] with `mark` on every coloured node (the tile renderer marks its pieces
+/// [`crate::tiles::draw::Ink`], so they recolour in place).
+pub fn set_hint_marked(
+    p: &mut ChildSpawnerCommands,
+    face: &crate::interface::Face,
+    hint: &str,
+    x: f32,
+    base: f32,
+    color: Color,
+    glyphs: &PadGlyphs,
+    mark: impl Bundle + Clone,
+) -> f32 {
     let line = |s: &str| face.font.lines(s, None).into_iter().next().unwrap_or_default();
     let (glyph, before, after) = hint_parts(hint);
     let before = line(before);
-    crate::interface::set_line(p, face, &before, x, base, color);
+    crate::interface::set_marked(p, face, &before, x, base, color, mark.clone());
     let mut width = before.width;
     if let Some(g) = glyph {
         match glyphs.image(g) {
@@ -749,20 +776,47 @@ pub fn set_hint(
                 let side = face.font.size * GLYPH_SHARE;
                 let w = side * aspect;
                 let corner = Vec2::new(x + width, base - side * GLYPH_RISE);
-                p.spawn((crate::interface::at(corner.x, corner.y, w, side), ImageNode { color, ..ImageNode::new(image) }));
+                p.spawn((crate::interface::at(corner.x, corner.y, w, side), ImageNode { color, ..ImageNode::new(image) }, mark.clone()));
                 width += w;
             }
             None => {
                 // The picture is not loaded yet: write the name as text.
                 let name = line(g.name());
-                crate::interface::set_line(p, face, &name, x + width, base, color);
+                crate::interface::set_marked(p, face, &name, x + width, base, color, mark.clone());
                 width += name.width;
             }
         }
     }
     let after = line(after);
-    crate::interface::set_line(p, face, &after, x + width, base, color);
+    crate::interface::set_marked(p, face, &after, x + width, base, color, mark.clone());
     width + after.width
+}
+
+/// Draw a bare button name (`"Cross"`, `"L1"`) as its glyph, or the name as text when it
+/// names no glyph or the pictures are not loaded yet. Returns the width drawn.
+pub fn set_button(
+    p: &mut ChildSpawnerCommands,
+    face: &crate::interface::Face,
+    name: &str,
+    x: f32,
+    base: f32,
+    color: Color,
+    glyphs: &PadGlyphs,
+) -> f32 {
+    match Glyph::named(name).and_then(|g| glyphs.image(g).map(|img| (g, img))) {
+        Some((_, (image, aspect))) => {
+            let side = face.font.size * GLYPH_SHARE;
+            let w = side * aspect;
+            let corner = Vec2::new(x, base - side * GLYPH_RISE);
+            p.spawn((crate::interface::at(corner.x, corner.y, w, side), ImageNode { color, ..ImageNode::new(image) }));
+            w
+        }
+        None => {
+            let line = face.font.lines(name, None).into_iter().next().unwrap_or_default();
+            crate::interface::set_line(p, face, &line, x, base, color);
+            line.width
+        }
+    }
 }
 
 /// A hint glyph's height as a share of the font's size, and how much of it stands above
