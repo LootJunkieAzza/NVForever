@@ -809,8 +809,8 @@ pub fn set_button(
     color: Color,
     glyphs: &PadGlyphs,
 ) -> f32 {
-    match Glyph::named(name).and_then(|g| glyphs.image(g).map(|img| (g, img))) {
-        Some((_, (image, aspect))) => {
+    match Glyph::named(name).and_then(|g| glyphs.image(g)) {
+        Some((image, aspect)) => {
             let side = face.font.size * GLYPH_SHARE;
             let w = side * aspect;
             let corner = Vec2::new(x, base - side * GLYPH_RISE);
