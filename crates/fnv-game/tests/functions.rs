@@ -964,7 +964,12 @@ fn cap_damage_continues_after_each_saved_threshold_including_old_rounding() {
             }
             let damage = g.extra[&acti].damage;
             g = destruction_roundtrip(&f, &g);
-            assert_eq!(g.extra[&acti].damage, damage);
+            // The save's JSON may read a float back one unit in the last place off
+            // (serde_json without its float_roundtrip feature), as a real save does: the
+            // stage must hold through that, so compare loosely and go on from what loaded.
+            let loaded = g.extra[&acti].damage;
+            assert!((loaded.unwrap() - damage.unwrap()).abs() <= 1e-12, "{loaded:?} vs {damage:?}");
+            let damage = loaded;
             assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), stage as f64);
             if stage == 2 {
                 assert!(g.extra[&acti].destroyed);
