@@ -179,6 +179,16 @@ saves load, and the frame's sync sets them from the settings again.
 | Scope Zoom Time (part) | `bUseCustomSniperZoomRate` | `aim_zoom::zoom` while a scope is up |
 | Q Drops Items | `bAddInventoryDropItemHotkey` | `pipboy::items::keys` |
 
+## Eleventh batch (2026-11-09)
+
+| Row | INI key | Where |
+|---|---|---|
+| Picked Containers Stay Shut | `bDontShowContainerAfterLockpick` | `lockpick::close` (no `ActivateNext` for a container) |
+| Picked Doors Stay Shut | `bDontOpenDoorsAfterLockpick` | `lockpick::close` (no `ActivateNext` for a door) |
+| Mark Unvisited Doors | `bPatchUnseenCellName` | `activate::find_target` (`visited_cells`) |
+| No Leaving a Hack | `bNoExitHacking` | `terminal::apply` |
+| No Grabbing Owned Items | `bNoGrabOwnedItems` | `grab::grab` (`activate::owned_by_other`) |
+
 Menu tweaks that code holding the game reads (the Pip-Boy's item info, crafting, the
 level-up menu, the terminal's timers) are kept in `fnv_game::tweaks` too, so no system
 needs another parameter; the catalogue's notes say where NVForever already does what a
@@ -195,8 +205,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 110 |
-| to do | 493 |
+| done | 115 |
+| to do | 488 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -216,6 +226,7 @@ game's Data folder, read-only).
 | `bModifySkillPointsEarned` | done |  | 2 | Own Skill Points Rule (switch + base and per-Intelligence sliders) |
 | `bNoDialogueZoom` | done |  |  | already a row: Gameplay tab, dialogue-zoom |
 | `bNoFastTravelIfLegsCrippled` | done |  | 1 | No Travel on a Crippled Leg (NVForever's own refusal text) |
+| `bNoGrabOwnedItems` | done |  |  | No Grabbing Owned Items |
 | `bNoLockFailedTerminals` | done |  |  | No Terminal Lockout |
 | `bOnlyAllowWaitWhileSitting` | done |  | 3 | Wait Only When Seated (NVForever's own refusal text) |
 | `bPickLocksWithoutSkill` | done |  | 1 | Pick Any Lock (the lock plays as before; the difficulty option not built) |
@@ -293,7 +304,6 @@ game's Data folder, read-only).
 | `bNoDamageMeleeWeaponIfTargetDead` | to do |  |  |  |
 | `bNoEnvironmentRadiationInFullPowerArmor` | to do |  |  |  |
 | `bNoFreeBarterItems` | to do |  | 1 |  |
-| `bNoGrabOwnedItems` | to do |  |  | grab::grab, with activate::owned_by_other |
 | `bNoLockEncounterZoneLevels` | unsure, skipped |  |  | encounter-zone level locking not yet checked in NVForever |
 | `bNoPlayerStaggerAnims` | to do |  |  |  |
 | `bNoSkillTags` | to do |  | 6 |  |
@@ -533,6 +543,7 @@ game's Data folder, read-only).
 | `bNoRedCrosshairOnEnemies` | done |  |  | No Red Crosshair (native and tile HUD alike) |
 | `bNoUnconciousMessage` | done |  |  | No Unconscious Message |
 | `bNoXPMessages` | done |  | 7 | Quiet Experience (all sources at once; LEVEL UP still shows) |
+| `bPatchUnseenCellName` | done |  | 3 | Mark Unvisited Doors (a star; the rename and respawn options not built) |
 | `bRemoveQuestObjectiveAddedText` | done |  | 1 | No Objective List |
 | `bRemoveSneakLabel` | done |  |  | No Sneak Label (native and tile HUD) |
 | `bDescriptiveMarkerAddedMessage` | to do | yes |  | NVForever shows no marker-added popup |
@@ -574,7 +585,6 @@ game's Data folder, read-only).
 | `bNoCompassPipsIfNotInDanger` | to do |  |  |  |
 | `bNoHUDHotkeyPopup` | to do |  |  |  |
 | `bNoXPBarInCombat` | to do |  | 1 |  |
-| `bPatchUnseenCellName` | to do |  | 3 | activate::find_target with game.forms.visited_cells |
 | `bPlacedMarkerHeightIndicator` | to do |  | 1 |  |
 | `bRaceMenuAllowFemaleFacialHair` | to do |  |  |  |
 | `bRecentlyDeadNPCIndicator` | to do |  | 4 |  |
@@ -613,6 +623,7 @@ game's Data folder, read-only).
 | `bDisableLoadingScreenTips` | done |  |  | No Loading Tips |
 | `bLockpickAllowMouse` | done |  |  | Mouse Turns the Lock |
 | `bNoExitConfirm` | done |  |  | already so: the main menu's Quit asks nothing |
+| `bNoExitHacking` | done |  | 1 | No Leaving a Hack (the fail-on-exit option not built) |
 | `bSavingDoesntClosePauseMenu` | done |  |  | already so: saving leaves the pause menu open |
 | `bBarterShowCapsChange` | to do | yes | 1 | half_figure has no settings to read; pass the tweak in |
 | `bChallengeMenuIcons` | unsure, skipped | yes |  | needs another mod (challenge icons) |
@@ -681,7 +692,6 @@ game's Data folder, read-only).
 | `bMarkNotesUnread` | to do |  |  |  |
 | `bMoreDetailedStatsMenu` | to do |  | 1 |  |
 | `bNoCapitaliseContainerCategories` | to do |  |  |  |
-| `bNoExitHacking` | to do |  | 1 | terminal::apply Back/Exit while hacking |
 | `bNoMinCompanionMapDistance` | to do |  |  | companions are not drawn on the world map yet |
 | `bNoPlaceMarkerPopup` | to do |  | 2 |  |
 | `bNoteMenuShowSeparateMenu` | unsure, skipped |  | 1 | needs another mod (Book Menu Restored) |
@@ -788,6 +798,8 @@ game's Data folder, read-only).
 | `bPowerArmorPreventsScreenBlood` | done | yes |  | No Screen Blood in Power Armor (any hit while power armor is worn on the body; hits are not told apart by body part here) |
 | `bRadioStaticDecreasesSongVolume` | done | yes |  | already so: the song fades as the static rises |
 | `bDisableSellingItems` | done |  |  | No Selling |
+| `bDontOpenDoorsAfterLockpick` | done |  |  | Picked Doors Stay Shut |
+| `bDontShowContainerAfterLockpick` | done |  |  | Picked Containers Stay Shut |
 | `bKeepPipboyLightOnCellChange` | done |  | 1 | already so: the light stays on through cell changes |
 | `bNoAudioDistortion` | done |  | 1 | No Helmet Voice Filter (the apply-to-everything option not built) |
 | `bNoFastTravelTimeChange` | done |  |  | Fast Travel Takes No Time |
@@ -835,8 +847,6 @@ game's Data folder, read-only).
 | `bDisableStealthEffectInPipboy` | to do |  |  |  |
 | `bDisableWeaponHotkeys` | to do |  |  |  |
 | `bDisarmingMinesPicksThemUp` | to do |  |  |  |
-| `bDontOpenDoorsAfterLockpick` | to do |  |  | NVForever opens the door after a pick (lockpick::close ActivateNext) |
-| `bDontShowContainerAfterLockpick` | to do |  |  | NVForever opens the container after a pick (lockpick::close ActivateNext) |
 | `bExtraConsoleDetails (enabled by default)` | to do |  | 4 |  |
 | `bHapticPipboy` | to do |  |  |  |
 | `bInvalidBSFadeNodePrints` | n/a |  |  | the plugin's own warning |

@@ -103,6 +103,17 @@ pub struct Tweaks {
     /// `bEnteringVATSCostsAP`/`iEnterVATSAPCost`: Action Points entering V.A.T.S.
     /// costs; 0 changes nothing.
     pub vats_entry_ap: f64,
+    // ---- batch 11 ----
+    /// `bDontShowContainerAfterLockpick`: a picked container is not opened at once.
+    pub no_container_after_pick: bool,
+    /// `bDontOpenDoorsAfterLockpick`: a picked door is not used at once.
+    pub no_door_after_pick: bool,
+    /// `bPatchUnseenCellName`: a door to a place never visited ends its prompt with ` *`.
+    pub mark_unvisited_doors: bool,
+    /// `bNoExitHacking`: the hacking game cannot be left once a guess is made.
+    pub no_exit_hacking: bool,
+    /// `bNoGrabOwnedItems`: someone else's things cannot be grabbed.
+    pub no_grab_owned: bool,
 }
 
 impl Default for Tweaks {
@@ -141,6 +152,11 @@ impl Default for Tweaks {
             lockpick_mouse_turn: false,
             no_max_casino_bet: false,
             vats_entry_ap: 0.0,
+            no_container_after_pick: false,
+            no_door_after_pick: false,
+            mark_unvisited_doors: false,
+            no_exit_hacking: false,
+            no_grab_owned: false,
         }
     }
 }

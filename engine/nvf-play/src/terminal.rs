@@ -751,6 +751,11 @@ fn apply(
         let (reference, base) = (s.reference, s.base);
         match &mut s.page {
             Page::Hacking(h) => {
+                // The player's tweak: no leaving once a guess is made, until the game ends [design: docs/design/tweaks.md].
+                if matches!(cmd, TerminalInput::Back | TerminalInput::Exit) && h.ended.is_none() && !h.puzzle.log.is_empty() && rt.game.tweaks.no_exit_hacking {
+                    info!("terminal: leaving refused, a guess was made (tweak)");
+                    continue;
+                }
                 if matches!(cmd, TerminalInput::Back | TerminalInput::Exit) {
                     // Leaving keeps nothing: the next visit is a new game with every
                     // attempt [the owner, 2026-10-11]; a lockout stays.

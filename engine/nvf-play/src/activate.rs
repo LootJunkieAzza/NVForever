@@ -299,7 +299,10 @@ pub(crate) fn find_target(
                     Action::Travel { to } => {
                         let cell = sim.refs.get(FormId(id)).and_then(|p| p.teleport).and_then(|tp| sim.refs.get(tp.door)?.cell);
                         let renamed = rt.as_deref().zip(cell).and_then(|(rt, c)| rt.game.script_name(c));
-                        (n, Action::Travel { to: renamed.map(str::to_string).or(to) })
+                        // The player's tweak marks a place never visited [design: docs/design/tweaks.md].
+                        let unseen = rt.as_deref().zip(cell).is_some_and(|(rt, c)| rt.game.tweaks.mark_unvisited_doors && !rt.game.forms.visited_cells.contains(&c));
+                        let to = renamed.map(str::to_string).or(to).map(|t| if unseen { format!("{t} *") } else { t });
+                        (n, Action::Travel { to })
                     }
                     a => (n, a),
                 })
@@ -404,7 +407,7 @@ fn terminal_action(rt: Option<&mut crate::script::Runtime>, sim: &mut SimState, 
 /// Whether acting on the target is a crime: an item to take, a container to open or a
 /// lock to pick (a terminal to hack among them) that someone other than the player owns
 /// (`fnv_game::crime`). A dead actor's inventory is not [hypothesis].
-fn owned_by_other(game: Option<&fnv_game::Game>, sim: &SimState, form_id: u32, action: &Action) -> bool {
+pub(crate) fn owned_by_other(game: Option<&fnv_game::Game>, sim: &SimState, form_id: u32, action: &Action) -> bool {
     // Picking a pocket is theft: the prompt shows as a crime's does [design: the
     // original's steal prompt is red].
     if *action == Action::Steal {

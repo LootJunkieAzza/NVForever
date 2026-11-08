@@ -357,6 +357,11 @@ fn grab(
 
     // What could be held now.
     let found = if playing && g.held.is_none() { find_candidate(&mut phys, &sim, eye, dir) } else { Err("holding or not playing".into()) };
+    // The player's tweak: someone else's things stay where they are [design: docs/design/tweaks.md].
+    let found = match found {
+        Ok(c) if script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_grab_owned && crate::activate::owned_by_other(Some(&rt.game), &sim, c.on.form_id(), &crate::activate::outcome::Action::Take { count: 1 })) => Err("owned by someone else (tweak)".into()),
+        other => other,
+    };
     g.candidate = found.as_ref().ok().copied();
 
     // A press of Activate on something holdable without an activation of its own (the

@@ -823,11 +823,19 @@ fn close(
     script: Option<ResMut<ScriptState>>,
     mut sounds: MessageWriter<UiSound>,
     next: Option<ResMut<crate::activate::ActivateNext>>,
+    sim: Option<Res<SimState>>,
 ) {
     let Some(s) = screen.0.take() else { return };
     // Picked or forced open: the door or container is used as if the player activated
     // it (playtest list 5 item 64; `crate::activate::ActivateNext`).
-    if s.game.phase == Phase::Open && !s.practice {
+    // The player's tweaks can leave the door or the container shut after the pick [design: docs/design/tweaks.md].
+    let tw = script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| (rt.game.tweaks.no_door_after_pick, rt.game.tweaks.no_container_after_pick));
+    let base = sim.as_ref().and_then(|sim| sim.base_of(s.reference.0).and_then(|b| sim.forms.get(b)).map(|b| (matches!(b.data, fnv_sim::forms::BaseData::Door(_)), matches!(b.data, fnv_sim::forms::BaseData::Container(_)))));
+    let held = matches!((tw, base), (Some((true, _)), Some((true, _))) | (Some((_, true)), Some((_, true))));
+    if held {
+        info!("lockpick: {} stays shut after the pick (tweak)", s.reference);
+    }
+    if s.game.phase == Phase::Open && !s.practice && !held {
         if let Some(mut n) = next {
             n.0 = Some(s.reference.0);
         }
