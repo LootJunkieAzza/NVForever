@@ -51,7 +51,7 @@ use bevy::camera::{CameraMainTextureUsages, NormalizedRenderTarget};
 use bevy::core_pipeline::{prepass::ViewPrepassTextures, upscaling::upscaling, Core3d, Core3dSystems};
 use bevy::prelude::*;
 use bevy::render::{
-    camera::ExtractedCamera,
+    camera::{ExtractedCamera, TemporalJitter},
     renderer::{RenderAdapter, RenderContext, RenderDevice, RenderGraph, RenderGraphSystems, RenderQueue, ViewQuery},
     sync_world::MainEntity,
     view::{prepare_view_targets, prepare_windows, ExtractedWindow, ViewTarget},
@@ -369,13 +369,15 @@ fn prepare(
     }
 }
 
-/// Frame interpolation's prepare pass: this frame's depth and motion, as FSR got them.
+/// Frame interpolation's prepare pass: this frame's depth and motion, as FSR got them, with
+/// FSR's jitter (as FidelityFX SDK 1.1.4's `ffxFsr3ContextDispatchFrameGenerationPrepare`
+/// passes the upscaler's on; AMD's pass reads it only for display-resolution motion vectors).
 fn prepare_pass(
-    view: ViewQuery<(&PreparedFsr, &PreparedFrameGen, Option<&ViewPrepassTextures>)>,
+    view: ViewQuery<(&PreparedFsr, &PreparedFrameGen, Option<&ViewPrepassTextures>, &TemporalJitter)>,
     renderer: Res<FrameGenRenderer>,
     mut ctx: RenderContext,
 ) {
-    let (fsr, fg, prepass) = view.into_inner();
+    let (fsr, fg, prepass, jitter) = view.into_inner();
     let Some((_, interpolation)) = &renderer.0 else { return };
     let motion = prepass.and_then(|p| p.motion_vectors.as_ref());
     // A frame FSR did not reconstruct (its spatial fallback) has no inputs worth reading.
@@ -391,7 +393,8 @@ fn prepare_pass(
             depth: &fsr.fsr_depth,
             motion_vectors: &motion.texture.texture,
             render_size: fsr.render_size.to_array(),
-            jitter_offset: [0.0, 0.0],
+            // Bevy's offset is minus FSR's (fsr.rs `prepare`).
+            jitter_offset: (-jitter.offset).to_array(),
             motion_vector_scale: (-fsr.render_size.as_vec2()).to_array(),
             camera_near: f32::MAX,
             camera_far: camera.near,

@@ -763,6 +763,26 @@ impl FsrView {
         self.frame_kind = FrameKind::Even;
     }
 
+    // NVForever (2026-11-08): the upscaler's tuning constants, as FidelityFX SDK 1.1.4's
+    // `FfxFsr3UpscalerConfigureKey` sets them.
+    /// Set one of the upscaler's tuning constants (FidelityFX SDK 1.1.4,
+    /// `FfxFsr3UpscalerConfigureKey` in `ffx_fsr3upscaler.h`), clamped to the range AMD
+    /// gives it. A view starts with AMD's defaults, and [`FsrView::resize`] restores them.
+    pub fn configure(&mut self, key: FsrConfigureKey, value: f32) {
+        let fsr = &mut self.constants.fsr;
+        match key {
+            FsrConfigureKey::VelocityFactor => fsr.velocity_factor = value.clamp(0.0, 1.0),
+            FsrConfigureKey::ReactivenessScale => fsr.reactiveness_scale = value.max(0.0),
+            FsrConfigureKey::ShadingChangeScale => fsr.shading_change_scale = value.max(0.0),
+            FsrConfigureKey::AccumulationAddedPerFrame => {
+                fsr.accumulation_added_per_frame = value.clamp(0.0, 1.0)
+            }
+            FsrConfigureKey::MinDisocclusionAccumulation => {
+                fsr.min_disocclusion_accumulation = value.clamp(-1.0, 1.0)
+            }
+        }
+    }
+
     /// The maximum render resolution this view was allocated for.
     pub fn max_render_size(&self) -> [u32; 2] {
         self.max_render_size
@@ -928,6 +948,30 @@ pub struct FsrDispatchInfo {
 
     /// Combination of [`FsrDispatchFlags`].
     pub flags: FsrDispatchFlags,
+}
+
+/// The upscaler's tuning constants ([`FsrView::configure`]): FidelityFX SDK 1.1.4's
+/// `FfxFsr3UpscalerConfigureKey`, with AMD's descriptions, defaults and ranges.
+// NVForever (2026-11-08): added to the port.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FsrConfigureKey {
+    /// `fVelocityFactor`: 0 can improve the temporal stability of bright pixels. Default 1,
+    /// in [0, 1].
+    VelocityFactor,
+    /// `fReactivenessScale`, on the reactive mask as it is read. Default 1, at least 0.
+    ReactivenessScale,
+    /// `fShadingChangeScale`, on FSR 3.1's own shading-change value as it is read: higher
+    /// values make it react sooner to lighting changes. Default 1, at least 0.
+    ShadingChangeScale,
+    /// `fAccumulationAddedPerFrame`: the accumulation added each frame where a disocclusion
+    /// happened or the reactive mask is above 0. Lower values, with the ghosting object in
+    /// the reactive mask near 1, can reduce ghosting; thin features may flicker more.
+    /// Default 0.333, in [0, 1].
+    AccumulationAddedPerFrame,
+    /// `fMinDisocclusionAccumulation`: higher values may reduce flicker around swaying
+    /// thin objects that disocclude each other; too high may increase ghosting. Default
+    /// -0.333, in [-1, 1].
+    MinDisocclusionAccumulation,
 }
 
 bitflags::bitflags! {

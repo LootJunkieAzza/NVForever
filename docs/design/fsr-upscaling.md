@@ -47,7 +47,7 @@ with `FsrUpscaling` (the player's camera) has its own history and textures.
     the previous transforms and skinning of NIF meshes, and grass and trees also move their
     previous vertex by the previous frame's wind and billboard turn (`grass.wesl`,
     `tree.wesl`);
-  - a reactive and transparency/composition mask (below);
+  - a reactive mask and a transparency/composition mask (below);
   - the frame time.
 - **History resets** (`FsrCamera::cut_from`): a quality or size change, a skipped frame, a
   frame over 250 ms, a move of 400 units or more or a turn over 45° in one frame, a
@@ -76,14 +76,91 @@ with `FsrUpscaling` (the player's camera) has its own history and textures.
 
 ## The reactive mask
 
-FSR keeps less history where the reactive mask is high. The port has no `GenerateReactive`
-step, so `fsr.rs` makes the mask itself:
+FSR 3.1.4 reads two masks [observed, in its shaders: `ffx_fsr3upscaler_prepare_reactivity.h`,
+`ffx_fsr3upscaler_accumulate.h`]:
+
+- the **reactive** mask, dilated over 3x3, counts as a shading change: the pixel's
+  accumulated history is cut back by it, and its colour clamp tightens;
+- the **transparency and composition** mask tightens the colour clamp (from three times the
+  neighbourhood's spread to once) and takes away the history's protection (FSR's locks on
+  thin features and its luma-instability allowance), without cutting the accumulation.
+
+The port has no `GenerateReactive` step, so `fsr.rs` makes both masks itself
+(`fsr_reactive.wgsl`, one pass with three R8 outputs):
 
 - The main texture is copied after the opaque pass (`capture_opaque`).
-- `fsr_reactive.wgsl` compares that copy with the finished frame. One R8 texture serves as
-  both the reactive and the transparency/composition input.
-- So whatever the transparent phase draws over the copy (particles, glass, water, blended
-  meshes) reads as reactive.
+- **Presence**: that copy against the finished frame, relative to the brighter of the two,
+  at most 0.9: whatever the transparent phase draws over the copy (particles, glass, water,
+  neon tubes, blended meshes, hair).
+- **The transparency/composition mask** is the presence here and where each pixel's history
+  comes from last frame. FSR takes a pixel's history from where its motion vector points,
+  and a blended shape is in no prepass, so the vector is that of the surface behind it: the
+  history of the pixels a moving blended shape covered last frame still holds it, and smoke,
+  a projectile's glow, a muzzle flash, a lamp's halo or hair left a trail. Last frame's
+  presence (kept in a second texture) is read at the texels with a real share of that
+  bilinear read; at a texel's centre that is the texel itself.
+- **The reactive mask** is what changed: presence that appeared (above all of last frame's
+  within a texel of the history's source) or went (above all of this frame's within a
+  texel), and light that moved (below). A blended shape that stays on the surface behind it
+  (a neon tube, a sign, a window, a decal) keeps its history: it is clamped, not redrawn from
+  one frame. The one-texel margin keeps the jitter, which makes a thin tube's presence come
+  and go between samples, from counting as a change.
+- **Light that moved**: a moving light (a muzzle flash, a projectile's light, the flashlight,
+  a swaying tree's shadow) changes the shading of surfaces that do not move, their motion
+  vectors carry the old shading along, and FSR's history, an average over many frames, lags
+  it even when each frame changes little. Each pixel's 3x3 texels are compared with FSR's
+  last output at the same surface points (by each texel's own motion, this frame's jitter
+  undone; `fsr_fallback.wgsl` `luma` keeps that output's luminance, display size). Where at
+  least 8 of the 9 are brighter, or darker, by more than |ln| 0.12 (full at 0.5), the history
+  is stale. With 7 of 9, thin aliased detail (slats, a ridge against a hill) set it off now
+  and then and flickered 12% more.
+
+Until 2026-11-08 one mask served as both: this frame's presence. That kept a still neon tube
+reactive, so FSR drew it from one jittered frame at a time: a thin, very bright line whose
+jagged edges moved every frame, and the bloom after FSR spread them into a wobbling halo
+[observed: a player's video of the Strip at night, a still camera; the harness's neon case
+below].
+
+[observed 2026-11-08, `tools/fsr-validation` `ghosting.rs`: the engine's mask shader and FSR
+3.1.4 on a synthetic scene, Quality, a textured background still or panned, the error of the
+output against the scene drawn at the display pixels, tonemapped luminance] Before is this
+frame's presence as both masks, after the masks above. The trails follow a disc moving 2.5
+render pixels a frame:
+
+| Case | Before | After |
+|---|---|---|
+| Alpha-blended smoke, still camera: trail | 0.0431 | 0.0336 |
+| Alpha-blended smoke, panning: trail | 0.0166 | 0.0155 |
+| Additive glow, still camera: trail | 0.0247 | 0.0107 |
+| Additive glow, panning: trail | 0.0105 | 0.0074 |
+| Moving light on opaque ground, still: trail (lit spot) | 0.0532 (0.0939) | 0.0276 (0.0547) |
+| Moving light, panning: trail (lit spot) | 0.0198 (0.0323) | 0.0157 (0.0314) |
+| Still neon tube: frame-to-frame change on it (error) | 0.0507 (0.0664) | 0.0029 (0.0554) |
+
+Without any mask the tube changed 0.0016 a frame. On a moving disc itself the error rose a
+little (smoke 0.0055 → 0.0073, glow 0.0011 → 0.0023): it keeps its clamped history where its
+presence did not change. Clear of the shapes nothing changed, a fire-like flicker of the
+whole ground (8%, slowly) is left to FSR (both 0.0104), and the lookup reversed (a control)
+leaves larger trails. FSR's own shading-change detection does little for a moving light: in
+its debug view the light gave at most 0.043, the flicker 0.023; it compares sorted sets of
+luminance, which a textured surface's detail keeps overlapping. Raising its scale (AMD's
+`fShadingChangeScale`, `FsrView::configure`) to 4 left the trail as it was.
+
+FSR also cuts its history to 0.15 wherever anything moves faster than half a pixel a frame
+at 4K (`ComputeBaseAccumulationWeight`, AMD's `fVelocityFactor`), so in motion fine detail
+(roof edges, fence slats) is anti-aliased from about the last two frames and shimmers more
+than when still. [observed, the harness's fine-detail case] Every velocity factor from 1 to
+0.1 gave the same result (any real motion saturates it); 0 kept more history and raised the
+error of panned detail from 0.034 to 0.043. AMD's default (1) stays.
+
+The masks' pass and the output's luminance cost about 0.07 ms of GPU time a frame: FSR's span
+(`nvf_fsr_3_1`) went from 0.24-0.29 to 0.31-0.33 ms [observed 2026-11-08, RTX 5090, 1920x1080,
+Quality, a 30 s walk in Goodsprings, `dev\tools\fg-measure.ps1`; frame rates unchanged,
+CPU-bound].
+
+`NVF_FSR_DEBUG_VIEW=1` has FSR draw AMD's debug view over its output: a 3x3 grid, the
+bottom row the disocclusions, the shading change with the reactive mask, and the
+transparency/composition mask, in green. A diagnostic, not a setting.
 
 Two bands of the transparent phase draw surfaces that are solid in effect.
 `reference_sky_and_terrain_layers` draws them again over the copy before the mask is made,
@@ -186,9 +263,16 @@ unchanged.
 
 - **Backend and speed.** Vulkan only, with full-precision shader variants (no FP16). The
   gain depends on how busy the GPU is; a CPU-bound scene gains little.
-- **Surfaces whose picture changes by itself** have no mask: animated textures and
-  render-to-texture screens (the Pip-Boy's, terminals, a scope's lens) may trail
-  [hypothesis: not measured].
+- **Surfaces whose picture changes by itself** have no mask of their own: animated textures
+  and render-to-texture screens (the Pip-Boy's, terminals, a scope's lens). The masks' light
+  term catches a change that brightens or darkens most of a 3x3 area, not detail that moves
+  across a surface (text scrolling on a screen), which may trail [hypothesis: not measured].
+- **Blended shapes** have no depth or motion of their own: the masks clamp the history where
+  they are and were last frame and cut it where they came or went, so a fast one is drawn with
+  less accumulation (more aliasing) rather than with a trail. A moving shape with detail of its
+  own (a smoke puff's texture) may still smear a little inside, where its presence stays.
+- **Fine detail in motion** (roof edges against a hill, fence slats, power lines) shimmers more
+  than when still: FSR 3.1 keeps little history on anything that moves (above).
 - **Jittered depth after FSR.** SSAO, the light shafts and the image-space blur read a depth
   drawn with the frame's jitter, so their edges move by up to half a render texel from frame
   to frame. Computing the occlusion before FSR would fix that, but would change the look:

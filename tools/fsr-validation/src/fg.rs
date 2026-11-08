@@ -8,6 +8,13 @@
 //! a border the motion cannot fill. Baselines: repeating the previous or the current frame,
 //! and their 50/50 blend. Controls: reversed game motion, a reset on every frame, a scene
 //! cut, and a still scene.
+//!
+//! Jitter: FSR draws depth and motion with the frame's sub-pixel jitter, and FidelityFX SDK
+//! 1.1.4's `ffxFsr3ContextDispatchFrameGenerationPrepare` passes the upscaler's jitter on to
+//! the prepare pass, which reads it only to find display-resolution motion vectors
+//! (`ComputeHrPosFromLrPos`). A square slides over a still background (a depth and motion
+//! edge), its depth and motion sampled at the jittered positions, with render-resolution
+//! motion as the engine's: the midpoint must hold, with the jitter passed and without.
 use half::f16;
 use wgpu::*;
 use wgpu_ffx::frameinterpolation::{
@@ -63,6 +70,22 @@ struct Case {
     reset_every_frame: bool,
     /// From this frame on, a different scene.
     cut_at: Option<u32>,
+    /// A square moving at `velocity` over a still background, in place of the sliding plane.
+    square: bool,
+    /// Depth and motion sampled at FSR's jittered positions (Halton, as FSR's jitter).
+    jittered: bool,
+    /// The jitter is passed to frame interpolation's prepare pass.
+    prepare_jitter: bool,
+}
+
+/// The square of [`Case::square`] at time t: top-left corner and side, display pixels.
+fn square_at(case: &Case, t: f32) -> ([f32; 2], f32) {
+    ([96.0 + case.velocity[0] * t, 72.0 + case.velocity[1] * t], 88.0)
+}
+
+fn in_square(case: &Case, x: f32, y: f32, t: f32) -> bool {
+    let (corner, side) = square_at(case, t);
+    x >= corner[0] && x < corner[0] + side && y >= corner[1] && y < corner[1] + side
 }
 
 /// Errors over the scored frames: (generated, previous, current, blend), mean absolute RGB.
@@ -167,11 +190,21 @@ fn simulate(device: &Device, queue: &Queue, case: Case) -> (Score, Vec<(f64, f64
         depth.size(),
     );
     let uv_motion = [case.velocity[0] / DISPLAY[0] as f32 * case.motion_sign, case.velocity[1] / DISPLAY[1] as f32 * case.motion_sign];
-    write_f16(queue, &motion, 2, |_, _| uv_motion.to_vec());
+    if !case.square {
+        write_f16(queue, &motion, 2, |_, _| uv_motion.to_vec());
+    }
+    let phases = wgpu_ffx::get_jitter_phase_count(case.render[0] as i32, DISPLAY[0] as i32);
 
     let seed_at = |t: u32| if case.cut_at.is_some_and(|cut| t >= cut) { 77 } else { 11 };
     let draw = |t: f32, seed: u32| move |x: u32, y: u32| {
-        let c = scene(x as f32 + 0.5 - case.velocity[0] * t, y as f32 + 0.5 - case.velocity[1] * t, seed);
+        let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+        let c = if !case.square {
+            scene(px - case.velocity[0] * t, py - case.velocity[1] * t, seed)
+        } else if in_square(&case, px, py, t) {
+            scene(px - case.velocity[0] * t, py - case.velocity[1] * t, 33)
+        } else {
+            scene(px, py, seed)
+        };
         vec![c[0], c[1], c[2], 1.0]
     };
     let margin = (case.velocity[0].abs().max(case.velocity[1].abs()) * 2.0) as u32 + 24;
@@ -183,13 +216,36 @@ fn simulate(device: &Device, queue: &Queue, case: Case) -> (Score, Vec<(f64, f64
     for t in 0..FRAMES {
         let current = &colors[(t % 2) as usize];
         write_f16(queue, current, 4, draw(t as f32, seed_at(t)));
+        let jitter = if case.jittered { wgpu_ffx::get_jitter_offset(t as i32, phases) } else { [0.0, 0.0] };
+        if case.square {
+            // Each render texel shows the scene at its centre less the jitter (FSR's sign),
+            // scaled to display pixels: the square (100 units out) or the background (500).
+            let scale = [DISPLAY[0] as f32 / case.render[0] as f32, DISPLAY[1] as f32 / case.render[1] as f32];
+            let sample = |x: u32, y: u32| ((x as f32 + 0.5 - jitter[0]) * scale[0], (y as f32 + 0.5 - jitter[1]) * scale[1]);
+            let depth_bytes: Vec<u8> = (0..case.render[0] * case.render[1])
+                .flat_map(|i| {
+                    let (x, y) = sample(i % case.render[0], i / case.render[0]);
+                    (near / if in_square(&case, x, y, t as f32) { 100.0f32 } else { 500.0 }).to_le_bytes()
+                })
+                .collect();
+            queue.write_texture(
+                depth.as_image_copy(),
+                &depth_bytes,
+                TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(case.render[0] * 4), rows_per_image: None },
+                depth.size(),
+            );
+            write_f16(queue, &motion, 2, |x, y| {
+                let (sx, sy) = sample(x, y);
+                if in_square(&case, sx, sy, t as f32) { uv_motion.to_vec() } else { vec![0.0, 0.0] }
+            });
+        }
         let mut encoder = device.create_command_encoder(&Default::default());
         let reset = case.reset_every_frame || t == 0;
         fi.prepare(&mut fi_view, &mut encoder, &FrameInterpolationPrepareInfo {
             depth: &depth,
             motion_vectors: &motion,
             render_size: case.render,
-            jitter_offset: [0.0, 0.0],
+            jitter_offset: if case.prepare_jitter { jitter } else { [0.0, 0.0] },
             motion_vector_scale: [-(case.render[0] as f32), -(case.render[1] as f32)],
             camera_near: f32::MAX,
             camera_far: near,
@@ -268,7 +324,17 @@ pub fn run(device: &Device, queue: &Queue) {
 
     let native = [384, 256];
     let quality = [256, 170];
-    let moving = Case { name: "", render: native, velocity: [6.0, 2.0], motion_sign: 1.0, reset_every_frame: false, cut_at: None };
+    let moving = Case {
+        name: "",
+        render: native,
+        velocity: [6.0, 2.0],
+        motion_sign: 1.0,
+        reset_every_frame: false,
+        cut_at: None,
+        square: false,
+        jittered: false,
+        prepare_jitter: false,
+    };
     let mut failures = Vec::new();
     let mut check = |ok: bool, line: String| {
         println!("{} {line}", if ok { "PASS" } else { "FAIL" });
@@ -319,6 +385,20 @@ pub fn run(device: &Device, queue: &Queue) {
         at_cut_vs_current < 0.005,
         format!("FG control, scene cut at frame 8 shows the new frame: |generated - current| {at_cut_vs_current:.4} (per frame {:?})",
             frames.iter().map(|e| format!("{:.4}", e.1)).collect::<Vec<_>>()),
+    );
+
+    // The jitter passed on (frame_gen.rs passes FSR's, as AMD's host code does), against
+    // none, with the depth and motion of a moving square drawn jittered at Quality.
+    let square = Case { name: "square", render: quality, square: true, jittered: true, ..moving };
+    let (passed, passed_frames) = simulate(device, queue, Case { prepare_jitter: true, ..square });
+    let (zero, zero_frames) = simulate(device, queue, Case { prepare_jitter: false, ..square });
+    let worse = passed_frames.iter().zip(&zero_frames).filter(|(p, z)| p.0 > z.0).count();
+    check(
+        passed.generated <= zero.generated + 1e-6 && passed.generated < 0.5 * passed.previous.min(passed.current).min(passed.blend),
+        format!(
+            "FG with jittered depth and motion (a square over a still background, Quality): generated {:.5} with the jitter passed, {:.5} with none (frames worse with it: {worse} of {}); baselines previous {:.4}, current {:.4}, blend {:.4}",
+            passed.generated, zero.generated, passed_frames.len(), passed.previous, passed.current, passed.blend
+        ),
     );
 
     assert!(failures.is_empty(), "{} frame generation check(s) failed", failures.len());

@@ -103,6 +103,10 @@ Changes:
   variants.
 - `wgpu-ffx/src/lib.rs`: the dispatch no longer pushes and pops a device-wide error scope,
   which raced Bevy's pipeline compilation on other threads.
+- `wgpu-ffx/src/lib.rs` (2026-11-08): `FsrView::configure` and `FsrConfigureKey`, the
+  upscaler's tuning constants as FidelityFX SDK 1.1.4's `FfxFsr3UpscalerConfigureKey` sets
+  them (`ffx_fsr3upscaler.h`: names, descriptions, defaults and ranges). The engine keeps
+  AMD's defaults; `tools/fsr-validation` (`ghosting.rs`) uses it to measure them.
 - **Frame generation** (2026-11-07, #1778), new code ported from AMD's MIT host sources of
   FidelityFX SDK 1.1.4 (`sdk/src/components/opticalflow/ffx_opticalflow.cpp`,
   `sdk/src/components/frameinterpolation/ffx_frameinterpolation.cpp`, and the parameters

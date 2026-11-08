@@ -6,6 +6,7 @@ use std::{collections::HashMap, path::Path};
 mod clusters;
 mod fg;
 mod fsr;
+mod ghosting;
 mod gpu;
 mod motion;
 
@@ -60,6 +61,13 @@ fn add_tree(
 }
 
 fn main() {
+    if std::env::args().any(|a| a == "--ghosting-only") {
+        let (device, queue) = gpu::device();
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../engine/nvforever/src");
+        let read = |name: &str| std::fs::read_to_string(source.join(name)).unwrap();
+        ghosting::run(&device, &queue, &read("fsr_reactive.wgsl"), &read("fsr_fallback.wgsl"));
+        return;
+    }
     if std::env::args().any(|a| a == "--frame-generation-only") {
         let (device, queue) = gpu::device();
         fg::run(&device, &queue);
