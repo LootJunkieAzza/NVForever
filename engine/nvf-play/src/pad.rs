@@ -718,6 +718,11 @@ fn hint_parts(hint: &str) -> (Option<Glyph>, &str, &str) {
     }
 }
 
+/// Whether a hint names a PlayStation button that [`set_hint`] would draw as a glyph.
+pub fn has_glyph(hint: &str) -> bool {
+    find_glyph(hint).is_some()
+}
+
 /// The width [`set_hint`] draws `hint` in, so a caller can align it before drawing.
 pub fn hint_width(face: &crate::interface::Face, hint: &str, glyphs: &PadGlyphs) -> f32 {
     hint_width_font(&face.font, hint, glyphs)
