@@ -3668,6 +3668,29 @@ expect = [
 ]
 
 [[scenario]]
+name = "gpu-vram-cap"
+source = "queue item 97 (owner 2026-11-08): the laptop's 4 GB card ran out of memory at every cell change; the texture cap follows VK_EXT_memory_budget at each cell load, the caches are flushed before the new place uploads, and an out-of-memory error makes the textures smaller and goes on (engine/nvforever/src/memory_budget.rs)"
+note = "the GPU budget is taken as the laptop's 3367 MB; Doc Mitchell's door out to Goodsprings, then coc into the Prospector Saloon; at about 40 s the out-of-memory path runs (test aid, no memory filled)"
+areas = ["memory", "render"]
+paths = ["engine/nvforever/src/memory_budget.rs", "engine/nvf-assets/src/texture.rs", "engine/nvf-assets/src/release.rs", "engine/vendor/gpu-allocator/"]
+env = { NVF_PLAY_TEST_VRAM_MB = "3367", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "10:00103E61", NVF_PLAY_TEST_ACTIVATE = "12", NVF_PLAY_TEST_CONSOLE = "28:coc GSProspectorSaloonInterior", NVF_PLAY_TEST_GPU_OOM = "40" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 60
+order = [[
+  "GSDocMitchellHouseIntDoorREF activated",
+  "memory budget: cell load: GPU uses",
+  "memory budget: cell loaded: GPU uses",
+  "memory budget: cell load: GPU uses",
+  "memory budget: cell loaded: GPU uses",
+  "memory budget: test aid NVF_PLAY_TEST_GPU_OOM: the game goes on",
+  "memory budget: out of GPU memory: going on with world textures at most",
+]]
+expect = [
+  { re = 'memory budget: world textures at most \d+ px, mesh slabs at most 105 MiB, 0 emptied GPU memory blocks kept per memory type', label = "a 3367 MB budget: 105 MiB slabs, no kept empty blocks" },
+]
+forbid = [{ text = "GPU lost", label = "the game closed for the GPU" }, { text = "panic on thread", label = "a panic" }]
+
+[[scenario]]
 name = "gpu-device-lost"
 source = "owner's 5-player co-op stress test 2026-11-05: the AMD driver lost the GPU device and the game panicked in Bevy on a buffer map (engine/nvforever/src/gpu_lost.rs, engine/vendor/README.md bevy_render)"
 note = "the render device is destroyed 5 s after the first frame, which wgpu reports as lost; the game autosaves (no thumbnail) and closes with no panic"

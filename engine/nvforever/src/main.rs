@@ -1228,6 +1228,18 @@ fn main() -> AppExit {
     app.set_error_handler(stray_commands::handler);
     app.add_plugins(
         DefaultPlugins
+            // No allocation may take the process past the GPU's memory budget
+            // (VK_EXT_memory_budget): wgpu refuses it as out of memory instead of the
+            // driver failing later, and the game goes on with smaller textures
+            // (memory_budget.rs, crash.rs).
+            .set(bevy::render::RenderPlugin {
+                render_creation: bevy::render::settings::WgpuSettings {
+                    instance_memory_budget_thresholds: wgpu::MemoryBudgetThresholds { for_resource_creation: Some(100), for_device_loss: None },
+                    ..default()
+                }
+                .into(),
+                ..default()
+            })
             .set(ImagePlugin {
                 default_sampler: ImageSamplerDescriptor {
                     address_mode_u: ImageAddressMode::Repeat,

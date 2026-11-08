@@ -41,6 +41,9 @@ half = "2"
 # GPU memory budget (memory_budget.rs): VK_EXT_memory_budget through wgpu's Vulkan device
 # (`Device::as_hal`); the versions Bevy already uses (MIT/Apache-2.0).
 wgpu = { version = "30", default-features = false, features = ["vulkan"] }
+# The GPU allocator wgpu uses (vendored, engine/vendor/README.md): how many emptied memory
+# blocks it keeps, set from the GPU memory budget (memory_budget.rs).
+gpu-allocator = { version = "0.28", default-features = false, features = ["hashbrown"] }
 # MIT FSR 3.1.4 source port, pinned and vendored with shaders/build sources/notices.
 wgpu-ffx = { path = "../vendor/wgpu-ffx/wgpu-ffx" }
 ash = { version = "0.38", default-features = false }
