@@ -149,7 +149,10 @@ NVForever's own [design, #1452]:
   and three ring outlines — computed at start into small pictures (`pad::Glyph`, nothing
   from the game's or Sony's art). The crosshair prompt shows the glyph and ")" in place of
   "Cross)"; the menu hints, drawn with the game's fonts, which have no such symbols, write
-  the names. L1 … R3, Select and Start are text everywhere.
+  the names. The eight labelled buttons are drawn as an amber capsule ring
+  (L1/R1/L2/R2/Select/Start) or a circle knob (L3/R3) with the label written inside in the
+  game's font, rasterized from the font's bitmap texture (`pad::Glyph::labeled_image`); the
+  hints show them in a follow-up to #1829.
 
 ## 4. Rumble
 
