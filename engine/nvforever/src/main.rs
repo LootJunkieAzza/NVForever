@@ -898,6 +898,8 @@ fn main() -> AppExit {
     // a warning, and the rest of the start uses the list without it (world.rs).
     let opened = world::open_plugins(args.data(), &args.plugins);
     args.plugins = opened.plugins.iter().map(|p| p.name.clone()).collect();
+    // Co-op replication: the official masters' quests are the host's story.
+    coop::set_story_plugins(&args.plugins, &MASTERS);
     // `--load`: the save's place decides where the world starts (its worldspace before
     // the world is opened); its body waits for the scripts (nvf_play::save). It is read
     // in full now, remapped to the plugins opened (nvf_play::save::read_for_load): a save

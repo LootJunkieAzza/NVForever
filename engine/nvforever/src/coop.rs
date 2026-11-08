@@ -174,6 +174,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 mod campfires;
+mod replication;
 mod revive;
 
 /// The port `--join` uses when the address names none (and a code without a port means).
@@ -315,6 +316,8 @@ impl Plugin for CoopPlugin {
             handed_off: false,
             progress_in: Vec::new(),
             campfires: Default::default(),
+            repl: Default::default(),
+            repl_hud: None,
         };
         if let Some(port) = c.host.or_else(|| env(HOST_ENV).and_then(|p| p.trim().parse().ok())) {
             coop.start_hosting(port);
@@ -323,10 +326,20 @@ impl Plugin for CoopPlugin {
         }
         app.add_plugins((nvf_play::lobby::LobbyPlugin, nvf_play::coop_progress::CoopProgressPlugin))
             .insert_resource(coop)
-            .add_systems(Update, (lobby, send, take_events, share_doors, campfires::share_campfires, tables, social_mates, share_npcs, follow_looks, follow_npcs, leash, downed, revive::bodies, progress, duel_falls).chain().after(nvf_play::PlaySet::Physics))
+            .add_systems(Update, (replication::frame_clock, lobby, send, take_events, share_doors, campfires::share_campfires, tables, social_mates, share_npcs, replication::replicate, follow_looks, follow_npcs, leash, downed, revive::bodies, progress, duel_falls, replication::hud).chain().after(nvf_play::PlaySet::Physics))
             .add_message::<PuppetShot>()
             .add_systems(Update, (stand_ins, draw, peer_lights, pipboy_share).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
     }
+}
+
+/// The load-order indices of the official masters (`fnv_game::Game::story_plugins`).
+static STORY_PLUGINS: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+
+/// Note which of `plugins` (the load order) are the official `masters`: their quests are
+/// the host's story, which a replication guest does not run.
+pub fn set_story_plugins(plugins: &[String], masters: &[&str]) {
+    let story = plugins.iter().enumerate().filter(|(_, p)| masters.iter().any(|m| m.eq_ignore_ascii_case(p))).map(|(i, _)| i as u8).collect();
+    let _ = STORY_PLUGINS.set(story);
 }
 
 /// The host's session on `port`. A load restarts the game: the run before may hold the
@@ -484,6 +497,10 @@ struct Coop {
     progress_in: Vec<(u8, net::Progress)>,
     /// Lit campfires ([`campfires::share_campfires`]).
     campfires: campfires::Shared,
+    /// Replication (`replication`, docs/design/coop-replication.md), and its newest perf
+    /// line for the corner readout.
+    repl: replication::Repl,
+    repl_hud: Option<String>,
 }
 
 /// One of the host's NPCs as a guest has heard it.
@@ -1509,6 +1526,8 @@ fn take_events(
             }
             // For `progress` (crate::coop_progress).
             Event::Progress { id, what } => coop.progress_in.push((id, what)),
+            // For `replication::replicate`.
+            e @ (Event::Reliable { .. } | Event::RelReset { .. } | Event::Actors { .. }) => coop.repl.inbox.push(e),
             Event::Hit { hit, .. } => match decode_hurt(&hit) {
                 Some((by, h)) => {
                     info!("co-op: {} hit this player for {:.1} in the host's world", by.map_or("something".to_string(), |b| b.to_string()), h.dealt);
@@ -1763,7 +1782,8 @@ fn stand_ins(
         let serial = sim.world.presence_serial();
         if coop.presence_made.is_none_or(|(s, at)| s != serial || now - at >= PRESENCE_REMAKE) {
             coop.presence_made = Some((serial, now));
-            link.set_presence(net::LIST_ENABLED, presence_of(&sim.world, Flag::Enabled));
+            // The replication build's change log carries the enabled flags (`replication`).
+            let _ = (serial, presence_of);
         }
     }
     let here = place_of(&loc);
@@ -1821,7 +1841,7 @@ fn share_npcs(
     (sim, actor_world): (Option<Res<nvf_play::sim::SimState>>, Option<Res<ActorWorld>>),
 ) {
     let coop = &mut *coop;
-    let Some(link) = coop.link.as_ref().filter(|l| l.is_host()) else {
+    let Some(_host) = coop.link.as_ref().filter(|l| l.is_host()) else {
         attacks.clear();
         return;
     };
@@ -1830,6 +1850,7 @@ fn share_npcs(
         *c = c.wrapping_add(1);
     }
     if coop.peers.is_empty() {
+        coop.repl.host_npcs.clear();
         return;
     }
     // The other players' actors are drawn as puppets here (the puppet only says so once
@@ -1875,7 +1896,8 @@ fn share_npcs(
         *told = npcs.len();
         info!("co-op: sending the guests {} NPCs", npcs.len());
     }
-    link.set_npcs(npcs);
+    // The replication build sends them on its compact stream (`replication`).
+    coop.repl.host_npcs = npcs;
 }
 
 /// A guest's copies of the host's NPCs, made and drawn as the host's game made and draws
@@ -1999,6 +2021,7 @@ fn follow_npcs(
             if let Some(g) = game {
                 g.toggles.actors_ai_off = was;
                 g.coop_guest = false;
+                g.world_logic_off = false;
                 g.coop_host_quest = None;
                 g.set_remote_speech(Vec::new(), |_| false);
             }
@@ -2087,6 +2110,12 @@ fn follow_npcs(
     // Kept off (a console `tai` would turn it back on).
     g.toggles.actors_ai_off = true;
     g.coop_guest = true;
+    // Replication (phase 4): the host runs the world's logic, this game draws it.
+    if !g.world_logic_off {
+        g.world_logic_off = true;
+        g.story_plugins = STORY_PLUGINS.get().cloned().unwrap_or_else(|| vec![0]);
+        info!("replication: this guest runs no world logic (story plugins {:?}); the host's world is drawn", g.story_plugins);
+    }
     if g.coop_host_quest != coop.host_quest {
         g.coop_host_quest.clone_from(&coop.host_quest);
     }
@@ -2383,7 +2412,7 @@ fn share_doors(
     if is_host {
         if coop.doors_made.is_none_or(|at| now - at >= DOORS_REMAKE) {
             coop.doors_made = Some(now);
-            link.set_presence(net::LIST_OPEN, presence_of(&sim.world, Flag::Open));
+            // The replication build's change log carries the open flags (`replication`).
         }
     } else {
         let used = &coop.door_used;
