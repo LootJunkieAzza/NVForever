@@ -710,6 +710,25 @@ another leaves 904 dispatches. Compute is then active 9 % of the frame instead o
 [observed] Interleaved runs of one build with and without it (terrain layers of #1886
 applied in both): 9.0 → 8.5 ms a frame.
 
+[observed 2026-11-08, `tools/profile/campaign.py`, `profile` builds of main at 4eede5348 and
+of this change on it, Ryzen 7 7700X, RTX 3070, Vulkan, enhanced look, with the scenes'
+residents] Frame time a frame, main → with the change:
+
+| scenes | main | with it |
+|---|---|---|
+| 1920 × 1080, the 12 `stand` scenes, mean | 8.47 ms | 7.82 ms (−7.7 %) |
+| 1920 × 1080, Jacobstown (slowest) | 11.02 ms | 9.93 ms |
+| 1920 × 1080, Novac at noon | 10.63 ms | 9.41 ms |
+| 1920 × 1080, Hoover Dam (the only one not faster) | 7.15 ms | 7.30 ms |
+| 2560 × 1440, Goodsprings at noon, two runs | 10.75, 10.62 ms | 10.11, 9.80 ms |
+| 2560 × 1440, Goodsprings at 19:00, two runs | 10.50, 10.57 ms | 9.96, 9.85 ms |
+| 2560 × 1440, Novac at noon, two runs | 13.37, 13.62 ms | 12.32, 12.32 ms |
+
+The pass timers' total barely moves (Goodsprings at noon, 1080p: 5.68 → 5.87 ms): the
+dispatches saved are in the culling pass, which has no timer. Four of the 1080p scenes on
+main first ran capped at 16.67 ms a frame (the window held to 60 Hz); they were run again
+for both builds and those runs are the ones counted.
+
 Not done, measured on the way [observed]:
 
 - **Light glow and sun shadows.** Light glow costs about 0.9 ms of the frame and sun
