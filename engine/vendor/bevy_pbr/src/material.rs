@@ -1,7 +1,9 @@
 use crate::*;
 use alloc::sync::Arc;
-use bevy_asset::prelude::AssetChanged;
-use bevy_asset::{Asset, AssetEventSystems, AssetId, AssetServer, UntypedAssetId};
+// NVForever specialization scan: `AssetChanged` is no longer used here; the asset events
+// and the indexes in `specialization_scan` take its place.
+use crate::specialization_scan::{read_changed_assets, AssetHolders};
+use bevy_asset::{Asset, AssetEvent, AssetEventSystems, AssetId, AssetServer, UntypedAssetId};
 use bevy_camera::visibility::ViewVisibility;
 use bevy_core_pipeline::core_3d::TransparentSortingInfo3d;
 use bevy_core_pipeline::deferred::{AlphaMask3dDeferred, Opaque3dDeferred};
@@ -13,6 +15,10 @@ use bevy_core_pipeline::{
 };
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::change_detection::Tick;
+// NVForever specialization scan: for the indexed change checks below (and `Mesh` below).
+use bevy_ecs::entity::EntityHashSet;
+use bevy_ecs::entity_disabling::Disabled;
+use bevy_ecs::query::Allow;
 use bevy_ecs::system::SystemParam;
 use bevy_ecs::{
     prelude::*,
@@ -28,7 +34,7 @@ use bevy_material::{
 };
 use bevy_math::{Affine3, Affine3Ext as _};
 use bevy_mesh::{
-    mark_3d_meshes_as_changed_if_their_assets_changed, Mesh3d, MeshVertexBufferLayoutRef,
+    mark_3d_meshes_as_changed_if_their_assets_changed, Mesh, Mesh3d, MeshVertexBufferLayoutRef,
 };
 use bevy_platform::collections::hash_map::Entry;
 use bevy_platform::collections::{HashMap, HashSet};
@@ -63,7 +69,7 @@ use bevy_render::{
 };
 use bevy_render::{mesh::allocator::MeshAllocator, sync_world::MainEntityHashMap};
 use bevy_shader::{Shader, ShaderDefVal};
-use bevy_utils::Parallel;
+// NVForever specialization scan: `bevy_utils::Parallel` is no longer used here.
 use core::{
     any::{Any, TypeId},
     hash::Hash,
@@ -732,17 +738,73 @@ pub const fn tonemapping_pipeline_key(tonemapping: Tonemapping) -> MeshPipelineK
 /// The easiest way to ensure that
 /// [`crate::render::mesh::extract_meshes_for_gpu_building`] re-extracts a mesh
 /// is to mark its [`Mesh3d`] as changed, so that's what this system does.
-fn mark_meshes_as_changed_if_their_materials_changed<M>(
-    mut changed_meshes_query: Query<
-        &mut Mesh3d,
-        Or<(Changed<MeshMaterial3d<M>>, AssetChanged<MeshMaterial3d<M>>)>,
-    >,
+///
+/// NVForever specialization scan: upstream's query is
+/// `Query<&mut Mesh3d, Or<(Changed<MeshMaterial3d<M>>, AssetChanged<MeshMaterial3d<M>>)>>`,
+/// which walks every entity with both components whenever any `M` changed. This marks the
+/// same entities: those whose material component changed (a tick check per entity), and
+/// the holders of the materials changed since the last run, found through an index of
+/// material id -> entities ([`MaterialMarkScan`]). Public so the engine's equivalence test
+/// can run it next to upstream's filter.
+pub fn mark_meshes_as_changed_if_their_materials_changed<M>(
+    mut meshes: Query<&mut Mesh3d, With<MeshMaterial3d<M>>>,
+    changed_materials: Query<Entity, (With<Mesh3d>, Changed<MeshMaterial3d<M>>)>,
+    rehandled: Query<(Entity, &MeshMaterial3d<M>), (Changed<MeshMaterial3d<M>>, Allow<Disabled>)>,
+    holding: Query<&MeshMaterial3d<M>, Allow<Disabled>>,
+    matched: Query<&MeshMaterial3d<M>, With<Mesh3d>>,
+    mut material_events: MessageReader<AssetEvent<M>>,
+    mut removed_materials: RemovedComponents<MeshMaterial3d<M>>,
+    mut scan: Local<MaterialMarkScan<M>>,
 ) where
     M: Material,
 {
-    changed_meshes_query.par_iter_mut().for_each(|mut mesh| {
-        mesh.set_changed();
-    });
+    let scan = &mut *scan;
+
+    // Bring the index up to date: entities whose material component was replaced, mutated
+    // or removed since the last run. Disabled entities are kept in it (`Allow<Disabled>`),
+    // so a handle swapped while disabled is not missed once they are enabled again.
+    for entity in removed_materials.read() {
+        scan.materials
+            .set(entity, holding.get(entity).ok().map(|material| material.id()));
+    }
+    for (entity, material) in &rehandled {
+        scan.materials.set(entity, Some(material.id()));
+    }
+
+    for entity in &changed_materials {
+        if let Ok(mut mesh) = meshes.get_mut(entity) {
+            mesh.set_changed();
+        }
+    }
+
+    read_changed_assets(&mut material_events, &mut scan.changed);
+    for id in &scan.changed {
+        for entity in scan.materials.holders(id) {
+            // `matched` and `meshes` apply the default query filters as upstream's query
+            // did, and the id is checked again against the component itself.
+            if matched.get(entity).is_ok_and(|material| material.id() == *id)
+                && let Ok(mut mesh) = meshes.get_mut(entity)
+            {
+                mesh.set_changed();
+            }
+        }
+    }
+}
+
+/// NVForever specialization scan: the state
+/// [`mark_meshes_as_changed_if_their_materials_changed`] keeps between runs.
+pub struct MaterialMarkScan<M: Material> {
+    materials: AssetHolders<M>,
+    changed: HashSet<AssetId<M>>,
+}
+
+impl<M: Material> Default for MaterialMarkScan<M> {
+    fn default() -> Self {
+        Self {
+            materials: AssetHolders::default(),
+            changed: HashSet::default(),
+        }
+    }
 }
 
 /// Fills the [`RenderMaterialInstances`] resources from the meshes in the
@@ -909,34 +971,45 @@ pub struct SpecializedMaterialViewPipelineCache {
 
 /// Finds 3D entities that have changed in such a way as to potentially require
 /// specialization and adds them to the [`EntitiesNeedingSpecialization`] list.
+///
+/// NVForever specialization scan: upstream's query is
+/// `Query<Entity, (Or<(Changed<Mesh3d>, AssetChanged<Mesh3d>, Changed<MeshMaterial3d<M>>,
+/// AssetChanged<MeshMaterial3d<M>>)>, With<MeshMaterial3d<M>>)>`, which walks every entity
+/// with an `M` material and looks both of its handles up in a map of every live asset
+/// whenever any mesh or any `M` changed (a live particle mesh does, every frame). This
+/// finds the same entities: those whose own components changed (a tick check per entity,
+/// no handle read), and the holders of the meshes and materials changed since the last
+/// run, found through an index of asset id -> entities ([`SpecializationScan`]).
 pub fn check_entities_needing_specialization<M>(
-    needs_specialization: Query<
+    changed_components: Query<
         Entity,
         (
-            Or<(
-                Changed<Mesh3d>,
-                AssetChanged<Mesh3d>,
-                Changed<MeshMaterial3d<M>>,
-                AssetChanged<MeshMaterial3d<M>>,
-            )>,
+            Or<(Changed<Mesh3d>, Changed<MeshMaterial3d<M>>)>,
             With<MeshMaterial3d<M>>,
         ),
     >,
-    mut par_local: Local<Parallel<Vec<Entity>>>,
+    rehandled: Query<
+        (Entity, Option<&Mesh3d>, &MeshMaterial3d<M>),
+        (
+            Or<(Changed<Mesh3d>, Changed<MeshMaterial3d<M>>)>,
+            Allow<Disabled>,
+        ),
+    >,
+    holding: Query<(Option<&Mesh3d>, &MeshMaterial3d<M>), Allow<Disabled>>,
+    matched: Query<(Option<&Mesh3d>, &MeshMaterial3d<M>)>,
+    mut mesh_events: MessageReader<AssetEvent<Mesh>>,
+    mut material_events: MessageReader<AssetEvent<M>>,
+    mut scan: Local<SpecializationScan<M>>,
     mut entities_needing_specialization: ResMut<EntitiesNeedingSpecialization<M>>,
     mut removed_mesh_3d_components: RemovedComponents<Mesh3d>,
     mut removed_mesh_material_3d_components: RemovedComponents<MeshMaterial3d<M>>,
 ) where
     M: Material,
 {
-    entities_needing_specialization.changed.clear();
-    entities_needing_specialization.removed.clear();
-
-    // Gather all entities that need their specializations regenerated.
-    needs_specialization
-        .par_iter()
-        .for_each(|entity| par_local.borrow_local_mut().push(entity));
-    par_local.drain_into(&mut entities_needing_specialization.changed);
+    let scan = &mut *scan;
+    let needs = &mut *entities_needing_specialization;
+    needs.changed.clear();
+    needs.removed.clear();
 
     // All entities that removed their `Mesh3d` or `MeshMaterial3d` components
     // need to have their specializations removed as well.
@@ -950,7 +1023,79 @@ pub fn check_entities_needing_specialization<M>(
         .read()
         .chain(removed_mesh_material_3d_components.read())
     {
-        entities_needing_specialization.removed.push(entity);
+        needs.removed.push(entity);
+    }
+
+    // Bring the index up to date: entities whose components were removed, or replaced,
+    // added or mutated since the last run. Disabled entities are kept in it
+    // (`Allow<Disabled>`), so a handle swapped while disabled is not missed once they are
+    // enabled again.
+    for &entity in &needs.removed {
+        let held = holding.get(entity).ok();
+        scan.meshes
+            .set(entity, held.and_then(|(mesh, _)| mesh).map(|mesh| mesh.id()));
+        scan.materials
+            .set(entity, held.map(|(_, material)| material.id()));
+    }
+    for (entity, mesh, material) in &rehandled {
+        scan.meshes.set(entity, mesh.map(|mesh| mesh.id()));
+        scan.materials.set(entity, Some(material.id()));
+    }
+
+    // Gather all entities that need their specializations regenerated, each once.
+    scan.seen.clear();
+    for entity in &changed_components {
+        if scan.seen.insert(entity) {
+            needs.changed.push(entity);
+        }
+    }
+    // `matched` applies the default query filters as upstream's query did, and each id is
+    // checked again against the component itself.
+    read_changed_assets(&mut mesh_events, &mut scan.changed_meshes);
+    for id in &scan.changed_meshes {
+        for entity in scan.meshes.holders(id) {
+            if matched
+                .get(entity)
+                .is_ok_and(|(mesh, _)| mesh.is_some_and(|mesh| mesh.id() == *id))
+                && scan.seen.insert(entity)
+            {
+                needs.changed.push(entity);
+            }
+        }
+    }
+    read_changed_assets(&mut material_events, &mut scan.changed_materials);
+    for id in &scan.changed_materials {
+        for entity in scan.materials.holders(id) {
+            if matched
+                .get(entity)
+                .is_ok_and(|(_, material)| material.id() == *id)
+                && scan.seen.insert(entity)
+            {
+                needs.changed.push(entity);
+            }
+        }
+    }
+}
+
+/// NVForever specialization scan: the state [`check_entities_needing_specialization`]
+/// keeps between runs.
+pub struct SpecializationScan<M: Material> {
+    meshes: AssetHolders<Mesh>,
+    materials: AssetHolders<M>,
+    changed_meshes: HashSet<AssetId<Mesh>>,
+    changed_materials: HashSet<AssetId<M>>,
+    seen: EntityHashSet,
+}
+
+impl<M: Material> Default for SpecializationScan<M> {
+    fn default() -> Self {
+        Self {
+            meshes: AssetHolders::default(),
+            materials: AssetHolders::default(),
+            changed_meshes: HashSet::default(),
+            changed_materials: HashSet::default(),
+            seen: EntityHashSet::default(),
+        }
     }
 }
 

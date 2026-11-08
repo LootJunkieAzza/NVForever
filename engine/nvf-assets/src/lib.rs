@@ -9,6 +9,7 @@ pub mod camera_shot;
 pub mod data;
 pub mod guard;
 pub mod material_anim;
+pub mod mesh_change_scan;
 pub mod model;
 pub mod model_light;
 pub mod morph;

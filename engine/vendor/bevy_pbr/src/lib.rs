@@ -49,6 +49,8 @@ mod parallax;
 mod pbr_material;
 mod prepass;
 mod render;
+// NVForever specialization scan: the asset-holder indexes material.rs uses.
+pub mod specialization_scan;
 mod ssao;
 mod ssr;
 mod transmission;

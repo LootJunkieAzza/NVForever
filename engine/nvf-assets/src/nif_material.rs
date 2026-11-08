@@ -752,6 +752,9 @@ impl Plugin for NifMaterialPlugin {
         // (nvforever water.rs) read it, and their shaders bind it unconditionally.
         app.register_required_components::<Camera3d, bevy::pbr::ScreenSpaceTransmission>();
         app.add_plugins(MaterialPlugin::<NifMaterial>::default())
+            // Bevy's walk over every `Mesh3d` when a mesh changes, replaced by an indexed
+            // one (mesh_change_scan.rs; the material side is patched in engine/vendor).
+            .add_plugins(crate::mesh_change_scan::MeshChangeScanPlugin)
             .init_resource::<BlendedCutouts>()
             .add_systems(Startup, spawn_transmission_anchor)
             .add_systems(PostUpdate, (apply_blended_cutouts, see_through_casts_no_shadow));

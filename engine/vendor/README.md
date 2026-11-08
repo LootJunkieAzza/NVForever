@@ -52,6 +52,46 @@ per-view visibility filter of pending entries were tried with it and dropped: th
 `pipboy-first-open` scenarios passed with a clean first opening without them
 (2026-11-07).
 
+Fourth change, in `src/material.rs` and the new `src/specialization_scan.rs` (registered
+in `src/lib.rs`), each part marked by a comment starting `NVForever specialization scan`:
+`check_entities_needing_specialization` and
+`mark_meshes_as_changed_if_their_materials_changed` no longer filter with
+`AssetChanged<Mesh3d>` / `AssetChanged<MeshMaterial3d<M>>`. That filter is not
+archetypal: when any asset of the type changed since the system last ran, it reads every
+matching entity's handle and looks its id up in a map of every live asset (bevy_asset
+0.20.1 `asset_changed.rs`), and a live particle mesh changes every frame. Each system now
+reads the asset events it has not seen (`Added`/`Modified` add an id, `Removed`/`Unused`
+drop it, `LoadedWithDependencies` is ignored: the same rule `Assets::asset_events` uses to
+fill the map `AssetChanged` reads) and visits the holders of those ids through an index of
+asset id -> entities kept per system (`AssetHolders`), brought up to date at the start of
+each run from the entities whose components changed (`Changed<…>`, disabled entities
+included) or were removed. The `Changed<…>` parts of the filters stay as they were, so
+entities whose components were replaced, mutated or `set_changed()` are flagged as before;
+what is gone is the handle read and map lookup for every entity. The flagged entities are
+the same in the same frame: `nvf-assets/src/mesh_change_scan.rs`
+`indexed_change_checks_flag_what_bevys_filters_flag` runs upstream's filters next to these
+over shared and unshared assets, handle swaps (replaced and changed in place), removals,
+re-adds, despawns, a disabled entity, removed and re-inserted assets and dropped handles,
+frame by frame, in both orders of the two systems. One upstream quirk is not reproduced:
+`AssetChanges` ticks are never clamped, so an entry left untouched for 2^32 system runs can
+read as new again for a frame; the events never do. `mark_meshes_as_changed_if_their_materials_changed`
+is made `pub` for that test. The engine side of the same fix replaces bevy_mesh's
+`mark_3d_meshes_as_changed_if_their_assets_changed` without patching bevy_mesh
+(`nvf-assets/src/mesh_change_scan.rs`: the system is taken out of `PostUpdate` at
+`PostStartup` and an indexed one runs in its place; it reuses `AssetHolders`).
+
+Why: [observed 2026-11-08, `profile` build of 01df32361, standing in Goodsprings, Primm,
+Novac and Jacobstown, 3-5k mesh entities] `check_entities_needing_specialization<NifMaterial>`
+took 1.0-1.1 ms a frame (1.7 ms with a colder cache), the costliest main-thread system in
+most scenes, while only ~21 particle meshes, ~2 morph meshes and 6-8 materials changed a
+frame (`profile change sources:`).
+
+On upgrade: if upstream's filters are unchanged, apply the change again (the test in
+nvf-assets compares against a copy of upstream's filters; update that copy from the new
+version first). If upstream indexes these checks itself or makes `AssetChanged` cheap,
+drop this change and the engine's mesh mark replacement with it. Check that
+`Assets::asset_events` still fills `AssetChanges` by the rule above.
+
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
 Early finishing of command encoders (#1427, docs/design/frame-rate-audit.md §5). One
