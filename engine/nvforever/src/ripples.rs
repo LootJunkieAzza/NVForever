@@ -245,6 +245,13 @@ impl Ripples {
         true
     }
 
+    /// Both grids at rest and their final clear uploaded: the texture holds only zeros,
+    /// so the shader's ripple slope is 0 wherever the grid lies and whatever the height
+    /// scale (`ripple_slope`, water.wesl), and the uniform need not follow the camera.
+    fn quiet(&self) -> bool {
+        self.rain.at_rest && self.wake.at_rest && !self.texture_dirty
+    }
+
     /// Shader uniform: game x, y of the grid's corner, units per cell, height scale (0:
     /// no ripples).
     pub fn uniform(&self, active: bool) -> Vec4 {
@@ -362,7 +369,16 @@ fn update_ripples(
     }
 
     rp.upload(&mut images);
-    cache.set_ripples(&mut materials, rp.uniform(streamer.interior.is_none()));
+    // While the texture is clear the uniform changes nothing drawn, so the materials are
+    // left alone: before, every water material was written each time the camera crossed
+    // a texel (4 units), indoors too, and a written `WaterMaterial` gets a new bind group
+    // and has its entities' pipelines checked again. The next wave writes the grid's
+    // place before (or as) its texture reaches the GPU [design; the render world's upload
+    // budget can hold an image back a frame or more, which delays the cleared texture as
+    // it delays every other one].
+    if !rp.quiet() {
+        cache.set_ripples(&mut materials, rp.uniform(streamer.interior.is_none()));
+    }
 }
 
 #[cfg(test)]
@@ -414,6 +430,30 @@ mod tests {
         rp.step();
         assert!(!rp.wake.at_rest);
         assert!(rp.upload(&mut images));
+    }
+
+    #[test]
+    fn quiet_only_while_the_uploaded_texture_is_clear() {
+        let clear = |rp: &Ripples, images: &Assets<Image>| images.get(&rp.image).unwrap().data.as_ref().unwrap().iter().all(|&b| b == 0);
+        let (mut rp, mut images) = fixture();
+        assert!(rp.quiet());
+        // A wave not yet stepped into the texture: the uniform follows again already.
+        assert!(rp.rain.impulse(128.0, 128.0, 2.0, 0.1));
+        assert!(!rp.quiet());
+        rp.step();
+        assert!(!rp.quiet());
+        assert!(rp.upload(&mut images));
+        assert!(!rp.quiet() && !clear(&rp, &images));
+        // Moving the wave off the grid clears it; quiet once that clear is uploaded.
+        rp.follow(IVec2::new(N as i32, 0));
+        assert!(rp.rain.at_rest && !rp.quiet());
+        assert!(rp.upload(&mut images));
+        assert!(rp.quiet() && clear(&rp, &images));
+        // Walking on with no waves stays quiet and uploads nothing.
+        rp.follow(IVec2::new(N as i32 + 3, 2));
+        rp.step();
+        assert!(!rp.upload(&mut images));
+        assert!(rp.quiet());
     }
 
     #[test]
