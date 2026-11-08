@@ -4830,6 +4830,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "particles-culled-off-screen"
+source = "docs/design/frame-rate-audit.md §5 \"Particle systems no camera sees\" (issue #1417): a particle system whose live particles lie outside every active camera is not rebuilt and its render entity is hidden; one coming into view is rebuilt and shown in the same frame. Gomorrah's roof fires (gomorrah-roof-fire's place) behind the player first, then turned to; gomorrah_cull_0.png is taken a few frames after the turn, gomorrah_cull_1.png a second later"
+areas = ["particles", "effects", "profiling"]
+paths = ["engine/nvforever/src/particles.rs", "engine/nvforever/src/effect_particles.rs", "engine/nvforever/src/effect_shaders.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PROFILE = "2", NVF_PLAY_TEST_LOOK = "7:340:32", NVF_PLAY_TEST_SHOTS = "7.15:gomorrah_cull_0.png,8.2:gomorrah_cull_1.png" }
+args = ["--play", "--world", "TheStripWorldNew", "--pos=-1100,5400,1030", "--heading", "160", "--hour", "21", "--no-voice", "--no-messages"]
+run_seconds = 11
+manual = "gomorrah_cull_0.png against gomorrah_cull_1.png (and gomorrah-roof-fire's gomorrah_fire_0.png): the roof flames behind the main sign and on the side sign are already there in the first frame after the turn, the same kind of fire a second later, no frozen or missing flames"
+expect = [
+  { re = 'particles: model \S*nvfiregomorrah01\.nif: 1 system', label = "the first roof fire's own flames emit" },
+  { re = 'profile particles: .*per frame: regular [\d.]+ published, (?P<n>[\d.]+) culled', range = [0.01, 100000], label = "facing away, systems out of view are culled" },
+  { re = 'profile particles: .*per frame: regular (?P<n>[\d.]+) published', range = [0.01, 100000], label = "systems in view are still rebuilt" },
+  { re = 'test aid: screenshot .*gomorrah_cull_0\.png', label = "the frame just after the turn is saved" },
+]
+
+[[scenario]]
 name = "placed-particle-smokes"
 source = "docs/spec-notes/particles.md §7 (queue item 21, playtest list 4 item 16): placed models' own particle systems are each reference's own, not one pool shared by every reference of the file; Gomorrah's casino floor (Gomorrah00) has 43 wall sconces (neoclassicalsconcefire01.nif, two flame systems each) whose systems were one pool shared by all of them before (a vertex count of particles for the whole floor); the exit line counts the placed references whose particles were born; one frame in target/smoke (placed_particles.png)"
 areas = ["particles", "effects"]

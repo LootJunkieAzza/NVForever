@@ -61,7 +61,9 @@ impl Plugin for EffectShadersPlugin {
         app.init_resource::<Shaders>()
             .init_resource::<crate::effect_particles::EffectParticles>()
             .add_systems(Update, (play.after(nvf_play::player::BodySet), sync_player_effects.after(play), actor_alpha.after(crate::texture_swap::apply), crate::effect_particles::draw.after(sync_player_effects), addons_leaving.after(play)))
+            .add_systems(PostUpdate, crate::effect_particles::build.in_set(crate::particles::ParticleDrawSet))
             .add_systems(Last, (report, crate::effect_particles::report, release_faded));
+        crate::particles::configure_draw_set(app);
     }
 }
 
