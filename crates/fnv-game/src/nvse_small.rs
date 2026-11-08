@@ -560,6 +560,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // creator"; before, nothing opened and the birth scene went on without it].
         "ttw_showgeneprojector" => {
             g.race_menu = crate::game::RaceMenu::Creator;
+            g.race_menu_studio = true;
             g.open_menu(crate::game::menus::RACE);
             zero
         }
