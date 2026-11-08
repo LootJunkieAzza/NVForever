@@ -8170,7 +8170,7 @@ expect = [
 
 [[scenario]]
 name = "grenade-ground-blast-player"
-source = "#1581 supplied reproduction: identical no-spread grenade shots at the ground intermittently missed the nearby player [documented: issue #1581]; clearing impact LOS origins along the contact normal is a bounded repair [design: crates/fnv-combat/src/projectile.rs blast]"
+source = "#1581 supplied reproduction: identical no-spread grenade shots at the ground intermittently missed the nearby player in 7 of 17 runs [observed: issue #1581]; the cause is a [hypothesis]; clearing impact LOS origins along the contact normal is a bounded repair [design: crates/fnv-combat/src/projectile.rs blast]"
 note = "No perks or god mode. Read Health before the shot and after the blast; the initial 200 must fall below 200. Main repeats this scenario across 20 separate launches; the historical cause remains a hypothesis until those runs."
 areas = ["combat"]
 paths = ["crates/fnv-combat/src/projectile.rs", "engine/nvf-play/src/combat.rs"]
