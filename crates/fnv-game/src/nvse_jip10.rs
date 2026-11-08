@@ -88,7 +88,13 @@ fn yes(b: bool) -> XVal {
     XVal::Num(f64::from(u8::from(b)))
 }
 
+/// A list getter's array; none at all when there is nothing to give [observed: the jip10
+/// probes, 2026-11-08: GetAllPerks, GetLinkedChildren, GetEnableChildren and
+/// GetQuestObjectives with nothing to give returned no array, `ar_Size` -1].
 fn list(g: &mut Game, items: Vec<XVal>) -> XVal {
+    if items.is_empty() {
+        return XVal::Array(0);
+    }
     let entries = items.into_iter().enumerate().map(|(i, v)| (XKey::Num(i as f64), v)).collect();
     XVal::Array(g.ext.new_array(ArrayKind::List, entries))
 }
@@ -166,6 +172,12 @@ fn event_code(g: &Game, name: &str) -> Option<u16> {
     g.data.table.blocks.iter().find(|(_, n)| n.eq_ignore_ascii_case(name.trim())).map(|(c, _)| *c)
 }
 
+/// GetObjectiveTargets gives an objective's targets: shown and not done, or changed by a
+/// script [observed: one done objective gave none; hypothesis: the rule].
+fn targets_kept(g: &Game, q: FormId, i: i32) -> bool {
+    g.objective_targets_changed(q, i) || g.quests.get(&q).and_then(|s| s.objectives.get(&i)).is_some_and(|o| o.displayed && !o.completed)
+}
+
 /// A quest is shown in the Pip-Boy: it has a name and an objective shown or done
 /// [hypothesis: as the Pip-Boy's quest list, `nvf_play::pipboy::data`].
 fn listed(g: &Game, q: FormId) -> bool {
@@ -177,8 +189,11 @@ fn listed(g: &Game, q: FormId) -> bool {
 /// first byte) [documented: "the parent mod of the calling script"]; 0xFF for a script of
 /// no file (the console, a runtime script) [hypothesis].
 fn calling_mod(g: &Game) -> u8 {
-    g.other.script.map_or(0xFF, |s| (s.0 >> 24) as u8)
+    g.other.script.map_or(NO_MOD, |s| (s.0 >> 24) as u8)
 }
+
+/// [`calling_mod`] of a script of no file.
+const NO_MOD: u8 = 0xFF;
 
 /// The functions of this file; `None` for any other name.
 pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {
@@ -216,14 +231,17 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             }
             zero
         }
+        // An objective shown and not done, or one whose list a script changed [observed:
+        // VMS01's objective 10, done, gave no array though its record names a target;
+        // hypothesis: the targets of a done or unshown objective are not kept].
         "getobjectivetargets" => {
             let (Some(q), Some(i)) = (quest_at(g, 0), num(args, 1)) else { return Some(Ok(XVal::Array(0))) };
-            let t = g.objective_targets(q, i as i32);
+            let t = if targets_kept(g, q, i as i32) { g.objective_targets(q, i as i32) } else { Vec::new() };
             refs(g, t)
         }
         "getobjectivehastarget" => {
             let (Some(q), Some(i), Some(t)) = (quest_at(g, 0), num(args, 1), form(args, 2)) else { return Some(Ok(zero)) };
-            yes(g.objective_targets(q, i as i32).contains(&t))
+            yes(targets_kept(g, q, i as i32) && g.objective_targets(q, i as i32).contains(&t))
         }
         // `quest index "text"` (formatted by the VM) [documented]: the Pip-Boy and the
         // corner messages show it.
@@ -321,8 +339,18 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                     let src = g.data.base_template_source(b, |d| d.template_factions);
                     g.data.actors.get(&src).map(|d| d.factions.iter().map(|&(f, _)| f).collect()).unwrap_or_default()
                 }
+                // The base record's order, then factions added since [observed: Doc
+                // Mitchell's first is Goodsprings Militia, as in his record; FormID order
+                // put another first].
                 None => match subject {
-                    Some(r) => crate::functions::actor::factions_of(g, r),
+                    Some(r) => {
+                        let now = crate::functions::actor::factions_of(g, r);
+                        let base = crate::functions::base_of(g, r).map(|b| g.data.base_template_source(b, |d| d.template_factions));
+                        let mut order: Vec<FormId> = base.and_then(|b| g.data.actors.get(&b)).map(|d| d.factions.iter().map(|&(f, _)| f).filter(|f| now.contains(f)).collect()).unwrap_or_default();
+                        let rest: Vec<FormId> = now.into_iter().filter(|f| !order.contains(f)).collect();
+                        order.extend(rest);
+                        order
+                    }
                     None => Vec::new(),
                 },
             };
@@ -338,11 +366,14 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let added = g.added_var_index(script, &var);
             match name {
                 "hasvariableadded" => yes(added.is_some()),
-                // 1 when new [hypothesis: a name the script declares, or one added, is
-                // not added again].
+                // 1 when added, and 1 again for a name added before [observed: the jip10
+                // probe]; 0 for a name the script declares [hypothesis].
                 "addscriptvariable" => {
-                    if own || added.is_some() {
+                    if own {
                         return Some(Ok(zero));
+                    }
+                    if added.is_some() {
+                        return Some(Ok(XVal::Num(1.0)));
                     }
                     g.other.jip10.added_vars.entry(script).or_default().push(var);
                     XVal::Num(1.0)
@@ -481,6 +512,11 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         "setrefextradata" => {
             let Some(r) = subject else { return Some(Ok(zero)) };
             let owner = calling_mod(g);
+            // A script of no plugin keeps nothing [observed: the jip10 probe, run from a
+            // script of no file, read nothing back on the player; hypothesis: the reason].
+            if owner == NO_MOD {
+                return Some(Ok(zero));
+            }
             let Some(slot) = num(args, 0).map(|s| s as i64) else {
                 // Both left out: all of this mod's data on the reference goes [documented].
                 if let Some(m) = g.other.jip10.extra.get_mut(&r) {
@@ -548,19 +584,23 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let Some(t) = g.mod_files.read_root_text(&path) else { return Some(Ok(XVal::Str(String::new()))) };
             let t: String = t.chars().take(READ_LIMIT).collect();
             let start = num(args, 1).map_or(1, |s| (s as i64).max(1)) as usize;
-            let lines: Vec<&str> = t.split_inclusive('\n').skip(start - 1).collect();
+            // The lines joined by line breaks, no break after the last [observed: lines 2-3
+            // of `one two three` read as `two\nthree`].
+            let lines: Vec<&str> = t.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).skip(start - 1).collect();
             let lines = match num(args, 2).filter(|c| *c > 0.0) {
                 Some(c) => &lines[..(c as usize).min(lines.len())],
                 None => &lines[..],
             };
-            XVal::Str(lines.concat())
+            XVal::Str(lines.join("\n"))
         }
         // `path append "text"` (formatted by the VM): 1 when written [documented].
         "writestringtofile" => {
             let (Some(path), Some(t)) = (text(args, 0), text(args, 2)) else { return Some(Ok(zero)) };
             let append = num(args, 1).is_some_and(|x| x != 0.0);
-            let body = match g.mod_files.read_root_text(&path).filter(|_| append) {
-                Some(old) => old + &t,
+            // An append starts on a line of its own [observed: `one%rtwo%rthree` then
+            // `%rfour` appended left `one\ntwo\nthree\n\nfour`, line breaks LF only].
+            let body = match g.mod_files.read_root_text(&path).filter(|o| append && !o.is_empty()) {
+                Some(old) => old + "\n" + &t,
                 None => t,
             };
             yes(g.mod_files.write_root_text(&path, body))

@@ -61,7 +61,7 @@ fn plugin_bytes() -> Vec<u8> {
     let perks = [perk(PERK, "TestPerk", 0), perk(HIDDEN_PERK, "TestHiddenPerk", 1)].concat();
     let scripts = [
         source_script(QSCRIPT, "TestQuestScript", "float fOwn\nstring_var sText\nbegin GameMode\nend\n"),
-        source_script(ASCRIPT, "TestActiScript", "short iHits\nstring_var sText\nbegin OnHit\nset iHits to iHits + 1\nend\nbegin OnLoad\nset iHits to iHits + 10\nend\n"),
+        source_script(ASCRIPT, "TestActiScript", "short iHits\nstring_var sText\nbegin OnHit\nset iHits to iHits + 1\nend\nbegin OnLoad\nset iHits to iHits + 10\nend\nbegin OnTriggerEnter\nMarkRef.SetRefExtraData 2 -903.5\nMarkRef.SetRefExtraData 6 TestStatic\nMarkRef.SetRefExtraData 19 \"Girly\"\nMarkRef.SetRefExtraData 18 7\nend\nbegin OnTriggerLeave\nMarkRef.SetRefExtraData\nend\n"),
     ]
     .concat();
     let stat = record(b"STAT", 0, STAT, &[sub(b"EDID", z("TestStatic"))]);
@@ -166,13 +166,19 @@ fn s(g: &mut Game, body: &str) -> String {
     }
 }
 
-/// An array's elements as text, through the script (`%g` numbers, `%i` forms).
+/// An array's elements as text, through the script (`%g` numbers, `%i` forms); "none" for
+/// no array at all (`ar_Size` -1), what a list getter with nothing to give returns
+/// [observed: the jip10 probes].
+fn elements(g: &mut Game, expr: &str, spec: &str) -> String {
+    s(g, &format!("let aList := {expr}\nlet sOut := \"none\"\nif (ar_Size aList) >= 0\nlet sOut := \"\"\nforeach aEl <- aList\nlet sOut := sOut + (sv_Construct \"{spec} \" aEl[\"value\"])\nloop\nendif\nSetFunctionValue sOut"))
+}
+
 fn ids(g: &mut Game, expr: &str) -> String {
-    s(g, &format!("let aList := {expr}\nlet sOut := \"\"\nforeach aEl <- aList\nlet sOut := sOut + (sv_Construct \"%i \" aEl[\"value\"])\nloop\nSetFunctionValue sOut"))
+    elements(g, expr, "%i")
 }
 
 fn nums(g: &mut Game, expr: &str) -> String {
-    s(g, &format!("let aList := {expr}\nlet sOut := \"\"\nforeach aEl <- aList\nlet sOut := sOut + (sv_Construct \"%g \" aEl[\"value\"])\nloop\nSetFunctionValue sOut"))
+    elements(g, expr, "%g")
 }
 
 #[test]
@@ -200,7 +206,7 @@ fn objective_targets_and_texts() {
     assert_eq!(nums(&mut g, "GetQuestObjectives TestQuest 1").trim(), "10");
     q(&mut g, "StartQuest TestQuest");
     assert_eq!(ids(&mut g, "GetQuests").trim(), format!("{QUEST:08X}"));
-    assert_eq!(ids(&mut g, "GetQuests 1").trim(), "");
+    assert_eq!(ids(&mut g, "GetQuests 1").trim(), "none");
     q(&mut g, "ForceActiveQuest TestQuest");
     assert_eq!(nums(&mut g, "GetActiveObjectives").trim(), "20");
     q(&mut g, "ClearActiveQuest");
@@ -232,11 +238,11 @@ fn perks_and_factions() {
     q(&mut g, "MarkRef.AddPerk TestPerk");
     assert_eq!(ids(&mut g, "MarkRef.GetAllPerks").trim(), format!("{PERK:08X}"));
     q(&mut g, "MarkRef.RemoveAllPerks");
-    assert_eq!(ids(&mut g, "MarkRef.GetAllPerks").trim(), "");
+    assert_eq!(ids(&mut g, "MarkRef.GetAllPerks").trim(), "none");
     // The base's factions, and the reference's now.
     assert_eq!(ids(&mut g, "GetFactions TestNpc").trim(), format!("{FACT:08X}"));
     q(&mut g, "MarkRef.RemoveFromFaction TestFaction");
-    assert_eq!(ids(&mut g, "MarkRef.GetFactions").trim(), "");
+    assert_eq!(ids(&mut g, "MarkRef.GetFactions").trim(), "none");
     assert_eq!(ids(&mut g, "GetFactions TestNpc").trim(), format!("{FACT:08X}"));
 }
 
@@ -246,7 +252,7 @@ fn variables_added_to_a_script() {
     let mut g = game(&f);
     q(&mut g, "StartQuest TestQuest");
     assert_eq!(n(&mut g, "AddScriptVariable \"fNew\" TestQuest"), 1.0);
-    assert_eq!(n(&mut g, "AddScriptVariable \"fNew\" TestQuest"), 0.0, "once");
+    assert_eq!(n(&mut g, "AddScriptVariable \"fNew\" TestQuest"), 1.0, "again [observed]");
     assert_eq!(n(&mut g, "AddScriptVariable \"fOwn\" TestQuest"), 0.0, "the script's own");
     assert_eq!(n(&mut g, "HasVariableAdded \"fnew\" TestQuest"), 1.0);
     q(&mut g, "SetVariable \"fNew\" 2.5 TestQuest");
@@ -306,14 +312,20 @@ fn children_extra_data_and_markers() {
     q(&mut g, "TargetTwoRef.SetLinkedRef TargetRef");
     assert_eq!(ids(&mut g, "TargetRef.GetLinkedChildren").trim(), format!("{TARGET2:08X} {CHILD:08X}"), "by FormID [documented]");
     // Extra data: slots 0-17 numbers and forms, 18-19 strings; by the owning mod's index.
-    q(&mut g, "MarkRef.SetRefExtraData 2 -903.5\nMarkRef.SetRefExtraData 6 TestStatic\nMarkRef.SetRefExtraData 19 \"Girly\"\nMarkRef.SetRefExtraData 18 7");
-    assert_eq!(n(&mut g, "MarkRef.GetRefExtraData 2"), -903.5);
-    assert_eq!(n(&mut g, "MarkRef.GetRefExtraData 6"), f64::from(STAT));
-    assert_eq!(s(&mut g, "let sOut := MarkRef.GetRefExtraData 19\nSetFunctionValue sOut"), "Girly");
-    assert_eq!(s(&mut g, "let sOut := MarkRef.GetRefExtraData 18\nSetFunctionValue sOut"), "", "a number in a string slot is refused");
-    assert_eq!((n(&mut g, "MarkRef.RefHasExtraData"), n(&mut g, "MarkRef.RefHasExtraData 3"), n(&mut g, "MarkRef.GetRefExtraData 2 3")), (1.0, 0.0, 0.0));
-    q(&mut g, "MarkRef.SetRefExtraData");
-    assert_eq!(n(&mut g, "MarkRef.RefHasExtraData"), 0.0);
+    // A script of no plugin keeps nothing [observed]; the rest from a script of the
+    // plugin (index 0).
+    q(&mut g, "MarkRef.SetRefExtraData 2 -903.5");
+    assert_eq!(n(&mut g, "MarkRef.RefHasExtraData 255"), 0.0);
+    // The plugin's script sets slots 2, 6, 19 and 18 (a number, refused) in its
+    // OnTriggerEnter block and clears them in OnTriggerLeave; read by the plugin's index.
+    assert_eq!(n(&mut g, "ActiRef.FakeScriptEvent \"OnTriggerEnter\""), 1.0);
+    assert_eq!(n(&mut g, "MarkRef.GetRefExtraData 2 0"), -903.5);
+    assert_eq!(n(&mut g, "MarkRef.GetRefExtraData 6 0"), f64::from(STAT));
+    assert_eq!(s(&mut g, "let sOut := MarkRef.GetRefExtraData 19 0\nSetFunctionValue sOut"), "Girly");
+    assert_eq!(s(&mut g, "let sOut := MarkRef.GetRefExtraData 18 0\nSetFunctionValue sOut"), "", "a number in a string slot is refused");
+    assert_eq!((n(&mut g, "MarkRef.RefHasExtraData 0"), n(&mut g, "MarkRef.RefHasExtraData 3"), n(&mut g, "MarkRef.GetRefExtraData 2 3")), (1.0, 0.0, 0.0));
+    assert_eq!(n(&mut g, "ActiRef.FakeScriptEvent \"OnTriggerLeave\""), 1.0);
+    assert_eq!(n(&mut g, "MarkRef.RefHasExtraData 0"), 0.0);
     // Map markers, not saved [documented].
     q(&mut g, "TargetRef.AddRefMapMarker");
     assert_eq!(n(&mut g, "TargetRef.RefHasMapMarker"), 1.0);
@@ -332,7 +344,7 @@ fn text_files() {
     // Written in NVForever's layer (here the session only), read back by lines.
     assert_eq!(n(&mut g, "WriteStringToFile \"nvf_jip10_test.txt\" 0 \"one%rtwo%rthree\""), 1.0);
     assert_eq!(n(&mut g, "WriteStringToFile \"nvf_jip10_test.txt\" 1 \"%rfour %g\" 5"), 1.0);
-    assert_eq!(s(&mut g, "SetFunctionValue (ReadStringFromFile \"nvf_jip10_test.txt\")"), "one\ntwo\nthree\nfour 5");
-    assert_eq!(s(&mut g, "SetFunctionValue (ReadStringFromFile \"nvf_jip10_test.txt\" 2 2)"), "two\nthree\n");
+    assert_eq!(s(&mut g, "SetFunctionValue (ReadStringFromFile \"nvf_jip10_test.txt\")"), "one\ntwo\nthree\n\nfour 5", "an append starts a line [observed]");
+    assert_eq!(s(&mut g, "SetFunctionValue (ReadStringFromFile \"nvf_jip10_test.txt\" 2 2)"), "two\nthree", "no break after the last line [observed]");
     assert_eq!(s(&mut g, "SetFunctionValue (ReadStringFromFile \"nvf_jip10_no_such_file.txt\")"), "");
 }
