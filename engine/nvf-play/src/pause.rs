@@ -1716,6 +1716,12 @@ fn choose(
     let by_aid = fire(&mut aid.resume, now);
     if by_aid {
         info!("test aid NVF_PLAY_TEST_PAUSE: Esc (resume)");
+        // As Esc back to the column and Continue there: a wait only holds on the bare
+        // column (`finish_resume`), and the release would close the page anyway.
+        *page = Page::Main;
+        view.confirm = None;
+        view.dropdown = None;
+        view.delete_ask = None;
         if !resume.pending() {
             commands.queue(request_resume);
         }
@@ -2165,6 +2171,11 @@ fn choose(
                 if e != Entry::Continue {
                     sounds.write(UiSound { menu: UiMenu::Pause, event: UiEvent::Picked });
                 }
+            }
+            // Any other choice while a resume waits ends the wait; the graphics change stays
+            // latched, so the next Continue waits again [design: graphics_resume.rs].
+            if take.is_some_and(|e| e != Entry::Continue) && resume.pending() {
+                commands.queue(cancel_resume);
             }
             match take {
                 Some(Entry::Quit) => {
@@ -2651,6 +2662,13 @@ fn reset_resume(world: &mut World) {
     world.resource_mut::<crate::graphics_resume::GraphicsResume>().reset();
 }
 
+fn cancel_resume(world: &mut World) {
+    if world.resource::<crate::graphics_resume::GraphicsResume>().pending() {
+        info!("pause menu: resume cancelled, another choice was made");
+        world.resource_mut::<crate::graphics_resume::GraphicsResume>().cancel();
+    }
+}
+
 fn release_resume(world: &mut World) {
     info!("pause menu: resume");
     world.resource_mut::<NextState<PlayState>>().set(PlayState::Playing);
@@ -2664,6 +2682,15 @@ fn finish_resume(world: &mut World) {
         || world.get_resource::<crate::loading::Loading>().is_some_and(|loading| loading.active())
     {
         reset_resume(world);
+        return;
+    }
+    // The wait belongs to the bare column Continue was chosen on. A page or the quit
+    // question opened since (by any path: a choice, another menu's page request, a test
+    // aid) ends it rather than being closed by the release. The keep question is left
+    // out: it outlives the menu (`crate::settings::revert_unkept`).
+    let column = *world.resource::<Page>() == Page::Main && world.resource::<PauseView>().confirm.is_none();
+    if !column {
+        cancel_resume(world);
         return;
     }
     let now = world.resource::<Time<Real>>().elapsed_secs_f64();
@@ -2779,6 +2806,83 @@ mod tests {
         app.update();
         assert!(!app.world().resource::<crate::graphics_resume::GraphicsResume>().pending());
         assert!(matches!(app.world().resource::<NextState<PlayState>>(), NextState::Pending(PlayState::Loading)), "a load beats a ready or capped resume in the same frame");
+    }
+
+    /// One fresh key press for the next update (the test app has no input system).
+    fn press_only(app: &mut App, key: KeyCode) {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.reset_all();
+        keys.press(key);
+    }
+
+    #[test]
+    fn another_choice_during_the_wait_cancels_it_and_a_later_continue_waits_again() {
+        use crate::graphics_resume::GraphicsResume;
+        let cap = std::time::Duration::from_secs_f64(crate::loading::PIPELINE_CAP_SECS);
+        // Settings, the quit question, Load, Save: each chosen on the column after Continue.
+        for (key, back) in [(KeyCode::KeyS, true), (KeyCode::KeyQ, true), (KeyCode::KeyL, true), (KeyCode::KeyN, false)] {
+            let mut app = resume_app();
+            app.world_mut().resource_mut::<GraphicsResume>().changed();
+            app.world_mut().resource_mut::<GraphicsResume>().sample(1, 2, 2);
+            press_only(&mut app, KeyCode::Enter);
+            app.update();
+            assert!(app.world().resource::<GraphicsResume>().pending(), "{key:?}: Continue waits");
+            press_only(&mut app, key);
+            app.update();
+            let opened = (*app.world().resource::<Page>(), app.world().resource::<PauseView>().confirm);
+            assert!(!app.world().resource::<GraphicsResume>().pending(), "{key:?}: the choice cancels the wait");
+            // The cap (and busy pipelines) pass with the page or question open.
+            app.world_mut().resource_mut::<ButtonInput<KeyCode>>().reset_all();
+            app.world_mut().resource_mut::<Time<Real>>().advance_by(cap);
+            app.world_mut().resource_mut::<GraphicsResume>().sample(2, 2, 2);
+            app.update();
+            assert_eq!((*app.world().resource::<Page>(), app.world().resource::<PauseView>().confirm), opened, "{key:?}: still open");
+            assert!(app.world().resource::<Paused>().0);
+            assert!(matches!(app.world().resource::<NextState<PlayState>>(), NextState::Unchanged), "{key:?}: no release");
+            if back {
+                press_only(&mut app, KeyCode::Escape);
+                app.update();
+                assert_eq!(*app.world().resource::<Page>(), Page::Main);
+                assert_eq!(app.world().resource::<PauseView>().confirm, None);
+            }
+            // Continue again: the change is still latched and the pipelines still busy, so it
+            // waits, with the cap counted from this request.
+            app.world_mut().resource_mut::<PauseView>().main_selected = 0;
+            press_only(&mut app, KeyCode::Enter);
+            app.update();
+            assert!(app.world().resource::<GraphicsResume>().pending(), "{key:?}: the second Continue waits");
+            app.world_mut().resource_mut::<ButtonInput<KeyCode>>().reset_all();
+            app.world_mut().resource_mut::<Time<Real>>().advance_by(cap / 2);
+            app.world_mut().resource_mut::<GraphicsResume>().sample(3, 2, 2);
+            app.update();
+            assert!(matches!(app.world().resource::<NextState<PlayState>>(), NextState::Unchanged));
+            app.world_mut().resource_mut::<Time<Real>>().advance_by(cap);
+            app.update();
+            assert!(matches!(app.world().resource::<NextState<PlayState>>(), NextState::Pending(PlayState::Playing)), "{key:?}: released by the new cap");
+        }
+    }
+
+    #[test]
+    fn a_page_opened_by_another_path_during_the_wait_cancels_it_and_the_aid_resumes_from_a_page() {
+        use crate::graphics_resume::GraphicsResume;
+        let cap = std::time::Duration::from_secs_f64(crate::loading::PIPELINE_CAP_SECS);
+        let mut app = resume_app();
+        app.world_mut().resource_mut::<GraphicsResume>().changed();
+        request_resume(app.world_mut());
+        app.world_mut().resource_mut::<PageRequest>().0 = Some(Page::Settings { selected: 0 });
+        app.world_mut().resource_mut::<Time<Real>>().advance_by(cap);
+        app.update();
+        assert!(!app.world().resource::<GraphicsResume>().pending());
+        assert_eq!(*app.world().resource::<Page>(), Page::Settings { selected: 0 });
+        assert!(matches!(app.world().resource::<NextState<PlayState>>(), NextState::Unchanged));
+        // The timed aid's Esc from the settings page goes back to the column and waits there.
+        app.world_mut().resource_mut::<PauseAid>().resume.push(0.0);
+        app.update();
+        assert_eq!(*app.world().resource::<Page>(), Page::Main);
+        assert!(app.world().resource::<GraphicsResume>().pending());
+        app.world_mut().resource_mut::<Time<Real>>().advance_by(cap);
+        app.update();
+        assert!(matches!(app.world().resource::<NextState<PlayState>>(), NextState::Pending(PlayState::Playing)));
     }
 
     #[test]

@@ -91,7 +91,11 @@ and no new requests for at least 0.25 real seconds and three render frames. A st
 count cannot release the menu; a late request restarts settling even if it has already
 finished. The wait ends at the loading screen's `PIPELINE_CAP_SECS` (15 real seconds)
 if readiness never arrives. Repeated resume requests keep the first deadline. Loading a
-save, quitting or closing the menu clears the session. Completion is logged once as
+save, quitting or closing the menu clears the session. Choosing anything else on the
+column while the wait runs (Save, Load, Settings, Mods, Quit), or any page or the quit
+question opening by another path, cancels the wait but keeps the latch: the release
+would otherwise close what the player just opened, and the next Continue waits again
+with a new deadline. The timed resume aid acts as Esc back to the column, then Continue. Completion is logged once as
 `pause menu: resume after graphics change: pipelines waited <seconds> s, pending <n>, capped <true|false>`;
 the existing `pause menu: resume` follows only when release is requested.
 

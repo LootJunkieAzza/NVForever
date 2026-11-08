@@ -86,6 +86,12 @@ impl GraphicsResume {
         Some(Completion { waited, pending: sample.pending, capped: capped && !ready })
     }
 
+    /// The player chose something else while the wait ran: drop the wait, keep the latch,
+    /// so a later Continue waits again (with a new cap) if pipelines are still busy.
+    pub fn cancel(&mut self) {
+        self.wait = None;
+    }
+
     /// A load, quit or menu closure ends this pause session, retaining the latest sample.
     pub fn reset(&mut self) {
         self.changed = false;
@@ -152,5 +158,19 @@ mod tests {
         resume.request(3.0);
         resume.sample(8, 5, 5);
         assert_eq!(resume.poll(18.0), Some(Completion { waited: 15.0, pending: 5, capped: true }));
+    }
+
+    #[test]
+    fn a_cancelled_wait_keeps_the_latch_and_a_new_request_starts_a_new_cap() {
+        let mut resume = GraphicsResume::default();
+        resume.changed();
+        assert!(!resume.request(1.0));
+        resume.cancel();
+        assert!(!resume.pending());
+        assert!(resume.poll(30.0).is_none(), "nothing to release after a cancel");
+        assert!(!resume.request(40.0), "the change is still latched");
+        resume.sample(3, 2, 2);
+        assert!(resume.poll(54.9).is_none(), "the cap counts from the new request");
+        assert_eq!(resume.poll(55.0), Some(Completion { waited: 15.0, pending: 2, capped: true }));
     }
 }
