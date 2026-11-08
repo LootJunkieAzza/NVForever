@@ -1430,6 +1430,9 @@ impl EffectCtx for PlayCtx<'_> {
     fn is_furniture(&self, r: FormId) -> bool {
         self.sim.base_of(r.0).and_then(|b| self.sim.forms.get(b)).is_some_and(|b| matches!(b.data, fnv_sim::forms::BaseData::Furniture))
     }
+    fn is_terminal(&self, r: FormId) -> bool {
+        self.sim.base_of(r.0).and_then(|b| self.sim.forms.get(b)).is_some_and(|b| &b.sig == b"TERM")
+    }
 }
 
 /// The response texts (NAM1) of a dialogue line, in order.
@@ -1708,7 +1711,7 @@ pub(crate) fn run_scripts(
     mut travel: MessageWriter<TravelRequest>,
     mut open: MessageWriter<OpenContainer>,
     (mut used, mut anims): (MessageReader<ItemUsed>, ResMut<crate::ConsumeAnims>),
-    mut sit: MessageWriter<crate::furniture::UseFurniture>,
+    (mut sit, mut terminals): (MessageWriter<crate::furniture::UseFurniture>, MessageWriter<crate::terminal::OpenTerminal>),
     paused: Res<crate::pause::Paused>,
     (mut screen, bindings, tiles, page, mut mods_ticks, tile_menus): ScreenAndMenus,
 ) {
@@ -2133,6 +2136,10 @@ pub(crate) fn run_scripts(
             ScriptEffect::UseFurniture(reference) => {
                 info!("script: the player uses furniture {reference:08X} (a script's Activate)");
                 sit.write(crate::furniture::UseFurniture { reference });
+            }
+            ScriptEffect::OpenTerminal(reference) => {
+                info!("script: terminal {reference:08X} opens (a script's Activate)");
+                terminals.write(crate::terminal::OpenTerminal { reference });
             }
         }
     }

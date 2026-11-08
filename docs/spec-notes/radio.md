@@ -253,7 +253,13 @@ conditions are run on.
   loud in many Vegas locations compared with vanilla"; the Freeside and casino music is
   receivers of `vCountryRadio` (AMLRadio, 72 receivers), `vCasinoGomorrahRadio` and
   `vCasinoUltraLuxeRadio` (AMLRadioLarge) and `vCasinoTopsRadio` (AMLRadioTheTops, heard
-  to 10000 units), all about 13 dB louder without it]. Receivers and actors are panned
+  to 10000 units), all about 13 dB louder without it]. Since 2026-11-08 the template's
+  curve points are read as a share of power, the amplitude their square root
+  [hypothesis: owner 2026-11-07, queue item 69, the radio "cuts out" a short way off;
+  read as amplitude, AMLRadio's 100, 59, 27, 7, 0 over 150-1800 units is 11 dB down at
+  975 units and 23 dB at 1390; as power 5.7 and 11.5 dB, fading out at 1800. Other
+  placed sounds keep the amplitude reading (audio.md §15.5). How the original reads the
+  curve is a question for the decompilation reader]. Receivers and actors are panned
   as the sound effects are (`crate::sfx::Panned`, audio.md §14.5) [design].
 - Pause: the Esc menu and loading screens hold sounds and programmes, as for placed
   loops (audio.md §7).
