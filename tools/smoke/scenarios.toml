@@ -4486,6 +4486,23 @@ expect = [
 ]
 
 [[scenario]]
+name = "hello-shared-quest-order"
+source = "[hypothesis] #1895: Info Index places shared lines within the listing quest (docs/spec-notes/dialogue.md section 1.2); [design] crates/fnv-game/src/data.rs shared_lines preserves the Powder Ganger Random pool"
+note = "[design] Only issue-listed actor 000F0AF8 is handed to residents. Detection is disabled before approaching; the player alternates between offsets 900 and 100 units from that actor to rearm hellos (crates/fnv-ai/src/social.rs HELLO_DISTANCE / HELLO_REARM). Four approaches must choose eligible Random lines, never the later plain line. Seeded variation is checked in dialogue_data.rs; this scenario does not require distinct picks. [hypothesis] The approach timing allows each voice to finish; the setup needs its first runtime check."
+areas = ["dialogue", "ai", "residents"]
+paths = ["crates/fnv-game/src/data.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/tests/dialogue.rs", "crates/fnv-game/tests/dialogue_data.rs", "docs/spec-notes/dialogue.md"]
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F0AF8"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "3:tdetect;3.5:close;8:player.moveto 000F0AF8 0 900 0;8.5:close;15:player.moveto 000F0AF8 0 100 0;15.5:close;28:player.moveto 000F0AF8 0 900 0;28.5:close;35:player.moveto 000F0AF8 0 100 0;35.5:close;48:player.moveto 000F0AF8 0 900 0;48.5:close;55:player.moveto 000F0AF8 0 100 0;55.5:close;68:player.moveto 000F0AF8 0 900 0;68.5:close;75:player.moveto 000F0AF8 0 100 0;75.5:close" }
+run_seconds = 88
+expect = [
+  { re = 'ai \[.*\] 000F0AF8: says hello to the player .* line 0x(00151A7B|00151A7A|0015694C|0015694D)\b', min = 4, label = "four approaches select from the eligible Random pool" },
+]
+forbid = [
+  { re = 'ai \[.*\] 000F0AF8: says hello to the player .* line 0x00151A7C\b', label = "the plain line never precedes the Random pool" },
+  { re = 'ai \[.*\] 000F0AF8: says hello to the player .* line 0x(?!(00151A7B|00151A7A|0015694C|0015694D)\b)[0-9A-F]{8}', label = "the fixed setup selects no hello outside the four eligible lines" },
+]
+
+[[scenario]]
 name = "conversation-timer"
 source = "NPC conversation rate against the original's, docs/spec-notes/npc-behaviour-compare.md §5 (2026-10-17): one 30–60 s timer for the loaded area, not one per actor"
 note = "the player stands among Westside's citizens at 10:00; in about 90 s of play the area tries a conversation once to three times (a timer per actor tried dozens of times)"

@@ -896,7 +896,8 @@ pub struct GameData {
     /// How many lines [`follow_previous`] moved out of file order (0 for the ten masters).
     pub lines_moved_by_previous: usize,
     /// The topics with shared lines (INFC / INFX, [`TopicDef::shared_infos`]): their own
-    /// lines with the shared ones put in at their Info Index, the order
+    /// lines grouped by owning quest, with shared ones inserted at their Info Index
+    /// within the listing quest's group [hypothesis: dialogue.md §1.2], the order
     /// [`GameData::lines_tried`] starts from (dialogue.md §1.2).
     pub shared_lines: HashMap<FormId, Vec<FormId>>,
     /// Link From turned round: for a topic X, the topics with a line whose Link From
@@ -2446,28 +2447,66 @@ impl GameData {
 }
 
 /// [`GameData::shared_lines`]: for each topic whose INFC / INFX pairs name a line, its
-/// own lines with each shared line put in at its Info Index (pairs in index order; an
-/// index past the end, or negative, puts it last) [hypothesis: the index is the line's
-/// place in the topic's list; in topics with no line of their own the indices run
-/// 0, 1, 2 … as a list's would, observed, dialogue.md §1.2]. A line already in
-/// the list is not added twice.
+/// own lines partitioned by quest, with each shared line inserted at its Info Index
+/// within the listing quest [hypothesis: dialogue.md §1.2]. [design] Partitions follow
+/// authored first appearance, then QSTI order for shared-only quests. Negative, missing
+/// and out-of-range indices append. Topics with a valid pair lacking QSTI retain the
+/// legacy topic-wide merge. Duplicates and missing INFOs retain the previous handling.
+/// Ownership and the stable priority sort in `GameData::lines_tried` are unchanged (this file).
 fn shared_lines(topics: &HashMap<FormId, Vec<FormId>>, defs: &HashMap<FormId, TopicDef>, infos: &HashMap<FormId, InfoDef>) -> HashMap<FormId, Vec<FormId>> {
     let mut out = HashMap::new();
     for (id, t) in defs {
-        let mut pairs: Vec<(i32, FormId)> =
-            t.shared_infos.iter().filter_map(|s| s.info.filter(|i| infos.contains_key(i)).map(|i| (s.index.unwrap_or(-1), i))).collect();
+        let mut pairs: Vec<_> = t.shared_infos.iter().filter(|s| s.info.is_some_and(|i| infos.contains_key(&i))).collect();
         if pairs.is_empty() {
             continue;
         }
-        pairs.sort_by_key(|&(x, _)| if x < 0 { i32::MAX } else { x });
-        let mut lines = topics.get(id).cloned().unwrap_or_default();
-        for (x, i) in pairs {
-            if lines.contains(&i) {
+        pairs.sort_by_key(|s| s.index.filter(|&x| x >= 0).unwrap_or(i32::MAX));
+        if pairs.iter().any(|s| s.quest.is_none()) {
+            // No listing quest can be assigned without guessing. Keep the entire
+            // malformed topic's old merge, including equal-index insertion order.
+            let mut lines = topics.get(id).cloned().unwrap_or_default();
+            for s in pairs {
+                let i = s.info.unwrap();
+                if !lines.contains(&i) {
+                    let at = s.index.and_then(|x| usize::try_from(x).ok()).map_or(lines.len(), |x| x.min(lines.len()));
+                    lines.insert(at, i);
+                }
+            }
+            out.insert(*id, lines);
+            continue;
+        }
+        let mut partitions: Vec<(Option<FormId>, Vec<FormId>)> = Vec::new();
+        let mut slots = HashMap::new();
+        let mut seen = HashSet::new();
+        for &i in topics.get(id).into_iter().flatten() {
+            let quest = infos.get(&i).and_then(|d| d.quest);
+            let at = *slots.entry(quest).or_insert_with(|| {
+                partitions.push((quest, Vec::new()));
+                partitions.len() - 1
+            });
+            partitions[at].1.push(i);
+            seen.insert(i);
+        }
+        // Establish shared-only partitions in QSTI order, independent of Info Index.
+        // The map is only a lookup; iteration over it never determines line order.
+        for &quest in &t.quests {
+            slots.entry(Some(quest)).or_insert_with(|| {
+                partitions.push((Some(quest), Vec::new()));
+                partitions.len() - 1
+            });
+        }
+        for s in pairs {
+            let i = s.info.unwrap(); // Filtered above.
+            if !seen.insert(i) {
                 continue;
             }
+            let quest = s.quest.unwrap(); // Unscoped topics use the fallback above.
+            let lines = &mut partitions[slots[&Some(quest)]].1;
+            let x = s.index.unwrap_or(-1);
             let at = usize::try_from(x).map_or(lines.len(), |x| x.min(lines.len()));
             lines.insert(at, i);
         }
+        let lines = partitions.into_iter().flat_map(|(_, lines)| lines).collect();
         out.insert(*id, lines);
     }
     out

@@ -61,12 +61,88 @@ fn load(dir: &Path) -> Loaded {
 #[test]
 fn the_masters_dialogue() {
     let Some(dir) = data_dir() else { return };
-    let l = load(&dir);
+    let mut l = load(&dir);
     counts(&l.data);
     doc_mitchells_lines(&l.data);
     the_intro_walk_through_talks_its_way_to_the_end(&l);
     sunny_opens_conversations_with_conversation_lines(&l);
     a_dim_player_gets_the_dumb_responses_and_lines(&l);
+    powder_ganger_hellos_keep_their_shared_random_pool(&l);
+    vms07_shared_greetings_remain_selectable_with_controlled_eligibility(&mut l);
+}
+
+/// [documented] The eligible pool and actor references come from issue #1895's supplied
+/// data survey. [hypothesis] Per-listing-quest insertion restores that pool in HELLO
+/// (docs/spec-notes/dialogue.md §1.2); this does not establish original-game behavior.
+fn powder_ganger_hellos_keep_their_shared_random_pool(l: &Loaded) {
+    use fnv_game::game::{Game, GameConfig};
+    use fnv_sim::{SimConfig, World};
+    let hello = l.data.by_edid("HELLO").unwrap();
+    let pool = [0x0015_1A7B, 0x0015_1A7A, 0x0015_694C, 0x0015_694D].map(FormId);
+    let plain = FormId(0x0015_1A7C);
+    let lines = l.data.lines_tried(hello);
+    let positions = pool.map(|i| lines.iter().position(|&line| line == i).unwrap());
+    assert!(positions.windows(2).all(|p| p[0] < p[1]), "{positions:?}");
+    let plain_at = lines.iter().position(|&line| line == plain).unwrap();
+    assert!(positions.iter().all(|&at| at < plain_at));
+    // Other conditioned Random lines may be between the four eligible lines; a plain
+    // line or an earlier Random End would split their selection pool.
+    assert!(lines[positions[0]..=positions[3]].iter().all(|i| l.data.infos[i].has(info_flag::RANDOM)));
+    assert!(!lines[positions[0]..positions[3]].iter().any(|i| l.data.infos[i].has(info_flag::RANDOM_END)));
+    assert!(!l.data.infos[&plain].has(info_flag::RANDOM));
+    for actor in [FormId(0x000F_0AF8), FormId(0x000F_0AF9)] {
+        let mut seen = std::collections::BTreeSet::new();
+        for seed in 0..16 {
+            let world = World::new(&l.forms, &l.refs, SimConfig::default());
+            let mut g = Game::new(&l.data, world, GameConfig { seed, ..GameConfig::default() });
+            g.new_game();
+            for &line in &pool {
+                assert!(g.can_say(actor, Some(FormId::PLAYER_REF), line), "{actor}: {line}");
+            }
+            for _ in 0..16 {
+                let line = g.say_hello(actor).expect("a Powder Ganger hello");
+                assert!(pool.contains(&line), "{actor}, seed {seed}: {line}");
+                seen.insert(line);
+                // This checks selection repeatedly without advancing quest scripts or
+                // requiring voice assets / the residents' approach timer.
+                g.speech.clear();
+            }
+        }
+        assert_eq!(seen, pool.into_iter().collect());
+    }
+}
+
+/// [design] Exercise the real GREETING list with controlled eligibility, independently
+/// of VMS07's quest flow: only the target INFO can pass the speaker/condition gates.
+/// The original ordering, ownership, indices and Random flags are retained. This is
+/// selection coverage, not a reproduction of the quest's original-game conditions.
+fn vms07_shared_greetings_remain_selectable_with_controlled_eligibility(l: &mut Loaded) {
+    use fnv_game::game::{Game, GameConfig};
+    use fnv_sim::{SimConfig, World};
+    let greeting = l.data.greeting.unwrap();
+    let source = l.data.by_edid("VMS07Greeting").unwrap();
+    let shared = [0x000F_378E, 0x000F_378F, 0x000F_3791, 0x000F_479B].map(FormId);
+    assert!(shared.iter().all(|i| l.data.infos[i].topic == Some(source)));
+    for def in l.data.infos.values_mut() {
+        def.speaker = Some(FormId(u32::MAX));
+        // GetIsID normally overrides the speaker field; isolate that gate too.
+        def.conditions.clear();
+    }
+    for info in shared {
+        let quest = l.data.infos[&info].quest.unwrap();
+        l.data.quests.get_mut(&quest).unwrap().conditions.clear();
+        let def = l.data.infos.get_mut(&info).unwrap();
+        def.speaker = Some(FormId::PLAYER_REF);
+        def.flags &= !(info_flag::LOW_INTELLIGENCE | info_flag::HIGH_INTELLIGENCE);
+        let world = World::new(&l.forms, &l.refs, SimConfig::default());
+        let mut g = Game::new(&l.data, world, GameConfig::default());
+        // Do not run new-game result scripts while eligibility is isolated.
+        g.quest(quest).running = true;
+        assert!(g.can_say(FormId::PLAYER_REF, Some(FormId::PLAYER_REF), info));
+        assert_eq!(g.select_line(FormId::PLAYER_REF, Some(FormId::PLAYER_REF), greeting), Some(info));
+        drop(g);
+        l.data.infos.get_mut(&info).unwrap().speaker = Some(FormId(u32::MAX));
+    }
 }
 
 /// The player's Intelligence against iDialogueDummySpeakThisIntOrBelow (3): the new game's
@@ -181,7 +257,13 @@ fn counts(d: &GameData) {
     // GREETING shares five lines; four of VMS07Greeting go in at indices 11–14.
     let greeting_tried = d.lines_tried(greeting);
     assert_eq!(greeting_tried.len(), 5_579 + 5);
-    assert_eq!(d.shared_lines[&greeting][11..15], [0x000F_378E, 0x000F_378F, 0x000F_3791, 0x000F_479B].map(FormId));
+    let shared = [0x000F_378E, 0x000F_378F, 0x000F_3791, 0x000F_479B].map(FormId);
+    let listing_quest = d.topic_defs[&greeting].shared_infos.iter().find(|s| s.info == Some(shared[0])).unwrap().quest.unwrap();
+    let partition: Vec<_> = d.shared_lines[&greeting].iter().copied()
+        .filter(|i| d.infos[i].quest == Some(listing_quest) || shared.contains(i)).collect();
+    let authored = d.topics[&greeting].iter().filter(|i| d.infos[i].quest == Some(listing_quest)).count();
+    let at = 11.min(authored); // A past-end index appends within the listing quest.
+    assert_eq!(partition[at..at + 4], shared);
     assert_eq!(d.infos.values().filter(|i| i.challenge_form.is_some()).count(), 1_499);
     // Quests whose own conditions gate their lines (dialogue.md §4).
     let gated: Vec<FormId> = d.quests.values().filter(|q| !q.conditions.is_empty()).map(|q| q.form).collect();

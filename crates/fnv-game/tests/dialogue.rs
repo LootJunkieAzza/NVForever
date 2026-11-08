@@ -301,8 +301,13 @@ fn topic(id: u32, edid: &str, name: &str, ty: u8, flags: u8, priority: f32, line
 #[allow(clippy::too_many_arguments)]
 fn topic_sharing(id: u32, edid: &str, name: &str, ty: u8, flags: u8, priority: f32, shared: &[(u32, u32, i32)], lines: Vec<L>) -> Vec<u8> {
     let mut s = vec![sub(b"EDID", z(edid))];
+    let mut previous_quest = None;
     for &(quest, line, index) in shared {
-        s.extend([sub(b"QSTI", u32b(quest)), sub(b"INFC", u32b(line)), sub(b"INFX", index.to_le_bytes().to_vec())]);
+        if previous_quest != Some(quest) {
+            s.push(sub(b"QSTI", u32b(quest)));
+            previous_quest = Some(quest);
+        }
+        s.extend([sub(b"INFC", u32b(line)), sub(b"INFX", index.to_le_bytes().to_vec())]);
     }
     s.extend([sub(b"FULL", z(name)), sub(b"PNAM", f32b(priority)), sub(b"DATA", vec![ty, flags])]);
     let dial = record(b"DIAL", 0, id, &s);
@@ -1178,6 +1183,135 @@ fn a_choice_with_only_a_shared_line_is_offered_and_says_that_line() {
     assert_eq!(offered(&g), vec![T_SHARED]);
     assert_eq!(g.choice_text(&g.dialogue_choices()[0]), "Where?");
     assert_eq!(pick(&mut g, T_SHARED), FormId(S_LINE));
+}
+
+fn shared_order_fixture(listing: Vec<u8>, source: Vec<L>) -> Fixture {
+    let source = topic(0xB81, "SharedOrderSource", "Source", topic_type::TOPIC, 0, 50.0, source);
+    fixture_bytes(&[plugin_bytes(), top(b"DIAL", &[listing, source].concat())].concat())
+}
+
+/// [hypothesis] Info Index belongs to the listing quest, not the entire topic
+/// (docs/spec-notes/dialogue.md §1.2). [design] Equal priorities keep each partition's
+/// authored order and Random / Random End boundaries (`GameData::lines_tried`).
+#[test]
+fn shared_indices_merge_within_each_quest_without_mixing_random_pools() {
+    let line = |id, quest, flags| L {
+        id, quest, flags, responses: vec![(1, "A synthetic line", 0)],
+        conds: if quest == QA { vec![gate(EQ, 0.0)] } else { vec![] }, ..L::default()
+    };
+    let listing = topic_sharing(
+        0xB80, "SharedOrder", "Listing", topic_type::TOPIC, 0, 50.0,
+        &[(QEQ, 0xB95, 1), (QEQ, 0xB97, 2), (QA, 0xB94, 1), (QA, 0xB96, 2)],
+        vec![line(0xB90, QA, info_flag::RANDOM), line(0xB91, QEQ, info_flag::RANDOM), line(0xB92, QA, 0), line(0xB93, QEQ, 0)],
+    );
+    let f = shared_order_fixture(listing, vec![
+        line(0xB94, QA, info_flag::RANDOM | info_flag::RANDOM_END), line(0xB95, QEQ, info_flag::RANDOM | info_flag::RANDOM_END),
+        line(0xB96, QA, info_flag::RANDOM), line(0xB97, QEQ, info_flag::RANDOM),
+    ]);
+    let topic = FormId(0xB80);
+    let expected = [0xB90, 0xB94, 0xB96, 0xB92, 0xB91, 0xB95, 0xB97, 0xB93].map(FormId);
+    assert_eq!(f.data.shared_lines[&topic], expected);
+    assert_eq!(f.data.lines_tried(topic), expected);
+    assert_eq!(f.data.topic_defs[&topic].quests, [FormId(QEQ), FormId(QA)]);
+    for (gate_value, pool) in [(0.0, [0xB90, 0xB94]), (1.0, [0xB91, 0xB95])] {
+        let mut seen = std::collections::BTreeSet::new();
+        for seed in 0..64 {
+            let mut g = game_seeded(&f, seed);
+            set_global(&mut g, G_GATE, gate_value);
+            for _ in 0..8 {
+                let pick = g.select_line(actor(), Some(FormId::PLAYER_REF), topic).unwrap();
+                assert!(pool.map(FormId).contains(&pick), "{seed}: {pick}");
+                seen.insert(pick);
+            }
+        }
+        assert_eq!(seen, pool.map(FormId).into_iter().collect());
+    }
+}
+
+#[test]
+fn shared_only_quests_follow_qsti_order_before_index_order() {
+    let listing = topic_sharing(
+        0xB80, "SharedOrder", "Listing", topic_type::TOPIC, 0, 50.0,
+        &[(QEQ, 0xB91, 1), (QEQ, 0xB90, 0), (QA, 0xB93, 1), (QA, 0xB92, 0)], vec![],
+    );
+    let source = [(0xB90, QEQ), (0xB91, QEQ), (0xB92, QA), (0xB93, QA)].into_iter().map(|(id, quest)| L { id, quest, ..L::default() }).collect();
+    let f = shared_order_fixture(listing, source);
+    assert_eq!(f.data.lines_tried(FormId(0xB80)), [0xB90, 0xB91, 0xB92, 0xB93].map(FormId));
+}
+
+#[test]
+fn an_empty_first_qsti_group_still_sets_shared_only_quest_order() {
+    let listing = record(b"DIAL", 0, 0xB80, &[
+        sub(b"EDID", z("SharedOrder")), sub(b"QSTI", u32b(QA)),
+        sub(b"QSTI", u32b(QEQ)), sub(b"INFC", u32b(0xB90)), sub(b"INFX", 0i32.to_le_bytes().to_vec()),
+        sub(b"QSTI", u32b(QA)), sub(b"INFC", u32b(0xB91)), sub(b"INFX", 0i32.to_le_bytes().to_vec()),
+    ]);
+    let f = shared_order_fixture(listing, vec![L { id: 0xB90, quest: QEQ, ..L::default() }, L { id: 0xB91, quest: QA, ..L::default() }]);
+    assert_eq!(f.data.lines_tried(FormId(0xB80)), [0xB91, 0xB90].map(FormId));
+}
+
+/// [design] A listing/source-quest mismatch changes placement only: owning quest,
+/// conditions and priority remain those of the INFO (`data.rs`, `dialogue.rs`).
+#[test]
+fn a_shared_line_is_placed_by_listing_quest_but_keeps_its_own_priority_and_gate() {
+    let listing = topic_sharing(
+        0xB80, "SharedOrder", "Listing", topic_type::TOPIC, 0, 50.0,
+        &[(QA, 0xB94, 1), (QA, 0xB95, 2)],
+        vec![L { id: 0xB90, quest: QA, ..L::default() }, L { id: 0xB91, quest: QEQ, ..L::default() }, L { id: 0xB92, quest: QA, ..L::default() }],
+    );
+    let f = shared_order_fixture(listing, vec![L { id: 0xB94, quest: QHI, ..L::default() }, L { id: 0xB95, quest: QOFF, ..L::default() }]);
+    let topic = FormId(0xB80);
+    assert_eq!(f.data.shared_lines[&topic], [0xB90, 0xB94, 0xB95, 0xB92, 0xB91].map(FormId));
+    assert_eq!(f.data.lines_tried(topic), [0xB95, 0xB94, 0xB90, 0xB92, 0xB91].map(FormId));
+    assert_eq!(f.data.infos[&FormId(0xB94)].quest, Some(FormId(QHI)));
+    assert_eq!(f.data.infos[&FormId(0xB94)].topic, Some(FormId(0xB81)));
+    let mut g = game(&f);
+    assert!(!g.can_say(actor(), Some(FormId::PLAYER_REF), FormId(0xB95)), "the source quest is stopped");
+    assert_eq!(g.select_line(actor(), Some(FormId::PLAYER_REF), topic), Some(FormId(0xB94)));
+}
+
+/// [design] Malformed pairs keep their previous fallbacks (`data.rs::shared_lines`):
+/// missing INFOs are skipped, duplicates are not inserted, bad indices append, and an
+/// absent QSTI retains topic-wide insertion instead of inferring INFO ownership.
+#[test]
+fn malformed_shared_entries_keep_their_fallbacks() {
+    let fields = vec![
+        sub(b"EDID", z("SharedOrder")),
+        sub(b"INFC", u32b(0xB98)), sub(b"INFX", 1i32.to_le_bytes().to_vec()), // No QSTI.
+        sub(b"QSTI", u32b(QA)),
+        sub(b"INFC", u32b(0xB94)), sub(b"INFX", 99i32.to_le_bytes().to_vec()),
+        sub(b"INFC", u32b(0xB95)), sub(b"INFX", (-2i32).to_le_bytes().to_vec()),
+        sub(b"INFC", u32b(0xB96)), // No index.
+        sub(b"INFC", u32b(0xB97)), sub(b"INFX", (-1i32).to_le_bytes().to_vec()),
+        sub(b"INFC", u32b(0xB94)), sub(b"INFX", 100i32.to_le_bytes().to_vec()), // Duplicate.
+        sub(b"INFC", u32b(0xB90)), sub(b"INFX", 0i32.to_le_bytes().to_vec()), // Already authored.
+        sub(b"INFC", u32b(0xBFF)), sub(b"INFX", 0i32.to_le_bytes().to_vec()), // Missing INFO.
+        sub(b"INFC", u32b(0)), sub(b"INFX", 0i32.to_le_bytes().to_vec()), // Absent FormID.
+        sub(b"INFX", 0i32.to_le_bytes().to_vec()), // No INFC.
+        sub(b"QSTI", u32b(QEQ)),
+        sub(b"INFC", u32b(0xB99)), sub(b"INFX", 1i32.to_le_bytes().to_vec()), // Same index as the unscoped pair.
+        sub(b"INFC", u32b(0xB94)), sub(b"INFX", 101i32.to_le_bytes().to_vec()), // Duplicate across quests.
+    ];
+    for unscoped in [false, true] {
+        let mut fields = fields.clone();
+        if !unscoped {
+            fields.drain(1..3);
+        }
+        let authored = [info(L { id: 0xB90, quest: QA, ..L::default() }), info(L { id: 0xB91, quest: QEQ, ..L::default() })].concat();
+        let listing = [record(b"DIAL", 0, 0xB80, &fields), group(0xB80u32.to_le_bytes(), 7, &authored)].concat();
+        let source = (0xB94..=0xB99).map(|id| L { id, quest: QA, ..L::default() }).collect();
+        let f = shared_order_fixture(listing, source);
+        let defs = &f.data.topic_defs[&FormId(0xB80)].shared_infos;
+        let expected = if unscoped {
+            assert_eq!((defs[0].quest, defs[3].index), (None, None));
+            // The whole malformed topic retains its previous topic-wide merge.
+            vec![0xB90, 0xB99, 0xB98, 0xB91, 0xB94, 0xB95, 0xB96, 0xB97]
+        } else {
+            assert_eq!(defs[2].index, None);
+            vec![0xB90, 0xB94, 0xB95, 0xB96, 0xB97, 0xB91, 0xB99]
+        };
+        assert_eq!(f.data.lines_tried(FormId(0xB80)), expected.into_iter().map(FormId).collect::<Vec<_>>());
+    }
 }
 
 #[test]

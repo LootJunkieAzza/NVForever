@@ -81,14 +81,35 @@ documented** in our sources. What the data shows:
   shared lines, 59 and 7 remain [observed: the scratch survey; the real-data test
   asserts 7,325 / 257 / 7].
 
-The runtime counts a shared line as a line of the topic that lists it
-(`GameData::lines_tried`): the topic's own lines with each shared line put in at its
-Info Index (a negative index or one past the end puts it last), then sorted by quest
-priority as in §4 [hypothesis, from the data above: otherwise those 257 lines would
-offer nothing they link to; the place given by the index is a hypothesis too]. A
-listing topic's line is said under that topic (the event's `topic`); the line keeps its
-own Choices, Add Topics and result scripts. GREETING shares five lines, four of them
-`VMS07Greeting`'s at indices 11–14, so those can now greet. Capture question 9 stays
+[hypothesis] Info Index is a position among the **listing quest's** lines for this
+topic, rather than among all the topic's lines. xEdit's per-added-quest grouping is
+documented above; the behavioral interpretation is not established vanilla behavior.
+The supplied data survey in [issue #1895](https://github.com/LootJunkieAzza/NVForever/issues/1895)
+reports HELLO sharing 223 pairs from 14 quests, with indices restarting per quest;
+38 indices are used by multiple quests [documented: issue #1895]. Its Powder Ganger
+indices 5–24 follow their GREETING order: the eligible Random lines `00151A7B`,
+`00151A7A`, `0015694C`, `0015694D` precede the plain `00151A7C`. Topic-wide insertion
+instead placed the plain line first [documented: issue #1895's data survey].
+
+[design: `crates/fnv-game/src/data.rs`, `shared_lines` / `GameData::lines_tried`]
+The runtime partitions authored lines by their INFO quest, preserving authored order
+within each partition. Shared lines go into the **listing QSTI quest's** partition in
+stable index order. Partitions follow authored first appearance, then QSTI order for
+shared-only quests; hash-map iteration never decides their order. The flattened list
+still gets the stable priority sort of §4, using each INFO's **owning** quest, even
+when that differs from the listing quest. A negative, missing or out-of-range index
+appends within its partition. Missing INFOs are skipped; an INFO already present is
+not inserted again (the first pair in stable index order wins). If a valid pair lacks
+QSTI, the entire topic retains the previous topic-wide merge as a malformed-data
+fallback, including equal-index insertion order. This avoids guessing a listing quest
+from INFO ownership or changing the malformed topic's interleaving.
+
+[design: `crates/fnv-game/src/dialogue.rs`, `Game::select_line`, `Game::say_line`]
+A shared line counts as a line of the listing topic and is said under that topic
+(the event's `topic`); it retains its own conditions, Choices, Add Topics and result
+scripts. GREETING's four `VMS07Greeting` shared lines at indices 11–14 therefore remain
+available through GREETING. Synthetic and optional real-data regressions live in
+`crates/fnv-game/tests/dialogue.rs` and `dialogue_data.rs`. Capture question 9 stays
 open for the in-game check.
 
 ### 1.3 Counts [observed: the summary]
