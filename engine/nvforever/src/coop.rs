@@ -311,6 +311,8 @@ impl Plugin for CoopPlugin {
             doors_made: None,
             looks_taken: HashMap::new(),
             numbered: false,
+            wear_heard: HashMap::new(),
+            wear_taken: HashMap::new(),
             host_lines: None,
             handed_off: false,
             progress_in: Vec::new(),
@@ -476,6 +478,10 @@ struct Coop {
     /// [`GUEST_CREATED`] yet.
     looks_taken: HashMap<u32, (u16, bool, u8)>,
     numbered: bool,
+    /// A guest: what the host's game draws each of its NPCs wearing and holding
+    /// (`net::Msg::Wear`), and what this game last dressed each in ([`follow_looks`]).
+    wear_heard: HashMap<u32, Vec<u32>>,
+    wear_taken: HashMap<u32, Vec<u32>>,
     /// A guest's: the lines the host's NPCs are saying, and when they came.
     host_lines: Option<(f32, Vec<net::LineView>)>,
     /// A host that let go of its port for a load's new run ([`lobby`]).
@@ -1474,6 +1480,7 @@ fn take_events(
             Event::Presence { list: net::LIST_OPEN, serial, page, pages, refs } => coop.doors_heard.hear(serial, page, pages, refs),
             Event::Presence { list: net::LIST_CAMPFIRE, pages, refs, .. } => coop.campfires.hear(pages, refs),
             Event::Presence { .. } => {}
+            Event::Wear(npcs) => coop.wear_heard.extend(npcs),
             Event::Campfire { id, reference } => coop.campfires.asked.push((id, reference)),
             Event::Door { id, reference, open } => coop.doors_in.push((id, reference, open)),
             Event::Clock(c) => {
@@ -1814,7 +1821,7 @@ fn stand_ins(
 #[allow(clippy::type_complexity)]
 fn share_npcs(
     mut coop: ResMut<Coop>,
-    actors: Query<(&RefVisual, &Transform, Option<&Locomotion>, Option<&WeaponHold>, Has<Dying>, &InheritedVisibility, Option<&crate::furniture::OnFurniture>), (With<crate::limbs::ActorRig>, Without<Puppet>)>,
+    actors: Query<(&RefVisual, &Transform, Option<&Locomotion>, Option<&WeaponHold>, Has<Dying>, &InheritedVisibility, Option<&crate::furniture::OnFurniture>, Option<&crate::outfits::Dressed>), (With<crate::limbs::ActorRig>, Without<Puppet>)>,
     fighters: Res<Fighters>,
     mut attacks: MessageReader<PlayAttack>,
     mut told: Local<usize>,
@@ -1840,7 +1847,8 @@ fn share_npcs(
     // were drawn with ([`follow_looks`]).
     let rolls = actor_world.as_deref().and_then(|w| w.rolls.lock().ok().map(|r| r.clone())).unwrap_or_default();
     let mut npcs = Vec::new();
-    for (v, t, lo, hold, dying, seen, on) in &actors {
+    let mut wear = Vec::new();
+    for (v, t, lo, hold, dying, seen, on, dressed) in &actors {
         // The dead too, out of sight or not: a guest lays its own body down.
         if (!seen.get() && !dying) || is_puppet(v.0) || players.contains(&v.0) {
             continue;
@@ -1870,7 +1878,13 @@ fn share_npcs(
             all_levels: level.all_levels,
             rolls: rolls.get(&r).copied().unwrap_or(0).min(127) as u8,
         });
+        // What it is drawn wearing and holding: each game rolls carried items from its
+        // own random numbers (item 71), so the guests dress their copies in this.
+        if let Some(d) = dressed {
+            wear.push((r, d.worn.iter().map(|i| i.0).chain(d.weapon.map(|w| w.0)).collect()));
+        }
     }
+    link.set_wear(wear);
     if npcs.len().abs_diff(*told) >= 5 || (*told == 0) != npcs.is_empty() {
         *told = npcs.len();
         info!("co-op: sending the guests {} NPCs", npcs.len());
@@ -1886,6 +1900,10 @@ fn share_npcs(
 /// same: `fnv_actor::resolve`), and drawn again when that changes what is drawn. Before,
 /// a guest rolled its own picks at its own player's level (queue 2026-11-07 item 28,
 /// NPCs that looked different) and never drew the host's created actors (item 38).
+/// Each is also dressed in what the host's game draws it wearing and holding
+/// (`net::Msg::Wear`, `fnv_sim::World::dress_as`): carried items, outfits among them, are
+/// rolled from each game's own random numbers, not seeded by the reference, so the same
+/// NPC came out in another suit even at the same level (item 71).
 #[allow(clippy::type_complexity)]
 fn follow_looks(
     mut commands: Commands,
@@ -1899,6 +1917,8 @@ fn follow_looks(
     if !guest {
         coop.looks_taken.clear();
         coop.numbered = false;
+        coop.wear_heard.clear();
+        coop.wear_taken.clear();
         return;
     }
     let (Some(script), Some(sim), Some(aw)) = (script.as_deref_mut(), sim.as_deref_mut(), actor_world.as_deref()) else { return };
@@ -1916,7 +1936,6 @@ fn follow_looks(
         if s.base == 0 || coop.looks_taken.get(&r.0) == Some(&key) {
             continue;
         }
-        coop.looks_taken.insert(r.0, key);
         let name = rt.game.data.name(FormId(s.base));
         if r.is_dynamic() {
             match sim.world.peek(r).map(|st| st.base) {
@@ -1934,7 +1953,9 @@ fn follow_looks(
                 Some(_) => {}
             }
         }
+        // Taken only once it is known here, so one heard before is taken again.
         let Some(base) = sim.base_of(r.0) else { continue };
+        coop.looks_taken.insert(r.0, key);
         let drawn = |aw: &ActorWorld| aw.resolve(base.0, r.0).ok().map(|a| (a.npc, a.female, a.race, a.worn));
         let before = drawn(aw);
         let mut changed = false;
@@ -1964,6 +1985,26 @@ fn follow_looks(
             let what = after.as_ref().map_or_else(|| "nothing".to_string(), |a| rt.game.data.name(a.0));
             info!("co-op: {name} {r} takes the host's leveled pick ({what}, level {}, rolls {rolls}){}", s.level, if again { ": drawn again" } else { "" });
         }
+    }
+    // Dressed as the host's game draws it (item 71): the outfits follow the inventory,
+    // so it is drawn again in it (`outfits::follow_inventory`).
+    let heard: Vec<(u32, Vec<u32>)> = coop.wear_heard.iter().filter(|(r, w)| coop.wear_taken.get(*r) != Some(*w)).map(|(r, w)| (*r, w.clone())).collect();
+    for (r, items) in heard {
+        let id = FormId(r);
+        // An actor the host's game made, not made here yet: later.
+        if sim.world.peek(id).is_none() && sim.world.placed.get(id).is_none() {
+            continue;
+        }
+        let ids: Vec<FormId> = items.iter().map(|&i| FormId(i)).collect();
+        match sim.world.dress_as(id, &ids) {
+            Ok(true) => {
+                let worn: Vec<String> = ids.iter().map(|&i| rt.game.data.name(i)).collect();
+                info!("co-op: {} {id} dressed as the host's game has it: {}", rt.game.data.name(id), worn.join(", "));
+            }
+            Ok(false) => {}
+            Err(e) => warn!("co-op: {id} cannot be dressed as the host's game has it: {e}"),
+        }
+        coop.wear_taken.insert(r, items);
     }
 }
 
