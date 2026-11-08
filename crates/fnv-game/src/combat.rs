@@ -642,6 +642,10 @@ impl Game<'_> {
                     let xp = self.kill_xp(target);
                     out.xp = crate::experience::award(self, crate::experience::Source::Kill, xp);
                 }
+                // The player's tweak: a kill gives Action Points back [design: docs/design/tweaks.md].
+                if out.died && info.attacker == Some(FormId::PLAYER_REF) && self.tweaks.kill_reward_ap > 0.0 {
+                    crate::functions::restore_actor_value_damage(self, FormId::PLAYER_REF, crate::actor_values::ACTION_POINTS, self.tweaks.kill_reward_ap);
+                }
             }
         }
         // The player's palm strike in VATS may paralyse (`crate::magic_archetypes`); its

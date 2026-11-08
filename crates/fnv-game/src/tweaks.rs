@@ -78,6 +78,14 @@ pub struct Tweaks {
     pub weightless_worn_armor: bool,
     /// `bWeightlessWornPowerArmor`: worn power armour weighs nothing.
     pub weightless_worn_power_armor: bool,
+    // ---- Action Points ----
+    /// `bKillsRewardAP`/`iKillRewardAmount`: Action Points a kill by the player gives
+    /// back; 0 changes nothing.
+    pub kill_reward_ap: f64,
+    // ---- rest ----
+    /// `bOnlyAllowWaitWhileSitting`: waiting is refused unless the player sits (or is in
+    /// god mode).
+    pub wait_only_seated: bool,
 }
 
 impl Default for Tweaks {
@@ -107,6 +115,8 @@ impl Default for Tweaks {
             weightless_kinds: 0,
             weightless_worn_armor: false,
             weightless_worn_power_armor: false,
+            kill_reward_ap: 0.0,
+            wait_only_seated: false,
         }
     }
 }

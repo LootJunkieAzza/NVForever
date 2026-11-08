@@ -322,7 +322,13 @@ fn refusal(
     indoors: bool,
     actors: &[(u32, [f32; 3])],
     distance: f32,
+    seated: bool,
 ) -> Option<(Refusal, String)> {
+    // The player's tweak: waiting only while sitting (god mode excepted) [design:
+    // docs/design/tweaks.md].
+    if !sleep && !seated && !crate::combat::god_mode() && rt.as_ref().is_some_and(|rt| rt.game.tweaks.wait_only_seated) {
+        return Some((Refusal::NotSeated, "the player does not sit (Wait Only Seated)".into()));
+    }
     // A script forbade waiting (`EnableFastTravel`'s canWait): the same flag refuses
     // sleeping, and its text is the "cannot wait in this cell" one [documented: GECK wiki
     // SetPCHasSleepWaitOverride, GetPCHasSleepWaitOverride].
@@ -531,7 +537,7 @@ fn open(
         let rt = script.as_mut().and_then(|s| s.rt.as_mut());
         // Furniture holds the player off the ground's rules (a bed, a chair).
         let airborne = seat.on.is_none() && player.is_some_and(|c| !c.grounded && !c.swimming);
-        let no = refusal(sleep, bed, rt, &mut sim, player.is_some_and(|c| c.swimming), airborne, player.map(|c| c.feet), indoors, &actors.living, distance);
+        let no = refusal(sleep, bed, rt, &mut sim, player.is_some_and(|c| c.swimming), airborne, player.map(|c| c.feet), indoors, &actors.living, distance, seat.on.is_some());
         if let Some((why, detail)) = no {
             let line = refusals.line(why, sleep);
             info!("wait menu: refused ({}): {detail}; on screen: {line:?}", if sleep { "sleep" } else { "wait" });

@@ -144,6 +144,16 @@ option.
 `WeightRules` is saved with the world; its new fields have serde defaults, so older
 saves load, and the frame's sync sets them from the settings again.
 
+## Eighth batch (2026-11-08, Action Points and refusals)
+
+| Row | INI key | Where |
+|---|---|---|
+| Action Points per Kill (0–50) | `bKillsRewardAP` | `Game` hit outcome, beside the kill XP |
+| Action Points per Jump (0–50) | `bJumpingCostsAP` | `tweaks::ap_costs` (after the input, before physics) |
+| Action Points per Second Running (0–20) | `bRunningCostsAP` | `tweaks::ap_costs` |
+| No Travel on a Crippled Leg | `bNoFastTravelIfLegsCrippled` | `travel::answer`, `Refusal::CrippledLeg` (own text) |
+| Wait Only When Seated | `bOnlyAllowWaitWhileSitting` | `wait::refusal`, `Refusal::NotSeated` (own text) |
+
 Menu tweaks that code holding the game reads (the Pip-Boy's item info, crafting, the
 level-up menu, the terminal's timers) are kept in `fnv_game::tweaks` too, so no system
 needs another parameter; the catalogue's notes say where NVForever already does what a
@@ -160,8 +170,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 87 |
-| to do | 516 |
+| done | 92 |
+| to do | 511 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -174,14 +184,18 @@ game's Data folder, read-only).
 | `bDisableFastTravel` | done |  |  | No Fast Travel |
 | `bDisableReloadingNonEmptyClip` | done |  | 2 | Reload Only When Empty (the energy-only and looping options not built) |
 | `bFastTravelOverencumbered` | done |  |  | Fast Travel Encumbered |
+| `bJumpingCostsAP` | done |  | 3 | Action Points per Jump (slider 0-50; the combat-only and jump-anyway options not built) |
 | `bJumpWhileOverencumbered` | done |  |  | already so: NVForever never refuses the jump when over-encumbered |
 | `bLootUnconsciousVictims` | done |  |  | Search the Unconscious |
 | `bNoDialogueZoom` | done |  |  | already a row: Gameplay tab, dialogue-zoom |
+| `bNoFastTravelIfLegsCrippled` | done |  | 1 | No Travel on a Crippled Leg (NVForever's own refusal text) |
 | `bNoLockFailedTerminals` | done |  |  | No Terminal Lockout |
+| `bOnlyAllowWaitWhileSitting` | done |  | 3 | Wait Only When Seated (NVForever's own refusal text) |
 | `bPickLocksWithoutSkill` | done |  | 1 | Pick Any Lock (the lock plays as before; the difficulty option not built) |
 | `bPowerArmorNeedsNoTraining` | done |  |  | Power Armor Without Training |
 | `bPowerArmorScalesFallDamage` | done |  | 2 | Falls in Power Armor (slider; applies to everyone, the player-only option not built) |
 | `bReduceXP` | done |  | 2 | Experience Earned (slider, x0 to x2) |
+| `bRunningCostsAP` | done |  | 8 | Action Points per Second Running (slider 0-20, a flat rate; the Endurance formula not built) |
 | `bWeightlessWornArmor` | done |  | 1 | Worn Armor Weighs Nothing (weightless; the scale option not built) |
 | `bWeightlessWornPowerArmor` | done |  | 3 | Worn Power Armor Weighs Nothing (weightless; the scale and requirement options not built) |
 | `iPerksPerLevel` | done |  | 1 | Perks per Level (1 to 5) |
@@ -234,7 +248,6 @@ game's Data folder, read-only).
 | `bHoldToHolsterMeleeWeapons` | to do |  |  |  |
 | `bHostilesPrioritizePlayer` | to do |  | 3 |  |
 | `bImprovedHacking` | to do |  | 10 |  |
-| `bJumpingCostsAP` | to do |  | 3 | nothing drains AP outside VATS yet |
 | `bJumpSwimsUpwards` | to do |  | 2 |  |
 | `bKeepFallHeightOnLoad` | to do |  |  |  |
 | `bLevelDifferenceAffectsCombatXP` | to do |  | 2 |  |
@@ -253,7 +266,6 @@ game's Data folder, read-only).
 | `bNoCompanionItemDamage` | to do |  |  |  |
 | `bNoDamageMeleeWeaponIfTargetDead` | to do |  |  |  |
 | `bNoEnvironmentRadiationInFullPowerArmor` | to do |  |  |  |
-| `bNoFastTravelIfLegsCrippled` | to do |  | 1 | a new refusal needs its own text (no game setting exists for it) |
 | `bNoFreeBarterItems` | to do |  | 1 |  |
 | `bNoGrabOwnedItems` | to do |  |  |  |
 | `bNoLockEncounterZoneLevels` | unsure, skipped |  |  | encounter-zone level locking not yet checked in NVForever |
@@ -263,7 +275,6 @@ game's Data folder, read-only).
 | `bNPCsDropLiveGrenades` | to do |  |  |  |
 | `bNPCsEarnAmmoCasings` | to do |  |  |  |
 | `bNPCsTakeLimbFallDamage` | to do |  |  |  |
-| `bOnlyAllowWaitWhileSitting` | to do |  | 3 | a new wait refusal needs its own text |
 | `bOverencumberedTweak` | to do |  | 8 |  |
 | `bPerBulletLoopingReloads` | to do |  | 2 |  |
 | `bPerksAffectFistWeaponSpeed` | to do |  |  |  |
@@ -288,7 +299,6 @@ game's Data folder, read-only).
 | `bRepairsRewardXP` | to do |  | 1 |  |
 | `bReviveUnconsciousCompanions` | to do |  | 3 |  |
 | `bRunAndGunAPInCombatOnly` | to do |  |  |  |
-| `bRunningCostsAP` | to do |  | 8 | nothing drains AP outside VATS yet |
 | `bRunSlowerInWater` | to do |  | 1 |  |
 | `bScalePlayerMeleeReach` | to do |  | 3 |  |
 | `bScaleWeaponVolume` | to do |  | 2 |  |
@@ -327,6 +337,7 @@ game's Data folder, read-only).
 |---|---|---|---|---|
 | `bDisableCombatMusic` | done |  |  | No Battle Music |
 | `bHideEnemyMarkers` | done |  | 1 | No Enemies on the Compass (the firing-enemies option is not built) |
+| `bKillsRewardAP` | done |  | 1 | Action Points per Kill (slider 0-50; given in VATS too) |
 | `bNoSneakAttacksCriticals` | done |  |  | No Sneak Criticals |
 | `bAllowTeammatesUseMeltdown` | to do |  |  |  |
 | `bAutoWeaponNoFiringDelay` | to do |  | 1 |  |
@@ -341,7 +352,6 @@ game's Data folder, read-only).
 | `bFirstPersonVATS` | to do |  |  |  |
 | `bHoldAndReleaseThrowables` | to do |  | 1 |  |
 | `bIgnoreCompanionsVATS` | to do |  | 1 |  |
-| `bKillsRewardAP` | to do |  | 1 | restoring AP outside VATS needs a small helper first |
 | `bLocationalMeleeDamage` | to do |  | 3 |  |
 | `bMaxVATSDistanceUsesWeaponRange` | to do |  | 3 |  |
 | `bNoCompanionKillXP` | to do |  | 1 |  |

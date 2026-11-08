@@ -45,10 +45,12 @@ pub enum Refusal {
     Combat,
     HostilesNear,
     Encumbered,
+    /// The player's No Travel on a Crippled Leg tweak [design: docs/design/tweaks.md].
+    CrippledLeg,
 }
 
 impl Refusal {
-    pub const ALL: [Refusal; 7] = [Refusal::Undiscovered, Refusal::Script, Refusal::Place, Refusal::InAir, Refusal::Combat, Refusal::HostilesNear, Refusal::Encumbered];
+    pub const ALL: [Refusal; 8] = [Refusal::Undiscovered, Refusal::Script, Refusal::Place, Refusal::InAir, Refusal::Combat, Refusal::HostilesNear, Refusal::Encumbered, Refusal::CrippledLeg];
 
     /// The game setting holding the refusal's text [documented: GECK wiki, game settings
     /// list].
@@ -61,6 +63,8 @@ impl Refusal {
             Refusal::Combat => "sNoFastTravelCombat",
             Refusal::HostilesNear => "sNoFastTravelHostileActorsNear",
             Refusal::Encumbered => "sNoFastTravelOverencumbered",
+            // No game setting holds this one: NVForever's words only.
+            Refusal::CrippledLeg => "",
         }
     }
 
@@ -75,6 +79,7 @@ impl Refusal {
             Refusal::Combat => "You cannot fast travel during combat.",
             Refusal::HostilesNear => "You cannot fast travel when enemies are nearby.",
             Refusal::Encumbered => "You cannot fast travel while carrying too much.",
+            Refusal::CrippledLeg => "You cannot fast travel with a crippled leg.",
         }
     }
 }
@@ -94,6 +99,8 @@ pub struct Checks {
     pub combat: bool,
     pub hostiles_near: bool,
     pub encumbered: bool,
+    /// A leg is crippled and the tweak refuses travel then.
+    pub crippled_leg: bool,
 }
 
 /// The player's fast-travel tweaks [design: docs/design/tweaks.md]: No Fast Travel
@@ -115,6 +122,7 @@ pub fn refusal(c: &Checks) -> Option<Refusal> {
         Refusal::Combat => c.combat,
         Refusal::HostilesNear => c.hostiles_near,
         Refusal::Encumbered => c.encumbered,
+        Refusal::CrippledLeg => c.crippled_leg,
     };
     Refusal::ALL.into_iter().find(|&r| applies(r))
 }
@@ -230,6 +238,7 @@ pub fn answer(
     mut script: Option<ResMut<ScriptState>>,
     (phys, location, actors, cues, world): Around,
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    limbs: Option<Res<crate::combat::PlayerLimbs>>,
 ) {
     let Some(&FastTravelAsk(marker)) = asks.read().last() else { return };
     let Some(mut st) = state else { return };
@@ -277,6 +286,7 @@ pub fn answer(
         combat: cues.is_some_and(|c| c.combat),
         hostiles_near: hostile.is_some(),
         encumbered,
+        crippled_leg: tw.no_travel_crippled_leg && limbs.as_ref().is_some_and(|l| l.limping()),
     };
     tweak_checks(&mut checks, &tw);
     st.popup = Some(match refusal(&checks) {
@@ -439,10 +449,11 @@ mod tests {
         let open = Checks { target: true, ..Checks::default() };
         assert_eq!(refusal(&open), None);
         assert_eq!(refusal(&Checks::default()), Some(Refusal::Undiscovered));
-        let all = Checks { target: true, script_block: true, place: true, in_air: true, combat: true, hostiles_near: true, encumbered: true };
+        let all = Checks { target: true, script_block: true, place: true, in_air: true, combat: true, hostiles_near: true, encumbered: true, crippled_leg: true };
         assert_eq!(refusal(&all), Some(Refusal::Script));
         assert_eq!(refusal(&Checks { script_block: false, place: false, ..all }), Some(Refusal::InAir));
         assert_eq!(refusal(&Checks { target: true, hostiles_near: true, ..Checks::default() }), Some(Refusal::HostilesNear));
+        assert_eq!(refusal(&Checks { target: true, crippled_leg: true, ..Checks::default() }), Some(Refusal::CrippledLeg), "the tweak's refusal, last");
     }
 
     #[test]

@@ -96,6 +96,12 @@ pub struct TweakSettings {
     /// `bPowerArmorScalesFallDamage`/`fFallDamageMult`: fall damage to anyone in power
     /// armour is multiplied by this; 1 changes nothing.
     pub power_armor_fall_damage: f32,
+    /// `bNoFastTravelIfLegsCrippled`: fast travel is refused with a crippled leg.
+    pub no_travel_crippled_leg: bool,
+    /// `bJumpingCostsAP`/`iJumpAPCost`: Action Points a jump costs; 0 changes nothing.
+    pub jump_ap_cost: f32,
+    /// `bRunningCostsAP`: Action Points running costs a second; 0 changes nothing.
+    pub run_ap_per_second: f32,
 }
 
 /// Whether `actor` wears power armour on the upper body.
@@ -146,6 +152,9 @@ impl Default for TweakSettings {
             sync_categories: false,
             no_travel_time: false,
             power_armor_fall_damage: 1.0,
+            no_travel_crippled_leg: false,
+            jump_ap_cost: 0.0,
+            run_ap_per_second: 0.0,
         }
     }
 }
@@ -222,6 +231,33 @@ macro_rules! weightless {
     };
 }
 
+/// A slider row for an amount from 0 to `$max` in twentieths, shown as a whole number,
+/// in the field `$($f).+` (of type `$t`).
+macro_rules! amount {
+    ($app:expr, $key:literal, $label:literal, $note:literal, $max:expr, $t:ty, $($f:ident).+) => {
+        add_setting(
+            $app,
+            Setting::slider(
+                concat!("tweak-", $key),
+                GROUP,
+                $label,
+                $note,
+                Slider {
+                    get: |w| w.get_resource::<TweakSettings>().map_or(0.0, |t| (t.$($f).+ as f32 / $max as f32).clamp(0.0, 1.0)),
+                    set: |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.$($f).+ = (v * $max as f32).round() as $t;
+                        }
+                    },
+                    min: 0.0,
+                    step: 0.05,
+                    shown: Some(|v| format!("{:.0}", v * $max as f32)),
+                },
+            ),
+        )
+    };
+}
+
 /// A slider row of the Tweaks tab for a part (0 to 100% in fives) in the field
 /// `$($f).+` of [`TweakSettings`].
 macro_rules! part {
@@ -253,7 +289,9 @@ pub struct TweaksPlugin;
 
 impl Plugin for TweaksPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<TweakSettings>().add_systems(Update, sync.in_set(crate::PlaySet::Input));
+        app.init_resource::<TweakSettings>()
+            .add_systems(Update, sync.in_set(crate::PlaySet::Input))
+            .add_systems(Update, ap_costs.after(crate::PlaySet::Input).after(crate::player::encumbered_walks).before(crate::PlaySet::Physics));
         // ---- experience ----
         add_setting(
             app,
@@ -397,11 +435,64 @@ impl Plugin for TweaksPlugin {
         weightless!(app, "weightless-misc", "Weightless Misc Items", "Misc items weigh nothing. (Stewie's Tweaks bWeightlessItems, bMisc)", fnv_sim::inventory::WEIGHTLESS_MISC);
         switch!(app, "weightless-worn-armor", "Worn Armor Weighs Nothing", "Armor weighs nothing while worn. (Stewie's Tweaks bWeightlessWornArmor)", game.weightless_worn_armor);
         switch!(app, "weightless-worn-power-armor", "Worn Power Armor Weighs Nothing", "Power armor weighs nothing while worn. (Stewie's Tweaks bWeightlessWornPowerArmor)", game.weightless_worn_power_armor);
+        // ---- batch 8 ----
+        switch!(app, "no-travel-crippled-leg", "No Travel on a Crippled Leg", "Fast travel is refused while a leg is crippled. (Stewie's Tweaks bNoFastTravelIfLegsCrippled)", no_travel_crippled_leg);
+        switch!(app, "wait-only-seated", "Wait Only When Seated", "Waiting is refused unless the player sits (god mode excepted). (Stewie's Tweaks bOnlyAllowWaitWhileSitting)", game.wait_only_seated);
+        amount!(app, "kill-reward-ap", "Action Points per Kill", "Action Points a kill by the player gives back; 0 changes nothing. (Stewie's Tweaks bKillsRewardAP)", 50.0, f64, game.kill_reward_ap);
+        amount!(app, "jump-ap-cost", "Action Points per Jump", "Action Points a jump costs; with too few the player cannot jump. 0 changes nothing. (Stewie's Tweaks bJumpingCostsAP)", 50.0, f32, jump_ap_cost);
+        amount!(app, "run-ap-cost", "Action Points per Second Running", "Action Points running costs each second; with none left the player walks. 0 changes nothing. (Stewie's Tweaks bRunningCostsAP)", 20.0, f32, run_ap_per_second);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
         switch!(app, "power-armor-no-training", "Power Armor Without Training", "Power armor can be worn without Power Armor Training. (Stewie's Tweaks bPowerArmorNeedsNoTraining)", game.power_armor_needs_no_training);
     }
+}
+
+/// The Action Point costs of jumping and running ([`TweakSettings::jump_ap_cost`],
+/// [`TweakSettings::run_ap_per_second`]) [design: docs/design/tweaks.md]: a jump is paid
+/// when asked for and refused without the points; running drains each frame and, with
+/// none left, the player walks. Not in god mode.
+fn ap_costs(
+    time: Res<Time>,
+    tweaks: Res<TweakSettings>,
+    mut intent: ResMut<crate::player::MoveIntent>,
+    mut script: Option<ResMut<ScriptState>>,
+    sim: Option<ResMut<crate::sim::SimState>>,
+    mut jumped: Local<bool>,
+) {
+    let (jump, run) = (tweaks.jump_ap_cost, tweaks.run_ap_per_second);
+    let asked = intent.jump;
+    let fresh_jump = asked && !*jumped;
+    *jumped = asked;
+    if (jump <= 0.0 && run <= 0.0) || crate::combat::god_mode() {
+        return;
+    }
+    let (Some(rt), Some(mut sim)) = (script.as_deref_mut().and_then(|s| s.rt.as_mut()), sim) else { return };
+    let running = (intent.forward != 0.0 || intent.right != 0.0) && !intent.walk && !intent.sneak;
+    let dt = time.delta_secs();
+    let intent = &mut *intent;
+    crate::script::with_world(rt, &mut sim, |rt| {
+        use fnv_game::actor_values::ACTION_POINTS;
+        let g = &mut rt.game;
+        let p = fnv_sim::FormId::PLAYER_REF;
+        let mut ap = fnv_game::functions::actor_value(g, p, ACTION_POINTS).unwrap_or(0.0);
+        if fresh_jump && jump > 0.0 {
+            if ap >= f64::from(jump) {
+                fnv_game::functions::add_actor_value_damage(g, p, ACTION_POINTS, f64::from(jump));
+                ap -= f64::from(jump);
+            } else {
+                intent.jump = false;
+                info!("tweaks: jump refused, {ap:.0} AP of {jump:.0}");
+            }
+        }
+        if running && run > 0.0 {
+            if ap > 0.0 {
+                fnv_game::functions::add_actor_value_damage(g, p, ACTION_POINTS, f64::from(run * dt).min(ap));
+            } else {
+                intent.walk = true;
+            }
+        }
+    });
 }
 
 /// Hand the game's part to the running game when it differs, and log the change.

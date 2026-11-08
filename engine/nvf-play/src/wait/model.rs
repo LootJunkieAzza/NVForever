@@ -275,10 +275,12 @@ pub enum Refusal {
     Trespassing,
     /// Sleeping only: the bed is someone else's.
     OwnedBed,
+    /// The player's Wait Only Seated tweak, and the player does not sit [design: docs/design/tweaks.md].
+    NotSeated,
 }
 
 impl Refusal {
-    pub const COUNT: usize = 8;
+    pub const COUNT: usize = 9;
     pub const ALL: [Refusal; Refusal::COUNT] = [
         Refusal::Forbidden,
         Refusal::UnderWater,
@@ -288,6 +290,7 @@ impl Refusal {
         Refusal::HostilesNear,
         Refusal::Trespassing,
         Refusal::OwnedBed,
+        Refusal::NotSeated,
     ];
 
     /// For the log.
@@ -301,6 +304,7 @@ impl Refusal {
             Refusal::HostilesNear => "enemies near",
             Refusal::Trespassing => "trespassing",
             Refusal::OwnedBed => "someone else's bed",
+            Refusal::NotSeated => "not seated (tweak)",
         }
     }
 }
@@ -324,6 +328,8 @@ pub struct RefusalWords {
     pub hostiles_wait: String,
     pub hostiles_sleep: String,
     pub owned_bed: String,
+    /// NVForever's own: no setting exists for the tweak's refusal.
+    pub not_seated: String,
 }
 
 impl Default for RefusalWords {
@@ -340,6 +346,7 @@ impl Default for RefusalWords {
             hostiles_wait: s("You cannot wait with enemies close by."),
             hostiles_sleep: s("You cannot sleep with enemies close by."),
             owned_bed: s("This bed belongs to someone else."),
+            not_seated: s("You can only wait while sitting down."),
         }
     }
 }
@@ -376,6 +383,7 @@ impl RefusalWords {
             (Refusal::HostilesNear, false) => &self.hostiles_wait,
             (Refusal::HostilesNear, true) => &self.hostiles_sleep,
             (Refusal::OwnedBed, _) => &self.owned_bed,
+            (Refusal::NotSeated, _) => &self.not_seated,
         }
     }
 }
