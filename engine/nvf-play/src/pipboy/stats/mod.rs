@@ -416,7 +416,8 @@ pub fn prepare(
     // it was the box's, so A closing a tutorial over Status > RAD uses no RadAway.
     let menu = src.script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.menu);
     let boxed = super::box_holds_keys(menu, input.tiles.as_deref());
-    let held = boxed || std::mem::replace(&mut mem.boxed, boxed);
+    let was = std::mem::replace(&mut mem.boxed, boxed);
+    let held = boxed || was;
     let Some(mut view) = view else {
         commands.init_resource::<StatsView>();
         return;
