@@ -4,7 +4,7 @@
 //! NVForever's, set out as on the mock-up the owner approved, 2026-10-16].
 
 use super::{PokerInput, PokerScreen, PokerView, Session, BIG_BLIND, PLAYER, SMALL_BLIND};
-use crate::interface::{amber, at, face, plain_font, set_line, Face};
+use crate::interface::{amber, at, face, plain_font, Face};
 use crate::pause::AidTime;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
@@ -55,6 +55,7 @@ enum Font {
 
 struct Ctx<'a> {
     kit: &'a Kit,
+    glyphs: &'a crate::pad::PadGlyphs,
 }
 
 impl Ctx<'_> {
@@ -77,9 +78,9 @@ impl Ctx<'_> {
     #[allow(clippy::too_many_arguments)]
     fn text(&self, p: &mut ChildSpawnerCommands, f: Font, s: &str, x: f32, top: f32, align: f32, color: Color) -> f32 {
         let (face, base) = self.face(f);
-        let line = self.line(f, s);
-        set_line(p, face, &line, x - line.width * align, top + base, color);
-        line.width
+        let width = crate::pad::hint_width(face, s, self.glyphs);
+        crate::pad::set_hint(p, face, s, x - width * align, top + base, color, self.glyphs);
+        width
     }
 }
 
@@ -166,6 +167,7 @@ pub fn draw(
     window: Query<&Window, With<PrimaryWindow>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
+    glyphs: Res<crate::pad::PadGlyphs>,
     roots: Query<Entity, With<PokerRoot>>,
     (mut kit, mut shown): (Local<Option<Kit>>, Local<Option<String>>),
 ) {
@@ -184,7 +186,7 @@ pub fn draw(
         glow: face(GLOW_FONT, plain_font(31.0, 12.0), data.as_deref(), &mut images, bc),
         plain: face(PLAIN_FONT, plain_font(36.0, 15.0), data.as_deref(), &mut images, bc),
     });
-    spawn(&mut commands, &Ctx { kit }, s, view.as_deref(), view_w);
+    spawn(&mut commands, &Ctx { kit, glyphs: &glyphs }, s, view.as_deref(), view_w);
 }
 
 fn spawn(commands: &mut Commands, c: &Ctx, s: &Session, view: Option<&PokerView>, view_w: f32) {

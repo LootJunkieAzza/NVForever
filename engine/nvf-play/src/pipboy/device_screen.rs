@@ -570,6 +570,7 @@ mod tests {
             .init_resource::<Kit>()
             .init_resource::<ScreenFx>()
             .init_resource::<Assets<Image>>()
+            .init_resource::<crate::pad::PadGlyphs>()
             .insert_resource(PipBoyScreen { image: Handle::default(), camera: Entity::PLACEHOLDER, on_model: true, pointer: None, scale: 1.0 })
             .add_systems(Update, (super::super::frame::draw, draw).chain());
         let mut pip = app.world_mut().resource_mut::<PipBoy>();
