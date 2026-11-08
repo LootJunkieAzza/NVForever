@@ -345,6 +345,17 @@ fn render_error(error: &bevy::render::error_handler::RenderError, main: &mut Wor
         crate::gpu_lost::lost(main, format!("the GPU device was lost (the graphics driver stopped it): {}", error.description));
         return RenderErrorPolicy::StopRendering;
     }
+    // Out of GPU memory: smaller textures, flushed caches, the recent textures made again,
+    // and on (memory_budget.rs); the errors the failed objects raise meanwhile are its.
+    let real_now = main.get_resource::<Time<Real>>().map_or(0.0, |t| t.elapsed_secs_f64());
+    if matches!(error.ty, ErrorType::OutOfMemory) && crate::memory_budget::out_of_memory(main, real_now) {
+        warn!("render: out of GPU memory, going on with smaller textures{}", crate::crash::place_text_suffix());
+        return RenderErrorPolicy::Ignore;
+    }
+    if matches!(error.ty, ErrorType::Validation) && crate::memory_budget::recovering(main, real_now) {
+        debug!("render: GPU validation error after running out of memory (an object that failed): {}", error.description);
+        return RenderErrorPolicy::Ignore;
+    }
     if matches!(error.ty, ErrorType::Validation) {
         let n = SEEN.fetch_add(1, Ordering::Relaxed) + 1;
         if n <= VALIDATION_ERRORS_LET_THROUGH {

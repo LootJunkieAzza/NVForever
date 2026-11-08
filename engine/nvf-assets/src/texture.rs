@@ -1,5 +1,12 @@
 //! DDS → GPU textures. Block-compressed data is uploaded as is (BC1/BC2/BC3 with its
 //! mip chain); the three uncompressed layouts are converted to RGBA8.
+//!
+//! **Side cap** ([`set_side_cap`], nvforever `memory_budget.rs`): on a GPU short of memory
+//! a texture larger than the cap is uploaded from the first of its own mip levels within
+//! the cap (the larger levels are left out, a quarter of the memory per level), so the
+//! picture is the file's own smaller level. Textures made before the cap changed keep
+//! their size; [`TextureCache::reload_since`] makes recent ones again (after the GPU ran
+//! out of memory). The interface's pictures are never capped ([`dds_image_full`]).
 
 use crate::data::GameData;
 use bevy::asset::RenderAssetUsages;
@@ -12,7 +19,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::asset::AssetHandleProvider;
 use fnv_dds::{to_rgba8, Dds, Format};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::atomic::{AtomicU16, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Loaded textures by (VFS path, sRGB); `None` remembers a failure.
@@ -30,6 +37,10 @@ pub struct TextureCache {
     /// Counts changes to `map`, so a copy of it for worker threads is made again only
     /// when it changed ([`Self::snapshot`]).
     generation: u64,
+    /// When each entry was made, as a count of loads ([`Self::load_count`]), by (path,
+    /// sRGB, clamped): which textures [`Self::reload_since`] makes again.
+    made: HashMap<(String, bool, bool), u64>,
+    loads: u64,
     pub failures: Vec<String>,
 }
 
@@ -134,20 +145,56 @@ pub fn sampler() -> ImageSampler {
     })
 }
 
-/// Build a GPU image from DDS bytes; `None` for cube maps, unsupported formats, or BC
-/// textures the device cannot sample.
-pub fn dds_image(bytes: &[u8], srgb: bool, bc_supported: bool) -> Result<Image, String> {
-    // A panic while decoding is this texture's failure, not the game's (guard.rs).
-    crate::guard::guarded(|| dds_image_unguarded(bytes, srgb, bc_supported))
+/// The largest side a world texture is made with from now on ([`MAX_TEXTURE_SIDE`]: no cap).
+static SIDE_CAP: AtomicU32 = AtomicU32::new(MAX_TEXTURE_SIDE);
+
+/// Cap the side of world textures made from now on (module notes); at least 64.
+pub fn set_side_cap(px: u32) {
+    SIDE_CAP.store(px.clamp(64, MAX_TEXTURE_SIDE), Ordering::Relaxed);
 }
 
-fn dds_image_unguarded(bytes: &[u8], srgb: bool, bc_supported: bool) -> Result<Image, String> {
+/// The side cap in force ([`set_side_cap`]).
+pub fn side_cap() -> u32 {
+    SIDE_CAP.load(Ordering::Relaxed)
+}
+
+/// How many of a `w`×`h` texture's `levels` mip levels to leave out so that its largest
+/// side is at most `cap`: never the last level, and for block-compressed data (`block`)
+/// only while the smaller level is still whole blocks.
+pub fn levels_to_skip(w: u32, h: u32, levels: usize, cap: u32, block: bool) -> usize {
+    let mut skip = 0;
+    while skip + 1 < levels && (w >> skip).max(h >> skip) > cap {
+        let (nw, nh) = (w >> (skip + 1), h >> (skip + 1));
+        if nw == 0 || nh == 0 || (block && (nw % 4 != 0 || nh % 4 != 0)) {
+            break;
+        }
+        skip += 1;
+    }
+    skip
+}
+
+/// Build a GPU image from DDS bytes, within the side cap ([`set_side_cap`]); `None` for
+/// cube maps, unsupported formats, or BC textures the device cannot sample.
+pub fn dds_image(bytes: &[u8], srgb: bool, bc_supported: bool) -> Result<Image, String> {
+    let cap = side_cap();
+    // A panic while decoding is this texture's failure, not the game's (guard.rs).
+    crate::guard::guarded(|| dds_image_unguarded(bytes, srgb, bc_supported, cap))
+}
+
+/// [`dds_image`] at the file's full size whatever the side cap (the interface's pictures).
+pub fn dds_image_full(bytes: &[u8], srgb: bool, bc_supported: bool) -> Result<Image, String> {
+    crate::guard::guarded(|| dds_image_unguarded(bytes, srgb, bc_supported, MAX_TEXTURE_SIDE))
+}
+
+fn dds_image_unguarded(bytes: &[u8], srgb: bool, bc_supported: bool, cap: u32) -> Result<Image, String> {
     let dds = Dds::parse(bytes).map_err(|e| e.to_string())?;
     if dds.header.is_cubemap() {
         return Err("cube map (not used by the viewer)".into());
     }
-    let (w, h) = (dds.header.width, dds.header.height);
-    let levels = &dds.levels[0];
+    let block = matches!(dds.format, Format::Dxt1 | Format::Dxt3 | Format::Dxt5 | Format::Bc7);
+    let skip = levels_to_skip(dds.header.width, dds.header.height, dds.levels[0].len(), cap, block);
+    let (w, h) = (dds.header.width >> skip, dds.header.height >> skip);
+    let levels = &dds.levels[0][skip..];
     let (format, data) = match dds.format {
         Format::Dxt1 | Format::Dxt3 | Format::Dxt5 | Format::Bc7 => {
             if !bc_supported {
@@ -298,6 +345,7 @@ impl TextureCache {
         let drop = idle.sweep_timed(now, entries, keep.secs, keep.max, |k| ids.get(k).and_then(|&id| hints.since(id)));
         for ((p, srgb, clamp), _) in &drop {
             (if *clamp { &mut self.clamped } else { &mut self.map }).remove(&(p.clone(), *srgb));
+            self.made.remove(&(p.clone(), *srgb, *clamp));
         }
         self.generation += u64::from(!drop.is_empty());
         drop.len()
@@ -313,6 +361,8 @@ impl TextureCache {
             let Some(image) = w.image.take() else { continue };
             if images.insert(w.handle.id(), image).is_ok() {
                 self.map.entry(key.clone()).or_insert_with(|| Some(w.handle.clone()));
+                self.loads += 1;
+                self.made.insert((key.0.clone(), key.1, false), self.loads);
                 n += 1;
             }
             w.stored_at = Some(now);
@@ -410,6 +460,8 @@ impl TextureCache {
                 }
                 let h = w.handle.clone();
                 drop(entries);
+                self.loads += 1;
+                self.made.insert((path.clone(), srgb, false), self.loads);
                 self.map.insert((path, srgb), Some(h.clone()));
                 self.generation += 1;
                 return Some(h);
@@ -437,9 +489,44 @@ impl TextureCache {
                 None
             }
         };
+        self.loads += 1;
+        self.made.insert((path.clone(), srgb, clamp), self.loads);
         (if clamp { &mut self.clamped } else { &mut self.map }).insert((path, srgb), handle.clone());
         self.generation += 1;
         handle
+    }
+
+    /// Textures made so far: [`Self::reload_since`] takes a count from here.
+    pub fn load_count(&self) -> u64 {
+        self.loads
+    }
+
+    /// Make again, within the side cap now in force, every texture held that was made after
+    /// `count` loads ([`Self::load_count`]), under the same handles (Bevy uploads each anew
+    /// and lets the old one go); the ids made again. After the GPU ran out of memory, the
+    /// textures made since may be the GPU's invalid ones.
+    pub fn reload_since(&mut self, count: u64, data: &GameData, images: &mut Assets<Image>, formats: Option<&CompressedImageFormatSupport>) -> Vec<AssetId<Image>> {
+        let bc = formats.is_none_or(|f| f.0.contains(CompressedImageFormats::BC));
+        let mut out = Vec::new();
+        for ((path, srgb, clamp), &n) in &self.made {
+            if n <= count {
+                continue;
+            }
+            let held = (if *clamp { &self.clamped } else { &self.map }).get(&(path.clone(), *srgb));
+            let Some(Some(h)) = held else { continue };
+            let Some(Ok(mut img)) = data.read(path).map(|b| dds_image(&b, *srgb, bc)) else { continue };
+            img.texture_descriptor.label = Some(folder_label(path));
+            if *clamp {
+                if let ImageSampler::Descriptor(d) = &mut img.sampler {
+                    d.address_mode_u = ImageAddressMode::ClampToEdge;
+                    d.address_mode_v = ImageAddressMode::ClampToEdge;
+                }
+            }
+            if images.insert(h.id(), img).is_ok() {
+                out.push(h.id());
+            }
+        }
+        out
     }
 }
 
@@ -538,7 +625,19 @@ pub fn texture_alpha_shares(raw_path: &str, data: &GameData) -> Option<AlphaShar
 #[cfg(test)]
 mod tests {
     use super::first_person_texture;
+    use super::levels_to_skip;
     use super::{alpha_shares, AlphaShares};
+
+    #[test]
+    fn a_capped_texture_starts_at_its_first_level_within_the_cap() {
+        assert_eq!(levels_to_skip(4096, 4096, 13, 1024, true), 2, "4096 to 1024: two levels left out");
+        assert_eq!(levels_to_skip(2048, 1024, 12, 1024, true), 1, "the larger side counts");
+        assert_eq!(levels_to_skip(1024, 1024, 11, 1024, true), 0, "within the cap: whole");
+        assert_eq!(levels_to_skip(4096, 4096, 1, 512, true), 0, "one level only: kept as it is");
+        assert_eq!(levels_to_skip(4096, 4096, 2, 512, true), 1, "never the last level");
+        assert_eq!(levels_to_skip(1028, 8, 3, 256, true), 0, "a smaller level not of whole blocks is not used");
+        assert_eq!(levels_to_skip(1028, 8, 3, 256, false), 2, "uncompressed: any size");
+    }
 
     /// A DDS file of one level: the header (fnv-dds layout) and `payload`.
     fn dds(fourcc: &[u8; 4], w: u32, h: u32, payload: &[u8]) -> Vec<u8> {

@@ -148,7 +148,7 @@ pub struct Face {
 /// ends do not run into each other.
 pub fn texture(path: &str, data: &GameData, images: &mut Assets<Image>, bc: bool) -> Option<(Handle<Image>, Vec2)> {
     let bytes = data.read(path)?;
-    match nvf_assets::texture::dds_image(&bytes, true, bc) {
+    match nvf_assets::texture::dds_image_full(&bytes, true, bc) {
         Ok(mut image) => {
             image.sampler = ImageSampler::linear();
             let size = image.size().as_vec2();
