@@ -18,7 +18,8 @@
 //! - **Knockdowns** (PushActorAway, explosions; unconscious.md §5) fall the same way,
 //!   the ragdoll thrown with the knockdown's velocity (`Game::take_shove`); a body
 //!   already lying that is pushed again is shoved as a hit shoves a corpse.
-//! - Killed while down: it stays a corpse.
+//! - Killed while down: it stays a corpse. Killed while getting up: it falls from the
+//!   get-up clip's pose as a fresh death does ([`fall`]).
 
 use crate::limbs::ActorRig;
 use crate::locomotion::{Dying, Flinch, Locomotion};
@@ -102,6 +103,42 @@ pub(crate) fn face_up(rig: &ActorRig, globals: &Query<&GlobalTransform>) -> Opti
     Some(front.z > 0.0)
 }
 
+/// The actor a [`fall`] drops: its reference, rig, clips, clothes and place.
+type Faller<'a> = (&'a RefVisual, &'a ActorRig, Option<&'a Locomotion>, Option<&'a crate::outfits::Dressed>, &'a GlobalTransform);
+
+/// A body falls from the pose it is in, as a fresh death in `deaths.rs` does: its ragdoll
+/// ([`Corpse`], thrown at `shove`) where the ground under it is loaded, else its death
+/// pose from the first frame, else it is laid on its back about its feet. Returns its
+/// [`Dying`], its ragdoll and how it fell (for the log).
+fn fall(
+    data: Option<&GameData>,
+    ragdolls: &mut Ragdolls,
+    phys: Option<&PhysState>,
+    actor_world: Option<&crate::actors::ActorWorld>,
+    (r, rig, lo, dressed, gt): Faller,
+    t: &mut Transform,
+    shove: Option<[f32; 3]>,
+) -> (Dying, Option<Corpse>, &'static str) {
+    let templates = crate::ragdoll::worn_templates(actor_world, dressed.map_or(&[][..], |d| &d.worn));
+    let mut body = data.and_then(|d| ragdolls.corpse(d, rig, &templates));
+    if let (Some(b), Some(v)) = (body.as_mut(), shove) {
+        b.velocity = v;
+    }
+    let falls = body.is_some() && phys.is_some_and(|p| p.ready_at(nvf_play::space::to_game(gt.translation())));
+    let clip = lo.filter(|lo| !falls && !lo.set.death.is_empty()).map(|lo| lo.set.death[(r.0 as usize) % lo.set.death.len()].clone());
+    if clip.is_none() && !falls {
+        t.rotate_local_x(-std::f32::consts::FRAC_PI_2);
+    }
+    let how = if falls {
+        "ragdoll"
+    } else if clip.is_some() {
+        "death pose"
+    } else {
+        "laid down"
+    };
+    (Dying { clip, t: 0.0 }, body, how)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn show_knockouts(
     time: Res<Time>,
@@ -129,25 +166,17 @@ fn show_knockouts(
             if !down || dying || rt.game.is_dead(id) {
                 continue;
             }
-            let templates = crate::ragdoll::worn_templates(actor_world.as_deref(), dressed.map_or(&[][..], |d| &d.worn));
-            let mut body = data.as_deref().and_then(|d| ragdolls.corpse(d, rig, &templates));
-            if let Some(v) = rt.game.take_shove(id) {
-                if let Some(b) = body.as_mut() {
-                    b.velocity = v;
-                }
+            let stood = *t;
+            let shove = rt.game.take_shove(id);
+            if let Some(v) = shove {
                 info!("knockout: {:08X} thrown at ({:.0}, {:.0}, {:.0}) units/s", r.0, v[0], v[1], v[2]);
             }
-            let falls = body.is_some() && phys.as_deref().is_some_and(|p| p.ready_at(nvf_play::space::to_game(gt.translation())));
-            let clip = lo.filter(|lo| !falls && !lo.set.death.is_empty()).map(|lo| lo.set.death[(r.0 as usize) % lo.set.death.len()].clone());
-            let stood = *t;
-            if clip.is_none() && !falls {
-                t.rotate_local_x(-std::f32::consts::FRAC_PI_2);
-            }
-            info!("knockout: {:08X} falls ({})", r.0, if falls { "ragdoll" } else if clip.is_some() { "death pose" } else { "laid down" });
+            let (dying, body, how) = fall(data.as_deref(), &mut ragdolls, phys.as_deref(), actor_world.as_deref(), (r, rig, lo, dressed, gt), &mut t, shove);
+            info!("knockout: {:08X} falls ({how})", r.0);
             shows.fell += 1;
-            shows.ragdolls += usize::from(falls);
+            shows.ragdolls += usize::from(how == "ragdoll");
             let mut ec = commands.entity(e);
-            ec.insert((Dying { clip, t: 0.0 }, KnockedOut { stood, face_up: None, phase: Phase::Down }));
+            ec.insert((dying, KnockedOut { stood, face_up: None, phase: Phase::Down }));
             ec.remove::<Flinch>();
             if let Some(c) = body {
                 ec.insert(c);
@@ -155,8 +184,21 @@ fn show_knockouts(
             continue;
         };
         if rt.game.is_dead(id) {
-            // Killed while down: a corpse from here on.
-            commands.entity(e).remove::<KnockedOut>();
+            // Killed while down: a corpse from here on. Killed while getting up (its ragdoll
+            // gone, the get-up clip on the bones): it falls from the pose it is in, as a
+            // fresh death does; `deaths.rs` leaves an actor with a `Dying` alone, so
+            // without this it held the get-up clip's pose, dead and standing (the owner's
+            // overnight queue item 78).
+            let mut ec = commands.entity(e);
+            ec.remove::<KnockedOut>();
+            if !matches!(ko.phase, Phase::Down) {
+                let (dying, body, how) = fall(data.as_deref(), &mut ragdolls, phys.as_deref(), actor_world.as_deref(), (r, rig, lo, dressed, gt), &mut t, None);
+                info!("knockout: {:08X} killed while getting up: falls ({how})", r.0);
+                ec.insert(dying);
+                if let Some(c) = body {
+                    ec.insert(c);
+                }
+            }
             continue;
         }
         match ko.phase {

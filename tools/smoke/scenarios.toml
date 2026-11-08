@@ -8697,6 +8697,27 @@ expect = [
 ]
 
 [[scenario]]
+name = "killed-while-getting-up"
+source = "owner's overnight queue item 78 (2026-11-07): a Gambler on the Strip died and stayed standing, frozen in a crouch, with no ragdoll; an actor killed while it plays its get-up clip after a knockdown was left in that clip's pose (deaths.rs passes over an actor with a Dying), and now falls from it as a fresh death does (knockouts.rs)"
+note = "in Goodsprings, Easy Pete (not essential) is brought 300 units north of the player at 14 s; at 16 s the player pushes him over (PushActorAway, force 10): he drops as a ragdoll and gets up about 2.5 s later with a 2 s get-up clip; at 19.5 s, in that clip, the player kills him"
+areas = ["combat", "knockouts", "ragdoll"]
+paths = ["engine/nvforever/src/knockouts.rs", "engine/nvforever/src/deaths.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvf-play/src/knockouts.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:moveto:EasyPeteRef:player:0:300:0", NVF_PLAY_TEST_CONSOLE = "16:player.pushactoraway EasyPeteRef 10;16.3:close", NVF_PLAY_TEST_HIT = "19.5:EasyPeteRef:500" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 28
+order = [[
+  "console: > player.pushactoraway EasyPeteRef 10",
+  { re = 'knockout: [0-9A-F]{8} falls \(ragdoll\)', label = "he drops as a ragdoll" },
+  { re = 'knockout: [0-9A-F]{8} gets up face (up|down) \([\d.]+ s clip\)', label = "he starts his get-up clip" },
+  { re = 'combat: Easy Pete \S+ killed', label = "the player kills him" },
+  { re = 'knockout: [0-9A-F]{8} killed while getting up: falls \(ragdoll\)', label = "killed in the get-up clip, he falls as a ragdoll" },
+  { re = 'ragdoll: actor [0-9A-F]{8} at rest at', label = "the body comes to rest" },
+]]
+expect = [
+  { re = 'knockout: [0-9A-F]{8} is up: it may move again', count = 0, label = "the dead do not finish getting up" },
+]
+
+[[scenario]]
 name = "novac-brahmin-gate"
 source = "Owner 2026-10-17: a Novac pack brahmin could not get through the open chain-link gate by the motel (CLFenceGate01 0008EF2F); owner 2026-10-24: it ran at every start and swapped between run and walk"
 areas = ["navigation"]
