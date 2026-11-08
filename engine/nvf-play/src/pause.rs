@@ -2196,12 +2196,11 @@ fn choose(
                     info!("pause menu: mods page");
                     *page = Page::Mods;
                 }
-                Some(Entry::Continue) => {
-                    if !resume.pending() {
-                        commands.queue(request_resume);
-                    }
+                Some(Entry::Continue) if !resume.pending() => {
+                    commands.queue(request_resume);
                 }
-                None => {}
+                // Continue while a resume is already pending does nothing, as no choice does.
+                Some(Entry::Continue) | None => {}
             }
         }
         Page::Settings { selected } => {
