@@ -119,6 +119,12 @@ pub struct PhysState {
     /// How far the player's body and view are drawn above where its feet and drawn
     /// ground put them, after a step or a bump ([`step_lift::StepLift`]).
     pub player_lift: step_lift::StepLift,
+    /// The horizontal speed the player's controls ask for at the last physics step, game
+    /// units per second (the controls' velocity before anything blocked it; 0 swimming,
+    /// on auto-walk or with the controls idle). The body's movement clips play at it: a
+    /// player running into a wall or up a slope too steep runs on the spot at the pace
+    /// asked for (`nvforever::player_body`).
+    pub player_wish: f32,
     /// The height of each living actor's drawn bounds, game units, as `crate::hitvol`
     /// last measured them: an actor's character is made this tall ([`PhysState::add_npc`]).
     pub actor_heights: HashMap<u32, f32>,
@@ -196,6 +202,7 @@ impl Default for PhysState {
             drawn: HashMap::new(),
             player_sink: 0.0,
             player_lift: step_lift::StepLift::default(),
+            player_wish: 0.0,
             actor_heights: HashMap::new(),
             standing: HashMap::new(),
             stats: PhysStats::default(),

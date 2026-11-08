@@ -1526,7 +1526,9 @@ struct Frame {
     upright: bool,
     /// Block held.
     aiming: bool,
-    speed: f32,
+    /// The speed the movement clips are paced at: the one the controls ask for on the
+    /// ground, else the measured speed.
+    pace: f32,
     /// The attack and reload clips of the weapon, and whether each starts this frame.
     attack: Option<&'static str>,
     reload: Option<&'static str>,
@@ -1863,9 +1865,10 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         (l.rate, l.time) = (0.0, *t);
     }
     a.end();
-    // Movement clips play at the speed the character actually moves [hypothesis: the
-    // game matches the clip's root motion to the ground speed].
-    let rate = if expected_speed > 1.0 { (f.speed / expected_speed).clamp(0.25, 2.5) } else { 1.0 };
+    // Movement clips play at the speed the character moves at, as the controls ask for
+    // it on the ground (`Frame::pace`) [hypothesis: the game matches the clip's root
+    // motion to the speed].
+    let rate = if expected_speed > 1.0 { (f.pace / expected_speed).clamp(0.25, 2.5) } else { 1.0 };
     let attack_time = |a: &Animator| {
         let (clip, _) = rig.attack_eject.as_ref()?;
         a.layers.iter().find(|l| l.tag == TAG_ATTACK && Arc::ptr_eq(&l.clip, clip)).map(|l| l.time)
@@ -2668,7 +2671,12 @@ fn drive_body(
         // 2026-10-16, "the players own body standing over themselves"].
         upright: own_body && !third_view && body.first.is_some() && idles.held.is_none(),
         aiming: control.aiming,
-        speed: m.speed,
+        // On the ground, the pace the controls ask for: blocked by a wall or slowed by a
+        // slope too steep, the legs run on at that pace instead of shuffling at a
+        // quarter of it (overnight item 93: JAM's sprint ended against the climb to the
+        // Mojave Outpost and the run clip crept at its slowest rate) [hypothesis: the
+        // original runs on the spot against a wall; not measured].
+        pace: if grounded && !swimming && phys.player_wish > 1.0 { phys.player_wish } else { m.speed },
         attack: Some(attack),
         reload,
         jam,

@@ -1222,6 +1222,7 @@ fn step(
         let blocks_span = info_span!("phys::blocks").entered();
         let mut listed = None;
         let mut go = [vx, vy];
+        p.player_wish = vx.hypot(vy);
         let mut walking: Vec<[f32; 2]> = p.npcs.values().map(|b| b.velocity).collect();
         let mut pushed = [0.0f32; 2];
         c.passes_characters = blocks.is_some();
