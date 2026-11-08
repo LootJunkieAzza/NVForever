@@ -681,3 +681,17 @@ affinity already set, left alone`, `cpu placement: off by setting (...)`; smoke 
 same rules). Putting the background threads (generated-terrain bake, read pool) on the
 other domain with `SetThreadSelectedCpuSets`, leaving the cache domain to the main,
 render and compute threads [hypothesis]. A row on the settings page.
+
+## 7. Terrain texture layers drawn only where they paint (#1886, 2026-11-08)
+
+Measured on a Ryzen 7 7700X with an RTX 3070 (Vulkan) at 2560 × 1440, the owner's
+settings (4x MSAA, ambient occlusion, longer shadows, bloom, light glow, sun shafts, sun
+shadows), vsync off, `--no-actors` unless said. The owner's outdoor frame rate:
+Goodsprings at noon runs at about 90 fps where interiors reach the 180 fps vsync cap.
+
+In `terrain.rs` (`quadrant_mesh`), each texture layer of a quadrant was a blended copy of
+the whole 17 × 17 grid, drawn at full size even where its opacity is 0. A layer mesh now keeps only the triangles with a corner
+the layer paints, and a layer that paints nothing has no mesh. The picture is the same:
+screenshots differ from main by less than two runs of main differ from each other.
+[observed] The blended pass took 1.2 → 0.74 ms looking at the town and 1.7 → 0.48 ms
+looking at the ground; the frame took 10.2 → 9.7 ms and 7.6 → 6.4 ms.
