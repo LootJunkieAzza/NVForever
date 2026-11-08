@@ -432,16 +432,25 @@ mod tests {
 
                 // The reference itself, on a few frames, so the comparison is not vacuous.
                 let e = &fu.e;
+                let at = format!("reference app, frame {n} (material mark first: {mark_first})");
                 match n {
                     2 => {
-                        assert_eq!(expected.specialize, sorted(vec![e[0], e[1]]));
-                        assert_eq!(expected.mesh_changed, sorted(vec![e[0], e[1], e[4]]));
+                        assert_eq!(expected.specialize, sorted(vec![e[0], e[1]]), "{at}");
+                        assert_eq!(expected.mesh_changed, sorted(vec![e[0], e[1], e[4]]), "{at}");
                     }
-                    3 => assert_eq!(expected.specialize, sorted(vec![e[2], e[6]])),
-                    5 | 16 | 25 => assert_eq!(expected, Frame::default(), "frame {n}"),
-                    17 => assert_eq!(expected.specialize, sorted(vec![e[7], e[8]])),
-                    20 => assert_eq!(expected.specialize.len(), 50 + 2),
-                    28 => assert_eq!(expected.specialize, sorted(vec![e[2], e[3]])),
+                    3 => assert_eq!(expected.specialize, sorted(vec![e[2], e[6]]), "{at}"),
+                    5 | 16 => assert_eq!(expected, Frame::default(), "{at}"),
+                    // Frame 24 modified s0. With the check first, the material mark sets the
+                    // `Mesh3d` of s0's holders changed after the check ran, so the check sees
+                    // that a frame later: bulk[0] (e0, the other holder, has no `Mesh3d`).
+                    // With the mark first, the check saw it in frame 24 already.
+                    25 => {
+                        let carried = if mark_first { vec![] } else { vec![fu.bulk[0]] };
+                        assert_eq!(expected, Frame { specialize: carried, ..Frame::default() }, "{at}");
+                    }
+                    17 => assert_eq!(expected.specialize, sorted(vec![e[7], e[8]]), "{at}"),
+                    20 => assert_eq!(expected.specialize.len(), 50 + 2, "{at}"),
+                    28 => assert_eq!(expected.specialize, sorted(vec![e[2], e[3]]), "{at}"),
                     _ => {}
                 }
             }
