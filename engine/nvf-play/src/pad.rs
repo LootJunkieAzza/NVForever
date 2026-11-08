@@ -369,8 +369,9 @@ impl Glyph {
                 arm1.min(arm2)
             }
             Glyph::Circle => {
-                // A ring: outer radius `outer`, the band `thickness` wide.
-                let (outer, thickness) = (0.68, 0.17);
+                // A ring: outer radius `outer`, the band `thickness` wide (the ring the
+                // labelled buttons use too, so the family stays one height and weight).
+                let (outer, thickness) = (RING_OUTER, RING_STROKE);
                 (p.length() - outer).max(outer - thickness - p.length())
             }
             Glyph::Square => {
@@ -400,16 +401,7 @@ impl Glyph {
         let p = (Vec2::new(x as f32 + 0.5, y as f32 + 0.5) - Vec2::splat(half)) / half;
         // The signed distance, normalized to the picture's half side, negative inside the
         // ink.
-        let d = self.distance(p);
-        // A solid core with a narrow soft edge: the font's stroke holds a solid band, so
-        // the glyph must too, or it reads as blurred rather than lit. The ramp is narrower
-        // than the stroke, so the thinner strokes above keep a solid core.
-        let x = ((d + 0.02) / 0.12).clamp(0.0, 1.0);
-        let body = 1.0 - x * x * (3.0 - 2.0 * x);
-        // A faint amber halo outside the body, the glow the fonts bake in. It fades out
-        // before the picture's edge so the tile's boundary never shows.
-        let halo = if d > 0.0 { 0.22 * (1.0 - d / 0.30).max(0.0) } else { 0.0 };
-        (body + halo).clamp(0.0, 1.0)
+        glyph_coverage(self.distance(p))
     }
 
     /// The glyph as a white picture, its ink in the alpha (tinted by the node's colour).
@@ -487,8 +479,8 @@ pub struct FontImage<'a> {
 }
 
 /// The ring glyphs' outer half height and stroke, in the face glyphs' units (the tile's
-/// half side is 1): the same measures the face circle and square use, so all twelve
-/// glyphs sit on one visual height with one stroke weight [design, #1829].
+/// half side is 1): the same measures the face circle uses, so all twelve glyphs sit on
+/// one visual height with one stroke weight [design, #1829].
 const RING_OUTER: f32 = 0.68;
 const RING_STROKE: f32 = 0.17;
 /// How far a glyph's glow reaches past its ring, in the face glyphs' units (the tile's
@@ -527,7 +519,8 @@ fn circle_ring(p: Vec2, outer: f32, stroke: f32) -> f32 {
 /// The glyph ink's coverage (0 to 1) at a signed distance `d` (negative inside the ink),
 /// in the face glyphs' units: a solid core with a narrow soft edge and a faint amber
 /// halo, matching the game's fonts, which bake their glow into the glyph bitmaps [design,
-/// matched by eye to font 7].
+/// matched by eye to font 7]. One place, so the face pictures and the labelled buttons'
+/// rings glow alike.
 fn glyph_coverage(d: f32) -> f32 {
     let x = ((d + 0.02) / 0.12).clamp(0.0, 1.0);
     let body = 1.0 - x * x * (3.0 - 2.0 * x);
@@ -581,6 +574,11 @@ fn composite_label(data: &mut [u8], w: u32, h: u32, glyph: Glyph, font: &FontIma
         let dh = (g.height * scale).ceil() as i32;
         let sx0 = g.uv[0] * tex_w as f32;
         let sy0 = g.uv[1] * tex_h as f32;
+        // The atlas may hold more texels than the `.fnt`'s metrics count (a mod's font
+        // enters its pictures at another resolution), so a label steps across each glyph's
+        // own `uv` rectangle rather than one texel per metric unit.
+        let step_x = (g.uv[2] - g.uv[0]) * tex_w as f32 / g.width;
+        let step_y = (g.uv[3] - g.uv[1]) * tex_h as f32 / g.height;
         for ly in 0..dh {
             for lx in 0..dw {
                 let dx = (dx0 + lx as f32).floor() as i32;
@@ -588,7 +586,7 @@ fn composite_label(data: &mut [u8], w: u32, h: u32, glyph: Glyph, font: &FontIma
                 if dx < 0 || dy < 0 || dx >= w as i32 || dy >= h as i32 {
                     continue;
                 }
-                let a = box_alpha(tex, tex_w, tex_h, sx0 + lx as f32 / scale, sy0 + ly as f32 / scale, 1.0 / scale, 1.0 / scale);
+                let a = box_alpha(tex, tex_w, tex_h, sx0 + lx as f32 / scale * step_x, sy0 + ly as f32 / scale * step_y, step_x / scale, step_y / scale);
                 if a <= 0.0 {
                     continue;
                 }
@@ -670,13 +668,24 @@ impl PadGlyphs {
     /// Build the twelve pictures: the four face symbols and, from the HUD's font 7, the
     /// eight labelled buttons.
     fn load(data: &nvf_assets::GameData, images: &mut Assets<Image>, bc: bool) -> PadGlyphs {
+        use bevy::render::render_resource::TextureFormat;
         let mut glyphs = PadGlyphs::default();
         for (i, g) in Glyph::FACES.iter().enumerate() {
             glyphs.images[i] = Some(images.add(g.image(GLYPH_PIXELS)));
         }
         // The labelled buttons' labels come from the HUD's font (the crosshair's).
         let face = crate::interface::face(FONT7, crate::interface::plain_font(36.0, 17.0), Some(data), images, bc);
-        let tex = face.image.as_ref().and_then(|(h, _)| images.get(h)).and_then(|t| t.data.clone().map(|d| (d, t.width(), t.height())));
+        // The rasterizer reads the texture as four-byte RGBA texels. A font the adapter kept
+        // block-compressed (a mod's, or a localized install's own file) cannot be read that
+        // way, so those buttons keep their names as text rather than indexing out of bounds.
+        let tex = face.image.as_ref().and_then(|(h, _)| images.get(h)).and_then(|t| {
+            let format = t.texture_descriptor.format;
+            if !matches!(format, TextureFormat::Rgba8Unorm | TextureFormat::Rgba8UnormSrgb) {
+                warn!("pad: the glyph font's texture is {format:?}, not RGBA8; the labelled buttons stay text");
+                return None;
+            }
+            Some((t.data.clone()?, t.width(), t.height()))
+        });
         if let Some((rgba, tw, th)) = tex {
             let font = FontImage { font: &face.font, tex: &rgba, tex_w: tw, tex_h: th };
             for (i, g) in Glyph::LABELED.iter().enumerate() {
@@ -746,15 +755,15 @@ pub fn hint_width(face: &crate::interface::Face, hint: &str, glyphs: &PadGlyphs)
 pub fn hint_width_font(font: &fnv_font::Font, hint: &str, glyphs: &PadGlyphs) -> f32 {
     let width = |s: &str| font.lines(s, None).into_iter().next().map_or(0.0, |l| l.width);
     let (glyph, before, after) = hint_parts(hint);
-    let glyph_w = glyph.map_or(0.0, |g| HINT_GLYPH_GAP + glyphs.image(g).map_or_else(|| width(g.name()), |(_, aspect)| font.size * glyph_share(g) * aspect));
+    let glyph_w = glyph.map_or(0.0, |g| HINT_GLYPH_GAP + glyph_drawn(g, font.size, glyphs).map_or_else(|| width(g.name()), |(_, w, _)| w));
     width(before) + glyph_w + width(after)
 }
 
 /// The width [`set_button`] draws a bare button `name` in.
 pub fn button_width(face: &crate::interface::Face, name: &str, glyphs: &PadGlyphs) -> f32 {
     let text_w = || face.font.lines(name, None).into_iter().next().map_or(0.0, |l| l.width);
-    match Glyph::named(name).and_then(|g| glyphs.image(g).map(|(_, aspect)| (g, aspect))) {
-        Some((g, aspect)) => face.font.size * glyph_share(g) * aspect,
+    match Glyph::named(name).and_then(|g| glyph_drawn(g, face.font.size, glyphs)) {
+        Some((_, w, _)) => w,
         None => text_w(),
     }
 }
@@ -794,10 +803,8 @@ pub fn set_hint_marked(
     let mut width = before.width;
     if let Some(g) = glyph {
         width += HINT_GLYPH_GAP;
-        match glyphs.image(g) {
-            Some((image, aspect)) => {
-                let side = face.font.size * glyph_share(g);
-                let w = side * aspect;
+        match glyph_drawn(g, face.font.size, glyphs) {
+            Some((image, w, side)) => {
                 let corner = Vec2::new(x + width, base - crate::interface::x_height(face) / 2.0 - side / 2.0);
                 p.spawn((crate::interface::at(corner.x, corner.y, w, side), ImageNode { color, ..ImageNode::new(image) }, mark.clone()));
                 width += w;
@@ -826,10 +833,8 @@ pub fn set_button(
     color: Color,
     glyphs: &PadGlyphs,
 ) -> f32 {
-    match Glyph::named(name).and_then(|g| glyphs.image(g).map(|(image, aspect)| (g, image, aspect))) {
-        Some((g, image, aspect)) => {
-            let side = face.font.size * glyph_share(g);
-            let w = side * aspect;
+    match Glyph::named(name).and_then(|g| glyph_drawn(g, face.font.size, glyphs)) {
+        Some((image, w, side)) => {
             let corner = Vec2::new(x, base - crate::interface::x_height(face) / 2.0 - side / 2.0);
             p.spawn((crate::interface::at(corner.x, corner.y, w, side), ImageNode { color, ..ImageNode::new(image) }));
             w
@@ -840,6 +845,16 @@ pub fn set_button(
             line.width
         }
     }
+}
+
+/// The picture of a hint's glyph and the width and height it is drawn at, for a font of
+/// `size`; `None` until the pictures are loaded. One place, so a caller that measures
+/// ([`hint_width`], [`button_width`]) and one that draws ([`set_hint`], [`set_button`])
+/// cannot disagree about the size.
+fn glyph_drawn(glyph: Glyph, size: f32, glyphs: &PadGlyphs) -> Option<(Handle<Image>, f32, f32)> {
+    let (image, aspect) = glyphs.image(glyph)?;
+    let side = size * glyph_share(glyph);
+    Some((image, side * aspect, side))
 }
 
 /// How tall a hint's glyph is drawn, as a share of the font's size: the face symbols sit
@@ -1571,6 +1586,35 @@ mod tests {
             assert!(!g.is_face() && g.label().is_some());
             assert_eq!(g.is_knob(), matches!(g, Glyph::L3 | Glyph::R3));
         }
+    }
+
+    /// #1829 review: a mod's font may hold more texels than its `.fnt` metrics count, so a
+    /// label must be sampled across the glyph's own `uv` rectangle — not one texel per
+    /// metric unit, which reads only the rectangle's top-left part.
+    #[test]
+    fn a_labels_ink_is_sampled_across_its_glyphs_uv_rectangle() {
+        // Each printable glyph is 2x2 units over texels (2..6, 4..8) of an 8x8 atlas:
+        // twice the texture scale of its metrics. Ink only in the rectangle's rightmost
+        // texel column (x 5), which one texel per unit never reaches.
+        let mut glyphs = vec![fnv_font::Glyph::default(); 256];
+        for g in glyphs.iter_mut().take(127).skip(33) {
+            *g = fnv_font::Glyph { uv: [0.25, 0.5, 0.75, 1.0], width: 2.0, height: 2.0, before: 0.0, after: 1.0, ascent: 2.0 };
+        }
+        let font = fnv_font::Font { size: 4.0, texture: String::new(), glyphs };
+        let mut tex = vec![0u8; 8 * 8 * 4];
+        for y in 4..8 {
+            tex[((y * 8 + 5) * 4 + 3) as usize] = 255;
+        }
+        let face = FontImage { font: &font, tex: &tex, tex_w: 8, tex_h: 8 };
+        let img = Glyph::L1.labeled_image(&face);
+        let (w, h) = (img.width(), img.height());
+        let data = img.data.as_ref().unwrap();
+        let a = |x: u32, y: u32| data[((y * w + x) * 4 + 3) as usize];
+        assert_eq!(h, 64);
+        assert!(w >= 44, "{w}");
+        // The label's ink, in the ring's hole (the ring stays clear there).
+        let ink: u32 = (30..34).map(|y| ((w / 2) - 6..(w / 2) + 6).map(|x| a(x, y) as u32).sum::<u32>()).sum();
+        assert!(ink > 0, "the whole uv rectangle is sampled: {ink}");
     }
 
     #[test]
