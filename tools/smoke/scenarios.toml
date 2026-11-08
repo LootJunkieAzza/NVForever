@@ -4084,6 +4084,22 @@ order = [[
 ]]
 
 [[scenario]]
+name = "pipboy-data-objectives-scroll"
+source = "#1667 (docs/spec-notes/pipboy.md §5.3): on the DATA page the right pane, a quest's objectives (Quests) and a note's text (Misc), scrolls by Page Up/Page Down (a controller's LB/RB) as one scroll, held at its top and bottom"
+note = "VCG02's objective 3 is shown at 3 s so the Quests list has a quest (the page selects the active one); VMQ01CourierNote (a text note) is added at 8 s and is the only note, so Misc shows it. Page Down then Page Up on each tab; a page down past the end stops at the bottom (when the objectives are shorter than a page, at what they can scroll, 0 when they fit), a page up at the top. The right stick's scroll has unit tests only: the test aids press no controller stick."
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy/data.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:objective:VCG02:3", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01CourierNote;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=2,18:tab=3,22:close", NVF_PLAY_TEST_KEYS = "15:pagedown,16:pageup,19:pagedown,20:pageup" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--size", "1280x720", "--no-voice", "--no-messages"]
+run_seconds = 28
+order = [[
+  { re = 'pipboy data: objectives scrolled from 0 to (\d+) of \1\b', label = "pipboy data: Page Down scrolls the objectives, held at their end" },
+  { re = 'pipboy data: objectives scrolled from \d+ to 0 of \d+', label = "pipboy data: Page Up scrolls the objectives back, held at their top" },
+  "pipboy data: note text scrolled from 0 to … of …",
+  { re = 'pipboy data: note text scrolled from \d+ to 0 of \d+', label = "pipboy data: Page Up scrolls the note back, held at its top" },
+]]
+
+[[scenario]]
 name = "terminal-submenu-back"
 source = "[design] #1328 review: Back from a terminal's sub menu lists the parent's own items again, with their lines (MenuView.labels, engine/nvf-play/src/terminal.rs `list`)"
 note = "V21SheldonTerminal (0011E3BF, unlocked) placed as 0011E3C3 in 2EOMichaelAngelo: one item, Sheldon Weintraub's Mail, opening V21SheldonTerminalMail (Messages, Sent Mail) [observed: FalloutNV.esm TERM records]"
