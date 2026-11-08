@@ -39,8 +39,10 @@
 //! - Mesh slabs are at most [`slab_max_for`] (a slab growing holds its old and new buffers
 //!   at once: the 291.9 MiB allocation before one crash was one), and the allocator keeps
 //!   no emptied blocks ([`keep_empty_blocks_for`]) on a small budget.
-//! - No allocation may pass the budget: wgpu refuses it as out of memory (main.rs,
-//!   `MemoryBudgetThresholds::for_resource_creation`). An out-of-memory error
+//! - wgpu's own budget threshold (`MemoryBudgetThresholds::for_resource_creation`) is
+//!   not used (queue item 99, main.rs): it judged upload buffers against the small BAR
+//!   heap of a card without Resizable BAR and lost the device. The heaps are logged at
+//!   the start (`memory budget: GPU heaps: …`). An out-of-memory error
 //!   ([`out_of_memory`], from crash.rs) halves the cap once more, flushes the caches and
 //!   makes the recent textures again, and the game goes on, up to [`OOM_RETRIES`] times a
 //!   minute; then it closes as before (gpu_lost.rs).
@@ -241,6 +243,56 @@ fn read_heaps(device: &RenderDevice) -> Result<Vec<Heap>, String> {
     Ok(heaps.map(|(i, h)| Heap { device_local: h.flags.contains(vk::MemoryHeapFlags::DEVICE_LOCAL), budget: budget.heap_budget[i], usage: budget.heap_usage[i] }).collect())
 }
 
+/// The device's memory heaps and types, for the log: each heap's size, budget and this
+/// process's use, and its memory types (D device-local, V host-visible, C coherent,
+/// $ cached). A host-visible device-local heap under 1 GB is the small BAR window of a
+/// card without Resizable BAR (queue item 99).
+fn heap_layout(device: &RenderDevice) -> Result<String, String> {
+    use ash::vk;
+    let wgpu_device = device.wgpu_device();
+    // SAFETY: as `read_heaps`.
+    let Some(hal) = (unsafe { wgpu_device.as_hal::<wgpu::hal::api::Vulkan>() }) else {
+        return Err("not the Vulkan backend".into());
+    };
+    let instance = hal.shared_instance().raw_instance();
+    let has_budget = hal.enabled_device_extensions().contains(&ash::ext::memory_budget::NAME);
+    let mut budget = vk::PhysicalDeviceMemoryBudgetPropertiesEXT::default();
+    let mut props = vk::PhysicalDeviceMemoryProperties2::default();
+    if has_budget {
+        props = props.push_next(&mut budget);
+    }
+    // SAFETY: as `read_heaps`; the budget struct is chained only with the extension.
+    unsafe { instance.get_physical_device_memory_properties2(hal.raw_physical_device(), &mut props) };
+    let mp = props.memory_properties;
+    let types = &mp.memory_types[..mp.memory_type_count as usize];
+    let mut out = Vec::new();
+    let mut small_bar = None;
+    for (h, heap) in mp.memory_heaps[..mp.memory_heap_count as usize].iter().enumerate() {
+        let local = heap.flags.contains(vk::MemoryHeapFlags::DEVICE_LOCAL);
+        let mut kinds = Vec::new();
+        for (t, ty) in types.iter().enumerate().filter(|(_, ty)| ty.heap_index as usize == h) {
+            let f = ty.property_flags;
+            let mut k = format!("{t}:");
+            for (flag, c) in [(vk::MemoryPropertyFlags::DEVICE_LOCAL, 'D'), (vk::MemoryPropertyFlags::HOST_VISIBLE, 'V'), (vk::MemoryPropertyFlags::HOST_COHERENT, 'C'), (vk::MemoryPropertyFlags::HOST_CACHED, '$')] {
+                if f.contains(flag) {
+                    k.push(c);
+                }
+            }
+            if f.contains(vk::MemoryPropertyFlags::DEVICE_LOCAL | vk::MemoryPropertyFlags::HOST_VISIBLE) && heap.size < (1 << 30) {
+                small_bar = Some(heap.size / MB);
+            }
+            kinds.push(k);
+        }
+        let use_text = if has_budget { format!(", budget {} MB, this process {} MB", budget.heap_budget[h] / MB, budget.heap_usage[h] / MB) } else { String::new() };
+        out.push(format!("{h}{} {} MB{use_text} (types {})", if local { " device-local" } else { "" }, heap.size / MB, kinds.join(" ")));
+    }
+    let bar = match small_bar {
+        Some(mb) => format!("; a {mb} MB host-visible device-local heap: no Resizable BAR, uploads go to system memory"),
+        None => String::new(),
+    };
+    Ok(format!("{}{bar}", out.join("; ")))
+}
+
 /// The GPU budget and this process's use of it, MB, or why not.
 fn read_vram(device: Option<&RenderDevice>, integrated: bool) -> Result<(u64, u64), String> {
     let heaps = read_heaps(device.ok_or("no render device")?)?;
@@ -282,6 +334,9 @@ fn read_budgets(mut commands: Commands, device: Option<Res<RenderDevice>>, adapt
         (_, None) => format!("GPU budget {source}"),
     };
     info!("memory budget: {ram_text}, {vram_text}; caches keep unused models and textures {:.0} s, at most {} per cache", base.secs, base.max);
+    if let Some(Ok(layout)) = device.as_deref().map(heap_layout) {
+        info!("memory budget: GPU heaps: {layout}");
+    }
     let used = vram.as_ref().map_or(0, |(_, u)| *u);
     let side_cap = vram_mb.map_or(nvf_assets::texture::MAX_TEXTURE_SIDE, |b| side_cap_for(b, used, ram.map(|r| r.1), 0));
     nvf_assets::texture::set_side_cap(side_cap);

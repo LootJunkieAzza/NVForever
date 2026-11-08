@@ -32,6 +32,12 @@ kept is `set_keep_empty_general_blocks` (default 2). The driver counts kept bloc
 process's use of the GPU budget, so nvforever `memory_budget.rs` sets 0 on a GPU with a
 budget under 6 GB (two 256 MiB blocks are a sixth of a 4 GB laptop card's 3367 MB).
 
+Fourth change (queue item 99), in `src/vulkan/mod.rs` `Allocator::allocate`: CPU-to-GPU
+memory does not go to a host-visible device-local memory type whose heap is under 1 GiB
+(the 256 MB BAR window of a card without Resizable BAR, shared with every other program);
+it takes a host-visible, host-coherent type on a heap that is not device-local. Upstream
+prefers that small heap and falls back only when an allocation in it fails.
+
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, bevyengine/bevy)
 
 Why: in the owner's 5-player co-op stress test (2026-11-05) the AMD driver dropped the GPU
@@ -49,6 +55,8 @@ changes, each marked `NVForever` in the source:
   failed map or mapped range drops that readback or screenshot, logged.
 - `slab_allocator.rs` (large mesh slabs), `storage.rs` (shader storage buffers),
   `diagnostic/internal.rs` (render diagnostics): a failed mapped range is skipped.
+- `view/window/mod.rs`: no swapchain texture is asked of a lost device (queue item 99:
+  wgpu's surface error path panics on the render thread, before the game's handler runs).
 - `error_handler.rs`: the device-lost callback sets a flag, `device_was_lost()`, read by
   the game's render error handler and its panic hook (engine/nvforever/src/gpu_lost.rs),
   and keeps a second report instead of asserting there is none (a panic).
