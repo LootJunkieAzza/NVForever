@@ -554,9 +554,11 @@ fn composite_label(data: &mut [u8], w: u32, h: u32, glyph: Glyph, font: &FontIma
         ascent = ascent.max(g.ascent);
         depth = depth.max(g.height - g.ascent);
     }
-    // The scaled ink box, centred in the picture.
+    // The scaled ink box, centred in the picture. `line.width` counts the last letter's
+    // trailing advance (`after`), which would leave the ink left of centre; drop it first.
+    let trailing = line.glyphs.last().map_or(0.0, |placed| font.glyph(placed.code).after);
     let base = (h as f32 - (ascent + depth) * scale) / 2.0 + ascent * scale;
-    let x0 = (w as f32 - line.width * scale) / 2.0;
+    let x0 = (w as f32 - (line.width - trailing) * scale) / 2.0;
     for placed in &line.glyphs {
         let g = font.glyph(placed.code);
         if !g.drawn() {
@@ -733,14 +735,17 @@ pub fn hint_width(face: &crate::interface::Face, hint: &str, glyphs: &PadGlyphs)
 pub fn hint_width_font(font: &fnv_font::Font, hint: &str, glyphs: &PadGlyphs) -> f32 {
     let width = |s: &str| font.lines(s, None).into_iter().next().map_or(0.0, |l| l.width);
     let (glyph, before, after) = hint_parts(hint);
-    let glyph_w = glyph.map_or(0.0, |g| glyphs.image(g).map_or_else(|| width(g.name()), |(_, aspect)| font.size * GLYPH_SHARE * aspect));
+    let glyph_w = glyph.map_or(0.0, |g| HINT_GLYPH_GAP + glyphs.image(g).map_or_else(|| width(g.name()), |(_, aspect)| font.size * glyph_share(g) * aspect));
     width(before) + glyph_w + width(after)
 }
 
 /// The width [`set_button`] draws a bare button `name` in.
 pub fn button_width(face: &crate::interface::Face, name: &str, glyphs: &PadGlyphs) -> f32 {
     let text_w = || face.font.lines(name, None).into_iter().next().map_or(0.0, |l| l.width);
-    Glyph::named(name).and_then(|g| glyphs.image(g)).map_or_else(text_w, |(_, aspect)| face.font.size * GLYPH_SHARE * aspect)
+    match Glyph::named(name).and_then(|g| glyphs.image(g).map(|(_, aspect)| (g, aspect))) {
+        Some((g, aspect)) => face.font.size * glyph_share(g) * aspect,
+        None => text_w(),
+    }
 }
 
 /// Draw a hint line that may name a PlayStation button, drawing that button's glyph in
@@ -777,9 +782,10 @@ pub fn set_hint_marked(
     crate::interface::set_marked(p, face, &before, x, base, color, mark.clone());
     let mut width = before.width;
     if let Some(g) = glyph {
+        width += HINT_GLYPH_GAP;
         match glyphs.image(g) {
             Some((image, aspect)) => {
-                let side = face.font.size * GLYPH_SHARE;
+                let side = face.font.size * glyph_share(g);
                 let w = side * aspect;
                 let corner = Vec2::new(x + width, base - side * GLYPH_RISE);
                 p.spawn((crate::interface::at(corner.x, corner.y, w, side), ImageNode { color, ..ImageNode::new(image) }, mark.clone()));
@@ -809,9 +815,9 @@ pub fn set_button(
     color: Color,
     glyphs: &PadGlyphs,
 ) -> f32 {
-    match Glyph::named(name).and_then(|g| glyphs.image(g)) {
-        Some((image, aspect)) => {
-            let side = face.font.size * GLYPH_SHARE;
+    match Glyph::named(name).and_then(|g| glyphs.image(g).map(|(image, aspect)| (g, image, aspect))) {
+        Some((g, image, aspect)) => {
+            let side = face.font.size * glyph_share(g);
             let w = side * aspect;
             let corner = Vec2::new(x, base - side * GLYPH_RISE);
             p.spawn((crate::interface::at(corner.x, corner.y, w, side), ImageNode { color, ..ImageNode::new(image) }));
@@ -825,10 +831,25 @@ pub fn set_button(
     }
 }
 
-/// A hint glyph's height as a share of the font's size, and how much of it stands above
-/// the line, as in the crosshair prompt (`reticle.rs`) [design, #1452].
-const GLYPH_SHARE: f32 = 0.7;
-const GLYPH_RISE: f32 = 0.92;
+/// How tall a hint's glyph is drawn, as a share of the font's size: the face symbols sit
+/// at the text's cap height, and the labelled buttons are drawn larger so their label
+/// text stays legible [design].
+fn glyph_share(g: Glyph) -> f32 {
+    if g.is_face() {
+        0.85
+    } else {
+        1.3
+    }
+}
+
+/// How much of a hint glyph's height stands above the line's baseline: the glyph is
+/// centred on the text's x-height rather than raised [design].
+const GLYPH_RISE: f32 = 0.72;
+
+/// The gap a hint leaves between its words and its glyph, in pixels: the hint builders
+/// write two spaces before the button name, which [`fnv_font::Font::lines`] drops, so the
+/// gap is restored here [design].
+const HINT_GLYPH_GAP: f32 = 4.0;
 
 
 /// The input of a name (without case); `None` for none or an unknown name.
