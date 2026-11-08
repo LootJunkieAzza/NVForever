@@ -19,7 +19,8 @@
 //!   tile answers to. A scrolled list stands partly outside its window by design, so [`usable`]
 //!   asks of the rows whose words lie whole inside it, and of at least one.
 //! - **The tabs** are template rows here, unlike STATS' fixed tiles [documented: the file]. Their
-//!   words are [`TAB_WORDS`]. A tab's `x` follows its inner rect's, which follows `_x`, and the file
+//!   words are their settings' where the load order defines them, [`TAB_WORDS`] otherwise
+//!   ([`tab_words`]). A tab's `x` follows its inner rect's, which follows `_x`, and the file
 //!   leaves `_x` to code [documented: the prefabs; observed: private job run07_inventory, 1280x720]: unwritten,
 //!   all five stood at one place, which is what the first run met. So [`place_tabs`] writes `_x` and
 //!   `_LeftLineLength` and nothing else; what shows as selected follows `_CurrentTab` in the file. A
@@ -132,9 +133,14 @@ const TAB_ROW: &str = "TabButton";
 const TAB_INNER: &str = "stb_text_box";
 /// The setting whose word fits the condition card's room before its meter.
 const CONDITION_TITLE: &str = "sStatsCNDAbbrev";
-/// The word on the Repair button for an item that needs no repair: NVForever's own [design: LEGAL.md;
-/// no setting holds one in the strings table, and the data's help text has only the verb's other
-/// form]. The hand-built hint keeps its own (`fnv_game::repair::hint`).
+/// The setting for the Repair button's word on an item that needs no repair, read first, as the
+/// hand-built hint reads it (`crate::pipboy::repair::draw_hint`, #1902): the English masters define
+/// none, a localized install's language plugin does [observed: docs/spec-notes/pipboy.md §4].
+const MAINTAIN_SETTING: &str = "sMaintainItem";
+/// The word on the Repair button for an item that needs no repair when the load order defines no
+/// [`MAINTAIN_SETTING`]: NVForever's own [design: LEGAL.md; the strings table holds none, and the
+/// data's help text has only the verb's other form]. The hand-built hint's fallback is its own
+/// (`fnv_game::repair::hint`).
 const REPAIR_UPKEEP: &str = "Upkeep";
 /// The picture's place and side: `x`, side [documented: inventory_menu.xml]; on an ammunition row
 /// [observed: private job run07c_inventory, 1280x720, on ammunition no weapon carried takes; hypothesis: on all].
@@ -143,14 +149,29 @@ const ICON_PLACE_AMMO: (f64, f64) = (410.0, 350.0);
 /// The effects' card under two rows of cards, where the card's own sum gives less [observed: private job run07_inventory_pipboy, 1280x720].
 const EFFECTS_LOW: f64 = 110.0;
 
-/// The tabs' words [design: LEGAL.md]. No setting holds them: none of FalloutNV.esm's string settings
-/// [observed: read-only scan, capture notes], and the strings table has none, as no menu file names
-/// one. "Apparel" is the data's own word, spelled as it spells it [observed: FalloutNV.esm MESG
-/// `HelpApparel`, repair.md §1 and §5; #1740]. "Weapons", "Aid", "Misc" and "Ammo" cite no record: they
-/// are generic words for the kinds of item, chosen here as NVForever's own. All five are the same as
-/// `crate::pipboy::Page::tabs`, whose tag says they were read off the owner's screenshots; that list is
-/// not read here, and the likeness is for the maintainer to see in the pull request.
+/// The tabs' words when the load order defines no [`TAB_SETTINGS`] [design: LEGAL.md]. The English
+/// masters define none of those settings [observed: read-only scan, capture notes; pipboy.md §4],
+/// and the strings table has none, as no menu file names one. "Apparel" is the data's own word,
+/// spelled as it spells it [observed: FalloutNV.esm MESG `HelpApparel`, repair.md §1 and §5; #1740].
+/// "Weapons", "Aid", "Misc" and "Ammo" cite no record: they are generic words for the kinds of item,
+/// chosen here as NVForever's own. All five are the same as `crate::pipboy::Page::tabs`' fallbacks,
+/// whose tag says they were read off the owner's screenshots; that list is not read here, and the
+/// likeness is for the maintainer to see in the pull request.
 pub const TAB_WORDS: [&str; 5] = ["Weapons", "Apparel", "Aid", "Misc", "Ammo"];
+/// The tabs' settings, read first through `crate::pipboy::labels` as the hand-built page reads them
+/// (`crate::pipboy::Page::tabs`, #1902): a localized install's language plugin defines them
+/// [observed: docs/spec-notes/pipboy.md §4].
+const TAB_SETTINGS: [&str; 5] = ["sInventoryWeapons", "sInventoryApparel", "sInventoryAid", "sInventoryMisc", "sInventoryAmmo"];
+
+/// The tabs' words: each setting's text when the load order defines it, else [`TAB_WORDS`]'.
+fn tab_words() -> [&'static str; 5] {
+    tab_words_by(crate::pipboy::labels::label)
+}
+
+/// [`tab_words`] through a lookup of (setting, fallback), so tests need no load order.
+fn tab_words_by(look: impl Fn(&str, &'static str) -> &'static str) -> [&'static str; 5] {
+    std::array::from_fn(|i| look(TAB_SETTINGS[i], TAB_WORDS[i]))
+}
 
 /// NVForever's own short words for titles whose built-in label leaves a card's value no room: the
 /// value then runs into the next card, as it may not wrap with no space in it [observed: smoke `tiles-items`, 2026-11-07,
@@ -407,14 +428,15 @@ fn write_buttons(ui: &mut Ui, s: &Shown, file_repair_word: &mut Option<String>) 
     }
 }
 
-/// The Repair button's word when it is not the file's: [`REPAIR_UPKEEP`] for an item that needs no
-/// repair, by the hand-built hint's rule (`hint`, `fnv_game::repair::hint`, "Repair" below it). With no
-/// row it stays what the last selection left on the two tabs of gear, and is the file's on the
-/// others [observed: private job run07c_inventory, 1280x720].
-fn repair_word(hint: Option<&str>, tab: usize, last: Option<&'static str>) -> Option<&'static str> {
+/// The Repair button's word when it is not the file's: `upkeep` ([`MAINTAIN_SETTING`]'s text, else
+/// [`REPAIR_UPKEEP`]) for an item that needs no repair, by the hand-built hint's rule (`hint`,
+/// `fnv_game::repair::hint`, "Repair" below it). With no row it stays what the last selection left
+/// on the two tabs of gear, and is the file's on the others [observed: private job
+/// run07c_inventory, 1280x720].
+fn repair_word(hint: Option<&str>, tab: usize, last: Option<&'static str>, upkeep: &'static str) -> Option<&'static str> {
     match hint {
         Some("Repair") => None,
-        Some(_) => Some(REPAIR_UPKEEP),
+        Some(_) => Some(upkeep),
         None if tab <= 1 => last,
         None => None,
     }
@@ -440,8 +462,9 @@ fn ensure_tabs(ui: &mut Ui, tabs: &mut Vec<RowTile<usize>>) -> Result<bool, Stri
 fn write_tabs(ui: &mut Ui, tabs: &[RowTile<usize>], tab: usize) {
     put(ui, TABLINE, "_ButtonCount", Value::Num(TAB_WORDS.len() as f64));
     put(ui, TABLINE, "_CurrentTab", Value::Num(tab as f64));
+    let words = tab_words();
     for row in tabs {
-        ui.write_changed(row.tile, "string", text(TAB_WORDS[row.key]));
+        ui.write_changed(row.tile, "string", text(words[row.key]));
         if find_named(ui, row.tile, TAB_INNER).is_some() {
             ui.write_changed(row.tile, fnv_ui::input::NO_ORIGIN, Value::Num(1.0));
         }
@@ -890,7 +913,8 @@ fn pass(p: &mut ItemsPage<'_, '_>, late: bool) -> Option<Result<TileId, String>>
         let figures = [wg, items::hp_text(hp), items::dt_text(dt), caps.to_string()];
         let offer = repair::current(active, sim, Some(&*script));
         let last = p.tiles.written.shown.as_ref().and_then(|s| s.repair.word);
-        let word = repair_word(offer.as_ref().map(|o| fnv_game::repair::hint(o.gear, o.condition)), tab, last);
+        let upkeep = crate::pipboy::labels::label(MAINTAIN_SETTING, REPAIR_UPKEEP);
+        let word = repair_word(offer.as_ref().map(|o| fnv_game::repair::hint(o.gear, o.condition)), tab, last, upkeep);
         // Inside a Misc folder Cancel stands in its place.
         let repair = RepairButton { shown: m.folder.is_none(), usable: offer.as_ref().is_some_and(|o| o.usable()), word };
         let panel = hold.and_then(|h| h.slot);
@@ -1666,10 +1690,25 @@ mod tests {
 
     #[test]
     fn repair_s_word_follows_the_condition_and_holds_on_the_gear_tabs_with_no_row() {
-        assert_eq!(repair_word(Some("Repair"), 0, Some(REPAIR_UPKEEP)), None, "the file's");
-        assert_eq!(repair_word(Some("Anything else"), 1, None), Some(REPAIR_UPKEEP));
-        assert_eq!(repair_word(None, 1, Some(REPAIR_UPKEEP)), Some(REPAIR_UPKEEP), "as the last selection left it");
-        assert_eq!(repair_word(None, 2, Some(REPAIR_UPKEEP)), None, "the file's on the others");
+        assert_eq!(repair_word(Some("Repair"), 0, Some(REPAIR_UPKEEP), REPAIR_UPKEEP), None, "the file's");
+        assert_eq!(repair_word(Some("Anything else"), 1, None, REPAIR_UPKEEP), Some(REPAIR_UPKEEP));
+        assert_eq!(repair_word(None, 1, Some(REPAIR_UPKEEP), REPAIR_UPKEEP), Some(REPAIR_UPKEEP), "as the last selection left it");
+        assert_eq!(repair_word(None, 2, Some(REPAIR_UPKEEP), REPAIR_UPKEEP), None, "the file's on the others");
+        // A load order defining the setting (a word written for the test): its text, not ours.
+        assert_eq!(repair_word(Some("Anything else"), 0, None, "Wartung-T"), Some("Wartung-T"));
+    }
+
+    #[test]
+    fn the_tabs_read_their_settings_and_fall_back_to_our_words() {
+        // Before the settings are read (tests): our words.
+        assert_eq!(tab_words(), TAB_WORDS);
+        // A load order defining two of them (words written for the test).
+        let look = |name: &str, ours: &'static str| match name {
+            "sInventoryWeapons" => "Waffen-T",
+            "sInventoryAmmo" => "Munition-T",
+            _ => ours,
+        };
+        assert_eq!(tab_words_by(look), ["Waffen-T", "Apparel", "Aid", "Misc", "Munition-T"]);
     }
 
     #[test]
