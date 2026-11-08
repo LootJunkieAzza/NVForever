@@ -718,6 +718,8 @@ pub struct MenuModel {
     /// The merchant's buy and sell list holds the player's side too (the Vendors Keep to
     /// Their Lists tweak, set by `crate::tweaks`).
     pub vendor_lists_both: bool,
+    /// The Pip-Boy's Misc list leaves quest items out (the tweak, set by `crate::tweaks`).
+    pub hide_misc_quest: bool,
     /// The player's encumbrance, or why it is unknown.
     pub encumbrance: Result<Encumbrance, String>,
     /// Heading: the container's or merchant's name, or "Inventory".
@@ -887,6 +889,7 @@ impl MenuModel {
             sync_categories: false,
             no_selling: false,
             vendor_lists_both: false,
+            hide_misc_quest: false,
             encumbrance: Err(String::new()),
             title,
             status: None,
@@ -955,6 +958,10 @@ impl MenuModel {
                     l.rows.retain(|r| !r.equipped);
                 }
                 if self.mode == Mode::Inventory && self.category[side as usize] == Category::Misc {
+                    // The player's tweak leaves quest items out of Misc [design: docs/design/tweaks.md].
+                    if self.hide_misc_quest {
+                        l.rows.retain(|r| !r.quest);
+                    }
                     self.fold(&mut l, forms);
                 }
                 self.lists[side as usize] = l;

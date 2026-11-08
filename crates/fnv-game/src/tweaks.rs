@@ -179,6 +179,12 @@ pub struct Tweaks {
     pub teammates_meltdown: bool,
     /// `bSpeedMultScalesJumpHeight`: the player's Speed Mult scales the jump.
     pub speed_scales_jump: bool,
+    /// `bDisableTutorialMessages`: no first-time help boxes for the minigames.
+    pub no_tutorials: bool,
+    /// `bNoKnockdownInGodmode`: the player is never knocked down in god mode.
+    pub no_knockdown_in_god_mode: bool,
+    /// `bLockpickHackingMessageShowsCurrentSkill`: "skill too low" says the player's.
+    pub show_current_skill: bool,
 }
 
 impl Default for Tweaks {
@@ -251,6 +257,9 @@ impl Default for Tweaks {
             sneak_criticals_melee_only: false,
             teammates_meltdown: false,
             speed_scales_jump: false,
+            no_tutorials: false,
+            no_knockdown_in_god_mode: false,
+            show_current_skill: false,
         }
     }
 }

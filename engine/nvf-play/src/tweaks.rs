@@ -143,6 +143,17 @@ pub struct TweakSettings {
     /// `bRunSlowerInWater`/`fWadingMovementMult`: the pace at a swimming depth of water,
     /// as a part of the usual (shallower, less slowed); 1 changes nothing.
     pub wading_pace: f32,
+    /// `bMinBloodSplatterHealthDamage`/`fMinHealthDamage`: hits that take less health
+    /// put no blood on the screen; 0 changes nothing.
+    pub min_splatter_damage: f32,
+    /// `bMinigamesPlayXPSoundAtMaxLevel`: the experience sound plays at the level cap.
+    pub xp_sound_at_cap: bool,
+    /// `bHoldWaitKeyToShowMenu`: the Wait key is held to open the menu.
+    pub hold_to_wait: bool,
+    /// `bDisableWeaponFOV`: aiming down iron sights does not zoom.
+    pub no_sight_zoom: bool,
+    /// `bHideMiscQuestItems`: quest items are left out of the Pip-Boy's Misc list.
+    pub hide_misc_quest: bool,
 }
 
 /// The walk-angle choices: 30 to 80 degrees by 5; 45 is the physics' own.
@@ -234,6 +245,11 @@ impl Default for TweakSettings {
             ready_does_not_draw: false,
             no_hotkeys_while_reloading: false,
             wading_pace: 1.0,
+            min_splatter_damage: 0.0,
+            xp_sound_at_cap: false,
+            hold_to_wait: false,
+            no_sight_zoom: false,
+            hide_misc_quest: false,
         }
     }
 }
@@ -715,6 +731,15 @@ impl Plugin for TweaksPlugin {
         switch!(app, "sneak-criticals-melee", "Sneak Criticals Melee Only", "Only melee and unarmed sneak attacks are criticals. (Stewie's Tweaks bSneakCriticalsOnlyMeleeWeapons)", game.sneak_criticals_melee_only);
         switch!(app, "teammates-meltdown", "Meltdown for Companions", "Teammates' energy weapon kills use the player's Meltdown perk. (Stewie's Tweaks bAllowTeammatesUseMeltdown)", game.teammates_meltdown);
         switch!(app, "speed-scales-jump", "Speed Scales the Jump", "The player's Speed Mult (and armour's pace) scales the jump's height. (Stewie's Tweaks bSpeedMultScalesJumpHeight)", game.speed_scales_jump);
+        // ---- batch 15 ----
+        switch!(app, "no-tutorials", "No Minigame Help", "Lockpicking, blackjack, roulette and the slots show no first-time help. (Stewie's Tweaks bDisableTutorialMessages)", game.no_tutorials);
+        switch!(app, "no-knockdown-god", "No Knockdowns in God Mode", "In god mode the player is never knocked down. (Stewie's Tweaks bNoKnockdownInGodmode)", game.no_knockdown_in_god_mode);
+        switch!(app, "show-current-skill", "Say My Skill", "When a lock or terminal needs more skill, the line says the player's own. (Stewie's Tweaks bLockpickHackingMessageShowsCurrentSkill)", game.show_current_skill);
+        amount!(app, "min-splatter", "Blood Only on Big Hits", "Hits that take less health than this put no blood on the screen; 0 changes nothing. (Stewie's Tweaks bMinBloodSplatterHealthDamage)", 50.0, f32, min_splatter_damage);
+        switch!(app, "xp-sound-at-cap", "XP Sound at the Level Cap", "Experience earned at the level cap still plays its sound. (Stewie's Tweaks bMinigamesPlayXPSoundAtMaxLevel)", xp_sound_at_cap);
+        switch!(app, "hold-to-wait", "Hold to Wait", "The Wait key opens the menu when held half a second, not when tapped. (Stewie's Tweaks bHoldWaitKeyToShowMenu)", hold_to_wait);
+        switch!(app, "no-sight-zoom", "No Iron Sight Zoom", "Aiming down iron sights does not zoom the view (scopes still do). (Stewie's Tweaks bDisableWeaponFOV)", no_sight_zoom);
+        switch!(app, "hide-misc-quest", "Hide Quest Items in Misc", "The Pip-Boy's Misc list leaves quest items out. (Stewie's Tweaks bHideMiscQuestItems)", hide_misc_quest);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -786,6 +811,9 @@ fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, que
         }
         if m.vendor_lists_both != tweaks.vendor_lists_both {
             m.vendor_lists_both = tweaks.vendor_lists_both;
+        }
+        if m.hide_misc_quest != tweaks.hide_misc_quest {
+            m.hide_misc_quest = tweaks.hide_misc_quest;
         }
     }
     if let Some(mut c) = console {

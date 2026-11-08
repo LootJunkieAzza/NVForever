@@ -272,11 +272,28 @@ fn read_words(sim: Res<SimState>, mut commands: Commands) {
     commands.insert_resource(refusals);
 }
 
-fn rest_opens(input: ControlInput, mut out: MessageWriter<OpenWait>) {
+fn rest_opens(input: ControlInput, mut out: MessageWriter<OpenWait>, time: Res<Time<Real>>, tweaks: Option<Res<crate::tweaks::TweakSettings>>, mut held: Local<Option<f32>>) {
+    // The player's tweak: the key is held a while, not tapped [design: docs/design/tweaks.md].
+    if tweaks.is_some_and(|t| t.hold_to_wait) {
+        if input.pressed(Control::Rest) {
+            let t = held.get_or_insert(0.0);
+            let before = *t;
+            *t += time.delta_secs();
+            if before < REST_HOLD && *t >= REST_HOLD {
+                out.write(OpenWait::default());
+            }
+        } else {
+            *held = None;
+        }
+        return;
+    }
     if input.just_pressed(Control::Rest) {
         out.write(OpenWait::default());
     }
 }
+
+/// How long the Hold to Wait tweak wants the key held, seconds [design].
+const REST_HOLD: f32 = 0.5;
 
 /// What scripts asked of the menu since the last frame (`fnv_game::rest`).
 fn script_requests(mut script: Option<ResMut<ScriptState>>, mut menu: ResMut<WaitMenu>, mut open: MessageWriter<OpenWait>, mut input: MessageWriter<WaitInput>) {

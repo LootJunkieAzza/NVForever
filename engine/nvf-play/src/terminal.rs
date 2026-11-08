@@ -550,6 +550,8 @@ fn open(
                     fnv_util::words::trf("You need a Science skill of {needed} to hack this terminal.", &[("needed", &format!("{needed:.0}"))])
                 }
             };
+            // The player's tweak says the player's own Science [design: docs/design/tweaks.md].
+            let line = if matches!(r, fnv_game::hacking::Refusal::Science { .. }) && rt.game.tweaks.show_current_skill { format!("{} (yours: {sci:.0})", line.trim_end_matches('.')) } else { line };
             info!("terminal: {reference} {name} refused (Science {sci:.0}): on screen: {line:?}");
             // A top-left corner message (owner, list 5 item 45).
             if let Some(c) = corner.as_deref_mut() {

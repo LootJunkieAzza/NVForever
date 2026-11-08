@@ -478,6 +478,8 @@ fn open(
             let line = refusal_line(r);
             // The player's tweak names the key a lock needs [design: docs/design/tweaks.md].
             let key = matches!(r, Refusal::RequiresKey).then(|| rt.game.tweaks.lock_needs_key_name).unwrap_or(false).then(|| rt.game.world.peek(reference).and_then(|s| s.lock).and_then(|l| l.key)).flatten();
+            // The player's tweak says the player's own skill [design: docs/design/tweaks.md].
+            let line = if matches!(r, Refusal::Skill { .. }) && rt.game.tweaks.show_current_skill { format!("{} (yours: {skill:.0})", line.trim_end_matches('.')) } else { line };
             let line = match key.and_then(|k| sim.name(k)) {
                 Some(k) => format!("{}: {k}.", line.trim_end_matches('.')),
                 None => line,

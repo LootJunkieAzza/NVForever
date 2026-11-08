@@ -240,6 +240,19 @@ saves load, and the frame's sync sets them from the settings again.
 | Meltdown for Companions | `bAllowTeammatesUseMeltdown` | `combat::meltdown` |
 | Speed Scales the Jump | `bSpeedMultScalesJumpHeight` | `player::step` jump height |
 
+## Fifteenth batch (2026-11-09)
+
+| Row | INI key | Where |
+|---|---|---|
+| No Minigame Help | `bDisableTutorialMessages` | each minigame's `first_help` |
+| No Knockdowns in God Mode | `bNoKnockdownInGodmode` | `Game::can_knock_down` |
+| Say My Skill | `bLockpickHackingMessageShowsCurrentSkill` | `lockpick::open`, `terminal` refusal lines |
+| Blood Only on Big Hits (0–50) | `bMinBloodSplatterHealthDamage` | `screen_splatter::take_hurts` |
+| XP Sound at the Level Cap | `bMinigamesPlayXPSoundAtMaxLevel` | `xp_meter::watch` |
+| Hold to Wait | `bHoldWaitKeyToShowMenu` | `wait::rest_opens` |
+| No Iron Sight Zoom | `bDisableWeaponFOV` | `aim_zoom::zoom` |
+| Hide Quest Items in Misc | `bHideMiscQuestItems` | `MenuModel` list refresh (`hide_misc_quest`) |
+
 Menu tweaks that code holding the game reads (the Pip-Boy's item info, crafting, the
 level-up menu, the terminal's timers) are kept in `fnv_game::tweaks` too, so no system
 needs another parameter; the catalogue's notes say where NVForever already does what a
@@ -256,8 +269,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 177 |
-| to do | 426 |
+| done | 204 |
+| to do | 399 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -491,88 +504,88 @@ game's Data folder, read-only).
 | `bScaleRadioSongVolumeDuringDialogue` | done | yes | 1 | Radio While Talking (slider) |
 | `bSkipIntroVideo` | done | yes |  | already so: the intro plays only after New Game and any key skips it |
 | `bVatsExitKey` | done | yes | 1 | Skip Kill Camera (right click; Tab is the Pip-Boy key here) |
+| `bAllowFiringWhileLanding` | done |  |  | already so: firing waits only for the weapon to be ready |
+| `bAllowOpenPipboyDuringCameraShake` | done |  |  | already so: no camera shake blocks the Pip-Boy |
+| `bAllowVATSWhileAnimsPlay` | done |  |  | already so: no animation refuses V.A.T.S. |
+| `bAllowWeaponHotkeysAndPipBoyWhileReloading` | done |  |  | already so: nothing refuses them while reloading |
+| `bAllowWeaponHotkeysWhileEquipping` | done |  |  | already so: the swap waits its turn |
+| `bAllowWeaponHotkeysWhileFiring` | done |  |  | already so: nothing refuses hotkeys while firing |
 | `bDisableCompanionKillcam` | done |  |  | already so: only the player's VATS kills start a kill camera |
 | `bDisableExplosionInFaceIMOD` | done |  |  | No Explosion Blur |
+| `bDisableHolsteredWeaponFOVZoom` | done |  |  | already so: a holstered weapon gives no zoom |
+| `bDisableTutorialMessages` | done |  |  | No Minigame Help (lockpick, blackjack, roulette, slots; Caravan not yet) |
+| `bDisableWeaponFOV` | done |  | 1 | No Iron Sight Zoom (the non-sighted option not built) |
+| `bFireWhileAiming` | done |  |  | already so: the trigger does not wait for the zoom |
+| `bHideMiscQuestItems` | done |  | 1 | Hide Quest Items in Misc (the star caps option not built) |
 | `bHoldCrouchToSneak` | done |  |  | Hold to Sneak |
+| `bHoldWaitKeyToShowMenu` | done |  | 1 | Hold to Wait (half a second; the hold time option not built) |
+| `bHUDRotatesWithVanityCam` | done |  |  | already so: the compass follows the orbiting camera |
+| `bJumpingDoesntDropGrabbedItem` | done |  |  | already so: jumping does not let go |
+| `bKeepHolotapePlayingWhenSelectingOtherNotes` | done |  |  | already so: only voice and sound notes start playing |
+| `bKeepRouletteBetAmount` | done |  |  | already so: the bet stays between spins |
+| `bKeepXPBarWhenClosingMenus` | done |  |  | already so: the XP meter holds while a menu is up |
+| `bLockpickHackingMessageShowsCurrentSkill` | done |  | 2 | Say My Skill |
 | `bMidairFastTravel` | done |  |  | Fast Travel in the Air |
+| `bMinBloodSplatterHealthDamage` | done |  | 1 | Blood Only on Big Hits (slider) |
+| `bMinigamesPlayXPSoundAtMaxLevel` | done |  |  | XP Sound at the Level Cap (any XP at the cap, not only minigames) |
+| `bNoDropWeaponSoundOnPlayerDeath` | done |  |  | already so: the player weapon is not put away at death |
+| `bNoFoodWornOffMessage` | done |  | 1 | already so: no worn-off message is shown |
+| `bNoKnockdownInGodmode` | done |  |  | No Knockdowns in God Mode |
 | `bNoMapMarkerAddedPopup` | done |  |  | already so: NVForever shows no marker-added popup |
+| `bNoPipboyIdleAnims` | done |  |  | already so: only the raise clip plays |
 | `bNoReputationMessages` | done |  | 5 | Quiet Reputation (box and sound together; per-kind options not built) |
+| `bPopupMenusDontMoveCursor` | done |  |  | already so: nothing moves the pointer |
+| `bPreventBushPassthroughSounds` | done |  |  | already so: walking through plants makes no sound |
+| `bQuestTextVisibleWhileAiming` | done |  |  | already so: aiming hides only the reticle |
 | `bRandomizeKillcamMode` | done |  |  | n/a: NVForever has one kill camera kind |
 | `bRemoveChemWarnOffIMOD` | done |  |  | No Chem Wore-Off Effect |
 | `bRepeatJumping` | done |  |  | Hold to Keep Jumping |
 | `bBetterPickupPrompt` | to do | yes |  | the prompt shows one unit; needs the stack count and the encumbrance |
 | `bDoubleTapReloadToChangeAmmoType` | to do | yes | 2 | the owner moved Lower Weapon off a double tap because it held reloads back; ask first |
-| `bFasterControllerPOVRotate` | to do | yes |  |  |
+| `bFasterControllerPOVRotate` | to do | yes |  | player::mouse_look orbit speed for the controller |
 | `bReloadingWithNoAmmoSwapsAmmoTypes` | to do | yes |  | combat::fire is at the system parameter limit |
 | `bRestore2Hotkey` | unsure, skipped | yes | 2 | needs the plugin's own menu XML |
 | `bSelectUnavailableRadios` | to do | yes |  | the Pip-Boy lists only stations in range |
 | `bShiftIgnoresFriendlyVATS` | to do | yes | 1 | friendlies are targetable; a Shift filter belongs in vats_mode::barred |
 | `bShiftScreenshotHidesMenus` | to do | yes |  | the capture is asynchronous; MenusHidden must be held a frame or two |
 | `bSkipDeathcamHotkey` | to do | yes | 2 | the death camera (nvforever death_cam) has no end but a load yet |
-| `bActivatingDoesntStandUp` | to do |  |  |  |
+| `bActivatingDoesntStandUp` | to do |  |  | activate and nvforever furniture drive_player |
 | `bAddItemUsesItemIcon` | unsure, skipped |  |  | needs an icon replacer |
-| `bAddNightVisionToggle` | to do |  | 4 |  |
+| `bAddNightVisionToggle` | to do |  | 4 | a night vision state plus flashlight and scope_view |
 | `bAllowActivateWhileAnimPlays` | to do |  |  | NVForever never refuses activating during a reload; check what the original refuses |
-| `bAllowFiringWhileLanding` | to do |  |  |  |
-| `bAllowOpenPipboyDuringCameraShake` | to do |  |  |  |
 | `bAllowUnsafeFastTravel` | to do |  | 1 | only cells flagged Can't Travel From Here refuse; the tweak would skip that flag |
-| `bAllowVATSWhileAnimsPlay` | to do |  |  |  |
-| `bAllowWeaponHotkeysAndPipBoyWhileReloading` | to do |  |  |  |
-| `bAllowWeaponHotkeysWhileEquipping` | to do |  |  |  |
-| `bAllowWeaponHotkeysWhileFiring` | to do |  |  |  |
 | `bDisableHitShader` | to do |  | 1 | NVForever draws no hit shader yet |
-| `bDisableHolsteredWeaponFOVZoom` | to do |  |  |  |
-| `bDisableInteriorFog` | to do |  | 1 |  |
-| `bDisableTutorialMessages` | to do |  |  |  |
-| `bDisableWeaponFOV` | to do |  | 1 |  |
+| `bDisableInteriorFog` | to do |  | 1 | nvforever sky update_sky fog far distance |
 | `bDontSetQuestWhenCompletingObjectives` | to do |  |  | pipboy data::lists picks an active quest whenever none is |
 | `bDontSetQuestWhenObjectivesAdded` | to do |  |  | pipboy data::lists picks an active quest whenever none is |
-| `bEnteringVATSDoesntUnholsterWeapon` | to do |  |  |  |
+| `bEnteringVATSDoesntUnholsterWeapon` | to do |  |  | a drawn-by-VATS flag and a holster on end |
 | `bEquipBrokenItems` | to do |  |  | broken weapons are refused in fnv_sim equip_at; needs a World flag like power armour |
-| `bFireWhileAiming` | to do |  |  |  |
-| `bForceHiResWeaponModels` | to do |  |  |  |
-| `bHideMiscQuestItems` | to do |  | 1 |  |
-| `bHoldWaitKeyToShowMenu` | to do |  | 1 |  |
-| `bHotkeyHolstersWeaponIfEquipped` | to do |  | 1 |  |
-| `bHUDRotatesWithVanityCam` | to do |  |  |  |
-| `bJumpingDoesntDropGrabbedItem` | to do |  |  |  |
-| `bKeepBrokenItemsEquipped` | to do |  |  |  |
-| `bKeepHolotapePlayingWhenSelectingOtherNotes` | to do |  |  |  |
-| `bKeepRouletteBetAmount` | to do |  |  |  |
-| `bKeepXPBarWhenClosingMenus` | to do |  |  |  |
-| `bLessFrequentPlayerPainSounds` | to do |  | 1 |  |
-| `bLockpickHackingMessageShowsCurrentSkill` | to do |  | 2 |  |
-| `bMinBloodSplatterHealthDamage` | to do |  | 1 |  |
-| `bMinigamesPlayXPSoundAtMaxLevel` | to do |  |  |  |
+| `bForceHiResWeaponModels` | to do |  |  | nvforever actors arm_weapon model_for(true); untested in the hand |
+| `bHotkeyHolstersWeaponIfEquipped` | to do |  | 1 | weapon_wheel act on Used::InHand |
+| `bKeepBrokenItemsEquipped` | to do |  |  | the break unequips at three sites; firing a broken weapon is undefined |
+| `bLessFrequentPlayerPainSounds` | to do |  | 1 | combat_lines hit_lines with a last-said time |
 | `bMoveDuringOpenPipboyAnim` | to do |  |  | the Pip-Boy is a menu; the game leaves Playing at once |
-| `bMoveDuringVATSPlayback` | to do |  |  |  |
+| `bMoveDuringVATSPlayback` | to do |  |  | kill_cam hold_input and ControlInput::held both hold movement |
 | `bNoAutoContinueDialog` | to do |  |  | Game::update_dialogue would hold the line timer |
-| `bNoDropWeaponSoundOnPlayerDeath` | to do |  |  |  |
 | `bNoEquippedWeaponMovementPenalty` | to do |  |  | combat::run_pace slows two-handed weapons only |
-| `bNoExteriorLoadScreens` | to do |  |  |  |
-| `bNoFoodWornOffMessage` | to do |  | 1 |  |
+| `bNoExteriorLoadScreens` | to do |  |  | loading::begin interior-to-exterior |
 | `bNoKillcamKillSound` | to do |  |  | NVForever plays no sound when a kill camera starts |
-| `bNoKnockdownInGodmode` | to do |  |  |  |
 | `bNoLTRTOnPipboy` | n/a |  |  | the original's controller texture swap |
-| `bNoPipboyIdleAnims` | to do |  |  |  |
-| `bNoPoisonConfirm` | to do |  |  |  |
+| `bNoPoisonConfirm` | to do |  |  | not built: no weapon poison |
 | `bNoScreenshotPopup` | to do |  | 3 | NVForever shows no screenshot message yet |
-| `bNPCsDropWeaponHolsteredWeapon` | to do |  |  |  |
-| `bPauseOnSaveLoad` | to do |  |  |  |
+| `bNPCsDropWeaponHolsteredWeapon` | to do |  |  | combat::death_drops from the equipped weapon |
+| `bPauseOnSaveLoad` | to do |  |  | loading::finish asks pause::open; tell a load from a new game |
 | `bPickLocksEvenWithKey` | to do |  | 1 | activate::activate before activate_by_hand |
-| `bPopupMenusDontMoveCursor` | to do |  |  |  |
-| `bPreventBushPassthroughSounds` | to do |  |  |  |
-| `bQuestTextVisibleWhileAiming` | to do |  |  |  |
-| `bRemoveFollowerTopics` | to do |  |  |  |
+| `bRemoveFollowerTopics` | to do |  |  | not built: companions make no such comments |
 | `bRemoveLandingAnim` | to do |  |  | fnv_actor jump::JumpState plays the landing clip |
-| `bRepairRequiresWeaponSkill` | to do |  |  |  |
-| `bRobotCompanionsHealWithScrapMetal` | to do |  | 4 |  |
-| `bScaleExplosionShake` | to do |  | 2 |  |
-| `bScopeVisibilityDelay` | to do |  | 4 |  |
-| `bSkipVigorTesterSpecialPages` | to do |  |  |  |
-| `bSlotsAutoSpinHotkey` | to do |  |  |  |
-| `bSwapAmmoWithWeaponHolstered` | to do |  |  |  |
-| `bToggleControllerIfAttackPressed` | to do |  | 1 |  |
+| `bRepairRequiresWeaponSkill` | to do |  |  | pipboy repair keys with the weapon skill requirement |
+| `bRobotCompanionsHealWithScrapMetal` | to do |  | 4 | robot detection, another item and a heal formula |
+| `bScaleExplosionShake` | to do |  | 2 | not built: explosions do not shake the camera |
+| `bScopeVisibilityDelay` | to do |  | 4 | aim_zoom with a held timer |
+| `bSkipVigorTesterSpecialPages` | to do |  |  | chargen vigor page and its pose clip |
+| `bSlotsAutoSpinHotkey` | to do |  |  | slots keys; check Spin while reels turn |
+| `bSwapAmmoWithWeaponHolstered` | to do |  |  | combat::fire before the not-ready return |
+| `bToggleControllerIfAttackPressed` | to do |  | 1 | not built: the device changes only by setting |
 | `bTurnFurtherWhileSeated` | to do |  |  |  |
 | `bTurnSlowerWhileAiming` | to do |  | 2 |  |
 | `bUnequipBrokenArmor` | to do |  | 1 |  |

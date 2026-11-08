@@ -266,6 +266,10 @@ impl Game<'_> {
             return false;
         }
         if r == FormId::PLAYER_REF {
+            // The player's tweak: never in god mode [design: docs/design/tweaks.md].
+            if self.tweaks.no_knockdown_in_god_mode && self.toggles.god_mode {
+                return false;
+            }
             return self.furniture_use(r).is_none() && self.dialogue.is_none();
         }
         self.def_following(r, |_| false).is_some_and(|d| !d.no_knockdowns && !d.immobile)

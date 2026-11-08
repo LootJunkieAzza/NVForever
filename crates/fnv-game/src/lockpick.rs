@@ -451,7 +451,8 @@ impl Locks {
 /// The help message to show as the menu opens: its title and text the first time (and it
 /// counts as shown from then on), else `None`. `None` too without the message record.
 pub fn first_help(g: &mut Game) -> Option<(String, String)> {
-    if g.locks.help_shown {
+    // The player's tweak: no first-time help [design: docs/design/tweaks.md].
+    if g.locks.help_shown || g.tweaks.no_tutorials {
         return None;
     }
     let m = g.data.messages.get(&HELP_MESSAGE)?;

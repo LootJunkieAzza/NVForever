@@ -180,6 +180,9 @@ pub(crate) fn zoom(
     // A 3D scope zooms the main view only a little, from the start of the aim.
     if let Some(s) = &scoped {
         z.main = if s.lens_3d { LENS_MAIN_SHARE } else { 1.0 };
+    } else if tweaks.as_ref().is_some_and(|t| t.no_sight_zoom) {
+        // The player's tweak: iron sights do not zoom [design: docs/design/tweaks.md].
+        z.main = 0.0;
     } else if sight.is_some() || z.main == 0.0 {
         z.main = 1.0;
     }

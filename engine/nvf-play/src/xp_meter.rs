@@ -302,7 +302,13 @@ fn watch(
             // sound effect that plays"; hypothesis: this record, by its name].
             play("UIPopUpExperienceUp");
         }
-        Some(Seen::AtCap { amount }) => info!("xp meter: +{amount} XP at the level cap {}: not shown", now.max),
+        Some(Seen::AtCap { amount }) => {
+            info!("xp meter: +{amount} XP at the level cap {}: not shown", now.max);
+            // The player's tweak still plays the sound [design: docs/design/tweaks.md].
+            if tweaks.as_ref().is_some_and(|t| t.xp_sound_at_cap) {
+                play("UIPopUpExperienceUp");
+            }
+        }
         None => {}
     }
     // Held, its time standing still, while the HUD is not up (menus, conversations).
