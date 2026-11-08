@@ -212,6 +212,7 @@ pub fn draw_over_tiles(
     data: Option<Res<nvf_assets::GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<bevy::image::CompressedImageFormatSupport>>,
+    glyphs: Res<crate::pad::PadGlyphs>,
 ) {
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
@@ -230,7 +231,7 @@ pub fn draw_over_tiles(
     }
     info!("pipboy hotkeys: panel drawn, key {} chosen{}", slot + 1, hold.said.as_ref().map_or_else(String::new, |s| format!(", says {s:?}")));
     let pointed = active.0.as_ref().and_then(|m| m.selected_row(crate::menu::model::Side::Player));
-    let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref());
+    let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref(), &glyphs);
     let root = Node { overflow: Overflow::clip(), ..at(0.0, 0.0, super::CANVAS.x, super::CANVAS.y) };
     commands
         .spawn((PanelOverTiles, root, UiTargetCamera(screen.camera), GlobalZIndex(crate::tiles::draw::PIPBOY_TILES_Z), Pickable::IGNORE, Name::new("Hotkey panel over the page")))
