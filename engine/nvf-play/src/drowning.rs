@@ -125,7 +125,7 @@ fn breathe(
     let dmg = pb.breath.step(&pb.rules, under, breathes, time.delta_secs());
     // GetActorDiveBreath and SetActorDiveBreath (`fnv_game::nvse_jip11`).
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
-        if let Some(left) = rt.game.sync_player_breath(under.then_some(pb.breath.left)) {
+        if let Some(left) = rt.game.sync_player_breath(pb.breath.left, under) {
             pb.breath.left = left.min(pb.rules.seconds);
         }
     }

@@ -34,8 +34,8 @@ probes, 2026-11-08, for JIP's list getters; hypothesis: the same here].
 | Function | NVForever |
 |---|---|
 | GetActorAlpha | SetActorAlpha's alpha, 1 opaque [documented] |
-| GetActorDiveBreath, SetActorDiveBreath `seconds` | the player's breath left under water; the engine passes it each frame (`Game::sync_player_breath`) and takes a script's seconds back, capped at the full breath [documented]; 0 above water and for NPCs [decision: NVForever's NPCs do not drown] |
-| GetActorGravityMult | SetActorGravityMult's multiplier, 1 by default [documented] |
+| GetActorDiveBreath, SetActorDiveBreath `seconds` | the player's breath left, a full breath above water [observed: 10 on land]; the engine passes it each frame (`Game::sync_player_breath`) and takes a script's seconds back while under water, capped at the full breath [documented]; 0 for NPCs [decision: NVForever's NPCs do not drown] |
+| GetActorGravityMult | SetActorGravityMult's multiplier; 0 for an actor no script set [observed: Doc Mitchell 0, against the page's "1.0 by default"] |
 | GetActorLeveledList | the LVLN or LVLC the reference was placed from (NVForever keeps it as the base), else 0 [documented] |
 | GetActorLightAmount | the light level at the actor, 0-100, as the last detection round measured it (`Situation::light`) [documented: the range]; 0 for an actor not measured [hypothesis] |
 | GetActorMovementFlags | forward/backward/left/right 1/2/4/8, turning 16/32, walking 256, running 512, sneaking 1024, swimming 2048 [documented: the table]; jumping, flying, falling, sliding 0 [decision: not known game-side] |
@@ -77,7 +77,21 @@ probes, 2026-11-08, for JIP's list getters; hypothesis: the same here].
 | ClearDeadActors `[keepRespawning]` | every dead actor in the loaded cells is disabled, except a quest-item base, one carrying a quest item, and (1) one that respawns [documented] |
 | GetHardcoreStageEffect, SetHardcoreStageEffect `stage [effect]` | the stage record's actor effect; the setter's (none: no effect [hypothesis]) is what the player gets from the next change of stage [hypothesis] |
 
-## 6. Follow-ups
+## 6. The original's answers (probe set jip11, 2026-11-09)
+
+The observer session ran set `jip11` on the probe save (nvfairport): 28 rows, all compiled,
+no crash; lab `L5.ext.jip11` 17 of 28 at 588937cc4 [observed]. Followed since:
+GetActorGravityMult's 0 and GetActorDiveBreath's full breath on land. The probes of the
+form getters now go through GetFormIDString (the collector and fnvtool wrote a form
+differently). Confirmed: GetActiveEffects' elements are the magic items (an armour's
+object effect first); out of combat the list getters give no array; GetInterruptPackage,
+GetActorLeveledList and GetActorUnarmedEffect on Doc gave none, as ours. Not matched, and
+why: the player's light (100 outdoors in the save; the candidate runs no detection
+rounds), player→Doc detection -28 (likewise), the player's active effects (the save's
+worn jumpsuit and Concussion), Doc's stable package (the save's schedule), the fall time
+on the ground (-0.004, the original's own residue).
+
+## 7. Follow-ups
 
 - GetInterruptPackage: package forms for NVForever's combat, dialogue and flight states.
 - GetFallTimeRemaining: the engine could pass the ground's distance and the fall speed.

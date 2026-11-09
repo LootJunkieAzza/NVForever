@@ -153,7 +153,7 @@ fn actor_traits_and_detection() {
     assert_eq!(n(&mut g, "MarkRef.GetActorAlpha"), 1.0);
     q(&mut g, "MarkRef.SetActorAlpha 0.5");
     assert_eq!(n(&mut g, "MarkRef.GetActorAlpha"), 0.5);
-    assert_eq!(n(&mut g, "MarkRef.GetActorGravityMult"), 1.0);
+    assert_eq!(n(&mut g, "MarkRef.GetActorGravityMult"), 0.0, "none set [observed]");
     q(&mut g, "MarkRef.SetActorGravityMult 2");
     assert_eq!(n(&mut g, "MarkRef.GetActorGravityMult"), 2.0);
     assert_eq!(n(&mut g, "MarkRef.GetActorLeveledList"), 0.0, "placed from an NPC, not a list");
@@ -226,13 +226,16 @@ fn base_forms_factions_and_unarmed() {
 fn engine_channels_and_the_dead() {
     let f = fixture();
     let mut g = game(&f);
-    // Breath: the engine tells the player's; a script's set goes back to it.
-    assert_eq!(n(&mut g, "player.GetActorDiveBreath"), 0.0);
+    // Breath: a full breath before the engine tells it [observed: 10 on land]; the
+    // engine tells the player's; a script's set under water goes back to it.
+    let full = f64::from(g.breath_rules(FormId::PLAYER_REF).seconds);
+    assert_eq!(n(&mut g, "player.GetActorDiveBreath"), full);
+    assert_eq!(n(&mut g, "MarkRef.GetActorDiveBreath"), 0.0);
     q(&mut g, "player.SetActorDiveBreath 3");
-    assert_eq!(g.sync_player_breath(Some(7.5)), None, "not under water when set");
+    assert_eq!(g.sync_player_breath(7.5, true), None, "not under water when set");
     assert_eq!(n(&mut g, "player.GetActorDiveBreath"), 7.5);
     q(&mut g, "player.SetActorDiveBreath 3");
-    assert_eq!(g.sync_player_breath(Some(7.0)), Some(3.0));
+    assert_eq!(g.sync_player_breath(7.0, true), Some(3.0));
     q(&mut g, "MarkRef.ResetFallTime");
     assert_eq!(g.take_fall_resets(), [FormId(MARK)]);
     // The weapon condition penalty [documented: the page's example, 0.25 at 0 %].

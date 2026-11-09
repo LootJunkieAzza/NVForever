@@ -15,9 +15,10 @@
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rObj.GetActorLeveledList)\nEnd\n",
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (GetFormIDString (rObj.GetActorLeveledList))\nEnd\n",
    "label": "jip11.leveled.doc",
-   "field": "value"
+   "field": "value",
+   "text": true
   },
   {
    "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rObj.GetActorLightAmount)\nEnd\n",
@@ -70,14 +71,16 @@
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rObj.GetCurrentStablePackage)\nEnd\n",
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (GetFormIDString (rObj.GetCurrentStablePackage))\nEnd\n",
    "label": "jip11.stable.doc",
-   "field": "value"
+   "field": "value",
+   "text": true
   },
   {
-   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rObj.GetInterruptPackage)\nEnd\n",
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (GetFormIDString (rObj.GetInterruptPackage))\nEnd\n",
    "label": "jip11.interrupt.doc",
-   "field": "value"
+   "field": "value",
+   "text": true
   },
   {
    "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rObj.GetTargetUnreachable)\nEnd\n",
@@ -85,9 +88,10 @@
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetActorUnarmedEffect rObj)\nEnd\n",
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (GetFormIDString (GetActorUnarmedEffect rObj))\nEnd\n",
    "label": "jip11.unarmed.docbase",
-   "field": "value"
+   "field": "value",
+   "text": true
   },
   {
    "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.IsEquippedWeaponScoped)\nEnd\n",

@@ -21,8 +21,8 @@ pub struct Jip11State {
     pub forced_detection: BTreeMap<FormId, (f64, bool)>,
     /// The light level at each actor the last detection round measured (0-100).
     pub light: BTreeMap<FormId, f64>,
-    /// The player's breath left while under water, seconds (the engine writes it).
-    pub player_breath: Option<f32>,
+    /// The player's breath left, seconds, and whether under water (the engine writes it).
+    pub player_breath: Option<(f32, bool)>,
     /// SetActorDiveBreath's seconds, for the engine to take.
     pub set_breath: Option<f32>,
     /// ResetFallTime's actors, for the engine to take.
@@ -130,10 +130,10 @@ impl Game<'_> {
         self.other.jip11.penetrated.insert(target, raw > dt);
     }
 
-    /// The player's breath for GetActorDiveBreath: `Some(seconds left)` while under
+    /// The player's breath for GetActorDiveBreath: the seconds left, and whether under
     /// water. Returns SetActorDiveBreath's seconds, if a script set them since.
-    pub fn sync_player_breath(&mut self, under: Option<f32>) -> Option<f32> {
-        self.other.jip11.player_breath = under;
+    pub fn sync_player_breath(&mut self, left: f32, under: bool) -> Option<f32> {
+        self.other.jip11.player_breath = Some((left, under));
         self.other.jip11.set_breath.take()
     }
 
@@ -278,19 +278,32 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // ---- the actor's traits ----
         // SetActorAlpha's alpha, 1 opaque [documented].
         "getactoralpha" => XVal::Num(f64::from(subject.and_then(|r| g.script_looks.alpha.get(&r).copied()).unwrap_or(1.0))),
-        // While under water: the breath left [documented]. The player's breath only:
+        // The breath left, a full breath above water [observed: the jip11 probe, the
+        // player on land read 10, the full breath at Endurance 5]; before the engine
+        // has told it, the full breath (`Game::breath_rules`). The player's breath only:
         // NVForever's NPCs do not drown [decision: the drowning rule is the player's].
-        "getactordivebreath" => XVal::Num(f64::from(if subject == Some(FormId::PLAYER_REF) { g.other.jip11.player_breath.unwrap_or(0.0) } else { 0.0 })),
+        "getactordivebreath" => {
+            if subject != Some(FormId::PLAYER_REF) {
+                return Some(Ok(zero));
+            }
+            let left = match g.other.jip11.player_breath {
+                Some((left, _)) => left,
+                None => g.breath_rules(FormId::PLAYER_REF).seconds,
+            };
+            XVal::Num(f64::from(left))
+        }
+        // Under water only [documented: "If the calling actor is underwater"].
         "setactordivebreath" => {
-            if subject == Some(FormId::PLAYER_REF) && g.other.jip11.player_breath.is_some() {
+            if subject == Some(FormId::PLAYER_REF) && g.other.jip11.player_breath.is_some_and(|(_, under)| under) {
                 if let Some(s) = num(args, 0) {
                     g.other.jip11.set_breath = Some(s.max(0.0) as f32);
                 }
             }
             zero
         }
-        // SetActorGravityMult's multiplier, 1 by default [documented].
-        "getactorgravitymult" => XVal::Num(subject.and_then(|r| g.gaps.gravity.get(&r).copied()).unwrap_or(1.0)),
+        // SetActorGravityMult's multiplier; 0 for an actor no script set [observed: the
+        // jip11 probe, Doc Mitchell 0, though the page says 1.0 by default].
+        "getactorgravitymult" => XVal::Num(subject.and_then(|r| g.gaps.gravity.get(&r).copied()).unwrap_or(0.0)),
         // The leveled list the actor was placed from: its reference's base is the list
         // [documented; observed: NVForever keeps the LVLN/LVLC as the base].
         "getactorleveledlist" => {

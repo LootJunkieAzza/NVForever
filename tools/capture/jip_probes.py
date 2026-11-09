@@ -8127,8 +8127,8 @@ def _j11(pid, body, text=False):
             "Begin Function { }\n" + _form("rP", NF["player"]) + body, text, None, "")
 
 
-def _j11v(pid, setup, expr):
-    return _j11(pid, setup + f"SetFunctionValue ({expr})")
+def _j11v(pid, setup, expr, text=False):
+    return _j11(pid, setup + f"SetFunctionValue ({expr})", text)
 
 
 def _j11arr(pid, setup, expr):
@@ -8141,7 +8141,7 @@ _J11DOC = _form("rObj", NF["docref"])
 JIP11_PROBES = (
     [_j11v("alpha.doc", _J11DOC, "rObj.GetActorAlpha"),
      _j11v("gravity.doc", _J11DOC, "rObj.GetActorGravityMult"),
-     _j11v("leveled.doc", _J11DOC, "rObj.GetActorLeveledList"),
+     _j11v("leveled.doc", _J11DOC, "GetFormIDString (rObj.GetActorLeveledList)", True),
      _j11v("light.doc", _J11DOC, "rObj.GetActorLightAmount"),
      _j11v("light.player", "", "rP.GetActorLightAmount"),
      _j11v("movement.doc", _J11DOC, "rObj.GetActorMovementFlags"),
@@ -8152,10 +8152,10 @@ JIP11_PROBES = (
      _j11v("baseav.docbase", _form("rObj", NF["doc"]), "GetBaseActorValueAlt Strength rObj"),
      _j11v("detection.doc.player", _J11DOC, "rObj.GetDetectionValue rP"),
      _j11v("detection.player.doc", _J11DOC, "rP.GetDetectionValue rObj"),
-     _j11v("stable.doc", _J11DOC, "rObj.GetCurrentStablePackage"),
-     _j11v("interrupt.doc", _J11DOC, "rObj.GetInterruptPackage"),
+     _j11v("stable.doc", _J11DOC, "GetFormIDString (rObj.GetCurrentStablePackage)", True),
+     _j11v("interrupt.doc", _J11DOC, "GetFormIDString (rObj.GetInterruptPackage)", True),
      _j11v("unreachable.doc", _J11DOC, "rObj.GetTargetUnreachable"),
-     _j11v("unarmed.docbase", _form("rObj", NF["doc"]), "GetActorUnarmedEffect rObj"),
+     _j11v("unarmed.docbase", _form("rObj", NF["doc"]), "GetFormIDString (GetActorUnarmedEffect rObj)", True),
      _j11v("scoped.player", "", "rP.IsEquippedWeaponScoped"),
      _j11v("silenced.player", "", "rP.IsEquippedWeaponSilenced"),
      _j11v("breath.player", "", "rP.GetActorDiveBreath"),
