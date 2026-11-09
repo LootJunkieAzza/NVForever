@@ -1224,6 +1224,11 @@ fn main() -> AppExit {
             Some(graphics::FrameTimes { every, cycle })
         }
     };
+    // A handoff's new run: the old run ends before this one's GPU device opens
+    // (handoff.rs, queue item 132).
+    if let Some(file) = args.handoff.as_deref() {
+        handoff::before_gpu(file);
+    }
     let mut app = App::new();
     // A command for an entity that is gone is logged, not fatal (stray_commands.rs).
     app.set_error_handler(stray_commands::handler);
@@ -1750,7 +1755,7 @@ fn main() -> AppExit {
             if let Some(old) = handoff::OldRun::open(&file) {
                 app.insert_resource(old);
             }
-            app.insert_resource(handoff::Hidden::new(file, args.window_maximized)).add_systems(First, handoff::watch_old_run);
+            app.insert_resource(handoff::Hidden::new(file, args.window_maximized)).add_systems(First, handoff::watch_old_run).add_systems(Startup, handoff::log_before_gpu);
         }
         nvf_play::save::add_save_hook(&mut app, sky::SAVE_HOOK);
     }
