@@ -2842,9 +2842,16 @@ fn choose(
     // A click on the column's entry of another page (the page's own entry closes it). From
     // an open search the search closes first, and the frame's keys (its text) reach no
     // other page [design: #1953].
+    // Only a click that leaves the page closes it: on the main menu, an entry the column
+    // does nothing with (New Game, a greyed one) leaves the search as it is.
     let search_open = matches!(*page, Page::Settings { .. }) && view.search.from.is_some();
+    let column_exit = match clicked {
+        Some(PauseButton::Column(_)) if !under_main => *page != Page::Main,
+        Some(PauseButton::Column(i)) => main_menu.as_ref().and_then(|m| m.column().get(i).map(|c| c.0)).is_some_and(|l| page.opened_by(l) || l.starts_with("Load") || l.starts_with("Settings")),
+        _ => false,
+    };
     let mut swallow = false;
-    if search_open && matches!(clicked, Some(PauseButton::Column(_))) {
+    if search_open && column_exit {
         let _ = leave_search(&mut view, &mut sounds);
         swallow = true;
     }
@@ -2889,6 +2896,9 @@ fn choose(
                 k.clear();
             }
         });
+        // The aids' keys and the row actions read through `pressed` too.
+        pressed.keys = &no_keys;
+        pressed.extra.clear();
         &no_keys
     } else {
         &keys
