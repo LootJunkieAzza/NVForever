@@ -8115,6 +8115,419 @@ SETS.update({"jip6": JIP6_PROBES, "jip7": JIP7_PROBES, "jip6b": JIP6B_PROBES, "j
 WRITING_SETS |= {"jip6", "jip7", "jip6b", "jip7b"}
 
 
+# lu3 (writes, session only, each change put back; #1009): Lutana batch 3
+# (docs/spec-notes/ext-lutana.md §10): the activator prompt, the Anim Object idle and the
+# loading screen type's colour on the pages' example forms, perk ranks and perk entries on
+# the player, the regions and cell references at Doc Mitchell's, the deprecated
+# SetVariableFloat and the event names called as functions. Every value set is read
+# back, then set back to what was read.
+_LU3_HEAD = "ref rP\nref rObj\narray_var aR\nstring_var sOld\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nfloat fE\nfloat fF\nBegin Function { }\n"
+
+
+def _lu3(pid, body, text=True):
+    return (f"lu3.{pid}", _LU3_HEAD + body, text, None, "")
+
+
+LU3_PROBES = (
+    # The prompt of the page's example table, read only: the setter with $sOld to put it
+    # back did not compile in the original [observed 2026-11-09], and a literal would
+    # guess the value (hypothesis: the record's XATO, else "").
+    [_lu3("prompt", "let sOld := GetActivatorPrompt BlackjackTableGomorrah\nSetFunctionValue (sv_Construct \"[%z]\" sOld)"),
+     # The page's Anim Object's idle (hypothesis: its ANIO DATA), its Editor ID.
+     _lu3("anio", "let rObj := GetAnimObjectIdle RepairWall01Wrench\nSetFunctionValue (GetFormIDString rObj)"),
+     # The page's example: r 255, g 180, b 53 [documented]; set and read, set back. The
+     # elements go into floats first: as sv_Construct's arguments they did not compile in
+     # the original [observed 2026-11-09].
+     _lu3("lsct", "let aR := GetLoadScreenTypeTextRGB StandardLoadingTip\nlet fA := aR[\"r\"]\nlet fB := aR[\"g\"]\nlet fC := aR[\"b\"]\n"
+          "SetLoadScreenTypeTextRGB StandardLoadingTip 59.3 181 300\nlet aR := GetLoadScreenTypeTextRGB StandardLoadingTip\n"
+          "let fD := aR[\"r\"]\nlet fE := aR[\"g\"]\nlet fF := aR[\"b\"]\nSetLoadScreenTypeTextRGB StandardLoadingTip fA fB fC\n"
+          "SetFunctionValue (sv_Construct \"%g %g %g / %.1f %g %g\" fA fB fC fD fE fF)"),
+     # A rank above the perk's ranks, then 0: "0 1 1 1" [observed 2026-11-09], cut to its one
+     # rank, 0 changes nothing. Educated is put back as it was (SetPerkRank 0 does not
+     # take it away: a player without it keeps it for the session).
+     _lu3("perkrank", "let fA := PlayerREF.GetPerkRank Educated\nPlayerREF.SetPerkRank Educated 9\nlet fB := PlayerREF.GetPerkRank Educated\n"
+          "PlayerREF.SetPerkRank Educated 0\nlet fC := PlayerREF.GetPerkRank Educated\nPlayerREF.SetPerkRank Educated fA\n"
+          "SetFunctionValue (sv_Construct \"%g %g %g %g\" fA fB fC (PlayerREF.GetPerkRank Educated))"),
+     # The page's example: Fast Shot's 2nd entry from Calculate Hit Chance (8) to Calculate
+     # Weapon Range (7), read back, set back: "8 7 8" [observed 2026-11-09].
+     _lu3("perkentry", "let fA := GetNthPerkEntryFunction FastShot 1\nSetNthPerkEntryFunction FastShot 1 7\nlet fB := GetNthPerkEntryFunction FastShot 1\n"
+          "SetNthPerkEntryFunction FastShot 1 fA\nSetFunctionValue (sv_Construct \"%g %g %g\" fA fB (GetNthPerkEntryFunction FastShot 1))"),
+     # Indoors: no regions (hypothesis: an empty array, 0).
+     _lu3("regions", "let aR := GetPlayerRegions\nSetFunctionValue (ar_Size aR)", False),
+     # GetCellRefs against GetRefs in the player's cell, every type (hypothesis: equal);
+     # the cell given, the page lists it as not optional (without it the call did not
+     # compile in the original [observed 2026-11-09]).
+     _lu3("cellrefs", "let rObj := PlayerREF.GetParentCell\nlet aR := GetCellRefs 0 0 0 rObj\nlet fA := ar_Size aR\nlet aR := GetRefs 0 0 0\n"
+          "SetFunctionValue (sv_Construct \"%g\" (fA == (ar_Size aR)))"),
+     # SetVariableFloat on a FalloutNV.esm quest's variable, nGeckosKilled of 10A214 (the
+     # eighth set's has.vanilla row; NVFExtProbe.esp is not active in the probe game), its
+     # result and the value read back, set back (hypothesis: "0 7").
+     _lu3("setvar", _form("rObj", "10A214") + "let fA := GetVariable \"nGeckosKilled\" rObj\nlet fB := SetVariableFloat \"nGeckosKilled\" 7 rObj\n"
+          "let fC := GetVariable \"nGeckosKilled\" rObj\nSetVariable \"nGeckosKilled\" fA rObj\nSetFunctionValue (sv_Construct \"%g %g\" fB fC)"),
+     # The event names called as functions: "2 3" [observed 2026-11-09].
+     _lu3("events", "SetFunctionValue (sv_Construct \"%g %g\" (OnCellEnter) (OnCellExit))")]
+)
+SETS.update({"lu3": LU3_PROBES})
+WRITING_SETS |= {"lu3"}
+# jg7 (writes, session only, each change put back; #1007): JohnnyGuitar batch 7
+# (docs/spec-notes/ext-jg7.md): the music, level-up, yield, viewmodel clip and LOD switches
+# read back, barter hiding on the caps (F) with Doc Mitchell (104C0F) as the vendor, the
+# reputation change icon on RepNVGoodsprings (104C22), the Goodsprings map marker's icon
+# (CDF51), GetJohnnyPatch, the heap size, IsMenuPaused, the load
+# screen switch and RefAddr [observed: forms from fnvtool esm inventory, as FX above].
+# ToggleDisableSaves, the queued texts, the camera and HUD shakes, TogglePipBoy,
+# ExitGameAlt and RollCredits change the screen or the game and are not probed.
+JG7 = {"caps": "F", "pistol10": "434F", "docref": "104C0F", "repgs": "104C22", "gsmarker": "CDF51"}
+
+
+def _jg7(pid, body, text=False):
+    return (f"jg7.{pid}", "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nfloat fA\nfloat fB\nfloat fC\n"
+            "float fH\nfloat fS\nfloat fV\nstring_var sText\nBegin Function { }\n"
+            + _form("rP", NF["player"]) + body, text, None, "")
+
+
+JG7_PROBES = (
+    # 1. switches read back and put back
+    [_jg7("music", "let fA := (IsCombatMusicEnabled)\nToggleCombatMusic 0\nlet fB := (IsCombatMusicEnabled)\nToggleCombatMusic 1\n"
+          'SetFunctionValue (sv_Construct "%g %g %g" fA fB (IsCombatMusicEnabled))', True),
+     _jg7("levelup", "let fA := (IsLevelUpMenuEnabled)\nToggleLevelUpMenu 0\nlet fB := (IsLevelUpMenuEnabled)\nToggleLevelUpMenu 1\n"
+          'SetFunctionValue (sv_Construct "%g %g %g" fA fB (IsLevelUpMenuEnabled))', True),
+     _jg7("yield", "let fA := (GetYieldTimer)\nSetYieldTimer 5\nlet fB := (GetYieldTimer)\nSetYieldTimer 0\n"
+          'SetFunctionValue (sv_Construct "%g %g %g" fA fB (GetYieldTimer))', True),
+     _jg7("clip", "let fSave := (GetViewmodelClipDistance)\nSetViewmodelClipDistance 2.5\nlet fA := (GetViewmodelClipDistance)\n"
+          "SetViewmodelClipDistance 0\nlet fB := (GetViewmodelClipDistance)\nSetViewmodelClipDistance fSave\n"
+          'SetFunctionValue (sv_Construct "%g %g %g" fSave fA fB)', True),
+     _jg7("lod", "let fSave := (GetNiLODLevel)\nSetNiLODLevel 2\nlet fA := (GetNiLODLevel)\nSetNiLODLevel fSave\n"
+          'SetFunctionValue (sv_Construct "%g %g %g" fSave fA (GetNiLODLevel))', True),
+     # 2. barter hiding flags: player side kept (1), both hidden (none), shown again (0); a
+     # vendor's own entry read with and without the vendor; the caps (all 0 in the first
+     # run) and the 10mm pistol (434F)
+     *[_jg7(pid, _form("rObj", JG7[key]) + _form("rOther", JG7["docref"])
+          + "let fA := IsItemBarterHiddenEx rObj\nHideItemBarterEx rObj 1 1\nlet fB := IsItemBarterHiddenEx rObj\n"
+          "HideItemBarterEx rObj 1\nlet fC := IsItemBarterHiddenEx rObj\nHideItemBarterEx rObj 0\n"
+          'let sText := sv_Construct "%g %g %g %g" fA fB fC (IsItemBarterHiddenEx rObj)\n'
+          "HideItemBarterEx rObj 1 2 rOther\nlet fA := IsItemBarterHiddenEx rObj rOther\nlet fB := IsItemBarterHiddenEx rObj\n"
+          'HideItemBarterEx rObj 0 0 rOther\nSetFunctionValue (sv_Construct "%z %g %g %g" sText fA fB (IsItemBarterHiddenEx rObj rOther))', True)
+       for pid, key in (("barter", "caps"), ("barter.pistol", "pistol10"))],
+     # 3. the reputation icon's return for tier 2 and tier 5 (session only), the map
+     # marker's icon before any SetCustomMapMarkerIcon
+     _jg7("repicon", _form("rObj", JG7["repgs"])
+          + 'let fA := SetCustomReputationChangeIcon rObj 2 "interface\\icons\\nvf.dds"\n'
+          + 'SetFunctionValue (sv_Construct "%g %g" fA (SetCustomReputationChangeIcon rObj 5 "interface\\icons\\nvf.dds"))', True),
+     _jg7("markericon", _form("rObj", JG7["gsmarker"]) + "SetFunctionValue (rObj.GetCustomMapMarkerIcon)", True),
+     # 4. HSVtoRGB and RGBtoHSV compiled at run time in none of seven forms in the original
+     # (observer run 2026-11-08), so they are not in this set (docs/spec-notes/ext-jg7.md)
+     # 5. the extender's own files, menus, the load screen switch, RefAddr
+     _jg7("patches", 'SetFunctionValue (sv_Construct "%g %g %g %g %g %g %g %g" (GetJohnnyPatch 1) (GetJohnnyPatch 2) '
+          "(GetJohnnyPatch 3) (GetJohnnyPatch 4) (GetJohnnyPatch 5) (GetJohnnyPatch 6) (GetJohnnyPatch 7) (GetJohnnyPatch 8))", True),
+     _jg7("heap", "SetFunctionValue (GetDefaultHeapSize)"),
+     _jg7("menupaused", 'SetFunctionValue (sv_Construct "%g %g %g" (IsMenuPaused) (IsMenuPaused 1002) (IsMenuPaused 1009))', True),
+     _jg7("lsonly", "SetFunctionValue (GetLocationSpecificLoadScreensOnly)"),
+     _jg7("refaddr", "SetFunctionValue ((rP.RefAddr) != 0)")]
+)
+SETS.update({"jg7": JG7_PROBES})  # JohnnyGuitar batch 7 (#1007)
+WRITING_SETS |= {"jg7"}
+
+
+
+
+# jip10 (writes, session only, each change put back; #1006): JIP batch 10
+# (docs/spec-notes/jip-scripts-10.md) on FalloutNV.esm forms: VMS01 (Ain't That a Kick in
+# the Head, done in the probe save), MS05's script for added variables (MS05 is not
+# started by script here; the quest's script instance takes the variable), Doc Mitchell
+# (factions, linked children), the player (perks), and a text file written and read
+# under the game's folder (NVForever writes into its own layer). The questions: which
+# elements GetQuests, GetQuestObjectives and GetActiveObjectives give (forms or indices),
+# AddScriptVariable's result for a name added twice, SetStageAlt's GetStageDone of a
+# higher stage, ReadStringFromFile's line cuts, FakeScriptEvent's result.
+J10 = {"vms01": "104C1C", "doc": "104C0C", "docref": "104C0F", "ms05": "1023A5"}
+
+
+def _j10(pid, body, text=False):
+    return (f"jip10.{pid}", "ref rP\nref rObj\nref rItem\nfloat fRes\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\n"
+            "Begin Function { }\n" + _form("rP", NF["player"]) + body, text, None, "")
+
+
+def _j10arr(pid, setup, expr):
+    return _j10(pid, setup + f"let aList := {expr}\nlet sText := \"\"\nlet fA := ar_Size aList\nif fA > 0\n"
+                "let sText := sv_Construct \"%g %z\" fA (ToString aList[0])\nelse\nlet sText := sv_Construct \"%g\" fA\nendif\n"
+                "SetFunctionValue sText", True)
+
+
+JIP10_PROBES = (
+    [_j10arr("quests.active", "", "GetQuests"),
+     _j10arr("quests.done", "", "GetQuests 1"),
+     _j10arr("objectives.active", "", "GetActiveObjectives"),
+     _j10arr("objectives.vms01.0", _form("rObj", J10["vms01"]), "GetQuestObjectives rObj 0"),
+     _j10arr("objectives.vms01.1", _form("rObj", J10["vms01"]), "GetQuestObjectives rObj 1"),
+     _j10arr("targets.vms01.10", _form("rObj", J10["vms01"]), "GetObjectiveTargets rObj 10")]
+    + [_j10arr("perks.player", "", "rP.GetAllPerks"),
+       _j10arr("perks.player.hidden", "", "rP.GetAllPerks 0 1"),
+       _j10arr("perks.player.mates", "", "rP.GetAllPerks 1"),
+       _j10arr("factions.docref", _form("rObj", J10["docref"]), "rObj.GetFactions"),
+       _j10arr("factions.doc", _form("rObj", J10["doc"]), "GetFactions rObj"),
+       _j10arr("linked.docref", _form("rObj", J10["docref"]), "rObj.GetLinkedChildren"),
+       _j10arr("enable.docref", _form("rObj", J10["docref"]), "rObj.GetEnableChildren")]
+    + [_j10("vars.add", _form("rObj", J10["docref"])
+            + 'let fRes := rObj.AddScriptVariable "nvfProbeVar"\nlet fA := rObj.AddScriptVariable "nvfProbeVar"\n'
+            'rObj.SetVariable "nvfProbeVar" 2.5\nlet fB := rObj.GetVariable "nvfProbeVar"\n'
+            'let sText := sv_Construct "%g %g %g %g" fRes fA fB (rObj.HasVariableAdded "nvfProbeVar")\n'
+            'rObj.RemoveScriptVariable "nvfProbeVar"\n'
+            'SetFunctionValue (sv_Construct "%z %g" sText (rObj.HasVariableAdded "nvfProbeVar"))', True)]
+    + [_j10("events.disabled", _form("rObj", J10["docref"])
+            + 'let fA := GetScriptEventDisabled rObj "OnHit"\nSetScriptEventDisabled rObj "OnHit OnLoad" 1\n'
+            'let fB := GetScriptEventDisabled rObj "onload"\nSetScriptEventDisabled rObj "OnHit OnLoad" 0\n'
+            'SetFunctionValue (sv_Construct "%g %g %g" fA fB (GetScriptEventDisabled rObj "OnHit"))', True),
+       _j10("fake.onadd", _form("rObj", J10["docref"]) + 'SetFunctionValue (rObj.FakeScriptEvent "OnTriggerEnter")'),
+       _j10("fake.onactivate", _form("rObj", J10["docref"]) + 'SetFunctionValue (rObj.FakeScriptEvent "OnActivate")')]
+    + [_j10("extra.data", "rP.SetRefExtraData 2 -903.5\nrP.SetRefExtraData 19 \"Girly\"\nrP.SetRefExtraData 18 7\n"
+            "let fA := rP.GetRefExtraData 2\nlet sText := rP.GetRefExtraData 19\nlet fB := rP.RefHasExtraData\n"
+            "let fRes := rP.RefHasExtraData 200\nrP.SetRefExtraData\n"
+            'SetFunctionValue (sv_Construct "%g [%z] %g %g %g" fA sText fB fRes (rP.RefHasExtraData))', True),
+       _j10("mapmarker", _form("rObj", J10["docref"]) + "rObj.AddRefMapMarker\nlet fA := rObj.RefHasMapMarker\n"
+            "rObj.RemoveRefMapMarker\n" 'SetFunctionValue (sv_Construct "%g %g" fA (rObj.RefHasMapMarker))', True)]
+    + [_j10("file.roundtrip", 'let fRes := WriteStringToFile "nvf_probe_jip10.txt" 0 "one%rtwo%rthree"\n'
+            'let fA := WriteStringToFile "nvf_probe_jip10.txt" 1 "%rfour"\n'
+            'let sText := ReadStringFromFile "nvf_probe_jip10.txt" 2 2\n'
+            'SetFunctionValue (sv_Construct "%g %g [%z] [%z]" fRes fA sText (ReadStringFromFile "nvf_probe_jip10.txt"))', True),
+       _j10("file.missing", 'SetFunctionValue (ReadStringFromFile "nvf_probe_no_such_file.txt")', True)]
+)
+
+
+SETS.update({"jip10": JIP10_PROBES})  # JIP batch 10 (#1006)
+WRITING_SETS |= {"jip10"}
+
+
+# sup7 (writes, session only; #1008): SUP batch 7 (docs/spec-notes/ext-sup7.md): the NIF
+# block interpolations on the player's third-person "Bip01 Head" (which type number is
+# which, the searches' defaults, the trait, the finish event and what a stopped block
+# keeps), the vertices of a node and a missing block, and the HUD bars' script-variable
+# and UDF sources (their results only: no getter reads a bar's value). Writes restored:
+# every interpolation stopped, the head's scale set back to 1, the handler removed, the
+# bar destroyed. One step per frame.
+def _sup7(pid, body, text=True):
+    return (f"sup7.{pid}", "float fA\nfloat fB\nfloat fC\nfloat fD\nref rH\narray_var aR\nBegin Function { }\n" + body, text, None, "")
+
+
+SUP7_PROBES = (
+    # A scale from 1 to 2 over 2 s: its result and the searches. "1 1 0 0 0 0" [observed
+    # 2026-11-08]: type 2 is not the scale, no arguments finds none.
+    [_sup7("scale.start", "let fA := PlayerREF.NifBlockInterpolateScale \"Bip01 Head\" 1 2 2 0 0 0\n"
+           "SetFunctionValue (sv_Construct \"%g %g %g %g %g %g\" fA (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\") "
+           "(PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 2) (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 1) "
+           "(PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" -1 1) (PlayerREF.IsNifBlockInterpolated))"),
+     # A frame on: the scale between the ends; Stop of types 1 and 2 (neither the scale's),
+     # the search after, the scale. "0 -1 -1 1 0" [observed 2026-11-08]: a stop that finds
+     # none gives -1; the scale did not read above 1 a frame on.
+     _sup7("scale.next", "let fA := PlayerREF.GetNifBlockScale \"Bip01 Head\"\nlet fB := PlayerREF.NifBlockInterpolateStop \"Bip01 Head\" 1\n"
+           "let fC := PlayerREF.NifBlockInterpolateStop \"Bip01 Head\" 2\n"
+           "SetFunctionValue (sv_Construct \"%g %g %g %g %g\" ((fA > 1) && (fA < 2)) fB fC (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\") "
+           "((PlayerREF.GetNifBlockScale \"Bip01 Head\") > 1))"),
+     _sup7("scale.kept", "SetFunctionValue (sv_Construct \"%g\" ((PlayerREF.GetNifBlockScale \"Bip01 Head\") > 1))\nPlayerREF.SetNifBlockScale \"Bip01 Head\" 1"),
+     # Which type is the translation and the rotation [observed 2026-11-08: the scale is
+     # type 0, a rotation found by type 1]: each started from the block as it is to the
+     # same place (calcStart, no visible change), the three types searched as digits (type
+     # 0 hundreds, 1 tens, 2 units), then Stop without arguments and the block searched.
+     # Array elements go into floats first: as a command's arguments they do not compile
+     # [observed]. "101 0 1" and "111 0 1" [observed 2026-11-08, second run]: the scale of
+     # scale.start still runs, the translation is type 2, a bare Stop stops nothing.
+     _sup7("types.translation", "let aR := PlayerREF.GetNifBlockTranslation \"Bip01 Head\"\nlet fA := aR[0]\nlet fB := aR[1]\nlet fC := aR[2]\n"
+           "PlayerREF.NifBlockInterpolateTranslation \"Bip01 Head\" 0 0 0 fA fB fC 5 0 0 0 1\n"
+           "let fD := (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 0) * 100 + (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 1) * 10 + (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 2)\n"
+           "let fA := PlayerREF.NifBlockInterpolateStop\n"
+           "SetFunctionValue (sv_Construct \"%g %g %g\" fD fA (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\"))"),
+     _sup7("types.rotation", "let aR := PlayerREF.GetNifBlockRotation \"Bip01 Head\"\nlet fA := aR[0]\nlet fB := aR[1]\nlet fC := aR[2]\n"
+           "PlayerREF.NifBlockInterpolateRotation \"Bip01 Head\" 0 0 0 fA fB fC 5 0 0 1\n"
+           "let fD := (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 0) * 100 + (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 1) * 10 + (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\" 2)\n"
+           "let fA := PlayerREF.NifBlockInterpolateStop\n"
+           "SetFunctionValue (sv_Construct \"%g %g %g\" fD fA (PlayerREF.IsNifBlockInterpolated \"Bip01 Head\"))"),
+     # Stop on the block (the earlier steps' interpolations still running), the trait with
+     # none; the trait on a running one, trait 0 and an unknown trait 5: "1 0 0 0"
+     # [observed 2026-11-08, both runs].
+     _sup7("trait", "let fA := PlayerREF.NifBlockInterpolateStop \"Bip01 Head\"\nlet fB := PlayerREF.NifBlockInterpolateSetTrait 0 1\n"
+           "PlayerREF.NifBlockInterpolateScale \"Bip01 Head\" 1 1 5 0 0 0\n"
+           "let fC := PlayerREF.NifBlockInterpolateSetTrait 0 1 \"Bip01 Head\"\n"
+           "SetFunctionValue (sv_Construct \"%g %g %g %g\" fA fB fC (PlayerREF.NifBlockInterpolateSetTrait 5 1 \"Bip01 Head\"))\n"
+           "PlayerREF.NifBlockInterpolateStop"),
+     # The finish event: a handler writes its arguments into aux variables; a scale of
+     # 1 to 1 over a thousandth of a second ends by the next frame.
+     _sup7("event.set", "PlayerREF.AuxVarErase \"*sup7\"\nlet rH := (Begin Function {ref rRef, string_var sBlock, int iType, int iLoop, int iPC}\n"
+           "PlayerREF.AuxVarSetFlt \"*sup7\" ((rRef == PlayerREF) * 1000 + (sBlock == \"Bip01 Head\") * 100 + iType * 10 + iLoop) 0\n"
+           "PlayerREF.AuxVarSetFlt \"*sup7\" iPC 1\nEnd)\nSetSUPOnInterpolateFinishEvent rH\nPlayerREF.AuxVarSetRef \"*sup7h\" rH\n"
+           "SetFunctionValue (PlayerREF.NifBlockInterpolateScale \"Bip01 Head\" 1 1 0.001 0 0 0)", False),
+     _sup7("event.wait", "SetFunctionValue (PlayerREF.IsNifBlockInterpolated)", False),
+     # "1100 1 0" [observed 2026-11-08]: the player, the block, type 0 (the scale), not
+     # from a loop; iPCNode 1 on the player's third-person model; then the handler removed.
+     _sup7("event.read", "SetFunctionValue (sv_Construct \"%g %g %g\" (PlayerREF.AuxVarGetFlt \"*sup7\" 0) (PlayerREF.AuxVarGetFlt \"*sup7\" 1) "
+           "(PlayerREF.IsNifBlockInterpolated))\nlet rH := PlayerREF.AuxVarGetRef \"*sup7h\"\nRemoveSUPOnInterpolateFinishEvent rH\n"
+           "PlayerREF.AuxVarErase \"*sup7\"\nPlayerREF.AuxVarErase \"*sup7h\"\nPlayerREF.SetNifBlockScale \"Bip01 Head\" 1"),
+     # Vertices of a node and of a missing block: "-2 -1 0 0" [observed 2026-11-08].
+     _sup7("verts", "let aR := PlayerREF.NifBlockGetVerticles \"Bip01 Head\"\nlet fA := ar_Size aR\nlet aR := PlayerREF.NifBlockGetVerticles \"NVFNoSuchBlock\"\n"
+           "SetFunctionValue (sv_Construct \"%g %g %g %g\" (PlayerREF.GetNifBlockNumVerticles \"Bip01 Head\") "
+           "(PlayerREF.GetNifBlockNumVerticles \"NVFNoSuchBlock\") fA (ar_Size aR))"),
+     # The bars' UDF source on a made bar and on a missing one (hypothesis: "1 -1"; the
+     # first 1 [observed 2026-11-08]); then the bar destroyed. HudBarSetValueScriptVar did
+     # not compile at run time in any form tried [observed], so it is not probed here.
+     _sup7("bars", "HudBarCreate \"NVFProbeBar\" 100 100 0\n"
+           "let fA := HudBarSetValueUDF \"NVFProbeBar\" (Begin Function { }\nSetFunctionValue 0.5\nEnd) 0\n"
+           "let fB := HudBarSetValueUDF \"NVFNoSuchBar\" (Begin Function { }\nSetFunctionValue 0.5\nEnd) 0\n"
+           "HudBarDestroy \"NVFProbeBar\"\nSetFunctionValue (sv_Construct \"%g %g\" fA fB)")]
+)
+SETS.update({"sup7": SUP7_PROBES})
+WRITING_SETS |= {"sup7"}
+
+
+# jip11 (reads; the one write, ForceActorDetectionValue, is put back; #1006): JIP batch 11
+# (docs/spec-notes/jip-actors-11.md) on Doc Mitchell (reference and base) and the player
+# in the probe save. The questions: GetActorLightAmount's range on an actor indoors,
+# GetActorMovementFlags of a standing actor, GetDetectionValue's value for a pair (and one
+# never measured), GetActiveEffects' elements (the magic items or their base effects),
+# GetBaseActorValueAlt on a base form, GetKillXP, GetRadiationLevelAlt on an NPC, the
+# stable and interrupt packages, list getters out of combat (no array?).
+def _j11(pid, body, text=False):
+    return (f"jip11.{pid}", "ref rP\nref rObj\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\n"
+            "Begin Function { }\n" + _form("rP", NF["player"]) + body, text, None, "")
+
+
+def _j11v(pid, setup, expr, text=False):
+    return _j11(pid, setup + f"SetFunctionValue ({expr})", text)
+
+
+def _j11arr(pid, setup, expr):
+    return _j11(pid, setup + f"let aList := {expr}\nlet fA := ar_Size aList\nif fA > 0\n"
+                "let sText := sv_Construct \"%g %z\" fA (ToString aList[0])\nelse\nlet sText := sv_Construct \"%g\" fA\nendif\n"
+                "SetFunctionValue sText", True)
+
+
+_J11DOC = _form("rObj", NF["docref"])
+JIP11_PROBES = (
+    [_j11v("alpha.doc", _J11DOC, "rObj.GetActorAlpha"),
+     _j11v("gravity.doc", _J11DOC, "rObj.GetActorGravityMult"),
+     _j11v("leveled.doc", _J11DOC, "GetFormIDString (rObj.GetActorLeveledList)", True),
+     _j11v("light.doc", _J11DOC, "rObj.GetActorLightAmount"),
+     _j11v("light.player", "", "rP.GetActorLightAmount"),
+     _j11v("movement.doc", _J11DOC, "rObj.GetActorMovementFlags"),
+     _j11v("killxp.doc", _J11DOC, "rObj.GetKillXP"),
+     _j11v("rads.doc", _J11DOC, "rObj.GetRadiationLevelAlt"),
+     _j11v("rads.player", "", "rP.GetRadiationLevelAlt"),
+     _j11v("baseav.doc", _J11DOC, "rObj.GetBaseActorValueAlt Strength"),
+     _j11v("baseav.docbase", _form("rObj", NF["doc"]), "GetBaseActorValueAlt Strength rObj"),
+     _j11v("detection.doc.player", _J11DOC, "rObj.GetDetectionValue rP"),
+     _j11v("detection.player.doc", _J11DOC, "rP.GetDetectionValue rObj"),
+     _j11v("stable.doc", _J11DOC, "GetFormIDString (rObj.GetCurrentStablePackage)", True),
+     _j11v("interrupt.doc", _J11DOC, "GetFormIDString (rObj.GetInterruptPackage)", True),
+     _j11v("unreachable.doc", _J11DOC, "rObj.GetTargetUnreachable"),
+     _j11v("unarmed.docbase", _form("rObj", NF["doc"]), "GetFormIDString (GetActorUnarmedEffect rObj)", True),
+     _j11v("scoped.player", "", "rP.IsEquippedWeaponScoped"),
+     _j11v("silenced.player", "", "rP.IsEquippedWeaponSilenced"),
+     _j11v("breath.player", "", "rP.GetActorDiveBreath"),
+     _j11v("falltime.player", "", "rP.GetFallTimeRemaining")]
+    + [_j11arr("allies.doc", _J11DOC, "rObj.GetCombatAllies"),
+       _j11arr("targets.doc", _J11DOC, "rObj.GetCombatTargets"),
+       _j11arr("detected.doc", _J11DOC, "rObj.GetDetectedActors"),
+       _j11arr("effects.player", "", "rP.GetActiveEffects"),
+       _j11arr("effects.player.actor", "", "rP.GetActiveEffects 2"),
+       _j11arr("effects.player.ingestible", "", "rP.GetActiveEffects 4")]
+    + [_j11("force.detection", _J11DOC + "rP.ForceActorDetectionValue -100\nlet fA := rObj.GetDetectionValue rP\n"
+            "rP.ForceActorDetectionValue\nSetFunctionValue (sv_Construct \"%g %g\" fA (rObj.GetDetectionValue rP))", True)]
+)
+
+SETS.update({"jip11": JIP11_PROBES})  # JIP batch 11 (#1006)
+WRITING_SETS |= {"jip11"}
+
+# sup4 (writes, session only, each change put back; #1008): SUP batch 4
+# (docs/spec-notes/ext-sup4.md): random array keys, invalid references, floats from an
+# array, a UDF frames later, the last save and load, the cells and map markers near the
+# player at Doc Mitchell's, the scripts marked on load, the caught-pickpocketing flag on
+# Doc Mitchell (set back), transliteration. One step per frame.
+# The string variable is sOut: `string_var sA` did not compile in the original
+# [observed 2026-11-09, sup4 diagnostic runs; other names, sOld, did].
+def _sup4(pid, body, text=True):
+    return (f"sup4.{pid}", "ref rD\nref rNone\nref rH\narray_var aR\narray_var aIn\nfloat fA\nfloat fB\nfloat fC\nstring_var sOut\nBegin Function { }\n"
+            + _form("rD", NF["docref"]) + body, text, None, "")
+
+
+SUP4_PROBES = (
+    # A key of a five-element list in 0-4, a key of a two-key map, an empty list's
+    # (hypothesis: "1 1 -1").
+    [_sup4("randomkey", "let aR := Ar_List 10, 20, 30, 40, 50\nlet fA := Ar_GetRandomKey aR\n"
+           "let aIn := Ar_Map \"LALALA\"::1, \"TROLOLO\"::2\nlet sOut := Ar_GetRandomKeyMap aIn\nlet aR := Ar_List\n"
+           "SetFunctionValue (sv_Construct \"%g %g %g\" ((fA >= 0) && (fA <= 4) && (fA == Floor fA)) ((sOut == \"LALALA\") || (sOut == \"TROLOLO\")) (Ar_GetRandomKey aR))"),
+     # Valid references, an empty one, the empty one inside an inner array searched with
+     # and without its dimension (hypothesis: "0 1 0 1").
+     _sup4("invalidrefs", "let aR := Ar_List PlayerREF, rD\nlet fA := Ar_HasInvalidRefs aR\nlet aR := Ar_List PlayerREF, rNone\nlet fB := Ar_HasInvalidRefs aR\n"
+           "let aIn := Ar_List rNone\nlet aR := Ar_List PlayerREF, aIn\n"
+           "SetFunctionValue (sv_Construct \"%g %g %g %g\" fA fB (Ar_HasInvalidRefs aR) (Ar_HasInvalidRefs aR 1))"),
+     # The page's example: 3 8 5 [documented].
+     _sup4("setfloats", "let aR := Ar_List 3, 8, 5, 1\nAr_SetFloatsFrom aR fA fB fC\nSetFunctionValue (sv_Construct \"%g %g %g\" fA fB fC)"),
+     # A UDF two frames later writes an aux variable; read at once and two steps later
+     # (hypothesis: "0", then "1").
+     _sup4("nextframe.set", "PlayerREF.AuxVarErase \"*sup4\"\nCallFunctionNextFrame (Begin Function { }\nPlayerREF.AuxVarSetFlt \"*sup4\" 1\nEnd) 2\n"
+           "SetFunctionValue (PlayerREF.AuxVarGetFlt \"*sup4\")", False),
+     _sup4("nextframe.wait", "SetFunctionValue 0", False),
+     _sup4("nextframe.read", "SetFunctionValue (PlayerREF.AuxVarGetFlt \"*sup4\")\nPlayerREF.AuxVarErase \"*sup4\"", False),
+     # The probe game loads a save before the steps: its size, the co-save's, its name
+     # given, the last save's name before any save (hypothesis: "1 1 1 0"; NVForever
+     # writes no co-save and gives 0 for type 1 [decision]).
+     _sup4("saves", "let sOut := GetSaveName 1\nSetFunctionValue (sv_Construct \"%g %g %g %g\" ((GetLoadedSaveSize 0) > 0) ((GetLoadedSaveSize 1) > 0) "
+           "((Sv_Length sOut) > 0) ((Sv_Length (GetSaveName 0)) > 0))"),
+     # Indoors: the player's cell alone at depth 0, 2 and -1, no map markers (hypothesis:
+     # "1 1 1 0").
+     _sup4("near", "let aR := GetNearCells 0\nlet fA := Ar_Size aR\nlet aR := GetNearCells 2\nlet fB := Ar_Size aR\nlet aR := GetNearCells -1\nlet fC := Ar_Size aR\n"
+           "let aR := GetNearMapMarkers 2\nSetFunctionValue (sv_Construct \"%g %g %g %g\" fA fB fC (Ar_Size aR))"),
+     # A probe query is no script form: nothing marked (hypothesis: "0 0"; the original may
+     # refuse the call outside a script).
+     _sup4("markonload", "let fA := MarkScriptOnLoad\nSetFunctionValue (sv_Construct \"%g %g\" fA (IsScriptMarkedOnLoad GSDocMitchellScript))"),
+     # Doc Mitchell's flag read, set, read, set back (hypothesis: "0 1 1").
+     _sup4("caught", "let fA := rD.SetCaughtPCPickpocketting\nlet fB := rD.SetCaughtPCPickpocketting 1\nlet fC := rD.SetCaughtPCPickpocketting\n"
+           "rD.SetCaughtPCPickpocketting fA\nSetFunctionValue (sv_Construct \"%g %g %g\" fA fB fC)"),
+     # The page names no return value: the text back (hypothesis: "Privet"), or nothing.
+     # The literal is "Привет" as cp1251 bytes, written with the cp1252 characters of those
+     # bytes: the probe text reaches the game as cp1252 [observed 2026-11-09: UTF-8 Cyrillic
+     # arrived as cp1252 bytes].
+     _sup4("translit", "let sOut := TranslitText \"Ïðèâåò\"\nSetFunctionValue sOut")]
+)
+SETS.update({"sup4": SUP4_PROBES})
+WRITING_SETS |= {"sup4"}
+
+
+# jg8 (reads only, nothing changed; #1007): JohnnyGuitar batch 8 (docs/spec-notes/ext-jg8.md):
+# file hashes of Data\Credits.txt, loaded archives, a world map icon's DDS header, the
+# system colours, the sleep/wait menu's state outside it, Ar_SortEditor on Stimpak
+# (15169), Caps001 (F) and the 10mm pistol (434F), Ar_Shuffle [observed: forms from
+# fnvtool esm inventory, as NF above]. The event handlers, SetCustomMapMarker,
+# ClearCustomMapMarker and TuneRadioRef change the session or need an event the probe
+# cannot cause and put back; IsRadioRefPlaying crashes the original (its page).
+
+
+def _jg8(pid, body, text=False):
+    return (f"jg8.{pid}", "ref rA\nref rB\nref rC\nfloat fA\nfloat fB\nfloat fC\nint iR\nint iG\nint iB\n"
+            "string_var sText\narray_var aList\narray_var aOut\nBegin Function { }\n" + body, text, None, "")
+
+
+JG8_PROBES = (
+    [_jg8("md5", 'SetFunctionValue (sv_Construct "%z|%z" (MD5File "Data\\Credits.txt") (MD5File "Data\\NoSuchFile.txt"))', True),
+     _jg8("sha1", 'SetFunctionValue (SHA1File "Data\\Credits.txt")', True),
+     _jg8("bsa", 'SetFunctionValue (sv_Construct "%g %g %g %g" (IsBSALoaded "Fallout - Meshes.bsa") '
+          '(IsBSALoaded "fallout - meshes.bsa") (IsBSALoaded "Data\\Fallout - Meshes.bsa") (IsBSALoaded "NoSuch.bsa"))', True),
+     _jg8("texture", 'let sText := "interface\\icons\\world map\\icon_map_encampment.dds"\n'
+          'SetFunctionValue (sv_Construct "%g %g %g %g" (GetTextureWidth $sText) (GetTextureHeight $sText) '
+          "(GetTextureMipMapCount $sText) (GetTextureFormat $sText))", True),
+     _jg8("colour", 'SetFunctionValue (sv_Construct "%.0f %.0f %.0f %.0f %.0f %.0f" (GetSystemColor 1) (GetSystemColor 2) '
+          "(GetSystemColor 3) (GetSystemColor 4) (GetSystemColor 5) (GetSystemColor 6))", True),
+     _jg8("colour.alt", 'GetSystemColorAlt 1 iR iG iB\nSetFunctionValue (sv_Construct "%g %g %g" iR iG iB)', True),
+     _jg8("sleepwait", "SetFunctionValue (GetSleepWaitMenuState)"),
+     _jg8("sorteditor", _form("rA", NF["stimpak"]) + _form("rB", NF["caps"]) + _form("rC", NF["pistol10"])
+          + "let aList := Ar_List rA, rB, rC\nlet aOut := Ar_SortEditor aList\n"
+          'let sText := sv_Construct "%z %z %z" (GetFormIDString aOut[0]) (GetFormIDString aOut[1]) (GetFormIDString aOut[2])\n'
+          "let aOut := Ar_SortEditor aList 1\n"
+          'SetFunctionValue (sv_Construct "%z | %z %z %z" sText (GetFormIDString aOut[0]) (GetFormIDString aOut[1]) (GetFormIDString aOut[2]))', True),
+     _jg8("shuffle", "let aOut := Ar_Shuffle (Ar_List 1, 2, 3, 4, 5)\n"
+          'SetFunctionValue (sv_Construct "%g %g" (Ar_Size aOut) (aOut[0] + aOut[1] + aOut[2] + aOut[3] + aOut[4]))', True)]
+)
+SETS.update({"jg8": JG8_PROBES})  # JohnnyGuitar batch 8 (#1007)
+
+
 def script(body):
     if body.startswith(("ref ", "float ")):
         return body + "\nEnd\n"

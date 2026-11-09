@@ -480,7 +480,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // "Ability for type 5, Quest for type 6"]; an entry point 0 (its leveled list is
         // not kept decoded) [hypothesis], a negative index or past the entries 0.
         "getnthperkentryform" => {
-            let e = form(args, 0).and_then(|p| g.data.perks.get(&p)).and_then(|p| num(args, 1).filter(|i| *i >= 0.0).and_then(|i| p.entries.get(i as usize)));
+            let e = form(args, 0).and_then(|p| num(args, 1).and_then(|i| crate::nvse_lu3::nth_entry_of(g, p, i)));
             reff(match e.map(|e| &e.effect) {
                 Some(crate::data::PerkEffect::Ability(s)) => Some(*s),
                 Some(crate::data::PerkEffect::QuestStage { quest, .. }) => Some(*quest),
