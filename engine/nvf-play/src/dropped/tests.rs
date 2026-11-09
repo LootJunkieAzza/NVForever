@@ -49,6 +49,7 @@ fn state(cell: Option<u32>, pos: [f32; 3]) -> RefState {
         scale: None,
         equip_locks: Default::default(),
         dropped_by: None,
+        player_drop: false,
     }
 }
 

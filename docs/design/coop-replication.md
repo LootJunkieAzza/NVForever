@@ -216,6 +216,21 @@ fight over loot").**
   changes, because a script put them there for a reason. Each player then takes their own
   copy, unless it's a quest item.
 
+- **Items a player drops** (owner, 2026-11-09, queue item 135: "any items players drop
+  should be visible for all players, and if a player picks up a player dropped item it
+  goes away for all players"). Hand drops, scripted drops and a weapon lost from the
+  player's hand are marked (`RefState::player_drop`). There is one copy, in the host's
+  world, and the host's save keeps it. Every player sees it (`Value::Item`, then its
+  `Place`), and its `deleted` flag goes to everyone.
+  - A guest's drop goes to the host once it lies still (`Loose::Dropped`). The host makes
+    it and sends back its number (`Loose::Made`), and the guest's own copy takes that
+    number.
+  - A guest's pickup happens in its own game at once and is asked of the host
+    (`Loose::Took`). The host's world decides who was first. A guest who was not first
+    gives the item back (`Loose::Refused`), so nothing is doubled.
+  - Not carried: the dropped unit's condition and mods (the host's copy has the base and
+    count only). NPCs' drops stay per-player loot.
+
 **Never sent:**
 
 - **Clutter at rest.** A can that has never moved is still the plugin's can, and both

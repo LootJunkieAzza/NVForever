@@ -20,6 +20,8 @@ pub mod kind {
     /// Guest to host: an object the guest's physics moves (held, or falling after a
     /// throw or a drop), with its pose.
     pub const CARRY: u8 = 4;
+    /// Both ways: a player's dropped items (queue item 135, [`Loose`]).
+    pub const LOOSE: u8 = 5;
 }
 
 /// The components of a reference (§6.1).
@@ -32,7 +34,8 @@ pub mod comp {
     pub const LOOK: u8 = 5;
     pub const EXISTS: u8 = 6;
     pub const ANIM: u8 = 7;
-    pub const COUNT: usize = 8;
+    pub const ITEM: u8 = 8;
+    pub const COUNT: usize = 9;
 }
 
 /// A component's value.
@@ -56,6 +59,9 @@ pub enum Value {
     Exists { base: u32, cell: u32, pos: [f32; 3], rot: [f32; 3] },
     /// The furniture an actor uses (0: none) and the weapon it holds (0: none).
     Anim { furniture: u32, weapon: u32 },
+    /// An item a player dropped, lying in the host's world (queue item 135): its base,
+    /// how many, and where it was made. Every player sees it and any one can take it.
+    Item { base: u32, count: i32, cell: u32, pos: [f32; 3], rot: [f32; 3] },
 }
 
 impl Value {
@@ -69,6 +75,7 @@ impl Value {
             Value::Look { .. } => comp::LOOK,
             Value::Exists { .. } => comp::EXISTS,
             Value::Anim { .. } => comp::ANIM,
+            Value::Item { .. } => comp::ITEM,
         }
     }
 
@@ -108,6 +115,14 @@ impl Value {
             Value::Anim { furniture, weapon } => {
                 b.extend_from_slice(&furniture.to_le_bytes());
                 b.extend_from_slice(&weapon.to_le_bytes());
+            }
+            Value::Item { base, count, cell, pos, rot } => {
+                b.extend_from_slice(&base.to_le_bytes());
+                b.extend_from_slice(&count.to_le_bytes());
+                b.extend_from_slice(&cell.to_le_bytes());
+                for v in pos.iter().chain(rot.iter()) {
+                    b.extend_from_slice(&v.to_le_bytes());
+                }
             }
         }
     }
@@ -149,6 +164,13 @@ impl Value {
                 Value::Exists { base, cell, pos, rot: [r.f32()?, r.f32()?, r.f32()?] }
             }
             comp::ANIM => Value::Anim { furniture: r.u32()?, weapon: r.u32()? },
+            comp::ITEM => {
+                let base = r.u32()?;
+                let count = r.u32()? as i32;
+                let cell = r.u32()?;
+                let pos = [r.f32()?, r.f32()?, r.f32()?];
+                Value::Item { base, count, cell, pos, rot: [r.f32()?, r.f32()?, r.f32()?] }
+            }
             _ => return None,
         })
     }
@@ -290,6 +312,75 @@ pub fn unpack_carry(item: &[u8]) -> Option<Carry> {
     }
     let done = r.u8()? != 0;
     Some(Carry { reference, pos: [f[0], f[1], f[2]], rot: [f[3], f[4], f[5]], done })
+}
+
+/// A player's dropped items (queue item 135): the host's world holds the one copy, so a
+/// drop shows for everyone and a pickup takes it away for everyone.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Loose {
+    /// Guest to host: the guest dropped `count` of `base`; its own reference `local` has
+    /// come to rest there. The host makes it in its world.
+    Dropped { local: u32, base: u32, count: i32, cell: u32, pos: [f32; 3], rot: [f32; 3] },
+    /// Host to the dropping guest: its `local` reference is `host` in the host's world.
+    Made { local: u32, host: u32 },
+    /// Guest to host: the guest took the host's `reference`.
+    Took { reference: u32 },
+    /// Host to guest: someone took `reference` first: the guest gives back the `count` of
+    /// `base` its own game put in its inventory.
+    Refused { reference: u32, base: u32, count: i32 },
+}
+
+pub fn pack_loose(l: &Loose) -> Vec<u8> {
+    let mut b = vec![kind::LOOSE];
+    // A tag, then whole words.
+    let mut u = |v: u32| b.extend_from_slice(&v.to_le_bytes());
+    match *l {
+        Loose::Dropped { local, base, count, cell, pos, rot } => {
+            u(0);
+            u(local);
+            u(base);
+            u(count as u32);
+            u(cell);
+            for v in pos.iter().chain(rot.iter()) {
+                u(v.to_bits());
+            }
+        }
+        Loose::Made { local, host } => {
+            u(1);
+            u(local);
+            u(host);
+        }
+        Loose::Took { reference } => {
+            u(2);
+            u(reference);
+        }
+        Loose::Refused { reference, base, count } => {
+            u(3);
+            u(reference);
+            u(base);
+            u(count as u32);
+        }
+    }
+    b
+}
+
+pub fn unpack_loose(item: &[u8]) -> Option<Loose> {
+    let (&k, rest) = item.split_first()?;
+    if k != kind::LOOSE {
+        return None;
+    }
+    let mut r = Reader(rest);
+    Some(match r.u32()? {
+        0 => {
+            let (local, base, count, cell) = (r.u32()?, r.u32()?, r.u32()? as i32, r.u32()?);
+            let pos = [r.f32()?, r.f32()?, r.f32()?];
+            Loose::Dropped { local, base, count, cell, pos, rot: [r.f32()?, r.f32()?, r.f32()?] }
+        }
+        1 => Loose::Made { local: r.u32()?, host: r.u32()? },
+        2 => Loose::Took { reference: r.u32()? },
+        3 => Loose::Refused { reference: r.u32()?, base: r.u32()?, count: r.u32()? as i32 },
+        _ => return None,
+    })
 }
 
 /// A visible side effect of a host script (§7), played by each guest.
@@ -558,7 +649,24 @@ mod tests {
             Change { reference: 0x9, value: Value::Look { base: 0x1F, level: 12, all_levels: true, rolls: 2, worn: vec![0x10, 0x11, 0x12] } },
             Change { reference: 0xFF00_0001, value: Value::Exists { base: 0x22, cell: 0x33, pos: [1.0; 3], rot: [0.5; 3] } },
             Change { reference: 0xA, value: Value::Anim { furniture: 0x44, weapon: 0x55 } },
+            Change { reference: 0xFF00_0002, value: Value::Item { base: 0x15169, count: 3, cell: 0x33, pos: [1.0, 2.0, 3.0], rot: [0.0, 0.0, 1.5] } },
         ]
+    }
+
+    #[test]
+    fn every_loose_message_round_trips() {
+        let all = [
+            Loose::Dropped { local: 0xFF80_0001, base: 0x15169, count: 3, cell: 0x33, pos: [1.5, -2.0, 300.0], rot: [0.0, 0.1, 3.0] },
+            Loose::Made { local: 0xFF80_0001, host: 0xFF00_0042 },
+            Loose::Took { reference: 0xFF00_0042 },
+            Loose::Refused { reference: 0xFF00_0042, base: 0x15169, count: 3 },
+        ];
+        for l in all {
+            let b = pack_loose(&l);
+            assert_eq!(unpack_loose(&b), Some(l));
+            assert_eq!(unpack_loose(&b[..b.len() - 1]), None);
+            assert!(unpack_carry(&b).is_none() && unpack_changes(&b).is_none());
+        }
     }
 
     #[test]

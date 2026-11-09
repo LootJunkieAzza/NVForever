@@ -1773,6 +1773,25 @@ fn drops_land_ahead_of_and_above_the_holder() {
 }
 
 #[test]
+fn the_players_drops_are_marked_and_others_are_not() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    w.add_item(p, id(STIMPAK), 3).unwrap();
+    let by_hand = w.player_drop_item(id(STIMPAK), 1).unwrap()[0];
+    let scripted = w.drop_item(p, id(STIMPAK), 1).unwrap()[0];
+    assert!(w.peek(by_hand).unwrap().player_drop && w.peek(scripted).unwrap().player_drop);
+    let made = w.place(id(SAFE), Some(id(CELL_A)), [0.0; 3], [0.0; 3], 1).unwrap();
+    w.add_item(made, id(PISTOL), 1).unwrap();
+    let other = w.drop_item(made, id(PISTOL), 1).unwrap()[0];
+    assert!(!w.peek(other).unwrap().player_drop && !w.peek(made).unwrap().player_drop);
+    // A save keeps the mark (a co-op host's world saves the players' drops).
+    let text = serde_json::to_string(&w.snapshot()).unwrap();
+    let back = World::restore(&f.forms, &f.refs, &serde_json::from_str(&text).unwrap()).unwrap();
+    assert!(back.peek(by_hand).unwrap().player_drop && !back.peek(other).unwrap().player_drop);
+}
+
+#[test]
 fn hand_drops_land_at_chest_height_in_a_ring() {
     use fnv_sim::world::{player_drop_offset, DROP_AHEAD, PLAYER_DROP_ABOVE, PLAYER_DROP_RING};
     let f = fixture();
