@@ -42,6 +42,8 @@ pub enum CoopEffect {
     Sound { sound: FormId, at: FormId },
     /// A music type (PlayMusic).
     Music(FormId),
+    /// A script moved the player (MoveTo, PositionCell...): the guests go with it.
+    PlayerMoved,
 }
 
 impl Game<'_> {

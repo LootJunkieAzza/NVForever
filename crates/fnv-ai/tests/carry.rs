@@ -1911,7 +1911,7 @@ fn a_far_walk_stops_where_it_comes_into_the_loaded_area() {
     let actor = FormId(R_TRAVEL);
     assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
     // Its destination's cell is the loaded area; it walks from the other one.
-    s.ai.set_loaded(Some(fnv_ai::LoadedArea { space: B, cells: Default::default() }));
+    s.ai.set_loaded(Some(fnv_ai::LoadedArea { space: B, cells: Default::default(), also: Vec::new() }));
     assert!(s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::Low));
     let mut waited = 0;
     while s.ai.process_stats.far_updates == 0 {

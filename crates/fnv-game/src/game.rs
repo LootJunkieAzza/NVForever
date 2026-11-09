@@ -1488,6 +1488,14 @@ pub struct Game<'a> {
     /// Co-op replication, the host's: the located script sounds and music its scripts
     /// asked for since the replication layer last took them (`None`: not hosting).
     pub coop_effects: Option<Vec<crate::sound::CoopEffect>>,
+    /// Co-op replication, the host's: the cell each guest stands in, where the guests are
+    /// away from the host ([`Game::set_coop_cells`]). The cells around each load for
+    /// scripts, packages and OnLoad as the player's do, so a guest's surroundings live
+    /// while the host is elsewhere.
+    pub coop_cells: BTreeSet<FormId>,
+    /// The cells loaded around the player itself (the rest of [`Game::loaded_cells`]
+    /// comes from [`Game::coop_cells`]).
+    pub own_cells: BTreeSet<FormId>,
     /// A co-op guest's: the control groups the host's scripts hold on the host's player
     /// (a scene), held on this player too ([`Game::controls_locked`]; nvforever `coop`).
     /// Not saved.
@@ -2231,6 +2239,8 @@ impl<'a> Game<'a> {
             world_logic_off: false,
             story_plugins: Vec::new(),
             coop_effects: None,
+            coop_cells: BTreeSet::new(),
+            own_cells: BTreeSet::new(),
             coop_host_locks: [false; 7],
             script_worn: BTreeMap::new(),
             coop_story_gear: BTreeMap::new(),
@@ -4512,16 +4522,37 @@ impl<'a> Game<'a> {
             // exterior allows fast travel again [documented: catalogue notes of
             // EnableFastTravel].
             let placed = self.world.placed;
-            let was_interior = !self.loaded_cells.is_empty() && self.loaded_cells.iter().all(|&l| placed.world_of(l).is_none());
+            let was_interior = !self.own_cells.is_empty() && self.own_cells.iter().all(|&l| placed.world_of(l).is_none());
             // Only travel comes back: "the transition won't allow them to wait; this
             // will have to be manually re-enabled" [documented: GECK wiki
             // EnableFastTravel, example `0 0 0`].
             if was_interior && placed.world_of(c).is_some() && !self.player.fast_travel.keep {
                 self.player.fast_travel.travel_disabled = false;
             }
-            let cells = self.cells_around(c);
-            self.set_loaded(cells);
+            self.own_cells = self.cells_around(c);
+            self.load_with_coop();
         }
+    }
+
+    /// Co-op replication, the host's: the cells the guests stand in. The cells around
+    /// each are loaded with the player's ([`Game::coop_cells`]); a guest in the host's own
+    /// area adds nothing.
+    pub fn set_coop_cells(&mut self, cells: BTreeSet<FormId>) {
+        if cells != self.coop_cells {
+            self.coop_cells = cells;
+            if !self.own_cells.is_empty() {
+                self.load_with_coop();
+            }
+        }
+    }
+
+    /// [`Game::own_cells`] and the cells around each of [`Game::coop_cells`], loaded.
+    fn load_with_coop(&mut self) {
+        let mut cells = self.own_cells.clone();
+        for &c in &self.coop_cells.clone() {
+            cells.extend(self.cells_around(c));
+        }
+        self.set_loaded(cells);
     }
 
     // ---- activation and other events -------------------------------------------

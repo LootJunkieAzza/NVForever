@@ -188,6 +188,10 @@ pub(crate) fn move_ref(g: &mut Game, r: FormId, marker: FormId, offset: [f64; 3]
     if r == FormId::PLAYER_REF {
         g.player_entered(cell);
         g.bring_teammates(from);
+        // A co-op host's guests go with it (a script's move, not a door's or travel's).
+        if let Some(out) = g.coop_effects.as_mut() {
+            out.push(crate::sound::CoopEffect::PlayerMoved);
+        }
     }
     Ok(())
 }

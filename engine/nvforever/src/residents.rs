@@ -861,6 +861,26 @@ impl Residents {
     pub fn release_pose(&mut self, id: u32) {
         self.core.scripted.remove(&id);
     }
+
+    /// Co-op replication, the host's: the residents it simulates in its guests'
+    /// surroundings (`Streamer::coop_areas`) and does not draw itself, each as
+    /// (reference, base, space, feet, heading, walking). A guest draws them by these.
+    pub fn simulated_undrawn(&self, world: &WorldData, streamer: &Streamer) -> Vec<(u32, u32, Space, [f32; 3], f32, bool)> {
+        if streamer.coop_areas.is_empty() {
+            return Vec::new();
+        }
+        self.core
+            .list
+            .iter()
+            .filter(|r| r.joined && !r.failed && r.present)
+            .filter_map(|r| {
+                let a = self.core.ai.agents.get(&r.actor)?;
+                let w = &a.walker;
+                (!drawn(world, streamer, w.space, w.feet) && streamer.coop_areas.iter().any(|c| c.holds(w.space, w.feet)))
+                    .then(|| (r.actor.0, r.base, w.space, w.feet, w.heading, a.activity == Activity::Travelling && w.moving))
+            })
+            .collect()
+    }
 }
 
 /// Where the host of a co-op game draws one of its actors ([`Residents::remote`]).
@@ -1324,8 +1344,8 @@ impl Core {
     fn process_levels(&mut self, game: &Game, world: &WorldData, streamer: &Streamer) {
         // A far walk stops where it comes into the loaded area (`fnv_ai::process`).
         let loaded = match streamer.interior {
-            Some(c) => fnv_ai::LoadedArea { space: Space::Interior(c), cells: Default::default() },
-            None => fnv_ai::LoadedArea { space: Space::World(world.world), cells: streamer.loaded.keys().copied().collect() },
+            Some(c) => fnv_ai::LoadedArea { space: Space::Interior(c), cells: Default::default(), also: streamer.coop_areas.clone() },
+            None => fnv_ai::LoadedArea { space: Space::World(world.world), cells: streamer.loaded.keys().copied().collect(), also: streamer.coop_areas.clone() },
         };
         if self.ai.loaded() != Some(&loaded) {
             self.ai.set_loaded(Some(loaded));
@@ -1340,7 +1360,7 @@ impl Core {
             let Some(a) = self.ai.agents.get(&r.actor) else { continue };
             classified += 1;
             let (space, feet) = (a.walker.space, a.walker.feet);
-            let high = drawn(world, streamer, space, feet);
+            let high = simulated(world, streamer, space, feet);
             r.been_loaded |= high;
             if high {
                 self.loaded_at.insert(r.actor, self.clock_hours);
@@ -1372,7 +1392,7 @@ impl Core {
                     f.path.legs.iter().skip(f.leg).any(|l| {
                         l.points.iter().any(|p| {
                             points += 1;
-                            drawn(world, streamer, l.space, *p)
+                            simulated(world, streamer, l.space, *p)
                         })
                     })
                 });
@@ -2444,6 +2464,12 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
 }
 
 /// Whether a place is in the cells drawn now.
+/// Whether a place is drawn here or in a co-op guest's surroundings the host simulates
+/// (`Streamer::coop_areas`): its residents are in the high process.
+fn simulated(world: &WorldData, streamer: &Streamer, space: Space, feet: [f32; 3]) -> bool {
+    drawn(world, streamer, space, feet) || streamer.coop_areas.iter().any(|a| a.holds(space, feet))
+}
+
 fn drawn(world: &WorldData, streamer: &Streamer, space: Space, feet: [f32; 3]) -> bool {
     match (space, streamer.interior) {
         (Space::Interior(c), Some(i)) => c == i,

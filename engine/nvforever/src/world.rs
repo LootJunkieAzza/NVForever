@@ -225,6 +225,10 @@ pub struct Streamer {
     /// Destroyed references drawn with their destruction stage's replacement model
     /// (`destroyed.rs`): kept here so a cell drawn again draws them so.
     pub model_overrides: HashMap<u32, String>,
+    /// Co-op replication, the host's: its guests' surroundings, away from the host's own
+    /// (`coop::replication`). Not drawn here; their residents run in the high process as
+    /// those drawn do (`residents::simulated`).
+    pub coop_areas: Vec<fnv_ai::LoadedArea>,
 }
 
 /// `base` drawn with the model `path` (a DMDL replacement model) instead of its own.

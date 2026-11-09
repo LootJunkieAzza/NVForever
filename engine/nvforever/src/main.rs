@@ -1356,6 +1356,7 @@ fn main() -> AppExit {
         centre: None,
         waiting: Vec::new(),
         model_overrides: Default::default(),
+        coop_areas: Vec::new(),
     })
     .insert_resource(world)
     .init_resource::<nvf_assets::actor::ActorParts>()

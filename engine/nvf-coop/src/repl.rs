@@ -299,6 +299,10 @@ pub enum Effect {
     Sound { sound: u32, at_ref: u32, pos: [f32; 3] },
     /// A music type asked for (MUSC FormID), 0: back to the location's.
     Music { music: u32 },
+    /// A script moved the host's player (MoveTo, a DLC's start): every guest goes with
+    /// it, to this cell (an interior's, or 0 with `world` for an exterior) and place.
+    /// Doors and fast travel move only the one who used them.
+    Summon { interior: u32, world: u32, pos: [f32; 3], yaw: f32 },
 }
 
 pub fn pack_effects(effects: &[Effect], max: usize) -> Vec<Vec<u8>> {
@@ -318,6 +322,14 @@ pub fn pack_effects(effects: &[Effect], max: usize) -> Vec<Vec<u8>> {
             Effect::Music { music } => {
                 rec.push(1);
                 rec.extend_from_slice(&music.to_le_bytes());
+            }
+            Effect::Summon { interior, world, pos, yaw } => {
+                rec.push(2);
+                rec.extend_from_slice(&interior.to_le_bytes());
+                rec.extend_from_slice(&world.to_le_bytes());
+                for v in pos.iter().chain([yaw]) {
+                    rec.extend_from_slice(&v.to_le_bytes());
+                }
             }
         }
         if cur.len() + rec.len() > max && cur.len() > 1 {
@@ -342,6 +354,7 @@ pub fn unpack_effects(item: &[u8]) -> Option<Vec<Effect>> {
         out.push(match r.u8()? {
             0 => Effect::Sound { sound: r.u32()?, at_ref: r.u32()?, pos: [r.f32()?, r.f32()?, r.f32()?] },
             1 => Effect::Music { music: r.u32()? },
+            2 => Effect::Summon { interior: r.u32()?, world: r.u32()?, pos: [r.f32()?, r.f32()?, r.f32()?], yaw: r.f32()? },
             _ => return None,
         });
     }

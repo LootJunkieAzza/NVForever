@@ -153,12 +153,15 @@ pub struct LoadedArea {
     pub space: Space,
     /// The loaded cells (grid X, Y) of an exterior; empty for an interior.
     pub cells: std::collections::BTreeSet<(i32, i32)>,
+    /// Further areas simulated as loaded though not drawn here: a co-op host's guests'
+    /// surroundings, where the guests are away from the host.
+    pub also: Vec<LoadedArea>,
 }
 
 impl LoadedArea {
-    /// Whether a place is in the loaded area.
+    /// Whether a place is in the loaded area (or one of [`LoadedArea::also`]).
     pub fn holds(&self, space: Space, feet: [f32; 3]) -> bool {
-        space == self.space && (matches!(space, Space::Interior(_)) || self.cells.contains(&fnv_world::cell_of(feet[0], feet[1])))
+        (space == self.space && (matches!(space, Space::Interior(_)) || self.cells.contains(&fnv_world::cell_of(feet[0], feet[1])))) || self.also.iter().any(|a| a.holds(space, feet))
     }
 }
 

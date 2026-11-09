@@ -145,7 +145,7 @@ use crate::nav::{show_actor, Who};
 use crate::npc_combat::{Fighters, PuppetPose};
 use crate::outfits::{Equipment, PuppetEquipment};
 use crate::weapons::WeaponHold;
-use crate::world::WorldRoot;
+use crate::world::{Streamer, WorldData, WorldRoot};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use fnv_actor::weapon::AnimType;
@@ -177,6 +177,7 @@ use std::time::Duration;
 
 mod campfires;
 mod replication;
+mod areas;
 mod leave;
 pub use leave::HoldLeave;
 mod scene;
@@ -186,9 +187,6 @@ mod revive;
 pub const DEFAULT_PORT: u16 = nvf_coop::code::DEFAULT_PORT;
 /// How far behind the newest state the others are drawn, so there are two to blend.
 const DELAY: f32 = 0.1;
-/// Outdoors, a guest farther than this from the host is brought back (game units; the
-/// loaded cells reach about two cells, 8192 units, around a player).
-const LEASH: f32 = 6000.0;
 /// After a leash trip, the next waits this long (the trip's loading screen comes first).
 const LEASH_EVERY: f32 = 5.0;
 /// The puppets' references: plugin index FE, which no FNV load order uses.
@@ -324,6 +322,7 @@ impl Plugin for CoopPlugin {
             progress_in: Vec::new(),
             campfires: Default::default(),
             repl: Default::default(),
+            areas: Default::default(),
             repl_hud: None,
             ended: false,
             leaving: Default::default(),
@@ -342,7 +341,7 @@ impl Plugin for CoopPlugin {
         }
         app.add_plugins((nvf_play::lobby::LobbyPlugin, nvf_play::coop_progress::CoopProgressPlugin))
             .insert_resource(coop)
-            .add_systems(Update, (replication::frame_clock, lobby, send, take_events, share_doors, campfires::share_campfires, tables, social_mates, share_npcs, replication::replicate, follow_looks, follow_npcs, leash, scene::share_scene, downed, revive::bodies, progress, duel_falls, replication::hud).chain().after(nvf_play::PlaySet::Physics))
+            .add_systems(Update, (replication::frame_clock, lobby, send, take_events, share_doors, campfires::share_campfires, tables, social_mates, share_npcs, areas::coop_areas, replication::replicate, follow_looks, follow_npcs, leash, scene::share_scene, downed, revive::bodies, progress, duel_falls, replication::hud).chain().after(nvf_play::PlaySet::Physics))
             .init_resource::<HoldLeave>()
             .add_systems(Update, (leave::guest_leaves.before(crate::handoff::leave), leave::tell_ended))
             .add_systems(Last, leave::host_ends)
@@ -523,6 +522,7 @@ struct Coop {
     /// Replication (`replication`, docs/design/coop-replication.md), and its newest perf
     /// line for the corner readout.
     repl: replication::Repl,
+    areas: areas::Areas,
     repl_hud: Option<String>,
     /// A guest's: the host ended the lobby (told, or gone too long), not yet acted on
     /// ([`leave::guest_leaves`]).
@@ -1631,28 +1631,19 @@ fn leash(
     if !coop.is_guest() || coop.host_lost || at_main_menu(main_menu.as_deref()) || coop.downed_at.is_some() || solo.is_none() {
         return;
     }
-    let (Some(host), Some(player), Some(loc)) = (coop.host, player, loc) else { return };
+    let _ = (player, loc, &coop.host);
     if loading.is_some_and(|l| l.active()) {
         return;
     }
     let now = time.elapsed_secs();
-    if coop.last_leash.is_some_and(|t| now - t < LEASH_EVERY) {
-        return;
-    }
-    let here = place_of(&loc);
-    let (dx, dy) = (player.feet[0] - host.feet[0], player.feet[1] - host.feet[1]);
-    let far = matches!(here, Place::Exterior(_)) && dx * dx + dy * dy > LEASH * LEASH;
-    if here == host.place && !far {
-        return;
-    }
-    // On the host's own spot: the host's body lets the guest out (module notes).
-    let feet = host.feet;
-    let (world, interior) = match host.place {
-        Place::Interior(c) => (None, Some(c)),
-        Place::Exterior(w) => (Some(w), None),
-    };
-    info!("co-op: leash: to the host at {:?} {feet:?}", host.place);
-    travel.write(TravelRequest(Travel { world, interior, feet, heading_deg: host.yaw.to_degrees() }));
+    // The replication build: each player goes where they like (their own doors and fast
+    // travel move only them, and the host simulates each one's surroundings); only a
+    // script that moves the host's player (a DLC's start, MoveTo) takes the guests along
+    // (`replication`'s Summon).
+    let Some((interior, w, feet, yaw)) = coop.repl.summon.take() else { return };
+    let (world, interior) = if interior != 0 { (None, Some(interior)) } else { (Some(w), None) };
+    info!("co-op: summoned: to the host at {:?} {:?} {feet:?}", world, interior);
+    travel.write(TravelRequest(Travel { world, interior, feet, heading_deg: yaw.to_degrees() }));
     coop.last_leash = Some(now);
 }
 
@@ -1905,6 +1896,7 @@ fn share_npcs(
     mut attacks: MessageReader<PlayAttack>,
     mut told: Local<usize>,
     (sim, actor_world): (Option<Res<nvf_play::sim::SimState>>, Option<Res<ActorWorld>>),
+    (residents, streamer, world, script): (Option<Res<Residents>>, Res<Streamer>, Option<Res<WorldData>>, Option<Res<nvf_play::script::ScriptState>>),
 ) {
     let coop = &mut *coop;
     let Some(link) = coop.link.as_ref().filter(|l| l.is_host()) else {
@@ -1962,6 +1954,32 @@ fn share_npcs(
         // own random numbers (item 71), so the guests dress their copies in this.
         if let Some(d) = dressed {
             wear.push((r, d.worn.iter().map(|i| i.0).chain(d.weapon.map(|w| w.0)).collect()));
+        }
+    }
+    // The residents the host simulates in a guest's surroundings away from it and does
+    // not draw (`areas`): where its AI has them (item 109).
+    if let (Some(res), Some(world)) = (residents.as_deref(), world.as_deref()) {
+        let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+        for (r, base, _, feet, heading, walking) in res.simulated_undrawn(world, &streamer) {
+            let dead = game.is_some_and(|g| g.is_dead(FormId(r)));
+            let level = actor_world.as_deref().map_or(fnv_sim::zones::LevelAt::plain(0), |w| w.level(r));
+            let mut flags = if walking { npc_flag::MOVING } else { 0 };
+            flags |= if dead { npc_flag::DEAD } else { 0 };
+            flags |= if fighters.weapon(r).is_some() && fighters.pitch(r).is_some() { npc_flag::AIMING } else { 0 };
+            npcs.push(NpcState {
+                reference: r,
+                feet,
+                heading,
+                pitch: 0.0,
+                flags,
+                weapon: fighters.weapon(r).map_or(0, |w| w.0),
+                attacks: coop.npc_attacks.get(&r).copied().unwrap_or(0),
+                furniture: 0,
+                base: sim.as_deref().and_then(|s| s.base_of(r)).map_or(base, |b| b.0),
+                level: level.level,
+                all_levels: level.all_levels,
+                rolls: rolls.get(&r).copied().unwrap_or(0).min(127) as u8,
+            });
         }
     }
     // The replication build dresses the guests' NPCs by the change log's Look (the

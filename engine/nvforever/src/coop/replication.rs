@@ -64,6 +64,9 @@ fn solo_perf() -> bool {
 
 #[derive(Default)]
 pub(super) struct Repl {
+    /// A guest's: where the host's script moved the host's player (interior cell or 0,
+    /// worldspace, feet, yaw): this guest goes there too (`coop::leash`).
+    pub summon: Option<(u32, u32, [f32; 3], f32)>,
     // The host's.
     shadows: HashMap<u8, Shadow>,
     /// References to send whole to a guest (a digest differed, or the stream started again).
@@ -333,9 +336,20 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
         let asked = std::mem::take(g.coop_effects.get_or_insert_with(Vec::new));
         let effects: Vec<Effect> = asked
             .into_iter()
-            .map(|e| match e {
-                fnv_game::sound::CoopEffect::Sound { sound, at } => Effect::Sound { sound: sound.0, at_ref: at.0, pos: [0.0; 3] },
-                fnv_game::sound::CoopEffect::Music(m) => Effect::Music { music: m.0 },
+            .filter_map(|e| match e {
+                fnv_game::sound::CoopEffect::Sound { sound, at } => Some(Effect::Sound { sound: sound.0, at_ref: at.0, pos: [0.0; 3] }),
+                fnv_game::sound::CoopEffect::Music(m) => Some(Effect::Music { music: m.0 }),
+                fnv_game::sound::CoopEffect::PlayerMoved => {
+                    // Where the script put the host's player.
+                    let s = sim.world.peek(FormId::PLAYER_REF)?;
+                    let cell = s.cell?;
+                    let summon = match sim.world.placed.world_of(cell) {
+                        Some(w) => Effect::Summon { interior: 0, world: w.0, pos: s.pos, yaw: s.rot[2] },
+                        None => Effect::Summon { interior: cell.0, world: 0, pos: s.pos, yaw: s.rot[2] },
+                    };
+                    info!("replication: a script moved the host to {cell} {:?}: the guests go with it", s.pos);
+                    Some(summon)
+                }
             })
             .collect();
         if !effects.is_empty() {
@@ -542,6 +556,10 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                             match e {
                                 Effect::Sound { sound, at_ref, .. } => g.sound_requests.push(fnv_game::sound::SoundRequest { sound: FormId(sound), at: Some(FormId(at_ref)), system: false, id: 0 }),
                                 Effect::Music { music } => g.music_requests.push(FormId(music)),
+                                Effect::Summon { interior, world, pos, yaw } => {
+                                    info!("replication: the host's script moved it: this player goes too");
+                                    r.summon = Some((interior, world, pos, yaw));
+                                }
                             }
                         }
                     }
