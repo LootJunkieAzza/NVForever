@@ -8,7 +8,7 @@ PlaceAtCell, rotations, turning, and the reticle's node and position, in
 [documented: the page named]. The probe set `jip13` (`tools/capture/jip_probes.py`, lab
 `L5.ext.jip13`) asks the original what the [hypothesis] values below leave open.
 
-39 functions; JIP 142 → 103 on main, 29 left once batches 11 (#1915) and 12 (#1929) are
+39 functions; JIP 102 → 63 on main, 29 left once batch 12 (#1929) is
 merged too [observed: the extender_census test, 2026-11-09].
 
 ## 0. How the physics is reached

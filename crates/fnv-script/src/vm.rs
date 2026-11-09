@@ -3263,6 +3263,8 @@ impl Vm<'_, '_> {
 fn out_params(lname: &str) -> Option<&'static [usize]> {
     Some(match lname {
         "getangleex" => &[0, 1, 2],
+        // [documented: GetActorVelocityAlt, "placed into the 3 specified Script Variables"].
+        "getactorvelocityalt" => &[0, 1, 2],
         // JIP batch 13 (fnv_game::nvse_jip13).
         "getangularvelocityalt" | "getlinearvelocityalt" => &[1, 2, 3],
         "getreticleposalt" => &[0, 1, 2],
