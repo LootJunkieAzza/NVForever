@@ -726,6 +726,9 @@ impl Game<'_> {
     /// tells: the hit record's crippled flag, JIP's crippled-limb handlers and the
     /// player's Limbs Crippled statistic.
     fn hit_limb(&mut self, target: FormId, l: LimbHit, max_health: f64) -> (f64, bool) {
+        // The player's tweak scales limb damage in power armour [design: docs/design/tweaks.md].
+        let scale = self.tweaks.power_armor_limb_damage;
+        let l = if scale != 1.0 && self.wears_power_armor(target) { LimbHit { damage: l.damage * scale, ..l } } else { l };
         let (condition, crippled) = self.damage_limb(target, l, max_health);
         if crippled {
             if let Some(h) = self.jip.hits.get_mut(&target) {

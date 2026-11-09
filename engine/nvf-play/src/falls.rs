@@ -203,6 +203,14 @@ fn hurt(
     let quiet_god = tweaks.as_ref().is_some_and(|t| t.god_mode_quiet_landing) && crate::combat::god_mode();
     for f in fell.read() {
         let rules = *falls.rules.get_or_insert_with(|| FallRules::from_world(&sim.world));
+        // The player's tweak: Endurance raises the safe height [design: docs/design/tweaks.md].
+        let per = script.as_deref().and_then(|s| s.rt.as_ref()).map_or(0.0, |rt| rt.game.tweaks.fall_height_per_endurance);
+        let rules = if per != 0.0 && f.actor == FormId::PLAYER_REF {
+            let end = script.as_deref_mut().and_then(|s| s.rt.as_mut()).and_then(|rt| fnv_game::functions::actor_value(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::ENDURANCE).ok()).unwrap_or(5.0) as f32;
+            FallRules { min: rules.min * (1.0 + per * (end - 5.0)).max(0.1), ..rules }
+        } else {
+            rules
+        };
         // ITR's SetFallDamageMult: the actor's multiplier, else the global one
         // (`fnv_game::nvse_itr1`, docs/spec-notes/ext-itr.md §2).
         let mult = script.as_deref().and_then(|s| s.rt.as_ref()).map_or(1.0, |rt| rt.game.fall_damage_mult(f.actor));

@@ -901,6 +901,48 @@ impl Plugin for TweaksPlugin {
         switch!(app, "invert-x", "Invert Look Left/Right", "The mouse and the stick turn the view the other way left and right. (Stewie's Tweaks bInvertCameraX)", invert_x);
         switch!(app, "nearest-unfound", "Nearest Unfound Place", "The nearest place not yet found shows on the compass at any distance. (Stewie's Tweaks bShowNearestUndiscoveredLocation)", nearest_unfound_on_compass);
         switch!(app, "discovered-in-corner", "Discoveries in the Corner", "A place found is a corner line, not a banner. (Stewie's Tweaks bLocationDiscoveredCornerMessage)", discovered_in_corner);
+        // ---- batch 24 ----
+        switch!(app, "power-armor-radiation", "Power Armor Blocks Radiation", "Power armor on the body keeps the world's radiation off; water and chems still count. (Stewie's Tweaks bNoEnvironmentRadiationInFullPowerArmor)", game.power_armor_blocks_radiation);
+        add_setting(
+            app,
+            Setting::slider(
+                "tweak-power-armor-limbs",
+                GROUP,
+                "Limb Damage in Power Armor",
+                "Limb damage to anyone in power armor is multiplied by this; x1.0 changes nothing. (Stewie's Tweaks bPowerArmorScalesLimbDamage)",
+                Slider {
+                    get: |w| part(w.get_resource::<TweakSettings>().map_or(1.0, |t| t.game.power_armor_limb_damage)),
+                    set: |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.game.power_armor_limb_damage = factor(v);
+                        }
+                    },
+                    min: 0.0,
+                    step: 0.05,
+                    shown: Some(shown_factor),
+                },
+            ),
+        );
+        add_setting(
+            app,
+            Setting::slider(
+                "tweak-fall-height-endurance",
+                GROUP,
+                "Endurance Softens Falls",
+                "The player's safe fall height gains this much per point of Endurance above 5, and loses it below; 0% changes nothing. (Stewie's Tweaks bEnduranceScalesMinFallHeight)",
+                Slider {
+                    get: |w| w.get_resource::<TweakSettings>().map_or(0.0, |t| t.game.fall_height_per_endurance * 5.0),
+                    set: |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.game.fall_height_per_endurance = v / 5.0;
+                        }
+                    },
+                    min: 0.0,
+                    step: 0.05,
+                    shown: Some(|v| format!("{:.0}%", v * 20.0)),
+                },
+            ),
+        );
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

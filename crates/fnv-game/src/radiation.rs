@@ -321,6 +321,8 @@ impl Game<'_> {
             let mult = if w.swimming { setting(self, "fSwimRadiationDamageMult", 0.1) } else { setting(self, "fWadeRadiationDamageMult", 0.1) };
             water_rads(data, w.water) * mult
         });
+        // The player's tweak: power armour keeps the world's radiation off [design: docs/design/tweaks.md].
+        let markers = if self.tweaks.power_armor_blocks_radiation && self.wears_power_armor(FormId::PLAYER_REF) { 0.0 } else { markers };
         let level = markers + from_water;
         let resist = if level > 0.0 { fa::actor_value(self, p, RAD_RESISTANCE).unwrap_or(0.0) } else { 0.0 };
         let resisted = taken(level, resist, 1.0);

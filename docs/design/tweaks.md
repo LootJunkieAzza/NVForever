@@ -356,6 +356,14 @@ unless the player binds them, so nothing changes until then.
 | Nearest Unfound Place | `bShowNearestUndiscoveredLocation` | `compass::gather` after the marker loop |
 | Discoveries in the Corner | `bLocationDiscoveredCornerMessage` | `compass::discover` |
 
+## Twenty-fourth batch (2026-11-09)
+
+| Row | INI key | Where |
+|---|---|---|
+| Power Armor Blocks Radiation | `bNoEnvironmentRadiationInFullPowerArmor` | `Game::tick_radiation` (`Game::wears_power_armor`) |
+| Limb Damage in Power Armor (x0–x2) | `bPowerArmorScalesLimbDamage` | `Game::hit_limb` |
+| Endurance Softens Falls (0–20% a point) | `bEnduranceScalesMinFallHeight` | `falls::hurt` (`FallRules::min`) |
+
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
 
@@ -375,8 +383,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 297 |
-| to do | 306 |
+| done | 300 |
+| to do | 303 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -402,6 +410,7 @@ game's Data folder, read-only).
 | `bDisableFastTravel` | done |  |  | No Fast Travel |
 | `bDisableReloadingNonEmptyClip` | done |  | 2 | Reload Only When Empty (the energy-only and looping options not built) |
 | `bDrowningDrainsAP` | done |  |  | Drowning Takes AP First |
+| `bEnduranceScalesMinFallHeight` | done |  | 2 | Endurance Softens Falls (slider; the base bonus option not built) |
 | `bExplosionKnockdownAvoidanceUsesStrength` | done |  |  | Strength Resists Blasts |
 | `bExtendLockpickSpotRange` | done |  |  | already so: the sweet spot can sit anywhere on the half circle |
 | `bFastTravelOverencumbered` | done |  |  | Fast Travel Encumbered |
@@ -421,6 +430,7 @@ game's Data folder, read-only).
 | `bNoAPRegenWhileOverencumbered` | done |  | 2 | Action Points Back When Over-Encumbered (slider; the while-moving option not built) |
 | `bNoDamageMeleeWeaponIfTargetDead` | done |  |  | Spare the Blade on the Dead |
 | `bNoDialogueZoom` | done |  |  | already a row: Gameplay tab, dialogue-zoom |
+| `bNoEnvironmentRadiationInFullPowerArmor` | done |  |  | Power Armor Blocks Radiation (body armour; the helmet is not asked for) |
 | `bNoFastTravelIfLegsCrippled` | done |  | 1 | No Travel on a Crippled Leg (NVForever's own refusal text) |
 | `bNoGrabOwnedItems` | done |  |  | No Grabbing Owned Items |
 | `bNoLockFailedTerminals` | done |  |  | No Terminal Lockout |
@@ -433,6 +443,7 @@ game's Data folder, read-only).
 | `bPickpocketFleeingActors` | done |  |  | Pickpocket the Fleeing |
 | `bPowerArmorNeedsNoTraining` | done |  |  | Power Armor Without Training |
 | `bPowerArmorScalesFallDamage` | done |  | 2 | Falls in Power Armor (slider; applies to everyone, the player-only option not built) |
+| `bPowerArmorScalesLimbDamage` | done |  | 3 | Limb Damage in Power Armor (slider, every limb; the head and mode options not built) |
 | `bPreventHittingHolsteredWeapons` | done |  | 2 | already so: only a drawn weapon has a hit part |
 | `bPreventNPCAddiction` | done |  |  | No NPC Addiction |
 | `bPreventReloadWeaponUnholstering` | done |  |  | Ready Does Not Draw |
@@ -474,7 +485,6 @@ game's Data folder, read-only).
 | `bCustomArmorConditionPenalty` | to do |  | 1 | the condition formula is in fnv-combat condition.rs constants |
 | `bDisarmRequiresSkill` | to do |  | 2 | disarming happens in fnv_sim World::activate without skill or game |
 | `bEncumbranceIncludesGrabbedItems` | to do |  |  | encumbered_walks plus the grabbed reference weight |
-| `bEnduranceScalesMinFallHeight` | to do |  | 2 | falls::hurt; two numbers to choose |
 | `bExplosionRadiusBuff` | to do |  | 3 | explosion_damage reads CombatTuning (serialized) |
 | `bExplosionsDontPushTakeableItems` | to do |  |  | push_dynamic knows no references |
 | `bFallDeathsCauseDismemberment` | to do |  |  | falls::hurt lacks the dismember queue |
@@ -496,7 +506,6 @@ game's Data folder, read-only).
 | `bMousewheelScrollsWeaponHotkeys` | to do |  | 1 | needs cycle state in weapon_wheel and the wheel off the camera |
 | `bMovementPenalties` | to do |  | 11 | player::step pace chain; seven percentages to choose |
 | `bNoCompanionItemDamage` | to do |  |  | wear_weapon and wear_armor; the armour path has no game |
-| `bNoEnvironmentRadiationInFullPowerArmor` | to do |  |  | tick_radiation; needs a game-side full power armour check |
 | `bNoFreeBarterItems` | to do |  | 1 | refresh_trade price; a menu field like no_selling |
 | `bNoLockEncounterZoneLevels` | unsure, skipped |  |  | encounter-zone level locking not yet checked in NVForever |
 | `bNPCsDetectMineExplosions` | to do |  |  | the mine trigger actor is not carried to the explosion |
@@ -507,7 +516,6 @@ game's Data folder, read-only).
 | `bPickpocketCaughtCausesDetection` | to do |  |  | pickpocket_caught; needs the awareness call |
 | `bPickpocketOverhaul` | to do |  | 15 | Steal::chance needs weight, Perception and detection |
 | `bPlantingLiveGrenadesRequiresWeaponSkill` | to do |  |  | pickpocket::results; a dud when under the skill |
-| `bPowerArmorScalesLimbDamage` | to do |  | 3 | hit_limb; needs a game-side power armour check |
 | `bPowerAttackIfBlocking` | to do |  | 1 | a field on MeleeInput |
 | `bPreventRepairIfNotAtWorkbench` | to do |  |  | no notion of a workbench in reach |
 | `bQuickUse` | to do |  | 9 | two input paths that do not exist yet |

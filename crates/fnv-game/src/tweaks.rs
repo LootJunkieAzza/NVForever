@@ -250,6 +250,25 @@ pub struct Tweaks {
     /// `bUsingNotesRewardsXP`: opening a terminal with its password gives this share of
     /// hacking it, once; 0 changes nothing.
     pub password_xp_share: f32,
+    // ---- batch 24 ----
+    /// `bNoEnvironmentRadiationInFullPowerArmor`: power armour on the body keeps the
+    /// world's radiation off (water and chems still count).
+    pub power_armor_blocks_radiation: bool,
+    /// `bPowerArmorScalesLimbDamage`: limb damage to anyone in power armour is
+    /// multiplied by this; 1 changes nothing.
+    pub power_armor_limb_damage: f64,
+    /// `bEnduranceScalesMinFallHeight`/`fEnduranceMult`: the player's safe fall height
+    /// gains this share per point of Endurance above 5 (loses it below); 0 changes
+    /// nothing.
+    pub fall_height_per_endurance: f32,
+}
+
+impl crate::game::Game<'_> {
+    /// `r` wears power armour on the upper body (for the tweaks).
+    pub fn wears_power_armor(&self, r: fnv_sim::FormId) -> bool {
+        use fnv_sim::forms::ItemKind;
+        self.world.equipment(r).unwrap_or_default().into_iter().filter_map(|i| self.world.forms.item(i)).any(|it| it.kind == ItemKind::Armor && it.power_armor && it.slots.is_some_and(|s| s & crate::detection::UPPER_BODY != 0))
+    }
 }
 
 impl Default for Tweaks {
@@ -353,6 +372,9 @@ impl Default for Tweaks {
             kill_xp_per_level: 0.0,
             key_xp_share: 0.0,
             password_xp_share: 0.0,
+            power_armor_blocks_radiation: false,
+            power_armor_limb_damage: 1.0,
+            fall_height_per_endurance: 0.0,
         }
     }
 }
