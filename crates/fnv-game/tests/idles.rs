@@ -443,3 +443,20 @@ fn standing_idle_takes_only_idle_section_leaves() {
     assert_eq!(g.standing_idle(FormId::PLAYER_REF, folder), None, "its conditions fail: no look");
     assert_eq!(g.standing_idle(FormId(ACTOR), "creatures\\dog"), None, "another folder: nothing");
 }
+
+/// SetUnconscious holds an actor standing in its tree's GetUnconscious idle, the
+/// switched-off pose, in place of any other look, until SetUnconscious 0 (#1977).
+#[test]
+fn an_unconscious_actor_stands_in_its_switched_off_idle() {
+    let f = fixture();
+    let mut g = game(&f);
+    let actor = FormId(ACTOR);
+    let folder = "characters\\_male";
+    assert_eq!(g.unconscious_idle(actor, folder), None, "conscious: no off pose");
+    call(&mut g, SET_UNCONSCIOUS, actor, &[ArgValue::Value(Value::Num(1.0))]);
+    assert_eq!(g.unconscious_idle(actor, folder), Some(FormId(IDLE_LEAF_OFF)));
+    assert_eq!(g.standing_idle(actor, folder), Some(FormId(IDLE_LEAF_OFF)), "before the Idle-section look");
+    assert_eq!(g.unconscious_idle(actor, "creatures\\dog"), None, "another folder: nothing");
+    call(&mut g, SET_UNCONSCIOUS, actor, &[ArgValue::Value(Value::Num(0.0))]);
+    assert_eq!(g.standing_idle(actor, folder), Some(FormId(IDLE_LEAF_LOOK)), "switched on: its look again");
+}
