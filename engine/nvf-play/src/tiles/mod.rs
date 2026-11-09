@@ -266,7 +266,7 @@ impl HudTiles<'_> {
             aiming: playing && self.zoom.as_ref().is_some_and(|z| z.aimed),
             corners,
             sneak: corners && self.control.as_ref().is_some_and(|c| c.sneak) && !self.tweaks.as_ref().is_some_and(|t| t.no_sneak_label),
-            reticle: reticle && !locks.movement,
+            reticle: reticle && !locks.movement && !self.tweaks.as_ref().is_some_and(|t| t.crosshair_hidden),
             enemy: corners && enemy.is_some(),
             quests: notices && quest.is_some() && !location,
             messages: notices && self.corner.as_ref().is_some_and(|c| c.showing().is_some()),

@@ -637,6 +637,12 @@ pub fn read_controls(
             c.lowered = false;
         }
     }
+    // The Tweaks tab's Holster Weapon key [design: docs/design/tweaks.md].
+    if input.just_pressed(Control::HolsterWeapon) && c.weapon_out {
+        c.weapon_out = false;
+        c.ready_held = None;
+        info!("Holster Weapon pressed: the weapon holstered");
+    }
     if input.just_pressed(Control::LowerWeapon) && c.weapon_out {
         c.lowered = !c.lowered;
         info!("Lower Weapon pressed: the weapon {}", if c.lowered { "lowered" } else { "raised" });

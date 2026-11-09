@@ -288,6 +288,23 @@ saves load, and the frame's sync sets them from the settings again.
 | No Right-Click Drop | `bDisableInventoryRightClickDrop` | `pipboy::items::on_row_click` |
 | Quiet Undiscovered Markers | `bPreventNoFastTravelMessage` | `travel::answer` |
 
+## Eighteenth batch (2026-11-09, keys)
+
+The plugin's hotkeys are controls on the Controls page, not rows of the Tweaks tab:
+eight new `Control`s after Lower Weapon (`bindings::TWEAK_CONTROLS` on), none bound
+unless the player binds them, so nothing changes until then.
+
+| Control | INI key | Where |
+|---|---|---|
+| Holster Weapon | `iHolsterWeaponKey` | `control::read_controls` |
+| Pip-Boy Light | `iTogglePipboyLightKey` | `flashlight::menu_key` |
+| Show/Hide Crosshair | `iToggleCrosshairKey` | `tweaks::keys`, read by `reticle::draw` and the tile HUD |
+| Show/Hide Sneak Label | `iToggleSneakIndicatorKey` | `tweaks::keys` (`no_sneak_label`) |
+| Show/Hide HUD | `iToggleMenusKey` | `tweaks::keys` (ToggleMenus' flag) |
+| Main Menu | `iExitToMainMenuKey` | `tweaks::keys` (`MainMenuRequest`) |
+| Quit Game | `iExitGameKey` | `tweaks::keys` (`AppExit`) |
+| No Collision (held) | `iDisableCollisionKey` | `tweaks::keys` (`NoClip`) |
+
 Menu tweaks that code holding the game reads (the Pip-Boy's item info, crafting, the
 level-up menu, the terminal's timers) are kept in `fnv_game::tweaks` too, so no system
 needs another parameter; the catalogue's notes say where NVForever already does what a
@@ -304,8 +321,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 242 |
-| to do | 361 |
+| done | 263 |
+| to do | 340 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -746,6 +763,16 @@ game's Data folder, read-only).
 | `bReputationShowsFameInfamy` | done |  | 3 | Show Fame and Infamy (numbers; the percentage option not built) |
 | `bSavingDoesntClosePauseMenu` | done |  |  | already so: saving leaves the pause menu open |
 | `bShowAlternateAmmoTypesAvailableInMenus` | done |  |  | Mark Other Ammo |
+| `bShowCaravanCardsInMiscTabs` | done |  |  | already so: carried cards show in Misc |
+| `bShowCurrencyInContainers` | done |  |  | already so: caps and faction currency are listed in Misc |
+| `bSkipLoadSaveConfirmationPrompt` | done |  | 1 | already so: a pick on the load page loads at once |
+| `bSleepWaitSliderShowsWakeTime` | done |  |  | already so: the hours line shows the wake time |
+| `bSortPerkMenu` | done |  | 1 | already so for one order: available, level, name (other modes not built) |
+| `bSortPipboyNotes` | done |  | 1 | already so: notes are alphabetical (by-read not built) |
+| `bSortPipboyQuests` | done |  | 2 | already so for one order (modes and active-first not built) |
+| `bSortRecipeMenu` | done |  | 1 | already so for one order: makeable first (modes not built) |
+| `bTabClosesPipboyFromKeyAndLimbMenus` | done |  |  | already so: Tab closes the Pip-Boy from every page |
+| `bTerminalInstantDisplayHotkey` | done |  |  | already so: terminal text is shown whole |
 | `bBarterShowCapsChange` | to do | yes | 1 | half_figure has no settings to read; pass the tweak in |
 | `bChallengeMenuIcons` | unsure, skipped | yes |  | needs another mod (challenge icons) |
 | `bColorRecentlyAddedMapMarkers` | to do | yes |  | needs a per-session found set (newly_found is drained by the compass) |
@@ -805,67 +832,57 @@ game's Data folder, read-only).
 | `bRepairItemsPreview` | to do |  | 1 | a preview session in the repair list |
 | `bRightClickChangesToPreviousContainerCategory` | to do |  |  | menu_mouse right click over a title |
 | `bShowActiveQuestNotesShowsAllStartedQuests` | to do |  |  | data lists notes_of_active |
-| `bShowBarterTotalWhenOverSellLimit` | to do |  |  |  |
-| `bShowCaravanCardsInMiscTabs` | to do |  |  |  |
-| `bShowCurrencyInContainers` | to do |  |  |  |
+| `bShowBarterTotalWhenOverSellLimit` | to do |  |  | tiles barter snapshot amount; a menu bool |
 | `bShowInventorySortButton` | unsure, skipped |  | 11 | needs the plugin's own menu XML |
-| `bShowModNameInPerkDescriptions` | to do |  | 3 |  |
-| `bShowQuestAndNoDRDTItemsInRepairMenu` | to do |  |  |  |
-| `bSkipLoadSaveConfirmationPrompt` | to do |  | 1 |  |
-| `bSleepWaitSliderShowsWakeTime` | to do |  |  |  |
-| `bSortMiscStats` | to do |  | 1 |  |
-| `bSortPerkMenu` | to do |  | 1 |  |
-| `bSortPipboyNotes` | to do |  | 1 |  |
-| `bSortPipboyQuests` | to do |  | 2 |  |
-| `bSortPipboyRepairMenu` | to do |  | 2 |  |
-| `bSortRecipeMenu` | to do |  | 1 |  |
-| `bStartMenuQuickLoad` | to do |  |  |  |
-| `bStatsMenuPercentageXP` | to do |  |  |  |
-| `bStatsMenuShowEffectTimeRemaining` | to do |  | 1 |  |
-| `bTabBackInStartMenu` | to do |  |  |  |
-| `bTabClosesPipboyFromKeyAndLimbMenus` | to do |  |  |  |
+| `bShowModNameInPerkDescriptions` | to do |  | 3 | levelup perk info with data form_plugins |
+| `bShowQuestAndNoDRDTItemsInRepairMenu` | to do |  |  | repair vendor_lists DT part |
+| `bSortMiscStats` | to do |  | 1 | stats read general rows sort |
+| `bSortPipboyRepairMenu` | to do |  | 2 | repair offer sort with a bool |
+| `bStartMenuQuickLoad` | to do |  |  | save::requests in the pause menu |
+| `bStatsMenuPercentageXP` | to do |  |  | stats XP card with a Snapshot bool |
+| `bStatsMenuShowEffectTimeRemaining` | to do |  | 1 | stats read effect lines with the time left |
+| `bTabBackInStartMenu` | to do |  |  | pause::choose back conditions; Tab steps tabs on two pages |
 | `bTabClosesTerminals` | to do |  |  | Tab is Back; from the top menu it closes already |
-| `bTakeAllConfirmation` | to do |  | 2 |  |
-| `bTerminalGreyReadNotes` | to do |  |  |  |
-| `bTerminalInstantDisplayHotkey` | to do |  |  |  |
-| `bTimescaleAffectsMinigames` | to do |  |  |  |
-| `bVATSAPDisplayIncludesReloadCost` | to do |  |  |  |
+| `bTakeAllConfirmation` | to do |  | 2 | a confirmation prompt in the menu model |
+| `bTerminalGreyReadNotes` | to do |  |  | no record of entries read |
+| `bTimescaleAffectsMinigames` | to do |  |  | each minigame steps on AidTime |
+| `bVATSAPDisplayIncludesReloadCost` | to do |  |  | not built: V.A.T.S. queues never reload |
 
 ### Hotkeys
 
 | INI key | Status | VNV on | Options | Note |
 |---|---|---|---|---|
-| `iConsoleKey` | to do |  | 1 |  |
-| `iDisableCollisionKey` | to do |  | 1 |  |
-| `iDropEquippedWeaponKey` | to do |  | 1 |  |
-| `iEquipLastWeaponKey` | to do |  | 4 |  |
-| `iExitGameKey` | to do |  | 1 |  |
-| `iExitToMainMenuKey` | to do |  | 1 |  |
-| `iHideHUDKey` | to do |  | 6 |  |
-| `iHolsterWeaponKey` | to do |  | 1 |  |
-| `iNextRadioStationKey` | to do |  | 1 |  |
-| `iOpenLocalMapKey` | to do |  | 1 |  |
-| `iOpenMapKey` | to do |  | 2 |  |
-| `iOpenQuestsKey` | to do |  | 1 |  |
-| `iOpenRadioKey` | to do |  | 1 |  |
-| `iPipboyDataKey` | to do |  | 1 |  |
-| `iPipboyItemsKey` | to do |  | 1 |  |
-| `iPipboyStatsKey` | to do |  | 1 |  |
-| `iPlaceMapMarkerAtPlayerPosKey` | to do |  | 3 |  |
-| `iPrevRadioStationKey` | to do |  | 1 |  |
-| `iRadioVolumeDownKey` | to do |  | 1 |  |
-| `iRadioVolumeUpKey` | to do |  | 1 |  |
-| `iRepeatActivateKey` | to do |  | 2 |  |
-| `iScreenshotKey` | to do |  | 1 |  |
-| `iSkipRadioSongKey` | to do |  | 1 |  |
-| `iToggleCrosshairKey` | to do |  | 1 |  |
-| `iToggleMenusKey` | to do |  | 1 |  |
-| `iTogglePipboyLightKey` | to do |  | 2 |  |
-| `iToggleSightingNodeHotkey` | to do |  | 2 |  |
-| `iToggleSmoothCameraKey` | to do |  | 2 |  |
-| `iToggleSneakIndicatorKey` | to do |  | 1 |  |
-| `iToggleTrueIronSightsKey` | to do |  | 1 |  |
-| `iVATSAcceptKey` | to do |  | 1 |  |
+| `iDisableCollisionKey` | done |  | 1 | a Controls key: No Collision (held) |
+| `iExitGameKey` | done |  | 1 | a Controls key: Quit Game |
+| `iExitToMainMenuKey` | done |  | 1 | a Controls key: Main Menu |
+| `iHolsterWeaponKey` | done |  | 1 | a Controls key: Holster Weapon (unbound until set; the hold to holster stays) |
+| `iNextRadioStationKey` | done |  | 1 | already so: ] steps to the next station in the Pip-Boy |
+| `iPrevRadioStationKey` | done |  | 1 | already so: [ steps to the previous station in the Pip-Boy |
+| `iToggleCrosshairKey` | done |  | 1 | a Controls key: Show/Hide Crosshair |
+| `iToggleMenusKey` | done |  | 1 | a Controls key: Show/Hide HUD (as ToggleMenus) |
+| `iTogglePipboyLightKey` | done |  | 2 | a Controls key: Pip-Boy Light (the night vision part not built) |
+| `iToggleSneakIndicatorKey` | done |  | 1 | a Controls key: Show/Hide Sneak Label |
+| `iVATSAcceptKey` | done |  | 1 | already so: accepting is the Activate control, rebindable on the Controls page |
+| `iConsoleKey` | to do |  | 1 | console toggle Backquote; RESERVED_KEYS |
+| `iDropEquippedWeaponKey` | to do |  | 1 | World::drop_equipped from a key; check the visuals follow |
+| `iEquipLastWeaponKey` | to do |  | 4 | not built: no previous weapon recorded |
+| `iHideHUDKey` | to do |  | 6 | per-element hiding in each HUD module |
+| `iOpenLocalMapKey` | to do |  | 1 | flashlight menu_key and Pip-Boy page and tab |
+| `iOpenMapKey` | to do |  | 2 | flashlight menu_key and Pip-Boy page and tab |
+| `iOpenQuestsKey` | to do |  | 1 | flashlight menu_key and Pip-Boy page and tab |
+| `iOpenRadioKey` | to do |  | 1 | flashlight menu_key and Pip-Boy page and tab |
+| `iPipboyDataKey` | to do |  | 1 | pipboy keys F1-F3 from a Control |
+| `iPipboyItemsKey` | to do |  | 1 | pipboy keys F1-F3 from a Control |
+| `iPipboyStatsKey` | to do |  | 1 | pipboy keys F1-F3 from a Control |
+| `iPlaceMapMarkerAtPlayerPosKey` | to do |  | 3 | not built: no player-placed markers |
+| `iRadioVolumeDownKey` | to do |  | 1 | a key setting the radio sound volume |
+| `iRadioVolumeUpKey` | to do |  | 1 | a key setting the radio sound volume |
+| `iRepeatActivateKey` | to do |  | 2 | activate is at 16 params; a timer in a tuple |
+| `iScreenshotKey` | to do |  | 1 | not built: no player screenshot key outside F12 in nvforever |
+| `iSkipRadioSongKey` | to do |  | 1 | the playing line and the broadcast both move |
+| `iToggleSightingNodeHotkey` | to do |  | 2 | a second sighting node path per weapon |
+| `iToggleSmoothCameraKey` | to do |  | 2 | not built: no look smoothing |
+| `iToggleTrueIronSightsKey` | to do |  | 1 | nvforever PlayerBody.true_iron_sights from a key |
 
 ### Cheat
 
@@ -879,7 +896,7 @@ game's Data folder, read-only).
 | `bSleepInOwnedBeds` | done |  |  | Sleep in Owned Beds |
 | `bWeightlessAidItems` | done |  |  | covered by Weightless Aid (in Hardcore too) |
 | `bWeightlessItems` | done |  | 5 | Weightless Armor / Aid / Ammo / Weapons / Misc Items (five rows) |
-| `bAddSetHomeCommand` | to do |  |  |  |
+| `bAddSetHomeCommand` | to do |  |  | not built: a console command with a kept home |
 | `bAllowPickpocketIfAlreadyCaught` | to do |  |  |  |
 | `bDebugLockpickMenu` | to do |  |  |  |
 | `bGodModeAllowsCraftingWithoutRequirements` | to do |  |  |  |

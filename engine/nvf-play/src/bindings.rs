@@ -86,13 +86,31 @@ pub enum Control {
     Grab,
     /// Lower or raise the drawn weapon by hand (NVForever's own; not in the game's INI).
     LowerWeapon,
+    // The Tweaks tab's keys (`crate::tweaks`, docs/design/tweaks.md): none bound unless
+    // the player binds them.
+    /// Holster the weapon at once (Stewie's Tweaks iHolsterWeaponKey).
+    HolsterWeapon,
+    /// The Pip-Boy light on or off (iTogglePipboyLightKey).
+    ToggleLight,
+    /// The crosshair shown or hidden (iToggleCrosshairKey).
+    ToggleCrosshair,
+    /// The sneak label shown or hidden (iToggleSneakIndicatorKey).
+    ToggleSneakLabel,
+    /// Every menu and the HUD hidden or shown, as ToggleMenus (iToggleMenusKey).
+    ToggleMenus,
+    /// Back to the main menu at once (iExitToMainMenuKey).
+    ExitToMainMenu,
+    /// Quit at once (iExitGameKey).
+    ExitGame,
+    /// No collision while held (iDisableCollisionKey).
+    NoCollision,
 }
 
 /// `[Controls]` of the owner's `FalloutPrefs.ini`: (control, INI name, value)
 /// [observed 2026-10-09], then NVForever's own controls (after [`GAME_INI_CONTROLS`],
 /// coded the same way): Lower Weapon on H [design: the owner 2026-10-27, moved off Ready
 /// Item tapped twice so a reload is not held back waiting for a second tap].
-pub const GAME_CONTROLS: [(Control, &str, u32); 29] = [
+pub const GAME_CONTROLS: [(Control, &str, u32); 37] = [
     (Control::Forward, "Forward", 0x0011FF13),
     (Control::Back, "Back", 0x001FFF14),
     (Control::SlideLeft, "Slide Left", 0x001EFF17),
@@ -122,7 +140,19 @@ pub const GAME_CONTROLS: [(Control, &str, u32); 29] = [
     (Control::QuickLoad, "QuickLoad", 0x0043FFFF),
     (Control::Grab, "Grab", 0x002CFF09),
     (Control::LowerWeapon, "Lower Weapon", 0x0023FFFF),
+    (Control::HolsterWeapon, "Holster Weapon", 0xFFFFFFFF),
+    (Control::ToggleLight, "Toggle Light", 0xFFFFFFFF),
+    (Control::ToggleCrosshair, "Toggle Crosshair", 0xFFFFFFFF),
+    (Control::ToggleSneakLabel, "Toggle Sneak Label", 0xFFFFFFFF),
+    (Control::ToggleMenus, "Toggle Menus", 0xFFFFFFFF),
+    (Control::ExitToMainMenu, "Exit to Main Menu", 0xFFFFFFFF),
+    (Control::ExitGame, "Exit Game", 0xFFFFFFFF),
+    (Control::NoCollision, "No Collision", 0xFFFFFFFF),
 ];
+
+/// Where the Tweaks tab's keys start in [`GAME_CONTROLS`]: none is bound unless the
+/// player binds it (`crate::tweaks`).
+pub const TWEAK_CONTROLS: usize = 29;
 
 /// How many of [`GAME_CONTROLS`] are the game's own (the extender's control codes 0–27).
 pub const GAME_INI_CONTROLS: usize = 28;
@@ -482,6 +512,14 @@ pub fn label(c: Control) -> &'static str {
         QuickLoad => "Quick Load",
         Grab => "Grab",
         LowerWeapon => "Lower Weapon",
+        HolsterWeapon => "Holster Weapon",
+        ToggleLight => "Pip-Boy Light",
+        ToggleCrosshair => "Show/Hide Crosshair",
+        ToggleSneakLabel => "Show/Hide Sneak Label",
+        ToggleMenus => "Show/Hide HUD",
+        ExitToMainMenu => "Main Menu",
+        ExitGame => "Quit Game",
+        NoCollision => "No Collision (held)",
     }
 }
 
@@ -1175,10 +1213,13 @@ mod tests {
         assert_eq!(b.get(Control::QuickLoad).key, Some(KeyCode::F9));
         assert_eq!(b.get(Control::LowerWeapon).key, Some(KeyCode::KeyH));
         assert_eq!(Bindings::name(Control::Rest), "Rest");
-        // Every control has a key or a button.
-        for (c, _, _) in GAME_CONTROLS {
-            let x = b.get(c);
+        // Every control has a key or a button, but the Tweaks tab's, which start unbound.
+        for (c, _, _) in &GAME_CONTROLS[..TWEAK_CONTROLS] {
+            let x = b.get(*c);
             assert!(x.key.is_some() || x.mouse.is_some(), "{c:?}");
+        }
+        for (c, _, _) in &GAME_CONTROLS[TWEAK_CONTROLS..] {
+            assert_eq!(b.get(*c), Binding { key: None, mouse: None }, "{c:?}");
         }
     }
 

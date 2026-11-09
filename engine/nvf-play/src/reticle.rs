@@ -520,7 +520,7 @@ fn draw(
     (combat, hostile, bar, camera, time, dynamic): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>, Option<Res<DynamicCrosshair>>),
     mut spread: Local<f32>,
     mut logged: Local<(bool, i32, bool, Option<String>, Option<bool>, Option<bool>, Option<CrosshairStyle>)>,
-    (locks, bindings, creator, sights, scope, driven, kill_cam): (
+    (locks, bindings, creator, sights, scope, driven, kill_cam, tweaks): (
         Option<Res<ControlLocks>>,
         Option<Res<crate::bindings::Bindings>>,
         Option<Res<crate::creator::CreatorMenu>>,
@@ -528,6 +528,7 @@ fn draw(
         Option<Res<crate::aim_zoom::Scope>>,
         Option<Res<crate::player::ViewDriven>>,
         Option<Res<crate::kill_cam::KillCam>>,
+        Option<Res<crate::tweaks::TweakSettings>>,
     ),
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
@@ -578,7 +579,8 @@ fn draw(
         info!("crosshair: {}", if !sights { "shown again" } else if scoped { "hidden by the scope" } else { "hidden down the true iron sights" });
     }
     for mut v in &mut root {
-        v.set_if_neq(show(playing && !sights));
+        // The Tweaks tab's crosshair key hides it [design: docs/design/tweaks.md].
+        v.set_if_neq(show(playing && !sights && !tweaks.as_ref().is_some_and(|t| t.crosshair_hidden)));
     }
     if !playing || sights {
         return;

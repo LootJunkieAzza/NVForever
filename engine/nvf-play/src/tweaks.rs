@@ -181,6 +181,8 @@ pub struct TweakSettings {
     pub no_right_click_drop: bool,
     /// `bPreventNoFastTravelMessage`: an undiscovered marker refuses travel quietly.
     pub quiet_undiscovered: bool,
+    /// The crosshair is hidden by its key (`Control::ToggleCrosshair`; not kept).
+    pub crosshair_hidden: bool,
 }
 
 /// The walk-angle choices: 30 to 80 degrees by 5; 45 is the physics' own.
@@ -290,6 +292,7 @@ impl Default for TweakSettings {
             title_case_categories: false,
             no_right_click_drop: false,
             quiet_undiscovered: false,
+            crosshair_hidden: false,
         }
     }
 }
@@ -426,6 +429,7 @@ impl Plugin for TweaksPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TweakSettings>()
             .add_systems(Update, sync.in_set(crate::PlaySet::Input))
+            .add_systems(Update, keys.in_set(crate::PlaySet::Input))
             .add_systems(Update, ap_costs.after(crate::PlaySet::Input).after(crate::player::encumbered_walks).before(crate::PlaySet::Physics));
         // ---- experience ----
         add_setting(
@@ -859,6 +863,58 @@ fn ap_costs(
             }
         }
     });
+}
+
+/// The Tweaks tab's keys on the Controls page (`crate::bindings::Control`), none bound
+/// unless the player binds them [design: docs/design/tweaks.md]: the crosshair and the sneak label shown or hidden,
+/// the menus hidden as ToggleMenus does, the main menu or quit at once, and no collision
+/// while held. Only while playing.
+#[allow(clippy::too_many_arguments)]
+fn keys(
+    input: crate::bindings::ControlInput,
+    state: Res<State<crate::PlayState>>,
+    mut tweaks: ResMut<TweakSettings>,
+    mut script: Option<ResMut<ScriptState>>,
+    noclip: Option<ResMut<crate::player::NoClip>>,
+    mut to_main: MessageWriter<crate::pause::MainMenuRequest>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    use crate::bindings::Control;
+    if *state.get() != crate::PlayState::Playing {
+        return;
+    }
+    if input.just_pressed(Control::ToggleCrosshair) {
+        tweaks.crosshair_hidden = !tweaks.crosshair_hidden;
+        info!("tweaks: crosshair {}", if tweaks.crosshair_hidden { "hidden" } else { "shown" });
+    }
+    if input.just_pressed(Control::ToggleSneakLabel) {
+        tweaks.no_sneak_label = !tweaks.no_sneak_label;
+        info!("tweaks: sneak label {}", if tweaks.no_sneak_label { "hidden" } else { "shown" });
+    }
+    if input.just_pressed(Control::ToggleMenus) {
+        if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+            let c = &mut rt.game.ui.camera;
+            c.menus_hidden = !c.menus_hidden;
+            info!("tweaks: menus {}", if c.menus_hidden { "hidden" } else { "shown" });
+        }
+    }
+    if let Some(mut n) = noclip {
+        if input.just_pressed(Control::NoCollision) {
+            n.0 = true;
+            info!("tweaks: no collision (key held)");
+        } else if input.just_released(Control::NoCollision) {
+            n.0 = false;
+            info!("tweaks: collision again");
+        }
+    }
+    if input.just_pressed(Control::ExitToMainMenu) {
+        info!("tweaks: back to the main menu (key)");
+        to_main.write(crate::pause::MainMenuRequest);
+    }
+    if input.just_pressed(Control::ExitGame) {
+        info!("tweaks: quit (key)");
+        exit.write(AppExit::Success);
+    }
 }
 
 /// Hand the game's part to the running game when it differs, and log the change.

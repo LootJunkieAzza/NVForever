@@ -110,6 +110,10 @@ fn menu_key(
         }
         KeyOutcome::ToggleLight => light.toggle(),
     }
+    // The Tweaks tab's own light key [design: docs/design/tweaks.md].
+    if playing && input.just_pressed(Control::ToggleLight) {
+        light.toggle();
+    }
 }
 
 #[cfg(test)]
