@@ -132,6 +132,7 @@ pub mod nvse_showoff2;
 pub mod nvse_showoff3;
 pub mod nvse_showoff5;
 pub mod nvse_lu2;
+pub mod nvse_lu3;
 pub mod nvse_showoff4;
 pub mod nvse_leveled;
 pub mod nvse_jip2;
