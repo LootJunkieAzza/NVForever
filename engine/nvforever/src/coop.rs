@@ -868,6 +868,9 @@ struct Peer {
     body: Option<[f32; 3]>,
     /// Revived: its puppet getting up from where the body lay ([`revive`]).
     rising: Option<revive::Rising>,
+    /// Its own body was seen knocked down (`flag::LYING`) and its puppet fell here for it
+    /// ([`duel_falls`]); cleared once the body is up again, so one knockdown is one fall.
+    lying_fell: bool,
 }
 
 impl Peer {
@@ -1017,19 +1020,46 @@ fn duel_falls(
     for id in falls {
         let Some(p) = coop.peers.get_mut(&id).filter(|p| !p.down) else { continue };
         let r = p.reference(id);
-        p.fell_at = Some(now);
         // Thrown away from this player, as its own game throws it.
         let shove = match (mates.get(id), player.as_deref()) {
             (Some(m), Some(me)) => nvf_play::coop_social::duel::throw(m.feet, me.feet),
             _ => [0.0, 0.0, nvf_play::coop_social::duel::THROW.1],
         };
         p.fall_shove = Some((shove, now));
+        // Its body's knockdown came first (below): fallen already, only the throw is new.
+        if p.lying_fell {
+            continue;
+        }
+        p.fell_at = Some(now);
         // It gets up when the loser's own body does, with the get-up clip from the
         // ragdoll's pose, as a revived player's puppet does (`revive::bodies`).
         p.rising = Some(revive::Rising::Start { since: now });
         g.extra.entry(FormId(r)).or_default().dead = true;
         hits.write(ActorHit { form_id: r, died: true, knocked_out: false, location: -1, crippled: false, part_crippled: false, torso_crippled: false, by: None, share: 1.0, guard_broken: false, weapon: None });
         info!("co-op: {} lost the duel: the puppet falls, thrown at ({:.0}, {:.0}, {:.0}) units/s", label(id, &p.name), shove[0], shove[1], shove[2]);
+        p.lying_fell = true;
+    }
+    // Any other player whose own body lies knocked down (`flag::LYING`, its own
+    // `player_knockdown`): a duel this game took no part in, a blast. Its puppet falls
+    // here too, in place, and gets up with its body as a duel's loser does. Before, only
+    // the two duelists' games had the fall: a third player saw the loser stand, then jump
+    // to where its body had lain once it rose (queue 2026-11-08 item 104).
+    for (&id, p) in coop.peers.iter_mut() {
+        let lies = p.samples.back().is_some_and(|(_, s)| s.has(flag::LYING) && !s.has(flag::DOWN));
+        if !lies {
+            p.lying_fell = false;
+            continue;
+        }
+        if p.lying_fell || p.down || p.fell_at.is_some() || p.rising.is_some() {
+            continue;
+        }
+        p.lying_fell = true;
+        let r = p.reference(id);
+        p.fell_at = Some(now);
+        p.rising = Some(revive::Rising::Start { since: now });
+        g.extra.entry(FormId(r)).or_default().dead = true;
+        hits.write(ActorHit { form_id: r, died: true, knocked_out: false, location: -1, crippled: false, part_crippled: false, torso_crippled: false, by: None, share: 1.0, guard_broken: false, weapon: None });
+        info!("co-op: {} is knocked down in its own game: the puppet falls here too", label(id, &p.name));
     }
     // The throw: the ragdoll starts with it, or (already in the world) is pushed by it.
     for (&id, p) in coop.peers.iter_mut() {
@@ -1927,6 +1957,12 @@ fn share_npcs(
     let rolls = actor_world.as_deref().and_then(|w| w.rolls.lock().ok().map(|r| r.clone())).unwrap_or_default();
     let mut npcs = Vec::new();
     let mut wear: Vec<(u32, Vec<u32>)> = Vec::new();
+    // Knocked down and lying here: the guests' copies lie too (queue item 104).
+    let knocked = |r: u32| script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.knockout(FormId(r)).is_some_and(|k| k.lying()));
+    // A knocked-down body lies and gets up as a `Dying` too (`knockouts.rs`): only the
+    // dead are sent as dead, or a guest's copy died with it and was raised again when it
+    // stood up, without its get-up.
+    let out_cold = |r: u32| script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.knockout(FormId(r)).is_some() && !rt.game.is_dead(FormId(r)));
     for (v, t, lo, hold, dying, seen, on, dressed) in &actors {
         // The dead too, out of sight or not: a guest lays its own body down.
         if (!seen.get() && !dying) || is_puppet(v.0) || players.contains(&v.0) {
@@ -1938,7 +1974,8 @@ fn share_npcs(
         flags |= if lo.is_some_and(|l| l.velocity[0].hypot(l.velocity[1]) > 1.0) { npc_flag::MOVING } else { 0 };
         flags |= if hold.is_some_and(|h| h.drawn) { npc_flag::DRAWN } else { 0 };
         flags |= if lo.is_some_and(|l| l.sneaking) { npc_flag::SNEAKING } else { 0 };
-        flags |= if dying { npc_flag::DEAD } else { 0 };
+        flags |= if dying && !out_cold(r) { npc_flag::DEAD } else { 0 };
+        flags |= if knocked(r) { npc_flag::KNOCKED } else { 0 };
         flags |= if pitch.is_some() { npc_flag::AIMING } else { 0 };
         flags |= if fighters.sights(r) { npc_flag::SIGHTS } else { 0 };
         flags |= if on.is_some_and(|f| f.seated()) { npc_flag::SEATED } else { 0 };
@@ -1972,6 +2009,7 @@ fn share_npcs(
             let level = actor_world.as_deref().map_or(fnv_sim::zones::LevelAt::plain(0), |w| w.level(r));
             let mut flags = if walking { npc_flag::MOVING } else { 0 };
             flags |= if dead { npc_flag::DEAD } else { 0 };
+            flags |= if knocked(r) { npc_flag::KNOCKED } else { 0 };
             flags |= if fighters.weapon(r).is_some() && fighters.pitch(r).is_some() { npc_flag::AIMING } else { 0 };
             npcs.push(NpcState {
                 reference: r,
@@ -2134,6 +2172,7 @@ fn follow_npcs(
     mut told: Local<usize>,
     (sfx, listener, mut sounds, mut sim, loc): (Option<Res<Sfx>>, Option<Res<Player>>, MessageWriter<PlaySound>, Option<ResMut<nvf_play::sim::SimState>>, Option<Res<Location>>),
     solo: Option<Res<nvf_play::save::SoloBase>>,
+    mut knocked: Local<HashSet<u32>>,
 ) {
     let now = time.elapsed_secs();
     let coop = &mut *coop;
@@ -2333,6 +2372,37 @@ fn follow_npcs(
         g.extra.entry(FormId(r)).or_default().dead = true;
         if bodies.contains(&r) {
             hits.write(ActorHit { form_id: r, died: true, knocked_out: false, location: -1, crippled: false, part_crippled: false, torso_crippled: false, by: None, share: 1.0, guard_broken: false, weapon: None });
+        }
+    }
+    // Knockdowns (queue item 104): lying here while the host's lies, held down (this
+    // game's own clock would get it up after its time), and getting up when the host's
+    // does; `knockouts.rs` draws the fall and the get-up from the game's knockout.
+    knocked.retain(|r| coop.npcs.contains_key(r));
+    for (&r, t) in &coop.npcs {
+        let Some(&(_, s)) = t.samples.back() else { continue };
+        let id = FormId(r);
+        if g.is_dead(id) {
+            knocked.remove(&r);
+            continue;
+        }
+        let lying = g.knockout(id).is_some_and(|k| k.lying());
+        if s.has(npc_flag::KNOCKED) {
+            if !lying {
+                let at = g.time;
+                let e = g.extra.entry(id).or_default();
+                e.knocked_out = Some(fnv_game::unconscious::KnockOut { cause: fnv_game::unconscious::Cause::KnockedDown, at, facing_up: None, held: false, rising: None, pushed: false, shove: None });
+                e.unconscious = true;
+                knocked.insert(r);
+                info!("co-op: {} is knocked down in the host's world: down here too", g.data.name(id));
+            }
+        } else if knocked.remove(&r) {
+            let at = g.time;
+            let e = g.extra.entry(id).or_default();
+            e.unconscious = false;
+            if let Some(k) = e.knocked_out.as_mut().filter(|k| k.lying()) {
+                k.rising = Some(at);
+                info!("co-op: {} gets up in the host's world: up here too", g.data.name(id));
+            }
         }
     }
 }

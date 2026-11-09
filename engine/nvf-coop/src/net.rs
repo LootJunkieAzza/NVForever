@@ -155,6 +155,9 @@ pub mod npc_flag {
     pub const SIGHTS: u8 = 32;
     /// On its furniture ([`NpcState::furniture`]), not walking up to it.
     pub const SEATED: u8 = 64;
+    /// Knocked down or out and lying (`fnv_game::unconscious`): the others' copies lie
+    /// until it clears, then get up (queue item 104).
+    pub const KNOCKED: u8 = 128;
 }
 
 /// NPC states in one packet (41 bytes each: under 1200 bytes in all).
