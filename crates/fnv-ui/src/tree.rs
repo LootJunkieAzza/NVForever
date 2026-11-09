@@ -420,9 +420,8 @@ impl Ui {
         self.tiles.len() - self.free.len()
     }
 
-    /// The tree's shape count: one up whenever tiles are made, unloaded or changed other than
-    /// in a value (renamed, given a trait or a template). Equal counts mean no tile came or
-    /// went and none was renamed in between, for a caller that waits on such a change.
+    /// A count that goes up whenever tiles are made, unloaded or changed other than in a value:
+    /// what follows from the tree's shape alone stands while this does.
     pub fn shape(&self) -> u64 {
         self.shape
     }

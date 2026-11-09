@@ -223,9 +223,9 @@ fn outputs(g: &mut Game, ret: f64, vals: &[f64]) -> XVal {
     XVal::Array(g.ext.new_array(ArrayKind::List, entries))
 }
 
-type Mat = [[f32; 3]; 3];
+pub(crate) type Mat = [[f32; 3]; 3];
 
-fn mul(a: &Mat, b: &Mat) -> Mat {
+pub(crate) fn mul(a: &Mat, b: &Mat) -> Mat {
     let mut o = [[0.0; 3]; 3];
     for (i, row) in o.iter_mut().enumerate() {
         for (j, c) in row.iter_mut().enumerate() {
@@ -235,13 +235,13 @@ fn mul(a: &Mat, b: &Mat) -> Mat {
     o
 }
 
-fn apply(m: &Mat, v: [f32; 3]) -> [f32; 3] {
+pub(crate) fn apply(m: &Mat, v: [f32; 3]) -> [f32; 3] {
     [0, 1, 2].map(|i| m[i][0] * v[0] + m[i][1] * v[1] + m[i][2] * v[2])
 }
 
 /// The rotation of X Y Z angles (radians) taken about the fixed axes in that order,
 /// Rz·Ry·Rx: the mirror's convention (`SceneNode::rotation`, the engine's `EulerRot::ZYX`).
-fn rotation(a: [f32; 3]) -> Mat {
+pub(crate) fn rotation(a: [f32; 3]) -> Mat {
     let (sx, cx) = a[0].sin_cos();
     let (sy, cy) = a[1].sin_cos();
     let (sz, cz) = a[2].sin_cos();
@@ -252,7 +252,7 @@ fn rotation(a: [f32; 3]) -> Mat {
 }
 
 /// [`rotation`]'s angles back, in degrees.
-fn extrinsic_angles(m: &Mat) -> [f32; 3] {
+pub(crate) fn extrinsic_angles(m: &Mat) -> [f32; 3] {
     let y = (-m[2][0]).clamp(-1.0, 1.0).asin();
     [m[2][1].atan2(m[2][2]), y, m[1][0].atan2(m[0][0])].map(f32::to_degrees)
 }
@@ -267,7 +267,7 @@ fn intrinsic_angles(m: &Mat) -> [f32; 3] {
 /// A node's translation and rotation: as its parent holds it, or (`world`) in the world,
 /// through the nodes above it and the reference's own position and angles. `None`
 /// without the tree or the node.
-fn node_place(g: &mut Game, r: FormId, node: &str, world: bool) -> Option<([f32; 3], Mat)> {
+pub(crate) fn node_place(g: &mut Game, r: FormId, node: &str, world: bool) -> Option<([f32; 3], Mat)> {
     let t = g.scene.tree(r)?.clone();
     let mut i = find(&t, node)?;
     let local = |n: &SceneNode| (n.translation, rotation(n.rotation.map(f32::to_radians)), n.scale);
