@@ -840,7 +840,8 @@ mod tests {
         let last = HINTS.y + frame::HINT_PITCH * 4.0 + frame::BUTTON_TEXT_Y + 31.0;
         assert!(last < INFO.min.y - INFO.height() / 3.0, "{last}");
         assert_eq!(HINTS.x, MAIN.width());
-        assert!(MAIN.max.x + frame::HINT_KEY_ROOM <= crate::pipboy::CANVAS.x);
+        // The key room stays inside the canvas (checked when the test compiles).
+        const { assert!(MAIN.max.x + frame::HINT_KEY_ROOM <= crate::pipboy::CANVAS.x) };
     }
 
     #[test]
