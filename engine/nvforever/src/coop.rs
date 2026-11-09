@@ -346,7 +346,7 @@ impl Plugin for CoopPlugin {
             .add_systems(Update, (leave::guest_leaves.before(crate::handoff::leave), leave::tell_ended))
             .add_systems(Last, leave::host_ends)
             .add_message::<PuppetShot>()
-            .add_systems(Update, (stand_ins, draw, peer_lights, pipboy_share).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
+            .add_systems(Update, (stand_ins, draw, peer_lights, pipboy_share, swimmers).chain().after(nvf_play::PlaySet::Sync).before(crate::locomotion::walk_test));
     }
 }
 
@@ -1220,6 +1220,9 @@ fn send(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location>>
         info!("co-op: sent: this player's body {}", if lying { "lies" } else { "gets up" });
     }
     s.flags = flags;
+    if doing.phys.as_ref().and_then(|p| p.player.as_ref()).is_some_and(|c| c.swimming) {
+        s.more |= nvf_coop::net::more_flag::SWIMMING;
+    }
     if let (Some(pip), Some(glance)) = (doing.pipboy.0.as_deref(), doing.pipboy.1.as_deref()) {
         s.pipboy = nvf_play::pipboy::glance::Check::of(pip, glance).code();
     }
@@ -2794,6 +2797,24 @@ fn lines_in(lines: &[net::LineView], ago: f32, me: Option<u8>) -> Vec<fnv_game::
 
 /// Each other player's flashlight, on their puppet where its eyes are (`flashlight.rs`),
 /// while it is on and the player is in this place.
+/// The other players swimming in their own games: their bodies here swim too
+/// (`swimming.rs`, item 121).
+fn swimmers(coop: Res<Coop>, mut swim: ResMut<crate::swimming::Swimmers>, mut was: Local<HashMap<u8, bool>>) {
+    let mut now = std::collections::HashSet::new();
+    for (&id, p) in coop.peers.iter() {
+        let swims = !p.lost && p.samples.back().is_some_and(|(_, s)| s.more & nvf_coop::net::more_flag::SWIMMING != 0);
+        if swims {
+            now.extend(p.references(id));
+        }
+        if was.insert(id, swims).unwrap_or(false) != swims {
+            info!("co-op: {} {} in its own game", label(id, &p.name), if swims { "swims" } else { "is out of the water" });
+        }
+    }
+    if swim.0 != now {
+        swim.0 = now;
+    }
+}
+
 fn peer_lights(mut commands: Commands, time: Res<Time>, coop: Res<Coop>, loc: Option<Res<Location>>, mut lights: Query<&mut Transform>, mut lit: Local<HashMap<u8, Entity>>) {
     let here = loc.as_deref().map(place_of);
     let now = time.elapsed_secs();

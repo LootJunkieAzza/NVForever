@@ -68,7 +68,7 @@ use std::time::{Duration, Instant};
 pub const MAGIC: [u8; 4] = *b"NVCO";
 /// The replication test build (docs/design/coop-replication.md) speaks its own protocol:
 /// 100 above the normal co-op build's, so the two never join each other.
-pub const VERSION: u8 = 120;
+pub const VERSION: u8 = 121;
 pub const MAX_GUESTS: usize = 3;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -296,12 +296,20 @@ pub struct PlayerState {
     /// The furniture reference holding the player (a chair, a couch, a bed), 0 for none:
     /// the others draw the player getting on, sitting or lying there, and getting off.
     pub furniture: u32,
+    /// [`more_flag`] bits: the states [`PlayerState::flags`] has no room for.
+    pub more: u8,
+}
+
+/// [`PlayerState::more`] bits.
+pub mod more_flag {
+    /// In deep water: the others draw the player swimming.
+    pub const SWIMMING: u8 = 1;
 }
 
 impl PlayerState {
     /// A state with nothing in hand and nothing worn.
     pub fn at(place: Place, feet: [f32; 3], yaw: f32) -> Self {
-        Self { place, feet, yaw, pitch: 0.0, flags: 0, weapon: 0, attacks: 0, attack_kind: 0, reloads: 0, worn: [0; MAX_WORN], worn_len: 0, pipboy: 0, furniture: 0 }
+        Self { place, feet, yaw, pitch: 0.0, flags: 0, weapon: 0, attacks: 0, attack_kind: 0, reloads: 0, worn: [0; MAX_WORN], worn_len: 0, pipboy: 0, furniture: 0, more: 0 }
     }
 
     pub fn has(&self, f: u8) -> bool {
@@ -2092,6 +2100,7 @@ fn encode(msg: &Msg) -> Vec<u8> {
             }
             b.push(state.pipboy);
             b.extend_from_slice(&state.furniture.to_le_bytes());
+            b.push(state.more);
         }
         Msg::Bye { id } => b.extend_from_slice(&[5, *id]),
         Msg::Npcs { seq, npcs } => {
@@ -2346,6 +2355,7 @@ fn decode(b: &[u8]) -> Option<Msg> {
             state.worn_len = n as u8;
             state.pipboy = r.u8()?;
             state.furniture = r.u32()?;
+            state.more = r.u8()?;
             Msg::State { id, seq, state }
         }
         5 => Msg::Bye { id: r.u8()? },
@@ -2624,6 +2634,7 @@ mod tests {
                     worn_len: 3,
                     pipboy: 2,
                     furniture: 0x0011_C601,
+                    more: more_flag::SWIMMING,
                     ..state(4.0)
                 },
             },
