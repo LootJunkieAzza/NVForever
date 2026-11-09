@@ -43,6 +43,11 @@ by a comment starting `NVForever FSR integration`:
 Without the override both do what upstream does. This is a new patch for Bevy 0.20.1, not
 the dropped 0.19.1 one below.
 
+Both FSR changes are already in Bevy's `main`, written almost the same way: bevyengine/bevy#26235
+(transmission, merged 2026-10-26) and bevyengine/bevy#26236 (cluster lookup, merged
+2026-10-20). Neither is in a release yet; 0.20.1 is the latest. Drop those two with the first
+Bevy release that has both.
+
 Third change (#1803), in `src/material.rs`: `MaterialQueueProbe`, an optional resource
 that records watched main-pass entries and their pipeline IDs as `queue_material_meshes`
 queues them, for `nvforever/src/pipboy_ready.rs`; Bevy installs none, so without it the

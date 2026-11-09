@@ -356,7 +356,7 @@ impl PreparedFsr {
             reference_logged: AtomicBool::new(false),
             sky_logged: AtomicBool::new(false),
             history_valid: AtomicBool::new(false),
-            // Display-sized like the depth attachment it is drawn with ([`reference_terrain_layers`]);
+            // Display-sized like the depth attachment it is drawn with ([`reference_sky_and_terrain_layers`]);
             // only the render rectangle is used.
             opaque: texture("fsr_opaque", output_size, wgpu::TextureFormat::Rgba16Float, attachment | wgpu::TextureUsages::COPY_DST),
             reactive: texture("fsr_reactive", render_size, wgpu::TextureFormat::R8Unorm, attachment),
@@ -501,7 +501,9 @@ pub(crate) fn fsr_pass(
         frame_time_delta: prepared.camera.delta_ms, pre_exposure: 1.0,
         reset_history: prepared.reset || !prepared.history_valid.load(Ordering::Relaxed),
         camera_near: f32::MAX, camera_far: prepared.camera.near, camera_fov_y: prepared.camera.fov,
-        // NVForever's world coordinates follow the game's units (about 70 units/metre).
+        // NVForever's world coordinates are the game's units, about 70 a metre [hypothesis, the
+        // scale fnv-phys uses (`PhysParams::units_per_metre`): the game's gravity of 684-686
+        // units/s² (physics.md §6.3, observed) is 9.81 m/s² at 70 units a metre].
         view_space_to_meters_factor: 1.0 / 70.0, flags: FsrDispatchFlags::empty(),
     };
     match context.dispatch(&mut prepared.view.lock().unwrap(), encoder, &info) {
