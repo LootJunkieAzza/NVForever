@@ -182,6 +182,12 @@ Limits and notes:
 - **The cap on slower screens**: half the refresh rate is 30 real frames a second on a 60 Hz
   screen, which is little to interpolate from and to aim with; frame generation suits screens
   of 120 Hz and more.
+- **The performance overlay's FPS row** (`--fps`, the settings page's Frame rate counter)
+  shows the frames shown and the game's own apart while frame generation shows generated
+  frames (`156  (78 rendered)  12.8 ms  1% low …` at 160 Hz; the frame times beside them are
+  the rendered frames'); the counter showed only the game's own, which read as frame
+  generation halving the frame rate [observed 2026-11-08, 1280x720 at 160 Hz, FSR Quality,
+  Goodsprings].
 - **Swapchain depth**: Bevy's default (two frames queued). With the presenter, three gave the
   same as two (2026-11-08, 4K: 77.7 real fps, the first present 7.2-8.0 ms after handing over
   against 7.4-7.9); before it, three lowered the real rate (56 fps, 2026-11-07) and four gave the

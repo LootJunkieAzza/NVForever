@@ -4,7 +4,7 @@
 //!
 //! | Row  | Reads | From |
 //! |------|-------|------|
-//! | FPS  | frames a second and the mean frame time of the last half second, the 1 % low (or the slowest frame, a choice) of the last 10 s | the time between frames ([`readings::Frames`], the 1 % low as `stress_sample::frame_stats` takes it: [`readings::low_of`]) |
+//! | FPS  | frames a second and the mean frame time of the last half second, the 1 % low (or the slowest frame, a choice) of the last 10 s; while frame generation shows generated frames, the frames shown and the rendered ones apart, the times the rendered frames' ([`readings::fps_text`]) | the time between frames ([`readings::Frames`], the 1 % low as `stress_sample::frame_stats` takes it: [`readings::low_of`]); frame generation's count of generated frames shown (`frame_gen::GeneratedFrames`) |
 //! | graph (off) | the last 5 s of frame times as a line | the same frame times ([`graph`]) |
 //! | SPLIT (off) | a frame's main-thread, render-thread (with its wait for the window's image) and GPU time | the schedules' spans and GPU timestamps ([`split`]) |
 //! | CPU  | the machine's use, and the game's own as cores kept busy | Windows' performance counters; the process's processor time ([`usage`]) |
@@ -18,8 +18,11 @@
 //! switches. A row with nothing to read (no GPU budget on an integrated GPU; off Windows
 //! the counters' rows) is left out, and nothing is read while the overlay is hidden: the
 //! frame times are kept only while the FPS or the graph row is on, the split's spans
-//! taken only while its row is on, the counts read only at a reading of their row. Not
-//! in the original [engineering choice, issue #1087].
+//! taken only while its row is on, the counts read only at a reading of their row.
+//! Frame generation's count of generated frames, one number, is noted every frame all the
+//! same, so that the first window of a showing counts them from where its first frame time
+//! begins ([`readings::Frames::note_generated`]). Not in the original [engineering choice,
+//! issue #1087].
 //!
 //! The times are wall-clock (`Time<Real>`), so a paused game or a slowed clock still
 //! reads the frame rate the player sees. The text changes twice a second so it can be
@@ -45,6 +48,7 @@ mod readings;
 mod split;
 mod usage;
 
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use bevy::image::CompressedImageFormatSupport;
@@ -52,6 +56,7 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use nvf_assets::GameData;
 
+use crate::frame_gen::GeneratedFrames;
 use crate::memory_budget::MemoryBudget;
 use crate::stress_sample::LoadedCounts;
 pub use readings::{Low, Rows};
@@ -164,8 +169,12 @@ fn switch(counter: Res<FpsCounter>, mut overlay: ResMut<Overlay>, clock: Res<spl
     overlay.fresh = true;
 }
 
-fn sample(counter: Res<FpsCounter>, time: Res<Time<Real>>, budget: Option<Res<MemoryBudget>>, mut overlay: ResMut<Overlay>, timing: split::SplitInputs, counts: LoadedCounts) {
+fn sample(counter: Res<FpsCounter>, time: Res<Time<Real>>, generated: Option<Res<GeneratedFrames>>, budget: Option<Res<MemoryBudget>>, mut overlay: ResMut<Overlay>, timing: split::SplitInputs, counts: LoadedCounts) {
+    // Frame generation's count, noted every frame after the frame's time, the overlay
+    // shown or not ([`readings::Frames::note_generated`]).
+    let generated = generated.map(|g| g.0.load(Ordering::Relaxed));
     if !counter.show {
+        overlay.frames.note_generated(generated);
         return;
     }
     let rows = counter.rows;
@@ -174,7 +183,9 @@ fn sample(counter: Res<FpsCounter>, time: Res<Time<Real>>, budget: Option<Res<Me
     // The CPU row reads the machine's counter and the game's processor time, the RAM row
     // the game's working set: each asked for on its own.
     u.set_want(rows.cpu, rows.gpu, rows.cpu, rows.ram);
-    if !overlay.step(&rows, time.delta_secs()) {
+    let due = overlay.step(&rows, time.delta_secs());
+    overlay.frames.note_generated(generated);
+    if !due {
         return;
     }
     let frame = overlay.frames.take();
