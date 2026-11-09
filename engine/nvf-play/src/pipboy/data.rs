@@ -1157,11 +1157,8 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
     };
     // The hints after the body: the World Map's marker under the highlight box is found
     // while its map is gathered.
-    // The selected note, when it is a Sound or Voice note: whether it is the one playing
-    // (not paused; `crate::holotape`).
-    let audio = l.notes.get(st.sel[NOTES]).filter(|n| l.challenges.is_none() && (n.kind == 0 || n.kind == 3)).map(|n| {
-        game.holotape.as_ref().is_some_and(|h| h.playing == Some(FormId(n.form)) && !h.paused)
-    });
+    let tape = game.holotape.as_ref().map_or((None, false), |h| (h.playing, h.paused));
+    let audio = audio_hint(l.notes.get(st.sel[NOTES]).filter(|_| l.challenges.is_none()), tape);
     let facts = HintFacts {
         pad: crate::pad::labels() != crate::pad::Labels::Keys,
         marker: st.travel_marker.is_some(),
@@ -1176,6 +1173,23 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
     let buttons = tab_buttons(tab, &facts);
     View { tab, place, when, buttons, body, popup: st.popup.clone() }
 }
+
+/// The Misc tab's A hint for the selected note (`note`, none while the challenges show):
+/// for a Sound or Voice note whether it reads Stop (`Some(true)`) or Play. Stop only for a
+/// Voice note that is the holotape playing and not paused (`tape`: `Holotape::playing`,
+/// `paused`). A Sound note's sound is played once and not followed (`crate::holotape`), so
+/// its hint stays Play, which is what the press does again [design].
+fn audio_hint(note: Option<&read::Note>, (playing, paused): (Option<FormId>, bool)) -> Option<bool> {
+    match note? {
+        n if n.kind == NOTE_VOICE => Some(playing == Some(FormId(n.form)) && !paused),
+        n if n.kind == NOTE_SOUND => Some(false),
+        _ => None,
+    }
+}
+
+/// A note's type (`DATA`): 0 Sound, 3 Voice [documented: docs/spec-notes/holotapes.md].
+const NOTE_SOUND: u8 = 0;
+const NOTE_VOICE: u8 = 3;
 
 /// What a tab's hints depend on ([`tab_buttons`]).
 #[derive(Debug, Default, Clone, Copy)]
@@ -1777,7 +1791,6 @@ fn on_button_click(e: On<PointerClick>, buttons: Query<&ButtonHit>, state: Optio
 
 fn show(p: &mut ChildSpawnerCommands, c: &mut Ctx, st: &mut DataState, v: &View) {
     heading(p, c, &v.place, &v.when);
-    buttons(p, c, &v.buttons);
     match &v.body {
         Body::Map(m) => map(p, c, m),
         Body::List { rows, first, boxed, right } => {
@@ -1802,6 +1815,11 @@ fn show(p: &mut ChildSpawnerCommands, c: &mut Ctx, st: &mut DataState, v: &View)
             }
         }
     }
+    // The hints after the body: a later sibling is drawn and picked over an earlier one, so
+    // a click on a hint over the map's window (the World Map's Travel, the maps' Place
+    // Marker) is the hint's, never the map's (`MapHit`, its markers) [design]. The
+    // question box comes last, over everything.
+    buttons(p, c, &v.buttons);
     if let Some(q) = &v.popup {
         popup(p, c, q);
     }
@@ -2381,6 +2399,70 @@ mod tests {
         travel_ask(&mut st, WORLD, on_map, (true, false), false);
         assert_eq!(travel_ask(&mut st, WORLD, on_map, (false, true), false), None);
         assert_eq!(st.travel_marker, None);
+    }
+
+    /// The Misc tab's A hint (#1897): Play on a Sound or Voice note, Stop only on the Voice
+    /// note the holotape plays (not paused); a Sound note keeps Play while its sound plays,
+    /// even were the holotape's note its own (it never is: `crate::holotape` follows Voice
+    /// notes only); none on a text or image note, or with no note.
+    #[test]
+    fn the_audio_hint_reads_stop_only_on_the_voice_note_playing() {
+        let note = |form, kind| read::Note { form, name: String::new(), kind, text: None, image: None, quest: None };
+        let (voice, sound, text, image) = (note(1, NOTE_VOICE), note(2, NOTE_SOUND), note(3, 1), note(4, 2));
+        assert_eq!(audio_hint(Some(&voice), (None, false)), Some(false));
+        assert_eq!(audio_hint(Some(&voice), (Some(FormId(1)), false)), Some(true));
+        assert_eq!(audio_hint(Some(&voice), (Some(FormId(1)), true)), Some(false), "paused");
+        assert_eq!(audio_hint(Some(&voice), (Some(FormId(9)), false)), Some(false), "another note plays");
+        assert_eq!(audio_hint(Some(&sound), (None, false)), Some(false));
+        assert_eq!(audio_hint(Some(&sound), (Some(FormId(2)), false)), Some(false), "a Sound note is not followed");
+        assert_eq!(audio_hint(Some(&text), (None, false)), None);
+        assert_eq!(audio_hint(Some(&image), (None, false)), None);
+        assert_eq!(audio_hint(None, (Some(FormId(1)), false)), None);
+    }
+
+    /// The hints are spawned after the map's window, its markers and its `MapHit` (and
+    /// before the question box), as siblings with no z-index of their own: a later sibling
+    /// is drawn and picked over an earlier one, so a click on the World Map's Travel hint,
+    /// which lies over the map's window, is the hint's (#1897: the hints came first and the
+    /// map took the click). Drawn through the page's own `show` into a world.
+    #[test]
+    fn the_hints_are_spawned_over_the_map_and_under_the_question_box() {
+        use bevy::ecs::world::CommandQueue;
+        crate::pad::set_labels(crate::pad::Labels::Xbox);
+        let mut kit = Kit::default();
+        let mut images = Assets::<Image>::default();
+        let glyphs = crate::pad::PadGlyphs::default();
+        let mut c = Ctx::new(&mut kit, None, &mut images, None, &glyphs);
+        let buttons = tab_buttons(WORLD, &facts(true));
+        crate::pad::set_labels(crate::pad::Labels::Keys);
+        let map = MapShown { picture: None, outline: None, marks: Vec::new(), player: None, quests: Vec::new(), cursor: MAP_MID, label: None, detail: None };
+        let view = View { tab: WORLD, place: String::new(), when: String::new(), buttons, body: Body::Map(map), popup: Some(Popup::travel(7, "Travel?".into())) };
+        let mut st = DataState::default();
+        let mut world = World::new();
+        let mut queue = CommandQueue::default();
+        let mut commands = Commands::new(&mut queue, &world);
+        let root = commands.spawn(Node::default()).with_children(|p| show(p, &mut c, &mut st, &view)).id();
+        queue.apply(&mut world);
+        // Each child of the page's root by what its subtree holds.
+        fn holds<T: Component>(world: &World, e: Entity) -> bool {
+            world.get::<T>(e).is_some() || world.get::<Children>(e).is_some_and(|c| c.iter().any(|k| holds::<T>(world, k)))
+        }
+        let children: Vec<Entity> = world.get::<Children>(root).unwrap().iter().collect();
+        let at = |f: &dyn Fn(Entity) -> bool| children.iter().position(|&e| f(e));
+        let map_at = at(&|e| holds::<MapHit>(&world, e)).expect("the map's window");
+        let hints: Vec<usize> = children.iter().enumerate().filter(|(_, &e)| world.get::<ButtonHit>(e).is_some()).map(|(k, _)| k).collect();
+        let popup_at = at(&|e| holds::<PopupHit>(&world, e)).expect("the question box");
+        assert_eq!(hints.len(), 2, "Travel and Place Marker");
+        assert!(hints.iter().all(|&k| k > map_at && k < popup_at), "map {map_at}, hints {hints:?}, question box {popup_at}");
+        // The order alone decides: nothing on the page sets a z-index (every node has the
+        // default 0, a component `Node` requires).
+        let mut all = vec![root];
+        let mut k = 0;
+        while k < all.len() {
+            all.extend(world.get::<Children>(all[k]).into_iter().flat_map(|c| c.iter()));
+            k += 1;
+        }
+        assert!(all.iter().all(|&e| world.get::<ZIndex>(e).is_none_or(|z| z.0 == 0) && world.get::<GlobalZIndex>(e).is_none()));
     }
 
     /// The hints are the ITEMS page's column at the file's place (#1897): the first row's

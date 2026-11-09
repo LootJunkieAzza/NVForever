@@ -807,7 +807,10 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     note, so it could not be turned off); "known stations" are those the Pip-Boy receives
     here (`crate::radio`); an audio note is a Sound or Voice note, "playing" the one
     playing and not paused (`crate::holotape`) [hypothesis: the file's flag for a playing
-    audio note].
+    audio note]. Stop shows only on a Voice note: a Sound note's sound is played once and
+    not followed (`crate::holotape`; no master's Sound note names a sound, holotapes.md
+    §2), so its hint stays Play, which is what a second press does (it plays the sound
+    again) [design; `data.rs::audio_hint`].
   - **Words**: the settings' texts, which the masters do not hold (§1), else NVForever's
     labels for them in the game strings table (`fnv_ui::strings`,
     `labels::built_in_label`): `sTravel` "Travel", `sMakeActiveQuest` "Set Active",
@@ -827,7 +830,10 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     from the heading's line to the tab line, against 0.150 on NVForever's frame before
     this change, whose first row stood at the same 75]. A click box per row: its word and
     key widened by the file's box, 20 across and 15 up and down, so the boxes of rows 46
-    apart meet [documented: `_horbuf`, `_verbuf`]. The hover box is not drawn.
+    apart meet [documented: `_horbuf`, `_verbuf`]. The hints are spawned after the page's
+    body (the maps' window and its markers) and before the question box, so a click on
+    a hint over the map's window is the hint's (before this, the map's window took the
+    clicks on the World Map's Travel word) [design]. The hover box is not drawn.
   - **The data at the right** (Quests' objectives, a note's text or meter) starts under
     the hints' rect (75 + 120) when any hint shows, a button's height higher on the tabs
     up to Misc while the A hint does not show [documented: `MM_DataRect` y]: with a
