@@ -216,7 +216,7 @@ JohnnyGuitar NIF and camera slice: 21 (#1007, ext-jg-nif-camera.md: distances to
 bounds, particle systems' values through the scene mirror and the engine's live systems, alpha and stencil
 properties read from the models, switch nodes through the block flags, the sequences playing, Update3DAlt, the
 camera's place, overrides and WorldToScreen through `nvf_play::script_camera`; set jgnif, not probed yet).
-JohnnyGuitar 109 → 88.
+Census after it: JohnnyGuitar 78 → 57.
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,
