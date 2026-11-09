@@ -61,7 +61,32 @@ impl Plugin for EffectShadersPlugin {
         app.init_resource::<Shaders>()
             .init_resource::<crate::effect_particles::EffectParticles>()
             .add_systems(Update, (play.after(nvf_play::player::BodySet), sync_player_effects.after(play), actor_alpha.after(crate::texture_swap::apply), crate::effect_particles::draw.after(sync_player_effects), addons_leaving.after(play)))
+            .add_systems(PostUpdate, crate::effect_particles::build.in_set(crate::particles::ParticleDrawSet))
             .add_systems(Last, (report, crate::effect_particles::report, release_faded));
+        crate::particles::configure_draw_set(app);
+    }
+}
+
+#[cfg(test)]
+impl Active {
+    /// A play of `shader` on reference `on` since `since` (persistent), covering the meshes
+    /// `covered`, without overlays: for tests of the effect particles.
+    pub(crate) fn for_test(on: u32, shader: EffectShader, since: f32, covered: &[Entity]) -> Active {
+        Active {
+            on,
+            shader: Box::new(shader),
+            since,
+            until: None,
+            persist: true,
+            fill: None,
+            edge: None,
+            cut: HashMap::new(),
+            covered: covered.iter().map(|e| (*e, Vec::new())).collect(),
+            camera_sees: None,
+            holes_texture: None,
+            holed: HashMap::new(),
+            addons: Vec::new(),
+        }
     }
 }
 

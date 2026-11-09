@@ -21,6 +21,8 @@
 //! The render world answers through [`PipelineGate`], shared with the main world, so what
 //! the main world reads may be a frame or two old; a loading screen's settle time
 //! (`nvf_play::loading::SETTLE_SECS`) covers that, and pipelines asked for late.
+//! The pause menu uses the same counts through `pause_sample`, with its own fresh-frame
+//! settling and cap [design: nvf-play/graphics_resume.rs; pipeline portion of #1820].
 //!
 //! Test aid `NVF_PLAY_TEST_PIPELINE_LOG=1`: one log line for each pipeline when it is asked
 //! for and when it is ready or has failed for good, with its label and the time between.
@@ -47,7 +49,7 @@ use bevy::render::{Render, RenderApp, RenderSystems};
 use bevy::shader::{ShaderCacheError, ShaderDefVal};
 use nvf_play::loading::PIPELINE_CAP_SECS;
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::{Acquire, Relaxed, Release}};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -90,7 +92,7 @@ impl PipelineGate {
 
     /// Render frames finished so far. Before the first, nothing has asked for a pipeline.
     pub fn frames(&self) -> u32 {
-        self.0.frames.load(Relaxed)
+        self.0.frames.load(Acquire)
     }
 
     /// Have the next render frame log the labels of those still busy.
@@ -105,6 +107,8 @@ impl Plugin for PipelineGatePlugin {
     fn build(&self, app: &mut App) {
         let gate = PipelineGate::default();
         app.insert_resource(gate.clone());
+        app.init_resource::<nvf_play::graphics_resume::GraphicsResume>()
+            .add_systems(PreUpdate, pause_sample);
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
             render.insert_resource(gate).add_systems(Render, count.in_set(RenderSystems::Cleanup));
             if std::env::var("NVF_PLAY_TEST_TRAVEL_SKIP_SUN_SHADOWS").is_ok_and(|v| v == "1") {
@@ -117,6 +121,11 @@ impl Plugin for PipelineGatePlugin {
             }
         }
     }
+}
+
+/// Pause resumes always include shadows, even under the travel-only test aid [design].
+fn pause_sample(gate: Res<PipelineGate>, mut resume: ResMut<nvf_play::graphics_resume::GraphicsResume>) {
+    resume.sample(gate.frames(), gate.busy(), gate.asked());
 }
 
 /// A pipeline the screen waits for: compiling, or to be tried again.
@@ -196,7 +205,8 @@ fn count(gate: Res<PipelineGate>, cache: Res<PipelineCache>, mut failed: Local<H
     gate.0.busy.store(busy, Relaxed);
     gate.0.asked.store(asked.len() as u32, Relaxed);
     gate.0.screen_busy.store(screen_busy, Relaxed);
-    gate.0.frames.fetch_add(1, Relaxed);
+    // Publish the counts before a reader accepts this as a fresh render frame [design].
+    gate.0.frames.fetch_add(1, Release);
     if gate.0.list_next.swap(false, Relaxed) {
         let waiting = cache.pipelines().enumerate().filter(|(i, p)| waited_for(&p.state) && !failed.contains(i));
         let mut labels: Vec<&str> = waiting.map(|(_, p)| label(&p.descriptor)).collect();
@@ -261,6 +271,45 @@ fn log_each(cache: Res<PipelineCache>, mut seen: Local<Vec<(Instant, bool)>>, mu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pause_bridge_requires_fresh_quiet_samples_and_includes_shadows() {
+        use nvf_play::graphics_resume::GraphicsResume;
+        let mut app = App::new();
+        let gate = PipelineGate::default();
+        app.insert_resource(gate.clone()).init_resource::<GraphicsResume>().add_systems(PreUpdate, pause_sample);
+        gate.0.frames.store(10, Relaxed);
+        gate.0.asked.store(20, Relaxed);
+        app.update();
+        let mut resume = app.world_mut().resource_mut::<GraphicsResume>();
+        resume.changed();
+        assert!(!resume.request(1.0));
+        assert!(resume.poll(2.0).is_none(), "the initial zero is stale");
+        gate.0.busy.store(2, Relaxed);
+        gate.0.skipped.store(2, Relaxed);
+        gate.0.asked.store(22, Relaxed);
+        gate.0.frames.store(11, Relaxed);
+        app.update();
+        assert_eq!(gate.busy_for_travel(), 0);
+        assert!(app.world_mut().resource_mut::<GraphicsResume>().poll(3.0).is_none());
+        gate.0.busy.store(0, Relaxed);
+        gate.0.frames.store(12, Relaxed);
+        app.update();
+        assert!(app.world_mut().resource_mut::<GraphicsResume>().poll(3.1).is_none());
+        gate.0.frames.store(15, Relaxed);
+        app.update();
+        let done = app.world_mut().resource_mut::<GraphicsResume>().poll(3.5).unwrap();
+        assert_eq!(done.pending, 0);
+        assert!(!done.capped);
+        app.world_mut().resource_mut::<GraphicsResume>().changed();
+        app.world_mut().resource_mut::<GraphicsResume>().request(4.0);
+        gate.0.busy.store(2, Relaxed);
+        gate.0.frames.store(16, Relaxed);
+        app.update();
+        let done = app.world_mut().resource_mut::<GraphicsResume>().poll(19.0).unwrap();
+        assert_eq!(done.pending, 2, "shadow pipelines count at the pause cap");
+        assert!(done.capped);
+    }
 
     #[test]
     fn asked_is_shared_with_the_main_world() {
