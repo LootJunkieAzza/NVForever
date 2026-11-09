@@ -104,6 +104,11 @@ Start cannot be bound.
   `pipboy/data.rs` (`stick_cursor`, `scroll_map`, `stick_zoom`). On the World Map, A (the
   confirm button) on a highlighted marker asks to fast travel there, as a click does
   [observed: the original], also in `pipboy/data.rs`.
+- On the DATA page's Quests and Misc tabs the right stick's up and down scrolls the right
+  pane (the quest's objectives, the note's text) smoothly while held [observed: the
+  original, issue #1667], a note window (385) a second at a full push [design: as far a
+  second as one LB/RB page]; LB/RB (Page Up/Down) page it (`pipboy/data.rs`
+  `scroll_pane`, docs/spec-notes/pipboy.md §5.3).
 - The prompt under the crosshair names the Activate control's own key ("E)") or, with a
   controller, its button ("A)") (`Bindings::prompt`). The original shows the button's
   picture there (`&xbuttona;`, `general_button_a.dds`): NVForever draws its own for the

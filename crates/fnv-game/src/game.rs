@@ -1511,7 +1511,7 @@ pub struct Game<'a> {
     pub loaded_cells: BTreeSet<FormId>,
     /// Scripted references a script moved (they may have left their authored cell).
     pub moved: BTreeSet<FormId>,
-    /// References other than the player that a script put somewhere (MoveTo) since the
+    /// References other than the player that a script put somewhere (MoveTo or a door) since the
     /// layer that moves actors last took them ([`Game::take_teleported`]): it has to
     /// start them again from where they are now. Not saved.
     pub teleported: BTreeSet<FormId>,
@@ -3584,6 +3584,7 @@ impl<'a> Game<'a> {
         }
         // `MoveToMarkerWithFade` moves whose fade out has ended.
         crate::functions::refs::finish_fade_moves(self);
+        self.jip13_tick();
         // Without an engine taking them (a headless run) the lists are kept short.
         if self.script_looks.disabled_after_fade.len() > 256 {
             self.script_looks.disabled_after_fade.drain(..128);
@@ -4705,6 +4706,7 @@ impl<'a> Game<'a> {
                     tracing::info!("script: {} teammate(s) or follower(s) come along through the door", brought.len());
                 }
             }
+            Outcome::Teleported { cell, pos, .. } => self.note_relocated(actor, cell, pos),
             // A placed mine disarmed by the player gives its XP (`crate::experience`).
             Outcome::Disarmed { .. } if actor == FormId::PLAYER_REF => {
                 self.count_stat(crate::misc_stats::MINES_DISARMED, 1.0);

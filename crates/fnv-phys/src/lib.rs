@@ -37,6 +37,7 @@ pub mod layers;
 pub mod placed;
 pub mod primitive;
 pub mod ragdoll;
+pub mod script;
 pub mod swim;
 pub mod terrain;
 pub mod water;
