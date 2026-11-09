@@ -142,6 +142,9 @@ pub struct DeferredSwapchain {
     stand_ins: [Option<StandIn>; STAND_INS],
     /// The stand-in this frame draws into.
     current: usize,
+    /// NVForever (2026-11-09): [`prepare_windows`] gave the window a stand-in since
+    /// [`DeferredSwapchain::take_stand_in`] last took one.
+    fresh: core::sync::atomic::AtomicBool,
 }
 
 /// How many stand-ins a [`DeferredSwapchain`] uses in turn: the frame being drawn and two whose
@@ -162,9 +165,17 @@ impl DeferredSwapchain {
         self.stand_ins[self.current].as_ref().map(|s| (&s.texture, &s.view))
     }
 
+    /// NVForever (2026-11-09): [`DeferredSwapchain::stand_in`], once per frame drawn: `None`
+    /// until [`prepare_windows`] gives the window its next stand-in (a frame it passed the
+    /// window over has last frame's, which whoever presents has taken already).
+    pub fn take_stand_in(&self) -> Option<(&crate::render_resource::Texture, &TextureView)> {
+        self.fresh.swap(false, core::sync::atomic::Ordering::Relaxed).then(|| self.stand_in()).flatten()
+    }
+
     /// The next stand-in for this frame, made or remade for the surface's size and format.
     fn prepare(&mut self, render_device: &RenderDevice, width: u32, height: u32, format: TextureFormat) -> TextureView {
         self.current = (self.current + 1) % STAND_INS;
+        *self.fresh.get_mut() = true;
         let slot = &mut self.stand_ins[self.current];
         if slot.as_ref().is_none_or(|s| s.width != width || s.height != height || s.format != format) {
             let view_format = format.add_srgb_suffix();
@@ -236,13 +247,13 @@ impl SurfaceGuard<'_> {
     }
 
     /// The next image; `None` when the window has none to give (occluded, a timeout, lost, or
-    /// outdated). NVForever (2026-11-09): an outdated surface is not configured here but marked
-    /// for [`create_surfaces`], which reconfigures it on the render thread before the next frame
-    /// is prepared; the images until then are skipped.
+    /// outdated). NVForever (2026-11-09): an outdated or lost surface is not configured here but
+    /// marked for [`create_surfaces`], which reconfigures it on the render thread before the next
+    /// frame is prepared; the images until then are skipped.
     pub fn acquire(&self) -> Option<wgpu::SurfaceTexture> {
         match timed_get_current_texture(self.surface) {
             wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => Some(t),
-            wgpu::CurrentSurfaceTexture::Outdated => {
+            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
                 self.outdated.store(true, core::sync::atomic::Ordering::Relaxed);
                 None
             }

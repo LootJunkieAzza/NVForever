@@ -66,6 +66,20 @@ pub(crate) struct Presenter {
     thread: Option<JoinHandle<()>>,
     shared: Arc<Shared>,
     sent: u64,
+    /// A frame was left out because the presenter was behind (said once).
+    said_behind: bool,
+}
+
+/// What became of a frame given to [`Presenter::send`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Handed {
+    /// The presenter has it.
+    Over,
+    /// The presenter is alive but did not catch up within the wait (its thread is held in the
+    /// driver: a present or an image take that does not return); the frame is not shown.
+    Behind,
+    /// The thread has ended; the frame is not shown.
+    Ended,
 }
 
 /// One real frame's images: the generated frame then the real one, or the only one.
@@ -138,7 +152,7 @@ impl Presenter {
             .name("nvf-frame-gen-present".into())
             .spawn(move || run(&received, &surface, &device, &queue, &thread_shared))?;
         bevy::log::info!("frame generation: presenting on a thread of its own, paced half a real frame apart");
-        Ok(Self { jobs: Some(jobs), thread: Some(thread), shared, sent: 0 })
+        Ok(Self { jobs: Some(jobs), thread: Some(thread), shared, sent: 0, said_behind: false })
     }
 
     pub(crate) fn shared(&self) -> &Shared {
@@ -153,26 +167,39 @@ impl Presenter {
 
     /// Hand over this frame's images (each a view of a texture it may read until the frame
     /// after next), with one refresh of the monitor. Waits while the presenter is more than
-    /// `STAND_INS - 1` frames behind, so nothing it has still to copy is drawn over. `false`:
-    /// the thread has ended and the frame was not handed over (an ended thread never signals,
-    /// so the wait looks for that every 10 ms rather than running to its 250 ms limit).
-    pub(crate) fn send(&mut self, frames: Vec<wgpu::TextureView>, refresh: Duration) -> bool {
-        let Some(jobs) = &self.jobs else { return false };
-        self.sent += 1;
-        let needed = self.sent.saturating_sub(STAND_INS as u64 - 1);
+    /// `STAND_INS - 1` frames behind, so nothing it has still to copy is drawn over.
+    /// [`Handed::Ended`]: the thread has ended and the frame was not handed over (an ended thread
+    /// never signals, so the wait looks for that every 10 ms rather than running to its 250 ms
+    /// limit). [`Handed::Behind`]: the wait ran to its limit; the frame is not handed over
+    /// either. Handed over, it joined a queue with no end whose stand-ins the render thread
+    /// draws over in turn before they are copied, and every frame of it was shown wrong.
+    pub(crate) fn send(&mut self, frames: Vec<wgpu::TextureView>, refresh: Duration) -> Handed {
+        let Some(jobs) = &self.jobs else { return Handed::Ended };
+        let index = self.sent + 1;
+        let needed = index.saturating_sub(STAND_INS as u64 - 1);
         let started = Instant::now();
         let deadline = started + Duration::from_millis(250);
         let mut copied = self.shared.copied.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         while *copied < needed {
             if !self.running() {
-                return false;
+                return Handed::Ended;
             }
-            let Some(left) = deadline.checked_duration_since(Instant::now()) else { break };
+            let Some(left) = deadline.checked_duration_since(Instant::now()) else {
+                drop(copied);
+                if !std::mem::replace(&mut self.said_behind, true) {
+                    bevy::log::warn!("frame generation: the presenter thread did not take a frame within 250 ms (held in the driver); frames are left out until it does");
+                }
+                return Handed::Behind;
+            };
             copied = self.shared.copied_changed.wait_timeout(copied, left.min(Duration::from_millis(10))).unwrap_or_else(std::sync::PoisonError::into_inner).0;
         }
         drop(copied);
         let sent = Instant::now();
-        jobs.send(Job { index: self.sent, frames, sent, held: sent - started, refresh }).is_ok()
+        if jobs.send(Job { index, frames, sent, held: sent - started, refresh }).is_err() {
+            return Handed::Ended;
+        }
+        self.sent = index;
+        Handed::Over
     }
 }
 
@@ -378,9 +405,9 @@ mod tests {
             // Unwinds as a panic does, without the panic hook's message.
             std::panic::resume_unwind(Box::new("the presenter's panic"));
         });
-        let mut presenter = Presenter { jobs: Some(jobs), thread: Some(thread), shared: Arc::new(Shared::new(Default::default(), Default::default())), sent: 0 };
+        let mut presenter = Presenter { jobs: Some(jobs), thread: Some(thread), shared: Arc::new(Shared::new(Default::default(), Default::default())), sent: 0, said_behind: false };
         assert!(presenter.running());
-        assert!(presenter.send(Vec::new(), Duration::ZERO), "handed over while the thread runs");
+        assert_eq!(presenter.send(Vec::new(), Duration::ZERO), Handed::Over, "handed over while the thread runs");
         let deadline = Instant::now() + Duration::from_secs(10);
         while presenter.running() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(1));
@@ -389,11 +416,35 @@ mod tests {
         // Behind (two frames handed over and not copied): the wait for the copies ends at once.
         presenter.sent = 5;
         let started = Instant::now();
-        assert!(!presenter.send(Vec::new(), Duration::ZERO), "nothing handed over");
+        assert_eq!(presenter.send(Vec::new(), Duration::ZERO), Handed::Ended, "nothing handed over");
         assert!(started.elapsed() < Duration::from_millis(100), "{:?}", started.elapsed());
         // Not behind: the closed channel says so.
         presenter.sent = 0;
-        assert!(!presenter.send(Vec::new(), Duration::ZERO));
+        assert_eq!(presenter.send(Vec::new(), Duration::ZERO), Handed::Ended);
+    }
+
+    #[test]
+    fn a_presenter_that_stays_behind_is_not_handed_the_frame() {
+        let (jobs, received) = mpsc::channel::<Job>();
+        let (stop, stopped) = mpsc::channel::<()>();
+        // Alive, and copies nothing: a thread held in the driver.
+        let thread = std::thread::spawn(move || {
+            let _ = stopped.recv();
+            drop(received);
+        });
+        let mut presenter = Presenter { jobs: Some(jobs), thread: Some(thread), shared: Arc::new(Shared::new(Default::default(), Default::default())), sent: 0, said_behind: false };
+        // The first frames fit the stand-ins.
+        for _ in 0..STAND_INS - 1 {
+            assert_eq!(presenter.send(Vec::new(), Duration::ZERO), Handed::Over);
+        }
+        let started = Instant::now();
+        assert_eq!(presenter.send(Vec::new(), Duration::ZERO), Handed::Behind);
+        assert!(started.elapsed() >= Duration::from_millis(240), "{:?}", started.elapsed());
+        assert_eq!(presenter.sent, STAND_INS as u64 - 1, "the frame left out has no number");
+        // Caught up: frames go over again.
+        presenter.shared.copied(presenter.sent);
+        assert_eq!(presenter.send(Vec::new(), Duration::ZERO), Handed::Over);
+        let _ = stop.send(());
     }
 
     #[test]

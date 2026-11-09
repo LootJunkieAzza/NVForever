@@ -164,6 +164,10 @@ Review fixes (2026-11-09, h9x000/NVForever#6), marked `NVForever (2026-11-09)`:
   one, dropped after its surface, so the window outlives every holder of the surface
   (`create_surface_unsafe`'s contract, which upstream keeps by removing `RawHandleWrapper` and
   `SurfaceData` together).
+- Review of LootJunkieAzza/NVForever#1964: `SurfaceGuard::acquire` marks the surface on `Lost`
+  as on `Outdated` (a lost surface froze the window with nothing asking for a reconfigure),
+  and `DeferredSwapchain::take_stand_in` gives each frame's stand-in once, so a window
+  `prepare_windows` passed over (no camera draws to it) is not handed over a second time.
 
 Upstream Bevy has no way for a thread other than the render thread to present a window.
 

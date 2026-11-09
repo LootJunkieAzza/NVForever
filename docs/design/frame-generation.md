@@ -153,7 +153,7 @@ Limits and notes:
   The presenter is handed the frame after `render_system`, once that copy is in the stand-in;
   `frame_gen::take_for_presenters` draws the real frame into the screenshot texture should a
   generated one have been queued.
-- **An outdated window surface** (a resize, alt-tab, a display mode or HDR change): the
+- **An outdated or lost window surface** (a resize, alt-tab, a display mode or HDR change): the
   presenter skips its images and marks the surface; Bevy's `create_surfaces` reconfigures it on
   the render thread before the next frame, size changed or not. The presenter never configures
   the surface itself: wgpu-core 30's `configure_surface` waits for the GPU and reports a
@@ -163,6 +163,13 @@ Limits and notes:
 - **A presenter thread that cannot start or stops** (a panic) is noticed when the next frame is
   handed over: an error is logged once, the presenter is dropped and the window is presented
   from the render thread, as with `NVF_FG_PRESENTER=0`, until the game restarts.
+- **A presenter thread that is alive but held** (in the driver: a present or an image take
+  that does not return) is waited for 250 ms a frame; a frame it has not caught up for by then
+  is left out, not queued behind the ones it holds, and a warning is logged once. The frames
+  go over again when it catches up.
+- **While frame generation cannot run** (FSR off, vsync off: `frame_gen::usable`) the window
+  is Bevy's: no stand-in, no presenter. Menus and pauses keep the presenter, which shows
+  their frames alone.
 - **Closing the window** ends its presenter at the next frame. The presenter keeps the window
   as long as it holds the window's surface (Bevy's `RawHandleWrapper`, as the render world does),
   so the surface is never left on a destroyed window.

@@ -127,6 +127,12 @@ pub fn real_frame_cap(refresh_millihertz: Option<u32>) -> u32 {
 #[derive(Resource, Clone, Default)]
 pub struct GeneratedFrames(pub std::sync::Arc<AtomicU64>);
 
+/// [`usable`], as [`follow_switch`] last found it, for the render world: the windows' images
+/// go to the presenter only while frame generation can run (not with FSR off, where nothing is
+/// generated and a stand-in, a copy and the presenter's queue would be added to every frame).
+#[derive(Resource, Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub struct FrameGenUsable(pub bool);
+
 /// The cap `frame_pace::cap_rate` adds while frame generation runs (0: none).
 #[derive(Resource, Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub struct FrameGenCap(pub u32);
@@ -139,6 +145,7 @@ impl Plugin for FrameGenPlugin {
         app.insert_resource(FrameGeneration { on: self.0 })
             .insert_resource(generated.clone())
             .init_resource::<FrameGenCap>()
+            .init_resource::<FrameGenUsable>()
             .add_systems(Update, (follow_switch, log_switch).after(crate::frame_pace::ApplyFramePace));
         if std::env::var("NVF_FRAME_GEN_GPU_TIMES").is_ok_and(|v| v.trim() == "1") {
             crate::graphics::ensure_render_diagnostics(app);
@@ -247,6 +254,9 @@ fn follow_switch(world: &mut World) {
     if world.resource::<FrameGenCap>().0 != cap {
         world.resource_mut::<FrameGenCap>().0 = cap;
     }
+    if world.resource::<FrameGenUsable>().0 != usable {
+        world.resource_mut::<FrameGenUsable>().0 = usable;
+    }
     let mut latency = world.resource_mut::<crate::anti_lag::LatencyReduction>();
     if latency.by_frame_generation != usable {
         latency.by_frame_generation = usable;
@@ -291,7 +301,7 @@ pub(crate) struct FrameGenRequest {
 }
 
 impl FrameGenRequest {
-    /// Frame generation is on and can run on this device (FSR's log line says so).
+    /// Frame generation is on and can run ([`usable`]; FSR's log line says so).
     pub(crate) fn on(&self) -> bool {
         self.on
     }
@@ -302,15 +312,13 @@ fn extract(
     mut commands: Commands,
     mut request: ResMut<FrameGenRequest>,
     mut presenters: ResMut<Presenters>,
-    switch: Extract<Res<FrameGeneration>>,
-    pace: Extract<Res<crate::frame_pace::FramePace>>,
-    support: Extract<Res<FrameGenSupport>>,
+    usable: Extract<Res<FrameGenUsable>>,
     play_state: Extract<Option<Res<State<nvf_play::PlayState>>>>,
     refresh: Extract<Option<Res<crate::frame_pace::Refresh>>>,
     windows: Query<(Entity, Has<DeferredSwapchain>, Has<SurfaceData>), With<ExtractedWindow>>,
 ) {
     *request = FrameGenRequest {
-        on: switch.on && support.0 && pace.sync.vsync(),
+        on: usable.0,
         playing: play_state.as_ref().is_none_or(|s| *s.get() == nvf_play::PlayState::Playing),
         refresh_millihertz: refresh.as_ref().and_then(|r| r.millihertz),
     };
@@ -356,7 +364,7 @@ struct PresenterReals(Vec<(Entity, wgpu::Texture)>);
 /// after the window's image would be taken at the start of the frame and before the frame is
 /// recorded, as a heavy scene's recording does. A measuring aid for frame generation's pacing.
 static RENDER_STALL: std::sync::LazyLock<Option<std::time::Duration>> = std::sync::LazyLock::new(|| {
-    std::env::var("NVF_TEST_RENDER_STALL_MS").ok().and_then(|v| v.trim().parse::<f64>().ok()).filter(|v| *v > 0.0).map(|ms| std::time::Duration::from_secs_f64(ms / 1000.0))
+    std::env::var("NVF_TEST_RENDER_STALL_MS").ok().and_then(|v| v.trim().parse::<f64>().ok()).filter(|v| v.is_finite() && *v > 0.0).map(|ms| std::time::Duration::from_secs_f64(ms / 1000.0))
 });
 
 fn render_stall() {
@@ -713,7 +721,9 @@ fn hand_to_presenter(
     // Those of windows without a stand-in this frame are dropped with it.
     let mut reals = std::mem::take(&mut reals.0);
     for (entity, main, deferred, surface) in &windows {
-        let Some((_, stand_in)) = deferred.stand_in() else { continue };
+        // Only a stand-in drawn this frame: a window `prepare_windows` passed over (no camera
+        // draws to it, or Bevy still held an image) has last frame's, already handed over.
+        let Some((_, stand_in)) = deferred.take_stand_in() else { continue };
         let mut frames = vec![(**stand_in).clone()];
         if let Some(at) = reals.iter().position(|(w, _)| *w == main) {
             frames.push(reals.swap_remove(at).1.create_view(&default()));
@@ -732,9 +742,18 @@ fn hand_to_presenter(
                 }
             },
         };
+        use crate::fg_presenter::Handed;
         let presenter = &mut presenters.running[at].1;
-        if !(presenter.running() && presenter.send(frames, refresh)) {
-            presenter_failed(&mut presenters, entity, paired, &generated, "has stopped");
+        match if presenter.running() { presenter.send(frames, refresh) } else { Handed::Ended } {
+            Handed::Over => {}
+            // Not shown: the presenter still has the frames before it to copy.
+            Handed::Behind => {
+                if paired {
+                    stats.generated.fetch_sub(1, Ordering::Relaxed);
+                    generated.0.fetch_sub(1, Ordering::Relaxed);
+                }
+            }
+            Handed::Ended => presenter_failed(&mut presenters, entity, paired, &generated, "has stopped"),
         }
     }
 }
