@@ -1573,6 +1573,8 @@ pub struct Game<'a> {
     /// Cannibal's and Mister Sandman's acts under way (GetCannibal, GetSandman). Not
     /// saved.
     pub perk_acts: Vec<crate::activate_choices::PerkAct>,
+    /// The story guards' steps (`crate::story_guards`). Not saved.
+    pub story_guards: crate::story_guards::StoryGuards,
     /// Challenge rewards and notices waiting for the next frame (`crate::challenges`).
     /// Not saved.
     pub challenge_queue: crate::challenges::Queue,
@@ -2270,6 +2272,7 @@ impl<'a> Game<'a> {
             appearance_changes: Vec::new(),
             activate_menu: None,
             perk_acts: Vec::new(),
+            story_guards: Default::default(),
             challenge_queue: Default::default(),
             note_notices: Vec::new(),
             fighting: BTreeSet::new(),
@@ -3560,6 +3563,10 @@ impl<'a> Game<'a> {
             self.activate_due_children();
             // Fighting NPCs take up the weapon their combat style allows (`crate::style_weapon`).
             self.arm_by_style();
+        }
+        // NVForever's fallbacks for scenes seen to stall (`crate::story_guards`).
+        if world_logic && !in_menu {
+            self.story_guards_tick(dt);
         }
         let ev = if in_menu { event::MENU_MODE } else { event::GAME_MODE };
         let subject = self.open_menu_code().map(|m| Value::Num(m as f64));

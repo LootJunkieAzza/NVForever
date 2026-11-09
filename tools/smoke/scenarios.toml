@@ -19299,6 +19299,7 @@ order = [[
   { text = "NVDLC02MQ01 stage 5 set", label = "Jed's Pt2 line starts Arrival at Zion (iJedSequence 2)" },
   { text = "player controls: all enabled", label = "the controls come back" },
 ]]
+forbid = [{ re = 'story guard: .*the guard sets it', label = "the scene went on without the story guard" }]
 
 [[scenario]]
 name = "zion-arrival-lobby"
@@ -19389,7 +19390,24 @@ order = [[
   { text = "NVDLC02MQ01 stage 10 set", label = "the ambush" },
   { re = '0x01009E7C died', label = "Jed dies in the ambush" },
 ]]
-forbid = [{ re = 'player entered trigger 0x0101(1180|0145)', label = "the player stayed put (no real input reached the window)" }]
+forbid = [{ re = 'story guard: .*the guard sets it', label = "the scene went on without the story guard" }, { re = 'player entered trigger 0x0101(1180|0145)', label = "the player stayed put (no real input reached the window)" }]
+
+[[scenario]]
+name = "hh-arrival-guard"
+source = "owner-review item 46 (owner 2026-11-09, item 117): after the HH intro slideshow, Jed never greeted and the controls stayed locked until `SetStage NVDLC02MQ01 5`. NVForever's story guard (crates/fnv-game/src/story_guards.rs, not in the original) asks Jed to choose his package again 8 s after NVDLC02MQ00 stage 100, and sets NVDLC02MQ01 stage 5 (HonestHearts.esm QUST 0x01008893: EnablePlayerControls, the arrival box's state, the EVPs) after 30 s of game time with no line said"
+note = "Honest Hearts with FalloutNV.esm only; the player starts at NVDLC02StartMarker; the console disables Jed (0x01009E7C) at 2 s, so his greeting cannot come, and sets Happy Trails 100 at 3 s (the arrival); the talk aid answers any conversation a script starts"
+areas = ["scripts", "dialogue"]
+paths = ["crates/fnv-game/src/story_guards.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NEAR = "01009406", NVF_PLAY_TEST_CONSOLE = "2:01009E7C.disable;2.3:close;3:setstage NVDLC02MQ00 100;3.5:close", NVF_PLAY_TEST_TALK = "0:*;0:*;0:*;0:*;0:*;0:*" }
+args = ["--play", "--world", "NVDLC02ZionCanyon", "--plugins", "FalloutNV.esm", "HonestHearts.esm", "--hour", "8", "--no-voice", "--npc-packages", "all"]
+run_seconds = 75
+order = [[
+  { text = "NVDLC02MQ00 stage 100 set", label = "the arrival" },
+  { re = "story guard: Honest Hearts' arrival .*NVDLC02JedREF chooses its package again", label = "8 s on: the guard asks Jed to choose again" },
+  { re = "story guard: Honest Hearts' arrival .*the guard sets it", label = "30 s on: the guard sets the stage" },
+  { text = "NVDLC02MQ01 stage 5 set", label = "Arrival at Zion starts from the guard" },
+  { text = "player controls: all enabled", label = "stage 5 gives the controls back" },
+]]
 
 [[scenario]]
 name = "dlc-intro-slides-dm"
