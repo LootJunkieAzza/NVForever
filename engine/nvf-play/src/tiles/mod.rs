@@ -56,6 +56,7 @@ pub mod notices;
 pub mod stats_menu;
 pub(crate) mod selection_menu;
 pub mod tag_menu;
+pub mod texmod;
 pub mod trait_menu;
 pub mod tutorial_menu;
 pub mod vanilla;

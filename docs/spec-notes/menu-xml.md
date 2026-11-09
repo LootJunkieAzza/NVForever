@@ -904,11 +904,20 @@ Implemented consumers and remaining exclusions:
   The callback runs each frame while the trait is nonzero and can change drawn traits;
   registration itself draws nothing. Menu mouseover/click events also have consumers
   (`ui_input.rs`, `step`), rather than a blanket menu-events exclusion.
-- **SetUITexOffset, SetUIAlphaMap** [design: `nvse_itr1.rs`, dispatch] store offsets and
-  alpha-map paths; the renderer has no consumers. Success does not establish texture
-  loading or rendering. Drawing needs its own issue, **Render tile UV offsets and alpha
-  masks**: wrapping, independent mask sampling, loading failures, canonical tile identity
-  and cleanup, radial/repeated/cropped tiles and batching, with authored-texture regressions.
+- **SetUITexOffset, SetUIAlphaMap** [design: `nvse_itr1.rs`, dispatch; `tiles/texmod.rs`,
+  #1833] store offsets (wrapped into 0-1) and alpha-map paths by tile id, so a tile
+  unloaded or replaced at its path drops them (`Game::itr_drop_gone_tile_textures`, each
+  frame). The tile renderer bakes a picture with either into one image in its place: its
+  texels (atlas piece or own file) shifted by the offset in whole texels, wrapping inside
+  the piece, the alpha multiplied by the mask's alpha stretched over the texture area.
+  Stretched, natural, zoomed (cut to the box) and clipped pictures keep their fit; a `tile`
+  picture repeats the shifted piece and takes the mask over its whole box; radial tiles
+  stay undrawn and the compass strip keeps its own scrolling [design]. Which way the
+  offset moves (the texel at the coordinate plus the offset), that the mask is not shifted
+  and is read from its alpha, and that its path is under `textures\` as a `filename` are
+  [hypothesis: the pages could not be reread on 2026-11-09; SetUITexOffset's "without
+  changing the tile's screen position or crop window", hud.md §14.4]. A texture that
+  cannot be read leaves the tile without it, said once (smoke `ui-texoffset-alphamap`).
 - **Attached components** [documented: [AttachUIComponent](https://geckwiki.com/index.php?title=AttachUIComponent)]
   require a loaded, case-sensitive model node and one parent rect under HUDMainMenu.
   [design: `ui_more.rs`, `attach`; `tiles/mod.rs`, update] Attachments remain hidden until

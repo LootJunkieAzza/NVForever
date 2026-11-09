@@ -485,6 +485,9 @@ pub struct Piece {
     /// sRGB and alpha, 0 to 1.
     pub colour: [f32; 4],
     pub depth: f64,
+    /// A picture's SetUITexOffset offset and SetUIAlphaMap mask, put on by
+    /// [`super::texmod::mark`] as the pieces are painted (#1833); none from [`pieces`].
+    pub tex: Option<super::texmod::TexMod>,
 }
 
 /// Which tiles of the menu draw.
@@ -652,7 +655,7 @@ pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Sele
         if matches!(item.kind, Kind::Hotrect) {
             alpha = alpha.powf(2.2);
         }
-        out.push(Piece { tile: item.tile, look, rect: item.rect, clip: item.clip, colour: [r, g, bl, alpha], depth: item.depth });
+        out.push(Piece { tile: item.tile, look, rect: item.rect, clip: item.clip, colour: [r, g, bl, alpha], depth: item.depth, tex: None });
         if let Some(r) = root {
             drawn_roots.insert(r);
         }
@@ -791,6 +794,8 @@ pub(crate) struct Drawn {
     /// loose replacement's own tiles are told from (`fnv_ui::Ui::archived_name_paths`,
     /// #975).
     vanilla: Option<(String, Option<HashSet<String>>)>,
+    /// What the texture offsets and alpha maps said in the log (`super::texmod`).
+    tex_told: super::texmod::Told,
 }
 
 /// A `tile` picture baked into one image ([`crate::repeat`]): the image and its node's
@@ -816,7 +821,7 @@ pub fn change(old: &Piece, new: &Piece) -> Change {
     let size = |r: &TileRect| (r.width, r.height);
     if old == new {
         Change::Same
-    } else if old.look == new.look && size(&old.rect) == size(&new.rect) && old.clip.map(|c| size(&c)) == new.clip.map(|c| size(&c)) {
+    } else if old.look == new.look && old.tex == new.tex && size(&old.rect) == size(&new.rect) && old.clip.map(|c| size(&c)) == new.clip.map(|c| size(&c)) {
         // A model's parts take no Ink: spawned again in its new colour.
         if old.colour != new.colour && matches!(new.look, Look::Model { .. }) {
             Change::Spawn
@@ -1015,6 +1020,8 @@ pub(crate) struct Nodes<'w, 's> {
     place: Query<'w, 's, &'static mut Node>,
     children: Query<'w, 's, &'static Children>,
     ink: Query<'w, 's, (&'static Ink, InkNodes)>,
+    /// The game, for the pictures' texture offsets and alpha maps (`super::texmod`, #1833).
+    script: Res<'w, ScriptState>,
 }
 
 /// The menus drawn from tiles besides the HUD (T15a, `super::menus`), each in its own
@@ -1380,8 +1387,10 @@ fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut Fon
 /// the target are as last drawn; otherwise each piece's slot kept, moved and recoloured in
 /// place, spawned again or removed ([`change`]).
 #[allow(clippy::too_many_arguments)]
-fn paint(commands: &mut Commands, drawn: &mut Drawn, pieces: Vec<Piece>, target: Target, heading: f32, ui: Option<&Ui>, kit: &mut FontKit, nodes: &mut Nodes, glyphs: &crate::pad::PadGlyphs) {
+fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, target: Target, heading: f32, ui: Option<&Ui>, kit: &mut FontKit, nodes: &mut Nodes, glyphs: &crate::pad::PadGlyphs) {
     let scale = target.scale;
+    // ITR's texture offsets and alpha maps on the pictures, before they are compared (#1833).
+    super::texmod::mark(&mut pieces, nodes.script.rt.as_ref().map(|rt| &rt.game.other.itr));
     // A camera's image is laid out at its own size whatever the UI scale (#1631).
     let _canvas = target.camera.map(|_| interface::original_units());
     if pieces == drawn.pieces && drawn.target == Some(target) {
@@ -1490,6 +1499,25 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, pieces: Vec<Piece>, target:
                     }
                 }
                 _ => None,
+            };
+            // SetUITexOffset's offset and SetUIAlphaMap's mask, baked into the picture's
+            // place; the compass strip keeps its own scrolling (`super::texmod`, #1833).
+            let (picture, baked) = match (&piece.tex, &piece.look, &picture, data) {
+                (Some(tex), Look::Picture { name, source, fit }, Some((_, rect, size)), Some(data)) if *fit != Fit::Strip => {
+                    let atlas = match source {
+                        Source::Index(a) => Some(a.as_str()),
+                        _ => None,
+                    };
+                    let path = pictures.texture_path(name, atlas, rect.is_some(), data);
+                    let texels = (f64::from(size.x), f64::from(size.y));
+                    let repeat = match placed(*fit, rect.is_some(), texels) {
+                        Placed::Repeat { width, height } => repeat::texels_for((piece.rect.width, piece.rect.height), (width, height), texels),
+                        _ => None,
+                    };
+                    let bake = super::texmod::Bake { repeats: &mut drawn.repeats, told: &mut drawn.tex_told, data, images: &mut kit.images, ui };
+                    super::texmod::apply(tex, piece, &path, picture.clone(), repeat, baked, bake)
+                }
+                _ => (picture, baked),
             };
             // The compass strip's window, baked into one image (`crate::compass_strip`).
             let strip = match (&piece.look, &picture, data) {
@@ -2276,6 +2304,7 @@ mod tests {
             clip: None,
             colour: [1.0, 0.7, 0.3, 1.0],
             depth: 0.0,
+            tex: None,
         };
         let mut dimmer = model.clone();
         dimmer.colour[3] = 0.5;

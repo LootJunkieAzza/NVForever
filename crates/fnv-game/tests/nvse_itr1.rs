@@ -406,13 +406,17 @@ fn tile_watches_textures_item_mods_and_the_emissive_colour() {
     assert_eq!(g.ui_tree.get_float("TestMenu/Box/x"), Some(77.0));
     assert_eq!(num(&mut g, &format!("UnwatchTileValue {id}")), 1.0);
     assert_eq!(num(&mut g, &format!("UnwatchTileValue {id}")), 0.0);
+    let pic = g.ui_tree.find_tile("TestMenu/Pic").unwrap();
     assert_eq!(num(&mut g, "SetUITexOffset \"TestMenu/Pic\" 1.25 -0.25"), 1.0);
-    assert_eq!(g.other.itr.tex_offsets.get("TestMenu/Pic"), Some(&(0.25, 0.75)));
+    assert_eq!(g.other.itr.tex_offsets.get(&pic), Some(&(0.25, 0.75)));
     assert_eq!(num(&mut g, "SetUITexOffset \"TestMenu/Pic\" (10 ^ 400) 0"), 0.0);
-    assert_eq!(g.other.itr.tex_offsets.get("TestMenu/Pic"), Some(&(0.25, 0.75)));
+    assert_eq!(g.other.itr.tex_offsets.get(&pic), Some(&(0.25, 0.75)));
     assert_eq!(num(&mut g, "SetUITexOffset \"TestMenu/Box\" 0.5 0"), 0.0);
     assert_eq!(num(&mut g, "SetUIAlphaMap \"TestMenu/Box\" \"Interface\\mask.dds\""), 1.0);
+    let rect = g.ui_tree.find_tile("TestMenu/Box").unwrap();
+    assert_eq!(g.other.itr.alpha_maps.get(&rect).map(String::as_str), Some("Interface\\mask.dds"));
     assert_eq!(num(&mut g, "SetUIAlphaMap \"TestMenu/None\" \"Interface\\mask.dds\""), 0.0);
+    assert_eq!(num(&mut g, "SetUIAlphaMap \"TestMenu/Pic\" \"\""), 0.0);
     // Item mods on an inventory reference.
     let gun = r(WEAP);
     query(&mut g, &format!("player.AddItem {gun} 1"));
@@ -428,4 +432,33 @@ fn tile_watches_textures_item_mods_and_the_emissive_colour() {
     assert_eq!(num(&mut g, "SetWeaponEmissiveColor 1 0 0 ((-1) ^ 0.5)"), 0.0);
     assert_eq!(num(&mut g, "SetWeaponEmissiveColor 1 0 0 2"), 1.0);
     assert_eq!(num(&mut g, "ClearWeaponEmissiveColor"), 1.0);
+}
+
+/// #1833: the offsets and alpha maps follow the tile, not its path: an unloaded tile
+/// drops them, and a new tile made at the same path starts without them.
+#[test]
+fn tile_textures_follow_the_tile_not_its_path() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(num(&mut g, "InjectUIComponent \"TestMenu\" \"<image name=%qAdded%q/>\""), 1.0);
+    let first = g.ui_tree.find_tile("TestMenu/Added").unwrap();
+    assert_eq!(num(&mut g, "SetUITexOffset \"TestMenu\\Added\" 0.5 0.25"), 1.0);
+    assert_eq!(num(&mut g, "SetUIAlphaMap \"TestMenu/Added\" \"Interface\\mask.dds\""), 1.0);
+    // Two spellings of one path are one tile.
+    assert_eq!(g.other.itr.tex_offsets.keys().collect::<Vec<_>>(), [&first]);
+    assert_eq!(g.other.itr.tex_offsets.get(&first), Some(&(0.5, 0.25)));
+    g.tick();
+    assert_eq!(g.other.itr.alpha_maps.len(), 1, "a live tile keeps its alpha map");
+    // Unloaded and made again at the same path: a new tile, with neither.
+    assert_eq!(num(&mut g, "UnloadUIComponent \"TestMenu/Added\""), 1.0);
+    assert_eq!(num(&mut g, "InjectUIComponent \"TestMenu\" \"<image name=%qAdded%q/>\""), 1.0);
+    let second = g.ui_tree.find_tile("TestMenu/Added").unwrap();
+    assert_ne!(first, second);
+    g.tick();
+    assert!(g.other.itr.tex_offsets.is_empty() && g.other.itr.alpha_maps.is_empty(), "the unloaded tile's offset and mask are dropped");
+    // Minus a hair wraps to 0, never 1.
+    assert_eq!(num(&mut g, "SetUITexOffset \"TestMenu/Added\" -1 2"), 1.0);
+    assert_eq!(g.other.itr.tex_offsets.get(&second), Some(&(0.0, 0.0)));
+    assert_eq!(fnv_game::nvse_itr1::wrap(-1e-17), 0.0);
+    assert_eq!(fnv_game::nvse_itr1::wrap(-0.25), 0.75);
 }
