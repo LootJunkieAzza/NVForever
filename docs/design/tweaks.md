@@ -407,6 +407,7 @@ unless the player binds them, so nothing changes until then.
 |---|---|---|
 | View Follows the Weapon | `bTogglePOVWhenHolsteringWeapon` | `control::read_controls` end |
 | Kill Camera Chance (part) | `bChanceBasedKillcams` | `kill_cam::update` (the game's RNG) |
+| Subtitle Distance (0–10000) | `bCustomSubtitleDistance` | `script_hud` (`voice::hearing`) |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
@@ -427,8 +428,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 314 |
-| to do | 289 |
+| done | 315 |
+| to do | 288 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -758,6 +759,7 @@ game's Data folder, read-only).
 | `bAddRGBSliders` | done | yes | 1 | already a row: Interface tab, hud-red / hud-green / hud-blue |
 | `bHideRedCrosshairOnDistantInvisibleTargets` | done | yes |  | Invisible Foes Stay Hidden (at any distance) |
 | `bCustomAddToInventoryMessageTimer` | done |  | 1 | Item Added Line Time (slider, seconds) |
+| `bCustomSubtitleDistance` | done |  | 1 | Subtitle Distance (slider, game units) |
 | `bDisableCompassEdgeAlpha` | done |  |  | already so: the marks are not faded at the edge |
 | `bDisableGrenadeIndicator` | done |  |  | already so: NVForever has no grenade indicator |
 | `bDisableHUDCrippledLimbIndicator` | done |  |  | No Crippled Limb Figure |
@@ -798,7 +800,6 @@ game's Data folder, read-only).
 | `bCompassNPCDistanceBasedAlpha` | to do |  |  | the compass draws no alpha yet |
 | `bCompassQuestHeightIndicator` | to do |  |  | the compass marks are 2D; needs art |
 | `bCriticalHitMessagesIncludeLimbName` | to do |  |  | not built: no critical-hit messages |
-| `bCustomSubtitleDistance` | to do |  | 1 | script_hud audible check with a distance |
 | `bDetectedByWhom` | to do |  | 5 | Sneak is a Copy enum; names need a new type |
 | `bDisableNeedsMessages` | to do |  | 4 | those messages are the game's own scripts; needs a filter by message |
 | `bExplodingDestructibleIndicator` | to do |  |  | not built: no grenade indicator |

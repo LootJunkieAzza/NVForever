@@ -987,6 +987,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "god-mode-free-crafting", "Free Crafting in God Mode", "In god mode recipes need no parts or skill. (Stewie's Tweaks bGodModeAllowsCraftingWithoutRequirements)", game.god_mode_free_crafting);
         switch!(app, "pov-follows-weapon", "View Follows the Weapon", "Drawing the weapon goes to first person, holstering it to third. (Stewie's Tweaks bTogglePOVWhenHolsteringWeapon)", pov_follows_weapon);
         part!(app, "kill-cam-chance", "Kill Camera Chance", "The share of kill cameras that play (after the Kill Camera setting's own choice); 100% changes nothing. (Stewie's Tweaks bChanceBasedKillcams)", kill_cam_chance);
+        amount!(app, "subtitle-distance", "Subtitle Distance", "General subtitles show for speakers within this many units; 0 changes nothing. (Stewie's Tweaks bCustomSubtitleDistance)", 10000.0, f32, game.subtitle_distance);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

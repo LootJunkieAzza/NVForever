@@ -280,6 +280,9 @@ pub struct Tweaks {
     pub no_spin_up: bool,
     /// `bGodModeAllowsCraftingWithoutRequirements`: in god mode recipes need nothing.
     pub god_mode_free_crafting: bool,
+    /// `bCustomSubtitleDistance`/`fSubtitleDistance`: general subtitles show within this
+    /// many units; 0 changes nothing (the voices' own reach).
+    pub subtitle_distance: f32,
 }
 
 impl crate::game::Game<'_> {
@@ -402,6 +405,7 @@ impl Default for Tweaks {
             crippling_never_disarms: false,
             no_spin_up: false,
             god_mode_free_crafting: false,
+            subtitle_distance: 0.0,
         }
     }
 }

@@ -297,7 +297,10 @@ fn subtitles(hud: &ScriptHud, g: &fnv_game::Game<'_>, sim: &SimState, player: Op
         // unless a script asked for the speaker's subtitles always
         // (AlwaysShowActorSubtitles), or for this line's (Say's ForceSubtitles), or said
         // it as a 2D sound heard anywhere (Say's is2D).
-        if !crate::voice::audible(sim, player, s.speaker) && !g.always_subtitles(s.speaker) && !s.force_subtitles && !s.two_d {
+        // The player's tweak sets its own distance [design: docs/design/tweaks.md].
+        let reach = g.tweaks.subtitle_distance;
+        let heard = if reach > 0.0 { player.is_none_or(|p| crate::voice::hearing(sim, p, s.speaker).is_some_and(|(_, d)| d < reach)) } else { crate::voice::audible(sim, player, s.speaker) };
+        if !heard && !g.always_subtitles(s.speaker) && !s.force_subtitles && !s.two_d {
             continue;
         }
         let Some(texts) = hud.lines.get(&s.info.0) else { continue };
