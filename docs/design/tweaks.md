@@ -408,6 +408,7 @@ unless the player binds them, so nothing changes until then.
 | View Follows the Weapon | `bTogglePOVWhenHolsteringWeapon` | `control::read_controls` end |
 | Kill Camera Chance (part) | `bChanceBasedKillcams` | `kill_cam::update` (the game's RNG) |
 | Subtitle Distance (0–10000) | `bCustomSubtitleDistance` | `script_hud` (`voice::hearing`) |
+| Sneak Criticals Head Only | `bSneakCriticalsHeadshotsOnly` | `combat::melee` and `combat::fly` after the body part |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
@@ -428,8 +429,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 315 |
-| to do | 288 |
+| done | 316 |
+| to do | 287 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -615,6 +616,7 @@ game's Data folder, read-only).
 | `bPlayerMeleeDamageIgnoresScale` | done |  |  | already so: no damage formula reads actor scale |
 | `bPlayerNonMeleeDamageIgnoresScale` | done |  |  | already so: no damage formula reads actor scale |
 | `bPowerAttackWhileOverencumbered` | done |  |  | already so: nothing gates power attacks on weight |
+| `bSneakCriticalsHeadshotsOnly` | done |  |  | Sneak Criticals Head Only |
 | `bSneakCriticalsOnlyMeleeWeapons` | done |  |  | Sneak Criticals Melee Only |
 | `bFatalNonSneakCritsAlwaysGib` | to do |  | 1 | dismember checks carry no critical flag |
 | `bFirstPersonVATS` | to do |  |  | VATS keeps the current view; forcing one goes in vats_mode |
@@ -631,7 +633,6 @@ game's Data folder, read-only).
 | `bNPCsCanSneakCritPlayer` | to do |  |  | sneak_attack is player-only |
 | `bRemoveWeaponDamageBuffer` | to do |  |  | condition_mult is a free function; needs a Rules field (serialized) |
 | `bScaleCriticalDamage` | to do |  | 1 | needs a field on fnv-combat Rules; check what its serialized dumps feed first |
-| `bSneakCriticalsHeadshotsOnly` | to do |  |  | both sneak_attack callers need the head part |
 | `bVATSAutoTargetHead` | to do |  |  | V.A.T.S. picks no target on entry |
 | `bVATSStopBurstIfTargetDead` | to do |  |  | vats_mode shoot with the target dead |
 | `bWeaponRequirementsMatter` | to do |  | 7 | equip_at has no actor values |

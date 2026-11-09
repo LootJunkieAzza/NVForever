@@ -3814,6 +3814,10 @@ fn melee(
             a.sneaking = sneak_attack(script.as_deref(), FormId::PLAYER_REF, control.sneak, target);
             let bp = body_part(c, &parts, actor, hit.part);
             let part = bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part);
+            // The player's tweak: sneak criticals on the head only [design: docs/design/tweaks.md].
+            if !part.head && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.sneak_criticals_head_only) {
+                a.sneaking = false;
+            }
             let h = HitInput { weapon: &w, projectiles: 1, condition: weapon_condition, ammo_effects: &[], part, power: power_mult };
             let roll = c.rng.next_f32();
             let (ap, tp) = hit_perks(script.as_deref_mut(), &mut sim, FormId::PLAYER_REF, id, Some(target));
@@ -4783,6 +4787,10 @@ fn fly(
             (p.actor == Some(PLAYER)).then(|| player_body_part(c, &phys, player.as_deref(), p.point)).flatten()
         });
         let part = bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part);
+        // The player's tweak: sneak criticals on the head only [design: docs/design/tweaks.md].
+        if !part.head && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.sneak_criticals_head_only) {
+            a.sneaking = false;
+        }
         let whole = shooter != FormId::PLAYER_REF && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.npc_weapons_whole);
         let h = HitInput { weapon: &w, projectiles: p.projectiles, condition: if whole { 1.0 } else { item_condition(&sim, shooter, id) }, ammo_effects: &ammo_effects, part, power: 1.0 };
         let roll = c.rng.next_f32();

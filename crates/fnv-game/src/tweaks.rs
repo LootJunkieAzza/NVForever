@@ -283,6 +283,8 @@ pub struct Tweaks {
     /// `bCustomSubtitleDistance`/`fSubtitleDistance`: general subtitles show within this
     /// many units; 0 changes nothing (the voices' own reach).
     pub subtitle_distance: f32,
+    /// `bSneakCriticalsHeadshotsOnly`: sneak criticals only on the head.
+    pub sneak_criticals_head_only: bool,
 }
 
 impl crate::game::Game<'_> {
@@ -406,6 +408,7 @@ impl Default for Tweaks {
             no_spin_up: false,
             god_mode_free_crafting: false,
             subtitle_distance: 0.0,
+            sneak_criticals_head_only: false,
         }
     }
 }

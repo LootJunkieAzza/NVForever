@@ -988,6 +988,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "pov-follows-weapon", "View Follows the Weapon", "Drawing the weapon goes to first person, holstering it to third. (Stewie's Tweaks bTogglePOVWhenHolsteringWeapon)", pov_follows_weapon);
         part!(app, "kill-cam-chance", "Kill Camera Chance", "The share of kill cameras that play (after the Kill Camera setting's own choice); 100% changes nothing. (Stewie's Tweaks bChanceBasedKillcams)", kill_cam_chance);
         amount!(app, "subtitle-distance", "Subtitle Distance", "General subtitles show for speakers within this many units; 0 changes nothing. (Stewie's Tweaks bCustomSubtitleDistance)", 10000.0, f32, game.subtitle_distance);
+        switch!(app, "sneak-criticals-head", "Sneak Criticals Head Only", "Sneak attacks are criticals only on the head. (Stewie's Tweaks bSneakCriticalsHeadshotsOnly)", game.sneak_criticals_head_only);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
