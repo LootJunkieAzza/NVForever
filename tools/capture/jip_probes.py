@@ -8424,11 +8424,13 @@ SETS.update({"jg8": JG8_PROBES})  # JohnnyGuitar batch 8 (#1007)
 # barter, menu and recipe getters with no menu open, GetWheelDisabled, TogglePurgeOnUnload
 # on a placed reference.
 _J12_WORLD = "000DA726"
+# The world is held in rWS: every step declaring `ref rW` failed to compile in the original
+# [observed: the jip12 run, 2026-11-09; hypothesis: the name is the cause].
 
 
 def _j12(pid, body, text=False):
-    return (f"jip12.{pid}", "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\n"
-            "Begin Function { }\n" + _form("rP", NF["player"]) + _form("rW", _J12_WORLD) + body, text, None, "")
+    return (f"jip12.{pid}", "ref rP\nref rObj\nref rWS\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\n"
+            "Begin Function { }\n" + _form("rP", NF["player"]) + _form("rWS", _J12_WORLD) + body, text, None, "")
 
 
 def _j12v(pid, setup, expr, text=False):
@@ -8446,9 +8448,9 @@ JIP12_PROBES = (
      _j12v("moon.3", "", "GetMoonTexture 3", True),
      _j12v("moon.4", "", "GetMoonTexture 4", True),
      _j12v("climate", "", "GetFormIDString (GetCurrentClimate)", True),
-     _j12v("extcell", "", "GetFormIDString (GetExteriorCell rW -18 0)", True),
-     _j12v("extcell.none", "", "GetFormIDString (GetExteriorCell rW 900 900)", True),
-     _j12v("persistent", "", "GetFormIDString (GetWorldspacePersistentCell rW)", True),
+     _j12v("extcell", "", "GetFormIDString (GetExteriorCell rWS -18 0)", True),
+     _j12v("extcell.none", "", "GetFormIDString (GetExteriorCell rWS 900 900)", True),
+     _j12v("persistent", "", "GetFormIDString (GetWorldspacePersistentCell rWS)", True),
      _j12v("buffered.player", "", "rP.GetCellBuffered"),
      _j12v("buffered.doc", _J12DOC, "rObj.GetCellBuffered"),
      _j12v("north.doccell", _J12DOC, "GetCellNorthRotation (rObj.GetParentCell)"),
