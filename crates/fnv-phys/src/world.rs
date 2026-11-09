@@ -226,6 +226,8 @@ struct PreparedObject {
     leaves: Vec<Leaf>,
     /// Contact shell times the reference's scale, game units.
     shell: f32,
+    /// The node the object hangs on (`CollisionObject::node`).
+    node: Option<String>,
 }
 
 /// The surface and mass properties of a collision object.
@@ -283,6 +285,7 @@ impl PreparedRef {
                 wind: o.wind,
                 leaves,
                 shell: o.shell * pose.scale,
+                node: o.node.clone(),
             });
         }
         out
@@ -396,6 +399,8 @@ pub struct PhysWorld {
     pub(crate) k: f32,
     terrain: BTreeMap<(i32, i32), ColliderHandle>,
     pub(crate) refs: BTreeMap<u32, Vec<RigidBodyHandle>>,
+    /// The node each body of a reference hangs on, in `refs`' order (`crate::script`).
+    pub(crate) ref_nodes: BTreeMap<u32, Vec<Option<String>>>,
     /// The keyframed bodies of each reference (a subset of `refs`), kept because they are
     /// fixed bodies like the static ones and so cannot be told apart by body type. A door's
     /// moving parts are keyframed; its static frame is not.
@@ -468,6 +473,7 @@ impl PhysWorld {
             k,
             terrain: BTreeMap::new(),
             refs: BTreeMap::new(),
+            ref_nodes: BTreeMap::new(),
             keyframed: BTreeMap::new(),
             wind: BTreeMap::new(),
             actors: BTreeMap::new(),
@@ -559,6 +565,7 @@ impl PhysWorld {
             // Kept with the reference at once, so a caller that catches a panic part way
             // (`nvf_assets::guard`) can take every body out with `remove_ref`.
             self.refs.entry(p.form_id).or_default().push(body);
+            self.ref_nodes.entry(p.form_id).or_default().push(o.node.clone());
             if o.motion == Motion::Keyframed {
                 self.keyframed.entry(p.form_id).or_default().push(body);
             }
@@ -651,6 +658,7 @@ impl PhysWorld {
     /// Remove a reference's bodies only.
     fn remove_bodies(&mut self, form_id: u32) -> bool {
         let Some(bodies) = self.refs.remove(&form_id) else { return false };
+        self.ref_nodes.remove(&form_id);
         self.keyframed.remove(&form_id);
         self.wind.remove(&form_id);
         for b in bodies {
@@ -658,6 +666,11 @@ impl PhysWorld {
         }
         self.mark_dirty(DirtyBy::Bodies);
         true
+    }
+
+    /// The colliders changed (the scripts' layer and collision switches, `crate::script`).
+    pub(crate) fn mark_dirty_bodies(&mut self) {
+        self.mark_dirty(DirtyBy::Bodies);
     }
 
     pub(crate) fn remove_body(&mut self, b: RigidBodyHandle) {
@@ -1119,6 +1132,7 @@ impl PhysWorld {
             k: self.k,
             terrain: self.terrain.clone(),
             refs: self.refs.clone(),
+            ref_nodes: self.ref_nodes.clone(),
             keyframed: self.keyframed.clone(),
             wind: self.wind.clone(),
             actors: self.actors.clone(),

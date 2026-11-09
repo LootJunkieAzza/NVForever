@@ -336,7 +336,7 @@ pub fn write_model(ui: &mut Ui, p: &Paths, rows: &[MadeRow], s: &Shown) {
 
 /// What the screen menu changed of the file, to give back on the device.
 #[derive(Clone, Debug, PartialEq)]
-struct FlatChanges {
+pub(super) struct FlatChanges {
     title: Option<Value>,
     line: Option<(f64, f64)>,
 }
@@ -347,27 +347,32 @@ struct FlatChanges {
 /// file may place the line by the title's width: what the file works out again for the line is
 /// put right here, on every pass.
 fn write_frame(ui: &mut Ui, p: &Paths, device: bool, flat: &mut Option<FlatChanges>) {
+    write_frame_of(ui, p.title, p.line, device, flat);
+}
+
+/// [`write_frame`] by the page's title and heading line.
+pub(super) fn write_frame_of(ui: &mut Ui, title_tile: TileId, line_tile: TileId, device: bool, flat: &mut Option<FlatChanges>) {
     if device {
         if let Some(was) = flat.take() {
-            ui.set_trait(p.title, "visible", was.title.unwrap_or(flag(true)));
+            ui.set_trait(title_tile, "visible", was.title.unwrap_or(flag(true)));
             if let Some((x, len)) = was.line {
-                ui.set_trait(p.line, "x", Value::Num(x));
-                ui.set_trait(p.line, "_length", Value::Num(len));
+                ui.set_trait(line_tile, "x", Value::Num(x));
+                ui.set_trait(line_tile, "_length", Value::Num(len));
             }
         }
         return;
     }
     if flat.is_none() {
-        let title = ui.tile(p.title).get("visible").cloned();
-        let line = ui.tile(p.line).get("_length").map(Value::num).map(|len| (num(ui, p.line, "x"), len));
-        ui.set_trait(p.title, "visible", flag(false));
+        let title = ui.tile(title_tile).get("visible").cloned();
+        let line = ui.tile(line_tile).get("_length").map(Value::num).map(|len| (num(ui, line_tile, "x"), len));
+        ui.set_trait(title_tile, "visible", flag(false));
         *flat = Some(FlatChanges { title, line });
     }
     if let Some((x, len)) = flat.as_ref().and_then(|f| f.line) {
         let from = f64::from(crate::pipboy::frame::lead_line_end());
-        if num(ui, p.line, "x") != from {
-            ui.set_trait(p.line, "x", Value::Num(from));
-            ui.set_trait(p.line, "_length", Value::Num(x + len - from));
+        if num(ui, line_tile, "x") != from {
+            ui.set_trait(line_tile, "x", Value::Num(from));
+            ui.set_trait(line_tile, "_length", Value::Num(x + len - from));
         }
     }
 }
@@ -469,7 +474,7 @@ fn wholly_on_canvas(r: &layout::Rect) -> bool {
 
 /// Whether a painted piece shows whole: on the canvas, and inside what clips it (a unit's slack
 /// for rounding). Its middle, when it does.
-fn shows_whole(piece: &Piece) -> Option<(f64, f64)> {
+pub(super) fn shows_whole(piece: &Piece) -> Option<(f64, f64)> {
     let r = piece.rect;
     let in_clip = piece.clip.is_none_or(|c| r.left >= c.left - 1.0 && r.top >= c.top - 1.0 && r.left + r.width <= c.left + c.width + 1.0 && r.top + r.height <= c.top + c.height + 1.0);
     (wholly_on_canvas(&r) && in_clip).then_some((r.left + r.width / 2.0, r.top + r.height / 2.0))
@@ -522,7 +527,7 @@ pub fn usable(ui: &Ui, p: &Paths, rows: &[MadeRow], pieces: &[Piece]) -> Result<
 }
 
 /// Whether `t` is `of` or under it.
-fn inside(ui: &Ui, t: TileId, of: TileId) -> bool {
+pub(super) fn inside(ui: &Ui, t: TileId, of: TileId) -> bool {
     let mut at = Some(t);
     while let Some(x) = at {
         if x == of {
@@ -593,6 +598,10 @@ pub(crate) trait PageFonts {
     fn write_sizes(&mut self, ui: &mut Ui, texts: &[TileId], written: &mut SizesWritten) -> usize;
     /// The menu's pieces, as the drawing paints them.
     fn set_out(&mut self, ui: &Ui, menu: TileId) -> Vec<Piece>;
+    /// A picture's own file's size in texels, when the page needs it.
+    fn picture_texels(&mut self, _name: &str) -> Option<(f64, f64)> {
+        None
+    }
 }
 
 impl PageFonts for FontKit<'_> {
@@ -602,6 +611,9 @@ impl PageFonts for FontKit<'_> {
     }
     fn set_out(&mut self, ui: &Ui, menu: TileId) -> Vec<Piece> {
         super::draw::whole_pieces(ui, menu, self, true)
+    }
+    fn picture_texels(&mut self, name: &str) -> Option<(f64, f64)> {
+        self.picture_size(name).map(|s| (f64::from(s.x), f64::from(s.y)))
     }
 }
 

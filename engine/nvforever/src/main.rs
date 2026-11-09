@@ -1479,7 +1479,7 @@ fn main() -> AppExit {
     .init_resource::<world::LateMeshes>()
     .add_systems(PreUpdate, (world::take_cell_work, world::respecialize_late_meshes).chain())
     .add_systems(Last, world::report)
-    .add_systems(Update, (locomotion::walk_test, locomotion::turn_to, locomotion::drive, weapons::reparent).chain())
+    .add_systems(Update, (locomotion::walk_test, locomotion::script_turns, locomotion::turn_to, locomotion::drive, weapons::reparent).chain())
     // Clips that drive actors' part materials (the Securitron screens), once posed.
     .add_systems(Update, actor_materials::pose.after(locomotion::drive))
     .init_resource::<actor_materials::PlayerRigMaterials>()
