@@ -1872,12 +1872,19 @@ fn stand_ins(
                 }
             },
         };
+        // In the guest's own cell, where it is (item 109: a guest away from the host is in
+        // the world there, for the AI the host runs in its surroundings, `areas`).
+        let own_cell = match place {
+            Place::Interior(c) => Some(FormId(c)),
+            Place::Exterior(w) if place != here => sim.world.placed.world_grid.get(&FormId(w)).and_then(|g| g.get(&fnv_world::cell_of(feet[0], feet[1]))).copied(),
+            Place::Exterior(_) => cell,
+        };
         if let Ok(s) = sim.world.get(r) {
             s.pos = feet;
             s.rot = [0.0, 0.0, yaw];
-            s.cell = cell;
+            s.cell = own_cell.or(cell);
         }
-        let _ = sim.world.set_enabled(r, place == here && !p.lost && !newest.has(flag::DOWN));
+        let _ = sim.world.set_enabled(r, (place == here || own_cell.is_some()) && !p.lost && !newest.has(flag::DOWN));
         if let Some(n) = rt.game.coop_actors.get_mut(&r).filter(|n| **n != p.name && !p.name.is_empty()) {
             n.clone_from(&p.name);
         }
