@@ -34,6 +34,8 @@ pub struct Roots {
     pub write: Option<PathBuf>,
     pub lookup: Option<Lookup>,
     pub reader: Option<Reader>,
+    /// The archives the host loaded, by file name (IsBSALoaded, `nvse_jg8`).
+    pub archives: Vec<String>,
 }
 
 static ROOTS: Mutex<Option<Roots>> = Mutex::new(None);
@@ -113,6 +115,11 @@ fn on_disk_any_case(base: &Path, rel: &str) -> Option<PathBuf> {
         };
     }
     Some(p)
+}
+
+/// The archives the host loaded, by file name.
+pub fn archives() -> Vec<String> {
+    roots().archives
 }
 
 /// The game's Data folder, when the host gave one (the last read root).
