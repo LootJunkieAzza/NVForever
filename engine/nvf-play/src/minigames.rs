@@ -461,7 +461,7 @@ fn open(
         let rng = ChaCha8Rng::seed_from_u64(seed(a.reference, now));
         if base == board {
             let special = script.as_mut().and_then(|s| s.rt.as_mut()).map_or((5, 5), |rt| darts::player_special(&mut rt.game));
-            let joined = tables.and_then(|t| t.near_at(a.reference, game::DARTS).and_then(|(p, b)| DartsView::decode(b).filter(|v| v.owner == p && Some(p) != t.me).map(|_| p)));
+            let joined = tables.and_then(|t| t.near_at_all(a.reference, game::DARTS).find_map(|(p, b)| DartsView::decode(b).filter(|v| v.owner == p && Some(p) != t.me).map(|_| p)));
             info!("darts: open at 0x{:08X} (Perception {}, Agility {}){}", a.reference, special.0, special.1, joined.map(|p| format!(", {}'s board", tables.map(|t| t.name(p)).unwrap_or_default())).unwrap_or_default());
             let frame = sim.world.peek(FormId(a.reference)).map(|r| (r.pos, r.rot)).or_else(|| sim.refs.get(FormId(a.reference)).map(|r| (r.pos, r.rot))).map(|(pos, rot)| {
                 BoardFrame::of(pos, rot, sim.refs.get(FormId(a.reference)).and_then(|r| r.scale))

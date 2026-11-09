@@ -118,6 +118,12 @@ impl Tables {
     }
 
     /// A near player whose view is of `table` at `game`, and the view (the first found).
+    /// Every nearby player at `table` playing `game`, with its view (a table with three or
+    /// four players has the owner and its joined players all there).
+    pub fn near_at_all(&self, table: u32, game: u8) -> impl Iterator<Item = (u8, &[u8])> + '_ {
+        self.near.iter().filter_map(move |p| self.view(*p).filter(|v| v.0 == table && v.1 == game).map(|v| (*p, v.2)))
+    }
+
     pub fn near_at(&self, table: u32, game: u8) -> Option<(u8, &[u8])> {
         self.near.iter().find_map(|p| self.view(*p).filter(|v| v.0 == table && v.1 == game).map(|v| (*p, v.2)))
     }

@@ -361,7 +361,7 @@ fn open(
             continue;
         }
         let tables = tables.as_deref().filter(|t| t.on);
-        let joined = tables.and_then(|t| t.near_at(a.reference, game::POOL).and_then(|(p, b)| PoolView::decode(b).filter(|v| v.owner == p && Some(p) != t.me).map(|_| p)));
+        let joined = tables.and_then(|t| t.near_at_all(a.reference, game::POOL).find_map(|(p, b)| PoolView::decode(b).filter(|v| v.owner == p && Some(p) != t.me).map(|_| p)));
         let frame = frame_of(&sim, a.reference);
         match frame {
             Some(f) => info!("pool: open at 0x{:08X}: the table at ({:.0}, {:.0}, {:.0}), facing {:.0} degrees, scale {:.2}{}", a.reference, f.pos[0], f.pos[1], f.pos[2], f.theta.to_degrees(), f.k, joined.map(|p| format!(", {}'s table", tables.map(|t| t.name(p)).unwrap_or_default())).unwrap_or_default()),
