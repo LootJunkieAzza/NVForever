@@ -401,6 +401,12 @@ unless the player binds them, so nothing changes until then.
 | No Spin-Up | `bAutoWeaponNoFiringDelay` | `combat::fire` (`Timing::spin_up`) |
 | Free Crafting in God Mode | `bGodModeAllowsCraftingWithoutRequirements` | `crafting::lacks`, `make_recipe` |
 
+## Thirtieth batch (2026-11-09)
+
+| Row | INI key | Where |
+|---|---|---|
+| View Follows the Weapon | `bTogglePOVWhenHolsteringWeapon` | `control::read_controls` end |
+
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
 
@@ -420,8 +426,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 312 |
-| to do | 291 |
+| done | 313 |
+| to do | 290 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1041,6 +1047,7 @@ game's Data folder, read-only).
 | `bPreventTeammateFootstepSounds` | done |  |  | Quiet Companion Footsteps |
 | `bRestoreLockedDoorSound` | done |  |  | already so: a refused lock plays DRSLocked |
 | `bScaleRadioVolume` | done |  | 2 | Radio Songs Volume / Radio Talk Volume (two sliders) |
+| `bTogglePOVWhenHolsteringWeapon` | done |  |  | View Follows the Weapon |
 | `bAllowKeyboardAndMouseWithControllerConnected` | to do | yes |  | the Input Device setting picks one device; needs both at once |
 | `bArmorPreventsBloodDecals` | to do | yes |  | the impact is sent before DT is worked out |
 | `bArmorSoundsPlayIn3D` | to do | yes |  | the player's foley plays at the listener (anim_sounds player_keys) |
@@ -1093,7 +1100,6 @@ game's Data folder, read-only).
 | `bSplashDamageTorsoGibbing` | to do |  |  | combat::fly torso dismember check |
 | `bSwapKeyboardYZKeys` | n/a |  |  | the original's keyboard handling; NVForever's keys can be rebound |
 | `bTerminalFadeTime` | to do |  | 1 | not built: terminals do not fade |
-| `bTogglePOVWhenHolsteringWeapon` | to do |  |  | control::read_controls on weapon_out changes |
 | `bUKKeyboard` | n/a |  |  | the original's keyboard handling |
 | `bUseConsoleOutputFile` | to do |  | 1 | console out_file from sync; a file name to choose |
 | `bUseFallout3AudioDistortion` | unsure, skipped |  |  | needs the original sequel's filter described first |

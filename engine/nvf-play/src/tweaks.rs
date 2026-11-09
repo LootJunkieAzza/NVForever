@@ -221,6 +221,8 @@ pub struct TweakSettings {
     pub free_item_price: f32,
     /// `bAllowDuplicateControlBinds`: one input may serve two controls.
     pub duplicate_binds: bool,
+    /// `bTogglePOVWhenHolsteringWeapon`: drawing goes to first person, holstering to third.
+    pub pov_follows_weapon: bool,
 }
 
 /// The walk-angle choices: 30 to 80 degrees by 5; 45 is the physics' own.
@@ -348,6 +350,7 @@ impl Default for TweakSettings {
             hide_ammo_label: false,
             free_item_price: 0.0,
             duplicate_binds: false,
+            pov_follows_weapon: false,
         }
     }
 }
@@ -978,6 +981,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "crippling-never-disarms", "Crippling Never Disarms", "A crippled arm never makes anyone drop their weapon. (Stewie's Tweaks bCripplingDoesntDisarm)", game.crippling_never_disarms);
         switch!(app, "no-spin-up", "No Spin-Up", "The player's automatic weapons fire without spinning up first. (Stewie's Tweaks bAutoWeaponNoFiringDelay)", game.no_spin_up);
         switch!(app, "god-mode-free-crafting", "Free Crafting in God Mode", "In god mode recipes need no parts or skill. (Stewie's Tweaks bGodModeAllowsCraftingWithoutRequirements)", game.god_mode_free_crafting);
+        switch!(app, "pov-follows-weapon", "View Follows the Weapon", "Drawing the weapon goes to first person, holstering it to third. (Stewie's Tweaks bTogglePOVWhenHolsteringWeapon)", pov_follows_weapon);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

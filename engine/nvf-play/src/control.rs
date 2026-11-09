@@ -592,6 +592,7 @@ pub fn read_controls(
     }
     let mut message: Option<String> = None;
     let c = &mut *control;
+    let was_out = c.weapon_out;
     // The player's tweak: sneak while the key is held, not by toggling [design: docs/design/tweaks.md].
     if tweaks.as_ref().is_some_and(|t| t.hold_to_sneak) {
         let held = input.pressed(Control::CrouchSneak);
@@ -696,6 +697,11 @@ pub fn read_controls(
     let wheel = wheel && !(tweaks.as_ref().is_some_and(|t| t.camera_wheel_needs_pov) && !input.pressed(Control::TogglePov));
     if wheel && c.third_person_view() && scroll.delta.y != 0.0 && !input.suppressed() {
         c.distance = zoom(c.distance, scroll.delta.y);
+    }
+    // The player's tweak: drawing goes to first person, holstering to third [design: docs/design/tweaks.md].
+    if c.weapon_out != was_out && tweaks.as_ref().is_some_and(|t| t.pov_follows_weapon) {
+        c.pov = if c.weapon_out { Pov::First } else { Pov::Third };
+        info!("view: {:?} with the weapon {} (tweak)", c.pov, if c.weapon_out { "drawn" } else { "holstered" });
     }
     if let Some(m) = message {
         info!("{m}");
