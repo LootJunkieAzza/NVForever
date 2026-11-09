@@ -896,7 +896,8 @@ pub struct GameData {
     /// How many lines [`follow_previous`] moved out of file order (0 for the ten masters).
     pub lines_moved_by_previous: usize,
     /// The topics with shared lines (INFC / INFX, [`TopicDef::shared_infos`]): their own
-    /// lines with the shared ones put in at their Info Index, the order
+    /// lines in stored order, with shared ones put in among the listing quest's own lines
+    /// at their Info Index [hypothesis: dialogue.md §1.2], the order
     /// [`GameData::lines_tried`] starts from (dialogue.md §1.2).
     pub shared_lines: HashMap<FormId, Vec<FormId>>,
     /// Link From turned round: for a topic X, the topics with a line whose Link From
@@ -1577,7 +1578,7 @@ const BOUNDS_SIGS: [[u8; 4]; 20] = [
 ];
 
 /// The record types whose fields [`GameData::record_fields`] keeps.
-pub const FIELD_SIGS: [[u8; 4]; 49] = [
+pub const FIELD_SIGS: [[u8; 4]; 51] = [
     *b"PROJ", *b"EXPL", *b"AMMO", *b"WEAP", *b"ARMO", *b"LSCR", *b"NOTE", *b"PERK", *b"MESG", *b"TERM", *b"IMOD", *b"CHAL", *b"BOOK", *b"BPTD", *b"MISC", *b"ALCH", *b"KEYM",
     *b"NPC_", *b"CREA", *b"FACT", *b"RACE", *b"HAIR", *b"EYES", *b"SOUN", *b"WTHR", *b"IMGS", *b"IMAD", *b"AMEF", *b"CLMT", *b"CELL", *b"WRLD", *b"IPDS", *b"IPCT", *b"IDLE", *b"ACTI",
     // JIP batch 4 (`crate::nvse_jip4`).
@@ -1590,6 +1591,8 @@ pub const FIELD_SIGS: [[u8; 4]; 49] = [
     *b"EFSH", *b"MSET",
     // JIP batch 8 (`crate::nvse_jip8`): GetEffectFlag / SetEffectFlag read SPIT and ENIT flags.
     *b"SPEL", *b"ENCH",
+    // Lutana batch 3 (`crate::nvse_lu3`): the Anim Object's idle, the loading screen type.
+    *b"ANIO", *b"LSCT",
 ];
 
 /// The winning records of the [`FIELD_SIGS`] types, each decoded by
@@ -2446,28 +2449,99 @@ impl GameData {
 }
 
 /// [`GameData::shared_lines`]: for each topic whose INFC / INFX pairs name a line, its
-/// own lines with each shared line put in at its Info Index (pairs in index order; an
-/// index past the end, or negative, puts it last) [hypothesis: the index is the line's
-/// place in the topic's list; in topics with no line of their own the indices run
-/// 0, 1, 2 … as a list's would, observed, dialogue.md §1.2]. A line already in
-/// the list is not added twice.
+/// own lines in stored order with each shared line put in among the own lines of the
+/// quest that lists it (the QSTI the pair follows) [hypothesis: the Info Index is the
+/// line's place in that quest's lines of the topic, dialogue.md §1.2].
+///
+/// [design] Each listing quest's list is its own lines of the topic, in stored order,
+/// with its shared lines inserted at their Info Index (pairs in index order; a negative,
+/// missing or past-the-end index puts the line last). In the topic's list a shared line
+/// then goes just before the quest's own line that follows it in that list, or right
+/// after the quest's last own line when none follows; lines that meet at one place keep
+/// index order, then QSTI order. The own lines never move, so equal priorities keep the
+/// stored order as in [`GameData::lines_by_priority`] (dialogue.md §4). A quest with no
+/// own line in the topic has its shared lines appended after the own lines, quests in
+/// QSTI order. A line already in the topic is not added twice (the first pair in index
+/// order wins); missing INFOs are skipped. A topic with a valid pair under no QSTI keeps
+/// the topic-wide merge (the index as a place in the whole list). Maps here are lookups
+/// only: the order comes from the stored lines, the QSTI list and sorted keys.
 fn shared_lines(topics: &HashMap<FormId, Vec<FormId>>, defs: &HashMap<FormId, TopicDef>, infos: &HashMap<FormId, InfoDef>) -> HashMap<FormId, Vec<FormId>> {
     let mut out = HashMap::new();
     for (id, t) in defs {
-        let mut pairs: Vec<(i32, FormId)> =
-            t.shared_infos.iter().filter_map(|s| s.info.filter(|i| infos.contains_key(i)).map(|i| (s.index.unwrap_or(-1), i))).collect();
+        let mut pairs: Vec<_> = t.shared_infos.iter().filter(|s| s.info.is_some_and(|i| infos.contains_key(&i))).collect();
         if pairs.is_empty() {
             continue;
         }
-        pairs.sort_by_key(|&(x, _)| if x < 0 { i32::MAX } else { x });
-        let mut lines = topics.get(id).cloned().unwrap_or_default();
-        for (x, i) in pairs {
-            if lines.contains(&i) {
+        let index_order = |s: &SharedInfo| s.index.filter(|&x| x >= 0).unwrap_or(i32::MAX);
+        pairs.sort_by_key(|s| index_order(s));
+        if pairs.iter().any(|s| s.quest.is_none()) {
+            // No listing quest can be assigned without guessing. Keep the entire
+            // malformed topic's old merge, including equal-index insertion order.
+            let mut lines = topics.get(id).cloned().unwrap_or_default();
+            for s in pairs {
+                let i = s.info.unwrap();
+                if !lines.contains(&i) {
+                    let at = s.index.and_then(|x| usize::try_from(x).ok()).map_or(lines.len(), |x| x.min(lines.len()));
+                    lines.insert(at, i);
+                }
+            }
+            out.insert(*id, lines);
+            continue;
+        }
+        let own = topics.get(id).cloned().unwrap_or_default();
+        let mut seen: HashSet<FormId> = own.iter().copied().collect();
+        // Where each quest's own lines stand in the topic's stored list.
+        let mut own_at: HashMap<FormId, Vec<usize>> = HashMap::new();
+        for (at, i) in own.iter().enumerate() {
+            if let Some(quest) = infos.get(i).and_then(|d| d.quest) {
+                own_at.entry(quest).or_default().push(at);
+            }
+        }
+        // Each listing quest's list: None for one of its own lines, Some for a shared
+        // line with its index order.
+        let mut quest_lines: HashMap<FormId, Vec<Option<(FormId, i32)>>> = HashMap::new();
+        for s in pairs {
+            let i = s.info.unwrap(); // Filtered above.
+            if !seen.insert(i) {
                 continue;
             }
-            let at = usize::try_from(x).map_or(lines.len(), |x| x.min(lines.len()));
-            lines.insert(at, i);
+            let quest = s.quest.unwrap(); // Unscoped topics use the fallback above.
+            let lines = quest_lines.entry(quest).or_insert_with(|| vec![None; own_at.get(&quest).map_or(0, Vec::len)]);
+            let at = usize::try_from(s.index.unwrap_or(-1)).map_or(lines.len(), |x| x.min(lines.len()));
+            lines.insert(at, Some((i, index_order(s))));
         }
+        // Shared lines among the own lines, keyed (place in `own`, index order, QSTI
+        // rank, place in the quest's list); shared lines of quests with no own line.
+        let mut placed: Vec<((usize, i32, usize, usize), FormId)> = Vec::new();
+        let mut appended = Vec::new();
+        for (rank, quest) in t.quests.iter().enumerate() {
+            let Some(lines) = quest_lines.remove(quest) else { continue };
+            let Some(at) = own_at.get(quest) else {
+                appended.extend(lines.into_iter().flatten().map(|(i, _)| i));
+                continue;
+            };
+            let mut own_before = 0;
+            for (pos, line) in lines.into_iter().enumerate() {
+                match line {
+                    None => own_before += 1,
+                    Some((i, index)) => {
+                        let place = at.get(own_before).copied().unwrap_or(at[at.len() - 1] + 1);
+                        placed.push(((place, index, rank, pos), i));
+                    }
+                }
+            }
+        }
+        placed.sort_by_key(|&(key, _)| key);
+        let mut placed = placed.into_iter().peekable();
+        let mut lines = Vec::with_capacity(own.len() + placed.len() + appended.len());
+        for (at, i) in own.into_iter().enumerate() {
+            while let Some((_, shared)) = placed.next_if(|&((place, ..), _)| place <= at) {
+                lines.push(shared);
+            }
+            lines.push(i);
+        }
+        lines.extend(placed.map(|(_, shared)| shared));
+        lines.extend(appended);
         out.insert(*id, lines);
     }
     out

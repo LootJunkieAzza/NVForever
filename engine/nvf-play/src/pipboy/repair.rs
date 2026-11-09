@@ -33,6 +33,9 @@
 //! - The repair list's rows are silent [documented: the template's `&nosound;`]; a repair
 //!   plays `UIRepairWeapon` (`crate::ui_sounds`, as the vendor's).
 //! - Test aid: the Pip-Boy aid's `repair=open|down|up|use|cancel` (`test_aid.rs`).
+//! - Behind `[UI] TileMenus=RepairMenu` the list is drawn from its file instead
+//!   (`crate::tiles::repair_menu`, repair.md §5.1): the rules, sounds and log lines here stay, and
+//!   what the tiles are asked comes in as [`RepairInput`].
 
 use super::frame::{self, Align, Card, Ctx, LINE, MAIN, TEXT};
 use super::{Page, PipBoy};
@@ -75,8 +78,6 @@ const METER: Vec2 = Vec2::new(60.0, 16.0);
 /// `RM_ButtonRect`].
 const SKILL_W: f32 = 220.0;
 const BUTTONS: Vec2 = Vec2::new(855.0, 75.0);
-/// The ITEMS page's Repair button [documented: inventory_menu.xml `IM_ButtonRect`].
-const HINT: Vec2 = Vec2::new(855.0, 45.0);
 /// The bars' empty part [documented: the template's alpha 64].
 const BAR_BACK: f32 = 64.0 / 255.0;
 
@@ -104,7 +105,13 @@ struct RepairCancel;
 
 /// Only a row not chosen yet: choosing redraws the list, and the new row under the pointer
 /// would come over it again every frame, so a press and its release never met one row.
-fn on_row_over(over: On<PointerOver>, rows: Query<&RepairRow>, repair: Res<PipRepair>, mut out: MessageWriter<RepairInput>) {
+///
+/// Not while the page drawn from its file has yet to decide (`crate::tiles::repair_menu::RepairTiles::waiting`):
+/// this list stands for that frame, and a pointer at rest would open the page on a part.
+fn on_row_over(over: On<PointerOver>, rows: Query<&RepairRow>, repair: Res<PipRepair>, tiles: Option<Res<crate::tiles::repair_menu::RepairTiles>>, mut out: MessageWriter<RepairInput>) {
+    if tiles.is_some_and(|t| t.waiting) {
+        return;
+    }
     let (Ok(r), Some(s)) = (rows.get(over.entity), repair.0.as_ref()) else { return };
     if s.selected != r.0 {
         out.write(RepairInput::Hover(r.0));
@@ -361,24 +368,27 @@ pub fn keys(
     }
 }
 
-/// The ITEMS page's Repair or Maintain hint for the selected row.
-pub fn draw_hint(p: &mut ChildSpawnerCommands, c: &mut Ctx, o: Option<&Offer>) {
-    let Some(o) = o else { return };
-    // R, with a controller Y (`inventory_menu.xml`'s Repair, `crate::pad::menu_buttons`).
-    // The word: its setting's text when the load order defines it (`super::labels`, #1443).
-    let word = match hint(o.gear, o.condition) {
-        "Maintain" => super::labels::label("sMaintainItem", "Maintain"),
-        w => super::labels::label("sInventoryRepair", w),
-    };
-    let label = format!("{} {}", word, crate::pad::hint(&[KeyCode::KeyR], crate::pad::at_menu(fnv_game::game::menus::INVENTORY)));
-    info!("pipboy items: {} {label}{}", o.name, if o.usable() { "" } else { " (dim)" });
-    let color = amber(if o.usable() { TEXT } else { frame::DIMMED });
-    c.text(p, 2, &label, MAIN.min.x + HINT.x - 10.0, MAIN.min.y + HINT.y + frame::BUTTON_TEXT_Y, Align::Right, color);
+/// The ITEMS page's repair hint for the selected row's offer: its word ("Repair", or
+/// "Maintain" at full condition) and whether R does anything. With no offer (an item
+/// nothing repairs: aid, misc, ammo) "Repair", dim (#1896). The word: its setting's text
+/// when the load order defines it (`super::labels`, #1443). The page draws it
+/// (`super::items::page_hints`).
+pub fn hint_word(o: Option<&Offer>) -> (&'static str, bool) {
+    match o {
+        Some(o) => {
+            let word = match hint(o.gear, o.condition) {
+                "Maintain" => super::labels::label("sMaintainItem", "Maintain"),
+                w => super::labels::label("sInventoryRepair", w),
+            };
+            (word, o.usable())
+        }
+        None => (super::labels::label("sInventoryRepair", "Repair"), false),
+    }
 }
 
 /// The figure a card shows for an item at a condition: damage or DT by our condition
 /// rules (combat-rules.md §17).
-fn stat(combat: Option<&crate::combat::Combat>, o: &Offer, condition: f32) -> Option<(&'static str, i32)> {
+pub(crate) fn stat(combat: Option<&crate::combat::Combat>, o: &Offer, condition: f32) -> Option<(&'static str, i32)> {
     let c = combat?;
     match o.gear {
         Gear::Weapon => c.forms.weapons.get(&o.item).filter(|w| w.base_damage > 0).map(|w| (super::labels::label("sInventoryDamage", "DAM"), (w.base_damage as f32 * fnv_combat::damage::condition_mult(condition)).round() as i32)),

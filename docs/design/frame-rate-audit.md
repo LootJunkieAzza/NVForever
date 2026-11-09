@@ -604,6 +604,55 @@ Still left in the submission:
   of it is not per draw. [hypothesis] It is the bindless material slabs' resources being
   tracked for each pass (above).
 
+### Particle systems no camera sees (#1417, 2026-11-08)
+
+Every particle system with live particles rebuilt its whole mesh each frame (positions,
+normals, UVs, colours, indices) and handed it to the renderer, seen or not. A counting aid
+on a local branch measured, per frame, the systems whose mesh was written and how many of
+them lay outside every active camera [observed 2026-11-08]:
+
+| Place | Written | Outside every camera |
+|---|---|---|
+| Goodsprings, standing | 20 | 12 |
+| Primm | 8 | 3.5 |
+| Novac | 4 | 4 |
+| The Strip | 7 | 7 |
+| Running through Goodsprings | 25 | 15-18 |
+
+None of them wrote geometry identical to the frame before (ages, spin and the camera's
+turn change it), so leaving out identical writes would save nothing; leaving out the
+unseen ones is the lever.
+
+What is built now [design: `particles.rs` and `effect_particles.rs`, module notes]:
+
+- Emission, simulation, random draws, lifetimes and clean-up are unchanged. Only the
+  geometry build and the mesh write are left out for a system whose live particles' box
+  (squares within half their size × √2, ribbons within their half width of every trail
+  point, effect-shader squares the same) lies outside every active 3D camera drawing its
+  layers: the main camera, the water reflection camera while it is on, a 3D scope's lens
+  camera. The test uses each frustum's four sides only, so a box between a camera and its
+  near plane, or under the reflection's water clip plane, counts as seen.
+- Meanwhile its render entity is hidden, so its old mesh cannot draw; its emitter is not
+  touched. In doubt (no box, no placement, no active camera, a frustum not set) it is built
+  and shown.
+- The build moved from `Update` to `PostUpdate` (`particles::ParticleDrawSet`): after the
+  frusta are updated (and the reflection camera switched on or off), before visibility
+  propagation and before the asset events. A system coming into view is therefore rebuilt
+  and shown in the frame it is first drawn. The camera basis the squares face is still
+  taken in `Update` where the draw took it, so a visible system's vertices, and their
+  order, are bit for bit what they were. Hiding and showing a system takes its blended
+  draw out of and back into the renderer's sorted list, so overlapping blended surfaces at
+  exactly the same sort distance may swap order, as with any visibility change [design:
+  Bevy sorts the blended phase by distance only].
+- The world camera is found by its marker (`FlyCam`) instead of as the only 3D camera
+  beside the reflection's. The draw used to stop, every system frozen as it was, while a
+  scope's or a menu view's camera existed; particles now keep animating, and are culled
+  and shown again, with a scope up (an intended change).
+- No distance cut-off was added, and the fades and `NoFrustumCulling` stay.
+- `NVF_PLAY_TEST_PROFILE` logs `profile particles: <n> frames; per frame: regular <p>
+  published, <c> culled; effect …` (profile.rs). Smoke scenario
+  `particles-culled-off-screen`: Gomorrah's roof fires behind the player, then turned to.
+
 ## 6. CPU placement on processors with unequal L3 domains (#1842, 2026-11-08)
 
 Some processors split their L3 cache into domains of different sizes: AMD's dual-CCD X3D
@@ -682,12 +731,66 @@ same rules). Putting the background threads (generated-terrain bake, read pool) 
 other domain with `SetThreadSelectedCpuSets`, leaving the cache domain to the main,
 render and compute threads [hypothesis]. A row on the settings page.
 
-## 7. Terrain texture layers drawn only where they paint (#1886, 2026-11-08)
+## 7. Indirect-parameter build jobs in Bevy's GPU culling (#1887, 2026-11-08)
 
 Measured on a Ryzen 7 7700X with an RTX 3070 (Vulkan) at 2560 × 1440, the owner's
 settings (4x MSAA, ambient occlusion, longer shadows, bloom, light glow, sun shafts, sun
 shadows), vsync off, `--no-actors` unless said. The owner's outdoor frame rate:
 Goodsprings at noon runs at about 90 fps where interiors reach the 180 fps vsync cap.
+
+[observed] Where the frame goes before these changes:
+
+- **The frame waits on the GPU.** The swap chain's acquire waits about 4.5 ms on the frame
+  three back, so the GPU is the limit. Frame latency 1–3 and mailbox or immediate
+  presentation change nothing.
+- **About 3 ms of GPU time falls outside the pass timers** (`--log-frame-times`: 10.2 ms a
+  frame, 6.8 ms timed). It grows with MSAA.
+- **The CPU floor** at 640 × 360 is about 5 ms a frame with no actors. The campaign's
+  main thread is about 7 ms with Goodsprings' residents.
+
+**Bevy's indirect-parameter build jobs are merged** (engine/vendor/README.md,
+bevy_render). An Nsight Graphics GPU Trace (5 frames) showed what the timers missed. The
+graphics engine was busy 93 % of the frame, but the shader units were only 28 % busy. The
+front end waited for the GPU to go idle 37 % of the time, and the frame had 2,518 compute
+dispatches. Bevy's GPU culling builds the indirect draw parameters with one dispatch per
+batch range of each view and phase. That pass has no timer, and wgpu puts a barrier
+between dispatches that write the same buffers. Merging each view's ranges that follow one
+another leaves 904 dispatches. Compute is then active 9 % of the frame instead of 16 %.
+[observed] Interleaved runs of one build with and without it (terrain layers of #1886
+applied in both): 9.0 → 8.5 ms a frame.
+
+[observed 2026-11-08, `tools/profile/campaign.py`, `profile` builds of main at 4eede5348 and
+of this change on it, Ryzen 7 7700X, RTX 3070, Vulkan, enhanced look, with the scenes'
+residents] Frame time a frame, main → with the change:
+
+| scenes | main | with it |
+|---|---|---|
+| 1920 × 1080, the 12 `stand` scenes, mean | 8.47 ms | 7.82 ms (−7.7 %) |
+| 1920 × 1080, Jacobstown (slowest) | 11.02 ms | 9.93 ms |
+| 1920 × 1080, Novac at noon | 10.63 ms | 9.41 ms |
+| 1920 × 1080, Hoover Dam (the only one not faster) | 7.15 ms | 7.30 ms |
+| 2560 × 1440, Goodsprings at noon, two runs | 10.75, 10.62 ms | 10.11, 9.80 ms |
+| 2560 × 1440, Goodsprings at 19:00, two runs | 10.50, 10.57 ms | 9.96, 9.85 ms |
+| 2560 × 1440, Novac at noon, two runs | 13.37, 13.62 ms | 12.32, 12.32 ms |
+
+The pass timers' total barely moves (Goodsprings at noon, 1080p: 5.68 → 5.87 ms): the
+dispatches saved are in the culling pass, which has no timer. Four of the 1080p scenes on
+main first ran capped at 16.67 ms a frame (the window held to 60 Hz); they were run again
+for both builds and those runs are the ones counted.
+
+Not done, measured on the way [observed]:
+
+- **Light glow and sun shadows.** Light glow costs about 0.9 ms of the frame and sun
+  shadows about 1.1 ms, each about half outside their timers.
+- **Uniform allocation and bin unpacking** (Bevy) still make one dispatch per batch set:
+  about 90 each a frame, 0.3–0.5 ms each pass.
+- **The opaque pass** (2.6–4.2 ms) is the largest timed pass.
+- **DX12 does not run** (the bindless NIF material's bind group layout fails validation),
+  so it could not be compared.
+
+## 8. Terrain texture layers drawn only where they paint (#1886, 2026-11-08)
+
+Measured on the same machine and settings as §7.
 
 In `terrain.rs` (`quadrant_mesh`), each texture layer of a quadrant was a blended copy of
 the whole 17 × 17 grid, drawn at full size even where its opacity is 0. A layer mesh now keeps only the triangles with a corner

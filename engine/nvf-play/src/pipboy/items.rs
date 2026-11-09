@@ -30,16 +30,41 @@
 //!   Melee Weapons 25 under the knife]. Not on the ITEMS page: DPS (the original shows
 //!   none there, and the badge takes its place over DAM [observed]); the container and
 //!   barter figures keep it ([`weapon_dps`]).
-//! - "Mod X)" under the Repair hint (`IM_ModButton`, 47 lower, `sInventoryMod`) for a
-//!   weapon with mod slots, always bright: the mod menu attaches and removes mods
-//!   [documented: place, key; hypothesis: when it shows; design: always bright, the
-//!   owner's rule 2026-10-27]. X on it opens the mod menu (`super::item_mod`,
-//!   weapon-mods.md §5); elsewhere X does nothing.
+//! - "Mod X)" (`IM_ModButton`, `sInventoryMod`) on the Weapons tab, bright for a weapon
+//!   with mod slots: the mod menu attaches and removes mods [documented: key; hypothesis:
+//!   when it shows; design: always bright, the owner's rule 2026-10-27]. X on it opens the
+//!   mod menu (`super::item_mod`, weapon-mods.md §5); elsewhere X does nothing, and the
+//!   hint is dim (#1896).
+//! - The hints at the top right, one under the other ([`page_hints`], #1896), by the input
+//!   device. With a controller the original's whole column [observed: the original's
+//!   screenshots on issue #1896, taken with a controller connected]: the equip action
+//!   ("Equip", "Unequip" on what is worn, "Use" on aid; A), "Drop" (X), the repair action
+//!   ("Repair" / "Maintain", Y, `super::repair`), "Hotkey" (a held key 1-8 and a click)
+//!   and, on Weapons, "Mod" (LB). With the keyboard and mouse only "Repair R)" /
+//!   "Maintain R)" on every tab and "Mod X)" under it on Weapons [observed 2026-11-09: the
+//!   original's InventoryMenu button tiles read with keyboard and mouse on each ITEMS
+//!   tab: the equip, drop and hotkey buttons hidden on every tab, the repair button shown
+//!   on every tab, the mod button on Weapons only]; Enter, the right click and the number
+//!   keys still do what they do, only their hints go. The set follows the device as it
+//!   changes (the Controls page's Input Device). The first row at the Repair button's
+//!   place (`IM_RepairButton`, y 45 [documented]), the rows `frame::HINT_PITCH` (46)
+//!   apart, each word right-aligned at 855, the heading's right end, with its key after
+//!   it (`frame::Ctx::hint_column`) [observed: the same screenshots: the first row just under the heading's cards, the
+//!   words ending at the heading's right end, rows 0.90 of the list's row step apart;
+//!   design: a column whose keys would run off the screen (a long key name) moves left as
+//!   a whole]. They are drawn over the item's picture, whose documented box
+//!   they share (as the original's words do), so the picture never hides them. A hint that
+//!   does nothing for the selected item is drawn dim: repair on what nothing repairs,
+//!   equip when the game would refuse it (`model::enter_acts`: misc, ammo, a book that
+//!   teaches nothing, a broken weapon), hotkey on what a hotkey cannot hold, drop on a
+//!   quest item [design]. The words are the settings `sInventoryEquip`, `sInventoryDrop`,
+//!   `sInventoryHotKey`, else NVForever's labels for them (`fnv_ui::strings`); "Unequip"
+//!   and "Use" are NVForever's own, no setting named.
 //! - A modded weapon's figures are its modded ones (`WeaponStats::modded`).
 //! - While a hotkey's key is held, the hotkey panel stands in the picture's place and a
 //!   left click (or Enter) puts the row's item in that slot (`super::hotkey_panel`).
 
-use super::frame::{self, Align, Card, Ctx, Kit, LINE, MAIN, TEXT, THICK};
+use super::frame::{self, Align, Card, Ctx, Hint, Kit, LINE, MAIN, TEXT, THICK};
 use super::hotkey_panel::HotkeyHold;
 use crate::hotkeys::Hotkeys;
 use super::labels::label;
@@ -98,16 +123,42 @@ const METER: (f32, f32, f32, f32) = (62.0, 15.0, 20.0, 72.0);
 const BADGE: Rect = Rect { min: Vec2::new(390.0, 260.0), max: Vec2::new(454.0, 324.0) };
 const SKILL_REQ: Vec2 = Vec2::new(440.0, 300.0);
 const SKILL_REQ_FONT: usize = 7;
-/// "Mod X)": the Repair hint's place 47 lower [documented: `IM_ModButton` `_y` 47].
-const MOD_HINT: Vec2 = Vec2::new(855.0, 45.0 + 47.0);
+/// The hints: the first row at the Repair button's place, the words right-aligned at its x
+/// (the heading's right end), the rows `frame::HINT_PITCH` apart [documented:
+/// `IM_RepairButton` at (855, 45); observed: the original's screenshots on issue #1896,
+/// the first row (Equip) just under the heading's cards, the words ending at its right
+/// end].
+const HINTS: Vec2 = Vec2::new(855.0, 45.0);
+/// The rows of the repair hint and, on Weapons, the mod hint in [`page_hints`] with the
+/// labels `l`: with a controller the original's order Equip, Drop, Repair, Hot Key, Mod
+/// [observed: the original's screenshots on issue #1896]; with the keyboard Repair, Mod
+/// [observed 2026-11-09: the original's InventoryMenu button tiles read with keyboard and
+/// mouse on each ITEMS tab].
+pub fn hint_rows(l: crate::pad::Labels) -> (usize, usize) {
+    if l == crate::pad::Labels::Keys {
+        (0, 1)
+    } else {
+        (2, 4)
+    }
+}
 /// The scroll bar: 32 wide, arrows 32 × 16 [documented: list_box.xml, the DATA lists].
 const SCROLLBAR: f32 = 32.0;
+
+/// Which figure the first card holds, apart from the words of its title: since #1902 the
+/// title is the load order's setting (`sInventoryDamage`, `sInventoryDamageThreshold`),
+/// localized, so code that places or reads the card goes by this, never by the title
+/// [design].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FirstStat {
+    Damage,
+    Threshold,
+}
 
 /// What the figures show of an item.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Info {
-    /// The first card: ("DAM", damage) of a weapon, ("DT", threshold) of armour.
-    pub first: Option<(&'static str, String)>,
+    /// The first card: a weapon's damage or armour's threshold, with its title and figure.
+    pub first: Option<(FirstStat, &'static str, String)>,
     pub weight: Option<String>,
     pub value: Option<String>,
     /// A weapon's Strength requirement, over the value.
@@ -187,7 +238,7 @@ pub fn tiles_in(i: &Info, size: Vec2) -> Vec<Tile> {
     let col = |n: f32| n * (w + 10.0);
     let tile = |x: f32, y: f32, width: f32, title: &str, value: String| Tile { rect: Rect::new(x, y, x + width, y + h), title: title.into(), value, meter: None };
     let mut out = Vec::new();
-    if let Some((title, v)) = &i.first {
+    if let Some((_, title, v)) = &i.first {
         out.push(tile(0.0, 0.0, w, title, v.clone()));
     }
     out.push(tile(col(1.0), 0.0, w, label("sInventoryWeightUpper", "WG"), i.weight.clone().unwrap_or_else(|| "--".into())));
@@ -241,7 +292,7 @@ pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimSta
                 let w = &w;
                 // Binoculars and the like are weapons without damage: no DAM or STR
                 // [hypothesis].
-                i.first = (w.base_damage > 0).then(|| (label("sInventoryDamage", "DAM"), w.base_damage.to_string()));
+                i.first = (w.base_damage > 0).then(|| (FirstStat::Damage, label("sInventoryDamage", "DAM"), w.base_damage.to_string()));
                 i.strength = (w.strength_req > 0).then_some(w.strength_req);
                 i.badge = w.skill.as_deref().and_then(skill_badge).map(str::to_string);
                 i.skill_req = i.badge.is_some().then_some(w.skill_req);
@@ -267,7 +318,7 @@ pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimSta
         }
         Some(ItemKind::Armor) => {
             if let Some(a) = cf.and_then(|f| f.armor.get(&r.item)) {
-                i.first = Some((label("sInventoryDamageThreshold", "DT"), format!("{:.0}", a.dt)));
+                i.first = Some((FirstStat::Threshold, label("sInventoryDamageThreshold", "DT"), format!("{:.0}", a.dt)));
             }
             i.beside = sim.forms.item(r.item).map(|it| format!("{:?}", it.armor_class));
         }
@@ -427,11 +478,15 @@ pub fn draw(
     mut forms: Local<Option<super::stats::read::Forms>>,
     (repair, modding, mut script): (Res<super::repair::PipRepair>, Res<super::item_mod::PipItemMod>, Option<ResMut<crate::script::ScriptState>>),
     (hold, hotkeys): (Res<HotkeyHold>, Res<Hotkeys>),
+    (pip, mut logged, mut drawn_with): (Res<PipBoy>, Local<String>, Local<Option<crate::pad::Labels>>),
 ) {
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
     let Some((body, _)) = bodies.iter().find(|(_, b)| b.page == Page::Items) else { return };
-    if added.get(body).is_err() && !active.is_changed() && !repair.is_changed() && !modding.is_changed() && !hold.is_changed() && !hotkeys.is_changed() {
+    // The hints' set and keys follow the input device: a change of labels draws again.
+    let labels = crate::pad::labels();
+    let relabelled = drawn_with.replace(labels) != Some(labels);
+    if added.get(body).is_err() && !relabelled && !active.is_changed() && !repair.is_changed() && !modding.is_changed() && !hold.is_changed() && !hotkeys.is_changed() {
         return;
     }
     if forms.is_none() {
@@ -442,6 +497,11 @@ pub fn draw(
         let chosen = s.selected.checked_sub(1).and_then(|i| s.offer.choices.get(i));
         let desc = chosen.zip(forms.as_mut()).map(|(ch, f)| f.text(ch.item.0).description.clone());
         let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref(), &glyphs);
+        let line = format!("mod menu: {}", frame::hints_line(&super::item_mod::menu_hints(s)));
+        if *logged != line {
+            info!("pipboy hints: {line}");
+            *logged = line;
+        }
         commands.entity(body).despawn_children().with_children(|p| super::item_mod::draw_list(p, &mut c, s, combat.as_deref(), desc.as_deref()));
         return;
     }
@@ -467,8 +527,21 @@ pub fn draw(
     // screenshots; hypothesis: the figure is the one combat uses].
     let hp = forms.as_mut().and_then(|f| super::stats::read::player_hp(f, sim, script.as_deref_mut()));
     let dt = combat.as_deref().map(|c| crate::combat::target_armor(c, script.as_deref_mut(), sim, FormId::PLAYER_REF).0);
-    let (hp, dt) = (hp_text(hp), dt.map_or_else(|| "--".to_string(), |v| format!("{v:.1}")));
+    let (hp, dt) = (hp_text(hp), dt_text(dt));
     let offer = super::repair::current(&active, sim, script.as_deref());
+    // The tab's hints for the selected row (the hotkey panel hides them).
+    let tab = TABS[pip.tab().min(TABS.len() - 1)];
+    // Whether Enter does anything to the selected row: the game's own checks for it.
+    let enter = selected.is_some_and(|r| model::enter_acts(&sim.world, r));
+    let hints = page_hints(tab, selected, super::repair::hint_word(offer.as_ref()), info.as_ref().is_some_and(|(_, i)| i.mod_hint), enter);
+    let panel = hold.slot.is_some();
+    if !panel {
+        let line = format!("items {tab:?}: {}", frame::hints_line(&hints));
+        if *logged != line {
+            info!("pipboy hints: {line}");
+            *logged = line;
+        }
+    }
     let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref(), &glyphs);
     // The rows' heights and the first row drawn: the selection is always drawn, rows of
     // two lines taking more room (owner's playtest list 7 item 15).
@@ -478,12 +551,8 @@ pub fn draw(
         info!("pipboy items: heading HP {hp}, DT {dt}; rows {first}.. of {} drawn", heights.len());
     }
     commands.entity(body).despawn_children().with_children(|p| {
-        let wg = match &m.encumbrance {
-            Ok(e) => format!("{:.0}/{:.0}", e.weight, e.capacity),
-            Err(_) => "--".into(),
-        };
         let cards = [
-            Card::new(WG.0, WG.1, label("sInventoryWeight", "Wg"), wg),
+            Card::new(WG.0, WG.1, label("sInventoryWeight", "Wg"), wg_text(m)),
             Card::new(HP.0, HP.1, label("sHitPointsShort", "HP"), hp),
             Card::new(DT.0, DT.1, label("sInventoryDamageThreshold", "DT"), dt),
             Card::new(CAPS.0, CAPS.1, label("sInventoryCaps", "Caps"), caps.to_string()),
@@ -491,12 +560,18 @@ pub fn draw(
         frame::heading(p, &mut c, Page::Items.title(), &cards);
         list(p, &mut c, m, first, &heights);
         // The hotkey panel hides the picture, the badge and the hints (`IM_ButtonRect`).
-        let panel = hold.slot.is_some();
         if let (true, Some(k)) = (panel, hold.slot) {
             info!("pipboy hotkeys: panel drawn, key {} chosen{}", k + 1, hold.said.as_ref().map_or_else(String::new, |s| format!(", says {s:?}")));
             super::hotkey_panel::draw(p, &mut c, &hotkeys, &hold, selected, sim, combat.as_deref());
         } else {
-            super::repair::draw_hint(p, &mut c, offer.as_ref());
+            // The selected item's own lines for its Repair and Mod hints.
+            let (repair_row, mod_row) = hint_rows(labels);
+            if let (Some(o), Some(h)) = (offer.as_ref(), hints.get(repair_row)) {
+                info!("pipboy items: {} {}{}", o.name, h.text(), if h.dim { " (dim)" } else { "" });
+            }
+            if let (Some(r), Some(h)) = (selected, hints.get(mod_row).filter(|h| tab == Category::Weapons && !h.dim)) {
+                info!("pipboy items: {} {}", r.name, h.text());
+            }
         }
         if let Some((icon, i)) = &info {
             if panel {
@@ -504,12 +579,11 @@ pub fn draw(
             } else {
                 item_info(p, &mut c, icon.as_deref(), i);
             }
-            if let (false, true, Some(r)) = (panel, i.mod_hint, selected) {
-                // X, with a controller LB (`inventory_menu.xml`'s, `crate::pad::menu_buttons`).
-                let hint = format!("{} {}", label("sInventoryMod", "Mod"), crate::pad::hint(&[KeyCode::KeyX], crate::pad::at_menu(fnv_game::game::menus::INVENTORY)));
-                info!("pipboy items: {} {hint}", r.name);
-                c.text(p, 2, &hint, MAIN.min.x + MOD_HINT.x - 10.0, MAIN.min.y + MOD_HINT.y + frame::BUTTON_TEXT_Y, Align::Right, amber(TEXT));
-            }
+        }
+        // Every hint in its place, after the picture so that it is drawn over it (the
+        // column shares the picture's box: module notes).
+        if !panel {
+            c.hint_column(p, &hints, MAIN.min.x + HINTS.x, MAIN.min.y + HINTS.y + frame::BUTTON_TEXT_Y);
         }
     });
     // The model keeps the first row drawn as its scroll position, so a row the pointer
@@ -518,6 +592,68 @@ pub fn draw(
         if let Some(m) = active.bypass_change_detection().0.as_mut() {
             m.scroll[Side::Player as usize] = first;
         }
+    }
+}
+
+/// The ITEMS page's hints on the tab of `tab`, top to bottom, for the selected row
+/// (module notes, #1896), by the labels in use (`crate::pad::labels`; rows:
+/// [`hint_rows`]). With a controller, in the original's order: equip (`enter`: whether
+/// Enter does anything to the row, `crate::menu::model::enter_acts`), drop, the repair
+/// action (`repair`: its word and whether R does anything, `super::repair::hint_word`),
+/// hotkey, and on Weapons the mod action (`mod_slots`: the selected weapon has mod slots).
+/// With the keyboard and mouse only the repair action and, on Weapons, the mod action.
+pub fn page_hints(tab: Category, row: Option<&Row>, repair: (&'static str, bool), mod_slots: bool, enter: bool) -> Vec<Hint> {
+    use fnv_sim::forms::ItemKind;
+    let at = crate::pad::at_menu(fnv_game::game::menus::INVENTORY);
+    let key = |k: KeyCode| crate::pad::hint(&[k], at);
+    let item = row.filter(|r| r.folder.is_none());
+    // Enter equips or takes off (`menu::model`'s Command::One), or uses an aid item or a
+    // skill book; whether the game takes it is `enter` (the checks `World::equip_at` and
+    // `World::unequip` run: a book that teaches nothing, a broken weapon, misc and ammo are
+    // refused). A hotkey holds weapons, apparel and aid (`crate::hotkeys::can_hold`).
+    let holdable = item.and_then(|r| r.kind).is_some_and(crate::hotkeys::can_hold);
+    let equip = match item {
+        Some(r) if matches!(r.kind, Some(ItemKind::Aid | ItemKind::Book)) => USE,
+        Some(r) if r.equipped => UNEQUIP,
+        _ => super::labels::built_in_label("sInventoryEquip"),
+    };
+    let droppable = item.is_some_and(|r| !r.quest && r.kind != Some(ItemKind::CaravanCard));
+    let repair = Hint::new(repair.0, key(KeyCode::KeyR), !repair.1);
+    let mut out = if crate::pad::labels() == crate::pad::Labels::Keys {
+        vec![repair]
+    } else {
+        vec![
+            Hint::new(equip, key(KeyCode::Enter), !(enter && item.is_some())),
+            Hint::new(super::labels::built_in_label("sInventoryDrop"), drop_key(), !droppable),
+            repair,
+            Hint::new(super::labels::built_in_label("sInventoryHotKey"), HOTKEY_KEYS.into(), !holdable),
+        ]
+    };
+    if tab == Category::Weapons {
+        // X, with a controller LB (`inventory_menu.xml`'s, `crate::pad::menu_buttons`).
+        out.push(Hint::new(label("sInventoryMod", "Mod"), key(KeyCode::KeyX), !mod_slots));
+    }
+    out
+}
+
+/// The equip hint's words on an aid item or a book, and on what is worn: NVForever's own,
+/// no game setting is named for them [design, #1896].
+const USE: &str = "Use";
+const UNEQUIP: &str = "Unequip";
+
+/// The hotkey hint's keys: a hotkey's key (1, 3 to 8; 2 is Ammo Swap) held while the row
+/// is clicked (`super::hotkey_panel`); no controller button does it yet (`crate::pad`'s
+/// inventory buttons) [design].
+const HOTKEY_KEYS: &str = "1-8)";
+
+/// The drop hint's key: a right click on the keyboard and mouse (owner 2026-11-02, #1393),
+/// with a controller its X (`IM_DropButton`'s `&xbuttonx;` [documented:
+/// inventory_menu.xml]), which [`keys`] reads itself.
+fn drop_key() -> String {
+    use crate::pad::{labels, pad_label, Labels, PadInput};
+    match labels() {
+        Labels::Keys => format!("{})", crate::bindings::mouse_name(MouseButton::Right)),
+        l => format!("{})", pad_label(PadInput::Button(GamepadButton::West), l)),
     }
 }
 
@@ -549,8 +685,21 @@ fn item_info(p: &mut ChildSpawnerCommands, c: &mut Ctx, icon: Option<&str>, i: &
 }
 
 /// The HP card's figure: health out of its whole, "--" unread.
-fn hp_text(hp: Option<(f64, f64)>) -> String {
+pub(crate) fn hp_text(hp: Option<(f64, f64)>) -> String {
     hp.map_or_else(|| "--".to_string(), |(v, max)| format!("{}/{}", super::stats::model::whole(v), super::stats::model::whole(max)))
+}
+
+/// The DT card's figure: one decimal, "--" unread.
+pub(crate) fn dt_text(dt: Option<f32>) -> String {
+    dt.map_or_else(|| "--".to_string(), |v| format!("{v:.1}"))
+}
+
+/// The Wg card's figure: carried weight out of what the player can carry, "--" unread.
+pub(crate) fn wg_text(m: &MenuModel) -> String {
+    match &m.encumbrance {
+        Ok(e) => format!("{:.0}/{:.0}", e.weight, e.capacity),
+        Err(_) => "--".into(),
+    }
 }
 
 /// Each row's height as drawn: a name broken over more lines makes its row taller.
@@ -651,6 +800,107 @@ mod tests {
         assert_eq!(row_text(&r), "Stimpak");
     }
 
+    fn row(kind: Option<fnv_sim::forms::ItemKind>) -> Row {
+        Row { item: FormId(1), at: None, name: "Thing".into(), count: 1, weight: None, value: None, kind, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, mods: 0, mods_value: 0, folder: None, reference: None }
+    }
+
+    fn shown(h: &[Hint]) -> Vec<(String, bool)> {
+        h.iter().map(|h| (h.text(), h.dim)).collect()
+    }
+
+    fn hint(text: &str, dim: bool) -> (String, bool) {
+        (text.to_string(), dim)
+    }
+
+    /// With a controller every tab shows the original's whole column, each hint with its
+    /// button, in the original's order (Equip, Drop, Repair, Hot Key, then Mod on Weapons);
+    /// with the keyboard and mouse only Repair (Maintain) and, on Weapons, Mod. Those that
+    /// do nothing for the selected item are dim (#1896). Whether Enter does anything is the
+    /// game's check (`model::enter_acts`, tested with the menu model on a synthetic
+    /// plugin); here it is given.
+    #[test]
+    fn each_tab_shows_its_hints_and_dims_what_does_nothing() {
+        use crate::pad::{set_labels, Labels};
+        use fnv_sim::forms::ItemKind;
+        let gun = row(Some(ItemKind::Weapon));
+        let worn = Row { equipped: true, ..row(Some(ItemKind::Armor)) };
+        let stim = row(Some(ItemKind::Aid));
+        let misc = |tab| match tab {
+            Category::Misc => row(Some(ItemKind::Misc)),
+            _ => row(Some(ItemKind::Ammo)),
+        };
+
+        // A controller (Xbox names): A equips, X drops, Y repairs, LB mods.
+        set_labels(Labels::Xbox);
+        // Weapons: Equip, Drop, Repair, Hotkey, Mod; a weapon with mod slots, repairable.
+        let weapons = shown(&page_hints(Category::Weapons, Some(&gun), ("Repair", true), true, true));
+        // A weapon without mod slots, nothing to repair it with: Repair and Mod dim, in
+        // their rows (the drawing's own log lines read them there).
+        let bare = page_hints(Category::Weapons, Some(&gun), ("Repair", false), false, true);
+        let (repair_row, mod_row) = hint_rows(Labels::Xbox);
+        let bare = (bare[repair_row].word, bare[repair_row].dim, bare[mod_row].word, bare[mod_row].dim, bare[0].dim);
+        // Apparel worn, at full condition: Unequip, Maintain; no Mod hint.
+        let apparel = shown(&page_hints(Category::Apparel, Some(&worn), ("Maintain", false), false, true));
+        // Aid: Use; nothing repairs it. A book on the Aid tab is read: Use.
+        let aid = shown(&page_hints(Category::Aid, Some(&stim), super::super::repair::hint_word(None), false, true));
+        let book = page_hints(Category::Aid, Some(&row(Some(ItemKind::Book))), ("Repair", false), false, true)[0].word;
+        // What the game refuses (a book that teaches nothing, a broken weapon) has a dim
+        // equip hint; the hotkey hint goes by what a hotkey holds.
+        let refused = page_hints(Category::Weapons, Some(&gun), ("Repair", true), true, false);
+        let refused = (refused[0].text(), refused[0].dim, refused[3].dim);
+        // Misc and Ammo: Equip and Hotkey dim (they do nothing there), Drop bright.
+        let misc_ammo: Vec<_> = [Category::Misc, Category::Ammo].map(|tab| shown(&page_hints(tab, Some(&misc(tab)), ("Repair", false), false, false))).into();
+        // A quest item cannot be dropped; an empty tab dims everything.
+        let quest = Row { quest: true, ..row(Some(ItemKind::Misc)) };
+        let quest = page_hints(Category::Misc, Some(&quest), ("Repair", false), false, false)[1].dim;
+        let empty = page_hints(Category::Weapons, None, ("Repair", false), false, true);
+        let empty = (empty.len(), empty.iter().all(|h| h.dim));
+
+        // The keyboard and mouse: Repair (Maintain) on every tab, Mod under it on Weapons.
+        set_labels(Labels::Keys);
+        assert_eq!(hint_rows(Labels::Keys), (0, 1));
+        let keys_weapons = shown(&page_hints(Category::Weapons, Some(&gun), ("Repair", true), true, true));
+        let keys_bare = shown(&page_hints(Category::Weapons, Some(&gun), ("Repair", false), false, true));
+        let keys_apparel = shown(&page_hints(Category::Apparel, Some(&worn), ("Maintain", false), false, true));
+        let keys_aid = shown(&page_hints(Category::Aid, Some(&stim), super::super::repair::hint_word(None), false, true));
+        let keys_misc_ammo: Vec<_> = [Category::Misc, Category::Ammo].map(|tab| shown(&page_hints(tab, Some(&misc(tab)), ("Repair", false), false, false))).into();
+        let keys_empty = shown(&page_hints(Category::Weapons, None, ("Repair", false), false, true));
+
+        assert_eq!(weapons, [hint("Equip A)", false), hint("Drop X)", false), hint("Repair Y)", false), hint("Hotkey 1-8)", false), hint("Mod LB)", false)]);
+        assert_eq!(bare, ("Repair", true, "Mod", true, false));
+        assert_eq!(apparel, [hint("Unequip A)", false), hint("Drop X)", false), hint("Maintain Y)", true), hint("Hotkey 1-8)", false)]);
+        assert_eq!(aid, [hint("Use A)", false), hint("Drop X)", false), hint("Repair Y)", true), hint("Hotkey 1-8)", false)]);
+        assert_eq!(book, "Use");
+        assert_eq!(refused, ("Equip A)".to_string(), true, false));
+        for h in &misc_ammo {
+            assert_eq!(h, &[hint("Equip A)", true), hint("Drop X)", false), hint("Repair Y)", true), hint("Hotkey 1-8)", true)]);
+        }
+        assert!(quest);
+        assert_eq!(empty, (5, true), "an empty Weapons tab: all five controller hints, all dim");
+
+        assert_eq!(keys_weapons, [hint("Repair R)", false), hint("Mod X)", false)]);
+        assert_eq!(keys_bare, [hint("Repair R)", true), hint("Mod X)", true)]);
+        assert_eq!(keys_apparel, [hint("Maintain R)", true)]);
+        assert_eq!(keys_aid, [hint("Repair R)", true)]);
+        for h in &keys_misc_ammo {
+            assert_eq!(h, &[hint("Repair R)", true)]);
+        }
+        assert_eq!(keys_empty, [hint("Repair R)", true), hint("Mod X)", true)]);
+    }
+
+    /// Five hints 46 apart from the Repair button's place end above the figures' highest
+    /// card (the STR card, a card's height over them); the words end at the heading's right
+    /// end, and the keys may reach past it no further than the canvas.
+    #[test]
+    fn the_hints_fit_above_the_figures() {
+        // The last hint's text top and a line of font 2 (31).
+        let last = HINTS.y + frame::HINT_PITCH * 4.0 + frame::BUTTON_TEXT_Y + 31.0;
+        assert!(last < INFO.min.y - INFO.height() / 3.0, "{last}");
+        assert_eq!(HINTS.x, MAIN.width());
+        // The key room stays inside the canvas (checked when the test compiles).
+        const { assert!(MAIN.max.x + frame::HINT_KEY_ROOM <= crate::pipboy::CANVAS.x) };
+    }
+
     #[test]
     fn dps_is_the_damage_at_the_condition_times_the_shots_a_second() {
         let auto = fnv_combat::data::WeaponStats { base_damage: 5, automatic: true, fire_rate: 10.0, attack_shots_per_sec: 2.0, ..Default::default() };
@@ -700,7 +950,7 @@ mod tests {
         let (w, h) = (INFO.width() / 3.0, INFO.height() / 3.0);
         // A weapon: DAM, WG, VAL; STR over VAL; CND and the ammunition.
         let weapon = Info {
-            first: Some(("DAM", "72".into())),
+            first: Some((FirstStat::Damage, "DAM", "72".into())),
             weight: Some("5.50".into()),
             value: Some("299".into()),
             strength: Some(3),

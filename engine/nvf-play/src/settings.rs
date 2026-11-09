@@ -86,6 +86,29 @@ impl GivenSwitches {
         let hits: Vec<&str> = note_switches(note).into_iter().filter(|n| self.given.iter().any(|g| g == n)).collect();
         (!hits.is_empty()).then(|| hits.join(", "))
     }
+
+    /// The switches of `note` that keep the command line's state over the INI's: those
+    /// given, in a test run ([`GivenSwitches::win`]); `None`: the stored state applies
+    /// ([`apply_stored`], [`switch_after_ini`]).
+    pub fn keeping(&self, note: &str) -> Option<String> {
+        if self.win {
+            self.named_in(note)
+        } else {
+            None
+        }
+    }
+}
+
+/// A switch's state once the INI is applied, by [`apply_stored`]'s precedence: the stored
+/// state when the INI has one, unless the command line keeps its own
+/// ([`GivenSwitches::keeping`]); the command line's state otherwise. For what has to be
+/// decided when the app is built, before `apply_stored` runs (nvforever's frame split
+/// takes its GPU timestamps from the start or not at all), so the two cannot disagree.
+pub fn switch_after_ini(command_line: bool, stored: Option<bool>, given: &GivenSwitches, note: &str) -> bool {
+    match stored {
+        Some(v) if given.keeping(note).is_none() => v,
+        _ => command_line,
+    }
 }
 
 /// The command-line switches a row's note names (`--no-lip`, `--msaa`), leaving out one
@@ -257,7 +280,7 @@ type DisabledStatus = fn(&World) -> Option<&'static str>;
 /// The switches in the order the page lists them: by group, each group in the order its
 /// switches were added.
 #[derive(Resource, Default)]
-pub struct Settings(Vec<Setting>, Vec<(&'static str, ChoiceList)>, Vec<(&'static str, DisabledStatus)>);
+pub struct Settings(Vec<Setting>, Vec<(&'static str, ChoiceList)>, Vec<(&'static str, DisabledStatus)>, Vec<&'static str>);
 
 impl Settings {
     /// Add a switch, after the last one of its group. A key added twice is kept once.
@@ -314,6 +337,26 @@ pub fn add_setting(app: &mut App, s: Setting) {
     app.world_mut().resource_mut::<Settings>().add(s);
 }
 
+/// Mark a renderer row whose effective edits need a pipeline wait on resume [design].
+pub fn wait_for_pipelines(app: &mut App, key: &'static str) {
+    app.init_resource::<Settings>();
+    let mut settings = app.world_mut().resource_mut::<Settings>();
+    if !settings.3.contains(&key) {
+        settings.3.push(key);
+    }
+}
+
+fn pipeline_change(world: &mut World, key: &str, changed: bool) {
+    if changed && world.get_resource::<crate::pause::Paused>().is_some_and(|p| p.0)
+        && world.get_resource::<State<crate::PlayState>>().is_some_and(|s| *s.get() == crate::PlayState::Menu)
+        && world.resource::<Settings>().3.contains(&key)
+    {
+        if let Some(mut resume) = world.get_resource_mut::<crate::graphics_resume::GraphicsResume>() {
+            resume.changed();
+        }
+    }
+}
+
 /// Disable a row while `status` returns an explanation. Inputs cannot change its
 /// saved value during that time; returning `None` makes it editable again.
 pub fn set_disabled_status(app: &mut App, key: &'static str, status: fn(&World) -> Option<&'static str>) {
@@ -359,6 +402,7 @@ fn take(world: &mut World, i: usize, apply: impl FnOnce(&mut World) -> bool) -> 
         warn!("settings: {} has no such choice", s.key);
         return false;
     }
+    pipeline_change(world, s.key, (c.save)(world) != before);
     let name = (c.chosen)(world);
     if c.ask_keep {
         // Chosen again while waiting: the one before the first goes back.
@@ -388,7 +432,9 @@ pub fn revert(world: &mut World) {
     let Some(p) = world.remove_resource::<PendingKeep>() else { return };
     let settings = world.resource::<Settings>();
     let (Some(s), Some(c)) = (settings.list().get(p.row).copied(), settings.choices(p.row)) else { return };
+    let before = (c.save)(world);
     (c.load)(world, &p.before);
+    pipeline_change(world, s.key, (c.save)(world) != before);
     info!("settings: {} back to {} (not kept)", s.key, (c.chosen)(world));
     store(world);
 }
@@ -411,6 +457,7 @@ pub fn flip(world: &mut World, i: usize) -> Option<bool> {
     }
     let on = !(s.get)(world);
     (s.set)(world, on);
+    pipeline_change(world, s.key, (s.get)(world) == on);
     info!("settings: {} {}", s.key, if on { "on" } else { "off" });
     own(world, i);
     store(world);
@@ -435,7 +482,9 @@ pub fn set_slider(world: &mut World, i: usize, v: f32) -> Option<f32> {
     let slider = s.slider?;
     let v = slider.fit(v);
     if (slider.get)(world) != v {
+        let before = (slider.get)(world);
         (slider.set)(world, v);
+        pipeline_change(world, s.key, (slider.get)(world) != before);
         info!("settings: {} {}", s.key, slider.text(v));
         own(world, i);
         store(world);
@@ -492,7 +541,7 @@ pub fn fix_ui_scale() {
 }
 
 /// `1`/`0` (also true/false, on/off, yes/no, any case).
-fn parse_switch(v: &str) -> Option<bool> {
+pub fn parse_switch(v: &str) -> Option<bool> {
     match v.trim().to_ascii_lowercase().as_str() {
         "1" | "true" | "on" | "yes" => Some(true),
         "0" | "false" | "off" | "no" => Some(false),
@@ -582,7 +631,7 @@ pub fn apply_stored(world: &mut World) {
             continue;
         }
         let flags = given.named_in(list[i].note);
-        if let (Some(f), true) = (&flags, given.win) {
+        if let Some(f) = given.keeping(list[i].note) {
             listed += 1;
             kept += 1;
             kept_rows.push((i, v.to_string()));
@@ -608,7 +657,7 @@ pub fn apply_stored(world: &mut World) {
             continue;
         }
         let flags = given.named_in(s.note);
-        if let (Some(f), true) = (&flags, given.win) {
+        if let Some(f) = given.keeping(s.note) {
             kept += 1;
             kept_rows.push((i, s.stored_text(v)));
             info!("settings: {} kept at {} as {f} on the command line set it; [{SECTION}] {}={} of {} is not applied in a test run", s.key, shown(&s, now), s.key, s.stored_text(v), path.display());
@@ -672,6 +721,39 @@ fn write(path: &Path, states: &[(&str, String)]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pipeline_rows_latch_effective_pause_edits_including_defaults() {
+        use crate::{graphics_resume::GraphicsResume, pause::Paused, PlayState};
+        let mut app = App::new();
+        app.init_resource::<Lamp>().insert_resource(Reach(0.5)).init_resource::<GraphicsResume>()
+            .insert_resource(Paused(true)).insert_resource(State::new(PlayState::Menu));
+        add_setting(&mut app, setting("lamp", "Test"));
+        add_setting(&mut app, slider("reach"));
+        let mut no_op = slider("no-op");
+        no_op.slider.as_mut().unwrap().set = |_, _| {};
+        add_setting(&mut app, no_op);
+        for key in ["lamp", "reach", "no-op"] {
+            wait_for_pipelines(&mut app, key);
+        }
+        let world = app.world_mut();
+        set_slider(world, 1, 0.5);
+        set_slider(world, 2, 0.8);
+        restore(world, 0, 0.0);
+        assert!(world.resource_mut::<GraphicsResume>().request(0.0), "no-op edits do not delay resume");
+        set_slider(world, 1, 0.8);
+        assert!(!world.resource_mut::<GraphicsResume>().request(0.0));
+        world.resource_mut::<GraphicsResume>().reset();
+        restore(world, 1, 0.5);
+        assert!(!world.resource_mut::<GraphicsResume>().request(0.0), "Defaults is an effective edit");
+        world.resource_mut::<GraphicsResume>().reset();
+        restore(world, 0, 1.0);
+        assert!(!world.resource_mut::<GraphicsResume>().request(0.0), "Defaults covers switches too");
+        world.resource_mut::<GraphicsResume>().reset();
+        world.resource_mut::<Paused>().0 = false;
+        flip(world, 0);
+        assert!(world.resource_mut::<GraphicsResume>().request(0.0), "edits outside a pause are not latched");
+    }
 
     #[derive(Resource, Default)]
     struct Lamp(bool);

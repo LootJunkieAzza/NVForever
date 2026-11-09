@@ -89,6 +89,17 @@ pub struct DestructionChange {
     pub debris: Vec<(FormId, i32)>,
 }
 
+pub(crate) fn destruction_damage_threshold(health: f64, percent: u8) -> f64 {
+    health * (100.0 - f64::from(percent)) / 100.0
+}
+
+pub(crate) fn destruction_threshold_reached(damage: f64, health: f64, percent: u8) -> bool {
+    // [design] Eight f64 epsilons scaled by health cover rounding (including old saves'
+    // health * (1 - percent / 100)) without swallowing real damage intervals; see
+    // docs/spec-notes/combat-rules.md, object destruction.
+    damage >= destruction_damage_threshold(health, percent) - 8.0 * f64::EPSILON * health
+}
+
 /// What a hit did.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct HitResult {
@@ -474,8 +485,9 @@ impl Game<'_> {
     /// Effect List") [hypothesis: the group, data.rs `template_spells`].
     pub fn unarmed_effect(&self, r: FormId) -> Option<(FormId, Option<&str>)> {
         let base = base_of(self, r)?;
-        let (_, d) = self.template_source(base, r, |d| d.template_spells)?;
-        Some((d.unarmed_effect?, d.unarmed_anim.as_deref()))
+        let (src, d) = self.template_source(base, r, |d| d.template_spells)?;
+        // SetActorUnarmedEffect's first (`crate::nvse_jip11`).
+        Some((self.unarmed_override(src).or(d.unarmed_effect)?, d.unarmed_anim.as_deref()))
     }
 
     /// Whether a kill by `killer` earns the player experience: the player's, and a hired
@@ -866,6 +878,11 @@ impl Game<'_> {
         if by == Some(FormId::PLAYER_REF) && !new.is_empty() {
             self.count_stat(crate::misc_stats::DISMEMBERED_LIMBS, new.len() as f64);
         }
+        // JohnnyGuitar's limb handlers: (actor, limb) (`crate::nvse_jg8`).
+        for &(l, _) in &new {
+            let (a, limb) = (fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(f64::from(l)));
+            self.jg8_fire(crate::nvse_jg8::Ev::LimbGone, &[a.clone(), limb.clone()], vec![a, limb]);
+        }
         new
     }
 
@@ -931,12 +948,12 @@ impl Game<'_> {
             // Cap Damage: a stage newly reached stops the hit at its threshold.
             let mut by_pct: Vec<&crate::data::DestructionStage> = def.stages.iter().collect();
             by_pct.sort_by_key(|s| std::cmp::Reverse(s.health_percent));
-            let pct_after = 100.0 * (health - total) / health;
-            let pct_before = 100.0 * (health - had) / health;
             for s in by_pct {
-                let p = s.health_percent as f64;
-                if s.flags & crate::data::DestructionStage::CAP_DAMAGE != 0 && pct_after <= p && pct_before > p {
-                    total = total.min(health * (1.0 - p / 100.0));
+                if s.flags & crate::data::DestructionStage::CAP_DAMAGE != 0
+                    && destruction_threshold_reached(total, health, s.health_percent)
+                    && !destruction_threshold_reached(had, health, s.health_percent)
+                {
+                    total = total.min(destruction_damage_threshold(health, s.health_percent));
                     break;
                 }
             }

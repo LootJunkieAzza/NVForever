@@ -375,11 +375,27 @@ impl FrameTimes {
 /// The improvements to start with, `--msaa` and the frame-time test aid.
 pub struct GraphicsPlugin(pub Graphics, pub Msaa, pub Option<FrameTimes>);
 
-/// Add the shared GPU diagnostics once when either profiling path needs them.
+/// Marks a run whose measuring paths (the frame-time aid, frame telemetry's `gpu`, the span
+/// profile) asked for the GPU diagnostics: they then record all the time, and the frame
+/// split (`perf_overlay::split`) never takes the recorder out.
+#[derive(Resource)]
+pub(crate) struct MeasuringDiagnostics;
+
+/// Add the shared GPU diagnostics once when a measuring path needs them, and mark the run
+/// as measuring with them ([`MeasuringDiagnostics`]).
 pub(crate) fn ensure_render_diagnostics(app: &mut App) {
-    if !app.is_plugin_added::<bevy::render::diagnostic::RenderDiagnosticsPlugin>() {
-        app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
+    app.insert_resource(MeasuringDiagnostics);
+    add_render_diagnostics(app);
+}
+
+/// Add the GPU diagnostics unless they are there (another path, or Bevy's own with Tracy);
+/// true when this call added them.
+pub(crate) fn add_render_diagnostics(app: &mut App) -> bool {
+    if app.is_plugin_added::<bevy::render::diagnostic::RenderDiagnosticsPlugin>() {
+        return false;
     }
+    app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
+    true
 }
 
 impl Plugin for GraphicsPlugin {
@@ -1004,5 +1020,12 @@ mod tests {
         already_added.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
         ensure_render_diagnostics(&mut already_added);
         assert!(already_added.is_plugin_added::<bevy::render::diagnostic::RenderDiagnosticsPlugin>());
+        assert!(already_added.world().contains_resource::<MeasuringDiagnostics>(), "a measuring path marks the run even when the plugin was there");
+
+        // The overlay's request: true only for the call that added the plugin.
+        let mut overlay = App::new();
+        assert!(add_render_diagnostics(&mut overlay));
+        assert!(!add_render_diagnostics(&mut overlay));
+        assert!(!overlay.world().contains_resource::<MeasuringDiagnostics>());
     }
 }

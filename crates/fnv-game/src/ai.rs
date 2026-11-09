@@ -460,7 +460,24 @@ impl<'a> Game<'a> {
         }
     }
 
-    /// The references a script put somewhere since the last call (MoveTo; see
+    /// Finish a discontinuous move after placement succeeded (MoveTo, a follower
+    /// brought along, or a scripted door activation) [design: functions/refs.rs,
+    /// followers.rs, game.rs]. Ordinary walking uses `set_actor_place` instead.
+    pub(crate) fn note_relocated(&mut self, reference: FormId, cell: Option<FormId>, pos: [f32; 3]) {
+        if self.ref_script(reference).is_some() {
+            self.moved.insert(reference);
+        }
+        if reference != FormId::PLAYER_REF {
+            self.teleported.insert(reference);
+            // A drawn object is redrawn at its destination, as after SetPos.
+            if !is_actor_base(self.world.forms, functions::base_of(self, reference).unwrap_or(FormId(0))) {
+                self.turned.insert(reference);
+            }
+        }
+        self.emit(EventKind::Moved { reference, cell, pos });
+    }
+
+    /// The references a script put somewhere since the last call (MoveTo or a door; see
     /// [`Game::teleported`]).
     pub fn take_teleported(&mut self) -> BTreeSet<FormId> {
         std::mem::take(&mut self.teleported)

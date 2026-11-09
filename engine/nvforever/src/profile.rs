@@ -30,6 +30,12 @@
 //! draw, and the per-view preparing scales with them (graphics-enhanced.md §5.5); then
 //! `transparent <v> views, <n> sorted draws`, the blended draws, one each.
 //!
+//! `profile particles: <n> frames; per frame: regular <p> published, <c> culled; effect
+//! <p> published, <c> culled` (issue #1417): per frame of the window, the model particle
+//! systems (`particles.rs`) and effect-shader bursts (`effect_particles.rs`) with live
+//! particles whose mesh was rebuilt, and those left out because no active camera drawing
+//! their layers could see them (their render entity hidden): [`ParticleCull`].
+//!
 //! `profile changes:` counts the meshes, images and game materials made, changed and
 //! dropped per frame, and `profile change sources:` splits the changed meshes and game
 //! materials by the system holding them when they changed (faces, vertex morphs,
@@ -341,6 +347,8 @@ impl Plugin for ProfilePlugin {
             )
                 .chain(),
         );
+        // The particle builds count into it when it is there (`profile particles:`).
+        app.insert_resource(ParticleCull { every, ..default() }).add_systems(Last, report_particles);
         if let Some(render) = app.get_sub_app_mut(bevy::render::RenderApp) {
             render.add_systems(bevy::render::Render, pipeline_counts.in_set(bevy::render::RenderSystems::Render));
             render.add_systems(bevy::render::Render, (move |mut last: Local<Option<Instant>>, shadow: Res<ViewBinnedRenderPhases<bevy::pbr::Shadow>>, opaque: Res<ViewBinnedRenderPhases<Opaque3d>>, mask: Res<ViewBinnedRenderPhases<AlphaMask3d>>, prepass: Res<ViewBinnedRenderPhases<Opaque3dPrepass>>, mask_prepass: Res<ViewBinnedRenderPhases<AlphaMask3dPrepass>>, transparent: Res<bevy::render::render_phase::ViewSortedRenderPhases<bevy::core_pipeline::core_3d::Transparent3d>>| {
@@ -449,6 +457,69 @@ fn count_asset_changes(
             by_asset.frame_materials.push(*id);
         }
     }
+}
+
+/// Which particle build a count comes from.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ParticleKind {
+    /// The model particle systems (`particles.rs`).
+    Regular = 0,
+    /// The effect shaders' particles (`effect_particles.rs`).
+    Effect = 1,
+}
+
+/// The particle builds' counts of a window for `profile particles:`. Present only while
+/// the profile aid runs; the builds (`particles::draw`, `effect_particles::build`) count
+/// into it when it is there and do nothing more without it.
+#[derive(Resource, Default)]
+pub struct ParticleCull {
+    every: f32,
+    /// Real seconds and frames of the window so far.
+    since: f32,
+    frames: u32,
+    /// Per kind ([`ParticleKind`]), summed over the window's frames: systems with live
+    /// particles whose mesh was rebuilt, and those left out (no camera could see them).
+    published: [u64; 2],
+    culled: [u64; 2],
+}
+
+impl ParticleCull {
+    /// A system with live particles this frame: rebuilt when `seen`, else left out.
+    pub fn count(&mut self, kind: ParticleKind, seen: bool) {
+        let n = if seen { &mut self.published } else { &mut self.culled };
+        n[kind as usize] += 1;
+    }
+
+    /// The window's sums so far: (published, culled) per kind.
+    #[cfg(test)]
+    pub fn totals(&self) -> ([u64; 2], [u64; 2]) {
+        (self.published, self.culled)
+    }
+}
+
+/// `profile particles: <n> frames; per frame: regular <p> published, <c> culled; effect
+/// <p> published, <c> culled`.
+fn particles_line(frames: u32, published: [u64; 2], culled: [u64; 2]) -> String {
+    let per = |n: u64| n as f64 / f64::from(frames.max(1));
+    format!(
+        "profile particles: {frames} frames; per frame: regular {:.2} published, {:.2} culled; effect {:.2} published, {:.2} culled",
+        per(published[0]),
+        per(culled[0]),
+        per(published[1]),
+        per(culled[1])
+    )
+}
+
+/// `profile particles:` every `NVF_PLAY_TEST_PROFILE` real seconds; the frame's builds ran
+/// in `PostUpdate`, before this.
+fn report_particles(time: Res<Time<Real>>, mut c: ResMut<ParticleCull>) {
+    c.since += time.delta_secs();
+    c.frames += 1;
+    if c.since < c.every {
+        return;
+    }
+    info!("{}", particles_line(c.frames, c.published, c.culled));
+    *c = ParticleCull { every: c.every, ..default() };
 }
 
 /// The changed (modified) meshes and game materials of a window, by the source holding
@@ -991,7 +1062,7 @@ fn hitch_line(ms: f64, frame: &HashMap<String, (f64, u64)>, listed: usize) -> St
 
 /// The processor time the process has used so far, user and kernel, seconds.
 #[cfg(windows)]
-fn process_cpu_secs() -> Option<f64> {
+pub(crate) fn process_cpu_secs() -> Option<f64> {
     use windows_sys::Win32::Foundation::FILETIME;
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
     let mut t = [FILETIME::default(); 4];
@@ -1003,13 +1074,30 @@ fn process_cpu_secs() -> Option<f64> {
 }
 
 #[cfg(not(windows))]
-fn process_cpu_secs() -> Option<f64> {
+pub(crate) fn process_cpu_secs() -> Option<f64> {
     None
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn particles_line_gives_per_frame_counts() {
+        let mut c = ParticleCull::default();
+        for _ in 0..21 {
+            c.count(ParticleKind::Regular, true);
+        }
+        for _ in 0..123 {
+            c.count(ParticleKind::Regular, false);
+        }
+        c.count(ParticleKind::Effect, false);
+        assert_eq!(
+            particles_line(10, c.published, c.culled),
+            "profile particles: 10 frames; per frame: regular 2.10 published, 12.30 culled; effect 0.00 published, 0.10 culled"
+        );
+        assert!(particles_line(0, [0; 2], [0; 2]).starts_with("profile particles: 0 frames; per frame: regular 0.00 published"));
+    }
 
     #[test]
     fn change_sources_sum_per_source_and_list_the_others() {

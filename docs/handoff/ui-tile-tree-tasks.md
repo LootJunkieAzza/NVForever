@@ -774,6 +774,14 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       hand-built keys stay, W presses Wait through the file. Interface `screen()` units
       while it is switched on (`interface_screen`). Tests: `tiles::wait_menu`,
       `tiles::vanilla` (the switch). Smoke: `tiles-sleep-wait`.
+    - **Pip-Boy, ITEMS built** 2026-11-07, tests, clippy and its smoke scenarios pass (`pipboy-items-1513`, issues #1513 and
+      #1468; stands on the barter draft): the ITEMS page from `inventory_menu.xml` behind
+      `[UI] TileMenus=InventoryMenu` (`tiles/inventory_menu.rs`, pipboy.md §5.2.1), in the image
+      as the first slice below. Its tabs are template rows, its words NVForever's own; its
+      `usable` asks only of the rows inside the list's window. The repair list and the mod
+      menu stay hand-built over it. Unit fixtures are synthetic; the `tiles-items*` smoke
+      scenarios check structure and hits on the real file. Not closed: the capture list at the
+      end of pipboy.md §5.2.1.
     - **Pip-Boy, first slice built** 2026-11-04, checked 2026-11-06 (`pipboy-tiles-1513`, part of issue #1513): STATS'
       S.P.E.C.I.A.L. tab from `stats_menu.xml` behind `[UI] TileMenus=StatsMenu`
       (`tiles/stats_menu.rs`, pipboy.md §5.1.1). The first tile menu not in the window: `paint`
@@ -784,6 +792,13 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       compositing. Unit fixtures are synthetic; the `tiles-stats-special*` smoke scenarios check
       structure and hits on the real file, and their logs cannot prove pixels. Not closed: the
       capture list at the end of pipboy.md §5.1.1.
+    - **Pip-Boy, the STATS page built** 2026-11-07 (`pipboy-stats-tabs-1513`, part of issue #1513):
+      Status, Skills, Perks and General in the same module under the same switch (pipboy.md §5.1.2,
+      §5.1.3): a page found per tab, rows known by `model::RowKey`, lists that scroll by
+      `StatsView::top` over `tiles/list.rs`, from two runs of the original. Fixtures are synthetic;
+      `tiles-stats-skills*`, `-perks*`, `-general*`, `-status*` are for the real file. Not closed: the
+      capture list at the end of §5.1.3. Lost behind the switch: the limb's box. Left out: the rad
+      effects' row. Next: ITEMS.
     - **T15b, part 2 built** 2026-11-04 (`tutorial-menu-978`, issue #978): the tutorial menu
       from `tutorial_menu.xml` behind `[UI] TileMenus=TutorialMenu`, in the same shape
       (`tiles/tutorial_menu.rs`, tutorial-menu.md §5). Its text scrolls inside
@@ -822,6 +837,36 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       and root arrow direction were checked against a capture of the original at 1280 x 720
       (barter-menu.md section 9). Synthetic tests cover the adapter and a model sale. Smoke
       `tiles-barter`, `tiles-barter-quantity`, `barter-default-drawing` includes 1280x720 shots.
+
+    - **T15, the vendor's repair menu built as a candidate** 2026-11-07 (issue #1468), behind
+      `[UI] TileMenus=RepairServicesMenu`, hand-built drawing still the default [design:
+      `tiles/repair_services_menu.rs`, repair.md §3.1]. Takes the list's groundwork from
+      `tiles/list.rs` (`settle_list`, `ListView`, `hit`, `template_has`), its card pair is
+      `tiles/repair_cards.rs` for the Pip-Boy's repair page to take later. Rules, keys, sounds
+      and refusals stay `repair.rs`'s, reached through `RepairServicesInput`. Strings are listed
+      in repair.md §3.1: settings, record names, numbers or our own words; "Cost:" is not shown.
+      Two captures of the original corrected the meters, the Repair button, Repair All and the
+      rows' dim (the same section). Synthetic tests cover the adapter. Smoke `tiles-repair-services`,
+      `repair-services-default-drawing`.
+
+    - **T15, the Pip-Boy's repair page built as a candidate** 2026-11-07 (issue #1468), behind
+      `[UI] TileMenus=RepairMenu`, hand-built list still the default [design: `tiles/repair_menu.rs`,
+      repair.md §5.1]. Painted into the Pip-Boy's image in the way of `tiles/stats_menu.rs`, with
+      one decision for the painting, the hand-built suppression and the input; takes the card
+      pairs from `tiles/repair_cards.rs`. Rules, keys and sounds stay `pipboy/repair.rs`'s,
+      reached through `RepairInput`. A capture read the page's three states, but no real repair
+      on a part. Synthetic tests cover the adapter. Smoke `tiles-pipboy-repair`,
+      `tiles-pipboy-repair-off`.
+
+    - **T15, recipe built as a candidate** 2026-11-07 (issue #1468), behind
+      `[UI] TileMenus=RecipeMenu`, hand-built drawing still the default [design:
+      `tiles/recipe_menu.rs`, crafting.md section 4]. A first refactor commit moves a list's view,
+      its settling, the tile walk and the template check into `tiles/list.rs` for menus with no
+      `MenuModel`. The rules, keys, wheel and sounds stay `crate::crafting`'s, asked through
+      `crafting::RecipeInput`; the "How many?" prompt stays hand-built over the tiles. Checked
+      against a capture of the original at 1280 x 720; what it left open, the ingredient rows'
+      traits first, is in crafting.md section 4. Smoke `tiles-recipe-places`, `tiles-recipe`,
+      `recipe-default-drawing`.
 
     - **T15, tag-skill candidate built** 2026-11-06 (issue #1519), behind
       `[UI] TileMenus=CharGenMenu` [design: `tiles/tag_menu.rs`, chargen.md §3.1].

@@ -1473,7 +1473,7 @@ mod tests {
         use fnv_nif::anim::{Channel, TransformTrack};
         let clip = |at: [f32; 3]| Clip {
             name: String::new(), start: 0.0, stop: 9.97, frequency: 1.0, cycle_type: 0,
-            tracks: vec![("Bip01 NonAccum".into(), Arc::new(TransformTrack { translation: Channel::Static(Some(at)), rotation: Channel::Static(None), euler: None, scale: Channel::Static(None) }))],
+            tracks: vec![("Bip01 NonAccum".into(), Arc::new(TransformTrack { translation: Channel::Static(Some(at)), rotation: Channel::Static(None), euler: None, scale: Channel::Static(None), per_cycle: None }))],
             priorities: vec![13], skipped: 0, accum_root: Some("Bip01".into()), text_keys: Vec::new(), visibility: Vec::new(), emitters: Vec::new(), materials: Vec::new(), free: Vec::new(), free_visibility: Vec::new(), lights: Vec::new(),
         };
         // Dad in the birth scene, against a body standing over its reference.
