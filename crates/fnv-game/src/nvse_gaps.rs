@@ -296,7 +296,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // ---- magic items and effects ----
         // The item's effects in record order [observed: gaps2, the stimpak 4, the first
         // RestoreHealth, past the end 0].
-        "getnumeffects" => XVal::Num(form(args, 0).and_then(|f| g.data.effect_items.get(&f)).map_or(0, Vec::len) as f64),
+        // Less RemoveNthEffect's (`crate::nvse_jip11`).
+        "getnumeffects" => XVal::Num(form(args, 0).map_or(0, |f| g.effect_indices(f).len()) as f64),
         "getntheffectbase" => {
             let i = num(args, 1, 0.0);
             let f = form(args, 0).unwrap_or(FormId(0));

@@ -4928,7 +4928,8 @@ impl<'a> Game<'a> {
         // on the player with its first effect].
         let mut took_ids: Vec<u32> = Vec::new();
         for (index, e) in items.iter().enumerate() {
-            if mods.only.is_some_and(|o| o != index) {
+            // RemoveNthEffect's entries (`crate::nvse_jip11`).
+            if mods.only.is_some_and(|o| o != index) || self.effect_removed(source, index) {
                 continue;
             }
             let label = format!("{} effect {index}", data.name(source));

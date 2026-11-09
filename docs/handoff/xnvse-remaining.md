@@ -201,6 +201,13 @@ scene mirror's edits, their finish events, the vertices told by the engine's `ni
 the HUD bars' script-variable (a variable handed over by place, `Host::var_place`) and UDF
 sources; not probed yet, set sup7). Census after it: SUP 29 → 17 (the 17 of batch 4).
 With both JIP batch 10 and SUP batch 7 merged: JIP 142, SUP 17 [hypothesis: 378 − 36 − 12 = 330 in all; the extender_census test decides].
+JIP batch 11: 40 (#1006, jip-actors-11.md: combat allies and targets, detection values and
+ForceActorDetectionValue, packages, the actor's alpha, gravity, light, breath, movement,
+velocity, leveled list and unarmed effect, base values of a base form, kill XP, radiation at
+an NPC, ResetFallTime, active effects and effect lists, the equipped items, armour DR/DT by
+condition and GetArmourPenetrated, SetBaseFactionRank, ClearDeadActors, the hardcore stages'
+effects, SetConditionDamagePenalty; four nothing values by decision, §7; probed, set
+jip11, 22 of 28 after the fixes that follow it, jip-actors-11.md §6). Census after it: JIP 142 → 102.
 SUP batch 4: the last 17 (#1008, ext-sup4.md: random array keys, invalid references, Ar_SetFloatsFrom through
 the VM's output variables, CallFunctionNextFrame (kept across a load with removeOnLoad 0), the compass targets,
 the last save's and load's names and sizes told by the engine, the cells and map markers near the player,
