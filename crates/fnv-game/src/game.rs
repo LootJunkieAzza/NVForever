@@ -4182,7 +4182,7 @@ impl<'a> Game<'a> {
         if self.jg8_listening(crate::nvse_jg8::Ev::GeneralSubtitle) {
             let text = def.response_order().first().map(|&r| def.responses[r].text.clone()).unwrap_or_default();
             let sp = fnv_script::vm::XVal::Ref(speaker.0);
-            self.jg8_fire(crate::nvse_jg8::Ev::GeneralSubtitle, &[sp.clone()], vec![sp, fnv_script::vm::XVal::Str(text), fnv_script::vm::XVal::Ref(topic.0)]);
+            self.jg8_fire(crate::nvse_jg8::Ev::GeneralSubtitle, std::slice::from_ref(&sp), vec![sp.clone(), fnv_script::vm::XVal::Str(text), fnv_script::vm::XVal::Ref(topic.0)]);
         }
         self.cover_info(info);
         let (say_to, greeting, hello) = (kind == LineKind::SayTo, kind == LineKind::Greeting, kind == LineKind::Hello);
