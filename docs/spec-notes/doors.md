@@ -190,5 +190,24 @@ to the player.
   MP through a gate in these runs; whether ours would route him through depends on the
   same variable (open in observer-checks.md item 21).
 - Not saved: after a load the doors are asked again.
+- A script's direct `door.Activate npc`, outside an AI door request, places the NPC at
+  XTEL's destination and finishes the move through `Game::note_relocated`, shared with
+  MoveTo and followers brought along [design: `crates/fnv-game/src/ai.rs`,
+  `functions/refs.rs`, `followers.rs`, `game.rs`]. Scripted references enter the saved
+  `moved` set, so GameMode and OnLoad selection follows their current cell, including
+  after restoring a save. OnLoad selection already filters by current cell; this move
+  adds the registration needed when the destination has no authored entry for the NPC
+  [design: `game.rs` `scripted_refs_in`, `snapshot`, `restore`]. Placement itself is no
+  cell load and does not fire OnLoad. Non-player references enter `teleported` for the
+  walker/resident to restart there; one `Moved` event records the destination. Non-actor
+  moves also request redraw. Player cell entry and follower handling keep their own
+  path; `brought_along` remains follower-specific [design: the same files].
+  An AI-requested door's `Activate` still only grants permission: the walker makes the
+  transition, without a second teleport or relocation notification [design:
+  `crates/fnv-game/src/npc_doors.rs` `npc_door_activated`]. Tests:
+  `crates/fnv-game/tests/synthetic.rs`, `crates/fnv-ai/tests/carry.rs`; smoke:
+  `scripted-npc-door-relocation`. Whether any particular NPC previously snapped back
+  depends on which walker write-back path ran [hypothesis; design: `fnv-ai/src/social.rs`
+  and `engine/nvforever/src/residents.rs` write walker placement].
 - Open, for a capture: whether the original's NPCs wait at a refusing door, take another
   way or never plan through it; whether a refusal is remembered.
