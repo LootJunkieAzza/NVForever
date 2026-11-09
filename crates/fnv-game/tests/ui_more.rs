@@ -350,7 +350,7 @@ fn attachments_are_placed_at_their_node_and_hidden_without_it() {
     // out (as before each drawing): the placement holds.
     let moving = r#"<rect name="Moving"><x><copy src="parent()" trait="width"/></x><y><copy src="parent()" trait="height"/></y></rect>"#;
     run_on(&mut g, "AttachUIComponent", Some(reference), &[s("Bip01 Head"), s(moving)]);
-    let m = g.ui_extra.attached.last().unwrap().tile;
+    assert!(g.ui_extra.attached.last().is_some(), "the moving rect is attached");
     // Before the first placement, and while the node is not found, the expressions are gone
     // but x and y stay numbers scripts read and write.
     for unresolved in [false, true] {
