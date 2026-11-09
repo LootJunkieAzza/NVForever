@@ -874,6 +874,18 @@ module notes).
   - damages actors in its radius, with line of sight, armour and the cause's and target's
     damage and DT perks (perk-entry-points.md §2, "Blasts"; with no cause, the target's
     with no condition on the attacker or the weapon [hypothesis: as the original]);
+  - uses the impact point for effects, radius, damage falloff and push. For actor line
+    of sight only, an impact with a finite, nonzero surface normal starts 0.5 units
+    outward along its normalized normal, then derives the existing 16-unit raised
+    origin from that cleared point. The ray to the raised origin must still be clear:
+    a ceiling or floor above the explosion continues to shield actors. Timer, remote,
+    mine, script and destruction-stage explosions without contact data keep their
+    existing origins; bouncing and rolling projectiles already nudge their positions
+    [design: `crates/fnv-combat/src/projectile.rs` `blast`, `Projectile::step`,
+    `engine/nvf-play/src/combat.rs` `fly`]. This bounded clearance covers shallow
+    surface penetration, not arbitrary embedding. Whether an embedded origin caused
+    the intermittent missed player damage reported in #1581 remains a hypothesis
+    until repeated runtime checks [hypothesis];
   - rolls knockdown: always with "Knock Down - Always", by the documented formula with
     "By Formula". A knockdown is counted and logged; it is not animated yet;
   - damages destructible objects whose collision overlaps its radius;
