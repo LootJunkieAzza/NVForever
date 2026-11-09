@@ -218,8 +218,17 @@ fn listed(rt: &mut crate::script::Runtime, category: FormId) -> Vec<&'static Rec
     out
 }
 
+/// God mode with the Free Crafting tweak: recipes need nothing.
+fn free_crafting(rt: &crate::script::Runtime) -> bool {
+    crate::combat::god_mode() && rt.game.tweaks.god_mode_free_crafting
+}
+
 /// What the player lacks to make `r` once (with the world in the runtime).
 fn lacks(rt: &mut crate::script::Runtime, r: &RecipeDef) -> Vec<fnv_game::crafting::Missing> {
+    // The player's tweak: in god mode a recipe needs nothing [design: docs/design/tweaks.md].
+    if free_crafting(rt) {
+        return Vec::new();
+    }
     let skill = r.skill.map_or(0.0, |(av, _)| fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, av));
     let counts: Vec<(FormId, i64)> = r.ingredients.iter().map(|&(i, _)| (i, rt.game.world.item_count(FormId::PLAYER_REF, i).unwrap_or(0) as i64)).collect();
     missing(r, 1, |_| skill, |i| counts.iter().find(|c| c.0 == i).map_or(0, |c| c.1))
@@ -471,11 +480,17 @@ fn make_recipe(rt: &mut crate::script::Runtime, sim: &mut SimState, recipe: &Rec
         let skill = recipe.skill.map_or(0.0, |(av, _)| fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, av));
         let counts: Vec<(FormId, i64)> = recipe.ingredients.iter().map(|&(i, _)| (i, rt.game.world.item_count(FormId::PLAYER_REF, i).unwrap_or(0) as i64)).collect();
         let lack = missing(recipe, times, |_| skill, |i| counts.iter().find(|c| c.0 == i).map_or(0, |c| c.1));
-        if !lack.is_empty() {
+        let free = free_crafting(rt);
+        if !lack.is_empty() && !free {
             return Err(format!("{lack:?}"));
         }
         for &(i, k) in &recipe.ingredients {
-            rt.game.world.remove_item(FormId::PLAYER_REF, i, (k * times) as i32).map_err(|e| format!("{e:?}"))?;
+            // Free crafting takes what there is of each part.
+            let want = (k * times) as i64;
+            let n = if free { want.min(counts.iter().find(|c| c.0 == i).map_or(0, |c| c.1)) } else { want };
+            if n > 0 {
+                rt.game.world.remove_item(FormId::PLAYER_REF, i, n as i32).map_err(|e| format!("{e:?}"))?;
+            }
         }
         let mut added = Vec::new();
         for &(i, k) in &recipe.outputs {

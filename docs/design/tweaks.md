@@ -393,6 +393,14 @@ unless the player binds them, so nothing changes until then.
 | Killing Knockdowns Count | `bLethalHitsIncreaseLimbChallenges` | `Game::knock` |
 | Shared Keys | `bAllowDuplicateControlBinds` | `Bindings::rebind`, `rebind_pad` (`allow_duplicates`) |
 
+## Twenty-ninth batch (2026-11-09)
+
+| Row | INI key | Where |
+|---|---|---|
+| Crippling Never Disarms | `bCripplingDoesntDisarm` | `combat::hit_actor` |
+| No Spin-Up | `bAutoWeaponNoFiringDelay` | `combat::fire` (`Timing::spin_up`) |
+| Free Crafting in God Mode | `bGodModeAllowsCraftingWithoutRequirements` | `crafting::lacks`, `make_recipe` |
+
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
 
@@ -412,8 +420,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 309 |
-| to do | 294 |
+| done | 312 |
+| to do | 291 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -435,6 +443,7 @@ game's Data folder, read-only).
 | `bBillyGoatMode` | done |  | 3 | Steepest Walkable Slope (30-80 degrees; one angle for walking, jumping and auto-walk) |
 | `bCompanionsDontUseAmmo` | done |  |  | already so: NPCs carry no ammo and reload without spending any |
 | `bCrippledLegsScaleJumpHeight` | done |  | 2 | Jumping on a Crippled Leg (one part per crippled leg) |
+| `bCripplingDoesntDisarm` | done |  |  | Crippling Never Disarms |
 | `bCustomSpecialPoints` | done |  | 1 | S.P.E.C.I.A.L. Points (30 to 70; a script's own total still wins) |
 | `bDisableFastTravel` | done |  |  | No Fast Travel |
 | `bDisableReloadingNonEmptyClip` | done |  | 2 | Reload Only When Empty (the energy-only and looping options not built) |
@@ -511,7 +520,6 @@ game's Data folder, read-only).
 | `bClearNearbyPlayerMarker` | to do |  | 1 | not built: no player-placed map marker |
 | `bContactMines` | to do |  | 2 | mines::tick; needs a stood-on distance chosen |
 | `bCrippledLimbsPlayPainSoundWhenFalling` | to do |  | 1 | falls::hurt with a crippled leg; NVForever has no pain sound, only the landing ones |
-| `bCripplingDoesntDisarm` | to do |  |  | combat::disarm or the push in hit_actor; check what else disarms first |
 | `bCritChanceIgnoresFireRate` | to do |  |  | crit_chance in fnv-combat; Rules is serialized |
 | `bCustomArmorConditionPenalty` | to do |  | 1 | the condition formula is in fnv-combat condition.rs constants |
 | `bDisarmRequiresSkill` | to do |  | 2 | disarming happens in fnv_sim World::activate without skill or game |
@@ -578,6 +586,7 @@ game's Data folder, read-only).
 | INI key | Status | VNV on | Options | Note |
 |---|---|---|---|---|
 | `bAllowTeammatesUseMeltdown` | done |  |  | Meltdown for Companions |
+| `bAutoWeaponNoFiringDelay` | done |  | 1 | No Spin-Up (the player; the heavy-weapons option not built) |
 | `bBloodyMessGibTargetedLimbOnly` | done |  |  | already so: only the struck part is checked |
 | `bCharacterMeleeDamageIgnoresScale` | done |  |  | already so: no damage formula reads actor scale |
 | `bCharacterNonMeleeDamageIgnoresScale` | done |  |  | already so: no damage formula reads actor scale |
@@ -599,7 +608,6 @@ game's Data folder, read-only).
 | `bPlayerNonMeleeDamageIgnoresScale` | done |  |  | already so: no damage formula reads actor scale |
 | `bPowerAttackWhileOverencumbered` | done |  |  | already so: nothing gates power attacks on weight |
 | `bSneakCriticalsOnlyMeleeWeapons` | done |  |  | Sneak Criticals Melee Only |
-| `bAutoWeaponNoFiringDelay` | to do |  | 1 | combat::fire Timing spin_up for automatics |
 | `bFatalNonSneakCritsAlwaysGib` | to do |  | 1 | dismember checks carry no critical flag |
 | `bFirstPersonVATS` | to do |  |  | VATS keeps the current view; forcing one goes in vats_mode |
 | `bHoldAndReleaseThrowables` | to do |  | 1 | not built: no hold-to-release throw |
@@ -981,6 +989,7 @@ game's Data folder, read-only).
 |---|---|---|---|---|
 | `bAllowPickpocketIfAlreadyCaught` | done |  |  | Pickpocket Again |
 | `bFastTravelWithEnemiesNearby` | done |  |  | Fast Travel Near Enemies |
+| `bGodModeAllowsCraftingWithoutRequirements` | done |  |  | Free Crafting in God Mode |
 | `bHackTerminalsWithoutSkill` | done |  |  | Hack Any Terminal |
 | `bNoCasinoBans` | done |  |  | No Casino Bans |
 | `bNoHackingRetryDelay` | done |  |  | already so: no retry delay (a failed hack locks out) |
@@ -992,7 +1001,6 @@ game's Data folder, read-only).
 | `bWeightlessItems` | done |  | 5 | Weightless Armor / Aid / Ammo / Weapons / Misc Items (five rows) |
 | `bAddSetHomeCommand` | to do |  |  | not built: a console command with a kept home |
 | `bDebugLockpickMenu` | to do |  |  | LockpickDebug from sync, kept with the env switch |
-| `bGodModeAllowsCraftingWithoutRequirements` | to do |  |  | crafting lacks and make_recipe |
 | `bReallocateSkillPointsOnLevelup` | to do |  |  | earlier levels spent points are not recorded |
 
 ### Misc

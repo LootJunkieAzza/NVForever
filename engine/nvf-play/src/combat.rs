@@ -2789,6 +2789,10 @@ pub(crate) fn fire(
     }
     anim.attack_rate = clip_rate;
     cycle.timing = Timing::of(&w, &anim.timing, &c.tuning).with_reload_rate(rate).with_attack_rate(atk);
+    // The player's tweak: automatic weapons fire without spinning up [design: docs/design/tweaks.md].
+    if cycle.automatic && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_spin_up) {
+        cycle.timing.spin_up = 0.0;
+    }
     // A VATS mode shot leaves now, whatever the weapon's cooldown or wind-up (the owner's
     // "faster than the weapon's normal rate"), unless it is reloading, jammed or empty.
     if vats_shot.is_some() {
@@ -3494,7 +3498,7 @@ fn hit_actor(
         None => blasted,
     };
     // The player's tweak keeps teammates armed [design: docs/design/tweaks.md].
-    let spared = rt.game.tweaks.no_disarm_companions && rt.game.is_teammate(target);
+    let spared = (rt.game.tweaks.no_disarm_companions && rt.game.is_teammate(target)) || rt.game.tweaks.crippling_never_disarms;
     if !spared && !r.died && !r.knocked_out && crippled.iter().any(|c| matches!(*c, fnv_game::combat::LEFT_ARM | fnv_game::combat::RIGHT_ARM)) {
         feedback.disarms.push(target);
     }

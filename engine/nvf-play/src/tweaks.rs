@@ -974,6 +974,10 @@ impl Plugin for TweaksPlugin {
         switch!(app, "npc-weapons-whole", "NPC Weapons Hit Whole", "NPCs' weapons hit as hard as whole ones, whatever their condition. (Stewie's Tweaks bNoScaleNpcDamageByCondition)", game.npc_weapons_whole);
         switch!(app, "lethal-knockdowns", "Killing Knockdowns Count", "A knockdown that kills still counts for the knockdown challenges. (Stewie's Tweaks bLethalHitsIncreaseLimbChallenges)", game.lethal_knockdowns_count);
         switch!(app, "duplicate-binds", "Shared Keys", "Binding an input to a control leaves other controls with it as they are (no swap). (Stewie's Tweaks bAllowDuplicateControlBinds)", duplicate_binds);
+        // ---- batch 29 ----
+        switch!(app, "crippling-never-disarms", "Crippling Never Disarms", "A crippled arm never makes anyone drop their weapon. (Stewie's Tweaks bCripplingDoesntDisarm)", game.crippling_never_disarms);
+        switch!(app, "no-spin-up", "No Spin-Up", "The player's automatic weapons fire without spinning up first. (Stewie's Tweaks bAutoWeaponNoFiringDelay)", game.no_spin_up);
+        switch!(app, "god-mode-free-crafting", "Free Crafting in God Mode", "In god mode recipes need no parts or skill. (Stewie's Tweaks bGodModeAllowsCraftingWithoutRequirements)", game.god_mode_free_crafting);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

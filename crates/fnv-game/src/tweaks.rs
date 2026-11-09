@@ -274,6 +274,12 @@ pub struct Tweaks {
     /// `bLethalHitsIncreaseLimbChallenges`: a killing knockdown still counts for the
     /// knockdown challenges.
     pub lethal_knockdowns_count: bool,
+    /// `bCripplingDoesntDisarm`: a crippled arm never makes an actor drop its weapon.
+    pub crippling_never_disarms: bool,
+    /// `bAutoWeaponNoFiringDelay`: the player's automatic weapons fire without spinning up.
+    pub no_spin_up: bool,
+    /// `bGodModeAllowsCraftingWithoutRequirements`: in god mode recipes need nothing.
+    pub god_mode_free_crafting: bool,
 }
 
 impl crate::game::Game<'_> {
@@ -393,6 +399,9 @@ impl Default for Tweaks {
             pick_up_disarmed: false,
             npc_weapons_whole: false,
             lethal_knockdowns_count: false,
+            crippling_never_disarms: false,
+            no_spin_up: false,
+            god_mode_free_crafting: false,
         }
     }
 }
