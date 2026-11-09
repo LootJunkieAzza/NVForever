@@ -762,7 +762,11 @@ average either way, but 60–140 in the original. A container's CNTO count is ta
   hour copy of 24 or more seeds from the global. A stored GameHour stays below 24 until the day wraps. Commands
   that name an hour (SetGameHour) land on it (`World::advance_to_hour`) rather than adding
   time computed from the rounded global, which would stop short of midnight. A GameHour
-  that is no number counts as hour 0 at the next advance.
+  that is no number counts as hour 0 at the next advance, and a GameDaysPassed that is no
+  number counts as 0 [design]. From a GameHour a script stored out of 0..24, SetGameHour
+  counts as an advance does: 50 is two days on at 2:00, so 10 is eight hours on and the
+  date rolls two days (three past midnight when the hour has gone by); a negative hour
+  rolls no days back [design].
 
 ## 6. Capturing the oracle (in-game)
 
