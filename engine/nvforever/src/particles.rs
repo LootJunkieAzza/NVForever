@@ -57,8 +57,8 @@
 //!   (the main camera, the water reflection camera while it is on, a scope's lens camera;
 //!   [`FrameViews`]). Its render entity is hidden meanwhile (its emitter is not touched),
 //!   so its old mesh cannot draw. When in doubt it is built and shown: no box (no finite
-//!   particle), an entity without a placement, no active camera, a camera whose frustum
-//!   is not set. The test uses each frustum's four sides only, not its near or far plane:
+//!   particle), an entity without a placement, no active camera, a camera drawing its
+//!   layers whose frustum is not set. The test uses each frustum's four sides only, not its near or far plane:
 //!   a box between a camera and its near plane counts as seen, and the reflection
 //!   camera's near plane (the water's oblique clip plane) culls nothing [design].
 //! - **When** (the first frame a system comes into view is drawn with fresh geometry):
@@ -1155,10 +1155,14 @@ impl ParticleViews<'_, '_> {
 /// decals while a 3D scope is up; the menu views' cameras draw their own layers and are
 /// left out by the layer test, which errs toward drawing should one draw layer 0].
 pub struct FrameViews {
+    /// The cameras whose frusta are set.
     views: Vec<(Frustum, RenderLayers)>,
-    /// No active camera, or one whose frustum's sides are not set (a default frustum
-    /// rejects everything): every system counts as seen.
+    /// No active camera at all: every system counts as seen.
     unsure: bool,
+    /// The layers of the cameras whose frustum's sides are not set (a default frustum
+    /// rejects everything): a system on one of them counts as seen. Only those systems:
+    /// one camera of other layers (a menu view's) not yet set leaves the rest culled.
+    unset_layers: RenderLayers,
     layer0: RenderLayers,
 }
 
@@ -1167,17 +1171,20 @@ impl FrameViews {
         // A side plane whose normal is not clearly unit length (zero, tiny or NaN) means the
         // frustum was never set: NaN compares as None, so it counts as unset too.
         let unset = |f: &Frustum| f.half_spaces[..4].iter().any(|h| h.normal().length_squared().partial_cmp(&0.25) != Some(std::cmp::Ordering::Greater));
-        let unsure = views.is_empty() || views.iter().any(|(f, _)| unset(f));
-        FrameViews { views, unsure, layer0: RenderLayers::default() }
+        let unsure = views.is_empty();
+        let (unset_views, views): (Vec<_>, Vec<_>) = views.into_iter().partition(|(f, _)| unset(f));
+        let unset_layers = unset_views.iter().fold(RenderLayers::none(), |all, (_, l)| all.union(l));
+        FrameViews { views, unsure, unset_layers, layer0: RenderLayers::default() }
     }
 
     /// Whether some camera may see `bounds` (game space) of render entity `e`, placed by
     /// its `GlobalTransform` (the world root's turn: game space to Bevy's). True when in
-    /// doubt: no bounds, no placement, the cameras unsure.
+    /// doubt: no bounds, no placement, no camera, a camera drawing its layers unset.
     pub fn may_see(&self, bounds: Option<Aabb>, e: Entity, views: &ParticleViews) -> bool {
         let Some(b) = bounds.filter(|_| !self.unsure) else { return true };
         let Ok((g, layers)) = views.placed.get(e) else { return true };
-        !outside_every_view(&b, &g.affine(), layers.unwrap_or(&self.layer0), &self.views)
+        let layers = layers.unwrap_or(&self.layer0);
+        layers.intersects(&self.unset_layers) || !outside_every_view(&b, &g.affine(), layers, &self.views)
     }
 }
 
@@ -1858,6 +1865,18 @@ mod tests {
         s.frame(0.1);
         assert!(s.shown(), "a frustum not set: drawn");
         assert_eq!(s.mesh_positions(), s.expected(away()));
+        // The main camera's frustum set again, and a camera of other layers only (a menu
+        // view's) whose frustum is not set: that one does not stop the culling.
+        s.turn(main, away());
+        let menu = Scene::camera(&mut s.world, Quat::IDENTITY, true, Some(RenderLayers::layer(7)), Role::Other);
+        s.world.entity_mut(menu).insert(Frustum::default());
+        s.frame(0.1);
+        assert!(!s.shown(), "an unset camera of other layers leaves it culled");
+        // One drawing layer 0 whose frustum is not set: drawn.
+        s.world.entity_mut(menu).insert(RenderLayers::from_layers(&[0, 7]));
+        s.frame(0.1);
+        assert!(s.shown(), "an unset camera of its layers: drawn");
+        s.world.entity_mut(menu).despawn();
         s.world.get_mut::<Camera>(main).unwrap().is_active = false;
         s.turn(main, away());
         s.frame(0.1);
