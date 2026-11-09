@@ -727,6 +727,8 @@ pub struct MenuModel {
     pub hide_equipped_barter: bool,
     pub hide_equipped_containers: bool,
     pub title_case_categories: bool,
+    /// The price of things worth nothing in a barter (the tweak; 0: as they are).
+    pub free_item_price: f32,
     /// The player's encumbrance, or why it is unknown.
     pub encumbrance: Result<Encumbrance, String>,
     /// Heading: the container's or merchant's name, or "Inventory".
@@ -901,6 +903,7 @@ impl MenuModel {
             hide_equipped_barter: false,
             hide_equipped_containers: false,
             title_case_categories: false,
+            free_item_price: 0.0,
             encumbrance: Err(String::new()),
             title,
             status: None,
@@ -998,6 +1001,7 @@ impl MenuModel {
     fn refresh_trade(&mut self, world: &mut World<'_>) -> Result<(), SimError> {
         let both_sides = self.vendor_lists_both;
         let hide_equipped = self.hide_equipped_barter;
+        let free_price = self.free_item_price;
         let Some(t) = self.trade.as_mut() else { return Ok(()) };
         let mut own: [Vec<Row>; 2] = [Vec::new(), Vec::new()];
         let mut weights = [0.0; 2];
@@ -1022,7 +1026,8 @@ impl MenuModel {
                     why.is_none()
                 })
                 .map(|mut r| {
-                    r.price = r.worth(&prices).map(|v| v * mult);
+                    // The player's tweak puts a price on things that are worth nothing [design: docs/design/tweaks.md].
+                    r.price = r.worth(&prices).map(|v| v * mult).map(|p| if p <= 0.0 && free_price > 0.0 { free_price } else { p });
                     r
                 })
                 .collect();

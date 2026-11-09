@@ -531,6 +531,11 @@ fn gather(
     }
     if let Some(c) = &combat {
         now.weapon = c.hud_weapon(&sim);
+        // The player's tweak hides the ammo counter [design: docs/design/tweaks.md].
+        if tweaks.as_ref().is_some_and(|t| t.hide_ammo_label) {
+            now.weapon.ammo = None;
+            now.weapon.abbrev = None;
+        }
     }
     // The player's tweak leaves the sneak label off [design: docs/design/tweaks.md].
     // The player's tweaks: the label off, or shown standing too [design: docs/design/tweaks.md].

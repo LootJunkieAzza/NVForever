@@ -371,6 +371,13 @@ unless the player binds them, so nothing changes until then.
 | Reverse Category Wheel | `bInvertContainerTitleScrollwheelDirection` | `menu::menu_mouse` |
 | Continue at Start | `bAutoContinueGame` | `main_menu::choose` (once per run; Shift held stays: quitting to the main menu restarts the program, so without it the menu could not be reached) |
 
+## Twenty-sixth batch (2026-11-09)
+
+| Row | INI key | Where |
+|---|---|---|
+| No Ammo Counter | `bHideAmmoLabel` | `hud::gather` |
+| Price for Worthless Things (0–10) | `bNoFreeBarterItems` | `MenuModel::refresh_trade` (`free_item_price`) |
+
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
 
@@ -390,8 +397,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 302 |
-| to do | 301 |
+| done | 304 |
+| to do | 299 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -439,6 +446,7 @@ game's Data folder, read-only).
 | `bNoDialogueZoom` | done |  |  | already a row: Gameplay tab, dialogue-zoom |
 | `bNoEnvironmentRadiationInFullPowerArmor` | done |  |  | Power Armor Blocks Radiation (body armour; the helmet is not asked for) |
 | `bNoFastTravelIfLegsCrippled` | done |  | 1 | No Travel on a Crippled Leg (NVForever's own refusal text) |
+| `bNoFreeBarterItems` | done |  | 1 | Price for Worthless Things (slider, 0-10 caps) |
 | `bNoGrabOwnedItems` | done |  |  | No Grabbing Owned Items |
 | `bNoLockFailedTerminals` | done |  |  | No Terminal Lockout |
 | `bNoPlayerStaggerAnims` | done |  |  | No Player Stagger |
@@ -513,7 +521,6 @@ game's Data folder, read-only).
 | `bMousewheelScrollsWeaponHotkeys` | to do |  | 1 | needs cycle state in weapon_wheel and the wheel off the camera |
 | `bMovementPenalties` | to do |  | 11 | player::step pace chain; seven percentages to choose |
 | `bNoCompanionItemDamage` | to do |  |  | wear_weapon and wear_armor; the armour path has no game |
-| `bNoFreeBarterItems` | to do |  | 1 | refresh_trade price; a menu field like no_selling |
 | `bNoLockEncounterZoneLevels` | unsure, skipped |  |  | encounter-zone level locking not yet checked in NVForever |
 | `bNPCsDetectMineExplosions` | to do |  |  | the mine trigger actor is not carried to the explosion |
 | `bNPCsDropLiveGrenades` | to do |  |  | not built: NPC grenades have no in-hand phase |
@@ -725,6 +732,7 @@ game's Data folder, read-only).
 | `bDisableGrenadeIndicator` | done |  |  | already so: NVForever has no grenade indicator |
 | `bDisableHUDCrippledLimbIndicator` | done |  |  | No Crippled Limb Figure |
 | `bDistanceBasedQuestMarkerVisibilty` | done |  | 2 | Quest Markers Within (slider in game units, one distance indoors and out) |
+| `bHideAmmoLabel` | done |  | 1 | No Ammo Counter (the total-remaining option not built) |
 | `bHideCapsAddedMessages` | done |  |  | No Caps Added Line |
 | `bHideCrosshairWhileReloading` | done |  |  | No Crosshair While Reloading |
 | `bHostilesUseNeutralColorOnCompass` | done |  |  | Foes in the Usual Colour |
@@ -764,7 +772,6 @@ game's Data folder, read-only).
 | `bDetectedByWhom` | to do |  | 5 | Sneak is a Copy enum; names need a new type |
 | `bDisableNeedsMessages` | to do |  | 4 | those messages are the game's own scripts; needs a filter by message |
 | `bExplodingDestructibleIndicator` | to do |  |  | not built: no grenade indicator |
-| `bHideAmmoLabel` | to do |  | 1 | hud::gather weapon ammo text |
 | `bHideCrosshairInFirstPerson` | to do |  |  | the crosshair and the prompt share a root in reticle.rs |
 | `bHideCrosshairInThirdPerson` | to do |  |  | the crosshair and the prompt share a root in reticle.rs |
 | `bHideInvisibleUndiscoveredLocations` | to do |  |  | compass::gather marker loop; markers_of does not carry the map rule |

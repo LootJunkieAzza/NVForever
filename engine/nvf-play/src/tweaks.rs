@@ -214,6 +214,11 @@ pub struct TweakSettings {
     pub invert_title_wheel: bool,
     /// `bAutoContinueGame`: the main menu continues the newest save at once.
     pub auto_continue: bool,
+    /// `bHideAmmoLabel`: no ammo counter on the HUD.
+    pub hide_ammo_label: bool,
+    /// `bNoFreeBarterItems`/`fFreeItemCost`: the price of things worth nothing in a
+    /// barter; 0 changes nothing.
+    pub free_item_price: f32,
 }
 
 /// The walk-angle choices: 30 to 80 degrees by 5; 45 is the physics' own.
@@ -338,6 +343,8 @@ impl Default for TweakSettings {
             discovered_in_corner: false,
             invert_title_wheel: false,
             auto_continue: false,
+            hide_ammo_label: false,
+            free_item_price: 0.0,
         }
     }
 }
@@ -953,6 +960,9 @@ impl Plugin for TweaksPlugin {
         // ---- batch 25 ----
         switch!(app, "invert-title-wheel", "Reverse Category Wheel", "The mouse wheel over a container's category title steps the other way. (Stewie's Tweaks bInvertContainerTitleScrollwheelDirection)", invert_title_wheel);
         switch!(app, "auto-continue", "Continue at Start", "The main menu continues the newest save at once, the first time it opens; hold Shift to stay on the menu. (Stewie's Tweaks bAutoContinueGame)", auto_continue);
+        // ---- batch 26 ----
+        switch!(app, "hide-ammo-label", "No Ammo Counter", "The HUD shows no ammo counter. (Stewie's Tweaks bHideAmmoLabel)", hide_ammo_label);
+        amount!(app, "free-item-price", "Price for Worthless Things", "What merchants pay or ask for things worth nothing (spent casings); 0 changes nothing. (Stewie's Tweaks bNoFreeBarterItems)", 10.0, f32, free_item_price);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1079,6 +1089,9 @@ fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, que
         }
         if m.hide_misc_quest != tweaks.hide_misc_quest {
             m.hide_misc_quest = tweaks.hide_misc_quest;
+        }
+        if m.free_item_price != tweaks.free_item_price {
+            m.free_item_price = tweaks.free_item_price;
         }
         let menu = (tweaks.take_all_stays, tweaks.hide_equipped_barter, tweaks.hide_equipped_containers, tweaks.title_case_categories);
         if (m.take_all_stays, m.hide_equipped_barter, m.hide_equipped_containers, m.title_case_categories) != menu {
