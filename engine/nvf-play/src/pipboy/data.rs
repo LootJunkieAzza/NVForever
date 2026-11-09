@@ -1042,6 +1042,17 @@ fn popup_input(st: &mut DataState, input: &mut Input) {
     st.popup = None;
 }
 
+impl DataState {
+    /// The Pip-Boy test aid's `heads=` (`super::test_aid`): the Map Icon button, or a
+    /// click on the box's head `i`, through the same path as the pointer's.
+    pub(super) fn aid_heads(&mut self, head: Option<usize>) {
+        self.acts.push(match head {
+            None => Act::Button(ButtonKind::MapIcon),
+            Some(i) => Act::HeadPick(i),
+        });
+    }
+}
+
 /// The Map Icon box's keys and clicks: the arrows (W, A, S, D) move over the heads, the
 /// wheel scrolls, Enter, Space, E or a click takes the head, Tab, Backspace or the Map Icon
 /// button again closes it. Nothing else on the page moves meanwhile.
