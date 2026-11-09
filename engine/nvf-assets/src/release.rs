@@ -302,8 +302,8 @@ struct Sweeps {
 }
 
 /// Sweep now, `passes` frames in a row, with these limits instead of the [`KeepLimits`]
-/// (nvforever `memory_budget.rs`: before a new cell uploads on a GPU near its budget). Two
-/// passes: a model let go in the first frees its textures for the second.
+/// (nvforever `memory_budget.rs`: before a new cell uploads on a GPU near its budget). At
+/// least two passes: a model let go in the first frees its textures for the second.
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
 pub struct ReleaseNow {
     pub passes: u8,
@@ -356,6 +356,11 @@ fn release_unused(
         dropped[3] = t.release(&mut s.textures, &s.hints, now, keep);
     }
     if forced.is_some() {
+        let (cached, held) = textures.as_deref().map_or((0, 0), |t| t.held_counts());
+        info!(
+            "assets released by a flush pass: {} models, {} actor parts, {} part materials, {} textures; {cached} textures stay cached, {held} of them in use",
+            dropped[0], dropped[1], dropped[2], dropped[3]
+        );
         commands.queue(move |w: &mut World| {
             let mut r = w.get_resource_or_insert_with(ReleasedNow::default);
             r.0[0] += dropped[0];

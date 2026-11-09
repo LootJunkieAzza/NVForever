@@ -70,8 +70,12 @@ struct WorkerTexture {
 /// Seconds a worker texture's entry stays after its image went into the store.
 const WORKER_KEEP_SECS: f64 = 30.0;
 
-/// The textures the cache holds, with their formats, as a worker thread sees them.
-pub type TextureSnapshot = HashMap<(String, bool), (Handle<Image>, TextureFormat)>;
+/// The textures the cache holds, with their formats, as a worker thread sees them. The
+/// handles are weak: a list a worker holds through a cell load must not count as a user
+/// of every texture of the place left behind, or the load's flush lets none of them go
+/// [observed: the Fort move with a 3367 MB budget, 464 models dropped over six passes and
+/// 0 textures, 2026-11-09]. A texture released meanwhile is decoded again by the worker.
+pub type TextureSnapshot = HashMap<(String, bool), (std::sync::Weak<bevy::asset::StrongHandle>, TextureFormat)>;
 
 /// A texture for a worker thread: from the cache's list, from another worker, or read and
 /// decoded here under a handle reserved from `images` (the image store's handle provider).
@@ -86,8 +90,8 @@ pub(crate) fn worker_texture(
     bc_supported: bool,
 ) -> Option<(Handle<Image>, TextureFormat)> {
     let key = (resolved_path(raw_path, |p| data.vfs.exists(p)), srgb);
-    if let Some(found) = cached.get(&key) {
-        return Some(found.clone());
+    if let Some((h, format)) = cached.get(&key).and_then(|(w, f)| Some((w.upgrade()?, *f))) {
+        return Some((Handle::Strong(h), format));
     }
     let shared = |w: &WorkerTexture| (w.handle.clone(), w.format);
     if let Some(w) = workers.entries.lock().expect("worker textures").get(&key) {
@@ -383,9 +387,17 @@ impl TextureCache {
             .iter()
             .filter_map(|(k, h)| {
                 let h = h.as_ref()?;
-                Some((k.clone(), (h.clone(), images.get(h)?.texture_descriptor.format)))
+                let Handle::Strong(strong) = h else { return None };
+                Some((k.clone(), (Arc::downgrade(strong), images.get(h)?.texture_descriptor.format)))
             })
             .collect()
+    }
+
+    /// The textures cached, and those something besides the cache holds (the log of a
+    /// flush pass).
+    pub fn held_counts(&self) -> (usize, usize) {
+        let all = || self.map.values().chain(self.clamped.values()).flatten();
+        (all().count(), all().filter(|h| crate::release::held_beyond(h, 1)).count())
     }
 
     /// Changes to the cache so far ([`Self::snapshot`]).
@@ -714,5 +726,25 @@ mod tests {
         assert_eq!(first_person_texture(r"textures\weapons\2handrifle\LaserRifle02.dds", exists), None);
         // Already a first-person texture: kept.
         assert_eq!(first_person_texture(r"textures\weapons\2handrifle\1stPersonLaserRifle01.dds", |_| true), None);
+    }
+
+    /// The list worker threads take is no user of the textures: only a handle a worker
+    /// took from it is.
+    #[test]
+    fn the_workers_list_does_not_hold_the_textures() {
+        use bevy::prelude::*;
+        let mut images = Assets::<Image>::default();
+        let mut cache = super::TextureCache::default();
+        let key = ("textures/a.dds".to_string(), true);
+        cache.map.insert(key.clone(), Some(images.add(Image::default())));
+        let list = cache.snapshot(&images);
+        assert_eq!(cache.held_counts(), (1, 0));
+        let taken = list[&key].0.upgrade().expect("still cached");
+        assert_eq!(cache.held_counts(), (1, 1));
+        drop(taken);
+        assert_eq!(cache.held_counts(), (1, 0));
+        // Released by the cache: a worker finds it gone and decodes it again.
+        cache.map.clear();
+        assert!(list[&key].0.upgrade().is_none());
     }
 }

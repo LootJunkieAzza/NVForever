@@ -603,9 +603,18 @@ fn watch_loads(
     }
 }
 
+/// Frames in a row a flush sweeps the caches. A texture is unused only once the
+/// materials sampling it are gone, and a material a dropped model held leaves the asset
+/// store in the next frame's `PreUpdate` (Bevy's `Assets::track_assets`), after the sweep
+/// (`Last`) that dropped the model: the textures go in the pass after their models
+/// [observed: the Fort move, 403 models in the first pass and 409 textures in the second,
+/// none later, 2026-11-09]. One more pass than that, for a model whose entities go a
+/// frame late [design].
+pub const FLUSH_PASSES: u8 = 3;
+
 /// Let go now of every cached model, actor part and texture nothing uses.
 pub(crate) fn flush_now() -> nvf_assets::release::ReleaseNow {
-    nvf_assets::release::ReleaseNow { passes: 2, keep: KeepLimits { secs: 0.0, max: 0 } }
+    nvf_assets::release::ReleaseNow { passes: FLUSH_PASSES, keep: KeepLimits { secs: 0.0, max: 0 } }
 }
 
 /// Out-of-memory errors the game goes on from within [`OOM_WINDOW_SECS`]; one more closes
