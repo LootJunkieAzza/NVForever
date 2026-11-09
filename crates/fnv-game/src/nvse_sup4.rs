@@ -272,7 +272,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // with an argument it is set; the flag as it is now either way [documented].
         "setcaughtpcpickpocketting" => {
             let Some(r) = subject.filter(|&r| r != FormId::PLAYER_REF) else { return Some(Ok(zero)) };
-            if args.first().is_some() {
+            if !args.is_empty() {
                 g.extra.entry(r).or_default().caught_pickpocket = num(args, 0, 0.0) != 0.0;
             }
             XVal::Num(f64::from(u8::from(g.extra.get(&r).is_some_and(|e| e.caught_pickpocket))))
