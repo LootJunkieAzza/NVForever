@@ -326,6 +326,12 @@ pub struct Tweaks {
     /// `bCustomArmorConditionPenalty` (`fScale`): the multiplier on how fast armour below
     /// half condition loses its DT and DR; 1 is the original's.
     pub armor_condition_penalty: f64,
+    /// `bIgnoreCompanionsVATS`: companions cannot be marked in V.A.T.S.
+    pub vats_ignores_companions: bool,
+    /// `bFrenzyGrantsPlayerXP`: a frenzied actor's kills earn the player experience.
+    pub frenzy_kill_xp: bool,
+    /// `bFreeWildWasteland`: Wild Wasteland does not count against the trait limit.
+    pub free_wild_wasteland: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -480,6 +486,9 @@ impl Default for Tweaks {
             sleep_heal_min_hours: 0,
             barter_repair_discount: 0.0,
             armor_condition_penalty: 1.0,
+            vats_ignores_companions: false,
+            frenzy_kill_xp: false,
+            free_wild_wasteland: false,
         }
     }
 }

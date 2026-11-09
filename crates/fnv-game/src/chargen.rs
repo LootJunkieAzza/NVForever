@@ -30,6 +30,9 @@ pub const TAG_COUNT: usize = 3;
 /// The traits a character may take when the game has no `iTraitMenuMaxNumTraits`
 /// [observed: the masters set it to 2].
 pub const DEFAULT_MAX_TRAITS: usize = 2;
+
+/// Wild Wasteland's editor ID, for the Free Wild Wasteland tweak [observed: FalloutNV.esm].
+pub const WILD_WASTELAND_EDID: &str = "WildWasteland";
 /// The name the name menu offers when the game has no `sDefaultPlayerName` [observed: the
 /// masters' value, and "Courier" in the owner's screenshot of the menu].
 pub const DEFAULT_NAME: &str = "Courier";
@@ -339,6 +342,9 @@ pub struct TraitSheet {
     /// `iTraitMenuMaxNumTraits` [observed: 2 in the masters; "CHOOSE UP TO 2 TRAITS (OR
     /// NONE)"].
     pub max: usize,
+    /// A trait taken without counting against `max`: Wild Wasteland under the player's
+    /// Free Wild Wasteland tweak [design: docs/design/tweaks.md].
+    pub free: Option<FormId>,
 }
 
 impl TraitSheet {
@@ -347,7 +353,10 @@ impl TraitSheet {
         traits.sort_by_key(|id| (g.data.perks[id].name.to_lowercase(), *id));
         let chosen = traits.iter().copied().filter(|t| g.player.perks.contains_key(t)).collect();
         let max = g.world.setting_f32("iTraitMenuMaxNumTraits").map_or(DEFAULT_MAX_TRAITS, |v| v.max(0.0) as usize);
-        TraitSheet { traits, chosen, max }
+        // The trait's editor ID [observed: `WildWasteland` in FalloutNV.esm], taken only
+        // when it names a trait on offer.
+        let free = g.tweaks.free_wild_wasteland.then(|| g.data.by_edid(WILD_WASTELAND_EDID)).flatten().filter(|t| traits.contains(t));
+        TraitSheet { traits, chosen, max, free }
     }
 
     /// Take a trait the player meets the requirements of while fewer than the most are
@@ -357,7 +366,7 @@ impl TraitSheet {
         if self.chosen.remove(&t) {
             return true;
         }
-        if allowed && self.chosen.len() < self.max && self.traits.contains(&t) {
+        if allowed && (self.free == Some(t) || self.counted() < self.max) && self.traits.contains(&t) {
             self.chosen.insert(t);
             return true;
         }
@@ -366,7 +375,12 @@ impl TraitSheet {
 
     /// Traits that may still be taken ("2 TRAITS LEFT").
     pub fn left(&self) -> usize {
-        self.max.saturating_sub(self.chosen.len())
+        self.max.saturating_sub(self.counted())
+    }
+
+    /// The taken traits that count against `max` (all but [`TraitSheet::free`]).
+    fn counted(&self) -> usize {
+        self.chosen.iter().filter(|&&t| Some(t) != self.free).count()
     }
 
     /// Done: the player has exactly the sheet's traits among those on offer (one rank
@@ -546,7 +560,7 @@ mod tests {
     #[test]
     fn up_to_two_traits_or_none() {
         let (a, b, c) = (FormId(1), FormId(2), FormId(3));
-        let mut t = TraitSheet { traits: vec![a, b, c], chosen: BTreeSet::new(), max: 2 };
+        let mut t = TraitSheet { traits: vec![a, b, c], chosen: BTreeSet::new(), max: 2, free: None };
         assert_eq!(t.left(), 2);
         assert!(!t.toggle(a, false), "requirements not met");
         assert!(t.toggle(a, true) && t.toggle(b, true));
@@ -554,6 +568,18 @@ mod tests {
         assert!(!t.toggle(c, true));
         assert!(t.toggle(a, true), "taking one back needs no requirement");
         assert_eq!(t.left(), 1);
+    }
+
+    #[test]
+    fn the_free_trait_does_not_count() {
+        // The Free Wild Wasteland tweak: the free trait is a third beside two others.
+        let (a, b, c) = (FormId(1), FormId(2), FormId(3));
+        let mut t = TraitSheet { traits: vec![a, b, c], chosen: BTreeSet::new(), max: 2, free: Some(c) };
+        assert!(t.toggle(c, true));
+        assert_eq!(t.left(), 2);
+        assert!(t.toggle(a, true) && t.toggle(b, true));
+        assert_eq!(t.left(), 0);
+        assert_eq!(t.chosen.len(), 3);
     }
 
     #[test]

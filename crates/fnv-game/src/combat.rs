@@ -484,9 +484,14 @@ impl Game<'_> {
     /// 2026-10-27: "companion kills should net you experience if they are hired"]. Their
     /// damage counts together towards the share kill XP asks for ([`Game::kill_xp`])
     /// [design].
-    pub fn kill_earns_xp(&self, killer: FormId) -> bool {
+    pub fn kill_earns_xp(&mut self, killer: FormId) -> bool {
         // The player's tweak: a teammate's kill is not the player's [design: docs/design/tweaks.md].
-        killer == FormId::PLAYER_REF || (!self.tweaks.no_companion_kill_xp && self.is_teammate(killer))
+        if killer == FormId::PLAYER_REF || (!self.tweaks.no_companion_kill_xp && self.is_teammate(killer)) {
+            return true;
+        }
+        // The player's tweak: a frenzied actor's kill is the player's; Aggression 3 is
+        // Frenzied [documented: GECK wiki Aggression; design: docs/design/tweaks.md].
+        self.tweaks.frenzy_kill_xp && actor::actor_value(self, killer, crate::actor_values::AGGRESSION).is_ok_and(|v| v >= 3.0)
     }
 
     /// Health damage an effect does (a burn, a poison): as a hit's, kept at 1 for an

@@ -302,6 +302,9 @@ fn barter_skill(script: Option<&mut crate::script::ScriptState>, sim: &mut SimSt
     crate::script::with_world(rt, sim, |rt| fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::BARTER)) as f32
 }
 
+/// What the No Pip-Boy In Combat tweak reads: the fight, the tweak, the corner line.
+type CombatGate<'w> = (Option<Res<'w, crate::after_combat::AfterCombat>>, Option<Res<'w, crate::tweaks::TweakSettings>>, Option<ResMut<'w, crate::corner_messages::CornerMessages>>);
+
 /// Open a menu on request while playing. The inventory stays shut while a script has
 /// turned the Pip-Boy off [documented: GECK wiki DisablePlayerControls, PipboyFlag]; a
 /// container still opens (a script's own `Activate` asks for it). The barter menu also
@@ -321,6 +324,7 @@ pub(crate) fn open_menus(
     wait: Option<Res<crate::wait::WaitMenu>>,
     mut fresh: ResMut<FreshMenu>,
     animated: (Option<ResMut<crate::doors::Doors>>, Option<ResMut<crate::container_anim::ContainerOpening>>),
+    (after, tweaks, mut corner): CombatGate,
 ) {
     let mut script = script.map(|s| s.into_inner());
     let steal = steals.read().last().copied();
@@ -331,6 +335,14 @@ pub(crate) fn open_menus(
         info!("menu: the inventory stays shut, a script has disabled the player's controls (Pip-Boy)");
         if let Some(mut s) = stats {
             s.held[crate::control::group::PIPBOY] += 1;
+        }
+        inv = false;
+    }
+    // The player's tweak: no Pip-Boy while something fights the player [design: docs/design/tweaks.md].
+    if inv && tweaks.is_some_and(|t| t.no_pipboy_in_combat) && after.is_some_and(|a| a.fighting) {
+        info!("menu: the Pip-Boy stays shut in combat (tweak)");
+        if let Some(c) = corner.as_deref_mut() {
+            c.push(crate::tweaks::NO_PIPBOY_LINE.into());
         }
         inv = false;
     }

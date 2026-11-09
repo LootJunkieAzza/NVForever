@@ -234,6 +234,8 @@ pub struct TweakSettings {
     pub power_attack_if_blocking: bool,
     /// `bVATSHipFire`: V.A.T.S. entered without aiming fires every shot from the hip.
     pub vats_hip_fire: bool,
+    /// `bNoPipBoyInCombat`: the Pip-Boy does not open while something fights the player.
+    pub no_pipboy_in_combat: bool,
 }
 
 /// The walk-angle choices: 30 to 80 degrees by 5; 45 is the physics' own.
@@ -367,6 +369,7 @@ impl Default for TweakSettings {
             pipboy_buzz: false,
             power_attack_if_blocking: false,
             vats_hip_fire: false,
+            no_pipboy_in_combat: false,
         }
     }
 }
@@ -1078,6 +1081,10 @@ impl Plugin for TweaksPlugin {
                 },
             ),
         );
+        switch!(app, "vats-ignores-companions", "V.A.T.S. Ignores Companions", "Companions cannot be targeted in V.A.T.S. (Stewie's Tweaks bIgnoreCompanionsVATS)", game.vats_ignores_companions);
+        switch!(app, "no-pipboy-in-combat", "No Pip-Boy In Combat", "The Pip-Boy does not open while something fights the player; a corner message says so. (Stewie's Tweaks bNoPipBoyInCombat)", no_pipboy_in_combat);
+        switch!(app, "frenzy-kill-xp", "Frenzied Kills Earn Experience", "A kill by a frenzied actor (Aggression Frenzied) earns the player experience. (Stewie's Tweaks bFrenzyGrantsPlayerXP)", game.frenzy_kill_xp);
+        switch!(app, "free-wild-wasteland", "Free Wild Wasteland", "Wild Wasteland can be taken without using one of the trait choices. (Stewie's Tweaks bFreeWildWasteland)", game.free_wild_wasteland);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1183,6 +1190,9 @@ fn keys(
         exit.write(AppExit::Success);
     }
 }
+
+/// The corner message when the No Pip-Boy In Combat tweak keeps it shut (our words).
+pub const NO_PIPBOY_LINE: &str = "The Pip-Boy cannot be used in combat.";
 
 /// What the Pip-Boy says when the No Healing In Combat tweak refuses an item (our words).
 pub const NO_HEALING_LINE: &str = "Healing items cannot be used in combat.";

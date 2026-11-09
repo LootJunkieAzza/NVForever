@@ -1457,3 +1457,18 @@ fn the_pickpocket_tweak_leaves_the_caught_player_detected() {
         assert_eq!(g.player_detected_for_sneak(), on, "tweak {on}");
     }
 }
+
+#[test]
+fn the_frenzy_tweak_gives_a_frenzied_kill_to_the_player() {
+    // bFrenzyGrantsPlayerXP (docs/design/tweaks.md): Aggression 3 is Frenzied.
+    const SET_AV: u16 = 0x100F;
+    let f = fixture();
+    let watchman = FormId(WATCHMAN_REF);
+    for on in [false, true] {
+        let mut g = game(&f);
+        g.tweaks.frenzy_kill_xp = on;
+        assert!(!g.kill_earns_xp(watchman), "not frenzied, tweak {on}");
+        call(&mut g, SET_AV, WATCHMAN_REF, &[ArgValue::Enum(av::AGGRESSION), ArgValue::Value(fnv_script::vm::Value::Num(3.0))]);
+        assert_eq!(g.kill_earns_xp(watchman), on, "frenzied, tweak {on}");
+    }
+}

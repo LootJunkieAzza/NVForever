@@ -647,7 +647,7 @@ mod tests {
 
     fn traits(n: usize) -> ListMenu {
         let list: Vec<FormId> = (1..=n as u32).map(FormId).collect();
-        let sheet = TraitSheet { traits: list, chosen: BTreeSet::new(), max: 2 };
+        let sheet = TraitSheet { traits: list, chosen: BTreeSet::new(), max: 2, free: None };
         ListMenu { code: menus::TRAITS, sheet: Sheet::Traits { now: sheet.clone(), start: sheet, allowed: vec![true; n] }, selected: 0, scroll: 0, hover: None }
     }
 

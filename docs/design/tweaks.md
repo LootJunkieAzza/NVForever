@@ -428,6 +428,10 @@ unless the player binds them, so nothing changes until then.
 | Sleep Healing Min Duration (0–12 h) | `bSleepHealingMinDuration` | `aid::hour_passed` calls `Game::pass_hours_healing` with healing held until the hour; every bed counts (who owns the bed is not known there); `bMiscStatRequiresSleepDuration` is not done |
 | Barter Lowers Repair Costs (0–60 %) | `bBarterAffectsRepairCosts` | `repair::view` scales `RepairSettings::cost_mult` by `fnv_game::tweaks::barter_repair_factor` (ours; no perk modifiers) |
 | Armour Condition Penalty (x0–x2) | `bCustomArmorConditionPenalty` | `combat::target_armor` uses `CombatForms::armor_values_worn_with` and `fnv_combat::condition::armor_mult_with`; the repair menus still show DT at the original's x1 |
+| No Pip-Boy In Combat | `bNoPipBoyInCombat` | `menu::open_menus` keeps the inventory request shut while `after_combat::AfterCombat::fighting`, with a corner line (ours). Opening it for Action Points is not done |
+| V.A.T.S. Ignores Companions | `bIgnoreCompanionsVATS` | `vats_mode::barred` gains `Bar::Companion` for teammates (marks and the preview); always, `bCombatOnly` is not done |
+| Frenzied Kills Earn Experience | `bFrenzyGrantsPlayerXP` | `Game::kill_earns_xp` (now `&mut`) counts a killer at Aggression 3, Frenzied [documented: GECK wiki Aggression] |
+| Free Wild Wasteland | `bFreeWildWasteland` | `chargen::TraitSheet::free`: the trait with editor ID `WildWasteland` [observed: FalloutNV.esm] does not count against `max` |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
@@ -448,8 +452,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 335 |
-| to do | 268 |
+| done | 339 |
+| to do | 264 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -484,6 +488,8 @@ game's Data folder, read-only).
 | `bExplosionKnockdownAvoidanceUsesStrength` | done |  |  | Strength Resists Blasts |
 | `bExtendLockpickSpotRange` | done |  |  | already so: the sweet spot can sit anywhere on the half circle |
 | `bFastTravelOverencumbered` | done |  |  | Fast Travel Encumbered |
+| `bFreeWildWasteland` | done |  |  | Free Wild Wasteland (editor ID WildWasteland, a trait on offer) |
+| `bFrenzyGrantsPlayerXP` | done |  |  | Frenzied Kills Earn Experience (Aggression 3) |
 | `bGodModePreventsJamAnims` | done |  |  | No Jams in God Mode |
 | `bGrabbingItemsIsCrime` | done |  | 1 | Grabbing Is Stealing (any value; the minimum-value option not built) |
 | `bHittingWeaponsDoesntDamageThem` | done |  |  | Shots Spare Weapons |
@@ -567,8 +573,6 @@ game's Data folder, read-only).
 | `bFallDeathsCauseDismemberment` | to do |  |  | falls::hurt lacks the dismember queue |
 | `bFastTravelCostsSpecialNukaBottles` | to do |  | 3 | a new refusal plus taking the bottle in travel::go |
 | `bForceLockpickNoBreakLock` | to do |  | 3 | Picking::force; the engine apply would need the pin-broken path |
-| `bFreeWildWasteland` | to do |  |  | the trait sheet needs to know which trait is free |
-| `bFrenzyGrantsPlayerXP` | to do |  |  | kill_earns_xp is &self; the frenzy test reads an actor value |
 | `bHardcoreTweaks` | to do |  | 3 | unsure which way each option goes outside Hardcore |
 | `bHipFireAnimsWhileScoped` | unsure, skipped |  |  | depends on alternate animations |
 | `bHoldToActivate` | to do |  | 9 | a hold on E is taken by grab; needs a timer and per-kind choices |
@@ -624,11 +628,13 @@ game's Data folder, read-only).
 | `bDisableCombatMusic` | done |  |  | No Battle Music |
 | `bEnteringVATSCostsAP` | done |  | 4 | Action Points to Enter V.A.T.S. (slider; refused without them; the fail-only and no-target options not built) |
 | `bHideEnemyMarkers` | done |  | 1 | No Enemies on the Compass (the firing-enemies option is not built) |
+| `bIgnoreCompanionsVATS` | done |  | 1 | V.A.T.S. Ignores Companions (always; bCombatOnly not done) |
 | `bKillsRewardAP` | done |  | 1 | Action Points per Kill (slider 0-50; given in VATS too) |
 | `bMaxVATSDistanceUsesWeaponRange` | done |  | 3 | already so: V.A.T.S. reach is the projectile range |
 | `bNoCompanionKillXP` | done |  | 1 | No XP for Companion Kills (also leaves their damage out of the kill share) |
 | `bNoDisarmCompanions` | done |  |  | Companions Keep Their Weapons |
 | `bNoHealingInCombat` | done |  | 1 | No Healing In Combat (Pip-Boy inventory and Stats page; the weapon hotkeys still use aid) |
+| `bNoPipBoyInCombat` | done |  | 5 | No Pip-Boy In Combat (a corner message; the AP option bAllowPipboyUsingActionPoints not done) |
 | `bNoScaleNpcDamageByCondition` | done |  |  | NPC Weapons Hit Whole |
 | `bNoSelfExplosionDamage` | done |  |  | Own Blasts Spare the Player |
 | `bNoSneakAttacksCriticals` | done |  |  | No Sneak Criticals |
@@ -641,9 +647,7 @@ game's Data folder, read-only).
 | `bFatalNonSneakCritsAlwaysGib` | to do |  | 1 | dismember checks carry no critical flag |
 | `bFirstPersonVATS` | to do |  |  | VATS keeps the current view; forcing one goes in vats_mode |
 | `bHoldAndReleaseThrowables` | to do |  | 1 | not built: no hold-to-release throw |
-| `bIgnoreCompanionsVATS` | to do |  | 1 | barred and preview_target both need a teammate filter |
 | `bLocationalMeleeDamage` | to do |  | 3 | NPC blows on the player use no part yet; NPC on NPC has no part lookup |
-| `bNoPipBoyInCombat` | to do |  | 5 | menu::open_menus is where; needs a message for the refusal |
 | `bNoScaleNpcDamageResistanceByCondition` | to do |  |  | target_armor computed twice for NPC targets |
 | `bNoScaleNpcDamageThresholdByCondition` | to do |  |  | target_armor computed twice for NPC targets |
 | `bNoSelfMeltdownDamage` | to do |  | 3 | the blast loop by the Meltdown explosion form |

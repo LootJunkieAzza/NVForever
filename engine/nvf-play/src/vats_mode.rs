@@ -986,6 +986,8 @@ enum Bar {
     Cloaked,
     /// No VATS Melee, with a melee weapon in hand.
     NoVatsMelee,
+    /// A companion, under the player's Ignore Companions tweak.
+    Companion,
 }
 
 /// Whether `actor` may be marked (§6): `Ok(true)` when it is cloaked and Enhanced Sensors
@@ -993,6 +995,10 @@ enum Bar {
 fn barred(v: &VatsMode, mut script: Option<&mut ScriptState>, sim: &mut SimState, actor: u32) -> Result<bool, Bar> {
     if crate::combat::is_dead(script.as_deref(), actor) {
         return Err(Bar::Dead);
+    }
+    // The player's tweak: companions are not targets [design: docs/design/tweaks.md].
+    if script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.vats_ignores_companions && rt.game.is_teammate(FormId(actor))) {
+        return Err(Bar::Companion);
     }
     // A cloaked actor (Invisibility or Chameleon at least 1: a Stealth Boy, a Nightkin's
     // cloak) is not marked unless the player has Enhanced Sensors, whose entry point 69 Has
@@ -1284,6 +1290,11 @@ fn mark(
         Err(Bar::NoVatsMelee) => {
             v.stats.refused += 1;
             info!("vats mode: {actor:08X} is flagged No VATS Melee: not marked with a melee weapon");
+            return;
+        }
+        Err(Bar::Companion) => {
+            v.stats.refused += 1;
+            info!("vats mode: {actor:08X} is a companion: not marked (tweak)");
             return;
         }
         Ok(true) => info!("vats mode: {actor:08X} is cloaked: marked through Enhanced Sensors"),
