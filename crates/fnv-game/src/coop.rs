@@ -515,10 +515,9 @@ impl Game<'_> {
     /// wait put in [`Game::coop_story_wait`] for the host's screen and the far players'
     /// prompts. Asked when the host's player starts a conversation and when an NPC's
     /// Dialogue package would force-greet it (`fnv_ai`); a script's StartConversation is
-    /// not held (its scene goes on). No gate for a guest's game or a game alone, nor
-    /// while the host chose to go on without the far players ([`Game::coop_go_alone`],
-    /// owner 2026-11-09: "If the guest is far away the host should have a prompt to
-    /// wait").
+    /// not held (its scene goes on). No gate for a guest's game or a game alone; never a
+    /// choice for the host (owner 2026-11-09: "It shouldn't be a choice the host should
+    /// have to wait").
     pub fn story_gate(&mut self, actor: FormId) -> bool {
         if self.coop_guest || self.coop_actors.is_empty() {
             self.coop_story_wait = None;
@@ -526,11 +525,7 @@ impl Game<'_> {
         }
         let (actor, _) = self.talker(actor);
         let far = self.players_far_from(actor);
-        if far.is_empty() {
-            // Every player near again: the next story NPC waits for them again.
-            self.coop_go_alone = false;
-        }
-        if far.is_empty() || self.coop_go_alone || !self.story_npc(actor) {
+        if far.is_empty() || !self.story_npc(actor) {
             if self.coop_story_wait.as_ref().is_some_and(|w| w.actor == actor) {
                 self.coop_story_wait = None;
             }

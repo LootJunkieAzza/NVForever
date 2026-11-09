@@ -129,10 +129,26 @@ pub struct TradeUi {
     last_stock: f32,
 }
 
+/// The story wait's prompt ([`Social::story`]).
+#[derive(Debug, Clone, PartialEq)]
+pub enum StoryPrompt {
+    /// The host waits for the far players: "Waiting for players...", no keys.
+    Host,
+    /// A far guest: the host (by its name) waits for it; Y teleports to the host.
+    Guest { host: String },
+}
+
 /// The interaction wheel's state: invitations, the wheel, the session going on.
 #[derive(Resource, Default, Debug)]
 pub struct Social {
     pub invites: Invites,
+    /// A co-op story wait's prompt, in the invitation's style (owner, 2026-11-09: "a
+    /// prompt like the duel prompt"): set by `nvforever::coop::scene` while it holds and
+    /// this player is playing (a menu open: it shows when the menu closes). It neither
+    /// lapses nor can be declined.
+    pub story: Option<StoryPrompt>,
+    /// A far guest pressed Y on its story prompt: taken by `nvforever::coop::scene`.
+    pub story_accepted: bool,
     pub wheel: Option<Wheel>,
     pub duel: Option<Duel>,
     pub trade: Option<TradeUi>,
@@ -316,6 +332,12 @@ fn input(
     let playing = *state.get() == PlayState::Playing;
     let mut out: Vec<(u8, Msg)> = Vec::new();
     let keys = &input.keys;
+    // The story wait's offer on screen (under an invitation, which goes first): Y
+    // teleports to the host; there is nothing to decline.
+    if playing && s.wheel.is_none() && s.invites.shown().is_none() && matches!(s.story, Some(StoryPrompt::Guest { .. })) && keys.just_pressed(KeyCode::KeyY) {
+        info!("co-op social: the story wait's teleport to the host accepted");
+        s.story_accepted = true;
+    }
     // The invitation on screen.
     if playing && s.wheel.is_none() && s.invites.shown().is_some() {
         let yes = keys.just_pressed(KeyCode::KeyY);

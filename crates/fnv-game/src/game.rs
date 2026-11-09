@@ -1473,9 +1473,6 @@ pub struct Game<'a> {
     /// ([`Game::story_gate`]); the far players, and when it was last asked (game
     /// seconds). Not saved.
     pub coop_story_wait: Option<crate::coop::StoryWait>,
-    /// A co-op host chose to go on without the far players ([`Game::story_gate`]): its
-    /// story NPCs are not held for them until every player is near again.
-    pub coop_go_alone: bool,
     /// The speakers (base or reference) of lines that belong to, or set a stage of, a story
     /// quest, found once ([`Game::story_npc`]). Not saved.
     pub(crate) story_speakers: Option<std::collections::HashMap<FormId, Vec<FormId>>>,
@@ -2252,7 +2249,6 @@ impl<'a> Game<'a> {
             coop: Vec::new(),
             coop_actors: BTreeMap::new(),
             coop_story_wait: None,
-            coop_go_alone: false,
             story_speakers: None,
             coop_guest: false,
             world_logic_off: false,

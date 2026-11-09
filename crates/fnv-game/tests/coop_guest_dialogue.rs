@@ -404,13 +404,9 @@ fn a_line_starting_a_story_quest_makes_a_story_npc() {
     assert!(g.story_npc(cashier));
     assert!(g.start_dialogue(cashier, None).is_err());
     assert_eq!(g.coop_story_wait.as_ref().map(|w| w.far.len()), Some(1));
-    // The host chose to go on without them: the talk starts.
-    g.coop_go_alone = true;
-    assert!(!g.story_gate(cashier));
-    // Every player near again: the choice is over, and the next far wait holds again.
+    // Every player near: the talk starts; far again: held again.
     g.world.get(other).unwrap().pos = [100.0, 0.0, 0.0];
     assert!(!g.story_gate(cashier));
-    assert!(!g.coop_go_alone);
     g.world.get(other).unwrap().pos = [3000.0, 0.0, 0.0];
     assert!(g.story_gate(cashier));
 }

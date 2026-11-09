@@ -1635,6 +1635,13 @@ impl Ai {
     /// conversation that cannot start now because the game is held (another
     /// conversation, a menu) starts when it can.
     fn talk_start(&mut self, game: &mut Game, actor: FormId, package: FormId, talk: &Talk, away: f32) {
+        // A co-op host's story NPC waits until every player is near it
+        // (`Game::story_gate`), for a Say To as for a force greet: Jed's greeting at Zion
+        // is a Say To package (HonestHearts.esm PACK NVDLC02JedForceGreet) [observed:
+        // laptop run story-far-2, 2026-11-09, where it was said with the guest away].
+        if game.story_gate(actor) {
+            return;
+        }
         // A force greet needs a clear line to the target: not through a wall or a closed
         // door (`Game::greet_sight`). The actor stays as it is (waiting, or at the end
         // of its walk) and tries again every update.
@@ -1661,11 +1668,6 @@ impl Ai {
             return;
         }
         if game.in_menu() || game.loading {
-            return;
-        }
-        // A co-op host's story NPC waits, as for a menu, until every player is near it
-        // (`Game::story_gate`): Jed's greeting at Zion waits for the guests.
-        if game.story_gate(actor) {
             return;
         }
         // The force greet: a conversation also for a greeting with the Goodbye flag

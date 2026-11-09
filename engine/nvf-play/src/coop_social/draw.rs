@@ -193,6 +193,11 @@ enum Lower {
     Line(String),
 }
 
+/// The story wait's prompts [design: owner 2026-11-09, "on the hosts end it'll say waiting
+/// for players, and then give guests only the option to teleport"].
+const STORY_HOST: &str = "WAITING FOR PLAYERS...";
+const STORY_GUEST_KEY: &str = "Y) Teleport to the host";
+
 /// The invitation's keys, as the input reads them (`super::input`).
 const ACCEPT: &str = "Y) Accept";
 const DECLINE: &str = "N) Decline";
@@ -227,6 +232,11 @@ fn banner(social: &Social, mates: &SocialMates, now: f32) -> Option<BannerShown>
     if let Some(i) = social.invites.shown() {
         let name = mates.get(i.with).map_or_else(|| format!("Player {}", i.with + 1), |m| m.name.clone());
         return Some(BannerShown { title: super::invite::invite_line(&name, i.kind), lower: Lower::Keys });
+    }
+    match &social.story {
+        Some(super::StoryPrompt::Host) => return Some(BannerShown { title: STORY_HOST.into(), lower: Lower::None }),
+        Some(super::StoryPrompt::Guest { host }) => return Some(BannerShown { title: format!("{} IS WAITING FOR YOU", host.to_uppercase()), lower: Lower::Line(STORY_GUEST_KEY.into()) }),
+        None => {}
     }
     let said = social.banner.as_ref().filter(|(_, until)| now < *until).map(|(l, _)| l.clone());
     if let Some(d) = social.duel.as_ref() {
@@ -365,6 +375,21 @@ mod tests {
         s.duel.as_mut().unwrap().phase = Phase::Countdown { draw_at: 3.0 };
         s.banner = Some(("anything".into(), 99.0));
         assert_eq!(banner(&s, &m, 1.0), None, "the countdown is never shown");
+    }
+
+    #[test]
+    fn the_story_wait_shows_under_an_invitation_with_no_decline() {
+        let m = mates();
+        let mut s = Social { story: Some(crate::coop_social::StoryPrompt::Host), ..Social::default() };
+        assert_eq!(banner(&s, &m, 0.0), Some(BannerShown { title: "WAITING FOR PLAYERS...".into(), lower: Lower::None }));
+        s.story = Some(crate::coop_social::StoryPrompt::Guest { host: "Courier".into() });
+        assert_eq!(banner(&s, &m, 0.0), Some(BannerShown { title: "COURIER IS WAITING FOR YOU".into(), lower: Lower::Line("Y) Teleport to the host".into()) }));
+        // An invitation goes first; the story prompt is back when it is answered.
+        let mut sink = Vec::new();
+        s.invites.heard(0, 1, Kind::Trade, 1 << 12 | 1, 0.0, false, &mut sink);
+        assert_eq!(banner(&s, &m, 0.0).map(|b| b.lower), Some(Lower::Keys));
+        s.invites.asked.clear();
+        assert_eq!(banner(&s, &m, 0.0).map(|b| b.lower), Some(Lower::Line("Y) Teleport to the host".into())));
     }
 
     #[test]

@@ -84,11 +84,10 @@ pub(super) struct Repl {
     /// The host's: where its player stood at the end of the last frame, so a script's move
     /// takes along only the guests that were within sight of it ([`fnv_game::coop::STORY_NEAR`]).
     host_was: Option<(Place, [f32; 3])>,
-    /// The host's: the guests a script's move of the host left behind, for the host's
-    /// prompt (`scene::story_prompts`).
-    pub left_behind: Vec<u8>,
-    /// The host's: the guests the host chose to wait for after such a move (sent as a
-    /// story wait for the host's player itself until each is near).
+    /// The host's: the guests a script's move of the host left behind. The host waits
+    /// for them (owner, 2026-11-09: "It shouldn't be a choice the host should have to
+    /// wait"): sent as a story wait for the host's own player until each is near
+    /// (`scene::share_scene`), while story NPCs are held (`Game::story_gate`).
     pub wait_for: Vec<u8>,
     // The host's.
     shadows: HashMap<u8, Shadow>,
@@ -429,7 +428,14 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
                     if !near.is_empty() {
                         summons.push((summon, near));
                     }
-                    r.left_behind = far;
+                    if !far.is_empty() {
+                        info!("co-op: story wait: the host waits for {}", names(&far));
+                        for id in far {
+                            if !r.wait_for.contains(&id) {
+                                r.wait_for.push(id);
+                            }
+                        }
+                    }
                     None
                 }
             })
@@ -1104,13 +1110,16 @@ fn comp_name(c: u8) -> &'static str {
     }
 }
 
+/// A guest, where it is: its id, place, feet and yaw.
+type GuestAt = (u8, Place, [f32; 3], f32);
+
 /// The guests within [`fnv_game::coop::STORY_NEAR`] units of where the host stood (same
 /// place), and the others. No place known for the host: every guest is near (as before).
 fn near_guests(host: Option<(Place, [f32; 3])>, guests: &[(u8, Place, [f32; 3], f32)]) -> (Vec<u8>, Vec<u8>) {
     let near = |place: Place, feet: [f32; 3]| {
         host.is_none_or(|(hp, hf)| hp == place && (0..3).map(|i| (feet[i] - hf[i]).powi(2)).sum::<f32>() <= fnv_game::coop::STORY_NEAR * fnv_game::coop::STORY_NEAR)
     };
-    let (n, f): (Vec<&(u8, Place, [f32; 3], f32)>, Vec<_>) = guests.iter().partition(|g| near(g.1, g.2));
+    let (n, f): (Vec<&GuestAt>, Vec<_>) = guests.iter().partition(|g| near(g.1, g.2));
     (n.iter().map(|g| g.0).collect(), f.iter().map(|g| g.0).collect())
 }
 

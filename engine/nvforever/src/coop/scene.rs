@@ -129,24 +129,23 @@ fn shown_name(g: &fnv_game::Game, actor: FormId) -> String {
 pub(super) struct Prompts {
     /// The host's: when its screen last said who it waits for.
     told: Option<f32>,
-    /// A guest's: the NPC it was last offered a fast travel for, and when.
+    /// A guest's: the NPC (or the host's player) it was last offered a teleport for, and
+    /// when.
     offered: Option<(u32, f32)>,
-    /// A guest's: the owner of the box it showed, while it is open.
-    open_box: Option<Option<String>>,
-    /// The host's: the box asking whether to wait for the guests left behind, while it
-    /// is open (its owner), and those guests.
-    host_box: Option<(Option<String>, Vec<u8>)>,
+    /// A guest's: the offer held for a menu was logged, for this NPC.
+    held_logged: Option<u32>,
 }
 
-/// How often the host's screen says again whom it waits for, and how soon a guest who
-/// said "Not now" is offered the fast travel again (seconds).
+/// How often the host's log says again whom it waits for (seconds).
 const TELL_EVERY: f32 = 8.0;
-const OFFER_AGAIN: f32 = 45.0;
 
-/// The story wait on the screens (owner, 2026-11-09): the host's corner says which
-/// players it waits for and for whom; each far guest gets a box offering a fast travel to
-/// the host ("Give an option for players to fast travel when host is waiting"), which
-/// puts it beside the host as a scene's pull does, unless it is in combat.
+/// The story wait on the screens, in the co-op invitation's style (owner, 2026-11-09: "It
+/// should be a prompt like the duel prompt on the hosts end it'll say waiting for
+/// players, and then give guests only the option to teleport while they're not in a menu
+/// already and if they are it'll come up once that menu closes"): the host's banner says
+/// "WAITING FOR PLAYERS...", with no keys (the host always waits); each far guest's says
+/// the host waits for it, with Y to teleport beside the host (refused in combat), and
+/// stays until it is near. Neither shows over a menu.
 ///
 /// Log: `co-op: story wait: …`.
 #[allow(clippy::too_many_arguments)]
@@ -158,120 +157,66 @@ pub(super) fn story_prompts(
     mut corner: Option<ResMut<nvf_play::corner_messages::CornerMessages>>,
     loading: Option<Res<Loading>>,
     mut travel: MessageWriter<TravelRequest>,
+    social: Option<ResMut<nvf_play::coop_social::Social>>,
+    play: Option<Res<State<nvf_play::PlayState>>>,
 ) {
+    use nvf_play::coop_social::StoryPrompt;
     let now = time.elapsed_secs();
+    let Some(mut social) = social else { return };
     let Some(mut script) = script else { return };
     let Some(rt) = script.rt.as_mut() else { return };
     let g = &mut rt.game;
+    // A prompt shows only while this player plays: a menu (the Pip-Boy, a conversation, a
+    // container, barter) holds it until it closes [design: owner 2026-11-09, "if they are
+    // it'll come up once that menu closes"].
+    let playing = play.as_ref().is_none_or(|p| *p.get() == nvf_play::PlayState::Playing) && !g.in_menu() && !loading.as_ref().is_some_and(|l| l.active());
+    let mut prompt = None;
     if coop.is_host() {
-        host_wait_box(&mut coop, g, &mut state, loading.as_deref());
-        let names: Vec<String> = match g.coop_story_wait.as_ref().filter(|w| g.time - w.at <= WAIT_FRESH) {
+        let fresh = g.coop_story_wait.as_ref().filter(|w| g.time - w.at <= WAIT_FRESH);
+        let names: Vec<String> = match fresh {
             Some(w) => w.far.iter().filter_map(|a| g.coop_actors.get(a).cloned()).collect(),
-            None => Vec::new(),
+            // Left behind by a script's move of the host: waited for all the same.
+            None => coop.repl.wait_for.iter().map(|id| coop.peers.get(id).map(|p| super::label(*id, &p.name)).unwrap_or_else(|| format!("Player {}", id + 1))).collect(),
         };
         if names.is_empty() {
             state.told = None;
-            return;
-        }
-        if state.told.is_some_and(|t| now - t < TELL_EVERY) {
-            return;
-        }
-        let npc = g.coop_story_wait.as_ref().map(|w| shown_name(g, w.actor)).unwrap_or_default();
-        let text = format!("Waiting for {} to come near {npc}.", names.join(", "));
-        info!("co-op: story wait: {text}");
-        if let Some(c) = corner.as_mut() {
-            c.push(text.into());
-        }
-        state.told = Some(now);
-        return;
-    }
-    if !coop.is_guest() {
-        return;
-    }
-    // The box's answer.
-    if let Some(owner) = state.open_box.clone() {
-        match g.message_box.as_ref() {
-            Some(m) if m.owner == owner => {
-                if let Some(b) = m.pressed {
-                    g.message_box = None;
-                    state.open_box = None;
-                    if b == 0 {
-                        fast_travel_to_host(&mut coop, g, now, loading.as_deref(), &mut travel, corner.as_deref_mut());
-                    } else {
-                        info!("co-op: story wait: this player stays where it is");
-                    }
-                }
+        } else {
+            prompt = playing.then_some(StoryPrompt::Host);
+            if state.told.is_none_or(|t| now - t >= TELL_EVERY) {
+                let text = match fresh.map(|w| shown_name(g, w.actor)) {
+                    Some(npc) => format!("Waiting for {} to come near {npc}.", names.join(", ")),
+                    None => format!("Waiting for {} to come near.", names.join(", ")),
+                };
+                info!("co-op: story wait: {text}");
+                state.told = Some(now);
             }
-            // Closed some other way.
-            _ => state.open_box = None,
         }
-        return;
-    }
-    let me = coop.link.as_ref().and_then(|l| l.id());
-    let heard: Option<(u32, Vec<u8>)> = coop.scene.heard.as_ref().filter(|(_, at): &&(SceneView, f32)| now - *at < STALE).and_then(|(v, _)| v.waiting.clone());
-    let Some((npc, _)) = heard.filter(|(_, far)| me.is_some_and(|me| far.contains(&me))) else { return };
-    if state.offered.is_some_and(|(n, at)| n == npc && now - at < OFFER_AGAIN) || g.message_box.is_some() || g.in_menu() || loading.is_some_and(|l| l.active()) {
-        return;
-    }
-    let name = shown_name(g, FormId(npc)).replace(['"', '|', '%'], "");
-    let line = if npc == FormId::PLAYER_REF.0 {
-        "MessageBoxEx \"The host is waiting for you, and you are too far away.|Fast travel to the host|Not now\"".to_string()
-    } else {
-        format!("MessageBoxEx \"The host is waiting to talk to {name}, and you are too far away.|Fast travel to the host|Not now\"")
-    };
-    match g.run_source(&line, Default::default()) {
-        Ok(_) => {
-            info!("co-op: story wait: the host waits to talk to {name}: offered a fast travel to the host");
-            state.open_box = Some(g.message_box.as_ref().and_then(|m| m.owner.clone()));
-        }
-        Err(e) => warn!("co-op: story wait: no box for the fast travel: {e}"),
-    }
-    state.offered = Some((npc, now));
-}
-
-/// The host's box after a script's move left guests behind (owner, 2026-11-09: "If the
-/// guest is far away the host should have a prompt to wait"): Wait keeps the story NPCs
-/// held for them and offers each a fast travel to the host; Go without them lets the
-/// host's story NPCs talk until every player is near again (`Game::coop_go_alone`). The
-/// move itself is not held: a script's MoveTo runs in the middle of its script, so the
-/// box comes right after it, once the host's loading screen is down.
-///
-/// Log: `co-op: story wait: the host …`.
-fn host_wait_box(coop: &mut Coop, g: &mut fnv_game::Game, state: &mut Prompts, loading: Option<&Loading>) {
-    if let Some((owner, far)) = state.host_box.clone() {
-        match g.message_box.as_ref() {
-            Some(m) if m.owner == owner => {
-                if let Some(b) = m.pressed {
-                    g.message_box = None;
-                    state.host_box = None;
-                    if b == 0 {
-                        info!("co-op: story wait: the host waits for {}", far.iter().map(|i| format!("player {}", i + 1)).collect::<Vec<_>>().join(", "));
-                        g.coop_go_alone = false;
-                        coop.repl.wait_for = far;
-                    } else {
-                        info!("co-op: story wait: the host goes on without them");
-                        g.coop_go_alone = true;
-                        coop.repl.wait_for.clear();
-                    }
+    } else if coop.is_guest() {
+        let me = coop.link.as_ref().and_then(|l| l.id());
+        let heard: Option<(u32, Vec<u8>)> = coop.scene.heard.as_ref().filter(|(_, at): &&(SceneView, f32)| now - *at < STALE).and_then(|(v, _)| v.waiting.clone());
+        if let Some((npc, _)) = heard.filter(|(_, far)| me.is_some_and(|me| far.contains(&me))) {
+            let host = coop.peers.get(&0).map(|p| super::label(0, &p.name)).unwrap_or_else(|| "The host".into());
+            if playing {
+                if state.offered.is_none_or(|(n, _)| n != npc) {
+                    let why = if npc == FormId::PLAYER_REF.0 { String::new() } else { format!(" to talk to {}", shown_name(g, FormId(npc))) };
+                    info!("co-op: story wait: the host waits{why}: offered a teleport to the host");
+                    state.offered = Some((npc, now));
                 }
+                prompt = Some(StoryPrompt::Guest { host });
+            } else if state.offered.is_none_or(|(n, _)| n != npc) && state.held_logged != Some(npc) {
+                info!("co-op: story wait: the teleport offer waits for this player's menu to close");
+                state.held_logged = Some(npc);
             }
-            _ => state.host_box = None,
+        } else {
+            state.offered = None;
+            state.held_logged = None;
         }
-        return;
-    }
-    if coop.repl.left_behind.is_empty() || g.message_box.is_some() || g.in_menu() || g.loading || loading.is_some_and(|l| l.active()) {
-        return;
-    }
-    let far = std::mem::take(&mut coop.repl.left_behind);
-    let names: Vec<String> = far.iter().map(|id| coop.peers.get(id).map(|p| super::label(*id, &p.name)).unwrap_or_else(|| format!("Player {}", id + 1)).replace(['"', '|', '%'], "")).collect();
-    let verb = if names.len() == 1 { "is" } else { "are" };
-    let line = format!("MessageBoxEx \"{} {verb} far away. Wait for them?|Wait|Go without them\"", names.join(", "));
-    match g.run_source(&line, Default::default()) {
-        Ok(_) => {
-            info!("co-op: story wait: the host is asked whether to wait for {}", names.join(", "));
-            state.host_box = Some((g.message_box.as_ref().and_then(|m| m.owner.clone()), far));
+        if std::mem::take(&mut social.story_accepted) && matches!(prompt, Some(StoryPrompt::Guest { .. })) {
+            fast_travel_to_host(&mut coop, g, now, loading.as_deref(), &mut travel, corner.as_deref_mut());
         }
-        Err(e) => warn!("co-op: story wait: no box for the host: {e}"),
+    }
+    if social.story != prompt {
+        social.story = prompt;
     }
 }
 
@@ -356,17 +301,25 @@ pub(super) fn share_scene(
         rt.game.coop_host_locks = [false; 7];
         coop.scene = Shared::default();
         if let Some(link) = coop.link.as_ref() {
-            let mut view = match sim.as_deref_mut() {
-                Some(sim) => nvf_play::script::with_world(rt, sim, |rt| scene_view(&rt.game)),
-                None => scene_view(&rt.game),
+            // Who is far from the host's player: measured in the world, which the scripts'
+            // game has only inside `with_world` (outside it no player was found, so the
+            // wait ended at once: laptop run story-far-2, 2026-11-09).
+            let measured = sim.is_some();
+            let (mut view, far) = match sim.as_deref_mut() {
+                Some(sim) => nvf_play::script::with_world(rt, sim, |rt| (scene_view(&rt.game), rt.game.players_far_from(FormId::PLAYER_REF))),
+                None => (scene_view(&rt.game), Vec::new()),
             };
             let players: Vec<(u8, FormId)> = coop.peers.iter().filter_map(|(id, p)| p.actor.map(|a| (*id, a))).collect();
             view.waiting = story_waiting(&rt.game, players.iter().copied());
-            // The guests the host chose to wait for after a script moved it: a wait for
-            // the host's own player until each is near it.
-            if !coop.repl.wait_for.is_empty() {
-                let far = rt.game.players_far_from(FormId::PLAYER_REF);
+            // The guests a script's move of the host left behind: a wait for the host's
+            // own player until each is near it.
+            if !coop.repl.wait_for.is_empty() && measured {
+                let before = coop.repl.wait_for.len();
                 coop.repl.wait_for.retain(|id| players.iter().any(|(i, a)| i == id && far.contains(a)));
+                if coop.repl.wait_for.len() < before {
+                    let left: Vec<String> = coop.repl.wait_for.iter().map(|i| format!("player {}", i + 1)).collect();
+                    info!("co-op: story wait: the host waits for {} now", if left.is_empty() { "no one".to_string() } else { left.join(", ") });
+                }
                 if view.waiting.is_none() && !coop.repl.wait_for.is_empty() {
                     view.waiting = Some((FormId::PLAYER_REF.0, coop.repl.wait_for.clone()));
                 }
