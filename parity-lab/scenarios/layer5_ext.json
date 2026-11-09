@@ -1364,7 +1364,7 @@
   {
    "id": "L5.ext.jgnif",
    "layer": 5,
-   "description": "JohnnyGuitar's NIF, particle and camera functions (#1007; docs/spec-notes/ext-jg-nif-camera.md) on the player at Doc Mitchell's: node distances, the root's bound, missing blocks' particle and property values, the fields of view, the camera's place, WorldToScreen, the sequence slots, the refreshes; set jgnif of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
+   "description": "JohnnyGuitar's NIF, particle and camera functions (#1007; docs/spec-notes/ext-jg-nif-camera.md) on the player at Doc Mitchell's: node distances, the root's bound, missing blocks' particle and property values, the camera's place, WorldToScreen, the sequence slots, the refreshes; set jgnif of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle and candidate as L5.ext.jip.getters.",
    "oracle": {"golden": "jip/jgnif.json"},
    "candidate": {
     "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",

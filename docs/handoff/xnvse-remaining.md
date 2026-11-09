@@ -201,11 +201,11 @@ scene mirror's edits, their finish events, the vertices told by the engine's `ni
 the HUD bars' script-variable (a variable handed over by place, `Host::var_place`) and UDF
 sources; not probed yet, set sup7). Census after it: SUP 29 → 17 (the 17 of batch 4).
 With both JIP batch 10 and SUP batch 7 merged: JIP 142, SUP 17 [hypothesis: 378 − 36 − 12 = 330 in all; the extender_census test decides].
-JohnnyGuitar NIF and camera slice: 22 (#1007, ext-jg-nif-camera.md: distances to drawn nodes and the hit point,
+JohnnyGuitar NIF and camera slice: 21 (#1007, ext-jg-nif-camera.md: distances to drawn nodes and the hit point,
 bounds, particle systems' values through the scene mirror and the engine's live systems, alpha and stencil
 properties read from the models, switch nodes through the block flags, the sequences playing, Update3DAlt, the
-camera's place, overrides, field of view and WorldToScreen through `nvf_play::script_camera`; set jgnif, not
-probed yet). JohnnyGuitar 109 → 87.
+camera's place, overrides and WorldToScreen through `nvf_play::script_camera`; set jgnif, not probed yet).
+JohnnyGuitar 109 → 88.
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,

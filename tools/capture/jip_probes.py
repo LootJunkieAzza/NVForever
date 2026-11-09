@@ -8406,9 +8406,6 @@ JGNIF_PROBES = (
      _jgnif("missing", "SetFunctionValue (sv_Construct \"%g %g %g %g\" (PlayerREF.GetNiPSysModifierValue \"NVFNoSuchBlock\" 14) "
             "(PlayerREF.GetParticleEmitterSpawnRate \"NVFNoSuchBlock\") (PlayerREF.GetAlphaPropertyValue \"NVFNoSuchBlock\" 0) "
             "(PlayerREF.GetStencilPropertyValue \"NVFNoSuchBlock\" 0))"),
-     # The fields of view: world, first person, the scene's (hypothesis: "75 55 …", the
-     # third the view's in the same degrees).
-     _jgnif("fov", "SetFunctionValue (sv_Construct \"%g %g %.0f\" (PlayerREF.GetPlayerCamFOV 0) (PlayerREF.GetPlayerCamFOV 1) (PlayerREF.GetPlayerCamFOV 2))"),
      # The camera's place against the player's: in first person within 200 units, the
      # local place's height above the feet (hypothesis: "1 1").
      _jgnif("camera", "GetCameraTranslation fX fY fZ 0\nlet fA := ((fX - (PlayerREF.GetPos X)) ^ 2 + (fY - (PlayerREF.GetPos Y)) ^ 2) ^ 0.5\n"

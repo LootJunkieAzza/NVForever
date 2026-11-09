@@ -34,12 +34,6 @@
    "text": true
   },
   {
-   "query": "float fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\narray_var aR\nBegin Function { }\nSetFunctionValue (sv_Construct \"%g %g %.0f\" (PlayerREF.GetPlayerCamFOV 0) (PlayerREF.GetPlayerCamFOV 1) (PlayerREF.GetPlayerCamFOV 2))\nEnd\n",
-   "label": "jgnif.fov",
-   "field": "value",
-   "text": true
-  },
-  {
    "query": "float fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\narray_var aR\nBegin Function { }\nGetCameraTranslation fX fY fZ 0\nlet fA := ((fX - (PlayerREF.GetPos X)) ^ 2 + (fY - (PlayerREF.GetPos Y)) ^ 2) ^ 0.5\nGetCameraTranslation fX fY fZ 1\nSetFunctionValue (sv_Construct \"%g %g\" (fA < 200) (fZ > 50))\nEnd\n",
    "label": "jgnif.camera",
    "field": "value",

@@ -148,17 +148,14 @@ fn particles_properties_and_switches() {
 fn the_camera() {
     let f = fixture();
     let mut g = game(&f);
-    // No engine yet: zeros, the settings' field of view.
+    // No engine yet: zeros.
     assert_eq!(n(&mut g, "GetCameraTranslation fX fY fZ 0\nSetFunctionValue fX + fY + fZ"), 0.0);
-    assert_eq!(n(&mut g, "PlayerREF.GetPlayerCamFOV 0"), 75.0);
     let at = g.ref_pos_rot(P).unwrap().0;
     // The camera 100 behind the player, facing north with a 90° view, square.
     g.ui.camera.view = Some(CameraView { pos: [at[0], at[1] - 100.0, at[2]], heading: 0.0, pitch: 0.0, roll: 0.0, fov_y: std::f32::consts::FRAC_PI_2, aspect: 1.0, first_person: false });
     assert_eq!(n(&mut g, "GetCameraTranslation fX fY fZ 1\nSetFunctionValue fY"), -100.0);
     // The player's place is at the screen's centre, 100 ahead.
     assert_eq!(n(&mut g, "let fOn := WorldToScreen fX fY fZ 0 0 0 0 PlayerREF\nSetFunctionValue fOn * 1000 + fX * 100 + fY * 10 + fZ / 100"), 1000.0 + 50.0 + 5.0 + 1.0);
-    // 90° across a square screen at 4:3: 2 atan(4/3).
-    assert!((n(&mut g, "PlayerREF.GetPlayerCamFOV 2") - 106.26).abs() < 0.01);
     // The overrides for the engine to put on the third-person camera.
     q(&mut g, "SetCameraTranslate 1 10 -50 20\nSetCameraRotate 1 3 90");
     assert_eq!(g.ui.camera.translate_override, Some([10.0, -50.0, 20.0]));

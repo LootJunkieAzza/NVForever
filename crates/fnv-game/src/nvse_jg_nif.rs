@@ -1,8 +1,8 @@
 //! JohnnyGuitar NVSE: the NIF, particle and camera functions (#1007;
 //! docs/spec-notes/ext-jg-nif-camera.md). Distances to drawn nodes and their bounds, a
 //! particle system's values, a shape's alpha and stencil properties, switch nodes, the
-//! sequences playing, the 3D refresh, and the player's camera: its place, its overrides,
-//! its field of view and where a point of the world falls on the screen [documented: each
+//! sequences playing, the 3D refresh, and the player's camera: its place, its overrides
+//! and where a point of the world falls on the screen [documented: each
 //! page in the wiki export]. The nodes are the scene mirror's (`crate::nif_blocks`), the
 //! camera what the engine tells each frame (`CameraRequests::view`, `nvf_play::script_camera`).
 
@@ -283,16 +283,6 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
             zero
         }
-        // `which`: 0 the world's field of view, 1 the first person's, as GetCameraFOV
-        // reads them; 2 the view's now, as the engine tells it, in the same degrees
-        // (across a 4:3 screen) [documented: the page's three; hypothesis: the units].
-        "getplayercamfov" => match num(args, 0, 0.0) as i64 {
-            2 => match g.ui.camera.view {
-                Some(v) => XVal::Num(f64::from(2.0 * ((v.fov_y / 2.0).tan() * 4.0 / 3.0).atan()).to_degrees()),
-                None => return crate::nvse::call(g, ctx, "getcamerafov", subject, &[XVal::Num(0.0)]),
-            },
-            k => return crate::nvse::call(g, ctx, "getcamerafov", subject, &[XVal::Num(f64::from(u8::from(k == 1)))]),
-        },
         // `xOut yOut zOut x y z handleType [ref]` (the VM writes the three): where the point
         // falls on the screen (`world_to_screen`); with a reference the point is an offset
         // from its place [documented]. 0 and the variables 0 without an engine.

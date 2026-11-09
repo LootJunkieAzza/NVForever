@@ -31,7 +31,7 @@ pub struct CameraRequests {
     /// A script set [`CameraRequests::tfc`] since the engine last took it.
     pub tfc_set: bool,
     /// The player's camera as the engine placed it this frame (JohnnyGuitar's
-    /// GetCameraTranslation, WorldToScreen, GetPlayerCamFOV, `crate::nvse_jg_nif`);
+    /// GetCameraTranslation, WorldToScreen, `crate::nvse_jg_nif`);
     /// `None` while no engine tells it.
     pub view: Option<CameraView>,
     /// JohnnyGuitar's SetCameraTranslate: the third-person camera's place relative to

@@ -2,7 +2,7 @@
 //! after the camera is placed (`control::place_camera`), the scripts' overrides of the
 //! third-person camera (SetCameraTranslate, SetCameraRotate) are put on it, and the
 //! camera's place, angles and field of view are told to the game for
-//! GetCameraTranslation, WorldToScreen and GetPlayerCamFOV. The fly camera, when on, is
+//! GetCameraTranslation and WorldToScreen. The fly camera, when on, is
 //! left alone (`free_cam` puts the view there after this).
 
 use crate::control::PlayerControl;
