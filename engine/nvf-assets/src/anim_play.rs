@@ -836,10 +836,14 @@ pub struct BlendPlayer {
 /// Securitron's wheel in its walk, docs/spec-notes/animation.md §9.12). Layers carry only
 /// their phase (0–1), so a wrap is seen as the phase jumping by more than half a cycle
 /// between samples: forward from near 1 to near 0 adds a cycle, back from near 0 to near
-/// 1 (a clip played backwards) takes one off. A new clip in the slot starts again from
-/// none [design: the count only keeps the rolling smooth from one cycle to the next; a
-/// count missed while an actor is not sampled turns the wheel by some amount, as starting
-/// again does].
+/// 1 (a clip played backwards) takes one off. A clip that moves to another slot takes its
+/// count along (locomotion moves the walk from slot 0 to the fading-out slot 1 when the
+/// move changes, and under a jump); a clip new to every slot starts from none [design:
+/// the count only keeps the rolling smooth from one cycle to the next; a count missed
+/// while an actor is not sampled turns the wheel by some amount, as starting again does].
+/// The phase alone cannot tell a seek within the same clip from playing on (a jump of
+/// more than half a cycle reads as a wrap, a whole cycle between samples as none): the
+/// callers only advance a looping clip's phase, a resync comes with a new clip.
 #[derive(Debug, Default, Clone)]
 struct Loops {
     clip: Option<Arc<BoundClip>>,
@@ -848,22 +852,37 @@ struct Loops {
 }
 
 impl Loops {
-    /// Follow the slot's layer as it stands at this sample.
-    fn follow(&mut self, layer: Option<&Layer>) {
+    /// Follow every slot's layer as it stands at this sample.
+    fn follow_all(loops: &mut [Loops; MAX_LAYERS], layers: &[Option<Layer>; MAX_LAYERS]) {
+        let held = |l: &Loops, layer: &Layer| l.clip.as_ref().is_some_and(|c| Arc::ptr_eq(c, &layer.clip));
+        // A clip new to its slot that another slot held at the last sample: its state there.
+        let mut carry: [Option<(f32, i64)>; MAX_LAYERS] = [None; MAX_LAYERS];
+        for (k, layer) in layers.iter().enumerate() {
+            if let Some(l) = layer.as_ref().filter(|l| !held(&loops[k], l)) {
+                carry[k] = loops.iter().find(|o| held(o, l)).map(|o| (o.phase, o.cycles));
+            }
+        }
+        for (k, layer) in layers.iter().enumerate() {
+            loops[k].follow(layer.as_ref(), carry[k]);
+        }
+    }
+
+    /// Follow the slot's layer as it stands at this sample; `carry` is the clip's phase and
+    /// count in the slot that held it at the last sample, when it is new to this one.
+    fn follow(&mut self, layer: Option<&Layer>, carry: Option<(f32, i64)>) {
         let Some(l) = layer.filter(|l| l.phase.is_finite()) else {
             *self = Loops::default();
             return;
         };
-        match &self.clip {
-            Some(c) if Arc::ptr_eq(c, &l.clip) => {
-                let d = l.phase - self.phase;
-                if d < -0.5 {
-                    self.cycles += 1;
-                } else if d > 0.5 {
-                    self.cycles -= 1;
-                }
-            }
-            _ => *self = Loops { clip: Some(l.clip.clone()), phase: l.phase, cycles: 0 },
+        if !self.clip.as_ref().is_some_and(|c| Arc::ptr_eq(c, &l.clip)) {
+            let (phase, cycles) = carry.unwrap_or((l.phase, 0));
+            *self = Loops { clip: Some(l.clip.clone()), phase, cycles };
+        }
+        let d = l.phase - self.phase;
+        if d < -0.5 {
+            self.cycles += 1;
+        } else if d > 0.5 {
+            self.cycles -= 1;
         }
         self.phase = l.phase;
     }
@@ -943,9 +962,7 @@ impl BlendPlayer {
         self.posed_from = None;
         let mut sampled = 0;
         let layers = std::mem::take(&mut self.layers);
-        for (loops, layer) in self.loops.iter_mut().zip(&layers) {
-            loops.follow(layer.as_ref());
-        }
+        Loops::follow_all(&mut self.loops, &layers);
         // A weight or phase that is not a finite number (a clip of no length divided by)
         // gives no layer or the cycle's start, never NaN bones.
         for (k, layer) in layers.iter().enumerate().filter_map(|(k, l)| Some((k, l.as_ref()?))).filter(|(_, l)| l.weight > 0.0 && l.weight.is_finite()) {
@@ -1441,6 +1458,16 @@ mod tests {
         let other = Arc::new(BoundClip::bind(bound.clip.clone(), &ix));
         assert!(same(at(&mut p, &bound, 0.05), q(315.0)));
         assert!(same(at(&mut p, &other, 0.05), q(15.0)));
+        // A looped clip moved to the fading-out slot (a change of move) keeps its count.
+        assert!(same(at(&mut p, &bound, 0.95), q(285.0)));
+        assert!(same(at(&mut p, &bound, 0.05), q(315.0)));
+        p.layers[0] = Some(Layer { clip: other.clone(), phase: 0.1, weight: 0.5 });
+        p.layers[1] = Some(Layer { clip: bound.clone(), phase: 0.1, weight: 0.5 });
+        p.sample(&mut out);
+        p.layers[0] = None;
+        p.layers[1] = Some(Layer { clip: bound.clone(), phase: 0.1, weight: 1.0 });
+        p.sample(&mut out);
+        assert!(same(out.iter().find(|(i, _)| *i == 3).unwrap().1.rotation, q(330.0)));
     }
 
     /// A clip with one track, on node 0 of the player in the `pose_held` tests.

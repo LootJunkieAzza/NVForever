@@ -408,11 +408,12 @@ fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
 
 /// The unit quaternion `d` (w, x, y, z) taken `n` times: the same axis, `n` times the
 /// angle. The angle is worked in f64 and brought into one turn of the half angle, so a
-/// clip looping for hours still turns by the right amount.
+/// clip looping for years of play (the wheel's 2.67 s cycle, 2^31 cycles in 180 years)
+/// still turns by the right amount.
 fn quat_pow(d: [f32; 4], n: i64) -> [f32; 4] {
     let [w, x, y, z] = d.map(f64::from);
     let s = (x * x + y * y + z * z).sqrt();
-    if s < 1e-9 {
+    if s == 0.0 {
         return [1.0, 0.0, 0.0, 0.0];
     }
     let half = (s.atan2(w) * n as f64).rem_euclid(std::f64::consts::TAU);
@@ -1130,6 +1131,10 @@ mod tests {
         // A wheel left rolling for days still turns by a finite, whole amount.
         assert!(w.rotation_after(t, 1 << 40).is_some_and(|q| finite(&q)));
         assert!(same_turn(quat_pow(turn([0.0, 0.0, 1.0], 90.0), 4), [1.0, 0.0, 0.0, 0.0]));
+        // Many cycles on (a wheel rolling for a month), the right turn, not only a finite one.
+        assert!(same_turn(quat_pow(turn([0.0, 0.0, 1.0], 90.0), 4_000_001), turn([0.0, 0.0, 1.0], 90.0)));
+        // A tiny turn adds up too.
+        assert!(same_turn(quat_pow(turn([1.0, 0.0, 0.0], 1e-4), 100_000), turn([1.0, 0.0, 0.0], 10.0)));
         assert!(same_turn(quat_pow(turn([0.0, 0.0, 1.0], 90.0), -1), turn([0.0, 0.0, 1.0], -90.0)));
     }
 

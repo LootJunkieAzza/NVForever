@@ -88,9 +88,15 @@ impl Layer {
     /// up from cycle to cycle (`TransformTrack::rotation_after`, docs/spec-notes/animation.md
     /// §9.12); 0 for every other layer.
     pub fn cycles(&self) -> i64 {
-        let len = self.clip.length();
+        let c = &self.clip;
+        let len = c.length();
         match self.mode {
-            Mode::Loop if self.clip.cycle_type == 0 && len > 0.0 && self.time.is_finite() => (self.time / len).floor() as i64,
+            // From the same wrap `sample_time` makes, so the count and the time sampled
+            // agree at the loop (a quotient rounded on its own can count a cycle early).
+            Mode::Loop if c.cycle_type == 0 && len > 0.0 && self.time.is_finite() => {
+                let within = cycle_time(c.start + self.time, c.start, c.stop, 0) - c.start;
+                ((self.time - within) / len).round() as i64
+            }
             _ => 0,
         }
     }
@@ -907,6 +913,24 @@ mod tests {
         // Twice the rate, twice the phase step.
         a.advance(0.375, 2.0);
         assert!((a.phase - 0.75).abs() < 1e-5, "{}", a.phase);
+    }
+
+    #[test]
+    fn a_loop_counts_the_cycles_its_sampled_time_has_wrapped() {
+        let mut a = animator();
+        let c = clip(&[("A", [1.0, 0.0, 0.0], 55)], 2.67);
+        let i = a.want(&c, 0, 1.0, Mode::Loop, 0.0);
+        // Near a loop, where a quotient rounded on its own can count a cycle early: the
+        // count and the time sampled always add back up to the layer's time.
+        for t in [0.0, 1.0, 2.669, 2.67, 45.39, 45.4, 1000.0, -0.5, -2.67] {
+            a.layers[i].time = t;
+            let (n, within) = (a.layers[i].cycles(), a.layers[i].sample_time(0.0));
+            assert!((n as f32 * 2.67 + within - t).abs() < 1e-3, "time {t}: {n} cycles and {within}");
+        }
+        // Once and Synced layers count none.
+        let j = a.restart(&c, 1, 1.0, Mode::Once, 0.0);
+        a.layers[j].time = 10.0;
+        assert_eq!(a.layers[j].cycles(), 0);
     }
 
     #[test]
