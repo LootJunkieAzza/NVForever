@@ -406,6 +406,7 @@ unless the player binds them, so nothing changes until then.
 | Row | INI key | Where |
 |---|---|---|
 | View Follows the Weapon | `bTogglePOVWhenHolsteringWeapon` | `control::read_controls` end |
+| Kill Camera Chance (part) | `bChanceBasedKillcams` | `kill_cam::update` (the game's RNG) |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
@@ -426,8 +427,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 313 |
-| to do | 290 |
+| done | 314 |
+| to do | 289 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1020,6 +1021,7 @@ game's Data folder, read-only).
 | `bRadioStaticDecreasesSongVolume` | done | yes |  | already so: the song fades as the static rises |
 | `bAllowDuplicateControlBinds` | done |  |  | Shared Keys |
 | `bAutoContinueGame` | done |  |  | Continue at Start (once per start of the program; Shift held stays on the menu) |
+| `bChanceBasedKillcams` | done |  | 1 | Kill Camera Chance (slider; V.A.T.S. kill cameras, the only kind) |
 | `bContainerRespawnsMessage` | done |  | 2 | already so: respawning containers say so (not on NPCs) |
 | `bDetachedBeams` | done |  |  | Detached Beams |
 | `bDisableGodmodeOnLoad` | done |  |  | God Mode Off on Load |
@@ -1072,7 +1074,6 @@ game's Data folder, read-only).
 | `bAlternateLevelupSounds` | to do |  | 4 | xp level_up sound; the sound cache takes static names |
 | `bAnimDebugging` | n/a |  |  | a mod-author debug print |
 | `bAutoReadNotes` | unsure, skipped |  | 3 | needs another mod (Book Menu Restored) |
-| `bChanceBasedKillcams` | to do |  | 1 | a chance in kill_cam update skip |
 | `bClickToExitLoadScreens` | to do |  | 2 | loading hold_input and finish, plus a prompt |
 | `bContinueGameHotkey` | n/a |  |  | a mod-author debug key |
 | `bControllerTriggerDeadzones` | to do |  | 2 | Bevy GamepadSettings for the triggers |

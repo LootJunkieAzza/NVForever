@@ -223,6 +223,9 @@ pub struct TweakSettings {
     pub duplicate_binds: bool,
     /// `bTogglePOVWhenHolsteringWeapon`: drawing goes to first person, holstering to third.
     pub pov_follows_weapon: bool,
+    /// `bChanceBasedKillcams`/`fChance`: the share of kill cameras that play; 1 changes
+    /// nothing.
+    pub kill_cam_chance: f32,
 }
 
 /// The walk-angle choices: 30 to 80 degrees by 5; 45 is the physics' own.
@@ -351,6 +354,7 @@ impl Default for TweakSettings {
             free_item_price: 0.0,
             duplicate_binds: false,
             pov_follows_weapon: false,
+            kill_cam_chance: 1.0,
         }
     }
 }
@@ -982,6 +986,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "no-spin-up", "No Spin-Up", "The player's automatic weapons fire without spinning up first. (Stewie's Tweaks bAutoWeaponNoFiringDelay)", game.no_spin_up);
         switch!(app, "god-mode-free-crafting", "Free Crafting in God Mode", "In god mode recipes need no parts or skill. (Stewie's Tweaks bGodModeAllowsCraftingWithoutRequirements)", game.god_mode_free_crafting);
         switch!(app, "pov-follows-weapon", "View Follows the Weapon", "Drawing the weapon goes to first person, holstering it to third. (Stewie's Tweaks bTogglePOVWhenHolsteringWeapon)", pov_follows_weapon);
+        part!(app, "kill-cam-chance", "Kill Camera Chance", "The share of kill cameras that play (after the Kill Camera setting's own choice); 100% changes nothing. (Stewie's Tweaks bChanceBasedKillcams)", kill_cam_chance);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

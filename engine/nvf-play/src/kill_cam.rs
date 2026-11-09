@@ -298,7 +298,7 @@ fn update(
     let setting = setting.map_or_else(KillCamSetting::default, |s| *s);
     // The player's tweak: a right click ends the camera [design: docs/design/tweaks.md;
     // the plugin also uses Tab, which opens the Pip-Boy here].
-    let skip_key = tweaks.is_some_and(|t| t.kill_cam_exit_key) && mouse.is_some_and(|m| m.just_pressed(MouseButton::Right));
+    let skip_key = tweaks.as_ref().is_some_and(|t| t.kill_cam_exit_key) && mouse.is_some_and(|m| m.just_pressed(MouseButton::Right));
     let cam = &mut *cam;
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let playing = *state.get() == PlayState::Playing;
@@ -338,6 +338,12 @@ fn update(
             }
             _ => false,
         };
+        // The player's tweak plays the camera only by chance [design: docs/design/tweaks.md].
+        let chance = tweaks.as_ref().map_or(1.0, |t| t.kill_cam_chance);
+        let skip = skip || (chance < 1.0 && {
+            use rand_core::RngCore;
+            (rt.game.rng.next_u32() as f32 / u32::MAX as f32) >= chance
+        });
         if skip {
             killed = None;
         }
