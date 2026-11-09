@@ -758,6 +758,11 @@ fn write_capture(capture: Res<Capture>, device: Res<RenderDevice>) {
         warn!("frame generation capture: {error}");
         return;
     }
+    // Never into the game's folders (fnv-install, docs/design/install-layout.md).
+    if let Err(error) = fnv_install::guard_write(dir, None) {
+        warn!("frame generation capture: {error}");
+        return;
+    }
     if let Err(error) = std::fs::create_dir_all(dir) {
         warn!("frame generation capture: {}: {error}", dir.display());
         return;
