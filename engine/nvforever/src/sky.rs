@@ -1777,7 +1777,6 @@ pub fn interior_clip(sky: Res<SkyState>, mut cam: Query<&mut Projection, With<Fl
     }
 }
 
-#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 /// The sky's colours now, for GetCurrentSkyColor (`fnv_game::nvse_jg9`); none in an
 /// interior, which shows no sky.
 pub fn tell_sky_colors(sky: Res<SkyState>, mut script: Option<ResMut<nvf_play::script::ScriptState>>) {
@@ -1785,6 +1784,7 @@ pub fn tell_sky_colors(sky: Res<SkyState>, mut script: Option<ResMut<nvf_play::s
     rt.game.other.jg9.sky_colors = sky.interior.is_none().then(|| sky.all_color_bytes());
 }
 
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn update_sky(
     mut sky: ResMut<SkyState>,
     time: Res<Time>,

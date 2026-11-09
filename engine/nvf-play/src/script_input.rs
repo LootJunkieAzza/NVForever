@@ -128,6 +128,9 @@ fn tell_magazine(mut combat: Option<ResMut<crate::combat::Combat>>, mut script: 
     rt.game.player_magazine = combat.and_then(|c| c.magazine_for_save()).map(|m| m.1);
 }
 
+/// The player's speed resources script_moves reads back for GetRunSpeed.
+type PlayerSpeeds<'w> = (Option<Res<'w, crate::player::MoveSpeeds>>, Option<Res<'w, crate::player::StatSpeed>>, Option<Res<'w, crate::player::PerkSpeed>>);
+
 /// What scripts ask of the player's and actors' moves (`fnv_game::nvse_jg9`: Jump,
 /// SetAutoMove, SetPlayerMovementFlags, SetVelEx), after the controls are read so this
 /// frame's moves carry them; and what those functions read back: the player's run speed,
@@ -140,7 +143,7 @@ fn script_moves(
     mut phys: Option<ResMut<crate::phys::PhysState>>,
     mut knocks: Option<ResMut<Messages<crate::combat::Knockback>>>,
     combat: Option<Res<crate::combat::Combat>>,
-    speeds: (Option<Res<crate::player::MoveSpeeds>>, Option<Res<crate::player::StatSpeed>>, Option<Res<crate::player::PerkSpeed>>),
+    speeds: PlayerSpeeds,
 ) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let st = &mut rt.game.other.jg9;
