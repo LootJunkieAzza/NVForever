@@ -159,7 +159,7 @@ fn bodies_through_the_view() {
     assert_eq!(n(&mut g, "ar_Size (BoxRef.GetContactRefs)"), 1.0);
     assert_eq!(n(&mut g, "BoxRef.IsGrabbable"), 1.0);
     assert_eq!(n(&mut g, "BoxRef.GetHasPhantom"), 0.0);
-    assert_eq!(n(&mut g, "NpcRef.GetHasPhantom"), 1.0, "an actor's is 1 [documented]");
+    assert_eq!(n(&mut g, "NpcRef.GetHasPhantom"), 0.0, "an actor's is 0 [observed: Doc Mitchell]");
 
     // The setters go to the engine.
     let _ = g.take_phys_requests();

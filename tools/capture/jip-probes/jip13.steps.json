@@ -82,13 +82,13 @@
    "text": true
   },
   {
-   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet fA := -1\nlet fB := rObj.GetLinearVelocityAlt \"NoSuchNode\" fA fC fD\nSetFunctionValue (sv_Construct \"%g %g\" fB fA)\nEnd\n",
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet fA := -1\nrObj.GetLinearVelocityAlt \"NoSuchNode\" fA fC fD\nSetFunctionValue (sv_Construct \"%g\" fA)\nEnd\n",
    "label": "jip13.linvel.doc.none",
    "field": "value",
    "text": true
   },
   {
-   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fA := GetReticlePosAlt fB fC fD\nSetFunctionValue (sv_Construct \"%g\" fA)\nEnd\n",
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fB := -1\nGetReticlePosAlt fB fC fD\nSetFunctionValue (sv_Construct \"%g\" (fB != -1))\nEnd\n",
    "label": "jip13.reticlepos",
    "field": "value",
    "text": true

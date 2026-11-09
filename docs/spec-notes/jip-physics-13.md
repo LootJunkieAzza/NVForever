@@ -44,7 +44,7 @@ GetAngularVelocity]; mass in kilograms [documented: GetCollisionObjProperty].
 | Function | NVForever |
 |---|---|
 | GetContactRefs, GetHasContact `ref/list`, GetHasContactBase `base/list`, GetHasContactType `type` | the references the reference's colliders touch (contact distance 0.5 or less) [documented]; type codes GetType's [documented: Form Type IDs] |
-| GetHasPhantom | 1 for an actor [documented]; else 0 [decision: NVForever keeps no phantom shapes but water's] |
+| GetHasPhantom | 0 [observed: Doc Mitchell, against the page's "always return 1 when called on an actor"; decision for objects: NVForever keeps no phantom shapes but water's] |
 | GetGroundMaterial | -1 for a non-actor or in the air [documented]; else a ray 24 units down from the feet: its material in the page's table, 0 stone to 9 hollow metal, by the impact material the collision code stands for (`fnv_combat::fx::impact_material`) [hypothesis]; the terrain dirt [design] |
 | GetObjectUnderFeet | what that ray meets, none for the terrain [documented] |
 | GetRayCastMaterial `[flag] [node]` | a ray from the reference (64 above an actor's feet) along its facing; -1 for no hit [documented]; the flag and node are not used [decision: NVForever's casts meet everything but the player] |

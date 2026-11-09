@@ -481,10 +481,11 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             };
             yes(hit)
         }
-        // 1 for an actor [documented].
+        // A phantom shape in the model; 0 for Doc Mitchell [observed: the jip13 probe,
+        // 2026-11-09, against the page's "always return 1 when called on an actor"].
         "gethasphantom" => {
             let Some(r) = subject else { return Some(Ok(zero)) };
-            yes(is_actor(g, r) || g.view(r).is_some_and(|v| v.phantom))
+            yes(g.view(r).is_some_and(|v| v.phantom))
         }
         // -1 for a non-actor or in the air [documented].
         "getgroundmaterial" => {

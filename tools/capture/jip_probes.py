@@ -8562,9 +8562,11 @@ JIP13_PROBES = (
      _j13v("contact.player.doc", _J13DOC, "rP.GetHasContact rObj"),
      _j13v("contacttype.player", "", "rP.GetHasContactType 42"),
      _j13v("reticlenode", "", "GetReticleNode", True),
-     _j13("linvel.doc.none", _J13DOC + "let fA := -1\nlet fB := rObj.GetLinearVelocityAlt \"NoSuchNode\" fA fC fD\n"
-          "SetFunctionValue (sv_Construct \"%g %g\" fB fA)", True),
-     _j13("reticlepos", "let fA := GetReticlePosAlt fB fC fD\nSetFunctionValue (sv_Construct \"%g\" fA)", True),
+     # The output-variable functions are statements: in a `let` they did not compile in the
+     # original [observed: the jip13 run, 2026-11-09].
+     _j13("linvel.doc.none", _J13DOC + "let fA := -1\nrObj.GetLinearVelocityAlt \"NoSuchNode\" fA fC fD\n"
+          "SetFunctionValue (sv_Construct \"%g\" fA)", True),
+     _j13("reticlepos", "let fB := -1\nGetReticlePosAlt fB fC fD\nSetFunctionValue (sv_Construct \"%g\" (fB != -1))", True),
      _j13("contacts.player", "let aList := rP.GetContactRefs\nSetFunctionValue (ar_Size aList)"),
      _j13("setangleex.doc", _J13DOC + "let fA := rObj.GetAngle Z\nrObj.SetAngleEx 0 0 (fA + 90)\nlet fB := rObj.GetAngle Z\n"
           "rObj.SetAngleEx 0 0 fA\nlet fC := rObj.GetAngle Z\nSetFunctionValue (sv_Construct \"%.1f %.1f\" (fB - fA) (fC - fA))", True)]
