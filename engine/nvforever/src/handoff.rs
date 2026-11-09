@@ -25,6 +25,12 @@
 //!    both runs' games for 13 s and lost both GPU devices [owner's playtest
 //!    2026-11-08]. The old run lets its caches go as soon as the new run has started
 //!    (`memory_budget::flush_now`).
+//!    Since queue item 132 (owner's playtest 2026-11-09) the new run, once its game data
+//!    is read and before it opens its GPU device, writes a second file ([`gpu_file`]) and
+//!    waits for this run's process to end ([`before_gpu`], at most [`OLD_GPU_WAIT_SECS`]):
+//!    the two runs never have a GPU device each, and the old window goes a few seconds
+//!    before the new one shows. Steps 2 and 3 below are then what is left of the old
+//!    order, kept for a new run that could not wait.
 //! 3. This run sees the file and ends: the frame's exit logs are written (`Last`), then
 //!    the process ends at once ([`EndNow`]) instead of taking its world apart piece by
 //!    piece, which held its memory for about 2 s more.
@@ -44,7 +50,10 @@
 //! only measure (`nvf_play::MEASURING_AIDS`), so a session played by hand logs its hitches
 //! after a load.
 //!
-//! Log: `handoff: the world waits for the old run (process <pid>) to end`, `handoff: the
+//! Log: `load: the new run is about to open its GPU device after <s> s; ending this one`
+//! (the old run), `handoff: the old run (process <pid>) ended <s> s after it was told;
+//! this run's GPU device opens` (the new run; `is still going ... opens anyway` past the
+//! time limit), `handoff: the world waits for the old run (process <pid>) to end`, `handoff: the
 //! old run has ended after <s> s; the world loads` (or `... is still going <s> s after it
 //! was told; the world loads anyway`),
 //! `load: handing over to a new run with --load <path>` (`with --menu`), `load:
@@ -134,6 +143,7 @@ impl Drop for Successor {
             let _ = self.child.kill();
         }
         let _ = std::fs::remove_file(&self.file);
+        let _ = std::fs::remove_file(gpu_file(&self.file));
     }
 }
 
@@ -293,6 +303,13 @@ pub fn leave(
             }
         }
         Leaving::Waiting(mut s) => {
+            if gpu_file(&s.file).exists() {
+                info!("load: the new run is about to open its GPU device after {:.2} s; ending this one", s.started.elapsed().as_secs_f64());
+                s.handed_over = true;
+                exit.write(AppExit::Success);
+                *h = Leaving::HandedOver;
+                return;
+            }
             if s.file.exists() {
                 info!("load: the new run is up after {:.2} s; ending this one", s.started.elapsed().as_secs_f64());
                 s.handed_over = true;
@@ -476,6 +493,68 @@ fn close_process(handle: usize) {
 #[cfg(not(windows))]
 fn close_process(_handle: usize) {}
 
+/// The new run waits this long for the old run to end before opening its own GPU device,
+/// then opens it anyway (a warning) [engineering choice: the old run ends within a frame or
+/// two of seeing the file; this only covers one that hangs].
+pub const OLD_GPU_WAIT_SECS: f64 = 15.0;
+
+/// The file the new run writes when it is about to open its GPU device: the old run ends
+/// when it appears ([`before_gpu`]).
+pub fn gpu_file(file: &Path) -> PathBuf {
+    let mut s = file.as_os_str().to_owned();
+    s.push(".gpu");
+    PathBuf::from(s)
+}
+
+/// What the new run's wait before its GPU device came to, for the log once it is up.
+static BEFORE_GPU: std::sync::Mutex<Option<(bool, String)>> = std::sync::Mutex::new(None);
+
+/// The new run, after its game data is read and before its GPU device opens: tell the
+/// old run ([`gpu_file`]) and wait until its process has ended, so the two runs never
+/// have a GPU device each [owner's playtest 2026-11-09, queue item 132: on a 4 GB laptop
+/// card the old run, still holding 3 GB, lost its device while the new run opened its
+/// own and its main menu]. The old run's window goes when it ends; the new one shows
+/// once its loading screen (or main menu) is drawn.
+pub fn before_gpu(file: &Path) {
+    let note = match old_pid(file).and_then(|pid| open_process(pid).map(|h| (pid, h))) {
+        None => (true, "the old run had already ended; this run's GPU device opens".to_string()),
+        Some((pid, h)) => {
+            let started = Instant::now();
+            let note = match std::fs::write(gpu_file(file), b"") {
+                Err(e) => (false, format!("cannot tell the old run (process {pid}) to end ({}: {e}); this run's GPU device opens with it still going", gpu_file(file).display())),
+                Ok(()) if wait_process(h, OLD_GPU_WAIT_SECS) => (true, format!("the old run (process {pid}) ended {:.2} s after it was told; this run's GPU device opens", started.elapsed().as_secs_f64())),
+                Ok(()) => (false, format!("the old run (process {pid}) is still going {OLD_GPU_WAIT_SECS} s after it was told; this run's GPU device opens anyway")),
+            };
+            close_process(h);
+            note
+        }
+    };
+    *BEFORE_GPU.lock().unwrap_or_else(|e| e.into_inner()) = Some(note);
+}
+
+/// Log what [`before_gpu`] came to (a startup system: the log is not up before).
+pub fn log_before_gpu() {
+    match BEFORE_GPU.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        Some((true, n)) => info!("handoff: {n}"),
+        Some((false, n)) => warn!("handoff: {n}"),
+        None => {}
+    }
+}
+
+/// Wait up to `secs` for the process behind `handle` to end; whether it did.
+#[cfg(windows)]
+fn wait_process(handle: usize, secs: f64) -> bool {
+    use windows_sys::Win32::Foundation::{HANDLE, WAIT_OBJECT_0};
+    use windows_sys::Win32::System::Threading::WaitForSingleObject;
+    // SAFETY: the handle is open until `close_process`.
+    unsafe { WaitForSingleObject(handle as HANDLE, (secs * 1000.0) as u32) == WAIT_OBJECT_0 }
+}
+
+#[cfg(not(windows))]
+fn wait_process(_handle: usize, _secs: f64) -> bool {
+    true
+}
+
 /// Whether the old run has ended or the wait is over: `Some(true)` it ended, `Some(false)`
 /// this run stops waiting.
 fn old_run_done(ended: bool, told: Option<Instant>, now: Instant) -> Option<bool> {
@@ -584,6 +663,23 @@ mod tests {
         assert_eq!(old_pid(Path::new("nvforever-handoff-x-1.ready")), None);
         let f = ready_file();
         assert_eq!(old_pid(&f), Some(std::process::id()), "{}", f.display());
+    }
+
+    #[test]
+    fn the_gpu_file_sits_beside_the_handoff_file() {
+        let f = std::env::temp_dir().join("nvforever-handoff-44808-17.ready");
+        assert_eq!(gpu_file(&f), std::env::temp_dir().join("nvforever-handoff-44808-17.ready.gpu"));
+        assert_eq!(old_pid(&gpu_file(&f)), Some(44808));
+    }
+
+    #[test]
+    fn the_new_run_waits_for_no_old_run_when_there_is_none() {
+        // No such process: nothing to wait for, logged as ended.
+        let f = std::env::temp_dir().join(format!("nvforever-handoff-{}-1.ready", u32::MAX - 1));
+        before_gpu(&f);
+        let note = BEFORE_GPU.lock().unwrap().take();
+        assert!(matches!(&note, Some((true, n)) if n.contains("already ended")), "{note:?}");
+        assert!(!gpu_file(&f).exists());
     }
 
     #[test]
