@@ -3236,6 +3236,9 @@ fn choose(
                 if let Some(step) = heading {
                     if let Some((id, p)) = sv::step_heading(&rows, sel, step) {
                         sel = Some(id);
+                        // A jump always shows its heading, even onto the row already chosen
+                        // (a single section wraps to its own first row) [design: #1953].
+                        view.followed = None;
                         info!("pause menu: heading {}; selected {}", p.map_or_else(|| view.scope.name().to_string(), |p| p.path()), id.name(list));
                     }
                 }
