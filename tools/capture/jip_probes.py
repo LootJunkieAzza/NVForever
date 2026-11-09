@@ -8121,7 +8121,7 @@ WRITING_SETS |= {"jip6", "jip7", "jip6b", "jip7b"}
 # the player, the regions and cell references at Doc Mitchell's, the deprecated
 # SetVariableFloat and the event names called as functions. Every value set is read
 # back, then set back to what was read.
-_LU3_HEAD = "ref rP\nref rObj\narray_var aR\nstring_var sOld\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\n"
+_LU3_HEAD = "ref rP\nref rObj\narray_var aR\nstring_var sOld\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nfloat fE\nfloat fF\nBegin Function { }\n"
 
 
 def _lu3(pid, body, text=True):
@@ -8129,34 +8129,42 @@ def _lu3(pid, body, text=True):
 
 
 LU3_PROBES = (
-    # The prompt of the page's example table, set and read back, set back (hypothesis:
-    # the record's XATO, else "", then "NVF Probe").
-    [_lu3("prompt", "let sOld := GetActivatorPrompt BlackjackTableGomorrah\nSetActivatorPrompt \"NVF Probe\" BlackjackTableGomorrah\n"
-          "SetFunctionValue (sv_Construct \"[%z] [%z]\" sOld (GetActivatorPrompt BlackjackTableGomorrah))\nSetActivatorPrompt $sOld BlackjackTableGomorrah"),
+    # The prompt of the page's example table, read only: the setter with $sOld to put it
+    # back did not compile in the original [observed 2026-11-09], and a literal would
+    # guess the value (hypothesis: the record's XATO, else "").
+    [_lu3("prompt", "let sOld := GetActivatorPrompt BlackjackTableGomorrah\nSetFunctionValue (sv_Construct \"[%z]\" sOld)"),
      # The page's Anim Object's idle (hypothesis: its ANIO DATA), its Editor ID.
      _lu3("anio", "let rObj := GetAnimObjectIdle RepairWall01Wrench\nSetFunctionValue (GetFormIDString rObj)"),
-     # The page's example: r 255, g 180, b 53 [documented]; set and read, set back.
+     # The page's example: r 255, g 180, b 53 [documented]; set and read, set back. The
+     # elements go into floats first: as sv_Construct's arguments they did not compile in
+     # the original [observed 2026-11-09].
      _lu3("lsct", "let aR := GetLoadScreenTypeTextRGB StandardLoadingTip\nlet fA := aR[\"r\"]\nlet fB := aR[\"g\"]\nlet fC := aR[\"b\"]\n"
           "SetLoadScreenTypeTextRGB StandardLoadingTip 59.3 181 300\nlet aR := GetLoadScreenTypeTextRGB StandardLoadingTip\n"
-          "SetFunctionValue (sv_Construct \"%g %g %g / %.1f %g %g\" fA fB fC aR[\"r\"] aR[\"g\"] aR[\"b\"])\nSetLoadScreenTypeTextRGB StandardLoadingTip fA fB fC"),
-     # A rank above the perk's ranks, a lower one, 0 (hypothesis: "3 1 0", Educated has 1
-     # rank so "1 1 0" if it is cut). Educated is put back as it was.
+          "let fD := aR[\"r\"]\nlet fE := aR[\"g\"]\nlet fF := aR[\"b\"]\nSetLoadScreenTypeTextRGB StandardLoadingTip fA fB fC\n"
+          "SetFunctionValue (sv_Construct \"%g %g %g / %.1f %g %g\" fA fB fC fD fE fF)"),
+     # A rank above the perk's ranks, then 0: "0 1 1 1" [observed 2026-11-09], cut to its one
+     # rank, 0 changes nothing. Educated is put back as it was (SetPerkRank 0 does not
+     # take it away: a player without it keeps it for the session).
      _lu3("perkrank", "let fA := PlayerREF.GetPerkRank Educated\nPlayerREF.SetPerkRank Educated 9\nlet fB := PlayerREF.GetPerkRank Educated\n"
           "PlayerREF.SetPerkRank Educated 0\nlet fC := PlayerREF.GetPerkRank Educated\nPlayerREF.SetPerkRank Educated fA\n"
           "SetFunctionValue (sv_Construct \"%g %g %g %g\" fA fB fC (PlayerREF.GetPerkRank Educated))"),
      # The page's example: Fast Shot's 2nd entry from Calculate Hit Chance (8) to Calculate
-     # Weapon Range (7), read back, set back (hypothesis: "8 7 8").
+     # Weapon Range (7), read back, set back: "8 7 8" [observed 2026-11-09].
      _lu3("perkentry", "let fA := GetNthPerkEntryFunction FastShot 1\nSetNthPerkEntryFunction FastShot 1 7\nlet fB := GetNthPerkEntryFunction FastShot 1\n"
           "SetNthPerkEntryFunction FastShot 1 fA\nSetFunctionValue (sv_Construct \"%g %g %g\" fA fB (GetNthPerkEntryFunction FastShot 1))"),
      # Indoors: no regions (hypothesis: an empty array, 0).
      _lu3("regions", "let aR := GetPlayerRegions\nSetFunctionValue (ar_Size aR)", False),
-     # GetCellRefs against GetRefs in the player's cell, every type (hypothesis: equal).
-     _lu3("cellrefs", "let aR := GetCellRefs 0 0 0\nlet fA := ar_Size aR\nlet aR := GetRefs 0 0 0\nSetFunctionValue (sv_Construct \"%g\" (fA == (ar_Size aR)))"),
-     # SetVariableFloat on the probe plugin's quest variable iDone (the eighth set's), its
+     # GetCellRefs against GetRefs in the player's cell, every type (hypothesis: equal);
+     # the cell given, the page lists it as not optional (without it the call did not
+     # compile in the original [observed 2026-11-09]).
+     _lu3("cellrefs", "let rObj := PlayerREF.GetParentCell\nlet aR := GetCellRefs 0 0 0 rObj\nlet fA := ar_Size aR\nlet aR := GetRefs 0 0 0\n"
+          "SetFunctionValue (sv_Construct \"%g\" (fA == (ar_Size aR)))"),
+     # SetVariableFloat on a FalloutNV.esm quest's variable, nGeckosKilled of 10A214 (the
+     # eighth set's has.vanilla row; NVFExtProbe.esp is not active in the probe game), its
      # result and the value read back, set back (hypothesis: "0 7").
-     _lu3("setvar", "let rObj := GetFormFromMod \"NVFExtProbe.esp\" \"B40\"\nlet fA := GetVariable \"iDone\" rObj\nlet fB := SetVariableFloat \"iDone\" 7 rObj\n"
-          "let fC := GetVariable \"iDone\" rObj\nSetVariable \"iDone\" fA rObj\nSetFunctionValue (sv_Construct \"%g %g\" fB fC)"),
-     # The event names called as functions (hypothesis: "0 0", or they do not compile).
+     _lu3("setvar", _form("rObj", "10A214") + "let fA := GetVariable \"nGeckosKilled\" rObj\nlet fB := SetVariableFloat \"nGeckosKilled\" 7 rObj\n"
+          "let fC := GetVariable \"nGeckosKilled\" rObj\nSetVariable \"nGeckosKilled\" fA rObj\nSetFunctionValue (sv_Construct \"%g %g\" fB fC)"),
+     # The event names called as functions: "2 3" [observed 2026-11-09].
      _lu3("events", "SetFunctionValue (sv_Construct \"%g %g\" (OnCellEnter) (OnCellExit))")]
 )
 SETS.update({"lu3": LU3_PROBES})
