@@ -33,6 +33,12 @@
 //!   notes from 40, bigger notes and gold for bigger pots, each in a place and turn fixed
 //!   by its number, so the pile only grows as the bet does [design, owner 2026-11-09:
 //!   "fill the caravan play area like they do in the original, matching the bet"].
+//!   Caps and coins are the game's own Caravan models (`meshes\terminals\nv_caravan\
+//!   currency-coin_1.nif` the cap, `_2` silver, `_3` gold [observed: their textures and
+//!   shapes]), so they stand up off the planks and catch the lamp; the notes lie flat. A
+//!   piece goes only where no card can ever lie (`card_zones`); one that finds no such
+//!   place is left out [design, owner 2026-11-09: "make sure things on the table don't
+//!   overlap with the cards, cash can go under everything else just stay away"].
 
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
@@ -45,7 +51,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, T
 use bevy::window::PrimaryWindow;
 use nvf_assets::model::ModelCtx;
 use nvf_assets::{nif_material, NifMaterial};
-use nvf_play::caravan::screen::{card_texture, table_cards, view_width, TableCard, FRAME_W};
+use nvf_play::caravan::screen::{card_texture, card_zones, table_cards, view_width, TableCard, FRAME_W};
 use nvf_play::caravan::{CaravanScreen, CaravanView, Session, Stage};
 use nvf_play::pause::AidTime;
 use std::collections::HashMap;
@@ -104,6 +110,21 @@ const AUREUS_SIZE: Vec2 = Vec2::new(20.0 * MM, 20.0 * MM);
 const NOTE_SIZE: Vec2 = Vec2::new(156.0 * MM, 156.0 * MM * 740.0 / 1312.0);
 /// The most pieces on the table.
 const MONEY_MAX: usize = 90;
+/// How far a piece keeps from where a card can lie, and how many places it tries.
+const MONEY_CLEAR: f32 = 10.0;
+const MONEY_TRIES: u32 = 48;
+/// The game's Caravan cap and coin models.
+const CAP_MODEL: &str = "meshes\\terminals\\nv_caravan\\currency-coin_1.nif";
+const SILVER_MODEL: &str = "meshes\\terminals\\nv_caravan\\currency-coin_2.nif";
+const GOLD_MODEL: &str = "meshes\\terminals\\nv_caravan\\currency-coin_3.nif";
+/// Each model has a flat disc round its piece (its shadow on the table); the piece itself
+/// is this much of the disc across: the cap 0.58 of 0.74, a coin 0.55 [observed: the
+/// models' vertices].
+const CAP_BODY: f32 = 0.58 / 0.74;
+const COIN_BODY: f32 = 0.55 / 0.74;
+/// The models drew 31 units across where 53 were asked (a cap, 32 mm) in the first
+/// capture, so the scale from their bounds is corrected by that [observed: 2026-11-09].
+const MODEL_FIT: f32 = 53.0 / 31.0;
 
 /// A piece of the pot on the table.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -143,6 +164,28 @@ impl Money {
         matches!(self, Money::Note5 | Money::Note20 | Money::Note100)
     }
 
+    /// The game's model for a cap or coin, and how much of the model across the piece is.
+    fn model(self) -> Option<(&'static str, f32)> {
+        match self {
+            Money::Cap | Money::NukaCap => Some((CAP_MODEL, CAP_BODY)),
+            Money::Denarius => Some((SILVER_MODEL, COIN_BODY)),
+            Money::Aureus => Some((GOLD_MODEL, COIN_BODY)),
+            _ => None,
+        }
+    }
+}
+
+/// Whether a piece of `size` at `at`, turned by `turn`, keeps out of every zone: its
+/// corners, the middles of its sides and its middle are tested (a zone is far bigger than
+/// the gaps between those points).
+fn clear_of(zones: &[(Vec2, Vec2)], at: Vec2, size: Vec2, turn: f32) -> bool {
+    let (sin, cos) = turn.sin_cos();
+    let h = size / 2.0;
+    let on_frame = (0..9).map(|k| {
+        let local = Vec2::new(h.x * ((k % 3) as f32 - 1.0), h.y * ((k / 3) as f32 - 1.0));
+        at + Vec2::new(local.x * cos - local.y * sin, local.x * sin + local.y * cos)
+    });
+    on_frame.into_iter().all(|p| zones.iter().all(|(a, b)| p.x < a.x || p.x > b.x || p.y < a.y || p.y > b.y))
 }
 
 /// A number from 0 to 1, the same each time for `i` and `salt`.
@@ -161,8 +204,9 @@ pub fn money(pot: u32) -> Vec<(Money, Vec2, f32)> {
         return Vec::new();
     }
     let n = (((pot as f32).sqrt() * 3.0).ceil() as usize).clamp(2, MONEY_MAX);
+    let zones = card_zones(MONEY_CLEAR);
     (0..n)
-        .map(|i| {
+        .filter_map(|i| {
             let kind = if pot >= 40 && i % 4 == 3 {
                 match (pot, i % 3) {
                     (0..=149, _) => Money::Note5,
@@ -179,20 +223,14 @@ pub fn money(pot: u32) -> Vec<(Money, Vec2, f32)> {
             } else {
                 Money::Cap
             };
-            // Anywhere on the planks clear of the text in the corners (the pot's rows top
-            // right, the buttons bottom right) [design].
-            let mut at = Vec2::ZERO;
-            for k in 0..16u32 {
-                at = Vec2::new(40.0 + scatter(i, 11 + k) * (FRAME_W - 80.0), 40.0 + scatter(i, 31 + k) * 880.0);
-                let info = at.x > FRAME_W - 470.0 && at.y < 220.0;
-                let buttons = at.x > FRAME_W - 380.0 && at.y > 640.0;
-                // A note is as big as a card: none over the caravans' names and values.
-                let names = kind.note() && (at.y - 482.0).abs() < 110.0 && at.x < 1200.0;
-                if !info && !buttons && !names {
-                    break;
-                }
-            }
-            (kind, at, scatter(i, 53) * 2.0 * PI)
+            // Anywhere on the planks where no card can lie; left out if nowhere is found
+            // (the same tries for the same piece, so the pile still only grows) [design].
+            let turn = scatter(i, 53) * 2.0 * PI;
+            let h = kind.size().max_element() / 2.0;
+            (0..MONEY_TRIES)
+                .map(|k| Vec2::new(h + scatter(i, 11 + k) * (FRAME_W - 2.0 * h), h + scatter(i, 131 + k) * (960.0 - 2.0 * h)))
+                .find(|at| clear_of(&zones, *at, kind.size(), turn))
+                .map(|at| (kind, at, turn))
         })
         .collect()
 }
@@ -220,6 +258,12 @@ fn place_money(commands: &mut Commands, models: &mut ModelCtx, b: &mut Built, po
     }
     let pieces = money(pot);
     for (i, (kind, at, turn)) in pieces.iter().enumerate() {
+        if let Some((path, body)) = kind.model() {
+            if let Some(e) = spawn_piece(commands, models, b, path, body * kind.size().x * MODEL_FIT, on_table(*at), *turn) {
+                b.money.push(e);
+                continue;
+            }
+        }
         let Some(mat) = money_material(models, &mut b.materials, MONEY_SHEET) else { continue };
         let mesh = match b.money_meshes.iter().find(|(k, _)| k == kind) {
             Some((_, m)) => m.clone(),
@@ -236,6 +280,32 @@ fn place_money(commands: &mut Commands, models: &mut ModelCtx, b: &mut Built, po
         b.money.push(commands.spawn((Mesh3d(mesh), MeshMaterial3d(mat), tr, b.layer.clone(), ChildOf(b.space))).id());
     }
     info!("caravan view: the pot of {pot} on the table as {} pieces", pieces.len());
+}
+
+/// A cap or coin from the game's model, `across` wide (its piece, not the disc round it),
+/// standing on the planks at `at`, turned by `turn`.
+fn spawn_piece(commands: &mut Commands, models: &mut ModelCtx, b: &Built, path: &str, across: f32, at: Vec2, turn: f32) -> Option<Entity> {
+    let pm = models.model(path)?;
+    let (lo, hi) = pm.bounds?;
+    let wide = (hi.x - lo.x).max(hi.y - lo.y);
+    if wide <= 0.0 {
+        return None;
+    }
+    let k = across / wide;
+    // On the planks, under the cards (which lie from 2 up), its bottom on the wood.
+    let holder = commands
+        .spawn((Transform::from_translation(at.extend(0.2 - lo.z * k)).with_rotation(Quat::from_rotation_z(turn)).with_scale(Vec3::splat(k)), Visibility::Inherited, ChildOf(b.space)))
+        .id();
+    let root = commands.spawn((Transform::from_matrix(Mat4::from(pm.root)), Visibility::Inherited, ChildOf(holder))).id();
+    let nodes: Vec<Entity> = pm.nodes.iter().map(|n| commands.spawn((Transform::from_matrix(Mat4::from(n.local)), Visibility::Inherited)).id()).collect();
+    for (n, e) in pm.nodes.iter().zip(&nodes) {
+        commands.entity(n.parent.map_or(root, |p| nodes[p])).add_child(*e);
+    }
+    for s in &pm.shapes {
+        let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(s.own)), Visibility::Inherited, b.layer.clone())).id();
+        commands.entity(s.node.map_or(root, |n| nodes[n])).add_child(e);
+    }
+    Some(holder)
 }
 
 fn money_material(models: &mut ModelCtx, cache: &mut HashMap<String, Handle<NifMaterial>>, path: &str) -> Option<Handle<NifMaterial>> {
@@ -576,9 +646,12 @@ mod tests {
         assert!(money(100_000).len() <= MONEY_MAX);
         // The pile only grows: a piece is where it was in the smaller pot.
         assert_eq!(&money(170)[..4].iter().map(|m| m.1).collect::<Vec<_>>(), &mid[..4].iter().map(|m| m.1).collect::<Vec<_>>());
-        for (_, at, _) in &big {
+        let zones = card_zones(0.0);
+        for (kind, at, turn) in &big {
             assert!(at.x > 0.0 && at.x < FRAME_W && at.y > 0.0 && at.y < 960.0);
+            assert!(clear_of(&zones, *at, kind.size(), *turn), "{kind:?} at {at} lies where a card can");
         }
+        assert!(big.len() > 40, "the big pot still fills the free planks: {}", big.len());
     }
 
     #[test]
