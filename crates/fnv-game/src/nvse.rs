@@ -248,6 +248,9 @@ pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[
     if let Some(r) = crate::nvse_sup7::call(g, ctx, name, subject, args) {
         return Some(r);
     }
+    if let Some(r) = crate::nvse_sup4::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
     if let Some(r) = crate::nvse_jip5::call(g, ctx, name, subject, args) {
         return Some(r);
     }
@@ -264,6 +267,12 @@ pub fn call(g: &mut Game, ctx: &RunCtx, name: &str, on: Option<FormId>, args: &[
         return Some(r);
     }
     if let Some(r) = crate::nvse_jip10::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jip11::call(g, ctx, name, subject, args) {
+        return Some(r);
+    }
+    if let Some(r) = crate::nvse_jip13::call(g, ctx, name, subject, args) {
         return Some(r);
     }
     if let Some(r) = crate::nvse_jip12::call(g, ctx, name, subject, args) {

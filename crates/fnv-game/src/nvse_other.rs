@@ -97,6 +97,10 @@ pub struct OtherState {
     /// JIP batch 10's objectives, added variables, disabled scripts, extra data, map
     /// markers (`nvse_jip10`).
     pub jip10: crate::nvse_jip10::Jip10State,
+    /// JIP batch 11's actor overrides and engine requests (`nvse_jip11`).
+    pub jip11: crate::nvse_jip11::Jip11State,
+    /// JIP batch 13's physics view, requests and follows (`nvse_jip13`).
+    pub jip13: crate::nvse_jip13::Jip13State,
     /// JIP batch 12's sky, world, barter and menu state (`nvse_jip12`).
     pub jip12: crate::nvse_jip12::Jip12State,
     /// JohnnyGuitar batch 5's record changes (`nvse_jg5`).

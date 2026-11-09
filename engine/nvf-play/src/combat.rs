@@ -332,6 +332,22 @@ fn spread_hit_areas(script: Option<&mut ScriptState>, sim: &mut SimState, stats:
 
 /// The WeaponIneffective and ArmorIneffective lines of a hit (`fnv_game::combat_lines`):
 /// what DT made of it.
+/// Whether a hit got past the target's DT, told before the hit is dealt so its OnHit
+/// block can ask (GetArmourPenetrated, `fnv_game::nvse_jip11`).
+fn note_armour(script: Option<&mut ScriptState>, target: FormId, d: &damage::Damage) {
+    if let Some(rt) = script.and_then(|s| s.rt.as_mut()) {
+        rt.game.note_armour_hit(target, f64::from(d.raw), f64::from(d.dt));
+    }
+}
+
+/// The weapon damage penalty below 75 % condition: SetConditionDamagePenalty's, else
+/// 0.67 (`fnv_game::Game::condition_damage_penalty`).
+fn sync_condition_penalty(c: &mut Combat, script: Option<&ScriptState>) {
+    if let Some(rt) = script.and_then(|s| s.rt.as_ref()) {
+        c.rules.condition_damage_penalty = rt.game.condition_damage_penalty();
+    }
+}
+
 fn armour_lines(script: Option<&mut ScriptState>, attacker: Option<FormId>, target: FormId, d: &damage::Damage, floor: f32) {
     if let Some(rt) = script.and_then(|s| s.rt.as_mut()) {
         rt.game.armour_lines(attacker, target, f64::from(d.raw), f64::from(d.dt), f64::from(d.dealt), f64::from(floor));
@@ -1048,8 +1064,8 @@ pub struct Combat {
     /// Blows that have knocked someone back so far ([`Knockback::blow`]).
     blows: u32,
     /// Explosions to set off this frame (impacts, detonations, destruction stages), with
-    /// who set each off.
-    boom: Vec<(FormId, V3, Option<Cause>)>,
+    /// who set each off and an optional impact normal for blast visibility.
+    boom: Vec<(FormId, V3, Option<Cause>, Option<V3>)>,
     /// Debris of destroyed objects for the engine to throw (nvforever `dismember.rs`).
     pub debris: Vec<ObjectDebris>,
     cycle: Option<Cycle>,
@@ -1178,7 +1194,7 @@ impl Combat {
     /// A mine goes off (`crate::mines`): its explosion at `at`, its blast the hits of
     /// `by` (the actor who put it down and that weapon), when someone did.
     pub(crate) fn mine_explodes(&mut self, explosion: FormId, at: V3, by: Option<(FormId, FormId)>) {
-        self.boom.push((explosion, at, by.map(|(actor, weapon)| Cause { actor, weapon })));
+        self.boom.push((explosion, at, by.map(|(actor, weapon)| Cause { actor, weapon }), None));
     }
 }
 
@@ -3589,6 +3605,7 @@ fn melee(
     (sfx, mut sounds, mut impacts): (Option<Res<Sfx>>, MessageWriter<PlaySound>, MessageWriter<ImpactFx>),
     (mut vats, mut dm, mut knocks): (Option<ResMut<crate::vats_mode::VatsMode>>, ResMut<crate::dismember::Dismemberment>, MessageWriter<Knockback>),
 ) {
+    sync_condition_penalty(&mut c, script.as_deref());
     let dt = time.delta_secs();
     let c = &mut *c;
     // VATS mode's swing due now: one tap of Use (vats-mode.md §16.2).
@@ -3817,6 +3834,7 @@ fn melee(
             if let Some(spell) = special.and_then(|m| m.spell) {
                 items.push(spell);
             }
+            note_armour(script.as_deref_mut(), target, &d);
             let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, guard_broken, crit_effect(c, Some(id)));
             armour_lines(script.as_deref_mut(), Some(FormId::PLAYER_REF), target, &d, c.tuning.dt_floor);
             spread_hit_areas(script.as_deref_mut(), &mut sim, &mut stats, target, &items, info.attacker);
@@ -3928,7 +3946,7 @@ fn queue_destruction(c: &mut Combat, sim: &SimState, r: FormId, ch: &Destruction
         if ch.explosions.is_empty() { String::new() } else { format!(", {} explosion(s)", ch.explosions.len()) }
     );
     if let Some(at) = at {
-        c.boom.extend(ch.explosions.iter().map(|&e| (e, at, cause)));
+        c.boom.extend(ch.explosions.iter().map(|&e| (e, at, cause, None)));
         // Its stages' debris, thrown by the engine (nvforever `dismember.rs`).
         c.debris.extend(ch.debris.iter().map(|&(d, n)| ObjectDebris { reference: r, at, debris: d, count: n }));
     }
@@ -3993,6 +4011,7 @@ fn actor_attacks(
     mut grenade_probe: ResMut<held_grenade_probe::Probe>,
     time: Res<Time>,
 ) {
+    sync_condition_penalty(&mut c, script.as_deref());
     let c = &mut *c;
     let gravity = phys.world.params.gravity;
     // The player blocks with Block held and fists or a melee weapon drawn (combat.md §5.4);
@@ -4162,6 +4181,7 @@ fn actor_attacks(
             wear_actor_weapon(&c.forms, &mut sim, &mut stats, &mut broken, script.as_deref_mut(), b.attacker, weapon, points, b.point);
         }
         let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, b.attacker, b.weapon, b.anim);
+        note_armour(script.as_deref_mut(), b.target, &d);
         let r = apply_hit(script.as_deref_mut(), &mut sim, b.target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, guard_broken, crit_effect(c, b.weapon));
         armour_lines(script.as_deref_mut(), Some(b.attacker), b.target, &d, c.tuning.dt_floor);
         // A killing blow (or one on a corpse) may dismember the part it lands on, by the
@@ -4235,6 +4255,7 @@ fn fly(
     mut effects: ShotEffects,
     mut dm: ResMut<crate::dismember::Dismemberment>,
 ) {
+    sync_condition_penalty(&mut c, script.as_deref());
     let dt = time.delta_secs();
     let c = &mut *c;
     // What scripts asked (DetonatePlacedExplosives, a placed explosion, DamageObject's
@@ -4256,7 +4277,7 @@ fn fly(
                     continue;
                 }
                 CombatRequest::Explode { explosion, at } => {
-                    c.boom.push((explosion, at, None));
+                    c.boom.push((explosion, at, None, None));
                     continue;
                 }
                 CombatRequest::Dismember { actor, location, by } => {
@@ -4270,8 +4291,8 @@ fn fly(
             let shooter = if actor == FormId::PLAYER_REF { Some(PLAYER) } else { Some(actor.0 as ActorId) };
             let mut n = 0;
             for f in c.flying.iter_mut().filter(|f| f.p.shooter == shooter) {
-                if let Some(ProjEvent::Explode { explosion, point }) = f.p.detonate() {
-                    c.boom.push((explosion, point, Some(Cause::of(&f.by))));
+                if let Some(ProjEvent::Explode { explosion, point, normal }) = f.p.detonate() {
+                    c.boom.push((explosion, point, Some(Cause::of(&f.by)), normal));
                     n += 1;
                 }
             }
@@ -4410,7 +4431,7 @@ fn fly(
                         }
                     }
                     // A harmless shot sets nothing off [design].
-                    ProjEvent::Explode { explosion, point } if !f.by.harmless => c.boom.push((explosion, point, Some(Cause::of(&f.by)))),
+                    ProjEvent::Explode { explosion, point, normal } if !f.by.harmless => c.boom.push((explosion, point, Some(Cause::of(&f.by)), normal)),
                     ProjEvent::Explode { .. } => {}
                     ProjEvent::Settled { point, .. } => c.settled.push(SettledMine { proj: f.proj, point, dir: f.dir, actor: f.by.actor }),
                     ProjEvent::Splash { point, dir } => {
@@ -4490,11 +4511,11 @@ fn fly(
     }));
     // Explosions, with those they set off, a bounded number per frame.
     let mut n = 0;
-    while let Some((id, at, cause)) = c.boom.pop() {
+    while let Some((id, at, cause, normal)) = c.boom.pop() {
         n += 1;
         if n > MAX_EXPLOSIONS_PER_FRAME {
             warn!("combat: more than {MAX_EXPLOSIONS_PER_FRAME} explosions in one frame; {} left for the next", c.boom.len() + 1);
-            c.boom.push((id, at, cause));
+            c.boom.push((id, at, cause, normal));
             break;
         }
         stats.explosions += 1;
@@ -4555,7 +4576,7 @@ fn fly(
         }
         let hits = {
             let world = view(&mut phys, script.as_deref(), Some(&sim));
-            blast(&world, &c.tuning, &x, at)
+            blast(&world, &c.tuning, &x, at, normal)
         };
         let always = x.flags.iter().any(|f| f == "Knock Down - Always");
         let by_formula = x.flags.iter().any(|f| f == "Knock Down - By Formula");
@@ -4791,6 +4812,7 @@ fn fly(
             pushes.write(ActorPush { form_id: target.0, point: p.point, dv: vec::scale(p.dir, SHOT_PUSH) });
         }
         let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, shooter, Some(id), None);
+        note_armour(script.as_deref_mut(), target, &d);
         let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, false, crit_effect(c, Some(id)));
         armour_lines(script.as_deref_mut(), Some(shooter), target, &d, c.tuning.dt_floor);
         spread_hit_areas(script.as_deref_mut(), &mut sim, &mut stats, target, &items, info.attacker);

@@ -8377,6 +8377,120 @@ SETS.update({"sup7": SUP7_PROBES})
 WRITING_SETS |= {"sup7"}
 
 
+# jip11 (reads; the one write, ForceActorDetectionValue, is put back; #1006): JIP batch 11
+# (docs/spec-notes/jip-actors-11.md) on Doc Mitchell (reference and base) and the player
+# in the probe save. The questions: GetActorLightAmount's range on an actor indoors,
+# GetActorMovementFlags of a standing actor, GetDetectionValue's value for a pair (and one
+# never measured), GetActiveEffects' elements (the magic items or their base effects),
+# GetBaseActorValueAlt on a base form, GetKillXP, GetRadiationLevelAlt on an NPC, the
+# stable and interrupt packages, list getters out of combat (no array?).
+def _j11(pid, body, text=False):
+    return (f"jip11.{pid}", "ref rP\nref rObj\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\n"
+            "Begin Function { }\n" + _form("rP", NF["player"]) + body, text, None, "")
+
+
+def _j11v(pid, setup, expr, text=False):
+    return _j11(pid, setup + f"SetFunctionValue ({expr})", text)
+
+
+def _j11arr(pid, setup, expr):
+    return _j11(pid, setup + f"let aList := {expr}\nlet fA := ar_Size aList\nif fA > 0\n"
+                "let sText := sv_Construct \"%g %z\" fA (ToString aList[0])\nelse\nlet sText := sv_Construct \"%g\" fA\nendif\n"
+                "SetFunctionValue sText", True)
+
+
+_J11DOC = _form("rObj", NF["docref"])
+JIP11_PROBES = (
+    [_j11v("alpha.doc", _J11DOC, "rObj.GetActorAlpha"),
+     _j11v("gravity.doc", _J11DOC, "rObj.GetActorGravityMult"),
+     _j11v("leveled.doc", _J11DOC, "GetFormIDString (rObj.GetActorLeveledList)", True),
+     _j11v("light.doc", _J11DOC, "rObj.GetActorLightAmount"),
+     _j11v("light.player", "", "rP.GetActorLightAmount"),
+     _j11v("movement.doc", _J11DOC, "rObj.GetActorMovementFlags"),
+     _j11v("killxp.doc", _J11DOC, "rObj.GetKillXP"),
+     _j11v("rads.doc", _J11DOC, "rObj.GetRadiationLevelAlt"),
+     _j11v("rads.player", "", "rP.GetRadiationLevelAlt"),
+     _j11v("baseav.doc", _J11DOC, "rObj.GetBaseActorValueAlt Strength"),
+     _j11v("baseav.docbase", _form("rObj", NF["doc"]), "GetBaseActorValueAlt Strength rObj"),
+     _j11v("detection.doc.player", _J11DOC, "rObj.GetDetectionValue rP"),
+     _j11v("detection.player.doc", _J11DOC, "rP.GetDetectionValue rObj"),
+     _j11v("stable.doc", _J11DOC, "GetFormIDString (rObj.GetCurrentStablePackage)", True),
+     _j11v("interrupt.doc", _J11DOC, "GetFormIDString (rObj.GetInterruptPackage)", True),
+     _j11v("unreachable.doc", _J11DOC, "rObj.GetTargetUnreachable"),
+     _j11v("unarmed.docbase", _form("rObj", NF["doc"]), "GetFormIDString (GetActorUnarmedEffect rObj)", True),
+     _j11v("scoped.player", "", "rP.IsEquippedWeaponScoped"),
+     _j11v("silenced.player", "", "rP.IsEquippedWeaponSilenced"),
+     _j11v("breath.player", "", "rP.GetActorDiveBreath"),
+     _j11v("falltime.player", "", "rP.GetFallTimeRemaining")]
+    + [_j11arr("allies.doc", _J11DOC, "rObj.GetCombatAllies"),
+       _j11arr("targets.doc", _J11DOC, "rObj.GetCombatTargets"),
+       _j11arr("detected.doc", _J11DOC, "rObj.GetDetectedActors"),
+       _j11arr("effects.player", "", "rP.GetActiveEffects"),
+       _j11arr("effects.player.actor", "", "rP.GetActiveEffects 2"),
+       _j11arr("effects.player.ingestible", "", "rP.GetActiveEffects 4")]
+    + [_j11("force.detection", _J11DOC + "rP.ForceActorDetectionValue -100\nlet fA := rObj.GetDetectionValue rP\n"
+            "rP.ForceActorDetectionValue\nSetFunctionValue (sv_Construct \"%g %g\" fA (rObj.GetDetectionValue rP))", True)]
+)
+
+SETS.update({"jip11": JIP11_PROBES})  # JIP batch 11 (#1006)
+WRITING_SETS |= {"jip11"}
+
+# sup4 (writes, session only, each change put back; #1008): SUP batch 4
+# (docs/spec-notes/ext-sup4.md): random array keys, invalid references, floats from an
+# array, a UDF frames later, the last save and load, the cells and map markers near the
+# player at Doc Mitchell's, the scripts marked on load, the caught-pickpocketing flag on
+# Doc Mitchell (set back), transliteration. One step per frame.
+# The string variable is sOut: `string_var sA` did not compile in the original
+# [observed 2026-11-09, sup4 diagnostic runs; other names, sOld, did].
+def _sup4(pid, body, text=True):
+    return (f"sup4.{pid}", "ref rD\nref rNone\nref rH\narray_var aR\narray_var aIn\nfloat fA\nfloat fB\nfloat fC\nstring_var sOut\nBegin Function { }\n"
+            + _form("rD", NF["docref"]) + body, text, None, "")
+
+
+SUP4_PROBES = (
+    # A key of a five-element list in 0-4, a key of a two-key map, an empty list's
+    # (hypothesis: "1 1 -1").
+    [_sup4("randomkey", "let aR := Ar_List 10, 20, 30, 40, 50\nlet fA := Ar_GetRandomKey aR\n"
+           "let aIn := Ar_Map \"LALALA\"::1, \"TROLOLO\"::2\nlet sOut := Ar_GetRandomKeyMap aIn\nlet aR := Ar_List\n"
+           "SetFunctionValue (sv_Construct \"%g %g %g\" ((fA >= 0) && (fA <= 4) && (fA == Floor fA)) ((sOut == \"LALALA\") || (sOut == \"TROLOLO\")) (Ar_GetRandomKey aR))"),
+     # Valid references, an empty one, the empty one inside an inner array searched with
+     # and without its dimension (hypothesis: "0 1 0 1").
+     _sup4("invalidrefs", "let aR := Ar_List PlayerREF, rD\nlet fA := Ar_HasInvalidRefs aR\nlet aR := Ar_List PlayerREF, rNone\nlet fB := Ar_HasInvalidRefs aR\n"
+           "let aIn := Ar_List rNone\nlet aR := Ar_List PlayerREF, aIn\n"
+           "SetFunctionValue (sv_Construct \"%g %g %g %g\" fA fB (Ar_HasInvalidRefs aR) (Ar_HasInvalidRefs aR 1))"),
+     # The page's example: 3 8 5 [documented].
+     _sup4("setfloats", "let aR := Ar_List 3, 8, 5, 1\nAr_SetFloatsFrom aR fA fB fC\nSetFunctionValue (sv_Construct \"%g %g %g\" fA fB fC)"),
+     # A UDF two frames later writes an aux variable; read at once and two steps later
+     # (hypothesis: "0", then "1").
+     _sup4("nextframe.set", "PlayerREF.AuxVarErase \"*sup4\"\nCallFunctionNextFrame (Begin Function { }\nPlayerREF.AuxVarSetFlt \"*sup4\" 1\nEnd) 2\n"
+           "SetFunctionValue (PlayerREF.AuxVarGetFlt \"*sup4\")", False),
+     _sup4("nextframe.wait", "SetFunctionValue 0", False),
+     _sup4("nextframe.read", "SetFunctionValue (PlayerREF.AuxVarGetFlt \"*sup4\")\nPlayerREF.AuxVarErase \"*sup4\"", False),
+     # The probe game loads a save before the steps: its size, the co-save's, its name
+     # given, the last save's name before any save (hypothesis: "1 1 1 0"; NVForever
+     # writes no co-save and gives 0 for type 1 [decision]).
+     _sup4("saves", "let sOut := GetSaveName 1\nSetFunctionValue (sv_Construct \"%g %g %g %g\" ((GetLoadedSaveSize 0) > 0) ((GetLoadedSaveSize 1) > 0) "
+           "((Sv_Length sOut) > 0) ((Sv_Length (GetSaveName 0)) > 0))"),
+     # Indoors: the player's cell alone at depth 0, 2 and -1, no map markers (hypothesis:
+     # "1 1 1 0").
+     _sup4("near", "let aR := GetNearCells 0\nlet fA := Ar_Size aR\nlet aR := GetNearCells 2\nlet fB := Ar_Size aR\nlet aR := GetNearCells -1\nlet fC := Ar_Size aR\n"
+           "let aR := GetNearMapMarkers 2\nSetFunctionValue (sv_Construct \"%g %g %g %g\" fA fB fC (Ar_Size aR))"),
+     # A probe query is no script form: nothing marked (hypothesis: "0 0"; the original may
+     # refuse the call outside a script).
+     _sup4("markonload", "let fA := MarkScriptOnLoad\nSetFunctionValue (sv_Construct \"%g %g\" fA (IsScriptMarkedOnLoad GSDocMitchellScript))"),
+     # Doc Mitchell's flag read, set, read, set back (hypothesis: "0 1 1").
+     _sup4("caught", "let fA := rD.SetCaughtPCPickpocketting\nlet fB := rD.SetCaughtPCPickpocketting 1\nlet fC := rD.SetCaughtPCPickpocketting\n"
+           "rD.SetCaughtPCPickpocketting fA\nSetFunctionValue (sv_Construct \"%g %g %g\" fA fB fC)"),
+     # The page names no return value: the text back (hypothesis: "Privet"), or nothing.
+     # The literal is "Привет" as cp1251 bytes, written with the cp1252 characters of those
+     # bytes: the probe text reaches the game as cp1252 [observed 2026-11-09: UTF-8 Cyrillic
+     # arrived as cp1252 bytes].
+     _sup4("translit", "let sOut := TranslitText \"Ïðèâåò\"\nSetFunctionValue sOut")]
+)
+SETS.update({"sup4": SUP4_PROBES})
+WRITING_SETS |= {"sup4"}
+
+
 # jg8 (reads only, nothing changed; #1007): JohnnyGuitar batch 8 (docs/spec-notes/ext-jg8.md):
 # file hashes of Data\Credits.txt, loaded archives, a world map icon's DDS header, the
 # system colours, the sleep/wait menu's state outside it, Ar_SortEditor on Stimpak
@@ -8384,6 +8498,16 @@ WRITING_SETS |= {"sup7"}
 # fnvtool esm inventory, as NF above]. The event handlers, SetCustomMapMarker,
 # ClearCustomMapMarker and TuneRadioRef change the session or need an event the probe
 # cannot cause and put back; IsRadioRefPlaying crashes the original (its page).
+
+
+# The original compiles neither `$var` for a literal nor array elements as call arguments
+# [observed: probe set jg8, 2026-11-09], so the icon is spelled out and the sorted forms go
+# through ref variables.
+JG8_ICON = r"interface\icons\world map\icon_map_encampment.dds"
+
+
+def _jg8_firsts():
+    return "let rA := aOut[0]\nlet rB := aOut[1]\nlet rC := aOut[2]\n"
 
 
 def _jg8(pid, body, text=False):
@@ -8396,23 +8520,70 @@ JG8_PROBES = (
      _jg8("sha1", 'SetFunctionValue (SHA1File "Data\\Credits.txt")', True),
      _jg8("bsa", 'SetFunctionValue (sv_Construct "%g %g %g %g" (IsBSALoaded "Fallout - Meshes.bsa") '
           '(IsBSALoaded "fallout - meshes.bsa") (IsBSALoaded "Data\\Fallout - Meshes.bsa") (IsBSALoaded "NoSuch.bsa"))', True),
-     _jg8("texture", 'let sText := "interface\\icons\\world map\\icon_map_encampment.dds"\n'
-          'SetFunctionValue (sv_Construct "%g %g %g %g" (GetTextureWidth $sText) (GetTextureHeight $sText) '
-          "(GetTextureMipMapCount $sText) (GetTextureFormat $sText))", True),
+     _jg8("texture", 'SetFunctionValue (sv_Construct "%g %g %g %g" ' + " ".join(
+          f'({f} "{JG8_ICON}")' for f in ("GetTextureWidth", "GetTextureHeight", "GetTextureMipMapCount", "GetTextureFormat")) + ")", True),
      _jg8("colour", 'SetFunctionValue (sv_Construct "%.0f %.0f %.0f %.0f %.0f %.0f" (GetSystemColor 1) (GetSystemColor 2) '
           "(GetSystemColor 3) (GetSystemColor 4) (GetSystemColor 5) (GetSystemColor 6))", True),
-     _jg8("colour.alt", 'GetSystemColorAlt 1 iR iG iB\nSetFunctionValue (sv_Construct "%g %g %g" iR iG iB)', True),
+     _jg8("colour.alt", 'let fA := GetSystemColorAlt 1 iR iG iB\nSetFunctionValue (sv_Construct "%g %g %g" iR iG iB)', True),
      _jg8("sleepwait", "SetFunctionValue (GetSleepWaitMenuState)"),
      _jg8("sorteditor", _form("rA", NF["stimpak"]) + _form("rB", NF["caps"]) + _form("rC", NF["pistol10"])
           + "let aList := Ar_List rA, rB, rC\nlet aOut := Ar_SortEditor aList\n"
-          'let sText := sv_Construct "%z %z %z" (GetFormIDString aOut[0]) (GetFormIDString aOut[1]) (GetFormIDString aOut[2])\n'
+          + _jg8_firsts()
+          + 'let sText := sv_Construct "%z %z %z" (GetFormIDString rA) (GetFormIDString rB) (GetFormIDString rC)\n'
           "let aOut := Ar_SortEditor aList 1\n"
-          'SetFunctionValue (sv_Construct "%z | %z %z %z" sText (GetFormIDString aOut[0]) (GetFormIDString aOut[1]) (GetFormIDString aOut[2]))', True),
+          + _jg8_firsts()
+          + 'SetFunctionValue (sv_Construct "%z | %z %z %z" sText (GetFormIDString rA) (GetFormIDString rB) (GetFormIDString rC))', True),
      _jg8("shuffle", "let aOut := Ar_Shuffle (Ar_List 1, 2, 3, 4, 5)\n"
-          'SetFunctionValue (sv_Construct "%g %g" (Ar_Size aOut) (aOut[0] + aOut[1] + aOut[2] + aOut[3] + aOut[4]))', True)]
+          "let fA := Ar_Size aOut\nlet fB := aOut[0] + aOut[1] + aOut[2] + aOut[3] + aOut[4]\n"
+          'SetFunctionValue (sv_Construct "%g %g" fA fB)', True)]
 )
 SETS.update({"jg8": JG8_PROBES})  # JohnnyGuitar batch 8 (#1007)
 
+
+
+# jip13 (reads; SetAngleEx on Doc is put back; #1006): JIP batch 13
+# (docs/spec-notes/jip-physics-13.md) on Doc Mitchell and the player in the probe save.
+# The questions: GetRigidBodyMass and GetHasPhantom on an actor, the player's ground
+# material and the object under the feet, GetRayCastMaterial, IsGrabbable on an actor,
+# an actor's collision layer and a body's velocity by node, GetObjectVelocity standing,
+# the contacts of a standing player, the reticle's node and position, SetAngleEx's
+# methods read back through GetAngle.
+def _j13(pid, body, text=False):
+    return (f"jip13.{pid}", "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\n"
+            "Begin Function { }\n" + _form("rP", NF["player"]) + body, text, None, "")
+
+
+def _j13v(pid, setup, expr, text=False):
+    return _j13(pid, setup + f"SetFunctionValue ({expr})", text)
+
+
+_J13DOC = _form("rObj", NF["docref"])
+JIP13_PROBES = (
+    [_j13v("mass.doc", _J13DOC, "rObj.GetRigidBodyMass"),
+     _j13v("phantom.doc", _J13DOC, "rObj.GetHasPhantom"),
+     _j13v("ground.player", "", "rP.GetGroundMaterial"),
+     _j13v("ground.doc", _J13DOC, "rObj.GetGroundMaterial"),
+     _j13v("underfeet.player", "", "GetFormIDString (rP.GetObjectUnderFeet)", True),
+     _j13v("raycast.player", "", "rP.GetRayCastMaterial"),
+     _j13v("grabbable.doc", _J13DOC, "rObj.IsGrabbable"),
+     _j13v("layer.doc.spine", _J13DOC, "rObj.GetCollisionObjLayerType \"Bip01 Spine\""),
+     _j13v("property.doc.mass", _J13DOC, "rObj.GetCollisionObjProperty \"Bip01 Spine\" 7"),
+     _j13v("angvel.doc", _J13DOC, "rObj.GetAngularVelocity \"Bip01 Spine\" Z"),
+     _j13v("velocity.player", "", "rP.GetObjectVelocity"),
+     _j13v("velocity.player.z", "", "rP.GetObjectVelocity Z"),
+     _j13v("contact.player.doc", _J13DOC, "rP.GetHasContact rObj"),
+     _j13v("contacttype.player", "", "rP.GetHasContactType 42"),
+     _j13v("reticlenode", "", "GetReticleNode", True),
+     # No rows for the output-variable getters: the original's runtime compiler refused
+     # GetLinearVelocityAlt and GetReticlePosAlt in a `let` and as statements [observed: the
+     # jip13 runs, 2026-11-09]; GetAngularVelocityAlt is left out with them [hypothesis].
+     _j13("contacts.player", "let aList := rP.GetContactRefs\nSetFunctionValue (ar_Size aList)"),
+     _j13("setangleex.doc", _J13DOC + "let fA := rObj.GetAngle Z\nrObj.SetAngleEx 0 0 (fA + 90)\nlet fB := rObj.GetAngle Z\n"
+          "rObj.SetAngleEx 0 0 fA\nlet fC := rObj.GetAngle Z\nSetFunctionValue (sv_Construct \"%.1f %.1f\" (fB - fA) (fC - fA))", True)]
+)
+
+SETS.update({"jip13": JIP13_PROBES})  # JIP batch 13 (#1006)
+WRITING_SETS |= {"jip13"}
 
 
 # jip12 (reads; SetCurrentClimate and SetWindDirection are put back; #1006): JIP batch 12

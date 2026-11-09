@@ -137,6 +137,17 @@ pub fn move_to_marker_with_fade(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Val
         move_ref(g, r, marker, offset)?;
         return none();
     }
+    start_fade_move(g, r, marker, offset);
+    none()
+}
+
+/// The fade out and the wait of a [`move_to_marker_with_fade`] move (also JIP's
+/// MoveToFadeDelay, `crate::nvse_jip13`); the player and a reference not drawn move at once.
+pub(crate) fn start_fade_move(g: &mut Game, r: FormId, marker: FormId, offset: [f64; 3]) {
+    if r == FormId::PLAYER_REF || !g.present(r) {
+        let _ = move_ref(g, r, marker, offset);
+        return;
+    }
     let at = match g.script_looks.fade_moves.get(&r) {
         Some(m) => m.at,
         None => {
@@ -145,7 +156,34 @@ pub fn move_to_marker_with_fade(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Val
         }
     };
     g.script_looks.fade_moves.insert(r, super::misc::FadeMove { marker, offset, at });
-    none()
+}
+
+/// Put `r` at `pos` in `cell` (with `angles` in radians, else its own), told as MoveTo
+/// tells a move ([`move_ref`]); JIP's moves and rotations (`crate::nvse_jip13`).
+pub(crate) fn put_ref(g: &mut Game, r: FormId, cell: Option<FormId>, pos: [f32; 3], angles: Option<[f32; 3]>) {
+    let from = (r == FormId::PLAYER_REF).then(|| g.world.peek(r).map(|p| (p.cell, p.pos))).flatten();
+    let cell = cell.map(|c| g.world.placed.exterior_cell_at(c, pos).unwrap_or(c));
+    let Ok(s) = g.world.get(r) else { return };
+    let moved_cell = s.cell != cell;
+    s.cell = cell;
+    s.pos = pos;
+    if let Some(a) = angles {
+        s.rot = a;
+    }
+    if g.ref_script(r).is_some() {
+        g.moved.insert(r);
+    }
+    if r != FormId::PLAYER_REF {
+        g.teleported.insert(r);
+        if !crate::ai::is_actor_base(g.world.forms, base_of(g, r).unwrap_or(FormId(0))) {
+            g.turned.insert(r);
+        }
+    }
+    g.emit(EventKind::Moved { reference: r, cell, pos });
+    if r == FormId::PLAYER_REF && moved_cell {
+        g.player_entered(cell);
+        g.bring_teammates(from);
+    }
 }
 
 /// Make the `MoveToMarkerWithFade` moves whose wait has ended (`Game::tick`) and ask the
@@ -184,17 +222,7 @@ pub(crate) fn move_ref(g: &mut Game, r: FormId, marker: FormId, offset: [f64; 3]
             s.rot = rot;
         }
     }
-    if g.ref_script(r).is_some() {
-        g.moved.insert(r);
-    }
-    if r != FormId::PLAYER_REF {
-        g.teleported.insert(r);
-        // A drawn object (not an actor) is drawn at its new place, as after SetPos.
-        if !crate::ai::is_actor_base(g.world.forms, base_of(g, r).unwrap_or(FormId(0))) {
-            g.turned.insert(r);
-        }
-    }
-    g.emit(EventKind::Moved { reference: r, cell, pos });
+    g.note_relocated(r, cell, pos);
     if r == FormId::PLAYER_REF {
         g.player_entered(cell);
         g.bring_teammates(from);
