@@ -70,6 +70,17 @@ not `Send`).
 (Goodsprings 0.88 → 0.58 ms, battle-50 2.3 → 1.8 ms). The blended pass is recorded last
 among the big ones and finishes in 0.8-1.8 ms, so it is what is still waited for.
 
+Second change (#1868), in `src/diagnostic/mod.rs`, each part marked by a comment starting
+`NVForever recorder gate`: `begin_diagnostics_frame`, `resolve_encoder` and
+`finish_diagnostics_frame` take the `DiagnosticsRecorder` as optional and do nothing
+without it. Upstream they require it, so taking it out of the render world stops the app
+(a missing resource fails the systems' parameter check). Every pass already records only
+while the recorder is there (`RenderContext::diagnostic_recorder` is optional; the camera
+driver checks `contains_resource`), so without it no timestamp is written, resolved or read
+back. `nvforever/src/perf_overlay/split.rs` takes it out while the performance overlay's
+frame split, the only reader that added the render diagnostics, is not shown. With the
+recorder there (every run that does not take it out) the systems do what upstream does.
+
 ## wgpu-ffx 0.1.0 (MIT, the wgpu-ffx developers and Advanced Micro Devices)
 
 The FSR 3.1.4 upscaler (docs/design/fsr-upscaling.md): a Rust/wgpu port of AMD FidelityFX
