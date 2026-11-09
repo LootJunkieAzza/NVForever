@@ -408,6 +408,24 @@ pub fn follow(entries: &[ViewEntry], first: usize, selected: Option<usize>) -> u
     first.min(last)
 }
 
+/// The window's first line this frame, from `first`: when the choice is new since the
+/// window last followed it (`followed`), as [`follow`] puts it (its heading too); else
+/// only as far as keeps the chosen line in view, so a window the wheel or the scroll bar
+/// moved stays where they put it and is not pulled back to the heading over the chosen
+/// row [design: #1953].
+pub fn window_first(entries: &[ViewEntry], first: usize, selected: Option<RowId>, followed: Option<RowId>) -> usize {
+    let at = selected.and_then(|id| slot_of(entries, id));
+    if selected != followed {
+        return follow(entries, first, at);
+    }
+    let n = entries.len();
+    let last = n.saturating_sub(WINDOW_ROWS);
+    match at.filter(|s| *s < n) {
+        Some(s) => crate::menu::model::keep_in_view(first, s, n, WINDOW_ROWS).min(last),
+        None => first.min(last),
+    }
+}
+
 /// The lines drawn of a window from `first`: [`WINDOW_ROWS`] of them, less a heading on
 /// the last line (it is drawn with its first row in the next window).
 pub fn drawn_slots(entries: &[ViewEntry], first: usize) -> std::ops::Range<usize> {
@@ -761,6 +779,35 @@ mod tests {
         assert_eq!(clamp_into_window(&e, 3, Some(RowId::Setting(0))), Some(RowId::Setting(2)));
         assert_eq!(clamp_into_window(&e, 0, Some(RowId::Setting(11))), Some(RowId::Setting(7)));
         assert_eq!(clamp_into_window(&e, 0, Some(RowId::Setting(3))), Some(RowId::Setting(3)));
+    }
+
+    #[test]
+    fn the_wheel_moves_a_window_with_headings_and_the_choice_into_it() {
+        let h = |t| ViewEntry::Heading(Placement { tab: "T", subgroup: None, heading: Some(t) });
+        let r = |i| ViewEntry::Row(RowId::Setting(i));
+        // [A] 0..5, [B] 5..10, [C] 10..15: 18 lines, as a tab with headings.
+        let mut e = Vec::new();
+        for (k, name) in ["A", "B", "C"].into_iter().enumerate() {
+            e.push(h(name));
+            e.extend((k * 5..k * 5 + 5).map(r));
+        }
+        let first_row = Some(RowId::Setting(0));
+        // A notch down: the window from line 1, the first row (line 1) still in it.
+        assert_eq!(clamp_into_window(&e, 1, first_row), first_row);
+        // The next frame keeps it there: the choice did not change, so its heading is not
+        // brought back (the window followed this choice before).
+        assert_eq!(window_first(&e, 1, first_row, first_row), 1);
+        // A new choice is followed with its heading.
+        assert_eq!(window_first(&e, 1, first_row, None), 0);
+        // Two notches: the first row leaves the window, the choice is its top row.
+        assert_eq!(clamp_into_window(&e, 2, first_row), Some(RowId::Setting(1)));
+        assert_eq!(window_first(&e, 2, Some(RowId::Setting(1)), Some(RowId::Setting(1))), 2);
+        // The window's top on a heading: the choice is the row under it, not the heading.
+        assert_eq!(clamp_into_window(&e, 6, Some(RowId::Setting(1))), Some(RowId::Setting(5)));
+        assert_eq!(window_first(&e, 6, Some(RowId::Setting(5)), Some(RowId::Setting(5))), 6);
+        // Never past the last full window; a choice below the window is still kept in view.
+        assert_eq!(window_first(&e, 30, None, None), e.len() - WINDOW_ROWS);
+        assert_eq!(window_first(&e, 0, Some(RowId::Setting(14)), Some(RowId::Setting(14))), e.len() - WINDOW_ROWS);
     }
 
     #[test]

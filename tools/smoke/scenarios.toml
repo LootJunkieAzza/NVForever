@@ -9508,6 +9508,30 @@ order = [[
 
 
 [[scenario]]
+name = "settings-scroll-headings"
+source = "#1953: the mouse wheel moves the window of a tab with headings (Gameplay) as of one without, the chosen row brought into the window (the top row once the chosen one leaves it) and the window not pulled back to the chosen row's heading; a notch up moves it back one line"
+note = "Gameplay's first lines: [Game], difficulty, hardcore, kill-camera, reload-slows, UsePipBoy, [Saving], the five autosave rows; the window is nine lines"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/settings_layout.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:18", NVF_PLAY_TEST_SETTINGS = "11:tab:Gameplay", NVF_PLAY_TEST_PAUSE_MENU = "12:wheel-down,12.3:wheel-down,12.6:wheel-down,13.5:inspect,14:wheel-up,15:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 20
+order = [[
+  "pause menu: tab Gameplay; selected difficulty",
+  { re = 'pause menu: rows 2-10 of \d+ shown', label = "a notch of the wheel shows the next line" },
+  { re = 'pause menu: rows 3-11 of \d+ shown' },
+  { re = 'pause menu: rows 4-12 of \d+ shown', label = "three notches, three lines down" },
+  { re = 'pause menu: inspect: Gameplay, keys on the rows, selected kill-camera, lines 4-12 of \d+', label = "the window stays moved, the chosen row its top row" },
+  { re = 'pause menu: rows 3-11 of \d+ shown', label = "a notch up moves it back one line" },
+  { re = 'pause menu: inspect: Gameplay, keys on the rows, selected kill-camera, lines 3-11 of \d+', label = "the chosen row still in the window" },
+]]
+forbid = [
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+  { re = 'pause menu: rows 1-9 of \d+ shown', label = "the window is never pulled back to the top (to the chosen row's heading)" },
+  { re = 'nvf_play::settings: settings: [a-zA-Z][\w-]* \S', label = "scrolling changes no setting" },
+]
+
+[[scenario]]
 name = "settings-layout"
 source = "#1953: the settings page's seven tabs, the original's four first, and each row's tab and heading from one table (engine/nvf-play/src/settings_layout.rs; docs/design/settings-page.md); an empty Tweaks tab opens on no row"
 note = "the placements checked are of rows registered in every --play run; `0 not in the table` says every row this run registers has its place"

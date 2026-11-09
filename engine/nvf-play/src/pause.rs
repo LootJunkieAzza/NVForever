@@ -920,6 +920,9 @@ struct PauseView {
     colours_shown: Option<[bool; 2]>,
     /// The scroll bar's marker is being dragged.
     bar_dragging: bool,
+    /// The chosen row the settings page's window last followed (the wheel and the scroll
+    /// bar leave the window where they put it until the choice changes).
+    followed: Option<RowId>,
     /// The wheel's movement short of a notch.
     wheel: f32,
     /// A list's open dropdown.
@@ -1375,7 +1378,9 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
     if entries.is_empty() {
         root.spawn(from_middle(left, top, OPTIONS_WIDTH, OPTION_ROW)).with_children(|t| sm_text(t, &f.entry, tr(empty_words(d.scope)), 10.0, BASE, color(Shade::Dim)));
     }
-    let links = if entries.iter().any(|e| matches!(e, ViewEntry::Heading(_))) { heading_links(root, f, left, glyphs) } else { left + OPTIONS_WIDTH };
+    // On the search its line takes the links' place, the rows' whole width; Page Up/Down
+    // (LB/RB) still go from heading to heading there [design: #1953].
+    let links = if d.search.is_none() && entries.iter().any(|e| matches!(e, ViewEntry::Heading(_))) { heading_links(root, f, left, glyphs) } else { left + OPTIONS_WIDTH };
     if let Some((query, typing)) = &d.search {
         search_line(root, f, query, *typing, left, links - 10.0 - left);
     }
@@ -3369,8 +3374,14 @@ fn choose(
             first = (first as i64 + by).clamp(0, last as i64) as usize;
         }
         match &mut *page {
-            Page::Settings { selected } if scrolled => *selected = sv::clamp_into_window(&rows, first, *selected),
-            Page::Settings { selected } => first = sv::follow(&rows, first, selected.and_then(|id| sv::slot_of(&rows, id))),
+            Page::Settings { selected } if scrolled => {
+                *selected = sv::clamp_into_window(&rows, first, *selected);
+                view.followed = *selected;
+            }
+            Page::Settings { selected } => {
+                first = sv::window_first(&rows, first, *selected, view.followed);
+                view.followed = *selected;
+            }
             Page::Load { selected } if scrolled => *selected = (*selected).clamp(first, (first + w.shown).min(n) - 1),
             Page::Load { selected } => first = crate::menu::model::keep_in_view(first, *selected, n, w.shown),
             Page::Main | Page::Mods => {}
@@ -3715,6 +3726,7 @@ fn close(mut commands: Commands, mut paused: ResMut<Paused>, mut page: ResMut<Pa
     view.dragging = None;
     view.bar_dragging = false;
     view.scroll = 0;
+    view.followed = None;
     view.dropdown = None;
     view.search = SearchState::default();
     view.found = Found::default();

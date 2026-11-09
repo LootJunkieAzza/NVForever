@@ -116,7 +116,9 @@ The window shows nine lines from `PauseView::scroll`: the keys keep the chosen r
 and its heading too when it is the heading's first row (`follow`); a heading is never drawn
 alone on the window's last line (`drawn_slots`: it comes with its first row in the next
 window); the wheel and the scroll bar move the window, the choice moving to the nearest row
-still drawn (`clamp_into_window`). The pointer takes a row, its meter or its arrows only
+still drawn (`clamp_into_window`), and the window stays where they put it: the heading over
+the chosen row is brought back only when the choice changes (`window_first`, after
+`PauseView::followed`). The pointer takes a row, its meter or its arrows only
 when the row is drawn in the current window.
 
 **One dispatcher** (`pause.rs` `act_on_row`, `RowAction::{Activate, Step, Clear}`) does
@@ -188,6 +190,9 @@ once, in the page's order of the rows shown. Its note then begins with what it s
 (`stands_for`: "Stands for: Jump (Controller)."). So a result of the other device is never
 edited through the device in use: acting on it switches the device, and the row is then
 listed as itself.
+
+The search's line takes the place of the "Previous heading" and "Next heading" links, the
+rows' whole width; Page Up/Down (LB/RB) still go from heading to heading of the results.
 
 **On the results** the keys act as on the row's own tab (Enter, Left/Right, Delete, a
 click, the dropdown, the keep question, a key's rebinding), Page Up/Down go from place to
@@ -262,7 +267,7 @@ controls: padbind:Jump, rumble back to the game's
 pause menu: the pointer on heading-down
 ```
 
-Smoke scenarios: `settings-layout`, `settings-headings`, `settings-custom-sliders`,
+Smoke scenarios: `settings-layout`, `settings-headings`, `settings-scroll-headings`, `settings-custom-sliders`,
 `settings-controller-navigation`, `settings-search`, `settings-search-input`,
 `settings-changed`, `settings-heading-pointer`, `settings-search-language`
 (tools/smoke/scenarios.toml).
