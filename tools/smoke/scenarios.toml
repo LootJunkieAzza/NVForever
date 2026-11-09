@@ -22517,7 +22517,7 @@ forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error
 name = "latency-reduction"
 source = "#1778, docs/design/latency-reduction.md: --latency-reduction turns the switch on; the start says whether the GPU's Vulkan driver offers VK_AMD_anti_lag, and the game runs on either way"
 areas = ["graphics"]
-paths = ["engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/frame_pace.rs"]
+paths = ["engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/frame_pace.rs", "engine/vendor/bevy_render/src/renderer/**", "engine/vendor/bevy_render/src/settings.rs", "engine/Cargo.toml"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--latency-reduction", "--no-voice", "--no-lodgen"]
 run_seconds = 12
