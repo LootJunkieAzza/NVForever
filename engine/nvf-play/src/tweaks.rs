@@ -226,6 +226,8 @@ pub struct TweakSettings {
     /// `bChanceBasedKillcams`/`fChance`: the share of kill cameras that play; 1 changes
     /// nothing.
     pub kill_cam_chance: f32,
+    /// `bContainerEncumbranceIndicator`: the weight in red when taking would overload.
+    pub warn_encumbrance: bool,
 }
 
 /// The walk-angle choices: 30 to 80 degrees by 5; 45 is the physics' own.
@@ -355,6 +357,7 @@ impl Default for TweakSettings {
             duplicate_binds: false,
             pov_follows_weapon: false,
             kill_cam_chance: 1.0,
+            warn_encumbrance: false,
         }
     }
 }
@@ -990,6 +993,7 @@ impl Plugin for TweaksPlugin {
         amount!(app, "subtitle-distance", "Subtitle Distance", "General subtitles show for speakers within this many units; 0 changes nothing. (Stewie's Tweaks bCustomSubtitleDistance)", 10000.0, f32, game.subtitle_distance);
         switch!(app, "sneak-criticals-head", "Sneak Criticals Head Only", "Sneak attacks are criticals only on the head. (Stewie's Tweaks bSneakCriticalsHeadshotsOnly)", game.sneak_criticals_head_only);
         switch!(app, "compare-weapons", "Compare Weapons", "A weapon's DAM and DPS in the Pip-Boy show the difference from the weapon in hand (both whole). (Stewie's Tweaks bCompareWeaponStats)", game.compare_weapons);
+        switch!(app, "warn-encumbrance", "Weight Warning", "In a container, the player's weight shows red when taking the selected item would be too much to carry. (Stewie's Tweaks bContainerEncumbranceIndicator)", warn_encumbrance);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1125,6 +1129,9 @@ fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, que
         }
         if m.free_item_price != tweaks.free_item_price {
             m.free_item_price = tweaks.free_item_price;
+        }
+        if m.warn_encumbrance != tweaks.warn_encumbrance {
+            m.warn_encumbrance = tweaks.warn_encumbrance;
         }
         let menu = (tweaks.take_all_stays, tweaks.hide_equipped_barter, tweaks.hide_equipped_containers, tweaks.title_case_categories);
         if (m.take_all_stays, m.hide_equipped_barter, m.hide_equipped_containers, m.title_case_categories) != menu {

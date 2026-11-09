@@ -729,6 +729,9 @@ pub struct MenuModel {
     pub title_case_categories: bool,
     /// The price of things worth nothing in a barter (the tweak; 0: as they are).
     pub free_item_price: f32,
+    /// The player's weight in red when taking the selected row would put them over (the
+    /// tweak, set by `crate::tweaks`).
+    pub warn_encumbrance: bool,
     /// The player's encumbrance, or why it is unknown.
     pub encumbrance: Result<Encumbrance, String>,
     /// Heading: the container's or merchant's name, or "Inventory".
@@ -904,6 +907,7 @@ impl MenuModel {
             hide_equipped_containers: false,
             title_case_categories: false,
             free_item_price: 0.0,
+            warn_encumbrance: false,
             encumbrance: Err(String::new()),
             title,
             status: None,

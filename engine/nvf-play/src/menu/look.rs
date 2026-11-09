@@ -164,6 +164,17 @@ pub fn half_title(m: &MenuModel, side: Side) -> String {
     }
 }
 
+/// Whether taking the container's selected row would put the player over the carry
+/// limit (the Weight Warning tweak; only the player's half of a container).
+fn over_if_taken(m: &MenuModel, side: Side) -> bool {
+    if !m.warn_encumbrance || side != Side::Player || !matches!(m.mode, Mode::Container(_)) {
+        return false;
+    }
+    let Ok(e) = m.encumbrance.as_ref() else { return false };
+    let row = m.list(Side::Container).rows.get(m.selected[Side::Container as usize]);
+    row.and_then(|r| r.weight.map(|w| w * r.count.max(1) as f32)).is_some_and(|w| e.weight + f64::from(w) > e.capacity)
+}
+
 /// `WEAPONS` as `Weapons`: each word's first letter kept, the rest lower case.
 fn title_case(t: &str) -> String {
     t.split(' ').map(|w| {
@@ -438,7 +449,10 @@ fn half(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, side: Side) {
     p.spawn((at(x0 + zone_x, TOP - 10.0, zone_w, ARROW.y), FocusPolicy::Pass, PointerState::default(), CategoryTitle(side)));
     c.line(p, x0 + line_x, TOP, line_len, THICK, bright);
     if let Some(f) = half_figure(m, side) {
-        c.text(p, false, &f, x0 + FIGURE_RIGHT, TOP + 20.0, Align::Right, bright);
+        // The player's tweak: the weight in red when taking the container's selected row
+        // would put the player over [design: docs/design/tweaks.md].
+        let colour = if over_if_taken(m, side) { crate::reticle::crime_colour() } else { bright };
+        c.text(p, false, &f, x0 + FIGURE_RIGHT, TOP + 20.0, Align::Right, colour);
     }
     c.fade(p, x0 + HALF_W - THICK, TOP, false, bright);
     // The footer.
