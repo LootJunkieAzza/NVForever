@@ -178,6 +178,7 @@ use std::time::Duration;
 mod campfires;
 mod replication;
 mod areas;
+mod far_combat;
 mod leave;
 pub use leave::HoldLeave;
 mod scene;
@@ -330,6 +331,7 @@ impl Plugin for CoopPlugin {
             campfires: Default::default(),
             repl: Default::default(),
             areas: Default::default(),
+            far: Default::default(),
             repl_hud: None,
             ended: false,
             leaving: Default::default(),
@@ -349,6 +351,7 @@ impl Plugin for CoopPlugin {
         app.add_plugins((nvf_play::lobby::LobbyPlugin, nvf_play::coop_progress::CoopProgressPlugin))
             .insert_resource(coop)
             .add_systems(Update, (replication::frame_clock, lobby, send, take_events, share_doors, campfires::share_campfires, tables, social_mates, share_npcs, areas::coop_areas, replication::replicate, follow_looks, follow_npcs, leash, scene::share_scene, downed, revive::bodies, progress, duel_falls, replication::hud).chain().after(nvf_play::PlaySet::Physics))
+            .add_systems(Update, far_combat::far_fights.after(areas::coop_areas).before(replication::replicate))
             .init_resource::<HoldLeave>()
             .add_systems(Update, (leave::guest_leaves.before(crate::handoff::leave), leave::tell_ended))
             .add_systems(Last, leave::host_ends)
@@ -537,6 +540,8 @@ struct Coop {
     /// line for the corner readout.
     repl: replication::Repl,
     areas: areas::Areas,
+    /// The host's fights of its undrawn actors with guests away from it (item 129).
+    far: far_combat::FarFights,
     repl_hud: Option<String>,
     /// A guest's: the host ended the lobby (told, or gone too long), not yet acted on
     /// ([`leave::guest_leaves`]).
@@ -2049,13 +2054,16 @@ fn share_npcs(
             flags |= if dead { npc_flag::DEAD } else { 0 };
             flags |= if knocked(r) { npc_flag::KNOCKED } else { 0 };
             flags |= if fighters.weapon(r).is_some() && fighters.pitch(r).is_some() { npc_flag::AIMING } else { 0 };
+            // One fighting a guest away from the host (`far_combat`): its weapon out.
+            let far = coop.far.fighters.get(&r);
+            flags |= if far.is_some_and(|f| f.weapon.is_some()) { npc_flag::AIMING } else { 0 };
             npcs.push(NpcState {
                 reference: r,
                 feet,
                 heading,
                 pitch: 0.0,
                 flags,
-                weapon: fighters.weapon(r).map_or(0, |w| w.0),
+                weapon: fighters.weapon(r).or(far.and_then(|f| f.weapon)).map_or(0, |w| w.0),
                 attacks: coop.npc_attacks.get(&r).copied().unwrap_or(0),
                 furniture: 0,
                 base: sim.as_deref().and_then(|s| s.base_of(r)).map_or(base, |b| b.0),
