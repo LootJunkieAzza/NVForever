@@ -50,7 +50,7 @@ pub fn label(name: &str, ours: &'static str) -> &'static str {
 /// The setting `name`'s text when the load order defines it, else NVForever's own label
 /// for it in the game strings table (`fnv_ui::strings::BUILT_IN`, written from the setting's
 /// name and its menu's use; LEGAL.md): for the hints the hand-built pages had no word of
-/// their own for (#1896) [design].
+/// their own for (#1896, #1897) [design].
 pub fn built_in_label(name: &str) -> &'static str {
     label(name, fnv_ui::strings::built_in(name).unwrap_or_default())
 }
@@ -82,7 +82,7 @@ mod tests {
     #[test]
     fn the_hints_settings_have_built_in_labels() {
         // The hints that read NVForever's labels (`built_in_label`) each have one.
-        for name in ["sInventoryEquip", "sInventoryDrop", "sInventoryHotKey"] {
+        for name in ["sInventoryEquip", "sInventoryDrop", "sInventoryHotKey", "sTravel", "sMakeActiveQuest", "sTune", "sPlaceMarker", "sShowLocation", "sShowActiveNotes", "sShowAllNotes"] {
             assert!(fnv_ui::strings::built_in(name).is_some_and(|w| !w.is_empty()), "{name}");
         }
     }

@@ -45,7 +45,7 @@ const CARD_VALUE_IN: f32 = 10.0;
 pub const BUTTON_TEXT_Y: f32 = 15.0 / 2.0 + 10.0;
 
 /// One button hint of a page: its words, the key's part after them ("R)", with a
-/// controller "Y)"), and whether it is drawn dim (it does nothing now) (#1896).
+/// controller "Y)"), and whether it is drawn dim (it does nothing now) (#1896, #1897).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Hint {
     pub word: &'static str,
