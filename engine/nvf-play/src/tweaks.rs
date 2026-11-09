@@ -209,6 +209,11 @@ pub struct TweakSettings {
     pub nearest_unfound_on_compass: bool,
     /// `bLocationDiscoveredCornerMessage`: a place found is a corner line, not a banner.
     pub discovered_in_corner: bool,
+    /// `bInvertContainerTitleScrollwheelDirection`: the wheel over a category title
+    /// steps the other way.
+    pub invert_title_wheel: bool,
+    /// `bAutoContinueGame`: the main menu continues the newest save at once.
+    pub auto_continue: bool,
 }
 
 /// The walk-angle choices: 30 to 80 degrees by 5; 45 is the physics' own.
@@ -331,6 +336,8 @@ impl Default for TweakSettings {
             invert_x: false,
             nearest_unfound_on_compass: false,
             discovered_in_corner: false,
+            invert_title_wheel: false,
+            auto_continue: false,
         }
     }
 }
@@ -943,6 +950,9 @@ impl Plugin for TweaksPlugin {
                 },
             ),
         );
+        // ---- batch 25 ----
+        switch!(app, "invert-title-wheel", "Reverse Category Wheel", "The mouse wheel over a container's category title steps the other way. (Stewie's Tweaks bInvertContainerTitleScrollwheelDirection)", invert_title_wheel);
+        switch!(app, "auto-continue", "Continue at Start", "The main menu continues the newest save at once, the first time it opens; hold Shift to stay on the menu. (Stewie's Tweaks bAutoContinueGame)", auto_continue);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

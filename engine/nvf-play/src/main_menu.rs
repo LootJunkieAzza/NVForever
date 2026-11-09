@@ -401,6 +401,7 @@ fn choose(
     roots: Query<Entity, With<MenuRoot>>,
     mut last_page: Local<Option<Page>>,
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
+    (tweaks, mut auto_done): (Option<Res<crate::tweaks::TweakSettings>>, Local<bool>),
 ) {
     use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
     if !menu.open {
@@ -457,6 +458,16 @@ fn choose(
     }
     if menu.selected != before {
         sounds.write(UiSound { menu: UiMenu::MainMenu, event: UiEvent::Focus });
+    }
+    // The player's tweak continues the newest save once, at the first menu; Shift held
+    // stays on the menu (a way back to it) [design: docs/design/tweaks.md].
+    let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    if take.is_none() && !*auto_done && !shift && tweaks.as_ref().is_some_and(|t| t.auto_continue) {
+        *auto_done = true;
+        if Entry::Continue.enabled(saves) {
+            info!("main menu: continuing the newest save (tweak)");
+            take = Some(Entry::Continue);
+        }
     }
     let Some(e) = take else { return };
     info!("main menu: {}", e.label());

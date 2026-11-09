@@ -547,7 +547,10 @@ fn menu_mouse(
     mut lines: Local<f32>,
     mut out: MessageWriter<MenuInput>,
     (tile_menu, barter_tiles, tile_title): MouseTiles,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
+    // The player's tweak turns the wheel over a category title the other way [design: docs/design/tweaks.md].
+    let invert_titles = tweaks.is_some_and(|t| t.invert_title_wheel);
     let Some(m) = active.0.as_ref().filter(|m| m.mode != Mode::Inventory && m.quantity.is_none()) else {
         wheel.clear();
         return;
@@ -594,7 +597,8 @@ fn menu_mouse(
     let whole = lines.trunc();
     if whole != 0.0 {
         let title = if tiled { tile_title.and_then(|t| t.0) } else { titles.iter().find(|(i, _)| **i != PointerState::None).map(|(_, t)| t.0) };
-        out.write(MenuInput(Command::wheel(title, whole as i32)));
+        let steps = if invert_titles && title.is_some() { -(whole as i32) } else { whole as i32 };
+        out.write(MenuInput(Command::wheel(title, steps)));
         *lines -= whole;
     }
 }

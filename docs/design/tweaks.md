@@ -364,6 +364,13 @@ unless the player binds them, so nothing changes until then.
 | Limb Damage in Power Armor (x0–x2) | `bPowerArmorScalesLimbDamage` | `Game::hit_limb` |
 | Endurance Softens Falls (0–20% a point) | `bEnduranceScalesMinFallHeight` | `falls::hurt` (`FallRules::min`) |
 
+## Twenty-fifth batch (2026-11-09)
+
+| Row | INI key | Where |
+|---|---|---|
+| Reverse Category Wheel | `bInvertContainerTitleScrollwheelDirection` | `menu::menu_mouse` |
+| Continue at Start | `bAutoContinueGame` | `main_menu::choose` (once per run; Shift held stays: quitting to the main menu restarts the program, so without it the menu could not be reached) |
+
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
 
@@ -383,8 +390,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 300 |
-| to do | 303 |
+| done | 302 |
+| to do | 301 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -815,6 +822,7 @@ game's Data folder, read-only).
 | `bHideRanksInTraitMenu` | done |  |  | No Ranks for Traits |
 | `bHideUnavailableRadios` | done |  |  | already so: the Pip-Boy lists only stations in range |
 | `bIndividialItemStats` | done |  |  | One Item's Figures (the Pip-Boy; containers already show one) |
+| `bInvertContainerTitleScrollwheelDirection` | done |  |  | Reverse Category Wheel |
 | `bKarmaTitleShowsValue` | done |  |  | already so: the karma number is under its title |
 | `bLockpickAllowMouse` | done |  |  | Mouse Turns the Lock |
 | `bMapMarkersShowFactionName` | done |  | 1 | already so: the reputation line names the faction (worded "Goodsprings: Neutral") |
@@ -879,7 +887,6 @@ game's Data folder, read-only).
 | `bHideReadNotes` | to do |  |  | data lists with note_read; the shown note marks itself read |
 | `bHideReputationTabIfEmpty` | to do |  |  | stats view and switch; the flag on Snapshot |
 | `bInteriorExteriorMapDoorIcon` | to do |  |  | doors carry no leads-outside field |
-| `bInvertContainerTitleScrollwheelDirection` | to do |  |  | menu_mouse wheel over a title |
 | `bInvertPipboyRepairMenuSorting` | to do |  |  | repair offer sort with a bool |
 | `bKeyRepeatAcceleration` | to do |  | 4 | not built: menu keys do not repeat |
 | `bLocalMapRespawnedCellIndicator` | to do |  | 2 | not built: the local map has no cell grid |
@@ -975,6 +982,7 @@ game's Data folder, read-only).
 | `bMeleeImpactEffectsFollowTarget` | done | yes |  | already so: decals on actors hang from a bone |
 | `bPowerArmorPreventsScreenBlood` | done | yes |  | No Screen Blood in Power Armor (any hit while power armor is worn on the body; hits are not told apart by body part here) |
 | `bRadioStaticDecreasesSongVolume` | done | yes |  | already so: the song fades as the static rises |
+| `bAutoContinueGame` | done |  |  | Continue at Start (once per start of the program; Shift held stays on the menu) |
 | `bContainerRespawnsMessage` | done |  | 2 | already so: respawning containers say so (not on NPCs) |
 | `bDetachedBeams` | done |  |  | Detached Beams |
 | `bDisableGodmodeOnLoad` | done |  |  | God Mode Off on Load |
@@ -1024,7 +1032,6 @@ game's Data folder, read-only).
 | `bAllowDuplicateControlBinds` | to do |  |  | Bindings::rebind swap loop |
 | `bAlternateLevelupSounds` | to do |  | 4 | xp level_up sound; the sound cache takes static names |
 | `bAnimDebugging` | n/a |  |  | a mod-author debug print |
-| `bAutoContinueGame` | to do |  |  | main_menu choose at open |
 | `bAutoReadNotes` | unsure, skipped |  | 3 | needs another mod (Book Menu Restored) |
 | `bChanceBasedKillcams` | to do |  | 1 | a chance in kill_cam update skip |
 | `bClickToExitLoadScreens` | to do |  | 2 | loading hold_input and finish, plus a prompt |
