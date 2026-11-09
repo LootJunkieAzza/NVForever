@@ -80,3 +80,86 @@ menu: scripts see it as open until the player leaves it.
 Not built:
 - the "Made at" category for a recipe whose category differs from the bench's;
 - crafting experience (whether the original gives any is not known).
+
+## 4. The menu from its file (issue #1468)
+
+[design: `engine/nvf-play/src/tiles/recipe_menu.rs`, `tiles/vanilla.rs`] With
+`[UI] TileMenus=RecipeMenu`, the open recipe menu (1077) draws from
+`menus\recipe_menu.xml`. The hand-built view stays the default, and the adapter does nothing
+with its switch off. A missing file, a missing required path, or a row template without its
+name, value or marker child keeps the whole hand-built view. One decision, the writer's,
+supplies the drawing and the input. The list state comes from `tiles/list.rs`, shared with
+the container and barter menus.
+
+**What stays the model's** [design: `crafting.rs`]. What is listed and in what order, the
+filter, what Accept makes, the prompt and every sound. The tiles ask through
+`crafting::RecipeInput`, read in `keys` beside the keys and the hand-built buttons, so a tile
+click takes the hand-built button's path. Physical keys stay the model's; a script's MenuTapKey
+still follows the file's `_PCButton_A` and `_PCButton_X`. The wheel moves the selection, as in
+the hand-built menu. The pointer selects only after moving and does not scroll the list.
+
+**The rows**. Each recipe is a row of `RM_list_template` in `RM_Items_InventoryList`, kept by
+its form. `ListItemText` holds the hand-built label, `RM_list_template_ItemValue` is empty, the
+marker hidden. A click on another row selects it, a click on the selected row accepts [design:
+#1468's plan; the hand-built row click only selects].
+
+**The words** [design: LEGAL.md]. Nothing written here is transcribed from the original:
+
+| Tile | What is written | Source |
+|---|---|---|
+| `ListItemText` of a recipe | the name, and "(n)" when more than one is made | the record; a number |
+| `RM_ItemsTitle` | nothing without a filter; the subcategory's name with one, the file's back after it | the file's `sRecipes`; the record |
+| `RM_MadeAtVariable` | the category's name | the record |
+| `RM_SkillRequirement` | "{skill} ({have}/{need})", empty with none | the AVIF record (`fnv_game::chargen::skill_name`); numbers |
+| `ListItemText` of an ingredient | "{name} ({have}/{need})" | the record; numbers |
+| the card's `_Value` | WG, VAL, effects | the output's record; the Pip-Boy's effects text |
+| the buttons' `_PCButtonText` | the key hint | `sPCMenuHintA`, `sPCMenuHintX` through `pad::game_hint` |
+
+The titles "Crafted At", "Skill Needed", "Ingredients", Accept's and Exit's words are the file's
+settings (`fnv_ui::strings`, or the load order's) and are never written. The hand-built "No
+recipes" has no tile: an empty list is empty.
+
+**What the original does** [observed: a private capture at 1280 x 720, the menu opened by
+`ShowRecipeMenu` from a script; shots and reads].
+
+- The backing: `RM_Background`'s alpha reads the container's 193.8, once, at the opening.
+  [design] The tiled menu takes it and the tile blur in place of the hand-built
+  `top_menu_backing` the owner chose for that drawing (playtest list 7 item 2; the default keeps
+  it). This is a look difference for the maintainer to see.
+- Dimming: `alpha` 127 short and 255 met, at `brightness` 255, on a recipe's and an
+  ingredient's `ListItemText` and on the skill line, each by its own measure. The skill line's
+  `visible` reads 1 in every state, the text empty with no row.
+- Accept: the file ties `_line_alpha` to its `target`, 128 or 255, and its text's `alpha` to
+  that [documented: `text_box.xml`], and brightness stays 255, so the adapter writes only `target`
+  [design]. Both buttons' `visible` read 1. The key hint is the file's child `PCShortcutLabel`, right of the box, from
+  `_PCButtonText`.
+- The ingredients: rows of the one template in the hotrect `RM_Items_IngredientList` (a `text`
+  of that name stands before it [documented: the file], so the path counts from the last,
+  `:0`), the whole of "name (have/need)" in `ListItemText`, `ItemValue` empty. The pointer on
+  one does nothing, no hover and no box, though a row reads `target` 1 under a list reading 0.
+  [design] This tree's hit test would answer such a row, so the adapter writes its `target` 0.
+- `_IsContainerListSelected` reads -1 in every state, the file's, with the list's `_enabled` 1.
+  [design] The adapter leaves it.
+- The title: the file's without a filter, the record's name in its own case with one, and the
+  scroll back to 0 on a change.
+- The list's counts fit `list::counts` (barter-menu.md section 8): 41 rows gave 37 items and
+  delta 60.75.
+
+**What NVForever does otherwise, in the model, unchanged here** [design: `crafting.rs`]. The
+original's list opens with no row chosen and its box leaves with the pointer; here row 0 is
+chosen and stays so. A row that comes under a still pointer takes the choice there, not here
+(owner 2026-10-22, for the item menus). Its prompt opens on the most that can be made and the
+menu closes after making; here the prompt opens on 1 and the menu stays (the owner's note of
+2026-10-26 says no change either way on the prompt). The original keeps a filtered row's tile
+with `listindex` -1; here it goes. The pointer off the rows, an ingredient's among them, takes
+the original's box away; here the choice stays.
+
+**Still open** [hypothesis]: a recipe with no skill (the header stays and the line is empty
+here); how a long list of ingredients scrolls, and a two-line ingredient row's height. The model
+would write the same for each.
+
+**Not built**. The prompt from `QuantityMenu`'s tiles (it stays hand-built over the tiles),
+`RM_Items_TitleButton` and `RM_Container_TitleButton`, the headline images and the mod cards.
+
+**Smoke**: `tiles-recipe-places` (the pointer's places, no click), `tiles-recipe`,
+`recipe-default-drawing`.

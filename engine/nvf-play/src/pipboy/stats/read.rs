@@ -2,7 +2,7 @@
 //! ([`Forms`], read once each from the plugins) and the player's figures
 //! ([`snapshot`], from the scripts' game and the simulation's world).
 
-use super::model::{self, Change, EffectLine, Hints, Row, Snapshot, Standing, LIMBS};
+use super::model::{self, Change, EffectLine, Hints, Row, RowKey, Snapshot, Standing, LIMBS};
 use crate::script::ScriptState;
 use crate::sim::SimState;
 use fnv_esm::{LoadOrder, Schema};
@@ -207,7 +207,13 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
         let name = id.and_then(|id| sim.name(id)).unwrap_or(edid).to_string();
         texts[i] = model::hint_text(&name, counts[i]);
     }
-    s.hints = Hints { texts, counts, lit: [false; 4] };
+    s.hints = Hints::new(texts, counts);
+    // [design] As the engine's other menu words: the running game's strings, then
+    // the repository's own string-table label (menu::look::quantity_words).
+    s.switch_limbs = match script.as_ref().and_then(|s| s.rt.as_ref()) {
+        Some(rt) => fnv_game::ui_loading::game_string(&rt.game, "sSwitchLimbs"),
+        None => fnv_ui::strings::built_in("sSwitchLimbs").unwrap_or_default().to_owned(),
+    };
     let xp_base = sim.forms.setting_f32("iXPBase").unwrap_or(200.0) as f64;
     let xp_bump = sim.forms.setting_f32("iXPBumpBase").unwrap_or(150.0) as f64;
     // The karma titles the plugins hold (`model::karma_title`).
@@ -223,8 +229,16 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
     let karma_limits = ["KarmaVeryEvil", "KarmaEvil", "KarmaGood", "KarmaVeryGood"].map(|g| sim.forms.global_by_edid(g).map(|v| v.1 as f64));
     // The lists' words do not need the game.
     s.special = SPECIALS.map(|c| av_row(forms, c)).collect();
-    let mut skills: Vec<Row> = SKILLS.filter(|&c| c != av::BIG_GUNS).map(|c| av_row(forms, c)).collect();
-    s.general = model::MISC_STATS.iter().map(|n| Row { name: n.to_string(), value: Some("--".into()), ..Row::default() }).collect();
+    // A weapon skill has its mark, as a weapon has on the ITEMS page (`items::skill_badge`)
+    // [observed: private job run07b_stats, these five skills' and no others'].
+    let mut skills: Vec<Row> = SKILLS
+        .filter(|&c| c != av::BIG_GUNS)
+        .map(|c| {
+            let row = av_row(forms, c);
+            Row { badge: crate::pipboy::items::skill_badge(&row.name).map(str::to_string), ..row }
+        })
+        .collect();
+    s.general = model::MISC_STATS.iter().enumerate().map(|(i, n)| Row { key: RowKey::Stat(i as u8), name: n.to_string(), value: Some("--".into()), ..Row::default() }).collect();
     let Some(rt) = script.and_then(|s| s.rt.as_mut()) else {
         skills.sort_by(|a, b| a.name.cmp(&b.name));
         s.skills = skills;
@@ -266,6 +280,8 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
         }
         s.rad_resist = value(g, av::RAD_RESISTANCE).map(|v| v.0);
         s.rads = value(g, 54).map_or(0.0, |v| v.0.max(0.0));
+        s.hardcore = hardcore;
+        s.needs = [fnv_game::aid::DEHYDRATION, fnv_game::aid::HUNGER, fnv_game::aid::SLEEP_DEPRIVATION].map(|code| value(g, code).map_or(0.0, |v| v.0.max(0.0)));
         for (rows, codes) in [(&mut s.special, SPECIALS.collect::<Vec<_>>()), (&mut skills, SKILLS.filter(|&c| c != av::BIG_GUNS).collect())] {
             for (row, code) in rows.iter_mut().zip(codes) {
                 if let Some((shown, permanent)) = value(g, code) {
@@ -284,7 +300,7 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
                 continue;
             }
             let t = forms.text(perk.0).clone();
-            perks.push(Row { name: t.name, value: (d.ranks > 1).then(|| rank.to_string()), mark: None, description: t.description, icon: t.icon });
+            perks.push(Row { key: RowKey::Perk(perk), name: t.name, value: (d.ranks > 1).then(|| rank.to_string()), mark: None, description: t.description, icon: t.icon, badge: None });
         }
         perks.sort_by(|a, b| a.name.cmp(&b.name));
         s.perks = perks;
@@ -304,7 +320,9 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
         if let (Some((karma, _)), [Some(ve), Some(e), Some(go), Some(vg)]) = (value(g, av::KARMA), karma_limits) {
             let (word, picture) = model::karma_alignment(karma, ve, e, go, vg);
             s.karma = Some((karma, word, picture));
-            s.karma_title = Some(model::karma_title(level as i64, word, |n| karma_titles.get(&n.to_ascii_lowercase()).cloned()));
+            let setting = |n: &str| karma_titles.get(&n.to_ascii_lowercase()).cloned();
+            s.karma_title = Some(model::karma_title(level as i64, word, setting));
+            s.karma_setting_title = model::karma_title_setting(level as i64, word, setting);
         }
         // Aid items taking effect now (ALCH sources of active effects), after the worn
         // apparel [hypothesis: the order]. An effect whose conditions fail (a Stimpak's
@@ -414,7 +432,7 @@ fn short(forms: &mut Forms, code: u16) -> String {
 /// A list row of an actor value, its figure not read yet.
 fn av_row(forms: &mut Forms, code: u16) -> Row {
     let t = forms.value(code);
-    Row { name: t.name, value: Some("--".into()), mark: None, description: t.description, icon: t.icon }
+    Row { key: RowKey::Av(code), name: t.name, value: Some("--".into()), mark: None, description: t.description, icon: t.icon, badge: None }
 }
 
 impl Forms {
