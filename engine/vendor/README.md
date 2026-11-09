@@ -88,6 +88,25 @@ upstream merges the jobs.
 no actors] Compute dispatches a frame 2,518 → 904, compute-active time 16 → 9 % of the
 frame; interleaved runs of one build with and without it: 9.0 → 8.5 ms a frame.
 
+Third change (#1868), in `src/diagnostic/mod.rs`, each part marked by a comment starting
+`NVForever recorder gate`: `begin_diagnostics_frame`, `resolve_encoder` and
+`finish_diagnostics_frame` take the `DiagnosticsRecorder` as optional and do nothing
+without it. Upstream they require it, so taking it out of the render world stops the app
+(a missing resource fails the systems' parameter check). Every pass already records only
+while the recorder is there (`RenderContext::diagnostic_recorder` is optional; the camera
+driver checks `contains_resource`), so without it no timestamp is written, resolved or read
+back. `nvforever/src/perf_overlay/split.rs` takes it out while the performance overlay's
+frame split, the only reader that added the render diagnostics, is not shown. With the
+recorder there (every run that does not take it out) the systems do what upstream does.
+
+`NVForever recorded instant` (`diagnostic/internal.rs`, `diagnostic/mod.rs`): each frame's
+`FrameData` notes when it began recording, `RenderDiagnostics` carries that instant, and
+`sync_diagnostics` keeps the last pair (the import time its measurements carry in the store,
+the frame's recording time) in a new main-world resource, `RenderDiagnosticsRecorded`. The
+store's measurements keep upstream's import time (frame telemetry exports it as such,
+docs/design/frame-telemetry.md). `nvforever/src/perf_overlay/split.rs` uses the pairs to
+read only the measurements of frames recorded in its window and since its row began to show.
+
 ## wgpu-ffx 0.1.0 (MIT, the wgpu-ffx developers and Advanced Micro Devices)
 
 The FSR 3.1.4 upscaler (docs/design/fsr-upscaling.md): a Rust/wgpu port of AMD FidelityFX
