@@ -737,8 +737,9 @@ pub(crate) trait TextureSource {
     /// Whether the texture of `h` has no alpha channel ([`lacks_alpha`]).
     fn lacks_alpha(&self, h: &Handle<Image>) -> bool;
     /// Whether the texture at a NIF texture path has a cut-out mask in its alpha
-    /// (`texture::AlphaShares::is_mask`), read from the archives again: asked only for the
-    /// few shapes [`blended_cutout`] concerns.
+    /// (`texture::AlphaShares::is_mask`), read from the archives once per file
+    /// (`texture::WorkerTextures::alpha_is_mask`): asked only for the shapes
+    /// [`blended_cutout`] concerns.
     fn alpha_is_mask(&self, raw_path: &str) -> bool;
 }
 
@@ -760,7 +761,7 @@ impl TextureSource for StoreTextures<'_> {
     }
 
     fn alpha_is_mask(&self, raw_path: &str) -> bool {
-        crate::texture::texture_alpha_shares(raw_path, self.data).is_some_and(|s| s.is_mask())
+        self.textures.workers.alpha_is_mask(raw_path, self.data)
     }
 }
 

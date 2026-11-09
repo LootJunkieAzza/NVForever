@@ -82,7 +82,8 @@ pub fn paths(root: &str, prefix: &str) -> Vec<String> {
     out
 }
 
-fn write_title_if_none(ui: &mut Ui, path: &str, title: &str) {
+/// `_Title` from `title`, only where the file left the card without one.
+pub(super) fn write_title_if_none(ui: &mut Ui, path: &str, title: &str) {
     let Some(t) = ui.find_tile(path) else { return };
     if ui.tile(t).get("_Title").is_none_or(|v| v.text().is_empty()) {
         ui.set_trait(t, "_Title", Value::Str(title.to_string()));

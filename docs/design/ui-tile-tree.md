@@ -302,8 +302,10 @@ at the same view size). That is the work of each migration task, not guessed up 
      `QuantityMenu`'s file with no switch of its own, while the container is so drawn) are
      acted on, and `BarterMenu` (candidate: barter-menu.md section 9, with the same
      prompt rule) [design: `tiles/barter_menu.rs`], `RepairServicesMenu` (candidate:
-     repair.md §3.1) [design: `tiles/repair_services_menu.rs`] and `RecipeMenu` (candidate:
-     crafting.md section 4; its prompt stays hand-built) [design: `tiles/recipe_menu.rs`].
+     repair.md §3.1) [design: `tiles/repair_services_menu.rs`], `RepairMenu`, the Pip-Boy's
+     repair page painted in its image (candidate: repair.md §5.1) [design: `tiles/repair_menu.rs`],
+     and `RecipeMenu` (candidate: crafting.md section 4; its prompt stays hand-built) [design:
+     `tiles/recipe_menu.rs`].
      Also `TraitMenu` (chargen.md §4.1), `CharGenMenu` (tag skills only, chargen.md §3.1), `DialogMenu` (its contract and fallback:
      spec-notes/dialogue-menu.md §6), and `StatsMenu` for the Pip-Boy's S.P.E.C.I.A.L. tab
      alone, painted in the Pip-Boy's image (issue #1513, pipboy.md §5.1.1).
