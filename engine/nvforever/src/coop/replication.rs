@@ -38,6 +38,9 @@ const TICK: f32 = 0.05;
 const SWEEP: f32 = 1.0;
 /// How often a guest sends its digest.
 const DIGEST_EVERY: f32 = 3.0;
+/// A reference changed this recently is in flight, not out of step (`Repl::sent_at`)
+/// [engineering choice: two digests].
+const SETTLE: f32 = 2.0 * DIGEST_EVERY;
 /// How often each side writes its perf line.
 const PERF_EVERY: f32 = 5.0;
 /// A guest's area: its interior cell, or this far around it outdoors (game units). The
@@ -73,6 +76,12 @@ pub(super) struct Repl {
     shadows: HashMap<u8, Shadow>,
     /// References to send whole to a guest (a digest differed, or the stream started again).
     forced: HashMap<u8, BTreeSet<u32>>,
+    /// The host's: when each reference's last change went to each guest. A digest is
+    /// late by up to [`DIGEST_EVERY`] and the trip, so a reference that moves all the
+    /// time (a tumbleweed in the wind) always differs from the host's copy by then; one
+    /// changed within [`SETTLE`] is not a desync (night of 2026-11-09: two tumbleweeds
+    /// were sent whole again every digest, a guest's corrections matching its changes).
+    sent_at: HashMap<u8, HashMap<u32, f32>>,
     dirty: BTreeSet<FormId>,
     last_tick: f32,
     last_sweep: f32,
@@ -392,6 +401,7 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
             Event::RelReset { id } => {
                 r.rules_sent = None;
                 r.shadows.remove(&id);
+                r.sent_at.remove(&id);
                 r.poses.remove(&id);
                 info!("replication: player {} starts again: the whole area goes to it", id + 1);
             }
@@ -419,9 +429,13 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
                     }
                 } else if let Some(d) = repl::unpack_digest(&item) {
                     let shadow = r.shadows.entry(id).or_default();
+                    let sent_at = r.sent_at.entry(id).or_default();
                     for (reference, theirs) in d.refs {
                         let rf = FormId(reference);
                         let Some(mine) = world_values(&sim.world, rf) else { continue };
+                        if sent_at.get(&reference).is_some_and(|&t| now - t < SETTLE) {
+                            continue;
+                        }
                         if repl::digest_of(&mine) != theirs {
                             r.desyncs += 1;
                             let what: Vec<String> = mine.iter().filter(|v| !shadow.of(reference).any(|s| s == *v)).map(|v| format!("{v:?}")).collect();
@@ -500,6 +514,11 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
             }
         }
         if !changes.is_empty() {
+            let sent_at = r.sent_at.entry(id).or_default();
+            sent_at.retain(|_, t| now - *t < SETTLE);
+            for c in &changes {
+                sent_at.insert(c.reference, now);
+            }
             *r.changes_sent.entry(id).or_default() += changes.len() as u64;
             for item in repl::pack_changes(&changes, ITEM) {
                 link.send_reliable(Some(id), item);
