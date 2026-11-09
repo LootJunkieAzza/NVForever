@@ -40,6 +40,11 @@ const AREA_WIDTH: f32 = 460.0;
 
 /// The area's corner in the view.
 const AREA: (f32, f32) = (25.0, 55.0);
+/// The area's left edge and how far down the view its bracket reaches (the lowest of its
+/// pieces): what a piece drawn under the area keeps clear of (the renderer's
+/// performance overlay at the top left, `nvforever`'s `perf_overlay`) [design].
+pub const AREA_LEFT: f32 = AREA.0;
+pub const AREA_BOTTOM: f32 = AREA.1 + BRACKET[1] + BRACKET[3];
 /// Where the text starts, and how far under the area's top its first line stands.
 pub(crate) const TEXT_X: f32 = 130.0;
 const TEXT_BASE: f32 = 30.0;

@@ -991,7 +991,7 @@ fn hitch_line(ms: f64, frame: &HashMap<String, (f64, u64)>, listed: usize) -> St
 
 /// The processor time the process has used so far, user and kernel, seconds.
 #[cfg(windows)]
-fn process_cpu_secs() -> Option<f64> {
+pub(crate) fn process_cpu_secs() -> Option<f64> {
     use windows_sys::Win32::Foundation::FILETIME;
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
     let mut t = [FILETIME::default(); 4];
@@ -1003,7 +1003,7 @@ fn process_cpu_secs() -> Option<f64> {
 }
 
 #[cfg(not(windows))]
-fn process_cpu_secs() -> Option<f64> {
+pub(crate) fn process_cpu_secs() -> Option<f64> {
     None
 }
 
