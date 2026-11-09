@@ -94,6 +94,8 @@ pub struct OtherState {
     /// JIP batch 9's switches and what the engine tells: the HUD cursor, volumes, fonts,
     /// colours, immortal mode, disabled interaction types (`nvse_jip9`).
     pub jip9: crate::nvse_jip9::Jip9State,
+    /// JIP batch 11's actor overrides and engine requests (`nvse_jip11`).
+    pub jip11: crate::nvse_jip11::Jip11State,
     /// JohnnyGuitar batch 5's record changes (`nvse_jg5`).
     pub jg5: crate::nvse_jg5::Jg5State,
     /// JohnnyGuitar batch 6's state (`nvse_jg6`).

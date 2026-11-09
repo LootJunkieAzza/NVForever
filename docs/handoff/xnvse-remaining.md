@@ -175,6 +175,13 @@ nothing values by the owner's decisions of 2026-11-08; not probed yet, set sup5)
 it: 560 (SUP 93 → 51).
 With both ShowOff batch 4 and SUP batch 5 merged: 526 (ShowOff 37, SUP 51) [hypothesis: 602 − 34 − 42;
 the extender_census test decides].
+JIP batch 11: 40 (#1006, jip-actors-11.md: combat allies and targets, detection values and
+ForceActorDetectionValue, packages, the actor's alpha, gravity, light, breath, movement,
+velocity, leveled list and unarmed effect, base values of a base form, kill XP, radiation at
+an NPC, ResetFallTime, active effects and effect lists, the equipped items, armour DR/DT by
+condition and GetArmourPenetrated, SetBaseFactionRank, ClearDeadActors, the hardcore stages'
+effects, SetConditionDamagePenalty; four nothing values by decision, §6; not probed, set
+jip11). Census after it: JIP 142 → 102 (178 → 138 before batch 10 merges).
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,

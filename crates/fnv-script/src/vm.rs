@@ -3213,6 +3213,8 @@ impl Vm<'_, '_> {
 fn out_params(lname: &str) -> Option<&'static [usize]> {
     Some(match lname {
         "getangleex" => &[0, 1, 2],
+        // [documented: GetActorVelocityAlt, "placed into the 3 specified Script Variables"].
+        "getactorvelocityalt" => &[0, 1, 2],
         "getanglesbetweenpoints" => &[6, 7],
         "getpointraycastpos" => &[5, 6, 7],
         "geteditorposition" => &[0, 1, 2, 3, 4, 5],

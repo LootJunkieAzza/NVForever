@@ -8115,6 +8115,65 @@ SETS.update({"jip6": JIP6_PROBES, "jip7": JIP7_PROBES, "jip6b": JIP6B_PROBES, "j
 WRITING_SETS |= {"jip6", "jip7", "jip6b", "jip7b"}
 
 
+# jip11 (reads; the one write, ForceActorDetectionValue, is put back; #1006): JIP batch 11
+# (docs/spec-notes/jip-actors-11.md) on Doc Mitchell (reference and base) and the player
+# in the probe save. The questions: GetActorLightAmount's range on an actor indoors,
+# GetActorMovementFlags of a standing actor, GetDetectionValue's value for a pair (and one
+# never measured), GetActiveEffects' elements (the magic items or their base effects),
+# GetBaseActorValueAlt on a base form, GetKillXP, GetRadiationLevelAlt on an NPC, the
+# stable and interrupt packages, list getters out of combat (no array?).
+def _j11(pid, body, text=False):
+    return (f"jip11.{pid}", "ref rP\nref rObj\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\n"
+            "Begin Function { }\n" + _form("rP", NF["player"]) + body, text, None, "")
+
+
+def _j11v(pid, setup, expr):
+    return _j11(pid, setup + f"SetFunctionValue ({expr})")
+
+
+def _j11arr(pid, setup, expr):
+    return _j11(pid, setup + f"let aList := {expr}\nlet fA := ar_Size aList\nif fA > 0\n"
+                "let sText := sv_Construct \"%g %z\" fA (ToString aList[0])\nelse\nlet sText := sv_Construct \"%g\" fA\nendif\n"
+                "SetFunctionValue sText", True)
+
+
+_J11DOC = _form("rObj", NF["docref"])
+JIP11_PROBES = (
+    [_j11v("alpha.doc", _J11DOC, "rObj.GetActorAlpha"),
+     _j11v("gravity.doc", _J11DOC, "rObj.GetActorGravityMult"),
+     _j11v("leveled.doc", _J11DOC, "rObj.GetActorLeveledList"),
+     _j11v("light.doc", _J11DOC, "rObj.GetActorLightAmount"),
+     _j11v("light.player", "", "rP.GetActorLightAmount"),
+     _j11v("movement.doc", _J11DOC, "rObj.GetActorMovementFlags"),
+     _j11v("killxp.doc", _J11DOC, "rObj.GetKillXP"),
+     _j11v("rads.doc", _J11DOC, "rObj.GetRadiationLevelAlt"),
+     _j11v("rads.player", "", "rP.GetRadiationLevelAlt"),
+     _j11v("baseav.doc", _J11DOC, "rObj.GetBaseActorValueAlt Strength"),
+     _j11v("baseav.docbase", _form("rObj", NF["doc"]), "GetBaseActorValueAlt Strength rObj"),
+     _j11v("detection.doc.player", _J11DOC, "rObj.GetDetectionValue rP"),
+     _j11v("detection.player.doc", _J11DOC, "rP.GetDetectionValue rObj"),
+     _j11v("stable.doc", _J11DOC, "rObj.GetCurrentStablePackage"),
+     _j11v("interrupt.doc", _J11DOC, "rObj.GetInterruptPackage"),
+     _j11v("unreachable.doc", _J11DOC, "rObj.GetTargetUnreachable"),
+     _j11v("unarmed.docbase", _form("rObj", NF["doc"]), "GetActorUnarmedEffect rObj"),
+     _j11v("scoped.player", "", "rP.IsEquippedWeaponScoped"),
+     _j11v("silenced.player", "", "rP.IsEquippedWeaponSilenced"),
+     _j11v("breath.player", "", "rP.GetActorDiveBreath"),
+     _j11v("falltime.player", "", "rP.GetFallTimeRemaining")]
+    + [_j11arr("allies.doc", _J11DOC, "rObj.GetCombatAllies"),
+       _j11arr("targets.doc", _J11DOC, "rObj.GetCombatTargets"),
+       _j11arr("detected.doc", _J11DOC, "rObj.GetDetectedActors"),
+       _j11arr("effects.player", "", "rP.GetActiveEffects"),
+       _j11arr("effects.player.actor", "", "rP.GetActiveEffects 2"),
+       _j11arr("effects.player.ingestible", "", "rP.GetActiveEffects 4")]
+    + [_j11("force.detection", _J11DOC + "rP.ForceActorDetectionValue -100\nlet fA := rObj.GetDetectionValue rP\n"
+            "rP.ForceActorDetectionValue\nSetFunctionValue (sv_Construct \"%g %g\" fA (rObj.GetDetectionValue rP))", True)]
+)
+
+SETS.update({"jip11": JIP11_PROBES})  # JIP batch 11 (#1006)
+WRITING_SETS |= {"jip11"}
+
+
 def script(body):
     if body.startswith(("ref ", "float ")):
         return body + "\nEnd\n"
