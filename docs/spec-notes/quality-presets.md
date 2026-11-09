@@ -23,6 +23,13 @@ at run time, only reading them (`fnv_install::GameInstall::open` on `--data`, th
 folder, names matched without case). The unit tests and the smoke scenarios use made-up
 files (`tools/smoke/fixtures/quality-presets*`) [design: LEGAL.md].
 
+**Encoding** [design: #1966 review]: the install's files are plain 8-bit text with ASCII
+keys and numbers [documented: the four files]. A UTF-8 byte order mark is dropped (it
+would hide the first `[Display]` heading); a UTF-16 mark (FF FE or FE FF) decodes the file
+as UTF-16; anything else is read as UTF-8, a byte that is not becoming a replacement
+character, which no key or number holds. A preset left with no row (UTF-16 without its
+mark, or not a preset file) is logged as setting no row.
+
 ## Which key sets which row [design: #1966]
 
 Nine keys set a row. A key a file lacks leaves its row out of that preset.
@@ -112,9 +119,11 @@ anisotropic filtering 16x, sun shafts, screen-space water reflections; taken fro
 it reads `Custom` when they are mixed (then offered as the one chosen). The effects keep
 their own rows. The light glow, eye adaptation, neon glow and mirrored water are on in both
 looks, so they are not effects of it, and the two rows never set the same row. Kept as
-`enhanced=On|Off|Custom`; a stored On or Off is set again at the start (its note names
-`--graphics`, so a test run keeps the command line's look), and the effects' own stored
-states, read after it, have the last word.
+`enhanced=On|Off|Custom`. As the Quality row's, the stored name sets nothing at the start:
+each effect is kept on its own and read with its own command-line precedence (#1382), so
+a test run given `--shadow-distance` keeps Longer sun shadows as the command line set it
+even with `enhanced=On` stored [design: #1966 review]. The note names no command-line
+switch, so the INI read never reports one overridden.
 
 ## Test aid and log
 

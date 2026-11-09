@@ -25,10 +25,11 @@
 //!
 //! **Kept in `NVForever.ini`** like the other lists, as the name the row reads
 //! (`quality=Custom`, `enhanced=On`). The rows are kept on their own and are the truth:
-//! the quality row's stored name sets nothing at the start, so a test run's command line
-//! still wins over the INI row by row (#1382); the enhanced row's On or Off is set again
-//! (its note names `--graphics`, so a test run keeps the command line's), and the effects'
-//! own stored states, read after it, have the last word.
+//! neither row's stored name sets anything at the start, so a test run's command line
+//! still wins over the INI row by row (#1382): an effect whose note names a switch given
+//! (`fine-shadows` names `--shadow-distance`) keeps the command line's state even when
+//! `enhanced=On` is stored [design: #1966 review]. Neither note names a command-line
+//! switch, so the INI read never says one was overridden.
 //!
 //! **Defaults unchanged**: nothing here changes a row until the player takes a choice; the
 //! game starts with today's values and the maintainer's vanilla look
@@ -167,12 +168,32 @@ pub fn read_files(dir: &Path) -> (Vec<(&'static str, String)>, Vec<(&'static str
             continue;
         };
         match std::fs::read(&path) {
-            // The game's INIs are in its code page; the keys and numbers are ASCII.
-            Ok(bytes) => found.push((label, String::from_utf8_lossy(&bytes).into_owned())),
+            Ok(bytes) => found.push((label, decode(&bytes))),
             Err(e) => missing.push((label, format!("{file} not read: {e}"))),
         }
     }
     (found, missing)
+}
+
+/// A preset file's text [design: #1966 review]. The install's files are plain 8-bit text,
+/// keys and numbers ASCII [documented: the four files]; a file saved again by an editor may
+/// carry a byte order mark, which would hide the first `[Display]` heading from the INI
+/// reader. So: a UTF-8 mark is dropped; a UTF-16 mark (FF FE little end first, FE FF big
+/// end first) decodes the rest as UTF-16; anything else is read as UTF-8, a byte that is
+/// not (the code page's letters, only ever in comments or values) becoming U+FFFD, which no
+/// key or number holds. A file in UTF-16 without its mark reads as no keys at all, and
+/// [`build`] then says its preset sets no row.
+pub fn decode(bytes: &[u8]) -> String {
+    let utf16 = |rest: &[u8], le: bool| {
+        let units: Vec<u16> = rest.chunks_exact(2).map(|c| if le { u16::from_le_bytes([c[0], c[1]]) } else { u16::from_be_bytes([c[0], c[1]]) }).collect();
+        String::from_utf16_lossy(&units)
+    };
+    match bytes {
+        [0xEF, 0xBB, 0xBF, rest @ ..] => String::from_utf8_lossy(rest).into_owned(),
+        [0xFF, 0xFE, rest @ ..] => utf16(rest, true),
+        [0xFE, 0xFF, rest @ ..] => utf16(rest, false),
+        _ => String::from_utf8_lossy(bytes).into_owned(),
+    }
 }
 
 /// `[section] key` of `text` as a finite number.
@@ -233,6 +254,9 @@ pub fn build(files: &[(&'static str, String)]) -> (Vec<QualityPreset>, Vec<Strin
                 if !known {
                     problems.push(format!("{label}: [{section}] {key} is not a key the presets are known to set; not used"));
                 }
+            }
+            if rows.is_empty() {
+                problems.push(format!("{label}: none of the keys that set a row is in it (not an INI of the presets, or an encoding not read); it sets no row"));
             }
             QualityPreset { label, rows }
         })
@@ -388,20 +412,13 @@ pub fn pick_enhanced(world: &mut World, name: &str) -> bool {
     true
 }
 
-/// On or Off from the INI (or the page's Defaults): the effect rows set directly, without
-/// writing the INI while it is read; Custom sets nothing.
-fn load_enhanced(world: &mut World, text: &str) -> bool {
+/// A stored name (the INI, or the page's Defaults): one the row can read is taken as it is
+/// and sets nothing. The effects are kept on their own and read after it, each with its own
+/// command-line precedence (#1382); setting them here first would hide a switch given for
+/// one of them (module notes). The page's Defaults puts each effect back by its own row.
+fn load_enhanced(_world: &mut World, text: &str) -> bool {
     let t = text.trim();
-    if t.eq_ignore_ascii_case(CUSTOM) {
-        return true;
-    }
-    let Some(want) = on_off(t) else { return false };
-    let rows = effect_rows(world.resource::<Settings>());
-    for (i, on) in rows {
-        let s = world.resource::<Settings>().list()[i];
-        (s.set)(world, on == want);
-    }
-    true
+    on_off(t).is_some() || t.eq_ignore_ascii_case(CUSTOM)
 }
 
 fn on_off(name: &str) -> Option<bool> {
@@ -460,7 +477,7 @@ pub fn register(app: &mut App, group: &'static str) {
             key: ENHANCED_KEY,
             group,
             label: "Enhanced effects",
-            note: "On: every effect of the enhanced look (ambient occlusion, longer sun shadows, bloom, sharpening, anisotropic filtering 16x, sun shafts, screen-space water reflections). Off: none of them, the original's picture. Custom: some on, some off. Each effect keeps its own row. (--graphics enhanced or vanilla)",
+            note: "On: every effect of the enhanced look (ambient occlusion, longer sun shadows, bloom, sharpening, anisotropic filtering 16x, sun shafts, screen-space water reflections). Off: none of them, the original's picture. Custom: some on, some off. Each effect keeps its own row and its own saved state; this row only sets them all at once.",
             get: |_| false,
             set: |_, _| {},
             slider: None,
@@ -572,6 +589,39 @@ mod tests {
         assert_eq!(found.iter().map(|(l, _)| *l).collect::<Vec<_>>(), ["Low", "Very High"]);
         assert_eq!(missing, [("Medium", "medium.ini not found".to_string()), ("High", "high.ini not found".to_string())]);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #1966 review: a byte order mark before the first heading must not hide `[Display]`.
+    #[test]
+    fn a_byte_order_mark_does_not_hide_the_first_section() {
+        let dir = std::env::temp_dir().join(format!("nvf-quality-bom-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut bom = vec![0xEF, 0xBB, 0xBF];
+        bom.extend_from_slice(LOW.as_bytes());
+        std::fs::write(dir.join("low.ini"), bom).unwrap();
+        let (found, _) = read_files(&dir);
+        assert!(found[0].1.starts_with("[Display]"), "the mark is dropped");
+        let (presets, problems) = build(&found);
+        let rows: Vec<&str> = presets[0].rows.iter().map(|(r, _)| *r).collect();
+        for r in ["shadow-distance", "sun-shadows", "shadow-filter"] {
+            assert!(rows.contains(&r), "[Display]'s {r} is read: {rows:?}");
+        }
+        assert!(problems.is_empty(), "{problems:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+        // UTF-16 with its mark, either end first, reads the same; code-page letters in a
+        // comment cost nothing.
+        let le: Vec<u8> = [0xFF, 0xFE].into_iter().chain(LOW.encode_utf16().flat_map(u16::to_le_bytes)).collect();
+        let be: Vec<u8> = [0xFE, 0xFF].into_iter().chain(LOW.encode_utf16().flat_map(u16::to_be_bytes)).collect();
+        assert_eq!((decode(&le), decode(&be)), (LOW.to_string(), LOW.to_string()));
+        let mut cp = b"; caf\xE9\n".to_vec();
+        cp.extend_from_slice(LOW.as_bytes());
+        assert_eq!(build(&[("Low", decode(&cp))]).0[0].rows, build(&[("Low", LOW.into())]).0[0].rows);
+        // UTF-16 without a mark reads as no keys, and the log says the preset sets nothing.
+        let bare: Vec<u8> = LOW.encode_utf16().flat_map(u16::to_le_bytes).collect();
+        let (presets, problems) = build(&[("Low", decode(&bare))]);
+        assert!(presets[0].rows.is_empty());
+        assert!(problems.iter().any(|p| p.contains("it sets no row")), "{problems:?}");
     }
 
     #[derive(Resource, Default)]
@@ -693,24 +743,57 @@ mod tests {
         settings::flip(w, glow);
         assert!(settings::pick(w, row, OFF));
         assert_eq!(*w.resource::<Graphics>(), Graphics::preset(Look::Vanilla), "Off is vanilla");
-        // From the INI: set directly; Custom sets nothing.
-        assert!(load_enhanced(w, "on"));
-        assert_eq!(*w.resource::<Graphics>(), Graphics::preset(Look::Enhanced));
-        assert!(load_enhanced(w, CUSTOM));
-        assert_eq!(enhanced_reading(w), ON);
+        // A stored name is taken as it is and sets nothing (the effects are kept on their own).
+        for t in ["on", "Off", CUSTOM] {
+            assert!(load_enhanced(w, t), "{t}");
+        }
+        assert_eq!(*w.resource::<Graphics>(), Graphics::preset(Look::Vanilla));
         assert!(!load_enhanced(w, "maybe"));
+    }
+
+    /// #1966 review: a stored `enhanced=On` must not set the effects before their own rows
+    /// are read, or an effect whose note names a switch a test run was given
+    /// (`fine-shadows` names `--shadow-distance`) loses the command line's state (#1382).
+    #[test]
+    fn a_stored_enhanced_on_leaves_each_effect_its_own_command_line_precedence() {
+        let dir = std::env::temp_dir().join(format!("nvf-quality-enhanced-{}", std::process::id()));
+        let path = dir.join("NVForever.ini");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&path, "[Settings]\nenhanced=On\nfine-shadows=1\nbloom=1\n").unwrap();
+        let start = |win: bool| {
+            let mut app = App::new();
+            app.insert_resource(Graphics::preset(Look::Vanilla));
+            app.insert_resource(settings::SettingsFile(Some(path.clone())));
+            app.insert_resource(settings::GivenSwitches { given: vec!["--shadow-distance".into()], win });
+            register_effects(&mut app);
+            app.add_systems(PostStartup, settings::apply_stored);
+            app.update();
+            *app.world().resource::<Graphics>()
+        };
+        let g = start(true);
+        assert!(!g.fine_shadows, "a test run keeps --shadow-distance's state for fine-shadows, enhanced=On notwithstanding");
+        assert!(g.bloom, "a row whose note names no switch given takes its stored state");
+        assert!(!g.ambient_occlusion, "enhanced=On sets no effect the INI does not list itself");
+        let g = start(false);
+        assert!(g.fine_shadows && g.bloom, "otherwise the stored rows win as before");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The effect switches and the light glow as the renderer registers them, over
     /// `Graphics`, and the Enhanced effects row.
     fn register_effects(app: &mut App) {
+        // The notes name the switches the renderer's do (engine/nvforever/src/settings.rs).
         macro_rules! row {
             ($key:literal, $field:ident) => {
-                add_setting(app, switch($key, |w| w.resource::<Graphics>().$field, |w, on| w.resource_mut::<Graphics>().$field = on));
+                row!($key, $field, "(--graphics)")
+            };
+            ($key:literal, $field:ident, $note:literal) => {
+                add_setting(app, Setting { note: $note, ..switch($key, |w| w.resource::<Graphics>().$field, |w, on| w.resource_mut::<Graphics>().$field = on) })
             };
         }
         row!("ambient-occlusion", ambient_occlusion);
-        row!("fine-shadows", fine_shadows);
+        row!("fine-shadows", fine_shadows, "On: the sun's shadows reach half as far again as --shadow-distance. (--graphics)");
         row!("bloom", bloom);
         row!("glow", glow);
         row!("sharpen", sharpen);
