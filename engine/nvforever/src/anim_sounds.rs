@@ -499,9 +499,14 @@ fn actor_keys(
         };
         let exclude: Vec<Key> = reference.map(|r| vec![Key::Actor(r), Key::Character(r)]).unwrap_or_default();
         let swimming = reference.and_then(|r| phys.as_deref().and_then(|p| p.npcs.get(&r))).is_some_and(|n| n.ch.swimming);
+        let quiet_team = reference.is_some_and(|r| script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.quiet_teammate_steps && rt.game.is_teammate(fnv_sim::FormId(r))));
         let mut stepped = HashSet::new();
         for (clip, key) in heard {
             if let KeySound::Foot(side) = key {
+                // The player's tweak keeps teammates' feet quiet [design: docs/design/tweaks.md].
+                if quiet_team {
+                    continue;
+                }
                 if !stepped.insert(side) {
                     continue;
                 }

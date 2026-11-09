@@ -520,7 +520,7 @@ fn draw(
     (combat, hostile, bar, camera, time, dynamic): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>, Option<Res<DynamicCrosshair>>),
     mut spread: Local<f32>,
     mut logged: Local<(bool, i32, bool, Option<String>, Option<bool>, Option<bool>, Option<CrosshairStyle>)>,
-    (locks, bindings, creator, sights, scope, driven, kill_cam, tweaks): (
+    (locks, bindings, creator, sights, scope, driven, kill_cam, tweaks, anim): (
         Option<Res<ControlLocks>>,
         Option<Res<crate::bindings::Bindings>>,
         Option<Res<crate::creator::CreatorMenu>>,
@@ -529,6 +529,7 @@ fn draw(
         Option<Res<crate::player::ViewDriven>>,
         Option<Res<crate::kill_cam::KillCam>>,
         Option<Res<crate::tweaks::TweakSettings>>,
+        Option<Res<crate::combat::WeaponAnim>>,
     ),
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
@@ -573,7 +574,9 @@ fn draw(
     // Down a gun's true iron sights the sights are the aim, through a scope its reticle
     // (docs/spec-notes/weapon-scopes.md §2): no crosshair.
     let scoped = scope.is_some_and(|s| s.on);
-    let sights = sights.is_some_and(|s| s.0) || scoped;
+    // The player's tweak hides it while reloading too [design: docs/design/tweaks.md].
+    let reloading = tweaks.as_ref().is_some_and(|t| t.hide_crosshair_reloading) && anim.as_ref().is_some_and(|a| a.reload.is_some());
+    let sights = sights.is_some_and(|s| s.0) || scoped || reloading;
     if sights != logged.2 {
         logged.2 = sights;
         info!("crosshair: {}", if !sights { "shown again" } else if scoped { "hidden by the scope" } else { "hidden down the true iron sights" });

@@ -196,6 +196,12 @@ pub struct TweakSettings {
     pub camera_wheel_needs_pov: bool,
     /// `bNoHotkeyEquipSounds`: weapon hotkeys make no equip sound.
     pub quiet_hotkeys: bool,
+    /// `bDisableWeaponHotkeys`: the number keys and the D-pad pick no weapon.
+    pub no_weapon_hotkeys: bool,
+    /// `bOpenPipboyToInventoryByDefault`: the Pip-Boy opens on the inventory.
+    pub pipboy_opens_items: bool,
+    /// `bHideCrosshairWhileReloading`: no crosshair while reloading.
+    pub hide_crosshair_reloading: bool,
 }
 
 /// The walk-angle choices: 30 to 80 degrees by 5; 45 is the physics' own.
@@ -312,6 +318,9 @@ impl Default for TweakSettings {
             radio_talk_volume: 1.0,
             camera_wheel_needs_pov: false,
             quiet_hotkeys: false,
+            no_weapon_hotkeys: false,
+            pipboy_opens_items: false,
+            hide_crosshair_reloading: false,
         }
     }
 }
@@ -847,6 +856,14 @@ impl Plugin for TweaksPlugin {
         part!(app, "radio-talk", "Radio Talk Volume", "The radio's talk, as a part of its volume; 100% changes nothing. (Stewie's Tweaks bScaleRadioVolume)", radio_talk_volume);
         switch!(app, "camera-wheel-pov", "Wheel Zoom Needs Toggle View", "The mouse wheel moves the third-person camera only while Toggle View is held. (Stewie's Tweaks bOnlyChangeCameraHeightIfPOVKeyHeld)", camera_wheel_needs_pov);
         switch!(app, "quiet-hotkeys", "No Hotkey Sounds", "Weapon hotkeys make no equip sound. (Stewie's Tweaks bNoHotkeyEquipSounds)", quiet_hotkeys);
+        // ---- batch 21 ----
+        switch!(app, "detached-beams", "Detached Beams", "The player's beams stay where they were fired instead of following the barrel. (Stewie's Tweaks bDetachedBeams)", game.detached_beams);
+        switch!(app, "god-mode-off-on-load", "God Mode Off on Load", "Loading a save turns god mode off. (Stewie's Tweaks bDisableGodmodeOnLoad)", game.god_mode_off_on_load);
+        switch!(app, "no-stealth-shimmer-pipboy", "No Stealth Shimmer in the Pip-Boy", "The stealth shimmer is off while the Pip-Boy is up. (Stewie's Tweaks bDisableStealthEffectInPipboy)", game.no_stealth_shimmer_in_pipboy);
+        switch!(app, "quiet-teammate-steps", "Quiet Companion Footsteps", "Teammates' footsteps make no sound. (Stewie's Tweaks bPreventTeammateFootstepSounds)", game.quiet_teammate_steps);
+        switch!(app, "no-weapon-hotkeys", "No Weapon Hotkeys", "The number keys and the D-pad pick no weapon (the wheel still does). (Stewie's Tweaks bDisableWeaponHotkeys)", no_weapon_hotkeys);
+        switch!(app, "pipboy-opens-items", "Pip-Boy Opens on Items", "The Pip-Boy always opens on the inventory. (Stewie's Tweaks bOpenPipboyToInventoryByDefault)", pipboy_opens_items);
+        switch!(app, "hide-crosshair-reloading", "No Crosshair While Reloading", "The crosshair is hidden while reloading. (Stewie's Tweaks bHideCrosshairWhileReloading)", hide_crosshair_reloading);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

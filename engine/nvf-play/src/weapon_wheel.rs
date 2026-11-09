@@ -382,6 +382,7 @@ fn read(
     let reloading_blocks = tweaks.as_ref().is_some_and(|t| t.no_hotkeys_while_reloading) && anim.as_ref().is_some_and(|a| a.reload.is_some());
     let toggle_in_hand = tweaks.as_ref().is_some_and(|t| t.hotkey_toggles_in_hand);
     let quiet = tweaks.as_ref().is_some_and(|t| t.quiet_hotkeys);
+    let hotkeys_off = tweaks.as_ref().is_some_and(|t| t.no_weapon_hotkeys);
     // A swap waiting for the weapon in hand to go away: the clips of the last frame say
     // whether it has (`crate::combat::WeaponAnim`; no body to time it: at once).
     let away = anim.as_deref().is_none_or(|a| !a.ready && !a.drawing && !a.holstering);
@@ -439,6 +440,10 @@ fn read(
             Outcome::Cancelled => {
                 stats.cancelled += 1;
                 info!("weapon wheel: closed: nothing used");
+            }
+            // The player's tweak: the number keys and the D-pad pick no weapon [design: docs/design/tweaks.md].
+            Outcome::Tap(n) if hotkeys_off => {
+                info!("weapon wheel: slot {} not used, weapon hotkeys are off (tweak)", n + 1);
             }
             Outcome::Tap(n) | Outcome::Chose(n) if reloading_blocks => {
                 info!("weapon wheel: slot {} not used while reloading (tweak)", n + 1);

@@ -328,6 +328,18 @@ unless the player binds them, so nothing changes until then.
 | Wheel Zoom Needs Toggle View | `bOnlyChangeCameraHeightIfPOVKeyHeld` | `control::read_controls` |
 | No Hotkey Sounds | `bNoHotkeyEquipSounds` | `weapon_wheel::act` |
 
+## Twenty-first batch (2026-11-09)
+
+| Row | INI key | Where |
+|---|---|---|
+| Detached Beams | `bDetachedBeams` | `combat::fly` beam `follow` |
+| God Mode Off on Load | `bDisableGodmodeOnLoad` | `save::apply_engine` |
+| No Stealth Shimmer in the Pip-Boy | `bDisableStealthEffectInPipboy` | nvforever `stealth_field::apply` |
+| Quiet Companion Footsteps | `bPreventTeammateFootstepSounds` | nvforever `anim_sounds::actor_keys` |
+| No Weapon Hotkeys | `bDisableWeaponHotkeys` | `weapon_wheel::read` taps |
+| Pip-Boy Opens on Items | `bOpenPipboyToInventoryByDefault` | `pipboy::follow_menu` |
+| No Crosshair While Reloading | `bHideCrosshairWhileReloading` | `reticle::draw` |
+
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
 
@@ -347,8 +359,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 284 |
-| to do | 319 |
+| done | 291 |
+| to do | 312 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -683,6 +695,7 @@ game's Data folder, read-only).
 | `bDisableHUDCrippledLimbIndicator` | done |  |  | No Crippled Limb Figure |
 | `bDistanceBasedQuestMarkerVisibilty` | done |  | 2 | Quest Markers Within (slider in game units, one distance indoors and out) |
 | `bHideCapsAddedMessages` | done |  |  | No Caps Added Line |
+| `bHideCrosshairWhileReloading` | done |  |  | No Crosshair While Reloading |
 | `bHostilesUseNeutralColorOnCompass` | done |  |  | Foes in the Usual Colour |
 | `bNoCompassPipsIfNotInDanger` | done |  |  | Compass Pips Only in Danger |
 | `bNoCrippleCriticalMessages` | done |  | 3 | already so: no crippled or critical popups about the target are shown |
@@ -721,7 +734,6 @@ game's Data folder, read-only).
 | `bHideAmmoLabel` | to do |  | 1 | hud::gather weapon ammo text |
 | `bHideCrosshairInFirstPerson` | to do |  |  | the crosshair and the prompt share a root in reticle.rs |
 | `bHideCrosshairInThirdPerson` | to do |  |  | the crosshair and the prompt share a root in reticle.rs |
-| `bHideCrosshairWhileReloading` | to do |  |  | reticle::draw with WeaponAnim.reload in its tuple |
 | `bHideInvisibleUndiscoveredLocations` | to do |  |  | compass::gather marker loop; markers_of does not carry the map rule |
 | `bHideUnknownNPCNames` | to do |  | 1 | activate::find_target with extra.talked_to_pc; needs a label for the unnamed |
 | `bHUDFatigueIndicator` | to do |  |  | the needs words are a fixed five |
@@ -940,7 +952,11 @@ game's Data folder, read-only).
 | `bPowerArmorPreventsScreenBlood` | done | yes |  | No Screen Blood in Power Armor (any hit while power armor is worn on the body; hits are not told apart by body part here) |
 | `bRadioStaticDecreasesSongVolume` | done | yes |  | already so: the song fades as the static rises |
 | `bContainerRespawnsMessage` | done |  | 2 | already so: respawning containers say so (not on NPCs) |
+| `bDetachedBeams` | done |  |  | Detached Beams |
+| `bDisableGodmodeOnLoad` | done |  |  | God Mode Off on Load |
 | `bDisableSellingItems` | done |  |  | No Selling |
+| `bDisableStealthEffectInPipboy` | done |  |  | No Stealth Shimmer in the Pip-Boy |
+| `bDisableWeaponHotkeys` | done |  |  | No Weapon Hotkeys (the wheel still picks) |
 | `bDontOpenDoorsAfterLockpick` | done |  |  | Picked Doors Stay Shut |
 | `bDontShowContainerAfterLockpick` | done |  |  | Picked Containers Stay Shut |
 | `bKeepPipboyLightOnCellChange` | done |  | 1 | already so: the light stays on through cell changes |
@@ -953,8 +969,10 @@ game's Data folder, read-only).
 | `bNoScrollwheelPOVChange` | done |  | 2 | already so: the wheel only zooms the third-person camera |
 | `bNoSkipDialog` | done |  |  | No Skipping Lines |
 | `bOnlyChangeCameraHeightIfPOVKeyHeld` | done |  |  | Wheel Zoom Needs Toggle View (NVForever's wheel moves the camera distance) |
+| `bOpenPipboyToInventoryByDefault` | done |  | 1 | Pip-Boy Opens on Items (the tab option not built) |
 | `bPipBoyTabHotkeysDontCloseMenu` | done |  |  | already so: F1-F3 change page, only Tab or Esc close |
 | `bPreventNPCComments` | done |  | 1 | already so: NPCs make no such comments |
+| `bPreventTeammateFootstepSounds` | done |  |  | Quiet Companion Footsteps |
 | `bRestoreLockedDoorSound` | done |  |  | already so: a refused lock plays DRSLocked |
 | `bScaleRadioVolume` | done |  | 2 | Radio Songs Volume / Radio Talk Volume (two sliders) |
 | `bAllowKeyboardAndMouseWithControllerConnected` | to do | yes |  | the Input Device setting picks one device; needs both at once |
@@ -988,15 +1006,11 @@ game's Data folder, read-only).
 | `bContinueGameHotkey` | n/a |  |  | a mod-author debug key |
 | `bControllerTriggerDeadzones` | to do |  | 2 | Bevy GamepadSettings for the triggers |
 | `bCustomLocationDiscoveredSound` | to do |  | 1 | quest_messages sound; the cache takes static names |
-| `bDetachedBeams` | to do |  |  | combat::fly beam follow |
 | `bDialogMenuDebugging` | n/a |  |  | a mod-author debug print |
 | `bDisableAchievements` | n/a |  |  | NVForever has no achievements |
 | `bDisableCharacterRespec` | to do |  |  | the respec is plugin script data |
 | `bDisableControllerDeadzones` | to do |  | 2 | pad STICK_DEAD and Bevy axis settings |
-| `bDisableGodmodeOnLoad` | to do |  |  | save apply_engine clears god mode |
 | `bDisableRegionBordersKeepMessage` | to do |  |  | not built: no world borders |
-| `bDisableStealthEffectInPipboy` | to do |  |  | nvforever stealth_field apply |
-| `bDisableWeaponHotkeys` | to do |  |  | weapon_wheel read like the reloading block |
 | `bDisarmingMinesPicksThemUp` | to do |  |  | Game::activate after a disarm |
 | `bExtraConsoleDetails (enabled by default)` | to do |  | 4 |  |
 | `bHapticPipboy` | to do |  |  | pipboy sounds play with a rumble request |
@@ -1007,8 +1021,6 @@ game's Data folder, read-only).
 | `bNoPipboyOnAltTab` | n/a |  |  | the original's alt-tab handling |
 | `bNoSkillBooksAbove100` | to do |  |  | the refusal belongs before equip_at takes the book (Pip-Boy, hotkeys, EquipItem) |
 | `bNoTurningAnim` | to do |  |  | nvforever player_body turn_rate; drive_body at 16 params |
-| `bOpenPipboyToInventoryByDefault` | to do |  | 1 | pipboy follow_menu page |
-| `bPreventTeammateFootstepSounds` | to do |  |  | nvforever anim_sounds actor_keys |
 | `bPrintErrorsToConsole` | n/a |  | 5 | the original's error log |
 | `bPrintNewModsOnLoad` | n/a |  |  | the plugin's own load report |
 | `bRadiationCausesRadioStatic` | to do |  | 1 | radio play share with the radiation taken |

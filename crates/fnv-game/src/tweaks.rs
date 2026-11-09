@@ -231,6 +231,15 @@ pub struct Tweaks {
     pub pickpocket_after_caught: bool,
     /// `bSleepWaitAnywhere`: only a script's ban refuses waiting or sleeping.
     pub wait_anywhere: bool,
+    // ---- batch 21 ----
+    /// `bDetachedBeams`: the player's beams do not stay on the barrel as it turns.
+    pub detached_beams: bool,
+    /// `bDisableGodmodeOnLoad`: loading a save turns god mode off.
+    pub god_mode_off_on_load: bool,
+    /// `bDisableStealthEffectInPipboy`: no stealth shimmer while the Pip-Boy is up.
+    pub no_stealth_shimmer_in_pipboy: bool,
+    /// `bPreventTeammateFootstepSounds`: teammates' feet are silent.
+    pub quiet_teammate_steps: bool,
 }
 
 impl Default for Tweaks {
@@ -327,6 +336,10 @@ impl Default for Tweaks {
             notes_of_all_quests: false,
             pickpocket_after_caught: false,
             wait_anywhere: false,
+            detached_beams: false,
+            god_mode_off_on_load: false,
+            no_stealth_shimmer_in_pipboy: false,
+            quiet_teammate_steps: false,
         }
     }
 }

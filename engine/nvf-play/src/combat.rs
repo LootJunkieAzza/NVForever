@@ -4378,7 +4378,9 @@ fn fly(
             // Only the player's own: the muzzle followed is the player's weapon's, so an
             // enemy's shot was drawn from the player's gun (the owner's playtest list 5
             // item 20).
-            let follow = at_once && f.from_muzzle && f.by.actor == FormId::PLAYER_REF;
+            // The player's tweak leaves beams where they were fired [design: docs/design/tweaks.md].
+            let detached = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.detached_beams);
+            let follow = at_once && f.from_muzzle && f.by.actor == FormId::PLAYER_REF && !detached;
             // A thrown weapon lands where its flight ends (`crate::thrown`): the weapon
             // thrown, else the PROJ's Default Weapon Source.
             let lands = c.forms.projectiles.get(&f.proj).filter(|p| p.lands_as_weapon()).and_then(|p| {
