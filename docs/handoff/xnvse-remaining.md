@@ -195,6 +195,14 @@ scene mirror's edits, their finish events, the vertices told by the engine's `ni
 the HUD bars' script-variable (a variable handed over by place, `Host::var_place`) and UDF
 sources; not probed yet, set sup7). Census after it: SUP 29 → 17 (the 17 of batch 4).
 With both JIP batch 10 and SUP batch 7 merged: JIP 142, SUP 17 [hypothesis: 378 − 36 − 12 = 330 in all; the extender_census test decides].
+JIP batch 12: 34 (#1006, jip-world-12.md: ForceClimate and SetCurrentClimate drawn by the sky,
+the wind, the moons' textures, TriggerLightningFX, the image space modifiers on, the buffered
+cells, exterior and persistent cells, north rotations, the light at a point, fast travel and
+the load order, the game settings as a map, purged references and internal markers, the barter
+trade and its price multipliers, the item menus' filters and lists, the recipe menu and
+AddRecipeCondition, ShowQuantityMenu and ShowTextInputMenu with their engine menus,
+GetWheelDisabled; GetStringHash 0 by decision, §2; not probed yet, set jip12). Census after
+it: JIP 142 → 108 on main, 102 → 68 with batch 11 (#1915).
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,

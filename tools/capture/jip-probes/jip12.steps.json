@@ -1,0 +1,200 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "jip12",
+ "title": "jip12, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nSetFunctionValue (GetWindDirection)\nEnd\n",
+   "label": "jip12.wind",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nSetFunctionValue (GetMoonTexture 0)\nEnd\n",
+   "label": "jip12.moon.0",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nSetFunctionValue (GetMoonTexture 3)\nEnd\n",
+   "label": "jip12.moon.3",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nSetFunctionValue (GetMoonTexture 4)\nEnd\n",
+   "label": "jip12.moon.4",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nSetFunctionValue (GetFormIDString (GetCurrentClimate))\nEnd\n",
+   "label": "jip12.climate",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nSetFunctionValue (GetFormIDString (GetExteriorCell rW -18 0))\nEnd\n",
+   "label": "jip12.extcell",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nSetFunctionValue (GetFormIDString (GetExteriorCell rW 900 900))\nEnd\n",
+   "label": "jip12.extcell.none",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nSetFunctionValue (GetFormIDString (GetWorldspacePersistentCell rW))\nEnd\n",
+   "label": "jip12.persistent",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nSetFunctionValue (rP.GetCellBuffered)\nEnd\n",
+   "label": "jip12.buffered.player",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rObj.GetCellBuffered)\nEnd\n",
+   "label": "jip12.buffered.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (GetCellNorthRotation (rObj.GetParentCell))\nEnd\n",
+   "label": "jip12.north.doccell",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nSetFunctionValue (GetLightAmountAtPoint (rP.GetPos X) (rP.GetPos Y) ((rP.GetPos Z) + 64))\nEnd\n",
+   "label": "jip12.light.player",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nSetFunctionValue (GetPCFastTravelled)\nEnd\n",
+   "label": "jip12.fasttravelled",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nSetFunctionValue (GetLoadOrderChanged)\nEnd\n",
+   "label": "jip12.loadorder",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nSetFunctionValue (GetStringHash)\nEnd\n",
+   "label": "jip12.hash",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nlet aList := GetGameSettings 1\nSetFunctionValue (aList[\"fBarterBuyBase\"])\nEnd\n",
+   "label": "jip12.gmst.float",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nlet aList := GetGameSettings 1\nSetFunctionValue (aList[\"fbarterbuybase\"])\nEnd\n",
+   "label": "jip12.gmst.lowercase",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nlet aList := GetGameSettings 2\nSetFunctionValue (aList[\"sOk\"])\nEnd\n",
+   "label": "jip12.gmst.string",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rObj.TogglePurgeOnUnload)\nEnd\n",
+   "label": "jip12.purge.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (SetInternalMarker rObj)\nEnd\n",
+   "label": "jip12.marker.docbase",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nSetFunctionValue (GetBarterGoldAlt)\nEnd\n",
+   "label": "jip12.bartergold",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nSetFunctionValue (GetBarterPriceMult 0)\nEnd\n",
+   "label": "jip12.pricemult.buy",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nSetFunctionValue (GetBarterPriceMult 1)\nEnd\n",
+   "label": "jip12.pricemult.sell",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nSetFunctionValue (GetMenuItemFilter 1002)\nEnd\n",
+   "label": "jip12.filter.inventory",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nSetFunctionValue (GetFormIDString (GetRecipeMenuCategory))\nEnd\n",
+   "label": "jip12.recipe.category",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nSetFunctionValue (GetFormIDString (GetRecipeMenuSelection))\nEnd\n",
+   "label": "jip12.recipe.selection",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rObj.GetWheelDisabled)\nEnd\n",
+   "label": "jip12.wheel.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nlet aList := GetBufferedCells 0\nlet fA := ar_Size aList\nSetFunctionValue fA\nEnd\n",
+   "label": "jip12.buffered.exteriors",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nlet aList := GetBufferedCells 1\nlet fA := ar_Size aList\nSetFunctionValue fA\nEnd\n",
+   "label": "jip12.buffered.interiors",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nlet aList := GetActiveIMODs\nlet fA := ar_Size aList\nSetFunctionValue fA\nEnd\n",
+   "label": "jip12.imods",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nlet aList := GetGameSettings 1\nlet fA := ar_Size aList\nSetFunctionValue fA\nEnd\n",
+   "label": "jip12.gmst.numbers",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nlet aList := GetGameSettings 2\nlet fA := ar_Size aList\nSetFunctionValue fA\nEnd\n",
+   "label": "jip12.gmst.strings",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nlet aList := GetBarterItems 0\nlet fA := ar_Size aList\nSetFunctionValue fA\nEnd\n",
+   "label": "jip12.barteritems",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nlet aList := GetMenuItemListRefs\nlet fA := ar_Size aList\nSetFunctionValue fA\nEnd\n",
+   "label": "jip12.menuitems",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nlet rObj := GetCurrentClimate\nlet fA := IsFormValid (SetCurrentClimate rObj)\nSetFunctionValue (sv_Construct \"%g %z\" fA (GetFormIDString (GetCurrentClimate)))\nEnd\n",
+   "label": "jip12.setclimate",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rW := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nlet fA := GetWindDirection\nSetWindDirection 400\nlet fB := GetWindDirection\nSetWindDirection fA\nSetFunctionValue (sv_Construct \"%g\" fB)\nEnd\n",
+   "label": "jip12.setwind",
+   "field": "value",
+   "text": true
+  }
+ ]
+}

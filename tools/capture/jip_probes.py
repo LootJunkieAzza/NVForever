@@ -8369,6 +8369,77 @@ SETS.update({"sup7": SUP7_PROBES})
 WRITING_SETS |= {"sup7"}
 
 
+
+# jip12 (reads; SetCurrentClimate and SetWindDirection are put back; #1006): JIP batch 12
+# (docs/spec-notes/jip-world-12.md) in the probe save. The questions: GetWindDirection's
+# value with no script's, the moon textures' paths, GetCurrentClimate after
+# SetCurrentClimate and ForceClimate, the buffered cells, GetExteriorCell and the
+# persistent cell of WastelandNV (000DA726), GetCellNorthRotation, GetLightAmountAtPoint
+# at the player, GetGameSettings' keys and kinds, GetStringHash with no argument, the
+# barter, menu and recipe getters with no menu open, GetWheelDisabled, TogglePurgeOnUnload
+# on a placed reference.
+_J12_WORLD = "000DA726"
+
+
+def _j12(pid, body, text=False):
+    return (f"jip12.{pid}", "ref rP\nref rObj\nref rW\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\n"
+            "Begin Function { }\n" + _form("rP", NF["player"]) + _form("rW", _J12_WORLD) + body, text, None, "")
+
+
+def _j12v(pid, setup, expr, text=False):
+    return _j12(pid, setup + f"SetFunctionValue ({expr})", text)
+
+
+def _j12arr(pid, setup, expr):
+    return _j12(pid, setup + f"let aList := {expr}\nlet fA := ar_Size aList\nSetFunctionValue fA")
+
+
+_J12DOC = _form("rObj", NF["docref"])
+JIP12_PROBES = (
+    [_j12v("wind", "", "GetWindDirection"),
+     _j12v("moon.0", "", "GetMoonTexture 0", True),
+     _j12v("moon.3", "", "GetMoonTexture 3", True),
+     _j12v("moon.4", "", "GetMoonTexture 4", True),
+     _j12v("climate", "", "GetFormIDString (GetCurrentClimate)", True),
+     _j12v("extcell", "", "GetFormIDString (GetExteriorCell rW -18 0)", True),
+     _j12v("extcell.none", "", "GetFormIDString (GetExteriorCell rW 900 900)", True),
+     _j12v("persistent", "", "GetFormIDString (GetWorldspacePersistentCell rW)", True),
+     _j12v("buffered.player", "", "rP.GetCellBuffered"),
+     _j12v("buffered.doc", _J12DOC, "rObj.GetCellBuffered"),
+     _j12v("north.doccell", _J12DOC, "GetCellNorthRotation (rObj.GetParentCell)"),
+     _j12v("light.player", "", "GetLightAmountAtPoint (rP.GetPos X) (rP.GetPos Y) ((rP.GetPos Z) + 64)"),
+     _j12v("fasttravelled", "", "GetPCFastTravelled"),
+     _j12v("loadorder", "", "GetLoadOrderChanged"),
+     _j12v("hash", "", "GetStringHash"),
+     _j12v("gmst.float", "let aList := GetGameSettings 1\n", "aList[\"fBarterBuyBase\"]"),
+     _j12v("gmst.lowercase", "let aList := GetGameSettings 1\n", "aList[\"fbarterbuybase\"]"),
+     _j12v("gmst.string", "let aList := GetGameSettings 2\n", "aList[\"sOk\"]", True),
+     _j12v("purge.doc", _J12DOC, "rObj.TogglePurgeOnUnload"),
+     _j12v("marker.docbase", _form("rObj", NF["doc"]), "SetInternalMarker rObj"),
+     _j12v("bartergold", "", "GetBarterGoldAlt"),
+     _j12v("pricemult.buy", "", "GetBarterPriceMult 0"),
+     _j12v("pricemult.sell", "", "GetBarterPriceMult 1"),
+     _j12v("filter.inventory", "", "GetMenuItemFilter 1002"),
+     _j12v("recipe.category", "", "GetFormIDString (GetRecipeMenuCategory)", True),
+     _j12v("recipe.selection", "", "GetFormIDString (GetRecipeMenuSelection)", True),
+     _j12v("wheel.doc", _J12DOC, "rObj.GetWheelDisabled")]
+    + [_j12arr("buffered.exteriors", "", "GetBufferedCells 0"),
+       _j12arr("buffered.interiors", "", "GetBufferedCells 1"),
+       _j12arr("imods", "", "GetActiveIMODs"),
+       _j12arr("gmst.numbers", "", "GetGameSettings 1"),
+       _j12arr("gmst.strings", "", "GetGameSettings 2"),
+       _j12arr("barteritems", "", "GetBarterItems 0"),
+       _j12arr("menuitems", "", "GetMenuItemListRefs")]
+    + [_j12("setclimate", "let rObj := GetCurrentClimate\nlet fA := IsFormValid (SetCurrentClimate rObj)\n"
+            "SetFunctionValue (sv_Construct \"%g %z\" fA (GetFormIDString (GetCurrentClimate)))", True),
+       _j12("setwind", "let fA := GetWindDirection\nSetWindDirection 400\nlet fB := GetWindDirection\nSetWindDirection fA\n"
+            "SetFunctionValue (sv_Construct \"%g\" fB)", True)]
+)
+
+SETS.update({"jip12": JIP12_PROBES})  # JIP batch 12 (#1006)
+WRITING_SETS |= {"jip12"}
+
+
 def script(body):
     if body.startswith(("ref ", "float ")):
         return body + "\nEnd\n"
