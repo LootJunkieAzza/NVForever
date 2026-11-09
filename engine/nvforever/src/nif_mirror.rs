@@ -4,7 +4,8 @@
 //! asked about is told back. A reference's root is its actor rig, else the topmost
 //! entity drawing it. A shape's NiMaterialProperty values (JIP's Get/SetMaterialPropertyValue)
 //! are read from the reference's model file, once per model, with the scripts' changes
-//! over them; a change draws the shape with its own copy of the material.
+//! over them; a change draws the shape with its own copy of the material. The vertices of
+//! the shapes a script asked for (SUP's NifBlockGetVerticles) are told back each frame.
 
 use crate::limbs::ActorRig;
 use bevy::prelude::*;
@@ -134,6 +135,9 @@ fn find(root: Entity, name: &str, nodes: &NodeQuery, rig: &HashMap<Entity, Strin
 /// The material side of [`mirror`]: the data files, the shapes' materials, the assets.
 type Materials<'w, 's> = (Option<Res<'w, GameData>>, Query<'w, 's, &'static MeshMaterial3d<NifMaterial>>, Option<ResMut<'w, Assets<NifMaterial>>>);
 
+/// The shapes' meshes, for SUP's NifBlockGetVerticles.
+type Shapes<'w, 's> = (Query<'w, 's, &'static Mesh3d>, Option<Res<'w, Assets<Mesh>>>);
+
 #[allow(clippy::too_many_arguments)]
 fn mirror(
     mut script: Option<ResMut<ScriptState>>,
@@ -144,6 +148,7 @@ fn mirror(
     mut commands: Commands,
     mut mem: Local<Memory>,
     (data, drawn, mut assets): Materials,
+    (shapes, meshes): Shapes,
 ) {
     let Memory { logged, held, tables, materials, owned } = &mut *mem;
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
@@ -292,6 +297,21 @@ fn mirror(
             info!("nif mirror: {:08X} told, {} nodes, first {:?}", r.0, tree.len(), tree.iter().take(4).map(|n| n.name.as_str()).collect::<Vec<_>>());
         }
         rt.game.scene.set_tree(r, tree);
+    }
+    // The vertices of the shapes scripts asked about (SUP's NifBlockGetVerticles), in the
+    // shape's own space as its mesh holds them; none for a mesh kept on the GPU only
+    // [hypothesis: a skinned shape's are its bind pose].
+    let wanted: Vec<(FormId, String)> = rt.game.scene.wanted_vertices().cloned().collect();
+    for (r, node) in wanted {
+        let verts = root_of(r.0, &actors, &visuals)
+            .and_then(|root| find(root, &node, &nodes, &rig_names(r.0, &actors)))
+            .and_then(|e| shapes.get(e).ok())
+            .and_then(|m| meshes.as_deref()?.get(&m.0))
+            .and_then(|mesh| match mesh.attribute(Mesh::ATTRIBUTE_POSITION)? {
+                bevy::mesh::VertexAttributeValues::Float32x3(v) => Some(v.clone()),
+                _ => None,
+            });
+        rt.game.scene.set_vertices(r, &node, verts);
     }
 }
 
