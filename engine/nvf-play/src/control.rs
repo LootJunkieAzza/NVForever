@@ -692,6 +692,8 @@ pub fn read_controls(
     // Not while a script turned the vanity wheel off (ToggleVanityWheel,
     // `crate::script_switches`).
     let wheel = switches.is_none_or(|s| s.vanity_wheel);
+    // The player's tweak: the wheel moves the camera only with Toggle View held [design: docs/design/tweaks.md].
+    let wheel = wheel && !(tweaks.as_ref().is_some_and(|t| t.camera_wheel_needs_pov) && !input.pressed(Control::TogglePov));
     if wheel && c.third_person_view() && scroll.delta.y != 0.0 && !input.suppressed() {
         c.distance = zoom(c.distance, scroll.delta.y);
     }

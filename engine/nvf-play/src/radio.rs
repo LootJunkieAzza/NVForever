@@ -988,7 +988,8 @@ fn play(
                     station: st,
                     track: Track::Line { info: on.info, part: on.part },
                     path,
-                    level: part.gain * dgain,
+                    // The player's tweak sets songs and talk apart [design: docs/design/tweaks.md].
+                    level: part.gain * dgain * tweaks.as_ref().map_or(1.0, |t| if part.song { t.radio_music_volume } else { t.radio_talk_volume }),
                     into: now - on.started,
                     response: Some((on.info, part.response, part.song)),
                     at,

@@ -352,6 +352,10 @@ fn refusal(
     if rt.as_ref().is_some_and(|rt| rt.game.player.fast_travel.wait_disabled) {
         return Some((Refusal::Forbidden, "a script has turned waiting off (EnableFastTravel)".into()));
     }
+    // The player's tweak: nothing else refuses [design: docs/design/tweaks.md].
+    if rt.as_ref().is_some_and(|rt| rt.game.tweaks.wait_anywhere) {
+        return None;
+    }
     // [hypothesis: "under water" is the swimming state; the text's name speaks of
     // waiting only, and nobody lies on a bed swimming.]
     if swimming {

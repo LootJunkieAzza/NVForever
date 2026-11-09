@@ -747,6 +747,7 @@ fn mouse_look(
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
     assist: Option<Res<crate::aim_assist::AimAssistState>>,
     (talk, switches): (Option<Res<crate::dialogue_zoom::DialogueZoom>>, Option<Res<crate::script_switches::ScriptSwitches>>),
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     // The console's free camera takes the mouse (`crate::free_cam`), and so does the
     // weapon wheel while it is open (`crate::weapon_wheel`); a playing kill camera holds
@@ -778,6 +779,11 @@ fn mouse_look(
     // A conversation's zoom: the picture moves as far as it does unzoomed.
     let s = s * talk.as_deref().map_or(1.0, crate::dialogue_zoom::DialogueZoom::look_scale);
     let inv = bindings.invert_y;
+    // The player's tweak turns slower while aiming [design: docs/design/tweaks.md].
+    let delta = match tweaks.as_deref().filter(|_| control.aiming && control.weapon_out) {
+        Some(t) => delta * Vec2::new(t.aim_turn_x, t.aim_turn_y),
+        None => delta,
+    };
     if control.orbit.held {
         let o = &mut control.orbit;
         let (yaw, pitch) = look_with(o.yaw, o.pitch, delta, s, inv);

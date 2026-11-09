@@ -718,7 +718,9 @@ fn lists(st: &mut DataState, game: &Game) -> Lists {
         for n in &g.player.notes {
             let note = st.notes.entry(n.0).or_insert_with(|| read::note(w.lo, w.schema, n.0));
             if let Some(note) = note {
-                if !st.notes_of_active || (note.quest.is_some() && note.quest == st.active_quest) {
+                // The player's tweak takes in every quest under way [design: docs/design/tweaks.md].
+                let under_way = g.tweaks.notes_of_all_quests && note.quest.and_then(|q| g.quests.get_key_value(&FormId(q))).is_some_and(|(q, s)| listed(g, *q, s) && !s.completed && !s.failed);
+                if !st.notes_of_active || (note.quest.is_some() && note.quest == st.active_quest) || under_way {
                     // The player string codes as they read now (the bounty notices'
                     // "&PCName;", "&PCRace;" [observed: FalloutNV.esm]); the cache keeps
                     // the record's text.

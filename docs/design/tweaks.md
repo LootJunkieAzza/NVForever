@@ -316,6 +316,21 @@ unless the player binds them, so nothing changes until then.
 | Item Added Line Time (0–10 s) | `bCustomAddToInventoryMessageTimer` | `script_events::effects` |
 | 12-Hour Pip-Boy Clock | `b12HourPipboyClock` | `pipboy::data::model::date_time_with` |
 
+## Twentieth batch (2026-11-09)
+
+| Row | INI key | Where |
+|---|---|---|
+| Notes of Every Quest | `bShowActiveQuestNotesShowsAllStartedQuests` | `pipboy::data::lists` notes |
+| Aiming Turn Speed: Across / Up and Down | `bTurnSlowerWhileAiming` | `player::mouse_look` |
+| Pickpocket Again | `bAllowPickpocketIfAlreadyCaught` | `Game::pickpocket_refusal` |
+| Wait Anywhere | `bSleepWaitAnywhere` | `wait::refusal` after the script ban |
+| Radio Songs / Talk Volume | `bScaleRadioVolume` | `radio::play` line level |
+| Wheel Zoom Needs Toggle View | `bOnlyChangeCameraHeightIfPOVKeyHeld` | `control::read_controls` |
+| No Hotkey Sounds | `bNoHotkeyEquipSounds` | `weapon_wheel::act` |
+
+Every tweak has now been looked at against the code: each "to do" row says what it
+needs, and the "already so" notes say where NVForever does it.
+
 Menu tweaks that code holding the game reads (the Pip-Boy's item info, crafting, the
 level-up menu, the terminal's timers) are kept in `fnv_game::tweaks` too, so no system
 needs another parameter; the catalogue's notes say where NVForever already does what a
@@ -332,8 +347,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 269 |
-| to do | 334 |
+| done | 284 |
+| to do | 319 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -422,7 +437,7 @@ game's Data folder, read-only).
 | `bCharacterRadiation` | to do |  | 1 | not built: only the player takes environment radiation |
 | `bClearNearbyPlayerMarker` | to do |  | 1 | not built: no player-placed map marker |
 | `bContactMines` | to do |  | 2 | mines::tick; needs a stood-on distance chosen |
-| `bCrippledLimbsPlayPainSoundWhenFalling` | to do |  | 1 |  |
+| `bCrippledLimbsPlayPainSoundWhenFalling` | to do |  | 1 | falls::hurt with a crippled leg; NVForever has no pain sound, only the landing ones |
 | `bCripplingDoesntDisarm` | to do |  |  | combat::disarm or the push in hit_actor; check what else disarms first |
 | `bCritChanceIgnoresFireRate` | to do |  |  | crit_chance in fnv-combat; Rules is serialized |
 | `bCustomArmorConditionPenalty` | to do |  | 1 | the condition formula is in fnv-combat condition.rs constants |
@@ -537,7 +552,7 @@ game's Data folder, read-only).
 | `bScaleCriticalDamage` | to do |  | 1 | needs a field on fnv-combat Rules; check what its serialized dumps feed first |
 | `bSneakCriticalsHeadshotsOnly` | to do |  |  | both sneak_attack callers need the head part |
 | `bVATSAutoTargetHead` | to do |  |  | V.A.T.S. picks no target on entry |
-| `bVATSStopBurstIfTargetDead` | to do |  |  |  |
+| `bVATSStopBurstIfTargetDead` | to do |  |  | vats_mode shoot with the target dead |
 | `bWeaponRequirementsMatter` | to do |  | 7 | equip_at has no actor values |
 
 ### Quality-of-life
@@ -605,6 +620,7 @@ game's Data folder, read-only).
 | `bRandomizeKillcamMode` | done |  |  | n/a: NVForever has one kill camera kind |
 | `bRemoveChemWarnOffIMOD` | done |  |  | No Chem Wore-Off Effect |
 | `bRepeatJumping` | done |  |  | Hold to Keep Jumping |
+| `bTurnSlowerWhileAiming` | done |  | 2 | Aiming Turn Speed: Across / Up and Down (two sliders) |
 | `bUnspokenNPCIndicator` | done |  |  | Mark Strangers |
 | `bUseFirstPersonEmptyClipSound` | done |  |  | already so: one empty-clip sound, played at the listener |
 | `bBetterPickupPrompt` | to do | yes |  | the prompt shows one unit; needs the stack count and the encumbrance |
@@ -652,7 +668,6 @@ game's Data folder, read-only).
 | `bSwapAmmoWithWeaponHolstered` | to do |  |  | combat::fire before the not-ready return |
 | `bToggleControllerIfAttackPressed` | to do |  | 1 | not built: the device changes only by setting |
 | `bTurnFurtherWhileSeated` | to do |  |  | nvforever player_body NECK_TURN; drive_body is at 16 params |
-| `bTurnSlowerWhileAiming` | to do |  | 2 | player::mouse_look by AimZoom.aimed |
 | `bUnequipBrokenArmor` | to do |  | 1 | combat::wear_armor w.broke; a bool from its four callers |
 | `bWeaponCycleUpDownHotkeys` | to do |  |  | the D-pad is fixed to hotkeys; needs a current slot |
 
@@ -706,7 +721,7 @@ game's Data folder, read-only).
 | `bHideAmmoLabel` | to do |  | 1 | hud::gather weapon ammo text |
 | `bHideCrosshairInFirstPerson` | to do |  |  | the crosshair and the prompt share a root in reticle.rs |
 | `bHideCrosshairInThirdPerson` | to do |  |  | the crosshair and the prompt share a root in reticle.rs |
-| `bHideCrosshairWhileReloading` | to do |  |  |  |
+| `bHideCrosshairWhileReloading` | to do |  |  | reticle::draw with WeaponAnim.reload in its tuple |
 | `bHideInvisibleUndiscoveredLocations` | to do |  |  | compass::gather marker loop; markers_of does not carry the map rule |
 | `bHideUnknownNPCNames` | to do |  | 1 | activate::find_target with extra.talked_to_pc; needs a label for the unnamed |
 | `bHUDFatigueIndicator` | to do |  |  | the needs words are a fixed five |
@@ -774,6 +789,7 @@ game's Data folder, read-only).
 | `bPreventNoFastTravelMessage` | done |  | 1 | Quiet Undiscovered Markers (the sound option not built) |
 | `bReputationShowsFameInfamy` | done |  | 3 | Show Fame and Infamy (numbers; the percentage option not built) |
 | `bSavingDoesntClosePauseMenu` | done |  |  | already so: saving leaves the pause menu open |
+| `bShowActiveQuestNotesShowsAllStartedQuests` | done |  |  | Notes of Every Quest |
 | `bShowAlternateAmmoTypesAvailableInMenus` | done |  |  | Mark Other Ammo |
 | `bShowCaravanCardsInMiscTabs` | done |  |  | already so: carried cards show in Misc |
 | `bShowCurrencyInContainers` | done |  |  | already so: caps and faction currency are listed in Misc |
@@ -846,7 +862,6 @@ game's Data folder, read-only).
 | `bRepairAllConfirmation` | to do |  | 2 | a confirmation box in repair |
 | `bRepairItemsPreview` | to do |  | 1 | a preview session in the repair list |
 | `bRightClickChangesToPreviousContainerCategory` | to do |  |  | menu_mouse right click over a title |
-| `bShowActiveQuestNotesShowsAllStartedQuests` | to do |  |  | data lists notes_of_active |
 | `bShowBarterTotalWhenOverSellLimit` | to do |  |  | tiles barter snapshot amount; a menu bool |
 | `bShowInventorySortButton` | unsure, skipped |  | 11 | needs the plugin's own menu XML |
 | `bSortPipboyRepairMenu` | to do |  | 2 | repair offer sort with a bool |
@@ -899,21 +914,21 @@ game's Data folder, read-only).
 
 | INI key | Status | VNV on | Options | Note |
 |---|---|---|---|---|
+| `bAllowPickpocketIfAlreadyCaught` | done |  |  | Pickpocket Again |
 | `bFastTravelWithEnemiesNearby` | done |  |  | Fast Travel Near Enemies |
 | `bHackTerminalsWithoutSkill` | done |  |  | Hack Any Terminal |
 | `bNoCasinoBans` | done |  |  | No Casino Bans |
+| `bNoHackingRetryDelay` | done |  |  | already so: no retry delay (a failed hack locks out) |
 | `bNoMaxCasinoBet` | done |  |  | No Casino Bet Limit (no limit; the 500-step option not built) |
 | `bPickpocketWornItems` | done |  | 1 | Pickpocket Worn Items (the holstered-weapons-only option not built) |
 | `bSleepInOwnedBeds` | done |  |  | Sleep in Owned Beds |
+| `bSleepWaitAnywhere` | done |  | 6 | Wait Anywhere (one switch for all; a script ban still refuses) |
 | `bWeightlessAidItems` | done |  |  | covered by Weightless Aid (in Hardcore too) |
 | `bWeightlessItems` | done |  | 5 | Weightless Armor / Aid / Ammo / Weapons / Misc Items (five rows) |
 | `bAddSetHomeCommand` | to do |  |  | not built: a console command with a kept home |
-| `bAllowPickpocketIfAlreadyCaught` | to do |  |  |  |
-| `bDebugLockpickMenu` | to do |  |  |  |
-| `bGodModeAllowsCraftingWithoutRequirements` | to do |  |  |  |
-| `bNoHackingRetryDelay` | to do |  |  |  |
-| `bReallocateSkillPointsOnLevelup` | to do |  |  |  |
-| `bSleepWaitAnywhere` | to do |  | 6 |  |
+| `bDebugLockpickMenu` | to do |  |  | LockpickDebug from sync, kept with the env switch |
+| `bGodModeAllowsCraftingWithoutRequirements` | to do |  |  | crafting lacks and make_recipe |
+| `bReallocateSkillPointsOnLevelup` | to do |  |  | earlier levels spent points are not recorded |
 
 ### Misc
 
@@ -924,14 +939,24 @@ game's Data folder, read-only).
 | `bMeleeImpactEffectsFollowTarget` | done | yes |  | already so: decals on actors hang from a bone |
 | `bPowerArmorPreventsScreenBlood` | done | yes |  | No Screen Blood in Power Armor (any hit while power armor is worn on the body; hits are not told apart by body part here) |
 | `bRadioStaticDecreasesSongVolume` | done | yes |  | already so: the song fades as the static rises |
+| `bContainerRespawnsMessage` | done |  | 2 | already so: respawning containers say so (not on NPCs) |
 | `bDisableSellingItems` | done |  |  | No Selling |
 | `bDontOpenDoorsAfterLockpick` | done |  |  | Picked Doors Stay Shut |
 | `bDontShowContainerAfterLockpick` | done |  |  | Picked Containers Stay Shut |
 | `bKeepPipboyLightOnCellChange` | done |  | 1 | already so: the light stays on through cell changes |
+| `bKeepSelectedConsoleRef` | done |  |  | already so: closing the console keeps the selection |
+| `bMenuFadesIgnoreTimescale` | done |  |  | already so: menu fades run on real time while the world waits |
+| `bNoAltTabPause` | done |  | 1 | already so: losing focus opens no pause menu |
 | `bNoAudioDistortion` | done |  | 1 | No Helmet Voice Filter (the apply-to-everything option not built) |
 | `bNoFastTravelTimeChange` | done |  |  | Fast Travel Takes No Time |
+| `bNoHotkeyEquipSounds` | done |  |  | No Hotkey Sounds |
 | `bNoScrollwheelPOVChange` | done |  | 2 | already so: the wheel only zooms the third-person camera |
 | `bNoSkipDialog` | done |  |  | No Skipping Lines |
+| `bOnlyChangeCameraHeightIfPOVKeyHeld` | done |  |  | Wheel Zoom Needs Toggle View (NVForever's wheel moves the camera distance) |
+| `bPipBoyTabHotkeysDontCloseMenu` | done |  |  | already so: F1-F3 change page, only Tab or Esc close |
+| `bPreventNPCComments` | done |  | 1 | already so: NPCs make no such comments |
+| `bRestoreLockedDoorSound` | done |  |  | already so: a refused lock plays DRSLocked |
+| `bScaleRadioVolume` | done |  | 2 | Radio Songs Volume / Radio Talk Volume (two sliders) |
 | `bAllowKeyboardAndMouseWithControllerConnected` | to do | yes |  | the Input Device setting picks one device; needs both at once |
 | `bArmorPreventsBloodDecals` | to do | yes |  | the impact is sent before DT is worked out |
 | `bArmorSoundsPlayIn3D` | to do | yes |  | the player's foley plays at the listener (anim_sounds player_keys) |
@@ -941,7 +966,7 @@ game's Data folder, read-only).
 | `bCustomScreenshotFormat` | n/a | yes | 1 | NVForever writes its own screenshots |
 | `bDontAllowConsoleTillLoadingIsDone` | n/a | yes |  | the original's start-up order |
 | `bHeatbeatSoundsFade` | to do | yes | 2 | NVForever plays no heartbeat yet |
-| `bImprovedWeather` | to do | yes | 1 |  |
+| `bImprovedWeather` | to do | yes | 1 | the renderer does not know a fast travel happened |
 | `bModConsolePrintsIncludeName` | to do | yes | 1 | console print does not know which plugin printed |
 | `bMoreResponsiveControllerAiming` | to do | yes |  | the stick curve is x times |x| (player.rs); choose the new curve |
 | `bMultithreadedHackingMenu` | n/a | yes |  | performance work on the original |
@@ -953,65 +978,55 @@ game's Data folder, read-only).
 | `bUseAnimVariants` | unsure, skipped | yes | 3 | depends on animation file naming conventions not yet checked |
 | `bVATSStopFollowingDeadTargets` | to do | yes |  | needs the kill camera shot's start frame kept |
 | `bWeaponImpactEffects` | to do | yes |  | hits on the hand weapon use the flesh impact; holstered weapons have no hit part |
-| `bAllowDuplicateControlBinds` | to do |  |  |  |
-| `bAlternateLevelupSounds` | to do |  | 4 |  |
+| `bAllowDuplicateControlBinds` | to do |  |  | Bindings::rebind swap loop |
+| `bAlternateLevelupSounds` | to do |  | 4 | xp level_up sound; the sound cache takes static names |
 | `bAnimDebugging` | n/a |  |  | a mod-author debug print |
-| `bAutoContinueGame` | to do |  |  |  |
+| `bAutoContinueGame` | to do |  |  | main_menu choose at open |
 | `bAutoReadNotes` | unsure, skipped |  | 3 | needs another mod (Book Menu Restored) |
-| `bChanceBasedKillcams` | to do |  | 1 |  |
-| `bClickToExitLoadScreens` | to do |  | 2 |  |
-| `bContainerRespawnsMessage` | to do |  | 2 |  |
+| `bChanceBasedKillcams` | to do |  | 1 | a chance in kill_cam update skip |
+| `bClickToExitLoadScreens` | to do |  | 2 | loading hold_input and finish, plus a prompt |
 | `bContinueGameHotkey` | n/a |  |  | a mod-author debug key |
-| `bControllerTriggerDeadzones` | to do |  | 2 |  |
-| `bCustomLocationDiscoveredSound` | to do |  | 1 |  |
-| `bDetachedBeams` | to do |  |  |  |
+| `bControllerTriggerDeadzones` | to do |  | 2 | Bevy GamepadSettings for the triggers |
+| `bCustomLocationDiscoveredSound` | to do |  | 1 | quest_messages sound; the cache takes static names |
+| `bDetachedBeams` | to do |  |  | combat::fly beam follow |
 | `bDialogMenuDebugging` | n/a |  |  | a mod-author debug print |
 | `bDisableAchievements` | n/a |  |  | NVForever has no achievements |
-| `bDisableCharacterRespec` | to do |  |  |  |
-| `bDisableControllerDeadzones` | to do |  | 2 |  |
-| `bDisableGodmodeOnLoad` | to do |  |  |  |
-| `bDisableRegionBordersKeepMessage` | to do |  |  |  |
-| `bDisableStealthEffectInPipboy` | to do |  |  |  |
-| `bDisableWeaponHotkeys` | to do |  |  |  |
-| `bDisarmingMinesPicksThemUp` | to do |  |  |  |
+| `bDisableCharacterRespec` | to do |  |  | the respec is plugin script data |
+| `bDisableControllerDeadzones` | to do |  | 2 | pad STICK_DEAD and Bevy axis settings |
+| `bDisableGodmodeOnLoad` | to do |  |  | save apply_engine clears god mode |
+| `bDisableRegionBordersKeepMessage` | to do |  |  | not built: no world borders |
+| `bDisableStealthEffectInPipboy` | to do |  |  | nvforever stealth_field apply |
+| `bDisableWeaponHotkeys` | to do |  |  | weapon_wheel read like the reloading block |
+| `bDisarmingMinesPicksThemUp` | to do |  |  | Game::activate after a disarm |
 | `bExtraConsoleDetails (enabled by default)` | to do |  | 4 |  |
-| `bHapticPipboy` | to do |  |  |  |
+| `bHapticPipboy` | to do |  |  | pipboy sounds play with a rumble request |
 | `bInvalidBSFadeNodePrints` | n/a |  |  | the plugin's own warning |
-| `bInvertCameraX` | to do |  |  |  |
-| `bKeepSelectedConsoleRef` | to do |  |  |  |
-| `bLethalHitsIncreaseLimbChallenges` | to do |  |  |  |
-| `bMenuFadesIgnoreTimescale` | to do |  |  |  |
-| `bNoAltTabPause` | to do |  | 1 |  |
+| `bInvertCameraX` | to do |  |  | an invert_x on Bindings |
+| `bLethalHitsIncreaseLimbChallenges` | to do |  |  | crippling counts already; knockdown on a kill does not |
 | `bNoAmmoCasings` | to do |  |  | NVForever gives no casings yet |
-| `bNoHotkeyEquipSounds` | to do |  |  |  |
 | `bNoPipboyOnAltTab` | n/a |  |  | the original's alt-tab handling |
 | `bNoSkillBooksAbove100` | to do |  |  | the refusal belongs before equip_at takes the book (Pip-Boy, hotkeys, EquipItem) |
-| `bNoTurningAnim` | to do |  |  |  |
-| `bOnlyChangeCameraHeightIfPOVKeyHeld` | to do |  |  |  |
-| `bOpenPipboyToInventoryByDefault` | to do |  | 1 |  |
-| `bPipBoyTabHotkeysDontCloseMenu` | to do |  |  |  |
-| `bPreventNPCComments` | to do |  | 1 |  |
-| `bPreventTeammateFootstepSounds` | to do |  |  |  |
+| `bNoTurningAnim` | to do |  |  | nvforever player_body turn_rate; drive_body at 16 params |
+| `bOpenPipboyToInventoryByDefault` | to do |  | 1 | pipboy follow_menu page |
+| `bPreventTeammateFootstepSounds` | to do |  |  | nvforever anim_sounds actor_keys |
 | `bPrintErrorsToConsole` | n/a |  | 5 | the original's error log |
 | `bPrintNewModsOnLoad` | n/a |  |  | the plugin's own load report |
-| `bRadiationCausesRadioStatic` | to do |  | 1 |  |
-| `bRadioKeepPositionWhenLoading` | to do |  |  |  |
-| `bReloadSoundsAffectedByTimescale` | to do |  |  |  |
-| `bReplaceHelpWithConsole` | to do |  |  |  |
-| `bRestoreLockedDoorSound` | to do |  |  |  |
-| `bScaleAshpileSize` | to do |  | 2 |  |
-| `bScaleRadioVolume` | to do |  | 2 |  |
-| `bSilentSneakPowerAttacks` | to do |  |  |  |
-| `bSplashDamageTorsoGibbing` | to do |  |  |  |
+| `bRadiationCausesRadioStatic` | to do |  | 1 | radio play share with the radiation taken |
+| `bRadioKeepPositionWhenLoading` | to do |  |  | the radio position is not saved |
+| `bReloadSoundsAffectedByTimescale` | to do |  |  | one global sound speed |
+| `bReplaceHelpWithConsole` | to do |  |  | no Help entry; a Console entry is new |
+| `bScaleAshpileSize` | to do |  | 2 | ash_piles create_at scale from the actor |
+| `bSilentSneakPowerAttacks` | to do |  |  | unsure whether a grunt plays; anim_sounds player_keys |
+| `bSplashDamageTorsoGibbing` | to do |  |  | combat::fly torso dismember check |
 | `bSwapKeyboardYZKeys` | n/a |  |  | the original's keyboard handling; NVForever's keys can be rebound |
-| `bTerminalFadeTime` | to do |  | 1 |  |
-| `bTogglePOVWhenHolsteringWeapon` | to do |  |  |  |
+| `bTerminalFadeTime` | to do |  | 1 | not built: terminals do not fade |
+| `bTogglePOVWhenHolsteringWeapon` | to do |  |  | control::read_controls on weapon_out changes |
 | `bUKKeyboard` | n/a |  |  | the original's keyboard handling |
-| `bUseConsoleOutputFile` | to do |  | 1 |  |
+| `bUseConsoleOutputFile` | to do |  | 1 | console out_file from sync; a file name to choose |
 | `bUseFallout3AudioDistortion` | unsure, skipped |  |  | needs the original sequel's filter described first |
-| `bUseHitLocationInCinematicKillcams` | to do |  |  |  |
-| `bVanityCamReturnsToFirstPerson` | to do |  |  |  |
-| `bWeaponVisibleDuringDialogue` | to do |  |  |  |
+| `bUseHitLocationInCinematicKillcams` | to do |  |  | not built: no cinematic kill camera outside V.A.T.S. |
+| `bVanityCamReturnsToFirstPerson` | to do |  |  | not built: no vanity camera |
+| `bWeaponVisibleDuringDialogue` | to do |  |  | probably already so (nothing hides the weapon); confirm in game |
 
 ### Fixes
 

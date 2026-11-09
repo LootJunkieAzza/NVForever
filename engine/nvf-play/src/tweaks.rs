@@ -183,6 +183,19 @@ pub struct TweakSettings {
     pub quiet_undiscovered: bool,
     /// The crosshair is hidden by its key (`Control::ToggleCrosshair`; not kept).
     pub crosshair_hidden: bool,
+    /// `bTurnSlowerWhileAiming`/`fAimingScaleX`/`fAimingScaleY`: look speed while
+    /// aiming, as a part of the usual, across and up and down; 1 changes nothing.
+    pub aim_turn_x: f32,
+    pub aim_turn_y: f32,
+    /// `bScaleRadioVolume`/`fMusicScale`/`fDialogueScale`: the radio's songs and its
+    /// talk, each as a part of their volume; 1 changes nothing.
+    pub radio_music_volume: f32,
+    pub radio_talk_volume: f32,
+    /// `bOnlyChangeCameraHeightIfPOVKeyHeld`: the wheel moves the third-person camera
+    /// only with Toggle View held.
+    pub camera_wheel_needs_pov: bool,
+    /// `bNoHotkeyEquipSounds`: weapon hotkeys make no equip sound.
+    pub quiet_hotkeys: bool,
 }
 
 /// The walk-angle choices: 30 to 80 degrees by 5; 45 is the physics' own.
@@ -293,6 +306,12 @@ impl Default for TweakSettings {
             no_right_click_drop: false,
             quiet_undiscovered: false,
             crosshair_hidden: false,
+            aim_turn_x: 1.0,
+            aim_turn_y: 1.0,
+            radio_music_volume: 1.0,
+            radio_talk_volume: 1.0,
+            camera_wheel_needs_pov: false,
+            quiet_hotkeys: false,
         }
     }
 }
@@ -818,6 +837,16 @@ impl Plugin for TweaksPlugin {
         switch!(app, "perk-plugin-names", "Perk Plugins", "A level-up perk's description names the plugins it comes from. (Stewie's Tweaks bShowModNameInPerkDescriptions)", game.perk_plugin_names);
         amount!(app, "item-added-seconds", "Item Added Line Time", "Seconds an item-added line stays; 0 changes nothing. (Stewie's Tweaks bCustomAddToInventoryMessageTimer)", 10.0, f32, game.item_added_seconds);
         switch!(app, "pipboy-12-hour", "12-Hour Pip-Boy Clock", "The Pip-Boy's clock in 12 hours with AM and PM. (Stewie's Tweaks b12HourPipboyClock)", game.pipboy_12_hour);
+        // ---- batch 20 ----
+        switch!(app, "notes-of-all-quests", "Notes of Every Quest", "Show Active Quest Notes takes in every quest under way. (Stewie's Tweaks bShowActiveQuestNotesShowsAllStartedQuests)", game.notes_of_all_quests);
+        part!(app, "aim-turn-x", "Aiming Turn Speed: Across", "How fast the view turns left and right while aiming, as a part of the usual; 100% changes nothing. (Stewie's Tweaks bTurnSlowerWhileAiming)", aim_turn_x);
+        part!(app, "aim-turn-y", "Aiming Turn Speed: Up and Down", "How fast the view turns up and down while aiming, as a part of the usual; 100% changes nothing. (Stewie's Tweaks bTurnSlowerWhileAiming)", aim_turn_y);
+        switch!(app, "pickpocket-after-caught", "Pickpocket Again", "Someone who caught the player pickpocketing can be tried again. (Stewie's Tweaks bAllowPickpocketIfAlreadyCaught)", game.pickpocket_after_caught);
+        switch!(app, "wait-anywhere", "Wait Anywhere", "Only a script's ban stops waiting or sleeping: not combat, enemies, water, falling or someone's bed. (Stewie's Tweaks bSleepWaitAnywhere)", game.wait_anywhere);
+        part!(app, "radio-music", "Radio Songs Volume", "The radio's songs, as a part of their volume; 100% changes nothing. (Stewie's Tweaks bScaleRadioVolume)", radio_music_volume);
+        part!(app, "radio-talk", "Radio Talk Volume", "The radio's talk, as a part of its volume; 100% changes nothing. (Stewie's Tweaks bScaleRadioVolume)", radio_talk_volume);
+        switch!(app, "camera-wheel-pov", "Wheel Zoom Needs Toggle View", "The mouse wheel moves the third-person camera only while Toggle View is held. (Stewie's Tweaks bOnlyChangeCameraHeightIfPOVKeyHeld)", camera_wheel_needs_pov);
+        switch!(app, "quiet-hotkeys", "No Hotkey Sounds", "Weapon hotkeys make no equip sound. (Stewie's Tweaks bNoHotkeyEquipSounds)", quiet_hotkeys);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

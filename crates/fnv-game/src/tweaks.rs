@@ -224,6 +224,13 @@ pub struct Tweaks {
     pub item_added_seconds: f32,
     /// `b12HourPipboyClock`: the Pip-Boy's clock in 12 hours.
     pub pipboy_12_hour: bool,
+    /// `bShowActiveQuestNotesShowsAllStartedQuests`: Show Active Quest Notes takes in
+    /// every quest under way.
+    pub notes_of_all_quests: bool,
+    /// `bAllowPickpocketIfAlreadyCaught`: someone who caught the player can be tried again.
+    pub pickpocket_after_caught: bool,
+    /// `bSleepWaitAnywhere`: only a script's ban refuses waiting or sleeping.
+    pub wait_anywhere: bool,
 }
 
 impl Default for Tweaks {
@@ -317,6 +324,9 @@ impl Default for Tweaks {
             perk_plugin_names: false,
             item_added_seconds: 0.0,
             pipboy_12_hour: false,
+            notes_of_all_quests: false,
+            pickpocket_after_caught: false,
+            wait_anywhere: false,
         }
     }
 }

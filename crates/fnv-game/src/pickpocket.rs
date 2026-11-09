@@ -189,7 +189,8 @@ impl Game<'_> {
         if !fleeing && (fighting_player || self.would_attack(r, FormId::PLAYER_REF)) {
             return Some(Refusal::NotAllowed);
         }
-        if self.extra.get(&r).is_some_and(|e| e.caught_pickpocket) {
+        // The player's tweak lets the player try again [design: docs/design/tweaks.md].
+        if !self.tweaks.pickpocket_after_caught && self.extra.get(&r).is_some_and(|e| e.caught_pickpocket) {
             return Some(Refusal::CaughtBefore);
         }
         None

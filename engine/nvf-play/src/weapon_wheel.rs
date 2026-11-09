@@ -381,12 +381,13 @@ fn read(
     // The player's tweak: no weapon hotkeys while reloading [design: docs/design/tweaks.md].
     let reloading_blocks = tweaks.as_ref().is_some_and(|t| t.no_hotkeys_while_reloading) && anim.as_ref().is_some_and(|a| a.reload.is_some());
     let toggle_in_hand = tweaks.as_ref().is_some_and(|t| t.hotkey_toggles_in_hand);
+    let quiet = tweaks.as_ref().is_some_and(|t| t.quiet_hotkeys);
     // A swap waiting for the weapon in hand to go away: the clips of the last frame say
     // whether it has (`crate::combat::WeaponAnim`; no body to time it: at once).
     let away = anim.as_deref().is_none_or(|a| !a.ready && !a.drawing && !a.holstering);
     match wait.step(clock.delta_secs(), control.weapon_out, away) {
         Some(SwapStep::Equip(n)) => {
-            act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, true, toggle_in_hand);
+            act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, true, toggle_in_hand, quiet);
         }
         Some(SwapStep::CalledOff(n)) => info!("hotkeys: slot {}: the swap called off, the weapon in hand drawn again", n + 1),
         None => {}
@@ -448,7 +449,7 @@ fn read(
                 } else {
                     stats.chosen.push(n);
                 }
-                let line = act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, false, toggle_in_hand);
+                let line = act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, false, toggle_in_hand, quiet);
                 if matches!(o, Outcome::Chose(_)) {
                     info!("weapon wheel: closed: slot {}: {line}", n + 1);
                 }
@@ -487,7 +488,8 @@ fn sound_of(slot: Option<Slot>, outcome: &Used) -> Option<UiEvent> {
 /// Use slot `n` (a tap, or the wheel let go on it); returns what happened. `put_away`:
 /// a waiting swap whose weapon in hand has just gone away (`SwapWait`).
 #[allow(clippy::too_many_arguments)]
-fn act(n: usize, hotkeys: &Hotkeys, sim: &mut SimState, control: &mut PlayerControl, used: &mut MessageWriter<ItemUsed>, sounds: &mut MessageWriter<UiSound>, wait: &mut SwapWait, put_away: bool, toggle_in_hand: bool) -> String {
+fn act(n: usize, hotkeys: &Hotkeys, sim: &mut SimState, control: &mut PlayerControl, used: &mut MessageWriter<ItemUsed>, sounds: &mut MessageWriter<UiSound>, wait: &mut SwapWait, put_away: bool, toggle_in_hand: bool, quiet: bool) -> String {
+    // `quiet`: the player's No Hotkey Sounds tweak [design: docs/design/tweaks.md].
     if n == AMMO_SWAP {
         control.ammo_swap = true;
         info!("hotkeys: slot 2: Ammo Swap");
@@ -506,7 +508,7 @@ fn act(n: usize, hotkeys: &Hotkeys, sim: &mut SimState, control: &mut PlayerCont
         return format!("putting the weapon in hand away for {name}");
     }
     let outcome = hotkeys::use_slot(&mut sim.world, slot);
-    if let Some(event) = sound_of(slot, &outcome) {
+    if let Some(event) = sound_of(slot, &outcome).filter(|_| !quiet) {
         sounds.write(UiSound { menu: UiMenu::Inventory, event });
     }
     match &outcome {
