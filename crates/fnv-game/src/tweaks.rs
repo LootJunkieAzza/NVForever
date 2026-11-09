@@ -291,6 +291,8 @@ pub struct Tweaks {
     /// `bMarkNearbyLocationsOnMap`/`fDistance`: map markers within this many units of
     /// the player are marked on the map (as a ShowMap would); 0 changes nothing.
     pub mark_nearby_places: f32,
+    /// `bScaleAshpileSize`: an ash pile takes its actor's scale (0.5 to 2).
+    pub scale_ash_piles: bool,
 }
 
 impl crate::game::Game<'_> {
@@ -417,6 +419,7 @@ impl Default for Tweaks {
             sneak_criticals_head_only: false,
             compare_weapons: false,
             mark_nearby_places: 0.0,
+            scale_ash_piles: false,
         }
     }
 }

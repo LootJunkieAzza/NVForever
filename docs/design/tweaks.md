@@ -412,6 +412,7 @@ unless the player binds them, so nothing changes until then.
 | Compare Weapons | `bCompareWeaponStats` | `pipboy::items::info_of` |
 | Weight Warning | `bContainerEncumbranceIndicator` | `menu::look` half figure (`warn_encumbrance`) |
 | Mark Nearby Places (0–10000) | `bMarkNearbyLocationsOnMap` | `compass::discover` (ShowMap's set) |
+| Ash Piles Fit the Body | `bScaleAshpileSize` | `Game` ash pile creation (`scale_of`) |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
@@ -432,8 +433,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 319 |
-| to do | 284 |
+| done | 320 |
+| to do | 283 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1053,6 +1054,7 @@ game's Data folder, read-only).
 | `bPreventNPCComments` | done |  | 1 | already so: NPCs make no such comments |
 | `bPreventTeammateFootstepSounds` | done |  |  | Quiet Companion Footsteps |
 | `bRestoreLockedDoorSound` | done |  |  | already so: a refused lock plays DRSLocked |
+| `bScaleAshpileSize` | done |  | 2 | Ash Piles Fit the Body (the actor's scale, half to twice; not its bounds) |
 | `bScaleRadioVolume` | done |  | 2 | Radio Songs Volume / Radio Talk Volume (two sliders) |
 | `bTogglePOVWhenHolsteringWeapon` | done |  |  | View Follows the Weapon |
 | `bAllowKeyboardAndMouseWithControllerConnected` | to do | yes |  | the Input Device setting picks one device; needs both at once |
@@ -1101,7 +1103,6 @@ game's Data folder, read-only).
 | `bRadioKeepPositionWhenLoading` | to do |  |  | the radio position is not saved |
 | `bReloadSoundsAffectedByTimescale` | to do |  |  | one global sound speed |
 | `bReplaceHelpWithConsole` | to do |  |  | no Help entry; a Console entry is new |
-| `bScaleAshpileSize` | to do |  | 2 | ash_piles create_at scale from the actor |
 | `bSilentSneakPowerAttacks` | to do |  |  | unsure whether a grunt plays; anim_sounds player_keys |
 | `bSplashDamageTorsoGibbing` | to do |  |  | combat::fly torso dismember check |
 | `bSwapKeyboardYZKeys` | n/a |  |  | the original's keyboard handling; NVForever's keys can be rebound |
