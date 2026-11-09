@@ -1,6 +1,7 @@
 //! Latency reduction: AMD Anti-Lag through Vulkan (`VK_AMD_anti_lag`, #1778). The driver keeps
-//! the CPU from preparing frames ahead of the GPU, so input reaches the screen sooner. Off by
-//! default: Settings > Graphics > Latency reduction, or `--latency-reduction`.
+//! the CPU from preparing frames ahead of the GPU, which is meant to bring input to the screen
+//! sooner [hypothesis: not yet measured on an AMD GPU]. Off by default: Settings > Graphics >
+//! Latency reduction, or `--latency-reduction`.
 //!
 //! - **The extension.** Bevy creates the Vulkan device. With its `raw_vulkan_init` feature, a
 //!   callback ([`AntiLagInitPlugin`]) adds `VK_AMD_anti_lag` and turns its `antiLag` feature on
@@ -11,9 +12,15 @@
 //! - **The calls.** `vkAntiLagUpdateAMD` goes "immediately before input to the application is
 //!   processed", where it may block to pace the CPU, and again "before `QueuePresent`" with the
 //!   same frame index [documented: Khronos `proposals/VK_AMD_anti_lag.adoc`].
-//!   - Input: winit gathers the next frame's input right after the main world's update ends.
-//!     So the call is the last thing in `Last`, after the frame cap (`frame_pace::cap_rate`),
-//!     with the next frame's index.
+//!   - Input: after the main schedule, each update runs the sub-apps' extract. With pipelined
+//!     rendering (the game keeps it), `RenderExtractApp`'s extract waits for the render thread,
+//!     hands it the frame just simulated, and only then does winit deliver the next frame's
+//!     input [documented: bevy_app 0.20.1 `sub_app.rs` `SubApps::update`; bevy_render 0.20.1
+//!     `pipelined_rendering.rs`, `renderer_extract` and the frame diagram]. So the call wraps
+//!     that extract and goes right after the hand-off, with the next frame's index: a wait in
+//!     it falls before the next input, not inside the frame just handed over. Without pipelined
+//!     rendering (no `RenderExtractApp`) it falls back to the end of `Last`, after the frame
+//!     cap (`frame_pace::cap_rate`), so before the frame just simulated is extracted and drawn.
 //!   - Present: Bevy's renderer draws a frame while the main world runs the next one. The
 //!     frame's index is extracted with it, and the render world sends it just before Bevy's
 //!     `render_system`, which submits and presents in one step [engineering choice: the latest
@@ -29,6 +36,7 @@ use std::ffi::{c_void, CStr};
 
 use ash::vk;
 use bevy::prelude::*;
+use bevy::render::pipelined_rendering::RenderExtractApp;
 use bevy::render::renderer::raw_vulkan_init::{AdditionalVulkanFeatures, RawVulkanInitSettings};
 use bevy::render::renderer::{render_system, RenderAdapterInfo, RenderDevice};
 use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderSystems};
@@ -149,7 +157,7 @@ pub fn available(world: &World) -> bool {
 }
 
 /// Frame indices in the main world: `current` is the frame whose input this update
-/// processes, `next` the one announced at its end.
+/// processes, `next` the one announced once this frame is handed to the renderer.
 #[derive(Resource, Default)]
 struct Frames {
     current: u64,
@@ -171,8 +179,7 @@ impl Plugin for AntiLagPlugin {
         app.insert_resource(LatencyReduction { on: self.0 })
             .init_resource::<Frames>()
             .add_systems(First, begin_frame)
-            .add_systems(Update, log_switch)
-            .add_systems(Last, announce_input.after(crate::frame_pace::cap_rate));
+            .add_systems(Update, log_switch);
         let Some(render) = app.get_sub_app_mut(RenderApp) else { return };
         render
             .init_resource::<Presenting>()
@@ -181,6 +188,10 @@ impl Plugin for AntiLagPlugin {
     }
 
     fn finish(&self, app: &mut App) {
+        // Here, not in `build`: by now pipelined rendering's `build` has set up the extract this wraps.
+        if !announce_input_after_hand_off(app) {
+            app.add_systems(Last, announce_input.after(crate::frame_pace::cap_rate));
+        }
         let Some(render) = app.get_sub_app(RenderApp) else { return };
         let world = render.world();
         let enabled = world.get_resource::<AdditionalVulkanFeatures>().is_some_and(|f| f.has::<AntiLagEnabled>());
@@ -213,10 +224,29 @@ fn begin_frame(mut frames: ResMut<Frames>) {
     frames.current = frames.next;
 }
 
-fn announce_input(switch: Res<LatencyReduction>, driver: Option<Res<AntiLagDriver>>, mut frames: ResMut<Frames>) {
+/// Puts the input call right after the hand-off to the render thread: wraps
+/// `RenderExtractApp`'s extract, which waits for the render thread and hands it the frame just
+/// simulated (`renderer_extract`), and announces the next frame once it returns. False without
+/// pipelined rendering.
+fn announce_input_after_hand_off(app: &mut App) -> bool {
+    let Some(extract_app) = app.get_sub_app_mut(RenderExtractApp) else { return false };
+    let mut hand_off = extract_app.take_extract();
+    extract_app.set_extract(move |main_world, extract_world| {
+        if let Some(hand_off) = hand_off.as_mut() {
+            hand_off(main_world, extract_world);
+        }
+        announce_input(main_world);
+    });
+    true
+}
+
+/// Announces the next frame at input: the one after the frame this update processed.
+fn announce_input(world: &mut World) {
+    let mut frames = world.resource_mut::<Frames>();
     frames.next = frames.current + 1;
-    if let Some(driver) = driver {
-        driver.send(switch.on, STAGE_INPUT, frames.next);
+    let next = frames.next;
+    if let Some(driver) = world.get_resource::<AntiLagDriver>() {
+        driver.send(world.resource::<LatencyReduction>().on, STAGE_INPUT, next);
     }
 }
 
@@ -244,7 +274,7 @@ fn log_switch(switch: Res<LatencyReduction>, driver: Option<Res<AntiLagDriver>>,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::ecs::system::RunSystemOnce;
+    use ash::vk::Handle;
     use std::sync::Mutex;
 
     /// The Vulkan layouts on 64-bit targets [documented: vk.xml member order and C alignment].
@@ -257,36 +287,86 @@ mod tests {
         assert_eq!((size_of::<AntiLagData>(), offset_of!(AntiLagData, mode), offset_of!(AntiLagData, max_fps), offset_of!(AntiLagData, presentation_info)), (32, 16, 20, 24));
     }
 
-    /// (stage, frame, mode) of each call the test driver got.
-    static CALLS: Mutex<Vec<(i32, u64, i32)>> = Mutex::new(Vec::new());
+    /// (device, stage, frame, mode) of each call the test driver got, and of each extraction
+    /// (`EXTRACTED`, mode 0). Each test has its own device, as the tests run in parallel.
+    static CALLS: Mutex<Vec<(u64, i32, u64, i32)>> = Mutex::new(Vec::new());
+    const EXTRACTED: i32 = -1;
 
-    unsafe extern "system" fn record(_: vk::Device, data: *const AntiLagData) {
+    unsafe extern "system" fn record(device: vk::Device, data: *const AntiLagData) {
         // SAFETY: the driver is only called with a valid structure and presentation info.
         let (data, info) = unsafe { (&*data, &*(*data).presentation_info) };
-        CALLS.lock().unwrap().push((info.stage, info.frame_index, data.mode));
+        CALLS.lock().unwrap().push((device.as_raw(), info.stage, info.frame_index, data.mode));
+    }
+
+    /// Notes which frame the render world extracted, next to the driver's calls.
+    fn note_extracted(frames: Extract<Res<Frames>>, driver: Res<AntiLagDriver>) {
+        CALLS.lock().unwrap().push((driver.device.as_raw(), EXTRACTED, frames.current, 0));
+    }
+
+    /// Four updates of an app built like the game's without a GPU: Bevy's extraction into a
+    /// render app that runs the `Render` schedule, pipelined or not, and the plugin added after
+    /// them, as in `main.rs`. The switch is off for the last update. Returns (stage, frame,
+    /// mode) in the order the calls were made.
+    fn run_updates(device: u64, pipelined: bool) -> Vec<(i32, u64, i32)> {
+        use bevy::app::TaskPoolPlugin;
+        use bevy::ecs::schedule::{ScheduleLabel, SystemSet};
+        use bevy::render::extract_plugin::ExtractPlugin;
+        use bevy::render::pipelined_rendering::PipelinedRenderingPlugin;
+
+        let mut app = App::new();
+        app.add_plugins((
+            TaskPoolPlugin::default(),
+            ExtractPlugin::<RenderApp>::new(|_, _| {}, Render::base_schedule, Render.intern(), RenderSystems::ExtractCommands.intern(), RenderSystems::PostCleanup.intern()),
+        ));
+        let render = app.sub_app_mut(RenderApp);
+        render.update_schedule = Some(Render.intern());
+        render.add_systems(ExtractSchedule, note_extracted);
+        if pipelined {
+            app.add_plugins(PipelinedRenderingPlugin);
+        }
+        app.add_plugins(AntiLagPlugin(true));
+        app.finish();
+        let driver = AntiLagDriver { device: vk::Device::from_raw(device), update: record };
+        app.insert_resource(driver);
+        app.sub_app_mut(RenderApp).insert_resource(driver);
+        app.cleanup();
+        for update in 0..4 {
+            app.world_mut().resource_mut::<LatencyReduction>().on = update < 3;
+            app.update();
+        }
+        // Pipelined, dropping the app waits for the render thread to finish the last frame.
+        drop(app);
+        CALLS.lock().unwrap().iter().filter(|call| call.0 == device).map(|&(_, stage, frame, mode)| (stage, frame, mode)).collect()
+    }
+
+    /// Frames 1 to 4 are announced at input and 0 to 3 at present (0 has no input call), the
+    /// last update's with the switch off, and each frame's input call comes before its present.
+    fn check_indices(calls: &[(i32, u64, i32)]) {
+        let stage = |s| calls.iter().filter(|c| c.0 == s).map(|c| (c.1, c.2)).collect::<Vec<_>>();
+        assert_eq!(stage(STAGE_INPUT), [(1, MODE_ON), (2, MODE_ON), (3, MODE_ON), (4, MODE_OFF)], "{calls:?}");
+        assert_eq!(stage(STAGE_PRESENT), [(0, MODE_ON), (1, MODE_ON), (2, MODE_ON), (3, MODE_OFF)], "{calls:?}");
+        let at = |s, frame| calls.iter().position(|c| c.0 == s && c.1 == frame).unwrap();
+        for frame in 1..=3 {
+            assert!(at(STAGE_INPUT, frame) < at(STAGE_PRESENT, frame), "frame {frame}: {calls:?}");
+        }
     }
 
     #[test]
-    fn each_frame_is_announced_at_input_then_at_present() {
-        let mut world = World::new();
-        world.insert_resource(LatencyReduction { on: true });
-        world.init_resource::<Frames>();
-        world.insert_resource(AntiLagDriver { device: vk::Device::null(), update: record });
-        // Three main-world updates; each frame is presented while the next update runs.
-        let mut presented = Vec::new();
-        for _ in 0..3 {
-            world.run_system_once(begin_frame).unwrap();
-            let current = world.resource::<Frames>().current;
-            world.run_system_once(announce_input).unwrap();
-            presented.push(current);
-            world.insert_resource(Presenting { frame: current, on: true });
-            world.run_system_once(announce_present).unwrap();
+    fn pipelined_input_is_announced_after_the_hand_off() {
+        let calls = run_updates(1, true);
+        check_indices(&calls);
+        let at = |s, frame| calls.iter().position(|c| c.0 == s && c.1 == frame).unwrap();
+        for frame in 0..=3 {
+            // The render thread's present can come before or after the next input call; the
+            // extraction (the hand-off) always comes before it.
+            assert!(at(EXTRACTED, frame) < at(STAGE_INPUT, frame + 1), "frame {frame}: {calls:?}");
         }
-        world.resource_mut::<LatencyReduction>().on = false;
-        world.run_system_once(begin_frame).unwrap();
-        world.run_system_once(announce_input).unwrap();
-        let calls = std::mem::take(&mut *CALLS.lock().unwrap());
-        assert_eq!(presented, [0, 1, 2]);
+    }
+
+    #[test]
+    fn without_pipelining_input_is_announced_at_the_end_of_last() {
+        let calls: Vec<_> = run_updates(2, false).into_iter().filter(|c| c.0 != EXTRACTED).collect();
+        check_indices(&calls);
         assert_eq!(
             calls,
             [
@@ -297,8 +377,8 @@ mod tests {
                 (STAGE_INPUT, 3, MODE_ON),
                 (STAGE_PRESENT, 2, MODE_ON),
                 (STAGE_INPUT, 4, MODE_OFF),
-            ],
-            "frame n is announced at input (end of update n - 1) before its present"
+                (STAGE_PRESENT, 3, MODE_OFF),
+            ]
         );
     }
 }

@@ -1,8 +1,9 @@
 # Latency reduction (AMD Anti-Lag)
 
 An optional switch: the GPU driver keeps the game from preparing frames ahead of the graphics
-card, so input reaches the screen sooner. It is the first half of #1778; FSR 3.1 frame
-generation, which adds latency that this offsets, comes later. Code: `engine/nvforever/src/anti_lag.rs`.
+card, which is meant to bring input to the screen sooner [hypothesis: not yet measured on an
+AMD GPU]. It is the first half of #1778; FSR 3.1 frame generation, which adds latency that
+this offsets, comes later. Code: `engine/nvforever/src/anti_lag.rs`.
 
 ## Using it
 
@@ -27,9 +28,14 @@ On other GPUs the row is dimmed ("Not on this GPU") and the start says so once:
   offers both (`vkGetPhysicalDeviceFeatures2`). This is the hook Bevy's own DLSS support uses.
 - **The calls** [documented: Khronos `proposals/VK_AMD_anti_lag.adoc`].
   - *Input*: "immediately before input to the application is processed". The call may block, to
-    keep the CPU from running ahead. Winit gathers the next frame's input right after the main
-    world's update, so the call is the last system of `Last`, after the frame cap
-    (`frame_pace::cap_rate`). It carries the next frame's index.
+    keep the CPU from running ahead. After the main schedule, each update runs the sub-apps'
+    extract. With pipelined rendering, which the game keeps, `RenderExtractApp`'s extract waits
+    for the render thread and hands it the frame just simulated; only then does winit deliver
+    the next frame's input [documented: bevy_app 0.20.1 `sub_app.rs` `SubApps::update`;
+    bevy_render 0.20.1 `pipelined_rendering.rs`, `renderer_extract` and its frame diagram]. So
+    `AntiLagPlugin::finish` wraps that extract and sends the call right after the hand-off,
+    with the next frame's index. A wait in it then comes before the next input, not inside the
+    latency of the frame just handed over.
   - *Present*: "before `QueuePresent`", with the same index. Bevy's renderer draws frame n while
     the main world runs frame n + 1. The index is extracted with the frame, and the render world
     sends it just before Bevy's `render_system`, which submits and presents in one step
@@ -43,10 +49,12 @@ On other GPUs the row is dimmed ("Not on this GPU") and the start says so once:
 
 ## Checks
 
-- Unit tests (`anti_lag.rs`):
+- Unit tests (`anti_lag.rs`), on an app with Bevy's own extraction and render app but no GPU:
   - the structures have Vulkan's layout (sizes and offsets on 64-bit);
-  - each frame is announced at input, at the end of the update before it, then at present;
-  - Off sends mode OFF.
+  - with pipelined rendering (a real render thread), frame n's input call comes after frame
+    n - 1 is extracted and handed over, and before frame n's present call, with the same index;
+  - without it, the input call comes at the end of `Last`, then the frame's present;
+  - Off sends mode OFF at both calls.
 - Smoke `latency-reduction`: `--latency-reduction` turns the switch on, the start says whether
   the driver offers Anti-Lag, and the game runs without validation errors.
 
@@ -61,4 +69,8 @@ On other GPUs the row is dimmed ("Not on this GPU") and the start says so once:
   the swapchain itself, and neither it nor Bevy has a hook for those.
 - **Pacing points.** The present call comes before Bevy's `render_system` submits, not right
   before `vkQueuePresentKHR`: the closest point Bevy offers [hypothesis: the driver uses it to
-  match frames, not as a timestamp; unmeasured].
+  match frames, not as a timestamp; unmeasured]. The input call comes right after the hand-off
+  only with pipelined rendering, the game's setup. Without it (no `RenderExtractApp`) the call
+  falls back to the end of `Last`, after the frame cap, so before the frame just simulated is
+  extracted and drawn. Whether AMD's driver paces as meant at the hand-off is unmeasured
+  [hypothesis]: it needs input-to-photon latency on an AMD GPU, switch Off and On.
