@@ -19370,3 +19370,16 @@ order = [[
   { text = "NVDLC02WhiteLegsTribalMQ01EREF enabled", label = "hosting: then E" },
 ]]
 forbid = [{ re = 'player entered trigger 0x0101(1180|0145)', label = "hosting: the player stayed put (no real input reached the window)" }]
+
+[[scenario]]
+name = "created-fire-light"
+source = "Overnight queue 2026-11-09 item 103: a light a script places (PlaceAtMe of a LIGH, as Burning Campfire Redone's fires place SAGCampFire420) sheds its light with its flicker (nvf-play dropped.rs DroppedLight, nvforever lights.rs dropped_lights); before, created lights drew nothing. Here the vanilla flickering FireBrightOrange is placed at the player at night outside Goodsprings"
+areas = ["lights", "scripts"]
+paths = ["engine/nvf-play/src/dropped.rs", "engine/nvforever/src/lights.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "8:player.PlaceAtMe FireBrightOrange 1;8.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--hour", "23", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'dropped reference 0xFF[0-9A-F]{6} drawn: light 0x[0-9A-F]{8}, no model', label = "the created light has a root to hang from although it has no model" },
+  { re = 'lights: created light 0xFF[0-9A-F]{6} \(base 0x[0-9A-F]{8}\) lit', label = "it sheds the light of its base" },
+]

@@ -686,10 +686,10 @@ pub(crate) trait TextureSource {
     fn texture(&mut self, raw_path: &str, srgb: bool) -> Option<Handle<Image>>;
     /// Whether the texture of `h` has no alpha channel ([`lacks_alpha`]).
     fn lacks_alpha(&self, h: &Handle<Image>) -> bool;
-    /// Whether the texture at a NIF texture path has a cut-out mask in its alpha
-    /// (`texture::AlphaShares::is_mask`), read from the archives again: asked only for the
-    /// few shapes [`blended_cutout`] concerns.
-    fn alpha_is_mask(&self, raw_path: &str) -> bool;
+    /// How the alpha of the texture at a NIF texture path is spread (`texture::AlphaShares`:
+    /// whether it is a cut-out mask, whether it has opaque texels), read from the archives
+    /// again: asked only for the few shapes [`blended_cutout`] concerns.
+    fn alpha_shares(&self, raw_path: &str) -> Option<crate::texture::AlphaShares>;
 }
 
 /// The main thread's textures: the cache and the image store.
@@ -709,8 +709,8 @@ impl TextureSource for StoreTextures<'_> {
         self.images.get(h).is_some_and(lacks_alpha)
     }
 
-    fn alpha_is_mask(&self, raw_path: &str) -> bool {
-        crate::texture::texture_alpha_shares(raw_path, self.data).is_some_and(|s| s.is_mask())
+    fn alpha_shares(&self, raw_path: &str) -> Option<crate::texture::AlphaShares> {
+        crate::texture::texture_alpha_shares(raw_path, self.data)
     }
 }
 
@@ -771,8 +771,16 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
     let has_uv = mesh.attribute(Mesh::ATTRIBUTE_UV_0).is_some();
     let normal = normal.filter(|_| has_uv && mesh.generate_tangents().is_ok());
     let cut = blend_cut(props, mesh);
-    let alpha_mode = if cut.is_some() { AlphaMode::Blend } else { shape_alpha_mode(props) };
-    let cutout = blended_cutout(props, cut, alpha_mode, || props.textures.first().is_some_and(|t| !t.is_empty() && textures.alpha_is_mask(t)));
+    let mut alpha_mode = if cut.is_some() { AlphaMode::Blend } else { shape_alpha_mode(props) };
+    let mut shares = None;
+    let mut cutout = blended_cutout(props, cut, alpha_mode, || {
+        shares = props.textures.first().filter(|t| !t.is_empty()).and_then(|t| textures.alpha_shares(t));
+        shares.is_some_and(|s| s.is_mask())
+    });
+    if let Some(test) = solid_cutout(props, cutout, shares) {
+        alpha_mode = AlphaMode::Mask(test);
+        cutout = None;
+    }
     let gloss = props.glossiness.unwrap_or(10.0);
     // Emitted light × glow map, or uniform without a glow map. Not scaled by the camera
     // exposure (Bevy's default emissive_exposure_weight 0).
@@ -812,7 +820,7 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
         material.extension.alpha_cut = HAIR_DEPTH_CUT;
         material.extension.depth_write = true;
     } else if !props.unlit && props.zbuffer_write && cut.is_none() && matches!(alpha_mode, AlphaMode::Blend) {
-        material.extension.alpha_cut = BLEND_DEPTH_CUT;
+        material.extension.alpha_cut = blended_test_cut(props).unwrap_or(0.0).max(BLEND_DEPTH_CUT);
         material.extension.depth_write = true;
     }
     material.extension.add_whole = if adds_whole(props) { 1.0 } else { 0.0 };
@@ -850,6 +858,57 @@ pub const HAIR_DEPTH_CUT: f32 = 0.25;
 /// from a few metres (playtest 2026-11-04) [engineering choice: the cut only keeps
 /// fully clear texels out of the depth buffer].
 pub const BLEND_DEPTH_CUT: f32 = 1.0 / 255.0;
+
+/// The cut of a blended cut-out ([`blended_cutout`], `cutout`) that writes depth (its
+/// shader sets ZBuffer_Write) and tests alpha ([`blended_test_cut`]): such a shape is
+/// drawn as a solid cut-out at its own test threshold, in place of the blend [design,
+/// owner's queue item 107: "solid and crisp from every angle"]. Blended and writing depth,
+/// one mesh of crossing twigs hides its own far twigs wherever a near one was drawn first,
+/// and the sky shows through; a cut-out has no order. The texture is a mask, so the blend
+/// and the cut differ only on the mask's edge texels. At the test threshold (not
+/// [`BLENDED_CUTOUT_CUT`]) the outline is the one the test keeps, and it holds over the
+/// mip levels: the tumbleweed's texels above 50 are 13% of its top level and 19-22% of
+/// levels 2-4, those above 128 fall from 9% to 2% [observed: `TumbleweedNV.dds`, DXT3].
+/// Of the 68 lit depth-writing shapes the survey of [`blended_test_cut`] found, 38 have a
+/// mask with opaque texels and are drawn so: the tumbleweed (84% clear, 3.1% opaque, 12.9%
+/// between), the pinto and jalapeño plants, NCR money, the Sierra Madre posters, the
+/// `ncrcfsign01-06` signs, the quarry's lattices, the Hoover Dam map, Caesar's throne, the
+/// NCR guard tower's LOD and two building decals [observed: the textures' top levels]. The glass shards' mask has
+/// no opaque texel ([`SOLID_MIN_OPAQUE`]) and stays blended, as do the decals, glasses,
+/// hair and signs whose alpha is soft.
+pub(crate) fn solid_cutout(props: &Props, cutout: Option<f32>, shares: Option<crate::texture::AlphaShares>) -> Option<f32> {
+    cutout?;
+    let solid = shares.is_some_and(|s| s.opaque >= SOLID_MIN_OPAQUE);
+    (solid && props.zbuffer_write && !props.unlit).then(|| blended_test_cut(props)).flatten()
+}
+
+/// Least opaque share of a mask drawn as a solid cut-out ([`solid_cutout`]) [engineering
+/// choice: the glass shards' mask has no opaque texel (88% clear, 12% between) and is
+/// glass, translucent all over; the tumbleweed's is 3.1% opaque].
+pub const SOLID_MIN_OPAQUE: f32 = 0.01;
+
+/// The alpha test of a shape drawn blended although its NiAlphaProperty also tests alpha
+/// ([`alpha_mode`]: blend SRC_ALPHA / INV_SRC_ALPHA, test on, threshold 1 to
+/// [`BLEND_TEST_CUT`] − 1), when its alpha is its texture's (no vertex alpha): the cutoff
+/// below which its fragments are dropped, as the test drops them [documented: nif.xml
+/// AlphaFlags, bit 9 "alpha test enable", bits 10-12 the test function; GREATER keeps
+/// alpha above the threshold, as in [`alpha_mode`]]. Used for the lit blended shapes that
+/// write depth ([`BLEND_DEPTH_CUT`] otherwise): their faint texels, which the test keeps
+/// out of the picture, wrote depth and hid what lay behind them. The tumbleweed
+/// (`clutter\tumbleweednv.nif`, flags 0x12ED, threshold 50, a DXT3 texture whose twigs fade
+/// out over alpha 1-50 into 84% clear texels) showed the sky through its own twigs and dark
+/// specks around them (owner's queue item 107, 2026-11-08). Survey
+/// (`crates/fnv-nif/examples/blend_test_lit_survey.rs`, `Fallout - Meshes.bsa` and
+/// `Update.bsa`): 70 visible lit shapes test with a threshold of 16-63, 68 of them writing
+/// depth: the tumbleweed, the garden plants (pinto, jalapeño), posters, signs, decals,
+/// glass shards, glasses, Mr. House's beard (docs/spec-notes/nif.md §6 "Alpha").
+pub(crate) fn blended_test_cut(props: &Props) -> Option<f32> {
+    let (flags, threshold) = props.alpha?;
+    let source_over = flags & 1 != 0 && (flags >> 1) & 0xF == 6 && (flags >> 5) & 0xF == 7;
+    let tested = flags & 0x200 != 0 && (1..BLEND_TEST_CUT).contains(&threshold);
+    let strict = (flags >> 10) & 7 == 4;
+    (source_over && tested && !props.vertex_alpha).then(|| (threshold as f32 + if strict { 0.5 } else { 0.0 }) / 255.0)
+}
 
 /// The alpha from which a hair model's shapes (the HAIR record's model) are drawn: they
 /// are cut-outs, solid at and above it and absent below ([`hair_model_cut_out`]).
@@ -1162,12 +1221,14 @@ mod tests {
         fn lacks_alpha(&self, _: &Handle<Image>) -> bool {
             false
         }
-        fn alpha_is_mask(&self, _: &str) -> bool {
-            false
+        fn alpha_shares(&self, _: &str) -> Option<crate::texture::AlphaShares> {
+            None
         }
     }
 
-    /// Textures whose alpha is a cut-out mask when their path says "mask".
+    /// Textures whose alpha is a cut-out mask when their path says "mask" (a plant's: 40%
+    /// clear, 56% opaque), or one with no opaque texel when it says "shards" (the glass
+    /// shards': 88% clear, 12% between) [observed shares, item 107].
     struct MaskTextures;
     impl TextureSource for MaskTextures {
         fn texture(&mut self, _: &str, _: bool) -> Option<Handle<Image>> {
@@ -1176,8 +1237,15 @@ mod tests {
         fn lacks_alpha(&self, _: &Handle<Image>) -> bool {
             false
         }
-        fn alpha_is_mask(&self, raw_path: &str) -> bool {
-            raw_path.contains("mask")
+        fn alpha_shares(&self, raw_path: &str) -> Option<crate::texture::AlphaShares> {
+            use crate::texture::AlphaShares;
+            if raw_path.contains("mask") {
+                Some(AlphaShares { clear: 0.40, opaque: 0.56, partial: 0.04 })
+            } else if raw_path.contains("shards") {
+                Some(AlphaShares { clear: 0.88, opaque: 0.0, partial: 0.12 })
+            } else {
+                Some(AlphaShares { clear: 0.0, opaque: 0.2, partial: 0.8 })
+            }
         }
     }
 
@@ -1247,6 +1315,49 @@ mod tests {
         assert!(!m.extension.depth_write);
         let (m, _) = shape_material_with(&Props { zbuffer_write: false, ..vend }, &mut triangle(), &mut NoTextures);
         assert!(!m.extension.depth_write);
+    }
+
+    /// The tumbleweed (`clutter\tumbleweednv.nif`): lit, blended and tested (0x12ED,
+    /// TEST_GREATER), threshold 50, ZBuffer_Write [observed]. Its fragments at or below the
+    /// threshold are dropped, so they write no depth over the twigs behind them (item 107).
+    /// A threshold of 0, vertex alpha, or a shape writing no depth keep what they had.
+    #[test]
+    fn blended_shapes_that_test_drop_what_the_test_drops() {
+        let weed = Props { alpha: Some((0x12ED, 50)), zbuffer_write: true, ..Default::default() };
+        assert_eq!(blended_test_cut(&weed), Some(50.5 / 255.0));
+        let (m, _) = shape_material_with(&weed, &mut triangle(), &mut NoTextures);
+        assert!(matches!(m.base.alpha_mode, AlphaMode::Blend));
+        assert!(m.extension.depth_write);
+        assert_eq!(m.extension.alpha_cut, 50.5 / 255.0);
+        assert!(crate::nif_material::see_through(&m), "casts no shadow, as before");
+        // The marquee glass: threshold 0, nothing to drop beyond the depth cut.
+        let (m, _) = shape_material_with(&Props { alpha: Some((0x12ED, 0)), ..weed.clone() }, &mut triangle(), &mut NoTextures);
+        assert_eq!(m.extension.alpha_cut, BLEND_DEPTH_CUT);
+        assert_eq!(blended_test_cut(&Props { vertex_alpha: true, ..weed.clone() }), None);
+        assert_eq!(blended_test_cut(&Props { alpha: Some((0x10ED, 50)), ..weed.clone() }), None, "no test");
+        assert_eq!(blended_test_cut(&Props { alpha: Some((0x12ED, 64)), ..weed.clone() }), None, "alpha-tested from 64");
+        let (m, _) = shape_material_with(&Props { zbuffer_write: false, ..weed.clone() }, &mut triangle(), &mut NoTextures);
+        assert_eq!(m.extension.alpha_cut, 0.0, "no depth written: as before");
+        // Its texture is a mask with opaque texels: a solid cut-out at the test threshold,
+        // casting a shadow, with nothing for FSR to switch.
+        let masked = Props { textures: vec![r"trees\leaves\tumbleweed_mask.dds".into()], ..weed.clone() };
+        let (m, _) = shape_material_with(&masked, &mut triangle(), &mut MaskTextures);
+        assert_eq!(m.base.alpha_mode, AlphaMode::Mask(50.5 / 255.0));
+        assert!(!m.extension.depth_write);
+        assert_eq!(m.extension.alpha_cut, 0.0);
+        assert_eq!(m.extension.blended_cutout, None);
+        assert!(!crate::nif_material::see_through(&m), "a cut-out casts a shadow");
+        // Glass shards (no opaque texel), soft alpha, no depth writes, or a threshold of 0
+        // (the corn): blended as before.
+        for (props, why) in [
+            (Props { textures: vec![r"clutter\glassshards.dds".into()], ..weed.clone() }, "glass"),
+            (Props { textures: vec![r"decals\grime.dds".into()], ..weed.clone() }, "soft alpha"),
+            (Props { zbuffer_write: false, ..masked.clone() }, "no depth written"),
+            (Props { alpha: Some((0x12ED, 0)), ..masked.clone() }, "threshold 0"),
+        ] {
+            let (m, _) = shape_material_with(&props, &mut triangle(), &mut MaskTextures);
+            assert_eq!(m.base.alpha_mode, AlphaMode::Blend, "{why}");
+        }
     }
 
     /// A hair model's blended shape becomes a solid cut-out (#1454); one that is already

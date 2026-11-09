@@ -1264,3 +1264,25 @@ The numbers above stay put so links to them hold; each item here gives its own p
     NVForever now lists every perk the player has that is not flagged hidden [hypothesis].
     Probe: hire Boone, open STATS > Perks, look for Spotting; then `player.addperk` a perk
     flagged hidden and look again.
+
+## Added 2026-11-09 (campfire light, tumbleweed alpha: queue items 103, 107)
+
+88. **How does the original draw the tumbleweed's twigs?** (P2; docs/spec-notes/nif.md §6
+    "Blended shapes that test".) `clutter\tumbleweednv.nif` blends and tests alpha
+    (0x12ED, GREATER 50) and writes depth [observed]. NVForever now draws it, and 37 other
+    lit shapes whose texture is a cut-out mask, as a solid cut-out at the threshold
+    [design]. Capture a TumbleweedNV (WastelandNV 0x00178A89, near -56442, -29649, 5676)
+    from 2 m, against the sky, at 8x MSAA with transparency multisampling on and off.
+    The checks:
+    - are the twigs solid, or can the sky be seen through them;
+    - do far twigs show through near ones;
+    - do the twigs thin out or disappear at 20 m?
+
+89. **Does a light a script places with `PlaceAtMe` light its surroundings?** (P2;
+    docs/spec-notes/world.md §8 "Lights a script creates".) Burning Campfire Redone's fires
+    each place `SAGCampFire420` (radius 420, Flicker) [observed]; NVForever now lights it
+    as a placed light [hypothesis]. Light a campfire with the mod at night (WastelandNV
+    0x000CDB59, near -61498, -17926, 6364) and capture it from 4 m and from 10 m. The
+    checks:
+    - is the ground lit warm around the fire;
+    - do the five stacked lights look brighter than one placed fire light (a fire barrel)?

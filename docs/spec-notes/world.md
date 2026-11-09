@@ -1470,6 +1470,19 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   the cell's own lights come up, so a distant lamp post (object LOD) is lit under its
   glow instead of standing unseen in the night ambient (owner's playtest 2026-11-06,
   overnight queue item 35). `--no-distant-lights` turns the glows and their light off.
+- **Lights a script creates** (2026-11-09, queue item 103). A `PlaceAtMe` of a LIGH makes
+  a created reference (FormID 0xFF…) like any other. Burning Campfire Redone's fires each
+  place one, `SAGCampFire420`: radius 420, colour 155, 78, 0, Flicker, fade 1.2, no model
+  [observed: the plugin's record], five per lit campfire. NVForever drew created
+  references only by their model, so these lit nothing and the owner's campfire stood in
+  the night ambient [observed: owner's log, 2026-11-08: `lit, 5 fires placed`, the five
+  lights `present: 0 render entities updated`]. Now a created light sheds the light a
+  placed reference of its base would (colour, brightness, radius, flicker, its model's
+  `AttachLight` node), at the created reference, moving with it and going when the script
+  deletes it [hypothesis: the game lights a created LIGH as a placed one]
+  (`nvf_play::dropped::DroppedLight`, `nvforever::lights::dropped_lights`; log
+  `lights: created light 0xFF… (base 0x…) lit`). The five stacked lights of one campfire
+  add up, as five placed ones would [hypothesis].
 
 ## 9. Open questions
 
