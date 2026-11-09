@@ -217,23 +217,25 @@ fn drive(
                     warn!("emotes: {} has no clip to play", e.key);
                     continue;
                 };
+                // Held where an emote under way had the player, else at the feet.
+                let mut frame = Frame { pos: player.feet, heading: player.heading };
                 if let Some(old) = st.run.take() {
                     // Another emote over one under way: the old one ends where it is (the
                     // view stays third person for the new one).
                     info!("emotes: end {} (another emote) after {:.2}s; the view stays for the next", CATALOG[old.emote].key, old.age);
+                    frame = old.frame;
                 }
                 if control.pov == Pov::First && st.restore.is_none() {
                     st.restore = Some(Pov::First);
                     control.pov = Pov::Third;
                 }
                 control.weapon_out = false;
-                // Held where an emote under way had the player, else at the feet.
-                let frame = st.run.as_ref().map_or(Frame { pos: player.feet, heading: player.heading }, |r| r.frame);
                 let stand = ctx.clip(STAND);
                 st.serial += 1;
                 st.started += 1;
                 cancel = None;
-                info!("emotes: start {} (id {}, {}, variant {variant}): {path} ({:.2}s){}", e.key, nvf_play::emotes::Emote::id(emote), phase_name(ph), clip.length(), if st.restore.is_some() { "; the view goes to third person" } else { "" });
+                let [x, y, z] = frame.pos;
+                info!("emotes: start {} (id {}, {}, variant {variant}): {path} ({:.2}s) at ({x:.0}, {y:.0}, {z:.0}){}", e.key, nvf_play::emotes::Emote::id(emote), phase_name(ph), clip.length(), if st.restore.is_some() { "; the view goes to third person" } else { "" });
                 st.run = Some(Run { emote, variant, phase: ph, step: 0, t: 0.0, clip, path, frame, stand, age: 0.0, cancel_at: cancel_after });
             }
         }
@@ -313,7 +315,8 @@ fn drive(
         if let Some(p) = st.restore.take() {
             control.pov = p;
         }
-        info!("emotes: end {key} ({why}) after {:.2}s{}", r.age, if control.pov == Pov::First { "; first person again" } else { "" });
+        let [x, y, z] = r.frame.pos;
+        info!("emotes: end {key} ({why}) after {:.2}s at ({x:.0}, {y:.0}, {z:.0}){}", r.age, if control.pov == Pov::First { "; first person again" } else { "" });
         *local = LocalEmote::default();
         return;
     }
